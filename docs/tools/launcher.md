@@ -129,41 +129,23 @@ for the key, including the `runtime=1` flag the shared engine bundle needs to
 read the project's live authoring data. The game still has to be published to
 that path to actually load.
 
-### Admin → Projects → Migrate Book-of projects to Lines
+### Admin → Projects → Book-of census
 
-A one-time tool at the bottom of the **Projects** tab. It turns every project of the retired
-**Book of** kind into a **Lines** project whose Game Config carries the Book-of feature (the
-expanding symbol), so the Invisible Test Server keeps dealing it the same game.
+A read-only check at the bottom of the **Projects** tab. The **Book of** game type is gone: every
+Book-of game is now a **Lines** game with the expanding symbol in its Game Config, dealt by the
+same mock as any other lines game. **Run the census** lists anything still stored under the old
+type — a project row still recorded as `bookOf`, a test-server entry still on the `book` mock (no
+longer served, so that game would not play), the old Book-of editor template, and any republish
+the one-time migration left unfinished — and shows **clear** when there is none. It writes
+nothing. For a project it lists, set its kind to **Lines** in the Projects table and turn on the
+expanding symbol in its Game Config (or Reset to the Book of Thermopylae preset); a test-server
+entry is fixed by publishing that game again.
 
-- **Census and dry run** lists every Book-of project with what the migration reads (its kind,
-  whether its config is authored, the book symbol and its properties, bet modes, free spins, a pots
-  overlay, the layout's kind, its test-server entries and game cards), then what it would change,
-  what it would republish or skip, and anything that **blocks** it. It writes nothing. The top line
-  also counts the games still dealt by the book mock and says whether the Book-of editor template
-  exists.
-- **Apply to N projects** appears under a dry run, behind the *I read this dry run* box. It
-  migrates one project at a time and shows each result as it lands: it works out that project's
-  plan again on the server, saves its config and its layout (each with a History backup), switches
-  its kind to Lines, and republishes its online game. Results: **migrated**, **blocked** (with
-  why), **republish-pending** (the kind moved but the republish did not land — run it again), or
-  **error** (its message says whether running it again picks the project up).
-
-What blocks a project, before anything is written: someone else has its `/config` or `/editor`
-open; its config or layout does not read; its board is not 5×3; it has no scatter; its free spins
-are switched off (turn them on in `/config`); one of its desktop builds is not stamped
-table-capable (rebuild it, then stamp it — see below); or its republish would be refused
-by a publish check (a draft sound, an invalid flow, a paytable that differs from the partner's) —
-fix what it names and run the dry run again. A desktop build and a partner game's card are never
-republished. A project whose republish is pending stays on the list until it lands. Running it
-again after everything is done changes nothing. The owner's step-by-step runbook is in
-[status/game-config](../status/game-config.md) ("Book-of migration").
-
-**Desktop builds: table-capable stamp** (under the migration) lists every game the Invisible Test
-Server serves from its own bundle (a desktop build), the ones of a Book-of project first, with its
-project, when it was last published and its stamp: **table-capable** or **not stamped**. The test
-server sells a desktop build its bet table (its buy) only when it is stamped, and the migration
-blocks a project whose desktop build is not. **Stamp table-capable** / **Clear stamp** sets or
-clears it, then asks the test server to re-read its list.
+**Desktop builds: table-capable stamp** (under the census) lists every game the Invisible Test
+Server serves from its own bundle (a desktop build), with its project, when it was last published
+and its stamp: **table-capable** or **not stamped**. The test server sells a desktop build its bet
+table (its buy) only when it is stamped. **Stamp table-capable** / **Clear stamp** sets or clears
+it, then asks the test server to re-read its list.
 
 - Only stamp a build rebuilt on an engine from 2026-10-08 (commit `f0cba612`, #1120) or later, or
   its buy will fail. The page says so above the list.
@@ -171,7 +153,6 @@ clears it, then asks the test server to re-read its list.
   rebuild first, then stamp, and stamp again after every later desktop publish.
 - If the build was published again after the page loaded, the button refuses ("republished since
   this page loaded"): reload, check it, and stamp again.
-- Run **Census and dry run** again afterwards: the project is no longer blocked by that build.
 - A game served from the shared runtime is not listed; it is sold its table anyway.
 
 ### Admin → Settings → Invisible Director

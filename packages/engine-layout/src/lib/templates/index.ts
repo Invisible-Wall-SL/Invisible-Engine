@@ -1,6 +1,5 @@
 import type { GameTemplate } from '../types';
 
-import { bookofTemplate } from './bookof';
 import { holdAndWinTemplate } from './holdAndWin';
 import { linesTemplate } from './lines';
 import { waysTemplate } from './ways';
@@ -13,7 +12,6 @@ import { waysTemplate } from './ways';
  */
 const TEMPLATES: Record<string, GameTemplate> = {
 	lines: linesTemplate,
-	bookOf: bookofTemplate,
 	ways: waysTemplate,
 	holdAndWin: holdAndWinTemplate,
 };
@@ -28,5 +26,5 @@ export function listTemplateGameTypes(): string[] {
 	return Object.keys(TEMPLATES);
 }
 
-export { linesTemplate, bookofTemplate, waysTemplate, holdAndWinTemplate };
+export { linesTemplate, waysTemplate, holdAndWinTemplate };
 export { standardTemplate } from './standard';

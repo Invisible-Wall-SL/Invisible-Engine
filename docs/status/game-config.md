@@ -659,68 +659,25 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
 - **Not in this phase:** nothing reads the block at runtime yet (Phase 4), the mock doesn't generate
   from it (Phase 3), and the symbol roles aren't offered in `/symbols` (Phase 7).
 
-## Book-of migration (book-feature Phase 6) — tooling built, not yet run
+## The Book-of kind is removed (book-feature Phase 7) — DRAFT, merges only on a clear census
 
-`/admin` → **Projects** → **Migrate Book-of projects to Lines** (`$lib/server/bookOfMigration.ts`)
-moves every project of the retired `bookOf` kind to `lines` with the Book-of mechanic in its config
-([book-feature.md](../design/book-feature.md) §6 steps 1–4).
+A Book-of game is a **lines** game with `freeSpins.expandingSymbol`; there is no `bookOf` kind, no
+`book` mock protocol and no kind half in `bookReveal` ([book-feature.md](../design/book-feature.md)
+§5, §7 Phase 7). The Phase 6 migration (`/admin` dry run and apply, PR #1132) moved every project;
+Phase 7 removes it with the kind and keeps only its census:
 
-- **Census and dry run** writes nothing. Per project: the facts, every change, what would be
-  republished or skipped, and the blockers. The plan runs the **publish gates** of each republish
-  (own bundle, sounds, stored flow, paytable drift — `publishGateRefusal` in `publishGame.ts`)
-  against the config it would save, so a refusal blocks the project before anything is written.
-- **Apply** runs ONE project per request (the page loops over the dry run's projects and shows each
-  result as it lands), re-deriving that project's plan server-side: config (expanding symbol with
-  the captured weights and `H1` from 2 reels, `'wild'` on the book, the ten paylines, +10
-  retrigger, base plus the one 100× buy under the buy's existing name, the scatter row
-  `3:2 4:20 5:200` paid; the Thermopylae preset when un-authored; an authored expanding block or
-  retrigger table kept) and layout `gameType`, each under its ETag with a History backup; then the
-  kind, only from `bookOf` (`switchProjectGameType`, a compare-and-swap on the row); then a
-  republish of the project's own test-server card when it has a published snapshot.
-- **Blocked** (nothing written): an unreadable doc, a board that is not 5×3, no scatter on the
-  strips, free spins switched off (the buy is never deleted), a kind that is neither `bookOf` nor
-  `lines`, another session's lease on `/config` or `/editor`, a desktop build not stamped
-  table-capable, or a refusing publish gate.
-- **Never republished:** a desktop build (its manifest entry has no shared runtime, or its own
-  bundle is uploaded — `bookofborut` under its own project key included) and a card that is not a
-  test-server card (the partner game).
-- **Republish pending:** a pending marker (`_shared/migrations/book-of/<project>.json`) is written
-  before the kind moves and deleted once every republish has landed. A republish that fails or is
-  refused after the kind moved leaves it, the result is `republish-pending`, and the census keeps
-  listing the project (now Lines) until a run republishes it. Meanwhile its players are on the lines
-  mock with the old snapshot.
-- **Errors** are per project and never stop the others; one says "run again" only when a re-run
-  would list the project. A migrated project is no longer listed, so a re-run is a no-op.
-
-Gate: `pnpm --filter launcher-api check:book-of-migration` (in `check:all`; CI's `Checks /
-check-all` shard 3 runs it), over the real `publishGame`.
-
-**Owner runbook.**
-
-1. **Rebuild and stamp the desktop builds** (`bookofborut`, `bookofborutremakebuild`). ☁ Publish
-   each from the desktop launcher (it advances the engine first; only a build on an engine from
-   2026-10-08, commit `f0cba612` / #1120, or later can be stamped, or its buy fails). The desktop
-   launcher does not send the table-capable claim yet (Blocked, below), so AFTER the rebuild stamp
-   each build in `/admin` → Projects → **Desktop builds: table-capable stamp** → **Stamp
-   table-capable** (the CLI equivalent is `node apps/launcher-api/scripts/publish-game-via-portal.mjs
-   <gameKey> <buildDir> --project <projectKey> --register-only --table-capable`). Every later desktop
-   ☁ Publish clears the stamp again until the launcher sends it, so stamp after the last rebuild.
-   Until a build is stamped, the dry run blocks its project with "not stamped table-capable —
-   rebuild it …, then stamp it under /admin → …".
-2. **Dry run.** `/admin` → Projects → **Census and dry run**. Check each project's facts, its
-   changes, its blockers (a gate refusal names what to fix: approve the sound, fix the flow, settle
-   the paytable) and what is republished or skipped. Close any open `/config` or `/editor` tab on
-   those projects.
-3. **Apply.** Tick *I read this dry run*, press **Apply to N projects**. Read each result as it
-   lands: `migrated` with its steps, `blocked` with why, `republish-pending` (the kind moved, the
-   republish did not land: run the dry run and Apply again), `error` (its message says whether a
-   re-run picks it up).
-4. **Check.** Run the dry run again: only blocked projects should be left, and no republish
-   pending. The census's book manifest entries (a game still dealt by the book mock) and the `bookOf`
-   editor template are what Phase 7 needs at zero. Then the §7 Phase 6 proof: a `current-games` run
-   on `main` (free spins with the reveal and expansion, pots included), `loaded`/`idle` unchanged,
-   `scripts/playtest/determinism-proof.mjs` on the lines mock with the preset, and the
-   `game-playtester` agent on `docs/playtest/borut-remake.md`.
+- `/admin` → Projects → **Book-of census** (`$lib/server/bookOfCensus.ts`, read-only): `bookOf`
+  project rows, manifest entries on `protocol: 'book'`, `_shared/editor-templates/bookOf.json`, and
+  republishes the migration left pending (`_shared/migrations/book-of/`). **Clear** is the merge
+  condition for Phase 7. Gate: `check:book-of-census`.
+- `/config` no longer special-cases a Book-of kind (fixed book trigger, +10 retrigger default): a
+  migrated project states its +10 retrigger in its config, and the expanding symbol panel is offered
+  on every lines win model. `freeSpinsDefaultsFor` / `BOOK_FREE_SPINS_DEFAULTS` are gone.
+- The mock contract has no `book` branch; the test server no longer mounts the book mock. The book
+  mock (`scripts/mock-rgs-server-book.mjs`) stays the partner-dialect fixture, its Phase 1 free-spin
+  options kept because `check:freespins` (`check-book-freespin-protocol.mjs`) exercises them.
+- A stray `bookOf` row reads as a custom kind: lines everywhere, the lines mock, no book reveal
+  unless its config has the block.
 
 ## Open items / next
 
@@ -774,10 +731,9 @@ check-all` shard 3 runs it), over the real `publishGame`.
    config's `max_win` (the book mock only declares `maxWinMp`; the lines mock sends `maxWinCap: 0`),
    so an Invisible Test Server round total — a long Book-of feature especially — is uncapped and
    must not be read as what a capped real server would pay.
-12. **`POST /api/launcher/projects` still accepts the retired `bookOf` kind, on purpose.** The
-   desktop launcher's ⬆ Setup registers existing desktop Book-of games under their own kind, and the
-   Phase 6 migration of [book-feature.md](../design/book-feature.md) is re-runnable for such a row.
-   Only the pickers stop offering it (Phase 5c). It goes with the kind in Phase 7.
+12. _Closed by Phase 7:_ `POST /api/launcher/projects` refuses `bookOf` like every unknown kind. A
+   desktop launcher whose ⬆ Setup still sends `bookOf` for a desktop Book-of game gets a 400; it must
+   send `lines` (Blocked, below).
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -786,6 +742,8 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Blocked (owner / external)
 
+- **The desktop launcher's ⬆ Setup must register a Book-of game as `lines`** (`Invisible_Launcher.py`,
+  a separate app). After Phase 7 the portal refuses `bookOf` as an unknown kind.
 - **The desktop launcher does not claim table-capable** (`Invisible_Launcher.py`, a separate app).
   `register-game` stamps a build only when its body carries `tableCapable: true`, and clears the
   stamp otherwise. Until the launcher sends it for builds on an engine from book-feature Phase 3 on,
@@ -793,6 +751,17 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-08 — **Phase 7 (DRAFT): the Book-of kind is removed** (the section above). `GAME_KINDS`,
+  `kindStorage`'s built-ins, `RETIRED_GAME_KINDS`, `protocolFor`'s `bookOf → book`, the mock
+  contract's `book` branch, `book` in both `MOCK_PROTOCOLS`, the test server's `makeBookMock` and
+  its Dockerfile `COPY`, `bookReveal`'s kind half, the `bookOf` slot template, the generated `/flow`
+  v1 `bookOf` vocabulary entry and the `/config` kind shims all go. The Book-of scene set is the
+  named reference set `bookOfBorut` (`gameType: 'lines'`, `BOOK_OF_REFERENCE_SET`), imported in the
+  editor and scaffolded by the Book of Thermopylae preset. The migration's apply path goes with it
+  (§7 Phase 7 names "the admin action"); its census stays, read-only. game-spec's `type` loses
+  `bookOf` and gains an optional `expandingSymbol`; the publish scripts and the profile seeder
+  default to `lines`. The current-games harness folds `bookOf` into `lines` (script, gates, the
+  `pots` scenario, `cg-book` / `cg-book-pots`). Must not merge before the census is clear.
 - 2026-10-08 — **The table-capable stamp is a `/admin` control** (Phase 6, §6 step 5): runbook step
   1 needs no command line. Detail in [launcher.md](launcher.md); the dry run's blocker now points
   at it.

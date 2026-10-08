@@ -73,7 +73,12 @@ import {
 	type TemplateVocabulary,
 	type TypeRef,
 } from 'engine-flow-v2';
-import { engineOwnedOnly, getFullSceneSet, kindCapabilities } from 'engine-layout';
+import {
+	BOOK_OF_REFERENCE_SET,
+	engineOwnedOnly,
+	getFullSceneSet,
+	kindCapabilities,
+} from 'engine-layout';
 import {
 	flowAddOnsOf,
 	holdAndWinBonus,
@@ -161,7 +166,6 @@ const RESOLVES_TO: Record<string, [string, string]> = {
 	ways: ['ways', 'ways'],
 	cluster: ['cluster', 'cluster'],
 	scatter: ['scatter', 'scatter'],
-	bookOf: ['bookOf', 'bookOf'],
 	holdAndWin: ['holdAndWin', 'holdAndWin'],
 	'my-custom-kind': ['bookOf', 'bookOf'],
 };
@@ -316,8 +320,8 @@ for (const [capability, names] of Object.entries(matched)) {
 
 /** The Book-of default config with a pots overlay preset merged in (and its Hold and Win bonus). */
 const bookOfWith = (preset: PotsOverlayPresetId): GameConfigDoc => {
-	const host = gameConfigDefaultFor('bookOf');
-	if (!host) throw new Error('no bookOf default config');
+	const host = gameConfigDefaultFor('lines');
+	if (!host) throw new Error('no lines default config');
 	const { potsOverlay, tokens, holdAndWin } = potsOverlayPreset(preset);
 	const bonus = holdAndWin ? holdAndWinBonus(holdAndWin, host) : undefined;
 	const doc = normalizeGameConfigDoc({
@@ -330,7 +334,7 @@ const bookOfWith = (preset: PotsOverlayPresetId): GameConfigDoc => {
 	if (!doc) throw new Error(`bookOf + ${preset} does not normalize`);
 	return doc;
 };
-const bookOfScenes = engineOwnedOnly(getFullSceneSet('bookOf')!).scenes;
+const bookOfScenes = engineOwnedOnly(getFullSceneSet(BOOK_OF_REFERENCE_SET)!).scenes;
 const at0 = { x: 0, y: 0 };
 const int = (value: number) => ({ kind: 'literal' as const, type: { t: 'int' as const }, value });
 const text = (value: string) => ({

@@ -60,7 +60,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). A game with the **expanding
-   symbol** (`/config` → Free spins → Expanding symbol; a Book-of kind always) adds two more
+   symbol** (`/config` → Free spins → Expanding symbol) adds two more
    (`Book reveal`, `Book idle`); a game that **cascades or clears its board** adds
    `Clear reel` (see [Two explosions](#two-explosions) below); a game whose
    `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see

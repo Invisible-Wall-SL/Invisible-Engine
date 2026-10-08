@@ -158,7 +158,7 @@ export const POTS_TOKEN_STATE_HINTS: Partial<Record<SymbolState, string>> = {
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
  *  ONLY for a project with the book reveal (`kindCapabilities().bookReveal` — the config's expanding
- *  symbol, or the `bookOf` kind), the Hold and Win
+ *  symbol), the Hold and Win
  *  states ONLY for a project with the respin feature (`kindCapabilities().holdAndWin` — the kind or a
  *  `holdAndWin` block), just the token's land / idle / fly states for a pots overlay host without it
  *  (`pots` alone), the cascade

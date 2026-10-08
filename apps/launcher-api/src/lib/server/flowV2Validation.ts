@@ -73,19 +73,18 @@ export function validateFlowV2Against(
 }
 
 /** {@link validateFlowV2Against} with the project's stored scenes, sounds, Game Config add-ons and
- *  the shipped library. `config` stands in for the stored Game Config when given. */
+ *  the shipped library. */
 export async function validateFlowV2ForProject(
 	clientKey: string,
 	projectKey: string,
 	doc: FlowDoc,
-	config?: GameConfigDoc | null,
 ): Promise<FlowIssue[]> {
-	const [layout, sounds, library, components, stored] = await Promise.all([
+	const [layout, sounds, library, components, config] = await Promise.all([
 		loadDoc(clientKey, projectKey),
 		loadSoundsDoc(clientKey, projectKey),
 		loadFlowV2Library(),
 		listComponents({ projectKey }),
-		config === undefined ? loadGameConfigDoc(clientKey, projectKey) : config,
+		loadGameConfigDoc(clientKey, projectKey),
 	]);
 	return validateFlowV2Against(
 		doc,
@@ -93,20 +92,18 @@ export async function validateFlowV2ForProject(
 		sounds,
 		library ?? { version: 2, functions: [] },
 		components,
-		flowAddOnsOf(stored),
+		flowAddOnsOf(config),
 	);
 }
 
-/** The publish-time verdict on a project's stored v2 flow; `config` as in
- *  {@link validateFlowV2ForProject}. */
+/** The publish-time verdict on a project's stored v2 flow. */
 export async function checkFlowV2ForPublish(
 	clientKey: string,
 	projectKey: string,
-	config?: GameConfigDoc | null,
 ): Promise<FlowPublishCheck> {
 	const doc = await loadFlowV2Doc(clientKey, projectKey);
 	if (!doc || !isAuthoredFlowV2(doc)) return { status: 'absent' };
-	const errors = (await validateFlowV2ForProject(clientKey, projectKey, doc, config)).filter(
+	const errors = (await validateFlowV2ForProject(clientKey, projectKey, doc)).filter(
 		(i) => i.severity === 'error',
 	);
 	return errors.length ? { status: 'invalid', errors } : { status: 'valid' };

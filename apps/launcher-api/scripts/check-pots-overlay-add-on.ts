@@ -20,7 +20,7 @@
  */
 import { mock } from 'node:test';
 import type { LiveLease } from '../src/lib/server/lease.ts';
-import { getFullSceneSet, type LayoutDoc, type Scene } from 'engine-layout';
+import { BOOK_OF_REFERENCE_SET, getFullSceneSet, type LayoutDoc, type Scene } from 'engine-layout';
 import {
 	HOLD_AND_WIN_PRESETS,
 	addPotsOverlay,
@@ -103,7 +103,7 @@ const GAME_TYPES: Record<string, string> = {
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
-		projectGameType: async (p: string) => GAME_TYPES[p] ?? 'bookOf',
+		projectGameType: async (p: string) => GAME_TYPES[p] ?? 'lines',
 	},
 });
 
@@ -267,7 +267,7 @@ await check('an authored binding is never touched, and a re-run adds nothing', (
 console.log('\n2. layout merge');
 
 const bookLayout = (): LayoutDoc => ({
-	...(getFullSceneSet('bookOf') as LayoutDoc),
+	...(getFullSceneSet(BOOK_OF_REFERENCE_SET) as LayoutDoc),
 	projectKey: 'book',
 });
 const sceneIds = (scenes: readonly Scene[]) => scenes.map((s) => s.id);
@@ -279,7 +279,7 @@ await check(
 	() => {
 		const { doc: config } = withOverlay(lines, 'threePots');
 		const before = bookLayout();
-		const merged = mergeAddOnScreens(before, 'bookOf', config, FIRST_RUN);
+		const merged = mergeAddOnScreens(before, 'lines', config, FIRST_RUN);
 		same(
 			merged.added,
 			[
@@ -311,7 +311,7 @@ await check(
 			'the authored order',
 		);
 		same(before, bookLayout(), 'the input was mutated');
-		const again = mergeAddOnScreens(merged.doc, 'bookOf', config, FIRST_RUN);
+		const again = mergeAddOnScreens(merged.doc, 'lines', config, FIRST_RUN);
 		same(again.added, [], 'a second merge');
 		assert(again.doc === merged.doc, 'a no-op merge returned a new doc');
 	},
@@ -319,7 +319,7 @@ await check(
 
 await check('pots to free spins: the Pots screen alone, with its gold pot', () => {
 	const { doc: config } = withOverlay(lines, 'potsToFreeSpins');
-	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN);
+	const merged = mergeAddOnScreens(bookLayout(), 'lines', config, FIRST_RUN);
 	same(merged.added, ['pots'], 'added screens');
 	same(potsOf(merged.doc), ['pot-gold'], 'the gold pot');
 });
@@ -333,7 +333,7 @@ await check('a hand-authored layout keeps every screen; only the add-on screens 
 			{ id: 'pots', name: 'My pots', nodes: [] },
 		],
 	};
-	const merged = mergeAddOnScreens(authored, 'bookOf', config, FIRST_RUN);
+	const merged = mergeAddOnScreens(authored, 'lines', config, FIRST_RUN);
 	same(merged.added, ['pot-gold'], 'only a meter for the pot that has none');
 	same(merged.doc.scenes[0], authored.scenes[0], 'the other screen');
 	same(merged.doc.scenes[1].name, 'My pots', 'the existing Pots screen is kept');
@@ -342,7 +342,7 @@ await check('a hand-authored layout keeps every screen; only the add-on screens 
 
 await check('every pot metered on another screen: no Pots screen, no second meter', () => {
 	const { doc: config } = withOverlay(lines, 'threePots');
-	const first = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN).doc;
+	const first = mergeAddOnScreens(bookLayout(), 'lines', config, FIRST_RUN).doc;
 	const meters = first.scenes.find((s) => s.id === 'pots')?.nodes ?? [];
 	const moved: LayoutDoc = {
 		...first,
@@ -358,19 +358,19 @@ await check('every pot metered on another screen: no Pots screen, no second mete
 			) as LayoutDoc['scenes'],
 	};
 	for (const run of [FIRST_RUN, RE_RUN]) {
-		const again = mergeAddOnScreens(moved, 'bookOf', config, run);
+		const again = mergeAddOnScreens(moved, 'lines', config, run);
 		same(again.added, [], `screens: ${run.screens}`);
 	}
 });
 
 await check('a re-run revives no deleted screen; a pot with no meter anywhere is reported', () => {
 	const { doc: config } = withOverlay(lines, 'threePots');
-	const first = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN).doc;
+	const first = mergeAddOnScreens(bookLayout(), 'lines', config, FIRST_RUN).doc;
 	const trimmed: LayoutDoc = {
 		...first,
 		scenes: first.scenes.filter((s) => !['pots', 'wheel', 'letters'].includes(s.id)),
 	};
-	const again = mergeAddOnScreens(trimmed, 'bookOf', config, RE_RUN);
+	const again = mergeAddOnScreens(trimmed, 'lines', config, RE_RUN);
 	same(again.added, [], 'nothing re-added');
 	assert(again.doc === trimmed, 'the layout changed');
 	assert(again.note?.includes('red, blue, green'), `no note naming the pots: ${again.note}`);
@@ -399,7 +399,7 @@ await check('no tokens bound, the Hold and Win bonus symbols still are', () => {
 });
 
 await check('no Pots screen; the jackpot bar and Hold and Win mode screens join', () => {
-	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', coinsOnly(), FIRST_RUN);
+	const merged = mergeAddOnScreens(bookLayout(), 'lines', coinsOnly(), FIRST_RUN);
 	assert(!merged.added.includes('pots'), 'a Pots screen was merged');
 	same(
 		merged.added,
@@ -421,7 +421,8 @@ await check('no Pots screen; the jackpot bar and Hold and Win mode screens join'
 
 console.log('\n3. scaffold scene set');
 
-const KINDS = ['lines', 'bookOf', 'ways', 'cluster', 'scatter', 'holdAndWin'];
+// The Book-of reference set rides with the kinds: it is a lines layout, scaffolded like one.
+const KINDS = ['lines', BOOK_OF_REFERENCE_SET, 'ways', 'cluster', 'scatter', 'holdAndWin'];
 /** What the scaffold passed before the add-ons: a Hold and Win kind's `maxRows`, nothing else. */
 const legacyOptions = (kind: string, doc: GameConfigDoc | null) => {
 	const maxRows = kind === 'holdAndWin' ? doc?.holdAndWin?.expansion?.maxRows : undefined;
@@ -455,10 +456,10 @@ await check('every project without an add-on: byte-identical to before', () => {
 
 await check('with an add-on: the overlay screens, the config pots', () => {
 	const { doc } = withOverlay(lines, 'threePots');
-	const book = getFullSceneSet('bookOf', sceneSetOptionsFor('bookOf', doc));
+	const book = getFullSceneSet(BOOK_OF_REFERENCE_SET, sceneSetOptionsFor('lines', doc));
 	assert(
 		book?.scenes.some((s) => s.id === 'pots'),
-		'bookOf has no Pots screen',
+		'the Book-of set has no Pots screen',
 	);
 	const hw = withOverlay(hwPots, 'threePots').doc;
 	const set = getFullSceneSet('holdAndWin', sceneSetOptionsFor('holdAndWin', hw));
@@ -475,15 +476,15 @@ const stored = (key: string) => R2.get(key)?.body;
 const storedJson = <T>(key: string): T => JSON.parse(stored(key) ?? 'null') as T;
 
 await check(
-	'a Book-of project: config, symbols and screens added; Flow and Win Text untouched',
+	'a lines project: config, symbols and screens added; Flow and Win Text untouched',
 	async () => {
 		await scaffoldProject(CLIENT, 'book');
 		const flowBefore = stored(flowV2DocKey(CLIENT, 'book'));
 		const layoutBefore = storedJson<LayoutDoc>(editorDocKey(CLIENT, 'book'));
-		assert(!R2.has(gameConfigDocKey(CLIENT, 'book')), 'the scaffold authored a bookOf config');
+		assert(!R2.has(gameConfigDocKey(CLIENT, 'book')), 'the scaffold authored a lines config');
 		same(
 			layoutBefore.scenes,
-			scaffoldLayoutDoc('book', 'bookOf', getFullSceneSet('bookOf')).scenes,
+			scaffoldLayoutDoc('book', 'lines', getFullSceneSet('lines')).scenes,
 			'the scaffold layout without an add-on',
 		);
 

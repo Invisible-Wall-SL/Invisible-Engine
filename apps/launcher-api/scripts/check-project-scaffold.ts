@@ -98,7 +98,6 @@ const GAME_TYPES: Record<string, string> = {
 	ways: 'ways',
 	scatter: 'scatter',
 	cluster: 'cluster',
-	book: 'bookOf',
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -112,7 +111,14 @@ const { symbolDefaultsFor } = await import('../src/lib/server/symbolDefaults.ts'
 const { gameConfigDefaultFor, gameConfigSeedFor } =
 	await import('../src/lib/server/gameConfigDefaults.ts');
 const { editorDocKey } = await import('../src/lib/server/projectPaths.ts');
-const { engineOwnedOnly, getFullSceneSet, referenceLoadsAs } = await import('engine-layout');
+const {
+	BOOK_OF_REFERENCE_SET,
+	engineOwnedOnly,
+	getFullSceneSet,
+	listFullSceneSets,
+	listImportableKinds,
+	referenceLoadsAs,
+} = await import('engine-layout');
 
 const CLIENT = 'invisible_wall';
 let failures = 0;
@@ -160,7 +166,7 @@ await check('the preset picked at Create is the one seeded', async () => {
 });
 
 await check('every other kind stays un-authored', async () => {
-	for (const project of ['lines', 'ways', 'scatter', 'cluster', 'book']) {
+	for (const project of ['lines', 'ways', 'scatter', 'cluster']) {
 		await scaffoldProject(CLIENT, project);
 		assert(!R2.has(gameConfigDocKey(CLIENT, project)), `${project} was seeded a config`);
 	}
@@ -229,15 +235,7 @@ await check('every other kind gets no symbols doc', async () => {
 	const pots = JSON.stringify(normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots));
 	R2.set(gameConfigDocKey(CLIENT, 'linesWithCoins'), { body: pots, etag: '"copied"' });
 	await scaffoldProject(CLIENT, 'linesWithCoins');
-	for (const project of [
-		'linesWithCoins',
-		'lines',
-		'linesPreset',
-		'ways',
-		'scatter',
-		'cluster',
-		'book',
-	]) {
+	for (const project of ['linesWithCoins', 'lines', 'linesPreset', 'ways', 'scatter', 'cluster']) {
 		assert(!R2.has(symbolsDocKey(CLIENT, project)), `${project} was seeded a symbols doc`);
 	}
 });
@@ -271,7 +269,7 @@ await check(
 		const { updatedAt: _none, ...preset } = gameConfigSeedFor('lines', 'bookOfThermopylae') ?? {};
 		assert(JSON.stringify(doc) === JSON.stringify(preset), 'the seeded config is not the preset');
 		const layout = JSON.parse(R2.get(editorDocKey(CLIENT, 'linesBook'))?.body ?? '{}');
-		const book = engineOwnedOnly(getFullSceneSet('bookOf')!);
+		const book = engineOwnedOnly(getFullSceneSet(BOOK_OF_REFERENCE_SET)!);
 		assert(layout.gameType === 'lines', `the layout is a ${layout.gameType} layout`);
 		assert(
 			JSON.stringify(layout.scenes) === JSON.stringify(book.scenes),
@@ -289,11 +287,17 @@ await check(
 );
 
 await check('the editor loads the Book-of reference into a lines project as lines', async () => {
-	assert(referenceLoadsAs('bookOf', 'lines') === 'lines', 'Book-of into lines');
-	assert(referenceLoadsAs('bookOf', 'bookOf') === 'bookOf', 'Book-of into a Book-of project');
-	assert(referenceLoadsAs('lines', 'bookOf') === 'lines', 'lines into a Book-of stays cross-type');
-	assert(referenceLoadsAs('bookOf', 'ways') === 'bookOf', 'Book-of into ways stays cross-type');
-	assert(referenceLoadsAs('bookOf', '') === 'bookOf', 'no project kind: the set’s own');
+	assert(referenceLoadsAs(BOOK_OF_REFERENCE_SET) === 'lines', 'the Book-of set loads as lines');
+	assert(referenceLoadsAs('lines') === 'lines', 'a kind loads as itself');
+	assert(referenceLoadsAs('ways') === 'ways', 'so the Book-of set into ways is cross-type');
+	assert(
+		!listFullSceneSets().some((s) => s.gameType === BOOK_OF_REFERENCE_SET),
+		'the Book-of set is not offered as a kind',
+	);
+	assert(
+		listImportableKinds().some((s) => s.id === BOOK_OF_REFERENCE_SET),
+		'the Book-of set is offered for import',
+	);
 });
 
 if (failures) {

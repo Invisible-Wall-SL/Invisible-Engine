@@ -12,13 +12,12 @@
 import type { MockProtocol } from './testServerManifest';
 
 /**
- * Book-of games use the `book` mock (buy-feature + free spins); `ways` uses the lines
- * mock with its ways win evaluator (Phase D of `docs/design/game-type-templates.md`);
- * everything else — including any author-created custom kind (§21.6), which has no mock
- * of its own — uses the plain `lines` mock.
+ * `ways` uses the lines mock with its ways win evaluator (Phase D of
+ * `docs/design/game-type-templates.md`); everything else — a Book-of game (lines plus the expanding
+ * symbol, `docs/design/book-feature.md`) and any author-created custom kind (§21.6), which has no
+ * mock of its own — uses the plain `lines` mock.
  */
 export function protocolFor(gameType: string): MockProtocol {
-	if (gameType === 'bookOf') return 'book';
 	if (gameType === 'ways') return 'ways';
 	// `cluster` reuses the lines mock too, swapping only how wins are DECIDED (a flood fill instead of
 	// a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline run lengths,

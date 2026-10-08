@@ -36,6 +36,7 @@ import {
 import {
 	addPotsOverlay,
 	betModeCardIds,
+	bookOfThermopylaePreset,
 	HOLD_AND_WIN_PRESETS,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
@@ -82,31 +83,10 @@ const linesGrid = (doc) => {
 	};
 };
 
-const pays = (three, four, five) => ({ paytable: [{ 3: three }, { 4: four }, { 5: five }] });
-const BOOK_STRIP = ['PIC1', 'ACE', 'SCAT', 'KING', 'PIC2', 'TEN'].map((name) => ({ name }));
-/** A Book-of host for the pots overlay, the shape `check-pots-overlay-protocol.mjs` uses. */
-const BOOK_HOST = normalizeGameConfigDoc({
-	providerName: 'invisible_wall',
-	gameName: 'cg_book_pots',
-	gameID: 'cg_book_pots',
-	rtp: 0.96,
-	numReels: 5,
-	numRows: [3, 3, 3, 3, 3],
-	betModes: { base: { cost: 1, feature: true, buyBonus: false, rtp: 0.96, max_win: 5000 } },
-	paylines: { 1: [1, 1, 1, 1, 1], 2: [0, 0, 0, 0, 0], 3: [2, 2, 2, 2, 2] },
-	symbols: {
-		PIC1: pays(100, 1000, 5000),
-		PIC2: pays(30, 400, 2000),
-		ACE: pays(5, 50, 150),
-		KING: pays(5, 50, 150),
-		TEN: pays(5, 20, 100),
-		SCAT: { special_properties: ['scatter'] },
-	},
-	paddingReels: {
-		basegame: Array.from({ length: 5 }, () => BOOK_STRIP),
-		freegame: Array.from({ length: 5 }, () => BOOK_STRIP),
-	},
-});
+/** The contract the launcher derives from the Book of Thermopylae preset (`check:mock-contract`). */
+const BOOK_GRID = JSON.parse(
+	readFileSync(join(ROOT, 'scripts/lib/book-of-thermopylae-lines-grid.json'), 'utf8'),
+);
 
 const holdAndWinGame = (preset) => {
 	const config = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS[preset]);
@@ -121,17 +101,21 @@ const holdAndWinGame = (preset) => {
 	};
 };
 
-const booksPots = () => {
-	const added = addPotsOverlay(BOOK_HOST, 'threePots');
-	if (!added.ok) throw new Error(`pots overlay: ${added.reason}`);
-	const config = normalizeGameConfigDoc(added.doc);
+/** A Book-of game: lines with the Book of Thermopylae preset, on the Book-of reference layout. */
+const bookGame = (overlay) => {
+	let config = normalizeGameConfigDoc(bookOfThermopylaePreset());
+	if (overlay) {
+		const added = addPotsOverlay(config, overlay);
+		if (!added.ok) throw new Error(`pots overlay: ${added.reason}`);
+		config = normalizeGameConfigDoc(added.doc);
+	}
 	return {
-		gameType: 'bookOf',
+		gameType: 'lines',
 		doc: bookofReferenceLayout(),
 		config,
 		entry: {
-			protocol: 'book',
-			grid: { ...linesGrid(config), potsOverlay: potsOverlayMockInputs(config) },
+			protocol: 'lines',
+			grid: overlay ? { ...BOOK_GRID, potsOverlay: potsOverlayMockInputs(config) } : BOOK_GRID,
 		},
 	};
 };
@@ -169,12 +153,8 @@ const FIXTURES = {
 		doc: clusterReferenceLayout(),
 		entry: { protocol: 'cluster' },
 	}),
-	'cg-bookof': () => ({
-		gameType: 'bookOf',
-		doc: bookofReferenceLayout(),
-		entry: { protocol: 'book' },
-	}),
-	'cg-bookof-pots': booksPots,
+	'cg-book': () => bookGame(),
+	'cg-book-pots': () => bookGame('threePots'),
 	'cg-hw-pots': () => holdAndWinGame('pots'),
 	'cg-hw-classic': () => holdAndWinGame('classic'),
 };

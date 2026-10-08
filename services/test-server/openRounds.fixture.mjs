@@ -3,7 +3,8 @@
  *
  *   node services/test-server/openRounds.fixture.mjs
  *
- * Boots the REAL server (local manifest, one book game), buys the feature, and plays it the way the
+ * Boots the REAL server (local manifest, one Book-of game — lines with the Book of Thermopylae
+ * contract, dealt by the lines mock), buys the feature, and plays it the way the
  * facade does — one `play` per seq POSITION under the round's gid — while two `POST /refresh` land
  * mid-feature, one before and one after a natural RETRIGGER. A refresh follows every publish of any
  * game, so this is what a live bookofborutremake player meets (2026-10-02: seq 9 refused "play
@@ -27,12 +28,19 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
+import { createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const GAME = 'bookgame';
 const SID = 'fixture-sid';
 const BUY = [1, 1];
+/** The migrated Book-of game's contract: the grid the launcher derives from the preset. */
+const GRID = JSON.parse(
+	readFileSync(
+		new URL('../../scripts/lib/book-of-thermopylae-lines-grid.json', import.meta.url),
+		'utf8',
+	),
+);
 
 let failures = 0;
 const check = (ok, msg, extra = '') => {
@@ -90,14 +98,23 @@ const named = (answer, name) => (answer?.events ?? []).filter((e) => e.event ===
 
 /**
  * A seed whose bought feature retriggers on free spin 3–6, so one refresh lands before the retrigger
- * and one after it. Searched rather than hard-coded: the book mock's RNG is the only input, and a
+ * and one after it. Searched rather than hard-coded: the mock's RNG is the only input, and a
  * change to how it deals must not silently turn this into a no-retrigger run.
  */
 const findSeed = async () => {
 	for (let n = 0; n < 400; n++) {
 		const seed = `open-rounds-${n}`;
-		const mock = createBookMock({ seed, label: 'seed-search' });
-		/** The book mock in-process: it reads only `method` and the body stream off the request. */
+		// Built as the test server builds it (`makeMock`), so the seed deals the same rounds.
+		const mock = createLinesMock({
+			seed,
+			label: 'seed-search',
+			quiet: true,
+			winModel: 'lines',
+			cascade: false,
+			cascadeDemo: false,
+			...GRID,
+		});
+		/** The mock in-process: it reads only `method` and the body stream off the request. */
 		const post = async (seq, gid, actions) => {
 			let out = '';
 			const res = {
@@ -126,6 +143,8 @@ const findSeed = async () => {
 			}
 			return JSON.parse(out);
 		};
+		// A table game prices only a session that asked for its config.
+		await post(0, null, [{ action: 'config' }]);
 		const first = await post(0, null, [
 			{ action: 'bet', context: BUY },
 			{ action: 'play', context: '' },
@@ -153,23 +172,17 @@ check(
 if (!found) process.exit(1);
 
 const dir = mkdtempSync(join(tmpdir(), 'open-rounds-'));
-/** The Book of Thermopylae contract on the lines mock: a base bet plus the 100× buy, a table to sell. */
-const BOOK_GRID = JSON.parse(
-	readFileSync(
-		new URL('../../scripts/lib/book-of-thermopylae-lines-grid.json', import.meta.url),
-		'utf8',
-	),
-);
-/** Two desktop builds (no shared runtime) of a migrated Book-of game: one stamped table-capable. */
+// Stamped table-capable, so the test server sells it the bet table its buy needs (`sellableGrid`).
+// Beside it, two desktop builds (no shared runtime) of the same game: one stamped, one not.
 const STAMPED = 'stampedbuild';
 const UNSTAMPED = 'unstampedbuild';
 writeFileSync(
 	join(dir, 'games.json'),
 	JSON.stringify({
 		games: {
-			[GAME]: { protocol: 'book' },
-			[STAMPED]: { protocol: 'lines', tableCapable: true, grid: BOOK_GRID },
-			[UNSTAMPED]: { protocol: 'lines', grid: BOOK_GRID },
+			[GAME]: { protocol: 'lines', tableCapable: true, grid: GRID },
+			[STAMPED]: { protocol: 'lines', tableCapable: true, grid: GRID },
+			[UNSTAMPED]: { protocol: 'lines', grid: GRID },
 		},
 	}),
 );
@@ -216,7 +229,7 @@ try {
 			actions,
 		);
 
-	await engine(0, null, []);
+	await engine(0, null, [{ action: 'config' }]);
 	const bought = await engine(0, null, [
 		{ action: 'bet', context: BUY },
 		{ action: 'play', context: '' },
@@ -297,6 +310,7 @@ try {
 	);
 	check(await refresh(), 'POST /refresh lands between the collect and the next round');
 
+	// A stamped build's session keeps its table across the refresh (`sellsTable`): no reload.
 	const next = await engine(0, null, [
 		{ action: 'bet', context: [0, 1] },
 		{ action: 'play', context: '' },
@@ -304,6 +318,7 @@ try {
 	check(
 		!next?.error && named(next, 'bet').length === 1,
 		'the next round is dealt after the feature',
+		next?.error ? ` — ${next.error}` : '',
 	);
 	const nextWin = named(next, 'spinWin').reduce((sum, e) => sum + e.context.pay, 0);
 	check(

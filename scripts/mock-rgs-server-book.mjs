@@ -145,12 +145,10 @@ const SPECIAL_WEIGHTS = {
 	JACK: 0.14,
 	TEN: 0.195,
 };
-/** Free spins awarded on entering, when the project authors no table (game-config's
- *  `BOOK_FREE_SPINS_DEFAULTS.award`). */
+/** Free spins awarded on entering, when the project authors no table. */
 const TOTAL_FS = 10;
 /** Extra free spins awarded when the trigger lands again during a free spin, when the project
- *  authors no retrigger table — the Book-of default, +10 (game-config's
- *  `BOOK_FREE_SPINS_DEFAULTS.retrigger`; a lines game's is +5). */
+ *  authors no retrigger table — the captured Book-of deal, +10 (the lines mock's is +5). */
 const RETRIGGER_FS = 10;
 /** Fewest books that trigger (and retrigger) the feature when the project states no count. */
 const FS_TRIGGER_MIN = 3;

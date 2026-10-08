@@ -57,16 +57,17 @@ exists as the `scaffold` subcommand — see `src/scaffold.ts`.
 ## Spec shape
 
 See `examples/lines.spec.json` (a JSON spec mirroring `apps/lines`) and
-`examples/book-of-thermopylae.spec.ts` (a typed `bookOf` spec). The top-level
+`examples/book-of-thermopylae.spec.ts` (a typed lines spec with the Book-of `expandingSymbol`). The top-level
 fields:
 
 - `specVersion` — literal `1`
 - `meta` — `{ id, name, provider, client?, version }`
-- `type` — `lines | ways | cluster | scatter | bookOf`
+- `type` — `lines | ways | cluster | scatter | holdAndWin`
 - `grid` — `{ reels, rows: number[] }` (per-reel rows)
 - `bet` — `{ modes: BetMode[], numLines?, denominations? }`
 - `symbols` — `{ id, kind, name?, pay?, asset?, trigger? }[]`
 - `paylines` — `number[][]` (row index per reel) for line games
+- `expandingSymbol` — `{ weights?, minReels? }`, the Book-of expanding special in free spins
 - `ui`, `theme`, `info.rules`, `i18n`, `assets` — UI features, theme tokens,
   info-page copy, locales and art references (all with sensible defaults)
 

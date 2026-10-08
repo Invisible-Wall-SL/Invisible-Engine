@@ -14,6 +14,9 @@ import { waysReferenceLayout } from './ways';
 
 export { defaultLayout } from './lines';
 export { bookofReferenceLayout } from './bookof';
+
+/** The id of the Book-of reference set (Book of Borut's look on a lines game). */
+export const BOOK_OF_REFERENCE_SET = 'bookOfBorut';
 export { waysReferenceLayout } from './ways';
 export { clusterReferenceLayout } from './cluster';
 export { scatterReferenceLayout } from './scatter';
@@ -43,18 +46,20 @@ export {
 } from './hud';
 
 /**
- * The canonical FULL scene set for a game type — the complete screen list the
- * game has (loading/logo, background, basegame, overlays, free-spins, HUD). The
- * editor's "Add missing screens" action diffs this against a project's doc and
- * appends only the scenes the doc LACKS (by id), non-destructively.
+ * The canonical FULL scene sets — the complete screen list a game has (loading/logo, background,
+ * basegame, overlays, free-spins, HUD). The editor's "Add missing screens" action diffs one against
+ * a project's doc and appends only the scenes the doc LACKS (by id), non-destructively.
+ *
+ * A set is keyed by its id. Most are a KIND's own set (the id is the kind); a REFERENCE set
+ * (`kind: false`) is a named look of another kind — its doc's `gameType` — and never a kind itself.
  *
  * Two readers, two projections of this ONE source (§19.3):
- * - "New game from kind" (`listFullSceneSets` → scaffold/`engineOwnedOnly`) — ALL
- *   kinds, art dropped.
- * - "Import composed reference" (`listImportableKinds` → filled, project-aware
- *   rewrite) — only the `filled` kinds, which carry board-frame art.
+ * - "New game from kind" (`listFullSceneSets` → scaffold/`engineOwnedOnly`) — the kinds, art
+ *   dropped.
+ * - "Import composed reference" (`listImportableKinds` → filled, project-aware rewrite) — every
+ *   `filled` set, kinds and references alike, which carry board-frame art.
  *
- * Returns `undefined` for an unknown game type.
+ * Returns `undefined` for an unknown id.
  */
 const FULL_SCENE_SOURCES: Record<
 	string,
@@ -62,24 +67,24 @@ const FULL_SCENE_SOURCES: Record<
 		name: string;
 		build: (options?: HoldAndWinTemplateOptions) => LayoutDoc;
 		filled?: true;
-		/** Other kinds this set is a reference FOR: loaded into one of their projects it is that
-		 *  project's own layout, not another kind's (see {@link referenceLoadsAs}). */
-		referenceFor?: readonly string[];
+		/** A reference set, not a kind: offered for import and scaffolding, never as a kind. Its
+		 *  kind is its doc's `gameType` (see {@link referenceLoadsAs}). */
+		kind?: false;
 	}
 > = {
-	// `filled` kinds ship a board-frame-bearing layout — so "Import composed
+	// `filled` sets ship a board-frame-bearing layout — so "Import composed
 	// reference" (§19.6) is meaningful for them (the filled doc carries art). The
 	// project-aware import endpoint rewrites their bare frame names to the active
 	// project's atlas region. The non-filled engine-skeleton kinds have no art, so
 	// importing them would equal scaffolding — pointless, hence not importable.
 	lines: { name: 'Lines', build: () => defaultLayout('lines'), filled: true },
-	// The Book-of look is a reference for a LINES game too: a Book-of game is lines plus the
-	// expanding symbol (`docs/design/book-feature.md` Phase 5c).
-	bookOf: {
-		name: 'Book of',
+	// Book of Borut's look, a reference for a LINES game: a Book-of game is lines plus the expanding
+	// symbol (`docs/design/book-feature.md`). The Book of Thermopylae preset scaffolds from it.
+	[BOOK_OF_REFERENCE_SET]: {
+		name: 'Book of Borut (reference)',
 		build: () => bookofReferenceLayout(),
 		filled: true,
-		referenceFor: ['lines'],
+		kind: false,
 	},
 	// Engine-skeleton kinds (§19.8): no filled `import`, but offered in the
 	// "New game from kind" picker via the scaffold projection.
@@ -181,12 +186,10 @@ export function getFullSceneSet(
 }
 
 /**
- * The placed `LayoutDoc` for `gameType`, or `undefined` if it ships no FILLED
+ * The placed `LayoutDoc` for a set id, or `undefined` if it ships no FILLED
  * (board-frame-bearing) layout. Backs "Import composed reference": only the
- * `filled` kinds (`lines` + `bookOf`) carry art worth importing. `bookOf` is now
- * included because the project-aware import endpoint rewrites its bare frame
- * names to the active project's atlas region (§19.6) — a generic standalone-key
- * layout couldn't render an atlas FRAME, so it was previously excluded.
+ * `filled` sets carry art worth importing. The project-aware import endpoint
+ * rewrites their bare frame names to the active project's atlas region (§19.6).
  */
 export function getReferenceLayout(gameType: string): LayoutDoc | undefined {
 	const src = FULL_SCENE_SOURCES[gameType];
@@ -194,30 +197,32 @@ export function getReferenceLayout(gameType: string): LayoutDoc | undefined {
 }
 
 /**
- * The game types that have a full scene set (for the editor's "New game from
- * kind" picker). Broader than {@link listImportableKinds}: it includes the
- * engine-skeleton kinds (`ways`/`cluster`/`scatter`) too, because the scaffold
- * projection (`engineOwnedOnly`) drops art so even art-less kinds are scaffoldable.
+ * The KINDS that have a full scene set (for the editor's "New game from kind" picker and every
+ * kind picker). Broader than {@link listImportableKinds} in kinds — it includes the engine-skeleton
+ * kinds (`ways`/`cluster`/`scatter`) too, because the scaffold projection (`engineOwnedOnly`) drops
+ * art so even art-less kinds are scaffoldable — and narrower in sets: a reference set is not a kind.
  */
 export function listFullSceneSets(): { gameType: string; name: string }[] {
-	return Object.entries(FULL_SCENE_SOURCES).map(([gameType, { name }]) => ({ gameType, name }));
+	return Object.entries(FULL_SCENE_SOURCES)
+		.filter(([, src]) => src.kind !== false)
+		.map(([gameType, { name }]) => ({ gameType, name }));
 }
 
 /**
- * The game type a reference set loads AS into a project of `projectKind`: the project's own when
- * the set is its kind or a reference for it (the Book-of set into a lines project), else the set's
- * own kind — a cross-type load, which the editor confirms and never autosaves.
+ * The game type a set loads AS: its kind — for a reference set, its doc's `gameType` (the Book-of
+ * set loads as `lines`). A load into a project of another kind is a cross-type load, which the
+ * editor confirms and never autosaves.
  */
-export function referenceLoadsAs(setKind: string, projectKind: string): string {
-	if (!projectKind || setKind === projectKind) return setKind;
-	return FULL_SCENE_SOURCES[setKind]?.referenceFor?.includes(projectKind) ? projectKind : setKind;
+export function referenceLoadsAs(setId: string): string {
+	const src = FULL_SCENE_SOURCES[setId];
+	return src?.kind === false ? (src.build().gameType ?? setId) : setId;
 }
 
 /**
- * The game types offered in the editor's "Import composed reference" group — the
- * kinds with a FILLED (art-bearing) reference layout (`lines` + `bookOf` today).
- * The engine-skeleton kinds have no art, so for them import == scaffold; they are
- * deliberately omitted (§19.6). Returned as `{ id, name }` for the picker.
+ * The sets offered in the editor's "Import composed reference" group — every set with a FILLED
+ * (art-bearing) layout: `lines`, `ways` and the Book-of reference set. The engine-skeleton kinds
+ * have no art, so for them import == scaffold; they are deliberately omitted (§19.6). Returned as
+ * `{ id, name }` for the picker.
  */
 export function listImportableKinds(): { id: string; name: string }[] {
 	return Object.entries(FULL_SCENE_SOURCES)

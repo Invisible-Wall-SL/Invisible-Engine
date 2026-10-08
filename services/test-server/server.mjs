@@ -44,7 +44,6 @@ import {
 	createMockRgs as createLinesMock,
 	MAX_ROUND_FREE_SPINS,
 } from '../../scripts/mock-rgs-server.mjs';
-import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
 import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
 import { withPotsOverlay } from '../../scripts/mock-pots-overlay.mjs';
@@ -198,7 +197,7 @@ const linesGrid = (() => {
 // `grid` is THIS project's own board, from its Game Config — read LIVE by `refreshContract` below,
 // with the manifest entry's copy as the fallback. When present it deals the project's real
 // numReels/numRows/paylines so the mock matches the client that authored e.g. 5 rows; absent ⇒ the
-// shared `linesGrid` default (apps/lines). Book keeps its own shape and takes only the paytable.
+// shared `linesGrid` default (apps/lines).
 /**
  * Protocols that cascade BY DEFAULT. A `cluster` / `scatter` game IS a tumble game — the cells that
  * paid leave the board and the survivors fall into the gap — so for those the cascade is the
@@ -206,8 +205,8 @@ const linesGrid = (() => {
  * a future tumble type here is the whole change needed on this side.
  *
  * Keying it off the protocol keeps every bit of safety the allowlist below was built for: a
- * `lines` or `book` game still cannot cascade by accident, so the shipped Book of Borut is
- * untouched with no env set at all.
+ * `lines` game still cannot cascade by accident, so the shipped Book of Borut is untouched with no
+ * env set at all.
  */
 const CASCADE_PROTOCOLS = new Set(['cluster', 'scatter']);
 
@@ -314,42 +313,6 @@ const platformJackpotFor = (gameKey, meta, channel) => {
 /** Games already told their pots overlay could not be dealt, so it is said once. */
 const potsOverlayFallbackWarned = new Set();
 
-/**
- * A book game's mock, with the POTS OVERLAY composed over it when its contract carries the project's
- * `potsOverlay` inputs (`potsOverlayMockInputs` in game-config; `scripts/mock-pots-overlay.mjs`).
- * Without them it is the book mock exactly. An overlay that cannot be built deals the plain book game
- * and says so once, for the reason `makeHoldAndWinMock` gives.
- */
-const makeBookMock = (label, grid, gameKey, runtime, twin) => {
-	// The project's free-spins rule (`validGrid` shape-checked it), only where it departs: the overlay
-	// composes over this same host, so it is passed through `withPotsOverlay` too.
-	const opts = {
-		label,
-		symbolPaytable: grid?.symbolPaytable,
-		symbols: grid?.symbols,
-		...(grid?.freeSpins === false ? { freeSpins: false } : {}),
-		...(grid?.freeSpinsTrigger ? { freeSpinsTrigger: grid.freeSpinsTrigger } : {}),
-		...(grid?.freeSpinsAwards ? { freeSpinsAwards: grid.freeSpinsAwards } : {}),
-	};
-	if (!grid?.potsOverlay) return createBookMock(opts);
-	try {
-		// Forcing a beat is an authoring tool, as on the Hold and Win mock.
-		return withPotsOverlay(
-			createBookMock,
-			grid.potsOverlay,
-		)({ ...opts, allowForce: twin || !runtime });
-	} catch (e) {
-		if (!potsOverlayFallbackWarned.has(gameKey)) {
-			potsOverlayFallbackWarned.add(gameKey);
-			console.warn(
-				`[test-server] '${gameKey}' has a pots overlay but ${e.message} — dealing its book game ` +
-					'with no pots. Check its Game Config potsOverlay block.',
-			);
-		}
-		return createBookMock(opts);
-	}
-};
-
 /** Whether a game's client prices a bet-option table: a runtime game, or a desktop build stamped
  *  table-capable. The one rule `makeMock` sells by and every carry of a session follows. */
 const sellsTable = (meta) => Boolean(meta?.runtime) || meta?.tableCapable === true;
@@ -377,10 +340,6 @@ const makeMock = (
 		grid = { ...grid };
 		delete grid.holdAndWinRejected;
 	}
-	// `book` owns its board and paylines; what it reads of the contract is the project's authored line
-	// table, so it pays (and declares) what `/config` set rather than its captured one, its in-play
-	// pool, so it never deals a symbol `/config` marks unused, its pots overlay and its free-spins rule.
-	if (protocol === 'book') return makeBookMock(label, grid, gameKey, runtime, twin);
 	// A Hold and Win game lands here only when its own mock could not be built (above).
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
@@ -397,9 +356,9 @@ const makeMock = (
 		cascadeDemo: tumble.demo,
 		...(sellableGrid(grid, sells) ?? linesGrid ?? {}),
 	};
-	// The pots overlay composes over the lines mock as over the book mock (`makeBookMock`): with the
-	// project's `potsOverlay` inputs it is the add-on over this game, without them the game exactly. One
-	// that cannot be built deals the plain game and says so once.
+	// The pots overlay composes over the lines mock: with the project's `potsOverlay` inputs it is the
+	// add-on over this game, without them the game exactly. One that cannot be built deals the plain
+	// game and says so once.
 	if (!grid?.potsOverlay) return createLinesMock(opts);
 	try {
 		return withPotsOverlay(
@@ -508,8 +467,8 @@ const validGrid = (grid) => {
 	// `symbols` (set at publish from the project's in-play Game Config) is the allowed line-symbol pool
 	// in the mock's SERVER vocabulary (PIC*/SCAT). The mock draws its board ONLY from it, so a symbol the
 	// user marked UNUSED never lands. Accepted only as a non-empty array of strings; absent/malformed ⇒
-	// dropped ⇒ the mock keeps its full default pool. See `createMockRgs({ symbols })` in mock-rgs-server
-	// and mock-rgs-server-book.
+	// dropped ⇒ the mock keeps its full default pool. See `createMockRgs({ symbols })` in
+	// mock-rgs-server.
 	const symbols =
 		Array.isArray(grid.symbols) &&
 		grid.symbols.every((s) => typeof s === 'string') &&
@@ -573,8 +532,8 @@ const validGrid = (grid) => {
 		trigger.count >= 1
 			? { symbol: trigger.symbol, count: trigger.count }
 			: null;
-	// The free-spins AWARDS when they depart from the mock's own defaults (10 / +5 on the lines mock,
-	// 10 / +10 on the book mock) or random is on: two tables of `{ count, spins, maxSpins? }` rows and
+	// The free-spins AWARDS when they depart from the mock's own defaults (10 / +5 on the lines mock)
+	// or random is on: two tables of `{ count, spins, maxSpins? }` rows and
 	// the random switch. Validated WHOLE, like `betModes` — a table with a hole in it is worse than
 	// the default — so malformed ⇒ the mock's own defaults.
 	// Bounded too: no row awards past a round's cap (`MAX_ROUND_FREE_SPINS`), and a table has no more
@@ -689,7 +648,7 @@ const validGrid = (grid) => {
 				m.paytable &&
 				typeof m.paytable === 'object',
 		);
-	// A pots overlay's inputs (a book game's add-on), shape-checked as far as the overlay needs to
+	// A pots overlay's inputs (a lines-family game's add-on), shape-checked as far as the overlay needs to
 	// stand up; its Hold and Win bonus, when it has one, like a Hold and Win game's. `pots: []` is a
 	// coins-only overlay; one with neither pots nor coins is refused by the overlay itself, loudly.
 	const po = grid.potsOverlay;
@@ -791,7 +750,7 @@ const AUTHORING = 'authoring';
 const contractSourceFor = (meta, channel) =>
 	channel === AUTHORING || !meta.runtime ? 'live' : 'published';
 
-const MOCK_PROTOCOLS = new Set(['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin']);
+const MOCK_PROTOCOLS = new Set(['lines', 'ways', 'cluster', 'scatter', 'holdAndWin']);
 /** A known protocol, else `fallback`. A `holdAndWin` stamp (before bonus-games Phase 2) is the lines
  *  contract the launcher now sends for the same game, so the two fingerprint the same and a refresh
  *  never rebuilds the mock over the stamp alone. */
@@ -820,7 +779,7 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
  * A game that sells a table (`sellsTable`: a runtime game, or a desktop build stamped
  * table-capable) keeps each session's bet table and whether its config carried the pots overlay
  * (`carrySession`): its client keeps the config it booted with, and a tab open when the project
- * gains or loses a buy would otherwise be priced by a table it never saw, and one open when a book
+ * gains or loses a buy would otherwise be priced by a table it never saw, and one open when a
  * game gains the overlay dealt drops and pot bonuses it cannot draw. A reload asks for `config` and
  * gets the new one. An unstamped desktop build's sessions are re-sent the config on their next
  * heartbeat, as before.

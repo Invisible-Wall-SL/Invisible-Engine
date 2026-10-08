@@ -52,7 +52,7 @@
 	let key = $state('');
 	let name = $state('');
 	let clientKey = $state('');
-	let gameType = $state(data.createKinds[0]?.id ?? 'lines');
+	let gameType = $state(data.gameKinds[0]?.id ?? 'lines');
 	let holdAndWinPreset = $state<HoldAndWinPresetId>(DEFAULT_HOLD_AND_WIN_PRESET);
 	/** A lines game's starting preset, or '' for the lines template. */
 	let linesPreset = $state('');
@@ -933,7 +933,7 @@
 					<label>
 						Game type
 						<select bind:value={gameType}>
-							{#each data.createKinds as k (k.id)}
+							{#each data.gameKinds as k (k.id)}
 								<option value={k.id}>{k.name}</option>
 							{/each}
 						</select>

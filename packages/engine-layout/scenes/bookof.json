@@ -1,7 +1,7 @@
 {
 	"version": 1,
 	"projectKey": "borut",
-	"gameType": "bookOf",
+	"gameType": "lines",
 	"mainSizesMap": {
 		"desktop": {
 			"width": 1422,

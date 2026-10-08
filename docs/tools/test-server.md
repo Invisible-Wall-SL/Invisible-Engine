@@ -18,9 +18,11 @@ One small Node service that does two jobs:
    server serves every file under `GET /<gameKey>/<path>` (default `index.html`).
 2. **Hosts a mock Play4Fun RGS** per game at `/api/<gameKey>/rgs/engine`, so the
    game has a backend to spin against. Fake money, no real spend. Reuses the
-   existing mock logic (`scripts/mock-rgs-server.mjs` for `lines`-style games,
-   `scripts/mock-rgs-server-book.mjs` for `book`-of games), refactored into a
-   `createMockRgs()` factory.
+   existing mock logic (`scripts/mock-rgs-server.mjs`, which deals every lines-family game — a
+   Book-of game included, with its expanding symbol — and `scripts/mock-rgs-server-holdandwin.mjs`
+   for Hold and Win), refactored into a `createMockRgs()` factory. The book mock
+   (`scripts/mock-rgs-server-book.mjs`) is no longer served: it stays a test fixture of the
+   partner's Book wire.
 
    **The mock follows the config its game draws.** The board it deals — grid,
    paylines, in-play symbols, win model, tumbling — is not owned by the manifest
@@ -169,7 +171,7 @@ never drops the others:
 
 ```json
 { "games": { "<gameKey>": {
-    "protocol": "lines" | "book" | "ways" | "cluster" | "scatter",
+    "protocol": "lines" | "ways" | "cluster" | "scatter" | "holdAndWin",
     "name": "Display Name",
     "updatedAt": "<iso>",
     "projectKey": "<launcher project>", "docBase": "<launcher origin>", "readToken": "<k>"

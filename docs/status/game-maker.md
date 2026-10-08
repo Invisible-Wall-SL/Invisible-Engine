@@ -64,6 +64,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-08 — **Phase 7 (DRAFT) of [book-feature.md](../design/book-feature.md):** the `bookOf` kind and its "retired" handling are gone from Create and `/admin` (`RETIRED_GAME_KINDS`, `offeredGameKinds`); Lines + Book of Thermopylae scaffolds from the `bookOfBorut` reference set. `/admin`'s migration is replaced by the read-only Book-of census.
 - 2026-10-08 — **Book of Thermopylae is Lines plus a preset** ([book-feature.md](../design/book-feature.md)
   Phase 5c). Create's **Game type** list no longer offers **Book of** (`RETIRED_GAME_KINDS` /
   `offeredGameKinds` in `gameKinds.ts`; the kind stays listed so its projects keep their name);

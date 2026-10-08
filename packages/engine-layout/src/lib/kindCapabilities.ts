@@ -1,8 +1,7 @@
 /**
  * What a game KIND offers — the one source every authoring tool reads to decide which options to
  * show (design `docs/design/hold-and-win.md` §5 "Cross-cutting first"). A tool asks
- * `kindCapabilities(gameType, config)` instead of testing `gameType === 'bookOf'` or a win model
- * itself, so adding a kind (or a kind gaining a mechanic) is an edit here, not a hunt through tools.
+ * `kindCapabilities(gameType, config)` instead of testing a kind or a win model itself, so adding a kind (or a kind gaining a mechanic) is an edit here, not a hunt through tools.
  *
  * For every kind that existed before `holdAndWin` the flags reproduce exactly what each tool showed
  * without it: a flag that nothing gated on is `true` for them, never a new restriction. An id that is
@@ -10,8 +9,8 @@
  * every tool gave it before.
  *
  * ADD-ONS are additive (design `docs/design/pots-overlay.md` §4): a config block lights up only the
- * add-on's own parts, and everything else stays on the kind — a `bookOf` project with a Hold and
- * Win bonus keeps its free spins and book reveal. Without a block every answer is the kind's alone.
+ * add-on's own parts, and everything else stays on the kind — a lines project with a Hold and Win
+ * bonus keeps its free spins. Without a block every answer is the kind's alone.
  */
 
 import {
@@ -43,7 +42,7 @@ export interface KindCapabilities {
 	 *  respins; another kind keeps them with a `holdAndWin` block. */
 	freeSpins: boolean;
 	/** The Book-of special symbol: its reveal/expand beats and the `bookIntro`/`bookIdle` states.
-	 *  The config's expanding symbol, or (until the `bookOf` kind is retired) the kind. */
+	 *  On while the config carries an expanding symbol (`docs/design/book-feature.md` §3.3). */
 	bookReveal: boolean;
 	/** Tall stacked-picture symbols. */
 	stackedPictures: boolean;
@@ -88,8 +87,7 @@ export function kindCapabilities(
 	const potsOverlay = !!config.potsOverlay;
 	return {
 		freeSpins: !holdAndWinKind,
-		// The kind half is the transition shim of `docs/design/book-feature.md`; Phase 7 removes it.
-		bookReveal: kind === 'bookOf' || !!config.expandingSymbol,
+		bookReveal: !!config.expandingSymbol,
 		stackedPictures: !holdAndWinKind,
 		cascade: config.cascade ?? CASCADE_KINDS.has(kind),
 		multiplierCollect: kind === 'scatter',

@@ -48,7 +48,8 @@ const ok = (label: string, fn: () => void) => {
 console.log('1. protocol parity — one map, both publish paths');
 ok('every built-in kind maps to the mock that deals it', () => {
 	assert.equal(protocolFor('lines'), 'lines');
-	assert.equal(protocolFor('bookOf'), 'book');
+	// A stray row of the retired Book-of kind reads as a custom kind: lines.
+	assert.equal(protocolFor('bookOf'), 'lines');
 	assert.equal(protocolFor('ways'), 'ways');
 	assert.equal(protocolFor('cluster'), 'cluster');
 	assert.equal(protocolFor('scatter'), 'scatter');
@@ -75,7 +76,7 @@ console.log('2. the derived publish block');
 const derived = derivePublishBlock({
 	key: 'bookofborut',
 	name: 'Book of Borut',
-	gameType: 'bookOf',
+	gameType: 'lines',
 });
 ok('pins the submodule BEFORE the frozen install', () => {
 	assert.equal(
@@ -94,7 +95,7 @@ ok('cloud key == portal project key', () => {
 ok('carries the standalone build layout + the kind-derived protocol', () => {
 	assert.equal(derived.build_cwd, '.');
 	assert.equal(derived.build_out, 'build');
-	assert.equal(derived.protocol, 'book');
+	assert.equal(derived.protocol, 'lines');
 	assert.equal(derived.name, 'Book of Borut');
 });
 ok('a nameless project falls back to its key, never to an empty card title', () => {

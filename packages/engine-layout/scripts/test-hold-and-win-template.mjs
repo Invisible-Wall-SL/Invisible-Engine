@@ -54,8 +54,9 @@ try {
 const hash = (value) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 
-const EXISTING_KINDS = ['lines', 'bookOf', 'ways', 'cluster', 'scatter'];
-const EXISTING_TEMPLATES = ['lines', 'bookOf', 'ways'];
+// `bookOfBorut` is the Book-of reference set (a lines look, not a kind).
+const EXISTING_KINDS = ['lines', 'bookOfBorut', 'ways', 'cluster', 'scatter'];
+const EXISTING_TEMPLATES = ['lines', 'ways'];
 
 const current = {
 	sceneSets: Object.fromEntries(EXISTING_KINDS.map((k) => [k, hash(mod.getFullSceneSet(k))])),
@@ -73,14 +74,15 @@ if (process.argv.includes('--print')) {
 const PINNED = {
 	sceneSets: {
 		lines: '5a0b7dfbcec7837b',
-		bookOf: 'd1d6f12eabc37c9c',
+		// book-feature Phase 7: the Book-of set became a reference set of lines — only its doc's
+		// `gameType` moved (`bookOf` → `lines`; scenes/bookof.json differs in that line alone).
+		bookOfBorut: 'd08b587924b9efdb',
 		ways: 'a916b41d79ac520a',
 		cluster: '856c7d6f4504389c',
 		scatter: 'dc289350e590c719',
 	},
 	templates: {
 		lines: 'd0cfc7cabd389bfc',
-		bookOf: '5e68efcd093859d9',
 		ways: 'd91e190fd13e14a7',
 	},
 	components: {
@@ -251,11 +253,11 @@ for (const def of mod.BUILTIN_COMPONENTS) {
 }
 const byId = (id) => mod.BUILTIN_COMPONENTS.find((d) => d.id === id);
 assert(
-	mod.componentOfferedForKind(byId('potMeter'), 'bookOf', { potsOverlay: true }),
+	mod.componentOfferedForKind(byId('potMeter'), 'lines', { potsOverlay: true }),
 	'a Book-of overlay host is offered the Pot Meter',
 );
 assert(
-	!mod.componentOfferedForKind(byId('respinCells'), 'bookOf', { potsOverlay: true }),
+	!mod.componentOfferedForKind(byId('respinCells'), 'lines', { potsOverlay: true }),
 	'…but not the respin cell tiles',
 );
 const pot = byId('potMeter');
@@ -476,7 +478,7 @@ assert(
 	);
 	{
 		const pots = mod
-			.getFullSceneSet('bookOf', { potsOverlay: true, potIds: ['a', 'b', 'a'] })
+			.getFullSceneSet('bookOfBorut', { potsOverlay: true, potIds: ['a', 'b', 'a'] })
 			.scenes.find((scene) => scene.id === 'pots');
 		assert(
 			JSON.stringify(pots?.nodes.map((n) => n.id)) === JSON.stringify(['pot-a', 'pot-b']),
@@ -510,7 +512,7 @@ assert(
 		}
 	}
 
-	const bookOf = mod.getFullSceneSet('bookOf');
+	const bookOf = mod.getFullSceneSet('bookOfBorut');
 	const byId = (d) => new Map(d.scenes.map((sc) => [sc.id, json(sc)]));
 	const keepsOwn = (merged, label) => {
 		const own = byId(merged);
@@ -519,8 +521,11 @@ assert(
 	};
 
 	const potsOnly = { potsOverlay: true, potIds: ['gold', 'jade'] };
-	const withPots = mod.getFullSceneSet('bookOf', potsOnly);
-	assert(json(mod.addOnSceneIds('bookOf', potsOnly)) === json(['pots']), 'pots overlay adds pots');
+	const withPots = mod.getFullSceneSet('bookOfBorut', potsOnly);
+	assert(
+		json(mod.addOnSceneIds('bookOfBorut', potsOnly)) === json(['pots']),
+		'pots overlay adds pots',
+	);
 	assert(withPots.scenes.length === bookOf.scenes.length + 1, 'pots overlay adds one screen');
 	const potsAt = ids(withPots).indexOf('pots');
 	assert(ids(withPots)[potsAt - 1] === 'basegame', 'the pots screen sits right after basegame');
@@ -541,7 +546,7 @@ assert(
 	);
 
 	const bonus = { potsOverlay: true, holdAndWin: true, potIds: ['gold', 'jade'] };
-	const withBonus = mod.getFullSceneSet('bookOf', bonus);
+	const withBonus = mod.getFullSceneSet('bookOfBorut', bonus);
 	const expected = ['jackpotBar', 'pots', ...MODE_SCREENS];
 	const addedIds = ids(withBonus).filter((id) => !ids(bookOf).includes(id));
 	assert(
@@ -549,7 +554,7 @@ assert(
 		`a Hold and Win bonus adds pots, the jackpot bar and the mode screens (got ${addedIds})`,
 	);
 	assert(
-		json([...mod.addOnSceneIds('bookOf', bonus)].sort()) === json([...expected].sort()),
+		json([...mod.addOnSceneIds('bookOfBorut', bonus)].sort()) === json([...expected].sort()),
 		'addOnSceneIds names the same screens',
 	);
 	assert(!ids(withBonus).includes('luckySpin'), 'Lucky Spin is never an add-on');
@@ -568,7 +573,7 @@ assert(
 	base.name = 'My base game';
 	base.nodes[0] = { ...base.nodes[0], x: base.nodes[0].x + 37 };
 	const before = json(authored);
-	const addOns = mod.addOnSceneIds('bookOf', bonus);
+	const addOns = mod.addOnSceneIds('bookOfBorut', bonus);
 	const once = mod.mergeMissingScreens(authored, withBonus.scenes, addOns);
 	assert(json(authored) === before, 'the merge does not mutate its input');
 	const onceById = new Map(once.map((sc) => [sc.id, json(sc)]));

@@ -91,9 +91,9 @@ const PROJECTS: Record<string, { token: string; gameType: string }> = {
 	hnwTwo: { token: 'HN2', gameType: 'holdAndWin' },
 	hnwBare: { token: 'HNB', gameType: 'holdAndWin' },
 	linesCoins: { token: 'LNC', gameType: 'lines' },
-	book: { token: 'BOK', gameType: 'bookOf' },
-	bookPots: { token: 'BKP', gameType: 'bookOf' },
-	bookImport: { token: 'BKI', gameType: 'bookOf' },
+	book: { token: 'BOK', gameType: 'lines' },
+	bookPots: { token: 'BKP', gameType: 'lines' },
+	bookImport: { token: 'BKI', gameType: 'lines' },
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -421,36 +421,24 @@ await check(
 	},
 );
 
-console.info('a book game with a pots overlay');
+console.info('a Book-of game (lines) with a pots overlay');
 
-await check(
-	'the overlay rides last on the book grid; without it the grid is unchanged',
-	async () => {
-		const plain = await answer('project=book&k=BOK&source=live');
-		const pots = await answer('project=bookPots&k=BKP&source=live');
-		eq(plain.protocol, 'book', 'protocol');
-		eq(pots.protocol, 'book', 'protocol');
-		eq(
-			Object.keys(plain.grid ?? {}),
-			['reels', 'rows', 'paylines', 'symbolPaytable'],
-			'plain keys',
-		);
-		eq(Object.keys(pots.grid ?? {}).at(-1), 'potsOverlay', 'overlay last');
-		eq(
-			pots.grid?.potsOverlay?.pots.map((p) => p.id),
-			['gold'],
-			'pots',
-		);
-		eq(
-			pots.grid?.potsOverlay?.drops.modes.length ? 'modes' : 'none',
-			'modes',
-			'drop modes resolved',
-		);
-		const { potsOverlay: _o, ...rest } = pots.grid ?? {};
-		eq(rest, plain.grid, 'the rest of the grid is the plain one');
-		eq('modes' in (pots.grid?.potsOverlay ?? {}), false, 'no imported mode, no `modes`');
-	},
-);
+await check('the overlay rides last on the grid; without it the grid is unchanged', async () => {
+	const plain = await answer('project=book&k=BOK&source=live');
+	const pots = await answer('project=bookPots&k=BKP&source=live');
+	eq(plain.protocol, 'lines', 'protocol');
+	eq(pots.protocol, 'lines', 'protocol');
+	eq(Object.keys(pots.grid ?? {}).at(-1), 'potsOverlay', 'overlay last');
+	eq(
+		pots.grid?.potsOverlay?.pots.map((p) => p.id),
+		['gold'],
+		'pots',
+	);
+	eq(pots.grid?.potsOverlay?.drops.modes.length ? 'modes' : 'none', 'modes', 'drop modes resolved');
+	const { potsOverlay: _o, ...rest } = pots.grid ?? {};
+	eq(rest, plain.grid, 'the rest of the grid is the plain one');
+	eq('modes' in (pots.grid?.potsOverlay ?? {}), false, 'no imported mode, no `modes`');
+});
 
 await check(
 	"an imported free spins rides in the SERVER's names: shared symbols mapped, its own passed through",
@@ -465,12 +453,12 @@ await check(
 		eq(modes?.freeSpins_2.gameType, 'freegame_2', 'its game type');
 		eq(
 			modes?.freeSpins_2.strips[0],
-			['PIC1', 'L2_2', 'MUMMY', 'SCAT', 'ACE'],
+			['PIC1', 'L2_2', 'MUMMY', 'SCAT', 'PIC5'],
 			'its strip, wire names',
 		);
 		eq(
 			Object.keys(modes?.freeSpins_2.paytable ?? {}).sort(),
-			['ACE', 'L2_2', 'MUMMY', 'PIC1'],
+			['L2_2', 'MUMMY', 'PIC1', 'PIC5'],
 			'its line pays (no scatter)',
 		);
 	},
@@ -589,11 +577,7 @@ await check(
 	},
 );
 
-console.info('the free-spins rule on a Book-of game (the book mock)');
-
-const bookGrid = (config: GameConfigDoc) =>
-	mockContractOfBundle('book', { config, symbols: NO_SYMBOLS }, 'bookfs').grid ?? {};
-/** A book config with no priced symbol, so the free-spins rule is the only thing it departs in. */
+/** A config with no priced symbol, so the free-spins rule is the only thing it departs in. */
 const unpriced = (): GameConfigDoc => {
 	const lines = template('lines');
 	return normalizeGameConfigDoc({
@@ -603,52 +587,6 @@ const unpriced = (): GameConfigDoc => {
 		),
 	})!;
 };
-
-await check('a Book-of project that never mentions free spins carries none of the fields', () => {
-	const grid = bookGrid(template('lines'));
-	eq(Object.keys(grid), ['reels', 'rows', 'paylines', 'symbolPaytable'], 'keys');
-	eq(mockContractOfBundle('book', { config: unpriced(), symbols: NO_SYMBOLS }, 'b').grid, undefined, 'no grid at all'); // prettier-ignore
-});
-
-await check('free spins OFF rides last on the book grid, and alone makes one', () => {
-	const off = bookGrid(withFreeSpins({ enabled: false }));
-	eq([off.freeSpins, Object.keys(off).at(-1)], [false, 'freeSpins'], 'switch');
-	eq(
-		Object.keys(bookGrid(withFreeSpins({ enabled: false }, unpriced()))),
-		['reels', 'rows', 'paylines', 'freeSpins'],
-		'the only departure',
-	);
-});
-
-await check('the book always triggers on SCAT: only a count travels', () => {
-	eq(bookGrid(withFreeSpins({ triggerCount: 4 })).freeSpinsTrigger, { symbol: 'SCAT', count: 4 }, 'count'); // prettier-ignore
-	const warnings: string[] = [];
-	const realWarn = console.warn;
-	console.warn = (message: string) => warnings.push(message);
-	try {
-		const grid = bookGrid(withFreeSpins({ triggerSymbol: 'H1' }));
-		eq('freeSpinsTrigger' in grid, false, 'another symbol at the default count sends nothing');
-		bookGrid(withFreeSpins({ triggerSymbol: 'H1' }));
-	} finally {
-		console.warn = realWarn;
-	}
-	eq(warnings.filter((w) => w.includes('H1')).length, 1, 'ignored and said once');
-});
-
-await check('awards travel against the Book-of defaults: 10, +10 on a retrigger', () => {
-	eq('freeSpinsAwards' in bookGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 10 }] })), false, '+10 is the default'); // prettier-ignore
-	eq(
-		bookGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] })).freeSpinsAwards,
-		{ awards: [{ count: 3, spins: 10 }], retrigger: [{ count: 3, spins: 5 }], random: false },
-		'+5 departs on a Book-of game',
-	);
-	eq(
-		bookGrid(withFreeSpins({ awards: [{ count: 3, spins: 7 }] })).freeSpinsAwards,
-		{ awards: [{ count: 3, spins: 7 }], retrigger: [{ count: 3, spins: 10 }], random: false },
-		'an entry table carries the +10 retrigger default with it',
-	);
-	eq('freeSpinsAwards' in linesGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] })), false, 'lines: +5 stays the default'); // prettier-ignore
-});
 
 console.info('the expanding symbol (book-feature Phase 3: the lines mock deals it)');
 
@@ -674,7 +612,6 @@ await check('the block rides LAST, in server names; the rest of the contract is 
 
 await check('it travels only where the lines mock can deal it', () => {
 	const special = { expandingSymbol: { weights: { H1: 1 } } };
-	eq(bookGrid(withFreeSpins(special)), bookGrid(template('lines')), 'book: its mock draws its own');
 	const off = linesGrid(withFreeSpins({ enabled: false, ...special }));
 	eq('expandingSymbol' in off, false, 'free spins off: inert');
 	const ways = mockContractOfBundle('ways', { config: withFreeSpins(special, template('ways')), symbols: NO_SYMBOLS }, 'w').grid ?? {}; // prettier-ignore

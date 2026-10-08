@@ -752,7 +752,7 @@ const upsertHarness = async (games, entry, gameKey = 'bookofborutremake') => {
 };
 
 const HOST = { minSpinDuration: 3000, clock: true };
-const REPUBLISH = { protocol: 'book', name: 'Book of Borut', runtime: 'lines' };
+const REPUBLISH = { protocol: 'lines', name: 'Book of Borut', runtime: 'lines' };
 
 await check('a republish keeps the operator settings set on the manifest', async () => {
 	const after = await upsertHarness(

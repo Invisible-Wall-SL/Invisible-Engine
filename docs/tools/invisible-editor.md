@@ -127,13 +127,14 @@ To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from
   kind** (a fresh engine-piece scaffold per game kind — `lines`, `ways`,
-  `cluster`, `scatter`, `bookOf`, `holdAndWin`, plus any author-created custom kinds) and
-  **Import composed reference** (open a reference game already laid out). Pick
+  `cluster`, `scatter`, `holdAndWin`, plus any author-created custom kinds) and
+  **Import composed reference** (open a reference game already laid out: Lines, Ways, or the
+  **Book of Borut (reference)** set). Pick
   one and click **Load**. Loading a layout whose game type differs from the
   project's is flagged as a cross-type preview and will not autosave — you must
-  Save (which converts the project) or Discard. The **Book of** set is a reference for a
-  **lines** project too: loaded there (scaffold or import) it is the project's own lines layout,
-  not a cross-type one — a Book-of game is lines plus the expanding symbol.
+  Save (which converts the project) or Discard. The **Book of Borut** reference set is a
+  **lines** layout: imported into a lines project it is the project's own layout, not a cross-type
+  one — a Book-of game is lines plus the expanding symbol.
 - **＋ New empty screen**, **＋ New background screen**, **＋ Add / Refresh HUD
   layer**, and **＋ New HUD screen** create screens directly.
 - **＋ New bet menu screen** and **＋ New auto spin screen** seed the two player
@@ -746,7 +747,7 @@ The right-hand panel has a **Canvas Size** section with **Width** / **Height**
 inputs for the currently selected layoutType. This is the game's **MAIN box** —
 the box the running game scales to fill the window. Author your nodes against it
 so what you place lines up with what ships. A new project seeds this box from its
-game type's reference (e.g. a `bookOf` project starts at `1422×800` desktop), not
+game type's reference (e.g. a Book of Thermopylae project starts at `1422×800` desktop), not
 a generic default.
 
 If the box drifts from the game type's reference (common for older projects

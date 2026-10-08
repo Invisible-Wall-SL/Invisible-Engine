@@ -9,7 +9,7 @@
  * §21) are NOT listed: they are arbitrary ids stored in R2, and every consumer treats an id it
  * does not know as a custom kind.
  */
-export const GAME_KINDS = ['lines', 'ways', 'cluster', 'scatter', 'bookOf', 'holdAndWin'] as const;
+export const GAME_KINDS = ['lines', 'ways', 'cluster', 'scatter', 'holdAndWin'] as const;
 
 export type GameKind = (typeof GAME_KINDS)[number];
 

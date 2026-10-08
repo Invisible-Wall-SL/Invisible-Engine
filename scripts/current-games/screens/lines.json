@@ -1,6 +1,6 @@
 {
 	"gameType": "lines",
-	"about": "lines games (payline wins, scatter free spins), dealt by the lines mock (`scripts/mock-rgs-server.mjs`). 14 screens.",
+	"about": "lines games (payline wins, scatter free spins) — Book-of games included (the expanding special in free spins, the buy feature) — dealt by the lines mock (`scripts/mock-rgs-server.mjs`), with the pots overlay where the game has one. 14 screens, 16 with the pots overlay.",
 	"scenarios": [
 		{
 			"id": "base",
@@ -414,6 +414,66 @@
 				{
 					"op": "step",
 					"frames": 60
+				}
+			]
+		},
+		{
+			"id": "pots",
+			"requires": ["grid.potsOverlay"],
+			"about": "Pots overlay (only a game whose contract has one): the first pot forced full on a base spin, then its bonus.",
+			"env": {},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "force",
+					"beat": "pot:{grid.potsOverlay.pots.0.id}"
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "step",
+					"frames": 240
+				},
+				{
+					"op": "capture",
+					"screen": "pot-full"
+				},
+				{
+					"op": "step",
+					"frames": 480
+				},
+				{
+					"op": "capture",
+					"screen": "pot-bonus"
 				}
 			]
 		}

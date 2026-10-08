@@ -25,7 +25,7 @@ import {
 	LINES_PRESET_IDS,
 	resolveGameConfig,
 } from '$lib/server/gameConfigDefaults';
-import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
+import { selectableGameKinds } from '$lib/server/gameKinds';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -258,8 +258,6 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			.filter((c) => mayTargetClient(role, c.key, clientGrants))
 			.map((c) => ({ key: c.key, name: c.name })),
 		gameKinds,
-		/** The kinds Create offers: every kind but a retired one (`bookOf`). */
-		createKinds: offeredGameKinds(gameKinds),
 		projects,
 		canPurgeCache,
 		// A version shipped past the flow gate goes live again only for the owner role (see the
@@ -293,12 +291,6 @@ export const actions: Actions = {
 		const known = new Set((await selectableGameKinds()).map((k) => k.id));
 		if (rawGameType !== '' && !known.has(rawGameType)) {
 			return fail(400, { action: 'create', error: 'Unknown game kind.' });
-		}
-		if (RETIRED_GAME_KINDS.has(rawGameType)) {
-			return fail(400, {
-				action: 'create',
-				error: 'A Book-of game is now Lines with the Book of Thermopylae preset.',
-			});
 		}
 		// The kind the project is created as: an empty one is the default kind.
 		const kind = rawGameType !== '' ? rawGameType : DEFAULT_GAME_KIND;

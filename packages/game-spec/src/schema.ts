@@ -132,6 +132,16 @@ export const GameSpecSchema = z
 		paylines: z.array(z.array(z.number().int())).optional(),
 		// TODO ways/cluster/scatter: add a typed `win` section (ways count,
 		// cluster min-size, scatter-anywhere) instead of paylines.
+		// The Book-of expanding special in free spins (a lines game's Game Config
+		// `freeSpins.expandingSymbol`): per-symbol draw weights, and the fewest
+		// reels a symbol must cover to expand (default 3).
+		expandingSymbol: z
+			.object({
+				weights: z.record(z.string(), z.number().nonnegative()).optional(),
+				minReels: z.record(z.string(), z.number().int().min(1)).optional(),
+			})
+			.strict()
+			.optional(),
 		layout: LayoutSchema.optional(),
 		ui: UiSchema.default({}),
 		theme: ThemeSchema.default({}),

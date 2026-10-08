@@ -50,7 +50,7 @@ const atRest = (kind) =>
 		.map((s) => s.id);
 
 if (process.argv.includes('--print')) {
-	for (const kind of ['lines', 'bookOf', 'ways', 'cluster', 'scatter', 'holdAndWin']) {
+	for (const kind of ['lines', 'bookOfBorut', 'ways', 'cluster', 'scatter', 'holdAndWin']) {
 		console.log(kind, JSON.stringify(atRest(kind)));
 	}
 	process.exit(0);
@@ -75,7 +75,7 @@ for (const id of [
 ]) {
 	if (holdAndWin.some((s) => s.id === id)) assert.ok(!rest.includes(id), `not at rest: ${id}`);
 }
-for (const kind of ['lines', 'bookOf']) {
+for (const kind of ['lines', 'bookOfBorut']) {
 	const ids = atRest(kind);
 	assert.ok(ids.includes('basegame'), `${kind}: basegame at rest`);
 	for (const id of ['freeSpinIntro', 'freeSpinOutro', 'freeSpinCounter', 'loading', 'buyFeature']) {
@@ -87,7 +87,7 @@ const byId = (id) => holdAndWin.find((s) => s.id === id);
 
 const MODE = 'holdAndWin';
 assert.deepEqual(viewableModeIds(holdAndWin), [MODE], 'the kind has one mode to view');
-for (const kind of ['lines', 'bookOf', 'ways', 'cluster', 'scatter']) {
+for (const kind of ['lines', 'bookOfBorut', 'ways', 'cluster', 'scatter']) {
 	assert.deepEqual(viewableModeIds(getFullSceneSet(kind).scenes), [], `${kind}: no mode to view`);
 }
 

@@ -921,8 +921,8 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * tease, it stops one column at a time, it scrolls a strip of tall pictures past a window. A board
 	 * that swaps in place has no roll for any of them to describe, so when {@link boardSwapsInPlace} is
 	 * on they STAND DOWN (docs/design/perspective-board-mode.md §"The mode switch"). Nothing is
-	 * deleted: `apps/lines` is the shared `_runtime/lines` bundle every online game runs, and `lines`
-	 * and `bookOf` still roll — standing down means each behaviour reads the OFF value it already has
+	 * deleted: `apps/lines` is the shared `_runtime/lines` bundle every online game runs, and a `lines`
+	 * game (a Book-of one included) still rolls — standing down means each behaviour reads the OFF value it already has
 	 * an established path for (`buildAnticipationArming` → `undefined`, `forceSequentialStop` →
 	 * falsy, the stacked readers → the strip unchanged / an empty run list), not a new branch.
 	 *

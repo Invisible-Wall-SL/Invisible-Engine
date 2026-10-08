@@ -16,11 +16,19 @@ const ROOT = resolve(import.meta.dirname, '../../..');
 /** The release gates of `runtime-release.yml`, plus the money/protocol fixtures each type relies on. */
 const RUNTIME = ['check:undefined-names', 'check:engine-game', 'check:stake', 'check:resume'];
 const BY_TYPE = {
-	lines: ['check:freespins', 'check:lines-scatter-paytable', 'check:paytable'],
+	// A Book-of game is a lines game (book-feature Phase 7): its gates fold in here.
+	lines: [
+		'check:freespins',
+		'check:lines-scatter-paytable',
+		'check:paytable',
+		'check:book-paytable',
+		'check:pots-overlay',
+		'check:bonus-modes',
+		'check:buy-cost',
+	],
 	ways: ['check:ways', 'check:freespins'],
 	cluster: ['check:cluster', 'check:freespins'],
 	scatter: ['check:scatter', 'check:freespins'],
-	bookOf: ['check:book-paytable', 'check:pots-overlay', 'check:bonus-modes', 'check:buy-cost'],
 	holdAndWin: ['check:holdandwin', 'check:bonus-modes'],
 };
 
