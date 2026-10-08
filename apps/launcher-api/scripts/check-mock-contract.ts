@@ -86,6 +86,7 @@ const PROJECTS: Record<string, { token: string; gameType: string }> = {
 	scat: { token: 'SCT', gameType: 'scatter' },
 	legacy: { token: 'LEG', gameType: 'lines' },
 	hnw: { token: 'HNW', gameType: 'holdAndWin' },
+	hnwTwo: { token: 'HN2', gameType: 'lines' },
 	book: { token: 'BOK', gameType: 'bookOf' },
 	bookPots: { token: 'BKP', gameType: 'bookOf' },
 	bookImport: { token: 'BKI', gameType: 'bookOf' },
@@ -142,12 +143,25 @@ const withImportedFreeSpins = (doc: GameConfigDoc): GameConfigDoc => {
 	return normalizeGameConfigDoc(result.doc)!;
 };
 
+/** A Hold and Win game with a second respin mode (Phase 6's import shape: its own strip key),
+ *  stored in the split form. */
+const withSecondRespinMode = (doc: GameConfigDoc): GameConfigDoc => {
+	const out = structuredClone(doc);
+	delete out.holdAndWin;
+	delete out.potsOverlay;
+	const primary = out.modes!.find((m) => m.id === 'holdAndWin')!;
+	out.modes!.push({ ...primary, id: 'holdAndWin_2', gameType: 'respin_2', label: 'Gold' });
+	out.paddingReels.respin_2 = structuredClone(out.paddingReels.respin);
+	return normalizeGameConfigDoc(out)!;
+};
+
 /** The LIVE authoring data, per project — what an authoring boot reads. */
 const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	remake: resized(template('lines'), 8, 4),
 	scat: template('scatter'),
 	legacy: resized(template('lines'), 6, 4),
 	hnw: template('holdAndWin.classic'),
+	hnwTwo: withSecondRespinMode(template('holdAndWin.classic')),
 	book: template('lines'),
 	bookPots: withOverlay(template('lines')),
 	bookImport: withImportedFreeSpins(template('lines')),
@@ -218,7 +232,11 @@ type Answer = {
 		multiplier?: boolean;
 		symbols?: unknown;
 		betModes?: { mode: string }[];
-		holdAndWin?: { block: { stickiness: string }; lineSymbols: string[] };
+		holdAndWin?: {
+			block: { stickiness: string };
+			lineSymbols: string[];
+			modes?: { mode: string; gameType: string; blank: string }[];
+		};
 		potsOverlay?: { pots: { id: string }[]; drops: { modes: string[] } };
 	};
 };
@@ -326,7 +344,8 @@ console.info('a Hold and Win game');
 await check('players get the published holdAndWin block, authoring the live one', async () => {
 	const published = await answer('project=hnw&k=HNW&source=published');
 	const live = await answer('project=hnw&k=HNW&source=live');
-	eq(published.protocol, 'holdAndWin', 'protocol');
+	// The kind no longer picks a mock (bonus-games Phase 2): a lines contract carries the block.
+	eq(published.protocol, 'lines', 'protocol');
 	eq(published.grid?.holdAndWin?.block.stickiness, 'allCoins', 'published = Pots');
 	eq(published.grid?.betModes, undefined, 'Pots sells nothing');
 	eq(
@@ -340,6 +359,21 @@ await check('players get the published holdAndWin block, authoring the live one'
 		'line symbols in config names',
 	);
 	eq(live.grid?.symbols, undefined, 'no lines-mock server pool');
+	eq(live.grid?.holdAndWin?.modes, undefined, 'one default respin mode: no per-mode inputs');
+});
+
+await check('a second respin mode: per-mode inputs, primary first, each on its strip', async () => {
+	const live = await answer('project=hnwTwo&k=HN2&source=live');
+	eq(live.protocol, 'lines', 'a lines-kind project with a base-game Hold and Win');
+	eq(
+		live.grid?.holdAndWin?.modes?.map((m) => [m.mode, m.gameType]),
+		[
+			['holdAndWin', 'respin'],
+			['holdAndWin_2', 'respin_2'],
+		],
+		'modes',
+	);
+	eq(live.grid?.holdAndWin?.block.stickiness, 'allCoins', 'the legacy block is the primary');
 });
 
 console.info('a book game with a pots overlay');

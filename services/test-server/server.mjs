@@ -365,7 +365,10 @@ const makeMock = (
 ) => {
 	// Whether this game's client prices a bet-option table (see `sellableGrid`).
 	const sells = Boolean(runtime) || tableCapable === true;
-	if (protocol === 'holdAndWin') {
+	// A Hold and Win game: the `holdAndWin` protocol stamped before bonus-games Phase 2, or a lines
+	// contract carrying the base-game Hold and Win inputs (the launcher sends them only when the coins
+	// land on the base reels; an overlay's bonus rides `potsOverlay`).
+	if (protocol === 'holdAndWin' || (protocol === 'lines' && grid?.holdAndWin)) {
 		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin, sells);
 		if (mock) return mock;
 	}
@@ -630,6 +633,26 @@ const validGrid = (grid) => {
 	const scatterWild = grid.scatterWild === true;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
+	const symbolsShaped = (symbols) =>
+		Boolean(symbols) &&
+		typeof symbols === 'object' &&
+		Object.values(symbols).every((sym) => sym && Array.isArray(sym.roles));
+	// Its respin modes, when it has more than the default one: each its id, strip key, rules, blank and
+	// the symbols it deals.
+	const respinModesShaped = (modes) =>
+		modes === undefined ||
+		(Array.isArray(modes) &&
+			modes.length > 0 &&
+			modes.every(
+				(m) =>
+					m &&
+					typeof m.mode === 'string' &&
+					typeof m.gameType === 'string' &&
+					typeof m.blank === 'string' &&
+					m.block &&
+					typeof m.block === 'object' &&
+					symbolsShaped(m.symbols),
+			));
 	const holdAndWinShaped = (hw) =>
 		Boolean(
 			hw &&
@@ -638,9 +661,8 @@ const validGrid = (grid) => {
 			typeof hw.block === 'object' &&
 			Array.isArray(hw.lineSymbols) &&
 			hw.lineSymbols.every((s) => typeof s === 'string') &&
-			hw.symbols &&
-			typeof hw.symbols === 'object' &&
-			Object.values(hw.symbols).every((sym) => sym && Array.isArray(sym.roles)),
+			symbolsShaped(hw.symbols) &&
+			respinModesShaped(hw.modes),
 		);
 	const holdAndWin = holdAndWinShaped(grid.holdAndWin) ? grid.holdAndWin : null;
 	// An overlay's REELS modes of the project's own (an imported free spins): per mode, the strips its

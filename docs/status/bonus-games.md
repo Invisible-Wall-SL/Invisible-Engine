@@ -31,7 +31,7 @@ starts the phase sessions, reviews their PRs and merges them.
 |---|---|---|---|---|
 | 0 | Plan + hub | merged | Hold and Wins as standalone project | #1131 |
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
-| 2 | Mock: per-mode engines | in progress | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | — |
+| 2 | Mock: per-mode engines | in review | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #TBD |
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
@@ -113,7 +113,62 @@ starts the phase sessions, reviews their PRs and merges them.
   - Mode-level validation of a SECOND respin mode's rules is still owed. Only the mirrored primary
     goes through `validateHoldAndWin`; Phase 2 or 5a should run it per mode.
 
+- 2026-10-08 — **Phase 2: the wire emit rule and the "classic overlay over lines"** (hub-approved).
+  - **Emit rule:** `bonusModes` and `mode` are sent only when the respin set is not the lone default,
+    so every existing game is byte-identical. Phase 7 deletes the condition.
+  - **Routing order for readers:** `context.mode`, else `bonuses[spinTrigger.bonus]`, else the
+    primary.
+  - **"The classic overlay composes over the lines mock"** is done by contract, not by wrapping
+    `createLinesMock`. A `holdAndWin`-kind project now gets a `lines` contract carrying its base-game
+    Hold and Win inputs, and is dealt on the Hold and Win engine, whose base game IS the lines
+    evaluator plus the classic overlay. Truly composing it over `createLinesMock` would change the RNG
+    streams and so every dealt board. That is deferred to Phase 7, and only if the owner wants it.
+  - **Decided by the doc, not the kind:** a lines-KIND project whose Hold and Win is base-game (not an
+    overlay bonus) is now also dealt by the Hold and Win engine. Before, the lines mock ignored its
+    block.
+  - **Limits on the game mock** (coins on the base reels):
+    - base-game coins and specials are the primary mode's, whichever mode a route starts;
+    - a route that two modes both claim goes to the first mode that has it;
+    - jackpot tiers that share a name share one progressive pool.
+
 ## Recent changes
+
+- 2026-10-08 — **Phase 2: the mock has one Hold and Win engine per respin mode** (PR #TBD, scripts,
+  `test-server`, game-config's mock inputs, the launcher's mock protocol).
+  - **Inputs:** `holdAndWinMockInputs(doc).modes` lists each respin mode, primary first, as
+    `{ mode, gameType, block, blank, symbols }`. `block` is the mode's rules joined with its routes.
+    `symbols` are the role symbols on its own strip (the primary's on the base strip too), so two
+    modes' coins never mix. The field is absent for the lone default mode.
+  - **Engine** (`mock-holdandwin-engine.mjs`): `mode`, `bonus` (the strip key), `blank` and `wire`
+    options replace the hard-coded `mode: 'holdAndWin'` and `RESPIN_BONUS`. `setRouter` lets the
+    base engine start another mode's engine on the dealt board.
+  - **Game mock** (`createRespinEngines`): the primary deals the base game with every mode's routes
+    on its trigger. Count, pattern, Lucky Spin, random metre, a buy tier and a meter each start the
+    mode that owns the route. Respins dispatch by `round.feature.mode`.
+  - **Overlay** (`mock-pots-overlay.mjs`): one engine per mode. Each pot starts its own mode, and
+    the coins start the first mode with a count route. `bonuses` maps each strip key to its mode. A
+    round plays each respin mode at most once, in turn.
+  - **Wire:** `bonusModes` and `mode` on six contexts, under the emit rule (design §2.2, wire
+    reference "Several respin modes").
+  - **Protocol:** `protocolFor('holdAndWin')` is gone (`mockProtocol.ts`, `current-games/lib/plan.mjs`).
+    - A lines contract carries the Hold and Win inputs when the coins land on the base reels, and
+      the test server deals it on the Hold and Win engine.
+    - Stored `protocol: 'holdAndWin'` entries deal as before, and the game card no longer calls one
+      a drift.
+  - **Validator:** `validateBonusModes` refuses two respin modes on one strip key, and so does the
+    mock.
+  - **Gates:**
+    - New `check:bonus-modes` (in `check:rgs`) runs the two-mode host on the book and lines mocks:
+      each pot deals its own mode's rules on its own symbols, and every context is tagged. It also
+      covers the lone default (no new keys), a lone non-default mode, a buy route to a second mode,
+      and one strip key shared.
+    - `check:holdandwin` (1892/0) and `check:pots-overlay` (112/0): `MAIN_DIGESTS` unchanged.
+    - A seeded comparison against main on the real test server: the three Hold and Win samples (on
+      the stored `holdAndWin` path AND the new `lines` path) and `borut-pots-sample` (book and lines
+      hosts) deal byte-identical answers. Their mock inputs are byte-identical.
+    - `check:mock-contract` is extended (the `lines` protocol, per-mode inputs). `check:freespins`,
+      `check:bonus-import`, `check:pots-overlay-add-on`, `check:game-config-defaults`,
+      `check:symbols-kind-gating`, lint and `check:undefined-names` all pass.
 
 - 2026-10-08 — **Phase 1: the hub's review fixes** (PR #1133).
   - **Blocking 1:** a `reels` / `none` override of the Hold and Win mode no longer drops its block.

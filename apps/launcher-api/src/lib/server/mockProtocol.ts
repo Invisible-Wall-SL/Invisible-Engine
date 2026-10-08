@@ -27,8 +27,8 @@ export function protocolFor(gameType: string): MockProtocol {
 	// `scatter` likewise — a count-anywhere evaluator. Its pricing is by COUNT rather than run length,
 	// which is why the project's own paytable (shipped for every model) matters most here.
 	if (gameType === 'scatter') return 'scatter';
-	// `holdAndWin` has its own mock (`scripts/mock-rgs-server-holdandwin.mjs`), dealt from the
-	// project's `holdAndWin` block; a project without one is dealt its base game as lines.
-	if (gameType === 'holdAndWin') return 'holdAndWin';
+	// `holdAndWin` is a lines game with a classic coin overlay (bonus-games Phase 2): the lines
+	// contract carries its Hold and Win inputs, and the test server deals them on the Hold and Win
+	// engine. A manifest entry stamped `holdAndWin` before keeps meaning the same deal.
 	return 'lines';
 }

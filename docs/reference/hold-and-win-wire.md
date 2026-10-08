@@ -287,6 +287,38 @@ respin cell lands something 6% of the time, a Lucky Spin 1%, the random metre 0.
 pacing, chosen so features come round in a playtest. WHICH value lands follows the config's weights.
 None of it is RTP.
 
+## Several respin modes (bonus-games Phase 2)
+
+A project can declare more than one respin mode (`docs/design/bonus-games.md` §2), each with its own
+rules and its own strip key. The mock builds one engine per mode, and each route (a count, a
+pattern, a buy, Lucky Spin, a random metre, a meter or a pot) starts the mode it names.
+
+**The emit rule.** A game whose only respin mode is the default (`holdAndWin` on the `respin` strip)
+sends exactly the wire above, byte for byte. Any other respin set (a second mode, or one mode with
+another id or strip) also sends:
+
+- **on the boot `config`:** `bonusModes: [{ mode, gameType, …the holdAndWin block above }]`, one
+  entry per respin mode, primary first. `gameType` is the mode's strip key and equals the entry's
+  `bonus`. The legacy `holdAndWin` stays, and it is the primary's entry without `mode` /
+  `gameType`. On an overlay host, `potsOverlay.bonuses` gains `{ <gameType>: <mode> }` per mode;
+- **`mode: <id>` at the top of six contexts:** `spinTrigger`, `holdAndWinTrigger`, `enterBonus`,
+  `playedBonusSpin`, `playedBonusSpins` and `holdAndWinEnd`. The primary's are tagged too.
+
+An absent `mode` or `bonusModes` means the primary, `holdAndWin` on `respin`.
+
+The bonus key (`spinTrigger.bonus`, the snapshot's `bonusTriggers` / `bonusPlayed` / `spins[].bonus`
+/ `playing`) is the mode's strip key, and `spinTrigger.context.trigger.mode` is always the real mode
+id. Two respin modes on one strip key are refused, by `/config` and by the mock.
+
+**Routing on the reader's side:** `context.mode`, else `bonuses[spinTrigger.bonus]`, else the primary.
+The events inside a feature (`coinsLand`, `respinUpdate`, `jackpotWin`, …) carry no `mode`: they
+belong to the feature the last entry opened, since one respin board plays at a time.
+
+**On the Hold and Win game mock** (the coins land on the base reels), the primary deals the base game
+and every mode's routes are on its trigger, so a cause is detected exactly where it always was. A
+cause routed to another mode starts that mode's engine on the dealt board. Its boot `holdAndWin.meters`
+lists every route's meters.
+
 ## Pots overlay — an add-on on another kind's wire
 
 > Ours too (design [pots-overlay.md](../design/pots-overlay.md) §3.3). A project whose Game Config
@@ -378,12 +410,12 @@ occurs: 0, bonus: "feature", trigger, cause: "meter", meters: [id]}`, then its `
 - **→ any other mode** (until Phase 7 builds it): `modeEnter {mode, cause: "meter", meters: [id]}`
   then `modeExit {mode, total: 0}`, after which the round goes on as if no bonus had started.
 
-**Several in one round.** The host's own feature always plays first. Then Hold and Win (every pot
-routed to it, and the coins, as one feature), then each other full pot in config order. A round
-plays at most ONE Hold and Win: a pot or coins that start one while one is waiting join it (its
-`meters` and `activeModifiers` grow; the coins held are the first spin's), and a Hold and Win pot
-that fills after the round's feature has played waits for the next round (coins then start
-nothing). Whatever
+**Several in one round.** The host's own feature always plays first. Then each respin mode, in mode
+order (every pot routed to it, and the coins to theirs, as one feature), then each other full pot in
+config order. A round plays each respin mode at most ONCE: a pot or coins that start one while it is
+waiting join it (its `meters` and `activeModifiers` grow; the coins held are the first spin's), and
+a pot that fills after its mode has played this round waits for the next round (coins then start
+nothing). The value coins start the first respin mode with a count route. Whatever
 ends one — the last free spin's `playedBonusSpins`, a feature's `holdAndWinEnd` +
 `playedBonusSpins` — carries the next one's entry **instead of** `gameEnd`. The last one ends with
 `gameEnd {win}` = the whole round's win, and the client `collect`s. So with the host's free spins

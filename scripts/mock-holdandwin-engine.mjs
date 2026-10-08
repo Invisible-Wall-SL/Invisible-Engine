@@ -7,6 +7,10 @@
  * (`mock-pots-overlay.mjs`) starts its feature as another kind's BONUS: `base: false` lifts the base
  * game's requirements (paylines, line symbols) and `rand` makes it draw from the caller's stream.
  *
+ * One engine plays ONE respin mode (docs/design/bonus-games.md §2.2): `mode` is its id and `bonus`
+ * its strip key, the bonus key its feature is played under. With `wire: true` every Hold and Win
+ * context it answers carries `mode`; without it (the lone default mode) the answer is what it was.
+ *
  * A round is the caller's object: the feature reads `baseTotal` (credits per 1 × stake), `force`,
  * `isBuy`/`buyTier`, keeps its state on `feature` and adds what it pays to `win`. A session carries
  * `meters` (levels by id, zeroed as the feature consumes them) and `jackpots` (the progressive pools,
@@ -14,9 +18,6 @@
  */
 
 import { evaluatePaylines } from './mock-rgs-server.mjs';
-
-/** The bonus key the respin feature is played under — the partner core's `spinTrigger.bonus`. */
-export const RESPIN_BONUS = 'respin';
 
 /** Wire version, sent in the boot config so a facade can refuse a wire it was not written for. */
 export const HOLD_AND_WIN_WIRE_VERSION = 1;
@@ -68,10 +69,14 @@ export const tidy = (n) => Number(n.toFixed(4));
 
 const payCents = (amount) => (amount > 0 ? Math.max(1, Math.round(amount)) : 0);
 
+/** The default respin mode, and its strip key — the partner core's `spinTrigger.bonus`. */
+export const DEFAULT_RESPIN_MODE = { mode: 'holdAndWin', bonus: 'respin' };
+
 // ---------- factory ----------
 
 /**
  * @param {{ label?: string, seed?: string, rand?: () => number, base?: boolean,
+ *   mode?: string, bonus?: string, blank?: string, wire?: boolean,
  *   reels?: number, rows?: number, rowsPerReel?: number[], paylines?: number[][],
  *   betModes?: { mode: string, cost: number, kind: 'base' | 'ante' | 'buy' }[],
  *   holdAndWin: { block: object, lineSymbols: string[],
@@ -86,6 +91,10 @@ export function createHoldAndWinEngine(opts = {}) {
 	}
 	const block = inputs.block;
 	const symbols = inputs.symbols;
+	const mode = opts.mode ?? DEFAULT_RESPIN_MODE.mode;
+	const bonusKey = opts.bonus ?? DEFAULT_RESPIN_MODE.bonus;
+	/** `{ mode }` on every Hold and Win context, or nothing for the lone default mode. */
+	const tagged = opts.wire === true ? { mode } : {};
 	const list = (v) => (Array.isArray(v) ? v : []);
 	// The launcher hands over a NORMALIZED block, but the manifest copy is external: every field a
 	// spin reads is re-read here into the shape the code assumes, so a malformed one deals nothing
@@ -174,7 +183,7 @@ export function createHoldAndWinEngine(opts = {}) {
 	const withRole = (role) => names.filter((n) => list(symbols[n].roles).includes(role));
 	const coinSymbol = withRole('coin')[0] ?? withRole('jackpot')[0];
 	const jackpotSymbol = withRole('jackpot')[0] ?? coinSymbol;
-	const blankSymbol = withRole('blank')[0] ?? 'BLANK';
+	const blankSymbol = opts.blank ?? withRole('blank')[0] ?? 'BLANK';
 	const unlockSymbol = expansion?.rule === 'unlockSymbol' ? withRole('unlock')[0] : undefined;
 	const specialSymbol = Object.fromEntries(
 		SPECIALS.map((kind) => [kind, specialsCfg[kind] ? withRole(SPECIAL_ROLE[kind])[0] : undefined]),
@@ -593,9 +602,9 @@ export function createHoldAndWinEngine(opts = {}) {
 					break;
 				case 'queuedMode': {
 					const id = args[0] ?? 'queuedFixture';
-					if (!/^[A-Za-z][\w-]*$/.test(id) || id === 'holdAndWin')
+					if (!/^[A-Za-z][\w-]*$/.test(id) || id === mode)
 						errors.push(
-							`${token}: "${id}" is not a mode id (a letter, then letters, digits, - or _; not holdAndWin)`,
+							`${token}: "${id}" is not a mode id (a letter, then letters, digits, - or _; not ${mode})`,
 						);
 					force.queuedMode = id;
 					break;
@@ -642,7 +651,7 @@ export function createHoldAndWinEngine(opts = {}) {
 	/** The boot config's `holdAndWin` block — the feature's rules, the meters and pools as they stand. */
 	const holdAndWinConfig = (session) => ({
 		wire: HOLD_AND_WIN_WIRE_VERSION,
-		bonus: RESPIN_BONUS,
+		bonus: bonusKey,
 		roles: Object.fromEntries(
 			names.filter((n) => list(symbols[n].roles).length).map((n) => [n, symbols[n].roles]),
 		),
@@ -734,7 +743,7 @@ export function createHoldAndWinEngine(opts = {}) {
 		const spinTrigger = {
 			occurs: [trigger.count?.min ?? 1],
 			of: coinSymbol,
-			mode: 'holdAndWin',
+			mode,
 			from: '',
 		};
 		return {
@@ -744,14 +753,15 @@ export function createHoldAndWinEngine(opts = {}) {
 			played: f.played,
 			left: f.left,
 			multiplier: {},
-			bonusTriggers: { [RESPIN_BONUS]: 1 },
+			bonusTriggers: { [bonusKey]: 1 },
 			bonusPlayed: {
-				[RESPIN_BONUS]: { count: f.played, base: { count: 0, multiplierCount: 0 }, states: {} },
+				[bonusKey]: { count: f.played, base: { count: 0, multiplierCount: 0 }, states: {} },
 			},
-			spins: f.left > 0 ? [{ spins: f.left, bonus: RESPIN_BONUS, trigger: spinTrigger }] : [],
-			playing: RESPIN_BONUS,
+			spins: f.left > 0 ? [{ spins: f.left, bonus: bonusKey, trigger: spinTrigger }] : [],
+			playing: bonusKey,
 			trigger: spinTrigger,
 			holdAndWin: featureState(f),
+			...tagged,
 		};
 	};
 
@@ -931,6 +941,7 @@ export function createHoldAndWinEngine(opts = {}) {
 				cells: tally,
 				banked: f.banked,
 				total,
+				...tagged,
 			},
 		});
 		// The queued mode has nothing of its own to play, so it closes as soon as it starts. `total` is
@@ -967,6 +978,7 @@ export function createHoldAndWinEngine(opts = {}) {
 			queue: [],
 			boosted: false,
 			ended: false,
+			mode,
 			...(expansion
 				? { rows: rowHeights[0], unlocksLeft: force.unlockRows ?? 0, fillAll: force.expandFull }
 				: {}),
@@ -1007,14 +1019,15 @@ export function createHoldAndWinEngine(opts = {}) {
 			context: {
 				spins: [{ prob: 1, spins: respinRules.start }],
 				occurs: countMatches(board) || held.length,
-				bonus: RESPIN_BONUS,
+				bonus: bonusKey,
 				trigger: {
 					occurs: [trigger.count?.min ?? 1],
 					of: coinSymbol,
-					mode: 'holdAndWin',
+					mode,
 					from: '',
 				},
 				cause,
+				...tagged,
 			},
 		});
 		events.push({
@@ -1027,6 +1040,7 @@ export function createHoldAndWinEngine(opts = {}) {
 				stickiness,
 				activeModifiers: [...f.active],
 				...(expansion ? { expansion: { rows: f.rows, maxRows: expansion.maxRows } } : {}),
+				...tagged,
 			},
 		});
 		// A second mode in the same round is announced explicitly. Queued: it starts once the feature
@@ -1708,7 +1722,10 @@ export function createHoldAndWinEngine(opts = {}) {
 		}
 
 		if (cause) {
-			startFeature(events, round, session, board, cause, full);
+			// Another respin mode's route starts that mode's engine on this board (`setRouter`).
+			const target = router?.(cause, round, full);
+			if (target) target.startFeature(events, round, session, board, cause, full);
+			else startFeature(events, round, session, board, cause, full);
 			return;
 		}
 
@@ -1722,7 +1739,18 @@ export function createHoldAndWinEngine(opts = {}) {
 		}
 	};
 
+	/** `(cause, round, meterIds) → engine | undefined` — which respin mode a base-game cause starts,
+	 *  when it is not this one's (the Hold and Win game mock's routes to its other modes). */
+	let router = null;
+	const setRouter = (fn) => {
+		router = fn;
+	};
+
 	return {
+		mode,
+		bonus: bonusKey,
+		rand,
+		setRouter,
 		list,
 		trigger,
 		meters,

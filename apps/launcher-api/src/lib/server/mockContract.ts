@@ -30,6 +30,7 @@ import {
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
+	holdAndWinIsOverlayBonus,
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
 	isScatterSymbol,
@@ -578,12 +579,18 @@ function projectGrid(
 			};
 		}
 		if ((protocol === 'lines' || protocol === 'holdAndWin') && !paylines.length) return undefined;
-		// `holdAndWin` runs its own mock, which deals from the block and the project's OWN symbol names
-		// — none of the lines mock's server-vocabulary fields below apply. Its base game pays lines, so
-		// it takes the board, the lines and the bet table like a lines game. No block ⇒ no inputs, and
-		// the test server deals the base game as lines (and says so).
-		if (protocol === 'holdAndWin') {
-			const holdAndWin = holdAndWinMockInputs(doc);
+		// A Hold and Win GAME — a lines game whose coin overlay deals its coins on the base reels, as
+		// the `holdAndWin` kind's projects are — runs on the Hold and Win engine, which deals from the
+		// block and the project's OWN symbol names: none of the lines mock's server-vocabulary fields
+		// below apply. Its base game pays lines, so it takes the board, the lines and the bet table.
+		// Decided by the doc, not the kind (bonus-games Phase 2); a stored `holdAndWin` protocol with
+		// no block keeps getting the board alone, and the test server deals it as lines (and says so).
+		const holdAndWinGame =
+			protocol === 'lines' && !holdAndWinIsOverlayBonus(doc)
+				? holdAndWinMockInputs(doc)
+				: undefined;
+		if (protocol === 'holdAndWin' || holdAndWinGame) {
+			const holdAndWin = holdAndWinGame ?? holdAndWinMockInputs(doc);
 			const betModes = projectBetModes(doc, projectKey);
 			return {
 				reels,

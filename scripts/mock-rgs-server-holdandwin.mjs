@@ -36,11 +36,10 @@ import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
 import {
 	createHoldAndWinEngine,
 	HOLD_AND_WIN_WIRE_VERSION,
-	RESPIN_BONUS,
 	tidy,
 } from './mock-holdandwin-engine.mjs';
 
-export { HOLD_AND_WIN_WIRE_VERSION, RESPIN_BONUS };
+export { HOLD_AND_WIN_WIRE_VERSION };
 
 // ---------- pure HTTP plumbing (the book mock's) ----------
 
@@ -95,6 +94,83 @@ const refuse = (req, res, session, error, errorCode = 110) =>
 		platform: session ? { balance: session.balance } : {},
 	});
 
+// ---------- the respin modes ----------
+
+/**
+ * One engine per respin mode (`holdAndWin.modes`, primary first), or the one engine of a game whose
+ * only respin mode is the default. The PRIMARY deals the base game, and every route of every mode is
+ * on its trigger, so a cause is detected exactly where it always was; a cause routed to another mode
+ * starts that mode's engine on the dealt board (`setRouter`). Every engine draws from the primary's
+ * stream, so the deal stays one seeded sequence.
+ */
+export function createRespinEngines(opts) {
+	const inputs = opts.holdAndWin;
+	const modes = Array.isArray(inputs?.modes) && inputs.modes.length ? inputs.modes : null;
+	if (!modes) {
+		const engine = createHoldAndWinEngine(opts);
+		return { engine, engines: [engine], wire: false };
+	}
+	const list = (v) => (Array.isArray(v) ? v : []);
+	const [primary, ...others] = modes;
+	const keys = new Set();
+	for (const m of modes) {
+		if (keys.has(m.gameType))
+			throw new Error(`[${opts.label}] two respin modes play on the "${m.gameType}" strips`);
+		keys.add(m.gameType);
+	}
+	/** Which mode each route starts: the first mode (primary first) that has it. */
+	const owner = {};
+	const buyOwner = new Map();
+	const meterOwner = new Map();
+	const trigger = {};
+	const meters = [];
+	for (const m of modes) {
+		const t = m.block.trigger ?? {};
+		for (const cause of ['count', 'pattern', 'luckySpin', 'randomMetre']) {
+			const has = cause === 'pattern' ? list(t.pattern).length > 0 : Boolean(t[cause]);
+			if (has && !owner[cause]) {
+				owner[cause] = m.mode;
+				trigger[cause] = t[cause];
+			}
+		}
+		for (const tier of list(t.buy)) {
+			if (buyOwner.has(tier.mode)) continue;
+			buyOwner.set(tier.mode, m.mode);
+			(trigger.buy ??= []).push(tier);
+		}
+		for (const meter of list(m.block.meters)) {
+			if (meterOwner.has(meter.id)) continue;
+			meterOwner.set(meter.id, m.mode);
+			meters.push(meter);
+		}
+	}
+	const own = (m, block) => ({
+		...opts,
+		mode: m.mode,
+		bonus: m.gameType,
+		blank: m.blank,
+		wire: true,
+		holdAndWin: { block, lineSymbols: inputs.lineSymbols, symbols: m.symbols },
+	});
+	const engine = createHoldAndWinEngine(own(primary, { ...primary.block, trigger, meters }));
+	const engines = [
+		engine,
+		...others.map((m) => createHoldAndWinEngine({ ...own(m, m.block), rand: engine.rand })),
+	];
+	const byMode = new Map(engines.map((e) => [e.mode, e]));
+	engine.setRouter((cause, round, meterIds) => {
+		const id =
+			cause === 'buy'
+				? buyOwner.get(round.buyTier?.mode)
+				: cause === 'meter'
+					? meterOwner.get(meterIds[0])
+					: owner[cause];
+		const target = byMode.get(id);
+		return target === engine ? undefined : target;
+	});
+	return { engine, engines, wire: true };
+}
+
 // ---------- factory ----------
 
 /**
@@ -102,7 +178,8 @@ const refuse = (req, res, session, error, errorCode = 110) =>
  *   reels?: number, rows?: number, rowsPerReel?: number[], paylines?: number[][],
  *   betModes?: { mode: string, cost: number, kind: 'base' | 'ante' | 'buy' }[],
  *   holdAndWin: { block: object, lineSymbols: string[],
- *     symbols: Record<string, { roles: string[], wild?: true, paytable?: Record<string, number> }> },
+ *     symbols: Record<string, { roles: string[], wild?: true, paytable?: Record<string, number> }>,
+ *     modes?: { mode: string, gameType: string, block: object, blank: string, symbols: object }[] },
  *   force?: string }} opts
  */
 export function createMockRgs(opts = {}) {
@@ -114,22 +191,35 @@ export function createMockRgs(opts = {}) {
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 10_000);
 	const seed = opts.seed ?? process.env.SEED;
 
-	const engine = createHoldAndWinEngine({ ...opts, label, seed });
-	const {
-		list,
-		trigger,
-		meters,
-		progressiveTiers,
-		wonProgressive,
-		setLivePools,
-		paylines,
-		betTable,
-		parseForce,
-		configContext,
-		featureState,
-		playBase,
-		playRespin,
-	} = engine;
+	const { engine, engines, wire } = createRespinEngines({ ...opts, label, seed });
+	const { list, trigger, meters, paylines, betTable, parseForce, playBase } = engine;
+	/** The engine playing a round's feature — the respin mode that started it. */
+	const engineOf = (round) => engines.find((e) => e.mode === round.feature?.mode) ?? engine;
+	const playRespin = (events, round) => engineOf(round).playRespin(events, round);
+	const featureState = (f) => engineOf({ feature: f }).featureState(f);
+	/** Every respin mode's progressive tiers, by name (a name two modes share is one pool). */
+	const tierNames = new Set();
+	const progressiveTiers = engines
+		.flatMap((e) => e.progressiveTiers)
+		.filter((t) => !tierNames.has(t.name) && tierNames.add(t.name));
+	const setLivePools = (pools) => engines.forEach((e) => e.setLivePools(pools));
+	const wonProgressive = {
+		has: (name) => engines.some((e) => e.wonProgressive.has(name)),
+		clear: () => engines.forEach((e) => e.wonProgressive.clear()),
+	};
+	// One respin mode: the boot config is the engine's, byte for byte. Several: it lists each beside
+	// the legacy `holdAndWin` (the primary's) — the shared wire contract, docs/design/bonus-games.md §2.2.
+	const configContext = (session) =>
+		!wire
+			? engine.configContext(session)
+			: {
+					...engine.configContext(session),
+					bonusModes: engines.map((e) => ({
+						mode: e.mode,
+						gameType: e.bonus,
+						...e.holdAndWinConfig(session),
+					})),
+				};
 	const tableFor = (session) => ('betTable' in session ? session.betTable : betTable);
 
 	const defaultForce = (() => {
