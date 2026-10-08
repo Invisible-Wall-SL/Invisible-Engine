@@ -515,8 +515,8 @@ Phase 7 would read as a custom kind, which every surface already treats as lines
 
 ## 7. Build plan
 
-> Where it stands: Phases 1–5 merged (#1114, #1119, #1120, #1123, #1126); Phase 6 tooling in
-> #1132 (the owner runs the migration). Phase 7 is built as a DRAFT that merges only once the
+> Where it stands: Phases 1–5 merged (#1114, #1119, #1120, #1123, #1126); Phase 6 tooling and the
+> table-capable stamp in #1132 and #1135 (the owner runs the migration). Phase 7 is built as a DRAFT that merges only once the
 > `/admin` Book-of census is clear; see [status/game-config](../status/game-config.md) ("The
 > Book-of kind is removed") and [status/engine](../status/engine.md).
 

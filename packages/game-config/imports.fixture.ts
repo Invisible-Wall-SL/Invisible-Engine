@@ -16,7 +16,7 @@ import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS } from './src/holdAndWinPresets.ts';
 import { importBonus, importableFeatures, resyncBonus, type ImportResult } from './src/imports.ts';
 import { symbolsInPlay, symbolsInPlayForGameType } from './src/inPlay.ts';
-import { ownReelsModeForGameType } from './src/modes.ts';
+import { holdAndWinModeDecl, ownReelsModeForGameType } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import type { AddOnResult } from './src/addOns.ts';
 import type { GameConfigDoc, GameConfigSymbol, RawGameConfig } from './src/types.ts';
@@ -288,10 +288,20 @@ console.log('\n6. re-sync picks up a source edit and keeps everything else');
 		doc.potsOverlay!.pots[0],
 		authored.potsOverlay!.pots[0],
 	);
+	// The import is the block, the respin mode's rules and the overlay's trigger half it brings.
+	const outside = (d: GameConfigDoc) => ({
+		...d,
+		holdAndWin: null,
+		imports: null,
+		symbols: null,
+		paddingReels: null,
+		modes: d.modes?.map(({ holdAndWin: _rules, ...decl }) => decl),
+		coinOverlay: { ...d.coinOverlay, trigger: null, baseGame: null },
+	});
 	check(
 		'nothing outside the import moved',
-		{ ...doc, holdAndWin: null, imports: null, symbols: null, paddingReels: null },
-		{ ...authored, holdAndWin: null, imports: null, symbols: null, paddingReels: null },
+		canon(outside(doc)),
+		canon(outside(normalize(clone(authored)))),
 	);
 	check(
 		"the host's own symbols and strips are untouched",
@@ -337,15 +347,21 @@ console.log("\n6b. the mode override: the source's presentation, the host's HUD"
 	const hosted = clone(threePotsHost);
 	hosted.modes = [{ id: 'holdAndWin', board: 'respinBoard', hud: 'hud_host' }];
 	const doc = imported(importBonus(hosted, source, { ...FROM, replace: true })).doc;
+	// The mode is declared in full (bonus-games Phase 1); its presentation is what is checked here.
+	const presentation = (d: GameConfigDoc) =>
+		canon(d.modes?.map(({ holdAndWin: _rules, ...decl }) => decl));
+	const declared = { ...holdAndWinModeDecl(), music: 'bgm_classic' };
 	check(
 		"music comes with it; the HUD stays the host's (it names a screen of the host's layout)",
-		doc.modes,
-		[{ id: 'holdAndWin', board: 'respinBoard', music: 'bgm_classic', hud: 'hud_host' }],
+		presentation(doc),
+		canon([{ ...declared, hud: 'hud_host' }]),
 	);
 	const bare = imported(importBonus(goldHost, source, FROM)).doc;
-	check('a host with no HUD of its own takes none from the source', bare.modes, [
-		{ id: 'holdAndWin', board: 'respinBoard', music: 'bgm_classic' },
-	]);
+	check(
+		'a host with no HUD of its own takes none from the source',
+		presentation(bare),
+		canon([declared]),
+	);
 }
 
 console.log('\n7. the record normalizes structurally');

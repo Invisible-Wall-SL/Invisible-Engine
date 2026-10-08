@@ -17,6 +17,7 @@
  * reference — a jackpot name, a reel index, a role no symbol carries — is the validator's to report.
  */
 
+import { legacyPotsOverlay } from './bonusGames';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
 import { BASE_GAME_MODE, HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { GameConfigDoc } from './types';
@@ -702,6 +703,11 @@ export function normalizeHoldAndWin(raw: unknown): HoldAndWin | undefined {
 	return out;
 }
 
+/** The readers the coin overlay (`./coinOverlay`) parses its half of the block with. */
+export const normalizeCoinTable = (raw: unknown): CoinValueEntry[] => list(raw, coin);
+export const normalizeHoldAndWinTrigger = trigger;
+export const normalizeHoldAndWinMeter = meter;
+
 // ─── read helpers ─────────────────────────────────────────────────────────────────────────────
 
 /** The Hold and Win roles a symbol carries. */
@@ -763,7 +769,7 @@ export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
  * Decided from the data, here only, so the validator, the mock, the facade and the runtime agree.
  */
 export const holdAndWinIsOverlayBonus = (doc: GameConfigDoc): boolean =>
-	Boolean(doc.potsOverlay) &&
+	Boolean(legacyPotsOverlay(doc)) &&
 	!symbolsInPlayForGameType(
 		doc,
 		gameTypeForMode(gameModeById(doc, BASE_GAME_MODE) ?? { id: BASE_GAME_MODE }),

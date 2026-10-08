@@ -265,20 +265,17 @@ const holdAndWinFallbackWarned = new Set();
 
 /**
  * A Hold and Win game's mock, built from the `holdAndWin` inputs its contract carries (the project's
- * block, symbols and line pays — `holdAndWinMockInputs` in game-config). A contract without them (a
- * project with no `holdAndWin` block, or an entry published before Phase 3) is dealt as the lines
- * game its base game is, and says so once: a respin feature that never comes is otherwise
- * indistinguishable from a broken one.
+ * block, symbols and line pays — `holdAndWinMockInputs` in game-config). Inputs that are malformed,
+ * or that the mock cannot stand up, leave the game dealt as the lines game its base game is, and it
+ * says so once: a respin feature that never comes is otherwise indistinguishable from a broken one.
  */
 const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin, sells) => {
 	try {
-		if (grid?.holdAndWin) {
-			// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
-			// never get it, its authoring twin and a standalone build's one mock do.
-			const allowForce = twin || !runtime;
-			return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, sells) });
-		}
-		throw new Error('its contract carries no holdAndWin block');
+		if (grid.holdAndWinRejected) throw new Error('its holdAndWin inputs are malformed');
+		// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
+		// never get it, its authoring twin and a standalone build's one mock do.
+		const allowForce = twin || !runtime;
+		return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, sells) });
 	} catch (e) {
 		if (!holdAndWinFallbackWarned.has(gameKey)) {
 			holdAndWinFallbackWarned.add(gameKey);
@@ -316,6 +313,10 @@ const platformJackpotFor = (gameKey, meta, channel) => {
 /** Games already told their pots overlay could not be dealt, so it is said once. */
 const potsOverlayFallbackWarned = new Set();
 
+/** Whether a game's client prices a bet-option table: a runtime game, or a desktop build stamped
+ *  table-capable. The one rule `makeMock` sells by and every carry of a session follows. */
+const sellsTable = (meta) => Boolean(meta?.runtime) || meta?.tableCapable === true;
+
 const makeMock = (
 	protocol,
 	label,
@@ -327,12 +328,19 @@ const makeMock = (
 	tableCapable = false,
 ) => {
 	// Whether this game's client prices a bet-option table (see `sellableGrid`).
-	const sells = Boolean(runtime) || tableCapable === true;
-	if (protocol === 'holdAndWin') {
+	const sells = sellsTable({ runtime, tableCapable });
+	// A Hold and Win game: a lines contract carrying the base-game Hold and Win inputs (the launcher
+	// sends them for a `holdAndWin`-kind project; an overlay's bonus rides `potsOverlay`), or ones
+	// that were sent but rejected, which its mock reports before the game is dealt as lines.
+	if (protocol === 'lines' && (grid?.holdAndWin || grid?.holdAndWinRejected)) {
 		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin, sells);
 		if (mock) return mock;
 	}
-	// `holdAndWin` lands here only when its own mock could not be built (above).
+	if (grid?.holdAndWinRejected) {
+		grid = { ...grid };
+		delete grid.holdAndWinRejected;
+	}
+	// A Hold and Win game lands here only when its own mock could not be built (above).
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
@@ -589,6 +597,26 @@ const validGrid = (grid) => {
 	const scatterWild = grid.scatterWild === true;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
+	const symbolsShaped = (symbols) =>
+		Boolean(symbols) &&
+		typeof symbols === 'object' &&
+		Object.values(symbols).every((sym) => sym && Array.isArray(sym.roles));
+	// Its respin modes, when it has more than the default one: each its id, strip key, rules, blank and
+	// the symbols it deals.
+	const respinModesShaped = (modes) =>
+		modes === undefined ||
+		(Array.isArray(modes) &&
+			modes.length > 0 &&
+			modes.every(
+				(m) =>
+					m &&
+					typeof m.mode === 'string' &&
+					typeof m.gameType === 'string' &&
+					typeof m.blank === 'string' &&
+					m.block &&
+					typeof m.block === 'object' &&
+					symbolsShaped(m.symbols),
+			));
 	const holdAndWinShaped = (hw) =>
 		Boolean(
 			hw &&
@@ -597,11 +625,12 @@ const validGrid = (grid) => {
 			typeof hw.block === 'object' &&
 			Array.isArray(hw.lineSymbols) &&
 			hw.lineSymbols.every((s) => typeof s === 'string') &&
-			hw.symbols &&
-			typeof hw.symbols === 'object' &&
-			Object.values(hw.symbols).every((sym) => sym && Array.isArray(sym.roles)),
+			symbolsShaped(hw.symbols) &&
+			respinModesShaped(hw.modes),
 		);
 	const holdAndWin = holdAndWinShaped(grid.holdAndWin) ? grid.holdAndWin : null;
+	// Present but malformed: still a Hold and Win game, whose mock says why it cannot be dealt.
+	const holdAndWinRejected = grid.holdAndWin !== undefined && !holdAndWin;
 	// An overlay's REELS modes of the project's own (an imported free spins): per mode, the strips its
 	// spins are drawn from (one per reel, names) and the line pays of its own symbols.
 	const reelsModesShaped = (modes) =>
@@ -658,6 +687,7 @@ const validGrid = (grid) => {
 		...(scatterPaytable ? { scatterPaytable } : {}),
 		...(betModes ? { betModes } : {}),
 		...(holdAndWin ? { holdAndWin } : {}),
+		...(holdAndWinRejected ? { holdAndWinRejected: true } : {}),
 		...(potsOverlay ? { potsOverlay } : {}),
 		...(freeSpinsOff ? { freeSpins: false } : {}),
 		...(freeSpinsTrigger ? { freeSpinsTrigger } : {}),
@@ -721,12 +751,17 @@ const contractSourceFor = (meta, channel) =>
 	channel === AUTHORING || !meta.runtime ? 'live' : 'published';
 
 const MOCK_PROTOCOLS = new Set(['lines', 'ways', 'cluster', 'scatter', 'holdAndWin']);
+/** A known protocol, else `fallback`. A `holdAndWin` stamp (before bonus-games Phase 2) is the lines
+ *  contract the launcher now sends for the same game, so the two fingerprint the same and a refresh
+ *  never rebuilds the mock over the stamp alone. */
+const protocolOf = (raw, fallback) =>
+	raw === 'holdAndWin' ? 'lines' : MOCK_PROTOCOLS.has(raw) ? raw : fallback;
 
 /** Normalize a contract from EITHER source (manifest snapshot or live endpoint) into what
  *  `makeMock` consumes. Both go through `validGrid`, so the live answer gets the same defensive
  *  shape-check the external manifest already got — one gate, no second answer. */
 const normalizeContract = (raw, fallbackProtocol) => ({
-	protocol: MOCK_PROTOCOLS.has(raw?.protocol) ? raw.protocol : fallbackProtocol,
+	protocol: protocolOf(raw?.protocol, fallbackProtocol),
 	cascade: typeof raw?.cascade === 'boolean' ? raw.cascade : undefined,
 	grid: validGrid(raw?.grid),
 });
@@ -741,18 +776,21 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
  * (`holdOpenRounds`): a round dealt on the previous grid cannot be settled on the new one, and
  * dropping it strands the player inside the feature.
  *
- * A runtime game's sessions also keep the bet table they were told about, and whether their config
- * carried the pots overlay (`carrySession`): its client keeps the config it booted with, and a tab
- * open when the project gains or loses a buy would otherwise be priced by a table it never saw, and
- * one open when a game gains the overlay dealt drops and pot bonuses it cannot draw. A reload
- * asks for `config` and gets the new one. A desktop build's sessions are re-sent the config on their
- * next heartbeat, as before.
+ * A game that sells a table (`sellsTable`: a runtime game, or a desktop build stamped
+ * table-capable) keeps each session's bet table and whether its config carried the pots overlay
+ * (`carrySession`): its client keeps the config it booted with, and a tab open when the project
+ * gains or loses a buy would otherwise be priced by a table it never saw, and one open when a
+ * game gains the overlay dealt drops and pot bonuses it cannot draw. A reload asks for `config` and
+ * gets the new one. An unstamped desktop build's sessions are re-sent the config on their next
+ * heartbeat, as before.
  */
 const swapMock = (key, contract, channel) => {
 	const twin = channel === AUTHORING;
 	const pool = twin ? authoringMocks : mocks;
 	const previous = own(pool, key);
-	const runtime = own(registry, key)?.runtime;
+	const meta = own(registry, key);
+	const runtime = meta?.runtime;
+	const keepBetShape = sellsTable(meta);
 	const next = makeMock(
 		contract.protocol,
 		twin ? `mock:${key}/${AUTHORING}` : `mock:${key}`,
@@ -761,14 +799,14 @@ const swapMock = (key, contract, channel) => {
 		contract.cascade,
 		runtime,
 		twin,
-		own(registry, key)?.tableCapable,
+		meta?.tableCapable,
 	);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
-			next.sessions.set(sid, carrySession(session, { keepBetShape: Boolean(runtime) }));
+			next.sessions.set(sid, carrySession(session, { keepBetShape }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
+	holdOpenRounds(previous, next, { keepBetShape });
 	pool[key] = next;
 	const fingerprint = fingerprintOf(contract);
 	// The registry's protocol/grid/cascade describe the PLAYER mock (the index page, and the contract
@@ -779,22 +817,25 @@ const swapMock = (key, contract, channel) => {
 };
 
 /**
- * A refresh resets every wallet — that is its point — but a runtime game's open tabs keep the bet
- * table they booted with (`carrySession`). A refresh follows every publish of ANY game, and wiping
- * the sessions let a stale tab's next request be priced by a table it never saw: measured, a $1 base
- * spin on a ways game that had gained a buy was charged 10000 as the buy. A desktop build's sessions
- * are reset as before. A process restart still loses everything; a table game then refuses the stale
- * tab's bet rather than guess (see the mock's `bet`). A round still open — a free-spin feature
- * mid-way — is answered by the instance that dealt it until it closes, for every game (`holdOpenRounds`).
+ * A refresh resets every wallet — that is its point — but the open tabs of a game that sells a
+ * table (`sellsTable`: a runtime game, or a desktop build stamped table-capable) keep the bet table
+ * they booted with (`carrySession`). A refresh follows every publish of ANY game, and wiping the
+ * sessions let a stale tab's next request be priced by a table it never saw: measured, a $1 base
+ * spin on a ways game that had gained a buy was charged 10000 as the buy — and a stamped desktop
+ * build's tab, which never asks for the config again, was refused every bet after it. An unstamped
+ * desktop build's sessions are reset as before. A process restart still loses everything; a table
+ * game then refuses the stale tab's bet rather than guess (see the mock's `bet`). A round still
+ * open — a free-spin feature mid-way — is answered by the instance that dealt it until it closes,
+ * for every game (`holdOpenRounds`).
  */
-const carryPins = (previous, next, runtime) => {
-	if (runtime && previous?.sessions && next.sessions) {
+const carryPins = (previous, next, keepsBetTable) => {
+	if (keepsBetTable && previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
 			const fresh = { ...session, balance: next.startBalance };
 			next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
+	holdOpenRounds(previous, next, { keepBetShape: keepsBetTable });
 };
 
 /** Games already told about below, so the warning is one line per game per process — not one per
@@ -1072,7 +1113,7 @@ async function hydrateOnce() {
 		return lastGood;
 	};
 	for (const [key, meta] of Object.entries(source.games)) {
-		const protocol = MOCK_PROTOCOLS.has(meta.protocol) ? meta.protocol : 'lines';
+		const protocol = protocolOf(meta.protocol, 'lines');
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
 		// A PINNED game (canary) names its own release; every other runtime game follows the pointer.
 		const pinned =
@@ -1211,7 +1252,7 @@ async function hydrateOnce() {
 				false,
 				meta.tableCapable,
 			);
-			carryPins(own(mocks, key), next, meta.runtime);
+			carryPins(own(mocks, key), next, sellsTable(meta));
 			return [key, next];
 		}),
 	);
@@ -1231,7 +1272,7 @@ async function hydrateOnce() {
 				meta.runtime,
 				true,
 			);
-			carryPins(previous, next, meta.runtime);
+			carryPins(previous, next, sellsTable(meta));
 			meta.authoringFingerprint = meta.fingerprint;
 			return [[key, next]];
 		}),

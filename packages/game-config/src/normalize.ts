@@ -38,9 +38,7 @@ import {
 	type WinTierSound,
 	type WinTierType,
 } from './types';
-import { normalizeHoldAndWin } from './holdAndWin';
-import { normalizePotsOverlay } from './potsOverlay';
-import { normalizeGameModes } from './modes';
+import { normalizeBonusGames } from './bonusGames';
 import { normalizeBonusImports } from './bonusImports';
 import { normalizeReelBehaviour } from './reelBehaviour';
 import { normalizeSounds } from './sounds';
@@ -442,15 +440,14 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	const reelBehaviour = normalizeReelBehaviour(raw.reelBehaviour);
 	if (reelBehaviour) doc.reelBehaviour = reelBehaviour;
 
-	const holdAndWin = normalizeHoldAndWin(raw.holdAndWin);
+	// Bonuses in the split form (`./bonusGames`): the coin overlay and the declared modes, a legacy
+	// `holdAndWin` / `potsOverlay` block migrated into them, plus those two keys as the compat mirror.
+	// Modes store only overrides of a built-in and the project's own, so a config that keeps the
+	// built-in base game and free spins and has no bonus stores none of these.
+	const { holdAndWin, potsOverlay, coinOverlay, modes } = normalizeBonusGames(raw);
 	if (holdAndWin) doc.holdAndWin = holdAndWin;
-
-	const potsOverlay = normalizePotsOverlay(raw.potsOverlay);
 	if (potsOverlay) doc.potsOverlay = potsOverlay;
-
-	// Game modes: only overrides of a built-in and the project's own modes, so a config that keeps the
-	// built-in base game and free spins stores no block.
-	const modes = normalizeGameModes(raw.modes, doc);
+	if (coinOverlay) doc.coinOverlay = coinOverlay;
 	if (modes) doc.modes = modes;
 
 	const imports = normalizeBonusImports(raw.imports);

@@ -141,6 +141,20 @@ nothing. For a project it lists, set its kind to **Lines** in the Projects table
 expanding symbol in its Game Config (or Reset to the Book of Thermopylae preset); a test-server
 entry is fixed by publishing that game again.
 
+**Desktop builds: table-capable stamp** (under the census) lists every game the Invisible Test
+Server serves from its own bundle (a desktop build), with its project, when it was last published
+and its stamp: **table-capable** or **not stamped**. The test server sells a desktop build its bet
+table (its buy) only when it is stamped. **Stamp table-capable** / **Clear stamp** sets or clears
+it, then asks the test server to re-read its list.
+
+- Only stamp a build rebuilt on an engine from 2026-10-08 (commit `f0cba612`, #1120) or later, or
+  its buy will fail. The page says so above the list.
+- **A desktop ☁ Publish clears the stamp again** (the desktop launcher does not claim it yet), so
+  rebuild first, then stamp, and stamp again after every later desktop publish.
+- If the build was published again after the page loaded, the button refuses ("republished since
+  this page loaded"): reload, check it, and stamp again.
+- A game served from the shared runtime is not listed; it is sold its table anyway.
+
 ### Admin → Settings → Invisible Director
 
 - **Run budget (USD)** — the cap each Director run pauses at, asking the owner to raise it or

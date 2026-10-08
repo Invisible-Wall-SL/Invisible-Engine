@@ -41,7 +41,7 @@
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
 	import { GAME_KINDS } from 'constants-shared/gameKinds';
-	import { BASE_GAME_MODE, builtinGameModes } from 'game-config';
+	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
 		BOOT_SPLASH_DEFAULT_SIZE,
@@ -899,7 +899,7 @@
 	}
 
 	/** The game modes a `mode` screen can name, offered as suggestions — a project may add its own. */
-	const MODE_SUGGESTIONS = builtinGameModes({ holdAndWin: {} as never }).filter(
+	const MODE_SUGGESTIONS = [...builtinGameModes(), holdAndWinModeDecl()].filter(
 		(mode) => mode.id !== BASE_GAME_MODE,
 	);
 

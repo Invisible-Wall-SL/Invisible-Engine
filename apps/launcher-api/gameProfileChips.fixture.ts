@@ -77,7 +77,7 @@ check(
 );
 check('is toned as a warning so it stands out', d?.tone === 'warn', String(d?.tone));
 
-for (const kind of ['ways', 'scatter', 'holdAndWin']) {
+for (const kind of ['ways', 'scatter']) {
 	check(
 		`fires for a stale ${kind} game too`,
 		drift(signals({ gameTypeId: kind, protocol: 'lines' })) !== undefined,

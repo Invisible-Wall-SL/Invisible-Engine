@@ -293,6 +293,7 @@ export async function publishGame(
 			protocolFor(gameType),
 			bundle,
 			projectKey,
+			gameType,
 		);
 		const runtime = runtimeFor(gameType);
 

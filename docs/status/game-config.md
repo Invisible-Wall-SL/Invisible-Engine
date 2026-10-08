@@ -747,7 +747,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - **The desktop launcher does not claim table-capable** (`Invisible_Launcher.py`, a separate app).
   `register-game` stamps a build only when its body carries `tableCapable: true`, and clears the
   stamp otherwise. Until the launcher sends it for builds on an engine from book-feature Phase 3 on,
-  a desktop build is stamped by hand after each ☁ Publish (runbook step 1 above).
+  a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
 
@@ -762,6 +762,22 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   `bookOf` and gains an optional `expandingSymbol`; the publish scripts and the profile seeder
   default to `lines`. The current-games harness folds `bookOf` into `lines` (script, gates, the
   `pots` scenario, `cg-book` / `cg-book-pots`). Must not merge before the census is clear.
+- 2026-10-08 — **The table-capable stamp is a `/admin` control** (Phase 6, §6 step 5): runbook step
+  1 needs no command line. Detail in [launcher.md](launcher.md); the dry run's blocker now points
+  at it.
+- 2026-10-08 — **The schema splits bonuses: a coin overlay and declared bonus modes** (Phase 1 of
+  [bonus-games.md](../design/bonus-games.md), PR #1133). Detail and gates:
+  [status/bonus-games.md](bonus-games.md).
+  - **New keys:**
+    - `coinOverlay` holds the legacy `potsOverlay` block plus the trigger half of `holdAndWin`.
+      Every route names the mode it starts.
+    - `GameModeDecl.holdAndWin` holds a respin mode's rules.
+  - `normalize` migrates a legacy `holdAndWin` / `potsOverlay` into the split form and declares
+    the `holdAndWin` mode. It also keeps both legacy keys as a compat mirror until the readers
+    move (design §3 Phases 2–7).
+  - `builtinGameModes()` no longer lists `holdAndWin`.
+  - The committed Hold and Win defaults gain the split keys. Their legacy blocks are unchanged.
+
 - 2026-10-08 — **Book-of migration review fixes** (PR #1132; the section above is current). The
   plan runs the publish gates against the config it would save and blocks on a refusal, so a
   refused republish no longer leaves a game half-migrated; a republish that fails after the kind

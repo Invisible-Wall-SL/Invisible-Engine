@@ -26,7 +26,7 @@ export const loadScript = (name) =>
 	JSON.parse(readFileSync(join(HERE, 'screens', `${name}.json`), 'utf8'));
 
 const protocolFor = (gameType) =>
-	['ways', 'cluster', 'scatter', 'holdAndWin'].includes(gameType) ? gameType : 'lines';
+	['ways', 'cluster', 'scatter'].includes(gameType) ? gameType : 'lines';
 
 /** `grid.potsOverlay.pots.0.id` in a manifest entry; a negative index counts from the end. */
 export const at = (value, path) =>

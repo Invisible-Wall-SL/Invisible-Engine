@@ -72,6 +72,13 @@ import { selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import { bookOfCensus } from '$lib/server/bookOfCensus';
 import {
+	listOwnBundleGames,
+	setTestServerGameTableCapable,
+	TABLE_CAPABLE_ENGINE,
+	type OwnBundleGame,
+} from '$lib/server/testServerManifest';
+import { postTestServerRefresh } from '$lib/server/testServerRefresh';
+import {
 	assignProjectToClient,
 	clientAccessFor,
 	clientExists,
@@ -244,6 +251,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 		getDirectorPendingMockupDays(),
 	]);
 
+	// The own-bundle (desktop) entries of the test-server manifest, for the table-capable stamp
+	// control. One R2 read; a failure is shown on that control, never fails the page.
+	let ownBundleBuilds: { builds: OwnBundleGame[]; error: string | null };
+	try {
+		ownBundleBuilds = { builds: await listOwnBundleGames(), error: null };
+	} catch (e) {
+		ownBundleBuilds = { builds: [], error: e instanceof Error ? e.message : String(e) };
+	}
+
 	return {
 		currentUserId: locals.user!.id,
 		users: userList,
@@ -276,6 +292,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		gameKinds,
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
+		ownBundleBuilds,
+		tableCapableEngine: TABLE_CAPABLE_ENGINE,
 		// The running deploy id (git SHA / timestamp) so an admin can confirm WHICH build is live —
 		// the reference point for "am I on the latest?" when a change doesn't seem to show.
 		buildId: BUILD_ID,
@@ -558,6 +576,51 @@ export const actions: Actions = {
 	bookOfCensus: async ({ locals }) => {
 		await requireAdmin(locals);
 		return { action: 'bookOfCensus' as const, census: await bookOfCensus() };
+	},
+
+	/**
+	 * Set or clear the `tableCapable` stamp on a desktop build's test-server manifest entry
+	 * (book-feature Phase 6, §6 step 5) — what `publish-game-via-portal.mjs --table-capable` does,
+	 * without a command line, until the desktop launcher claims it on register-game. Admin-only. The
+	 * form sends the entry's `updatedAt` as listed: a build republished since is refused (409), never
+	 * stamped blind. A later desktop ☁ Publish without the claim clears the stamp again.
+	 */
+	setTableCapable: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		const value = String(data.get('value') ?? '');
+		if (!isValidGameKey(key) || (value !== 'set' && value !== 'clear')) {
+			return fail(400, { action: 'setTableCapable', error: 'Unknown game or stamp value.' });
+		}
+		const outcome = await setTestServerGameTableCapable(key, {
+			tableCapable: value === 'set',
+			seenUpdatedAt: String(data.get('updatedAt') ?? ''),
+		});
+		const refusals: Partial<Record<typeof outcome, [number, string]>> = {
+			'no-entry': [404, `"${key}" has no entry in the test-server manifest.`],
+			runtime: [400, `"${key}" is served from the shared runtime: it is sold its bet table already.`], // prettier-ignore
+			changed: [409, `"${key}" was republished since this page loaded (it may be another build). Reload, check it, and stamp again.`], // prettier-ignore
+		};
+		const refused = refusals[outcome];
+		if (refused) return fail(refused[0], { action: 'setTableCapable', error: refused[1] });
+		if (outcome === 'unchanged') {
+			return { action: 'setTableCapable', ok: `"${key}" was already ${value === 'set' ? 'stamped' : 'unstamped'}.` }; // prettier-ignore
+		}
+		// The test server reads the stamp on its next hydrate; poke it, best-effort and time-boxed (as
+		// register-game does) — the stamp is durable in R2 either way.
+		const refreshed = await postTestServerRefresh({ signal: AbortSignal.timeout(5_000) }).then(
+			(res) => res.ok,
+			() => false,
+		);
+		return {
+			action: 'setTableCapable',
+			ok:
+				`${outcome === 'stamped' ? 'Stamped' : 'Cleared'} "${key}" table-capable. ` +
+				(refreshed
+					? 'The test server is re-reading its manifest.'
+					: 'The test server refresh did not answer: it picks the stamp up on its next refresh.'),
+		};
 	},
 
 	rescaffoldProject: async ({ request, locals }) => {

@@ -39,6 +39,9 @@
 	let purgeConfirmKey = $state('');
 	/** A rejected attempt, shown INSIDE the open dialog rather than behind it. */
 	let projectActionError = $state('');
+
+	/** The manifest's desktop builds, as listed. */
+	const tableCapableRows = $derived(data.ownBundleBuilds.builds);
 	let deleteFormEl = $state<HTMLFormElement | null>(null);
 	let purgeFormEl = $state<HTMLFormElement | null>(null);
 
@@ -1083,6 +1086,54 @@
 						: ''}.
 				</p>
 			{/if}
+		</section>
+
+		<!-- The table-capable stamp on a desktop build's test-server manifest entry (book-feature §6
+		     step 5): what `publish-game-via-portal.mjs --table-capable` sets, without a command line. -->
+		<section id="table-capable">
+			<h2>Desktop builds: table-capable stamp</h2>
+			<p class="muted hint">
+				A desktop build (its own bundle, not the shared runtime) is sold its bet table by the test
+				server only when its manifest entry is stamped table-capable.
+			</p>
+			<p class="warn">
+				Only stamp a build rebuilt on an engine from {data.tableCapableEngine.date} (commit
+				<code>{data.tableCapableEngine.commit}</code>, {data.tableCapableEngine.pr}) or later, or
+				its buy will fail. A later desktop ☁ Publish clears the stamp again (the desktop launcher
+				does not send the claim yet), so rebuild first, then stamp.
+			</p>
+			{#if data.ownBundleBuilds.error}
+				<p class="warn">Could not read the test-server manifest: {data.ownBundleBuilds.error}</p>
+			{/if}
+			{#if form?.action === 'setTableCapable'}
+				{#if 'error' in form && form.error}<p class="warn">{form.error}</p>{/if}
+				{#if 'ok' in form && form.ok}<p class="hint">{form.ok}</p>{/if}
+			{/if}
+			<div class="projects">
+				{#each tableCapableRows as b (b.key)}
+					<div class="project-row">
+						<span class="mono key">{b.key}</span>
+						<span>{b.name}</span>
+						<span class="muted"
+							>{b.protocol} · project {b.projectKey ?? `${b.key} (no pointer)`} · published {b.updatedAt ||
+								'—'}</span
+						>
+						<span class="pill {b.tableCapable ? 'on' : 'off'}"
+							>{b.tableCapable ? 'table-capable' : 'not stamped'}</span
+						>
+						<form method="POST" action="?/setTableCapable" use:enhance>
+							<input type="hidden" name="key" value={b.key} />
+							<input type="hidden" name="updatedAt" value={b.updatedAt} />
+							<input type="hidden" name="value" value={b.tableCapable ? 'clear' : 'set'} />
+							<button type="submit" class="small {b.tableCapable ? 'danger' : ''}"
+								>{b.tableCapable ? 'Clear stamp' : 'Stamp table-capable'}</button
+							>
+						</form>
+					</div>
+				{:else}
+					<p class="muted">No desktop builds in the test-server manifest.</p>
+				{/each}
+			</div>
 		</section>
 	</div>
 

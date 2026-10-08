@@ -46,14 +46,15 @@ const ok = (label: string, fn: () => void) => {
 
 // ── 1. Protocol parity ────────────────────────────────────────────────────────────────
 console.log('1. protocol parity — one map, both publish paths');
-ok('every built-in kind maps to its own mock', () => {
+ok('every built-in kind maps to the mock that deals it', () => {
 	assert.equal(protocolFor('lines'), 'lines');
 	// A stray row of the retired Book-of kind reads as a custom kind: lines.
 	assert.equal(protocolFor('bookOf'), 'lines');
 	assert.equal(protocolFor('ways'), 'ways');
 	assert.equal(protocolFor('cluster'), 'cluster');
 	assert.equal(protocolFor('scatter'), 'scatter');
-	assert.equal(protocolFor('holdAndWin'), 'holdAndWin');
+	// A Hold and Win game is a lines game whose contract carries its block (bonus-games Phase 2).
+	assert.equal(protocolFor('holdAndWin'), 'lines');
 });
 ok('a custom kind falls back to the lines mock, not to undefined', () => {
 	// §21.6 custom kinds are author-created ids with no mock of their own.
