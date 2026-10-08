@@ -422,6 +422,18 @@ export function bonusCapabilityInputs(doc: BonusDoc): {
 	};
 }
 
+/** The respin modes with rules, read off the split form: the primary first
+ *  ({@link primaryRespinMode}), then the rest in declaration order; `[]` without Hold and Win. The
+ *  one list the tools (Scene Editor screens, `/symbols` tiers, Flow tabs) and the runtime order by. */
+export function respinModeDecls(doc: BonusDoc): (GameModeDecl & { holdAndWin: HoldAndWinGame })[] {
+	const modes = (bonusSplitOf(doc).modes ?? []).filter(isRespinGame);
+	const primary = primaryRespinMode(modes);
+	return primary ? [primary, ...modes.filter((m) => m !== primary)] : [];
+}
+
+/** {@link respinModeDecls}' ids. */
+export const respinModeIds = (doc: BonusDoc): string[] => respinModeDecls(doc).map((m) => m.id);
+
 /** The symbol an empty cell of respin mode `mode` draws: its `blank`, else the first symbol tagged
  *  `blank` its strips deal, else the wire's literal `BLANK`. */
 export function respinModeBlank(doc: GameConfigDoc, mode: GameModeDecl): string {
@@ -447,18 +459,15 @@ export type RespinModeBlock = {
 export function respinModeBlocks(doc: BonusDoc): RespinModeBlock[] {
 	const block = legacyHoldAndWin(doc);
 	if (!block) return [];
-	const split = bonusSplitOf(doc);
-	const primary = primaryRespinMode(split.modes);
+	const [primary, ...others] = respinModeDecls(doc);
 	if (!primary) return [];
-	const others = (split.modes ?? []).filter(
-		(m): m is GameModeDecl & { holdAndWin: HoldAndWinGame } => m !== primary && isRespinGame(m),
-	);
+	const overlay = bonusSplitOf(doc).coinOverlay;
 	return [
 		{ mode: primary.id, gameType: gameTypeForMode(primary), block, decl: primary },
 		...others.map((mode) => ({
 			mode: mode.id,
 			gameType: gameTypeForMode(mode),
-			block: joinHoldAndWin(mode.holdAndWin, triggerHalfFor(split.coinOverlay, mode.id)),
+			block: joinHoldAndWin(mode.holdAndWin, triggerHalfFor(overlay, mode.id)),
 			decl: mode,
 		})),
 	];

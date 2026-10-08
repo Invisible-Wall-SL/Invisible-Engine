@@ -62,6 +62,9 @@
  *                            Kept as authored, never rewritten. A WARNING, judged only when the
  *                            vocabulary carries the project's symbols (`withSymbols`): an empty
  *                            `SymbolName` means they are unknown.
+ *  - `respin-event-off-board` — a respin feature event handled in a mode tab that is not a respin
+ *                            mode's, where it never fires (a WARNING; `respinTabIssues` in
+ *                            `reference/addOns.ts`, which the editor and the publish gate add).
  *
  * GAME MODES (`docs/design/hold-and-win.md` §4.5): `FlowDoc.modes` sections are each validated like
  * the global graph, and an issue found in one carries that section's `mode`. Node ids are unique
@@ -123,7 +126,8 @@ export type FlowIssueCode =
 	| 'mode-unset'
 	| 'mode-entry-scope'
 	| 'container-scene-missing'
-	| 'symbol-not-in-play';
+	| 'symbol-not-in-play'
+	| 'respin-event-off-board';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';

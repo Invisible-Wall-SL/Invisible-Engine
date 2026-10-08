@@ -616,6 +616,14 @@ opens with one **Mode trigger** on **enter** for that mode, ready to wire. **✕
 removes it. A tab still holding only that starting node goes without asking; otherwise you
 confirm, and **↶ Undo** brings it back. A tab with issues shows their count.
 
+**Several respin modes.** A project can declare more than one Hold and Win respin mode in Game
+Config (e.g. `holdAndWin` and `holdAndWin_2`), and each gets its own tab. Every respin mode's tab
+offers the full Hold and Win palette, whatever its id. The tab of any other mode (Base game, Free
+spins, …) leaves out the events that fire only while a respin mode is on screen (`respinReveal`,
+`coinsLand`, … `holdAndWinEnd`). The ones that can also arrive outside the feature stay:
+`jackpotWin` (a base-game jackpot), `holdAndWinTrigger` and `holdAndWinWheel`. **Global** offers
+everything.
+
 **How the game picks a graph.** A signal goes to the graph of the mode **on screen** first. When
 that graph has no handler for it, the **Global** graph handles it. A mode with no tab uses Global
 for everything, so a flow without mode tabs plays exactly as before.
@@ -638,10 +646,13 @@ presenting, so it never moves the stack under a trigger that is still playing. A
 enters must also be exited within the same round: each new bet starts at the base game.
 
 Validation covers every tab at once. An issue found in a mode tab carries the tab's name, and
-clicking it opens that tab before selecting the node. Two codes are specific to modes:
+clicking it opens that tab before selecting the node. Three codes are specific to modes:
 `mode-unset` (red) is a Mode trigger or Enter mode with no mode, or a tab whose id is not a mode
 id. `mode-entry-scope` is a warning: a Mode trigger for another mode inside a mode tab, or On all
-modes finished outside Global and Base game, never fires.
+modes finished outside Global and Base game, never fires. `respin-event-off-board` is a warning:
+a respin feature event (`respinReveal`, `coinsLand`, …) handled in a tab that is not a respin
+mode's never fires there — move it to the respin mode's tab or to Global. Warnings never block
+Publish.
 
 The **Preview** panel runs only the Global graph, and only on the Global tab.
 
@@ -682,6 +693,9 @@ an error to the browser console.
 | `respinUpdate` | `setRespinCounter` | Hold and Win tab |
 | `holdAndWinState` | `restoreRespinBoard` (rebuilds the board on a resume) | Hold and Win tab |
 | `holdAndWinEnd` | `hideRespinBoard` (the coins fly into the Total Win bar, then the reels return) | Hold and Win tab |
+
+`respinReveal` and `holdAndWinState` carry an optional `mode` field: the respin mode they play
+in (absent ⇒ the primary respin mode — `holdAndWin` when declared, else the first).
 
 `meterLevels` and `randomMetreTrigger` have no beat; left unwired, the engine records them. Each
 beat fires its own cues (`respinCoinsLand`, `potFill`, `potLevelUp` and `potStageUp` as a pot
@@ -740,10 +754,14 @@ blocks. It adds the steps your flow does not have yet:
 - with a Pots overlay, the drop chain (`overlayDrop` → `showTokens`) and the pot-filling chain
   (`meterUpdate` → `fillMeter`) in the Global graph, placed to the right of your nodes, each only
   if nothing there handles its event yet;
-- with Hold and Win, a **Hold and Win** mode tab taken from the Hold and Win starter flow, plus the
-  screen containers that tab shows, if the flow has no such tab yet.
+- with Hold and Win, a mode tab taken from the Hold and Win starter flow for **each** respin mode
+  the flow has no tab for yet (the primary first), plus the screen containers each tab shows. Each
+  tab's Mode triggers name its own mode and its node ids get their own prefix (`hw`, `hw2`, …).
+  The `holdAndWin` mode shows the starter screens (`respinBoard`, `wheel`, …); any other mode
+  shows its own copies, `<screen>-<modeId>` (e.g. `respinBoard-holdAndWin_2`) — the ones the Scene
+  Editor's **＋ Add missing screens** creates, so run that too.
 
-It never changes a node you authored and leaves an existing Hold and Win tab alone. Hover it to see
+It never changes a node you authored and leaves an existing respin mode tab alone. Hover it to see
 what it will add; when there is nothing left to add it is disabled and its tooltip says so. It works
 from the Global tab only, like **＋ Comment**. It is one **↶ Undo** step, and Save keeps it like any
 other edit.

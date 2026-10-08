@@ -688,7 +688,7 @@ export const SCATTER_DRIVEN_SEED_DOC: FlowDoc = buildDrivenSeed(
 	NO_SPECIAL_BOOK_SCREENS,
 );
 
-/** The Hold and Win game mode's id (`game-config` `builtinGameModes`). */
+/** The Hold and Win game mode's id — the primary respin mode of every Hold and Win project. */
 const HOLD_AND_WIN_MODE = 'holdAndWin';
 
 const music = (name: string): ChoreoStep[] => [
@@ -696,28 +696,46 @@ const music = (name: string): ChoreoStep[] => [
 ];
 
 /**
- * The `modes.holdAndWin` section of the Hold and Win starter flow (described below), every node id
- * carrying `prefix`. Also what `graftAddOnSteps` adds to a project with a Hold and Win bonus, under a
- * prefix no id of that doc uses.
+ * Respin mode `modeId`'s copy of a reference mode screen: the `holdAndWin` mode shows the reference
+ * screen, any other its own `<screen>-<modeId>` copy (the Scene Editor's seeding, bonus-games 5b).
  */
-export const holdAndWinModeGraph = (prefix: string): Graph => {
+export const modeScreenId = (screen: string, modeId: string): string =>
+	modeId === HOLD_AND_WIN_MODE ? screen : `${screen}-${modeId}`;
+
+/** The container refs a respin mode's section shows, `ids` being its screens: each at its
+ *  reference screen's z. */
+export const modeContainerRefs = (ids: readonly string[], modeId: string): ContainerRef[] =>
+	SEED_CONTAINERS.flatMap(({ id, z }) => {
+		const own = modeScreenId(id, modeId);
+		return ids.includes(own) ? [{ id: own, sceneId: own, z }] : [];
+	});
+
+/**
+ * The `modes.<modeId>` section of the Hold and Win starter flow (described below) for respin mode
+ * `modeId`, every node id carrying `prefix` and every screen being that mode's own
+ * ({@link modeScreenId}). Also what `graftAddOnSteps` adds for each respin mode a project's flow has
+ * no section for, under a prefix no id of that doc uses.
+ */
+export const holdAndWinModeGraph = (prefix: string, modeId: string = HOLD_AND_WIN_MODE): Graph => {
+	const screen = (id: string) => modeScreenId(id, modeId);
+	const modeScreens = HOLD_AND_WIN_MODE_SCREENS.map(screen);
 	const modeTrigger = (on: 'enter' | 'exit'): Node => ({
 		id: `${prefix}_${on}`,
 		kind: 'modeTrigger',
 		pos: { x: 0, y: 0 },
-		modeId: HOLD_AND_WIN_MODE,
+		modeId,
 		on,
 	});
 	/** The mode's screens up and its music on — what entering the mode does, and what a resume
 	 *  (which rebuilds the mode stack silently, with no enter) needs from the first snapshot. Both are
 	 *  idempotent: a shown screen stays, a playing track is not restarted. */
 	const modeOn: Beat[] = [
-		...HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'show', id })),
+		...modeScreens.map((id): Beat => ({ k: 'show', id })),
 		{ k: 'steps', steps: music('bgm_freespin') },
 	];
 	const beatScreens: Readonly<Record<string, string>> = {
-		holdAndWinWheel: WHEEL,
-		jackpotWin: JACKPOT_WIN,
+		holdAndWinWheel: screen(WHEEL),
+		jackpotWin: screen(JACKPOT_WIN),
 	};
 	return buildEntryGraph({
 		prefix,
@@ -731,7 +749,7 @@ export const holdAndWinModeGraph = (prefix: string): Graph => {
 			{ node: modeTrigger('enter'), beats: modeOn },
 			{
 				node: modeTrigger('exit'),
-				beats: HOLD_AND_WIN_MODE_SCREENS.map((id): Beat => ({ k: 'hide', id })),
+				beats: modeScreens.map((id): Beat => ({ k: 'hide', id })),
 			},
 		],
 	});

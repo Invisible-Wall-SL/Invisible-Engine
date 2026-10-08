@@ -37,7 +37,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 4 | Engine runtime: active-mode rules | in review | Bonus games Phase 4: the engine runtime plays the active respin mode | #1141 |
 | 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
 | 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
-| 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
+| 5c | Flow v2 vocabulary by board | in review | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
 | 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
@@ -313,7 +313,55 @@ starts the phase sessions, reviews their PRs and merges them.
       in place, so a doc-keyed WeakMap would serve stale meters there;
     - meter ids two modes share resolve to one pot, the first mode's.
 
+- 2026-10-08 — **Phase 5c: how "keyed on the board" reads in Flow** (for 6 and 7).
+  - **The vocabulary stays one per doc.** A respin feature event never reaches a non-respin tab (a
+    signal goes to the on-screen mode's tab, then Global), so that tab's palette hides them and the
+    validator WARNS. It does not refuse: an error would refuse a stored flow that published before.
+  - A tab is a respin tab when its id is one of the add-ons' `respinModes`, or `holdAndWin` (the
+    Hold and Win kind's own, which resolves even without a saved config).
+  - **For 6:** a new mode's Flow tab is `graftAddOnSteps(doc, flowAddOnsOf(config))` after the
+    config is saved. Its screens must exist as `<reference id>-<modeId>` scenes (5b's seeding); the
+    importer's `-2` naming would leave them `container-scene-missing` warnings.
+  - **For 7:** `FlowAddOns.respinModes` is emitted only off the lone default (like the wire's emit
+    rule). Phase 7 can always emit it.
+
 ## Recent changes
+
+- 2026-10-08 — **Phase 5c: the Flow v2 vocabulary keyed on the board** (PR #1147,
+  `game-config`, `engine-flow-v2`, `/flow-v2`).
+  - **What landed:**
+    - `flowAddOnsOf` reads the split form (`bonusCapabilityInputs` + the new `respinModeIds`, on
+      `respinModeDecls`: the one "respin modes with rules, primary first" list that
+      `respinModeBlocks` and the launcher's `respinModesOf` now build on too), so
+      Flow no longer reads the legacy mirror. It adds `respinModes` (the primary first) only when the
+      set is not the lone `holdAndWin`, so every current doc's add-ons are byte-identical.
+    - `graftAddOnSteps` ("＋ Add overlay steps") seeds a Hold and Win starter section for EVERY
+      respin mode the flow has no tab for. `holdAndWinModeGraph(prefix, modeId)` names its Mode
+      triggers for that mode and shows that mode's `-<modeId>` screens (`modeScreenId`); the prefixes
+      (`hw`, `hw2`, …) keep node ids unique, and missing containers are declared at the reference z.
+    - Tabs by board: a respin mode's tab (`isRespinTab`) is offered and accepts the whole vocabulary.
+      Any other mode tab's palette leaves out the events that fire only inside a respin feature
+      (`vocabForTab`; `jackpotWin`, `holdAndWinTrigger` and `holdAndWinWheel` stay, since they can
+      arrive outside it), and one
+      handled there is a new `respin-event-off-board` WARNING (`respinTabIssues`, added by the editor
+      and the publish gate). A warning, so nothing that published before is refused.
+    - The `mode` field descriptions of `respinReveal` and `holdAndWinState` read "absent ⇒ the
+      primary respin mode" (editor text only). They are the one difference in a current doc's
+      vocabulary.
+    - **Runtime:** nothing to change. The interpreter hands a signal to `stateModes.active()`'s
+      section, the Hold and Win beats read `activeRespinMode()`, and the banners and reserved
+      screens find the active mode's copy (Phase 4). The gate pins the mode-2 graph running while
+      mode 2 is on the stack.
+  - **Gates:** new `pnpm --filter launcher-api check:flow-bonus-modes` (88 checks): a lines doc with two
+    respin modes (both tabs seeded, distinct node ids, per-mode screens that are all in the scene set,
+    publishes clean and warning free, idempotent graft); the runtime predicates per mode; tabs by
+    board; a second mode on the `holdAndWin` kind; and byte-identical add-ons, grafted seed and
+    publish verdict to `main` for 12 current docs (`MAIN_DIGESTS`). Their vocabulary is
+    byte-identical except the two reworded descriptions: the gate pins the new wording on exactly
+    those two fields and hashes them as `main` words them. `check:bonus-modes-tools`' "before" baseline now reads the legacy
+    keys directly, since `flowAddOnsOf` no longer does.
+  - **What's left:** nothing for 5c. Phase 6's "Add a bonus mode…" gets the new mode's Flow tab from
+    the graft (or seeds it itself with `holdAndWinModeGraph(prefix, modeId)`).
 
 - 2026-10-08 — **Phase 5d: Win Text and Localization per respin mode** (PR #1146, `engine-layout`
   `winText.ts`, launcher `winTextStorage.ts` / `/win-text` / `localizationHarvest.ts` /

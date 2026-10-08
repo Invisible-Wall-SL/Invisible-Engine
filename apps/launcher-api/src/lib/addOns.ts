@@ -1,11 +1,10 @@
 import type { SceneSetOptions } from 'engine-layout';
 import {
 	bonusCapabilityInputs,
-	bonusSplitOf,
 	flowAddOnsOf,
-	primaryRespinMode,
 	resolveExpandingSymbol,
 	resolveMeters,
+	respinModeDecls,
 	type GameConfigDoc,
 } from 'game-config';
 
@@ -49,18 +48,13 @@ export type RespinModeInfo = {
  */
 export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	if (!doc) return [];
-	const modes = (bonusSplitOf(doc).modes ?? []).filter(
-		(mode) => mode.board === 'respinBoard' && mode.holdAndWin,
-	);
-	const primary = primaryRespinMode(modes);
-	const ordered = primary ? [primary, ...modes.filter((mode) => mode !== primary)] : modes;
-	return ordered.map((mode) => {
-		const maxRows = mode.holdAndWin?.expansion?.maxRows;
+	return respinModeDecls(doc).map((mode) => {
+		const maxRows = mode.holdAndWin.expansion?.maxRows;
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,
 			...(maxRows ? { maxRows } : {}),
-			jackpotTiers: (mode.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+			jackpotTiers: (mode.holdAndWin.jackpots ?? []).map((jackpot) => jackpot.name),
 		};
 	});
 }
