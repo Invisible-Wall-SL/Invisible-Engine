@@ -378,9 +378,9 @@ export function resolveBonusModes(doc: GameConfigDoc): ResolvedBonusMode[] {
 
 /**
  * The capability INPUTS the modes give (design §2.4): is there a respin mode, is there an overlay.
- * Additive — `kindCapabilities` reads the kind and the legacy blocks until its consumers move.
+ * The launcher's `projectAddOns` turns them into `kindCapabilities`' config.
  */
-export function bonusCapabilityInputs(doc: GameConfigDoc): {
+export function bonusCapabilityInputs(doc: BonusDoc): {
 	respinMode: boolean;
 	coinOverlay: boolean;
 } {
