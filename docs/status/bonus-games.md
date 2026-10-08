@@ -37,7 +37,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 4 | Engine runtime: active-mode rules | in review | Bonus games Phase 4: the engine runtime plays the active respin mode | #1141 |
 | 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
 | 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
-| 5c | Flow v2 vocabulary by board | in review | Bonus games Phase 5c: Flow v2 vocabulary by board | _pending_ |
+| 5c | Flow v2 vocabulary by board | in review | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
 | 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
@@ -311,7 +311,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-08 — **Phase 5c: the Flow v2 vocabulary keyed on the board** (PR: _pending_,
+- 2026-10-08 — **Phase 5c: the Flow v2 vocabulary keyed on the board** (PR #1147,
   `game-config`, `engine-flow-v2`, `/flow-v2`).
   - **What landed:**
     - `flowAddOnsOf` reads the split form (`bonusCapabilityInputs` + the new `respinModeIds`), so
