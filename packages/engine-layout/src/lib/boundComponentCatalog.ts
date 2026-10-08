@@ -648,3 +648,49 @@ export function computeOverlayPlacement(
 		anchor: { x: 1, y: 0 },
 	};
 }
+
+/** The instance params a coded part reads, as its catalog entry names them. */
+function partParamKeys(entry: BoundComponentDefault): string[] {
+	const keys: (string | undefined)[] = [];
+	if (entry.tileImage) {
+		const t = entry.tileImage;
+		keys.push(t.imageParam, t.tintParam, t.widthParam, t.heightParam);
+	}
+	if (entry.skin) {
+		const s = entry.skin;
+		for (const layer of s.layers) keys.push(layer.imageParam, layer.directionParam);
+		keys.push(s.widthParam, s.heightParam, s.radiusParam);
+	}
+	return keys.filter((k): k is string => !!k);
+}
+
+/**
+ * Params of `root`'s component that NOTHING in it reads: they belong to a coded part (the HUD
+ * readout's `Background` tile, a skinnable pot…) the author deleted or replaced. Offering them on
+ * an instance is a dead control — picking a Background image there changes nothing. A key still
+ * read by a part that IS present, or by any node's `paramBindings`/`valueBindings`, is never listed.
+ */
+export function unusedPartParamKeys(root: LayoutNode | undefined): Set<string> {
+	const unused = new Set<string>();
+	if (!root) return unused;
+	const bound = new Set<string>();
+	const read = new Set<string>();
+	const walk = (node: LayoutNode): void => {
+		if (node.bind) bound.add(node.bind.component);
+		for (const key of Object.values(node.paramBindings ?? {})) if (key) read.add(key);
+		for (const b of node.valueBindings ?? []) {
+			if (b.param) read.add(b.param);
+			if (b.of) read.add(b.of);
+		}
+		if (node.kind === 'container') for (const child of node.children) walk(child);
+	};
+	walk(root);
+	for (const [name, entry] of Object.entries(BOUND_COMPONENT_DEFAULTS)) {
+		if (bound.has(name)) for (const key of partParamKeys(entry)) read.add(key);
+	}
+	for (const [name, entry] of Object.entries(BOUND_COMPONENT_DEFAULTS)) {
+		if (bound.has(name)) continue;
+		for (const key of partParamKeys(entry)) if (!read.has(key)) unused.add(key);
+	}
+	return unused;
+}

@@ -1899,6 +1899,7 @@
 						spines={data.assets.spines}
 						{pickSheets}
 						componentParams={componentDraft.params ?? []}
+						componentRoot={componentDraft.root}
 						componentSignals={componentDraft.signals ?? []}
 						componentSignalScope={componentDraft.signalScope}
 						componentSignalScopeKind={componentDraft.signalScopeKind}

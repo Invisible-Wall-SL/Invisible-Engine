@@ -733,6 +733,9 @@
 	const spriteKey = $derived(spriteRef?.key);
 	const spriteFallbackKey = $derived(spriteRef?.fallbackKey);
 	const spriteTint = $derived(typeof boundTint === 'number' ? boundTint : transform.tint);
+	// `keepAspect`: the sized box is a BOUNDING box the frame fits inside (pixi-svelte `contain`),
+	// so a per-instance frame of another shape is not stretched. Unset ⇒ stretch (parity).
+	const spriteContain = $derived(node.kind === 'sprite' && node.keepAspect === true);
 
 	// A `rect` is a vector flat fill (pixi `Graphics` rect) — it scales losslessly,
 	// so a full-screen dim sized large stays crisp. Its size is the node's own
@@ -1086,6 +1089,7 @@
 					scale={sizedScale}
 					width={sizedWidth}
 					height={sizedHeight}
+					contain={spriteContain}
 					tint={spriteTint}
 					{blendMode}
 				/>
@@ -1104,6 +1108,7 @@
 				zIndex={transform.zIndex}
 				width={bg ? undefined : sizedWidth}
 				height={bg ? undefined : sizedHeight}
+				contain={bg ? undefined : spriteContain}
 				tint={spriteTint}
 				{blendMode}
 			/>

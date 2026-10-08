@@ -24,6 +24,7 @@
 		REPEATER_SOURCE_CATALOG,
 		REPEATER_SOURCE_LABELS,
 		fontParamKeysOf,
+		unusedPartParamKeys,
 		getEditableParams,
 		isCoverFitKind,
 		isHudButtonBind,
@@ -118,6 +119,8 @@
 		componentMode?: boolean;
 		/** The draft component's currently-declared params (component mode). */
 		componentParams?: ComponentParam[];
+		/** The draft component's root (component mode) — hides defaults no node of it reads. */
+		componentRoot?: LayoutNode;
 		/** The draft component's currently-declared signals (component mode). */
 		componentSignals?: ComponentSignal[];
 		/** When the selected node is a `componentInstance`, its resolved def — drives
@@ -267,6 +270,7 @@
 		isBackgroundCover = false,
 		componentMode = false,
 		componentParams = [],
+		componentRoot,
 		componentSignals = [],
 		instanceComponent = null,
 		pickSheets = [],
@@ -334,8 +338,14 @@
 		onSetSignalScope?.({ param, kind: kind || named || SIGNAL_SCOPE_KINDS[0] });
 	}
 
-	/** Author-settable (non-engineProvided) params an instance may override. */
-	const authorParams = $derived((instanceComponent?.params ?? []).filter((p) => !p.engineProvided));
+	/** Author-settable (non-engineProvided) params an instance may override — minus those only a
+	 * coded part the def no longer contains would read (see `unusedPartParamKeys`). */
+	const instanceUnusedParams = $derived(unusedPartParamKeys(instanceComponent?.root));
+	const authorParams = $derived(
+		(instanceComponent?.params ?? []).filter(
+			(p) => !p.engineProvided && !instanceUnusedParams.has(p.key),
+		),
+	);
 
 	/** True when the SELECTED INSTANCE's def is an interactive button (declares an
 	 * `action` param) — only then do its rig nodes' button-state animations apply,
@@ -699,7 +709,10 @@
 	 * `variableRows`, which lists only engine-catalog subscriptions + `author: true` params and so
 	 * would hide most of a saved built-in's settable params (the HUD Readout: 1 of 20).
 	 */
-	const projectDefaultParams = $derived(componentParams.filter((p) => !p.engineProvided));
+	const draftUnusedParams = $derived(unusedPartParamKeys(componentRoot));
+	const projectDefaultParams = $derived(
+		componentParams.filter((p) => !p.engineProvided && !draftUnusedParams.has(p.key)),
+	);
 	/** Flat (ungrouped) defaults rows — rendered above the grouped sections. */
 	const projectDefaultUngrouped = $derived(projectDefaultParams.filter((p) => !p.group));
 	/** Defaults rows bucketed by `group`, mirroring the instance panel's collapsible sections. */
@@ -1763,6 +1776,13 @@
 	function setCoverFitFlag(n: LayoutNode, on: boolean): void {
 		if (on) n.coverFit = true;
 		else delete n.coverFit;
+		markDirty();
+	}
+
+	function setKeepAspect(n: LayoutNode, on: boolean): void {
+		if (n.kind !== 'sprite') return;
+		if (on) n.keepAspect = true;
+		else delete n.keepAspect;
 		markDirty();
 	}
 
@@ -3648,6 +3668,18 @@
 					{/if}
 				</label>
 			</div>
+			<label class="field check">
+				<input
+					type="checkbox"
+					checked={node.keepAspect === true}
+					onchange={(e) => setKeepAspect(node, e.currentTarget.checked)}
+				/>
+				<span>Keep image ratio</span>
+			</label>
+			<p class="muted small">
+				The image fits inside width × height without stretching, so a frame of another shape (picked
+				per instance through an exposed image) keeps its own proportions.
+			</p>
 		</section>
 		{#if node.region && node.assetKey}
 			<!-- Editing the ART, not this placement — the section says so, and it is stored per
