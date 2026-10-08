@@ -345,13 +345,12 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	 * order (every pot routed to it, and the coins to theirs, as one feature), then each other full
 	 * pot in config order. A round plays each respin mode ONCE: what fills while one waits joins it,
 	 * and a pot that fills after its mode has played stays full for the next round (coins then are
-	 * shown and gone). The dropped coins ride the feature they start, else the first one queued.
+	 * shown and gone). The dropped coins ride only the feature of the mode they belong to.
 	 */
 	const queueBonuses = (round, full, coins) => {
 		const queue = (round.potsQueue ??= []);
 		const played = new Set(round.potsRespins ?? []);
 		const coinMode = coinStarts(played, coins) ? coinEngine.mode : null;
-		let coinsGiven = false;
 		for (const engine of engines.values()) {
 			if (played.has(engine.mode)) continue;
 			const routed = full.filter((p) => p.bonus.mode === engine.mode);
@@ -370,9 +369,9 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 					cause: meters.length ? 'meter' : 'count',
 					meters,
 					activates,
-					coins: (coinMode ? coinStart : !coinsGiven) ? coins : [],
+					// Coins are their mode's symbols: they ride its feature only, else they are shown and gone.
+					coins: engine === coinEngine ? coins : [],
 				});
-				coinsGiven = true;
 			}
 		}
 		for (const pot of full) {

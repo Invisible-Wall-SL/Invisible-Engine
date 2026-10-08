@@ -158,15 +158,17 @@ export function createRespinEngines(opts) {
 		...others.map((m) => createHoldAndWinEngine({ ...own(m, m.block), rand: engine.rand })),
 	];
 	const byMode = new Map(engines.map((e) => [e.mode, e]));
-	engine.setRouter((cause, round, meterIds) => {
+	engine.setRouter((cause, round, full) => {
 		const id =
 			cause === 'buy'
 				? buyOwner.get(round.buyTier?.mode)
 				: cause === 'meter'
-					? meterOwner.get(meterIds[0])
+					? meterOwner.get(full[0])
 					: owner[cause];
-		const target = byMode.get(id);
-		return target === engine ? undefined : target;
+		const target = byMode.get(id) ?? engine;
+		// A full meter of another mode stays full: its own mode starts once its symbol lands again.
+		const meterIds = full.filter((m) => (meterOwner.get(m) ?? primary.mode) === target.mode);
+		return { ...(target === engine ? {} : { engine: target }), meterIds };
 	});
 	return { engine, engines, wire: true };
 }

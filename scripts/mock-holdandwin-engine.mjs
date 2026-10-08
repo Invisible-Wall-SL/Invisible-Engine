@@ -1722,10 +1722,12 @@ export function createHoldAndWinEngine(opts = {}) {
 		}
 
 		if (cause) {
-			// Another respin mode's route starts that mode's engine on this board (`setRouter`).
-			const target = router?.(cause, round, full);
-			if (target) target.startFeature(events, round, session, board, cause, full);
-			else startFeature(events, round, session, board, cause, full);
+			// Another respin mode's route starts that mode's engine on this board, consuming only the
+			// meters it owns (`setRouter`).
+			const routed = router?.(cause, round, full);
+			if (routed?.engine)
+				routed.engine.startFeature(events, round, session, board, cause, routed.meterIds);
+			else startFeature(events, round, session, board, cause, routed?.meterIds ?? full);
 			return;
 		}
 
@@ -1739,8 +1741,9 @@ export function createHoldAndWinEngine(opts = {}) {
 		}
 	};
 
-	/** `(cause, round, meterIds) → engine | undefined` — which respin mode a base-game cause starts,
-	 *  when it is not this one's (the Hold and Win game mock's routes to its other modes). */
+	/** `(cause, round, meterIds) → { engine?, meterIds }` — which respin mode a base-game cause starts
+	 *  (`engine`, absent for this one) and which of the full meters it consumes: the Hold and Win game
+	 *  mock's routes to its other modes. */
 	let router = null;
 	const setRouter = (fn) => {
 		router = fn;

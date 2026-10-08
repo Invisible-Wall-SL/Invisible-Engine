@@ -129,7 +129,10 @@ starts the phase sessions, reviews their PRs and merges them.
   - **Limits on the game mock** (coins on the base reels):
     - base-game coins and specials are the primary mode's, whichever mode a route starts;
     - a route that two modes both claim goes to the first mode that has it;
-    - jackpot tiers that share a name share one progressive pool.
+    - jackpot tiers that share a name share one progressive pool, with the first mode's numbers;
+    - a full meter starts its own mode and consumes only that mode's meters, so a full meter of
+      another mode waits until its symbol lands again;
+    - dropped value coins are the coin mode's symbols, so they ride only that mode's feature.
 
 ## Recent changes
 

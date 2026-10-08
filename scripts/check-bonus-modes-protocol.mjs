@@ -348,6 +348,18 @@ for (const [hostName, host] of Object.entries(HOSTS)) {
 		);
 	}
 
+	// Value coins are the primary's symbols: beside a pot of the other mode they ride nothing.
+	const mixed = featuresOf(await play.round('mixed', host.bet, 'force:pot:green,overlay:coins:2'));
+	check(
+		mixed.length === 1 &&
+			mixed[0].mode === 'holdAndWin_2' &&
+			[...mixed[0].symbols].every(
+				(n) => !symbolHoldAndWinRoles(two.symbols[n] ?? {}).length || n.endsWith('_2'),
+			),
+		"dropped coins never ride another mode's feature",
+		JSON.stringify(mixed.map((f) => [f.mode, [...f.symbols]])),
+	);
+
 	// Both pots full on one spin: the round plays both features, one after the other.
 	const both = featuresOf(await play.round('both', host.bet, 'force:pot:red,pot:green'));
 	check(
@@ -471,6 +483,44 @@ const CLASSIC = normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic));
 		return h.digest('hex');
 	};
 	check((await digest()) === (await digest()), 'one seed, one deal');
+}
+
+{
+	// The 3 Pots game with its blue meter routed to a second mode: each full meter starts its own
+	// mode, and a meter of the other mode is never consumed by it.
+	const raw = withSecondMode(normalized(structuredClone(HOLD_AND_WIN_PRESETS.pots)));
+	raw.coinOverlay.meters = raw.coinOverlay.meters.map((m) =>
+		m.id === 'blue' ? { ...m, mode: 'holdAndWin_2' } : m,
+	);
+	const pots = normalized(raw);
+	check(!errorsOf(pots).length, 'a meter route to a second mode saves', errorsOf(pots).join('; '));
+	const play = driver(createHoldAndWinMock(contractOf(pots, 'meters-2')));
+	await play.config('m');
+	const levels = (events) =>
+		Object.fromEntries(
+			events
+				.filter((e) => e.event === 'meterLevels')
+				.at(-1)
+				.context.meters.map((m) => [m.id, m.level]),
+		);
+	let before = {};
+	for (let i = 0; i < 80 && !(before.red > 0); i++)
+		before = levels(await play.round('m', [10, 1], ''));
+	const events = await play.round('m', [10, 1], 'force:meter:blue');
+	const [blue] = featuresOf(events);
+	const after = levels(events);
+	check(
+		blue?.mode === 'holdAndWin_2' && everyTagged(blue, 'holdAndWin_2'),
+		'the full blue meter starts holdAndWin_2',
+		JSON.stringify(blue?.tags?.[0]),
+	);
+	check(
+		before.red > 0 && after.red >= before.red && after.blue === 0,
+		"…consuming blue only: the primary's red meter keeps its level",
+		`red ${before.red} → ${after.red}, blue → ${after.blue}`,
+	);
+	const [red] = featuresOf(await play.round('m', [10, 1], 'force:meter:red'));
+	check(red?.mode === 'holdAndWin', 'the full red meter starts the primary', red?.mode);
 }
 
 // ---------- 3. one strip key, two respin modes ----------
