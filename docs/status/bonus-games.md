@@ -34,7 +34,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 2 | Mock: per-mode engines | not started (needs 1) | — | — |
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
-| 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
+| 5a | `/config` Bonus modes + Coin overlay | in progress | Bonus games Phase 5a — /config Bonus modes + Coin overlay | — |
 | 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
 | 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
