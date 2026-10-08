@@ -1,7 +1,7 @@
 /**
  * ADD-ONS merged into a project that already has its own game (`docs/design/pots-overlay.md` §3.1,
  * §4): the pots overlay and a Hold and Win bonus. Each adds its parts and replaces nothing the
- * project has — the `/config` Add-ons section and the Game Maker's add-on action both go through
+ * project has — the `/config` Coin overlay section and the Game Maker's add-on action both go through
  * here, so neither is ever a whole-doc reset.
  *
  * NAME CLASHES ARE RENAMED, never merged: a preset symbol or pot id the project already uses takes

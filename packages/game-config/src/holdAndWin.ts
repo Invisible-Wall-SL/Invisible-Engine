@@ -758,8 +758,9 @@ export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'holdAnd
 	doc.holdAndWin?.expansion?.maxRows ?? doc.numRows[0] ?? 0;
 
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
-export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
-	HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
+export const configuredSpecials = (block: {
+	specials: Partial<Record<HoldAndWinSpecial, unknown>>;
+}): HoldAndWinSpecial[] => HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
 
 /**
  * Is the `holdAndWin` block the pots overlay's BONUS rather than the base game

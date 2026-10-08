@@ -11,6 +11,8 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		normalizeGameConfigDoc,
+		splitFormOf,
+		withLegacyPair,
 		resolveBetModes,
 		resolveWinLevels,
 		resolveWinModel,
@@ -61,9 +63,9 @@
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
 	// of a raw-key text box. Not forked; the editor owns it.
 	import RegionPicker from '../editor/RegionPicker.svelte';
-	import AddOnsSection from './AddOnsSection.svelte';
+	import BonusModesSection from './BonusModesSection.svelte';
+	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
-	import HoldAndWinSection from './HoldAndWinSection.svelte';
 	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
@@ -75,8 +77,13 @@
 	 * doc (authored if present, else the template default) and PUT back whole. Everything the tool
 	 * shows derives from `game-config`, the SAME package the game resolves with, so the grid can't
 	 * drift from what ships.
+	 *
+	 * It is the SPLIT FORM only (`splitFormOf`, `docs/design/bonus-games.md` §2.1): the coin overlay
+	 * and the bonus modes are edited, and the legacy `holdAndWin` / `potsOverlay` keys are never held,
+	 * so a save can't be overwritten by a stale mirror. The server regenerates the mirror on save; the
+	 * page's readers see it through `snapshot`.
 	 */
-	const initial = (data.doc ?? data.templateDefault) as GameConfigDoc;
+	const initial = splitFormOf((data.doc ?? data.templateDefault) as GameConfigDoc);
 	let doc = $state<GameConfigDoc>(structuredClone(initial));
 
 	/** Where the loaded doc came from — the page says so, so "edit yours" vs "adopt the template" is
@@ -88,7 +95,9 @@
 	let baseline = $state(JSON.stringify(initial));
 	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
 
-	const snapshot = $derived($state.snapshot(doc) as GameConfigDoc);
+	/** The live doc as the game reads it: the split form plus the compat mirror a save regenerates,
+	 *  so every validator and reader that still reads the legacy keys sees the edit. */
+	const snapshot = $derived(withLegacyPair($state.snapshot(doc) as GameConfigDoc));
 
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
@@ -124,17 +133,18 @@
 	const reelSymbolNames = $derived(symbolNames.filter((name) => uses[name] !== 'token'));
 	const coinPots = $derived(overlayTokenPots(snapshot));
 
-	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(doc).addOns));
-	const isHoldAndWin = $derived(capabilities.holdAndWin);
+	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(snapshot).addOns));
 	/** A Hold and Win base game pays by lines; a Hold and Win block that is the pots overlay's BONUS
 	 *  leaves the host's own win model alone. */
-	const winModelLinesOnly = $derived(isHoldAndWin && !holdAndWinIsOverlayBonus(snapshot));
+	const winModelLinesOnly = $derived(
+		capabilities.holdAndWin && !holdAndWinIsOverlayBonus(snapshot),
+	);
 
 	/** A Hold and Win symbol's read-only value list in the Symbols table: a `coin` shows the cash
 	 *  entries of the coin table, a `jackpot` the jackpot entries — they pay by value, not on a line. */
 	function holdAndWinValueLabels(name: string): string[] {
 		const roles = symbolHoldAndWinRoles(doc.symbols[name]);
-		const coins = doc.holdAndWin?.coins ?? [];
+		const coins = snapshot.holdAndWin?.coins ?? [];
 		return coins
 			.filter(
 				(c) =>
@@ -1232,14 +1242,14 @@
 			rawError = 'This does not describe a game — it needs a symbol dictionary and reel strips.';
 			return;
 		}
-		doc = structuredClone(next);
+		doc = splitFormOf(next);
 		rawError = null;
 		rawOpen = false;
 	}
 
 	function resetToTemplate() {
 		if (!data.templateDefault) return;
-		doc = structuredClone(data.templateDefault as GameConfigDoc);
+		doc = splitFormOf(data.templateDefault as GameConfigDoc);
 	}
 
 	/** A kind with starting configs of its own (Hold and Win: Pots / Classic / Collector; lines: the
@@ -1257,7 +1267,7 @@
 			confirmLabel: 'Reset to preset',
 			danger: true,
 		});
-		if (ok) doc = structuredClone(preset.doc);
+		if (ok) doc = splitFormOf(preset.doc);
 	}
 
 	/**
@@ -1323,8 +1333,8 @@
 				return { ok: false, reason: 'error', message: (await res.text()) || `HTTP ${res.status}` };
 			}
 			const saved = (await res.json()) as { doc: GameConfigDoc; etag: string | null };
-			doc = structuredClone(saved.doc);
-			baseline = JSON.stringify(saved.doc);
+			doc = splitFormOf(saved.doc);
+			baseline = JSON.stringify($state.snapshot(doc));
 			source = 'authored';
 			savedAt = new Date().toLocaleTimeString();
 			return { ok: true, etag: saved.etag };
@@ -1959,11 +1969,9 @@
 			{/if}
 		</section>
 
-		<AddOnsSection bind:doc {issuesFor} readOnly={lease.readOnly} />
+		<CoinOverlaySection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
 
-		{#if isHoldAndWin}
-			<HoldAndWinSection bind:doc {issuesFor} readOnly={lease.readOnly} />
-		{/if}
+		<BonusModesSection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
 
 		<!-- Symbols ---------------------------------------------------------------->
 		<section>
@@ -2658,8 +2666,8 @@
 				{:else if swapStyle === 'emerge'}
 					Per <strong>column</strong>, on that column's own beat, ahead of the symbols surfacing
 					there. This is the half of the emerge picture that makes the old board <em>leave</em>
-					rather than simply blink out — without it, a column's old symbols are gone the instant its
-					new ones appear.
+					rather than simply blink out — without it, a column's old symbols are gone the instant its new
+					ones appear.
 				{:else}
 					The whole board clears at once, ahead of the fall. Off, the old board is simply gone when
 					the new one arrives.
@@ -2783,10 +2791,10 @@
 			<p class="hint">
 				The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
 				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
-				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
-				sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
-				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
-				aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
+				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and sound
+				— is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which reads these
+				tiers by alias so the two stay in sync. Smaller wins are handled automatically and aren't shown
+				here. Leave this empty to keep the game's built-in tiers (byte-identical).
 			</p>
 
 			{#if bigResolved.length}
@@ -2801,8 +2809,8 @@
 				<div class="tier-seed">
 					<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
 					<span class="hint"
-						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or
-						retune them. Or add one below.</span
+						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or retune
+						them. Or add one below.</span
 					>
 				</div>
 			{/if}

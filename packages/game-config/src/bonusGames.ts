@@ -14,10 +14,10 @@
  * overlay's pots and drops. The rule that keeps both the unmigrated writers and normalization honest:
  *
  *  - when the input carries a legacy key, the LEGACY PAIR is authoritative for everything the mirror
- *    shows — an unmigrated writer (the `/config` Hold and Win section, the add-ons, the import) edits
- *    only those keys — and everything the mirror cannot show is kept from the split form;
- *  - when it carries neither, the split form is authoritative. A writer of the split form therefore
- *    deletes both legacy keys before it saves;
+ *    shows — an unmigrated writer (the add-ons, the import) edits only those keys — and everything
+ *    the mirror cannot show is kept from the split form;
+ *  - when it carries neither, the split form is authoritative. A writer of the split form (`/config`,
+ *    `./bonusModes`) therefore deletes both legacy keys before it saves ({@link splitFormOf});
  *  - Hold and Win is REMOVED only through {@link removeHoldAndWin}: deleting the `holdAndWin` key
  *    alone brings it back on a doc without a `potsOverlay` and drops it beside one.
  *
