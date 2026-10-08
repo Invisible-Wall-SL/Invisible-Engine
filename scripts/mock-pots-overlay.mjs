@@ -8,10 +8,11 @@
  *     from a weighted table and this add-on's own RNG, so the host deals the same board either way;
  *   - per-session POTS (levels in `session.meters`, beside a Hold and Win game's meters, so a contract
  *     swap carries them — `carrySession`);
- *   - the BONUS a full pot starts: the Hold and Win feature (`mock-holdandwin-engine.mjs`, with the
- *     dropped value coins held), the host's own free spins (its `startFreeSpins` hook), a REELS mode
- *     of the project's own (an imported free spins: the same hook, on that mode's strips and pays,
- *     under its own bonus key), or a `modeEnter`/`modeExit` stub for any other mode.
+ *   - the BONUS a full pot starts: a Hold and Win feature (`mock-holdandwin-engine.mjs`, one engine
+ *     per respin mode, the pot's mode's; the dropped value coins held), the host's own free spins
+ *     (its `startFreeSpins` hook), a REELS mode of the project's own (an imported free spins: the
+ *     same hook, on that mode's strips and pays, under its own bonus key), or a
+ *     `modeEnter`/`modeExit` stub for any other mode.
  *
  * The host's feature always plays first; a bonus waiting behind it starts instead of its `gameEnd`.
  *
@@ -24,7 +25,7 @@
  * also answers `…/force`.
  */
 
-import { createHoldAndWinEngine, hashStr } from './mock-holdandwin-engine.mjs';
+import { createHoldAndWinEngine, DEFAULT_RESPIN_MODE, hashStr } from './mock-holdandwin-engine.mjs';
 
 /** Wire version, sent in the boot config so a facade can refuse a wire it was not written for. */
 export const POTS_OVERLAY_WIRE_VERSION = 1;
@@ -32,8 +33,8 @@ export const POTS_OVERLAY_WIRE_VERSION = 1;
 const FORCE_PREFIX = 'force:';
 const list = (v) => (Array.isArray(v) ? v : []);
 
-/** The respin feature's mode id (game-config `HOLD_AND_WIN_MODE`) — the one bonus this deals itself. */
-const HOLD_AND_WIN_MODE = 'holdAndWin';
+/** The default respin mode's id (game-config `HOLD_AND_WIN_MODE`). */
+const HOLD_AND_WIN_MODE = DEFAULT_RESPIN_MODE.mode;
 
 /**
  * @param {{ label: string, seed?: string, reels: number, rows: number,
@@ -61,27 +62,46 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		return rngState / 0x100000000;
 	};
 
-	// The Hold and Win feature, when the project's block is the overlay's bonus. The base-board
-	// options an overlay host refuses are left out, so nothing but a pot or the coins starts it.
-	const hw = inputs.holdAndWin?.block
-		? createHoldAndWinEngine({
+	// The Hold and Win features, one per respin mode, when the project's block is the overlay's
+	// bonus: the primary first, and with several (`holdAndWin.modes`) each answers with its `mode`.
+	// The base-board options an overlay host refuses are left out, so nothing but a pot or the coins
+	// starts one.
+	const respinInputs = inputs.holdAndWin?.block
+		? (inputs.holdAndWin.modes ?? [
+				{
+					mode: HOLD_AND_WIN_MODE,
+					gameType: DEFAULT_RESPIN_MODE.bonus,
+					block: inputs.holdAndWin.block,
+					symbols: inputs.holdAndWin.symbols,
+				},
+			])
+		: [];
+	const wire = Boolean(inputs.holdAndWin?.modes);
+	const engines = new Map(
+		respinInputs.map((m) => [
+			m.mode,
+			createHoldAndWinEngine({
 				label: host.label,
 				base: false,
 				rand,
 				reels: host.reels,
 				rows: host.rows,
+				...(wire ? { mode: m.mode, bonus: m.gameType, blank: m.blank, wire } : {}),
 				holdAndWin: {
 					...inputs.holdAndWin,
+					symbols: m.symbols,
 					block: {
-						...inputs.holdAndWin.block,
-						trigger: inputs.holdAndWin.block.trigger?.count
-							? { count: inputs.holdAndWin.block.trigger.count }
-							: {},
+						...m.block,
+						trigger: m.block.trigger?.count ? { count: m.block.trigger.count } : {},
 						meters: [],
 					},
 				},
-			})
-		: null;
+			}),
+		]),
+	);
+	/** The primary respin mode's engine: the one the legacy boot block and the value coins are. */
+	const hw = engines.values().next().value ?? null;
+	const isRespin = (mode) => engines.has(mode);
 	// A pot that would start free spins on a game whose free spins are OFF is refused, as `/config`
 	// refuses to save it: the host has no feature for it to start.
 	const offRoute =
@@ -91,13 +111,15 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			`[${host.label}] pot "${offRoute.id}" starts free spins, but this game's free spins are off`,
 		);
 	}
-	const orphan = pots.find((p) => p.bonus.mode === HOLD_AND_WIN_MODE && !hw);
+	const orphan = pots.find((p) => p.bonus.mode === HOLD_AND_WIN_MODE && !isRespin(p.bonus.mode));
 	if (orphan) {
 		throw new Error(
 			`[${host.label}] pot "${orphan.id}" starts Hold and Win, but the project has no Hold and Win bonus`,
 		);
 	}
-	const coinTrigger = hw?.trigger.count?.min;
+	// Value coins start the first respin mode with a count route.
+	const coinEngine = [...engines.values()].find((e) => e.trigger.count) ?? hw;
+	const coinTrigger = coinEngine?.trigger.count?.min;
 	const table = list(drops.table).filter(
 		(e) => Number(e?.weight) > 0 && (e.coin === true ? Boolean(hw) : potById.has(e.pot)),
 	);
@@ -117,11 +139,15 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	);
 	const bonuses = {
 		...host.bonuses,
-		...(hw ? { respin: HOLD_AND_WIN_MODE } : {}),
+		...Object.fromEntries([...engines.values()].map((e) => [e.bonus, e.mode])),
 		...Object.fromEntries(Object.keys(reelsModes).map((id) => [id, id])),
 	};
 
-	// ---- sessions: pots (and a Hold and Win bonus's progressive pools) ----
+	// ---- sessions: pots (and the Hold and Win bonuses' progressive pools, by tier name) ----
+	const tierNames = new Set();
+	const progressiveTiers = [...engines.values()]
+		.flatMap((e) => e.progressiveTiers)
+		.filter((t) => !tierNames.has(t.name) && tierNames.add(t.name));
 	const ensure = (session) => {
 		const levels = session.meters ?? {};
 		session.meters = {
@@ -130,10 +156,10 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				pots.map((p) => [p.id, Math.min(maxOf(p), Math.max(0, Number(levels[p.id]) || 0))]),
 			),
 		};
-		if (hw?.progressiveTiers.length) {
+		if (progressiveTiers.length) {
 			const pools = session.jackpots ?? {};
 			session.jackpots = Object.fromEntries(
-				hw.progressiveTiers.map((t) => {
+				progressiveTiers.map((t) => {
 					const level = Number(pools[t.name]);
 					return [t.name, Math.min(t.cap, Number.isFinite(level) && level > 0 ? level : t.seed)];
 				}),
@@ -160,9 +186,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 					max: maxOf(p),
 					sizeStages: list(p.sizeStages),
 					bonus: p.bonus.mode,
-					...(p.bonus.mode === HOLD_AND_WIN_MODE && p.bonus.activates
-						? { activates: p.bonus.activates }
-						: {}),
+					...(isRespin(p.bonus.mode) && p.bonus.activates ? { activates: p.bonus.activates } : {}),
 				})),
 				bonuses,
 				...(Object.keys(reelsModes).length
@@ -174,6 +198,15 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 					: {}),
 			},
 			...(hw ? { holdAndWin: hw.holdAndWinConfig(session) } : {}),
+			...(wire
+				? {
+						bonusModes: [...engines.values()].map((e) => ({
+							mode: e.mode,
+							gameType: e.bonus,
+							...e.holdAndWinConfig(session),
+						})),
+					}
+				: {}),
 		};
 	};
 
@@ -282,10 +315,10 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		};
 		const placeCoin = () => {
 			const at = freeCell();
-			const coin = at && hw.drawCoin(at.reel);
+			const coin = at && coinEngine.drawCoin(at.reel);
 			if (!coin) return false;
 			coins.push({ reel: at.reel, row: at.row, cell: coin });
-			cells.push(hw.cellInfo(at.reel, at.row, coin));
+			cells.push(coinEngine.cellInfo(at.reel, at.row, coin));
 			return true;
 		};
 		for (const id of force?.pots ?? []) placeToken(potById.get(id));
@@ -309,51 +342,59 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	// ---- bonuses ----
 	const queued = (round, id) => (round.potsQueue ?? []).some((q) => q.meters.includes(id));
 	/**
-	 * Queue what this spin started, behind anything already waiting: Hold and Win first (every pot
-	 * routed to it and the coins, as one feature), then each other full pot in config order. A round
-	 * plays ONE Hold and Win: what fills while one waits joins it, and a pot that fills after it has
-	 * played stays full for the next round (coins then are shown and gone).
+	 * Queue what this spin started, behind anything already waiting: each respin mode first, in mode
+	 * order (every pot routed to it, and the coins to theirs, as one feature), then each other full
+	 * pot in config order. A round plays each respin mode ONCE: what fills while one waits joins it,
+	 * and a pot that fills after its mode has played stays full for the next round (coins then are
+	 * shown and gone). The dropped coins ride only the feature of the mode they belong to.
 	 */
 	const queueBonuses = (round, full, coins) => {
 		const queue = (round.potsQueue ??= []);
-		const played = Boolean(round.potsFeature);
-		const toHoldAndWin = played ? [] : full.filter((p) => p.bonus.mode === HOLD_AND_WIN_MODE);
-		const coinStart = !played && Boolean(coinTrigger) && coins.length >= coinTrigger;
-		if (toHoldAndWin.length || coinStart) {
-			const meters = toHoldAndWin.map((p) => p.id);
-			const activates = toHoldAndWin.map((p) => p.bonus.activates).filter(Boolean);
-			const waiting = queue.find((q) => q.mode === HOLD_AND_WIN_MODE);
+		const played = new Set(round.potsRespins ?? []);
+		const coinMode = coinStarts(played, coins) ? coinEngine.mode : null;
+		for (const engine of engines.values()) {
+			if (played.has(engine.mode)) continue;
+			const routed = full.filter((p) => p.bonus.mode === engine.mode);
+			const coinStart = coinMode === engine.mode;
+			if (!routed.length && !coinStart) continue;
+			const meters = routed.map((p) => p.id);
+			const activates = routed.map((p) => p.bonus.activates).filter(Boolean);
+			const waiting = queue.find((q) => q.mode === engine.mode);
 			if (waiting) {
 				waiting.meters.push(...meters);
 				waiting.activates.push(...activates);
 				if (meters.length) waiting.cause = 'meter';
 			} else {
 				queue.push({
-					mode: HOLD_AND_WIN_MODE,
+					mode: engine.mode,
 					cause: meters.length ? 'meter' : 'count',
 					meters,
 					activates,
-					coins,
+					// Coins are their mode's symbols: they ride its feature only, else they are shown and gone.
+					coins: engine === coinEngine ? coins : [],
 				});
 			}
 		}
 		for (const pot of full) {
-			if (pot.bonus.mode === HOLD_AND_WIN_MODE) continue;
+			if (isRespin(pot.bonus.mode)) continue;
 			queue.push({ mode: pot.bonus.mode, meters: [pot.id], spins: pot.bonus.spins });
 		}
 	};
+	const coinStarts = (played, coins) =>
+		Boolean(coinTrigger) && !played.has(coinEngine.mode) && coins.length >= coinTrigger;
 
-	/** Run the Hold and Win engine on the round's bonus state, keeping the round's win in step. */
-	const withFeature = (round, session, run) => {
+	/** Run `engine` on the round's bonus state, keeping the round's win in step. */
+	const withFeature = (round, session, engine, run) => {
 		const sub = round.potsFeature;
 		sub.win = round.win;
-		hw.setLivePools(session.jackpots ?? null);
-		hw.wonProgressive.clear();
+		engine.setLivePools(session.jackpots ?? null);
+		engine.wonProgressive.clear();
 		run(sub);
 		round.win = sub.win;
-		for (const t of hw.progressiveTiers)
-			if (hw.wonProgressive.has(t.name)) session.jackpots[t.name] = t.seed;
-		hw.wonProgressive.clear();
+		// The pools' rules are the merged ones `ensure` clamps with, whichever mode won one.
+		for (const t of progressiveTiers)
+			if (engine.wonProgressive.has(t.name)) session.jackpots[t.name] = t.seed;
+		engine.wonProgressive.clear();
 	};
 
 	/** The feature has ended: whatever waits behind it starts instead of its `gameEnd`. */
@@ -364,14 +405,16 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	};
 
 	const startHoldAndWin = (events, session, round, next) => {
-		const board = hw.emptyBoard();
+		const engine = engines.get(next.mode);
+		(round.potsRespins ??= []).push(next.mode);
+		const board = engine.emptyBoard();
 		for (const { reel, row, cell } of next.coins) board[reel][row] = { ...cell };
 		// The base stake: the book host's `baseBet`, the lines host's `baseTotal`.
 		const baseTotal = round.baseBet ?? round.baseTotal;
 		round.potsFeature = { id: round.id, baseTotal, win: round.win, force: {} };
 		const from = events.length;
-		withFeature(round, session, (sub) =>
-			hw.startFeature(events, sub, session, board, next.cause, next.meters, next.activates),
+		withFeature(round, session, engine, (sub) =>
+			engine.startFeature(events, sub, session, board, next.cause, next.meters, next.activates),
 		);
 		if (next.meters.length) {
 			const trigger = events.slice(from).find((e) => e.event === 'spinTrigger');
@@ -389,7 +432,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		const queue = round.potsQueue ?? [];
 		while (queue.length) {
 			const next = queue.shift();
-			if (next.mode === HOLD_AND_WIN_MODE) {
+			if (isRespin(next.mode)) {
 				startHoldAndWin(events, session, round, next);
 				return true;
 			}
@@ -478,7 +521,8 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 
 	/** A respin of the Hold and Win bonus. */
 	const playOwned = (events, session, round) => {
-		withFeature(round, session, (sub) => hw.playRespin(events, sub));
+		const engine = engines.get(round.potsFeature.feature.mode) ?? hw;
+		withFeature(round, session, engine, (sub) => engine.playRespin(events, sub));
 		afterFeature(events, session, round);
 	};
 

@@ -20,8 +20,8 @@ const BY_TYPE = {
 	ways: ['check:ways', 'check:freespins'],
 	cluster: ['check:cluster', 'check:freespins'],
 	scatter: ['check:scatter', 'check:freespins'],
-	bookOf: ['check:book-paytable', 'check:pots-overlay', 'check:buy-cost'],
-	holdAndWin: ['check:holdandwin'],
+	bookOf: ['check:book-paytable', 'check:pots-overlay', 'check:bonus-modes', 'check:buy-cost'],
+	holdAndWin: ['check:holdandwin', 'check:bonus-modes'],
 };
 
 export const gatesFor = (script) => [...RUNTIME, ...(BY_TYPE[script] ?? BY_TYPE.lines)];
