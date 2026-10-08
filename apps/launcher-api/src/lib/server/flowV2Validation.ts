@@ -15,6 +15,7 @@
  */
 import {
 	containersMissingScene,
+	respinTabIssues,
 	validateFlowDoc,
 	type FlowAddOns,
 	type FlowDoc,
@@ -62,14 +63,17 @@ export function validateFlowV2Against(
 		sounds: soundOptionsFor(sounds),
 		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns),
 	});
-	return validateFlowDoc(
-		doc,
-		vocab,
-		library,
-		projectContainerEvents(doc.containers, scenes),
-		collectContainerTaps(doc.containers, scenes),
-		scenes.map((s) => s.id),
-	);
+	return [
+		...validateFlowDoc(
+			doc,
+			vocab,
+			library,
+			projectContainerEvents(doc.containers, scenes),
+			collectContainerTaps(doc.containers, scenes),
+			scenes.map((s) => s.id),
+		),
+		...respinTabIssues(doc, addOns),
+	];
 }
 
 /** {@link validateFlowV2Against} with the project's stored scenes, sounds, Game Config add-ons and

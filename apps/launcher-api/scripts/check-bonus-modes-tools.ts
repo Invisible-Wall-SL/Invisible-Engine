@@ -32,7 +32,6 @@ import {
 import {
 	HOLD_AND_WIN_PRESETS,
 	addPotsOverlay,
-	flowAddOnsOf,
 	holdAndWinModeDecl,
 	normalizeGameConfigDoc,
 	primaryRespinMode,
@@ -102,10 +101,11 @@ const symbolsPage = (kind: string, doc: GameConfigDoc) =>
 	symbolsPageConfig(kind, symbolDefaultsFor(kind), { doc, source: 'authored', etag: null });
 
 /** What `projectAddOns` gave before Phase 5b: the legacy block reads. */
-const legacyAddOns = (doc: GameConfigDoc | null) => {
-	const { holdAndWin, potsOverlay } = flowAddOnsOf(doc);
-	return { holdAndWin, potsOverlay, expandingSymbol: !!resolveExpandingSymbol(doc ?? undefined) };
-};
+const legacyAddOns = (doc: GameConfigDoc | null) => ({
+	holdAndWin: !!doc?.holdAndWin,
+	potsOverlay: !!doc?.potsOverlay,
+	expandingSymbol: !!resolveExpandingSymbol(doc ?? undefined),
+});
 /** What `sceneSetOptionsFor` gave before Phase 5b. */
 const legacyOptions = (kind: string, doc: GameConfigDoc | null): SceneSetOptions => {
 	const addOns = legacyAddOns(doc);

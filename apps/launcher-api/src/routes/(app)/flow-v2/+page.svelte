@@ -9,7 +9,9 @@
 		derivePins,
 		deriveGraphPins,
 		graftAddOnSteps,
+		respinTabIssues,
 		validateFlowDoc,
+		vocabForTab,
 		validateFunctionDef,
 		assignable,
 		type ContainerEventDecl,
@@ -387,7 +389,10 @@
 	const issues = $derived(
 		view.kind === 'function' && activeFn
 			? validateFunctionDef(activeFn, vocab, library)
-			: validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
+			: [
+					...validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
+					...respinTabIssues(doc, data.addOns),
+				],
 	);
 
 	// Issues per doc section, for the tab badges (`''` = the global graph).
@@ -1884,7 +1889,7 @@
 					</p>
 				{/if}
 				<AddNodePalette
-					{vocab}
+					vocab={vocabForTab(vocab, activeModeId, data.addOns)}
 					{library}
 					doc={paletteDoc}
 					onadd={addNodeOfKind}

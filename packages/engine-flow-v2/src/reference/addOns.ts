@@ -14,7 +14,8 @@
 
 import { flowGraphs, graphHandlesSignal } from '../runtime';
 import type { FlowDoc, Graph, TemplateVocabulary, TypeRef } from '../types';
-import { buildEntryGraph, holdAndWinModeGraph, seedContainerRefs } from './drivenSeed';
+import type { FlowIssue } from '../validate';
+import { buildEntryGraph, holdAndWinModeGraph, modeContainerRefs } from './drivenSeed';
 import { beat, HOLD_AND_WIN_FRAGMENT } from './holdAndWin';
 import { trig, type ChoreoStep } from './bookOfChoreo';
 import { HOLD_AND_WIN_BASE_CHOREO } from './holdAndWinChoreo';
@@ -22,9 +23,13 @@ import { INT, SYMBOL, insertAfter, type VocabFragment } from './standardVocab';
 
 /** Which add-on blocks a project's Game Config carries, and its meter ids (`resolveMeters`). */
 export interface FlowAddOns {
+	/** A respin mode with Hold and Win rules is declared. */
 	holdAndWin?: boolean;
 	potsOverlay?: boolean;
 	meters?: readonly string[];
+	/** The respin modes with rules, the primary first; absent ⇒ the lone `holdAndWin` when
+	 *  `holdAndWin` is on. */
+	respinModes?: readonly string[];
 }
 
 const FLOAT: TypeRef = { t: 'float' };
@@ -212,6 +217,74 @@ const OVERLAY_BASE_CHOREO = {
 
 const HOLD_AND_WIN_MODE = 'holdAndWin';
 
+/** The respin modes `addOns` declares, the primary first. */
+export const flowRespinModes = (addOns: FlowAddOns | undefined): readonly string[] =>
+	addOns?.respinModes ?? (addOns?.holdAndWin ? [HOLD_AND_WIN_MODE] : []);
+
+/** Is mode tab `modeId` a respin mode's (keyed on the board, not the id): one of `addOns`' respin
+ *  modes, or `holdAndWin`, the Hold and Win kind's own. */
+export const isRespinTab = (modeId: string, addOns: FlowAddOns | undefined): boolean =>
+	modeId === HOLD_AND_WIN_MODE || flowRespinModes(addOns).includes(modeId);
+
+/**
+ * The Hold and Win events that fire only while a respin mode is on screen: the feature's events but
+ * the ones that can also arrive outside it — `jackpotWin` (a base-game jackpot too) and the two that
+ * open the feature (`holdAndWinTrigger`, `holdAndWinWheel`), which a queued bonus can present under
+ * another mode.
+ */
+export const RESPIN_FEATURE_EVENTS: readonly string[] = HOLD_AND_WIN_FRAGMENT.featureEvents
+	.map((event) => event.name)
+	.filter(
+		(name) =>
+			!(name in HOLD_AND_WIN_BASE_CHOREO) &&
+			name !== 'holdAndWinTrigger' &&
+			name !== 'holdAndWinWheel',
+	);
+
+/** `vocab` as a mode tab that is not a respin mode's offers it: without the respin feature's events,
+ *  which never reach that tab. Every other tab, and the global graph, keeps `vocab` itself. */
+export const vocabForTab = (
+	vocab: TemplateVocabulary,
+	modeId: string | null | undefined,
+	addOns: FlowAddOns | undefined,
+): TemplateVocabulary =>
+	modeId == null || isRespinTab(modeId, addOns)
+		? vocab
+		: { ...vocab, events: vocab.events.filter((e) => !RESPIN_FEATURE_EVENTS.includes(e.name)) };
+
+/**
+ * A respin feature event handled in a mode tab that is not a respin mode's: a signal goes to the
+ * section of the mode on screen, and these fire only while a respin mode is, so the chain never runs.
+ * WARNINGS, so a flow that published before still publishes. Judged only where the vocabulary has
+ * the respin feature (a Hold and Win project, or one with a respin mode).
+ */
+export function respinTabIssues(doc: FlowDoc, addOns: FlowAddOns | undefined): FlowIssue[] {
+	if (doc.templateId !== HOLD_AND_WIN_MODE && !addOns?.holdAndWin) return [];
+	return flowGraphs(doc).flatMap(({ modeId, graph }) =>
+		modeId === undefined || isRespinTab(modeId, addOns)
+			? []
+			: RESPIN_FEATURE_EVENTS.filter((event) => graphHandlesSignal(graph, event)).map(
+					(event): FlowIssue => {
+						const own = graph.nodes.find((n) => n.kind === 'event' && n.ref === event);
+						const signals = graph.nodes.find(
+							(n) =>
+								n.kind === 'gameSignals' &&
+								graph.exec.some((e) => e.from.node === n.id && e.from.pin === event),
+						);
+						return {
+							code: 'respin-event-off-board',
+							severity: 'warning',
+							message: `'${event}' fires only while a respin mode is on screen, and the '${modeId}' tab is not a respin mode's — move it to that mode's tab or the global graph`,
+							at: own
+								? { on: 'node', node: own.id }
+								: { on: 'pin', node: signals?.id ?? '', pin: event },
+							mode: modeId,
+						};
+					},
+				),
+	);
+}
+
 /** What a graft did: the new doc, and a label per thing it added (empty ⇒ the doc unchanged). */
 export interface AddOnGraft {
 	doc: FlowDoc;
@@ -241,8 +314,9 @@ const freePrefix = (ids: ReadonlySet<string>, base: string): string => {
  *    node and its coded beat. An `event` node rather than a pin on the doc's `gameSignals` node:
  *    the runtime walks the FIRST `gameSignals` node only, and wiring an authored node is not ours.
  *    Placed right of every existing node.
- *  - **Hold and Win bonus**: `modes.holdAndWin` from the Hold and Win starter flow when the doc has
- *    no such section (an existing one is left alone). Its beats show the mode's screens, and the
+ *  - **Hold and Win bonus**: for each respin mode (`flowRespinModes`, the primary first) the doc has no
+ *    section for, `modes.<modeId>` from the Hold and Win starter flow (an existing one is left
+ *    alone), showing that mode's own `-<modeId>` screens. Its beats show the mode's screens, and the
  *    validator refuses a show of a container the doc does not declare, so each missing one is
  *    declared at the seed's z — the same ref a Hold and Win project carries. A declared container
  *    whose scene the project lacks validates and mounts nothing (the Scene Editor's "＋ Add overlay
@@ -284,19 +358,21 @@ export function graftAddOnSteps(doc: FlowDoc, addOns: FlowAddOns | undefined): A
 		added.push(...events);
 	}
 
-	if (addOns?.holdAndWin && !doc.modes?.[HOLD_AND_WIN_MODE]) {
-		const section = holdAndWinModeGraph(freePrefix(ids, 'hw'));
-		modes = { ...doc.modes, [HOLD_AND_WIN_MODE]: { graph: section } };
-		added.push(`modes.${HOLD_AND_WIN_MODE}`);
-		const declared = new Set(doc.containers.map((c) => c.id));
+	for (const modeId of flowRespinModes(addOns)) {
+		if (doc.modes?.[modeId]) continue;
+		const section = holdAndWinModeGraph(freePrefix(ids, 'hw'), modeId);
+		nodeIds(section, ids);
+		modes = { ...modes, [modeId]: { graph: section } };
+		added.push(`modes.${modeId}`);
+		const declared = new Set(containers.map((c) => c.id));
 		const shown = section.nodes.flatMap((n) =>
 			(n.kind === 'showContainer' || n.kind === 'hideContainer') && !declared.has(n.ref)
 				? [n.ref]
 				: [],
 		);
-		const missingRefs = seedContainerRefs(shown);
+		const missingRefs = modeContainerRefs(shown, modeId);
 		if (missingRefs.length) {
-			containers = [...doc.containers, ...missingRefs];
+			containers = [...containers, ...missingRefs];
 			added.push(...missingRefs.map((c) => `container ${c.id}`));
 		}
 	}

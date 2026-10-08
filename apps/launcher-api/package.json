@@ -114,6 +114,8 @@
 		"check:config-bonus-modes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-config-bonus-modes.ts",
 		"precheck:bonus-modes-tools": "node scripts/ensure-svelte-kit.mjs",
 		"check:bonus-modes-tools": "tsx --tsconfig tsconfig.scripts.json scripts/check-bonus-modes-tools.ts",
+		"precheck:flow-bonus-modes": "node scripts/ensure-svelte-kit.mjs",
+		"check:flow-bonus-modes": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-bonus-modes.ts",
 		"precheck:pots-overlay-add-on": "node scripts/ensure-svelte-kit.mjs",
 		"check:pots-overlay-add-on": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pots-overlay-add-on.ts",
 		"precheck:win-text-doc": "node scripts/ensure-svelte-kit.mjs",

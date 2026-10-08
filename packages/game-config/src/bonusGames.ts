@@ -422,6 +422,14 @@ export function bonusCapabilityInputs(doc: BonusDoc): {
 	};
 }
 
+/** The respin modes with rules, the primary first ({@link primaryRespinMode}), read off the split
+ *  form; `[]` without Hold and Win. */
+export function respinModeIds(doc: BonusDoc): string[] {
+	const modes = (bonusSplitOf(doc).modes ?? []).filter(isRespinGame);
+	const primary = primaryRespinMode(modes);
+	return primary ? [primary.id, ...modes.filter((m) => m !== primary).map((m) => m.id)] : [];
+}
+
 /** The symbol an empty cell of respin mode `mode` draws: its `blank`, else the first symbol tagged
  *  `blank` its strips deal, else the wire's literal `BLANK`. */
 export function respinModeBlank(doc: GameConfigDoc, mode: GameModeDecl): string {
