@@ -29,9 +29,9 @@ starts the phase sessions, reviews their PRs and merges them.
 
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
-| 0 | Plan + hub | in review | Hold and Wins as standalone project | — |
-| 1 | Contract: config split + migration | in review | Bonus games Phase 1 — config split + migration | #1133 |
-| 2 | Mock: per-mode engines | not started (needs 1) | — | — |
+| 0 | Plan + hub | merged | Hold and Wins as standalone project | #1131 |
+| 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
+| 2 | Mock: per-mode engines | in progress | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | — |
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
