@@ -32,7 +32,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 0 | Plan + hub | merged | Hold and Wins as standalone project | #1131 |
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
 | 2 | Mock: per-mode engines | not started (needs 1) | — | — |
-| 3 | Facade + wire + event types | in progress | Bonus games Phase 3: Facade, wire and event types, per mode | — |
+| 3 | Facade + wire + event types | in review | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
 | 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
@@ -113,7 +113,48 @@ starts the phase sessions, reviews their PRs and merges them.
   - Mode-level validation of a SECOND respin mode's rules is still owed. Only the mirrored primary
     goes through `validateHoldAndWin`; Phase 2 or 5a should run it per mode.
 
+- 2026-10-08 — **Phase 3: what the facade reads, for Phase 2 and Phase 4.**
+  - **Phase 2 (the mock).** Each respin mode should deal under its OWN `bonus` key in
+    `bonusModes[].bonus` and `spinTrigger.bonus`. Today the mock hard-codes `respin`. With two
+    modes sharing a key, only a context `mode` can tell them apart; a key alone resolves to the
+    primary first.
+  - **The pots overlay's `bonuses`** map a key to any respin mode id, not only `holdAndWin`.
+  - **No mode on two wire events.** `jackpotLevels` and `meterLevels` name no mode. In a round
+    they apply to the round's mode; the balance heartbeat's progressive pools apply to the primary
+    only. Two modes with separate progressive pools would need `mode` on `jackpotLevels`. That is
+    a contract question, open for the hub.
+  - **Boot globals stay primary-only.** The boot meters and pools published to the game
+    (`__IE_HOLD_AND_WIN_METERS__` / `__IE_HOLD_AND_WIN_JACKPOTS__`) still come from the legacy
+    (primary) block. Per-mode pools are Phase 4's concern.
+  - **Phase 4 (the runtime).** `respinReveal` / `holdAndWinState` name the mode only when it is not
+    `holdAndWin`, and the trigger always names it. The runtime should key the board on the mode on
+    top of the stack.
+
 ## Recent changes
+
+- 2026-10-08 — **Phase 3: the facade reads respin rules per mode** (PR #1139, packages
+  `rgs-translator-eagaming` and `engine-game`, plus the Flow v2 vocabulary that mirrors the types).
+  - **Boot capture.** The facade captures `config.bonusModes` per mode (`readHoldAndWinModes`). A
+    boot without it reads the legacy `holdAndWin` block as mode `holdAndWin`. The primary is
+    `holdAndWin`, else the first entry.
+  - **Routing.** Each Hold and Win event translates under its mode's rules (`respinModesOf`): the
+    mode a context names, else the overlay's route (now `{ respins: mode } | 'reels'`), else the
+    mode whose `bonus` key the `spinTrigger` names, else the primary.
+  - **Events.** `holdAndWinTrigger` and `holdAndWinEnd` carry the real mode. `respinReveal` and
+    `holdAndWinState` carry it only when it is not `holdAndWin`.
+  - **Per-mode fields.** `expansion.maxRows` and `blank` are read per mode.
+  - **Types.** The `engine-game` event `mode` fields are now `string`. The runtime is unchanged
+    (Phase 4).
+  - **Gates:**
+    - `check:holdandwin`: 1892/0, with digests unchanged;
+    - the new `bonusModes.fixture.ts`: 278/0. It runs a two-mode boot and rounds in mode B and in
+      the primary over the real mock, plus legacy byte-identity;
+    - `check:pots-overlay`: 112/0, with digests unchanged;
+    - `check:freespins`, `check:engine-game` 11/11, `check:all` 411/411 and `check:svelte` at
+      baseline all pass.
+  - **What's left:** Phase 2's mock must emit the contract. The fixture's proxy shows the shape
+    the facade reads (also written up in `docs/reference/hold-and-win-wire.md` "Several respin
+    modes").
 
 - 2026-10-08 — **Phase 1: the hub's review fixes** (PR #1133).
   - **Blocking 1:** a `reels` / `none` override of the Hold and Win mode no longer drops its block.
