@@ -625,5 +625,52 @@ console.log('\n§14 — every round ends: a round never passes the free-spin cap
 	await close();
 }
 
+console.log('\n§15 — the facade lights the trigger where it landed, whichever symbol it is');
+{
+	const facade = await import('../packages/rgs-translator-eagaming/engine-facade.ts');
+	/** The `freeSpinTrigger` a forced feature round hands the engine, and the board that triggered. */
+	const triggers = async (opts, label) => {
+		const mock = createMockRgs({ label, seed: label, quiet: true, forceTrigger: true, ...opts });
+		const server = createServer((req, res) =>
+			mock.handle(req, res, new URL(req.url, 'http://127.0.0.1')),
+		);
+		await new Promise((r) => server.listen(0, '127.0.0.1', r));
+		const rgsUrl = `http://127.0.0.1:${server.address().port}`;
+		const out = [];
+		const log = console.log;
+		console.log = () => {};
+		try {
+			await facade.requestAuthenticate({ rgsUrl, sessionID: label, language: 'en' });
+			for (let r = 0; r < 8; r++) {
+				const bet = await facade.requestBet({ rgsUrl, sessionID: label, currency: 'USD', mode: 'BASE', amount: 1 }); // prettier-ignore
+				const raw = bet._raw?.events ?? [];
+				const board = raw.find((e) => e.event === 'playedSpin')?.context ?? [];
+				const scatterWin = raw.find(
+					(e) => e.event === 'spinWin' && e.context.what === 'SCAT',
+				)?.context;
+				out.push({ trigger: bet.round?.state?.find((e) => e.type === 'freeSpinTrigger'), board, scatterWin }); // prettier-ignore
+				await facade.requestEndRound({ rgsUrl, sessionID: label });
+			}
+		} finally {
+			console.log = log;
+			server.close();
+		}
+		return out;
+	};
+	const cellsOf = (board, symbol) =>
+		board.flatMap((reel, r) => reel.flatMap((c, row) => (c === symbol ? [`${r}:${row + 1}`] : []))); // prettier-ignore
+	const lit = (t) => (t?.positions ?? []).map((p) => `${p.reel}:${p.row}`).sort();
+	const custom = await triggers({ freeSpinsTrigger: { symbol: 'PIC1', count: 3 } }, 'fs-lit-pic1');
+	check(
+		custom.every(({ trigger, board }) => trigger && lit(trigger).join() === cellsOf(board, 'PIC1').sort().join() && trigger.positions.length >= 3), // prettier-ignore
+		'a PIC1 trigger: every PIC1 on the triggering board is lit, and only those',
+	);
+	const scatter = await triggers({}, 'fs-lit-scat');
+	check(
+		scatter.every(({ trigger, scatterWin }) => trigger && lit(trigger).join() === (scatterWin?.context ?? []).map((p) => `${p.reel}:${p.row + 1}`).sort().join()), // prettier-ignore
+		'the default 3+ SCAT: lit from the scatter win, as before',
+	);
+}
+
 console.log(failed === 0 ? '\nALL CHECKS PASSED' : `\n${failed} CHECK(S) FAILED`);
 process.exit(failed === 0 ? 0 : 1);

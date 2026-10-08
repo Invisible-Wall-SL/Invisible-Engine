@@ -766,6 +766,10 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	const inFreeSpins = (): boolean => gameType !== 'basegame';
 	let totalFs = 0;
 	let scatterTriggerPositions: { reel: number; row: number }[] = [];
+	// The symbol a `spinTrigger` says opened the feature (`trigger.of`), and the board it landed on.
+	// A project's own trigger symbol pays no scatter win, so its cells are read off that board.
+	let triggerOf: string | undefined;
+	let triggerBoard: string[][] = [];
 	let specialRaw: string | undefined; // the free-spin expanding symbol (raw Play4Fun name)
 
 	// A Hold and Win server: its feature is NOT free spins. Each respin's board becomes a
@@ -979,6 +983,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			case 'spinTrigger': {
 				const spins = (e.context as { spins?: { spins?: number }[] | number })?.spins;
 				totalFs = Array.isArray(spins) ? (spins[0]?.spins ?? 0) : (spins ?? 0);
+				triggerOf = (e.context as { trigger?: { of?: string } })?.trigger?.of;
 				if (overlay) pendingCause = entryCause(e.context);
 				break;
 			}
@@ -996,6 +1001,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 						return cell;
 					}),
 				);
+				if (!inFreeSpins()) triggerBoard = reels;
 				// A respin lands cell by cell on the respin board, never on the reels.
 				if (inHoldAndWin) {
 					push({ type: 'respinReveal', cells: boardCells(reels) });
@@ -1196,8 +1202,18 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				push({
 					type: 'freeSpinTrigger',
 					totalFs: totalFs || (e.context as { left?: number })?.left || 0,
-					// A full pot is the cause, not the scatters (none need have landed).
-					positions: pendingCause.cause === 'meter' ? [] : scatterTriggerPositions,
+					// A full pot is the cause, not the scatters (none need have landed). A trigger symbol
+					// other than the scatter is lit where it landed (padded one row, as `winPositions`).
+					positions:
+						pendingCause.cause === 'meter'
+							? []
+							: triggerOf && triggerOf !== 'SCAT'
+								? triggerBoard.flatMap((reel, r) =>
+										reel.flatMap((cell, row) =>
+											cell === triggerOf ? [{ reel: r, row: row + 1 }] : [],
+										),
+									)
+								: scatterTriggerPositions,
 					...pendingCause,
 					...(freeSpinsMode ? { mode: freeSpinsMode } : {}),
 				});
