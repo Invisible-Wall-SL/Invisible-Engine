@@ -62,7 +62,9 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   a count per (file, `<source>:<code>`), to `svelte-check-baseline.json`. Any count going up fails;
   going down passes with a notice to lower it. A crashed run (no `COMPLETED` line) fails.
 - **Dependabot** (`.github/dependabot.yml`): weekly grouped npm / pip / github-actions updates, capped
-  open PRs, gated by the same required checks. Its security updates wait on the owner switch
+  open PRs, gated by the same required checks. `current-games` needs secrets Dependabot's runs never
+  get, so a Dependabot PR touching the runtime is re-landed on a normal branch (INFRA "Dependabot");
+  `@types/node` majors are ignored (types follow Node 22). Its security updates wait on the owner switch
   (Blocked). There is no rig runtime package to pin any more — rigs run on our own
   `packages/engine-rig` — and `scripts/check-rig-runtime-free.mjs` (check:all) fails any
   third-party rig runtime manifest entry, lockfile entry, import or vendored file (2026-10-06 below).
@@ -124,6 +126,18 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-08 — **Dependabot #1049 (npm) and #1106 (pip) re-landed in one PR.** Neither could pass the
+  required `current-games` check: Dependabot runs get no Actions secrets. The re-land carries
+  #1049's bumps (pixi.js 8.21 → 8.22, @sentry/browser + node 11.1 → 11.4, @anthropic-ai/sdk 0.131,
+  typescript-eslint 8.71, turbo 2.11.7, addon-svelte-csf 5.1.5, …) except
+  `@sveltejs/adapter-static`, which was `"latest"` and would resolve to 4.0.0 (needs SvelteKit 3; we
+  are on 2): it is now `^3` in config-svelte, config-storybook, components-storybook and
+  pixi-svelte-storybook. `@types/node` in eslint-config-custom goes 26.2.0 → 22.13.5, like every
+  other package (vite's optional peer still resolves to 26.2.0 in the lock; no manifest asks for
+  it). #1106: boto3/botocore 1.43.108, tzdata 2026.5 (backup hashes checked against PyPI), sentry-sdk
+  floor 2.71. `.github/dependabot.yml` ignores `@types/node` majors, and its header plus INFRA
+  "Dependabot" now say why such PRs are re-landed. #1089 (actions) is re-landed in its own PR: it
+  edits the harness.
 - 2026-10-06 — **rig runtime gate replaced.** The old version gate (which pinned
   the third-party runtime packages to 4.2.x) is gone with the packages themselves; the new
   `scripts/check-rig-runtime-free.mjs` fails any of them coming back, and `.github/dependabot.yml`

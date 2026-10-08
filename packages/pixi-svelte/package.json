@@ -41,7 +41,7 @@
 		"engine-flipbook": "workspace:*",
 		"engine-fx": "workspace:*",
 		"pixi-filters": "6.1.5",
-		"pixi.js": "8.21.0",
+		"pixi.js": "8.22.0",
 		"svelte": "5.57.1",
 		"utils-event-emitter": "workspace:*",
 		"vite": "6.2.0",

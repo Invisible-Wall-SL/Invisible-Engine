@@ -10,10 +10,15 @@
 # (docs/INFRA.md "Dependabot"); this file alone only configures them. Their open-PR cap is
 # GitHub's own (10), not the limits below.
 #
-# GATED LIKE ANY PR: a Dependabot PR runs Checks, Lint and Secrets and cannot merge until the six
-# required checks pass — no bypass. None of those jobs needs a secret, which matters because
-# Dependabot-triggered runs get none. The subjects use scopes the commit-msg hook accepts (`deps:`,
-# `ci:`), since the squash-merged PR title becomes the commit on `main`.
+# GATED LIKE ANY PR: a Dependabot PR runs Checks, Lint and Secrets and cannot merge until every
+# required check passes — no bypass. Those three need no secret, but the required `current-games`
+# check does (it renders every live game from R2), and Dependabot-triggered runs get no Actions
+# secrets, so it can never pass there. A Dependabot PR that touches the runtime (npm, or anything
+# current-games builds) is therefore RE-LANDED: its changes are applied on a normal branch from
+# `main` in one PR, which current-games really runs, and the Dependabot PR is closed. A PR that
+# edits the harness (`.github/workflows/**`) is re-landed on its own, as it needs an owner-posted
+# status (docs/INFRA.md "Dependabot"). The subjects use scopes the commit-msg hook accepts
+# (`deps:`, `ci:`), since the squash-merged PR title becomes the commit on `main`.
 
 version: 2
 
@@ -29,6 +34,10 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: deps
+    # `@types/node` follows the Node runtime (22, `engines` in package.json), not the newest Node.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     groups:
       npm-minor-patch:
         applies-to: version-updates

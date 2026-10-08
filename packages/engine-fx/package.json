@@ -15,12 +15,12 @@
 		"@barvynkoa/particle-emitter": "0.0.1"
 	},
 	"peerDependencies": {
-		"pixi.js": "8.21.0"
+		"pixi.js": "8.22.0"
 	},
 	"devDependencies": {
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
-		"pixi.js": "8.21.0",
+		"pixi.js": "8.22.0",
 		"typescript": "5.9.3"
 	}
 }

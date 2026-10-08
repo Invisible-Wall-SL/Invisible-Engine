@@ -1157,8 +1157,17 @@ no third-party rig runtime package for Dependabot to bump. `scripts/check-rig-ru
 by check:all) fails any manifest, lockfile entry, import or vendored file that brings one back.
 
 A Dependabot PR is gated like any other: it runs Checks, Lint and Secrets and cannot merge until
-the six required checks pass. None of those jobs needs a secret, so Dependabot's secret-less runs
-behave the same as a person's PR. Subjects are `deps: …` / `ci: …`, both accepted commit scopes.
+every required check passes. Those three need no secret, but the required **`current-games`**
+check does (its R2 and launcher secrets, "Who may post `current-games`" above), and
+Dependabot-triggered runs get no Actions secrets, so on a Dependabot PR it can never pass.
+**A Dependabot PR that touches the runtime is re-landed:** apply its changes on a normal branch from
+`main` (regenerate `pnpm-lock.yaml` with `pnpm install`, never by hand; keep the backup's hash pins
+matching PyPI), open one PR so current-games really builds and renders every game, and close the
+Dependabot PR. Merging an npm re-land starts a runtime release to every online game, so it waits
+for current-games green with 0 changed screens. An actions PR edits the harness
+(`.github/workflows/**`), so its verdict is an owner-posted status: re-land it as a separate PR,
+never folded into a runtime one. `@types/node` majors are ignored (`ignore` in the npm block): the
+types follow the Node 22 runtime. Subjects are `deps: …` / `ci: …`, both accepted commit scopes.
 
 **Owner step (one-time, GitHub → Settings → Advanced Security):** switch on **Dependabot alerts**
 and **Dependabot security updates**. The config file alone schedules the version updates. Security
