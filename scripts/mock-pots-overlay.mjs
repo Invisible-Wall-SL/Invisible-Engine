@@ -9,9 +9,10 @@
  *   - per-session POTS (levels in `session.meters`, beside a Hold and Win game's meters, so a contract
  *     swap carries them — `carrySession`);
  *   - the BONUS a full pot starts: a Hold and Win feature (`mock-holdandwin-engine.mjs`, one engine
- *     per respin mode, the pot's mode's; the dropped value coins held), the host's own free spins (its `startFreeSpins` hook), a REELS mode
- *     of the project's own (an imported free spins: the same hook, on that mode's strips and pays,
- *     under its own bonus key), or a `modeEnter`/`modeExit` stub for any other mode.
+ *     per respin mode, the pot's mode's; the dropped value coins held), the host's own free spins
+ *     (its `startFreeSpins` hook), a REELS mode of the project's own (an imported free spins: the
+ *     same hook, on that mode's strips and pays, under its own bonus key), or a
+ *     `modeEnter`/`modeExit` stub for any other mode.
  *
  * The host's feature always plays first; a bonus waiting behind it starts instead of its `gameEnd`.
  *
@@ -390,7 +391,8 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		engine.wonProgressive.clear();
 		run(sub);
 		round.win = sub.win;
-		for (const t of engine.progressiveTiers)
+		// The pools' rules are the merged ones `ensure` clamps with, whichever mode won one.
+		for (const t of progressiveTiers)
 			if (engine.wonProgressive.has(t.name)) session.jackpots[t.name] = t.seed;
 		engine.wonProgressive.clear();
 	};
@@ -519,7 +521,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 
 	/** A respin of the Hold and Win bonus. */
 	const playOwned = (events, session, round) => {
-		const engine = engines.get(round.potsFeature.feature.mode);
+		const engine = engines.get(round.potsFeature.feature.mode) ?? hw;
 		withFeature(round, session, engine, (sub) => engine.playRespin(events, sub));
 		afterFeature(events, session, round);
 	};

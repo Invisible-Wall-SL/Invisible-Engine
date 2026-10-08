@@ -12,8 +12,15 @@
 //    did (no `bonusModes`, no `mode` key: `check:holdandwin`'s MAIN_DIGESTS pin the bytes); a lone
 //    NON-default mode emits the new shape; a second mode reached by a buy route plays its own rules.
 // 3. Two respin modes on one strip key: `/config` refuses it, and so does the mock.
+// 4. The real test server: a stored `holdAndWin` stamp fingerprints as the `lines` contract the
+//    launcher now answers for the same game, so a refresh never rebuilds its mock over the stamp.
 
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
 	HOLD_AND_WIN_PRESETS,
@@ -130,7 +137,7 @@ const driver = (mock) => {
 		}
 		return events;
 	};
-	return { config, round };
+	return { call, config, round };
 };
 
 const TAGGED = [
@@ -360,6 +367,37 @@ for (const [hostName, host] of Object.entries(HOSTS)) {
 		JSON.stringify(mixed.map((f) => [f.mode, [...f.symbols]])),
 	);
 
+	// A lost answer in the middle of a holdAndWin_2 feature: resent at the same seq and gid it is
+	// replayed byte for byte, a reboot resumes the round, and the next respin is still mode 2's.
+	{
+		const sid = 'replay';
+		const opened = await play.call(`sid=${sid}&seq=0`, [
+			{ action: 'bet', context: host.bet },
+			{ action: 'play', context: 'force:pot:green' },
+		]);
+		const gid = opened.platform.gameRound.id;
+		const first = await play.call(`sid=${sid}&seq=2&gid=${gid}`, [{ action: 'play' }]);
+		const resent = await play.call(`sid=${sid}&seq=2&gid=${gid}`, [{ action: 'play' }]);
+		const boot = await play.call(`sid=${sid}`, [{ action: 'config' }]);
+		const next = await play.call(`sid=${sid}&seq=3&gid=${gid}`, [{ action: 'play' }]);
+		const respin = (a) => a.events.find((e) => e.event === 'playedBonusSpin')?.context;
+		check(
+			respin(first)?.mode === 'holdAndWin_2' &&
+				same(resent.events, first.events) &&
+				resent.platform.balance === first.platform.balance,
+			'a respin of holdAndWin_2 resent at the same seq/gid is replayed byte for byte',
+		);
+		const config = boot.events.find((e) => e.event === 'config');
+		check(
+			Boolean(boot.platform.gameRound) &&
+				config?.context.bonusModes?.length === 2 &&
+				respin(next)?.mode === 'holdAndWin_2' &&
+				respin(next)?.played === respin(first).played + 1,
+			'…a reboot mid-feature resumes it, and the next respin is mode 2’s',
+			JSON.stringify([respin(first)?.played, respin(next)?.played, respin(next)?.mode]),
+		);
+	}
+
 	// Both pots full on one spin: the round plays both features, one after the other.
 	const both = featuresOf(await play.round('both', host.bet, 'force:pot:red,pot:green'));
 	check(
@@ -540,6 +578,86 @@ console.log('3. two respin modes on one strip key');
 		refused = e.message;
 	}
 	check(/two respin modes play on the "respin" strips/.test(refused), 'the mock refuses it loudly');
+}
+
+// ---------- 4. a stored `holdAndWin` stamp on the real test server ----------
+
+console.log('4. a stored holdAndWin stamp vs the live lines contract (the real test server)');
+{
+	const { quiet: _q, seed: _s, ...grid } = contractOf(CLASSIC, 'x');
+	/** Serve `answer` as the launcher's contract; return the lines the test server logged. */
+	const refreshLog = async (answer, entry = { protocol: 'holdAndWin', grid }) => {
+		const launcher = createServer((req, res) => {
+			res.writeHead(200, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ projectKey: 'hw', ...answer }));
+		});
+		await new Promise((ok) => launcher.listen(0, '127.0.0.1', ok));
+		const docBase = `http://127.0.0.1:${launcher.address().port}`;
+		const dir = mkdtempSync(join(tmpdir(), 'bonus-modes-'));
+		writeFileSync(
+			join(dir, 'games.json'),
+			JSON.stringify({
+				games: { hw: { ...entry, name: 'HW', docBase, readToken: 't' } },
+			}),
+		);
+		const port = await new Promise((ok) => {
+			const probe = createServer().listen(0, () => {
+				const p = probe.address().port;
+				probe.close(() => ok(p));
+			});
+		});
+		const child = spawn(process.execPath, ['services/test-server/server.mjs'], {
+			env: {
+				PATH: process.env.PATH,
+				PORT: String(port),
+				TEST_SERVER_LOCAL: dir,
+				CONTRACT_TTL_MS: '0',
+			},
+			stdio: ['ignore', 'pipe', 'pipe'],
+		});
+		let out = '';
+		child.stdout.on('data', (c) => (out += c));
+		child.stderr.on('data', (c) => (out += c));
+		const origin = `http://127.0.0.1:${port}`;
+		for (let i = 0; i < 100; i++) {
+			if (
+				await fetch(`${origin}/healthz`).then(
+					(r) => r.ok,
+					() => false,
+				)
+			)
+				break;
+			await new Promise((r) => setTimeout(r, 100));
+		}
+		for (let i = 0; i < 3; i++) {
+			await fetch(`${origin}/api/hw/rgs/engine?sid=s`, { method: 'POST', body: '[]' });
+		}
+		child.kill();
+		launcher.close();
+		rmSync(dir, { recursive: true, force: true });
+		return out;
+	};
+	const same = await refreshLog({ protocol: 'lines', grid });
+	check(
+		!/config changed/.test(same),
+		'the same game answered as lines: no rebuild, no "config changed"',
+		same.match(/.*config changed.*/)?.[0],
+	);
+	const moved = await refreshLog({ protocol: 'lines', grid: { ...grid, rows: 4 } });
+	check(
+		/config changed/.test(moved),
+		'…while a real change still rebuilds it (the check can fail)',
+	);
+	// Hold and Win inputs that are present but malformed still say so, before it deals plain lines.
+	const broken = { ...grid, holdAndWin: { ...grid.holdAndWin, lineSymbols: 'H1' } };
+	const warned = await refreshLog(
+		{ protocol: 'lines', grid: broken },
+		{ protocol: 'lines', grid: broken },
+	);
+	check(
+		/is a Hold and Win game but its holdAndWin inputs are malformed/.test(warned),
+		'malformed Hold and Win inputs on a lines contract are reported, not dropped silently',
+	);
 }
 
 console.log(failed ? `\n✗ ${failed} bonus-modes check(s) failed` : '\n✓ bonus-modes checks passed');

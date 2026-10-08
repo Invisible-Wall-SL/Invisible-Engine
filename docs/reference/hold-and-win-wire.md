@@ -316,8 +316,9 @@ belong to the feature the last entry opened, since one respin board plays at a t
 
 **On the Hold and Win game mock** (the coins land on the base reels), the primary deals the base game
 and every mode's routes are on its trigger, so a cause is detected exactly where it always was. A
-cause routed to another mode starts that mode's engine on the dealt board. Its boot `holdAndWin.meters`
-lists every route's meters.
+cause routed to another mode starts that mode's engine on the dealt board, consuming only the meters
+that mode owns. Its boot `holdAndWin.meters` lists every route's meters. Forcing (`force:` and
+`queuedMode`) is parsed by the primary: a forced trigger starts the mode its cause is routed to.
 
 ## Pots overlay — an add-on on another kind's wire
 

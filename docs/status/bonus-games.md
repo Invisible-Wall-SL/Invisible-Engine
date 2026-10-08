@@ -123,13 +123,15 @@ starts the phase sessions, reviews their PRs and merges them.
     Hold and Win inputs, and is dealt on the Hold and Win engine, whose base game IS the lines
     evaluator plus the classic overlay. Truly composing it over `createLinesMock` would change the RNG
     streams and so every dealt board. That is deferred to Phase 7, and only if the owner wants it.
-  - **Decided by the doc, not the kind:** a lines-KIND project whose Hold and Win is base-game (not an
-    overlay bonus) is now also dealt by the Hold and Win engine. Before, the lines mock ignored its
-    block.
+  - **Decided by the KIND until Phase 7** (hub review of #1138, ground rule 3): only a
+    `holdAndWin`-kind project is dealt on the Hold and Win engine. Deciding it from the doc would
+    re-deal a lines-kind game whose overlay coin is also on a base strip (dropping its pots and its
+    lines fields). Phase 7 moves the decision onto the doc as a migration item.
   - **Limits on the game mock** (coins on the base reels):
     - base-game coins and specials are the primary mode's, whichever mode a route starts;
     - a route that two modes both claim goes to the first mode that has it;
-    - jackpot tiers that share a name share one progressive pool, with the first mode's numbers;
+    - jackpot tiers that share a name share one progressive pool, with the first mode's numbers (on
+      the overlay too);
     - a full meter starts its own mode and consumes only that mode's meters, so a full meter of
       another mode waits until its symbol lands again;
     - dropped value coins are the coin mode's symbols, so they ride only that mode's feature.
@@ -154,22 +156,27 @@ starts the phase sessions, reviews their PRs and merges them.
   - **Wire:** `bonusModes` and `mode` on six contexts, under the emit rule (design §2.2, wire
     reference "Several respin modes").
   - **Protocol:** `protocolFor('holdAndWin')` is gone (`mockProtocol.ts`, `current-games/lib/plan.mjs`).
-    - A lines contract carries the Hold and Win inputs when the coins land on the base reels, and
-      the test server deals it on the Hold and Win engine.
-    - Stored `protocol: 'holdAndWin'` entries deal as before, and the game card no longer calls one
-      a drift.
+    - A `holdAndWin`-KIND project's lines contract carries its Hold and Win inputs, and the test
+      server deals it on the Hold and Win engine. Every other kind keeps main's contract exactly.
+    - A stored `protocol: 'holdAndWin'` entry reads as `lines`, so it fingerprints as the live
+      contract: no mock rebuild or "config changed" on each refresh. The game card no longer calls
+      it a drift. Malformed Hold and Win inputs on a lines contract are still reported.
   - **Validator:** `validateBonusModes` refuses two respin modes on one strip key, and so does the
     mock.
   - **Gates:**
-    - New `check:bonus-modes` (in `check:rgs`) runs the two-mode host on the book and lines mocks:
-      each pot deals its own mode's rules on its own symbols, and every context is tagged. It also
-      covers the lone default (no new keys), a lone non-default mode, a buy route to a second mode,
-      and one strip key shared.
+    - New `check:bonus-modes` (in `check:rgs`, and the current-games `holdAndWin` / `bookOf` gates)
+      runs the two-mode host on the book and lines mocks: each pot deals its own mode's rules on its
+      own symbols, every context is tagged, and a respin of mode 2 resent mid-feature is replayed
+      and resumes. It also covers the lone default (no new keys), a lone non-default mode, a buy
+      route and a meter route to a second mode, one strip key shared, and, on the real test server,
+      a stored `holdAndWin` stamp vs the live `lines` contract and malformed inputs.
     - `check:holdandwin` (1892/0) and `check:pots-overlay` (112/0): `MAIN_DIGESTS` unchanged.
     - A seeded comparison against main on the real test server: the three Hold and Win samples (on
       the stored `holdAndWin` path AND the new `lines` path) and `borut-pots-sample` (book and lines
       hosts) deal byte-identical answers. Their mock inputs are byte-identical.
-    - `check:mock-contract` is extended (the `lines` protocol, per-mode inputs). `check:freespins`,
+    - `check:mock-contract` is extended: the `lines` protocol, per-mode inputs, a lines-kind game
+      with base-strip coins keeps main's contract, and a block-less `holdAndWin` kind keeps main's
+      board. `check:freespins`,
       `check:bonus-import`, `check:pots-overlay-add-on`, `check:game-config-defaults`,
       `check:symbols-kind-gating`, lint and `check:undefined-names` all pass.
 

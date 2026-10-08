@@ -22,10 +22,12 @@ import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { isHttpError } from '@sveltejs/kit';
 import {
+	addPotsOverlay,
 	bookOfThermopylaePreset,
 	importBonus,
 	normalizeGameConfigDoc,
 	potsOverlayPreset,
+	symbolsWithRole,
 	type GameConfigDoc,
 } from 'game-config';
 
@@ -86,7 +88,9 @@ const PROJECTS: Record<string, { token: string; gameType: string }> = {
 	scat: { token: 'SCT', gameType: 'scatter' },
 	legacy: { token: 'LEG', gameType: 'lines' },
 	hnw: { token: 'HNW', gameType: 'holdAndWin' },
-	hnwTwo: { token: 'HN2', gameType: 'lines' },
+	hnwTwo: { token: 'HN2', gameType: 'holdAndWin' },
+	hnwBare: { token: 'HNB', gameType: 'holdAndWin' },
+	linesCoins: { token: 'LNC', gameType: 'lines' },
 	book: { token: 'BOK', gameType: 'bookOf' },
 	bookPots: { token: 'BKP', gameType: 'bookOf' },
 	bookImport: { token: 'BKI', gameType: 'bookOf' },
@@ -155,6 +159,17 @@ const withSecondRespinMode = (doc: GameConfigDoc): GameConfigDoc => {
 	return normalizeGameConfigDoc(out)!;
 };
 
+/** A LINES game with the 3 Pots overlay whose coin also lands on a base strip: its Hold and Win is
+ *  then not the overlay's bonus by the doc, but its kind still decides how it is dealt. */
+const withBaseCoins = (doc: GameConfigDoc): GameConfigDoc => {
+	const added = addPotsOverlay(doc, 'threePots');
+	if (!added.ok) throw new Error(added.reason);
+	const out = structuredClone(added.doc);
+	const coin = symbolsWithRole(out, 'coin')[0];
+	out.paddingReels.basegame[0] = [...out.paddingReels.basegame[0], { name: coin }];
+	return normalizeGameConfigDoc(out)!;
+};
+
 /** The LIVE authoring data, per project — what an authoring boot reads. */
 const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	remake: resized(template('lines'), 8, 4),
@@ -162,6 +177,8 @@ const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	legacy: resized(template('lines'), 6, 4),
 	hnw: template('holdAndWin.classic'),
 	hnwTwo: withSecondRespinMode(template('holdAndWin.classic')),
+	hnwBare: template('lines'),
+	linesCoins: withBaseCoins(template('lines')),
 	book: template('lines'),
 	bookPots: withOverlay(template('lines')),
 	bookImport: withImportedFreeSpins(template('lines')),
@@ -364,7 +381,7 @@ await check('players get the published holdAndWin block, authoring the live one'
 
 await check('a second respin mode: per-mode inputs, primary first, each on its strip', async () => {
 	const live = await answer('project=hnwTwo&k=HN2&source=live');
-	eq(live.protocol, 'lines', 'a lines-kind project with a base-game Hold and Win');
+	eq(live.protocol, 'lines', 'protocol');
 	eq(
 		live.grid?.holdAndWin?.modes?.map((m) => [m.mode, m.gameType]),
 		[
@@ -375,6 +392,34 @@ await check('a second respin mode: per-mode inputs, primary first, each on its s
 	);
 	eq(live.grid?.holdAndWin?.block.stickiness, 'allCoins', 'the legacy block is the primary');
 });
+
+await check(
+	'the KIND decides the Hold and Win engine — every other kind keeps main’s contract',
+	async () => {
+		// A lines game whose coins land on the base reels: the lines grid with its overlay, as on main.
+		const coins = await answer('project=linesCoins&k=LNC&source=live');
+		eq(coins.grid?.holdAndWin, undefined, 'no Hold and Win inputs for a lines-kind game');
+		eq(
+			coins.grid?.potsOverlay?.pots.map((p) => p.id),
+			['red', 'blue', 'green'],
+			'its pots ride',
+		);
+		eq(
+			coins.grid,
+			mockContractOfBundle(
+				'lines',
+				{ config: LIVE_CONFIG.linesCoins, symbols: { map: {}, index: {} } },
+				'x',
+			).grid,
+			'exactly the lines derivation',
+		);
+		// A `holdAndWin`-kind project with no block: the board and its bet table, as main's `holdAndWin`
+		// branch gave — none of the lines mock's server-vocabulary fields.
+		const bare = await answer('project=hnwBare&k=HNB&source=live');
+		eq(bare.protocol, 'lines', 'protocol');
+		eq(Object.keys(bare.grid ?? {}), ['reels', 'rows', 'paylines', 'betModes'], 'board only');
+	},
+);
 
 console.info('a book game with a pots overlay');
 
