@@ -195,8 +195,8 @@
 						{#if mode.id === HOLD_AND_WIN_MODE}<span class="chip"
 								>played today — the game plays this one until each mode plays on its own</span
 							>{:else}<span class="chip"
-								>not played yet — the test server and the game play only "holdAndWin" until
-								bonus-games Phase 4</span
+								>not played by the game yet — the test server plays it; the game plays only
+								"holdAndWin" until bonus-games Phase 4</span
 							>{/if}
 					</h3>
 					{#if mode.holdAndWin}

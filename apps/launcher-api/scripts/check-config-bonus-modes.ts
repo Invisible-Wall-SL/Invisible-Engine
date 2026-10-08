@@ -15,7 +15,7 @@
  *  - the STORED JSON — what the `.mjs` mocks, `test-server` and the runtime read until Phase 4 —
  *    still carries a correct legacy mirror: the primary mode's block, unchanged, and the pots;
  *  - a route to a respin mode other than `holdAndWin` saves with a warning: nothing plays it before
- *    bonus-games Phases 2/4;
+ *    the game before bonus-games Phases 3/4;
  *  - removing a respin mode re-routes its pots (free spins) and saves;
  *  - (control) the same save with the stale legacy keys left on the body loses the edit — which is
  *    what `bodyFor` prevents.
@@ -208,7 +208,7 @@ console.log('\n2. a lines project: a coin overlay and two respin modes, pot A �
 	({ saved, reopened: live } = await saveAndReload(project, live, etag));
 	etag = saved.etag;
 	check(
-		'pot B → mode 2 saves with a warning: nothing plays mode 2 before Phases 2/4',
+		'pot B → mode 2 saves with a warning: the game plays mode 2 only from Phase 4',
 		saved.warnings
 			.filter((w) => w.path.startsWith('coinOverlay.'))
 			.map((w) => `${w.severity} ${w.path}`),

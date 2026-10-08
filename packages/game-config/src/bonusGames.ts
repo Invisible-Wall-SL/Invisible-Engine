@@ -470,8 +470,9 @@ function respinModeIssues(
 /**
  * The split form's own rules (design §3 Phase 1): every overlay route names a declared bonus mode;
  * every trigger and meter starts a respin mode; every respin mode has rules and a strip (warnings
- * until Phase 5a can author them), and a blank it names is one it deals; and no respin mode starts
- * inside another. Pots are the legacy validator's (`validatePotsOverlay`, on the mirror). Paths name
+ * until Phase 5a can author them), and a blank it names is one it deals; no respin mode starts
+ * inside another; and no two respin modes share a strip key, which is their bonus key on the wire
+ * (Phase 2). Pots are the legacy validator's (`validatePotsOverlay`, on the mirror). Paths name
  * the mode.
  */
 export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
@@ -479,10 +480,21 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 	const view = splitView(doc);
 	const overlay = view.coinOverlay;
 	const primary = primaryRespinMode(view.modes);
+	/** Strip key → the respin mode that plays on it first: the key is also its bonus key on the wire. */
+	const stripOwner = new Map<string, string>();
 
 	for (const mode of resolveGameModes(view)) {
 		if (mode.board !== 'respinBoard') continue;
 		const path = `modes.${mode.id}`;
+		const strip = gameTypeForMode(mode);
+		const sharer = stripOwner.get(strip);
+		if (sharer) {
+			issues.push({
+				severity: 'error',
+				path: `${path}.gameType`,
+				message: `The respin modes "${sharer}" and "${mode.id}" both play on the "${strip}" strips; each respin mode needs its own.`,
+			});
+		} else stripOwner.set(strip, mode.id);
 		const started = overlayRoutes(overlay).some((route) => route.mode === mode.id);
 		if (!mode.holdAndWin) {
 			// An error only where something starts the mode (Phase 5a: `/config` → Bonus modes gives it
@@ -551,12 +563,12 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 				? [BASE_GAME_MODE, ...dropping]
 				: [BASE_GAME_MODE];
 		if (target?.board === 'respinBoard' && target.id !== HOLD_AND_WIN_MODE) {
-			// Until the mock (Phase 2) and the game (Phase 4) play each mode by its id, only `holdAndWin`
-			// is played. Phase 4 removes this.
+			// The mock plays every respin mode (Phase 2); until the game does (Phases 3/4) it plays only
+			// `holdAndWin`. Phase 4 removes this.
 			issues.push({
 				severity: 'warning',
 				path,
-				message: `It starts "${route.mode}", which the test server and the game don't play yet (bonus-games Phases 2/4): a full pot or trigger here ends with no win.`,
+				message: `It starts "${route.mode}", which the game doesn't play yet (bonus-games Phases 3/4): the test server plays it, but in the game a full pot or trigger here ends with no win.`,
 			});
 		}
 		const host = from.find((m) => gameModeById(view, m)?.board === 'respinBoard');

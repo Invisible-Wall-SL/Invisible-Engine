@@ -232,7 +232,7 @@ export function removeRespinMode(doc: GameConfigDoc, id: string): AddOnResult {
 	const primary = primaryRespinMode(next.modes);
 	if (primary && primary.id !== HOLD_AND_WIN_MODE) {
 		notes.push(
-			`"${primary.id}" is now the project's only played Hold and Win, but the test server and the game play a mode only under the id "${HOLD_AND_WIN_MODE}" until bonus-games Phase 4 — rename it to "${HOLD_AND_WIN_MODE}" in Bonus modes.`,
+			`"${primary.id}" is now the project's only Hold and Win, but the game plays a mode only under the id "${HOLD_AND_WIN_MODE}" until bonus-games Phase 4 — rename it to "${HOLD_AND_WIN_MODE}" in Bonus modes.`,
 		);
 	}
 	const imports = next.imports?.filter((i) => i.mode !== id);

@@ -290,11 +290,11 @@ What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _C
   free spins — or, with free spins off, removed with its drops; a note under the heading says which.
   The rest of the config is kept.
 
-**The game plays one respin mode today: `holdAndWin`.** Until each mode plays on its own
-(bonus-games Phases 2 and 4), the game and the test server play only the mode with that id, and its
-card carries a chip saying so. Every other respin mode is authored and validated, and its card says
-it is **not played yet**. A pot or trigger routed to one saves with a warning: today it ends with no
-win. Removing `holdAndWin` while another respin mode is left says to rename that one to
+**The game plays one respin mode today: `holdAndWin`.** The test server plays every respin mode,
+but until each mode plays on its own in the game (bonus-games Phase 4), the game plays only the mode
+with that id, and its card carries a chip saying so. Every other respin mode's card says it is **not
+played by the game yet**. A pot or trigger routed to one saves with a warning: in the game it ends
+with no win. Removing `holdAndWin` while another respin mode is left says to rename that one to
 `holdAndWin`, which **Id** allows.
 
 A respin mode without rules says so, and **Start empty rules** gives it a default set to edit (one

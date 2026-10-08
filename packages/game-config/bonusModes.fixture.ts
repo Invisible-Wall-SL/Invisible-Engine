@@ -180,8 +180,9 @@ check(
 	before.holdAndWin,
 );
 {
-	// The dictionary is shared, so mode 2's own symbols are listed too; mode 1's are unchanged.
-	const inputs = holdAndWinMockInputs(saved)!;
+	// The dictionary is shared, so mode 2's own symbols are listed too; mode 1's are unchanged. The
+	// mock's per-mode list (bonus-games Phase 2) names both, the primary first.
+	const { modes, ...inputs } = holdAndWinMockInputs(saved)!;
 	const kept = Object.fromEntries(
 		Object.entries(inputs.symbols).filter(([name]) => name in before.symbols),
 	);
@@ -189,6 +190,14 @@ check(
 		"...and the Hold and Win mock's inputs are mode 1's",
 		{ ...inputs, symbols: kept },
 		holdAndWinMockInputs(before),
+	);
+	check(
+		'...and its per-mode list plays both, mode 1 first',
+		modes?.map((m) => [m.mode, m.gameType]),
+		[
+			['holdAndWin', 'respin'],
+			['holdAndWin_2', 'holdAndWin_2'],
+		],
 	);
 }
 check(
