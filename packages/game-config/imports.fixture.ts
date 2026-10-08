@@ -553,8 +553,25 @@ console.log('\n9. add a bonus mode (bonus-games Phase 6)');
 	check('a third copy takes _3, not _2_2', third.mode, 'holdAndWin_3');
 	check(
 		'a trigger the host has not got is refused',
-		refusal(importRespinMode(host, SOURCE, { ...FROM, routes: [{ kind: 'pattern' }] })),
+		refusal(
+			importRespinMode(host, SOURCE, {
+				...FROM,
+				hostKind: 'holdAndWin',
+				routes: [{ kind: 'pattern' }],
+			}),
+		),
 		"This project's coin overlay has no pattern trigger.",
+	);
+	check(
+		'on a kind whose mock deals only pots, a buy route is refused rather than saved unplayable',
+		refusal(
+			importRespinMode(threePots, SOURCE, {
+				...FROM,
+				hostKind: 'lines',
+				routes: [{ kind: 'buy', betMode: 'base' }],
+			}),
+		).includes('Phase 7'),
+		true,
 	);
 	const synced = resyncBonus(doc, SOURCE, 'holdAndWin_2', LATER);
 	check(

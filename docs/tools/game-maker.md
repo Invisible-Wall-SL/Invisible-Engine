@@ -302,9 +302,13 @@ project is only read.
    - its **meters**;
    - a **Buy** tier on each buy-bonus bet mode.
 
-   Scatters are never offered. A **free spins** is started only by a pot, so only the pots are
-   listed for one, and the project needs a coin overlay with pots (add one first with
-   **＋ Coin overlay…**). A **Hold and Win** mode can be left with nothing ticked and routed later in
+   Scatters are never offered. Only what this game actually plays is listed. On a **Hold and Win**
+   project every route above is offered. On any other game (Lines, Book of…) a Hold and Win mode is
+   started only by a **pot**, or by the **Coin count** when the overlay drops value coins: a buy or a
+   trigger route there would save but never play, so it is not offered (it arrives in a later
+   phase). A **free spins** is started only by a pot. Either way, a game without a coin overlay
+   with pots needs one first (**＋ Coin overlay…** → **3 Pots**). A **Hold and Win** mode can be left
+   with nothing ticked and routed later in
    [Game Config → Coin overlay](game-config.md#coin-overlay), except when it would be this project's
    only Hold and Win: then something must start it, and the dialog refuses with that reason.
 4. Click **Add**, read the report, then **Done**, and reload your own open tabs of the tools below

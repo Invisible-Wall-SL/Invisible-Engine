@@ -875,7 +875,8 @@ export async function applyBonusImport(
 		at?: string;
 	},
 ): Promise<BonusImportOutcome> {
-	const resolved = await resolveGameConfig(client, project, await projectGameType(project));
+	const hostKind = await projectGameType(project);
+	const resolved = await resolveGameConfig(client, project, hostKind);
 	if (!resolved.doc) return { ok: false, status: 400, error: 'This project has no Game Config.' };
 	if (resolved.source === 'template' && resolved.etag !== null) {
 		return {
@@ -933,6 +934,7 @@ export async function applyBonusImport(
 		? resyncBonus(resolved.doc, sourceConfig, opts.mode, at)
 		: asMode
 			? importRespinMode(resolved.doc, sourceConfig, {
+					hostKind,
 					project: source,
 					mode: opts.mode,
 					at,

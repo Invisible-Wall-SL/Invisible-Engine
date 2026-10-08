@@ -12,14 +12,16 @@
  *     screens as `<reference id>-holdAndWin_2`, its Flow tab (which publishes clean) and its Win Text
  *     under `modes.holdAndWin_2`, with a pot routed to it — and nothing else of the host moves;
  *  2. a re-sync after a source edit updates only `holdAndWin_2`;
- *  3. into a plain lines host with no overlay it arrives as `holdAndWin`, started by a buy tier;
+ *  3. a plain lines host with no overlay is refused with what to do (its mock deals a Hold and Win
+ *     only from a pot until Phase 7, and a buy route that would never play is no route), and takes
+ *     it once "＋ Coin overlay… → 3 Pots" gave it a pot to route;
  *  4. the Hold and Win template and the coin overlay add-on now write the split form, and normalize
  *     to exactly the config they wrote before.
  */
 import { mock } from 'node:test';
 import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import type { LayoutDoc, Scene, WinTextDoc } from 'engine-layout';
-import type { GameConfigDoc } from 'game-config';
+import type { GameConfigDoc, ModeRoute } from 'game-config';
 
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
@@ -119,6 +121,7 @@ mock.module(src('lib/server/runtimeBundleCache.ts'), {
 });
 const ME = 'session-me';
 
+const { modeRouteOptions } = await import('../src/lib/bonusImport.ts');
 const { applyBonusImport, respinModeCopyId } =
 	await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
@@ -483,50 +486,66 @@ await check('…and nothing else moves', () => {
 
 console.log('\n3. into a plain lines host with no overlay');
 const plainBefore = docsOf(PLAIN);
-const plain = await applyBonusImport(CLIENT, PLAIN, {
-	source: SOURCE,
-	mode: 'holdAndWin',
-	asMode: true,
-	routes: [{ kind: 'buy', betMode: 'bonus' }],
-	sessionId: ME,
-	at: AT,
-});
-const plainAfter = docsOf(PLAIN);
-
-await check('it arrives as holdAndWin, started by a buy tier on the bonus bet mode', () => {
-	assert(!plainBefore.config.coinOverlay && !plainBefore.config.modes, 'the host is not plain');
-	assert(plain.ok, `refused: ${plain.ok ? '' : plain.error}`);
-	same(plain.mode, 'holdAndWin', 'mode');
-	same(
-		plainAfter.config.coinOverlay?.trigger?.buy?.map((t) => [t.betMode, t.mode]),
-		[['bonus', 'holdAndWin']],
-		'buy route',
-	);
-	same(gameConfigErrors(plainAfter.config), [], 'errors');
-	same(plainAfter.config.paylines, plainBefore.config.paylines, 'paylines');
-	same(
-		plainAfter.config.paddingReels.basegame,
-		plainBefore.config.paddingReels.basegame,
-		'base strips',
-	);
-});
+const plainBytes = stored(gameConfigDocKey(CLIENT, PLAIN));
+const addToPlain = (routes?: ModeRoute[]) =>
+	applyBonusImport(CLIENT, PLAIN, {
+		source: SOURCE,
+		mode: 'holdAndWin',
+		asMode: true,
+		routes,
+		sessionId: ME,
+		at: AT,
+	});
 
 await check(
-	'…with no route, its only Hold and Win is refused with why, nothing written',
+	'a buy route is refused: a lines game deals it from Phase 7, nothing written',
 	async () => {
-		put(gameConfigDocKey(CLIENT, PLAIN), plainBefore.config);
-		const bytes = stored(gameConfigDocKey(CLIENT, PLAIN));
-		const out = await applyBonusImport(CLIENT, PLAIN, {
-			source: SOURCE,
-			mode: 'holdAndWin',
-			asMode: true,
-			sessionId: ME,
-			at: AT,
-		});
-		assert(!out.ok && /something must start it/.test(out.error), JSON.stringify(out));
-		same(stored(gameConfigDocKey(CLIENT, PLAIN)), bytes, 'nothing written');
+		assert(!plainBefore.config.coinOverlay && !plainBefore.config.modes, 'the host is not plain');
+		const out = await addToPlain([{ kind: 'buy', betMode: 'bonus' }]);
+		assert(!out.ok && /route a pot to it/.test(out.error), JSON.stringify(out));
+		same(stored(gameConfigDocKey(CLIENT, PLAIN)), plainBytes, 'nothing written');
 	},
 );
+
+await check('…the dialog offers no route there: nothing it lists would play', () => {
+	same(modeRouteOptions(plainBefore.config, 'lines'), [], 'options');
+	assert(
+		modeRouteOptions(plainBefore.config, 'holdAndWin').some((o) => o.key === 'buy:bonus'),
+		'a Hold and Win kind deals the buy',
+	);
+});
+
+await check('…with no route it says to add a coin overlay with pots first', async () => {
+	const out = await addToPlain();
+	assert(!out.ok && /Add a coin overlay with pots first/.test(out.error), JSON.stringify(out));
+	same(stored(gameConfigDocKey(CLIENT, PLAIN)), plainBytes, 'nothing written');
+});
+
+await check('＋ Coin overlay… → 3 Pots, then a pot route: it is added', async () => {
+	const overlay = await applyPotsOverlayAddOn(CLIENT, PLAIN, {
+		sessionId: ME,
+		preset: 'threePots',
+	});
+	assert(overlay.ok, `the add-on refused: ${overlay.ok ? '' : overlay.error}`);
+	const withPots = docsOf(PLAIN).config;
+	same(
+		modeRouteOptions(withPots, 'lines').map((o) => o.key),
+		[...(withPots.coinOverlay?.pots ?? []).map((p) => `pot:${p.id}`), 'count'],
+		'the dialog offers the pots, and the coin count its dropped value coins fill',
+	);
+	const out = await addToPlain([{ kind: 'pot', pot: 'red' }]);
+	assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+	same(out.mode, NEW, 'beside the 3 Pots bonus');
+	const config = docsOf(PLAIN).config;
+	same(
+		config.coinOverlay?.pots?.find((p) => p.id === 'red')?.bonus,
+		{ mode: NEW },
+		'red starts it',
+	);
+	same(gameConfigErrors(config), [], 'errors');
+	same(config.paylines, plainBefore.config.paylines, 'paylines');
+	same(config.paddingReels.basegame, plainBefore.config.paddingReels.basegame, 'base strips');
+});
 
 await check('…while a second mode may wait unstarted (routed later in /config)', async () => {
 	await scaffoldProject(CLIENT, 'tpl-collector', { holdAndWinPreset: 'collector' });

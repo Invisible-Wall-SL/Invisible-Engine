@@ -65,6 +65,7 @@ import {
 } from './bonusGames';
 import { respinGameTypeFor, respinModeIdProblem } from './bonusModes';
 import { normalizeCoinOverlay, overlayRoutes, type CoinOverlay } from './coinOverlay';
+import { isCoinDrop } from './potsOverlay';
 import type { HoldAndWinGame } from './holdAndWinGame';
 import type { GameConfigDoc, GameConfigSymbol } from './types';
 
@@ -457,6 +458,9 @@ export type ModeRoute =
 	| { kind: 'buy'; betMode: string };
 
 export type ModeImportOptions = {
+	/** This project's kind: which `routes` its mock deals ({@link modeRouteRefusal}). Read only for
+	 *  `routes` (a re-sync adds none); absent ⇒ only what every kind deals. */
+	hostKind?: string;
 	/** The source project's key. */
 	project: string;
 	/** The source's respin mode id. */
@@ -475,6 +479,28 @@ const TRIGGER_LABELS = {
 	luckySpin: 'Lucky Spin',
 	randomMetre: 'random metre',
 } as const;
+
+/** The kind whose mock deals every route to a respin mode (bonus-games Phase 2: decided by KIND). */
+const HOLD_AND_WIN_KIND = 'holdAndWin';
+
+/**
+ * Why `route` would not start a respin mode in a project of kind `hostKind`, or `undefined` when its
+ * mock deals it. Only the Hold and Win kind's mock deals every route; on any other kind the coin
+ * overlay composes over the host's own mock and starts a respin mode only from a full pot or from
+ * enough dropped value coins (the count trigger). A route that saves but never plays is refused —
+ * the dialog lists only the routes this passes. Phase 7 lifts it with the deal decision on the doc.
+ */
+export function modeRouteRefusal(
+	doc: Pick<GameConfigDoc, 'coinOverlay' | 'potsOverlay' | 'holdAndWin' | 'modes'>,
+	route: ModeRoute,
+	hostKind: string | undefined,
+): string | undefined {
+	if (hostKind === HOLD_AND_WIN_KIND) return undefined;
+	if (route.kind === 'pot') return undefined;
+	const drops = legacyPotsOverlay(doc)?.drops;
+	if (route.kind === 'count' && drops?.table.some(isCoinDrop)) return undefined;
+	return 'On this game only a pot (or dropped value coins) starts a Hold and Win: route a pot to it — buy and trigger routes on a lines game arrive in Phase 7.';
+}
 
 /** `wanted`, or its base (any `_<n>` dropped) with the first free `_2`, `_3`… a respin mode may take. */
 function freeRespinModeId(doc: GameConfigDoc, wanted: string): string {
@@ -646,6 +672,10 @@ export function importRespinMode(
 	modes.splice(at >= 0 ? at : modes.length, 0, decl);
 	next.modes = modes;
 
+	const undealt = (opts.routes ?? [])
+		.map((route) => modeRouteRefusal(next, route, opts.hostKind))
+		.find(Boolean);
+	if (undealt) return { ok: false, reason: undealt };
 	const refused = routeTo(next, id, game, opts.routes ?? []);
 	if (refused) return { ok: false, reason: refused };
 	// The primary respin mode's rules are the ones the game has always validated, a trigger included;
@@ -656,7 +686,10 @@ export function importRespinMode(
 	) {
 		return {
 			ok: false,
-			reason: `"${id}" would be this project's only Hold and Win, so something must start it: pick a pot, a trigger or a buy tier.`,
+			reason:
+				opts.hostKind === HOLD_AND_WIN_KIND || legacyPotsOverlay(next)?.pots.length
+					? `"${id}" would be this project's only Hold and Win, so something must start it: pick a pot, a trigger or a buy tier.`
+					: `"${id}" would be this project's only Hold and Win, so something must start it, and on this game only a pot can. Add a coin overlay with pots first (＋ Coin overlay… → 3 Pots).`,
 		};
 	}
 	// A pot that starts it with a special its rules (re-synced) no longer deal starts it plain.

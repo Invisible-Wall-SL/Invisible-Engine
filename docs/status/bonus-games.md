@@ -378,9 +378,21 @@ starts the phase sessions, reviews their PRs and merges them.
     The add-on saves `splitFormOf(added.doc)`, which normalizes byte-identically on every host and
     preset (gated). The card still keys "parts…" on the overlay dropping tokens (the
     `potsOverlay` mirror), as before.
-  - **For Phase 7:** a buy or pot route to a second respin mode on a LINES-kind host is not
-    play-checked here. The mock deals on the Hold and Win engine by KIND (Phase 2), so the sample host
-    playing two Hold and Win bonuses is Phase 7's proof.
+  - **Only routes the mock deals are offered (hub decision on #1149: never save a route that
+    silently won't play).** One helper, game-config `modeRouteRefusal(doc, route, hostKind)`, is read
+    by both `importRespinMode` and the dialog (`modeRouteOptions`).
+    - **A Hold and Win KIND** deals every route.
+    - **Any other kind** composes the overlay over its own mock (`withPotsOverlay`), which starts a
+      respin mode only from a full pot, or from the count trigger when the overlay drops value coins.
+      A buy, pattern, Lucky Spin, random-metre or meter route there is refused: "route a pot to it —
+      buy and trigger routes on a lines game arrive in Phase 7".
+    - **A plain lines host with no overlay** can't take its first Hold and Win (it needs a route),
+      and the refusal says "Add a coin overlay with pots first". After "＋ Coin overlay… → 3 Pots" it
+      takes it on a pot route. `check:add-bonus-mode` §3 pins both.
+  - **Phase 7 must-do:** lift the `modeRouteRefusal` guard (and its gate cases) when the deal
+    decision moves from the kind onto the doc, so a lines game deals buy and trigger routes to a
+    respin mode. Until then, the pot route into a Book-of host with a second respin mode is what
+    plays (gate §1). The sample host playing two Hold and Win bonuses stays Phase 7's proof.
 
 ## Recent changes
 
@@ -406,13 +418,14 @@ starts the phase sessions, reviews their PRs and merges them.
         screens, a rehomed Flow tab that publishes clean with no new warning, Win Text under
         `modes.holdAndWin_2`, pot `green` routed to it, and nothing else of the host moved;
       - a re-sync after a source edit moves only `holdAndWin_2`;
-      - a plain lines host with no overlay takes it as `holdAndWin` on a buy route, and refuses it
-        with no route;
+      - a plain lines host with no overlay refuses a buy route (its mock would not deal it before
+        Phase 7) and refuses no route ("add a coin overlay with pots first"); after "＋ Coin overlay…
+        → 3 Pots" it takes the mode on a pot route;
       - a second unstarted mode saves;
       - template and add-on parity.
 
       Mutations that turn it red: no `-<mode>` screen naming (2), Flow mode triggers not rehomed (1),
-      the re-sync not dispatched on `asMode` (1).
+      the re-sync not dispatched on `asMode` (1), the route guard off (4).
     - `imports.fixture.ts` §9.
     - `check:holdandwin` 1892/0 + 428/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS`
       unchanged;

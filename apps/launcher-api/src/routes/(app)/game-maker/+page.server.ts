@@ -225,7 +225,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				/** The overlay presets that add cleanly to this game's config. */
 				overlayPresets: cleanOverlayPresets(config.doc),
 				/** The routes "Add a bonus mode…" can point at the new mode. */
-				modeRoutes: modeRouteOptions(config.doc),
+				modeRoutes: modeRouteOptions(config.doc, p.gameType),
 				/** Bonuses imported from another project, for "Re-sync". */
 				imports: (config.doc?.imports ?? []).map((i) => ({
 					mode: i.mode,

@@ -1,5 +1,6 @@
 import {
 	bonusSplitOf,
+	modeRouteRefusal,
 	type AddOnRenames,
 	type GameConfigDoc,
 	type ImportableFeature,
@@ -49,10 +50,11 @@ const TRIGGERS = [
 
 /**
  * The routes of `doc` an added bonus mode can take over (`importRespinMode`'s `ModeRoute`): its coin
- * overlay's pots, triggers and symbol-filled meters, and a buy tier on each buy-bonus bet mode.
- * Never scatters (`docs/design/bonus-games.md` §6 decision 6).
+ * overlay's pots, triggers and symbol-filled meters, and a buy tier on each buy-bonus bet mode —
+ * only those a project of kind `kind` deals (`modeRouteRefusal`, the rule the import applies). Never
+ * scatters (`docs/design/bonus-games.md` §6 decision 6).
  */
-export function modeRouteOptions(doc: GameConfigDoc | null): ModeRouteOption[] {
+export function modeRouteOptions(doc: GameConfigDoc | null, kind: string): ModeRouteOption[] {
 	if (!doc) return [];
 	const overlay = bonusSplitOf(doc).coinOverlay;
 	const buys = new Map((overlay?.trigger?.buy ?? []).map((t) => [t.betMode, t.mode]));
@@ -81,7 +83,7 @@ export function modeRouteOptions(doc: GameConfigDoc | null): ModeRouteOption[] {
 				label: `Buy (${betMode})`,
 				...(buys.has(betMode) ? { now: buys.get(betMode) } : {}),
 			})),
-	];
+	].filter((option) => !modeRouteRefusal(doc, option.route, kind));
 }
 
 /** A `ModeRoute` read off a request body, or `undefined`. */
