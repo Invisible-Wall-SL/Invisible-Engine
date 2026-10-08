@@ -201,7 +201,7 @@ jobs:
       # The report alone, for Invisible Pipeline Changes. Replaces a previous attempt's, so a re-run
       # leaves the report of the attempt whose status was posted. Skipped when the eval never ran:
       # an earlier step has already posted why.
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         if: ${{ !cancelled() && steps.eval.outcome != 'skipped' }}
         with:
           name: agent-eval-report

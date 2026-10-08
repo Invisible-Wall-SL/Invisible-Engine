@@ -211,7 +211,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: failure() && steps.secrets.outcome == 'failure'
         with:
           name: current-games-prepare
@@ -242,7 +242,7 @@ jobs:
       # version changes when a build gains a file (v2: `builtins.json`), so an older entry rebuilds.
       - name: Restore the base runtime
         id: base-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .cache/current-games/runtimes/${{ needs.prepare.outputs.base }}
           key: current-games-runtime-v2-${{ needs.prepare.outputs.base }}
@@ -287,7 +287,7 @@ jobs:
           cp -r .cache/current-games/plan-out/. .cache/current-games/plan/
           exit $code
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: current-games-runtimes
           retention-days: 1
@@ -296,7 +296,7 @@ jobs:
             .cache/current-games/runtimes/working-tree
 
       # Also after a failure: a plan that could not be made says why (a missing secret, …).
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: current-games-plan
@@ -327,7 +327,7 @@ jobs:
           mkdir -p gates
           node scripts/current-games/lib/gates.mjs gates/gates.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: current-games-gates
           retention-days: 1
@@ -382,12 +382,12 @@ jobs:
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
           if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: current-games-runtimes
           path: .cache/current-games/runtimes
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: current-games-plan
           path: .cache/current-games/plan
@@ -409,7 +409,7 @@ jobs:
             --head-build .cache/current-games/runtimes/working-tree \
             --jobs 1 --out "part-${{ matrix.shard }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: current-games-part-${{ matrix.shard }}
@@ -436,19 +436,19 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: current-games-plan
           path: plan
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           name: current-games-gates
           path: gates
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         continue-on-error: true
         with:
           pattern: current-games-part-*
@@ -481,7 +481,7 @@ jobs:
 
       # Both uploads replace a previous attempt's artifact (`overwrite`): a re-run then leaves the
       # report of the attempt whose status was posted, never an older one beside a newer status.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: ${{ !cancelled() }}
         with:
           name: current-games-report
@@ -492,7 +492,7 @@ jobs:
       # The report alone, for Invisible Pipeline Changes (ADR-0007, Check 2): the full artifact
       # carries every changed screen's before / after / diff images and can run to hundreds of
       # megabytes, which the launcher must not hold in memory to read one JSON file.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: ${{ !cancelled() }}
         with:
           name: current-games-report-json
