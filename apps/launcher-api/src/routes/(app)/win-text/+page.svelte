@@ -11,6 +11,7 @@
 		WIN_TEXT_FEATURE_LABELS,
 		WIN_TEXT_JACKPOT_FIELDS,
 		WIN_TEXT_JACKPOT_LABELS,
+		WIN_TEXT_MODE_FEATURE_FIELDS,
 		WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
 		WIN_TEXT_PLATFORM_JACKPOT_LABELS,
 		WIN_TEXT_POT_FIELDS,
@@ -26,6 +27,7 @@
 		resolveSymbolName,
 		resolveToastTemplate,
 		resolveWinText,
+		resolveWinTextForMode,
 		resolveWinLineMessage,
 		specialDisplayName,
 		symbolDrawsWinLine,
@@ -36,6 +38,8 @@
 		WinTextFeatureField,
 		WinTextJackpotField,
 		WinTextFeatureMap,
+		WinTextModeFeatureField,
+		WinTextModeLines,
 		WinTextPlatformJackpotField,
 		WinTextRespinField,
 		WinTextWheelField,
@@ -58,6 +62,27 @@
 	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
 
 	const resolved = $derived(resolveWinText($state.snapshot(doc)));
+
+	/**
+	 * The respin mode whose jackpot, respin, wheel and feature-frame lines the Hold and Win sections
+	 * edit (`docs/design/bonus-games.md` §2.4). The primary's are the doc's own families; another
+	 * mode's are `doc.modes[<id>]`, and a line it leaves blank reads the primary's.
+	 */
+	let editMode = $state(data.respinModes[0]?.mode ?? '');
+	const editing = $derived(
+		data.respinModes.find((m) => m.mode === editMode) ?? data.respinModes[0],
+	);
+	const onPrimary = $derived(!editing || editing === data.respinModes[0]);
+	const jackpotTiers = $derived(editing?.jackpotTiers ?? []);
+	/** What the edited mode speaks — its own lines over the primary's. */
+	const modeResolved = $derived(
+		resolveWinTextForMode($state.snapshot(doc), onPrimary ? undefined : editMode),
+	);
+	/** The edited mode's own lines, as stored (read side). */
+	const lines = $derived<WinTextModeLines | undefined>(onPrimary ? doc : doc.modes?.[editMode]);
+	/** The edited mode's own lines, created on first write. */
+	const linesToWrite = (): WinTextModeLines =>
+		onPrimary ? doc : ((doc.modes ??= {})[editMode] ??= {});
 
 	/**
 	 * The match counts the grid offers. Every current game template is a 5-reel board, so a line
@@ -169,13 +194,13 @@
 	}
 
 	function setJackpot(field: WinTextJackpotField, value: string) {
-		const jackpots = (doc.jackpots ??= {});
+		const jackpots = (linesToWrite().jackpots ??= {});
 		if (value.trim()) jackpots[field] = value;
 		else delete jackpots[field];
 	}
 
 	function setJackpotCaption(tier: string, value: string) {
-		const captions = ((doc.jackpots ??= {}).captions ??= {});
+		const captions = ((linesToWrite().jackpots ??= {}).captions ??= {});
 		if (value.trim()) captions[tier] = value;
 		else delete captions[tier];
 	}
@@ -201,13 +226,19 @@
 		});
 
 	function setRespins(field: WinTextRespinField, value: string) {
-		const respins = (doc.respins ??= {});
+		const respins = (linesToWrite().respins ??= {});
 		if (value.trim()) respins[field] = value;
 		else delete respins[field];
 	}
 
 	function setFeature(field: WinTextFeatureField, value: string) {
 		const feature = (doc.feature ??= {});
+		if (value.trim()) feature[field] = value;
+		else delete feature[field];
+	}
+
+	function setModeFeature(field: WinTextModeFeatureField, value: string) {
+		const feature = (linesToWrite().feature ??= {});
 		if (value.trim()) feature[field] = value;
 		else delete feature[field];
 	}
@@ -219,7 +250,7 @@
 	}
 
 	function setWheel(field: WinTextWheelField, value: string) {
-		const wheel = (doc.wheel ??= {});
+		const wheel = (linesToWrite().wheel ??= {});
 		if (value.trim()) wheel[field] = value;
 		else delete wheel[field];
 	}
@@ -258,7 +289,7 @@
 	const holdAndWinVars = $derived({
 		amount: '$4.00',
 		count: 3,
-		jackpot: jackpotCaption(resolved, data.jackpotTiers[0] ?? 'MINI'),
+		jackpot: jackpotCaption(modeResolved, jackpotTiers[0] ?? 'MINI'),
 		meter: specialDisplayName(resolved, 'payer'),
 		modifiers: ['payer', 'multiplier'].map((kind) => specialDisplayName(resolved, kind)).join(', '),
 		level: collectorLevelCaption(resolved, 2),
@@ -651,6 +682,29 @@
 				and translated, and show once a scene or beat uses them. Every other line here is what the game
 				draws.
 			</p>
+			{#if data.respinModes.length > 1}
+				<section>
+					<h2>Respin mode</h2>
+					<p class="hint">
+						This game has several respin modes, and each speaks its own jackpot, respin, wheel and
+						feature total / intro / outro lines. The primary's are every mode's fallback: a line
+						another mode leaves blank reads the primary's (shown greyed in its field). The special,
+						collector and pot names are the whole game's, written on the primary.
+					</p>
+					<label class="single">
+						<span>Editing</span>
+						<select bind:value={editMode}>
+							{#each data.respinModes as mode, i (mode.mode)}
+								<option value={mode.mode}
+									>{mode.label}{mode.label === mode.mode ? '' : ` (${mode.mode})`}{i === 0
+										? ' — primary'
+										: ''}</option
+								>
+							{/each}
+						</select>
+					</label>
+				</section>
+			{/if}
 			<section>
 				<h2>Jackpots</h2>
 				<p class="hint">
@@ -661,12 +715,12 @@
 					<code>{'{amount}'}</code> for what it paid — for a progressive tier, the live pool the server
 					paid out, not its seed.
 				</p>
-				{#each data.jackpotTiers as tier (tier)}
+				{#each jackpotTiers as tier (tier)}
 					<label class="single">
 						<span>{tier}</span>
 						<input
-							value={doc.jackpots?.captions?.[tier] ?? ''}
-							placeholder={tier}
+							value={lines?.jackpots?.captions?.[tier] ?? ''}
+							placeholder={onPrimary ? tier : resolved.jackpots.captions[tier] || tier}
 							oninput={(e) => setJackpotCaption(tier, e.currentTarget.value)}
 						/>
 					</label>
@@ -680,11 +734,11 @@
 					<label class="single">
 						<span>{WIN_TEXT_JACKPOT_LABELS[field]}</span>
 						<input
-							value={doc.jackpots?.[field] ?? ''}
+							value={lines?.jackpots?.[field] ?? ''}
 							placeholder={resolved.jackpots[field]}
 							oninput={(e) => setJackpot(field, e.currentTarget.value)}
 						/>
-						<em class="row-preview">{holdAndWinPreview(resolved.jackpots[field]) || '—'}</em>
+						<em class="row-preview">{holdAndWinPreview(modeResolved.jackpots[field]) || '—'}</em>
 					</label>
 				{/each}
 			</section>
@@ -700,57 +754,80 @@
 					<label class="single">
 						<span>{WIN_TEXT_RESPIN_LABELS[field]}</span>
 						<input
-							value={doc.respins?.[field] ?? ''}
+							value={lines?.respins?.[field] ?? ''}
 							placeholder={resolved.respins[field]}
 							oninput={(e) => setRespins(field, e.currentTarget.value)}
 						/>
-						<em class="row-preview">{holdAndWinPreview(resolved.respins[field]) || '—'}</em>
+						<em class="row-preview">{holdAndWinPreview(modeResolved.respins[field]) || '—'}</em>
 					</label>
 				{/each}
 			</section>
 
-			<section>
-				<h2>Hold and Win feature</h2>
-				<p class="hint">
-					The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
-					<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins or
-					another mode reads as its own pot name, below) and
-					<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
-					names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
-					outro draw nothing until you write them.
-				</p>
-				{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
-					<label class="single">
-						<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
-						<input
-							value={doc.feature?.[field] ?? ''}
-							placeholder={resolved.feature[field] || 'not drawn'}
-							oninput={(e) => setFeature(field, e.currentTarget.value)}
-						/>
-						<em class="row-preview"
-							>{(field === 'potLabel' ? potPreview : holdAndWinPreview(resolved.feature[field])) ||
-								'—'}</em
-						>
-					</label>
-				{/each}
-				<p class="hint">
-					Names: the specials (as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write
-					them), the collector levels the wheel raises (<code>{'{level}'}</code>; an unnamed level
-					reads ×4) and this game's pots (<code>{'{pot}'}</code>):
-				</p>
-				{#each nameRows as row (`${row.map}:${row.key}`)}
-					<label class="single">
-						<span>{row.label}</span>
-						<input
-							value={doc.feature?.[row.map]?.[row.key] ?? ''}
-							placeholder={row.placeholder}
-							oninput={(e) => setFeatureName(row.map, row.key, e.currentTarget.value)}
-						/>
-					</label>
-				{/each}
-			</section>
+			{#if onPrimary}
+				<section>
+					<h2>Hold and Win feature</h2>
+					<p class="hint">
+						The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
+						<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins
+						or another mode reads as its own pot name, below) and
+						<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
+						names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
+						outro draw nothing until you write them.
+					</p>
+					{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
+						<label class="single">
+							<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
+							<input
+								value={doc.feature?.[field] ?? ''}
+								placeholder={resolved.feature[field] || 'not drawn'}
+								oninput={(e) => setFeature(field, e.currentTarget.value)}
+							/>
+							<em class="row-preview"
+								>{(field === 'potLabel'
+									? potPreview
+									: holdAndWinPreview(resolved.feature[field])) || '—'}</em
+							>
+						</label>
+					{/each}
+					<p class="hint">
+						Names: the specials (as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write
+						them), the collector levels the wheel raises (<code>{'{level}'}</code>; an unnamed level
+						reads ×4) and this game's pots (<code>{'{pot}'}</code>):
+					</p>
+					{#each nameRows as row (`${row.map}:${row.key}`)}
+						<label class="single">
+							<span>{row.label}</span>
+							<input
+								value={doc.feature?.[row.map]?.[row.key] ?? ''}
+								placeholder={row.placeholder}
+								oninput={(e) => setFeatureName(row.map, row.key, e.currentTarget.value)}
+							/>
+						</label>
+					{/each}
+				</section>
+			{:else}
+				<section>
+					<h2>Hold and Win feature — {editing?.label}</h2>
+					<p class="hint">
+						This mode's total, intro and outro. <code>{'{amount}'}</code> is the feature's total and
+						<code>{'{count}'}</code> the respins it opens with. The other feature lines and the names
+						are the whole game's — switch to the primary to edit them.
+					</p>
+					{#each WIN_TEXT_MODE_FEATURE_FIELDS as field (field)}
+						<label class="single">
+							<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
+							<input
+								value={lines?.feature?.[field] ?? ''}
+								placeholder={resolved.feature[field] || 'not drawn'}
+								oninput={(e) => setModeFeature(field, e.currentTarget.value)}
+							/>
+							<em class="row-preview">{holdAndWinPreview(modeResolved.feature[field]) || '—'}</em>
+						</label>
+					{/each}
+				</section>
+			{/if}
 
-			{#if data.hasWheel}
+			{#if editing?.hasWheel}
 				<section>
 					<h2>Wheel</h2>
 					<p class="hint">
@@ -763,11 +840,11 @@
 						<label class="single">
 							<span>{WIN_TEXT_WHEEL_LABELS[field]}</span>
 							<input
-								value={doc.wheel?.[field] ?? ''}
+								value={lines?.wheel?.[field] ?? ''}
 								placeholder={resolved.wheel[field]}
 								oninput={(e) => setWheel(field, e.currentTarget.value)}
 							/>
-							<em class="row-preview">{holdAndWinPreview(resolved.wheel[field]) || '—'}</em>
+							<em class="row-preview">{holdAndWinPreview(modeResolved.wheel[field]) || '—'}</em>
 						</label>
 					{/each}
 				</section>

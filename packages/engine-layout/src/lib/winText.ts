@@ -69,7 +69,26 @@ export type WinTextDoc = {
 	wheel?: WinTextWheel;
 	/** The operator's platform jackpot — any game kind. */
 	platformJackpot?: WinTextPlatformJackpot;
+	/**
+	 * Hold and Win: the lines of each respin mode but the PRIMARY, keyed by mode id
+	 * (`docs/design/bonus-games.md` §2.4). The primary's lines are the families above, so a doc of a
+	 * game with one respin mode never carries this key. A line a mode leaves unset reads the
+	 * primary's ({@link resolveWinTextForMode}).
+	 */
+	modes?: Record<string, WinTextModeLines>;
 	updatedAt?: string;
+};
+
+/**
+ * One respin mode's own Hold and Win lines: its jackpot captions and banners, its respin counter,
+ * its wheel and the feature's frame ({@link WIN_TEXT_MODE_FEATURE_FIELDS}). The pot lines and the
+ * special / collector names belong to the base game's overlay and are shared by every mode.
+ */
+export type WinTextModeLines = {
+	jackpots?: WinTextJackpots;
+	respins?: WinTextRespins;
+	wheel?: WinTextWheel;
+	feature?: Partial<Pick<WinTextFeature, WinTextModeFeatureField>>;
 };
 
 /**
@@ -370,6 +389,9 @@ export const WIN_TEXT_FEATURE_FIELDS = [
 	'rowUnlocked',
 	'rows',
 ] as const;
+/** The feature lines a respin mode speaks for itself ({@link WinTextModeLines}): its total, intro
+ *  and outro. */
+export const WIN_TEXT_MODE_FEATURE_FIELDS = ['total', 'intro', 'outro'] as const;
 /** The feature family's name maps — resolved, pruned and harvested alike. */
 export const WIN_TEXT_FEATURE_MAPS = ['specialNames', 'collectorLevelNames', 'potNames'] as const;
 export const WIN_TEXT_WHEEL_FIELDS = [
@@ -384,6 +406,7 @@ export type WinTextJackpotField = (typeof WIN_TEXT_JACKPOT_FIELDS)[number];
 export type WinTextRespinField = (typeof WIN_TEXT_RESPIN_FIELDS)[number];
 export type WinTextFeatureField = (typeof WIN_TEXT_FEATURE_FIELDS)[number];
 export type WinTextFeatureMap = (typeof WIN_TEXT_FEATURE_MAPS)[number];
+export type WinTextModeFeatureField = (typeof WIN_TEXT_MODE_FEATURE_FIELDS)[number];
 /** The feature lines a pot speaks — all a pots overlay host without the respin feature is offered
  *  (with the `potNames` map), since its pots are the only part of the feature it has. */
 export const WIN_TEXT_POT_FIELDS = [
@@ -500,6 +523,36 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 				doc?.platformJackpot,
 			),
 		},
+	};
+}
+
+/**
+ * The lines respin mode `mode` speaks: its own ({@link WinTextDoc.modes}) over the primary's, field
+ * by field, so a mode that authored nothing reads exactly the primary's. `undefined` (the primary,
+ * or no respin mode playing) is {@link resolveWinText}.
+ */
+export function resolveWinTextForMode(
+	doc: WinTextDoc | undefined,
+	mode: string | undefined,
+): ResolvedWinText {
+	const resolved = resolveWinText(doc);
+	const lines =
+		mode !== undefined && doc?.modes && Object.hasOwn(doc.modes, mode)
+			? doc.modes[mode]
+			: undefined;
+	if (!lines) return resolved;
+	return {
+		...resolved,
+		jackpots: {
+			captions: { ...resolved.jackpots.captions, ...(lines.jackpots?.captions ?? {}) },
+			...pick(WIN_TEXT_JACKPOT_FIELDS, resolved.jackpots, lines.jackpots),
+		},
+		respins: pick(WIN_TEXT_RESPIN_FIELDS, resolved.respins, lines.respins),
+		feature: {
+			...resolved.feature,
+			...pick(WIN_TEXT_MODE_FEATURE_FIELDS, resolved.feature, lines.feature),
+		},
+		wheel: pick(WIN_TEXT_WHEEL_FIELDS, resolved.wheel, lines.wheel),
 	};
 }
 
@@ -780,6 +833,49 @@ export function collectWinTextTemplates(
 	}
 	for (const [tier, caption] of Object.entries(doc?.platformJackpot?.captions ?? {})) {
 		add(caption, `Platform jackpot — ${tier}`);
+	}
+	return out;
+}
+
+/**
+ * The lines a respin mode other than the primary speaks, for Invisible Localization's harvest of that
+ * mode ({@link resolveWinTextForMode}: its own, else the primary's). Its tiers are its own
+ * (`options.jackpots`, the mode's config tier names), each listed by caption; its wheel lines only
+ * when it has a wheel (`options.wheel`) or wrote one. Same key and label contract as
+ * {@link collectWinTextTemplates}.
+ */
+export function collectWinTextModeTemplates(
+	doc: WinTextDoc | undefined,
+	mode: string,
+	options: { jackpots?: readonly string[]; wheel?: boolean } = {},
+): { key: string; source: string; label: string }[] {
+	const out: { key: string; source: string; label: string }[] = [];
+	const seen = new Set<string>();
+	const add = (source: string | undefined, label: string) => {
+		if (!source || !source.trim() || seen.has(source)) return;
+		seen.add(source);
+		out.push({ key: source, source, label });
+	};
+	const addWords = (template: string | undefined, label: string) => {
+		if (template?.replace(TOKEN, '').trim()) add(template, label);
+	};
+	const resolved = resolveWinTextForMode(doc, mode);
+	const lines = doc?.modes && Object.hasOwn(doc.modes, mode) ? doc.modes[mode] : undefined;
+	for (const tier of options.jackpots ?? []) {
+		add(own(resolved.jackpots.captions, tier) || tier, `Jackpot — ${tier}`);
+	}
+	for (const field of WIN_TEXT_JACKPOT_FIELDS) {
+		addWords(resolved.jackpots[field], WIN_TEXT_JACKPOT_LABELS[field]);
+	}
+	for (const field of WIN_TEXT_RESPIN_FIELDS) {
+		addWords(resolved.respins[field], WIN_TEXT_RESPIN_LABELS[field]);
+	}
+	for (const field of WIN_TEXT_MODE_FEATURE_FIELDS) {
+		addWords(resolved.feature[field], WIN_TEXT_FEATURE_LABELS[field]);
+	}
+	const wheel = options.wheel === true || Boolean(lines?.wheel);
+	for (const field of wheel ? WIN_TEXT_WHEEL_FIELDS : []) {
+		addWords(resolved.wheel[field], WIN_TEXT_WHEEL_LABELS[field]);
 	}
 	return out;
 }

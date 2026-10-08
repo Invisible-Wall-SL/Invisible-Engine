@@ -129,6 +129,8 @@ const {
 	rewriteSourceRigs,
 	mergeImportedScreens,
 	mergeImportedWinText,
+	mergeImportedModeWinText,
+	spokenModeLines,
 	importedRigBundle,
 } = await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
@@ -304,6 +306,54 @@ await check("win text: the source's Hold and Win lines, the host's pot lines", (
 		[bare.doc.feature, bare.added],
 		[{ intro: 'host' }, []],
 		'a source with no copy changes nothing',
+	);
+});
+
+await check("win text: another respin mode's lines are added under it, no family replaced", () => {
+	const host = {
+		version: 1,
+		jackpots: { award: 'host' },
+		respins: { counter: 'host {count}' },
+		feature: { intro: 'host', potLabel: 'host pot' },
+	} as WinTextDoc;
+	const source = {
+		version: 1,
+		jackpots: { award: 'src', captions: { MINI: 'Tiny' } },
+		respins: { counter: 'src {count}' },
+		feature: { intro: 'src', potLabel: 'src pot', specialNames: { payer: 'Payer' } },
+		modes: { gold: { respins: { counter: 'gold {count}' }, feature: { outro: 'gold out' } } },
+	} as WinTextDoc;
+	same(
+		spokenModeLines(source, undefined),
+		{
+			jackpots: { captions: { MINI: 'Tiny' }, award: 'src' },
+			respins: { counter: 'src {count}' },
+			feature: { intro: 'src' },
+		},
+		"the source primary's own families, never a pot line or a name",
+	);
+	const gold = spokenModeLines(source, 'gold');
+	same(
+		gold,
+		{
+			jackpots: { captions: { MINI: 'Tiny' }, award: 'src' },
+			respins: { counter: 'gold {count}' },
+			feature: { intro: 'src', outro: 'gold out' },
+		},
+		"another source mode: its own over its primary's",
+	);
+	const out = mergeImportedModeWinText(host, 'holdAndWin_2', gold);
+	same(
+		out.doc,
+		{ ...host, modes: { holdAndWin_2: gold } },
+		"added under the mode; the host's families untouched",
+	);
+	same(out.added, ['modes.holdAndWin_2'], 'reported by mode');
+	same(mergeImportedModeWinText(out.doc, 'holdAndWin_2', gold).added, [], 'a re-sync is a no-op');
+	same(
+		mergeImportedModeWinText(out.doc, 'holdAndWin_2', {}).doc,
+		host,
+		'a source mode with no lines clears its entry',
 	);
 });
 

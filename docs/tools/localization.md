@@ -35,6 +35,11 @@ A spreadsheet-style table of the game's text, in two kinds of section:
   - **Win text** — Invisible Win Text's templates (`{count} OF A KIND`, the
     info-bar toasts). Translate the template; the engine interpolates the numbers
     back in afterwards.
+    A game with several Hold and Win respin modes also gets one **Win text —
+    _mode id_** section per mode besides the primary: what the player reads in
+    that mode (its own tiers' captions, its jackpot, respin and feature total /
+    intro / outro lines, and its wheel lines if it has a wheel), including the
+    lines it inherits from the primary.
   - **Symbol names** — the Invisible Symbols State Machine's display names
     (`H1` → "Banana"/"Bananas"), so a translated win line doesn't end in an
     English symbol name.

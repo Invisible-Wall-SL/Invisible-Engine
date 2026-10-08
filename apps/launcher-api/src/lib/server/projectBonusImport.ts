@@ -17,9 +17,11 @@
  *    at the same place; every other screen is kept, so an id clash renames the imported screen. A
  *    HUD screen is the host's and never copied (the config keeps the host's `hud`).
  *  - **Flow:** the source's `modes[mode]` section replaces this flow's, on a stored flow only.
- *  - **Win Text:** the Hold and Win families (jackpots, respins, wheel, the feature lines) replace
- *    this doc's, except the lines a pot speaks (`meterFull`, `potLabel`, `potNames`), which are the
- *    host's.
+ *  - **Win Text:** imported as this project's PRIMARY respin mode, the Hold and Win families
+ *    (jackpots, respins, wheel, the feature lines) replace this doc's, except the lines a pot speaks
+ *    (`meterFull`, `potLabel`, `potNames`), which are the host's. Imported as another respin mode,
+ *    the lines the source mode speaks are added under that mode (`modes[<mode>]`) and no family is
+ *    replaced (`docs/design/bonus-games.md` §2.4).
  *
  * A REELS feature (an imported free spins, a mode of this project's own under a new id) takes the
  * same path with the source's mode id read and the new one written: its screens re-tagged, its Flow
@@ -38,17 +40,19 @@
  */
 import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import {
+	WIN_TEXT_MODE_FEATURE_FIELDS,
 	WIN_TEXT_POT_FIELDS,
 	type LayoutDoc,
 	type LayoutNode,
 	type Scene,
 	type WinTextDoc,
+	type WinTextModeLines,
 } from 'engine-layout';
 import {
-	HOLD_AND_WIN_MODE,
 	bonusImportOf,
 	importBonus,
 	importableFeatures,
+	respinModeBlocks,
 	resyncBonus,
 	type GameConfigDoc,
 	type ImportResult,
@@ -335,6 +339,59 @@ export function mergeImportedWinText(
 	return { doc, added };
 }
 
+/**
+ * The lines respin mode `mode` of `doc` speaks as authored — its own over the primary's families,
+ * field by field (`resolveWinTextForMode` without the coded defaults); `undefined` is the primary.
+ * Only a mode's own families: never a pot line or a name.
+ */
+export function spokenModeLines(doc: WinTextDoc, mode: string | undefined): WinTextModeLines {
+	const own =
+		mode !== undefined && doc.modes && Object.hasOwn(doc.modes, mode) ? doc.modes[mode] : {};
+	const feature = Object.fromEntries(
+		WIN_TEXT_MODE_FEATURE_FIELDS.flatMap((field) => {
+			const line = own.feature?.[field] ?? doc.feature?.[field];
+			return line === undefined ? [] : [[field, line]];
+		}),
+	);
+	const lines: WinTextModeLines = {
+		jackpots: {
+			...doc.jackpots,
+			...own.jackpots,
+			captions: { ...doc.jackpots?.captions, ...own.jackpots?.captions },
+		},
+		respins: { ...doc.respins, ...own.respins },
+		wheel: { ...doc.wheel, ...own.wheel },
+		feature,
+	};
+	return normalizeWinTextDoc({ modes: { lines } }).modes?.lines ?? {};
+}
+
+/**
+ * `lines` put in place of respin mode `mode`'s own in `current` — that mode's entry alone, so no
+ * family and no other mode is touched. Pure.
+ */
+export function mergeImportedModeWinText(
+	current: WinTextDoc,
+	mode: string,
+	lines: WinTextModeLines,
+): { doc: WinTextDoc; added: string[] } {
+	const had = current.modes && Object.hasOwn(current.modes, mode) ? current.modes[mode] : {};
+	if (JSON.stringify(had) === JSON.stringify(lines)) return { doc: current, added: [] };
+	const doc: WinTextDoc = structuredClone(current);
+	const modes: Record<string, WinTextModeLines> = { ...doc.modes };
+	if (Object.keys(lines).length) {
+		Object.defineProperty(modes, mode, {
+			value: structuredClone(lines),
+			enumerable: true,
+			writable: true,
+			configurable: true,
+		});
+	} else delete modes[mode];
+	if (Object.keys(modes).length) doc.modes = modes;
+	else delete doc.modes;
+	return { doc, added: [`modes.${mode}`] };
+}
+
 // ─── the parts ────────────────────────────────────────────────────────────────────────────────
 
 type ImportContext = {
@@ -345,6 +402,10 @@ type ImportContext = {
 	mode: string;
 	/** Its mode id in the source (a reels import's differs: `freeSpins` → `freeSpins_2`). */
 	sourceMode: string;
+	/** This project's respin modes after the import, the primary first. */
+	respinModes: string[];
+	/** The source's primary respin mode — the one whose lines are its Win Text families. */
+	sourcePrimary: string | undefined;
 	/** Source symbol → name here (the stored map). */
 	names: Record<string, string>;
 	/** Names the previous import brought that this one does not. */
@@ -494,9 +555,9 @@ async function loadWinText(client: string, project: string) {
 }
 
 async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
-	// Win Text's families are not per mode, and the ones a reels mode would speak (the free-spin
-	// lines) are the host's: an imported free spins speaks them as the host's own do.
-	if (ctx.mode !== HOLD_AND_WIN_MODE) {
+	// Only a respin mode has lines of its own: the ones a reels mode would speak (the free-spin lines)
+	// are the host's, so an imported free spins speaks them as the host's own do.
+	if (!ctx.respinModes.includes(ctx.mode)) {
 		return part('present', [], "A free-spins mode speaks this game's own free-spin lines.");
 	}
 	const target = await loadWinText(ctx.client, ctx.project);
@@ -507,7 +568,28 @@ async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 	if (!source.doc) {
 		return part('skipped', [], `${ctx.source}'s Win Text doc could not be read.`);
 	}
-	const merged = mergeImportedWinText(target.doc, source.doc);
+	const sourceMode = ctx.sourceMode === ctx.sourcePrimary ? undefined : ctx.sourceMode;
+	let merged: { doc: WinTextDoc; added: string[] };
+	if (ctx.mode !== ctx.respinModes[0]) {
+		merged = mergeImportedModeWinText(
+			target.doc,
+			ctx.mode,
+			spokenModeLines(source.doc, sourceMode),
+		);
+	} else if (sourceMode === undefined) {
+		merged = mergeImportedWinText(target.doc, source.doc);
+	} else {
+		// The source's other mode becomes this project's primary: what it speaks becomes the families.
+		const { feature, ...families } = spokenModeLines(source.doc, sourceMode);
+		merged = mergeImportedWinText(target.doc, {
+			...source.doc,
+			jackpots: undefined,
+			respins: undefined,
+			wheel: undefined,
+			...families,
+			feature: { ...source.doc.feature, ...feature },
+		});
+	}
 	if (!merged.added.length) return part('present');
 	await saveWinTextDoc(ctx.client, ctx.project, merged.doc, target.etag);
 	return part('added', merged.added);
@@ -645,6 +727,8 @@ export async function applyBonusImport(
 		source,
 		mode: result.mode,
 		sourceMode: record?.importedFrom.mode ?? opts.mode,
+		respinModes: respinModeBlocks(saved).map((block) => block.mode),
+		sourcePrimary: respinModeBlocks(sourceConfig)[0]?.mode,
 		names: result.symbols,
 		dropped: Object.values(previous).filter(
 			(n) => !Object.values(result.symbols).includes(n) && !saved.symbols[n],
