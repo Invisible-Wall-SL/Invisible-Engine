@@ -35,7 +35,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
-| 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
+| 5b | Scene Editor + capabilities + `/symbols` | in progress | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | — |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
 | 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
