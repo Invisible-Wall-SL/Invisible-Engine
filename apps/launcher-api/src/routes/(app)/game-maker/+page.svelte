@@ -724,7 +724,8 @@
 			// Licensing is surfaced ONCE, here — the moment a build goes out is when "who owns this
 			// audio" stops being paperwork, and the only moment everyone is looking.
 			const sounds = out?.sounds as
-				{ bound: number; missingLicence: string[]; nonCommercial: string[] } | undefined;
+				| { bound: number; missingLicence: string[]; nonCommercial: string[] }
+				| undefined;
 			if (sounds?.nonCommercial?.length) {
 				publishNote = {
 					...publishNote,
@@ -749,7 +750,9 @@
 						'Open Invisible Flow and save to give it the starter flow.',
 				};
 			}
-			const rigsMissing = out?.spinesMissing as { scene: string[]; symbols: string[] } | undefined;
+			const rigsMissing = out?.spinesMissing as
+				| { scene: string[]; symbols: string[] }
+				| undefined;
 			const strandedRigs = [
 				...new Set([...(rigsMissing?.scene ?? []), ...(rigsMissing?.symbols ?? [])]),
 			];
@@ -1310,8 +1313,8 @@
 											<span class="stale-dot"></span>
 											<div class="stale-body">
 												<strong>Engine update available.</strong>
-												The shared engine runtime shipped after this game was last published, so the running
-												game may still be on the old engine. Republish to re-hydrate it.
+												The shared engine runtime shipped after this game was last published, so the
+												running game may still be on the old engine. Republish to re-hydrate it.
 											</div>
 											<button
 												class="stale-cta"

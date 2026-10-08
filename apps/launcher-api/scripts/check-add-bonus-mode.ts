@@ -138,6 +138,7 @@ const {
 	flowAddOnsOf,
 	gameConfigErrors,
 	normalizeGameConfigDoc,
+	renameRespinMode,
 	respinModeDecls,
 	splitFormOf,
 } = await import('game-config');
@@ -349,6 +350,11 @@ await check("its screens are copied as <reference id>-holdAndWin_2, the host's k
 		copies.some((s) => s.id === `featureIntro-${NEW}`),
 		'no featureIntro-holdAndWin_2',
 	);
+	same(
+		copies.map((s) => s.name),
+		sourceScreens.map((s) => `${s.name} (${sourceMode.label} (${SOURCE}))`),
+		"screen names carry the mode's label, as the Scene Editor names them",
+	);
 	for (const copy of copies) {
 		for (const node of copy.nodes) {
 			assert(node.id.endsWith(`-${NEW}`), `node ${node.id} of ${copy.id}`);
@@ -482,6 +488,82 @@ await check('…and nothing else moves', () => {
 	same(Object.keys(m1 ?? {}), Object.keys(m2 ?? {}), 'the Win Text modes');
 });
 
+// ─── 2b. a /config rename, then a re-sync ─────────────────────────────────────────────────────
+
+console.log('\n2b. a /config rename, then a re-sync');
+const GOLD = 'gold';
+{
+	const renamed = renameRespinMode(docsOf(HOST).config, NEW, GOLD);
+	assert(renamed.ok, `rename refused: ${renamed.ok ? '' : renamed.reason}`);
+	put(gameConfigDocKey(CLIENT, HOST), normalize(renamed.doc));
+	const sourceFlow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, SOURCE));
+	sourceFlow.modes!.holdAndWin.graph.nodes.push({
+		id: 'cine',
+		kind: 'playCinematic',
+		pos: { x: 0, y: 900 },
+		ref: 'intro-cine',
+	});
+	put(flowV2DocKey(CLIENT, SOURCE), sourceFlow);
+}
+const goldSync = await applyBonusImport(CLIENT, HOST, {
+	mode: GOLD,
+	resync: true,
+	sessionId: ME,
+	at: AT2,
+});
+const gold = docsOf(HOST);
+
+await check('the re-sync writes the pieces under the new id and clears the old ones', () => {
+	assert(goldSync.ok, JSON.stringify(goldSync));
+	same(goldSync.mode, GOLD, 'mode');
+	same(screensOf(gold.layout, NEW), [], 'screens left under the old id');
+	same(
+		gold.layout.scenes.filter((s) => s.id.endsWith(`-${NEW}`)).map((s) => s.id),
+		[],
+		'screen ids left with the old suffix',
+	);
+	same(
+		screensOf(gold.layout, GOLD).map((s) => s.id),
+		screensOf(source.layout, 'holdAndWin').map((s) => `${s.id}-${GOLD}`),
+		'one copy of each screen under gold',
+	);
+	same(
+		gold.layout.scenes.filter((s) => s.modeId !== GOLD),
+		later.layout.scenes.filter((s) => s.modeId !== NEW),
+		'the other screens',
+	);
+	assert(!gold.flow.modes?.[NEW], 'the old Flow tab is still there');
+	assert(gold.flow.modes?.[GOLD], 'no gold Flow tab');
+	same(
+		gold.flow.containers.filter((c) => c.id.endsWith(`-${NEW}`)).map((c) => c.id),
+		[],
+		'containers left for the old screens',
+	);
+	const ids = flowNodeIds(gold.flow);
+	same(
+		ids.filter((id, at) => ids.indexOf(id) !== at),
+		[],
+		'duplicate node ids',
+	);
+	assert(!gold.winText?.modes?.[NEW], 'the old Win Text lines are still there');
+	assert(gold.winText?.modes?.[GOLD], 'no gold Win Text lines');
+	same(
+		gold.config.imports?.find((i) => i.mode === GOLD)?.wroteAs,
+		GOLD,
+		'the record now names gold as written',
+	);
+	const errors = publishErrors(HOST).filter((i) => i.severity === 'error');
+	same(describe(errors), '', 'publish errors');
+});
+
+await check("the copied tab's cinematic this project lacks is named in the Flow note", () => {
+	assert(goldSync.ok, 'refused');
+	assert(
+		/cinematic intro-cine/.test(goldSync.parts.flow.note ?? ''),
+		`note: ${goldSync.parts.flow.note}`,
+	);
+});
+
 // ─── 3. a plain lines host with no overlay ────────────────────────────────────────────────────
 
 console.log('\n3. into a plain lines host with no overlay');
@@ -549,6 +631,23 @@ await check('＋ Coin overlay… → 3 Pots, then a pot route: it is added', asy
 
 await check('…while a second mode may wait unstarted (routed later in /config)', async () => {
 	await scaffoldProject(CLIENT, 'tpl-collector', { holdAndWinPreset: 'collector' });
+	// The source has no Flow tab, and this flow has one a removed mode of the same id left behind.
+	const sourceFlow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, 'tpl-collector'));
+	put(flowV2DocKey(CLIENT, 'tpl-collector'), { ...sourceFlow, modes: {} });
+	const hostFlow = storedJson<FlowDocV2>(flowV2DocKey(CLIENT, HOST));
+	put(flowV2DocKey(CLIENT, HOST), {
+		...hostFlow,
+		modes: {
+			...hostFlow.modes,
+			holdAndWin_2: {
+				graph: {
+					nodes: [{ id: 'stale', kind: 'delay', pos: { x: 0, y: 0 } }],
+					exec: [],
+					data: [],
+				},
+			},
+		},
+	});
 	const out = await applyBonusImport(CLIENT, HOST, {
 		source: 'tpl-collector',
 		mode: 'holdAndWin',
@@ -557,9 +656,15 @@ await check('…while a second mode may wait unstarted (routed later in /config)
 		at: AT,
 	});
 	assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
-	same(out.mode, 'holdAndWin_3', 'mode');
+	same(out.mode, 'holdAndWin_2', 'mode (free again since the rename to gold)');
 	const config = docsOf(HOST).config;
 	same(gameConfigErrors(config), [], 'errors');
+	const tab = docsOf(HOST).flow.modes?.holdAndWin_2?.graph;
+	assert(tab && !tab.nodes.some((n) => n.id === 'stale'), 'the stale tab was kept');
+	assert(
+		tab.nodes.some((n) => n.kind === 'modeTrigger' && n.modeId === 'holdAndWin_2'),
+		'not the starter tab',
+	);
 });
 
 await check('a scatter is never a route; an unknown pot is refused', async () => {

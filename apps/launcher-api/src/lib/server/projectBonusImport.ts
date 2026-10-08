@@ -75,6 +75,8 @@ import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
 import type { AddOnPart, AddOnPartStatus } from '$lib/potsOverlayAddOn';
 import { winTextRespinModes, type WinTextRespinMode } from '$lib/winTextModes';
 import { loadDocWithEtag, saveDoc } from './editorStorage';
+import { cinematicKey } from './cinematicStorage';
+import { loadFlowV2Library } from './flowV2LibraryStorage';
 import { loadFlowV2DocWithEtag, saveFlowV2Doc } from './flowV2Storage';
 import { resolveGameConfig } from './gameConfigDefaults';
 import { InvalidGameConfigError, saveGameConfigDoc } from './gameConfigStorage';
@@ -82,7 +84,7 @@ import { liveLeases } from './lease';
 import { leaseBlocker } from './projectAddOn';
 import { SUB, r2Slug, sharedRigBundlePrefix, winTextDocKey } from './projectPaths';
 import { projectGameType } from './projects';
-import { ConflictError, getObjectTextWithEtag } from './r2';
+import { ConflictError, getObjectTextWithEtag, objectExists } from './r2';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { promoteRigToShared } from './sharedRigPromote';
 import { potsOverlaySymbolsSeed } from './symbolDefaults';
@@ -281,6 +283,15 @@ export const respinModeCopyId =
 		return modeScreenId(base, mode);
 	};
 
+/** A respin mode's screen name as respin mode `mode`'s copy (labelled `label`): the source mode's
+ *  ` (<label>)` dropped, then `mode`'s own, as the Scene Editor names a mode's screens (5b). */
+export const respinModeCopyName =
+	(sourceMode: string, mode: string, label: string) =>
+	(name: string): string => {
+		const base = sourceMode === HOLD_AND_WIN_MODE ? name : name.replace(/ \([^()]*\)$/, '');
+		return mode === HOLD_AND_WIN_MODE ? base : `${base} (${label})`;
+	};
+
 /** What a screen merge renamed: each copied screen and node id → its id here. */
 export type ScreenRenames = { screens: Record<string, string>; nodes: Record<string, string> };
 
@@ -291,7 +302,7 @@ export type ScreenRenames = { screens: Record<string, string>; nodes: Record<str
  * imported ones go after the layout's own. Any other screen is kept: an imported screen whose id one
  * of them uses is suffixed, and so is a node id another screen of this layout uses. `copyId` names
  * each copied screen and node first (an added respin mode's {@link respinModeCopyId}); absent, they
- * keep the source's ids. Pure.
+ * keep the source's ids; `copyName` names each copied screen the same way. Pure.
  */
 export function mergeImportedScreens(
 	current: LayoutDoc,
@@ -299,6 +310,7 @@ export function mergeImportedScreens(
 	mode: string,
 	sourceMode: string = mode,
 	copyId: (id: string) => string = (id) => id,
+	copyName: (name: string) => string = (name) => name,
 ): {
 	doc: LayoutDoc;
 	added: string[];
@@ -329,7 +341,13 @@ export function mergeImportedScreens(
 		.map((s) => {
 			const id = freeIn(screenIds, copyId(s.id), renamedScreens);
 			map.screens[s.id] = id;
-			return { ...structuredClone(s), modeId: mode, id, nodes: renameNodes(s.nodes) };
+			return {
+				...structuredClone(s),
+				modeId: mode,
+				id,
+				name: copyName(s.name),
+				nodes: renameNodes(s.nodes),
+			};
 		});
 	const at = current.scenes.findIndex((s) => replaced.has(s.id));
 	const before =
@@ -436,13 +454,18 @@ export function mergeImportedModeFlow(
 	};
 }
 
-/** The starter Flow tab of respin mode `mode` (`holdAndWinModeGraph`), with the containers it shows
- *  that `current` does not declare — what `graftAddOnSteps` adds for that mode alone. Pure. */
+/** The starter Flow tab of respin mode `mode` (`holdAndWinModeGraph`), in place of any tab `current`
+ *  has for it, with the containers it shows that `current` does not declare — what
+ *  `graftAddOnSteps` adds for that mode alone. Pure. */
 export function seedModeFlow(
 	current: FlowDocV2,
 	mode: string,
 ): { doc: FlowDocV2; added: string[] } {
-	const taken = new Set(flowGraphs(current).flatMap(({ graph }) => graphNodeIds(graph)));
+	const taken = new Set(
+		flowGraphs(current)
+			.filter((g) => g.modeId !== mode)
+			.flatMap(({ graph }) => graphNodeIds(graph)),
+	);
 	const graph = holdAndWinModeGraph(freeFlowPrefix(taken), mode);
 	const declared = new Set(current.containers.map((c) => c.id));
 	const shown = [...flowNodes(graph)].flatMap((n) =>
@@ -593,6 +616,13 @@ type ImportContext = {
 	asMode: boolean;
 	/** What the layout part renamed, for the Flow tab's containers; `undefined` until it ran. */
 	screenIds?: ScreenRenames;
+	/** A re-sync's: the old id a `/config` rename left its screens, Flow tab and Win Text under
+	 *  (the record's `wroteAs`), cleared before they are written again under `mode`. */
+	staleMode?: string;
+	/** Is this a re-sync (rather than a new add)? */
+	resync: boolean;
+	/** The mode's label here, for its screens' names. */
+	modeLabel: string;
 };
 
 async function importSymbols(ctx: ImportContext, config: GameConfigDoc): Promise<AddOnPart> {
@@ -659,6 +689,15 @@ async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 		);
 	}
 	const ids = modeScreenIds(source.doc.scenes, ctx.sourceMode);
+	// The screens a renamed mode left under its old id are this mode's: the merge replaces them.
+	const current: LayoutDoc = ctx.staleMode
+		? {
+				...target.doc,
+				scenes: target.doc.scenes.map((s) =>
+					s.role === 'mode' && s.modeId === ctx.staleMode ? { ...s, modeId: ctx.mode } : s,
+				),
+			}
+		: target.doc;
 	if (!ids.length) {
 		return part(
 			'present',
@@ -669,11 +708,12 @@ async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 	// Only the copied screens are read, so only their rigs are promoted.
 	const copied = { ...source.doc, scenes: source.doc.scenes.filter((s) => ids.includes(s.id)) };
 	const merged = mergeImportedScreens(
-		target.doc,
+		current,
 		await sourceRigs(ctx, copied),
 		ctx.mode,
 		ctx.sourceMode,
 		ctx.asMode ? respinModeCopyId(ctx.sourceMode, ctx.mode) : undefined,
+		ctx.asMode ? respinModeCopyName(ctx.sourceMode, ctx.mode, ctx.modeLabel) : undefined,
 	);
 	ctx.screenIds = merged.ids;
 	const note = notes(
@@ -733,31 +773,81 @@ async function importFlow(ctx: ImportContext): Promise<AddOnPart> {
  */
 async function importModeFlow(
 	ctx: ImportContext,
-	current: FlowDocV2,
+	stored: FlowDocV2,
 	etag: string | null,
 	source: FlowDocV2 | null,
 ): Promise<AddOnPart> {
+	const current = ctx.staleMode ? withoutModeTab(stored, ctx.staleMode) : stored;
 	const copied =
 		source &&
 		mergeImportedModeFlow(current, source, ctx.sourceMode, ctx.mode, await screenIdsOf(ctx));
+	// A new add replaces a tab a removed mode of the same id left behind; a re-sync keeps the one here.
 	const merged =
-		copied ?? (current.modes?.[ctx.mode] ? undefined : seedModeFlow(current, ctx.mode));
-	if (!merged) {
-		return part(
-			'present',
-			[],
-			`${ctx.source} has no Flow tab for this mode: the one here is kept.`,
-		);
-	}
-	if (JSON.stringify(merged.doc) === JSON.stringify(current)) return part('present');
-	await saveFlowV2Doc(ctx.client, ctx.project, merged.doc, etag, 'always');
+		copied ??
+		(ctx.resync && current.modes?.[ctx.mode] ? undefined : seedModeFlow(current, ctx.mode));
+	const doc = merged?.doc ?? current;
+	const kept = merged
+		? undefined
+		: `${ctx.source} has no Flow tab for this mode: the one here is kept.`;
+	if (JSON.stringify(doc) === JSON.stringify(stored)) return part('present', [], kept);
+	await saveFlowV2Doc(ctx.client, ctx.project, doc, etag, 'always');
+	const unshipped = copied ? await unshippedRefs(ctx, copied.doc.modes![ctx.mode].graph) : [];
 	return part(
 		'added',
-		merged.added,
-		copied
-			? undefined
-			: `${ctx.source} has no Flow tab for this mode, so it starts from the starter.`,
+		[...(current !== stored ? [`cleared modes.${ctx.staleMode}`] : []), ...(merged?.added ?? [])],
+		notes(
+			kept,
+			merged && !copied
+				? `${ctx.source} has no Flow tab for this mode, so it starts from the starter.`
+				: '',
+			unshipped.length
+				? `This project has none of ${unshipped.join(', ')}, which the copied tab calls: copy them too, or remap those nodes.`
+				: '',
+		),
 	);
+}
+
+/** `doc` without its Flow tab for `mode`, and without the containers only that tab showed. Pure. */
+function withoutModeTab(doc: FlowDocV2, mode: string): FlowDocV2 {
+	const tab = doc.modes?.[mode];
+	if (!tab) return doc;
+	const { [mode]: _gone, ...modes } = doc.modes!;
+	const rest: FlowDocV2 = { ...doc, modes };
+	const shownElsewhere = new Set(
+		flowGraphs(rest).flatMap(({ graph }) =>
+			[...flowNodes(graph)].flatMap((n) =>
+				n.kind === 'showContainer' || n.kind === 'hideContainer' ? [n.ref] : [],
+			),
+		),
+	);
+	const onlyHere = new Set(
+		[...flowNodes(tab.graph)].flatMap((n) =>
+			(n.kind === 'showContainer' || n.kind === 'hideContainer') && !shownElsewhere.has(n.ref)
+				? [n.ref]
+				: [],
+		),
+	);
+	return { ...rest, containers: doc.containers.filter((c) => !onlyHere.has(c.id)) };
+}
+
+/** What a copied tab calls that this project does not ship: a function the shared library lacks, or
+ *  a cinematic of the source's this project has no copy of. Reported, never copied. */
+async function unshippedRefs(ctx: ImportContext, graph: Graph): Promise<string[]> {
+	const library = await loadFlowV2Library();
+	const functions = new Set((library?.functions ?? []).map((f) => f.id));
+	const missing = new Set<string>();
+	for (const node of flowNodes(graph)) {
+		if (node.kind === 'functionCall' && !functions.has(node.ref)) {
+			missing.add(`function ${node.ref}`);
+		}
+		if (
+			node.kind === 'playCinematic' &&
+			!(await objectExists(cinematicKey(ctx.client, ctx.project, node.ref)))
+		) {
+			missing.add(`cinematic ${node.ref}`);
+		}
+	}
+	return [...missing];
 }
 
 /** The screen and node ids the mode's copies have here: what the layout part renamed, or, when it
@@ -802,20 +892,28 @@ async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 	if (!source.doc) {
 		return part('skipped', [], `${ctx.source}'s Win Text doc could not be read.`);
 	}
+	// The lines a renamed mode left under its old id go: they are written again under `mode`.
+	const stale = ctx.staleMode;
+	const cleared = Boolean(stale && target.doc.modes && Object.hasOwn(target.doc.modes, stale));
+	const current: WinTextDoc = structuredClone(target.doc);
+	if (cleared) {
+		delete current.modes![stale!];
+		if (!Object.keys(current.modes!).length) delete current.modes;
+	}
 	const sourceMode = ctx.sourceMode === ctx.sourcePrimary ? undefined : ctx.sourceMode;
 	let merged: { doc: WinTextDoc; added: string[] };
 	if (into !== ctx.respinModes[0]) {
 		merged = mergeImportedModeWinText(
-			target.doc,
+			current,
 			ctx.mode,
 			spokenModeLines(source.doc, sourceMode, into.jackpotTiers),
 		);
 	} else if (sourceMode === undefined) {
-		merged = mergeImportedWinText(target.doc, source.doc);
+		merged = mergeImportedWinText(current, source.doc);
 	} else {
 		// The source's other mode becomes this project's primary: what it speaks becomes the families.
 		const { feature, ...families } = spokenModeLines(source.doc, sourceMode, into.jackpotTiers);
-		merged = mergeImportedWinText(target.doc, {
+		merged = mergeImportedWinText(current, {
 			...source.doc,
 			jackpots: undefined,
 			respins: undefined,
@@ -824,9 +922,10 @@ async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 			feature: { ...source.doc.feature, ...feature },
 		});
 	}
-	if (!merged.added.length) return part('present');
+	const added = [...(cleared ? [`cleared modes.${stale}`] : []), ...merged.added];
+	if (!added.length) return part('present');
 	await saveWinTextDoc(ctx.client, ctx.project, merged.doc, target.etag);
-	return part('added', merged.added);
+	return part('added', added);
 }
 
 // ─── the action ───────────────────────────────────────────────────────────────────────────────
@@ -991,6 +1090,12 @@ export async function applyBonusImport(
 		),
 		spines: new Map(),
 		asMode,
+		resync: Boolean(record),
+		staleMode:
+			record?.asMode && record.wroteAs && record.wroteAs !== result.mode
+				? record.wroteAs
+				: undefined,
+		modeLabel: saved.modes?.find((m) => m.id === result.mode)?.label ?? result.mode,
 	};
 	const symbols = await guarded(() => importSymbols(ctx, saved));
 	const layout = await guarded(() => importLayout(ctx));

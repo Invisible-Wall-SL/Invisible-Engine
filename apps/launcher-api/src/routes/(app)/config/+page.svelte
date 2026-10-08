@@ -40,6 +40,7 @@
 		symbolsInPlay,
 		symbolsUsed,
 		symbolUses,
+		undealtRouteWarnings,
 		validateGameConfigDoc,
 		type BetModeKind,
 		type ExpandingSymbolConfig,
@@ -115,7 +116,10 @@
 		const { freeSpins: _old, ...others } = config;
 		return Object.keys(rest).length ? { ...others, freeSpins: rest } : others;
 	};
-	const issues = $derived(validateGameConfigDoc(withoutBookTrigger(snapshot)));
+	const issues = $derived([
+		...validateGameConfigDoc(withoutBookTrigger(snapshot)),
+		...undealtRouteWarnings(snapshot, data.gameType),
+	]);
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
 

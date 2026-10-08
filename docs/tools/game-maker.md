@@ -346,7 +346,15 @@ Adding the same source mode twice is refused: the dialog names the mode it alrea
 that mode again as the source is now and touches no other mode: its rules (with Play), strips and
 symbols, screens, Flow tab and Win Text. Its id, label, HUD and everything that starts it stay. A
 pot that starts it with a special the re-synced rules no longer deal starts it plain (**Special
-dropped**). A bonus brought in by the older **Import a bonus…** re-syncs exactly as before.
+dropped**). A mode renamed in Game Config since is re-synced under its new name, and its pieces
+under the old one are cleared. A bonus brought in by the older **Import a bonus…** re-syncs exactly
+as before.
+
+**Re-sync replaces what you changed here.** Any edit made in this project to that mode's rules,
+symbols, screens, Flow tab, Win Text or presentation (music, counter…) is overwritten by the
+source's; only its label and HUD are kept. Only the Game Config keeps a backup of the version
+before (in [Game Config](game-config.md)'s backups): the screens, the Flow tab and the Win Text
+have none. Make lasting changes in the source project, then re-sync.
 
 **Who else is editing.** Nothing is written while someone else has this project's Game Config,
 Symbols, Scene Editor, Flow or Win Text open. The report has one line per part (Symbols, rigs,
@@ -629,6 +637,9 @@ graduate later; its R2 authoring data carries over.
   mode or a respin mode with no rules is listed as **(not yet)**: nothing plays one yet.
 - **A free spins is added only on a project with pots.** It is started only by a pot, never by a
   trigger, meter or buy tier.
+- **A pot route needs a game whose base reels deal no Hold and Win symbols.** On a project whose
+  base strips deal coins or other Hold and Win symbols, or on a stepped board, the overlay's pots
+  are not dealt (the same limit as the older import), so a pot route there starts nothing.
 - **Added free spins look like this game's free spins** unless the source has mode screens for
   them: a source's free-game screens that show by the free-game gate rather than as mode screens
   are not copied.

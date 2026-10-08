@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { validateGameConfigDoc } from 'game-config';
+import { undealtRouteWarnings, validateGameConfigDoc } from 'game-config';
 import { pickSheetsFrom } from '$lib/pickSheets';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -133,6 +133,6 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		spines: assets.spines.map((s) => ({ name: s.name, key: s.key, shared: s.shared })),
 		// Validate server-side too, so the page shows issues on FIRST paint (before any edit fires
 		// the client validator) — a pasted-in config that lies is visible immediately.
-		issues: doc ? validateGameConfigDoc(doc) : [],
+		issues: doc ? [...validateGameConfigDoc(doc), ...undealtRouteWarnings(doc, gameType)] : [],
 	};
 };

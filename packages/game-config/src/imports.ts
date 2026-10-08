@@ -58,7 +58,9 @@ import {
 	legacyHoldAndWin,
 	legacyPotsOverlay,
 	primaryRespinMode,
+	bonusSplitOf,
 	respinModeDecls,
+	respinModeIds,
 	splitFormOf,
 	syncBonusSplit,
 	withLegacyPair,
@@ -68,6 +70,7 @@ import { normalizeCoinOverlay, overlayRoutes, type CoinOverlay } from './coinOve
 import { isCoinDrop } from './potsOverlay';
 import type { HoldAndWinGame } from './holdAndWinGame';
 import type { GameConfigDoc, GameConfigSymbol } from './types';
+import type { GameConfigIssue } from './validate';
 
 /** A feature of a source project, as the import picker offers it. */
 export type ImportableFeature = {
@@ -502,6 +505,41 @@ export function modeRouteRefusal(
 	return 'On this game only a pot (or dropped value coins) starts a Hold and Win: route a pot to it — buy and trigger routes on a lines game arrive in Phase 7.';
 }
 
+/**
+ * A WARNING on each coin overlay route of `doc` that starts a respin mode its mock would not deal in
+ * a project of kind `hostKind` ({@link modeRouteRefusal}): what `/config` shows beside its own
+ * validator, so a route the Game Maker refuses is not authored there to save and never play. A
+ * warning, not an error, so a config that saved before still saves.
+ */
+export function undealtRouteWarnings(doc: GameConfigDoc, hostKind: string): GameConfigIssue[] {
+	const overlay = bonusSplitOf(doc).coinOverlay;
+	if (!overlay) return [];
+	const respin = new Set(respinModeIds(doc));
+	return overlayRoutes(overlay).flatMap((entry): GameConfigIssue[] => {
+		const why = respin.has(entry.mode)
+			? modeRouteRefusal(doc, routeAt(overlay, entry.path), hostKind)
+			: undefined;
+		return why
+			? [
+					{
+						severity: 'warning',
+						path: `coinOverlay.${entry.path}`,
+						message: `It starts "${entry.mode}", which this game does not play from it yet. ${why}`,
+					},
+				]
+			: [];
+	});
+}
+
+/** The route at `overlayRoutes`' `path` of `overlay`. */
+function routeAt(overlay: CoinOverlay, path: string): ModeRoute {
+	const [head, slot, at] = path.split('.');
+	if (head === 'pots') return { kind: 'pot', pot: overlay.pots![Number(slot)].id };
+	if (head === 'meters') return { kind: 'meter', meter: overlay.meters![Number(slot)].id };
+	if (slot === 'buy') return { kind: 'buy', betMode: overlay.trigger!.buy![Number(at)].betMode };
+	return { kind: slot as 'count' | 'pattern' | 'luckySpin' | 'randomMetre' };
+}
+
 /** `wanted`, or its base (any `_<n>` dropped) with the first free `_2`, `_3`… a respin mode may take. */
 function freeRespinModeId(doc: GameConfigDoc, wanted: string): string {
 	if (!respinModeIdProblem(doc, wanted)) return wanted;
@@ -706,6 +744,7 @@ export function importRespinMode(
 		importedFrom: { project: opts.project, mode: opts.mode, at: opts.at },
 		symbols: names,
 		asMode: true,
+		wroteAs: id,
 	};
 	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== id), record];
 	return {

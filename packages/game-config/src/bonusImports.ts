@@ -28,6 +28,10 @@ export type BonusImport = {
 	/** Added by "Add a bonus mode…" as a respin mode of its own (`importRespinMode`): a re-sync
 	 *  updates that mode alone. Absent ⇒ the pots overlay's import, re-synced as it always was. */
 	asMode?: true;
+	/** With `asMode`: the mode id its screens, Flow tab and Win Text were last written under. A
+	 *  `/config` rename moves `mode` but not those pieces, so the next re-sync clears them by this id
+	 *  before it writes them again under `mode`. */
+	wroteAs?: string;
 };
 
 /** This project's record of the bonus imported as `mode`, if it was imported. */
@@ -63,11 +67,13 @@ export function normalizeBonusImports(raw: unknown): BonusImport[] | undefined {
 				if (name.trim() && value) symbols[name] = value;
 			}
 		}
+		const wroteAs = text(entry.wroteAs);
 		out.push({
 			mode,
 			importedFrom: { project, mode: from, at },
 			symbols,
 			...(entry.asMode === true ? { asMode: true as const } : {}),
+			...(entry.asMode === true && wroteAs && GAME_MODE_ID.test(wroteAs) ? { wroteAs } : {}),
 		});
 	}
 	return out.length ? out : undefined;

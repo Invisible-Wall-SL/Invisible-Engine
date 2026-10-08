@@ -389,6 +389,29 @@ starts the phase sessions, reviews their PRs and merges them.
     - **A plain lines host with no overlay** can't take its first Hold and Win (it needs a route),
       and the refusal says "Add a coin overlay with pots first". After "＋ Coin overlay… → 3 Pots" it
       takes it on a pot route. `check:add-bonus-mode` §3 pins both.
+  - **Hub review of #1149 (one push):**
+    - **Rename, then re-sync.** `renameRespinMode` moves the declaration, routes and record but not
+      the `-<old>` screens, `flow.modes[old]` or Win Text `modes[old]`. An `asMode` record now stores
+      `wroteAs`, the id its pieces were last written under. A re-sync whose `wroteAs` differs
+      retags the old screens to the mode, so the merge replaces them in place. It drops the old Flow
+      tab, with the containers only that tab showed, and the old Win Text entry, then writes all three
+      under the new id. Gate §2b: rename to `gold` → re-sync leaves no `-holdAndWin_2` screen,
+      container, tab or lines, and no duplicate node id.
+    - **`/config` parity with the guard.** `undealtRouteWarnings(doc, kind)` (game-config) warns on
+      every coin overlay route to a respin mode that `modeRouteRefusal` would refuse for the kind.
+      `/config` adds it to its issues on the page and in the server load. It is a WARNING, so stored
+      configs still save. `check:config-bonus-modes` §4 pins it, and no sample warns.
+    - **Unshipped refs.** A copied Flow tab's `functionCall` that the shared library lacks, or a
+      `playCinematic` this project has no cinematic for, is named in the Flow part's note
+      ("copy them too, or remap"). Nothing more is copied.
+    - **A fresh add** with no source tab replaces a stale `flow.modes[<id>]` with the starter. A
+      re-sync still keeps the host's tab.
+    - **Copied screens are named** `<name> (<mode label>)`, as 5b's `screenForMode` names them
+      (`respinModeCopyName`).
+    - **Guide:** Re-sync replaces local edits to the mode (all but label and HUD), and only the
+      config has a backup. Pot routes on a host whose base strips deal Hold and Win symbols, or on a
+      stepped board, are not dealt (the old import's limit).
+    - **Record only:** the API-only `importableFeatures` / `BOARD_NOT_BUILT` path stays as is.
   - **Phase 7 must-do:** lift the `modeRouteRefusal` guard (and its gate cases) when the deal
     decision moves from the kind onto the doc, so a lines game deals buy and trigger routes to a
     respin mode. Until then, the pot route into a Book-of host with a second respin mode is what
@@ -418,6 +441,8 @@ starts the phase sessions, reviews their PRs and merges them.
         screens, a rehomed Flow tab that publishes clean with no new warning, Win Text under
         `modes.holdAndWin_2`, pot `green` routed to it, and nothing else of the host moved;
       - a re-sync after a source edit moves only `holdAndWin_2`;
+      - a `/config` rename to `gold`, then a re-sync, leaves no orphan or duplicate, and names the
+        copied tab's missing cinematic;
       - a plain lines host with no overlay refuses a buy route (its mock would not deal it before
         Phase 7) and refuses no route ("add a coin overlay with pots first"); after "＋ Coin overlay…
         → 3 Pots" it takes the mode on a pot route;
@@ -425,7 +450,8 @@ starts the phase sessions, reviews their PRs and merges them.
       - template and add-on parity.
 
       Mutations that turn it red: no `-<mode>` screen naming (2), Flow mode triggers not rehomed (1),
-      the re-sync not dispatched on `asMode` (1), the route guard off (4).
+      the re-sync not dispatched on `asMode` (1), the route guard off (4), the rename's stale id
+      never cleared (1).
     - `imports.fixture.ts` §9.
     - `check:holdandwin` 1892/0 + 428/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS`
       unchanged;
