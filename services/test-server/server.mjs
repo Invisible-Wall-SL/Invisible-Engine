@@ -353,6 +353,10 @@ const makeBookMock = (label, grid, gameKey, runtime, twin) => {
 	}
 };
 
+/** Whether a game's client prices a bet-option table: a runtime game, or a desktop build stamped
+ *  table-capable. The one rule `makeMock` sells by and every carry of a session follows. */
+const sellsTable = (meta) => Boolean(meta?.runtime) || meta?.tableCapable === true;
+
 const makeMock = (
 	protocol,
 	label,
@@ -364,7 +368,7 @@ const makeMock = (
 	tableCapable = false,
 ) => {
 	// Whether this game's client prices a bet-option table (see `sellableGrid`).
-	const sells = Boolean(runtime) || tableCapable === true;
+	const sells = sellsTable({ runtime, tableCapable });
 	if (protocol === 'holdAndWin') {
 		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin, sells);
 		if (mock) return mock;
@@ -782,18 +786,21 @@ const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.gr
  * (`holdOpenRounds`): a round dealt on the previous grid cannot be settled on the new one, and
  * dropping it strands the player inside the feature.
  *
- * A runtime game's sessions also keep the bet table they were told about, and whether their config
- * carried the pots overlay (`carrySession`): its client keeps the config it booted with, and a tab
- * open when the project gains or loses a buy would otherwise be priced by a table it never saw, and
- * one open when a book game gains the overlay dealt drops and pot bonuses it cannot draw. A reload
- * asks for `config` and gets the new one. A desktop build's sessions are re-sent the config on their
- * next heartbeat, as before.
+ * A game that sells a table (`sellsTable`: a runtime game, or a desktop build stamped
+ * table-capable) keeps each session's bet table and whether its config carried the pots overlay
+ * (`carrySession`): its client keeps the config it booted with, and a tab open when the project
+ * gains or loses a buy would otherwise be priced by a table it never saw, and one open when a book
+ * game gains the overlay dealt drops and pot bonuses it cannot draw. A reload asks for `config` and
+ * gets the new one. An unstamped desktop build's sessions are re-sent the config on their next
+ * heartbeat, as before.
  */
 const swapMock = (key, contract, channel) => {
 	const twin = channel === AUTHORING;
 	const pool = twin ? authoringMocks : mocks;
 	const previous = own(pool, key);
-	const runtime = own(registry, key)?.runtime;
+	const meta = own(registry, key);
+	const runtime = meta?.runtime;
+	const keepBetShape = sellsTable(meta);
 	const next = makeMock(
 		contract.protocol,
 		twin ? `mock:${key}/${AUTHORING}` : `mock:${key}`,
@@ -802,14 +809,14 @@ const swapMock = (key, contract, channel) => {
 		contract.cascade,
 		runtime,
 		twin,
-		own(registry, key)?.tableCapable,
+		meta?.tableCapable,
 	);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
-			next.sessions.set(sid, carrySession(session, { keepBetShape: Boolean(runtime) }));
+			next.sessions.set(sid, carrySession(session, { keepBetShape }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
+	holdOpenRounds(previous, next, { keepBetShape });
 	pool[key] = next;
 	const fingerprint = fingerprintOf(contract);
 	// The registry's protocol/grid/cascade describe the PLAYER mock (the index page, and the contract
@@ -820,22 +827,25 @@ const swapMock = (key, contract, channel) => {
 };
 
 /**
- * A refresh resets every wallet — that is its point — but a runtime game's open tabs keep the bet
- * table they booted with (`carrySession`). A refresh follows every publish of ANY game, and wiping
- * the sessions let a stale tab's next request be priced by a table it never saw: measured, a $1 base
- * spin on a ways game that had gained a buy was charged 10000 as the buy. A desktop build's sessions
- * are reset as before. A process restart still loses everything; a table game then refuses the stale
- * tab's bet rather than guess (see the mock's `bet`). A round still open — a free-spin feature
- * mid-way — is answered by the instance that dealt it until it closes, for every game (`holdOpenRounds`).
+ * A refresh resets every wallet — that is its point — but the open tabs of a game that sells a
+ * table (`sellsTable`: a runtime game, or a desktop build stamped table-capable) keep the bet table
+ * they booted with (`carrySession`). A refresh follows every publish of ANY game, and wiping the
+ * sessions let a stale tab's next request be priced by a table it never saw: measured, a $1 base
+ * spin on a ways game that had gained a buy was charged 10000 as the buy — and a stamped desktop
+ * build's tab, which never asks for the config again, was refused every bet after it. An unstamped
+ * desktop build's sessions are reset as before. A process restart still loses everything; a table
+ * game then refuses the stale tab's bet rather than guess (see the mock's `bet`). A round still
+ * open — a free-spin feature mid-way — is answered by the instance that dealt it until it closes,
+ * for every game (`holdOpenRounds`).
  */
-const carryPins = (previous, next, runtime) => {
-	if (runtime && previous?.sessions && next.sessions) {
+const carryPins = (previous, next, keepsBetTable) => {
+	if (keepsBetTable && previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
 			const fresh = { ...session, balance: next.startBalance };
 			next.sessions.set(sid, carrySession(fresh, { keepBetShape: true }));
 		}
 	}
-	holdOpenRounds(previous, next, { keepBetShape: Boolean(runtime) });
+	holdOpenRounds(previous, next, { keepBetShape: keepsBetTable });
 };
 
 /** Games already told about below, so the warning is one line per game per process — not one per
@@ -1252,7 +1262,7 @@ async function hydrateOnce() {
 				false,
 				meta.tableCapable,
 			);
-			carryPins(own(mocks, key), next, meta.runtime);
+			carryPins(own(mocks, key), next, sellsTable(meta));
 			return [key, next];
 		}),
 	);
@@ -1272,7 +1282,7 @@ async function hydrateOnce() {
 				meta.runtime,
 				true,
 			);
-			carryPins(previous, next, meta.runtime);
+			carryPins(previous, next, sellsTable(meta));
 			meta.authoringFingerprint = meta.fingerprint;
 			return [[key, next]];
 		}),
