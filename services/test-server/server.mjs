@@ -246,16 +246,16 @@ const cascadeEnabledFor = (gameKey, protocol, authored) => {
 };
 
 /**
- * The grid a lines-family mock is built from, less its bet TABLE unless the game is served from the
- * shared runtime.
+ * The grid a lines-family mock is built from, less its bet TABLE unless the game prices one: served
+ * from the shared runtime, or a desktop build stamped `tableCapable` (its manifest entry).
  *
  * The runtime has read `betOptions` since 2026-09-16, so it prices a table correctly. A desktop build
  * ships its own bundle, and one built before then sends `[5, betPerLine]` whatever the table says, so
  * every spin would be `invalid bet option 5` until it is rebuilt (`test1build`, `hotfruits`). Such a
- * game keeps the line-config game it was built against.
+ * game keeps the line-config game it was built against; a rebuild stamps it (`register-game`).
  */
-const sellableGrid = (grid, runtime) => {
-	if (!grid?.betModes || runtime) return grid;
+const sellableGrid = (grid, sells) => {
+	if (!grid?.betModes || sells) return grid;
 	const board = { ...grid };
 	delete board.betModes;
 	return board;
@@ -271,13 +271,13 @@ const holdAndWinFallbackWarned = new Set();
  * game its base game is, and says so once: a respin feature that never comes is otherwise
  * indistinguishable from a broken one.
  */
-const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin) => {
+const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin, sells) => {
 	try {
 		if (grid?.holdAndWin) {
 			// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
 			// never get it, its authoring twin and a standalone build's one mock do.
 			const allowForce = twin || !runtime;
-			return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, runtime) });
+			return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, sells) });
 		}
 		throw new Error('its contract carries no holdAndWin block');
 	} catch (e) {
@@ -353,9 +353,20 @@ const makeBookMock = (label, grid, gameKey, runtime, twin) => {
 	}
 };
 
-const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false) => {
+const makeMock = (
+	protocol,
+	label,
+	grid,
+	gameKey,
+	cascade,
+	runtime,
+	twin = false,
+	tableCapable = false,
+) => {
+	// Whether this game's client prices a bet-option table (see `sellableGrid`).
+	const sells = Boolean(runtime) || tableCapable === true;
 	if (protocol === 'holdAndWin') {
-		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin);
+		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin, sells);
 		if (mock) return mock;
 	}
 	// `book` owns its board and paylines; what it reads of the contract is the project's authored line
@@ -376,7 +387,7 @@ const makeMock = (protocol, label, grid, gameKey, cascade, runtime, twin = false
 		cascade: tumble.on,
 		// …and whether it is the game's MECHANIC or the demo override, which only this side knows.
 		cascadeDemo: tumble.demo,
-		...(sellableGrid(grid, runtime) ?? linesGrid ?? {}),
+		...(sellableGrid(grid, sells) ?? linesGrid ?? {}),
 	};
 	// The pots overlay composes over the lines mock as over the book mock (`makeBookMock`): with the
 	// project's `potsOverlay` inputs it is the add-on over this game, without them the game exactly. One
@@ -791,6 +802,7 @@ const swapMock = (key, contract, channel) => {
 		contract.cascade,
 		runtime,
 		twin,
+		own(registry, key)?.tableCapable,
 	);
 	if (previous?.sessions && next.sessions) {
 		for (const [sid, session] of previous.sessions) {
@@ -1136,6 +1148,8 @@ async function hydrateOnce() {
 			// What the mock is currently built from, so a live re-read can tell "unchanged" from "changed".
 			fingerprint: fingerprintOf(contract),
 			hostSettings: validHostSettings(meta.hostSettings, key),
+			// A desktop build stamped as pricing a bet-option table (`register-game`): it is sold one.
+			tableCapable: meta.tableCapable === true,
 		};
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
@@ -1235,6 +1249,8 @@ async function hydrateOnce() {
 				key,
 				meta.cascade,
 				meta.runtime,
+				false,
+				meta.tableCapable,
 			);
 			carryPins(own(mocks, key), next, meta.runtime);
 			return [key, next];
