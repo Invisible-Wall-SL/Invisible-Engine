@@ -11,6 +11,7 @@ import { symbolsPageConfig } from '$lib/server/symbolsPageConfig';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { winTextRespinModes } from '$lib/winTextModes';
 import { loadWinTextDocWithEtag } from '$lib/server/winTextStorage';
 import type { PageServerLoad } from './$types';
 
@@ -82,12 +83,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** The kind's capabilities with the config's add-ons — a Hold and Win bonus brings the
 		 *  feature's lines, a pots overlay its pot lines. */
 		capabilities: kindCapabilities(gameType, addOns),
-		/** The config's jackpot tier names, in the config's order. */
-		jackpotTiers: (config.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+		/** Every respin mode, the primary first: its jackpot tier names in config order and whether
+		 *  it spins the pre-feature wheel (its wheel copy is offered only then). The primary's lines
+		 *  are the doc's families; another mode's are `doc.modes[<id>]`. */
+		respinModes: winTextRespinModes(config.doc),
 		/** Every pot (meter) id the config declares, Hold and Win meters then overlay pots. */
 		meterIds: potIds ?? [],
-		/** Whether the config has the pre-feature wheel — its copy is offered only then. */
-		hasWheel: Boolean(config.doc?.holdAndWin?.wheel),
 		/** The config's big-win tiers, which are the ones a caption can be drawn for. Empty when
 		 *  the config authors none — the page then offers the coded `winLevelMap` aliases. */
 		bigTiers: bigTiersOf(config.doc),

@@ -73,7 +73,7 @@ import { exportRigFx } from './rigFxExport';
 import { exportRigFlipbooks } from './rigFlipbookExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { withoutPartnerPaytable } from './paytableDrift';
-import { loadWinTextDoc } from './winTextStorage';
+import { loadWinTextDoc, shippedWinText } from './winTextStorage';
 import { bundleFromAssetKey } from './rig';
 import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
 
@@ -414,12 +414,7 @@ async function assembleRuntimeBundle(
 		step('rigFlipbooks', timings, () => exportRigFlipbooks(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
 	]);
-	// Only ship a doc that authors something: `loadWinTextDoc` returns `{version:1}` for a
-	// never-authored project, which would otherwise add a no-op key to the bundle. Mirrors the
-	// offline bake's `authored` check so the two paths agree.
-	const winText = Object.keys(winTextDoc).some((k) => k !== 'version' && k !== 'updatedAt')
-		? winTextDoc
-		: undefined;
+	const winText = shippedWinText(winTextDoc);
 	// A Book-symbol VFX layer of kind 'fx' — and the explosion transition, when it is one — references
 	// an effect by `effectId`: a reachability source this module's scene/rig/event walk can't see, so
 	// collect those ids and hand them to the pruner as `extraReachable` or an effect that isn't ALSO

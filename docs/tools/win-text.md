@@ -163,7 +163,8 @@ kind with a Hold and Win bonus keeps it).
 These sections appear only for a game **with Hold and Win**: one whose kind is Hold and Win, or one
 of any other kind whose [Invisible Game Config](./game-config.md) carries a `holdAndWin` block (for
 example a Book-of game with a Hold and Win bonus). They hold the lines the respin feature shows. Each row has a live preview on its right. The **Wheel** section appears only
-when the game's config has the pre-feature wheel.
+when the game's config has the pre-feature wheel (with several respin modes, when the mode you're
+editing has one — see below).
 
 | Placeholder   | Becomes                                                                                                                                                                              |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -220,6 +221,35 @@ listed in Localization for translation.
 the pot-full line and the intro / outro are saved and translated, but nothing draws them
 until a scene or a beat uses them. The page says so above these sections.
 
+#### Several respin modes
+
+When the game's Game Config declares **more than one respin mode** (bonus modes with Hold and Win
+rules), a **Respin mode** section appears above Jackpots with an **Editing** picker listing each
+mode by its label; the first is marked **primary**. The **Jackpots**, **Respins** and **Wheel**
+sections then edit the picked mode's lines — the jackpot boxes are that mode's own tiers, and Wheel
+shows only if that mode has a wheel.
+
+- **The primary is every mode's fallback.** A line another mode leaves blank reads the primary's,
+  shown greyed in its box. In the game each mode speaks its own lines while it plays, and the
+  primary's wherever it has none.
+- **On another mode, the Hold and Win feature section holds only the Feature total, Intro and
+  Outro.** The other feature lines and the special, collector-level and pot names are the whole
+  game's — switch to the primary to edit them.
+
+With a single respin mode none of this shows and the page is as described above.
+
+**Lines for a mode that no longer exists.** Each extra mode's lines are stored under its id. If a
+mode is renamed or removed in Game Config, or becomes the primary (for example when the Hold and
+Win mode before it is removed), its old lines are still saved but nothing reads them: a new primary
+speaks the top-level lines. The page then shows a **Lines for a mode that no longer exists**
+section, one row per id:
+
+- **Move** sends them to the mode you pick, the primary included. That mode's own lines take their
+  place, so nothing is lost.
+- **Remove** deletes them.
+
+Save afterwards.
+
 ### Pots (pots overlay)
 
 A game with a **pots overlay** (a `potsOverlay` block in its
@@ -268,7 +298,8 @@ Changes are not saved until you click **Save** in the top bar. The pill beside i
 
 Everything you type here shows up in **Invisible Localization** under a **Win
 text** section, with the source **read-only** (this tool owns it — edit it here).
-Translate it there like any other string, review it, and save.
+Translate it there like any other string, review it, and save. A game with several respin modes
+also gets a **Win text — _mode_** section per extra mode, listing what the player reads in it.
 
 Only **reviewed** translations ship, exactly as for the rest of the game's text.
 

@@ -38,7 +38,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
 | 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
-| 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
+| 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
 | 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
 
@@ -275,6 +275,22 @@ starts the phase sessions, reviews their PRs and merges them.
     the active board, because the presentation reads `activeRespinMode()`.
   - **For 5d:** the Win Text lines (`featureIntroText`, jackpot, wheel) are still one family for
     every mode.
+
+- 2026-10-08 — **Phase 5d: Win Text per mode** (hub-approved contract, review of #1146).
+  - **Shape.** `WinTextDoc.modes[<id>]` holds every respin mode but the primary, keyed by its plain
+    id (not Phase 4's `-<modeId>` screen naming). The primary's lines are the top-level families, so
+    a one-mode doc never carries the key. A mode's line falls back to the primary's field by field.
+  - **The primary moves, the lines don't.** If `holdAndWin` is removed, or with no `holdAndWin` the
+    first respin mode changes, a former `modes.<id>` becomes the primary: it now speaks the
+    top-level lines, and its old entry is saved and shipped but never read. A renamed mode strands
+    `modes[<old>]` the same way. `/win-text` lists such entries ("Lines for a mode that no longer
+    exists") with **Move to…** (swaps with that mode's lines, the primary's families included) and
+    **Remove**. `/config` makes no cross-doc write.
+  - **Round-trip.** A save keeps what a newer build wrote inside a mode's lines (fields inside a
+    family, and whole families), as for the top-level families.
+  - **Follow-up (Director):** `director/ops/wintext.ts`'s `PATH` regex cannot address
+    `modes.<id>.<family>.<field>`, so Director's Win Text adapter cannot write a non-primary mode's
+    lines yet.
   - **For 6:** an imported mode's `play` travels with its rules. Re-sync carries it.
   - **For 6: screen naming.** The runtime finds a respin mode's screens as `<reference id>-<modeId>`
     (5b's seeding). The importer's own `-2` / `-3` copy naming (`projectBonusImport.ts` `freeIn`)
@@ -298,6 +314,38 @@ starts the phase sessions, reviews their PRs and merges them.
     - meter ids two modes share resolve to one pot, the first mode's.
 
 ## Recent changes
+
+- 2026-10-08 — **Phase 5d: Win Text and Localization per respin mode** (PR #1146, `engine-layout`
+  `winText.ts`, launcher `winTextStorage.ts` / `/win-text` / `localizationHarvest.ts` /
+  `projectBonusImport.ts`, `apps/lines` `holdAndWin` text).
+  - **The shape.** `WinTextDoc.modes?: Record<modeId, WinTextModeLines>` holds every respin mode but
+    the PRIMARY: its `jackpots` (captions + banners), `respins`, `wheel` and the feature's frame
+    (`WIN_TEXT_MODE_FEATURE_FIELDS`: total, intro, outro). The primary's lines stay the top-level
+    families, so a one-mode doc never carries the key: no migration, the stored JSON unchanged.
+    The pot lines and the special / collector / pot names stay game-wide (they are the overlay's).
+  - **Fallback.** `resolveWinTextForMode(doc, mode)` puts a mode's own lines over the primary's
+    resolved ones, field by field; `undefined` is the primary (`resolveWinText`).
+  - **Runtime.** `holdAndWinText.ts` reads the counter, jackpot, wheel and total/intro/outro lines
+    through `bakedWinTextFor(<active mode>)` (`activeRespinMode()`, the primary as `undefined`). The
+    doc ships verbatim through both bundle paths, so `modes` travels export → bake → pull with no new
+    step.
+  - **`/win-text`.** With several respin modes an "Editing" picker chooses the mode; tiers and the
+    wheel come from that mode's rules (`winTextRespinModes`, `respinModeBlocks` → `decl.holdAndWin`,
+    never the mirror). A non-primary mode edits only its total / intro / outro feature lines.
+  - **Localization.** `harvestProjectWinText` (shared by every harvest caller) keeps the "Win text"
+    section and adds `Win text — <mode>` (`__winText:<mode>`) per other mode, listing what the player
+    reads there, inherited lines included.
+  - **Import.** As the target's primary: today's family replace. As another respin mode:
+    `mergeImportedModeWinText` writes `modes[<mode>]` from `spokenModeLines(source, sourceMode)` and
+    replaces no family. That branch is unreachable until Phase 6 can import a second respin mode.
+  - **Hub review (one push):** a /win-text panel re-homes the lines of a mode that no longer exists;
+    a save keeps a newer build's fields inside `modes[<id>]`; the page reads a mode's lines by own
+    key only (`constructor` is a valid mode id); Localization names a mode's section by its label;
+    an import copies only the receiving mode's tier captions.
+  - **Gates:** new `check:win-text-bonus-modes` (73 checks, mutation-tested). It runs the real
+    `saveWinTextDoc` over an in-memory R2, the runtime bundle's `winText` step (`shippedWinText`),
+    and the game's own selection sliced from `apps/lines` (`modeWinText`, `isPrimaryRespinMode`,
+    `bakedWinTextFor`). `check:bonus-import` gained the per-mode merge case.
 
 - 2026-10-08 — **Phase 4: the engine runtime plays the active respin mode** (PR #1141, `apps/lines`,
   `engine-game` `playBook.ts`, game-config).

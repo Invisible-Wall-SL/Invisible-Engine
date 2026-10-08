@@ -3,6 +3,7 @@ import {
 	WIN_TEXT_FEATURE_FIELDS,
 	WIN_TEXT_FEATURE_MAPS,
 	WIN_TEXT_JACKPOT_FIELDS,
+	WIN_TEXT_MODE_FEATURE_FIELDS,
 	WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
 	WIN_TEXT_RESPIN_FIELDS,
 	WIN_TEXT_WHEEL_FIELDS,
@@ -11,7 +12,12 @@ import {
 import { winTextDocKey } from './projectPaths';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
 import { stampSavedBy, type SavedByStamp } from './savedBy';
-import { stripUnknownKeysWithWarning, type UnknownValues } from './stripUnknownKeys';
+import {
+	isPlainObject,
+	setKey,
+	stripUnknownKeysWithWarning,
+	type UnknownValues,
+} from './stripUnknownKeys';
 import { loadedStoredDoc, unknownTopLevelBlocks, withUnknownFamilyFields } from './unknownBlocks';
 
 /**
@@ -93,6 +99,16 @@ const featureSchema = familySchema(WIN_TEXT_FEATURE_FIELDS)
 	)
 	.strict();
 
+/** A respin mode's own lines (`WinTextModeLines`): the primary's families, the feature's frame only. */
+const modeLinesSchema = z
+	.object({
+		jackpots: jackpotsSchema.optional(),
+		respins: respinsSchema.optional(),
+		wheel: familySchema(WIN_TEXT_WHEEL_FIELDS).strict().optional(),
+		feature: familySchema(WIN_TEXT_MODE_FEATURE_FIELDS).strict().optional(),
+	})
+	.strict();
+
 export const winTextDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -106,6 +122,7 @@ export const winTextDocSchema = z
 		feature: featureSchema.optional(),
 		wheel: familySchema(WIN_TEXT_WHEEL_FIELDS).strict().optional(),
 		platformJackpot: platformJackpotSchema.optional(),
+		modes: z.record(z.string().min(1), modeLinesSchema).optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -204,6 +221,25 @@ function pruneFeature(input: WinTextDoc['feature']): WinTextDoc['feature'] {
 	return Object.keys(next).length ? next : undefined;
 }
 
+/** Each mode's non-blank lines; a mode left with none is dropped, and so is the map. */
+function pruneModes(input: WinTextDoc['modes']): WinTextDoc['modes'] {
+	if (!input) return undefined;
+	const next: NonNullable<WinTextDoc['modes']> = {};
+	for (const [mode, lines] of Object.entries(input)) {
+		const kept: NonNullable<WinTextDoc['modes']>[string] = {};
+		const jackpots = pruneJackpots(lines.jackpots);
+		if (jackpots) kept.jackpots = jackpots;
+		const respins = pruneFamily(WIN_TEXT_RESPIN_FIELDS, lines.respins);
+		if (respins) kept.respins = respins;
+		const wheel = pruneFamily(WIN_TEXT_WHEEL_FIELDS, lines.wheel);
+		if (wheel) kept.wheel = wheel;
+		const feature = pruneFamily(WIN_TEXT_MODE_FEATURE_FIELDS, lines.feature);
+		if (feature) kept.feature = feature;
+		if (Object.keys(kept).length) setKey(next, mode, kept);
+	}
+	return Object.keys(next).length ? next : undefined;
+}
+
 /**
  * Validate + normalize arbitrary parsed/posted data into a {@link WinTextDoc}, pruning blanks
  * so a reset round-trips to "unset". Throws `ZodError` on invalid input — the PUT endpoint maps
@@ -243,7 +279,34 @@ export function normalizeWinTextDoc(
 	if (wheel) next.wheel = wheel;
 	const platformJackpot = prunePlatformJackpot(doc.platformJackpot);
 	if (platformJackpot) next.platformJackpot = platformJackpot;
+	const modes = pruneModes(doc.modes);
+	if (modes) next.modes = modes;
 	return next;
+}
+
+/**
+ * `next` with what a NEWER launcher wrote inside each stored respin mode's lines (`modes[<id>]`):
+ * the families it does not know and the fields it does not know inside a family it does
+ * ({@link withUnknownFamilyFields} and {@link unknownTopLevelBlocks}, one entry down). A mode entry
+ * is a namespace like a family, so an entry the author emptied keeps them. Returns `next` itself
+ * when nothing is grafted.
+ */
+function withUnknownModeFields<T extends WinTextDoc>(loaded: unknown, next: T): T {
+	const stored = isPlainObject(loaded) && isPlainObject(loaded.modes) ? loaded.modes : undefined;
+	if (!stored) return next;
+	const modes: Record<string, unknown> = isPlainObject(next.modes) ? { ...next.modes } : {};
+	let grafted = false;
+	for (const [mode, entry] of Object.entries(stored)) {
+		if (!isPlainObject(entry)) continue;
+		const own = Object.hasOwn(modes, mode) ? modes[mode] : undefined;
+		const current = isPlainObject(own) ? own : {};
+		const withFields = withUnknownFamilyFields(modeLinesSchema, entry, current);
+		const kept = unknownTopLevelBlocks(modeLinesSchema, entry);
+		if (withFields === current && !Object.keys(kept).length) continue;
+		setKey(modes, mode, { ...withFields, ...kept });
+		grafted = true;
+	}
+	return grafted ? { ...next, modes } : next;
 }
 
 /**
@@ -271,6 +334,16 @@ export async function loadWinTextDocWithEtag(
 	}
 }
 
+/**
+ * The doc a game bundle carries: `doc` when it authors anything, else `undefined`, so a
+ * never-authored project (`{version:1}`) adds no key and its bundle stays byte-identical. A doc whose
+ * only lines are another respin mode's (`modes`) ships. The runtime bundle's `winText` step; the
+ * offline bake (`bake-editor-doc.mjs`) mirrors the same test.
+ */
+export function shippedWinText(doc: WinTextDoc): WinTextDoc | undefined {
+	return Object.keys(doc).some((k) => k !== 'version' && k !== 'updatedAt') ? doc : undefined;
+}
+
 /** The doc alone — for readers with nothing to write back (the bake export, the runtime bundle,
  *  the Localization harvest). */
 export async function loadWinTextDoc(clientKey: string, projectKey: string): Promise<WinTextDoc> {
@@ -291,7 +364,8 @@ export async function loadWinTextDoc(clientKey: string, projectKey: string): Pro
  *
  * What a newer launcher stored that this build does not know is carried over onto an `If-Match`
  * save — win text has no backups, so dropping it would lose it for good: the top-level blocks
- * ({@link unknownTopLevelBlocks}) and the fields inside a family ({@link withUnknownFamilyFields}).
+ * ({@link unknownTopLevelBlocks}), the fields inside a family ({@link withUnknownFamilyFields}), and
+ * both of those inside each respin mode's lines ({@link withUnknownModeFields}).
  * The returned doc omits them.
  *
  * `savedBy` stamps the doc's `saved_by` (`savedBy.ts`); a save without one drops a carried stamp.
@@ -306,7 +380,10 @@ export async function saveWinTextDoc(
 	const next = normalizeWinTextDoc(doc, 'reject');
 	const key = winTextDocKey(clientKey, projectKey);
 	const loaded = await loadedStoredDoc(key, baseEtag);
-	const written = withUnknownFamilyFields(winTextDocSchema, loaded, next);
+	const written = withUnknownModeFields(
+		loaded,
+		withUnknownFamilyFields(winTextDocSchema, loaded, next),
+	);
 	const kept = unknownTopLevelBlocks(winTextDocSchema, loaded);
 	const updatedAt = new Date().toISOString();
 	const etag = await putObjectText(
