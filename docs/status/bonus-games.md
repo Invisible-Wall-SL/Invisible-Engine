@@ -39,7 +39,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
 | 5c | Flow v2 vocabulary by board | in review | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
-| 6 | Game Maker: template + Add a bonus mode… | in progress | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | — |
+| 6 | Game Maker: template + Add a bonus mode… | in review | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | — |
 | 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
 
 ## Decisions & findings
@@ -325,7 +325,106 @@ starts the phase sessions, reviews their PRs and merges them.
   - **For 7:** `FlowAddOns.respinModes` is emitted only off the lone default (like the wire's emit
     rule). Phase 7 can always emit it.
 
+- 2026-10-08 — **Phase 6: what "Add a bonus mode…" settled** (for the hub and Phase 7).
+  - **Two import paths, told apart by the record.** "Add a bonus mode…" adds a respin mode through
+    `importRespinMode` (game-config `imports.ts`), which works on the split form only and returns no
+    legacy keys. Its `imports` record carries `asMode: true`, and `resyncBonus` sends such a record back
+    through `importRespinMode`. A record without the marker (today's "Import a bonus…" of the primary
+    `holdAndWin`) re-syncs through `importBonus` exactly as before. The old replace path is no longer
+    offered in the UI ("an added mode never replaces one"). The API keeps `replace` for those old
+    re-syncs and the old gate.
+  - **Ids.** A clash takes `_2`, `_3`… on the id's base, so a copy of `holdAndWin_2` becomes
+    `holdAndWin_3`, not `holdAndWin_2_2`. `respinModeIdProblem` still refuses `holdAndWin` beside
+    another primary. The strip key is `respinGameTypeFor(id)`, made free when taken. A re-sync keeps
+    the id, the game type, the label and the HUD the host gave it.
+  - **Routes are the author's pick.** They are the host's pots, overlay triggers (count / pattern /
+    Lucky Spin / random metre), meters, and a buy tier on any buy-bonus bet mode (a new buy route
+    creates a minimal `coinOverlay` on a host that has none). Never scatters. A pot taken over starts
+    the mode plain, as the old import did. A meter whose special the mode lacks is refused.
+  - **A mode that would be the host's only Hold and Win needs a route.** The primary keeps today's
+    "Nothing can start the feature" error (5a). So the importer refuses up front with a clear reason
+    rather than failing the save. A second mode may wait unstarted (a warning, as 5a set).
+  - **What travels:**
+    - the rules whole, `play` included, with `blank` renamed;
+    - the strips cycled to the host's reels;
+    - the strip symbols (and the blank), each renamed on a clash and stripped of `meterSpecial`. They
+      are never shared with the host, as the old Hold and Win import did it.
+  - **Screens** are copied as `<reference id>-<newModeId>` on scene AND node ids
+    (`respinModeCopyId`: the source mode's `-<sourceMode>` suffix stripped, then `modeScreenId`). The
+    `holdAndWin` mode keeps the plain ids. `freeIn` is only a fallback on a real clash. A reels import
+    keeps today's naming.
+  - **The Flow tab** is the source's tab, rehomed (`mergeImportedModeFlow`):
+    - every node id gets a free `hw`/`hw2`/… prefix;
+    - show/hide refs follow the layout merge's screen renames, and missing containers are declared at
+      the source's z;
+    - a container event pin (`<componentId>.on…`) follows its node's rename;
+    - mode triggers / enter / exit name the new mode.
+
+    With no source tab, the starter (`holdAndWinModeGraph`) is seeded only when the host has no tab
+    for the mode (`seedModeFlow`). A re-sync replaces the tab from the source, as today's import
+    replaces its section.
+  - **Win Text** uses 5d's merge unchanged: `modes[<newId>]`, or the families when the new mode is the
+    host's primary.
+  - **Template.** `scaffoldProject` saves `splitFormOf(seed)`. `normalize` of it is byte-identical to
+    the old stored config for all three presets, mirror included. The engine-layout scene template
+    (`templates/holdAndWin.ts`) needed no change: it lists screens, not config.
+  - **"＋ Coin overlay…"** (asked the hub; went with the proposal, pending any objection):
+    - Style **Classic** → the Coins only preset;
+    - **3 Pots** → 3 Pots or Pots to free spins;
+    - **Collector** → listed with no preset, because a collector lands on the base reels and the add-on
+      never edits a game's strips.
+
+    The add-on saves `splitFormOf(added.doc)`, which normalizes byte-identically on every host and
+    preset (gated). The card still keys "parts…" on the overlay dropping tokens (the
+    `potsOverlay` mirror), as before.
+  - **For Phase 7:** a buy or pot route to a second respin mode on a LINES-kind host is not
+    play-checked here. The mock deals on the Hold and Win engine by KIND (Phase 2), so the sample host
+    playing two Hold and Win bonuses is Phase 7's proof.
+
 ## Recent changes
+
+- 2026-10-08 — **Phase 6: Game Maker template + "Add a bonus mode…"** (PR #TBD, `game-config`
+  `imports.ts` / `bonusImports.ts`, launcher `projectBonusImport.ts`, `projectScaffold.ts`,
+  `projectAddOn.ts`, `/game-maker`, `/api/game-maker/import`).
+  - **What landed:**
+    - The Hold and Win template writes the split form (a lines base game, a coin overlay, and one
+      `holdAndWin` mode with the preset's rules).
+    - **Add a bonus mode…** is on every card. It copies any respin mode with rules of a same-client
+      project as a NEW mode (`_2` on a clash), with its rules (`play` included), strips, symbols, art,
+      `-<mode>` screens, Flow tab and Win Text, routed to the pots, triggers, meters or buy tiers the
+      author ticks.
+    - Re-sync updates that mode alone.
+    - **＋ Coin overlay…** replaces "＋ Pots overlay…", with a style picker.
+    - Guides: `docs/tools/game-maker.md`, `docs/guides/add-pots-overlay.md` and
+      `docs/tools/game-config.md` (docs-keeper).
+  - **Gates:**
+    - new `pnpm --filter launcher-api check:add-bonus-mode`, over the real import, scaffold, add-on and
+      stores on an in-memory R2:
+      - `hw-classic-sample` (set to Manual) into a 3 Pots Book-of host that has `holdAndWin` becomes
+        `holdAndWin_2`, with its rules and `play`, renamed symbols and art, `featureIntro-holdAndWin_2`…
+        screens, a rehomed Flow tab that publishes clean with no new warning, Win Text under
+        `modes.holdAndWin_2`, pot `green` routed to it, and nothing else of the host moved;
+      - a re-sync after a source edit moves only `holdAndWin_2`;
+      - a plain lines host with no overlay takes it as `holdAndWin` on a buy route, and refuses it
+        with no route;
+      - a second unstarted mode saves;
+      - template and add-on parity.
+
+      Mutations that turn it red: no `-<mode>` screen naming (2), Flow mode triggers not rehomed (1),
+      the re-sync not dispatched on `asMode` (1).
+    - `imports.fixture.ts` §9.
+    - `check:holdandwin` 1892/0 + 428/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS`
+      unchanged;
+    - `check:freespins` and `check:respin-modes` 141/0 pass;
+    - `check:bonus-import`, `check:pots-overlay-add-on`, `check:flow-bonus-modes` 88, `check:win-text-bonus-modes` 73,
+      `check:bonus-modes-tools` 82, `check:config-bonus-modes`, `check:mock-contract`,
+      `check:game-config-defaults`, `check:symbols-kind-gating`, `check:flow-publish-gate` and
+      `check:launcher-gates` pass;
+    - `check:all` 419/419 (plus the new gate, which it now discovers), `check:svelte` launcher-api
+      is at its baseline of 48, and lint is clean on the touched files.
+  - **Not run here:** the live samples need R2 and the browser playtester. CI's Current games renders
+    them. No current game's stored config changes: the template affects new projects only, and the
+    add-on's and import's old paths normalize byte-identically.
 
 - 2026-10-08 — **Phase 5c: the Flow v2 vocabulary keyed on the board** (PR #1147,
   `game-config`, `engine-flow-v2`, `/flow-v2`).

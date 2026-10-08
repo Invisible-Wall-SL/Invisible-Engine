@@ -38,7 +38,16 @@
  * `failed`; never over a doc that does not parse. A part that lost a race is filled in by running
  * re-sync.
  */
-import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
+import {
+	flowGraphs,
+	holdAndWinModeGraph,
+	modeContainerRefs,
+	modeScreenId,
+	type FlowDoc as FlowDocV2,
+	type Graph,
+	type Node as FlowNode,
+	type PinPath,
+} from 'engine-flow-v2';
 import {
 	WIN_TEXT_MODE_FEATURE_FIELDS,
 	WIN_TEXT_POT_FIELDS,
@@ -49,13 +58,17 @@ import {
 	type WinTextModeLines,
 } from 'engine-layout';
 import {
+	HOLD_AND_WIN_MODE,
 	bonusImportOf,
+	gameModeById,
 	importBonus,
+	importRespinMode,
 	importableFeatures,
 	respinModeBlocks,
 	resyncBonus,
 	type GameConfigDoc,
 	type ImportResult,
+	type ModeRoute,
 } from 'game-config';
 import { TOOLS } from '$lib/roles';
 import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
@@ -255,20 +268,48 @@ function freeIn(taken: Set<string>, wanted: string, renamed: string[]): string {
 }
 
 /**
+ * A respin mode's screen or node id as respin mode `mode`'s copy of it: the id without the source
+ * mode's `-<sourceMode>` suffix (its reference id), then `mode`'s own ({@link modeScreenId}) — how
+ * the runtime, the Scene Editor and Flow find a mode's screens (bonus-games 5b).
+ */
+export const respinModeCopyId =
+	(sourceMode: string, mode: string) =>
+	(id: string): string => {
+		const suffix = `-${sourceMode}`;
+		const base =
+			sourceMode !== HOLD_AND_WIN_MODE && id.endsWith(suffix) ? id.slice(0, -suffix.length) : id;
+		return modeScreenId(base, mode);
+	};
+
+/** What a screen merge renamed: each copied screen and node id → its id here. */
+export type ScreenRenames = { screens: Record<string, string>; nodes: Record<string, string> };
+
+/**
  * The source's screens for its mode `sourceMode` put in place of `current`'s for `mode` (the same id
  * for a Hold and Win; an imported reels mode's own id here), each re-tagged to `mode`. Only this
  * layout's screens for the mode are replaced, at the place the first of them stood; with none, the
  * imported ones go after the layout's own. Any other screen is kept: an imported screen whose id one
- * of them uses is suffixed, and so is a node id another screen of this layout uses. Pure.
+ * of them uses is suffixed, and so is a node id another screen of this layout uses. `copyId` names
+ * each copied screen and node first (an added respin mode's {@link respinModeCopyId}); absent, they
+ * keep the source's ids. Pure.
  */
 export function mergeImportedScreens(
 	current: LayoutDoc,
 	source: LayoutDoc,
 	mode: string,
 	sourceMode: string = mode,
-): { doc: LayoutDoc; added: string[]; renamedScreens: string[]; renamedNodes: string[] } {
+	copyId: (id: string) => string = (id) => id,
+): {
+	doc: LayoutDoc;
+	added: string[];
+	renamedScreens: string[];
+	renamedNodes: string[];
+	ids: ScreenRenames;
+} {
 	const ids = modeScreenIds(source.scenes, sourceMode);
-	if (!ids.length) return { doc: current, added: [], renamedScreens: [], renamedNodes: [] };
+	const map: ScreenRenames = { screens: {}, nodes: {} };
+	if (!ids.length)
+		return { doc: current, added: [], renamedScreens: [], renamedNodes: [], ids: map };
 	const replaced = new Set(modeScreenIds(current.scenes, mode));
 	const kept = current.scenes.filter((s) => !replaced.has(s.id));
 	const screenIds = new Set(kept.map((s) => s.id));
@@ -277,19 +318,19 @@ export function mergeImportedScreens(
 	const renamedNodes: string[] = [];
 	const renameNodes = (nodes: readonly LayoutNode[]): LayoutNode[] =>
 		nodes.map((node) => {
-			const id = freeIn(nodeIds, node.id, renamedNodes);
+			const id = freeIn(nodeIds, copyId(node.id), renamedNodes);
+			map.nodes[node.id] = id;
 			return node.kind === 'container'
 				? { ...node, id, children: renameNodes(node.children) }
 				: { ...node, id };
 		});
 	const imported = source.scenes
 		.filter((s) => ids.includes(s.id))
-		.map((s) => ({
-			...structuredClone(s),
-			modeId: mode,
-			id: freeIn(screenIds, s.id, renamedScreens),
-			nodes: renameNodes(s.nodes),
-		}));
+		.map((s) => {
+			const id = freeIn(screenIds, copyId(s.id), renamedScreens);
+			map.screens[s.id] = id;
+			return { ...structuredClone(s), modeId: mode, id, nodes: renameNodes(s.nodes) };
+		});
 	const at = current.scenes.findIndex((s) => replaced.has(s.id));
 	const before =
 		at >= 0 ? current.scenes.slice(0, at).filter((s) => !replaced.has(s.id)).length : kept.length;
@@ -300,7 +341,131 @@ export function mergeImportedScreens(
 		added: unchanged ? [] : imported.map((s) => s.id),
 		renamedScreens,
 		renamedNodes,
+		ids: map,
 	};
+}
+
+// ─── flow ─────────────────────────────────────────────────────────────────────────────────────
+
+const graphNodeIds = (graph: Graph): string[] => [...flowNodes(graph)].map((n) => n.id);
+
+/** The first of `hw`, `hw2`, `hw3`… that starts no id in `ids` (as `graftAddOnSteps` picks one). */
+function freeFlowPrefix(ids: ReadonlySet<string>): string {
+	for (let n = 1; ; n++) {
+		const prefix = n === 1 ? 'hw' : `hw${n}`;
+		if (![...ids].some((id) => id.startsWith(`${prefix}_`))) return prefix;
+	}
+}
+
+/**
+ * The source's Flow tab for its respin mode `sourceMode` as respin mode `mode`'s tab of `current`,
+ * in place of the one it had: every node id under a prefix no other id of `current` starts with, the
+ * containers it shows renamed as the layout merge renamed their screens (`ids`) and declared when
+ * `current` lacks them (at the source's z), a container event pin following its component's node,
+ * and its mode triggers naming `mode`. `undefined` when the source has no tab for the mode. Pure.
+ */
+export function mergeImportedModeFlow(
+	current: FlowDocV2,
+	source: FlowDocV2,
+	sourceMode: string,
+	mode: string,
+	ids: ScreenRenames,
+): { doc: FlowDocV2; added: string[] } | undefined {
+	const section = source.modes?.[sourceMode];
+	if (!section) return undefined;
+	const taken = new Set(
+		flowGraphs(current)
+			.filter((g) => g.modeId !== mode)
+			.flatMap(({ graph }) => graphNodeIds(graph)),
+	);
+	const prefix = freeFlowPrefix(taken);
+	const nodeId = (id: string) => `${prefix}_${id}`;
+	const screen = (ref: string) => ids.screens[ref] ?? ref;
+	const pin = (path: PinPath): PinPath => {
+		const dot = path.pin.indexOf('.');
+		const component = dot > 0 ? ids.nodes[path.pin.slice(0, dot)] : undefined;
+		return {
+			node: nodeId(path.node),
+			pin: component ? `${component}${path.pin.slice(dot)}` : path.pin,
+		};
+	};
+	const ownMode = (id: string) => (id === sourceMode ? mode : id);
+	const rehome = (graph: Graph): Graph => ({
+		nodes: graph.nodes.map((node): FlowNode => {
+			const id = nodeId(node.id);
+			switch (node.kind) {
+				case 'showContainer':
+				case 'hideContainer':
+					return { ...node, id, ref: screen(node.ref) };
+				case 'modeTrigger':
+				case 'enterMode':
+					return { ...node, id, modeId: ownMode(node.modeId) };
+				case 'exitMode':
+					return node.modeId ? { ...node, id, modeId: ownMode(node.modeId) } : { ...node, id };
+				case 'group':
+					return {
+						...node,
+						id,
+						body: rehome(node.body),
+						boundary: node.boundary.map((b) => ({ ...b, inner: pin(b.inner) })),
+					};
+				default:
+					return { ...node, id };
+			}
+		}),
+		exec: graph.exec.map((e) => ({ from: pin(e.from), to: pin(e.to) })),
+		data: graph.data.map((e) => ({ from: pin(e.from), to: pin(e.to) })),
+	});
+	const graph = rehome(structuredClone(section.graph));
+	const declared = new Set(current.containers.map((c) => c.id));
+	const shown = new Set(
+		[...flowNodes(graph)].flatMap((n) =>
+			n.kind === 'showContainer' || n.kind === 'hideContainer' ? [n.ref] : [],
+		),
+	);
+	const containers = source.containers
+		.map((c) => ({ ...c, id: screen(c.id), sceneId: screen(c.sceneId) }))
+		.filter((c) => shown.has(c.id) && !declared.has(c.id));
+	return {
+		doc: {
+			...current,
+			containers: [...current.containers, ...containers],
+			modes: { ...current.modes, [mode]: { graph } },
+		},
+		added: [`modes.${mode}`, ...containers.map((c) => `container ${c.id}`)],
+	};
+}
+
+/** The starter Flow tab of respin mode `mode` (`holdAndWinModeGraph`), with the containers it shows
+ *  that `current` does not declare — what `graftAddOnSteps` adds for that mode alone. Pure. */
+export function seedModeFlow(
+	current: FlowDocV2,
+	mode: string,
+): { doc: FlowDocV2; added: string[] } {
+	const taken = new Set(flowGraphs(current).flatMap(({ graph }) => graphNodeIds(graph)));
+	const graph = holdAndWinModeGraph(freeFlowPrefix(taken), mode);
+	const declared = new Set(current.containers.map((c) => c.id));
+	const shown = [...flowNodes(graph)].flatMap((n) =>
+		(n.kind === 'showContainer' || n.kind === 'hideContainer') && !declared.has(n.ref)
+			? [n.ref]
+			: [],
+	);
+	const containers = modeContainerRefs(shown, mode);
+	return {
+		doc: {
+			...current,
+			containers: [...current.containers, ...containers],
+			modes: { ...current.modes, [mode]: { graph } },
+		},
+		added: [`modes.${mode}`, ...containers.map((c) => `container ${c.id}`)],
+	};
+}
+
+function* flowNodes(graph: Graph): Generator<FlowNode> {
+	for (const node of graph.nodes) {
+		yield node;
+		if (node.kind === 'group') yield* flowNodes(node.body);
+	}
 }
 
 // ─── win text ─────────────────────────────────────────────────────────────────────────────────
@@ -423,6 +588,11 @@ type ImportContext = {
 	/** Each rig bundle the copied pieces name under the source's prefix → `null` once promoted,
 	 *  else why it could not be. */
 	spines: Map<string, string | null>;
+	/** Added by "Add a bonus mode…" (`importRespinMode`): its screens are named as the mode's own
+	 *  copies ({@link respinModeCopyId}) and its Flow tab is rehomed or seeded for it. */
+	asMode: boolean;
+	/** What the layout part renamed, for the Flow tab's containers; `undefined` until it ran. */
+	screenIds?: ScreenRenames;
 };
 
 async function importSymbols(ctx: ImportContext, config: GameConfigDoc): Promise<AddOnPart> {
@@ -503,7 +673,9 @@ async function importLayout(ctx: ImportContext): Promise<AddOnPart> {
 		await sourceRigs(ctx, copied),
 		ctx.mode,
 		ctx.sourceMode,
+		ctx.asMode ? respinModeCopyId(ctx.sourceMode, ctx.mode) : undefined,
 	);
+	ctx.screenIds = merged.ids;
 	const note = notes(
 		merged.renamedScreens.length
 			? `Screens renamed (this layout uses the id): ${merged.renamedScreens.join(', ')}.`
@@ -534,6 +706,7 @@ async function importFlow(ctx: ImportContext): Promise<AddOnPart> {
 			`${ctx.source}'s flow could not be read, so the section here is kept.`,
 		);
 	}
+	if (ctx.asMode) return importModeFlow(ctx, target.doc, target.etag, source.doc);
 	const section = source.doc?.modes?.[ctx.sourceMode];
 	if (!section) {
 		return part(
@@ -551,6 +724,56 @@ async function importFlow(ctx: ImportContext): Promise<AddOnPart> {
 	};
 	await saveFlowV2Doc(ctx.client, ctx.project, doc, target.etag, 'always');
 	return part('added', [`modes.${ctx.mode}`]);
+}
+
+/**
+ * An added respin mode's Flow tab: the source's tab for the mode, rehomed here
+ * ({@link mergeImportedModeFlow}); without one, the starter tab when this flow has none for the mode
+ * ({@link seedModeFlow}), else the one here is kept.
+ */
+async function importModeFlow(
+	ctx: ImportContext,
+	current: FlowDocV2,
+	etag: string | null,
+	source: FlowDocV2 | null,
+): Promise<AddOnPart> {
+	const copied =
+		source &&
+		mergeImportedModeFlow(current, source, ctx.sourceMode, ctx.mode, await screenIdsOf(ctx));
+	const merged =
+		copied ?? (current.modes?.[ctx.mode] ? undefined : seedModeFlow(current, ctx.mode));
+	if (!merged) {
+		return part(
+			'present',
+			[],
+			`${ctx.source} has no Flow tab for this mode: the one here is kept.`,
+		);
+	}
+	if (JSON.stringify(merged.doc) === JSON.stringify(current)) return part('present');
+	await saveFlowV2Doc(ctx.client, ctx.project, merged.doc, etag, 'always');
+	return part(
+		'added',
+		merged.added,
+		copied
+			? undefined
+			: `${ctx.source} has no Flow tab for this mode, so it starts from the starter.`,
+	);
+}
+
+/** The screen and node ids the mode's copies have here: what the layout part renamed, or, when it
+ *  did not run, the source's mode screens under the mode's own names. */
+async function screenIdsOf(ctx: ImportContext): Promise<ScreenRenames> {
+	if (ctx.screenIds) return ctx.screenIds;
+	const ids: ScreenRenames = { screens: {}, nodes: {} };
+	const source = await loadDocWithEtag(ctx.client, ctx.source, await projectGameType(ctx.source));
+	if (source.corrupt) return ids;
+	const copyId = respinModeCopyId(ctx.sourceMode, ctx.mode);
+	for (const scene of source.doc.scenes) {
+		if (scene.role !== 'mode' || scene.modeId !== ctx.sourceMode) continue;
+		ids.screens[scene.id] = copyId(scene.id);
+		for (const node of allNodes(scene.nodes)) ids.nodes[node.id] = copyId(node.id);
+	}
+	return ids;
 }
 
 /** A Win Text doc with its ETag, or `corrupt` when the stored object does not parse. */
@@ -640,6 +863,10 @@ export async function applyBonusImport(
 		resync?: boolean;
 		replace?: boolean;
 		pots?: string[];
+		/** "Add a bonus mode…": a respin mode arrives as a NEW mode (`importRespinMode`), started by
+		 *  `routes`; a reels mode as the pots overlay's import, started by the pots among them. */
+		asMode?: boolean;
+		routes?: ModeRoute[];
 		sessionId: string;
 		/** May the caller read `source` (accessible, same client)? Asked of a re-sync's recorded
 		 *  source, which the caller cannot check before the config is read. */
@@ -697,15 +924,31 @@ export async function applyBonusImport(
 		return { ok: false, status: 409, error: sourceConfig };
 	}
 	const at = opts.at ?? new Date().toISOString();
+	const asMode =
+		record?.asMode === true ||
+		(!record &&
+			opts.asMode === true &&
+			gameModeById(sourceConfig, opts.mode)?.board === 'respinBoard');
 	const result: ImportResult = record
 		? resyncBonus(resolved.doc, sourceConfig, opts.mode, at)
-		: importBonus(resolved.doc, sourceConfig, {
-				project: source,
-				mode: opts.mode,
-				at,
-				replace: opts.replace === true,
-				pots: opts.pots,
-			});
+		: asMode
+			? importRespinMode(resolved.doc, sourceConfig, {
+					project: source,
+					mode: opts.mode,
+					at,
+					routes: opts.routes,
+				})
+			: opts.asMode && opts.routes?.some((r) => r.kind !== 'pot')
+				? { ok: false, reason: 'A free-spins mode is started only by a pot.' }
+				: importBonus(resolved.doc, sourceConfig, {
+						project: source,
+						mode: opts.mode,
+						at,
+						replace: opts.replace === true,
+						pots: opts.asMode
+							? opts.routes?.flatMap((r) => (r.kind === 'pot' ? [r.pot] : []))
+							: opts.pots,
+					});
 	if (!result.ok) return { ok: false, status: 409, error: result.reason };
 
 	let saved: GameConfigDoc;
@@ -745,6 +988,7 @@ export async function applyBonusImport(
 			(n) => !Object.values(result.symbols).includes(n) && !saved.symbols[n],
 		),
 		spines: new Map(),
+		asMode,
 	};
 	const symbols = await guarded(() => importSymbols(ctx, saved));
 	const layout = await guarded(() => importLayout(ctx));

@@ -5,7 +5,7 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc } from 'engine-flow-v2';
-import type { HoldAndWinPresetId } from 'game-config';
+import { splitFormOf, type HoldAndWinPresetId } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
@@ -148,10 +148,12 @@ export async function scaffoldProject(
 	}
 	// The kind's default Game Config, written through the config store (validated, backed up,
 	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.
+	// In the split form (`docs/design/bonus-games.md` §1): a Hold and Win template is a lines base
+	// game, a coin overlay and one `holdAndWin` respin mode; the save regenerates the compat mirror.
 	const config = gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
 	if (config && !(await objectExists(gameConfigDocKey(client, project)))) {
 		try {
-			await saveGameConfigDoc(client, project, config, null);
+			await saveGameConfigDoc(client, project, splitFormOf(config), null);
 		} catch (e) {
 			if (!(e instanceof ConflictError)) throw e;
 		}

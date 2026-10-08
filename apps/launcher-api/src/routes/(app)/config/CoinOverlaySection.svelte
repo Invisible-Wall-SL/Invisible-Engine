@@ -1173,8 +1173,8 @@
 	</p>
 	<p class="hint">
 		After saving an overlay change, reload any open game tab: a tab keeps the overlay it booted
-		with. Token art is seeded only by Game Maker's <strong>＋ Pots overlay…</strong> (or
-		<strong>Pots overlay parts…</strong>); otherwise bind it in /symbols.
+		with. Token art is seeded only by Game Maker's <strong>＋ Coin overlay…</strong> (or
+		<strong>Coin overlay parts…</strong>); otherwise bind it in /symbols.
 	</p>
 	{#if notice}
 		<p class="inline-issue {notice.kind === 'error' ? 'error' : 'info'}">{notice.text}</p>

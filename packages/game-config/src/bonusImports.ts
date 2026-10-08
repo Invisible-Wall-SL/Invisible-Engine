@@ -25,6 +25,9 @@ export type BonusImport = {
 	importedFrom: ImportedFrom;
 	/** Every symbol the import brought: the source's name → its name here. A re-sync reuses it. */
 	symbols: Record<string, string>;
+	/** Added by "Add a bonus mode…" as a respin mode of its own (`importRespinMode`): a re-sync
+	 *  updates that mode alone. Absent ⇒ the pots overlay's import, re-synced as it always was. */
+	asMode?: true;
 };
 
 /** This project's record of the bonus imported as `mode`, if it was imported. */
@@ -60,7 +63,12 @@ export function normalizeBonusImports(raw: unknown): BonusImport[] | undefined {
 				if (name.trim() && value) symbols[name] = value;
 			}
 		}
-		out.push({ mode, importedFrom: { project, mode: from, at }, symbols });
+		out.push({
+			mode,
+			importedFrom: { project, mode: from, at },
+			symbols,
+			...(entry.asMode === true ? { asMode: true as const } : {}),
+		});
 	}
 	return out.length ? out : undefined;
 }

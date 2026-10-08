@@ -14,7 +14,14 @@ import { addPotsOverlay, removePotsOverlay } from './src/addOns.ts';
 import { normalizeBonusImports } from './src/bonusImports.ts';
 import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS } from './src/holdAndWinPresets.ts';
-import { importBonus, importableFeatures, resyncBonus, type ImportResult } from './src/imports.ts';
+import {
+	importBonus,
+	importRespinMode,
+	importableFeatures,
+	resyncBonus,
+	type ImportResult,
+} from './src/imports.ts';
+import { respinModeDecls } from './src/bonusGames.ts';
 import { symbolsInPlay, symbolsInPlayForGameType } from './src/inPlay.ts';
 import { holdAndWinModeDecl, ownReelsModeForGameType } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
@@ -510,6 +517,50 @@ console.log("\n8. a reels feature: another book game's free spins as a mode of t
 			refusal(importBonus(goldHost, wheel, { ...FS_FROM, mode: 'wheel' })).startsWith('Only a'),
 		],
 		[true, true],
+	);
+}
+
+console.log('\n9. add a bonus mode (bonus-games Phase 6)');
+{
+	const threePots = normalize(added(addPotsOverlay(host, 'threePots')));
+	const result = imported(
+		importRespinMode(threePots, SOURCE, { ...FROM, routes: [{ kind: 'pot', pot: 'green' }] }),
+	);
+	const doc = result.doc;
+	check(
+		'it is a new mode beside holdAndWin',
+		[result.mode, result.replaced],
+		['holdAndWin_2', false],
+	);
+	check(
+		'the result is the split form only',
+		['holdAndWin' in doc, 'potsOverlay' in doc],
+		[false, false],
+	);
+	check('validates without an error', errors(doc), []);
+	check(
+		'the respin modes, the primary first',
+		respinModeDecls(normalize(clone(doc))).map((m) => m.id),
+		['holdAndWin', 'holdAndWin_2'],
+	);
+	check(
+		'its record says how it was added, and survives normalize',
+		normalize(clone(doc)).imports?.find((i) => i.mode === 'holdAndWin_2')?.asMode,
+		true,
+	);
+	check('the primary is untouched', normalize(clone(doc)).holdAndWin, threePots.holdAndWin);
+	const third = imported(importRespinMode(doc, SOURCE, { ...FROM, project: 'other', routes: [] }));
+	check('a third copy takes _3, not _2_2', third.mode, 'holdAndWin_3');
+	check(
+		'a trigger the host has not got is refused',
+		refusal(importRespinMode(host, SOURCE, { ...FROM, routes: [{ kind: 'pattern' }] })),
+		"This project's coin overlay has no pattern trigger.",
+	);
+	const synced = resyncBonus(doc, SOURCE, 'holdAndWin_2', LATER);
+	check(
+		'a re-sync of an added mode keeps its id and its pot',
+		synced.ok && [synced.mode, synced.doc.coinOverlay?.pots?.find((p) => p.id === 'green')?.bonus],
+		['holdAndWin_2', { mode: 'holdAndWin_2' }],
 	);
 }
 

@@ -18,7 +18,13 @@
  *    plays as free spins in that mode (`freeSpinTrigger.mode`, engine `modeEvents.ts`). A symbol on
  *    its strips that this project defines identically is SHARED (not copied, not in the record), so a
  *    free spins imported between two games of one family brings only what differs.
- *  - A respin board, wheel or `none` mode of the source's own is refused: nothing plays one yet.
+ *  - A wheel or `none` mode of the source's own is refused: nothing plays one yet.
+ *
+ * ADD A BONUS MODE (`docs/design/bonus-games.md` §1, Phase 6) is {@link importRespinMode}: any respin
+ * mode with rules of the source arrives as a NEW respin mode of this project, never in place of one
+ * (an id clash takes `_2`, `_3`, …), on any host, overlay or not. Its rules travel whole (`play`
+ * included), with its strips and the symbols they deal (a clash renamed); what starts it is the
+ * author's pick of this project's routes ({@link ModeRoute}). It works on the split form only.
  *
  * RE-SYNC overwrites only the imported pieces — the block, its strips, its mode override and the
  * symbols it brought — reusing the stored rename map, so a symbol keeps its name (and its
@@ -42,6 +48,7 @@ import {
 	HOLD_AND_WIN_MODE,
 	gameModeById,
 	gameTypeForMode,
+	normalizeGameModes,
 	resolveGameModes,
 	type GameModeDecl,
 } from './modes';
@@ -51,16 +58,24 @@ import {
 	legacyHoldAndWin,
 	legacyPotsOverlay,
 	primaryRespinMode,
+	respinModeDecls,
+	splitFormOf,
 	syncBonusSplit,
 	withLegacyPair,
 } from './bonusGames';
-import type { GameConfigDoc } from './types';
+import { respinGameTypeFor, respinModeIdProblem } from './bonusModes';
+import { normalizeCoinOverlay, overlayRoutes, type CoinOverlay } from './coinOverlay';
+import type { HoldAndWinGame } from './holdAndWinGame';
+import type { GameConfigDoc, GameConfigSymbol } from './types';
 
 /** A feature of a source project, as the import picker offers it. */
 export type ImportableFeature = {
 	/** Its mode id in the source project. */
 	mode: string;
 	label: string;
+	/** What it plays on: a respin mode is added as a mode of its own (`importRespinMode`), a reels
+	 *  one through the pots overlay's import. */
+	board: GameModeDecl['board'];
 	/** Why it cannot be imported yet; absent ⇒ it can. */
 	refused?: string;
 };
@@ -70,16 +85,20 @@ const BOARD_NOT_BUILT =
 
 /** The features of `source` an import can pick from, in mode order. The base game is never one. */
 export function importableFeatures(source: GameConfigDoc): ImportableFeature[] {
+	const respin = new Set(respinModeDecls(source).map((m) => m.id));
 	return resolveGameModes(source)
 		.filter((m) => m.id !== BASE_GAME_MODE)
 		.map((m) => {
-			const label = m.label ?? m.id;
-			if (m.id !== HOLD_AND_WIN_MODE && m.board !== 'reels') {
-				return { mode: m.id, label, refused: BOARD_NOT_BUILT };
+			const feature = { mode: m.id, label: m.label ?? m.id, board: m.board };
+			if (m.board === 'respinBoard' && !respin.has(m.id)) {
+				return { ...feature, refused: 'It has no Hold and Win rules to play.' };
+			}
+			if (m.board !== 'respinBoard' && m.board !== 'reels') {
+				return { ...feature, refused: BOARD_NOT_BUILT };
 			}
 			return source.paddingReels[gameTypeForMode(m)]?.length
-				? { mode: m.id, label }
-				: { mode: m.id, label, refused: 'It has no strips to deal from.' };
+				? feature
+				: { ...feature, refused: 'It has no strips to deal from.' };
 		});
 }
 
@@ -295,6 +314,14 @@ export function resyncBonus(
 ): ImportResult {
 	const record = bonusImportOf(target, mode);
 	if (!record) return { ok: false, reason: `"${mode}" was not imported from another project.` };
+	if (record.asMode) {
+		return importRespinMode(target, source, {
+			project: record.importedFrom.project,
+			mode: record.importedFrom.mode,
+			at,
+			into: mode,
+		});
+	}
 	return importBonus(target, source, {
 		project: record.importedFrom.project,
 		mode: record.importedFrom.mode,
@@ -412,6 +439,250 @@ function importReelsMode(
 		symbols: owned,
 		leftOut: [],
 		droppedActivates: [],
+		replaced: false,
+	};
+}
+
+// ─── add a bonus mode ─────────────────────────────────────────────────────────────────────────
+
+/**
+ * What starts an added bonus mode: one of this project's coin overlay routes taken over (a pot, a
+ * trigger, a symbol-filled meter), or a buy tier on a buy-bonus bet mode. Never scatters, which start
+ * free spins only (design §6 decision 6).
+ */
+export type ModeRoute =
+	| { kind: 'pot'; pot: string }
+	| { kind: 'count' | 'pattern' | 'luckySpin' | 'randomMetre' }
+	| { kind: 'meter'; meter: string }
+	| { kind: 'buy'; betMode: string };
+
+export type ModeImportOptions = {
+	/** The source project's key. */
+	project: string;
+	/** The source's respin mode id. */
+	mode: string;
+	/** ISO time to record. */
+	at: string;
+	/** What starts it here. Absent or empty ⇒ nothing yet: `/config` → Coin overlay routes it. */
+	routes?: ModeRoute[];
+	/** The mode it already is in this project — a re-sync's, which keeps its id, strips and routes. */
+	into?: string;
+};
+
+const TRIGGER_LABELS = {
+	count: 'coin count',
+	pattern: 'pattern',
+	luckySpin: 'Lucky Spin',
+	randomMetre: 'random metre',
+} as const;
+
+/** `wanted`, or its base (any `_<n>` dropped) with the first free `_2`, `_3`… a respin mode may take. */
+function freeRespinModeId(doc: GameConfigDoc, wanted: string): string {
+	if (!respinModeIdProblem(doc, wanted)) return wanted;
+	const base = wanted.replace(/_\d+$/, '');
+	let n = 2;
+	while (respinModeIdProblem(doc, `${base}_${n}`)) n += 1;
+	return `${base}_${n}`;
+}
+
+/** Point `routes` of `doc`'s overlay at `mode`, playing `game`, in place; why one cannot be, or
+ *  `undefined`. A pot taken over starts it plain, as an imported bonus's always has. */
+function routeTo(
+	doc: GameConfigDoc,
+	mode: string,
+	game: HoldAndWinGame,
+	routes: readonly ModeRoute[],
+): string | undefined {
+	const overlay: Partial<CoinOverlay> = doc.coinOverlay ?? {};
+	for (const route of routes) {
+		if (route.kind === 'pot') {
+			const pot = overlay.pots?.find((p) => p.id === route.pot);
+			if (!pot) return `This project has no pot "${route.pot}".`;
+			pot.bonus = { mode };
+		} else if (route.kind === 'meter') {
+			const meter = overlay.meters?.find((m) => m.id === route.meter);
+			if (!meter) return `This project has no meter "${route.meter}".`;
+			if (!game.specials[meter.activates]) {
+				return `The meter "${meter.id}" activates ${meter.activates}, which "${mode}" does not deal.`;
+			}
+			meter.mode = mode;
+		} else if (route.kind === 'buy') {
+			if (!doc.betModes[route.betMode]?.buyBonus) {
+				return `"${route.betMode}" is not a buy-bonus bet mode of this project.`;
+			}
+			const trigger = (overlay.trigger ??= {});
+			const tier = trigger.buy?.find((t) => t.betMode === route.betMode);
+			if (tier) tier.mode = mode;
+			else {
+				trigger.buy = [
+					...(trigger.buy ?? []),
+					{ betMode: route.betMode, mode, guaranteed: [], boostedSpecials: false },
+				];
+			}
+		} else {
+			const slot = overlay.trigger?.[route.kind];
+			if (!slot) {
+				return `This project's coin overlay has no ${TRIGGER_LABELS[route.kind]} trigger.`;
+			}
+			slot.mode = mode;
+		}
+	}
+	if (!doc.coinOverlay && Object.keys(overlay).length) {
+		doc.coinOverlay = normalizeCoinOverlay({ style: 'classic', ...overlay });
+	}
+	return undefined;
+}
+
+/**
+ * Add the respin mode `opts.mode` of `source` to `target` as a NEW respin mode (see the file
+ * header), or re-sync one added before (`opts.into`, see {@link resyncBonus}): its rules, strips and
+ * symbols are taken back and copied again from the source, under the same id, game type, label, HUD
+ * and names, and every route to it is kept. No other mode is touched. The result is in the split
+ * form only (`splitFormOf`): saving it regenerates the compat mirror.
+ */
+export function importRespinMode(
+	target: GameConfigDoc,
+	source: HoldAndWinBonusSource,
+	opts: ModeImportOptions,
+): ImportResult {
+	const from = respinModeDecls(source).find((m) => m.id === opts.mode);
+	if (!from) {
+		return { ok: false, reason: `The source project has no Hold and Win mode "${opts.mode}".` };
+	}
+	const own = source.paddingReels[gameTypeForMode(from)] ?? [];
+	if (!own.length) {
+		return { ok: false, reason: `The source's "${from.id}" has no strips to deal from.` };
+	}
+	const already = target.imports?.find(
+		(i) =>
+			i.mode !== opts.into &&
+			i.importedFrom.project === opts.project &&
+			i.importedFrom.mode === opts.mode,
+	);
+	if (already) {
+		return {
+			ok: false,
+			reason: `"${opts.project}"'s ${from.id} is already a bonus mode here as "${already.mode}". Re-sync it instead.`,
+		};
+	}
+
+	const next = splitFormOf(target);
+	const previous = opts.into ? bonusImportOf(next, opts.into) : undefined;
+	const at = next.modes?.findIndex((m) => m.id === opts.into && m.board === 'respinBoard') ?? -1;
+	if (opts.into && at < 0) {
+		return { ok: false, reason: `"${opts.into}" is not a respin mode of this project any more.` };
+	}
+	const previousDecl = at >= 0 ? next.modes!.splice(at, 1)[0] : undefined;
+	if (previousDecl) {
+		delete next.paddingReels[gameTypeForMode(previousDecl)];
+		// What it brought goes once nothing else deals it; `dropUnusedSymbols` keeps what the legacy
+		// pair names, so it reads the pair through a view sharing `next.symbols`.
+		const view = {
+			...next,
+			holdAndWin: legacyHoldAndWin(next),
+			potsOverlay: legacyPotsOverlay(next),
+		};
+		dropUnusedSymbols(view, Object.values(previous?.symbols ?? {}), () => true);
+	}
+
+	const id = previousDecl?.id ?? freeRespinModeId(next, from.id);
+	const gameTypes = new Set([
+		...Object.keys(next.paddingReels),
+		...resolveGameModes(next).map(gameTypeForMode),
+	]);
+	const gameType = previousDecl
+		? gameTypeForMode(previousDecl)
+		: freeName(respinGameTypeFor(id), gameTypes);
+
+	const strips = Array.from({ length: next.numReels }, (_unused, reel) => own[reel % own.length]);
+	const dealt = symbolsInPlayFromStrips({ [gameType]: strips });
+	const game = structuredClone(from.holdAndWin);
+	if (game.blank && !dealt.includes(game.blank)) dealt.push(game.blank);
+	const renamed: AddOnRenames = { symbols: {}, pots: {} };
+	const taken = new Set(Object.keys(next.symbols));
+	const names: Record<string, string> = {};
+	for (const wanted of dealt) {
+		const entry: GameConfigSymbol = source.symbols[wanted] ?? {};
+		// A meter's token fills the source's meter, which stays there.
+		const roles = (entry.special_properties ?? []).filter((r) => r !== 'meterSpecial');
+		const { special_properties: _roles, ...pays } = entry;
+		const stored = previous?.symbols[wanted];
+		const name = stored && !taken.has(stored) ? stored : freeName(wanted, taken);
+		taken.add(name);
+		names[wanted] = name;
+		if (name !== wanted) renamed.symbols[wanted] = name;
+		next.symbols[name] = structuredClone(
+			roles.length ? { ...pays, special_properties: roles } : pays,
+		);
+	}
+	next.paddingReels[gameType] = strips.map((strip) =>
+		strip.map((cell) => ({ name: names[cell.name] ?? cell.name })),
+	);
+	if (game.blank) game.blank = names[game.blank] ?? game.blank;
+
+	// Its presentation comes with it (music, counter, label); its HUD names a screen of the SOURCE's
+	// layout, so the host's own stays, and so does a label the host gave it.
+	const {
+		hud: _hud,
+		gameType: _sourceType,
+		id: _sourceId,
+		board: _board,
+		holdAndWin: _rules,
+		...presentation
+	} = from;
+	const [decl] =
+		normalizeGameModes([
+			{
+				...presentation,
+				id,
+				board: 'respinBoard',
+				gameType,
+				label: previousDecl?.label ?? `${from.label ?? from.id} (${opts.project})`,
+				...(previousDecl?.hud ? { hud: previousDecl.hud } : {}),
+				holdAndWin: game,
+			},
+		]) ?? [];
+	const modes = [...(next.modes ?? [])];
+	modes.splice(at >= 0 ? at : modes.length, 0, decl);
+	next.modes = modes;
+
+	const refused = routeTo(next, id, game, opts.routes ?? []);
+	if (refused) return { ok: false, reason: refused };
+	// The primary respin mode's rules are the ones the game has always validated, a trigger included;
+	// any other may wait unstarted until Coin overlay routes it.
+	if (
+		respinModeDecls(next)[0]?.id === id &&
+		!overlayRoutes(next.coinOverlay).some((r) => r.mode === id)
+	) {
+		return {
+			ok: false,
+			reason: `"${id}" would be this project's only Hold and Win, so something must start it: pick a pot, a trigger or a buy tier.`,
+		};
+	}
+	// A pot that starts it with a special its rules (re-synced) no longer deal starts it plain.
+	const droppedActivates: string[] = [];
+	for (const pot of next.coinOverlay?.pots ?? []) {
+		const { bonus } = pot;
+		if (bonus.mode !== id || !bonus.activates || game.specials[bonus.activates]) continue;
+		droppedActivates.push(pot.id);
+		delete bonus.activates;
+	}
+
+	const record: BonusImport = {
+		mode: id,
+		importedFrom: { project: opts.project, mode: opts.mode, at: opts.at },
+		symbols: names,
+		asMode: true,
+	};
+	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== id), record];
+	return {
+		ok: true,
+		doc: next,
+		mode: id,
+		renamed,
+		symbols: names,
+		leftOut: [],
+		droppedActivates,
 		replaced: false,
 	};
 }

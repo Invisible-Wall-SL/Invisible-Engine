@@ -64,6 +64,17 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
   Verified offline (`check:project-duplicate`), not live.
 
 ## Recent changes
+- 2026-10-08 — **Add a bonus mode…, ＋ Coin overlay…, and the Hold and Win template in the split form**
+  ([bonus-games.md](../design/bonus-games.md) Phase 6; detail in
+  [status/bonus-games](bonus-games.md)).
+  - **"Import a bonus…" (pots overlay hosts only) is now Add a bonus mode… on every card.** A respin
+    mode of a same-client project arrives as a NEW mode (`_2` on a clash). It is started by the pots,
+    triggers, meters or buy tiers the author ticks, and re-syncs alone.
+  - **"＋ Pots overlay…" is now ＋ Coin overlay…**, with a style picker (Classic, 3 Pots; Collector
+    has no preset).
+  - **The Hold and Win template saves the split form.** The config normalizes byte-identically to
+    before.
+  - Gate: `check:add-bonus-mode`. Guide: [tools/game-maker.md](../tools/game-maker.md).
 - 2026-10-08 — **Book of Thermopylae is Lines plus a preset** ([book-feature.md](../design/book-feature.md)
   Phase 5c). Create's **Game type** list no longer offers **Book of** (`RETIRED_GAME_KINDS` /
   `offeredGameKinds` in `gameKinds.ts`; the kind stays listed so its projects keep their name);
