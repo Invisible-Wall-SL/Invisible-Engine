@@ -37,8 +37,8 @@ export type HoldAndWinWireConfig = {
 /** The only wire this module was written for — `config.holdAndWin.wire`. */
 export const HOLD_AND_WIN_WIRE = 1;
 
-/** The respin mode a legacy single `holdAndWin` block is, and the one an event without a `mode` reads
- *  as — `game-config`'s `HOLD_AND_WIN_MODE`, restated for the no-engine-deps rule. */
+/** The respin mode a legacy single `holdAndWin` block is — `game-config`'s `HOLD_AND_WIN_MODE`,
+ *  restated for the no-engine-deps rule. */
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
 const readHoldAndWinBlock = (
@@ -73,16 +73,16 @@ export const readHoldAndWinConfig = (cfg: unknown): HoldAndWinWireConfig | null 
 	);
 
 /**
- * Every respin mode the boot `config` declares, by mode id, and the PRIMARY one — the mode an event
- * without a `mode` belongs to (design `bonus-games.md` §2.2).
+ * Every respin mode the boot `config` declares, by mode id, and the PRIMARY one — the mode a bonus
+ * that names none plays in (design `bonus-games.md` §2.2).
  */
 export type HoldAndWinModes = { modes: Map<string, HoldAndWinWireConfig>; primary: string };
 
 /**
- * `config.bonusModes: [{mode, gameType, …HoldAndWinWireConfig}]`, one entry per respin mode, or —
- * from a server that sends none — the legacy single `config.holdAndWin` as mode `holdAndWin`. The
- * primary is `holdAndWin` when declared, else the first entry, as Game Config's compat mirror picks
- * it. An entry without a mode id, a repeated id, or another wire is dropped; none left ⇒ null.
+ * `config.bonusModes: [{mode, gameType, …HoldAndWinWireConfig}]`, one entry per respin mode with the
+ * primary first, or — from a server that sends none (a lone default mode) — the legacy single
+ * `config.holdAndWin` as mode `holdAndWin`. An entry without a mode id, a repeated id, or another
+ * wire is dropped; none left ⇒ null.
  */
 export const readHoldAndWinModes = (cfg: unknown): HoldAndWinModes | null => {
 	const declared = (cfg as { bonusModes?: unknown } | null)?.bonusModes;
@@ -99,8 +99,7 @@ export const readHoldAndWinModes = (cfg: unknown): HoldAndWinModes | null => {
 		if (legacy) modes.set(HOLD_AND_WIN_MODE, legacy);
 	}
 	if (modes.size === 0) return null;
-	const primary = modes.has(HOLD_AND_WIN_MODE) ? HOLD_AND_WIN_MODE : [...modes.keys()][0];
-	return { modes, primary };
+	return { modes, primary: [...modes.keys()][0] };
 };
 
 /** A meter's level as the engine reads it (`HoldAndWinMeterLevel` in engine-game). */
@@ -242,11 +241,6 @@ const worthOf = (hw: HoldAndWinWireConfig, cell: Cell): number => {
 	return roles.includes('coin') || roles.includes('collector') ? (symbol.value ?? 0) : 0;
 };
 
-/** The mode a board-level event names: only one other than `holdAndWin`, so a single-mode game's
- *  book is what it always was (an absent `mode` reads as `holdAndWin`). */
-export const otherModeOf = (t: HoldAndWinTranslation): { mode?: string } =>
-	t.mode === HOLD_AND_WIN_MODE ? {} : { mode: t.mode };
-
 /** The wire's bonus snapshot (`enterBonus` / `playedBonusSpin`) → the engine's `holdAndWinState`. */
 export const holdAndWinState = (t: HoldAndWinTranslation, wire: WireSnapshot) => {
 	const cells = cellsOf(wire.cells);
@@ -268,7 +262,7 @@ export const holdAndWinState = (t: HoldAndWinTranslation, wire: WireSnapshot) =>
 			lettersLit: (wire.lettersLit ?? []).flatMap((lit, reel) => (lit ? [reel] : [])),
 			...(typeof wire.rows === 'number' ? { rows: wire.rows } : {}),
 		},
-		...otherModeOf(t),
+		mode: t.mode,
 	};
 };
 

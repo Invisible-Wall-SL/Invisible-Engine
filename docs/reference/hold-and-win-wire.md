@@ -96,30 +96,6 @@ its `seed`. It arrives at boot here, is restated after the opening `bet` and eve
 balance heartbeat (`[]`), and a `jackpotWin` of the tier pays it. A game with no progressive tier
 sends exactly what it did before — no `progressive`, no `value`, no `jackpotLevels`.
 
-### Several respin modes — `bonusModes`
-
-A project can declare several respin modes (design `bonus-games.md` §2.2). The boot `config` then also
-carries one block per mode, each the shape above plus its mode id and respin game type:
-
-```jsonc
-"bonusModes": [
-  { "mode": "holdAndWin",   "gameType": "respin",   "wire": 1, "bonus": "respin",   … },
-  { "mode": "holdAndWin_2", "gameType": "respin_2", "wire": 1, "bonus": "respin_2", … }
-]
-```
-
-- The single `holdAndWin` block stays, as the PRIMARY mode's (`holdAndWin` when declared, else the
-  first entry). A client that reads `bonusModes` ignores it; an old client reads only it.
-- Each mode's bonus arrives under its own `bonus` key (`spinTrigger.bonus`). The `enterBonus` /
-  `playedBonusSpin` contexts, and `holdAndWinTrigger` / `holdAndWinEnd`, may also name the mode
-  (`mode: "holdAndWin_2"`); a named mode wins over the key. No mode named and no key of its own ⇒ the
-  primary, so a single-mode game sends exactly what it always did.
-- The facade translates each respin under ITS mode's rules (roles, jackpot table, stickiness,
-  expansion, blank) and puts the mode on `holdAndWinTrigger` / `holdAndWinEnd`, and on
-  `respinReveal` / `holdAndWinState` when it is not `holdAndWin`.
-- `jackpotLevels` and `meterLevels` name no mode. Inside a round they apply to the mode the round is
-  in; the balance heartbeat's pools apply to the primary.
-
 ## A base spin — `[bet, play]` at `seq=0`
 
 In order (pass 1: `bet`, `playedSpin`; pass 2: the rest as listed):

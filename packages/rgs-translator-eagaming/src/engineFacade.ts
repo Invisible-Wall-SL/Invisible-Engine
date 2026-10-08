@@ -84,7 +84,6 @@ import {
 	meterUpdateEvent,
 	modeEnterEvent,
 	modeExitEvent,
-	otherModeOf,
 	parseHoldAndWinCell,
 	readBootJackpotLevels,
 	readBootMeterLevels,
@@ -147,19 +146,22 @@ const primaryHoldAndWin = (sid: string) => {
  */
 const capturedPotsOverlay = new Map<string, PotsOverlayWireConfig>();
 
-/** The respin mode a `spinTrigger.bonus` key is the own key of — the primary's first. */
+/** The respin mode whose own `bonus` key a `spinTrigger` names that the overlay's `bonuses` does not
+ *  list — the primary's first. */
 const respinModeOfKey = (respin: HoldAndWinModes, key: string): string | undefined => {
 	if (respin.modes.get(respin.primary)?.bonus === key) return respin.primary;
 	for (const [mode, hw] of respin.modes) if (hw.bonus === key) return mode;
 	return undefined;
 };
 
-/** The wire events whose context may name the respin mode they belong to (design bonus-games §2.2). */
+/** The wire contexts that name the respin mode they belong to (`docs/reference/hold-and-win-wire.md`
+ *  "Several respin modes"). The events inside a feature name none: they are the last entry's. */
 const MODE_NAMING_EVENTS = new Set([
 	'spinTrigger',
 	'holdAndWinTrigger',
 	'enterBonus',
 	'playedBonusSpin',
+	'playedBonusSpins',
 	'holdAndWinEnd',
 ]);
 
@@ -167,10 +169,10 @@ const MODE_NAMING_EVENTS = new Set([
  * Each event's respin mode, by its index — the mode whose rules its bonus plays under — or undefined
  * when its bonus plays on the reels (or none has started yet on an overlay host).
  *
- * A context that names a captured respin mode (`mode`) is that mode, until the next `spinTrigger`.
- * Otherwise an overlay host routes each bonus by its `spinTrigger` key (`bonusRoutes`), and a Hold
- * and Win server's every bonus is a respin bonus: of the mode whose own key the trigger names, else
- * the primary. A single-mode game names no mode and has one key, so every event reads as before.
+ * The wire's routing order: a context that names a captured respin mode (`mode`) is that mode,
+ * until the next `spinTrigger` names another; else an overlay host routes each bonus by its
+ * `spinTrigger` key (`bonusRoutes`); else every bonus of a Hold and Win server is the primary's. A
+ * lone default mode names no mode, so its every event reads as before.
  */
 const respinModesOf = (
 	respin: HoldAndWinModes,
@@ -186,19 +188,13 @@ const respinModesOf = (
 			)
 		: null;
 	let named: string | undefined;
-	let keyed = respin.primary;
 	return events.map((e, i) => {
-		const ctx = (e as { context?: { mode?: unknown; bonus?: unknown } }).context;
-		if (e.event === 'spinTrigger') {
-			named = undefined;
-			const key = ctx?.bonus;
-			keyed = (typeof key === 'string' && respinModeOfKey(respin, key)) || respin.primary;
-		}
-		const mode = ctx?.mode;
+		if (e.event === 'spinTrigger') named = undefined;
+		const mode = (e as { context?: { mode?: unknown } }).context?.mode;
 		if (MODE_NAMING_EVENTS.has(e.event) && typeof mode === 'string' && respin.modes.has(mode))
 			named = mode;
 		if (named !== undefined) return named;
-		if (!routes) return keyed;
+		if (!routes) return respin.primary;
 		const route = routes[i];
 		return typeof route === 'object' ? route.respins : undefined;
 	});
@@ -1068,7 +1064,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				if (!inFreeSpins()) triggerBoard = reels;
 				// A respin lands cell by cell on the respin board, never on the reels.
 				if (inHoldAndWin) {
-					push({ type: 'respinReveal', cells: boardCells(reels), ...otherModeOf(inHoldAndWin) });
+					push({ type: 'respinReveal', cells: boardCells(reels), mode: inHoldAndWin.mode });
 					pushDropOf(i);
 					break;
 				}

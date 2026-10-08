@@ -113,48 +113,51 @@ starts the phase sessions, reviews their PRs and merges them.
   - Mode-level validation of a SECOND respin mode's rules is still owed. Only the mirrored primary
     goes through `validateHoldAndWin`; Phase 2 or 5a should run it per mode.
 
-- 2026-10-08 — **Phase 3: what the facade reads, for Phase 2 and Phase 4.**
-  - **Phase 2 (the mock).** Each respin mode should deal under its OWN `bonus` key in
-    `bonusModes[].bonus` and `spinTrigger.bonus`. Today the mock hard-codes `respin`. With two
-    modes sharing a key, only a context `mode` can tell them apart; a key alone resolves to the
-    primary first.
-  - **The pots overlay's `bonuses`** map a key to any respin mode id, not only `holdAndWin`.
-  - **No mode on two wire events.** `jackpotLevels` and `meterLevels` name no mode. In a round
-    they apply to the round's mode; the balance heartbeat's progressive pools apply to the primary
-    only. Two modes with separate progressive pools would need `mode` on `jackpotLevels`. That is
-    a contract question, open for the hub.
-  - **Boot globals stay primary-only.** The boot meters and pools published to the game
-    (`__IE_HOLD_AND_WIN_METERS__` / `__IE_HOLD_AND_WIN_JACKPOTS__`) still come from the legacy
-    (primary) block. Per-mode pools are Phase 4's concern.
-  - **Phase 4 (the runtime).** `respinReveal` / `holdAndWinState` name the mode only when it is not
-    `holdAndWin`, and the trigger always names it. The runtime should key the board on the mode on
-    top of the stack.
+- 2026-10-08 — **Phase 3: what the facade reads, for Phase 2 and Phase 4.** The facade follows the
+  wire the hub agreed with Phase 2 (`hold-and-win-wire.md` "Several respin modes").
+  - **Routing.** `context.mode` (on the six naming contexts), else the overlay's
+    `bonuses[spinTrigger.bonus]`, else the primary, which is the first `bonusModes` entry. A named
+    mode holds until the next `spinTrigger`, because the events inside a feature are untagged.
+  - **Book events.** All four (`holdAndWinTrigger`, `respinReveal`, `holdAndWinState`,
+    `holdAndWinEnd`) carry the resolved mode, `holdAndWin` for a legacy game. `engine-game` keeps
+    `mode` optional on `respinReveal` / `holdAndWinState` (absent = `holdAndWin`), so hand-built
+    books (stories, the emitter vocabularies) stay valid.
+  - **Open for the hub.** `jackpotLevels` and `meterLevels` name no mode. In a round they apply to
+    the round's mode; the heartbeat's progressive pools apply to the primary only. Two modes with
+    separate progressive pools would need `mode` on `jackpotLevels`.
+  - **Boot globals stay primary-only.** The boot meters and pools published to the game still come
+    from the legacy (primary) block. Per-mode pools are Phase 4's.
+  - **For Phase 4.** The runtime should key the board on the mode on top of the stack; every board
+    event now names it.
 
 ## Recent changes
 
 - 2026-10-08 — **Phase 3: the facade reads respin rules per mode** (PR #1139, packages
   `rgs-translator-eagaming` and `engine-game`, plus the Flow v2 vocabulary that mirrors the types).
-  - **Boot capture.** The facade captures `config.bonusModes` per mode (`readHoldAndWinModes`). A
-    boot without it reads the legacy `holdAndWin` block as mode `holdAndWin`. The primary is
-    `holdAndWin`, else the first entry.
-  - **Routing.** Each Hold and Win event translates under its mode's rules (`respinModesOf`): the
-    mode a context names, else the overlay's route (now `{ respins: mode } | 'reels'`), else the
-    mode whose `bonus` key the `spinTrigger` names, else the primary.
-  - **Events.** `holdAndWinTrigger` and `holdAndWinEnd` carry the real mode. `respinReveal` and
-    `holdAndWinState` carry it only when it is not `holdAndWin`.
-  - **Per-mode fields.** `expansion.maxRows` and `blank` are read per mode.
-  - **Types.** The `engine-game` event `mode` fields are now `string`. The runtime is unchanged
-    (Phase 4).
+  - **Boot capture.** The facade captures `config.bonusModes` per mode (`readHoldAndWinModes`, the
+    first entry is the primary). A boot without it reads the legacy `holdAndWin` block as mode
+    `holdAndWin`.
+  - **Routing.** Each Hold and Win event translates under its own mode's rules (`respinModesOf`).
+    The overlay's `bonusRoutes` now returns `{ respins: mode } | 'reels'`. `expansion.maxRows` and
+    `blank` are read per mode.
+  - **Events.** The four book events carry the resolved mode. The `engine-game` event `mode` fields
+    are `string`. The runtime is unchanged (Phase 4).
   - **Gates:**
     - `check:holdandwin`: 1892/0, with digests unchanged;
-    - the new `bonusModes.fixture.ts`: 278/0. It runs a two-mode boot and rounds in mode B and in
-      the primary over the real mock, plus legacy byte-identity;
+    - the new `bonusModes.fixture.ts`: 237/0. It covers a two-mode boot with rounds in B and in the
+      primary, a lone non-default mode, legacy boots read byte for byte, the reader and the
+      overlay routes;
     - `check:pots-overlay`: 112/0, with digests unchanged;
     - `check:freespins`, `check:engine-game` 11/11, `check:all` 411/411 and `check:svelte` at
       baseline all pass.
-  - **What's left:** Phase 2's mock must emit the contract. The fixture's proxy shows the shape
-    the facade reads (also written up in `docs/reference/hold-and-win-wire.md` "Several respin
-    modes").
+  - **Cross-checked against Phase 2's real mock** (`bonus-games-phase2` merged in a scratch
+    worktree), on its two-mode lines host:
+    - red pot → `holdAndWin` (allCoins);
+    - green pot → `holdAndWin_2` (collectorsOnly);
+    - both pots in one round, played in turn.
+
+    Each round is translated with its own mode on all four events, and every snapshot is rebuilt.
+    Nothing is left untranslated.
 
 - 2026-10-08 — **Phase 1: the hub's review fixes** (PR #1133).
   - **Blocking 1:** a `reels` / `none` override of the Hold and Win mode no longer drops its block.

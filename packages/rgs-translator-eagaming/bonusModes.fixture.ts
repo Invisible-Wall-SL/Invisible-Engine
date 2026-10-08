@@ -1,9 +1,9 @@
 /**
  * Several respin modes through the facade (design `bonus-games.md` §2.2, Phase 3): a boot `config`
- * that declares two respin modes in `bonusModes`, and rounds that play in each. Every respin round is
- * dealt by the REAL Hold and Win mock; a proxy in front of it rewrites only what the shared wire
- * contract adds — the boot's `bonusModes` (the mock's own rules as mode B, another preset's as the
- * primary A) and, for a round in B, its bonus key and the `mode` its contexts name.
+ * that declares respin modes in `bonusModes`, and rounds that play in them. Every respin round is
+ * dealt by the REAL Hold and Win mock; a proxy in front of it rewrites only what the per-mode wire
+ * adds (`docs/reference/hold-and-win-wire.md` "Several respin modes"): the boot's `bonusModes`, primary
+ * first, the mode's strip key as its bonus key, and `mode` on the six contexts that name it.
  *
  * Mode B is `pots-expansion-fullrow` (all coins sticky, MINI 15×, a board growing to 6 rows); the
  * primary A is `collector` (collectors only, MINI 25×, no expansion). A round translated under the
@@ -138,34 +138,55 @@ const MODE_B = 'holdAndWin_2';
 const KEY_B = 'respin_2';
 const PRIMARY = await bootBlockOf('collector');
 
+/** The six wire contexts that name their respin mode. */
+const NAMING = [
+	'spinTrigger',
+	'holdAndWinTrigger',
+	'enterBonus',
+	'playedBonusSpin',
+	'playedBonusSpins',
+	'holdAndWinEnd',
+];
+
 /**
- * Mode B's rewrite: the boot declares the primary A and the mock's own rules as B (the legacy
- * `holdAndWin` stays the primary's, as the contract keeps it); the round's bonus arrives under B's
- * key, and — with `named` — every context the contract lists names B.
+ * The per-mode wire over the mock's single-mode answer: the boot declares `modes` (`[mode, block]`,
+ * primary first, the legacy `holdAndWin` staying the primary's), and the round plays in `mode` under
+ * the strip key `key` — its bonus key — with every naming context tagged.
  */
-const asModeB =
-	(named: boolean) =>
+const perModeWire =
+	(
+		modes: (own: Record<string, unknown>) => [string, string, Record<string, unknown>][],
+		mode: string,
+		key: string,
+	) =>
 	(answer: WireAnswer): void => {
 		for (const e of answer.events ?? []) {
 			const ctx = e.context;
 			if (!ctx || typeof ctx !== 'object' || Array.isArray(ctx)) continue;
 			if (e.event === 'config') {
-				const own = ctx.holdAndWin as Record<string, unknown>;
-				ctx.bonusModes = [
-					{ mode: 'holdAndWin', gameType: 'respin', ...PRIMARY },
-					{ mode: MODE_B, gameType: KEY_B, ...own, bonus: KEY_B, blank: 'BLANK_2' },
-				];
-				ctx.holdAndWin = PRIMARY;
+				const declared = modes(ctx.holdAndWin as Record<string, unknown>);
+				ctx.bonusModes = declared.map(([id, gameType, block]) => ({
+					mode: id,
+					gameType,
+					...block,
+					bonus: gameType,
+				}));
+				ctx.holdAndWin = { ...declared[0][2], bonus: declared[0][1] };
 				continue;
 			}
-			if (e.event === 'spinTrigger' && ctx.bonus === 'respin') ctx.bonus = KEY_B;
-			if (
-				named &&
-				['enterBonus', 'playedBonusSpin', 'holdAndWinTrigger', 'holdAndWinEnd'].includes(e.event)
-			)
-				ctx.mode = MODE_B;
+			if (e.event === 'spinTrigger') {
+				ctx.bonus = key;
+				(ctx.trigger as Record<string, unknown>).mode = mode;
+			}
+			if (NAMING.includes(e.event)) ctx.mode = mode;
 		}
 	};
+
+/** Primary A, then B — the mock's own rules under the strip key `respin_2`. */
+const twoModes = (own: Record<string, unknown>): [string, string, Record<string, unknown>][] => [
+	['holdAndWin', 'respin', PRIMARY],
+	[MODE_B, KEY_B, { ...own, blank: 'BLANK_2' }],
+];
 
 const playRound = async (rgsUrl: string, sid: string): Promise<BookEvent[]> =>
 	hush(async () => {
@@ -210,7 +231,7 @@ const canon = (state: HoldAndWinState) =>
 	);
 
 /** A round played in `mode` under rules whose stickiness is `stickiness`: every board-level event
- *  names the mode (or, for `holdAndWin`, names none), the mode stack enters and leaves it, and the
+ *  names the mode, the mode stack enters and leaves it, and the
  *  events rebuild every server snapshot with totals under its own jackpot table. */
 const verifyModeRound = (label: string, events: BookEvent[], mode: string, stickiness: string) => {
 	const types = events.map((e) => e.type);
@@ -241,9 +262,9 @@ const verifyModeRound = (label: string, events: BookEvent[], mode: string, stick
 		(e) => e.type === 'respinReveal' || e.type === 'holdAndWinState',
 	);
 	check(
-		`${label}: every respinReveal / holdAndWinState names ${mode === 'holdAndWin' ? 'no mode' : 'the mode'}`,
+		`${label}: every respinReveal / holdAndWinState names the mode`,
 		boardLevel.map((e) => e.mode),
-		boardLevel.map(() => (mode === 'holdAndWin' ? undefined : mode)),
+		boardLevel.map(() => mode),
 	);
 
 	let state = emptyHoldAndWinState();
@@ -297,9 +318,9 @@ const verifyModeRound = (label: string, events: BookEvent[], mode: string, stick
 		],
 	});
 	check(
-		'reader: bonusModes wins over the legacy block; holdAndWin stays the primary wherever it is listed',
+		'reader: bonusModes wins over the legacy block; its first entry is the primary',
 		two && [[...two.modes.keys()], two.primary],
-		[[MODE_B, 'holdAndWin'], 'holdAndWin'],
+		[[MODE_B, 'holdAndWin'], MODE_B],
 	);
 	const b = two?.modes.get(MODE_B);
 	check(
@@ -325,7 +346,7 @@ const verifyModeRound = (label: string, events: BookEvent[], mode: string, stick
 		}),
 	);
 	check(
-		'reader: without holdAndWin the first mode is the primary; another wire, no id and a repeat are dropped',
+		'reader: another wire, no id and a repeat are dropped; the first kept is the primary',
 		without && [[...without.modes.keys()], without.primary, without.modes.get(MODE_B)?.stickiness],
 		[[MODE_B, 'holdAndWin_3'], MODE_B, 'allCoins'],
 	);
@@ -377,19 +398,17 @@ const verifyModeRound = (label: string, events: BookEvent[], mode: string, stick
 
 const books = new Map<string, BookEvent[]>();
 for (const force of ['expandFull', 'mystery:jackpot:MINI'] as const) {
-	for (const named of [true, false]) {
-		const label = `mode B ${force} (${named ? 'contexts name the mode' : 'by its bonus key'})`;
-		const mock = await hush(() => startMock('pots-expansion-fullrow', force));
-		const proxy = await startProxy(mock.rgsUrl, asModeB(named));
-		const events = await playRound(proxy.rgsUrl, `modes-${force}-${named}`);
-		books.set(label, events);
-		verifyModeRound(label, events, MODE_B, 'allCoins');
-		await close(proxy.server);
-		await close(mock.server);
-	}
+	const label = `mode B ${force}`;
+	const mock = await hush(() => startMock('pots-expansion-fullrow', force));
+	const proxy = await startProxy(mock.rgsUrl, perModeWire(twoModes, MODE_B, KEY_B));
+	const events = await playRound(proxy.rgsUrl, `modes-${force}`);
+	books.set(label, events);
+	verifyModeRound(label, events, MODE_B, 'allCoins');
+	await close(proxy.server);
+	await close(mock.server);
 }
 {
-	const grown = books.get('mode B expandFull (contexts name the mode)') ?? [];
+	const grown = books.get('mode B expandFull') ?? [];
 	const reveals = grown.filter((e) => e.type === 'respinReveal') as unknown as {
 		cells: unknown[];
 	}[];
@@ -401,7 +420,7 @@ for (const force of ['expandFull', 'mystery:jackpot:MINI'] as const) {
 	const entry = grown.find((e) => e.type === 'holdAndWinTrigger') as
 		{ payload: { expansion?: { maxRows: number } } } | undefined;
 	check("mode B: the entry carries B's expansion", entry?.payload.expansion?.maxRows, 6);
-	const mini = books.get('mode B mystery:jackpot:MINI (contexts name the mode)') ?? [];
+	const mini = books.get('mode B mystery:jackpot:MINI') ?? [];
 	check(
 		"mode B: a MINI jackpot coin is held, so the snapshot totals above were priced on B's table",
 		mini.some(
@@ -411,29 +430,44 @@ for (const force of ['expandFull', 'mystery:jackpot:MINI'] as const) {
 		),
 		true,
 	);
-	check(
-		'mode B: naming the mode and routing by its key translate the same round alike',
-		books.get('mode B expandFull (by its bonus key)'),
-		grown,
-	);
 }
 
-// ---------- the same two-mode boot, a round in the primary ----------
+// ---------- the same two-mode boot, a round in the primary (its contexts tagged too) ----------
 
 {
 	const mock = await hush(() => startMock('collector', 'trigger'));
-	const proxy = await startProxy(mock.rgsUrl, (answer) => {
-		const cfg = answer.events?.find((e) => e.event === 'config')?.context;
-		if (cfg) {
-			const own = cfg.holdAndWin as Record<string, unknown>;
-			cfg.bonusModes = [
-				{ mode: MODE_B, gameType: KEY_B, ...own, bonus: KEY_B, stickiness: 'allCoins' },
-				{ mode: 'holdAndWin', gameType: 'respin', ...own },
-			];
-		}
-	});
+	const proxy = await startProxy(
+		mock.rgsUrl,
+		perModeWire(
+			(own) => [
+				['holdAndWin', 'respin', own],
+				[MODE_B, KEY_B, { ...own, stickiness: 'allCoins' }],
+			],
+			'holdAndWin',
+			'respin',
+		),
+	);
 	const events = await playRound(proxy.rgsUrl, 'modes-primary');
-	verifyModeRound('primary (no mode named, its own key)', events, 'holdAndWin', 'collectorsOnly');
+	verifyModeRound('primary', events, 'holdAndWin', 'collectorsOnly');
+	await close(proxy.server);
+	await close(mock.server);
+}
+
+// ---------- a lone non-default mode ----------
+
+{
+	const mock = await hush(() => startMock('pots-expansion-fullrow', 'expandFull'));
+	const proxy = await startProxy(
+		mock.rgsUrl,
+		perModeWire((own) => [[MODE_B, KEY_B, own]], MODE_B, KEY_B),
+	);
+	const events = await playRound(proxy.rgsUrl, 'modes-lone');
+	verifyModeRound(`lone ${MODE_B}`, events, MODE_B, 'allCoins');
+	check(
+		`lone ${MODE_B}: translated as a two-mode boot translates the same round in it`,
+		events,
+		books.get('mode B expandFull'),
+	);
 	await close(proxy.server);
 	await close(mock.server);
 }

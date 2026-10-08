@@ -120,7 +120,7 @@ export type HoldAndWinEventFields = {
 	/** `segment` — the prize's place on the wheel. Not `index`: every book event's own `index` is its
 	 *  ordinal in the book, and a payload field of that name would overwrite it. */
 	holdAndWinWheel: { segment: number; prize: HoldAndWinWheelPrize };
-	/** `mode` only when the respin mode is not `holdAndWin`, as on `holdAndWinState`. */
+	/** `mode` — the respin mode it plays in; absent reads as `holdAndWin`. */
 	respinReveal: { cells: HoldAndWinCell[]; mode?: string };
 	coinsLand: { cells: HoldAndWinCell[] };
 	mysteryReveal: {
