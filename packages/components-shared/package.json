@@ -19,7 +19,7 @@
 		"config-lingui": "workspace:*",
 		"config-storybook": "workspace:*",
 		"@lingui/core": "5.2.0",
-		"chromatic": "11.26.1",
+		"chromatic": "18.10.2",
 		"@storybook/addon-svelte-csf": "5.1.5",
 		"@sveltejs/vite-plugin-svelte": "5.0.3",
 		"svelte-check": "4.7.6"
