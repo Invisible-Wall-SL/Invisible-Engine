@@ -238,6 +238,18 @@ shows only if that mode has a wheel.
 
 With a single respin mode none of this shows and the page is as described above.
 
+**Lines for a mode that no longer exists.** Each extra mode's lines are stored under its id. If a
+mode is renamed or removed in Game Config, or becomes the primary (for example when the Hold and
+Win mode before it is removed), its old lines are still saved but nothing reads them: a new primary
+speaks the top-level lines. The page then shows a **Lines for a mode that no longer exists**
+section, one row per id:
+
+- **Move** sends them to the mode you pick, the primary included. That mode's own lines take their
+  place, so nothing is lost.
+- **Remove** deletes them.
+
+Save afterwards.
+
 ### Pots (pots overlay)
 
 A game with a **pots overlay** (a `potsOverlay` block in its

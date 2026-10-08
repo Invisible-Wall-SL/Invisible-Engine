@@ -3,27 +3,45 @@
  * (docs/design/bonus-games.md §2.4):
  *   pnpm --filter launcher-api check:win-text-bonus-modes
  *
- * What it pins, over the REAL `winTextStorage.ts` normalizer, the engine-layout resolver the game
- * runs (`resolveWinTextForMode`, behind `bakedWinTextFor`) and the Localization harvest:
+ * What it pins, over the REAL `winTextStorage.ts` save path (only `r2.ts` is an in-memory bucket),
+ * the runtime bundle's `winText` step, the game's own Win Text selection (sliced from
+ * `apps/lines`) and the Localization harvest:
  *  1. A doc with TWO respin modes keeps each mode's own jackpot / respin / wheel / feature-frame
- *     lines through save → reload, and the bundle (which carries the saved doc verbatim) resolves
- *     them apart: mode 2 speaks its own, the primary its own.
+ *     lines through save → reload, and the bundle resolves them apart: mode 2 speaks its own, the
+ *     primary its own.
  *  2. Mode 2 without lines reads the primary's, wholly and field by field; a stray entry under the
  *     primary's own id is never read for it.
- *  3. Localization lists both modes: the primary's "Win text" section, then a `Win text — <mode>`
+ *  3. Localization lists both modes: the primary's "Win text" section, then a `Win text — <label>`
  *     section with mode 2's own tiers and lines, in the shared catalog (keyed by source text).
  *  4. Every current doc (the `hw-*` presets, `borut-pots-sample`, plain lines with free spins,
  *     bookOf, lines + an overlay) is byte-identical: its respin-mode list gives the tiers and wheel
  *     the legacy block gave, its Localization sections equal the pre-5d call's, and a doc without
  *     `modes` normalizes and resolves exactly as before.
+ *  5. `saveWinTextDoc` stores both modes' lines and reloads them, and a save by THIS build keeps what
+ *     a newer one wrote inside a mode's lines (`docs/conventions/doc-readers.md`).
+ *  6. The runtime bundle's `winText` step (`shippedWinText`) ships a doc whose only lines are
+ *     another mode's, and still ships nothing for an unauthored one.
+ *  7. The game's selection — `modeWinText` (`holdAndWinText.ts`), `isPrimaryRespinMode` /
+ *     `activeRespinMode` (`activeRespinMode.svelte.ts`) and `bakedWinTextFor` (`editor-scenes.ts`),
+ *     sliced from their sources — draws the counter, the jackpot banner and the wheel in the mode on
+ *     top of the stack, the primary's with none, and prefers the runtime bundle over the baked one.
+ *  8. `/win-text`'s re-homing of a gone mode's lines (`swapWinTextModeLines`) moves or swaps them
+ *     without losing a line, the primary included.
  *
  * The `--tsconfig` maps SvelteKit's `$env/dynamic/private` to a stub (`scripts/lib/env-stub.ts`).
  */
 
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { mock } from 'node:test';
 import {
+	formatWinText,
+	jackpotCaption,
 	kindCapabilities,
 	resolveWinText,
 	resolveWinTextForMode,
+	swapWinTextModeLines,
+	type ResolvedWinText,
 	type WinTextDoc,
 } from 'engine-layout';
 import {
@@ -35,15 +53,58 @@ import {
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import { projectAddOns } from '../src/lib/addOns.ts';
-import { gameConfigDefaultFor } from '../src/lib/server/gameConfigDefaults.ts';
-import {
-	WIN_TEXT_SECTION_ID,
-	harvestProjectWinText,
-	harvestWinText,
-} from '../src/lib/server/localizationHarvest.ts';
-import { normalizeWinTextDoc } from '../src/lib/server/winTextStorage.ts';
-import { winTextRespinModes } from '../src/lib/winTextModes.ts';
+import { respinModeOnStack } from '../../lines/src/game/respinModes.ts';
+import { compileSlice, stripSliceTypes } from '../../../scripts/lib/compile-slice.mjs';
+
+const bucket = new Map<string, { text: string; etag: string | null }>();
+type Cond = { ifMatch?: string; ifNoneMatch?: string };
+class ConflictError extends Error {
+	constructor(readonly key: string) {
+		super(`Conditional write failed for ${key}`);
+		this.name = 'ConflictError';
+	}
+}
+const etagOf = (text: string): string => `"${createHash('md5').update(text).digest('hex')}"`;
+mock.module(new URL('../src/lib/server/r2.ts', import.meta.url).href, {
+	namedExports: {
+		ConflictError,
+		precondition: (baseEtag: string | null | undefined): Cond | undefined => {
+			if (baseEtag === undefined) return undefined;
+			return baseEtag === null ? { ifNoneMatch: '*' } : { ifMatch: baseEtag };
+		},
+		headObject: async (key: string) => {
+			const o = bucket.get(key);
+			return o ? { etag: o.etag, size: o.text.length, lastModified: 0 } : null;
+		},
+		copyObject: async () => false,
+		putObjectText: async (key: string, text: string, _type: string, cond?: Cond) => {
+			const current = bucket.get(key);
+			if (cond?.ifNoneMatch === '*' && current) throw new ConflictError(key);
+			if (cond?.ifMatch !== undefined && current?.etag !== cond.ifMatch) {
+				throw new ConflictError(key);
+			}
+			const etag = etagOf(text);
+			bucket.set(key, { text, etag });
+			return etag;
+		},
+		getObjectText: async (key: string) => bucket.get(key)?.text ?? null,
+		getObjectTextWithEtag: async (key: string) => bucket.get(key) ?? null,
+		listAllObjects: async () => [],
+		deleteObjects: async () => {},
+		listAllKeys: async () => [],
+		listObjects: async () => ({ keys: [], prefixes: [] }),
+		objectExists: async (key: string) => bucket.has(key),
+	},
+});
+
+const { projectAddOns } = await import('../src/lib/addOns.ts');
+const { gameConfigDefaultFor } = await import('../src/lib/server/gameConfigDefaults.ts');
+const { WIN_TEXT_SECTION_ID, harvestProjectWinText, harvestWinText } =
+	await import('../src/lib/server/localizationHarvest.ts');
+const { winTextDocKey } = await import('../src/lib/server/projectPaths.ts');
+const { loadWinTextDocWithEtag, normalizeWinTextDoc, saveWinTextDoc, shippedWinText } =
+	await import('../src/lib/server/winTextStorage.ts');
+const { winTextRespinModes } = await import('../src/lib/winTextModes.ts');
 
 let failures = 0;
 let checks = 0;
@@ -217,7 +278,7 @@ const authored: WinTextDoc = {
 		sections.map((s) => [s.sceneId, s.sceneName, s.origin]),
 		[
 			[WIN_TEXT_SECTION_ID, 'Win text', 'winText'],
-			[`${WIN_TEXT_SECTION_ID}:${SECOND}`, `Win text — ${SECOND}`, 'winText'],
+			[`${WIN_TEXT_SECTION_ID}:${SECOND}`, 'Win text — Gold', 'winText'],
 		],
 	);
 	const goldKeys = sections[1].items.map((i) => i.key);
@@ -315,6 +376,197 @@ const authored: WinTextDoc = {
 		'4. …and the game resolves it exactly as before',
 		resolveWinTextForMode(current, undefined),
 		resolveWinText(current),
+	);
+}
+
+// ── 5. the real save path, and a newer build's fields inside a mode ──────────────────────────────
+{
+	const key = winTextDocKey('c', 'p');
+	const saved = await saveWinTextDoc('c', 'p', authored, null);
+	const { doc: reloaded } = await loadWinTextDocWithEtag('c', 'p');
+	const { updatedAt: _a, ...savedLines } = saved.doc;
+	const { updatedAt: _b, ...reloadedLines } = reloaded;
+	check('5. saveWinTextDoc stores both modes, and the load returns them', reloadedLines, authored);
+	check('5. …as the save returned them', reloadedLines, savedLines);
+
+	// A newer launcher wrote a field and a family this build does not know inside mode 2's lines.
+	const future = JSON.parse(bucket.get(key)!.text);
+	future.modes[SECOND].respins.future = 'kept';
+	future.modes[SECOND].sparkle = { line: 'kept too' };
+	future.modes.gone = { futureOnly: true };
+	bucket.set(key, { text: JSON.stringify(future), etag: etagOf(JSON.stringify(future)) });
+	const loaded = await loadWinTextDocWithEtag('c', 'p');
+	const edited = structuredClone(loaded.doc);
+	edited.modes![SECOND].respins = { counter: 'EDITED {count}' };
+	await saveWinTextDoc('c', 'p', edited, loaded.etag);
+	const stored = JSON.parse(bucket.get(key)!.text);
+	check(
+		"5. a save keeps a newer build's field inside a mode's family, and its family",
+		[stored.modes[SECOND].respins, stored.modes[SECOND].sparkle, stored.modes.gone],
+		[{ counter: 'EDITED {count}', future: 'kept' }, { line: 'kept too' }, { futureOnly: true }],
+	);
+	const plainKey = winTextDocKey('c', 'plain');
+	const { modes: _m, ...plain } = authored;
+	await saveWinTextDoc('c', 'plain', plain, null);
+	check(
+		'5. a doc without modes is stored without the key',
+		Object.hasOwn(JSON.parse(bucket.get(plainKey)!.text), 'modes'),
+		false,
+	);
+}
+
+// ── 6. the runtime bundle's winText step ────────────────────────────────────────────────────────
+{
+	const onlyModes = normalizeWinTextDoc({ modes: { [SECOND]: { respins: { last: 'X' } } } });
+	check("6. a doc whose only lines are another mode's ships", shippedWinText(onlyModes), onlyModes);
+	check('6. an unauthored doc ships nothing', shippedWinText({ version: 1 }), undefined);
+	check(
+		'6. …nor one with only an emptied mode (pruned on save)',
+		shippedWinText(normalizeWinTextDoc({ modes: { [SECOND]: { respins: { last: ' ' } } } })),
+		undefined,
+	);
+}
+
+// ── 7. the game's own selection ─────────────────────────────────────────────────────────────────
+{
+	const source = (rel: string) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+	const sliceBetween = (text: string, what: string, from: string, to: string) => {
+		const start = text.indexOf(from);
+		if (start < 0) throw new Error(`${what}: could not find "${from}"`);
+		const end = text.indexOf(to, start + from.length);
+		if (end < 0) throw new Error(`${what}: could not find "${to}" after it`);
+		return text.slice(start, end + to.length);
+	};
+	const text = source('lines/src/game/holdAndWinText.ts');
+	const active = source('lines/src/game/activeRespinMode.svelte.ts');
+	const scenes = source('lines/src/editor-scenes.ts');
+	const strip = (what: string, slice: string) =>
+		stripSliceTypes(what, slice)
+			.replaceAll('export const', 'const')
+			.replaceAll('export function', 'function');
+
+	const modes = winTextRespinModes(two).map((m) => ({ mode: m.mode }));
+	const stack: string[] = [];
+	const bundles: { runtime: { winText?: WinTextDoc } | null; baked: { winText?: WinTextDoc } } = {
+		runtime: null,
+		baked: { winText: authored },
+	};
+	const game = compileSlice({
+		what: 'check-win-text-bonus-modes#the game selection',
+		names: [
+			'respinModeOnStack',
+			'respinModes',
+			'stateModes',
+			'resolveWinTextForMode',
+			'hasRuntimeBundle',
+			'bundles',
+			'bakedWinText',
+			'formatWinText',
+			'jackpotCaption',
+		],
+		body: `${strip(
+			'activeRespinMode.svelte.ts',
+			sliceBetween(active, 'activeRespinMode', 'export const activeRespinMode = (', '\t);\n') +
+				sliceBetween(
+					active,
+					'isPrimaryRespinMode',
+					'export const isPrimaryRespinMode = (',
+					'\n};\n',
+				),
+		)}
+const runtimeBundle = bundles.runtime;
+const bakedBundle = bundles.baked;
+${strip('editor-scenes.ts', sliceBetween(scenes, 'bakedWinTextFor', 'export function bakedWinTextFor(', '\n}\n'))}
+${strip(
+	'holdAndWinText.ts',
+	sliceBetween(text, 'modeWinText', 'const modeWinText = () =>', ';\n') +
+		sliceBetween(text, 'respinCounterText', 'export const respinCounterText = (', '\n};\n') +
+		sliceBetween(text, 'jackpotBannerText', 'export const jackpotBannerText = (', '\n};\n') +
+		sliceBetween(text, 'wheelPrizeText', 'export const wheelPrizeText = (', '\n};\n'),
+)}
+return { respinCounterText, jackpotBannerText, wheelPrizeText, isPrimaryRespinMode };`,
+	});
+	const draw = () =>
+		game(
+			respinModeOnStack,
+			() => modes,
+			{ state: { stack: stack.map((id) => ({ id })) } },
+			resolveWinTextForMode,
+			() => bundles.runtime !== null,
+			bundles,
+			(): ResolvedWinText => resolveWinText(bundles.baked.winText),
+			formatWinText,
+			jackpotCaption,
+		) as {
+			respinCounterText: (left: number) => string;
+			jackpotBannerText: (tier: string, amount: string, full: boolean) => { title: string };
+			wheelPrizeText: (prize: { type: 'coinBoost'; multiplier: number }) => string;
+			isPrimaryRespinMode: () => boolean;
+		};
+	const lines = () => {
+		const g = draw();
+		return [
+			g.isPrimaryRespinMode(),
+			g.respinCounterText(3),
+			g.jackpotBannerText(`GOLD_${primaryTiers[0]}`, '$1', false).title,
+			g.wheelPrizeText({ type: 'coinBoost', multiplier: 2 }),
+		];
+	};
+	check('7. the base game (no respin mode on the stack) draws the primary', lines(), [
+		true,
+		'SPINS 3',
+		`GOLD_${primaryTiers[0]} WIN`,
+		'BOOST ×2',
+	]);
+	stack.push('basegame', 'holdAndWin');
+	check('7. the primary on the stack draws the primary', lines()[1], 'SPINS 3');
+	stack.splice(0, stack.length, 'basegame', SECOND);
+	check('7. mode 2 on top draws its own lines', lines(), [
+		false,
+		'GOLD SPINS 3',
+		'GOLD Gold Bronze',
+		'GOLD BOOST ×2',
+	]);
+	bundles.runtime = { winText: { version: 1 } };
+	check('7. the runtime bundle wins over the baked one', lines()[1], 'RESPINS 3');
+	bundles.runtime = null;
+	bundles.baked = { winText: { ...authored, modes: undefined } };
+	check("7. mode 2 without lines draws the primary's", lines()[1], 'SPINS 3');
+}
+
+// ── 8. re-homing a gone mode's lines ────────────────────────────────────────────────────────────
+{
+	const gone: WinTextDoc = {
+		version: 1,
+		jackpots: { award: 'P' },
+		feature: { intro: 'P intro', potLabel: 'pot' },
+		modes: { old: { respins: { counter: 'OLD' }, feature: { outro: 'OLD out' } } },
+	};
+	check(
+		'8. moved to a mode with no lines: moved, the gone entry dropped',
+		swapWinTextModeLines(gone, 'old', SECOND).modes,
+		{ [SECOND]: { respins: { counter: 'OLD' }, feature: { outro: 'OLD out' } } },
+	);
+	const toPrimary = swapWinTextModeLines(gone, 'old', undefined);
+	check(
+		"8. moved to the primary: they become the families, the primary's go to the gone slot",
+		[toPrimary.jackpots, toPrimary.respins, toPrimary.feature, toPrimary.modes],
+		[
+			undefined,
+			{ counter: 'OLD' },
+			{ potLabel: 'pot', outro: 'OLD out' },
+			{ old: { jackpots: { award: 'P' }, feature: { intro: 'P intro' } } },
+		],
+	);
+	check(
+		'8. swapping back restores the doc',
+		normalizeWinTextDoc(swapWinTextModeLines(toPrimary, 'old', undefined)),
+		normalizeWinTextDoc(gone),
+	);
+	check(
+		'8. a mode id named like a prototype member is its own key',
+		Object.hasOwn(swapWinTextModeLines(gone, 'old', 'constructor').modes!, 'constructor'),
+		true,
 	);
 }
 

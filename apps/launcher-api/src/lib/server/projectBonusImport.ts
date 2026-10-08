@@ -60,6 +60,7 @@ import {
 import { TOOLS } from '$lib/roles';
 import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
 import type { AddOnPart, AddOnPartStatus } from '$lib/potsOverlayAddOn';
+import { winTextRespinModes, type WinTextRespinMode } from '$lib/winTextModes';
 import { loadDocWithEtag, saveDoc } from './editorStorage';
 import { loadFlowV2DocWithEtag, saveFlowV2Doc } from './flowV2Storage';
 import { resolveGameConfig } from './gameConfigDefaults';
@@ -342,9 +343,14 @@ export function mergeImportedWinText(
 /**
  * The lines respin mode `mode` of `doc` speaks as authored — its own over the primary's families,
  * field by field (`resolveWinTextForMode` without the coded defaults); `undefined` is the primary.
- * Only a mode's own families: never a pot line or a name.
+ * Only a mode's own families: never a pot line or a name. `tiers` (the receiving mode's jackpot
+ * tiers) keeps only their captions, so a caption for a tier the mode does not deal is not copied.
  */
-export function spokenModeLines(doc: WinTextDoc, mode: string | undefined): WinTextModeLines {
+export function spokenModeLines(
+	doc: WinTextDoc,
+	mode: string | undefined,
+	tiers?: readonly string[],
+): WinTextModeLines {
 	const own =
 		mode !== undefined && doc.modes && Object.hasOwn(doc.modes, mode) ? doc.modes[mode] : {};
 	const feature = Object.fromEntries(
@@ -357,7 +363,11 @@ export function spokenModeLines(doc: WinTextDoc, mode: string | undefined): WinT
 		jackpots: {
 			...doc.jackpots,
 			...own.jackpots,
-			captions: { ...doc.jackpots?.captions, ...own.jackpots?.captions },
+			captions: Object.fromEntries(
+				Object.entries({ ...doc.jackpots?.captions, ...own.jackpots?.captions }).filter(
+					([tier]) => !tiers || tiers.includes(tier),
+				),
+			),
 		},
 		respins: { ...doc.respins, ...own.respins },
 		wheel: { ...doc.wheel, ...own.wheel },
@@ -403,7 +413,7 @@ type ImportContext = {
 	/** Its mode id in the source (a reels import's differs: `freeSpins` → `freeSpins_2`). */
 	sourceMode: string;
 	/** This project's respin modes after the import, the primary first. */
-	respinModes: string[];
+	respinModes: WinTextRespinMode[];
 	/** The source's primary respin mode — the one whose lines are its Win Text families. */
 	sourcePrimary: string | undefined;
 	/** Source symbol → name here (the stored map). */
@@ -557,7 +567,8 @@ async function loadWinText(client: string, project: string) {
 async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 	// Only a respin mode has lines of its own: the ones a reels mode would speak (the free-spin lines)
 	// are the host's, so an imported free spins speaks them as the host's own do.
-	if (!ctx.respinModes.includes(ctx.mode)) {
+	const into = ctx.respinModes.find((m) => m.mode === ctx.mode);
+	if (!into) {
 		return part('present', [], "A free-spins mode speaks this game's own free-spin lines.");
 	}
 	const target = await loadWinText(ctx.client, ctx.project);
@@ -570,17 +581,17 @@ async function importWinText(ctx: ImportContext): Promise<AddOnPart> {
 	}
 	const sourceMode = ctx.sourceMode === ctx.sourcePrimary ? undefined : ctx.sourceMode;
 	let merged: { doc: WinTextDoc; added: string[] };
-	if (ctx.mode !== ctx.respinModes[0]) {
+	if (into !== ctx.respinModes[0]) {
 		merged = mergeImportedModeWinText(
 			target.doc,
 			ctx.mode,
-			spokenModeLines(source.doc, sourceMode),
+			spokenModeLines(source.doc, sourceMode, into.jackpotTiers),
 		);
 	} else if (sourceMode === undefined) {
 		merged = mergeImportedWinText(target.doc, source.doc);
 	} else {
 		// The source's other mode becomes this project's primary: what it speaks becomes the families.
-		const { feature, ...families } = spokenModeLines(source.doc, sourceMode);
+		const { feature, ...families } = spokenModeLines(source.doc, sourceMode, into.jackpotTiers);
 		merged = mergeImportedWinText(target.doc, {
 			...source.doc,
 			jackpots: undefined,
@@ -727,7 +738,7 @@ export async function applyBonusImport(
 		source,
 		mode: result.mode,
 		sourceMode: record?.importedFrom.mode ?? opts.mode,
-		respinModes: respinModeBlocks(saved).map((block) => block.mode),
+		respinModes: winTextRespinModes(saved),
 		sourcePrimary: respinModeBlocks(sourceConfig)[0]?.mode,
 		names: result.symbols,
 		dropped: Object.values(previous).filter(

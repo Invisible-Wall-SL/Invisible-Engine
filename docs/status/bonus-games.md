@@ -275,6 +275,22 @@ starts the phase sessions, reviews their PRs and merges them.
     the active board, because the presentation reads `activeRespinMode()`.
   - **For 5d:** the Win Text lines (`featureIntroText`, jackpot, wheel) are still one family for
     every mode.
+
+- 2026-10-08 — **Phase 5d: Win Text per mode** (hub-approved contract, review of #1146).
+  - **Shape.** `WinTextDoc.modes[<id>]` holds every respin mode but the primary, keyed by its plain
+    id (not Phase 4's `-<modeId>` screen naming). The primary's lines are the top-level families, so
+    a one-mode doc never carries the key. A mode's line falls back to the primary's field by field.
+  - **The primary moves, the lines don't.** If `holdAndWin` is removed, or with no `holdAndWin` the
+    first respin mode changes, a former `modes.<id>` becomes the primary: it now speaks the
+    top-level lines, and its old entry is saved and shipped but never read. A renamed mode strands
+    `modes[<old>]` the same way. `/win-text` lists such entries ("Lines for a mode that no longer
+    exists") with **Move to…** (swaps with that mode's lines, the primary's families included) and
+    **Remove**. `/config` makes no cross-doc write.
+  - **Round-trip.** A save keeps what a newer build wrote inside a mode's lines (fields inside a
+    family, and whole families), as for the top-level families.
+  - **Follow-up (Director):** `director/ops/wintext.ts`'s `PATH` regex cannot address
+    `modes.<id>.<family>.<field>`, so Director's Win Text adapter cannot write a non-primary mode's
+    lines yet.
   - **For 6:** an imported mode's `play` travels with its rules. Re-sync carries it.
   - **For 6: screen naming.** The runtime finds a respin mode's screens as `<reference id>-<modeId>`
     (5b's seeding). The importer's own `-2` / `-3` copy naming (`projectBonusImport.ts` `freeIn`)
@@ -322,8 +338,14 @@ starts the phase sessions, reviews their PRs and merges them.
   - **Import.** As the target's primary: today's family replace. As another respin mode:
     `mergeImportedModeWinText` writes `modes[<mode>]` from `spokenModeLines(source, sourceMode)` and
     replaces no family. That branch is unreachable until Phase 6 can import a second respin mode.
-  - **Gates:** new `check:win-text-bonus-modes` (57 checks; mutation-tested), `check:bonus-import`
-    gained the per-mode merge case.
+  - **Hub review (one push):** a /win-text panel re-homes the lines of a mode that no longer exists;
+    a save keeps a newer build's fields inside `modes[<id>]`; the page reads a mode's lines by own
+    key only (`constructor` is a valid mode id); Localization names a mode's section by its label;
+    an import copies only the receiving mode's tier captions.
+  - **Gates:** new `check:win-text-bonus-modes` (73 checks, mutation-tested). It runs the real
+    `saveWinTextDoc` over an in-memory R2, the runtime bundle's `winText` step (`shippedWinText`),
+    and the game's own selection sliced from `apps/lines` (`modeWinText`, `isPrimaryRespinMode`,
+    `bakedWinTextFor`). `check:bonus-import` gained the per-mode merge case.
 
 - 2026-10-08 — **Phase 4: the engine runtime plays the active respin mode** (PR #1141, `apps/lines`,
   `engine-game` `playBook.ts`, game-config).

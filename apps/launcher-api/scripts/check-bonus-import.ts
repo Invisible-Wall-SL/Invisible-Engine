@@ -342,6 +342,11 @@ await check("win text: another respin mode's lines are added under it, no family
 		},
 		"another source mode: its own over its primary's",
 	);
+	same(
+		spokenModeLines(source, 'gold', ['GOLD_MINI']).jackpots,
+		{ award: 'src' },
+		"only the captions of the receiving mode's tiers",
+	);
 	const out = mergeImportedModeWinText(host, 'holdAndWin_2', gold);
 	same(
 		out.doc,

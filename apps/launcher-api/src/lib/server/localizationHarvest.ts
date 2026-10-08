@@ -225,7 +225,7 @@ export const WIN_TEXT_SECTION_ID = '__winText';
  * these sources, so they're read-only here (`origin: 'winText'`).
  *
  * `otherModes` are the respin modes besides the primary (bonus games §2.4); each gets a section of
- * its own, `Win text — <mode>`, after the primary's. A game with one respin mode passes none, so its
+ * its own, `Win text — <its label>` (keyed `__winText:<id>`), after the primary's. A game with one respin mode passes none, so its
  * sections are what they always were.
  */
 export function harvestWinText(
@@ -240,7 +240,7 @@ export function harvestWinText(
 	}
 	// Each other respin mode's lines under its mode — its own, else the primary's it reads — so a
 	// translator sees what the player reads in that mode, tiers and all.
-	for (const { mode, jackpotTiers, hasWheel } of otherModes) {
+	for (const { mode, label, jackpotTiers, hasWheel } of otherModes) {
 		const modeItems = collectWinTextModeTemplates(doc, mode, {
 			jackpots: jackpotTiers,
 			wheel: hasWheel,
@@ -248,7 +248,7 @@ export function harvestWinText(
 		if (!modeItems.length) continue;
 		out.push({
 			sceneId: `${WIN_TEXT_SECTION_ID}:${mode}`,
-			sceneName: `Win text — ${mode}`,
+			sceneName: `Win text — ${label}`,
 			items: modeItems,
 			origin: 'winText',
 		});

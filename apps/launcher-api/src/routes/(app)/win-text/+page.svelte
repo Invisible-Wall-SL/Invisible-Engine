@@ -28,6 +28,7 @@
 		resolveToastTemplate,
 		resolveWinText,
 		resolveWinTextForMode,
+		swapWinTextModeLines,
 		resolveWinLineMessage,
 		specialDisplayName,
 		symbolDrawsWinLine,
@@ -78,11 +79,46 @@
 	const modeResolved = $derived(
 		resolveWinTextForMode($state.snapshot(doc), onPrimary ? undefined : editMode),
 	);
-	/** The edited mode's own lines, as stored (read side). */
-	const lines = $derived<WinTextModeLines | undefined>(onPrimary ? doc : doc.modes?.[editMode]);
+	/** The edited mode's own lines, as stored (read side). Own keys only: a mode id may be
+	 *  `constructor`. */
+	const lines = $derived<WinTextModeLines | undefined>(
+		onPrimary
+			? doc
+			: doc.modes && Object.hasOwn(doc.modes, editMode)
+				? doc.modes[editMode]
+				: undefined,
+	);
 	/** The edited mode's own lines, created on first write. */
-	const linesToWrite = (): WinTextModeLines =>
-		onPrimary ? doc : ((doc.modes ??= {})[editMode] ??= {});
+	function linesToWrite(): WinTextModeLines {
+		if (onPrimary) return doc;
+		const modes = (doc.modes ??= {});
+		if (!Object.hasOwn(modes, editMode)) modes[editMode] = {};
+		return modes[editMode];
+	}
+
+	/**
+	 * Mode lines no current mode reads: written for a respin mode that was renamed or removed, or that
+	 * has since become the primary (whose lines are the doc's families). They are saved and shipped but
+	 * never played, so the page offers to move them to a current mode — swapping with that mode's
+	 * lines, so nothing is lost — or to remove them.
+	 */
+	const orphanModes = $derived(
+		Object.keys(doc.modes ?? {}).filter(
+			(id) => !data.respinModes.slice(1).some((mode) => mode.mode === id),
+		),
+	);
+	let moveTargets = $state<Record<string, string>>({});
+	function moveOrphan(orphan: string) {
+		const target = moveTargets[orphan] ?? data.respinModes[0]?.mode;
+		if (target === undefined) return;
+		const primary = target === data.respinModes[0]?.mode;
+		doc = swapWinTextModeLines($state.snapshot(doc), orphan, primary ? undefined : target);
+	}
+	function removeOrphan(orphan: string) {
+		if (!doc.modes) return;
+		delete doc.modes[orphan];
+		if (!Object.keys(doc.modes).length) delete doc.modes;
+	}
 
 	/**
 	 * The match counts the grid offers. Every current game template is a 5-reel board, so a line
@@ -675,6 +711,35 @@
 			</section>
 		{/if}
 
+		{#if orphanModes.length}
+			<section>
+				<h2>Lines for a mode that no longer exists</h2>
+				<p class="hint">
+					These Hold and Win lines belong to a respin mode this game's config no longer has as a
+					second mode — it was renamed or removed, or it is now the primary. They are kept, but the
+					game never shows them. <strong>Move</strong> them to a current mode (its own lines take
+					their place here, so nothing is lost) or <strong>Remove</strong> them, then save.
+				</p>
+				{#each orphanModes as orphan (orphan)}
+					<div class="single orphan">
+						<span>{orphan}</span>
+						{#if data.respinModes.length}
+							<select
+								value={moveTargets[orphan] ?? data.respinModes[0].mode}
+								onchange={(e) => (moveTargets[orphan] = e.currentTarget.value)}
+							>
+								{#each data.respinModes as mode, i (mode.mode)}
+									<option value={mode.mode}>{mode.label}{i === 0 ? ' — primary' : ''}</option>
+								{/each}
+							</select>
+							<button onclick={() => moveOrphan(orphan)}>Move</button>
+						{/if}
+						<button class="danger" onclick={() => removeOrphan(orphan)}>Remove</button>
+					</div>
+				{/each}
+			</section>
+		{/if}
+
 		{#if data.capabilities.holdAndWin}
 			<p class="hint">
 				A few lines have no place on screen yet: <em>Respins awarded</em>, <em>Respins reset</em>,
@@ -1102,6 +1167,31 @@
 		background: #0e0e13;
 		color: #e8e8ee;
 		font-size: 12px;
+	}
+	.single select {
+		flex: 1;
+		padding: 7px 9px;
+		border-radius: 6px;
+		border: 1px solid #24242e;
+		background: #0e0e13;
+		color: #e8e8ee;
+		font-size: 12px;
+	}
+	.orphan button {
+		flex: none;
+		padding: 6px 12px;
+		border-radius: 8px;
+		border: 1px solid #3a3a48;
+		background: #16161d;
+		color: #e8e8ee;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.orphan .danger {
+		border-color: #6b3030;
+		background: #2c1618;
+		color: #ffbdbd;
 	}
 	.single input::placeholder {
 		color: #4d4d5a;

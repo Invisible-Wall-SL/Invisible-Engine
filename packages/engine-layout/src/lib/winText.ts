@@ -879,3 +879,67 @@ export function collectWinTextModeTemplates(
 	}
 	return out;
 }
+
+/** The lines respin mode `mode` of `doc` has of its own — the families on the primary (`undefined`),
+ *  else its `modes` entry. Never a pot line or a name. */
+function ownModeLines(doc: WinTextDoc, mode: string | undefined): WinTextModeLines {
+	if (mode !== undefined) {
+		return doc.modes && Object.hasOwn(doc.modes, mode) ? doc.modes[mode] : {};
+	}
+	const feature: NonNullable<WinTextModeLines['feature']> = {};
+	for (const field of WIN_TEXT_MODE_FEATURE_FIELDS) {
+		const line = doc.feature?.[field];
+		if (line !== undefined) feature[field] = line;
+	}
+	return {
+		...(doc.jackpots ? { jackpots: doc.jackpots } : {}),
+		...(doc.respins ? { respins: doc.respins } : {}),
+		...(doc.wheel ? { wheel: doc.wheel } : {}),
+		...(Object.keys(feature).length ? { feature } : {}),
+	};
+}
+
+/**
+ * `doc` with the lines of `from` and of `to` swapped — `undefined` is the primary, whose lines are the
+ * doc's families. Where `to` has none, the lines simply move and `from`'s entry goes. This is how
+ * `/win-text` re-homes the lines of a mode that no longer exists (renamed, removed, or become the
+ * primary). Pure; the pot lines and the names stay where they are.
+ */
+export function swapWinTextModeLines(
+	doc: WinTextDoc,
+	from: string | undefined,
+	to: string | undefined,
+): WinTextDoc {
+	if (from === to) return doc;
+	const next: WinTextDoc = structuredClone(doc);
+	const moving = structuredClone(ownModeLines(doc, from));
+	const displaced = structuredClone(ownModeLines(doc, to));
+	const put = (mode: string | undefined, lines: WinTextModeLines) => {
+		if (mode === undefined) {
+			for (const family of ['jackpots', 'respins', 'wheel'] as const) {
+				if (lines[family]) (next as Record<string, unknown>)[family] = lines[family];
+				else delete next[family];
+			}
+			const feature = { ...next.feature };
+			for (const field of WIN_TEXT_MODE_FEATURE_FIELDS) delete feature[field];
+			Object.assign(feature, lines.feature);
+			if (Object.keys(feature).length) next.feature = feature;
+			else delete next.feature;
+			return;
+		}
+		const modes: Record<string, WinTextModeLines> = { ...next.modes };
+		if (Object.keys(lines).length) {
+			Object.defineProperty(modes, mode, {
+				value: lines,
+				enumerable: true,
+				writable: true,
+				configurable: true,
+			});
+		} else delete modes[mode];
+		if (Object.keys(modes).length) next.modes = modes;
+		else delete next.modes;
+	};
+	put(to, moving);
+	put(from, displaced);
+	return next;
+}
