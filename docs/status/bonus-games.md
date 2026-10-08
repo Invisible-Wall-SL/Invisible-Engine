@@ -58,6 +58,15 @@ starts the phase sessions, reviews their PRs and merges them.
   - No equality test decides which side wins. Applying an unchanged mirror is a no-op, and a stale
     mirror always wins.
   - So a split-form writer must delete the legacy keys before it saves.
+  - Hold and Win is removed only through `removeHoldAndWin(doc)`. `takeOutHoldAndWinBonus` uses
+    it.
+  - A Hold and Win mode stays on the respin board, whatever an override says (hub review of
+    #1133).
+  - Until Phase 5a, a respin mode without rules or strips is a warning, not an error. Phase 5a
+    raises it to an error once `/config` can author them. The reason is that `prepareGameConfigDoc`
+    refuses to save a doc with errors.
+  - Base-game flags for a special that no respin mode configures are pruned on normalize.
+  - An import brings the source mode's `blank`.
   - The mirror is dropped in Phase 7.
   - `bonusGames.fixture.ts` §4b and §4c pin this. About 80 files outside game-config read `doc.holdAndWin` /
   `doc.potsOverlay` directly. That includes the `.mjs` mocks and `test-server`, which read the
@@ -96,16 +105,26 @@ starts the phase sessions, reviews their PRs and merges them.
     `GameModesSection` and `stateModes`.
   - `resolveGameModes` still lists `holdAndWin` for an unnormalized legacy doc, by reading the
     block.
-  - `/config` → Game modes now lists Hold and Win as a mode of the project's own. Removing it there
-    does not stick, because the legacy block re-declares it on save. Phase 5a replaces this
-    section.
-  - A `respinBoard` mode without rules or strips is now an **error**. Before, an own respin mode
-    added in Game modes was inert.
+  - `/config` → Game modes now lists Hold and Win as a mode of the project's own, with a "Hold and
+    Win" chip. Its fields stay editable, but its board is locked and it has no ×. It goes with its
+    block. Phase 5a replaces this section.
+  - A `respinBoard` mode without rules or strips is a **warning** in Phase 1. Before, an own respin
+    mode added in Game modes was inert; Phase 5a raises it to an error.
   - Mode-level validation of a SECOND respin mode's rules is still owed. Only the mirrored primary
     goes through `validateHoldAndWin`; Phase 2 or 5a should run it per mode.
 
 ## Recent changes
 
+- 2026-10-08 — **Phase 1: the hub's review fixes** (PR #1133).
+  - **Blocking 1:** a `reels` / `none` override of the Hold and Win mode no longer drops its block.
+    The mode is forced onto the respin board, and Game modes takes a new entry's board from the
+    resolved mode.
+  - **Blocking 2:** a respin mode without rules or strips is a warning, not an error.
+  - **Should-fix 3:** the Hold and Win row has a locked board and no ×.
+  - **Should-fix 4:** there is one `removeHoldAndWin` helper.
+  - **Nits:** orphan base-game flags are pruned; an import brings the source's `blank`; the
+    expanding-symbol pin strips only the `holdAndWin` mode.
+  - Pinned in `bonusGames.fixture.ts` §5 and §7.
 - 2026-10-08 — **Phase 1: the config split and migration** (PR #1133, `packages/game-config` plus
   fixtures). No consumer outside game-config reads the split yet.
   - **New modules:**

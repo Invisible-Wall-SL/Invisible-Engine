@@ -126,6 +126,11 @@ Project (a whole game)
       always wins.
   - **What writers must do.**
     - **A writer of the split form (Phases 5a and 6) deletes both legacy keys before it saves.**
+    - **Hold and Win is removed only through `removeHoldAndWin(doc)`.** It removes the block, the
+      primary respin mode and the routes to it. Deleting the `holdAndWin` key alone brings the mode
+      back on a doc without a `potsOverlay`, and drops it beside one.
+    - A Hold and Win mode always plays on the respin board. An override's `reels` or `none` board
+      is overruled, so the block is never lost.
     - An unmigrated writer edits only the legacy keys, and its edit wins.
     - The game-config writers (`addOns`, `imports`) call `withLegacyPair` first and
       `syncBonusSplit` last, so their results are already normalize fixed points.

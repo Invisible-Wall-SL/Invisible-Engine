@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		GAME_MODE_BOARDS,
+		HOLD_AND_WIN_MODE,
 		builtinGameModes,
 		resolveGameModes,
 		type GameConfigDoc,
@@ -57,12 +58,17 @@
 	const builtinOf = (id: string) => builtins.find((m) => m.id === id);
 	const authoredOf = (id: string) => doc.modes?.find((m) => m.id === id);
 
-	/** The authored entry for `id`, created (as a bare override of the built-in) on first write. */
+	/** A mode that plays a Hold and Win game — its rules, or the legacy block's. It stays on the respin
+	 *  board and goes only with its game (bonus-games Phase 1); its fields are still editable. */
+	const playsHoldAndWin = (mode: GameModeDecl) =>
+		Boolean(mode.holdAndWin) || (mode.id === HOLD_AND_WIN_MODE && Boolean(doc.holdAndWin));
+
+	/** The authored entry for `id`, created (on the board it resolves to) on first write. */
 	function entryFor(id: string): GameModeDecl {
 		const found = authoredOf(id);
 		if (found) return found;
-		const builtin = builtinOf(id);
-		(doc.modes ??= []).push({ id, board: builtin?.board ?? 'reels' });
+		const board = builtinOf(id)?.board ?? modes.find((m) => m.id === id)?.board ?? 'reels';
+		(doc.modes ??= []).push({ id, board });
 		return doc.modes[doc.modes.length - 1];
 	}
 
@@ -173,10 +179,15 @@
 						<td class="id">
 							<code>{mode.id}</code>
 							{#if builtin}<span class="chip">built-in{overridden ? ' · edited' : ''}</span>{/if}
+							{#if playsHoldAndWin(mode)}<span class="chip">Hold and Win</span>{/if}
 						</td>
 						<td
 							><select
 								value={mode.board}
+								disabled={playsHoldAndWin(mode)}
+								title={playsHoldAndWin(mode)
+									? 'A Hold and Win game plays on the respin board.'
+									: undefined}
 								onchange={(e) => setBoard(mode.id, e.currentTarget.value)}
 							>
 								{#each GAME_MODE_BOARDS as b (b)}
@@ -202,7 +213,7 @@
 							/></td
 						>
 						<td>
-							{#if !builtin}
+							{#if !builtin && !playsHoldAndWin(mode)}
 								<button class="del" title="Remove mode" onclick={() => removeMode(mode.id)}
 									>×</button
 								>

@@ -17,7 +17,9 @@
  *    shows — an unmigrated writer (the `/config` Hold and Win section, the add-ons, the import) edits
  *    only those keys — and everything the mirror cannot show is kept from the split form;
  *  - when it carries neither, the split form is authoritative. A writer of the split form therefore
- *    deletes both legacy keys before it saves.
+ *    deletes both legacy keys before it saves;
+ *  - Hold and Win is REMOVED only through {@link removeHoldAndWin}: deleting the `holdAndWin` key
+ *    alone brings it back on a doc without a `potsOverlay` and drops it beside one.
  *
  * Read the legacy blocks through {@link legacyHoldAndWin} / {@link legacyPotsOverlay} in this package,
  * so a doc that is only in the split form reads the same.
@@ -99,7 +101,8 @@ function applyLegacy(
 			// A legacy override of the built-in mode fills in on top of it, where the built-in sat.
 			const at = modes.findIndex((m) => m.id === HOLD_AND_WIN_MODE);
 			const override = at >= 0 ? modes.splice(at, 1)[0] : undefined;
-			primary = { ...holdAndWinModeDecl(), ...override, holdAndWin: game };
+			// It plays on the respin board whatever the override says, or the block would be lost.
+			primary = { ...holdAndWinModeDecl(), ...override, board: 'respinBoard', holdAndWin: game };
 			modes.unshift(primary);
 		}
 		const blank = primary.holdAndWin.blank;
@@ -175,6 +178,7 @@ export function normalizeBonusGames(
 		modes: normalizeGameModes(withLegacyOverrideBoard(raw.modes, Boolean(holdAndWin))),
 	};
 	if (holdAndWin || potsOverlay) split = applyLegacy(split, holdAndWin, potsOverlay);
+	split = pruneBaseGame(split);
 	return {
 		...mirrorOf(split),
 		...(split.coinOverlay ? { coinOverlay: split.coinOverlay } : {}),
@@ -182,15 +186,32 @@ export function normalizeBonusGames(
 	};
 }
 
-/** A legacy override of the built-in Hold and Win mode may omit its board (the built-in gave it);
- *  it is a respin board, or normalization would drop it before migration could fill it in. */
+/** Beside a legacy block, an override of the built-in Hold and Win mode is on the respin board: it
+ *  may omit the board (the built-in gave it), and a `reels` or `none` one would drop the block's
+ *  rules before migration could put them on it. */
 function withLegacyOverrideBoard(raw: unknown, legacy: boolean): unknown {
 	if (!legacy || !Array.isArray(raw)) return raw;
 	return raw.map((entry) =>
-		isObject(entry) && entry.id === HOLD_AND_WIN_MODE && entry.board === undefined
-			? { ...entry, board: 'respinBoard' }
-			: entry,
+		isObject(entry) && entry.id === HOLD_AND_WIN_MODE ? { ...entry, board: 'respinBoard' } : entry,
 	);
+}
+
+/** The overlay without base-game flags for a special no respin mode configures — a flag says what a
+ *  special of a respin game does in the base game, so without the game it means nothing. */
+function pruneBaseGame(split: BonusSplit): BonusSplit {
+	const flags = split.coinOverlay?.baseGame;
+	if (!flags) return split;
+	const configured = new Set(
+		(split.modes ?? []).flatMap((m) => Object.keys(m.holdAndWin?.specials ?? {})),
+	);
+	const kept = Object.fromEntries(Object.entries(flags).filter(([kind]) => configured.has(kind)));
+	if (Object.keys(kept).length === Object.keys(flags).length) return split;
+	const { baseGame: _flags, ...rest } = split.coinOverlay!;
+	const coinOverlay = normalizeCoinOverlay({ ...rest, baseGame: kept });
+	return {
+		...(coinOverlay ? { coinOverlay } : {}),
+		...(split.modes ? { modes: split.modes } : {}),
+	};
 }
 
 // ─── compat accessors ─────────────────────────────────────────────────────────────────────────
@@ -239,18 +260,46 @@ export function syncBonusSplit<T extends BonusDoc>(doc: T): T {
 	return doc;
 }
 
+/**
+ * Take Hold and Win out of `doc`, in place: the legacy block, the primary respin mode and the routes
+ * to it, with the legacy pair re-mirrored from what is left. The ONE way to remove it: deleting only
+ * the `holdAndWin` key brings it back on a doc without a `potsOverlay` (the split form stands) and
+ * drops it beside one (the legacy pair is applied). Returns `doc`.
+ */
+export function removeHoldAndWin<T extends BonusDoc>(doc: T): T {
+	withLegacyPair(doc);
+	const { coinOverlay, modes } = pruneBaseGame(
+		applyLegacy(
+			{ coinOverlay: normalizeCoinOverlay(doc.coinOverlay), modes: normalizeGameModes(doc.modes) },
+			undefined,
+			normalizePotsOverlay(doc.potsOverlay),
+		),
+	);
+	// A legacy override of the built-in mode (no rules of its own) goes with the block too.
+	const kept = modes?.filter((m) => m.id !== HOLD_AND_WIN_MODE);
+	delete doc.holdAndWin;
+	delete doc.potsOverlay;
+	if (coinOverlay) doc.coinOverlay = coinOverlay;
+	else delete doc.coinOverlay;
+	if (kept?.length) doc.modes = kept;
+	else delete doc.modes;
+	return withLegacyPair(doc);
+}
+
 /** The split form of any doc — normalized, legacy or split — with the legacy pair applied when it
  *  carries one, so an unmigrated writer's live edit reads through. */
 export function bonusSplitOf(doc: BonusDoc): BonusSplit {
 	const split: BonusSplit = { coinOverlay: doc.coinOverlay, modes: doc.modes };
 	if (!carriesLegacy(doc)) return structuredClone(split);
-	return applyLegacy(
-		{
-			coinOverlay: normalizeCoinOverlay(doc.coinOverlay),
-			modes: normalizeGameModes(withLegacyOverrideBoard(doc.modes, Boolean(doc.holdAndWin))),
-		},
-		normalizeHoldAndWin(doc.holdAndWin),
-		normalizePotsOverlay(doc.potsOverlay),
+	return pruneBaseGame(
+		applyLegacy(
+			{
+				coinOverlay: normalizeCoinOverlay(doc.coinOverlay),
+				modes: normalizeGameModes(withLegacyOverrideBoard(doc.modes, Boolean(doc.holdAndWin))),
+			},
+			normalizeHoldAndWin(doc.holdAndWin),
+			normalizePotsOverlay(doc.potsOverlay),
+		),
 	);
 }
 
@@ -354,9 +403,10 @@ export function respinModeBlank(doc: GameConfigDoc, mode: GameModeDecl): string 
 
 /**
  * The split form's own rules (design §3 Phase 1): every overlay route names a declared bonus mode;
- * every trigger and meter starts a respin mode; every respin mode has rules and a strip, and a blank
- * it names is one it deals; and no respin mode starts inside another. Pots are the legacy validator's
- * (`validatePotsOverlay`, on the mirror). Paths name the mode.
+ * every trigger and meter starts a respin mode; every respin mode has rules and a strip (warnings
+ * until Phase 5a can author them), and a blank it names is one it deals; and no respin mode starts
+ * inside another. Pots are the legacy validator's (`validatePotsOverlay`, on the mirror). Paths name
+ * the mode.
  */
 export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 	const issues: GameConfigIssue[] = [];
@@ -368,8 +418,10 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 		if (mode.board !== 'respinBoard') continue;
 		const path = `modes.${mode.id}`;
 		if (!mode.holdAndWin) {
+			// Warnings until `/config` can author a respin mode's rules (Phase 5a): a config with such
+			// a mode saved before this rule must still save.
 			issues.push({
-				severity: 'error',
+				severity: 'warning',
 				path: `${path}.holdAndWin`,
 				message: `The respin mode "${mode.id}" has no Hold and Win rules, so nothing can play it.`,
 			});
@@ -377,7 +429,7 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 		const gameType = gameTypeForMode(mode);
 		if (!doc.paddingReels[gameType]?.length) {
 			issues.push({
-				severity: 'error',
+				severity: 'warning',
 				path: `${path}.gameType`,
 				message: `The respin mode "${mode.id}" has no "${gameType}" strips to deal its respins from.`,
 			});

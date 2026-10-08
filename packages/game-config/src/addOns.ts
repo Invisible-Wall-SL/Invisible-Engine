@@ -45,7 +45,13 @@ import {
 	type PotsOverlay,
 } from './potsOverlay';
 import { holdAndWinBonus, potsOverlayPreset, type PotsOverlayPresetId } from './potsOverlayPresets';
-import { legacyHoldAndWin, legacyPotsOverlay, syncBonusSplit, withLegacyPair } from './bonusGames';
+import {
+	legacyHoldAndWin,
+	legacyPotsOverlay,
+	removeHoldAndWin,
+	syncBonusSplit,
+	withLegacyPair,
+} from './bonusGames';
 import type { GameConfigDoc, GameConfigSymbol } from './types';
 
 /** The names an add-on had to change because the project already used them: preset name → name
@@ -385,11 +391,10 @@ export function setOverlayPotCount(doc: GameConfigDoc, count: number): AddOnResu
 }
 
 /**
- * Take the Hold and Win BONUS out of `doc` in place: the block, its mode and its respin strips
- * (unless another mode pads from them), and its record as an imported bonus. `doc` carries the legacy
- * pair ({@link withLegacyPair}), so normalization drops the routes to the mode with it. Returns the
- * symbols those strips dealt, for the caller to drop once nothing deals them
- * ({@link dropUnusedSymbols}).
+ * Take the Hold and Win BONUS out of `doc` in place: the block, its mode and the routes to it
+ * (`removeHoldAndWin`), its respin strips (unless another mode pads from them), and its record as an
+ * imported bonus. Returns the symbols those strips dealt, for the caller to drop once nothing deals
+ * them ({@link dropUnusedSymbols}).
  */
 export function takeOutHoldAndWinBonus(doc: GameConfigDoc): Set<string> {
 	const dealt = new Set<string>();
@@ -402,10 +407,7 @@ export function takeOutHoldAndWinBonus(doc: GameConfigDoc): Set<string> {
 		for (const name of symbolsInPlayForGameType(doc, gameType)) dealt.add(name);
 		delete doc.paddingReels[gameType];
 	}
-	delete doc.holdAndWin;
-	const modes = doc.modes?.filter((m) => m.id !== HOLD_AND_WIN_MODE);
-	if (modes?.length) doc.modes = modes;
-	else delete doc.modes;
+	removeHoldAndWin(doc);
 	const imports = doc.imports?.filter((i) => i.mode !== HOLD_AND_WIN_MODE);
 	if (imports?.length) doc.imports = imports;
 	else delete doc.imports;

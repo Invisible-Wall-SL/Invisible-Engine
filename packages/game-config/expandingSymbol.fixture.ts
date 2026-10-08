@@ -105,7 +105,9 @@ for (const file of files) {
 	) as GameConfigDoc;
 	// Bonus-games Phase 1 adds the split form (`coinOverlay`, the declared respin mode) beside the
 	// legacy blocks it mirrors byte-identically; everything else is pinned as it was.
-	const { coinOverlay: _overlay, modes: _modes, ...pinned } = normalized;
+	const { coinOverlay: _overlay, modes, ...rest } = normalized;
+	const others = modes?.filter((m) => m.id !== 'holdAndWin');
+	const pinned = others?.length ? { ...rest, modes: others } : rest;
 	check(`${file}: normalizes byte-identically`, digest(pinned), PINNED[file]);
 	check(`${file}: carries no expanding symbol`, resolveExpandingSymbol(normalized), undefined);
 }

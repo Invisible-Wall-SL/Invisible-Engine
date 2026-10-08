@@ -47,7 +47,13 @@ import {
 } from './modes';
 import { holdAndWinBonusFrom, type HoldAndWinBonusSource } from './potsOverlayPresets';
 import { bonusImportOf, type BonusImport } from './bonusImports';
-import { legacyHoldAndWin, legacyPotsOverlay, syncBonusSplit, withLegacyPair } from './bonusGames';
+import {
+	legacyHoldAndWin,
+	legacyPotsOverlay,
+	primaryRespinMode,
+	syncBonusSplit,
+	withLegacyPair,
+} from './bonusGames';
 import type { GameConfigDoc } from './types';
 
 /** A feature of a source project, as the import picker offers it. */
@@ -255,9 +261,18 @@ export function importBonus(
 		symbols: names,
 	};
 	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== HOLD_AND_WIN_MODE), record];
+	// The blank the source's respin board draws comes with it, under its name here; a blank the host's
+	// previous bonus named goes with that bonus.
+	const synced = syncBonusSplit(next);
+	const respin = primaryRespinMode(synced.modes);
+	const blank = primaryRespinMode(source.modes)?.holdAndWin.blank;
+	if (respin) {
+		if (blank) respin.holdAndWin.blank = names[blank] ?? blank;
+		else delete respin.holdAndWin.blank;
+	}
 	return {
 		ok: true,
-		doc: syncBonusSplit(next),
+		doc: synced,
 		mode: HOLD_AND_WIN_MODE,
 		renamed,
 		symbols: names,

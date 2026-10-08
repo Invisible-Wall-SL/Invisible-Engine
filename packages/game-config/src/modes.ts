@@ -101,7 +101,11 @@ function declaredModes(
 	const own = doc?.modes ?? [];
 	if (!doc?.holdAndWin || own.some((m) => m.board === 'respinBoard' && m.holdAndWin)) return own;
 	const at = own.findIndex((m) => m.id === HOLD_AND_WIN_MODE);
-	return [{ ...holdAndWinModeDecl(), ...own[at] }, ...own.filter((_unused, i) => i !== at)];
+	// The block plays on the respin board whatever an override of the mode says.
+	return [
+		{ ...holdAndWinModeDecl(), ...own[at], board: 'respinBoard' },
+		...own.filter((_unused, i) => i !== at),
+	];
 }
 
 /**

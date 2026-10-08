@@ -20,9 +20,13 @@
  *     and the overlay and leaves a second respin mode untouched; an unchanged mirror changes nothing
  *     (applying it is a no-op, so no equality test is needed); a split edit beside a STALE mirror
  *     loses, and wins once the legacy keys are deleted. 4c. The primary respin mode is pinned.
- *  5. Validators: a route to a missing or non-respin mode, a respin mode without rules or strips, a
- *     respin mode started inside another, a missing blank — each an error whose path names the mode.
+ *  5. Validators: a route to a missing or non-respin mode, a respin mode started inside another, a
+ *     missing blank — each an error whose path names the mode; a respin mode without rules or strips
+ *     is a WARNING until Phase 5a (a project saved before must still save).
  *  6. `resolveBonusModes` and `bonusCapabilityInputs`.
+ *  7. Hub review of #1133: a `reels` / `none` override of the Hold and Win mode keeps the block;
+ *     "Start an empty block" then a label edit keeps it; `removeHoldAndWin` removes it the same way
+ *     on every doc; orphan base-game flags are pruned; an import brings the source's blank.
  */
 
 import { addPotsOverlay } from './src/addOns.ts';
@@ -31,6 +35,7 @@ import {
 	legacyHoldAndWin,
 	legacyPotsOverlay,
 	primaryRespinMode,
+	removeHoldAndWin,
 	resolveBonusModes,
 	respinModeBlank,
 } from './src/bonusGames.ts';
@@ -337,12 +342,39 @@ console.log('\n3. the compat rule');
 	blankKept.modes![0].holdAndWin!.blank = 'BLANK';
 	blankKept.holdAndWin!.respins.start = 4;
 	const otherFlag = splitOnly(presets.classic);
-	otherFlag.coinOverlay!.baseGame = { payer: { landsInBaseGame: true } };
-	const flagged = normalize(otherFlag);
+	otherFlag.coinOverlay!.baseGame = {
+		...otherFlag.coinOverlay!.baseGame,
+		payer: { landsInBaseGame: true },
+	};
 	check(
-		'a flag for a special the primary mode lacks is kept, a fixed point',
-		[flagged.coinOverlay?.baseGame?.payer, normalize(clone(flagged))],
-		[{ landsInBaseGame: true }, flagged],
+		'a flag for a special no respin mode configures is pruned',
+		normalize(otherFlag).coinOverlay?.baseGame,
+		{ multiplier: { landsInBaseGame: true, instantCollectInBaseGame: true } },
+	);
+	const secondPayer = splitOnly(presets.classic);
+	secondPayer.coinOverlay!.baseGame = {
+		...secondPayer.coinOverlay!.baseGame,
+		payer: { landsInBaseGame: true },
+	};
+	secondPayer.modes!.push({
+		...holdAndWinModeDecl(),
+		id: 'holdAndWin_2',
+		gameType: 'respin',
+		holdAndWin: presets.pots.modes![0].holdAndWin,
+	});
+	const flagged = normalize(secondPayer);
+	check(
+		"...one a second respin mode configures is kept, the primary's legacy edit or not",
+		[
+			flagged.coinOverlay?.baseGame?.payer,
+			normalize(clone(flagged)),
+			normalize(
+				Object.assign(clone(flagged), {
+					holdAndWin: { ...flagged.holdAndWin!, respins: { start: 4, reset: 'anySpecial' } },
+				}),
+			).coinOverlay?.baseGame?.payer,
+		],
+		[{ landsInBaseGame: true }, flagged, { landsInBaseGame: true }],
 	);
 	check(
 		'a legacy edit keeps what the mirror cannot show (the blank)',
@@ -533,18 +565,34 @@ check(
 		'coinOverlay.trigger.randomMetre.mode: It starts "freeSpins", but only a Hold and Win (respin board) mode is started this way.',
 	],
 );
-check(
-	'a respin mode without rules or strips',
-	errorsOf(
-		splitEdit(presets.classic, (d) =>
-			d.modes!.push({ id: 'pick', board: 'respinBoard', gameType: 'pickStrips' }),
-		),
-	),
-	[
-		'modes.pick.holdAndWin: The respin mode "pick" has no Hold and Win rules, so nothing can play it.',
-		'modes.pick.gameType: The respin mode "pick" has no "pickStrips" strips to deal its respins from.',
-	],
-);
+{
+	const ruleless = splitEdit(presets.classic, (d) =>
+		d.modes!.push({ id: 'pick', board: 'respinBoard', gameType: 'pickStrips' }),
+	);
+	check(
+		'a respin mode without rules or strips: warnings, no error (Phase 5a raises them)',
+		[
+			errorsOf(ruleless),
+			validateGameConfigDoc(ruleless)
+				.filter((i) => i.path.startsWith('modes.pick'))
+				.map((i) => `${i.severity} ${i.path}: ${i.message}`),
+		],
+		[
+			[],
+			[
+				'warning modes.pick.holdAndWin: The respin mode "pick" has no Hold and Win rules, so nothing can play it.',
+				'warning modes.pick.gameType: The respin mode "pick" has no "pickStrips" strips to deal its respins from.',
+			],
+		],
+	);
+	const noStrips = clone(HOLD_AND_WIN_PRESETS.classic);
+	delete noStrips.paddingReels.respin;
+	check(
+		'a Hold and Win game without respin strips saves as on main: no error',
+		errorsOf(normalize(noStrips)),
+		errorsOf(legacyOnly(normalize(noStrips))).filter((e) => !e.startsWith('modes.')),
+	);
+}
 check(
 	'a blank the dictionary lacks',
 	errorPaths(splitEdit(presets.classic, (d) => (d.modes![0].holdAndWin!.blank = 'NOPE'))),
@@ -638,6 +686,87 @@ check(
 		{ respinMode: false, coinOverlay: false },
 	],
 );
+
+// ─── 7. hub review of #1133 ───────────────────────────────────────────────────────────────────
+
+console.log('\n7. hub review: the board override, removing, flags, the imported blank');
+for (const board of ['reels', 'none'] as const) {
+	const raw = {
+		...clone(HOLD_AND_WIN_PRESETS.classic),
+		modes: [{ id: 'holdAndWin', board, label: 'Grand' }],
+	};
+	const doc = normalize(raw);
+	check(
+		`a "${board}" override of the Hold and Win mode keeps the block, on the respin board`,
+		[
+			doc.holdAndWin,
+			doc.modes?.map((m) => [m.id, m.board, m.label, Boolean(m.holdAndWin)]),
+			gameModeBoard(raw),
+			errorsOf(doc),
+		],
+		[presets.classic.holdAndWin, [['holdAndWin', 'respinBoard', 'Grand', true]], 'respinBoard', []],
+	);
+}
+function gameModeBoard(raw: unknown): string | undefined {
+	return resolveGameModes(raw as GameConfigDoc).find((m) => m.id === 'holdAndWin')?.board;
+}
+{
+	// /config: "Start an empty block" on a lines game, then the Game modes row's label is edited —
+	// before the fix the entry was pushed on the reels board.
+	const started = clone(host);
+	started.holdAndWin = normalizeHoldAndWin({})!;
+	for (const board of ['respinBoard', 'reels'] as const) {
+		const edited = clone(started);
+		edited.modes = [{ id: 'holdAndWin', board, label: 'Bonus' }];
+		const doc = normalize(edited);
+		check(
+			`"Start an empty block" then a label edit (pushed on ${board}) keeps the block`,
+			[Boolean(doc.holdAndWin), doc.modes?.map((m) => [m.id, m.board, m.label, m.gameType])],
+			[true, [['holdAndWin', 'respinBoard', 'Bonus', 'respin']]],
+		);
+	}
+}
+{
+	const removed = (doc: GameConfigDoc) => {
+		const out = normalize(removeHoldAndWin(clone(doc)));
+		return [
+			Boolean(out.holdAndWin),
+			resolveGameModes(out).some((m) => m.id === 'holdAndWin'),
+			out.coinOverlay?.trigger ?? null,
+		];
+	};
+	check('removeHoldAndWin on a plain Hold and Win game', removed(presets.classic), [
+		false,
+		false,
+		null,
+	]);
+	check('removeHoldAndWin beside pots', removed(borut), [false, false, null]);
+	check(
+		'...the pots stay',
+		normalize(removeHoldAndWin(clone(borut))).potsOverlay?.pots.map((p) => p.id),
+		['red', 'blue', 'green'],
+	);
+}
+{
+	const source = splitOnly(presets.classic);
+	source.modes![0].holdAndWin!.blank = 'BLANK';
+	const result = importBonus(goldHost, normalize(source), {
+		project: 'grand',
+		mode: 'holdAndWin',
+		at: '2026-10-08T00:00:00.000Z',
+		pots: ['gold'],
+	});
+	if (!result.ok) throw new Error(result.reason);
+	const doc = normalize(result.doc);
+	check(
+		"an import brings the source's blank, under its name here",
+		[
+			doc.modes?.[0].holdAndWin?.blank,
+			doc.symbols[doc.modes?.[0].holdAndWin?.blank ?? '']?.special_properties,
+		],
+		['BLANK', ['blank']],
+	);
+}
 
 console.log(failures === 0 ? '\nAll bonus-games assertions passed.\n' : `\n${failures} FAILED\n`);
 process.exit(failures === 0 ? 0 : 1);
