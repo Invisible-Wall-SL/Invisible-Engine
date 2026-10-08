@@ -403,9 +403,9 @@ export function resolveBonusModes(doc: GameConfigDoc): ResolvedBonusMode[] {
 /**
  * The capability INPUTS the split form gives (design §2.4): is there a respin mode with rules (a
  * rule-less one is inert, so it lights nothing, and every rule-bearing one has a mirror), is there
- * an overlay, and does the overlay drop tokens (the pots overlay's own parts — the predicate the
- * legacy `potsOverlay` mirror uses, so the two cannot drift). The launcher's `projectAddOns` turns
- * them into `kindCapabilities`' config.
+ * an overlay, and does the overlay drop tokens (the pots overlay's own parts — the predicate
+ * the legacy `potsOverlay` mirror uses, so the two cannot drift). The launcher's `projectAddOns`
+ * turns them into `kindCapabilities`' config.
  */
 export function bonusCapabilityInputs(doc: BonusDoc): {
 	respinMode: boolean;
@@ -569,12 +569,12 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 				? [BASE_GAME_MODE, ...dropping]
 				: [BASE_GAME_MODE];
 		if (target?.board === 'respinBoard' && target.id !== HOLD_AND_WIN_MODE) {
-			// The mock plays every respin mode (Phase 2); until the game does (Phases 3/4) it plays only
-			// `holdAndWin`. Phase 4 removes this.
+			// The mock and the facade play every respin mode (Phases 2/3); until the game does (Phase
+			// 4) it plays only `holdAndWin`. Phase 4 removes this.
 			issues.push({
 				severity: 'warning',
 				path,
-				message: `It starts "${route.mode}", which the game doesn't play yet (bonus-games Phases 3/4): the test server plays it, but in the game a full pot or trigger here ends with no win.`,
+				message: `It starts "${route.mode}", which the game doesn't play yet (bonus-games Phase 4): the test server plays it, but in the game a full pot or trigger here ends with no win.`,
 			});
 		}
 		const host = from.find((m) => gameModeById(view, m)?.board === 'respinBoard');

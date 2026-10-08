@@ -12,6 +12,7 @@
 		holdAndWinIsOverlayBonus,
 		isCoinDrop,
 		overlayDropModes,
+		overlayDropsTokens,
 		potsOverlayPreset,
 		primaryRespinMode,
 		removePotsOverlay,
@@ -226,7 +227,9 @@
 	 * `zeroPotsRefusal`'s call, for the pot count and the last pot's × alike.
 	 */
 	const hasCoinDrop = (overlay: Dropping) => overlay.drops.table.some(isCoinDrop);
-	const zeroPotsBlocker = $derived(doc.coinOverlay?.drops ? zeroPotsRefusal(view) : undefined);
+	const zeroPotsBlocker = $derived(
+		overlayDropsTokens(doc.coinOverlay) ? zeroPotsRefusal(view) : undefined,
+	);
 	const potRemovable = (overlay: Dropping) => (overlay.pots?.length ?? 0) > 1 || !zeroPotsBlocker;
 	const dropRemovable = (overlay: Dropping, i: number) =>
 		(overlay.pots?.length ?? 0) > 0 || overlay.drops.table.some((e, k) => k !== i && isCoinDrop(e));
@@ -289,7 +292,7 @@
 	}
 
 	$effect(() => {
-		if (!doc.coinOverlay?.drops && drafts.length) drafts = [];
+		if (!overlayDropsTokens(doc.coinOverlay) && drafts.length) drafts = [];
 	});
 
 	function setSizeStages(stages: number[], raw: string) {
@@ -1192,11 +1195,11 @@
 				</select></label
 			>
 		</div>
-		{#if overlay.drops}
-			{@render overlayEditor(overlay as Dropping)}
+		{#if overlayDropsTokens(overlay)}
+			{@render overlayEditor(overlay)}
 		{/if}
 	{/if}
-	{#if !doc.coinOverlay?.drops}
+	{#if !overlayDropsTokens(doc.coinOverlay)}
 		<div class="row tight">
 			<select
 				value={overlayPreset}

@@ -44,7 +44,7 @@ export type RespinModeInfo = {
 /**
  * Every respin mode with rules the project declares (design bonus-games.md §2.1), read through the
  * split form so a legacy doc lists the mode its block implies. A rule-less respin mode is inert
- * (a warning until `/config` can author it), so no tool shows it. The primary respin mode (the one
+ * (`/config` → Bonus modes gives it rules), so no tool shows it. The primary respin mode (the one
  * the legacy `holdAndWin` key mirrors) comes first, then the rest in declaration order.
  */
 export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {

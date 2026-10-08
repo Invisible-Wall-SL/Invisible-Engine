@@ -234,8 +234,8 @@ starts the phase sessions, reviews their PRs and merges them.
 ## Recent changes
 
 - 2026-10-08 — **Phase 5a: the hub's review round** (PR #1136).
-  - **A respin mode other than `holdAndWin` is said to be unplayed by the game.** Until Phases 3
-    and 4 the game plays only `holdAndWin` (the mock plays every mode since Phase 2). So a route to
+  - **A respin mode other than `holdAndWin` is said to be unplayed by the game.** Until Phase 4
+    the game plays only `holdAndWin` (the mock and the facade play every mode since Phases 2/3). So a route to
     another respin mode saves with a WARNING: in the game, a full pot or trigger there ends with no
     win. **Phase 4 removes this
     warning** (`validateBonusModes`). The "played today" chip keys on `holdAndWin`, and every other

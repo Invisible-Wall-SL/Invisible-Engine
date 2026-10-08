@@ -15,7 +15,7 @@
  *  - the STORED JSON — what the `.mjs` mocks, `test-server` and the runtime read until Phase 4 —
  *    still carries a correct legacy mirror: the primary mode's block, unchanged, and the pots;
  *  - a route to a respin mode other than `holdAndWin` saves with a warning: nothing plays it before
- *    the game before bonus-games Phases 3/4;
+ *    the game before bonus-games Phase 4;
  *  - removing a respin mode re-routes its pots (free spins) and saves;
  *  - (control) the same save with the stale legacy keys left on the body loses the edit — which is
  *    what `bodyFor` prevents.
