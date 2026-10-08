@@ -728,7 +728,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 ## Recent changes
 
 - 2026-10-08 — **The schema splits bonuses: a coin overlay and declared bonus modes** (Phase 1 of
-  [bonus-games.md](../design/bonus-games.md), PR #PRNUM). Detail and gates:
+  [bonus-games.md](../design/bonus-games.md), PR #1133). Detail and gates:
   [status/bonus-games.md](bonus-games.md).
   - **New keys:**
     - `coinOverlay` holds the legacy `potsOverlay` block plus the trigger half of `holdAndWin`.

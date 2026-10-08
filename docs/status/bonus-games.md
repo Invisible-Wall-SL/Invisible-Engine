@@ -4,7 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** Phase 1 (config split + migration) is in review as PR #PRNUM. Normalized docs carry the
+**One-line state:** Phase 1 (config split + migration) is in review as PR #1133. Normalized docs carry the
 split form plus a legacy compat mirror; no consumer outside game-config reads the split yet. Next:
 Phases 2, 3, 5a and 5b, once Phase 1 is merged.
 
@@ -30,7 +30,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
 | 0 | Plan + hub | in review | Hold and Wins as standalone project | — |
-| 1 | Contract: config split + migration | in review | Bonus games Phase 1 — config split + migration | #PRNUM |
+| 1 | Contract: config split + migration | in review | Bonus games Phase 1 — config split + migration | #1133 |
 | 2 | Mock: per-mode engines | not started (needs 1) | — | — |
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
@@ -100,7 +100,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-08 — **Phase 1: the config split and migration** (PR #PRNUM, `packages/game-config` plus
+- 2026-10-08 — **Phase 1: the config split and migration** (PR #1133, `packages/game-config` plus
   fixtures). No consumer outside game-config reads the split yet.
   - **New modules:**
     - `holdAndWinGame.ts`: `HoldAndWinGame`, the respin half with no base-game flags and an
@@ -132,7 +132,7 @@ starts the phase sessions, reviews their PRs and merges them.
     - `check:engine-game` and the launcher's `check:bonus-import`, `check:pots-overlay-add-on`,
       `check:mock-contract`, `check:flow-publish-gate`, `check:game-config-defaults` and
       `check:symbols-kind-gating` pass.
-    - `check:all`: CHECKALL.
+    - `check:all`: 409/409.
   - **What's left:** Phases 2, 3, 5a and 5b can start. See "Decisions & findings" for the rules
     they inherit.
 - 2026-10-08 — Phase 0: design + hub written (hub session).
