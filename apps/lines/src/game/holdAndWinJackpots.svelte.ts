@@ -1,6 +1,7 @@
 import type { HoldAndWinJackpotLevel } from 'engine-game';
 
-import { getActiveGameConfig } from './gameConfig';
+import { activeRespinMode, everyRespinRules, respinModes } from './activeRespinMode.svelte';
+import { jackpotTier } from './respinModes';
 import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte';
 
 /**
@@ -13,15 +14,21 @@ import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte
  * one; until the server has spoken, a progressive tier shows its multiplier, as it did before 11c.
  */
 
-const levelOf = (tier: string): HoldAndWinJackpotLevel | undefined =>
-	stateHoldAndWin.jackpots.find(({ name }) => name.toLowerCase() === tier.toLowerCase());
+const sameTier =
+	(tier: string) =>
+	({ name }: { name: string }) =>
+		name.toLowerCase() === tier.toLowerCase();
 
-/** A tier's worth × total bet — its live pool when progressive, else its multiplier. 0 when the Game
- *  Config names no such tier. */
+const levelOf = (tier: string): HoldAndWinJackpotLevel | undefined =>
+	stateHoldAndWin.jackpots.find(sameTier(tier));
+
+/**
+ * A tier's worth × total bet — its live pool when progressive, else its multiplier. The tier is the
+ * active respin mode's, else the first respin mode's that has it (`jackpotTier`); pools are shared by
+ * tier name, as the server deals them. 0 when no respin mode names such a tier.
+ */
 export const jackpotMultiplier = (tier: string): number => {
-	const jackpot = getActiveGameConfig().holdAndWin?.jackpots.find(
-		({ name }) => name.toLowerCase() === tier.toLowerCase(),
-	);
+	const jackpot = jackpotTier(respinModes(), activeRespinMode(), tier);
 	if (!jackpot) return 0;
 	return jackpot.fixed ? jackpot.multiplier : (levelOf(tier)?.value ?? jackpot.multiplier);
 };
@@ -47,3 +54,13 @@ export const seedHoldAndWinJackpots = (): (() => void) => {
 	globalThis.addEventListener?.('ie:holdAndWinJackpots', refresh);
 	return () => globalThis.removeEventListener?.('ie:holdAndWinJackpots', refresh);
 };
+
+/** Every jackpot tier name any respin mode configures, once each (case-insensitive), in mode order —
+ *  what the `jackpot.<tier>` sources registered once at boot cover. */
+export const everyJackpotTier = (): string[] =>
+	everyRespinRules()
+		.flatMap((rules) => rules.jackpots.map(({ name }) => name))
+		.filter(
+			(name, i, names) =>
+				names.findIndex((other) => other.toLowerCase() === name.toLowerCase()) === i,
+		);

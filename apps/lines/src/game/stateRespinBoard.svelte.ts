@@ -13,9 +13,11 @@ import {
 	type SymbolState,
 } from 'engine-game';
 import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
-import { holdAndWinBlankSymbol, respinBoardMaxRows } from 'game-config';
+import { holdAndWinBlankSymbol } from 'game-config';
 import { stateBet } from 'state-shared';
 
+import { activeRespinMode } from './activeRespinMode.svelte';
+import { respinBoardShape, sameRespinBoard } from './respinModes';
 import { eventEmitter } from './eventEmitter';
 import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
 import { playReelStopSound } from './soundBindings';
@@ -152,22 +154,26 @@ export const claimRespinCellLook = () => {
 };
 
 let board = $state.raw<RespinBoard | null>(null);
+/** The respin mode {@link board} was built for. */
+let boardMode: string | undefined;
 
 /** The respin board's reels, or `null` before the first feature built them. */
 export const currentRespinBoard = (): RespinBoard | null => board;
 
-/** The empty cell, as the server picks it (`holdAndWinBlankSymbol`). */
-export const respinBlank = (): string => holdAndWinBlankSymbol(getActiveGameConfig());
+/** The active respin mode's empty cell, as the server picks it (`respinModeRules`). */
+export const respinBlank = (): string =>
+	activeRespinMode()?.blank ?? holdAndWinBlankSymbol(getActiveGameConfig());
 
 /**
- * The strip a cell of column `reel` rolls through — the config's AUTHORED `respin` strips (every
- * Hold and Win preset authors them: coins, specials and blanks), else the base game's, so a config
+ * The strip a cell of column `reel` rolls through — the active respin mode's AUTHORED strips
+ * (`paddingReels[<its game type>]`, `respin` for the default mode; every Hold and Win preset authors
+ * them: coins, specials and blanks), else the base game's, so a config
  * without them still visibly spins. Read from the config even when the RGS is authoritative: the
  * generated in-play strip (`getPaddingReels`) is every symbol once, so the cells rolled the base
  * game's pictures — art a respin can never land, sliced at every cell edge by the one-row window.
  */
 const respinStrip = (reel: number): RawSymbol[] => {
-	const respin = getActiveGameConfig().paddingReels.respin ?? [];
+	const respin = getActiveGameConfig().paddingReels[activeRespinMode()?.gameType ?? 'respin'] ?? [];
 	const strips = respin.length > 0 ? respin : getPaddingReels('basegame');
 	return (strips[reel] ?? strips[0] ?? []) as RawSymbol[];
 };
@@ -186,19 +192,18 @@ const enteringRows = (respinBoard: RespinBoard): number =>
 	Math.min(respinBoard.rows, stateHoldAndWin.rows ?? respinBoard.rows);
 
 /**
- * The reels, built (or rebuilt for a board whose size changed) on first use. An expanding board
- * builds every cell of its `maxRows` up front — the rows below the base grid sit on the same
- * lattice, one pitch each further down — and draws the ones not yet open as locked.
+ * The reels, built on first use and rebuilt for another respin mode or a board whose size changed —
+ * each mode plays on its own rules and strips. An expanding board builds every cell of its `maxRows`
+ * up front — the rows below the base grid sit on the same lattice, one pitch each further down — and
+ * draws the ones not yet open as locked.
  */
 const ensureBoard = (): RespinBoard => {
 	const { x: reels, y: gridRows } = boardDimensions();
 	// Only an expanding board grows past the grid; any other keeps the grid's rows, which the server's
 	// declared window may have reconciled away from the config's.
-	const config = getActiveGameConfig();
-	const rows = config.holdAndWin?.expansion
-		? Math.max(gridRows, respinBoardMaxRows(config))
-		: gridRows;
-	if (board && board.reels === reels && board.rows === rows) return board;
+	const { mode, rows } = respinBoardShape(activeRespinMode(), gridRows);
+	if (board && sameRespinBoard({ ...board, mode: boardMode }, { mode, reels, rows })) return board;
+	boardMode = mode;
 	board = createRespinBoard({
 		reels,
 		rows,

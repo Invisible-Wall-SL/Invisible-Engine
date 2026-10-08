@@ -4,6 +4,7 @@
 		EXPANSION_RULES,
 		HOLD_AND_WIN_SPECIALS,
 		HOLD_AND_WIN_SYMBOL_ROLES,
+		RESPIN_PLAY,
 		RESPIN_RESETS,
 		SPECIAL_SYMBOL_ROLE,
 		STICKINESS,
@@ -24,6 +25,7 @@
 		type HoldAndWinSpecial,
 		type HoldAndWinSymbolRole,
 		type MysteryReveal,
+		type RespinPlay,
 		type RespinReset,
 		type Stickiness,
 		type UpgradeSpecial,
@@ -32,6 +34,7 @@
 		type WheelPrize,
 	} from 'game-config';
 	import { ROLE_LABELS, SPECIAL_LABELS, num } from './bonusLabels';
+	import { setRespinPlay } from './pageDoc';
 
 	/**
 	 * One respin mode's Hold and Win RULES (`docs/design/hold-and-win.md` §1.3, §5;
@@ -66,6 +69,10 @@
 	const STICKINESS_LABELS: Record<Stickiness, string> = {
 		allCoins: 'Every coin sticks',
 		collectorsOnly: 'Only collectors stick (coins clear each respin)',
+	};
+	const PLAY_LABELS: Record<RespinPlay, string> = {
+		auto: 'Automatic — the respins follow each other, a tap speeds them up',
+		manual: 'Manual — the player presses SPIN for each respin',
 	};
 	const RESET_LABELS: Record<RespinReset, string> = {
 		anyCoin: 'A new coin or jackpot resets the count',
@@ -727,6 +734,16 @@
 						value={hw.respins.cap ?? ''}
 						oninput={(e) => setCap(hw, e)}
 					/></label
+				>
+				<label
+					><span>Play</span><select
+						value={hw.play ?? 'auto'}
+						onchange={(e) => setRespinPlay(hw, e.currentTarget.value as RespinPlay)}
+					>
+						{#each RESPIN_PLAY as p (p)}
+							<option value={p}>{PLAY_LABELS[p]}</option>
+						{/each}
+					</select></label
 				>
 			</div>
 		</div>

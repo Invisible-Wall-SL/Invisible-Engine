@@ -482,6 +482,8 @@ const buildRound = ({
 		activeWinLevelIsBig: () => true,
 		armSpinHold: (resolve) => seam.push({ what: 'armSpinHold', at: clock.at(), resolve }),
 		clearSpinHold: () => seam.push({ what: 'clearSpinHold', at: clock.at() }),
+		// A Manual respin mode's park before a respin (`respinHold.ts`): no event here holds.
+		holdBeforeEvent: () => undefined,
 		clearWinPresentation: () => seam.push({ what: 'clearWinPresentation', at: clock.at() }),
 		stopWinCycle: () => seam.push({ what: 'stopWinCycle', at: clock.at() }),
 		startWinCycle: () => seam.push({ what: 'startWinCycle', at: clock.at() }),
@@ -871,6 +873,7 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 			'playBookEvent',
 			'coded',
 			'holdAfterBigWin',
+			'holdBeforeEvent',
 			'modes',
 			'aroundPresentation',
 		],
@@ -903,6 +906,8 @@ const drivePlayBet = async ({ label, book, flowV2, slammed = false, winExplode =
 		(bookEvent) => present('flow', bookEvent),
 		{ playBookEvent: (bookEvent) => present('coded', bookEvent) },
 		async () => {},
+		// No respin mode parks before an event.
+		() => undefined,
 		// No mode controller: `aroundPresentation` is then exactly the presentation (see the stub set above).
 		undefined,
 		(_bookEvent, present) => present(),

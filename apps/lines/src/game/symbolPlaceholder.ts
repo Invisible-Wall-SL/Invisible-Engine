@@ -1,6 +1,7 @@
 import {
 	OVERLAY_POT_IDS,
 	resolveMeters,
+	respinModeBlocks,
 	symbolHoldAndWinRoles,
 	type GameConfigDoc,
 	type HoldAndWinSymbolRole,
@@ -52,7 +53,7 @@ function resolvePlaceholder(config: GameConfigDoc, name: string): SymbolPlacehol
 		const { id, label } = meters[pot];
 		return { fill: potColour(id, pot), text: (label ?? id).toUpperCase() };
 	}
-	if (!config.holdAndWin) return null;
+	if (respinModeBlocks(config).length === 0) return null;
 	const roles = symbolHoldAndWinRoles(config.symbols[name]);
 	if (roles.includes('blank')) return null;
 	for (const role of roles) {

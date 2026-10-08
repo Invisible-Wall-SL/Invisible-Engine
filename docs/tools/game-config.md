@@ -280,8 +280,7 @@ What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _C
 - **Id** — renaming it carries what starts it along. Re-tag its screens (the role _game mode_ in
   the [Scene Editor](invisible-editor.md), see "Game mode screens") and its tab in
   [Flow](flow.md#game-modes--one-graph-per-mode). The
-  `holdAndWin` id is locked: the game, its screens and its Flow tab know the mode by that name until
-  each mode plays on its own (bonus-games Phase 4).
+  `holdAndWin` id is locked: its screens and its Flow tab know the mode by that name.
 - Its **respin strips** (the game type they pad from, and how many reels) and what it is **started
   by** (or _nothing yet — route a trigger or a pot to it in Coin overlay_).
 - **Show rules** / **Hide rules** folds its rules editor (below).
@@ -290,12 +289,8 @@ What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _C
   free spins — or, with free spins off, removed with its drops; a note under the heading says which.
   The rest of the config is kept.
 
-**The game plays one respin mode today: `holdAndWin`.** The test server plays every respin mode,
-but until each mode plays on its own in the game (bonus-games Phase 4), the game plays only the mode
-with that id, and its card carries a chip saying so. Every other respin mode's card says it is **not
-played by the game yet**. A pot or trigger routed to one saves with a warning: in the game it ends
-with no win. Removing `holdAndWin` while another respin mode is left says to rename that one to
-`holdAndWin`, which **Id** allows.
+**The game plays every respin mode** (bonus-games Phase 4): a pot or trigger plays the mode it
+starts, on that mode's own rules, respin strips and screens. One respin mode plays at a time.
 
 A respin mode without rules says so, and **Start empty rules** gives it a default set to edit (one
 cash coin). Without rules it is an error only when something starts it (nothing could play it);
@@ -325,10 +320,16 @@ template.
 Each respin mode's rules editor holds the tables for each symbol role, and each special's card
 lists the symbols carrying its role (or asks you to tag one). A symbol with a Hold and Win role
 shows its value table in the paytable instead of line pays — it never pays on a line. Problems are
-reported under `modes.<id>.holdAndWin` (the mode the game plays today under `holdAndWin`).
+reported under `modes.<id>.holdAndWin`.
 
 - **Respins** — what sticks (every coin, or only collectors), the starting count, what resets it
-  (a new coin, or any new coin or special), an optional cap.
+  (a new coin, or any new coin or special), an optional cap, and **Play**:
+  - **Automatic** (the default) — the respins follow each other on their own, and a tap speeds them
+    up;
+  - **Manual** — the player presses **SPIN** for each respin. Under autoplay or hold-to-spin the
+    respins still run on their own.
+
+  The intro and the outro advance on their own either way.
 - **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
   letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;
   every letter lit pays the jackpot).

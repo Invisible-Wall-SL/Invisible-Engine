@@ -20,6 +20,7 @@
 		isFullscreenSupported,
 		setUiFeatures,
 		hasContinuePress,
+		releaseSpinHold,
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -208,7 +209,7 @@
 		shownCollectorLevel,
 		stateHoldAndWin,
 	} from '../game/stateHoldAndWin.svelte';
-	import { configuredLetters, stateLetters } from '../game/holdAndWinLetters.svelte';
+	import { mostLetters, stateLetters } from '../game/holdAndWinLetters.svelte';
 	import {
 		configuredMeters,
 		meterFullShown,
@@ -217,7 +218,20 @@
 		meterStageShown,
 		seedHoldAndWinMeters,
 	} from '../game/holdAndWinMeters.svelte';
-	import { jackpotMultiplier, seedHoldAndWinJackpots } from '../game/holdAndWinJackpots.svelte';
+	import {
+		everyJackpotTier,
+		jackpotMultiplier,
+		seedHoldAndWinJackpots,
+	} from '../game/holdAndWinJackpots.svelte';
+	import {
+		activeRespinRules,
+		everyRespinRules,
+		respinModeById,
+		respinModes,
+	} from '../game/activeRespinMode.svelte';
+	import { stateRespinPark } from '../game/respinHold.svelte';
+	import { publishRespinScreens } from '../game/respinScreens.svelte';
+	import { modeSceneBaseId } from '../game/respinModes';
 	import {
 		PLATFORM_JACKPOT_TIERS,
 		platformJackpotValue,
@@ -266,7 +280,7 @@
 	import Win from './Win.svelte';
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
-	import { ContinuePressMask } from 'engine-game';
+	import { ContinuePressMask, PressToContinue } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutroDriver from './FreeSpinOutroDriver.svelte';
@@ -769,11 +783,9 @@
 		// Grand's column letters: how many are lit, and each letter's lit flag (`letter.<reel>.lit`, 1
 		// lit, else 0), what a Letter Tile's dim and lit nodes show by. Its visibility twin is below.
 		// Registered only for a config whose board ends on column letters.
-		...(configuredLetters().length > 0
-			? { lettersLit: valueSource(() => stateLetters.lit.length) }
-			: {}),
+		...(mostLetters() > 0 ? { lettersLit: valueSource(() => stateLetters.lit.length) } : {}),
 		...Object.fromEntries(
-			configuredLetters().map((_, reel) => [
+			Array.from({ length: mostLetters() }, (_, reel) => [
 				`letter.${reel}.lit`,
 				valueSource(() => (stateLetters.lit.includes(reel) ? 1 : 0)),
 			]),
@@ -791,12 +803,12 @@
 				[`meter.${id}.full`, valueSource(() => (meterFullShown(id) ? 1 : 0))],
 			]),
 		),
-		// An expanding board's open rows and the most it opens (design §7 11b). Only for a config
-		// whose board expands.
-		...(getActiveGameConfig().holdAndWin?.expansion
+		// An expanding board's open rows and the most the active respin mode opens (design §7 11b).
+		// Only for a config with a respin mode whose board expands.
+		...(everyRespinRules().some((rules) => rules.expansion)
 			? {
 					rowsOpen: valueSource(() => (stateRespinBoard.shown ? openRespinRows() : 0)),
-					rowsMax: valueSource(() => getActiveGameConfig().holdAndWin?.expansion?.maxRows ?? 0),
+					rowsMax: valueSource(() => activeRespinRules()?.expansion?.maxRows ?? 0),
 				}
 			: {}),
 		// What the authored Total Win bar reads: the win meter the feature end counts every coin into
@@ -806,7 +818,7 @@
 		// authored jackpot tiles read: a fixed tier's multiplier, a progressive tier's LIVE pool (the
 		// server's, moving with every round and heartbeat). None configured ⇒ none registered.
 		...Object.fromEntries(
-			(getActiveGameConfig().holdAndWin?.jackpots ?? []).map(({ name }) => [
+			everyJackpotTier().map((name) => [
 				`jackpot.${name.toLowerCase()}`,
 				valueSource(
 					() => jackpotMultiplier(name) * stateBetDerived.betCost(),
@@ -921,7 +933,7 @@
 		// …and each column letter's lit flag (`letter.<reel>.lit`), what Phase 6's authored letters
 		// row binds to swap a letter's lit art in. Only for a config whose board ends on letters.
 		...Object.fromEntries(
-			configuredLetters().map((_, reel) => [
+			Array.from({ length: mostLetters() }, (_, reel) => [
 				`letter.${reel}.lit`,
 				boolSource(() => stateLetters.lit.includes(reel)),
 			]),
@@ -1005,6 +1017,8 @@
 	// yet. A flow still "drives" the screen by authoring that same scene id
 	// (`flow.mounter.has(loadingScreenId)` below). Absent role + absent flow ⇒ today's selection.
 	const basegameScreenId = $derived(basegameSceneId(editorDoc.scenes));
+	// Which screen draws a respin mode's beat is found among these (`respinScreens.svelte.ts`).
+	$effect.pre(() => publishRespinScreens(editorDoc.scenes));
 	const basegameScene = $derived(sceneByRole(editorDoc.scenes, 'basegame') ?? fallbackBasegame);
 	// Reel z-order: the editor lets you order the `reelGrid` placeholder among the
 	// basegame layers, but the real <Board/> mounts in its OWN trailing MainContainer
@@ -1497,6 +1511,7 @@
 		'betMenu',
 		'autoSpin',
 	] as const;
+	const RESERVED_IDS: ReadonlySet<string> = new Set(RESERVED_SCENE_IDS);
 	const reservedSceneIds = $derived(
 		new Set<string>([
 			...RESERVED_SCENE_IDS,
@@ -1518,6 +1533,14 @@
 			betMenuSceneId(editorDoc.scenes),
 			autoSpinSceneId(editorDoc.scenes),
 			...(flow?.mounter.authoredScreenIds() ?? []),
+			// Each respin mode's own copy of a reserved screen (`featureIntro-<modeId>`, …): reserved by
+			// the screen it copies, or a second mode's tap dim and jackpot banner would always be up.
+			...editorDoc.scenes
+				.filter(
+					(scene) =>
+						respinModeById(scene.modeId) !== undefined && RESERVED_IDS.has(modeSceneBaseId(scene)),
+				)
+				.map((scene) => scene.id),
 		]),
 	);
 	// The author's NEW screens (custom ids, non-background space) the game would otherwise
@@ -1682,8 +1705,8 @@
 		// platform's jackpot, scoped where the beat concerns one pot, tier or column (Phase 12a).
 		...featureComponentSignals(
 			context.eventEmitter,
-			!!getActiveGameConfig().holdAndWin,
-			!!getActiveGameConfig().holdAndWin || !!getActiveGameConfig().potsOverlay,
+			respinModes().length > 0,
+			respinModes().length > 0 || !!getActiveGameConfig().potsOverlay,
 		),
 	});
 
@@ -2495,6 +2518,11 @@
 		<Container zIndex={basegameOverlaysZIndex}>
 			<WinGate headless={winMount === 'driver'} />
 		</Container>
+	{/if}
+	<!-- A Manual respin parked on SPIN: a tap anywhere (or Space) releases it too, so a mode whose HUD
+	     has no spin button never strands the player (`respinHold.svelte.ts`). -->
+	{#if stateRespinPark.parked}
+		<PressToContinue hidePrompt onpress={releaseSpinHold} />
 	{/if}
 	<!--
 			The free-spin OUTRO count-up DRIVER — the engine's only part in the outro, the twin of the WIN

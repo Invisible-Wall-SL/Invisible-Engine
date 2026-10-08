@@ -190,15 +190,7 @@
 			{@const strips = doc.paddingReels[gameType]?.length ?? 0}
 			<fieldset class="panel" disabled={readOnly}>
 				<div class="row tight">
-					<h3>
-						{mode.label ?? mode.id}
-						{#if mode.id === HOLD_AND_WIN_MODE}<span class="chip"
-								>played today — the game plays this one until each mode plays on its own</span
-							>{:else}<span class="chip"
-								>not played by the game yet — the test server plays it; the game plays only
-								"holdAndWin" until bonus-games Phase 4</span
-							>{/if}
-					</h3>
+					<h3>{mode.label ?? mode.id}</h3>
 					{#if mode.holdAndWin}
 						<button
 							class="small push"
@@ -218,7 +210,7 @@
 							value={mode.id}
 							disabled={mode.id === HOLD_AND_WIN_MODE}
 							title={mode.id === HOLD_AND_WIN_MODE
-								? 'The game, its screens and its Flow tab know this mode by "holdAndWin" until each mode plays on its own.'
+								? 'Its screens and its Flow tab know this mode by "holdAndWin".'
 								: 'Renaming carries its routes along; re-tag its screens and Flow tab.'}
 							onchange={(e) => rename(e.currentTarget, mode.id)}
 						/></label
@@ -305,17 +297,6 @@
 		font-size: 11px;
 		font-weight: 600;
 		color: #b8b8c4;
-	}
-	.chip {
-		margin-left: 8px;
-		padding: 1px 6px;
-		border-radius: 8px;
-		background: #2a2a36;
-		color: #9a9aa8;
-		font-size: 10px;
-		font-weight: 400;
-		letter-spacing: 0;
-		text-transform: none;
 	}
 	.panel {
 		margin: 0 0 14px;

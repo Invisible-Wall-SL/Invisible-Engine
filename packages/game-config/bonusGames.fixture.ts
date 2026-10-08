@@ -27,6 +27,9 @@
  *  7. Hub review of #1133: a `reels` / `none` override of the Hold and Win mode keeps the block;
  *     "Start an empty block" then a label edit keeps it; `removeHoldAndWin` removes it the same way
  *     on every doc; orphan base-game flags are pruned; an import brings the source's blank.
+ *  8. Phase 4: `play` (`auto` / `manual`) normalizes, splits and mirrors losslessly, and a second
+ *     mode's survives the primary's mirror; `respinModeRules` gives each respin mode its rules,
+ *     strip, blank and play, and the lone default reads the legacy block and the game-wide blank.
  */
 
 import { addPotsOverlay } from './src/addOns.ts';
@@ -36,10 +39,12 @@ import {
 	legacyPotsOverlay,
 	primaryRespinMode,
 	removeHoldAndWin,
+	isLoneDefaultRespinSet,
 	resolveBonusModes,
 	respinModeBlank,
+	respinModeRules,
 } from './src/bonusGames.ts';
-import { normalizeHoldAndWin } from './src/holdAndWin.ts';
+import { holdAndWinBlankSymbol, normalizeHoldAndWin } from './src/holdAndWin.ts';
 import { holdAndWinMockInputs } from './src/holdAndWinMock.ts';
 import {
 	HOLD_AND_WIN_PRESETS,
@@ -765,6 +770,76 @@ function gameModeBoard(raw: unknown): string | undefined {
 			doc.symbols[doc.modes?.[0].holdAndWin?.blank ?? '']?.special_properties,
 		],
 		['BLANK', ['blank']],
+	);
+}
+
+// ─── 8. Phase 4: each respin mode's rules as the game plays them, and its play setting ─────────
+
+console.log('\n8. respin mode rules + play');
+{
+	const preset = (id: (typeof HOLD_AND_WIN_PRESET_IDS)[number]) =>
+		clone(HOLD_AND_WIN_PRESETS[id]) as RawGameConfig & { holdAndWin: Record<string, unknown> };
+	check(
+		'play: `auto` and `manual` are kept, anything else is dropped, absent stays absent',
+		['auto', 'manual', 'sometimes', undefined].map(
+			(play) => normalizeHoldAndWin({ ...preset('classic').holdAndWin, play })?.play ?? null,
+		),
+		['auto', 'manual', null, null],
+	);
+	const manualRaw = preset('pots');
+	manualRaw.holdAndWin.play = 'manual';
+	const manual = equivalent('a Manual Hold and Win (legacy ≡ split)', manualRaw);
+	check(
+		'play: a legacy `manual` lands on the respin mode and the mirror shows it',
+		[manual.modes?.find((m) => m.id === 'holdAndWin')?.holdAndWin?.play, manual.holdAndWin?.play],
+		['manual', 'manual'],
+	);
+	const two = second(borut);
+	const raw = clone(two);
+	raw.modes = raw.modes?.map((m) =>
+		m.id === 'holdAndWin_2' ? { ...m, holdAndWin: { ...m.holdAndWin!, play: 'manual' } } : m,
+	);
+	const kept = normalize(raw);
+	check(
+		"play: a second mode's setting survives the primary's mirror, which does not show it",
+		[
+			kept.modes?.find((m) => m.id === 'holdAndWin_2')?.holdAndWin?.play,
+			kept.holdAndWin?.play ?? null,
+		],
+		['manual', null],
+	);
+	check(
+		'respinModeRules: one per respin mode, the primary first, play resolved',
+		respinModeRules(kept).map((m) => [m.mode, m.gameType, m.play, m.block === kept.holdAndWin]),
+		[
+			['holdAndWin', 'respin', 'auto', true],
+			['holdAndWin_2', 'respin_2', 'manual', false],
+		],
+	);
+	check(
+		"respinModeRules: two modes each take their own blank (the mock's pick)",
+		respinModeRules(kept).map((m) => m.blank),
+		kept.modes!.filter((m) => m.board === 'respinBoard').map((m) => respinModeBlank(kept, m)),
+	);
+	for (const id of HOLD_AND_WIN_PRESET_IDS) {
+		const doc = normalize(preset(id));
+		const rules = respinModeRules(doc);
+		check(
+			`respinModeRules ${id}: the lone default reads the legacy block and the game-wide blank`,
+			[
+				isLoneDefaultRespinSet(rules),
+				rules.length,
+				rules[0]?.block === legacyHoldAndWin(doc),
+				rules[0]?.blank === holdAndWinBlankSymbol(doc),
+				rules[0]?.play,
+			],
+			[true, 1, true, true, 'auto'],
+		);
+	}
+	check(
+		'respinModeRules: no Hold and Win ⇒ none',
+		respinModeRules(normalize(clone(BOOK_HOST))),
+		[],
 	);
 }
 

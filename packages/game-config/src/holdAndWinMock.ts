@@ -11,11 +11,8 @@ import {
 	symbolsWithRole,
 	type HoldAndWin,
 } from './holdAndWin';
-import { joinHoldAndWin } from './holdAndWinGame';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
-import { triggerHalfFor } from './coinOverlay';
-import { bonusSplitOf, legacyHoldAndWin, primaryRespinMode, respinModeBlank } from './bonusGames';
-import { gameTypeForMode, HOLD_AND_WIN_MODE } from './modes';
+import { isLoneDefaultRespinSet, legacyHoldAndWin, respinModeRules } from './bonusGames';
 import type { GameConfigDoc } from './types';
 
 export type HoldAndWinMockSymbol = {
@@ -97,7 +94,7 @@ export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs |
 		return symbols;
 	};
 	const symbols = symbolsWhere(() => true);
-	const modes = respinModeInputs(doc, block, (dealtBy) => {
+	const modes = respinModeInputs(doc, (dealtBy) => {
 		const own = symbolsWhere((name) => dealtBy.has(name));
 		return Object.keys(own).length > lineSymbols.length ? own : symbols;
 	});
@@ -107,36 +104,17 @@ export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs |
 /** {@link HoldAndWinMockInputs.modes}, or undefined for the lone default mode. */
 function respinModeInputs(
 	doc: GameConfigDoc,
-	primaryBlock: HoldAndWin,
 	symbolsFor: (dealtBy: Set<string>) => Record<string, HoldAndWinMockSymbol>,
 ): HoldAndWinModeInputs[] | undefined {
-	const split = bonusSplitOf(doc);
-	const primary = primaryRespinMode(split.modes);
-	if (!primary) return undefined;
-	const games = [
-		primary,
-		...(split.modes ?? []).filter(
-			(m) => m !== primary && m.board === 'respinBoard' && m.holdAndWin,
-		),
-	];
-	if (
-		games.length === 1 &&
-		primary.id === HOLD_AND_WIN_MODE &&
-		gameTypeForMode(primary) === 'respin'
-	) {
-		return undefined;
-	}
-	return games.map((mode) => {
-		const gameType = gameTypeForMode(mode);
-		const strips = [gameType, ...(mode === primary ? ['basegame'] : [])];
+	const modes = respinModeRules(doc);
+	if (modes.length === 0 || isLoneDefaultRespinSet(modes)) return undefined;
+	return modes.map(({ mode, gameType, block, blank }, index) => {
+		const strips = [gameType, ...(index === 0 ? ['basegame'] : [])];
 		return {
-			mode: mode.id,
+			mode,
 			gameType,
-			block:
-				mode === primary
-					? primaryBlock
-					: joinHoldAndWin(mode.holdAndWin!, triggerHalfFor(split.coinOverlay, mode.id)),
-			blank: respinModeBlank(doc, mode),
+			block,
+			blank,
 			symbols: symbolsFor(new Set(strips.flatMap((t) => symbolsInPlayForGameType(doc, t)))),
 		};
 	});

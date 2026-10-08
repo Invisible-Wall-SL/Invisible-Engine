@@ -1,4 +1,5 @@
 import { createPlayBook, createSymbolInfo, drainedMeters, isHoldAndWinEvent } from 'engine-game';
+import { HOLD_AND_WIN_MODE } from 'game-config';
 
 import { activeWinLevelData, getActiveGameConfig } from './gameConfig';
 import { symbolMap } from './symbolMap';
@@ -25,6 +26,8 @@ import {
 } from './winSymbolCycle';
 import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
+import { activeRespinMode } from './activeRespinMode.svelte';
+import { holdBeforeRespin } from './respinHold.svelte';
 import { stateModes } from './stateModes.svelte';
 import { drainHoldAndWinMeters, recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
 import { recordOverlayEvent } from './stateOverlay.svelte';
@@ -72,8 +75,19 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	setPendingScatterAwardFs,
 	holdAfterBigWin,
 	clearSpinHold,
+	holdBeforeEvent: holdBeforeRespin,
 	trackCascadeStep,
 	recordBookEvent: (bookEvent) => {
+		// A hand-built book may leave the respin mode out of these two; a flow reading the `mode` pin
+		// then reads the respin mode playing (`holdAndWin` with none declared), never `undefined`.
+		// Written on the event itself: it is the very object every dispatch path hands the flow as
+		// its trigger, and the facade always sends the field, so only a hand-built book is touched.
+		if (
+			(bookEvent.type === 'respinReveal' || bookEvent.type === 'holdAndWinState') &&
+			bookEvent.mode === undefined
+		) {
+			bookEvent.mode = activeRespinMode()?.mode ?? HOLD_AND_WIN_MODE;
+		}
 		if (isHoldAndWinEvent(bookEvent)) recordHoldAndWinEvent(bookEvent);
 		const drained = drainedMeters(bookEvent);
 		if (drained.length) {

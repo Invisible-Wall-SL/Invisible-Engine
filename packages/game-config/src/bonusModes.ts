@@ -146,8 +146,8 @@ function retarget(doc: GameConfigDoc, from: string, to: string): void {
 /**
  * Rename respin mode `from` to `to`: its declaration, every route that starts it and its import
  * record. It keeps the strips it pads from (its game type is pinned to the old one). The `holdAndWin`
- * mode is not renamed while it is the one the runtime plays (until Phase 4 the game, its screens and
- * its Flow tab know it by that id).
+ * mode is not renamed: its screens (`modeId`) and its Flow tab know it by that id, and nothing yet
+ * renames them with it.
  */
 export function renameRespinMode(doc: GameConfigDoc, from: string, to: string): AddOnResult {
 	const next = splitFormOf(doc);
@@ -156,7 +156,7 @@ export function renameRespinMode(doc: GameConfigDoc, from: string, to: string): 
 	if (from === HOLD_AND_WIN_MODE) {
 		return {
 			ok: false,
-			reason: `"${HOLD_AND_WIN_MODE}" keeps its id until the game plays each mode by its own (bonus-games Phase 4).`,
+			reason: `"${HOLD_AND_WIN_MODE}" keeps its id: its screens and its Flow tab know it by that id.`,
 		};
 	}
 	const problem = respinModeIdProblem(next, to, from);
@@ -228,13 +228,6 @@ export function removeRespinMode(doc: GameConfigDoc, id: string): AddOnResult {
 		}
 	}
 	if (!next.modes?.length) delete next.modes;
-	// Until the game plays each mode by its id (bonus-games Phase 4) it plays only `holdAndWin`.
-	const primary = primaryRespinMode(next.modes);
-	if (primary && primary.id !== HOLD_AND_WIN_MODE) {
-		notes.push(
-			`"${primary.id}" is now the project's only Hold and Win, but the game plays a mode only under the id "${HOLD_AND_WIN_MODE}" until bonus-games Phase 4 — rename it to "${HOLD_AND_WIN_MODE}" in Bonus modes.`,
-		);
-	}
 	const imports = next.imports?.filter((i) => i.mode !== id);
 	if (imports?.length) next.imports = imports;
 	else delete next.imports;

@@ -23,6 +23,7 @@
 
 	import { stateGameDerived } from '../game/stateGame.svelte';
 	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
+	import { activeModeScreen } from '../game/respinScreens.svelte';
 
 	/**
 	 * THE CODED HOLD AND WIN BANNER — every Hold and Win beat's announcement, centred on the board
@@ -32,10 +33,12 @@
 	 *
 	 * Nothing is mounted until a banner is up, so a game that never receives a Hold and Win event pays
 	 * nothing for it. A banner steps aside while the flow shows the authored screen for its beat
-	 * (`HOLD_AND_WIN_BANNER_SCREENS`), which draws it instead.
+	 * (`HOLD_AND_WIN_BANNER_SCREENS`, the active respin mode's own copy), which draws it instead.
 	 */
-	const authoredScreen = (kind: string): string | undefined =>
-		(HOLD_AND_WIN_BANNER_SCREENS as Record<string, string>)[kind];
+	const authoredScreen = (kind: string): string | undefined => {
+		const screen = (HOLD_AND_WIN_BANNER_SCREENS as Record<string, string>)[kind];
+		return screen && activeModeScreen(screen);
+	};
 	const banner = $derived.by(() => {
 		const current = stateHoldAndWinBanner.current;
 		const screen = current && authoredScreen(current.kind);

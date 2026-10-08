@@ -166,6 +166,11 @@ Project (a whole game)
   `config.holdAndWin`. The `RespinBoard` is rebuilt on entry from that mode's rules and strip.
 - **Resume** keeps the mode id with the held board and rebuilds into the right mode.
 - **Value sources** (`respinsLeft`, `cellsHeld`, jackpot values) read the active mode.
+- **How a respin mode plays** is part of its rules: `holdAndWin.play?: 'auto' | 'manual'` (owner
+  request 2026-10-08). `auto`, or absent, is how every Hold and Win game has always played: the respins
+  follow each other with no input, the intro and the outro advance on their own, and a tap only slams.
+  `manual` parks before each respin on SPIN (the free-spin hold), except under autoplay or space-hold;
+  its intro and outro stay timed too.
 
 ### 2.4 Tools
 

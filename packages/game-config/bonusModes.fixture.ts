@@ -240,9 +240,9 @@ console.log('\n3. per-mode validation');
 		[],
 	);
 	check(
-		'a route to a respin mode other than holdAndWin warns that it is not played yet',
+		'a route to a respin mode other than holdAndWin raises nothing: the game plays it (bonus-games Phase 4)',
 		issuesAt(normalize(routed), 'coinOverlay.pots.1'),
-		['warning coinOverlay.pots.1.bonus.mode'],
+		[],
 	);
 	const fresh = docOf(addRespinMode(three, 'bonusC'));
 	check(
@@ -320,13 +320,13 @@ console.log('\n4. removing a respin mode');
 		],
 	);
 	check(
-		'...said in notes: the re-route, and that mode 2 is played only once renamed holdAndWin',
-		[out.notes?.length, out.notes?.[1]?.includes('rename it to "holdAndWin"')],
-		[2, true],
+		'...said in a note: the re-route only — mode 2 plays under its own id (bonus-games Phase 4)',
+		[out.notes?.length, out.notes?.some((n) => n.includes('rename it to'))],
+		[1, false],
 	);
 	const renamed = ok(renameRespinMode(out, 'holdAndWin_2', 'holdAndWin'));
 	check(
-		'...which renameRespinMode allows, and the routes follow',
+		'...renameRespinMode still allows renaming it holdAndWin, and the routes follow',
 		[
 			renamed.modes?.map((m) => m.id),
 			renamed.coinOverlay?.pots?.find((p) => p.id === 'blue')?.bonus.mode,

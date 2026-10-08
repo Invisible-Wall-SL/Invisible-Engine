@@ -1,4 +1,6 @@
-import { getActiveGameConfig } from './gameConfig';
+import type { HoldAndWin } from 'game-config';
+
+import { activeRespinRules, everyRespinRules } from './activeRespinMode.svelte';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 
 /**
@@ -11,11 +13,17 @@ import { stateHoldAndWin } from './stateHoldAndWin.svelte';
  * and the feature's end clears the picture while the board still shows what it paid.
  */
 
-/** The letter per reel, or none when the board end is not column letters. */
-export const configuredLetters = (): string[] => {
-	const end = getActiveGameConfig().holdAndWin?.boardEnd;
+const lettersOf = (rules: HoldAndWin | undefined): string[] => {
+	const end = rules?.boardEnd;
 	return end?.type === 'columnLetters' ? [...end.letters] : [];
 };
+
+/** The active respin mode's letter per reel, or none when its board end is not column letters. */
+export const configuredLetters = (): string[] => lettersOf(activeRespinRules());
+
+/** The most letters any respin mode shows — what a source registered once at boot must cover. */
+export const mostLetters = (): number =>
+	Math.max(0, ...everyRespinRules().map((rules) => lettersOf(rules).length));
 
 export const stateLetters = $state({
 	/** The reels whose letter the row draws lit. */

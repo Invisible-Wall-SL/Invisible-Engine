@@ -34,7 +34,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
 | 2 | Mock: per-mode engines | merged | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #1138 |
 | 3 | Facade + wire + event types | in review | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
-| 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
+| 4 | Engine runtime: active-mode rules | in review | Bonus games Phase 4: the engine runtime plays the active respin mode | #1141 |
 | 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
 | 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
@@ -231,7 +231,128 @@ starts the phase sessions, reviews their PRs and merges them.
   - **For Phase 4.** The runtime should key the board on the mode on top of the stack; every board
     event names it.
 
+- 2026-10-08 — **Phase 4: what the runtime reads, and the play setting** (hub-approved; for 5c, 5d
+  and 6).
+  - **One accessor.** The runtime reads a respin mode's rules only through `activeRespinMode()`
+    (`apps/lines` `activeRespinMode.svelte.ts`). It returns the respin mode nearest the top of the
+    mode stack, else the PRIMARY. Its data is game-config `respinModeRules(doc)`: each respin mode's
+    rules (in the legacy block's shape), strip key, blank and play setting, the primary first.
+    - The primary's rules ARE the legacy mirror object, and the lone default keeps the game-wide
+      blank (`holdAndWinBlankSymbol`), so a game with one respin mode reads exactly what it read.
+    - The decisions are pure (`respinModes.ts`) and gated by `pnpm check:respin-modes`.
+  - **The board** is rebuilt whenever the active mode differs from the one it was built for, even at
+    the same size. It rolls `paddingReels[<the mode's game type>]`. Only the PRIMARY's final board is
+    settled onto the base reels at the end, because only its coins land there (Phase 2's limit).
+  - **Boot-time sources cover every mode.** `jackpot.<tier>` registers each tier name once across
+    all modes; `letter.<reel>.lit` registers up to the most letters any mode has; `rowsOpen` /
+    `rowsMax` register when any mode expands. A tier's worth is the active mode's, else the first
+    mode that has it. Pools stay shared by tier name.
+  - **Meters.** `resolveMeters` now lists every respin mode's symbol meters under its own mode
+    (`bonus.mode`), the primary's first. It used to list the primary's only, with a hard-coded
+    `holdAndWin`. This widens every consumer (`/symbols` defaults, Flow add-ons, `symbolUse`) on a
+    two-mode doc only; a one-mode doc's list is unchanged.
+  - **Screens.** The banner beats and `RESERVED_SCENE_IDS` find a mode's own copy by `role: 'mode'`
+    + `modeId` + its base id (the id without `-<modeId>`). The `holdAndWin` mode's copies keep the
+    reference ids.
+  - **Resume.** Nothing new was needed. The snapshot already keeps `holdAndWinTrigger` (with its
+    `mode`), so `restoreModes` puts the mode on the stack before the `holdAndWinState` replay.
+  - **The `mode` pin.** `respinReveal` / `holdAndWinState` without a `mode` get `holdAndWin` at the
+    play seam's record step, so a flow never reads `undefined`.
+  - **Play setting.** `GameModeDecl.holdAndWin.play?: 'auto' | 'manual'`. It lives in the rules, so
+    it splits, mirrors and imports with the mode. Absent means `auto`, which is today's behaviour.
+    - **Measured first:** today's Hold and Win plays with no player input. The intro and outro are
+      timed banners, and a tap only slams. Free spins also play their spins with no input, but their
+      flowed intro and outro hold on a tap.
+    - The hub confirmed the setting (owner's words: "advance on their own"):
+      - intro and outro stay timed in both settings;
+      - `manual` parks before EACH `respinReveal` of that mode, on the free-spin hold (`armSpinHold`),
+        including the first after the intro and the first after a resume;
+      - it never parks under autoplay or space-hold (`isContinuousBet`, as `holdAfterBigWin`).
+    - It hangs off a new optional `createPlayBook` seam, `holdBeforeEvent`, on every dispatch path. An
+      event that does not hold costs not even a microtask.
+    - **For 5a (follow-up):** the `/config` control is not built.
+  - **For 5c:** the Flow vocabulary should key on `board: 'respinBoard'`. Its actions already target
+    the active board, because the presentation reads `activeRespinMode()`.
+  - **For 5d:** the Win Text lines (`featureIntroText`, jackpot, wheel) are still one family for
+    every mode.
+  - **For 6:** an imported mode's `play` travels with its rules. Re-sync carries it.
+  - **For 6: screen naming.** The runtime finds a respin mode's screens as `<reference id>-<modeId>`
+    (5b's seeding). The importer's own `-2` / `-3` copy naming (`projectBonusImport.ts` `freeIn`)
+    does not follow that, so "Add a bonus mode…" must name the copies `-<modeId>`.
+  - **A one-mode project whose primary is not the default** (another id, or another strip) changes
+    in two ways. It now takes its blank from `respinModeBlank` (the mock's pick for that set). Its
+    symbol meters' `bonus.mode` is the primary's id instead of the hard-coded `holdAndWin`. Every
+    current game's primary is the default, so none of them changes.
+  - **Hub review of #1141** (no blockers; folded into the same push):
+    - the `-<modeId>` scene reservation covers RESPIN modes only (`respinModeById`), so a current
+      game's `betMenu-freeSpins` still mounts;
+    - Manual never parks while autoplay runs, including its LAST round. The counter is decremented
+      after the round, so the guard is `autoSpinsCounter > 0 || isSpaceHold`, not `isContinuousBet`.
+      `holdAfterBigWin` is unchanged;
+    - while a Manual respin is parked, a tap anywhere (or Space) releases it (`Game.svelte`, a
+      `PressToContinue` on `stateRespinPark.parked`), so a HUD without a spin button strands nobody;
+    - **memo:** `resolveMeters` costs about 0.26 ms a call through `bonusSplitOf`. Its runtime
+      callers read it through a per-config memo instead (`configuredMeters`; the flow reader now uses
+      it). `respinModeBlocks` itself is NOT memoised per doc: `/config` mutates its live doc deeply
+      in place, so a doc-keyed WeakMap would serve stale meters there;
+    - meter ids two modes share resolve to one pot, the first mode's.
+
 ## Recent changes
+
+- 2026-10-08 — **Phase 4: the engine runtime plays the active respin mode** (PR #1141, `apps/lines`,
+  `engine-game` `playBook.ts`, game-config).
+  - **What landed:** every single-config read moved onto `activeRespinMode()`:
+    - the respin board (its strip, blank, rows and expansion), rebuilt per mode;
+    - the letters, the jackpots and the wheel;
+    - `Game.svelte`'s value sources and component gating;
+    - the coded banner screens, and the reserved `-<modeId>` scene copies.
+  - **Also:** the `mode` pin default; per-mode meters and jackpot tiers; the `play` setting with Manual
+    parking on SPIN.
+  - **Gates:**
+    - New `pnpm check:respin-modes` (`scripts/check-respin-modes-runtime.mts`, run by `check:all`). It plays Phase 2's REAL
+      two-mode mock through the REAL facade and walks every round through the mode stack as the play
+      seam moves it:
+      - red pot → mode 1 and green pot → mode 2, each on its own rules, strip, blank, rows,
+        stickiness, jackpots, counter and screens, and the board built once per feature;
+      - both pots in one round;
+      - a resume mid mode 2;
+      - Automatic vs Manual on both modes: parks before every Manual respin, never under autoplay or
+        space-hold, never at the intro or outro;
+      - parity for the three presets, the test fixtures and a 3 Pots host.
+
+      Mutations caught: the stack ignored (21 checks fail), no rebuild per mode (1), screens by
+      plain id (3), no autoplay guard (3).
+    - Its §6 drives the REAL play seam: `createPlayBook` + `createModeController`, with
+      `holdBeforeRespin` / `ensureBoard` / `respinStrip` sliced from source, on the coded and flow
+      branches and through a resume. 141/0. Mutations that turn it red:
+      - dropping `holdBeforeEvent: holdBeforeRespin`: 1 check fails;
+      - the hold after the presentation: 2 (flow branch) and 2 (coded branch);
+      - `ensureBoard` without `sameRespinBoard`: 2;
+      - `respinStrip` reading `paddingReels.respin`: 4;
+      - the `isContinuousBet` guard: 2.
+    - `bonusGames.fixture.ts` §8 pins `play` and `respinModeRules`.
+    - `check:respin-modes` 141/0, and `bonusGames.fixture.ts` passes;
+    - `check:holdandwin` 1892/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS` unchanged;
+    - `check:bonus-modes`, `check:engine-game` 11/11, `check:resume` and `check:freespins` pass;
+    - `check:all` 413/413, `check:svelte` at baseline, and lint and prettier are clean on the
+      changed files;
+    - **local current-games**, main vs branch on the stand-ins `cg-hw-pots`, `cg-hw-classic` and
+      `cg-bookof-pots`: 3 pass, 0 changed screens (Hold and Win, jackpot, pots and free-spins
+      scenarios included);
+    - three source-text gates were updated to the new reads: `check:signal-scope`,
+      `check:unused-symbols-in-game` and `verify-win-explode-pop`.
+    - **Not run here:** the live samples (`hw-*-sample`, `borut-pots-sample`) need R2 and the browser
+      playtester, and this cloud session has neither. CI's Current games renders them.
+  - **Item 7 and the 5a follow-up** (after #1136 merged):
+    - `validateBonusModes` no longer warns that a route to a non-`holdAndWin` respin mode is not
+      played. `/config` drops the "played today" / "not played yet" chips, and `removeRespinMode` no
+      longer asks to rename the last mode to `holdAndWin`.
+    - `holdAndWin` still keeps its id (`renameRespinMode`), now because its screens and Flow tab
+      know it by that id.
+    - **Play picker:** Bonus modes → rules → Respins → **Play: Automatic / Manual**. It writes
+      `play: 'manual'` only, and choosing Automatic deletes the key (`pageDoc.ts` `setRespinPlay`).
+      `check:config-bonus-modes` pins it through a save and a reload, and `bonusModes.fixture` follows
+      the dropped note.
 
 - 2026-10-08 — **Phase 5a: the hub's review round** (PR #1136).
   - **A respin mode other than `holdAndWin` is said to be unplayed by the game.** Until Phase 4

@@ -228,8 +228,8 @@ eq(
 	],
 );
 check(
-	'the game registers the feature signals: the Hold and Win family by its block, the pots by either block',
-	/\.\.\.featureComponentSignals\(\s*context\.eventEmitter,\s*!!getActiveGameConfig\(\)\.holdAndWin,\s*!!getActiveGameConfig\(\)\.holdAndWin \|\| !!getActiveGameConfig\(\)\.potsOverlay,?\s*\)/.test(
+	'the game registers the feature signals: the Hold and Win family by its respin modes, the pots by either',
+	/\.\.\.featureComponentSignals\(\s*context\.eventEmitter,\s*respinModes\(\)\.length > 0,\s*respinModes\(\)\.length > 0 \|\| !!getActiveGameConfig\(\)\.potsOverlay,?\s*\)/.test(
 		read('apps/lines/src/components/Game.svelte'),
 	),
 );
