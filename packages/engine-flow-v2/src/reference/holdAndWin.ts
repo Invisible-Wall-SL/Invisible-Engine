@@ -324,7 +324,11 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 	{
 		name: 'holdAndWinTrigger',
 		payload: [
-			{ name: 'mode', type: STRING, description: 'The mode it opens (`holdAndWin`).' },
+			{
+				name: 'mode',
+				type: STRING,
+				description: 'The respin mode it opens (`holdAndWin`, `holdAndWin_2`, …).',
+			},
 			{ name: 'cause', type: CAUSE, description: 'Why the feature started.' },
 			{
 				name: 'payload',
@@ -351,7 +355,15 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 	},
 	{
 		name: 'respinReveal',
-		payload: [cells('Every cell after the respin.')],
+		payload: [
+			cells('Every cell after the respin.'),
+			{
+				name: 'mode',
+				type: STRING,
+				optional: true,
+				description: 'The respin mode it plays in (absent ⇒ `holdAndWin`).',
+			},
+		],
 		category: 'book',
 		description:
 			'One respin: the free cells spin onto what the server named. Wire it to spin the respin board.',
@@ -562,6 +574,12 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 				type: { t: 'struct', name: 'HoldAndWinSnapshot' },
 				description: 'The whole open feature.',
 			},
+			{
+				name: 'mode',
+				type: STRING,
+				optional: true,
+				description: 'The respin mode it plays in (absent ⇒ `holdAndWin`).',
+			},
 		],
 		category: 'book',
 		description:
@@ -570,7 +588,7 @@ const FEATURE_EVENTS: TemplateVocabulary['events'] = [
 	{
 		name: 'holdAndWinEnd',
 		payload: [
-			{ name: 'mode', type: STRING, description: 'The mode it closes (`holdAndWin`).' },
+			{ name: 'mode', type: STRING, description: 'The respin mode it closes.' },
 			{ name: 'total', type: FLOAT, description: 'What the feature won.' },
 			{
 				name: 'payload',
