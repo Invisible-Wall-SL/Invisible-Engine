@@ -31,7 +31,7 @@ starts the phase sessions, reviews their PRs and merges them.
 |---|---|---|---|---|
 | 0 | Plan + hub | merged | Hold and Wins as standalone project | #1131 |
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
-| 2 | Mock: per-mode engines | in review | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #TBD |
+| 2 | Mock: per-mode engines | in review | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #1138 |
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
@@ -136,7 +136,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-08 — **Phase 2: the mock has one Hold and Win engine per respin mode** (PR #TBD, scripts,
+- 2026-10-08 — **Phase 2: the mock has one Hold and Win engine per respin mode** (PR #1138, scripts,
   `test-server`, game-config's mock inputs, the launcher's mock protocol).
   - **Inputs:** `holdAndWinMockInputs(doc).modes` lists each respin mode, primary first, as
     `{ mode, gameType, block, blank, symbols }`. `block` is the mode's rules joined with its routes.
