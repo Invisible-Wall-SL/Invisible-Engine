@@ -711,6 +711,10 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
    config's `max_win` (the book mock only declares `maxWinMp`; the lines mock sends `maxWinCap: 0`),
    so an Invisible Test Server round total — a long Book-of feature especially — is uncapped and
    must not be read as what a capped real server would pay.
+12. **`POST /api/launcher/projects` still accepts the retired `bookOf` kind, on purpose.** The
+   desktop launcher's ⬆ Setup registers existing desktop Book-of games under their own kind, and the
+   Phase 6 migration of [book-feature.md](../design/book-feature.md) is re-runnable for such a row.
+   Only the pickers stop offering it (Phase 5c). It goes with the kind in Phase 7.
 
 **Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
 but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
@@ -722,6 +726,21 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._
 
 ## Recent changes
+
+- 2026-10-08 — **Phase 5 review fixes** (PR #1126). **Weights:** an empty `freeSpins.expandingSymbol.weights`
+  is now KEPT by `normalizeExpandingSymbol` — it means "no symbol weighted" (nothing drawn, the
+  validator's "weight at least one" error), where an absent map still means "every eligible symbol,
+  equally"; `/config` writes the empty map when the last weight goes to 0 (it used to drop it and
+  turn every symbol back on), drops the map when every weight is back at 1, rebuilds it from the
+  eligible rows only, and offers **Remove** on a weight left on a symbol that can no longer be the
+  special. **Remove control:** a stored block the panel does not offer (another win model, a
+  Book-of kind, a game without the Free spins section) gets an _Expanding symbol_ section with
+  **Remove the expanding symbol**, so its error can always be cleared. **Pickers:** the admin and
+  Game Maker kind lists come from `offeredGameKinds` (server-side). **Create:** a lines preset sent
+  for anything but a Lines game (the default kind included in "Lines") is refused. **API:**
+  `POST /api/launcher/projects` keeps accepting `bookOf` on purpose (open item 12). Gate:
+  `expandingSymbol.fixture.ts` (the empty map kept, draws nothing, is the error). Not
+  browser-verified.
 
 - 2026-10-08 — **The rules page states the expanding symbol** (Phase 5d of
   [book-feature.md](../design/book-feature.md)): an EXPANDING SYMBOL rule for a game with

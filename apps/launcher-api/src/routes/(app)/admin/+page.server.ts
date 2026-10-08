@@ -68,7 +68,7 @@ import {
 } from '$lib/server/projects';
 import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
+import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
 import {
 	assignProjectToClient,
@@ -273,6 +273,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 		clientAccess,
 		games,
 		gameKinds,
+		/** What the kind pickers offer: every kind but a retired one (`bookOf`). */
+		offeredKinds: offeredGameKinds(gameKinds),
 		defaultProjectKey: DEFAULT_PROJECT_KEY,
 		gamesBaseUrl: ENV.GAMES_BASE_URL,
 		// The running deploy id (git SHA / timestamp) so an admin can confirm WHICH build is live —

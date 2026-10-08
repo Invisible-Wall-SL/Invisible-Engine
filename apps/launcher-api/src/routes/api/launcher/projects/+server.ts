@@ -125,7 +125,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json({ error: 'Invalid client key' }, { status: 400, headers: NO_STORE });
 	}
 	// Validate against the SAME union the online create actions offer (built-ins + custom
-	// kinds), so a launcher can't seed a kind no picker or scene set knows about.
+	// kinds), so a launcher can't seed a kind no picker or scene set knows about. A RETIRED kind
+	// (`bookOf`) is accepted here on purpose, unlike the pickers: the desktop launcher's ⬆ Setup
+	// registers existing desktop Book-of games under their own kind, and the Book-of migration
+	// (book-feature Phase 6) is re-runnable for such a row. Phase 7 removes the kind.
 	if (gameType && !(await selectableGameKinds()).some((k) => k.id === gameType)) {
 		return json({ error: 'Unknown game kind' }, { status: 400, headers: NO_STORE });
 	}

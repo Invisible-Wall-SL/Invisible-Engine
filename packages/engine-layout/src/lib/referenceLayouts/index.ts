@@ -204,12 +204,6 @@ export function listFullSceneSets(): { gameType: string; name: string }[] {
 }
 
 /**
- * The game types offered in the editor's "Import composed reference" group — the
- * kinds with a FILLED (art-bearing) reference layout (`lines` + `bookOf` today).
- * The engine-skeleton kinds have no art, so for them import == scaffold; they are
- * deliberately omitted (§19.6). Returned as `{ id, name }` for the picker.
- */
-/**
  * The game type a reference set loads AS into a project of `projectKind`: the project's own when
  * the set is its kind or a reference for it (the Book-of set into a lines project), else the set's
  * own kind — a cross-type load, which the editor confirms and never autosaves.
@@ -219,6 +213,12 @@ export function referenceLoadsAs(setKind: string, projectKind: string): string {
 	return FULL_SCENE_SOURCES[setKind]?.referenceFor?.includes(projectKind) ? projectKind : setKind;
 }
 
+/**
+ * The game types offered in the editor's "Import composed reference" group — the
+ * kinds with a FILLED (art-bearing) reference layout (`lines` + `bookOf` today).
+ * The engine-skeleton kinds have no art, so for them import == scaffold; they are
+ * deliberately omitted (§19.6). Returned as `{ id, name }` for the picker.
+ */
 export function listImportableKinds(): { id: string; name: string }[] {
 	return Object.entries(FULL_SCENE_SOURCES)
 		.filter(([, src]) => src.filled)

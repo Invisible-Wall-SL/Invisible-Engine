@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import {
 	HOLD_AND_WIN_PRESET_IDS,
 	POTS_OVERLAY_PRESET_IDS,
@@ -24,7 +25,7 @@ import {
 	LINES_PRESET_IDS,
 	resolveGameConfig,
 } from '$lib/server/gameConfigDefaults';
-import { RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
+import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -257,6 +258,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			.filter((c) => mayTargetClient(role, c.key, clientGrants))
 			.map((c) => ({ key: c.key, name: c.name })),
 		gameKinds,
+		/** The kinds Create offers: every kind but a retired one (`bookOf`). */
+		createKinds: offeredGameKinds(gameKinds),
 		projects,
 		canPurgeCache,
 		// A version shipped past the flow gate goes live again only for the owner role (see the
@@ -297,9 +300,14 @@ export const actions: Actions = {
 				error: 'A Book-of game is now Lines with the Book of Thermopylae preset.',
 			});
 		}
+		// The kind the project is created as: an empty one is the default kind.
+		const kind = rawGameType !== '' ? rawGameType : DEFAULT_GAME_KIND;
 		const linesPreset = isLinesPresetId(rawLinesPreset) ? rawLinesPreset : undefined;
-		if (rawGameType === 'lines' && rawLinesPreset !== '' && !linesPreset) {
-			return fail(400, { action: 'create', error: 'Unknown lines preset.' });
+		if (rawLinesPreset !== '' && (kind !== 'lines' || !linesPreset)) {
+			return fail(400, {
+				action: 'create',
+				error: kind === 'lines' ? 'Unknown lines preset.' : 'A lines preset needs a Lines game.',
+			});
 		}
 		const holdAndWinPreset = HOLD_AND_WIN_PRESET_IDS.find((id) => id === rawPreset);
 		if (rawGameType === 'holdAndWin' && rawPreset !== '' && !holdAndWinPreset) {
@@ -336,7 +344,7 @@ export const actions: Actions = {
 		}
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
 			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
-			linesPreset: rawGameType === 'lines' ? linesPreset : undefined,
+			linesPreset,
 		});
 		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a
 		// new game and an existing one get the same parts. The game exists by now, so a refusal or a
