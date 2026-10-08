@@ -46,12 +46,12 @@ import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 
 import { bakedFlowDoc } from '../editor-scenes';
-import { resolveMeters, type ResolvedMeter } from 'game-config';
-import { boardDimensions, getActiveGameConfig } from './gameConfig';
+import type { ResolvedMeter } from 'game-config';
+import { boardDimensions } from './gameConfig';
 import type { LinesEngineKey } from './flowEngineKeys';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 import { jackpotMultiplier } from './holdAndWinJackpots.svelte';
-import { meterLevelShown } from './holdAndWinMeters.svelte';
+import { configuredMeters, meterLevelShown } from './holdAndWinMeters.svelte';
 import { platformJackpotValue } from './platformJackpot.svelte';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
@@ -224,7 +224,7 @@ const METER_KEY = /^meter\.(.+)\.(level|max|stage|full)$/;
 export const linesEngineReader = (key: string): unknown => {
 	if (Object.hasOwn(ENGINE_READS, key)) return ENGINE_READS[key as LinesEngineKey]();
 	const match = METER_KEY.exec(key);
-	const meter = match && resolveMeters(getActiveGameConfig()).find((m) => m.id === match[1]);
+	const meter = match && configuredMeters().find((m) => m.id === match[1]);
 	return meter ? METER_READS[match[2] as keyof typeof METER_READS](meter) : undefined;
 };
 

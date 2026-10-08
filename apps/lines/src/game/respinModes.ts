@@ -24,8 +24,8 @@ export const respinModeOnStack = <T extends { mode: string }>(
 	return modes[0];
 };
 
-/** The board a respin mode plays on: the strip it rolls, the cell it leaves empty and its rows. */
-export type RespinBoardShape = { mode?: string; gameType: string; blank?: string; rows: number };
+/** The board a respin mode plays on: the strip it rolls and its rows. */
+export type RespinBoardShape = { mode?: string; gameType: string; rows: number };
 
 /**
  * `mode`'s board on a grid of `gridRows`: an expanding board builds every row up to its `maxRows`,
@@ -39,7 +39,6 @@ export const respinBoardShape = (
 	return {
 		mode: mode?.mode,
 		gameType: mode?.gameType ?? 'respin',
-		blank: mode?.blank,
 		rows: expansion ? Math.max(gridRows, expansion.maxRows) : gridRows,
 	};
 };
@@ -92,13 +91,12 @@ export const modeScreenFor = (
 
 /**
  * Does the book park on SPIN before this event? Before each respin of a `manual` respin mode — the
- * first after the intro and the first after a resume included — unless the player is betting
- * continuously (autoplay, space-hold), where a park would wait for a press that is never coming: the
- * guard the free-spin hold applies (`freeSpinHold.ts`). `auto` (and absent) never parks, which is
- * how every Hold and Win game has always played.
+ * first after the intro and the first after a resume included — unless play is hands-off (autoplay,
+ * hold-to-spin), where a park would wait for a press that is never coming. `auto` (and absent) never
+ * parks, which is how every Hold and Win game has always played.
  */
 export const parksBeforeRespin = (
 	eventType: string,
 	play: RespinPlay | undefined,
-	continuous: boolean,
-): boolean => eventType === 'respinReveal' && play === 'manual' && !continuous;
+	handsOff: boolean,
+): boolean => eventType === 'respinReveal' && play === 'manual' && !handsOff;

@@ -20,6 +20,7 @@
 		isFullscreenSupported,
 		setUiFeatures,
 		hasContinuePress,
+		releaseSpinHold,
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -225,8 +226,10 @@
 	import {
 		activeRespinRules,
 		everyRespinRules,
+		respinModeById,
 		respinModes,
 	} from '../game/activeRespinMode.svelte';
+	import { stateRespinPark } from '../game/respinHold.svelte';
 	import { publishRespinScreens } from '../game/respinScreens.svelte';
 	import { modeSceneBaseId } from '../game/respinModes';
 	import {
@@ -277,7 +280,7 @@
 	import Win from './Win.svelte';
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
-	import { ContinuePressMask } from 'engine-game';
+	import { ContinuePressMask, PressToContinue } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutroDriver from './FreeSpinOutroDriver.svelte';
@@ -1015,7 +1018,7 @@
 	// (`flow.mounter.has(loadingScreenId)` below). Absent role + absent flow ⇒ today's selection.
 	const basegameScreenId = $derived(basegameSceneId(editorDoc.scenes));
 	// Which screen draws a respin mode's beat is found among these (`respinScreens.svelte.ts`).
-	$effect(() => publishRespinScreens(editorDoc.scenes));
+	$effect.pre(() => publishRespinScreens(editorDoc.scenes));
 	const basegameScene = $derived(sceneByRole(editorDoc.scenes, 'basegame') ?? fallbackBasegame);
 	// Reel z-order: the editor lets you order the `reelGrid` placeholder among the
 	// basegame layers, but the real <Board/> mounts in its OWN trailing MainContainer
@@ -1533,7 +1536,10 @@
 			// Each respin mode's own copy of a reserved screen (`featureIntro-<modeId>`, …): reserved by
 			// the screen it copies, or a second mode's tap dim and jackpot banner would always be up.
 			...editorDoc.scenes
-				.filter((scene) => scene.modeId && RESERVED_IDS.has(modeSceneBaseId(scene)))
+				.filter(
+					(scene) =>
+						respinModeById(scene.modeId) !== undefined && RESERVED_IDS.has(modeSceneBaseId(scene)),
+				)
 				.map((scene) => scene.id),
 		]),
 	);
@@ -2512,6 +2518,11 @@
 		<Container zIndex={basegameOverlaysZIndex}>
 			<WinGate headless={winMount === 'driver'} />
 		</Container>
+	{/if}
+	<!-- A Manual respin parked on SPIN: a tap anywhere (or Space) releases it too, so a mode whose HUD
+	     has no spin button never strands the player (`respinHold.svelte.ts`). -->
+	{#if stateRespinPark.parked}
+		<PressToContinue hidePrompt onpress={releaseSpinHold} />
 	{/if}
 	<!--
 			The free-spin OUTRO count-up DRIVER — the engine's only part in the outro, the twin of the WIN

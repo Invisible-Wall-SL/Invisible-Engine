@@ -224,16 +224,19 @@ export function resolveMeters(
 	doc: Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay' | 'coinOverlay' | 'modes'> | undefined,
 ): ResolvedMeter[] {
 	// Each respin mode's symbol-filled meters, the primary's first, each starting its own mode.
-	const fromSymbols = (doc ? respinModeBlocks(doc) : []).flatMap(({ mode, block }) =>
-		(block.meters ?? []).map((m): ResolvedMeter => ({
-			id: m.id,
-			source: 'symbol',
-			symbol: m.symbol,
-			maxLevel: m.maxLevel,
-			sizeStages: [...m.sizeStages],
-			bonus: { mode, activates: m.activates },
-		})),
-	);
+	const fromSymbols = (doc ? respinModeBlocks(doc) : [])
+		.flatMap(({ mode, block }) =>
+			(block.meters ?? []).map((m): ResolvedMeter => ({
+				id: m.id,
+				source: 'symbol',
+				symbol: m.symbol,
+				maxLevel: m.maxLevel,
+				sizeStages: [...m.sizeStages],
+				bonus: { mode, activates: m.activates },
+			})),
+		)
+		// A meter id two modes both declare is one pot: the first mode's (the mock routes it there).
+		.filter((meter, i, all) => all.findIndex((m) => m.id === meter.id) === i);
 	const fromOverlay = ((doc && legacyPotsOverlay(doc))?.pots ?? []).map((p): ResolvedMeter => ({
 		id: p.id,
 		source: 'overlay',

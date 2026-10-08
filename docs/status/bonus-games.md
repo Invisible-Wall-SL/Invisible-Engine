@@ -276,6 +276,26 @@ starts the phase sessions, reviews their PRs and merges them.
   - **For 5d:** the Win Text lines (`featureIntroText`, jackpot, wheel) are still one family for
     every mode.
   - **For 6:** an imported mode's `play` travels with its rules. Re-sync carries it.
+  - **For 6: screen naming.** The runtime finds a respin mode's screens as `<reference id>-<modeId>`
+    (5b's seeding). The importer's own `-2` / `-3` copy naming (`projectBonusImport.ts` `freeIn`)
+    does not follow that, so "Add a bonus mode…" must name the copies `-<modeId>`.
+  - **A one-mode project whose primary is not the default** (another id, or another strip) changes
+    in two ways. It now takes its blank from `respinModeBlank` (the mock's pick for that set). Its
+    symbol meters' `bonus.mode` is the primary's id instead of the hard-coded `holdAndWin`. Every
+    current game's primary is the default, so none of them changes.
+  - **Hub review of #1141** (no blockers; folded into the same push):
+    - the `-<modeId>` scene reservation covers RESPIN modes only (`respinModeById`), so a current
+      game's `betMenu-freeSpins` still mounts;
+    - Manual never parks while autoplay runs, including its LAST round. The counter is decremented
+      after the round, so the guard is `autoSpinsCounter > 0 || isSpaceHold`, not `isContinuousBet`.
+      `holdAfterBigWin` is unchanged;
+    - while a Manual respin is parked, a tap anywhere (or Space) releases it (`Game.svelte`, a
+      `PressToContinue` on `stateRespinPark.parked`), so a HUD without a spin button strands nobody;
+    - **memo:** `resolveMeters` costs about 0.26 ms a call through `bonusSplitOf`. Its runtime
+      callers read it through a per-config memo instead (`configuredMeters`; the flow reader now uses
+      it). `respinModeBlocks` itself is NOT memoised per doc: `/config` mutates its live doc deeply
+      in place, so a doc-keyed WeakMap would serve stale meters there;
+    - meter ids two modes share resolve to one pot, the first mode's.
 
 ## Recent changes
 
@@ -302,8 +322,16 @@ starts the phase sessions, reviews their PRs and merges them.
 
       Mutations caught: the stack ignored (21 checks fail), no rebuild per mode (1), screens by
       plain id (3), no autoplay guard (3).
+    - Its §6 drives the REAL play seam: `createPlayBook` + `createModeController`, with
+      `holdBeforeRespin` / `ensureBoard` / `respinStrip` sliced from source, on the coded and flow
+      branches and through a resume. 141/0. Mutations that turn it red:
+      - dropping `holdBeforeEvent: holdBeforeRespin`: 1 check fails;
+      - the hold after the presentation: 2 (flow branch) and 2 (coded branch);
+      - `ensureBoard` without `sameRespinBoard`: 2;
+      - `respinStrip` reading `paddingReels.respin`: 4;
+      - the `isContinuousBet` guard: 2.
     - `bonusGames.fixture.ts` §8 pins `play` and `respinModeRules`.
-    - `check:respin-modes` 128/0, and `bonusGames.fixture.ts` passes;
+    - `check:respin-modes` 141/0, and `bonusGames.fixture.ts` passes;
     - `check:holdandwin` 1892/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS` unchanged;
     - `check:bonus-modes`, `check:engine-game` 11/11, `check:resume` and `check:freespins` pass;
     - `check:all` 413/413, `check:svelte` at baseline, and lint and prettier are clean on the

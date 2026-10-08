@@ -23,6 +23,13 @@
  *     before every respin of that mode (the first after the intro and after a resume too) and
  *     nowhere else; never under autoplay or space-hold; the intro and outro never park. Auto and
  *     absent never park.
+ *  6. THE REAL PLAY SEAM: the engine's own `createPlayBook` and `createModeController` (compiled by
+ *     Svelte's `compileModule`), with the game's own `holdBeforeRespin`, `ensureBoard` and
+ *     `respinStrip` sliced from their sources. On the coded AND the flow branch a Manual respin is
+ *     presented only after its park; the board is built once per mode, on that mode's strip; Automatic
+ *     never parks, nor does Manual on the last autoplay round or under hold-to-spin; a resume
+ *     (`convertTorResumableBet`) rebuilds mode 2 with no intro and parks its next respin. `utils.ts`
+ *     hands the seam the hold.
  *  5. PARITY: for every game with one respin mode (the three presets, the test fixtures, a 3 Pots
  *     host) the runtime reads exactly what it read from `config.holdAndWin`: the same block object,
  *     the same blank, strip, rows, jackpots, meters and screens.
@@ -61,7 +68,12 @@ import {
 } from '../packages/engine-game/src/game/modeStack.ts';
 import { withPotsOverlay } from './mock-pots-overlay.mjs';
 import { createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
+import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
+import { register } from 'node:module';
+import { pathToFileURL } from 'node:url';
+
+import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 
 import {
 	jackpotTier,
@@ -390,8 +402,8 @@ const verifyFeature = (label: string, steps: Step[], mode: RespinModeRules) => {
 	);
 	check(
 		`${label}: …on its own strip, blank and rows`,
-		[...new Set(board.map((s) => JSON.stringify(s.board)))],
-		[JSON.stringify(respinBoardShape(mode, GRID_ROWS))],
+		[...new Set(board.map((s) => JSON.stringify([s.board, s.active?.blank])))],
+		[JSON.stringify([respinBoardShape(mode, GRID_ROWS), mode.blank])],
 	);
 	const states = steps.filter((s) => s.event.type === 'holdAndWinState');
 	check(
@@ -477,6 +489,8 @@ check(
 
 /** What a resume mid mode 2 replays, and the stack it restores — 4b plays it Manual. */
 let resumed2: { events: BookEvent[]; restored: ModeStackState } | undefined;
+/** The resumed round as the facade answered it, for the real seam (§6). */
+let resumedBet: { state: BookEvent[]; event: string } | undefined;
 {
 	const host = await startHost('force:pot:green', 'runtime-modes-resume');
 	const sid = 'runtime-resume';
@@ -527,6 +541,7 @@ let resumed2: { events: BookEvent[]; restored: ModeStackState } | undefined;
 		.pop();
 	const replayed = replay ? [replay, ...book.slice(at)] : book.slice(at);
 	resumed2 = { events: replayed, restored };
+	resumedBet = { state: structuredClone(book), event: String(at) };
 	const steps = walk(replayed, restored);
 	check(
 		'resume: the restored stack puts mode 2 on top, and its replayed snapshot is mode 2’s',
@@ -563,8 +578,8 @@ const hostPlaying = (playA?: 'auto' | 'manual', playB?: 'auto' | 'manual') => {
 };
 
 /** Where the book parks on SPIN: the index of every event it waits before. */
-const parks = (steps: Step[], continuous: boolean) =>
-	steps.flatMap((s, i) => (parksBeforeRespin(s.event.type, s.before?.play, continuous) ? [i] : []));
+const parks = (steps: Step[], handsOff: boolean) =>
+	steps.flatMap((s, i) => (parksBeforeRespin(s.event.type, s.before?.play, handsOff) ? [i] : []));
 const respinsOf = (steps: Step[], mode: string) =>
 	steps.flatMap((s, i) => (s.event.type === 'respinReveal' && s.event.mode === mode ? [i] : []));
 
@@ -670,7 +685,7 @@ for (const [label, doc] of singleModeDocs) {
 	);
 	check(
 		`parity ${label}: the same blank, strip and rows, auto play`,
-		[board.blank, board.gameType, board.rows, active?.play],
+		[active?.blank, board.gameType, board.rows, active?.play],
 		[was.blank, was.strip, was.rows, 'auto'],
 	);
 	check(
@@ -706,6 +721,330 @@ check(
 	[...new Set(resolveMeters(HOST).map((m) => m.bonus.mode))].sort(),
 	[MODE_A, MODE_B].sort(),
 );
+
+// ---------- 6. the REAL play seam ----------
+
+// The engine's own `createPlayBook` and `createModeController` (its `.svelte.ts` compiled by Svelte's
+// `compileModule`, server output — the hook `newGameGate.fixture.mjs` uses), with the game's own
+// `holdBeforeRespin`, `ensureBoard` and `respinStrip` sliced from their sources and run against
+// stubs. A respin must park BEFORE it is presented, on the coded and the flow branch alike; the board
+// must be built per mode, on that mode's strip; a resume must restore the mode and park.
+
+const stub = (source: string) => 'data:text/javascript,' + encodeURIComponent(source);
+const SEAM_STUBS = {
+	'$app/state': stub('export const page = { url: new URL("https://game.test/") };'),
+	'$env/static/public': stub(
+		'export const PUBLIC_SITE_MODE = ""; export const PUBLIC_SENTRY_DSN = ""; export const PUBLIC_SENTRY_SAMPLE_RATE = ""; export const PUBLIC_CHROMATIC = "";',
+	),
+	'rgs-requests': stub('export const requestEndEvent = async () => ({});'),
+	'error-tracking': stub('export const captureRgsFailure = () => {};'),
+	// No `main`, so node would look for `index.js`; the bundler reads `index.ts`.
+	...Object.fromEntries(
+		['state-shared', 'utils-book', 'utils-shared', 'envs', 'utils-event-emitter'].map((name) => [
+			name,
+			new URL(`../packages/${name}/index.ts`, import.meta.url).href,
+		]),
+	),
+};
+register(
+	'data:text/javascript,' +
+		encodeURIComponent(`
+			import { readFile } from 'node:fs/promises';
+			import { createRequire, stripTypeScriptTypes } from 'node:module';
+			import { fileURLToPath } from 'node:url';
+			const STUBS = ${JSON.stringify(SEAM_STUBS)};
+			export async function resolve(specifier, context, next) {
+				if (STUBS[specifier]) return { url: STUBS[specifier], shortCircuit: true };
+				try {
+					return await next(specifier, context);
+				} catch (err) {
+					if (!specifier.startsWith('.') && !/^[\\w-]+\\/[\\w/-]+$/.test(specifier)) throw err;
+					for (const ext of ['.ts', '/index.ts']) {
+						try {
+							return await next(specifier + ext, context);
+						} catch {}
+					}
+					throw err;
+				}
+			}
+			export async function load(url, context, next) {
+				// Vite's \`import.meta.env\` is absent under node: the play seam reads only \`DEV\`.
+				if (url.endsWith('/engine-game/src/game/playBook.ts')) {
+					const text = await readFile(fileURLToPath(url), 'utf8');
+					const js = stripTypeScriptTypes(text.replaceAll('import.meta.env.DEV', 'false'));
+					return { format: 'module', source: js, shortCircuit: true };
+				}
+				if (!url.endsWith('.svelte.ts')) return next(url, context);
+				const path = fileURLToPath(url);
+				const { compileModule } = createRequire(path)('svelte/compiler');
+				const js = stripTypeScriptTypes(await readFile(path, 'utf8'));
+				const { js: out } = compileModule(js, { filename: path, generate: 'server' });
+				return { format: 'module', source: out.code, shortCircuit: true };
+			}
+		`),
+	pathToFileURL('./'),
+);
+
+const { createPlayBook } = await import('../packages/engine-game/src/game/playBook.ts');
+const { createModeController } =
+	await import('../packages/engine-game/src/game/modeController.svelte.ts');
+const { stateBet } = await import('../packages/state-shared/index.ts');
+
+const source = (rel: string) => readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
+const sliceBetween = (text: string, what: string, from: string, to: string) => {
+	const start = text.indexOf(from);
+	if (start < 0) throw new Error(`${what}: could not find "${from}"`);
+	const end = text.indexOf(to, start + from.length);
+	if (end < 0) throw new Error(`${what}: could not find "${to}" after it`);
+	return text.slice(start, end + to.length);
+};
+const LINES = 'apps/lines/src/game';
+const holdSource = source(`${LINES}/respinHold.svelte.ts`);
+const boardSource = source(`${LINES}/stateRespinBoard.svelte.ts`);
+const utilsSource = source(`${LINES}/utils.ts`);
+
+check(
+	'the game hands its play seam the Manual respin hold',
+	utilsSource.includes('holdBeforeEvent: holdBeforeRespin,'),
+	true,
+);
+
+type Seam = {
+	log: string[];
+	builds: { mode?: string; strip: unknown }[];
+	controller: ReturnType<typeof createModeController>;
+	playBet: (bet: { state: BookEvent[] }) => Promise<void>;
+	convertTorResumableBet: (bet: { state: BookEvent[]; event: string }) => {
+		state: BookEvent[];
+	};
+};
+
+/** One game wired to the real seam: `modes` are the respin modes it declares, `flow` whether a v2
+ *  flow owns every event. */
+const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
+	const modes = respinModeRules(doc);
+	const log: string[] = [];
+	const builds: Seam['builds'] = [];
+	const controller = createModeController({
+		gameTypeOf: (id: string) => modes.find((m) => m.mode === id)?.gameType ?? 'basegame',
+		setGameType: () => {},
+		present: async () => {},
+	});
+	const activeRespinMode = () =>
+		respinModeOnStack(
+			modes,
+			controller.state.stack.map((entry: { id: string }) => entry.id),
+		);
+	const hold = compileSlice({
+		what: 'respinHold.svelte.ts#holdBeforeRespin',
+		names: ['parksBeforeRespin', 'activeRespinMode', 'stateBet', 'armSpinHold', 'stateRespinPark'],
+		body: `${stripSliceTypes(
+			'respinHold',
+			sliceBetween(holdSource, 'handsOff', 'const handsOff = ', ';\n') +
+				'\n' +
+				sliceBetween(holdSource, 'holdBeforeRespin', 'export const holdBeforeRespin = (', '\n};\n'),
+		).replace('export const', 'const')}\nreturn holdBeforeRespin;`,
+	})(
+		parksBeforeRespin,
+		activeRespinMode,
+		stateBet,
+		(release: () => void) => {
+			log.push('park');
+			setImmediate(release);
+		},
+		{ parked: false },
+	);
+	const board = compileSlice({
+		what: 'stateRespinBoard.svelte.ts#ensureBoard',
+		names: [
+			'getActiveGameConfig',
+			'getPaddingReels',
+			'activeRespinMode',
+			'boardDimensions',
+			'respinBoardShape',
+			'sameRespinBoard',
+			'createRespinBoard',
+			'stateGameDerived',
+			'cellSymbolLead',
+			'respinSeedBoard',
+			'respinBlank',
+			'onCellStopping',
+		],
+		body: `let board = null;\nlet boardMode;\n${stripSliceTypes(
+			'stateRespinBoard',
+			sliceBetween(boardSource, 'respinStrip', 'const respinStrip = (', '\n};\n') +
+				'\n' +
+				sliceBetween(boardSource, 'ensureBoard', 'const ensureBoard = (', '\n};\n'),
+		)}\nreturn { ensureBoard, respinStrip };`,
+	})(
+		() => doc,
+		() => doc.paddingReels.basegame,
+		activeRespinMode,
+		() => ({ x: doc.numReels, y: GRID_ROWS }),
+		respinBoardShape,
+		sameRespinBoard,
+		(options: { reels: number; rows: number }) => ({ reels: options.reels, rows: options.rows }),
+		{ boardGeometry: () => ({ rowPitchLocal: 1 }), reelSpinProfile: () => undefined },
+		() => 0,
+		() => [],
+		() => 'BLANK',
+		() => {},
+	);
+	const showBoard = (type: string) => {
+		const built = board.ensureBoard();
+		if (builds.at(-1)?.board !== built)
+			builds.push({
+				board: built,
+				mode: activeRespinMode()?.mode,
+				strip: board.respinStrip(0)[0]?.name,
+			} as never);
+		log.push(`board:${type}`);
+	};
+	const present = async (bookEvent: BookEvent) => {
+		if (bookEvent.type === 'holdAndWinTrigger' || bookEvent.type === 'holdAndWinState')
+			showBoard(bookEvent.type);
+		log.push(`present:${bookEvent.type}`);
+	};
+	let playBookEvent: (event: BookEvent, context: { bookEvents: BookEvent[] }) => Promise<void>;
+	const handlers = new Proxy(
+		{
+			createBonusSnapshot: async (event: { bookEvents: BookEvent[] }) => {
+				const last = [...event.bookEvents].reverse().find((e) => e.type === 'holdAndWinState');
+				if (last) await playBookEvent(last, { bookEvents: event.bookEvents });
+			},
+		} as Record<string, (event: never) => Promise<void>>,
+		{ get: (target, type: string) => target[type] ?? present },
+	);
+	const noop = () => {};
+	const book = createPlayBook({
+		bookEventHandlerMap: handlers,
+		getFlowInterpreter: () => undefined,
+		getFlowV2: () =>
+			flow
+				? {
+						ownsEvent: (type: string) => type !== 'createBonusSnapshot',
+						dispatch: async (_type: string, event: BookEvent) => {
+							log.push('flow');
+							await present(event);
+						},
+						chainCallsAction: () => false,
+					}
+				: undefined,
+		eventEmitter: { broadcast: noop, broadcastAsync: async () => {} },
+		runBookEventPresentation: (_type: string, run: () => Promise<void>) => run(),
+		startsCelebration: () => false,
+		recordWinCycleWins: noop,
+		forgetWinCycleWins: noop,
+		stopWinCycle: noop,
+		startWinCycle: async () => {},
+		explodeSpinWinners: async () => {},
+		explodeWinnersBeforeBoardChange: async () => {},
+		bakedWinLineConfig: () => ({ line: { allAtOnce: false } }),
+		winsOnThisBoard: () => [],
+		showAllWinLines: async () => {},
+		activeWinLevelData: () => undefined,
+		cueBigWinCountUp: async () => {},
+		setPendingScatterAwardFs: noop,
+		holdAfterBigWin: async () => {},
+		clearSpinHold: noop,
+		holdBeforeEvent: hold,
+		trackCascadeStep: noop,
+		modes: controller,
+	} as never);
+	playBookEvent = book.playBookEvent;
+	return {
+		log,
+		builds,
+		controller,
+		playBet: book.playBet,
+		convertTorResumableBet: book.convertTorResumableBet,
+	};
+};
+
+/** The host with both respin modes Manual (or as given), as the config reads back. */
+const hostDoc = (playA?: 'auto' | 'manual', playB?: 'auto' | 'manual'): GameConfigDoc => {
+	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
+	delete raw.holdAndWin;
+	delete raw.potsOverlay;
+	raw.modes = raw.modes?.map((m) => {
+		const play = m.id === MODE_A ? playA : m.id === MODE_B ? playB : undefined;
+		return m.holdAndWin && play ? { ...m, holdAndWin: { ...m.holdAndWin, play } } : m;
+	});
+	return normalized(raw);
+};
+
+/** Every respin: is the event presented right after its park, with nothing in between? */
+const parkedRight = (log: string[]) => {
+	const presented = log.flatMap((entry, i) => (entry === 'present:respinReveal' ? [i] : []));
+	const before = (i: number) => (log[i - 1] === 'flow' ? log[i - 2] : log[i - 1]);
+	return {
+		respins: presented.length,
+		parks: log.filter((e) => e === 'park').length,
+		everyParkRightBefore: presented.every((i) => before(i) === 'park'),
+	};
+};
+
+const bothBook = both.map((s) => structuredClone(s.event));
+for (const flow of [false, true]) {
+	const branch = flow ? 'flow' : 'coded';
+	stateBet.autoSpinsCounter = 0;
+	stateBet.isSpaceHold = false;
+	const manual = buildSeam(hostDoc('manual', 'manual'), flow);
+	await hush(() => manual.playBet({ state: structuredClone(bothBook) }));
+	const seen = parkedRight(manual.log);
+	check(
+		`seam (${branch}): Manual parks before every respin, and the respin is presented only after it`,
+		[seen.respins > 4, seen.parks === seen.respins, seen.everyParkRightBefore],
+		[true, true, true],
+	);
+	check(
+		`seam (${branch}): the board is built once per mode, on that mode's own strip`,
+		manual.builds.map((b) => [b.mode, b.strip]),
+		[
+			[MODE_A, HOST.paddingReels.respin[0][0].name],
+			[MODE_B, HOST.paddingReels[KEY_B][0][0].name],
+		],
+	);
+	const auto = buildSeam(hostDoc(), flow);
+	await hush(() => auto.playBet({ state: structuredClone(bothBook) }));
+	check(`seam (${branch}): Automatic (absent) never parks`, parkedRight(auto.log).parks, 0);
+	for (const [label, set] of [
+		['the LAST autoplay round (counter 1)', () => (stateBet.autoSpinsCounter = 1)],
+		['hold-to-spin', () => (stateBet.isSpaceHold = true)],
+	] as const) {
+		set();
+		const handsOff = buildSeam(hostDoc('manual', 'manual'), flow);
+		await hush(() => handsOff.playBet({ state: structuredClone(bothBook) }));
+		check(
+			`seam (${branch}): Manual never parks under ${label}`,
+			parkedRight(handsOff.log).parks,
+			0,
+		);
+		stateBet.autoSpinsCounter = 0;
+		stateBet.isSpaceHold = false;
+	}
+}
+
+if (resumedBet) {
+	for (const flow of [false, true]) {
+		const branch = flow ? 'flow' : 'coded';
+		const seam = buildSeam(hostDoc(undefined, 'manual'), flow);
+		const bet = seam.convertTorResumableBet(structuredClone(resumedBet));
+		await hush(() => seam.playBet(bet));
+		const firstRespin = seam.log.indexOf('present:respinReveal');
+		check(
+			`seam resume (${branch}): the snapshot rebuilds mode 2's board with no intro, then the next respin parks`,
+			[
+				seam.builds[0]?.mode,
+				seam.builds[0]?.strip,
+				seam.log.includes('present:holdAndWinTrigger'),
+				seam.log.slice(0, firstRespin).includes('park'),
+				parkedRight(seam.log).everyParkRightBefore,
+			],
+			[MODE_B, HOST.paddingReels[KEY_B][0][0].name, false, true, true],
+		);
+	}
+}
 
 realLog(`\n${passes} runtime respin-mode checks passed, ${failures} failed.`);
 if (failures) process.exit(1);

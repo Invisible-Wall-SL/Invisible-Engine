@@ -173,8 +173,7 @@ export const respinBlank = (): string =>
  * game's pictures — art a respin can never land, sliced at every cell edge by the one-row window.
  */
 const respinStrip = (reel: number): RawSymbol[] => {
-	const { gameType } = respinBoardShape(activeRespinMode(), 0);
-	const respin = getActiveGameConfig().paddingReels[gameType] ?? [];
+	const respin = getActiveGameConfig().paddingReels[activeRespinMode()?.gameType ?? 'respin'] ?? [];
 	const strips = respin.length > 0 ? respin : getPaddingReels('basegame');
 	return (strips[reel] ?? strips[0] ?? []) as RawSymbol[];
 };
