@@ -38,6 +38,10 @@
 //      pointer and REPLACES the entry, so `/api/launcher/register-game` re-stamps it on every
 //      publish: it must patch an existing entry without disturbing anything else, must never CREATE
 //      one, must not write at all when the pin is already right, and must survive a lost CAS.
+//   6. THE /admin STAMP, over the REAL `setTestServerGameTableCapable` (same CAS patch loop): it
+//      sets and clears `tableCapable` on an own-bundle entry only, refuses an entry republished
+//      since the admin looked (its `updatedAt`), survives a lost manifest CAS, and its action calls
+//      `requireAdmin` before writing.
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -436,21 +440,37 @@ console.info('the register-game repair');
 
 const manifestModule = read('apps/launcher-api/src/lib/server/testServerManifest.ts');
 
-// The REAL function, TypeScript stripped rather than re-typed by hand, so a change to its logic is
-// a change to what runs here.
-const pinSource = stripSliceTypes(
-	'testServerManifest.ts#pinTestServerGameToProject',
-	sliceBetween(
-		manifestModule,
-		'pinTestServerGameToProject',
-		'export async function pinTestServerGameToProject(',
-		'\n}\n',
-	).replace('export async function', 'async function'),
+/** One REAL function of the module, from its opening line, TypeScript stripped rather than
+ *  re-typed by hand, so a change to its logic is a change to what runs here. */
+const manifestSlice = (name, opening) =>
+	stripSliceTypes(
+		`testServerManifest.ts#${name}`,
+		sliceBetween(manifestModule, name, opening, '\n}\n').replace(
+			'export async function',
+			'async function',
+		),
+	);
+// The pin and the stamp both write through the module's one CAS patch loop, so it rides along.
+const patchSource = manifestSlice(
+	'patchTestServerGame',
+	'async function patchTestServerGame<Stop extends string, Written extends string>(',
 );
+const pinSource = `${patchSource}\n${manifestSlice('pinTestServerGameToProject', 'export async function pinTestServerGameToProject(')}`;
 
 /** Drive the real function against an in-memory manifest. `conflicts` makes the first N writes lose
  *  their CAS, which is the only way to exercise the retry loop. */
-const pinHarness = async (games, pin, { conflicts = 0, gameKey = 'waysofwavesbuild' } = {}) => {
+const pinHarness = (games, pin, opts) =>
+	manifestHarness(pinSource, 'pinTestServerGameToProject', games, pin, opts);
+
+/** Drive one sliced manifest writer (`fn(gameKey, arg)`) against an in-memory manifest. `rival`
+ *  shapes what each CAS winner wrote (by default: a different game). */
+const manifestHarness = async (
+	source,
+	fn,
+	games,
+	arg,
+	{ conflicts = 0, gameKey = 'waysofwavesbuild', rival } = {},
+) => {
 	const writes = [];
 	let store = JSON.stringify({ games }, null, 2);
 	let etag = 'etag-0';
@@ -480,12 +500,12 @@ const pinHarness = async (games, pin, { conflicts = 0, gameKey = 'waysofwavesbui
 				// copy would pass just as well. The winner publishes a different game, so a correct
 				// retry — which re-reads before merging — ends with BOTH that game and our pin, while a
 				// read-once loop silently drops it. That is the exact bug the CAS exists to prevent.
+				const before = JSON.parse(store).games;
 				store = JSON.stringify(
 					{
-						games: {
-							...JSON.parse(store).games,
-							[`rival${n}`]: { protocol: 'lines', name: `Rival ${n}` },
-						},
+						games: rival
+							? rival(before, n)
+							: { ...before, [`rival${n}`]: { protocol: 'lines', name: `Rival ${n}` } },
 					},
 					null,
 					2,
@@ -498,11 +518,11 @@ const pinHarness = async (games, pin, { conflicts = 0, gameKey = 'waysofwavesbui
 	};
 	const keys = Object.keys(scope);
 	const run = compileSlice({
-		what: 'verify-test-server-project-pin / testServerManifest.ts#pinTestServerGameToProject',
-		names: [...keys, 'gameKey', 'pin'],
-		body: `return (async () => { ${pinSource} return pinTestServerGameToProject(gameKey, pin); })();`,
+		what: `verify-test-server-project-pin / testServerManifest.ts#${fn}`,
+		names: [...keys, 'gameKey', 'arg'],
+		body: `return (async () => { ${source} return ${fn}(gameKey, arg); })();`,
 	});
-	const outcome = await run(...keys.map((k) => scope[k]), gameKey, pin);
+	const outcome = await run(...keys.map((k) => scope[k]), gameKey, arg);
 	return { outcome, writes, manifest: JSON.parse(store) };
 };
 
@@ -767,6 +787,107 @@ await check('the test server reads the same field name', () => {
 	if (!server.includes('validHostSettings(meta.hostSettings')) {
 		throw new Error('services/test-server/server.mjs no longer reads `hostSettings`');
 	}
+});
+
+// ---------- 6. the /admin table-capable stamp ----------
+//
+// The desktop launcher does not claim `tableCapable` on register-game yet, so the owner stamps a
+// rebuilt desktop build from /admin (`?/setTableCapable`). The writer is the REAL
+// `setTestServerGameTableCapable`, through the same CAS patch loop as the pin.
+
+console.info('the /admin table-capable stamp');
+
+const stampSource = `${patchSource}\n${manifestSlice('setTestServerGameTableCapable', 'export async function setTestServerGameTableCapable(')}`;
+const stampHarness = (games, stamp, opts) =>
+	manifestHarness(stampSource, 'setTestServerGameTableCapable', games, stamp, opts);
+const DESKTOP_BUILD = { ...DESKTOP_WRITE, ...PIN, grid: { reels: 5, rows: 3, paylines: [] } };
+const STAMP = { tableCapable: true, seenUpdatedAt: DESKTOP_WRITE.updatedAt };
+const CLEAR = { tableCapable: false, seenUpdatedAt: DESKTOP_WRITE.updatedAt };
+
+await check('set: the stamp is written, and nothing else moves', async () => {
+	const { outcome, writes, manifest } = await stampHarness(
+		{ waysofwavesbuild: DESKTOP_BUILD, hotfruits: DESKTOP_WRITE },
+		STAMP,
+	);
+	eq(outcome, 'stamped', 'outcome');
+	eq(writes.length, 1, 'one write');
+	eq(writes[0].cond, { ifMatch: 'etag-0' }, 'under the manifest ETag');
+	eq(manifest.games.waysofwavesbuild, { ...DESKTOP_BUILD, tableCapable: true }, 'the entry');
+	eq(manifest.games.hotfruits, DESKTOP_WRITE, 'the sibling game');
+});
+
+await check('clear: the stamp is removed, not set false', async () => {
+	const { outcome, manifest } = await stampHarness(
+		{ waysofwavesbuild: { ...DESKTOP_BUILD, tableCapable: true } },
+		CLEAR,
+	);
+	eq(outcome, 'cleared', 'outcome');
+	eq(manifest.games.waysofwavesbuild, DESKTOP_BUILD, 'the entry, without the key');
+});
+
+await check('already so: a read and no write, either way', async () => {
+	const on = await stampHarness({ waysofwavesbuild: { ...DESKTOP_BUILD, tableCapable: true } }, STAMP); // prettier-ignore
+	const off = await stampHarness({ waysofwavesbuild: DESKTOP_BUILD }, CLEAR);
+	eq([on.outcome, on.writes.length, off.outcome, off.writes.length], ['unchanged', 0, 'unchanged', 0], 'outcomes'); // prettier-ignore
+});
+
+await check('CAS: a build republished since the admin looked is never stamped', async () => {
+	const { outcome, writes } = await stampHarness(
+		{ waysofwavesbuild: { ...DESKTOP_BUILD, updatedAt: '2026-10-09T00:00:00Z' } },
+		STAMP,
+	);
+	eq([outcome, writes.length], ['changed', 0], 'refused, nothing written');
+});
+
+await check('CAS: a lost manifest race is retried against the re-read manifest', async () => {
+	const { outcome, writes, manifest } = await stampHarness({ waysofwavesbuild: DESKTOP_BUILD }, STAMP, {
+		conflicts: 2,
+	}); // prettier-ignore
+	eq([outcome, writes.length], ['stamped', 3], 'two losses then a win');
+	eq(Object.keys(manifest.games).sort(), ['rival1', 'rival2', 'waysofwavesbuild'], 'rivals kept');
+	for (const w of writes) {
+		if (typeof w.cond?.ifMatch !== 'string') throw new Error('a write went out unguarded');
+	}
+	eq(manifest.games.waysofwavesbuild.tableCapable, true, 'stamped');
+});
+
+await check('CAS: a race lost to a republish of THIS build is refused on the re-read', async () => {
+	const { outcome, writes, manifest } = await stampHarness({ waysofwavesbuild: DESKTOP_BUILD }, STAMP, {
+		conflicts: 1,
+		rival: (games) => ({ ...games, waysofwavesbuild: { ...DESKTOP_WRITE, updatedAt: '2026-10-09T00:00:00Z' } }),
+	}); // prettier-ignore
+	eq([outcome, writes.length], ['changed', 1], 'one lost write, then refused');
+	eq(
+		'tableCapable' in manifest.games.waysofwavesbuild,
+		false,
+		'the republished entry is unstamped',
+	);
+});
+
+await check('a shared-runtime entry is refused: it is sold its table anyway', async () => {
+	const { outcome, writes } = await stampHarness(
+		{ waysofwavesbuild: { ...DESKTOP_BUILD, runtime: 'lines' } },
+		STAMP,
+	);
+	eq([outcome, writes.length], ['runtime', 0], 'refused, nothing written');
+});
+
+await check('no entry, or a prototype key: never invented', async () => {
+	const missing = await stampHarness({ hotfruits: DESKTOP_WRITE }, STAMP);
+	const proto = await stampHarness({ hotfruits: DESKTOP_WRITE }, STAMP, { gameKey: 'constructor' });
+	eq([missing.outcome, missing.writes.length, proto.outcome, proto.writes.length], ['no-entry', 0, 'no-entry', 0], 'outcomes'); // prettier-ignore
+});
+
+await check('the admin action is admin-only and goes through this writer', () => {
+	const admin = read('apps/launcher-api/src/routes/(app)/admin/+page.server.ts');
+	const start = admin.indexOf('\tsetTableCapable: async');
+	if (start < 0) throw new Error('admin ?/setTableCapable is gone');
+	const next = admin.slice(start + 1).search(/\n\t[a-zA-Z]+: async/);
+	const block = admin.slice(start, next < 0 ? undefined : start + 1 + next);
+	const gate = block.indexOf('await requireAdmin(locals)');
+	if (gate < 0) throw new Error('?/setTableCapable does not call requireAdmin');
+	const write = block.indexOf('setTestServerGameTableCapable(');
+	if (write < 0 || write < gate) throw new Error('?/setTableCapable writes before (or without) its admin gate'); // prettier-ignore
 });
 
 console.info(failures === 0 ? `\nAll ${ran} checks passed.` : `\n${failures} check(s) FAILED.`);
