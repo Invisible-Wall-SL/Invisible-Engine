@@ -790,6 +790,23 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-08 — **`/config` gets Bonus modes and Coin overlay sections and writes the split form**
+  (Phase 5a of [bonus-games.md](../design/bonus-games.md), PR #1136). Detail and gates:
+  [status/bonus-games.md](bonus-games.md). Guide: [tools/game-config.md](../tools/game-config.md).
+  - **Coin overlay** replaces the Add-ons section (`CoinOverlaySection.svelte`). It edits the style,
+    the pots and drops, the base-game coin values and special flags, and the triggers and meters,
+    each with a "starts →" mode picker.
+  - **Bonus modes** (`BonusModesSection.svelte`) gives each respin mode its own rules editor
+    (`HoldAndWinRules.svelte`, the old Hold and Win section pointed at `modes[i].holdAndWin`). It
+    adds a respin mode from a preset or empty, renames it and removes it. Game modes keeps the
+    respin modes' presentation fields only.
+  - The page holds and PUTs `splitFormOf(doc)`, so neither legacy key is ever sent; the save
+    regenerates the mirror.
+  - New in `game-config`: `splitFormOf`, `addRespinMode` / `renameRespinMode` /
+    `removeRespinMode` (`src/bonusModes.ts`) and `retargetRoutes`. Every respin mode's rules are
+    validated under `modes.<id>.holdAndWin`.
+  - Gates: `bonusModes.fixture.ts` and `check:config-bonus-modes`.
+
 - 2026-10-08 — **The schema splits bonuses: a coin overlay and declared bonus modes** (Phase 1 of
   [bonus-games.md](../design/bonus-games.md), PR #1133). Detail and gates:
   [status/bonus-games.md](bonus-games.md).

@@ -34,7 +34,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 2 | Mock: per-mode engines | not started (needs 1) | — | — |
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
-| 5a | `/config` Bonus modes + Coin overlay | in progress | Bonus games Phase 5a — /config Bonus modes + Coin overlay | — |
+| 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
 | 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
 | 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
@@ -113,7 +113,86 @@ starts the phase sessions, reviews their PRs and merges them.
   - Mode-level validation of a SECOND respin mode's rules is still owed. Only the mirrored primary
     goes through `validateHoldAndWin`; Phase 2 or 5a should run it per mode.
 
+- 2026-10-08 — **Phase 5a: what the `/config` writer settled** (PR #1136).
+  - **`/config` is a split-form writer.** The page holds `splitFormOf(doc)` and PUTs it, so neither
+    legacy key is ever sent; its readers and validators see the mirror through
+    `withLegacyPair(snapshot)`. The add-on helpers still return docs with the legacy pair, so the
+    page runs `splitFormOf` on every result. Phase 6 writers should do the same.
+  - **Removing a respin mode** is `removeRespinMode(doc, id)`. The primary still goes through
+    `removeHoldAndWin`. `removeHoldAndWin` itself still leaves the pots that named the mode,
+    because the overlay's removal takes them and an import replace re-declares the id.
+    `removeRespinMode` re-routes them to free spins when free spins are on. Otherwise it removes
+    them with their drops, and a note says so.
+  - **Per-mode validation.** Every respin mode except the mirrored one runs through
+    `validateHoldAndWin` on a view where it is the primary. Its issues are reported under
+    `modes.<id>.holdAndWin.*`. The doc-wide issues (win model, paytables) stay with the primary's
+    run. Two fixes in the legacy validators came with it:
+    - `validateHoldAndWin` reads pot routes against the primary's id, not the literal `holdAndWin`;
+    - a symbol tagged for a special that another respin mode configures is no longer reported as
+      doing nothing.
+
+    `validatePotsOverlay` lets a pot activate a special of any respin mode it starts. All three
+    changes only relax errors.
+  - **Severity.** A respin mode without rules is an ERROR only when a route starts it, because
+    Bonus modes fixes that in one click; an unstarted one stays a warning. "No strips" stays a
+    warning: `/config` has no strip editor, so it cannot fix it. A project that saved before
+    still saves.
+  - **Ids.** `holdAndWin` keeps its id until Phase 4: the game, its screens and its Flow tab know
+    it by that name. `holdAndWin` is also refused as a new id beside another primary, because it
+    would take over the mirror. A renamed mode keeps its strips: its `gameType` is pinned to the
+    old one.
+  - **A new respin mode from a preset** brings its rules, respin strips and symbols (renamed on a
+    clash). It adds no route and no base-game flag: the author routes it in Coin overlay.
+  - **For Phase 2 (mock):**
+    - `coinOverlay.coins` (the base-game coin values) can now be authored, but nothing reads it
+      yet;
+    - `holdAndWinMockInputs(doc).symbols` lists every respin mode's role symbols, because the
+      dictionary is shared. Mode 1's entries are unchanged.
+
 ## Recent changes
+
+- 2026-10-08 — **Phase 5a: `/config` Bonus modes + Coin overlay, and a split-form writer** (PR
+  #1136).
+  - **Coin overlay** (`CoinOverlaySection.svelte`, the former Add-ons section; its UI label is
+    now "Coin overlay") edits:
+    - the style;
+    - the pots and drops;
+    - the base-game coin values and special flags;
+    - the triggers and the meters, each with a "starts →" picker over the respin modes. Pots list
+      every bonus mode, free spins included.
+  - **Bonus modes** (`BonusModesSection.svelte`) lists every bonus mode with what starts it. Each
+    respin mode has its own rules editor (`HoldAndWinRules.svelte`, the old section pointed at
+    `modes[i].holdAndWin`). A respin mode is added from a preset (Classic, 3 Pots or Collector) or
+    empty, and is renamed and removed there. Game modes keeps the respin modes' presentation fields
+    only.
+  - **`game-config`:**
+    - `splitFormOf`;
+    - `addRespinMode` / `renameRespinMode` / `removeRespinMode` and the respin-mode id rules
+      (`src/bonusModes.ts`);
+    - `retargetRoutes`;
+    - per-mode validation.
+  - **Gates:**
+    - new `bonusModes.fixture.ts` and launcher `check:config-bonus-modes`. The gate runs the real
+      save/load over an in-memory R2. Its control shows that an edit beside a stale mirror would be
+      lost.
+    - `check:holdandwin`: 1892/0, `MAIN_DIGESTS` unchanged.
+    - `check:pots-overlay`: 112/0, `MAIN_DIGESTS` unchanged.
+    - `check:freespins` passes.
+    - The launcher's `check:bonus-import`, `check:pots-overlay-add-on`, `check:mock-contract`,
+      `check:game-config-defaults`, `check:symbols-kind-gating`, `check:flow-publish-gate` and
+      `check:launcher-gates` pass.
+    - `check:svelte` stays at the launcher-api baseline (48), and lint is clean.
+    - `check:all`: result to follow in the next push.
+  - **Done-when, as pinned by the gate:**
+    - a lines project adds a Coin overlay and two respin modes with different presets, routes pot
+      A → mode 1 and pot B → mode 2, and saves and reloads intact;
+    - an edit to mode 2 survives a save and a reload;
+    - the three Hold and Win samples and `borut-pots-sample` open, save and reload with no diff;
+    - the stored JSON still carries mode 1's legacy mirror.
+  - The flow was also clicked through in a throwaway browser harness that mounts the three
+    sections, with no console errors.
+  - **What's left:** a click-through on a real local launcher with the mock (needs Postgres and
+    R2, which the build session lacked). Findings are under "Decisions & findings".
 
 - 2026-10-08 — **Phase 1: the hub's review fixes** (PR #1133).
   - **Blocking 1:** a `reels` / `none` override of the Hold and Win mode no longer drops its block.
