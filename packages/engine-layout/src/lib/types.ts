@@ -425,6 +425,13 @@ export interface SpriteNode extends BaseNode {
 	region?: string;
 	width?: number;
 	height?: number;
+	/**
+	 * With `width`/`height` set, the drawn frame keeps ITS OWN ratio: it is fitted inside that box
+	 * (contain) instead of stretched to it. Matters when the frame is picked per instance through
+	 * a bound `region` param — art of another shape stays undistorted. A frame of the box's own
+	 * ratio draws exactly as before. Absent ⇒ stretch (parity).
+	 */
+	keepAspect?: boolean;
 	tint?: number;
 }
 

@@ -3257,14 +3257,32 @@
 		assetKeyOverride?: string,
 		tint?: number,
 	): void {
+		const assetKey = assetKeyOverride ?? node.assetKey;
+		const region = regionOverride ?? node.region ?? '';
 		drawArtRegionSprite(
 			ctx,
-			assetKeyOverride ?? node.assetKey,
-			regionOverride ?? node.region ?? '',
-			t,
+			assetKey,
+			region,
+			node.keepAspect ? keepAspectTransform(t, frameNaturalSize(assetKey, region)) : t,
 			node.label,
 			tint,
 		);
+	}
+
+	/**
+	 * A `keepAspect` sprite's box, as the game's `<Sprite contain>` draws it: the frame fitted inside
+	 * the DISPLAYED box (`width·scale` × `height·scale` — the game folds scale into the size), then
+	 * divided back by the scale the canvas transform applies. Unsized or unresolved ⇒ unchanged.
+	 */
+	function keepAspectTransform(
+		t: ResolvedTransform,
+		natural: { w: number; h: number } | null,
+	): ResolvedTransform {
+		if (!natural || t.width === undefined || t.height === undefined) return t;
+		const sx = t.scale?.x ?? 1;
+		const sy = t.scale?.y ?? 1;
+		const fit = Math.min((t.width * sx) / natural.w, (t.height * sy) / natural.h);
+		return { ...t, width: (natural.w * fit) / sx, height: (natural.h * fit) / sy };
 	}
 
 	/** A skinnable part's layer images, picked on the enclosing instance (or the open component). */
@@ -3346,11 +3364,16 @@
 		}
 	}
 
-	/** The natural size of a picked `<assetKey>::<region>` frame — its box when it declares one,
-	 * as `drawArtRegionSprite` sizes it — or null until the region resolves. */
+	/** The natural size of a picked `<assetKey>::<region>` frame. */
 	function tileImageNaturalSize(ref: string): { w: number; h: number } | null {
 		const { assetKey, region } = parseScopedFrameRef(ref);
-		const found = region ? findRegion(assetKey ?? '', region) : null;
+		return frameNaturalSize(assetKey ?? '', region);
+	}
+
+	/** A frame's natural size — its box when it declares one, as `drawArtRegionSprite` sizes it —
+	 * or null until the region resolves. */
+	function frameNaturalSize(assetKey: string, region: string): { w: number; h: number } | null {
+		const found = region ? findRegion(assetKey, region) : null;
 		if (!found) return null;
 		const boxed = artBoxGeometry(found.set.assetKey, found.region.name, found.region);
 		return boxed ? { w: boxed.origW, h: boxed.origH } : regionNaturalSize(found.region);
