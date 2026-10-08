@@ -38,7 +38,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
 | 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
-| 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | _PR pending_ |
+| 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
 | 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
 
@@ -299,7 +299,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-08 — **Phase 5d: Win Text and Localization per respin mode** (PR _pending_, `engine-layout`
+- 2026-10-08 — **Phase 5d: Win Text and Localization per respin mode** (PR #1146, `engine-layout`
   `winText.ts`, launcher `winTextStorage.ts` / `/win-text` / `localizationHarvest.ts` /
   `projectBonusImport.ts`, `apps/lines` `holdAndWin` text).
   - **The shape.** `WinTextDoc.modes?: Record<modeId, WinTextModeLines>` holds every respin mode but
