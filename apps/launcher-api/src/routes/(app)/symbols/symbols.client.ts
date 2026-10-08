@@ -160,7 +160,7 @@ export const POTS_TOKEN_STATE_HINTS: Partial<Record<SymbolState, string>> = {
  *  ONLY for a project with the book reveal (`kindCapabilities().bookReveal` — the config's expanding
  *  symbol, or the `bookOf` kind), the Hold and Win
  *  states ONLY for a project with the respin feature (`kindCapabilities().holdAndWin` — the kind or a
- *  `holdAndWin` block), just the token's land / idle / fly states for a pots overlay host without it
+ *  declared respin mode), just the token's land / idle / fly states for a pots overlay host without it
  *  (`pots` alone), the cascade
  *  state for a project that tumbles OR clears its board on a swap, and the swap state (`intro`) ONLY
  *  for a project that emerges. Every gate is RESOLVED server-side (`resolveCascade` /

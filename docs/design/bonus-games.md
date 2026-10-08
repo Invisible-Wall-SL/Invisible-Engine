@@ -170,8 +170,12 @@ Project (a whole game)
 ### 2.4 Tools
 
 - **`kindCapabilities`** answers from the doc, not the kind:
-  - Hold and Win parts appear when any declared mode has `board: 'respinBoard'`;
-  - coin roles appear when there is an overlay or a respin mode.
+  - Hold and Win parts appear when a declared mode has `board: 'respinBoard'` and Hold and Win rules
+    (a rule-less respin mode is inert);
+  - coin roles appear when there is a respin mode. A pots-only overlay's tokens carry no cash
+    value, so they add none (widen this when an overlay deals valued coins without a respin mode);
+  - the overlay's own parts (the Pots screen) appear when the coin overlay drops tokens: the
+    predicate the legacy `potsOverlay` mirror uses, read from the split form.
 - **`/config`:**
   - a **Bonus modes** section lists the modes. Each respin mode opens its own Hold and Win editor
     (today's `HoldAndWinSection`, pointed at that mode);

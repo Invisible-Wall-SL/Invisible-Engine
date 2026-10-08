@@ -681,9 +681,9 @@ check(
 	'capability inputs: Hold and Win game, pots to free spins, plain lines',
 	[presets.classic, overlays.potsToFreeSpins, host].map(bonusCapabilityInputs),
 	[
-		{ respinMode: true, coinOverlay: true },
-		{ respinMode: false, coinOverlay: true },
-		{ respinMode: false, coinOverlay: false },
+		{ respinMode: true, coinOverlay: true, potsOverlay: false },
+		{ respinMode: false, coinOverlay: true, potsOverlay: true },
+		{ respinMode: false, coinOverlay: false, potsOverlay: false },
 	],
 );
 

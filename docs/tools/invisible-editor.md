@@ -148,12 +148,21 @@ To start from something:
   and **Hold and Win** blocks): a Book of project with the pots overlay gets the Pot Meter in the
   Components list, the pot signals in the pickers, and a **Pots** screen in its screen set; one
   with a Hold and Win bonus also gets the respin parts, the Hold and Win signals and symbol
-  states, and the feature's screens.
+  states, and the feature's screens. A Hold and Win bonus here means any Game Config mode that
+  plays on the respin board with Hold and Win rules, not only the mode `holdAndWin`; one declared
+  without rules yet lights nothing.
 - **＋ Add overlay screens (n)** appears on a project of another kind whose add-on screens are
   missing. It adds only those: the **Pots** screen (one Pot Meter per pot in the Game Config),
   plus, with a Hold and Win bonus, the **Jackpot bar** and the feature's screens (not Lucky
   Spin). Each goes in after the screen it follows; existing screens are never replaced or edited.
   Hover it to see which screens it will add.
+- **One screen set per respin mode.** Both buttons add the feature's screens once for every respin
+  mode with rules the Game Config declares, each tagged with that mode. The `holdAndWin` mode keeps the plain
+  screens; another mode's screens (and the nodes on them) get `-<mode id>` on their ids and the mode's
+  name after theirs, e.g. **Respin board (Gold)**. Each set is laid out for its own mode's
+  expanding board, and the base reel grid makes room for the tallest. A Hold and Win
+  project already has the `holdAndWin` set, so there only the other respin modes' screens are
+  added (and **Add overlay screens** appears for them too).
 
 **Hold and Win screens.** A Hold and Win project starts with one screen set for all three
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
@@ -367,24 +376,24 @@ the library can never override work a project owns. Shared bundles travel the ex
 It is seeded with the engine's own set — the animation `apps/lines` ships — so a new
 project has something to place before it has commissioned anything:
 
-| Bundle                                                                    | Animations                                                                                                    |
-| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `engine-loader`                                                           | `title_screen`                                                                                                |
-| `engine-transition`                                                       | `animation`                                                                                                   |
-| `engine-bigwin`                                                           | `big_win` / `super_win` / `mega_win` / `epic_win` / `max_win`, each `_intro` `_idle` `_exit`                  |
-| `engine-anticipation`                                                     | `anticipation[1-4]_intro` `_loop` `_out`, plus `payframe` (the win frame)                                     |
-| `engine-reelhouse-glow`                                                   | `reelhouse_glow_start` `_idle` `_exit`                                                                        |
-| `engine-foreground` · `engine-foreground-feature`                         | `idle`, `dust`                                                                                                |
-| `engine-buy-button`                                                       | `buy_button_default` `_hover` `_click` `_disabled`, `_active_intro` `_idle` `_exit`                           |
-| `engine-fs-screen` · `engine-fs-screen-number` · `engine-fs-total-number` | `intro`, `idle`                                                                                               |
-| `engine-global-multiplier`                                                | `static`, `increment`, `win`, `reset`                                                                         |
-| `engine-cluster-pay`                                                      | `win`, `multiwin`                                                                                             |
-| `engine-tumble-win` · `engine-tumble-multiplier`                          | `explosion`, `idle` / `static`, `explosion_mobile`                                                            |
-| `engine-win-meter-explosion`                                              | `explosion`                                                                                                   |
-| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4`                          | `<id>`, `<id>_static`                                                                                         |
-| `engine-symbol-m`                                                         | the multiplier set (`2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*`)                          |
-| `engine-symbol-s`                                                         | `scatter_static` `_spin` `_land` `_win`                                                                       |
-| `engine-symbol-w`                                                         | `wild_dynamite` `_static` `_land` `_exploded_static`                                                          |
+| Bundle                                                                    | Animations                                                                                                  |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `engine-loader`                                                           | `title_screen`                                                                                              |
+| `engine-transition`                                                       | `animation`                                                                                                 |
+| `engine-bigwin`                                                           | `big_win` / `super_win` / `mega_win` / `epic_win` / `max_win`, each `_intro` `_idle` `_exit`                |
+| `engine-anticipation`                                                     | `anticipation[1-4]_intro` `_loop` `_out`, plus `payframe` (the win frame)                                   |
+| `engine-reelhouse-glow`                                                   | `reelhouse_glow_start` `_idle` `_exit`                                                                      |
+| `engine-foreground` · `engine-foreground-feature`                         | `idle`, `dust`                                                                                              |
+| `engine-buy-button`                                                       | `buy_button_default` `_hover` `_click` `_disabled`, `_active_intro` `_idle` `_exit`                         |
+| `engine-fs-screen` · `engine-fs-screen-number` · `engine-fs-total-number` | `intro`, `idle`                                                                                             |
+| `engine-global-multiplier`                                                | `static`, `increment`, `win`, `reset`                                                                       |
+| `engine-cluster-pay`                                                      | `win`, `multiwin`                                                                                           |
+| `engine-tumble-win` · `engine-tumble-multiplier`                          | `explosion`, `idle` / `static`, `explosion_mobile`                                                          |
+| `engine-win-meter-explosion`                                              | `explosion`                                                                                                 |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4`                          | `<id>`, `<id>_static`                                                                                       |
+| `engine-symbol-m`                                                         | the multiplier set (`2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*`)                        |
+| `engine-symbol-s`                                                         | `scatter_static` `_spin` `_land` `_win`                                                                     |
+| `engine-symbol-w`                                                         | `wild_dynamite` `_static` `_land` `_exploded_static`                                                        |
 | `engine-explosion`                                                        | `explosion` — the Symbols tool's Explosion default ([why](symbols-state-machine.md#the-shared-rig-library)) |
 
 **One bundle per skeleton, by design.** Upstream packs several skeletons behind one

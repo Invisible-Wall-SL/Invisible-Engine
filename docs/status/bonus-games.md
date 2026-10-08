@@ -35,7 +35,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 3 | Facade + wire + event types | in review | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
-| 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
+| 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
 | 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
@@ -113,6 +113,34 @@ starts the phase sessions, reviews their PRs and merges them.
   - Mode-level validation of a SECOND respin mode's rules is still owed. Only the mirrored primary
     goes through `validateHoldAndWin`; Phase 2 or 5a should run it per mode.
 
+- 2026-10-08 — **Phase 5b: what the capability keys on** (hub decision on the 5b question).
+  - `kindCapabilities().holdAndWin` (and so `coinSymbols`) is on when a declared respin mode has
+    RULES (`board: 'respinBoard'` with a `holdAndWin` game, the predicate `primaryRespinMode` uses;
+    hub review of #1137). A rule-less respin mode is inert and lights nothing, so a ways project's
+    win model is never locked to lines by one, and every rule-bearing mode has a mirror, so Flow
+    (which still reads the mirror) and the tools agree. A coin overlay alone does NOT turn on coin roles:
+    a pots-only host's tokens carry no cash value, so every current doc stays byte-identical.
+    **Follow-up:** widen it when an overlay deals valued coins without a respin mode.
+  - The overlay's own parts (`potsOverlay`, the Pots screen) key on `overlayDropsTokens(coinOverlay)`
+    (game-config). That is the predicate the legacy `potsOverlay` mirror uses, so the two cannot
+    drift, and dropping the mirror in Phase 7 changes nothing. `bonusCapabilityInputs` now returns
+    `potsOverlay` too. A classic Hold and Win project has a `coinOverlay` but drops nothing, so it
+    gets no Pots screen.
+  - A second respin mode's screens carry `-<modeId>` on their scene and node ids (children too),
+    and the mode's label in brackets after the screen name. The `holdAndWin` mode keeps the
+    reference ids. Each mode is laid out for its own `maxRows`, the base grid for the tallest.
+  - **Phase 4 must-dos** (the runtime still keys these screens by plain id):
+    - the coded banner beats (`HOLD_AND_WIN_BANNER_SCREENS`) must find the active mode's banner
+      screen by `modeId` + role, not by id;
+    - `RESERVED_SCENE_IDS` in `apps/lines/src/components/Game.svelte` lists `featureIntro`,
+      `featureOutro`, `wheel` and `jackpotWin` by plain id, so the `-<modeId>` copies would mount
+      as always-on overlays (the tap dim, a doubled jackpot banner) once a second mode plays.
+      Reserve by base id with the suffix stripped, or by `role: 'mode'` + base id.
+  - **For 5c:** `flowAddOnsOf` still reads the mirror. Move it onto `bonusCapabilityInputs` so Flow
+    stops reading the mirror before Phase 7.
+  - `/symbols` keeps coin-label jackpot text by tier name (no schema change). The Mode picker only
+    chooses whose tiers are listed, so two modes sharing a tier name share its label.
+
 - 2026-10-08 — **Phase 2: the wire emit rule and the "classic overlay over lines"** (hub-approved).
   - **Emit rule:** `bonusModes` and `mode` are sent only when the respin set is not the lone default,
     so every existing game is byte-identical. Phase 7 deletes the condition.
@@ -166,6 +194,35 @@ starts the phase sessions, reviews their PRs and merges them.
     event names it.
 
 ## Recent changes
+
+- 2026-10-08 — **Phase 5b: capabilities, Scene Editor and `/symbols` per mode** (PR #1137).
+  - **Capabilities.** `projectAddOns` reads `bonusCapabilityInputs`: the respin feature is a
+    declared respin mode with rules, and the pots overlay is `overlayDropsTokens` (the new
+    game-config helper the mirror uses too). The `holdAndWin` kind resolves as before.
+  - **Scene Editor.** `SceneSetOptions.respinModes` (from `respinModesOf` / `sceneSetOptionsFor`)
+    seeds the reference respin screens once per respin mode, tagged `modeId`. Each mode is laid
+    out for its own `maxRows`, and the base grid reserves the tallest. The `holdAndWin` kind adds
+    only its other modes' screens.
+  - **`/symbols`.** Coin-label jackpot tiers come from the respin mode being edited (the primary
+    first), with a **Mode** picker when there are several. Role chips follow the capability.
+  - **Guides:** `docs/tools/invisible-editor.md` and `docs/tools/symbols-state-machine.md`. Design
+    §2.4 is corrected to the hub's decision.
+  - **Gates:**
+    - The new `check:bonus-modes-tools` (82 checks) covers:
+      - a lines doc with two respin modes: both screen sets with distinct `modeId`s, no duplicate
+        scene or node ids, per-mode `maxRows`, the capability on, per-mode tiers;
+      - a second mode on the `holdAndWin` kind (its own mode keeps its own layout);
+      - a rule-less respin mode on lines and ways: inert, main's add-ons, capabilities and screens;
+      - every doc without a second mode (the presets, an expanding Hold and Win, lines + overlays,
+        `borut-pots-sample`): byte-identical add-ons, scene sets and tiers, and the same add-ons
+        with the legacy keys stripped.
+    - `check:flow-publish-gate`, `check:symbols-kind-gating`, `check:pots-overlay-add-on`,
+      `check:bonus-import` and `bonusGames.fixture` (its §6 now pins `potsOverlay`) pass.
+    - `check:all` 411/411. `check:holdandwin` 1892/0 and `check:pots-overlay` 112/0, both with
+      `MAIN_DIGESTS` unchanged (byte-identical to main). `check:svelte` is at baseline, and lint,
+      prettier and `check:undefined-names` are clean.
+  - **What's left:** the Phase 4 must-dos and the 5c `flowAddOnsOf` move (Decisions & findings).
+    5d covers Win Text and Localization tiers per mode.
 
 - 2026-10-08 — **Phase 3: the hub's review round** (PR #1139).
   - **Blocking 1:** `spinTrigger.trigger.mode` names the mode. The fixture's proxy writes the

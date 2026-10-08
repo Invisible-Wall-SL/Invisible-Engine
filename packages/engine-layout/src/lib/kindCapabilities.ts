@@ -29,9 +29,12 @@ export interface KindCapabilityConfig {
 	cascade?: boolean;
 	/** `resolveWinModel(doc).type`. */
 	winModel?: string;
-	/** The project's config carries a `holdAndWin` block (a Hold and Win bonus on any kind). */
+	/** The project declares a respin mode with rules — `board: 'respinBoard'` and a Hold and Win game
+	 *  (game-config's `bonusCapabilityInputs().respinMode`, `docs/design/bonus-games.md` §2.4): a
+	 *  Hold and Win bonus on any kind. */
 	holdAndWin?: boolean;
-	/** The project's config carries a `potsOverlay` block (the pots overlay add-on). */
+	/** The coin overlay drops tokens (`bonusCapabilityInputs().potsOverlay`): the pots overlay
+	 *  add-on. */
 	potsOverlay?: boolean;
 	/** `resolveExpandingSymbol(doc) !== undefined` — the Book-of expanding special is on
 	 *  (`docs/design/book-feature.md` §3.3). */
@@ -51,7 +54,7 @@ export interface KindCapabilities {
 	cascade: boolean;
 	/** The scatter kind's multiplier-collect beat. */
 	multiplierCollect: boolean;
-	/** The Hold and Win respin feature: the kind's own, or a `holdAndWin` block's. */
+	/** The Hold and Win respin feature: the kind's own, or a declared respin mode's. */
 	holdAndWin: boolean;
 	/** Coin symbols carrying a cash value or a jackpot label. Follows {@link holdAndWin}. */
 	coinSymbols: boolean;

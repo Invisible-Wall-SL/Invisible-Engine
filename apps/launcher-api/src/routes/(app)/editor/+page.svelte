@@ -1490,14 +1490,16 @@
 		);
 	});
 
-	/** The project's Game Config expands its respin board ⇒ the scene set reserves the grown area; its
-	 *  add-on blocks merge their screens in, with the config's pots on the pots screen. */
+	/** The project's Game Config expands a respin board ⇒ the scene set reserves the grown area; its
+	 *  add-ons merge their screens in, one set per respin mode, with the config's pots on the pots
+	 *  screen. */
 	const sceneSetOptions = $derived<SceneSetOptions>({
 		...(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {}),
+		...(data.respinModes.length ? { respinModes: data.respinModes } : {}),
 		...data.addOns,
 		...(data.potIds ? { potIds: data.potIds } : {}),
 	});
-	/** The missing screens an add-on brings (the Pots screen, + the Hold and Win bonus screens). */
+	/** The missing screens an add-on brings (the Pots screen, + each respin mode's screens). */
 	const missingOverlayScreens = $derived.by(() => {
 		const ids = addOnSceneIds(projectGameType, sceneSetOptions);
 		return missingScreens.filter((scene) => ids.includes(scene.id));
@@ -3111,7 +3113,7 @@
 						<button
 							class="add-hud-btn"
 							type="button"
-							title={`Add the screens this game's add-ons bring — the overlay's Pots screen (its pots from Game Config), plus the Jackpot bar and the respin screens of a Hold and Win bonus — each next to the screen it follows. Never touches an existing screen: ${missingOverlayScreens
+							title={`Add the screens this game's add-ons bring — the overlay's Pots screen (its pots from Game Config), plus the Jackpot bar and each Hold and Win mode's own respin screens — each next to the screen it follows. Never touches an existing screen: ${missingOverlayScreens
 								.map((s) => s.name || s.id)
 								.join(', ')}`}
 							onclick={() => addMissingScreens(missingOverlayScreens)}
