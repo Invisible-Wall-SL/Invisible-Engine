@@ -514,13 +514,21 @@ export async function pinTestServerGameToProject(
 			entry.projectKey === pin.projectKey &&
 			entry.docBase === pin.docBase &&
 			entry.readToken === pin.readToken &&
-			entry.tableCapable === pin.tableCapable
+			(entry.tableCapable === true) === (pin.tableCapable === true)
 		) {
 			return 'already-pinned';
 		}
 		// Spread FIRST so the pin wins, and so `grid`/`cascade`/`runtime`/`updatedAt` — none of which
-		// this endpoint knows anything about — survive untouched.
-		manifest.games[key] = { ...entry, ...pin };
+		// this endpoint knows anything about — survive untouched. The table-capable stamp follows the
+		// pin both ways: a registration that does not claim it removes it.
+		const { tableCapable: _stamp, ...rest } = entry;
+		manifest.games[key] = {
+			...rest,
+			projectKey: pin.projectKey,
+			docBase: pin.docBase,
+			readToken: pin.readToken,
+			...(pin.tableCapable ? { tableCapable: true } : {}),
+		};
 		try {
 			await putObjectText(
 				TEST_SERVER_MANIFEST_KEY,

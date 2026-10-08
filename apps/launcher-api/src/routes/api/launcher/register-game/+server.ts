@@ -57,7 +57,12 @@ const REFRESH_TIMEOUT_MS = 5_000;
  * takes effect on the server's NEXT hydrate rather than this one — self-healing, and the reason this
  * is reported rather than awaited for correctness.
  */
-async function pinToProject(key: string, projectKey: string, docBase: string): Promise<PinReport> {
+async function pinToProject(
+	key: string,
+	projectKey: string,
+	docBase: string,
+	tableCapable: boolean,
+): Promise<PinReport> {
 	try {
 		const readToken = await getOrMintReadToken(projectKey);
 		// `canAccessProject` already ran, so this is the "row vanished under us" case rather than a
@@ -69,14 +74,14 @@ async function pinToProject(key: string, projectKey: string, docBase: string): P
 			);
 			return { status: 'skipped', error: 'no read token for project' };
 		}
-		// `tableCapable`: the desktop launcher builds on the current engine (☁ Publish advances the
-		// submodule first), so the build it just uploaded prices a bet-option table — the stamp that
-		// lets the test server sell its buy (`sellableGrid`) and the Book-of migration go ahead.
+		// `tableCapable` only when the registration says so: the build prices a bet-option table, which
+		// lets the test server sell its buy (`sellableGrid`) and the Book-of migration go ahead. A
+		// registration without it clears the stamp, so a build is never sold a table it cannot price.
 		const status = await pinTestServerGameToProject(key, {
 			projectKey,
 			docBase,
 			readToken,
-			tableCapable: true,
+			...(tableCapable ? { tableCapable: true as const } : {}),
 		});
 		// SAY IT SERVER-SIDE TOO. The desktop launcher does not read this response field today, and a
 		// game whose entry was never found is a game about to deal the wrong board — the exact silence
@@ -154,6 +159,7 @@ export const POST: RequestHandler = async ({ request, url: launcherUrl }) => {
 		version?: unknown;
 		builtAt?: unknown;
 		debug?: unknown;
+		tableCapable?: unknown;
 	};
 	try {
 		body = await request.json();
@@ -180,6 +186,9 @@ export const POST: RequestHandler = async ({ request, url: launcherUrl }) => {
 		if (!Number.isNaN(parsed.getTime())) builtAt = parsed;
 	}
 	const debug = Boolean(body.debug);
+	// The build's own claim that it prices a bet-option table (an engine from book-feature Phase 3
+	// on). Only a literal `true` counts; the desktop launcher sends it, and nothing else stamps it.
+	const tableCapable = body.tableCapable === true;
 	const build: GameBuildInfo = { version, builtAt, debug };
 
 	if (!isValidGameKey(key)) {
@@ -238,7 +247,7 @@ export const POST: RequestHandler = async ({ request, url: launcherUrl }) => {
 	// Re-stamp the manifest's pointer at this project's live Game Config — see `pinToProject`. Runs
 	// AFTER the row is written, because the registration is the thing being asked for and the pin is
 	// a repair of someone else's write; ordering it first would let an R2 hiccup delay the card.
-	const pin = await pinToProject(key, projectKey, launcherUrl.origin);
+	const pin = await pinToProject(key, projectKey, launcherUrl.origin, tableCapable);
 
 	// Auto-purge the Cloudflare edge cache for this game so a republish is
 	// immediately visible. NON-FATAL: a purge failure must never fail the

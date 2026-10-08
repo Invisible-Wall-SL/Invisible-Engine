@@ -12,8 +12,9 @@
 //
 // --table-capable stamps the entry `tableCapable: true`: the build prices a bet-option table, so the
 // test server sells it the project's buy (`sellableGrid`) and the Book-of migration accepts it. Pass
-// it only for a build made on a current engine (the desktop launcher's ☁ Publish, which advances the
-// engine submodule first, stamps it through register-game); an older hand build keeps line bets.
+// it only for a build made on an engine from book-feature Phase 3 on. The stamp follows the flag on
+// every publish: without it, an existing stamp is REMOVED and the build keeps line bets. (The
+// desktop launcher's ☁ Publish stamps through register-game, only when it sends `tableCapable`.)
 //
 // ⚠️ PASS --project (with --launcher + --read-token) FOR ANY GAME AUTHORED IN THE STUDIO.
 // Without them the entry has no pointer back at the project's Invisible Game Config, so the test
@@ -228,7 +229,9 @@ for (let attempt = 1; ; attempt++) {
 		...(projectKey ? { projectKey } : {}),
 		...(launcherOrigin ? { docBase: launcherOrigin } : {}),
 		...(readToken ? { readToken } : {}),
-		...(tableCapable ? { tableCapable: true } : {}),
+		// The stamp follows the flag on EVERY publish: a build published without it is not sold a
+		// table, whatever an earlier build of the same key was (undefined is dropped by the JSON).
+		tableCapable: tableCapable ? true : undefined,
 	};
 	const cond = etag ? { IfMatch: etag } : { IfNoneMatch: '*' };
 	try {
