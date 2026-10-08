@@ -38,6 +38,7 @@ export * from './editorArtKey';
 export * from './rigLoadScale';
 export * from './builtinRegions';
 export * from './builtinRigMeta';
+export * from './aspectBox';
 export * from './coverTransform';
 export * from './componentDesignSize';
 export * from './blendMode';

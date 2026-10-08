@@ -25,6 +25,7 @@
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
 		parseScopedFrameRef,
+		aspectBox,
 		POT_FILL_DIRECTIONS,
 		POT_PREVIEW_FILL_SHARE,
 		resolveAnchorPreviewArt,
@@ -2477,15 +2478,26 @@
 				key && typeof tileParams[key] === 'string' && tileParams[key]
 					? (tileParams[key] as string)
 					: undefined;
+			const tileTint = tile ? tileNum(tile.tintParam) : undefined;
+			const tileImage = tile ? tileStr(tile.imageParam) : undefined;
+			// A picked frame sizes the way the game's part does (`aspectBox`): its own size, or the
+			// instance's overrides with one alone keeping the frame's ratio. Only the bare chip falls
+			// back to the coded tile box.
 			const tileT = tile
 				? {
 						...t,
-						width: tileNum(tile.widthParam) ?? tile.width,
-						height: tileNum(tile.heightParam) ?? tile.height,
+						...(tileImage
+							? aspectBox(
+									tileImageNaturalSize(tileImage),
+									tileNum(tile.widthParam),
+									tileNum(tile.heightParam),
+								)
+							: {
+									width: tileNum(tile.widthParam) ?? tile.width,
+									height: tileNum(tile.heightParam) ?? tile.height,
+								}),
 					}
 				: t;
-			const tileTint = tile ? tileNum(tile.tintParam) : undefined;
-			const tileImage = tile ? tileStr(tile.imageParam) : undefined;
 			if (tileImage) {
 				const scoped = parseScopedFrameRef(tileImage);
 				drawArtRegionSprite(
@@ -3321,6 +3333,16 @@
 			drawArtRegionSprite(ctx, assetKey ?? '', region, layerT);
 			ctx.restore();
 		}
+	}
+
+	/** The natural size of a picked `<assetKey>::<region>` frame — its box when it declares one,
+	 * as `drawArtRegionSprite` sizes it — or null until the region resolves. */
+	function tileImageNaturalSize(ref: string): { w: number; h: number } | null {
+		const { assetKey, region } = parseScopedFrameRef(ref);
+		const found = region ? findRegion(assetKey ?? '', region) : null;
+		if (!found) return null;
+		const boxed = artBoxGeometry(found.set.assetKey, found.region.name, found.region);
+		return boxed ? { w: boxed.origW, h: boxed.origH } : regionNaturalSize(found.region);
 	}
 
 	/** Core atlas-region draw, shared by region sprite NODES and `preview.art` sprite
