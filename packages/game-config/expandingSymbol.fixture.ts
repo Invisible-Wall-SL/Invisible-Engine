@@ -78,8 +78,27 @@ const PINNED: Record<string, string> = {
 const DEFAULTS = new URL('../../apps/launcher-api/src/lib/data/gameConfig/', import.meta.url);
 const digest = (value: unknown) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
-const files = readdirSync(DEFAULTS).filter((name) => name.endsWith('.json'));
+/** The lines PRESETS beside the defaults (book-feature Phase 5a): a new file, not a changed one. */
+const PRESET_FILES = ['lines.bookOfThermopylae.json'];
+const files = readdirSync(DEFAULTS).filter(
+	(name) => name.endsWith('.json') && !PRESET_FILES.includes(name),
+);
 check('every committed default is pinned', files.sort(), Object.keys(PINNED).sort());
+check(
+	'every lines preset is committed',
+	PRESET_FILES.filter((name) => readdirSync(DEFAULTS).includes(name)),
+	PRESET_FILES,
+);
+{
+	const committed = normalizeGameConfigDoc(
+		JSON.parse(readFileSync(new URL('lines.bookOfThermopylae.json', DEFAULTS), 'utf8')),
+	) as GameConfigDoc;
+	check(
+		'the committed Book of Thermopylae preset deals the preset’s special',
+		resolveExpandingSymbol(committed),
+		resolveExpandingSymbol(normalizeGameConfigDoc(bookOfThermopylaePreset()) as GameConfigDoc),
+	);
+}
 for (const file of files) {
 	const normalized = normalizeGameConfigDoc(
 		JSON.parse(readFileSync(new URL(file, DEFAULTS), 'utf8')),

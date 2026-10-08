@@ -17,6 +17,8 @@
 		resolveCascade,
 		cascadeDefaultFor,
 		resolveFreeSpins,
+		resolveExpandingSymbol,
+		DEFAULT_EXPAND_MIN_REELS,
 		normalizeFreeSpins,
 		normalizeAwardTable,
 		describeFreeSpinsAwards,
@@ -39,6 +41,7 @@
 		symbolUses,
 		validateGameConfigDoc,
 		type BetModeKind,
+		type ExpandingSymbolConfig,
 		type FreeSpinsAward,
 		type FreeSpinsConfig,
 		type GameConfigDoc,
@@ -897,13 +900,94 @@
 			? `+${parts[0].spins}`
 			: parts.map(({ counts, spins }) => `+${spins} for ${counts}`).join(', ');
 	});
-	/** Everything the section reports except what each table shows under itself. */
+	/** Everything the section reports except what each table and the expanding panel show under
+	 *  themselves. */
 	const freeSpinsIssues = $derived(
 		issuesFor('freeSpins').filter(
 			(issue) =>
 				!issue.path.startsWith('freeSpins.awards') &&
-				!issue.path.startsWith('freeSpins.retriggerAwards'),
+				!issue.path.startsWith('freeSpins.retriggerAwards') &&
+				!(expandingShown && issue.path.startsWith('freeSpins.expandingSymbol')),
 		),
+	);
+
+	/**
+	 * THE EXPANDING SYMBOL — the Book-of mechanic on a lines game (`freeSpins.expandingSymbol`,
+	 * `docs/design/book-feature.md` §3.1). When free spins start the server draws one paying symbol
+	 * by these weights; on each free spin, once it covers its reel count it expands over those reels
+	 * and pays on every line. Present (even `{}`) ⇒ on.
+	 *
+	 * Offered on a lines win model only (an expanded reel "pays on every line"), and not on a Book-of
+	 * KIND, whose book mock deals its own captured special whatever the block says — that game moves
+	 * to the block when it is migrated.
+	 *
+	 * The rows are every symbol that CAN be the special (dealt, a line paytable, no scatter, wild or
+	 * Hold and Win role): the resolver's own candidates with every one weighted 1. A weight of 0
+	 * leaves a symbol out; a reel count at the default is not stored.
+	 */
+	const offersExpandingSymbol = $derived(!bookGame && winModelType === 'lines');
+	/** The panel shows its own issues; while it is hidden the section lists them. */
+	const expandingShown = $derived(offersExpandingSymbol && freeSpins.enabled);
+	const expandingBlock = $derived(doc.freeSpins?.expandingSymbol);
+	const expandingOn = $derived(expandingBlock !== undefined);
+	/** Every symbol the special may be, in dictionary order, as if each weighed 1. */
+	const expandingEligible = $derived(
+		resolveExpandingSymbol({
+			...snapshot,
+			freeSpins: { ...snapshot.freeSpins, enabled: undefined, expandingSymbol: {} },
+		})?.candidates.map((c) => c.symbol) ?? [],
+	);
+	/** What the game draws now: each eligible symbol's weight (0 = never) and reel count. */
+	const expandingRows = $derived.by(() => {
+		const weights = expandingBlock?.weights;
+		const rows = expandingEligible.map((symbol) => ({
+			symbol,
+			weight: weights ? (weights[symbol] ?? 0) : 1,
+			minReels: expandingBlock?.minReels?.[symbol] ?? DEFAULT_EXPAND_MIN_REELS,
+		}));
+		const total = rows.reduce((sum, row) => sum + row.weight, 0);
+		return rows.map((row) => ({ ...row, share: total > 0 ? row.weight / total : 0 }));
+	});
+	/** Write the block, keeping the free-spins fields beside it; an empty map is not stored. */
+	function writeExpanding(block: ExpandingSymbolConfig | undefined) {
+		const rest = { ...doc.freeSpins };
+		delete rest.expandingSymbol;
+		const next: FreeSpinsConfig = block ? { ...rest, expandingSymbol: block } : rest;
+		if (Object.keys(next).length) doc.freeSpins = next;
+		else delete doc.freeSpins;
+	}
+	const setExpandingOn = (on: boolean) => writeExpanding(on ? {} : undefined);
+	/** A weight of 0 or more, or `undefined` for a half-typed one, left alone under the cursor. */
+	const weightOf = (raw: string): number | undefined => {
+		const n = Number(raw);
+		return raw !== '' && Number.isFinite(n) && n >= 0 ? n : undefined;
+	};
+	function setExpandingWeight(symbol: string, raw: string) {
+		const weight = weightOf(raw);
+		if (weight === undefined || !expandingBlock) return;
+		// The first weight typed writes every row's, so the others keep what they had (1 each).
+		const weights = Object.fromEntries(
+			expandingRows
+				.map((row) => [row.symbol, row.symbol === symbol ? weight : row.weight] as const)
+				.filter(([, w]) => w > 0),
+		);
+		const { weights: _old, ...rest } = $state.snapshot(expandingBlock);
+		writeExpanding({ ...rest, ...(Object.keys(weights).length ? { weights } : {}) });
+	}
+	function setExpandingMinReels(symbol: string, raw: string) {
+		const reels = wholeNumber(raw);
+		if (reels === undefined || !expandingBlock) return;
+		const { minReels: old, ...rest } = $state.snapshot(expandingBlock);
+		const minReels = { ...old, [symbol]: reels };
+		if (reels === DEFAULT_EXPAND_MIN_REELS) delete minReels[symbol];
+		writeExpanding({ ...rest, ...(Object.keys(minReels).length ? { minReels } : {}) });
+	}
+	/** The rule in words for the hint: which symbols, and how far each must reach. */
+	const expandingRule = $derived(
+		expandingRows
+			.filter((row) => row.weight > 0)
+			.map((row) => `${row.symbol} ${(row.share * 100).toFixed(1)}% from ${row.minReels} reels`)
+			.join(', '),
 	);
 
 	/**
@@ -1143,8 +1227,8 @@
 		doc = structuredClone(data.templateDefault as GameConfigDoc);
 	}
 
-	/** A kind with several starting configs (Hold and Win: Pots / Classic / Collector) offers each as
-	 *  a whole-doc reset. Nothing saves until Save, but it discards every field, so it asks first. */
+	/** A kind with starting configs of its own (Hold and Win: Pots / Classic / Collector; lines: the
+	 *  Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it discards every field, so it asks first. */
 	let pickedPreset = $state('');
 	const presetId = $derived(pickedPreset || data.presets[0]?.id || '');
 	async function resetToPreset() {
@@ -1153,7 +1237,7 @@
 		const ok = await askConfirm({
 			title: `Reset to ${preset.label}?`,
 			message:
-				'This replaces the WHOLE config on this page — grid, symbols, bet modes and the Hold and Win block — with the preset. Nothing is saved until you press Save.',
+				'This replaces the WHOLE config on this page — grid, symbols, bet modes, free spins and any Hold and Win block — with the preset. Nothing is saved until you press Save.',
 			confirmLabel: 'Reset to preset',
 			danger: true,
 		});
@@ -2235,6 +2319,9 @@
 						{@render awardTable('retriggerAwards', 'Retrigger adds', 'Spins added')}
 					</div>
 				{/if}
+				{#if expandingShown}
+					{@render expandingPanel()}
+				{/if}
 				<p class="hint">
 					{#if !freeSpins.enabled}
 						<strong>This game has no free spins.</strong> On the Invisible Test Server no spin
@@ -2271,6 +2358,86 @@
 				{/each}
 			</section>
 		{/if}
+
+		<!-- The expanding symbol (Book-of): on/off, then a weight and a reel count per symbol it may be. -->
+		{#snippet expandingPanel()}
+			<div class="expanding">
+				<div class="fields">
+					<label
+						><span>Expanding symbol</span><select
+							value={expandingOn ? 'on' : 'off'}
+							onchange={(e) => setExpandingOn(e.currentTarget.value === 'on')}
+							disabled={lease.readOnly}
+						>
+							<option value="off">off — free spins play like the base game</option>
+							<option value="on">on — one symbol is drawn to expand (Book-of)</option>
+						</select></label
+					>
+				</div>
+				{#if expandingOn}
+					{#if expandingRows.length}
+						<div class="grid-wrap">
+							<table class="grid">
+								<thead>
+									<tr>
+										<th>Symbol</th>
+										<th>Weight</th>
+										<th>Chance</th>
+										<th>Expands from</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each expandingRows as row (row.symbol)}
+										<tr class:muted-row={row.weight === 0}>
+											<td><code>{row.symbol}</code></td>
+											<td
+												><input
+													type="number"
+													min="0"
+													step="any"
+													value={row.weight}
+													oninput={(e) => setExpandingWeight(row.symbol, e.currentTarget.value)}
+													disabled={lease.readOnly}
+												/></td
+											>
+											<td>{row.weight > 0 ? `${(row.share * 100).toFixed(1)}%` : 'never'}</td>
+											<td class="award-count"
+												><input
+													type="number"
+													min="1"
+													max={snapshot.numReels}
+													step="1"
+													value={row.minReels}
+													oninput={(e) => setExpandingMinReels(row.symbol, e.currentTarget.value)}
+													disabled={lease.readOnly}
+												/><span>reels</span></td
+											>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+						<p class="hint">
+							When free spins start, one symbol is drawn by its weight
+							{#if expandingRule}(<strong>{expandingRule}</strong>){/if}. On each free spin, once it
+							covers that many reels it fills them and pays on every line, then the other symbols
+							pay their lines. A weight of 0 leaves a symbol out. The book — a symbol both
+							<em>scatter</em> and <em>wild</em> — is the usual trigger;
+							<strong>Reset to preset → Book of Thermopylae</strong> at the top starts a whole game from
+							the captured one.
+						</p>
+					{:else}
+						<p class="hint">
+							No symbol can be the expanding symbol: it must be on the reel strips, have a line
+							paytable, and be no scatter, wild or Hold and Win symbol.
+						</p>
+					{/if}
+				{/if}
+				{#each issuesFor('freeSpins.expandingSymbol') as issue (issue.path + issue.message)}
+					<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+				{/each}
+			</div>
+		{/snippet}
 
 		<!-- One free-spins award table: index-keyed rows edited in place, like Hold and Win's value
 		     tables, so a row never moves under the cursor (the save puts them in order). -->
@@ -3482,6 +3649,14 @@
 		gap: 24px;
 		flex-wrap: wrap;
 		margin: 16px 0 12px;
+	}
+	.expanding {
+		margin: 4px 0 12px;
+		padding-top: 12px;
+		border-top: 1px solid #2a2a33;
+	}
+	.muted-row td {
+		opacity: 0.5;
 	}
 	.award-title {
 		display: block;

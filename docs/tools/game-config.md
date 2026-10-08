@@ -229,7 +229,7 @@ A project with a Hold and Win block gets a **Hold and Win** section between Add-
 Symbols.
 One kind makes three different games; each is a **preset** you can start from. Pick one
 in the banner's preset menu and press **Reset to preset** (it asks first — the whole
-config is replaced):
+config is replaced; a lines project's menu offers the **Book of Thermopylae**, see _Free spins_):
 
 - **Pots (3 Pots of Egypt)** — 5×3, 25 lines, decimal coin values, four specials, three
   pots, Lucky Spin, a full board pays GRAND. The default for a new Hold and Win project.
@@ -562,13 +562,34 @@ counted on its own: a scatter keeps paying its **scatter pay** whatever triggers
 feature, and a trigger symbol that pays nothing is fine. The info page's rules state
 the trigger but not the award.
 
-**The expanding symbol (Book-of).** A config may switch on the Book-of expanding symbol —
-`freeSpins.expandingSymbol`, with optional draw `weights` and per-symbol `minReels` (the reels it
-must cover to expand, default 3). It has no controls of its own yet: set it in the raw JSON. Its
-problems show under the section — a game that does not pay by lines, a weight on a symbol that is not
-a paying line symbol on the strips, a threshold above the reel count, a symbol that would expand and
-pay nothing — and a project with it gets the book columns in Invisible Symbols and the expanded-win
-line in Win Text. A symbol that is both **scatter** and **wild** is a book; a game may have only one.
+**The expanding symbol (Book-of).** On a game that pays by lines, with free spins on, the section
+ends with an **Expanding symbol** switch: _off — free spins play like the base game_ (the default)
+or _on — one symbol is drawn to expand (Book-of)_. When free spins start, the server draws one
+paying symbol; on each free spin, once it covers enough reels it fills them and pays on every line,
+then the other symbols pay their lines. Switched on, a table lists every symbol that can be the
+special — on the reel strips, with a line paytable, and no scatter, wild or Hold and Win symbol:
+
+- **Weight** — its share of the draw; every symbol starts at **1**. **0** leaves it out.
+- **Chance** — the weight as a percentage of the draw (_never_ at 0).
+- **Expands from** — the fewest reels it must cover to expand and pay (default **3**; the Book of
+  Thermopylae's top symbol expands from 2).
+
+A line under the table states the rule in force, e.g. _H1 9.0% from 2 reels, H2 9.0% from 3
+reels, …_. Its problems show under it: a weight on a symbol that cannot be the special, nothing left
+to draw, **Expands from** above the reel count (errors); a threshold on a symbol that is never drawn,
+or a symbol that would expand and pay nothing at that many reels (warnings). With free spins off the
+switch is hidden and the block is kept; a warning says it does nothing. A project with the symbol
+gets the book columns in Invisible Symbols and the expanded-win line in Win Text, and its rules page
+explains the expanding symbol.
+
+The usual trigger is the **book** — a symbol that is both **scatter** and **wild** (a game may have
+only one): it lands anywhere to trigger free spins and substitutes on lines. To start a whole game
+from the captured one, pick **Book of Thermopylae** in the banner's preset menu (a lines project)
+and press **Reset to preset**: 5×3, ten lines, the book `S`, the captured paytable, weights and
+thresholds, +10 on a retrigger and a 100× buy. Game Maker's **Create** offers the same as
+_Lines → Book of Thermopylae_. On a **Book-of** kind project the switch is not offered: its server
+(the book mock) deals the captured special whatever the config says, until the project is moved to
+lines.
 
 **On a Book-of game.** The section is the same, with two differences. The
 **Trigger symbol** is shown, not picked — _the book — S_ — because a Book-of game
@@ -584,7 +605,8 @@ pay). The expanding special still starts every Book-of free spins round.
 Server — not a natural one, not a forced one. Scatters still land and still pay
 their scatter pay; to remove them altogether, take the scatter symbol off the reel
 strips. The trigger and award settings are kept, so switching back on restores
-them. One exception today: a **pots overlay** pot whose bonus is free spins still starts them. A
+them. A **pots overlay** pot whose bonus is free spins is a blocking error while they are off
+(route it to another bonus, or switch free spins back on). A
 **buy** mode now has nothing to sell, so it becomes a **blocking error** —
 _Free spins are off, so the "bonus" buy mode has nothing to buy. Remove it in Bet
 modes._ — and the config cannot be saved until you remove it (the stock templates

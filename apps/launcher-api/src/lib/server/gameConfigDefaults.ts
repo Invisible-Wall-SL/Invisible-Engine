@@ -12,6 +12,7 @@ import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorag
 import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
 import holdAndWinCollector from '$lib/data/gameConfig/holdAndWin.collector.json';
 import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
+import linesBookOfThermopylae from '$lib/data/gameConfig/lines.bookOfThermopylae.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
 import scatterConfig from '$lib/data/gameConfig/scatter.json';
 import waysConfig from '$lib/data/gameConfig/ways.json';
@@ -36,6 +37,19 @@ import waysConfig from '$lib/data/gameConfig/ways.json';
 
 const FALLBACK_GAME_TYPE = 'lines';
 
+/** The LINES presets (`docs/design/book-feature.md` §3.5): whole configs a lines project may start
+ *  from, beside the kind's own default. */
+export const LINES_PRESET_IDS = ['bookOfThermopylae'] as const;
+export type LinesPresetId = (typeof LINES_PRESET_IDS)[number];
+const LINES_PRESET_KEY: Record<LinesPresetId, string> = {
+	bookOfThermopylae: 'lines.bookOfThermopylae',
+};
+const LINES_PRESET_LABELS: Record<LinesPresetId, string> = {
+	bookOfThermopylae: 'Book of Thermopylae',
+};
+export const isLinesPresetId = (id: unknown): id is LinesPresetId =>
+	typeof id === 'string' && (LINES_PRESET_IDS as readonly string[]).includes(id);
+
 /**
  * The JSON is normalized at import rather than trusted. It is generated, so it *should* already be
  * canonical — but it is also a checked-in file a human can edit, and a hand-edit that slips past
@@ -50,6 +64,7 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[holdAndWinPresetKey('pots')]: holdAndWinPots,
 		[holdAndWinPresetKey('classic')]: holdAndWinClassic,
 		[holdAndWinPresetKey('collector')]: holdAndWinCollector,
+		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
 	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
 		return doc ? [[gameType, doc] as const] : [];
@@ -64,10 +79,17 @@ const KIND_DEFAULT_KEY: Record<string, string> = {
 export type GameConfigPreset = { id: string; label: string; doc: GameConfigDoc };
 
 /**
- * The presets a kind offers in `/config`'s "Reset to preset" — empty for a kind with one default.
+ * The presets a kind offers in `/config`'s "Reset to preset" — empty for a kind with none.
  * `holdAndWin`: Pots / Classic sticky / Collector streak (`docs/design/hold-and-win.md` §6).
+ * `lines`: the Book of Thermopylae (the Book-of mechanic as a lines config).
  */
 export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPreset[] {
+	if (gameType === 'lines') {
+		return LINES_PRESET_IDS.flatMap((id) => {
+			const doc = DEFAULTS_BY_GAME_TYPE[LINES_PRESET_KEY[id]];
+			return doc ? [{ id, label: LINES_PRESET_LABELS[id], doc }] : [];
+		});
+	}
 	if (gameType !== 'holdAndWin') return [];
 	return HOLD_AND_WIN_PRESET_IDS.flatMap((id) => {
 		const doc = DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(id)];
@@ -100,16 +122,23 @@ export const templateIsBuiltIn = (gameType: string | undefined): boolean =>
  *
  * Only a kind whose defaults are presets is seeded: its mock and runtime need the kind's block, and
  * an un-authored project falls through to the compiled LINES config, which has none — so a fresh
- * `holdAndWin` project was dealt plain lines until someone saved `/config`. Every other kind stays
- * un-authored, so what it plays is byte-identical to before (the compiled template, `null` bake).
+ * `holdAndWin` project was dealt plain lines until someone saved `/config`. A lines project seeds a
+ * lines PRESET only when one is asked for (Game Maker's "Book of Thermopylae"). Every other kind
+ * stays un-authored, so what it plays is byte-identical to before (the compiled template, `null`
+ * bake).
  */
 export function gameConfigSeedFor(
 	gameType: string,
-	holdAndWinPreset?: HoldAndWinPresetId,
+	preset?: HoldAndWinPresetId | LinesPresetId,
 ): GameConfigDoc | null {
+	if (gameType === 'lines') {
+		return isLinesPresetId(preset)
+			? (DEFAULTS_BY_GAME_TYPE[LINES_PRESET_KEY[preset]] ?? null)
+			: null;
+	}
 	if (!(gameType in KIND_DEFAULT_KEY)) return null;
-	if (gameType === 'holdAndWin' && holdAndWinPreset) {
-		return DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(holdAndWinPreset)] ?? null;
+	if (gameType === 'holdAndWin' && preset && !isLinesPresetId(preset)) {
+		return DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(preset)] ?? null;
 	}
 	return gameConfigDefaultFor(gameType);
 }

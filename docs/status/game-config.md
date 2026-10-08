@@ -723,6 +723,21 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-08 — **The Expanding symbol panel and the Book of Thermopylae preset** (Phase 5a of
+  [book-feature.md](../design/book-feature.md)). **`/config`:** on a lines win model with free spins
+  on (not a Book-of KIND, whose book mock deals its own special), the Free spins section ends with an
+  **Expanding symbol** on/off and, on, a row per symbol that can be the special (the resolver's own
+  eligibility, read by resolving the block as `{}`): **Weight** (0 leaves it out; the first edit
+  writes every row's so the rest keep 1), **Chance**, **Expands from** (reels; the default 3 is not
+  stored), the rule in words, and the block's issues inline (shown in the section list while the
+  panel is hidden). **Preset:** `lines.bookOfThermopylae.json` is generated from
+  `bookOfThermopylaePreset()` through the generator's preset path and offered by
+  `gameConfigPresetsFor('lines')`, so every lines project's banner gains _Reset to preset → Book of
+  Thermopylae_ (the confirm now names free spins). `gameConfigSeedFor('lines', 'bookOfThermopylae')`
+  seeds it (5c); `gameConfigSeedFor('lines')` is still `null`. **Gates:** `check:lines-presets` (new);
+  `expandingSymbol.fixture.ts` (the six pinned defaults unchanged; the preset file deals the preset's
+  special); `check:game-config-defaults`. Not browser-verified.
+
 - 2026-10-08 — **The pots overlay over the lines mock** (Phase 4 of
   [book-feature.md](../design/book-feature.md)). **Mock** (`scripts/mock-rgs-server.mjs`): the host
   seam the book mock gives `withPotsOverlay` — an `overlay` option called once with the board and a
