@@ -19,8 +19,9 @@
  * `session.potsOverlay`): a tab booted before the overlay was switched on plays the host game until
  * it reloads.
  *
- * A host takes it through its `overlay` option (the book mock today): `withPotsOverlay(createHost,
- * inputs)` returns a factory with the host's own signature, whose mock also answers `…/force`.
+ * A host takes it through its `overlay` option (the book mock and the lines mock):
+ * `withPotsOverlay(createHost, inputs)` returns a factory with the host's own signature, whose mock
+ * also answers `…/force`.
  */
 
 import { createHoldAndWinEngine, hashStr } from './mock-holdandwin-engine.mjs';
@@ -36,7 +37,7 @@ const HOLD_AND_WIN_MODE = 'holdAndWin';
 
 /**
  * @param {{ label: string, seed?: string, reels: number, rows: number,
- *   bonuses: Record<string, string>, freeSpinsMode: string,
+ *   bonuses: Record<string, string>, freeSpinsMode: string, freeSpinsOn?: boolean,
  *   startFreeSpins: (events: object[], round: object, opts: object) => void }} host
  * @param {{ pots: object[], drops: object, holdAndWin?: object }} inputs
  * @param {{ allowForce?: boolean }} [opts]
@@ -81,6 +82,15 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				},
 			})
 		: null;
+	// A pot that would start free spins on a game whose free spins are OFF is refused, as `/config`
+	// refuses to save it: the host has no feature for it to start.
+	const offRoute =
+		host.freeSpinsOn === false && pots.find((p) => p.bonus.mode === host.freeSpinsMode);
+	if (offRoute) {
+		throw new Error(
+			`[${host.label}] pot "${offRoute.id}" starts free spins, but this game's free spins are off`,
+		);
+	}
 	const orphan = pots.find((p) => p.bonus.mode === HOLD_AND_WIN_MODE && !hw);
 	if (orphan) {
 		throw new Error(
@@ -356,7 +366,9 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	const startHoldAndWin = (events, session, round, next) => {
 		const board = hw.emptyBoard();
 		for (const { reel, row, cell } of next.coins) board[reel][row] = { ...cell };
-		round.potsFeature = { id: round.id, baseTotal: round.baseBet, win: round.win, force: {} };
+		// The base stake: the book host's `baseBet`, the lines host's `baseTotal`.
+		const baseTotal = round.baseBet ?? round.baseTotal;
+		round.potsFeature = { id: round.id, baseTotal, win: round.win, force: {} };
 		const from = events.length;
 		withFeature(round, session, (sub) =>
 			hw.startFeature(events, sub, session, board, next.cause, next.meters, next.activates),

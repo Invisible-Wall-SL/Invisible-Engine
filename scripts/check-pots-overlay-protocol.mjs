@@ -1,16 +1,22 @@
 // The POTS OVERLAY mock, proven from its WIRE (docs/reference/hold-and-win-wire.md, "Pots overlay").
-// A Book-of host with the overlay presets merged in, as the launcher hands it over
+// A host with the overlay presets merged in, as the launcher hands it over
 // (`potsOverlayMockInputs`), is played the way the facade plays a round, and every answer is
 // re-derived from its events alone: where each drop landed, every pot's level across rounds and
 // sessions, which bonus a full pot starts and when, the round's money, and replay/resume. Then every
 // forced beat is fired, and a project without the block is shown to get the host mock byte for byte,
 // as is a tab open across a contract swap that adds the block (until it reloads).
 //
-//   pnpm check:pots-overlay
+// It runs once per HOST — the book mock (default) and the lines mock (`--host lines`, with the
+// Book of Thermopylae's expanding special, so its own free spins announce one as the book's do):
+//
+//   pnpm check:pots-overlay            (both hosts)
 
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { parseArgs } from 'node:util';
 
 import {
 	holdAndWinBonus,
@@ -24,8 +30,9 @@ import {
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
 import { createMockRgs as createBookMock } from './mock-rgs-server-book.mjs';
+import { startTestServer } from './current-games/lib/serve.mjs';
 import { withPotsOverlay } from './mock-pots-overlay.mjs';
-import { carrySession } from './mock-rgs-server.mjs';
+import { carrySession, createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
 
 let failed = 0;
 const check = (ok, msg, extra = '') => {
@@ -40,12 +47,48 @@ const key = (c) => `${c.reel}:${c.row}`;
 
 // ---------- a Book-of host, and the presets merged in as an "add" does ----------
 
+const { values: argv } = parseArgs({ options: { host: { type: 'string', default: 'book' } } });
+/** The Book of Thermopylae's special on the lines mock's default pool (PIC8–PIC10 are not dealt). */
+const LINES_SPECIAL = {
+	candidates: JSON.parse(
+		readFileSync(new URL('./lib/book-of-thermopylae-lines-grid.json', import.meta.url), 'utf8'),
+	).expandingSymbol.candidates.filter((c) => !['PIC8', 'PIC9', 'PIC10'].includes(c.symbol)),
+};
+/**
+ * Each host the overlay composes over, in its own server vocabulary: the book mock (`ACE`…`TEN`,
+ * a bet-option table, its config re-sent on every heartbeat, `outcome: 'bonus'` on an open feature)
+ * and the lines mock (`PIC1`…`PIC7`, a line-config bet `[lines, betPerLine]`, its config sent once).
+ */
+const HOSTS = {
+	book: {
+		name: 'book',
+		create: (opts = {}) => createBookMock(opts),
+		bet: [0, 1],
+		lows: ['ACE', 'KING', 'TEN'],
+		heartbeatConfig: true,
+		bonusOutcome: true,
+	},
+	lines: {
+		name: 'lines',
+		create: (opts = {}) =>
+			createLinesMock({ quiet: true, expandingSymbol: LINES_SPECIAL, ...opts }),
+		bet: [10, 1],
+		lows: ['PIC5', 'PIC6', 'PIC7'],
+		heartbeatConfig: false,
+		bonusOutcome: false,
+	},
+};
+const HOST = HOSTS[argv.host];
+if (!HOST) throw new Error(`--host must be one of ${Object.keys(HOSTS).join(', ')}`);
+console.log(`pots overlay over the ${HOST.name} host`);
+const [LOW_A, LOW_B, LOW_C] = HOST.lows;
+
 const pays = (three, four, five) => ({ paytable: [{ 3: three }, { 4: four }, { 5: five }] });
-const STRIP = ['PIC1', 'ACE', 'SCAT', 'KING', 'PIC2', 'TEN'].map((name) => ({ name }));
+const STRIP = ['PIC1', LOW_A, 'SCAT', LOW_B, 'PIC2', LOW_C].map((name) => ({ name }));
 const BOOK_HOST = {
 	providerName: 'invisible_wall',
-	gameName: 'book_host',
-	gameID: 'book_host',
+	gameName: `${HOST.name}_host`,
+	gameID: `${HOST.name}_host`,
 	rtp: 0.96,
 	numReels: 5,
 	numRows: [3, 3, 3, 3, 3],
@@ -54,9 +97,9 @@ const BOOK_HOST = {
 	symbols: {
 		PIC1: pays(100, 1000, 5000),
 		PIC2: pays(30, 400, 2000),
-		ACE: pays(5, 50, 150),
-		KING: pays(5, 50, 150),
-		TEN: pays(5, 20, 100),
+		[LOW_A]: pays(5, 50, 150),
+		[LOW_B]: pays(5, 50, 150),
+		[LOW_C]: pays(5, 20, 100),
 		SCAT: { special_properties: ['scatter'] },
 	},
 	paddingReels: {
@@ -113,14 +156,14 @@ const counted = (doc, pots) => {
 const COINS_ONLY = counted(THREE, 0);
 /** Five pots, the last two new. */
 const FIVE = counted(THREE, 5);
-/** Another book game's free spins imported as a mode of this one (open item 00), the pot routed to
- *  it: its own MUMMY and re-priced ACE, the rest shared with the host. */
-const FS_STRIP = ['PIC1', 'MUMMY', 'ACE', 'KING', 'TEN'].map((name) => ({ name }));
+/** Another game's free spins imported as a mode of this one (open item 00), the pot routed to
+ *  it: its own MUMMY and a re-priced low, the rest shared with the host. */
+const FS_STRIP = ['PIC1', 'MUMMY', LOW_A, LOW_B, LOW_C].map((name) => ({ name }));
 const BOOK_SOURCE = normalizeGameConfigDoc({
 	...structuredClone(BOOK_HOST),
 	symbols: {
 		...structuredClone(BOOK_HOST.symbols),
-		ACE: pays(10, 60, 200),
+		[LOW_A]: pays(10, 60, 200),
 		MUMMY: pays(20, 200, 900),
 	},
 	paddingReels: { ...structuredClone(BOOK_HOST.paddingReels), freegame: [FS_STRIP] },
@@ -173,11 +216,14 @@ const call = (mock, path, query, actions) =>
 const engine = (mock, query, actions) => call(mock, '/rgs/engine', query, actions);
 
 const overlayMock = (doc, opts = {}) =>
-	withPotsOverlay(createBookMock, potsOverlayMockInputs(doc))({ label: 'pots', ...opts });
+	withPotsOverlay(HOST.create, potsOverlayMockInputs(doc))({ label: 'pots', ...opts });
+/** The boot config a session is told now — asked for, as a reloading facade asks. */
+const bootConfig = async (mock, sid) =>
+	one(await engine(mock, `sid=${sid}`, [{ action: 'config' }]), 'config');
 
 /** Play a round to its end the way the facade does: `[bet, play]`, context-less plays while the
  *  round is open and has not ended, then `collect`. Returns every answer. */
-const playRound = async (mock, sid, { context = '', bet = [0, 1] } = {}) => {
+const playRound = async (mock, sid, { context = '', bet = HOST.bet } = {}) => {
 	const answers = [];
 	answers.before = (await engine(mock, `sid=${sid}`, [])).platform.balance;
 	let a = await engine(mock, `sid=${sid}&seq=0`, [
@@ -196,7 +242,8 @@ const playRound = async (mock, sid, { context = '', bet = [0, 1] } = {}) => {
 		answers.push(a);
 		if (a.error) return answers;
 	}
-	if (a.platform.gameRound) {
+	// The lines host names a round on the answer that closed it too; one already over needs no collect.
+	if (a.platform.gameRound && !names(a).includes('gameRoundOver')) {
 		answers.push(await engine(mock, `sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'collect' }]));
 	}
 	return answers;
@@ -538,18 +585,21 @@ console.log('2. parity: no block, the host byte for byte; with it, the host deal
 		}
 		return hash.digest('hex').slice(0, 16);
 	};
-	const got = {
-		plain: await digest({}, 300),
-		trigger: await digest({ forceTrigger: true }, 40),
-		paytable: await digest({ symbolPaytable: { PIC1: { 2: 20, 3: 200 } } }, 200),
-	};
-	for (const [name, want] of Object.entries(MAIN_DIGESTS)) {
-		check(got[name] === want, `book mock (${name}): dealt as main dealt`, `digest ${got[name]}`);
+	// The lines host's own parity is `check:lines-parity` (ten configurations against main's digests).
+	if (HOST.name === 'book') {
+		const got = {
+			plain: await digest({}, 300),
+			trigger: await digest({ forceTrigger: true }, 40),
+			paytable: await digest({ symbolPaytable: { PIC1: { 2: 20, 3: 200 } } }, 200),
+		};
+		for (const [name, want] of Object.entries(MAIN_DIGESTS)) {
+			check(got[name] === want, `book mock (${name}): dealt as main dealt`, `digest ${got[name]}`);
+		}
+		check(
+			(await digest({ seed: 'parity-other' }, 50)) !== MAIN_DIGESTS.plain,
+			'the parity digest moves with the deal',
+		);
 	}
-	check(
-		(await digest({ seed: 'parity-other' }, 50)) !== MAIN_DIGESTS.plain,
-		'the parity digest moves with the deal',
-	);
 
 	// With the overlay — pots too deep to ever fill — the host's own events are the plain mock's.
 	const deep = insert(BOOK_HOST, 'threePots', (doc) => {
@@ -557,7 +607,7 @@ console.log('2. parity: no block, the host byte for byte; with it, the host deal
 		doc.potsOverlay.drops.chance = 1;
 		return doc;
 	});
-	const plain = createBookMock({ seed: 'host-same', label: 'plain' });
+	const plain = HOST.create({ seed: 'host-same', label: 'plain' });
 	const wrapped = overlayMock(deep, { seed: 'host-same' });
 	const OVERLAY = new Set(['overlayDrop', 'meterUpdate', 'meterLevels']);
 	let differ = 0;
@@ -584,12 +634,12 @@ console.log('2. parity: no block, the host byte for byte; with it, the host deal
 		`${rounds} rounds: the host's events and balances are the plain mock's`,
 		`${differ} differ`,
 	);
-	pass('no block deals main’s book; the block adds events and never changes the host’s');
+	pass('no block deals main’s host; the block adds events and never changes the host’s');
 }
 
 // ---------- 3. seeded rounds ----------
 
-console.log('3. seeded rounds re-derived from the wire (3 Pots on a book host)');
+console.log(`3. seeded rounds re-derived from the wire (3 Pots on a ${HOST.name} host)`);
 {
 	const mock = overlayMock(THREE, { seed: 'pots-seeded' });
 	const boot = await engine(mock, 'sid=r', []);
@@ -618,7 +668,7 @@ console.log('3. seeded rounds re-derived from the wire (3 Pots on a book host)')
 		'boot: the Hold and Win bonus’s block beside it, its meters the pots’',
 	);
 	check(
-		same(config.symbols, (await engine(createBookMock(), 'sid=x', [])).events[0].context.symbols),
+		same(config.symbols, (await engine(HOST.create(), 'sid=x', [])).events[0].context.symbols),
 		'boot: the host’s config, unchanged',
 	);
 	const levels = Object.fromEntries(THREE.potsOverlay.pots.map((p) => [p.id, 0]));
@@ -719,7 +769,8 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 		const boot = (await engine(mock, 'sid=f', [])).events[0].context.potsOverlay;
 		const fs = await playRound(mock, 'f', { context: 'force:pot:gold' });
 		const boards = fs.slice(1).flatMap((a) => named(a, 'playedSpin').map((e) => e.context));
-		const onStrip = new Set(FS_STRIP.map((c) => (c.name === 'ACE' ? 'ACE_2' : c.name)));
+		const repriced = `${LOW_A}_2`;
+		const onStrip = new Set(FS_STRIP.map((c) => (c.name === LOW_A ? repriced : c.name)));
 		const paid = fs.flatMap((a) => named(a, 'spinWin').map((e) => e.context.what));
 		check(
 			same(boot.modes, { freeSpins_2: { gameType: 'freegame_2' } }) &&
@@ -741,8 +792,8 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 			return seen;
 		})();
 		check(
-			sample.has('MUMMY') && sample.has('ACE_2'),
-			'…and its own symbols pay at their own prices (MUMMY, ACE_2)',
+			sample.has('MUMMY') && sample.has(repriced),
+			`…and its own symbols pay at their own prices (MUMMY, ${repriced})`,
 			JSON.stringify([...sample]),
 		);
 		// A cosmetic strip can land a scatter on every reel of every spin: its retriggers stop at the cap
@@ -754,7 +805,7 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 					...structuredClone(BOOK_SOURCE),
 					paddingReels: {
 						...structuredClone(BOOK_SOURCE.paddingReels),
-						freegame: [['SCAT', 'TEN', 'KING'].map((name) => ({ name }))],
+						freegame: [['SCAT', LOW_C, LOW_B].map((name) => ({ name }))],
 					},
 				}),
 				{
@@ -792,12 +843,7 @@ console.log('5. pots persist per session, across rounds and a contract swap');
 {
 	const mock = overlayMock(THREE, { seed: 'persist' });
 	const levelsOf = async (sid) =>
-		Object.fromEntries(
-			(await engine(mock, `sid=${sid}`, [])).events[0].context.potsOverlay.pots.map((p) => [
-				p.id,
-				p.level,
-			]),
-		);
+		Object.fromEntries((await bootConfig(mock, sid)).potsOverlay.pots.map((p) => [p.id, p.level]));
 	await playRound(mock, 'a', { context: 'force:pot:red:7' });
 	const after = await levelsOf('a');
 	check(after.red >= 7, `a level set in one round is there at the next boot (${after.red})`);
@@ -810,9 +856,7 @@ console.log('5. pots persist per session, across rounds and a contract swap');
 	const swapped = overlayMock(THREE, { seed: 'persist-2' });
 	for (const [sid, session] of mock.sessions)
 		swapped.sessions.set(sid, carrySession(session, { keepBetShape: true }));
-	const carried = (await engine(swapped, 'sid=a', [])).events[0].context.potsOverlay.pots.find(
-		(p) => p.id === 'red',
-	);
+	const carried = (await bootConfig(swapped, 'a')).potsOverlay.pots.find((p) => p.id === 'red');
 	const before = (await levelsOf('a')).red;
 	check(carried.level === before, `a contract swap carries the pots (${carried.level})`);
 }
@@ -862,11 +906,11 @@ console.log(
 		return answers;
 	};
 
-	// (a) Booted on the plain book game; the overlay is switched on under the open tab.
-	const tab = createBookMock({ seed: 'stale-tab', label: 'before' });
+	// (a) Booted on the plain host game; the overlay is switched on under the open tab.
+	const tab = HOST.create({ seed: 'stale-tab', label: 'before' });
 	const booted = (await boot(tab, 't')).config;
 	const on = carried(tab, overlayMock(always, { seed: 'stale-tab' }));
-	const reference = createBookMock({ seed: 'stale-tab', label: 'reference' });
+	const reference = HOST.create({ seed: 'stale-tab', label: 'reference' });
 	await boot(reference, 't');
 	const probe = await engine(on, 'sid=t', []);
 	const stale = await rounds(on, 't', 30);
@@ -882,7 +926,7 @@ console.log(
 	);
 	check(
 		stale.some((a) => names(a).includes('enterBonus')) && same(dealt(stale), dealt(plain)),
-		'…every answer, the host’s free spins included, is the plain book game’s on the same seed',
+		'…every answer, the host’s free spins included, is the plain host game’s on the same seed',
 	);
 
 	// (b) The tab reloads: its probe finds no config, it asks for one, and is dealt the overlay.
@@ -899,9 +943,12 @@ console.log(
 		'…and its next round is dealt it: the drop, the pots, the full pot’s Hold and Win',
 		[...next].join(' '),
 	);
+	// The book host re-sends its config on every heartbeat; the lines host sends it once.
 	check(
-		names(await engine(on, 'sid=t', [])).includes('config'),
-		'…and its balance probe carries the config again',
+		names(await engine(on, 'sid=t', [])).includes('config') === HOST.heartbeatConfig,
+		HOST.heartbeatConfig
+			? '…and its balance probe carries the config again'
+			: '…and its balance probe carries none (the lines host sends it once)',
 	);
 
 	// (c) The reverse: booted with the overlay, which is switched off under the open tab.
@@ -909,9 +956,9 @@ console.log(
 	await boot(withIt, 'r');
 	await playRound(withIt, 'r', { context: 'force:pot:red:5' });
 	const pots = structuredClone(withIt.sessions.get('r').meters);
-	const off = carried(withIt, createBookMock({ seed: 'reverse-2', label: 'after' }));
+	const off = carried(withIt, HOST.create({ seed: 'reverse-2', label: 'after' }));
 	// The same session, told the plain game: its wallet, on the same seed.
-	const offReference = carried(withIt, createBookMock({ seed: 'reverse-2', label: 'reference' }));
+	const offReference = carried(withIt, HOST.create({ seed: 'reverse-2', label: 'reference' }));
 	await engine(offReference, 'sid=r', [{ action: 'config' }]);
 	let threw = '';
 	let dealtOff = [];
@@ -929,19 +976,19 @@ console.log(
 		overlaid(dealtOff).length === 0 &&
 			same(dealt(dealtOff), dealt(await rounds(offReference, 'r', 20))) &&
 			same(off.sessions.get('r').meters, pots),
-		'…it is dealt the plain book game, its pots kept for a swap back',
+		'…it is dealt the plain host game, its pots kept for a swap back',
 	);
 	const reloadOff = await boot(off, 'r');
 	check(
 		!names(reloadOff.probe).includes('config') &&
 			reloadOff.config &&
 			!reloadOff.config.potsOverlay &&
-			names(await engine(off, 'sid=r', [])).includes('config'),
+			names(await engine(off, 'sid=r', [])).includes('config') === HOST.heartbeatConfig,
 		'…and a reload asks for config and is told the plain game',
 	);
 
 	// A desktop build's session is re-told on its next heartbeat, as before.
-	const desktop = createBookMock({ seed: 'desktop', label: 'desktop' });
+	const desktop = HOST.create({ seed: 'desktop', label: 'desktop' });
 	await boot(desktop, 'd');
 	const built = carried(desktop, overlayMock(always, { seed: 'desktop' }), false);
 	const heartbeat = await engine(built, 'sid=d', []);
@@ -1053,7 +1100,7 @@ console.log('7. forced beats, refusals and the …/force route');
 	]) {
 		const before = (await engine(mock, 'sid=refused', [])).platform.balance;
 		const a = await engine(mock, 'sid=refused&seq=0', [
-			{ action: 'bet', context: [0, 1] },
+			{ action: 'bet', context: HOST.bet },
 			{ action: 'play', context: `force:${spec}` },
 		]);
 		check(
@@ -1063,13 +1110,13 @@ console.log('7. forced beats, refusals and the …/force route');
 		);
 	}
 	const free = await engine(overlayMock(FREE), 'sid=x&seq=0', [
-		{ action: 'bet', context: [0, 1] },
+		{ action: 'bet', context: HOST.bet },
 		{ action: 'play', context: 'force:overlay:coins:6' },
 	]);
 	check(free.errorCode === 101, 'refused: value coins with no Hold and Win bonus');
 	const locked = overlayMock(THREE, { allowForce: false });
 	const off = await engine(locked, 'sid=x&seq=0', [
-		{ action: 'bet', context: [0, 1] },
+		{ action: 'bet', context: HOST.bet },
 		{ action: 'play', context: 'force:pot:red' },
 	]);
 	const route = await call(locked, '/force', 'sid=x&beat=pot:red');
@@ -1096,7 +1143,7 @@ console.log('8. replay and resume inside a pot bonus');
 {
 	const mock = overlayMock(THREE, { seed: 'replay' });
 	const entry = await engine(mock, 'sid=z&seq=0', [
-		{ action: 'bet', context: [0, 1] },
+		{ action: 'bet', context: HOST.bet },
 		{ action: 'play', context: 'force:pot:red' },
 	]);
 	const gid = entry.platform.gameRound.id;
@@ -1104,7 +1151,7 @@ console.log('8. replay and resume inside a pot bonus');
 	const again = await engine(mock, `sid=z&seq=2&gid=${gid}`, [{ action: 'play', context: null }]);
 	check(same(again.events, respin.events), 'a resent position replays what was dealt');
 	const first = await engine(mock, `sid=z&seq=0&gid=${gid}`, [
-		{ action: 'bet', context: [0, 1] },
+		{ action: 'bet', context: HOST.bet },
 		{ action: 'play', context: 'force:pot:red' },
 	]);
 	check(
@@ -1121,7 +1168,7 @@ console.log('8. replay and resume inside a pot bonus');
 			config.actions.length === 3 &&
 			config.context.potsOverlay.pots.find((p) => p.id === 'red').level === 0 &&
 			boot.platform.gameRound?.id === gid &&
-			boot.platform.gameRound.outcome === 'bonus',
+			(boot.platform.gameRound.outcome === 'bonus') === HOST.bonusOutcome,
 		'a boot mid-feature resumes: the actions, the pots, the open bonus round',
 	);
 }
@@ -1154,7 +1201,7 @@ console.log('9. one Hold and Win per round, and a full pot never stays stuck');
 	// An abandoned round: its pot shows full, the next bet opens a new round.
 	const abandon = overlayMock(THREE, { seed: 'abandon' });
 	await engine(abandon, 'sid=a&seq=0', [
-		{ action: 'bet', context: [0, 1] },
+		{ action: 'bet', context: HOST.bet },
 		{ action: 'play', context: 'force:feature,pot:blue' },
 	]);
 	check(
@@ -1164,7 +1211,7 @@ console.log('9. one Hold and Win per round, and a full pot never stays stuck');
 	// A contract swap drops the open round and keeps the pots.
 	const before = overlayMock(THREE, { seed: 'swap' });
 	await engine(before, 'sid=s&seq=0', [
-		{ action: 'bet', context: [0, 1] },
+		{ action: 'bet', context: HOST.bet },
 		{ action: 'play', context: 'force:feature,pot:green' },
 	]);
 	const after = overlayMock(THREE, { seed: 'swap-2' });
@@ -1203,6 +1250,23 @@ console.log('9. one Hold and Win per round, and a full pot never stays stuck');
 		/no Hold and Win bonus/.test(refused),
 		'a Hold and Win pot with no Hold and Win bonus: refused at build',
 		refused,
+	);
+	// A pot routed to the host's free spins on a game whose free spins are off: refused at build (and
+	// by `/config`, which will not save it), so the test server deals the plain host and says so.
+	let offRefused = '';
+	try {
+		overlayMock(FREE, { freeSpins: false });
+	} catch (e) {
+		offRefused = e.message;
+	}
+	check(
+		/free spins are off/.test(offRefused),
+		'a pot to free spins on a game with free spins off: refused at build',
+		offRefused,
+	);
+	check(
+		Boolean(overlayMock(THREE, { freeSpins: false })),
+		'…while a pot to Hold and Win still builds',
 	);
 }
 
@@ -1269,7 +1333,7 @@ console.log('10. coins only: no pots, 6+ value coins start the Classic Hold and 
 		`overlay:coins:${min - 1}: shown, no feature, the round ends`,
 	);
 	const refused = await engine(overlayMock(COINS), 'sid=x&seq=0', [
-		{ action: 'bet', context: [0, 1] },
+		{ action: 'bet', context: HOST.bet },
 		{ action: 'play', context: 'force:pot:gold' },
 	]);
 	check(refused.errorCode === 101, 'refused: a pot beat with no pots');
@@ -1324,6 +1388,38 @@ console.log('11. the test server ships it');
 		'the Dockerfile copies the overlay and everything it imports',
 		missing.join(', '),
 	);
+	// …and deals it: a manifest entry on this host's protocol, a pot forced full.
+	const tree = mkdtempSync(join(tmpdir(), 'pots-overlay-'));
+	const grid = {
+		reels: 5,
+		rows: 3,
+		paylines: [[1, 1, 1, 1, 1]],
+		potsOverlay: potsOverlayMockInputs(THREE),
+	};
+	writeFileSync(join(tree, 'games.json'), JSON.stringify({ games: { pots: { name: 'pots', protocol: HOST.name, grid } } })); // prettier-ignore
+	const server = await startTestServer(tree, { SEED: 'pots-overlay' });
+	try {
+		const post = async (body) =>
+			(
+				await fetch(`${server.origin}/api/pots/rgs/engine?sid=t&seq=0`, {
+					method: 'POST',
+					body: JSON.stringify(body),
+					signal: AbortSignal.timeout(15_000),
+				})
+			).json();
+		const boot = await post([{ action: 'config' }]);
+		const entry = await post([
+			{ action: 'bet', context: HOST.bet },
+			{ action: 'play', context: 'force:pot:red' },
+		]);
+		check(
+			one(boot, 'config')?.potsOverlay?.wire === 1 && Boolean(one(entry, 'holdAndWinTrigger')),
+			`the test server composes it over a ${HOST.name} game: boot names it, a full pot starts its bonus`,
+		);
+	} finally {
+		server.stop();
+		rmSync(tree, { recursive: true, force: true });
+	}
 }
 
 console.log(

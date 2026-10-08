@@ -43,6 +43,7 @@ import {
 	boardPayingAtLeast,
 	drawAwardFrom,
 	MAX_ROUND_FREE_SPINS,
+	MAX_STRIPS_ROUND_SPINS,
 	parseWinX,
 } from './mock-rgs-server.mjs';
 
@@ -153,13 +154,6 @@ const TOTAL_FS = 10;
 const RETRIGGER_FS = 10;
 /** Fewest books that trigger (and retrigger) the feature when the project states no count. */
 const FS_TRIGGER_MIN = 3;
-/**
- * The most spins an imported reels mode's round may reach through retriggers — lower than every
- * round's `MAX_ROUND_FREE_SPINS`. Its spins are drawn from its cosmetic padding strips, which can
- * stack scatters far denser than a real reel set — one measured round chained 111 retriggers into the
- * facade's play guard and never ended.
- */
-const MAX_STRIPS_ROUND_SPINS = 50;
 
 function hashStr(s) {
 	let h = 2166136261 >>> 0;
@@ -697,6 +691,7 @@ export function createMockRgs(opts = {}) {
 				rows: 3,
 				bonuses: { feature: 'freeSpins' },
 				freeSpinsMode: 'freeSpins',
+				freeSpinsOn,
 				startFreeSpins,
 			})
 		: null;
