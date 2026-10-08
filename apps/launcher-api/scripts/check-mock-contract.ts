@@ -631,6 +631,24 @@ await check('a scatter that is also wild is the book: scatterWild, never a separ
 	eq(linesGrid(thermopylae()).wild, undefined, 'the preset deals no WILD');
 });
 
+console.info('a lines game with a pots overlay (book-feature Phase 4)');
+
+await check('the overlay rides last on the lines grid; without it the grid is unchanged', () => {
+	const plain = linesGrid(template('lines'));
+	const pots = linesGrid(withOverlay(template('lines')));
+	eq(Object.keys(pots).at(-1), 'potsOverlay', 'overlay last');
+	eq(
+		(pots.potsOverlay as { pots: { id: string }[] } | undefined)?.pots.map((p) => p.id),
+		['gold'],
+		'pots',
+	);
+	const { potsOverlay: _o, ...rest } = pots;
+	const { symbols: _s, ...restBoard } = rest;
+	const { symbols: _p, ...plainBoard } = plain;
+	eq(restBoard, plainBoard, 'the rest of the grid is the plain one (the tokens are not dealt)');
+	eq('potsOverlay' in plain, false, 'no block, no field');
+});
+
 console.info('the gate');
 
 await check('an unknown source is refused, not silently read as published', async () => {

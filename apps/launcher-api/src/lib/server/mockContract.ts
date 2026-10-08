@@ -633,6 +633,9 @@ function projectGrid(
 		const paysLines = model.type === 'lines';
 		const expandingSymbol = paysLines ? projectExpandingSymbol(doc, projectKey) : undefined;
 		const scatterWild = paysLines && projectScatterWild(doc);
+		// The pots overlay composes over the lines mock as over the book mock (book-feature Phase 4),
+		// its imported modes' names in the lines vocabulary. Last, so a project without it is unchanged.
+		const potsOverlay = inServerNames(potsOverlayMockInputs(doc), linesMapping, projectKey);
 		return {
 			reels,
 			rows,
@@ -650,6 +653,7 @@ function projectGrid(
 			...freeSpins,
 			...(expandingSymbol ? { expandingSymbol } : {}),
 			...(scatterWild ? { scatterWild: true } : {}),
+			...(potsOverlay ? { potsOverlay } : {}),
 		};
 	} catch {
 		return undefined;
