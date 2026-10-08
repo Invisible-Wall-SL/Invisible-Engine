@@ -24,6 +24,7 @@ import {
 	type HoldAndWinSpecial,
 } from './holdAndWin';
 import { symbolsInPlay } from './inPlay';
+import { legacyHoldAndWin, legacyPotsOverlay } from './bonusGames';
 import {
 	BASE_GAME_MODE,
 	FREE_SPINS_MODE,
@@ -140,7 +141,7 @@ const potBonus = (raw: unknown): PotBonus | undefined => {
 	return out;
 };
 
-const pot = (raw: unknown): OverlayPot | undefined => {
+export const normalizeOverlayPot = (raw: unknown): OverlayPot | undefined => {
 	if (!isObject(raw)) return undefined;
 	const id = text(raw.id);
 	const token = text(raw.token);
@@ -164,7 +165,7 @@ const dropEntry = (raw: unknown): OverlayDropEntry | undefined => {
 	return id ? { pot: id, weight } : undefined;
 };
 
-const drops = (raw: unknown): OverlayDrops => {
+export const normalizeOverlayDrops = (raw: unknown): OverlayDrops => {
 	const r = isObject(raw) ? raw : {};
 	const out: OverlayDrops = {
 		chance: num(r.chance) ?? DEFAULT_CHANCE,
@@ -190,8 +191,8 @@ const drops = (raw: unknown): OverlayDrops => {
  */
 export function normalizePotsOverlay(raw: unknown): PotsOverlay | undefined {
 	if (!isObject(raw)) return undefined;
-	const pots = list(raw.pots, pot);
-	const dropped = drops(raw.drops);
+	const pots = list(raw.pots, normalizeOverlayPot);
+	const dropped = normalizeOverlayDrops(raw.drops);
 	if (!pots.length && !dropped.table.length) return undefined;
 	return { pots, drops: dropped, ...(raw.timing === 'perReel' ? { timing: 'perReel' } : {}) };
 }
@@ -220,9 +221,9 @@ export type ResolvedMeter = {
  * declared.
  */
 export function resolveMeters(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay'> | undefined,
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay' | 'coinOverlay' | 'modes'> | undefined,
 ): ResolvedMeter[] {
-	const fromSymbols = (doc?.holdAndWin?.meters ?? []).map((m): ResolvedMeter => ({
+	const fromSymbols = ((doc && legacyHoldAndWin(doc))?.meters ?? []).map((m): ResolvedMeter => ({
 		id: m.id,
 		source: 'symbol',
 		symbol: m.symbol,
@@ -230,7 +231,7 @@ export function resolveMeters(
 		sizeStages: [...m.sizeStages],
 		bonus: { mode: HOLD_AND_WIN_MODE, activates: m.activates },
 	}));
-	const fromOverlay = (doc?.potsOverlay?.pots ?? []).map((p): ResolvedMeter => ({
+	const fromOverlay = ((doc && legacyPotsOverlay(doc))?.pots ?? []).map((p): ResolvedMeter => ({
 		id: p.id,
 		source: 'overlay',
 		symbol: p.token,

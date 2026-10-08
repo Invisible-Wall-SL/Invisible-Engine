@@ -4,6 +4,7 @@
  * protocol gate, so the gate proves the rounds the test server actually deals.
  */
 
+import { legacyPotsOverlay } from './bonusGames';
 import { holdAndWinIsOverlayBonus } from './holdAndWin';
 import { holdAndWinMockInputs, type HoldAndWinMockInputs } from './holdAndWinMock';
 import { builtinGameModes, gameModeById, gameTypeForMode } from './modes';
@@ -32,10 +33,10 @@ export type PotsOverlayMockInputs = {
 
 /** The mock's overlay inputs for a normalized doc, or `undefined` when it has no `potsOverlay`. */
 export function potsOverlayMockInputs(doc: GameConfigDoc): PotsOverlayMockInputs | undefined {
-	const overlay = doc.potsOverlay;
+	const overlay = legacyPotsOverlay(doc);
 	if (!overlay) return undefined;
 	const holdAndWin = holdAndWinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
-	const builtin = new Set(builtinGameModes(doc).map((m) => m.id));
+	const builtin = new Set(builtinGameModes().map((m) => m.id));
 	const modes: NonNullable<PotsOverlayMockInputs['modes']> = {};
 	for (const pot of overlay.pots) {
 		const mode = gameModeById(doc, pot.bonus.mode);
