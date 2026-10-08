@@ -1,10 +1,13 @@
 import {
 	MAX_COMPONENT_DEPTH,
 	anchoredPosition,
+	aspectBox,
 	boundComponentRidesBone,
+	boundComponentTileImage,
 	instancePreviewRigBundle,
 	resolveBoundValue,
 	resolveComponentParams,
+	resolveLayoutInstanceParams,
 	resolveReelGridPerspective,
 	resolveTransform,
 	type BoneRiderBinding,
@@ -134,6 +137,14 @@ export interface NaturalSize {
 	ax?: number;
 	ay?: number;
 }
+
+/** A node's natural draw size. `instanceRigBundle` / `instanceParams` are the ENCLOSING
+ * componentInstance's authored rig bundle and resolved params, for a part whose size follows them. */
+export type NaturalSizeFn = (
+	node: LayoutNode,
+	instanceRigBundle?: string,
+	instanceParams?: Record<string, unknown>,
+) => NaturalSize | null;
 
 /**
  * FALLBACK geometry for a `repeater`'s editor SAMPLE grid — used when the config can't tell us the
@@ -311,7 +322,7 @@ export function repeaterBoxes(
 export function nodeBox(
 	node: LayoutNode,
 	t: ResolvedTransform,
-	naturalSize: (node: LayoutNode, instanceRigBundle?: string) => NaturalSize | null,
+	naturalSize: NaturalSizeFn,
 	componentMap?: Map<string, ComponentDef>,
 	layoutType?: LayoutType,
 	/** The ENCLOSING componentInstance's AUTHORED preview rig bundle (its first `spine`-kind
@@ -328,6 +339,9 @@ export function nodeBox(
 	 * {@link componentInstanceContentBox} so an instance's selection box frames the art the
 	 * project's defaults actually draw. Undefined / empty ⇒ resolved exactly as before. */
 	componentDefaults?: Record<string, Record<string, unknown>>,
+	/** The ENCLOSING componentInstance's resolved params (the Component Editor's open-def params for
+	 * a top-level node), so a part sized by them frames the box it draws. Undefined ⇒ parity. */
+	instanceParams?: Record<string, unknown>,
 ): NodeBox {
 	// A repeater defaults its unset anchor to 0 (extend-right) like a sprite, so the selection rect
 	// frames the same footprint the runtime <Repeater> lays out (parity). A flipbook is atlas art
@@ -354,6 +368,23 @@ export function nodeBox(
 			componentDefaults,
 		);
 		if (content) return content;
+	}
+	// A coded tile part skinned with a picked frame (the readout's Background — see
+	// `TileImageBinding`) frames the box it DRAWS: `aspectBox` over the frame's natural size and the
+	// instance's overrides, exactly as EditorCanvas sizes the art. No frame picked (or one still
+	// loading with no override) ⇒ the coded tile box below (parity).
+	const tile = node.bind ? boundComponentTileImage(node.bind.component) : undefined;
+	const tileImage = tile ? instanceParams?.[tile.imageParam] : undefined;
+	if (tile && instanceParams && typeof tileImage === 'string' && tileImage) {
+		const num = (key?: string): number | undefined =>
+			key && typeof instanceParams[key] === 'number' ? (instanceParams[key] as number) : undefined;
+		const sized = aspectBox(
+			naturalSize(node, instanceRigBundle, instanceParams),
+			num(tile.widthParam),
+			num(tile.heightParam),
+		);
+		if (sized.width !== undefined && sized.height !== undefined)
+			return { w: sized.width, h: sized.height, ax, ay };
 	}
 	// A nested RIG bind (the win / free-spin VISUAL inside a rig-param componentInstance): frame
 	// the selection box at the AUTHORED rig's natural bounds so it matches what the rig layer draws
@@ -490,7 +521,7 @@ export function nodeBox(
  */
 function componentInstanceContentBox(
 	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
-	naturalSize: (node: LayoutNode, instanceRigBundle?: string) => NaturalSize | null,
+	naturalSize: NaturalSizeFn,
 	componentMap: Map<string, ComponentDef>,
 	layoutType: LayoutType,
 	depth: number,
@@ -504,8 +535,17 @@ function componentInstanceContentBox(
 	// This instance's AUTHORED preview rig bundle (its first `spine`-kind param value), resolved
 	// EXACTLY like the rig layer's `collectNestedRigs`, so a nested rig bind's box tracks the
 	// authored rig's natural bounds (matching what the rig layer renders). Undefined ⇒ parity.
-	const params = resolveComponentParams(def, node.params, componentDefaults?.[def.id]);
-	const rigBundle = instancePreviewRigBundle(def, params);
+	const rigBundle = instancePreviewRigBundle(
+		def,
+		resolveComponentParams(def, node.params, componentDefaults?.[def.id]),
+	);
+	// The params the children DRAW with — per-ratio overrides included, as `drawComponentInstance`
+	// resolves them — so a part sized by them frames what the canvas draws.
+	const params = resolveComponentParams(
+		def,
+		resolveLayoutInstanceParams(node, layoutType),
+		componentDefaults?.[def.id],
+	);
 
 	let minX = Infinity;
 	let minY = Infinity;
@@ -542,6 +582,7 @@ function componentInstanceContentBox(
 						rigBundle,
 						undefined,
 						componentDefaults,
+						params,
 					))
 				: nodeBox(
 						child,
@@ -552,6 +593,7 @@ function componentInstanceContentBox(
 						rigBundle,
 						undefined,
 						componentDefaults,
+						params,
 					);
 		// The child's box (already including its anchor) is placed at its local x/y and
 		// scaled by its own scale — match drawNode's transform so the union frames the

@@ -1624,8 +1624,13 @@
 	/** Natural draw size for a node — region size for region sprites, page/native otherwise.
 	 * `instanceRigBundle` (threaded by `nodeBox`/`componentInstanceContentBox`) resolves a
 	 * nested rig bind's stand-in to the ENCLOSING instance's AUTHORED rig, so its box tracks
-	 * that rig's natural bounds instead of the fixed catalog bundle. */
-	function naturalSize(node: LayoutNode, instanceRigBundle?: string): NaturalSize | null {
+	 * that rig's natural bounds instead of the fixed catalog bundle. `instanceParams` (the
+	 * enclosing instance's resolved params) resolves a skinned tile part to its picked frame. */
+	function naturalSize(
+		node: LayoutNode,
+		instanceRigBundle?: string,
+		instanceParams?: Record<string, unknown>,
+	): NaturalSize | null {
 		// A placed effect's "natural size" is its live particle SPREAD, reported by the overlay
 		// (`EditorEffectLayer` → `effectBounds`) in node-local / scene-world units. The spread is
 		// OFFSET from the node origin (a burst fanning upward has particles above/left of it), so we
@@ -1660,6 +1665,11 @@
 				return { w: box.w, h: box.h };
 			return null;
 		}
+		// A coded tile part skinned with a picked frame sizes off that frame (`nodeBox` applies the
+		// instance's overrides with `aspectBox`, as the draw does).
+		const tile = node.bind ? boundComponentTileImage(node.bind.component) : undefined;
+		const tileImage = tile ? instanceParams?.[tile.imageParam] : undefined;
+		if (typeof tileImage === 'string' && tileImage) return tileImageNaturalSize(tileImage);
 		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
 		// math frames the rendered art, not an empty container).
 		const art = artNaturalSize(node, instanceRigBundle);
@@ -2792,6 +2802,7 @@
 			rigBundle,
 			node.kind === 'repeater' ? repeaterItemCount(node) : undefined,
 			componentDefaults,
+			componentParams,
 		);
 	}
 

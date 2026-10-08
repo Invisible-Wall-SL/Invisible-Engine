@@ -39,6 +39,16 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-08 — **A HUD Readout's selection box follows its background image.** The selection
+  outline, resize handles and hit-test still used the coded 326:73 tile box after the draw switched
+  to `aspectBox`, so a custom background of another ratio sat outside its outline. `nodeBox` now takes
+  the enclosing instance's resolved params (per-ratio overrides included, as the draw resolves them;
+  the Component Editor's open-def params for a top-level part) and sizes any bind part with a
+  catalog `tileImage` binding by `aspectBox` over the picked frame's natural size and the instance's
+  width/height, the same box the draw uses. No image picked, or a frame still loading with no
+  override, keeps the coded tile box (parity). Nested Text Box `paramBindings` in the instance box now
+  also read the per-ratio params the draw uses. The `hudReadout` def is unchanged. Not
+  browser-verified.
 - 2026-10-08 — **A HUD Readout's background image keeps its own shape.** Reported: a custom
   background with a different ratio was stretched to the coded 326:73 ticker box on the instance.
   The editor preview always fell back to that box. New `engine-layout` `aspectBox`, used by the
