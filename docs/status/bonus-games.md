@@ -45,8 +45,9 @@ starts the phase sessions, reviews their PRs and merges them.
 - 2026-10-08 — **The owner's model** (hub session): the coin overlay (classic / 3 Pots / Collector)
   is an option a base game turns on, and it only triggers. The bonus stage is a game of its own,
   and a project can have several bonus modes. A Hold and Win project is editable, duplicable and
-  reskinnable, and any project can add it as a bonus mode. The design §6 defaults are taken until
-  the owner changes them.
+  reskinnable, and any project can add it as a bonus mode. The owner confirmed design §6 4–6:
+  the `coinOverlay` rename, retiring the `holdAndWin` kind (it stays as a template), and overlay +
+  buy triggers only (no scatter → Hold and Win).
 - 2026-10-08 — **Seams measured** against `main` 72f7a0c. The single-Hold-and-Win assumptions are
   listed in design "What is wrong today".
 

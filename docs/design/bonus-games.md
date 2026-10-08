@@ -85,7 +85,7 @@ Project (a whole game)
   its own `blank` symbol and respin strip key `paddingReels[<gameType>]`). `builtinGameModes` stops
   inventing the `holdAndWin` mode; a respin mode exists because it is declared.
 - **The coin overlay owns the trigger half.** It extends the existing `potsOverlay` block (renamed
-  `coinOverlay` if the owner agrees: §6) with:
+  `coinOverlay`, §6) with:
   - `style: 'classic' | 'pots' | 'collector'`;
   - coins as reel symbols (classic) as well as dropped tokens;
   - base-game coin values;
@@ -217,14 +217,15 @@ Concurrent work to coordinate with:
 - **Partner wire.** The new shape is ours (mock-first), and the partner's confirmation is still
   owed (Hold and Win Phase 10).
 
-## 6. Owner decisions (defaults taken — change any in the status file)
+## 6. Owner decisions (2026-10-08 — 4, 5 and 6 confirmed by the owner; the rest are defaults)
 
 1. **Routing lives in Game Config;** Flow only presents each mode. (Math has to be server-dealt.)
 2. **Copy + Re-sync, not a live link.**
 3. **An added bonus mode never replaces one:** an id clash takes `_2`.
-4. **The `holdAndWin` KIND retires as an engine switch** (as `bookOf` did) and stays as a Game Maker
-   template.
-5. **Name:** `potsOverlay` is renamed `coinOverlay` (UI: "Coin overlay"), with a compat read of the
-   old key. Say no to keep the name.
-6. **Triggers in scope:** coin count, pots, pattern, buy tier, Lucky Spin, random metre, and the
-   existing scatter → free spins. A scatter → Hold and Win route is added in Phase 1 if wanted.
+4. **The `holdAndWin` KIND retires as an engine switch (confirmed)** (as `bookOf` did) and stays as a
+   Game Maker template.
+5. **Name (confirmed):** `potsOverlay` is renamed `coinOverlay` (UI: "Coin overlay"), with a compat
+   read of the old key.
+6. **Triggers in scope (confirmed):** the coin overlay's own (coin count, pots, collector, pattern,
+   Lucky Spin, random metre) and buy tiers. Scatters keep starting free spins only: a scatter →
+   Hold and Win route is out of scope.
