@@ -659,6 +659,66 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
 - **Not in this phase:** nothing reads the block at runtime yet (Phase 4), the mock doesn't generate
   from it (Phase 3), and the symbol roles aren't offered in `/symbols` (Phase 7).
 
+## Book-of migration (book-feature Phase 6) — tooling built, not yet run
+
+`/admin` → **Projects** → **Migrate Book-of projects to Lines** (`$lib/server/bookOfMigration.ts`)
+moves every project of the retired `bookOf` kind to `lines` with the Book-of mechanic in its config
+([book-feature.md](../design/book-feature.md) §6 steps 1–4).
+
+- **Census and dry run** writes nothing. Per project: the facts, every change, what would be
+  republished or skipped, and the blockers. The plan runs the **publish gates** of each republish
+  (own bundle, sounds, stored flow, paytable drift — `publishGateRefusal` in `publishGame.ts`)
+  against the config it would save, so a refusal blocks the project before anything is written.
+- **Apply** runs ONE project per request (the page loops over the dry run's projects and shows each
+  result as it lands), re-deriving that project's plan server-side: config (expanding symbol with
+  the captured weights and `H1` from 2 reels, `'wild'` on the book, the ten paylines, +10
+  retrigger, base plus the one 100× buy under the buy's existing name, the scatter row
+  `3:2 4:20 5:200` paid; the Thermopylae preset when un-authored; an authored expanding block or
+  retrigger table kept) and layout `gameType`, each under its ETag with a History backup; then the
+  kind, only from `bookOf` (`switchProjectGameType`, a compare-and-swap on the row); then a
+  republish of the project's own test-server card when it has a published snapshot.
+- **Blocked** (nothing written): an unreadable doc, a board that is not 5×3, no scatter on the
+  strips, free spins switched off (the buy is never deleted), a kind that is neither `bookOf` nor
+  `lines`, another session's lease on `/config` or `/editor`, a desktop build not stamped
+  table-capable, or a refusing publish gate.
+- **Never republished:** a desktop build (its manifest entry has no shared runtime, or its own
+  bundle is uploaded — `bookofborut` under its own project key included) and a card that is not a
+  test-server card (the partner game).
+- **Republish pending:** a pending marker (`_shared/migrations/book-of/<project>.json`) is written
+  before the kind moves and deleted once every republish has landed. A republish that fails or is
+  refused after the kind moved leaves it, the result is `republish-pending`, and the census keeps
+  listing the project (now Lines) until a run republishes it. Meanwhile its players are on the lines
+  mock with the old snapshot.
+- **Errors** are per project and never stop the others; one says "run again" only when a re-run
+  would list the project. A migrated project is no longer listed, so a re-run is a no-op.
+
+Gate: `pnpm --filter launcher-api check:book-of-migration` (in `check:all`; CI's `Checks /
+check-all` shard 3 runs it), over the real `publishGame`.
+
+**Owner runbook.**
+
+1. **Rebuild and stamp the desktop builds** (`bookofborut`, `bookofborutremakebuild`). ☁ Publish
+   each from the desktop launcher (it advances the engine first). The desktop launcher does not
+   send the table-capable claim yet (Blocked, below), so then stamp each build through the portal:
+   `node apps/launcher-api/scripts/publish-game-via-portal.mjs <gameKey> <buildDir> --project
+   <projectKey> --register-only --table-capable`. Every later desktop ☁ Publish clears the stamp
+   again until the launcher sends it. Until a build is stamped, the dry run blocks its project with
+   "rebuild it from the desktop launcher first".
+2. **Dry run.** `/admin` → Projects → **Census and dry run**. Check each project's facts, its
+   changes, its blockers (a gate refusal names what to fix: approve the sound, fix the flow, settle
+   the paytable) and what is republished or skipped. Close any open `/config` or `/editor` tab on
+   those projects.
+3. **Apply.** Tick *I read this dry run*, press **Apply to N projects**. Read each result as it
+   lands: `migrated` with its steps, `blocked` with why, `republish-pending` (the kind moved, the
+   republish did not land: run the dry run and Apply again), `error` (its message says whether a
+   re-run picks it up).
+4. **Check.** Run the dry run again: only blocked projects should be left, and no republish
+   pending. The census's book manifest entries (a game still dealt by the book mock) and the `bookOf`
+   editor template are what Phase 7 needs at zero. Then the §7 Phase 6 proof: a `current-games` run
+   on `main` (free spins with the reveal and expansion, pots included), `loaded`/`idle` unchanged,
+   `scripts/playtest/determinism-proof.mjs` on the lines mock with the preset, and the
+   `game-playtester` agent on `docs/playtest/borut-remake.md`.
+
 ## Open items / next
 
 1. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
@@ -723,10 +783,38 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Blocked (owner / external)
 
-- _None._
+- **The desktop launcher does not claim table-capable** (`Invisible_Launcher.py`, a separate app).
+  `register-game` stamps a build only when its body carries `tableCapable: true`, and clears the
+  stamp otherwise. Until the launcher sends it for builds on an engine from book-feature Phase 3 on,
+  a desktop build is stamped by hand after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
 
+- 2026-10-08 — **Book-of migration review fixes** (PR #1132; the section above is current). The
+  plan runs the publish gates against the config it would save and blocks on a refusal, so a
+  refused republish no longer leaves a game half-migrated; a republish that fails after the kind
+  moved is remembered by a pending marker and retried by the next run; errors are per project, and
+  "run again" is said only when a re-run lists the project; the kind moves only from `bookOf`; free
+  spins off and no scatter are blockers (the buy is never deleted); a desktop card under its own
+  project key is a desktop build; `/admin` applies one project per request. The table-capable stamp
+  follows each registration both ways (`register-game` only on `tableCapable: true`;
+  `publish-game-bundle.mjs` and the new `publish-game-via-portal.mjs --table-capable` from the
+  flag). `check:book-of-migration` now runs the real `publishGame` and covers the refusing gate, a
+  publish failure retried, free spins off, kept author blocks, a kind changed meanwhile and the
+  rebuilt desktop build.
+- 2026-10-08 — **Book-of migration tooling** ([book-feature.md](../design/book-feature.md) Phase 6;
+  see "Book-of migration" above for what it does and the owner runbook). New
+  `apps/launcher-api/src/lib/server/bookOfMigration.ts` (`migrateBookOfConfig` pure and idempotent,
+  `bookOfCensus`, `planBookOfMigration`, `applyBookOfMigration`), the `/admin` actions
+  `bookOfDryRun` / `bookOfApply` (admin-only, confirm box, the caller's session so their own tabs
+  never block it), and `check:book-of-migration`: over an in-memory estate (the remake with a
+  stamped desktop build, an un-authored project, a pots project whose republish is refused, the
+  partner game, an unstamped desktop build, a leased project, a Lines control) it pins that the dry
+  run writes nothing, apply migrates and backs up each doc, republishes test-server cards only,
+  leaves blocked projects byte-identical, survives a lost race, and is a no-op on a second run; and
+  that the migrated remake, the preset and the partner config derive exactly the Book of
+  Thermopylae lines grid `check:expanding-symbol` plays against the book mock (the Phase 3
+  equivalence). Not run against real data.
 - 2026-10-08 — **Phase 5 review fixes** (PR #1126). **Weights:** an empty `freeSpins.expandingSymbol.weights`
   is now KEPT by `normalizeExpandingSymbol` — it means "no symbol weighted" (nothing drawn, the
   validator's "weight at least one" error), where an absent map still means "every eligible symbol,

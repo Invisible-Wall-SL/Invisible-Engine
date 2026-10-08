@@ -30,6 +30,7 @@ import {
 } from './flowV2Validation';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { mockContractOfBundle } from './mockContract';
+import type { GameConfigDoc } from 'game-config';
 import { protocolFor } from './mockProtocol';
 import { paytableDriftDetails, paytableDriftMessage } from './paytableDrift';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -42,7 +43,7 @@ import {
 	type SnapshotMeta,
 } from './publishedRuntime';
 import { buildRuntimeBundle } from './runtimeBundle';
-import { checkSoundsForPublish } from './soundPublishCheck';
+import { checkSoundsForPublish, type SoundPublishCheck } from './soundPublishCheck';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { invalidateRuntimeBundle, withDeployWrite } from './runtimeBundleCache';
 import { SHARED_RUNTIME_ID, runtimePointer, upsertTestServerGame } from './testServerManifest';
@@ -137,6 +138,109 @@ function runtimeFor(_gameType: string): string {
 	return SHARED_RUNTIME_ID;
 }
 
+/** The flow gate's refusal for a verdict, unless overridden. */
+const flowRefusal = (
+	check: FlowPublishCheck,
+	allowInvalidFlow?: boolean,
+): PublishBlockedError | null =>
+	check.status !== 'invalid' || allowInvalidFlow
+		? null
+		: new PublishBlockedError(
+				invalidFlowMessage(check.errors),
+				'invalid-flow',
+				describeFlowErrors(check.errors),
+			);
+
+type GateOptions = {
+	allowUnapproved?: boolean;
+	allowInvalidFlow?: boolean;
+	allowPaytableDrift?: boolean;
+	/** Stands in for the stored Game Config — the config a caller is about to save. */
+	config?: GameConfigDoc | null;
+};
+
+/**
+ * Step 1 of {@link publishGame}: every gate it runs before the ~20 s assemble, in order, as a
+ * verdict rather than a throw — the own-bundle guard, then sounds, the stored flow and the paytable.
+ */
+async function runPublishGates(
+	clientKey: string,
+	projectKey: string,
+	name: string,
+	options: GateOptions,
+): Promise<{ refusal: PublishBlockedError } | { refusal: null; soundCheck: SoundPublishCheck }> {
+	// GUARD: never clobber a game that has its OWN built bundle. Desktop-launcher
+	// games (Book of Borut, Hot Fruits) live at test_server/<key>/ and are served
+	// from there with their real protocol + NO runtime field. Stamping
+	// runtime:'lines' on one would shadow its real bundle with the generic lines
+	// runtime + the wrong mock RGS — exactly the Book-of-Borut regression. The online
+	// Game Maker only publishes games authored ENTIRELY online (no per-key bundle).
+	// Checked first: it is final and costs one listing, where the assemble costs ~20s.
+	if (await hasOwnBuiltBundle(projectKey)) {
+		return {
+			refusal: new PublishBlockedError(
+				`"${name}" already has its own published build (a desktop-launcher game), so the ` +
+					`online Game Maker won't republish it — that would overwrite the real game with the ` +
+					`generic runtime. Re-publish it from the desktop launcher instead.`,
+			),
+		};
+	}
+
+	// 1a. THE SOUND GATE. Before anything is written: a sound the game plays that nobody has
+	// approved must not reach players unnoticed. Deliberately refused here rather than dropped from
+	// the export — a missing sound is SILENT, and silence is the one defect QA cannot see.
+	const soundCheck = await checkSoundsForPublish(clientKey, projectKey);
+	if (soundCheck.unapproved.length && !options.allowUnapproved) {
+		return {
+			refusal: new PublishBlockedError(
+				`${soundCheck.unapproved.length} sound${soundCheck.unapproved.length === 1 ? '' : 's'} ` +
+					`the game plays ${soundCheck.unapproved.length === 1 ? 'is' : 'are'} still marked draft: ` +
+					`${soundCheck.unapproved.join(', ')}. Approve them in Invisible Sound, or publish anyway.`,
+				'unapproved-sounds',
+				soundCheck.unapproved,
+			),
+		};
+	}
+
+	// 1b. THE FLOW GATE. The v2 flow drives the game's screens, and the editor's Validation panel is
+	// advisory — so an error there (a hold nothing releases, a dead second wire, an unresolved ref)
+	// would otherwise reach players as a hung or silently skipped round. Checked here on the STORED
+	// flow so a refusal is instant, and again on the flow the snapshot actually freezes — an
+	// autosave during the assemble must not slip past the gate into a player's game.
+	const flow = flowRefusal(
+		await checkFlowV2ForPublish(clientKey, projectKey, options.config),
+		options.allowInvalidFlow,
+	);
+	if (flow) return { refusal: flow };
+
+	// 1c. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
+	// quoting other prices unnoticed — the info page is built from the authored config, the partner
+	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
+	const config =
+		options.config === undefined ? await loadGameConfigDoc(clientKey, projectKey) : options.config;
+	const drift = paytableDriftDetails(config);
+	if (drift.length && !options.allowPaytableDrift) {
+		return {
+			refusal: new PublishBlockedError(paytableDriftMessage(drift), 'paytable-drift', drift),
+		};
+	}
+	return { refusal: null, soundCheck };
+}
+
+/**
+ * What {@link publishGame} would refuse before publishing `projectKey` now, or `null` — its gates,
+ * without the publish. `config` checks a config about to be saved in place of the stored one (the
+ * Book-of migration gates its republish before it writes anything).
+ */
+export async function publishGateRefusal(
+	projectKey: string,
+	options: GateOptions = {},
+): Promise<PublishBlockedError | null> {
+	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+	const name = (await projectName(projectKey)) ?? projectKey;
+	return (await runPublishGates(clientKey, projectKey, name, options)).refusal;
+}
+
 /**
  * Publish (or re-publish) a project as a playable test-server game. `projectKey` is
  * the BARE launcher project key; it is also used verbatim as the GAME key.
@@ -156,57 +260,13 @@ export async function publishGame(
 	const name = (await projectName(projectKey)) ?? projectKey;
 	const key = projectKey;
 
-	// GUARD: never clobber a game that has its OWN built bundle. Desktop-launcher
-	// games (Book of Borut, Hot Fruits) live at test_server/<key>/ and are served
-	// from there with their real protocol + NO runtime field. Stamping
-	// runtime:'lines' on one would shadow its real bundle with the generic lines
-	// runtime + the wrong mock RGS — exactly the Book-of-Borut regression. The online
-	// Game Maker only publishes games authored ENTIRELY online (no per-key bundle).
-	// Checked first: it is final and costs one listing, where the assemble costs ~20s.
-	if (await hasOwnBuiltBundle(key)) {
-		throw new PublishBlockedError(
-			`"${name}" already has its own published build (a desktop-launcher game), so the ` +
-				`online Game Maker won't republish it — that would overwrite the real game with the ` +
-				`generic runtime. Re-publish it from the desktop launcher instead.`,
-		);
-	}
-
-	// 1a. THE SOUND GATE. Before anything is written: a sound the game plays that nobody has
-	// approved must not reach players unnoticed. Deliberately refused here rather than dropped from
-	// the export — a missing sound is SILENT, and silence is the one defect QA cannot see.
-	const soundCheck = await checkSoundsForPublish(clientKey, projectKey);
-	if (soundCheck.unapproved.length && !options.allowUnapproved) {
-		throw new PublishBlockedError(
-			`${soundCheck.unapproved.length} sound${soundCheck.unapproved.length === 1 ? '' : 's'} ` +
-				`the game plays ${soundCheck.unapproved.length === 1 ? 'is' : 'are'} still marked draft: ` +
-				`${soundCheck.unapproved.join(', ')}. Approve them in Invisible Sound, or publish anyway.`,
-			'unapproved-sounds',
-			soundCheck.unapproved,
-		);
-	}
-
-	// 1b. THE FLOW GATE. The v2 flow drives the game's screens, and the editor's Validation panel is
-	// advisory — so an error there (a hold nothing releases, a dead second wire, an unresolved ref)
-	// would otherwise reach players as a hung or silently skipped round. Checked here on the STORED
-	// flow so a refusal is instant, and again below on the flow the snapshot actually freezes — an
-	// autosave during the assemble must not slip past the gate into a player's game.
+	const gates = await runPublishGates(clientKey, projectKey, name, options);
+	if (gates.refusal) throw gates.refusal;
+	const { soundCheck } = gates;
 	const refuseFlow = (check: FlowPublishCheck) => {
-		if (check.status !== 'invalid' || options.allowInvalidFlow) return;
-		throw new PublishBlockedError(
-			invalidFlowMessage(check.errors),
-			'invalid-flow',
-			describeFlowErrors(check.errors),
-		);
+		const refusal = flowRefusal(check, options.allowInvalidFlow);
+		if (refusal) throw refusal;
 	};
-	refuseFlow(await checkFlowV2ForPublish(clientKey, projectKey));
-
-	// 1c. THE PAYTABLE GATE. A project that captured its partner's declared paytable must not ship
-	// quoting other prices unnoticed — the info page is built from the authored config, the partner
-	// pays its own. No capture ⇒ nothing to compare ⇒ never gated.
-	const drift = paytableDriftDetails(await loadGameConfigDoc(clientKey, projectKey));
-	if (drift.length && !options.allowPaytableDrift) {
-		throw new PublishBlockedError(paytableDriftMessage(drift), 'paytable-drift', drift);
-	}
 
 	// 2. Assemble once, gate what ships, freeze it. All under the project's deploy lock, so the
 	// `deploy/` tree the snapshot copies is exactly the one this assemble wrote. The snapshot is only

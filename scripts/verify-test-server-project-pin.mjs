@@ -318,7 +318,16 @@ await check('re-publishing a bundle cannot blank a pointer it was not told about
 	);
 	const run = compileSlice({
 		what: 'verify-test-server-project-pin / publish-game-bundle.mjs#manifest entry merge',
-		names: ['manifest', 'gameKey', 'protocol', 'name', 'projectKey', 'launcherOrigin', 'readToken'],
+		names: [
+			'manifest',
+			'gameKey',
+			'protocol',
+			'name',
+			'projectKey',
+			'launcherOrigin',
+			'readToken',
+			'tableCapable',
+		],
 		body: `${merge} return manifest.games[gameKey];`,
 	});
 	// The online Game Maker wrote a full entry; this script is then run with none of the flags.
@@ -332,15 +341,26 @@ await check('re-publishing a bundle cannot blank a pointer it was not told about
 				readToken: 'tok',
 				grid: { reels: 5, rows: 4 },
 				cascade: true,
+				tableCapable: true,
 			},
 		},
 	};
-	const entry = run(manifest, 'test6', 'lines', 'Ways on Waves', undefined, undefined, undefined);
+	const entry = run(
+		manifest,
+		'test6',
+		'lines',
+		'Ways on Waves',
+		undefined,
+		undefined,
+		undefined,
+		false,
+	);
 	eq(entry.projectKey, 'test6', 'projectKey survives');
 	eq(entry.docBase, 'https://app.invisiblewall.org', 'docBase survives');
 	eq(entry.readToken, 'tok', 'readToken survives');
 	eq(entry.grid, { reels: 5, rows: 4 }, 'grid survives');
 	eq(entry.cascade, true, 'cascade survives');
+	eq(JSON.parse(JSON.stringify(entry)).tableCapable, undefined, 'no --table-capable: no stamp');
 });
 
 await check('the flags write the pointer the test server reads', () => {
@@ -352,7 +372,16 @@ await check('the flags write the pointer the test server reads', () => {
 	);
 	const run = compileSlice({
 		what: 'verify-test-server-project-pin / publish-game-bundle.mjs#manifest entry merge',
-		names: ['manifest', 'gameKey', 'protocol', 'name', 'projectKey', 'launcherOrigin', 'readToken'],
+		names: [
+			'manifest',
+			'gameKey',
+			'protocol',
+			'name',
+			'projectKey',
+			'launcherOrigin',
+			'readToken',
+			'tableCapable',
+		],
 		body: `${merge} return manifest.games[gameKey];`,
 	});
 	const manifest = { games: {} };
@@ -364,8 +393,10 @@ await check('the flags write the pointer the test server reads', () => {
 		'test6',
 		'https://app.invisiblewall.org',
 		'tok',
+		true,
 	);
 	eq(entry.projectKey, 'test6', 'projectKey written');
+	eq(entry.tableCapable, true, '--table-capable stamps the build');
 	eq(entry.docBase, 'https://app.invisiblewall.org', 'docBase written');
 	eq(entry.readToken, 'tok', 'readToken written');
 	eq(entry.protocol, 'ways', 'the ways protocol is accepted at all');
@@ -515,6 +546,23 @@ await check('everything the endpoint knows nothing about survives the patch', as
 	eq(manifest.games.hotfruits, DESKTOP_WRITE, 'the sibling game');
 });
 
+await check('the table-capable stamp follows the registration both ways', async () => {
+	const stamped = await pinHarness(
+		{ waysofwavesbuild: DESKTOP_WRITE },
+		{ ...PIN, tableCapable: true },
+	);
+	eq(stamped.manifest.games.waysofwavesbuild.tableCapable, true, 'claimed: stamped');
+	const again = await pinHarness(stamped.manifest.games, { ...PIN, tableCapable: true });
+	eq(again.outcome, 'already-pinned', 'claimed again: nothing to write');
+	const cleared = await pinHarness(stamped.manifest.games, PIN);
+	eq(cleared.outcome, 'pinned', 'not claimed: written');
+	eq(
+		'tableCapable' in cleared.manifest.games.waysofwavesbuild,
+		false,
+		'not claimed: stamp removed',
+	);
+});
+
 await check('a game with no manifest entry is never invented', async () => {
 	// No bundle was uploaded under this key. Creating an entry would register a game the test server
 	// would then serve zero files for.
@@ -589,7 +637,7 @@ await check('the endpoint keeps the pin non-fatal and reports it', async () => {
 		['the refresh is time-boxed', 'AbortSignal.timeout(REFRESH_TIMEOUT_MS)'],
 		[
 			'the project scope is the one already validated',
-			'pinToProject(key, projectKey, launcherUrl.origin)',
+			'pinToProject(key, projectKey, launcherUrl.origin, tableCapable)',
 		],
 	]) {
 		if (!src.includes(needle)) throw new Error(`${what}: missing \`${needle}\``);

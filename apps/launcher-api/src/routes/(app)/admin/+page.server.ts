@@ -70,6 +70,7 @@ import { PurgeUnsafeError, purgeProjectR2 } from '$lib/server/projectPurge';
 import { ProjectFolderTakenError, UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { scaffoldProject } from '$lib/server/projectScaffold';
+import { applyBookOfMigrationTo, planBookOfMigration } from '$lib/server/bookOfMigration';
 import {
 	assignProjectToClient,
 	clientAccessFor,
@@ -556,6 +557,38 @@ export const actions: Actions = {
 		}
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
 		return { action: 'createProject', ok: `Created project ${key}.` };
+	},
+
+	/**
+	 * Book-of migration (`docs/design/book-feature.md` §6, decision 6): the read-only census and
+	 * dry run, then — with the confirm box ticked — the run, ONE project per request (the page loops
+	 * over the plan, so no request waits on more than one republish). Admin-only like Re-scaffold,
+	 * its precedent; it runs here with the launcher's own DB and R2 access, so no credential leaves
+	 * the server. Only the key comes from the browser: the plan is re-derived for it.
+	 */
+	bookOfDryRun: async ({ locals }) => {
+		await requireAdmin(locals);
+		const { census, plans } = await planBookOfMigration(ENV.GAMES_BASE_URL);
+		return { action: 'bookOfDryRun' as const, census, plans };
+	},
+
+	bookOfApplyOne: async ({ request, locals, cookies, url }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const key = String(data.get('key') ?? '');
+		if (data.get('confirm') !== 'yes') {
+			return fail(400, {
+				action: 'bookOfApplyOne',
+				error: 'Tick the confirm box: this migrates the Book-of projects to Lines.',
+			});
+		}
+		const result = await applyBookOfMigrationTo(key, {
+			gamesBaseUrl: ENV.GAMES_BASE_URL,
+			launcherOrigin: url.origin,
+			sessionId: (await sessionIdFromToken(cookies.get(SESSION_COOKIE))) ?? '',
+			by: admin.email,
+		});
+		return { action: 'bookOfApplyOne' as const, result };
 	},
 
 	rescaffoldProject: async ({ request, locals }) => {

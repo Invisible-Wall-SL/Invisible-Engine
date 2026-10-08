@@ -504,6 +504,7 @@ console.log('\n9. the Invisible Test Server forwards the block from a manifest e
 		malformed: { name: 'malformed', protocol: 'lines', grid: { ...PRESET, expandingSymbol: malformed } },
 		crowded: { name: 'crowded', protocol: 'lines', grid: { ...PRESET, expandingSymbol: { candidates: Array.from({ length: 33 }, () => CANDIDATES[0]) } } },
 		heavy: { name: 'heavy', protocol: 'lines', grid: { ...PRESET, expandingSymbol: { candidates: [{ ...CANDIDATES[0], weight: 1e7 }] } } },
+		stamped: { name: 'stamped', protocol: 'lines', tableCapable: true, grid: PRESET },
 	}; // prettier-ignore
 	writeFileSync(join(tree, 'games.json'), JSON.stringify({ games }));
 	const server = await startTestServer(tree, { SEED: 'expanding-symbol', FORCE_TRIGGER: '1' });
@@ -528,6 +529,21 @@ console.log('\n9. the Invisible Test Server forwards the block from a manifest e
 			const events = await first(key);
 			check(ev(events, 'enterBonus') && !ev(events, 'pickRandomly'), `…and so is one out of bounds (${key})`); // prettier-ignore
 		}
+		// A desktop build (no `runtime`) is sold the bet-option table only once it is stamped
+		// `tableCapable` (book-feature §6 step 5); an older one keeps the line-config game.
+		const tableOf = async (key) => {
+			const res = await fetch(`${server.origin}/api/${key}/rgs/engine?sid=table&seq=0`, {
+				method: 'POST',
+				body: JSON.stringify([{ action: 'config' }]),
+				signal: AbortSignal.timeout(15_000),
+			});
+			return ev((await res.json()).events, 'config')?.context.betOptions;
+		};
+		check(
+			(await tableOf('preset')) === undefined,
+			'an unstamped desktop build is dealt no bet table',
+		);
+		check(JSON.stringify(await tableOf('stamped')) === '[10,1000]', 'a stamped one is sold its 100× buy'); // prettier-ignore
 	} finally {
 		server.stop();
 		rmSync(tree, { recursive: true, force: true });

@@ -3,7 +3,13 @@
 //
 //   node apps/launcher-api/scripts/publish-game-via-portal.mjs <gameKey> <buildDir> \
 //     [--protocol lines|book|ways|cluster|scatter] [--name "Display Name"] \
-//     [--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--register-only] [--dry-run]
+//     [--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--register-only] [--dry-run] \
+//     [--table-capable]
+//
+// --table-capable tells register-game the build prices a bet-option table (an engine from
+// book-feature Phase 3 on), which stamps its manifest entry so the test server sells it the
+// project's buy and the Book-of migration accepts it. Without it the registration CLEARS the stamp.
+// With --register-only it stamps an already-uploaded build without re-sending it.
 //
 // WHY THIS EXISTS, and when to reach for it instead of the desktop launcher's own Build & publish:
 // Spanish ISPs null-route whole Cloudflare anycast ranges under the LaLiga anti-piracy orders, and
@@ -42,7 +48,7 @@ if (!gameKey || !buildDir) {
 	console.error(
 		'Usage: node publish-game-via-portal.mjs <gameKey> <buildDir> ' +
 			'[--protocol lines|book|ways|cluster|scatter] [--name "Display Name"] ' +
-			'[--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--register-only] [--dry-run]',
+			'[--project <projectKey>] [--launcher <origin>] [--token <t>] [--no-register] [--register-only] [--dry-run] [--table-capable]',
 	);
 	process.exit(1);
 }
@@ -74,6 +80,7 @@ const register = !has('no-register');
 // It still refreshes and proves what is live, because that check is the point of the card.
 const registerOnly = has('register-only');
 const dryRun = has('dry-run');
+const tableCapable = has('table-capable');
 
 if (register && !projectKey) {
 	console.error(
@@ -349,7 +356,13 @@ if (register) {
 		{
 			method: 'POST',
 			headers: { ...auth, 'content-type': 'application/json' },
-			body: JSON.stringify({ key: gameKey, name, url: playUrl, project: projectKey }),
+			body: JSON.stringify({
+				key: gameKey,
+				name,
+				url: playUrl,
+				project: projectKey,
+				...(tableCapable ? { tableCapable: true } : {}),
+			}),
 		},
 		{ label: 'register-game' },
 	);
