@@ -135,24 +135,27 @@ A one-time tool at the bottom of the **Projects** tab. It turns every project of
 **Book of** kind into a **Lines** project whose Game Config carries the Book-of feature (the
 expanding symbol), so the Invisible Test Server keeps dealing it the same game.
 
-- **Census and dry run** lists every Book-of project with what the migration reads (whether its
-  config is authored, the book symbol and its properties, bet modes, free spins, a pots overlay,
-  the layout's kind, its test-server entries and game cards), then what it would change, what it
-  would republish or skip, and anything that **blocks** it. It writes nothing. The top line also
-  counts the games still dealt by the book mock and says whether the Book-of editor template
+- **Census and dry run** lists every Book-of project with what the migration reads (its kind,
+  whether its config is authored, the book symbol and its properties, bet modes, free spins, a pots
+  overlay, the layout's kind, its test-server entries and game cards), then what it would change,
+  what it would republish or skip, and anything that **blocks** it. It writes nothing. The top line
+  also counts the games still dealt by the book mock and says whether the Book-of editor template
   exists.
-- **Apply** needs the *I ran the dry run* box. It works out the plan again on the server, then for
-  each project that is not blocked: saves its config and its layout (each with a History backup),
-  switches its kind to Lines, and republishes its online game. Each project gets its own result:
-  **migrated** with what each step did, **blocked**, or **error**.
+- **Apply to N projects** appears under a dry run, behind the *I read this dry run* box. It
+  migrates one project at a time and shows each result as it lands: it works out that project's
+  plan again on the server, saves its config and its layout (each with a History backup), switches
+  its kind to Lines, and republishes its online game. Results: **migrated**, **blocked** (with
+  why), **republish-pending** (the kind moved but the republish did not land — run it again), or
+  **error** (its message says whether running it again picks the project up).
 
-What blocks a project: someone else has its `/config` or `/editor` open; its config or layout does
-not read; its board is not 5×3; or one of its desktop builds was built before bet tables ("rebuild
-it from the desktop launcher first" — ☁ Publish it from the desktop launcher, then run the dry run
-again). A republish that a publish check refuses shows **REFUSED** with the reason; publish that
-game from Game Maker yourself. A partner game's card is never republished. If an author saved while
-it ran, that project shows an error: press Apply again. Running it again after everything is done
-changes nothing. The owner's step-by-step runbook is in
+What blocks a project, before anything is written: someone else has its `/config` or `/editor`
+open; its config or layout does not read; its board is not 5×3; it has no scatter; its free spins
+are switched off (turn them on in `/config`); one of its desktop builds is not marked as able to
+sell bet tables ("rebuild it from the desktop launcher first"); or its republish would be refused
+by a publish check (a draft sound, an invalid flow, a paytable that differs from the partner's) —
+fix what it names and run the dry run again. A desktop build and a partner game's card are never
+republished. A project whose republish is pending stays on the list until it lands. Running it
+again after everything is done changes nothing. The owner's step-by-step runbook is in
 [status/game-config](../status/game-config.md) ("Book-of migration").
 
 ### Admin → Settings → Invisible Director
