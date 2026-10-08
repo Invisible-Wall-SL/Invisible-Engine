@@ -22,6 +22,7 @@ import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import { isHttpError } from '@sveltejs/kit';
 import {
+	bookOfThermopylaePreset,
 	importBonus,
 	normalizeGameConfigDoc,
 	potsOverlayPreset,
@@ -570,12 +571,35 @@ await check('awards travel against the Book-of defaults: 10, +10 on a retrigger'
 	eq('freeSpinsAwards' in linesGrid(withFreeSpins({ retriggerAwards: [{ count: 3, spins: 5 }] })), false, 'lines: +5 stays the default'); // prettier-ignore
 });
 
-console.info('the expanding symbol (book-feature Phase 2: config only, no mock yet)');
+console.info('the expanding symbol (book-feature Phase 3: the lines mock deals it)');
 
-await check('the block changes no contract until the mocks deal it (Phase 3)', () => {
-	const special = { expandingSymbol: { weights: { H1: 1 }, minReels: { H1: 2 } } };
-	eq(linesGrid(withFreeSpins(special)), linesGrid(template('lines')), 'lines');
-	eq(bookGrid(withFreeSpins(special)), bookGrid(template('lines')), 'book');
+const thermopylae = () => normalizeGameConfigDoc(bookOfThermopylaePreset())!;
+
+await check('the Book of Thermopylae preset is the grid check:expanding-symbol deals', () => {
+	const pinned = JSON.parse(
+		readFileSync(
+			new URL('../../../scripts/lib/book-of-thermopylae-lines-grid.json', import.meta.url),
+			'utf8',
+		),
+	);
+	eq(linesGrid(thermopylae()), pinned, 'grid');
+});
+
+await check('the block rides LAST, in server names; the rest of the contract is unchanged', () => {
+	const special = { expandingSymbol: { weights: { H1: 1, L1: 2 }, minReels: { H1: 2 } } };
+	const { expandingSymbol, ...rest } = linesGrid(withFreeSpins(special));
+	eq(expandingSymbol, { candidates: [{ symbol: 'PIC5', weight: 2, minReels: 3 }, { symbol: 'PIC1', weight: 1, minReels: 2 }] }, 'candidates, in dictionary order'); // prettier-ignore
+	eq(Object.keys(linesGrid(withFreeSpins(special))).at(-1), 'expandingSymbol', 'last');
+	eq(rest, linesGrid(template('lines')), 'nothing else moves');
+});
+
+await check('it travels only where the lines mock can deal it', () => {
+	const special = { expandingSymbol: { weights: { H1: 1 } } };
+	eq(bookGrid(withFreeSpins(special)), bookGrid(template('lines')), 'book: its mock draws its own');
+	const off = linesGrid(withFreeSpins({ enabled: false, ...special }));
+	eq('expandingSymbol' in off, false, 'free spins off: inert');
+	const ways = mockContractOfBundle('ways', { config: withFreeSpins(special, template('ways')), symbols: NO_SYMBOLS }, 'w').grid ?? {}; // prettier-ignore
+	eq('expandingSymbol' in ways, false, 'a ways game: no expanded-reel rule');
 	eq(
 		mockContractOfBundle(
 			'lines',
@@ -583,8 +607,28 @@ await check('the block changes no contract until the mocks deal it (Phase 3)', (
 			'x',
 		).grid,
 		mockContractOfBundle('lines', { config: unpriced(), symbols: NO_SYMBOLS }, 'x').grid,
-		'an unpriced lines doc',
+		'no priced candidate: nothing to send',
 	);
+});
+
+await check('a scatter that is also wild is the book: scatterWild, never a separate WILD', () => {
+	const doc = template('lines');
+	const scatter = Object.keys(doc.symbols).find((name) =>
+		doc.symbols[name].special_properties?.includes('scatter'),
+	)!;
+	const book = normalizeGameConfigDoc({
+		...doc,
+		symbols: {
+			...doc.symbols,
+			[scatter]: { ...doc.symbols[scatter], special_properties: ['scatter', 'wild'] },
+		},
+	})!;
+	const plain = linesGrid(doc);
+	const grid = linesGrid(book);
+	eq(grid.scatterWild, true, 'scatterWild');
+	eq(grid.wild, plain.wild, 'the wild field is the plain game’s');
+	eq('scatterWild' in plain, false, 'a plain scatter sends nothing');
+	eq(linesGrid(thermopylae()).wild, undefined, 'the preset deals no WILD');
 });
 
 console.info('the gate');

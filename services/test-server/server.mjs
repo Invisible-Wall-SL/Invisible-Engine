@@ -433,6 +433,10 @@ const warnDroppedBetModes = (raw) => {
  *  malformed entry ⇒ null ⇒ the mock keeps its shared default. Defensive: the manifest is external.
  *  A well-formed `wild` ({ paytable: occurs→multiplier }) is passed through so the mock deals + pays
  *  the project's in-play wild; a malformed wild is simply dropped (the grid still stands). */
+/** Bounds on an expanding-special draw table from an external manifest (see `validGrid`). */
+const MAX_EXPANDING_CANDIDATES = 32;
+const MAX_EXPANDING_WEIGHT = 1_000_000;
+
 const validGrid = (grid) => {
 	if (!grid || typeof grid !== 'object') return null;
 	const reels = Math.round(Number(grid.reels));
@@ -563,6 +567,37 @@ const validGrid = (grid) => {
 		entryAwards && retriggerAwards && typeof awards.random === 'boolean'
 			? { awards: entryAwards, retrigger: retriggerAwards, random: awards.random }
 			: null;
+	// The Book-of expanding special (game-config's `resolveExpandingSymbol`, in server names): a
+	// candidate per symbol it may be drawn as. Validated WHOLE — a draw table with a hole in it would
+	// deal a different game — so malformed ⇒ dropped ⇒ no special. Bounded like the award tables: no
+	// more candidates than a pool has names, and a weight a draw can sum without losing precision.
+	const candidates = grid.expandingSymbol?.candidates;
+	const expandingSymbol =
+		Array.isArray(candidates) &&
+		candidates.length > 0 &&
+		candidates.length <= MAX_EXPANDING_CANDIDATES &&
+		candidates.every(
+			(c) =>
+				c &&
+				typeof c.symbol === 'string' &&
+				c.symbol.length > 0 &&
+				Number.isFinite(c.weight) &&
+				c.weight > 0 &&
+				c.weight <= MAX_EXPANDING_WEIGHT &&
+				Number.isInteger(c.minReels) &&
+				c.minReels >= 1 &&
+				c.minReels <= reels,
+		)
+			? {
+					candidates: candidates.map(({ symbol, weight, minReels }) => ({
+						symbol,
+						weight,
+						minReels,
+					})),
+				}
+			: null;
+	// The in-play scatter is also wild (the Book-of book): it substitutes on lines. Only `true`.
+	const scatterWild = grid.scatterWild === true;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
 	const holdAndWinShaped = (hw) =>
@@ -638,6 +673,8 @@ const validGrid = (grid) => {
 		...(freeSpinsOff ? { freeSpins: false } : {}),
 		...(freeSpinsTrigger ? { freeSpinsTrigger } : {}),
 		...(freeSpinsAwards ? { freeSpinsAwards } : {}),
+		...(expandingSymbol ? { expandingSymbol } : {}),
+		...(scatterWild ? { scatterWild: true } : {}),
 	};
 };
 

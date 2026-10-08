@@ -372,6 +372,13 @@ export interface TestServerGameEntry {
 			retrigger: FreeSpinsAward[];
 			random: boolean;
 		};
+		/** The Book-of expanding special (lines mock, a `lines` win model only): every symbol it may be
+		 *  drawn as when free spins start, in SERVER names, with its draw weight and the fewest reels
+		 *  it must cover to expand and pay. Absent ⇒ no special. See `projectExpandingSymbol`. */
+		expandingSymbol?: { candidates: { symbol: string; weight: number; minReels: number }[] };
+		/** `true` when the in-play scatter is also wild (a Book-of book): the lines mock substitutes
+		 *  `SCAT` on lines and declares it in `wildSymbols`. Absent ⇒ the scatter is only a scatter. */
+		scatterWild?: true;
 		/** A `holdAndWin` game's block, line symbols and symbol roles/pays in the project's OWN names
 		 *  (`holdAndWinMockInputs`), which the Hold and Win mock deals from. Present only for that
 		 *  protocol; such a grid carries none of the lines-mock fields above but the board, lines and

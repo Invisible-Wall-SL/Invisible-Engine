@@ -49,6 +49,7 @@ export const {
 	activeWinLevelChain,
 	activeWinLevel,
 	publishWinLevelsToFacade,
+	publishExpandMinReelsToFacade,
 	warnOnGameConfigIssues,
 	captureServerGrid,
 	warnOnServerGridMismatch,

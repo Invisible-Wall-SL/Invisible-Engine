@@ -245,14 +245,16 @@ const SCATTER_PAY_TABLE = {
 };
 
 /** Free-spin feature. A lines game triggers on a symbol COUNT alone — FS_TRIGGER_MIN+ SCAT unless
- *  the project states its own rule (`opts.freeSpinsTrigger`) — there is no
- *  book-of expanding special symbol here, so the mock never emits `pickRandomly`
- *  (→ no `setExpandingSymbol` book event). The free spins are otherwise the same
- *  multi-request round the facade already drives off `enterBonus`. */
+ *  the project states its own rule (`opts.freeSpinsTrigger`). Only a game with an expanding special
+ *  (`opts.expandingSymbol`) emits `pickRandomly` (→ the `setExpandingSymbol` book event). The free
+ *  spins are otherwise the same multi-request round the facade already drives off `enterBonus`. */
 const FS_TRIGGER_MIN = 3;
 const TOTAL_FS = 10;
 /** Extra free spins when the trigger lands again DURING a free spin. */
 const RETRIGGER_FS = 5;
+/** Fewest reels an expanding special covers to expand, when its candidate names no threshold —
+ *  game-config's `DEFAULT_EXPAND_MIN_REELS`. */
+const DEFAULT_EXPAND_MIN_REELS = 3;
 
 /**
  * The most free spins ONE round may reach — its entry award plus every retrigger — on every mock that
@@ -370,10 +372,15 @@ function hashStr(s) {
  * SUBSTITUTES for the line's paying symbol — extending a run of any high/low symbol — and (2) pays
  * its OWN paytable for a leading run of pure wilds, whichever is worth more. `wild` absent ⇒ the
  * original plain-equality behaviour, byte-identical (no game deals WILD unless a project opts in).
+ *
+ * `opts.scatterWild` makes `SCAT` substitute too — the Book-of book, scatter AND wild
+ * (`docs/design/book-feature.md` §4, owner decision 2: leading books substitute like any wild). It
+ * never pays a line of its own: its pay is the scatter pay, so a line of books alone pays nothing here.
  */
 export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts = {}) => {
 	const wildPay = wild?.paytable ?? null;
-	const isWild = (sym) => wildPay !== null && sym === 'WILD';
+	const isWild = (sym) =>
+		(wildPay !== null && sym === 'WILD') || (opts.scatterWild === true && sym === 'SCAT');
 	const wins = [];
 	for (let p = 0; p < paylines.length; p++) {
 		const line = paylines[p];
@@ -388,7 +395,7 @@ export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts 
 		}
 		let wildRun = 0;
 		for (const sym of seq) {
-			if (isWild(sym)) wildRun++;
+			if (wildPay !== null && sym === 'WILD') wildRun++;
 			else break;
 		}
 		let best = null;
@@ -722,7 +729,8 @@ const evaluateScatters = (reels, totalStake, table = SCATTER_PAY_TABLE) => {
 
 /** Free-spin state snapshot, faithful to the Play4Fun `playedBonusSpin` /
  *  `enterBonus` shape. The facade reads `played` + `left` to drive the counter. `trigger` is the
- *  instance's rule (`{ occurs: [min], of: symbol, … }`): 3+ SCAT unless the project states one. */
+ *  instance's rule (`{ occurs: [min], of: symbol, … }`): 3+ SCAT unless the project states one.
+ *  A feature with an expanding special names it as `state`, where the captured Book-of snapshot does. */
 const bonusSnapshot = (round, trigger, extra = {}) => ({
 	prob: 1,
 	additionalPrice: 0,
@@ -741,10 +749,12 @@ const bonusSnapshot = (round, trigger, extra = {}) => ({
 						spins: round.bonus.left,
 						bonus: 'feature',
 						trigger,
+						...(round.bonus.special ? { state: round.bonus.special.symbol } : {}),
 					},
 				]
 			: [],
 	playing: 'feature',
+	...(round.bonus.special ? { state: round.bonus.special.symbol } : {}),
 	trigger,
 	...extra,
 });
@@ -1014,12 +1024,29 @@ export function createMockRgs(opts = {}) {
 	const LINE_POOL = linePoolRaw.length ? linePoolRaw : LINE_SYMBOLS;
 
 	/**
+	 * The Book-of book (`opts.scatterWild`, sent when the project's in-play scatter is also wild):
+	 * `SCAT` substitutes on lines and is declared in `wildSymbols`. A lines game only — no other
+	 * evaluator has the rule — and only when the scatter is dealt at all.
+	 */
+	const scatterWild = opts.scatterWild === true && winModel === 'lines' && scatterEnabled;
+	if (opts.scatterWild === true && !scatterWild) {
+		console.warn(
+			`[${label}] the scatter is also wild, which only a lines game that deals it can play — ignored`,
+		);
+	}
+	/**
 	 * What every evaluator on this instance scores, and what it prices with — the project's own pool
 	 * and its own paytable, so "the symbols my config deals" and "the symbols my config pays" are the
 	 * same list. Spread into each evaluator call below; a standalone caller that passes neither keeps
 	 * the captured seven and the captured Hot Fruits values (`poolOf` / `payRowOf`).
 	 */
-	const evalOpts = { pool: LINE_POOL, symbolPaytable: opts.symbolPaytable ?? null };
+	const evalOpts = {
+		pool: LINE_POOL,
+		symbolPaytable: opts.symbolPaytable ?? null,
+		...(scatterWild ? { scatterWild } : {}),
+	};
+	/** Every symbol that substitutes on a line, as `config` and `spinStart` declare them. */
+	const WILD_SYMBOLS = [...(scatterWild ? ['SCAT'] : []), ...(wild ? ['WILD'] : [])];
 
 	/**
 	 * The board vocabulary + the price list this instance ACTUALLY uses, for the `config` and
@@ -1093,6 +1120,80 @@ export function createMockRgs(opts = {}) {
 	const retriggerAwards = awardTableOf(opts.freeSpinsAwards?.retrigger, RETRIGGER_FS, triggerMin);
 	const randomAwards = opts.freeSpinsAwards?.random === true;
 	const drawAward = (table, landed) => drawAwardFrom(table, landed, randomAwards, nextRand);
+
+	/**
+	 * THE EXPANDING SPECIAL — the Book-of mechanic as a feature of any lines game
+	 * (`docs/design/book-feature.md` §4). `opts.expandingSymbol.candidates` is game-config's
+	 * `resolveExpandingSymbol` in server names: `{ symbol, weight, minReels }` per symbol it may be.
+	 *
+	 * When free spins start, one candidate is drawn by weight and announced with `pickRandomly`; on
+	 * each free spin, once it covers `minReels` reels it expands over them and pays scatter-style (see
+	 * `expandingWin`). Only candidates this instance DEALS are kept — a special the board never shows
+	 * could never expand. Absent ⇒ null ⇒ no extra RNG draw anywhere, so every game without the
+	 * block deals byte-identically. Lines only: an expanded reel "pays on every line".
+	 */
+	const expanding = (() => {
+		const raw = opts.expandingSymbol?.candidates;
+		if (!freeSpinsOn || !Array.isArray(raw)) return null;
+		if (winModel !== 'lines') {
+			console.warn(`[${label}] an expanding special needs a lines game, not ${winModel} — ignored`);
+			return null;
+		}
+		const candidates = raw
+			.filter(
+				(c) =>
+					typeof c?.symbol === 'string' &&
+					LINE_POOL.includes(c.symbol) &&
+					Number.isFinite(c.weight) &&
+					c.weight > 0,
+			)
+			.map((c) => ({
+				symbol: c.symbol,
+				weight: c.weight,
+				minReels:
+					Number.isInteger(c.minReels) && c.minReels >= 1 ? c.minReels : DEFAULT_EXPAND_MIN_REELS,
+			}));
+		if (!candidates.length) {
+			console.warn(`[${label}] no expanding-special candidate is dealt by this game — ignored`);
+			return null;
+		}
+		return { candidates, total: candidates.reduce((sum, c) => sum + c.weight, 0) };
+	})();
+	/** One weighted draw — the book mock's `pickSpecialSymbol`. */
+	const drawSpecial = () => {
+		let r = nextRand() * expanding.total;
+		for (const c of expanding.candidates) if ((r -= c.weight) <= 0) return c;
+		return expanding.candidates[expanding.candidates.length - 1];
+	};
+	/**
+	 * The special's own pay on a free spin, or null below its threshold or where its row prices
+	 * nothing at that reel count: on the COUNT of reels it covers, at its line row × the per-line
+	 * base × every payline — the symbol paying that N-of-a-kind on every line at once, which is what
+	 * the line pass beside it pays per line. On a table game that is the base stake (`betOptions[0]`
+	 * is the line count); on a line-config game it holds even when the client stakes fewer lines than
+	 * the game pays. Positions are every cell of every covered reel. Unrounded, like every evaluator;
+	 * `roundPays` takes it.
+	 */
+	const expandingWin = (reels, special, round) => {
+		const covered = reels.flatMap((reel, index) => (reel.includes(special.symbol) ? [index] : []));
+		if (covered.length < special.minReels) return null;
+		const mult = payRowOf(evalOpts, special.symbol)?.[covered.length];
+		if (!(mult > 0)) return null;
+		return {
+			win: {
+				what: special.symbol,
+				occurs: covered.length,
+				mode: 'scatter',
+				pay: mult * payoutBaseFor(round) * paylines.length,
+				mpInfo: { mp: 1, replacements: 0 },
+				mpBonusInfo: null,
+				context: covered.flatMap((reel) => reels[reel].map((_cell, row) => ({ reel, row }))),
+			},
+			expanded: reels.map((reel, index) =>
+				covered.includes(index) ? reel.map(() => special.symbol) : reel,
+			),
+		};
+	};
 	/**
 	 * Emit the cascade presentation fixture on every spin — see the note at its emit site.
 	 *
@@ -1456,13 +1557,23 @@ export function createMockRgs(opts = {}) {
 		rngState = (rngState * 1664525 + 1013904223) >>> 0;
 		return rngState / 0x100000000;
 	};
+	/**
+	 * How often a cell is a scatter. A Book-of book (`scatterWild`) is dealt at the book mock's 5%,
+	 * so a Book-of game moved onto this mock triggers as often as it did there (about 3.6% of base
+	 * spins on 5×3); every other game keeps 4%, byte-identically.
+	 */
+	const SCATTER_RATE = scatterWild ? 0.05 : 0.04;
+	/** How many trigger symbols a forced or bought board carries: the book mock forces at least four
+	 *  books, so a Book-of game does here too; every other game, its trigger count. */
+	const FORCED_TRIGGERS =
+		scatterWild && triggerSymbol === 'SCAT' ? Math.max(4, triggerMin) : triggerMin;
 	const pickSymbol = () => {
 		// Weighted draw favouring low-pay symbols, occasional scatter, rare PIC7. Scatter is emitted
 		// only when in play (`scatterEnabled`). Under a per-project restriction the rank-weighted
 		// distribution below assumes the full PIC1..PIC7 set, so a restricted pool draws uniformly from
 		// its allowed line symbols instead. Unrestricted + scatter-enabled ⇒ byte-identical RNG stream.
 		const r = nextRand();
-		if (scatterEnabled && r < 0.04) return 'SCAT';
+		if (scatterEnabled && r < SCATTER_RATE) return 'SCAT';
 		if (restrictSymbols) return LINE_POOL[Math.floor(nextRand() * LINE_POOL.length)];
 		if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)]; // PIC1/2/3
 		if (r < 0.75) return LINE_SYMBOLS[3 + Math.floor(nextRand() * 2)]; // PIC4/5
@@ -1532,9 +1643,9 @@ export function createMockRgs(opts = {}) {
 		});
 
 	/**
-	 * Write `triggerMin` trigger symbols onto an ALREADY DEALT board — a guaranteed feature trigger
-	 * for `FORCE_TRIGGER=1` and a bought round. Overwrites cells rather than dealing its own grid, so
-	 * it composes with whichever deal is in play (stacked or normal) and respects a stepped grid's
+	 * Write `FORCED_TRIGGERS` trigger symbols onto an ALREADY DEALT board — a guaranteed feature
+	 * trigger for `FORCE_TRIGGER=1` and a bought round. Overwrites cells rather than dealing its own
+	 * grid, so it composes with whichever deal is in play (stacked or normal) and respects a stepped grid's
 	 * per-column heights.
 	 *
 	 * One per reel, left to right, then round again for a count above the reel count (six on five
@@ -1545,7 +1656,7 @@ export function createMockRgs(opts = {}) {
 	const forceTriggerSymbols = (reels) => {
 		const written = reels.map(() => new Set());
 		const target = Math.min(
-			triggerMin,
+			FORCED_TRIGGERS,
 			reels.reduce((cells, column) => cells + column.length, 0),
 		);
 		for (let placed = 0, reel = 0; placed < target; reel = (reel + 1) % reels.length) {
@@ -1597,9 +1708,15 @@ export function createMockRgs(opts = {}) {
 		//
 		// Sending it PINS the session to the bet table it declares (`tableFor`): that is the table this
 		// client will price its bets by, for as long as it lives, whatever the contract does later.
+		//
+		// A session with a round still OPEN is told so, as the partner and the book mock tell it: the
+		// round's stored `actions` and `resume: true` ride on the event, and the response names the round
+		// on `platform.gameRound`. That is all a reloading client needs to replay it (the positions are
+		// already stored, see REPLAY below) rather than abandon it.
 		const sendConfig = () => {
 			session.configSent = true;
 			session.betTable = betTable;
+			const open = session.round?.stored?.filter(Boolean) ?? [];
 			events.push({
 				event: 'config',
 				context: {
@@ -1620,7 +1737,7 @@ export function createMockRgs(opts = {}) {
 						...(isStepped ? { rowsPerReel: rowHeights } : {}),
 					},
 					paylines,
-					wildSymbols: wild ? ['WILD'] : [],
+					wildSymbols: WILD_SYMBOLS,
 					// A table game only. A line-config game's config carries no table, as Hot Fruits'
 					// does, and stays byte-identical to before.
 					...(betTable
@@ -1650,6 +1767,8 @@ export function createMockRgs(opts = {}) {
 					),
 				},
 			});
+			if (open.length)
+				Object.assign(events.at(-1), { actions: open.map((s) => s.action), resume: true });
 		};
 		// A TABLE game sends it only when asked (`config`), never on a first call or a heartbeat — the
 		// shape the partner's own servers can have, which the runtime facade already handles by asking.
@@ -1676,7 +1795,10 @@ export function createMockRgs(opts = {}) {
 				? session.round
 				: settledRounds.get(`${sid}:${gid}`)
 			: undefined;
-		if (known?.stored && actions.every((a, i) => known.stored[seq + i]?.action === a.action)) {
+		if (
+			known?.stored &&
+			actions.every((a, i) => known.stored[seq + i]?.action.action === a.action)
+		) {
 			for (let i = 0; i < actions.length; i++) events.push(...known.stored[seq + i].events);
 			const platform = { balance: session.balance };
 			if (session.round) platform.gameRound = { updating: true, id: session.round.id };
@@ -1781,7 +1903,7 @@ export function createMockRgs(opts = {}) {
 								line: wild ? [...LINE_POOL, 'WILD'] : LINE_POOL,
 								scatter: scatterEnabled ? ['SCAT'] : [],
 							},
-							wildSymbols: wild ? ['WILD'] : [],
+							wildSymbols: WILD_SYMBOLS,
 							lineAlign: 'left',
 							lineCoinciding: LINE_COINCIDING,
 						},
@@ -1794,7 +1916,22 @@ export function createMockRgs(opts = {}) {
 					if (pendingRound.bonus?.active) {
 						const fsReels = stackedDeal ? spinReelsStacked() : spinReels();
 						pendingRound.reels = fsReels;
-						events.push(spinStart);
+						const special = pendingRound.bonus.special;
+						// During the feature the special pays scatter-style too, as the book mock declares it.
+						events.push(
+							special
+								? {
+										...spinStart,
+										context: {
+											...spinStart.context,
+											symbolsPay: {
+												...spinStart.context.symbolsPay,
+												scatter: [...spinStart.context.symbolsPay.scatter, special.symbol],
+											},
+										},
+									}
+								: spinStart,
+						);
 						// `evaluatePayWins`, NOT a direct evaluator call: it routes through `payoutBaseFor`,
 						// so a free spin prices a win against the same per-model base as a base spin
 						// (per line / per way / whole bet) and `roundPays` it to whole cents there. Calling
@@ -1806,7 +1943,18 @@ export function createMockRgs(opts = {}) {
 							pendingRound.baseTotal,
 							SCATTER_PAYS ?? SCATTER_PAY_TABLE,
 						);
-						const fsWins = evaluatePayWins(fsReels, pendingRound);
+						// The special covering its threshold pays first, then expands, and the OTHER symbols
+						// pay their lines on the expanded board — the special left out of that pass, so it
+						// is never paid twice. Below the threshold it is a plain symbol on the natural board.
+						const expandedPay = special ? expandingWin(fsReels, special, pendingRound) : null;
+						const fsWins = expandedPay
+							? roundPays([
+									expandedPay.win,
+									...evaluateRawWins(expandedPay.expanded, pendingRound).filter(
+										(w) => w.what !== special.symbol,
+									),
+								])
+							: evaluatePayWins(fsReels, pendingRound);
 						// The SCAT pay is priced against the WHOLE stake and rounded at the wire — exactly
 						// as the base spin below does it, so the two paths cannot drift apart.
 						if (fsScat.win) fsWins.push(roundPays([fsScat.win])[0]);
@@ -1921,7 +2069,16 @@ export function createMockRgs(opts = {}) {
 						// The award row for what landed, the board counted as dealt — forced and bought
 						// boards too, so the award matches the trigger the player sees.
 						const awarded = drawAward(entryAwards, triggers);
-						pendingRound.bonus = { active: true, total: awarded, played: 0, left: awarded };
+						// The expanding special, drawn once per feature as the free spins start, so the
+						// entry snapshot names it as the captured one does.
+						const special = expanding ? drawSpecial() : null;
+						pendingRound.bonus = {
+							active: true,
+							total: awarded,
+							played: 0,
+							left: awarded,
+							...(special ? { special } : {}),
+						};
 						events.push({
 							event: 'spinTrigger',
 							context: {
@@ -1932,10 +2089,24 @@ export function createMockRgs(opts = {}) {
 							},
 						});
 						events.push({ event: 'playedSpin', context: reels });
-						events.push({
-							event: 'enterBonus',
-							context: bonusSnapshot(pendingRound, snapshotTrigger, { played: 0, left: awarded }),
+						const entry = bonusSnapshot(pendingRound, snapshotTrigger, {
+							played: 0,
+							left: awarded,
 						});
+						events.push({ event: 'enterBonus', context: entry });
+						// Announced in the book mock's shape (`item.state` is what the facade reads).
+						// `prob` carries the authored weight.
+						if (special) {
+							events.push({
+								event: 'pickRandomly',
+								context: {
+									items: expanding.candidates.map((c) => ({ state: c.symbol, prob: c.weight })),
+									state: entry,
+									scope: 'enterState',
+									item: { state: special.symbol, prob: special.weight },
+								},
+							});
+						}
 						// Do NOT credit and do NOT close — the free spins and the collect follow.
 						break;
 					}
@@ -2021,9 +2192,11 @@ export function createMockRgs(opts = {}) {
 						platform: {},
 					});
 			}
-			if (pendingRound) {
+			// `config` is not stored, as the partner's is not: it would overwrite the position of an
+			// action the round really played, and a resume would replay the config in its place.
+			if (pendingRound && a.action !== 'config') {
 				pendingRound.stored ??= [];
-				pendingRound.stored[seq + offset] = { action: a.action, events: events.slice(dealtFrom) };
+				pendingRound.stored[seq + offset] = { action: a, events: events.slice(dealtFrom) };
 			}
 		}
 

@@ -160,9 +160,14 @@ const BOOK_ROYALS = Object.keys(bookMapping.symbols).filter(
 	(name) => !(name in linesMapping.symbols),
 );
 
+/** The names only the lines vocabulary has: the captured `PIC5`-`PIC7` and the mock's extended
+ *  `PIC8`-`PIC10`. A lines-mock pool may lack all three captured ones (a Book-of pool without `L1`,
+ *  `L2` and `L5`) and still be a lines server. */
+const LINES_ONLY = ['PIC5', 'PIC6', 'PIC7', 'PIC8', 'PIC9', 'PIC10'];
+
 /** Detect the right mapping from the server's declared symbol vocabulary (the boot `config`'s
  *  `symbols`). Book-of games declare royal symbols (any of ACE…TEN); Hot-Fruits-style lines games
- *  declare PIC5-PIC7; a Hold and Win server sends the project's OWN names (`docs/reference/
+ *  declare any of PIC5-PIC10; a Hold and Win server sends the project's OWN names (`docs/reference/
  *  hold-and-win-wire.md`), so it maps by identity. A pots-overlay host keeps its HOST's mapping (a book
  *  host still speaks `ACE`/`PIC1`): its Hold and Win bonus and token names are none of those, so they
  *  pass through unmapped. Returns null if undecidable. Shared by the facade
@@ -183,8 +188,8 @@ export const pickMappingForConfig = (cfg: {
 	if (cfg.holdAndWin && (!overlayHost || holdAndWinIsBase)) return identityMapping;
 	const syms = new Set(cfg.symbols ?? []);
 	if (BOOK_ROYALS.some((name) => syms.has(name))) return bookMapping;
-	if (syms.has('PIC5') || syms.has('PIC6') || syms.has('PIC7')) return linesMapping;
-	// Undecidable, an overlay host's too (a pool with neither a royal nor PIC5-PIC7): its board is
+	if (LINES_ONLY.some((name) => syms.has(name))) return linesMapping;
+	// Undecidable, an overlay host's too (a pool with neither a royal nor PIC5-PIC10): its board is
 	// still the host's, so the runtime's own mapping stands, and its bonus names pass through it.
 	return null;
 };
