@@ -6,141 +6,201 @@
 > Invisible Flow. This file is the plan; progress will live in [editor status](../status/editor.md)
 > and [component-editor status](../status/component-editor.md).
 >
-> ⚠️ This **reverses a standing decision**: [invisible-editor.md §8.7](invisible-editor.md) and §17
-> deferred "route A — Rive state machine" (2026-06-05, re-confirmed 2026-06-09). Phase 3 below needs
-> the owner to lift that deferral, scoped to *presentation* state machines (§2).
+> **Owner direction (2026-10-08, second pass):**
+> 1. **A hybrid, not a copy of Rive.** Screens stay — we keep the Screens list, spaces, layer
+>    order and Flow driving screens. Rive's ideas are taken where they fit.
+> 2. **Timelines are reusable, and there is only one timeline system:** the Rigger's
+>    [Invisible Cinematic](invisible-cinematic.md) timeline, extended. No second timeline is built.
+>
+> ⚠️ Phase 5 **reverses a standing decision**: [invisible-editor.md §8.7](invisible-editor.md) and
+> §17 deferred "route A — Rive state machine" (2026-06-05, re-confirmed 2026-06-09). The owner
+> needs to lift that deferral, scoped to *component* state machines (§2). §17's planned
+> `BehaviorTrack`/`TweenStep` timeline is superseded by §4 here; neither was ever built.
 
-## 1. What Rive does, and what we already have
+## 1. The hybrid: what we keep, what we take from Rive
 
-Rive's model, in the order an author meets it:
+| Area | Keep (ours) | Take from Rive |
+|---|---|---|
+| **Screens** | Screens list, spaces (`game`/`standard`/`canvas`/`background`), list order = layer order, device layouts, In-game view | Screens can carry timelines (enter / exit / idle) played by Flow |
+| **Game logic** | **Invisible Flow** is the game's top-level state machine: book events, screens, wins, features | — (Rive's root state machine is what Flow already is) |
+| **Components** | `ComponentDef`, params, versions, per-project defaults, value bindings, the ship chain | Edited **in place on the stage**; **Animate mode**; a **state machine** with **inputs**; **listeners** (pointer events → inputs) |
+| **Timelines** | The **Cinematic** timeline from `/rigger` (format, evaluator, player, UI) | Timelines on any component or screen, reusable across them |
+| **Flow ↔ component** | `playCinematic`, `fireCue` | Flow sets a component's inputs, fires its triggers, waits on its states |
 
-| Rive concept | What it is | Our nearest piece today | Gap |
-|---|---|---|---|
-| **One file, many artboards** | Every screen and every reusable piece is an artboard in one editor | Screens in `/editor`, `ComponentDef`s in `/components` — two pages | Two tools, two saves, two mental models |
-| **Nested artboards** | An artboard placed inside another, edited in place | Component instances; "Edit as component" deep-links out to `/components` | Not edited in place; nesting capped at depth 2 |
-| **Design / Animate mode** | One toggle: the same stage becomes a keyframe editor | None in the scene tools. `/rigger` Cinematic mode has a strip/keyframe timeline for rigs | **No timeline for components** (§8.5 / §17 designed, unbuilt) |
-| **Timelines** | Named animations: keys on any property, curves, loop/ping-pong | `BehaviorTrack`/`TweenStep` type only; rig `cues`, `stateAnimations` (button states), flipbook cues | Authoring UI + runtime interpreter |
-| **State machine** | Per artboard: layers of states (each plays a timeline), transitions with conditions and blend time | Rig `stateAnimations` (a fixed hover/pressed/… cascade); the Symbols State Machine (fixed per-symbol states); Flow v2 (game level) | **No authorable per-component state machine** |
-| **Inputs** (bool / number / trigger) | The state machine's public surface the host app drives | Component **params** (engine + custom) and **signals** | Close — needs one typed "inputs" list the state machine reads |
-| **Listeners** | Pointer events on shapes set inputs / fire triggers | Per-instance `action` binding, container events in Flow | Only "click → action"; no hover/down/up → input |
-| **Data binding (view models)** | Bind properties to data | `valueBindings` (number → transform/visibility/fill/frame/rig scrub) | Mostly there |
-| **Layouts / constraints** | Flex-like layout, follow/stretch | Device layouts, space modes, anchors | Fine for slots; not a priority |
-| **Host runtime** | App sets inputs, listens to events | **Invisible Flow** drives screens, fires cues, plays cinematics | Flow can't set a component's inputs or wait on its state |
+So: **screens are where things live, Flow decides what happens, components are the Rive part.**
+Rive's artboards map to our components; Rive's main artboard maps to a screen; Rive's state machine
+inputs are what Flow drives.
 
-**Read:** the plumbing (stage, nesting, params, signals, value bindings, Flow, a keyframe evaluator
-in `engine-cinematic`, an `@xyflow/svelte` graph canvas in `/flow-v2`) is about two thirds there.
-What is missing is the *authoring* layer Rive is known for — timelines, a state machine, and one
-editor that holds it all — plus the Flow ↔ component seam.
+## 2. The scope line
 
-**Not "easy", but incremental.** No rewrite: every phase below is additive, parity-gated
-(nothing renders differently until a component opts in), and ships on its own.
-
-## 2. The scope line (what keeps this tractable)
-
-Rive's state machine is a *presentation* state machine: it decides which animation plays, from
-inputs the host sets. That is exactly the line we keep:
-
-- **Component state machine (new)** — presentation only: states, timelines, transitions on inputs.
-  No RGS calls, no math, no book reading. It lives on the `ComponentDef`.
-- **Invisible Flow (existing)** — the game's logic: book events, screens, wins, features. It
-  *drives* component state machines by setting inputs and firing triggers, and can wait for a state.
+- **Component state machine (new)** — presentation only: states play timelines, transitions fire
+  on inputs. No RGS calls, no math, no book reading. Lives on the `ComponentDef`.
+- **Screens get no state machine of their own.** Flow already is one; a second would compete with it.
+- **Flow (existing)** — owns the game logic and drives component inputs.
 - **Game math** — stays in books and Game Config. Untouched.
 
-This is why lifting the §8.7 deferral is safe: we are not building a scripting language, we are
-building Rive's state machine, whose ceiling is "which timeline, blended how".
+## 3. One timeline system (the Cinematic timeline, extended)
 
-## 3. Target experience
+What exists today (see [cinematic status](../status/cinematic.md)):
 
-One page, **Invisible Editor** (`/editor`), Rive-shaped:
+- **Format** — `CinematicDoc` (`engine-layout`) with tracks (`packages/engine-cinematic/types.ts`):
+  `animation` (rig clip strips, layers, blends, masks), `property` (keyed x / y / scale / rotation /
+  alpha), `visibility`, `cue` (`fx:` / `sfx:` / `music:` / `signal:`), `camera`, and
+  **`subCinematic`** (a timeline inside a timeline). A cinematic can already bind a **Scene** as its
+  set (`stage.sceneId`).
+- **Evaluator** — `engine-cinematic` (`evaluateActor`, channel sampling, `cuesCrossed`),
+  deterministic and gated (118/118 headless).
+- **Player** — `<Cinematic>` in `engine-layout/svelte`, played from Flow's `playCinematic`.
+- **Storage + ship** — `<client>/<project>/cinematics/<id>.json` → `cinematicExport.ts` →
+  `deploy/cinematics/` → bake → `bakedCinematic(id)`.
+- **UI** — the sequencer + dopesheet in `/rigger` 🎬 Cinematic mode (`static/rigger/cinematic.js`).
+
+The one limit: **actors are rigs only.** Everything below generalises that, additively.
+
+### 3.1 Node actors
+
+An actor gains a kind:
+
+```ts
+type CinematicActor =
+	| { id: string; kind?: 'rig'; rig: string; /* today's fields */ }
+	| { id: string; kind: 'node'; target: string };   // a node in the host, by node name
+```
+
+- A `node` actor is any layout node in the timeline's **host** (§3.2): sprite, text, rect, rig
+  node, flipbook, FX, nested component instance.
+- `property` channels widen for node actors: `x y scaleX scaleY rotation alpha` (today) + `tint`,
+  `frame` (flipbook), `fill` (reveal), `text` (count-up to a number input).
+- A rig **node** can still take `animation` strips, so the cinematic rig controls carry over.
+- Unknown kinds are skipped by the evaluator already (`types.ts` header), so old players and old
+  docs are unaffected. Every existing cinematic keeps `kind` absent, which reads as `'rig'`.
+
+### 3.2 Hosts
+
+A timeline names what it animates:
+
+```ts
+host?: { kind: 'cast' }                        // today's cinematic: rigs on their own stage (default)
+     | { kind: 'component'; componentId: string }
+     | { kind: 'screen'; sceneId: string }
+```
+
+Same document, same store, same export and bake. A component's state can point at a timeline id, a
+screen's enter/exit can, and Flow's `playCinematic` can play any of them.
+
+### 3.3 Reuse
+
+Timelines are reusable in four ways:
+
+1. **Same timeline, many callers.** One timeline can be played by Flow (`playCinematic`), by a
+   component state, or as a `subCinematic` track inside another timeline.
+2. **Bind by node name.** A node actor targets a node *name*, not an id. So a "Pop in" timeline made
+   on one component plays on any component or screen that has a node of that name. Tracks that
+   find no node are flagged by validation and skipped at runtime (the evaluator already skips
+   what it can't resolve).
+3. **Shared library.** Timelines can be promoted to `_shared/cinematics/`, like shared components.
+   The shared library is where the old §17 "presets" (fade, slide, pop, count-up) live: as real
+   timelines anyone can open and edit, not as a coded list.
+4. **Instances.** A placed component instance plays its def's timelines. Per-instance overrides
+   stay on params, as today; the timeline itself is not forked per instance.
+
+### 3.4 One timeline UI
+
+The sequencer lives in `/rigger`'s static vanilla-JS page; `/editor` is Svelte. Plan: extract the
+timeline panel (ruler, tracks, strips, keys, cue rows, inspector, undo) from
+`static/rigger/cinematic.js` into a **framework-agnostic module**, `mount(el, { doc, host,
+callbacks })`. `/rigger` and `/editor` both mount it; `/editor` wraps it in a small Svelte
+component. It ships to the static page the same way `cinematicEval.mjs` does today: a generated
+verbatim copy, with a gate that fails when the two differ. `/rigger` keeps the rig-specific parts
+(Tweak Mode, inline posing, bone masks) as extensions the module takes.
+
+## 4. Target experience
 
 ```
-┌ ToolTopBar ─────────────────────── [ Design | Animate ] ── Save · History ┐
-│ Assets / Hierarchy │            Stage (screen or component)              │ Inspector │
-│  • Screens         │   double-click an instance → edit it in place        │  (props,  │
-│  • Components      │   breadcrumb: Base game › Win Banner › Coin          │  inputs,  │
-│  • Art / Rigs / FX │                                                       │  bindings)│
-├────────────────────┴───────────────────────────────────────────────────────┴───────────┤
-│ Animate mode: [Timelines ▾ idle | win | exit]  keyframe dopesheet + curve view         │
-│               [State Machine] graph: Entry → Idle ⇄ Win → Exit   Inputs: win▸ amount#   │
+┌ ToolTopBar ───────────────────────── [ Design | Animate ] ── Save · History ┐
+│ Screens            │                 Stage                                   │ Inspector │
+│  Base game         │   double-click an instance → edit it in place           │           │
+│  Win banner ▸      │   breadcrumb:  Base game › Win banner › Coin            │           │
+│ Components         │                                                          │           │
+│ Library (art/rigs) │                                                          │           │
+├────────────────────┴──────────────────────────────────────────────────────────┴───────────┤
+│ Animate: [Timelines ▾ intro | win | idle]  ← the shared Cinematic sequencer              │
+│          [State machine]  Entry → Idle ⇄ Win → Exit   Inputs: win ▸  amount #   (comps)  │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Design mode** = today's Scene Editor, with components listed beside screens and edited on the
-  same stage (breadcrumb in, Esc out). `/components` becomes this view with a component selected.
-- **Animate mode** = the bottom panel: a timeline dopesheet for the selected screen or component
-  and, in a tab beside it, its state machine graph and inputs list.
-- **Flow** keeps its own page (`/flow-v2`), but its palette lists every component's inputs and
-  states, and the inspector there deep-links back to the component.
+- **Design mode** is today's Scene Editor. Screens are listed first, then components, which are
+  edited on the same stage (breadcrumb in, Esc out). `/components` becomes this view with a
+  component selected.
+- **Animate mode** opens the shared sequencer for whatever is selected: a screen's timelines, or a
+  component's timelines plus its state machine tab.
+- **Flow** keeps `/flow-v2`. Its palette lists every component's inputs and states, and its
+  inspector deep-links to the component or timeline.
 
-## 4. Data model (additive to `ComponentDef`, `engine-layout/types.ts`)
+## 5. Component state machine (additive to `ComponentDef`)
 
 ```ts
 interface ComponentInput { id: string; kind: 'bool' | 'number' | 'trigger'; default?: boolean | number }
 
-interface ComponentTimeline {           // replaces the unbuilt BehaviorTrack/TweenStep
-	id: string; duration: number; loop?: 'once' | 'loop' | 'pingPong';
-	keys: PropertyTrack[];              // per node: x/y/scale/rotation/alpha/tint/visible/frame/text
-	cues?: TimelineCue[];               // rig clip, flipbook clip, FX burst, sound, count-up
-}
-
 interface ComponentStateMachine {
-	layers: { id: string; states: SmState[]; transitions: SmTransition[]; entry: string }[];
+	layers: { id: string; entry: string; states: SmState[]; transitions: SmTransition[] }[];
 }
-// SmState: plays one timeline (or 'any'/'exit' pseudo-states)
-// SmTransition: from → to, conditions over inputs (bool ==, number > < ==, trigger fired),
-//               optional exitTime + blend duration
+// SmState:      { id, timeline: string /* cinematic id */, speed?, loop? } | 'any' | 'exit'
+// SmTransition: { from, to, conditions: (bool == | number < > == | trigger fired)[],
+//                 exitTime?, blend? }
 ```
 
-- **Inputs** absorb what `signals` + custom params do for behaviour: a signal becomes a trigger
-  input; an engine param (`winAmount`) can feed a number input. Existing `signals`, `cues`,
-  `stateAnimations` and `valueBindings` keep working — Phase 6 migrates them, not Phase 1.
-- **Listeners** are a node field: `on: 'down' | 'up' | 'enter' | 'leave' | 'click'` → set an input
-  or fire a trigger (Rive's listeners). Button `stateAnimations` become a seeded state machine.
-- **Evaluator reuse:** timelines evaluate through `packages/engine-cinematic` (strip/key sampling,
-  envelopes), not a new GSAP layer. One keyframe engine for `/rigger` Cinematic and components.
+- **Inputs** absorb what `signals` do for behaviour: a signal reads as a trigger input, and an
+  engine param (`winAmount`) can feed a number input.
+- **Listeners** are a node field: `on: 'down' | 'up' | 'enter' | 'leave' | 'click'` sets an input or
+  fires a trigger. Button `stateAnimations` become a seeded state machine.
+- The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.
+- Existing `signals`, `cues`, `stateAnimations` and `valueBindings` keep working. Phase 8
+  migrates them; nothing is migrated earlier.
 
-## 5. Phased build (each phase ships, parity-gated)
+## 6. Phased build (each phase ships, parity-gated)
 
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
-| 0 | **Decisions + ADR** | Owner signs off §7; §8.7/§17 updated to point here | docs | S |
-| 1 | **One editor shell** | Components listed in `/editor`; edit an instance in place (breadcrumb); `/components` folds in as a mode; Design/Animate toggle stub | `routes/(app)/editor`, `components/+page.svelte`, `componentStorage.ts` | L |
-| 2 | **Timelines** | Schema + runtime player in `<ComponentInstance>` / `LayoutNodeView`; Animate-mode dopesheet (keys, easing curves, scrub, play) on the stage | `engine-layout`, `engine-cinematic`, new `EditorTimeline.svelte` | L |
-| 3 | **State machine** | Inputs list, graph editor (reuse `@xyflow/svelte` from `/flow-v2`), transition conditions, live preview with input toggles on the stage; runtime interpreter | `engine-layout` (new `stateMachine.ts`), new `EditorStateMachine.svelte` | L |
-| 4 | **Listeners** | Pointer events on nodes → inputs; buttons rebuilt on it | `engine-layout`, `EditorProperties` | M |
-| 5 | **Flow attachment** | Flow v2 nodes: *Set Input*, *Fire Trigger*, *Wait for State*, *On State Entered* (exec + typed data pins projected per component instance); validator checks refs | `engine-flow-v2`, `/flow-v2`, `apps/lines` interpreter | M |
-| 6 | **Migrate the coded overlays** | Transition → Win → FS intro/outro → buttons as authored components with state machines; retire their coded mounts behind a flag (§8.7 "defang, don't gut") | `apps/lines`, built-in components | L, per overlay |
-| 7 | **UX pass** | Rive-grade polish: hierarchy with lock/hide/solo, keyboard shortcuts, onion-skin, inline asset drag onto the timeline, empty states | editor | M |
+| 0 | **Decisions + ADR** | Owner signs off §8; §8.7/§17 of `invisible-editor.md` point here | docs | S |
+| 1 | **Node actors + hosts** | §3.1–3.2 in the format, evaluator and `<Cinematic>` player; existing cinematics byte-identical | `engine-cinematic`, `engine-layout`, rigger-spike gates | M |
+| 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
+| 3 | **Animate a screen** | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
+| 4 | **Components in place** | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor`, `components/+page.svelte` | L |
+| 5 | **Component state machine** | Inputs, graph editor, transition conditions, stage preview with input toggles, runtime interpreter | `engine-layout` (`stateMachine.ts`), new editor panel | L |
+| 6 | **Listeners** | Pointer events on nodes → inputs | `engine-layout`, `EditorProperties` | M |
+| 7 | **Flow attachment** | Flow v2 nodes *Set Input*, *Fire Trigger*, *Wait for State*, *On State Entered*, typed per instance; validator checks refs | `engine-flow-v2`, `/flow-v2`, `apps/lines` interpreter | M |
+| 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (§8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
+| 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 
-Ship chain (rule 8): timelines and state machines live **inside** the `ComponentDef` / `scenes.json`,
-which already travel export → deploy → bake → pull → register — no new asset class. Assets a
-timeline cues (rigs, clips, FX) must be added to `collectArtRefs` so they ship (Phase 2 and 3 gate).
+**Ship chain (rule 8):** no new asset class. Timelines already travel export → deploy → bake →
+pull → register as cinematics. What a node-actor timeline references must also ship: art it swaps
+(frames, tints are values) and the FX/sounds its cues fire. Phase 1 adds those to
+`collectArtRefs` / `cinematicRigNames` and extends `check:art-scope`.
 
-Suggested first slice to prove the loop end to end: **Phase 2 minimal (one timeline, x/y/alpha/scale
-keys) + Phase 3 minimal (two states, one trigger) + Phase 5 *Fire Trigger*,** on the `Transition`
-overlay. That is the "Rive moment" — animate on stage, wire a state machine, fire it from Flow —
-before investing in the full shell.
+**Why this order:** Phases 1–3 reuse what exists and give the first visible result: animate a
+screen's intro in the Scene Editor, have Flow play it. Components, state machines and Flow inputs
+build on that one timeline system rather than a new one.
 
-## 6. Alternatives considered
+## 7. Alternatives considered
 
-- **Embed the real Rive runtime and import `.riv` files.** Rive's runtimes are open source, but it
-  renders through its own renderer, not PixiJS, so it would not share our atlases, rigs, FX, fonts,
-  device layouts or the bake chain, and every piece would be a foreign surface inside a Pixi scene.
-  It also re-introduces a third-party editor dependency for authoring. **Not recommended** as the
-  core path; possible later as one more placeable node kind if an artist already works in Rive.
-- **Keep two editors, add timelines to the Component Editor only** (the §17 Tier 0/1 plan).
-  Cheaper, but misses the part the owner called out — building components on the stage, in one
-  place. Phases 2–5 still apply unchanged if Phase 1 is postponed.
+- **Embed the real Rive runtime and import `.riv` files.** Rive draws with its own renderer, not
+  PixiJS, so it would not share our atlases, rigs, FX, fonts, device layouts or the bake chain.
+  **Not recommended** as the core path.
+- **A second timeline just for components** (the old §17 `BehaviorTrack` plan). Two keyframe
+  engines, two UIs, two formats. Rejected per owner direction: timelines must be reusable.
+- **Rebuild the sequencer in Svelte and embed it in `/rigger`.** Cleaner end state, but it
+  re-does a live-verified tool and puts every cinematic gate at risk at once. Extracting the
+  existing panel (Phase 2) is lower risk.
 
-## 7. Open decisions (owner)
+## 8. Open decisions (owner)
 
-1. **Lift the §8.7 deferral** for presentation state machines (scope as §2)?
-2. **Merge `/components` into `/editor`** (Phase 1), or keep two pages that share the new panels?
-3. **State machines on screens too**, or components only? (Rive: every artboard. Recommendation:
-   components first; a screen can be wrapped in one.)
-4. **Inputs vs signals:** migrate `signals` into trigger inputs (one concept), or keep both?
-   Recommendation: one concept, with signals read as triggers for back-compat.
-5. **Timeline engine:** reuse `engine-cinematic` (recommended) or GSAP as §8.5 planned?
-6. **Which overlay is the proof** — `Transition` (simplest) or the `Win` banner (most visible)?
-7. **Which Rive screens matter most to you?** Screenshots or a short screen recording of the Rive
-   workflows you want copied would sharpen Phases 1 and 7.
+1. **Lift the §8.7 deferral** for *component* state machines (screens stay on Flow, §2)?
+2. **Merge `/components` into `/editor`** (Phase 4), or keep two pages that share the new panels?
+3. **Name.** Keep calling the shared timeline a *Cinematic* everywhere, or rename it *Timeline*
+   in the UI (the file format can stay `.icin`)?
+4. **Inputs vs signals:** fold `signals` into trigger inputs (one concept, signals read as
+   triggers for back-compat), or keep both?
+5. **Which proof first** for Phase 3: a screen intro, the `Transition` overlay, or the Win banner?
+6. **Rive references.** Screenshots or a short recording of the Rive screens you want copied
+   would sharpen Phases 4 and 9.
