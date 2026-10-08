@@ -116,8 +116,9 @@ The page shows a **live preview** of what the current templates will actually sa
 using one of your real symbols — one for a normal win and one for an expanded win,
 because the two must read differently.
 
-**Expanded symbol win** appears only for a **Book-of** game, the one kind whose
-special symbol expands. Other kinds don't show the box or its preview.
+**Expanded symbol win** appears only for a game whose special symbol expands: one with the
+**expanding symbol** on (`/config` → Free spins → Expanding symbol), and every **Book-of** game.
+Other games don't show the box or its preview.
 
 If a message is fired with no symbol, the game uses **Amount only** rather than
 printing an empty name — so you never see a blank or a stray `{symbolName}`.

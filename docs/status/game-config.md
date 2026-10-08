@@ -723,6 +723,15 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-08 — **The tools follow the expanding-symbol add-on** (Phase 5b of
+  [book-feature.md](../design/book-feature.md)). Already wired by Phase 2 (`projectAddOns` reports
+  `expandingSymbol`; `bookReveal = kind === 'bookOf' || block`), now pinned and documented:
+  `/symbols` (book columns), `/win-text` (the expanded-win line) and the Game Maker **expanding book
+  symbol** chip follow the config's block on any kind. The kind half of the OR is the Phase 7 shim, so
+  an un-migrated Book-of project keeps its columns and chip. **Gates:** `gameProfileChips.fixture.ts`
+  §4 (lines with / without the block, a Book-of kind); `check:symbols-kind-gating` (unchanged).
+  Guides: `symbols-state-machine.md`, `win-text.md`.
+
 - 2026-10-08 — **The Expanding symbol panel and the Book of Thermopylae preset** (Phase 5a of
   [book-feature.md](../design/book-feature.md)). **`/config`:** on a lines win model with free spins
   on (not a Book-of KIND, whose book mock deals its own special), the Free spins section ends with an
