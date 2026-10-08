@@ -286,3 +286,38 @@ export function overlayRoutes(overlay: CoinOverlay | undefined): OverlayRoute[] 
 		...(overlay.meters ?? []).map((m, i) => ({ path: `meters.${i}.mode`, mode: m.mode })),
 	];
 }
+
+/**
+ * The overlay with every route's mode passed through `to` — its pots, triggers and meters. A route
+ * `to` maps to `undefined` is dropped, and so is a pot. A fresh copy; the input is not touched.
+ */
+export function retargetRoutes(
+	overlay: CoinOverlay,
+	to: (mode: string) => string | undefined,
+): CoinOverlay {
+	const out = structuredClone(overlay);
+	const kept = <T extends { mode: string }>(route: T | undefined): T | undefined => {
+		const mode = route && to(route.mode);
+		return route && mode ? { ...route, mode } : undefined;
+	};
+	const pots = (out.pots ?? []).flatMap((pot) => {
+		const mode = to(pot.bonus.mode);
+		return mode ? [{ ...pot, bonus: { ...pot.bonus, mode } }] : [];
+	});
+	if (out.pots) out.pots = pots;
+	const t = out.trigger;
+	if (t) {
+		const slots = {
+			count: kept(t.count),
+			pattern: kept(t.pattern),
+			randomMetre: kept(t.randomMetre),
+			luckySpin: kept(t.luckySpin),
+			buy: (t.buy ?? []).flatMap((tier) => kept(tier) ?? []),
+		};
+		out.trigger = Object.fromEntries(
+			Object.entries(slots).filter(([, v]) => (Array.isArray(v) ? v.length : v)),
+		) as CoinOverlayTrigger;
+	}
+	if (out.meters) out.meters = out.meters.flatMap((meter) => kept(meter) ?? []);
+	return out;
+}

@@ -75,7 +75,7 @@ const freeName = (wanted: string, taken: Set<string>): string => {
 };
 
 /** Add `symbols` under free names; returns the name each one ended up with. */
-function addSymbols(
+export function addSymbols(
 	doc: GameConfigDoc,
 	symbols: Record<string, GameConfigSymbol>,
 	renamed: AddOnRenames,
@@ -319,7 +319,7 @@ export function zeroPotsRefusal(doc: GameConfigDoc): string | undefined {
 		return "This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.";
 	}
 	if (!block.trigger.count) {
-		return 'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.';
+		return 'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Coin overlay triggers first, or keep at least one pot.';
 	}
 	return undefined;
 }
