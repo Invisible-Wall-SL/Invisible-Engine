@@ -368,7 +368,8 @@ starts the phase sessions, reviews their PRs and merges them.
   - **Template.** `scaffoldProject` saves `splitFormOf(seed)`. `normalize` of it is byte-identical to
     the old stored config for all three presets, mirror included. The engine-layout scene template
     (`templates/holdAndWin.ts`) needed no change: it lists screens, not config.
-  - **"＋ Coin overlay…"** (asked the hub; went with the proposal, pending any objection):
+  - **"＋ Coin overlay…"** (hub-approved as proposed; no new Collector preset, since that is new
+    math (ground rule 4). The hub is asking the owner whether they want one as a follow-up):
     - Style **Classic** → the Coins only preset;
     - **3 Pots** → 3 Pots or Pots to free spins;
     - **Collector** → listed with no preset, because a collector lands on the base reels and the add-on
