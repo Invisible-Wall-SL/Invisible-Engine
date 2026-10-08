@@ -67,7 +67,8 @@ import {
 import { Event } from './event';
 import type { AttachmentLoader } from './atlas';
 
-/** Big-endian reader for the rig binary format: varints, length-prefixed UTF-8 and a string table. */
+/** Big-endian reader for the Spine-format binary: varints, length-prefixed UTF-8 and a string
+ * table. */
 class BinaryInput {
 	private view: DataView;
 	private index = 0;

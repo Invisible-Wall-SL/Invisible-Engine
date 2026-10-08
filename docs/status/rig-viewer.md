@@ -18,6 +18,10 @@ Live on `main`, served directly by the launcher (no separate service); assets st
 - None.
 
 ## Recent changes
+- 2026-10-07 — **engine-rig docstrings name the Spine file format again.** Three comments the rig
+  rename (#1107) took too far now say "Spine-format" where they mean the third-party format:
+  `TextureAtlas` (libGDX / Spine-format text atlas), `SkeletonJson` (Spine-format 4.x skeleton JSON)
+  and `BinaryInput` (the Spine-format binary). Comments only; our runtime's own names are unchanged.
 - 2026-10-07 — **R2 paths and format names put back where the rename overreached.** The rig
   rename (#1107) had rewritten some messages and comments to name `rigs/skeletons.json` and
   `_shared/rigs/skeletons.json`, but bundles and their index still live under `spines/` and
