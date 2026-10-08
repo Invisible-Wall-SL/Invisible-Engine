@@ -498,6 +498,119 @@ export async function pinTestServerGameToProject(
 	key: string,
 	pin: { projectKey: string; docBase: string; readToken: string; tableCapable?: true },
 ): Promise<PinOutcome> {
+	return patchTestServerGame<'already-pinned', 'pinned'>(
+		key,
+		(entry) => {
+			if (
+				entry.projectKey === pin.projectKey &&
+				entry.docBase === pin.docBase &&
+				entry.readToken === pin.readToken &&
+				(entry.tableCapable === true) === (pin.tableCapable === true)
+			) {
+				return 'already-pinned';
+			}
+			// Spread FIRST so the pin wins, and so `grid`/`cascade`/`runtime`/`updatedAt` — none of
+			// which this endpoint knows anything about — survive untouched. The table-capable stamp
+			// follows the pin both ways: a registration that does not claim it removes it.
+			const { tableCapable: _stamp, ...rest } = entry;
+			return {
+				...rest,
+				projectKey: pin.projectKey,
+				docBase: pin.docBase,
+				readToken: pin.readToken,
+				...(pin.tableCapable ? { tableCapable: true } : {}),
+			};
+		},
+		'pinned',
+	);
+}
+
+/**
+ * The engine a desktop build must be rebuilt on before it is stamped table-capable: book-feature
+ * Phase 3 (#1120), the first engine that both prices a server's bet-option table and bridges the
+ * lines mock's expanding symbol. A build from before it is sold a table it cannot price, so its buy
+ * fails. Shown beside the `/admin` stamp control.
+ */
+export const TABLE_CAPABLE_ENGINE = {
+	commit: 'f0cba612',
+	pr: '#1120',
+	date: '2026-10-08',
+} as const;
+
+/** A manifest entry served from its OWN bundle (no shared `runtime`) — a desktop build. */
+export type OwnBundleGame = {
+	key: string;
+	name: string;
+	protocol: string;
+	projectKey: string | null;
+	/** The entry's `updatedAt` — what the stamp control sends back as its compare-and-swap token. */
+	updatedAt: string;
+	tableCapable: boolean;
+};
+
+/** Every own-bundle entry in the manifest, by key. Reads only. */
+export async function listOwnBundleGames(): Promise<OwnBundleGame[]> {
+	const { games } = await loadTestServerManifest();
+	return Object.entries(games)
+		.filter(([, entry]) => !entry.runtime)
+		.map(([key, entry]) => ({
+			key,
+			name: entry.name,
+			protocol: entry.protocol,
+			projectKey: entry.projectKey ?? null,
+			updatedAt: entry.updatedAt ?? '',
+			tableCapable: entry.tableCapable === true,
+		}))
+		.sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * What {@link setTestServerGameTableCapable} did. `stamped` / `cleared` wrote; `unchanged` found it
+ * already so; `runtime` refused a shared-runtime entry (it is sold its table anyway); `changed`
+ * refused because the entry was republished since the caller read it.
+ */
+export type TableCapableOutcome =
+	'stamped' | 'cleared' | 'unchanged' | 'no-entry' | 'runtime' | 'changed';
+
+/**
+ * Set or clear the `tableCapable` stamp on ONE own-bundle entry, leaving every other field and game
+ * as found — the `/admin` control, so the owner needs no `--table-capable` script run. Admin-only at
+ * its caller.
+ *
+ * TWO compare-and-swaps. The manifest write is under its ETag and retried on a lost race (the pin's
+ * {@link patchTestServerGame}), so a concurrent publish of another game is never dropped. And the
+ * ENTRY must still be the one the admin looked at: `seenUpdatedAt` is its `updatedAt` as listed, and
+ * any publish of this key rewrites it, so a build republished since (which may be an older bundle,
+ * and which cleared the stamp) is `changed`, never stamped blind. Never creates an entry.
+ */
+export async function setTestServerGameTableCapable(
+	key: string,
+	stamp: { tableCapable: boolean; seenUpdatedAt: string },
+): Promise<TableCapableOutcome> {
+	return patchTestServerGame<'runtime' | 'changed' | 'unchanged', 'stamped' | 'cleared'>(
+		key,
+		(entry) => {
+			if (entry.runtime) return 'runtime';
+			if ((entry.updatedAt ?? '') !== stamp.seenUpdatedAt) return 'changed';
+			if ((entry.tableCapable === true) === stamp.tableCapable) return 'unchanged';
+			const { tableCapable: _stamp, ...rest } = entry;
+			return stamp.tableCapable ? { ...rest, tableCapable: true } : rest;
+		},
+		stamp.tableCapable ? 'stamped' : 'cleared',
+	);
+}
+
+/**
+ * Read-modify-write ONE existing entry under the manifest's ETag, retried on a lost CAS. `patch` sees
+ * the entry as re-read on every attempt and returns the entry to write, or an outcome to stop at
+ * without writing; `written` is the outcome of a write that landed. PATCH, NEVER CREATE: a missing
+ * entry is `no-entry`.
+ */
+async function patchTestServerGame<Stop extends string, Written extends string>(
+	key: string,
+	patch: (entry: TestServerGameEntry) => TestServerGameEntry | Stop,
+	written: Written,
+): Promise<Stop | Written | 'no-entry'> {
 	for (let attempt = 1; ; attempt++) {
 		const current = await getObjectTextWithEtag(TEST_SERVER_MANIFEST_KEY);
 		const manifest = parseManifest(current?.text);
@@ -510,25 +623,9 @@ export async function pinTestServerGameToProject(
 		// reason; the writer has to match.
 		const entry = Object.hasOwn(manifest.games, key) ? manifest.games[key] : undefined;
 		if (!entry) return 'no-entry';
-		if (
-			entry.projectKey === pin.projectKey &&
-			entry.docBase === pin.docBase &&
-			entry.readToken === pin.readToken &&
-			(entry.tableCapable === true) === (pin.tableCapable === true)
-		) {
-			return 'already-pinned';
-		}
-		// Spread FIRST so the pin wins, and so `grid`/`cascade`/`runtime`/`updatedAt` — none of which
-		// this endpoint knows anything about — survive untouched. The table-capable stamp follows the
-		// pin both ways: a registration that does not claim it removes it.
-		const { tableCapable: _stamp, ...rest } = entry;
-		manifest.games[key] = {
-			...rest,
-			projectKey: pin.projectKey,
-			docBase: pin.docBase,
-			readToken: pin.readToken,
-			...(pin.tableCapable ? { tableCapable: true } : {}),
-		};
+		const next = patch(entry);
+		if (typeof next === 'string') return next;
+		manifest.games[key] = next;
 		try {
 			await putObjectText(
 				TEST_SERVER_MANIFEST_KEY,
@@ -536,7 +633,7 @@ export async function pinTestServerGameToProject(
 				'application/json; charset=utf-8',
 				precondition(current ? (current.etag ?? undefined) : null),
 			);
-			return 'pinned';
+			return written;
 		} catch (err) {
 			if (err instanceof ConflictError && attempt < MANIFEST_MAX_ATTEMPTS) continue;
 			throw err;
