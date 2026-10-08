@@ -14,10 +14,10 @@
  * overlay's pots and drops. The rule that keeps both the unmigrated writers and normalization honest:
  *
  *  - when the input carries a legacy key, the LEGACY PAIR is authoritative for everything the mirror
- *    shows — an unmigrated writer (the `/config` Hold and Win section, the add-ons, the import) edits
- *    only those keys — and everything the mirror cannot show is kept from the split form;
- *  - when it carries neither, the split form is authoritative. A writer of the split form therefore
- *    deletes both legacy keys before it saves;
+ *    shows — an unmigrated writer (the add-ons, the import) edits only those keys — and everything
+ *    the mirror cannot show is kept from the split form;
+ *  - when it carries neither, the split form is authoritative. A writer of the split form (`/config`,
+ *    `./bonusModes`) therefore deletes both legacy keys before it saves ({@link splitFormOf});
  *  - Hold and Win is REMOVED only through {@link removeHoldAndWin}: deleting the `holdAndWin` key
  *    alone brings it back on a doc without a `potsOverlay` and drops it beside one.
  *
@@ -26,13 +26,19 @@
  */
 
 import { resolveFreeSpins } from './freeSpins';
-import { normalizeHoldAndWin, symbolsWithRole, type HoldAndWin } from './holdAndWin';
+import {
+	normalizeHoldAndWin,
+	symbolsWithRole,
+	validateHoldAndWin,
+	type HoldAndWin,
+} from './holdAndWin';
 import { joinHoldAndWin, splitHoldAndWin, type HoldAndWinGame } from './holdAndWinGame';
 import {
 	legacyPotsOverlayOf,
 	normalizeCoinOverlay,
 	overlayDropsTokens,
 	overlayRoutes,
+	retargetRoutes,
 	routesFrom,
 	triggerHalfFor,
 	type CoinOverlay,
@@ -262,10 +268,27 @@ export function syncBonusSplit<T extends BonusDoc>(doc: T): T {
 }
 
 /**
+ * The doc a writer of the split form saves (design §2.1 "What writers must do"): its split form, with
+ * the legacy pair applied when it carries one, and BOTH legacy keys deleted — so its edits are not
+ * overwritten by a stale mirror. Normalizing it stores the same split form with the mirror
+ * regenerated. A fresh copy; `doc` is not touched.
+ */
+export function splitFormOf<T extends GameConfigDoc>(doc: T): T {
+	const out = syncBonusSplit(structuredClone(doc));
+	delete out.holdAndWin;
+	delete out.potsOverlay;
+	return out;
+}
+
+/**
  * Take Hold and Win out of `doc`, in place: the legacy block, the primary respin mode and the routes
  * to it, with the legacy pair re-mirrored from what is left. The ONE way to remove it: deleting only
  * the `holdAndWin` key brings it back on a doc without a `potsOverlay` (the split form stands) and
  * drops it beside one (the legacy pair is applied). Returns `doc`.
+ *
+ * A POT that started it is left naming it: the overlay's own removal takes the pots too, and an
+ * import that replaces the mode re-declares the id they name. Removing the mode on its own is
+ * `removeRespinMode` (`./bonusModes`), which re-routes them.
  */
 export function removeHoldAndWin<T extends BonusDoc>(doc: T): T {
 	withLegacyPair(doc);
@@ -380,9 +403,9 @@ export function resolveBonusModes(doc: GameConfigDoc): ResolvedBonusMode[] {
 /**
  * The capability INPUTS the split form gives (design §2.4): is there a respin mode with rules (a
  * rule-less one is inert, so it lights nothing, and every rule-bearing one has a mirror), is there
- * an overlay, and does the overlay drop tokens (the pots overlay's own parts — the predicate the
- * legacy `potsOverlay` mirror uses, so the two cannot drift). The launcher's `projectAddOns` turns
- * them into `kindCapabilities`' config.
+ * an overlay, and does the overlay drop tokens (the pots overlay's own parts — the predicate
+ * the legacy `potsOverlay` mirror uses, so the two cannot drift). The launcher's `projectAddOns`
+ * turns them into `kindCapabilities`' config.
  */
 export function bonusCapabilityInputs(doc: BonusDoc): {
 	respinMode: boolean;
@@ -406,6 +429,49 @@ export function respinModeBlank(doc: GameConfigDoc, mode: GameModeDecl): string 
 }
 
 // ─── validate ─────────────────────────────────────────────────────────────────────────────────
+
+/** The id the real `holdAndWin` mode takes while another mode is validated in its place. */
+const STAND_IN = '__primary';
+
+/**
+ * The legacy validator's issues for a respin mode the mirror does not show (Phase 1 owed this): the
+ * doc is viewed with `id` as the primary — its rules and the routes that start it in the legacy pair
+ * — and each issue about the block is reported under `modes.<id>.holdAndWin`. Doc-wide issues (the
+ * win model, a symbol's paytable) are the primary's run's, so they are not repeated.
+ */
+function respinModeIssues(
+	doc: GameConfigDoc,
+	view: GameConfigDoc & BonusSplit,
+	id: string,
+	started: boolean,
+): GameConfigIssue[] {
+	const swap = (mode: string) =>
+		mode === id ? HOLD_AND_WIN_MODE : mode === HOLD_AND_WIN_MODE ? STAND_IN : mode;
+	const split: BonusSplit = {
+		modes: (view.modes ?? []).map((m) => ({ ...m, id: swap(m.id) })),
+		...(view.coinOverlay ? { coinOverlay: retargetRoutes(view.coinOverlay, swap) } : {}),
+	};
+	const holdAndWin = legacyHoldAndWin(split);
+	const potsOverlay = legacyPotsOverlay(split);
+	const asPrimary: GameConfigDoc = {
+		...view,
+		...split,
+		...(holdAndWin ? { holdAndWin } : {}),
+		...(potsOverlay ? { potsOverlay } : {}),
+	};
+	const prefix = `modes.${id}.holdAndWin`;
+	return validateHoldAndWin(asPrimary).flatMap((issue): GameConfigIssue[] => {
+		if (issue.path !== 'holdAndWin' && !issue.path.startsWith('holdAndWin.')) return [];
+		const path = prefix + issue.path.slice('holdAndWin'.length);
+		// Nothing starts it: say where to route it. An unstarted mode is inert, so none of its issues
+		// blocks a save — adding a mode, then its rules, then its route never passes through an error.
+		const message =
+			issue.path === 'holdAndWin.trigger' && !started
+				? `Nothing starts "${id}" yet — route a trigger or a pot to "${id}" in Coin overlay.`
+				: issue.message;
+		return [{ ...issue, path, message, ...(started ? {} : { severity: 'warning' as const }) }];
+	});
+}
 
 /**
  * The split form's own rules (design §3 Phase 1): every overlay route names a declared bonus mode;
@@ -435,14 +501,19 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 				message: `The respin modes "${sharer}" and "${mode.id}" both play on the "${strip}" strips; each respin mode needs its own.`,
 			});
 		} else stripOwner.set(strip, mode.id);
+		const started = overlayRoutes(overlay).some((route) => route.mode === mode.id);
 		if (!mode.holdAndWin) {
-			// Warnings until `/config` can author a respin mode's rules (Phase 5a): a config with such
-			// a mode saved before this rule must still save.
+			// An error only where something starts the mode (Phase 5a: `/config` → Bonus modes gives it
+			// rules in one click); an unstarted one is inert, and a config that saved with it still saves.
 			issues.push({
-				severity: 'warning',
+				severity: started ? 'error' : 'warning',
 				path: `${path}.holdAndWin`,
-				message: `The respin mode "${mode.id}" has no Hold and Win rules, so nothing can play it.`,
+				message: started
+					? `The respin mode "${mode.id}" is started by the coin overlay but has no Hold and Win rules to play — give it rules in Bonus modes.`
+					: `The respin mode "${mode.id}" has no Hold and Win rules, so nothing can play it.`,
 			});
+		} else if (mode.id !== primary?.id) {
+			issues.push(...respinModeIssues(doc, view, mode.id, started));
 		}
 		const gameType = gameTypeForMode(mode);
 		if (!doc.paddingReels[gameType]?.length) {
@@ -497,6 +568,15 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 			isPot || route.path === 'trigger.count.mode'
 				? [BASE_GAME_MODE, ...dropping]
 				: [BASE_GAME_MODE];
+		if (target?.board === 'respinBoard' && target.id !== HOLD_AND_WIN_MODE) {
+			// The mock and the facade play every respin mode (Phases 2/3); until the game does (Phase
+			// 4) it plays only `holdAndWin`. Phase 4 removes this.
+			issues.push({
+				severity: 'warning',
+				path,
+				message: `It starts "${route.mode}", which the game doesn't play yet (bonus-games Phase 4): the test server plays it, but in the game a full pot or trigger here ends with no win.`,
+			});
+		}
 		const host = from.find((m) => gameModeById(view, m)?.board === 'respinBoard');
 		if (target?.board === 'respinBoard' && host) {
 			issues.push({
@@ -506,6 +586,20 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 			});
 		}
 	}
+
+	// The base-game coin table names jackpot tiers of the respin games it starts.
+	const tiers = new Set(
+		(view.modes ?? []).flatMap((m) => (m.holdAndWin?.jackpots ?? []).map((j) => j.name)),
+	);
+	overlay?.coins?.forEach((coin, i) => {
+		if (coin.kind === 'jackpot' && !tiers.has(coin.jackpot)) {
+			issues.push({
+				severity: 'error',
+				path: `coinOverlay.coins.${i}.jackpot`,
+				message: `"${coin.jackpot}" is not a jackpot tier of any respin mode.`,
+			});
+		}
+	});
 
 	// A buy tier routed to another mode than the mirrored one is not the legacy validator's to check.
 	overlay?.trigger?.buy?.forEach((tier, i) => {

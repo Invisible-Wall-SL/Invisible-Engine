@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		GAME_MODE_BOARDS,
-		HOLD_AND_WIN_MODE,
 		builtinGameModes,
 		resolveGameModes,
 		type GameConfigDoc,
@@ -58,10 +57,12 @@
 	const builtinOf = (id: string) => builtins.find((m) => m.id === id);
 	const authoredOf = (id: string) => doc.modes?.find((m) => m.id === id);
 
-	/** A mode that plays a Hold and Win game — its rules, or the legacy block's. It stays on the respin
-	 *  board and goes only with its game (bonus-games Phase 1); its fields are still editable. */
-	const playsHoldAndWin = (mode: GameModeDecl) =>
-		Boolean(mode.holdAndWin) || (mode.id === HOLD_AND_WIN_MODE && Boolean(doc.holdAndWin));
+	/** A respin mode is a bonus mode: it is added, renamed and removed (with its rules, strips and
+	 *  routes) in Bonus modes, and stays on the respin board. Its presentation fields are edited here. */
+	const isRespinMode = (mode: GameModeDecl) => mode.board === 'respinBoard';
+	/** A respin board is chosen by adding a respin mode in Bonus modes, never by switching a board. */
+	const boardsFor = (mode: GameModeDecl) =>
+		isRespinMode(mode) ? GAME_MODE_BOARDS : GAME_MODE_BOARDS.filter((b) => b !== 'respinBoard');
 
 	/** The authored entry for `id`, created (on the board it resolves to) on first write. */
 	function entryFor(id: string): GameModeDecl {
@@ -179,18 +180,18 @@
 						<td class="id">
 							<code>{mode.id}</code>
 							{#if builtin}<span class="chip">built-in{overridden ? ' · edited' : ''}</span>{/if}
-							{#if playsHoldAndWin(mode)}<span class="chip">Hold and Win</span>{/if}
+							{#if isRespinMode(mode)}<span class="chip">Hold and Win · Bonus modes</span>{/if}
 						</td>
 						<td
 							><select
 								value={mode.board}
-								disabled={playsHoldAndWin(mode)}
-								title={playsHoldAndWin(mode)
-									? 'A Hold and Win game plays on the respin board.'
+								disabled={isRespinMode(mode)}
+								title={isRespinMode(mode)
+									? 'A Hold and Win mode plays on the respin board; add or remove it in Bonus modes.'
 									: undefined}
 								onchange={(e) => setBoard(mode.id, e.currentTarget.value)}
 							>
-								{#each GAME_MODE_BOARDS as b (b)}
+								{#each boardsFor(mode) as b (b)}
 									<option value={b}>{BOARD_LABELS[b]}</option>
 								{/each}
 							</select></td
@@ -213,7 +214,7 @@
 							/></td
 						>
 						<td>
-							{#if !builtin && !playsHoldAndWin(mode)}
+							{#if !builtin && !isRespinMode(mode)}
 								<button class="del" title="Remove mode" onclick={() => removeMode(mode.id)}
 									>×</button
 								>

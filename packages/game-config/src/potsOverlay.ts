@@ -352,12 +352,19 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 				'A full pot cannot start free spins while free spins are off — switch them on in Free spins, or route the pot to another bonus.',
 			);
 		}
-		if (activates && mode !== HOLD_AND_WIN_MODE) {
+		// Any respin mode's rules, or the legacy block's for an unnormalized config's built-in one.
+		const target = gameModeById(doc, mode);
+		const rules =
+			target?.board === 'respinBoard'
+				? (target.holdAndWin ?? (mode === HOLD_AND_WIN_MODE ? block : undefined))
+				: undefined;
+		const respin = target ? target.board === 'respinBoard' : mode === HOLD_AND_WIN_MODE;
+		if (activates && !respin) {
 			error(
 				`${at}.bonus.activates`,
 				`Only a Hold and Win bonus starts with a special active; this pot starts "${mode}".`,
 			);
-		} else if (activates && block && !block.specials[activates]) {
+		} else if (activates && rules && !rules.specials[activates]) {
 			error(
 				`${at}.bonus.activates`,
 				`A full ${p.id} pot activates the ${activates}, which is not configured.`,

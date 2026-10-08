@@ -1,7 +1,7 @@
 /**
  * ADD-ONS merged into a project that already has its own game (`docs/design/pots-overlay.md` §3.1,
  * §4): the pots overlay and a Hold and Win bonus. Each adds its parts and replaces nothing the
- * project has — the `/config` Add-ons section and the Game Maker's add-on action both go through
+ * project has — the `/config` Coin overlay section and the Game Maker's add-on action both go through
  * here, so neither is ever a whole-doc reset.
  *
  * NAME CLASHES ARE RENAMED, never merged: a preset symbol or pot id the project already uses takes
@@ -75,7 +75,7 @@ const freeName = (wanted: string, taken: Set<string>): string => {
 };
 
 /** Add `symbols` under free names; returns the name each one ended up with. */
-function addSymbols(
+export function addSymbols(
 	doc: GameConfigDoc,
 	symbols: Record<string, GameConfigSymbol>,
 	renamed: AddOnRenames,
@@ -319,7 +319,7 @@ export function zeroPotsRefusal(doc: GameConfigDoc): string | undefined {
 		return "This game's own Hold and Win is its base game, started by coins landing on its reels, so value coins alone start nothing — it needs at least one pot.";
 	}
 	if (!block.trigger.count) {
-		return 'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.';
+		return 'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Coin overlay triggers first, or keep at least one pot.';
 	}
 	return undefined;
 }

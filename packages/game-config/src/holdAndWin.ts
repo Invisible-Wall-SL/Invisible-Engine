@@ -17,7 +17,7 @@
  * reference — a jackpot name, a reel index, a role no symbol carries — is the validator's to report.
  */
 
-import { legacyPotsOverlay } from './bonusGames';
+import { legacyPotsOverlay, primaryRespinMode } from './bonusGames';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
 import { BASE_GAME_MODE, HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { GameConfigDoc } from './types';
@@ -758,8 +758,9 @@ export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'holdAnd
 	doc.holdAndWin?.expansion?.maxRows ?? doc.numRows[0] ?? 0;
 
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
-export const configuredSpecials = (block: HoldAndWin): HoldAndWinSpecial[] =>
-	HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
+export const configuredSpecials = (block: {
+	specials: Partial<Record<HoldAndWinSpecial, unknown>>;
+}): HoldAndWinSpecial[] => HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
 
 /**
  * Is the `holdAndWin` block the pots overlay's BONUS rather than the base game
@@ -799,6 +800,15 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		issues.push({ severity: 'warning', path: `holdAndWin.${path}`, message });
 
 	const tagged = (role: HoldAndWinSymbolRole) => symbolsWithRole(doc, role);
+	// The block is the mirror of the primary respin mode (`./bonusGames`), which need not be called
+	// `holdAndWin`; another respin mode's specials give their tagged symbols a use too.
+	const primary = primaryRespinMode(doc.modes);
+	const blockMode = primary?.id ?? HOLD_AND_WIN_MODE;
+	const elsewhere = new Set(
+		(doc.modes ?? [])
+			.filter((m) => m !== primary && m.board === 'respinBoard')
+			.flatMap((m) => Object.keys(m.holdAndWin?.specials ?? {})),
+	);
 	const jackpotNames = new Set(block.jackpots.map((j) => j.name));
 	const checkJackpot = (path: string, name: string) => {
 		if (!jackpotNames.has(name)) error(path, `"${name}" is not one of the jackpot tiers.`);
@@ -899,7 +909,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 
 	// Trigger
 	const t = block.trigger;
-	const potRoute = Boolean(overlay?.pots.some((p) => p.bonus.mode === HOLD_AND_WIN_MODE));
+	const potRoute = Boolean(overlay?.pots.some((p) => p.bonus.mode === blockMode));
 	const coinDrops = Boolean(overlay?.drops.table.some((e) => 'coin' in e));
 	const baseTriggers = Boolean(
 		t.count || t.pattern || t.buy?.length || t.randomMetre || t.luckySpin || block.meters?.length,
@@ -1025,7 +1035,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		if (configured && !symbols.length) {
 			error(`specials.${kind}`, `The ${kind} is configured but no symbol is tagged "${role}".`);
 		}
-		if (!configured && symbols.length) {
+		if (!configured && symbols.length && !elsewhere.has(kind)) {
 			warning(
 				`specials.${kind}`,
 				`${symbols.join(', ')} ${symbols.length > 1 ? 'are' : 'is'} tagged "${role}" but the ${kind} is not configured, so it does nothing.`,
@@ -1131,7 +1141,7 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 			block.activeModifiers.fromTriggeringSpecials ||
 			Boolean(block.trigger.buy?.some((tier) => tier.guaranteed.length)) ||
 			Boolean(block.meters?.length) ||
-			Boolean(overlay?.pots.some((p) => p.bonus.mode === HOLD_AND_WIN_MODE && p.bonus.activates)) ||
+			Boolean(overlay?.pots.some((p) => p.bonus.mode === blockMode && p.bonus.activates)) ||
 			Boolean(block.wheel) ||
 			Boolean(mys?.unlocksInactive);
 		if (!canActivate) {

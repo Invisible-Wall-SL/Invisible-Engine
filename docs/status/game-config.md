@@ -648,7 +648,7 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
   records only the ranges).
 - **`/config`** — a Hold and Win section (gated on the project kind until Phase 1's
   `kindCapabilities()` lands), preset picker, paytable shows coin rows as a value table, win-model
-  picker locked to lines. Guide: [game-config.md](../tools/game-config.md#hold-and-win).
+  picker locked to lines. Guide: [game-config.md](../tools/game-config.md#bonus-modes).
 - **Game Maker profile** — `gameProfile.ts` `FEATURE_DETECTORS` +10 (`respin`, `jackpots`,
   `collector`, `boost`, `payer`, `mystery`, `pots`, `luckySpin`, `columnLetters`, `wheel`), all read
   `config.holdAndWin`.
@@ -792,6 +792,23 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   a desktop build is stamped by hand in `/admin` after each ☁ Publish (runbook step 1 above).
 
 ## Recent changes
+
+- 2026-10-08 — **`/config` gets Bonus modes and Coin overlay sections and writes the split form**
+  (Phase 5a of [bonus-games.md](../design/bonus-games.md), PR #1136). Detail and gates:
+  [status/bonus-games.md](bonus-games.md). Guide: [tools/game-config.md](../tools/game-config.md).
+  - **Coin overlay** replaces the Add-ons section (`CoinOverlaySection.svelte`). It edits the style,
+    the pots and drops, the base-game coin values and special flags, and the triggers and meters,
+    each with a "starts →" mode picker.
+  - **Bonus modes** (`BonusModesSection.svelte`) gives each respin mode its own rules editor
+    (`HoldAndWinRules.svelte`, the old Hold and Win section pointed at `modes[i].holdAndWin`). It
+    adds a respin mode from a preset or empty, renames it and removes it. Game modes keeps the
+    respin modes' presentation fields only.
+  - The page holds and PUTs `splitFormOf(doc)`, so neither legacy key is ever sent; the save
+    regenerates the mirror.
+  - New in `game-config`: `splitFormOf`, `addRespinMode` / `renameRespinMode` /
+    `removeRespinMode` (`src/bonusModes.ts`) and `retargetRoutes`. Every respin mode's rules are
+    validated under `modes.<id>.holdAndWin`.
+  - Gates: `bonusModes.fixture.ts` and `check:config-bonus-modes`.
 
 - 2026-10-08 — **The table-capable stamp is a `/admin` control** (Phase 6, §6 step 5): runbook step
   1 needs no command line. Detail in [launcher.md](launcher.md); the dry run's blocker now points
