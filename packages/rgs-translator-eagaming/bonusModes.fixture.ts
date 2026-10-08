@@ -17,8 +17,11 @@ import { createServer, type IncomingMessage, type Server } from 'node:http';
 import {
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_TEST_FIXTURES,
+	holdAndWinBonus,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
+	potsOverlayMockInputs,
+	potsOverlayPreset,
 } from '../game-config/index.ts';
 import {
 	applyHoldAndWinEvent,
@@ -28,7 +31,9 @@ import {
 } from '../engine-game/src/game/holdAndWin.ts';
 import { modeOpOf } from '../engine-game/src/game/modeEvents.ts';
 import { createMockRgs } from '../../scripts/mock-rgs-server-holdandwin.mjs';
-import { readHoldAndWinModes } from './src/holdAndWin.ts';
+import { withPotsOverlay } from '../../scripts/mock-pots-overlay.mjs';
+import { createMockRgs as createLinesMock } from '../../scripts/mock-rgs-server.mjs';
+import { applyPools, readHoldAndWinModes, respinModesOf } from './src/holdAndWin.ts';
 import { bonusRoutes, type PotsOverlayWireConfig } from './src/potsOverlay.ts';
 
 type Facade = typeof import('./src/engineFacade.ts');
@@ -105,9 +110,13 @@ const bodyOf = (req: IncomingMessage): Promise<string> =>
 	});
 
 /** A proxy in front of `rgsUrl` that hands every JSON answer through `rewrite`. */
-const startProxy = async (rgsUrl: string, rewrite: (answer: WireAnswer) => void) => {
+const startProxy = async (
+	rgsUrl: string,
+	rewrite: (answer: WireAnswer) => void,
+	request: (body: string) => string = (body) => body,
+) => {
 	const server = createServer(async (req, res) => {
-		const body = await bodyOf(req);
+		const body = request(await bodyOf(req));
 		const upstream = await fetch(`http://${rgsUrl}${req.url}`, {
 			method: req.method,
 			...(req.method === 'POST' ? { body } : {}),
@@ -138,26 +147,26 @@ const MODE_B = 'holdAndWin_2';
 const KEY_B = 'respin_2';
 const PRIMARY = await bootBlockOf('collector');
 
-/** The six wire contexts that name their respin mode. */
-const NAMING = [
-	'spinTrigger',
-	'holdAndWinTrigger',
-	'enterBonus',
-	'playedBonusSpin',
-	'playedBonusSpins',
-	'holdAndWinEnd',
-];
-
 /**
- * The per-mode wire over the mock's single-mode answer: the boot declares `modes` (`[mode, block]`,
- * primary first, the legacy `holdAndWin` staying the primary's), and the round plays in `mode` under
- * the strip key `key` — its bonus key — with every naming context tagged.
+ * The per-mode wire over the mock's single-mode answer: the boot declares `modes` (`[mode, gameType,
+ * block]`, primary first, the legacy `holdAndWin` staying the primary's), and the round's Hold and
+ * Win feature plays in `mode` under the strip key `key` — its bonus key. `tags`: `all` names the
+ * mode as the agreed wire does (`spinTrigger.trigger.mode`, and `mode` on `holdAndWinTrigger`,
+ * `enterBonus`, `playedBonusSpin(s)` and `holdAndWinEnd`); `spinTrigger` names it on the trigger
+ * alone; `none` names it nowhere, leaving the route to the bonus key. `boot` edits the rest of the boot (an overlay's).
  */
 const perModeWire =
 	(
 		modes: (own: Record<string, unknown>) => [string, string, Record<string, unknown>][],
 		mode: string,
 		key: string,
+		{
+			tags = 'all',
+			boot,
+		}: {
+			tags?: 'all' | 'spinTrigger' | 'none';
+			boot?: (ctx: Record<string, unknown>) => void;
+		} = {},
 	) =>
 	(answer: WireAnswer): void => {
 		for (const e of answer.events ?? []) {
@@ -172,13 +181,23 @@ const perModeWire =
 					bonus: gameType,
 				}));
 				ctx.holdAndWin = { ...declared[0][2], bonus: declared[0][1] };
+				boot?.(ctx);
 				continue;
 			}
+			// Only the Hold and Win feature's contexts: an overlay host's own free spins stay as dealt.
+			const respinFeature =
+				(e.event === 'spinTrigger' && ctx.bonus === 'respin') ||
+				e.event === 'holdAndWinTrigger' ||
+				e.event === 'holdAndWinEnd' ||
+				(['enterBonus', 'playedBonusSpin', 'playedBonusSpins'].includes(e.event) &&
+					typeof ctx.holdAndWin === 'object');
+			if (!respinFeature) continue;
 			if (e.event === 'spinTrigger') {
 				ctx.bonus = key;
-				(ctx.trigger as Record<string, unknown>).mode = mode;
-			}
-			if (NAMING.includes(e.event)) ctx.mode = mode;
+				const trigger = ctx.trigger as Record<string, unknown>;
+				if (tags === 'none') delete trigger.mode;
+				else trigger.mode = mode;
+			} else if (tags === 'all') ctx.mode = mode;
 		}
 	};
 
@@ -502,6 +521,357 @@ for (const [preset, force] of [
 	);
 	await close(proxy.server);
 	await close(declaredMock.server);
+}
+
+// ---------- the routing rules, event by event ----------
+
+{
+	const modes = readHoldAndWinModes({
+		bonusModes: [
+			{ mode: 'holdAndWin', gameType: 'respin', ...PRIMARY, bonus: 'respin' },
+			{ mode: MODE_B, gameType: KEY_B, ...PRIMARY, bonus: KEY_B },
+		],
+	});
+	if (!modes) throw new Error('the two-mode boot did not read');
+	const at = (
+		events: { event: string; context?: unknown }[],
+		overlay: PotsOverlayWireConfig | null = null,
+	) => respinModesOf(modes, overlay, events);
+	const feature = (tag: Record<string, unknown>) => [
+		{ event: 'spinTrigger', context: { bonus: KEY_B, trigger: { mode: MODE_B } } },
+		{ event: 'holdAndWinTrigger', context: tag },
+		{ event: 'enterBonus', context: { ...tag, holdAndWin: {} } },
+		{ event: 'coinsLand', context: {} },
+		{ event: 'holdAndWinEnd', context: tag },
+		{ event: 'playedBonusSpins', context: tag },
+		{ event: 'jackpotLevels', context: {} },
+		{ event: 'gameEnd', context: {} },
+	];
+	check(
+		"routing: spinTrigger.trigger.mode names the feature's mode for its untagged events",
+		at(feature({})).slice(0, 5),
+		[MODE_B, MODE_B, MODE_B, MODE_B, MODE_B],
+	);
+	check(
+		'routing: the mode ends at holdAndWinEnd; the closing summary does not reopen it; the rest of the round is the primary’s',
+		at(feature({ mode: MODE_B })).slice(4),
+		[MODE_B, MODE_B, 'holdAndWin', 'holdAndWin'],
+	);
+	const overlay: PotsOverlayWireConfig = {
+		wire: 1,
+		pots: [],
+		bonuses: { respin: 'holdAndWin', [KEY_B]: MODE_B },
+		modes: {},
+	};
+	check(
+		"routing: on an overlay host the rest of the round is nobody's",
+		at(feature({}), overlay).slice(4),
+		[MODE_B, undefined, undefined, undefined],
+	);
+	check(
+		'routing: a free spins’ trigger.mode (scatter) names nothing',
+		at([{ event: 'spinTrigger', context: { bonus: 'feature', trigger: { mode: 'scatter' } } }]),
+		['holdAndWin'],
+	);
+	check(
+		'routing: a named mode without rules is reported as uncaptured, until the next spinTrigger',
+		at([
+			{ event: 'holdAndWinTrigger', context: { mode: 'holdAndWin_9' } },
+			{ event: 'coinsLand', context: {} },
+			{ event: 'spinTrigger', context: { bonus: 'respin' } },
+		]),
+		[{ uncaptured: 'holdAndWin_9' }, { uncaptured: 'holdAndWin_9' }, 'holdAndWin'],
+	);
+
+	const progressive = (seed: number) => ({
+		...PRIMARY,
+		jackpots: [
+			{ name: 'MINI', multiplier: 15 },
+			{ name: 'MAJOR', multiplier: 100, progressive: true, value: seed },
+		],
+	});
+	const pooled = readHoldAndWinModes({
+		bonusModes: [
+			{ mode: 'holdAndWin', gameType: 'respin', ...progressive(100), bonus: 'respin' },
+			{ mode: MODE_B, gameType: KEY_B, ...progressive(100), bonus: KEY_B },
+		],
+	});
+	if (!pooled) throw new Error('the pooled boot did not read');
+	applyPools(pooled, [
+		{ name: 'MAJOR', value: 123.4 },
+		{ name: 'MINI', value: 99 },
+	]);
+	check(
+		'pools: a jackpotLevels pool moves the tier of that name in EVERY mode; a fixed tier never moves',
+		[...pooled.modes.values()].map((hw) => hw.jackpots.map((j) => j.value ?? j.multiplier)),
+		[
+			[15, 123.4],
+			[15, 123.4],
+		],
+	);
+	check(
+		'reader: bonusModes whose every entry is refused fall back to the legacy holdAndWin',
+		await hush(() => {
+			const read = readHoldAndWinModes({
+				holdAndWin: PRIMARY,
+				bonusModes: [{ mode: MODE_B, ...PRIMARY, wire: 99 }],
+			});
+			return read && [[...read.modes.keys()], read.primary];
+		}),
+		[['holdAndWin'], 'holdAndWin'],
+	);
+}
+
+// ---------- only spinTrigger.trigger.mode names B ----------
+
+{
+	const mock = await hush(() => startMock('pots-expansion-fullrow', 'expandFull'));
+	const proxy = await startProxy(
+		mock.rgsUrl,
+		perModeWire(twoModes, MODE_B, KEY_B, { tags: 'spinTrigger' }),
+	);
+	const events = await playRound(proxy.rgsUrl, 'modes-trigger-only');
+	verifyModeRound('B named on spinTrigger.trigger only', events, MODE_B, 'allCoins');
+	check(
+		'B named on spinTrigger.trigger only: translated as the fully tagged round',
+		events,
+		books.get('mode B expandFull'),
+	);
+	await close(proxy.server);
+	await close(mock.server);
+}
+
+// ---------- fail closed: a respin feature of a mode the boot declares no rules for ----------
+
+const playWarned = async (rgsUrl: string, sid: string) => {
+	const warnings: string[] = [];
+	const events = await hush(async () => {
+		console.warn = (...args: unknown[]) => warnings.push(String(args[0]));
+		const facade = await openTab();
+		await facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' });
+		const out: BookEvent[][] = [];
+		for (let r = 0; r < 2; r++) {
+			const bet = (await facade.requestBet({
+				sessionID: sid,
+				currency: 'EUR',
+				amount: 1,
+				mode: 'BASE',
+				rgsUrl,
+			})) as { round?: { state?: BookEvent[] } };
+			out.push(bet.round?.state ?? []);
+			await facade.requestEndRound({ sessionID: sid, rgsUrl });
+		}
+		return out;
+	});
+	return { events, warnings: warnings.filter((w) => w.includes('declares no rules')) };
+};
+const HW_OR_FREE = (e: BookEvent) => HW_TYPES.has(e.type) || e.type.startsWith('freeSpin');
+{
+	const mock = await hush(() => startMock('pots-expansion-fullrow', 'trigger'));
+	const proxy = await startProxy(mock.rgsUrl, perModeWire(twoModes, 'holdAndWin_9', 'respin_9'));
+	const { events, warnings } = await playWarned(proxy.rgsUrl, 'modes-uncaptured');
+	check(
+		'fail closed: a named mode without rules shows none of its feature, neither as respins nor as free spins',
+		events.map((book) => book.filter(HW_OR_FREE).map((e) => e.type)),
+		[[], []],
+	);
+	check(
+		'fail closed: …the round still shows its board and closes',
+		events.map((book) => [
+			book.some((e) => e.type === 'reveal'),
+			book.some((e) => e.type === 'finalWin' || e.type === 'setTotalWin'),
+			book.filter((e) => e.type.startsWith('_')).length,
+		]),
+		[
+			[true, true, 0],
+			[true, true, 0],
+		],
+	);
+	check('fail closed: …and says so once per session and mode', warnings.length, 1);
+	await close(proxy.server);
+	await close(mock.server);
+}
+
+// ---------- a coin overlay over a lines host: a pot routed to B ----------
+
+const pays = (three: number, four: number, five: number) => ({
+	paytable: [{ 3: three }, { 4: four }, { 5: five }],
+});
+const LINES_HOST = {
+	providerName: 'invisible_wall',
+	gameName: 'lines_host',
+	gameID: 'lines_host',
+	rtp: 0.96,
+	numReels: 5,
+	numRows: [3, 3, 3, 3, 3],
+	betModes: { base: { cost: 1, feature: true, buyBonus: false, rtp: 0.96, max_win: 5000 } },
+	paylines: { 1: [1, 1, 1, 1, 1], 2: [0, 0, 0, 0, 0], 3: [2, 2, 2, 2, 2] },
+	symbols: {
+		PIC1: pays(100, 1000, 5000),
+		PIC2: pays(30, 400, 2000),
+		PIC5: pays(5, 50, 150),
+		PIC6: pays(5, 50, 150),
+		PIC7: pays(5, 20, 100),
+		SCAT: { special_properties: ['scatter'] },
+	},
+	paddingReels: {
+		basegame: Array.from({ length: 5 }, () =>
+			['PIC1', 'PIC5', 'SCAT', 'PIC6', 'PIC2', 'PIC7'].map((name) => ({ name })),
+		),
+		freegame: Array.from({ length: 5 }, () =>
+			['PIC1', 'PIC5', 'SCAT', 'PIC6', 'PIC2', 'PIC7'].map((name) => ({ name })),
+		),
+	},
+};
+const overlayHost = async (force: string) => {
+	const preset = potsOverlayPreset('threePots');
+	const bonus = holdAndWinBonus(preset.holdAndWin, LINES_HOST);
+	const doc = normalizeGameConfigDoc({
+		...structuredClone(LINES_HOST),
+		symbols: { ...LINES_HOST.symbols, ...bonus.symbols, ...preset.tokens },
+		paddingReels: { ...LINES_HOST.paddingReels, ...bonus.paddingReels },
+		holdAndWin: bonus.holdAndWin,
+		potsOverlay: preset.potsOverlay,
+	});
+	const mock = withPotsOverlay(
+		(opts: Record<string, unknown> = {}) => createLinesMock({ quiet: true, ...opts }),
+		potsOverlayMockInputs(doc),
+	)({ label: 'modes-overlay', seed: `modes-overlay-${force}`, allowForce: true });
+	const server = createServer((req, res) =>
+		mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
+	);
+	return { server, rgsUrl: await listen(server) };
+};
+/** The first `play` of a session carries the force, as the authoring mock takes it. */
+const forcing = (force: string) => {
+	let armed = true;
+	return (body: string) => {
+		const actions = JSON.parse(body || '[]') as { action: string; context?: unknown }[];
+		for (const a of actions)
+			if (armed && a.action === 'play' && !a.context) {
+				a.context = force;
+				armed = false;
+			}
+		return JSON.stringify(actions);
+	};
+};
+/** The overlay's routes gain B's strip key, and the pot that starts Hold and Win starts `mode`. */
+const routedTo = (mode: string, key: string) => (ctx: Record<string, unknown>) => {
+	const overlay = ctx.potsOverlay as {
+		bonuses: Record<string, string>;
+		pots: { bonus?: string }[];
+	};
+	overlay.bonuses[key] = mode;
+	for (const pot of overlay.pots) if (pot.bonus === 'holdAndWin') pot.bonus = mode;
+};
+for (const tags of ['all', 'none'] as const) {
+	const label = `overlay pot → B (${tags === 'all' ? 'contexts name B' : 'by the overlay route'})`;
+	const host = await hush(() => overlayHost('force:pot:green'));
+	const proxy = await startProxy(
+		host.rgsUrl,
+		perModeWire(
+			(own) => [
+				['holdAndWin', 'respin', PRIMARY],
+				[MODE_B, KEY_B, { ...own, stickiness: 'allCoins' }],
+			],
+			MODE_B,
+			KEY_B,
+			{ tags, boot: routedTo(MODE_B, KEY_B) },
+		),
+		forcing('force:pot:green'),
+	);
+	const events = await playRound(proxy.rgsUrl, `modes-overlay-${tags}`);
+	verifyModeRound(label, events, MODE_B, 'allCoins');
+	const entry = events.find((e) => e.type === 'holdAndWinTrigger');
+	check(`${label}: the pot is the cause`, entry?.cause, 'meter');
+	await close(proxy.server);
+	await close(host.server);
+}
+{
+	const host = await hush(() => overlayHost('force:pot:green'));
+	const proxy = await startProxy(
+		host.rgsUrl,
+		perModeWire(twoModes, 'holdAndWin_9', 'respin_9', {
+			tags: 'none',
+			boot: routedTo('holdAndWin_9', 'respin_9'),
+		}),
+		forcing('force:pot:green'),
+	);
+	const { events, warnings } = await playWarned(proxy.rgsUrl, 'modes-overlay-uncaptured');
+	check(
+		'fail closed: an overlay route to a mode without rules shows none of the feature (not as free spins either)',
+		events[0].filter(HW_OR_FREE).map((e) => e.type),
+		[],
+	);
+	check(
+		'fail closed: …the pot that started it still empties, and it is said once',
+		[events[0].some((e) => e.type === 'meterUpdate'), warnings.length],
+		[true, 1],
+	);
+	await close(proxy.server);
+	await close(host.server);
+}
+
+// ---------- RESUME in mode B ----------
+
+{
+	const mock = await hush(() => startMock('pots-expansion-fullrow', 'trigger'));
+	const proxy = await startProxy(mock.rgsUrl, perModeWire(twoModes, MODE_B, KEY_B));
+	const sid = 'modes-resume';
+	const post = async (seq: number, gid: string | null, body: unknown) => {
+		const query = `sid=${sid}&seq=${seq}${gid ? `&gid=${gid}` : ''}`;
+		const res = await fetch(`http://${proxy.rgsUrl}/rgs/engine?${query}`, {
+			method: 'POST',
+			body: JSON.stringify(body),
+		});
+		return (await res.json()) as {
+			platform: { gameRound?: { id?: string } };
+			events: WireEvent[];
+		};
+	};
+	await post(0, null, [{ action: 'config' }]);
+	const opened = await post(0, null, [
+		{ action: 'bet', context: [25, 4] },
+		{ action: 'play', context: null },
+	]);
+	const gid = opened.platform.gameRound?.id ?? null;
+	let last = opened;
+	for (const seq of [2, 3]) last = await post(seq, gid, [{ action: 'play' }]);
+	const held = (
+		last.events.find((e) => e.event === 'playedBonusSpin')?.context?.holdAndWin as
+			{ cells?: unknown[] } | undefined
+	)?.cells;
+	check('resume B: the feature is open after two respins', Boolean(gid && held), true);
+
+	const resumed = await hush(async () => {
+		const facade = await openTab();
+		return (await facade.requestAuthenticate({
+			sessionID: sid,
+			rgsUrl: proxy.rgsUrl,
+			language: 'en',
+		})) as {
+			round?: { state?: BookEvent[]; event?: string };
+		};
+	});
+	const book = resumed.round?.state ?? [];
+	const at = Number(resumed.round?.event);
+	verifyModeRound('resume B', book, MODE_B, 'allCoins');
+	const lastState = book
+		.slice(0, at)
+		.filter((e) => e.type === 'holdAndWinState')
+		.pop() as { mode?: string; snapshot: { cells: unknown[] } } | undefined;
+	check(
+		'resume B: it picks up at the next respin, in B',
+		[at > 0, book[at]?.type, book[at]?.mode],
+		[true, 'respinReveal', MODE_B],
+	);
+	check(
+		'resume B: the snapshot before it is the board held at the break, in B',
+		[lastState?.mode, lastState?.snapshot.cells.length],
+		[MODE_B, held?.length],
+	);
+	await close(proxy.server);
+	await close(mock.server);
 }
 
 realLog(`\n${passes} bonus-mode facade checks passed, ${failures} failed.`);

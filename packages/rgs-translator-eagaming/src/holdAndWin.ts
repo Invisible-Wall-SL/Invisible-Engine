@@ -18,6 +18,8 @@
 
 import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 
+import { bonusRoutes, type PotsOverlayWireConfig } from './potsOverlay';
+
 /** The `holdAndWin` block of the boot `config` — the fields the translation reads. */
 export type HoldAndWinWireConfig = {
 	wire: number;
@@ -66,7 +68,7 @@ const readHoldAndWinBlock = (
 	};
 };
 
-export const readHoldAndWinConfig = (cfg: unknown): HoldAndWinWireConfig | null =>
+const readHoldAndWinConfig = (cfg: unknown): HoldAndWinWireConfig | null =>
 	readHoldAndWinBlock(
 		(cfg as { holdAndWin?: Partial<HoldAndWinWireConfig> } | null)?.holdAndWin,
 		'Hold and Win',
@@ -80,9 +82,9 @@ export type HoldAndWinModes = { modes: Map<string, HoldAndWinWireConfig>; primar
 
 /**
  * `config.bonusModes: [{mode, gameType, …HoldAndWinWireConfig}]`, one entry per respin mode with the
- * primary first, or — from a server that sends none (a lone default mode) — the legacy single
- * `config.holdAndWin` as mode `holdAndWin`. An entry without a mode id, a repeated id, or another
- * wire is dropped; none left ⇒ null.
+ * primary first. An entry without a mode id, a repeated id, or another wire is dropped. A server
+ * that sends none (a lone default mode), or none this client can read, falls back to the legacy
+ * single `config.holdAndWin` as mode `holdAndWin`; nothing readable ⇒ null.
  */
 export const readHoldAndWinModes = (cfg: unknown): HoldAndWinModes | null => {
 	const declared = (cfg as { bonusModes?: unknown } | null)?.bonusModes;
@@ -94,7 +96,9 @@ export const readHoldAndWinModes = (cfg: unknown): HoldAndWinModes | null => {
 			const block = readHoldAndWinBlock(entry, `Hold and Win mode ${mode}`);
 			if (block) modes.set(mode, block);
 		}
-	} else {
+	}
+	// No `bonusModes`, or every entry refused: the legacy block still plays as mode `holdAndWin`.
+	if (modes.size === 0) {
 		const legacy = readHoldAndWinConfig(cfg);
 		if (legacy) modes.set(HOLD_AND_WIN_MODE, legacy);
 	}
@@ -163,6 +167,103 @@ export const applyJackpotLevels = (hw: HoldAndWinWireConfig, levels: HoldAndWinJ
 		const tier = hw.jackpots.find((j) => j.name === name);
 		if (tier?.progressive) tier.value = value;
 	}
+};
+
+/**
+ * Move a `jackpotLevels` answer's pools into every respin mode with a progressive tier of that name.
+ * The wire names no mode on it: a pool is shared by tier name across modes, as the mock deals it.
+ * Per-mode pools would need `mode` on `jackpotLevels` (an open item for Phase 7).
+ */
+export const applyPools = (respin: HoldAndWinModes, levels: HoldAndWinJackpotLevel[]): void => {
+	for (const hw of respin.modes.values()) applyJackpotLevels(hw, levels);
+};
+
+/** The respin mode whose own `bonus` key a `spinTrigger` names that the overlay's `bonuses` does not
+ *  list — the primary's first. */
+const respinModeOfKey = (respin: HoldAndWinModes, key: string): string | undefined => {
+	if (respin.modes.get(respin.primary)?.bonus === key) return respin.primary;
+	for (const [mode, hw] of respin.modes) if (hw.bonus === key) return mode;
+	return undefined;
+};
+
+/** The wire contexts that name the respin mode they belong to (`docs/reference/hold-and-win-wire.md`
+ *  "Several respin modes"): a top-level `mode`, and a `spinTrigger`'s `trigger.mode`. The events
+ *  inside a feature name none: they are the last entry's. */
+const MODE_NAMING_EVENTS = new Set([
+	'spinTrigger',
+	'holdAndWinTrigger',
+	'enterBonus',
+	'playedBonusSpin',
+	'playedBonusSpins',
+	'holdAndWinEnd',
+]);
+
+/** A respin mode the wire names that the boot `config` declared no rules for. */
+export type Uncaptured = { uncaptured: string };
+
+export const isName = (v: unknown): v is string => typeof v === 'string' && v !== '';
+
+/**
+ * Each event's respin mode, by its index — the mode whose rules its bonus plays under — or undefined
+ * when its bonus plays on the reels (or none has started yet on an overlay host), or `Uncaptured`
+ * when the wire names a respin mode the boot declared no rules for.
+ *
+ * The wire's routing order: a context that names a mode is that mode, until the next `spinTrigger`
+ * or its feature's `holdAndWinEnd`; else an overlay host routes each bonus by its `spinTrigger` key
+ * (`bonusRoutes`); else every bonus of a Hold and Win server is the primary's. A `trigger.mode` that
+ * names no respin mode (a free spins' `scatter`) names nothing. After a feature ends, the rest of the
+ * round is the primary's (on an overlay host, nobody's until the next bonus). A lone default mode
+ * names only itself, so its every event reads as before.
+ */
+export const respinModesOf = (
+	respin: HoldAndWinModes,
+	overlay: PotsOverlayWireConfig | null,
+	events: readonly { event: string; context?: unknown }[],
+): (string | Uncaptured | undefined)[] => {
+	const routes = overlay
+		? bonusRoutes(
+				overlay,
+				(mode) => respin.modes.has(mode),
+				(key) => respinModeOfKey(respin, key),
+				events,
+			)
+		: null;
+	let named: string | Uncaptured | undefined;
+	let ended = false;
+	return events.map((e, i) => {
+		if (e.event === 'spinTrigger') {
+			named = undefined;
+			ended = false;
+		}
+		let own: string | Uncaptured | undefined;
+		if (MODE_NAMING_EVENTS.has(e.event)) {
+			const ctx = (e as { context?: { mode?: unknown; trigger?: { mode?: unknown } } }).context;
+			const rule = e.event === 'spinTrigger' ? ctx?.trigger?.mode : undefined;
+			if (isName(ctx?.mode)) own = respin.modes.has(ctx.mode) ? ctx.mode : { uncaptured: ctx.mode };
+			else if (isName(rule) && respin.modes.has(rule)) own = rule;
+		}
+		// The closing summary names its feature's mode without reopening it.
+		if (own !== undefined && e.event !== 'playedBonusSpins') {
+			named = own;
+			ended = false;
+		}
+		const route = routes?.[i];
+		const mode =
+			own ??
+			named ??
+			(ended && routes
+				? undefined
+				: !routes || ended
+					? respin.primary
+					: typeof route === 'object'
+						? route.respins
+						: undefined);
+		if (e.event === 'holdAndWinEnd') {
+			named = undefined;
+			ended = true;
+		}
+		return mode;
+	});
 };
 
 export type HoldAndWinSymbol = { name: string; value?: number; jackpot?: string; factor?: number };
