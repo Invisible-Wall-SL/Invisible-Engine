@@ -1048,6 +1048,94 @@
 				</div>
 			</section>
 		{/if}
+
+		<!-- Book-of → Lines (docs/design/book-feature.md §6). Dry run first; Apply re-derives the plan. -->
+		<section>
+			<h2>Migrate Book-of projects to Lines</h2>
+			<p class="muted hint">
+				Every project of the retired <code>bookOf</code> kind becomes a Lines project with the expanding
+				symbol: its config (through History), its layout's kind, its kind, and a republish of its online
+				game. Rebuild its desktop builds from the desktop launcher first. A migrated project is not listed
+				again.
+			</p>
+			<div class="migration-actions">
+				<form method="POST" action="?/bookOfDryRun" use:enhance>
+					<button type="submit" class="small">Census and dry run</button>
+				</form>
+				<form method="POST" action="?/bookOfApply" use:enhance>
+					<label class="check"
+						><input type="checkbox" name="confirm" value="yes" /> I ran the dry run</label
+					>
+					<button type="submit" class="danger small">Apply</button>
+				</form>
+			</div>
+			{#if form?.action === 'bookOfDryRun' && 'plans' in form && form.census}
+				{@const census = form.census}
+				<p class="hint">
+					{census.projects.length} Book-of project{census.projects.length === 1 ? '' : 's'};
+					{census.bookManifestEntries.length} manifest entr{census.bookManifestEntries.length === 1
+						? 'y'
+						: 'ies'} on the book mock ({census.bookManifestEntries.map((e) => e.key).join(', ') ||
+						'none'}); <code>_shared/editor-templates/bookOf.json</code>
+					{census.editorTemplate ? 'exists' : 'absent'}.
+				</p>
+				{#each form.plans as plan (plan.key)}
+					{@const facts = census.projects.find((p) => p.key === plan.key)}
+					<div class="migration">
+						<strong>{plan.name}</strong> <code>{plan.key}</code>
+						{#if plan.blockers.length}<span class="pill off">blocked</span>{/if}
+						{#if facts}
+							<p class="muted">
+								config {facts.config ?? 'un-authored'} · book {facts.book
+									? `${facts.book.symbol} [${facts.book.specialProperties.join(', ')}]`
+									: 'none'}{facts.alreadyWild ? ' (already wild)' : ''} · bet modes {facts.betModes
+									.map((m) => `${m.mode} ${m.kind} ${m.cost}×`)
+									.join(', ') || '—'} · free spins {facts.freeSpins
+									? JSON.stringify(facts.freeSpins)
+									: 'defaults'} · {facts.potsOverlay ? 'pots overlay · ' : ''}layout {facts.layoutGameType ??
+									'none stored'} · manifest {facts.manifest
+									.map(
+										(m) =>
+											`${m.key} ${m.protocol}${m.runtime ? ` (${m.runtime})` : ' (desktop)'}${m.tableCapable ? ' table-capable' : ''}`,
+									)
+									.join(', ') || 'none'} · cards {facts.cards
+									.map((c) => `${c.key}${c.testServer ? '' : ' (not test-server)'}`)
+									.join(', ') || 'none'}
+							</p>
+						{/if}
+						<ul>
+							{#each plan.blockers as b (b)}<li class="err">{b}</li>{/each}
+							{#each plan.config.changes as c (c)}<li>config: {c}</li>{/each}
+							{#if !plan.config.changes.length && !plan.blockers.length}<li>
+									config: no change
+								</li>{/if}
+							{#if plan.layout}<li>{plan.layout}</li>{/if}
+							<li>{plan.kind}</li>
+							{#each plan.republish.games as g (g)}<li>republish {g}</li>{/each}
+							{#each plan.republish.skipped as sk (sk.key)}<li class="muted">
+									republish {sk.key}: skipped — {sk.why}
+								</li>{/each}
+						</ul>
+					</div>
+				{:else}
+					<p class="hint">Nothing to migrate.</p>
+				{/each}
+			{/if}
+			{#if form?.action === 'bookOfApply' && 'results' in form}
+				{#each form.results as r (r.key)}
+					<div class="migration">
+						<strong><code>{r.key}</code></strong>
+						<span class="pill {r.status === 'migrated' ? 'on' : 'off'}">{r.status}</span>
+						{#if r.error}<p class="err">{r.error}</p>{/if}
+						<ul>
+							{#each r.steps as step, i (i)}<li>{step}</li>{/each}
+						</ul>
+					</div>
+				{:else}
+					<p class="hint">Nothing to migrate.</p>
+				{/each}
+			{/if}
+		</section>
 	</div>
 
 	<!-- CLIENTS -->
@@ -2500,6 +2588,26 @@
 		padding: 1px 8px;
 		border-radius: 999px;
 		font-size: 11px;
+	}
+	.migration-actions {
+		display: flex;
+		gap: 16px;
+		align-items: center;
+		flex-wrap: wrap;
+		margin: 8px 0;
+	}
+	.migration {
+		margin: 12px 0;
+		padding: 8px 12px;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+	}
+	.migration ul {
+		margin: 6px 0 0;
+		padding-left: 18px;
+	}
+	.migration .err {
+		color: #ff9d9d;
 	}
 	.pill.on {
 		background: #16291f;
