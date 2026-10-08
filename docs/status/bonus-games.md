@@ -39,7 +39,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
 | 5c | Flow v2 vocabulary by board | in review | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
-| 6 | Game Maker: template + Add a bonus mode… | in review | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | — |
+| 6 | Game Maker: template + Add a bonus mode… | in review | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
 | 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
 
 ## Decisions & findings
@@ -383,7 +383,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-08 — **Phase 6: Game Maker template + "Add a bonus mode…"** (PR #TBD, `game-config`
+- 2026-10-08 — **Phase 6: Game Maker template + "Add a bonus mode…"** (PR #1149, `game-config`
   `imports.ts` / `bonusImports.ts`, launcher `projectBonusImport.ts`, `projectScaffold.ts`,
   `projectAddOn.ts`, `/game-maker`, `/api/game-maker/import`).
   - **What landed:**

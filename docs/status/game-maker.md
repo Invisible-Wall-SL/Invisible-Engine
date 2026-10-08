@@ -74,7 +74,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
     has no preset).
   - **The Hold and Win template saves the split form.** The config normalizes byte-identically to
     before.
-  - Gate: `check:add-bonus-mode`. Guide: [tools/game-maker.md](../tools/game-maker.md).
+  - PR #1149. Gate: `check:add-bonus-mode`. Guide: [tools/game-maker.md](../tools/game-maker.md).
 - 2026-10-08 — **Book of Thermopylae is Lines plus a preset** ([book-feature.md](../design/book-feature.md)
   Phase 5c). Create's **Game type** list no longer offers **Book of** (`RETIRED_GAME_KINDS` /
   `offeredGameKinds` in `gameKinds.ts`; the kind stays listed so its projects keep their name);
