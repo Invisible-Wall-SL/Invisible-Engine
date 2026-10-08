@@ -31,6 +31,7 @@ bonus modes: red pot → this Hold and Win, gold coins → that Hold and Win, 3 
     `activeModifiers`, `wheel`, `expansion`.
 
   `holdAndWinBonusFrom` (`potsOverlayPresets.ts:80`) already splits the two halves by hand.
+
 - **One Hold and Win per project, everywhere:**
   - config: one key, and `builtinGameModes` makes exactly one `holdAndWin` mode;
   - mock: `createHoldAndWinEngine` builds one engine, and the bonus id `'respin'` is hard-coded;
@@ -95,6 +96,7 @@ Project (a whole game)
   **Every trigger names a mode**: `PotBonus.mode` already does, and `count` / `pattern` /
   `luckySpin` / `randomMetre` and the symbol-filled meters gain `mode`. A legacy `BuyTier.mode` is
   the BET mode (the `betModes` key), so a buy route in the overlay is `{ betMode, mode, … }`.
+
 - **Routing is config, not Flow.** Which mode a trigger starts is math the server deals, so it lives
   in Game Config and the mock/RGS reads it. The Flow editor PRESENTS each mode in its own tab
   (enter, the mode's events, exit), as Phase 4M built.
@@ -107,6 +109,7 @@ Project (a whole game)
   - an existing import record is kept.
 
   A legacy doc and its split form must give the same mock inputs. That is the gate on Phase 1.
+
 - **Transition (Phases 1–6).** Until every reader has moved to per-mode reads, a normalized doc
   stores the split form (canonical) AND the legacy `holdAndWin` / `potsOverlay` keys as a
   **compat mirror** derived from it.
@@ -148,6 +151,10 @@ Project (a whole game)
   they start, and the composed mock (`withPotsOverlay`) also wraps the lines mock for a classic
   overlay, so a Hold and Win project runs on the lines mock plus the overlay. `protocolFor('holdAndWin')`
   goes away, as `bookOf` did in book-feature.
+- **Emit rule (Phase 2; Phase 7 deletes the condition):** `bonusModes` and the per-context `mode` are
+  sent only when the project's respin set is not the lone default (one `holdAndWin` mode on the
+  `respin` strip), which the mock reads from `holdAndWinMockInputs(doc).modes` being present, so
+  every existing game's answer stays byte-identical.
 - **Parity:** `check:holdandwin`'s `MAIN_DIGESTS` (pots, classic, collector) and
   `check:pots-overlay`'s must not move for the migrated samples.
 
