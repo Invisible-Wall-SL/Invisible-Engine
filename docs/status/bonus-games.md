@@ -29,7 +29,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | # | Phase | State | Owner session | PR |
 |---|---|---|---|---|
 | 0 | Plan + hub | in review | Hold and Wins as standalone project | — |
-| 1 | Contract: config split + migration | not started | — | — |
+| 1 | Contract: config split + migration | in progress | Bonus games Phase 1 — config split + migration | — |
 | 2 | Mock: per-mode engines | not started (needs 1) | — | — |
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
