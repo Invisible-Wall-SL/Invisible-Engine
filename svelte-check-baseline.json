@@ -1034,7 +1034,7 @@
 		}
 	},
 	"packages/components-ui-pixi": {
-		"errors": 23,
+		"errors": 22,
 		"byFile": {
 			"packages/components-ui-pixi/src/components/ButtonBet.svelte": {
 				"ts:2353": 1
@@ -1049,7 +1049,7 @@
 				"ts:2322": 1
 			},
 			"packages/components-ui-pixi/src/components/HudTicker.svelte": {
-				"ts:2322": 2
+				"ts:2353": 1
 			},
 			"packages/components-ui-pixi/src/components/InfoOverlay.svelte": {
 				"ts:2322": 1

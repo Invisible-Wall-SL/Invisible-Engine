@@ -147,10 +147,11 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		// / win / bet can each carry their own art without forking the def (the tile knobs —
 		// texture key / outline / corner radius — style the DEF, hence every instance of it).
 		// Unset ⇒ the coded tile renders exactly as before (parity). `backgroundTint` multiplies
-		// whichever of the two draws. The size pair OVERRIDES the box; left blank, a picked frame
-		// draws at its own natural size and only the coded tile falls back to
-		// `HUD_TILE_WIDTH` × `HUD_TILE_HEIGHT` — forcing custom art into that 326:73 ratio
-		// squashed whatever the author picked, which is also why `alignWidth` exists.
+		// whichever of the two draws. A picked frame sizes by `aspectBox`: blank ⇒ its natural
+		// size, ONE of the pair ⇒ the other follows the frame's ratio, both ⇒ that exact box. Only
+		// the coded tile falls back to `HUD_TILE_WIDTH` × `HUD_TILE_HEIGHT` — forcing custom art
+		// into that 326:73 ratio squashed whatever the author picked, which is also why `alignWidth`
+		// exists.
 		{ key: 'backgroundImage', kind: 'image', group: 'Background', label: 'image' },
 		{ key: 'backgroundTint', kind: 'color', group: 'Background', label: 'tint' },
 		{

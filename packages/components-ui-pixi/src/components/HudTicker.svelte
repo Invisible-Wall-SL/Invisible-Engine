@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Sprite } from 'pixi-svelte';
-	import { parseScopedFrameRef, type ResolvedTransform } from 'engine-layout';
+	import { Sprite, getContextApp, type LoadedSprite } from 'pixi-svelte';
+	import { aspectBox, parseScopedFrameRef, type ResolvedTransform } from 'engine-layout';
 	import { getComponentParams } from 'engine-layout/svelte';
 
 	import UiSprite from './UiSprite.svelte';
@@ -24,7 +24,8 @@
 	 * - PER-INSTANCE (the `background*` component params, read off the param context
 	 *   `<ComponentInstance>` provides — the same channel the Caption/Value parts read their
 	 *   style from): `backgroundImage` REPLACES the tile with a picked atlas frame, at its own
-	 *   natural size unless `backgroundWidth`/`backgroundHeight` override it, and multiplied by
+	 *   natural size unless `backgroundWidth`/`backgroundHeight` override it (one of them alone
+	 *   keeps the frame's ratio — see `aspectBox`), and multiplied by
 	 *   `backgroundTint`. This is what lets balance / win / bet each carry their own background
 	 *   art without forking the def.
 	 *
@@ -76,17 +77,24 @@
 	const imageFallback = $derived(
 		image ? parseScopedFrameRef(image).region || undefined : undefined,
 	);
-	// An explicit size always wins. With NONE, a picked frame renders at its own natural
-	// ("generation") size: the coded `TILE_WIDTH`×`TILE_HEIGHT` box is a 326:73 ratio drawn for
-	// the coded rounded-rect, and forcing custom art into it squashes whatever the author picked
-	// to a shape it was never generated at. `undefined` — not a computed number — is what makes
-	// `<Sprite>` take the texture's own dimensions, and is the pixi-svelte parity-safe omission.
-	// The `{:else}` branch below only renders when there is NO image, so the coded tile keeps the
-	// coded box exactly as before.
-	const explicitWidth = $derived(numberParam('backgroundWidth'));
-	const explicitHeight = $derived(numberParam('backgroundHeight'));
-	const width = $derived(explicitWidth ?? (image ? undefined : TILE_WIDTH));
-	const height = $derived(explicitHeight ?? (image ? undefined : TILE_HEIGHT));
+	// A picked frame sizes by `aspectBox`: its natural ("generation") size, or the author's
+	// width/height — one alone scales the other by the frame's ratio, so custom art of any shape
+	// never squashes into the coded tile's 326:73 box. Until the texture resolves its size is
+	// unknown, so only the explicit values pass and `<Sprite>` takes the texture's own size.
+	// With NO image the coded tile keeps the coded box exactly as before (parity).
+	const app = getContextApp();
+	const naturalSize = $derived.by(() => {
+		if (!image) return null;
+		const assets = app.stateApp.loadedAssets;
+		const texture = (assets?.[image] ?? (imageFallback ? assets?.[imageFallback] : undefined)) as
+			LoadedSprite | undefined;
+		return texture?.width && texture.height ? { w: texture.width, h: texture.height } : null;
+	});
+	const imageBox = $derived(
+		aspectBox(naturalSize, numberParam('backgroundWidth'), numberParam('backgroundHeight')),
+	);
+	const tileWidth = $derived(numberParam('backgroundWidth') ?? TILE_WIDTH);
+	const tileHeight = $derived(numberParam('backgroundHeight') ?? TILE_HEIGHT);
 	const anchor = $derived(transform?.anchor ?? { x: 0.5, y: 0 });
 	// The instance's `backgroundTint` wins over the def-level `bind.props` tint; unset ⇒ the
 	// prop, unset ⇒ undefined (which both renderers treat as untinted — parity).
@@ -94,13 +102,20 @@
 </script>
 
 {#if image}
-	<Sprite key={image} fallbackKey={imageFallback} {anchor} {width} {height} tint={tintValue} />
+	<Sprite
+		key={image}
+		fallbackKey={imageFallback}
+		{anchor}
+		width={imageBox.width}
+		height={imageBox.height}
+		tint={tintValue}
+	/>
 {:else}
 	<UiSprite
 		{anchor}
 		key={texture}
-		{width}
-		{height}
+		width={tileWidth}
+		height={tileHeight}
 		{borderRadius}
 		{borderColor}
 		{borderWidth}

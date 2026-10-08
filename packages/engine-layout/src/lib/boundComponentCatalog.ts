@@ -73,7 +73,9 @@ export interface TileImageBinding {
 	imageParam: string;
 	/** Instance param (kind `color`) multiplying whichever of the two draws. */
 	tintParam?: string;
-	/** Instance params (kind `number`) overriding the tile box; blank ⇒ {@link width}/{@link height}. */
+	/** Instance params (kind `number`) overriding the box. With a picked frame they size it by
+	 *  `aspectBox` (blank ⇒ the frame's own size, one alone keeps its ratio); with none, blank ⇒
+	 *  {@link width}/{@link height}. */
 	widthParam?: string;
 	heightParam?: string;
 	/** The coded tile's own box in component-local px — what the part draws with nothing set. */

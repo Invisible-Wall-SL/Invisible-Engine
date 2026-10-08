@@ -39,6 +39,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-08 — **A HUD Readout's background image keeps its own shape.** Reported: a custom
+  background with a different ratio was stretched to the coded 326:73 ticker box on the instance.
+  The editor preview always fell back to that box. New `engine-layout` `aspectBox`, used by the
+  editor preview and the game's `HudTicker`: both size fields blank ⇒ the image's own size, one
+  set ⇒ the other follows the image's ratio, both set ⇒ that exact box. The coded tile with no
+  image keeps its coded box (parity). The `hudReadout` def is unchanged (no republish). Not
+  browser-verified.
 - 2026-10-08 — **The Book-of set loads into a lines project as lines** ([book-feature.md](../design/book-feature.md)
   Phase 5c). `engine-layout`'s `referenceLoadsAs(setKind, projectKind)`: a set that is a reference
   for the project's kind (`bookOf` declares `referenceFor: ['lines']`) loads as the project's own
