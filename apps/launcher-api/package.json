@@ -120,6 +120,8 @@
 		"check:pots-overlay-add-on": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-pots-overlay-add-on.ts",
 		"precheck:win-text-doc": "node scripts/ensure-svelte-kit.mjs",
 		"check:win-text-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-text-doc.ts",
+		"precheck:win-text-bonus-modes": "node scripts/ensure-svelte-kit.mjs",
+		"check:win-text-bonus-modes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-win-text-bonus-modes.ts",
 		"precheck:doc-readers-unknown-fields": "node scripts/ensure-svelte-kit.mjs",
 		"check:doc-readers-unknown-fields": "tsx --tsconfig tsconfig.scripts.json scripts/check-doc-readers-unknown-fields.ts",
 		"precheck:save-keeps-unknown-blocks": "node scripts/ensure-svelte-kit.mjs",
