@@ -50,10 +50,16 @@ Borut's own art: every overlay beat has a built-in default.
 
 ## 3. Tune the pots — Invisible Game Config
 
-**Do:** open `/config` → **Add-ons**. Each pot's **Starts** picks its bonus; for the sample, set the
-green pot to `freeSpins`, so a full green pot starts Borut's own free spins. Adjust the pots' max
-level and size stages, the drop chance, the drop table and the reels a token lands on, then
-**Save**. Guide: [Add-ons](../tools/game-config.md#add-ons).
+**Do:** open `/config` → **Coin overlay**. In its **Pots and drops** panel, each pot's **Starts**
+picks its bonus; for the sample, set the green pot to `freeSpins`, so a full green pot starts
+Borut's own free spins. Adjust the pots' max level and size stages, the drop chance, the drop table
+and the reels a token lands on, then **Save**. Guide:
+[Coin overlay](../tools/game-config.md#coin-overlay).
+
+The preset's Hold and Win bonus is a respin mode, `holdAndWin`, under **Bonus modes**: its rules
+(respins, coin values, jackpots, specials) are edited on its card there. What starts it — the 6+
+coin count, the pots — is in **Coin overlay → Triggers** and the pots' **Starts**. Guide:
+[Bonus modes](../tools/game-config.md#bonus-modes).
 
 **Why here:** every later tool reads the pots from this config. Settle them now: a pot you add once
 the Pots screen exists needs its Pot Meter placed by hand in step 4.
@@ -121,11 +127,12 @@ Pick **Coins only (6+ value coins start a classic Hold and Win)** in step 2 inst
 pots: value coins drop over the symbols, and 6 or more on one spin start a classic Hold and Win with
 those coins held. Fewer are shown and then gone. With no pots there is no Pots screen and no token,
 so step 4 is only the Jackpot bar and the feature's screens, step 5 only the bonus's coins, and
-step 6 only the Hold and Win lines. In `/config` → Add-ons you can still add pots later; an overlay
-can be pots only, coins only, or both.
+step 6 only the Hold and Win lines. In `/config` → Coin overlay you can still add pots later; an
+overlay can be pots only, coins only, or both.
 
 ## Limits today
 
 - The test server deals the overlay over **Book of** games only. A lines or ways host is dealt its
   own game with no drops yet.
-- To take the overlay off, use **Remove overlay** in [Game Config](../tools/game-config.md#add-ons).
+- To take the overlay off, use **Remove pots and drops** in
+  [Game Config → Coin overlay](../tools/game-config.md#pots-and-drops).

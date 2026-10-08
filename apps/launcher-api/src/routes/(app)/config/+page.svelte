@@ -2110,7 +2110,7 @@
 				<p class="hint">
 					The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
 					pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is used
-					— and which pot it fills — is the overlay's to decide, under <strong>Add-ons</strong>, so
+					— and which pot it fills — is the overlay's to decide, under <strong>Coin overlay</strong>, so
 					it carries no in play / unused badge. Its art is bound in Invisible Symbols.
 				</p>
 				<div class="grid-wrap">

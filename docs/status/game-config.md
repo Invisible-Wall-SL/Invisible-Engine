@@ -648,7 +648,7 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
   records only the ranges).
 - **`/config`** — a Hold and Win section (gated on the project kind until Phase 1's
   `kindCapabilities()` lands), preset picker, paytable shows coin rows as a value table, win-model
-  picker locked to lines. Guide: [game-config.md](../tools/game-config.md#hold-and-win).
+  picker locked to lines. Guide: [game-config.md](../tools/game-config.md#bonus-modes).
 - **Game Maker profile** — `gameProfile.ts` `FEATURE_DETECTORS` +10 (`respin`, `jackpots`,
   `collector`, `boost`, `payer`, `mystery`, `pots`, `luckySpin`, `columnLetters`, `wheel`), all read
   `config.holdAndWin`.
