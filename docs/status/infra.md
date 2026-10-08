@@ -126,6 +126,17 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-08 — **current-games no longer fails games republished mid-run.** Each render shard used
+  to re-read `test_server/games.json` from R2 minutes after the plan hashed it. The launcher rewrites
+  that one key on every publish (`upsertTestServerGame`, and the entry's `updatedAt` is part of the
+  hashed contract), so a publish between the two reads failed that game on BOTH sides with "the
+  game's mock contract changed during the run". Runs 37788159984, 37807647398 and Phase 5a's run on
+  aab1ead each needed a re-run, and the one-side-only captures inflated "N changed screens". The plan
+  now freezes the contracts it hashed in `contracts.json` beside `plan.json`
+  (`scripts/current-games/lib/contracts.mjs`), sealed with AES-256-GCM under a key derived from the
+  R2 read secret, because the plan folder is a public artifact. The shards deal from that copy and
+  never read the manifest. The hash check stays as a safety net. Proof: `contracts.fixture.mjs`, plus
+  a plan → rewrite → render run on the stand-in fixtures (in the PR).
 - 2026-10-08 — **Dependabot #1049 (npm) and #1106 (pip) re-landed in one PR.** Neither could pass the
   required `current-games` check: Dependabot runs get no Actions secrets. The re-land carries
   #1049's bumps (pixi.js 8.21 → 8.22, @sentry/browser + node 11.1 → 11.4, @anthropic-ai/sdk 0.131,
