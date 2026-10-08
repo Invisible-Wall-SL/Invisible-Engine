@@ -6,7 +6,7 @@ import {
 	symbolsUsed,
 	symbolUses,
 } from 'game-config';
-import { overlayTokenPots, projectAddOns } from '$lib/addOns';
+import { overlayTokenPots, projectAddOns, respinModesOf } from '$lib/addOns';
 import { bigTiersOf, type ResolvedGameConfig } from './gameConfigDefaults';
 import { symbolGrid, type SymbolDefaults } from './symbolDefaults';
 
@@ -77,9 +77,11 @@ export function symbolsPageConfig(
 		// The add-on blocks the config carries — passed with the kind to `kindCapabilities`, so a
 		// Hold and Win bonus or a pots overlay lights its own parts on any kind.
 		addOns,
-		// The Hold and Win jackpot tiers the Game Config declares — the rows of the coin label's
-		// per-tier jackpot text. Empty ⇒ the page offers the four tiers the presets use.
-		jackpotTiers: (doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+		// Each respin mode with the jackpot tiers its rules declare — the rows of the coin label's
+		// per-tier jackpot text for the mode being edited (the primary first; a picker when there
+		// are several). A mode without tiers, or no mode, ⇒ the page offers the four tiers the
+		// presets use.
+		respinModes: respinModesOf(doc),
 		// The config's BIG-win tiers drive the reel-anticipation panel: ONE FX column per big tier,
 		// keyed by its alias — mirroring the tiers the game arms (`activeBigTiers`), so the panel
 		// grows/shrinks with `/config` rather than a fixed big/mega/massive triple.

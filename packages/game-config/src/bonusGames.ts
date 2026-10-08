@@ -36,6 +36,7 @@ import { joinHoldAndWin, splitHoldAndWin, type HoldAndWinGame } from './holdAndW
 import {
 	legacyPotsOverlayOf,
 	normalizeCoinOverlay,
+	overlayDropsTokens,
 	overlayRoutes,
 	retargetRoutes,
 	routesFrom,
@@ -400,17 +401,22 @@ export function resolveBonusModes(doc: GameConfigDoc): ResolvedBonusMode[] {
 }
 
 /**
- * The capability INPUTS the modes give (design §2.4): is there a respin mode, is there an overlay.
- * Additive — `kindCapabilities` reads the kind and the legacy blocks until its consumers move.
+ * The capability INPUTS the split form gives (design §2.4): is there a respin mode with rules (a
+ * rule-less one is inert, so it lights nothing, and every rule-bearing one has a mirror), is there
+ * an overlay, and does the overlay drop tokens (the pots overlay's own parts — the predicate the
+ * legacy `potsOverlay` mirror uses, so the two cannot drift). The launcher's `projectAddOns` turns
+ * them into `kindCapabilities`' config.
  */
-export function bonusCapabilityInputs(doc: GameConfigDoc): {
+export function bonusCapabilityInputs(doc: BonusDoc): {
 	respinMode: boolean;
 	coinOverlay: boolean;
+	potsOverlay: boolean;
 } {
 	const split = bonusSplitOf(doc);
 	return {
-		respinMode: (split.modes ?? []).some((m) => m.board === 'respinBoard'),
+		respinMode: (split.modes ?? []).some(isRespinGame),
 		coinOverlay: Boolean(split.coinOverlay),
+		potsOverlay: overlayDropsTokens(split.coinOverlay),
 	};
 }
 

@@ -59,6 +59,24 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-08 — **`/admin` sets and clears the table-capable stamp** (book-feature Phase 6, §6 step
+  5; runbook step 1 in [game-config.md](game-config.md) "Book-of migration"). Projects → **Desktop
+  builds: table-capable stamp**, under the Book-of migration, lists every own-bundle (no shared
+  `runtime`) test-server manifest entry — Book-of projects first — with its stamp, and
+  `?/setTableCapable` (`requireAdmin`) sets or clears it, then pokes the test server's `/refresh`.
+  It warns to stamp only a build rebuilt on engine `f0cba612` (#1120, 2026-10-08) or later, and that
+  a later desktop ☁ Publish clears the stamp (`TABLE_CAPABLE_ENGINE` in `testServerManifest.ts`).
+  **Writer:** `setTestServerGameTableCapable` goes through `patchTestServerGame`, the pin's CAS loop
+  factored out of `pinTestServerGameToProject` (manifest `If-Match`, re-read and retried on a lost
+  race, never creates an entry); it also refuses (`changed`, a 409) when the entry's `updatedAt`
+  differs from the one the page listed, so a build republished since is never stamped blind, and
+  refuses a shared-runtime entry. The dry-run blocker now names the control before the CLI.
+  **Gates:** `verify-test-server-project-pin` §6 (set, clear, unchanged, stale `updatedAt`, a lost
+  manifest CAS with rivals kept, a lost race to a republish of the same build, runtime refused, no
+  entry, `requireAdmin` before the write); `check:book-of-migration` drives the real action (a
+  non-admin gets 403 and nothing is written, a stale page 409, set unblocks the dry run and clear
+  blocks it again; its mocks now stand in for every export so the admin page links). Not
+  browser-verified.
 - 2026-10-07 — **Invisible Director: `director_runs.preset_json` dropped** (ADR-0008 card 8F,
   after 8C #1095). Migration `0031_director_drop_preset_json` (`ALTER TABLE … DROP COLUMN`); the
   schema entry goes with it. No current game is touched. It is `0031`, generated after 8E's

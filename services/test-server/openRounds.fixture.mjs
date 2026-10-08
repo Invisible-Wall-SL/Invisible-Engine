@@ -20,7 +20,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -153,7 +153,26 @@ check(
 if (!found) process.exit(1);
 
 const dir = mkdtempSync(join(tmpdir(), 'open-rounds-'));
-writeFileSync(join(dir, 'games.json'), JSON.stringify({ games: { [GAME]: { protocol: 'book' } } }));
+/** The Book of Thermopylae contract on the lines mock: a base bet plus the 100× buy, a table to sell. */
+const BOOK_GRID = JSON.parse(
+	readFileSync(
+		new URL('../../scripts/lib/book-of-thermopylae-lines-grid.json', import.meta.url),
+		'utf8',
+	),
+);
+/** Two desktop builds (no shared runtime) of a migrated Book-of game: one stamped table-capable. */
+const STAMPED = 'stampedbuild';
+const UNSTAMPED = 'unstampedbuild';
+writeFileSync(
+	join(dir, 'games.json'),
+	JSON.stringify({
+		games: {
+			[GAME]: { protocol: 'book' },
+			[STAMPED]: { protocol: 'lines', tableCapable: true, grid: BOOK_GRID },
+			[UNSTAMPED]: { protocol: 'lines', grid: BOOK_GRID },
+		},
+	}),
+);
 const port = await freePort();
 const server = spawn(process.execPath, [join(here, 'server.mjs')], {
 	env: {
@@ -291,6 +310,45 @@ try {
 		next?.platform?.balance === collected?.platform?.balance - 10 + nextWin,
 		'on the balance the feature left',
 	);
+
+	// A refresh follows every publish of ANY game. A stamped desktop build's tab never asks for its
+	// config again, so its session must keep the table it was told, or every bet after it is refused.
+	const desktop = (key, seq, actions) =>
+		call(port, 'POST', `/api/${key}/rgs/engine?sid=desk-${key}&seq=${seq}`, actions);
+	const spin = (bet) => [
+		{ action: 'bet', context: bet },
+		{ action: 'play', context: '' },
+	];
+	const told = await desktop(STAMPED, 0, [{ action: 'config' }]);
+	const table = told?.events?.find((e) => e.event === 'config')?.context?.betOptions;
+	check(JSON.stringify(table) === JSON.stringify([10, 1000]), 'a stamped desktop build is told its table', ` (${JSON.stringify(table)})`); // prettier-ignore
+	const before = await desktop(STAMPED, 0, spin([0, 1]));
+	check(!before?.error && named(before, 'bet').length === 1, 'the stamped build bets by its table');
+	check(await refresh(), 'POST /refresh lands between the two bets');
+	const after = await desktop(STAMPED, 0, spin([0, 1]));
+	check(
+		!after?.error && named(after, 'bet').length === 1,
+		'…and its next bet after the refresh is still accepted, by the same table',
+		after?.error ? ` — ${after.error}` : '',
+	);
+	const buy = await desktop(STAMPED, 0, spin([1, 1]));
+	check(
+		!buy?.error && named(buy, 'enterBonus').length === 1,
+		'…and option 1 is still its buy',
+		buy?.error ? ` — ${buy.error}` : '',
+	);
+
+	// An unstamped desktop build sells no table and is reset as before: re-told its config on the
+	// next heartbeat, its line bet accepted.
+	const plain = await desktop(UNSTAMPED, 0, []);
+	check(
+		named(plain, 'config')[0]?.context?.betOptions === undefined,
+		'an unstamped desktop build is told no table',
+	);
+	check(!(await desktop(UNSTAMPED, 0, spin([10, 1])))?.error, 'it bets lines × bet per line');
+	check(await refresh(), 'POST /refresh lands');
+	check(named(await desktop(UNSTAMPED, 0, []), 'config').length === 1, '…its session is reset: the heartbeat re-tells its config'); // prettier-ignore
+	check(!(await desktop(UNSTAMPED, 0, spin([10, 1])))?.error, '…and its line bet is accepted');
 } catch (e) {
 	failures++;
 	console.log(`  ✗ ${e.message}`);

@@ -4,10 +4,10 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** Phases 1 and 2 are merged: normalized docs carry the split form plus a legacy
-compat mirror, and the mock plays one Hold and Win engine per respin mode. Phase 5a (`/config`
-Bonus modes + Coin overlay) is in review as PR #1136. The game still plays only `holdAndWin` until
-Phase 4.
+**One-line state:** Phases 1, 2, 3 and 5b are merged: normalized docs carry the split form plus a
+legacy compat mirror, the mock plays one Hold and Win engine per respin mode, and the facade reads
+the rules per mode. Phase 5a (`/config` Bonus modes + Coin overlay) is in review as PR #1136. The
+game still plays only `holdAndWin` until Phase 4.
 
 ## How sessions use this file (the hub)
 
@@ -32,11 +32,11 @@ starts the phase sessions, reviews their PRs and merges them.
 |---|---|---|---|---|
 | 0 | Plan + hub | merged | Hold and Wins as standalone project | #1131 |
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
-| 2 | Mock: per-mode engines | in review | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #1138 |
-| 3 | Facade + wire + event types | not started (needs 1) | — | — |
+| 2 | Mock: per-mode engines | merged | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #1138 |
+| 3 | Facade + wire + event types | in review | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
-| 5b | Scene Editor + capabilities + `/symbols` | not started (needs 1) | — | — |
+| 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
 | 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
@@ -151,6 +151,33 @@ starts the phase sessions, reviews their PRs and merges them.
       yet;
     - `holdAndWinMockInputs(doc).symbols` lists every respin mode's role symbols, because the
       dictionary is shared. Mode 1's entries are unchanged.
+- 2026-10-08 — **Phase 5b: what the capability keys on** (hub decision on the 5b question).
+  - `kindCapabilities().holdAndWin` (and so `coinSymbols`) is on when a declared respin mode has
+    RULES (`board: 'respinBoard'` with a `holdAndWin` game, the predicate `primaryRespinMode` uses;
+    hub review of #1137). A rule-less respin mode is inert and lights nothing, so a ways project's
+    win model is never locked to lines by one, and every rule-bearing mode has a mirror, so Flow
+    (which still reads the mirror) and the tools agree. A coin overlay alone does NOT turn on coin roles:
+    a pots-only host's tokens carry no cash value, so every current doc stays byte-identical.
+    **Follow-up:** widen it when an overlay deals valued coins without a respin mode.
+  - The overlay's own parts (`potsOverlay`, the Pots screen) key on `overlayDropsTokens(coinOverlay)`
+    (game-config). That is the predicate the legacy `potsOverlay` mirror uses, so the two cannot
+    drift, and dropping the mirror in Phase 7 changes nothing. `bonusCapabilityInputs` now returns
+    `potsOverlay` too. A classic Hold and Win project has a `coinOverlay` but drops nothing, so it
+    gets no Pots screen.
+  - A second respin mode's screens carry `-<modeId>` on their scene and node ids (children too),
+    and the mode's label in brackets after the screen name. The `holdAndWin` mode keeps the
+    reference ids. Each mode is laid out for its own `maxRows`, the base grid for the tallest.
+  - **Phase 4 must-dos** (the runtime still keys these screens by plain id):
+    - the coded banner beats (`HOLD_AND_WIN_BANNER_SCREENS`) must find the active mode's banner
+      screen by `modeId` + role, not by id;
+    - `RESERVED_SCENE_IDS` in `apps/lines/src/components/Game.svelte` lists `featureIntro`,
+      `featureOutro`, `wheel` and `jackpotWin` by plain id, so the `-<modeId>` copies would mount
+      as always-on overlays (the tap dim, a doubled jackpot banner) once a second mode plays.
+      Reserve by base id with the suffix stripped, or by `role: 'mode'` + base id.
+  - **For 5c:** `flowAddOnsOf` still reads the mirror. Move it onto `bonusCapabilityInputs` so Flow
+    stops reading the mirror before Phase 7.
+  - `/symbols` keeps coin-label jackpot text by tier name (no schema change). The Mode picker only
+    chooses whose tiers are listed, so two modes sharing a tier name share its label.
 
 - 2026-10-08 — **Phase 2: the wire emit rule and the "classic overlay over lines"** (hub-approved).
   - **Emit rule:** `bonusModes` and `mode` are sent only when the respin set is not the lone default,
@@ -174,6 +201,35 @@ starts the phase sessions, reviews their PRs and merges them.
     - a full meter starts its own mode and consumes only that mode's meters, so a full meter of
       another mode waits until its symbol lands again;
     - dropped value coins are the coin mode's symbols, so they ride only that mode's feature.
+
+- 2026-10-08 — **Phase 3: what the facade reads, for Phase 2 and Phase 4** (the hub's review of
+  #1139). The facade follows the wire agreed with Phase 2 (`hold-and-win-wire.md` "Several respin
+  modes").
+  - **Routing.** In order:
+    1. a named mode: a top-level `mode` on the six naming contexts, or `spinTrigger.trigger.mode`
+       when it names a respin mode (a free spins' `scatter` names nothing);
+    2. else the overlay's `bonuses[spinTrigger.bonus]`;
+    3. else the primary, the first `bonusModes` entry.
+
+    A named mode holds for the untagged events inside its feature and **ends at its
+    `holdAndWinEnd`**. The closing `playedBonusSpins` doesn't reopen it, and the rest of the round
+    is the primary's (on an overlay host, nobody's until the next bonus).
+  - **Fails closed.** A respin feature of a mode the boot declares no rules for is not shown at
+    all, neither under another mode's rules nor as free spins. That covers a named uncaptured mode
+    and an overlay route to one. It is warned once per `sid:mode`. Its overlay events (the pot
+    emptying) and the round's close still translate.
+  - **A `bonusModes` with every entry refused** falls back to the legacy `holdAndWin`.
+  - **Book events.** All four carry the resolved mode, `holdAndWin` for a legacy game. `mode` stays
+    optional on `respinReveal` / `holdAndWinState` in `engine-game` and in the Flow vocabulary
+    ("absent ⇒ `holdAndWin`"), so hand-built books stay valid. The facade always sends it.
+  - **Progressive pools are shared by tier name**, as the mock deals them. A `jackpotLevels` (in a
+    round or on the heartbeat) moves the tier of that name in every captured mode.
+    **Open for Phase 7:** per-mode progressive pools would need `mode` on `jackpotLevels`.
+    `meterLevels` per round is fine as it is.
+  - **Boot globals stay primary-only.** The boot meters and pools published to the game still come
+    from the legacy (primary) block. Per-mode display is Phase 4's.
+  - **For Phase 4.** The runtime should key the board on the mode on top of the stack; every board
+    event names it.
 
 ## Recent changes
 
@@ -244,6 +300,76 @@ starts the phase sessions, reviews their PRs and merges them.
     sections, with no console errors.
   - **What's left:** a click-through on a real local launcher with the mock (needs Postgres and
     R2, which the build session lacked). Findings are under "Decisions & findings".
+- 2026-10-08 — **Phase 5b: capabilities, Scene Editor and `/symbols` per mode** (PR #1137).
+  - **Capabilities.** `projectAddOns` reads `bonusCapabilityInputs`: the respin feature is a
+    declared respin mode with rules, and the pots overlay is `overlayDropsTokens` (the new
+    game-config helper the mirror uses too). The `holdAndWin` kind resolves as before.
+  - **Scene Editor.** `SceneSetOptions.respinModes` (from `respinModesOf` / `sceneSetOptionsFor`)
+    seeds the reference respin screens once per respin mode, tagged `modeId`. Each mode is laid
+    out for its own `maxRows`, and the base grid reserves the tallest. The `holdAndWin` kind adds
+    only its other modes' screens.
+  - **`/symbols`.** Coin-label jackpot tiers come from the respin mode being edited (the primary
+    first), with a **Mode** picker when there are several. Role chips follow the capability.
+  - **Guides:** `docs/tools/invisible-editor.md` and `docs/tools/symbols-state-machine.md`. Design
+    §2.4 is corrected to the hub's decision.
+  - **Gates:**
+    - The new `check:bonus-modes-tools` (82 checks) covers:
+      - a lines doc with two respin modes: both screen sets with distinct `modeId`s, no duplicate
+        scene or node ids, per-mode `maxRows`, the capability on, per-mode tiers;
+      - a second mode on the `holdAndWin` kind (its own mode keeps its own layout);
+      - a rule-less respin mode on lines and ways: inert, main's add-ons, capabilities and screens;
+      - every doc without a second mode (the presets, an expanding Hold and Win, lines + overlays,
+        `borut-pots-sample`): byte-identical add-ons, scene sets and tiers, and the same add-ons
+        with the legacy keys stripped.
+    - `check:flow-publish-gate`, `check:symbols-kind-gating`, `check:pots-overlay-add-on`,
+      `check:bonus-import` and `bonusGames.fixture` (its §6 now pins `potsOverlay`) pass.
+    - `check:all` 411/411. `check:holdandwin` 1892/0 and `check:pots-overlay` 112/0, both with
+      `MAIN_DIGESTS` unchanged (byte-identical to main). `check:svelte` is at baseline, and lint,
+      prettier and `check:undefined-names` are clean.
+  - **What's left:** the Phase 4 must-dos and the 5c `flowAddOnsOf` move (Decisions & findings).
+    5d covers Win Text and Localization tiers per mode.
+
+- 2026-10-08 — **Phase 3: the hub's review round** (PR #1139).
+  - **Blocking 1:** `spinTrigger.trigger.mode` names the mode. The fixture's proxy writes the
+    agreed shape and pins the case where only the trigger names it.
+  - **Should-fix 2:** an uncaptured named mode, or an overlay route to one, fails closed and warns
+    once.
+  - **Should-fix 3:** a `bonusModes` with every entry refused falls back to the legacy block.
+  - **Should-fix 4:** the mode ends at `holdAndWinEnd`. Pools apply to every captured mode with
+    that tier.
+  - **Should-fix 5:** the fixture now plays a mode-B resume (`round.event` and the mode on its
+    snapshot), and a coin overlay over a lines host whose pot starts B, both tagged and by the
+    overlay route alone.
+  - **Nits:** `readHoldAndWinConfig` is no longer exported. The Flow pin says "absent ⇒
+    `holdAndWin`". The routing helpers (`respinModesOf`, `applyPools`) moved to `holdAndWin.ts` to
+    be pinned directly.
+  - **Gates:**
+    - `check:holdandwin`: 1892/0, digests unchanged;
+    - `bonusModes.fixture.ts`: 428/0 after merging Phase 2. It now also plays Phase 2's REAL
+      two-mode mock with no proxy: red pot → `holdAndWin`, green pot → `holdAndWin_2`, and both in
+      one round. Mutations that drop the `trigger.mode` read or the fail-closed path fail 11 and 4
+      checks;
+    - `check:bonus-modes` passes;
+    - `check:pots-overlay`: 112/0, digests unchanged;
+    - `check:engine-game` 11/11, `check:resume`, `check:freespins` and `check:all` 412/412 all
+      pass.
+- 2026-10-08 — **Phase 3: the facade reads respin rules per mode** (PR #1139, packages
+  `rgs-translator-eagaming` and `engine-game`, plus the Flow v2 vocabulary that mirrors the types).
+  - **Boot capture.** The facade captures `config.bonusModes` per mode (`readHoldAndWinModes`, the
+    first entry is the primary). A boot without it reads the legacy `holdAndWin` block as mode
+    `holdAndWin`.
+  - **Routing and events.** Each Hold and Win event translates under its own mode's rules, and the
+    four book events carry the resolved mode. The overlay's `bonusRoutes` now returns
+    `{ respins: mode } | 'reels'`. `expansion.maxRows` and `blank` are read per mode. The runtime
+    is unchanged (Phase 4).
+  - **Cross-checked against Phase 2's real mock** (`bonus-games-phase2` merged in a scratch
+    worktree), on its two-mode lines host:
+    - red pot → `holdAndWin`;
+    - green pot → `holdAndWin_2`;
+    - both pots in one round, played in turn.
+
+    Each round is translated with its own mode and rules, and every snapshot is rebuilt.
+
 - 2026-10-08 — **Phase 2: the mock has one Hold and Win engine per respin mode** (PR #1138, scripts,
   `test-server`, game-config's mock inputs, the launcher's mock protocol).
   - **Inputs:** `holdAndWinMockInputs(doc).modes` lists each respin mode, primary first, as
@@ -285,6 +411,7 @@ starts the phase sessions, reviews their PRs and merges them.
       board. `check:freespins`,
       `check:bonus-import`, `check:pots-overlay-add-on`, `check:game-config-defaults`,
       `check:symbols-kind-gating`, lint and `check:undefined-names` all pass.
+
 
 - 2026-10-08 — **Phase 1: the hub's review fixes** (PR #1133).
   - **Blocking 1:** a `reels` / `none` override of the Hold and Win mode no longer drops its block.
