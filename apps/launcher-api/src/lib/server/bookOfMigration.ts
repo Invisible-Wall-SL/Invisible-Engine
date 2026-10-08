@@ -5,21 +5,23 @@
  *
  * Three parts, all server-side (the owner presses the button in `/admin`; no credential leaves the
  * server):
- *   - {@link bookOfCensus} — read-only: every `bookOf` row with the facts the migration needs, every
- *     `book` manifest entry, and whether `_shared/editor-templates/bookOf.json` exists (Phase 7 needs
- *     all three at zero);
+ *   - {@link bookOfCensus} — read-only: every project it acts on with the facts the migration needs,
+ *     every `book` manifest entry, and whether `_shared/editor-templates/bookOf.json` exists
+ *     (Phase 7 needs all three at zero);
  *   - {@link planBookOfMigration} — the dry run: per project, exactly what each step would change,
- *     and what blocks it;
- *   - {@link applyBookOfMigration} — the same plan, run: config, layout, kind, republish.
+ *     and what blocks it — the publish gates of its republish included, run against the config it
+ *     would save, so a refusal stops the project before anything is written;
+ *   - {@link applyBookOfMigrationTo} — the same plan, run for ONE project: config, layout, kind,
+ *     republish. The page calls it per project, so no request carries more than one republish.
  *
- * Idempotent: a migrated project is no longer a `bookOf` row, so a second run finds nothing to do;
- * and each step compares before it writes, so a run cut off part-way finishes on the next one.
+ * Idempotent: a migrated project is no longer listed, so a second run finds nothing to do; each
+ * step compares before it writes; and a project whose kind moved but whose republish did not land
+ * is remembered (a pending marker under `_shared/migrations/book-of/`) and retried by the next run.
  *
- * Every write goes through its store's compare-and-swap with a History backup (`'always'`), and
- * nothing is written while another session holds a lease on a doc it changes — the precedent is the
- * pots-overlay add-on (`projectAddOn.ts`).
- */
-import {
+ * Every write goes through its store's compare-and-swap with a History backup (`'always'`), the
+ * kind moves only from `bookOf`, and nothing is written while another session holds a lease on a
+ * doc it changes — the precedent is the pots-overlay add-on (`projectAddOn.ts`).
+ */ import {
 	BOOK_FREE_SPINS_DEFAULTS,
 	bookOfThermopylaePreset,
 	gameConfigErrors,
@@ -40,10 +42,23 @@ import { loadDocWithEtag, saveDoc } from './editorStorage';
 import { listGamesOwnedByProject } from './games';
 import { liveLeases } from './lease';
 import { editorTemplateKey, UNASSIGNED_CLIENT } from './projectPaths';
-import { listProjects, setProjectGameType } from './projects';
+import { listProjects, projectGameType, switchProjectGameType } from './projects';
 import { currentPointer } from './publishedRuntime';
-import { PublishBlockedError, publishGame } from './publishGame';
-import { objectExists } from './r2';
+import {
+	hasOwnBuiltBundle,
+	PublishBlockedError,
+	publishGame,
+	publishGateRefusal,
+} from './publishGame';
+import {
+	deleteObject,
+	getObjectText,
+	getObjectTextWithEtag,
+	listAllKeys,
+	objectExists,
+	precondition,
+	putObjectText,
+} from './r2';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { loadTestServerManifest, type TestServerGameEntry } from './testServerManifest';
 
@@ -82,7 +97,9 @@ export type ConfigMigration = {
  * `'wild'` on the book scatter, the ten captured paylines, the +10 retrigger (the book mock's
  * untold default, which the lines default of +5 is not), the base bet plus the one 100× buy under
  * the buy's existing name (decision 4), and the scatter row `3:2 4:20 5:200`, paid (decision 1). An
- * author's own expanding block, retrigger table or free-spins switch is kept as authored.
+ * author's own expanding block and retrigger table are kept as authored. What it cannot migrate
+ * without guessing — a board that is not 5×3, no scatter on the strips, free spins switched off —
+ * is a blocker, never a rewrite.
  */
 export function migrateBookOfConfig(current: GameConfigDoc | null): ConfigMigration {
 	const captured = preset();
@@ -103,26 +120,37 @@ export function migrateBookOfConfig(current: GameConfigDoc | null): ConfigMigrat
 			],
 		};
 	}
+	const book = inPlayScatterSymbol(current.symbols, symbolsInPlay(current));
+	if (!book) {
+		return {
+			doc: null,
+			changes: [],
+			blockers: ['no scatter on the strips: there is no book — fix it in /config first'],
+		};
+	}
+	if (current.freeSpins?.enabled === false) {
+		return {
+			doc: null,
+			changes: [],
+			blockers: [
+				'free spins are off: turn them on in /config or migrate it by hand (its buy is kept either way)',
+			],
+		};
+	}
 	const doc = structuredClone(current);
 	const changes: string[] = [];
-	const inPlay = symbolsInPlay(doc);
 
 	// The book scatter: wild too, paying the captured row.
-	const book = inPlayScatterSymbol(doc.symbols, inPlay);
-	if (!book) {
-		changes.push('no scatter on the strips: no book to make wild (the game never triggers)');
-	} else {
-		const symbol = doc.symbols[book];
-		const props = symbol.special_properties ?? [];
-		if (!props.includes('wild')) {
-			symbol.special_properties = [...props, 'wild'];
-			changes.push(`${book}: add 'wild' (the book substitutes on lines)`);
-		}
-		const row = rowsOf(SCATTER_ROW);
-		if (!same(symbol.paytable, row)) {
-			symbol.paytable = row;
-			changes.push(`${book}: scatter pays 3:2 4:20 5:200 × the bet`);
-		}
+	const symbol = doc.symbols[book];
+	const props = symbol.special_properties ?? [];
+	if (!props.includes('wild')) {
+		symbol.special_properties = [...props, 'wild'];
+		changes.push(`${book}: add 'wild' (the book substitutes on lines)`);
+	}
+	const row = rowsOf(SCATTER_ROW);
+	if (!same(symbol.paytable, row)) {
+		symbol.paytable = row;
+		changes.push(`${book}: scatter pays 3:2 4:20 5:200 × the bet`);
 	}
 
 	// The ten captured paylines.
@@ -171,17 +199,13 @@ export function migrateBookOfConfig(current: GameConfigDoc | null): ConfigMigrat
 		return { doc: null, changes, blockers: ['no base bet mode — fix it in /config first'] };
 	}
 	const buy = resolved.find((m) => m.kind === 'buy');
-	const freeSpinsOn = doc.freeSpins?.enabled !== false;
 	const baseMath = doc.betModes[base.mode];
-	const betModes: Record<string, BetMode> = { [base.mode]: baseMath };
-	if (freeSpinsOn) {
-		const buyId = buy?.mode ?? 'bonus';
-		const buyMath: BetMode = buy
-			? { ...doc.betModes[buy.mode] }
-			: { ...captured.betModes.bonus, max_win: baseMath.max_win };
-		buyMath.cost = baseMath.cost * BUY_COST_MULTIPLE;
-		betModes[buyId] = buyMath;
-	}
+	const buyId = buy?.mode ?? 'bonus';
+	const buyMath: BetMode = buy
+		? { ...doc.betModes[buy.mode] }
+		: { ...captured.betModes.bonus, max_win: baseMath.max_win };
+	buyMath.cost = baseMath.cost * BUY_COST_MULTIPLE;
+	const betModes: Record<string, BetMode> = { [base.mode]: baseMath, [buyId]: buyMath };
 	if (!same(betModes, doc.betModes)) {
 		const dropped = Object.keys(doc.betModes).filter((m) => !(m in betModes));
 		const added = Object.keys(betModes).filter((m) => !(m in doc.betModes));
@@ -192,7 +216,7 @@ export function migrateBookOfConfig(current: GameConfigDoc | null): ConfigMigrat
 			else delete doc.betModePresentation;
 		}
 		changes.push(
-			`bet modes: ${base.mode}${freeSpinsOn ? ` + ${Object.keys(betModes)[1]} at ${BUY_COST_MULTIPLE}×` : ' only (free spins are off)'}` +
+			`bet modes: ${base.mode} + ${buyId} at ${BUY_COST_MULTIPLE}×` +
 				`${added.length ? ` (added ${added.join(', ')})` : ''}` +
 				`${dropped.length ? ` (removed ${dropped.join(', ')}, which the book mock never sold)` : ''}`,
 		);
@@ -218,6 +242,15 @@ export const migrateBookOfLayout = (doc: LayoutDoc): LayoutDoc | null =>
 
 // ─── the census: read-only ────────────────────────────────────────────────────────────────────
 
+/**
+ * A project whose kind moved but whose republish did not land. Written BEFORE the kind moves and
+ * deleted once every republish has, so a project that is no longer a `bookOf` row is still found
+ * by the next run (and its players, on the lines mock with an old snapshot, are not forgotten).
+ */
+const PENDING_PREFIX = '_shared/migrations/book-of/';
+const pendingKey = (project: string) => `${PENDING_PREFIX}${project}.json`;
+type PendingRepublish = { project: string; games: string[]; by: string; at: string };
+
 export type ManifestFact = {
 	key: string;
 	protocol: string;
@@ -232,12 +265,18 @@ export type CardFact = {
 	url: string;
 	/** Served by the Invisible Test Server and dealt by its mock (not a partner card). */
 	testServer: boolean;
+	/** A desktop build: its manifest entry has no shared runtime, or its own bundle is uploaded. */
+	desktop: boolean;
 };
 
 export type BookOfProjectFacts = {
 	key: string;
 	name: string;
 	clientKey: string;
+	/** The project's kind now: `bookOf`, or `lines` for one whose republish is still pending. */
+	kind: string;
+	/** The games a previous run moved the kind for and could not republish. */
+	pendingRepublish: string[] | null;
 	/** `null` ⇒ un-authored (the template); `'unreadable'` ⇒ a stored doc that does not parse. */
 	config: 'authored' | null | 'unreadable';
 	/** The in-play scatter (the book) and its special properties. */
@@ -288,50 +327,91 @@ export function isTestServerCard(url: string, gamesBaseUrl: string): boolean {
 	}
 }
 
-/** Read every fact the migration acts on. Writes nothing. */
-export async function bookOfCensus(gamesBaseUrl: string): Promise<BookOfCensus> {
-	const [rows, manifest, editorTemplate] = await Promise.all([
-		listProjects(),
-		loadTestServerManifest(),
-		objectExists(editorTemplateKey(BOOK_OF_KIND)),
-	]);
-	const entries = Object.entries(manifest.games).map(([key, entry]) => manifestFact(key, entry));
-	const projects: BookOfProjectFacts[] = [];
-	for (const row of rows.filter((p) => p.gameType === BOOK_OF_KIND)) {
-		const clientKey = row.clientKey ?? UNASSIGNED_CLIENT;
-		const stored = await loadGameConfigDocWithEtag(clientKey, row.key);
-		const doc = stored.doc;
-		const inPlay = doc ? symbolsInPlay(doc) : [];
-		const book = doc ? inPlayScatterSymbol(doc.symbols, inPlay) : undefined;
-		const props = book ? (doc?.symbols[book]?.special_properties ?? []) : [];
-		const layout = await loadDocWithEtag(clientKey, row.key, BOOK_OF_KIND);
-		const cards = (await listGamesOwnedByProject(row.key)).map((g) => ({
+async function readPending(): Promise<Map<string, PendingRepublish>> {
+	const out = new Map<string, PendingRepublish>();
+	for (const key of await listAllKeys(PENDING_PREFIX)) {
+		try {
+			const marker = JSON.parse((await getObjectText(key)) ?? '') as PendingRepublish;
+			if (typeof marker.project === 'string' && Array.isArray(marker.games)) {
+				out.set(marker.project, marker);
+			}
+		} catch {
+			// An unreadable marker names no project; the row's kind still lists a bookOf project.
+		}
+	}
+	return out;
+}
+
+type MigrationRow = Awaited<ReturnType<typeof listProjects>>[number];
+
+/** The projects the migration acts on: every `bookOf` row, and every row with a republish pending. */
+async function migrationRows(): Promise<{ row: MigrationRow; pending: PendingRepublish | null }[]> {
+	const [rows, pending] = await Promise.all([listProjects(), readPending()]);
+	return rows
+		.filter((p) => p.gameType === BOOK_OF_KIND || pending.has(p.key))
+		.map((row) => ({ row, pending: pending.get(row.key) ?? null }));
+}
+
+async function projectFacts(
+	{ row, pending }: { row: MigrationRow; pending: PendingRepublish | null },
+	entries: ManifestFact[],
+	gamesBaseUrl: string,
+): Promise<BookOfProjectFacts> {
+	const clientKey = row.clientKey ?? UNASSIGNED_CLIENT;
+	const stored = await loadGameConfigDocWithEtag(clientKey, row.key);
+	const doc = stored.doc;
+	const book = doc ? inPlayScatterSymbol(doc.symbols, symbolsInPlay(doc)) : undefined;
+	const props = book ? (doc?.symbols[book]?.special_properties ?? []) : [];
+	const layout = await loadDocWithEtag(clientKey, row.key, BOOK_OF_KIND);
+	const cards: CardFact[] = [];
+	for (const g of await listGamesOwnedByProject(row.key)) {
+		const entry = entries.find((e) => e.key === g.key);
+		cards.push({
 			key: g.key,
 			url: g.url,
 			testServer: isTestServerCard(g.url, gamesBaseUrl),
-		}));
-		projects.push({
-			key: row.key,
-			name: row.name,
-			clientKey,
-			config: doc ? 'authored' : stored.existed ? 'unreadable' : null,
-			book: book ? { symbol: book, specialProperties: [...props] } : null,
-			alreadyWild: props.includes('wild'),
-			betModes: doc
-				? resolveBetModes(doc).map((m) => ({ mode: m.mode, kind: m.kind, cost: m.costMultiplier }))
-				: [],
-			freeSpins: doc?.freeSpins ?? null,
-			potsOverlay: Boolean(doc?.potsOverlay),
-			layoutGameType: layout.corrupt
-				? 'unreadable'
-				: layout.etag === null
-					? null
-					: (layout.doc.gameType ?? null),
-			manifest: entries.filter((e) => (e.projectKey ?? e.key) === row.key),
-			cards,
-			published: (await currentPointer(clientKey, row.key)) !== null,
+			desktop: (entry !== undefined && entry.runtime === null) || (await hasOwnBuiltBundle(g.key)),
 		});
 	}
+	return {
+		key: row.key,
+		name: row.name,
+		clientKey,
+		kind: row.gameType ?? '',
+		pendingRepublish: pending ? pending.games : null,
+		config: doc ? 'authored' : stored.existed ? 'unreadable' : null,
+		book: book ? { symbol: book, specialProperties: [...props] } : null,
+		alreadyWild: props.includes('wild'),
+		betModes: doc
+			? resolveBetModes(doc).map((m) => ({ mode: m.mode, kind: m.kind, cost: m.costMultiplier }))
+			: [],
+		freeSpins: doc?.freeSpins ?? null,
+		potsOverlay: Boolean(doc?.potsOverlay),
+		layoutGameType: layout.corrupt
+			? 'unreadable'
+			: layout.etag === null
+				? null
+				: (layout.doc.gameType ?? null),
+		manifest: entries.filter((e) => (e.projectKey ?? e.key) === row.key),
+		cards,
+		published: (await currentPointer(clientKey, row.key)) !== null,
+	};
+}
+
+const manifestFacts = async (): Promise<ManifestFact[]> =>
+	Object.entries((await loadTestServerManifest()).games).map(([key, entry]) =>
+		manifestFact(key, entry),
+	);
+
+/** Read every fact the migration acts on. Writes nothing. */
+export async function bookOfCensus(gamesBaseUrl: string): Promise<BookOfCensus> {
+	const [rows, entries, editorTemplate] = await Promise.all([
+		migrationRows(),
+		manifestFacts(),
+		objectExists(editorTemplateKey(BOOK_OF_KIND)),
+	]);
+	const projects: BookOfProjectFacts[] = [];
+	for (const row of rows) projects.push(await projectFacts(row, entries, gamesBaseUrl));
 	return {
 		projects,
 		bookManifestEntries: entries.filter((e) => e.protocol === 'book'),
@@ -353,14 +433,24 @@ export type BookOfPlan = {
 	republish: { games: string[]; skipped: { key: string; why: string }[] };
 };
 
-/** The dry run for one project, from its census facts and its migrated config. Pure. */
-export function planFor(facts: BookOfProjectFacts, config: ConfigMigration): BookOfPlan {
+/**
+ * The dry run for one project, from its census facts, its migrated config and the publish gates'
+ * verdict on each republish target (`refusals`: game → why it would be refused). Pure.
+ */
+export function planFor(
+	facts: BookOfProjectFacts,
+	config: ConfigMigration,
+	refusals: ReadonlyMap<string, string> = new Map(),
+): BookOfPlan {
 	const blockers = [...config.blockers];
 	if (facts.config === 'unreadable') {
 		blockers.push('its stored Game Config does not parse — open it in /config first');
 	}
 	if (facts.layoutGameType === 'unreadable') {
 		blockers.push('its stored layout does not parse — open it in /editor first');
+	}
+	if (facts.kind !== BOOK_OF_KIND && facts.kind !== LINES_KIND) {
+		blockers.push(`its kind is '${facts.kind}', not ${BOOK_OF_KIND} or ${LINES_KIND} — left alone`);
 	}
 	// A desktop build re-reads its project's contract and would flip to the lines mock; one built
 	// before bet-option tables would lose its buy (§6 step 5). It must be rebuilt first.
@@ -372,8 +462,10 @@ export function planFor(facts: BookOfProjectFacts, config: ConfigMigration): Boo
 	const skipped: { key: string; why: string }[] = [];
 	const games: string[] = [];
 	for (const card of facts.cards) {
-		if (card.key !== facts.key) {
+		if (card.desktop) {
 			skipped.push({ key: card.key, why: 'a desktop build (its own bundle): rebuilt, not republished' }); // prettier-ignore
+		} else if (card.key !== facts.key) {
+			skipped.push({ key: card.key, why: "not the project's own online card: publish names that one only" }); // prettier-ignore
 		} else if (!card.testServer) {
 			skipped.push({
 				key: card.key,
@@ -383,6 +475,8 @@ export function planFor(facts: BookOfProjectFacts, config: ConfigMigration): Boo
 			skipped.push({ key: card.key, why: 'no published snapshot: nothing to republish' });
 		} else {
 			games.push(card.key);
+			const refused = refusals.get(card.key);
+			if (refused) blockers.push(`its republish of "${card.key}" would be refused — ${refused}`);
 		}
 	}
 	return {
@@ -394,34 +488,53 @@ export function planFor(facts: BookOfProjectFacts, config: ConfigMigration): Boo
 			facts.layoutGameType === BOOK_OF_KIND
 				? `layout gameType ${BOOK_OF_KIND} → ${LINES_KIND}`
 				: null,
-		kind: `kind ${BOOK_OF_KIND} → ${LINES_KIND}`,
+		kind:
+			facts.kind === BOOK_OF_KIND
+				? `kind ${BOOK_OF_KIND} → ${LINES_KIND}`
+				: `kind already ${facts.kind}${facts.pendingRepublish ? ' (republish pending from an earlier run)' : ''}`,
 		republish: { games, skipped },
 	};
 }
 
-/** The dry run for every `bookOf` project. Writes nothing. */
+const emptyMigration = (): ConfigMigration => ({ doc: null, changes: [], blockers: [] });
+
+/** One project's plan, its publish gates run against the config it would save. Writes nothing. */
+async function planProject(facts: BookOfProjectFacts): Promise<BookOfPlan> {
+	const config =
+		facts.config === 'unreadable'
+			? emptyMigration()
+			: migrateBookOfConfig(
+					facts.config === 'authored'
+						? (await loadGameConfigDocWithEtag(facts.clientKey, facts.key)).doc
+						: null,
+				);
+	const draft = planFor(facts, config);
+	const refusals = new Map<string, string>();
+	for (const game of draft.republish.games) {
+		const refusal = await publishGateRefusal(game, {
+			...(config.doc ? { config: config.doc } : {}),
+		});
+		if (refusal) refusals.set(game, `${refusal.reason}: ${refusal.message}`);
+	}
+	return refusals.size ? planFor(facts, config, refusals) : draft;
+}
+
+/** The dry run for every project the migration acts on. Writes nothing. */
 export async function planBookOfMigration(
 	gamesBaseUrl: string,
 ): Promise<{ census: BookOfCensus; plans: BookOfPlan[] }> {
 	const census = await bookOfCensus(gamesBaseUrl);
 	const plans: BookOfPlan[] = [];
-	for (const facts of census.projects) {
-		const stored =
-			facts.config === 'authored'
-				? (await loadGameConfigDocWithEtag(facts.clientKey, facts.key)).doc
-				: null;
-		plans.push(planFor(facts, facts.config === 'unreadable' ? emptyMigration() : migrateBookOfConfig(stored))); // prettier-ignore
-	}
+	for (const facts of census.projects) plans.push(await planProject(facts));
 	return { census, plans };
 }
 
-const emptyMigration = (): ConfigMigration => ({ doc: null, changes: [], blockers: [] });
-
-// ─── apply ────────────────────────────────────────────────────────────────────────────────────
+// ─── apply: one project per call ──────────────────────────────────────────────────────────────
 
 export type BookOfResult = {
 	key: string;
-	status: 'migrated' | 'blocked' | 'error';
+	/** `republish-pending`: the kind moved, a republish did not land — the next run retries it. */
+	status: 'migrated' | 'blocked' | 'republish-pending' | 'error' | 'nothing-to-do';
 	/** What each step did, in order. */
 	steps: string[];
 	/** Why it stopped, when it did. */
@@ -433,52 +546,49 @@ const LEASE_TARGETS = [
 	{ toolId: 'editor', docKey: 'editor', path: '/editor' },
 ] as const;
 
-/**
- * Run §6 steps 1–4 on every `bookOf` project that is not blocked, one at a time, each reported.
- * The plan is re-derived here — never taken from the client — so what is applied is what the
- * project says now. `launcherOrigin` and `by` are what a publish records; `sessionId` is the
- * caller's, so their own open tabs never block it.
- */
-export async function applyBookOfMigration(opts: {
-	gamesBaseUrl: string;
-	launcherOrigin: string;
-	sessionId: string;
-	by: string;
-}): Promise<BookOfResult[]> {
-	const { census, plans } = await planBookOfMigration(opts.gamesBaseUrl);
-	const results: BookOfResult[] = [];
-	for (const plan of plans) {
-		const facts = census.projects.find((p) => p.key === plan.key);
-		if (!facts) continue;
-		results.push(await applyOne(facts, plan, opts));
-	}
-	return results;
+async function writePending(marker: PendingRepublish): Promise<void> {
+	const current = await getObjectTextWithEtag(pendingKey(marker.project));
+	await putObjectText(
+		pendingKey(marker.project),
+		JSON.stringify(marker, null, 2),
+		'application/json; charset=utf-8',
+		precondition(current ? current.etag : null),
+	);
 }
 
-async function applyOne(
-	facts: BookOfProjectFacts,
-	plan: BookOfPlan,
-	opts: { launcherOrigin: string; sessionId: string; by: string },
+/**
+ * Run §6 steps 1–4 on ONE project — the page calls it once per planned project, so no request
+ * carries more than one republish. The plan is re-derived here, never taken from the client, so
+ * what is applied is what the project says now; its publish gates have passed before anything is
+ * written. `launcherOrigin` and `by` are what a publish records; `sessionId` is the caller's, so
+ * their own open tabs never block it. Never throws: every outcome is a result.
+ */
+export async function applyBookOfMigrationTo(
+	key: string,
+	opts: { gamesBaseUrl: string; launcherOrigin: string; sessionId: string; by: string },
 ): Promise<BookOfResult> {
-	const { key, clientKey } = facts;
 	const steps: string[] = [];
-	if (plan.blockers.length)
-		return { key, status: 'blocked', steps, error: plan.blockers.join('; ') };
-	const editing = leaseBlocker(
-		await liveLeases(
-			LEASE_TARGETS.map(({ toolId, docKey }) => ({
-				toolId,
-				docKey,
-				clientKey,
-				projectKey: key,
-			})),
-		),
-		opts.sessionId,
-		LEASE_TARGETS,
-	);
-	if (editing) return { key, status: 'blocked', steps, error: editing };
 	try {
-		// 1. The config, re-read under its ETag so a save since the dry run is never overwritten.
+		const row = (await migrationRows()).find((r) => r.row.key === key);
+		if (!row) {
+			return { key, status: 'nothing-to-do', steps, error: 'not a Book-of project, and no republish pending' }; // prettier-ignore
+		}
+		const facts = await projectFacts(row, await manifestFacts(), opts.gamesBaseUrl);
+		const plan = await planProject(facts);
+		if (plan.blockers.length) {
+			return { key, status: 'blocked', steps, error: plan.blockers.join('; ') };
+		}
+		const { clientKey } = facts;
+		const editing = leaseBlocker(
+			await liveLeases(
+				LEASE_TARGETS.map(({ toolId, docKey }) => ({ toolId, docKey, clientKey, projectKey: key })),
+			),
+			opts.sessionId,
+			LEASE_TARGETS,
+		);
+		if (editing) return { key, status: 'blocked', steps, error: editing };
+
+		// 1. The config, re-read under its ETag so a save since the plan is never overwritten.
 		const stored = await loadGameConfigDocWithEtag(clientKey, key);
 		if (stored.existed && !stored.doc) throw new Error('its stored Game Config does not parse');
 		const config = migrateBookOfConfig(stored.doc);
@@ -499,30 +609,66 @@ async function applyOne(
 		} else {
 			steps.push(layout.etag === null ? 'layout: none stored' : 'layout: already lines');
 		}
-		// 3. The kind. Every tool reads it, so it moves only once its docs have.
-		await setProjectGameType(key, LINES_KIND);
-		steps.push(`kind: ${BOOK_OF_KIND} → ${LINES_KIND}`);
+		// 3. The kind — only from bookOf, so a kind changed meanwhile is never overwritten. Every tool
+		// reads it, so it moves only once its docs have; the pending marker goes first, so a republish
+		// that does not land after it is found again by the next run.
+		const games = plan.republish.games;
+		if (games.length) {
+			await writePending({ project: key, games, by: opts.by, at: new Date().toISOString() });
+		}
+		if (await switchProjectGameType(key, BOOK_OF_KIND, LINES_KIND)) {
+			steps.push(`kind: ${BOOK_OF_KIND} → ${LINES_KIND}`);
+		} else {
+			const now = await projectGameType(key);
+			if (now !== LINES_KIND) {
+				throw new Error(`its kind is now '${now ?? 'none'}' — changed meanwhile, left alone`);
+			}
+			steps.push('kind: already lines');
+		}
 		invalidateRuntimeBundle(key);
 		// 4. Republish what players boot, so its snapshot carries the block and the manifest the lines
-		// contract. A refusing gate is reported for the owner to look at, never overridden.
-		for (const game of plan.republish.games) {
+		// contract. Its gates passed in the plan; one that refuses now (a draft sound since) is
+		// reported for the owner, never overridden.
+		const failed: string[] = [];
+		for (const game of games) {
 			try {
 				await publishGame(game, opts.launcherOrigin, { by: opts.by });
 				steps.push(`republish ${game}: published`);
 			} catch (e) {
-				if (!(e instanceof PublishBlockedError)) throw e;
-				steps.push(`republish ${game}: REFUSED (${e.reason}) — ${e.message} Publish it from Game Maker.`); // prettier-ignore
+				failed.push(game);
+				const why =
+					e instanceof PublishBlockedError
+						? `REFUSED (${e.reason}) — ${e.message}`
+						: `FAILED — ${e instanceof Error ? e.message : String(e)}`;
+				steps.push(`republish ${game}: ${why}`);
 			}
 		}
 		for (const { key: game, why } of plan.republish.skipped) steps.push(`republish ${game}: skipped — ${why}`); // prettier-ignore
+		if (failed.length) {
+			return {
+				key,
+				status: 'republish-pending',
+				steps,
+				error: `${failed.join(', ')} not republished: players are on the lines mock with the old snapshot until it is. Run the migration again to retry.`,
+			};
+		}
+		if (games.length || facts.pendingRepublish) await deleteObject(pendingKey(key));
 		return { key, status: 'migrated', steps };
 	} catch (e) {
-		const error =
+		const why =
 			e instanceof ConflictError
-				? 'a doc was saved by someone else meanwhile — run the migration again'
+				? 'a doc was saved by someone else meanwhile'
 				: e instanceof Error
 					? e.message
 					: String(e);
-		return { key, status: 'error', steps, error };
+		// Say "run again" only when a run would pick it up: still a bookOf row, or a republish pending.
+		const listed = await migrationRows().then(
+			(rows) => rows.some((r) => r.row.key === key),
+			() => true,
+		);
+		const next = listed
+			? 'It is still listed: run the migration again.'
+			: 'It is no longer listed, so a re-run will not pick it up: check it by hand (the steps above were written).';
+		return { key, status: 'error', steps, error: `${why}. ${next}` };
 	}
 }

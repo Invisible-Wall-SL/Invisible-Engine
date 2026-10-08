@@ -2,17 +2,20 @@
  * Contract check for the Book-of migration (`docs/design/book-feature.md` §6, Phase 6):
  *   pnpm --filter launcher-api check:book-of-migration
  *
- * Runs the REAL `bookOfMigration.ts`, the doc stores, the backups and the test-server manifest over
- * an in-memory R2; only R2, the project and game rows, the leases, the published pointer and the
- * publish itself are stubbed. The fixture is the live estate in miniature: the remake (authored,
- * published, with a stamped desktop build), an un-authored project, a pots project whose republish
- * a gate refuses, the partner game, the unstamped desktop build, a project someone is editing, and a
- * Lines control. What it pins:
+ * Runs the REAL `bookOfMigration.ts`, the REAL `publishGame.ts` (its gates, the mock contract it
+ * derives and the test-server manifest it writes), the doc stores and the backups over an in-memory
+ * R2. Stubbed: R2, the project and game rows, the leases, the snapshot store, the bundle assemble,
+ * the sound and flow checks, and the test server's refresh. The estate is the live one in
+ * miniature plus the edge cases. What it pins:
  *  - the census and the dry run write nothing;
- *  - apply migrates config, layout and kind per project, each save under its ETag with a backup,
- *    republishes only test-server cards with a snapshot, reports a refusal instead of overriding it,
- *    never republishes the partner game, and leaves a blocked project byte-identical;
- *  - a save that loses its race is reported and finished by the next run;
+ *  - a refusing publish gate, a held lease, an unstamped desktop build, free spins switched off and
+ *    no scatter each BLOCK a project before anything of it is written;
+ *  - apply migrates config, layout and kind, each save under its ETag with a backup, republishes
+ *    only the project's own test-server card (never a desktop build, never the partner game), and
+ *    the republished manifest entry deals the Book of Thermopylae grid on the lines mock;
+ *  - an author's own expanding block and retrigger table are kept;
+ *  - a save that loses its race, and a kind changed meanwhile, are reported and never overwritten;
+ *  - a republish that fails after the kind moved is remembered and retried by the next run;
  *  - a run after everything landed is a no-op;
  *  - the migrated configs ARE the game the lines mock deals as the book mock does: their contract is
  *    the Book of Thermopylae grid `check:expanding-symbol` plays against the book mock (Phase 3).
@@ -76,7 +79,7 @@ mock.module(src('lib/server/r2.ts'), {
 			R2.set(to, { ...o });
 			return true;
 		},
-		deleteObject: async (key: string) => R2.delete(key),
+		deleteObject: async (key: string) => void R2.delete(key),
 		deleteObjects: async (keys: string[]) => keys.forEach((k) => R2.delete(k)),
 		listAllKeys: async (prefix: string) => sortedKeys(prefix),
 		listAllObjects: async (prefix: string) =>
@@ -95,46 +98,65 @@ const KINDS = new Map<string, string>([
 	['bookofthermopylae', 'bookOf'],
 	['bookofborut', 'bookOf'],
 	['bookofleased', 'bookOf'],
+	['bookoffreeoff', 'bookOf'],
+	['bookofkept', 'bookOf'],
+	['bookofflaky', 'bookOf'],
+	['bookofkindrace', 'bookOf'],
 	['hotfruits', 'lines'],
 ]);
 const KIND_WRITES: string[] = [];
+/** A kind someone else sets between the migration's read and its switch. */
+const KIND_RACE = new Map<string, string>();
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
 		listProjects: async () =>
 			[...KINDS].map(([key, gameType]) => ({ key, name: key, gameType, clientKey: CLIENT })),
-		setProjectGameType: async (key: string, gameType: string) => {
-			KIND_WRITES.push(`${key}=${gameType}`);
-			KINDS.set(key, gameType);
+		switchProjectGameType: async (key: string, from: string, to: string) => {
+			const raced = KIND_RACE.get(key);
+			if (raced !== undefined) {
+				KIND_RACE.delete(key);
+				KINDS.set(key, raced);
+			}
+			if (KINDS.get(key) !== from) return false;
+			KIND_WRITES.push(`${key}=${to}`);
+			KINDS.set(key, to);
+			return true;
 		},
 		projectGameType: async (key: string) => KINDS.get(key) ?? null,
 		projectClientKey: async () => CLIENT,
+		projectName: async (key: string) => key,
+		getOrMintReadToken: async (key: string) => `tok-${key}`,
 	},
 });
 
-const testCard = (key: string) => ({
-	key,
-	projectKey: key,
-	url: `${GAMES}/${key}/?runtime=1&sessionID=demo&rgs_url=games.invisiblewall.org/api/${key}&lang=en`,
-});
+const testUrl = (key: string) =>
+	`${GAMES}/${key}/?runtime=1&sessionID=demo&rgs_url=games.invisiblewall.org/api/${key}&lang=en`;
 /** The games table, by owning project. */
-const CARDS: Record<string, { key: string; projectKey: string; url: string }[]> = {
+const CARDS: Record<string, { key: string; url: string }[]> = {
 	bookofborutremake: [
-		testCard('bookofborutremake'),
-		{ ...testCard('bookofborutremakebuild'), projectKey: 'bookofborutremake' },
+		{ key: 'bookofborutremake', url: testUrl('bookofborutremake') },
+		{ key: 'bookofborutremakebuild', url: testUrl('bookofborutremakebuild') },
 	],
-	bookofpots: [testCard('bookofpots')],
+	bookofpots: [{ key: 'bookofpots', url: testUrl('bookofpots') }],
 	bookofthermopylae: [
 		{
 			key: 'bookofthermopylae',
-			projectKey: 'bookofthermopylae',
 			url: `${GAMES}/bookofthermopylae/?runtime=1&rgs_profile=play4fun&lang=en`,
 		},
 	],
-	bookofborut: [testCard('bookofborut')],
-	hotfruits: [testCard('hotfruits')],
+	bookofborut: [{ key: 'bookofborut', url: testUrl('bookofborut') }],
+	bookofflaky: [{ key: 'bookofflaky', url: testUrl('bookofflaky') }],
+	hotfruits: [{ key: 'hotfruits', url: testUrl('hotfruits') }],
 };
 mock.module(src('lib/server/games.ts'), {
-	namedExports: { listGamesOwnedByProject: async (key: string) => CARDS[key] ?? [] },
+	namedExports: {
+		listGamesOwnedByProject: async (key: string) => CARDS[key] ?? [],
+		gameExists: async () => true,
+		createGame: async () => undefined,
+		renameGame: async () => undefined,
+		setGameProject: async () => undefined,
+		setGameUrl: async () => undefined,
+	},
 });
 
 const LEASES: (LiveLease & { projectKey: string })[] = [
@@ -157,46 +179,80 @@ mock.module(src('lib/server/lease.ts'), {
 	},
 });
 
-/** Projects with a published runtime snapshot. */
-const PUBLISHED = new Set(['bookofborutremake', 'bookofpots', 'bookofthermopylae', 'bookofborut']);
+/** The snapshot players boot, per project: the config it froze. */
+const SNAPSHOTS = new Map<string, GameConfigDoc | null>();
+let snapshotSeq = 0;
 mock.module(src('lib/server/publishedRuntime.ts'), {
 	namedExports: {
 		currentPointer: async (_client: string, project: string) =>
-			PUBLISHED.has(project) ? { version: 'v1' } : null,
+			SNAPSHOTS.has(project) ? { version: 1, current: 'live', snapshots: [] } : null,
 		readSnapshotBundle: async () => null,
+		stageSnapshot: async () => ({
+			id: `s${++snapshotSeq}`,
+			createdAt: '2026-10-08T00:00:00.000Z',
+			by: null,
+			flow: 'absent',
+			files: 0,
+			bytes: 0,
+		}),
+		commitSnapshot: async () => undefined,
+		discardSnapshot: async () => undefined,
 	},
 });
 
-class PublishBlockedError extends Error {
-	constructor(
-		message: string,
-		readonly reason = 'own-bundle',
-		readonly details: string[] = [],
-	) {
-		super(message);
-	}
-}
+/** Projects whose next assemble fails with a non-gate error (R2 down, a timeout). */
+const ASSEMBLE_FAILS = new Set<string>();
 const PUBLISHES: string[] = [];
-mock.module(src('lib/server/publishGame.ts'), {
+mock.module(src('lib/server/runtimeBundle.ts'), {
 	namedExports: {
-		PublishBlockedError,
-		publishGame: async (key: string, origin: string, opts: { by: string }) => {
-			PUBLISHES.push(`${key} by ${opts.by} from ${origin}`);
-			if (key === 'bookofpots') {
-				throw new PublishBlockedError(
-					'The pots overlay routes a pot to free spins the mock cannot deal.',
-					'paytable-drift',
-				);
-			}
+		buildRuntimeBundle: async (project: string) => {
+			if (ASSEMBLE_FAILS.delete(project)) throw new Error('R2 timed out while assembling');
+			const config = normalizeGameConfigDoc(
+				JSON.parse(R2.get(gameConfigDocKey(CLIENT, project))?.body ?? 'null'),
+			);
+			PUBLISHES.push(project);
+			SNAPSHOTS.set(project, config ?? null);
+			return {
+				config,
+				symbols: { map: {}, index: {} },
+				doc: { scenes: [] },
+				componentDefs: {},
+				editorArt: { spinesMissing: [] },
+			};
 		},
+	},
+});
+/** Projects with a sound still marked draft — the publish's sound gate refuses them. */
+const DRAFT_SOUNDS: Record<string, string[]> = { bookofpots: ['pot_win'] };
+mock.module(src('lib/server/soundPublishCheck.ts'), {
+	namedExports: {
+		checkSoundsForPublish: async (_client: string, project: string) => ({
+			unapproved: DRAFT_SOUNDS[project] ?? [],
+			licences: { total: 0, approved: 0, byLicence: {} },
+		}),
+	},
+});
+mock.module(src('lib/server/flowV2Validation.ts'), {
+	namedExports: {
+		checkFlowV2ForPublish: async () => ({ status: 'absent' }),
+		checkShippedFlowV2: async () => ({ status: 'absent' }),
+		describeFlowErrors: () => [],
+		flowScreensMissing: () => [],
+		invalidFlowMessage: () => '',
 	},
 });
 const INVALIDATED: string[] = [];
 mock.module(src('lib/server/runtimeBundleCache.ts'), {
-	namedExports: { invalidateRuntimeBundle: (project: string) => INVALIDATED.push(project) },
+	namedExports: {
+		invalidateRuntimeBundle: (project: string) => INVALIDATED.push(project),
+		withDeployWrite: async <T>(_project: string, run: () => Promise<T>) => run(),
+	},
+});
+mock.module(src('lib/server/testServerRefresh.ts'), {
+	namedExports: { postTestServerRefresh: async () => new Response(null, { status: 202 }) },
 });
 
-const { applyBookOfMigration, migrateBookOfConfig, planBookOfMigration } =
+const { applyBookOfMigrationTo, migrateBookOfConfig, planBookOfMigration } =
 	await import('../src/lib/server/bookOfMigration.ts');
 const { listBackups } = await import('../src/lib/server/docBackups.ts');
 const { mockContractOfBundle } = await import('../src/lib/server/mockContract.ts');
@@ -237,6 +293,20 @@ const put = (key: string, value: unknown) =>
 const stored = <T>(key: string): T => JSON.parse(R2.get(key)!.body) as T;
 const snapshot = () => JSON.stringify([...R2].sort(([a], [b]) => a.localeCompare(b)));
 const configOf = (project: string) => stored<GameConfigDoc>(gameConfigDocKey(CLIENT, project));
+const manifestEntry = (game: string) =>
+	stored<{ games: Record<string, { protocol: string; grid?: unknown }> }>(TEST_SERVER_MANIFEST_KEY)
+		.games[game];
+/** Every object of one project's two docs and their History. */
+const projectObjects = (key: string) =>
+	JSON.stringify(
+		[
+			gameConfigDocKey(CLIENT, key),
+			editorDocKey(CLIENT, key),
+			...sortedKeys(gameConfigDocBackupTarget(CLIENT, key).prefix),
+			...sortedKeys(editorDocBackupTarget(CLIENT, key).prefix),
+		].map((k) => [k, R2.get(k)?.body ?? null]),
+	);
+const PENDING = (key: string) => `_shared/migrations/book-of/${key}.json`;
 const layoutOf = (project: string, gameType = 'bookOf') => ({
 	version: 2,
 	projectKey: project,
@@ -262,6 +332,12 @@ const linesGrid = (config: GameConfigDoc, key: string) =>
 
 // ─── the estate ───────────────────────────────────────────────────────────────────────────────
 
+/** The captured game without the book's wild — what the partner and most copies store. */
+const unwild = (): GameConfigDoc => {
+	const doc = normalized(bookOfThermopylaePreset());
+	doc.symbols.S.special_properties = ['scatter'];
+	return doc;
+};
 /** The remake as authored before Phase 5: the captured game without the mechanic's config. */
 const remake = (): GameConfigDoc => {
 	const doc = normalized(bookOfThermopylaePreset());
@@ -270,38 +346,50 @@ const remake = (): GameConfigDoc => {
 	delete doc.freeSpins;
 	doc.betModes.bonus = { ...doc.betModes.bonus, cost: 50 };
 	doc.betModes.superBonus = { ...doc.betModes.bonus, cost: 300 };
-	doc.betModePresentation = {
-		bonus: { order: 1 },
-		superBonus: { order: 2 },
-	};
+	doc.betModePresentation = { bonus: { order: 1 }, superBonus: { order: 2 } };
 	return normalized(doc);
 };
 const pots = (): GameConfigDoc => {
-	const doc = normalized(bookOfThermopylaePreset());
-	doc.symbols.S = { special_properties: ['scatter'] };
+	const doc = unwild();
 	doc.betModes = { base: doc.betModes.base, freespins: { ...doc.betModes.bonus, cost: 80 } };
 	const added = addPotsOverlay(doc, 'potsToFreeSpins');
 	assert(added.ok, 'the pots overlay did not add');
 	return added.doc;
 };
-const partner = (): GameConfigDoc => {
-	const doc = normalized(bookOfThermopylaePreset());
-	doc.symbols.S.special_properties = ['scatter'];
-	return doc;
+const freeOff = (): GameConfigDoc => {
+	const doc = unwild();
+	doc.freeSpins = { ...doc.freeSpins, enabled: false };
+	return normalized(doc);
 };
+const KEPT_FREE_SPINS = {
+	enabled: true,
+	retriggerAwards: [{ count: 3, spins: 5 }],
+	expandingSymbol: { weights: { H1: 1, L5: 3 } },
+};
+const kept = (): GameConfigDoc => normalized({ ...unwild(), freeSpins: KEPT_FREE_SPINS });
 
 put(gameConfigDocKey(CLIENT, 'bookofborutremake'), remake());
 put(editorDocKey(CLIENT, 'bookofborutremake'), layoutOf('bookofborutremake'));
 put(gameConfigDocKey(CLIENT, 'bookofpots'), pots());
 put(editorDocKey(CLIENT, 'bookofpots'), layoutOf('bookofpots'));
-put(gameConfigDocKey(CLIENT, 'bookofthermopylae'), partner());
+put(gameConfigDocKey(CLIENT, 'bookofthermopylae'), unwild());
 put(editorDocKey(CLIENT, 'bookofthermopylae'), layoutOf('bookofthermopylae'));
 put(gameConfigDocKey(CLIENT, 'bookofborut'), remake());
 put(editorDocKey(CLIENT, 'bookofborut'), layoutOf('bookofborut'));
-put(gameConfigDocKey(CLIENT, 'bookofleased'), partner());
+put(gameConfigDocKey(CLIENT, 'bookofleased'), unwild());
+put(gameConfigDocKey(CLIENT, 'bookoffreeoff'), freeOff());
+put(gameConfigDocKey(CLIENT, 'bookofkept'), kept());
+put(gameConfigDocKey(CLIENT, 'bookofflaky'), unwild());
+put(editorDocKey(CLIENT, 'bookofflaky'), layoutOf('bookofflaky'));
 put(gameConfigDocKey(CLIENT, 'hotfruits'), linesTemplate());
 put(editorDocKey(CLIENT, 'hotfruits'), layoutOf('hotfruits', 'lines'));
 put(editorTemplateKey('bookOf'), { version: 2, scenes: [] });
+// The desktop builds' own bundles.
+put('test_server/bookofborut/index.html', '<html>');
+put('test_server/bookofborutremakebuild/index.html', '<html>');
+for (const key of ['bookofborutremake', 'bookofpots', 'bookofthermopylae', 'bookofborut', 'bookofflaky']) {
+	SNAPSHOTS.set(key, null);
+} // prettier-ignore
 const entry = (protocol: string, extra: Record<string, unknown>) => ({
 	protocol,
 	name: 'x',
@@ -313,12 +401,66 @@ put(TEST_SERVER_MANIFEST_KEY, {
 		bookofborutremake: entry('book', { runtime: 'lines', projectKey: 'bookofborutremake' }),
 		bookofborutremakebuild: entry('book', { projectKey: 'bookofborutremake', tableCapable: true }),
 		bookofpots: entry('book', { runtime: 'lines', projectKey: 'bookofpots' }),
-		bookofborut: entry('book', {}),
+		bookofborut: entry('book', { projectKey: 'bookofborut' }),
+		bookofflaky: entry('book', { runtime: 'lines', projectKey: 'bookofflaky' }),
 		hotfruits: entry('lines', { runtime: 'lines', projectKey: 'hotfruits' }),
 	},
 });
 
 const RUN = { gamesBaseUrl: GAMES, launcherOrigin: 'https://app.test', sessionId: 'me', by: 'owner@test' }; // prettier-ignore
+/** What the page does: the dry run, then one request per planned project. */
+const applyAll = async () => {
+	const { plans } = await planBookOfMigration(GAMES);
+	const out = [];
+	for (const plan of plans) out.push(await applyBookOfMigrationTo(plan.key, RUN));
+	return out;
+};
+type Results = Awaited<ReturnType<typeof applyAll>>;
+const result = (results: Results, key: string) => {
+	const found = results.find((r) => r.key === key);
+	assert(found, `no result for ${key}`);
+	return found;
+};
+const print = (results: Results) => {
+	for (const r of results) {
+		console.log(`       ${r.key} ${r.status}${r.error ? ` — ${r.error}` : ''}`);
+		for (const step of r.steps) console.log(`         ${step}`);
+	}
+};
+
+// ─── the pure config step ─────────────────────────────────────────────────────────────────────
+
+console.info('the config step');
+
+await check('what it cannot migrate without guessing blocks, and writes nothing', () => {
+	const wide = remake();
+	wide.numReels = 6;
+	wide.numRows = [3, 3, 3, 3, 3, 3];
+	const bookless = unwild();
+	delete bookless.symbols.S;
+	bookless.paddingReels = Object.fromEntries(
+		Object.entries(bookless.paddingReels).map(([mode, reels]) => [
+			mode,
+			reels.map((reel) => reel.filter((cell) => cell.name !== 'S')),
+		]),
+	);
+	for (const [label, doc, want] of [
+		['a 6-reel board', wide, "not the book mock's 5×3"],
+		['no scatter', normalized(bookless), 'no scatter on the strips'],
+		['free spins off', freeOff(), 'free spins are off'],
+	] as const) {
+		const out = migrateBookOfConfig(doc);
+		assert(out.doc === null, `${label}: no doc`);
+		assert(out.blockers.length === 1 && out.blockers[0].includes(want), `${label}: ${out.blockers.join('; ')}`); // prettier-ignore
+	}
+});
+
+await check('an author’s expanding block, retrigger table and switch are kept', () => {
+	const out = migrateBookOfConfig(kept());
+	assert(out.doc, out.blockers.join('; '));
+	same(out.doc.freeSpins, kept().freeSpins, 'free spins as authored');
+	same(out.doc.symbols.S.special_properties, ['scatter', 'wild'], 'the book is still made wild');
+});
 
 // ─── the dry run ──────────────────────────────────────────────────────────────────────────────
 
@@ -339,27 +481,21 @@ await check('the census and the dry run write nothing', () => {
 
 await check('the census: every bookOf row and nothing else, with its facts', () => {
 	same(
-		dry.census.projects.map((p) => [p.key, p.config, p.layoutGameType, p.published]),
-		[
-			['bookofborutremake', 'authored', 'bookOf', true],
-			['bookoffresh', null, null, false],
-			['bookofpots', 'authored', 'bookOf', true],
-			['bookofthermopylae', 'authored', 'bookOf', true],
-			['bookofborut', 'authored', 'bookOf', true],
-			['bookofleased', 'authored', null, false],
-		],
+		dry.census.projects.map((p) => p.key),
+		[...KINDS].filter(([, kind]) => kind === 'bookOf').map(([key]) => key),
 		'rows',
 	);
 	const facts = dry.census.projects.find((p) => p.key === 'bookofborutremake')!;
+	same([facts.config, facts.layoutGameType, facts.published], ['authored', 'bookOf', true], 'state'); // prettier-ignore
 	same(facts.book, { symbol: 'S', specialProperties: ['scatter'] }, 'the book');
 	same(facts.alreadyWild, false, 'not yet wild');
 	same(facts.betModes.map((m) => [m.mode, m.kind, m.cost]), [['base', 'base', 1], ['bonus', 'buy', 50], ['superBonus', 'buy', 300]], 'bet modes'); // prettier-ignore
-	same(facts.freeSpins, null, 'no freeSpins block');
 	same(facts.manifest.map((m) => [m.key, m.runtime, m.tableCapable]), [['bookofborutremake', 'lines', false], ['bookofborutremakebuild', null, true]], 'manifest'); // prettier-ignore
-	same(facts.cards.map((c) => [c.key, c.testServer]), [['bookofborutremake', true], ['bookofborutremakebuild', true]], 'cards'); // prettier-ignore
+	same(facts.cards.map((c) => [c.key, c.testServer, c.desktop]), [['bookofborutremake', true, false], ['bookofborutremakebuild', true, true]], 'cards'); // prettier-ignore
+	same(dry.census.projects.find((p) => p.key === 'bookoffresh')!.config, null, 'un-authored');
 	same(dry.census.projects.find((p) => p.key === 'bookofpots')!.potsOverlay, true, 'pots');
 	same(dry.census.projects.find((p) => p.key === 'bookofthermopylae')!.cards[0].testServer, false, 'the partner card'); // prettier-ignore
-	same(dry.census.bookManifestEntries.map((m) => m.key), ['bookofborutremake', 'bookofborutremakebuild', 'bookofpots', 'bookofborut'], 'book entries'); // prettier-ignore
+	same(dry.census.bookManifestEntries.map((m) => m.key), ['bookofborutremake', 'bookofborutremakebuild', 'bookofpots', 'bookofborut', 'bookofflaky'], 'book entries'); // prettier-ignore
 	same(dry.census.editorTemplate, true, 'the bookOf editor template');
 });
 
@@ -375,6 +511,12 @@ await check('the plan: what each project would change, and what blocks it', () =
 		['its desktop build "bookofborut" is not stamped table-capable — rebuild it from the desktop launcher first (☁ Publish)'],
 		'the unstamped desktop build blocks',
 	); // prettier-ignore
+	same(plan('bookofborut').republish.games, [], 'a desktop card under the project key is not a republish target'); // prettier-ignore
+	assert(
+		plan('bookofpots').blockers.some((b) => b.startsWith('its republish of "bookofpots" would be refused — unapproved-sounds: 1 sound the game plays is still marked draft: pot_win.')),
+		`the pots gate blocks before anything is written: ${plan('bookofpots').blockers.join('; ')}`,
+	); // prettier-ignore
+	assert(plan('bookoffreeoff').blockers[0]?.startsWith('free spins are off'), 'free spins off blocks'); // prettier-ignore
 	for (const p of dry.plans) {
 		console.log(`       ${p.key}: ${p.blockers.length ? `BLOCKED: ${p.blockers.join('; ')}` : [...p.config.changes, p.layout ?? 'layout: unchanged', p.kind, `republish [${p.republish.games.join(', ')}]`, ...p.republish.skipped.map((s) => `skip ${s.key}: ${s.why}`)].join(' | ')}`); // prettier-ignore
 	}
@@ -384,45 +526,34 @@ await check('the plan: what each project would change, and what blocks it', () =
 
 console.info('apply');
 
-/** Every object of one project's two docs and their History. */
-const blockedBefore = (key: string) =>
-	JSON.stringify(
-		[
-			gameConfigDocKey(CLIENT, key),
-			editorDocKey(CLIENT, key),
-			...sortedKeys(gameConfigDocBackupTarget(CLIENT, key).prefix),
-			...sortedKeys(editorDocBackupTarget(CLIENT, key).prefix),
-		].map((k) => [k, R2.get(k)?.body ?? null]),
-	);
-const borutBefore = blockedBefore('bookofborut');
-const leasedBefore = blockedBefore('bookofleased');
+const untouched = ['bookofborut', 'bookofpots', 'bookofleased', 'bookoffreeoff'];
+const untouchedBefore = untouched.map(projectObjects);
 const remakeBeforeBody = R2.get(gameConfigDocKey(CLIENT, 'bookofborutremake'))!.body;
-// A concurrent author creates the fresh project's config between the migration's read and write.
+// A concurrent author creates the fresh project's config between the migration's read and write;
+// someone moves another project to Ways meanwhile; the flaky project's republish fails once.
 RACE.set(gameConfigDocKey(CLIENT, 'bookoffresh'), JSON.stringify(linesTemplate()));
-const first = await applyBookOfMigration(RUN);
-const result = (results: typeof first, key: string) => {
-	const found = results.find((r) => r.key === key);
-	assert(found, `no result for ${key}`);
-	return found;
-};
+KIND_RACE.set('bookofkindrace', 'ways');
+ASSEMBLE_FAILS.add('bookofflaky');
+const first = await applyAll();
 
-await check('per-project results', () => {
+await check('per-project results: one failure never stops the others', () => {
 	same(
 		first.map((r) => [r.key, r.status]),
 		[
 			['bookofborutremake', 'migrated'],
 			['bookoffresh', 'error'],
-			['bookofpots', 'migrated'],
+			['bookofpots', 'blocked'],
 			['bookofthermopylae', 'migrated'],
 			['bookofborut', 'blocked'],
 			['bookofleased', 'blocked'],
+			['bookoffreeoff', 'blocked'],
+			['bookofkept', 'migrated'],
+			['bookofflaky', 'republish-pending'],
+			['bookofkindrace', 'error'],
 		],
 		'statuses',
 	);
-	for (const r of first) {
-		console.log(`       ${r.key} ${r.status}${r.error ? ` — ${r.error}` : ''}`);
-		for (const step of r.steps) console.log(`         ${step}`);
-	}
+	print(first);
 });
 
 await check('the remake: config migrated to the captured game, the buy under its own name', () => {
@@ -433,12 +564,26 @@ await check('the remake: config migrated to the captured game, the buy under its
 	same(doc.freeSpins?.retriggerAwards, [{ count: 3, spins: 10 }], 'retrigger +10');
 	same(doc.freeSpins?.expandingSymbol, bookOfThermopylaePreset().freeSpins?.expandingSymbol, 'the expanding block'); // prettier-ignore
 	same(Object.entries(doc.betModes).map(([m, b]) => [m, b.cost]), [['base', 1], ['bonus', 100]], 'base + the 100× buy'); // prettier-ignore
-	same(
-		Object.keys(doc.betModePresentation ?? {}),
-		['bonus'],
-		'presentation follows the kept modes',
-	);
+	same(Object.keys(doc.betModePresentation ?? {}), ['bonus'], 'presentation follows the modes');
 });
+
+await check(
+	'the remake republished: its snapshot carries the block, its manifest deals the grid',
+	() => {
+		assert(
+			SNAPSHOTS.get('bookofborutremake')?.freeSpins?.expandingSymbol,
+			'snapshot has the block',
+		);
+		const live = manifestEntry('bookofborutremake');
+		same(live.protocol, 'lines', 'the lines mock deals it');
+		same(live.grid, PINNED_GRID, 'the Book of Thermopylae grid');
+		same(
+			manifestEntry('bookofborutremakebuild').protocol,
+			'book',
+			'the desktop build is not touched',
+		);
+	},
+);
 
 await check('every save carries a History backup of what it replaced', async () => {
 	const configBackups = await listBackups(gameConfigDocBackupTarget(CLIENT, 'bookofborutremake'));
@@ -451,93 +596,119 @@ await check('every save carries a History backup of what it replaced', async () 
 	);
 });
 
-await check('layout and kind: bookOf → lines, after the docs', () => {
-	for (const key of ['bookofborutremake', 'bookofpots', 'bookofthermopylae']) {
-		same(
-			stored<{ gameType: string }>(editorDocKey(CLIENT, key)).gameType,
-			'lines',
-			`${key} layout`,
-		);
+await check('layout and kind move after the docs; publishes only test-server cards', () => {
+	for (const key of ['bookofborutremake', 'bookofthermopylae', 'bookofflaky']) {
+		same(stored<{ gameType: string }>(editorDocKey(CLIENT, key)).gameType, 'lines', `${key} layout`); // prettier-ignore
 	}
-	same(KIND_WRITES, ['bookofborutremake=lines', 'bookofpots=lines', 'bookofthermopylae=lines'], 'kinds'); // prettier-ignore
-	same(INVALIDATED, ['bookofborutremake', 'bookofpots', 'bookofthermopylae'], 'bundle caches');
-});
-
-await check('republish: test-server cards only; a refusal reported, never overridden', () => {
-	same(PUBLISHES, ['bookofborutremake by owner@test from https://app.test', 'bookofpots by owner@test from https://app.test'], 'publishes'); // prettier-ignore
-	assert(
-		result(first, 'bookofpots').steps.some((s) => s.startsWith('republish bookofpots: REFUSED (paytable-drift)')),
-		'the pots refusal is reported',
-	); // prettier-ignore
+	same(KIND_WRITES, ['bookofborutremake=lines', 'bookofthermopylae=lines', 'bookofkept=lines', 'bookofflaky=lines'], 'kinds'); // prettier-ignore
+	same(PUBLISHES, ['bookofborutremake'], 'only the remake republished (flaky failed)');
 	assert(
 		result(first, 'bookofthermopylae').steps.some((s) => s.startsWith('republish bookofthermopylae: skipped — not a test-server card')),
 		'the partner game is skipped',
 	); // prettier-ignore
 });
 
-await check('the pots project keeps its overlay and its buy name', () => {
-	const doc = configOf('bookofpots');
-	assert(doc.potsOverlay, 'overlay kept');
-	same(Object.entries(doc.betModes).map(([m, b]) => [m, b.cost]), [['base', 1], ['freespins', 100]], 'bet modes'); // prettier-ignore
+await check('a project an author configured keeps its expanding block and retrigger', () => {
+	same(configOf('bookofkept').freeSpins, kept().freeSpins, 'free spins as authored');
 });
 
 await check('a blocked project is left byte-identical, its kind unmoved', () => {
-	same(blockedBefore('bookofborut') === borutBefore, true, 'the desktop build project');
-	same(blockedBefore('bookofleased') === leasedBefore, true, 'the leased project');
-	same([KINDS.get('bookofborut'), KINDS.get('bookofleased')], ['bookOf', 'bookOf'], 'kinds');
+	same(untouched.map(projectObjects), untouchedBefore, 'docs and History');
+	same(
+		untouched.map((k) => KINDS.get(k)),
+		untouched.map(() => 'bookOf'),
+		'kinds',
+	);
 	assert(result(first, 'bookofleased').error?.startsWith('Ana is editing /config'), 'the lease is named'); // prettier-ignore
+	same(Object.keys(configOf('bookoffreeoff').betModes), ['base', 'bonus'], 'free spins off: the buy is kept'); // prettier-ignore
 });
 
 await check('a save that loses its race is reported; the project is not half-moved', () => {
-	same(result(first, 'bookoffresh').error, 'a doc was saved by someone else meanwhile — run the migration again', 'error'); // prettier-ignore
+	same(result(first, 'bookoffresh').error, 'a doc was saved by someone else meanwhile. It is still listed: run the migration again.', 'error'); // prettier-ignore
 	same(KINDS.get('bookoffresh'), 'bookOf', 'kind unmoved');
 	same(configOf('bookoffresh'), linesTemplate(), 'the author’s save stands');
 });
 
+await check('a kind changed meanwhile is never overwritten', () => {
+	same(KINDS.get('bookofkindrace'), 'ways', 'kind left as set');
+	same(
+		result(first, 'bookofkindrace').error,
+		"its kind is now 'ways' — changed meanwhile, left alone. It is no longer listed, so a re-run will not pick it up: check it by hand (the steps above were written).",
+		'reported, without promising a re-run',
+	);
+});
+
+await check('a republish that fails after the kind moved is remembered', async () => {
+	same(KINDS.get('bookofflaky'), 'lines', 'kind moved');
+	assert(R2.has(PENDING('bookofflaky')), 'pending marker');
+	assert(result(first, 'bookofflaky').steps.some((s) => s.startsWith('republish bookofflaky: FAILED — R2 timed out')), 'reported'); // prettier-ignore
+	const again = await planBookOfMigration(GAMES);
+	const facts = again.census.projects.find((p) => p.key === 'bookofflaky');
+	same(facts?.pendingRepublish, ['bookofflaky'], 'the census lists it although it is Lines now');
+	same(again.plans.find((p) => p.key === 'bookofflaky')?.republish.games, ['bookofflaky'], 'planned again'); // prettier-ignore
+});
+
 console.info('re-runs');
 
-const second = await applyBookOfMigration(RUN);
-await check('the next run finishes what lost its race, and only that', () => {
-	same(second.map((r) => [r.key, r.status]), [['bookoffresh', 'migrated'], ['bookofborut', 'blocked'], ['bookofleased', 'blocked']], 'statuses'); // prettier-ignore
-	same(KINDS.get('bookoffresh'), 'lines', 'kind');
+// The owner rebuilds bookofborut from the desktop launcher, which stamps it.
+const manifest = stored<{ games: Record<string, Record<string, unknown>> }>(
+	TEST_SERVER_MANIFEST_KEY,
+);
+manifest.games.bookofborut.tableCapable = true;
+put(TEST_SERVER_MANIFEST_KEY, manifest);
+const second = await applyAll();
+
+await check('the next run finishes what lost its race or failed, and the rebuilt build', () => {
+	print(second);
+	same(
+		second.map((r) => [r.key, r.status]),
+		[
+			['bookoffresh', 'migrated'],
+			['bookofpots', 'blocked'],
+			['bookofborut', 'migrated'],
+			['bookofleased', 'blocked'],
+			['bookoffreeoff', 'blocked'],
+			['bookofflaky', 'migrated'],
+		],
+		'statuses',
+	);
 	same(configOf('bookoffresh').symbols.S.special_properties, ['scatter', 'wild'], 'the raced config, migrated'); // prettier-ignore
+	same(
+		PUBLISHES,
+		['bookofborutremake', 'bookofflaky'],
+		'flaky republished; the desktop build never',
+	);
+	same(manifestEntry('bookofflaky').protocol, 'lines', 'flaky on the lines mock');
+	same(R2.has(PENDING('bookofflaky')), false, 'its pending marker is gone');
+	assert(result(second, 'bookofborut').steps.includes('republish bookofborut: skipped — a desktop build (its own bundle): rebuilt, not republished'), 'the desktop card is skipped'); // prettier-ignore
+	same(manifestEntry('bookofborut').protocol, 'book', 'the desktop entry is left for its rebuild');
 });
 
 await check('a run after everything landed is a no-op', async () => {
 	const settled = snapshot();
 	const writes = [KIND_WRITES.length, PUBLISHES.length, INVALIDATED.length];
-	const third = await applyBookOfMigration(RUN);
-	same(
-		third.map((r) => r.status),
-		['blocked', 'blocked'],
-		'only the blocked projects remain',
-	);
+	const third = await applyAll();
+	same(third.map((r) => [r.key, r.status]), [['bookofpots', 'blocked'], ['bookofleased', 'blocked'], ['bookoffreeoff', 'blocked']], 'only the blocked projects remain'); // prettier-ignore
 	same(snapshot() === settled, true, 'R2 unchanged');
 	same([KIND_WRITES.length, PUBLISHES.length, INVALIDATED.length], writes, 'no kind, publish or cache write'); // prettier-ignore
-	for (const key of ['bookofborutremake', 'bookofpots', 'bookofthermopylae']) {
+	for (const key of ['bookofborutremake', 'bookofthermopylae', 'bookofkept', 'bookofflaky']) {
 		same(migrateBookOfConfig(configOf(key)).changes, [], `${key}: migrating again changes nothing`);
 	}
+	same(
+		(await applyBookOfMigrationTo('bookofborutremake', RUN)).status,
+		'nothing-to-do',
+		'a migrated key',
+	);
 });
 
 // ─── equivalence ──────────────────────────────────────────────────────────────────────────────
 
 console.info('the migrated game is the one the book mock deals (Phase 3 comparison)');
 
-await check(
-	'the remake, the un-authored preset and the partner deal the Book of Thermopylae grid',
-	() => {
-		same(linesGrid(configOf('bookofborutremake'), 'bookofborutremake'), PINNED_GRID, 'remake');
-		same(linesGrid(migrateBookOfConfig(null).doc!, 'fresh'), PINNED_GRID, 'un-authored');
-		same(linesGrid(configOf('bookofthermopylae'), 'bookofthermopylae'), PINNED_GRID, 'partner');
-	},
-);
-
-await check('a board the book mock cannot deal is blocked, not reshaped', () => {
-	const doc = remake();
-	doc.numReels = 6;
-	doc.numRows = [3, 3, 3, 3, 3, 3];
-	const out = migrateBookOfConfig(doc);
-	same([out.doc, out.blockers.length], [null, 1], 'blocked');
+await check('the remake, the un-authored preset and the partner deal the Thermopylae grid', () => {
+	same(linesGrid(configOf('bookofborutremake'), 'bookofborutremake'), PINNED_GRID, 'remake');
+	same(linesGrid(migrateBookOfConfig(null).doc!, 'fresh'), PINNED_GRID, 'un-authored');
+	same(linesGrid(configOf('bookofthermopylae'), 'bookofthermopylae'), PINNED_GRID, 'partner');
 });
 
 if (failures) {

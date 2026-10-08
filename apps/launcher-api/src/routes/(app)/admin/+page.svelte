@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { enhance } from '$app/forms';
+	import { deserialize, enhance } from '$app/forms';
 	import Emblem from '$lib/Emblem.svelte';
 	import BootMarkPreview from '$lib/BootMarkPreview.svelte';
 	import ColorField from '$lib/ColorField.svelte';
@@ -39,6 +39,54 @@
 	let purgeConfirmKey = $state('');
 	/** A rejected attempt, shown INSIDE the open dialog rather than behind it. */
 	let projectActionError = $state('');
+
+	type MigrationResult = {
+		key: string;
+		status: string;
+		steps: string[];
+		error?: string;
+	};
+	let migrationConfirm = $state(false);
+	let migrationRunning = $state(false);
+	let migrationResults = $state<MigrationResult[]>([]);
+
+	/** Apply the Book-of migration one project per request, showing each result as it lands. */
+	async function applyMigration(keys: string[]) {
+		migrationRunning = true;
+		migrationResults = [];
+		for (const key of keys) {
+			const body = new FormData();
+			body.set('key', key);
+			body.set('confirm', 'yes');
+			let result: MigrationResult;
+			try {
+				const res = await fetch('?/bookOfApplyOne', { method: 'POST', body });
+				const out = deserialize(await res.text());
+				const data = out.type === 'success' || out.type === 'failure' ? out.data : undefined;
+				result =
+					data && 'result' in data
+						? (data.result as MigrationResult)
+						: {
+								key,
+								status: 'error',
+								steps: [],
+								error:
+									data && 'error' in data
+										? String(data.error)
+										: 'The server returned an error — reload and sign in again.',
+							};
+			} catch (e) {
+				result = {
+					key,
+					status: 'error',
+					steps: [],
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+			migrationResults = [...migrationResults, result];
+		}
+		migrationRunning = false;
+	}
 	let deleteFormEl = $state<HTMLFormElement | null>(null);
 	let purgeFormEl = $state<HTMLFormElement | null>(null);
 
@@ -1055,19 +1103,30 @@
 			<p class="muted hint">
 				Every project of the retired <code>bookOf</code> kind becomes a Lines project with the expanding
 				symbol: its config (through History), its layout's kind, its kind, and a republish of its online
-				game. Rebuild its desktop builds from the desktop launcher first. A migrated project is not listed
-				again.
+				game. Rebuild its desktop builds from the desktop launcher first. Run the dry run, then Apply:
+				it runs one project at a time. A migrated project is not listed again; one whose republish did
+				not land is, until it does.
 			</p>
 			<div class="migration-actions">
 				<form method="POST" action="?/bookOfDryRun" use:enhance>
 					<button type="submit" class="small">Census and dry run</button>
 				</form>
-				<form method="POST" action="?/bookOfApply" use:enhance>
+				{#if form?.action === 'bookOfDryRun' && 'plans' in form && form.plans?.length}
+					{@const keys = form.plans.map((p) => p.key)}
 					<label class="check"
-						><input type="checkbox" name="confirm" value="yes" /> I ran the dry run</label
+						><input type="checkbox" bind:checked={migrationConfirm} /> I read this dry run</label
 					>
-					<button type="submit" class="danger small">Apply</button>
-				</form>
+					<button
+						type="button"
+						class="danger small"
+						disabled={!migrationConfirm || migrationRunning}
+						onclick={() => applyMigration(keys)}
+					>
+						{migrationRunning
+							? `Applying ${migrationResults.length + 1} of ${keys.length}…`
+							: `Apply to ${keys.length} project${keys.length === 1 ? '' : 's'}`}
+					</button>
+				{/if}
 			</div>
 			{#if form?.action === 'bookOfDryRun' && 'plans' in form && form.census}
 				{@const census = form.census}
@@ -1086,7 +1145,9 @@
 						{#if plan.blockers.length}<span class="pill off">blocked</span>{/if}
 						{#if facts}
 							<p class="muted">
-								config {facts.config ?? 'un-authored'} · book {facts.book
+								kind {facts.kind}{facts.pendingRepublish
+									? ` (republish pending: ${facts.pendingRepublish.join(', ')})`
+									: ''} · config {facts.config ?? 'un-authored'} · book {facts.book
 									? `${facts.book.symbol} [${facts.book.specialProperties.join(', ')}]`
 									: 'none'}{facts.alreadyWild ? ' (already wild)' : ''} · bet modes {facts.betModes
 									.map((m) => `${m.mode} ${m.kind} ${m.cost}×`)
@@ -1099,7 +1160,10 @@
 											`${m.key} ${m.protocol}${m.runtime ? ` (${m.runtime})` : ' (desktop)'}${m.tableCapable ? ' table-capable' : ''}`,
 									)
 									.join(', ') || 'none'} · cards {facts.cards
-									.map((c) => `${c.key}${c.testServer ? '' : ' (not test-server)'}`)
+									.map(
+										(c) =>
+											`${c.key}${c.desktop ? ' (desktop)' : c.testServer ? '' : ' (not test-server)'}`,
+									)
 									.join(', ') || 'none'}
 							</p>
 						{/if}
@@ -1121,20 +1185,16 @@
 					<p class="hint">Nothing to migrate.</p>
 				{/each}
 			{/if}
-			{#if form?.action === 'bookOfApply' && 'results' in form}
-				{#each form.results as r (r.key)}
-					<div class="migration">
-						<strong><code>{r.key}</code></strong>
-						<span class="pill {r.status === 'migrated' ? 'on' : 'off'}">{r.status}</span>
-						{#if r.error}<p class="err">{r.error}</p>{/if}
-						<ul>
-							{#each r.steps as step, i (i)}<li>{step}</li>{/each}
-						</ul>
-					</div>
-				{:else}
-					<p class="hint">Nothing to migrate.</p>
-				{/each}
-			{/if}
+			{#each migrationResults as r (r.key)}
+				<div class="migration">
+					<strong><code>{r.key}</code></strong>
+					<span class="pill {r.status === 'migrated' ? 'on' : 'off'}">{r.status}</span>
+					{#if r.error}<p class="err">{r.error}</p>{/if}
+					<ul>
+						{#each r.steps as step, i (i)}<li>{step}</li>{/each}
+					</ul>
+				</div>
+			{/each}
 		</section>
 	</div>
 
