@@ -28,7 +28,7 @@ export const loadScript = (name) =>
 
 const protocolFor = (gameType) => {
 	if (gameType === 'bookOf') return 'book';
-	return ['ways', 'cluster', 'scatter', 'holdAndWin'].includes(gameType) ? gameType : 'lines';
+	return ['ways', 'cluster', 'scatter'].includes(gameType) ? gameType : 'lines';
 };
 
 /** `grid.potsOverlay.pots.0.id` in a manifest entry; a negative index counts from the end. */

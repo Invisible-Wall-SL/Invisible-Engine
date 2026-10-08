@@ -19,9 +19,11 @@ import {
 	HOLD_AND_WIN_TEST_FIXTURES,
 	holdAndWinBonus,
 	holdAndWinMockInputs,
+	holdAndWinModeDecl,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	potsOverlayPreset,
+	symbolHoldAndWinRoles,
 } from '../game-config/index.ts';
 import {
 	applyHoldAndWinEvent,
@@ -810,6 +812,120 @@ for (const tags of ['all', 'none'] as const) {
 	);
 	await close(proxy.server);
 	await close(host.server);
+}
+
+// ---------- the REAL two-mode mock (Phase 2): no proxy ----------
+
+// The 3 Pots overlay over the lines host, plus the Collector preset imported as `holdAndWin_2` (its
+// symbols renamed `_2`, on its own `respin_2` strip) and the green pot routed to it — the host
+// `check:bonus-modes` pins on the mock side.
+{
+	const collector = normalizeGameConfigDoc(structuredClone(HOLD_AND_WIN_PRESETS.collector));
+	const rules = collector?.modes?.find((m) => m.id === 'holdAndWin')?.holdAndWin;
+	if (!collector || !rules) throw new Error('the Collector preset has no holdAndWin mode');
+	const isRole = (name: string) => symbolHoldAndWinRoles(collector.symbols[name]).length > 0;
+	const as2 = (name: string) => (isRole(name) ? `${name}_2` : name);
+	const preset = potsOverlayPreset('threePots');
+	const bonus = holdAndWinBonus(preset.holdAndWin, LINES_HOST);
+	const three = normalizeGameConfigDoc({
+		...structuredClone(LINES_HOST),
+		symbols: { ...LINES_HOST.symbols, ...bonus.symbols, ...preset.tokens },
+		paddingReels: { ...LINES_HOST.paddingReels, ...bonus.paddingReels },
+		holdAndWin: bonus.holdAndWin,
+		potsOverlay: preset.potsOverlay,
+	});
+	if (!three) throw new Error('the 3 Pots host did not normalize');
+	const raw = structuredClone(three) as Record<string, unknown> & typeof three;
+	delete raw.holdAndWin;
+	delete raw.potsOverlay;
+	for (const [name, symbol] of Object.entries(collector.symbols))
+		if (isRole(name)) raw.symbols[as2(name)] = structuredClone(symbol);
+	const strips = collector.paddingReels.respin;
+	raw.paddingReels.respin_2 = Array.from({ length: raw.numReels }, (_u, reel) =>
+		strips[reel % strips.length].map((cell) => ({ ...cell, name: as2(cell.name) })),
+	);
+	raw.modes = [
+		...(raw.modes ?? []),
+		{
+			...holdAndWinModeDecl(),
+			id: MODE_B,
+			gameType: KEY_B,
+			label: 'Collector',
+			holdAndWin: { ...structuredClone(rules), blank: 'BLANK_2' },
+		},
+	];
+	const overlay = (raw as { coinOverlay: { pots: { id: string; bonus?: { mode: string } }[] } })
+		.coinOverlay;
+	overlay.pots = overlay.pots.map((p) =>
+		p.id === 'green' ? { ...p, bonus: { mode: MODE_B } } : p,
+	);
+	const two = normalizeGameConfigDoc(raw);
+	if (!two) throw new Error('the two-mode host did not normalize');
+	const inputs = potsOverlayMockInputs(two);
+	const primaryStickiness = (inputs.holdAndWin as { modes?: { block: { stickiness: string } }[] })
+		?.modes?.[0]?.block.stickiness;
+
+	const roundOn = async (force: string) => {
+		const mock = withPotsOverlay(
+			(opts: Record<string, unknown> = {}) => createLinesMock({ quiet: true, ...opts }),
+			inputs,
+		)({ label: 'modes-real', seed: `modes-real-${force}`, allowForce: true });
+		const server = createServer((req, res) =>
+			mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
+		);
+		const rgsUrl = await listen(server);
+		const proxy = await startProxy(rgsUrl, () => {}, forcing(force));
+		const events = await playRound(proxy.rgsUrl, `modes-real-${force}`);
+		await close(proxy.server);
+		await close(server);
+		return events;
+	};
+	check(
+		'real mock: the primary and B play by different stickiness',
+		[primaryStickiness !== rules.stickiness, rules.stickiness],
+		[true, 'collectorsOnly'],
+	);
+	verifyModeRound(
+		'real mock red pot',
+		await roundOn('force:pot:red'),
+		'holdAndWin',
+		primaryStickiness,
+	);
+	verifyModeRound(
+		'real mock green pot',
+		await roundOn('force:pot:green'),
+		MODE_B,
+		'collectorsOnly',
+	);
+	const both = await roundOn('force:pot:red,pot:green');
+	const boardLevel = new Set([
+		'holdAndWinTrigger',
+		'respinReveal',
+		'holdAndWinState',
+		'holdAndWinEnd',
+	]);
+	const runs: string[] = [];
+	for (const e of both)
+		if (boardLevel.has(e.type) && runs.at(-1) !== e.mode) runs.push(String(e.mode));
+	check(
+		'real mock both pots: the two features play in turn, every board event in its own mode',
+		runs,
+		['holdAndWin', MODE_B],
+	);
+	check(
+		'real mock both pots: …each by its own stickiness, nothing left untranslated, nothing as free spins',
+		[
+			[
+				...new Set(
+					both
+						.filter((e) => e.type === 'holdAndWinState')
+						.map((e) => `${e.mode}:${(e.snapshot as HoldAndWinState).stickiness}`),
+				),
+			],
+			both.filter((e) => e.type.startsWith('_') || e.type.startsWith('freeSpin')).length,
+		],
+		[[`holdAndWin:${primaryStickiness}`, `${MODE_B}:collectorsOnly`], 0],
+	);
 }
 
 // ---------- RESUME in mode B ----------

@@ -266,20 +266,17 @@ const holdAndWinFallbackWarned = new Set();
 
 /**
  * A Hold and Win game's mock, built from the `holdAndWin` inputs its contract carries (the project's
- * block, symbols and line pays — `holdAndWinMockInputs` in game-config). A contract without them (a
- * project with no `holdAndWin` block, or an entry published before Phase 3) is dealt as the lines
- * game its base game is, and says so once: a respin feature that never comes is otherwise
- * indistinguishable from a broken one.
+ * block, symbols and line pays — `holdAndWinMockInputs` in game-config). Inputs that are malformed,
+ * or that the mock cannot stand up, leave the game dealt as the lines game its base game is, and it
+ * says so once: a respin feature that never comes is otherwise indistinguishable from a broken one.
  */
 const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin, sells) => {
 	try {
-		if (grid?.holdAndWin) {
-			// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
-			// never get it, its authoring twin and a standalone build's one mock do.
-			const allowForce = twin || !runtime;
-			return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, sells) });
-		}
-		throw new Error('its contract carries no holdAndWin block');
+		if (grid.holdAndWinRejected) throw new Error('its holdAndWin inputs are malformed');
+		// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
+		// never get it, its authoring twin and a standalone build's one mock do.
+		const allowForce = twin || !runtime;
+		return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, sells) });
 	} catch (e) {
 		if (!holdAndWinFallbackWarned.has(gameKey)) {
 			holdAndWinFallbackWarned.add(gameKey);
@@ -365,15 +362,22 @@ const makeMock = (
 ) => {
 	// Whether this game's client prices a bet-option table (see `sellableGrid`).
 	const sells = Boolean(runtime) || tableCapable === true;
-	if (protocol === 'holdAndWin') {
+	// A Hold and Win game: a lines contract carrying the base-game Hold and Win inputs (the launcher
+	// sends them for a `holdAndWin`-kind project; an overlay's bonus rides `potsOverlay`), or ones
+	// that were sent but rejected, which its mock reports before the game is dealt as lines.
+	if (protocol === 'lines' && (grid?.holdAndWin || grid?.holdAndWinRejected)) {
 		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin, sells);
 		if (mock) return mock;
+	}
+	if (grid?.holdAndWinRejected) {
+		grid = { ...grid };
+		delete grid.holdAndWinRejected;
 	}
 	// `book` owns its board and paylines; what it reads of the contract is the project's authored line
 	// table, so it pays (and declares) what `/config` set rather than its captured one, its in-play
 	// pool, so it never deals a symbol `/config` marks unused, its pots overlay and its free-spins rule.
 	if (protocol === 'book') return makeBookMock(label, grid, gameKey, runtime, twin);
-	// `holdAndWin` lands here only when its own mock could not be built (above).
+	// A Hold and Win game lands here only when its own mock could not be built (above).
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
@@ -630,6 +634,26 @@ const validGrid = (grid) => {
 	const scatterWild = grid.scatterWild === true;
 	// A Hold and Win game's inputs: its block, line symbols and symbol roles/pays. Shape-checked only
 	// as far as the mock needs to stand up; everything inside was normalized by the launcher.
+	const symbolsShaped = (symbols) =>
+		Boolean(symbols) &&
+		typeof symbols === 'object' &&
+		Object.values(symbols).every((sym) => sym && Array.isArray(sym.roles));
+	// Its respin modes, when it has more than the default one: each its id, strip key, rules, blank and
+	// the symbols it deals.
+	const respinModesShaped = (modes) =>
+		modes === undefined ||
+		(Array.isArray(modes) &&
+			modes.length > 0 &&
+			modes.every(
+				(m) =>
+					m &&
+					typeof m.mode === 'string' &&
+					typeof m.gameType === 'string' &&
+					typeof m.blank === 'string' &&
+					m.block &&
+					typeof m.block === 'object' &&
+					symbolsShaped(m.symbols),
+			));
 	const holdAndWinShaped = (hw) =>
 		Boolean(
 			hw &&
@@ -638,11 +662,12 @@ const validGrid = (grid) => {
 			typeof hw.block === 'object' &&
 			Array.isArray(hw.lineSymbols) &&
 			hw.lineSymbols.every((s) => typeof s === 'string') &&
-			hw.symbols &&
-			typeof hw.symbols === 'object' &&
-			Object.values(hw.symbols).every((sym) => sym && Array.isArray(sym.roles)),
+			symbolsShaped(hw.symbols) &&
+			respinModesShaped(hw.modes),
 		);
 	const holdAndWin = holdAndWinShaped(grid.holdAndWin) ? grid.holdAndWin : null;
+	// Present but malformed: still a Hold and Win game, whose mock says why it cannot be dealt.
+	const holdAndWinRejected = grid.holdAndWin !== undefined && !holdAndWin;
 	// An overlay's REELS modes of the project's own (an imported free spins): per mode, the strips its
 	// spins are drawn from (one per reel, names) and the line pays of its own symbols.
 	const reelsModesShaped = (modes) =>
@@ -699,6 +724,7 @@ const validGrid = (grid) => {
 		...(scatterPaytable ? { scatterPaytable } : {}),
 		...(betModes ? { betModes } : {}),
 		...(holdAndWin ? { holdAndWin } : {}),
+		...(holdAndWinRejected ? { holdAndWinRejected: true } : {}),
 		...(potsOverlay ? { potsOverlay } : {}),
 		...(freeSpinsOff ? { freeSpins: false } : {}),
 		...(freeSpinsTrigger ? { freeSpinsTrigger } : {}),
@@ -762,12 +788,17 @@ const contractSourceFor = (meta, channel) =>
 	channel === AUTHORING || !meta.runtime ? 'live' : 'published';
 
 const MOCK_PROTOCOLS = new Set(['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin']);
+/** A known protocol, else `fallback`. A `holdAndWin` stamp (before bonus-games Phase 2) is the lines
+ *  contract the launcher now sends for the same game, so the two fingerprint the same and a refresh
+ *  never rebuilds the mock over the stamp alone. */
+const protocolOf = (raw, fallback) =>
+	raw === 'holdAndWin' ? 'lines' : MOCK_PROTOCOLS.has(raw) ? raw : fallback;
 
 /** Normalize a contract from EITHER source (manifest snapshot or live endpoint) into what
  *  `makeMock` consumes. Both go through `validGrid`, so the live answer gets the same defensive
  *  shape-check the external manifest already got — one gate, no second answer. */
 const normalizeContract = (raw, fallbackProtocol) => ({
-	protocol: MOCK_PROTOCOLS.has(raw?.protocol) ? raw.protocol : fallbackProtocol,
+	protocol: protocolOf(raw?.protocol, fallbackProtocol),
 	cascade: typeof raw?.cascade === 'boolean' ? raw.cascade : undefined,
 	grid: validGrid(raw?.grid),
 });
@@ -1113,7 +1144,7 @@ async function hydrateOnce() {
 		return lastGood;
 	};
 	for (const [key, meta] of Object.entries(source.games)) {
-		const protocol = MOCK_PROTOCOLS.has(meta.protocol) ? meta.protocol : 'lines';
+		const protocol = protocolOf(meta.protocol, 'lines');
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
 		// A PINNED game (canary) names its own release; every other runtime game follows the pointer.
 		const pinned =
