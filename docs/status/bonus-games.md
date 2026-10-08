@@ -35,7 +35,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 3 | Facade + wire + event types | not started (needs 1) | — | — |
 | 4 | Engine runtime: active-mode rules | not started (needs 3) | — | — |
 | 5a | `/config` Bonus modes + Coin overlay | not started (needs 1) | — | — |
-| 5b | Scene Editor + capabilities + `/symbols` | in progress | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | — |
+| 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | — |
 | 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
 | 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
 | 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
@@ -113,7 +113,53 @@ starts the phase sessions, reviews their PRs and merges them.
   - Mode-level validation of a SECOND respin mode's rules is still owed. Only the mirrored primary
     goes through `validateHoldAndWin`; Phase 2 or 5a should run it per mode.
 
+- 2026-10-08 — **Phase 5b: what the capability keys on** (hub decision on the 5b question).
+  - `kindCapabilities().holdAndWin` (and so `coinSymbols`) is on when any declared mode has
+    `board: 'respinBoard'`, with or without rules. A coin overlay alone does NOT turn on coin roles:
+    a pots-only host's tokens carry no cash value, so every current doc stays byte-identical.
+    **Follow-up:** widen it when an overlay deals valued coins without a respin mode.
+  - The overlay's own parts (`potsOverlay`, the Pots screen) key on `overlayDropsTokens(coinOverlay)`
+    (game-config). That is the predicate the legacy `potsOverlay` mirror uses, so the two cannot
+    drift, and dropping the mirror in Phase 7 changes nothing. `bonusCapabilityInputs` now returns
+    `potsOverlay` too. A classic Hold and Win project has a `coinOverlay` but drops nothing, so it
+    gets no Pots screen.
+  - A second respin mode's screens carry `-<modeId>` on their scene and node ids, and the mode id
+    in brackets after the screen name. The `holdAndWin` mode keeps the reference ids. **Phase 4 and
+    5c:** the coded banner beats (`HOLD_AND_WIN_BANNER_SCREENS`) still look up the plain ids, so
+    the active mode's banner screen must be found by `modeId` + role, not by id.
+  - **For 5a:** `/config` shows `HoldAndWinSection` on the capability, so it now appears for a lines
+    project with a rule-less respin mode. Its "Start an empty block" writes the legacy key, which
+    creates a `holdAndWin` mode rather than filling the declared one. 5a replaces the section.
+  - `/symbols` keeps coin-label jackpot text by tier name (no schema change). The Mode picker only
+    chooses whose tiers are listed, so two modes sharing a tier name share its label.
+
 ## Recent changes
+
+- 2026-10-08 — **Phase 5b: capabilities, Scene Editor and `/symbols` per mode** (PR #PRNUM).
+  - **Capabilities.** `projectAddOns` reads `bonusCapabilityInputs`: the respin feature is any
+    declared respin mode, and the pots overlay is `overlayDropsTokens` (the new game-config helper
+    the mirror uses too). The `holdAndWin` kind resolves as before.
+  - **Scene Editor.** `SceneSetOptions.respinModes` (from `respinModesOf` / `sceneSetOptionsFor`)
+    seeds the reference respin screens once per respin mode, tagged `modeId`. Each mode is laid
+    out for its own `maxRows`, and the base grid reserves the tallest. The `holdAndWin` kind adds
+    only its other modes' screens.
+  - **`/symbols`.** Coin-label jackpot tiers come from the respin mode being edited (the primary
+    first), with a **Mode** picker when there are several. Role chips follow the capability.
+  - **Guides:** `docs/tools/invisible-editor.md` and `docs/tools/symbols-state-machine.md`. Design
+    §2.4 is corrected to the hub's decision.
+  - **Gates:**
+    - The new `check:bonus-modes-tools` (72 checks) covers:
+      - a lines doc with two respin modes: both screen sets with distinct `modeId`s, no duplicate
+        scene or node ids, per-mode `maxRows`, the capability on, per-mode tiers;
+      - a second mode on the `holdAndWin` kind;
+      - a rule-less respin mode;
+      - every doc without a second mode (the presets, an expanding Hold and Win, lines + overlays,
+        `borut-pots-sample`): byte-identical add-ons, scene sets and tiers, and the same add-ons
+        with the legacy keys stripped.
+    - `check:flow-publish-gate`, `check:symbols-kind-gating`, `check:pots-overlay-add-on`,
+      `check:bonus-import` and `bonusGames.fixture` (its §6 now pins `potsOverlay`) pass. GATES_LINE
+  - **What's left:** Phase 4/5c find a mode's banner screens by `modeId`. 5a replaces the `/config`
+    Hold and Win section. 5d covers Win Text and Localization tiers per mode.
 
 - 2026-10-08 — **Phase 1: the hub's review fixes** (PR #1133).
   - **Blocking 1:** a `reels` / `none` override of the Hold and Win mode no longer drops its block.

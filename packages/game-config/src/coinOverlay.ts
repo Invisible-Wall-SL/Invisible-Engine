@@ -214,9 +214,16 @@ export function normalizeCoinOverlay(raw: unknown): CoinOverlay | undefined {
 
 // ─── the legacy halves ────────────────────────────────────────────────────────────────────────
 
+/** Does the overlay drop tokens on the reels? What makes it the pots overlay add-on: the legacy
+ *  `potsOverlay` key mirrors it, and the tools light the overlay's own parts (`kindCapabilities`
+ *  `potsOverlay`) on it. */
+export function overlayDropsTokens(overlay: CoinOverlay | undefined): boolean {
+	return Boolean(overlay?.drops);
+}
+
 /** The legacy `potsOverlay` block the overlay's pots and drops make, or `undefined` without drops. */
 export function legacyPotsOverlayOf(overlay: CoinOverlay | undefined): PotsOverlay | undefined {
-	if (!overlay?.drops) return undefined;
+	if (!overlay || !overlayDropsTokens(overlay)) return undefined;
 	return structuredClone({
 		pots: overlay.pots ?? [],
 		drops: overlay.drops,

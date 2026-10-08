@@ -14,7 +14,8 @@
  *  3. A respin mode declared without rules still turns the capability on and seeds its screens.
  *  4. Every doc without a second respin mode is byte-identical to before: the add-ons equal the
  *     legacy block reads, the scene set equals the one the legacy options gave, and the first
- *     mode's jackpot tiers are the legacy block's.
+ *     mode's jackpot tiers are the legacy block's. Stripping the legacy keys (the compat mirror
+ *     Phase 7 drops) leaves the add-ons unchanged.
  */
 
 import {
@@ -255,6 +256,18 @@ const linesHw = withOverlay(lines, 'threePots');
 
 	for (const [name, doc] of docs) {
 		check(`4. ${name} · add-ons`, projectAddOns(doc).addOns, legacyAddOns(doc));
+		if (doc) {
+			// The capabilities come from the split form: dropping the compat mirror (Phase 7) changes
+			// nothing.
+			const stripped = clone(doc);
+			delete stripped.holdAndWin;
+			delete stripped.potsOverlay;
+			check(
+				`4. ${name} · the legacy keys stripped, the same add-ons`,
+				projectAddOns(stripped).addOns,
+				projectAddOns(doc).addOns,
+			);
+		}
 		for (const kind of ['lines', 'bookOf', 'holdAndWin']) {
 			check(
 				`4. ${name} on ${kind} · scene set`,

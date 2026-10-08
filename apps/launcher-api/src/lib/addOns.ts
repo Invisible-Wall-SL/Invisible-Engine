@@ -64,17 +64,21 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 
 /**
  * The project's add-ons, plus the pot ids its pots screen shows: every resolved meter, the Hold
- * and Win block's first. The respin feature is on when any declared mode plays on the respin board
- * (game-config's `bonusCapabilityInputs`); the pots overlay and the meters are read through
- * `flowAddOnsOf`, the one reader Invisible Flow composes from too. `potIds` is null when no config
+ * and Win block's first. Both add-ons come from the split form (game-config's
+ * `bonusCapabilityInputs`): the respin feature when any declared mode plays on the respin board, the
+ * pots overlay when the coin overlay drops tokens. Coin roles follow the respin feature alone
+ * (`kindCapabilities().coinSymbols`), so a pots-only host's valueless tokens add none. The meters
+ * are read through `flowAddOnsOf`, the one reader Invisible Flow composes from too. `potIds` is null when no config
  * resolves, so the scene set keeps its built-in pots.
  */
 export function projectAddOns(doc: AddOnDoc): {
 	addOns: ProjectAddOns;
 	potIds: string[] | null;
 } {
-	const { potsOverlay, meters } = flowAddOnsOf(doc);
-	const holdAndWin = doc ? bonusCapabilityInputs(doc).respinMode : false;
+	const { meters } = flowAddOnsOf(doc);
+	const bonus = doc ? bonusCapabilityInputs(doc) : undefined;
+	const holdAndWin = bonus?.respinMode ?? false;
+	const potsOverlay = bonus?.potsOverlay ?? false;
 	const expandingSymbol = resolveExpandingSymbol(doc ?? undefined) !== undefined;
 	return { addOns: { holdAndWin, potsOverlay, expandingSymbol }, potIds: doc ? meters : null };
 }

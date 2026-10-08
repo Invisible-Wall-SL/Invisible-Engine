@@ -658,9 +658,11 @@ coin's tier. There is no on/off switch: every field you leave alone keeps the ga
 - **Cash format** — **Show cash as** _Money_ (the player's currency, the default) or _× bet_
   (`1.5×`); **Decimals** — the fewest printed (a non-zero digit is never cut, so a label can never
   read as a different amount); **Trim trailing zeros** (`$3.00` → `$3`, `$1.50` → `$1.5`).
-- **Jackpots** — one row per jackpot tier in the project's Game Config (MINI / MINOR / MAJOR /
+- **Jackpots** — one row per jackpot tier of the respin mode being edited (MINI / MINOR / MAJOR /
   GRAND when it declares none): the **text** the tier prints instead of its name (a multiplied
-  jackpot keeps its `×2`), and its own font / size / colour (blank ⇒ the cash style).
+  jackpot keeps its `×2`), and its own font / size / colour (blank ⇒ the cash style). The primary
+  respin mode's tiers show first; a project with more than one respin mode gets a **Mode** picker
+  above the rows. A label is kept by tier name, so a tier two modes share shares its label.
 - **Placement** — **Offset X / Y** from the cell centre (in symbol sizes, Y down), **Scale**, and
   **Max width** — a label wider than that shrinks to fit (coded 0.9).
 - **Animation** — **Pop as the coin sticks** (the label pops when the coin lands and sticks on the
@@ -1164,9 +1166,9 @@ that is the art to change rather than the text.
 
 A project **with Hold and Win** sees the grid and the page a little differently. That is a project
 whose kind is **Hold and Win**, or a project of any other kind whose
-[Invisible Game Config](game-config.md) carries a `holdAndWin` block — for example a Book-of game
-with a Hold and Win bonus. Such a project gets the columns, role chips, coin value label and flights
-below on top of everything its own kind already has.
+[Invisible Game Config](game-config.md) declares a respin mode (any mode that plays on the respin
+board) — for example a Book-of game with a Hold and Win bonus. Such a project gets the columns,
+role chips, coin value label and flights below on top of everything its own kind already has.
 
 **Eleven more columns** — the respin feature's beats. Each one, left empty, plays what the game
 played for that moment before the column existed, so a project that binds none of them looks
