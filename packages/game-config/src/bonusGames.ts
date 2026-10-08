@@ -404,8 +404,9 @@ export function respinModeBlank(doc: GameConfigDoc, mode: GameModeDecl): string 
 /**
  * The split form's own rules (design §3 Phase 1): every overlay route names a declared bonus mode;
  * every trigger and meter starts a respin mode; every respin mode has rules and a strip (warnings
- * until Phase 5a can author them), and a blank it names is one it deals; and no respin mode starts
- * inside another. Pots are the legacy validator's (`validatePotsOverlay`, on the mirror). Paths name
+ * until Phase 5a can author them), and a blank it names is one it deals; no respin mode starts
+ * inside another; and no two respin modes share a strip key, which is their bonus key on the wire
+ * (Phase 2). Pots are the legacy validator's (`validatePotsOverlay`, on the mirror). Paths name
  * the mode.
  */
 export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
@@ -413,10 +414,21 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 	const view = splitView(doc);
 	const overlay = view.coinOverlay;
 	const primary = primaryRespinMode(view.modes);
+	/** Strip key → the respin mode that plays on it first: the key is also its bonus key on the wire. */
+	const stripOwner = new Map<string, string>();
 
 	for (const mode of resolveGameModes(view)) {
 		if (mode.board !== 'respinBoard') continue;
 		const path = `modes.${mode.id}`;
+		const strip = gameTypeForMode(mode);
+		const sharer = stripOwner.get(strip);
+		if (sharer) {
+			issues.push({
+				severity: 'error',
+				path: `${path}.gameType`,
+				message: `The respin modes "${sharer}" and "${mode.id}" both play on the "${strip}" strips; each respin mode needs its own.`,
+			});
+		} else stripOwner.set(strip, mode.id);
 		if (!mode.holdAndWin) {
 			// Warnings until `/config` can author a respin mode's rules (Phase 5a): a config with such
 			// a mode saved before this rule must still save.
