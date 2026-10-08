@@ -129,6 +129,32 @@ for the key, including the `runtime=1` flag the shared engine bundle needs to
 read the project's live authoring data. The game still has to be published to
 that path to actually load.
 
+### Admin → Projects → Migrate Book-of projects to Lines
+
+A one-time tool at the bottom of the **Projects** tab. It turns every project of the retired
+**Book of** kind into a **Lines** project whose Game Config carries the Book-of feature (the
+expanding symbol), so the Invisible Test Server keeps dealing it the same game.
+
+- **Census and dry run** lists every Book-of project with what the migration reads (whether its
+  config is authored, the book symbol and its properties, bet modes, free spins, a pots overlay,
+  the layout's kind, its test-server entries and game cards), then what it would change, what it
+  would republish or skip, and anything that **blocks** it. It writes nothing. The top line also
+  counts the games still dealt by the book mock and says whether the Book-of editor template
+  exists.
+- **Apply** needs the *I ran the dry run* box. It works out the plan again on the server, then for
+  each project that is not blocked: saves its config and its layout (each with a History backup),
+  switches its kind to Lines, and republishes its online game. Each project gets its own result:
+  **migrated** with what each step did, **blocked**, or **error**.
+
+What blocks a project: someone else has its `/config` or `/editor` open; its config or layout does
+not read; its board is not 5×3; or one of its desktop builds was built before bet tables ("rebuild
+it from the desktop launcher first" — ☁ Publish it from the desktop launcher, then run the dry run
+again). A republish that a publish check refuses shows **REFUSED** with the reason; publish that
+game from Game Maker yourself. A partner game's card is never republished. If an author saved while
+it ran, that project shows an error: press Apply again. Running it again after everything is done
+changes nothing. The owner's step-by-step runbook is in
+[status/game-config](../status/game-config.md) ("Book-of migration").
+
 ### Admin → Settings → Invisible Director
 
 - **Run budget (USD)** — the cap each Director run pauses at, asking the owner to raise it or

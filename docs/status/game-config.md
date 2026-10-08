@@ -659,6 +659,42 @@ Plan: [hold-and-win.md](../design/hold-and-win.md) §1.3/§5; hub: [hold-and-win
 - **Not in this phase:** nothing reads the block at runtime yet (Phase 4), the mock doesn't generate
   from it (Phase 3), and the symbol roles aren't offered in `/symbols` (Phase 7).
 
+## Book-of migration (book-feature Phase 6) — tooling built, not yet run
+
+`/admin` → **Projects** → **Migrate Book-of projects to Lines** (`$lib/server/bookOfMigration.ts`)
+moves every project of the retired `bookOf` kind to `lines` with the Book-of mechanic in its config
+([book-feature.md](../design/book-feature.md) §6 steps 1–4). **Census and dry run** writes nothing;
+**Apply** re-derives the plan server-side and, per project: config (expanding symbol with the
+captured weights and `H1` from 2 reels, `'wild'` on the book, the ten paylines, +10 retrigger, base
+plus the one 100× buy under the buy's existing name, the scatter row `3:2 4:20 5:200` paid; the
+Thermopylae preset when un-authored) and layout `gameType`, each under its ETag with a History
+backup; then the kind; then a republish of each test-server card with a published snapshot. A
+project is **blocked** (nothing written) by an unreadable doc, a board that is not 5×3, another
+session's lease on `/config` or `/editor`, or a desktop build not stamped table-capable. A refusing
+publish gate is reported (`REFUSED (reason)`), never overridden; a card that is not a test-server
+card (the partner game) is never republished; a save that lost its race is an error that the next
+run finishes. A migrated project is no longer a `bookOf` row, so a re-run is a no-op.
+Gate: `pnpm --filter launcher-api check:book-of-migration` (in `check:all`).
+
+**Owner runbook.**
+
+1. **Rebuild the desktop builds** (`bookofborut`, `bookofborutremakebuild`) from the desktop
+   launcher: ☁ Publish on each. `register-game` stamps the build table-capable; until it is, the
+   dry run blocks its project with "rebuild it from the desktop launcher first".
+2. **Dry run.** `/admin` → Projects → **Census and dry run**. Check each project's facts (authored
+   or not, the book's properties, bet modes, manifest entries, cards), its changes, its blockers and
+   what is republished or skipped. Close any open `/config` or `/editor` tab on those projects.
+3. **Apply.** Tick *I ran the dry run*, press **Apply**. Read each result: `migrated` with its steps,
+   `blocked` with why, `error` (run Apply again). A `REFUSED` republish is published by hand from
+   Game Maker once its gate is understood (flow and paytable-drift refusals have the owner
+   override there).
+4. **Check.** Run the dry run again: no Book-of projects should be left. The census's book manifest
+   entries (an un-republished game still dealt by the book mock) and the `bookOf` editor template
+   are what Phase 7 needs at zero. Then the §7 Phase 6 proof: a
+   `current-games` run on `main` (free spins with the reveal and expansion, pots included),
+   `loaded`/`idle` unchanged, `scripts/playtest/determinism-proof.mjs` on the lines mock with the
+   preset, and the `game-playtester` agent on `docs/playtest/borut-remake.md`.
+
 ## Open items / next
 
 1. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
@@ -727,6 +763,19 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-08 — **Book-of migration tooling** ([book-feature.md](../design/book-feature.md) Phase 6;
+  see "Book-of migration" above for what it does and the owner runbook). New
+  `apps/launcher-api/src/lib/server/bookOfMigration.ts` (`migrateBookOfConfig` pure and idempotent,
+  `bookOfCensus`, `planBookOfMigration`, `applyBookOfMigration`), the `/admin` actions
+  `bookOfDryRun` / `bookOfApply` (admin-only, confirm box, the caller's session so their own tabs
+  never block it), and `check:book-of-migration`: over an in-memory estate (the remake with a
+  stamped desktop build, an un-authored project, a pots project whose republish is refused, the
+  partner game, an unstamped desktop build, a leased project, a Lines control) it pins that the dry
+  run writes nothing, apply migrates and backs up each doc, republishes test-server cards only,
+  leaves blocked projects byte-identical, survives a lost race, and is a no-op on a second run; and
+  that the migrated remake, the preset and the partner config derive exactly the Book of
+  Thermopylae lines grid `check:expanding-symbol` plays against the book mock (the Phase 3
+  equivalence). Not run against real data.
 - 2026-10-08 — **Phase 5 review fixes** (PR #1126). **Weights:** an empty `freeSpins.expandingSymbol.weights`
   is now KEPT by `normalizeExpandingSymbol` — it means "no symbol weighted" (nothing drawn, the
   validator's "weight at least one" error), where an absent map still means "every eligible symbol,

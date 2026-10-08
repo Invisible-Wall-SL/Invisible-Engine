@@ -123,6 +123,11 @@ refusing the saved key**, which is how a rotated key looks from a machine that k
 old one. Nothing else re-routes. A key the online Game Maker owns still stops the
 publish, and the portal runs the same check itself.
 
+**A build is registered as able to sell bet tables.** Each ☁ Publish re-registers the
+game on the Invisible Test Server and marks the build table-capable, so the test server deals it
+the project's buy menu as a table. A build published before this mark plays its plain line bet;
+the Book-of migration in `/admin` waits until each Book-of desktop build has been published again.
+
 **Every build says which build it is.** ☁ Publish and 📦 Deliver number each build
 from one counter per game. Each build records where it came from:
 

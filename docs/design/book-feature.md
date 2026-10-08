@@ -515,10 +515,10 @@ Phase 7 would read as a custom kind, which every surface already treats as lines
 
 ## 7. Build plan
 
-> Where it stands: Phases 1–4 merged (#1114, #1119, #1120, #1123); Phase 5 (5a–5d) built, see
-> [status/game-config](../status/game-config.md), [status/game-maker](../status/game-maker.md),
-> [status/editor](../status/editor.md), [status/pots-overlay](../status/pots-overlay.md) and
-> [status/engine](../status/engine.md).
+> Where it stands: Phases 1–5 merged (#1114, #1119, #1120, #1123, #1126). Phase 6 tooling built
+> (the `/admin` census, dry run and apply, and the desktop table-capable stamp), not yet run: the
+> owner runbook is in [status/game-config](../status/game-config.md) ("Book-of migration"); the
+> stamp is in [status/engine](../status/engine.md).
 
 **Every phase:**
 
