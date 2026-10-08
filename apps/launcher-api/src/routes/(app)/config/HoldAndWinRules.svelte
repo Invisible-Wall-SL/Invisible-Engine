@@ -4,6 +4,7 @@
 		EXPANSION_RULES,
 		HOLD_AND_WIN_SPECIALS,
 		HOLD_AND_WIN_SYMBOL_ROLES,
+		RESPIN_PLAY,
 		RESPIN_RESETS,
 		SPECIAL_SYMBOL_ROLE,
 		STICKINESS,
@@ -17,13 +18,14 @@
 		type ExpansionRule,
 		type GameConfigDoc,
 		type GameConfigIssue,
-		type HoldAndWin,
+		type HoldAndWinGame,
 		type HoldAndWinJackpot,
 		type HoldAndWinProgressive,
 		type HoldAndWinExpansion,
 		type HoldAndWinSpecial,
 		type HoldAndWinSymbolRole,
 		type MysteryReveal,
+		type RespinPlay,
 		type RespinReset,
 		type Stickiness,
 		type UpgradeSpecial,
@@ -31,51 +33,46 @@
 		type WeightedValue,
 		type WheelPrize,
 	} from 'game-config';
+	import { ROLE_LABELS, SPECIAL_LABELS, num } from './bonusLabels';
+	import { setRespinPlay } from './pageDoc';
 
 	/**
-	 * The Hold and Win block of `/config` (`docs/design/hold-and-win.md` §1.3, §5). Every input
-	 * writes straight into `doc.holdAndWin`; the page's validator (`validateHoldAndWin`, folded into
-	 * `validateGameConfigDoc`) is the only judge of what is wrong, so nothing here re-checks a
-	 * cross-reference — it only keeps each write in the SHAPE `normalizeHoldAndWin` stores (optional
-	 * keys deleted rather than emptied), so a saved doc comes back byte-identical.
+	 * One respin mode's Hold and Win RULES (`docs/design/hold-and-win.md` §1.3, §5;
+	 * `docs/design/bonus-games.md` §2.4): what sticks, the board end and expansion, the coin values,
+	 * jackpots, specials and the wheel. What starts the mode and what lands in the base game are the
+	 * coin overlay's (`CoinOverlaySection`). Every input writes straight into `rules` — the mode's
+	 * `holdAndWin` in the live doc; the page's validator is the only judge of what is wrong (`prefix`
+	 * is where its issues for this mode are), so nothing here re-checks a cross-reference — it only
+	 * keeps each write in the SHAPE `normalizeHoldAndWinGame` stores (optional keys deleted rather than
+	 * emptied), so a saved doc comes back byte-identical.
 	 */
 	let {
-		doc = $bindable(),
+		rules = $bindable(),
+		doc,
+		prefix,
 		issuesFor,
 		readOnly,
+		onRenameJackpot,
 	}: {
+		rules: HoldAndWinGame;
+		/** The live doc, read for the grid and the symbol dictionary. */
 		doc: GameConfigDoc;
+		prefix: string;
 		issuesFor: (prefix: string) => GameConfigIssue[];
 		readOnly: boolean;
+		/** A tier was renamed: the references outside these rules (the base-game coins) follow. */
+		onRenameJackpot: (from: string, to: string) => void;
 	} = $props();
 
 	type NumberInput = Event & { currentTarget: HTMLInputElement };
 
-	/** A number box's handler that ignores a blank / half-typed value, so a keystroke never collapses
-	 *  a field to 0 or NaN. */
-	const num =
-		(apply: (n: number) => void, integer = false) =>
-		(e: NumberInput) => {
-			const n = e.currentTarget.valueAsNumber;
-			if (Number.isFinite(n)) apply(integer ? Math.floor(n) : n);
-		};
-
-	const ROLE_LABELS: Record<HoldAndWinSymbolRole, string> = {
-		coin: 'coin',
-		jackpot: 'jackpot',
-		collector: 'collector',
-		coinMultiplier: 'multiplier',
-		payer: 'payer',
-		mystery: 'mystery',
-		meterSpecial: 'meter special',
-		blank: 'blank',
-		addRespins: 'add respins',
-		upgrade: 'upgrade',
-		unlock: 'unlock (opens a row)',
-	};
 	const STICKINESS_LABELS: Record<Stickiness, string> = {
 		allCoins: 'Every coin sticks',
 		collectorsOnly: 'Only collectors stick (coins clear each respin)',
+	};
+	const PLAY_LABELS: Record<RespinPlay, string> = {
+		auto: 'Automatic — the respins follow each other, a tap speeds them up',
+		manual: 'Manual — the player presses SPIN for each respin',
 	};
 	const RESET_LABELS: Record<RespinReset, string> = {
 		anyCoin: 'A new coin or jackpot resets the count',
@@ -90,14 +87,6 @@
 		fullRow: 'Filling the bottom open row opens the next',
 		unlockSymbol: 'An unlock symbol landing opens a row',
 		coinCount: 'Enough held symbols open a row',
-	};
-	const SPECIAL_LABELS: Record<HoldAndWinSpecial, string> = {
-		collector: 'Collector',
-		multiplier: 'Multiplier',
-		payer: 'Payer',
-		mystery: 'Mystery',
-		addRespins: 'Add respins',
-		upgrade: 'Upgrade',
 	};
 	const SPECIAL_HINTS: Record<HoldAndWinSpecial, string> = {
 		collector: 'Gathers the value of the coins on the board into itself.',
@@ -118,17 +107,15 @@
 	);
 
 	const reelIndices = $derived([...Array(doc.numReels).keys()]);
-	const symbolNames = $derived(Object.keys(doc.symbols));
-	const buyModes = $derived(Object.keys(doc.betModes).filter((k) => doc.betModes[k].buyBonus));
-	const blockIssues = $derived(issuesFor('holdAndWin'));
+	/** The trigger and the meters are the coin overlay's, which shows their issues. */
+	const blockIssues = $derived(
+		issuesFor(prefix).filter(
+			(i) => !i.path.startsWith(`${prefix}.trigger`) && !i.path.startsWith(`${prefix}.meters`),
+		),
+	);
 
 	/** Which special cards are folded shut — local UI state only, never saved. */
 	let folded = $state<Partial<Record<HoldAndWinSpecial, boolean>>>({});
-
-	function startBlock() {
-		const block = normalizeHoldAndWin({});
-		if (block) doc.holdAndWin = block;
-	}
 
 	// ── shared list helpers ────────────────────────────────────────────────────────────────────
 	function toggleIn<T>(list: T[], value: T, on: boolean) {
@@ -152,48 +139,18 @@
 		[list[index], list[j]] = [list[j], list[index]];
 	}
 
-	const lastJackpot = (hw: HoldAndWin): string => hw.jackpots[hw.jackpots.length - 1]?.name ?? '';
-
-	// ── trigger ────────────────────────────────────────────────────────────────────────────────
-	function setCountTrigger(hw: HoldAndWin, on: boolean) {
-		if (on) hw.trigger.count = { min: 6, roles: ['coin', 'jackpot'] };
-		else delete hw.trigger.count;
-	}
-	function addPattern(hw: HoldAndWin) {
-		(hw.trigger.pattern ??= []).push({ reel: 0, roles: ['coin'], min: 1 });
-	}
-	function removePattern(hw: HoldAndWin, i: number) {
-		hw.trigger.pattern?.splice(i, 1);
-		if (!hw.trigger.pattern?.length) delete hw.trigger.pattern;
-	}
-	function addBuyTier(hw: HoldAndWin) {
-		const used = new Set(hw.trigger.buy?.map((t) => t.mode));
-		const mode = buyModes.find((m) => !used.has(m)) ?? buyModes[0];
-		if (!mode) return;
-		(hw.trigger.buy ??= []).push({ mode, guaranteed: [], boostedSpecials: false });
-	}
-	function removeBuyTier(hw: HoldAndWin, i: number) {
-		hw.trigger.buy?.splice(i, 1);
-		if (!hw.trigger.buy?.length) delete hw.trigger.buy;
-	}
-	function setRandomMetre(hw: HoldAndWin, on: boolean) {
-		if (on) hw.trigger.randomMetre = { name: 'Metre' };
-		else delete hw.trigger.randomMetre;
-	}
-	function setLuckySpin(hw: HoldAndWin, on: boolean) {
-		if (on) hw.trigger.luckySpin = true;
-		else delete hw.trigger.luckySpin;
-	}
+	const lastJackpot = (hw: HoldAndWinGame): string =>
+		hw.jackpots[hw.jackpots.length - 1]?.name ?? '';
 
 	// ── respins ────────────────────────────────────────────────────────────────────────────────
-	function setCap(hw: HoldAndWin, e: NumberInput) {
+	function setCap(hw: HoldAndWinGame, e: NumberInput) {
 		const n = e.currentTarget.valueAsNumber;
 		if (Number.isFinite(n) && n >= 1) hw.respins.cap = Math.floor(n);
 		else delete hw.respins.cap;
 	}
 
 	// ── board end ──────────────────────────────────────────────────────────────────────────────
-	function setBoardEndType(hw: HoldAndWin, type: string) {
+	function setBoardEndType(hw: HoldAndWinGame, type: string) {
 		if (type === 'fullBoardJackpot') {
 			hw.boardEnd = { type, jackpot: lastJackpot(hw), roles: ['coin', 'jackpot'] };
 		} else if (type === 'columnLetters') {
@@ -203,7 +160,7 @@
 	}
 
 	// ── coins ──────────────────────────────────────────────────────────────────────────────────
-	function setCoinKind(hw: HoldAndWin, i: number, kind: string) {
+	function setCoinKind(hw: HoldAndWinGame, i: number, kind: string) {
 		const entry = hw.coins[i];
 		const reels = entry.reels ? { reels: [...entry.reels] } : {};
 		hw.coins[i] =
@@ -217,18 +174,18 @@
 	function setCoinJackpot(entry: CoinValueEntry, name: string) {
 		if (entry.kind === 'jackpot') entry.jackpot = name;
 	}
-	function addCashCoin(hw: HoldAndWin) {
+	function addCashCoin(hw: HoldAndWinGame) {
 		const values = hw.coins.flatMap((c) => (c.kind === 'cash' ? [c.value] : []));
 		hw.coins.push({ kind: 'cash', value: values[values.length - 1] ?? 1, weight: 1 });
 	}
-	const coinWeightTotal = (hw: HoldAndWin) => hw.coins.reduce((sum, c) => sum + c.weight, 0);
+	const coinWeightTotal = (hw: HoldAndWinGame) => hw.coins.reduce((sum, c) => sum + c.weight, 0);
 	const share = (weight: number, total: number) =>
 		total > 0 ? `${((weight / total) * 100).toFixed(1)}%` : '—';
 
 	// ── jackpots ───────────────────────────────────────────────────────────────────────────────
 	/** Renaming a tier carries every reference to it along (coins, board end, mystery, wheel) —
 	 *  unless another tier still has the old name, which keeps those references its own. */
-	function renameJackpot(hw: HoldAndWin, i: number, next: string) {
+	function renameJackpot(hw: HoldAndWinGame, i: number, next: string) {
 		const old = hw.jackpots[i].name;
 		hw.jackpots[i].name = next;
 		if (hw.jackpots.some((j, k) => k !== i && j.name === old)) return;
@@ -241,6 +198,7 @@
 			if (p.type === 'jackpot' && p.jackpot === old) p.jackpot = next;
 		}
 		for (const rj of hw.expansion?.rowJackpots ?? []) if (rj.jackpot === old) rj.jackpot = next;
+		onRenameJackpot(old, next);
 	}
 	/** A tier turned progressive starts as a pool at its multiplier that nothing grows yet; a tier
 	 *  turned fixed drops its pool, so the saved doc carries no field nothing reads. */
@@ -254,7 +212,7 @@
 		if (e.currentTarget.value === '') delete pool.cap;
 		else if (Number.isFinite(n) && n > 0) pool.cap = n;
 	}
-	function addJackpot(hw: HoldAndWin) {
+	function addJackpot(hw: HoldAndWinGame) {
 		const top = hw.jackpots[hw.jackpots.length - 1];
 		hw.jackpots.push({
 			name: `TIER${hw.jackpots.length + 1}`,
@@ -264,16 +222,13 @@
 	}
 
 	// ── specials ───────────────────────────────────────────────────────────────────────────────
-	function enableSpecial(hw: HoldAndWin, kind: HoldAndWinSpecial) {
-		const base = { landsInBaseGame: false };
+	function enableSpecial(hw: HoldAndWinGame, kind: HoldAndWinSpecial) {
 		if (kind === 'collector') {
 			hw.specials.collector = {
 				level: 1,
 				maxLevel: 1,
 				sticky: true,
 				collects: 'perRespin',
-				...base,
-				instantCollectInBaseGame: false,
 			};
 		} else if (kind === 'multiplier') {
 			hw.specials.multiplier = {
@@ -284,8 +239,6 @@
 				],
 				multipliesJackpots: false,
 				leaveBehind: { type: 'none' },
-				...base,
-				instantCollectInBaseGame: false,
 			};
 		} else if (kind === 'payer') {
 			hw.specials.payer = {
@@ -294,7 +247,6 @@
 					{ value: 2, weight: 1 },
 					{ value: 3, weight: 1 },
 				],
-				...base,
 			};
 		} else if (kind === 'addRespins') {
 			hw.specials.addRespins = {
@@ -304,7 +256,6 @@
 				],
 				raisesCap: false,
 				sticky: false,
-				...base,
 			};
 		} else if (kind === 'upgrade') {
 			hw.specials.upgrade = {
@@ -313,24 +264,23 @@
 					{ value: 0.5, weight: 2 },
 					{ value: 1, weight: 1 },
 				],
-				...base,
 			};
 		} else {
 			hw.specials.mystery = { reveals: [{ type: 'coin', weight: 1 }], unlocksInactive: false };
 		}
 		if (!hw.applyOrder.includes(kind)) hw.applyOrder.push(kind);
 	}
-	function disableSpecial(hw: HoldAndWin, kind: HoldAndWinSpecial) {
+	function disableSpecial(hw: HoldAndWinGame, kind: HoldAndWinSpecial) {
 		delete hw.specials[kind];
 		hw.applyOrder = hw.applyOrder.filter((k) => k !== kind);
 		hw.activeModifiers.atEntry = hw.activeModifiers.atEntry.filter((k) => k !== kind);
 	}
-	function setSpecial(hw: HoldAndWin, kind: HoldAndWinSpecial, on: boolean) {
+	function setSpecial(hw: HoldAndWinGame, kind: HoldAndWinSpecial, on: boolean) {
 		if (on) enableSpecial(hw, kind);
 		else disableSpecial(hw, kind);
 	}
 
-	function setLeaveBehind(hw: HoldAndWin, type: string) {
+	function setLeaveBehind(hw: HoldAndWinGame, type: string) {
 		const mul = hw.specials.multiplier;
 		if (!mul) return;
 		mul.leaveBehind =
@@ -344,25 +294,25 @@
 					}
 				: { type: 'none' };
 	}
-	function leaveBehindValues(hw: HoldAndWin): WeightedValue[] | undefined {
+	function leaveBehindValues(hw: HoldAndWinGame): WeightedValue[] | undefined {
 		const lb = hw.specials.multiplier?.leaveBehind;
 		return lb?.type === 'becomesCoin' ? lb.values : undefined;
 	}
 
 	/** A rule is listed once (the normalizer keeps the first of a repeat), so a new row takes the
 	 *  first rule not yet listed. */
-	function addUpgradeTarget(upg: UpgradeSpecial) {
+	function addUpgradeTarget(upg: Pick<UpgradeSpecial, 'targets'>) {
 		const target = UPGRADE_TARGETS.find((t) => !upg.targets.some((o) => o.target === t));
 		if (target) upg.targets.push({ target, weight: 1 });
 	}
-	function setUpgradeTarget(upg: UpgradeSpecial, i: number, value: string) {
+	function setUpgradeTarget(upg: Pick<UpgradeSpecial, 'targets'>, i: number, value: string) {
 		const target = UPGRADE_TARGETS.find((t) => t === value);
 		if (target && !upg.targets.some((o, j) => j !== i && o.target === target)) {
 			upg.targets[i].target = target;
 		}
 	}
 
-	function setRevealType(hw: HoldAndWin, i: number, type: string) {
+	function setRevealType(hw: HoldAndWinGame, i: number, type: string) {
 		const reveals = hw.specials.mystery?.reveals;
 		if (!reveals) return;
 		const weight = reveals[i].weight;
@@ -374,7 +324,7 @@
 					: { type: 'coin', weight };
 		reveals[i] = next;
 	}
-	const configuredMysteryTarget = (hw: HoldAndWin): Exclude<HoldAndWinSpecial, 'mystery'> =>
+	const configuredMysteryTarget = (hw: HoldAndWinGame): Exclude<HoldAndWinSpecial, 'mystery'> =>
 		MYSTERY_SPECIALS.find((s) => hw.specials[s]) ?? 'collector';
 	function setRevealJackpot(r: MysteryReveal, name: string) {
 		if (r.type === 'jackpot') r.jackpot = name;
@@ -384,38 +334,6 @@
 		if (r.type === 'special' && special) r.special = special;
 	}
 
-	// ── meters ─────────────────────────────────────────────────────────────────────────────────
-	function addMeter(hw: HoldAndWin) {
-		const meters = (hw.meters ??= []);
-		meters.push({
-			id: `meter${meters.length + 1}`,
-			symbol: symbolsWithRole(doc, 'meterSpecial')[0] ?? symbolNames[0] ?? '',
-			maxLevel: 12,
-			sizeStages: [],
-			activates: configuredSpecials(hw)[0] ?? 'collector',
-		});
-	}
-	function removeMeter(hw: HoldAndWin, i: number) {
-		hw.meters?.splice(i, 1);
-		if (!hw.meters?.length) delete hw.meters;
-	}
-	function setSizeStages(stages: number[], raw: string) {
-		const next = [
-			...new Set(
-				raw
-					.split(',')
-					.map((s) => Number(s.trim()))
-					.filter((n) => Number.isInteger(n) && n >= 1),
-			),
-		].sort((a, b) => a - b);
-		stages.splice(0, stages.length, ...next);
-	}
-	function setMeterActivates(hw: HoldAndWin, i: number, value: string) {
-		const special = HOLD_AND_WIN_SPECIALS.find((s) => s === value);
-		const meter = hw.meters?.[i];
-		if (meter && special) meter.activates = special;
-	}
-
 	// ── board expansion ────────────────────────────────────────────────────────────────────────
 	const gridRows = $derived(doc.numRows[0] ?? 3);
 	/** A default threshold per unlockable row: 60% of the cells open before it. */
@@ -423,7 +341,7 @@
 		Array.from({ length: Math.max(0, grow.maxRows - grow.startRows) }, (_, i) =>
 			Math.ceil(doc.numReels * (grow.startRows + i) * 0.6),
 		);
-	function setExpansion(hw: HoldAndWin, on: boolean) {
+	function setExpansion(hw: HoldAndWinGame, on: boolean) {
 		if (on) {
 			hw.expansion = {
 				startRows: gridRows,
@@ -456,7 +374,7 @@
 		if (target.reels) grow.unlockReels = target.reels;
 		else delete grow.unlockReels;
 	}
-	function addRowJackpot(hw: HoldAndWin, grow: HoldAndWinExpansion) {
+	function addRowJackpot(hw: HoldAndWinGame, grow: HoldAndWinExpansion) {
 		(grow.rowJackpots ??= []).push({ rows: grow.maxRows, jackpot: lastJackpot(hw) });
 	}
 	function removeRowJackpot(grow: HoldAndWinExpansion, i: number) {
@@ -465,11 +383,11 @@
 	}
 
 	// ── wheel ──────────────────────────────────────────────────────────────────────────────────
-	function setWheel(hw: HoldAndWin, on: boolean) {
+	function setWheel(hw: HoldAndWinGame, on: boolean) {
 		if (on) hw.wheel = { prizes: [{ type: 'coinBoost', multiplier: 2, weight: 1 }] };
 		else delete hw.wheel;
 	}
-	function setPrizeType(hw: HoldAndWin, i: number, type: string) {
+	function setPrizeType(hw: HoldAndWinGame, i: number, type: string) {
 		const prizes = hw.wheel?.prizes;
 		if (!prizes) return;
 		const weight = prizes[i].weight;
@@ -519,7 +437,7 @@
 	</div>
 {/snippet}
 
-{#snippet jackpotPick(hw: HoldAndWin, value: string, set: (name: string) => void)}
+{#snippet jackpotPick(hw: HoldAndWinGame, value: string, set: (name: string) => void)}
 	<select {value} onchange={(e) => set(e.currentTarget.value)}>
 		{#each hw.jackpots as j (j.name)}
 			<option value={j.name}>{j.name}</option>
@@ -566,7 +484,7 @@
 	>
 {/snippet}
 
-{#snippet specialFields(hw: HoldAndWin, kind: HoldAndWinSpecial)}
+{#snippet specialFields(hw: HoldAndWinGame, kind: HoldAndWinSpecial)}
 	{#if kind === 'collector' && hw.specials.collector}
 		{@const c = hw.specials.collector}
 		<div class="row">
@@ -596,16 +514,6 @@
 		<div class="row">
 			<label class="check"
 				><input type="checkbox" bind:checked={c.sticky} /><span>Sticky</span></label
-			>
-			<label class="check"
-				><input type="checkbox" bind:checked={c.landsInBaseGame} /><span
-					>Lands in the base game</span
-				></label
-			>
-			<label class="check"
-				><input type="checkbox" bind:checked={c.instantCollectInBaseGame} /><span
-					>Collector + coin in the base game pays at once</span
-				></label
 			>
 		</div>
 		<div class="sub"><span class="legend">Reels</span>{@render reelChecks(c)}</div>
@@ -638,31 +546,12 @@
 				{@render valueTable(leftCoin, '(× bet)', 0.5)}
 			</div>
 		{/if}
-		<div class="row">
-			<label class="check"
-				><input type="checkbox" bind:checked={m.landsInBaseGame} /><span
-					>Lands in the base game</span
-				></label
-			>
-			<label class="check"
-				><input type="checkbox" bind:checked={m.instantCollectInBaseGame} /><span
-					>Multiplier + coin in the base game pays at once</span
-				></label
-			>
-		</div>
 		<div class="sub"><span class="legend">Reels</span>{@render reelChecks(m)}</div>
 	{:else if kind === 'payer' && hw.specials.payer}
 		{@const p = hw.specials.payer}
 		<div class="sub">
 			<span class="legend">Added to every coin <em>× total bet</em></span>
 			{@render valueTable(p.values, '(× bet)', 0.5)}
-		</div>
-		<div class="row">
-			<label class="check"
-				><input type="checkbox" bind:checked={p.landsInBaseGame} /><span
-					>Lands in the base game</span
-				></label
-			>
 		</div>
 		<div class="sub"><span class="legend">Reels</span>{@render reelChecks(p)}</div>
 	{:else if kind === 'addRespins' && hw.specials.addRespins}
@@ -680,11 +569,6 @@
 			<label class="check"
 				><input type="checkbox" bind:checked={a.sticky} /><span
 					>Sticky — stays on the board (worth nothing) after it adds</span
-				></label
-			>
-			<label class="check"
-				><input type="checkbox" bind:checked={a.landsInBaseGame} /><span
-					>Lands in the base game</span
 				></label
 			>
 		</div>
@@ -741,13 +625,6 @@
 				>Step a cash coin rises by <em>× total bet · the jackpot-tier rule ignores it</em></span
 			>
 			{@render valueTable(u.values, '(× bet)', 0.5)}
-		</div>
-		<div class="row">
-			<label class="check"
-				><input type="checkbox" bind:checked={u.landsInBaseGame} /><span
-					>Lands in the base game</span
-				></label
-			>
 		</div>
 		<div class="sub"><span class="legend">Reels</span>{@render reelChecks(u)}</div>
 	{:else if kind === 'mystery' && hw.specials.mystery}
@@ -819,168 +696,10 @@
 	{/if}
 {/snippet}
 
-{#snippet editor(hw: HoldAndWin)}
+{#snippet editor(hw: HoldAndWinGame)}
 	{@const configured = configuredSpecials(hw)}
 	{@const coinTotal = coinWeightTotal(hw)}
 	<fieldset disabled={readOnly}>
-		<!-- Trigger --------------------------------------------------------------------------->
-		<div class="panel">
-			<h3>Trigger <em>what starts the feature — any one of these</em></h3>
-			<label class="check"
-				><input
-					type="checkbox"
-					checked={Boolean(hw.trigger.count)}
-					onchange={(e) => setCountTrigger(hw, e.currentTarget.checked)}
-				/><span>Count — N or more symbols anywhere on the board</span></label
-			>
-			{#if hw.trigger.count}
-				{@const count = hw.trigger.count}
-				<div class="sub">
-					<div class="row">
-						<label
-							><span>At least</span><input
-								type="number"
-								min="1"
-								value={count.min}
-								oninput={num((n) => n >= 1 && (count.min = n), true)}
-							/></label
-						>
-					</div>
-					<span class="legend">Of these roles</span>
-					{@render roleChecks(count.roles)}
-				</div>
-			{/if}
-
-			<div class="sub">
-				<span class="legend">Pattern <em>every requirement on the same spin</em></span>
-				{#if hw.trigger.pattern?.length}
-					{@const pattern = hw.trigger.pattern}
-					<table class="tbl">
-						<thead><tr><th>Reel</th><th>At least</th><th>Of roles</th><th></th></tr></thead>
-						<tbody>
-							{#each pattern as req, i (i)}
-								<tr>
-									<td
-										><select
-											value={req.reel}
-											onchange={(e) => (req.reel = Number(e.currentTarget.value))}
-										>
-											{#each reelIndices as reel (reel)}
-												<option value={reel}>Reel {reel + 1}</option>
-											{/each}
-											{#if req.reel >= doc.numReels}
-												<option value={req.reel}>Reel {req.reel + 1} (off the grid)</option>
-											{/if}
-										</select></td
-									>
-									<td
-										><input
-											type="number"
-											min="1"
-											value={req.min}
-											oninput={num((n) => n >= 1 && (req.min = n), true)}
-										/></td
-									>
-									<td>{@render roleChecks(req.roles)}</td>
-									<td
-										><button class="del" title="Remove" onclick={() => removePattern(hw, i)}
-											>×</button
-										></td
-									>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				{/if}
-				<button class="small" onclick={() => addPattern(hw)}>+ requirement</button>
-			</div>
-
-			<div class="sub">
-				<span class="legend"
-					>Buy tiers <em>the price is the bet mode's cost — set it in Bet modes above</em></span
-				>
-				{#each hw.trigger.buy ?? [] as tier, i (i)}
-					{@const mode = doc.betModes[tier.mode]}
-					<div class="card">
-						<div class="row">
-							<label
-								><span>Bet mode</span><select bind:value={tier.mode}>
-									{#each buyModes as key (key)}
-										<option value={key}>{key}</option>
-									{/each}
-									{#if !buyModes.includes(tier.mode)}
-										<option value={tier.mode}>{tier.mode} (not a buy-bonus mode)</option>
-									{/if}
-								</select></label
-							>
-							<span class="chip">{mode ? `${mode.cost}× bet` : 'no such mode'}</span>
-							<label class="check"
-								><input type="checkbox" bind:checked={tier.boostedSpecials} /><span
-									>Specials land more often in this feature</span
-								></label
-							>
-							<button class="del push" title="Remove tier" onclick={() => removeBuyTier(hw, i)}
-								>×</button
-							>
-						</div>
-						<span class="legend">Guaranteed on entry</span>
-						{#each tier.guaranteed as g, gi (gi)}
-							<div class="row tight">
-								<input
-									class="count"
-									type="number"
-									min="1"
-									value={g.count}
-									oninput={num((n) => n >= 1 && (g.count = n), true)}
-								/>
-								<span class="note">×</span>
-								<select bind:value={g.role}>
-									{#each HOLD_AND_WIN_SYMBOL_ROLES as role (role)}
-										<option value={role}>{ROLE_LABELS[role]}</option>
-									{/each}
-								</select>
-								<button class="del" title="Remove" onclick={() => tier.guaranteed.splice(gi, 1)}
-									>×</button
-								>
-							</div>
-						{/each}
-						<button
-							class="small"
-							onclick={() => tier.guaranteed.push({ role: 'coinMultiplier', count: 1 })}
-							>+ guaranteed</button
-						>
-					</div>
-				{/each}
-				<button class="small" onclick={() => addBuyTier(hw)} disabled={!buyModes.length}
-					>+ buy tier</button
-				>
-				{#if !buyModes.length}
-					<span class="note">Tick <strong>Buy bonus</strong> on a bet mode above first.</span>
-				{/if}
-			</div>
-
-			<div class="row">
-				<label class="check"
-					><input
-						type="checkbox"
-						checked={Boolean(hw.trigger.randomMetre)}
-						onchange={(e) => setRandomMetre(hw, e.currentTarget.checked)}
-					/><span>Random metre — the server triggers it, dressed as a metre</span></label
-				>
-				{#if hw.trigger.randomMetre}
-					{@const metre = hw.trigger.randomMetre}
-					<label class="inline"><span>Name</span><input bind:value={metre.name} /></label>
-				{/if}
-			</div>
-			<label class="check"
-				><input
-					type="checkbox"
-					checked={hw.trigger.luckySpin === true}
-					onchange={(e) => setLuckySpin(hw, e.currentTarget.checked)}
-				/><span>Lucky Spin — a server-announced spin that guarantees the trigger</span></label
-			>
-		</div>
-
 		<!-- Respins ----------------------------------------------------------------------------->
 		<div class="panel">
 			<h3>Respins</h3>
@@ -1015,6 +734,16 @@
 						value={hw.respins.cap ?? ''}
 						oninput={(e) => setCap(hw, e)}
 					/></label
+				>
+				<label
+					><span>Play</span><select
+						value={hw.play ?? 'auto'}
+						onchange={(e) => setRespinPlay(hw, e.currentTarget.value as RespinPlay)}
+					>
+						{#each RESPIN_PLAY as p (p)}
+							<option value={p}>{PLAY_LABELS[p]}</option>
+						{/each}
+					</select></label
 				>
 			</div>
 		</div>
@@ -1437,77 +1166,6 @@
 			</div>
 		</div>
 
-		<!-- Meters ------------------------------------------------------------------------------>
-		<div class="panel">
-			<h3>Meters <em>persistent per-player pots; the server keeps the level</em></h3>
-			{#if hw.meters?.length}
-				{@const meters = hw.meters}
-				<table class="tbl">
-					<thead>
-						<tr
-							><th>Id</th><th>Filled by</th><th>Max level</th><th>Size stages</th><th>Activates</th
-							><th></th></tr
-						>
-					</thead>
-					<tbody>
-						{#each meters as m, i (i)}
-							<tr>
-								<td><input bind:value={m.id} /></td>
-								<td
-									><select bind:value={m.symbol}>
-										{#each symbolNames as name (name)}
-											<option value={name}
-												>{name}{doc.symbols[name].special_properties?.includes('meterSpecial')
-													? ''
-													: ' (not meterSpecial)'}</option
-											>
-										{/each}
-										{#if !doc.symbols[m.symbol]}
-											<option value={m.symbol}
-												>{m.symbol || '(none)'} — not in the dictionary</option
-											>
-										{/if}
-									</select></td
-								>
-								<td
-									><input
-										type="number"
-										min="1"
-										value={m.maxLevel}
-										oninput={num((n) => n >= 1 && (m.maxLevel = n), true)}
-									/></td
-								>
-								<td
-									><input
-										value={m.sizeStages.join(', ')}
-										placeholder="5, 9"
-										onchange={(e) => setSizeStages(m.sizeStages, e.currentTarget.value)}
-									/></td
-								>
-								<td
-									><select
-										value={m.activates}
-										onchange={(e) => setMeterActivates(hw, i, e.currentTarget.value)}
-									>
-										{#each HOLD_AND_WIN_SPECIALS as s (s)}
-											<option value={s}
-												>{SPECIAL_LABELS[s]}{hw.specials[s] ? '' : ' (not configured)'}</option
-											>
-										{/each}
-									</select></td
-								>
-								<td
-									><button class="del" title="Remove" onclick={() => removeMeter(hw, i)}>×</button
-									></td
-								>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			{/if}
-			<button class="small" onclick={() => addMeter(hw)}>+ meter</button>
-		</div>
-
 		<!-- Wheel ------------------------------------------------------------------------------->
 		<div class="panel">
 			<h3>Wheel <em>spun once when the feature starts</em></h3>
@@ -1575,41 +1233,12 @@
 	</fieldset>
 {/snippet}
 
-<section class="hw">
-	<h2>Hold and Win</h2>
-	<p class="hint">
-		The respin feature: what triggers it, what sticks, what a coin is worth, and which specials can
-		land. A symbol joins the feature by its <strong>special properties</strong> in Symbols below (<code
-			>coin</code
-		>, <code>jackpot</code>, <code>collector</code>, <code>coinMultiplier</code>,
-		<code>payer</code>, <code>mystery</code>, <code>addRespins</code>, <code>upgrade</code>,
-		<code>meterSpecial</code>, <code>blank</code>, <code>unlock</code>); this section holds their
-		tables. The server stays the authority on outcomes — these weights drive the test mock and the
-		readouts.
-	</p>
-	{#each blockIssues as issue (issue.path + issue.message)}
-		<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-	{/each}
-	{#if doc.holdAndWin}
-		{@render editor(doc.holdAndWin)}
-	{:else}
-		<p class="hint">This config has no Hold and Win block yet.</p>
-		<button class="small" onclick={startBlock} disabled={readOnly}>Start an empty block</button>
-	{/if}
-</section>
+{#each blockIssues as issue (issue.path + issue.message)}
+	<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+{/each}
+{@render editor(rules)}
 
 <style>
-	.hw {
-		margin-bottom: 34px;
-	}
-	h2 {
-		margin: 0 0 6px;
-		font-size: 13px;
-		font-weight: 700;
-		letter-spacing: 0.1em;
-		text-transform: uppercase;
-		color: #7ee0c0;
-	}
 	h3 {
 		margin: 0 0 10px;
 		font-size: 12px;

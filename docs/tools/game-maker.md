@@ -227,7 +227,7 @@ steps, Flow) open: the dialog names who is editing, and you try again once they 
    opened before the add-on still holds the old doc, and its next save is refused as a conflict.
 
 **What it adds.** It first merges the overlay into the project's
-[Game Config](game-config.md#add-ons) (the 3 Pots and Coins only presets also bring a Hold and Win
+[Game Config](game-config.md#coin-overlay) (the 3 Pots and Coins only presets also bring a Hold and Win
 bonus, unless the project already has a Hold and Win block). Then it seeds the parts a playable
 overlay needs:
 
@@ -271,7 +271,7 @@ someone else meanwhile, the dialog says so and nothing was added; click **Add** 
 including one you cleared on purpose.
 
 To tune the pots, the drops and each pot's bonus, or to remove the overlay, use
-[Game Config → Add-ons](game-config.md#add-ons). The Game Maker only adds it.
+[Game Config → Coin overlay](game-config.md#coin-overlay). The Game Maker only adds it.
 
 ### Import a bonus from another project
 
@@ -596,8 +596,9 @@ graduate later; its R2 authoring data carries over.
   them: a source's free-game screens that show by the free-game gate rather than as mode screens
   are not copied.
 - **The pots overlay can only be added here.** Tuning and removing it are in
-  [Game Config → Add-ons](game-config.md#add-ons). The new-game checkbox never grafts the Flow; use
-  **Pots overlay parts…** with the checkbox, or **＋ Add overlay steps** in Invisible Flow.
+  [Game Config → Coin overlay](game-config.md#coin-overlay). The new-game checkbox never grafts
+  the Flow; use **Pots overlay parts…** with the checkbox, or **＋ Add overlay steps** in
+  Invisible Flow.
 - **A published version freezes data, not the engine.** Every online game runs the live
   engine release; after an engine change that needs new game data, republish (the amber
   badge above is the prompt). Rolling a game back to an old version does not roll its engine

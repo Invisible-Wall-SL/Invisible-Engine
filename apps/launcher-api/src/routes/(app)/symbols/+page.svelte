@@ -1662,7 +1662,13 @@
 	// project whose kind changed can still see and clear what it ships.
 	const coinLabelShown = $derived(caps.coinSymbols || !!doc.coinLabel);
 	const cl = $derived(doc.coinLabel ?? {});
-	const clTiers = $derived(coinLabelTiers(data.jackpotTiers));
+	// The jackpot tiers listed are the respin mode being edited's: the primary first, a picker when
+	// the project declares several. A label is keyed by tier name, so modes sharing a tier share it.
+	let clModeId = $state<string | undefined>(undefined);
+	const clMode = $derived(
+		data.respinModes.find((mode) => mode.id === clModeId) ?? data.respinModes[0],
+	);
+	const clTiers = $derived(coinLabelTiers(clMode?.jackpotTiers ?? []));
 	const CL_POPS = [
 		{ key: 'landPop', label: 'Pop as the coin sticks' },
 		{ key: 'boostPop', label: 'Pop when a count lands' },
@@ -4263,6 +4269,25 @@
 
 							<div class="wl-group">
 								<h3>Jackpots</h3>
+								{#if data.respinModes.length > 1}
+									<div class="wl-fields">
+										<label class="field">
+											<span class="label">Mode</span>
+											<select
+												value={clMode?.id}
+												onchange={(e) => (clModeId = e.currentTarget.value)}
+											>
+												{#each data.respinModes as mode (mode.id)}
+													<option value={mode.id}>{mode.label}</option>
+												{/each}
+											</select>
+										</label>
+									</div>
+									<p class="wl-note">
+										The tiers of the respin mode picked here. A label is kept by tier name, so a
+										tier two modes share shares its label.
+									</p>
+								{/if}
 								{#each clTiers as tier (tier)}
 									{@const entry = cl.jackpots?.[tier]}
 									<div class="wl-fields">

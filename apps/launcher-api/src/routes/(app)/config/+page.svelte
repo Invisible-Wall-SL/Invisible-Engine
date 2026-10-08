@@ -11,6 +11,7 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		normalizeGameConfigDoc,
+		withLegacyPair,
 		resolveBetModes,
 		resolveWinLevels,
 		resolveWinModel,
@@ -61,9 +62,10 @@
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
 	// of a raw-key text box. Not forked; the editor owns it.
 	import RegionPicker from '../editor/RegionPicker.svelte';
-	import AddOnsSection from './AddOnsSection.svelte';
+	import BonusModesSection from './BonusModesSection.svelte';
+	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
-	import HoldAndWinSection from './HoldAndWinSection.svelte';
+	import { adoptSaved, bodyFor, openDoc } from './pageDoc';
 	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
@@ -75,8 +77,13 @@
 	 * doc (authored if present, else the template default) and PUT back whole. Everything the tool
 	 * shows derives from `game-config`, the SAME package the game resolves with, so the grid can't
 	 * drift from what ships.
+	 *
+	 * It is the SPLIT FORM only (`./pageDoc`, `docs/design/bonus-games.md` §2.1): the coin overlay
+	 * and the bonus modes are edited, and the legacy `holdAndWin` / `potsOverlay` keys are never held,
+	 * so a save can't be overwritten by a stale mirror. The server regenerates the mirror on save; the
+	 * page's readers see it through `snapshot`.
 	 */
-	const initial = (data.doc ?? data.templateDefault) as GameConfigDoc;
+	const initial = openDoc((data.doc ?? data.templateDefault) as GameConfigDoc);
 	let doc = $state<GameConfigDoc>(structuredClone(initial));
 
 	/** Where the loaded doc came from — the page says so, so "edit yours" vs "adopt the template" is
@@ -88,7 +95,9 @@
 	let baseline = $state(JSON.stringify(initial));
 	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
 
-	const snapshot = $derived($state.snapshot(doc) as GameConfigDoc);
+	/** The live doc as the game reads it: the split form plus the compat mirror a save regenerates,
+	 *  so every validator and reader that still reads the legacy keys sees the edit. */
+	const snapshot = $derived(withLegacyPair($state.snapshot(doc) as GameConfigDoc));
 
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
@@ -124,24 +133,27 @@
 	const reelSymbolNames = $derived(symbolNames.filter((name) => uses[name] !== 'token'));
 	const coinPots = $derived(overlayTokenPots(snapshot));
 
-	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(doc).addOns));
-	const isHoldAndWin = $derived(capabilities.holdAndWin);
+	const capabilities = $derived(kindCapabilities(data.gameType, projectAddOns(snapshot).addOns));
 	/** A Hold and Win base game pays by lines; a Hold and Win block that is the pots overlay's BONUS
 	 *  leaves the host's own win model alone. */
-	const winModelLinesOnly = $derived(isHoldAndWin && !holdAndWinIsOverlayBonus(snapshot));
+	const winModelLinesOnly = $derived(
+		capabilities.holdAndWin && !holdAndWinIsOverlayBonus(snapshot),
+	);
 
 	/** A Hold and Win symbol's read-only value list in the Symbols table: a `coin` shows the cash
-	 *  entries of the coin table, a `jackpot` the jackpot entries — they pay by value, not on a line. */
+	 *  entries of every respin mode's coin table, a `jackpot` the jackpot entries — they pay by value,
+	 *  not on a line. */
 	function holdAndWinValueLabels(name: string): string[] {
 		const roles = symbolHoldAndWinRoles(doc.symbols[name]);
-		const coins = doc.holdAndWin?.coins ?? [];
-		return coins
+		const coins = (doc.modes ?? []).flatMap((m) => m.holdAndWin?.coins ?? []);
+		const labels = coins
 			.filter(
 				(c) =>
 					(c.kind === 'cash' && roles.includes('coin')) ||
 					(c.kind === 'jackpot' && roles.includes('jackpot')),
 			)
 			.map(coinEntryLabel);
+		return [...new Set(labels)];
 	}
 	function clearPaytable(name: string) {
 		delete doc.symbols[name].paytable;
@@ -1232,14 +1244,14 @@
 			rawError = 'This does not describe a game — it needs a symbol dictionary and reel strips.';
 			return;
 		}
-		doc = structuredClone(next);
+		doc = openDoc(next);
 		rawError = null;
 		rawOpen = false;
 	}
 
 	function resetToTemplate() {
 		if (!data.templateDefault) return;
-		doc = structuredClone(data.templateDefault as GameConfigDoc);
+		doc = openDoc(data.templateDefault as GameConfigDoc);
 	}
 
 	/** A kind with starting configs of its own (Hold and Win: Pots / Classic / Collector; lines: the
@@ -1257,7 +1269,7 @@
 			confirmLabel: 'Reset to preset',
 			danger: true,
 		});
-		if (ok) doc = structuredClone(preset.doc);
+		if (ok) doc = openDoc(preset.doc);
 	}
 
 	/**
@@ -1299,7 +1311,7 @@
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({
-					doc: withoutBookTrigger($state.snapshot(doc) as GameConfigDoc),
+					doc: bodyFor(withoutBookTrigger($state.snapshot(doc) as GameConfigDoc)),
 					baseEtag,
 					force,
 				}),
@@ -1323,8 +1335,8 @@
 				return { ok: false, reason: 'error', message: (await res.text()) || `HTTP ${res.status}` };
 			}
 			const saved = (await res.json()) as { doc: GameConfigDoc; etag: string | null };
-			doc = structuredClone(saved.doc);
-			baseline = JSON.stringify(saved.doc);
+			doc = adoptSaved(saved.doc);
+			baseline = JSON.stringify($state.snapshot(doc));
 			source = 'authored';
 			savedAt = new Date().toLocaleTimeString();
 			return { ok: true, etag: saved.etag };
@@ -1959,11 +1971,9 @@
 			{/if}
 		</section>
 
-		<AddOnsSection bind:doc {issuesFor} readOnly={lease.readOnly} />
+		<CoinOverlaySection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
 
-		{#if isHoldAndWin}
-			<HoldAndWinSection bind:doc {issuesFor} readOnly={lease.readOnly} />
-		{/if}
+		<BonusModesSection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
 
 		<!-- Symbols ---------------------------------------------------------------->
 		<section>
@@ -2102,8 +2112,9 @@
 				<p class="hint">
 					The pots overlay's <strong>coins</strong>: each one drops over a cell and flies into the
 					pot it fills. A coin is never dealt by a reel strip and never pays, and whether it is used
-					— and which pot it fills — is the overlay's to decide, under <strong>Add-ons</strong>, so
-					it carries no in play / unused badge. Its art is bound in Invisible Symbols.
+					— and which pot it fills — is the overlay's to decide, under
+					<strong>Coin overlay</strong>, so it carries no in play / unused badge. Its art is bound
+					in Invisible Symbols.
 				</p>
 				<div class="grid-wrap">
 					<table class="grid">

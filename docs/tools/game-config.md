@@ -57,11 +57,12 @@ before — an un-authored project still runs the compiled template.
   per-mode card: the **math** (cost, feature, buy-bonus, RTP, max win) plus the
   **presentation** (kind, menu order, and the copy the card shows). See _Bet
   modes: math + presentation_ below.
-- **Add-ons** — on every project, whatever its kind: the **pots overlay** and a **Hold
-  and Win bonus**, layered on the game you already have. See _Add-ons_ below.
-- **Hold and Win** — on a Hold and Win project, or once an add-on has given the project a
-  Hold and Win block: the respin feature's trigger, respins, board end, coin values,
-  jackpots, specials, pots and wheel. See _Hold and Win_ below.
+- **Coin overlay** — on every project, whatever its kind: an option the base game switches
+  on. Its style, the pots and drops, what lands in the base game, and the **triggers** that
+  start a bonus. See _Coin overlay_ below.
+- **Bonus modes** — the games a bonus switches into: the reels modes (free spins…) with what
+  starts each, and one card per **respin mode** (a Hold and Win game of its own) with its
+  rules. See _Bonus modes_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see _The strips are the gate_ below); a pots
@@ -75,7 +76,7 @@ before — an un-authored project still runs the compiled template.
   the launcher can't reach — see _Importing from a pasted capture_. Once a capture is
   kept, a line under the buttons reads _Partner reference: captured from <source> on
   <date> — matches_ (or _N rows differ_) with a **Forget it** link.
-- **Coins** — on a project with a pots overlay: the overlay's coins (its pot tokens), in
+- **Coins** — on a project whose coin overlay has pots: the overlay's coins (its pot tokens), in
   pot order, each with the pot(s) it fills and its special properties. No **in play** /
   **unused** badge: the overlay decides whether a coin is used (see _The strips are the
   gate_ below). A coin pays nothing, so a line paytable left on one shows **Drop line
@@ -92,8 +93,8 @@ before — an un-authored project still runs the compiled template.
   _Free spins_ below.
 - **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
   at all, and if not, how the new symbols get there. See _Reel behaviour_ below.
-- **Game modes** — the modes a bonus switches into (base game, free spins, Hold and
-  Win, your own). See _Game modes_ below.
+- **Game modes** — every mode's board and presentation (base game, free spins, respin
+  modes, your own). See _Game modes_ below.
 - **Sounds** — moved to [Invisible Sound](sound.md). The panel here is a pointer.
 - **Paylines** — a visual grid, one cell per reel per line, showing the **live server
   (RGS) line set** the game actually deals at runtime — **auto-loaded** when the page
@@ -103,218 +104,280 @@ before — an un-authored project still runs the compiled template.
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
 
-## Add-ons
+## Coin overlay
 
-The **Add-ons** section sits after Bet modes, before the Hold and Win section, on every
-project. An add-on is a mechanic layered on the game you already have. Adding one
-**merges** its parts into the config — it never resets the doc or replaces anything
-already there. If a name it brings (a symbol, a pot id) is already used, it takes the first
-free `_2`, `_3`… suffix everywhere the add-on names it, and the section says which names
-changed. Nothing is stored until you **Save**. Why the model works this way is in
+The **Coin overlay** section sits after Bet modes, before Bonus modes, on every project. It is an
+option the base game switches on: what lands in the base game — coins on the reels, tokens dropped
+over them, pots that fill — and what **starts** a bonus. Every trigger, pot and meter names the mode
+it starts; the bonus games themselves are edited in _Bonus modes_ below. Why the config is split
+this way is in [the bonus games plan](../design/bonus-games.md); how the pots and drops work is in
 [the pots overlay plan](../design/pots-overlay.md).
 
-After saving an add-on change, **reload any open game tab**: a tab keeps the add-ons it booted
+Adding a preset **merges** its parts into the config — it never resets the doc or replaces anything
+already there. If a name it brings (a symbol, a pot id) is already used, it takes the first free
+`_2`, `_3`… suffix everywhere the preset names it, and the section says which names changed.
+Nothing is stored until you **Save**.
+
+After saving an overlay change, **reload any open game tab**: a tab keeps the overlay it booted
 with, and the test server goes on dealing it that game until it reloads. Adding one here puts its
 symbols in the config only. Their art is seeded only by Game Maker's **＋ Pots overlay…** (or
 **Pots overlay parts…**); otherwise bind it in Symbols. Until then a token, a coin or a Hold and
 Win special draws a coded placeholder disc.
 
-### Pots overlay
+**Style** — once the project has an overlay, pick how it plays:
 
-Tokens drop over the symbols during a spin and fly to pots; a full pot starts its bonus.
-Value coins can drop too: enough of them on one spin start Hold and Win with those coins
-held. Pots and value coins are each optional, but an overlay needs at least one of the two:
+- **Classic** — coins land on the reels; enough start the bonus;
+- **3 Pots** — tokens fill pots; a full pot starts its bonus;
+- **Collector** — a collector beside coins starts the bonus.
+
+The overlay has three panels: _Pots and drops_ (only when it drops something), _Base game_ and
+_Triggers_.
+
+### Adding one
+
+With no overlay yet, the section offers two ways in:
+
+- Pick a preset and how many **pots** it starts with (0–5; the preset's own count is picked for
+  you), then press **＋ Coin overlay**. It adds the overlay with its pots and drops (below).
+- **＋ Coin overlay without drops** — a Classic overlay with no pots and nothing dropped: coins
+  land on the reels, and its triggers (below) start the bonus.
+
+An overlay without drops keeps the preset row, its button now reading **＋ Pots and drops**, so you
+can add them later. The presets:
+
+- **3 Pots (each pot a Hold and Win with its special)** — three pots, each starting a Hold and Win
+  respin mode with a different special active.
+- **Pots to free spins** — one pot that starts free spins.
+- **Coins only (6+ value coins start a classic Hold and Win)** — no pots. A tenth of spins drop 1
+  to 8 value coins, and 6 or more start the Classic Hold and Win (about one spin in 27, mock math).
+
+It adds the overlay and its **token** symbols. Tokens go in the Symbols dictionary only — a strip
+never deals them. The 3 Pots and Coins only presets also add a Hold and Win respin mode (its rules,
+the symbols its respin board deals and its respin strips) — unless the project already has one, in
+which case the overlay uses that one. **Coins only is refused on a Hold and Win game**: its Hold and
+Win is started by the coins landing on its reels, so dropped coins would start nothing (for the
+same reason, a value-coin drop on such a game gets a warning).
+
+### Pots and drops
+
+Tokens drop over the symbols during a spin and fly to pots; a full pot starts its bonus. Value
+coins can drop too: enough of them on one spin start Hold and Win with those coins held. Pots and
+value coins are each optional, but the panel needs at least one of the two:
 
 - **pots only** — tokens fill pots, and a full pot starts its bonus;
-- **coins only** — no pots: value coins drop over the host's symbols. Enough on one spin
-  (the Hold and Win count trigger, e.g. 6+) start Hold and Win with those coins held;
-  fewer are shown, then cleared on the next spin;
+- **coins only** — no pots: value coins drop over the host's symbols. Enough on one spin (the coin
+  count trigger, e.g. 6+) start Hold and Win with those coins held; fewer are shown, then cleared
+  on the next spin;
 - **both** — the 3 Pots shape.
-
-**Adding it.** Pick a preset, how many **pots** it starts with (0–5; the preset's own count
-is picked for you), and press **＋ Pots overlay**:
-
-- **3 Pots (each pot a Hold and Win with its special)** — three pots, each starting the
-  Hold and Win feature with a different special active.
-- **Pots to free spins** — one pot that starts free spins.
-- **Coins only (6+ value coins start a classic Hold and Win)** — no pots. A tenth of spins
-  drop 1 to 8 value coins, and 6 or more start the Classic Hold and Win (about one spin in
-  27, mock math).
-
-It adds the overlay and its **token** symbols. Tokens go in the Symbols dictionary only —
-a strip never deals them. The 3 Pots and Coins only presets also add a Hold and Win bonus
-(its block, the symbols its respin board deals and its respin strips) — unless the project
-already has a Hold and Win block, in which case the overlay uses that one. **Coins only is
-refused on a Hold and Win game**: its block is the base game, which counts only the coins
-landing on its reels, so dropped coins would start nothing (for the same reason, a value-coin
-drop on such a game gets a warning).
 
 **Pots** (the server keeps each player's level). **How many** sets the count, 0 to 5:
 
-- Raising it adds pots at the end. Each takes the next free id of red, blue, green, gold,
-  purple (the coded pots' colours), its own `POT_<ID>` token, the last pot's max level and
-  size stages, a drop-table row at the last pot's weight, and the last pot's bonus. A Hold
-  and Win pot takes the next special no other pot starts with (payer, collector,
-  multiplier, then mystery…), or _no special_ once none is left.
-- Lowering it removes pots from the end, with their drop-table rows and their tokens (a
-  token you have given a payout or another role is kept).
-- **0** leaves a coins-only overlay (above). It is offered only when the Hold and Win block
-  is the overlay's bonus — not on a Hold and Win game, whose own block counts only the coins
-  landing on its reels. The block also needs a coin count trigger. A value-coin row is added if
-  the table has none, and **Most per spin** is raised if it could not reach the trigger; the
-  section says so, and it stays raised if you add pots back. Hover the picker when 0 is greyed
-  out to see why.
-- Lowering it, the section names the pots it removed. What you authored for them elsewhere (a
-  Pot Meter, a Win Text name, a flight style) stays and comes back if a pot with that id returns.
+- Raising it adds pots at the end. Each takes the next free id of red, blue, green, gold, purple
+  (the coded pots' colours), its own `POT_<ID>` token, the last pot's max level and size stages, a
+  drop-table row at the last pot's weight, and the last pot's bonus. A Hold and Win pot takes the
+  next special no other pot starts with (payer, collector, multiplier, then mystery…), or _no
+  special_ once none is left.
+- Lowering it removes pots from the end, with their drop-table rows and their tokens (a token you
+  have given a payout or another role is kept).
+- **0** leaves coins only (above). It is offered only when the Hold and Win is the overlay's bonus
+  — not on a Hold and Win game, whose own respin mode counts only the coins landing on its reels.
+  The overlay also needs a coin count trigger. A value-coin row is added if the table has none,
+  and **Most per spin** is raised if it could not reach the trigger; the section says so, and it
+  stays raised if you add pots back. Hover the picker when 0 is greyed out to see why.
+- Lowering it, the section names the pots it removed. What you authored for them elsewhere (a Pot
+  Meter, a Win Text name, a flight style) stays and comes back if a pot with that id returns.
 
 One row per pot:
 
 - **Id** — renaming a pot also renames it in the drop table.
-- **Token** — the symbol that fills it. Untagged `meterSpecial` symbols, and symbols a
-  strip deals, are marked in the list. **＋ new** makes a fresh token for the pot —
-  `POT_<ID>`, tagged `meterSpecial`, on no strip.
+- **Token** — the symbol that fills it. Untagged `meterSpecial` symbols, and symbols a strip
+  deals, are marked in the list. **＋ new** makes a fresh token for the pot — `POT_<ID>`, tagged
+  `meterSpecial`, on no strip.
 - **Max level** — the level at which the pot is full.
 - **Size stages** — the levels where the pot grows, as a comma list (e.g. `5, 9`).
-- **Starts** — the bonus a full pot starts, picked from the project's modes (see _Game
-  modes_).
-- **With** — for **Hold and Win**, the special that starts active (or _no special_; a
-  special the Hold and Win block hasn't configured says so). For a reels mode such as
-  free spins, the number of **spins** — mock only; the real count is the server's.
+- **Starts** — the bonus a full pot starts: any bonus mode, a respin mode or a reels mode such as
+  free spins (see _Bonus modes_).
+- **With** — for a respin mode, the special that starts active (or _no special_; a special that
+  mode's rules haven't configured says so). For a reels mode such as free spins, the number of
+  **spins** — mock only; the real count is the server's.
 
-**+ pot** opens a draft row, up to 5 pots. Pick its token and its bonus, then press
-**Add pot** — only then does it join the config, because a pot missing either would be
-dropped on save. **×** discards a draft, or removes a pot along with its drop-table rows. The
-last pot's **×** works exactly like setting **How many** to 0 (same rule, same coin row), and
-the last value-coin row can go only while there is a pot (the **×** is greyed out otherwise; hover
-it for why) — to take out both, use **Remove overlay**. With no pots the table says _No pots:
-value coins only_. Changing **How many** discards open drafts first.
+**+ pot** opens a draft row, up to 5 pots. Pick its token and its bonus, then press **Add pot** —
+only then does it join the config, because a pot missing either would be dropped on save. **×**
+discards a draft, or removes a pot along with its drop-table rows. The last pot's **×** works
+exactly like setting **How many** to 0 (same rule, same coin row), and the last value-coin row can
+go only while there is a pot (the **×** is greyed out otherwise; hover it for why) — to take out
+both, use **Remove pots and drops**. With no pots the table says _No pots: value coins only_.
+Changing **How many** discards open drafts first.
 
 **Drops** — mock math; the real RGS decides what drops:
 
 - **Chance per spin** (0–1) and **Most per spin**.
-- The weighted **drop table** — each row drops _a token for a pot_ or _a value coin (Hold
-  and Win)_, with a weight; its share is shown beside it. **+ drop** adds a row (a value
-  coin when there are no pots). With value coins and a Hold and Win bonus, a note under the
-  table says how many coins on one spin start it. Keep **Most per spin** at or above that
-  count, or the coins can never start it (a warning says so).
+- The weighted **drop table** — each row drops _a token for a pot_ or _a value coin (Hold and
+  Win)_, with a weight; its share is shown beside it. **+ drop** adds a row (a value coin when
+  there are no pots). With value coins and a coin count trigger, a note under the table says how
+  many coins on one spin start which mode. Keep **Most per spin** at or above that count, or the
+  coins can never start it (a warning says so).
 - **Reels a token can land on** — none ticked = every reel.
-- **Modes that drop** — the base game by default; only modes on the reels are offered,
-  since only they have a cell to drop on.
+- **Modes that drop** — the base game by default; only modes on the reels are offered, since only
+  they have a cell to drop on.
 
-**Presentation → Tokens appear** — _after the last reel stops_ (the default) or _as each
-reel stops_. It changes only how the game shows a drop; the server never sees it. A board
-that swaps in place instead of rolling always shows its tokens together.
+**Presentation → Tokens appear** — _after the last reel stops_ (the default) or _as each reel
+stops_. It changes only how the game shows a drop; the server never sees it. A board that swaps in
+place instead of rolling always shows its tokens together.
 
 Problems show under the row or field they belong to, and that field gets a red border.
 
-**Remove overlay** asks first, then takes out the pots, the drop table and their token
-symbols. If the Hold and Win block is the overlay's bonus (see below), it goes too, with
-its respin strips and symbols. Everything else in the config is kept.
+**Remove pots and drops** asks first, then takes out the pots, the drop table and their token
+symbols. If the Hold and Win is the overlay's bonus, its respin mode goes too, with its respin
+strips and symbols. Everything else in the config is kept.
 
-### Hold and Win bonus
+### Base game
 
-Once the project has a pots overlay and no Hold and Win block yet, pick a Hold and Win
-preset (the same three as in _Hold and Win_ below) and press **＋ Hold and Win bonus**. This
-works on any kind: it adds the block, its symbols and its respin strips, and the overlay's
-pots and value coins can then start it. From then on you edit it in the **Hold and Win**
-section. While the base strips deal no Hold and Win symbol, the block is the **overlay's
-bonus**: the game keeps its own win model, and removing the overlay removes the bonus too.
+What lands in the base game. A coin landing in the base game shows a value from the coin table of
+the respin mode it starts. The panel shows only when some respin mode configures a special:
 
-The button is offered only beside an overlay: without one, a Hold and Win block counts as the
-base game's own feature, with the lines-only win model — that is a Hold and Win game.
+- **Specials in the base game** — one row per special that some respin mode configures:
+  **Lands in the base game**, and for the collector and the multiplier, **… + coin in the base game
+  pays at once**.
 
-## Hold and Win
+### Triggers
 
-A project with a Hold and Win block gets a **Hold and Win** section between Add-ons and
-Symbols.
-One kind makes three different games; each is a **preset** you can start from. Pick one
-in the banner's preset menu and press **Reset to preset** (it asks first — the whole
-config is replaced; a lines project's menu offers the **Book of Thermopylae**, see _Free spins_):
+What starts a respin mode — any one of these. Each has a **starts →** picker listing the project's
+respin modes; with none, the panel is greyed out and asks you to add one in **Bonus modes** first.
+(Free spins are started by their scatters, in _Free spins_.)
 
-- **Pots (3 Pots of Egypt)** — 5×3, 25 lines, decimal coin values, four specials, three
-  pots, Lucky Spin, a full board pays GRAND. The default for a new Hold and Win project.
-- **Classic sticky (Grand)** — 5×3, 5 lines, a BOOST multiplier, G-R-A-N-D column
-  letters, Buy and Super Buy.
-- **Collector streak (Super Hotfire Diamonds)** — 3×3, coins on reels 1 and 3 only, a
-  COLLECT on reel 2, only collectors stick, a pre-feature wheel.
+- **Coin count** — **At least** N symbols of the roles you tick, anywhere on the board.
+- **Pattern** — **+ requirement** adds a row: a reel, **At least** N, and the roles; every
+  requirement must hold on the same spin.
+- **Buy tiers** — **+ buy tier** picks a buy-bonus bet mode (its price is that mode's cost, shown
+  beside it — change it in Bet modes; with no buy-bonus mode the button is off). Tick **Specials
+  land more often in this feature** if they do, and list what is **Guaranteed on entry** (a count
+  and a role, **+ guaranteed**).
+- **Random metre** — the server triggers it, dressed as a metre; give it a **Name**.
+- **Lucky Spin** — a server-announced spin that guarantees the trigger.
+- **Meters** — filled by a landing symbol; the server keeps each player's level. **+ meter** adds
+  a row: **Id**, **Filled by** (a symbol; one not tagged `meterSpecial` says so), **Max level**,
+  **Size stages**, the special it **Activates**, and the mode it **Starts**.
 
-A new Hold and Win project already has its own config: Game Maker saves the preset picked
-at **Create** (Pots unless you chose another), so the page opens on an authored doc, not the
+**Symbols get their role in the Symbols panel**, through their special properties: `coin`,
+`jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `addRespins`, `upgrade`,
+`meterSpecial`, `blank`, `unlock`. The role checkboxes above use those roles.
+
+## Bonus modes
+
+The **Bonus modes** section follows Coin overlay. It lists the games a bonus switches into:
+
+- **On the reels** — a table of the reels bonus modes (free spins and your own) with what starts
+  each (_nothing yet_ if nothing does). Free spins are set in _Free spins_, other reels modes in
+  _Game modes_.
+- One card per **respin mode** — a Hold and Win game of its own, with its own rules, respin strips
+  and symbols. A project can have several.
+
+What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _Coin overlay_.
+
+**A respin mode's card:**
+
+- **Id** — renaming it carries what starts it along. Re-tag its screens (the role _game mode_ in
+  the [Scene Editor](invisible-editor.md), see "Game mode screens") and its tab in
+  [Flow](flow.md#game-modes--one-graph-per-mode). The
+  `holdAndWin` id is locked: its screens and its Flow tab know the mode by that name.
+- Its **respin strips** (the game type they pad from, and how many reels) and what it is **started
+  by** (or _nothing yet — route a trigger or a pot to it in Coin overlay_).
+- **Show rules** / **Hide rules** folds its rules editor (below).
+- **Remove** asks first, then takes out its rules, every trigger and meter that starts it, its
+  respin strips and the Hold and Win symbols only they deal. A pot that started it is re-routed to
+  free spins — or, with free spins off, removed with its drops; a note under the heading says which.
+  The rest of the config is kept.
+
+**The game plays every respin mode** (bonus-games Phase 4): a pot or trigger plays the mode it
+starts, on that mode's own rules, respin strips and screens. One respin mode plays at a time.
+
+A respin mode without rules says so, and **Start empty rules** gives it a default set to edit (one
+cash coin). Without rules it is an error only when something starts it (nothing could play it);
+otherwise a warning. A respin mode nothing starts never blocks a save: its issues are warnings, and
+its card says to route a trigger or a pot to it in Coin overlay.
+
+**Add a respin mode** — type an id (left blank it is `holdAndWin`, or `holdAndWin_2`, `_3`… when
+that is taken), pick a preset or **Empty rules (no strips)**, and press **＋ Respin mode**. A preset
+brings its rules, respin strips and symbols; then route something to it in Coin overlay. A bad or
+taken id is refused beside the button.
+
+- **Pots (3 Pots of Egypt)** — 5×3, 25 lines, decimal coin values, four specials, three pots,
+  Lucky Spin, a full board pays GRAND.
+- **Classic sticky (Grand)** — 5×3, 5 lines, a BOOST multiplier, G-R-A-N-D column letters, Buy and
+  Super Buy.
+- **Collector streak (Super Hotfire Diamonds)** — 3×3, coins on reels 1 and 3 only, a COLLECT on
+  reel 2, only collectors stick, a pre-feature wheel.
+
+To replace the whole config with one of these games, pick it in the banner's preset menu and press
+**Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
+_Free spins_). A new Hold and Win project already has its own config: Game Maker saves the preset
+picked at **Create** (Pots unless you chose another), so the page opens on an authored doc, not the
 template.
 
-**Symbols get their role in the Symbols panel**, through their special properties:
-`coin`, `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `addRespins`,
-`upgrade`, `meterSpecial`, `blank`, `unlock`. The Hold and Win section holds the tables for each role, and each special's
-card lists the symbols carrying its role (or asks you to tag one). A symbol with a Hold
-and Win role shows its value table in the paytable instead of line pays — it never pays
-on a line.
+### The rules
 
-The panels:
+Each respin mode's rules editor holds the tables for each symbol role, and each special's card
+lists the symbols carrying its role (or asks you to tag one). A symbol with a Hold and Win role
+shows its value table in the paytable instead of line pays — it never pays on a line. Problems are
+reported under `modes.<id>.holdAndWin`.
 
-- **Trigger** — _N or more_ symbols of the roles you tick; a **pattern** (per reel: at
-  least N of these roles on that reel, all rows must hold); **buy tiers** (pick a
-  buy-bonus bet mode — its price is that mode's cost, so change the price in Bet
-  modes — plus the specials the buy guarantees); a **random metre** (presentation only,
-  the server decides); **Lucky Spin**.
-- **Respins** — what sticks (every coin, or only collectors), the starting count, what
-  resets it (a new coin, or any new coin or special), an optional cap.
-- **Board end** — none, a **full board** jackpot (and which roles count as filling), or
-  **column letters** (one letter per reel; a full column lights its letter and, if you
-  tick it, clears; every letter lit pays the jackpot).
-- **Board expansion** — tick **Rows unlock during the feature** to grow the respin board
-  below the base grid. **Starts at** must be the grid's rows (the base game plays them);
-  **Grows to** is the most rows it reaches. **A row opens when**:
+- **Respins** — what sticks (every coin, or only collectors), the starting count, what resets it
+  (a new coin, or any new coin or special), an optional cap, and **Play**:
+  - **Automatic** (the default) — the respins follow each other on their own, and a tap speeds them
+    up;
+  - **Manual** — the player presses **SPIN** for each respin. Under autoplay or hold-to-spin the
+    respins still run on their own.
+
+  The intro and the outro advance on their own either way.
+- **Board end** — none, a **full board** jackpot (and which roles count as filling), or **column
+  letters** (one letter per reel; a full column lights its letter and, if you tick it, clears;
+  every letter lit pays the jackpot).
+- **Board expansion** — tick **Rows unlock during the feature** to grow the respin board below the
+  base grid. **Starts at** must be the grid's rows (the base game plays them); **Grows to** is the
+  most rows it reaches. **A row opens when**:
   - **the bottom open row is full** — every cell of it held;
-  - **an unlock symbol lands** — a symbol tagged `unlock` (pick the reels it may land
-    on); it opens one row and leaves;
-  - **enough symbols are held** — one threshold per row that can open, rising, each
-    reachable on the rows open before it.
+  - **an unlock symbol lands** — a symbol tagged `unlock` (pick the reels it may land on); it opens
+    one row and leaves;
+  - **enough symbols are held** — one threshold per row that can open, rising, each reachable on
+    the rows open before it.
 
-  **An unlock resets the respins** (on by default). **Row jackpots** pay a jackpot once
-  when that many rows are open (e.g. 6 rows → GRAND). With a full-board jackpot, a full
-  board means every cell of **all** the rows it can grow to. The checker refuses column
-  letters with expansion (a letter needs a fixed column height) and the full-row rule
-  when only collectors stick (a row could never fill). No preset expands — the
-  `pots-expansion-fullrow`, `pots-expansion-unlock` and `pots-expansion-count` mock
-  fixtures exercise it.
+  **An unlock resets the respins** (on by default). **Row jackpots** pay a jackpot once when that
+  many rows are open (e.g. 6 rows → GRAND). With a full-board jackpot, a full board means every
+  cell of **all** the rows it can grow to. The checker refuses column letters with expansion (a
+  letter needs a fixed column height) and the full-row rule when only collectors stick (a row could
+  never fill). No preset expands — the `pots-expansion-fullrow`, `pots-expansion-unlock` and
+  `pots-expansion-count` mock fixtures exercise it.
 
-- **Coin values** — cash coins (× total bet; 1.5 is fine) and jackpot coins, each with a
-  weight (its share is shown) and the reels it may land on (none ticked = every reel).
+- **Coin values** — cash coins (× total bet; 1.5 is fine) and jackpot coins, each with a weight
+  (its share is shown) and the reels it may land on (none ticked = every reel).
 - **Jackpot tiers** — name and × total bet. Renaming a tier renames every reference. Untick
-  **Fixed** for a **progressive** tier: it gets a pool with a **seed** (where it starts, and goes back
-  to when won), **+ per bet** (what every bet adds, × total bet) and an optional **cap**. The server
-  keeps the pool per player and pays it when the tier is won; the jackpot bar shows it live. No preset
-  has one — the `pots-progressive` mock fixture exercises it.
-- **Specials** — collector, multiplier, payer, mystery, add respins, upgrade; each
-  switched on separately with its own table. Then the **apply order** for specials
-  landing on the same respin and which are **active at entry**. A mystery can reveal any
-  of the others.
-  - **Add respins** — the respins it adds when it applies (whole numbers, weighted).
-    **Also raises the count a reset fills back to** makes every later reset fill to the
-    higher count too (the respin **cap** — most respins played — is never raised).
-    **Sticky** keeps it on the board afterwards, holding its cell and worth nothing; off,
-    its cell clears once it has added. Plus reels and **lands in the base game** (where
-    it only counts toward a trigger that counts its role).
-  - **Upgrade** — the rules it may apply, each with a weight (one is drawn per landing):
-    **every cash coin** by its step, **the cash coins in the 8 cells around it** by its
-    step, or **the lowest jackpot coin, one tier up** (MINI → MINOR; never past the top
-    tier — needs at least two jackpot tiers). The **step** table is × total bet,
-    decimals allowed; the jackpot-tier rule ignores it. Jackpot coins are never raised
-    by a step. Plus reels and **lands in the base game**.
-- **Meters (pots)** — per meter: the symbol that fills it, max level, the levels where
-  it grows, the special a full meter activates. Pot levels are the server's; the game
-  only shows them.
-- **Wheel** — prizes spun once as the feature starts: coin boost, extra collect, or a
-  jackpot.
+  **Fixed** for a **progressive** tier: it gets a pool with a **seed** (where it starts, and goes
+  back to when won), **+ per bet** (what every bet adds, × total bet) and an optional **cap**. The
+  server keeps the pool per player and pays it when the tier is won; the jackpot bar shows it live.
+  No preset has one — the `pots-progressive` mock fixture exercises it.
+- **Specials** — collector, multiplier, payer, mystery, add respins, upgrade; each switched on
+  separately with its own table. Then the **apply order** for specials landing on the same respin
+  and which are **active when the feature starts**. A mystery can reveal any of the others.
+  - **Add respins** — the respins it adds when it applies (whole numbers, weighted). **Also raises
+    the count a reset fills back to** makes every later reset fill to the higher count too (the
+    respin **cap** — most respins played — is never raised). **Sticky** keeps it on the board
+    afterwards, holding its cell and worth nothing; off, its cell clears once it has added. Plus
+    the reels it may land on.
+  - **Upgrade** — the rules it may apply, each with a weight (one is drawn per landing): **every
+    cash coin** by its step, **the cash coins in the 8 cells around it** by its step, or **the
+    lowest jackpot coin, one tier up** (MINI → MINOR; never past the top tier — needs at least two
+    jackpot tiers). The **step** table is × total bet, decimals allowed; the jackpot-tier rule
+    ignores it. Jackpot coins are never raised by a step. Plus the reels it may land on.
+- **Wheel** — prizes spun once as the feature starts: coin boost, extra collect, or a jackpot.
 
-The win model is locked to **lines** — a Hold and Win base game pays by lines (not when the
-block is the pots overlay's bonus; see _Add-ons_). The
-checker names impossible setups (a pattern on a reel that doesn't exist, only
-collectors sticking with no sticky collector, a letters word that doesn't match the
-reel count, a jackpot name no tier has…).
+Whether a special also lands in the base game is set in _Coin overlay → Base game_; a landing there
+only counts toward a trigger that counts its role.
 
-The game doesn't play the feature yet: the mock server and the engine follow in later
-phases ([plan](../design/hold-and-win.md)).
+The win model is locked to **lines** on a Hold and Win game — a Hold and Win base game pays by
+lines (not when the Hold and Win is the overlay's bonus). The checker names impossible setups (a
+pattern on a reel that doesn't exist, only collectors sticking with no sticky collector, a letters
+word that doesn't match the reel count, a jackpot name no tier has…).
 
 ## Reel behaviour
 
@@ -411,17 +474,22 @@ music. The **Game modes** panel (below Reel behaviour) lists every mode the proj
 has, one row each:
 
 - **Built-in** rows (chip `built-in`) are the modes every game has without authoring:
-  `basegame`, `freeSpins` (game type `freegame`), and `holdAndWin` when the config has
-  a Hold and Win block. Their values show greyed as placeholders; type into a field
-  to override just that field, clear it to go back. An edited row shows
-  `built-in · edited` and a **Reset** button.
+  `basegame` and `freeSpins` (game type `freegame`). Their values show greyed as
+  placeholders; type into a field to override just that field, clear it to go back. An
+  edited row shows `built-in · edited` and a **Reset** button.
+- **Respin modes** (chip `Hold and Win · Bonus modes`) are listed here for their
+  presentation fields only — label, HUD, music and the rest. They are added, renamed and
+  removed in _Bonus modes_, so their **Board** is locked to the respin board and they
+  have no **×**.
 - **Your own modes:** type an id under the table and click **+ mode** (or Enter). The
   id must start with a letter and use only letters, digits, `_` and `-`, and must not
   already exist. **×** removes it.
 
 The columns (in brackets, what a blank field means on your own mode):
 
-- **Board** — what it plays on: reels, respin board, wheel, none.
+- **Board** — what it plays on: reels, wheel, none — or the respin board, which only a
+  respin mode plays on. Switching another mode's board never offers the respin board: add
+  a respin mode in _Bonus modes_ instead.
 - **Label** — the name the tools show (the id).
 - **Game type** — the `gameType` the game runs while the mode is on; a reels mode
   pads from the padding strips of that key (the id).
@@ -605,7 +673,7 @@ pay). The expanding special still starts every Book-of free spins round.
 Server — not a natural one, not a forced one. Scatters still land and still pay
 their scatter pay; to remove them altogether, take the scatter symbol off the reel
 strips. The trigger and award settings are kept, so switching back on restores
-them. A **pots overlay** pot whose bonus is free spins is a blocking error while they are off
+them. A **coin overlay** pot whose bonus is free spins is a blocking error while they are off
 (route it to another bonus, or switch free spins back on). A
 **buy** mode now has nothing to sell, so it becomes a **blocking error** —
 _Free spins are off, so the "bonus" buy mode has nothing to buy. Remove it in Bet
@@ -722,10 +790,10 @@ This is the one rule that keeps a game from advertising symbols it never deals. 
 the strips now server-defined, the in-play set — and so the **in play** / **unused**
 badges — reflect the server's declared symbols at runtime.
 
-A pots overlay's coin (its pot token) is the one symbol that reaches the board without a
+A coin overlay's pot token is the one symbol that reaches the board without a
 strip: it drops **over** a cell and flies into its pot. So it is not in the Symbols table
 but in a section of its own, **Coins**, with no badge: whether a coin is used, and which
-pot it fills, is the overlay's call. Add or remove its pot under **Add-ons**. (A coin
+pot it fills, is the overlay's call. Add or remove its pot under **Coin overlay**. (A coin
 cannot go on the reels: it would land as a symbol, which the validator refuses.)
 
 The badges also decide what [Invisible Symbols](symbols-state-machine.md) lists: every
@@ -870,6 +938,11 @@ a capture is never blocked.
 A Invisible Engine config arrives as JSON. Click **raw JSON** (top of the page), paste
 it, and **Apply** — the same validation a save runs checks it first. The snake_case
 fields the export uses (`special_properties`, `max_win`) are kept verbatim.
+
+A config with the older `holdAndWin` / `potsOverlay` blocks is fine to paste: the page turns
+them into the **Coin overlay** and **Bonus modes** form (`coinOverlay`, and a respin mode's rules
+on its `modes` entry), and that is what it saves. The server writes the older blocks back
+alongside on every save, for what still reads them.
 
 ## Errors vs warnings
 

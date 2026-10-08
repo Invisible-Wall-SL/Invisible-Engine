@@ -1,4 +1,4 @@
-import type { LayoutDoc, Scene } from '../types';
+import type { LayoutDoc, LayoutNode, Scene } from '../types';
 import { bookofReferenceLayout } from './bookof';
 import { clusterReferenceLayout } from './cluster';
 import {
@@ -97,39 +97,137 @@ const FULL_SCENE_SOURCES: Record<
 	},
 };
 
+/** A declared respin mode the scene set seeds screens for: its id, the name the tools show it by,
+ *  and the rows its board grows to. */
+export type RespinModeScreens = { id: string; label?: string; maxRows?: number };
+
 /**
  * Scene-set options: the Hold and Win template's (`maxRows`, `potIds`) plus the project's add-on
  * capabilities (docs/design/pots-overlay.md §4). On any kind but `holdAndWin`, `potsOverlay` or
  * `holdAndWin` merges the add-on screens into the kind's set; the `holdAndWin` kind already has
  * them, so there the flags change nothing.
+ *
+ * `respinModes` names every declared respin mode (docs/design/bonus-games.md §2.4): each gets its
+ * own copy of the reference respin screens, tagged `modeId: <its id>` and laid out for its own
+ * `maxRows`. Absent ⇒ the one mode `holdAndWin` at `maxRows`, as before.
  */
 export type SceneSetOptions = HoldAndWinTemplateOptions & {
 	holdAndWin?: boolean;
 	potsOverlay?: boolean;
+	respinModes?: readonly RespinModeScreens[];
 };
 
 /**
- * The add-on screens, in the Hold and Win reference's order: the Pots screen for either add-on;
- * with a Hold and Win bonus also the Jackpot bar and every `holdAndWin` mode screen. Lucky Spin
- * is left out — it is an error on an overlay host's bonus.
+ * A respin mode's copy of a reference mode screen. The `holdAndWin` mode keeps the reference's
+ * screen; any other mode suffixes the screen's and every node's ids (children too) with its own,
+ * so two modes' screens never share an id, and names the mode after the screen's name.
  */
-function addOnScenes(options: SceneSetOptions): { reference: Scene[]; ids: string[] } {
-	const { potIds, maxRows, holdAndWin } = options;
+function screenForMode(scene: Scene, mode: RespinModeScreens): Scene {
+	if (mode.id === HOLD_AND_WIN_MODE) return scene;
+	const suffix = (id: string) => `${id}-${mode.id}`;
+	const suffixed = (node: LayoutNode): LayoutNode =>
+		node.kind === 'container'
+			? { ...node, id: suffix(node.id), children: node.children.map(suffixed) }
+			: { ...node, id: suffix(node.id) };
+	return {
+		...scene,
+		id: suffix(scene.id),
+		name: `${scene.name} (${mode.label ?? mode.id})`,
+		modeId: mode.id,
+		nodes: scene.nodes.map(suffixed),
+	};
+}
+
+/** The reference scenes laid out for `maxRows` — `reference` itself when that is its own. */
+const laidOutFor = (
+	reference: Scene[],
+	options: SceneSetOptions,
+	maxRows: number | undefined,
+): Scene[] =>
+	maxRows === options.maxRows
+		? reference
+		: holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { potIds: options.potIds, maxRows }).scenes;
+
+/** The respin modes `options` seeds screens for. */
+const respinModesIn = (options: SceneSetOptions): readonly RespinModeScreens[] =>
+	options.respinModes ?? [
+		{ id: HOLD_AND_WIN_MODE, ...(options.maxRows ? { maxRows: options.maxRows } : {}) },
+	];
+
+/**
+ * The Hold and Win reference's screens with every `holdAndWin` mode screen replaced by one copy per
+ * respin mode, in mode order — each from the reference laid out for that mode's `maxRows`.
+ */
+function referenceWithModes(
+	options: SceneSetOptions,
+	modes: readonly RespinModeScreens[],
+): Scene[] {
+	const { potIds, maxRows } = options;
 	const reference = holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, { potIds, maxRows }).scenes;
+	const perMode = modes.map((mode) => ({
+		mode,
+		scenes: laidOutFor(reference, options, mode.maxRows),
+	}));
+	return reference.flatMap((scene, at) =>
+		scene.role === 'mode' && scene.modeId === HOLD_AND_WIN_MODE
+			? perMode.map(({ mode, scenes }) => screenForMode(scenes[at], mode))
+			: [scene],
+	);
+}
+
+/** Respin modes the `holdAndWin` kind's own set lacks: every one but its own `holdAndWin`. */
+const extraKindModes = (options: SceneSetOptions): readonly RespinModeScreens[] =>
+	(options.respinModes ?? []).filter((mode) => mode.id !== HOLD_AND_WIN_MODE);
+
+/**
+ * The add-on screens, in the Hold and Win reference's order: the Pots screen for either add-on;
+ * with a Hold and Win bonus also the Jackpot bar and every respin mode's mode screens. Lucky Spin
+ * is left out — it is an error on an overlay host's bonus. On the `holdAndWin` kind, which has all
+ * of these for its own mode, only the other respin modes' screens.
+ */
+function addOnScenes(
+	gameType: string,
+	options: SceneSetOptions,
+): { reference: Scene[]; ids: string[] } {
+	const kindOwn = gameType === 'holdAndWin';
+	const modes = kindOwn
+		? extraKindModes(options)
+		: options.holdAndWin
+			? respinModesIn(options)
+			: [];
+	const modeIds = new Set(modes.map((mode) => mode.id));
+	const reference = referenceWithModes(options, kindOwn ? respinModesIn(options) : modes);
 	const ids = reference
 		.filter(
 			(scene) =>
-				scene.id === POTS_SCREEN ||
-				(holdAndWin &&
-					(scene.id === 'jackpotBar' ||
-						(scene.role === 'mode' && scene.modeId === HOLD_AND_WIN_MODE))),
+				(scene.role === 'mode' && scene.modeId !== undefined && modeIds.has(scene.modeId)) ||
+				(!kindOwn &&
+					(scene.id === POTS_SCREEN || (options.holdAndWin && scene.id === 'jackpotBar'))),
 		)
 		.map((scene) => scene.id);
 	return { reference, ids };
 }
 
 const hasAddOn = (gameType: string, options: SceneSetOptions): boolean =>
-	gameType !== 'holdAndWin' && Boolean(options.holdAndWin || options.potsOverlay);
+	gameType === 'holdAndWin'
+		? extraKindModes(options).length > 0
+		: Boolean(options.holdAndWin || options.potsOverlay);
+
+/**
+ * The `holdAndWin` kind's set with its own mode's screens laid out for that mode's `maxRows`: the
+ * kind is built at the tallest respin board (the base grid reserves it), and the own mode keeps the
+ * layout it has alone.
+ */
+function ownModeScenes(scenes: Scene[], options: SceneSetOptions): Scene[] {
+	const own = options.respinModes?.find((mode) => mode.id === HOLD_AND_WIN_MODE);
+	if (!own || own.maxRows === options.maxRows) return scenes;
+	const laidOut = holdAndWinReferenceLayout(undefined, { ...options, maxRows: own.maxRows }).scenes;
+	return scenes.map((scene) =>
+		scene.role === 'mode' && scene.modeId === HOLD_AND_WIN_MODE
+			? (laidOut.find((ref) => ref.id === scene.id) ?? scene)
+			: scene,
+	);
+}
 
 /**
  * `current` with the `reference` scenes named by `ids` merged in — each right after the nearest
@@ -161,7 +259,7 @@ export function mergeMissingScreens(
 /** The ids of the add-on screens `getFullSceneSet(gameType, options)` merges into the kind's set. */
 export function addOnSceneIds(gameType: string, options: SceneSetOptions = {}): string[] {
 	if (!FULL_SCENE_SOURCES[gameType] || !hasAddOn(gameType, options)) return [];
-	return addOnScenes(options).ids;
+	return addOnScenes(gameType, options).ids;
 }
 
 /**
@@ -176,8 +274,9 @@ export function getFullSceneSet(
 ): LayoutDoc | undefined {
 	const doc = FULL_SCENE_SOURCES[gameType]?.build(options);
 	if (!doc || !hasAddOn(gameType, options)) return doc;
-	const { reference, ids } = addOnScenes(options);
-	return { ...doc, scenes: mergeMissingScreens(doc.scenes, reference, ids) };
+	const { reference, ids } = addOnScenes(gameType, options);
+	const own = gameType === 'holdAndWin' ? ownModeScenes(doc.scenes, options) : doc.scenes;
+	return { ...doc, scenes: mergeMissingScreens(own, reference, ids) };
 }
 
 /**

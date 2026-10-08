@@ -519,7 +519,7 @@ check(
 check(
 	'0 pots on a bonus with no coin count trigger is refused',
 	refused(setOverlayPotCount(added(addHoldAndWinBonus(freeOverlay, 'collector')), 0)),
-	'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Hold and Win section first, or keep at least one pot.',
+	'Value coins start this Hold and Win only through its coin count trigger, which it does not set — set one in the Coin overlay triggers first, or keep at least one pot.',
 );
 const goldTaken = clone(three);
 goldTaken.symbols.POT_GOLD = { paytable: [{ '3': 1 }] };
