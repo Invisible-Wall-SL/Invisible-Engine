@@ -40,9 +40,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5c | Flow v2 vocabulary by board | in review | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | in review | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
-| 7a | Deal from the doc, lift the route guard, per-mode pools | in review | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | — |
-| 7b | Drop the legacy mirror; retire the `holdAndWin` kind as an engine switch | not started (needs 7a) | — | — |
-| 7c | Migrate and play-prove the samples | not started (needs 7b) | — | — |
+| 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
 
 ## Decisions & findings
 
@@ -419,130 +417,155 @@ starts the phase sessions, reviews their PRs and merges them.
     respin mode. Until then, the pot route into a Book-of host with a second respin mode is what
     plays (gate §1). The sample host playing two Hold and Win bonuses stays Phase 7's proof.
 
-- 2026-10-09 — **Phase 7a: the deal is decided by the doc** (the 7a session; the proposal went to
-  the hub before the build).
-  - **The engine choice.** `holdAndWinDealsBaseGame(doc)` (game-config `holdAndWin.ts`): a respin mode
-    with rules, nothing dropping (no `potsOverlay` mirror) and a Hold and Win symbol on the base strips
-    — the template's shape — is dealt on the Hold and Win engine. Every other doc is its kind's own
-    mock with the coin overlay over it (`withPotsOverlay`). `projectGrid` reads it in place of
-    `gameType === 'holdAndWin'`, and the kind is no longer threaded through the contract
-    (`mockContractOfBundle` lost its fourth argument).
-  - **Why this line and not "rules and nothing drops"**: the owner's model keeps the base game the
-    host's. A plain lines game that adds a mode on a buy keeps its own mock (its free spins, wilds,
-    paytable); the simpler rule would have moved it onto the Hold and Win engine, which has none of
-    them.
-  - **The overlay now deals every route but meters** (`mock-pots-overlay.mjs`):
+- 2026-10-09 — **Phase 7a: the overlay composes over any base, every route plays** (hub-approved
+  twice: a first "deal by the doc" proposal, then the owner's revised model, which replaced it).
+  - **The base engine comes from the KIND**, as on main: the Hold and Win engine for `holdAndWin`,
+    the lines-family mock (or the book mock) otherwise. The doc predicate first built here was
+    reverted. The kind is not retired.
+  - **The coin overlay composes over the Hold and Win engine too** (`mock-rgs-server-holdandwin.mjs`
+    takes `opts.overlay` like the lines and book mocks).
+    - It hands the overlay its own respin engines (`host.respinEngines`), so a pot starts the base's
+      own mode and nothing is declared twice.
+    - On that base the overlay deals only its pots and dropped coins; every route of the reels stays
+      the engine's.
+    - Drops draw from the overlay's own stream, so the base board is untouched.
+    - The base's feature plays first, then a queued pot's (`handOver` moves the round's end after
+      it).
+    - `getSession` keeps pot levels beside the meters, and `meterLevels` lists both
+      (`reportsMeters`, `potLevels`).
+    - `force:` tokens split: `overlay:` / `pot:` go to the overlay, the rest to the engine.
+  - **A Hold and Win base enters free spins, approximately.** `startFreeSpins` plays N (10, or the
+    pot's `spins`) plain line spins on its board (`engine.playSpin`) in the lines mock's events
+    (`spinTrigger`, `enterBonus`, `playedBonusSpin`, `playedBonusSpins`). Only a pot starts them; a
+    natural scatter trigger on a Hold and Win base is not dealt.
+  - **The contract.** A `holdAndWin`-kind project's grid carries `potsOverlay` (last) only when the
+    overlay drops something. Today's presets carry a classic coin overlay that drops nothing, so no
+    current game's contract moves.
+  - **Over a lines or book base, the overlay deals every route but meters**
+    (`mock-pots-overlay.mjs`):
     - a **buy**: a bought option whose bet mode a buy tier names enters that respin mode with the
-      tier's guarantees, and the host deals the spin unbought (no free-spins entry). The lines mock
-      tells the overlay the round's `betMode`, and sells such an option even with free spins off
-      (`sellsBuy`);
-    - **Lucky Spin** / **random metre**: drawn from the overlay's RNG, only when some respin mode has
-      the route, so no other deal moves;
-    - a **pattern**: formed by the dropped value coins (the coin engine's `patternTriggered`);
+      tier's guarantees, and the host deals the spin unbought. The lines mock passes the round's
+      `betMode` and sells such an option even with free spins off (`sellsBuy`);
+    - **Lucky Spin** / **random metre**: drawn from the overlay's RNG, only when some mode has the
+      route;
+    - a **pattern**: formed by the dropped value coins;
     - new forces `trigger:luckySpin`, `trigger:randomMetre`, `trigger:pattern`;
-    - a coin overlay with only such routes and nothing dropping gets overlay inputs
-      (`pots: []`, an empty drop table) when its respin mode is reached only through it
-      (`respinIsOverlayBonus`).
-  - **Meters stay refused on an overlay host**: a landing symbol fills them, and the host deals the
-    base board in its own vocabulary. The base-game instant collects stay refused too.
-  - **The guard is now the doc's** (`respinRouteDealt`): `modeRouteRefusal` and `undealtRouteWarnings`
-    keep their names and callers. They refuse or warn only for a route that really is not dealt:
-    - a meter on an overlay host;
-    - the count or a pattern with no value coins dropping;
-    - every route where Hold and Win symbols land on the base reels beside dropped tokens (the
-      flagged shape);
-    - a buy on the **Book-of kind**, whose book mock sells only its own buy. This is the one place
-      the kind is still read: it picks the PROTOCOL, not the engine.
-  - **Validator**: `validateHoldAndWin` no longer errors on a pattern, Lucky Spin, random metre or
-    buy for an overlay's bonus ("not built for an overlay host yet"). A pattern that counts no
-    coin/jackpot, or with no coins dropping, warns.
-  - **Emit rules (item 3): both kept.** Dropping Phase 2's wire rule would add `bonusModes` and `mode`
-    to every current Hold and Win game's answer; dropping 5c's `FlowAddOns.respinModes` rule would
-    move every current doc's add-ons (`check:flow-bonus-modes` `MAIN_DIGESTS`). Neither is a
-    condition on the kind, so 7b can leave them.
-  - **Per-mode pools (item 4).** A tier name progressive in two or more respin modes keeps a pool per
-    mode (`splitPoolNames`, the session key `<name>@<mode>`), and its `jackpotLevels` entries carry
-    `mode`. Every other pool stays shared by name with no `mode`, so a two-mode doc with distinct
-    tier names is unchanged too. The facade applies a tagged entry to that mode only and reads the
-    boot pools per mode from `bonusModes`. The runtime's `jackpot.<tier>` reads the pool of the mode
-    whose tier it shows (`jackpotTierMode` + `poolLevel`).
-  - **`coinOverlay.coins` (item 5).** It rides the mock inputs as `baseCoins` (only when set). The
-    engine's base-board draws and the overlay's dropped value coins use it. The respin landings keep
-    the mode's own table. `/config` → Coin overlay → Base game shows the panel again ("Set the base
-    game's own" / "Use the respin mode's table"). It is not in the legacy mirror (the mirror has one
-    coin table).
-  - **What changes, and only these** (`check:deal-by-doc` §2; each has a route the kind ignored):
-    - the Hold and Win template saved under another kind: now dealt on the Hold and Win engine;
-    - a Hold and Win KIND whose overlay drops tokens beside its base coins: now the flagged lines
-      game's deal;
-    - a Hold and Win KIND with no rules: now the lines grid, not the bare board.
+    - a coin overlay with only such routes and nothing dropping gets overlay inputs (`pots: []`)
+      when its respin mode is reached only through it (`respinIsOverlayBonus`).
+  - **One route dispatch, `startBonus(modeId)`** (for Phase 8a). In order:
+    - a respin engine;
+    - a mode the host registered (`opts.bonusModes[modeId].start(events, round, info)` on any host
+      mock);
+    - the host's free spins / a reels mode, through `host.startFreeSpins` with `cause`, `spins`
+      (the pot's, else `game.spins`) and the mode's `game` passed through untouched;
+    - a stub.
 
-    The hub was asked to confirm that no current game is one of these.
+    A buy, Lucky Spin or random metre reaches a reels mode when its input names it
+    (`inputs.modes[id].trigger`, the respin trigger shape). 8a was sent the signature.
+  - **Refusals narrowed** (`respinRouteDealt`, read by `modeRouteRefusal` and
+    `undealtRouteWarnings`). On a Hold and Win base nothing is refused. On any other base, only:
+    - a meter (a landing symbol fills it);
+    - the count or a pattern with no value coins dropping;
+    - a buy on the Book-of kind (the book mock sells only its own; it goes with #1140);
+    - every route when Hold and Win symbols land on the base strips of another kind (no mock deals
+      that).
+  - **Validator.** `validateHoldAndWin` no longer errors on a pattern, Lucky Spin, random metre or buy
+    for an overlay's bonus. A pattern that counts no coin/jackpot, or with no coins dropping, warns.
+    Meters and the base-game instant collects stay refused on an overlay host.
+  - **Emit rules (item 3): both kept.** Dropping Phase 2's wire rule would add `bonusModes` and `mode`
+    to every current Hold and Win game's answer. Dropping 5c's `FlowAddOns.respinModes` rule would
+    move every current doc's add-ons (`check:flow-bonus-modes` `MAIN_DIGESTS`).
+  - **Per-mode pools (item 4).** A tier name progressive in 2+ respin modes keeps a pool per mode
+    (`splitPoolNames`, session key `<name>@<mode>`), and its `jackpotLevels` entries carry `mode`.
+    Every other pool stays shared by name, untagged.
+    - The facade applies a tagged entry to that mode only, and reads the boot pools per mode from
+      `bonusModes`.
+    - The runtime's `jackpot.<tier>` reads the pool of the mode whose tier it shows
+      (`jackpotTierMode` + `poolLevel`).
+  - **`coinOverlay.coins` (item 5)** rides the mock inputs as `baseCoins` (only when set).
+    - The engine's base-board draws and the overlay's dropped coins use it.
+    - `/config` → Coin overlay → Base game shows the panel again. It writes nothing until edited
+      (pinned).
+    - It is not in the legacy mirror.
+  - **What changes for a current-game shape: one.** A Hold and Win KIND whose overlay drops tokens
+    beside its base coins: main dealt it without its pots; now they pay into their bonus.
   - **For 7b:**
-    - `holdAndWinIsOverlayBonus` still reads the `potsOverlay` mirror; `respinIsOverlayBonus` and
-      `holdAndWinDealsBaseGame` read `legacyHoldAndWin` / `legacyPotsOverlay`. Port all three to the
-      split form when the mirror goes.
+    - `holdAndWinIsOverlayBonus` and `respinIsOverlayBonus` read the `potsOverlay` mirror; port them
+      to the split form when it goes. So does the HW contract's `legacyPotsOverlay` test.
     - `potsOverlayPresets.ts` `holdAndWinBonusFrom` still strips pattern, Lucky Spin, random metre
-      and buy from a preset made an overlay's bonus; they are dealt now, so the strip can go (it
-      changes the add-on's output, so it needs its own parity).
-    - The Book-of kind's buy refusal (`BOOK_KIND` in `imports.ts`) goes with book-feature Phase 7's
-      retirement of the book mock (#1140).
-    - The overlay draws dropped coins from the coin engine. With `baseCoins` set, a dropped jackpot
-      coin may name a tier the coin engine's mode lacks; it then pays 0 there.
-  - **For 7c:**
-    - The two-Hold-and-Win sample host (`borut-pots-sample` + a reskinned `hw-classic-sample`) can now
-      take its second mode on any route, not only a pot.
-    - `check:deal-by-doc` lists every shape a current game has. A sample migrated in 7c should be
-      added there with its stored kind.
+      and buy from a preset made an overlay's bonus. They are dealt now; dropping the strip changes
+      the add-on's output, so it needs its own parity.
+    - With `baseCoins` set, a dropped jackpot coin may name a tier the coin engine's mode lacks; it
+      then pays 0 there.
+  - **For 8 (spins bonus modes), agreed with 8a:**
+    - 8a produces `inputs.modes[id].trigger` and `game` (its `reelsModeMockInput`);
+    - 8a lifts `validateBonusModes`' "only a respin-board mode is started this way" guard;
+    - 8a reads `game` in the lines mock's free-spin loop.
+
+    The count and a pattern stay respin-only, because the dropped coins belong to a respin mode.
+  - **For 7c:** `check:deal-parity` lists every shape a current game has. A sample migrated in 7c
+    belongs there with its stored kind.
 
 ## Recent changes
 
-- 2026-10-09 — **Phase 7a: deal from the doc, lift the route guard, per-mode pools** (PR #TBD;
-  game-config, the mocks, the launcher contract, the facade, `apps/lines` pools, `/config` base
-  coins, the Game Maker dialog text, guides `docs/tools/game-maker.md` and `game-config.md`).
-  - **What landed:** the decisions above ("Phase 7a" in Decisions & findings).
+- 2026-10-09 — **Phase 7a: the overlay over any base, every route plays, per-mode pools** (PR #TBD).
+  Touched: game-config, the four mocks, the test server, the launcher contract, the facade,
+  `apps/lines` pools, `/config` base coins, the Game Maker dialog text, and the guides
+  `docs/tools/game-maker.md` and `game-config.md`.
+  - **What landed:** "Phase 7a" in Decisions & findings.
   - **Gates:**
-    - new `pnpm --filter launcher-api check:deal-by-doc`. It runs 29 current shapes through the
+    - New `pnpm --filter launcher-api check:deal-parity`. It runs 31 current shapes through the
       contract and a seeded deal on the mock the test server builds, under their stored kinds:
       - the 3 presets, the 5 fixtures and the 3 templates;
       - lines, ways, scatter and cluster;
       - Book of Thermopylae under lines and bookOf;
-      - the 3 overlay presets on a lines host and on a Book-of host;
-      - `borut-pots-sample`;
-      - the flagged lines + 3 Pots + coin-on-a-base-strip;
+      - the 3 overlay presets on lines and on Book-of;
+      - `borut-pots-sample` and the flagged lines + 3 Pots + coin-on-a-base-strip;
       - an imported bonus;
       - a Hold and Win with a second mode;
-      - Phase 6's added mode on lines and Book-of hosts.
+      - Phase 6's added mode on lines and Book-of;
+      - the Hold and Win template under the lines kind;
+      - a Hold and Win kind with no rules.
 
-      All 29 are byte-identical to digests measured on main 7db698b with the kind passed. The 3
-      shapes that change are listed with the route their kind ignored.
-    - `check:respin-modes` §7 (176/0, REAL mock + REAL facade). A LINES host with a coin overlay, its
-      free spins and two respin modes plays:
-      - red pot → mode 1 (Automatic, never parks);
-      - a buy tier → mode 2 (Manual, parks before every respin and never under autoplay; no free
-        spins);
-      - Lucky Spin → mode 2;
-      - scatters → free spins.
+      All 31 are byte-identical to digests measured on main 7db698b. Only the Hold and Win kind with
+      dropping pots differs, and its contract carries the overlay last.
+    - `check:respin-modes` 217/0, REAL mocks + REAL facade.
+      - **§7, a LINES host** (coin overlay, its free spins, two respin modes) plays:
+        - red pot → mode 1 (Automatic, never parks);
+        - buy → mode 2 (Manual, parks before every respin, never under autoplay; no free spins);
+        - Lucky Spin → mode 2;
+        - scatters → free spins.
 
-      Each mode plays its own rules, strip, screens and Win Text. A shared progressive tier keeps a
-      pool per mode, and the dropped coins carry the authored base-game value. Mutations that turn
-      it red: buy routes off (8), pools by name (2), base coins ignored (1).
-    - `check:add-bonus-mode` §3: a buy route into a plain lines host is taken and its bought round
-      deals the respin mode. The dialog offers it on lines and not on Book-of.
-    - `check:config-bonus-modes` §4: the buy no longer warns on lines; it warns on Book-of, and a meter
-      warns on an overlay host.
-    - `check:mock-contract`: the doc decides; the Hold and Win template under the lines kind gets the
-      Hold and Win kind's contract.
-    - `potsOverlay.fixture` and `imports.fixture` follow the lifted refusals.
+        Each feature has its own rules, strip, screens and Win Text. A shared progressive tier keeps
+        a pool per mode, and the dropped coins carry the authored base value.
+      - **§8, a HOLD AND WIN BASE** (Classic) plus a pots overlay and the Collector as a second mode:
+        - its reels → its own feature, unchanged;
+        - red pot → that mode;
+        - green pot → the Collector;
+        - reels and green pot in one round → base feature first, then the Collector;
+        - blue pot → free spins.
+      - **§8, the plain Hold and Win game** (no jackpots, no board end, no overlay): coins →
+        respins → a paying end, and no jackpot event.
+      - **The dispatch:** a buy routed to a spins mode starts it through `startFreeSpins` with
+        `game` untouched; a pot to a host-registered mode starts it through its hook.
+      - **Mutations that turn it red:** buy routes off (8), pools by name (2), base coins ignored
+        (1), no hand-over after the base feature (13), no shared engines (crash).
+    - `check:add-bonus-mode` §3: a buy route into a plain lines host is taken, and its bought round
+      deals the respin mode.
+    - `check:config-bonus-modes` §1 and §4:
+      - no base coin values are written unless authored;
+      - a buy warns only on Book-of;
+      - a meter warns on an overlay host.
+    - `potsOverlay.fixture` and `imports.fixture` follow the narrowed refusals.
     - `check:holdandwin` 1892/0 + 428/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS`
       unchanged.
-    - `check:freespins`, `check:bonus-modes`, `check:resume`, `check:bonus-import`,
-      `check:flow-bonus-modes` 88, `check:win-text-bonus-modes` 73, `check:bonus-modes-tools` 82,
-      `check:unused-symbols-in-game` and `check:book-of-migration` pass.
-    - `check:svelte` is at baseline for launcher-api (48), lines (164) and engine-game (37). ESLint
-      and Prettier are clean on the touched files.
+    - These pass: `check:mock-contract` (main's, unchanged), `check:freespins`, `check:bonus-modes`,
+      `check:resume`, `check:bonus-import`, `check:flow-bonus-modes` 88,
+      `check:win-text-bonus-modes` 73, `check:bonus-modes-tools` 82, `check:unused-symbols-in-game`
+      and `check:book-of-migration`.
+    - `check:svelte` is at baseline: launcher-api 48, lines 164, engine-game 37.
+    - ESLint and Prettier are clean on the touched code.
   - **Not run here:** the live samples need R2 and the browser. CI's Current games renders them.
-
 
 - 2026-10-08 — **Phase 6: Game Maker template + "Add a bonus mode…"** (PR #1149, `game-config`
   `imports.ts` / `bonusImports.ts`, launcher `projectBonusImport.ts`, `projectScaffold.ts`,

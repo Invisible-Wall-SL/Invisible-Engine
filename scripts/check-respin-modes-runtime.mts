@@ -30,13 +30,20 @@
  *     never parks, nor does Manual on the last autoplay round or under hold-to-spin; a resume
  *     (`convertTorResumableBet`) rebuilds mode 2 with no intro and parks its next respin. `utils.ts`
  *     hands the seam the hold.
- *  7. PHASE 7a, A LINES HOST DEALS EVERY ROUTE (the deal decided by the doc): a lines game with a
+ *  7. PHASE 7a, A LINES HOST DEALS EVERY ROUTE (the coin overlay over the lines mock): a lines game with a
  *     coin overlay, two respin modes and its free spins — the red pot plays mode 1 (Automatic), a
  *     buy tier and Lucky Spin play mode 2 (Manual, parked before each respin), the scatters play the
  *     free spins and no respin mode; each feature speaks its own Win Text; a tier name progressive in
  *     both modes keeps a pool per mode (the boot levels tagged, the runtime showing the active
  *     mode's, a tagged level moving one mode's alone); the dropped value coins carry the authored
  *     base-game values (`coinOverlay.coins`).
+ *  8. PHASE 7a, A HOLD AND WIN BASE WITH A COIN OVERLAY: the overlay composes over the Hold and Win
+ *     engine (Classic, plus the Collector as a second mode). Its reels still start its own feature;
+ *     the red pot starts it too, the green pot the second mode, the blue pot this game's approximate
+ *     free spins; reels and a pot in one round play the base feature first, then the pot's. And the
+ *     PLAIN Hold and Win game — no jackpots, no board end, no overlay — plays coins → respins → pay.
+ *     The route dispatch: a spins mode a buy names starts through `startFreeSpins` with its `game`
+ *     untouched; a mode the host registers through its own hook.
  *  5. PARITY: for every game with one respin mode (the three presets, the test fixtures, a 3 Pots
  *     host) the runtime reads exactly what it read from `config.holdAndWin`: the same block object,
  *     the same blank, strip, rows, jackpots, meters and screens.
@@ -45,6 +52,8 @@
 import {
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_TEST_FIXTURES,
+	addPotsOverlay,
+	holdAndWinMockInputs,
 	holdAndWinBlankSymbol,
 	holdAndWinBonus,
 	holdAndWinModeDecl,
@@ -73,8 +82,9 @@ import {
 	restoreModes,
 	type ModeStackState,
 } from '../packages/engine-game/src/game/modeStack.ts';
-import { withPotsOverlay } from './mock-pots-overlay.mjs';
+import { createPotsOverlay, withPotsOverlay } from './mock-pots-overlay.mjs';
 import { createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
+import { createMockRgs as createHoldAndWinMock } from './mock-rgs-server-holdandwin.mjs';
 import {
 	resolveWinTextForMode,
 	type WinTextDoc,
@@ -294,10 +304,12 @@ const startHost = async (
 	doc: GameConfigDoc = HOST,
 	opts: Record<string, unknown> = {},
 ) => {
-	const mock = withPotsOverlay(
-		(host: Record<string, unknown> = {}) => createLinesMock({ quiet: true, ...opts, ...host }),
-		potsOverlayMockInputs(doc),
-	)({ label: 'runtime-modes', seed, allowForce: true });
+	const make = (host: Record<string, unknown> = {}) =>
+		(opts.holdAndWin ? createHoldAndWinMock : createLinesMock)({ quiet: true, ...opts, ...host });
+	const inputs = potsOverlayMockInputs(doc);
+	const mockOpts = { label: 'runtime-modes', seed, allowForce: true };
+	// No overlay (a plain Hold and Win game): the base mock alone, as the test server deals it.
+	const mock = inputs ? withPotsOverlay(make, inputs)(mockOpts) : make(mockOpts);
 	const upstream = createServer((req, res) =>
 		mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
 	);
@@ -1266,6 +1278,228 @@ check(
 		[6, [7]],
 	);
 	await host.stop();
+}
+
+// The route dispatch (`startBonus`): a bonus mode that is no respin mode — a reels or spins mode
+// (bonus-games Phase 8) — is started by any route through the host's `startFreeSpins`, its `game`
+// passed through untouched; a mode the host registers (`bonusModes`) is started by its own hook.
+{
+	let started: Record<string, unknown> | undefined;
+	const game = { winModel: 'ways', reels: 6, rows: [4], paylines: [], spins: 8 };
+	const fakeHost = {
+		label: 'dispatch',
+		seed: 'dispatch',
+		reels: 5,
+		rows: 3,
+		bonuses: {},
+		freeSpinsMode: 'freeSpins',
+		freeSpinsOn: true,
+		startFreeSpins: (_events: unknown[], _round: unknown, opts: Record<string, unknown>) => {
+			started = opts;
+		},
+	};
+	const reelsOverlay = createPotsOverlay(fakeHost, {
+		pots: [],
+		drops: { table: [] },
+		modes: {
+			spinsMode: {
+				gameType: 'spinsMode',
+				strips: [['PIC1']],
+				paytable: {},
+				trigger: { buy: [{ mode: 'bonus', guaranteed: [], boostedSpecials: false }] },
+				game,
+			},
+		},
+	});
+	const round: Record<string, unknown> = { isBuy: true, betMode: 'bonus' };
+	const session = {};
+	reelsOverlay.beginPlay(session, round, null, { mode: 'basegame', sid: 'dispatch' });
+	const owns = reelsOverlay.takeOver([], session, round);
+	check(
+		'dispatch: a buy routed to a spins mode starts it through startFreeSpins, game untouched',
+		[
+			reelsOverlay.sellsBuy('bonus'),
+			round.isBuy,
+			owns,
+			started?.bonus,
+			started?.spins,
+			started?.game === game,
+			(started?.extra as { cause?: string } | undefined)?.cause,
+		],
+		[true, false, true, 'spinsMode', 8, true, 'buy'],
+	);
+	let hooked: unknown;
+	const hookedOverlay = createPotsOverlay(
+		{
+			...fakeHost,
+			bonusModes: {
+				picker: { start: (_e: unknown, _r: unknown, info: unknown) => (hooked = info) },
+			},
+		},
+		{
+			pots: [{ id: 'red', token: 'TOKEN', maxLevel: 1, bonus: { mode: 'picker' } }],
+			drops: { table: [] },
+		},
+	);
+	const hookedRound: Record<string, unknown> = {};
+	const hookedSession = {};
+	hookedOverlay.beginPlay(hookedSession, hookedRound, 'force:pot:red', {
+		mode: 'basegame',
+		sid: 'hooked',
+	});
+	check(
+		'dispatch: a pot to a mode the host registers starts it through its own hook',
+		[hookedOverlay.takeOver([], hookedSession, hookedRound), hooked],
+		[true, { cause: 'meter', meters: ['red'] }],
+	);
+}
+
+// ---------- 8. Phase 7a: a Hold and Win BASE with a coin overlay ----------
+
+/**
+ * The overlay composes over the Hold and Win engine too: a Hold and Win game (Classic) with a pots
+ * overlay and a second respin mode (the Collector). Its reels still start its own feature; the red
+ * pot starts it too, the green pot the second mode, the blue pot this game's free spins
+ * (approximate). Each feature plays its own mode, and the round ends after the last.
+ */
+const hwBase = (): GameConfigDoc => {
+	const classicDoc = normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic));
+	const added = addPotsOverlay(classicDoc, 'potsToFreeSpins');
+	if (!added.ok) throw new Error(added.reason);
+	const raw = structuredClone(normalized(added.doc)) as GameConfigDoc & Record<string, unknown>;
+	delete raw.holdAndWin;
+	delete raw.potsOverlay;
+	for (const [name, symbol] of Object.entries(collector.symbols))
+		if (isRole(name)) raw.symbols[as2(name)] = structuredClone(symbol);
+	const strips = collector.paddingReels.respin;
+	raw.paddingReels[KEY_B] = Array.from({ length: raw.numReels }, (_u, reel) =>
+		strips[reel % strips.length].map((cell) => ({ ...cell, name: as2(cell.name) })),
+	);
+	raw.modes = [
+		...(raw.modes ?? []),
+		{
+			...holdAndWinModeDecl(),
+			id: MODE_B,
+			gameType: KEY_B,
+			label: 'Collector',
+			holdAndWin: { ...structuredClone(collectorRules), blank: 'BLANK_2' },
+		},
+	];
+	// The preset's one gold pot, as three: each starts a different bonus.
+	const [gold] = raw.coinOverlay!.pots!;
+	raw.coinOverlay!.pots = [
+		{ ...gold, id: 'red', bonus: { mode: MODE_A } },
+		{ ...gold, id: 'green', bonus: { mode: MODE_B } },
+		{ ...gold, id: 'blue', bonus: { mode: 'freeSpins', spins: 5 } },
+	];
+	raw.coinOverlay!.drops = {
+		...raw.coinOverlay!.drops!,
+		table: ['red', 'green', 'blue'].map((pot) => ({ pot, weight: 1 })),
+	};
+	return normalized(raw);
+};
+const HW_BASE = hwBase();
+const HW_MODES = respinModeRules(HW_BASE);
+const [HA, HB] = HW_MODES;
+/** What the launcher's contract hands the test server for a `holdAndWin`-kind project. */
+const hwOpts = {
+	reels: HW_BASE.numReels,
+	rows: Math.max(...HW_BASE.numRows),
+	paylines: Object.values(HW_BASE.paylines),
+	holdAndWin: holdAndWinMockInputs(HW_BASE),
+};
+check(
+	'8 host: a Hold and Win base, its pots routed to itself, a second mode and free spins',
+	[
+		HW_MODES.map((m) => m.mode),
+		HW_BASE.coinOverlay?.pots?.map((p) => [p.id, p.bonus.mode]),
+		Boolean(potsOverlayMockInputs(HW_BASE)),
+	],
+	[
+		[MODE_A, MODE_B],
+		[
+			['red', MODE_A],
+			['green', MODE_B],
+			['blue', 'freeSpins'],
+		],
+		true,
+	],
+);
+const hwWalk = (events: BookEvent[]) => walk(events, emptyModeStack(), HW_MODES);
+
+const ownReels = hwWalk(await playRound('force:trigger', HW_BASE, hwOpts));
+verifyFeature('8 its reels', ownReels, HA, HW_MODES);
+check('8 its reels: its own feature alone, as without the overlay', respinRuns(ownReels), [MODE_A]);
+
+const hwRed = hwWalk(await playRound('force:pot:red', HW_BASE, hwOpts));
+verifyFeature('8 red pot', hwRed, HA, HW_MODES);
+
+const hwGreen = hwWalk(await playRound('force:pot:green', HW_BASE, hwOpts));
+verifyFeature('8 green pot', hwGreen, HB, HW_MODES);
+check('8 green pot: the second mode alone plays', respinRuns(hwGreen), [MODE_B]);
+
+const hwBoth = hwWalk(await playRound('force:trigger,pot:green', HW_BASE, hwOpts));
+check(
+	'8 reels and green pot in one round: the base feature first, then the second mode',
+	respinRuns(hwBoth),
+	[MODE_A, MODE_B],
+);
+
+const hwBlue = hwWalk(await playRound('force:pot:blue', HW_BASE, hwOpts));
+check(
+	'8 blue pot: the Hold and Win base plays free spins, and no respin mode',
+	[hwBlue.some((s) => modeOpOf(s.event)?.id === 'freeSpins'), respinRuns(hwBlue)],
+	[true, []],
+);
+
+// The PLAIN Hold and Win game (the owner's base game): coins on the reels start respins that pay,
+// with no jackpot, no board end and no overlay.
+{
+	const raw = structuredClone(
+		normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic)),
+	) as GameConfigDoc & Record<string, unknown>;
+	delete raw.holdAndWin;
+	delete raw.potsOverlay;
+	raw.modes = raw.modes?.map((m) =>
+		m.holdAndWin
+			? {
+					...m,
+					holdAndWin: {
+						...m.holdAndWin,
+						jackpots: [],
+						boardEnd: { type: 'none' },
+						coins: m.holdAndWin.coins.filter((c) => c.kind === 'cash'),
+					},
+				}
+			: m,
+	);
+	const plain = normalized(raw);
+	const plainModes = respinModeRules(plain);
+	const plainOpts = {
+		reels: plain.numReels,
+		rows: Math.max(...plain.numRows),
+		paylines: Object.values(plain.paylines),
+		holdAndWin: holdAndWinMockInputs(plain),
+	};
+	check(
+		'8 plain: a Hold and Win base with no jackpots, no board end and no overlay',
+		[plainModes[0]?.block.jackpots, plainModes[0]?.block.boardEnd, potsOverlayMockInputs(plain)],
+		[[], { type: 'none' }, undefined],
+	);
+	const book = await playRound('force:trigger', plain, plainOpts);
+	const steps = walk(book, emptyModeStack(), plainModes);
+	verifyFeature('8 plain', steps, plainModes[0], plainModes);
+	const end = book.find((e) => e.type === 'holdAndWinEnd');
+	check(
+		'8 plain: coins → respins → a paying end, and no jackpot anywhere',
+		[
+			Boolean(book.find((e) => e.type === 'holdAndWinTrigger')),
+			book.filter((e) => e.type === 'respinReveal').length > 0,
+			Boolean(end),
+			book.some((e) => e.type === 'jackpotWin' || e.type === 'jackpotLevels'),
+		],
+		[true, true, true, false],
+	);
 }
 
 realLog(`\n${passes} runtime respin-mode checks passed, ${failures} failed.`);

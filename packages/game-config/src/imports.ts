@@ -482,23 +482,18 @@ const TRIGGER_LABELS = {
 	randomMetre: 'random metre',
 } as const;
 
-/** The kind dealt by the book mock, which sells only its own buy (no authored bet mode). */
-const BOOK_KIND = 'bookOf';
-
 /**
- * Why `route` would not start a respin mode in `doc` (a project of kind `hostKind`), or `undefined`
- * when its mock deals it — decided by the doc (`respinRouteDealt`, bonus-games Phase 7a): on the
- * Hold and Win engine every route; on the coin overlay a pot, a buy, a Lucky Spin or a random metre,
- * and the count or a pattern once value coins drop. The kind is read only for a buy, which the book
- * mock cannot sell. A route that saves but never plays is refused — the dialog lists only the routes
- * this passes.
+ * Why `route` would not start a respin mode in `doc`, a project of kind `hostKind`, or `undefined`
+ * when its mock deals it (`respinRouteDealt`, bonus-games Phase 7a: the base engine comes from the
+ * kind, the coin overlay composes over any of them). A route that saves but never plays is refused —
+ * the dialog lists only the routes this passes.
  */
 export function modeRouteRefusal(
 	doc: GameConfigDoc,
 	route: ModeRoute,
 	hostKind: string | undefined,
 ): string | undefined {
-	return respinRouteDealt(doc, route.kind, hostKind !== BOOK_KIND);
+	return respinRouteDealt(doc, route.kind, hostKind);
 }
 
 /**

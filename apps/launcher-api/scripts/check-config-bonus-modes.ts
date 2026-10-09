@@ -186,6 +186,12 @@ for (const [project, raw] of Object.entries(samples)) {
 	check(`${project}: the page holds no legacy key`, legacyKeys(live), []);
 	const { saved } = await saveAndReload(project, live, etag);
 	check(`${project}: the stored doc is unchanged`, withoutStamp(saved.doc), before);
+	// Bonus-games Phase 7a shows the base-game coin values panel again; it writes nothing until edited.
+	check(
+		`${project}: no base-game coin values are written unless authored`,
+		[live.coinOverlay?.coins ?? null, saved.doc.coinOverlay?.coins ?? null],
+		[null, null],
+	);
 	const json = storedJson(project);
 	check(
 		`${project}: the stored JSON carries the legacy mirror the runtime reads`,

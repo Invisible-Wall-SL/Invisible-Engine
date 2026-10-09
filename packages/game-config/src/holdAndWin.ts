@@ -792,16 +792,6 @@ export const baseGameDealsHoldAndWin = (doc: GameConfigDoc): boolean =>
 	).some((name) => isHoldAndWinSymbol(doc.symbols[name]));
 
 /**
- * Is the base game dealt by the Hold and Win engine (bonus-games Phase 7a: decided by the DOC, not
- * the kind)? It is when a respin mode has rules, nothing drops over the board and the base strips
- * deal its symbols: the coins land on the reels, the Hold and Win template's shape. Every other doc
- * is dealt by its host kind's own mock with the coin overlay composed over it, which deals the
- * routes it can reach ({@link respinRouteDealt}).
- */
-export const holdAndWinDealsBaseGame = (doc: GameConfigDoc): boolean =>
-	Boolean(legacyHoldAndWin(doc)) && !legacyPotsOverlay(doc) && baseGameDealsHoldAndWin(doc);
-
-/**
  * Is the respin game reached only through the coin overlay — its bonus, never the base game? The
  * overlay's drops case is {@link holdAndWinIsOverlayBonus}; with nothing dropping, it is a respin
  * mode with rules that the base strips deal no symbol of, started by the overlay's other routes (a
@@ -815,31 +805,38 @@ export const respinIsOverlayBonus = (doc: GameConfigDoc): boolean =>
 export type RespinRouteKind =
 	'pot' | 'count' | 'pattern' | 'luckySpin' | 'randomMetre' | 'meter' | 'buy';
 
+/** The base kind dealt by the Hold and Win engine, and the one dealt by the book mock. */
+const HOLD_AND_WIN_BASE = 'holdAndWin';
+const BOOK_BASE = 'bookOf';
+
 /**
- * Why a `route` to a respin mode would not be dealt in `doc`, or `undefined` when it is. On the Hold
- * and Win engine ({@link holdAndWinDealsBaseGame}) every route is. On the coin overlay, a pot, a buy,
- * a Lucky Spin and a random metre always are; the count and a pattern count DROPPED value coins, so
- * they need some to drop; a meter fills from a symbol landing on the host's board, which the overlay
- * does not deal. `sellsBetModes` is false for a host mock that sells no authored bet mode (the book
- * mock), where a buy cannot be.
+ * Why a `route` to a respin mode would not be dealt in `doc`, whose base game is of kind `baseKind`,
+ * or `undefined` when it is (bonus-games Phase 7a). The base engine comes from the kind; the coin
+ * overlay composes over any of them.
+ *
+ * - A Hold and Win base deals every route: its own engine deals the reels' routes, and the overlay
+ *   over it its pots and dropped coins.
+ * - Over any other base, a pot, a buy, a Lucky Spin and a random metre are always dealt.
+ * - The count and a pattern count DROPPED value coins, so they need some to drop.
+ * - A meter fills from a symbol landing on the base reels, which that base deals in its own
+ *   vocabulary, so it is not dealt.
+ * - The book mock sells only its own buy.
+ * - Hold and Win symbols on the base strips of another kind are dealt by no mock.
  */
 export function respinRouteDealt(
 	doc: GameConfigDoc,
 	route: RespinRouteKind,
-	sellsBetModes = true,
+	baseKind: string | undefined,
 ): string | undefined {
-	if (route === 'buy' && !sellsBetModes)
+	if (baseKind === HOLD_AND_WIN_BASE) return undefined;
+	if (baseGameDealsHoldAndWin(doc))
+		return 'Hold and Win symbols land on the base reels of a game that is not a Hold and Win game, which no mock deals — take them off the base strips.';
+	if (route === 'buy' && baseKind === BOOK_BASE)
 		return "This game's mock sells only its own buy, so a buy cannot start a respin mode here.";
-	if (holdAndWinDealsBaseGame(doc)) return undefined;
-	const overlay = legacyPotsOverlay(doc);
-	if (overlay && baseGameDealsHoldAndWin(doc))
-		return 'Hold and Win symbols land on the base reels beside the dropped tokens, which no mock deals together — take them off the base strips.';
 	if (route === 'meter')
 		return 'A meter fills from a symbol landing on the base reels — make it a pot of the coin overlay.';
-	if (
-		(route === 'count' || route === 'pattern') &&
-		!overlay?.drops.table.some((entry) => 'coin' in entry)
-	)
+	const coins = legacyPotsOverlay(doc)?.drops.table.some((entry) => 'coin' in entry);
+	if ((route === 'count' || route === 'pattern') && !coins)
 		return 'It counts dropped value coins, and nothing drops any — add value coins to the coin overlay.';
 	return undefined;
 }

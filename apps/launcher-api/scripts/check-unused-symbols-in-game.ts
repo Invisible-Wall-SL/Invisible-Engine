@@ -274,6 +274,8 @@ type Drive = (make: (extra: Record<string, unknown>) => Mock, seen: Seen) => Pro
 type Case = {
 	label: string;
 	protocol: MockProtocol;
+	/** The project's stored kind, when it decides the deal (a `holdAndWin` kind's lines contract). */
+	gameType?: string;
 	/** The config with the symbol in play, and the symbol `/config` is about to mark unused. */
 	config: GameConfigDoc;
 	unused: string;
@@ -292,6 +294,7 @@ const contractOf = (c: Case, config: GameConfigDoc) =>
 			'config' | 'symbols'
 		>,
 		'unused-in-game',
+		c.gameType,
 	);
 
 /** The mock the test server builds for a contract (`makeMock` in services/test-server/server.mjs),
@@ -460,6 +463,7 @@ const CASES: Case[] = [
 	{
 		label: 'holdAndWin · MULTI (a special and a meter symbol)',
 		protocol: 'lines',
+		gameType: 'holdAndWin',
 		config: pots,
 		unused: 'MULTI',
 		wire: 'MULTI',
@@ -472,6 +476,7 @@ const CASES: Case[] = [
 	{
 		label: 'holdAndWin · L1 (a line symbol)',
 		protocol: 'lines',
+		gameType: 'holdAndWin',
 		config: pots,
 		unused: 'L1',
 		wire: 'L1',
@@ -563,6 +568,7 @@ if (coinSymbol) {
 	const legacy: Case = {
 		label: 'holdAndWin · a coin symbol saved off the strips before the rule',
 		protocol: 'lines',
+		gameType: 'holdAndWin',
 		config: pots,
 		unused: coinSymbol,
 		wire: coinSymbol,

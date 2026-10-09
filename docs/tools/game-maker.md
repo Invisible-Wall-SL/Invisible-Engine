@@ -302,16 +302,16 @@ project is only read.
    - its **meters**;
    - a **Buy** tier on each buy-bonus bet mode.
 
-   Scatters are never offered. Only what this game actually plays is listed, decided by its config,
-   not its game type. Where the coins land on the base reels and nothing drops over them (the Hold
-   and Win template), every route above is offered. On any other game the coin overlay deals the
-   bonus over the game's own spins: a **pot**, a **Buy** tier, **Lucky Spin** and **Random metre**
-   are offered; the **Coin count** and a **Pattern** count dropped value coins, so they are offered
-   once the overlay drops some; a **meter** fills from a symbol landing on the base reels, so it is
-   not offered. A Book of… game sells only its own buy, so no **Buy** tier is offered there. A
-   **free spins** is started only by a pot, so it needs a coin overlay with pots first (**＋ Coin
-   overlay…** → **3 Pots**). A **Hold and Win** mode can be left with nothing ticked and routed
-   later in
+   Scatters are never offered. Only what this game actually plays is listed. On a **Hold and Win**
+   project every route above is offered: its own reels deal the triggers, the buy and the meters,
+   and the coin overlay over it deals its pots and dropped coins. On any other game the coin overlay
+   deals the bonus over the game's own spins: a **pot**, a **Buy** tier, **Lucky Spin** and
+   **Random metre** are offered; the **Coin count** and a **Pattern** count dropped value coins, so
+   they are offered once the overlay drops some; a **meter** fills from a symbol landing on the base
+   reels, so it is not offered. A Book of… game sells only its own buy, so no **Buy** tier is offered
+   there. A **free spins** is started only by a pot, so it needs a coin overlay with pots first
+   (**＋ Coin overlay…** → **3 Pots**). A **Hold and Win** mode can be left with nothing ticked and
+   routed later in
    [Game Config → Coin overlay](game-config.md#coin-overlay), except when it would be this project's
    only Hold and Win: then something must start it, and the dialog refuses with that reason.
 4. Click **Add**, read the report, then **Done**, and reload your own open tabs of the tools below
@@ -629,9 +629,10 @@ graduate later; its R2 authoring data carries over.
   on the Invisible Test Server (a fake balance per browser tab, resets on
   restart). This is a test/preview surface, not a real-money deploy. See
   [`test-server.md`](test-server.md).
-- **The pots overlay is dealt on Book of and lines-family hosts.** The test server's mock deals the
-  overlay over a `book`, `lines`, `ways`, `cluster` or `scatter` game (a stepped board excepted). A
-  Hold and Win game that adds the overlay is still dealt without pots.
+- **The pots overlay is dealt on every host.** The test server's mock deals the overlay over a
+  `book`, `lines`, `ways`, `cluster`, `scatter` or Hold and Win game (a stepped board excepted). On a
+  Hold and Win game a pot starts one of its own respin modes, or an approximate free spins (plain
+  line spins on its board).
 - **Pots overlay on a Hold and Win game:** the project already has its Pots screen, so the add-on
   only appends a Pot Meter for each new pot (`red_2`…) beside the existing ones. Arrange them in the
   [Scene Editor](invisible-editor.md). **Coins only** is not offered there: the game's own Hold and

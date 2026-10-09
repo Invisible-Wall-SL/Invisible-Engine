@@ -276,7 +276,23 @@ const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin, sells) => {
 		// Forcing an outcome (a jackpot on demand) is an authoring tool: a runtime game's players
 		// never get it, its authoring twin and a standalone build's one mock do.
 		const allowForce = twin || !runtime;
-		return createHoldAndWinMock({ label, allowForce, ...sellableGrid(grid, sells) });
+		const opts = { label, allowForce, ...sellableGrid(grid, sells) };
+		// A coin overlay over the Hold and Win base (bonus-games Phase 7a): its pots start this game's
+		// own respin modes and free spins. One that cannot stand up deals the game without it.
+		if (grid.potsOverlay) {
+			try {
+				return withPotsOverlay(createHoldAndWinMock, grid.potsOverlay)(opts);
+			} catch (e) {
+				if (!potsOverlayFallbackWarned.has(gameKey)) {
+					potsOverlayFallbackWarned.add(gameKey);
+					console.warn(
+						`[test-server] '${gameKey}' has a pots overlay but ${e.message} — dealing its Hold ` +
+							'and Win game with no pots. Check its Game Config coin overlay.',
+					);
+				}
+			}
+		}
+		return createHoldAndWinMock(opts);
 	} catch (e) {
 		if (!holdAndWinFallbackWarned.has(gameKey)) {
 			holdAndWinFallbackWarned.add(gameKey);
@@ -367,7 +383,8 @@ const makeMock = (
 	// Whether this game's client prices a bet-option table (see `sellableGrid`).
 	const sells = sellsTable({ runtime, tableCapable });
 	// A Hold and Win game: a lines contract carrying the base-game Hold and Win inputs (the launcher
-	// sends them for a `holdAndWin`-kind project; an overlay's bonus rides `potsOverlay`), or ones
+	// sends them for a `holdAndWin`-kind project, with its coin overlay's `potsOverlay` when one
+	// drops; another kind's overlay bonus rides `potsOverlay` alone), or ones
 	// that were sent but rejected, which its mock reports before the game is dealt as lines.
 	if (protocol === 'lines' && (grid?.holdAndWin || grid?.holdAndWinRejected)) {
 		const mock = makeHoldAndWinMock(label, grid, gameKey, runtime, twin, sells);

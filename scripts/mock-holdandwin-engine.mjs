@@ -1778,6 +1778,31 @@ export function createHoldAndWinEngine(opts = {}) {
 		}
 	};
 
+	/**
+	 * One spin of line symbols on this game's board, its line wins paid under bonus `bonus`: the
+	 * approximate free spin a Hold and Win base plays when a bonus sends it into free spins (bonus-games
+	 * Phase 7a). Same events as the lines mock's free spin; no coin, special or meter lands.
+	 */
+	const playSpin = (events, round, bonus) => {
+		const board = rowHeights.map((rows) => Array.from({ length: rows }, lineCell));
+		events.push({
+			event: 'spinStart',
+			context: {
+				symbols: names,
+				symbolsPay: { line: lineSymbols, scatter: [] },
+				wildSymbols: wildName ? [wildName] : [],
+				lineAlign: 'left',
+				lineCoinciding: false,
+			},
+		});
+		for (const w of evaluateLines(board, round)) {
+			events.push({ event: 'bonusWin', context: { bonus, pay: w.pay, isSpinWin: true } });
+			events.push({ event: 'spinWin', context: w });
+			round.win += w.pay;
+		}
+		events.push({ event: 'playedSpin', context: boardStrings(board) });
+	};
+
 	/** `(cause, round, meterIds) → { engine?, meterIds }` — which respin mode a base-game cause starts
 	 *  (`engine`, absent for this one) and which of the full meters it consumes: the Hold and Win game
 	 *  mock's routes to its other modes. */
@@ -1811,5 +1836,6 @@ export function createHoldAndWinEngine(opts = {}) {
 		startFeature,
 		playRespin,
 		playBase,
+		playSpin,
 	};
 }

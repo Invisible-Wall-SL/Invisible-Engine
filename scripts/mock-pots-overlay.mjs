@@ -101,29 +101,35 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		: [];
 	const wire = Boolean(inputs.holdAndWin?.modes);
 	const splitPools = splitPoolNames(respinInputs.map((m) => m.block));
-	const engines = new Map(
-		respinInputs.map((m) => [
-			m.mode,
-			createHoldAndWinEngine({
-				label: host.label,
-				base: false,
-				rand,
-				reels: host.reels,
-				rows: host.rows,
-				splitPools,
-				...(wire ? { mode: m.mode, bonus: m.gameType, blank: m.blank, wire } : {}),
-				holdAndWin: {
-					...inputs.holdAndWin,
-					symbols: m.symbols,
-					block: {
-						...m.block,
-						trigger: overlayTrigger(m.block.trigger),
-						meters: [],
+	// A Hold and Win base hands over its own engines (`host.respinEngines`): a pot starts the base's
+	// respin mode, and the base deals every route of its own reels — this add-on deals only its pots
+	// and its dropped coins there, and the base's boot config already declares the modes.
+	const hostEngines = host.respinEngines instanceof Map ? host.respinEngines : null;
+	const engines =
+		hostEngines ??
+		new Map(
+			respinInputs.map((m) => [
+				m.mode,
+				createHoldAndWinEngine({
+					label: host.label,
+					base: false,
+					rand,
+					reels: host.reels,
+					rows: host.rows,
+					splitPools,
+					...(wire ? { mode: m.mode, bonus: m.gameType, blank: m.blank, wire } : {}),
+					holdAndWin: {
+						...inputs.holdAndWin,
+						symbols: m.symbols,
+						block: {
+							...m.block,
+							trigger: overlayTrigger(m.block.trigger),
+							meters: [],
+						},
 					},
-				},
-			}),
-		]),
-	);
+				}),
+			]),
+		);
 	/** The primary respin mode's engine: the one the legacy boot block and the value coins are. */
 	const hw = engines.values().next().value ?? null;
 	const isRespin = (mode) => engines.has(mode);
@@ -142,19 +148,34 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			`[${host.label}] pot "${orphan.id}" starts Hold and Win, but the project has no Hold and Win bonus`,
 		);
 	}
-	/** The first respin mode (the primary first) with `cause` among its routes, or undefined. */
+	/** The first respin mode (the primary first) with `cause` among its routes, or undefined — none
+	 *  on a Hold and Win base, whose own engine deals them from its reels. */
 	const routeEngine = (cause) =>
-		[...engines.values()].find((e) =>
-			cause === 'pattern' ? e.trigger.pattern.length > 0 : Boolean(e.trigger[cause]),
-		);
-	const luckyEngine = routeEngine('luckySpin');
-	const metreEngine = routeEngine('randomMetre');
+		hostEngines
+			? undefined
+			: [...engines.values()].find((e) =>
+					cause === 'pattern' ? e.trigger.pattern.length > 0 : Boolean(e.trigger[cause]),
+				);
+	/**
+	 * The REELS modes of the project's own a route starts besides a pot (`inputs.modes[id].trigger`,
+	 * a respin block's trigger shape — bonus-games Phase 8's spins modes): `{ mode, trigger }`, after
+	 * every respin mode.
+	 */
+	const reelsRouted = Object.entries(inputs.modes ?? {}).flatMap(([mode, m]) =>
+		m?.trigger && Array.isArray(m.strips) && m.strips.length
+			? [{ mode, trigger: { ...m.trigger, buy: list(m.trigger.buy) } }]
+			: [],
+	);
+	const reelsRoute = (cause) =>
+		hostEngines ? undefined : reelsRouted.find(({ trigger }) => Boolean(trigger[cause]));
+	const luckyEngine = routeEngine('luckySpin') ?? reelsRoute('luckySpin');
+	const metreEngine = routeEngine('randomMetre') ?? reelsRoute('randomMetre');
 	const patternEngine = routeEngine('pattern');
-	/** Bet mode (a `betModes` key) → the respin mode its buy tier starts, the first that names it. */
+	/** Bet mode (a `betModes` key) → the bonus mode its buy tier starts, the first that names it. */
 	const buyRoutes = new Map();
-	for (const engine of engines.values()) {
-		for (const tier of engine.trigger.buy) {
-			if (!buyRoutes.has(tier.mode)) buyRoutes.set(tier.mode, { engine, tier });
+	for (const owner of hostEngines ? [] : [...engines.values(), ...reelsRouted]) {
+		for (const tier of owner.trigger.buy) {
+			if (!buyRoutes.has(tier.mode)) buyRoutes.set(tier.mode, { mode: owner.mode, tier });
 		}
 	}
 	/** Can dropped value coins (coin and jackpot cells) ever form `engine`'s pattern? */
@@ -180,7 +201,9 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	const reelsModes = Object.fromEntries(
 		Object.entries(inputs.modes ?? {}).filter(
 			([id, m]) =>
-				pots.some((p) => p.bonus.mode === id) && Array.isArray(m?.strips) && m.strips.length,
+				(pots.some((p) => p.bonus.mode === id) || reelsRouted.some((r) => r.mode === id)) &&
+				Array.isArray(m?.strips) &&
+				m.strips.length,
 		),
 	);
 	const bonuses = {
@@ -214,10 +237,12 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		}
 		return session;
 	};
+	const potLevels = (session) =>
+		pots.map((p) => ({ id: p.id, level: session.meters[p.id], max: maxOf(p) }));
 	const meterLevels = (session) => ({
 		event: 'meterLevels',
 		context: {
-			meters: pots.map((p) => ({ id: p.id, level: session.meters[p.id], max: maxOf(p) })),
+			meters: potLevels(session),
 		},
 	});
 
@@ -244,8 +269,8 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 						}
 					: {}),
 			},
-			...(hw ? { holdAndWin: hw.holdAndWinConfig(session) } : {}),
-			...(wire
+			...(hw && !hostEngines ? { holdAndWin: hw.holdAndWinConfig(session) } : {}),
+			...(wire && !hostEngines
 				? {
 						bonusModes: [...engines.values()].map((e) => ({
 							mode: e.mode,
@@ -454,6 +479,11 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			if (isRespin(pot.bonus.mode)) continue;
 			queue.push({ mode: pot.bonus.mode, meters: [pot.id], spins: pot.bonus.spins });
 		}
+		// Another route to a bonus mode that is no respin mode (a reels or spins mode), once a round.
+		for (const [mode, route] of routes) {
+			if (isRespin(mode) || played.has(mode) || queue.some((q) => q.mode === mode)) continue;
+			queue.push({ mode, cause: route.cause, meters: [] });
+		}
 	};
 	const coinStarts = (played, coins) =>
 		Boolean(coinTrigger) && !played.has(coinEngine.mode) && coins.length >= coinTrigger;
@@ -505,6 +535,48 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	};
 
 	/**
+	 * THE ROUTE DISPATCH: start bonus mode `next.mode` on this answer. Returns true when it now owns
+	 * the round (the caller sends no `gameEnd`), false when it entered and exited on the spot. In
+	 * order: a respin mode (its engine), a mode the host registered (`host.bonusModes[mode].start`,
+	 * the host mock's `opts.bonusModes` — spins modes of another game type), the host's free spins or
+	 * a reels mode of the project's own (`host.startFreeSpins`), else a `modeEnter`/`modeExit` stub.
+	 */
+	const startBonus = (events, session, round, next) => {
+		if (isRespin(next.mode)) {
+			startHoldAndWin(events, session, round, next);
+			return true;
+		}
+		for (const id of next.meters) session.meters[id] = 0;
+		const info = {
+			cause: next.cause ?? 'meter',
+			meters: next.meters,
+			...(next.spins > 0 ? { spins: Math.round(next.spins) } : {}),
+		};
+		const registered = host.bonusModes?.[next.mode];
+		if (typeof registered?.start === 'function')
+			return registered.start(events, round, info) !== false;
+		const reels = Object.hasOwn(reelsModes, next.mode) ? reelsModes[next.mode] : undefined;
+		if (next.mode === host.freeSpinsMode || reels) {
+			// A spins mode's own game (`reels.game`, bonus-games Phase 8) rides through untouched.
+			const spins = next.spins > 0 ? next.spins : reels?.game?.spins;
+			host.startFreeSpins(events, round, {
+				occurs: 0,
+				...(spins > 0 ? { spins: Math.round(spins) } : {}),
+				extra: { cause: next.cause ?? 'meter', meters: next.meters },
+				...(reels ? { bonus: next.mode, strips: reels.strips, paytable: reels.paytable } : {}),
+				...(reels?.game ? { game: reels.game } : {}),
+			});
+			return true;
+		}
+		events.push({
+			event: 'modeEnter',
+			context: { mode: next.mode, cause: 'meter', meters: next.meters },
+		});
+		events.push({ event: 'modeExit', context: { mode: next.mode, total: 0 } });
+		return false;
+	};
+
+	/**
 	 * Start the next waiting bonus on this answer, if any. Returns true when one now owns the round
 	 * (the caller sends no `gameEnd`); a mode stub enters and exits on the spot and the next one is
 	 * tried.
@@ -512,27 +584,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	const takeOver = (events, session, round) => {
 		const queue = round.potsQueue ?? [];
 		while (queue.length) {
-			const next = queue.shift();
-			if (isRespin(next.mode)) {
-				startHoldAndWin(events, session, round, next);
-				return true;
-			}
-			for (const id of next.meters) session.meters[id] = 0;
-			const reels = Object.hasOwn(reelsModes, next.mode) ? reelsModes[next.mode] : undefined;
-			if (next.mode === host.freeSpinsMode || reels) {
-				host.startFreeSpins(events, round, {
-					occurs: 0,
-					...(next.spins > 0 ? { spins: Math.round(next.spins) } : {}),
-					extra: { cause: 'meter', meters: next.meters },
-					...(reels ? { bonus: next.mode, strips: reels.strips, paytable: reels.paytable } : {}),
-				});
-				return true;
-			}
-			events.push({
-				event: 'modeEnter',
-				context: { mode: next.mode, cause: 'meter', meters: next.meters },
-			});
-			events.push({ event: 'modeExit', context: { mode: next.mode, total: 0 } });
+			if (startBonus(events, session, round, queue.shift())) return true;
 		}
 		return false;
 	};
@@ -576,7 +628,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			const bought = round.isBuy ? buyRoutes.get(round.betMode) : undefined;
 			if (bought) {
 				round.isBuy = false;
-				routes.set(bought.engine.mode, { cause: 'buy', buyTier: bought.tier });
+				routes.set(bought.mode, { cause: 'buy', buyTier: bought.tier });
 			}
 			const lucky =
 				!bought &&
@@ -660,8 +712,9 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			while (after < events.length && PLAY_EVENTS.has(events[after].event)) after++;
 			events.splice(after, 0, ...turn.updates);
 		}
-		// With no pot there is no level to restate.
-		if (pots.length) events.push(meterLevels(session));
+		// With no pot there is no level to restate; a host that reports its own meters lists the pots
+		// beside them (`potLevels`).
+		if (pots.length && !host.reportsMeters) events.push(meterLevels(session));
 	};
 
 	const inBonus = (round) => Boolean(round.potsFeature);
@@ -688,6 +741,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		configContext,
 		refuse,
 		sellsBuy,
+		potLevels,
 		beginPlay,
 		playOwned,
 		takeOver,

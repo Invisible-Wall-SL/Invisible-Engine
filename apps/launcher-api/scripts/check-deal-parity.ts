@@ -1,27 +1,26 @@
 /**
- * BONUS GAMES Phase 7a — the mock deal is decided by the DOC, not the stored kind
- * (`docs/design/bonus-games.md` §2.2, `docs/status/bonus-games.md` Phase 7a).
+ * BONUS GAMES Phase 7a — every current game deals as it did, and the coin overlay now composes over a
+ * Hold and Win base too (`docs/design/bonus-games.md`, `docs/status/bonus-games.md` Phase 7a).
  *
- * Until Phase 7a only a `holdAndWin`-KIND project was dealt on the Hold and Win engine, and any other
- * kind's coin overlay dealt only a full pot or dropped value coins to a respin mode. The decision is
- * now `holdAndWinDealsBaseGame(doc)` (game-config): a respin mode with rules, nothing dropping and its
- * symbols on the base strips. Every other doc is its kind's mock with the overlay over it, which also
- * deals a buy, a Lucky Spin, a random metre and a pattern of dropped coins.
+ * The base engine still comes from the stored kind (the Hold and Win engine for `holdAndWin`, the
+ * lines-family mock or the book mock otherwise). What 7a changes is what composes over it: the
+ * overlay deals a buy, a Lucky Spin, a random metre and a pattern of dropped coins over a lines or
+ * book base, and composes over the Hold and Win engine, starting that engine's own respin modes and
+ * an approximate free spins from its pots.
  *
  * Pins:
  *  1. NOTHING MOVES. For every Hold and Win preset and test fixture, every kind's template, every
- *     overlay preset on a lines and a Book-of host, `borut-pots-sample`, the flagged lines game whose
- *     overlay coin is also on a base strip (bonus-games Phase 2), an imported free spins, an imported
- *     bonus and the two-mode hosts: the contract the test server is handed (the mock inputs) and a
- *     seeded deal through the mock it builds (`makeMock`) are byte-identical to `main`'s, decided by
- *     the kind there (`MAIN_DIGESTS`, measured on main 7db698b).
- *  2. ONLY a doc with a route the kind's decision ignored differs, each listed with that route:
- *     the Hold and Win template saved under another kind, a Hold and Win kind whose overlay drops
- *     tokens beside its base coins, and a Hold and Win kind with no rules.
- *  3. The doc decides: the Hold and Win template under the lines kind is dealt as under its own.
+ *     overlay preset on a lines and a Book-of host, `borut-pots-sample`, the lines game whose overlay
+ *     coin is also on a base strip (bonus-games Phase 2's flag), an imported free spins, an imported
+ *     bonus, the two-mode hosts, the Hold and Win template saved under the lines kind and a Hold and
+ *     Win kind with no rules: the contract the test server is handed (the mock inputs) and a seeded
+ *     deal through the mock it builds (`makeMock`) are byte-identical to `main`'s (`MAIN_DIGESTS`,
+ *     measured on main 7db698b).
+ *  2. ONLY the Hold and Win kind whose overlay drops tokens differs: main dealt it without its pots;
+ *     its contract now carries the overlay, last, and its pots are dealt.
  *
  * Re-measure after an intended change: `npx tsx --tsconfig tsconfig.scripts.json
- * scripts/check-deal-by-doc.ts --print` (from apps/launcher-api).
+ * scripts/check-deal-parity.ts --print` (from apps/launcher-api).
  */
 
 import { createHash } from 'node:crypto';
@@ -45,6 +44,8 @@ import { mockContractOfBundle, type MockContract } from '../src/lib/server/mockC
 import { protocolFor } from '../src/lib/server/mockProtocol.ts';
 
 const PRINT = process.argv.includes('--print');
+/** The label, seed and session the main digests were measured with. */
+const SEED = 'deal-by-doc';
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
 	const ok = JSON.stringify(actual) === JSON.stringify(expected);
@@ -186,27 +187,17 @@ const UNCHANGED: Shape[] = [
 		kind: 'bookOf',
 		doc: withAddedMode(withOverlay(book, 'threePots')),
 	},
+	{ name: 'the Hold and Win template under the lines kind', kind: 'lines', doc: classic },
+	{ name: 'a Hold and Win kind with no respin rules', kind: 'holdAndWin', doc: lines },
 ];
 
-/** The docs whose deal moves, each with the route the kind's decision ignored. */
+/** The one shape whose deal moves, and why. */
 const CHANGED: (Shape & { why: string })[] = [
-	{
-		name: 'the Hold and Win template under the lines kind',
-		kind: 'lines',
-		doc: classic,
-		why: 'its count, buy and random-metre routes: the lines mock dealt none of them',
-	},
 	{
 		name: 'a Hold and Win kind whose overlay drops tokens beside its base coins',
 		kind: 'holdAndWin',
 		doc: withOverlay(classic, 'threePots'),
-		why: 'its pots: the Hold and Win engine dealt none; it is now the flagged lines game',
-	},
-	{
-		name: 'a Hold and Win kind with no respin rules',
-		kind: 'holdAndWin',
-		doc: lines,
-		why: 'no route at all: it gets the lines grid, not the bare board',
+		why: 'main dealt it without its pots; now they are dealt and start its own respin mode',
 	},
 ];
 
@@ -226,7 +217,8 @@ const contractOf = (shape: Shape): MockContract =>
 		{ config: shape.doc, symbols: { map: {}, index: {} } } as Parameters<
 			typeof mockContractOfBundle
 		>[1],
-		'deal-by-doc',
+		SEED,
+		shape.kind,
 	);
 
 /** The host with its overlay, or — as the test server does when the overlay cannot stand up — the
@@ -247,9 +239,9 @@ const overlaid = (
 /** The mock the test server builds for a contract (`makeMock` in services/test-server/server.mjs). */
 const mockFor = (contract: MockContract, extra: Record<string, unknown> = {}): Mock => {
 	const grid = contract.grid as Grid | undefined;
-	const common = { label: 'deal-by-doc', seed: 'deal-by-doc', quiet: true, ...extra };
+	const common = { label: SEED, seed: SEED, quiet: true, ...extra };
 	if (contract.protocol === 'lines' && grid?.holdAndWin)
-		return createHoldAndWinMock({ ...common, ...grid }) as Mock;
+		return overlaid(createHoldAndWinMock, grid, { ...common, ...grid });
 	if (contract.protocol === 'book') {
 		const opts = { ...common, symbolPaytable: grid?.symbolPaytable, symbols: grid?.symbols };
 		return overlaid(createBookMock, grid, opts);
@@ -314,7 +306,7 @@ const play = async (mock: Mock, contexts: (string | null)[]): Promise<BookEvent[
 	const dealt: BookEvent[] = [];
 	const keep = (resp: Response) => dealt.push(...(resp.events ?? []));
 	try {
-		const sid = 'deal-by-doc';
+		const sid = SEED;
 		const first = await post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
 		keep(first);
 		const config = first.events?.find((e) => e.event === 'config')?.context as
@@ -353,10 +345,11 @@ const play = async (mock: Mock, contexts: (string | null)[]): Promise<BookEvent[
 const deal = async (contract: MockContract): Promise<BookEvent[]> => {
 	const grid = contract.grid as Grid | undefined;
 	const natural = Array<null>(60).fill(null);
-	if (contract.protocol === 'lines' && grid?.holdAndWin) {
-		return play(mockFor(contract), [...natural, ...Array(12).fill('force:trigger')]);
-	}
 	const overlay = grid?.potsOverlay;
+	if (contract.protocol === 'lines' && grid?.holdAndWin) {
+		const pots = overlay?.pots.map((pot) => `force:pot:${pot.id}`) ?? [];
+		return play(mockFor(contract), [...natural, ...Array(12).fill('force:trigger'), ...pots]);
+	}
 	const forces = overlay
 		? [
 				...overlay.pots.map((pot) => `force:pot:${pot.id}`),
@@ -424,7 +417,7 @@ for (const shape of UNCHANGED) {
 	check(`${shape.name} (${shape.kind})`, measured[shape.name], MAIN_DIGESTS[shape.name]);
 }
 
-console.log('\n2. only a doc with a route the kind ignored differs');
+console.log('\n2. only the Hold and Win kind whose overlay drops tokens differs');
 for (const shape of CHANGED) {
 	const main = MAIN_DIGESTS[shape.name];
 	check(
@@ -432,26 +425,13 @@ for (const shape of CHANGED) {
 		[measured[shape.name][0] !== main?.[0], measured[shape.name][1] !== main?.[1]],
 		[true, true],
 	);
+	const grid = contractOf(shape).grid as Grid | undefined;
+	check(
+		`${shape.name}: the overlay rides last on its Hold and Win contract`,
+		[Boolean(grid?.holdAndWin), Object.keys(grid ?? {}).at(-1), grid?.potsOverlay?.pots.length],
+		[true, 'potsOverlay', 3],
+	);
 }
-
-console.log('\n3. the doc decides, not the kind');
-check(
-	'the Hold and Win template under the lines kind gets the Hold and Win kind’s contract',
-	contractOf({ name: '', kind: 'lines', doc: classic }),
-	contractOf({ name: '', kind: 'holdAndWin', doc: classic }),
-);
-check(
-	'the flagged lines game keeps the lines grid and its pots, with no Hold and Win inputs',
-	(() => {
-		const grid = contractOf({
-			name: '',
-			kind: 'lines',
-			doc: withBaseCoin(withOverlay(lines, 'threePots')),
-		}).grid as Grid | undefined;
-		return [Boolean(grid?.holdAndWin), grid?.potsOverlay?.pots.map((pot) => pot.id)];
-	})(),
-	[false, ['red', 'blue', 'green']],
-);
 
 if (PRINT) {
 	console.log('\nconst MAIN_DIGESTS: Record<string, [string, string]> = {');
@@ -464,4 +444,4 @@ if (failures) {
 	console.log(`\n${failures} check(s) FAILED.`);
 	process.exit(1);
 }
-console.log('\nAll deal-by-doc checks passed.');
+console.log('\nAll deal-parity checks passed.');

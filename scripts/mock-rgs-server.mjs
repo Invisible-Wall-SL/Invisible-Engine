@@ -739,7 +739,7 @@ const evaluateScatters = (reels, totalStake, table = SCATTER_PAY_TABLE) => {
  *  `enterBonus` shape. The facade reads `played` + `left` to drive the counter. `trigger` is the
  *  instance's rule (`{ occurs: [min], of: symbol, … }`): 3+ SCAT unless the project states one.
  *  A feature with an expanding special names it as `state`, where the captured Book-of snapshot does. */
-const bonusSnapshot = (round, trigger, extra = {}) => ({
+export const bonusSnapshot = (round, trigger, extra = {}) => ({
 	prob: 1,
 	additionalPrice: 0,
 	triggers: 1,
@@ -1791,6 +1791,7 @@ export function createMockRgs(opts = {}) {
 			freeSpinsMode: 'freeSpins',
 			freeSpinsOn,
 			startFreeSpins,
+			bonusModes: opts.bonusModes,
 		});
 	})();
 
