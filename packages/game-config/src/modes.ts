@@ -1,4 +1,5 @@
 import { normalizeHoldAndWinGame, type HoldAndWinGame } from './holdAndWinGame';
+import { normalizeSpinsGame, validateSpinsGame, type SpinsGame } from './spinsGame';
 import type { GameConfigDoc } from './types';
 
 /**
@@ -62,6 +63,8 @@ export type GameModeDecl = {
 	label?: string;
 	/** A `respinBoard` mode only: the Hold and Win game it plays (`./holdAndWinGame`). */
 	holdAndWin?: HoldAndWinGame;
+	/** A `reels` mode of the project's own only: the game it plays N spins of (`./spinsGame`). */
+	spins?: SpinsGame;
 };
 
 /** The Hold and Win mode as the built-in used to declare it — what migration and a new respin mode
@@ -215,6 +218,8 @@ export function normalizeGameModes(raw: unknown): GameModeDecl[] | undefined {
 		}
 		const rules = board === 'respinBoard' ? normalizeHoldAndWinGame(entry.holdAndWin) : undefined;
 		if (rules) mode.holdAndWin = rules;
+		const spins = board === 'reels' && !builtin ? normalizeSpinsGame(entry.spins) : undefined;
+		if (spins) mode.spins = spins;
 		if (builtin) {
 			const departure = departureFrom(builtin, mode);
 			if (departure) out.push(departure);
@@ -242,11 +247,10 @@ export type GameModeIssue = { path: string; message: string; severity: 'error' |
 
 /**
  * What is wrong with the resolved modes. A `reels` mode must pad from a strip set the config deals;
- * the base game must stay on the reels, because every round starts and ends there.
+ * the base game must stay on the reels, because every round starts and ends there; a spins mode's
+ * game must fill its own grid and be able to pay.
  */
-export function validateGameModes(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes' | 'paddingReels'>,
-): GameModeIssue[] {
+export function validateGameModes(doc: GameConfigDoc): GameModeIssue[] {
 	const issues: GameModeIssue[] = [];
 	for (const mode of resolveGameModes(doc)) {
 		const path = `modes.${mode.id}`;
@@ -267,6 +271,8 @@ export function validateGameModes(
 				message: `No padding strips for game type "${gameType}"; the reels pad from nothing in this mode.`,
 			});
 		}
+		if (mode.spins)
+			issues.push(...validateSpinsGame(doc, { id: mode.id, spins: mode.spins }, gameType));
 	}
 	return issues;
 }

@@ -30,15 +30,22 @@ import {
 	type GameConfigDoc,
 	type GameConfigSymbol,
 	type PaddingReels,
-	type PaytableRow,
-	type Paylines,
 	type ReelStrip,
 	type WinLevelTier,
 	type WinTierAnimation,
 	type WinTierSound,
 	type WinTierType,
 } from './types';
+import {
+	count,
+	isObject,
+	normalizeNumRows,
+	normalizePaylines,
+	normalizePaytable,
+	num,
+} from './normalizeParts';
 import { normalizeBonusGames } from './bonusGames';
+import { gameTypeForMode, normalizeGameModes } from './modes';
 import { normalizeBonusImports } from './bonusImports';
 import { normalizeReelBehaviour } from './reelBehaviour';
 import { normalizeSounds } from './sounds';
@@ -49,45 +56,9 @@ import { normalizeCascade } from './mechanics';
 import { normalizeFreeSpins } from './freeSpins';
 import { normalizePartnerPaytable } from './serverPaytable';
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-	typeof v === 'object' && v !== null && !Array.isArray(v);
-
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
-const num = (v: unknown): number | undefined =>
-	typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-
-/** A count/index: a finite non-negative integer. */
-const count = (v: unknown): number | undefined => {
-	const n = num(v);
-	return n !== undefined && Number.isInteger(n) && n >= 0 ? n : undefined;
-};
-
 const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
-
-/**
- * One paytable row. A multi-key object (`{ '5': 20, '4': 10 }`) is SPLIT into one row per key
- * rather than rejected: the math export writes single-entry rows, but a hand-written or
- * tool-emitted config reasonably writes one object, and both mean the same thing.
- */
-const normalizePaytable = (raw: unknown): PaytableRow[] | undefined => {
-	if (!Array.isArray(raw)) return undefined;
-	const rows: PaytableRow[] = [];
-	for (const entry of raw) {
-		if (!isObject(entry)) continue;
-		for (const [key, payout] of Object.entries(entry)) {
-			const occurrences = count(Number(key));
-			const pays = num(payout);
-			// A zero-occurrence row pays for nothing and a non-numeric payout cannot be rendered.
-			if (!occurrences || pays === undefined) continue;
-			rows.push({ [String(occurrences)]: pays });
-		}
-	}
-	// Ascending by occurrence count so the paytable renders in a stable order regardless of the
-	// key order the math export happened to emit.
-	rows.sort((a, b) => Number(Object.keys(a)[0]) - Number(Object.keys(b)[0]));
-	return rows.length ? rows : undefined;
-};
 
 const normalizeSymbol = (raw: unknown): GameConfigSymbol | undefined => {
 	if (!isObject(raw)) return undefined;
@@ -254,20 +225,6 @@ const normalizeBetModePresentation = (
 	return Object.keys(map).length ? map : undefined;
 };
 
-const normalizePaylines = (raw: unknown): Paylines => {
-	if (!isObject(raw)) return {};
-	const lines: Paylines = {};
-	for (const [id, rows] of Object.entries(raw)) {
-		if (!id || !Array.isArray(rows)) continue;
-		const parsed = rows.map(count);
-		// A hole in the middle of a line has no drawable meaning, so the whole line goes rather
-		// than a partial line that would render as a broken path.
-		if (!parsed.length || parsed.some((r) => r === undefined)) continue;
-		lines[id] = parsed as number[];
-	}
-	return lines;
-};
-
 /** A `#rgb` / `#rrggbb` hex colour, expanded to the canonical 6-digit lower-case form. Anything
  *  else is dropped — a malformed colour must not reach the renderer, where it would throw. */
 const hexColor = (v: unknown): string | undefined => {
@@ -365,13 +322,6 @@ const normalizeWinLevels = (raw: unknown): WinLevelTier[] | undefined => {
  * pads/truncates to `numReels` so the grid is always fully described — a short `numRows` would
  * otherwise leave the last reels with `undefined` height at the consumer.
  */
-const normalizeNumRows = (raw: unknown, numReels: number): number[] => {
-	const scalar = count(raw);
-	if (scalar !== undefined) return Array.from({ length: numReels }, () => scalar);
-	const list = Array.isArray(raw) ? raw.map(count) : [];
-	const fallback = list.find((r): r is number => r !== undefined && r > 0) ?? 3;
-	return Array.from({ length: numReels }, (_unused, i) => list[i] ?? fallback);
-};
 
 /**
  * Canonicalize an arbitrary value into a {@link GameConfigDoc}, or `undefined` when it cannot
@@ -390,7 +340,16 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	const paddingReels = normalizePaddingReels(raw.paddingReels);
 	if (!Object.keys(symbols).length || !Object.keys(paddingReels).length) return undefined;
 
-	const stripReels = Math.max(...Object.values(paddingReels).map((strips) => strips.length));
+	// A spins mode on a grid of its own (`./spinsGame`) says nothing about the base game's width.
+	const ownGridTypes = new Set(
+		(normalizeGameModes(raw.modes) ?? [])
+			.filter((mode) => mode.spins?.numReels !== undefined)
+			.map(gameTypeForMode),
+	);
+	const baseStrips = Object.entries(paddingReels).filter(([type]) => !ownGridTypes.has(type));
+	const stripReels = Math.max(
+		...(baseStrips.length ? baseStrips : Object.entries(paddingReels)).map(([, s]) => s.length),
+	);
 	const declaredReels = count(raw.numReels);
 	const numReels = declaredReels && declaredReels > 0 ? declaredReels : stripReels;
 
