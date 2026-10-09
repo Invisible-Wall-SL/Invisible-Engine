@@ -104,7 +104,9 @@
 	 */
 	const orphanModes = $derived(
 		Object.keys(doc.modes ?? {}).filter(
-			(id) => !data.respinModes.slice(1).some((mode) => mode.mode === id),
+			(id) =>
+				!data.respinModes.slice(1).some((mode) => mode.mode === id) &&
+				!data.spinsModes.some((mode) => mode.mode === id),
 		),
 	);
 	let moveTargets = $state<Record<string, string>>({});
@@ -118,6 +120,30 @@
 		if (!doc.modes) return;
 		delete doc.modes[orphan];
 		if (!Object.keys(doc.modes).length) delete doc.modes;
+	}
+
+	/**
+	 * The board whose win-line message and win-tier captions those two sections edit: `''` is the base
+	 * game (the doc's own families), a spins mode id its own lines (`doc.modes[<id>]`, bonus-games
+	 * Phase 8). A spins mode plays another game, so it can speak its wins differently; a line it leaves
+	 * blank reads the base game's.
+	 */
+	let board = $state('');
+	const onBaseBoard = $derived(!data.spinsModes.some((mode) => mode.mode === board));
+	/** What the edited board speaks — a spins mode's own lines over the base game's. */
+	const boardResolved = $derived(
+		onBaseBoard ? resolved : resolveWinTextForMode($state.snapshot(doc), board),
+	);
+	/** The edited board's own lines, as stored (read side; own keys only). */
+	const boardLines = $derived<Pick<WinTextModeLines, 'lineMessage' | 'winLevels'> | undefined>(
+		onBaseBoard ? doc : doc.modes && Object.hasOwn(doc.modes, board) ? doc.modes[board] : undefined,
+	);
+	/** The edited board's own lines, created on first write. */
+	function boardLinesToWrite(): Pick<WinTextModeLines, 'lineMessage' | 'winLevels'> {
+		if (onBaseBoard) return doc;
+		const modes = (doc.modes ??= {});
+		if (!Object.hasOwn(modes, board)) modes[board] = {};
+		return modes[board];
 	}
 
 	/**
@@ -138,7 +164,7 @@
 		const rows = data.bigTiers.length
 			? data.bigTiers.map((tier) => ({ alias: tier.alias, name: tier.name }))
 			: CODED_BIG_ALIASES.map((alias) => ({ alias, name: alias }));
-		for (const alias of Object.keys(doc.winLevels ?? {})) {
+		for (const alias of Object.keys(boardLines?.winLevels ?? {})) {
 			if (!rows.some((row) => row.alias === alias)) rows.push({ alias, name: alias });
 		}
 		return rows;
@@ -193,20 +219,20 @@
 	/** Write a sparse nested value, deleting the key when the input is blank so a cleared
 	 *  override falls back through the chain instead of persisting an empty string. */
 	function setLineMessage(bucket: 'byCount' | 'bySymbol' | 'byCell', key: string, value: string) {
-		const lm = (doc.lineMessage ??= {});
+		const lm = (boardLinesToWrite().lineMessage ??= {});
 		const map = (lm[bucket] ??= {});
 		if (value.trim()) map[key] = value;
 		else delete map[key];
 	}
 
 	function setDefault(value: string) {
-		const lm = (doc.lineMessage ??= {});
+		const lm = (boardLinesToWrite().lineMessage ??= {});
 		if (value.trim()) lm.default = value;
 		else delete lm.default;
 	}
 
 	function setWinLevel(alias: string, value: string) {
-		const levels = (doc.winLevels ??= {});
+		const levels = (boardLinesToWrite().winLevels ??= {});
 		if (value.trim()) levels[alias] = value;
 		else delete levels[alias];
 	}
@@ -355,7 +381,7 @@
 	/** What a `(symbol, count)` win will actually say, and which level of the chain said it —
 	 *  the same call the game makes, so the badge can't drift from behaviour. */
 	function effective(symbol: string, count: number) {
-		return resolveWinLineMessage(resolved, symbol, count);
+		return resolveWinLineMessage(boardResolved, symbol, count);
 	}
 
 	/**
@@ -433,6 +459,25 @@
 			: null,
 	);
 </script>
+
+{#snippet boardPicker()}
+	{#if data.spinsModes.length}
+		<label class="single">
+			<span
+				title="A spins bonus mode plays another game, so it can speak its wins its own way; a blank line reads the base game's (shown greyed)."
+				>Board</span
+			>
+			<select bind:value={board}>
+				<option value="">Base game</option>
+				{#each data.spinsModes as mode (mode.mode)}
+					<option value={mode.mode}
+						>{mode.label}{mode.label === mode.mode ? '' : ` (${mode.mode})`} — spins mode</option
+					>
+				{/each}
+			</select>
+		</label>
+	{/if}
+{/snippet}
 
 <svelte:head><title>Invisible Win Text — {data.projectKey}</title></svelte:head>
 
@@ -518,6 +563,7 @@
 					coins over a cell, never along a line, so no win line names them.
 				{/if}
 			</p>
+			{@render boardPicker()}
 
 			<div class="grid-wrap">
 				<table class="grid">
@@ -536,8 +582,8 @@
 							{#each COUNTS as count (count)}
 								<td>
 									<input
-										value={doc.lineMessage?.byCount?.[String(count)] ?? ''}
-										placeholder={resolved.lineMessage.default || '—'}
+										value={boardLines?.lineMessage?.byCount?.[String(count)] ?? ''}
+										placeholder={boardResolved.lineMessage.default || '—'}
 										oninput={(e) => setLineMessage('byCount', String(count), e.currentTarget.value)}
 									/>
 								</td>
@@ -545,8 +591,10 @@
 							<td class="corner">
 								<input
 									class="default-input"
-									value={doc.lineMessage?.default ?? ''}
-									placeholder="Default — e.g. {'{count}'} {'{symbolName}'}"
+									value={boardLines?.lineMessage?.default ?? ''}
+									placeholder={onBaseBoard
+										? `Default — e.g. {count} {symbolName}`
+										: resolved.lineMessage.default || '—'}
 									oninput={(e) => setDefault(e.currentTarget.value)}
 								/>
 							</td>
@@ -566,7 +614,7 @@
 									{@const eff = effective(symbol, count)}
 									<td>
 										<input
-											value={doc.lineMessage?.byCell?.[winTextCellKey(symbol, count)] ?? ''}
+											value={boardLines?.lineMessage?.byCell?.[winTextCellKey(symbol, count)] ?? ''}
 											placeholder={eff.template || '—'}
 											title={eff.source === 'cell'
 												? 'Set here'
@@ -582,8 +630,8 @@
 								{/each}
 								<td class="any-col">
 									<input
-										value={doc.lineMessage?.bySymbol?.[symbol] ?? ''}
-										placeholder={resolved.lineMessage.default || '—'}
+										value={boardLines?.lineMessage?.bySymbol?.[symbol] ?? ''}
+										placeholder={boardResolved.lineMessage.default || '—'}
 										oninput={(e) => setLineMessage('bySymbol', symbol, e.currentTarget.value)}
 									/>
 								</td>
@@ -997,12 +1045,13 @@
 				big-win art carries no words (which is also what lets the tier be translated without re-cutting
 				the art per language).
 			</p>
+			{@render boardPicker()}
 			{#each winLevelRows as row (row.alias)}
 				<label class="single">
 					<span title={row.alias}>{row.name}</span>
 					<input
-						value={doc.winLevels?.[row.alias] ?? ''}
-						placeholder="not drawn"
+						value={boardLines?.winLevels?.[row.alias] ?? ''}
+						placeholder={onBaseBoard ? 'not drawn' : resolved.winLevels[row.alias] || 'not drawn'}
 						oninput={(e) => setWinLevel(row.alias, e.currentTarget.value)}
 					/>
 				</label>

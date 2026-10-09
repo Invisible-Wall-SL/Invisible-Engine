@@ -929,6 +929,12 @@
 		const shown = inGameViewSceneIds(scenes, activeScene, shownViewMode);
 		return new Set(scenes.filter((s) => !shown.has(s.id)).map((s) => s.id));
 	});
+	/** The board the canvas draws the reel grid at: a spins mode's own while In-game view shows it
+	 * (the game's `boardDimensions` follows the mode on top), else the project's. */
+	const shownGridDimensions = $derived(
+		(gameView && shownViewMode ? data.modeGridDimensions[shownViewMode] : undefined) ??
+			data.gridDimensions,
+	);
 	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off. */
 	const canvasHiddenScenes = $derived(
 		offInGameView.size === 0 ? hiddenScenes : new Set([...hiddenScenes, ...offInGameView]),
@@ -1497,10 +1503,12 @@
 		...(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {}),
 		...(data.noJackpotTiers ? { jackpotBar: false as const } : {}),
 		...(data.respinModes.length ? { respinModes: data.respinModes } : {}),
+		...(data.spinsModes.length ? { spinsModes: data.spinsModes } : {}),
 		...data.addOns,
 		...(data.potIds ? { potIds: data.potIds } : {}),
 	});
-	/** The missing screens an add-on brings (the Pots screen, + each respin mode's screens). */
+	/** The missing screens an add-on brings (the Pots screen, + each respin mode's screens, + each
+	 *  spins mode's free-spin screens). */
 	const missingOverlayScreens = $derived.by(() => {
 		const ids = addOnSceneIds(projectGameType, sceneSetOptions);
 		return missingScreens.filter((scene) => ids.includes(scene.id));
@@ -3114,7 +3122,7 @@
 						<button
 							class="add-hud-btn"
 							type="button"
-							title={`Add the screens this game's add-ons bring — the overlay's Pots screen (its pots from Game Config), plus the Jackpot bar and each Hold and Win mode's own respin screens — each next to the screen it follows. Never touches an existing screen: ${missingOverlayScreens
+							title={`Add the screens this game's add-ons bring — the overlay's Pots screen (its pots from Game Config), plus the Jackpot bar, each Hold and Win mode's own respin screens and each spins mode's own free-spin intro, counter and outro — each next to the screen it follows. Never touches an existing screen: ${missingOverlayScreens
 								.map((s) => s.name || s.id)
 								.join(', ')}`}
 							onclick={() => addMissingScreens(missingOverlayScreens)}
@@ -3160,7 +3168,7 @@
 					assets={data.assets}
 					symbolDefaults={data.symbolDefaults}
 					symbolsDoc={data.symbolsDoc}
-					gridDimensions={data.gridDimensions}
+					gridDimensions={shownGridDimensions}
 					repeaterSources={data.repeaterSources}
 					componentDefaults={data.componentDefaults}
 					{componentMap}

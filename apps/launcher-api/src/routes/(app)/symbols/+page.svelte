@@ -225,6 +225,15 @@
 	// Stacked pictures, Explosion pattern, Transition) hide on its flags — but each stays while the
 	// doc still authors it, so an author can always reach the switch that turns it off.
 	const caps = $derived(kindCapabilities(data.gameType, data.addOns));
+	/** Each symbol only a spins bonus mode deals → the labels of the modes that deal it (a chip on its
+	 *  row head). Empty for a project without a spins mode. */
+	const spinsOnly = $derived.by(() => {
+		const out: Record<string, string[]> = {};
+		for (const mode of data.spinsModes) {
+			for (const symbol of mode.symbols) (out[symbol] ??= []).push(mode.label);
+		}
+		return out;
+	});
 	const visibleStates = $derived(
 		visibleStatesFor(data.gameType, {
 			cascade: data.cascade,
@@ -5074,6 +5083,16 @@
 											<span class="roles" title="Hold and Win role, from Invisible Game Config">
 												{#each data.holdAndWinRoles[symbol] as role (role)}
 													<span class="role">{role}</span>
+												{/each}
+											</span>
+										{/if}
+										{#if spinsOnly[symbol]}
+											<span
+												class="roles"
+												title="Dealt only by this spins bonus mode's reels (Invisible Game Config), never in the base game — its states here are what that mode shows"
+											>
+												{#each spinsOnly[symbol] as label (label)}
+													<span class="role">{label} only</span>
 												{/each}
 											</span>
 										{/if}

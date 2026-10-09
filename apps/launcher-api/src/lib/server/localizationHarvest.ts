@@ -8,6 +8,7 @@ import type {
 import {
 	collectUiTextStrings,
 	collectWinTextModeTemplates,
+	collectWinTextSpinsModeTemplates,
 	collectWinTextTemplates,
 	kindCapabilities,
 	resolveLayoutInstanceParams,
@@ -18,7 +19,12 @@ import type { GameConfigDoc } from 'game-config';
 import { resolveBetModes } from 'game-config';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
 import { projectAddOns } from '../addOns';
-import { winTextRespinModes, type WinTextRespinMode } from '../winTextModes';
+import {
+	winTextRespinModes,
+	winTextSpinsModes,
+	type WinTextRespinMode,
+	type WinTextSpinsMode,
+} from '../winTextModes';
 import type { SymbolsDoc } from './symbolsStorage';
 
 /**
@@ -226,12 +232,14 @@ export const WIN_TEXT_SECTION_ID = '__winText';
  *
  * `otherModes` are the respin modes besides the primary (bonus games §2.4); each gets a section of
  * its own, `Win text — <its label>` (keyed `__winText:<id>`), after the primary's. A game with one respin mode passes none, so its
- * sections are what they always were.
+ * sections are what they always were. `spinsModes` (Phase 8) get one each the same way, listing only
+ * the lines the mode wrote itself.
  */
 export function harvestWinText(
 	doc: WinTextDoc | undefined,
 	options: Parameters<typeof collectWinTextTemplates>[1] = {},
 	otherModes: readonly WinTextRespinMode[] = [],
+	spinsModes: readonly WinTextSpinsMode[] = [],
 ): HarvestSection[] {
 	const out: HarvestSection[] = [];
 	const items = collectWinTextTemplates(doc, options).filter((i) => isLocalizableText(i.source));
@@ -245,6 +253,20 @@ export function harvestWinText(
 			jackpots: jackpotTiers,
 			wheel: hasWheel,
 		}).filter((i) => isLocalizableText(i.source));
+		if (!modeItems.length) continue;
+		out.push({
+			sceneId: `${WIN_TEXT_SECTION_ID}:${mode}`,
+			sceneName: `Win text — ${label}`,
+			items: modeItems,
+			origin: 'winText',
+		});
+	}
+	// Each spins mode's own win-line message and win-tier captions (what it inherits is the base
+	// game's, listed above).
+	for (const { mode, label } of spinsModes) {
+		const modeItems = collectWinTextSpinsModeTemplates(doc, mode).filter((i) =>
+			isLocalizableText(i.source),
+		);
 		if (!modeItems.length) continue;
 		out.push({
 			sceneId: `${WIN_TEXT_SECTION_ID}:${mode}`,
@@ -278,6 +300,7 @@ export function harvestProjectWinText(
 			meters: potIds ?? [],
 		},
 		otherModes,
+		winTextSpinsModes(config),
 	);
 }
 

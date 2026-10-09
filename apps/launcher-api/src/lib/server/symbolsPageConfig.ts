@@ -1,12 +1,15 @@
 import { kindCapabilities } from 'engine-layout';
 import {
+	gameTypeForMode,
 	resolveCascade,
 	resolveReelBehaviour,
 	symbolHoldAndWinRoles,
+	symbolsInPlayForGameType,
 	symbolsUsed,
 	symbolUses,
+	type GameConfigDoc,
 } from 'game-config';
-import { overlayTokenPots, projectAddOns, respinModesOf } from '$lib/addOns';
+import { overlayTokenPots, projectAddOns, respinModesOf, spinsModeDecls } from '$lib/addOns';
 import { bigTiersOf, type ResolvedGameConfig } from './gameConfigDefaults';
 import { symbolGrid, type SymbolDefaults } from './symbolDefaults';
 
@@ -82,6 +85,10 @@ export function symbolsPageConfig(
 		// are several). A mode without tiers, or no mode, ⇒ the page offers the four tiers the
 		// presets use.
 		respinModes: respinModesOf(doc),
+		// Each spins mode with the listed symbols only its reels deal — a chip on their row heads, so
+		// the author knows whose states those rows are. Bindings stay keyed by symbol, so the base
+		// game's map is unchanged. Empty without a spins mode.
+		spinsModes: doc ? spinsModeSymbols(doc, listed) : [],
 		// The config's BIG-win tiers drive the reel-anticipation panel: ONE FX column per big tier,
 		// keyed by its alias — mirroring the tiers the game arms (`activeBigTiers`), so the panel
 		// grows/shrinks with `/config` rather than a fixed big/mega/massive triple.
@@ -91,4 +98,29 @@ export function symbolsPageConfig(
 		// differently from the rest.
 		meterIds: potIds ?? [],
 	};
+}
+
+/**
+ * Each spins mode (bonus-games Phase 8) with the symbols in `listed` that its strips deal and no
+ * other game type's do — the symbols only that mode shows.
+ */
+function spinsModeSymbols(
+	doc: GameConfigDoc,
+	listed: ReadonlySet<string>,
+): { id: string; label: string; symbols: string[] }[] {
+	return spinsModeDecls(doc).map((mode) => {
+		const own = gameTypeForMode(mode);
+		const elsewhere = new Set(
+			Object.keys(doc.paddingReels)
+				.filter((gameType) => gameType !== own)
+				.flatMap((gameType) => symbolsInPlayForGameType(doc, gameType)),
+		);
+		return {
+			id: mode.id,
+			label: mode.label ?? mode.id,
+			symbols: symbolsInPlayForGameType(doc, own).filter(
+				(name) => listed.has(name) && !elsewhere.has(name),
+			),
+		};
+	});
 }

@@ -61,6 +61,7 @@ import {
 import { eventEmitter } from './eventEmitter';
 import { broadcastMusicCue, playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
+import { boardWinText } from './boardWinText';
 import { stateApp } from './stateApp';
 import { winState } from './winState.svelte';
 import { boardDropCells, drainedMeters, type WinLevelData } from 'engine-game';
@@ -357,7 +358,7 @@ export const showWinInfoMessage = ({
 			symbolName:
 				symbol === undefined ? undefined : resolveSymbolName(bakedSymbolNames(), symbol, kind),
 		};
-		const winText = bakedWinText();
+		const winText = boardWinText();
 		// An EXPANDED win says something different, because `kind` counts REELS there, not the icons
 		// the expansion painted (the player counts twelve boots under a sentence saying four). Gated
 		// on the SPIN — `expandedSymbol` is set only by this spin's `expandBookColumns` — and on the
@@ -495,7 +496,7 @@ export const winLineTextFor = ({
 	amountValue: number;
 	amountAt: (value: number) => string;
 } => {
-	const winText = bakedWinText();
+	const winText = boardWinText();
 	const vars = {
 		count: kind,
 		symbol,

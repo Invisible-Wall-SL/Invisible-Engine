@@ -153,9 +153,7 @@
 	// `doc.modes` — a mode's own graph, which the runtime asks first while that mode is on screen
 	// before falling back to the global `doc.graph` (the "Global" tab, `{ kind: 'flow' }`).
 	type FlowView =
-		| { kind: 'flow' }
-		| { kind: 'function'; functionId: string }
-		| { kind: 'mode'; modeId: string };
+		{ kind: 'flow' } | { kind: 'function'; functionId: string } | { kind: 'mode'; modeId: string };
 	let view = $state<FlowView>({ kind: 'flow' });
 	// The doc section (Global or a mode tab) the function crumb returns to.
 	let lastSection = $state<FlowView>({ kind: 'flow' });
@@ -1364,7 +1362,9 @@
 	// "＋ Add overlay steps" — graft the add-on steps this flow lacks (the pots' filling beat, the
 	// Hold and Win mode tab) without touching an authored node. Offered only to a project whose Game
 	// Config carries an add-on block; one undo step, saved like any edit.
-	const hasAddOns = $derived(Boolean(data.addOns?.holdAndWin || data.addOns?.potsOverlay));
+	const hasAddOns = $derived(
+		Boolean(data.addOns?.holdAndWin || data.addOns?.potsOverlay || data.addOns?.spinsModes?.length),
+	);
 	const graftable = $derived(hasAddOns ? graftAddOnSteps(doc, data.addOns).added : []);
 	function addOverlaySteps(): void {
 		const { doc: next, added } = graftAddOnSteps(doc, data.addOns);
@@ -1607,8 +1607,7 @@
 			     hands a signal to the ON-SCREEN mode's graph first and falls back to Global. -->
 			<span class="mode-tabs" role="tablist" aria-label="Flow sections">
 				{#snippet badge(key: string)}
-					{#if issuesBySection[key]}<span class="tab-issues">{issuesBySection[key]}</span
-						>{/if}
+					{#if issuesBySection[key]}<span class="tab-issues">{issuesBySection[key]}</span>{/if}
 				{/snippet}
 				<button
 					class="mode-tab"

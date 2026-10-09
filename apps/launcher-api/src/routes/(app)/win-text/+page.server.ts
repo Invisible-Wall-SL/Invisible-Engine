@@ -11,7 +11,7 @@ import { symbolsPageConfig } from '$lib/server/symbolsPageConfig';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
-import { winTextRespinModes } from '$lib/winTextModes';
+import { winTextRespinModes, winTextSpinsModes } from '$lib/winTextModes';
 import { loadWinTextDocWithEtag } from '$lib/server/winTextStorage';
 import type { PageServerLoad } from './$types';
 
@@ -87,6 +87,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		 *  it spins the pre-feature wheel (its wheel copy is offered only then). The primary's lines
 		 *  are the doc's families; another mode's are `doc.modes[<id>]`. */
 		respinModes: winTextRespinModes(config.doc),
+		/** Every spins mode: its own win-line message and win-tier captions are `doc.modes[<id>]`. */
+		spinsModes: winTextSpinsModes(config.doc),
 		/** Every pot (meter) id the config declares, Hold and Win meters then overlay pots. */
 		meterIds: potIds ?? [],
 		/** The config's big-win tiers, which are the ones a caption can be drawn for. Empty when

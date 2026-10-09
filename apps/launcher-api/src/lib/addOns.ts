@@ -4,8 +4,11 @@ import {
 	flowAddOnsOf,
 	resolveExpandingSymbol,
 	resolveMeters,
+	resolveGameModes,
 	respinModeDecls,
 	type GameConfigDoc,
+	type GameModeDecl,
+	type SpinsGame,
 } from 'game-config';
 
 /** What a project's Game Config adds to its kind (docs/design/pots-overlay.md §4, bonus-games.md
@@ -59,6 +62,14 @@ export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	});
 }
 
+/** The doc's spins modes, in declaration order: its own `reels` modes that carry a `spins` game. */
+export const spinsModeDecls = (
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'>,
+): (GameModeDecl & { spins: SpinsGame })[] =>
+	resolveGameModes(doc).filter(
+		(mode): mode is GameModeDecl & { spins: SpinsGame } => mode.board === 'reels' && !!mode.spins,
+	);
+
 /**
  * The project's add-ons, plus the pot ids its pots screen shows: every resolved meter, the Hold
  * and Win block's first. Both add-ons come from the split form (game-config's
@@ -95,13 +106,14 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
  * The scene-set options a project's layout is seeded from. A Hold and Win kind's own block is its
  * base game, so only an overlay names its pots there; every other kind gets the add-on screens
  * whenever its config carries either. `maxRows` is the tallest respin board, and `respinModes`
- * names every respin mode with its own `maxRows`, so each gets its own screens. Without an add-on
- * the result is what the scaffold has always passed (`maxRows` alone, read by the Hold and Win kind
+ * names every respin mode with its own `maxRows`, so each gets its own screens; `spinsModes` names
+ * every spins mode, so each gets its own free-spin screens. Without an add-on or a spins mode the result is what the scaffold has always passed (`maxRows` alone, read by the Hold and Win kind
  * only), so its layout is unchanged.
  */
 export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOptions {
 	const { addOns, potIds } = projectAddOns(doc);
 	const modes = respinModesOf(doc);
+	const spins = doc ? spinsModeDecls(doc) : [];
 	const maxRows = respinMaxRows(modes);
 	const addOn =
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
@@ -116,6 +128,9 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 						...(maxRows ? { maxRows } : {}),
 					})),
 				}
+			: {}),
+		...(spins.length
+			? { spinsModes: spins.map((mode) => ({ id: mode.id, label: mode.label ?? mode.id })) }
 			: {}),
 		...(addOn
 			? {

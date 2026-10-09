@@ -33,6 +33,8 @@ export const {
 	boardDimensions,
 	activeGrid,
 	activeSpinsGame,
+	activePaytableInputs,
+	spinsGameOf,
 	bindActiveMode,
 	boardSizes,
 	initialBoard,

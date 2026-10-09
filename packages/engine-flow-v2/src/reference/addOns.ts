@@ -15,10 +15,17 @@
 import { flowGraphs, graphHandlesSignal } from '../runtime';
 import type { FlowDoc, Graph, TemplateVocabulary, TypeRef } from '../types';
 import type { FlowIssue } from '../validate';
-import { buildEntryGraph, holdAndWinModeGraph, modeContainerRefs } from './drivenSeed';
+import {
+	buildEntryGraph,
+	holdAndWinModeGraph,
+	modeContainerRefs,
+	spinsContainerRefs,
+	spinsModeGraph,
+} from './drivenSeed';
 import { beat, HOLD_AND_WIN_FRAGMENT } from './holdAndWin';
 import { trig, type ChoreoStep } from './bookOfChoreo';
 import { HOLD_AND_WIN_BASE_CHOREO } from './holdAndWinChoreo';
+import { templateVocabulary } from './registry';
 import { INT, SYMBOL, insertAfter, type VocabFragment } from './standardVocab';
 
 /** Which add-on blocks a project's Game Config carries, and its meter ids (`resolveMeters`). */
@@ -30,6 +37,9 @@ export interface FlowAddOns {
 	/** The respin modes with rules, the primary first; absent ⇒ the lone `holdAndWin` when
 	 *  `holdAndWin` is on. */
 	respinModes?: readonly string[];
+	/** The spins modes (`GameModeDecl.spins`, bonus-games Phase 8), in declaration order; absent ⇒
+	 *  none. Each plays as free spins in its own mode, so it takes the kind's own vocabulary. */
+	spinsModes?: readonly string[];
 }
 
 const FLOAT: TypeRef = { t: 'float' };
@@ -324,6 +334,10 @@ const freePrefix = (ids: ReadonlySet<string>, base: string): string => {
  *    declared at the seed's z — the same ref a Hold and Win project carries. A declared container
  *    whose scene the project lacks validates and mounts nothing (the Scene Editor's "＋ Add overlay
  *    screens" adds them), so the graft never makes a flow unpublishable.
+ *  - **Spins modes**: for each spins mode the doc has no section for, `modes.<modeId>` presenting its
+ *    free spins on its own `-<modeId>` screens (`spinsModeGraph`), with the doc's template
+ *    vocabulary. A flow that drives the screens and shows the base counter also swaps the counter
+ *    for the mode's own while the mode is on screen. Missing containers are declared as above.
  *
  * Every new id carries a prefix no id of the doc starts with. Pure: the input is not mutated, and
  * nothing to add returns it as is, so a second graft is a no-op.
@@ -374,6 +388,32 @@ export function graftAddOnSteps(doc: FlowDoc, addOns: FlowAddOns | undefined): A
 				: [],
 		);
 		const missingRefs = modeContainerRefs(shown, modeId);
+		if (missingRefs.length) {
+			containers = [...containers, ...missingRefs];
+			added.push(...missingRefs.map((c) => `container ${c.id}`));
+		}
+	}
+
+	const swapCounter =
+		graphHandlesSignal(doc.graph, 'load') && containers.some((c) => c.id === 'freeSpinCounter');
+	for (const modeId of addOns?.spinsModes ?? []) {
+		if (doc.modes?.[modeId]) continue;
+		const section = spinsModeGraph(
+			freePrefix(ids, 'fs'),
+			modeId,
+			templateVocabulary(doc.templateId),
+			{ swapCounter },
+		);
+		nodeIds(section, ids);
+		modes = { ...modes, [modeId]: { graph: section } };
+		added.push(`modes.${modeId}`);
+		const declared = new Set(containers.map((c) => c.id));
+		const shown = section.nodes.flatMap((n) =>
+			(n.kind === 'showContainer' || n.kind === 'hideContainer') && !declared.has(n.ref)
+				? [n.ref]
+				: [],
+		);
+		const missingRefs = spinsContainerRefs(shown, modeId);
 		if (missingRefs.length) {
 			containers = [...containers, ...missingRefs];
 			added.push(...missingRefs.map((c) => `container ${c.id}`));
