@@ -382,11 +382,13 @@ const potSpecials = (): HoldAndWinSpecial[] => [
  *  copy, the primary respin mode when the project has one, else its first bonus mode on the reels. */
 function bonusForNewPot(doc: GameConfigDoc, like: OverlayPot | undefined): PotBonus | undefined {
 	const block = primaryHoldAndWin(doc);
-	const primary = primaryRespinMode(doc.modes)?.id;
+	// Without a respin mode a pot may still name the built-in id; it then takes no special.
+	const primary = primaryRespinMode(doc.modes)?.id ?? HOLD_AND_WIN_MODE;
 	const mode =
 		like?.bonus.mode ??
-		primary ??
-		resolveGameModes(doc).find((m) => m.id !== BASE_GAME_MODE && m.board === 'reels')?.id;
+		(block
+			? primary
+			: resolveGameModes(doc).find((m) => m.id !== BASE_GAME_MODE && m.board === 'reels')?.id);
 	if (!mode) return undefined;
 	if (mode !== primary) return { ...like?.bonus, mode };
 	const taken = new Set<HoldAndWinSpecial | undefined>([

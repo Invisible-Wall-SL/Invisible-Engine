@@ -191,6 +191,11 @@ rollback target (the flat bundle is not in the history), so it is cut deliberate
 `main`. **Reverting `server.mjs` past this change is a silent engine downgrade:** the old server only
 reads the flat prefix, which stops being updated at the migration.
 
+**Rolling the runtime back past bonus-games Phase 7b is unsafe for pots-overlay games.** A pre-7b
+engine reads `potsOverlay` off the config in `Game.svelte` (the pot signals) and `flowEffects.ts` (the
+per-reel token timing), and a config baked by the 7b launcher no longer carries it. Republishing does
+not help: roll forward or unpin instead. Details: `docs/guides/release-and-rollback.md` §4.
+
 ## History hygiene (fixes the "messy commits" feeling without splitting)
 
 The single `main` is kept *filterable per area* by three things:

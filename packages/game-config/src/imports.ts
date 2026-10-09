@@ -65,7 +65,12 @@ import {
 	setPrimaryHoldAndWin,
 } from './bonusGames';
 import { respinGameTypeFor, respinModeIdProblem } from './bonusModes';
-import { normalizeCoinOverlay, overlayRoutes, type CoinOverlay } from './coinOverlay';
+import {
+	normalizeCoinOverlay,
+	overlayRoutes,
+	retargetRoutes,
+	type CoinOverlay,
+} from './coinOverlay';
 import { DEFAULT_FREE_SPINS_AWARD } from './freeSpins';
 import type { HoldAndWinGame } from './holdAndWinGame';
 import type { SpinsGame } from './spinsGame';
@@ -208,7 +213,10 @@ export function importBonus(
 	// The HUD screen is the host's layout's, so the host's choice outlives a replace.
 	const hostHud = next.modes?.find((m) => m.id === HOLD_AND_WIN_MODE)?.hud;
 	let replaced = false;
-	if (primaryRespinMode(next.modes)) {
+	// The pots that start the bonus it replaces are left naming it (`removeHoldAndWin`); they start
+	// the imported one instead, whatever id the replaced one had.
+	const replacedId = primaryRespinMode(next.modes)?.id;
+	if (replacedId) {
 		if (!holdAndWinIsOverlayBonus(next)) {
 			return {
 				ok: false,
@@ -275,6 +283,10 @@ export function importBonus(
 	};
 	if (authored || hostHud) next.modes = [...(next.modes ?? []), override];
 	setPrimaryHoldAndWin(next, bonus.holdAndWin);
+	const respinId = primaryRespinMode(next.modes)!.id;
+	if (replacedId && replacedId !== respinId && next.coinOverlay) {
+		next.coinOverlay = retargetRoutes(next.coinOverlay, (m) => (m === replacedId ? respinId : m));
+	}
 
 	// On a coins-only host (no pots) value coins are all that can start the bonus, so the imported
 	// feature must pass the same rule as going down to no pots (`zeroPotsRefusal`): a re-sync from a

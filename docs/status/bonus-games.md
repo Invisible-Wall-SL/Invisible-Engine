@@ -82,6 +82,14 @@ starts the phase sessions, reviews their PRs and merges them.
       has pays 0 there, because the primary's engine deals the base game. It is now a validator
       WARNING on `coinOverlay.coins.<i>.jackpot`; the mock fix (deal it from the mode the coins
       start) is a follow-up.
+  - **Deploy and rollback skew (hub review).** A pre-7b engine reads `getActiveGameConfig().potsOverlay`
+    raw in `Game.svelte` (the pot signals of an overlay with no respin mode) and `flowEffects.ts` (the
+    per-reel token timing), and the 7b launcher bakes no such key. A game published after the
+    launcher deploy therefore misplays on a pre-7b engine. That covers the window before the engine
+    release, a pin to an older release, and a rollback past 7b. Republishing does not help (the
+    launcher still bakes without the key): roll forward or unpin. Recorded in
+    `docs/guides/release-and-rollback.md` §4 and `docs/design/games-deploy.md`. No compat shim was
+    added.
   - **For 7c: what a stored project looks like on its next save.** Its legacy `holdAndWin` /
     `potsOverlay` keys are dropped and nothing else changes. `check:bonus-migration` §2 pins this for
     every template, preset, sample shape and add-on result: the split form is byte for byte main's
@@ -760,6 +768,17 @@ starts the phase sessions, reviews their PRs and merges them.
   - **A differential run over 92,265 game-config outputs** (normalized docs, validators, mock
     inputs, every add-on, import and bonus-mode writer) matches main except the `removePotsOverlay`
     fix.
+  - **Hub review round:**
+    - `importBonus` with `replace` moves the replaced primary's pots onto the imported mode. Before,
+      a primary of another id left them naming a mode that was gone, and the doc did not save.
+    - `bonusForNewPot` matches main again on a doc with no respin mode.
+    - The baked-config fallback warns and still migrates the legacy blocks.
+    - `addOns.fixture` gains a Phase 7b section that turns red when any of four fixes is reverted:
+      pots routed to the primary's id, `removePotsOverlay` keeping an `asMode` mode, the tier
+      warning and the replace retarget.
+    - `check:bonus-migration`'s scan is inverted. Any `.holdAndWin` / `.potsOverlay` read, indexed
+      read or destructuring fails it unless the receiver is a mode's rules, the wire, a flag or an
+      add-on part. Its scope now includes the launcher's `.mjs` scripts and every service.
 
 - 2026-10-09 — **Phase 8b: spins modes in `/config` and Game Maker; self-contained overlay presets**
   (PR #1156; game-config `spinsModes.ts`, `imports.ts`, `addOns.ts`, `potsOverlayPresets.ts`,

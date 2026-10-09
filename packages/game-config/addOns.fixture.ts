@@ -16,6 +16,8 @@ import {
 	zeroPotsRefusal,
 } from './src/addOns.ts';
 import { potsOverlayOf, primaryHoldAndWin } from './src/bonusGames.ts';
+import { addRespinMode } from './src/bonusModes.ts';
+import { importBonus, importRespinMode } from './src/imports.ts';
 import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS, HOLD_AND_WIN_PRESET_IDS } from './src/holdAndWinPresets.ts';
 import { symbolsInPlay } from './src/inPlay.ts';
@@ -578,6 +580,86 @@ check(
 		['gold', 'POT_GOLD', 'holdAndWin', 'mystery'],
 		['purple', 'POT_PURPLE', 'holdAndWin', '-'],
 	],
+);
+
+// ─── bonus-games Phase 7b: the split-form writers ─────────────────────────────────────────────
+
+console.log('\nPhase 7b');
+
+// A host whose primary respin mode is not called `holdAndWin`: the preset's pots start it.
+const bonusAHost = normalize(added(addRespinMode(host, 'bonusA', 'pots')));
+const potsOnBonusA = added(addPotsOverlay(bonusAHost, 'threePots'));
+check(
+	'3 Pots over a primary respin mode of another id: every pot starts it',
+	potsOnBonusA.coinOverlay?.pots?.map((p) => p.bonus.mode),
+	['bonusA', 'bonusA', 'bonusA'],
+);
+check(
+	'...and the doc has no error',
+	issues(potsOnBonusA).filter((i) => i.startsWith('error')),
+	[],
+);
+
+// Replacing that primary by an import moves its pots to the imported one.
+const replacedA = importBonus(normalize(potsOnBonusA), normalize(HOLD_AND_WIN_PRESETS.collector), {
+	project: 'src',
+	mode: 'holdAndWin',
+	at: 'T',
+	replace: true,
+	pots: [potsOnBonusA.coinOverlay!.pots![0].id],
+});
+check(
+	'an import that replaces it: every pot starts the imported mode',
+	replacedA.ok && replacedA.doc.coinOverlay?.pots?.map((p) => p.bonus.mode),
+	['holdAndWin', 'holdAndWin', 'holdAndWin'],
+);
+check(
+	'...and the doc has no error',
+	replacedA.ok && issues(replacedA.doc).filter((i) => i.startsWith('error')),
+	[],
+);
+
+// A mode added on its own and started by a buy outlives the overlay, its buy route with it.
+const buyHost = normalize({
+	...clone(three),
+	betModes: {
+		...three.betModes,
+		bonus: { cost: 100, feature: true, buyBonus: true, rtp: 0.96, max_win: 5000 },
+	},
+});
+const boughtMode = importRespinMode(buyHost, normalize(HOLD_AND_WIN_PRESETS.collector), {
+	project: 'src',
+	mode: 'holdAndWin',
+	at: 'T',
+	routes: [{ kind: 'buy', betMode: 'bonus' }],
+	hostKind: 'lines',
+});
+const boughtId = boughtMode.ok ? boughtMode.mode : '';
+const withoutOverlay = boughtMode.ok ? removePotsOverlay(normalize(boughtMode.doc)) : undefined;
+check(
+	'removing the overlay keeps a mode added on its own',
+	(withoutOverlay?.modes ?? []).map((m) => m.id),
+	[boughtId],
+);
+check(
+	'...with its buy route',
+	withoutOverlay?.coinOverlay?.trigger?.buy?.map((t) => [t.betMode, t.mode]),
+	[['bonus', boughtId]],
+);
+
+// A base-game jackpot coin of a tier only a non-primary respin mode has pays nothing there.
+const twoModes = normalize(added(addRespinMode(normalize(three), 'bonusB', 'pots')));
+const onlyB = clone(twoModes);
+const modeB = onlyB.modes!.find((m) => m.id === 'bonusB')!;
+modeB.holdAndWin!.jackpots[0].name = 'ONLY_B';
+onlyB.coinOverlay = {
+	...onlyB.coinOverlay!,
+	coins: [{ kind: 'jackpot', jackpot: 'ONLY_B', weight: 1 }],
+};
+check(
+	'a base coin of a tier only another respin mode has: warned on the coin',
+	issues(onlyB).filter((i) => i.endsWith('coinOverlay.coins.0.jackpot')),
+	['warning:coinOverlay.coins.0.jackpot'],
 );
 
 console.log(failures === 0 ? '\nAll add-on assertions passed.\n' : `\n${failures} FAILED\n`);

@@ -130,7 +130,7 @@ function corpus(): Record<string, unknown> {
 }
 
 /**
- * `--measure` on main 65d47c1: `[split, mirror holdAndWin, mirror potsOverlay]` digests of each
+ * `--measure` on main 65d47c1 (main 9018d9c, whose code is the same, reproduces it): `[split, mirror holdAndWin, mirror potsOverlay]` digests of each
  * corpus doc's normalized form. The template entries are measured from main's own template files,
  * which carried the mirror; this branch regenerated them without it.
  */
@@ -441,36 +441,142 @@ check(
 /** The removed mirror helpers. */
 const REMOVED =
 	/\b(withLegacyPair|syncBonusSplit|splitFormOf|bonusSplitOf|legacyHoldAndWin|legacyPotsOverlay(Of)?)\b/;
-/** A doc's top-level legacy key read: `doc.holdAndWin`, `config?.potsOverlay`,
- *  `getActiveGameConfig().holdAndWin`, `HOLD_AND_WIN_PRESETS.pots.holdAndWin`, … Wire objects (the
- *  boot `cfg`, the mock's `opts` / `inputs` / `grid`), capability flags and a mode's own rules
- *  (`mode.holdAndWin`, `decl.holdAndWin`) are named otherwise. */
-const READ =
-	/(\b(doc|docs\[[^\]]+\]|next|target|source|host|snapshot|stored|saved|kept|raw)|\.(config|doc)|\bgetActiveGameConfig\(\)|\bHOLD_AND_WIN_(PRESETS|TEST_FIXTURES)(\.\w+|\[[^\]]+\]))\??\.(holdAndWin|potsOverlay)\b/;
 
-/** Sources that run in the product: every package and app source, the mocks and the test server. */
-const SOURCES =
-	/^(packages\/[^/]+\/src\/|apps\/[^/]+\/src\/|services\/[^/]+\/[^/]+\.m?js$|scripts\/mock-)/;
-/** The legacy reader itself. */
-const READER = new Set([
-	'packages/game-config/src/bonusGames.ts',
-	'packages/game-config/src/normalize.ts',
+/**
+ * The receivers a `holdAndWin` / `potsOverlay` property may be read from: none of them is a Game
+ * Config doc. A mode's rules (`mode`, `decl`, `primary`, …), the wire and the mock's inputs (the boot
+ * `cfg`, an event's `context`, `opts`, `inputs`, `grid`, `po`, `session`), capability and add-on
+ * flags (`caps`, `capabilities`, `addOns`, `options`, `gates`, `facts`, `kindCapabilities()`), an
+ * add-on's parts (`bonus`, `preset`, `potsOverlayPreset()`: an overlay preset, a Hold and Win bonus)
+ * and the per-kind symbol defaults. Anything else — a doc, a config, `getActiveGameConfig()`, a preset doc — is a read.
+ */
+const ALLOWED = new Set([
+	'mode',
+	'm',
+	'decl',
+	'primary',
+	'respin',
+	'started',
+	'from',
+	'entry',
+	'GameModeDecl',
+	'authored',
+	'primaryRespinMode()',
+	'modes.find()',
+	'cfg',
+	'context',
+	'opts',
+	'primaryOpts',
+	'inputs',
+	'grid',
+	'po',
+	'session',
+	'caps',
+	'capabilities',
+	'addOns',
+	'options',
+	'gates',
+	'facts',
+	'kindCapabilities()',
+	'bonusCapabilityInputs()',
+	'bonus',
+	'preset',
+	'potsOverlayPreset()',
+	'DEFAULTS_BY_GAME',
 ]);
+/** A receiver allowed in one file only, and why. */
+const ALLOWED_IN: Record<string, { receivers: string[]; why: string }> = {
+	'packages/game-config/src/bonusGames.ts': {
+		receivers: ['raw', 'out'],
+		why: 'the legacy reader (`normalizeBonusGames`, `migrateLegacyBonus`)',
+	},
+	'packages/game-config/src/normalize.ts': { receivers: ['raw'], why: 'the legacy reader' },
+	'packages/engine-layout/src/lib/kindCapabilities.ts': {
+		receivers: ['config'],
+		why: '`KindCapabilityConfig`, the add-on flags',
+	},
+	'apps/launcher-api/src/lib/server/mockContract.ts': {
+		receivers: ['rest'],
+		why: 'the mock inputs it hands the test server',
+	},
+};
+const READER = new Set(['packages/game-config/src/bonusGames.ts']);
+
+/** Sources that run in the product: every package and app source, the launcher's `.mjs` scripts
+ *  (the bake), the mocks and every service. */
+const SOURCES =
+	/^(packages\/[^/]+\/src\/|apps\/[^/]+\/src\/|apps\/launcher-api\/scripts\/[^/]+\.mjs$|services\/|scripts\/mock-)/;
+
+/** `text` with its comments and quoted strings blanked, newlines kept so line numbers hold: an issue
+ *  path `'holdAndWin.trigger'` is not a read. */
+const blanked = (text: string, what: RegExp): string =>
+	text.replace(what, (c) => c.replace(/[^\n]/g, ' '));
+const COMMENTS = /\/\*[\s\S]*?\*\/|<!--[\s\S]*?-->|\/\/[^\n]*/g;
+const STRINGS = /'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"/g;
+const codeOf = (text: string): string => blanked(blanked(text, COMMENTS), STRINGS);
+
+/** The name a property access at `dot` is made on: `doc` in `doc?.x`, `config` in `ctx.config.x`,
+ *  `getActiveGameConfig()` in `getActiveGameConfig().x`, `context` in `(e.context as T)?.x`. */
+function receiverAt(code: string, dot: number): string {
+	let i = dot - 1;
+	while (code[i] === '?' || code[i] === '!' || code[i] === ' ') i -= 1;
+	if (code[i] === ')' || code[i] === ']') {
+		const [open, close] = code[i] === ')' ? ['(', ')'] : ['[', ']'];
+		let depth = 0;
+		for (; i >= 0; i -= 1) {
+			if (code[i] === close) depth += 1;
+			else if (code[i] === open && (depth -= 1) === 0) break;
+		}
+		const inner = code.slice(i + 1, code.indexOf(close, i) === -1 ? dot : dot - 1);
+		const callee = /(?:([A-Za-z_$][\w$]*)\??\.)?([A-Za-z_$][\w$]*)$/.exec(code.slice(0, i));
+		if (callee) {
+			const name = callee[1] && open === '(' ? `${callee[1]}.${callee[2]}` : callee[2];
+			return open === '(' ? `${name}()` : `${name}[]`;
+		}
+		const head = inner.split(/\s+as\s+/)[0].trim();
+		return /([A-Za-z_$][\w$]*)\??$/.exec(head)?.[1] ?? head;
+	}
+	return /([A-Za-z_$][\w$]*)$/.exec(code.slice(0, i + 1))?.[1] ?? '';
+}
 
 function legacyReads(files: Record<string, string>): string[] {
 	const found: string[] = [];
 	for (const [file, text] of Object.entries(files)) {
-		if (READER.has(file) || /\.(fixture|stories)\./.test(file)) continue;
-		text.split('\n').forEach((line, i) => {
-			const code = line
-				.replace(/\/\*.*?(\*\/|$)/g, '')
-				.replace(/\/\/.*$/, '')
-				.replace(/^\s*\*.*$/, '');
-			if (REMOVED.test(code) || READ.test(code)) found.push(`${file}:${i + 1}: ${line.trim()}`);
-		});
+		if (/\.(fixture|stories)\./.test(file)) continue;
+		const code = codeOf(text);
+		const allowed = new Set([...ALLOWED, ...(ALLOWED_IN[file]?.receivers ?? [])]);
+		const lineOf = (at: number) => code.slice(0, at).split('\n').length;
+		const flag = (at: number, what: string) =>
+			found.push(`${file}:${lineOf(at)}: ${what}: ${text.split('\n')[lineOf(at) - 1].trim()}`);
+		for (const m of code.matchAll(REMOVED_ALL)) {
+			if (!READER.has(file)) flag(m.index, 'a removed mirror helper');
+		}
+		for (const m of code.matchAll(/\??\.\s*(holdAndWin|potsOverlay)\b/g)) {
+			// After a template's `${…}` it is path text: `modes.${id}.holdAndWin`.
+			if (code[m.index - 1] === '}') continue;
+			const receiver = receiverAt(code, m.index + m[0].indexOf('.'));
+			if (!allowed.has(receiver)) flag(m.index, `read on "${receiver}"`);
+		}
+		for (const m of blanked(text, COMMENTS).matchAll(
+			/\[\s*['"`](holdAndWin|potsOverlay)['"`]\s*\]/g,
+		)) {
+			if (!READER.has(file)) flag(m.index, 'an indexed read');
+		}
+		for (const m of code.matchAll(/\b(?:const|let|var)\s*\{([^{}]*)\}\s*=\s*([^;\n]+)/g)) {
+			if (!/(^|[,{\s])(holdAndWin|potsOverlay)\s*[:,}]?/.test(`${m[1]},`)) continue;
+			const rhs = m[2]
+				.split('??')[0]
+				.trim()
+				.replace(/[;)\s]*$/, '');
+			const receiver = rhs.endsWith(')')
+				? receiverAt(`${rhs}.x`, rhs.length)
+				: (/([A-Za-z_$][\w$]*)$/.exec(rhs)?.[1] ?? rhs);
+			if (!allowed.has(receiver)) flag(m.index, `destructured from "${receiver}"`);
+		}
 	}
 	return found;
 }
+const REMOVED_ALL = new RegExp(REMOVED.source, 'g');
 
 const tracked = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })
 	.split('\n')
@@ -482,7 +588,12 @@ const reads = legacyReads(sources);
 check('5 no source reads a legacy key', reads.length === 0, reads.join('\n        '));
 check(
 	'5 the scan sees the sources',
-	tracked.length > 500 && 'apps/lines/src/components/Game.svelte' in sources,
+	tracked.length > 500 &&
+		[
+			'apps/lines/src/components/Game.svelte',
+			'services/test-server/makeMock.mjs',
+			'apps/launcher-api/scripts/bake-editor-doc.mjs',
+		].every((file) => file in sources),
 );
 
 // ─── 6: mutations ─────────────────────────────────────────────────────────────────────────────
@@ -519,17 +630,24 @@ mutantFails(
 		!api.primaryHoldAndWin(raw) && Boolean(api.primaryHoldAndWin(runtimeConfigOf(raw, raw))),
 	);
 }
-// 5: a reader put back, each way.
+// 5: a reader put back, each way — appended to a real product file.
+const FLOW = 'apps/lines/src/game/flowEffects.ts';
 for (const line of [
 	'const block = doc.holdAndWin;',
 	'if (getActiveGameConfig().potsOverlay?.timing) arm();',
 	'const meters = HOLD_AND_WIN_PRESETS.pots.holdAndWin?.meters;',
 	'const next = withLegacyPair(structuredClone(target));',
 	'const missing = !bundle.config?.holdAndWin;',
+	'const perReel = config.potsOverlay?.timing;',
+	'const { potsOverlay } = getActiveGameConfig();',
+	'const rules = gameConfig.holdAndWin;',
+	"const block = doc['holdAndWin'];",
+	'const { holdAndWin: block, ...rest } = stored;',
+	'const timing = (getActiveGameConfig() as Doc)?.potsOverlay?.timing;',
 ]) {
 	mutantFails(
 		`a reader: ${line}`,
-		legacyReads({ 'apps/lines/src/game/x.ts': `${line}\n` }).length === 1,
+		legacyReads({ [FLOW]: `${sources[FLOW]}\n${line}\n` }).length === 1,
 	);
 }
 mutantFails(
@@ -538,18 +656,28 @@ mutantFails(
 		'packages/game-config/src/x.ts': sources['packages/game-config/src/bonusGames.ts'],
 	}).length > 0,
 );
+mutantFails(
+	'a mock reading a doc',
+	legacyReads({ 'services/test-server/x.mjs': 'const hw = doc.holdAndWin;\n' }).length === 1,
+);
 // …and none of the names that are not a doc's legacy key.
 check(
 	'5 wire, mock inputs, flags and a mode’s rules are not reads',
 	legacyReads({
 		'apps/lines/src/game/x.ts': [
 			'const block = (cfg as { holdAndWin?: unknown }).holdAndWin;',
+			'const snapshot = (e.context as { holdAndWin?: object } | undefined)?.holdAndWin;',
 			'const inputs = opts.holdAndWin;',
 			'if (grid.potsOverlay) start();',
 			'if (caps.holdAndWin) show();',
-			'const holdAndWin = kind || !!config.holdAndWin;',
+			'if (kindCapabilities(kind, addOns).holdAndWin) show();',
 			'if (preset.holdAndWin) merge(preset.potsOverlay);',
 			'const rules = mode.holdAndWin;',
+			'// the old `doc.holdAndWin` block',
+			'/** `config.potsOverlay.wire` */',
+			'const path = `modes.${id}.holdAndWin.trigger`;',
+			"const hint = 'e.g. holdAndWin';",
+			'return { holdAndWin, potsOverlay };',
 		].join('\n'),
 	}).length === 0,
 );

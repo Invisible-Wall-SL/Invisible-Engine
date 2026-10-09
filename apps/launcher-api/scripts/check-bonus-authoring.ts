@@ -316,7 +316,8 @@ function spinsPlayed(events: Event[]) {
 
 /** Each add-on result `addPotsOverlay(template, preset, pots)` gave on main 56f5342 that came out
  *  clean (no validator error), as `sha256(normalized doc, renames, notes)`; re-measured on main
- *  65d47c1 with the doc's legacy mirror keys taken off (`withoutMirror`, bonus-games Phase 7b). */
+ *  65d47c1 with the doc's legacy mirror keys taken off (`withoutMirror`, bonus-games Phase 7b);
+ *  main 9018d9c, whose code is the same, reproduces them. */
 const MAIN_ADD_ON_DIGESTS: Record<string, string> = {
 	'holdAndWin.classic.json|coinsOnly|1': '3da5bf460c677342',
 	'holdAndWin.classic.json|coinsOnly|2': '70f79ff29c11b3b8',
@@ -434,7 +435,7 @@ const MAIN_ADD_ON_DIGESTS: Record<string, string> = {
 
 /** The add-on over a host that already has a Hold and Win bonus (`addHoldAndWinBonus`), and the bonus
  *  added after the overlay, on lines, Book-of and ways: every case clean on main 4067dfb, digested as
- *  above (re-measured on main 65d47c1). */
+ *  above (re-measured on main 65d47c1; 9018d9c reproduces them). */
 const MAIN_BONUS_HOST_DIGESTS: Record<string, string> = {
 	'lines+classic|coinsOnly|-': '766d41bed8dc3cfd',
 	'lines+classic|coinsOnly|0': '766d41bed8dc3cfd',

@@ -503,7 +503,8 @@ const digest = (value: unknown) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 
 /** `normalize(addPotsOverlay(classic, 'threePots'))` as main 4067dfb built it, by this `digest`
- *  without main's legacy mirror pair (re-measured so on main 65d47c1, bonus-games Phase 7b). */
+ *  without main's legacy mirror pair (re-measured so on main 65d47c1, bonus-games Phase 7b; main
+ *  9018d9c, whose code is the same, reproduces it). */
 const MAIN_THREE_POTS_ON_CLASSIC = 'ac4aaafa30d564c1';
 check(
 	'3 Pots over Classic, rebuilt as main built it, is byte-identical to main’s doc',

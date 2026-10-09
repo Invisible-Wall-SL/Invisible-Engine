@@ -31,6 +31,8 @@
  */
 
 import {
+	potsOverlayOf,
+	primaryHoldAndWin,
 	resolveBetModes,
 	resolveWinLevels,
 	resolveWinModel,
@@ -39,21 +41,19 @@ import {
 	type ResolvedBetMode,
 	type ResolvedWinTier,
 	type WinModel,
-	potsOverlayOf,
-	primaryHoldAndWin,
 } from 'game-config';
-
-/** The primary respin game in the block shape, and the overlay's pots: what the profile names. */
-const primaryOf = (ctx: { config: GameConfigDoc | null }) =>
-	ctx.config ? primaryHoldAndWin(ctx.config) : undefined;
-const potsOf = (ctx: { config: GameConfigDoc | null }) =>
-	ctx.config ? potsOverlayOf(ctx.config) : undefined;
 import { kindCapabilities, TUMBLE_PATTERN_LABELS } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
 import { protocolFor } from './mockProtocol';
 import { SHARED_RUNTIME_ID, type MockProtocol } from './testServerManifest';
+
+/** The primary respin game in the block shape, and the overlay's pots: what the profile names. */
+const primaryOf = (ctx: { config: GameConfigDoc | null }) =>
+	ctx.config ? primaryHoldAndWin(ctx.config) : undefined;
+const potsOf = (ctx: { config: GameConfigDoc | null }) =>
+	ctx.config ? potsOverlayOf(ctx.config) : undefined;
 
 /** Everything the profile is derived from — assembled once per project by the page loader. */
 export interface GameProfileSignals {
