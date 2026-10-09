@@ -22,6 +22,7 @@ import { mock } from 'node:test';
 import type { LiveLease } from '../src/lib/server/lease.ts';
 import { getFullSceneSet, type LayoutDoc, type Scene } from 'engine-layout';
 import {
+	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESETS,
 	addPotsOverlay,
 	normalizeGameConfigDoc,
@@ -100,6 +101,7 @@ const GAME_TYPES: Record<string, string> = {
 	hwClassic: 'holdAndWin',
 	hwNew: 'holdAndWin',
 	hwFit: 'holdAndWin',
+	linesOff: 'lines',
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -789,19 +791,36 @@ await check('unreadable symbols, layout and flow: skipped, their bytes untouched
 });
 
 await check('presets offered are the ones that add cleanly', () => {
-	same(cleanOverlayPresets(lines), ['threePots', 'potsToFreeSpins', 'coinsOnly'], 'lines');
-	same(cleanOverlayPresets(hwPots), ['threePots', 'potsToFreeSpins'], 'a 3 Pots game');
-	for (const id of ['classic', 'collector'] as const) {
-		same(cleanOverlayPresets(normalized(HOLD_AND_WIN_PRESETS[id])), ['potsToFreeSpins'], id);
+	same(
+		cleanOverlayPresets(lines),
+		['threePots', 'potsToFreeSpins', 'coinsOnly', 'collector'],
+		'lines',
+	);
+	// bonus-games Phase 8b: a preset brings the specials its pots start, so every preset with pots
+	// fits every Hold and Win game; coins alone start nothing on one.
+	for (const id of HOLD_AND_WIN_PRESET_IDS) {
+		same(
+			cleanOverlayPresets(normalized(HOLD_AND_WIN_PRESETS[id])),
+			['threePots', 'potsToFreeSpins', 'collector'],
+			id,
+		);
 	}
 	same(cleanOverlayPresets(withOverlay(lines, 'threePots').doc), [], 'one already added');
 	same(cleanOverlayPresets(null), [], 'no config');
 });
 
 await check('a preset that does not fit: a readable refusal, no validator paths', async () => {
-	await scaffoldProject(CLIENT, 'hwFit', { holdAndWinPreset: 'classic' });
+	const off = structuredClone(lines);
+	off.freeSpins = { ...off.freeSpins, enabled: false };
+	R2.set(gameConfigDocKey(CLIENT, 'linesOff'), {
+		body: JSON.stringify(off),
+		etag: `"e${++etagSeq}"`,
+	});
 	const before = snapshot();
-	const out = await applyPotsOverlayAddOn(CLIENT, 'hwFit', { sessionId: ME, preset: 'threePots' });
+	const out = await applyPotsOverlayAddOn(CLIENT, 'linesOff', {
+		sessionId: ME,
+		preset: 'potsToFreeSpins',
+	});
 	assert(!out.ok && out.status === 400, 'not refused');
 	assert(out.error.startsWith("This preset doesn't fit this game: "), out.error);
 	assert(!/potsOverlay\.|holdAndWin\./.test(out.error), `a path leaked: ${out.error}`);

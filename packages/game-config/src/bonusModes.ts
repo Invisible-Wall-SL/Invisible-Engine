@@ -174,7 +174,7 @@ export function renameRespinMode(doc: GameConfigDoc, from: string, to: string): 
  * they are removed with their drops (a pot must start something). Returns what it did, to tell the
  * author.
  */
-function reroutePots(doc: GameConfigDoc, gone: string): string[] {
+export function reroutePots(doc: GameConfigDoc, gone: string): string[] {
 	const overlay = doc.coinOverlay;
 	const pots = (overlay?.pots ?? []).filter((p) => p.bonus.mode === gone);
 	if (!overlay || !pots.length) return [];

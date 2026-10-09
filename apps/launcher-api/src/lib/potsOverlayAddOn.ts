@@ -29,13 +29,14 @@ export type AddOnOutcome =
 /**
  * The coin overlay style each add-on preset builds ("＋ Coin overlay…", `docs/design/bonus-games.md`
  * §2.4): its pots fill from dropped tokens, or (Coins only) value coins drop and enough start a
- * Classic Hold and Win. A Collector overlay needs a collector landing on the base reels, and the
- * add-on never edits a game's strips, so no preset builds one.
+ * Classic Hold and Win. Each brings what its pots start (bonus-games Phase 8b): 3 Pots and Collector
+ * add their specials to a Hold and Win game that lacks them.
  */
 export const COIN_OVERLAY_PRESET_STYLE: Record<PotsOverlayPresetId, CoinOverlayStyle> = {
 	threePots: 'pots',
 	potsToFreeSpins: 'pots',
 	coinsOnly: 'classic',
+	collector: 'collector',
 };
 
 export const COIN_OVERLAY_ADD_ON_STYLES: {
@@ -43,11 +44,14 @@ export const COIN_OVERLAY_ADD_ON_STYLES: {
 	label: string;
 	none?: string;
 }[] = [
-	{ style: 'classic', label: 'Classic — value coins drop; enough start a Hold and Win' },
+	{
+		style: 'classic',
+		label: 'Classic — value coins drop; enough start a Hold and Win',
+		none: 'No Classic preset fits this game. A Hold and Win game is the Classic style already: its coins land on its reels, so pick 3 Pots or Collector to add pots.',
+	},
 	{ style: 'pots', label: '3 Pots — tokens fill pots; a full pot starts its bonus' },
 	{
 		style: 'collector',
-		label: 'Collector — a collector beside coins starts the bonus',
-		none: "A collector lands on the base reels, and the add-on never edits this game's strips. Start from the Hold and Win template's Collector preset instead.",
+		label: 'Collector — a full pot starts a Hold and Win with its collector',
 	},
 ];

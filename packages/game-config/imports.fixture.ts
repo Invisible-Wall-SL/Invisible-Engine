@@ -114,9 +114,10 @@ const goldHost = added(addPotsOverlay(host, 'potsToFreeSpins'));
 
 console.log('\n1. what a source offers');
 check(
-	'the Classic sample offers its Hold and Win; its free spins are listed but refused',
+	'the Classic sample offers its base game (8b, as a spins mode) and its Hold and Win; its free spins are listed but refused',
 	importableFeatures(SOURCE).map((f) => [f.mode, Boolean(f.refused)]),
 	[
+		['basegame', false],
 		['freeSpins', true],
 		['holdAndWin', false],
 	],
@@ -413,9 +414,12 @@ console.log("\n8. a reels feature: another book game's free spins as a mode of t
 	});
 	const FS_FROM = { project: 'book-sample', mode: 'freeSpins', at: AT };
 	check(
-		'the book sample offers its free spins',
+		'the book sample offers its base game (as a spins mode) and its free spins',
 		importableFeatures(BOOK_SOURCE).map((f) => [f.mode, Boolean(f.refused)]),
-		[['freeSpins', false]],
+		[
+			['basegame', false],
+			['freeSpins', false],
+		],
 	);
 	const before = clone(goldHost);
 	const result = imported(importBonus(goldHost, BOOK_SOURCE, { ...FS_FROM, pots: ['gold'] }));
