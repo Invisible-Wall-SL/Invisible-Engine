@@ -508,7 +508,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-09 — **Phase 7a: the overlay over any base, every route plays, per-mode pools** (PR #TBD).
+- 2026-10-09 — **Phase 7a: the overlay over any base, every route plays, per-mode pools** (PR #1152).
   Touched: game-config, the four mocks, the test server, the launcher contract, the facade,
   `apps/lines` pools, `/config` base coins, the Game Maker dialog text, and the guides
   `docs/tools/game-maker.md` and `game-config.md`.
