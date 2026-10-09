@@ -41,7 +41,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5d | Win Text + Localization per mode | merged | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | merged | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
 | 6b | Plain Hold and Win template (no pots, jackpots optional) | in progress | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | — |
-| 7a | Mock composition: overlay over any base, every route plays, per-mode pools | in review | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
+| 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 7a) | — | — |
 | 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | in review | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
 | 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b, 8) | — | — |
@@ -584,7 +584,23 @@ starts the phase sessions, reviews their PRs and merges them.
     identically with the stack bound and unbound, with no rebuild. `spinsGame.fixture.ts` pins
     parity and the contract. `check:holdandwin`, `check:pots-overlay`, `check:freespins`,
     `check:respin-modes`, `check:bonus-modes`, `check:resume`, `check:lines-parity` pass.
+  - **Hub review round** (#1151 @ 2c299a7):
+    - A spins game plays only on a host that deals it: the lines mock says so (`host.spinsGames`) and
+      the overlay advertises a `window` only then; `/config` refuses a spins mode on a Book-of or Hold
+      and Win game (`spinsModeKindIssues`, beside `undealtRouteWarnings`).
+    - Validation: an own-grid spins mode may not share another mode's strip key; its strips are
+      measured once; a spins mode may not be a dropping mode; a pot's `spins` on one is warned
+      (it plays its own count).
+    - The contract leaves no empty overlay when a clashing mode was all that composed it.
+    - `check:spins-modes` now builds the board with the engine's real `createGameState` and its
+      `rebuildBoard` (in place, the array the spinning board closes over); `check:spins-modes-contract`
+      plays a bought CLUSTER round and a random-metre LINES round (its own paylines) through the
+      launcher's contract and the test server's `validGrid` + `makeMock`.
+    - Still owed: a live playtest of the board swap in a browser (7c).
   - **For 8b:**
+    - `/config`'s strip-width readout (`+page.svelte`, `gameTypes.some(… !== doc.numReels)`) measures
+      every game type against the base grid; a spins mode on its own grid must be measured against
+      its own.
     - `/config`: a Bonus modes entry for a spins mode — its game type, grid, paylines, own pays, spin
       count and strips (`paddingReels[<gameType>]` on its own grid), and the route pickers offering a
       spins mode to pots, buys, Lucky Spin and random metre only.

@@ -615,6 +615,27 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 
 	// Where each route can fire: the base game for a landing, plus the dropping modes for a drop.
 	const dropping = overlay?.drops ? overlayDropModes(overlay.drops) : [];
+	// A spins game draws its own grid, and a respin feature on top of it would bring the base grid
+	// back for its board, so nothing drops while one plays.
+	for (const id of dropping) {
+		if (gameModeById(view, id)?.spins) {
+			issues.push({
+				severity: 'error',
+				path: 'coinOverlay.drops.modes',
+				message: `Tokens drop in "${id}", a spins game: nothing drops while a spins game plays.`,
+			});
+		}
+	}
+	overlay?.pots?.forEach((pot, i) => {
+		const target = gameModeById(view, pot.bonus.mode);
+		if (pot.bonus.spins !== undefined && target?.spins) {
+			issues.push({
+				severity: 'warning',
+				path: `coinOverlay.pots.${i}.bonus.spins`,
+				message: `"${pot.bonus.mode}" is a spins game: it plays its own ${target.spins.spins} spins, not the pot's ${pot.bonus.spins}.`,
+			});
+		}
+	});
 	for (const route of overlayRoutes(overlay)) {
 		const path = `coinOverlay.${route.path}`;
 		const target = gameModeById(view, route.mode);

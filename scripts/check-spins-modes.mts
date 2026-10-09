@@ -14,10 +14,12 @@
  *  3. BUY → CLUSTER: a bought round plays exactly 4 spins, 7×7, paid by CLUSTERS only, at its own price.
  *  4. ITS OWN FREE SPINS (a forced feature) still play on the 5×3 base grid, paid by lines, as
  *     `freegame`.
- *  5. THE RUNTIME. The engine's own `createModeController` (compiled by Svelte) and `createGameConfig`,
- *     with the game's own `syncSpinsBoard` sliced from `stateModes.svelte.ts`: at every reveal the board
- *     is the mode's grid, model and paylines; it is rebuilt exactly on entering and on leaving the
- *     spins mode; a resume mid-mode rebuilds it once for the mode, with no intro.
+ *  4b. A HOST THAT DEALS NO SPINS GAME (the book mock) is advertised no window for one.
+ *  5. THE RUNTIME. The engine's own `createModeController` and `createGameState` (compiled by
+ *     Svelte) and `createGameConfig`, with the game's own `syncSpinsBoard` sliced from
+ *     `stateModes.svelte.ts`: at every reveal the board is the mode's grid, model and paylines; the
+ *     real `rebuildBoard` rebuilds it, in place, exactly on entering and on leaving the spins mode; a
+ *     resume mid-mode rebuilds it once for the mode, with no intro.
  *  6. PARITY. For every committed default the grid / board / win-model / payline / divisor accessors
  *     answer the same with the mode stack bound and on every built-in mode as unbound, and the board
  *     is never rebuilt.
@@ -25,10 +27,13 @@
 
 import {
 	normalizeGameConfigDoc,
+	resolveReelBehaviour,
+	resolveSounds,
 	potsOverlayMockInputs,
 	potsOverlayPreset,
 	holdAndWinBonus,
 	gameConfigErrors,
+	validateGameConfigDoc,
 	type GameConfigDoc,
 } from '../packages/game-config/index.ts';
 import {
@@ -40,6 +45,7 @@ import { modeOpOf } from '../packages/engine-game/src/game/modeEvents.ts';
 import { createGameConfig } from '../packages/engine-game/src/game/gameConfig.ts';
 import { withPotsOverlay } from './mock-pots-overlay.mjs';
 import { createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
+import { createMockRgs as createBookMock } from './mock-rgs-server-book.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { register } from 'node:module';
@@ -166,6 +172,29 @@ check(
 	gameConfigErrors(HOST).map((i) => `${i.path}: ${i.message}`),
 	[],
 );
+{
+	// Nothing drops while a spins game plays (a respin board over it would bring the base grid back),
+	// and a pot's own spin count does not apply to one.
+	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
+	delete raw.holdAndWin;
+	delete raw.potsOverlay;
+	const overlay = raw.coinOverlay!;
+	overlay.drops = { ...overlay.drops!, modes: ['basegame', WAYS_BONUS] };
+	overlay.pots = overlay.pots!.map((p) =>
+		p.id === 'blue' ? { ...p, bonus: { ...p.bonus, spins: 3 } } : p,
+	);
+	const issues = validateGameConfigDoc(normalized(raw)).filter((i) =>
+		/^coinOverlay\.(drops\.modes|pots\.\d+\.bonus\.spins)$/.test(i.path),
+	);
+	check(
+		'host: a spins game in the dropping modes is refused, a pot spin count on one is warned',
+		issues.map((i) => [i.severity, i.path]),
+		[
+			['error', 'coinOverlay.drops.modes'],
+			['warning', 'coinOverlay.pots.1.bonus.spins'],
+		],
+	);
+}
 const INPUTS = potsOverlayMockInputs(HOST);
 check(
 	'host: the mock is told each spins game',
@@ -364,14 +393,84 @@ const clusterBook = await verifySpins(
 	check('own free spins: paid by lines', lineOnly, true);
 }
 
+// ---------- 4b. a host that deals no spins game ----------
+
+{
+	// The book mock plays a reels mode on its own board (`host.spinsGames` unset), so the overlay
+	// advertises no window for it: the facade keeps clamping to the book's grid. /config refuses a spins
+	// mode on such a kind (`spinsModeKindIssues`); this is the wire's half.
+	const book = withPotsOverlay(
+		(opts: Record<string, unknown> = {}) => createBookMock({ quiet: true, ...opts }),
+		INPUTS,
+	)({ label: 'spins-modes-book', seed: 'spins-modes-book' });
+	const lines = withPotsOverlay(
+		(opts: Record<string, unknown> = {}) => createLinesMock({ quiet: true, ...opts }),
+		INPUTS,
+	)({ label: 'spins-modes-lines', seed: 'spins-modes-lines' });
+	const boot = async (mock: {
+		handle: (req: unknown, res: unknown, url: URL) => Promise<void>;
+	}) => {
+		const server = createServer((req, res) =>
+			mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
+		);
+		const url = await listen(server);
+		const answer = (await (
+			await fetch(`http://${url}/rgs/engine?sid=boot`, {
+				method: 'POST',
+				body: JSON.stringify([{ action: 'config' }]),
+			})
+		).json()) as Wire;
+		await close(server);
+		const config = answer.events?.find((e) => e.event === 'config')?.context as
+			{ potsOverlay?: { modes?: Record<string, { window?: unknown }> } } | undefined;
+		return config?.potsOverlay?.modes?.[WAYS_BONUS];
+	};
+	const [onBook, onLines] = await hush(async () => [await boot(book), await boot(lines)]);
+	check(
+		'a book host advertises no spins window',
+		[Boolean(onBook), onBook?.window],
+		[true, undefined],
+	);
+	check('the lines host advertises it', onLines?.window, { reels: 6, rows: [4, 4, 4, 4, 4, 4] });
+}
+
 // ---------- 5. the runtime ----------
 
+// The engine's own `.svelte.ts` modules, compiled by Svelte (server output), and the workspace
+// packages by their `index.ts`, as the bundler resolves them; the SvelteKit modules they reach, stubbed.
+const stub = (code: string) => 'data:text/javascript,' + encodeURIComponent(code);
+const STUBS = {
+	'$app/state': stub('export const page = { url: new URL("https://game.test/") };'),
+	'$env/static/public': stub(
+		'export const PUBLIC_SITE_MODE = ""; export const PUBLIC_SENTRY_DSN = ""; export const PUBLIC_SENTRY_SAMPLE_RATE = ""; export const PUBLIC_CHROMATIC = "";',
+	),
+};
+const PACKAGES = new URL('../packages/', import.meta.url).href;
 register(
 	'data:text/javascript,' +
 		encodeURIComponent(`
 			import { readFile } from 'node:fs/promises';
 			import { createRequire, stripTypeScriptTypes } from 'node:module';
 			import { fileURLToPath } from 'node:url';
+			const STUBS = ${JSON.stringify(STUBS)};
+			export async function resolve(specifier, context, next) {
+				if (STUBS[specifier]) return { url: STUBS[specifier], shortCircuit: true };
+				try {
+					return await next(specifier, context);
+				} catch (err) {
+					for (const ext of ['.ts', '/index.ts']) {
+						try {
+							return await next(specifier + ext, context);
+						} catch {}
+					}
+					if (/^[\\w-]+$/.test(specifier)) {
+						try {
+							return await next(${JSON.stringify(PACKAGES)} + specifier + '/index.ts', context);
+						} catch {}
+					}
+					throw err;
+				}
+			}
 			export async function load(url, context, next) {
 				if (!url.endsWith('.svelte.ts')) return next(url, context);
 				const path = fileURLToPath(url);
@@ -385,6 +484,7 @@ register(
 );
 const { createModeController } =
 	await import('../packages/engine-game/src/game/modeController.svelte.ts');
+const { createGameState } = await import('../packages/engine-game/src/game/gameState.svelte.ts');
 
 const source = readFileSync(
 	new URL('../apps/lines/src/game/stateModes.svelte.ts', import.meta.url),
@@ -397,9 +497,29 @@ const slice = (from: string, to: string) => {
 	return source.slice(start, end + to.length);
 };
 
-/** One game's runtime: its config, the real mode controller, the shipped board sync. */
+/**
+ * One game's runtime: its config, the engine's own board state (`createGameState`, whose
+ * `rebuildBoard` splices the reels in place), the real mode controller and the shipped board sync.
+ * Each rebuild is recorded as the board it left: reels × visible rows (the reels carry one padding
+ * cell above and below), and whether it is still the array the spinning board closes over.
+ */
 const runtimeFor = (doc: GameConfigDoc) => {
 	const config = createGameConfig<string>({ bakedConfig: () => doc, compiledConfig: doc });
+	const state = createGameState({
+		initialGameType: 'basegame',
+		initialBoard: config.initialBoard,
+		boardDimensions: config.boardDimensions,
+		activeGrid: config.activeGrid,
+		boardSizes: config.boardSizes,
+		layout: { layoutType: () => 'desktop', mainLayout: () => ({ width: 1920, height: 1080 }) },
+		eventEmitter: { broadcast: () => {} },
+		stackedConfig: () => null,
+		stackedFallback: { symbols: [], heights: {} },
+		onSymbolLand: () => {},
+		reelBehaviour: () => resolveReelBehaviour(doc),
+		sounds: () => resolveSounds(doc),
+	});
+	const board = state.stateGame.board;
 	const rebuilds: string[] = [];
 	const syncSpinsBoard = compileSlice({
 		what: 'stateModes.svelte.ts#syncSpinsBoard',
@@ -409,8 +529,11 @@ const runtimeFor = (doc: GameConfigDoc) => {
 			slice('let boardBuiltFor', ';\n') + '\n' + slice('const syncSpinsBoard = (', '\n};\n'),
 		)}\nreturn syncSpinsBoard;`,
 	})(config.activeSpinsGame, () => {
-		const { x, y } = config.boardDimensions();
-		rebuilds.push(`${x}×${y}`);
+		state.rebuildBoard();
+		const rows = [...new Set(board.map((reel) => reel.reelState.symbols.length - 2))];
+		rebuilds.push(
+			`${board.length}×${rows.join('/')}${board === state.stateGame.board ? '' : ' (orphaned)'}`,
+		);
 	}) as () => void;
 	const controller = createModeController({
 		gameTypeOf: (id: string) => id,
@@ -449,7 +572,7 @@ const walk = async (book: BookEvent[], runtime: ReturnType<typeof runtimeFor>) =
 	check('runtime ways: rebuilt on entry and on exit only', runtime.rebuilds, ['6×4', '5×3']);
 	check('runtime ways: back on the base board', runtime.config.boardDimensions(), { x: 5, y: 3 });
 	check(
-		'runtime ways: the initial board fills the mode grid',
+		'runtime ways: after the exit the initial board fills the base grid again',
 		runtime.config.initialBoard().length,
 		5,
 	);

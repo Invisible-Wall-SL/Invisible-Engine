@@ -198,7 +198,8 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	}
 	// The REELS modes of the project's own a pot or another route starts (an imported free spins, or a
 	// spins mode with a `game` of its own): dealt as the host's free spins on their own strips, each under its own
-	// bonus key (its mode id). A spins mode's `window` is advertised so the client draws its grid.
+	// bonus key (its mode id). A spins mode's `window` is advertised so the client draws its grid, on
+	// a host that deals its game (`host.spinsGames`: the lines mock); another host plays it on its own.
 	const reelsModes = Object.fromEntries(
 		Object.entries(inputs.modes ?? {}).filter(
 			([id, m]) =>
@@ -269,7 +270,9 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 									id,
 									{
 										gameType: m.gameType,
-										...(m.game ? { window: { reels: m.game.reels, rows: m.game.rows } } : {}),
+										...(m.game && host.spinsGames
+											? { window: { reels: m.game.reels, rows: m.game.rows } }
+											: {}),
 									},
 								]),
 							),

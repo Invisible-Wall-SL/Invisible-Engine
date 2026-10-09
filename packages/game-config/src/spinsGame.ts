@@ -188,7 +188,8 @@ export function validateSpinsGame(
 			message: 'A lines game needs paylines, so nothing can ever pay.',
 		});
 	}
-	const strips = doc.paddingReels[gameType] ?? [];
+	// A mode on the host's grid has its strips measured with every other game type's (`./validate`).
+	const strips = mode.spins.numReels !== undefined ? (doc.paddingReels[gameType] ?? []) : [];
 	if (strips.length && strips.length !== view.numReels) {
 		issues.push({
 			severity: 'error',

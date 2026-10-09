@@ -273,6 +273,46 @@ export function validateGameModes(doc: GameConfigDoc): GameModeIssue[] {
 		}
 		if (mode.spins)
 			issues.push(...validateSpinsGame(doc, { id: mode.id, spins: mode.spins }, gameType));
+		// A spins game on a grid of its own has strips of its own: sharing another mode's would size
+		// that mode's strips to this grid, or this grid's to that mode's.
+		const sharedWith =
+			mode.spins?.numReels !== undefined
+				? resolveGameModes(doc).find((m) => m.id !== mode.id && gameTypeForMode(m) === gameType)
+				: undefined;
+		if (sharedWith) {
+			issues.push({
+				path: `${path}.gameType`,
+				severity: 'error',
+				message: `The spins game "${mode.id}" has a grid of its own, so it needs strips of its own: "${gameType}" is also "${sharedWith.id}"'s.`,
+			});
+		}
 	}
 	return issues;
+}
+
+/** The base kinds whose mock deals a bonus on its own board, not a spins game of another type. */
+const NO_SPINS_GAMES_KINDS: Record<string, string> = {
+	bookOf: 'a Book-of game',
+	holdAndWin: 'a Hold and Win game',
+};
+
+/**
+ * An ERROR on each spins mode (`./spinsGame`) of a game of kind `baseKind` that does not play one:
+ * the book mock and the Hold and Win engine deal their bonuses on their own board, so a spins game's
+ * grid and pays would be drawn by the client and never dealt (bonus-games Phase 8a). The base kind
+ * is the project's, so this sits beside the doc's own validator where the kind is known (`/config`).
+ */
+export function spinsModeKindIssues(
+	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'>,
+	baseKind: string | undefined,
+): GameModeIssue[] {
+	const kind = baseKind ? NO_SPINS_GAMES_KINDS[baseKind] : undefined;
+	if (!kind) return [];
+	return resolveGameModes(doc)
+		.filter((mode) => mode.spins)
+		.map((mode) => ({
+			path: `modes.${mode.id}.spins`,
+			severity: 'error' as const,
+			message: `"${mode.id}" is a spins game, which ${kind} does not play: its bonuses play on its own board. Play it from a lines, ways, cluster or scatter game.`,
+		}));
 }

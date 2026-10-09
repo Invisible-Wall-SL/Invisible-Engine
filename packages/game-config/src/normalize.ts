@@ -318,12 +318,6 @@ const normalizeWinLevels = (raw: unknown): WinLevelTier[] | undefined => {
 };
 
 /**
- * Rows per reel. Accepts a scalar (`3` ⇒ every reel 3 rows) as well as the per-reel list, and
- * pads/truncates to `numReels` so the grid is always fully described — a short `numRows` would
- * otherwise leave the last reels with `undefined` height at the consumer.
- */
-
-/**
  * Canonicalize an arbitrary value into a {@link GameConfigDoc}, or `undefined` when it cannot
  * describe a game — i.e. it has no symbol dictionary or no strips. Both are required because the
  * dictionary is what the board can draw and the strips are what the game actually deals; a config

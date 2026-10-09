@@ -575,6 +575,12 @@ export const validGrid = (grid) => {
 		(po.modes === undefined || reelsModesShaped(po.modes))
 			? po
 			: null;
+	// A malformed overlay deals the game without it, so say so rather than lose it silently.
+	if (po && !potsOverlay) {
+		console.warn(
+			'[test-server] ignored a malformed potsOverlay (its pots, drops, Hold and Win or reels modes)',
+		);
+	}
 	return {
 		reels,
 		rows,

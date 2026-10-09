@@ -55,6 +55,11 @@ export const normalizePaylines = (raw: unknown): Paylines => {
 	return lines;
 };
 
+/**
+ * Rows per reel. Accepts a scalar (`3` ⇒ every reel 3 rows) as well as the per-reel list, and
+ * pads/truncates to `numReels` so the grid is always fully described — a short `numRows` would
+ * otherwise leave the last reels with `undefined` height at the consumer.
+ */
 export const normalizeNumRows = (raw: unknown, numReels: number): number[] => {
 	const scalar = count(raw);
 	if (scalar !== undefined) return Array.from({ length: numReels }, () => scalar);

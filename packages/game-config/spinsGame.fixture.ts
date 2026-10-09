@@ -17,19 +17,21 @@
  *  6. Routes: a buy, a Lucky Spin or a random metre may start a spins game (the coin count, a pattern
  *     and a meter may not, nor may anything but a pot start a reels mode without a game), and the
  *     mock is told those routes in the legacy trigger shape.
+ *  7. A Book-of or Hold and Win game refuses a spins mode (its mock deals no spins game); a spins
+ *     mode on a grid of its own may not share another mode's strips; a strip is reported once.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { splitFormOf, withLegacyPair } from './src/bonusGames.ts';
-import { gameModeById, normalizeGameModes } from './src/modes.ts';
+import { gameModeById, normalizeGameModes, spinsModeKindIssues } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import { reelsModeMockInput } from './src/potsOverlayMock.ts';
 import { normalizeSpinsGame, spinsGameView } from './src/spinsGame.ts';
 import type { GameConfigDoc } from './src/types.ts';
 import { validateGameConfigDoc } from './src/validate.ts';
-import { CLUSTER_BONUS, WAYS_BONUS, withSpinsModes } from './spinsGame.sample.ts';
+import { CLUSTER_BONUS, LINES_BONUS, WAYS_BONUS, withSpinsModes } from './spinsGame.sample.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -222,6 +224,52 @@ check(
 	'a pot-only spins game carries no trigger',
 	reelsModeMockInput(doc, gameModeById(doc, WAYS_BONUS)!)?.trigger,
 	undefined,
+);
+
+console.log('\n7. kinds, strip keys and one report per strip');
+check(
+	'a Book-of or Hold and Win game refuses every spins mode',
+	[
+		spinsModeKindIssues(doc, 'bookOf').map((i) => [i.severity, i.path]),
+		spinsModeKindIssues(doc, 'holdAndWin').length,
+	],
+	[
+		[
+			['error', `modes.${WAYS_BONUS}.spins`],
+			['error', `modes.${CLUSTER_BONUS}.spins`],
+			['error', `modes.${LINES_BONUS}.spins`],
+		],
+		3,
+	],
+);
+check(
+	'a lines, ways, cluster or scatter game (or none named) refuses none',
+	['lines', 'ways', 'cluster', 'scatter', undefined].map((k) => spinsModeKindIssues(doc, k).length),
+	[0, 0, 0, 0, 0],
+);
+const onFreegame = clone(doc);
+onFreegame.modes = onFreegame.modes!.map((m) =>
+	m.id === WAYS_BONUS ? { ...m, gameType: 'freegame' } : m,
+);
+delete onFreegame.paddingReels.waysBonus;
+check(
+	'an own-grid spins mode on the free spins’ strips is refused',
+	messages(onFreegame).filter((m) => m.startsWith(`modes.${WAYS_BONUS}.gameType`)),
+	[
+		`modes.${WAYS_BONUS}.gameType: The spins game "${WAYS_BONUS}" has a grid of its own, so it needs strips of its own: "freegame" is also "freeSpins"'s.`,
+	],
+);
+const hostGrid = clone(doc);
+hostGrid.modes = hostGrid.modes!.map((m) => {
+	if (m.id !== WAYS_BONUS) return m;
+	const { numReels: _r, numRows: _rows, ...game } = m.spins!;
+	return { ...m, spins: game };
+});
+hostGrid.paddingReels.waysBonus = hostGrid.paddingReels.waysBonus.slice(0, 4);
+check(
+	'a spins mode on the host grid is measured once, with every other game type',
+	messages(hostGrid).filter((m) => m.startsWith('paddingReels.waysBonus')),
+	['paddingReels.waysBonus: waysBonus has 4 reel strips but the grid is 5 reels wide.'],
 );
 
 console.log(failures ? `\n${failures} FAILED` : '\nall ok');

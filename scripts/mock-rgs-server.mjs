@@ -1823,6 +1823,8 @@ export function createMockRgs(opts = {}) {
 			freeSpinsMode: 'freeSpins',
 			freeSpinsOn,
 			startFreeSpins,
+			// `startFreeSpins` deals a spins mode's own game (`game`), so its grid can be advertised.
+			spinsGames: true,
 			bonusModes: opts.bonusModes,
 		});
 	})();

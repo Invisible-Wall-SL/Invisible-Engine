@@ -40,6 +40,7 @@
 		symbolsInPlay,
 		symbolsUsed,
 		symbolUses,
+		spinsModeKindIssues,
 		undealtRouteWarnings,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -119,6 +120,7 @@
 	const issues = $derived([
 		...validateGameConfigDoc(withoutBookTrigger(snapshot)),
 		...undealtRouteWarnings(snapshot, data.gameType),
+		...spinsModeKindIssues(snapshot, data.gameType),
 	]);
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
