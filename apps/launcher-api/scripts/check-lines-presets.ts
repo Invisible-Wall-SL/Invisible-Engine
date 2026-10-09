@@ -53,9 +53,9 @@ check(
 	[0, 0, 0, 0, 0],
 );
 check(
-	'Hold and Win keeps its three',
+	'Hold and Win offers the plain template (jackpots on / off), then its three',
 	gameConfigPresetsFor('holdAndWin').map((p) => p.id),
-	[...HOLD_AND_WIN_PRESET_IDS],
+	['holdAndWin.plain', 'holdAndWin.plainNoJackpots', ...HOLD_AND_WIN_PRESET_IDS],
 );
 check('a lines project with no preset stays un-authored', gameConfigSeedFor('lines'), null);
 check(

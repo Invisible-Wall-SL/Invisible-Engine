@@ -1260,8 +1260,8 @@
 		doc = openDoc(data.templateDefault as GameConfigDoc);
 	}
 
-	/** A kind with starting configs of its own (Hold and Win: Pots / Classic / Collector; lines: the
-	 *  Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it
+	/** A kind with starting configs of its own (Hold and Win: Plain with jackpots on / off, Pots,
+	 *  Classic, Collector; lines: the Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it
 	 *  discards every field, so it asks first. */
 	let pickedPreset = $state('');
 	const presetId = $derived(pickedPreset || data.presets[0]?.id || '');
@@ -1474,7 +1474,14 @@
 				Editing this project's <strong>authored config</strong>.
 			{/if}
 			{#if data.templateDefault}
-				<button class="linkish" onclick={resetToTemplate}>Reset to template default</button>
+				<button
+					class="linkish"
+					onclick={resetToTemplate}
+					title={data.gameType === 'holdAndWin'
+						? "The Hold and Win kind's legacy default, the Pots preset. For the plain game Game Maker creates, use Reset to preset → Plain."
+						: undefined}
+					>Reset to template default{data.gameType === 'holdAndWin' ? ' (Pots)' : ''}</button
+				>
 			{/if}
 			{#if data.presets.length}
 				<span class="preset-pick">
