@@ -498,7 +498,7 @@ const plainBaseStrips = (jackpots: boolean): ReelStrip[] => {
 const plainConfig = (jackpots: boolean): RawGameConfig => ({
 	providerName: 'invisible_wall',
 	gameName: 'hold_and_win',
-	gameID: 'hold_and_win_plain',
+	gameID: jackpots ? 'hold_and_win_plain_jp' : 'hold_and_win_plain',
 	rtp: 0.96,
 	numReels: 5,
 	numRows: [3, 3, 3, 3, 3],

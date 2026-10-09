@@ -80,6 +80,11 @@ export function projectAddOns(doc: AddOnDoc): {
 	return { addOns: { holdAndWin, potsOverlay, expandingSymbol }, potIds: doc ? meters : null };
 }
 
+/** No respin mode has a jackpot tier (a plain Hold and Win with Jackpots off): the scene set leaves
+ *  out the Jackpot bar. False without a respin mode, so every other set is unchanged. */
+export const noJackpotTiers = (modes: readonly RespinModeInfo[]): boolean =>
+	modes.length > 0 && modes.every((mode) => mode.jackpotTiers.length === 0);
+
 /** The tallest board any respin mode grows to — the rows the base reel grid reserves. */
 export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefined {
 	const rows = Math.max(0, ...modes.map((mode) => mode.maxRows ?? 0));
@@ -102,6 +107,7 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
 		...(maxRows ? { maxRows } : {}),
+		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
 		...(modes.length
 			? {
 					respinModes: modes.map(({ id, label, maxRows }) => ({

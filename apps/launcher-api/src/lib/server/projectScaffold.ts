@@ -59,10 +59,11 @@ export function scaffoldLayoutDoc(
 
 /**
  * A graph without the Show / Hide Container nodes of `screens`: each removed node's incoming exec
- * edges are joined to its outgoing ones, so the chain it sat in runs on as before.
+ * edges are joined to its outgoing ones, so the chain it sat in runs on as before, and its data
+ * edges go with it.
  */
 function graphWithoutScreens(graph: Graph, screens: ReadonlySet<string>): Graph {
-	let { nodes, exec } = graph;
+	let { nodes, exec, data } = graph;
 	for (const node of graph.nodes) {
 		if (node.kind !== 'showContainer' && node.kind !== 'hideContainer') continue;
 		if (!screens.has(node.ref)) continue;
@@ -72,9 +73,10 @@ function graphWithoutScreens(graph: Graph, screens: ReadonlySet<string>): Graph 
 			...exec.filter((e) => e.to.node !== node.id && e.from.node !== node.id),
 			...into.flatMap((i) => out.map((o) => ({ from: i.from, to: o.to }))),
 		];
+		data = data.filter((e) => e.to.node !== node.id && e.from.node !== node.id);
 		nodes = nodes.filter((n) => n.id !== node.id);
 	}
-	return { ...graph, nodes, exec };
+	return { ...graph, nodes, exec, data };
 }
 
 /** The starter flow without `screens` — the screens the plain Hold and Win template does not seed. */
@@ -197,10 +199,15 @@ export async function scaffoldProject(
 	const reference =
 		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, stored)) ??
 		(await loadKind(gameType))?.doc;
+	const plain = gameType === 'holdAndWin' ? opts.holdAndWinJackpots : undefined;
+	const config = plain
+		? holdAndWinTemplateSeed(plain)
+		: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
+	// The plain game's screens and Flow are never written without its config.
+	if (plain && !config) throw new Error(`No Hold and Win template default for jackpots ${plain}.`);
+	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
 	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
 	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
-	const plain = gameType === 'holdAndWin' ? opts.holdAndWinJackpots : undefined;
-	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
 	for (const seed of buildSeeds(client, project, gameType, reference, dropped)) {
 		if (await objectExists(seed.key)) continue;
 		try {
@@ -213,9 +220,6 @@ export async function scaffoldProject(
 	// `If-None-Match: *`) so a concurrent first save in `/config` wins rather than being clobbered.
 	// In the split form (`docs/design/bonus-games.md` §1): a lines base game, its coin trigger and one
 	// `holdAndWin` respin mode; the save regenerates the compat mirror.
-	const config = plain
-		? holdAndWinTemplateSeed(plain)
-		: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
 	if (config && !(await objectExists(gameConfigDocKey(client, project)))) {
 		try {
 			await saveGameConfigDoc(client, project, splitFormOf(config), null);

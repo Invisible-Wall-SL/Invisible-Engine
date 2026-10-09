@@ -113,10 +113,15 @@ const reelGridsOf = (doc: LayoutDoc): ReelGridNode[] =>
 	);
 
 /**
- * Template options: an expanding board's `maxRows` (absent ⇒ the board never grows) and the pots
- * screen's pots, one Pot Meter per id (absent ⇒ the Pots preset's three; empty ⇒ no pots screen).
+ * Template options: an expanding board's `maxRows` (absent ⇒ the board never grows), the pots
+ * screen's pots, one Pot Meter per id (absent ⇒ the Pots preset's three; empty ⇒ no pots screen),
+ * and `jackpotBar: false` for a game with no jackpot tiers (no Jackpot bar screen).
  */
-export type HoldAndWinTemplateOptions = { maxRows?: number; potIds?: readonly string[] };
+export type HoldAndWinTemplateOptions = {
+	maxRows?: number;
+	potIds?: readonly string[];
+	jackpotBar?: false;
+};
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
@@ -214,7 +219,7 @@ const FREE_SPIN_SCENES = new Set(['freeSpinIntro', 'freeSpinCounter', 'freeSpinO
 
 export function holdAndWinReferenceLayout(
 	baseBoard: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
-	{ maxRows, potIds: rawPotIds = POT_METERS }: HoldAndWinTemplateOptions = {},
+	{ maxRows, potIds: rawPotIds = POT_METERS, jackpotBar }: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
 	// A doc that repeats a meter id fails validation but still loads; one pot per id keeps node ids
 	// unique.
@@ -271,7 +276,7 @@ export function holdAndWinReferenceLayout(
 		),
 	};
 
-	const featureScenes: Scene[] = [
+	const jackpotBarScene: Scene[] = [
 		{
 			id: 'jackpotBar',
 			name: 'Jackpot bar',
@@ -284,6 +289,10 @@ export function holdAndWinReferenceLayout(
 				),
 			],
 		},
+	];
+
+	const featureScenes: Scene[] = [
+		...(jackpotBar === false ? [] : jackpotBarScene),
 		...(potIds.length ? [potsScene] : []),
 		modeScene({
 			id: 'respinBackground',

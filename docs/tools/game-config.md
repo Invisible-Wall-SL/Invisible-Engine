@@ -311,10 +311,17 @@ taken id is refused beside the button.
 
 To replace the whole config with one of these games, pick it in the banner's preset menu and press
 **Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
-_Free spins_). A new Hold and Win project already has its own config: Game Maker saves the plain
-Hold and Win (coins only, Jackpots on or off as picked at **Create**), so the page opens on an
+_Free spins_). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
+(Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),
+then the three games above. A new Hold and Win project already has its own config: Game Maker
+saves the plain Hold and Win with the Jackpots choice picked at **Create**, so the page opens on an
 authored doc, not the template. Pots and Collector are not offered at Create: add a coin overlay
-from the project's card, or reset to one of these presets here.
+from the project's card, or reset to one of these presets here. To switch a plain game's jackpots
+on or off, reset to the other **Plain** entry.
+
+**Reset to template default** on a Hold and Win project reads **Reset to template default (Pots)**:
+it restores the kind's legacy default, the Pots game, which is what a Hold and Win project that
+never saved a config plays. It is not the plain template; use **Reset to preset → Plain** for that.
 
 ### The rules
 

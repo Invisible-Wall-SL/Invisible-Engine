@@ -1,6 +1,7 @@
 /**
  * The Hold and Win translation (`src/holdAndWin.ts`), driven end to end: the REAL facade against the
- * REAL Hold and Win mock, for all three presets and a forced beat of every kind the presets deal.
+ * REAL Hold and Win mock, for all three presets, the plain template (jackpots on and off) and a
+ * forced beat of every kind the presets deal.
  * Every book the facade hands the engine is folded through the engine's own reducer
  * (`applyHoldAndWinEvent`), and the picture it builds must equal the server's snapshot after each
  * respin — so the facade and the engine contract cannot drift apart unnoticed.
@@ -12,6 +13,7 @@ import { createServer, type Server } from 'node:http';
 
 import {
 	HOLD_AND_WIN_PRESETS,
+	HOLD_AND_WIN_TEMPLATES,
 	HOLD_AND_WIN_TEST_FIXTURES,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
@@ -62,9 +64,16 @@ const hush = async <T>(fn: () => T | Promise<T>): Promise<T> => {
 let tabs = 0;
 const openTab = (): Promise<Facade> => import(`./src/engineFacade.ts?tab=${++tabs}`);
 
+/** Game Maker's plain template (bonus-games §0), jackpots on and off. */
+const PLAIN_TEMPLATES: Record<string, unknown> = {
+	plain: HOLD_AND_WIN_TEMPLATES.on,
+	'plain-no-jackpots': HOLD_AND_WIN_TEMPLATES.off,
+};
+
 const startMock = async (preset: string, force: string) => {
 	const doc = normalizeGameConfigDoc(
 		HOLD_AND_WIN_PRESETS[preset as keyof typeof HOLD_AND_WIN_PRESETS] ??
+			PLAIN_TEMPLATES[preset] ??
 			HOLD_AND_WIN_TEST_FIXTURES[preset],
 	);
 	const mock = createMockRgs({
@@ -251,6 +260,10 @@ const CASES: [preset: string, force: string][] = [
 	['pots-expansion-fullrow', 'expandFull'],
 	['pots-expansion-unlock', 'unlock:1'],
 	['pots-expansion-count', 'unlock:3'],
+	['plain', 'trigger'],
+	['plain', 'fullBoard'],
+	['plain-no-jackpots', 'trigger'],
+	['plain-no-jackpots', 'chain'],
 ];
 
 const seen = new Set<string>();
@@ -284,6 +297,54 @@ for (const [preset, force] of CASES) {
 	check(`${preset} ${force}: the forced beat triggers the feature`, triggered, true);
 	for (const t of types) seen.add(t);
 	await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+// JACKPOTS OFF (bonus-games §0): the plain template with `jackpots: []` and `boardEnd: none` plays a
+// whole round through the facade with no jackpot anywhere, and every amount it computes from the
+// empty tier table is a finite number.
+for (const force of ['trigger', 'chain']) {
+	const label = `plain-no-jackpots ${force}`;
+	const events = books.get(label) ?? [];
+	check(
+		`${label}: the book has the feature`,
+		events.some((e) => e.type === 'holdAndWinEnd'),
+		true,
+	);
+	check(
+		`${label}: no jackpot event`,
+		events.filter((e) => /jackpot/i.test(e.type)).map((e) => e.type),
+		[],
+	);
+	check(`${label}: no jackpot on any cell`, /"jackpot"/.test(JSON.stringify(events)), false);
+	const amounts = events.flatMap((e) => {
+		if (e.type === 'holdAndWinState') return [(e.snapshot as { total: number }).total];
+		if (e.type === 'holdAndWinEnd') return [e.total as number];
+		if (e.type === 'setTotalWin' || e.type === 'setWin') return [e.amount as number];
+		return [];
+	});
+	check(
+		`${label}: every total is a finite number`,
+		amounts.length > 0 && amounts.every((n) => Number.isFinite(n)),
+		true,
+	);
+}
+{
+	type PoolsGlobal = { __IE_HOLD_AND_WIN_JACKPOTS__?: unknown };
+	delete (globalThis as PoolsGlobal).__IE_HOLD_AND_WIN_JACKPOTS__;
+	const off = await hush(() => startMock('plain-no-jackpots', ''));
+	await hush(async () =>
+		(await openTab()).requestAuthenticate({
+			sessionID: 'fx-no-jackpots',
+			rgsUrl: off.rgsUrl,
+			language: 'en',
+		}),
+	);
+	check(
+		'plain-no-jackpots: no jackpot pools are published',
+		(globalThis as PoolsGlobal).__IE_HOLD_AND_WIN_JACKPOTS__,
+		undefined,
+	);
+	await new Promise<void>((resolve) => off.server.close(() => resolve()));
 }
 
 // Every engine Hold and Win event a preset can deal was produced at least once.

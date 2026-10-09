@@ -68,17 +68,19 @@ overlay add-on.
      resets the count to 3, and the coins pay at the end. No pots, no dropped tokens, no collector,
      no specials. **On** adds four fixed jackpots (MINI 15×, MINOR 30×, MAJOR 100×, GRAND 1000×),
      jackpot coins on the reels, and a full board pays GRAND; **Off** has no jackpots, no jackpot
-     coins and no full-board prize. This is saved as the project's own
-     [Game Config](/docs/game-config), so the mock RGS deals the feature from the first spin: a
-     lines base game, its coin trigger (Game Config's **Coin overlay**, style Classic) and one
-     `holdAndWin` respin mode under **Bonus modes**. The coin symbols are bound to placeholder art
-     in the project's own [Symbols](/docs/symbols-state-machine) doc, so they draw from the first
-     spin; replace that art in Symbols. Win Text starts on the engine's defaults. The project has
-     no **Pots** screen, and with Jackpots **Off** no **Jackpot bar** either (its starter Flow
-     does not show them). Pots come from a coin overlay (step 4, or **＋ Coin overlay…** on the
-     card later). For one of the three reference games (Pots, Classic sticky, Collector streak),
-     use **Reset to preset** in Game Config (the symbols doc is not re-seeded — bind any new preset
-     symbol in Symbols). Projects created before 2026-10-09 keep the preset they were made with.
+     coins and no full-board prize. With **Off** the jackpot coins on the base reels become plain
+     coins, so 6+ coins land (and the respins start) a little more often. This is saved as the
+     project's own [Game Config](game-config.md), so the mock RGS deals the feature from the
+     first spin: a lines base game, its coin trigger (Game Config's **Coin overlay**, style
+     Classic) and one `holdAndWin` respin mode under **Bonus modes**. The coin symbols are bound
+     to placeholder art in the project's own [Symbols](symbols-state-machine.md) doc, so they draw
+     from the first spin; replace that art in Symbols. Win Text starts on the engine's defaults.
+     The project has no **Pots** screen, and with Jackpots **Off** no **Jackpot bar** either (its
+     starter Flow does not show them). Pots come from a coin overlay (step 4, or **＋ Coin
+     overlay…** on the card later). To switch Jackpots later, or for one of the three reference
+     games (Pots, Classic sticky, Collector streak), use **Reset to preset** in Game Config (the
+     symbols doc is not re-seeded — bind any new preset symbol in Symbols). Projects created
+     before 2026-10-09 keep the preset they were made with.
 4. Optionally tick **Add a coin overlay** and pick its preset from the dropdown beside it. The
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
@@ -91,7 +93,7 @@ overlay add-on.
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
    [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
    `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
-   also gets the plain Hold and Win as its own [Game Config](/docs/game-config)
+   also gets the plain Hold and Win as its own [Game Config](game-config.md)
    and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
    already deals and draws the feature). A confirmation appears and
    the project shows up under **Your projects** below. With the overlay ticked, the confirmation

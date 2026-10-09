@@ -132,12 +132,13 @@ const { applyBonusImport, respinModeCopyId } =
 	await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
 const { scaffoldProject } = await import('../src/lib/server/projectScaffold.ts');
-const { gameConfigDefaultFor, gameConfigSeedFor, holdAndWinTemplateSeed } =
+const { gameConfigDefaultFor, gameConfigPresetsFor, gameConfigSeedFor, holdAndWinTemplateSeed } =
 	await import('../src/lib/server/gameConfigDefaults.ts');
 const { cleanOverlayPresets } = await import('../src/lib/server/projectAddOn.ts');
 const { mockContractOfBundle } = await import('../src/lib/server/mockContract.ts');
-const { projectAddOns, respinModesOf } = await import('../src/lib/addOns.ts');
-const { kindCapabilities } = await import('engine-layout');
+const { noJackpotTiers, projectAddOns, respinModesOf, sceneSetOptionsFor } =
+	await import('../src/lib/addOns.ts');
+const { getFullSceneSet, kindCapabilities } = await import('engine-layout');
 const { createMockRgs: createHoldAndWinMock } =
 	await import('../../../scripts/mock-rgs-server-holdandwin.mjs');
 const { validateFlowV2Against } = await import('../src/lib/server/flowV2Validation.ts');
@@ -940,18 +941,64 @@ for (const jackpots of ['on', 'off'] as const) {
 	);
 }
 
-await check(
-	'the Create form offers no preset: a plain project gets the overlay from the card',
-	() => {
-		const offered = cleanOverlayPresets(holdAndWinTemplateSeed('on'));
-		assert(offered.length, 'no coin overlay fits the plain template');
-		for (const preset of offered) {
-			const added = addPotsOverlay(holdAndWinTemplateSeed('on')!, preset);
-			assert(added.ok, `${preset}: ${added.ok ? '' : added.reason}`);
-			same(gameConfigErrors(normalize(splitFormOf(added.doc))), [], `${preset}: errors`);
-		}
-	},
-);
+await check('each offered overlay adds cleanly to the plain template', () => {
+	const plain = holdAndWinTemplateSeed('on');
+	assert(plain, 'no template');
+	const offered = cleanOverlayPresets(plain);
+	assert(offered.length, 'no coin overlay fits the plain template');
+	for (const preset of offered) {
+		const added = addPotsOverlay(plain, preset);
+		assert(added.ok, `${preset}: ${added.ok ? '' : added.reason}`);
+		same(gameConfigErrors(normalize(splitFormOf(added.doc))), [], `${preset}: errors`);
+	}
+});
+
+await check("the Scene Editor's full set never puts back what the template left out", () => {
+	for (const jackpots of ['on', 'off'] as const) {
+		const { config, layout } = docsOf(`tpl-plain-${jackpots}`);
+		const { addOns, potIds } = projectAddOns(config);
+		const modes = respinModesOf(config);
+		// The editor's `sceneSetOptions` (editor/+page.svelte), from its load's data.
+		const full = getFullSceneSet('holdAndWin', {
+			...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
+			respinModes: modes.map(({ id, label }) => ({ id, label })),
+			...addOns,
+			...(potIds ? { potIds } : {}),
+		});
+		assert(full, 'no scene set');
+		const missing = full.scenes.filter(
+			(ref) =>
+				!layout.scenes.some((cur) => cur.id === ref.id) &&
+				!(ref.role && ref.role !== 'mode' && layout.scenes.some((cur) => cur.role === ref.role)),
+		);
+		same(
+			missing.map((scene) => scene.id),
+			[],
+			`Jackpots ${jackpots}: "Add missing screens" offers`,
+		);
+		const forAddOn = getFullSceneSet('holdAndWin', sceneSetOptionsFor('holdAndWin', config));
+		assert(forAddOn, 'no add-on scene set');
+		same(
+			forAddOn.scenes.some((scene) => scene.id === 'jackpotBar'),
+			jackpots === 'on',
+			`Jackpots ${jackpots}: the add-on's scene set has the jackpot bar`,
+		);
+	}
+});
+
+await check('/config → Reset to preset offers the plain template first, then the three', () => {
+	const presets = gameConfigPresetsFor('holdAndWin');
+	same(
+		presets.map((p) => p.id),
+		['holdAndWin.plain', 'holdAndWin.plainNoJackpots', ...HOLD_AND_WIN_PRESET_IDS],
+		'ids',
+	);
+	for (const [at, jackpots] of (['on', 'off'] as const).entries()) {
+		const seed = holdAndWinTemplateSeed(jackpots);
+		assert(seed, 'no template');
+		same(presets[at].doc, seed, `Plain (Jackpots ${jackpots}) is the template`);
+	}
+});
 
 if (failures) {
 	console.error(`\ncheck:add-bonus-mode — ${failures} failed`);
