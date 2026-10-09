@@ -4,7 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a, 8a, 8b and 8c merged; 7b in progress, then 7c. Model: design §0.
+**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a, 8a, 8b and 8c merged; 7b in review (#1158), then 7c. Model: design §0.
 
 ## How sessions use this file (the hub)
 
@@ -42,10 +42,53 @@ starts the phase sessions, reviews their PRs and merges them.
 | 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
 | 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | merged (65d47c1) | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
 | 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | merged (3d07881) | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
-| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | in progress | Bonus games Phase 7b — drop the legacy mirror | — |
+| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | in review | Bonus games Phase 7b — drop the legacy mirror | #1158 |
 | 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b) | — | — |
 
 ## Decisions & findings
+
+- 2026-10-09 — **Phase 7b: the mirror is gone; what the later phases inherit** (PR #1158).
+  - **The legacy keys have one reader:** `normalizeBonusGames` (and `migrateLegacyBonus`, its
+    whole-doc form for `/config`'s unnormalized live doc). Its precedence is main's: a legacy key in
+    the input wins as a pair (an absent half means none). `check:bonus-migration` fails on any other
+    reader in product code, and on the removed helpers.
+  - **The legacy shapes are views now:** `primaryHoldAndWin(doc)` (the old `holdAndWin` block) and
+    `potsOverlayOf(doc)` (the old `potsOverlay` block). The writers are `setPrimaryHoldAndWin` (a
+    preset's or source's block installed as the primary respin mode) and `setOverlayPots`.
+    `GameConfigDoc` lost both fields; `RawGameConfig` carries them (`LegacyBonusKeys`), so presets
+    and old JSON still type.
+  - **Found: the runtime used the baked config raw.** `getActiveGameConfig()` normalized only the
+    compiled template, despite `editor-scenes.ts` saying it owned normalization. Now it normalizes
+    the baked doc too, so a bundle baked before the split boots its respin mode
+    (`check:bonus-migration` §4 fails without it).
+  - **For 7b, done:**
+    - `holdAndWinIsOverlayBonus`, `respinIsOverlayBonus`, `respinRouteDealt`, the `coinsAlone` error
+      and `zeroPotsRefusal` read the split form. Classic stays refused on a Hold and Win base.
+    - `bringPotSpecials` and every `addOns.ts` / `imports.ts` writer edit the split form.
+    - Presets route their Hold and Win pots to the host's PRIMARY respin mode id
+      (`holdAndWinModeId`). Every current host's primary is `holdAndWin`, so nothing moved.
+    - `removePotsOverlay` keeps a mode added on its own (`asMode` imports) and the overlay's other
+      routes to it, and drops `coinOverlay.coins` only when no respin mode is left. On main it took
+      such a mode out half-way: the mirror re-declared its rules as a new `holdAndWin` on strips it
+      had just deleted. This is the one difference the differential run found.
+    - The Collector style lives on the split form only; the legacy reader still infers `pots` for
+      a legacy-only Collector overlay (`bonusGames.fixture`).
+    - `swapWinTextModeLines`' refusal is untouched (it reads the Win Text doc only).
+  - **For 7b, recorded:**
+    - `holdAndWinBonusFrom` keeps stripping pattern, Lucky Spin, random metre and buy. Dropping the
+      strip changed about 23,000 of the differential run's add-on and import outputs (every Hold and
+      Win bonus added to lines, ways, scatter or Book-of), so it fails the parity condition.
+    - A base-game jackpot coin (`coinOverlay.coins`) naming a tier only a non-primary respin mode
+      has pays 0 there, because the primary's engine deals the base game. It is now a validator
+      WARNING on `coinOverlay.coins.<i>.jackpot`; the mock fix (deal it from the mode the coins
+      start) is a follow-up.
+  - **For 7c: what a stored project looks like on its next save.** Its legacy `holdAndWin` /
+    `potsOverlay` keys are dropped and nothing else changes. `check:bonus-migration` §2 pins this for
+    every template, preset, sample shape and add-on result: the split form is byte for byte main's
+    minus the two keys. A project that was never saved since Phase 1 (legacy keys only) is migrated
+    on read, with main's precedence. The five Hold and Win templates were regenerated without the
+    keys (a pure deletion). An old published bundle keeps working without a republish, because the
+    runtime normalizes its config.
 
 - 2026-10-09 — **The owner revised the model** (hub session; design §0, which supersedes §1 and §6.4).
   - **Base kinds:** lines, scatter, ways, cluster and Hold and Win. Book-of is an option on lines.
@@ -693,6 +736,30 @@ starts the phase sessions, reviews their PRs and merges them.
     button through `flowHoldsPresentation`. Check it in the browser playtest, with the board swap.
 
 ## Recent changes
+
+- 2026-10-09 — **Phase 7b: the legacy mirror is dropped** (PR #1158).
+  - **game-config:**
+    - `normalize` emits the split form only.
+    - `bonusGames.ts` lost `withLegacyPair`, `syncBonusSplit`, `splitFormOf`, `bonusSplitOf`,
+      `legacyHoldAndWin` and `legacyPotsOverlay`, and gained `primaryHoldAndWin`, `potsOverlayOf`,
+      `setPrimaryHoldAndWin`, `setOverlayPots` and `migrateLegacyBonus`.
+    - `coinOverlay.ts`: `legacyPotsOverlayOf` is now `potsBlockOf`.
+    - `modes.ts` no longer reads an unnormalized legacy block.
+    - Every reader and writer in game-config is ported.
+  - **Launcher:** `/config` (`pageDoc`, `CoinOverlaySection`), `projectAddOn`, `projectScaffold`,
+    `publishGame`, `gameProfile`, the director templates, the Game Maker page, `mockContract`,
+    `bonusImport` and `symbolDefaults`.
+  - **Runtime:** `getActiveGameConfig` normalizes the baked config; `Game.svelte` and `flowEffects`
+    read the overlay. The `HoldAndWin*` stories install their block through `setPrimaryHoldAndWin`.
+  - **Templates** regenerated without the keys.
+  - **New gate, `check:bonus-migration`:** 75 docs; mutation-tested against real code changes.
+  - **Re-pinned on main 65d47c1 with the keys stripped:** the add-on doc digests in
+    `check:bonus-authoring` (112 + 75) and deal-parity's `MAIN_THREE_POTS_ON_CLASSIC`. Every one
+    reproduces on the branch.
+  - **Unchanged:** the deal, contract and wire digests.
+  - **A differential run over 92,265 game-config outputs** (normalized docs, validators, mock
+    inputs, every add-on, import and bonus-mode writer) matches main except the `removePotsOverlay`
+    fix.
 
 - 2026-10-09 — **Phase 8b: spins modes in `/config` and Game Maker; self-contained overlay presets**
   (PR #1156; game-config `spinsModes.ts`, `imports.ts`, `addOns.ts`, `potsOverlayPresets.ts`,
