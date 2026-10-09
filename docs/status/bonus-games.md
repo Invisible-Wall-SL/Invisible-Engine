@@ -441,7 +441,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-09 — **Phase 6b: the plain Hold and Win template, jackpots optional** (PR #TBD,
+- 2026-10-09 — **Phase 6b: the plain Hold and Win template, jackpots optional** (PR #1153,
   game-config `holdAndWinPresets.ts`, launcher `projectScaffold.ts`, `gameConfigDefaults.ts`,
   `/game-maker`, `/admin`).
   - **What landed:**
