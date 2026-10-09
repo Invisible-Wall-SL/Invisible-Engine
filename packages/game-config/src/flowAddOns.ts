@@ -20,8 +20,7 @@ export interface ConfigFlowAddOns {
 }
 
 export function flowAddOnsOf(
-	doc:
-		Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay' | 'coinOverlay' | 'modes'> | null | undefined,
+	doc: Pick<GameConfigDoc, 'coinOverlay' | 'modes'> | null | undefined,
 ): ConfigFlowAddOns {
 	const inputs = doc ? bonusCapabilityInputs(doc) : undefined;
 	const respinModes = doc ? respinModeIds(doc) : [];

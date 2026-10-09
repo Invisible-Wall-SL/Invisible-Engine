@@ -24,9 +24,12 @@ import {
 	importBonus,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
+	potsOverlayOf,
 	potsOverlayPreset,
+	primaryHoldAndWin,
 	resyncBonus,
 	setOverlayPotCount,
+	setPrimaryHoldAndWin,
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
 import { createMockRgs as createBookMock } from './mock-rgs-server-book.mjs';
@@ -260,11 +263,11 @@ const names = (answer) => answer.events.map((e) => e.event);
  */
 const waitingOf = new WeakMap();
 const deriveRound = (doc, answers, levels, tag) => {
-	const overlay = doc.potsOverlay;
+	const overlay = potsOverlayOf(doc);
 	const potOf = new Map(overlay.pots.map((p) => [p.id, p]));
 	const tokenOf = new Map(overlay.pots.map((p) => [p.token, p.id]));
 	const reels = overlay.drops.reels ?? [0, 1, 2, 3, 4];
-	const coinMin = doc.holdAndWin?.trigger.count?.min;
+	const coinMin = primaryHoldAndWin(doc)?.trigger.count?.min;
 	const dropModes = overlay.drops.modes ?? ['basegame'];
 	const reelsModeIds = new Set(Object.keys(potsOverlayMockInputs(doc).modes ?? {}));
 	const did = {
@@ -421,7 +424,7 @@ const deriveRound = (doc, answers, levels, tag) => {
 				features++;
 				expect(features === 1, `one Hold and Win per round (${features})`);
 				const coins = heldCoins.shift() ?? [];
-				if (doc.holdAndWin.stickiness === 'allCoins') {
+				if (primaryHoldAndWin(doc).stickiness === 'allCoins') {
 					expect(
 						same(hw.cells.map(key).sort(), coins.map(key).sort()),
 						'the dropped value coins are what is held',
@@ -647,7 +650,7 @@ console.log(`3. seeded rounds re-derived from the wire (3 Pots on a ${HOST.name}
 	check(
 		same(config.potsOverlay, {
 			wire: 1,
-			pots: THREE.potsOverlay.pots.map((p) => ({
+			pots: potsOverlayOf(THREE).pots.map((p) => ({
 				id: p.id,
 				token: p.token,
 				level: 0,
@@ -671,7 +674,7 @@ console.log(`3. seeded rounds re-derived from the wire (3 Pots on a ${HOST.name}
 		same(config.symbols, (await engine(HOST.create(), 'sid=x', [])).events[0].context.symbols),
 		'boot: the host’s config, unchanged',
 	);
-	const levels = Object.fromEntries(THREE.potsOverlay.pots.map((p) => [p.id, 0]));
+	const levels = Object.fromEntries(potsOverlayOf(THREE).pots.map((p) => [p.id, 0]));
 	const seen = { potBonus: new Set(), hostFeature: 0, drops: 0, rounds: 0 };
 	let ok = true;
 	for (let r = 0; r < 500; r++) {
@@ -728,7 +731,7 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 	];
 	for (const [what, doc, context, did] of routes) {
 		const mock = overlayMock(doc, { seed: `route-${what}` });
-		const levels = Object.fromEntries(doc.potsOverlay.pots.map((p) => [p.id, 0]));
+		const levels = Object.fromEntries(potsOverlayOf(doc).pots.map((p) => [p.id, 0]));
 		// Two seeds' worth, so a host trigger on the forced spin is not what decides it.
 		const answers = await playRound(mock, 'r', { context });
 		const result = deriveRound(doc, answers, levels, what);
@@ -753,7 +756,9 @@ console.log('4. routes: Hold and Win (pots, coins), the host’s free spins, ano
 			.holdAndWin;
 	const before = await bootHoldAndWin(IMPORTED);
 	const edited = structuredClone(CLASSIC_SAMPLE);
-	edited.holdAndWin.respins.start = 5;
+	const editedBlock = primaryHoldAndWin(edited);
+	editedBlock.respins.start = 5;
+	setPrimaryHoldAndWin(edited, editedBlock);
 	const resynced = imported(
 		resyncBonus(IMPORTED, edited, 'holdAndWin', '2026-10-04T09:00:00.000Z'),
 	);
@@ -1010,12 +1015,12 @@ console.log('6. the host’s feature and a full pot on one spin: one round, the 
 		[IMPORTED_FS, 'force:feature,pot:gold', 'freeSpins_2'],
 	]) {
 		const mock = overlayMock(doc, { seed: `both-${route}` });
-		const levels = Object.fromEntries(doc.potsOverlay.pots.map((p) => [p.id, 0]));
+		const levels = Object.fromEntries(potsOverlayOf(doc).pots.map((p) => [p.id, 0]));
 		const answers = await playRound(mock, 'b', { context: spec });
 		const did = deriveRound(doc, answers, levels, `both (${route})`);
 		const opening = answers[0];
 		const firstTrigger = one(opening, 'spinTrigger');
-		const pot = doc.potsOverlay.pots.find((p) => spec.includes(`pot:${p.id}`));
+		const pot = potsOverlayOf(doc).pots.find((p) => spec.includes(`pot:${p.id}`));
 		check(
 			firstTrigger?.bonus === 'feature' &&
 				firstTrigger.cause === undefined &&
@@ -1048,7 +1053,7 @@ console.log('6. the host’s feature and a full pot on one spin: one round, the 
 	}
 	// Drops in free spins: a pot that fills there starts its bonus once they end.
 	const mock = overlayMock(FREE_DROPS, { seed: 'free-drops' });
-	const levels = Object.fromEntries(FREE_DROPS.potsOverlay.pots.map((p) => [p.id, 0]));
+	const levels = Object.fromEntries(potsOverlayOf(FREE_DROPS).pots.map((p) => [p.id, 0]));
 	let freeDrops = 0;
 	let ok = true;
 	for (let r = 0; r < 40; r++) {
@@ -1179,7 +1184,7 @@ console.log('9. one Hold and Win per round, and a full pot never stays stuck');
 {
 	// Drops in free spins every spin: several Hold and Win starts in one round join into one.
 	const mock = overlayMock(FREE_DROPS, { seed: 'one-feature' });
-	const levels = Object.fromEntries(FREE_DROPS.potsOverlay.pots.map((p) => [p.id, 0]));
+	const levels = Object.fromEntries(potsOverlayOf(FREE_DROPS).pots.map((p) => [p.id, 0]));
 	let ok = true;
 	let most = 0;
 	for (let r = 0; r < 60; r++) {
@@ -1288,7 +1293,7 @@ console.log('10. coins only: no pots, 6+ value coins start the Classic Hold and 
 		'boot: potsOverlay {wire, pots: [], bonuses} with the Hold and Win bonus beside it',
 		JSON.stringify(config.potsOverlay),
 	);
-	const min = COINS.holdAndWin.trigger.count.min;
+	const min = primaryHoldAndWin(COINS).trigger.count.min;
 	const levels = {};
 	const seen = { coinBonus: 0, drops: 0, below: 0, hostFeature: 0 };
 	let ok = true;

@@ -39,7 +39,15 @@ import {
 	type ResolvedBetMode,
 	type ResolvedWinTier,
 	type WinModel,
+	potsOverlayOf,
+	primaryHoldAndWin,
 } from 'game-config';
+
+/** The primary respin game in the block shape, and the overlay's pots: what the profile names. */
+const primaryOf = (ctx: { config: GameConfigDoc | null }) =>
+	ctx.config ? primaryHoldAndWin(ctx.config) : undefined;
+const potsOf = (ctx: { config: GameConfigDoc | null }) =>
+	ctx.config ? potsOverlayOf(ctx.config) : undefined;
 import { kindCapabilities, TUMBLE_PATTERN_LABELS } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
@@ -298,7 +306,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		title:
 			'The Hold and Win respin feature: coins stick, the rest of the board respins, and a new coin resets the counter.',
 		text: (ctx) => {
-			const hw = ctx.config?.holdAndWin;
+			const hw = primaryOf(ctx);
 			if (!hw) return null;
 			const sticks = hw.stickiness === 'collectorsOnly' ? 'collectors stick' : 'coins stick';
 			return `Hold and Win respins (${hw.respins.start}, ${sticks})`;
@@ -308,7 +316,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'jackpots',
 		title: 'Fixed jackpot tiers a coin, the letters or a full board can award (× total bet).',
 		text: (ctx) => {
-			const tiers = ctx.config?.holdAndWin?.jackpots ?? [];
+			const tiers = primaryOf(ctx)?.jackpots ?? [];
 			return tiers.length ? `Jackpots (${tiers.map((j) => j.name).join(' · ')})` : null;
 		},
 	},
@@ -316,7 +324,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'collector',
 		title: 'A collector special gathers every visible coin into itself.',
 		text: (ctx) => {
-			const c = ctx.config?.holdAndWin?.specials.collector;
+			const c = primaryOf(ctx)?.specials.collector;
 			if (!c) return null;
 			return c.maxLevel > 1 ? `Collector (up to ×${c.maxLevel} collect)` : 'Collector';
 		},
@@ -325,7 +333,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'boost',
 		title: 'A multiplier special (boost) multiplies every visible coin.',
 		text: (ctx) => {
-			const m = ctx.config?.holdAndWin?.specials.multiplier;
+			const m = primaryOf(ctx)?.specials.multiplier;
 			if (!m) return null;
 			const factors = m.values.map((v) => `x${v.value}`).join('/');
 			return `Coin multiplier${factors ? ` (${factors})` : ''}`;
@@ -334,18 +342,18 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	{
 		id: 'payer',
 		title: 'A payer special adds a value to every visible coin.',
-		text: (ctx) => (ctx.config?.holdAndWin?.specials.payer ? 'Coin payer' : null),
+		text: (ctx) => (primaryOf(ctx)?.specials.payer ? 'Coin payer' : null),
 	},
 	{
 		id: 'mystery',
 		title: 'A mystery special reveals a coin, a jackpot or another special.',
-		text: (ctx) => (ctx.config?.holdAndWin?.specials.mystery ? 'Mystery reveal' : null),
+		text: (ctx) => (primaryOf(ctx)?.specials.mystery ? 'Mystery reveal' : null),
 	},
 	{
 		id: 'addRespins',
 		title: 'An add-respins special adds respins to the counter when it lands in a respin.',
 		text: (ctx) => {
-			const a = ctx.config?.holdAndWin?.specials.addRespins;
+			const a = primaryOf(ctx)?.specials.addRespins;
 			if (!a) return null;
 			const adds = a.values.map((v) => `+${v.value}`).join('/');
 			return `Add respins${adds ? ` (${adds})` : ''}`;
@@ -355,14 +363,14 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'upgrade',
 		title:
 			'An upgrade special raises coins: every coin, the coins around it, or one jackpot coin a tier.',
-		text: (ctx) => (ctx.config?.holdAndWin?.specials.upgrade ? 'Coin upgrade' : null),
+		text: (ctx) => (primaryOf(ctx)?.specials.upgrade ? 'Coin upgrade' : null),
 	},
 	{
 		id: 'expansion',
 		title:
 			'Board expansion: the respin board unlocks rows below the base grid as the feature plays.',
 		text: (ctx) => {
-			const e = ctx.config?.holdAndWin?.expansion;
+			const e = primaryOf(ctx)?.expansion;
 			if (!e) return null;
 			const rule = { fullRow: 'full row', unlockSymbol: 'unlock symbol', coinCount: 'coin count' }[
 				e.rule
@@ -375,7 +383,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		title:
 			'Persistent per-player meters: each fills from its own special and, when full, starts the feature with a modifier active.',
 		text: (ctx) => {
-			const meters = ctx.config?.holdAndWin?.meters ?? [];
+			const meters = primaryOf(ctx)?.meters ?? [];
 			return meters.length ? `Persistent pots (${meters.length})` : null;
 		},
 	},
@@ -384,7 +392,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		title:
 			'The pots overlay add-on: tokens dropped over the board fill persistent pots, and a full pot starts the bonus it names.',
 		text: (ctx) => {
-			const overlay = ctx.config?.potsOverlay;
+			const overlay = potsOf(ctx);
 			if (!overlay) return null;
 			return `Pots overlay (${overlay.pots.length ? plural(overlay.pots.length, 'pot') : 'coins only'})`;
 		},
@@ -392,13 +400,13 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	{
 		id: 'luckySpin',
 		title: 'A server-announced base spin that guarantees the feature.',
-		text: (ctx) => (ctx.config?.holdAndWin?.trigger.luckySpin ? 'Lucky Spin' : null),
+		text: (ctx) => (primaryOf(ctx)?.trigger.luckySpin ? 'Lucky Spin' : null),
 	},
 	{
 		id: 'columnLetters',
 		title: 'A full column lights its letter; every letter lit awards a jackpot.',
 		text: (ctx) => {
-			const end = ctx.config?.holdAndWin?.boardEnd;
+			const end = primaryOf(ctx)?.boardEnd;
 			return end?.type === 'columnLetters' ? `Column letters (${end.letters})` : null;
 		},
 	},
@@ -406,7 +414,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'wheel',
 		title: 'A wheel spun once at the start of the feature.',
 		text: (ctx) => {
-			const prizes = ctx.config?.holdAndWin?.wheel?.prizes ?? [];
+			const prizes = primaryOf(ctx)?.wheel?.prizes ?? [];
 			return prizes.length ? `Feature wheel (${plural(prizes.length, 'prize')})` : null;
 		},
 	},

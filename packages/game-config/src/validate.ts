@@ -162,7 +162,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 
 	// The `W` bug, generalized: a payout advertised for a symbol the game never deals. A pot token is
 	// off the strips by design — it drops over a cell — so only a payout on one is worth saying.
-	const tokens = new Set(doc.potsOverlay?.pots.map((p) => p.token));
+	const tokens = new Set(doc.coinOverlay?.pots?.map((p) => p.token));
 	for (const [name, symbol] of Object.entries(doc.symbols)) {
 		if (inPlay.has(name)) continue;
 		if (symbol.paytable?.length) {

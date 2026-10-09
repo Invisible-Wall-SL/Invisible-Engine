@@ -21,7 +21,8 @@ import {
 	respinBoardMaxRows,
 	symbolsWithRole,
 } from './src/holdAndWin.ts';
-import type { GameConfigDoc } from './src/types.ts';
+import { potsOverlayOf, primaryHoldAndWin } from './src/bonusGames.ts';
+import type { GameConfigDoc, LegacyBonusKeys } from './src/types.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -43,12 +44,30 @@ const normalize = (raw: unknown): GameConfigDoc => {
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
+type LegacyDoc = GameConfigDoc & LegacyBonusKeys;
+
+/** The doc with its legacy views as the legacy keys, which normalize applies over the split form:
+ *  an edit to them is the edit a legacy-shaped writer makes. */
+const mirrored = (doc: GameConfigDoc): LegacyDoc => {
+	const out: LegacyDoc = clone(doc);
+	const holdAndWin = primaryHoldAndWin(doc);
+	const potsOverlay = potsOverlayOf(doc);
+	if (holdAndWin) out.holdAndWin = holdAndWin;
+	if (potsOverlay) out.potsOverlay = potsOverlay;
+	return out;
+};
+
 console.log('\npresets — normalize fixed point, no errors, block survives intact');
 for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	const raw = HOLD_AND_WIN_PRESETS[id];
 	const doc = normalize(raw);
 	check(`${id}: re-normalizing is a fixed point`, normalize(clone(doc)), doc);
-	check(`${id}: the block round-trips unchanged`, doc.holdAndWin, raw.holdAndWin);
+	check(
+		`${id}: no legacy key is stored`,
+		['holdAndWin', 'potsOverlay'].filter((k) => k in doc),
+		[],
+	);
+	check(`${id}: the block round-trips unchanged`, primaryHoldAndWin(doc), raw.holdAndWin);
 	check(`${id}: no blocking issues`, gameConfigErrors(doc), []);
 	check(`${id}: no warnings either`, validateGameConfigDoc(doc), []);
 }
@@ -58,10 +77,12 @@ const classic = normalize(HOLD_AND_WIN_PRESETS.classic);
 const collector = normalize(HOLD_AND_WIN_PRESETS.collector);
 check(
 	'pots: decimals survive',
-	pots.holdAndWin?.coins.slice(0, 4).map((c) => c.kind === 'cash' && c.value),
+	primaryHoldAndWin(pots)
+		?.coins.slice(0, 4)
+		.map((c) => c.kind === 'cash' && c.value),
 	[1, 1.5, 2, 2.5],
 );
-check('pots: every special configured', configuredSpecials(pots.holdAndWin!), [
+check('pots: every special configured', configuredSpecials(primaryHoldAndWin(pots)!), [
 	'collector',
 	'multiplier',
 	'payer',
@@ -69,16 +90,16 @@ check('pots: every special configured', configuredSpecials(pots.holdAndWin!), [
 ]);
 check(
 	'pots: three meters',
-	pots.holdAndWin?.meters?.map((m) => `${m.symbol}→${m.activates}`),
+	primaryHoldAndWin(pots)?.meters?.map((m) => `${m.symbol}→${m.activates}`),
 	['BOOST→payer', 'COLLECT→collector', 'MULTI→multiplier'],
 );
-check('classic: letters board end', classic.holdAndWin?.boardEnd.type, 'columnLetters');
+check('classic: letters board end', primaryHoldAndWin(classic)?.boardEnd.type, 'columnLetters');
 check(
 	'classic: buy tiers priced by their bet modes',
-	classic.holdAndWin?.trigger.buy?.map((b) => classic.betModes[b.mode].cost),
+	primaryHoldAndWin(classic)?.trigger.buy?.map((b) => classic.betModes[b.mode].cost),
 	[70, 300],
 );
-check('collector: collectors only', collector.holdAndWin?.stickiness, 'collectorsOnly');
+check('collector: collectors only', primaryHoldAndWin(collector)?.stickiness, 'collectorsOnly');
 check('collector: COLLECT is the collector symbol', symbolsWithRole(collector, 'collector'), [
 	'COLLECT',
 ]);
@@ -88,7 +109,7 @@ for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	const doc = normalize(HOLD_AND_WIN_PRESETS[id]);
 	check(
 		`${id}: no add-respins or upgrade configured`,
-		[doc.holdAndWin?.specials.addRespins, doc.holdAndWin?.specials.upgrade],
+		[primaryHoldAndWin(doc)?.specials.addRespins, primaryHoldAndWin(doc)?.specials.upgrade],
 		[undefined, undefined],
 	);
 	check(
@@ -108,11 +129,11 @@ const potsExtra = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-extra']);
 check('potsExtra: re-normalizing is a fixed point', normalize(clone(potsExtra)), potsExtra);
 check(
 	'potsExtra: the block round-trips unchanged',
-	potsExtra.holdAndWin,
+	primaryHoldAndWin(potsExtra),
 	HOLD_AND_WIN_TEST_FIXTURES['pots-extra'].holdAndWin,
 );
 check('potsExtra: no issues at all', validateGameConfigDoc(potsExtra), []);
-check('potsExtra: every special configured', configuredSpecials(potsExtra.holdAndWin!), [
+check('potsExtra: every special configured', configuredSpecials(primaryHoldAndWin(potsExtra)!), [
 	'collector',
 	'multiplier',
 	'payer',
@@ -125,12 +146,12 @@ check(
 	[symbolsWithRole(potsExtra, 'addRespins'), symbolsWithRole(potsExtra, 'upgrade')],
 	[['ADD'], ['UPG']],
 );
-check('potsExtra: both active at entry', potsExtra.holdAndWin?.activeModifiers.atEntry, [
+check('potsExtra: both active at entry', primaryHoldAndWin(potsExtra)?.activeModifiers.atEntry, [
 	'mystery',
 	'addRespins',
 	'upgrade',
 ]);
-const extraOrder = potsExtra.holdAndWin!.applyOrder;
+const extraOrder = primaryHoldAndWin(potsExtra)!.applyOrder;
 check(
 	'potsExtra: both apply after the payer',
 	[extraOrder.indexOf('addRespins'), extraOrder.indexOf('upgrade')].map(
@@ -140,7 +161,7 @@ check(
 );
 check(
 	'potsExtra: the mystery may reveal both',
-	potsExtra.holdAndWin?.specials.mystery?.reveals.flatMap((r) =>
+	primaryHoldAndWin(potsExtra)?.specials.mystery?.reveals.flatMap((r) =>
 		r.type === 'special' && (r.special === 'addRespins' || r.special === 'upgrade')
 			? [r.special]
 			: [],
@@ -149,7 +170,7 @@ check(
 );
 
 console.log('\njackpot ladder — lowest prize first');
-const potsBlock = normalize(HOLD_AND_WIN_PRESETS.pots).holdAndWin!;
+const potsBlock = primaryHoldAndWin(normalize(HOLD_AND_WIN_PRESETS.pots))!;
 check('pots: the ladder', jackpotLadder(potsBlock), ['MINI', 'MINOR', 'MAJOR', 'GRAND']);
 check(
 	'sorted by multiplier, not listed order',
@@ -164,7 +185,11 @@ check(
 
 console.log('\nparity — a config without the block is untouched');
 const { holdAndWin: _drop, winLevels: _tiers, ...plain } = clone(HOLD_AND_WIN_PRESETS.classic);
-check('no holdAndWin key appears', 'holdAndWin' in normalize(plain), false);
+check(
+	'no holdAndWin key or respin mode appears',
+	['holdAndWin' in normalize(plain), primaryHoldAndWin(normalize(plain))],
+	[false, undefined],
+);
 
 console.log('\nnormalize — structural drops, defaults, tolerated shorthand');
 const lax = normalize({
@@ -176,21 +201,23 @@ const lax = normalize({
 		trigger: { count: { min: 6, roles: ['coin', 'nonsense', 'coin'] } },
 	},
 });
-check('weightless coins default to weight 1, garbage dropped', lax.holdAndWin?.coins, [
+check('weightless coins default to weight 1, garbage dropped', primaryHoldAndWin(lax)?.coins, [
 	{ kind: 'cash', value: 2, weight: 1 },
 	{ kind: 'jackpot', jackpot: 'MINI', weight: 1 },
 ]);
-check('jackpot defaults to fixed', lax.holdAndWin?.jackpots[0].fixed, true);
-check('respins default to 3 resetting on a coin', lax.holdAndWin?.respins, {
+check('jackpot defaults to fixed', primaryHoldAndWin(lax)?.jackpots[0].fixed, true);
+check('respins default to 3 resetting on a coin', primaryHoldAndWin(lax)?.respins, {
 	start: 3,
 	reset: 'anyCoin',
 });
-check('stickiness defaults to allCoins', lax.holdAndWin?.stickiness, 'allCoins');
-check('unknown roles dropped, duplicates collapsed', lax.holdAndWin?.trigger.count?.roles, [
+check('stickiness defaults to allCoins', primaryHoldAndWin(lax)?.stickiness, 'allCoins');
+check('unknown roles dropped, duplicates collapsed', primaryHoldAndWin(lax)?.trigger.count?.roles, [
 	'coin',
 ]);
-check('absent apply order = the configured specials', lax.holdAndWin?.applyOrder, ['payer']);
-check('board end defaults to none', lax.holdAndWin?.boardEnd, { type: 'none' });
+check('absent apply order = the configured specials', primaryHoldAndWin(lax)?.applyOrder, [
+	'payer',
+]);
+check('board end defaults to none', primaryHoldAndWin(lax)?.boardEnd, { type: 'none' });
 
 const laxExtra = normalize({
 	...clone(HOLD_AND_WIN_PRESETS.classic),
@@ -225,7 +252,7 @@ const laxExtra = normalize({
 });
 check(
 	'add-respins: garbage values dropped, flags strict, reels sorted and unique',
-	laxExtra.holdAndWin?.specials.addRespins,
+	primaryHoldAndWin(laxExtra)?.specials.addRespins,
 	{
 		values: [{ value: 2, weight: 1 }],
 		raisesCap: false,
@@ -236,7 +263,7 @@ check(
 );
 check(
 	'upgrade: unknown rules dropped, the first of a repeated rule kept',
-	laxExtra.holdAndWin?.specials.upgrade,
+	primaryHoldAndWin(laxExtra)?.specials.upgrade,
 	{
 		targets: [
 			{ target: 'all', weight: 1 },
@@ -248,20 +275,21 @@ check(
 );
 check(
 	'a mystery may reveal either',
-	laxExtra.holdAndWin?.specials.mystery?.reveals.map((r) => r.type === 'special' && r.special),
+	primaryHoldAndWin(laxExtra)?.specials.mystery?.reveals.map(
+		(r) => r.type === 'special' && r.special,
+	),
 	['addRespins', 'upgrade'],
 );
-check('absent apply order appends them in the canonical order', laxExtra.holdAndWin?.applyOrder, [
-	'multiplier',
-	'mystery',
-	'addRespins',
-	'upgrade',
-]);
+check(
+	'absent apply order appends them in the canonical order',
+	primaryHoldAndWin(laxExtra)?.applyOrder,
+	['multiplier', 'mystery', 'addRespins', 'upgrade'],
+);
 
 console.log('\nvalidate — impossible configs are named');
 const issuePaths = (doc: GameConfigDoc) => gameConfigErrors(doc).map((i) => i.path);
-const withBlock = (base: GameConfigDoc, edit: (doc: GameConfigDoc) => void): GameConfigDoc => {
-	const doc = clone(base);
+const withBlock = (base: GameConfigDoc, edit: (doc: LegacyDoc) => void): GameConfigDoc => {
+	const doc = mirrored(base);
 	edit(doc);
 	return normalize(doc);
 };
@@ -463,7 +491,7 @@ check(
 );
 check(
 	'a fixed tier carries no pool; a progressive one keeps its seed, contribution and cap',
-	progressive.holdAndWin?.jackpots.map((j) => j.progressive ?? null),
+	primaryHoldAndWin(progressive)?.jackpots.map((j) => j.progressive ?? null),
 	[
 		null,
 		{ seed: 30, contribution: 1, cap: 40 },
@@ -474,15 +502,17 @@ check(
 check(
 	'no preset has a progressive tier',
 	HOLD_AND_WIN_PRESET_IDS.flatMap((id) =>
-		normalize(HOLD_AND_WIN_PRESETS[id]).holdAndWin!.jackpots.filter((j) => !j.fixed),
+		primaryHoldAndWin(normalize(HOLD_AND_WIN_PRESETS[id]))!.jackpots.filter((j) => !j.fixed),
 	),
 	[],
 );
 check(
 	'a bare fixed:false tier is a pool that starts at its multiplier and never grows (pre-11c pay)',
-	withBlock(pots, (d) => {
-		d.holdAndWin!.jackpots = [{ name: 'MINI', multiplier: 15, fixed: false }];
-	}).holdAndWin?.jackpots[0],
+	primaryHoldAndWin(
+		withBlock(pots, (d) => {
+			d.holdAndWin!.jackpots = [{ name: 'MINI', multiplier: 15, fixed: false }];
+		}),
+	)?.jackpots[0],
 	{ name: 'MINI', multiplier: 15, fixed: false, progressive: { seed: 15, contribution: 0 } },
 );
 check(
@@ -500,7 +530,7 @@ check(
 );
 
 console.log('\nvalidate — the Phase 11a specials');
-const extraWith = (edit: (doc: GameConfigDoc) => void) => issuePaths(withBlock(potsExtra, edit));
+const extraWith = (edit: (doc: LegacyDoc) => void) => issuePaths(withBlock(potsExtra, edit));
 check(
 	'an add-respins worth a fraction of a respin',
 	extraWith((d) => (d.holdAndWin!.specials.addRespins!.values = [{ value: 1.5, weight: 1 }])),
@@ -583,7 +613,12 @@ for (const id of ['pots-expansion-fullrow', 'pots-expansion-unlock', 'pots-expan
 	const raw = HOLD_AND_WIN_TEST_FIXTURES[id];
 	const doc = normalize(raw);
 	check(`${id}: re-normalizing is a fixed point`, normalize(clone(doc)), doc);
-	check(`${id}: the block round-trips unchanged`, doc.holdAndWin, raw.holdAndWin);
+	check(
+		`${id}: no legacy key is stored`,
+		['holdAndWin', 'potsOverlay'].filter((k) => k in doc),
+		[],
+	);
+	check(`${id}: the block round-trips unchanged`, primaryHoldAndWin(doc), raw.holdAndWin);
 	check(`${id}: no issues`, validateGameConfigDoc(doc), []);
 	check(`${id}: the respin board reaches 6 rows`, respinBoardMaxRows(doc), 6);
 }
@@ -591,7 +626,7 @@ check(
 	'no preset expands; an unexpanded board reaches the grid rows',
 	HOLD_AND_WIN_PRESET_IDS.map((id) => {
 		const doc = normalize(HOLD_AND_WIN_PRESETS[id]);
-		return [Boolean(doc.holdAndWin?.expansion), respinBoardMaxRows(doc)];
+		return [Boolean(primaryHoldAndWin(doc)?.expansion), respinBoardMaxRows(doc)];
 	}),
 	[
 		[false, 3],
@@ -604,28 +639,32 @@ const unlockRule = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-unlock']
 const countRule = normalize(HOLD_AND_WIN_TEST_FIXTURES['pots-expansion-count']);
 check(
 	'only the chosen rule keeps its own field; resetsRespins defaults on',
-	normalize({
-		...clone(HOLD_AND_WIN_PRESETS.pots),
-		holdAndWin: {
-			...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin),
-			expansion: {
-				startRows: 3,
-				maxRows: 5,
-				rule: 'fullRow',
-				thresholds: [1, 2],
-				unlockReels: [0],
-				rowJackpots: [{ rows: 5 }],
+	primaryHoldAndWin(
+		normalize({
+			...clone(HOLD_AND_WIN_PRESETS.pots),
+			holdAndWin: {
+				...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin),
+				expansion: {
+					startRows: 3,
+					maxRows: 5,
+					rule: 'fullRow',
+					thresholds: [1, 2],
+					unlockReels: [0],
+					rowJackpots: [{ rows: 5 }],
+				},
 			},
-		},
-	}).holdAndWin?.expansion,
+		}),
+	)?.expansion,
 	{ startRows: 3, maxRows: 5, rule: 'fullRow', resetsRespins: true },
 );
 check(
 	'an unreadable expansion is dropped, not half-kept',
-	normalize({
-		...clone(HOLD_AND_WIN_PRESETS.pots),
-		holdAndWin: { ...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin), expansion: { rule: 'nope' } },
-	}).holdAndWin?.expansion,
+	primaryHoldAndWin(
+		normalize({
+			...clone(HOLD_AND_WIN_PRESETS.pots),
+			holdAndWin: { ...clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin), expansion: { rule: 'nope' } },
+		}),
+	)?.expansion,
 	undefined,
 );
 const expansionIssues = (doc: GameConfigDoc) =>

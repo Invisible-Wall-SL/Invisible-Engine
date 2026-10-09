@@ -12,6 +12,7 @@ import {
 	addPotsOverlay,
 	importBonus,
 	normalizeGameConfigDoc,
+	primaryHoldAndWin,
 	symbolsInPlay,
 	symbolUses,
 	type GameConfigDoc,
@@ -98,7 +99,7 @@ export function setups(kind: string): Array<{ label: string; stored: Stored }> {
 		}
 	}
 	const host = addPotsOverlay(template, 'potsToFreeSpins');
-	if (host.ok && !host.doc.holdAndWin) {
+	if (host.ok && !primaryHoldAndWin(host.doc)) {
 		const imported = importBonus(host.doc, HOLD_AND_WIN_PRESETS.classic, {
 			project: 'source',
 			mode: 'holdAndWin',

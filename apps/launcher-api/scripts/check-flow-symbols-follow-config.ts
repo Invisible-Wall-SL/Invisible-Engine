@@ -54,7 +54,7 @@ import {
 	type TypeRef,
 } from 'engine-flow-v2';
 import { engineOwnedOnly, getFullSceneSet } from 'engine-layout';
-import { flowAddOnsOf, symbolsInPlay, symbolsUsed, symbolUses } from 'game-config';
+import { flowAddOnsOf, potsOverlayOf, symbolsInPlay, symbolsUsed, symbolUses } from 'game-config';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { composeFlowV2Vocab } from '../src/lib/flowV2Vocab.ts';
 import { collectContainerTaps } from '../src/lib/containerTaps.ts';
@@ -202,7 +202,7 @@ for (const kind of KINDS) {
 		const vocab = pickerVocab(kind, stored);
 		const options = symbolsOf(vocab);
 		const uses = symbolUses(shown);
-		const coins = (shown.potsOverlay?.pots.map((pot) => pot.token) ?? []).filter(
+		const coins = (potsOverlayOf(shown)?.pots.map((pot) => pot.token) ?? []).filter(
 			(name, i, all) => all.indexOf(name) === i && uses[name] === 'token',
 		);
 		combos += 1;

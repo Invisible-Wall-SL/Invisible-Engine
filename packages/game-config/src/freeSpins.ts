@@ -4,6 +4,8 @@ import { symbolsInPlay, symbolsInPlayFromStrips } from './inPlay';
 import { SCATTER_TRIGGER_COUNT, inPlayScatterSymbol } from './serverPaytable';
 import type { FreeSpinsAward, FreeSpinsConfig, GameConfigDoc } from './types';
 import type { GameConfigIssue } from './validate';
+import { primaryRespinMode } from './bonusGames';
+import { overlayDropsTokens } from './coinOverlay';
 
 /**
  * FREE SPINS — the switch and the trigger (`GameConfigDoc.freeSpins`).
@@ -315,7 +317,7 @@ const quotedList = (names: string[]): string => {
 export const validateFreeSpins = (doc: GameConfigDoc): GameConfigIssue[] => {
 	const issues: GameConfigIssue[] = [];
 	const freeSpins = resolveFreeSpins(doc);
-	const otherBonus = Boolean(doc.holdAndWin || doc.potsOverlay);
+	const otherBonus = Boolean(primaryRespinMode(doc.modes)) || overlayDropsTokens(doc.coinOverlay);
 
 	if (!freeSpins.enabled) {
 		if (otherBonus) return issues;

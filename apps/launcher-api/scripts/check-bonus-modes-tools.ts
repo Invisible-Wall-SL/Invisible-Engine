@@ -15,9 +15,9 @@
  *  3. A respin mode declared without rules is inert: on a lines or ways project the add-ons, the
  *     capabilities (so the win model) and the scene set are main's. Rules turn it on.
  *  4. Every doc without a second respin mode is byte-identical to before: the add-ons equal the
- *     legacy block reads, the scene set equals the one the legacy options gave, and the first
- *     mode's jackpot tiers are the legacy block's. Stripping the legacy keys (the compat mirror
- *     Phase 7 drops) leaves the add-ons unchanged.
+ *     legacy block reads (now the split form's block views), the scene set equals the one the
+ *     legacy options gave, and the first mode's jackpot tiers are the legacy block's. The same doc
+ *     stored with the legacy keys normalizes to the same add-ons.
  */
 
 import {
@@ -34,10 +34,15 @@ import {
 	addPotsOverlay,
 	holdAndWinModeDecl,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
+	primaryHoldAndWin,
 	primaryRespinMode,
 	resolveExpandingSymbol,
+	setOverlayPots,
+	setPrimaryHoldAndWin,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
+	type RawGameConfig,
 } from 'game-config';
 import { projectAddOns, sceneSetOptionsFor } from '../src/lib/addOns.ts';
 import { gameConfigDefaultFor } from '../src/lib/server/gameConfigDefaults.ts';
@@ -67,16 +72,13 @@ const withOverlay = (doc: GameConfigDoc, id: PotsOverlayPresetId): GameConfigDoc
 	return normalize(result.doc);
 };
 
-/** `doc` (with a Hold and Win mode) plus a second respin mode `holdAndWin_2`, saved the way a writer
- *  of the split form saves it: the legacy keys deleted. Its board grows to 6 rows and its jackpots
- *  are renamed, so both differ from the primary's. */
+/** `doc` (with a Hold and Win mode) plus a second respin mode `holdAndWin_2`. Its board grows to 6
+ *  rows and its jackpots are renamed, so both differ from the primary's. */
 const SECOND = 'holdAndWin_2';
 const withSecondMode = (doc: GameConfigDoc): GameConfigDoc => {
 	const out = clone(doc);
-	delete out.holdAndWin;
-	delete out.potsOverlay;
 	const game = clone(primaryRespinMode(out.modes)!.holdAndWin);
-	game.expansion = { startRows: 3, maxRows: 6, rule: 'fullRow' };
+	game.expansion = { startRows: 3, maxRows: 6, rule: 'fullRow', resetsRespins: true };
 	game.jackpots = game.jackpots.map((jackpot) => ({ ...jackpot, name: `GOLD_${jackpot.name}` }));
 	out.modes = [
 		...(out.modes ?? []),
@@ -102,14 +104,14 @@ const symbolsPage = (kind: string, doc: GameConfigDoc) =>
 
 /** What `projectAddOns` gave before Phase 5b: the legacy block reads. */
 const legacyAddOns = (doc: GameConfigDoc | null) => ({
-	holdAndWin: !!doc?.holdAndWin,
-	potsOverlay: !!doc?.potsOverlay,
+	holdAndWin: !!doc && !!primaryHoldAndWin(doc),
+	potsOverlay: !!doc && !!potsOverlayOf(doc),
 	expandingSymbol: !!resolveExpandingSymbol(doc ?? undefined),
 });
 /** What `sceneSetOptionsFor` gave before Phase 5b. */
 const legacyOptions = (kind: string, doc: GameConfigDoc | null): SceneSetOptions => {
 	const addOns = legacyAddOns(doc);
-	const maxRows = doc?.holdAndWin?.expansion?.maxRows;
+	const maxRows = doc ? primaryHoldAndWin(doc)?.expansion?.maxRows : undefined;
 	const potIds = projectAddOns(doc).potIds;
 	const addOn =
 		kind === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
@@ -187,8 +189,8 @@ const linesHw = withOverlay(lines, 'threePots');
 		'1. two modes · /symbols lists each mode with its own jackpot tiers, the primary first',
 		page.respinModes.map((mode) => [mode.id, mode.label, mode.jackpotTiers]),
 		[
-			['holdAndWin', 'Hold and Win', linesHw.holdAndWin!.jackpots.map((j) => j.name)],
-			[SECOND, 'Gold', linesHw.holdAndWin!.jackpots.map((j) => `GOLD_${j.name}`)],
+			['holdAndWin', 'Hold and Win', primaryHoldAndWin(linesHw)!.jackpots.map((j) => j.name)],
+			[SECOND, 'Gold', primaryHoldAndWin(linesHw)!.jackpots.map((j) => `GOLD_${j.name}`)],
 		],
 	);
 	check(
@@ -276,7 +278,15 @@ for (const kind of ['lines', 'ways']) {
 // ── 4. every doc without a second respin mode is byte-identical to before ───────────────────────
 {
 	const expanding = normalize(clone(HOLD_AND_WIN_PRESETS.pots));
-	expanding.holdAndWin!.expansion = { startRows: 3, maxRows: 6, rule: 'fullRow' };
+	setPrimaryHoldAndWin(expanding, {
+		...primaryHoldAndWin(expanding)!,
+		expansion: { startRows: 3, maxRows: 6, rule: 'fullRow', resetsRespins: true },
+	});
+	check(
+		'4. the expanding Hold and Win expands',
+		primaryHoldAndWin(expanding)?.expansion?.maxRows,
+		6,
+	);
 	const docs: [string, GameConfigDoc | null][] = [
 		['no config', null],
 		['lines', lines],
@@ -290,23 +300,32 @@ for (const kind of ['lines', 'ways']) {
 	];
 	const book = normalize(gameConfigDefaultFor('bookOf'));
 	const borut = withOverlay(book, 'threePots');
-	borut.potsOverlay!.pots = borut.potsOverlay!.pots.map((p) =>
-		p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p,
-	);
+	const pots = potsOverlayOf(borut)!;
+	setOverlayPots(borut, {
+		...pots,
+		pots: pots.pots.map((p) => (p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p)),
+	});
 	docs.push(['borut-pots-sample', normalize(borut)]);
 
 	for (const [name, doc] of docs) {
 		check(`4. ${name} · add-ons`, projectAddOns(doc).addOns, legacyAddOns(doc));
 		if (doc) {
-			// The capabilities come from the split form: dropping the compat mirror (Phase 7) changes
-			// nothing.
-			const stripped = clone(doc);
-			delete stripped.holdAndWin;
-			delete stripped.potsOverlay;
+			// The capabilities come from the split form: the same doc stored with the legacy pair
+			// normalizes to the same add-ons, and a normalized doc carries no pair.
+			const legacy: RawGameConfig = {
+				...clone(doc),
+				holdAndWin: primaryHoldAndWin(doc),
+				potsOverlay: potsOverlayOf(doc),
+			};
 			check(
-				`4. ${name} · the legacy keys stripped, the same add-ons`,
-				projectAddOns(stripped).addOns,
+				`4. ${name} · stored with the legacy keys, the same add-ons`,
+				projectAddOns(normalize(legacy)).addOns,
 				projectAddOns(doc).addOns,
+			);
+			check(
+				`4. ${name} · no legacy keys`,
+				['holdAndWin', 'potsOverlay'].filter((k) => k in doc),
+				[],
 			);
 		}
 		for (const kind of ['lines', 'bookOf', 'holdAndWin']) {
@@ -316,11 +335,12 @@ for (const kind of ['lines', 'ways']) {
 				getFullSceneSet(kind, legacyOptions(kind, doc)),
 			);
 		}
-		if (doc?.holdAndWin) {
+		const block = doc && primaryHoldAndWin(doc);
+		if (doc && block) {
 			check(
 				`4. ${name} · /symbols jackpot tiers`,
 				symbolsPage('lines', doc).respinModes[0]?.jackpotTiers,
-				doc.holdAndWin.jackpots.map((jackpot) => jackpot.name),
+				block.jackpots.map((jackpot) => jackpot.name),
 			);
 		}
 	}

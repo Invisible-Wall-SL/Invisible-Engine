@@ -7,19 +7,22 @@
  *  1. LEGACY ≡ SPLIT, for every Hold and Win preset and test fixture (the `hw-*-sample` shapes),
  *     every overlay preset on a book host, `borut-pots-sample` (3 Pots, green → free spins), a Hold
  *     and Win game that adds pots, and an imported bonus. For each normalized doc N, its legacy-only
- *     form L (what `main` stored) and its split-only form S all normalize to N; N's legacy keys are
- *     byte-identical to what the legacy normalizers give; and L, S and N give the same mock inputs
+ *     form L (what `main` stored) and its split-only form S all normalize to N; N carries no legacy
+ *     key, and its legacy views (`primaryHoldAndWin`, `potsOverlayOf`) are byte-identical to what the
+ *     legacy normalizers give; and L (normalized), S and N give the same mock inputs
  *     (`holdAndWinMockInputs`, `potsOverlayMockInputs`), modes, meters, bonus modes and issues.
  *  2. The split shape: a declared `holdAndWin` respin mode with its rules and no base-game flags; a
  *     `coinOverlay` with the right style, the base-game flags, and every route naming its mode.
  *  3. The compat rule: a legacy edit wins; a split edit with the legacy keys deleted wins; a legacy
  *     pair without `holdAndWin` drops the mode; the `potsOverlay` key and `coinOverlay` both read.
- *  4. Two respin modes: both resolve, the mirror shows the primary, a legacy edit keeps the other.
+ *  4. Two respin modes: both resolve, the primary view shows the primary, a legacy edit keeps the
+ *     other.
  *     4b. The precedence rule (design §2.1 "Transition"): normalize∘normalize = normalize on the
  *     legacy, split and mixed forms of every shape; a legacy-only edit re-splits onto the primary mode
- *     and the overlay and leaves a second respin mode untouched; an unchanged mirror changes nothing
- *     (applying it is a no-op, so no equality test is needed); a split edit beside a STALE mirror
- *     loses, and wins once the legacy keys are deleted. 4c. The primary respin mode is pinned.
+ *     and the overlay and leaves a second respin mode untouched; an unchanged legacy pair changes
+ *     nothing (applying it is a no-op, so no equality test is needed); a split edit beside a STALE
+ *     legacy pair loses, and wins once the legacy keys are deleted. 4c. The primary respin mode is
+ *     pinned.
  *  5. Validators: a route to a missing or non-respin mode, a respin mode started inside another, a
  *     missing blank — each an error whose path names the mode; a respin mode without rules or strips
  *     is a WARNING until Phase 5a (a project saved before must still save).
@@ -27,16 +30,16 @@
  *  7. Hub review of #1133: a `reels` / `none` override of the Hold and Win mode keeps the block;
  *     "Start an empty block" then a label edit keeps it; `removeHoldAndWin` removes it the same way
  *     on every doc; orphan base-game flags are pruned; an import brings the source's blank.
- *  8. Phase 4: `play` (`auto` / `manual`) normalizes, splits and mirrors losslessly, and a second
- *     mode's survives the primary's mirror; `respinModeRules` gives each respin mode its rules,
- *     strip, blank and play, and the lone default reads the legacy block and the game-wide blank.
+ *  8. Phase 4: `play` (`auto` / `manual`) normalizes, splits and reads back losslessly, and a
+ *     second mode's survives the primary's view; `respinModeRules` gives each respin mode its rules,
+ *     strip, blank and play, and the lone default reads the primary view and the game-wide blank.
  */
 
 import { addPotsOverlay } from './src/addOns.ts';
 import {
 	bonusCapabilityInputs,
-	legacyHoldAndWin,
-	legacyPotsOverlay,
+	potsOverlayOf,
+	primaryHoldAndWin,
 	primaryRespinMode,
 	removeHoldAndWin,
 	isLoneDefaultRespinSet,
@@ -63,7 +66,12 @@ import { normalizePotsOverlay, resolveMeters } from './src/potsOverlay.ts';
 import { potsOverlayMockInputs } from './src/potsOverlayMock.ts';
 import { POTS_OVERLAY_PRESET_IDS } from './src/potsOverlayPresets.ts';
 import type { AddOnResult } from './src/addOns.ts';
-import type { GameConfigDoc, GameConfigSymbol, RawGameConfig } from './src/types.ts';
+import type {
+	GameConfigDoc,
+	GameConfigSymbol,
+	LegacyBonusKeys,
+	RawGameConfig,
+} from './src/types.ts';
 import { validateGameConfigDoc } from './src/validate.ts';
 
 let failures = 0;
@@ -91,9 +99,22 @@ const added = (result: AddOnResult): GameConfigDoc => {
 	return normalize(result.doc);
 };
 
+type LegacyDoc = GameConfigDoc & LegacyBonusKeys;
+
+/** The doc beside its legacy pair — what a normalized doc stored before Phase 7b dropped the mirror,
+ *  and what a legacy-shaped writer still hands in: the legacy views as the two legacy keys. */
+const mirrored = (doc: GameConfigDoc): LegacyDoc => {
+	const out: LegacyDoc = clone(doc);
+	const holdAndWin = primaryHoldAndWin(doc);
+	const potsOverlay = potsOverlayOf(doc);
+	if (holdAndWin) out.holdAndWin = holdAndWin;
+	if (potsOverlay) out.potsOverlay = potsOverlay;
+	return out;
+};
+
 /** What `main` stored: the legacy keys, and no declared respin mode (it was built in). */
-const legacyOnly = (doc: GameConfigDoc): GameConfigDoc => {
-	const out = clone(doc);
+const legacyOnly = (doc: GameConfigDoc): LegacyDoc => {
+	const out = mirrored(doc);
 	delete out.coinOverlay;
 	const modes = out.modes?.filter((m) => !m.holdAndWin);
 	if (modes?.length) out.modes = modes;
@@ -102,12 +123,12 @@ const legacyOnly = (doc: GameConfigDoc): GameConfigDoc => {
 };
 
 /** What a writer of the split form saves: no legacy keys. */
-const splitOnly = (doc: GameConfigDoc): GameConfigDoc => {
-	const out = clone(doc);
-	delete out.holdAndWin;
-	delete out.potsOverlay;
+const splitOnly = (doc: LegacyDoc): GameConfigDoc => {
+	const { holdAndWin: _holdAndWin, potsOverlay: _potsOverlay, ...out } = clone(doc);
 	return out;
 };
+
+const legacyKeys = (doc: object) => ['holdAndWin', 'potsOverlay'].filter((k) => k in doc);
 
 const withoutRules = (modes: GameModeDecl[]) =>
 	modes.map(({ holdAndWin: _rules, ...decl }) => decl);
@@ -117,8 +138,8 @@ const issueList = (doc: GameConfigDoc) =>
 
 /** Everything a reader outside game-config gets from a doc. */
 const readings = (doc: GameConfigDoc) => ({
-	holdAndWin: legacyHoldAndWin(doc) ?? null,
-	potsOverlay: legacyPotsOverlay(doc) ?? null,
+	holdAndWin: primaryHoldAndWin(doc) ?? null,
+	potsOverlay: potsOverlayOf(doc) ?? null,
 	holdAndWinMock: holdAndWinMockInputs(doc) ?? null,
 	potsOverlayMock: potsOverlayMockInputs(doc) ?? null,
 	modes: withoutRules(resolveGameModes(doc)),
@@ -132,18 +153,20 @@ function equivalent(name: string, raw: unknown): GameConfigDoc {
 	const l = legacyOnly(n);
 	const s = splitOnly(n);
 	const r = raw as Record<string, unknown>;
+	check(`${name}: the stored doc carries no legacy key`, legacyKeys(n), []);
 	check(
-		`${name}: the mirror is the legacy normalizers' block, byte for byte`,
-		[n.holdAndWin ?? null, n.potsOverlay ?? null],
+		`${name}: the legacy views are the legacy normalizers' block, byte for byte`,
+		[primaryHoldAndWin(n) ?? null, potsOverlayOf(n) ?? null],
 		[normalizeHoldAndWin(r.holdAndWin) ?? null, normalizePotsOverlay(r.potsOverlay) ?? null],
 	);
 	check(`${name}: legacy-only normalizes to the split doc`, normalize(l), n);
 	check(`${name}: split-only normalizes to the split doc`, normalize(s), n);
 	check(`${name}: a normalize fixed point`, normalize(clone(n)), n);
-	const want = readings(l);
+	// The readers take the split form only, so the legacy-only form is read once normalized.
+	const want = readings(normalize(l));
 	check(`${name}: split-only reads as legacy (mock inputs, modes, meters)`, readings(s), want);
 	check(`${name}: the stored doc reads as legacy`, readings(n), want);
-	check(`${name}: the same issues`, issueList(n), issueList(l));
+	check(`${name}: the same issues`, issueList(n), issueList(normalize(l)));
 	return n;
 }
 
@@ -315,37 +338,38 @@ check(
 
 console.log('\n3. the compat rule');
 {
-	const edited = clone(presets.classic);
+	const edited = mirrored(presets.classic);
 	edited.holdAndWin!.respins.start = 5;
 	const after = normalize(edited);
 	check('a legacy edit wins, and reaches the mode', after.modes?.[0].holdAndWin?.respins.start, 5);
-	check('...and the mirror', after.holdAndWin?.respins.start, 5);
+	check('...and the primary view', primaryHoldAndWin(after)?.respins.start, 5);
+	check('...and is not stored as a legacy key', legacyKeys(after), []);
 
 	const split = splitOnly(presets.classic);
 	split.modes![0].holdAndWin!.respins.start = 6;
 	split.coinOverlay!.trigger!.count!.min = 7;
 	const fromSplit = normalize(split);
 	check(
-		'a split edit with the legacy keys deleted wins, mirrored',
-		[fromSplit.holdAndWin?.respins.start, fromSplit.holdAndWin?.trigger.count?.min],
+		'a split edit with the legacy keys deleted wins, in the primary view',
+		[primaryHoldAndWin(fromSplit)?.respins.start, primaryHoldAndWin(fromSplit)?.trigger.count?.min],
 		[6, 7],
 	);
 
-	const noBlock = clone(borut);
+	const noBlock = mirrored(borut);
 	delete noBlock.holdAndWin;
 	const gone = normalize(noBlock);
 	check(
 		'a legacy pair without holdAndWin drops the mode and the routes to it',
-		[gone.modes, gone.coinOverlay?.trigger, gone.potsOverlay?.pots.length],
+		[gone.modes, gone.coinOverlay?.trigger, potsOverlayOf(gone)?.pots.length],
 		[undefined, undefined, 3],
 	);
 
-	const key = clone(splitOnly(borut)) as GameConfigDoc & Record<string, unknown>;
-	key.potsOverlay = legacyPotsOverlay(borut);
-	key.holdAndWin = legacyHoldAndWin(borut);
+	const key: LegacyDoc = clone(splitOnly(borut));
+	key.potsOverlay = potsOverlayOf(borut);
+	key.holdAndWin = primaryHoldAndWin(borut);
 	delete key.coinOverlay;
 	check('the legacy potsOverlay key still reads', normalize(key), borut);
-	const blankKept = clone(presets.pots);
+	const blankKept = mirrored(presets.pots);
 	blankKept.modes![0].holdAndWin!.blank = 'BLANK';
 	blankKept.holdAndWin!.respins.start = 4;
 	const otherFlag = splitOnly(presets.classic);
@@ -377,7 +401,10 @@ console.log('\n3. the compat rule');
 			normalize(clone(flagged)),
 			normalize(
 				Object.assign(clone(flagged), {
-					holdAndWin: { ...flagged.holdAndWin!, respins: { start: 4, reset: 'anySpecial' } },
+					holdAndWin: {
+						...primaryHoldAndWin(flagged)!,
+						respins: { start: 4, reset: 'anySpecial' },
+					},
 				}),
 			).coinOverlay?.baseGame?.payer,
 		],
@@ -424,10 +451,10 @@ const second = (doc: GameConfigDoc): GameConfigDoc => {
 			['holdAndWin_2', 'respinBoard', 'respin_2'],
 		],
 	);
-	check('the mirror shows the primary', two.holdAndWin, borut.holdAndWin);
+	check('the primary view shows the primary', primaryHoldAndWin(two), primaryHoldAndWin(borut));
 	check('it validates without an error', errorsOf(two), []);
 	check('a normalize fixed point', normalize(clone(two)), two);
-	const edited = clone(two);
+	const edited = mirrored(two);
 	edited.holdAndWin!.respins.start = 9;
 	const after = normalize(edited);
 	check(
@@ -459,10 +486,10 @@ console.log('\n4b. the precedence rule (legacy pair applied when present; design
 		['two respin modes', two],
 	];
 	for (const [name, doc] of forms) {
-		const shapes: [string, GameConfigDoc][] = [
+		const shapes: [string, LegacyDoc][] = [
 			['legacy', legacyOnly(doc)],
 			['split', splitOnly(doc)],
-			['mixed', doc],
+			['mixed', mirrored(doc)],
 		];
 		check(
 			`${name}: normalize∘normalize is normalize on the legacy, split and mixed forms`,
@@ -472,7 +499,7 @@ console.log('\n4b. the precedence rule (legacy pair applied when present; design
 	}
 
 	// The old HoldAndWinSection path: only the legacy block is edited.
-	const edited = clone(two);
+	const edited = mirrored(two);
 	edited.holdAndWin!.respins.start = 8;
 	edited.holdAndWin!.trigger.count!.min = 5;
 	const after = normalize(edited);
@@ -491,21 +518,25 @@ console.log('\n4b. the precedence rule (legacy pair applied when present; design
 	);
 	check('...and leaves the second respin mode untouched', secondOf(after), secondOf(two));
 
-	// Applying a mirror that is unchanged is a no-op, so no equality test is needed to keep the
+	// Applying a legacy pair that is unchanged is a no-op, so no equality test is needed to keep the
 	// split form when nothing legacy moved.
-	check('an unchanged mirror changes nothing (two modes kept whole)', normalize(clone(two)), two);
+	check(
+		'an unchanged mirror changes nothing (two modes kept whole)',
+		normalize(mirrored(two)),
+		two,
+	);
 
 	// Normalization cannot tell which side was edited: a split edit beside a STALE mirror loses.
-	const stale = clone(presets.classic);
+	const stale = mirrored(presets.classic);
 	stale.modes![0].holdAndWin!.respins.start = 7;
 	check(
 		'a split edit beside a stale mirror: the mirror wins',
-		normalize(stale).holdAndWin?.respins.start,
+		primaryHoldAndWin(normalize(stale))?.respins.start,
 		3,
 	);
 	check(
 		'...the same edit with the legacy keys deleted wins',
-		normalize(splitOnly(stale)).holdAndWin?.respins.start,
+		primaryHoldAndWin(normalize(splitOnly(stale)))?.respins.start,
 		7,
 	);
 }
@@ -597,7 +628,7 @@ check(
 	check(
 		'a Hold and Win game without respin strips saves as on main: no error',
 		errorsOf(normalize(noStrips)),
-		errorsOf(legacyOnly(normalize(noStrips))).filter((e) => !e.startsWith('modes.')),
+		errorsOf(normalize(legacyOnly(normalize(noStrips)))).filter((e) => !e.startsWith('modes.')),
 	);
 }
 check(
@@ -681,7 +712,7 @@ check(
 );
 check(
 	'a legacy-only doc resolves the same bonus modes',
-	resolveBonusModes(legacyOnly(borut)),
+	resolveBonusModes(normalize(legacyOnly(borut))),
 	resolveBonusModes(borut),
 );
 check(
@@ -706,12 +737,17 @@ for (const board of ['reels', 'none'] as const) {
 	check(
 		`a "${board}" override of the Hold and Win mode keeps the block, on the respin board`,
 		[
-			doc.holdAndWin,
+			primaryHoldAndWin(doc),
 			doc.modes?.map((m) => [m.id, m.board, m.label, Boolean(m.holdAndWin)]),
-			gameModeBoard(raw),
+			gameModeBoard(normalize(raw)),
 			errorsOf(doc),
 		],
-		[presets.classic.holdAndWin, [['holdAndWin', 'respinBoard', 'Grand', true]], 'respinBoard', []],
+		[
+			primaryHoldAndWin(presets.classic),
+			[['holdAndWin', 'respinBoard', 'Grand', true]],
+			'respinBoard',
+			[],
+		],
 	);
 }
 function gameModeBoard(raw: unknown): string | undefined {
@@ -720,7 +756,7 @@ function gameModeBoard(raw: unknown): string | undefined {
 {
 	// /config: "Start an empty block" on a lines game, then the Game modes row's label is edited —
 	// before the fix the entry was pushed on the reels board.
-	const started = clone(host);
+	const started: LegacyDoc = clone(host);
 	started.holdAndWin = normalizeHoldAndWin({})!;
 	for (const board of ['respinBoard', 'reels'] as const) {
 		const edited = clone(started);
@@ -728,7 +764,10 @@ function gameModeBoard(raw: unknown): string | undefined {
 		const doc = normalize(edited);
 		check(
 			`"Start an empty block" then a label edit (pushed on ${board}) keeps the block`,
-			[Boolean(doc.holdAndWin), doc.modes?.map((m) => [m.id, m.board, m.label, m.gameType])],
+			[
+				Boolean(primaryHoldAndWin(doc)),
+				doc.modes?.map((m) => [m.id, m.board, m.label, m.gameType]),
+			],
 			[true, [['holdAndWin', 'respinBoard', 'Bonus', 'respin']]],
 		);
 	}
@@ -737,7 +776,7 @@ function gameModeBoard(raw: unknown): string | undefined {
 	const removed = (doc: GameConfigDoc) => {
 		const out = normalize(removeHoldAndWin(clone(doc)));
 		return [
-			Boolean(out.holdAndWin),
+			Boolean(primaryHoldAndWin(out)),
 			resolveGameModes(out).some((m) => m.id === 'holdAndWin'),
 			out.coinOverlay?.trigger ?? null,
 		];
@@ -750,7 +789,7 @@ function gameModeBoard(raw: unknown): string | undefined {
 	check('removeHoldAndWin beside pots', removed(borut), [false, false, null]);
 	check(
 		'...the pots stay',
-		normalize(removeHoldAndWin(clone(borut))).potsOverlay?.pots.map((p) => p.id),
+		potsOverlayOf(normalize(removeHoldAndWin(clone(borut))))?.pots.map((p) => p.id),
 		['red', 'blue', 'green'],
 	);
 }
@@ -792,8 +831,11 @@ console.log('\n8. respin mode rules + play');
 	manualRaw.holdAndWin.play = 'manual';
 	const manual = equivalent('a Manual Hold and Win (legacy ≡ split)', manualRaw);
 	check(
-		'play: a legacy `manual` lands on the respin mode and the mirror shows it',
-		[manual.modes?.find((m) => m.id === 'holdAndWin')?.holdAndWin?.play, manual.holdAndWin?.play],
+		'play: a legacy `manual` lands on the respin mode and the primary view shows it',
+		[
+			manual.modes?.find((m) => m.id === 'holdAndWin')?.holdAndWin?.play,
+			primaryHoldAndWin(manual)?.play,
+		],
 		['manual', 'manual'],
 	);
 	const two = second(borut);
@@ -803,16 +845,21 @@ console.log('\n8. respin mode rules + play');
 	);
 	const kept = normalize(raw);
 	check(
-		"play: a second mode's setting survives the primary's mirror, which does not show it",
+		"play: a second mode's setting survives the primary's view, which does not show it",
 		[
 			kept.modes?.find((m) => m.id === 'holdAndWin_2')?.holdAndWin?.play,
-			kept.holdAndWin?.play ?? null,
+			primaryHoldAndWin(kept)?.play ?? null,
 		],
 		['manual', null],
 	);
 	check(
 		'respinModeRules: one per respin mode, the primary first, play resolved',
-		respinModeRules(kept).map((m) => [m.mode, m.gameType, m.play, m.block === kept.holdAndWin]),
+		respinModeRules(kept).map((m) => [
+			m.mode,
+			m.gameType,
+			m.play,
+			JSON.stringify(m.block) === JSON.stringify(primaryHoldAndWin(kept)),
+		]),
 		[
 			['holdAndWin', 'respin', 'auto', true],
 			['holdAndWin_2', 'respin_2', 'manual', false],
@@ -831,7 +878,7 @@ console.log('\n8. respin mode rules + play');
 			[
 				isLoneDefaultRespinSet(rules),
 				rules.length,
-				rules[0]?.block === legacyHoldAndWin(doc),
+				JSON.stringify(rules[0]?.block) === JSON.stringify(primaryHoldAndWin(doc)),
 				rules[0]?.blank === holdAndWinBlankSymbol(doc),
 				rules[0]?.play,
 			],

@@ -1713,7 +1713,7 @@
 		...featureComponentSignals(
 			context.eventEmitter,
 			respinModes().length > 0,
-			respinModes().length > 0 || !!getActiveGameConfig().potsOverlay,
+			respinModes().length > 0 || !!getActiveGameConfig().coinOverlay?.drops,
 		),
 	});
 

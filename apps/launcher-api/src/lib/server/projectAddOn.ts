@@ -39,7 +39,6 @@ import {
 	flowAddOnsOf,
 	gameConfigErrors,
 	normalizeGameConfigDoc,
-	splitFormOf,
 	type AddOnRenames,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
@@ -385,7 +384,7 @@ export async function applyPotsOverlayAddOn(
 
 	const none: AddOnRenames = { symbols: {}, pots: {} };
 	if (!opts.preset) {
-		if (!resolved.doc.potsOverlay) {
+		if (!resolved.doc.coinOverlay?.drops) {
 			return { ok: false, status: 400, error: 'This project has no pots overlay yet.' };
 		}
 		const seeds = await seedPotsOverlayParts(client, project, resolved.doc, { flow });
@@ -396,11 +395,8 @@ export async function applyPotsOverlayAddOn(
 	if (!added.ok) return { ok: false, status: 409, error: added.reason };
 	let saved: GameConfigDoc;
 	try {
-		// `always`: the bytes before the overlay are a restore point in /config's backups. Saved in the
-		// split form (`docs/design/bonus-games.md` §2.1): the save regenerates the compat mirror.
-		saved = (
-			await saveGameConfigDoc(client, project, splitFormOf(added.doc), resolved.etag, 'always')
-		).doc;
+		// `always`: the bytes before the overlay are a restore point in /config's backups.
+		saved = (await saveGameConfigDoc(client, project, added.doc, resolved.etag, 'always')).doc;
 	} catch (e) {
 		if (e instanceof ConflictError) {
 			return {

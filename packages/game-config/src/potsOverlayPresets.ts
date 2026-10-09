@@ -18,8 +18,9 @@ import {
 } from './holdAndWinGame';
 import { HOLD_AND_WIN_PRESETS, type HoldAndWinPresetId } from './holdAndWinPresets';
 import { symbolsInPlayFromStrips } from './inPlay';
-import { legacyHoldAndWin } from './bonusGames';
-import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
+import { primaryHoldAndWin, primaryRespinMode } from './bonusGames';
+import { HOLD_AND_WIN_MODE, gameTypeForMode, holdAndWinModeDecl } from './modes';
+import { normalizeGameConfigDoc } from './normalize';
 import type { CoinOverlayStyle } from './coinOverlay';
 import type { OverlayPot, PotsOverlay } from './potsOverlay';
 import type { GameConfigDoc, GameConfigSymbol, PaddingReels } from './types';
@@ -74,32 +75,41 @@ export function holdAndWinBonus(
 	id: HoldAndWinPresetId,
 	host: Pick<GameConfigDoc, 'numReels'>,
 ): HoldAndWinBonus {
-	const preset = HOLD_AND_WIN_PRESETS[id];
-	if (!preset.holdAndWin) throw new Error(`Hold and Win preset "${id}" has no holdAndWin block.`);
-	const { leftOut: _leftOut, ...bonus } = holdAndWinBonusFrom(preset, host);
+	const { leftOut: _leftOut, ...bonus } = holdAndWinBonusFrom(presetDoc(id), host);
 	return bonus;
 }
 
-/** A Hold and Win block's source: a preset, or another project's config (a bonus import) — legacy,
- *  normalized or split form. */
+/** The Hold and Win preset `id`, normalized: the presets are stored in the legacy shape. */
+const presetDoc = (id: HoldAndWinPresetId): GameConfigDoc =>
+	normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS[id])!;
+
+/** The Hold and Win preset `id`'s primary respin game in the block shape ({@link primaryHoldAndWin}). */
+export function presetHoldAndWin(id: HoldAndWinPresetId): HoldAndWin {
+	const block = primaryHoldAndWin(presetDoc(id));
+	if (!block) throw new Error(`Hold and Win preset "${id}" has no Hold and Win.`);
+	return block;
+}
+
+/** A Hold and Win block's source: a normalized preset, or another project's config (a bonus
+ *  import). */
 export type HoldAndWinBonusSource = Pick<
 	GameConfigDoc,
-	'holdAndWin' | 'potsOverlay' | 'coinOverlay' | 'modes' | 'paddingReels' | 'symbols'
+	'coinOverlay' | 'modes' | 'paddingReels' | 'symbols'
 >;
 
 /**
- * {@link holdAndWinBonus} from any config carrying a `holdAndWin` block — a preset, or the project a
- * bonus is imported from (`./imports`). The source's respin strips are read under ITS Hold and Win
- * game type (its mode override included) and returned under the default one, which is the game
- * type the host's Hold and Win mode pads from. `leftOut` names each base-board-only option the
+ * {@link holdAndWinBonus} from any config with a primary respin mode ({@link primaryHoldAndWin}) — a
+ * preset, or the project a bonus is imported from (`./imports`). The source's respin strips are read
+ * under ITS primary mode's game type and returned under the default one, which is the game type the
+ * host's Hold and Win mode pads from. `leftOut` names each base-board-only option the
  * source had and the bonus drops.
  */
 export function holdAndWinBonusFrom(
 	source: HoldAndWinBonusSource,
 	host: Pick<GameConfigDoc, 'numReels'>,
 ): HoldAndWinBonus & { leftOut: string[] } {
-	const sourceBlock = legacyHoldAndWin(source);
-	if (!sourceBlock) throw new Error('The source has no holdAndWin block.');
+	const sourceBlock = primaryHoldAndWin(source);
+	if (!sourceBlock) throw new Error('The source has no Hold and Win.');
 	const { game, half } = splitHoldAndWin(sourceBlock);
 	const { trigger, meters, baseGame } = half;
 	const leftOut = [
@@ -123,8 +133,8 @@ export function holdAndWinBonusFrom(
 		trigger: trigger.count ? { count: trigger.count } : {},
 		baseGame: lands,
 	});
-	const from = gameTypeForMode(gameModeById(source, HOLD_AND_WIN_MODE)!);
-	const gameType = gameTypeForMode(gameModeById({ holdAndWin: block }, HOLD_AND_WIN_MODE)!);
+	const from = gameTypeForMode(primaryRespinMode(source.modes)!);
+	const gameType = gameTypeForMode(holdAndWinModeDecl());
 	const own = source.paddingReels[from] ?? [];
 	const strips = own.length
 		? Array.from({ length: host.numReels }, (_unused, reel) => own[reel % own.length])
@@ -150,8 +160,8 @@ const tokenFor = (pot: string): string => `POT_${pot.toUpperCase()}`;
 
 /** The 3 Pots of Egypt pots as overlays: the Hold and Win preset's meters, filled by tokens. */
 function threePots(): PotsOverlayPreset {
-	const block = HOLD_AND_WIN_PRESETS.pots.holdAndWin;
-	const pots: OverlayPot[] = (block?.meters ?? []).map((m) => ({
+	const block = presetHoldAndWin('pots');
+	const pots: OverlayPot[] = (block.meters ?? []).map((m) => ({
 		id: m.id,
 		token: tokenFor(m.id),
 		maxLevel: m.maxLevel,
@@ -164,7 +174,7 @@ function threePots(): PotsOverlayPreset {
 			drops: {
 				chance: 0.15,
 				// As many as the coin trigger counts, so a spin can drop enough value coins to start it.
-				maxPerSpin: block?.trigger.count?.min ?? 1,
+				maxPerSpin: block.trigger.count?.min ?? 1,
 				table: [...pots.map((p) => ({ pot: p.id, weight: 2 })), { coin: true, weight: 3 }],
 			},
 		},
@@ -199,7 +209,7 @@ function potsToFreeSpins(): PotsOverlayPreset {
  */
 function coinsOnly(): PotsOverlayPreset {
 	const preset: HoldAndWinPresetId = 'classic';
-	const trigger = HOLD_AND_WIN_PRESETS[preset].holdAndWin?.trigger.count?.min ?? 1;
+	const trigger = presetHoldAndWin(preset).trigger.count?.min ?? 1;
 	return {
 		potsOverlay: {
 			pots: [],

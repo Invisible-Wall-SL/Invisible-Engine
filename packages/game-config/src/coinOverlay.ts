@@ -184,8 +184,8 @@ export function inferCoinOverlayStyle(overlay: Omit<CoinOverlay, 'style'>): Coin
 /**
  * Canonicalize a `coinOverlay` block, or `undefined` when it holds nothing. SPARSE: a pot brings its
  * drops (as the legacy block always had them), drops with no pot and an empty table are no drops, and
- * a timing only rides with drops — so every form normalizes to one doc, and the compat mirror
- * (`./bonusGames`) round-trips it.
+ * a timing only rides with drops — so every form normalizes to one doc, and the pots-overlay block
+ * view (`potsBlockOf`) round-trips it.
  */
 export function normalizeCoinOverlay(raw: unknown): CoinOverlay | undefined {
 	if (!isObject(raw)) return undefined;
@@ -212,19 +212,18 @@ export function normalizeCoinOverlay(raw: unknown): CoinOverlay | undefined {
 	return { style, ...body };
 }
 
-// ─── the legacy halves ────────────────────────────────────────────────────────────────────────
+// ─── the block shapes ─────────────────────────────────────────────────────────────────────────
 
-/** Does the overlay drop tokens on the reels? What makes it the pots overlay add-on: the legacy
- *  `potsOverlay` key mirrors it, and the tools light the overlay's own parts (`kindCapabilities`
- *  `potsOverlay`) on it. */
+/** Does the overlay drop tokens on the reels? What makes it the pots overlay add-on: the tools light
+ *  the overlay's own parts (`kindCapabilities` `potsOverlay`) on it. */
 export function overlayDropsTokens(
 	overlay: CoinOverlay | undefined,
 ): overlay is CoinOverlay & Required<Pick<CoinOverlay, 'drops'>> {
 	return Boolean(overlay?.drops);
 }
 
-/** The legacy `potsOverlay` block the overlay's pots and drops make, or `undefined` without drops. */
-export function legacyPotsOverlayOf(overlay: CoinOverlay | undefined): PotsOverlay | undefined {
+/** The pots-overlay block the overlay's pots and drops make, or `undefined` without drops. */
+export function potsBlockOf(overlay: CoinOverlay | undefined): PotsOverlay | undefined {
 	if (!overlayDropsTokens(overlay)) return undefined;
 	return structuredClone({
 		pots: overlay.pots ?? [],

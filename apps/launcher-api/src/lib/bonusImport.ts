@@ -1,5 +1,4 @@
 import {
-	bonusSplitOf,
 	modeRouteRefusal,
 	type AddOnRenames,
 	type GameConfigDoc,
@@ -56,7 +55,7 @@ const TRIGGERS = [
  */
 export function modeRouteOptions(doc: GameConfigDoc | null, kind: string): ModeRouteOption[] {
 	if (!doc) return [];
-	const overlay = bonusSplitOf(doc).coinOverlay;
+	const overlay = doc.coinOverlay;
 	const buys = new Map((overlay?.trigger?.buy ?? []).map((t) => [t.betMode, t.mode]));
 	return [
 		...(overlay?.pots ?? []).map((pot) => ({

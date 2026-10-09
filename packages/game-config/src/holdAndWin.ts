@@ -17,7 +17,8 @@
  * reference — a jackpot name, a reel index, a role no symbol carries — is the validator's to report.
  */
 
-import { legacyHoldAndWin, legacyPotsOverlay, primaryRespinMode } from './bonusGames';
+import { potsOverlayOf, primaryHoldAndWin, primaryRespinMode } from './bonusGames';
+import { overlayDropsTokens } from './coinOverlay';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
 import { BASE_GAME_MODE, HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { GameConfigDoc } from './types';
@@ -765,9 +766,9 @@ export const coinEntryLabel = (entry: CoinValueEntry): string =>
 export const jackpotLadder = (block: Pick<HoldAndWin, 'jackpots'>): string[] =>
 	[...block.jackpots].sort((a, b) => a.multiplier - b.multiplier).map((j) => j.name);
 
-/** The rows the respin board can reach: `maxRows` when it expands, else the grid's. */
-export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'holdAndWin'>): number =>
-	doc.holdAndWin?.expansion?.maxRows ?? doc.numRows[0] ?? 0;
+/** The rows the primary respin board can reach: `maxRows` when it expands, else the grid's. */
+export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'modes'>): number =>
+	primaryRespinMode(doc.modes)?.holdAndWin.expansion?.maxRows ?? doc.numRows[0] ?? 0;
 
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
 export const configuredSpecials = (block: {
@@ -775,14 +776,14 @@ export const configuredSpecials = (block: {
 }): HoldAndWinSpecial[] => HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
 
 /**
- * Is the `holdAndWin` block the pots overlay's BONUS rather than the base game
- * (`docs/design/pots-overlay.md` §3.1)? It is when an overlay is present and the base game's strips
- * deal no Hold and Win symbol: the host's own mock deals the base game, and the feature is reached
+ * Is the primary respin game the pots overlay's BONUS rather than the base game
+ * (`docs/design/pots-overlay.md` §3.1)? It is when the coin overlay drops tokens and the base game's
+ * strips deal no Hold and Win symbol: the host's own mock deals the base game, and the feature is reached
  * only through the overlay. A Hold and Win game that adds an overlay keeps its base-game block.
  * Decided from the data, here only, so the validator, the mock, the facade and the runtime agree.
  */
 export const holdAndWinIsOverlayBonus = (doc: GameConfigDoc): boolean =>
-	Boolean(legacyPotsOverlay(doc)) && !baseGameDealsHoldAndWin(doc);
+	overlayDropsTokens(doc.coinOverlay) && !baseGameDealsHoldAndWin(doc);
 
 /** Do the base game's strips deal a Hold and Win symbol (a coin, a special, a meter's symbol)? */
 export const baseGameDealsHoldAndWin = (doc: GameConfigDoc): boolean =>
@@ -799,7 +800,9 @@ export const baseGameDealsHoldAndWin = (doc: GameConfigDoc): boolean =>
  */
 export const respinIsOverlayBonus = (doc: GameConfigDoc): boolean =>
 	holdAndWinIsOverlayBonus(doc) ||
-	(Boolean(legacyHoldAndWin(doc)) && !legacyPotsOverlay(doc) && !baseGameDealsHoldAndWin(doc));
+	(Boolean(primaryRespinMode(doc.modes)) &&
+		!overlayDropsTokens(doc.coinOverlay) &&
+		!baseGameDealsHoldAndWin(doc));
 
 /** A route to a respin mode, as {@link respinRouteDealt} weighs it. */
 export type RespinRouteKind =
@@ -835,7 +838,7 @@ export function respinRouteDealt(
 		return "This game's mock sells only its own buy, so a buy cannot start a respin mode here.";
 	if (route === 'meter')
 		return 'A meter fills from a symbol landing on the base reels — make it a pot of the coin overlay.';
-	const coins = legacyPotsOverlay(doc)?.drops.table.some((entry) => 'coin' in entry);
+	const coins = doc.coinOverlay?.drops?.table.some((entry) => 'coin' in entry);
 	if ((route === 'count' || route === 'pattern') && !coins)
 		return 'It counts dropped value coins, and nothing drops any — add value coins to the coin overlay.';
 	return undefined;
@@ -844,19 +847,20 @@ export function respinRouteDealt(
 // ─── validate ─────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Internal consistency of a normalized doc's `holdAndWin` block. Every `error` is a config the mock
+ * Internal consistency of a normalized doc's primary respin game, read as its Hold and Win block
+ * ({@link primaryHoldAndWin}); issues are reported under `holdAndWin.*`. Every `error` is a config the mock
  * could not generate a round from or the board could not show; every `warning` is one that renders
  * but has a knob that does nothing.
  *
- * Beside a `potsOverlay` block, a pot routed to Hold and Win also starts the feature. When the block
+ * Beside a coin overlay that drops tokens, a pot routed to it also starts the feature. When the block
  * is the overlay's BONUS ({@link holdAndWinIsOverlayBonus}) the host's own mock deals the base game:
  * the lines-only rule does not apply, the feature starts only from a pot or from dropped coins, and
  * the base-board-only options — symbol-filled meters among them — are refused.
  */
 export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
-	const block = doc.holdAndWin;
+	const block = primaryHoldAndWin(doc);
 	if (!block) return [];
-	const overlay = doc.potsOverlay;
+	const overlay = potsOverlayOf(doc);
 	const asBonus = holdAndWinIsOverlayBonus(doc);
 	const issues: GameConfigIssue[] = [];
 	const error = (path: string, message: string) =>
@@ -865,8 +869,8 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		issues.push({ severity: 'warning', path: `holdAndWin.${path}`, message });
 
 	const tagged = (role: HoldAndWinSymbolRole) => symbolsWithRole(doc, role);
-	// The block is the mirror of the primary respin mode (`./bonusGames`), which need not be called
-	// `holdAndWin`; another respin mode's specials give their tagged symbols a use too.
+	// The block is the primary respin mode's, which need not be called `holdAndWin`; another respin
+	// mode's specials give their tagged symbols a use too.
 	const primary = primaryRespinMode(doc.modes);
 	const blockMode = primary?.id ?? HOLD_AND_WIN_MODE;
 	const elsewhere = new Set(

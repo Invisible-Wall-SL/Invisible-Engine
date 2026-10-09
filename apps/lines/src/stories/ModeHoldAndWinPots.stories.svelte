@@ -13,7 +13,12 @@
 		type TemplateArgs,
 		templateArgs,
 	} from 'components-storybook';
-	import { HOLD_AND_WIN_PRESETS, normalizeGameConfigDoc } from 'game-config';
+	import {
+		HOLD_AND_WIN_PRESETS,
+		normalizeGameConfigDoc,
+		primaryHoldAndWin,
+		setPrimaryHoldAndWin,
+	} from 'game-config';
 
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
@@ -39,15 +44,15 @@
 	};
 
 	const config = getActiveGameConfig();
-	const block = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots)?.holdAndWin;
+	const block = primaryHoldAndWin(normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots)!);
 	if (block) {
-		config.holdAndWin = {
+		setPrimaryHoldAndWin(config, {
 			...block,
 			meters: (block.meters ?? []).map((meter) => ({
 				...meter,
 				symbol: RENAMED[meter.symbol] ?? meter.symbol,
 			})),
-		};
+		});
 	}
 	(
 		globalThis as { __IE_HOLD_AND_WIN_METERS__?: { id: string; level: number; max: number }[] }
@@ -75,7 +80,7 @@
 	};
 </script>
 
-{#snippet template(args: TemplateArgs<any>)}
+{#snippet template(args: TemplateArgs)}
 	<StoryGameTemplate
 		skipLoadingScreen={args.skipLoadingScreen}
 		action={async () => {

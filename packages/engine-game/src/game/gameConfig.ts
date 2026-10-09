@@ -161,9 +161,14 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		return mode === undefined ? undefined : spinsModesOf(getActiveGameConfig()).get(mode);
 	}
 
-	/** The active config: the authored doc when one shipped, else the compiled template. */
+	/** The active config: the authored doc when one shipped, else the compiled template. The authored
+	 *  one is normalized too, so a bundle baked before the bonus split (a legacy `holdAndWin` /
+	 *  `potsOverlay` block) boots in the split form every reader reads. */
 	function getActiveGameConfig(): GameConfigDoc {
-		if (!cached) cached = deps.bakedConfig() ?? compiled();
+		if (!cached) {
+			const baked = deps.bakedConfig();
+			cached = baked ? (normalizeGameConfigDoc(baked) ?? baked) : compiled();
+		}
 		return cached;
 	}
 

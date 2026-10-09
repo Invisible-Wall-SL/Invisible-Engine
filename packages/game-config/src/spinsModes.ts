@@ -9,7 +9,6 @@
 
 import type { AddOnRenames, AddOnResult } from './addOns';
 import { bonusImportOf } from './bonusImports';
-import { splitFormOf } from './bonusGames';
 import { reroutePots } from './bonusModes';
 import { normalizeCoinOverlay, retargetRoutes } from './coinOverlay';
 import { GAME_MODE_ID, gameTypeForMode, resolveGameModes, type GameModeDecl } from './modes';
@@ -75,7 +74,7 @@ export function stripsToWidth(strips: PaddingReels[string], width: number): Padd
  * pads from them, else the base grid.
  */
 export function stripWidthFor(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes' | 'numReels'>,
+	doc: Pick<GameConfigDoc, 'modes' | 'numReels'>,
 	gameType: string,
 ): number {
 	const own = resolveGameModes(doc).find(
@@ -93,7 +92,7 @@ export function stripWidthFor(
 export function addSpinsMode(doc: GameConfigDoc, id: string, label?: string): AddOnResult {
 	const problem = spinsModeIdProblem(doc, id);
 	if (problem) return { ok: false, reason: problem };
-	const next = splitFormOf(doc);
+	const next = structuredClone(doc);
 	const base = next.paddingReels.basegame ?? [];
 	if (!base.length) return { ok: false, reason: 'The base game has no strips to start from.' };
 	next.paddingReels[id] = stripsToWidth(base, next.numReels);
@@ -115,7 +114,7 @@ export function addSpinsMode(doc: GameConfigDoc, id: string, label?: string): Ad
  * only that import brought.
  */
 export function removeSpinsMode(doc: GameConfigDoc, id: string): AddOnResult {
-	const next = splitFormOf(doc);
+	const next = structuredClone(doc);
 	const mode = next.modes?.find((m) => m.id === id && m.spins);
 	if (!mode) return { ok: false, reason: `"${id}" is not a spins mode of this project.` };
 	const notes = reroutePots(next, id);

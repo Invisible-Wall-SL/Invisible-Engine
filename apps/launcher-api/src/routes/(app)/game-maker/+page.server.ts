@@ -222,7 +222,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				gameType: p.gameType,
 				profile,
 				// The card offers "＋ Coin overlay" without a dropping one, and "fill in its parts" with one.
-				hasPotsOverlay: Boolean(config.doc?.potsOverlay),
+				hasPotsOverlay: Boolean(config.doc?.coinOverlay?.drops),
 				/** The overlay presets that add cleanly to this game's config. */
 				overlayPresets: cleanOverlayPresets(config.doc),
 				/** The routes "Add a bonus mode…" can point at the new mode. */

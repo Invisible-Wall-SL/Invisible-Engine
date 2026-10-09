@@ -36,12 +36,16 @@ import {
 	importRespinMode,
 	isHoldAndWinSymbol,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
+	primaryHoldAndWin,
 	symbolsWithRole,
 	type GameConfigDoc,
+	type RawGameConfig,
 } from 'game-config';
 import { makeMock, validGrid } from '../../../services/test-server/makeMock.mjs';
 import { mockContractOfBundle, type MockContract } from '../src/lib/server/mockContract.ts';
 import { protocolFor } from '../src/lib/server/mockProtocol.ts';
+import { withoutMirror } from './lib/withoutMirror.ts';
 
 const PRINT = process.argv.includes('--print');
 /** The label, seed and session the main digests were measured with. */
@@ -82,14 +86,22 @@ const lines = template('lines');
 const book = template('lines.bookOfThermopylae');
 const classic = template('holdAndWin.classic');
 
-/** `borut-pots-sample`: 3 Pots on a Book-of host, green re-routed to free spins. */
+/** `borut-pots-sample`: 3 Pots on a Book-of host, green re-routed to free spins — stored as the
+ *  legacy `holdAndWin` / `potsOverlay` pair, as the sample was. */
 const borut = (() => {
-	const doc = clone(withOverlay(book, 'threePots'));
-	doc.potsOverlay!.pots = doc.potsOverlay!.pots.map((pot) =>
-		pot.id === 'green' ? { ...pot, bonus: { mode: 'freeSpins' } } : pot,
-	);
-	delete doc.coinOverlay;
-	return normalize(doc);
+	const { coinOverlay, ...doc } = withOverlay(book, 'threePots');
+	const pots = potsOverlayOf({ coinOverlay })!;
+	const raw: RawGameConfig = {
+		...doc,
+		holdAndWin: primaryHoldAndWin({ coinOverlay, modes: doc.modes }),
+		potsOverlay: {
+			...pots,
+			pots: pots.pots.map((pot) =>
+				pot.id === 'green' ? { ...pot, bonus: { mode: 'freeSpins' } } : pot,
+			),
+		},
+	};
+	return normalize(raw);
 })();
 
 /** The overlay's coin also on a base strip — bonus-games Phase 2's flagged lines game. */
@@ -105,8 +117,6 @@ const withBaseCoin = (doc: GameConfigDoc): GameConfigDoc => {
 /** A Hold and Win game with a second respin mode on its own strip, in the split form. */
 const withSecondMode = (doc: GameConfigDoc): GameConfigDoc => {
 	const out = clone(doc);
-	delete out.holdAndWin;
-	delete out.potsOverlay;
 	const primary = out.modes!.find((m) => m.id === 'holdAndWin')!;
 	out.modes!.push({ ...primary, id: 'holdAndWin_2', gameType: 'respin_2', label: 'Gold' });
 	out.paddingReels.respin_2 = clone(out.paddingReels.respin);
@@ -148,8 +158,6 @@ const respinShape = (o: {
 	drops?: boolean;
 }): GameConfigDoc => {
 	const raw = clone(o.drops ? withOverlay(classic, 'potsToFreeSpins') : classic);
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
 	if (!o.base) {
 		raw.paddingReels.basegame = raw.paddingReels.basegame.map((reel) =>
 			reel.filter((cell) => !isHoldAndWinSymbol(raw.symbols[cell.name])),
@@ -273,8 +281,6 @@ function threePotsOnClassicAsMain(): GameConfigDoc {
 				doc.symbols[n].special_properties?.includes(kind === 'payer' ? 'payer' : 'collector'),
 		),
 	);
-	delete doc.holdAndWin;
-	delete doc.potsOverlay;
 	const rules = doc.modes!.find((m) => m.id === 'holdAndWin')!.holdAndWin!;
 	for (const kind of brought) delete rules.specials[kind];
 	rules.applyOrder = rules.applyOrder.filter(
@@ -496,11 +502,12 @@ const deal = async (contract: MockContract): Promise<BookEvent[]> => {
 const digest = (value: unknown) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 
-/** `normalize(addPotsOverlay(classic, 'threePots'))` as main 4067dfb built it, by this `digest`. */
+/** `normalize(addPotsOverlay(classic, 'threePots'))` as main 4067dfb built it, by this `digest`
+ *  without main's legacy mirror pair. */
 const MAIN_THREE_POTS_ON_CLASSIC = '2acc4ff7a9bf28d4';
 check(
 	'3 Pots over Classic, rebuilt as main built it, is byte-identical to main’s doc',
-	digest(threePotsOnClassicAsMain()),
+	digest(withoutMirror(threePotsOnClassicAsMain())),
 	MAIN_THREE_POTS_ON_CLASSIC,
 );
 

@@ -24,7 +24,7 @@ import {
 	type HoldAndWinSpecial,
 } from './holdAndWin';
 import { symbolsInPlay } from './inPlay';
-import { legacyPotsOverlay, respinModeBlocks } from './bonusGames';
+import { potsOverlayOf, primaryHoldAndWin, respinModeBlocks } from './bonusGames';
 import {
 	BASE_GAME_MODE,
 	FREE_SPINS_MODE,
@@ -221,7 +221,7 @@ export type ResolvedMeter = {
  * declared.
  */
 export function resolveMeters(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'potsOverlay' | 'coinOverlay' | 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'coinOverlay' | 'modes'> | undefined,
 ): ResolvedMeter[] {
 	// Each respin mode's symbol-filled meters, the primary's first, each starting its own mode.
 	const fromSymbols = (doc ? respinModeBlocks(doc) : [])
@@ -237,7 +237,7 @@ export function resolveMeters(
 		)
 		// A meter id two modes both declare is one pot: the first mode's (the mock routes it there).
 		.filter((meter, i, all) => all.findIndex((m) => m.id === meter.id) === i);
-	const fromOverlay = ((doc && legacyPotsOverlay(doc))?.pots ?? []).map((p): ResolvedMeter => ({
+	const fromOverlay = ((doc && potsOverlayOf(doc))?.pots ?? []).map((p): ResolvedMeter => ({
 		id: p.id,
 		source: 'overlay',
 		symbol: p.token,
@@ -254,12 +254,13 @@ export function resolveMeters(
 const whole = (n: number, min: number): boolean => Number.isInteger(n) && n >= min;
 
 /**
- * Internal consistency of a normalized doc's `potsOverlay` block. Every `error` is a config the mock
+ * Internal consistency of a normalized doc's pots and drops ({@link potsOverlayOf}), reported under
+ * `potsOverlay.*`. Every `error` is a config the mock
  * could not deal a drop from or the board could not show; every `warning` is one that renders but
  * has a knob that does nothing.
  */
 export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
-	const overlay = doc.potsOverlay;
+	const overlay = potsOverlayOf(doc);
 	if (!overlay) return [];
 	const issues: GameConfigIssue[] = [];
 	const error = (path: string, message: string) =>
@@ -267,7 +268,7 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 	const warning = (path: string, message: string) =>
 		issues.push({ severity: 'warning', path: `potsOverlay.${path}`, message });
 
-	const block = doc.holdAndWin;
+	const block = primaryHoldAndWin(doc);
 	const modeIds = new Set(resolveGameModes(doc).map((m) => m.id));
 	const inPlay = new Set(symbolsInPlay(doc));
 	const meterIds = new Set(block?.meters?.map((m) => m.id));
@@ -348,7 +349,7 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 		} else if (mode === HOLD_AND_WIN_MODE && !block) {
 			error(
 				`${at}.bonus.mode`,
-				'A Hold and Win bonus needs a holdAndWin block — its respin rules, coins and jackpots.',
+				'A Hold and Win bonus needs a Hold and Win mode with rules — its respins, coins and jackpots.',
 			);
 		} else if (!modeIds.has(mode)) {
 			error(`${at}.bonus.mode`, `"${mode}" is not a mode this project has.`);
@@ -358,13 +359,9 @@ export function validatePotsOverlay(doc: GameConfigDoc): GameConfigIssue[] {
 				'A full pot cannot start free spins while free spins are off — switch them on in Free spins, or route the pot to another bonus.',
 			);
 		}
-		// Any respin mode's rules, or the legacy block's for an unnormalized config's built-in one.
-		const target = gameModeById(doc, mode);
-		const rules =
-			target?.board === 'respinBoard'
-				? (target.holdAndWin ?? (mode === HOLD_AND_WIN_MODE ? block : undefined))
-				: undefined;
-		const respin = target ? target.board === 'respinBoard' : mode === HOLD_AND_WIN_MODE;
+		const started = gameModeById(doc, mode);
+		const rules = started?.board === 'respinBoard' ? started.holdAndWin : undefined;
+		const respin = started ? started.board === 'respinBoard' : mode === HOLD_AND_WIN_MODE;
 		if (activates && !respin) {
 			error(
 				`${at}.bonus.activates`,

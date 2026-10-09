@@ -131,11 +131,7 @@ const spinsHost = (): GameConfigDoc => {
 		holdAndWin: bonus.holdAndWin,
 		potsOverlay: preset.potsOverlay,
 	});
-	// A split-form writer: the legacy pair goes before the edit (design §2.1).
-	const raw = structuredClone(threePots) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
-	const spins = withSpinsModes(raw);
+	const spins = withSpinsModes(structuredClone(threePots));
 	spins.betModes = {
 		...spins.betModes,
 		bonus: { cost: 100, feature: false, buyBonus: true, rtp: 0.96, max_win: 5000 },
@@ -175,9 +171,7 @@ check(
 {
 	// Nothing drops while a spins game plays (a respin board over it would bring the base grid back),
 	// and a pot's own spin count does not apply to one.
-	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(HOST);
 	const overlay = raw.coinOverlay!;
 	overlay.drops = { ...overlay.drops!, modes: ['basegame', WAYS_BONUS] };
 	overlay.pots = overlay.pots!.map((p) =>

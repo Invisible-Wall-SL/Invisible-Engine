@@ -21,9 +21,14 @@ import {
 	resyncBonus,
 	type ImportResult,
 } from './src/imports.ts';
-import { respinModeDecls } from './src/bonusGames.ts';
+import {
+	potsOverlayOf,
+	primaryHoldAndWin,
+	respinModeDecls,
+	setPrimaryHoldAndWin,
+} from './src/bonusGames.ts';
 import { symbolsInPlay, symbolsInPlayForGameType } from './src/inPlay.ts';
-import { holdAndWinModeDecl, ownReelsModeForGameType } from './src/modes.ts';
+import { holdAndWinModeDecl, ownReelsModeForGameType, type GameModeDecl } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import type { AddOnResult } from './src/addOns.ts';
 import type { GameConfigDoc, GameConfigSymbol, RawGameConfig } from './src/types.ts';
@@ -142,10 +147,12 @@ console.log('\n2. import into a host with no Hold and Win');
 		'buying the feature',
 		"the multiplier's instant collect",
 	]);
+	const block = primaryHoldAndWin(doc)!;
+	const sourceBlock = primaryHoldAndWin(SOURCE)!;
 	check(
 		'the block is the source feature, its base-game triggers dropped',
-		[doc.holdAndWin!.boardEnd, doc.holdAndWin!.trigger, doc.holdAndWin!.coins.length],
-		[SOURCE.holdAndWin!.boardEnd, { count: SOURCE.holdAndWin!.trigger.count }, 11],
+		[block.boardEnd, block.trigger, block.coins.length],
+		[sourceBlock.boardEnd, { count: sourceBlock.trigger.count }, 11],
 	);
 	check(
 		'the respin strips are the source respin strips',
@@ -157,7 +164,7 @@ console.log('\n2. import into a host with no Hold and Win');
 		Object.keys(result.symbols).map((name) => doc.symbols[name]),
 		Object.keys(result.symbols).map((name) => SOURCE.symbols[name]),
 	);
-	check('the pot now starts it', doc.potsOverlay!.pots[0].bonus, { mode: 'holdAndWin' });
+	check('the pot now starts it', potsOverlayOf(doc)!.pots[0].bonus, { mode: 'holdAndWin' });
 	check(
 		"the host's base game is kept",
 		[doc.paddingReels.basegame, doc.paddingReels.freegame, doc.paylines],
@@ -230,7 +237,7 @@ console.log("\n4. replace the 3 Pots host's bonus");
 	check('it replaced the bonus', result.replaced, true);
 	check(
 		'pots whose special the Classic feature lacks lose it; the multiplier pot keeps it',
-		[result.droppedActivates, doc.potsOverlay!.pots.map((p) => p.bonus)],
+		[result.droppedActivates, potsOverlayOf(doc)!.pots.map((p) => p.bonus)],
 		[
 			['red', 'blue'],
 			[
@@ -274,17 +281,19 @@ check('validates without an error', errors(first.doc), []);
 console.log('\n6. re-sync picks up a source edit and keeps everything else');
 {
 	const edited = clone(SOURCE);
-	edited.holdAndWin!.respins.start = 4;
-	edited.holdAndWin!.coins[0].weight = 99;
+	const editedBlock = primaryHoldAndWin(edited)!;
+	editedBlock.respins.start = 4;
+	editedBlock.coins[0].weight = 99;
+	setPrimaryHoldAndWin(edited, editedBlock);
 	edited.symbols.BONUS = { ...edited.symbols.BONUS, special_properties: ['coin'] };
 	// The host authors around the import: renames a pot's label, adds its own mode.
 	const authored = clone(first.doc);
-	authored.potsOverlay!.pots[0].label = 'Gold pot';
+	authored.coinOverlay!.pots![0].label = 'Gold pot';
 	const result = imported(resyncBonus(authored, edited, 'holdAndWin', LATER));
 	const doc = result.doc;
 	check(
 		'the edit arrives',
-		[doc.holdAndWin!.respins.start, doc.holdAndWin!.coins[0].weight],
+		[primaryHoldAndWin(doc)!.respins.start, primaryHoldAndWin(doc)!.coins[0].weight],
 		[4, 99],
 	);
 	check('the rename is reused, not renamed again', result.symbols, first.symbols);
@@ -293,13 +302,12 @@ console.log('\n6. re-sync picks up a source edit and keeps everything else');
 	]);
 	check(
 		'the pot route and the authored label are kept',
-		doc.potsOverlay!.pots[0],
-		authored.potsOverlay!.pots[0],
+		potsOverlayOf(doc)!.pots[0],
+		potsOverlayOf(authored)!.pots[0],
 	);
 	// The import is the block, the respin mode's rules and the overlay's trigger half it brings.
 	const outside = (d: GameConfigDoc) => ({
 		...d,
-		holdAndWin: null,
 		imports: null,
 		symbols: null,
 		paddingReels: null,
@@ -348,12 +356,12 @@ console.log('\n6. re-sync picks up a source edit and keeps everything else');
 
 console.log("\n6b. the mode override: the source's presentation, the host's HUD");
 {
-	const source = clone(SOURCE);
-	source.modes = [
-		{ id: 'holdAndWin', board: 'respinBoard', hud: 'hud_source', music: 'bgm_classic' },
-	];
-	const hosted = clone(threePotsHost);
-	hosted.modes = [{ id: 'holdAndWin', board: 'respinBoard', hud: 'hud_host' }];
+	const withPresentation = (d: GameConfigDoc, over: Partial<GameModeDecl>): GameConfigDoc => ({
+		...d,
+		modes: d.modes?.map((m) => (m.id === 'holdAndWin' ? { ...m, ...over } : m)),
+	});
+	const source = withPresentation(clone(SOURCE), { hud: 'hud_source', music: 'bgm_classic' });
+	const hosted = withPresentation(clone(threePotsHost), { hud: 'hud_host' });
 	const doc = imported(importBonus(hosted, source, { ...FROM, replace: true })).doc;
 	// The mode is declared in full (bonus-games Phase 1); its presentation is what is checked here.
 	const presentation = (d: GameConfigDoc) =>
@@ -456,7 +464,7 @@ console.log("\n8. a reels feature: another book game's free spins as a mode of t
 			BOOK_SOURCE.symbols.ACE,
 		]),
 	);
-	check('the pot routes to it, its spin count kept', doc.potsOverlay!.pots[0].bonus, {
+	check('the pot routes to it, its spin count kept', potsOverlayOf(doc)!.pots[0].bonus, {
 		mode: 'freeSpins_2',
 		spins: 10,
 	});
@@ -484,7 +492,7 @@ console.log("\n8. a reels feature: another book game's free spins as a mode of t
 	edited.symbols.MUMMY = pays(25, 250, 1000);
 	edited.paddingReels.freegame = edited.paddingReels.freegame.map((s) => [...s, { name: 'TEN' }]);
 	const authored = clone(doc);
-	authored.potsOverlay!.pots[0].label = 'Gold pot';
+	authored.coinOverlay!.pots![0].label = 'Gold pot';
 	authored.modes![0].music = 'bgm_mine';
 	const synced = imported(resyncBonus(authored, edited, 'freeSpins_2', LATER));
 	check(
@@ -504,8 +512,8 @@ console.log("\n8. a reels feature: another book game's free spins as a mode of t
 	);
 	check(
 		'…keeping the label the host gave it; the pot and its label untouched',
-		[synced.doc.modes?.[0]?.label, synced.doc.potsOverlay!.pots[0]],
-		['Free spins (book-sample)', authored.potsOverlay!.pots[0]],
+		[synced.doc.modes?.[0]?.label, potsOverlayOf(synced.doc)!.pots[0]],
+		['Free spins (book-sample)', potsOverlayOf(authored)!.pots[0]],
 	);
 	check('validates without an error', errors(synced.doc), []);
 	check(
@@ -552,7 +560,11 @@ console.log('\n9. add a bonus mode (bonus-games Phase 6)');
 		normalize(clone(doc)).imports?.find((i) => i.mode === 'holdAndWin_2')?.asMode,
 		true,
 	);
-	check('the primary is untouched', normalize(clone(doc)).holdAndWin, threePots.holdAndWin);
+	check(
+		'the primary is untouched',
+		primaryHoldAndWin(normalize(clone(doc))),
+		primaryHoldAndWin(threePots),
+	);
 	const third = imported(importRespinMode(doc, SOURCE, { ...FROM, project: 'other', routes: [] }));
 	check('a third copy takes _3, not _2_2', third.mode, 'holdAndWin_3');
 	check(

@@ -520,22 +520,9 @@ export type GameConfigDoc = {
 	 */
 	reelBehaviour?: ReelBehaviour;
 	/**
-	 * The COMPAT MIRROR of the legacy Hold and Win block (see `./holdAndWin`, `./bonusGames`): the
-	 * primary respin mode's rules joined with the coin overlay's routes to it, written by
-	 * normalization for the readers that have not moved to per-mode reads yet. A legacy writer may
-	 * still edit it — it wins over the split form it mirrors — and a writer of the split form deletes
-	 * it. Absent ⇒ no Hold and Win mode, byte-identical to every config authored before it existed.
-	 */
-	holdAndWin?: HoldAndWin;
-	/**
-	 * The COMPAT MIRROR of the legacy pots overlay block (see `./potsOverlay`): the coin overlay's pots,
-	 * drops and timing, present only when something drops. Same rules as {@link holdAndWin}.
-	 */
-	potsOverlay?: PotsOverlay;
-	/**
 	 * OPTIONAL coin overlay (see `./coinOverlay`, `docs/design/bonus-games.md` §2.1) — the option a base
 	 * game switches on: what lands in the base game, the pots, and the triggers, each naming the bonus
-	 * mode it starts. Read the legacy key `potsOverlay` as well when migrating. Absent ⇒ no overlay.
+	 * mode it starts. Absent ⇒ no overlay.
 	 */
 	coinOverlay?: CoinOverlay;
 	/**
@@ -603,4 +590,11 @@ export type GameConfigDoc = {
  * a `GameConfigDoc` minus the fields this tool adds (`version`, `updatedAt`), which is exactly what
  * makes a template config a valid seed — see Phase 2.
  */
-export type RawGameConfig = Omit<GameConfigDoc, 'version' | 'updatedAt'>;
+export type RawGameConfig = Omit<GameConfigDoc, 'version' | 'updatedAt'> & LegacyBonusKeys;
+
+/**
+ * The legacy bonus blocks a config stored before the split form may still carry (bonus-games
+ * Phase 7b): a Hold and Win block and a pots overlay block. Only `normalizeGameConfigDoc` reads them,
+ * migrating them into `coinOverlay` and the declared modes; a normalized doc never carries them.
+ */
+export type LegacyBonusKeys = { holdAndWin?: HoldAndWin; potsOverlay?: PotsOverlay };

@@ -13,7 +13,12 @@
 		type TemplateArgs,
 		templateArgs,
 	} from 'components-storybook';
-	import { HOLD_AND_WIN_PRESETS, normalizeGameConfigDoc } from 'game-config';
+	import {
+		HOLD_AND_WIN_PRESETS,
+		normalizeGameConfigDoc,
+		primaryHoldAndWin,
+		setPrimaryHoldAndWin,
+	} from 'game-config';
 
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
@@ -32,8 +37,8 @@
 	const ROLES: Record<string, string[]> = { H2: ['coinMultiplier'] };
 
 	const config = getActiveGameConfig();
-	const block = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.classic)?.holdAndWin;
-	if (block) config.holdAndWin = block;
+	const block = primaryHoldAndWin(normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.classic)!);
+	if (block) setPrimaryHoldAndWin(config, block);
 
 	const playGrandBook = async (name: string) => {
 		const { symbols } = getActiveGameConfig();
@@ -52,7 +57,7 @@
 	};
 </script>
 
-{#snippet template(args: TemplateArgs<any>)}
+{#snippet template(args: TemplateArgs)}
 	<StoryGameTemplate
 		skipLoadingScreen={args.skipLoadingScreen}
 		action={async () => {

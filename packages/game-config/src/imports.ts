@@ -56,15 +56,13 @@ import {
 import { holdAndWinBonusFrom, type HoldAndWinBonusSource } from './potsOverlayPresets';
 import { bonusImportOf, type BonusImport } from './bonusImports';
 import {
-	legacyHoldAndWin,
-	legacyPotsOverlay,
+	potsOverlayOf,
+	primaryHoldAndWin,
 	primaryRespinMode,
-	bonusSplitOf,
 	respinModeDecls,
 	respinModeIds,
-	splitFormOf,
-	syncBonusSplit,
-	withLegacyPair,
+	setOverlayPots,
+	setPrimaryHoldAndWin,
 } from './bonusGames';
 import { respinGameTypeFor, respinModeIdProblem } from './bonusModes';
 import { normalizeCoinOverlay, overlayRoutes, type CoinOverlay } from './coinOverlay';
@@ -183,7 +181,7 @@ export function importBonus(
 	source: HoldAndWinBonusSource,
 	opts: ImportOptions,
 ): ImportResult {
-	const overlay = legacyPotsOverlay(target);
+	const overlay = potsOverlayOf(target);
 	if (!overlay) {
 		return {
 			ok: false,
@@ -201,16 +199,16 @@ export function importBonus(
 			? importReelsMode(target, source, feature, opts)
 			: { ok: false, reason: BOARD_NOT_BUILT };
 	}
-	if (!legacyHoldAndWin(source)) {
+	if (!primaryHoldAndWin(source)) {
 		return { ok: false, reason: 'The source project has no Hold and Win block.' };
 	}
 
-	const next = withLegacyPair(structuredClone(target));
+	const next = structuredClone(target);
 	const previous = bonusImportOf(next, HOLD_AND_WIN_MODE);
 	// The HUD screen is the host's layout's, so the host's choice outlives a replace.
 	const hostHud = next.modes?.find((m) => m.id === HOLD_AND_WIN_MODE)?.hud;
 	let replaced = false;
-	if (next.holdAndWin) {
+	if (primaryRespinMode(next.modes)) {
 		if (!holdAndWinIsOverlayBonus(next)) {
 			return {
 				ok: false,
@@ -256,7 +254,6 @@ export function importBonus(
 	next.paddingReels[gameType] = (bonus.paddingReels[gameType] ?? []).map((strip) =>
 		strip.map((cell) => ({ name: names[cell.name] ?? cell.name })),
 	);
-	next.holdAndWin = bonus.holdAndWin;
 
 	// The source's presentation of the mode (its music, counter, label) comes with it. Its game type
 	// does not, as the strips were written under this project's default, and neither does its HUD,
@@ -277,11 +274,12 @@ export function importBonus(
 		...(hostHud ? { hud: hostHud } : {}),
 	};
 	if (authored || hostHud) next.modes = [...(next.modes ?? []), override];
+	setPrimaryHoldAndWin(next, bonus.holdAndWin);
 
 	// On a coins-only host (no pots) value coins are all that can start the bonus, so the imported
 	// feature must pass the same rule as going down to no pots (`zeroPotsRefusal`): a re-sync from a
 	// source that dropped its coin count trigger is refused too.
-	if (!next.potsOverlay!.pots.length && zeroPotsRefusal(next)) {
+	if (!next.coinOverlay?.pots?.length && zeroPotsRefusal(next)) {
 		return {
 			ok: false,
 			reason:
@@ -290,11 +288,11 @@ export function importBonus(
 	}
 
 	const pots = new Set(opts.pots ?? []);
-	const specials = next.holdAndWin.specials;
+	const specials = primaryRespinMode(next.modes)!.holdAndWin.specials;
 	const droppedActivates: string[] = [];
-	next.potsOverlay = {
-		...next.potsOverlay!,
-		pots: next.potsOverlay!.pots.map((pot) => {
+	setOverlayPots(next, {
+		...potsOverlayOf(next)!,
+		pots: potsOverlayOf(next)!.pots.map((pot) => {
 			const bonusOf = pots.has(pot.id) ? { mode: HOLD_AND_WIN_MODE } : pot.bonus;
 			if (bonusOf.mode === HOLD_AND_WIN_MODE && bonusOf.activates && !specials[bonusOf.activates]) {
 				droppedActivates.push(pot.id);
@@ -303,7 +301,7 @@ export function importBonus(
 			}
 			return { ...pot, bonus: bonusOf };
 		}),
-	};
+	});
 
 	const record: BonusImport = {
 		mode: HOLD_AND_WIN_MODE,
@@ -313,16 +311,13 @@ export function importBonus(
 	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== HOLD_AND_WIN_MODE), record];
 	// The blank the source's respin board draws comes with it, under its name here; a blank the host's
 	// previous bonus named goes with that bonus.
-	const synced = syncBonusSplit(next);
-	const respin = primaryRespinMode(synced.modes);
+	const respin = primaryRespinMode(next.modes)!;
 	const blank = primaryRespinMode(source.modes)?.holdAndWin.blank;
-	if (respin) {
-		if (blank) respin.holdAndWin.blank = names[blank] ?? blank;
-		else delete respin.holdAndWin.blank;
-	}
+	if (blank) respin.holdAndWin.blank = names[blank] ?? blank;
+	else delete respin.holdAndWin.blank;
 	return {
 		ok: true,
-		doc: synced,
+		doc: next,
 		mode: HOLD_AND_WIN_MODE,
 		renamed,
 		symbols: names,
@@ -397,7 +392,7 @@ function importReelsMode(
 			reason: `"${opts.project}"'s ${feature.id} is already imported here as "${already.mode}". Re-sync it instead.`,
 		};
 	}
-	const next = withLegacyPair(structuredClone(target));
+	const next = structuredClone(target);
 	const previous = opts.into ? bonusImportOf(next, opts.into) : undefined;
 	const previousDecl = previous && next.modes?.find((m) => m.id === previous.mode);
 	if (previous) dropUnusedSymbols(next, takeOutImportedReelsMode(next, previous.mode), () => true);
@@ -455,14 +450,14 @@ function importReelsMode(
 	next.modes = [...(next.modes ?? []), decl];
 
 	const pots = new Set(opts.pots ?? []);
-	next.potsOverlay = {
-		...next.potsOverlay!,
-		pots: next.potsOverlay!.pots.map((pot) =>
+	setOverlayPots(next, {
+		...potsOverlayOf(next)!,
+		pots: potsOverlayOf(next)!.pots.map((pot) =>
 			pots.has(pot.id)
 				? { ...pot, bonus: { mode, ...(pot.bonus.spins ? { spins: pot.bonus.spins } : {}) } }
 				: pot,
 		),
-	};
+	});
 
 	const record: BonusImport = {
 		mode,
@@ -472,7 +467,7 @@ function importReelsMode(
 	next.imports = [...(next.imports ?? []).filter((i) => i.mode !== mode), record];
 	return {
 		ok: true,
-		doc: syncBonusSplit(next),
+		doc: next,
 		mode,
 		renamed,
 		symbols: owned,
@@ -541,7 +536,7 @@ export function modeRouteRefusal(
  * warning, not an error, so a config that saved before still saves.
  */
 export function undealtRouteWarnings(doc: GameConfigDoc, hostKind: string): GameConfigIssue[] {
-	const overlay = bonusSplitOf(doc).coinOverlay;
+	const overlay = doc.coinOverlay;
 	if (!overlay) return [];
 	const respin = new Set(respinModeIds(doc));
 	return overlayRoutes(overlay).flatMap((entry): GameConfigIssue[] => {
@@ -631,8 +626,7 @@ function routeTo(
  * Add the respin mode `opts.mode` of `source` to `target` as a NEW respin mode (see the file
  * header), or re-sync one added before (`opts.into`, see {@link resyncBonus}): its rules, strips and
  * symbols are taken back and copied again from the source, under the same id, game type, label, HUD
- * and names, and every route to it is kept. No other mode is touched. The result is in the split
- * form only (`splitFormOf`): saving it regenerates the compat mirror.
+ * and names, and every route to it is kept. No other mode is touched.
  */
 export function importRespinMode(
 	target: GameConfigDoc,
@@ -660,7 +654,7 @@ export function importRespinMode(
 		};
 	}
 
-	const next = splitFormOf(target);
+	const next = structuredClone(target);
 	const previous = opts.into ? bonusImportOf(next, opts.into) : undefined;
 	const at = next.modes?.findIndex((m) => m.id === opts.into && m.board === 'respinBoard') ?? -1;
 	if (opts.into && at < 0) {
@@ -669,14 +663,8 @@ export function importRespinMode(
 	const previousDecl = at >= 0 ? next.modes!.splice(at, 1)[0] : undefined;
 	if (previousDecl) {
 		delete next.paddingReels[gameTypeForMode(previousDecl)];
-		// What it brought goes once nothing else deals it; `dropUnusedSymbols` keeps what the legacy
-		// pair names, so it reads the pair through a view sharing `next.symbols`.
-		const view = {
-			...next,
-			holdAndWin: legacyHoldAndWin(next),
-			potsOverlay: legacyPotsOverlay(next),
-		};
-		dropUnusedSymbols(view, Object.values(previous?.symbols ?? {}), () => true);
+		// What it brought goes once nothing else deals it.
+		dropUnusedSymbols(next, Object.values(previous?.symbols ?? {}), () => true);
 	}
 
 	const id = previousDecl?.id ?? freeRespinModeId(next, from.id);
@@ -857,7 +845,7 @@ export function importSpinsMode(
 		};
 	}
 
-	const next = splitFormOf(target);
+	const next = structuredClone(target);
 	const previous = opts.into ? bonusImportOf(next, opts.into) : undefined;
 	const at = next.modes?.findIndex((m) => m.id === opts.into && m.spins) ?? -1;
 	if (opts.into && at < 0) {

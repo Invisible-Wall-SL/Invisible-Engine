@@ -35,6 +35,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { mock } from 'node:test';
 import type { GameConfigDoc } from 'game-config';
+import { withoutMirror } from './lib/withoutMirror.ts';
 
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
@@ -885,7 +886,7 @@ const addOnDigest = (result: ReturnType<typeof addPotsOverlay>) =>
 			JSON.stringify(
 				result.ok
 					? {
-							doc: normalizeGameConfigDoc(result.doc),
+							doc: withoutMirror(normalizeGameConfigDoc(result.doc)),
 							renamed: result.renamed,
 							notes: result.notes,
 						}

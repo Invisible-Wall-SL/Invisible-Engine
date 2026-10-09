@@ -1,21 +1,14 @@
 /**
  * BONUS MODES — the writers `/config` → Bonus modes uses on a project's respin modes
  * (`docs/design/bonus-games.md` §2.4, Phase 5a): add one with rules from a preset or empty, rename
- * one, remove one. Every result is in the SPLIT FORM only (`splitFormOf`, `./bonusGames`): the legacy
- * `holdAndWin` / `potsOverlay` keys are deleted, so a save regenerates the compat mirror from it.
+ * one, remove one. Each edits the split form (`./bonusGames`).
  *
  * Pure: the input is never mutated. Like the add-ons (`./addOns`), the result is not normalized, so a
  * half-typed field elsewhere in an editor's live doc survives.
  */
 
 import { addSymbols, dropUnusedSymbols, type AddOnRenames, type AddOnResult } from './addOns';
-import {
-	primaryRespinMode,
-	removeHoldAndWin,
-	splitFormOf,
-	legacyHoldAndWin,
-	legacyPotsOverlay,
-} from './bonusGames';
+import { primaryRespinMode, removeHoldAndWin } from './bonusGames';
 import { normalizeCoinOverlay, retargetRoutes } from './coinOverlay';
 import { resolveFreeSpins } from './freeSpins';
 import { isHoldAndWinSymbol } from './holdAndWin';
@@ -55,9 +48,7 @@ export function respinModeIdProblem(
 	if (!GAME_MODE_ID.test(id)) return 'Start with a letter; letters, digits, _ and - only.';
 	if (id === current) return undefined;
 	if (resolveGameModes(doc).some((m) => m.id === id)) return `A mode "${id}" already exists.`;
-	// A normalized or split doc declares its respin modes; an unnormalized legacy one only has the block.
-	const primary =
-		primaryRespinMode(doc.modes) ?? (doc.holdAndWin ? { id: HOLD_AND_WIN_MODE } : undefined);
+	const primary = primaryRespinMode(doc.modes);
 	if (id === HOLD_AND_WIN_MODE && primary && primary.id !== current) {
 		return `"${HOLD_AND_WIN_MODE}" would take over from "${primary.id}" as the Hold and Win the game plays today. Pick another id.`;
 	}
@@ -90,7 +81,7 @@ export function addRespinMode(
 ): AddOnResult {
 	const problem = respinModeIdProblem(doc, id);
 	if (problem) return { ok: false, reason: problem };
-	const next = splitFormOf(doc);
+	const next = structuredClone(doc);
 	const renamed: AddOnRenames = { symbols: {}, pots: {} };
 	const gameType = respinGameTypeFor(id);
 	const decl: GameModeDecl = {
@@ -129,7 +120,7 @@ export function addRespinMode(
  * Refused when the mode is not a respin mode or already has rules.
  */
 export function startRespinRules(doc: GameConfigDoc, id: string): AddOnResult {
-	const next = splitFormOf(doc);
+	const next = structuredClone(doc);
 	const mode = next.modes?.find((m) => m.id === id && m.board === 'respinBoard');
 	if (!mode) return { ok: false, reason: `"${id}" is not a respin mode of this project.` };
 	if (mode.holdAndWin) return { ok: false, reason: `"${id}" already has rules.` };
@@ -150,7 +141,7 @@ function retarget(doc: GameConfigDoc, from: string, to: string): void {
  * renames them with it.
  */
 export function renameRespinMode(doc: GameConfigDoc, from: string, to: string): AddOnResult {
-	const next = splitFormOf(doc);
+	const next = structuredClone(doc);
 	const mode = next.modes?.find((m) => m.id === from && m.board === 'respinBoard');
 	if (!mode) return { ok: false, reason: `"${from}" is not a respin mode of this project.` };
 	if (from === HOLD_AND_WIN_MODE) {
@@ -202,7 +193,7 @@ export function reroutePots(doc: GameConfigDoc, gone: string): string[] {
  * re-routed ({@link reroutePots}); `notes` says how.
  */
 export function removeRespinMode(doc: GameConfigDoc, id: string): AddOnResult {
-	let next = splitFormOf(doc);
+	const next = structuredClone(doc);
 	const mode = next.modes?.find((m) => m.id === id && m.board === 'respinBoard');
 	if (!mode) return { ok: false, reason: `"${id}" is not a respin mode of this project.` };
 	const notes = reroutePots(next, id);
@@ -216,7 +207,7 @@ export function removeRespinMode(doc: GameConfigDoc, id: string): AddOnResult {
 	}
 
 	if (id === primaryRespinMode(next.modes)?.id) {
-		next = splitFormOf(removeHoldAndWin(next));
+		removeHoldAndWin(next);
 	} else {
 		next.modes = next.modes!.filter((m) => m.id !== id);
 		if (next.coinOverlay) {
@@ -232,13 +223,7 @@ export function removeRespinMode(doc: GameConfigDoc, id: string): AddOnResult {
 	if (imports?.length) next.imports = imports;
 	else delete next.imports;
 
-	// `dropUnusedSymbols` keeps what the legacy pair names; the view shares `next.symbols`.
-	const view = {
-		...next,
-		holdAndWin: legacyHoldAndWin(next),
-		potsOverlay: legacyPotsOverlay(next),
-	};
-	dropUnusedSymbols(view, dealt, isHoldAndWinSymbol);
+	dropUnusedSymbols(next, dealt, isHoldAndWinSymbol);
 	return {
 		ok: true,
 		doc: next,

@@ -4,13 +4,14 @@
  *   pnpm check:all --only bonusModes.fixture
  *
  * Pins:
- *  1. `splitFormOf` deletes both legacy keys, and normalizing it gives the stored doc back for every
- *     Hold and Win preset (`hw-*-sample`), every overlay preset and `borut-pots-sample`: the open →
- *     save → reload path changes nothing but the legacy keys, which normalize regenerates.
+ *  1. A stored doc carries no legacy key, nor does the live doc `/config` opens from it
+ *     (`migrateLegacyBonus`), and normalizing that gives the stored doc back for every Hold and Win
+ *     preset (`hw-*-sample`), every overlay preset and `borut-pots-sample`: open → save → reload
+ *     changes nothing.
  *  2. Two respin modes: `addRespinMode` adds a second one from a preset under `holdAndWin_2` (its
  *     own strips, clashing symbols renamed); pot A → mode 1 and pot B → mode 2 survive a save and a
- *     reload, an edit to mode 2's rules too; the mirror still shows mode 1 exactly as before, so the
- *     runtime (which plays the primary through it until Phase 4) is unchanged.
+ *     reload, an edit to mode 2's rules too; the primary view (`primaryHoldAndWin`) still shows mode 1
+ *     exactly as before, so the runtime (which plays the primary through it) is unchanged.
  *  3. Per-mode validation: mode 2's rules go through `validateHoldAndWin` with paths that name it; a
  *     respin mode without rules is an error only when something starts it.
  *  4. `removeRespinMode`: the primary goes through `removeHoldAndWin`; the pots that started it are
@@ -22,7 +23,7 @@
  */
 
 import { addPotsOverlay, type AddOnResult } from './src/addOns.ts';
-import { legacyHoldAndWin, splitFormOf } from './src/bonusGames.ts';
+import { migrateLegacyBonus, potsOverlayOf, primaryHoldAndWin } from './src/bonusGames.ts';
 import {
 	addRespinMode,
 	nextRespinModeId,
@@ -68,7 +69,7 @@ const docOf = (result: AddOnResult): GameConfigDoc => {
 };
 
 /** What `/config` does: open (the split form of the stored doc), save (normalize), reload. */
-const saveAndReload = (live: GameConfigDoc): GameConfigDoc => splitFormOf(normalize(live));
+const saveAndReload = (live: GameConfigDoc): GameConfigDoc => migrateLegacyBonus(normalize(live));
 
 const errors = (doc: GameConfigDoc) =>
 	validateGameConfigDoc(doc)
@@ -106,7 +107,7 @@ const HOST: RawGameConfig = {
 };
 const host = normalize(HOST);
 
-console.log('\n1. open → save → reload changes nothing but the legacy keys');
+console.log('\n1. open → save → reload changes nothing');
 const stored: Record<string, GameConfigDoc> = {};
 for (const id of HOLD_AND_WIN_PRESET_IDS) stored[`hw-${id}`] = normalize(HOLD_AND_WIN_PRESETS[id]);
 for (const id of POTS_OVERLAY_PRESET_IDS) {
@@ -116,12 +117,15 @@ const borut = clone(stored['threePots on a lines host']);
 borut.coinOverlay!.pots = borut.coinOverlay!.pots!.map((p) =>
 	p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p,
 );
-delete borut.holdAndWin;
-delete borut.potsOverlay;
 stored['borut-pots-sample'] = normalize(borut);
 for (const [name, doc] of Object.entries(stored)) {
-	const live = splitFormOf(doc);
+	const live = migrateLegacyBonus(doc);
 	const untouched = clone(doc);
+	check(
+		`${name}: the stored doc has no legacy key`,
+		['holdAndWin', 'potsOverlay'].filter((k) => k in doc),
+		[],
+	);
 	check(
 		`${name}: the live doc has no legacy key`,
 		['holdAndWin', 'potsOverlay'].filter((k) => k in live),
@@ -132,7 +136,7 @@ for (const [name, doc] of Object.entries(stored)) {
 }
 
 console.log('\n2. a lines project with a coin overlay and two respin modes from different presets');
-const three = splitFormOf(stored['threePots on a lines host']);
+const three = migrateLegacyBonus(stored['threePots on a lines host']);
 check('the next respin id beside holdAndWin', nextRespinModeId(three), 'holdAndWin_2');
 check('the next respin id on a bare host', nextRespinModeId(host), 'holdAndWin');
 const two = ok(addRespinMode(three, 'holdAndWin_2', 'classic'));
@@ -175,9 +179,9 @@ check('a second save is a fixed point', saveAndReload(reloaded), reloaded);
 const saved = normalize(two);
 const before = stored['threePots on a lines host'];
 check(
-	'the regenerated mirror is mode 1, exactly as before (the runtime plays it)',
-	saved.holdAndWin,
-	before.holdAndWin,
+	'the primary view is mode 1, exactly as before (the runtime plays it)',
+	primaryHoldAndWin(saved),
+	primaryHoldAndWin(before),
 );
 {
 	// The dictionary is shared, so mode 2's own symbols are listed too; mode 1's are unchanged. The
@@ -201,8 +205,8 @@ check(
 	);
 }
 check(
-	'the mirror pots route blue to mode 2',
-	saved.potsOverlay?.pots.map((p) => p.bonus.mode),
+	'the pots view routes blue to mode 2',
+	potsOverlayOf(saved)?.pots.map((p) => p.bonus.mode),
 	['holdAndWin', 'holdAndWin_2', 'holdAndWin'],
 );
 check('the doc saves (no errors)', errors(saved), []);
@@ -335,7 +339,7 @@ console.log('\n4. removing a respin mode');
 		[['holdAndWin'], 'holdAndWin', []],
 	);
 	check('...and the doc saves', errors(normalize(out)), []);
-	check('mode 2 is now the mirrored one', Boolean(legacyHoldAndWin(normalize(out))), true);
+	check('mode 2 is now the primary', Boolean(primaryHoldAndWin(normalize(out))), true);
 
 	const off = clone(two);
 	off.freeSpins = { enabled: false };
@@ -364,8 +368,8 @@ console.log('\n4. removing a respin mode');
 	);
 	check(
 		'removing mode 2 leaves the stored doc as it was before it was added',
-		normalize(out2).holdAndWin,
-		before.holdAndWin,
+		primaryHoldAndWin(normalize(out2)),
+		primaryHoldAndWin(before),
 	);
 	check('a reels mode is not a respin mode', removeRespinMode(two, 'freeSpins').ok, false);
 }

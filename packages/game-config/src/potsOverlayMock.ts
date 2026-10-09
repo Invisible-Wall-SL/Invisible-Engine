@@ -4,7 +4,7 @@
  * protocol gate, so the gate proves the rounds the test server actually deals.
  */
 
-import { bonusSplitOf, legacyPotsOverlay } from './bonusGames';
+import { potsOverlayOf } from './bonusGames';
 import { triggerHalfFor } from './coinOverlay';
 import {
 	holdAndWinIsOverlayBonus,
@@ -107,10 +107,7 @@ function spinsTrigger(
 	modeId: string,
 	sellsBetModes = true,
 ): ReelsModeMockInput['trigger'] | undefined {
-	const { buy, luckySpin, randomMetre } = triggerHalfFor(
-		bonusSplitOf(doc).coinOverlay,
-		modeId,
-	).trigger;
+	const { buy, luckySpin, randomMetre } = triggerHalfFor(doc.coinOverlay, modeId).trigger;
 	const trigger = {
 		...(buy && sellsBetModes ? { buy } : {}),
 		...(luckySpin ? { luckySpin } : {}),
@@ -121,7 +118,7 @@ function spinsTrigger(
 
 /**
  * The mock's overlay inputs for a normalized doc, or `undefined` when nothing composes over the host.
- * That is the `potsOverlay` (something drops), or — with nothing dropping — a mode the overlay starts
+ * That is the overlay's pots and drops (`potsOverlayOf`, something drops), or — with nothing dropping — a mode the overlay starts
  * by a buy, a Lucky Spin or a random metre: a respin mode (`respinIsOverlayBonus`) or a spins mode
  * (`./spinsGame`), as `{ pots: [], drops: { table: [] } }` beside it (bonus-games Phases 7a, 8a). A
  * buy counts only where the host mock sells the doc's bet modes (`sellsBetModes`; not the book mock).
@@ -130,7 +127,7 @@ export function potsOverlayMockInputs(
 	doc: GameConfigDoc,
 	{ sellsBetModes = true }: { sellsBetModes?: boolean } = {},
 ): PotsOverlayMockInputs | undefined {
-	const overlay = legacyPotsOverlay(doc);
+	const overlay = potsOverlayOf(doc);
 	const modes = reelsModeInputs(doc, overlay?.pots ?? [], sellsBetModes);
 	if (!overlay) {
 		const holdAndWin = respinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;

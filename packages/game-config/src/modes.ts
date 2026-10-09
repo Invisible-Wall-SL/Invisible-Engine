@@ -19,8 +19,7 @@ import type { GameConfigDoc } from './types';
  * A BONUS MODE is a game of its own (`docs/design/bonus-games.md` §1): a `respinBoard` mode carries
  * its Hold and Win rules (`holdAndWin`), so a project may have several. A respin mode exists because
  * it is declared — normalization declares `holdAndWin` for a config that still carries the legacy
- * `holdAndWin` block (`./bonusGames`), and {@link resolveGameModes} reads such an unnormalized config
- * the same way.
+ * `holdAndWin` block (`./bonusGames`).
  */
 
 /** What a mode plays on. `reels` is the shared column-strip board; the rest are their own surfaces. */
@@ -94,33 +93,13 @@ export function builtinGameModes(): GameModeDecl[] {
 }
 
 /**
- * The modes the doc declares. An unnormalized LEGACY config — a `holdAndWin` block and no respin mode
- * carrying rules — declares its Hold and Win mode implicitly, ahead of its own modes and with any
- * authored override of it on top, which is exactly where and how the built-in used to resolve.
- */
-function declaredModes(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
-): GameModeDecl[] {
-	const own = doc?.modes ?? [];
-	if (!doc?.holdAndWin || own.some((m) => m.board === 'respinBoard' && m.holdAndWin)) return own;
-	const at = own.findIndex((m) => m.id === HOLD_AND_WIN_MODE);
-	// The block plays on the respin board whatever an override of the mode says.
-	return [
-		{ ...holdAndWinModeDecl(), ...own[at], board: 'respinBoard' },
-		...own.filter((_unused, i) => i !== at),
-	];
-}
-
-/**
  * Every mode this project has: the built-ins with the authored overrides applied field by field, then
  * the project's own modes in the order they were authored. Read modes through here, never through
  * `doc.modes`, so "absent means the built-in" lives in one place.
  */
-export function resolveGameModes(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
-): GameModeDecl[] {
+export function resolveGameModes(doc: Pick<GameConfigDoc, 'modes'> | undefined): GameModeDecl[] {
 	const resolved = builtinGameModes();
-	for (const authored of declaredModes(doc)) {
+	for (const authored of doc?.modes ?? []) {
 		const at = resolved.findIndex((mode) => mode.id === authored.id);
 		if (at >= 0) resolved[at] = { ...resolved[at], ...authored };
 		else resolved.push(authored);
@@ -130,7 +109,7 @@ export function resolveGameModes(
 
 /** The one mode named `id`, or `undefined` when the project has no such mode. */
 export function gameModeById(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'modes'> | undefined,
 	id: string,
 ): GameModeDecl | undefined {
 	return resolveGameModes(doc).find((mode) => mode.id === id);
@@ -143,7 +122,7 @@ export function gameModeById(
  * without such a mode answers `undefined` for every game type, as before it could have one.
  */
 export function ownReelsModeForGameType(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'modes'> | undefined,
 	gameType: string,
 ): GameModeDecl | undefined {
 	const builtins = builtinGameModes();
@@ -166,7 +145,7 @@ export function gameTypeForMode(mode: Pick<GameModeDecl, 'id' | 'gameType'>): st
  * `reveal.gameType: 'freegame'` reads as the `freeSpins` mode. An unknown game type is its own id.
  */
 export function modeIdForGameType(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'modes'> | undefined,
 	gameType: string,
 ): string {
 	const modes = resolveGameModes(doc);
@@ -297,7 +276,7 @@ export type SpinsModeDecl = GameModeDecl & { board: 'reels'; spins: SpinsGame };
  * The doc's SPINS bonus modes (`./spinsGame`, bonus-games Phase 8), in declaration order: its own
  * `reels` modes that carry a `spins` game. The one lister the tools, Flow and the runtime read.
  */
-export function spinsModeDecls(doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'>): SpinsModeDecl[] {
+export function spinsModeDecls(doc: Pick<GameConfigDoc, 'modes'>): SpinsModeDecl[] {
 	return resolveGameModes(doc).filter(
 		(mode): mode is SpinsModeDecl => mode.board === 'reels' && mode.spins !== undefined,
 	);
@@ -325,7 +304,7 @@ export function spinsGamesRefusal(baseKind: string | undefined): string | undefi
  * is the project's, so this sits beside the doc's own validator where the kind is known (`/config`).
  */
 export function spinsModeKindIssues(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'>,
+	doc: Pick<GameConfigDoc, 'modes'>,
 	baseKind: string | undefined,
 ): GameModeIssue[] {
 	const kind = baseKind ? NO_SPINS_GAMES_KINDS[baseKind] : undefined;
