@@ -40,6 +40,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5c | Flow v2 vocabulary by board | merged | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | merged | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | merged | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
+| 6b | Plain Hold and Win template (no pots, jackpots optional) | in progress | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | — |
 | 7a | Mock composition: overlay over any base, every route plays, per-mode pools | in progress | Bonus games Phase 7a — deal from the doc, lift the route guard, per-mode pools | — |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 7a) | — | — |
 | 8 | Overlay bonus of any game type (N spins of lines/scatter/ways/cluster) | not started (needs 7a) | — | — |
@@ -59,6 +60,8 @@ starts the phase sessions, reviews their PRs and merges them.
     current games stay byte-identical.
   - **Phase 7 is re-cut** into 7a (mock composition), 7b (drop the mirror), 8 (bonus of any game type)
     and 7c (samples).
+  - **A Hold and Win base is the plain game:** no pots, no collector, jackpots optional. Classic /
+    3 Pots / Collector are coin-overlay styles only (Phase 6b fixes the template).
 
 - 2026-10-08 — **The owner's model** (hub session): the coin overlay (classic / 3 Pots / Collector)
   is an option a base game turns on, and it only triggers. The bonus stage is a game of its own,

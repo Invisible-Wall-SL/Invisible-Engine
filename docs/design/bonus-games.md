@@ -59,6 +59,9 @@ A game is four layers, each authored independently, in any combination:
    - "Book of" is no longer a kind. It is an option on a lines game (book-feature project).
    - **Hold and Win stays a base kind.** It plays on its own: coins land on its reels and start its
      own respins, with no overlay and no bonus needed.
+   - **It is the plain game:** no pots, no collector, and **jackpots optional**. Game Maker's "Hold
+     and Win" template creates exactly this, with a Jackpots on/off choice (Phase 6b). Classic,
+     3 Pots and Collector are coin-overlay styles, added only through "＋ Coin overlay…".
 2. **Coin overlay (optional):** classic, 3 Pots or Collector, over ANY base kind (Hold and Win
    included). Each of its triggers can start an overlay bonus.
 3. **Overlay bonus (0..n):** a bonus mode of ANY game type.
