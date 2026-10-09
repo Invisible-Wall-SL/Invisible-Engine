@@ -62,27 +62,37 @@ overlay add-on.
      retrigger and a 100× buy. It is saved as the project's own [Game Config](/docs/game-config) and
      the project's screens are scaffolded from the Book-of reference layout (Borut's look), saved as
      a lines layout. Change it later in Game Config (Free spins → Expanding symbol).
-   - **Hold and Win** shows a **Preset** dropdown: **Pots (3 Pots of Egypt)**, **Classic
-     sticky (Grand)** or **Collector streak (Super Hotfire Diamonds)**. The preset is saved as
-     the project's own [Game Config](/docs/game-config), so the mock RGS deals the Hold and
-     Win feature from the first spin. That config is a lines base game, a coin overlay (its style
-     follows the preset) and one `holdAndWin` respin mode carrying the preset's rules — what
-     Game Config shows under **Coin overlay** and **Bonus modes**. The preset's coin and special
-     symbols are bound to placeholder art in the project's own
-     [Symbols](/docs/symbols-state-machine) doc, so they draw from the first spin; replace that art
-     in Symbols. Win Text starts on the engine's defaults. To
-     switch preset later, use **Reset to preset** in Game Config (the symbols doc is not
-     re-seeded — bind any new preset symbol in Symbols).
+   - **Hold and Win** shows a **Jackpots** dropdown: **On (MINI · MINOR · MAJOR · GRAND)** (the
+     default) or **Off**. Either way you get the plain Hold and Win: a 5×3, 5-line base game with
+     coin symbols on the base reels; 6 or more coins start 3 respins, every coin sticks, a new coin
+     resets the count to 3, and the coins pay at the end. No pots, no dropped tokens, no collector,
+     no specials. **On** adds four fixed jackpots (MINI 15×, MINOR 30×, MAJOR 100×, GRAND 1000×),
+     jackpot coins on the reels, and a full board pays GRAND; **Off** has no jackpots, no jackpot
+     coins and no full-board prize. With **Off** the jackpot coins on the base reels become plain
+     coins, so 6+ coins land (and the respins start) a little more often. This is saved as the
+     project's own [Game Config](game-config.md), so the mock RGS deals the feature from the
+     first spin: a lines base game, its coin trigger (Game Config's **Coin overlay**, style
+     Classic) and one `holdAndWin` respin mode under **Bonus modes**. The coin symbols are bound
+     to placeholder art in the project's own [Symbols](symbols-state-machine.md) doc, so they draw
+     from the first spin; replace that art in Symbols. Win Text starts on the engine's defaults.
+     The project has no **Pots** screen, and with Jackpots **Off** no **Jackpot bar** either (its
+     starter Flow does not show them). Pots come from a coin overlay (step 4, or **＋ Coin
+     overlay…** on the card later). To switch Jackpots later, or for one of the three reference
+     games (Pots, Classic sticky, Collector streak), use **Reset to preset** in Game Config (the
+     symbols doc is not re-seeded — bind any new preset symbol in Symbols). Projects created
+     before 2026-10-09 keep the preset they were made with.
 4. Optionally tick **Add a coin overlay** and pick its preset from the dropdown beside it. The
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
-   This route never grafts the Flow, so the overlay plays its coded beats.
+   This route never grafts the Flow, so the overlay plays its coded beats. On a new Hold and Win
+   game the only preset that fits is **Pots to free spins** (see the style list below). The test
+   server deals it: a full gold pot plays approximate free spins (plain line spins on its board).
 5. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
    [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
    `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
-   also gets the preset you picked as its own [Game Config](/docs/game-config)
+   also gets the plain Hold and Win as its own [Game Config](game-config.md)
    and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
    already deals and draws the feature). A confirmation appears and
    the project shows up under **Your projects** below. With the overlay ticked, the confirmation
@@ -221,13 +231,15 @@ steps, Flow) open: the dialog names who is editing, and you try again once they 
      with a different special active, plus value coins — and **Pots to free spins**, one gold pot
      that starts free spins.
    - **Collector** — listed, but no preset builds it: a collector lands on the base reels, and the
-     add-on never edits the game's strips. The dialog says so and **Add** stays off. Start from the
-     Hold and Win template's **Collector streak** preset instead (see [Create a game](#create-a-game)).
+     add-on never edits the game's strips. The dialog says so and **Add** stays off. For a collector
+     game, use **Reset to preset** → **Collector streak** in [Game Config](game-config.md) instead.
 
    Only the presets that fit the game's Game Config are offered; a style with none shows why in red.
    On a Hold and Win game **Coins only** never fits (its own reels start its feature), and **3 Pots**
-   only on the 3 Pots preset (its pots start specials Classic and Collector do not have). On a Hold
-   and Win game the overlay brings no value coins either, for the same reason.
+   only on a game reset to the Pots preset in Game Config (its pots start specials the plain Hold and
+   Win, Classic and Collector do not have), so a new Hold and Win game is offered **Pots to free
+   spins** only. On a Hold and Win game the overlay brings no value coins either, for the same
+   reason.
 3. Leave **Also add the overlay steps to the Flow** off unless you want them. Without the Flow
    steps the overlay plays its built-in beats, so the game needs no flow edit. Ticked, it adds the
    steps [Invisible Flow](flow.md#pots-overlay-and-hold-and-win-on-any-kind--add-ons)'s **＋ Add
@@ -247,8 +259,9 @@ overlay needs:
 - **Screens** — the Scene Editor's **＋ Add overlay screens**, done for you: the **Pots** screen
   (one Pot Meter per pot) and, with a Hold and Win bonus, the Jackpot bar and the feature's screens.
   Coins only has no pots, so it adds no Pots screen and no token. A pot that already has a Pot Meter
-  on any screen gets no second one. On a Hold and Win game, which has its Pots screen, it appends a
-  Pot Meter for each new pot beside the existing ones.
+  on any screen gets no second one. On a Hold and Win game it adds the Pots screen when the project
+  has none (a game made from the plain template), else appends a Pot Meter for each new pot beside
+  the existing ones.
 - **Win Text** — nothing. Every pot, jackpot and respin line already has a built-in default that
   [Win Text](win-text.md) and Localization offer once the config has the overlay. Writing the
   defaults in would freeze them as your own copy, so name the pots in Win Text yourself.
@@ -633,8 +646,9 @@ graduate later; its R2 authoring data carries over.
   `book`, `lines`, `ways`, `cluster`, `scatter` or Hold and Win game (a stepped board excepted). On a
   Hold and Win game a pot starts one of its own respin modes, or an approximate free spins (plain
   line spins on its board).
-- **Pots overlay on a Hold and Win game:** the project already has its Pots screen, so the add-on
-  only appends a Pot Meter for each new pot (`red_2`…) beside the existing ones. Arrange them in the
+- **Pots overlay on a Hold and Win game:** a project created before 2026-10-09 (or a sample) already
+  has its Pots screen, so the add-on only appends a Pot Meter for each new pot (`red_2`…) beside the
+  existing ones; a plain one gets the Pots screen added. Arrange them in the
   [Scene Editor](invisible-editor.md). **Coins only** is not offered there: the game's own Hold and
   Win starts from its reels, so dropped coins alone would start nothing.
 - **Only a Hold and Win mode with rules or a reels free spins can be added.** A wheel, a `none`

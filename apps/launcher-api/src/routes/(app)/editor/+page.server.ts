@@ -20,7 +20,7 @@ import {
 	LOSS_LIMIT_TEXT_OPTIONS,
 	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
 } from 'constants-shared/autoSpins';
-import { projectAddOns, respinMaxRows, respinModesOf } from '$lib/addOns';
+import { noJackpotTiers, projectAddOns, respinMaxRows, respinModesOf } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import {
@@ -286,6 +286,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			label,
 			...(maxRows ? { maxRows } : {}),
 		})),
+		// No respin mode has a jackpot tier: the scene set has no Jackpot bar.
+		noJackpotTiers: noJackpotTiers(respinModes),
 		// The config's add-on blocks (pots overlay / a Hold and Win bonus): the palette, the pickers
 		// and the scene set offer their parts. All false without a config ⇒ the kind's own answers.
 		addOns,

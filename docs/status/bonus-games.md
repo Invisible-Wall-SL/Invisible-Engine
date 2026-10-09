@@ -40,7 +40,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5c | Flow v2 vocabulary by board | merged | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | merged | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | merged | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
-| 6b | Plain Hold and Win template (no pots, jackpots optional) | in progress | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | — |
+| 6b | Plain Hold and Win template (no pots, jackpots optional) | in review | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
 | 7a | Mock composition: overlay over any base, every route plays, per-mode pools | in review | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 7a) | — | — |
 | 8 | Overlay bonus of any game type (N spins of lines/scatter/ways/cluster) | not started (needs 7a) | — | — |
@@ -436,6 +436,28 @@ starts the phase sessions, reviews their PRs and merges them.
     respin mode. Until then, the pot route into a Book-of host with a second respin mode is what
     plays (gate §1). The sample host playing two Hold and Win bonuses stays Phase 7's proof.
 
+- 2026-10-09 — **Phase 6b: the plain Hold and Win template** (hub-approved option (a)).
+  - **The template is the plain game.** Game Maker's "Hold and Win" seeds `holdAndWin.plain` or
+    `holdAndWin.plainNoJackpots` (game-config `HOLD_AND_WIN_TEMPLATES`): Classic's 5×3 / 5-line base
+    with coins on the base strips, `count` 6+, 3 respins, `allCoins`, `anyCoin` reset, and no
+    specials, pots or meters. Jackpots On: Classic's four tiers, jackpot coins and `fullBoardJackpot`
+    GRAND. Off: `jackpots: []` and `boardEnd: none`, which `validateHoldAndWin` already accepts.
+  - **Screens.** The plain project seeds no `pots` screen, and with Off no `jackpotBar`. The starter
+    Flow drops their show/hide steps and containers (the chain is re-joined), so it publishes with no
+    `container-scene-missing`. "＋ Coin overlay…" merges the Pots screen back.
+  - **The presets stay** for `/config` → Reset to preset, the samples, the gates and the
+    `scaffoldProject({ holdAndWinPreset })` option. The kind's un-authored default is still Pots, so
+    a re-scaffold or duplicate of an un-authored project seeds what it already played. `/admin`'s
+    create also gets the plain template (Jackpots On).
+  - **Gap, by decision:** on a plain Hold and Win, "＋ Coin overlay…" offers only **Pots to free
+    spins**. 3 Pots needs the payer, collector and multiplier specials its pots start, and Collector
+    has no overlay preset. Since Phase 7a (#1152) the test server deals the overlay on a Hold and
+    Win kind, so Pots to free spins on a plain game plays: a full pot plays approximate free spins.
+  - **For 8b / follow-up:** overlay presets become self-contained, so any overlay goes over any base
+    (the owner's model). 3 Pots brings the specials its pots need onto a host that lacks them, and
+    Collector gets an overlay preset. This comes after 7a merges, with `check:pots-overlay-add-on`
+    parity for every existing case.
+
 - 2026-10-09 — **Phase 7a: the overlay composes over any base, every route plays** (hub-approved
   twice: a first "deal by the doc" proposal, then the owner's revised model, which replaced it).
   - **The base engine comes from the KIND**, as on main: the Hold and Win engine for `holdAndWin`,
@@ -616,6 +638,57 @@ starts the phase sessions, reviews their PRs and merges them.
     - `check:svelte` is at baseline: launcher-api 48, lines 164, engine-game 37.
     - ESLint and Prettier are clean on the touched code.
   - **Not run here:** the live samples need R2 and the browser. CI's Current games renders them.
+
+- 2026-10-09 — **Phase 6b: the plain Hold and Win template, jackpots optional** (PR #1153,
+  game-config `holdAndWinPresets.ts`, launcher `projectScaffold.ts`, `gameConfigDefaults.ts`,
+  `/game-maker`, `/admin`).
+  - **What landed:**
+    - Create → Hold and Win shows **Jackpots: On / Off** instead of the Pots / Classic / Collector
+      preset picker, and creates the plain game. `/admin`'s create does the same (Jackpots on).
+    - The new committed defaults are `holdAndWin.plain.json` (`gameID` `hold_and_win_plain_jp`) and
+      `holdAndWin.plainNoJackpots.json` (`hold_and_win_plain`). The three preset JSONs are
+      byte-unchanged.
+    - `/config` → Reset to preset lists **Plain (Jackpots on)** and **Plain (Jackpots off)** before
+      the three presets. "Reset to template default" stays the kind's legacy default and now reads
+      "(Pots)": that is what a never-saved Hold and Win project plays, so no project's behaviour
+      changes.
+    - The Scene Editor's "Add missing screens" no longer puts the template's dropped screens back.
+      There is no pots screen without pots (the config's empty meter list already did that), and no
+      Jackpot bar when no respin mode has a jackpot tier: engine-layout's new `jackpotBar: false`
+      scene-set option, fed by launcher `noJackpotTiers` in `sceneSetOptionsFor` and the editor.
+    - The scaffold throws rather than write a plain project without its config, and the dropped
+      screens' Flow nodes take their data edges with them.
+    - Guides: `docs/tools/game-maker.md` and `docs/tools/game-config.md` (docs-keeper, then the
+      review fixes).
+  - **Gates:**
+    - `check:add-bonus-mode` §5, for Jackpots On and Off:
+      - the stored config is the template, normalizes and validates clean;
+      - it has one respin mode and no pots, meters, drops or special roles;
+      - the tiers follow the choice (`respinModesOf().jackpotTiers` empty when Off), as do the board
+        end and the `jackpotBar` screen, and there is never a `pots` screen;
+      - the Flow has no error and no `container-scene-missing`;
+      - on the Hold and Win mock, 20 forced-trigger rounds each start the respins, play at least 3
+        and pay the coins' total. Across them coins land on a respin, and a jackpot coin is dealt
+        only with On;
+      - each overlay the plain game is offered adds cleanly;
+      - the editor's missing set is empty on both, and the add-on's set has the Jackpot bar only
+        with On;
+      - Reset to preset lists the two Plain entries first.
+
+      Mutations that turn it red: screens not dropped (2), Flow not stripped (2), Off seeded as On
+      (3), `noJackpotTiers` off (1), the reference layout ignoring `jackpotBar: false` (1).
+    - `holdAndWin.fixture.ts` (the facade) adds `plain` trigger / fullBoard and `plain-no-jackpots`
+      trigger / chain through the real facade and mock. On Off: no jackpot event or cell, every
+      total finite, no pools published. Pointed at On's full board, the jackpot check fails.
+    - `check:lines-presets` pins the new preset order, and `expandingSymbol.fixture.ts` pins the two
+      new defaults.
+    - `check:holdandwin` 2078/0 + 428/0 and `check:pots-overlay` 112/0, with `MAIN_DIGESTS`
+      unchanged.
+    - `check:all` 420/420. `check:svelte` launcher-api is at its baseline of 48,
+      `check:undefined-names` is clean, and eslint and prettier are clean on the touched TS files.
+      `game-maker/+page.svelte` keeps three pre-existing prettier wraps from main untouched.
+  - **Not run here:** the browser playtest and CI's Current games. No stored config or sample
+    changes, so Current games should show 0 changed screens.
 
 - 2026-10-08 — **Phase 6: Game Maker template + "Add a bonus mode…"** (PR #1149, `game-config`
   `imports.ts` / `bonusImports.ts`, launcher `projectBonusImport.ts`, `projectScaffold.ts`,

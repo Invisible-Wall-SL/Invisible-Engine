@@ -16,14 +16,19 @@
  *     the coin overlay over the lines mock (bonus-games Phase 7a: the deal is decided by the doc);
  *     with no route it is refused with what to do; and it takes it on a pot once "＋ Coin overlay…
  *     → 3 Pots" gave it one;
- *  4. the Hold and Win template and the coin overlay add-on now write the split form, and normalize
- *     to exactly the config they wrote before.
+ *  4. the Hold and Win presets and the coin overlay add-on now write the split form, and normalize
+ *     to exactly the config they wrote before;
+ *  5. the "Hold and Win" template (bonus-games §0, Phase 6b) is the plain game: with Jackpots on and
+ *     off it stores the template, validates clean, has one respin mode and no pots, drops or
+ *     collector, seeds no pots screen (and with jackpots off no jackpot bar or tiers), and its mock
+ *     deals a full triggered round: respins, coins landing, the coins paying their total.
  */
 import { createServer } from 'node:http';
 import { mock } from 'node:test';
 import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import type { LayoutDoc, Scene, WinTextDoc } from 'engine-layout';
 import type { GameConfigDoc, ModeRoute } from 'game-config';
+import type { RuntimeBundle } from '../src/lib/server/runtimeBundle.ts';
 
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
@@ -134,8 +139,14 @@ const { applyBonusImport, respinModeCopyId } =
 	await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
 const { scaffoldProject } = await import('../src/lib/server/projectScaffold.ts');
-const { gameConfigDefaultFor, gameConfigSeedFor } =
+const { gameConfigDefaultFor, gameConfigPresetsFor, gameConfigSeedFor, holdAndWinTemplateSeed } =
 	await import('../src/lib/server/gameConfigDefaults.ts');
+const { cleanOverlayPresets } = await import('../src/lib/server/projectAddOn.ts');
+const { noJackpotTiers, projectAddOns, respinModesOf, sceneSetOptionsFor } =
+	await import('../src/lib/addOns.ts');
+const { getFullSceneSet, kindCapabilities } = await import('engine-layout');
+const { createMockRgs: createHoldAndWinMock } =
+	await import('../../../scripts/mock-rgs-server-holdandwin.mjs');
 const { validateFlowV2Against } = await import('../src/lib/server/flowV2Validation.ts');
 const { editorDocKey, flowV2DocKey, gameConfigDocKey, symbolsDocKey, winTextDocKey } =
 	await import('../src/lib/server/projectPaths.ts');
@@ -757,7 +768,7 @@ await check('a scatter is never a route; an unknown pot is refused', async () =>
 
 // ─── 4. the template and the coin overlay add-on write the split form ─────────────────────────
 
-console.log('\n4. the template and the coin overlay add-on write the split form');
+console.log('\n4. the presets and the coin overlay add-on write the split form');
 
 await check('the Hold and Win template stores the split form, the mirror regenerated', async () => {
 	for (const preset of HOLD_AND_WIN_PRESET_IDS) {
@@ -804,6 +815,263 @@ await check('the coin overlay add-on normalizes to what it wrote before, on ever
 		}
 	}
 	assert(compared >= 6, `only ${compared} cases`);
+});
+
+// ─── 5. the plain Hold and Win template (bonus-games §0, Phase 6b) ───────────────────────────
+
+console.log('\n5. the plain Hold and Win template: coins only, jackpots on or off');
+
+type MockEvent = { event: string; context?: unknown };
+type MockResponse = { events?: MockEvent[]; platform?: { gameRound?: { id?: string } } };
+type Mock = { handle: (req: unknown, res: unknown, url: URL) => Promise<void> };
+
+/** Boot the mock the test server builds for a stored config (`makeMock`: a lines contract carrying
+ *  the Hold and Win inputs runs on the Hold and Win engine), POST to it as the client does, close. */
+async function withMock<T>(
+	config: GameConfigDoc,
+	run: (post: (path: string, body: unknown) => Promise<MockResponse>) => Promise<T>,
+): Promise<T> {
+	const { grid } = mockContractOfBundle(
+		'lines',
+		{ config, symbols: { stacked: false, map: {} } } as unknown as Pick<
+			RuntimeBundle,
+			'config' | 'symbols'
+		>,
+		'plain-hold-and-win',
+		'holdAndWin',
+	);
+	assert(grid?.holdAndWin, 'the contract carries no Hold and Win inputs');
+	const mockRgs = createHoldAndWinMock({
+		label: 'plain-hold-and-win',
+		seed: 'plain-hold-and-win',
+		quiet: true,
+		...grid,
+	}) as Mock;
+	const server = createServer((req, res) =>
+		mockRgs.handle(req, res, new URL(req.url ?? '/', 'http://127.0.0.1')),
+	);
+	await new Promise<void>((done) => server.listen(0, '127.0.0.1', done));
+	const address = server.address();
+	const port = typeof address === 'object' && address ? address.port : 0;
+	const post = (path: string, body: unknown) =>
+		fetch(`http://127.0.0.1:${port}${path}`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify(body),
+		}).then((r) => r.json() as Promise<MockResponse>);
+	try {
+		return await run(post);
+	} finally {
+		await new Promise<void>((done) => server.close(() => done()));
+	}
+}
+
+/** The boot `config` event, and `count` rounds played to their end the way the client plays them:
+ *  bet + play (`force:trigger` starts the respins), `play` while the feature runs, `collect` if the
+ *  round is left open. */
+async function dealTriggeredRounds(config: GameConfigDoc, count: number) {
+	return withMock(config, async (post) => {
+		const sid = 'plain';
+		const booted = await post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
+		const boot = booted.events?.find((e) => e.event === 'config')?.context as {
+			paylines?: unknown[];
+			availablePayLines?: unknown[];
+			holdAndWin?: { jackpots?: unknown[] };
+		};
+		const lines = (boot?.paylines ?? boot?.availablePayLines ?? []).length;
+		const rounds: MockEvent[][] = [];
+		for (let i = 0; i < count; i++) {
+			const events: MockEvent[] = [];
+			let seq = 0;
+			let resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}`, [
+				{ action: 'bet', context: [lines, 1] },
+				{ action: 'play', context: 'force:trigger' },
+			]);
+			seq += 2;
+			events.push(...(resp.events ?? []));
+			const gid = resp.platform?.gameRound?.id;
+			const ended = () => events.some((e) => e.event === 'gameEnd');
+			for (let guard = 0; gid && !ended() && guard < 100; guard++) {
+				resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'play' }]);
+				seq += 1;
+				events.push(...(resp.events ?? []));
+			}
+			if (gid && !events.some((e) => e.event === 'gameRoundOver')) {
+				resp = await post(`/rgs/engine?sid=${sid}&seq=${seq}&gid=${gid}`, [{ action: 'collect' }]);
+				events.push(...(resp.events ?? []));
+			}
+			rounds.push(events);
+		}
+		return { boot, rounds };
+	});
+}
+
+for (const jackpots of ['on', 'off'] as const) {
+	const project = `tpl-plain-${jackpots}`;
+	KINDS[project] = 'holdAndWin';
+	await scaffoldProject(CLIENT, project, { holdAndWinJackpots: jackpots });
+	const { config, layout, flow } = docsOf(project);
+
+	await check(
+		`Jackpots ${jackpots}: stored as the template, normalizes and validates clean`,
+		() => {
+			const seed = holdAndWinTemplateSeed(jackpots);
+			assert(seed, 'no template');
+			same(content(normalize(config)), content(normalize(seed)), 'byte-identical after normalize');
+			same(content(config), content(normalize(seed)), 'stored as the template');
+			same(gameConfigErrors(config), [], 'errors');
+		},
+	);
+
+	await check(
+		`Jackpots ${jackpots}: one respin mode, coins only — no pots, drops or collector`,
+		() => {
+			const modes = respinModeDecls(config);
+			same(
+				modes.map((m) => m.id),
+				['holdAndWin'],
+				'respin modes',
+			);
+			const rules = modes[0].holdAndWin;
+			same(rules.specials, {}, 'specials');
+			same(rules.respins, { start: 3, reset: 'anyCoin' }, 'respins');
+			same(rules.stickiness, 'allCoins', 'stickiness');
+			const overlay = config.coinOverlay;
+			assert(!overlay?.pots?.length, 'pots');
+			assert(!config.potsOverlay, 'a pots overlay');
+			assert(!overlay?.meters?.length && !config.holdAndWin?.meters?.length, 'meters');
+			same(overlay?.style ?? 'classic', 'classic', 'style');
+			same(config.holdAndWin?.trigger.count?.min, 6, 'a count trigger of 6');
+			assert(
+				Object.values(config.symbols).every(
+					(s) =>
+						!(s.special_properties ?? []).some(
+							(r) => r !== 'coin' && r !== 'jackpot' && r !== 'wild' && r !== 'blank',
+						),
+				),
+				'a symbol with a special role',
+			);
+			const base = new Set(config.paddingReels.basegame.flat().map((c) => c.name));
+			assert(base.has('BONUS'), 'no coin on the base strips');
+		},
+	);
+
+	await check(`Jackpots ${jackpots}: the tiers, board end and screens follow the choice`, () => {
+		const [mode] = respinModesOf(config);
+		const tiers = jackpots === 'on' ? ['MINI', 'MINOR', 'MAJOR', 'GRAND'] : [];
+		same(mode.jackpotTiers, tiers, 'jackpot tiers the tools list');
+		same(
+			config.holdAndWin?.boardEnd.type,
+			jackpots === 'on' ? 'fullBoardJackpot' : 'none',
+			'board end',
+		);
+		const caps = kindCapabilities('holdAndWin', projectAddOns(config).addOns);
+		assert(caps.holdAndWin && caps.coinSymbols && !caps.potsOverlay, JSON.stringify(caps));
+		const scenes = layout.scenes.map((s) => s.id);
+		assert(!scenes.includes('pots'), 'a pots screen');
+		same(scenes.includes('jackpotBar'), jackpots === 'on', 'the jackpot bar screen');
+		const containers = flow.containers.map((c) => c.id);
+		assert(!containers.includes('pots'), 'the flow declares the pots');
+		same(containers.includes('jackpotBar'), jackpots === 'on', 'the flow declares the jackpot bar');
+		const issues = publishErrors(project);
+		same(describe(issues.filter((i) => i.severity === 'error')), '', 'flow errors');
+		same(
+			describe(issues.filter((i) => i.code === 'container-scene-missing')),
+			'',
+			'a flow step on a screen the layout lacks',
+		);
+	});
+
+	await check(
+		`Jackpots ${jackpots}: the mock deals a full respin round — coins land, respin, pay`,
+		async () => {
+			const { boot, rounds } = await dealTriggeredRounds(config, 20);
+			same(boot?.holdAndWin?.jackpots?.length ?? 0, jackpots === 'on' ? 4 : 0, 'boot jackpots');
+			for (const events of rounds) {
+				const names = events.map((e) => e.event);
+				assert(names.includes('holdAndWinTrigger'), `no trigger: ${names.join(',')}`);
+				assert(
+					names.filter((n) => n === 'respinUpdate').length >= 3,
+					`fewer than 3 respins: ${names.join(',')}`,
+				);
+				const end = events.find((e) => e.event === 'holdAndWinEnd')?.context as
+					{ cells: { amount: number }[]; total: number } | undefined;
+				assert(end, `no holdAndWinEnd: ${names.join(',')}`);
+				assert(end.total > 0, 'the coins paid nothing');
+				same(
+					end.cells.reduce((sum, c) => sum + c.amount, 0),
+					end.total,
+					'the coins pay their total',
+				);
+				assert(names.includes('gameEnd'), 'the round never ended');
+			}
+			assert(
+				rounds.some((events) => events.some((e) => e.event === 'coinsLand')),
+				'no respin landed a coin in 20 rounds',
+			);
+			const dealtJackpot = rounds.some((events) => /JACKPOT/.test(JSON.stringify(events)));
+			same(dealtJackpot, jackpots === 'on', 'a jackpot coin dealt in 20 rounds');
+		},
+	);
+}
+
+await check('each offered overlay adds cleanly to the plain template', () => {
+	const plain = holdAndWinTemplateSeed('on');
+	assert(plain, 'no template');
+	const offered = cleanOverlayPresets(plain);
+	assert(offered.length, 'no coin overlay fits the plain template');
+	for (const preset of offered) {
+		const added = addPotsOverlay(plain, preset);
+		assert(added.ok, `${preset}: ${added.ok ? '' : added.reason}`);
+		same(gameConfigErrors(normalize(splitFormOf(added.doc))), [], `${preset}: errors`);
+	}
+});
+
+await check("the Scene Editor's full set never puts back what the template left out", () => {
+	for (const jackpots of ['on', 'off'] as const) {
+		const { config, layout } = docsOf(`tpl-plain-${jackpots}`);
+		const { addOns, potIds } = projectAddOns(config);
+		const modes = respinModesOf(config);
+		// The editor's `sceneSetOptions` (editor/+page.svelte), from its load's data.
+		const full = getFullSceneSet('holdAndWin', {
+			...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
+			respinModes: modes.map(({ id, label }) => ({ id, label })),
+			...addOns,
+			...(potIds ? { potIds } : {}),
+		});
+		assert(full, 'no scene set');
+		const missing = full.scenes.filter(
+			(ref) =>
+				!layout.scenes.some((cur) => cur.id === ref.id) &&
+				!(ref.role && ref.role !== 'mode' && layout.scenes.some((cur) => cur.role === ref.role)),
+		);
+		same(
+			missing.map((scene) => scene.id),
+			[],
+			`Jackpots ${jackpots}: "Add missing screens" offers`,
+		);
+		const forAddOn = getFullSceneSet('holdAndWin', sceneSetOptionsFor('holdAndWin', config));
+		assert(forAddOn, 'no add-on scene set');
+		same(
+			forAddOn.scenes.some((scene) => scene.id === 'jackpotBar'),
+			jackpots === 'on',
+			`Jackpots ${jackpots}: the add-on's scene set has the jackpot bar`,
+		);
+	}
+});
+
+await check('/config → Reset to preset offers the plain template first, then the three', () => {
+	const presets = gameConfigPresetsFor('holdAndWin');
+	same(
+		presets.map((p) => p.id),
+		['holdAndWin.plain', 'holdAndWin.plainNoJackpots', ...HOLD_AND_WIN_PRESET_IDS],
+		'ids',
+	);
+	for (const [at, jackpots] of (['on', 'off'] as const).entries()) {
+		const seed = holdAndWinTemplateSeed(jackpots);
+		assert(seed, 'no template');
+		same(presets[at].doc, seed, `Plain (Jackpots ${jackpots}) is the template`);
+	}
 });
 
 if (failures) {

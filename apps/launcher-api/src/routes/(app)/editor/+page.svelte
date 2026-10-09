@@ -1492,9 +1492,10 @@
 
 	/** The project's Game Config expands a respin board ⇒ the scene set reserves the grown area; its
 	 *  add-ons merge their screens in, one set per respin mode, with the config's pots on the pots
-	 *  screen. */
+	 *  screen; with no jackpot tier it has no Jackpot bar. */
 	const sceneSetOptions = $derived<SceneSetOptions>({
 		...(data.expansionMaxRows ? { maxRows: data.expansionMaxRows } : {}),
+		...(data.noJackpotTiers ? { jackpotBar: false as const } : {}),
 		...(data.respinModes.length ? { respinModes: data.respinModes } : {}),
 		...data.addOns,
 		...(data.potIds ? { potIds: data.potIds } : {}),
