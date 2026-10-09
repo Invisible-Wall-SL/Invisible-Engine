@@ -3,14 +3,18 @@ import {
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESET_LABELS,
 	holdAndWinPresetKey,
+	holdAndWinTemplateKey,
 	normalizeGameConfigDoc,
 	resolveWinLevels,
 	type GameConfigDoc,
 	type HoldAndWinPresetId,
+	type HoldAndWinTemplateJackpots,
 } from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
 import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
 import holdAndWinCollector from '$lib/data/gameConfig/holdAndWin.collector.json';
+import holdAndWinPlain from '$lib/data/gameConfig/holdAndWin.plain.json';
+import holdAndWinPlainNoJackpots from '$lib/data/gameConfig/holdAndWin.plainNoJackpots.json';
 import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
 import linesBookOfThermopylae from '$lib/data/gameConfig/lines.bookOfThermopylae.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
@@ -64,6 +68,8 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[holdAndWinPresetKey('pots')]: holdAndWinPots,
 		[holdAndWinPresetKey('classic')]: holdAndWinClassic,
 		[holdAndWinPresetKey('collector')]: holdAndWinCollector,
+		[holdAndWinTemplateKey('on')]: holdAndWinPlain,
+		[holdAndWinTemplateKey('off')]: holdAndWinPlainNoJackpots,
 		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
 	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
@@ -142,6 +148,15 @@ export function gameConfigSeedFor(
 	}
 	return gameConfigDefaultFor(gameType);
 }
+
+/**
+ * The config Game Maker's "Hold and Win" template creates (`docs/design/bonus-games.md` §0): the plain
+ * game, coins only, with or without jackpots. Pots and Collector are coin overlay styles now, added
+ * through "＋ Coin overlay…"; the three presets stay `/config`'s "Reset to preset" and the samples'.
+ */
+export const holdAndWinTemplateSeed = (
+	jackpots: HoldAndWinTemplateJackpots,
+): GameConfigDoc | null => DEFAULTS_BY_GAME_TYPE[holdAndWinTemplateKey(jackpots)] ?? null;
 
 export type GameConfigSource = 'authored' | 'template';
 

@@ -573,7 +573,8 @@ export const actions: Actions = {
 			}
 			throw e;
 		}
-		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key);
+		// A new Hold and Win game is the plain template, as Game Maker creates it (bonus-games §0).
+		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, { holdAndWinJackpots: 'on' });
 		return { action: 'createProject', ok: `Created project ${key}.` };
 	},
 

@@ -2,13 +2,10 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import {
-		DEFAULT_HOLD_AND_WIN_PRESET,
-		HOLD_AND_WIN_PRESET_IDS,
-		HOLD_AND_WIN_PRESET_LABELS,
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		type CoinOverlayStyle,
-		type HoldAndWinPresetId,
+		type HoldAndWinTemplateJackpots,
 		type ImportableFeature,
 		type PotsOverlayPresetId,
 	} from 'game-config';
@@ -59,7 +56,8 @@
 	let name = $state('');
 	let clientKey = $state('');
 	let gameType = $state(data.createKinds[0]?.id ?? 'lines');
-	let holdAndWinPreset = $state<HoldAndWinPresetId>(DEFAULT_HOLD_AND_WIN_PRESET);
+	/** The Hold and Win template's Jackpots choice: the plain game with or without them. */
+	let holdAndWinJackpots = $state<HoldAndWinTemplateJackpots>('on');
 	/** A lines game's starting preset, or '' for the lines template. */
 	let linesPreset = $state('');
 	let creating = $state(false);
@@ -299,7 +297,7 @@
 	const createPresets = $derived(
 		data.createOverlayPresets[
 			gameType === 'holdAndWin'
-				? `holdAndWin:${holdAndWinPreset}`
+				? `holdAndWin:${holdAndWinJackpots}`
 				: gameType === 'lines' && linesPreset
 					? `lines:${linesPreset}`
 					: gameType
@@ -977,11 +975,13 @@
 					{/if}
 					{#if gameType === 'holdAndWin'}
 						<label>
-							Preset
-							<select bind:value={holdAndWinPreset}>
-								{#each HOLD_AND_WIN_PRESET_IDS as id (id)}
-									<option value={id}>{HOLD_AND_WIN_PRESET_LABELS[id]}</option>
-								{/each}
+							Jackpots
+							<select
+								bind:value={holdAndWinJackpots}
+								title="Coins only, with or without the MINI–GRAND jackpots. Pots and Collector are coin overlay styles: add them on the card with ＋ Coin overlay…"
+							>
+								<option value="on">On (MINI · MINOR · MAJOR · GRAND)</option>
+								<option value="off">Off</option>
 							</select>
 						</label>
 					{/if}
@@ -991,7 +991,7 @@
 				<input type="hidden" name="clientKey" value={clientKey} />
 				<input type="hidden" name="gameType" value={gameType} />
 				{#if gameType === 'holdAndWin'}
-					<input type="hidden" name="holdAndWinPreset" value={holdAndWinPreset} />
+					<input type="hidden" name="holdAndWinJackpots" value={holdAndWinJackpots} />
 				{/if}
 				{#if gameType === 'lines' && linesPreset}
 					<input type="hidden" name="linesPreset" value={linesPreset} />
@@ -1313,8 +1313,8 @@
 											<span class="stale-dot"></span>
 											<div class="stale-body">
 												<strong>Engine update available.</strong>
-												The shared engine runtime shipped after this game was last published, so the
-												running game may still be on the old engine. Republish to re-hydrate it.
+												The shared engine runtime shipped after this game was last published, so the running
+												game may still be on the old engine. Republish to re-hydrate it.
 											</div>
 											<button
 												class="stale-cta"
