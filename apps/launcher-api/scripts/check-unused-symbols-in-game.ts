@@ -40,6 +40,7 @@ import {
 	gameConfigErrors,
 	holdAndWinBlankSymbol,
 	normalizeGameConfigDoc,
+	primaryHoldAndWin,
 	symbolUses,
 	type GameConfigDoc,
 } from 'game-config';

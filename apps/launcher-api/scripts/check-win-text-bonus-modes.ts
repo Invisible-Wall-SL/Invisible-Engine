@@ -49,7 +49,10 @@ import {
 	addPotsOverlay,
 	holdAndWinModeDecl,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
+	primaryHoldAndWin,
 	primaryRespinMode,
+	setOverlayPots,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
 } from 'game-config';
@@ -132,13 +135,10 @@ const withOverlay = (doc: GameConfigDoc, id: PotsOverlayPresetId): GameConfigDoc
 const saveReload = (doc: unknown): WinTextDoc =>
 	normalizeWinTextDoc(JSON.parse(JSON.stringify(normalizeWinTextDoc(doc, 'reject'))));
 
-/** `doc` plus a second respin mode `holdAndWin_2` with renamed tiers and a wheel, saved the way a
- *  split-form writer saves it (the legacy keys deleted). */
+/** `doc` plus a second respin mode `holdAndWin_2` with renamed tiers and a wheel. */
 const SECOND = 'holdAndWin_2';
 const withSecondMode = (doc: GameConfigDoc): GameConfigDoc => {
 	const out = clone(doc);
-	delete out.holdAndWin;
-	delete out.potsOverlay;
 	const game = clone(primaryRespinMode(out.modes)!.holdAndWin);
 	game.jackpots = game.jackpots.map((jackpot) => ({ ...jackpot, name: `GOLD_${jackpot.name}` }));
 	game.wheel = clone(HOLD_AND_WIN_PRESETS.collector.holdAndWin!.wheel);
@@ -152,7 +152,7 @@ const withSecondMode = (doc: GameConfigDoc): GameConfigDoc => {
 
 const lines = normalize(gameConfigDefaultFor('lines'));
 const two = withSecondMode(withOverlay(lines, 'threePots'));
-const primaryTiers = two.holdAndWin!.jackpots.map((jackpot) => jackpot.name);
+const primaryTiers = primaryHoldAndWin(two)!.jackpots.map((jackpot) => jackpot.name);
 
 const authored: WinTextDoc = {
 	version: 1,
@@ -316,9 +316,11 @@ const authored: WinTextDoc = {
 {
 	const book = normalize(gameConfigDefaultFor('bookOf'));
 	const borut = withOverlay(book, 'threePots');
-	borut.potsOverlay!.pots = borut.potsOverlay!.pots.map((p) =>
-		p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p,
-	);
+	const pots = potsOverlayOf(borut)!;
+	setOverlayPots(borut, {
+		...pots,
+		pots: pots.pots.map((p) => (p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p)),
+	});
 	const docs: [string, string, GameConfigDoc | null][] = [
 		['no config', 'lines', null],
 		['lines (free spins)', 'lines', lines],
@@ -333,6 +335,9 @@ const authored: WinTextDoc = {
 			(id) => [`lines + ${id}`, 'lines', withOverlay(lines, id)] as [string, string, GameConfigDoc],
 		),
 	];
+	/** The legacy block: the primary respin game in the block shape. */
+	const blockOf = (config: GameConfigDoc | null) =>
+		config ? primaryHoldAndWin(config) : undefined;
 	/** The pre-5d Localization call (`localizationSections.ts`): tiers off the legacy block. */
 	const before = (doc: WinTextDoc | undefined, kind: string, config: GameConfigDoc | null) => {
 		const { addOns, potIds } = projectAddOns(config);
@@ -340,7 +345,7 @@ const authored: WinTextDoc = {
 		return harvestWinText(doc, {
 			holdAndWin: capabilities.holdAndWin,
 			pots: capabilities.pots,
-			jackpots: (config?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+			jackpots: (blockOf(config)?.jackpots ?? []).map((jackpot) => jackpot.name),
 			meters: potIds ?? [],
 		});
 	};
@@ -352,8 +357,8 @@ const authored: WinTextDoc = {
 			`4. ${name} · the /win-text tiers and wheel are the legacy block's`,
 			[modes[0]?.jackpotTiers ?? [], modes[0]?.hasWheel ?? false],
 			[
-				(config?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
-				Boolean(config?.holdAndWin?.wheel),
+				(blockOf(config)?.jackpots ?? []).map((jackpot) => jackpot.name),
+				Boolean(blockOf(config)?.wheel),
 			],
 		);
 		for (const [which, doc] of [
