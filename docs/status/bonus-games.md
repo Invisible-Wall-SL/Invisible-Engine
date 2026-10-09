@@ -40,7 +40,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 6b | Plain Hold and Win template (no pots, jackpots optional) | merged (2443c28) | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
 | 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
 | 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
-| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | in review | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | PR pending |
+| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | in review | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
 | 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | not started | — | — |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 8b, 8c) | — | — |
 | 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b) | — | — |
@@ -617,7 +617,7 @@ starts the phase sessions, reviews their PRs and merges them.
 ## Recent changes
 
 - 2026-10-09 — **Phase 8b: spins modes in `/config` and Game Maker; self-contained overlay presets**
-  (PR #TBD; game-config `spinsModes.ts`, `imports.ts`, `addOns.ts`, `potsOverlayPresets.ts`,
+  (PR #1156; game-config `spinsModes.ts`, `imports.ts`, `addOns.ts`, `potsOverlayPresets.ts`,
   `modes.ts`; `/config` `BonusModesSection`, new `SpinsModeEditor`, `CoinOverlaySection`,
   `pageDoc.ts`, `+page.svelte`; Game Maker `+page.svelte`, `projectBonusImport.ts`,
   `potsOverlayAddOn.ts`; guides `docs/tools/game-config.md`, `game-maker.md`).
