@@ -4,7 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** Phases 1, 2, 3 and 5b are merged: normalized docs carry the split form plus a
+**One-line state:** (2026-10-09) Phases 0–6 merged; 7a in progress; model revised (design §0). Earlier: Phases 1, 2, 3 and 5b are merged: normalized docs carry the split form plus a
 legacy compat mirror, the mock plays one Hold and Win engine per respin mode, and the facade reads
 the rules per mode. Phase 5a (`/config` Bonus modes + Coin overlay) is in review as PR #1136. The
 game still plays only `holdAndWin` until Phase 4.
@@ -33,16 +33,35 @@ starts the phase sessions, reviews their PRs and merges them.
 | 0 | Plan + hub | merged | Hold and Wins as standalone project | #1131 |
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
 | 2 | Mock: per-mode engines | merged | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #1138 |
-| 3 | Facade + wire + event types | in review | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
-| 4 | Engine runtime: active-mode rules | in review | Bonus games Phase 4: the engine runtime plays the active respin mode | #1141 |
-| 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
-| 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
-| 5c | Flow v2 vocabulary by board | in review | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
-| 5d | Win Text + Localization per mode | in review | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
-| 6 | Game Maker: template + Add a bonus mode… | in review | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
-| 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
+| 3 | Facade + wire + event types | merged | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
+| 4 | Engine runtime: active-mode rules | merged | Bonus games Phase 4: the engine runtime plays the active respin mode | #1141 |
+| 5a | `/config` Bonus modes + Coin overlay | merged | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
+| 5b | Scene Editor + capabilities + `/symbols` | merged | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
+| 5c | Flow v2 vocabulary by board | merged | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
+| 5d | Win Text + Localization per mode | merged | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
+| 6 | Game Maker: template + Add a bonus mode… | merged | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
+| 6b | Plain Hold and Win template (no pots, jackpots optional) | in progress | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | — |
+| 7a | Mock composition: overlay over any base, every route plays, per-mode pools | in progress | Bonus games Phase 7a — deal from the doc, lift the route guard, per-mode pools | — |
+| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 7a) | — | — |
+| 8 | Overlay bonus of any game type (N spins of lines/scatter/ways/cluster) | not started (needs 7a) | — | — |
+| 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b, 8) | — | — |
 
 ## Decisions & findings
+
+- 2026-10-09 — **The owner revised the model** (hub session; design §0, which supersedes §1 and §6.4).
+  - **Base kinds:** lines, scatter, ways, cluster and Hold and Win. Book-of is an option on lines.
+  - **Hold and Win stays a base kind** and plays alone. Decision §6.4 (retire the kind) is reversed.
+  - **The coin overlay** (classic / 3 Pots / Collector) is optional over ANY base kind, Hold and Win
+    included. Each trigger starts an overlay bonus.
+  - **An overlay bonus can be ANY game type.** A Hold and Win bonus plays its respin rules. A lines /
+    scatter / ways / cluster bonus plays N spins of that game, then returns (Phase 8).
+  - **Free spins** stay the normal bonus, from scatters or a buy.
+  - **The mock only has to work for authoring:** approximate math is fine for new combinations, and
+    current games stay byte-identical.
+  - **Phase 7 is re-cut** into 7a (mock composition), 7b (drop the mirror), 8 (bonus of any game type)
+    and 7c (samples).
+  - **A Hold and Win base is the plain game:** no pots, no collector, jackpots optional. Classic /
+    3 Pots / Collector are coin-overlay styles only (Phase 6b fixes the template).
 
 - 2026-10-08 — **The owner's model** (hub session): the coin overlay (classic / 3 Pots / Collector)
   is an option a base game turns on, and it only triggers. The bonus stage is a game of its own,
