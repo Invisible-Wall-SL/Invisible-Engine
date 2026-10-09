@@ -4,10 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** (2026-10-09) Phases 0–6 merged; 7a in progress; model revised (design §0). Earlier: Phases 1, 2, 3 and 5b are merged: normalized docs carry the split form plus a
-legacy compat mirror, the mock plays one Hold and Win engine per respin mode, and the facade reads
-the rules per mode. Phase 5a (`/config` Bonus modes + Coin overlay) is in review as PR #1136. The
-game still plays only `holdAndWin` until Phase 4.
+**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a and 8a merged; 8b ∥ 8c next, then 7b, then 7c. Model: design §0.
 
 ## How sessions use this file (the hub)
 
@@ -40,11 +37,13 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5c | Flow v2 vocabulary by board | merged | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
 | 5d | Win Text + Localization per mode | merged | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | merged | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
-| 6b | Plain Hold and Win template (no pots, jackpots optional) | in review | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
+| 6b | Plain Hold and Win template (no pots, jackpots optional) | merged (2443c28) | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
 | 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
-| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 7a) | — | — |
-| 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | in review | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
-| 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b, 8) | — | — |
+| 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
+| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | not started | — | — |
+| 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | not started | — | — |
+| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 8b, 8c) | — | — |
+| 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b) | — | — |
 
 ## Decisions & findings
 
