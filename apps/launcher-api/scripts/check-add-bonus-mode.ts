@@ -12,9 +12,10 @@
  *     screens as `<reference id>-holdAndWin_2`, its Flow tab (which publishes clean) and its Win Text
  *     under `modes.holdAndWin_2`, with a pot routed to it — and nothing else of the host moves;
  *  2. a re-sync after a source edit updates only `holdAndWin_2`;
- *  3. a plain lines host with no overlay is refused with what to do (its mock deals a Hold and Win
- *     only from a pot until Phase 7, and a buy route that would never play is no route), and takes
- *     it once "＋ Coin overlay… → 3 Pots" gave it a pot to route;
+ *  3. a plain lines host with no overlay takes it on a buy route, and the bought round plays it on
+ *     the coin overlay over the lines mock (bonus-games Phase 7a: the deal is decided by the doc);
+ *     with no route it is refused with what to do; and it takes it on a pot once "＋ Coin overlay…
+ *     → 3 Pots" gave it one;
  *  4. the Hold and Win presets and the coin overlay add-on now write the split form, and normalize
  *     to exactly the config they wrote before;
  *  5. the "Hold and Win" template (bonus-games §0, Phase 6b) is the plain game: with Jackpots on and
@@ -108,10 +109,13 @@ mock.module(src('lib/server/r2.ts'), {
 const SOURCE = 'hw-classic-sample';
 const HOST = 'borut-pots-sample';
 const PLAIN = 'plain-lines';
+/** A second plain lines project, for the buy route (so `PLAIN` stays plain for the pot route). */
+const PLAIN_BUY = 'plain-lines-buy';
 const KINDS: Record<string, string> = {
 	[SOURCE]: 'holdAndWin',
 	[HOST]: 'bookOf',
 	[PLAIN]: 'lines',
+	[PLAIN_BUY]: 'lines',
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -128,6 +132,9 @@ mock.module(src('lib/server/runtimeBundleCache.ts'), {
 const ME = 'session-me';
 
 const { modeRouteOptions } = await import('../src/lib/bonusImport.ts');
+const { mockContractOfBundle } = await import('../src/lib/server/mockContract.ts');
+const { withPotsOverlay } = await import('../../../scripts/mock-pots-overlay.mjs');
+const { createMockRgs: createLinesMock } = await import('../../../scripts/mock-rgs-server.mjs');
 const { applyBonusImport, respinModeCopyId } =
 	await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
@@ -260,8 +267,10 @@ async function makeHost() {
 
 /** A plain lines project that saved its config: no overlay, a buy-bonus bet mode. */
 async function makePlain() {
-	await scaffoldProject(CLIENT, PLAIN);
-	put(gameConfigDocKey(CLIENT, PLAIN), lines());
+	for (const project of [PLAIN, PLAIN_BUY]) {
+		await scaffoldProject(CLIENT, project);
+		put(gameConfigDocKey(CLIENT, project), lines());
+	}
 }
 const lines = (): GameConfigDoc => structuredClone(gameConfigDefaultFor('lines')!);
 
@@ -582,8 +591,8 @@ await check("the copied tab's cinematic this project lacks is named in the Flow 
 console.log('\n3. into a plain lines host with no overlay');
 const plainBefore = docsOf(PLAIN);
 const plainBytes = stored(gameConfigDocKey(CLIENT, PLAIN));
-const addToPlain = (routes?: ModeRoute[]) =>
-	applyBonusImport(CLIENT, PLAIN, {
+const addToPlain = (routes?: ModeRoute[], project = PLAIN) =>
+	applyBonusImport(CLIENT, project, {
 		source: SOURCE,
 		mode: 'holdAndWin',
 		asMode: true,
@@ -592,27 +601,93 @@ const addToPlain = (routes?: ModeRoute[]) =>
 		at: AT,
 	});
 
+/** Deal one round of `config` through the mock the test server builds for it (its contract; the
+ *  lines mock with the coin overlay over it), betting `option`, and return the events. */
+const dealOne = async (config: GameConfigDoc, option: number) => {
+	const { grid } = mockContractOfBundle(
+		'lines',
+		{ config, symbols: { map: {}, index: {} } } as Parameters<typeof mockContractOfBundle>[1],
+		PLAIN_BUY,
+	);
+	const inputs = (grid as { potsOverlay?: unknown } | undefined)?.potsOverlay;
+	assert(inputs, 'the contract carries the coin overlay');
+	const mockRgs = withPotsOverlay(
+		createLinesMock,
+		inputs,
+	)({
+		label: 'add-bonus-mode',
+		seed: 'add-bonus-mode',
+		quiet: true,
+		cascade: false,
+		...grid,
+	}) as { handle: (req: unknown, res: unknown, url: URL) => Promise<void> };
+	const server = createServer((req, res) =>
+		mockRgs.handle(req, res, new URL(req.url ?? '/', 'http://127.0.0.1')),
+	);
+	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+	const { port } = server.address() as { port: number };
+	const post = async (query: string, body: unknown) =>
+		(await (
+			await fetch(`http://127.0.0.1:${port}/rgs/engine?${query}`, {
+				method: 'POST',
+				body: JSON.stringify(body),
+			})
+		).json()) as { events: { event: string; context?: Record<string, unknown> }[] };
+	try {
+		await post('sid=s&seq=0', [{ action: 'config' }]);
+		const opened = await post('sid=s&seq=0', [
+			{ action: 'bet', context: [option, 1] },
+			{ action: 'play', context: null },
+		]);
+		return opened.events;
+	} finally {
+		await new Promise<void>((resolve) => server.close(() => resolve()));
+	}
+};
+
 await check(
-	'a buy route is refused: a lines game deals it from Phase 7, nothing written',
+	'a buy route is taken (bonus-games Phase 7a: a lines game deals it), and the buy plays it',
 	async () => {
 		assert(!plainBefore.config.coinOverlay && !plainBefore.config.modes, 'the host is not plain');
-		const out = await addToPlain([{ kind: 'buy', betMode: 'bonus' }]);
-		assert(!out.ok && /route a pot to it/.test(out.error), JSON.stringify(out));
-		same(stored(gameConfigDocKey(CLIENT, PLAIN)), plainBytes, 'nothing written');
+		const out = await addToPlain([{ kind: 'buy', betMode: 'bonus' }], PLAIN_BUY);
+		assert(out.ok, `refused: ${out.ok ? '' : out.error}`);
+		const config = docsOf(PLAIN_BUY).config;
+		same(
+			config.coinOverlay?.trigger?.buy?.map((tier) => [tier.betMode, tier.mode]),
+			[['bonus', out.mode]],
+			'the buy tier starts it',
+		);
+		same(gameConfigErrors(config), [], 'errors');
+		same(config.paddingReels.basegame, plainBefore.config.paddingReels.basegame, 'base strips');
+		const option = Object.keys(config.betModes).indexOf('bonus');
+		const events = await dealOne(config, option);
+		const trigger = events.find((e) => e.event === 'spinTrigger');
+		same(
+			[trigger?.context?.cause, trigger?.context?.bonus],
+			['buy', 'respin'],
+			'the bought round starts the respin mode by its buy',
+		);
+		assert(
+			!events.some((e) => e.event === 'enterBonus' && e.context?.bonus === 'feature'),
+			'the lines host does not also enter its free spins',
+		);
+	},
+);
+await check(
+	'…the dialog offers the buy there; the Book-of kind, whose mock sells none, does not',
+	() => {
+		same(
+			modeRouteOptions(plainBefore.config, 'lines').map((o) => o.key),
+			['buy:bonus'],
+			'options',
+		);
+		same(modeRouteOptions(plainBefore.config, 'bookOf'), [], 'a Book-of host');
 	},
 );
 
-await check('…the dialog offers no route there: nothing it lists would play', () => {
-	same(modeRouteOptions(plainBefore.config, 'lines'), [], 'options');
-	assert(
-		modeRouteOptions(plainBefore.config, 'holdAndWin').some((o) => o.key === 'buy:bonus'),
-		'a Hold and Win kind deals the buy',
-	);
-});
-
-await check('…with no route it says to add a coin overlay with pots first', async () => {
+await check('…with no route it says something must start it, and writes nothing', async () => {
 	const out = await addToPlain();
-	assert(!out.ok && /Add a coin overlay with pots first/.test(out.error), JSON.stringify(out));
+	assert(!out.ok && /something must start it/.test(out.error), JSON.stringify(out));
 	same(stored(gameConfigDocKey(CLIENT, PLAIN)), plainBytes, 'nothing written');
 });
 
@@ -625,8 +700,8 @@ await check('＋ Coin overlay… → 3 Pots, then a pot route: it is added', asy
 	const withPots = docsOf(PLAIN).config;
 	same(
 		modeRouteOptions(withPots, 'lines').map((o) => o.key),
-		[...(withPots.coinOverlay?.pots ?? []).map((p) => `pot:${p.id}`), 'count'],
-		'the dialog offers the pots, and the coin count its dropped value coins fill',
+		[...(withPots.coinOverlay?.pots ?? []).map((p) => `pot:${p.id}`), 'count', 'buy:bonus'],
+		'the dialog offers the pots, the coin count its dropped value coins fill, and the buy',
 	);
 	const out = await addToPlain([{ kind: 'pot', pot: 'red' }]);
 	assert(out.ok, `refused: ${out.ok ? '' : out.error}`);

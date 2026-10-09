@@ -556,21 +556,40 @@ console.log('\n9. add a bonus mode (bonus-games Phase 6)');
 		refusal(
 			importRespinMode(host, SOURCE, {
 				...FROM,
-				hostKind: 'holdAndWin',
-				routes: [{ kind: 'pattern' }],
+				hostKind: 'lines',
+				routes: [{ kind: 'luckySpin' }],
 			}),
 		),
-		"This project's coin overlay has no pattern trigger.",
+		"This project's coin overlay has no Lucky Spin trigger.",
+	);
+	// Phase 7a: the deal is decided by the doc, so a buy route is dealt on any host whose mock sells
+	// the doc's bet modes — refused only where it never plays.
+	const buyable = clone(threePots);
+	buyable.betModes.bonus = { cost: 100, feature: false, buyBonus: true, rtp: 0.96, max_win: 5000 };
+	const buy = { ...FROM, routes: [{ kind: 'buy' as const, betMode: 'bonus' }] };
+	check(
+		'a buy route on a lines host is taken (Phase 7a)',
+		imported(
+			importRespinMode(buyable, SOURCE, { ...buy, hostKind: 'lines' }),
+		).doc.coinOverlay?.trigger?.buy?.map((tier) => [tier.betMode, tier.mode]),
+		[['bonus', 'holdAndWin_2']],
 	);
 	check(
-		'on a kind whose mock deals only pots, a buy route is refused rather than saved unplayable',
+		'on the book kind, whose mock sells only its own buy, it is refused rather than saved unplayable',
+		refusal(importRespinMode(buyable, SOURCE, { ...buy, hostKind: 'bookOf' })).includes(
+			'sells only its own buy',
+		),
+		true,
+	);
+	check(
+		'a meter route is refused on an overlay host: a landing symbol fills it',
 		refusal(
 			importRespinMode(threePots, SOURCE, {
 				...FROM,
 				hostKind: 'lines',
-				routes: [{ kind: 'buy', betMode: 'base' }],
+				routes: [{ kind: 'meter', meter: 'red' }],
 			}),
-		).includes('Phase 7'),
+		).includes('base reels'),
 		true,
 	);
 	const synced = resyncBonus(doc, SOURCE, 'holdAndWin_2', LATER);

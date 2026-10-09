@@ -33,6 +33,7 @@ import {
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
 	isScatterSymbol,
+	legacyPotsOverlay,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	resolveBetModes,
@@ -562,7 +563,12 @@ function projectGrid(
 				pool && Object.keys(bookMapping.symbols).some((name) => !pool.includes(name))
 					? pool
 					: undefined;
-			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping, projectKey);
+			// The book mock sells only its own buy, so a buy route alone composes no overlay.
+			const potsOverlay = inServerNames(
+				potsOverlayMockInputs(doc, { sellsBetModes: false }),
+				bookMapping,
+				projectKey,
+			);
 			// Last, after the overlay, so a project that departs from none of the free-spins defaults
 			// keeps its grid byte-identical.
 			const freeSpins = projectBookFreeSpins(doc, projectKey);
@@ -583,11 +589,14 @@ function projectGrid(
 		// reels — runs on the Hold and Win engine, which deals from the block and the project's OWN
 		// symbol names: none of the lines mock's server-vocabulary fields below apply. Its base game
 		// pays lines, so it takes the board, the lines and the bet table. No block ⇒ no inputs, and the
-		// test server deals the base game as lines. Decided by the stored kind until bonus-games Phase 7
-		// moves it onto the doc, so every other kind keeps exactly the contract it had.
+		// test server deals the base game as lines. The base engine is the stored kind's (bonus-games
+		// Phase 7a), so every other kind keeps exactly the contract it had. A coin overlay that drops
+		// over it rides last, in the project's own names, and starts this engine's own respin modes.
 		if (protocol === 'lines' && gameType === 'holdAndWin') {
 			const holdAndWin = holdAndWinMockInputs(doc);
 			const betModes = projectBetModes(doc, projectKey);
+			const potsOverlay =
+				holdAndWin && legacyPotsOverlay(doc) ? potsOverlayMockInputs(doc) : undefined;
 			return {
 				reels,
 				rows,
@@ -595,6 +604,7 @@ function projectGrid(
 				paylines,
 				...(betModes ? { betModes } : {}),
 				...(holdAndWin ? { holdAndWin } : {}),
+				...(potsOverlay ? { potsOverlay } : {}),
 			};
 		}
 		const wild = projectWild(doc);

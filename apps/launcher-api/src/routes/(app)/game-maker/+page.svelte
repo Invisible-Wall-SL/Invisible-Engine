@@ -1711,9 +1711,7 @@
 						{/if}
 						<p class="confirm-note">
 							{importFeature.board === 'respinBoard'
-								? project.gameType === 'holdAndWin'
-									? "A pot, a coin overlay trigger or a buy tier can start it. With none picked, route it later in /config → Coin overlay (a project's first Hold and Win needs one now)."
-									: "On this game a pot (or dropped value coins) starts it; buy and trigger routes arrive in Phase 7. A project's first Hold and Win needs one now: add a coin overlay with pots first if there is none."
+								? "A pot, a coin overlay trigger or a buy tier can start it. With none picked, route it later in /config → Coin overlay (a project's first Hold and Win needs one now)."
 								: 'A free spins is started by a pot: this project needs a coin overlay with pots.'}
 						</p>
 					{/if}
