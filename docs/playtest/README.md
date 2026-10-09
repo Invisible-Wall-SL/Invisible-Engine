@@ -62,6 +62,11 @@ its `--mode recon` boots, prints the fps and exits.
   page is `visible`, so rounds still finish: idle in 9–18 s, and a 32 s big-win count-up lands on
   time. Check the `fps` a run prints before timing anything. Expect one `Web font load inactive`
   console error there, because the Typekit font does not load from a container.
+- **Playing a published game round by round:** `sample-play.mjs` serves a snapshot the way the
+  current-games harness does (the real test server's authoring mock, so beats can be forced), plays
+  a plan of rounds and records the wire, the money and HUD checks and screenshots. Its header lists
+  the round options (buys, a manual-respin hold check, a dropped connection and resume).
+  [bonus-games-7c.md](bonus-games-7c.md) is its worked example.
 - **A virtual clock instead.** `determinism-proof.mjs` boots with `?ie_determinism=<seed>` and steps frames itself, so captures are pixel-identical run to run. See "Determinism mode" in [status/engine.md](../status/engine.md).
 - **"The game never reaches idle" in a container was the harness** (2026-10-02). The script found
   no `chrome-headless-shell`, or the shell would not start as root. Neither is an engine finding.
@@ -91,6 +96,7 @@ report: [current-games.md](current-games.md). Its screen scripts are per game TY
 | [borut-pots-sample.md](borut-pots-sample.md) | Pots overlay (3 Pots preset) laid over a Book of Borut duplicate |
 | [hw-classic-sample.md](hw-classic-sample.md) | Hold and Win, Classic sticky preset (Grand) |
 | [hw-collector-sample.md](hw-collector-sample.md) | Hold and Win, Collector streak preset (Super Hotfire Diamonds) |
+| [bonus-games-7c.md](bonus-games-7c.md) | report: the samples and every bonus-games layer played in a browser (Phase 7c) |
 
 A playbook whose game and win model are decided by DIFFERENT sides (the mock's `WIN_MODEL` vs the
 project's Invisible Game Config) must say so at the top and say which surfaces the cheap local boot

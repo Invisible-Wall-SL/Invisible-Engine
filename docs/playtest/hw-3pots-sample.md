@@ -151,9 +151,17 @@ its belly bone growing with the pot's level. All three pots, no Flow branch.
      `rig.state.getCurrent(0)`. Read a bound bone with `bone.getWorldScaleX()`: the local
      `scaleX` reads 1, because `RigPose` undoes its offsets after each world transform.
 
-## Known state (2026-10-01)
+## Known state (2026-10-01; superseded by "Played live" below)
 
 - Until Phase 4c the respins show NOTHING moving: the base board stays on screen while the round
   plays out, then the total pays. Expected, not a bug.
 - The project's Game Config was saved once from `/config` (Pots preset). It predates the Game
   Maker preset picker; a project created since starts with its preset saved as its own config.
+
+## Played live (2026-10-09, Phase 7c)
+
+Every scenario above that the published sample configures passed in Chromium against main 0cc277d
+(its pre-7b bundle and manifest, read from R2): money and the HUD win exact, 0 errors or stalls, and
+the unconfigured forces refused as described. Its stored Game Config is still legacy-shaped; a save
+in `/config` writes the split form and deals byte-identically. Report:
+[bonus-games-7c.md](bonus-games-7c.md).

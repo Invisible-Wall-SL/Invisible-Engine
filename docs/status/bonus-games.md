@@ -4,7 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a, 8a, 8b and 8c merged; 7b in review (#1158), then 7c. Model: design §0.
+**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a, 7b, 8a, 8b and 8c merged; 7c (the browser playtest, one engine fix) in review. Model: design §0.
 
 ## How sessions use this file (the hub)
 
@@ -42,10 +42,40 @@ starts the phase sessions, reviews their PRs and merges them.
 | 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
 | 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | merged (65d47c1) | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
 | 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | merged (3d07881) | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
-| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | in review | Bonus games Phase 7b — drop the legacy mirror | #1158 |
-| 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b) | — | — |
+| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | merged (0cc277d) | Bonus games Phase 7b — drop the legacy mirror | #1158 |
+| 7c | Migrate and prove the samples (needs R2 + a browser) | in review | Bonus games Phase 7c — migrate and prove the samples | _PR_ |
 
 ## Decisions & findings
+
+- 2026-10-09 — **Phase 7c: what the first browser play found** (report:
+  [playtest/bonus-games-7c.md](../playtest/bonus-games-7c.md)).
+  - **Every case passes:** the four published samples (pre-7b bundles), plain Lines / Ways with free
+    spins, and the new layers (a)–(f). The one exception was the bug below, which this phase fixes.
+  - **Found and fixed: the first round after a spins mode could roll forever.** `Board.svelte`
+    installed each reel's ready-to-spin hook once, at mount, but a spins mode's `rebuildBoard`
+    splices in new reels. A pre-spun round then waited on reels nothing released. Gate:
+    `check:spins-modes` §5b.
+  - **A "mid-mode reload" is a resume only while the connection is down.** The facade plays a round's
+    remaining spins and its `collect` in one burst (`playOutRound`). The real resume case is a
+    connection lost inside that burst; it replays the round at the same `seq` / `gid` and pays exactly.
+  - **Manual respins** (`play: 'manual'`) are presentation only: the requests still go out up front,
+    and the board waits for each SPIN press.
+  - **Migration on save, measured:**
+    - The `hw-*` samples are stored legacy-only. A save writes `coinOverlay` + `modes` and drops
+      `holdAndWin`.
+    - `borut-pots-sample` loses only `holdAndWin` / `potsOverlay`.
+    - Every save validates. A republish of the migrated doc deals byte-identically to the legacy one
+      (58 / 58 rounds over the four samples).
+  - **For the owner:**
+    - **borut-pots-sample cannot be republished until one Flow edge is fixed.** Its scenes were
+      saved after its 8 Oct publish and lost the buy-bonus element `n_3n85lhy8`, which
+      `show_13 → showContainer-22` still wires. Fix it in `/flow-v2`.
+    - A republish also moves its mock protocol from `book` to `lines` (book-feature), with or
+      without the migration.
+  - **`check:deal-parity` (the 7a note "a sample migrated in 7c belongs there"):** nothing to add.
+    The `hw-*` samples' shapes are the Hold and Win presets and `borut-pots-sample` is pinned by
+    name, all in `MAIN_DIGESTS`. 7c migrated local copies only (R2 is read-only here); the samples'
+    stored docs migrate on their owner's next save.
 
 - 2026-10-09 — **Phase 7b: the mirror is gone; what the later phases inherit** (PR #1158).
   - **The legacy keys have one reader:** `normalizeBonusGames` (and `migrateLegacyBonus`, its
@@ -744,6 +774,23 @@ starts the phase sessions, reviews their PRs and merges them.
     button through `flowHoldsPresentation`. Check it in the browser playtest, with the board swap.
 
 ## Recent changes
+
+- 2026-10-09 — **Phase 7c: the samples and the new layers played in a real browser** (PR _PR_).
+  - **Played** in Chromium against the shipped runtime and the real test server: the four published
+    samples (read-only from R2) and games built on a local launcher for each new layer. The
+    per-case table is in [playtest/bonus-games-7c.md](../playtest/bonus-games-7c.md).
+  - **Engine fix:** `apps/lines/src/components/Board.svelte` installs the ready-to-spin hook in an
+    `$effect` that follows the board. A spins mode's rebuild used to leave its new reels without it,
+    and the next pre-spun round hung. A game with no spins mode installs the same hooks once, as
+    before. Gate: `check:spins-modes` §5b (fails 2 of 3 without the fix).
+  - **New tool:** `scripts/playtest/sample-play.mjs`, the playtest driver used here (forced beats,
+    buys, manual-hold check, dropped-connection resume, per-round money and HUD checks).
+  - **Docs:** the report, its screenshots (`docs/playtest/bonus-games-7c/`), and the `hw-*` and
+    `borut-pots-sample` playbooks' known state.
+  - **Gates:** `check:all` 429/429; `check:holdandwin` / `check:pots-overlay` `MAIN_DIGESTS`
+    unchanged; `check:deal-parity` passes.
+  - **Still owed:** the info page per mode was checked by `check:spins-modes-tools`, not opened in a
+    browser; per-mode win tiers (8c follow-up).
 
 - 2026-10-09 — **Phase 7b: the legacy mirror is dropped** (PR #1158).
   - **game-config:**
