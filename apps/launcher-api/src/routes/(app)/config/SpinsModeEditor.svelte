@@ -14,7 +14,6 @@
 		type GameModeDecl,
 		type PaytableRow,
 		type SpinsGame,
-		type WinModelType,
 	} from 'game-config';
 	import { num } from './bonusLabels';
 
@@ -53,19 +52,27 @@
 
 	function setGameType(value: string) {
 		const type = SPINS_WIN_MODEL_TYPES.find((t) => t === value);
-		if (type) game.winModel = spinsWinModelFor(type as WinModelType);
+		if (type) game.winModel = spinsWinModelFor(type);
 		else delete game.winModel;
 		if ((game.winModel ?? hostModel).type !== 'lines') delete game.paylines;
 	}
 
-	function setThreshold(key: 'minKind' | 'minCluster' | 'minCount', n: number) {
-		if (!game.winModel) return;
-		(game.winModel as Record<string, unknown>)[key] = Math.max(1, Math.floor(n));
+	function setThreshold(n: number) {
+		const model = game.winModel;
+		const value = Math.max(1, Math.floor(n));
+		if (model?.type === 'ways') model.minKind = value;
+		else if (model?.type === 'cluster') model.minCluster = value;
+		else if (model?.type === 'scatter') model.minCount = value;
 	}
 
-	function setOption(key: 'direction' | 'adjacency', value: string) {
-		if (!game.winModel) return;
-		(game.winModel as Record<string, unknown>)[key] = value;
+	function setDirection(value: string) {
+		if (game.winModel?.type === 'ways') game.winModel.direction = value === 'both' ? 'both' : 'ltr';
+	}
+
+	function setAdjacency(value: string) {
+		if (game.winModel?.type === 'cluster') {
+			game.winModel.adjacency = value === 'diagonal' ? 'diagonal' : 'orthogonal';
+		}
 	}
 
 	function setOwnGrid(on: boolean) {
@@ -166,13 +173,13 @@
 					type="number"
 					min="1"
 					value={game.winModel.minKind}
-					oninput={num((n) => setThreshold('minKind', n), true)}
+					oninput={num(setThreshold, true)}
 				/></label
 			>
 			<label
 				><span>Direction</span><select
 					value={game.winModel.direction}
-					onchange={(e) => setOption('direction', e.currentTarget.value)}
+					onchange={(e) => setDirection(e.currentTarget.value)}
 				>
 					<option value="ltr">left to right</option>
 					<option value="both">both ways</option>
@@ -184,13 +191,13 @@
 					type="number"
 					min="1"
 					value={game.winModel.minCluster}
-					oninput={num((n) => setThreshold('minCluster', n), true)}
+					oninput={num(setThreshold, true)}
 				/></label
 			>
 			<label
 				><span>Touching</span><select
 					value={game.winModel.adjacency}
-					onchange={(e) => setOption('adjacency', e.currentTarget.value)}
+					onchange={(e) => setAdjacency(e.currentTarget.value)}
 				>
 					<option value="orthogonal">side by side</option>
 					<option value="diagonal">also diagonally</option>
@@ -202,7 +209,7 @@
 					type="number"
 					min="1"
 					value={game.winModel.minCount}
-					oninput={num((n) => setThreshold('minCount', n), true)}
+					oninput={num(setThreshold, true)}
 				/></label
 			>
 		{/if}

@@ -257,12 +257,11 @@ const UNCHANGED: Shape[] = [
 	},
 ];
 
-/** The shapes whose deal moves, why, and how the bonus main never dealt now starts: `force` is a
- *  forced play, `buy` the bet mode a bought round sells, `cause` the `spinTrigger` cause it shows. */
 /**
  * 3 Pots over Classic exactly as main's add-on built it. Since bonus-games Phase 8b the add-on also
  * brings the payer and collector its red and blue pots start (their rules, symbols and respin cells);
- * they are taken back out here, so this shape keeps measuring the doc main dealt.
+ * they are taken back out here and the overlay keeps Classic's style, so this shape keeps measuring
+ * the doc main dealt: {@link MAIN_THREE_POTS_ON_CLASSIC} pins it byte for byte.
  */
 function threePotsOnClassicAsMain(): GameConfigDoc {
 	const doc = clone(withOverlay(classic, 'threePots'));
@@ -285,9 +284,12 @@ function threePotsOnClassicAsMain(): GameConfigDoc {
 	doc.paddingReels.respin = doc.paddingReels.respin.map((strip) =>
 		strip.filter((cell) => !names.includes(cell.name)),
 	);
+	doc.coinOverlay!.style = classic.coinOverlay!.style;
 	return normalize(doc);
 }
 
+/** The shapes whose deal moves, why, and how the bonus main never dealt now starts: `force` is a
+ *  forced play, `buy` the bet mode a bought round sells, `cause` the `spinTrigger` cause it shows. */
 type Changed = Shape & { why: string; force?: string; buy?: boolean; cause: string };
 const CHANGED: Changed[] = [
 	{
@@ -493,6 +495,14 @@ const deal = async (contract: MockContract): Promise<BookEvent[]> => {
 
 const digest = (value: unknown) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
+
+/** `normalize(addPotsOverlay(classic, 'threePots'))` as main 4067dfb built it, by this `digest`. */
+const MAIN_THREE_POTS_ON_CLASSIC = '2acc4ff7a9bf28d4';
+check(
+	'3 Pots over Classic, rebuilt as main built it, is byte-identical to main’s doc',
+	digest(threePotsOnClassicAsMain()),
+	MAIN_THREE_POTS_ON_CLASSIC,
+);
 
 /** `[contract, deal]` digests per shape, measured on main 7db698b through its own `makeMock`. */
 const MAIN_DIGESTS: Record<string, [string, string]> = {

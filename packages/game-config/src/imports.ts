@@ -94,10 +94,14 @@ const BOARD_NOT_BUILT =
 	'Only a Hold and Win or a reels feature can be imported: nothing plays a board of this kind from a pot yet.';
 
 /**
- * The features of `source` an import can pick from, in mode order: its base game first (as a spins
- * mode, bonus-games Phase 8b), then its bonus modes.
+ * The features of `source`, a project of kind `sourceKind`, an import can pick from, in mode order:
+ * its base game first (as a spins mode, bonus-games Phase 8b; refused for a Hold and Win or Book-of
+ * source, {@link spinsSourceRefusal}), then its bonus modes.
  */
-export function importableFeatures(source: GameConfigDoc): ImportableFeature[] {
+export function importableFeatures(
+	source: GameConfigDoc,
+	sourceKind?: string,
+): ImportableFeature[] {
 	const respin = new Set(respinModeDecls(source).map((m) => m.id));
 	const base: ImportableFeature = {
 		mode: BASE_GAME_MODE,
@@ -105,10 +109,13 @@ export function importableFeatures(source: GameConfigDoc): ImportableFeature[] {
 		board: 'reels',
 		spins: true,
 	};
+	const baseRefused =
+		spinsSourceRefusal(sourceKind) ??
+		(source.paddingReels.basegame?.length
+			? undefined
+			: 'Its base game has no strips to deal from.');
 	return [
-		source.paddingReels.basegame?.length
-			? base
-			: { ...base, refused: 'Its base game has no strips to deal from.' },
+		baseRefused ? { ...base, refused: baseRefused } : base,
 		...resolveGameModes(source)
 			.filter((m) => m.id !== BASE_GAME_MODE)
 			.map((m): ImportableFeature => {
@@ -492,6 +499,8 @@ export type ModeImportOptions = {
 	/** This project's kind: which `routes` its mock deals ({@link modeRouteRefusal}). Read only for
 	 *  `routes` (a re-sync adds none); absent ⇒ only what every kind deals. */
 	hostKind?: string;
+	/** The source project's kind: a spins import refuses a Hold and Win or Book-of base game. */
+	sourceKind?: string;
 	/** The source project's key. */
 	project: string;
 	/** The source's respin mode id. */
@@ -779,13 +788,26 @@ export function importRespinMode(
 
 // ─── a base game as a spins mode ──────────────────────────────────────────────────────────────
 
-/** The routes that start a spins mode: the coin count, a pattern and a meter count coins, which
- *  belong to a respin mode (bonus-games Phase 8a). */
 /** A source project's config, as much of it as any import reads (its base game included). */
 export type SpinsImportSource = HoldAndWinBonusSource &
 	Pick<GameConfigDoc, 'winModel' | 'numReels' | 'numRows' | 'paylines'>;
 
-const SPINS_ROUTES: readonly ModeRoute['kind'][] = ['pot', 'buy', 'luckySpin', 'randomMetre'];
+/** The routes that start a spins mode. The coin count, a pattern and a meter do not: they count
+ *  coins, which belong to a respin mode (bonus-games Phase 8a). */
+export const SPINS_MODE_ROUTE_KINDS: readonly ModeRoute['kind'][] = [
+	'pot',
+	'buy',
+	'luckySpin',
+	'randomMetre',
+];
+
+/** Why the base game of a project of kind `sourceKind` cannot be added as a spins mode: a Hold and
+ *  Win or Book-of base game plays its bonus on its own board, not N spins of a lines-family game. */
+export function spinsSourceRefusal(sourceKind: string | undefined): string | undefined {
+	return spinsGamesRefusal(sourceKind)
+		? 'Its base game is a Hold and Win or Book-of game: a spins mode plays N spins of a lines, ways, cluster or scatter game.'
+		: undefined;
+}
 
 /**
  * Add the BASE game of `source` to `target` as a NEW spins mode (bonus-games Phase 8b), or re-sync one
@@ -793,11 +815,13 @@ const SPINS_ROUTES: readonly ModeRoute['kind'][] = ['pot', 'buy', 'luckySpin', '
  * (a lines game's) and the pays of every symbol its strips deal are copied explicitly into `spins`,
  * so nothing falls back to the host's game. Its strips arrive under a game type of its own, at the
  * source's width, and the symbols they deal under free names (a name this project uses takes `_2`,
- * as `importRespinMode`'s do). A re-sync takes the previous copy back and copies it again under the
- * same id, game type, label and names, keeping its spin count and every route to it.
+ * as `importRespinMode`'s do), without the pays the mode states. A re-sync takes the previous copy
+ * back and copies its game again under the same id, game type and names, keeping the rest of the
+ * mode (its spin count, label, HUD, music, counter, values) and every route to it.
  *
- * Refused on a host whose mock deals no spins game (`spinsGamesRefusal`: Book-of, Hold and Win), and
- * for a route that does not start one (the coin count, a pattern, a meter).
+ * Refused on a host whose mock deals no spins game (`spinsGamesRefusal`: Book-of, Hold and Win), for
+ * such a source ({@link spinsSourceRefusal}), and for a route that does not start one (the coin
+ * count, a pattern, a meter).
  */
 export function importSpinsMode(
 	target: GameConfigDoc,
@@ -808,7 +832,9 @@ export function importSpinsMode(
 		const refused = spinsGamesRefusal(opts.hostKind);
 		if (refused) return { ok: false, reason: refused };
 	}
-	const wrong = (opts.routes ?? []).find((r) => !SPINS_ROUTES.includes(r.kind));
+	const unplayable = spinsSourceRefusal(opts.sourceKind);
+	if (unplayable) return { ok: false, reason: unplayable };
+	const wrong = (opts.routes ?? []).find((r) => !SPINS_MODE_ROUTE_KINDS.includes(r.kind));
 	if (wrong) {
 		return {
 			ok: false,
@@ -861,7 +887,9 @@ export function importSpinsMode(
 		taken.add(name);
 		names[wanted] = name;
 		if (name !== wanted) renamed.symbols[wanted] = name;
-		next.symbols[name] = structuredClone(source.symbols[wanted] ?? {});
+		// Its pays live in `spins.paytable` alone, so the host's own (info) paytable never lists it.
+		const { paytable: _pays, ...entry } = source.symbols[wanted] ?? {};
+		next.symbols[name] = structuredClone(entry);
 	}
 	next.paddingReels[gameType] = own.map((strip) =>
 		strip.map((cell) => ({ name: names[cell.name] ?? cell.name })),
@@ -882,15 +910,17 @@ export function importSpinsMode(
 		...(winModel.type === 'lines' ? { paylines: structuredClone(source.paylines) } : {}),
 		...(Object.keys(paytable).length ? { paytable } : {}),
 	};
-	const decl: GameModeDecl = {
-		id,
-		board: 'reels',
-		gameType,
-		counter: 'freeSpins',
-		label: previousDecl?.label ?? `Base game (${opts.project})`,
-		...(previousDecl?.hud ? { hud: previousDecl.hud } : {}),
-		spins: game,
-	};
+	// A re-sync replaces only its game: everything else of the mode is this project's.
+	const decl: GameModeDecl = previousDecl
+		? { ...previousDecl, gameType, spins: game }
+		: {
+				id,
+				board: 'reels',
+				gameType,
+				counter: 'freeSpins',
+				label: `Base game (${opts.project})`,
+				spins: game,
+			};
 	const modes = [...(next.modes ?? [])];
 	modes.splice(at >= 0 ? at : modes.length, 0, decl);
 	next.modes = modes;

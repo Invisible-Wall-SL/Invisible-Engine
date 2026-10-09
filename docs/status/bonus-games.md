@@ -581,19 +581,25 @@ starts the phase sessions, reviews their PRs and merges them.
     `importableFeatures` entry of every source (`spins: true`). It copies `winModel` (stored even when
     `lines`), `numReels` / `numRows`, `paylines` (a lines game's) and the pays of every symbol its
     strips deal, explicitly. Every symbol name the host already uses takes `_2`, as
-    `importRespinMode` does (no identical-entry sharing, so the art stays the source's). The record
-    is `importedFrom.mode: 'basegame'`, `asMode`, `wroteAs`. Re-sync keeps the id, game type, label,
-    HUD, names, the spin count set here and every route. Routes: a pot, a buy, Lucky Spin or the
-    random metre; refused on a Hold and Win or Book-of host.
+    `importRespinMode` does (no identical-entry sharing, so the art stays the source's). The copied
+    symbols carry no `paytable` (the pays live in `spins.paytable`), so the host's info paytable
+    never lists them. The record is `importedFrom.mode: 'basegame'`, `asMode`, `wroteAs`. Re-sync
+    replaces only the mode's game and keeps every other field of it (label, HUD, music, counter,
+    values, the spin count set here), the names and every route. Routes: a pot, a buy, Lucky Spin or
+    the random metre (`SPINS_MODE_ROUTE_KINDS`, which the Game Maker dialog also reads). Refused on a
+    Hold and Win or Book-of host, and for a Hold and Win or Book-of SOURCE (`spinsSourceRefusal`;
+    `importableFeatures(source, sourceKind)` lists its base game as refused).
   - **It brings no screens, Flow tab or Win Text** (the import reports say so): it plays on the
     host's screens. **For 8c:** a spins mode added this way (or in `/config`) has no
     `<ref>-<modeId>` screens and no Flow tab; 8c's seeding should cover one that has none.
   - **Overlay presets.** `PotsOverlayPreset.style`: 3 Pots sets `pots`, the new **Collector** preset
     (`collector`, appended to `POTS_OVERLAY_PRESET_IDS`) sets `collector`: one `green` pot whose
     full pot starts the Collector Hold and Win with its collector on. On a host with its own Hold
-    and Win rules, a preset brings each special its pots start that the rules lack
+    and Win rules, a preset brings each special that the pots it keeps start and the rules lack
     (`bringPotSpecials`): the respin rules from the preset's Hold and Win, its place in the apply
-    order, its symbol (renamed on a clash) and one cell of it on each respin strip.
+    order, its symbol (renamed on a clash) and one cell of it on each respin strip. The preset's
+    style replaces the host's only when the add-on built that Hold and Win or brought a special, so
+    an overlay over a bonus that already deals its specials keeps the style it had (hub review).
   - **Decision (hub to confirm): Classic stays refused on a Hold and Win base.** That game is the
     Classic style already. Letting dropped coins count toward its own count would need the
     `potsOverlay` validator's `coinsAlone` error and `zeroPotsRefusal` changed; that belongs with 7b.
@@ -601,10 +607,14 @@ starts the phase sessions, reviews their PRs and merges them.
     why Classic is not.
   - **Decision (hub to confirm): deal-parity's "Hold and Win kind whose overlay drops tokens"** is
     built by the add-on, which now also brings the payer and collector. The gate rebuilds main's doc
-    (`threePotsOnClassicAsMain`), which reproduces main's pinned digests exactly, so no shape moved.
-  - **Parity:** all 112 add-on results (every template × preset × pot count) that were clean on main
-    are byte-identical (`check:bonus-authoring` §4). The 20 that changed (3 Pots on Classic,
-    Collector, plain and plain without jackpots, × 5 counts) were not clean on main.
+    (`threePotsOnClassicAsMain`, Classic's style restored). Its doc is pinned byte for byte against
+    main 4067dfb's `normalize(addPotsOverlay(classic, 'threePots'))`, and it reproduces main's deal
+    digests exactly, so no shape moved.
+  - **Parity:** every add-on result that was clean on main is byte-identical (`check:bonus-authoring`
+    §4): 112 template × preset × pot count cases, and 75 cases of a lines / Book-of / ways host with
+    a Hold and Win bonus added before or after the overlay (measured on main 4067dfb). The 20
+    template cases that changed (3 Pots on Classic, Collector, plain and plain without jackpots,
+    × 5 counts) were not clean on main.
   - **For 7b:**
     - `bringPotSpecials` edits the legacy pair, as every `addOns.ts` writer does.
     - The presets route their pots to `HOLD_AND_WIN_MODE`; a host whose primary respin mode has
@@ -630,7 +640,7 @@ starts the phase sessions, reviews their PRs and merges them.
     - ＋ Coin overlay…: 3 Pots and the new Collector preset add cleanly to the plain Hold and Win
       template and deal.
   - **Gates:**
-    - New `pnpm --filter launcher-api check:bonus-authoring`, 14/14:
+    - New `pnpm --filter launcher-api check:bonus-authoring`, 17/17:
       - every committed default saves and reloads byte-identically, measured on the base grid;
       - a cluster spins mode on its own 7×7 grid, saved, bought and played (4 spins on 7×7, paid by
         clusters); Hold and Win / Book-of kinds refuse it; a coin count may not start it; removing it
@@ -639,11 +649,14 @@ starts the phase sessions, reviews their PRs and merges them.
         re-sync after an edit to A; Hold and Win host and coin-count route refused;
       - 3 Pots and Collector on the plain Hold and Win and the plain lines templates, each pot dealing
         its Hold and Win with its special active;
-      - add-on parity with main (112 cases).
-    - Mutation-tested: 13 code removals (specials not brought, strips measured on the base grid, no
+      - a Hold and Win / Book-of source refused; re-sync keeping the mode's music, values, counter
+        and label; the imported symbols carrying no pays;
+      - add-on parity with main (112 + 75 cases); 3 Pots keeping one pot brings only its special.
+    - Mutation-tested: 18 code removals (specials not brought, strips measured on the base grid, no
       pays / grid / paylines copied, re-sync branch, strip resize, preset style, Collector's special,
-      remove keeping strips, the launcher's spins branch, the kind refusal, `baseWidthGameTypes`)
-      each turn it red.
+      remove keeping strips, the launcher's spins branch, the kind refusal, `baseWidthGameTypes`;
+      after the hub review: style on every host, specials from every pot, re-sync rebuilding the
+      mode, symbols keeping their pays, the source refusal) each turn it red.
     - `check:holdandwin` 2078 + 428, `check:pots-overlay` 112: `MAIN_DIGESTS` unchanged.
     - `check:deal-parity` passes with no new changed shape; `check:spins-modes` 54,
       `check:spins-modes-contract` 15, `check:respin-modes` 220, `check:add-bonus-mode`,

@@ -373,7 +373,8 @@ they deal come with their [Symbols](symbols-state-machine.md) art (a name this p
 takes `_2`, listed under **Renamed**). It brings no screens, Flow tab or Win Text: it plays on this
 game's screens. It starts at 10 spins; change the count in Game Config. A **Hold and Win** project,
 or one of the older **Book of** game type, cannot take one: the dialog says why and **Add** stays
-off.
+off. Nor can such a project's base game be added elsewhere: it is listed with the reason, greyed
+out.
 
 Adding the same source mode twice is refused: the dialog names the mode it already is here and says
 **Re-sync it instead**.
@@ -382,8 +383,9 @@ Adding the same source mode twice is refused: the dialog names the mode it alrea
 that mode again as the source is now and touches no other mode: its rules (with Play), strips and
 symbols, screens, Flow tab and Win Text. Its id, label, HUD and everything that starts it stay. A
 pot that starts it with a special the re-synced rules no longer deal starts it plain (**Special
-dropped**). A base game added as a spins mode copies the source's game again and keeps its mode
-id, label, symbol names, the spin count set here and every route. A mode renamed in Game Config
+dropped**). A base game added as a spins mode copies only the source's game again; everything else
+of the mode (id, label, HUD, music, counter, the spin count set here), its symbol names and every
+route stay. A mode renamed in Game Config
 since is re-synced under its new name, and its pieces under the old one are cleared. A bonus brought in by the older **Import a bonus…** re-syncs exactly
 as before.
 

@@ -19,13 +19,16 @@
  *  2. Game Maker "Add a bonus mode…": project A's lines BASE game into a ways project B, as a spins
  *     mode bought on B's buy tier. Its win model, grid, paylines and every pay are copied explicitly;
  *     clashing symbols take `_2`; a bought round on B plays 10 lines spins on A's 5×3 board, paid on
- *     A's lines. A re-sync after editing A picks up A's new pays and lines, keeping the route, the id
- *     and the names. A Hold and Win host and a coin-count route are refused.
+ *     A's lines; its symbols carry no pays of their own, so B's paytable lists none. A re-sync after
+ *     editing A picks up A's new pays and lines, keeping the route, the id, the names and the rest of
+ *     the mode as B set it. A Hold and Win host, a Hold and Win or Book-of source and a coin-count
+ *     route are refused.
  *  3. "＋ Coin overlay…": 3 Pots and Collector add cleanly to the plain Hold and Win template and to
  *     the plain lines template, and each full pot deals its Hold and Win with its special active and
  *     that special's symbol on its respin strips (on the Hold and Win game, brought by the preset).
- *  4. Parity: every add-on result that was clean on main (each host × preset × pot count) is
- *     byte-identical to main's.
+ *  4. Parity: every add-on result that was clean on main is byte-identical to main's: each template
+ *     × preset × pot count, and each lines / Book-of / ways host with a Hold and Win bonus added
+ *     before or after the overlay. 3 Pots keeping one pot brings only that pot's special.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -133,15 +136,19 @@ const { mockContractOfBundle } = await import('../src/lib/server/mockContract.ts
 const { protocolFor } = await import('../src/lib/server/mockProtocol.ts');
 const { makeMock, validGrid } = await import('../../../services/test-server/makeMock.mjs');
 const {
+	HOLD_AND_WIN_PRESET_IDS,
 	POTS_OVERLAY_PRESET_IDS,
+	addHoldAndWinBonus,
 	addPotsOverlay,
 	addSpinsMode,
 	gameConfigErrors,
 	normalizeGameConfigDoc,
 	removeSpinsMode,
 	setSpinsGrid,
+	importableFeatures,
 	spinsGamesRefusal,
 	spinsModeKindIssues,
+	spinsSourceRefusal,
 	spinsWinModelFor,
 	validateGameConfigDoc,
 } = await import('game-config');
@@ -423,6 +430,87 @@ const MAIN_ADD_ON_DIGESTS: Record<string, string> = {
 	'ways.json|threePots|4': '9eb10ba7e7d1f4f8',
 };
 
+/** The add-on over a host that already has a Hold and Win bonus (`addHoldAndWinBonus`), and the bonus
+ *  added after the overlay, on lines, Book-of and ways: every case clean on main 4067dfb, digested as
+ *  above. */
+const MAIN_BONUS_HOST_DIGESTS: Record<string, string> = {
+	'lines+classic|coinsOnly|-': '28be965de6a1572f',
+	'lines+classic|coinsOnly|0': '28be965de6a1572f',
+	'lines+classic|coinsOnly|1': '6ec3ca8bea3acb88',
+	'lines+classic|coinsOnly|2': 'a6f32ffc559a032f',
+	'lines+classic|coinsOnly|3': 'e517d19a0c18b95e',
+	'lines+classic|coinsOnly|4': '86574315db7ffe7c',
+	'lines+classic|potsToFreeSpins|0': 'ba7b1094ee4aa867',
+	'lines+classic|threePots|0': '2aaf7f2b9d01fbab',
+	'lines+collector|coinsOnly|1': '8e78d08f3e3e2bad',
+	'lines+collector|coinsOnly|2': 'e4960fb933e0936f',
+	'lines+collector|coinsOnly|3': '22b2ed6dc7ab41ad',
+	'lines+collector|coinsOnly|4': '54d40b72ac270ab0',
+	'lines+pots|coinsOnly|-': '4affc2f1afd83c8e',
+	'lines+pots|coinsOnly|0': '4affc2f1afd83c8e',
+	'lines+pots|coinsOnly|1': '57c887a9358a3d8a',
+	'lines+pots|coinsOnly|2': '3c7a30eb3d1c3ab6',
+	'lines+pots|coinsOnly|3': 'ed5cf87636665b83',
+	'lines+pots|coinsOnly|4': 'd88137088d644eb2',
+	'lines+pots|potsToFreeSpins|0': 'eba44637f97dfbbf',
+	'lines+pots|threePots|-': '42c606b4cf76b679',
+	'lines+pots|threePots|0': '3e1ab59efb8704cb',
+	'lines+pots|threePots|1': '241b72a93b808339',
+	'lines+pots|threePots|2': 'fde710acc4cb89eb',
+	'lines+pots|threePots|3': '42c606b4cf76b679',
+	'lines+pots|threePots|4': 'b13aca90bb9aa99c',
+	'lines.bookOfThermopylae+classic|coinsOnly|-': 'b8bbb92ffa0f318e',
+	'lines.bookOfThermopylae+classic|coinsOnly|0': 'b8bbb92ffa0f318e',
+	'lines.bookOfThermopylae+classic|coinsOnly|1': 'd99e360254b2a060',
+	'lines.bookOfThermopylae+classic|coinsOnly|2': 'c8ed3e1f0ba5efde',
+	'lines.bookOfThermopylae+classic|coinsOnly|3': '8b0779ad3eaef055',
+	'lines.bookOfThermopylae+classic|coinsOnly|4': '7b4c4ef1803b1d85',
+	'lines.bookOfThermopylae+classic|potsToFreeSpins|0': 'e25422bd3e4e7a65',
+	'lines.bookOfThermopylae+classic|threePots|0': '9edbe5e47d81bfaa',
+	'lines.bookOfThermopylae+collector|coinsOnly|1': '97d2c68cd008ae2b',
+	'lines.bookOfThermopylae+collector|coinsOnly|2': '246d2c672fedec9b',
+	'lines.bookOfThermopylae+collector|coinsOnly|3': '9a992cc62c22451a',
+	'lines.bookOfThermopylae+collector|coinsOnly|4': '61a429663619a5da',
+	'lines.bookOfThermopylae+pots|coinsOnly|-': '2e30ed6edf26a942',
+	'lines.bookOfThermopylae+pots|coinsOnly|0': '2e30ed6edf26a942',
+	'lines.bookOfThermopylae+pots|coinsOnly|1': 'e4c41bb342eef191',
+	'lines.bookOfThermopylae+pots|coinsOnly|2': '05b346ff7dbcfe3f',
+	'lines.bookOfThermopylae+pots|coinsOnly|3': 'cadc08546370f35d',
+	'lines.bookOfThermopylae+pots|coinsOnly|4': '5ac25bb9ec36d816',
+	'lines.bookOfThermopylae+pots|potsToFreeSpins|0': '61ff50e1f128184d',
+	'lines.bookOfThermopylae+pots|threePots|-': 'ab8d4b3ce469bef4',
+	'lines.bookOfThermopylae+pots|threePots|0': '507d9e7a5273797c',
+	'lines.bookOfThermopylae+pots|threePots|1': 'fa1a24a105119b6c',
+	'lines.bookOfThermopylae+pots|threePots|2': '66ea57e7b51627a9',
+	'lines.bookOfThermopylae+pots|threePots|3': 'ab8d4b3ce469bef4',
+	'lines.bookOfThermopylae+pots|threePots|4': '204085839721817c',
+	'ways+classic|coinsOnly|-': '6424020d9d1a197e',
+	'ways+classic|coinsOnly|0': '6424020d9d1a197e',
+	'ways+classic|coinsOnly|1': '2a9d2a50d0132bc1',
+	'ways+classic|coinsOnly|2': '8af6ba2941ffa464',
+	'ways+classic|coinsOnly|3': 'e05244cfffd57b18',
+	'ways+classic|coinsOnly|4': 'e336b868595a8ad3',
+	'ways+classic|potsToFreeSpins|0': '99e2001f3be075e5',
+	'ways+classic|threePots|0': '83ca99bdcc6d5024',
+	'ways+collector|coinsOnly|1': '3a926e8f27abd077',
+	'ways+collector|coinsOnly|2': 'cb400a5a3045dc51',
+	'ways+collector|coinsOnly|3': 'f0fd9f86b4a8454b',
+	'ways+collector|coinsOnly|4': 'fef8b3d6ffacb53b',
+	'ways+pots|coinsOnly|-': '50d5f7cb3570bd1e',
+	'ways+pots|coinsOnly|0': '50d5f7cb3570bd1e',
+	'ways+pots|coinsOnly|1': '10722dbace60869f',
+	'ways+pots|coinsOnly|2': '69f6fd8689e1b0b8',
+	'ways+pots|coinsOnly|3': '12bcc5751e4761e7',
+	'ways+pots|coinsOnly|4': '5d8989d9495b66de',
+	'ways+pots|potsToFreeSpins|0': '034b4a4da9284041',
+	'ways+pots|threePots|-': '7abd8ee338caa45a',
+	'ways+pots|threePots|0': '941c3f8ba3f4a550',
+	'ways+pots|threePots|1': '15b7c04ab82271bf',
+	'ways+pots|threePots|2': '9c48c428a6f29870',
+	'ways+pots|threePots|3': '7abd8ee338caa45a',
+	'ways+pots|threePots|4': 'db1f52fd37869544',
+};
+
 // ─── 1. /config: author a spins mode ──────────────────────────────────────────────────────────
 
 console.log('\n1. /config: author a spins mode');
@@ -589,6 +677,11 @@ await check('the lines base game arrives as a self-contained spins mode', async 
 		),
 		'every pay of every symbol it deals, explicit',
 	);
+	same(
+		Object.values(names).filter((name) => host.symbols[name]?.paytable),
+		[],
+		"its symbols carry no pays of their own (they are the mode's), so the host's paytable lists none",
+	);
 	assert(Object.keys(out.renamed.symbols).length > 0, 'nothing clashed');
 	same(
 		Object.entries(out.renamed.symbols).every(([from, to]) => to === `${from}_2`),
@@ -634,7 +727,10 @@ await check(
 		edited.paylines['1'] = [0, 1, 0, 1, 0];
 		put(gameConfigDocKey(CLIENT, SOURCE), normalize(edited));
 		const host = storedConfig(HOST);
-		host.modes!.find((m) => m.id === imported)!.spins!.spins = 6;
+		const own = host.modes!.find((m) => m.id === imported)!;
+		own.spins!.spins = 6;
+		own.music = 'bonusTheme';
+		own.values = ['total'];
 		put(gameConfigDocKey(CLIENT, HOST), host);
 		const out = await applyBonusImport(CLIENT, HOST, {
 			mode: imported,
@@ -648,6 +744,11 @@ await check(
 		same(mode.spins?.paytable?.[names.H1], edited.symbols.H1.paytable, "the source's new pays");
 		same(mode.spins?.paylines?.['1'], [0, 1, 0, 1, 0], "the source's new line");
 		same(mode.spins?.spins, 6, 'the spin count set here');
+		same(
+			[mode.music, mode.values, mode.counter, mode.label],
+			['bonusTheme', ['total'], 'freeSpins', `Base game (${SOURCE})`],
+			'the rest of the mode as set here',
+		);
 		same(synced.imports!.find((i) => i.mode === imported)!.symbols, names, 'the same names');
 		same(
 			synced.coinOverlay?.trigger?.buy?.map((t) => [t.betMode, t.mode]),
@@ -657,6 +758,34 @@ await check(
 		same(errorsOf(synced), [], 'it validates');
 	},
 );
+
+await check("a Hold and Win or Book-of source's base game is not offered, nor added", async () => {
+	const plain = template('holdAndWin.plain');
+	for (const kind of ['holdAndWin', 'bookOf']) {
+		same(
+			importableFeatures(plain, kind)[0],
+			{
+				mode: 'basegame',
+				label: 'Base game (lines), as N spins',
+				board: 'reels',
+				spins: true,
+				refused: spinsSourceRefusal(kind),
+			},
+			kind,
+		);
+	}
+	same(importableFeatures(LINES, 'lines')[0].refused, undefined, 'a lines source');
+	KINDS.srcHw = 'holdAndWin';
+	put(gameConfigDocKey(CLIENT, 'srcHw'), plain);
+	put(gameConfigDocKey(CLIENT, 'cfg-hw-source'), LINES);
+	const out = await applyBonusImport(CLIENT, 'cfg-hw-source', {
+		source: 'srcHw',
+		mode: 'basegame',
+		asMode: true,
+		sessionId: ME,
+	});
+	same(out.ok ? 'added' : out.error, spinsSourceRefusal('holdAndWin'), 'refused');
+});
 
 await check('a Hold and Win host and a coin-count route are refused', async () => {
 	put(gameConfigDocKey(CLIENT, 'hostHw'), template('holdAndWin.plain'));
@@ -750,35 +879,86 @@ for (const [host, kind] of [
 
 console.log('\n4. add-on parity with main');
 
+const addOnDigest = (result: ReturnType<typeof addPotsOverlay>) =>
+	createHash('sha256')
+		.update(
+			JSON.stringify(
+				result.ok
+					? {
+							doc: normalizeGameConfigDoc(result.doc),
+							renamed: result.renamed,
+							notes: result.notes,
+						}
+					: result,
+			),
+		)
+		.digest('hex')
+		.slice(0, 16);
+const POT_COUNTS = [undefined, 0, 1, 2, 3, 4];
+
 await check('every add-on result clean on main is byte-identical', () => {
 	const moved: string[] = [];
 	for (const file of TEMPLATES) {
 		const doc = template(file.replace(/\.json$/, ''));
 		for (const preset of POTS_OVERLAY_PRESET_IDS) {
-			for (const pots of [undefined, 0, 1, 2, 3, 4]) {
+			for (const pots of POT_COUNTS) {
 				const key = `${file}|${preset}|${pots ?? '-'}`;
 				if (!(key in MAIN_ADD_ON_DIGESTS)) continue;
-				const result = addPotsOverlay(doc, preset, pots);
-				const digest = createHash('sha256')
-					.update(
-						JSON.stringify(
-							result.ok
-								? {
-										doc: normalizeGameConfigDoc(result.doc),
-										renamed: result.renamed,
-										notes: result.notes,
-									}
-								: result,
-						),
-					)
-					.digest('hex')
-					.slice(0, 16);
-				if (digest !== MAIN_ADD_ON_DIGESTS[key]) moved.push(key);
+				if (addOnDigest(addPotsOverlay(doc, preset, pots)) !== MAIN_ADD_ON_DIGESTS[key]) {
+					moved.push(key);
+				}
 			}
 		}
 	}
 	same(moved, [], 'moved');
 	same(Object.keys(MAIN_ADD_ON_DIGESTS).length, 112, 'cases');
+});
+
+await check('...and over a Hold and Win bonus already added, either way round', () => {
+	const moved: string[] = [];
+	const seen = new Set<string>();
+	const settled = (result: ReturnType<typeof addPotsOverlay>) =>
+		result.ok ? normalize(result.doc) : undefined;
+	for (const host of ['lines', 'lines.bookOfThermopylae', 'ways']) {
+		const base = template(host);
+		for (const hw of HOLD_AND_WIN_PRESET_IDS) {
+			const withHw = settled(addHoldAndWinBonus(base, hw));
+			for (const preset of POTS_OVERLAY_PRESET_IDS) {
+				for (const pots of POT_COUNTS) {
+					const key = `${host}+${hw}|${preset}|${pots ?? '-'}`;
+					if (!withHw || !(key in MAIN_BONUS_HOST_DIGESTS)) continue;
+					seen.add(key);
+					if (addOnDigest(addPotsOverlay(withHw, preset, pots)) !== MAIN_BONUS_HOST_DIGESTS[key]) {
+						moved.push(key);
+					}
+				}
+			}
+		}
+		for (const preset of POTS_OVERLAY_PRESET_IDS) {
+			const withOverlay = settled(addPotsOverlay(base, preset));
+			for (const hw of HOLD_AND_WIN_PRESET_IDS) {
+				const key = `${host}+${preset}|then ${hw}`;
+				if (!withOverlay || !(key in MAIN_BONUS_HOST_DIGESTS)) continue;
+				seen.add(key);
+				if (addOnDigest(addHoldAndWinBonus(withOverlay, hw)) !== MAIN_BONUS_HOST_DIGESTS[key]) {
+					moved.push(key);
+				}
+			}
+		}
+	}
+	same(moved, [], 'moved');
+	same(seen.size, Object.keys(MAIN_BONUS_HOST_DIGESTS).length, 'every case reached');
+	same(seen.size, 75, 'cases');
+});
+
+await check('3 Pots keeping one pot brings only the special that pot starts', () => {
+	const classic = template('holdAndWin.classic');
+	const one = normalize(docOf(addPotsOverlay(classic, 'threePots', 1)));
+	same(
+		Object.keys(one.modes!.find((m) => m.id === 'holdAndWin')!.holdAndWin!.specials).sort(),
+		['multiplier', 'payer'],
+		'specials',
+	);
 });
 
 console.log(

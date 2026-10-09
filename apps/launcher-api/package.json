@@ -107,6 +107,7 @@
 		"check:spins-modes-contract": "node scripts/ensure-svelte-kit.mjs && tsx --tsconfig tsconfig.scripts.json scripts/check-spins-modes-contract.ts",
 		"check:deal-parity": "node scripts/ensure-svelte-kit.mjs && tsx --tsconfig tsconfig.scripts.json scripts/check-deal-parity.ts",
 		"precheck:add-bonus-mode": "node scripts/ensure-svelte-kit.mjs",
+		"precheck:bonus-authoring": "node scripts/ensure-svelte-kit.mjs",
 		"check:bonus-authoring": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-bonus-authoring.ts",
 		"check:add-bonus-mode": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-add-bonus-mode.ts",
 		"precheck:bonus-import": "node scripts/ensure-svelte-kit.mjs",

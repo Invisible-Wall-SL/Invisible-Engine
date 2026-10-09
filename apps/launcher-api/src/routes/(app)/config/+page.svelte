@@ -229,17 +229,18 @@
 
 	/**
 	 * Any strip set or payline whose width still doesn't match its grid (`numReels`, or a spins
-	 * mode's own, `./pageDoc`) — only ever true after a
-	 * SHRINK (auto-grow already handles widening) or a raw-JSON paste that arrived mismatched. Drives
-	 * the "Match grid" button, the deliberate one-click fix for those, since trimming reels is real
-	 * data loss the author should trigger rather than have happen mid-type.
+	 * mode's own, `./pageDoc`) — only ever true after a SHRINK (auto-grow already handles widening)
+	 * or a raw-JSON paste that arrived mismatched. Drives the "Match grid" button, the deliberate
+	 * one-click fix for those, since trimming reels is real data loss the author should trigger
+	 * rather than have happen mid-type.
 	 */
 	const gridMismatch = $derived(gridMismatchOf(doc));
 
 	/**
 	 * Make every strip set and payline EXACTLY `numReels` — grow (as above) then TRUNCATE the extra
-	 * reels; a spins mode's strips on a grid of its own are cycled or cut to that grid instead. The explicit fix for a still-mismatched grid; unlike {@link growGridToWidth} it drops
-	 * reels, which is why it is a button press and not automatic.
+	 * reels; a spins mode's strips on a grid of its own are cycled or cut to that grid instead. The
+	 * explicit fix for a still-mismatched grid; unlike {@link growGridToWidth} it drops reels, which
+	 * is why it is a button press and not automatic.
 	 */
 	function matchGridWidth() {
 		growGridToWidth();

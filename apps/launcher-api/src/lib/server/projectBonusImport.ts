@@ -948,7 +948,9 @@ async function sourceConfigOf(client: string, source: string): Promise<GameConfi
 /** What a same-client source project offers to import, or why it cannot be read. */
 export async function sourceFeatures(client: string, source: string) {
 	const config = await sourceConfigOf(client, source);
-	return typeof config === 'string' ? { error: config } : { features: importableFeatures(config) };
+	return typeof config === 'string'
+		? { error: config }
+		: { features: importableFeatures(config, await projectGameType(source)) };
 }
 
 /**
@@ -1042,6 +1044,7 @@ export async function applyBonusImport(
 		: spins
 			? importSpinsMode(resolved.doc, sourceConfig, {
 					hostKind,
+					sourceKind: await projectGameType(source),
 					project: source,
 					mode: opts.mode,
 					at,

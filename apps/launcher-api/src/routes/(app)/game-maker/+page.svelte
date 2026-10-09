@@ -4,6 +4,7 @@
 	import {
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
+		SPINS_MODE_ROUTE_KINDS,
 		spinsGamesRefusal,
 		type CoinOverlayStyle,
 		type HoldAndWinTemplateJackpots,
@@ -413,11 +414,10 @@
 	const importFeature = $derived(importFeatures.find((f) => f.mode === importMode));
 	/** The routes the picked mode can take: a free spins is started only by a pot; a base game added
 	 *  as a spins mode by a pot, a buy, Lucky Spin or the random metre (bonus-games Phase 8b). */
-	const SPINS_ROUTE_KINDS = ['pot', 'buy', 'luckySpin', 'randomMetre'];
 	const importRouteOptions = $derived(
 		(importProject?.modeRoutes ?? []).filter((o) =>
 			importFeature?.spins
-				? SPINS_ROUTE_KINDS.includes(o.route.kind)
+				? SPINS_MODE_ROUTE_KINDS.includes(o.route.kind)
 				: importFeature?.board === 'respinBoard' || o.route.kind === 'pot',
 		),
 	);

@@ -191,12 +191,17 @@ function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId, pots?: nu
 	const next = withLegacyPair(structuredClone(doc));
 	const renamed = noRenames();
 	const preset = potsOverlayPreset(id);
+	// The preset's style replaces the host's only when the preset built or changed the Hold and Win
+	// its pots start; over a bonus that already deals them the overlay keeps the style it had.
+	let restyle = false;
 	if (preset.holdAndWin && !next.holdAndWin) {
 		const reason = mergeHoldAndWinBonus(next, preset.holdAndWin, renamed);
 		if (reason) return { ok: false, reason };
+		restyle = true;
 	} else if (preset.holdAndWin && next.holdAndWin) {
-		const reason = bringPotSpecials(next, preset, renamed);
-		if (reason) return { ok: false, reason };
+		const brought = bringPotSpecials(next, preset, pots, renamed);
+		if (typeof brought === 'string') return { ok: false, reason: brought };
+		restyle = brought;
 	}
 	const tokens = addSymbols(next, preset.tokens, renamed);
 	const takenIds = new Set(next.holdAndWin?.meters?.map((m) => m.id));
@@ -233,7 +238,7 @@ function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId, pots?: nu
 		overlay.drops.table = overlay.drops.table.filter((entry) => 'pot' in entry);
 	}
 	const synced = syncBonusSplit(next);
-	if (preset.style && synced.coinOverlay) synced.coinOverlay.style = preset.style;
+	if (restyle && preset.style && synced.coinOverlay) synced.coinOverlay.style = preset.style;
 	return { ok: true, doc: synced, renamed };
 }
 
@@ -241,20 +246,22 @@ function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId, pots?: nu
  * Bring onto `doc`'s own Hold and Win block, in place, each special the preset's pots activate that
  * the block lacks (bonus-games Phase 8b): its respin rules from the preset's Hold and Win, its place
  * in the apply order, the symbol it lands as (renamed on a clash) and one cell of that symbol on each
- * of the block's respin strips. A block that already has every special is left exactly as it was.
+ * of the block's respin strips. Only the first `pots` pots count (the ones the overlay keeps). A
+ * block that already has every special is left exactly as it was. Returns whether it brought any,
+ * or why it cannot.
  */
 function bringPotSpecials(
 	doc: GameConfigDoc,
 	preset: PotsOverlayPreset,
+	pots: number | undefined,
 	renamed: AddOnRenames,
-): string | undefined {
+): string | boolean {
 	const block = doc.holdAndWin!;
+	const kept = preset.potsOverlay.pots.slice(0, pots ?? preset.potsOverlay.pots.length);
 	const wanted = [
-		...new Set(
-			preset.potsOverlay.pots.flatMap((p) => (p.bonus.activates ? [p.bonus.activates] : [])),
-		),
+		...new Set(kept.flatMap((p) => (p.bonus.activates ? [p.bonus.activates] : []))),
 	].filter((kind) => !block.specials[kind]);
-	if (!wanted.length || !preset.holdAndWin) return undefined;
+	if (!wanted.length || !preset.holdAndWin) return false;
 	const gameType = holdAndWinGameType(doc);
 	const strips = doc.paddingReels[gameType];
 	if (!strips?.length) {
@@ -285,7 +292,7 @@ function bringPotSpecials(
 		...strip,
 		...names.map((name) => ({ name })),
 	]);
-	return undefined;
+	return true;
 }
 
 /** A dictionary entry exactly as an add-on creates a token: tagged `meterSpecial`, paying nothing. */
