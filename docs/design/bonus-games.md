@@ -51,6 +51,26 @@ bonus modes: red pot → this Hold and Win, gold coins → that Hold and Win, 3 
 (`FlowDoc.modes`), per-mode screens (`role: 'mode'` + `modeId`), `createRespinBoard` (a factory),
 `modeEvents.ts` (already reads `event.mode`), and the import's provenance, rename map and re-sync.
 
+## 0. The owner's model, revised 2026-10-09 (supersedes §1 and §6.4 where they disagree)
+
+A game is four layers, each authored independently, in any combination:
+
+1. **Base game kind:** lines, scatter, ways, cluster, or Hold and Win.
+   - "Book of" is no longer a kind. It is an option on a lines game (book-feature project).
+   - **Hold and Win stays a base kind.** It plays on its own: coins land on its reels and start its
+     own respins, with no overlay and no bonus needed.
+2. **Coin overlay (optional):** classic, 3 Pots or Collector, over ANY base kind (Hold and Win
+   included). Each of its triggers can start an overlay bonus.
+3. **Overlay bonus (0..n):** a bonus mode of ANY game type.
+   - A **Hold and Win** bonus plays its respin rules (Phases 1–6).
+   - A **lines / scatter / ways / cluster** bonus plays **N spins of that game** on its own reels,
+     paytable and screens, adds up the wins, then returns to the base game (Phase 8).
+4. **Normal bonus:** free spins, started by scatters or bought, as today.
+
+The test-server mock only has to WORK for authoring: approximate math is fine for new combinations,
+because production math comes from the real servers. Every current game still deals exactly as before
+(ground rule 3).
+
 ## 1. The model
 
 ```
@@ -228,10 +248,21 @@ mock unchanged.
 6. **Game Maker: template + Add a bonus mode…** (`invisible-game-maker`). The template builds the
    split form. The import generalises to any mode of any same-client project, as a new mode, with
    any host and re-sync. Guides (`docs-keeper`, rule 9). Needs 2–5.
-7. **Migrate and prove** (`game-playtester`). Every stored project normalises to the split form on
-   its next save. The samples play end to end. A sample host plays two different Hold and Win
-   bonuses from two pots, plus its free spins. The current-games gate maps the `holdAndWin` kind to
-   lines + overlay. Needs 6.
+7. **Compose and prove**, split in three (revised 2026-10-09, §0):
+   - **7a, mock composition.** The base engine comes from the base kind: the lines-family mock with
+     its win model, or the Hold and Win engine. The coin overlay composes over ANY base engine, the
+     Hold and Win engine included. Every overlay route (pot, coin count, pattern, Lucky Spin, random
+     metre, buy) starts its named bonus mode, and a Hold and Win base can enter other bonus modes.
+     This lifts Phase 6's route guard. It also adds per-mode progressive pools and wires
+     `coinOverlay.coins` into the mock. Approximate math is fine; current games are byte-identical.
+   - **7b, drop the legacy mirror.** The `holdAndWin` / `potsOverlay` keys and their readers go.
+     The `holdAndWin` kind stays as a base kind.
+   - **7c, migrate and prove** (`game-playtester`). Every stored project normalises to the split
+     form on its next save, and the samples play end to end. This needs R2 and a browser.
+8. **Overlay bonus of any game type** (after 7a). A bonus mode can be a lines, scatter, ways or
+   cluster game: N spins on its own reels, paytable and screens, then back to the base game. It
+   covers Game Config, the mock, the runtime, the Scene Editor, Flow, Win Text and Game Maker's "Add
+   a bonus mode…" from any project.
 
 **Done when:**
 
@@ -246,7 +277,7 @@ mock unchanged.
 
 ## 4. Order and parallelism
 
-`0 → 1 → (2 ∥ 3 ∥ 5a ∥ 5b) → 4 → (5c ∥ 5d) → 6 → 7`.
+`0 → 1 → (2 ∥ 3 ∥ 5a ∥ 5b) → 4 → (5c ∥ 5d) → 6 → 7a → (7b ∥ 8) → 7c`.
 
 Concurrent work to coordinate with:
 
@@ -268,8 +299,8 @@ Concurrent work to coordinate with:
 1. **Routing lives in Game Config;** Flow only presents each mode. (Math has to be server-dealt.)
 2. **Copy + Re-sync, not a live link.**
 3. **An added bonus mode never replaces one:** an id clash takes `_2`.
-4. **The `holdAndWin` KIND retires as an engine switch (confirmed)** (as `bookOf` did) and stays as a
-   Game Maker template.
+4. ~~The `holdAndWin` KIND retires as an engine switch~~ **Reversed 2026-10-09:** Hold and Win stays a
+   base kind that plays alone, and a coin overlay and bonus modes can be layered on it (§0).
 5. **Name (confirmed):** `potsOverlay` is renamed `coinOverlay` (UI: "Coin overlay"), with a compat
    read of the old key.
 6. **Triggers in scope (confirmed):** the coin overlay's own (coin count, pots, collector, pattern,
