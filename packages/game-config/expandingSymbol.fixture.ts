@@ -70,6 +70,8 @@ console.log('\nwithout the block, nothing changes');
 const PINNED: Record<string, string> = {
 	'holdAndWin.classic.json': 'b8dddf930e614ea7',
 	'holdAndWin.collector.json': 'e506f3c02d3aac09',
+	'holdAndWin.plain.json': 'db437957e5eb0706',
+	'holdAndWin.plainNoJackpots.json': 'fa0faee3b4a6955a',
 	'holdAndWin.pots.json': '01e2ac04f676ba9f',
 	'lines.json': '4e6d5bb1764ee30c',
 	'scatter.json': '7e9591cdf9382419',

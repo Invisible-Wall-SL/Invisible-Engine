@@ -83,7 +83,9 @@ overlay add-on.
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
    This route never grafts the Flow, so the overlay plays its coded beats. On a new Hold and Win
-   game the only preset that fits is **Pots to free spins** (see the style list below).
+   game the only preset that fits is **Pots to free spins** (see the style list below), and its
+   pots are dealt once the mock-composition work (#1152) lands: until then they save but never fill
+   on the test server.
 5. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
@@ -638,7 +640,8 @@ graduate later; its R2 authoring data carries over.
   [`test-server.md`](test-server.md).
 - **The pots overlay is dealt on Book of and lines-family hosts.** The test server's mock deals the
   overlay over a `book`, `lines`, `ways`, `cluster` or `scatter` game (a stepped board excepted). A
-  Hold and Win game that adds the overlay is still dealt without pots.
+  Hold and Win game that adds the overlay is dealt without pots until the mock-composition work
+  (#1152) lands.
 - **Pots overlay on a Hold and Win game:** a project created before 2026-10-09 (or a sample) already
   has its Pots screen, so the add-on only appends a Pot Meter for each new pot (`red_2`…) beside the
   existing ones. Arrange them in the [Scene Editor](invisible-editor.md). **Coins only** is not

@@ -417,7 +417,58 @@ starts the phase sessions, reviews their PRs and merges them.
     respin mode. Until then, the pot route into a Book-of host with a second respin mode is what
     plays (gate §1). The sample host playing two Hold and Win bonuses stays Phase 7's proof.
 
+- 2026-10-09 — **Phase 6b: the plain Hold and Win template** (hub-approved option (a)).
+  - **The template is the plain game.** Game Maker's "Hold and Win" seeds `holdAndWin.plain` or
+    `holdAndWin.plainNoJackpots` (game-config `HOLD_AND_WIN_TEMPLATES`): Classic's 5×3 / 5-line base
+    with coins on the base strips, `count` 6+, 3 respins, `allCoins`, `anyCoin` reset, and no
+    specials, pots or meters. Jackpots On: Classic's four tiers, jackpot coins and `fullBoardJackpot`
+    GRAND. Off: `jackpots: []` and `boardEnd: none`, which `validateHoldAndWin` already accepts.
+  - **Screens.** The plain project seeds no `pots` screen, and with Off no `jackpotBar`. The starter
+    Flow drops their show/hide steps and containers (the chain is re-joined), so it publishes with no
+    `container-scene-missing`. "＋ Coin overlay…" merges the Pots screen back.
+  - **The presets stay** for `/config` → Reset to preset, the samples, the gates and the
+    `scaffoldProject({ holdAndWinPreset })` option. The kind's un-authored default is still Pots, so
+    a re-scaffold or duplicate of an un-authored project seeds what it already played. `/admin`'s
+    create also gets the plain template (Jackpots On).
+  - **Gap, by decision:** on a plain Hold and Win, "＋ Coin overlay…" offers only **Pots to free
+    spins**. 3 Pots needs the payer, collector and multiplier specials its pots start, and Collector
+    has no overlay preset. And the test server deals no overlay on a Hold and Win kind until the
+    mock-composition work (Phase 7a, #1152) lands.
+  - **For 8b / follow-up:** overlay presets become self-contained, so any overlay goes over any base
+    (the owner's model). 3 Pots brings the specials its pots need onto a host that lacks them, and
+    Collector gets an overlay preset. This comes after 7a merges, with `check:pots-overlay-add-on`
+    parity for every existing case.
+
 ## Recent changes
+
+- 2026-10-09 — **Phase 6b: the plain Hold and Win template, jackpots optional** (PR #TBD,
+  game-config `holdAndWinPresets.ts`, launcher `projectScaffold.ts`, `gameConfigDefaults.ts`,
+  `/game-maker`, `/admin`).
+  - **What landed:**
+    - Create → Hold and Win shows **Jackpots: On / Off** instead of the Pots / Classic / Collector
+      preset picker, and creates the plain game.
+    - The new committed defaults are `holdAndWin.plain.json` and `holdAndWin.plainNoJackpots.json`.
+      The three preset JSONs are byte-unchanged.
+    - Guides: `docs/tools/game-maker.md` and `docs/tools/game-config.md` (docs-keeper).
+  - **Gates:**
+    - `check:add-bonus-mode` §5, for Jackpots On and Off:
+      - the stored config is the template, normalizes and validates clean;
+      - it has one respin mode and no pots, meters, drops or special roles;
+      - the tiers follow the choice (`respinModesOf().jackpotTiers` empty when Off), as do the board
+        end and the `jackpotBar` screen, and there is never a `pots` screen;
+      - the Flow has no error and no `container-scene-missing`;
+      - on the Hold and Win mock, 20 forced-trigger rounds each start the respins, play at least 3
+        and pay the coins' total. Across them coins land on a respin, and a jackpot coin is dealt
+        only with On.
+
+      Mutations that turn it red: screens not dropped (2), Flow not stripped (2), Off seeded as On (3).
+    - `expandingSymbol.fixture.ts` pins the two new defaults.
+    - `check:holdandwin` 1892/0 + 428/0 and `check:pots-overlay` 112/0, with `MAIN_DIGESTS`
+      unchanged.
+    - `check:all` 419/420. The one red was this pin, which now passes when re-run alone. `check:svelte` launcher-api is at its baseline of 48,
+      `check:undefined-names` is clean, and eslint is clean on the touched files.
+  - **Not run here:** the browser playtest and CI's Current games. No stored config or sample
+    changes, so Current games should show 0 changed screens.
 
 - 2026-10-08 — **Phase 6: Game Maker template + "Add a bonus mode…"** (PR #1149, `game-config`
   `imports.ts` / `bonusImports.ts`, launcher `projectBonusImport.ts`, `projectScaffold.ts`,
