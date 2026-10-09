@@ -290,6 +290,19 @@ export function validateGameModes(doc: GameConfigDoc): GameModeIssue[] {
 	return issues;
 }
 
+/** A spins bonus mode: a `reels` mode of the project's own that carries a `spins` game. */
+export type SpinsModeDecl = GameModeDecl & { board: 'reels'; spins: SpinsGame };
+
+/**
+ * The doc's SPINS bonus modes (`./spinsGame`, bonus-games Phase 8), in declaration order: its own
+ * `reels` modes that carry a `spins` game. The one lister the tools, Flow and the runtime read.
+ */
+export function spinsModeDecls(doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'>): SpinsModeDecl[] {
+	return resolveGameModes(doc).filter(
+		(mode): mode is SpinsModeDecl => mode.board === 'reels' && mode.spins !== undefined,
+	);
+}
+
 /** The base kinds whose mock deals a bonus on its own board, not a spins game of another type. */
 const NO_SPINS_GAMES_KINDS: Record<string, string> = {
 	bookOf: 'a Book-of game',

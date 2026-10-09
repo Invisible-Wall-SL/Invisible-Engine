@@ -101,6 +101,20 @@ export const modeSceneBaseId = (scene: Pick<Scene, 'id' | 'modeId'>): string => 
 };
 
 /**
+ * The ids of the mode copies (`<screen>-<modeId>`) of the `reserved` screens among `scenes`, for the
+ * modes `isMode` knows (respin and spins modes): each is reserved like the screen it copies, so a
+ * mode's tap dim, banner or free-spin intro never mounts as an always-on overlay.
+ */
+export const reservedModeCopies = (
+	scenes: readonly Pick<Scene, 'id' | 'modeId'>[],
+	isMode: (modeId: string | undefined) => boolean,
+	reserved: ReadonlySet<string>,
+): string[] =>
+	scenes
+		.filter((scene) => isMode(scene.modeId) && reserved.has(modeSceneBaseId(scene)))
+		.map((scene) => scene.id);
+
+/**
  * The screen that draws `screen`'s beat in respin mode `mode`: that mode's own copy (`role: 'mode'`,
  * its `modeId`, the same base id — the `holdAndWin` mode's keeps the reference id, any other is
  * suffixed with its id, bonus-games Phase 5b), else `screen` itself.

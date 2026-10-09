@@ -245,10 +245,20 @@ speaks the top-level lines. The page then shows a **Lines for a mode that no lon
 section, one row per id:
 
 - **Move** sends them to the mode you pick, the primary included. That mode's own lines take their
-  place, so nothing is lost.
+  place, so nothing is lost. A spins mode's old lines (its win-line message and captions) move only
+  to a current spins mode, never to the primary.
 - **Remove** deletes them.
 
 Save afterwards.
+
+### Spins modes
+
+A **spins mode** is a Game Config bonus that plays N spins of its own lines/ways/cluster/scatter
+game, so it can speak its wins its own way. When the game has one, the **win-line message** grid
+and the **Win-level captions** each get a **Board** picker: **Base game** or each spins mode. On a
+spins mode the boxes edit that mode's own lines (stored under `modes.<mode id>`); a box left blank
+reads the base game's, shown greyed. The game uses a spins mode's lines while that mode is on top.
+Localization lists them in a **Win text — <mode>** section.
 
 ### Pots (pots overlay)
 

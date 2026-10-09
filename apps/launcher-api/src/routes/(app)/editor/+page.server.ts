@@ -12,6 +12,8 @@ import {
 	resolveGameModes,
 	resolveGrid,
 	resolveWinLevels,
+	spinsGameView,
+	spinsModeDecls,
 	type GameConfigDoc,
 } from 'game-config';
 import type { RepeaterSourceMap, RepeaterSourcePreview } from './editorCanvas.helpers';
@@ -84,7 +86,9 @@ async function gate(
  * bounding box) then has one implementation, so the editor cannot preview a board the game will not
  * draw. Omitted entirely for a uniform grid, so the preview takes its existing rectangular path.
  */
-function gridDimensionsOf(doc: GameConfigDoc | null | undefined): GridDimensions | undefined {
+function gridDimensionsOf(
+	doc: Pick<GameConfigDoc, 'numReels' | 'numRows' | 'gridAlign'> | null | undefined,
+): GridDimensions | undefined {
 	if (!doc) return undefined;
 	const grid = resolveGrid(doc);
 	if (!grid.stepped) return { reels: grid.reels, rows: grid.maxRows };
@@ -165,6 +169,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const gridDimensions = gridDimensionsOf(gameConfigDoc);
 	const { addOns, potIds } = projectAddOns(gameConfigDoc);
 	const respinModes = respinModesOf(gameConfigDoc);
+	const spinsModes = gameConfigDoc ? spinsModeDecls(gameConfigDoc) : [];
 	// The `win` component authors its per-tier PRESENTATION (rig/animations/duration/sound) from the
 	// config's BIG tiers, keyed by alias — so the component's groups mirror the config. Null when the
 	// project hasn't authored `winLevels` ⇒ the client keeps the built-in default tiers (byte-identical).
@@ -286,6 +291,18 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			label,
 			...(maxRows ? { maxRows } : {}),
 		})),
+		// Every spins mode: "Add missing screens" seeds each one's free-spin screens, tagged with its id.
+		spinsModes: spinsModes.map((mode) => ({ id: mode.id, label: mode.label ?? mode.id })),
+		// The board each spins mode plays on, by mode id: In-game view draws the reel grid at it while
+		// that mode is shown, as the game's `boardDimensions` follows the mode. Empty ⇒ none.
+		modeGridDimensions: Object.fromEntries(
+			gameConfigDoc
+				? spinsModes.flatMap((mode): [string, GridDimensions][] => {
+						const grid = gridDimensionsOf(spinsGameView(gameConfigDoc, mode.spins));
+						return grid ? [[mode.id, grid]] : [];
+					})
+				: [],
+		),
 		// No respin mode has a jackpot tier: the scene set has no Jackpot bar.
 		noJackpotTiers: noJackpotTiers(respinModes),
 		// The config's add-on blocks (pots overlay / a Hold and Win bonus): the palette, the pickers

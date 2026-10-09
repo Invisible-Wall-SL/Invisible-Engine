@@ -41,7 +41,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
 | 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
 | 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | not started | — | — |
-| 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | not started | — | — |
+| 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | in review | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 8b, 8c) | — | — |
 | 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b) | — | — |
 
@@ -568,7 +568,109 @@ starts the phase sessions, reviews their PRs and merges them.
   - **For 7c:** `check:deal-parity` lists every shape a current game has. A sample migrated in 7c
     belongs there with its stored kind.
 
+- 2026-10-09 — **Phase 8c: what a spins mode is in the tools** (PR #1155; for 8b, 7b and 7c).
+  - **Screens.** A spins mode copies the kind's three free-spin screens (`SPINS_MODE_SCREENS`:
+    `freeSpinIntro`, `freeSpinCounter`, `freeSpinOutro`) as `<screen>-<modeId>`, `role: 'mode'` +
+    `modeId`, every node id suffixed too, each right after the screen it copies. The naming is 5b's
+    (`modeCopy`, shared with `screenForMode`); unlike a respin mode, the id is always suffixed (no
+    spins mode keeps the reference ids). A kind with no free-spin screens gets none.
+  - **The board preview.** The copies carry no board: the reel grid is `basegame`'s, and the game
+    sizes it from `boardDimensions`, which follows the mode. So the Scene Editor draws the grid at the
+    mode's own (`modeGridDimensions`, from `spinsGameView` → `resolveGrid`, the runtime's resolver)
+    while In-game view shows that mode.
+  - **In-game view judges a mode screen by its reference id** (`restingScenes` strips `-<modeId>`).
+    This also fixes 5b's respin copies: In-game view of a second respin mode used to draw its
+    `featureIntro-<id>` / `jackpotWin-<id>` beat screens as if they stayed up for the whole mode.
+  - **The runtime reserves mode copies for spins modes too** (`reservedModeCopies`, by
+    `spinsGameOf`), so a `freeSpinIntro-<id>` never mounts as an always-on tap surface. The coded
+    counter draws the active spins mode's copy when the doc has one (`modeScreenFor`).
+  - **Flow.** `FlowAddOns.spinsModes` is emitted only when the doc has one, so every current doc's
+    add-ons are byte-identical. The vocabulary is unchanged: a spins tab is a reels tab
+    (`vocabForTab` already hides the respin feature events there). The graft's tab
+    (`spinsModeGraph`) presents `freeSpinTrigger` / `updateFreeSpin` / `freeSpinEnd` only; every
+    other event of a spin (reveal, wins) falls back to the global graph. The counter swap (hide the
+    base counter, show the mode's) is added only when the flow drives the screens and declares
+    `freeSpinCounter`; otherwise the coded counter already draws the mode's copy.
+  - **Win Text: a spins mode's lines are its win-line message and win-tier captions**
+    (`WIN_TEXT_SPINS_MODE_FAMILIES`, under `modes[<id>]` beside 5d's respin entries). Win Text has
+    no free-spin intro / outro / counter lines (the visuals draw bare numbers), and a spins mode
+    never retriggers, so those two families are what a ways or cluster game on a lines host speaks
+    differently. They fall back to the base game's field by field. The game reads them through
+    `boardWinText()` (win line, info-bar toast, big-win caption).
+  - **Per-mode win TIERS are a follow-up**, not built: tiers are `GameConfigDoc.winLevels`, one
+    ladder per doc, and `activeWinLevels` does not follow the mode. A per-mode ladder is a `/config`
+    contract change (8b's side). The captions per mode are built.
+  - **`/symbols` needed no new binding shape.** Symbols are one dictionary and the symbol doc is
+    keyed by name, and `symbolGrid` already lists every strip's symbols, a spins mode's included.
+    What was missing is knowing whose rows they are: the page now chips the symbols only a spins
+    mode's strips deal (`spinsModeSymbols`). A symbol the base game also deals keeps one binding for
+    both; per-mode bindings for a shared symbol would need a mode key in the symbol doc.
+  - **Info page.** `activePaytableInputs()` (engine-game): while a spins mode is on top the paytable
+    is its game's, `shownPaytable(view.symbols, symbolsInPlayForGameType(doc, its gameType))`. The
+    base page is unchanged. Note that the base page lists every strip's symbols, a spins mode's
+    included (main's behaviour, `getSymbolsInPlay`); the rules text stays the doc's.
+  - **For 8b:** nothing in `/config` or Game Maker was touched. An imported spins mode should copy
+    its `-<sourceMode>` free-spin screens as `-<newModeId>` (`modeCopy`'s naming), its Flow tab and
+    its `modes[<id>]` Win Text, as Phase 6 does for a respin mode.
+  - **Renamed or removed spins modes** (hub review of #1155): their `modes[<old id>]` entry is an
+    orphan like a respin mode's. `/win-text` lists it as spins mode lines and offers only the current
+    spins modes as Move targets (a plain key swap of every family). `swapWinTextModeLines` refuses
+    to move spins lines onto the respin primary, whose families have no place for them (it returns
+    the doc unchanged rather than drop them). An entry holding both kinds can only be removed.
+  - **A spins tab's holds are gated** (`spinsTabIssues`, beside `respinTabIssues`; the publish gate
+    and `/flow-v2` add it). A hold on a screen the layout lacks is an ERROR,
+    `spins-hold-scene-missing`: "＋ Add overlay steps" run before "Add missing screens" would never
+    continue. No flow had a spins tab before, so nothing that published is refused (§6 pins every
+    current doc at no issue). A screen-driving flow whose spins tab never hides the base counter (a
+    tab seeded before the flow drove the screens) gets the WARNING `spins-counter-unswapped`. A
+    template without free spins gets no empty tab.
+  - **Anticipation follows the spins mode.** `buildReach` reads the info paytable (`paytable()`), so
+    while a spins mode is on top the near-miss tease is reached with its own pays. The gate pins the
+    call.
+  - **One lister:** game-config `spinsModeDecls(doc)` (`modes.ts`). Flow add-ons, the launcher and
+    the engine's `spinsModesOf` read it; `spinsModeKindIssues` (8a's) still filters inline. 8b can
+    switch to it whichever merges second.
+  - **For 7b:** keep `swapWinTextModeLines`' refusal when the mirror goes: the primary still speaks
+    the respin families only.
+  - **For 7c:** the free-spin intro lock (`celebrationLock`) still keys on the plain
+    `freeSpinIntro` / `freeSpinOutro` ids. A mode's copies held with `awaitComplete` lock the spin
+    button through `flowHoldsPresentation`. Check it in the browser playtest, with the board swap.
+
 ## Recent changes
+
+- 2026-10-09 — **Phase 8c: spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the
+  info page** (PR #1155; `engine-layout` `referenceLayouts`, `restingScenes`, `winText`;
+  `engine-flow-v2` `drivenSeed`, `addOns`; `engine-game` `gameConfig`; game-config `flowAddOns`;
+  launcher `addOns`, `/editor`, `/flow-v2`, `/win-text`, `/symbols`, `winTextStorage`,
+  `localizationHarvest`; `apps/lines` `Game.svelte`, `respinModes`, `paytable`, `boardWinText`).
+  - **What landed:** "Phase 8c" in Decisions & findings.
+  - **Gates:** new `pnpm --filter launcher-api check:spins-modes-tools`, 321 checks after the hub's
+    review round. Lines, ways and
+    cluster hosts, each with a ways, a cluster and a lines spins mode (`spinsGame.sample.ts`) and a
+    symbol only the ways mode deals. It covers:
+    - per-mode screens with distinct scene and node ids, In-game view, reservation, the counter, the
+      board preview;
+    - each Flow tab (Mode triggers, its own screens, distinct node ids, clean and warning-free
+      publish, idempotent graft, the reels vocabulary, the interpreter's mode graph);
+    - Win Text save / resolve / harvest and the game's `boardWinText`;
+    - the `/symbols` chip;
+    - the info paytable, grid and paylines per mode.
+
+    It also compiles the game's own call sites (the reservation predicate, the counter pick and the
+    `paytable()` wrapper, sliced from `Game.svelte` / `paytable.ts`) and checks the Win Text readers
+    (`WinVisual`, `flowEffects`) and anticipation. Mutation-tested: 28 mutations, the reviewer's six
+    included, each turns it red. §6 pins 117 facts of every current doc
+    (scenes, add-on screens, Flow add-ons / seed / verdict, Win Text, Localization, `/symbols`,
+    info) byte-identical to main 4067dfb, measured by `scripts/lib/spinsToolsFacts.ts` on that
+    tree. The docs are the `hw-*` presets, the plain Hold and Win templates, `borut-pots-sample`,
+    lines / ways / cluster / free spins and the overlay presets.
+  - Also passing: `check:holdandwin` and `check:pots-overlay` with `MAIN_DIGESTS` unchanged,
+    `check:deal-parity`, `check:spins-modes`, `check:spins-modes-contract`, `check:respin-modes`,
+    `check:bonus-modes-tools`, `check:flow-bonus-modes`, `check:win-text-bonus-modes` and
+    `check:freespins`.
+  - **Guides:** `docs/tools/` for the Scene Editor, Flow v2, Win Text and `/symbols`.
+  - **Still owed:** a live browser playtest of a spins mode's screens, tab and counter swap (7c);
+    per-mode win tiers (a `/config` contract, after 8b).
 
 - 2026-10-09 — **Phase 8a: a spins bonus mode of any game type** (PR #1151; `game-config`
   `spinsGame.ts`, `potsOverlayMock.ts`; `scripts/mock-rgs-server.mjs`, `mock-pots-overlay.mjs`;

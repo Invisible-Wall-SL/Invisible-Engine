@@ -10,6 +10,7 @@
 		deriveGraphPins,
 		graftAddOnSteps,
 		respinTabIssues,
+		spinsTabIssues,
 		validateFlowDoc,
 		vocabForTab,
 		validateFunctionDef,
@@ -394,6 +395,7 @@
 			: [
 					...validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
 					...respinTabIssues(doc, data.addOns),
+					...spinsTabIssues(doc, data.addOns, sceneIds),
 				],
 	);
 
@@ -1364,7 +1366,9 @@
 	// "＋ Add overlay steps" — graft the add-on steps this flow lacks (the pots' filling beat, the
 	// Hold and Win mode tab) without touching an authored node. Offered only to a project whose Game
 	// Config carries an add-on block; one undo step, saved like any edit.
-	const hasAddOns = $derived(Boolean(data.addOns?.holdAndWin || data.addOns?.potsOverlay));
+	const hasAddOns = $derived(
+		Boolean(data.addOns?.holdAndWin || data.addOns?.potsOverlay || data.addOns?.spinsModes?.length),
+	);
 	const graftable = $derived(hasAddOns ? graftAddOnSteps(doc, data.addOns).added : []);
 	function addOverlaySteps(): void {
 		const { doc: next, added } = graftAddOnSteps(doc, data.addOns);

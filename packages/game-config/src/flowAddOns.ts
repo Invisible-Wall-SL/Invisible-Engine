@@ -1,5 +1,5 @@
 import { bonusCapabilityInputs, respinModeIds } from './bonusGames';
-import { HOLD_AND_WIN_MODE } from './modes';
+import { HOLD_AND_WIN_MODE, spinsModeDecls } from './modes';
 import { resolveMeters } from './potsOverlay';
 import type { GameConfigDoc } from './types';
 
@@ -8,13 +8,15 @@ import type { GameConfigDoc } from './types';
  * structurally here so this package stays dependency-free), read off the split form
  * (`bonusCapabilityInputs`): is there a respin mode with rules, does the coin overlay drop tokens,
  * its meter ids, and — only when they are not the lone `holdAndWin` — the respin modes, the primary
- * first, so a project with one default respin mode resolves what it always did. No doc ⇒ no add-ons.
+ * first, so a project with one default respin mode resolves what it always did — and its spins modes
+ * (`./spinsGame`) only when it has one. No doc ⇒ no add-ons.
  */
 export interface ConfigFlowAddOns {
 	holdAndWin: boolean;
 	potsOverlay: boolean;
 	meters: string[];
 	respinModes?: string[];
+	spinsModes?: string[];
 }
 
 export function flowAddOnsOf(
@@ -24,10 +26,12 @@ export function flowAddOnsOf(
 	const inputs = doc ? bonusCapabilityInputs(doc) : undefined;
 	const respinModes = doc ? respinModeIds(doc) : [];
 	const loneDefault = respinModes.length === 1 && respinModes[0] === HOLD_AND_WIN_MODE;
+	const spinsModes = doc ? spinsModeDecls(doc).map((mode) => mode.id) : [];
 	return {
 		holdAndWin: !!inputs?.respinMode,
 		potsOverlay: !!inputs?.potsOverlay,
 		meters: resolveMeters(doc ?? undefined).map((meter) => meter.id),
 		...(respinModes.length && !loneDefault ? { respinModes } : {}),
+		...(spinsModes.length ? { spinsModes } : {}),
 	};
 }

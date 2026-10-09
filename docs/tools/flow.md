@@ -749,7 +749,7 @@ plays the drain before your chain runs. Put `drainPots` on the chain only to pla
 yourself, for example after an intro.
 
 **＋ Add overlay steps.** This toolbar button shows only when the Game Config has one of these
-blocks. It adds the steps your flow does not have yet:
+blocks or a spins mode. It adds the steps your flow does not have yet:
 
 - with a Pots overlay, the drop chain (`overlayDrop` → `showTokens`) and the pot-filling chain
   (`meterUpdate` → `fillMeter`) in the Global graph, placed to the right of your nodes, each only
@@ -759,9 +759,18 @@ blocks. It adds the steps your flow does not have yet:
   tab's Mode triggers name its own mode and its node ids get their own prefix (`hw`, `hw2`, …).
   The `holdAndWin` mode shows the starter screens (`respinBoard`, `wheel`, …); any other mode
   shows its own copies, `<screen>-<modeId>` (e.g. `respinBoard-holdAndWin_2`) — the ones the Scene
-  Editor's **＋ Add missing screens** creates, so run that too.
+  Editor's **＋ Add missing screens** creates, so run that too;
+- with a spins mode (a Game Config bonus that plays N spins of its own lines/ways/cluster/scatter
+  game), a tab for each spins mode the flow has no tab for. It presents `freeSpinTrigger`,
+  `updateFreeSpin` and `freeSpinEnd` on that mode's own intro, counter and outro screens
+  (`freeSpinIntro-<modeId>`, …; the intro and outro hold the round until a tap). In a flow that
+  drives the screens, its **Mode trigger**s also swap the base game's free-spin counter for the
+  mode's own on **enter** and back on **exit**. Every other event of its spins falls back to
+  **Global**. The tab is offered the base game's vocabulary, without the respin feature events.
+  Run the Scene Editor's **＋ Add missing screens** first: until the mode's intro and outro exist, the
+  tab's holds on them are an error and the flow does not publish.
 
-It never changes a node you authored and leaves an existing respin mode tab alone. Hover it to see
+It never changes a node you authored and leaves an existing mode tab alone. Hover it to see
 what it will add; when there is nothing left to add it is disabled and its tooltip says so. It works
 from the Global tab only, like **＋ Comment**. It is one **↶ Undo** step, and Save keeps it like any
 other edit.
