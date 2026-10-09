@@ -327,7 +327,12 @@
 		},
 	});
 
-	context.stateGameDerived.enhancedBoard.readyToSpinEffect();
+	// Inside an effect that reads the board, so reels a later `rebuildBoard` splices in (a spins mode
+	// entered or left) get their hook too. Without it a pre-spun round waits forever on reels nothing
+	// tells it are ready.
+	$effect(() => {
+		context.stateGameDerived.enhancedBoard.readyToSpinEffect();
+	});
 </script>
 
 <!--
