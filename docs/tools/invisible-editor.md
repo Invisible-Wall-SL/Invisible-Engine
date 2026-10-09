@@ -74,8 +74,10 @@ to the toggle: **Base game** or the mode (e.g. **Hold and Win**). Pick the mode 
 canvas draws what the game shows while that mode plays: the base game's screens plus the
 mode's board, counter, total and letters. They stay on the canvas whichever screen you
 click, the same as the base game's screens. The mode's intro, outro, wheel and jackpot
-popups still draw only while you edit them. Clicking a mode screen in the list switches
-the menu to its mode; pick **Base game** to go back. The choice is kept per project.
+popups still draw only while you edit them. A spins mode shows its own free-spin counter the
+same way (its intro and outro draw only while you edit them), and the reel grid is drawn at that
+mode's own grid size. Clicking a mode screen in the list switches the menu to its mode; pick
+**Base game** to go back. The choice is kept per project.
 
 In-game view also hides the labelled boxes for component parts that have no art picked (a
 Feature Card's empty panel or rig slot), because the game draws nothing there either.
@@ -163,6 +165,11 @@ To start from something:
   expanding board, and the base reel grid makes room for the tallest. A Hold and Win
   project already has the `holdAndWin` set, so there only the other respin modes' screens are
   added (and **Add overlay screens** appears for them too).
+- **Free-spin screens per spins mode.** A spins mode (a Game Config bonus that plays N spins of its
+  own lines/ways/cluster/scatter game) gets its own copies of the free-spin intro, counter and
+  outro: ids `freeSpinIntro-<mode id>` etc., each named after its screen with the mode's name in
+  brackets, role _game mode_ tagged with that mode. Both buttons offer them, each right after the
+  screen it copies.
 
 **Hold and Win screens.** A Hold and Win project starts with one screen set for all three
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in

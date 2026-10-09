@@ -250,6 +250,15 @@ section, one row per id:
 
 Save afterwards.
 
+### Spins modes
+
+A **spins mode** is a Game Config bonus that plays N spins of its own lines/ways/cluster/scatter
+game, so it can speak its wins its own way. When the game has one, the **win-line message** grid
+and the **Win-level captions** each get a **Board** picker: **Base game** or each spins mode. On a
+spins mode the boxes edit that mode's own lines (stored under `modes.<mode id>`); a box left blank
+reads the base game's, shown greyed. The game uses a spins mode's lines while that mode is on top.
+Localization lists them in a **Win text — <mode>** section.
+
 ### Pots (pots overlay)
 
 A game with a **pots overlay** (a `potsOverlay` block in its
