@@ -85,9 +85,8 @@ overlay add-on.
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
    This route never grafts the Flow, so the overlay plays its coded beats. On a new Hold and Win
-   game the only preset that fits is **Pots to free spins** (see the style list below), and its
-   pots are dealt once the mock-composition work (#1152) lands: until then they save but never fill
-   on the test server.
+   game the only preset that fits is **Pots to free spins** (see the style list below). The test
+   server deals it: a full gold pot plays approximate free spins (plain line spins on its board).
 5. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter

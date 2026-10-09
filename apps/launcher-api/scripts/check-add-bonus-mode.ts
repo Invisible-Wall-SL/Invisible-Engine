@@ -142,7 +142,6 @@ const { scaffoldProject } = await import('../src/lib/server/projectScaffold.ts')
 const { gameConfigDefaultFor, gameConfigPresetsFor, gameConfigSeedFor, holdAndWinTemplateSeed } =
 	await import('../src/lib/server/gameConfigDefaults.ts');
 const { cleanOverlayPresets } = await import('../src/lib/server/projectAddOn.ts');
-const { mockContractOfBundle } = await import('../src/lib/server/mockContract.ts');
 const { noJackpotTiers, projectAddOns, respinModesOf, sceneSetOptionsFor } =
 	await import('../src/lib/addOns.ts');
 const { getFullSceneSet, kindCapabilities } = await import('engine-layout');

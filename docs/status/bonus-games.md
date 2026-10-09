@@ -451,8 +451,8 @@ starts the phase sessions, reviews their PRs and merges them.
     create also gets the plain template (Jackpots On).
   - **Gap, by decision:** on a plain Hold and Win, "＋ Coin overlay…" offers only **Pots to free
     spins**. 3 Pots needs the payer, collector and multiplier specials its pots start, and Collector
-    has no overlay preset. And the test server deals no overlay on a Hold and Win kind until the
-    mock-composition work (Phase 7a, #1152) lands.
+    has no overlay preset. Since Phase 7a (#1152) the test server deals the overlay on a Hold and
+    Win kind, so Pots to free spins on a plain game plays: a full pot plays approximate free spins.
   - **For 8b / follow-up:** overlay presets become self-contained, so any overlay goes over any base
     (the owner's model). 3 Pots brings the specials its pots need onto a host that lacks them, and
     Collector gets an overlay preset. This comes after 7a merges, with `check:pots-overlay-add-on`
