@@ -16,6 +16,11 @@
 > §17 deferred "route A — Rive state machine" (2026-06-05, re-confirmed 2026-06-09). The owner
 > needs to lift that deferral, scoped to *component* state machines (§2). §17's planned
 > `BehaviorTrack`/`TweenStep` timeline is superseded by §4 here; neither was ever built.
+>
+> **Owner direction (2026-10-09, third pass):** this is part of a bigger plan. The same tools must
+> later build **other kinds of games — arcade, match-3** — the way Rive can, so the Flow connection
+> has to be seamless and not slot-shaped. And none of it may break the work and the games we already
+> have. §6 (the component ↔ Flow contract) and §7 (beyond slots) answer that.
 
 ## 1. The hybrid: what we keep, what we take from Rive
 
@@ -158,20 +163,131 @@ interface ComponentStateMachine {
 - Existing `signals`, `cues`, `stateAnimations` and `valueBindings` keep working. Phase 8
   migrates them; nothing is migrated earlier.
 
-## 6. Phased build (each phase ships, parity-gated)
+## 6. The component ↔ Flow contract (how it all connects)
+
+### 6.1 One interface per component
+
+Every component publishes one typed **interface**. The state machine reads it, Flow wires to it,
+and the editor shows it. It is the only thing Flow ever sees of a component:
+
+```ts
+interface ComponentInterface {
+	inputs:  ComponentInput[];   // bool / number / trigger / text — what Flow can SET or FIRE
+	events:  ComponentEvent[];   // what the component TELLS Flow: 'pressed', 'revealDone', 'landed'…
+	values:  ComponentValue[];   // what Flow can READ: current state, a counter, a selected index
+}
+interface ComponentEvent { id: string; payload?: ParamDecl[] }   // ParamDecl = Flow's existing type
+```
+
+- **Inputs come in, events go out.** The component decides how it *looks and reacts*: its state
+  machine, timelines and listeners. Flow decides what it *means*: logic, game state, which screen
+  is shown. Rive draws the same line between its state machine and the host app's code. Here, the
+  host app's code is Flow.
+- **Events are raised by the component itself:** a listener (`on click → event 'pressed'`), a
+  state being entered (`on enter Win → event 'winShown'`), or a timeline cue
+  (`signal:revealDone`).
+- This **generalises what exists**. Today a screen's container already surfaces its components'
+  configured `action` events as exec-out pins (`containerEvents.ts`, derived and never stored, so it
+  cannot drift). The interface is the same idea in both directions, typed: exec-out pins for events,
+  exec-in pins for triggers, data-in pins for inputs, data-out pins for values.
+
+### 6.2 What the author does
+
+1. **In the Scene Editor**, place a component instance on a screen and give it a name: `spinButton`,
+   `scoreReadout`, `board`.
+2. **In Flow**, that instance appears in the palette under its screen, the way screens already
+   appear today (`syncFlowContainers`). Drag it in and you get an **instance node**:
+   - one exec-out per event (`spinButton ▸ onPressed`)
+   - one exec-in per trigger (`▸ win`)
+   - one data-in per input (`amount #`)
+   - one data-out per value (`state`)
+3. Wire it like any other node: `spinButton.onPressed → Spin`,
+   `winInfo → winBanner.amount ← payload.amount → winBanner.win ▸`,
+   `Wait for winBanner.state == Idle`.
+4. **Jump between the tools.** In the editor: right-click an instance → *Show in Flow*. In Flow:
+   double-click an instance node → *Edit component* (it opens on the stage, in place).
+5. **Preview together.** Flow's Preview drives the stage. Firing a trigger in Flow plays the
+   component's state machine on the canvas, so logic and animation are checked in one place.
+
+### 6.3 Why it stays safe
+
+- The pins are **derived** from the interface. Change the component and Flow's palette and
+  validator follow. A wire to an input that no longer exists is a **validation error**, and
+  validation already blocks Publish.
+- The interface is **versioned with the `ComponentDef`**. An instance pins its version, as it does
+  today, so editing a shared component cannot silently break a game's Flow.
+- Today's slot Flow vocabularies, `fireCue`, `playCinematic` and the container events are not
+  changed. The instance node is a new node kind alongside them.
+
+## 7. Beyond slots: arcade and match-3 (the bigger plan)
+
+### 7.1 The layers
+
+The goal is that a new kind of game is new **data and vocabulary**, never a fork of the engine.
+This is the same rule [game-type-templates.md](game-type-templates.md) set for slot types
+(`{ data, mechanic }` + `packages/engine-game`), applied one level up:
+
+| Layer | What it is | Slots (today) | Match-3 | Arcade |
+|---|---|---|---|---|
+| **Components** (this plan) | Look + react: timelines, state machine, interface | Buttons, banners, symbols | Gem, tile, booster | Player, enemy, pickup |
+| **Screens** | Where things live | Base game, HUD, menus | Board screen, HUD | Play field, HUD |
+| **Flow** | What things mean: logic, game state | Book events → presentation | Swap → match → cascade → refill | Input → move → collide → score |
+| **Mechanic** (code, small) | The bit that must run fast or exactly | Reels, win lines, tumble | Grid model: swap, match find, gravity | Tick loop, movement, collision |
+| **Outcome source** | Who decides results | RGS books | RGS books *or* local rules | Local rules (or RGS for prize games) |
+
+Components, screens, timelines and the Flow ↔ component contract (§6) are **game-agnostic by
+construction**. Nothing in §3–§6 mentions reels, symbols or books. That is what lets a match-3 or
+arcade game reuse all of it unchanged.
+
+### 7.2 What Flow needs for non-slot games (later, additive)
+
+Flow v2's core is already generic: events, actions, branch, forEach, sequence, parallel, compute,
+delay, functions, modes. Slot knowledge lives in the per-template **vocabularies**
+(`reference/bookOf.ts`, `ways.ts`, `cluster.ts`…). A new game family brings:
+
+1. **Game variables.** Typed, Flow-owned state: `score`, `lives`, `timer`, `level`, `movesLeft`.
+   Bindable to component inputs, so a score readout updates without wiring every change (this is
+   Rive's data binding).
+2. **Input and time events.** Pointer and swipe events from component listeners (§6), keys, a
+   **tick** event, and timers.
+3. **Spawning.** Create or remove a component instance in a container or grid cell at runtime, and
+   loop over the live set with `forEach`. Slots never needed this. Match-3 and arcade cannot work
+   without it.
+4. **A family vocabulary + mechanic.** Example for match-3: a `board` mechanic in `engine-game`
+   (grid model, swap, find matches, gravity, refill) exposed to Flow as actions and events
+   (`swap`, `onMatch`, `onSettled`). It builds on the existing cascade work (cluster tumble,
+   [game-type-templates.md Phase F](game-type-templates.md)) and `reelGridGeometry`.
+
+None of this belongs in the build of §8. It gets its own plan once §8's Phase 7 has shipped. **The
+rule that matters now:** every phase of §8 must stay game-agnostic, so this later work only *adds*.
+
+### 7.3 Protecting what exists
+
+- **Slot games keep their vocabularies, their Flow docs and their coded paths.** New families are
+  new templates with new vocabularies. A slot project never sees a match-3 node.
+- **Every phase is parity-gated:** the current games still build, pass their tests and look the
+  same (the Director "pipeline change" rule and the `regression-guardian` harness), before merge.
+- **Nothing is migrated by force.** Old components keep `signals`, `cues` and `stateAnimations`. A
+  component gets an interface only when someone opens it and adds one. Phase 8 converts the coded
+  overlays one at a time, behind a flag.
+- **Formats only grow.** New fields are optional. Older readers already skip what they don't know,
+  as the cinematic evaluator does.
+
+## 8. Phased build (each phase ships, parity-gated)
 
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
-| 0 | **Decisions + ADR** | Owner signs off §8; §8.7/§17 of `invisible-editor.md` point here | docs | S |
+| 0 | **Decisions + ADR** | Owner signs off §10; `invisible-editor.md` §8.7/§17 point here | docs | S |
 | 1 | **Node actors + hosts** | §3.1–3.2 in the format, evaluator and `<Cinematic>` player; existing cinematics byte-identical | `engine-cinematic`, `engine-layout`, rigger-spike gates | M |
 | 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
 | 3 | **Animate a screen** | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
 | 4 | **Components in place** | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor`, `components/+page.svelte` | L |
-| 5 | **Component state machine** | Inputs, graph editor, transition conditions, stage preview with input toggles, runtime interpreter | `engine-layout` (`stateMachine.ts`), new editor panel | L |
-| 6 | **Listeners** | Pointer events on nodes → inputs | `engine-layout`, `EditorProperties` | M |
-| 7 | **Flow attachment** | Flow v2 nodes *Set Input*, *Fire Trigger*, *Wait for State*, *On State Entered*, typed per instance; validator checks refs | `engine-flow-v2`, `/flow-v2`, `apps/lines` interpreter | M |
-| 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (§8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
+| 5 | **Interface + state machine** | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`), new editor panel | L |
+| 6 | **Listeners + events** | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
+| 7 | **Flow instance nodes** | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
+| 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
+| 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
 
 **Ship chain (rule 8):** no new asset class. Timelines already travel export → deploy → bake →
 pull → register as cinematics. What a node-actor timeline references must also ship: art it swaps
@@ -180,9 +296,11 @@ pull → register as cinematics. What a node-actor timeline references must also
 
 **Why this order:** Phases 1–3 reuse what exists and give the first visible result: animate a
 screen's intro in the Scene Editor, have Flow play it. Components, state machines and Flow inputs
-build on that one timeline system rather than a new one.
+build on that one timeline system rather than a new one. Phases 5–7 build the §6 contract in the
+order it is used: what a component accepts, what it reports, then how Flow wires both. Phase 7 is
+the point where a non-slot game becomes possible, so §7's work starts after it.
 
-## 7. Alternatives considered
+## 9. Alternatives considered
 
 - **Embed the real Rive runtime and import `.riv` files.** Rive draws with its own renderer, not
   PixiJS, so it would not share our atlases, rigs, FX, fonts, device layouts or the bake chain.
@@ -193,14 +311,18 @@ build on that one timeline system rather than a new one.
   re-does a live-verified tool and puts every cinematic gate at risk at once. Extracting the
   existing panel (Phase 2) is lower risk.
 
-## 8. Open decisions (owner)
+## 10. Open decisions (owner)
 
-1. **Lift the §8.7 deferral** for *component* state machines (screens stay on Flow, §2)?
+1. **Lift the `invisible-editor.md` §8.7 deferral** for *component* state machines (screens stay on Flow, §2)?
 2. **Merge `/components` into `/editor`** (Phase 4), or keep two pages that share the new panels?
 3. **Name.** Keep calling the shared timeline a *Cinematic* everywhere, or rename it *Timeline*
    in the UI (the file format can stay `.icin`)?
 4. **Inputs vs signals:** fold `signals` into trigger inputs (one concept, signals read as
    triggers for back-compat), or keep both?
 5. **Which proof first** for Phase 3: a screen intro, the `Transition` overlay, or the Win banner?
-6. **Rive references.** Screenshots or a short recording of the Rive screens you want copied
+6. **Outcome source for the new families.** Are the arcade and match-3 games real-money games
+   whose results come from the RGS (the player's moves are presentation, as in a cascade slot), or
+   skill / free-play games where the client's own rules decide? This decides how much logic Flow
+   must own, and it is the biggest single fork in §7. Not needed before Phase 10.
+7. **Rive references.** Screenshots or a short recording of the Rive screens you want copied
    would sharpen Phases 4 and 9.
