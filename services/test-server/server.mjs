@@ -41,7 +41,8 @@ import { fileURLToPath } from 'node:url';
 
 import { carrySession } from '../../scripts/mock-rgs-server.mjs';
 import { holdOpenRounds, mockForSession } from './openRounds.mjs';
-import { AUTHORING, makeMock, platformJackpotFor, sellsTable, validGrid } from './makeMock.mjs';
+import { makeMock, sellsTable, validGrid } from './makeMock.mjs';
+import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
 import { hostConfigFor, injectHostSettings, validHostSettings } from './hostSettings.mjs';
 
 // Invisible Wall favicon — served for EVERY favicon request (the root page and every
@@ -206,9 +207,35 @@ const CONTRACT_TTL_MS = Number(process.env.CONTRACT_TTL_MS ?? 10_000);
 /** Hard cap on the launcher round-trip, so a hung launcher can't hang a spin. */
 const CONTRACT_TIMEOUT_MS = Number(process.env.CONTRACT_TIMEOUT_MS ?? 4_000);
 
+/** The path segment (and channel name) of a runtime game's authoring twin: `/api/<key>/authoring/…`.
+ *  Every mock route matches by path SUFFIX, so the twin serves the same routes under it. */
+const AUTHORING = 'authoring';
+
 /** Which of the launcher's contracts a channel follows — see the block comment above. */
 const contractSourceFor = (meta, channel) =>
 	channel === AUTHORING || !meta.runtime ? 'live' : 'published';
+
+/**
+ * The OPERATOR PLATFORM JACKPOT over a game's mock (`scripts/mock-platform-jackpot.mjs`), for a game
+ * whose `hostSettings` carry our own test switch `mockPlatformJackpot: true` — never the operator's
+ * `jackpot` field, which a copied set of real operator settings may hold. Kind-independent: it
+ * wraps whichever mock deals the game. One per game and channel, outside the mock, so a contract
+ * swap keeps its pools. Off (null) for every other game, which is
+ * answered byte-identically. Forcing a hit follows the mocks' rule: a runtime game's players never
+ * get it, its authoring twin and a standalone build do.
+ */
+const platformJackpots = new Map();
+const platformJackpotFor = (gameKey, meta, channel) => {
+	if (meta.hostSettings?.mockPlatformJackpot !== true) return null;
+	const key = channel ? `${gameKey}/${channel}` : gameKey;
+	if (!platformJackpots.has(key)) {
+		platformJackpots.set(
+			key,
+			createPlatformJackpot({ allowForce: channel === AUTHORING || !meta.runtime }),
+		);
+	}
+	return platformJackpots.get(key);
+};
 
 const MOCK_PROTOCOLS = new Set(['lines', 'book', 'ways', 'cluster', 'scatter', 'holdAndWin']);
 /** A known protocol, else `fallback`. A `holdAndWin` stamp (before bonus-games Phase 2) is the lines

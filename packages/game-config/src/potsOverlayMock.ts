@@ -50,8 +50,8 @@ export function potsOverlayMockInputs(
 			[holdAndWin, ...(holdAndWin.modes ?? [])].some(({ block }) =>
 				Boolean(
 					(sellsBetModes && block.trigger.buy?.length) ||
-						block.trigger.luckySpin ||
-						block.trigger.randomMetre,
+					block.trigger.luckySpin ||
+					block.trigger.randomMetre,
 				),
 			);
 		return routed

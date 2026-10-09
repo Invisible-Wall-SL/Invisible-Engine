@@ -1379,9 +1379,11 @@ console.log('11. the test server ships it');
 		...imports('scripts/mock-holdandwin-engine.mjs'),
 	];
 	const missing = needed.filter((rel) => !copied.has(rel));
+	// The server builds its mocks in `makeMock.mjs` (bonus-games Phase 7a), which it imports.
 	check(
-		read('services/test-server/server.mjs').includes("'../../scripts/mock-pots-overlay.mjs'"),
-		'server.mjs imports the overlay',
+		read('services/test-server/server.mjs').includes("from './makeMock.mjs'") &&
+			read('services/test-server/makeMock.mjs').includes("'../../scripts/mock-pots-overlay.mjs'"),
+		'the test server (makeMock.mjs) imports the overlay',
 	);
 	check(
 		!missing.length,

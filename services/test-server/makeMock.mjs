@@ -16,14 +16,9 @@ import {
 } from '../../scripts/mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from '../../scripts/mock-rgs-server-book.mjs';
 import { createMockRgs as createHoldAndWinMock } from '../../scripts/mock-rgs-server-holdandwin.mjs';
-import { createPlatformJackpot } from '../../scripts/mock-platform-jackpot.mjs';
 import { withPotsOverlay } from '../../scripts/mock-pots-overlay.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-
-/** The path segment (and channel name) of a runtime game's authoring twin: `/api/<key>/authoring/…`.
- *  Every mock route matches by path SUFFIX, so the twin serves the same routes under it. */
-export const AUTHORING = 'authoring';
 
 /**
  * The lines game's authored grid, from the committed Game Config template default
@@ -165,28 +160,6 @@ const makeHoldAndWinMock = (label, grid, gameKey, runtime, twin, sells) => {
 		}
 		return null;
 	}
-};
-
-/**
- * The OPERATOR PLATFORM JACKPOT over a game's mock (`scripts/mock-platform-jackpot.mjs`), for a game
- * whose `hostSettings` carry our own test switch `mockPlatformJackpot: true` — never the operator's
- * `jackpot` field, which a copied set of real operator settings may hold. Kind-independent: it
- * wraps whichever mock deals the game. One per game and channel, outside the mock, so a contract
- * swap keeps its pools. Off (null) for every other game, which is
- * answered byte-identically. Forcing a hit follows the mocks' rule: a runtime game's players never
- * get it, its authoring twin and a standalone build do.
- */
-const platformJackpots = new Map();
-export const platformJackpotFor = (gameKey, meta, channel) => {
-	if (meta.hostSettings?.mockPlatformJackpot !== true) return null;
-	const key = channel ? `${gameKey}/${channel}` : gameKey;
-	if (!platformJackpots.has(key)) {
-		platformJackpots.set(
-			key,
-			createPlatformJackpot({ allowForce: channel === AUTHORING || !meta.runtime }),
-		);
-	}
-	return platformJackpots.get(key);
 };
 
 /** Games already told their pots overlay could not be dealt, so it is said once. */
