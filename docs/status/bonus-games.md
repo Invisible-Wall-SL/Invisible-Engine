@@ -43,7 +43,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | merged (65d47c1) | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
 | 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | merged (3d07881) | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | merged (0cc277d) | Bonus games Phase 7b — drop the legacy mirror | #1158 |
-| 7c | Migrate and prove the samples (needs R2 + a browser) | in review | Bonus games Phase 7c — migrate and prove the samples | _PR_ |
+| 7c | Migrate and prove the samples (needs R2 + a browser) | in review | Bonus games Phase 7c — migrate and prove the samples | #1159 |
 
 ## Decisions & findings
 
@@ -775,7 +775,7 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
-- 2026-10-09 — **Phase 7c: the samples and the new layers played in a real browser** (PR _PR_).
+- 2026-10-09 — **Phase 7c: the samples and the new layers played in a real browser** (PR #1159).
   - **Played** in Chromium against the shipped runtime and the real test server: the four published
     samples (read-only from R2) and games built on a local launcher for each new layer. The
     per-case table is in [playtest/bonus-games-7c.md](../playtest/bonus-games-7c.md).
