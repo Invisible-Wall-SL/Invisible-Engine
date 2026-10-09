@@ -394,12 +394,10 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	if (reelBehaviour) doc.reelBehaviour = reelBehaviour;
 
 	// Bonuses in the split form (`./bonusGames`): the coin overlay and the declared modes, a legacy
-	// `holdAndWin` / `potsOverlay` block migrated into them, plus those two keys as the compat mirror.
-	// Modes store only overrides of a built-in and the project's own, so a config that keeps the
-	// built-in base game and free spins and has no bonus stores none of these.
-	const { holdAndWin, potsOverlay, coinOverlay, modes } = normalizeBonusGames(raw);
-	if (holdAndWin) doc.holdAndWin = holdAndWin;
-	if (potsOverlay) doc.potsOverlay = potsOverlay;
+	// `holdAndWin` / `potsOverlay` block migrated into them (and never stored). Modes store only
+	// overrides of a built-in and the project's own, so a config that keeps the built-in base game and
+	// free spins and has no bonus stores none of these.
+	const { coinOverlay, modes } = normalizeBonusGames(raw);
 	if (coinOverlay) doc.coinOverlay = coinOverlay;
 	if (modes) doc.modes = modes;
 

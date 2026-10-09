@@ -21,6 +21,7 @@ import {
 	holdAndWinMockInputs,
 	jackpotLadder,
 	normalizeGameConfigDoc,
+	primaryHoldAndWin,
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
 import { createMockRgs } from './mock-rgs-server-holdandwin.mjs';
@@ -109,7 +110,7 @@ const boot = async (preset, extra = {}) => {
 			req.on('error', reject);
 			req.end(payload);
 		});
-	const block = doc.holdAndWin;
+	const block = primaryHoldAndWin(doc);
 	const roles = opts.holdAndWin.symbols;
 	return {
 		doc,

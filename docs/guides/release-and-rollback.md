@@ -193,6 +193,24 @@ newest release, or name one.
 Rolling the engine back does not change any game's published content. Make live does not change the
 engine. Each rollback moves only its own layer.
 
+**Rolling back past bonus-games Phase 7b (PR #1158) is unsafe for pots-overlay games.** Since 7b the
+launcher stores and bakes a Game Config without the legacy `potsOverlay` / `holdAndWin` keys. An
+engine from before 7b reads `potsOverlay` straight off the config in two places:
+
+- `apps/lines/src/components/Game.svelte`, the feature signals: a game whose coin overlay drops pots
+  but has no Hold and Win mode (for example 3 Pots to free spins on a lines game) loses its pot
+  signals;
+- `apps/lines/src/game/flowEffects.ts`, the per-reel token timing: every overlay timed `perReel`
+  drops its tokens after the stop instead.
+
+So a game published after the 7b launcher deploy misplays on a pre-7b engine. That covers three
+cases: the window between the launcher deploy and the engine release, a game pinned (canary or
+hold-back) to a pre-7b release, and a rollback past 7b.
+
+Republishing does not fix it, because the launcher still bakes without the keys. Roll forward
+(`promote`), or `unpin` the game, to a 7b-or-later release. A game last published before the launcher
+deploy still carries the keys and plays on either engine.
+
 ## 5. Try a release on one game first (canary)
 
 An auto-release on merge always makes its release live for everyone. A canary is a manual path.

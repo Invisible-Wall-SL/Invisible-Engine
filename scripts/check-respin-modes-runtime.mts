@@ -45,7 +45,7 @@
  *     The route dispatch: a spins mode a buy names starts through `startFreeSpins` with its `game`
  *     untouched; a mode the host registers through its own hook.
  *  5. PARITY: for every game with one respin mode (the three presets, the test fixtures, a 3 Pots
- *     host) the runtime reads exactly what it read from `config.holdAndWin`: the same block object,
+ *     host) the runtime reads exactly what it read from the primary's block: the same block,
  *     the same blank, strip, rows, jackpots, meters and screens.
  */
 
@@ -57,11 +57,11 @@ import {
 	holdAndWinBlankSymbol,
 	holdAndWinBonus,
 	holdAndWinModeDecl,
-	legacyHoldAndWin,
-	legacyPotsOverlay,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
+	potsOverlayOf,
 	potsOverlayPreset,
+	primaryHoldAndWin,
 	resolveMeters,
 	respinBoardMaxRows,
 	respinModeRules,
@@ -208,9 +208,7 @@ const threePotsHost = (): GameConfigDoc => {
 };
 
 const twoModeHost = (): GameConfigDoc => {
-	const raw = structuredClone(threePotsHost()) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(threePotsHost());
 	for (const [name, symbol] of Object.entries(collector.symbols))
 		if (isRole(name)) raw.symbols[as2(name)] = structuredClone(symbol);
 	const strips = collector.paddingReels.respin;
@@ -257,9 +255,13 @@ check(
 	[true, true, 'collectorsOnly'],
 );
 check(
-	"host: the primary's rules ARE the legacy block (the mirror), mode 2's are its own",
-	[A.block === legacyHoldAndWin(HOST), B.block.stickiness === collectorRules.stickiness],
-	[true, true],
+	"host: the primary's rules ARE the legacy block view, mode 2's are its own; no mirror keys",
+	[
+		JSON.stringify(A.block) === JSON.stringify(primaryHoldAndWin(HOST)),
+		B.block.stickiness === collectorRules.stickiness,
+		'holdAndWin' in HOST || 'potsOverlay' in HOST,
+	],
+	[true, true, false],
 );
 
 // Mode screens as Phase 5b seeds them: the reference respin screens for `holdAndWin`
@@ -611,9 +613,7 @@ let resumedBet: { state: BookEvent[]; event: string } | undefined;
 
 /** The host with each respin mode's `play` set, read back through the config. */
 const hostPlaying = (playA?: 'auto' | 'manual', playB?: 'auto' | 'manual') => {
-	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(HOST);
 	raw.modes = raw.modes?.map((m) => {
 		const play = m.id === MODE_A ? playA : m.id === MODE_B ? playB : undefined;
 		if (!m.holdAndWin) return m;
@@ -697,9 +697,9 @@ const singleModeDocs: [string, GameConfigDoc][] = [
 	['3 Pots host', threePotsHost()],
 ];
 
-/** What the runtime read before Phase 4 — `config.holdAndWin` and the game-wide blank. */
+/** What the runtime read before Phase 4 — the primary's block and the game-wide blank. */
 const before = (doc: GameConfigDoc) => {
-	const block = doc.holdAndWin!;
+	const block = primaryHoldAndWin(doc)!;
 	return {
 		block,
 		blank: holdAndWinBlankSymbol(doc),
@@ -708,7 +708,7 @@ const before = (doc: GameConfigDoc) => {
 		jackpots: block.jackpots.map((j) => [j.name, j.multiplier, j.fixed]),
 		meters: [
 			...(block.meters ?? []).map((m) => [m.id, m.symbol, MODE_A]),
-			...(legacyPotsOverlay(doc)?.pots ?? []).map((p) => [p.id, p.token, p.bonus.mode]),
+			...(potsOverlayOf(doc)?.pots ?? []).map((p) => [p.id, p.token, p.bonus.mode]),
 		],
 	};
 };
@@ -725,9 +725,9 @@ for (const [label, doc] of singleModeDocs) {
 		[1, MODE_A, true],
 	);
 	check(
-		`parity ${label}: the rules read are the very block it read`,
-		active?.block === was.block,
-		true,
+		`parity ${label}: the rules read are the block it read, and no mirror keys`,
+		[active?.block, 'holdAndWin' in doc || 'potsOverlay' in doc],
+		[was.block, false],
 	);
 	check(
 		`parity ${label}: the same blank, strip and rows, auto play`,
@@ -1009,9 +1009,7 @@ const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
 
 /** The host with both respin modes Manual (or as given), as the config reads back. */
 const hostDoc = (playA?: 'auto' | 'manual', playB?: 'auto' | 'manual'): GameConfigDoc => {
-	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(HOST);
 	raw.modes = raw.modes?.map((m) => {
 		const play = m.id === MODE_A ? playA : m.id === MODE_B ? playB : undefined;
 		return m.holdAndWin && play ? { ...m, holdAndWin: { ...m.holdAndWin, play } } : m;
@@ -1107,9 +1105,7 @@ const BUY_MODES = [
 	{ mode: 'bonus', cost: 100, kind: 'buy' },
 ];
 const routedHost = (): GameConfigDoc => {
-	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(HOST);
 	raw.betModes = {
 		...raw.betModes,
 		bonus: { cost: 100, feature: false, buyBonus: true, rtp: 0.96, max_win: 5000 },
@@ -1366,9 +1362,7 @@ const hwBase = (): GameConfigDoc => {
 	const classicDoc = normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic));
 	const added = addPotsOverlay(classicDoc, 'potsToFreeSpins');
 	if (!added.ok) throw new Error(added.reason);
-	const raw = structuredClone(normalized(added.doc)) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(normalized(added.doc));
 	for (const [name, symbol] of Object.entries(collector.symbols))
 		if (isRole(name)) raw.symbols[as2(name)] = structuredClone(symbol);
 	const strips = collector.paddingReels.respin;
@@ -1569,11 +1563,7 @@ check(
 // The PLAIN Hold and Win game (the owner's base game): coins on the reels start respins that pay,
 // with no jackpot, no board end and no overlay.
 {
-	const raw = structuredClone(
-		normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic)),
-	) as GameConfigDoc & Record<string, unknown>;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic)));
 	raw.modes = raw.modes?.map((m) =>
 		m.holdAndWin
 			? {

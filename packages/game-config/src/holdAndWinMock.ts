@@ -13,12 +13,7 @@ import {
 	type HoldAndWin,
 } from './holdAndWin';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
-import {
-	bonusSplitOf,
-	isLoneDefaultRespinSet,
-	legacyHoldAndWin,
-	respinModeRules,
-} from './bonusGames';
+import { isLoneDefaultRespinSet, primaryHoldAndWin, respinModeRules } from './bonusGames';
 import type { GameConfigDoc } from './types';
 
 export type HoldAndWinMockSymbol = {
@@ -73,9 +68,9 @@ const occursMap = (rows: Array<Record<string, number>> | undefined) => {
 	return Object.keys(out).length ? out : undefined;
 };
 
-/** The mock's inputs for a doc, or `undefined` when it has no Hold and Win (`legacyHoldAndWin`). */
+/** The mock's inputs for a doc, or `undefined` when it has no Hold and Win (`primaryHoldAndWin`). */
 export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs | undefined {
-	const block = legacyHoldAndWin(doc);
+	const block = primaryHoldAndWin(doc);
 	if (!block) return undefined;
 	const inBase = new Set(symbolsInPlayForGameType(doc, 'basegame'));
 	const inPlay = new Set(symbolsInPlay(doc));
@@ -107,7 +102,7 @@ export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs |
 		const own = symbolsWhere((name) => dealtBy.has(name));
 		return Object.keys(own).length > lineSymbols.length ? own : symbols;
 	});
-	const baseCoins = bonusSplitOf(doc).coinOverlay?.coins;
+	const baseCoins = doc.coinOverlay?.coins;
 	return {
 		block,
 		lineSymbols,

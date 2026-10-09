@@ -35,7 +35,13 @@ import {
 	type PotsOverlayPresetId,
 } from './src/potsOverlayPresets.ts';
 import { symbolsInPlay } from './src/inPlay.ts';
-import type { GameConfigDoc, GameConfigSymbol, RawGameConfig } from './src/types.ts';
+import { potsOverlayOf, primaryHoldAndWin } from './src/bonusGames.ts';
+import type {
+	GameConfigDoc,
+	GameConfigSymbol,
+	LegacyBonusKeys,
+	RawGameConfig,
+} from './src/types.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -57,8 +63,21 @@ const normalize = (raw: unknown): GameConfigDoc => {
 	return doc;
 };
 
-const edit = (base: GameConfigDoc, change: (doc: GameConfigDoc) => void): GameConfigDoc => {
-	const doc = clone(base);
+type LegacyDoc = GameConfigDoc & LegacyBonusKeys;
+
+/** The doc with its legacy views as the legacy keys, which normalize applies over the split form as
+ *  a pair: an edit to them is the edit a legacy-shaped writer makes, and deleting one removes it. */
+const mirrored = (doc: GameConfigDoc): LegacyDoc => {
+	const out: LegacyDoc = clone(doc);
+	const holdAndWin = primaryHoldAndWin(doc);
+	const potsOverlay = potsOverlayOf(doc);
+	if (holdAndWin) out.holdAndWin = holdAndWin;
+	if (potsOverlay) out.potsOverlay = potsOverlay;
+	return out;
+};
+
+const edit = (base: GameConfigDoc, change: (doc: LegacyDoc) => void): GameConfigDoc => {
+	const doc = mirrored(base);
 	change(doc);
 	return normalize(doc);
 };
@@ -126,14 +145,21 @@ const coins = insert(BOOK_HOST, 'coinsOnly');
 
 console.log('\n1. absent ⇒ absent');
 check('the host validates clean on its own', validateGameConfigDoc(host), []);
-check('the host stores no potsOverlay key', 'potsOverlay' in host, false);
+check(
+	'the host stores no potsOverlay key',
+	['potsOverlay' in host, potsOverlayOf(host)],
+	[false, undefined],
+);
 for (const raw of [undefined, null, 'x', [], {}, { pots: [], drops: {} }, { pots: ['junk'] }]) {
 	check(`${JSON.stringify(raw)} is no block`, normalizePotsOverlay(raw), undefined);
 }
 check(
 	'an empty block on a doc stores no key',
-	'potsOverlay' in normalize({ ...clone(BOOK_HOST), potsOverlay: { pots: [], drops: {} } }),
-	false,
+	[
+		'potsOverlay' in normalize({ ...clone(BOOK_HOST), potsOverlay: { pots: [], drops: {} } }),
+		potsOverlayOf(normalize({ ...clone(BOOK_HOST), potsOverlay: { pots: [], drops: {} } })),
+	],
+	[false, undefined],
 );
 check('no block, no meters', resolveMeters(host), []);
 check('no doc, no meters', resolveMeters(undefined), []);
@@ -144,7 +170,11 @@ const DEFAULTS = join(
 );
 for (const name of readdirSync(DEFAULTS).filter((n: string) => n.endsWith('.json'))) {
 	const doc = normalize(JSON.parse(readFileSync(join(DEFAULTS, name), 'utf8')));
-	check(`${name} stores no potsOverlay block`, 'potsOverlay' in doc, false);
+	check(
+		`${name} stores no potsOverlay block`,
+		['potsOverlay' in doc, potsOverlayOf(doc)],
+		[false, undefined],
+	);
 }
 
 console.log('\n2. normalize — structural, sparse, a fixed point');
@@ -606,7 +636,7 @@ resolved[0].sizeStages.push(99);
 resolved[3].bonus.spins = 99;
 check(
 	'resolved meters are copies, never the doc',
-	[both.holdAndWin!.meters![0].sizeStages, both.potsOverlay!.pots[0].bonus.spins],
+	[primaryHoldAndWin(both)!.meters![0].sizeStages, potsOverlayOf(both)!.pots[0].bonus.spins],
 	[[5, 9], 10],
 );
 
@@ -616,11 +646,14 @@ for (const id of POTS_OVERLAY_PRESET_IDS) {
 	const doc = insert(BOOK_HOST, id);
 	check(`${id}: no issues at all`, validateGameConfigDoc(doc), []);
 	check(`${id}: re-normalizing is a fixed point`, normalize(clone(doc)), doc);
-	check(`${id}: the block round-trips unchanged`, doc.potsOverlay, preset.potsOverlay);
+	check(`${id}: the block round-trips unchanged`, potsOverlayOf(doc), preset.potsOverlay);
 	check(
 		`${id}: every token pays nothing, is tagged meterSpecial and is on no strip`,
-		doc.potsOverlay!.pots.map((p) => [doc.symbols[p.token], symbolsInPlay(doc).includes(p.token)]),
-		doc.potsOverlay!.pots.map(() => [{ special_properties: ['meterSpecial'] }, false]),
+		potsOverlayOf(doc)!.pots.map((p) => [
+			doc.symbols[p.token],
+			symbolsInPlay(doc).includes(p.token),
+		]),
+		potsOverlayOf(doc)!.pots.map(() => [{ special_properties: ['meterSpecial'] }, false]),
 	);
 	check(
 		`${id}: the host's symbols and strips are untouched`,
@@ -635,7 +668,7 @@ for (const id of POTS_OVERLAY_PRESET_IDS) {
 const potsMeters = HOLD_AND_WIN_PRESETS.pots.holdAndWin!.meters!;
 check(
 	'3 Pots: red/blue/green → Hold and Win with payer/collector/multiplier',
-	three.potsOverlay!.pots.map((p) => `${p.id}:${p.token}:${p.bonus.mode}+${p.bonus.activates}`),
+	potsOverlayOf(three)!.pots.map((p) => `${p.id}:${p.token}:${p.bonus.mode}+${p.bonus.activates}`),
 	[
 		'red:POT_RED:holdAndWin+payer',
 		'blue:POT_BLUE:holdAndWin+collector',
@@ -644,27 +677,27 @@ check(
 );
 check(
 	'3 Pots: levels and size stages are the Hold and Win preset meters',
-	three.potsOverlay!.pots.map((p) => [p.maxLevel, p.sizeStages]),
+	potsOverlayOf(three)!.pots.map((p) => [p.maxLevel, p.sizeStages]),
 	potsMeters.map((m) => [m.maxLevel, m.sizeStages]),
 );
 check(
 	'3 Pots: the three pots and value coins drop, in the base game only',
 	[
-		three.potsOverlay!.drops.table.map((e) => ('coin' in e ? 'coin' : e.pot)),
-		overlayDropModes(three.potsOverlay!.drops),
-		'modes' in three.potsOverlay!.drops,
+		potsOverlayOf(three)!.drops.table.map((e) => ('coin' in e ? 'coin' : e.pot)),
+		overlayDropModes(potsOverlayOf(three)!.drops),
+		'modes' in potsOverlayOf(three)!.drops,
 	],
 	[['red', 'blue', 'green', 'coin'], ['basegame'], false],
 );
 check(
 	'3 Pots: enough drops per spin for the coin trigger',
-	three.potsOverlay!.drops.maxPerSpin >= three.holdAndWin!.trigger.count!.min,
+	potsOverlayOf(three)!.drops.maxPerSpin >= primaryHoldAndWin(three)!.trigger.count!.min,
 	true,
 );
 const { meters: _meters, ...potsBlock } = clone(HOLD_AND_WIN_PRESETS.pots.holdAndWin!);
 check(
 	'3 Pots: its bonus is the 3 Pots Hold and Win, minus the lucky spin and the symbol meters',
-	three.holdAndWin,
+	primaryHoldAndWin(three),
 	{ ...potsBlock, trigger: { count: potsBlock.trigger.count } },
 );
 check(
@@ -682,7 +715,7 @@ check(
 );
 check(
 	'pots to free spins: one gold pot → 10 free spins, no coins, no Hold and Win',
-	[free.potsOverlay!.pots, free.potsOverlay!.drops.table, 'holdAndWin' in free],
+	[potsOverlayOf(free)!.pots, potsOverlayOf(free)!.drops.table, Boolean(primaryHoldAndWin(free))],
 	[
 		[
 			{
@@ -805,8 +838,8 @@ const noOverlay = (doc: GameConfigDoc) =>
 	edit(doc, (d) => {
 		delete d.potsOverlay;
 	});
-const coinOnBase = (d: GameConfigDoc) => d.paddingReels.basegame[0].push({ name: 'BONUS' });
-const ways = (d: GameConfigDoc) => (d.winModel = { type: 'ways', direction: 'ltr', minKind: 3 });
+const coinOnBase = (d: LegacyDoc) => d.paddingReels.basegame[0].push({ name: 'BONUS' });
+const ways = (d: LegacyDoc) => (d.winModel = { type: 'ways', direction: 'ltr', minKind: 3 });
 check(
 	'the block is the bonus only beside an overlay, while the base strips deal no Hold and Win symbol',
 	[
@@ -831,9 +864,9 @@ check(
 	],
 	[[], ['error:winModel'], ['error:winModel']],
 );
-const toFreeSpins = (d: GameConfigDoc) =>
+const toFreeSpins = (d: LegacyDoc) =>
 	d.potsOverlay!.pots.forEach((p) => (p.bonus = { mode: 'freeSpins' }));
-const potsOnly = (d: GameConfigDoc) =>
+const potsOnly = (d: LegacyDoc) =>
 	(d.potsOverlay!.drops.table = d.potsOverlay!.drops.table.filter((e) => !('coin' in e)));
 check(
 	'the bonus starts from a pot, or from dropped coins counted by the trigger — nothing else',
@@ -895,7 +928,7 @@ check(
 		[],
 	],
 );
-const purpleMeter = (d: GameConfigDoc) => (d.holdAndWin!.meters = [{ id: 'purple', ...meter }]);
+const purpleMeter = (d: LegacyDoc) => (d.holdAndWin!.meters = [{ id: 'purple', ...meter }]);
 check(
 	"a bonus's symbol-filled meters are refused and start nothing; a base-game block keeps them",
 	[
@@ -923,7 +956,7 @@ check(
 );
 // Bonus-games Phase 7a: the overlay deals a pattern of dropped coins, a Lucky Spin, a random metre
 // and a buy, so none of them is refused on an overlay host any more.
-const dealtByOverlay: Record<string, (d: GameConfigDoc) => void> = {
+const dealtByOverlay: Record<string, (d: LegacyDoc) => void> = {
 	'trigger.pattern': (d) =>
 		(d.holdAndWin!.trigger.pattern = [{ reel: 0, roles: ['coin'], min: 1 }]),
 	'trigger.luckySpin': (d) => (d.holdAndWin!.trigger.luckySpin = true),
@@ -959,7 +992,7 @@ check(
 	),
 	['warning:holdAndWin.trigger.pattern'],
 );
-const refusals: Record<string, (d: GameConfigDoc) => void> = {
+const refusals: Record<string, (d: LegacyDoc) => void> = {
 	'specials.collector.instantCollectInBaseGame': (d) =>
 		(d.holdAndWin!.specials.collector!.instantCollectInBaseGame = true),
 	'specials.multiplier.instantCollectInBaseGame': (d) =>
@@ -981,7 +1014,7 @@ for (const [path, change] of Object.entries(refusals)) {
 		[[`error:holdAndWin.${path}`], [], []],
 	);
 }
-const nothingActive = (d: GameConfigDoc) => {
+const nothingActive = (d: LegacyDoc) => {
 	d.holdAndWin!.activeModifiers = { atEntry: [], fromTriggeringSpecials: false };
 	d.holdAndWin!.applyOrder = d.holdAndWin!.applyOrder.filter((k) => k !== 'mystery');
 	delete d.holdAndWin!.specials.mystery;
@@ -1011,7 +1044,7 @@ check('normalize keeps a block with value coins and no pots', normalizePotsOverl
 check(
 	'...on a doc too, a fixed point',
 	[
-		normalize({ ...clone(BOOK_HOST), potsOverlay: coinsBlock }).potsOverlay,
+		potsOverlayOf(normalize({ ...clone(BOOK_HOST), potsOverlay: coinsBlock })),
 		normalize(clone(coins)),
 	],
 	[normalizePotsOverlay(coinsBlock), coins],
@@ -1019,10 +1052,10 @@ check(
 check(
 	'the preset: no pots, no tokens, one coin row, the Classic bonus, enough drops for its trigger',
 	[
-		coins.potsOverlay,
+		potsOverlayOf(coins),
 		Object.keys(coins.symbols).filter((n) => !(n in host.symbols)),
-		coins.potsOverlay!.drops.maxPerSpin >= coins.holdAndWin!.trigger.count!.min,
-		coins.holdAndWin,
+		potsOverlayOf(coins)!.drops.maxPerSpin >= primaryHoldAndWin(coins)!.trigger.count!.min,
+		primaryHoldAndWin(coins),
 	],
 	[
 		{ pots: [], drops: { chance: 0.1, maxPerSpin: 8, table: [{ coin: true, weight: 1 }] } },
@@ -1102,8 +1135,8 @@ for (const [id, raw] of Object.entries(holdAndWinDocs)) {
 	const doc = normalize(raw);
 	check(
 		`${id}: no overlay, no Hold and Win issue`,
-		[validateHoldAndWin(doc), 'potsOverlay' in doc],
-		[[], false],
+		[validateHoldAndWin(doc), 'potsOverlay' in doc, potsOverlayOf(doc)],
+		[[], false, undefined],
 	);
 }
 const classicGame = normalize(HOLD_AND_WIN_PRESETS.classic);

@@ -2,8 +2,9 @@
  * The tool and info facts `check:spins-modes-tools` pins for every CURRENT doc (bonus-games Phase 8c):
  * the Scene Editor's scene set and add-on screens, the Flow add-ons, grafted starter flow and publish
  * verdict, the Win Text lines and Localization sections, the `/symbols` page data and the info page's
- * paytable / paylines / grid. Built ONLY from APIs `main` already had, so the same module run on a
- * `main` tree measures the digests the gate compares against (`--print`).
+ * paytable / paylines / grid. Built from APIs `main` already had, so the same module run on a `main`
+ * tree measures the digests the gate compares against (`--print`) — save the borut sample's pots
+ * edit, which goes through the split-form writers (`main` wrote its `potsOverlay` mirror).
  */
 
 import { createHash } from 'node:crypto';
@@ -23,7 +24,9 @@ import {
 	addPotsOverlay,
 	flowAddOnsOf,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
 	respinModeIds,
+	setOverlayPots,
 	shownPaytable,
 	symbolsInPlay,
 	type GameConfigDoc,
@@ -68,9 +71,11 @@ export function currentDocs(): [string, string, GameConfigDoc | null][] {
 	const lines = normalize(gameConfigDefaultFor('lines'));
 	const book = normalize(gameConfigDefaultFor('bookOf'));
 	const borut = withOverlay(book, 'threePots');
-	borut.potsOverlay!.pots = borut.potsOverlay!.pots.map((p) =>
-		p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p,
-	);
+	const pots = potsOverlayOf(borut)!;
+	setOverlayPots(borut, {
+		...pots,
+		pots: pots.pots.map((p) => (p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p)),
+	});
 	return [
 		['no config', 'lines', null],
 		['lines', 'lines', lines],

@@ -151,8 +151,6 @@ const withImportedFreeSpins = (doc: GameConfigDoc): GameConfigDoc => {
  *  stored in the split form. */
 const withSecondRespinMode = (doc: GameConfigDoc): GameConfigDoc => {
 	const out = structuredClone(doc);
-	delete out.holdAndWin;
-	delete out.potsOverlay;
 	const primary = out.modes!.find((m) => m.id === 'holdAndWin')!;
 	out.modes!.push({ ...primary, id: 'holdAndWin_2', gameType: 'respin_2', label: 'Gold' });
 	out.paddingReels.respin_2 = structuredClone(out.paddingReels.respin);

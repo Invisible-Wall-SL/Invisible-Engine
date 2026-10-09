@@ -6,8 +6,9 @@
  * Pins:
  *  1. PARITY. No committed default normalizes to a mode with `spins`, and a doc without one is a
  *     normalize fixed point exactly as before.
- *  2. A spins mode survives normalize, the split form (`splitFormOf`) and the compat mirror
- *     (`withLegacyPair`) unchanged; normalizing it twice changes nothing.
+ *  2. A spins mode survives normalize, the legacy migration (`migrateLegacyBonus`) and a legacy pair
+ *     beside it (the views `primaryHoldAndWin` / `potsOverlayOf` as legacy keys) unchanged;
+ *     normalizing it twice changes nothing.
  *  3. Normalization is sparse: `spins` only on a `reels` mode of the project's own; the grid both or
  *     neither; `lines` stored when stated; a bad count falls back to the free-spins award; a huge one
  *     is capped at the round's maximum.
@@ -24,7 +25,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { splitFormOf, withLegacyPair } from './src/bonusGames.ts';
+import { migrateLegacyBonus, potsOverlayOf, primaryHoldAndWin } from './src/bonusGames.ts';
 import { gameModeById, normalizeGameModes, spinsModeKindIssues } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import { reelsModeMockInput } from './src/potsOverlayMock.ts';
@@ -77,8 +78,13 @@ check('the cluster mode keeps its own pays', gameModeById(doc, CLUSTER_BONUS)?.s
 	H1: [{ '5': 2 }, { '8': 10 }, { '12': 50 }],
 });
 check('normalize is idempotent', normalize(clone(doc)), doc);
-check('the split form keeps the modes', normalize(splitFormOf(doc)).modes, doc.modes);
-check('the legacy pair keeps the modes', normalize(withLegacyPair(clone(doc))).modes, doc.modes);
+check('the split form keeps the modes', normalize(migrateLegacyBonus(doc)).modes, doc.modes);
+const legacyPair = {
+	...clone(doc),
+	holdAndWin: primaryHoldAndWin(doc),
+	potsOverlay: potsOverlayOf(doc),
+};
+check('the legacy pair keeps the modes', normalize(legacyPair).modes, doc.modes);
 check('the base game keeps its width', doc.numReels, 5);
 const noWidth = clone(withSpinsModes(host)) as Partial<GameConfigDoc>;
 delete noWidth.numReels;

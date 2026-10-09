@@ -1,28 +1,30 @@
 import {
 	gameTypeForMode,
-	splitFormOf,
+	migrateLegacyBonus,
 	stripWidthFor,
 	type GameConfigDoc,
 	type HoldAndWinGame,
+	type LegacyBonusKeys,
 	type RespinPlay,
 } from 'game-config';
 
 /**
- * How `/config` shapes the doc it edits and the doc it saves. The page is a writer of the SPLIT FORM
- * (`docs/design/bonus-games.md` §2.1): it never holds or sends the legacy `holdAndWin` /
- * `potsOverlay` keys, because a stale copy of them would win over its edits on save. The server
- * regenerates them. `check:config-bonus-modes` runs these, so the page's own shaping is what is
- * gated.
+ * How `/config` shapes the doc it edits and the doc it saves. The page edits the SPLIT FORM
+ * (`docs/design/bonus-games.md` §2.1): a stored, preset, template or pasted config that still
+ * carries a legacy `holdAndWin` / `potsOverlay` block is migrated as it opens, and nothing the page
+ * holds or sends carries one. `check:config-bonus-modes` runs these, so the page's own shaping is
+ * what is gated.
  */
 
 /** The live doc for a stored, preset, template or pasted config. */
-export const openDoc = (doc: GameConfigDoc): GameConfigDoc => splitFormOf(doc);
+export const openDoc = (doc: GameConfigDoc & LegacyBonusKeys): GameConfigDoc =>
+	migrateLegacyBonus(doc);
 
-/** The doc a save PUTs: the live doc, with no legacy key whatever an edit left on it. */
-export const bodyFor = (live: GameConfigDoc): GameConfigDoc => splitFormOf(live);
+/** The doc a save PUTs: a copy of the live doc. */
+export const bodyFor = (live: GameConfigDoc): GameConfigDoc => structuredClone(live);
 
-/** The live doc after a save, from the doc the server stored (which carries the mirror again). */
-export const adoptSaved = (saved: GameConfigDoc): GameConfigDoc => splitFormOf(saved);
+/** The live doc after a save, from the doc the server stored. */
+export const adoptSaved = (saved: GameConfigDoc): GameConfigDoc => structuredClone(saved);
 
 /** Set how a respin mode's respins are played, in place. Only `manual` is stored: `auto` is the
  *  default, so choosing it leaves the rules as a project that never chose saved them. */

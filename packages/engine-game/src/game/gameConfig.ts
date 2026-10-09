@@ -1,5 +1,6 @@
 import {
 	gameTypeForMode,
+	migrateLegacyBonus,
 	normalizeGameConfigDoc,
 	ownReelsModeForGameType,
 	spinsGameView,
@@ -161,9 +162,23 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		return mode === undefined ? undefined : spinsModesOf(getActiveGameConfig()).get(mode);
 	}
 
-	/** The active config: the authored doc when one shipped, else the compiled template. */
+	/** A baked config normalize refused (no symbol dictionary, or no reel strips): played as it
+	 *  shipped, as before, its legacy bonus blocks still migrated so its bonus modes are not lost. */
+	function unnormalized(baked: GameConfigDoc): GameConfigDoc {
+		console.warn(
+			'[game-config] the baked config does not normalize (no symbol dictionary, or no reel strips); playing it as it shipped.',
+		);
+		return migrateLegacyBonus(baked);
+	}
+
+	/** The active config: the authored doc when one shipped, else the compiled template. The authored
+	 *  one is normalized too, so a bundle baked before the bonus split (a legacy `holdAndWin` /
+	 *  `potsOverlay` block) boots in the split form every reader reads. */
 	function getActiveGameConfig(): GameConfigDoc {
-		if (!cached) cached = deps.bakedConfig() ?? compiled();
+		if (!cached) {
+			const baked = deps.bakedConfig();
+			cached = baked ? (normalizeGameConfigDoc(baked) ?? unnormalized(baked)) : compiled();
+		}
 		return cached;
 	}
 

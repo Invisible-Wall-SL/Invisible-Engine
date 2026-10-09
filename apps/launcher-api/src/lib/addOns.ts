@@ -17,16 +17,7 @@ import {
 export type ProjectAddOns = { holdAndWin: boolean; potsOverlay: boolean; expandingSymbol: boolean };
 
 type AddOnDoc =
-	| Pick<
-			GameConfigDoc,
-			| 'holdAndWin'
-			| 'potsOverlay'
-			| 'coinOverlay'
-			| 'modes'
-			| 'freeSpins'
-			| 'symbols'
-			| 'paddingReels'
-	  >
+	| Pick<GameConfigDoc, 'coinOverlay' | 'modes' | 'freeSpins' | 'symbols' | 'paddingReels'>
 	| null
 	| undefined;
 

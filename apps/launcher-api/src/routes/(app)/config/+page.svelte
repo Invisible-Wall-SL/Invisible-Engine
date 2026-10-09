@@ -11,7 +11,6 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		normalizeGameConfigDoc,
-		withLegacyPair,
 		resolveBetModes,
 		resolveWinLevels,
 		resolveWinModel,
@@ -106,9 +105,8 @@
 	let baseline = $state(JSON.stringify(initial));
 	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
 
-	/** The live doc as the game reads it: the split form plus the compat mirror a save regenerates,
-	 *  so every validator and reader that still reads the legacy keys sees the edit. */
-	const snapshot = $derived(withLegacyPair($state.snapshot(doc) as GameConfigDoc));
+	/** The live doc as the game reads it. */
+	const snapshot = $derived($state.snapshot(doc) as GameConfigDoc);
 
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
@@ -2700,8 +2698,8 @@
 				{:else if swapStyle === 'emerge'}
 					Per <strong>column</strong>, on that column's own beat, ahead of the symbols surfacing
 					there. This is the half of the emerge picture that makes the old board <em>leave</em>
-					rather than simply blink out — without it, a column's old symbols are gone the instant its
-					new ones appear.
+					rather than simply blink out — without it, a column's old symbols are gone the instant its new
+					ones appear.
 				{:else}
 					The whole board clears at once, ahead of the fall. Off, the old board is simply gone when
 					the new one arrives.
@@ -2825,10 +2823,10 @@
 			<p class="hint">
 				The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
 				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
-				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
-				sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
-				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
-				aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
+				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and sound
+				— is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which reads these
+				tiers by alias so the two stay in sync. Smaller wins are handled automatically and aren't shown
+				here. Leave this empty to keep the game's built-in tiers (byte-identical).
 			</p>
 
 			{#if bigResolved.length}
@@ -2843,8 +2841,8 @@
 				<div class="tier-seed">
 					<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
 					<span class="hint"
-						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or
-						retune them. Or add one below.</span
+						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or retune
+						them. Or add one below.</span
 					>
 				</div>
 			{/if}

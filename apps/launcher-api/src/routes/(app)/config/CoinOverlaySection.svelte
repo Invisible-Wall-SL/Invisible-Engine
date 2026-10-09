@@ -19,7 +19,6 @@
 		removePotsOverlay,
 		resolveGameModes,
 		setOverlayPotCount,
-		splitFormOf,
 		symbolsInPlay,
 		symbolsWithRole,
 		zeroPotsRefusal,
@@ -126,7 +125,7 @@
 			notice = { kind: 'error', text: result.reason };
 			return;
 		}
-		doc = splitFormOf(result.doc);
+		doc = result.doc;
 		const renames = [
 			...Object.entries(result.renamed.symbols).map(([from, to]) => `symbol ${from} → ${to}`),
 			...Object.entries(result.renamed.pots).map(([from, to]) => `pot ${from} → ${to}`),
@@ -175,7 +174,7 @@
 			danger: true,
 		});
 		if (!ok) return;
-		doc = splitFormOf(removePotsOverlay(snapshot()));
+		doc = removePotsOverlay(snapshot());
 		drafts = [];
 		notice = null;
 	}

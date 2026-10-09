@@ -17,6 +17,7 @@ import {
 	HOLD_AND_WIN_TEST_FIXTURES,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
+	primaryHoldAndWin,
 } from '../game-config/index.ts';
 import {
 	applyHoldAndWinEvent,
@@ -277,7 +278,7 @@ for (const [preset, force] of CASES) {
 		await facade.requestAuthenticate({ sessionID: sid, rgsUrl, language: 'en' });
 		// The boot levels are published at authenticate, for the game to seed its pots from.
 		const published = (globalThis as MetersGlobal).__IE_HOLD_AND_WIN_METERS__;
-		const declared = doc?.holdAndWin?.meters ?? [];
+		const declared = (doc && primaryHoldAndWin(doc)?.meters) ?? [];
 		check(
 			`${preset} ${force}: the boot meter levels are published (only when the game has meters)`,
 			published?.map((m) => [m.id, typeof m.level, m.max]),

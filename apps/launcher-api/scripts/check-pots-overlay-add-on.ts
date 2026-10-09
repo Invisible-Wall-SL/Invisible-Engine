@@ -26,8 +26,13 @@ import {
 	HOLD_AND_WIN_PRESETS,
 	addPotsOverlay,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
+	primaryHoldAndWin,
+	setOverlayPots,
+	setPrimaryHoldAndWin,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
+	type RawGameConfig,
 } from 'game-config';
 
 type Obj = { body: string; etag: string };
@@ -383,10 +388,14 @@ console.log('\n2b. an overlay with no pots (value coins only)');
 /** A coins-only overlay, by hand: the 3 Pots add with its pots and tokens taken out again. */
 const coinsOnly = (): GameConfigDoc => {
 	const doc = structuredClone(withOverlay(lines, 'threePots').doc);
-	for (const pot of doc.potsOverlay?.pots ?? []) delete doc.symbols[pot.token];
-	if (doc.potsOverlay) {
-		doc.potsOverlay.pots = [];
-		doc.potsOverlay.drops.table = [{ coin: true, weight: 1 }];
+	const pots = potsOverlayOf(doc);
+	for (const pot of pots?.pots ?? []) delete doc.symbols[pot.token];
+	if (pots) {
+		setOverlayPots(doc, {
+			...pots,
+			pots: [],
+			drops: { ...pots.drops, table: [{ coin: true, weight: 1 }] },
+		});
 	}
 	return doc;
 };
@@ -426,15 +435,21 @@ console.log('\n3. scaffold scene set');
 const KINDS = ['lines', 'bookOf', 'ways', 'cluster', 'scatter', 'holdAndWin'];
 /** What the scaffold passed before the add-ons: a Hold and Win kind's `maxRows`, nothing else. */
 const legacyOptions = (kind: string, doc: GameConfigDoc | null) => {
-	const maxRows = kind === 'holdAndWin' ? doc?.holdAndWin?.expansion?.maxRows : undefined;
+	const maxRows =
+		kind === 'holdAndWin' && doc ? primaryHoldAndWin(doc)?.expansion?.maxRows : undefined;
 	return maxRows ? { maxRows } : {};
 };
 
 await check('every project without an add-on: byte-identical to before', () => {
 	const expanding = structuredClone(hwPots);
-	if (expanding.holdAndWin) {
-		expanding.holdAndWin.expansion = { startRows: 3, maxRows: 6, rule: 'fullRow' };
+	const block = primaryHoldAndWin(expanding);
+	if (block) {
+		setPrimaryHoldAndWin(expanding, {
+			...block,
+			expansion: { startRows: 3, maxRows: 6, rule: 'fullRow', resetsRespins: true },
+		});
 	}
+	assert(primaryHoldAndWin(expanding)?.expansion?.maxRows === 6, 'the expansion did not take');
 	const configs: (GameConfigDoc | null)[] = [
 		null,
 		lines,
@@ -497,9 +512,11 @@ await check(
 		same(out.seeds.layout.status, 'added', 'layout');
 		same(out.seeds.winText.status, 'present', 'win text');
 		assert(!out.seeds.flow, 'the flow was grafted unasked');
+		const storedConfig = storedJson<RawGameConfig>(gameConfigDocKey(CLIENT, 'book'));
+		assert(potsOverlayOf(storedConfig), 'no overlay stored');
 		assert(
-			storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, 'book')).potsOverlay,
-			'no overlay stored',
+			!('potsOverlay' in storedConfig) && !('holdAndWin' in storedConfig),
+			'the legacy mirror was stored',
 		);
 		const symbols = storedJson<{ symbols: Record<string, unknown> }>(symbolsDocKey(CLIENT, 'book'));
 		assert(symbols.symbols.POT_RED, 'POT_RED not bound');

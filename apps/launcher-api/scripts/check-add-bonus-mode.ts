@@ -158,8 +158,10 @@ const {
 	gameConfigErrors,
 	normalizeGameConfigDoc,
 	renameRespinMode,
+	migrateLegacyBonus,
+	potsOverlayOf,
+	primaryHoldAndWin,
 	respinModeDecls,
-	splitFormOf,
 } = await import('game-config');
 
 const CLIENT = 'invisible_wall';
@@ -232,7 +234,7 @@ const ART = { static: { type: 'sprite', assetKey: 'art/coin.png' } };
 async function makeSource() {
 	await scaffoldProject(CLIENT, SOURCE, { holdAndWinPreset: 'classic' });
 	const config = storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, SOURCE));
-	const split = splitFormOf(config);
+	const split = migrateLegacyBonus(config);
 	modeOf(split, 'holdAndWin')!.holdAndWin!.play = 'manual';
 	put(gameConfigDocKey(CLIENT, SOURCE), normalize(split));
 	const symbols = storedJson<{ version: 1; symbols: Record<string, unknown> }>(
@@ -309,7 +311,8 @@ await check('it is added as holdAndWin_2, never in place of holdAndWin', () => {
 		'modes',
 	);
 	same(modeOf(after.config, 'holdAndWin'), modeOf(before.config, 'holdAndWin'), 'holdAndWin');
-	same(after.config.holdAndWin, before.config.holdAndWin, 'the legacy mirror (the primary)');
+	same(primaryHoldAndWin(after.config), primaryHoldAndWin(before.config), 'the primary');
+	assert(!('holdAndWin' in after.config) && !('potsOverlay' in after.config), 'a legacy key');
 });
 
 await check("its rules travel whole, play: 'manual' included, its blank renamed", () => {
@@ -462,7 +465,7 @@ await check('adding the same mode again is refused: re-sync it', async () => {
 // ─── 2. re-sync after a source edit ────────────────────────────────────────────────────────────
 
 console.log('\n2. re-sync after a source edit');
-const edited = splitFormOf(storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, SOURCE)));
+const edited = migrateLegacyBonus(storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, SOURCE)));
 modeOf(edited, 'holdAndWin')!.holdAndWin!.respins.start = 5;
 delete modeOf(edited, 'holdAndWin')!.holdAndWin!.play;
 put(gameConfigDocKey(CLIENT, SOURCE), normalize(edited));
@@ -770,7 +773,7 @@ await check('a scatter is never a route; an unknown pot is refused', async () =>
 
 console.log('\n4. the presets and the coin overlay add-on write the split form');
 
-await check('the Hold and Win template stores the split form, the mirror regenerated', async () => {
+await check('the Hold and Win template stores the split form, no legacy mirror', async () => {
 	for (const preset of HOLD_AND_WIN_PRESET_IDS) {
 		const project = `tpl-${preset}`;
 		KINDS[project] = 'holdAndWin';
@@ -783,14 +786,15 @@ await check('the Hold and Win template stores the split form, the mirror regener
 			`${preset}: byte-identical after normalize`,
 		);
 		same(content(saved), content(normalize(seed)), `${preset}: stored as before`);
-		const split = splitFormOf(seed);
-		assert(!('holdAndWin' in split) && !('potsOverlay' in split), `${preset}: legacy keys written`);
+		for (const doc of [seed, saved]) {
+			assert(!('holdAndWin' in doc) && !('potsOverlay' in doc), `${preset}: legacy keys written`);
+		}
 		same(
-			split.modes?.filter((m) => m.board === 'respinBoard').map((m) => m.id),
+			seed.modes?.filter((m) => m.board === 'respinBoard').map((m) => m.id),
 			['holdAndWin'],
 			`${preset}: one respin mode`,
 		);
-		assert(split.coinOverlay, `${preset}: no coin overlay`);
+		assert(seed.coinOverlay, `${preset}: no coin overlay`);
 	}
 });
 
@@ -807,8 +811,12 @@ await check('the coin overlay add-on normalizes to what it wrote before, on ever
 			const out = addPotsOverlay(doc, preset);
 			if (!out.ok) continue;
 			compared++;
+			assert(
+				!('holdAndWin' in out.doc) && !('potsOverlay' in out.doc),
+				`${name} + ${preset}: legacy keys written`,
+			);
 			same(
-				JSON.stringify(normalize(splitFormOf(out.doc))),
+				JSON.stringify(normalize(migrateLegacyBonus(out.doc))),
 				JSON.stringify(normalize(out.doc)),
 				`${name} + ${preset}`,
 			);
@@ -938,10 +946,11 @@ for (const jackpots of ['on', 'off'] as const) {
 			same(rules.stickiness, 'allCoins', 'stickiness');
 			const overlay = config.coinOverlay;
 			assert(!overlay?.pots?.length, 'pots');
-			assert(!config.potsOverlay, 'a pots overlay');
-			assert(!overlay?.meters?.length && !config.holdAndWin?.meters?.length, 'meters');
+			assert(!potsOverlayOf(config) && !('potsOverlay' in config), 'a pots overlay');
+			const primary = primaryHoldAndWin(config);
+			assert(!overlay?.meters?.length && !primary?.meters?.length, 'meters');
 			same(overlay?.style ?? 'classic', 'classic', 'style');
-			same(config.holdAndWin?.trigger.count?.min, 6, 'a count trigger of 6');
+			same(primary?.trigger.count?.min, 6, 'a count trigger of 6');
 			assert(
 				Object.values(config.symbols).every(
 					(s) =>
@@ -961,7 +970,7 @@ for (const jackpots of ['on', 'off'] as const) {
 		const tiers = jackpots === 'on' ? ['MINI', 'MINOR', 'MAJOR', 'GRAND'] : [];
 		same(mode.jackpotTiers, tiers, 'jackpot tiers the tools list');
 		same(
-			config.holdAndWin?.boardEnd.type,
+			primaryHoldAndWin(config)?.boardEnd.type,
 			jackpots === 'on' ? 'fullBoardJackpot' : 'none',
 			'board end',
 		);
@@ -1023,7 +1032,7 @@ await check('each offered overlay adds cleanly to the plain template', () => {
 	for (const preset of offered) {
 		const added = addPotsOverlay(plain, preset);
 		assert(added.ok, `${preset}: ${added.ok ? '' : added.reason}`);
-		same(gameConfigErrors(normalize(splitFormOf(added.doc))), [], `${preset}: errors`);
+		same(gameConfigErrors(normalize(migrateLegacyBonus(added.doc))), [], `${preset}: errors`);
 	}
 });
 

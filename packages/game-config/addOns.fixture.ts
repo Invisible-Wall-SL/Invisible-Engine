@@ -15,9 +15,13 @@ import {
 	setOverlayPotCount,
 	zeroPotsRefusal,
 } from './src/addOns.ts';
+import { potsOverlayOf, primaryHoldAndWin } from './src/bonusGames.ts';
+import { addRespinMode } from './src/bonusModes.ts';
+import { importBonus, importRespinMode } from './src/imports.ts';
 import { holdAndWinIsOverlayBonus } from './src/holdAndWin.ts';
 import { HOLD_AND_WIN_PRESETS, HOLD_AND_WIN_PRESET_IDS } from './src/holdAndWinPresets.ts';
 import { symbolsInPlay } from './src/inPlay.ts';
+import type { GameModeDecl } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import {
 	POTS_OVERLAY_PRESET_IDS,
@@ -99,7 +103,7 @@ for (const id of POTS_OVERLAY_PRESET_IDS) {
 	check(`${id}: validates clean`, issues(doc), []);
 	check(`${id}: normalizing it changes nothing`, normalize(clone(doc)), doc);
 	check(`${id}: nothing clashed`, result.ok && result.renamed, { symbols: {}, pots: {} });
-	check(`${id}: the block is the preset's`, doc.potsOverlay, potsOverlayPreset(id).potsOverlay);
+	check(`${id}: the block is the preset's`, potsOverlayOf(doc), potsOverlayPreset(id).potsOverlay);
 	check(
 		`${id}: the host's symbols, strips, lines and win model are kept`,
 		hostKept(doc),
@@ -108,11 +112,11 @@ for (const id of POTS_OVERLAY_PRESET_IDS) {
 	check(`${id}: the input is not mutated`, host, before);
 	check(
 		`${id}: tokens are in the dictionary and on no strip`,
-		doc.potsOverlay!.pots.map((p) => [
+		potsOverlayOf(doc)!.pots.map((p) => [
 			p.token in doc.symbols,
 			symbolsInPlay(doc).includes(p.token),
 		]),
-		doc.potsOverlay!.pots.map(() => [true, false]),
+		potsOverlayOf(doc)!.pots.map(() => [true, false]),
 	);
 }
 const three = added(addPotsOverlay(host, 'threePots'));
@@ -123,7 +127,10 @@ check(
 );
 check(
 	'pots to free spins brings no Hold and Win',
-	['holdAndWin' in added(addPotsOverlay(host, 'potsToFreeSpins')), 'respin' in host.paddingReels],
+	[
+		Boolean(primaryHoldAndWin(added(addPotsOverlay(host, 'potsToFreeSpins')))),
+		'respin' in host.paddingReels,
+	],
 	[false, false],
 );
 
@@ -162,7 +169,7 @@ check(
 	[
 		renamedDoc.paddingReels.respin.some((s) => s.some((c) => c.name === 'BONUS_2')),
 		renamedDoc.paddingReels.respin.some((s) => s.some((c) => c.name === 'BONUS')),
-		renamedDoc.potsOverlay!.pots[0].token,
+		potsOverlayOf(renamedDoc)!.pots[0].token,
 		renamedDoc.symbols.BONUS_2,
 	],
 	[true, false, 'POT_RED_3', { special_properties: ['coin'] }],
@@ -178,13 +185,13 @@ check(
 	"a 3 Pots Hold and Win game keeps its block; the overlay's pots take free ids beside its meters, and its coin drops are left out (the game's own reels start its feature)",
 	[
 		onPotsGame.ok && onPotsGame.renamed.pots,
-		added(onPotsGame).holdAndWin,
-		added(onPotsGame).potsOverlay!.drops.table.map((e) => ('pot' in e ? e.pot : 'coin')),
+		primaryHoldAndWin(added(onPotsGame)),
+		potsOverlayOf(added(onPotsGame))!.drops.table.map((e) => ('pot' in e ? e.pot : 'coin')),
 		issues(added(onPotsGame)),
 	],
 	[
 		{ red: 'red_2', blue: 'blue_2', green: 'green_2' },
-		potsGame.holdAndWin,
+		primaryHoldAndWin(potsGame),
 		['red_2', 'blue_2', 'green_2'],
 		[],
 	],
@@ -209,24 +216,24 @@ const threeOnClassic = added(addPotsOverlay(classicGame, 'threePots'));
 check(
 	'...3 Pots on Classic adds the payer and collector it lacks, beside its own multiplier and order',
 	[
-		Object.keys(threeOnClassic.holdAndWin!.specials).sort(),
-		threeOnClassic.holdAndWin!.applyOrder,
-		threeOnClassic.holdAndWin!.specials.multiplier,
+		Object.keys(primaryHoldAndWin(threeOnClassic)!.specials).sort(),
+		primaryHoldAndWin(threeOnClassic)!.applyOrder,
+		primaryHoldAndWin(threeOnClassic)!.specials.multiplier,
 		['BOOST_2', 'COLLECT'].map((n) => threeOnClassic.symbols[n]?.special_properties),
 		threeOnClassic.paddingReels.respin.map((strip) => strip.slice(-2).map((c) => c.name)),
 	],
 	[
 		['collector', 'multiplier', 'payer'],
-		[...classicGame.holdAndWin!.applyOrder, 'payer', 'collector'],
-		classicGame.holdAndWin!.specials.multiplier,
+		[...primaryHoldAndWin(classicGame)!.applyOrder, 'payer', 'collector'],
+		primaryHoldAndWin(classicGame)!.specials.multiplier,
 		[['payer'], ['collector']],
 		classicGame.paddingReels.respin.map(() => ['BOOST_2', 'COLLECT']),
 	],
 );
 check(
 	'...and the 3 Pots game, which has them all, gets the overlay exactly as before 8b',
-	added(addPotsOverlay(potsGame, 'threePots')).holdAndWin!.specials,
-	potsGame.holdAndWin!.specials,
+	primaryHoldAndWin(added(addPotsOverlay(potsGame, 'threePots')))!.specials,
+	primaryHoldAndWin(potsGame)!.specials,
 );
 
 console.log('\n3. refusals');
@@ -273,7 +280,7 @@ for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	const doc = added(addHoldAndWinBonus(host, id));
 	check(
 		`${id}: the block, its symbols and its strips land; the host is kept`,
-		[Boolean(doc.holdAndWin), doc.paddingReels.respin.length, hostKept(doc)],
+		[Boolean(primaryHoldAndWin(doc)), doc.paddingReels.respin.length, hostKept(doc)],
 		[true, 5, hostKept(host)],
 	);
 }
@@ -282,14 +289,14 @@ const overClassic = added(addPotsOverlay(classicFirst, 'threePots'));
 check(
 	'the overlay keeps a Hold and Win bonus already added, bringing only the specials it lacks',
 	[
-		{ ...overClassic.holdAndWin, specials: undefined, applyOrder: undefined },
-		overClassic.holdAndWin!.specials.multiplier,
-		Object.keys(overClassic.holdAndWin!.specials).sort(),
+		{ ...primaryHoldAndWin(overClassic), specials: undefined, applyOrder: undefined },
+		primaryHoldAndWin(overClassic)!.specials.multiplier,
+		Object.keys(primaryHoldAndWin(overClassic)!.specials).sort(),
 		holdAndWinIsOverlayBonus(overClassic),
 	],
 	[
-		{ ...classicFirst.holdAndWin, specials: undefined, applyOrder: undefined },
-		classicFirst.holdAndWin!.specials.multiplier,
+		{ ...primaryHoldAndWin(classicFirst), specials: undefined, applyOrder: undefined },
+		primaryHoldAndWin(classicFirst)!.specials.multiplier,
 		['collector', 'multiplier', 'payer'],
 		true,
 	],
@@ -321,9 +328,9 @@ const coinsDoc = added(addPotsOverlay(host, 'coinsOnly'));
 check(
 	"coins only: no pots, the Classic bonus is the overlay's, and remove takes it all back",
 	[
-		coinsDoc.potsOverlay!.pots,
+		potsOverlayOf(coinsDoc)!.pots,
 		holdAndWinIsOverlayBonus(coinsDoc),
-		coinsDoc.holdAndWin!.trigger,
+		primaryHoldAndWin(coinsDoc)!.trigger,
 		removePotsOverlay(coinsDoc),
 	],
 	[[], true, { count: HOLD_AND_WIN_PRESETS.classic.holdAndWin!.trigger.count }, host],
@@ -331,8 +338,12 @@ check(
 const coinsOverBonus = added(addPotsOverlay(classicFirst, 'coinsOnly'));
 check(
 	'coins only over a Hold and Win bonus already added keeps it, and is its trigger',
-	[coinsOverBonus.holdAndWin, holdAndWinIsOverlayBonus(coinsOverBonus), issues(coinsOverBonus)],
-	[classicFirst.holdAndWin, true, []],
+	[
+		primaryHoldAndWin(coinsOverBonus),
+		holdAndWinIsOverlayBonus(coinsOverBonus),
+		issues(coinsOverBonus),
+	],
+	[primaryHoldAndWin(classicFirst), true, []],
 );
 for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	const game = normalize(HOLD_AND_WIN_PRESETS[id]);
@@ -343,17 +354,17 @@ for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	);
 }
 check('no overlay: an equal copy', removePotsOverlay(host), host);
+/** `doc` with its Hold and Win mode overriding `over`, its rules kept. */
+const withPrimary = (doc: GameConfigDoc, over: Partial<GameModeDecl>): GameConfigDoc => ({
+	...doc,
+	modes: doc.modes?.map((m) => (m.id === 'holdAndWin' ? { ...m, ...over } : m)),
+});
 check(
 	"the Hold and Win mode's override goes with the bonus",
-	'modes' in
-		removePotsOverlay({
-			...three,
-			modes: [{ id: 'holdAndWin', board: 'respinBoard', label: 'Pot bonus' }],
-		}),
+	'modes' in removePotsOverlay(withPrimary(three, { label: 'Pot bonus' })),
 	false,
 );
-const repointed = clone(three);
-repointed.modes = [{ id: 'holdAndWin', board: 'respinBoard', gameType: 'freegame' }];
+const repointed = withPrimary(clone(three), { gameType: 'freegame' });
 check(
 	'strips another mode pads from are never removed with the bonus',
 	removePotsOverlay(repointed).paddingReels.freegame,
@@ -369,9 +380,9 @@ check(
 
 console.log('\n6. the pot count runs 0 to 5');
 const potRows = (doc: GameConfigDoc) =>
-	doc.potsOverlay!.pots.map((p) => [p.id, p.token, p.bonus.mode, p.bonus.activates ?? '-']);
+	potsOverlayOf(doc)!.pots.map((p) => [p.id, p.token, p.bonus.mode, p.bonus.activates ?? '-']);
 const dropRows = (doc: GameConfigDoc) =>
-	doc.potsOverlay!.drops.table.map((e) =>
+	potsOverlayOf(doc)!.drops.table.map((e) =>
 		'pot' in e ? `${e.pot}:${e.weight}` : `coin:${e.weight}`,
 	);
 const five = added(setOverlayPotCount(three, 5));
@@ -400,7 +411,12 @@ check('back to 3 gives the 3 Pots doc again', added(setOverlayPotCount(five, 3))
 const none = added(setOverlayPotCount(three, 0));
 check(
 	'0 pots: value coins only, the tokens gone, the Hold and Win bonus kept',
-	[none.potsOverlay!.pots, dropRows(none), 'POT_RED' in none.symbols, Boolean(none.holdAndWin)],
+	[
+		potsOverlayOf(none)!.pots,
+		dropRows(none),
+		'POT_RED' in none.symbols,
+		Boolean(primaryHoldAndWin(none)),
+	],
 	[[], ['coin:3'], false, true],
 );
 check('0 pots validates clean', issues(none), []);
@@ -452,7 +468,7 @@ check(
 	'adding the overlay with a count',
 	[
 		potRows(added(addPotsOverlay(host, 'threePots', 5))).length,
-		added(addPotsOverlay(host, 'threePots', 0)).potsOverlay!.pots.length,
+		potsOverlayOf(added(addPotsOverlay(host, 'threePots', 0)))!.pots.length,
 		refused(addPotsOverlay(host, 'potsToFreeSpins', 0)),
 	],
 	[
@@ -464,7 +480,7 @@ check(
 check(
 	'Coins only with 3 pots asked for on a Hold and Win game is added with 3 pots',
 	[
-		added(addPotsOverlay(potsGame, 'coinsOnly', 3)).potsOverlay!.pots.length,
+		potsOverlayOf(added(addPotsOverlay(potsGame, 'coinsOnly', 3)))!.pots.length,
 		issues(added(addPotsOverlay(potsGame, 'coinsOnly', 3))).filter((i) =>
 			i.startsWith('error:potsOverlay'),
 		),
@@ -476,10 +492,10 @@ const freeToCoins = added(setOverlayPotCount(freeWithClassic, 0));
 check(
 	'0 pots raises the most drops per spin to reach the coin trigger, so it can start',
 	[
-		freeToCoins.potsOverlay!.drops.maxPerSpin,
+		potsOverlayOf(freeToCoins)!.drops.maxPerSpin,
 		issues(freeToCoins).filter((i) => i.includes('potsOverlay')),
 	],
-	[(freeWithClassic.holdAndWin!.trigger.count!.min ?? 0) + 2, []],
+	[(primaryHoldAndWin(freeWithClassic)!.trigger.count!.min ?? 0) + 2, []],
 );
 check(
 	'raising most-per-spin is said, and it stays raised when a pot comes back',
@@ -488,7 +504,7 @@ check(
 			const result = setOverlayPotCount(freeWithClassic, 0);
 			return result.ok && result.notes;
 		})(),
-		added(setOverlayPotCount(freeToCoins, 1)).potsOverlay!.drops.maxPerSpin,
+		potsOverlayOf(added(setOverlayPotCount(freeToCoins, 1)))!.drops.maxPerSpin,
 	],
 	[
 		[
@@ -531,7 +547,7 @@ const coinRoleGold = clone(three);
 coinRoleGold.symbols.POT_GOLD = { special_properties: ['coin', 'meterSpecial'] };
 check(
 	'a Hold and Win role symbol named like a new token is never taken over',
-	added(setOverlayPotCount(coinRoleGold, 4)).potsOverlay!.pots[3].token,
+	potsOverlayOf(added(setOverlayPotCount(coinRoleGold, 4)))!.pots[3].token,
 	'POT_GOLD_2',
 );
 check(
@@ -545,7 +561,7 @@ check(
 	'a new pot whose token name is taken gets a suffix, and the result says so',
 	(() => {
 		const result = setOverlayPotCount(goldTaken, 4);
-		return result.ok && [result.doc.potsOverlay!.pots[3].token, result.renamed.symbols];
+		return result.ok && [potsOverlayOf(result.doc)!.pots[3].token, result.renamed.symbols];
 	})(),
 	['POT_GOLD_2', { POT_GOLD: 'POT_GOLD_2' }],
 );
@@ -564,6 +580,86 @@ check(
 		['gold', 'POT_GOLD', 'holdAndWin', 'mystery'],
 		['purple', 'POT_PURPLE', 'holdAndWin', '-'],
 	],
+);
+
+// ─── bonus-games Phase 7b: the split-form writers ─────────────────────────────────────────────
+
+console.log('\nPhase 7b');
+
+// A host whose primary respin mode is not called `holdAndWin`: the preset's pots start it.
+const bonusAHost = normalize(added(addRespinMode(host, 'bonusA', 'pots')));
+const potsOnBonusA = added(addPotsOverlay(bonusAHost, 'threePots'));
+check(
+	'3 Pots over a primary respin mode of another id: every pot starts it',
+	potsOnBonusA.coinOverlay?.pots?.map((p) => p.bonus.mode),
+	['bonusA', 'bonusA', 'bonusA'],
+);
+check(
+	'...and the doc has no error',
+	issues(potsOnBonusA).filter((i) => i.startsWith('error')),
+	[],
+);
+
+// Replacing that primary by an import moves its pots to the imported one.
+const replacedA = importBonus(normalize(potsOnBonusA), normalize(HOLD_AND_WIN_PRESETS.collector), {
+	project: 'src',
+	mode: 'holdAndWin',
+	at: 'T',
+	replace: true,
+	pots: [potsOnBonusA.coinOverlay!.pots![0].id],
+});
+check(
+	'an import that replaces it: every pot starts the imported mode',
+	replacedA.ok && replacedA.doc.coinOverlay?.pots?.map((p) => p.bonus.mode),
+	['holdAndWin', 'holdAndWin', 'holdAndWin'],
+);
+check(
+	'...and the doc has no error',
+	replacedA.ok && issues(replacedA.doc).filter((i) => i.startsWith('error')),
+	[],
+);
+
+// A mode added on its own and started by a buy outlives the overlay, its buy route with it.
+const buyHost = normalize({
+	...clone(three),
+	betModes: {
+		...three.betModes,
+		bonus: { cost: 100, feature: true, buyBonus: true, rtp: 0.96, max_win: 5000 },
+	},
+});
+const boughtMode = importRespinMode(buyHost, normalize(HOLD_AND_WIN_PRESETS.collector), {
+	project: 'src',
+	mode: 'holdAndWin',
+	at: 'T',
+	routes: [{ kind: 'buy', betMode: 'bonus' }],
+	hostKind: 'lines',
+});
+const boughtId = boughtMode.ok ? boughtMode.mode : '';
+const withoutOverlay = boughtMode.ok ? removePotsOverlay(normalize(boughtMode.doc)) : undefined;
+check(
+	'removing the overlay keeps a mode added on its own',
+	(withoutOverlay?.modes ?? []).map((m) => m.id),
+	[boughtId],
+);
+check(
+	'...with its buy route',
+	withoutOverlay?.coinOverlay?.trigger?.buy?.map((t) => [t.betMode, t.mode]),
+	[['bonus', boughtId]],
+);
+
+// A base-game jackpot coin of a tier only a non-primary respin mode has pays nothing there.
+const twoModes = normalize(added(addRespinMode(normalize(three), 'bonusB', 'pots')));
+const onlyB = clone(twoModes);
+const modeB = onlyB.modes!.find((m) => m.id === 'bonusB')!;
+modeB.holdAndWin!.jackpots[0].name = 'ONLY_B';
+onlyB.coinOverlay = {
+	...onlyB.coinOverlay!,
+	coins: [{ kind: 'jackpot', jackpot: 'ONLY_B', weight: 1 }],
+};
+check(
+	'a base coin of a tier only another respin mode has: warned on the coin',
+	issues(onlyB).filter((i) => i.endsWith('coinOverlay.coins.0.jackpot')),
+	['warning:coinOverlay.coins.0.jackpot'],
 );
 
 console.log(failures === 0 ? '\nAll add-on assertions passed.\n' : `\n${failures} FAILED\n`);

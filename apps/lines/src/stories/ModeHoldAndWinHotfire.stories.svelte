@@ -13,7 +13,12 @@
 		type TemplateArgs,
 		templateArgs,
 	} from 'components-storybook';
-	import { HOLD_AND_WIN_PRESETS, normalizeGameConfigDoc } from 'game-config';
+	import {
+		HOLD_AND_WIN_PRESETS,
+		normalizeGameConfigDoc,
+		primaryHoldAndWin,
+		setPrimaryHoldAndWin,
+	} from 'game-config';
 
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
@@ -33,10 +38,11 @@
 	const ROLES: Record<string, string[]> = { H4: ['collector'] };
 
 	const config = getActiveGameConfig();
-	const block = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.collector)?.holdAndWin;
-	if (block) config.holdAndWin = block;
-	(globalThis as { __IE_SERVER_CONFIG__?: { window: { reels: number; rows: number } } })
-		.__IE_SERVER_CONFIG__ = { window: { reels: 3, rows: 3 } };
+	const block = primaryHoldAndWin(normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.collector)!);
+	if (block) setPrimaryHoldAndWin(config, block);
+	(
+		globalThis as { __IE_SERVER_CONFIG__?: { window: { reels: number; rows: number } } }
+	).__IE_SERVER_CONFIG__ = { window: { reels: 3, rows: 3 } };
 
 	const playHotfireBook = async (name: string) => {
 		const { symbols } = getActiveGameConfig();

@@ -33,7 +33,7 @@ import {
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
 	isScatterSymbol,
-	legacyPotsOverlay,
+	potsOverlayOf,
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	resolveBetModes,
@@ -597,8 +597,7 @@ function projectGrid(
 		if (protocol === 'lines' && gameType === 'holdAndWin') {
 			const holdAndWin = holdAndWinMockInputs(doc);
 			const betModes = projectBetModes(doc, projectKey);
-			const potsOverlay =
-				holdAndWin && legacyPotsOverlay(doc) ? potsOverlayMockInputs(doc) : undefined;
+			const potsOverlay = holdAndWin && potsOverlayOf(doc) ? potsOverlayMockInputs(doc) : undefined;
 			return {
 				reels,
 				rows,

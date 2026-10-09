@@ -38,6 +38,8 @@ import {
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESETS,
 	addPotsOverlay,
+	potsOverlayOf,
+	setOverlayPots,
 	symbolsInPlay,
 	symbolsUsed,
 	symbolUses,
@@ -105,7 +107,7 @@ check(
 const threePots = addPotsOverlay(lines, 'threePots');
 if (!threePots.ok) throw new Error(`threePots on lines: ${threePots.reason}`);
 const potsDoc = saved(threePots.doc);
-const tokens = potsDoc.potsOverlay?.pots.map((pot) => pot.token) ?? [];
+const tokens = potsOverlayOf(potsDoc)?.pots.map((pot) => pot.token) ?? [];
 check('threePots · three tokens', tokens.length, 3);
 for (const token of tokens) {
 	check(`threePots · ${token} is a token, never unused`, symbolUses(potsDoc)[token], 'token');
@@ -135,7 +137,12 @@ check(
 check('…and used', symbolsUsed(stripOnly).includes('NEW'), true);
 
 const ghostToken = structuredClone(potsDoc);
-ghostToken.potsOverlay!.pots[0].token = 'GHOST';
+const ghostPots = potsOverlayOf(ghostToken)!;
+setOverlayPots(ghostToken, {
+	...ghostPots,
+	pots: ghostPots.pots.map((pot, i) => (i === 0 ? { ...pot, token: 'GHOST' } : pot)),
+});
+check('the ghost pot is drawn by GHOST', potsOverlayOf(ghostToken)?.pots[0].token, 'GHOST');
 check(
 	'a pot whose token is not in the dictionary still draws it',
 	symbolUses(ghostToken).GHOST,
@@ -180,7 +187,7 @@ for (const kind of [...GAME_KINDS, 'myCustomKind']) {
 		if (!shown) throw new Error(`no config for ${kind} · ${label}`);
 		const uses = symbolUses(shown);
 		const badged = Object.keys(shown.symbols);
-		const overlayTokens = shown.potsOverlay?.pots.map((pot) => pot.token) ?? [];
+		const overlayTokens = potsOverlayOf(shown)?.pots.map((pot) => pot.token) ?? [];
 		for (const source of defaultsSources(kind)) {
 			const at = `${kind} · ${label} · ${source.label}`;
 			const page = symbolsPageConfig(kind, source.defaults, config);

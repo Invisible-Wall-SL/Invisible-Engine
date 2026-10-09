@@ -78,7 +78,9 @@ import {
 	flowAddOnsOf,
 	holdAndWinBonus,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
 	potsOverlayPreset,
+	primaryHoldAndWin,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
 } from 'game-config';
@@ -253,8 +255,8 @@ for (const kind of Object.keys(RESOLVES_TO)) {
 	if (kind !== 'holdAndWin') {
 		check(
 			`7. ${kind}: its default config carries no add-on block ⇒ the kind's vocabulary itself`,
-			!kindDefault?.holdAndWin &&
-				!kindDefault?.potsOverlay &&
+			!(kindDefault && primaryHoldAndWin(kindDefault)) &&
+				!(kindDefault && potsOverlayOf(kindDefault)) &&
 				withAddOns(vocab, flowAddOnsOf(kindDefault)) === vocab,
 		);
 	}

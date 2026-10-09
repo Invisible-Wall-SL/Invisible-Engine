@@ -133,35 +133,30 @@ Project (a whole game)
 
   A legacy doc and its split form must give the same mock inputs. That is the gate on Phase 1.
 
-- **Transition (Phases 1–6).** Until every reader has moved to per-mode reads, a normalized doc
-  stores the split form (canonical) AND the legacy `holdAndWin` / `potsOverlay` keys as a
-  **compat mirror** derived from it.
-  - **The mirror shows one respin mode, the PRIMARY.** That is the respin mode `holdAndWin` when it
-    has rules, else the first respin mode with rules. The mirror's `holdAndWin` is that mode's
-    rules joined with the overlay's routes to it and the base-game flags. Its `potsOverlay` is the
-    overlay's pots, drops and timing, present only when something drops.
-  - **Precedence.**
-    - When the input carries a legacy key, the legacy pair is applied over the split form for
-      everything the mirror shows. Everything else of the split form is kept: other modes, routes
-      to them, the style, the base-game coins, and flags for specials the primary does not
-      configure.
-    - When the input carries neither key, the split form stands.
-    - No equality test decides this. Applying a mirror that is unchanged is a no-op, and the
-      fixture pins it.
-    - Normalization cannot tell an edited split form from an edited mirror. So a stale mirror
-      always wins.
-  - **What writers must do.**
-    - **A writer of the split form (Phases 5a and 6) deletes both legacy keys before it saves.**
-    - **Hold and Win is removed only through `removeHoldAndWin(doc)`.** It removes the block, the
-      primary respin mode and the routes to it. Deleting the `holdAndWin` key alone brings the mode
-      back on a doc without a `potsOverlay`, and drops it beside one.
-    - A Hold and Win mode always plays on the respin board. An override's `reels` or `none` board
-      is overruled, so the block is never lost.
-    - An unmigrated writer edits only the legacy keys, and its edit wins.
-    - The game-config writers (`addOns`, `imports`) call `withLegacyPair` first and
-      `syncBonusSplit` last, so their results are already normalize fixed points.
-  - **Readers** in game-config go through `legacyHoldAndWin` / `legacyPotsOverlay`.
-  - **The mirror is dropped in Phase 7**, once no reader is left.
+- **Transition (Phases 1–7a, done).** Until every reader had moved to per-mode reads, a normalized
+  doc stored the split form (canonical) AND the legacy `holdAndWin` / `potsOverlay` keys as a
+  **compat mirror** derived from it. Phase 7b dropped the mirror (2026-10-09).
+  - **The mirror showed one respin mode, the PRIMARY:** the respin mode `holdAndWin` when it has
+    rules, else the first respin mode with rules. Its `holdAndWin` was that mode's rules joined with
+    the overlay's routes to it and the base-game flags; its `potsOverlay` the overlay's pots, drops
+    and timing, present only when something drops. Those shapes live on as views of the split form,
+    `primaryHoldAndWin(doc)` and `potsOverlayOf(doc)`, which the Hold and Win validator, mock and
+    runtime read.
+  - **Precedence (kept by the legacy reader).** When `normalize`'s input carries a legacy key, the
+    legacy pair is applied over the split form for everything the mirror showed; everything else
+    of the split form is kept (other modes, routes to them, the style, the base-game coins, flags
+    for specials the primary does not configure). When the input carries neither key, the split
+    form stands. Only `normalize` (and `migrateLegacyBonus`, its whole-doc form for `/config`'s
+    unnormalized live doc) reads the legacy keys; `check:bonus-migration` fails on any other reader.
+  - **Writers edit the split form.** The game-config writers (`addOns`, `imports`, `bonusModes`,
+    `spinsModes`) edit `coinOverlay` and the modes directly, a preset's Hold and Win installed whole
+    through `setPrimaryHoldAndWin`. Hold and Win is removed through `removeHoldAndWin(doc)` (the
+    primary respin mode and the routes to it). A Hold and Win mode always plays on the respin
+    board: an override's `reels` or `none` board beside a legacy block is overruled, so the block is
+    never lost.
+  - **Old baked bundles** still boot: the runtime normalizes the baked config
+    (`getActiveGameConfig`), so a bundle baked with the mirror, or before the split, plays the
+    split form.
 
 ### 2.2 Wire, mock and facade
 
@@ -174,7 +169,7 @@ Project (a whole game)
   they start, and the composed mock (`withPotsOverlay`) also wraps the lines mock for a classic
   overlay, so a Hold and Win project runs on the lines mock plus the overlay. `protocolFor('holdAndWin')`
   goes away, as `bookOf` did in book-feature.
-- **Emit rule (Phase 2; Phase 7 deletes the condition):** `bonusModes` and the per-context `mode` are
+- **Emit rule (Phase 2; kept by Phase 7b, which changed the doc, not the wire):** `bonusModes` and the per-context `mode` are
   sent only when the project's respin set is not the lone default (one `holdAndWin` mode on the
   `respin` strip), which the mock reads from `holdAndWinMockInputs(doc).modes` being present, so
   every existing game's answer stays byte-identical.
@@ -203,7 +198,7 @@ Project (a whole game)
   - coin roles appear when there is a respin mode. A pots-only overlay's tokens carry no cash
     value, so they add none (widen this when an overlay deals valued coins without a respin mode);
   - the overlay's own parts (the Pots screen) appear when the coin overlay drops tokens: the
-    predicate the legacy `potsOverlay` mirror uses, read from the split form.
+    predicate `potsOverlayOf` uses, read from the split form.
 - **`/config`:**
   - a **Bonus modes** section lists the modes. Each respin mode opens its own Hold and Win editor
     (today's `HoldAndWinSection`, pointed at that mode);
@@ -258,7 +253,8 @@ mock unchanged.
      metre, buy) starts its named bonus mode, and a Hold and Win base can enter other bonus modes.
      This lifts Phase 6's route guard. It also adds per-mode progressive pools and wires
      `coinOverlay.coins` into the mock. Approximate math is fine; current games are byte-identical.
-   - **7b, drop the legacy mirror.** The `holdAndWin` / `potsOverlay` keys and their readers go.
+   - **7b, drop the legacy mirror** (done). The `holdAndWin` / `potsOverlay` keys and their readers
+     went; `normalize` still reads them, as the legacy reader.
      The `holdAndWin` kind stays as a base kind.
    - **7c, migrate and prove** (`game-playtester`). Every stored project normalises to the split
      form on its next save, and the samples play end to end. This needs R2 and a browser.

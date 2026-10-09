@@ -214,13 +214,17 @@ const offNoBuy = doc({ freeSpins: { enabled: false }, betModes: { base: base.bet
 check('off + no buy ⇒ no free-spins issue', issuesAt(offNoBuy, 'freeSpins'), []);
 check('on + a buy ⇒ none', issuesAt(doc(), 'freeSpins'), []);
 // The block's own contents are `validateHoldAndWin`'s business; only its presence matters here.
-const withHoldAndWin = { ...off, holdAndWin: {} } as GameConfigDoc;
+const withHoldAndWin = normalizeGameConfigDoc({ ...off, holdAndWin: {} })!;
 check(
 	'off + a buy + a Hold and Win block ⇒ none (the buy buys that)',
 	validateFreeSpins(withHoldAndWin),
 	[],
 );
-const withPots = { ...off, potsOverlay: {} } as GameConfigDoc;
+// An overlay that drops nothing is none, so it drops a coin.
+const withPots = normalizeGameConfigDoc({
+	...off,
+	potsOverlay: { pots: [], drops: { table: [{ coin: true }] } },
+})!;
 check('…and the same beside a pots overlay', validateFreeSpins(withPots), []);
 
 console.log('\nthe validator — a trigger that can actually be dealt');

@@ -21,8 +21,8 @@
  *     add-ons, grafted starter flow and publish verdict to `main` before Phase 5c (`MAIN_DIGESTS`).
  *     Its vocabulary is byte-identical EXCEPT the two reworded `mode` field descriptions
  *     (`respinReveal`, `holdAndWinState`; editor text only): the new wording is pinned on exactly
- *     those two fields, and the hash reads them as `main` words them. Stripping the legacy keys (the
- *     compat mirror Phase 7 drops) changes no add-on.
+ *     those two fields, and the hash reads them as `main` words them. The same doc stored with the
+ *     legacy keys normalizes to the same add-ons, and a current doc carries none.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -51,9 +51,14 @@ import {
 	flowAddOnsOf,
 	holdAndWinModeDecl,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
+	primaryHoldAndWin,
 	primaryRespinMode,
+	setOverlayPots,
+	setPrimaryHoldAndWin,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
+	type RawGameConfig,
 } from 'game-config';
 import { sceneSetOptionsFor } from '../src/lib/addOns.ts';
 import { validateFlowV2Against } from '../src/lib/server/flowV2Validation.ts';
@@ -87,12 +92,10 @@ const withOverlay = (doc: GameConfigDoc, id: PotsOverlayPresetId): GameConfigDoc
 	return normalize(result.doc);
 };
 
-/** `doc` plus a second respin mode, saved the way a split-form writer saves it (legacy keys gone). */
+/** `doc` plus a second respin mode. */
 const SECOND = 'holdAndWin_2';
 const withSecondMode = (doc: GameConfigDoc): GameConfigDoc => {
 	const out = clone(doc);
-	delete out.holdAndWin;
-	delete out.potsOverlay;
 	const game = clone(primaryRespinMode(out.modes)!.holdAndWin);
 	out.modes = [
 		...(out.modes ?? []),
@@ -317,12 +320,17 @@ const digest = (value: unknown): string =>
 
 const currentDocs = (): [string, string, GameConfigDoc | null][] => {
 	const expanding = normalize(clone(HOLD_AND_WIN_PRESETS.pots));
-	expanding.holdAndWin!.expansion = { startRows: 3, maxRows: 6, rule: 'fullRow' };
+	setPrimaryHoldAndWin(expanding, {
+		...primaryHoldAndWin(expanding)!,
+		expansion: { startRows: 3, maxRows: 6, rule: 'fullRow', resetsRespins: true },
+	});
 	const book = normalize(gameConfigDefaultFor('bookOf'));
 	const borut = withOverlay(book, 'threePots');
-	borut.potsOverlay!.pots = borut.potsOverlay!.pots.map((p) =>
-		p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p,
-	);
+	const pots = potsOverlayOf(borut)!;
+	setOverlayPots(borut, {
+		...pots,
+		pots: pots.pots.map((p) => (p.id === 'green' ? { ...p, bonus: { mode: 'freeSpins' } } : p)),
+	});
 	return [
 		['no config', 'lines', null],
 		['lines', 'lines', lines],
@@ -427,10 +435,17 @@ for (const [name, kind, doc] of currentDocs()) {
 		}
 	}
 	if (doc) {
-		const stripped = clone(doc);
-		delete stripped.holdAndWin;
-		delete stripped.potsOverlay;
-		same(`5. ${name} · the legacy keys stripped, the same add-ons`, flowAddOnsOf(stripped), addOns);
+		const legacy: RawGameConfig = {
+			...clone(doc),
+			holdAndWin: primaryHoldAndWin(doc),
+			potsOverlay: potsOverlayOf(doc),
+		};
+		same(
+			`5. ${name} · stored with the legacy keys, the same add-ons`,
+			flowAddOnsOf(normalize(legacy)),
+			addOns,
+		);
+		same(`5. ${name} · no legacy keys`, 'holdAndWin' in doc || 'potsOverlay' in doc, false);
 	}
 }
 
