@@ -18,9 +18,14 @@ For every live game (`GET /api/pipeline/games`, bearer `PIPELINE_CI_TOKEN`):
 2. **Plan.** It reads each game's published pointer from R2, read-only, once per run, and pins
    that snapshot id for every render of the run, so a republish mid-run cannot hand two renders two
    different snapshots. It pins the game's mock contract from `test_server/games.json` the same
-   way, by hash: the plan is a public artifact, so it never carries the contract itself, and each
-   render reads the contract, drops `docBase` and `readToken`, and refuses to render one whose hash
-   changed. The plan lists the render **units**: one side (main's runtime or the branch's) of one
+   way: it reads the manifest ONCE, drops `docBase` and `readToken`, records each contract's hash
+   in the plan and freezes the contracts themselves in `contracts.json` beside it
+   (`lib/contracts.mjs`). The plan folder is a public artifact, so a live game's contracts are
+   sealed there (AES-256-GCM, key derived from the R2 read secret only the run's jobs hold). Every
+   render deals from that frozen copy, never from R2: the launcher rewrites `test_server/games.json`
+   on every publish, and a render that re-read it failed any game republished mid-run on both sides
+   (2026-10-08). A frozen contract whose hash is not the plan's still fails the unit, as a safety
+   net. `contracts.fixture.mjs` (run by `check:all`) proves it. The plan lists the render **units**: one side (main's runtime or the branch's) of one
    scenario of one game. A snapshot is immutable by id, so its download (`<id>/runtime.json` +
    `<id>/deploy/**`) is cached.
 3. **Serve.** It serves what a player boots, twice, once per runtime:
@@ -456,6 +461,8 @@ diagnostics (`log_images`) list each render's external requests as `mirror <url>
 | `typekit: network — … the Typekit mirror is missing from R2` (a warning and the report's line; the run goes on) | Nothing was ever uploaded, so the renders loaded from Adobe as players do. | Run the **Typekit mirror** workflow once (Actions → Typekit mirror → Run workflow, on `main`) to remove the dependency. |
 | `the Typekit mirror (kits …) lacks kit(s) the runtime loads` (the plan fails) | A kit id changed in `app.html` or `pixi-svelte` (`kitIds()` harvests both, and `typekit.fixture.mjs` proves they agree). | Run the workflow from `main` with `extra_kits` naming the new id (it only runs on `main`); run it again plain once the branch has merged. |
 | `the Typekit mirror has no entry for <url>` | The page asked for a kit URL the mirror does not hold: a face was added, or the kit's script asks for something new. | Run the workflow; if the URL is not in the kit's stylesheet or script, extend `crawlKit`. |
+| `the game's mock contract is not the one the plan pinned` | The shard's `contracts.json` is not the plan's own (a plan artifact mixed between attempts). A publish mid-run can no longer cause it: the renders never re-read `test_server/games.json`. | Re-run the whole workflow, not the failed jobs. |
+| `mock contracts unreadable: … does not open with this run's CURRENT_GAMES_R2_SECRET_ACCESS_KEY` | The R2 read secret was rotated between the plan and the render. | Re-run the whole workflow. |
 | `the Typekit mirror changed during the run` | A refresh landed between the plan and this render. | Re-run the failed jobs. |
 | `Typekit mirror unavailable: …` on every unit of a shard (`the Typekit mirror is gone from R2`, or a blob that does not match its name) | The pinned mirror could not be downloaded whole on that runner. | Re-run the failed jobs; if it repeats, `typekit-mirror.mjs show` and refresh. |
 
