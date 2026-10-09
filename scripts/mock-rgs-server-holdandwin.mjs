@@ -374,6 +374,17 @@ export function createMockRgs(opts = {}) {
 	 */
 	const settleAbandoned = (sid, session, round) => {
 		while (round.feature && !round.feature.ended) playRespin([], round);
+		// …and whatever an overlay started or queued: its respin feature, the free spins, the rest.
+		if (overlay && round.played) {
+			const events = [];
+			if (!round.potsFeature && !round.bonus) handOver(events, session, round, overlay);
+			for (let guard = 0; guard < 10_000; guard++) {
+				if (round.potsFeature?.feature && !round.potsFeature.feature.ended)
+					overlay.playOwned(events, session, round);
+				else if (round.bonus?.active) playFreeSpin(events, session, round);
+				else break;
+			}
+		}
 		session.balance += round.win;
 		round.closed = true;
 		settle(sid, round);
@@ -616,6 +627,11 @@ export function createMockRgs(opts = {}) {
 								playRespin(events, round);
 								if (round.feature.ended) handOver(events, session, round, addOn);
 								break;
+							}
+							// Refused before the overlay draws anything: a play the round no longer takes.
+							const overlayOwns = round.potsFeature?.feature && !round.potsFeature.feature.ended;
+							if (!overlayOwns && !round.bonus?.active && (round.played || round.feature)) {
+								return fail('unexpected action: play (was expecting: collect)');
 							}
 							const parts = forceParts(a.context);
 							const turn = addOn.beginPlay(session, round, parts.overlay, {

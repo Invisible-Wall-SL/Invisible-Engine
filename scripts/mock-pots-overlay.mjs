@@ -398,7 +398,7 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		};
 		const placeCoin = (reel) => {
 			const at = freeCell(reel);
-			const coin = at && coinEngine.drawBaseCoin(at.reel);
+			const coin = at && coinEngine.drawBaseCoin(at.reel, rand);
 			if (!coin) return false;
 			coins.push({ reel: at.reel, row: at.row, cell: coin });
 			cells.push(coinEngine.cellInfo(at.reel, at.row, coin));
@@ -584,7 +584,11 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 	const takeOver = (events, session, round) => {
 		const queue = round.potsQueue ?? [];
 		while (queue.length) {
-			if (startBonus(events, session, round, queue.shift())) return true;
+			const next = queue.shift();
+			// A round plays each respin mode once: on a Hold and Win base, a mode its own feature played
+			// this round leaves the pots routed to it full, to start on the next round's first spin.
+			if (hostEngines && round.feature?.mode === next.mode) continue;
+			if (startBonus(events, session, round, next)) return true;
 		}
 		return false;
 	};
@@ -627,7 +631,9 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 		if (base) {
 			const bought = round.isBuy ? buyRoutes.get(round.betMode) : undefined;
 			if (bought) {
+				// The host deals this spin unbought; `potsBought` keeps it from counting as a natural one.
 				round.isBuy = false;
+				round.potsBought = true;
 				routes.set(bought.mode, { cause: 'buy', buyTier: bought.tier });
 			}
 			const lucky =

@@ -383,8 +383,6 @@
 	}
 
 	// ── base game ──────────────────────────────────────────────────────────────────────────────
-	/** Sparse, as the normalizer stores it: a flag is present only while it is on. */
-	// ── base-game coin values ────────────────────────────────────────────────────────────────
 	/** Every jackpot tier a respin mode has, once each: what a base-game jackpot coin can name. */
 	const tierNames = $derived([
 		...new Set(respinModes.flatMap((m) => m.holdAndWin?.jackpots.map((j) => j.name) ?? [])),
@@ -408,6 +406,7 @@
 		return total > 0 ? `${((entry.weight / total) * 100).toFixed(1)}%` : '—';
 	};
 
+	/** Sparse, as the normalizer stores it: a flag is present only while it is on. */
 	function setFlag(
 		overlay: CoinOverlay,
 		kind: HoldAndWinSpecial,

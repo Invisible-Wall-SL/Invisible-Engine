@@ -1452,6 +1452,120 @@ check(
 	[true, []],
 );
 
+// A resume mid the overlay's feature that follows the base's own: the round reopens on a fresh
+// `config` (`resume: true`), play continues at the same `seq` and `gid`, and the round ends once.
+{
+	const host = await startHost(null, 'runtime-modes-8-resume', HW_BASE, hwOpts);
+	type Raw = {
+		events: {
+			event: string;
+			context?: Record<string, unknown>;
+			resume?: boolean;
+			actions?: unknown;
+		}[];
+		platform: { balance: number; gameRound?: { id?: string } };
+	};
+	const post = async (seq: number, gid: string | null, body: unknown) =>
+		(await (
+			await fetch(
+				`http://${host.rgsUrl}/rgs/engine?sid=resume8&seq=${seq}${gid ? `&gid=${gid}` : ''}`,
+				{ method: 'POST', body: JSON.stringify(body) },
+			)
+		).json()) as Raw;
+	const start = (await post(0, null, [{ action: 'config' }])).platform.balance;
+	const lines = Object.keys(HW_BASE.paylines).length;
+	const opened = await post(0, null, [
+		{ action: 'bet', context: [lines, 1] },
+		{ action: 'play', context: 'force:trigger,pot:green' },
+	]);
+	const gid = opened.platform.gameRound?.id ?? null;
+	let seq = 2;
+	let last = opened;
+	const startsB = (r: Raw) =>
+		r.events.some((e) => e.event === 'spinTrigger' && e.context?.bonus === KEY_B);
+	for (let guard = 0; !startsB(last) && guard < 200; guard++) {
+		last = await post(seq, gid, [{ action: 'play' }]);
+		seq += 1;
+	}
+	const reopened = await post(seq, gid, [{ action: 'config' }]);
+	const config = reopened.events.find((e) => e.event === 'config');
+	let ended = false;
+	let ends = 0;
+	for (let guard = 0; !ended && guard < 200; guard++) {
+		last = await post(seq, gid, [{ action: 'play' }]);
+		seq += 1;
+		ends += last.events.filter((e) => e.event === 'gameEnd').length;
+		ended = last.events.some((e) => e.event === 'gameEnd');
+	}
+	const collected = await post(seq, gid, [{ action: 'collect' }]);
+	const win = Number(collected.events.find((e) => e.event === 'gameRoundOver')?.context?.win);
+	await host.stop();
+	check(
+		'8 resume: the base feature, then the pot’s mode 2 opens; a fresh config reopens the round there',
+		[gid !== null, startsB(last) || ended, config?.resume, Array.isArray(config?.actions)],
+		[true, true, true, true],
+	);
+	check(
+		'8 resume: play goes on at the same seq and gid to one gameEnd, then the collect pays it once',
+		[ends, Number.isFinite(win), collected.platform.balance, collected.platform.gameRound],
+		[1, true, start - lines + win, undefined],
+	);
+}
+
+// A round abandoned mid the overlay's feature (a fresh `bet` with no `gid`) is settled the way the
+// server settles one nobody finishes: played out, its whole win credited — what playing it pays.
+{
+	const lines = Object.keys(HW_BASE.paylines).length;
+	const run = async (abandon: boolean) => {
+		const host = await startHost(null, 'runtime-modes-8-abandon', HW_BASE, hwOpts);
+		const post = async (seq: number, gid: string | null, body: unknown) =>
+			(await (
+				await fetch(
+					`http://${host.rgsUrl}/rgs/engine?sid=abandon8&seq=${seq}${gid ? `&gid=${gid}` : ''}`,
+					{ method: 'POST', body: JSON.stringify(body) },
+				)
+			).json()) as {
+				events: { event: string; context?: Record<string, unknown> }[];
+				platform: { balance: number; gameRound?: { id?: string } };
+			};
+		const start = (await post(0, null, [{ action: 'config' }])).platform.balance;
+		const opened = await post(0, null, [
+			{ action: 'bet', context: [lines, 1] },
+			{ action: 'play', context: 'force:pot:red' },
+		]);
+		const gid = opened.platform.gameRound?.id ?? null;
+		let seq = 2;
+		let last = opened;
+		const inB = (r: typeof opened) =>
+			r.events.some((e) => e.event === 'spinTrigger' && Array.isArray(e.context?.meters));
+		for (let guard = 0; !inB(last) && guard < 200; guard++) {
+			last = await post(seq, gid, [{ action: 'play' }]);
+			seq += 1;
+		}
+		let win = 0;
+		if (abandon) {
+			const next = await post(0, null, [{ action: 'bet', context: [lines, 1] }]);
+			win = next.platform.balance - (start - 2 * lines);
+		} else {
+			for (let guard = 0; !last.events.some((e) => e.event === 'gameEnd') && guard < 200; guard++) {
+				last = await post(seq, gid, [{ action: 'play' }]);
+				seq += 1;
+			}
+			const collected = await post(seq, gid, [{ action: 'collect' }]);
+			win = collected.platform.balance - (start - lines);
+		}
+		await host.stop();
+		return win;
+	};
+	const played = await run(false);
+	const abandoned = await run(true);
+	check(
+		'8 abandoned mid a pot’s feature: settled with the whole win playing it out pays',
+		[played > 0, abandoned],
+		[true, played],
+	);
+}
+
 // The PLAIN Hold and Win game (the owner's base game): coins on the reels start respins that pay,
 // with no jackpot, no board end and no overlay.
 {

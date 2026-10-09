@@ -563,7 +563,12 @@ function projectGrid(
 				pool && Object.keys(bookMapping.symbols).some((name) => !pool.includes(name))
 					? pool
 					: undefined;
-			const potsOverlay = inServerNames(potsOverlayMockInputs(doc), bookMapping, projectKey);
+			// The book mock sells only its own buy, so a buy route alone composes no overlay.
+			const potsOverlay = inServerNames(
+				potsOverlayMockInputs(doc, { sellsBetModes: false }),
+				bookMapping,
+				projectKey,
+			);
 			// Last, after the overlay, so a project that departs from none of the free-spins defaults
 			// keeps its grid byte-identical.
 			const freeSpins = projectBookFreeSpins(doc, projectKey);

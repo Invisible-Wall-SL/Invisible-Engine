@@ -37,14 +37,22 @@ export type PotsOverlayMockInputs = {
  * overlay starts by a buy, a Lucky Spin or a random metre (`respinIsOverlayBonus`), as
  * `{ pots: [], drops: { table: [] } }` beside it (bonus-games Phase 7a).
  */
-export function potsOverlayMockInputs(doc: GameConfigDoc): PotsOverlayMockInputs | undefined {
+export function potsOverlayMockInputs(
+	doc: GameConfigDoc,
+	{ sellsBetModes = true }: { sellsBetModes?: boolean } = {},
+): PotsOverlayMockInputs | undefined {
 	const overlay = legacyPotsOverlay(doc);
 	if (!overlay) {
+		// A route the host mock deals: a buy only where it sells the doc's bet modes (not the book mock).
 		const holdAndWin = respinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
 		const routed =
 			holdAndWin &&
 			[holdAndWin, ...(holdAndWin.modes ?? [])].some(({ block }) =>
-				Boolean(block.trigger.buy?.length || block.trigger.luckySpin || block.trigger.randomMetre),
+				Boolean(
+					(sellsBetModes && block.trigger.buy?.length) ||
+						block.trigger.luckySpin ||
+						block.trigger.randomMetre,
+				),
 			);
 		return routed
 			? {

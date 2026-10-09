@@ -986,12 +986,9 @@ export function createMockRgs(opts = {}) {
 		};
 	})();
 
-	/** The `betModes` key a table's `option` sells (its name, `<index>:<mode>`), or undefined. */
-	const betModeOf = (table, option) =>
-		(Array.isArray(opts.betModes) ? opts.betModes : []).find(
-			(mode, index) =>
-				table.names[option] === `${index}:${index === 0 ? 'base' : mode.mode.toLowerCase()}`,
-		)?.mode;
+	/** The `betModes` key an `option` sells (base first, as the table is built), or undefined. */
+	const betModeOf = (option) =>
+		Array.isArray(opts.betModes) ? opts.betModes[option]?.mode : undefined;
 
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
 	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
@@ -1980,7 +1977,7 @@ export function createMockRgs(opts = {}) {
 							option >= table.options.length ||
 							!Number.isFinite(multiplier) ||
 							multiplier <= 0 ||
-							(!freeSpinsOn && table.buys[option] && !addOn?.sellsBuy(betModeOf(table, option))))
+							(!freeSpinsOn && table.buys[option] && !addOn?.sellsBuy(betModeOf(option))))
 					) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -2017,7 +2014,7 @@ export function createMockRgs(opts = {}) {
 						/** A bought option: this round's play enters the feature. */
 						isBuy: table ? table.buys[option] : false,
 						/** The `betModes` key the option sells — the overlay's buy routes read it. */
-						betMode: table ? betModeOf(table, option) : undefined,
+						betMode: table ? betModeOf(option) : undefined,
 						win: 0,
 						reels: null,
 						/** Null outside the feature; set by the trigger, cleared when the last spin plays. */
@@ -2194,7 +2191,9 @@ export function createMockRgs(opts = {}) {
 					// The add-on's `feature` force enters it like `FORCE_TRIGGER`.
 					const hostFeature = freeSpinsOn && turn?.hostFeature === true;
 					const forcedX =
-						pendingRound.isBuy || forceTrigger || hostFeature ? undefined : winX[baseSpinsDealt++];
+						pendingRound.isBuy || pendingRound.potsBought || forceTrigger || hostFeature
+							? undefined
+							: winX[baseSpinsDealt++];
 					// The forced win must not open the feature, so the board it builds holds no trigger
 					// symbol: the trigger's cells are refilled and it is never the symbol that pays. With
 					// the default 3+ SCAT rule that is exactly the scatter-free board it always built.

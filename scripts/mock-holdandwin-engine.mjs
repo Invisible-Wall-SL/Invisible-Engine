@@ -251,11 +251,11 @@ export function createHoldAndWinEngine(opts = {}) {
 			return rngState / 0x100000000;
 		});
 	const pick = (items) => items[Math.floor(rand() * items.length)];
-	const weighted = (items) => {
+	const weighted = (items, rng = rand) => {
 		const live = items.filter((i) => i.weight > 0);
 		const total = live.reduce((s, i) => s + i.weight, 0);
 		if (!live.length) return undefined;
-		let r = rand() * total;
+		let r = rng() * total;
 		for (const item of live) if ((r -= item.weight) <= 0) return item;
 		return live[live.length - 1];
 	};
@@ -282,8 +282,12 @@ export function createHoldAndWinEngine(opts = {}) {
 		const entry = weighted(cash.filter((c) => onReel(c, reel))) ?? weighted(cash);
 		return entry ? coinFromEntry(entry, boost) : drawCoin(reel, boost, table);
 	};
-	/** A coin of the base game: on the base reels, or dropped by an overlay. */
-	const drawBaseCoin = (reel) => drawCoin(reel, 1, baseCoins);
+	/** A coin of the base game: on the base reels, or dropped by an overlay — which draws it from its
+	 *  own `rng`, so the board this engine deals stays the same with or without it. */
+	const drawBaseCoin = (reel, rng = rand) => {
+		const entry = weighted(coinEntriesOn(reel, baseCoins), rng) ?? weighted(list(baseCoins), rng);
+		return entry ? coinFromEntry(entry) : null;
+	};
 	const specialCell = (kind) => {
 		const symbol = specialSymbol[kind];
 		if (!symbol) return null;
