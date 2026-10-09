@@ -14,6 +14,9 @@
  *  4. The view fills every gap from the host and lays the mode's pays over the dictionary.
  *  5. Validation: a mode's strips are measured against its own grid (the host's reel count does not
  *     apply to them), a game that cannot pay is an error, and so is a lines game with no paylines.
+ *  6. Routes: a buy, a Lucky Spin or a random metre may start a spins game (the coin count, a pattern
+ *     and a meter may not, nor may anything but a pot start a reels mode without a game), and the
+ *     mock is told those routes in the legacy trigger shape.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -22,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { splitFormOf, withLegacyPair } from './src/bonusGames.ts';
 import { gameModeById, normalizeGameModes } from './src/modes.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
+import { reelsModeMockInput } from './src/potsOverlayMock.ts';
 import { normalizeSpinsGame, spinsGameView } from './src/spinsGame.ts';
 import type { GameConfigDoc } from './src/types.ts';
 import { validateGameConfigDoc } from './src/validate.ts';
@@ -166,6 +170,58 @@ check(
 	'a lines game with no paylines',
 	messages(linesNoPaylines).filter((m) => m.startsWith(`modes.${CLUSTER_BONUS}`)),
 	[`modes.${CLUSTER_BONUS}.spins.paylines: A lines game needs paylines, so nothing can ever pay.`],
+);
+
+console.log('\n6. routes: a buy, a Lucky Spin or a random metre starts a spins game');
+const routed = (trigger: Record<string, unknown>): GameConfigDoc =>
+	normalize({
+		...withSpinsModes(host),
+		betModes: {
+			...host.betModes,
+			bonus: { cost: 100, feature: true, buyBonus: true, rtp: 0.96, max_win: 5000 },
+		},
+		coinOverlay: { style: 'classic', trigger },
+	});
+const bought = routed({
+	buy: [{ betMode: 'bonus', mode: CLUSTER_BONUS, guaranteed: [], boostedSpecials: false }],
+	luckySpin: { mode: WAYS_BONUS },
+});
+check(
+	'a buy and a Lucky Spin validate',
+	messages(bought).filter((m) => m.startsWith('coinOverlay')),
+	[],
+);
+const counted = routed({ count: { min: 6, roles: ['coin'], mode: WAYS_BONUS } });
+check(
+	'a coin count does not start a spins game',
+	messages(counted).filter((m) => m.startsWith('coinOverlay.trigger.count')),
+	[
+		`coinOverlay.trigger.count.mode: It starts the spins game "${WAYS_BONUS}", which only a pot, a buy, a Lucky Spin or a random metre starts.`,
+	],
+);
+const plain = normalize({
+	...host,
+	modes: [{ id: 'reelsOnly', board: 'reels', gameType: 'freegame' }],
+	coinOverlay: { style: 'classic', trigger: { luckySpin: { mode: 'reelsOnly' } } },
+});
+check(
+	'nor is a reels mode without a game of its own',
+	messages(plain).filter((m) => m.startsWith('coinOverlay')).length,
+	1,
+);
+const boughtInput = reelsModeMockInput(bought, gameModeById(bought, CLUSTER_BONUS)!);
+check('the mock is told the buy tier, by bet mode', boughtInput?.trigger, {
+	buy: [{ mode: 'bonus', guaranteed: [], boostedSpecials: false }],
+});
+check(
+	'…and the Lucky Spin',
+	reelsModeMockInput(bought, gameModeById(bought, WAYS_BONUS)!)?.trigger,
+	{ luckySpin: true },
+);
+check(
+	'a pot-only spins game carries no trigger',
+	reelsModeMockInput(doc, gameModeById(doc, WAYS_BONUS)!)?.trigger,
+	undefined,
 );
 
 console.log(failures ? `\n${failures} FAILED` : '\nall ok');

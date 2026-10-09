@@ -628,7 +628,17 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 				});
 				continue;
 			}
-			if (target.board !== 'respinBoard') {
+			// A spins game (`./spinsGame`) is also bought, or started by a Lucky Spin or a random metre;
+			// the coin count, a pattern and a meter count coins, which belong to a respin game.
+			const spinsGame = target.board === 'reels' && Boolean(target.spins);
+			const spinsRoute = /^trigger\.(buy\.\d+|luckySpin|randomMetre)\.mode$/.test(route.path);
+			if (spinsGame && !spinsRoute) {
+				issues.push({
+					severity: 'error',
+					path,
+					message: `It starts the spins game "${route.mode}", which only a pot, a buy, a Lucky Spin or a random metre starts.`,
+				});
+			} else if (target.board !== 'respinBoard' && !spinsGame) {
 				issues.push({
 					severity: 'error',
 					path,
