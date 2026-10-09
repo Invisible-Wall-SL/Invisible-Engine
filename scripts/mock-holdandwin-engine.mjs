@@ -33,8 +33,8 @@ const RESPIN_LAND_RATE = 0.06;
 /** Of what lands on a respin, a special (when one is active on that reel) this share of the time;
  *  doubled for a bought tier with `boostedSpecials`. */
 const RESPIN_SPECIAL_SHARE = 0.2;
-const LUCKY_SPIN_RATE = 0.01;
-const RANDOM_METRE_RATE = 0.005;
+export const LUCKY_SPIN_RATE = 0.01;
+export const RANDOM_METRE_RATE = 0.005;
 /** A board that clears (a streak, or letters that sweep their column) never fills, so a forced
  *  chain on one needs a length of its own. */
 const CLEARING_CHAIN_LENGTH = 10;
@@ -82,6 +82,25 @@ export const DEFAULT_RESPIN_MODE = { mode: 'holdAndWin', bonus: 'respin' };
  *   holdAndWin: { block: object, lineSymbols: string[],
  *     symbols: Record<string, { roles: string[], wild?: true, paytable?: Record<string, number> }> } }} opts
  */
+/**
+ * The tier names progressive (`fixed: false`) in two or more of `blocks` — each such tier keeps a
+ * pool per respin mode, its `jackpotLevels` entries tagged with the mode. Every other progressive
+ * tier keeps the one pool shared by name, as before pools could be per mode.
+ */
+export function splitPoolNames(blocks) {
+	const seen = new Set();
+	const split = new Set();
+	for (const block of blocks) {
+		const names = new Set(
+			(Array.isArray(block?.jackpots) ? block.jackpots : [])
+				.filter((j) => j?.fixed === false)
+				.map((j) => j.name),
+		);
+		for (const name of names) (seen.has(name) ? split : seen).add(name);
+	}
+	return split;
+}
+
 export function createHoldAndWinEngine(opts = {}) {
 	const label = opts.label ?? 'mock-hnw';
 	const seed = opts.seed;
@@ -125,10 +144,18 @@ export function createHoldAndWinEngine(opts = {}) {
 	const applyOrder = list(block.applyOrder);
 	const meters = list(block.meters);
 	const jackpotTable = Object.fromEntries(list(block.jackpots).map((j) => [j.name, j.multiplier]));
-	/** The progressive tiers (`fixed: false`) and their pools' rules, × base total bet. */
+	/** The session pool a tier of this mode reads: its own (`<name>@<mode>`) when the name is one of
+	 *  `opts.splitPools` (progressive in several modes, {@link splitPoolNames}), else the one shared
+	 *  by name. */
+	const splitPools = opts.splitPools instanceof Set ? opts.splitPools : null;
+	const poolKey = (name) => (splitPools?.has(name) ? `${name}@${mode}` : name);
+	/** The progressive tiers (`fixed: false`) and their pools' rules, × base total bet. `mode` only on
+	 *  a pool of this mode's own. */
 	const progressiveTiers = list(block.jackpots)
 		.filter((j) => j.fixed === false)
 		.map((j) => ({
+			key: poolKey(j.name),
+			...(splitPools?.has(j.name) ? { mode } : {}),
 			name: j.name,
 			seed: Number(j.progressive?.seed ?? j.multiplier),
 			contribution: Math.max(0, Number(j.progressive?.contribution ?? 0)),
@@ -141,7 +168,7 @@ export function createHoldAndWinEngine(opts = {}) {
 		livePools = pools;
 	};
 	const wonProgressive = new Set();
-	const tierMultiplier = (tier) => livePools?.[tier] ?? jackpotTable[tier] ?? 0;
+	const tierMultiplier = (tier) => livePools?.[poolKey(tier)] ?? jackpotTable[tier] ?? 0;
 	/** Tiers lowest prize first — the ladder a `jackpotTier` upgrade climbs (`jackpotLadder`). */
 	const jackpotLadder = list(block.jackpots)
 		.slice()
@@ -237,20 +264,26 @@ export function createHoldAndWinEngine(opts = {}) {
 	// ---- cells ----
 	/** A cell: `null` (empty/blank) or `{ symbol, kind, value?, jackpot?, factor? }`. */
 	const lineCell = () => ({ symbol: pick(lineSymbols), kind: 'line' });
-	const coinEntriesOn = (reel) => list(block.coins).filter((c) => onReel(c, reel));
+	const coinEntriesOn = (reel, table = block.coins) => list(table).filter((c) => onReel(c, reel));
+	/** The base game's coin values (`coinOverlay.coins`), else the respin table: what lands on the
+	 *  base reels and what an overlay drops. Absent ⇒ the respin table, so every draw is as before. */
+	const baseCoins =
+		Array.isArray(inputs.baseCoins) && inputs.baseCoins.length ? inputs.baseCoins : block.coins;
 	const coinFromEntry = (entry, boost = 1) =>
 		entry.kind === 'jackpot'
 			? { symbol: jackpotSymbol, kind: 'jackpot', jackpot: entry.jackpot, factor: 1 }
 			: { symbol: coinSymbol, kind: 'coin', value: tidy(entry.value * boost) };
-	const drawCoin = (reel, boost = 1) => {
-		const entry = weighted(coinEntriesOn(reel)) ?? weighted(list(block.coins));
+	const drawCoin = (reel, boost = 1, table = block.coins) => {
+		const entry = weighted(coinEntriesOn(reel, table)) ?? weighted(list(table));
 		return entry ? coinFromEntry(entry, boost) : null;
 	};
-	const drawCash = (reel, boost = 1) => {
-		const cash = list(block.coins).filter((c) => c.kind === 'cash');
+	const drawCash = (reel, boost = 1, table = block.coins) => {
+		const cash = list(table).filter((c) => c.kind === 'cash');
 		const entry = weighted(cash.filter((c) => onReel(c, reel))) ?? weighted(cash);
-		return entry ? coinFromEntry(entry, boost) : drawCoin(reel, boost);
+		return entry ? coinFromEntry(entry, boost) : drawCoin(reel, boost, table);
 	};
+	/** A coin of the base game: on the base reels, or dropped by an overlay. */
+	const drawBaseCoin = (reel) => drawCoin(reel, 1, baseCoins);
 	const specialCell = (kind) => {
 		const symbol = specialSymbol[kind];
 		if (!symbol) return null;
@@ -330,7 +363,8 @@ export function createHoldAndWinEngine(opts = {}) {
 	const dealBase = () =>
 		rowHeights.map((rows, reel) =>
 			Array.from({ length: rows }, () => {
-				if (rand() < BASE_COIN_RATE && coinEntriesOn(reel).length) return drawCoin(reel);
+				if (rand() < BASE_COIN_RATE && coinEntriesOn(reel, baseCoins).length)
+					return drawBaseCoin(reel);
 				const kinds = baseSpecialKinds.filter((k) => specialLandsOn(k, reel));
 				const extras = [...kinds, ...meterOnlySymbols];
 				if (extras.length && rand() < BASE_SPECIAL_RATE * extras.length) {
@@ -378,12 +412,14 @@ export function createHoldAndWinEngine(opts = {}) {
 				(board[req.reel] ?? []).filter((cell) => rolesOf(cell).some((r) => req.roles.includes(r)))
 					.length >= req.min,
 		);
-	/** A cell of `role` that can sit on `reel`, or null. */
-	const cellForRole = (role, reel) => {
+	/** A cell of `role` that can sit on `reel`, or null; its coins from `table`. */
+	const cellForRole = (role, reel, table = block.coins) => {
 		if (role === 'coin')
-			return coinEntriesOn(reel).some((c) => c.kind === 'cash') ? drawCash(reel) : null;
+			return coinEntriesOn(reel, table).some((c) => c.kind === 'cash')
+				? drawCash(reel, 1, table)
+				: null;
 		if (role === 'jackpot') {
-			const jackpots = coinEntriesOn(reel).filter((c) => c.kind === 'jackpot');
+			const jackpots = coinEntriesOn(reel, table).filter((c) => c.kind === 'jackpot');
 			return jackpots.length ? coinFromEntry(weighted(jackpots) ?? jackpots[0]) : null;
 		}
 		const kind = ROLE_SPECIAL[role];
@@ -406,8 +442,8 @@ export function createHoldAndWinEngine(opts = {}) {
 				);
 				if (!free.length) break;
 				const { reel, row } = pick(free);
-				const role = trigger.count.roles.find((r) => cellForRole(r, reel));
-				const cell = role ? cellForRole(role, reel) : null;
+				const role = trigger.count.roles.find((r) => cellForRole(r, reel, baseCoins));
+				const cell = role ? cellForRole(role, reel, baseCoins) : null;
 				if (cell) put(reel, row, cell);
 			}
 			return added;
@@ -426,8 +462,8 @@ export function createHoldAndWinEngine(opts = {}) {
 							!rolesOf(column[row]).some((r) => req.roles.includes(r)) && !keep(req.reel, row),
 					);
 				if (!rows.length) break;
-				const role = req.roles.find((r) => cellForRole(r, req.reel));
-				const cell = role ? cellForRole(role, req.reel) : null;
+				const role = req.roles.find((r) => cellForRole(r, req.reel, baseCoins));
+				const cell = role ? cellForRole(role, req.reel, baseCoins) : null;
 				if (!cell) break;
 				put(req.reel, pick(rows), cell);
 			}
@@ -662,7 +698,7 @@ export function createHoldAndWinEngine(opts = {}) {
 						name: j.name,
 						multiplier: j.multiplier,
 						progressive: true,
-						value: tidy(session.jackpots[j.name]),
+						value: tidy(session.jackpots[poolKey(j.name)]),
 					}
 				: { name: j.name, multiplier: j.multiplier },
 		),
@@ -767,7 +803,7 @@ export function createHoldAndWinEngine(opts = {}) {
 
 	const jackpotWin = (events, round, tier, source, banked, cell, factor = 1) => {
 		const amount = credits(tierMultiplier(tier) * factor, round);
-		if (progressiveTiers.some((t) => t.name === tier)) wonProgressive.add(tier);
+		if (progressiveTiers.some((t) => t.name === tier)) wonProgressive.add(poolKey(tier));
 		events.push({
 			event: 'jackpotWin',
 			context: {
@@ -1644,9 +1680,10 @@ export function createHoldAndWinEngine(opts = {}) {
 			board[specialReel][0] = specialCell(kind);
 			let placed = 0;
 			for (let r = 0; r < reelCount && placed < 2; r++) {
-				if (r === specialReel || !coinEntriesOn(r).some((c) => c.kind === 'cash')) continue;
+				if (r === specialReel || !coinEntriesOn(r, baseCoins).some((c) => c.kind === 'cash'))
+					continue;
 				const was = board[r][0];
-				board[r][0] = drawCash(r);
+				board[r][0] = drawCash(r, 1, baseCoins);
 				if (countTriggered(board) || patternTriggered(board)) board[r][0] = was;
 				else placed++;
 			}
@@ -1756,6 +1793,7 @@ export function createHoldAndWinEngine(opts = {}) {
 		setRouter,
 		list,
 		trigger,
+		patternTriggered,
 		meters,
 		progressiveTiers,
 		wonProgressive,
@@ -1763,6 +1801,7 @@ export function createHoldAndWinEngine(opts = {}) {
 		paylines,
 		betTable,
 		drawCoin,
+		drawBaseCoin,
 		cellInfo,
 		emptyBoard,
 		parseForce,

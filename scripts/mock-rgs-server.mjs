@@ -986,6 +986,13 @@ export function createMockRgs(opts = {}) {
 		};
 	})();
 
+	/** The `betModes` key a table's `option` sells (its name, `<index>:<mode>`), or undefined. */
+	const betModeOf = (table, option) =>
+		(Array.isArray(opts.betModes) ? opts.betModes : []).find(
+			(mode, index) =>
+				table.names[option] === `${index}:${index === 0 ? 'base' : mode.mode.toLowerCase()}`,
+		)?.mode;
+
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
 	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
 	// occurs→multiplier map; the mock then declares, deals and pays `WILD` (the lines facade maps
@@ -1473,7 +1480,7 @@ export function createMockRgs(opts = {}) {
 			}
 			let target = null;
 			let best = 0;
-			for (const [name, n] of counts) if (n > best) (best = n), (target = name);
+			for (const [name, n] of counts) if (n > best) ((best = n), (target = name));
 			if (target) {
 				for (let step = 0; step < 2; step++) {
 					const exploding = [];
@@ -1972,7 +1979,7 @@ export function createMockRgs(opts = {}) {
 							option >= table.options.length ||
 							!Number.isFinite(multiplier) ||
 							multiplier <= 0 ||
-							(!freeSpinsOn && table.buys[option]))
+							(!freeSpinsOn && table.buys[option] && !addOn?.sellsBuy(betModeOf(table, option))))
 					) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -2008,6 +2015,8 @@ export function createMockRgs(opts = {}) {
 						baseTotal,
 						/** A bought option: this round's play enters the feature. */
 						isBuy: table ? table.buys[option] : false,
+						/** The `betModes` key the option sells — the overlay's buy routes read it. */
+						betMode: table ? betModeOf(table, option) : undefined,
 						win: 0,
 						reels: null,
 						/** Null outside the feature; set by the trigger, cleared when the last spin plays. */

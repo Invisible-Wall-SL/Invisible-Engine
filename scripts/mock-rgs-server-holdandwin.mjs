@@ -36,6 +36,7 @@ import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
 import {
 	createHoldAndWinEngine,
 	HOLD_AND_WIN_WIRE_VERSION,
+	splitPoolNames,
 	tidy,
 } from './mock-holdandwin-engine.mjs';
 
@@ -144,15 +145,20 @@ export function createRespinEngines(opts) {
 			meters.push(meter);
 		}
 	}
+	const splitPools = splitPoolNames(modes.map((m) => m.block));
 	const own = (m, block) => ({
 		...opts,
+		splitPools,
 		mode: m.mode,
 		bonus: m.gameType,
 		blank: m.blank,
 		wire: true,
 		holdAndWin: { block, lineSymbols: inputs.lineSymbols, symbols: m.symbols },
 	});
-	const engine = createHoldAndWinEngine(own(primary, { ...primary.block, trigger, meters }));
+	const primaryOpts = own(primary, { ...primary.block, trigger, meters });
+	// The base game is the primary's, so only it deals the base-game coin values.
+	if (inputs.baseCoins) primaryOpts.holdAndWin.baseCoins = inputs.baseCoins;
+	const engine = createHoldAndWinEngine(primaryOpts);
 	const engines = [
 		engine,
 		...others.map((m) => createHoldAndWinEngine({ ...own(m, m.block), rand: engine.rand })),
@@ -199,11 +205,12 @@ export function createMockRgs(opts = {}) {
 	const engineOf = (round) => engines.find((e) => e.mode === round.feature?.mode) ?? engine;
 	const playRespin = (events, round) => engineOf(round).playRespin(events, round);
 	const featureState = (f) => engineOf({ feature: f }).featureState(f);
-	/** Every respin mode's progressive tiers, by name (a name two modes share is one pool). */
-	const tierNames = new Set();
+	/** Every respin mode's progressive pools, by key: one per tier name, or per mode for a name
+	 *  progressive in several modes (`splitPoolNames`). */
+	const poolKeys = new Set();
 	const progressiveTiers = engines
 		.flatMap((e) => e.progressiveTiers)
-		.filter((t) => !tierNames.has(t.name) && tierNames.add(t.name));
+		.filter((t) => !poolKeys.has(t.key) && poolKeys.add(t.key));
 	const setLivePools = (pools) => engines.forEach((e) => e.setLivePools(pools));
 	const wonProgressive = {
 		has: (name) => engines.some((e) => e.wonProgressive.has(name)),
@@ -255,8 +262,8 @@ export function createMockRgs(opts = {}) {
 		const pools = session.jackpots ?? {};
 		session.jackpots = Object.fromEntries(
 			progressiveTiers.map((t) => {
-				const level = Number(pools[t.name]);
-				return [t.name, Math.min(t.cap, Number.isFinite(level) && level > 0 ? level : t.seed)];
+				const level = Number(pools[t.key]);
+				return [t.key, Math.min(t.cap, Number.isFinite(level) && level > 0 ? level : t.seed)];
 			}),
 		);
 		return session;
@@ -271,19 +278,20 @@ export function createMockRgs(opts = {}) {
 					context: {
 						jackpots: progressiveTiers.map((t) => ({
 							name: t.name,
-							value: tidy(session.jackpots[t.name]),
+							value: tidy(session.jackpots[t.key]),
+							...(t.mode ? { mode: t.mode } : {}),
 						})),
 					},
 				}
 			: null;
 	const growPools = (session) => {
 		for (const t of progressiveTiers) {
-			session.jackpots[t.name] = tidy(Math.min(t.cap, session.jackpots[t.name] + t.contribution));
+			session.jackpots[t.key] = tidy(Math.min(t.cap, session.jackpots[t.key] + t.contribution));
 		}
 	};
 	const resetWonPools = (session) => {
 		for (const t of progressiveTiers)
-			if (wonProgressive.has(t.name)) session.jackpots[t.name] = t.seed;
+			if (wonProgressive.has(t.key)) session.jackpots[t.key] = t.seed;
 		wonProgressive.clear();
 	};
 

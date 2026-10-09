@@ -90,6 +90,7 @@ const PROJECTS: Record<string, { token: string; gameType: string }> = {
 	hnw: { token: 'HNW', gameType: 'holdAndWin' },
 	hnwTwo: { token: 'HN2', gameType: 'holdAndWin' },
 	hnwBare: { token: 'HNB', gameType: 'holdAndWin' },
+	hnwLines: { token: 'HNL', gameType: 'lines' },
 	linesCoins: { token: 'LNC', gameType: 'lines' },
 	book: { token: 'BOK', gameType: 'bookOf' },
 	bookPots: { token: 'BKP', gameType: 'bookOf' },
@@ -178,6 +179,7 @@ const LIVE_CONFIG: Record<string, GameConfigDoc> = {
 	hnw: template('holdAndWin.classic'),
 	hnwTwo: withSecondRespinMode(template('holdAndWin.classic')),
 	hnwBare: template('lines'),
+	hnwLines: template('holdAndWin.classic'),
 	linesCoins: withBaseCoins(template('lines')),
 	book: template('lines'),
 	bookPots: withOverlay(template('lines')),
@@ -394,9 +396,14 @@ await check('a second respin mode: per-mode inputs, primary first, each on its s
 });
 
 await check(
-	'the KIND decides the Hold and Win engine — every other kind keeps main’s contract',
+	'the DOC decides the Hold and Win engine (bonus-games Phase 7a), whatever the kind',
 	async () => {
-		// A lines game whose coins land on the base reels: the lines grid with its overlay, as on main.
+		// The Hold and Win template's doc under the LINES kind: the same contract as under its own.
+		const asLines = await answer('project=hnwLines&k=HNL&source=live');
+		const asKind = await answer('project=hnw&k=HNW&source=live');
+		eq(asLines.grid, asKind.grid, 'the kind does not move the contract');
+		// A lines game whose coins land on the base reels beside dropped tokens (bonus-games Phase 2's
+		// flagged case): the lines grid with its overlay, as on main — not re-dealt.
 		const coins = await answer('project=linesCoins&k=LNC&source=live');
 		eq(coins.grid?.holdAndWin, undefined, 'no Hold and Win inputs for a lines-kind game');
 		eq(
@@ -413,11 +420,19 @@ await check(
 			).grid,
 			'exactly the lines derivation',
 		);
-		// A `holdAndWin`-kind project with no block: the board and its bet table, as main's `holdAndWin`
-		// branch gave — none of the lines mock's server-vocabulary fields.
+		// A `holdAndWin`-kind project with no respin rules has nothing for the Hold and Win engine to
+		// deal: the lines derivation, as any lines game (main gave the board alone, by the kind).
 		const bare = await answer('project=hnwBare&k=HNB&source=live');
 		eq(bare.protocol, 'lines', 'protocol');
-		eq(Object.keys(bare.grid ?? {}), ['reels', 'rows', 'paylines', 'betModes'], 'board only');
+		eq(
+			bare.grid,
+			mockContractOfBundle(
+				'lines',
+				{ config: LIVE_CONFIG.hnwBare, symbols: { map: {}, index: {} } },
+				'x',
+			).grid,
+			'the lines derivation',
+		);
 	},
 );
 

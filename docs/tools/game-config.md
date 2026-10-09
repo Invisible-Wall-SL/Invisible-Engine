@@ -233,18 +233,24 @@ strips and symbols. Everything else in the config is kept.
 
 ### Base game
 
-What lands in the base game. A coin landing in the base game shows a value from the coin table of
-the respin mode it starts. The panel shows only when some respin mode configures a special:
+What lands in the base game. The panel shows once the project has a respin mode:
 
 - **Specials in the base game** — one row per special that some respin mode configures:
   **Lands in the base game**, and for the collector and the multiplier, **… + coin in the base game
   pays at once**.
+- **Coin values in the base game** — what a coin landing on the base reels, or a value coin the
+  overlay drops, is worth. Unset, it is the coin table of the respin mode the coins start. **Set the
+  base game's own** starts a table from the first respin mode's: each row is a **cash** value or a
+  **jackpot** coin naming any respin mode's tier, with a **Weight**. **Use the respin mode's table**
+  removes it. The coins keep their value when they start the feature.
 
 ### Triggers
 
 What starts a respin mode — any one of these. Each has a **starts →** picker listing the project's
 respin modes; with none, the panel is greyed out and asks you to add one in **Bonus modes** first.
-(Free spins are started by their scatters, in _Free spins_.)
+(Free spins are started by their scatters, in _Free spins_.) On a game whose coins do not land on
+its base reels, the **Coin count** and a **Pattern** count the value coins the overlay drops; a
+buy, Random metre and Lucky Spin start the mode over the game's own spin.
 
 - **Coin count** — **At least** N symbols of the roles you tick, anywhere on the board.
 - **Pattern** — **+ requirement** adds a row: a reel, **At least** N, and the roles; every
@@ -255,7 +261,9 @@ respin modes; with none, the panel is greyed out and asks you to add one in **Bo
   and a role, **+ guaranteed**).
 - **Random metre** — the server triggers it, dressed as a metre; give it a **Name**.
 - **Lucky Spin** — a server-announced spin that guarantees the trigger.
-- **Meters** — filled by a landing symbol; the server keeps each player's level. **+ meter** adds
+- **Meters** — filled by a landing symbol; the server keeps each player's level. Where the coins
+  do not land on the base reels (the coin overlay's own pots and drops start the bonus), a meter
+  is refused: make it a pot instead. **+ meter** adds
   a row: **Id**, **Filled by** (a symbol; one not tagged `meterSpecial` says so), **Max level**,
   **Size stages**, the special it **Activates**, and the mode it **Starts**.
 

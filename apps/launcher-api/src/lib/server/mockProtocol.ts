@@ -28,7 +28,8 @@ export function protocolFor(gameType: string): MockProtocol {
 	// which is why the project's own paytable (shipped for every model) matters most here.
 	if (gameType === 'scatter') return 'scatter';
 	// `holdAndWin` is a lines game with a classic coin overlay (bonus-games Phase 2): its lines
-	// contract carries its Hold and Win inputs (`projectGrid`, by the kind), and the test server deals
-	// them on the Hold and Win engine. An entry stamped `holdAndWin` before reads as the same deal.
+	// contract carries its Hold and Win inputs (`projectGrid`, decided by the doc since Phase 7a), and
+	// the test server deals them on the Hold and Win engine. An entry stamped `holdAndWin` before
+	// reads as the same deal.
 	return 'lines';
 }

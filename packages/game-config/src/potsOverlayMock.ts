@@ -5,9 +5,9 @@
  */
 
 import { legacyPotsOverlay } from './bonusGames';
-import { holdAndWinIsOverlayBonus } from './holdAndWin';
+import { holdAndWinIsOverlayBonus, respinIsOverlayBonus } from './holdAndWin';
 import { holdAndWinMockInputs, type HoldAndWinMockInputs } from './holdAndWinMock';
-import { builtinGameModes, gameModeById, gameTypeForMode } from './modes';
+import { BASE_GAME_MODE, builtinGameModes, gameModeById, gameTypeForMode } from './modes';
 import { overlayDropModes, type OverlayDrops, type OverlayPot } from './potsOverlay';
 import type { GameConfigDoc } from './types';
 
@@ -31,10 +31,29 @@ export type PotsOverlayMockInputs = {
 	>;
 };
 
-/** The mock's overlay inputs for a normalized doc, or `undefined` when it has no `potsOverlay`. */
+/**
+ * The mock's overlay inputs for a normalized doc, or `undefined` when nothing composes over the host.
+ * That is the `potsOverlay` (something drops), or — with nothing dropping — a respin mode the
+ * overlay starts by a buy, a Lucky Spin or a random metre (`respinIsOverlayBonus`), as
+ * `{ pots: [], drops: { table: [] } }` beside it (bonus-games Phase 7a).
+ */
 export function potsOverlayMockInputs(doc: GameConfigDoc): PotsOverlayMockInputs | undefined {
 	const overlay = legacyPotsOverlay(doc);
-	if (!overlay) return undefined;
+	if (!overlay) {
+		const holdAndWin = respinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
+		const routed =
+			holdAndWin &&
+			[holdAndWin, ...(holdAndWin.modes ?? [])].some(({ block }) =>
+				Boolean(block.trigger.buy?.length || block.trigger.luckySpin || block.trigger.randomMetre),
+			);
+		return routed
+			? {
+					pots: [],
+					drops: { chance: 0, maxPerSpin: 1, table: [], modes: [BASE_GAME_MODE] },
+					holdAndWin,
+				}
+			: undefined;
+	}
 	const holdAndWin = holdAndWinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
 	const builtin = new Set(builtinGameModes().map((m) => m.id));
 	const modes: NonNullable<PotsOverlayMockInputs['modes']> = {};

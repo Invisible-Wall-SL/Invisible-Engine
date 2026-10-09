@@ -30,6 +30,7 @@ import {
 	DEFAULT_FREE_SPINS_TRIGGER_COUNT,
 	freeSpinsAwardsAreDefault,
 	freeSpinsTriggerIsDefault,
+	holdAndWinDealsBaseGame,
 	holdAndWinMockInputs,
 	inPlayScatterSymbol,
 	isScatterSymbol,
@@ -519,7 +520,6 @@ function projectGrid(
 	doc: GameConfigDoc | null,
 	symbolFacts: SymbolFacts,
 	projectKey: string,
-	gameType: string | undefined,
 ): TestServerGameEntry['grid'] {
 	// EVERY protocol that runs on the lines mock needs its grid — that mock's board dimensions are the
 	// grid. `ways` was excluded here on the reasoning that it "needs nothing beyond the board", which
@@ -579,13 +579,13 @@ function projectGrid(
 			};
 		}
 		if (protocol === 'lines' && !paylines.length) return undefined;
-		// A `holdAndWin`-KIND project — a lines game whose coin overlay deals its coins on the base
-		// reels — runs on the Hold and Win engine, which deals from the block and the project's OWN
-		// symbol names: none of the lines mock's server-vocabulary fields below apply. Its base game
-		// pays lines, so it takes the board, the lines and the bet table. No block ⇒ no inputs, and the
-		// test server deals the base game as lines. Decided by the stored kind until bonus-games Phase 7
-		// moves it onto the doc, so every other kind keeps exactly the contract it had.
-		if (protocol === 'lines' && gameType === 'holdAndWin') {
+		// A lines game whose coins land on the base reels with nothing dropping over them (the Hold
+		// and Win template's shape) runs on the Hold and Win engine, which deals from the block and the
+		// project's OWN symbol names: none of the lines mock's server-vocabulary fields below apply. Its
+		// base game pays lines, so it takes the board, the lines and the bet table. Decided by the DOC
+		// (`holdAndWinDealsBaseGame`, bonus-games Phase 7a), whatever the kind; every other doc is its
+		// kind's own mock with the coin overlay composed over it.
+		if (protocol === 'lines' && holdAndWinDealsBaseGame(doc)) {
 			const holdAndWin = holdAndWinMockInputs(doc);
 			const betModes = projectBetModes(doc, projectKey);
 			return {
@@ -697,9 +697,8 @@ function deriveMockContract(
 	doc: GameConfigDoc | null,
 	symbolFacts: SymbolFacts,
 	projectKey: string,
-	gameType: string | undefined,
 ): MockContract {
-	const grid = projectGrid(protocol, doc, symbolFacts, projectKey, gameType);
+	const grid = projectGrid(protocol, doc, symbolFacts, projectKey);
 	const cascade = projectCascade(doc);
 	return {
 		protocol,
@@ -711,14 +710,12 @@ function deriveMockContract(
 /**
  * The contract of one assembled runtime bundle — the config and symbols its client boots. Publish
  * calls this on the bundle it is about to freeze, so the manifest's fallback copy describes the
- * snapshot players are switched to, not whatever the live data says a moment later. `gameType` is
- * the project's stored kind: a `holdAndWin` one is dealt on the Hold and Win engine (`projectGrid`).
+ * snapshot players are switched to, not whatever the live data says a moment later.
  */
 export function mockContractOfBundle(
 	protocol: MockProtocol,
 	bundle: Pick<RuntimeBundle, 'config' | 'symbols'>,
 	projectKey: string,
-	gameType?: string,
 ): MockContract {
 	// Normalized like the live read (`loadGameConfigDoc`) and the client (`getActiveGameConfig`): a
 	// snapshot keeps the stored shape of its day, and a later migration in `normalize.ts` must reach
@@ -728,7 +725,6 @@ export function mockContractOfBundle(
 		bundle.config ? (normalizeGameConfigDoc(bundle.config) ?? null) : null,
 		bundleSymbolFacts(bundle.symbols),
 		projectKey,
-		gameType,
 	);
 }
 
@@ -736,11 +732,10 @@ async function liveMockContract(
 	protocol: MockProtocol,
 	clientKey: string,
 	projectKey: string,
-	gameType: string,
 ): Promise<MockContract> {
 	const doc = await loadGameConfigDoc(clientKey, projectKey).catch(() => null);
 	const symbolFacts = doc ? await liveSymbolFacts(clientKey, projectKey) : NO_SYMBOL_FACTS;
-	return deriveMockContract(protocol, doc, symbolFacts, projectKey, gameType);
+	return deriveMockContract(protocol, doc, symbolFacts, projectKey);
 }
 
 /**
@@ -759,8 +754,7 @@ export async function resolveMockContract(
 	source: MockContractSource,
 ): Promise<ResolvedMockContract> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	const gameType = await projectGameType(projectKey);
-	const protocol = protocolFor(gameType);
+	const protocol = protocolFor(await projectGameType(projectKey));
 	if (source === 'published') {
 		const pointer = await currentPointer(clientKey, projectKey);
 		const bundle = pointer
@@ -768,14 +762,14 @@ export async function resolveMockContract(
 			: null;
 		if (pointer && bundle) {
 			return {
-				...mockContractOfBundle(protocol, bundle, projectKey, gameType),
+				...mockContractOfBundle(protocol, bundle, projectKey),
 				source: 'snapshot',
 				snapshot: pointer.current,
 			};
 		}
 	}
 	return {
-		...(await liveMockContract(protocol, clientKey, projectKey, gameType)),
+		...(await liveMockContract(protocol, clientKey, projectKey)),
 		source: source === 'live' ? 'live' : 'live-fallback',
 	};
 }

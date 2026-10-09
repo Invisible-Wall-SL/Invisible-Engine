@@ -384,15 +384,41 @@ console.log(
 		),
 	};
 	const doc = normalizeGameConfigDoc(routed)!;
+	// Bonus-games Phase 7a: the deal is decided by the doc, and the coin overlay over a lines game
+	// deals a buy, so the route that warned in Phase 6 no longer does.
 	check(
-		'on a lines game the buy to holdAndWin_2 warns; the pot does not',
-		undealtRouteWarnings(doc, 'lines').map((w) => `${w.severity} ${w.path}`),
-		['warning coinOverlay.trigger.buy.0.mode'],
+		'on a lines game neither the buy to holdAndWin_2 nor the pot warns (Phase 7a)',
+		undealtRouteWarnings(doc, 'lines'),
+		[],
 	);
 	check('on the Hold and Win kind nothing warns', undealtRouteWarnings(doc, 'holdAndWin'), []);
 	check(
+		'on a Book-of game, whose mock sells no authored bet mode, only the buy warns',
+		undealtRouteWarnings(doc, 'bookOf').map((w) => `${w.severity} ${w.path}`),
+		['warning coinOverlay.trigger.buy.0.mode'],
+	);
+	const metered = clone(routed);
+	metered.coinOverlay = {
+		...metered.coinOverlay!,
+		meters: [
+			{
+				id: 'gems',
+				symbol: 'BONUS',
+				maxLevel: 10,
+				activates: 'collector',
+				sizeStages: [],
+				mode: 'holdAndWin_2',
+			},
+		],
+	} as typeof metered.coinOverlay;
+	check(
+		'a symbol-filled meter still warns where the overlay deals the game: a landing symbol fills it',
+		undealtRouteWarnings(normalizeGameConfigDoc(metered)!, 'lines').map((w) => w.path),
+		['coinOverlay.meters.0.mode'],
+	);
+	check(
 		'it never blocks a save: no error among the issues',
-		undealtRouteWarnings(doc, 'lines').filter((w) => w.severity === 'error'),
+		undealtRouteWarnings(doc, 'bookOf').filter((w) => w.severity === 'error'),
 		[],
 	);
 	check(

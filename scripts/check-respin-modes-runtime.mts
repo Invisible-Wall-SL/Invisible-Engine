@@ -30,6 +30,13 @@
  *     never parks, nor does Manual on the last autoplay round or under hold-to-spin; a resume
  *     (`convertTorResumableBet`) rebuilds mode 2 with no intro and parks its next respin. `utils.ts`
  *     hands the seam the hold.
+ *  7. PHASE 7a, A LINES HOST DEALS EVERY ROUTE (the deal decided by the doc): a lines game with a
+ *     coin overlay, two respin modes and its free spins — the red pot plays mode 1 (Automatic), a
+ *     buy tier and Lucky Spin play mode 2 (Manual, parked before each respin), the scatters play the
+ *     free spins and no respin mode; each feature speaks its own Win Text; a tier name progressive in
+ *     both modes keeps a pool per mode (the boot levels tagged, the runtime showing the active
+ *     mode's, a tagged level moving one mode's alone); the dropped value coins carry the authored
+ *     base-game values (`coinOverlay.coins`).
  *  5. PARITY: for every game with one respin mode (the three presets, the test fixtures, a 3 Pots
  *     host) the runtime reads exactly what it read from `config.holdAndWin`: the same block object,
  *     the same blank, strip, rows, jackpots, meters and screens.
@@ -68,6 +75,15 @@ import {
 } from '../packages/engine-game/src/game/modeStack.ts';
 import { withPotsOverlay } from './mock-pots-overlay.mjs';
 import { createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
+import {
+	resolveWinTextForMode,
+	type WinTextDoc,
+} from '../packages/engine-layout/src/lib/winText.ts';
+import {
+	applyPools,
+	readBootJackpotLevels,
+	readHoldAndWinModes,
+} from '../packages/rgs-translator-eagaming/src/holdAndWin.ts';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import { register } from 'node:module';
@@ -77,9 +93,11 @@ import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
 
 import {
 	jackpotTier,
+	jackpotTierMode,
 	modeSceneBaseId,
 	modeScreenFor,
 	parksBeforeRespin,
+	poolLevel,
 	respinBoardShape,
 	respinModeOnStack,
 	sameRespinBoard,
@@ -268,17 +286,23 @@ const bodyOf = (req: IncomingMessage): Promise<string> =>
 		req.on('end', () => resolve(text));
 	});
 
-/** The real two-mode mock behind a proxy that puts `force` on the first `play` of a session. */
-const startHost = async (force: string, seed: string) => {
+/** The real two-mode mock behind a proxy that puts `force` on the first `play` of a session (none
+ *  when null). `doc` is the host; `opts` what the test server adds from its contract (bet modes). */
+const startHost = async (
+	force: string | null,
+	seed: string,
+	doc: GameConfigDoc = HOST,
+	opts: Record<string, unknown> = {},
+) => {
 	const mock = withPotsOverlay(
-		(opts: Record<string, unknown> = {}) => createLinesMock({ quiet: true, ...opts }),
-		potsOverlayMockInputs(HOST),
+		(host: Record<string, unknown> = {}) => createLinesMock({ quiet: true, ...opts, ...host }),
+		potsOverlayMockInputs(doc),
 	)({ label: 'runtime-modes', seed, allowForce: true });
 	const upstream = createServer((req, res) =>
 		mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
 	);
 	const upstreamUrl = await listen(upstream);
-	let armed = true;
+	let armed = force !== null;
 	const proxy = createServer(async (req, res) => {
 		const actions = JSON.parse((await bodyOf(req)) || '[]') as {
 			action: string;
@@ -310,9 +334,14 @@ let tabs = 0;
 const openTab = (): Promise<Facade> =>
 	import(`../packages/rgs-translator-eagaming/src/engineFacade.ts?tab=${++tabs}`);
 
-const playRound = async (force: string): Promise<BookEvent[]> => {
-	const host = await startHost(force, `runtime-modes-${force}`);
-	const sid = `runtime-${force}`;
+const playRound = async (
+	force: string | null,
+	doc: GameConfigDoc = HOST,
+	opts: Record<string, unknown> = {},
+	betMode = 'BASE',
+): Promise<BookEvent[]> => {
+	const host = await startHost(force, `runtime-modes-${force}`, doc, opts);
+	const sid = `runtime-${force}-${betMode}`;
 	const events = await hush(async () => {
 		const facade = await openTab();
 		await facade.requestAuthenticate({ sessionID: sid, rgsUrl: host.rgsUrl, language: 'en' });
@@ -320,7 +349,7 @@ const playRound = async (force: string): Promise<BookEvent[]> => {
 			sessionID: sid,
 			currency: 'EUR',
 			amount: 1,
-			mode: 'BASE',
+			mode: betMode,
 			rgsUrl: host.rgsUrl,
 		})) as { round?: { state?: BookEvent[] } };
 		return bet.round?.state ?? [];
@@ -392,7 +421,12 @@ const walk = (
 };
 
 /** Every board event of a feature in `mode` plays on `rules`' board, screens and jackpots. */
-const verifyFeature = (label: string, steps: Step[], mode: RespinModeRules) => {
+const verifyFeature = (
+	label: string,
+	steps: Step[],
+	mode: RespinModeRules,
+	modes: readonly RespinModeRules[] = MODES,
+) => {
 	const board = steps.filter((s) => BOARD_EVENTS.has(s.event.type));
 	check(`${label}: the feature has board events`, board.length > 2, true);
 	check(
@@ -428,14 +462,14 @@ const verifyFeature = (label: string, steps: Step[], mode: RespinModeRules) => {
 	check(
 		`${label}: …every jackpot it wins is one of its own tiers, at its own worth`,
 		wins.every((s) => {
-			const tier = jackpotTier(MODES, s.active, String(s.event.tier));
+			const tier = jackpotTier(modes, s.active, String(s.event.tier));
 			return tier !== undefined && mode.block.jackpots.includes(tier);
 		}),
 		true,
 	);
 	check(
 		`${label}: …each of its tiers reads its own table while it plays`,
-		mode.block.jackpots.map((j) => jackpotTier(MODES, entry?.active, j.name) === j),
+		mode.block.jackpots.map((j) => jackpotTier(modes, entry?.active, j.name) === j),
 		mode.block.jackpots.map(() => true),
 	);
 	check(
@@ -1044,6 +1078,194 @@ if (resumedBet) {
 			[MODE_B, HOST.paddingReels[KEY_B][0][0].name, false, true, true],
 		);
 	}
+}
+
+// ---------- 7. Phase 7a: a LINES host deals every route ----------
+
+/**
+ * Bonus-games Phase 7a: the deal is decided by the doc, so a LINES game whose coin overlay routes to
+ * two respin modes plays each by its route — the red pot starts mode 1 (Automatic), a buy tier and
+ * Lucky Spin start mode 2 (Manual), the scatters start the game's own free spins. Each mode plays by
+ * its own rules, strip, screens and Win Text; a tier name progressive in both keeps a pool per mode;
+ * the base game's coin values (`coinOverlay.coins`) are what drops.
+ */
+const POOL = 'POOL';
+const BUY_MODES = [
+	{ mode: 'base', cost: 1, kind: 'base' },
+	{ mode: 'bonus', cost: 100, kind: 'buy' },
+];
+const routedHost = (): GameConfigDoc => {
+	const raw = structuredClone(HOST) as GameConfigDoc & Record<string, unknown>;
+	delete raw.holdAndWin;
+	delete raw.potsOverlay;
+	raw.betModes = {
+		...raw.betModes,
+		bonus: { cost: 100, feature: false, buyBonus: true, rtp: 0.96, max_win: 5000 },
+	};
+	const overlay = raw.coinOverlay!;
+	overlay.pots = overlay.pots!.map((p) =>
+		p.id === 'green' ? { ...p, bonus: { mode: MODE_A } } : p,
+	);
+	overlay.trigger = {
+		...overlay.trigger,
+		buy: [{ betMode: 'bonus', mode: MODE_B, guaranteed: [], boostedSpecials: false }],
+		luckySpin: { mode: MODE_B },
+	};
+	overlay.coins = [{ kind: 'cash', value: 7, weight: 1 }];
+	raw.modes = raw.modes?.map((m) => {
+		if (!m.holdAndWin) return m;
+		const seed = m.id === MODE_A ? 500 : 900;
+		const pool = {
+			name: POOL,
+			multiplier: seed,
+			fixed: false,
+			progressive: { seed, contribution: 0 },
+		};
+		return {
+			...m,
+			holdAndWin: {
+				...m.holdAndWin,
+				jackpots: [...m.holdAndWin.jackpots, pool],
+				...(m.id === MODE_B ? { play: 'manual' as const } : {}),
+			},
+		};
+	});
+	return normalized(raw);
+};
+const ROUTED = routedHost();
+const ROUTED_MODES = respinModeRules(ROUTED);
+const [RA, RB] = ROUTED_MODES;
+const routedOpts = { betModes: BUY_MODES };
+
+check(
+	'7a host: a lines game, two respin modes (Automatic, Manual), its free spins on',
+	[ROUTED_MODES.map((m) => [m.mode, m.play]), Boolean(ROUTED.freeSpins?.enabled !== false)],
+	[
+		[
+			[MODE_A, 'auto'],
+			[MODE_B, 'manual'],
+		],
+		true,
+	],
+);
+
+const routedWalk = (events: BookEvent[]) => walk(events, emptyModeStack(), ROUTED_MODES);
+const respinRuns = (steps: Step[]) => [
+	...new Set(steps.filter((s) => BOARD_EVENTS.has(s.event.type)).map((s) => s.active?.mode)),
+];
+
+const potA = routedWalk(await playRound('force:pot:red', ROUTED, routedOpts));
+verifyFeature('7a red pot', potA, RA, ROUTED_MODES);
+check(
+	'7a red pot: mode 1 alone plays, and never parks (Automatic)',
+	[respinRuns(potA), parks(potA, false)],
+	[[MODE_A], []],
+);
+
+const bought = routedWalk(await playRound(null, ROUTED, routedOpts, 'BONUS'));
+verifyFeature('7a buy', bought, RB, ROUTED_MODES);
+check(
+	'7a buy: the bought round plays mode 2 alone, and no free spins',
+	[
+		respinRuns(bought),
+		bought.some((s) => modeOpOf(s.event)?.id === 'freeSpins'),
+		bought.find((s) => s.event.type === 'holdAndWinTrigger')?.event.cause,
+	],
+	[[MODE_B], false, 'buy'],
+);
+check(
+	'7a buy: Manual parks before every respin of mode 2, never under autoplay',
+	[parks(bought, false), parks(bought, true)],
+	[respinsOf(bought, MODE_B), []],
+);
+
+const lucky = routedWalk(await playRound('force:trigger:luckySpin', ROUTED, routedOpts));
+verifyFeature('7a Lucky Spin', lucky, RB, ROUTED_MODES);
+check(
+	'7a Lucky Spin: announced, then mode 2 plays',
+	[lucky.some((s) => s.event.type === 'luckySpin'), respinRuns(lucky)],
+	[true, [MODE_B]],
+);
+
+const scatters = routedWalk(await playRound('force:feature', ROUTED, routedOpts));
+check(
+	'7a scatters: the free spins play, and no respin mode',
+	[scatters.some((s) => modeOpOf(s.event)?.id === 'freeSpins'), respinRuns(scatters)],
+	[true, []],
+);
+
+// Win Text: the active mode's lines (`bakedWinTextFor`: the primary speaks the top level).
+{
+	const winText: WinTextDoc = {
+		version: 1,
+		feature: { intro: 'mode 1 intro' },
+		modes: { [MODE_B]: { feature: { intro: 'mode 2 intro' } } },
+	};
+	const introOf = (steps: Step[]) => {
+		const active = steps.find((s) => s.event.type === 'holdAndWinTrigger')?.active;
+		return resolveWinTextForMode(winText, active === RA ? undefined : active?.mode).feature.intro;
+	};
+	check(
+		'7a Win Text: each feature speaks its own mode’s lines',
+		[introOf(potA), introOf(bought)],
+		['mode 1 intro', 'mode 2 intro'],
+	);
+}
+
+// Pools and base-game coins, straight off the mock.
+{
+	const host = await startHost(null, 'runtime-modes-7a-pools', ROUTED, routedOpts);
+	const post = async (seq: number, body: unknown, gid?: string) =>
+		(await (
+			await fetch(
+				`http://${host.rgsUrl}/rgs/engine?sid=pools&seq=${seq}${gid ? `&gid=${gid}` : ''}`,
+				{
+					method: 'POST',
+					body: JSON.stringify(body),
+				},
+			)
+		).json()) as { events: { event: string; context?: Record<string, unknown> }[] };
+	const boot = (await post(0, [{ action: 'config' }])).events.find(
+		(e) => e.event === 'config',
+	)?.context;
+	const levels = readBootJackpotLevels(boot);
+	const pools = levels.filter((l) => l.name === POOL);
+	check(
+		'7a pools: a tier name progressive in both modes keeps a pool per mode, each tagged',
+		pools.map((l) => [l.mode, l.value]),
+		[
+			[MODE_A, 500],
+			[MODE_B, 900],
+		],
+	);
+	check(
+		'7a pools: the runtime shows the active mode’s pool',
+		[RA, RB].map(
+			(m) => poolLevel(levels, POOL, jackpotTierMode(ROUTED_MODES, m, POOL)?.mode)?.value,
+		),
+		[500, 900],
+	);
+	const respin = readHoldAndWinModes(boot);
+	if (respin) applyPools(respin, [{ name: POOL, value: 950, mode: MODE_B }]);
+	check(
+		'7a pools: a level tagged with mode 2 moves mode 2’s pool alone',
+		[MODE_A, MODE_B].map(
+			(id) => respin?.modes.get(id)?.jackpots.find((j) => j.name === POOL)?.value,
+		),
+		[500, 950],
+	);
+	const dropped = (
+		await post(0, [
+			{ action: 'bet', context: [0, 1] },
+			{ action: 'play', context: 'force:overlay:coins:6' },
+		])
+	).events.find((e) => e.event === 'overlayDrop')?.context?.cells as { value?: number }[];
+	check(
+		'7a base-game coins: every dropped value coin is worth the authored base-game value',
+		[dropped?.length, [...new Set(dropped?.map((c) => c.value))]],
+		[6, [7]],
+	);
+	await host.stop();
 }
 
 realLog(`\n${passes} runtime respin-mode checks passed, ${failures} failed.`);
