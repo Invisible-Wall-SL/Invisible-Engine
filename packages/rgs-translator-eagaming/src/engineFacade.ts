@@ -506,14 +506,23 @@ const isKnownSymbol = (sid: string, name: string): boolean => {
 	return false;
 };
 
-/** Clamp a reveal board to the captured grid dimensions. Out-of-grid cells are
- *  dropped with a one-time log. Returns the (possibly trimmed) board. */
-const clampBoardToGrid = (sid: string, board: string[][], tallestRows?: number): string[][] => {
+/** Clamp a reveal board to the captured grid dimensions — or, in a spins bonus mode, to the grid
+ *  its boot entry declares (`modeWindow`). Out-of-grid cells are dropped with a one-time log.
+ *  Returns the (possibly trimmed) board. */
+const clampBoardToGrid = (
+	sid: string,
+	board: string[][],
+	tallestRows?: number,
+	modeWindow?: { reels: number; rows: number[] },
+): string[][] => {
 	const cfg = capturedConfig.get(sid);
-	if (!cfg?.window) return board;
-	const { reels, rowsPerReel } = cfg.window;
+	const grid = modeWindow
+		? { reels: modeWindow.reels, rows: Math.max(...modeWindow.rows), rowsPerReel: modeWindow.rows }
+		: cfg?.window;
+	if (!grid) return board;
+	const { reels, rowsPerReel } = grid;
 	// An expanding respin board grows past the base grid, up to its declared `maxRows`.
-	const rows = Math.max(cfg.window.rows, tallestRows ?? 0);
+	const rows = Math.max(grid.rows, tallestRows ?? 0);
 	let trimmed = false;
 	// A STEPPED board is clamped per COLUMN. Clamping it to the bounding box would let a reel dealt
 	// full height survive into a short column, where the client would seat rows the server never
@@ -1044,7 +1053,14 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			}
 			case 'playedSpin': {
 				const raw = (e.context as string[][]) ?? [];
-				const reels = clampBoardToGrid(sid, raw, inHoldAndWin?.hw.expansion?.maxRows).map((reel) =>
+				const modeWindow =
+					inFreeSpins() && freeSpinsMode ? overlay?.modes[freeSpinsMode]?.window : undefined;
+				const reels = clampBoardToGrid(
+					sid,
+					raw,
+					inHoldAndWin?.hw.expansion?.maxRows,
+					modeWindow,
+				).map((reel) =>
 					reel.map((cell) => {
 						// The WHITELIST check reads the base name, so a `MULT:5` cell is judged as `MULT`
 						// — otherwise every distinct value would warn as its own unknown symbol.

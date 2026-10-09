@@ -4,12 +4,25 @@
  * protocol gate, so the gate proves the rounds the test server actually deals.
  */
 
-import { legacyPotsOverlay } from './bonusGames';
-import { holdAndWinIsOverlayBonus, respinIsOverlayBonus } from './holdAndWin';
+import { bonusSplitOf, legacyPotsOverlay } from './bonusGames';
+import { triggerHalfFor } from './coinOverlay';
+import {
+	holdAndWinIsOverlayBonus,
+	respinIsOverlayBonus,
+	type HoldAndWinTrigger,
+} from './holdAndWin';
 import { holdAndWinMockInputs, type HoldAndWinMockInputs } from './holdAndWinMock';
-import { BASE_GAME_MODE, builtinGameModes, gameModeById, gameTypeForMode } from './modes';
+import {
+	BASE_GAME_MODE,
+	builtinGameModes,
+	gameModeById,
+	gameTypeForMode,
+	resolveGameModes,
+	type GameModeDecl,
+} from './modes';
+import { spinsGameView } from './spinsGame';
 import { overlayDropModes, type OverlayDrops, type OverlayPot } from './potsOverlay';
-import type { GameConfigDoc } from './types';
+import type { GameConfigDoc, WinModel } from './types';
 
 export type PotsOverlayMockInputs = {
 	pots: OverlayPot[];
@@ -25,25 +38,101 @@ export type PotsOverlayMockInputs = {
 	 * one, so every overlay before imports existed is dealt exactly as before. Names are the
 	 * project's; the launcher's contract puts them in the server's vocabulary.
 	 */
-	modes?: Record<
-		string,
-		{ gameType: string; strips: string[][]; paytable: Record<string, Record<string, number>> }
-	>;
+	modes?: Record<string, ReelsModeMockInput>;
+};
+
+/** What the mock deals a REELS mode of the project's own from. */
+export type ReelsModeMockInput = {
+	gameType: string;
+	strips: string[][];
+	paytable: Record<string, Record<string, number>>;
+	/** A spins mode only: what else starts it — the overlay's buy tiers (keyed by bet mode), Lucky
+	 *  Spin and random metre, in the legacy trigger shape. Absent when only pots start it. */
+	trigger?: Pick<HoldAndWinTrigger, 'buy' | 'luckySpin' | 'randomMetre'>;
+	/** A spins mode only (`./spinsGame`): the game its spins are dealt and paid on. */
+	game?: {
+		spins: number;
+		winModel: WinModel;
+		reels: number;
+		rows: number[];
+		paylines: number[][];
+	};
 };
 
 /**
+ * One reels mode's mock input — its strips, the line pays of the symbols on them (a spins mode's own
+ * pays over the dictionary's), and a spins mode's game — or `undefined` when it has no strips to deal.
+ */
+export function reelsModeMockInput(
+	doc: GameConfigDoc,
+	mode: GameModeDecl,
+	{ sellsBetModes = true }: { sellsBetModes?: boolean } = {},
+): ReelsModeMockInput | undefined {
+	const gameType = gameTypeForMode(mode);
+	const strips = (doc.paddingReels[gameType] ?? []).map((strip) => strip.map((c) => c.name));
+	if (!strips.length) return undefined;
+	const view = mode.spins ? spinsGameView(doc, mode.spins) : undefined;
+	const symbols = view?.symbols ?? doc.symbols;
+	const paytable: Record<string, Record<string, number>> = {};
+	for (const name of new Set(strips.flat())) {
+		const symbol = symbols[name];
+		const special = symbol?.special_properties ?? [];
+		// A scatter's or wild's pay is not a line pay: the mock pays them its own way.
+		if (!symbol?.paytable?.length || special.includes('scatter') || special.includes('wild')) {
+			continue;
+		}
+		paytable[name] = Object.assign({}, ...symbol.paytable);
+	}
+	if (!view) return { gameType, strips, paytable };
+	const trigger = spinsTrigger(doc, mode.id, sellsBetModes);
+	return {
+		gameType,
+		strips,
+		paytable,
+		...(trigger ? { trigger } : {}),
+		game: {
+			spins: view.spins,
+			winModel: view.winModel,
+			reels: view.numReels,
+			rows: view.numRows,
+			paylines: view.winModel.type === 'lines' ? Object.values(view.paylines) : [],
+		},
+	};
+}
+
+/** The overlay's routes to a spins mode that the mock deals besides a pot: buy, Lucky Spin, random
+ *  metre. `undefined` when there are none. */
+function spinsTrigger(
+	doc: GameConfigDoc,
+	modeId: string,
+	sellsBetModes = true,
+): ReelsModeMockInput['trigger'] | undefined {
+	const { buy, luckySpin, randomMetre } = triggerHalfFor(
+		bonusSplitOf(doc).coinOverlay,
+		modeId,
+	).trigger;
+	const trigger = {
+		...(buy && sellsBetModes ? { buy } : {}),
+		...(luckySpin ? { luckySpin } : {}),
+		...(randomMetre ? { randomMetre } : {}),
+	};
+	return Object.keys(trigger).length ? trigger : undefined;
+}
+
+/**
  * The mock's overlay inputs for a normalized doc, or `undefined` when nothing composes over the host.
- * That is the `potsOverlay` (something drops), or — with nothing dropping — a respin mode the
- * overlay starts by a buy, a Lucky Spin or a random metre (`respinIsOverlayBonus`), as
- * `{ pots: [], drops: { table: [] } }` beside it (bonus-games Phase 7a).
+ * That is the `potsOverlay` (something drops), or — with nothing dropping — a mode the overlay starts
+ * by a buy, a Lucky Spin or a random metre: a respin mode (`respinIsOverlayBonus`) or a spins mode
+ * (`./spinsGame`), as `{ pots: [], drops: { table: [] } }` beside it (bonus-games Phases 7a, 8a). A
+ * buy counts only where the host mock sells the doc's bet modes (`sellsBetModes`; not the book mock).
  */
 export function potsOverlayMockInputs(
 	doc: GameConfigDoc,
 	{ sellsBetModes = true }: { sellsBetModes?: boolean } = {},
 ): PotsOverlayMockInputs | undefined {
 	const overlay = legacyPotsOverlay(doc);
+	const modes = reelsModeInputs(doc, overlay?.pots ?? [], sellsBetModes);
 	if (!overlay) {
-		// A route the host mock deals: a buy only where it sells the doc's bet modes (not the book mock).
 		const holdAndWin = respinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
 		const routed =
 			holdAndWin &&
@@ -54,39 +143,44 @@ export function potsOverlayMockInputs(
 					block.trigger.randomMetre,
 				),
 			);
-		return routed
+		return routed || modes
 			? {
 					pots: [],
 					drops: { chance: 0, maxPerSpin: 1, table: [], modes: [BASE_GAME_MODE] },
-					holdAndWin,
+					...(routed ? { holdAndWin } : {}),
+					...(modes ? { modes } : {}),
 				}
 			: undefined;
 	}
 	const holdAndWin = holdAndWinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
-	const builtin = new Set(builtinGameModes().map((m) => m.id));
-	const modes: NonNullable<PotsOverlayMockInputs['modes']> = {};
-	for (const pot of overlay.pots) {
-		const mode = gameModeById(doc, pot.bonus.mode);
-		if (!mode || builtin.has(mode.id) || mode.board !== 'reels') continue;
-		const gameType = gameTypeForMode(mode);
-		const strips = (doc.paddingReels[gameType] ?? []).map((strip) => strip.map((c) => c.name));
-		if (!strips.length) continue;
-		const paytable: Record<string, Record<string, number>> = {};
-		for (const name of new Set(strips.flat())) {
-			const symbol = doc.symbols[name];
-			const special = symbol?.special_properties ?? [];
-			// A scatter's or wild's pay is not a line pay: the mock pays them its own way.
-			if (!symbol?.paytable?.length || special.includes('scatter') || special.includes('wild')) {
-				continue;
-			}
-			paytable[name] = Object.assign({}, ...symbol.paytable);
-		}
-		modes[mode.id] = { gameType, strips, paytable };
-	}
 	return {
 		pots: overlay.pots,
 		drops: { ...overlay.drops, modes: overlayDropModes(overlay.drops) },
 		...(holdAndWin ? { holdAndWin } : {}),
-		...(Object.keys(modes).length ? { modes } : {}),
+		...(modes ? { modes } : {}),
 	};
+}
+
+/** The reels modes of the project's own the overlay starts: those a pot starts, then the spins modes
+ *  a buy, a Lucky Spin or a random metre starts. `undefined` when there are none. */
+function reelsModeInputs(
+	doc: GameConfigDoc,
+	pots: OverlayPot[],
+	sellsBetModes: boolean,
+): PotsOverlayMockInputs['modes'] | undefined {
+	const builtin = new Set(builtinGameModes().map((m) => m.id));
+	const modes: NonNullable<PotsOverlayMockInputs['modes']> = {};
+	const started = [
+		...pots.map((pot) => pot.bonus.mode),
+		...resolveGameModes(doc)
+			.filter((mode) => mode.spins && spinsTrigger(doc, mode.id, sellsBetModes))
+			.map((mode) => mode.id),
+	];
+	for (const id of started) {
+		const mode = gameModeById(doc, id);
+		if (!mode || builtin.has(mode.id) || mode.board !== 'reels' || modes[mode.id]) continue;
+		const input = reelsModeMockInput(doc, mode, { sellsBetModes });
+		if (input) modes[mode.id] = input;
+	}
+	return Object.keys(modes).length ? modes : undefined;
 }

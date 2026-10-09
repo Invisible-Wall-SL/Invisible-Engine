@@ -41,9 +41,9 @@ starts the phase sessions, reviews their PRs and merges them.
 | 5d | Win Text + Localization per mode | merged | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
 | 6 | Game Maker: template + Add a bonus mode… | merged | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
 | 6b | Plain Hold and Win template (no pots, jackpots optional) | in review | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
-| 7a | Mock composition: overlay over any base, every route plays, per-mode pools | in review | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
+| 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 7a) | — | — |
-| 8 | Overlay bonus of any game type (N spins of lines/scatter/ways/cluster) | not started (needs 7a) | — | — |
+| 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | in review | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
 | 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b, 8) | — | — |
 
 ## Decisions & findings
@@ -571,6 +571,72 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
+- 2026-10-09 — **Phase 8a: a spins bonus mode of any game type** (PR #1151; `game-config`
+  `spinsGame.ts`, `potsOverlayMock.ts`; `scripts/mock-rgs-server.mjs`, `mock-pots-overlay.mjs`;
+  facade `engineFacade.ts`, `potsOverlay.ts`; `engine-game` `gameConfig.ts`, `modeController`;
+  `apps/lines` `stateModes.svelte.ts`).
+  - **What landed:**
+    - **Contract.** A `reels` mode of the project's own may carry `spins: { spins, winModel?,
+      numReels?, numRows?, paylines?, paytable? }`: N spins of that game. Anything it leaves out is
+      the host's (`spinsGameView`), so an imported free spins is a reels mode without `spins`, as
+      before. Its strips stay `paddingReels[gameType]`, its symbols the one dictionary. Normalize
+      stores it sparse; validation measures its strips against its own grid and asks that its game
+      can pay (the doc's own checks now share `winModelIssues`, same messages, same order).
+    - **Routes.** A pot, a buy, a Lucky Spin or a random metre may start a spins game; the coin
+      count, a pattern and a meter count coins, so they start only a respin game (their own error;
+      every existing message is unchanged).
+    - **Mock.** `reelsModeMockInput` gives a spins mode its `game` and, for a buy / Lucky Spin /
+      random metre, its `trigger` in the legacy shape, which 7a's `startBonus` dispatches. The lines
+      mock's `startFreeSpins({ game })` deals exactly `game.spins` spins on the mode's grid from its
+      strips, paid by its own model at its own prices, with no retrigger, then returns.
+    - **Wire.** The free-spins events, unchanged, with `mode`. One addition:
+      `potsOverlay.modes[<id>].window` (`reels`, per-reel `rows`) when the mode has a game of its own;
+      the facade clamps that mode's reveals to it (`docs/reference/hold-and-win-wire.md`).
+    - **Runtime.** While a spins mode is on top, `activeGrid` / `boardDimensions` / `activeWinModel` /
+      `getPaylines` / `getNumLines` / `paylineColor` / `initialBoard` answer for its game. The mode is
+      read through a reactive reader the mode stack binds (`bindActiveMode`); a doc with no spins mode
+      never reads it. `createModeController` gained `onStack`, on which `syncSpinsBoard` rebuilds the
+      board when the spins game on screen changes: entry, exit, a round's reset and a resume's
+      restore — never mid-spin.
+  - **Gates:** `check:spins-modes` (real mock, facade, compiled mode controller and the shipped
+    `syncSpinsBoard`): blue pot → WAYS 6×4 plays 5 spins paid by ways only; buy → CLUSTER 7×7 plays
+    4 spins paid by clusters at its own price; the host's own free spins stay 5×3, lines, `freegame`;
+    the board is rebuilt exactly on entry and exit, once on a resume mid-mode; every committed
+    default answers the grid / board / model / payline / divisor / colour / initial-board accessors
+    identically with the stack bound and unbound, with no rebuild. `spinsGame.fixture.ts` pins
+    parity and the contract. `check:holdandwin`, `check:pots-overlay`, `check:freespins`,
+    `check:respin-modes`, `check:bonus-modes`, `check:resume`, `check:lines-parity` pass.
+  - **Hub review round** (#1151 @ 2c299a7):
+    - A spins game plays only on a host that deals it: the lines mock says so (`host.spinsGames`) and
+      the overlay advertises a `window` only then; `/config` refuses a spins mode on a Book-of or Hold
+      and Win game (`spinsModeKindIssues`, beside `undealtRouteWarnings`).
+    - Validation: an own-grid spins mode may not share another mode's strip key; its strips are
+      measured once; a spins mode may not be a dropping mode; a pot's `spins` on one is warned
+      (it plays its own count).
+    - The contract leaves no empty overlay when a clashing mode was all that composed it.
+    - `check:spins-modes` now builds the board with the engine's real `createGameState` and its
+      `rebuildBoard` (in place, the array the spinning board closes over); `check:spins-modes-contract`
+      plays a bought CLUSTER round and a random-metre LINES round (its own paylines) through the
+      launcher's contract and the test server's `validGrid` + `makeMock`.
+    - Still owed: a live playtest of the board swap in a browser (7c).
+  - **For 8b:**
+    - `/config`'s strip-width readout (`+page.svelte`, `gameTypes.some(… !== doc.numReels)`) measures
+      every game type against the base grid; a spins mode on its own grid must be measured against
+      its own.
+    - `/config`: a Bonus modes entry for a spins mode — its game type, grid, paylines, own pays, spin
+      count and strips (`paddingReels[<gameType>]` on its own grid), and the route pickers offering a
+      spins mode to pots, buys, Lucky Spin and random metre only.
+    - Scene Editor: `<ref>-<modeId>` screens for a spins mode (free-spin intro / outro / counter
+      seeded per mode), and a board layout for its grid (the reel grid node sizes from
+      `boardDimensions`, which already follows the mode).
+    - Flow v2: the reels vocabulary on a spins mode's tab (it plays as free spins in that mode:
+      `freeSpinTrigger.mode`, `freeSpinEnd.mode`).
+    - Win Text: a spins mode's lines (`modes[<id>]`), and its own win tiers if wanted.
+    - `/symbols`: per-mode symbol bindings for the symbols only it deals.
+    - Game Maker "Add a bonus mode…" from any project's BASE game: copy its `winModel`, grid,
+      paylines and pays explicitly into `spins` (so an imported mode is self-contained), its strips
+      to a new game type, its symbols `_2`-renamed, and `importableFeatures` offering the base game.
+    - The info page / paytable for a spins mode (today it shows the base game's).
 - 2026-10-09 — **Phase 7a: the overlay over any base, every route plays, per-mode pools** (PR #1152).
   Touched: game-config, the four mocks, the test server, the launcher contract, the facade,
   `apps/lines` pools, `/config` base coins, the Game Maker dialog text, and the guides

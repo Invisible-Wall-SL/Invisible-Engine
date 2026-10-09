@@ -227,7 +227,7 @@
 		}
 	},
 	"apps/lines": {
-		"errors": 164,
+		"errors": 163,
 		"byFile": {
 			"apps/lines/src/components/FlowV2Cinematics.svelte": {
 				"ts:2339": 2
@@ -426,8 +426,7 @@
 				"ts:7016": 1
 			},
 			"packages/engine-game/src/game/gameConfig.ts": {
-				"ts:2339": 1,
-				"ts:2345": 1
+				"ts:2339": 1
 			},
 			"packages/engine-game/src/game/gameState.svelte.ts": {
 				"ts:2345": 1
@@ -1076,7 +1075,7 @@
 		}
 	},
 	"packages/engine-game": {
-		"errors": 37,
+		"errors": 36,
 		"byFile": {
 			"packages/engine-game/fixtures/pressAfterArm.fixture.ts": {
 				"ts:2307": 3
@@ -1110,8 +1109,7 @@
 				"ts:2307": 1
 			},
 			"packages/engine-game/src/game/gameConfig.ts": {
-				"ts:2339": 1,
-				"ts:2345": 1
+				"ts:2339": 1
 			},
 			"packages/engine-game/src/game/gameState.svelte.ts": {
 				"ts:2345": 1

@@ -32,6 +32,8 @@ export const {
 	getNumRows,
 	boardDimensions,
 	activeGrid,
+	activeSpinsGame,
+	bindActiveMode,
 	boardSizes,
 	initialBoard,
 	activeWinLevels,

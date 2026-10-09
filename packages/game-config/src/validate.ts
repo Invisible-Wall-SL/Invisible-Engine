@@ -16,7 +16,8 @@
  */
 
 import { validateHoldAndWin } from './holdAndWin';
-import { validateGameModes } from './modes';
+import { gameTypeForMode, resolveGameModes, validateGameModes } from './modes';
+import { winModelIssues } from './spinsGame';
 import { validateBonusModes } from './bonusGames';
 import { validateBonusImports } from './bonusImports';
 import { validateExpandingSymbol } from './expandingSymbol';
@@ -56,7 +57,14 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		issues.push({ severity: 'error', path: 'numReels', message: 'Grid has no reels.' });
 	}
 
+	// A spins mode on a grid of its own checks its strips against that grid (`./spinsGame`).
+	const ownGridTypes = new Set(
+		resolveGameModes(doc)
+			.filter((mode) => mode.spins?.numReels !== undefined)
+			.map(gameTypeForMode),
+	);
 	for (const [gameType, strips] of Object.entries(doc.paddingReels)) {
+		if (ownGridTypes.has(gameType)) continue;
 		if (strips.length !== doc.numReels) {
 			issues.push({
 				severity: 'error',
@@ -81,56 +89,9 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
-	const winModel = resolveWinModel(doc);
-
 	// Non-`lines` win models are not decided by paylines, so a leftover payline table is inert
-	// rather than wrong — the checks below would report errors about a field the game never reads.
-	// Each other arm gets the bounds check that IS meaningful for it.
-	if (winModel.type !== 'lines') {
-		const cells = doc.numRows.reduce((sum, rows) => sum + rows, 0);
-		if (winModel.type === 'ways' && winModel.minKind > doc.numReels) {
-			issues.push({
-				severity: 'error',
-				path: 'winModel.minKind',
-				message: `Ways wins need ${winModel.minKind} adjacent reels but the grid is only ${doc.numReels} wide, so nothing can ever pay.`,
-			});
-		}
-		if (winModel.type === 'cluster' && winModel.minCluster > cells) {
-			issues.push({
-				severity: 'error',
-				path: 'winModel.minCluster',
-				message: `A cluster needs ${winModel.minCluster} cells but the grid only has ${cells}, so nothing can ever pay.`,
-			});
-		}
-		if (winModel.type === 'scatter' && winModel.minCount > cells) {
-			issues.push({
-				severity: 'error',
-				path: 'winModel.minCount',
-				message: `A scatter win needs ${winModel.minCount} symbols but the grid only has ${cells} cells, so nothing can ever pay.`,
-			});
-		}
-	}
-
-	for (const [id, rows] of winModel.type === 'lines' ? Object.entries(doc.paylines) : []) {
-		if (rows.length !== doc.numReels) {
-			issues.push({
-				severity: 'error',
-				path: `paylines.${id}`,
-				message: `Payline ${id} covers ${rows.length} reels but the grid is ${doc.numReels} wide.`,
-			});
-			continue;
-		}
-		rows.forEach((row, reel) => {
-			const height = doc.numRows[reel] ?? 0;
-			if (row >= height) {
-				issues.push({
-					severity: 'error',
-					path: `paylines.${id}`,
-					message: `Payline ${id} points at row ${row + 1} on reel ${reel + 1}, which has ${height} rows.`,
-				});
-			}
-		});
-	}
+	// rather than wrong; each other arm gets the bounds check that IS meaningful for it.
+	issues.push(...winModelIssues({ ...doc, winModel: resolveWinModel(doc) }));
 
 	// Reel behaviour — every one of these describes a config that SAVES and RENDERS but silently
 	// does nothing, which is the class of problem this validator exists to say out loud.

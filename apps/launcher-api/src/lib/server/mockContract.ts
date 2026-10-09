@@ -303,7 +303,9 @@ function inServerNames(
 		}),
 	);
 	const { modes: _modes, ...rest } = inputs;
-	return Object.keys(modes).length ? { ...rest, modes } : rest;
+	if (Object.keys(modes).length) return { ...rest, modes };
+	// A mode that was all that composed the overlay (nothing drops, no respin mode): nothing is left.
+	return rest.pots.length || rest.drops.table.length || rest.holdAndWin ? rest : undefined;
 }
 
 const warned = new Set<string>();

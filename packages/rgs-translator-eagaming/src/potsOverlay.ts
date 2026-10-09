@@ -24,9 +24,24 @@ export type PotsOverlayWireConfig = {
 	 * The REELS modes of the project's own a bonus may enter — free spins imported from another
 	 * project (design §5 A) — by mode id, with the game type each plays on. Such a bonus plays as
 	 * free spins IN that mode (`freeSpinTrigger.mode`), on that game type. Empty when the boot block
-	 * carries none: every reels bonus is the host's own free spins, as before.
+	 * carries none: every reels bonus is the host's own free spins, as before. A SPINS mode (a game of
+	 * its own, `game-config` `spinsGame.ts`) also carries the `window` its boards are dealt on.
 	 */
-	modes: Record<string, { gameType: string }>;
+	modes: Record<string, ReelsModeWire>;
+};
+
+/** One reels mode of the boot block: its game type, and a spins mode's grid. */
+export type ReelsModeWire = { gameType: string; window?: { reels: number; rows: number[] } };
+
+const isWindow = (v: unknown): v is { reels: number; rows: number[] } => {
+	const w = v as { reels?: unknown; rows?: unknown } | null;
+	return (
+		isFiniteNumber(w?.reels) &&
+		w.reels > 0 &&
+		Array.isArray(w.rows) &&
+		w.rows.length === w.reels &&
+		w.rows.every((r) => isFiniteNumber(r) && r > 0)
+	);
 };
 
 const isText = (v: unknown): v is string => typeof v === 'string' && v !== '';
@@ -63,12 +78,15 @@ export const readPotsOverlayConfig = (cfg: unknown): PotsOverlayWireConfig | nul
 	if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
 		for (const [key, mode] of Object.entries(raw)) if (isText(mode)) bonuses[key] = mode;
 	}
-	const modes: Record<string, { gameType: string }> = {};
+	const modes: Record<string, ReelsModeWire> = {};
 	const rawModes = block.modes;
 	if (rawModes && typeof rawModes === 'object' && !Array.isArray(rawModes)) {
 		for (const [id, mode] of Object.entries(rawModes)) {
-			const gameType = (mode as { gameType?: unknown } | null)?.gameType;
-			if (isText(id) && isText(gameType)) modes[id] = { gameType };
+			const { gameType, window } = (mode ?? {}) as { gameType?: unknown; window?: unknown };
+			if (!isText(id) || !isText(gameType)) continue;
+			modes[id] = isWindow(window)
+				? { gameType, window: { reels: window.reels, rows: [...window.rows] } }
+				: { gameType };
 		}
 	}
 	return { wire: POTS_OVERLAY_WIRE, pots, bonuses, modes };

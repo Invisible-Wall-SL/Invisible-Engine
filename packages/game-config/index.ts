@@ -25,6 +25,7 @@ export * from './src/addOns';
 export * from './src/bonusImports';
 export * from './src/imports';
 export * from './src/modes';
+export * from './src/spinsGame';
 export * from './src/reelBehaviour';
 export * from './src/sounds';
 export * from './src/grid';
