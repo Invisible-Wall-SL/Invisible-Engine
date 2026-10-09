@@ -20,6 +20,8 @@
  *     `stateModes.svelte.ts`: at every reveal the board is the mode's grid, model and paylines; the
  *     real `rebuildBoard` rebuilds it, in place, exactly on entering and on leaving the spins mode; a
  *     resume mid-mode rebuilds it once for the mode, with no intro.
+ *  5b. The lines `Board.svelte` hooks every reel a rebuild splices in for ready-to-spin, so the
+ *     first pre-spun round after a spins mode settles rather than rolling forever.
  *  6. PARITY. For every committed default the grid / board / win-model / payline / divisor accessors
  *     answer the same with the mode stack bound and on every built-in mode as unbound, and the board
  *     is never rebuilt.
@@ -46,9 +48,11 @@ import { createGameConfig } from '../packages/engine-game/src/game/gameConfig.ts
 import { withPotsOverlay } from './mock-pots-overlay.mjs';
 import { createMockRgs as createLinesMock } from './mock-rgs-server.mjs';
 import { createMockRgs as createBookMock } from './mock-rgs-server-book.mjs';
-import { readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server } from 'node:http';
-import { register } from 'node:module';
+import { createRequire, register } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { compileSlice, stripSliceTypes } from './lib/compile-slice.mjs';
@@ -598,6 +602,106 @@ const walk = async (book: BookEvent[], runtime: ReturnType<typeof runtimeFor>) =
 		runtime.config.initialBoard().map((reel) => reel.length),
 		[6, 6, 6, 6, 6, 6],
 	);
+}
+
+// ---------- 5b. the reels a rebuild splices in are told when they can spin ----------
+
+// `Board.svelte` installs every reel's ready-to-spin hook (`enhancedBoard.readyToSpinEffect`), which
+// is what releases a pre-spun round's `enhancedBoard.spin`. A rebuild splices NEW reels in, so a hook
+// installed once at mount leaves them silent and the first pre-spun round after a spins mode rolls
+// forever. The shipped install statement, run in a CLIENT-compiled module (effects actually run),
+// over the real `createEnhanceBoard` and a reactive board of stand-in reels.
+{
+	const { compileModule } = createRequire(import.meta.url)('svelte/compiler');
+	const svelteFile = (specifier: string) =>
+		pathToFileURL(
+			createRequire(new URL('../packages/engine-game/package.json', import.meta.url)).resolve(
+				specifier,
+			),
+		).href;
+	const board = readFileSync(
+		new URL('../apps/lines/src/components/Board.svelte', import.meta.url),
+		'utf8',
+	);
+	const at = board.indexOf('enhancedBoard.readyToSpinEffect()');
+	const end = board.indexOf('</script>', at);
+	if (at < 0 || end < 0) throw new Error('Board.svelte: could not slice the ready-to-spin install');
+	const install = board.slice(board.lastIndexOf('\n\n', at), end);
+	const source = `
+		import { flushSync } from '${new URL('index-client.js', svelteFile('svelte')).href}';
+		import { createEnhanceBoard } from '${new URL('../packages/utils-slots/src/createEnhanceBoard.ts', import.meta.url).href}';
+		export const mountBoard = (ids) => {
+			const hooked = new Set();
+			const reel = (id) => ({
+				id,
+				readyToSpinEffect: () => {
+					$effect(() => {
+						hooked.add(id);
+						return () => hooked.delete(id);
+					});
+				},
+			});
+			const stateGame = $state({ board: ids.map(reel) });
+			const context = {
+				stateGameDerived: {
+					enhancedBoard: createEnhanceBoard().enhanceBoard({ board: stateGame.board }),
+				},
+			};
+			const destroy = $effect.root(() => {${install}});
+			flushSync();
+			const rebuild = (next) => {
+				stateGame.board.splice(0, stateGame.board.length, ...next.map(reel));
+				flushSync();
+			};
+			return { hooked, rebuild, destroy };
+		};`;
+	const { js } = compileModule(source, {
+		filename: 'BoardReadyToSpin.svelte.js',
+		generate: 'client',
+	});
+	const dir = mkdtempSync(join(tmpdir(), 'spins-ready-'));
+	const file = join(dir, 'board-ready.mjs');
+	writeFileSync(
+		file,
+		js.code.replaceAll(`'svelte/internal/client'`, `'${svelteFile('svelte/internal/client')}'`),
+	);
+	try {
+		const { mountBoard } = (await import(pathToFileURL(file).href)) as {
+			mountBoard: (ids: string[]) => {
+				hooked: Set<string>;
+				rebuild: (ids: string[]) => void;
+				destroy: () => void;
+			};
+		};
+		const mounted = mountBoard(['b0', 'b1', 'b2', 'b3', 'b4']);
+		check('ready hook: every reel at mount', [...mounted.hooked].sort(), [
+			'b0',
+			'b1',
+			'b2',
+			'b3',
+			'b4',
+		]);
+		mounted.rebuild(['w0', 'w1', 'w2', 'w3', 'w4', 'w5']);
+		check('ready hook: every reel of the spins mode’s rebuilt board', [...mounted.hooked].sort(), [
+			'w0',
+			'w1',
+			'w2',
+			'w3',
+			'w4',
+			'w5',
+		]);
+		mounted.rebuild(['c0', 'c1', 'c2', 'c3', 'c4']);
+		check('ready hook: every reel of the base board rebuilt on exit', [...mounted.hooked].sort(), [
+			'c0',
+			'c1',
+			'c2',
+			'c3',
+			'c4',
+		]);
+		mounted.destroy();
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 }
 
 // ---------- 6. parity ----------

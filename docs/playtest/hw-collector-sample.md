@@ -67,8 +67,16 @@ before a spin. Collector-relevant specs are `trigger`, `trigger:pattern`, `trigg
   still spins under `dead`, so pin its prize: a random `coinBoost` or jackpot would change the
   total.
 
-## Known state (2026-10-01)
+## Known state (2026-10-01; superseded by "Played live" below)
 
 - Not yet created or played live. The streak flights, wheel and instant collect were verified only
   in Storybook, from facade-recorded books (status Open items, "Phase 4 follow-ups").
 - No art for the Hold and Win symbols yet, so coins draw as their value label only.
+
+## Played live (2026-10-09, Phase 7c)
+
+Every scenario above that the published sample configures passed in Chromium against main 0cc277d
+(its pre-7b bundle and manifest, read from R2): money and the HUD win exact, 0 errors or stalls, and
+the unconfigured forces refused as described. Its stored Game Config is still legacy-shaped; a save
+in `/config` writes the split form and deals byte-identically. Report:
+[bonus-games-7c.md](bonus-games-7c.md).
