@@ -1,4 +1,4 @@
-import { getSupportedTextureFormats } from 'pixi.js';
+import { getSupportedTextureFormats, loadKTX2 } from 'pixi.js';
 
 /**
  * Make a `.ktx2` page transcode to ASTC, never BC7, on a device that supports both.
@@ -15,9 +15,25 @@ import { getSupportedTextureFormats } from 'pixi.js';
  * ASTC and keeps BC7, unchanged.
  *
  * Pixi caches the format list as one array and hands the KTX2 worker that array at the worker's
- * first load, so this edits the cached array in place. It must run BEFORE the first `.ktx2` loads.
+ * first load, so this edits the cached array in place, from inside `loadKTX2.load`, before the first
+ * `.ktx2` is transcoded. Doing it there rather than at boot keeps a game that loads no `.ktx2` (every
+ * desktop) exactly as it was: no probe, no WebGPU adapter request, no extra await in its boot.
  */
-export async function preferAstcForKtx2(): Promise<void> {
+let installed = false;
+
+export function preferAstcForKtx2(): void {
+	if (installed) return;
+	installed = true;
+	const load = loadKTX2.load.bind(loadKTX2);
+	let ready: Promise<void> | undefined;
+	loadKTX2.load = async (...args) => {
+		ready ??= dropBcWhereAstcExists();
+		await ready;
+		return load(...args);
+	};
+}
+
+async function dropBcWhereAstcExists(): Promise<void> {
 	if (!glHasAstc()) return;
 	const formats = await getSupportedTextureFormats();
 	if (!formats.includes('astc-4x4-unorm')) return;

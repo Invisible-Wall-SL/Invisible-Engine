@@ -51,7 +51,7 @@
 			jsUrl: await toWorkerUrl(ktxTranscoderJsUrl),
 			wasmUrl: await toWorkerUrl(ktxTranscoderWasmUrl),
 		});
-		await preferAstcForKtx2();
+		preferAstcForKtx2();
 
 		// Before the renderer exists: `BlendModePipe` caches one `FilterEffect` per mode name for
 		// the life of a renderer, so a registration landing after a mode has drawn is ignored.
