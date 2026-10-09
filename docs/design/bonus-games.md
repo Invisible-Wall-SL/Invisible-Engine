@@ -280,7 +280,11 @@ mock unchanged.
 
 ## 4. Order and parallelism
 
-`0 → 1 → (2 ∥ 3 ∥ 5a ∥ 5b) → 4 → (5c ∥ 5d) → 6 → 7a → (7b ∥ 8) → 7c`.
+`0 → 1 → (2 ∥ 3 ∥ 5a ∥ 5b) → 4 → (5c ∥ 5d) → 6 → 6b → 7a → 8a → (8b ∥ 8c) → 7b → 7c`.
+
+Phase 8 is split: 8a is the contract, mock and runtime; 8b is `/config`, Game Maker and the
+self-contained overlay presets; 8c is the Scene Editor, Flow v2, Win Text, `/symbols` and the info
+page. 7b (dropping the legacy mirror, about 80 readers) waits for 8b and 8c so it doesn't fight them.
 
 Concurrent work to coordinate with:
 
