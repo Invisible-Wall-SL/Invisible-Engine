@@ -129,8 +129,9 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 			`[${host.label}] a pots overlay needs at least one pot, or value coins and a Hold and Win bonus`,
 		);
 	}
-	// The REELS modes of the project's own a pot starts (an imported free spins): dealt as the host's
-	// free spins on their own strips, each under its own bonus key (its mode id).
+	// The REELS modes of the project's own a pot starts (an imported free spins, or a spins mode with
+	// a `game` of its own): dealt as the host's free spins on their own strips, each under its own
+	// bonus key (its mode id). A spins mode's `window` is advertised so the client draws its grid.
 	const reelsModes = Object.fromEntries(
 		Object.entries(inputs.modes ?? {}).filter(
 			([id, m]) =>
@@ -192,7 +193,13 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 				...(Object.keys(reelsModes).length
 					? {
 							modes: Object.fromEntries(
-								Object.entries(reelsModes).map(([id, m]) => [id, { gameType: m.gameType }]),
+								Object.entries(reelsModes).map(([id, m]) => [
+									id,
+									{
+										gameType: m.gameType,
+										...(m.game ? { window: { reels: m.game.reels, rows: m.game.rows } } : {}),
+									},
+								]),
 							),
 						}
 					: {}),
@@ -443,7 +450,14 @@ export function createPotsOverlay(host, inputs, opts = {}) {
 					occurs: 0,
 					...(next.spins > 0 ? { spins: Math.round(next.spins) } : {}),
 					extra: { cause: 'meter', meters: next.meters },
-					...(reels ? { bonus: next.mode, strips: reels.strips, paytable: reels.paytable } : {}),
+					...(reels
+						? {
+								bonus: next.mode,
+								strips: reels.strips,
+								paytable: reels.paytable,
+								...(reels.game ? { game: reels.game } : {}),
+							}
+						: {}),
 				});
 				return true;
 			}

@@ -674,6 +674,20 @@ const validGrid = (grid) => {
 	const holdAndWinRejected = grid.holdAndWin !== undefined && !holdAndWin;
 	// An overlay's REELS modes of the project's own (an imported free spins): per mode, the strips its
 	// spins are drawn from (one per reel, names) and the line pays of its own symbols.
+	// A spins mode's own game (`packages/game-config/src/spinsGame.ts`): its grid, model, paylines
+	// and spin count, as `reelsModeMockInput` builds it.
+	const spinsGameShaped = (game) =>
+		Boolean(game) &&
+		Number.isInteger(game.reels) &&
+		game.reels > 0 &&
+		Array.isArray(game.rows) &&
+		game.rows.length === game.reels &&
+		game.rows.every((r) => Number.isInteger(r) && r > 0) &&
+		['lines', 'ways', 'cluster', 'scatter'].includes(game.winModel?.type) &&
+		Array.isArray(game.paylines) &&
+		game.paylines.every((l) => Array.isArray(l) && l.length === game.reels) &&
+		Number.isInteger(game.spins) &&
+		game.spins > 0;
 	const reelsModesShaped = (modes) =>
 		Boolean(modes) &&
 		typeof modes === 'object' &&
@@ -687,7 +701,8 @@ const validGrid = (grid) => {
 					(s) => Array.isArray(s) && s.length && s.every((n) => typeof n === 'string'),
 				) &&
 				m.paytable &&
-				typeof m.paytable === 'object',
+				typeof m.paytable === 'object' &&
+				(m.game === undefined || spinsGameShaped(m.game)),
 		);
 	// A pots overlay's inputs (a book game's add-on), shape-checked as far as the overlay needs to
 	// stand up; its Hold and Win bonus, when it has one, like a Hold and Win game's. `pots: []` is a

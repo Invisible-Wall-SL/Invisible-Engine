@@ -7,9 +7,10 @@
 import { legacyPotsOverlay } from './bonusGames';
 import { holdAndWinIsOverlayBonus } from './holdAndWin';
 import { holdAndWinMockInputs, type HoldAndWinMockInputs } from './holdAndWinMock';
-import { builtinGameModes, gameModeById, gameTypeForMode } from './modes';
+import { builtinGameModes, gameModeById, gameTypeForMode, type GameModeDecl } from './modes';
+import { spinsGameView } from './spinsGame';
 import { overlayDropModes, type OverlayDrops, type OverlayPot } from './potsOverlay';
-import type { GameConfigDoc } from './types';
+import type { GameConfigDoc, WinModel } from './types';
 
 export type PotsOverlayMockInputs = {
 	pots: OverlayPot[];
@@ -25,11 +26,61 @@ export type PotsOverlayMockInputs = {
 	 * one, so every overlay before imports existed is dealt exactly as before. Names are the
 	 * project's; the launcher's contract puts them in the server's vocabulary.
 	 */
-	modes?: Record<
-		string,
-		{ gameType: string; strips: string[][]; paytable: Record<string, Record<string, number>> }
-	>;
+	modes?: Record<string, ReelsModeMockInput>;
 };
+
+/** What the mock deals a REELS mode of the project's own from. */
+export type ReelsModeMockInput = {
+	gameType: string;
+	strips: string[][];
+	paytable: Record<string, Record<string, number>>;
+	/** A spins mode only (`./spinsGame`): the game its spins are dealt and paid on. */
+	game?: {
+		spins: number;
+		winModel: WinModel;
+		reels: number;
+		rows: number[];
+		paylines: number[][];
+	};
+};
+
+/**
+ * One reels mode's mock input — its strips, the line pays of the symbols on them (a spins mode's own
+ * pays over the dictionary's), and a spins mode's game — or `undefined` when it has no strips to deal.
+ */
+export function reelsModeMockInput(
+	doc: GameConfigDoc,
+	mode: GameModeDecl,
+): ReelsModeMockInput | undefined {
+	const gameType = gameTypeForMode(mode);
+	const strips = (doc.paddingReels[gameType] ?? []).map((strip) => strip.map((c) => c.name));
+	if (!strips.length) return undefined;
+	const view = mode.spins ? spinsGameView(doc, mode.spins) : undefined;
+	const symbols = view?.symbols ?? doc.symbols;
+	const paytable: Record<string, Record<string, number>> = {};
+	for (const name of new Set(strips.flat())) {
+		const symbol = symbols[name];
+		const special = symbol?.special_properties ?? [];
+		// A scatter's or wild's pay is not a line pay: the mock pays them its own way.
+		if (!symbol?.paytable?.length || special.includes('scatter') || special.includes('wild')) {
+			continue;
+		}
+		paytable[name] = Object.assign({}, ...symbol.paytable);
+	}
+	if (!view) return { gameType, strips, paytable };
+	return {
+		gameType,
+		strips,
+		paytable,
+		game: {
+			spins: view.spins,
+			winModel: view.winModel,
+			reels: view.numReels,
+			rows: view.numRows,
+			paylines: view.winModel.type === 'lines' ? Object.values(view.paylines) : [],
+		},
+	};
+}
 
 /** The mock's overlay inputs for a normalized doc, or `undefined` when it has no `potsOverlay`. */
 export function potsOverlayMockInputs(doc: GameConfigDoc): PotsOverlayMockInputs | undefined {
@@ -41,20 +92,8 @@ export function potsOverlayMockInputs(doc: GameConfigDoc): PotsOverlayMockInputs
 	for (const pot of overlay.pots) {
 		const mode = gameModeById(doc, pot.bonus.mode);
 		if (!mode || builtin.has(mode.id) || mode.board !== 'reels') continue;
-		const gameType = gameTypeForMode(mode);
-		const strips = (doc.paddingReels[gameType] ?? []).map((strip) => strip.map((c) => c.name));
-		if (!strips.length) continue;
-		const paytable: Record<string, Record<string, number>> = {};
-		for (const name of new Set(strips.flat())) {
-			const symbol = doc.symbols[name];
-			const special = symbol?.special_properties ?? [];
-			// A scatter's or wild's pay is not a line pay: the mock pays them its own way.
-			if (!symbol?.paytable?.length || special.includes('scatter') || special.includes('wild')) {
-				continue;
-			}
-			paytable[name] = Object.assign({}, ...symbol.paytable);
-		}
-		modes[mode.id] = { gameType, strips, paytable };
+		const input = reelsModeMockInput(doc, mode);
+		if (input) modes[mode.id] = input;
 	}
 	return {
 		pots: overlay.pots,

@@ -8,8 +8,8 @@ import {
 } from 'game-config';
 
 import { eventEmitter } from './eventEmitter';
-import { getActiveGameConfig } from './gameConfig';
-import { stateGame } from './stateGame.svelte';
+import { activeSpinsGame, bindActiveMode, getActiveGameConfig } from './gameConfig';
+import { rebuildBoard, stateGame } from './stateGame.svelte';
 import type { MusicName } from './sound';
 import type { GameType } from './types';
 
@@ -37,6 +37,22 @@ const presentCoded = (transition: ModeTransition): void => {
 	if (music) eventEmitter.broadcast({ type: 'soundMusic', name: music as MusicName });
 };
 
+/** The spins bonus mode the reels were last built for (`undefined`: the base game's grid). */
+let boardBuiltFor: string | undefined;
+
+/**
+ * Rebuild the reels when the mode on screen changes which game's grid they show: entering a spins
+ * bonus mode with a game of its own (`game-config` `spinsGame.ts`), leaving it, a new round's reset or
+ * a resume's restore. The stack moves only between spins (a mode's trigger, its end), so no reel is
+ * rolling. Without a spins mode it never fires, so every other game keeps the board it booted with.
+ */
+const syncSpinsBoard = (): void => {
+	const next = activeSpinsGame()?.mode;
+	if (next === boardBuiltFor) return;
+	boardBuiltFor = next;
+	rebuildBoard();
+};
+
 /**
  * This game's MODE STACK (`docs/design/hold-and-win.md` §4.5) — which mode is on screen, which are
  * suspended under it and which are queued. Moved by the play seam (`createPlayBook`'s `modes`), read
@@ -57,7 +73,10 @@ export const stateModes = createModeController({
 		await flowPresenter?.(transition);
 		presentCoded(transition);
 	},
+	onStack: syncSpinsBoard,
 });
+
+bindActiveMode(() => stateModes.active());
 
 /**
  * The game type a free-spin round puts on screen: `freegame`, unless the round is a REELS mode of
