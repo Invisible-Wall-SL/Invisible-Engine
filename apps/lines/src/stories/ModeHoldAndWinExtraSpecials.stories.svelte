@@ -63,7 +63,7 @@
 	};
 </script>
 
-{#snippet template(args: TemplateArgs)}
+{#snippet template(args: TemplateArgs<any>)}
 	<StoryGameTemplate
 		skipLoadingScreen={args.skipLoadingScreen}
 		action={async () => {
