@@ -1,5 +1,5 @@
 import { bonusCapabilityInputs, respinModeIds } from './bonusGames';
-import { HOLD_AND_WIN_MODE, resolveGameModes } from './modes';
+import { HOLD_AND_WIN_MODE, spinsModeDecls } from './modes';
 import { resolveMeters } from './potsOverlay';
 import type { GameConfigDoc } from './types';
 
@@ -26,11 +26,7 @@ export function flowAddOnsOf(
 	const inputs = doc ? bonusCapabilityInputs(doc) : undefined;
 	const respinModes = doc ? respinModeIds(doc) : [];
 	const loneDefault = respinModes.length === 1 && respinModes[0] === HOLD_AND_WIN_MODE;
-	const spinsModes = doc
-		? resolveGameModes(doc)
-				.filter((mode) => mode.board === 'reels' && mode.spins)
-				.map((mode) => mode.id)
-		: [];
+	const spinsModes = doc ? spinsModeDecls(doc).map((mode) => mode.id) : [];
 	return {
 		holdAndWin: !!inputs?.respinMode,
 		potsOverlay: !!inputs?.potsOverlay,

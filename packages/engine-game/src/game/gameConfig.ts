@@ -2,7 +2,6 @@ import {
 	gameTypeForMode,
 	normalizeGameConfigDoc,
 	ownReelsModeForGameType,
-	resolveGameModes,
 	spinsGameView,
 	type SpinsGameView,
 	resolveWinLevel,
@@ -20,6 +19,7 @@ import {
 	resolveSounds,
 	resolveWinModel,
 	symbolsInPlay,
+	spinsModeDecls,
 	symbolsInPlayForGameType,
 	validateGameConfigDoc,
 	type GameConfigDoc,
@@ -133,8 +133,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		if (spinsMemoFor === config) return spinsMemo;
 		spinsMemoFor = config;
 		spinsMemo = new Map();
-		for (const mode of resolveGameModes(config)) {
-			if (mode.board !== 'reels' || !mode.spins) continue;
+		for (const mode of spinsModeDecls(config)) {
 			const view = spinsGameView(config, mode.spins);
 			spinsMemo.set(mode.id, {
 				mode: mode.id,

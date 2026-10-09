@@ -12,6 +12,7 @@
  * package: `game-config`'s `flowAddOnsOf(doc)` builds them from a normalized doc.
  */
 
+import { containersMissingScene } from '../containerScenes';
 import { flowGraphs, graphHandlesSignal } from '../runtime';
 import type { FlowDoc, Graph, TemplateVocabulary, TypeRef } from '../types';
 import type { FlowIssue } from '../validate';
@@ -298,6 +299,64 @@ export function respinTabIssues(doc: FlowDoc, addOns: FlowAddOns | undefined): F
 	});
 }
 
+/**
+ * What is wrong with a spins mode's tab (`FlowAddOns.spinsModes`; the graft seeds it with
+ * `spinsModeGraph`):
+ *  - `spins-hold-scene-missing`, an ERROR: it holds the round (`showContainer{awaitComplete}`) on a
+ *    container whose scene is not in `sceneIds`, so the hold never releases and its free spins never
+ *    continue — "＋ Add overlay steps" run before the Scene Editor's "Add missing screens". Judged
+ *    only when the caller projects the layout's scene ids in (`containersMissingScene`). An error here alone: no flow had a
+ *    spins tab before this check, so nothing that published before is refused.
+ *  - `spins-counter-unswapped`, a WARNING: the flow drives the screens and shows the base free-spin
+ *    counter, but the tab never hides it, so the base counter draws beside the mode's (a tab seeded
+ *    before the flow drove the screens; remove the tab and graft again).
+ */
+export function spinsTabIssues(
+	doc: FlowDoc,
+	addOns: FlowAddOns | undefined,
+	sceneIds?: readonly string[],
+): FlowIssue[] {
+	const missing = new Map(
+		containersMissingScene(doc.containers, sceneIds ?? []).map((c) => [c.id, c.sceneId]),
+	);
+	const drives =
+		graphHandlesSignal(doc.graph, 'load') && doc.containers.some((c) => c.id === FS_COUNTER);
+	return (addOns?.spinsModes ?? []).flatMap((modeId): FlowIssue[] => {
+		const graph =
+			doc.modes && Object.hasOwn(doc.modes, modeId) ? doc.modes[modeId].graph : undefined;
+		if (!graph) return [];
+		const issues: FlowIssue[] = [];
+		for (const node of graph.nodes) {
+			if (node.kind !== 'showContainer' || !node.awaitComplete) continue;
+			const sceneId = missing.get(node.ref);
+			if (sceneId === undefined) continue;
+			issues.push({
+				code: 'spins-hold-scene-missing',
+				severity: 'error',
+				message: `The '${modeId}' tab holds its free spins on screen '${sceneId}', which is not in this game's layout, so they would never continue — add it with the Scene Editor's "Add missing screens"`,
+				at: { on: 'node', node: node.id },
+				mode: modeId,
+			});
+		}
+		const hidesBase = graph.nodes.some((n) => n.kind === 'hideContainer' && n.ref === FS_COUNTER);
+		const anchor =
+			graph.nodes.find((n) => n.kind === 'modeTrigger' && n.on === 'enter') ?? graph.nodes[0];
+		if (drives && !hidesBase && anchor) {
+			issues.push({
+				code: 'spins-counter-unswapped',
+				severity: 'warning',
+				message: `This flow draws the base free-spin counter, and the '${modeId}' tab never hides it, so it draws beside the mode's own — hide '${FS_COUNTER}' on the tab's Mode trigger (enter) and show it again on (exit), or remove the tab and use "＋ Add overlay steps"`,
+				at: { on: 'node', node: anchor.id },
+				mode: modeId,
+			});
+		}
+		return issues;
+	});
+}
+
+/** The base game's free-spin counter, which a spins mode's tab swaps for its own. */
+const FS_COUNTER = 'freeSpinCounter';
+
 /** What a graft did: the new doc, and a label per thing it added (empty ⇒ the doc unchanged). */
 export interface AddOnGraft {
 	doc: FlowDoc;
@@ -395,7 +454,7 @@ export function graftAddOnSteps(doc: FlowDoc, addOns: FlowAddOns | undefined): A
 	}
 
 	const swapCounter =
-		graphHandlesSignal(doc.graph, 'load') && containers.some((c) => c.id === 'freeSpinCounter');
+		graphHandlesSignal(doc.graph, 'load') && containers.some((c) => c.id === FS_COUNTER);
 	for (const modeId of addOns?.spinsModes ?? []) {
 		if (doc.modes?.[modeId]) continue;
 		const section = spinsModeGraph(
@@ -404,6 +463,8 @@ export function graftAddOnSteps(doc: FlowDoc, addOns: FlowAddOns | undefined): A
 			templateVocabulary(doc.templateId),
 			{ swapCounter },
 		);
+		// A template without free spins presents nothing: no tab, so a later graft can still seed one.
+		if (!section.nodes.length) continue;
 		nodeIds(section, ids);
 		modes = { ...modes, [modeId]: { graph: section } };
 		added.push(`modes.${modeId}`);

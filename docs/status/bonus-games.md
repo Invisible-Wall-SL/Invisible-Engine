@@ -609,14 +609,29 @@ starts the phase sessions, reviews their PRs and merges them.
     is its game's, `shownPaytable(view.symbols, symbolsInPlayForGameType(doc, its gameType))`. The
     base page is unchanged. Note that the base page lists every strip's symbols, a spins mode's
     included (main's behaviour, `getSymbolsInPlay`); the rules text stays the doc's.
-  - **For 8b:** nothing in `/config` or Game Maker was touched. `spinsModeDecls` (the launcher's
-    `$lib/addOns`) lists a doc's spins modes; game-config has no such helper, and `flowAddOnsOf`
-    filters inline. An imported spins mode should copy its `-<sourceMode>` free-spin screens as
-    `-<newModeId>` (`modeCopy`'s naming), its Flow tab and its `modes[<id>]` Win Text, as Phase 6
-    does for a respin mode.
-  - **For 7b:** `swapWinTextModeLines` moves only the respin families onto the primary; a spins
-    mode's entry moved there would lose its two families. `/win-text` lists spins entries as
-    current, never as orphans, so it does not happen today; keep it so when the mirror goes.
+  - **For 8b:** nothing in `/config` or Game Maker was touched. An imported spins mode should copy
+    its `-<sourceMode>` free-spin screens as `-<newModeId>` (`modeCopy`'s naming), its Flow tab and
+    its `modes[<id>]` Win Text, as Phase 6 does for a respin mode.
+  - **Renamed or removed spins modes** (hub review of #1155): their `modes[<old id>]` entry is an
+    orphan like a respin mode's. `/win-text` lists it as spins mode lines and offers only the current
+    spins modes as Move targets (a plain key swap of every family). `swapWinTextModeLines` refuses
+    to move spins lines onto the respin primary, whose families have no place for them (it returns
+    the doc unchanged rather than drop them). An entry holding both kinds can only be removed.
+  - **A spins tab's holds are gated** (`spinsTabIssues`, beside `respinTabIssues`; the publish gate
+    and `/flow-v2` add it). A hold on a screen the layout lacks is an ERROR,
+    `spins-hold-scene-missing`: "＋ Add overlay steps" run before "Add missing screens" would never
+    continue. No flow had a spins tab before, so nothing that published is refused (§6 pins every
+    current doc at no issue). A screen-driving flow whose spins tab never hides the base counter (a
+    tab seeded before the flow drove the screens) gets the WARNING `spins-counter-unswapped`. A
+    template without free spins gets no empty tab.
+  - **Anticipation follows the spins mode.** `buildReach` reads the info paytable (`paytable()`), so
+    while a spins mode is on top the near-miss tease is reached with its own pays. The gate pins the
+    call.
+  - **One lister:** game-config `spinsModeDecls(doc)` (`modes.ts`). Flow add-ons, the launcher and
+    the engine's `spinsModesOf` read it; `spinsModeKindIssues` (8a's) still filters inline. 8b can
+    switch to it whichever merges second.
+  - **For 7b:** keep `swapWinTextModeLines`' refusal when the mirror goes: the primary still speaks
+    the respin families only.
   - **For 7c:** the free-spin intro lock (`celebrationLock`) still keys on the plain
     `freeSpinIntro` / `freeSpinOutro` ids. A mode's copies held with `awaitComplete` lock the spin
     button through `flowHoldsPresentation`. Check it in the browser playtest, with the board swap.
@@ -629,7 +644,8 @@ starts the phase sessions, reviews their PRs and merges them.
   launcher `addOns`, `/editor`, `/flow-v2`, `/win-text`, `/symbols`, `winTextStorage`,
   `localizationHarvest`; `apps/lines` `Game.svelte`, `respinModes`, `paytable`, `boardWinText`).
   - **What landed:** "Phase 8c" in Decisions & findings.
-  - **Gates:** new `pnpm --filter launcher-api check:spins-modes-tools`, 286 checks. Lines, ways and
+  - **Gates:** new `pnpm --filter launcher-api check:spins-modes-tools`, 321 checks after the hub's
+    review round. Lines, ways and
     cluster hosts, each with a ways, a cluster and a lines spins mode (`spinsGame.sample.ts`) and a
     symbol only the ways mode deals. It covers:
     - per-mode screens with distinct scene and node ids, In-game view, reservation, the counter, the
@@ -640,7 +656,10 @@ starts the phase sessions, reviews their PRs and merges them.
     - the `/symbols` chip;
     - the info paytable, grid and paylines per mode.
 
-    Mutation-tested: 16 mutations, each turns it red. §6 pins 117 facts of every current doc
+    It also compiles the game's own call sites (the reservation predicate, the counter pick and the
+    `paytable()` wrapper, sliced from `Game.svelte` / `paytable.ts`) and checks the Win Text readers
+    (`WinVisual`, `flowEffects`) and anticipation. Mutation-tested: 28 mutations, the reviewer's six
+    included, each turns it red. §6 pins 117 facts of every current doc
     (scenes, add-on screens, Flow add-ons / seed / verdict, Win Text, Localization, `/symbols`,
     info) byte-identical to main 4067dfb, measured by `scripts/lib/spinsToolsFacts.ts` on that
     tree. The docs are the `hw-*` presets, the plain Hold and Win templates, `borut-pots-sample`,

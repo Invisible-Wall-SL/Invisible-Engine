@@ -99,6 +99,16 @@ export type WinTextModeLines = {
 /** The families a spins mode speaks for itself (`WinTextDoc.modes[<id>]`). */
 export const WIN_TEXT_SPINS_MODE_FAMILIES = ['lineMessage', 'winLevels'] as const;
 
+/** Does a mode's entry carry a spins mode's lines ({@link WIN_TEXT_SPINS_MODE_FAMILIES})? */
+export const hasSpinsModeLines = (lines: WinTextModeLines | undefined): boolean =>
+	WIN_TEXT_SPINS_MODE_FAMILIES.some((family) => lines?.[family] !== undefined);
+
+/** Does a mode's entry carry a respin mode's Hold and Win lines? */
+export const hasRespinModeLines = (lines: WinTextModeLines | undefined): boolean =>
+	Object.keys(lines ?? {}).some(
+		(family) => !(WIN_TEXT_SPINS_MODE_FAMILIES as readonly string[]).includes(family),
+	);
+
 /**
  * The OPERATOR PLATFORM JACKPOT's copy — any game kind can carry one (design `hold-and-win.md` §7
  * 11c). Its tiers are the PLATFORM's (`Mini`, `Grand`, … as the server names them), not the game's,
@@ -952,6 +962,10 @@ function ownModeLines(doc: WinTextDoc, mode: string | undefined): WinTextModeLin
  * doc's families. Where `to` has none, the lines simply move and `from`'s entry goes. This is how
  * `/win-text` re-homes the lines of a mode that no longer exists (renamed, removed, or become the
  * primary). Pure; the pot lines and the names stay where they are.
+ *
+ * Between two named entries every family moves, a spins mode's included. The primary's families are
+ * the respin ones alone, so a spins mode's lines ({@link hasSpinsModeLines}) never move onto it: such a
+ * swap returns `doc` unchanged rather than drop them.
  */
 export function swapWinTextModeLines(
 	doc: WinTextDoc,
@@ -959,6 +973,8 @@ export function swapWinTextModeLines(
 	to: string | undefined,
 ): WinTextDoc {
 	if (from === to) return doc;
+	const named = from === undefined ? to : to === undefined ? from : undefined;
+	if (named !== undefined && hasSpinsModeLines(ownModeLines(doc, named))) return doc;
 	const next: WinTextDoc = structuredClone(doc);
 	const moving = structuredClone(ownModeLines(doc, from));
 	const displaced = structuredClone(ownModeLines(doc, to));

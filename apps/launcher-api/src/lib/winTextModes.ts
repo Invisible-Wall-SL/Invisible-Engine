@@ -1,5 +1,4 @@
-import { respinModeBlocks, type GameConfigDoc } from 'game-config';
-import { spinsModeDecls } from './addOns';
+import { respinModeBlocks, spinsModeDecls, type GameConfigDoc } from 'game-config';
 
 /** A respin mode as Invisible Win Text and Localization list its lines (`docs/design/bonus-games.md`
  *  §2.4): its id and label, its own jackpot tiers in config order, and whether it spins a wheel. */

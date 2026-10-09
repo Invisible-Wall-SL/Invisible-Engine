@@ -38,6 +38,7 @@ import {
 	graftAddOnSteps,
 	RESPIN_FEATURE_EVENTS,
 	signalChainCallsAction,
+	spinsTabIssues,
 	templateVocabulary,
 	vocabForTab,
 	withAddOns,
@@ -48,11 +49,14 @@ import {
 import {
 	addOnSceneIds,
 	getFullSceneSet,
+	hasRespinModeLines,
+	hasSpinsModeLines,
 	inGameViewSceneIds,
 	mergeMissingScreens,
 	resolveWinText,
 	resolveWinTextForMode,
 	SPINS_MODE_SCREENS,
+	swapWinTextModeLines,
 	type LayoutNode,
 	type WinTextDoc,
 } from 'engine-layout';
@@ -62,6 +66,7 @@ import {
 	resolveGrid,
 	shownPaytable,
 	spinsGameView,
+	spinsModeDecls,
 	symbolsInPlayForGameType,
 	type GameConfigDoc,
 } from 'game-config';
@@ -74,7 +79,7 @@ import {
 	withSpinsModes,
 } from '../../../packages/game-config/spinsGame.sample.ts';
 import { modeScreenFor, reservedModeCopies } from '../../lines/src/game/respinModes.ts';
-import { sceneSetOptionsFor, spinsModeDecls } from '../src/lib/addOns.ts';
+import { sceneSetOptionsFor } from '../src/lib/addOns.ts';
 import { validateFlowV2Against } from '../src/lib/server/flowV2Validation.ts';
 import { gameConfigDefaultFor } from '../src/lib/server/gameConfigDefaults.ts';
 import { harvestProjectWinText } from '../src/lib/server/localizationHarvest.ts';
@@ -367,6 +372,86 @@ for (const kind of ['ways', 'cluster']) {
 	same(`2. a ${kind} host · publishes clean and warning free`, describe(kindVerdict), '');
 }
 
+/** The show / hide steps a linear exec chain runs, from `from` on, in order. */
+const chainScreens = (graph: Graph, from: { node: string; pin: string }): string[] => {
+	const out: string[] = [];
+	const seen = new Set<string>();
+	let edge = graph.exec.find((e) => e.from.node === from.node && e.from.pin === from.pin);
+	while (edge && !seen.has(edge.to.node)) {
+		const node = graph.nodes.find((n) => n.id === edge!.to.node);
+		if (!node) break;
+		seen.add(node.id);
+		if (node.kind === 'showContainer') out.push(`show ${node.ref}`);
+		if (node.kind === 'hideContainer') out.push(`hide ${node.ref}`);
+		edge = graph.exec.find((e) => e.from.node === node.id);
+	}
+	return out;
+};
+{
+	const graph = grafted.doc.modes![WAYS_BONUS].graph;
+	const own = `freeSpinCounter-${WAYS_BONUS}`;
+	const trigger = (on: 'enter' | 'exit') =>
+		graph.nodes.find((n) => n.kind === 'modeTrigger' && n.on === on)!.id;
+	same(
+		'2. entering the mode swaps the base counter for its own',
+		chainScreens(graph, { node: trigger('enter'), pin: 'exec' }),
+		['hide freeSpinCounter', `show ${own}`],
+	);
+	same(
+		'2. leaving it takes its own down and brings the base counter back',
+		chainScreens(graph, { node: trigger('exit'), pin: 'exec' }),
+		[`hide ${own}`, 'show freeSpinCounter'],
+	);
+	const signals = graph.nodes.find((n) => n.kind === 'gameSignals')!.id;
+	same(
+		'2. a resume (no enter) swaps the counter on its first updateFreeSpin',
+		chainScreens(graph, { node: signals, pin: 'updateFreeSpin' }).slice(0, 2),
+		['hide freeSpinCounter', `show ${own}`],
+	);
+}
+{
+	// "＋ Add overlay steps" before the Scene Editor's "Add missing screens": the tab's holds would
+	// never release, so the publish gate refuses it.
+	const baseScenes = scenesFor('lines', null);
+	const early = validateFlowV2Against(grafted.doc, baseScenes, null, EMPTY_LIBRARY, [], addOns);
+	same(
+		'2. a graft without the mode screens · each held screen is an error',
+		errorsOf(early)
+			.filter((i) => i.code === 'spins-hold-scene-missing')
+			.map((i) => i.mode)
+			.sort(),
+		MODES.flatMap((m) => [m, m]).sort(),
+	);
+	same(
+		'2. …with the screens, none',
+		spinsTabIssues(
+			grafted.doc,
+			addOns,
+			scenes.map((sc) => sc.id),
+		),
+		[],
+	);
+	// A tab seeded before the flow drove the screens never hides the base counter.
+	const unswapped: FlowDoc = { ...grafted.doc, modes: codedGraft.doc.modes };
+	same(
+		'2. a tab without the counter swap in a flow that draws the base counter · a warning',
+		spinsTabIssues(unswapped, addOns, []).map((i) => [i.code, i.severity, i.mode]),
+		MODES.map((m) => ['spins-counter-unswapped', 'warning', m]),
+	);
+	same(
+		'2. a flow that does not drive the screens · no warning',
+		spinsTabIssues(codedGraft.doc, addOns, []),
+		[],
+	);
+	// A template without free spins: no empty tab, so a later graft can still seed one.
+	const hw = freshDrivenSeedDoc('holdAndWin');
+	same(
+		'2. a template without free spins · no spins tab is added',
+		graftAddOnSteps(hw, { meters: [], spinsModes: [WAYS_BONUS] }).added,
+		[],
+	);
+}
+
 // ── 3. Win Text ───────────────────────────────────────────────────────────────────────────────────
 const authored: WinTextDoc = {
 	version: 1,
@@ -452,6 +537,53 @@ return boardWinText;`,
 	same('3. …and the ways mode’s while it is on top', read(), ways);
 }
 
+{
+	// The ways mode is renamed in /config: its lines are an orphan under the old id until moved.
+	const renamed = 'waysGold';
+	const orphaned = saved;
+	const lines = structuredClone(saved.modes![WAYS_BONUS]);
+	check(
+		"3. a renamed spins mode's entry holds spins lines, not Hold and Win lines",
+		hasSpinsModeLines(lines) && !hasRespinModeLines(lines),
+	);
+	const moved = swapWinTextModeLines(orphaned, WAYS_BONUS, renamed);
+	same('3. Move to the new id · every line survives under it', moved.modes?.[renamed], lines);
+	check('3. …and the old id is gone', !Object.hasOwn(moved.modes ?? {}, WAYS_BONUS));
+	same(
+		'3. Move onto the respin primary is refused, nothing dropped',
+		swapWinTextModeLines(orphaned, WAYS_BONUS, undefined),
+		orphaned,
+	);
+	same('3. …either way round', swapWinTextModeLines(orphaned, undefined, WAYS_BONUS), orphaned);
+}
+{
+	// The game's own readers of the board's lines.
+	const source = (rel: string) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+	const between = (text: string, from: string, to: string) => {
+		const start = text.indexOf(from);
+		if (start < 0) throw new Error(`could not find "${from}"`);
+		const end = text.indexOf(to, start + from.length);
+		return text.slice(start, end < 0 ? undefined : end);
+	};
+	const visual = between(
+		source('lines/src/components/WinVisual.svelte'),
+		'const levelCaption = $derived(',
+		'\n\t);',
+	);
+	check(
+		'3. the big-win caption reads the board’s lines',
+		visual.includes('boardWinText().winLevels') && !visual.includes('bakedWinText'),
+	);
+	const effects = source('lines/src/game/flowEffects.ts');
+	for (const fn of ['showWinInfoMessage', 'winLineTextFor']) {
+		const body = between(effects, `export const ${fn} = (`, '\nexport ');
+		check(
+			`3. ${fn} reads the board’s lines`,
+			body.includes('boardWinText()') && !body.includes('bakedWinText'),
+		);
+	}
+}
+
 // ── 4. /symbols ───────────────────────────────────────────────────────────────────────────────────
 const symbolsPage = (kind: string, doc: GameConfigDoc | null) =>
 	symbolsPageConfig(kind, symbolDefaultsFor(kind), { doc, source: 'authored', etag: null });
@@ -471,6 +603,20 @@ check('4. …and it is a row of the grid', page.symbols.includes(WAYS_ONLY));
 		'4. the base game’s bindings are the same with or without the spins modes',
 		withMode.defaults,
 		withoutMode.defaults,
+	);
+}
+
+{
+	// A symbol two spins modes deal, and the base game does not: a chip for each.
+	const raw = structuredClone(host);
+	raw.paddingReels[CLUSTER_BONUS] = raw.paddingReels[CLUSTER_BONUS].map((strip) =>
+		strip.map((cell, i) => (i === 0 ? { name: WAYS_ONLY } : cell)),
+	);
+	const shared = symbolsPage('lines', normalize(raw));
+	same(
+		'4. a symbol two spins modes deal is listed under both',
+		shared.spinsModes.filter((m) => m.symbols.includes(WAYS_ONLY)).map((m) => m.id),
+		[WAYS_BONUS, CLUSTER_BONUS],
 	);
 }
 
@@ -525,6 +671,87 @@ check('4. …and it is a row of the grid', page.symbols.includes(WAYS_ONLY));
 	);
 	mode = 'freeSpins';
 	same('5. the host’s own free spins · the base game’s info page', info(config), info(unbound));
+}
+
+// ── 5b. the game's own call sites ─────────────────────────────────────────────────────────────────
+{
+	const source = (rel: string) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8');
+	const between = (text: string, what: string, from: string, to: string) => {
+		const start = text.indexOf(from);
+		if (start < 0) throw new Error(`${what}: could not find "${from}"`);
+		const end = text.indexOf(to, start + from.length);
+		if (end < 0) throw new Error(`${what}: could not find "${to}" after it`);
+		return text.slice(start + from.length, end);
+	};
+	const game = source('lines/src/components/Game.svelte');
+	const reservation = compileSlice({
+		what: 'check-spins-modes-tools#Game.svelte reservedSceneIds',
+		names: ['reservedModeCopies', 'respinModeById', 'spinsGameOf', 'editorDoc', 'RESERVED_IDS'],
+		body: `${stripSliceTypes(
+			'Game.svelte#reservedModeCopies',
+			`const reserved = reservedModeCopies(${between(game, 'reservation', '...reservedModeCopies(', '\n\t\t\t),')});`,
+		)}\nreturn reserved;`,
+	});
+	const RESERVED = new Set(['freeSpinIntro', 'freeSpinCounter', 'freeSpinOutro']);
+	same(
+		'5b. the game reserves every spins mode copy (no respin mode)',
+		reservation(
+			reservedModeCopies,
+			() => undefined,
+			(id: string | undefined) => (id !== undefined && MODES.includes(id) ? {} : undefined),
+			{ scenes: set.scenes },
+			RESERVED,
+		),
+		copyIds,
+	);
+	const counter = compileSlice({
+		what: 'check-spins-modes-tools#Game.svelte fsCounterId',
+		names: ['modeScreenFor', 'editorDoc', 'activeSpinsGame'],
+		body: `${stripSliceTypes(
+			'Game.svelte#fsCounterId',
+			`const id = (${between(game, 'fsCounterId', 'const fsCounterId = $derived(', '\n\t);').trim().replace(/,$/, '')});`,
+		)}\nreturn id;`,
+	});
+	same(
+		'5b. the coded counter is the ways mode’s own while it is on top',
+		counter(modeScreenFor, { scenes: set.scenes }, () => ({ mode: WAYS_BONUS })),
+		`freeSpinCounter-${WAYS_BONUS}`,
+	);
+	same(
+		'5b. …and the base game’s with none',
+		counter(modeScreenFor, { scenes: set.scenes }, () => undefined),
+		'freeSpinCounter',
+	);
+	const table = source('lines/src/game/paytable.ts');
+	const appPaytable = compileSlice({
+		what: 'check-spins-modes-tools#paytable.ts',
+		names: ['shownPaytable', 'activePaytableInputs'],
+		body: `${stripSliceTypes(
+			'paytable.ts',
+			`const PREFERRED_ORDER${between(table, 'paytable.ts', 'const PREFERRED_ORDER', '\nexport function paytable')}\nfunction paytable${between(table, 'paytable.ts', 'export function paytable', '\n}\n')}\n}`,
+		)}\nreturn paytable;`,
+	});
+	const decl = spinsModeDecls(host).find((m) => m.id === LINES_BONUS)!;
+	const inputs = {
+		symbols: spinsGameView(host, decl.spins).symbols,
+		inPlay: symbolsInPlayForGameType(host, gameTypeForMode(decl)),
+	};
+	const rows = (appPaytable(shownPaytable, () => inputs) as () => { on: { of: string } }[])();
+	same(
+		'5b. the info page’s paytable() is the active game’s rows',
+		rows.map((r) => r.on.of).sort(),
+		shownPaytable(inputs.symbols, inputs.inPlay)
+			.map((e) => e.on.of)
+			.sort(),
+	);
+	const anticipation = source('lines/src/game/anticipation.ts');
+	check(
+		'5b. anticipation reaches with the info paytable, so a spins mode’s own pays while it is on top',
+		anticipation.includes("import { paytable } from './paytable';") &&
+			between(anticipation, 'anticipation', 'function buildReach(', '\n}\n').includes(
+				'const entries = paytable();',
+			),
+	);
 }
 
 // ── 6. every current doc is byte-identical to main ────────────────────────────────────────────────
@@ -661,6 +888,15 @@ for (const [name, kind, doc] of currentDocs()) {
 	}
 	same(`6. ${name} · /symbols lists no spins mode`, symbolsPage(kind, doc).spinsModes, []);
 	check(`6. ${name} · the Flow add-ons carry no spins modes`, !('spinsModes' in flowAddOnsOf(doc)));
+	same(
+		`6. ${name} · no spins tab issue on its grafted starter flow`,
+		spinsTabIssues(
+			graftAddOnSteps(freshDrivenSeedDoc(kind), flowAddOnsOf(doc)).doc,
+			flowAddOnsOf(doc),
+			scenesFor(kind, doc).map((sc) => sc.id),
+		),
+		[],
+	);
 	if (!doc) continue;
 	same(
 		`6. ${name} · the scene-set options name no spins mode`,

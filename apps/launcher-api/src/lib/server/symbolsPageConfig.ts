@@ -3,13 +3,14 @@ import {
 	gameTypeForMode,
 	resolveCascade,
 	resolveReelBehaviour,
+	spinsModeDecls,
 	symbolHoldAndWinRoles,
 	symbolsInPlayForGameType,
 	symbolsUsed,
 	symbolUses,
 	type GameConfigDoc,
 } from 'game-config';
-import { overlayTokenPots, projectAddOns, respinModesOf, spinsModeDecls } from '$lib/addOns';
+import { overlayTokenPots, projectAddOns, respinModesOf } from '$lib/addOns';
 import { bigTiersOf, type ResolvedGameConfig } from './gameConfigDefaults';
 import { symbolGrid, type SymbolDefaults } from './symbolDefaults';
 
@@ -101,20 +102,23 @@ export function symbolsPageConfig(
 }
 
 /**
- * Each spins mode (bonus-games Phase 8) with the symbols in `listed` that its strips deal and no
- * other game type's do — the symbols only that mode shows.
+ * Each spins mode (bonus-games Phase 8) with the symbols in `listed` that its strips deal and no game
+ * type outside the spins modes does — the symbols only spins modes show. A symbol two spins modes
+ * deal and the base game does not is listed under both.
  */
 function spinsModeSymbols(
 	doc: GameConfigDoc,
 	listed: ReadonlySet<string>,
 ): { id: string; label: string; symbols: string[] }[] {
-	return spinsModeDecls(doc).map((mode) => {
+	const modes = spinsModeDecls(doc);
+	const spinsTypes = new Set(modes.map(gameTypeForMode));
+	const elsewhere = new Set(
+		Object.keys(doc.paddingReels)
+			.filter((gameType) => !spinsTypes.has(gameType))
+			.flatMap((gameType) => symbolsInPlayForGameType(doc, gameType)),
+	);
+	return modes.map((mode) => {
 		const own = gameTypeForMode(mode);
-		const elsewhere = new Set(
-			Object.keys(doc.paddingReels)
-				.filter((gameType) => gameType !== own)
-				.flatMap((gameType) => symbolsInPlayForGameType(doc, gameType)),
-		);
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,

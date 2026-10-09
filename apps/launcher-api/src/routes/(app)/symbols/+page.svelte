@@ -5089,7 +5089,7 @@
 										{#if spinsOnly[symbol]}
 											<span
 												class="roles"
-												title="Dealt only by this spins bonus mode's reels (Invisible Game Config), never in the base game — its states here are what that mode shows"
+												title="Dealt only by spins bonus modes' reels (Invisible Game Config), never in the base game — its states here are what those modes show"
 											>
 												{#each spinsOnly[symbol] as label (label)}
 													<span class="role">{label} only</span>

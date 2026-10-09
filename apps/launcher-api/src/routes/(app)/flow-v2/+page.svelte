@@ -10,6 +10,7 @@
 		deriveGraphPins,
 		graftAddOnSteps,
 		respinTabIssues,
+		spinsTabIssues,
 		validateFlowDoc,
 		vocabForTab,
 		validateFunctionDef,
@@ -153,7 +154,9 @@
 	// `doc.modes` — a mode's own graph, which the runtime asks first while that mode is on screen
 	// before falling back to the global `doc.graph` (the "Global" tab, `{ kind: 'flow' }`).
 	type FlowView =
-		{ kind: 'flow' } | { kind: 'function'; functionId: string } | { kind: 'mode'; modeId: string };
+		| { kind: 'flow' }
+		| { kind: 'function'; functionId: string }
+		| { kind: 'mode'; modeId: string };
 	let view = $state<FlowView>({ kind: 'flow' });
 	// The doc section (Global or a mode tab) the function crumb returns to.
 	let lastSection = $state<FlowView>({ kind: 'flow' });
@@ -392,6 +395,7 @@
 			: [
 					...validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
 					...respinTabIssues(doc, data.addOns),
+					...spinsTabIssues(doc, data.addOns, sceneIds),
 				],
 	);
 
@@ -1607,7 +1611,8 @@
 			     hands a signal to the ON-SCREEN mode's graph first and falls back to Global. -->
 			<span class="mode-tabs" role="tablist" aria-label="Flow sections">
 				{#snippet badge(key: string)}
-					{#if issuesBySection[key]}<span class="tab-issues">{issuesBySection[key]}</span>{/if}
+					{#if issuesBySection[key]}<span class="tab-issues">{issuesBySection[key]}</span
+						>{/if}
 				{/snippet}
 				<button
 					class="mode-tab"

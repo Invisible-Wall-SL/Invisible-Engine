@@ -28,6 +28,8 @@
 		resolveToastTemplate,
 		resolveWinText,
 		resolveWinTextForMode,
+		hasRespinModeLines,
+		hasSpinsModeLines,
 		swapWinTextModeLines,
 		resolveWinLineMessage,
 		specialDisplayName,
@@ -97,10 +99,10 @@
 	}
 
 	/**
-	 * Mode lines no current mode reads: written for a respin mode that was renamed or removed, or that
-	 * has since become the primary (whose lines are the doc's families). They are saved and shipped but
-	 * never played, so the page offers to move them to a current mode — swapping with that mode's
-	 * lines, so nothing is lost — or to remove them.
+	 * Mode lines no current mode reads: written for a respin or spins mode that was renamed or removed,
+	 * or for a respin mode that has since become the primary (whose lines are the doc's families). They
+	 * are saved and shipped but never played, so the page offers to move them to a current mode of the
+	 * same kind — swapping with that mode's lines, so nothing is lost — or to remove them.
 	 */
 	const orphanModes = $derived(
 		Object.keys(doc.modes ?? {}).filter(
@@ -109,12 +111,33 @@
 				!data.spinsModes.some((mode) => mode.mode === id),
 		),
 	);
+	/** The kind of lines an orphan holds — its Move targets are the current modes of that kind. A
+	 *  spins mode's lines never move onto the respin primary (`swapWinTextModeLines` refuses it), and
+	 *  an entry holding both kinds can only be removed. */
+	const orphanKind = (orphan: string): 'respin' | 'spins' | 'both' => {
+		const lines = doc.modes && Object.hasOwn(doc.modes, orphan) ? doc.modes[orphan] : undefined;
+		const spins = hasSpinsModeLines(lines);
+		return spins && hasRespinModeLines(lines) ? 'both' : spins ? 'spins' : 'respin';
+	};
+	/** An orphan's Move targets: `{ mode, label, primary }`, the default first. */
+	const orphanTargets = (orphan: string) => {
+		const kind = orphanKind(orphan);
+		if (kind === 'spins') {
+			return data.spinsModes.map((m) => ({ mode: m.mode, label: m.label, primary: false }));
+		}
+		if (kind === 'both') return [];
+		return data.respinModes.map((m, i) => ({ mode: m.mode, label: m.label, primary: i === 0 }));
+	};
 	let moveTargets = $state<Record<string, string>>({});
 	function moveOrphan(orphan: string) {
-		const target = moveTargets[orphan] ?? data.respinModes[0]?.mode;
-		if (target === undefined) return;
-		const primary = target === data.respinModes[0]?.mode;
-		doc = swapWinTextModeLines($state.snapshot(doc), orphan, primary ? undefined : target);
+		const targets = orphanTargets(orphan);
+		const target = targets.find((t) => t.mode === moveTargets[orphan]) ?? targets[0];
+		if (!target) return;
+		doc = swapWinTextModeLines(
+			$state.snapshot(doc),
+			orphan,
+			target.primary ? undefined : target.mode,
+		);
 	}
 	function removeOrphan(orphan: string) {
 		if (!doc.modes) return;
@@ -763,21 +786,36 @@
 			<section>
 				<h2>Lines for a mode that no longer exists</h2>
 				<p class="hint">
-					These Hold and Win lines belong to a respin mode this game's config no longer has as a
-					second mode — it was renamed or removed, or it is now the primary. They are kept, but the
-					game never shows them. <strong>Move</strong> them to a current mode (its own lines take
-					their place here, so nothing is lost) or <strong>Remove</strong> them, then save.
+					These lines belong to a mode this game's config no longer has: <em>Hold and Win lines</em>
+					of a respin mode that was renamed or removed, or is now the primary, or a
+					<em>spins mode's</em> win-line message and win-level captions for a spins mode that was
+					renamed or removed. They are kept, but the game never shows them. <strong>Move</strong>
+					them to a current mode of the same kind (its own lines take their place here, so nothing is
+					lost) or <strong>Remove</strong> them, then save.
 				</p>
 				{#each orphanModes as orphan (orphan)}
+					{@const kind = orphanKind(orphan)}
+					{@const targets = orphanTargets(orphan)}
 					<div class="single orphan">
-						<span>{orphan}</span>
-						{#if data.respinModes.length}
+						<span
+							>{orphan}
+							<em
+								>({kind === 'spins'
+									? 'spins mode lines'
+									: kind === 'respin'
+										? 'Hold and Win lines'
+										: 'Hold and Win and spins mode lines — remove only'})</em
+							></span
+						>
+						{#if targets.length}
 							<select
-								value={moveTargets[orphan] ?? data.respinModes[0].mode}
+								value={moveTargets[orphan] ?? targets[0].mode}
 								onchange={(e) => (moveTargets[orphan] = e.currentTarget.value)}
 							>
-								{#each data.respinModes as mode, i (mode.mode)}
-									<option value={mode.mode}>{mode.label}{i === 0 ? ' — primary' : ''}</option>
+								{#each targets as target (target.mode)}
+									<option value={target.mode}
+										>{target.label}{target.primary ? ' — primary' : ''}</option
+									>
 								{/each}
 							</select>
 							<button onclick={() => moveOrphan(orphan)}>Move</button>

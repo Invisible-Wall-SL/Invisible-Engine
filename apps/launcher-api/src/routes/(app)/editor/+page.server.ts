@@ -13,6 +13,7 @@ import {
 	resolveGrid,
 	resolveWinLevels,
 	spinsGameView,
+	spinsModeDecls,
 	type GameConfigDoc,
 } from 'game-config';
 import type { RepeaterSourceMap, RepeaterSourcePreview } from './editorCanvas.helpers';
@@ -21,13 +22,7 @@ import {
 	LOSS_LIMIT_TEXT_OPTIONS,
 	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
 } from 'constants-shared/autoSpins';
-import {
-	noJackpotTiers,
-	projectAddOns,
-	respinMaxRows,
-	respinModesOf,
-	spinsModeDecls,
-} from '$lib/addOns';
+import { noJackpotTiers, projectAddOns, respinMaxRows, respinModesOf } from '$lib/addOns';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import {
@@ -302,12 +297,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// that mode is shown, as the game's `boardDimensions` follows the mode. Empty ⇒ none.
 		modeGridDimensions: Object.fromEntries(
 			gameConfigDoc
-				? spinsModes.flatMap((mode) => {
+				? spinsModes.flatMap((mode): [string, GridDimensions][] => {
 						const grid = gridDimensionsOf(spinsGameView(gameConfigDoc, mode.spins));
 						return grid ? [[mode.id, grid]] : [];
 					})
 				: [],
-		) as Record<string, GridDimensions>,
+		),
 		// No respin mode has a jackpot tier: the scene set has no Jackpot bar.
 		noJackpotTiers: noJackpotTiers(respinModes),
 		// The config's add-on blocks (pots overlay / a Hold and Win bonus): the palette, the pickers
