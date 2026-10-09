@@ -85,8 +85,9 @@ overlay add-on.
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
    This route never grafts the Flow, so the overlay plays its coded beats. On a new Hold and Win
-   game the only preset that fits is **Pots to free spins** (see the style list below). The test
-   server deals it: a full gold pot plays approximate free spins (plain line spins on its board).
+   game the presets that fit are **3 Pots**, **Pots to free spins** and **Collector** (see the style
+   list below). With **Pots to free spins** the test server deals a full gold pot as approximate
+   free spins (plain line spins on its board).
 5. Click **Create project**. This creates the launcher project and scaffolds its
    cloud tree (the same scaffold the `/admin` create action produces:
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
@@ -230,16 +231,20 @@ steps, Flow) open: the dialog names who is editing, and you try again once they 
      and Win with its special)** — red, blue and green pots, each starting the Hold and Win feature
      with a different special active, plus value coins — and **Pots to free spins**, one gold pot
      that starts free spins.
-   - **Collector** — listed, but no preset builds it: a collector lands on the base reels, and the
-     add-on never edits the game's strips. The dialog says so and **Add** stays off. For a collector
-     game, use **Reset to preset** → **Collector streak** in [Game Config](game-config.md) instead.
+   - **Collector** — a full pot starts a Hold and Win with its collector. Preset **Collector (a full
+     pot starts a Hold and Win with its collector)**: one green pot (token `POT_GREEN`). On a lines
+     game, or any game without a Hold and Win, it brings the Collector Hold and Win as the bonus.
+     The collector lands in the respins, never on the base reels.
 
    Only the presets that fit the game's Game Config are offered; a style with none shows why in red.
-   On a Hold and Win game **Coins only** never fits (its own reels start its feature), and **3 Pots**
-   only on a game reset to the Pots preset in Game Config (its pots start specials the plain Hold and
-   Win, Classic and Collector do not have), so a new Hold and Win game is offered **Pots to free
-   spins** only. On a Hold and Win game the overlay brings no value coins either, for the same
-   reason.
+   On a Hold and Win game the **Classic** style is not offered: that game is the Classic style
+   already (its coins land on its reels), and the dialog says so. **3 Pots** and **Collector** fit
+   every Hold and Win game: when its rules lack a special their pots start (the plain template,
+   Classic or Collector under 3 Pots, for example), the preset adds that special's rules, its symbol
+   (renamed on a clash) and one cell of it on each respin strip. So the plain Hold and Win template
+   is offered **3 Pots**, **Pots to free spins** and **Collector**. On a Hold and Win game the
+   overlay brings no value coins, for the same reason as Classic.
+
 3. Leave **Also add the overlay steps to the Flow** off unless you want them. Without the Flow
    steps the overlay plays its built-in beats, so the game needs no flow edit. Ticked, it adds the
    steps [Invisible Flow](flow.md#pots-overlay-and-hold-and-win-on-any-kind--add-ons)'s **＋ Add
@@ -249,10 +254,10 @@ steps, Flow) open: the dialog names who is editing, and you try again once they 
    opened before the add-on still holds the old doc, and its next save is refused as a conflict.
 
 **What it adds.** It first merges the overlay into the project's
-[Game Config](game-config.md#coin-overlay), where it shows under **Coin overlay** (the 3 Pots and
-Coins only presets also bring a Hold and Win bonus, unless the project already has a Hold and Win
-block). Then it seeds the parts a playable
-overlay needs:
+[Game Config](game-config.md#coin-overlay), where it shows under **Coin overlay** (the 3 Pots,
+Coins only and Collector presets also bring a Hold and Win bonus, unless the project already has a
+Hold and Win block; then they bring only the specials it lacks). Each preset is self-contained: it
+brings everything its pots start. Then it seeds the parts a playable overlay needs:
 
 - **Symbols** — placeholder art for each token and for the Hold and Win bonus's symbols, so they
   draw from the first spin. Replace it in [Symbols](symbols-state-machine.md#pots-overlay-projects).
@@ -305,9 +310,11 @@ Every project card has **Add a bonus mode…**: it copies one bonus mode of anot
 project is only read.
 
 1. On the card, click **Add a bonus mode…**.
-2. Pick the source project under **From**, then the **Mode**: one of its bonus modes. A Hold and Win
-   (respin) mode with rules, or a free spins on the reels, can be added. Any other (a wheel, a respin
-   mode with no rules, one with no strips) is marked **(not yet)**, with the reason under the picker.
+2. Pick the source project under **From**, then the **Mode**. The list starts with the source's
+   base game, **Base game (_type_), as N spins** (see _A base game_ below), then its bonus modes. A
+   Hold and Win (respin) mode with rules, or a free spins on the reels, can be added. Any other (a
+   wheel, a respin mode with no rules, one with no strips) is marked **(not yet)**, with the reason
+   under the picker.
 3. Under **What starts it**, tick what should start the new mode. Each line shows the mode it starts
    now as **(now _mode_)**:
    - this project's coin overlay **pots**;
@@ -323,10 +330,13 @@ project is only read.
    they are offered once the overlay drops some; a **meter** fills from a symbol landing on the base
    reels, so it is not offered. A Book of… game sells only its own buy, so no **Buy** tier is offered
    there. A **free spins** is started only by a pot, so it needs a coin overlay with pots first
-   (**＋ Coin overlay…** → **3 Pots**). A **Hold and Win** mode can be left with nothing ticked and
+   (**＋ Coin overlay…** → **3 Pots**). A **base game** is started by a **pot**, a **Buy** tier,
+   **Lucky Spin** or the **Random metre**; only those are offered, and it can be left with nothing
+   ticked and routed later. A **Hold and Win** mode can be left with nothing ticked and
    routed later in
    [Game Config → Coin overlay](game-config.md#coin-overlay), except when it would be this project's
    only Hold and Win: then something must start it, and the dialog refuses with that reason.
+
 4. Click **Add**, read the report, then **Done**, and reload your own open tabs of the tools below
    for this project.
 
@@ -355,6 +365,16 @@ copied, so only what differs arrives. The source's mode screens are copied for t
 Flow section with it. Win Text is not copied: the added free spins speak this game's own free-spin
 lines.
 
+**A base game** arrives as a new **spins mode**: N spins of the source's game, then back to this
+one (edit it in [Game Config → Bonus modes](game-config.md#spins-modes)). It is self-contained: it
+copies the source's win model, grid, paylines (a lines game's) and every symbol's pays, so nothing
+follows this project's own game. Its strips arrive under a game type of its own, and the symbols
+they deal come with their [Symbols](symbols-state-machine.md) art (a name this project already uses
+takes `_2`, listed under **Renamed**). It brings no screens, Flow tab or Win Text: it plays on this
+game's screens. It starts at 10 spins; change the count in Game Config. A **Hold and Win** project,
+or one of the older **Book of** game type, cannot take one: the dialog says why and **Add** stays
+off.
+
 Adding the same source mode twice is refused: the dialog names the mode it already is here and says
 **Re-sync it instead**.
 
@@ -362,8 +382,9 @@ Adding the same source mode twice is refused: the dialog names the mode it alrea
 that mode again as the source is now and touches no other mode: its rules (with Play), strips and
 symbols, screens, Flow tab and Win Text. Its id, label, HUD and everything that starts it stay. A
 pot that starts it with a special the re-synced rules no longer deal starts it plain (**Special
-dropped**). A mode renamed in Game Config since is re-synced under its new name, and its pieces
-under the old one are cleared. A bonus brought in by the older **Import a bonus…** re-syncs exactly
+dropped**). A base game added as a spins mode copies the source's game again and keeps its mode
+id, label, symbol names, the spin count set here and every route. A mode renamed in Game Config
+since is re-synced under its new name, and its pieces under the old one are cleared. A bonus brought in by the older **Import a bonus…** re-syncs exactly
 as before.
 
 **Re-sync replaces what you changed here.** Any edit made in this project to that mode's rules,

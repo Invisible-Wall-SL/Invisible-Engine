@@ -259,12 +259,41 @@ const UNCHANGED: Shape[] = [
 
 /** The shapes whose deal moves, why, and how the bonus main never dealt now starts: `force` is a
  *  forced play, `buy` the bet mode a bought round sells, `cause` the `spinTrigger` cause it shows. */
+/**
+ * 3 Pots over Classic exactly as main's add-on built it. Since bonus-games Phase 8b the add-on also
+ * brings the payer and collector its red and blue pots start (their rules, symbols and respin cells);
+ * they are taken back out here, so this shape keeps measuring the doc main dealt.
+ */
+function threePotsOnClassicAsMain(): GameConfigDoc {
+	const doc = clone(withOverlay(classic, 'threePots'));
+	const brought = ['payer', 'collector'] as const;
+	const names = brought.flatMap((kind) =>
+		Object.keys(doc.symbols).filter(
+			(n) =>
+				!classic.symbols[n] &&
+				doc.symbols[n].special_properties?.includes(kind === 'payer' ? 'payer' : 'collector'),
+		),
+	);
+	delete doc.holdAndWin;
+	delete doc.potsOverlay;
+	const rules = doc.modes!.find((m) => m.id === 'holdAndWin')!.holdAndWin!;
+	for (const kind of brought) delete rules.specials[kind];
+	rules.applyOrder = rules.applyOrder.filter(
+		(kind) => !(brought as readonly string[]).includes(kind),
+	);
+	for (const name of names) delete doc.symbols[name];
+	doc.paddingReels.respin = doc.paddingReels.respin.map((strip) =>
+		strip.filter((cell) => !names.includes(cell.name)),
+	);
+	return normalize(doc);
+}
+
 type Changed = Shape & { why: string; force?: string; buy?: boolean; cause: string };
 const CHANGED: Changed[] = [
 	{
 		name: 'a Hold and Win kind whose overlay drops tokens beside its base coins',
 		kind: 'holdAndWin',
-		doc: withOverlay(classic, 'threePots'),
+		doc: threePotsOnClassicAsMain(),
 		why: 'main dealt it without its pots; now they are dealt and start its own respin mode',
 		force: 'force:pot:red',
 		cause: 'meter',

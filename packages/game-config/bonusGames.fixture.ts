@@ -247,12 +247,14 @@ for (const id of HOLD_AND_WIN_PRESET_IDS) {
 	check(`${id}: the respin game carries no base-game flag`, flags, false);
 }
 check(
-	'styles: pots, classic, collector; 3 Pots / to free spins pots; coins only classic',
+	// Read from the legacy keys alone, which carry no style: the Collector overlay (Phase 8b) is
+	// inferred as pots there, its style lives on the split form only (`addOns.fixture`).
+	'styles: pots, classic, collector; 3 Pots / to free spins / Collector pots; coins only classic',
 	[
 		...HOLD_AND_WIN_PRESET_IDS.map((id) => presets[id].coinOverlay?.style),
 		...POTS_OVERLAY_PRESET_IDS.map((id) => overlays[id].coinOverlay?.style),
 	],
-	['pots', 'classic', 'collector', 'pots', 'pots', 'classic'],
+	['pots', 'classic', 'collector', 'pots', 'pots', 'classic', 'pots'],
 );
 check('pots: the base-game flags moved to the overlay', presets.pots.coinOverlay?.baseGame, {
 	collector: { landsInBaseGame: true },
