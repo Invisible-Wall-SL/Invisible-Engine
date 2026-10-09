@@ -8,10 +8,10 @@
  *  1. THE HOST. A lines base game (5×3, paylines) with the 3 Pots overlay, its own Hold and Win and
  *     its own free spins, plus two spins modes (`game-config` `spinsGame.sample.ts`): a WAYS game
  *     (6×4, 5 spins) and a CLUSTER game (7×7, 4 spins, its own pay for one symbol). The blue pot
- *     starts the ways game, the green pot the cluster game. It validates clean.
+ *     starts the ways game, a buy tier the cluster game. It validates clean.
  *  2. BLUE POT → WAYS: exactly 5 spins, each dealt 6×4 from its own strips and paid by WAYS only,
  *     revealed on its own game type and 6×4 window; the round ends back in the base game.
- *  3. GREEN POT → CLUSTER: exactly 4 spins, 7×7, paid by CLUSTERS only, at its own price.
+ *  3. BUY → CLUSTER: a bought round plays exactly 4 spins, 7×7, paid by CLUSTERS only, at its own price.
  *  4. ITS OWN FREE SPINS (a forced feature) still play on the 5×3 base grid, paid by lines, as
  *     `freegame`.
  *  5. THE RUNTIME. The engine's own `createModeController` (compiled by Svelte) and `createGameConfig`,
@@ -130,25 +130,35 @@ const spinsHost = (): GameConfigDoc => {
 	delete raw.holdAndWin;
 	delete raw.potsOverlay;
 	const spins = withSpinsModes(raw);
+	spins.betModes = {
+		...spins.betModes,
+		bonus: { cost: 100, feature: false, buyBonus: true, rtp: 0.96, max_win: 5000 },
+	};
 	const overlay = spins.coinOverlay!;
 	overlay.pots = overlay.pots!.map((p) =>
-		p.id === 'blue'
-			? { ...p, bonus: { mode: WAYS_BONUS } }
-			: p.id === 'green'
-				? { ...p, bonus: { mode: CLUSTER_BONUS } }
-				: p,
+		p.id === 'blue' ? { ...p, bonus: { mode: WAYS_BONUS } } : p,
 	);
+	overlay.trigger = {
+		...overlay.trigger,
+		buy: [{ betMode: 'bonus', mode: CLUSTER_BONUS, guaranteed: [], boostedSpecials: false }],
+	};
 	return normalized(spins);
 };
 
 const HOST = spinsHost();
 check(
-	'host: the pots start Hold and Win, the ways game and the cluster game',
-	HOST.coinOverlay?.pots?.map((p) => [p.id, p.bonus.mode]),
+	'host: the pots start Hold and Win and the ways game, the buy the cluster game',
 	[
-		['red', 'holdAndWin'],
-		['blue', WAYS_BONUS],
-		['green', CLUSTER_BONUS],
+		HOST.coinOverlay?.pots?.map((p) => [p.id, p.bonus.mode]),
+		HOST.coinOverlay?.trigger?.buy?.map((t) => [t.betMode, t.mode]),
+	],
+	[
+		[
+			['red', 'holdAndWin'],
+			['blue', WAYS_BONUS],
+			['green', 'holdAndWin'],
+		],
+		[['bonus', CLUSTER_BONUS]],
 	],
 );
 check(
@@ -190,16 +200,26 @@ const bodyOf = (req: IncomingMessage): Promise<string> =>
 	});
 
 /** The real mock behind a proxy that forces the first `play` and keeps every wire answer. */
-const startHost = async (force: string, seed: string) => {
+const BET_MODES = [
+	{ mode: 'base', cost: 1, kind: 'base' },
+	{ mode: 'bonus', cost: 100, kind: 'buy' },
+];
+const startHost = async (force: string | null, seed: string) => {
 	const mock = withPotsOverlay(
 		(opts: Record<string, unknown> = {}) => createLinesMock({ quiet: true, ...opts }),
 		INPUTS,
-	)({ label: 'spins-modes', seed, allowForce: true, paylines: Object.values(HOST.paylines) });
+	)({
+		label: 'spins-modes',
+		seed,
+		allowForce: true,
+		paylines: Object.values(HOST.paylines),
+		betModes: BET_MODES,
+	});
 	const upstream = createServer((req, res) =>
 		mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
 	);
 	const upstreamUrl = await listen(upstream);
-	let armed = true;
+	let armed = force !== null;
 	const wire: Wire[] = [];
 	const proxy = createServer(async (req, res) => {
 		const actions = JSON.parse((await bodyOf(req)) || '[]') as {
@@ -235,9 +255,12 @@ let tabs = 0;
 const openTab = (): Promise<Facade> =>
 	import(`../packages/rgs-translator-eagaming/src/engineFacade.ts?tab=${++tabs}`);
 
-const playRound = async (force: string): Promise<{ book: BookEvent[]; wire: Wire[] }> => {
-	const host = await startHost(force, `spins-modes-${force}`);
-	const sid = `spins-${force}`;
+const playRound = async (
+	force: string | null,
+	betMode = 'BASE',
+): Promise<{ book: BookEvent[]; wire: Wire[] }> => {
+	const host = await startHost(force, `spins-modes-${force}-${betMode}`);
+	const sid = `spins-${force}-${betMode}`;
 	const book = await hush(async () => {
 		const facade = await openTab();
 		await facade.requestAuthenticate({ sessionID: sid, rgsUrl: host.rgsUrl, language: 'en' });
@@ -245,7 +268,7 @@ const playRound = async (force: string): Promise<{ book: BookEvent[]; wire: Wire
 			sessionID: sid,
 			currency: 'EUR',
 			amount: 1,
-			mode: 'BASE',
+			mode: betMode,
 			rgsUrl: host.rgsUrl,
 		})) as { round?: { state?: BookEvent[] } };
 		return bet.round?.state ?? [];
@@ -279,13 +302,13 @@ const shapeOf = (board: unknown[][]) =>
 
 const verifySpins = async (
 	label: string,
-	force: string,
+	[force, betMode]: [string | null, string],
 	mode: string,
 	spins: number,
 	shape: string,
 	paidBy: string,
 ) => {
-	const { book, wire } = await playRound(force);
+	const { book, wire } = await playRound(force, betMode);
 	const trigger = book.find((e) => e.type === 'freeSpinTrigger');
 	check(
 		`${label}: enters ${mode} for ${spins} spins`,
@@ -311,15 +334,15 @@ const verifySpins = async (
 
 const waysBook = await verifySpins(
 	'blue pot → ways',
-	'force:pot:blue',
+	['force:pot:blue', 'BASE'],
 	WAYS_BONUS,
 	5,
 	'6×4',
 	'ways',
 );
 const clusterBook = await verifySpins(
-	'green pot → cluster',
-	'force:pot:green',
+	'buy → cluster',
+	[null, 'BONUS'],
 	CLUSTER_BONUS,
 	4,
 	'7×7',

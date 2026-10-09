@@ -890,7 +890,7 @@ check(
 		holdAndWinIssues(classicWithPot('holdAndWin')),
 	],
 	[
-		'Nothing can start the feature — route a pot to Hold and Win, or drop value coins for the count trigger.',
+		'Nothing can start the feature — route a pot to Hold and Win, drop value coins for the count trigger, or add a buy, a Lucky Spin or a random metre.',
 		'Nothing can start the feature — add a trigger.',
 		[],
 	],
@@ -921,7 +921,9 @@ check(
 		['warning:holdAndWin.meters.0.symbol'],
 	],
 );
-const refusals: Record<string, (d: GameConfigDoc) => void> = {
+// Bonus-games Phase 7a: the overlay deals a pattern of dropped coins, a Lucky Spin, a random metre
+// and a buy, so none of them is refused on an overlay host any more.
+const dealtByOverlay: Record<string, (d: GameConfigDoc) => void> = {
 	'trigger.pattern': (d) =>
 		(d.holdAndWin!.trigger.pattern = [{ reel: 0, roles: ['coin'], min: 1 }]),
 	'trigger.luckySpin': (d) => (d.holdAndWin!.trigger.luckySpin = true),
@@ -930,6 +932,34 @@ const refusals: Record<string, (d: GameConfigDoc) => void> = {
 		d.betModes.buy = { cost: 70, feature: false, buyBonus: true, rtp: 0.96, max_win: 5000 };
 		d.holdAndWin!.trigger.buy = [{ mode: 'buy', guaranteed: [], boostedSpecials: false }];
 	},
+};
+for (const [path, change] of Object.entries(dealtByOverlay)) {
+	check(
+		`${path} is dealt for an overlay's bonus (Phase 7a), as for a base-game block or without one`,
+		[
+			holdAndWinIssues(edit(three, change)),
+			holdAndWinIssues(
+				edit(three, (d) => {
+					change(d);
+					coinOnBase(d);
+				}),
+			),
+			holdAndWinIssues(noOverlay(edit(three, change))),
+		],
+		[[], [], []],
+	);
+}
+check(
+	'a pattern of a symbol that never drops warns on an overlay host',
+	holdAndWinIssues(
+		edit(
+			three,
+			(d) => (d.holdAndWin!.trigger.pattern = [{ reel: 0, roles: ['collector'], min: 1 }]),
+		),
+	),
+	['warning:holdAndWin.trigger.pattern'],
+);
+const refusals: Record<string, (d: GameConfigDoc) => void> = {
 	'specials.collector.instantCollectInBaseGame': (d) =>
 		(d.holdAndWin!.specials.collector!.instantCollectInBaseGame = true),
 	'specials.multiplier.instantCollectInBaseGame': (d) =>
@@ -1015,7 +1045,7 @@ check(
 	],
 	[
 		['error:holdAndWin.trigger'],
-		'Nothing can start the feature — route a pot to Hold and Win, or drop value coins for the count trigger.',
+		'Nothing can start the feature — route a pot to Hold and Win, drop value coins for the count trigger, or add a buy, a Lucky Spin or a random metre.',
 		['warning:potsOverlay.drops.table.0'],
 	],
 );

@@ -6,9 +6,14 @@
 
 import { bonusSplitOf, legacyPotsOverlay } from './bonusGames';
 import { triggerHalfFor } from './coinOverlay';
-import { holdAndWinIsOverlayBonus, type HoldAndWinTrigger } from './holdAndWin';
+import {
+	holdAndWinIsOverlayBonus,
+	respinIsOverlayBonus,
+	type HoldAndWinTrigger,
+} from './holdAndWin';
 import { holdAndWinMockInputs, type HoldAndWinMockInputs } from './holdAndWinMock';
 import {
+	BASE_GAME_MODE,
 	builtinGameModes,
 	gameModeById,
 	gameTypeForMode,
@@ -61,6 +66,7 @@ export type ReelsModeMockInput = {
 export function reelsModeMockInput(
 	doc: GameConfigDoc,
 	mode: GameModeDecl,
+	{ sellsBetModes = true }: { sellsBetModes?: boolean } = {},
 ): ReelsModeMockInput | undefined {
 	const gameType = gameTypeForMode(mode);
 	const strips = (doc.paddingReels[gameType] ?? []).map((strip) => strip.map((c) => c.name));
@@ -78,7 +84,7 @@ export function reelsModeMockInput(
 		paytable[name] = Object.assign({}, ...symbol.paytable);
 	}
 	if (!view) return { gameType, strips, paytable };
-	const trigger = spinsTrigger(doc, mode.id);
+	const trigger = spinsTrigger(doc, mode.id, sellsBetModes);
 	return {
 		gameType,
 		strips,
@@ -99,43 +105,82 @@ export function reelsModeMockInput(
 function spinsTrigger(
 	doc: GameConfigDoc,
 	modeId: string,
+	sellsBetModes = true,
 ): ReelsModeMockInput['trigger'] | undefined {
 	const { buy, luckySpin, randomMetre } = triggerHalfFor(
 		bonusSplitOf(doc).coinOverlay,
 		modeId,
 	).trigger;
 	const trigger = {
-		...(buy ? { buy } : {}),
+		...(buy && sellsBetModes ? { buy } : {}),
 		...(luckySpin ? { luckySpin } : {}),
 		...(randomMetre ? { randomMetre } : {}),
 	};
 	return Object.keys(trigger).length ? trigger : undefined;
 }
 
-/** The mock's overlay inputs for a normalized doc, or `undefined` when it has no `potsOverlay`. */
-export function potsOverlayMockInputs(doc: GameConfigDoc): PotsOverlayMockInputs | undefined {
+/**
+ * The mock's overlay inputs for a normalized doc, or `undefined` when nothing composes over the host.
+ * That is the `potsOverlay` (something drops), or — with nothing dropping — a mode the overlay starts
+ * by a buy, a Lucky Spin or a random metre: a respin mode (`respinIsOverlayBonus`) or a spins mode
+ * (`./spinsGame`), as `{ pots: [], drops: { table: [] } }` beside it (bonus-games Phases 7a, 8a). A
+ * buy counts only where the host mock sells the doc's bet modes (`sellsBetModes`; not the book mock).
+ */
+export function potsOverlayMockInputs(
+	doc: GameConfigDoc,
+	{ sellsBetModes = true }: { sellsBetModes?: boolean } = {},
+): PotsOverlayMockInputs | undefined {
 	const overlay = legacyPotsOverlay(doc);
-	if (!overlay) return undefined;
+	const modes = reelsModeInputs(doc, overlay?.pots ?? [], sellsBetModes);
+	if (!overlay) {
+		const holdAndWin = respinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
+		const routed =
+			holdAndWin &&
+			[holdAndWin, ...(holdAndWin.modes ?? [])].some(({ block }) =>
+				Boolean(
+					(sellsBetModes && block.trigger.buy?.length) ||
+					block.trigger.luckySpin ||
+					block.trigger.randomMetre,
+				),
+			);
+		return routed || modes
+			? {
+					pots: [],
+					drops: { chance: 0, maxPerSpin: 1, table: [], modes: [BASE_GAME_MODE] },
+					...(routed ? { holdAndWin } : {}),
+					...(modes ? { modes } : {}),
+				}
+			: undefined;
+	}
 	const holdAndWin = holdAndWinIsOverlayBonus(doc) ? holdAndWinMockInputs(doc) : undefined;
+	return {
+		pots: overlay.pots,
+		drops: { ...overlay.drops, modes: overlayDropModes(overlay.drops) },
+		...(holdAndWin ? { holdAndWin } : {}),
+		...(modes ? { modes } : {}),
+	};
+}
+
+/** The reels modes of the project's own the overlay starts: those a pot starts, then the spins modes
+ *  a buy, a Lucky Spin or a random metre starts. `undefined` when there are none. */
+function reelsModeInputs(
+	doc: GameConfigDoc,
+	pots: OverlayPot[],
+	sellsBetModes: boolean,
+): PotsOverlayMockInputs['modes'] | undefined {
 	const builtin = new Set(builtinGameModes().map((m) => m.id));
 	const modes: NonNullable<PotsOverlayMockInputs['modes']> = {};
-	// The reels modes a pot starts, then the spins modes another route starts.
 	const started = [
-		...overlay.pots.map((pot) => pot.bonus.mode),
+		...pots.map((pot) => pot.bonus.mode),
 		...resolveGameModes(doc)
-			.filter((mode) => mode.spins && spinsTrigger(doc, mode.id))
+			.filter((mode) => mode.spins && spinsTrigger(doc, mode.id, sellsBetModes))
 			.map((mode) => mode.id),
 	];
 	for (const id of started) {
 		const mode = gameModeById(doc, id);
 		if (!mode || builtin.has(mode.id) || mode.board !== 'reels' || modes[mode.id]) continue;
-		const input = reelsModeMockInput(doc, mode);
+		const input = reelsModeMockInput(doc, mode, { sellsBetModes });
 		if (input) modes[mode.id] = input;
 	}
-	return {
-		pots: overlay.pots,
-		drops: { ...overlay.drops, modes: overlayDropModes(overlay.drops) },
-		...(holdAndWin ? { holdAndWin } : {}),
-		...(Object.keys(modes).length ? { modes } : {}),
-	};
+	return Object.keys(modes).length ? modes : undefined;
 }

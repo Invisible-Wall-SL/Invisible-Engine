@@ -46,7 +46,9 @@ export type HoldAndWinMeterLevel = { id: string; level: number; max: number };
 
 /** A progressive jackpot tier's pool as the server reports it, × total bet (design §7 11c). Only
  *  progressive tiers are reported; a fixed tier's prize is its Game Config multiplier. */
-export type HoldAndWinJackpotLevel = { name: string; value: number };
+/** A progressive tier's pool. `mode` names the respin mode it belongs to when a tier name is
+ *  progressive in several modes, each keeping its own; absent ⇒ shared by name across modes. */
+export type HoldAndWinJackpotLevel = { name: string; value: number; mode?: string };
 
 /** What `holdAndWinTrigger` carries as its mode payload (§4.5 `modeEnter.payload`). */
 export type HoldAndWinEntry = {
