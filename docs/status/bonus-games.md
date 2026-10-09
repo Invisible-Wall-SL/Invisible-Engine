@@ -4,7 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a and 8a merged; 8b ∥ 8c next, then 7b, then 7c. Model: design §0.
+**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a, 8a, 8b and 8c merged; 7b in progress, then 7c. Model: design §0.
 
 ## How sessions use this file (the hub)
 
@@ -40,9 +40,9 @@ starts the phase sessions, reviews their PRs and merges them.
 | 6b | Plain Hold and Win template (no pots, jackpots optional) | merged (2443c28) | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
 | 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
 | 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
-| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | in review | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
-| 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | in review | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
-| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 8b, 8c) | — | — |
+| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | merged (65d47c1) | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
+| 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | merged (3d07881) | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
+| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | in progress | Bonus games Phase 7b — drop the legacy mirror | — |
 | 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b) | — | — |
 
 ## Decisions & findings
