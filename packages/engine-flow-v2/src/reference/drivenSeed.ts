@@ -179,7 +179,11 @@ const stepIndex = (
  * armed, so the skip tap's own release cannot dismiss the total it just landed. Any other event's
  * choreography passes through as one beat.
  */
-const withFreeSpinScreenHolds = (event: string, steps: ChoreoStep[]): Beat[] => {
+const withFreeSpinScreenHolds = (
+	event: string,
+	steps: ChoreoStep[],
+	{ intro = FS_INTRO, outro = FS_OUTRO }: { intro?: string; outro?: string } = {},
+): Beat[] => {
 	const slice = (from: number, to?: number): Beat => ({ k: 'steps', steps: steps.slice(from, to) });
 	if (event === 'freeSpinTrigger') {
 		const show = stepIndex(steps, 'cue', 'freeSpinIntroShow', event);
@@ -187,11 +191,11 @@ const withFreeSpinScreenHolds = (event: string, steps: ChoreoStep[]): Beat[] => 
 		const hide = stepIndex(steps, 'action', 'freeSpinIntroHide', event) + 1;
 		return [
 			slice(0, show),
-			{ k: 'show', id: FS_INTRO },
+			{ k: 'show', id: intro },
 			slice(show, hold),
-			{ k: 'show', id: FS_INTRO, awaitComplete: true },
+			{ k: 'show', id: intro, awaitComplete: true },
 			slice(hold, hide),
-			{ k: 'hide', id: FS_INTRO },
+			{ k: 'hide', id: intro },
 			slice(hide),
 		];
 	}
@@ -207,11 +211,11 @@ const withFreeSpinScreenHolds = (event: string, steps: ChoreoStep[]): Beat[] => 
 		};
 		return [
 			slice(0, show),
-			{ k: 'show', id: FS_OUTRO },
+			{ k: 'show', id: outro },
 			{ k: 'steps', steps: [...steps.slice(show, countUp), skippable] },
-			{ k: 'show', id: FS_OUTRO, awaitComplete: true },
+			{ k: 'show', id: outro, awaitComplete: true },
 			slice(countUp + 1, hide),
-			{ k: 'hide', id: FS_OUTRO },
+			{ k: 'hide', id: outro },
 			slice(hide),
 		];
 	}
@@ -814,6 +818,88 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 };
 
 export const HOLD_AND_WIN_DRIVEN_SEED_DOC: FlowDoc = holdAndWinDrivenSeed();
+
+/** The free-spin events a spins mode plays its spins with, and so its section presents. */
+export const SPINS_MODE_EVENTS: readonly string[] = [
+	'freeSpinTrigger',
+	'updateFreeSpin',
+	'freeSpinEnd',
+];
+
+/** Spins mode `modeId`'s copy of a free-spin screen: `<screen>-<modeId>` (the Scene Editor's
+ *  seeding, bonus-games Phase 8c). */
+export const spinsScreenId = (screen: string, modeId: string): string => `${screen}-${modeId}`;
+
+/** The container refs a spins mode's section shows, `ids` being its screens: each at the z of the
+ *  free-spin screen it copies. */
+export const spinsContainerRefs = (ids: readonly string[], modeId: string): ContainerRef[] =>
+	SEED_CONTAINERS.flatMap(({ id, z }) => {
+		const own = spinsScreenId(id, modeId);
+		return ids.includes(own) ? [{ id: own, sceneId: own, z }] : [];
+	});
+
+/**
+ * The `modes.<modeId>` section for SPINS mode `modeId` (`GameModeDecl.spins`, bonus-games Phase 8): it
+ * plays as free spins inside its own mode, so its section presents `freeSpinTrigger`,
+ * `updateFreeSpin` and `freeSpinEnd` with the template's own free-spin choreography (`vocab`), on the
+ * mode's own `-<modeId>` screens: the intro and the outro each shown for its moment and holding the
+ * round on a tap, as the starter flow does for the base game's free spins. Every other event of a
+ * spin falls back to the global graph.
+ *
+ * `swapCounter` (a flow that drives the screens and mounts the base counter): entering the mode hides
+ * the base game's counter and shows the mode's, and leaving it swaps back. A resume rebuilds the mode
+ * stack without an enter, so `updateFreeSpin` (the snapshot a resume replays) swaps too; both are
+ * idempotent. Without it the counter is the coded one, which draws the mode's copy itself.
+ */
+export const spinsModeGraph = (
+	prefix: string,
+	modeId: string,
+	vocab: TemplateVocabulary,
+	{ swapCounter = false }: { swapCounter?: boolean } = {},
+): Graph => {
+	const screen = (id: string) => spinsScreenId(id, modeId);
+	const all = choreoForVocabulary(BOOK_OF_CHOREO, vocab);
+	const choreo = Object.fromEntries(
+		SPINS_MODE_EVENTS.filter((event) => all[event]).map((event) => [event, all[event]]),
+	);
+	const counterOn: Beat[] = swapCounter
+		? [
+				{ k: 'hide', id: FS_COUNTER },
+				{ k: 'show', id: screen(FS_COUNTER) },
+			]
+		: [];
+	const counterOff: Beat[] = swapCounter
+		? [
+				{ k: 'hide', id: screen(FS_COUNTER) },
+				{ k: 'show', id: FS_COUNTER },
+			]
+		: [];
+	const modeTrigger = (on: 'enter' | 'exit'): Node => ({
+		id: `${prefix}_${on}`,
+		kind: 'modeTrigger',
+		pos: { x: 0, y: 0 },
+		modeId,
+		on,
+	});
+	return buildEntryGraph({
+		prefix,
+		x: 0,
+		choreo,
+		frame: (event, steps) =>
+			event === 'updateFreeSpin'
+				? [...counterOn, { k: 'steps', steps }]
+				: withFreeSpinScreenHolds(event, steps, {
+						intro: screen(FS_INTRO),
+						outro: screen(FS_OUTRO),
+					}),
+		entries: swapCounter
+			? [
+					{ node: modeTrigger('enter'), beats: counterOn },
+					{ node: modeTrigger('exit'), beats: counterOff },
+				]
+			: [],
+	});
+};
 
 /** The driven seed's function library — empty (the choreographies are linear/forEach chains). */
 export const BOOK_OF_DRIVEN_SEED_LIBRARY: FunctionLibraryDoc = { version: 2, functions: [] };

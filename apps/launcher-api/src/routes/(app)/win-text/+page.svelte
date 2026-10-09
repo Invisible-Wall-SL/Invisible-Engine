@@ -28,6 +28,8 @@
 		resolveToastTemplate,
 		resolveWinText,
 		resolveWinTextForMode,
+		hasRespinModeLines,
+		hasSpinsModeLines,
 		swapWinTextModeLines,
 		resolveWinLineMessage,
 		specialDisplayName,
@@ -97,27 +99,74 @@
 	}
 
 	/**
-	 * Mode lines no current mode reads: written for a respin mode that was renamed or removed, or that
-	 * has since become the primary (whose lines are the doc's families). They are saved and shipped but
-	 * never played, so the page offers to move them to a current mode — swapping with that mode's
-	 * lines, so nothing is lost — or to remove them.
+	 * Mode lines no current mode reads: written for a respin or spins mode that was renamed or removed,
+	 * or for a respin mode that has since become the primary (whose lines are the doc's families). They
+	 * are saved and shipped but never played, so the page offers to move them to a current mode of the
+	 * same kind — swapping with that mode's lines, so nothing is lost — or to remove them.
 	 */
 	const orphanModes = $derived(
 		Object.keys(doc.modes ?? {}).filter(
-			(id) => !data.respinModes.slice(1).some((mode) => mode.mode === id),
+			(id) =>
+				!data.respinModes.slice(1).some((mode) => mode.mode === id) &&
+				!data.spinsModes.some((mode) => mode.mode === id),
 		),
 	);
+	/** The kind of lines an orphan holds — its Move targets are the current modes of that kind. A
+	 *  spins mode's lines never move onto the respin primary (`swapWinTextModeLines` refuses it), and
+	 *  an entry holding both kinds can only be removed. */
+	const orphanKind = (orphan: string): 'respin' | 'spins' | 'both' => {
+		const lines = doc.modes && Object.hasOwn(doc.modes, orphan) ? doc.modes[orphan] : undefined;
+		const spins = hasSpinsModeLines(lines);
+		return spins && hasRespinModeLines(lines) ? 'both' : spins ? 'spins' : 'respin';
+	};
+	/** An orphan's Move targets: `{ mode, label, primary }`, the default first. */
+	const orphanTargets = (orphan: string) => {
+		const kind = orphanKind(orphan);
+		if (kind === 'spins') {
+			return data.spinsModes.map((m) => ({ mode: m.mode, label: m.label, primary: false }));
+		}
+		if (kind === 'both') return [];
+		return data.respinModes.map((m, i) => ({ mode: m.mode, label: m.label, primary: i === 0 }));
+	};
 	let moveTargets = $state<Record<string, string>>({});
 	function moveOrphan(orphan: string) {
-		const target = moveTargets[orphan] ?? data.respinModes[0]?.mode;
-		if (target === undefined) return;
-		const primary = target === data.respinModes[0]?.mode;
-		doc = swapWinTextModeLines($state.snapshot(doc), orphan, primary ? undefined : target);
+		const targets = orphanTargets(orphan);
+		const target = targets.find((t) => t.mode === moveTargets[orphan]) ?? targets[0];
+		if (!target) return;
+		doc = swapWinTextModeLines(
+			$state.snapshot(doc),
+			orphan,
+			target.primary ? undefined : target.mode,
+		);
 	}
 	function removeOrphan(orphan: string) {
 		if (!doc.modes) return;
 		delete doc.modes[orphan];
 		if (!Object.keys(doc.modes).length) delete doc.modes;
+	}
+
+	/**
+	 * The board whose win-line message and win-tier captions those two sections edit: `''` is the base
+	 * game (the doc's own families), a spins mode id its own lines (`doc.modes[<id>]`, bonus-games
+	 * Phase 8). A spins mode plays another game, so it can speak its wins differently; a line it leaves
+	 * blank reads the base game's.
+	 */
+	let board = $state('');
+	const onBaseBoard = $derived(!data.spinsModes.some((mode) => mode.mode === board));
+	/** What the edited board speaks — a spins mode's own lines over the base game's. */
+	const boardResolved = $derived(
+		onBaseBoard ? resolved : resolveWinTextForMode($state.snapshot(doc), board),
+	);
+	/** The edited board's own lines, as stored (read side; own keys only). */
+	const boardLines = $derived<Pick<WinTextModeLines, 'lineMessage' | 'winLevels'> | undefined>(
+		onBaseBoard ? doc : doc.modes && Object.hasOwn(doc.modes, board) ? doc.modes[board] : undefined,
+	);
+	/** The edited board's own lines, created on first write. */
+	function boardLinesToWrite(): Pick<WinTextModeLines, 'lineMessage' | 'winLevels'> {
+		if (onBaseBoard) return doc;
+		const modes = (doc.modes ??= {});
+		if (!Object.hasOwn(modes, board)) modes[board] = {};
+		return modes[board];
 	}
 
 	/**
@@ -138,7 +187,7 @@
 		const rows = data.bigTiers.length
 			? data.bigTiers.map((tier) => ({ alias: tier.alias, name: tier.name }))
 			: CODED_BIG_ALIASES.map((alias) => ({ alias, name: alias }));
-		for (const alias of Object.keys(doc.winLevels ?? {})) {
+		for (const alias of Object.keys(boardLines?.winLevels ?? {})) {
 			if (!rows.some((row) => row.alias === alias)) rows.push({ alias, name: alias });
 		}
 		return rows;
@@ -193,20 +242,20 @@
 	/** Write a sparse nested value, deleting the key when the input is blank so a cleared
 	 *  override falls back through the chain instead of persisting an empty string. */
 	function setLineMessage(bucket: 'byCount' | 'bySymbol' | 'byCell', key: string, value: string) {
-		const lm = (doc.lineMessage ??= {});
+		const lm = (boardLinesToWrite().lineMessage ??= {});
 		const map = (lm[bucket] ??= {});
 		if (value.trim()) map[key] = value;
 		else delete map[key];
 	}
 
 	function setDefault(value: string) {
-		const lm = (doc.lineMessage ??= {});
+		const lm = (boardLinesToWrite().lineMessage ??= {});
 		if (value.trim()) lm.default = value;
 		else delete lm.default;
 	}
 
 	function setWinLevel(alias: string, value: string) {
-		const levels = (doc.winLevels ??= {});
+		const levels = (boardLinesToWrite().winLevels ??= {});
 		if (value.trim()) levels[alias] = value;
 		else delete levels[alias];
 	}
@@ -355,7 +404,7 @@
 	/** What a `(symbol, count)` win will actually say, and which level of the chain said it —
 	 *  the same call the game makes, so the badge can't drift from behaviour. */
 	function effective(symbol: string, count: number) {
-		return resolveWinLineMessage(resolved, symbol, count);
+		return resolveWinLineMessage(boardResolved, symbol, count);
 	}
 
 	/**
@@ -433,6 +482,25 @@
 			: null,
 	);
 </script>
+
+{#snippet boardPicker()}
+	{#if data.spinsModes.length}
+		<label class="single">
+			<span
+				title="A spins bonus mode plays another game, so it can speak its wins its own way; a blank line reads the base game's (shown greyed)."
+				>Board</span
+			>
+			<select bind:value={board}>
+				<option value="">Base game</option>
+				{#each data.spinsModes as mode (mode.mode)}
+					<option value={mode.mode}
+						>{mode.label}{mode.label === mode.mode ? '' : ` (${mode.mode})`} — spins mode</option
+					>
+				{/each}
+			</select>
+		</label>
+	{/if}
+{/snippet}
 
 <svelte:head><title>Invisible Win Text — {data.projectKey}</title></svelte:head>
 
@@ -518,6 +586,7 @@
 					coins over a cell, never along a line, so no win line names them.
 				{/if}
 			</p>
+			{@render boardPicker()}
 
 			<div class="grid-wrap">
 				<table class="grid">
@@ -536,8 +605,8 @@
 							{#each COUNTS as count (count)}
 								<td>
 									<input
-										value={doc.lineMessage?.byCount?.[String(count)] ?? ''}
-										placeholder={resolved.lineMessage.default || '—'}
+										value={boardLines?.lineMessage?.byCount?.[String(count)] ?? ''}
+										placeholder={boardResolved.lineMessage.default || '—'}
 										oninput={(e) => setLineMessage('byCount', String(count), e.currentTarget.value)}
 									/>
 								</td>
@@ -545,8 +614,10 @@
 							<td class="corner">
 								<input
 									class="default-input"
-									value={doc.lineMessage?.default ?? ''}
-									placeholder="Default — e.g. {'{count}'} {'{symbolName}'}"
+									value={boardLines?.lineMessage?.default ?? ''}
+									placeholder={onBaseBoard
+										? `Default — e.g. {count} {symbolName}`
+										: resolved.lineMessage.default || '—'}
 									oninput={(e) => setDefault(e.currentTarget.value)}
 								/>
 							</td>
@@ -566,7 +637,7 @@
 									{@const eff = effective(symbol, count)}
 									<td>
 										<input
-											value={doc.lineMessage?.byCell?.[winTextCellKey(symbol, count)] ?? ''}
+											value={boardLines?.lineMessage?.byCell?.[winTextCellKey(symbol, count)] ?? ''}
 											placeholder={eff.template || '—'}
 											title={eff.source === 'cell'
 												? 'Set here'
@@ -582,8 +653,8 @@
 								{/each}
 								<td class="any-col">
 									<input
-										value={doc.lineMessage?.bySymbol?.[symbol] ?? ''}
-										placeholder={resolved.lineMessage.default || '—'}
+										value={boardLines?.lineMessage?.bySymbol?.[symbol] ?? ''}
+										placeholder={boardResolved.lineMessage.default || '—'}
 										oninput={(e) => setLineMessage('bySymbol', symbol, e.currentTarget.value)}
 									/>
 								</td>
@@ -715,21 +786,36 @@
 			<section>
 				<h2>Lines for a mode that no longer exists</h2>
 				<p class="hint">
-					These Hold and Win lines belong to a respin mode this game's config no longer has as a
-					second mode — it was renamed or removed, or it is now the primary. They are kept, but the
-					game never shows them. <strong>Move</strong> them to a current mode (its own lines take
-					their place here, so nothing is lost) or <strong>Remove</strong> them, then save.
+					These lines belong to a mode this game's config no longer has: <em>Hold and Win lines</em>
+					of a respin mode that was renamed or removed, or is now the primary, or a
+					<em>spins mode's</em> win-line message and win-level captions for a spins mode that was
+					renamed or removed. They are kept, but the game never shows them. <strong>Move</strong>
+					them to a current mode of the same kind (its own lines take their place here, so nothing is
+					lost) or <strong>Remove</strong> them, then save.
 				</p>
 				{#each orphanModes as orphan (orphan)}
+					{@const kind = orphanKind(orphan)}
+					{@const targets = orphanTargets(orphan)}
 					<div class="single orphan">
-						<span>{orphan}</span>
-						{#if data.respinModes.length}
+						<span
+							>{orphan}
+							<em
+								>({kind === 'spins'
+									? 'spins mode lines'
+									: kind === 'respin'
+										? 'Hold and Win lines'
+										: 'Hold and Win and spins mode lines — remove only'})</em
+							></span
+						>
+						{#if targets.length}
 							<select
-								value={moveTargets[orphan] ?? data.respinModes[0].mode}
+								value={moveTargets[orphan] ?? targets[0].mode}
 								onchange={(e) => (moveTargets[orphan] = e.currentTarget.value)}
 							>
-								{#each data.respinModes as mode, i (mode.mode)}
-									<option value={mode.mode}>{mode.label}{i === 0 ? ' — primary' : ''}</option>
+								{#each targets as target (target.mode)}
+									<option value={target.mode}
+										>{target.label}{target.primary ? ' — primary' : ''}</option
+									>
 								{/each}
 							</select>
 							<button onclick={() => moveOrphan(orphan)}>Move</button>
@@ -997,12 +1083,13 @@
 				big-win art carries no words (which is also what lets the tier be translated without re-cutting
 				the art per language).
 			</p>
+			{@render boardPicker()}
 			{#each winLevelRows as row (row.alias)}
 				<label class="single">
 					<span title={row.alias}>{row.name}</span>
 					<input
-						value={doc.winLevels?.[row.alias] ?? ''}
-						placeholder="not drawn"
+						value={boardLines?.winLevels?.[row.alias] ?? ''}
+						placeholder={onBaseBoard ? 'not drawn' : resolved.winLevels[row.alias] || 'not drawn'}
 						oninput={(e) => setWinLevel(row.alias, e.currentTarget.value)}
 					/>
 				</label>

@@ -16,6 +16,7 @@
 import {
 	containersMissingScene,
 	respinTabIssues,
+	spinsTabIssues,
 	validateFlowDoc,
 	type FlowAddOns,
 	type FlowDoc,
@@ -73,6 +74,11 @@ export function validateFlowV2Against(
 			scenes.map((s) => s.id),
 		),
 		...respinTabIssues(doc, addOns),
+		...spinsTabIssues(
+			doc,
+			addOns,
+			scenes.map((s) => s.id),
+		),
 	];
 }
 

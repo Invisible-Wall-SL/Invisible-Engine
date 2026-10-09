@@ -70,26 +70,44 @@ export type WinTextDoc = {
 	/** The operator's platform jackpot — any game kind. */
 	platformJackpot?: WinTextPlatformJackpot;
 	/**
-	 * Hold and Win: the lines of each respin mode but the PRIMARY, keyed by mode id
-	 * (`docs/design/bonus-games.md` §2.4). The primary's lines are the families above, so a doc of a
-	 * game with one respin mode never carries this key. A line a mode leaves unset reads the
-	 * primary's ({@link resolveWinTextForMode}).
+	 * The lines of each respin mode but the PRIMARY, keyed by mode id (`docs/design/bonus-games.md`
+	 * §2.4), and of each SPINS mode (Phase 8). The primary's lines are the families above, so a doc of
+	 * a game with one respin mode and no spins mode never carries this key. A line a mode leaves unset
+	 * reads the primary's ({@link resolveWinTextForMode}).
 	 */
 	modes?: Record<string, WinTextModeLines>;
 	updatedAt?: string;
 };
 
 /**
- * One respin mode's own Hold and Win lines: its jackpot captions and banners, its respin counter,
- * its wheel and the feature's frame ({@link WIN_TEXT_MODE_FEATURE_FIELDS}). The pot lines and the
- * special / collector names belong to the base game's overlay and are shared by every mode.
+ * One mode's own lines.
+ * - A respin mode's Hold and Win lines: its jackpot captions and banners, its respin counter, its
+ *   wheel and the feature's frame ({@link WIN_TEXT_MODE_FEATURE_FIELDS}). The pot lines and the
+ *   special / collector names belong to the base game's overlay and are shared by every mode.
+ * - A spins mode's ({@link WIN_TEXT_SPINS_MODE_FAMILIES}): the win-line message and the win-tier
+ *   captions its spins speak, since its game may pay by another model than the base game's.
  */
 export type WinTextModeLines = {
 	jackpots?: WinTextJackpots;
 	respins?: WinTextRespins;
 	wheel?: WinTextWheel;
 	feature?: Partial<Pick<WinTextFeature, WinTextModeFeatureField>>;
+	lineMessage?: WinTextDoc['lineMessage'];
+	winLevels?: Record<string, string>;
 };
+
+/** The families a spins mode speaks for itself (`WinTextDoc.modes[<id>]`). */
+export const WIN_TEXT_SPINS_MODE_FAMILIES = ['lineMessage', 'winLevels'] as const;
+
+/** Does a mode's entry carry a spins mode's lines ({@link WIN_TEXT_SPINS_MODE_FAMILIES})? */
+export const hasSpinsModeLines = (lines: WinTextModeLines | undefined): boolean =>
+	WIN_TEXT_SPINS_MODE_FAMILIES.some((family) => lines?.[family] !== undefined);
+
+/** Does a mode's entry carry a respin mode's Hold and Win lines? */
+export const hasRespinModeLines = (lines: WinTextModeLines | undefined): boolean =>
+	Object.keys(lines ?? {}).some(
+		(family) => !(WIN_TEXT_SPINS_MODE_FAMILIES as readonly string[]).includes(family),
+	);
 
 /**
  * The OPERATOR PLATFORM JACKPOT's copy — any game kind can carry one (design `hold-and-win.md` §7
@@ -553,6 +571,13 @@ export function resolveWinTextForMode(
 			...pick(WIN_TEXT_MODE_FEATURE_FIELDS, resolved.feature, lines.feature),
 		},
 		wheel: pick(WIN_TEXT_WHEEL_FIELDS, resolved.wheel, lines.wheel),
+		lineMessage: {
+			default: lines.lineMessage?.default ?? resolved.lineMessage.default,
+			byCount: { ...resolved.lineMessage.byCount, ...(lines.lineMessage?.byCount ?? {}) },
+			bySymbol: { ...resolved.lineMessage.bySymbol, ...(lines.lineMessage?.bySymbol ?? {}) },
+			byCell: { ...resolved.lineMessage.byCell, ...(lines.lineMessage?.byCell ?? {}) },
+		},
+		winLevels: { ...resolved.winLevels, ...(lines.winLevels ?? {}) },
 	};
 }
 
@@ -880,6 +905,39 @@ export function collectWinTextModeTemplates(
 	return out;
 }
 
+/**
+ * The lines a SPINS mode writes of its own (`doc.modes[mode]`'s win-line message and win-tier
+ * captions), for Invisible Localization's harvest of that mode. Only what it wrote: what it inherits
+ * is the base game's, harvested there. Same key and label contract as {@link collectWinTextTemplates}.
+ */
+export function collectWinTextSpinsModeTemplates(
+	doc: WinTextDoc | undefined,
+	mode: string,
+): { key: string; source: string; label: string }[] {
+	const lines = doc?.modes && Object.hasOwn(doc.modes, mode) ? doc.modes[mode] : undefined;
+	const out: { key: string; source: string; label: string }[] = [];
+	const seen = new Set<string>();
+	const add = (source: string | undefined, label: string) => {
+		if (!source || !source.trim() || seen.has(source)) return;
+		seen.add(source);
+		out.push({ key: source, source, label });
+	};
+	add(lines?.lineMessage?.default, 'Win line — default');
+	for (const [count, tpl] of Object.entries(lines?.lineMessage?.byCount ?? {})) {
+		add(tpl, `Win line — ${count} matching`);
+	}
+	for (const [symbol, tpl] of Object.entries(lines?.lineMessage?.bySymbol ?? {})) {
+		add(tpl, `Win line — ${symbol}`);
+	}
+	for (const [cell, tpl] of Object.entries(lines?.lineMessage?.byCell ?? {})) {
+		add(tpl, `Win line — ${cell}`);
+	}
+	for (const [alias, tpl] of Object.entries(lines?.winLevels ?? {})) {
+		add(tpl, `Win level — ${alias}`);
+	}
+	return out;
+}
+
 /** The lines respin mode `mode` of `doc` has of its own — the families on the primary (`undefined`),
  *  else its `modes` entry. Never a pot line or a name. */
 function ownModeLines(doc: WinTextDoc, mode: string | undefined): WinTextModeLines {
@@ -904,6 +962,10 @@ function ownModeLines(doc: WinTextDoc, mode: string | undefined): WinTextModeLin
  * doc's families. Where `to` has none, the lines simply move and `from`'s entry goes. This is how
  * `/win-text` re-homes the lines of a mode that no longer exists (renamed, removed, or become the
  * primary). Pure; the pot lines and the names stay where they are.
+ *
+ * Between two named entries every family moves, a spins mode's included. The primary's families are
+ * the respin ones alone, so a spins mode's lines ({@link hasSpinsModeLines}) never move onto it: such a
+ * swap returns `doc` unchanged rather than drop them.
  */
 export function swapWinTextModeLines(
 	doc: WinTextDoc,
@@ -911,6 +973,8 @@ export function swapWinTextModeLines(
 	to: string | undefined,
 ): WinTextDoc {
 	if (from === to) return doc;
+	const named = from === undefined ? to : to === undefined ? from : undefined;
+	if (named !== undefined && hasSpinsModeLines(ownModeLines(doc, named))) return doc;
 	const next: WinTextDoc = structuredClone(doc);
 	const moving = structuredClone(ownModeLines(doc, from));
 	const displaced = structuredClone(ownModeLines(doc, to));

@@ -101,6 +101,20 @@ const FULL_SCENE_SOURCES: Record<
  *  and the rows its board grows to. */
 export type RespinModeScreens = { id: string; label?: string; maxRows?: number };
 
+/** A declared SPINS bonus mode (`GameModeDecl.spins`, bonus-games Phase 8) the scene set seeds
+ *  screens for: its id and the name the tools show it by. */
+export type SpinsModeScreens = { id: string; label?: string };
+
+/**
+ * The free-spin screens a spins mode plays its spins with: it plays as free spins inside its own
+ * mode (`freeSpinTrigger.mode` / `freeSpinEnd.mode`), so it gets its own intro, counter and outro.
+ */
+export const SPINS_MODE_SCREENS: readonly string[] = [
+	'freeSpinIntro',
+	'freeSpinCounter',
+	'freeSpinOutro',
+];
+
 /**
  * Scene-set options: the Hold and Win template's (`maxRows`, `potIds`) plus the project's add-on
  * capabilities (docs/design/pots-overlay.md §4). On any kind but `holdAndWin`, `potsOverlay` or
@@ -115,6 +129,9 @@ export type SceneSetOptions = HoldAndWinTemplateOptions & {
 	holdAndWin?: boolean;
 	potsOverlay?: boolean;
 	respinModes?: readonly RespinModeScreens[];
+	/** Every spins mode: each gets its own copy of the kind's {@link SPINS_MODE_SCREENS}, tagged
+	 *  `modeId: <its id>`. Absent or empty ⇒ none, so the set is the kind's own. */
+	spinsModes?: readonly SpinsModeScreens[];
 };
 
 /**
@@ -124,6 +141,12 @@ export type SceneSetOptions = HoldAndWinTemplateOptions & {
  */
 function screenForMode(scene: Scene, mode: RespinModeScreens): Scene {
 	if (mode.id === HOLD_AND_WIN_MODE) return scene;
+	return modeCopy(scene, mode);
+}
+
+/** `scene` as mode `mode`'s own: its id and every node's id suffixed `-<mode id>`, tagged
+ *  `role: 'mode'` + `modeId`, named after the mode. */
+function modeCopy(scene: Scene, mode: { id: string; label?: string }): Scene {
 	const suffix = (id: string) => `${id}-${mode.id}`;
 	const suffixed = (node: LayoutNode): LayoutNode =>
 		node.kind === 'container'
@@ -133,6 +156,7 @@ function screenForMode(scene: Scene, mode: RespinModeScreens): Scene {
 		...scene,
 		id: suffix(scene.id),
 		name: `${scene.name} (${mode.label ?? mode.id})`,
+		role: 'mode',
 		modeId: mode.id,
 		nodes: scene.nodes.map(suffixed),
 	};
@@ -238,6 +262,20 @@ function ownModeScenes(scenes: Scene[], options: SceneSetOptions): Scene[] {
 }
 
 /**
+ * `scenes` with each spins mode's copy of a free-spin screen ({@link SPINS_MODE_SCREENS}) right after
+ * the screen it copies, in mode order, so a mode's intro layers where the base game's does. A kind
+ * without free-spin screens gets none. No spins mode ⇒ `scenes` itself.
+ */
+function withSpinsModes(scenes: Scene[], modes: readonly SpinsModeScreens[]): Scene[] {
+	if (!modes.length) return scenes;
+	return scenes.flatMap((scene) =>
+		scene.role !== 'mode' && SPINS_MODE_SCREENS.includes(scene.id)
+			? [scene, ...modes.map((mode) => modeCopy(scene, mode))]
+			: [scene],
+	);
+}
+
+/**
  * `current` with the `reference` scenes named by `ids` merged in — each right after the nearest
  * scene that precedes it in `reference` and is already present (else first), in `reference` order,
  * so the layer order follows the game's own set. A scene whose id `current` already has is skipped;
@@ -266,8 +304,15 @@ export function mergeMissingScreens(
 
 /** The ids of the add-on screens `getFullSceneSet(gameType, options)` merges into the kind's set. */
 export function addOnSceneIds(gameType: string, options: SceneSetOptions = {}): string[] {
-	if (!FULL_SCENE_SOURCES[gameType] || !hasAddOn(gameType, options)) return [];
-	return addOnScenes(gameType, options).ids;
+	const source = FULL_SCENE_SOURCES[gameType];
+	if (!source) return [];
+	const ids = hasAddOn(gameType, options) ? addOnScenes(gameType, options).ids : [];
+	const spins = options.spinsModes ?? [];
+	if (!spins.length) return ids;
+	const copies = withSpinsModes(source.build(options).scenes, spins).filter(
+		(scene) => scene.role === 'mode' && spins.some((mode) => mode.id === scene.modeId),
+	);
+	return [...ids, ...copies.map((scene) => scene.id)];
 }
 
 /**
@@ -281,10 +326,15 @@ export function getFullSceneSet(
 	options: SceneSetOptions = {},
 ): LayoutDoc | undefined {
 	const doc = FULL_SCENE_SOURCES[gameType]?.build(options);
-	if (!doc || !hasAddOn(gameType, options)) return doc;
-	const { reference, ids } = addOnScenes(gameType, options);
-	const own = gameType === 'holdAndWin' ? ownModeScenes(doc.scenes, options) : doc.scenes;
-	return { ...doc, scenes: mergeMissingScreens(own, reference, ids) };
+	const spins = options.spinsModes ?? [];
+	if (!doc || (!hasAddOn(gameType, options) && !spins.length)) return doc;
+	let scenes = doc.scenes;
+	if (hasAddOn(gameType, options)) {
+		const { reference, ids } = addOnScenes(gameType, options);
+		const own = gameType === 'holdAndWin' ? ownModeScenes(scenes, options) : scenes;
+		scenes = mergeMissingScreens(own, reference, ids);
+	}
+	return { ...doc, scenes: withSpinsModes(scenes, spins) };
 }
 
 /**

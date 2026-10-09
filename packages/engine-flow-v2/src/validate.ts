@@ -65,6 +65,10 @@
  *  - `respin-event-off-board` — a respin feature event handled in a mode tab that is not a respin
  *                            mode's, where it never fires (a WARNING; `respinTabIssues` in
  *                            `reference/addOns.ts`, which the editor and the publish gate add).
+ *  - `spins-hold-scene-missing` — a spins mode's tab holds the round on a screen the layout lacks, so
+ *                            its free spins never continue (an ERROR; `spinsTabIssues`, beside it).
+ *  - `spins-counter-unswapped` — a spins mode's tab in a flow that drives the screens never takes the
+ *                            base free-spin counter down, so both counters draw (a WARNING; same).
  *
  * GAME MODES (`docs/design/hold-and-win.md` §4.5): `FlowDoc.modes` sections are each validated like
  * the global graph, and an issue found in one carries that section's `mode`. Node ids are unique
@@ -127,7 +131,9 @@ export type FlowIssueCode =
 	| 'mode-entry-scope'
 	| 'container-scene-missing'
 	| 'symbol-not-in-play'
-	| 'respin-event-off-board';
+	| 'respin-event-off-board'
+	| 'spins-hold-scene-missing'
+	| 'spins-counter-unswapped';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';

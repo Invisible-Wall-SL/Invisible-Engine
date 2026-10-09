@@ -2,7 +2,6 @@ import {
 	gameTypeForMode,
 	normalizeGameConfigDoc,
 	ownReelsModeForGameType,
-	resolveGameModes,
 	spinsGameView,
 	type SpinsGameView,
 	resolveWinLevel,
@@ -20,6 +19,8 @@ import {
 	resolveSounds,
 	resolveWinModel,
 	symbolsInPlay,
+	spinsModeDecls,
+	symbolsInPlayForGameType,
 	validateGameConfigDoc,
 	type GameConfigDoc,
 	type GameSounds,
@@ -132,8 +133,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		if (spinsMemoFor === config) return spinsMemo;
 		spinsMemoFor = config;
 		spinsMemo = new Map();
-		for (const mode of resolveGameModes(config)) {
-			if (mode.board !== 'reels' || !mode.spins) continue;
+		for (const mode of spinsModeDecls(config)) {
 			const view = spinsGameView(config, mode.spins);
 			spinsMemo.set(mode.id, {
 				mode: mode.id,
@@ -154,6 +154,11 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		const modes = spinsModesOf(getActiveGameConfig());
 		if (!modes.size || !activeModeOf) return undefined;
 		return modes.get(activeModeOf());
+	}
+
+	/** Spins mode `mode`'s game, or `undefined` when `mode` is not one of the doc's spins modes. */
+	function spinsGameOf(mode: string | undefined): ActiveSpinsGame | undefined {
+		return mode === undefined ? undefined : spinsModesOf(getActiveGameConfig()).get(mode);
 	}
 
 	/** The active config: the authored doc when one shipped, else the compiled template. */
@@ -447,6 +452,26 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		const server = serverConfig();
 		if (server) return [...server.symbols].sort();
 		return symbolsInPlay(getActiveGameConfig());
+	}
+
+	/**
+	 * What the info page's paytable is built from: the symbol dictionary and the symbols the board on
+	 * screen deals. While a spins mode is on top that is its game — its own pays over the dictionary's
+	 * and the symbols its strips deal (bonus-games Phase 8); otherwise the doc's dictionary and
+	 * {@link getSymbolsInPlay}, exactly as before.
+	 */
+	function activePaytableInputs(): {
+		symbols: GameConfigDoc['symbols'];
+		inPlay: string[];
+	} {
+		const spins = activeSpinsGame();
+		if (spins) {
+			return {
+				symbols: spins.view.symbols,
+				inPlay: symbolsInPlayForGameType(getActiveGameConfig(), spins.gameType),
+			};
+		}
+		return { symbols: getActiveGameConfig().symbols, inPlay: getSymbolsInPlay() };
 	}
 
 	/** The cosmetic strips for one game type, or `[]` when the config declares no such type. Empty
@@ -1083,6 +1108,8 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		activeWinModel,
 		activeGrid,
 		activeSpinsGame,
+		activePaytableInputs,
+		spinsGameOf,
 		bindActiveMode,
 		boardDimensions,
 		boardSizes,

@@ -99,13 +99,16 @@ const featureSchema = familySchema(WIN_TEXT_FEATURE_FIELDS)
 	)
 	.strict();
 
-/** A respin mode's own lines (`WinTextModeLines`): the primary's families, the feature's frame only. */
+/** A mode's own lines (`WinTextModeLines`): a respin mode's primary families (the feature's frame
+ *  only), a spins mode's win-line message and win-tier captions. */
 const modeLinesSchema = z
 	.object({
 		jackpots: jackpotsSchema.optional(),
 		respins: respinsSchema.optional(),
 		wheel: familySchema(WIN_TEXT_WHEEL_FIELDS).strict().optional(),
 		feature: familySchema(WIN_TEXT_MODE_FEATURE_FIELDS).strict().optional(),
+		lineMessage: lineMessageSchema.optional(),
+		winLevels: templateMapSchema.optional(),
 	})
 	.strict();
 
@@ -235,6 +238,10 @@ function pruneModes(input: WinTextDoc['modes']): WinTextDoc['modes'] {
 		if (wheel) kept.wheel = wheel;
 		const feature = pruneFamily(WIN_TEXT_MODE_FEATURE_FIELDS, lines.feature);
 		if (feature) kept.feature = feature;
+		const lineMessage = pruneLineMessage(lines.lineMessage);
+		if (lineMessage) kept.lineMessage = lineMessage;
+		const winLevels = pruneMap(lines.winLevels);
+		if (winLevels) kept.winLevels = winLevels;
 		if (Object.keys(kept).length) setKey(next, mode, kept);
 	}
 	return Object.keys(next).length ? next : undefined;

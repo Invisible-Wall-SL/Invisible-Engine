@@ -141,6 +141,8 @@
 	import type { Scene } from 'engine-layout';
 
 	import {
+		activeSpinsGame,
+		spinsGameOf,
 		publishSoundBindings,
 		publishWinPresentation,
 		getActiveGameConfig,
@@ -231,7 +233,7 @@
 	} from '../game/activeRespinMode.svelte';
 	import { stateRespinPark } from '../game/respinHold.svelte';
 	import { publishRespinScreens } from '../game/respinScreens.svelte';
-	import { modeSceneBaseId } from '../game/respinModes';
+	import { modeScreenFor, reservedModeCopies } from '../game/respinModes';
 	import {
 		PLATFORM_JACKPOT_TIERS,
 		platformJackpotValue,
@@ -1092,8 +1094,13 @@
 	// The free-spin counter as an editor scene (the fallback layout ships it, so the `!` is safe + a
 	// no-doc boot is parity) — the coded path's counter; a v2 flow mounts it as a container instead.
 	const fallbackFsCounter = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinCounter')!;
+	// While a spins mode is on top its own counter copy (`freeSpinCounter-<modeId>`) draws, if the
+	// doc has one; otherwise, and on every doc without a spins mode, the base game's.
+	const fsCounterId = $derived(
+		modeScreenFor(editorDoc.scenes, activeSpinsGame()?.mode, 'freeSpinCounter'),
+	);
 	const fsCounterScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'freeSpinCounter') ?? fallbackFsCounter,
+		editorDoc.scenes.find((scene) => scene.id === fsCounterId) ?? fallbackFsCounter,
 	);
 	// Authored BOOK REVEAL (book-reveal authoring). The `specialBook` scene normally carries only
 	// the coded `SpecialBook` bind anchor (the shuffle-through-symbols reference reveal). When an
@@ -1533,14 +1540,14 @@
 			betMenuSceneId(editorDoc.scenes),
 			autoSpinSceneId(editorDoc.scenes),
 			...(flow?.mounter.authoredScreenIds() ?? []),
-			// Each respin mode's own copy of a reserved screen (`featureIntro-<modeId>`, …): reserved by
-			// the screen it copies, or a second mode's tap dim and jackpot banner would always be up.
-			...editorDoc.scenes
-				.filter(
-					(scene) =>
-						respinModeById(scene.modeId) !== undefined && RESERVED_IDS.has(modeSceneBaseId(scene)),
-				)
-				.map((scene) => scene.id),
+			// Each respin or spins mode's own copy of a reserved screen (`featureIntro-<modeId>`,
+			// `freeSpinIntro-<modeId>`, …): reserved by the screen it copies, or a second mode's tap dim,
+			// jackpot banner or free-spin intro would always be up.
+			...reservedModeCopies(
+				editorDoc.scenes,
+				(modeId) => respinModeById(modeId) !== undefined || spinsGameOf(modeId) !== undefined,
+				RESERVED_IDS,
+			),
 		]),
 	);
 	// The author's NEW screens (custom ids, non-background space) the game would otherwise

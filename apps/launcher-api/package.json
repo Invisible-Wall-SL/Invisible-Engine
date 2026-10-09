@@ -118,6 +118,8 @@
 		"check:book-of-migration": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-book-of-migration.ts",
 		"precheck:config-bonus-modes": "node scripts/ensure-svelte-kit.mjs",
 		"check:config-bonus-modes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-config-bonus-modes.ts",
+		"precheck:spins-modes-tools": "node scripts/ensure-svelte-kit.mjs",
+		"check:spins-modes-tools": "tsx --tsconfig tsconfig.scripts.json scripts/check-spins-modes-tools.ts",
 		"precheck:bonus-modes-tools": "node scripts/ensure-svelte-kit.mjs",
 		"check:bonus-modes-tools": "tsx --tsconfig tsconfig.scripts.json scripts/check-bonus-modes-tools.ts",
 		"precheck:flow-bonus-modes": "node scripts/ensure-svelte-kit.mjs",
