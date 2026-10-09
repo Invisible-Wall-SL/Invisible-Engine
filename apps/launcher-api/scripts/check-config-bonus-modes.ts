@@ -41,6 +41,7 @@ import {
 	undealtRouteWarnings,
 	type AddOnResult,
 	type GameConfigDoc,
+	type LegacyBonusKeys,
 	type RawGameConfig,
 } from 'game-config';
 
@@ -267,7 +268,7 @@ console.log('\n2. a lines project: a coin overlay and two respin modes, pot A â†
 	first.holdAndWin!.respins.start = 4;
 	// The control: the edited doc with the stale legacy keys still on it, as a page that held the
 	// pair (one that skipped `openDoc`'s migration) would send it, saved to a copy of the project.
-	const stale: RawGameConfig = {
+	const stale: GameConfigDoc & LegacyBonusKeys = {
 		...clone(live),
 		holdAndWin: primaryHoldAndWin(saved.doc),
 		potsOverlay: potsOverlayOf(saved.doc),
