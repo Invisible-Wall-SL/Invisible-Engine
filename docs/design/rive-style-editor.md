@@ -21,6 +21,10 @@
 > later build **other kinds of games — arcade, match-3** — the way Rive can, so the Flow connection
 > has to be seamless and not slot-shaped. And none of it may break the work and the games we already
 > have. §6 (the component ↔ Flow contract) and §7 (beyond slots) answer that.
+>
+> **Owner direction (2026-10-09, fourth pass):** text handling is critical, and every existing
+> pipeline connection must keep working so all tools still communicate. §8 (text) and §9 (pipeline
+> connections) answer that.
 
 ## 1. The hybrid: what we keep, what we take from Rive
 
@@ -258,8 +262,8 @@ delay, functions, modes. Slot knowledge lives in the per-template **vocabularies
    (`swap`, `onMatch`, `onSettled`). It builds on the existing cascade work (cluster tumble,
    [game-type-templates.md Phase F](game-type-templates.md)) and `reelGridGeometry`.
 
-None of this belongs in the build of §8. It gets its own plan once §8's Phase 7 has shipped. **The
-rule that matters now:** every phase of §8 must stay game-agnostic, so this later work only *adds*.
+None of this belongs in the build of §10. It gets its own plan once §10's Phase 7 has shipped. **The
+rule that matters now:** every phase of §10 must stay game-agnostic, so this later work only *adds*.
 
 ### 7.3 Protecting what exists
 
@@ -273,12 +277,84 @@ rule that matters now:** every phase of §8 must stay game-agnostic, so this lat
 - **Formats only grow.** New fields are optional. Older readers already skip what they don't know,
   as the cinematic evaluator does.
 
-## 8. Phased build (each phase ships, parity-gated)
+## 8. Text: one stack, no new text systems
+
+**Owner direction (2026-10-09):** text handling is critical. Today the game has **one** text stack
+([invisible-cinematic.md §12.2](invisible-cinematic.md)), and this plan keeps it that way:
+
+```
+Scene text node / Text Box  →  font catalog (Font Maker: web + bitmap)  →  key harvested into
+/localization  →  reviewed translations baked  →  engine text resolver swaps by key in game
+```
+
+The rule from that §12.2 applies to everything new here: **a timeline, a state machine or a Flow wire
+never embeds text. It references text the existing stack renders.**
+
+| New thing | How it handles text | Stays in the stack because… |
+|---|---|---|
+| **Node actors** (§3.1) | A timeline animates a text node's transform, alpha and tint, like any node. | The node is still a Scene/component text node: same font, same key, same harvest. |
+| **`text` channel** (§3.1) | Two modes only: **count-up** to a number (a win amount), formatted by the engine's existing number/currency formatting; or **switch key**, a stepped key that picks one of the node's own declared strings. No free text in a key. | A count-up is a number, not a string. Switched-to strings are text on the node, so they are harvested like any other. |
+| **Component text input** (§6.1) | A `text` input carries a **localization key** or a number, never a sentence. | Flow `textMessage` already works this way: its text is the key and is harvested (`origin: 'flow'`). Flow wires to text inputs harvest the same way. |
+| **State machine** | States and transitions hold no text. A state that shows different text plays a timeline that switches key. | Nothing to harvest; ids are internal. |
+| **Rig text** | Unchanged: localized **art** regions per locale (`invisible-cinematic.md` §12.4a), cast into a timeline like any rig. | It is already in the pipeline. |
+| **Shared timelines / components** | Text inside a shared component is harvested per project, as today. | `localizationHarvest.ts` already walks custom-component text. |
+
+What the plan has to add so nothing is missed:
+
+- **Harvest reads timelines.** `localizationHarvest.ts` / `localizationSections.ts` gain a
+  `timeline` source: every switch-key string in a cinematic doc becomes a row (new auto `origin`).
+  Without this, a key used only in an animation would be silently untranslated, which is the exact
+  failure `invisible-cinematic.md` §12.2 warns about.
+- **Fonts ship.** A text node a timeline reveals must still have its font exported. That happens
+  already because the node is in the scene or component; `check:renderable-fonts` keeps proving it.
+- **Editor preview.** Animate mode previews source text, the same as the canvas today. A locale
+  preview toggle is a nice-to-have for the Phase 9 UX pass, not a requirement.
+- **Win Text** keeps owning big-win/count-up presentation (`bakedWinText`). A component that
+  shows a win amount reads the same formatting, so the two never disagree.
+
+## 9. Every pipeline connection keeps working
+
+**Owner direction (2026-10-09):** all tools must still talk to each other exactly as now. This
+plan changes *editing*, not the pipeline. The connections it touches and how each is kept:
+
+| Connection today | Format / path | What this plan does to it |
+|---|---|---|
+| Atlas Maker / Sheet Maker → Scene Editor, Rigger, FX, Flipbook | atlas + region refs | Unchanged. Timelines reference nodes, and nodes keep their region refs. |
+| Rigger → Scene Editor, Cinematic, Symbols | `.irig`, `_shared/spines/` | Unchanged. Rig nodes take `animation` strips, as cinematics already do. |
+| FX → Scene Editor, Rigger, Cinematic cues | `EffectDoc`, `fx:` cues | Unchanged; timeline cues are the same `fx:` cues. |
+| Flipbook → Scene Editor, FX | `FlipbookClip` | Unchanged; the `frame` channel picks frames of the clip the node already has. |
+| Font Maker → every text node | font catalog | Unchanged (§8). |
+| Scene Editor → Flow | screens as containers (`syncFlowContainers`), component events (`containerEvents.ts`) | **Extended only:** instance nodes join them (§6). Existing container pins are untouched. |
+| Component Editor → Scene Editor | `ComponentDef` + version pins + project defaults | **Extended:** optional `interface`, `stateMachine`, listeners. Pins and per-project defaults unchanged. Old instances render exactly as now. |
+| Cinematic → Flow | `playCinematic` | Unchanged; it now plays screen and component timelines too. |
+| Symbols, Win Text, Game Config, Sound, Localization → game | their own docs and bakes | Not touched. |
+| Everything → game | export → `deploy/` → bake → pull → register (`runtimeBundle.ts`, `*Export.ts`) | **No new asset class.** Timelines ride the cinematic export; what they reference is added to `collectArtRefs` (rule 8). |
+| Invisible Director → tools | `director/ops/*.ts` (`scene.ts`, `localization.ts`, …) | Its writes go through the same storage helpers, which keep fields they don't know. Director ops for timelines and state machines are a later addition, not a dependency. |
+| Game Maker publish | published snapshot + flow validation gate | Validation gains the instance-node checks (§6.3). Publish itself is unchanged. |
+| Multi-user saves | ETag-conditional saves, backups, History | New docs and fields use the same `saveDoc` / If-Match / backup path (`pipeline-concurrency` agent reviews each new save path). |
+
+**How this is enforced, per phase** (not by promise):
+
+1. **Formats only grow.** New fields are optional. The existing gates
+   `check:doc-readers-unknown-fields` and `check:save-keeps-unknown-blocks` prove that every
+   reader tolerates unknown fields and every save keeps what it doesn't understand. So an older
+   tool opening a newer doc does not strip the new parts.
+2. **Same storage, same ids.** No R2 path moves. Merging `/components` into `/editor` (Phase 4)
+   changes the page, not where or how a component is stored.
+3. **Gates run before each merge:** `check:all`, the launcher `check:*` gates (`art-scope`,
+   `scene-cues`, `signal-scope`, `flow-publish-gate`, `renderable-fonts`, `pipeline-games`,
+   `project-scaffold`, `win-text-doc`, …), the cinematic rigger-spike gates, and the
+   `regression-guardian` current-games harness (every game still builds, passes and looks the
+   same).
+4. **One tool's change is checked from the other side.** Every phase lists the tools that read
+   what it writes, and its PR shows each of them still loading a doc saved by the new code.
+
+## 10. Phased build (each phase ships, parity-gated)
 
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
-| 0 | **Decisions + ADR** | Owner signs off §10; `invisible-editor.md` §8.7/§17 point here | docs | S |
-| 1 | **Node actors + hosts** | §3.1–3.2 in the format, evaluator and `<Cinematic>` player; existing cinematics byte-identical | `engine-cinematic`, `engine-layout`, rigger-spike gates | M |
+| 0 | **Decisions + ADR** | Owner signs off §12; `invisible-editor.md` §8.7/§17 point here | docs | S |
+| 1 | **Node actors + hosts** | §3.1–3.2 in the format, evaluator and `<Cinematic>` player; existing cinematics byte-identical; localization harvest reads timelines (§8) | `engine-cinematic`, `engine-layout`, rigger-spike gates | M |
 | 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
 | 3 | **Animate a screen** | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
 | 4 | **Components in place** | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor`, `components/+page.svelte` | L |
@@ -300,7 +376,7 @@ build on that one timeline system rather than a new one. Phases 5–7 build the 
 order it is used: what a component accepts, what it reports, then how Flow wires both. Phase 7 is
 the point where a non-slot game becomes possible, so §7's work starts after it.
 
-## 9. Alternatives considered
+## 11. Alternatives considered
 
 - **Embed the real Rive runtime and import `.riv` files.** Rive draws with its own renderer, not
   PixiJS, so it would not share our atlases, rigs, FX, fonts, device layouts or the bake chain.
@@ -311,7 +387,7 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
   re-does a live-verified tool and puts every cinematic gate at risk at once. Extracting the
   existing panel (Phase 2) is lower risk.
 
-## 10. Open decisions (owner)
+## 12. Open decisions (owner)
 
 1. **Lift the `invisible-editor.md` §8.7 deferral** for *component* state machines (screens stay on Flow, §2)?
 2. **Merge `/components` into `/editor`** (Phase 4), or keep two pages that share the new panels?
