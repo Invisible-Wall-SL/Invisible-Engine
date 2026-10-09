@@ -41,7 +41,7 @@ import {
 	zeroPotsRefusal,
 	type AddOnRenames,
 } from './addOns';
-import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol } from './holdAndWin';
+import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol, respinRouteDealt } from './holdAndWin';
 import { symbolsInPlayFromStrips } from './inPlay';
 import {
 	BASE_GAME_MODE,
@@ -67,7 +67,6 @@ import {
 } from './bonusGames';
 import { respinGameTypeFor, respinModeIdProblem } from './bonusModes';
 import { normalizeCoinOverlay, overlayRoutes, type CoinOverlay } from './coinOverlay';
-import { isCoinDrop } from './potsOverlay';
 import type { HoldAndWinGame } from './holdAndWinGame';
 import type { GameConfigDoc, GameConfigSymbol } from './types';
 import type { GameConfigIssue } from './validate';
@@ -483,26 +482,18 @@ const TRIGGER_LABELS = {
 	randomMetre: 'random metre',
 } as const;
 
-/** The kind whose mock deals every route to a respin mode (bonus-games Phase 2: decided by KIND). */
-const HOLD_AND_WIN_KIND = 'holdAndWin';
-
 /**
- * Why `route` would not start a respin mode in a project of kind `hostKind`, or `undefined` when its
- * mock deals it. Only the Hold and Win kind's mock deals every route; on any other kind the coin
- * overlay composes over the host's own mock and starts a respin mode only from a full pot or from
- * enough dropped value coins (the count trigger). A route that saves but never plays is refused —
- * the dialog lists only the routes this passes. Phase 7 lifts it with the deal decision on the doc.
+ * Why `route` would not start a respin mode in `doc`, a project of kind `hostKind`, or `undefined`
+ * when its mock deals it (`respinRouteDealt`, bonus-games Phase 7a: the base engine comes from the
+ * kind, the coin overlay composes over any of them). A route that saves but never plays is refused —
+ * the dialog lists only the routes this passes.
  */
 export function modeRouteRefusal(
-	doc: Pick<GameConfigDoc, 'coinOverlay' | 'potsOverlay' | 'holdAndWin' | 'modes'>,
+	doc: GameConfigDoc,
 	route: ModeRoute,
 	hostKind: string | undefined,
 ): string | undefined {
-	if (hostKind === HOLD_AND_WIN_KIND) return undefined;
-	if (route.kind === 'pot') return undefined;
-	const drops = legacyPotsOverlay(doc)?.drops;
-	if (route.kind === 'count' && drops?.table.some(isCoinDrop)) return undefined;
-	return 'On this game only a pot (or dropped value coins) starts a Hold and Win: route a pot to it — buy and trigger routes on a lines game arrive in Phase 7.';
+	return respinRouteDealt(doc, route.kind, hostKind);
 }
 
 /**
@@ -524,7 +515,7 @@ export function undealtRouteWarnings(doc: GameConfigDoc, hostKind: string): Game
 					{
 						severity: 'warning',
 						path: `coinOverlay.${entry.path}`,
-						message: `It starts "${entry.mode}", which this game does not play from it yet. ${why}`,
+						message: `It starts "${entry.mode}", which this game does not play from it. ${why}`,
 					},
 				]
 			: [];
@@ -724,10 +715,7 @@ export function importRespinMode(
 	) {
 		return {
 			ok: false,
-			reason:
-				opts.hostKind === HOLD_AND_WIN_KIND || legacyPotsOverlay(next)?.pots.length
-					? `"${id}" would be this project's only Hold and Win, so something must start it: pick a pot, a trigger or a buy tier.`
-					: `"${id}" would be this project's only Hold and Win, so something must start it, and on this game only a pot can. Add a coin overlay with pots first (＋ Coin overlay… → 3 Pots).`,
+			reason: `"${id}" would be this project's only Hold and Win, so something must start it: pick a pot, a trigger or a buy tier.`,
 		};
 	}
 	// A pot that starts it with a special its rules (re-synced) no longer deal starts it plain.

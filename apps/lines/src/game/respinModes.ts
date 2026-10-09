@@ -66,6 +66,34 @@ export const jackpotTier = (
 	);
 };
 
+/** The respin mode whose `tier` {@link jackpotTier} shows: the active one, else the first that has it. */
+export const jackpotTierMode = (
+	modes: readonly RespinModeRules[],
+	active: RespinModeRules | undefined,
+	tier: string,
+): RespinModeRules | undefined => {
+	const named = ({ name }: { name: string }) => name.toLowerCase() === tier.toLowerCase();
+	return active?.block.jackpots.some(named)
+		? active
+		: modes.find((m) => m.block.jackpots.some(named));
+};
+
+/**
+ * `tier`'s pool for `mode` among the server's `levels`: the entry the server tagged with that mode
+ * (a tier name progressive in several modes keeps a pool per mode), else the one shared by name.
+ */
+export const poolLevel = <T extends { name: string; mode?: string }>(
+	levels: readonly T[],
+	tier: string,
+	mode: string | undefined,
+): T | undefined => {
+	const named = (level: T) => level.name.toLowerCase() === tier.toLowerCase();
+	return (
+		levels.find((level) => named(level) && level.mode !== undefined && level.mode === mode) ??
+		levels.find((level) => named(level) && level.mode === undefined)
+	);
+};
+
 /** A scene's id without its mode's `-<modeId>` suffix — the reference screen it is a copy of. */
 export const modeSceneBaseId = (scene: Pick<Scene, 'id' | 'modeId'>): string => {
 	const suffix = scene.modeId ? `-${scene.modeId}` : '';

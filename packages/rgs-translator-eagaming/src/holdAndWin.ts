@@ -131,15 +131,16 @@ export const readBootMeterLevels = (cfg: unknown): HoldAndWinMeterLevel[] => {
 	});
 };
 
-/** A progressive tier's pool as the engine reads it (`HoldAndWinJackpotLevel` in engine-game). */
-export type HoldAndWinJackpotLevel = { name: string; value: number };
+/** A progressive tier's pool as the engine reads it (`HoldAndWinJackpotLevel` in engine-game):
+ *  `mode` names its respin mode when a tier name keeps a pool per mode, else it is shared by name. */
+export type HoldAndWinJackpotLevel = { name: string; value: number; mode?: string };
 
 const jackpotLevelsOf = (raw: unknown): HoldAndWinJackpotLevel[] =>
 	Array.isArray(raw)
 		? raw.flatMap((entry: unknown) => {
-				const { name, value } = (entry ?? {}) as Record<string, unknown>;
+				const { name, value, mode } = (entry ?? {}) as Record<string, unknown>;
 				return typeof name === 'string' && name && typeof value === 'number' && value > 0
-					? [{ name, value }]
+					? [{ name, value, ...(typeof mode === 'string' && mode ? { mode } : {}) }]
 					: [];
 			})
 		: [];
@@ -152,9 +153,31 @@ const jackpotLevelsOf = (raw: unknown): HoldAndWinJackpotLevel[] =>
 export const readBootJackpotLevels = (cfg: unknown): HoldAndWinJackpotLevel[] => {
 	const block = (cfg as { holdAndWin?: { wire?: unknown; jackpots?: unknown } } | null)?.holdAndWin;
 	if (!block || block.wire !== HOLD_AND_WIN_WIRE || !Array.isArray(block.jackpots)) return [];
-	return jackpotLevelsOf(
-		block.jackpots.filter((j: unknown) => (j as { progressive?: unknown })?.progressive === true),
+	const progressive = (jackpots: unknown) =>
+		jackpotLevelsOf(
+			Array.isArray(jackpots)
+				? jackpots.filter((j: unknown) => (j as { progressive?: unknown })?.progressive === true)
+				: [],
+		);
+	const shared = progressive(block.jackpots);
+	// A tier name progressive in several `bonusModes` keeps a pool per mode: each mode's own value.
+	const perMode = (
+		Array.isArray((cfg as { bonusModes?: unknown }).bonusModes)
+			? ((cfg as { bonusModes: unknown[] }).bonusModes as { mode?: unknown; jackpots?: unknown }[])
+			: []
+	).flatMap((entry) =>
+		typeof entry?.mode === 'string' && entry.mode
+			? progressive(entry.jackpots).map((level) => ({ ...level, mode: entry.mode as string }))
+			: [],
 	);
+	const split = new Set(
+		perMode.map((level) => level.name).filter((name, i, names) => names.indexOf(name) !== i),
+	);
+	if (!split.size) return shared;
+	return [
+		...shared.filter((level) => !split.has(level.name)),
+		...perMode.filter((level) => split.has(level.name)),
+	];
 };
 
 /** A `jackpotLevels` answer's pools (an event's context, a heartbeat's included). */
@@ -170,12 +193,18 @@ export const applyJackpotLevels = (hw: HoldAndWinWireConfig, levels: HoldAndWinJ
 };
 
 /**
- * Move a `jackpotLevels` answer's pools into every respin mode with a progressive tier of that name.
- * The wire names no mode on it: a pool is shared by tier name across modes, as the mock deals it.
- * Per-mode pools would need `mode` on `jackpotLevels` (an open item for Phase 7).
+ * Move a `jackpotLevels` answer's pools into the respin modes they belong to: an entry naming a
+ * `mode` moves that mode's tier only (a tier name progressive in several modes keeps a pool per
+ * mode); one naming none moves the tier of that name in every mode, shared by name as the mock deals
+ * every other pool.
  */
 export const applyPools = (respin: HoldAndWinModes, levels: HoldAndWinJackpotLevel[]): void => {
-	for (const hw of respin.modes.values()) applyJackpotLevels(hw, levels);
+	for (const [mode, hw] of respin.modes) {
+		applyJackpotLevels(
+			hw,
+			levels.filter((level) => level.mode === undefined || level.mode === mode),
+		);
+	}
 };
 
 /** The respin mode whose own `bonus` key a `spinTrigger` names that the overlay's `bonuses` does not

@@ -9,6 +9,7 @@
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		addPotsOverlay,
+		coinEntryLabel,
 		holdAndWinIsOverlayBonus,
 		isCoinDrop,
 		overlayDropModes,
@@ -26,6 +27,7 @@
 		type CoinOverlay,
 		type CoinOverlayStyle,
 		type CoinOverlayTrigger,
+		type CoinValueEntry,
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type HoldAndWinSpecial,
@@ -381,6 +383,29 @@
 	}
 
 	// ── base game ──────────────────────────────────────────────────────────────────────────────
+	/** Every jackpot tier a respin mode has, once each: what a base-game jackpot coin can name. */
+	const tierNames = $derived([
+		...new Set(respinModes.flatMap((m) => m.holdAndWin?.jackpots.map((j) => j.name) ?? [])),
+	]);
+	/** The base game's own coin values, starting from the primary respin mode's table. */
+	function ownBaseCoins(overlay: CoinOverlay) {
+		const table = rulesOf(defaultMode)?.coins ?? [];
+		overlay.coins = table.length
+			? $state.snapshot(table).map(({ reels: _reels, ...entry }) => entry)
+			: [{ kind: 'cash', value: 1, weight: 1 }];
+	}
+	function setBaseCoinKind(overlay: CoinOverlay, i: number, kind: string) {
+		const entry = overlay.coins![i];
+		overlay.coins![i] =
+			kind === 'jackpot'
+				? { kind: 'jackpot', jackpot: tierNames[0] ?? '', weight: entry.weight }
+				: { kind: 'cash', value: 1, weight: entry.weight };
+	}
+	const baseCoinShare = (entry: CoinValueEntry, coins: CoinValueEntry[]) => {
+		const total = coins.reduce((sum, c) => sum + c.weight, 0);
+		return total > 0 ? `${((entry.weight / total) * 100).toFixed(1)}%` : '—';
+	};
+
 	/** Sparse, as the normalizer stores it: a flag is present only while it is on. */
 	function setFlag(
 		overlay: CoinOverlay,
@@ -898,6 +923,95 @@
 				</div>
 			{/each}
 		{/if}
+		<span class="legend"
+			>Coin values in the base game <em>on the base reels, and the value coins that drop</em></span
+		>
+		{#if !overlay.coins}
+			<div class="row tight">
+				<span class="note">the coin table of the respin mode the coins start</span>
+				<button class="small" onclick={() => ownBaseCoins(overlay)}>Set the base game's own</button>
+			</div>
+		{:else}
+			<table class="tbl">
+				<thead>
+					<tr><th>Shows</th><th>Kind</th><th>Value</th><th>Weight</th><th></th></tr>
+				</thead>
+				<tbody>
+					{#each overlay.coins as entry, i (i)}
+						<tr>
+							<td><span class="chip">{coinEntryLabel(entry)}</span></td>
+							<td
+								><select
+									value={entry.kind}
+									onchange={(e) => setBaseCoinKind(overlay, i, e.currentTarget.value)}
+								>
+									<option value="cash">cash</option>
+									<option value="jackpot" disabled={!tierNames.length}>jackpot</option>
+								</select></td
+							>
+							<td>
+								{#if entry.kind === 'cash'}
+									<input
+										type="number"
+										min="0"
+										step="0.5"
+										value={entry.value}
+										oninput={num((n) => n > 0 && (entry.value = n))}
+									/>
+								{:else}
+									<select
+										value={entry.jackpot}
+										onchange={(e) => (entry.jackpot = e.currentTarget.value)}
+									>
+										{#each tierNames as name (name)}
+											<option value={name}>{name}</option>
+										{/each}
+										{#if !tierNames.includes(entry.jackpot)}
+											<option value={entry.jackpot}>{entry.jackpot || '(none)'} — not a tier</option
+											>
+										{/if}
+									</select>
+								{/if}
+							</td>
+							<td class="weight"
+								><input
+									type="number"
+									min="0"
+									step="any"
+									value={entry.weight}
+									oninput={num((n) => n >= 0 && (entry.weight = n))}
+								/><span class="note">{baseCoinShare(entry, overlay.coins)}</span></td
+							>
+							<td
+								><button
+									class="del"
+									title="Remove"
+									disabled={overlay.coins.length === 1}
+									onclick={() => overlay.coins!.splice(i, 1)}>×</button
+								></td
+							>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+			<div class="row">
+				<button
+					class="small"
+					onclick={() => overlay.coins!.push({ kind: 'cash', value: 1, weight: 1 })}
+					>+ cash coin</button
+				>
+				<button
+					class="small"
+					disabled={!tierNames.length}
+					onclick={() =>
+						overlay.coins!.push({ kind: 'jackpot', jackpot: tierNames[0] ?? '', weight: 1 })}
+					>+ jackpot coin</button
+				>
+				<button class="small" onclick={() => delete overlay.coins}
+					>Use the respin mode's table</button
+				>
+			</div>
+		{/if}
 		{@render issueLines([...issuesAt('coinOverlay.coins'), ...issuesFor('coinOverlay.baseGame')])}
 	</fieldset>
 {/snippet}
@@ -1229,7 +1343,7 @@
 		</div>
 	{/if}
 	{#if doc.coinOverlay}
-		{#if configuredKinds.length || issuesFor('coinOverlay.coins').length}
+		{#if respinModes.length || issuesFor('coinOverlay.coins').length}
 			{@render baseGameEditor(doc.coinOverlay)}
 		{/if}
 		{@render triggersEditor(doc.coinOverlay)}
