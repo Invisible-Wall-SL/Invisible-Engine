@@ -363,7 +363,7 @@ const linesWithWild = (() => {
 })();
 const pots = saved(HOLD_AND_WIN_PRESETS.pots);
 /** The pots preset's meter that MULTI fills. */
-const multiMeter = pots.holdAndWin?.meters?.find((meter) => meter.symbol === 'MULTI')?.id;
+const multiMeter = primaryHoldAndWin(pots)?.meters?.find((meter) => meter.symbol === 'MULTI')?.id;
 if (!multiMeter) throw new Error('the pots preset has no meter MULTI fills');
 /** A Book-of game with the 3 Pots overlay, its blank renamed so the respin board's empty cell is a
  *  name of the project's own, and L1–L4 off its strips: only TEN is left of the royals. */
@@ -511,7 +511,7 @@ const checkDrawn = (label: string, seen: Seen, config: GameConfigDoc): void => {
 		Boolean(seen.boot?.symbols?.length) && !strays.length,
 		`declared ${JSON.stringify(seen.boot?.symbols)}, drawn as ${JSON.stringify(drawnAs(seen.boot))}`,
 	);
-	if (config.holdAndWin) {
+	if (primaryHoldAndWin(config)) {
 		check(
 			`${label} · the client's respin blank is the one the server declares`,
 			seen.boot?.holdAndWin?.blank === holdAndWinBlankSymbol(config),

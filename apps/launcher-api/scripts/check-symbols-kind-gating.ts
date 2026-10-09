@@ -36,6 +36,7 @@ import {
 import {
 	bookOfThermopylaePreset,
 	HOLD_AND_WIN_PRESETS,
+	migrateLegacyBonus,
 	normalizeGameConfigDoc,
 	potsOverlayPreset,
 	symbolHoldAndWinRoles,
@@ -289,20 +290,22 @@ check(
 		{ meterIds: [], tokens: {} },
 	],
 );
+// The presets are stored in the legacy shape; the tools read them normalized.
 for (const [presetId, preset] of Object.entries(HOLD_AND_WIN_PRESETS)) {
+	const doc = normalizeGameConfigDoc(structuredClone(preset));
 	const meterIds = (preset.holdAndWin?.meters ?? []).map((meter) => meter.id);
-	check(`${presetId} · Hold and Win meters only, no token rows`, meterRows(preset), {
+	check(`${presetId} · Hold and Win meters only, no token rows`, meterRows(doc), {
 		meterIds,
 		tokens: {},
 	});
-	check(`${presetId} · add-ons`, projectAddOns(preset).addOns, {
+	check(`${presetId} · add-ons`, projectAddOns(doc).addOns, {
 		holdAndWin: !!preset.holdAndWin,
 		potsOverlay: false,
 		expandingSymbol: false,
 	});
 }
 const threePots = potsOverlayPreset('threePots');
-const borutPotsDoc = { potsOverlay: threePots.potsOverlay };
+const borutPotsDoc = migrateLegacyBonus({ potsOverlay: threePots.potsOverlay });
 check('threePots overlay · add-ons', projectAddOns(borutPotsDoc).addOns, {
 	holdAndWin: false,
 	potsOverlay: true,
@@ -332,10 +335,10 @@ check('threePots overlay · a token row per pot, every pot a meter', meterRows(b
 	meterIds: ['red', 'blue', 'green'],
 	tokens: { POT_RED: ['red'], POT_BLUE: ['blue'], POT_GREEN: ['green'] },
 });
-const hwWithOverlay = {
+const hwWithOverlay = migrateLegacyBonus({
 	holdAndWin: HOLD_AND_WIN_PRESETS.classic.holdAndWin,
 	potsOverlay: potsOverlayPreset('potsToFreeSpins').potsOverlay,
-};
+});
 check(
 	'Hold and Win + overlay · the block meters first, then the overlay pot',
 	meterRows(hwWithOverlay),

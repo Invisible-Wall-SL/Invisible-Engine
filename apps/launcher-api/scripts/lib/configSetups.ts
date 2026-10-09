@@ -100,7 +100,7 @@ export function setups(kind: string): Array<{ label: string; stored: Stored }> {
 	}
 	const host = addPotsOverlay(template, 'potsToFreeSpins');
 	if (host.ok && !primaryHoldAndWin(host.doc)) {
-		const imported = importBonus(host.doc, HOLD_AND_WIN_PRESETS.classic, {
+		const imported = importBonus(host.doc, saved(HOLD_AND_WIN_PRESETS.classic), {
 			project: 'source',
 			mode: 'holdAndWin',
 			at: '2026-10-07T00:00:00.000Z',

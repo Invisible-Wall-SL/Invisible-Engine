@@ -106,18 +106,22 @@ for (const file of files) {
 	const normalized = normalizeGameConfigDoc(
 		JSON.parse(readFileSync(new URL(file, DEFAULTS), 'utf8')),
 	) as GameConfigDoc;
-	// The pins predate the split form (`coinOverlay`, the declared respin mode): its legacy views stand
-	// where the mirror was stored, so the bonus is pinned too; everything else is pinned as it was.
+	// The pins predate the split form (`coinOverlay`, the declared respin mode): its legacy views
+	// stand where the mirror was stored, so the bonus is pinned too; the rest is pinned as it was.
 	const { modes } = normalized;
 	const others = modes?.filter((m) => m.id !== 'holdAndWin');
-	const legacy = Object.entries({
+	const legacy: [string, unknown][] = Object.entries({
 		holdAndWin: primaryHoldAndWin(normalized),
 		potsOverlay: potsOverlayOf(normalized),
 	}).filter(([, block]) => block);
-	check(`${file}: stores no legacy key`, ['holdAndWin', 'potsOverlay'].filter((k) => k in normalized), []); // prettier-ignore
+	check(
+		`${file}: stores no legacy key`,
+		['holdAndWin', 'potsOverlay'].filter((k) => k in normalized),
+		[],
+	);
 	check(`${file}: a bonus has its overlay`, !legacy.length || 'coinOverlay' in normalized, true);
 	const rest = Object.fromEntries(
-		Object.entries(normalized).flatMap(([key, value]) =>
+		Object.entries(normalized).flatMap(([key, value]): [string, unknown][] =>
 			key === 'coinOverlay' ? legacy : key === 'modes' ? [] : [[key, value]],
 		),
 	);
