@@ -1,4 +1,11 @@
-import { splitFormOf, type GameConfigDoc, type HoldAndWinGame, type RespinPlay } from 'game-config';
+import {
+	gameTypeForMode,
+	splitFormOf,
+	stripWidthFor,
+	type GameConfigDoc,
+	type HoldAndWinGame,
+	type RespinPlay,
+} from 'game-config';
 
 /**
  * How `/config` shapes the doc it edits and the doc it saves. The page is a writer of the SPLIT FORM
@@ -23,3 +30,19 @@ export const setRespinPlay = (rules: HoldAndWinGame, play: RespinPlay): void => 
 	if (play === 'manual') rules.play = 'manual';
 	else delete rules.play;
 };
+
+/** The strip sets as wide as the base grid: every one but a spins mode's on a grid of its own
+ *  (bonus-games Phase 8b), which follow that grid and are never grown or cut to the base one. */
+export const baseWidthGameTypes = (doc: GameConfigDoc): string[] => {
+	const own = new Set(
+		(doc.modes ?? []).filter((m) => m.spins?.numReels !== undefined).map(gameTypeForMode),
+	);
+	return Object.keys(doc.paddingReels).filter((g) => !own.has(g));
+};
+
+/** Any strip set not as wide as its own grid (`stripWidthFor`), or a payline not as wide as the base
+ *  grid: what the Grid's "Match grid" fixes. */
+export const gridMismatch = (doc: GameConfigDoc): boolean =>
+	Object.keys(doc.paddingReels).some(
+		(g) => (doc.paddingReels[g]?.length ?? 0) !== stripWidthFor(doc, g),
+	) || Object.keys(doc.paylines).some((id) => doc.paylines[id].length !== doc.numReels);

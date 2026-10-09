@@ -58,11 +58,13 @@ import {
 	type WinTextModeLines,
 } from 'engine-layout';
 import {
+	BASE_GAME_MODE,
 	HOLD_AND_WIN_MODE,
 	bonusImportOf,
 	gameModeById,
 	importBonus,
 	importRespinMode,
+	importSpinsMode,
 	importableFeatures,
 	respinModeBlocks,
 	resyncBonus,
@@ -946,7 +948,9 @@ async function sourceConfigOf(client: string, source: string): Promise<GameConfi
 /** What a same-client source project offers to import, or why it cannot be read. */
 export async function sourceFeatures(client: string, source: string) {
 	const config = await sourceConfigOf(client, source);
-	return typeof config === 'string' ? { error: config } : { features: importableFeatures(config) };
+	return typeof config === 'string'
+		? { error: config }
+		: { features: importableFeatures(config, await projectGameType(source)) };
 }
 
 /**
@@ -1024,32 +1028,47 @@ export async function applyBonusImport(
 		return { ok: false, status: 409, error: sourceConfig };
 	}
 	const at = opts.at ?? new Date().toISOString();
+	// A source's base game arrives as a spins mode of its own (bonus-games Phase 8b): no screens, Flow
+	// tab or Win Text of its own to copy yet, so only its symbols travel with the config.
+	const spins = record
+		? record.importedFrom.mode === BASE_GAME_MODE
+		: opts.asMode === true && opts.mode === BASE_GAME_MODE;
 	const asMode =
-		record?.asMode === true ||
-		(!record &&
-			opts.asMode === true &&
-			gameModeById(sourceConfig, opts.mode)?.board === 'respinBoard');
+		!spins &&
+		(record?.asMode === true ||
+			(!record &&
+				opts.asMode === true &&
+				gameModeById(sourceConfig, opts.mode)?.board === 'respinBoard'));
 	const result: ImportResult = record
 		? resyncBonus(resolved.doc, sourceConfig, opts.mode, at)
-		: asMode
-			? importRespinMode(resolved.doc, sourceConfig, {
+		: spins
+			? importSpinsMode(resolved.doc, sourceConfig, {
 					hostKind,
+					sourceKind: await projectGameType(source),
 					project: source,
 					mode: opts.mode,
 					at,
 					routes: opts.routes,
 				})
-			: opts.asMode && opts.routes?.some((r) => r.kind !== 'pot')
-				? { ok: false, reason: 'A free-spins mode is started only by a pot.' }
-				: importBonus(resolved.doc, sourceConfig, {
+			: asMode
+				? importRespinMode(resolved.doc, sourceConfig, {
+						hostKind,
 						project: source,
 						mode: opts.mode,
 						at,
-						replace: opts.replace === true,
-						pots: opts.asMode
-							? opts.routes?.flatMap((r) => (r.kind === 'pot' ? [r.pot] : []))
-							: opts.pots,
-					});
+						routes: opts.routes,
+					})
+				: opts.asMode && opts.routes?.some((r) => r.kind !== 'pot')
+					? { ok: false, reason: 'A free-spins mode is started only by a pot.' }
+					: importBonus(resolved.doc, sourceConfig, {
+							project: source,
+							mode: opts.mode,
+							at,
+							replace: opts.replace === true,
+							pots: opts.asMode
+								? opts.routes?.flatMap((r) => (r.kind === 'pot' ? [r.pot] : []))
+								: opts.pots,
+						});
 	if (!result.ok) return { ok: false, status: 409, error: result.reason };
 
 	let saved: GameConfigDoc;
@@ -1098,9 +1117,14 @@ export async function applyBonusImport(
 		modeLabel: saved.modes?.find((m) => m.id === result.mode)?.label ?? result.mode,
 	};
 	const symbols = await guarded(() => importSymbols(ctx, saved));
-	const layout = await guarded(() => importLayout(ctx));
-	const flow = await guarded(() => importFlow(ctx));
-	const winText = await guarded(() => importWinText(ctx));
+	const notYet = part(
+		'present',
+		[],
+		'A spins mode brings no screens, Flow tab or Win Text: it plays on the base screens.',
+	);
+	const layout = spins ? notYet : await guarded(() => importLayout(ctx));
+	const flow = spins ? notYet : await guarded(() => importFlow(ctx));
+	const winText = spins ? notYet : await guarded(() => importWinText(ctx));
 	const failed = [...ctx.spines].filter(([, why]) => why !== null);
 	const promoted = [...ctx.spines]
 		.filter(([, why]) => why === null)

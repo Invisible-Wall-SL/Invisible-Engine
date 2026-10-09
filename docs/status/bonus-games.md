@@ -40,7 +40,7 @@ starts the phase sessions, reviews their PRs and merges them.
 | 6b | Plain Hold and Win template (no pots, jackpots optional) | merged (2443c28) | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
 | 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
 | 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
-| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | not started | — | — |
+| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | in review | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
 | 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | in review | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
 | 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | not started (needs 8b, 8c) | — | — |
 | 7c | Migrate and prove the samples (needs R2 + a browser) | not started (needs 7b) | — | — |
@@ -568,6 +568,62 @@ starts the phase sessions, reviews their PRs and merges them.
   - **For 7c:** `check:deal-parity` lists every shape a current game has. A sample migrated in 7c
     belongs there with its stored kind.
 
+- 2026-10-09 — **Phase 8b: spins modes in `/config` and Game Maker; self-contained overlay presets**
+  (hub to confirm the two marked decisions).
+  - **Writers live in game-config `spinsModes.ts`:** `addSpinsMode`, `removeSpinsMode`,
+    `setSpinsGrid`, `stripWidthFor`, `stripsToWidth`, `spinsWinModelFor`, `freeSpinsModeId`. They
+    are `/config`'s and the import's only; 8c needs none of them. `reroutePots` is now exported from
+    `bonusModes.ts`, and `spinsGamesRefusal(kind)` sits beside `spinsModeKindIssues` in `modes.ts`.
+  - **A new spins mode** is `spinsBonus` (then `_2`…), its game type its id, 10 spins, the base
+    strips copied, every other field the host's (sparse). Strips follow the mode's own grid: the base
+    grid's grow / Match grid never touch them (`pageDoc.ts` `baseWidthGameTypes`, `gridMismatch`).
+  - **A base game imported as a spins mode** (`importSpinsMode`): the base game is now the first
+    `importableFeatures` entry of every source (`spins: true`). It copies `winModel` (stored even when
+    `lines`), `numReels` / `numRows`, `paylines` (a lines game's) and the pays of every symbol its
+    strips deal, explicitly. Every symbol name the host already uses takes `_2`, as
+    `importRespinMode` does (no identical-entry sharing, so the art stays the source's). The copied
+    symbols carry no `paytable` (the pays live in `spins.paytable`), so the host's info paytable
+    never lists them. The record is `importedFrom.mode: 'basegame'`, `asMode`, `wroteAs`. Re-sync
+    replaces only the mode's game and keeps every other field of it (label, HUD, music, counter,
+    values, the spin count set here), the names and every route. Routes: a pot, a buy, Lucky Spin or
+    the random metre (`SPINS_MODE_ROUTE_KINDS`, which the Game Maker dialog also reads). Refused on a
+    Hold and Win or Book-of host, and for a Hold and Win or Book-of SOURCE (`spinsSourceRefusal`;
+    `importableFeatures(source, sourceKind)` lists its base game as refused).
+  - **It brings no screens, Flow tab or Win Text** (the import reports say so): it plays on the
+    host's screens. **For 8c:** a spins mode added this way (or in `/config`) has no
+    `<ref>-<modeId>` screens and no Flow tab; 8c's seeding should cover one that has none.
+  - **Overlay presets.** `PotsOverlayPreset.style`: 3 Pots sets `pots`, the new **Collector** preset
+    (`collector`, appended to `POTS_OVERLAY_PRESET_IDS`) sets `collector`: one `green` pot whose
+    full pot starts the Collector Hold and Win with its collector on. On a host with its own Hold
+    and Win rules, a preset brings each special that the pots it keeps start and the rules lack
+    (`bringPotSpecials`): the respin rules from the preset's Hold and Win, its place in the apply
+    order, its symbol (renamed on a clash) and one cell of it on each respin strip. The preset's
+    style replaces the host's only when the add-on built that Hold and Win or brought a special, so
+    an overlay over a bonus that already deals its specials keeps the style it had (hub review).
+  - **Decision (hub to confirm): Classic stays refused on a Hold and Win base.** That game is the
+    Classic style already. Letting dropped coins count toward its own count would need the
+    `potsOverlay` validator's `coinsAlone` error and `zeroPotsRefusal` changed; that belongs with 7b.
+    So the plain template is offered 3 Pots, Pots to free spins and Collector, and the dialog says
+    why Classic is not.
+  - **Decision (hub to confirm): deal-parity's "Hold and Win kind whose overlay drops tokens"** is
+    built by the add-on, which now also brings the payer and collector. The gate rebuilds main's doc
+    (`threePotsOnClassicAsMain`, Classic's style restored). Its doc is pinned byte for byte against
+    main 4067dfb's `normalize(addPotsOverlay(classic, 'threePots'))`, and it reproduces main's deal
+    digests exactly, so no shape moved.
+  - **Parity:** every add-on result that was clean on main is byte-identical (`check:bonus-authoring`
+    §4): 112 template × preset × pot count cases, and 75 cases of a lines / Book-of / ways host with
+    a Hold and Win bonus added before or after the overlay (measured on main 4067dfb). The 20
+    template cases that changed (3 Pots on Classic, Collector, plain and plain without jackpots,
+    × 5 counts) were not clean on main.
+  - **For 7b:**
+    - `bringPotSpecials` edits the legacy pair, as every `addOns.ts` writer does.
+    - The presets route their pots to `HOLD_AND_WIN_MODE`; a host whose primary respin mode has
+      another id would orphan them (as before 8b).
+    - `removePotsOverlay` takes out every import that is not `holdAndWin`, including one added as a
+      mode of its own and started by a buy (as before 8b).
+    - The legacy-only read of a Collector overlay infers style `pots` (`bonusGames.fixture`); the
+      style lives on the split form only.
+
 - 2026-10-09 — **Phase 8c: what a spins mode is in the tools** (PR #1155; for 8b, 7b and 7c).
   - **Screens.** A spins mode copies the kind's three free-spin screens (`SPINS_MODE_SCREENS`:
     `freeSpinIntro`, `freeSpinCounter`, `freeSpinOutro`) as `<screen>-<modeId>`, `role: 'mode'` +
@@ -638,6 +694,47 @@ starts the phase sessions, reviews their PRs and merges them.
 
 ## Recent changes
 
+- 2026-10-09 — **Phase 8b: spins modes in `/config` and Game Maker; self-contained overlay presets**
+  (PR #1156; game-config `spinsModes.ts`, `imports.ts`, `addOns.ts`, `potsOverlayPresets.ts`,
+  `modes.ts`; `/config` `BonusModesSection`, new `SpinsModeEditor`, `CoinOverlaySection`,
+  `pageDoc.ts`, `+page.svelte`; Game Maker `+page.svelte`, `projectBonusImport.ts`,
+  `potsOverlayAddOn.ts`; guides `docs/tools/game-config.md`, `game-maker.md`).
+  - **What landed:** "Phase 8b" in Decisions & findings.
+    - `/config` → Bonus modes: add / edit / remove a spins mode (spins, game, own grid, own
+      paylines, own pays, strips). The buy, Lucky Spin and random-metre pickers offer spins modes;
+      the count, pattern and meters don't.
+    - Game Maker → Add a bonus mode…: any same-client project's base game, as a self-contained
+      spins mode, with re-sync.
+    - ＋ Coin overlay…: 3 Pots and the new Collector preset add cleanly to the plain Hold and Win
+      template and deal.
+  - **Gates:**
+    - New `pnpm --filter launcher-api check:bonus-authoring`, 17/17:
+      - every committed default saves and reloads byte-identically, measured on the base grid;
+      - a cluster spins mode on its own 7×7 grid, saved, bought and played (4 spins on 7×7, paid by
+        clusters); Hold and Win / Book-of kinds refuse it; a coin count may not start it; removing it
+        gives the doc back;
+      - lines base game of A into a ways B, bought on B (10 spins on A's 5×3, paid on A's lines);
+        re-sync after an edit to A; Hold and Win host and coin-count route refused;
+      - 3 Pots and Collector on the plain Hold and Win and the plain lines templates, each pot dealing
+        its Hold and Win with its special active;
+      - a Hold and Win / Book-of source refused; re-sync keeping the mode's music, values, counter
+        and label; the imported symbols carrying no pays;
+      - add-on parity with main (112 + 75 cases); 3 Pots keeping one pot brings only its special.
+    - Mutation-tested: 18 code removals (specials not brought, strips measured on the base grid, no
+      pays / grid / paylines copied, re-sync branch, strip resize, preset style, Collector's special,
+      remove keeping strips, the launcher's spins branch, the kind refusal, `baseWidthGameTypes`;
+      after the hub review: style on every host, specials from every pot, re-sync rebuilding the
+      mode, symbols keeping their pays, the source refusal) each turn it red.
+    - `check:holdandwin` 2078 + 428, `check:pots-overlay` 112: `MAIN_DIGESTS` unchanged.
+    - `check:deal-parity` passes with no new changed shape; `check:spins-modes` 54,
+      `check:spins-modes-contract` 15, `check:respin-modes` 220, `check:add-bonus-mode`,
+      `check:freespins`, `check:pots-overlay-add-on`, `check:bonus-import`, `check:config-bonus-modes`
+      pass.
+    - Root `pnpm check:all`: 427/427.
+    - `check:svelte` at baseline (launcher-api 48, engine-game 36, lines 163). ESLint and Prettier
+      clean on the touched code.
+  - **Not run here:** a browser pass of the new `/config` panel and the Game Maker dialogs (no R2 in
+    this container). CI's Current games renders the games.
 - 2026-10-09 — **Phase 8c: spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the
   info page** (PR #1155; `engine-layout` `referenceLayouts`, `restingScenes`, `winText`;
   `engine-flow-v2` `drivenSeed`, `addOns`; `engine-game` `gameConfig`; game-config `flowAddOns`;

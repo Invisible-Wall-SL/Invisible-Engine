@@ -40,7 +40,10 @@
 		symbolsInPlay,
 		symbolsUsed,
 		symbolUses,
+		spinsGamesRefusal,
 		spinsModeKindIssues,
+		stripWidthFor,
+		stripsToWidth,
 		undealtRouteWarnings,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -67,7 +70,13 @@
 	import BonusModesSection from './BonusModesSection.svelte';
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
-	import { adoptSaved, bodyFor, openDoc } from './pageDoc';
+	import {
+		adoptSaved,
+		baseWidthGameTypes,
+		bodyFor,
+		gridMismatch as gridMismatchOf,
+		openDoc,
+	} from './pageDoc';
 	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
@@ -207,7 +216,7 @@
 	 */
 	function growGridToWidth() {
 		const n = doc.numReels;
-		for (const key of Object.keys(doc.paddingReels)) {
+		for (const key of baseWidthGameTypes(doc)) {
 			const strips = doc.paddingReels[key];
 			const template = strips[strips.length - 1] ?? [];
 			while (strips.length < n) strips.push(template.map((cell) => ({ ...cell })));
@@ -219,25 +228,28 @@
 	}
 
 	/**
-	 * Any strip set or payline whose width still doesn't match `numReels` — only ever true after a
-	 * SHRINK (auto-grow already handles widening) or a raw-JSON paste that arrived mismatched. Drives
-	 * the "Match grid" button, the deliberate one-click fix for those, since trimming reels is real
-	 * data loss the author should trigger rather than have happen mid-type.
+	 * Any strip set or payline whose width still doesn't match its grid (`numReels`, or a spins
+	 * mode's own, `./pageDoc`) — only ever true after a SHRINK (auto-grow already handles widening)
+	 * or a raw-JSON paste that arrived mismatched. Drives the "Match grid" button, the deliberate
+	 * one-click fix for those, since trimming reels is real data loss the author should trigger
+	 * rather than have happen mid-type.
 	 */
-	const gridMismatch = $derived(
-		gameTypes.some((g) => (doc.paddingReels[g]?.length ?? 0) !== doc.numReels) ||
-			Object.keys(doc.paylines).some((id) => doc.paylines[id].length !== doc.numReels),
-	);
+	const gridMismatch = $derived(gridMismatchOf(doc));
 
 	/**
 	 * Make every strip set and payline EXACTLY `numReels` — grow (as above) then TRUNCATE the extra
-	 * reels. The explicit fix for a still-mismatched grid; unlike {@link growGridToWidth} it drops
-	 * reels, which is why it is a button press and not automatic.
+	 * reels; a spins mode's strips on a grid of its own are cycled or cut to that grid instead. The
+	 * explicit fix for a still-mismatched grid; unlike {@link growGridToWidth} it drops reels, which
+	 * is why it is a button press and not automatic.
 	 */
 	function matchGridWidth() {
 		growGridToWidth();
 		const n = doc.numReels;
-		for (const key of Object.keys(doc.paddingReels)) doc.paddingReels[key].length = n;
+		const baseWidth = baseWidthGameTypes(doc);
+		for (const key of baseWidth) doc.paddingReels[key].length = n;
+		for (const key of gameTypes.filter((g) => !baseWidth.includes(g))) {
+			doc.paddingReels[key] = stripsToWidth(doc.paddingReels[key], stripWidthFor(doc, key));
+		}
 		for (const id of Object.keys(doc.paylines)) doc.paylines[id].length = n;
 	}
 
@@ -1986,7 +1998,13 @@
 
 		<CoinOverlaySection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
 
-		<BonusModesSection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
+		<BonusModesSection
+			bind:doc
+			view={snapshot}
+			{issuesFor}
+			readOnly={lease.readOnly}
+			spinsRefusal={spinsGamesRefusal(data.gameType)}
+		/>
 
 		<!-- Symbols ---------------------------------------------------------------->
 		<section>

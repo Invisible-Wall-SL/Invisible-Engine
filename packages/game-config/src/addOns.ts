@@ -23,6 +23,7 @@
 
 import {
 	HOLD_AND_WIN_SPECIALS,
+	SPECIAL_SYMBOL_ROLE,
 	holdAndWinIsOverlayBonus,
 	isHoldAndWinSymbol,
 	type HoldAndWinSpecial,
@@ -44,7 +45,12 @@ import {
 	type PotBonus,
 	type PotsOverlay,
 } from './potsOverlay';
-import { holdAndWinBonus, potsOverlayPreset, type PotsOverlayPresetId } from './potsOverlayPresets';
+import {
+	holdAndWinBonus,
+	potsOverlayPreset,
+	type PotsOverlayPreset,
+	type PotsOverlayPresetId,
+} from './potsOverlayPresets';
 import {
 	legacyHoldAndWin,
 	legacyPotsOverlay,
@@ -185,9 +191,17 @@ function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId, pots?: nu
 	const next = withLegacyPair(structuredClone(doc));
 	const renamed = noRenames();
 	const preset = potsOverlayPreset(id);
+	// The preset's style replaces the host's only when the preset built or changed the Hold and Win
+	// its pots start; over a bonus that already deals them the overlay keeps the style it had.
+	let restyle = false;
 	if (preset.holdAndWin && !next.holdAndWin) {
 		const reason = mergeHoldAndWinBonus(next, preset.holdAndWin, renamed);
 		if (reason) return { ok: false, reason };
+		restyle = true;
+	} else if (preset.holdAndWin && next.holdAndWin) {
+		const brought = bringPotSpecials(next, preset, pots, renamed);
+		if (typeof brought === 'string') return { ok: false, reason: brought };
+		restyle = brought;
 	}
 	const tokens = addSymbols(next, preset.tokens, renamed);
 	const takenIds = new Set(next.holdAndWin?.meters?.map((m) => m.id));
@@ -223,7 +237,62 @@ function mergePotsOverlay(doc: GameConfigDoc, id: PotsOverlayPresetId, pots?: nu
 	if (!holdAndWinIsOverlayBonus(next)) {
 		overlay.drops.table = overlay.drops.table.filter((entry) => 'pot' in entry);
 	}
-	return { ok: true, doc: syncBonusSplit(next), renamed };
+	const synced = syncBonusSplit(next);
+	if (restyle && preset.style && synced.coinOverlay) synced.coinOverlay.style = preset.style;
+	return { ok: true, doc: synced, renamed };
+}
+
+/**
+ * Bring onto `doc`'s own Hold and Win block, in place, each special the preset's pots activate that
+ * the block lacks (bonus-games Phase 8b): its respin rules from the preset's Hold and Win, its place
+ * in the apply order, the symbol it lands as (renamed on a clash) and one cell of that symbol on each
+ * of the block's respin strips. Only the first `pots` pots count (the ones the overlay keeps). A
+ * block that already has every special is left exactly as it was. Returns whether it brought any,
+ * or why it cannot.
+ */
+function bringPotSpecials(
+	doc: GameConfigDoc,
+	preset: PotsOverlayPreset,
+	pots: number | undefined,
+	renamed: AddOnRenames,
+): string | boolean {
+	const block = doc.holdAndWin!;
+	const kept = preset.potsOverlay.pots.slice(0, pots ?? preset.potsOverlay.pots.length);
+	const wanted = [
+		...new Set(kept.flatMap((p) => (p.bonus.activates ? [p.bonus.activates] : []))),
+	].filter((kind) => !block.specials[kind]);
+	if (!wanted.length || !preset.holdAndWin) return false;
+	const gameType = holdAndWinGameType(doc);
+	const strips = doc.paddingReels[gameType];
+	if (!strips?.length) {
+		return `This project's Hold and Win has no "${gameType}" strips for the ${wanted.join(', ')} to land on.`;
+	}
+	const source = holdAndWinBonus(preset.holdAndWin, doc);
+	const symbols: Record<string, GameConfigSymbol> = {};
+	for (const kind of wanted) {
+		const {
+			landsInBaseGame: _lands,
+			instantCollectInBaseGame: _collects,
+			...rules
+		} = source.holdAndWin.specials[kind] as Record<string, unknown>;
+		(block.specials as Record<string, unknown>)[kind] = structuredClone(rules);
+		const role = SPECIAL_SYMBOL_ROLE[kind];
+		const name = Object.keys(source.symbols).find((n) =>
+			source.symbols[n].special_properties?.includes(role),
+		);
+		if (name) symbols[name] = source.symbols[name];
+	}
+	block.applyOrder = [
+		...block.applyOrder,
+		...source.holdAndWin.applyOrder.filter((kind) => wanted.includes(kind)),
+		...wanted.filter((kind) => !source.holdAndWin.applyOrder.includes(kind)),
+	];
+	const names = Object.values(addSymbols(doc, symbols, renamed));
+	doc.paddingReels[gameType] = strips.map((strip) => [
+		...strip,
+		...names.map((name) => ({ name })),
+	]);
+	return true;
 }
 
 /** A dictionary entry exactly as an add-on creates a token: tagged `meterSpecial`, paying nothing. */

@@ -194,31 +194,39 @@ const errorsOn = (doc: GameConfigDoc, id: PotsOverlayPresetId) => {
 	return result.ok ? issues(result.doc).filter((i) => i.startsWith('error:')) : 'refused';
 };
 check(
-	'on each Hold and Win game: what each preset leaves (3 Pots names specials Classic and Collector lack)',
+	'on each Hold and Win game every preset with pots comes out clean (8b: it brings its specials)',
 	HOLD_AND_WIN_PRESET_IDS.map((game) => [
 		game,
 		POTS_OVERLAY_PRESET_IDS.map((id) => [id, errorsOn(normalize(HOLD_AND_WIN_PRESETS[game]), id)]),
 	]),
 	HOLD_AND_WIN_PRESET_IDS.map((game) => [
 		game,
-		POTS_OVERLAY_PRESET_IDS.map((id) => [
-			id,
-			id === 'coinsOnly'
-				? 'refused'
-				: id === 'threePots' && game !== 'pots'
-					? errorsOn(normalize(HOLD_AND_WIN_PRESETS[game]), id)
-					: [],
-		]),
+		POTS_OVERLAY_PRESET_IDS.map((id) => [id, id === 'coinsOnly' ? 'refused' : []]),
 	]),
 );
+const classicGame = normalize(HOLD_AND_WIN_PRESETS.classic);
+const threeOnClassic = added(addPotsOverlay(classicGame, 'threePots'));
 check(
-	'...and 3 Pots on Classic or Collector does not come out clean',
-	['classic', 'collector'].map(
-		(game) =>
-			(errorsOn(normalize(HOLD_AND_WIN_PRESETS[game as 'classic']), 'threePots') as string[])
-				.length > 0,
-	),
-	[true, true],
+	'...3 Pots on Classic adds the payer and collector it lacks, beside its own multiplier and order',
+	[
+		Object.keys(threeOnClassic.holdAndWin!.specials).sort(),
+		threeOnClassic.holdAndWin!.applyOrder,
+		threeOnClassic.holdAndWin!.specials.multiplier,
+		['BOOST_2', 'COLLECT'].map((n) => threeOnClassic.symbols[n]?.special_properties),
+		threeOnClassic.paddingReels.respin.map((strip) => strip.slice(-2).map((c) => c.name)),
+	],
+	[
+		['collector', 'multiplier', 'payer'],
+		[...classicGame.holdAndWin!.applyOrder, 'payer', 'collector'],
+		classicGame.holdAndWin!.specials.multiplier,
+		[['payer'], ['collector']],
+		classicGame.paddingReels.respin.map(() => ['BOOST_2', 'COLLECT']),
+	],
+);
+check(
+	'...and the 3 Pots game, which has them all, gets the overlay exactly as before 8b',
+	added(addPotsOverlay(potsGame, 'threePots')).holdAndWin!.specials,
+	potsGame.holdAndWin!.specials,
 );
 
 console.log('\n3. refusals');
@@ -272,9 +280,19 @@ for (const id of HOLD_AND_WIN_PRESET_IDS) {
 const classicFirst = added(addHoldAndWinBonus(host, 'classic'));
 const overClassic = added(addPotsOverlay(classicFirst, 'threePots'));
 check(
-	'the overlay keeps a Hold and Win bonus already added',
-	[overClassic.holdAndWin, holdAndWinIsOverlayBonus(overClassic)],
-	[classicFirst.holdAndWin, true],
+	'the overlay keeps a Hold and Win bonus already added, bringing only the specials it lacks',
+	[
+		{ ...overClassic.holdAndWin, specials: undefined, applyOrder: undefined },
+		overClassic.holdAndWin!.specials.multiplier,
+		Object.keys(overClassic.holdAndWin!.specials).sort(),
+		holdAndWinIsOverlayBonus(overClassic),
+	],
+	[
+		{ ...classicFirst.holdAndWin, specials: undefined, applyOrder: undefined },
+		classicFirst.holdAndWin!.specials.multiplier,
+		['collector', 'multiplier', 'payer'],
+		true,
+	],
 );
 
 const waysHost = normalize({

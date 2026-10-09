@@ -5,22 +5,29 @@
 		HOLD_AND_WIN_PRESET_IDS,
 		HOLD_AND_WIN_PRESET_LABELS,
 		addRespinMode,
+		addSpinsMode,
+		freeSpinsModeId,
 		gameTypeForMode,
 		nextRespinModeId,
 		primaryRespinMode,
 		removeRespinMode,
+		removeSpinsMode,
 		renameRespinMode,
 		resolveBonusModes,
 		respinModeIdProblem,
+		spinsModeIdProblem,
 		startRespinRules,
 		type AddOnResult,
 		type BonusRoute,
 		type GameConfigDoc,
 		type GameConfigIssue,
+		type GameModeDecl,
 		type HoldAndWinPresetId,
+		type SpinsGame,
 	} from 'game-config';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import HoldAndWinRules from './HoldAndWinRules.svelte';
+	import SpinsModeEditor from './SpinsModeEditor.svelte';
 
 	/**
 	 * The Bonus modes block of `/config` (`docs/design/bonus-games.md` §2.4, Phase 5a): every mode a
@@ -34,12 +41,15 @@
 		view,
 		issuesFor,
 		readOnly,
+		spinsRefusal,
 	}: {
 		doc: GameConfigDoc;
 		/** The live doc with its compat mirror — what the validators and the game read. */
 		view: GameConfigDoc;
 		issuesFor: (prefix: string) => GameConfigIssue[];
 		readOnly: boolean;
+		/** Why this project's kind plays no spins mode (Book-of, Hold and Win), or `undefined`. */
+		spinsRefusal?: string;
 	} = $props();
 
 	const snapshot = (): GameConfigDoc => $state.snapshot(doc) as GameConfigDoc;
@@ -47,6 +57,8 @@
 	const bonusModes = $derived(resolveBonusModes(view));
 	const primaryId = $derived(primaryRespinMode(doc.modes)?.id);
 	const reelsBonusModes = $derived(bonusModes.filter((b) => b.mode.board !== 'respinBoard'));
+	const isSpinsMode = (mode: GameModeDecl): mode is GameModeDecl & { spins: SpinsGame } =>
+		mode.board === 'reels' && Boolean(mode.spins);
 	const routesOf = (id: string): BonusRoute[] =>
 		bonusModes.find((b) => b.mode.id === id)?.routes ?? [];
 
@@ -138,6 +150,26 @@
 
 	function startRules(id: string) {
 		apply(startRespinRules(snapshot(), id));
+	}
+
+	// ── spins modes (`GameModeDecl.spins`, bonus-games Phase 8b) ──────────────────────────────
+	let newSpinsId = $state('');
+	const addSpinsId = $derived(newSpinsId.trim() || freeSpinsModeId(view));
+	const addSpinsProblem = $derived(spinsModeIdProblem(view, addSpinsId));
+
+	function addSpins() {
+		if (apply(addSpinsMode(snapshot(), addSpinsId))) newSpinsId = '';
+	}
+
+	async function removeSpins(id: string) {
+		const routes = routesOf(id);
+		const ok = await askConfirm({
+			title: `Remove the spins mode "${id}"?`,
+			message: `This removes its game, its strips${routes.length ? `, and what starts it (${routes.map(routeLabel).join(', ')}) — a pot is re-routed to free spins, or removed when they are off` : ''}. The rest of the config is kept. Nothing is saved until you press Save.`,
+			confirmLabel: 'Remove',
+			danger: true,
+		});
+		if (ok) apply(removeSpinsMode(snapshot(), id));
 	}
 </script>
 
@@ -241,6 +273,25 @@
 		{/if}
 	{/each}
 
+	{#each doc.modes ?? [] as mode (mode.id)}
+		{#if isSpinsMode(mode)}
+			{@const routes = routesOf(mode.id)}
+			<fieldset class="panel" disabled={readOnly}>
+				<div class="row tight">
+					<h3>{mode.label ?? mode.id}</h3>
+					<span class="note"
+						><code>{mode.id}</code> · N spins of a game, then back · started by {routes
+							.map(routeLabel)
+							.join(', ') ||
+							'nothing yet — route a pot, a buy, Lucky Spin or the random metre to it in Coin overlay'}</span
+					>
+					<button class="small danger push" onclick={() => removeSpins(mode.id)}>Remove</button>
+				</div>
+				<SpinsModeEditor bind:doc {mode} {issuesFor} {readOnly} />
+			</fieldset>
+		{/if}
+	{/each}
+
 	<fieldset class="row tight add" disabled={readOnly}>
 		<span class="legend">Add a respin mode</span>
 		<input class="id" placeholder={nextRespinModeId(view)} bind:value={newId} />
@@ -256,6 +307,19 @@
 			>a preset brings its rules, respin strips and symbols; then route something to it in Coin
 			overlay</span
 		>
+	</fieldset>
+	<fieldset class="row tight add" disabled={readOnly || Boolean(spinsRefusal)}>
+		<span class="legend">Add a spins mode</span>
+		<input class="id" placeholder={freeSpinsModeId(view)} bind:value={newSpinsId} />
+		<button class="small" onclick={addSpins} disabled={Boolean(addSpinsProblem)}
+			>＋ Spins mode</button
+		>
+		{#if spinsRefusal}<span class="note">{spinsRefusal}</span>
+		{:else if addSpinsProblem}<span class="inline-issue error">{addSpinsProblem}</span>
+		{:else}<span class="note"
+				>N spins of a lines, ways, cluster or scatter game on its own strips, then back to the base
+				game; it starts as the base game, then pick its game, grid and pays</span
+			>{/if}
 	</fieldset>
 	{#if !bonusModes.some((b) => b.mode.id !== BASE_GAME_MODE)}
 		<p class="note">This project has no bonus mode.</p>

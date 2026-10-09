@@ -20,10 +20,16 @@ import { HOLD_AND_WIN_PRESETS, type HoldAndWinPresetId } from './holdAndWinPrese
 import { symbolsInPlayFromStrips } from './inPlay';
 import { legacyHoldAndWin } from './bonusGames';
 import { HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
+import type { CoinOverlayStyle } from './coinOverlay';
 import type { OverlayPot, PotsOverlay } from './potsOverlay';
 import type { GameConfigDoc, GameConfigSymbol, PaddingReels } from './types';
 
-export const POTS_OVERLAY_PRESET_IDS = ['threePots', 'potsToFreeSpins', 'coinsOnly'] as const;
+export const POTS_OVERLAY_PRESET_IDS = [
+	'threePots',
+	'potsToFreeSpins',
+	'coinsOnly',
+	'collector',
+] as const;
 
 export type PotsOverlayPresetId = (typeof POTS_OVERLAY_PRESET_IDS)[number];
 
@@ -31,6 +37,7 @@ export const POTS_OVERLAY_PRESET_LABELS: Record<PotsOverlayPresetId, string> = {
 	threePots: '3 Pots (each pot a Hold and Win with its special)',
 	potsToFreeSpins: 'Pots to free spins',
 	coinsOnly: 'Coins only (6+ value coins start a classic Hold and Win)',
+	collector: 'Collector (a full pot starts a Hold and Win with its collector)',
 };
 
 /** What a preset adds to a doc. Each part is merged in — never a whole-doc reset. */
@@ -41,6 +48,8 @@ export type PotsOverlayPreset = {
 	/** The Hold and Win preset whose feature a pot or a value coin starts, inserted through
 	 *  {@link holdAndWinBonus}. Absent ⇒ nothing routes to Hold and Win. */
 	holdAndWin?: HoldAndWinPresetId;
+	/** The coin overlay style it sets. Absent ⇒ the style the overlay is read as (a host's kept). */
+	style?: CoinOverlayStyle;
 };
 
 /** What a Hold and Win bonus adds to an overlay host. */
@@ -161,6 +170,7 @@ function threePots(): PotsOverlayPreset {
 		},
 		tokens: Object.fromEntries(pots.map((p) => [p.token, tokenSymbol()])),
 		holdAndWin: 'pots',
+		style: 'pots',
 	};
 }
 
@@ -200,10 +210,35 @@ function coinsOnly(): PotsOverlayPreset {
 	};
 }
 
+/**
+ * A Collector overlay: one pot, filled by dropped tokens, whose full pot starts the Collector Hold and
+ * Win with its collector on. Its collector lands in the respins, never on the base reels, because an
+ * add-on never edits a game's base strips (bonus-games Phase 8b).
+ */
+function collector(): PotsOverlayPreset {
+	const pot: OverlayPot = {
+		id: 'green',
+		token: tokenFor('green'),
+		maxLevel: 12,
+		sizeStages: [5, 9],
+		bonus: { mode: HOLD_AND_WIN_MODE, activates: 'collector' },
+	};
+	return {
+		potsOverlay: {
+			pots: [pot],
+			drops: { chance: 0.15, maxPerSpin: 2, table: [{ pot: pot.id, weight: 1 }] },
+		},
+		tokens: { [pot.token]: tokenSymbol() },
+		holdAndWin: 'collector',
+		style: 'collector',
+	};
+}
+
 const BUILD: Record<PotsOverlayPresetId, () => PotsOverlayPreset> = {
 	threePots,
 	potsToFreeSpins,
 	coinsOnly,
+	collector,
 };
 
 /** A fresh copy of the preset `id`, safe to merge into a doc and edit. */

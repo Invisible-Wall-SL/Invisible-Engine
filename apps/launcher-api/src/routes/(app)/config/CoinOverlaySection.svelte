@@ -79,6 +79,11 @@
 	/** The modes a trigger or a meter can start: the respin modes (scatters start free spins). */
 	const respinModes = $derived(modes.filter((m) => m.board === 'respinBoard'));
 	const defaultMode = $derived(primaryRespinMode(doc.modes)?.id ?? respinModes[0]?.id ?? '');
+	/** The spins games (`GameModeDecl.spins`, bonus-games Phase 8): a buy, Lucky Spin or a random
+	 *  metre may start one too; the coin count, a pattern and a meter count coins, so they may not. */
+	const spinsModes = $derived(modes.filter((m) => m.board === 'reels' && m.spins));
+	/** What a buy, Lucky Spin or random metre starts when switched on. */
+	const defaultRoute = $derived(defaultMode || (spinsModes[0]?.id ?? ''));
 	const rulesOf = (id: string) => modes.find((m) => m.id === id)?.holdAndWin;
 	/** The specials some respin mode configures — the only ones a base-game flag can be about. */
 	const configuredKinds = $derived(
@@ -458,7 +463,7 @@
 		const used = new Set(t.buy?.map((tier) => tier.betMode));
 		const betMode = buyModes.find((m) => !used.has(m)) ?? buyModes[0];
 		t.buy ??= [];
-		t.buy.push({ betMode, mode: defaultMode, guaranteed: [], boostedSpecials: false });
+		t.buy.push({ betMode, mode: defaultRoute, guaranteed: [], boostedSpecials: false });
 	}
 	function removeBuyTier(overlay: CoinOverlay, i: number) {
 		overlay.trigger?.buy?.splice(i, 1);
@@ -466,12 +471,12 @@
 		tidyTrigger(overlay);
 	}
 	function setRandomMetre(overlay: CoinOverlay, on: boolean) {
-		if (on) triggerOf(overlay).randomMetre = { name: 'Metre', mode: defaultMode };
+		if (on) triggerOf(overlay).randomMetre = { name: 'Metre', mode: defaultRoute };
 		else delete overlay.trigger?.randomMetre;
 		tidyTrigger(overlay);
 	}
 	function setLuckySpin(overlay: CoinOverlay, on: boolean) {
-		if (on) triggerOf(overlay).luckySpin = { mode: defaultMode };
+		if (on) triggerOf(overlay).luckySpin = { mode: defaultRoute };
 		else delete overlay.trigger?.luckySpin;
 		tidyTrigger(overlay);
 	}
@@ -866,14 +871,17 @@
 	</fieldset>
 {/snippet}
 
-{#snippet modePick(value: string, set: (mode: string) => void)}
+{#snippet modePick(value: string, set: (mode: string) => void, spins = false)}
+	{@const choices = spins ? [...respinModes, ...spinsModes] : respinModes}
 	<label class="inline"
 		><span>starts →</span><select {value} onchange={(e) => set(e.currentTarget.value)}>
-			{#each respinModes as m (m.id)}
-				<option value={m.id}>{m.label ?? m.id}</option>
+			{#each choices as m (m.id)}
+				<option value={m.id}>{m.label ?? m.id}{m.spins ? ` (${m.spins.spins} spins)` : ''}</option>
 			{/each}
-			{#if !respinModes.some((m) => m.id === value)}
-				<option {value}>{value || '(none)'} — not a respin mode</option>
+			{#if !choices.some((m) => m.id === value)}
+				<option {value}
+					>{value || '(none)'} — not a {spins ? 'respin or spins' : 'respin'} mode</option
+				>
 			{/if}
 		</select></label
 	>
@@ -1018,10 +1026,20 @@
 
 {#snippet triggersEditor(overlay: CoinOverlay)}
 	{@const t = overlay.trigger}
-	<fieldset class="panel" disabled={readOnly || !respinModes.length}>
-		<h3>Triggers <em>what starts a respin mode — any one of these; each names the mode</em></h3>
-		{#if !respinModes.length}
-			<p class="note">Add a respin mode in <strong>Bonus modes</strong> first.</p>
+	<fieldset class="panel" disabled={readOnly || (!respinModes.length && !spinsModes.length)}>
+		<h3>
+			Triggers <em
+				>what starts a {spinsModes.length ? 'bonus' : 'respin'} mode — any one of these; each names the
+				mode</em
+			>
+		</h3>
+		{#if !respinModes.length && !spinsModes.length}
+			<p class="note">Add a respin or spins mode in <strong>Bonus modes</strong> first.</p>
+		{:else if !respinModes.length}
+			<p class="note">
+				A spins mode is started by a buy, Lucky Spin or the random metre; the coin count and a
+				pattern start a respin mode.
+			</p>
 		{/if}
 		<div class="row tight">
 			<label class="check"
@@ -1121,7 +1139,7 @@
 							</select></label
 						>
 						<span class="chip">{bet ? `${bet.cost}× bet` : 'no such mode'}</span>
-						{@render modePick(tier.mode, (m) => (tier.mode = m))}
+						{@render modePick(tier.mode, (m) => (tier.mode = m), true)}
 						<label class="check"
 							><input type="checkbox" bind:checked={tier.boostedSpecials} /><span
 								>Specials land more often in this feature</span
@@ -1178,7 +1196,7 @@
 			{#if t?.randomMetre}
 				{@const metre = t.randomMetre}
 				<label class="inline"><span>Name</span><input bind:value={metre.name} /></label>
-				{@render modePick(metre.mode, (m) => (metre.mode = m))}
+				{@render modePick(metre.mode, (m) => (metre.mode = m), true)}
 			{/if}
 		</div>
 		<div class="row tight">
@@ -1191,7 +1209,7 @@
 			>
 			{#if t?.luckySpin}
 				{@const lucky = t.luckySpin}
-				{@render modePick(lucky.mode, (m) => (lucky.mode = m))}
+				{@render modePick(lucky.mode, (m) => (lucky.mode = m), true)}
 			{/if}
 		</div>
 

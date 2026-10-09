@@ -4,6 +4,8 @@
 	import {
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
+		SPINS_MODE_ROUTE_KINDS,
+		spinsGamesRefusal,
 		type CoinOverlayStyle,
 		type HoldAndWinTemplateJackpots,
 		type ImportableFeature,
@@ -410,11 +412,18 @@
 			: [],
 	);
 	const importFeature = $derived(importFeatures.find((f) => f.mode === importMode));
-	/** The routes the picked mode can take: a free spins is started only by a pot. */
+	/** The routes the picked mode can take: a free spins is started only by a pot; a base game added
+	 *  as a spins mode by a pot, a buy, Lucky Spin or the random metre (bonus-games Phase 8b). */
 	const importRouteOptions = $derived(
-		(importProject?.modeRoutes ?? []).filter(
-			(o) => importFeature?.board === 'respinBoard' || o.route.kind === 'pot',
+		(importProject?.modeRoutes ?? []).filter((o) =>
+			importFeature?.spins
+				? SPINS_MODE_ROUTE_KINDS.includes(o.route.kind)
+				: importFeature?.board === 'respinBoard' || o.route.kind === 'pot',
 		),
+	);
+	/** Why this project cannot take the picked base game as a spins mode (its kind plays none). */
+	const importSpinsRefusal = $derived(
+		importFeature?.spins ? spinsGamesRefusal(importProject?.gameType) : undefined,
 	);
 
 	function openImport(p: Project, resync: string | null = null) {
@@ -1607,7 +1616,7 @@
 			busyLabel={importResync ? 'Re-syncing…' : 'Adding…'}
 			blocked={!importResult?.ok &&
 				!importResync &&
-				(!importFeature || Boolean(importFeature.refused))}
+				(!importFeature || Boolean(importFeature.refused) || Boolean(importSpinsRefusal))}
 			hideCancel={Boolean(importResult?.ok)}
 			error={importErr}
 			onconfirm={runImport}
@@ -1710,10 +1719,13 @@
 							</fieldset>
 						{/if}
 						<p class="confirm-note">
-							{importFeature.board === 'respinBoard'
-								? "A pot, a coin overlay trigger or a buy tier can start it. With none picked, route it later in /config → Coin overlay (a project's first Hold and Win needs one now)."
-								: 'A free spins is started by a pot: this project needs a coin overlay with pots.'}
+							{importFeature.spins
+								? "Adds that game as a spins mode: N spins of it on its own grid, paylines, pays and strips, then back to this game. A pot, a buy tier, Lucky Spin or the random metre can start it; with none picked, route it later in /config → Coin overlay. Its art comes along; it plays on this game's screens."
+								: importFeature.board === 'respinBoard'
+									? "A pot, a coin overlay trigger or a buy tier can start it. With none picked, route it later in /config → Coin overlay (a project's first Hold and Win needs one now)."
+									: 'A free spins is started by a pot: this project needs a coin overlay with pots.'}
 						</p>
+						{#if importSpinsRefusal}<p class="err">{importSpinsRefusal}</p>{/if}
 					{/if}
 					<p class="confirm-note">
 						Nothing is written while someone else has this project's Game Config, Symbols, Scene

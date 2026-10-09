@@ -309,6 +309,15 @@ const NO_SPINS_GAMES_KINDS: Record<string, string> = {
 	holdAndWin: 'a Hold and Win game',
 };
 
+/** Why a game of kind `baseKind` plays no spins mode (`./spinsGame`), or `undefined` when it does:
+ *  what `/config` and the Game Maker's import say instead of offering one (bonus-games Phase 8b). */
+export function spinsGamesRefusal(baseKind: string | undefined): string | undefined {
+	const kind = baseKind ? NO_SPINS_GAMES_KINDS[baseKind] : undefined;
+	return kind
+		? `A spins mode plays N spins of a lines, ways, cluster or scatter game, which ${kind} does not deal: its bonuses play on its own board.`
+		: undefined;
+}
+
 /**
  * An ERROR on each spins mode (`./spinsGame`) of a game of kind `baseKind` that does not play one:
  * the book mock and the Hold and Win engine deal their bonuses on their own board, so a spins game's
