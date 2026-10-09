@@ -311,9 +311,10 @@ taken id is refused beside the button.
 
 To replace the whole config with one of these games, pick it in the banner's preset menu and press
 **Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
-_Free spins_). A new Hold and Win project already has its own config: Game Maker saves the preset
-picked at **Create** (Pots unless you chose another), so the page opens on an authored doc, not the
-template.
+_Free spins_). A new Hold and Win project already has its own config: Game Maker saves the plain
+Hold and Win (coins only, Jackpots on or off as picked at **Create**), so the page opens on an
+authored doc, not the template. Pots and Collector are not offered at Create: add a coin overlay
+from the project's card, or reset to one of these presets here.
 
 ### The rules
 
