@@ -388,7 +388,7 @@ async function projectFacts(
 			? resolveBetModes(doc).map((m) => ({ mode: m.mode, kind: m.kind, cost: m.costMultiplier }))
 			: [],
 		freeSpins: doc?.freeSpins ?? null,
-		potsOverlay: Boolean(doc?.potsOverlay),
+		potsOverlay: Boolean(doc?.coinOverlay?.drops),
 		layoutGameType: layout.corrupt
 			? 'unreadable'
 			: layout.etag === null

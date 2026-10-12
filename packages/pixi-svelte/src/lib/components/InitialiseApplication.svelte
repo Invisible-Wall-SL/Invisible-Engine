@@ -14,6 +14,7 @@
 	// `advancedBlendModes.ts` for the measurements. Registration only; the filters are constructed
 	// on demand, so a game placing no advanced blend pays nothing beyond the bundle.
 	import { registerAdvancedBlendModes } from '../advancedBlendModes';
+	import { preferAstcForKtx2 } from '../ktx2TranscodeTarget';
 	// Self-hosted KTX2 transcoder, bundled INTO the engine via Vite `?url` so it is emitted
 	// into every consuming build's own asset output (`_app/immutable/...`) with a correct,
 	// base-aware URL — standalone game builds AND the shared runtime bundle alike. (An earlier
@@ -50,6 +51,7 @@
 			jsUrl: await toWorkerUrl(ktxTranscoderJsUrl),
 			wasmUrl: await toWorkerUrl(ktxTranscoderWasmUrl),
 		});
+		preferAstcForKtx2();
 
 		// Before the renderer exists: `BlendModePipe` caches one `FilterEffect` per mode name for
 		// the life of a renderer, so a registration landing after a mode has drawn is ignored.

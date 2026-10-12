@@ -13,7 +13,12 @@
 		type TemplateArgs,
 		templateArgs,
 	} from 'components-storybook';
-	import { HOLD_AND_WIN_TEST_FIXTURES, normalizeGameConfigDoc } from 'game-config';
+	import {
+		HOLD_AND_WIN_TEST_FIXTURES,
+		normalizeGameConfigDoc,
+		primaryHoldAndWin,
+		setPrimaryHoldAndWin,
+	} from 'game-config';
 
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
@@ -35,8 +40,10 @@
 	};
 
 	const config = getActiveGameConfig();
-	const block = normalizeGameConfigDoc(HOLD_AND_WIN_TEST_FIXTURES['pots-extra'])?.holdAndWin;
-	if (block) config.holdAndWin = { ...block, meters: [] };
+	const block = primaryHoldAndWin(
+		normalizeGameConfigDoc(HOLD_AND_WIN_TEST_FIXTURES['pots-extra'])!,
+	);
+	if (block) setPrimaryHoldAndWin(config, { ...block, meters: [] });
 
 	/** Tags the specials' roles for this book only, and puts the symbols back afterwards. */
 	const playExtraBook = async (name: string) => {

@@ -18,6 +18,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizeBonusGames } from './src/bonusGames.ts';
 import { normalizeGameConfigDoc } from './src/normalize.ts';
 import {
 	builtinGameModes,
@@ -77,9 +78,11 @@ for (const name of defaults) {
 }
 
 console.log('\n2. a holdAndWin block brings its mode');
-const hw = { holdAndWin: {} as never };
+const hw = normalizeBonusGames({ holdAndWin: {} });
 check('ids', ids(hw), ['basegame', 'freeSpins', 'holdAndWin']);
-check('respin board, respin padding', gameModeById(hw, 'holdAndWin'), {
+const { holdAndWin: hwRules, ...hwMode } = gameModeById(hw, 'holdAndWin') ?? {};
+check("it carries the block's rules", Boolean(hwRules), true);
+check('respin board, respin padding', hwMode, {
 	id: 'holdAndWin',
 	board: 'respinBoard',
 	gameType: 'respin',

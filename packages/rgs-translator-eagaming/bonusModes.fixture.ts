@@ -835,9 +835,7 @@ for (const tags of ['all', 'none'] as const) {
 		potsOverlay: preset.potsOverlay,
 	});
 	if (!three) throw new Error('the 3 Pots host did not normalize');
-	const raw = structuredClone(three) as Record<string, unknown> & typeof three;
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
+	const raw = structuredClone(three);
 	for (const [name, symbol] of Object.entries(collector.symbols))
 		if (isRole(name)) raw.symbols[as2(name)] = structuredClone(symbol);
 	const strips = collector.paddingReels.respin;

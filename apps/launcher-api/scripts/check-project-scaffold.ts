@@ -21,6 +21,7 @@ import {
 	HOLD_AND_WIN_SYMBOL_ROLES,
 	holdAndWinMockInputs,
 	normalizeGameConfigDoc,
+	primaryHoldAndWin,
 	type GameConfigDoc,
 } from 'game-config';
 
@@ -138,11 +139,14 @@ await check('a holdAndWin project is seeded with the Pots preset', async () => {
 	const doc = storedConfig('hw');
 	assert(doc, 'no Game Config stored');
 	const pots = gameConfigDefaultFor('holdAndWin');
-	assert(pots?.holdAndWin, 'the holdAndWin default has no holdAndWin block');
+	const potsBlock = pots && primaryHoldAndWin(pots);
+	assert(potsBlock, 'the holdAndWin default has no Hold and Win');
 	assert(
-		JSON.stringify(doc.holdAndWin) === JSON.stringify(pots.holdAndWin),
+		JSON.stringify(primaryHoldAndWin(doc)) === JSON.stringify(potsBlock),
 		'the seeded block is not the default preset',
 	);
+	const stored = JSON.parse(R2.get(gameConfigDocKey(CLIENT, 'hw'))!.body) as object;
+	assert(!('holdAndWin' in stored) && !('potsOverlay' in stored), 'the legacy mirror was stored');
 	assert(holdAndWinMockInputs(doc), 'the seeded config yields no mock inputs (plain lines)');
 });
 
@@ -150,9 +154,10 @@ await check('the preset picked at Create is the one seeded', async () => {
 	await scaffoldProject(CLIENT, 'hwClassic', { holdAndWinPreset: 'classic' });
 	const doc = storedConfig('hwClassic');
 	const classic = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.classic);
-	assert(doc?.holdAndWin && classic?.holdAndWin, 'no holdAndWin block');
+	const block = doc && primaryHoldAndWin(doc);
+	assert(block && classic && primaryHoldAndWin(classic), 'no Hold and Win');
 	assert(
-		JSON.stringify(doc.holdAndWin) === JSON.stringify(classic.holdAndWin),
+		JSON.stringify(block) === JSON.stringify(primaryHoldAndWin(classic)),
 		'the seeded block is not the Classic preset',
 	);
 	await scaffoldProject(CLIENT, 'linesPreset', { holdAndWinPreset: 'classic' });

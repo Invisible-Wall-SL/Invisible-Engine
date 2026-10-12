@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { parseModeRoute } from '$lib/bonusImport';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
 import {
@@ -79,8 +80,13 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * Import a bonus from another project of the same client, or re-sync one (Phase 7).
  *
  *   POST /api/game-maker/import
- *     { project, source, mode, replace?: boolean, pots?: string[] }   — import
+ *     { project, source, mode, asMode: true, routes?: ModeRoute[] }  — Add a bonus mode…
+ *     { project, source, mode, replace?: boolean, pots?: string[] }   — the pots overlay's import
  *     { project, mode, resync: true }                                — re-sync from its recorded source
+ *
+ * "Add a bonus mode…" (`docs/design/bonus-games.md` §1, Phase 6) adds a respin mode as a NEW mode,
+ * `_2`-renamed on a clash, started by `routes`; a reels mode goes through the pots overlay's import,
+ * started by the pots among them.
  *   → 200 { ok, mode, resynced, replaced, renamed, leftOut, droppedActivates, parts }
  *   → 400 / 403 / 404 / 409 { error }
  *
@@ -107,6 +113,10 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 	const pots = Array.isArray(body.pots)
 		? body.pots.filter((p): p is string => typeof p === 'string')
 		: undefined;
+	const routes = Array.isArray(body.routes) ? body.routes.map(parseModeRoute) : undefined;
+	if (routes?.some((r) => !r)) {
+		return json({ error: 'Unknown route' }, { status: 400, headers: NO_STORE });
+	}
 	// A re-sync's source is the one the config records; the gate checks it once it is known.
 	const user = locals.user;
 	if (!user) return unauthorized();
@@ -123,6 +133,8 @@ export const POST: RequestHandler = async ({ request, cookies, locals }) => {
 		resync,
 		replace: body.replace === true,
 		pots,
+		asMode: body.asMode === true,
+		routes: routes?.filter((r) => r !== undefined),
 		sessionId,
 		mayRead: async (source) => (await gate(user, mayAccess, project, source)).ok,
 	});

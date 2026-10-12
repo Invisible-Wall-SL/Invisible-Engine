@@ -2,13 +2,12 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import {
-		DEFAULT_HOLD_AND_WIN_PRESET,
-		HOLD_AND_WIN_MODE,
-		HOLD_AND_WIN_PRESET_IDS,
-		HOLD_AND_WIN_PRESET_LABELS,
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
-		type HoldAndWinPresetId,
+		SPINS_MODE_ROUTE_KINDS,
+		spinsGamesRefusal,
+		type CoinOverlayStyle,
+		type HoldAndWinTemplateJackpots,
 		type ImportableFeature,
 		type PotsOverlayPresetId,
 	} from 'game-config';
@@ -32,7 +31,13 @@
 		asAuthoringLaunch,
 	} from '$lib/gameLaunch';
 	import type { BonusImportOutcome, BonusImportParts } from '$lib/bonusImport';
-	import type { AddOnOutcome, AddOnPartStatus, AddOnSeedReport } from '$lib/potsOverlayAddOn';
+	import {
+		COIN_OVERLAY_ADD_ON_STYLES,
+		COIN_OVERLAY_PRESET_STYLE,
+		type AddOnOutcome,
+		type AddOnPartStatus,
+		type AddOnSeedReport,
+	} from '$lib/potsOverlayAddOn';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -53,7 +58,8 @@
 	let name = $state('');
 	let clientKey = $state('');
 	let gameType = $state(data.createKinds[0]?.id ?? 'lines');
-	let holdAndWinPreset = $state<HoldAndWinPresetId>(DEFAULT_HOLD_AND_WIN_PRESET);
+	/** The Hold and Win template's Jackpots choice: the plain game with or without them. */
+	let holdAndWinJackpots = $state<HoldAndWinTemplateJackpots>('on');
 	/** A lines game's starting preset, or '' for the lines template. */
 	let linesPreset = $state('');
 	let creating = $state(false);
@@ -287,13 +293,13 @@
 	}
 
 	// ---------------------------------------------------------------------------------------------
-	// Pots overlay add-on (docs/design/pots-overlay.md §4) — `POST /api/game-maker/add-on`.
+	// Coin overlay add-on (docs/design/pots-overlay.md §4, bonus-games §2.4) — `POST /api/game-maker/add-on`.
 	// ---------------------------------------------------------------------------------------------
 	/** The overlay presets that add cleanly to the game the Create form would make (`load`). */
 	const createPresets = $derived(
 		data.createOverlayPresets[
 			gameType === 'holdAndWin'
-				? `holdAndWin:${holdAndWinPreset}`
+				? `holdAndWin:${holdAndWinJackpots}`
 				: gameType === 'lines' && linesPreset
 					? `lines:${linesPreset}`
 					: gameType
@@ -320,6 +326,7 @@
 
 	let addOnProject = $state<Project | null>(null);
 	let addOnPreset = $state<PotsOverlayPresetId>(POTS_OVERLAY_PRESET_IDS[0]);
+	let addOnStyle = $state<CoinOverlayStyle>(COIN_OVERLAY_PRESET_STYLE[POTS_OVERLAY_PRESET_IDS[0]]);
 	let addOnFlow = $state(false);
 	let addOnBusy = $state(false);
 	let addOnErr = $state('');
@@ -335,9 +342,20 @@
 	function openAddOn(p: Project) {
 		addOnProject = p;
 		addOnPreset = p.overlayPresets[0] ?? POTS_OVERLAY_PRESET_IDS[0];
+		addOnStyle = COIN_OVERLAY_PRESET_STYLE[addOnPreset];
 		addOnFlow = false;
 		addOnErr = '';
 		addOnResult = null;
+	}
+
+	/** Pick a coin overlay style, and the first preset of it that fits this game. */
+	function pickAddOnStyle(value: string) {
+		const option = COIN_OVERLAY_ADD_ON_STYLES.find((o) => o.style === value);
+		if (!option) return;
+		addOnStyle = option.style;
+		addOnPreset =
+			addOnProject?.overlayPresets.find((id) => COIN_OVERLAY_PRESET_STYLE[id] === option.style) ??
+			addOnPreset;
 	}
 
 	/** With a preset, add the overlay; without one, fill in the parts an overlay project lacks. */
@@ -363,7 +381,8 @@
 		}
 	}
 
-	// Import a bonus from another project of the same client (pots overlay Phase 7).
+	// Add a bonus mode from another project of the same client (bonus-games Phase 6), and re-sync
+	// one (pots overlay Phase 7).
 	const IMPORT_PARTS: { key: keyof BonusImportParts; label: string }[] = [
 		{ key: 'symbols', label: 'Symbols' },
 		{ key: 'spines', label: 'Rigs (shared)' },
@@ -378,8 +397,8 @@
 	let importSource = $state('');
 	let importFeatures = $state<ImportableFeature[]>([]);
 	let importMode = $state('');
-	let importPots = $state<string[]>([]);
-	let importReplace = $state(false);
+	/** The picked routes' keys (`ModeRouteOption.key`). */
+	let importRoutes = $state<string[]>([]);
 	let importBusy = $state(false);
 	let importErr = $state('');
 	let importResult = $state<BonusImportOutcome | null>(null);
@@ -393,6 +412,19 @@
 			: [],
 	);
 	const importFeature = $derived(importFeatures.find((f) => f.mode === importMode));
+	/** The routes the picked mode can take: a free spins is started only by a pot; a base game added
+	 *  as a spins mode by a pot, a buy, Lucky Spin or the random metre (bonus-games Phase 8b). */
+	const importRouteOptions = $derived(
+		(importProject?.modeRoutes ?? []).filter((o) =>
+			importFeature?.spins
+				? SPINS_MODE_ROUTE_KINDS.includes(o.route.kind)
+				: importFeature?.board === 'respinBoard' || o.route.kind === 'pot',
+		),
+	);
+	/** Why this project cannot take the picked base game as a spins mode (its kind plays none). */
+	const importSpinsRefusal = $derived(
+		importFeature?.spins ? spinsGamesRefusal(importProject?.gameType) : undefined,
+	);
 
 	function openImport(p: Project, resync: string | null = null) {
 		importProject = p;
@@ -400,8 +432,7 @@
 		importSource = '';
 		importFeatures = [];
 		importMode = resync ?? '';
-		importPots = [];
-		importReplace = false;
+		importRoutes = [];
 		importErr = '';
 		importResult = null;
 	}
@@ -447,8 +478,10 @@
 								project: project.key,
 								source: importSource,
 								mode: importMode,
-								replace: importReplace,
-								pots: importPots,
+								asMode: true,
+								routes: importRouteOptions
+									.filter((o) => importRoutes.includes(o.key))
+									.map((o) => o.route),
 							},
 				),
 			});
@@ -951,11 +984,13 @@
 					{/if}
 					{#if gameType === 'holdAndWin'}
 						<label>
-							Preset
-							<select bind:value={holdAndWinPreset}>
-								{#each HOLD_AND_WIN_PRESET_IDS as id (id)}
-									<option value={id}>{HOLD_AND_WIN_PRESET_LABELS[id]}</option>
-								{/each}
+							Jackpots
+							<select
+								bind:value={holdAndWinJackpots}
+								title="Coins only, with or without the MINI–GRAND jackpots. Pots and Collector are coin overlay styles: add them on the card with ＋ Coin overlay…"
+							>
+								<option value="on">On (MINI · MINOR · MAJOR · GRAND)</option>
+								<option value="off">Off</option>
 							</select>
 						</label>
 					{/if}
@@ -965,7 +1000,7 @@
 				<input type="hidden" name="clientKey" value={clientKey} />
 				<input type="hidden" name="gameType" value={gameType} />
 				{#if gameType === 'holdAndWin'}
-					<input type="hidden" name="holdAndWinPreset" value={holdAndWinPreset} />
+					<input type="hidden" name="holdAndWinJackpots" value={holdAndWinJackpots} />
 				{/if}
 				{#if gameType === 'lines' && linesPreset}
 					<input type="hidden" name="linesPreset" value={linesPreset} />
@@ -973,13 +1008,13 @@
 				<div class="add-on-row">
 					<label class="check">
 						<input type="checkbox" bind:checked={createWithOverlay} />
-						Add the pots overlay
+						Add a coin overlay
 					</label>
 					{#if createWithOverlay && createPreset}
 						<select
 							value={createPreset}
 							onchange={(e) => (createOverlayPreset = e.currentTarget.value as PotsOverlayPresetId)}
-							title="Pots overlay preset"
+							title="Coin overlay preset"
 						>
 							{#each createPresets as id (id)}
 								<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
@@ -987,7 +1022,7 @@
 						</select>
 						<input type="hidden" name="potsOverlayPreset" value={createPreset} />
 					{:else if createWithOverlay}
-						<span class="muted">No pots overlay preset fits this game type.</span>
+						<span class="muted">No coin overlay preset fits this game type.</span>
 					{/if}
 				</div>
 				<div class="actions">
@@ -1252,21 +1287,19 @@
 										<button
 											class="add-on"
 											title={p.hasPotsOverlay
-												? 'Seed any part of the pots overlay this project is still missing'
-												: 'Lay the pots overlay over this game: tokens drop on the board and fill pots that start a bonus'}
+												? 'Seed any part of the coin overlay this project is still missing'
+												: 'Lay a coin overlay over this game: coins and tokens drop on the board and start a bonus'}
 											onclick={() => openAddOn(p)}
 										>
-											{p.hasPotsOverlay ? 'Pots overlay parts…' : '＋ Pots overlay…'}
+											{p.hasPotsOverlay ? 'Coin overlay parts…' : '＋ Coin overlay…'}
 										</button>
-										{#if p.hasPotsOverlay}
-											<button
-												class="add-on"
-												title="Copy a bonus from another project of this client into this one, for a pot to start"
-												onclick={() => openImport(p)}
-											>
-												Import a bonus…
-											</button>
-										{/if}
+										<button
+											class="add-on"
+											title="Copy a bonus mode of another project of this client into this one, as a new mode"
+											onclick={() => openImport(p)}
+										>
+											Add a bonus mode…
+										</button>
 										{#each p.imports as imported (imported.mode)}
 											<button
 												class="add-on"
@@ -1451,7 +1484,7 @@
 			<ul class="add-on-report">
 				<li>
 					<strong>Game Config</strong>
-					{out.configAdded ? 'pots overlay added' : 'already has the overlay'}
+					{out.configAdded ? 'coin overlay added' : 'already has the overlay'}
 				</li>
 				{#if Object.keys(out.renamed.pots).length || Object.keys(out.renamed.symbols).length}
 					<li>
@@ -1488,7 +1521,7 @@
 				onclick={(e) => e.stopPropagation()}
 			>
 				<h3 id="add-on-title">
-					{addOnProject.hasPotsOverlay ? 'Pots overlay parts for' : 'Add the pots overlay to'}
+					{addOnProject.hasPotsOverlay ? 'Coin overlay parts for' : 'Add a coin overlay to'}
 					{addOnProject.name}
 				</h3>
 				<p class="confirm-note">
@@ -1497,25 +1530,43 @@
 						art, the overlay screens. Nothing authored is changed.
 					{:else}
 						Tokens and value coins drop over the board; a full pot, or enough coins, starts a bonus.
-						Adds the overlay to the Game Config, then placeholder art for its symbols and its
+						Adds the coin overlay to the Game Config, then placeholder art for its symbols and its
 						screens. It only adds: nothing authored is replaced, and a name the game already uses is
 						renamed.
 					{/if}
 				</p>
 				<div class="grid">
-					{#if !addOnProject.hasPotsOverlay && addOnProject.overlayPresets.length}
+					{#if !addOnProject.hasPotsOverlay}
+						{@const styled = addOnProject.overlayPresets.filter(
+							(id) => COIN_OVERLAY_PRESET_STYLE[id] === addOnStyle,
+						)}
 						<label>
-							Preset
-							<select bind:value={addOnPreset} disabled={Boolean(addOnResult?.ok)}>
-								{#each addOnProject.overlayPresets as id (id)}
-									<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
+							Style
+							<select
+								value={addOnStyle}
+								onchange={(e) => pickAddOnStyle(e.currentTarget.value)}
+								disabled={Boolean(addOnResult?.ok)}
+							>
+								{#each COIN_OVERLAY_ADD_ON_STYLES as option (option.style)}
+									<option value={option.style}>{option.label}</option>
 								{/each}
 							</select>
 						</label>
-					{:else if !addOnProject.hasPotsOverlay}
-						<p class="err">
-							No pots overlay preset fits this game's Game Config. Check it in /config first.
-						</p>
+						{#if styled.length}
+							<label>
+								Preset
+								<select bind:value={addOnPreset} disabled={Boolean(addOnResult?.ok)}>
+									{#each styled as id (id)}
+										<option value={id}>{POTS_OVERLAY_PRESET_LABELS[id]}</option>
+									{/each}
+								</select>
+							</label>
+						{:else}
+							<p class="err">
+								{COIN_OVERLAY_ADD_ON_STYLES.find((o) => o.style === addOnStyle)?.none ??
+									"No preset of this style fits this game's Game Config. Check it in /config first."}
+							</p>
+						{/if}
 					{/if}
 					<label class="check">
 						<input type="checkbox" bind:checked={addOnFlow} />
@@ -1538,7 +1589,8 @@
 							class="primary"
 							onclick={() => runAddOn(addOnProject?.hasPotsOverlay ? undefined : addOnPreset)}
 							disabled={addOnBusy ||
-								(!addOnProject.hasPotsOverlay && !addOnProject.overlayPresets.length)}
+								(!addOnProject.hasPotsOverlay &&
+									COIN_OVERLAY_PRESET_STYLE[addOnPreset] !== addOnStyle)}
 						>
 							{addOnBusy ? 'Adding…' : addOnProject.hasPotsOverlay ? 'Seed missing parts' : 'Add'}
 						</button>
@@ -1558,15 +1610,13 @@
 			open
 			title={importResync
 				? `Re-sync ${importResync} into ${project.name}`
-				: `Import a bonus into ${project.name}`}
-			confirmLabel={importResult?.ok ? 'Done' : importResync ? 'Re-sync' : 'Import'}
+				: `Add a bonus mode to ${project.name}`}
+			confirmLabel={importResult?.ok ? 'Done' : importResync ? 'Re-sync' : 'Add'}
 			busy={importBusy}
-			busyLabel={importResync ? 'Re-syncing…' : 'Importing…'}
+			busyLabel={importResync ? 'Re-syncing…' : 'Adding…'}
 			blocked={!importResult?.ok &&
 				!importResync &&
-				(!importFeature ||
-					Boolean(importFeature.refused) ||
-					(importMode === HOLD_AND_WIN_MODE && project.hasHoldAndWin && !importReplace))}
+				(!importFeature || Boolean(importFeature.refused) || Boolean(importSpinsRefusal))}
 			hideCancel={Boolean(importResult?.ok)}
 			error={importErr}
 			onconfirm={runImport}
@@ -1582,7 +1632,7 @@
 									? 're-synced from the source'
 									: importResult.replaced
 										? 'the Hold and Win bonus replaced'
-										: 'bonus added'}
+										: `bonus mode added as ${importResult.mode}`}
 							</li>
 							{#if Object.keys(importResult.renamed.symbols).length}
 								<li>
@@ -1594,7 +1644,7 @@
 							{#if importResult.leftOut.length}
 								<li>
 									<strong>Left out</strong>
-									(a bonus starts only from a pot) {importResult.leftOut.join(', ')}
+									(a free spins starts only from a pot) {importResult.leftOut.join(', ')}
 								</li>
 							{/if}
 							{#if importResult.droppedActivates.length}
@@ -1624,10 +1674,10 @@
 					</p>
 				{:else}
 					<p class="confirm-note">
-						Copies one feature of another project of this client into this one, as a bonus a pot can
-						start: its Game Config, the symbols it deals (a name this project uses is renamed),
-						their art, its screens, its Flow section and its Win Text lines. The other project is
-						only read. Re-sync later to pick up its edits.
+						Copies one bonus mode of another project of this client into this one, as a NEW mode (it
+						never replaces one: an id this project uses takes _2): its rules, the symbols it deals
+						(a name this project uses is renamed), their art, its screens, its Flow tab and its Win
+						Text lines. The other project is only read. Re-sync later to pick up its edits.
 					</p>
 					<div class="grid">
 						<label>
@@ -1641,8 +1691,8 @@
 						</label>
 						{#if importFeatures.length}
 							<label>
-								Feature
-								<select bind:value={importMode}>
+								Mode
+								<select bind:value={importMode} onchange={() => (importRoutes = [])}>
 									{#each importFeatures as f (f.mode)}
 										<option value={f.mode} disabled={Boolean(f.refused)}>
 											{f.label}{f.refused ? ' (not yet)' : ''}
@@ -1655,22 +1705,27 @@
 					{#each importFeatures.filter((f) => f.refused) as f (f.mode)}
 						<p class="confirm-note">{f.label}: {f.refused}</p>
 					{/each}
-					{#if project.pots.length}
-						<fieldset class="grid">
-							<legend>Pots that start it</legend>
-							{#each project.pots as pot (pot.id)}
-								<label class="check">
-									<input type="checkbox" value={pot.id} bind:group={importPots} />
-									{pot.id} <span class="part-note">(now {pot.mode})</span>
-								</label>
-							{/each}
-						</fieldset>
-					{/if}
-					{#if importMode === HOLD_AND_WIN_MODE && project.hasHoldAndWin}
-						<label class="check">
-							<input type="checkbox" bind:checked={importReplace} />
-							Replace this project's Hold and Win bonus (a project has one; /config keeps a backup)
-						</label>
+					{#if importFeature}
+						{#if importRouteOptions.length}
+							<fieldset class="grid">
+								<legend>What starts it</legend>
+								{#each importRouteOptions as option (option.key)}
+									<label class="check">
+										<input type="checkbox" value={option.key} bind:group={importRoutes} />
+										{option.label}
+										{#if option.now}<span class="part-note">(now {option.now})</span>{/if}
+									</label>
+								{/each}
+							</fieldset>
+						{/if}
+						<p class="confirm-note">
+							{importFeature.spins
+								? "Adds that game as a spins mode: N spins of it on its own grid, paylines, pays and strips, then back to this game. A pot, a buy tier, Lucky Spin or the random metre can start it; with none picked, route it later in /config → Coin overlay. Its art comes along; it plays on this game's screens."
+								: importFeature.board === 'respinBoard'
+									? "A pot, a coin overlay trigger or a buy tier can start it. With none picked, route it later in /config → Coin overlay (a project's first Hold and Win needs one now)."
+									: 'A free spins is started by a pot: this project needs a coin overlay with pots.'}
+						</p>
+						{#if importSpinsRefusal}<p class="err">{importSpinsRefusal}</p>{/if}
 					{/if}
 					<p class="confirm-note">
 						Nothing is written while someone else has this project's Game Config, Symbols, Scene

@@ -30,6 +30,7 @@ import {
 	normalizeGameConfigDoc,
 	potsOverlayMockInputs,
 	potsOverlayPreset,
+	primaryHoldAndWin,
 	symbolHoldAndWinRoles,
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
@@ -62,8 +63,6 @@ const isRole = (name) => symbolHoldAndWinRoles(COLLECTOR.symbols[name]).length >
 const as2 = (name) => (isRole(name) ? `${name}_2` : name);
 const withSecondMode = (doc, { id = 'holdAndWin_2', gameType = 'respin_2' } = {}) => {
 	const out = structuredClone(doc);
-	delete out.holdAndWin;
-	delete out.potsOverlay;
 	for (const [name, symbol] of Object.entries(COLLECTOR.symbols)) {
 		if (isRole(name)) out.symbols[as2(name)] = structuredClone(symbol);
 	}
@@ -452,8 +451,6 @@ const CLASSIC = normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic));
 {
 	// The same game, its one respin mode renamed: a lone NON-default mode.
 	const raw = structuredClone(CLASSIC);
-	delete raw.holdAndWin;
-	delete raw.potsOverlay;
 	raw.modes = raw.modes.map((m) =>
 		m.id === 'holdAndWin' ? { ...m, id: 'holdAndWin_2', gameType: 'respin_2' } : m,
 	);
@@ -510,7 +507,7 @@ const CLASSIC = normalized(structuredClone(HOLD_AND_WIN_PRESETS.classic));
 	);
 	check(
 		counted[0]?.mode === 'holdAndWin' &&
-			counted[0].stickiness === CLASSIC.holdAndWin.stickiness &&
+			counted[0].stickiness === primaryHoldAndWin(CLASSIC).stickiness &&
 			everyTagged(counted[0], 'holdAndWin'),
 		'the coin count still starts the primary, now tagged holdAndWin',
 		JSON.stringify(counted.map((f) => [f.mode, f.stickiness])),

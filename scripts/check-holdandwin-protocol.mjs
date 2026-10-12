@@ -21,6 +21,7 @@ import {
 	holdAndWinMockInputs,
 	jackpotLadder,
 	normalizeGameConfigDoc,
+	primaryHoldAndWin,
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
 import { createMockRgs } from './mock-rgs-server-holdandwin.mjs';
@@ -109,7 +110,7 @@ const boot = async (preset, extra = {}) => {
 			req.on('error', reject);
 			req.end(payload);
 		});
-	const block = doc.holdAndWin;
+	const block = primaryHoldAndWin(doc);
 	const roles = opts.holdAndWin.symbols;
 	return {
 		doc,
@@ -2178,16 +2179,17 @@ for (const id of ['pots-expansion-fullrow', 'pots-expansion-unlock', 'pots-expan
 			.filter((line) => line.startsWith('COPY scripts/'))
 			.flatMap((line) => line.split(/\s+/).slice(1, -1)),
 	);
-	const shipped = [
-		...read('services/test-server/server.mjs').matchAll(/from '\.\.\/\.\.\/(scripts\/[^']+)'/g),
-	].map((m) => m[1]);
+	// The server and the module it builds its mocks in (`makeMock.mjs`, bonus-games Phase 7a).
+	const shipped = ['services/test-server/server.mjs', 'services/test-server/makeMock.mjs']
+		.flatMap((rel) => [...read(rel).matchAll(/from '\.\.\/\.\.\/(scripts\/[^']+)'/g)])
+		.map((m) => m[1]);
 	const mockImports = [
 		...read('scripts/mock-rgs-server-holdandwin.mjs').matchAll(/^import .* from '\.\/([^']+)'/gm),
 	].map((m) => `scripts/${m[1]}`);
 	const missing = [...shipped, ...mockImports].filter((rel) => !copied.has(rel));
 	check(
 		shipped.includes('scripts/mock-rgs-server-holdandwin.mjs'),
-		'server.mjs imports the Hold and Win mock',
+		'the test server imports the Hold and Win mock',
 	);
 	if (
 		check(

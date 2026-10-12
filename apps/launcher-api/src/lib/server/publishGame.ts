@@ -30,7 +30,7 @@ import {
 } from './flowV2Validation';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { mockContractOfBundle } from './mockContract';
-import type { GameConfigDoc } from 'game-config';
+import { primaryRespinMode, type GameConfigDoc } from 'game-config';
 import { protocolFor } from './mockProtocol';
 import { paytableDriftDetails, paytableDriftMessage } from './paytableDrift';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -324,10 +324,11 @@ export async function publishGame(
 				'Re-bind the symbol in Invisible Symbols, or promote the rig to the shared library.',
 		);
 	}
-	const holdAndWinConfigMissing = gameType === 'holdAndWin' && !bundle.config?.holdAndWin;
+	const holdAndWinConfigMissing =
+		gameType === 'holdAndWin' && !primaryRespinMode(bundle.config?.modes);
 	if (holdAndWinConfigMissing) {
 		console.warn(
-			`[publish] ${projectKey}: a Hold and Win project with no holdAndWin block in its Game ` +
+			`[publish] ${projectKey}: a Hold and Win project with no Hold and Win mode in its Game ` +
 				'Config — the mock deals it plain lines. Save the config once in /config and re-publish.',
 		);
 	}

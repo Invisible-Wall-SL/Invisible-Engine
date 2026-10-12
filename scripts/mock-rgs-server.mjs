@@ -739,7 +739,7 @@ const evaluateScatters = (reels, totalStake, table = SCATTER_PAY_TABLE) => {
  *  `enterBonus` shape. The facade reads `played` + `left` to drive the counter. `trigger` is the
  *  instance's rule (`{ occurs: [min], of: symbol, … }`): 3+ SCAT unless the project states one.
  *  A feature with an expanding special names it as `state`, where the captured Book-of snapshot does. */
-const bonusSnapshot = (round, trigger, extra = {}) => ({
+export const bonusSnapshot = (round, trigger, extra = {}) => ({
 	prob: 1,
 	additionalPrice: 0,
 	triggers: 1,
@@ -985,6 +985,10 @@ export function createMockRgs(opts = {}) {
 			buys: modes.map((mode) => mode.kind === 'buy'),
 		};
 	})();
+
+	/** The `betModes` key an `option` sells (base first, as the table is built), or undefined. */
+	const betModeOf = (option) =>
+		Array.isArray(opts.betModes) ? opts.betModes[option]?.mode : undefined;
 
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
 	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
@@ -1473,7 +1477,7 @@ export function createMockRgs(opts = {}) {
 			}
 			let target = null;
 			let best = 0;
-			for (const [name, n] of counts) if (n > best) (best = n), (target = name);
+			for (const [name, n] of counts) if (n > best) ((best = n), (target = name));
 			if (target) {
 				for (let step = 0; step < 2; step++) {
 					const exploding = [];
@@ -1693,6 +1697,38 @@ export function createMockRgs(opts = {}) {
 				(_cell, row) => strip[(stop + row) % strip.length],
 			);
 		});
+	/**
+	 * A SPINS BONUS MODE's own game (`packages/game-config/src/spinsGame.ts`): `game` is its grid
+	 * (`reels`, per-reel `rows`), its `winModel` and its `paylines`. Its board is drawn from its strips
+	 * at its own size, and its wins are decided by its own model, priced as the base game prices that
+	 * model (`payoutBaseFor`). Approximate math: the mock only has to play it for authoring.
+	 */
+	const spinGameBoard = (game, strips) =>
+		Array.from({ length: game.reels }, (_unused, reel) => {
+			const strip = strips[reel % strips.length];
+			const stop = Math.floor(nextRand() * strip.length);
+			return Array.from(
+				{ length: game.rows[reel] },
+				(_cell, row) => strip[(stop + row) % strip.length],
+			);
+		});
+	const evaluateSpinGameWins = (board, round, game, o) => {
+		const model = game.winModel;
+		if (model.type === 'ways') {
+			const ways = game.rows.reduce((n, rows) => n * Math.max(1, rows), 1);
+			return roundPays(evaluateWays(board, round.baseTotal / ways, wild, o));
+		}
+		if (model.type === 'cluster') {
+			const shape = { minCluster: model.minCluster, adjacency: model.adjacency };
+			return roundPays(evaluateClusters(board, round.baseTotal, wild, { ...shape, ...o }));
+		}
+		if (model.type === 'scatter') {
+			const shape = { minCount: model.minCount };
+			return roundPays(evaluateScatterPays(board, round.baseTotal, wild, { ...shape, ...o }));
+		}
+		const perLine = round.baseTotal / Math.max(1, game.paylines.length);
+		return roundPays(evaluatePaylines(board, perLine, game.paylines, wild, o));
+	};
 	/** The pool and prices an imported reels mode's free spins are scored with: its own pays over this
 	 *  game's, and its own symbols in the pool. */
 	const bonusEvalOpts = (bonus) =>
@@ -1716,15 +1752,17 @@ export function createMockRgs(opts = {}) {
 	 *
 	 * A REELS MODE of the project's own (a pot's imported free spins) passes its `bonus` key, the
 	 * `strips` its spins are drawn from and the `paytable` of the symbols only it deals. It has no
-	 * expanding special: that is the host game's mechanic, not the imported feature's.
+	 * expanding special: that is the host game's mechanic, not the imported feature's. A SPINS mode
+	 * also passes its `game` ({@link spinGameBoard}): exactly `game.spins` spins on that game, with no
+	 * retrigger.
 	 */
 	const startFreeSpins = (
 		events,
 		round,
-		{ occurs, spins: given, board, extra = {}, bonus = 'feature', strips, paytable },
+		{ occurs, spins: given, board, extra = {}, bonus = 'feature', strips, paytable, game },
 	) => {
 		const spins = Math.min(
-			given ?? (strips ? TOTAL_FS : drawAward(entryAwards, occurs)),
+			strips && game ? game.spins : (given ?? (strips ? TOTAL_FS : drawAward(entryAwards, occurs))),
 			MAX_ROUND_FREE_SPINS,
 		);
 		const special = expanding && !strips ? drawSpecial() : null;
@@ -1735,6 +1773,7 @@ export function createMockRgs(opts = {}) {
 			left: spins,
 			...(special ? { special } : {}),
 			...(strips ? { key: bonus, strips, paytable: paytable ?? {} } : {}),
+			...(strips && game ? { game } : {}),
 		};
 		events.push({
 			event: 'spinTrigger',
@@ -1784,6 +1823,9 @@ export function createMockRgs(opts = {}) {
 			freeSpinsMode: 'freeSpins',
 			freeSpinsOn,
 			startFreeSpins,
+			// `startFreeSpins` deals a spins mode's own game (`game`), so its grid can be advertised.
+			spinsGames: true,
+			bonusModes: opts.bonusModes,
 		});
 	})();
 
@@ -1972,7 +2014,7 @@ export function createMockRgs(opts = {}) {
 							option >= table.options.length ||
 							!Number.isFinite(multiplier) ||
 							multiplier <= 0 ||
-							(!freeSpinsOn && table.buys[option]))
+							(!freeSpinsOn && table.buys[option] && !addOn?.sellsBuy(betModeOf(option))))
 					) {
 						return sendJson(req, res, 200, {
 							result: 0,
@@ -2008,6 +2050,8 @@ export function createMockRgs(opts = {}) {
 						baseTotal,
 						/** A bought option: this round's play enters the feature. */
 						isBuy: table ? table.buys[option] : false,
+						/** The `betModes` key the option sells — the overlay's buy routes read it. */
+						betMode: table ? betModeOf(option) : undefined,
 						win: 0,
 						reels: null,
 						/** Null outside the feature; set by the trigger, cleared when the last spin plays. */
@@ -2067,13 +2111,15 @@ export function createMockRgs(opts = {}) {
 					// sees `gameEnd`, then `collect`s. So `gameEnd` must NOT be emitted until the last
 					// free spin has played, or the drive loop closes the round mid-feature.
 					if (pendingRound.bonus?.active) {
-						const { strips } = pendingRound.bonus;
+						const { strips, game } = pendingRound.bonus;
 						const bonusKey = pendingRound.bonus.key ?? 'feature';
-						const fsReels = strips
-							? spinStrips(strips)
-							: stackedDeal
-								? spinReelsStacked()
-								: spinReels();
+						const fsReels = game
+							? spinGameBoard(game, strips)
+							: strips
+								? spinStrips(strips)
+								: stackedDeal
+									? spinReelsStacked()
+									: spinReels();
 						pendingRound.reels = fsReels;
 						const special = pendingRound.bonus.special;
 						// During the feature the special pays scatter-style too, as the book mock declares it.
@@ -2113,7 +2159,14 @@ export function createMockRgs(opts = {}) {
 										(w) => w.what !== special.symbol,
 									),
 								])
-							: evaluatePayWins(fsReels, pendingRound, bonusEvalOpts(pendingRound.bonus));
+							: game
+								? evaluateSpinGameWins(
+										fsReels,
+										pendingRound,
+										game,
+										bonusEvalOpts(pendingRound.bonus),
+									)
+								: evaluatePayWins(fsReels, pendingRound, bonusEvalOpts(pendingRound.bonus));
 						// The SCAT pay is priced against the WHOLE stake and rounded at the wire — exactly
 						// as the base spin below does it, so the two paths cannot drift apart.
 						if (fsScat.win) fsWins.push(roundPays([fsScat.win])[0]);
@@ -2138,7 +2191,7 @@ export function createMockRgs(opts = {}) {
 						// An imported reels mode retriggers by the plain default, under its own lower limit.
 						const fsTriggers = triggerCount(fsReels);
 						const added =
-							fsTriggers < triggerMin
+							fsTriggers < triggerMin || game
 								? 0
 								: strips
 									? RETRIGGER_FS
@@ -2184,7 +2237,9 @@ export function createMockRgs(opts = {}) {
 					// The add-on's `feature` force enters it like `FORCE_TRIGGER`.
 					const hostFeature = freeSpinsOn && turn?.hostFeature === true;
 					const forcedX =
-						pendingRound.isBuy || forceTrigger || hostFeature ? undefined : winX[baseSpinsDealt++];
+						pendingRound.isBuy || pendingRound.potsBought || forceTrigger || hostFeature
+							? undefined
+							: winX[baseSpinsDealt++];
 					// The forced win must not open the feature, so the board it builds holds no trigger
 					// symbol: the trigger's cells are refilled and it is never the symbol that pays. With
 					// the default 3+ SCAT rule that is exactly the scatter-free board it always built.

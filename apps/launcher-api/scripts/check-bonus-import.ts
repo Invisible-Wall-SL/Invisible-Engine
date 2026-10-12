@@ -20,7 +20,7 @@ import { mock } from 'node:test';
 import type { LiveLease } from '../src/lib/server/lease.ts';
 import type { FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import type { LayoutDoc, Scene, WinTextDoc } from 'engine-layout';
-import type { GameConfigDoc } from 'game-config';
+import { potsOverlayOf, primaryHoldAndWin, type GameConfigDoc } from 'game-config';
 
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
@@ -129,6 +129,8 @@ const {
 	rewriteSourceRigs,
 	mergeImportedScreens,
 	mergeImportedWinText,
+	mergeImportedModeWinText,
+	spokenModeLines,
 	importedRigBundle,
 } = await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
@@ -307,6 +309,59 @@ await check("win text: the source's Hold and Win lines, the host's pot lines", (
 	);
 });
 
+await check("win text: another respin mode's lines are added under it, no family replaced", () => {
+	const host = {
+		version: 1,
+		jackpots: { award: 'host' },
+		respins: { counter: 'host {count}' },
+		feature: { intro: 'host', potLabel: 'host pot' },
+	} as WinTextDoc;
+	const source = {
+		version: 1,
+		jackpots: { award: 'src', captions: { MINI: 'Tiny' } },
+		respins: { counter: 'src {count}' },
+		feature: { intro: 'src', potLabel: 'src pot', specialNames: { payer: 'Payer' } },
+		modes: { gold: { respins: { counter: 'gold {count}' }, feature: { outro: 'gold out' } } },
+	} as WinTextDoc;
+	same(
+		spokenModeLines(source, undefined),
+		{
+			jackpots: { captions: { MINI: 'Tiny' }, award: 'src' },
+			respins: { counter: 'src {count}' },
+			feature: { intro: 'src' },
+		},
+		"the source primary's own families, never a pot line or a name",
+	);
+	const gold = spokenModeLines(source, 'gold');
+	same(
+		gold,
+		{
+			jackpots: { captions: { MINI: 'Tiny' }, award: 'src' },
+			respins: { counter: 'gold {count}' },
+			feature: { intro: 'src', outro: 'gold out' },
+		},
+		"another source mode: its own over its primary's",
+	);
+	same(
+		spokenModeLines(source, 'gold', ['GOLD_MINI']).jackpots,
+		{ award: 'src' },
+		"only the captions of the receiving mode's tiers",
+	);
+	const out = mergeImportedModeWinText(host, 'holdAndWin_2', gold);
+	same(
+		out.doc,
+		{ ...host, modes: { holdAndWin_2: gold } },
+		"added under the mode; the host's families untouched",
+	);
+	same(out.added, ['modes.holdAndWin_2'], 'reported by mode');
+	same(mergeImportedModeWinText(out.doc, 'holdAndWin_2', gold).added, [], 'a re-sync is a no-op');
+	same(
+		mergeImportedModeWinText(out.doc, 'holdAndWin_2', {}).doc,
+		host,
+		'a source mode with no lines clears its entry',
+	);
+});
+
 console.log('\n2. import');
 
 await check("the host's own Hold and Win bonus, unasked: refused, nothing written", async () => {
@@ -364,7 +419,7 @@ await check(
 			'provenance',
 		);
 		same(
-			config.holdAndWin?.boardEnd,
+			primaryHoldAndWin(config)?.boardEnd,
 			{ type: 'columnLetters', letters: 'GRAND', jackpot: 'GRAND', clearOnComplete: true },
 			'the GRAND board end',
 		);
@@ -447,7 +502,7 @@ console.log('\n3. re-sync');
 
 await check('a re-sync picks up a source edit and moves nothing else', async () => {
 	const sourceConfig = storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, SOURCE));
-	sourceConfig.holdAndWin!.respins.start = 5;
+	sourceConfig.modes!.find((m) => m.id === 'holdAndWin')!.holdAndWin!.respins.start = 5;
 	put(gameConfigDocKey(CLIENT, SOURCE), sourceConfig);
 	put(winTextDocKey(CLIENT, SOURCE), {
 		version: 1,
@@ -475,10 +530,11 @@ await check('a re-sync picks up a source edit and moves nothing else', async () 
 		'parts',
 	);
 	const config = storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, HOST));
-	same(config.holdAndWin?.respins.start, 5, 'the edit arrived');
+	same(primaryHoldAndWin(config)?.respins.start, 5, 'the edit arrived');
 	same(config.imports?.[0]?.importedFrom.at, '2026-10-04T09:00:00.000Z', 'the re-sync time');
 	same(config.imports?.[0]?.symbols, configBefore.imports?.[0]?.symbols, 'the same names');
-	same(config.potsOverlay, configBefore.potsOverlay, 'the pots and their routes');
+	same(potsOverlayOf(config), potsOverlayOf(configBefore), 'the pots and their routes');
+	assert(potsOverlayOf(config), 'no pots');
 	same(stored(editorDocKey(CLIENT, HOST)), layoutBefore, 'the layout bytes');
 	same(stored(flowV2DocKey(CLIENT, HOST)), flowBefore, 'the flow bytes');
 	same(stored(symbolsDocKey(CLIENT, HOST)), symbolsBefore, 'the symbols bytes');
@@ -631,7 +687,6 @@ await check(
 		const strip = ['H1', 'MUMMY', 'L1', 'S'].map((name) => ({ name }));
 		put(gameConfigDocKey(CLIENT, BOOK_SOURCE), {
 			...hostConfig,
-			potsOverlay: undefined,
 			symbols: {
 				...hostConfig.symbols,
 				MUMMY: { paytable: [{ '3': 20 }, { '4': 200 }, { '5': 900 }] },
@@ -691,7 +746,7 @@ await check(
 			'parts',
 		);
 		const config = storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, FS_HOST));
-		same(config.potsOverlay?.pots[0].bonus.mode, 'freeSpins_2', 'the pot routes to it');
+		same(potsOverlayOf(config)?.pots[0].bonus.mode, 'freeSpins_2', 'the pot routes to it');
 		same(config.imports?.[0]?.symbols, { MUMMY: 'MUMMY' }, 'it owns only MUMMY');
 		const symbols = storedJson<{ symbols: Record<string, { static?: { assetKey: string } }> }>(
 			symbolsDocKey(CLIENT, FS_HOST),

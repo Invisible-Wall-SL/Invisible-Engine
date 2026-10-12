@@ -66,11 +66,53 @@ export const jackpotTier = (
 	);
 };
 
+/** The respin mode whose `tier` {@link jackpotTier} shows: the active one, else the first that has it. */
+export const jackpotTierMode = (
+	modes: readonly RespinModeRules[],
+	active: RespinModeRules | undefined,
+	tier: string,
+): RespinModeRules | undefined => {
+	const named = ({ name }: { name: string }) => name.toLowerCase() === tier.toLowerCase();
+	return active?.block.jackpots.some(named)
+		? active
+		: modes.find((m) => m.block.jackpots.some(named));
+};
+
+/**
+ * `tier`'s pool for `mode` among the server's `levels`: the entry the server tagged with that mode
+ * (a tier name progressive in several modes keeps a pool per mode), else the one shared by name.
+ */
+export const poolLevel = <T extends { name: string; mode?: string }>(
+	levels: readonly T[],
+	tier: string,
+	mode: string | undefined,
+): T | undefined => {
+	const named = (level: T) => level.name.toLowerCase() === tier.toLowerCase();
+	return (
+		levels.find((level) => named(level) && level.mode !== undefined && level.mode === mode) ??
+		levels.find((level) => named(level) && level.mode === undefined)
+	);
+};
+
 /** A scene's id without its mode's `-<modeId>` suffix — the reference screen it is a copy of. */
 export const modeSceneBaseId = (scene: Pick<Scene, 'id' | 'modeId'>): string => {
 	const suffix = scene.modeId ? `-${scene.modeId}` : '';
 	return suffix && scene.id.endsWith(suffix) ? scene.id.slice(0, -suffix.length) : scene.id;
 };
+
+/**
+ * The ids of the mode copies (`<screen>-<modeId>`) of the `reserved` screens among `scenes`, for the
+ * modes `isMode` knows (respin and spins modes): each is reserved like the screen it copies, so a
+ * mode's tap dim, banner or free-spin intro never mounts as an always-on overlay.
+ */
+export const reservedModeCopies = (
+	scenes: readonly Pick<Scene, 'id' | 'modeId'>[],
+	isMode: (modeId: string | undefined) => boolean,
+	reserved: ReadonlySet<string>,
+): string[] =>
+	scenes
+		.filter((scene) => isMode(scene.modeId) && reserved.has(modeSceneBaseId(scene)))
+		.map((scene) => scene.id);
 
 /**
  * The screen that draws `screen`'s beat in respin mode `mode`: that mode's own copy (`role: 'mode'`,

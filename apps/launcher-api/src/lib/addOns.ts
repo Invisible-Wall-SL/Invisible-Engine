@@ -1,11 +1,11 @@
 import type { SceneSetOptions } from 'engine-layout';
 import {
 	bonusCapabilityInputs,
-	bonusSplitOf,
 	flowAddOnsOf,
-	primaryRespinMode,
 	resolveExpandingSymbol,
 	resolveMeters,
+	respinModeDecls,
+	spinsModeDecls,
 	type GameConfigDoc,
 } from 'game-config';
 
@@ -17,16 +17,7 @@ import {
 export type ProjectAddOns = { holdAndWin: boolean; potsOverlay: boolean; expandingSymbol: boolean };
 
 type AddOnDoc =
-	| Pick<
-			GameConfigDoc,
-			| 'holdAndWin'
-			| 'potsOverlay'
-			| 'coinOverlay'
-			| 'modes'
-			| 'freeSpins'
-			| 'symbols'
-			| 'paddingReels'
-	  >
+	| Pick<GameConfigDoc, 'coinOverlay' | 'modes' | 'freeSpins' | 'symbols' | 'paddingReels'>
 	| null
 	| undefined;
 
@@ -49,18 +40,13 @@ export type RespinModeInfo = {
  */
 export function respinModesOf(doc: AddOnDoc): RespinModeInfo[] {
 	if (!doc) return [];
-	const modes = (bonusSplitOf(doc).modes ?? []).filter(
-		(mode) => mode.board === 'respinBoard' && mode.holdAndWin,
-	);
-	const primary = primaryRespinMode(modes);
-	const ordered = primary ? [primary, ...modes.filter((mode) => mode !== primary)] : modes;
-	return ordered.map((mode) => {
-		const maxRows = mode.holdAndWin?.expansion?.maxRows;
+	return respinModeDecls(doc).map((mode) => {
+		const maxRows = mode.holdAndWin.expansion?.maxRows;
 		return {
 			id: mode.id,
 			label: mode.label ?? mode.id,
 			...(maxRows ? { maxRows } : {}),
-			jackpotTiers: (mode.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
+			jackpotTiers: (mode.holdAndWin.jackpots ?? []).map((jackpot) => jackpot.name),
 		};
 	});
 }
@@ -86,6 +72,11 @@ export function projectAddOns(doc: AddOnDoc): {
 	return { addOns: { holdAndWin, potsOverlay, expandingSymbol }, potIds: doc ? meters : null };
 }
 
+/** No respin mode has a jackpot tier (a plain Hold and Win with Jackpots off): the scene set leaves
+ *  out the Jackpot bar. False without a respin mode, so every other set is unchanged. */
+export const noJackpotTiers = (modes: readonly RespinModeInfo[]): boolean =>
+	modes.length > 0 && modes.every((mode) => mode.jackpotTiers.length === 0);
+
 /** The tallest board any respin mode grows to — the rows the base reel grid reserves. */
 export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefined {
 	const rows = Math.max(0, ...modes.map((mode) => mode.maxRows ?? 0));
@@ -96,18 +87,21 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
  * The scene-set options a project's layout is seeded from. A Hold and Win kind's own block is its
  * base game, so only an overlay names its pots there; every other kind gets the add-on screens
  * whenever its config carries either. `maxRows` is the tallest respin board, and `respinModes`
- * names every respin mode with its own `maxRows`, so each gets its own screens. Without an add-on
- * the result is what the scaffold has always passed (`maxRows` alone, read by the Hold and Win kind
+ * names every respin mode with its own `maxRows`, so each gets its own screens; `spinsModes` names
+ * every spins mode, so each gets its own free-spin screens. Without an add-on or a spins mode the
+ * result is what the scaffold has always passed (`maxRows` alone, read by the Hold and Win kind
  * only), so its layout is unchanged.
  */
 export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOptions {
 	const { addOns, potIds } = projectAddOns(doc);
 	const modes = respinModesOf(doc);
+	const spins = doc ? spinsModeDecls(doc) : [];
 	const maxRows = respinMaxRows(modes);
 	const addOn =
 		gameType === 'holdAndWin' ? addOns.potsOverlay : addOns.holdAndWin || addOns.potsOverlay;
 	return {
 		...(maxRows ? { maxRows } : {}),
+		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
 		...(modes.length
 			? {
 					respinModes: modes.map(({ id, label, maxRows }) => ({
@@ -116,6 +110,9 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 						...(maxRows ? { maxRows } : {}),
 					})),
 				}
+			: {}),
+		...(spins.length
+			? { spinsModes: spins.map((mode) => ({ id: mode.id, label: mode.label ?? mode.id })) }
 			: {}),
 		...(addOn
 			? {

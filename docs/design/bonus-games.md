@@ -51,6 +51,29 @@ bonus modes: red pot → this Hold and Win, gold coins → that Hold and Win, 3 
 (`FlowDoc.modes`), per-mode screens (`role: 'mode'` + `modeId`), `createRespinBoard` (a factory),
 `modeEvents.ts` (already reads `event.mode`), and the import's provenance, rename map and re-sync.
 
+## 0. The owner's model, revised 2026-10-09 (supersedes §1 and §6.4 where they disagree)
+
+A game is four layers, each authored independently, in any combination:
+
+1. **Base game kind:** lines, scatter, ways, cluster, or Hold and Win.
+   - "Book of" is no longer a kind. It is an option on a lines game (book-feature project).
+   - **Hold and Win stays a base kind.** It plays on its own: coins land on its reels and start its
+     own respins, with no overlay and no bonus needed.
+   - **It is the plain game:** no pots, no collector, and **jackpots optional**. Game Maker's "Hold
+     and Win" template creates exactly this, with a Jackpots on/off choice (Phase 6b). Classic,
+     3 Pots and Collector are coin-overlay styles, added only through "＋ Coin overlay…".
+2. **Coin overlay (optional):** classic, 3 Pots or Collector, over ANY base kind (Hold and Win
+   included). Each of its triggers can start an overlay bonus.
+3. **Overlay bonus (0..n):** a bonus mode of ANY game type.
+   - A **Hold and Win** bonus plays its respin rules (Phases 1–6).
+   - A **lines / scatter / ways / cluster** bonus plays **N spins of that game** on its own reels,
+     paytable and screens, adds up the wins, then returns to the base game (Phase 8).
+4. **Normal bonus:** free spins, started by scatters or bought, as today.
+
+The test-server mock only has to WORK for authoring: approximate math is fine for new combinations,
+because production math comes from the real servers. Every current game still deals exactly as before
+(ground rule 3).
+
 ## 1. The model
 
 ```
@@ -110,35 +133,30 @@ Project (a whole game)
 
   A legacy doc and its split form must give the same mock inputs. That is the gate on Phase 1.
 
-- **Transition (Phases 1–6).** Until every reader has moved to per-mode reads, a normalized doc
-  stores the split form (canonical) AND the legacy `holdAndWin` / `potsOverlay` keys as a
-  **compat mirror** derived from it.
-  - **The mirror shows one respin mode, the PRIMARY.** That is the respin mode `holdAndWin` when it
-    has rules, else the first respin mode with rules. The mirror's `holdAndWin` is that mode's
-    rules joined with the overlay's routes to it and the base-game flags. Its `potsOverlay` is the
-    overlay's pots, drops and timing, present only when something drops.
-  - **Precedence.**
-    - When the input carries a legacy key, the legacy pair is applied over the split form for
-      everything the mirror shows. Everything else of the split form is kept: other modes, routes
-      to them, the style, the base-game coins, and flags for specials the primary does not
-      configure.
-    - When the input carries neither key, the split form stands.
-    - No equality test decides this. Applying a mirror that is unchanged is a no-op, and the
-      fixture pins it.
-    - Normalization cannot tell an edited split form from an edited mirror. So a stale mirror
-      always wins.
-  - **What writers must do.**
-    - **A writer of the split form (Phases 5a and 6) deletes both legacy keys before it saves.**
-    - **Hold and Win is removed only through `removeHoldAndWin(doc)`.** It removes the block, the
-      primary respin mode and the routes to it. Deleting the `holdAndWin` key alone brings the mode
-      back on a doc without a `potsOverlay`, and drops it beside one.
-    - A Hold and Win mode always plays on the respin board. An override's `reels` or `none` board
-      is overruled, so the block is never lost.
-    - An unmigrated writer edits only the legacy keys, and its edit wins.
-    - The game-config writers (`addOns`, `imports`) call `withLegacyPair` first and
-      `syncBonusSplit` last, so their results are already normalize fixed points.
-  - **Readers** in game-config go through `legacyHoldAndWin` / `legacyPotsOverlay`.
-  - **The mirror is dropped in Phase 7**, once no reader is left.
+- **Transition (Phases 1–7a, done).** Until every reader had moved to per-mode reads, a normalized
+  doc stored the split form (canonical) AND the legacy `holdAndWin` / `potsOverlay` keys as a
+  **compat mirror** derived from it. Phase 7b dropped the mirror (2026-10-09).
+  - **The mirror showed one respin mode, the PRIMARY:** the respin mode `holdAndWin` when it has
+    rules, else the first respin mode with rules. Its `holdAndWin` was that mode's rules joined with
+    the overlay's routes to it and the base-game flags; its `potsOverlay` the overlay's pots, drops
+    and timing, present only when something drops. Those shapes live on as views of the split form,
+    `primaryHoldAndWin(doc)` and `potsOverlayOf(doc)`, which the Hold and Win validator, mock and
+    runtime read.
+  - **Precedence (kept by the legacy reader).** When `normalize`'s input carries a legacy key, the
+    legacy pair is applied over the split form for everything the mirror showed; everything else
+    of the split form is kept (other modes, routes to them, the style, the base-game coins, flags
+    for specials the primary does not configure). When the input carries neither key, the split
+    form stands. Only `normalize` (and `migrateLegacyBonus`, its whole-doc form for `/config`'s
+    unnormalized live doc) reads the legacy keys; `check:bonus-migration` fails on any other reader.
+  - **Writers edit the split form.** The game-config writers (`addOns`, `imports`, `bonusModes`,
+    `spinsModes`) edit `coinOverlay` and the modes directly, a preset's Hold and Win installed whole
+    through `setPrimaryHoldAndWin`. Hold and Win is removed through `removeHoldAndWin(doc)` (the
+    primary respin mode and the routes to it). A Hold and Win mode always plays on the respin
+    board: an override's `reels` or `none` board beside a legacy block is overruled, so the block is
+    never lost.
+  - **Old baked bundles** still boot: the runtime normalizes the baked config
+    (`getActiveGameConfig`), so a bundle baked with the mirror, or before the split, plays the
+    split form.
 
 ### 2.2 Wire, mock and facade
 
@@ -151,7 +169,7 @@ Project (a whole game)
   they start, and the composed mock (`withPotsOverlay`) also wraps the lines mock for a classic
   overlay, so a Hold and Win project runs on the lines mock plus the overlay. `protocolFor('holdAndWin')`
   goes away, as `bookOf` did in book-feature.
-- **Emit rule (Phase 2; Phase 7 deletes the condition):** `bonusModes` and the per-context `mode` are
+- **Emit rule (Phase 2; kept by Phase 7b, which changed the doc, not the wire):** `bonusModes` and the per-context `mode` are
   sent only when the project's respin set is not the lone default (one `holdAndWin` mode on the
   `respin` strip), which the mock reads from `holdAndWinMockInputs(doc).modes` being present, so
   every existing game's answer stays byte-identical.
@@ -180,7 +198,7 @@ Project (a whole game)
   - coin roles appear when there is a respin mode. A pots-only overlay's tokens carry no cash
     value, so they add none (widen this when an overlay deals valued coins without a respin mode);
   - the overlay's own parts (the Pots screen) appear when the coin overlay drops tokens: the
-    predicate the legacy `potsOverlay` mirror uses, read from the split form.
+    predicate `potsOverlayOf` uses, read from the split form.
 - **`/config`:**
   - a **Bonus modes** section lists the modes. Each respin mode opens its own Hold and Win editor
     (today's `HoldAndWinSection`, pointed at that mode);
@@ -228,10 +246,22 @@ mock unchanged.
 6. **Game Maker: template + Add a bonus mode…** (`invisible-game-maker`). The template builds the
    split form. The import generalises to any mode of any same-client project, as a new mode, with
    any host and re-sync. Guides (`docs-keeper`, rule 9). Needs 2–5.
-7. **Migrate and prove** (`game-playtester`). Every stored project normalises to the split form on
-   its next save. The samples play end to end. A sample host plays two different Hold and Win
-   bonuses from two pots, plus its free spins. The current-games gate maps the `holdAndWin` kind to
-   lines + overlay. Needs 6.
+7. **Compose and prove**, split in three (revised 2026-10-09, §0):
+   - **7a, mock composition.** The base engine comes from the base kind: the lines-family mock with
+     its win model, or the Hold and Win engine. The coin overlay composes over ANY base engine, the
+     Hold and Win engine included. Every overlay route (pot, coin count, pattern, Lucky Spin, random
+     metre, buy) starts its named bonus mode, and a Hold and Win base can enter other bonus modes.
+     This lifts Phase 6's route guard. It also adds per-mode progressive pools and wires
+     `coinOverlay.coins` into the mock. Approximate math is fine; current games are byte-identical.
+   - **7b, drop the legacy mirror** (done). The `holdAndWin` / `potsOverlay` keys and their readers
+     went; `normalize` still reads them, as the legacy reader.
+     The `holdAndWin` kind stays as a base kind.
+   - **7c, migrate and prove** (`game-playtester`). Every stored project normalises to the split
+     form on its next save, and the samples play end to end. This needs R2 and a browser.
+8. **Overlay bonus of any game type** (after 7a). A bonus mode can be a lines, scatter, ways or
+   cluster game: N spins on its own reels, paytable and screens, then back to the base game. It
+   covers Game Config, the mock, the runtime, the Scene Editor, Flow, Win Text and Game Maker's "Add
+   a bonus mode…" from any project.
 
 **Done when:**
 
@@ -246,7 +276,11 @@ mock unchanged.
 
 ## 4. Order and parallelism
 
-`0 → 1 → (2 ∥ 3 ∥ 5a ∥ 5b) → 4 → (5c ∥ 5d) → 6 → 7`.
+`0 → 1 → (2 ∥ 3 ∥ 5a ∥ 5b) → 4 → (5c ∥ 5d) → 6 → 6b → 7a → 8a → (8b ∥ 8c) → 7b → 7c`.
+
+Phase 8 is split: 8a is the contract, mock and runtime; 8b is `/config`, Game Maker and the
+self-contained overlay presets; 8c is the Scene Editor, Flow v2, Win Text, `/symbols` and the info
+page. 7b (dropping the legacy mirror, about 80 readers) waits for 8b and 8c so it doesn't fight them.
 
 Concurrent work to coordinate with:
 
@@ -268,8 +302,8 @@ Concurrent work to coordinate with:
 1. **Routing lives in Game Config;** Flow only presents each mode. (Math has to be server-dealt.)
 2. **Copy + Re-sync, not a live link.**
 3. **An added bonus mode never replaces one:** an id clash takes `_2`.
-4. **The `holdAndWin` KIND retires as an engine switch (confirmed)** (as `bookOf` did) and stays as a
-   Game Maker template.
+4. ~~The `holdAndWin` KIND retires as an engine switch~~ **Reversed 2026-10-09:** Hold and Win stays a
+   base kind that plays alone, and a coin overlay and bonus modes can be layered on it (§0).
 5. **Name (confirmed):** `potsOverlay` is renamed `coinOverlay` (UI: "Coin overlay"), with a compat
    read of the old key.
 6. **Triggers in scope (confirmed):** the coin overlay's own (coin count, pots, collector, pattern,

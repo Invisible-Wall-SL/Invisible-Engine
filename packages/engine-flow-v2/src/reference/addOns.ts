@@ -12,19 +12,35 @@
  * package: `game-config`'s `flowAddOnsOf(doc)` builds them from a normalized doc.
  */
 
+import { containersMissingScene } from '../containerScenes';
 import { flowGraphs, graphHandlesSignal } from '../runtime';
 import type { FlowDoc, Graph, TemplateVocabulary, TypeRef } from '../types';
-import { buildEntryGraph, holdAndWinModeGraph, seedContainerRefs } from './drivenSeed';
+import type { FlowIssue } from '../validate';
+import {
+	buildEntryGraph,
+	holdAndWinModeGraph,
+	modeContainerRefs,
+	spinsContainerRefs,
+	spinsModeGraph,
+} from './drivenSeed';
 import { beat, HOLD_AND_WIN_FRAGMENT } from './holdAndWin';
 import { trig, type ChoreoStep } from './bookOfChoreo';
 import { HOLD_AND_WIN_BASE_CHOREO } from './holdAndWinChoreo';
+import { templateVocabulary } from './registry';
 import { INT, SYMBOL, insertAfter, type VocabFragment } from './standardVocab';
 
 /** Which add-on blocks a project's Game Config carries, and its meter ids (`resolveMeters`). */
 export interface FlowAddOns {
+	/** A respin mode with Hold and Win rules is declared. */
 	holdAndWin?: boolean;
 	potsOverlay?: boolean;
 	meters?: readonly string[];
+	/** The respin modes with rules, the primary first; absent ⇒ the lone `holdAndWin` when
+	 *  `holdAndWin` is on. */
+	respinModes?: readonly string[];
+	/** The spins modes (`GameModeDecl.spins`, bonus-games Phase 8), in declaration order; absent ⇒
+	 *  none. Each plays as free spins in its own mode, so it takes the kind's own vocabulary. */
+	spinsModes?: readonly string[];
 }
 
 const FLOAT: TypeRef = { t: 'float' };
@@ -211,6 +227,135 @@ const OVERLAY_BASE_CHOREO = {
 };
 
 const HOLD_AND_WIN_MODE = 'holdAndWin';
+/** The Hold and Win KIND (`templateId`), whose own vocabulary has the respin feature. */
+const HOLD_AND_WIN_KIND = 'holdAndWin';
+
+/** The respin modes `addOns` declares, the primary first. */
+export const flowRespinModes = (addOns: FlowAddOns | undefined): readonly string[] =>
+	addOns?.respinModes ?? (addOns?.holdAndWin ? [HOLD_AND_WIN_MODE] : []);
+
+/** Is mode tab `modeId` a respin mode's (keyed on the board, not the id): one of `addOns`' respin
+ *  modes, or `holdAndWin`, the Hold and Win kind's own. */
+export const isRespinTab = (modeId: string, addOns: FlowAddOns | undefined): boolean =>
+	modeId === HOLD_AND_WIN_MODE || flowRespinModes(addOns).includes(modeId);
+
+/**
+ * The Hold and Win events that fire only while a respin mode is on screen: the feature's events but
+ * the ones that can also arrive outside it — `jackpotWin` (a base-game jackpot too) and the two that
+ * open the feature (`holdAndWinTrigger`, `holdAndWinWheel`), which a queued bonus can present under
+ * another mode.
+ */
+export const RESPIN_FEATURE_EVENTS: readonly string[] = HOLD_AND_WIN_FRAGMENT.featureEvents
+	.map((event) => event.name)
+	.filter(
+		(name) =>
+			!(name in HOLD_AND_WIN_BASE_CHOREO) &&
+			name !== 'holdAndWinTrigger' &&
+			name !== 'holdAndWinWheel',
+	);
+
+/** `vocab` as a mode tab that is not a respin mode's offers it: without the respin feature's events,
+ *  which never reach that tab. Every other tab, and the global graph, keeps `vocab` itself. */
+export const vocabForTab = (
+	vocab: TemplateVocabulary,
+	modeId: string | null | undefined,
+	addOns: FlowAddOns | undefined,
+): TemplateVocabulary =>
+	modeId == null || isRespinTab(modeId, addOns)
+		? vocab
+		: { ...vocab, events: vocab.events.filter((e) => !RESPIN_FEATURE_EVENTS.includes(e.name)) };
+
+/**
+ * A respin feature event handled in a mode tab that is not a respin mode's: a signal goes to the
+ * section of the mode on screen, and these fire only while a respin mode is, so the chain never runs.
+ * WARNINGS, so a flow that published before still publishes. Judged only where the vocabulary has
+ * the respin feature (a Hold and Win project, or one with a respin mode).
+ */
+export function respinTabIssues(doc: FlowDoc, addOns: FlowAddOns | undefined): FlowIssue[] {
+	if (doc.templateId !== HOLD_AND_WIN_KIND && !addOns?.holdAndWin) return [];
+	return flowGraphs(doc).flatMap(({ modeId, graph }) => {
+		if (modeId === undefined || isRespinTab(modeId, addOns)) return [];
+		return RESPIN_FEATURE_EVENTS.flatMap((event): FlowIssue[] => {
+			const own = graph.nodes.find((n) => n.kind === 'event' && n.ref === event);
+			const pin = graph.exec.find(
+				(e) =>
+					e.from.pin === event &&
+					graph.nodes.some((n) => n.id === e.from.node && n.kind === 'gameSignals'),
+			)?.from;
+			const at: FlowIssue['at'] | undefined = own
+				? { on: 'node', node: own.id }
+				: pin && { on: 'pin', node: pin.node, pin: event };
+			if (!at) return [];
+			return [
+				{
+					code: 'respin-event-off-board',
+					severity: 'warning',
+					message: `'${event}' fires only while a respin mode is on screen, and the '${modeId}' tab is not a respin mode's — move it to that mode's tab or the global graph`,
+					at,
+					mode: modeId,
+				},
+			];
+		});
+	});
+}
+
+/**
+ * What is wrong with a spins mode's tab (`FlowAddOns.spinsModes`; the graft seeds it with
+ * `spinsModeGraph`):
+ *  - `spins-hold-scene-missing`, an ERROR: it holds the round (`showContainer{awaitComplete}`) on a
+ *    container whose scene is not in `sceneIds`, so the hold never releases and its free spins never
+ *    continue — "＋ Add overlay steps" run before the Scene Editor's "Add missing screens". Judged
+ *    only when the caller projects the layout's scene ids in (`containersMissingScene`). An error here alone: no flow had a
+ *    spins tab before this check, so nothing that published before is refused.
+ *  - `spins-counter-unswapped`, a WARNING: the flow drives the screens and shows the base free-spin
+ *    counter, but the tab never hides it, so the base counter draws beside the mode's (a tab seeded
+ *    before the flow drove the screens; remove the tab and graft again).
+ */
+export function spinsTabIssues(
+	doc: FlowDoc,
+	addOns: FlowAddOns | undefined,
+	sceneIds?: readonly string[],
+): FlowIssue[] {
+	const missing = new Map(
+		containersMissingScene(doc.containers, sceneIds ?? []).map((c) => [c.id, c.sceneId]),
+	);
+	const drives =
+		graphHandlesSignal(doc.graph, 'load') && doc.containers.some((c) => c.id === FS_COUNTER);
+	return (addOns?.spinsModes ?? []).flatMap((modeId): FlowIssue[] => {
+		const graph =
+			doc.modes && Object.hasOwn(doc.modes, modeId) ? doc.modes[modeId].graph : undefined;
+		if (!graph) return [];
+		const issues: FlowIssue[] = [];
+		for (const node of graph.nodes) {
+			if (node.kind !== 'showContainer' || !node.awaitComplete) continue;
+			const sceneId = missing.get(node.ref);
+			if (sceneId === undefined) continue;
+			issues.push({
+				code: 'spins-hold-scene-missing',
+				severity: 'error',
+				message: `The '${modeId}' tab holds its free spins on screen '${sceneId}', which is not in this game's layout, so they would never continue — add it with the Scene Editor's "Add missing screens"`,
+				at: { on: 'node', node: node.id },
+				mode: modeId,
+			});
+		}
+		const hidesBase = graph.nodes.some((n) => n.kind === 'hideContainer' && n.ref === FS_COUNTER);
+		const anchor =
+			graph.nodes.find((n) => n.kind === 'modeTrigger' && n.on === 'enter') ?? graph.nodes[0];
+		if (drives && !hidesBase && anchor) {
+			issues.push({
+				code: 'spins-counter-unswapped',
+				severity: 'warning',
+				message: `This flow draws the base free-spin counter, and the '${modeId}' tab never hides it, so it draws beside the mode's own — hide '${FS_COUNTER}' on the tab's Mode trigger (enter) and show it again on (exit), or remove the tab and use "＋ Add overlay steps"`,
+				at: { on: 'node', node: anchor.id },
+				mode: modeId,
+			});
+		}
+		return issues;
+	});
+}
+
+/** The base game's free-spin counter, which a spins mode's tab swaps for its own. */
+const FS_COUNTER = 'freeSpinCounter';
 
 /** What a graft did: the new doc, and a label per thing it added (empty ⇒ the doc unchanged). */
 export interface AddOnGraft {
@@ -241,12 +386,17 @@ const freePrefix = (ids: ReadonlySet<string>, base: string): string => {
  *    node and its coded beat. An `event` node rather than a pin on the doc's `gameSignals` node:
  *    the runtime walks the FIRST `gameSignals` node only, and wiring an authored node is not ours.
  *    Placed right of every existing node.
- *  - **Hold and Win bonus**: `modes.holdAndWin` from the Hold and Win starter flow when the doc has
- *    no such section (an existing one is left alone). Its beats show the mode's screens, and the
+ *  - **Hold and Win bonus**: for each respin mode (`flowRespinModes`, the primary first) the doc has no
+ *    section for, `modes.<modeId>` from the Hold and Win starter flow (an existing one is left
+ *    alone), showing that mode's own `-<modeId>` screens. Its beats show the mode's screens, and the
  *    validator refuses a show of a container the doc does not declare, so each missing one is
  *    declared at the seed's z — the same ref a Hold and Win project carries. A declared container
  *    whose scene the project lacks validates and mounts nothing (the Scene Editor's "＋ Add overlay
  *    screens" adds them), so the graft never makes a flow unpublishable.
+ *  - **Spins modes**: for each spins mode the doc has no section for, `modes.<modeId>` presenting its
+ *    free spins on its own `-<modeId>` screens (`spinsModeGraph`), with the doc's template
+ *    vocabulary. A flow that drives the screens and shows the base counter also swaps the counter
+ *    for the mode's own while the mode is on screen. Missing containers are declared as above.
  *
  * Every new id carries a prefix no id of the doc starts with. Pure: the input is not mutated, and
  * nothing to add returns it as is, so a second graft is a no-op.
@@ -284,19 +434,49 @@ export function graftAddOnSteps(doc: FlowDoc, addOns: FlowAddOns | undefined): A
 		added.push(...events);
 	}
 
-	if (addOns?.holdAndWin && !doc.modes?.[HOLD_AND_WIN_MODE]) {
-		const section = holdAndWinModeGraph(freePrefix(ids, 'hw'));
-		modes = { ...doc.modes, [HOLD_AND_WIN_MODE]: { graph: section } };
-		added.push(`modes.${HOLD_AND_WIN_MODE}`);
-		const declared = new Set(doc.containers.map((c) => c.id));
+	for (const modeId of flowRespinModes(addOns)) {
+		if (doc.modes?.[modeId]) continue;
+		const section = holdAndWinModeGraph(freePrefix(ids, 'hw'), modeId);
+		nodeIds(section, ids);
+		modes = { ...modes, [modeId]: { graph: section } };
+		added.push(`modes.${modeId}`);
+		const declared = new Set(containers.map((c) => c.id));
 		const shown = section.nodes.flatMap((n) =>
 			(n.kind === 'showContainer' || n.kind === 'hideContainer') && !declared.has(n.ref)
 				? [n.ref]
 				: [],
 		);
-		const missingRefs = seedContainerRefs(shown);
+		const missingRefs = modeContainerRefs(shown, modeId);
 		if (missingRefs.length) {
-			containers = [...doc.containers, ...missingRefs];
+			containers = [...containers, ...missingRefs];
+			added.push(...missingRefs.map((c) => `container ${c.id}`));
+		}
+	}
+
+	const swapCounter =
+		graphHandlesSignal(doc.graph, 'load') && containers.some((c) => c.id === FS_COUNTER);
+	for (const modeId of addOns?.spinsModes ?? []) {
+		if (doc.modes?.[modeId]) continue;
+		const section = spinsModeGraph(
+			freePrefix(ids, 'fs'),
+			modeId,
+			templateVocabulary(doc.templateId),
+			{ swapCounter },
+		);
+		// A template without free spins presents nothing: no tab, so a later graft can still seed one.
+		if (!section.nodes.length) continue;
+		nodeIds(section, ids);
+		modes = { ...modes, [modeId]: { graph: section } };
+		added.push(`modes.${modeId}`);
+		const declared = new Set(containers.map((c) => c.id));
+		const shown = section.nodes.flatMap((n) =>
+			(n.kind === 'showContainer' || n.kind === 'hideContainer') && !declared.has(n.ref)
+				? [n.ref]
+				: [],
+		);
+		const missingRefs = spinsContainerRefs(shown, modeId);
+		if (missingRefs.length) {
+			containers = [...containers, ...missingRefs];
 			added.push(...missingRefs.map((c) => `container ${c.id}`));
 		}
 	}

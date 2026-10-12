@@ -29,6 +29,7 @@ import {
 	registerRigFx,
 	registerTextResolver,
 	resolveWinText,
+	resolveWinTextForMode,
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
 import { captureError } from 'error-tracking';
@@ -1238,6 +1239,15 @@ export function bakedArrivalReleaseEnabled(): boolean {
 export function bakedWinText(): ResolvedWinText {
 	if (hasRuntimeBundle()) return resolveWinText(runtimeBundle!.winText);
 	return resolveWinText(bakedBundle.winText);
+}
+
+/** {@link bakedWinText} as respin mode `mode` speaks it: its own lines over the primary's
+ *  (`resolveWinTextForMode`). `undefined` is the primary. */
+export function bakedWinTextFor(mode: string | undefined): ResolvedWinText {
+	return resolveWinTextForMode(
+		hasRuntimeBundle() ? runtimeBundle!.winText : bakedBundle.winText,
+		mode,
+	);
 }
 
 /**

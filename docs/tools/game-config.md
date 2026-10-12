@@ -40,7 +40,11 @@ before — an un-authored project still runs the compiled template.
   everywhere: the game renders this many reels and rows, the Scene Editor draws its
   preview at this size, and a dev game's mock RGS deals it. Changing the reel count
   re-shapes the row list but leaves paylines alone — mismatches surface as errors
-  rather than silently trimming your work.
+  rather than silently trimming your work. Widening fills the new reels for you; after a shrink,
+  _Strips or paylines don't match the N-reel grid_ shows with a **Match grid** button that cuts
+  them down. A spins mode on a grid of its own (see _Bonus modes_) is measured against its own
+  grid: its strips are never grown or cut to the base grid, and **Match grid** cycles or cuts them
+  to its own.
 
   Give the reels **different row counts** for a **stepped board** — a `3/4/5/4/3`
   diamond, a `2/3/4/5/6` ramp. Each column then draws, and is dealt, at its own
@@ -61,8 +65,8 @@ before — an un-authored project still runs the compiled template.
   on. Its style, the pots and drops, what lands in the base game, and the **triggers** that
   start a bonus. See _Coin overlay_ below.
 - **Bonus modes** — the games a bonus switches into: the reels modes (free spins…) with what
-  starts each, and one card per **respin mode** (a Hold and Win game of its own) with its
-  rules. See _Bonus modes_ below.
+  starts each, one card per **respin mode** (a Hold and Win game of its own) with its rules, and
+  one panel per **spins mode** (N spins of a game on its own strips). See _Bonus modes_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see _The strips are the gate_ below); a pots
@@ -120,8 +124,8 @@ Nothing is stored until you **Save**.
 
 After saving an overlay change, **reload any open game tab**: a tab keeps the overlay it booted
 with, and the test server goes on dealing it that game until it reloads. Adding one here puts its
-symbols in the config only. Their art is seeded only by Game Maker's **＋ Pots overlay…** (or
-**Pots overlay parts…**); otherwise bind it in Symbols. Until then a token, a coin or a Hold and
+symbols in the config only. Their art is seeded only by Game Maker's **＋ Coin overlay…** (or
+**Coin overlay parts…**); otherwise bind it in Symbols. Until then a token, a coin or a Hold and
 Win special draws a coded placeholder disc.
 
 **Style** — once the project has an overlay, pick how it plays:
@@ -150,11 +154,17 @@ can add them later. The presets:
 - **Pots to free spins** — one pot that starts free spins.
 - **Coins only (6+ value coins start a classic Hold and Win)** — no pots. A tenth of spins drop 1
   to 8 value coins, and 6 or more start the Classic Hold and Win (about one spin in 27, mock math).
+- **Collector (a full pot starts a Hold and Win with its collector)** — one pot, `green` (token
+  `POT_GREEN`), whose full pot starts a Hold and Win with its collector on. Its style is
+  **Collector**.
 
 It adds the overlay and its **token** symbols. Tokens go in the Symbols dictionary only — a strip
-never deals them. The 3 Pots and Coins only presets also add a Hold and Win respin mode (its rules,
-the symbols its respin board deals and its respin strips) — unless the project already has one, in
-which case the overlay uses that one. **Coins only is refused on a Hold and Win game**: its Hold and
+never deals them. The 3 Pots, Coins only and Collector presets also add a Hold and Win respin mode
+(its rules, the symbols its respin board deals and its respin strips; Collector brings the Collector
+Hold and Win) — unless the project already has one, in which case the overlay uses that one. If that
+one lacks a special the preset's pots start (the plain Hold and Win, Classic or Collector under
+3 Pots, for example), the preset adds that special's rules, its symbol (renamed on a clash) and one
+cell of it on each respin strip. **Coins only is refused on a Hold and Win game**: its Hold and
 Win is started by the coins landing on its reels, so dropped coins would start nothing (for the
 same reason, a value-coin drop on such a game gets a warning).
 
@@ -233,18 +243,27 @@ strips and symbols. Everything else in the config is kept.
 
 ### Base game
 
-What lands in the base game. A coin landing in the base game shows a value from the coin table of
-the respin mode it starts. The panel shows only when some respin mode configures a special:
+What lands in the base game. The panel shows once the project has a respin mode:
 
 - **Specials in the base game** — one row per special that some respin mode configures:
   **Lands in the base game**, and for the collector and the multiplier, **… + coin in the base game
   pays at once**.
+- **Coin values in the base game** — what a coin landing on the base reels, or a value coin the
+  overlay drops, is worth. Unset, it is the coin table of the respin mode the coins start. **Set the
+  base game's own** starts a table from the first respin mode's: each row is a **cash** value or a
+  **jackpot** coin naming any respin mode's tier, with a **Weight**. **Use the respin mode's table**
+  removes it. The coins keep their value when they start the feature.
 
 ### Triggers
 
-What starts a respin mode — any one of these. Each has a **starts →** picker listing the project's
-respin modes; with none, the panel is greyed out and asks you to add one in **Bonus modes** first.
-(Free spins are started by their scatters, in _Free spins_.)
+What starts a respin or spins mode — any one of these. Each has a **starts →** picker listing the
+project's respin modes; the picker of a buy tier, Lucky Spin and the random metre also lists its
+spins modes, shown as _label (N spins)_. The coin count, a pattern and a meter start respin modes
+only. With neither kind of mode, the panel is greyed out and asks you to add a respin or spins mode
+in **Bonus modes** first; with only spins modes it stays usable and says what can start them.
+(Free spins are started by their scatters, in _Free spins_.) On a game that is not a Hold and Win
+game, the **Coin count** and a **Pattern** count the value coins the overlay drops; a buy, Random
+metre and Lucky Spin start the mode over the game's own spin.
 
 - **Coin count** — **At least** N symbols of the roles you tick, anywhere on the board.
 - **Pattern** — **+ requirement** adds a row: a reel, **At least** N, and the roles; every
@@ -255,7 +274,9 @@ respin modes; with none, the panel is greyed out and asks you to add one in **Bo
   and a role, **+ guaranteed**).
 - **Random metre** — the server triggers it, dressed as a metre; give it a **Name**.
 - **Lucky Spin** — a server-announced spin that guarantees the trigger.
-- **Meters** — filled by a landing symbol; the server keeps each player's level. **+ meter** adds
+- **Meters** — filled by a landing symbol; the server keeps each player's level. On a game that
+  is not a Hold and Win game (the coin overlay's own pots and drops start the bonus), a meter is
+  refused: make it a pot instead. **+ meter** adds
   a row: **Id**, **Filled by** (a symbol; one not tagged `meterSpecial` says so), **Max level**,
   **Size stages**, the special it **Activates**, and the mode it **Starts**.
 
@@ -272,6 +293,8 @@ The **Bonus modes** section follows Coin overlay. It lists the games a bonus swi
   _Game modes_.
 - One card per **respin mode** — a Hold and Win game of its own, with its own rules, respin strips
   and symbols. A project can have several.
+- One panel per **spins mode** — N spins of a lines, ways, cluster or scatter game on its own
+  strips, then back to the base game. See _Spins modes_ below.
 
 What starts each one — a coin count, a pot, a buy, Lucky Spin — is set in _Coin overlay_.
 
@@ -311,9 +334,17 @@ taken id is refused beside the button.
 
 To replace the whole config with one of these games, pick it in the banner's preset menu and press
 **Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
-_Free spins_). A new Hold and Win project already has its own config: Game Maker saves the preset
-picked at **Create** (Pots unless you chose another), so the page opens on an authored doc, not the
-template.
+_Free spins_). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
+(Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),
+then the three games above. A new Hold and Win project already has its own config: Game Maker
+saves the plain Hold and Win with the Jackpots choice picked at **Create**, so the page opens on an
+authored doc, not the template. Pots and Collector are not offered at Create: add a coin overlay
+from the project's card, or reset to one of these presets here. To switch a plain game's jackpots
+on or off, reset to the other **Plain** entry.
+
+**Reset to template default** on a Hold and Win project reads **Reset to template default (Pots)**:
+it restores the kind's legacy default, the Pots game, which is what a Hold and Win project that
+never saved a config plays. It is not the plain template; use **Reset to preset → Plain** for that.
 
 ### The rules
 
@@ -378,6 +409,48 @@ The win model is locked to **lines** on a Hold and Win game — a Hold and Win b
 lines (not when the Hold and Win is the overlay's bonus). The checker names impossible setups (a
 pattern on a reel that doesn't exist, only collectors sticking with no sticky collector, a letters
 word that doesn't match the reel count, a jackpot name no tier has…).
+
+### Spins modes
+
+A spins mode plays N spins of a lines, ways, cluster or scatter game on its own strips, then goes
+back to the base game. Game Maker's **Add a bonus mode…** can also bring another project's base game
+in as one (see [Game Maker](game-maker.md#add-a-bonus-mode-from-another-project)).
+
+**Add a spins mode** — type an id (left blank it is `spinsBonus`, or `spinsBonus_2`… when that is
+taken) and press **＋ Spins mode**. A bad or taken id is refused beside the button. The new mode
+starts as the base game: 10 spins, the base game's win model, grid, paylines and pays, and a copy
+of the base strips under a game type named after the mode id. Nothing starts it yet: route a pot, a
+buy, Lucky Spin or the random metre to it in _Coin overlay_.
+
+On a **Hold and Win** project, or one of the older **Book of** game type, the row is disabled and
+says why: those games play their bonuses on their own board, not N spins of a lines, ways, cluster
+or scatter game. (A lines game with the expanding symbol can have spins modes.) A spins
+mode such a project already has shows an error, which blocks Save.
+
+**A spins mode's panel** — its label, id and what starts it (or _nothing yet — route a pot, a buy,
+Lucky Spin or the random metre to it in Coin overlay_), then:
+
+- **Spins** — how many spins it plays.
+- **Game** — _the base game's_ (its win model), or **lines**, **ways**, **cluster** or **scatter**.
+  Each model shows its threshold: **Fewest reels** and **Direction** (_left to right_ / _both
+  ways_) for ways, **Fewest cells** and **Touching** (_side by side_ / _also diagonally_) for
+  cluster, **Fewest anywhere** for scatter.
+- **A grid of its own** — tick it for its own **Reels** and the rows of each reel (**Reel 1**,
+  **Reel 2**…). Its strips are cycled or cut to that grid. Unticked, it plays on the base grid.
+- **Paylines of its own** — lines games only. Tick it to start from a copy of the base lines; each
+  **Line** is a list of rows, one per reel, typed with 1 = top. **＋ Line** adds one, **×** removes
+  one. Unticked, it plays the base game's lines.
+- **The symbols on its strips** — one row per symbol its strips deal, with the **Base pays** and an
+  **Its own pays** box (`count:pay, …`, e.g. `5:20, 4:10, 3:5`). Empty, the symbol pays its base
+  pays.
+- **Strips** — which strip set it plays and how many reels it has. When that does not match its
+  grid, **Fit strips to N reels** cycles or cuts them; with no strips, **Copy the base strips**
+  copies the base game's.
+- **Remove** asks first, then takes out its game, its strips and every route to it. A pot that
+  started it is re-routed to free spins, or removed when free spins are off.
+
+A field left on the base game's is not stored: the mode follows the base game for it, so a later
+change to the base game reaches the spins mode too.
 
 ## Reel behaviour
 

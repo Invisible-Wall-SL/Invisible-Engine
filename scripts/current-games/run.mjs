@@ -52,6 +52,7 @@ import {
 	republishVariants,
 } from './lib/builtins.mjs';
 import { loadTolerance } from './lib/compare.mjs';
+import { readContracts, writeContracts } from './lib/contracts.mjs';
 import { loadGateResults } from './lib/gates.mjs';
 import { fetchManifest, fetchRuntimeJson, fetchSnapshot, listGames } from './lib/games.mjs';
 import {
@@ -135,8 +136,8 @@ const headSha = process.env.CURRENT_GAMES_HEAD_SHA || gitSha(ROOT, 'HEAD');
 
 /**
  * The test server's manifest: every game's mock contract (from R2 when a published game needs it,
- * plus `--manifest-file`). Decided from the games alone, so a render phase of stand-in games runs
- * without R2.
+ * plus `--manifest-file`). Read ONCE, by the plan: the launcher rewrites this one live key on every
+ * publish, so the renders deal from the plan's frozen copy (`lib/contracts.mjs`) instead.
  */
 async function manifestFor(games) {
 	const needsR2 = games.some((g) => g.publishedPointerKey && !g.local?.manifestEntry);
@@ -146,7 +147,11 @@ async function manifestFor(games) {
 	return manifest;
 }
 
-/** List the games, pin each one's snapshot, list the units. */
+/**
+ * List the games, pin each one's snapshot and mock contract, list the units. Returns the plan and,
+ * apart from it (the plan is public), the contracts it pinned by hash: the renders deal from these,
+ * never from a second read of the live manifest.
+ */
 async function plan() {
 	try {
 		const only = opt.only ? new Set(opt.only.split(',')) : null;
@@ -166,7 +171,12 @@ async function plan() {
 			ROOT,
 		);
 		const baseSha = process.env.CURRENT_GAMES_BASE_SHA;
-		return {
+		const rendered = made.games.filter((p) => p.status === 'render');
+		const contracts = Object.fromEntries(
+			rendered.map((p) => [p.game.key, contractFor(p.game, manifest)]),
+		);
+		const fromR2 = rendered.some((p) => p.game.publishedPointerKey && !p.game.local?.manifestEntry);
+		const thePlan = {
 			version: 3,
 			seed: opt.seed,
 			head: { sha: headSha },
@@ -174,6 +184,7 @@ async function plan() {
 			typekit,
 			...made,
 		};
+		return { thePlan, contracts, fromR2 };
 	} catch (e) {
 		abort(e.message);
 	}
@@ -304,15 +315,17 @@ async function browserPaths(chrome) {
 	log(`browser: ${paths}`);
 }
 
-/** Render `units` of `thePlan`, `--jobs` at a time. */
-async function render(thePlan, units, runtimes) {
+/**
+ * Render `units` of `thePlan`, `--jobs` at a time, each dealt from the contract the plan pinned:
+ * `contracts()` gives them (the plan phase's frozen copy, `lib/contracts.mjs`).
+ */
+async function render(thePlan, units, runtimes, contracts) {
 	const chrome = headlessShell(opt.chrome);
 	await browserPaths(chrome);
 	const byKey = new Map(thePlan.games.map((p) => [p.game.key, p]));
-	// Read here, not carried in the (public) plan; the plan's hash pins it to what was planned.
-	let manifest;
+	let pinned;
 	try {
-		manifest = await manifestFor(thePlan.games.map((p) => p.game));
+		pinned = contracts();
 	} catch (e) {
 		for (const unit of units) writeFailedUnit(unit, `mock contracts unreadable: ${e.message}`);
 		return;
@@ -354,11 +367,12 @@ async function render(thePlan, units, runtimes) {
 		while (next < units.length) {
 			const unit = units[next++];
 			const planned = byKey.get(unit.key);
-			const contract = contractFor(planned.game, manifest);
-			if (contractHash(contract) !== planned.contractHash) {
+			// The frozen copy cannot change mid-run; a mismatch is a contracts file from another plan.
+			const contract = pinned[planned.game.key];
+			if (!contract || contractHash(contract) !== planned.contractHash) {
 				writeFailedUnit(
 					unit,
-					"the game's mock contract changed during the run (test_server/games.json was rewritten)",
+					"the game's mock contract is not the one the plan pinned (contracts.json is not this plan's)",
 				);
 				continue;
 			}
@@ -435,7 +449,12 @@ const readPlan = () => {
 };
 
 if (opt.phase === 'plan') {
-	const thePlan = await plan();
+	const { thePlan, contracts, fromR2 } = await plan();
+	try {
+		writeContracts(out, contracts, { fromR2 });
+	} catch (e) {
+		abort(`mock contracts could not be frozen: ${e.message}`);
+	}
 	await planRepublish(thePlan, {
 		base: opt['base-build'] && resolve(opt['base-build']),
 		head: opt['head-build'] && resolve(opt['head-build']),
@@ -448,10 +467,12 @@ if (opt.phase === 'plan') {
 	const [index, count] = opt.shard.split('/').map(Number);
 	const units = unitsForShard(thePlan.units, index, count);
 	log(`${units.length} unit(s) in shard ${opt.shard}`);
-	await render(thePlan, units, {
-		base: resolve(opt['base-build']),
-		head: resolve(opt['head-build']),
-	});
+	await render(
+		thePlan,
+		units,
+		{ base: resolve(opt['base-build']), head: resolve(opt['head-build']) },
+		() => readContracts(dirname(resolve(opt.plan))),
+	);
 } else if (opt.phase === 'compare') {
 	const thePlan = readPlan();
 	compare(
@@ -462,7 +483,7 @@ if (opt.phase === 'plan') {
 			.map((d) => resolve(d)),
 	);
 } else {
-	const thePlan = await plan();
+	const { thePlan, contracts } = await plan();
 	let base;
 	try {
 		base = opt['base-build']
@@ -483,7 +504,7 @@ if (opt.phase === 'plan') {
 	if (headDir) {
 		const runtimes = { base: base.dir, head: headDir };
 		await planRepublish(thePlan, runtimes);
-		await render(thePlan, thePlan.units, runtimes);
+		await render(thePlan, thePlan.units, runtimes, () => contracts);
 	}
 	compare(thePlan, [out]);
 }

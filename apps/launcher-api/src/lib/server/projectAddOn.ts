@@ -77,8 +77,9 @@ export function addOnToolsMissing(hasTool: (tool: string) => boolean, flow: bool
 
 /**
  * The presets that add cleanly to `doc`: the add is not refused and the result has no validator
- * error. A preset that does not fit the game (3 Pots names specials a Classic Hold and Win game
- * lacks) is not offered rather than refused after the click. Empty once the overlay is there.
+ * error. A preset that does not fit the game (Coins only on a Hold and Win game, pots to free spins
+ * when its free spins are off) is not offered rather than refused after the click. Empty once the
+ * overlay is there.
  */
 export function cleanOverlayPresets(doc: GameConfigDoc | null): PotsOverlayPresetId[] {
 	if (!doc) return [];
@@ -383,7 +384,7 @@ export async function applyPotsOverlayAddOn(
 
 	const none: AddOnRenames = { symbols: {}, pots: {} };
 	if (!opts.preset) {
-		if (!resolved.doc.potsOverlay) {
+		if (!resolved.doc.coinOverlay?.drops) {
 			return { ok: false, status: 400, error: 'This project has no pots overlay yet.' };
 		}
 		const seeds = await seedPotsOverlayParts(client, project, resolved.doc, { flow });

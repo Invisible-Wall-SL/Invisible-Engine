@@ -36,8 +36,10 @@ import { createPlatformJackpot } from './mock-platform-jackpot.mjs';
 import {
 	createHoldAndWinEngine,
 	HOLD_AND_WIN_WIRE_VERSION,
+	splitPoolNames,
 	tidy,
 } from './mock-holdandwin-engine.mjs';
+import { bonusSnapshot } from './mock-rgs-server.mjs';
 
 export { HOLD_AND_WIN_WIRE_VERSION };
 
@@ -144,15 +146,20 @@ export function createRespinEngines(opts) {
 			meters.push(meter);
 		}
 	}
+	const splitPools = splitPoolNames(modes.map((m) => m.block));
 	const own = (m, block) => ({
 		...opts,
+		splitPools,
 		mode: m.mode,
 		bonus: m.gameType,
 		blank: m.blank,
 		wire: true,
 		holdAndWin: { block, lineSymbols: inputs.lineSymbols, symbols: m.symbols },
 	});
-	const engine = createHoldAndWinEngine(own(primary, { ...primary.block, trigger, meters }));
+	const primaryOpts = own(primary, { ...primary.block, trigger, meters });
+	// The base game is the primary's, so only it deals the base-game coin values.
+	if (inputs.baseCoins) primaryOpts.holdAndWin.baseCoins = inputs.baseCoins;
+	const engine = createHoldAndWinEngine(primaryOpts);
 	const engines = [
 		engine,
 		...others.map((m) => createHoldAndWinEngine({ ...own(m, m.block), rand: engine.rand })),
@@ -199,11 +206,12 @@ export function createMockRgs(opts = {}) {
 	const engineOf = (round) => engines.find((e) => e.mode === round.feature?.mode) ?? engine;
 	const playRespin = (events, round) => engineOf(round).playRespin(events, round);
 	const featureState = (f) => engineOf({ feature: f }).featureState(f);
-	/** Every respin mode's progressive tiers, by name (a name two modes share is one pool). */
-	const tierNames = new Set();
+	/** Every respin mode's progressive pools, by key: one per tier name, or per mode for a name
+	 *  progressive in several modes (`splitPoolNames`). */
+	const poolKeys = new Set();
 	const progressiveTiers = engines
 		.flatMap((e) => e.progressiveTiers)
-		.filter((t) => !tierNames.has(t.name) && tierNames.add(t.name));
+		.filter((t) => !poolKeys.has(t.key) && poolKeys.add(t.key));
 	const setLivePools = (pools) => engines.forEach((e) => e.setLivePools(pools));
 	const wonProgressive = {
 		has: (name) => engines.some((e) => e.wonProgressive.has(name)),
@@ -211,8 +219,73 @@ export function createMockRgs(opts = {}) {
 	};
 	// One respin mode: the boot config is the engine's, byte for byte. Several: it lists each beside
 	// the legacy `holdAndWin` (the primary's) — the shared wire contract, docs/design/bonus-games.md §2.2.
-	const configContext = (session) =>
-		!wire
+	// ---- free spins a bonus sends the base into (bonus-games Phase 7a) ----
+	/** The approximate free spins: line spins on this game's board, in the lines mock's events. */
+	const FREE_SPINS = 10;
+	const freeSpinsTrigger = { occurs: [0], of: '', mode: 'scatter', from: '' };
+	const startFreeSpins = (
+		events,
+		round,
+		{ occurs = 0, spins, extra = {}, bonus = 'feature' } = {},
+	) => {
+		const total = Math.max(1, Math.round(spins ?? FREE_SPINS));
+		round.bonus = { active: true, total, played: 0, left: total, key: bonus };
+		events.push({
+			event: 'spinTrigger',
+			context: {
+				spins: [{ prob: 1, spins: total }],
+				occurs,
+				bonus,
+				trigger: freeSpinsTrigger,
+				...extra,
+			},
+		});
+		events.push({
+			event: 'enterBonus',
+			context: bonusSnapshot(round, freeSpinsTrigger, { played: 0, left: total }),
+		});
+	};
+	/** One free spin; after the last, the bonus waiting behind it starts, else the round ends. */
+	const playFreeSpin = (events, session, round) => {
+		engine.playSpin(events, round, round.bonus.key);
+		round.bonus.played += 1;
+		round.bonus.left -= 1;
+		events.push({ event: 'playedBonusSpin', context: bonusSnapshot(round, freeSpinsTrigger) });
+		if (round.bonus.left > 0) return;
+		round.bonus.active = false;
+		events.push({ event: 'playedBonusSpins', context: bonusSnapshot(round, freeSpinsTrigger) });
+		if (!overlay?.takeOver(events, session, round))
+			events.push({ event: 'gameEnd', context: { win: round.win } });
+	};
+
+	/**
+	 * The seam a coin overlay deals through (`withPotsOverlay`, `mock-pots-overlay.mjs`), as the lines
+	 * and book mocks give it (bonus-games Phase 7a): it starts THIS engine's respin modes
+	 * (`respinEngines`) from its pots and dropped coins, and this game's free spins. Every route of the
+	 * reels stays this engine's. Absent, not one byte of any answer changes.
+	 */
+	const overlay = (() => {
+		if (!opts.overlay) return null;
+		const rows = Array.isArray(opts.rowsPerReel) ? opts.rowsPerReel : null;
+		if (rows && rows.some((r) => r !== rows[0]))
+			throw new Error(`[${label}] a pots overlay needs a rectangular board`);
+		return opts.overlay({
+			label,
+			seed,
+			reels: Math.max(1, Math.round(Number(opts.reels ?? 5))),
+			rows: Math.max(1, Math.round(Number(rows?.[0] ?? opts.rows ?? 3))),
+			bonuses: { feature: 'freeSpins' },
+			freeSpinsMode: 'freeSpins',
+			freeSpinsOn: true,
+			startFreeSpins,
+			respinEngines: new Map(engines.map((e) => [e.mode, e])),
+			reportsMeters: true,
+			bonusModes: opts.bonusModes,
+		});
+	})();
+
+	const configContext = (session) => ({
+		...(!wire
 			? engine.configContext(session)
 			: {
 					...engine.configContext(session),
@@ -221,7 +294,9 @@ export function createMockRgs(opts = {}) {
 						gameType: e.bonus,
 						...e.holdAndWinConfig(session),
 					})),
-				};
+				}),
+		...(overlay ? overlay.configContext(session) : {}),
+	});
 	const tableFor = (session) => ('betTable' in session ? session.betTable : betTable);
 
 	const defaultForce = (() => {
@@ -247,16 +322,20 @@ export function createMockRgs(opts = {}) {
 		// `meters` over (`carrySession`). A meter the contract no longer has is dropped; a new one
 		// starts empty; a level above a lowered max is clamped.
 		const levels = session.meters ?? {};
-		session.meters = Object.fromEntries(
-			meters.map((m) => [m.id, Math.min(m.maxLevel, Math.max(0, Number(levels[m.id]) || 0))]),
-		);
+		session.meters = {
+			// An overlay's pots keep their levels beside the meters (it clamps them itself).
+			...(overlay ? levels : {}),
+			...Object.fromEntries(
+				meters.map((m) => [m.id, Math.min(m.maxLevel, Math.max(0, Number(levels[m.id]) || 0))]),
+			),
+		};
 		// Progressive pools: per session, across rounds and contract swaps like the meters. A tier
 		// that became progressive starts at its seed; a pool above a lowered cap is clamped.
 		const pools = session.jackpots ?? {};
 		session.jackpots = Object.fromEntries(
 			progressiveTiers.map((t) => {
-				const level = Number(pools[t.name]);
-				return [t.name, Math.min(t.cap, Number.isFinite(level) && level > 0 ? level : t.seed)];
+				const level = Number(pools[t.key]);
+				return [t.key, Math.min(t.cap, Number.isFinite(level) && level > 0 ? level : t.seed)];
 			}),
 		);
 		return session;
@@ -271,19 +350,20 @@ export function createMockRgs(opts = {}) {
 					context: {
 						jackpots: progressiveTiers.map((t) => ({
 							name: t.name,
-							value: tidy(session.jackpots[t.name]),
+							value: tidy(session.jackpots[t.key]),
+							...(t.mode ? { mode: t.mode } : {}),
 						})),
 					},
 				}
 			: null;
 	const growPools = (session) => {
 		for (const t of progressiveTiers) {
-			session.jackpots[t.name] = tidy(Math.min(t.cap, session.jackpots[t.name] + t.contribution));
+			session.jackpots[t.key] = tidy(Math.min(t.cap, session.jackpots[t.key] + t.contribution));
 		}
 	};
 	const resetWonPools = (session) => {
 		for (const t of progressiveTiers)
-			if (wonProgressive.has(t.name)) session.jackpots[t.name] = t.seed;
+			if (wonProgressive.has(t.key)) session.jackpots[t.key] = t.seed;
 		wonProgressive.clear();
 	};
 
@@ -294,10 +374,64 @@ export function createMockRgs(opts = {}) {
 	 */
 	const settleAbandoned = (sid, session, round) => {
 		while (round.feature && !round.feature.ended) playRespin([], round);
+		// …and whatever an overlay started or queued: its respin feature, the free spins, the rest.
+		if (overlay && round.played) {
+			const events = [];
+			if (!round.potsFeature && !round.bonus) handOver(events, session, round, overlay);
+			for (let guard = 0; guard < 10_000; guard++) {
+				if (round.potsFeature?.feature && !round.potsFeature.feature.ended)
+					overlay.playOwned(events, session, round);
+				else if (round.bonus?.active) playFreeSpin(events, session, round);
+				else break;
+			}
+		}
 		session.balance += round.win;
 		round.closed = true;
 		settle(sid, round);
 		session.round = null;
+	};
+
+	/**
+	 * A `force:` play context split between this engine and an overlay riding it: the overlay's own
+	 * tokens (`overlay:…`, `pot:…`) and the rest, each `force:`-prefixed or null; a context that is no
+	 * force is the rest unchanged.
+	 */
+	const forceParts = (context) => {
+		if (typeof context !== 'string' || !context.startsWith('force:'))
+			return { overlay: null, rest: context };
+		const tokens = context
+			.slice('force:'.length)
+			.split(',')
+			.map((t) => t.trim())
+			.filter(Boolean);
+		const mine = (t) => /^(overlay|pot)(:|$)/.test(t);
+		const pick = (list) => (list.length ? `force:${list.join(',')}` : null);
+		return {
+			overlay: pick(tokens.filter(mine)),
+			rest: pick(tokens.filter((t) => !mine(t))),
+		};
+	};
+
+	/**
+	 * This round's base game (or its own feature) has ended: a bonus the overlay queued starts in place
+	 * of the round's end, which moves to the end of that bonus.
+	 */
+	const handOver = (events, session, round, addOn) => {
+		if (!round.potsQueue?.length) return;
+		const tail = [];
+		const closed = events.at(-1)?.event === 'gameRoundOver';
+		if (closed) {
+			tail.unshift(events.pop());
+			session.balance -= round.win;
+			round.closed = false;
+		}
+		if (events.at(-1)?.event === 'gameEnd') tail.unshift(events.pop());
+		if (addOn.takeOver(events, session, round)) return;
+		events.push(...tail);
+		if (closed) {
+			session.balance += round.win;
+			round.closed = true;
+		}
 	};
 
 	// ---- the engine endpoint ----
@@ -330,8 +464,15 @@ export function createMockRgs(opts = {}) {
 
 		const events = [];
 		const openRound = (round) => ({ updating: true, id: round.id });
+		// A session told a different game than this mock deals, and not being re-told now: an open tab
+		// from before a contract swap. It is dealt the plain game until it reloads (the lines mock's rule).
+		const isConfigCall = actions.length === 1 && actions[0]?.action === 'config';
+		const stale =
+			session.configSent && !isConfigCall && (session.potsOverlay === true) !== Boolean(overlay);
+		const addOn = stale ? null : overlay;
 		const sendConfig = () => {
 			session.configSent = true;
+			if (overlay) session.potsOverlay = true;
 			session.betTable = betTable;
 			const config = { event: 'config', context: configContext(session) };
 			if (session.round) {
@@ -381,6 +522,13 @@ export function createMockRgs(opts = {}) {
 			rollback();
 			return refuse(req, res, session, error, code);
 		};
+
+		const refusedByOverlay = addOn?.refuse(
+			actions.map((a) =>
+				a?.action === 'play' ? { ...a, context: forceParts(a.context).overlay } : a,
+			),
+		);
+		if (refusedByOverlay) return fail(refusedByOverlay, 101);
 
 		let round = session.round;
 		// `config` is never stored, so it takes no position — only stored actions advance this.
@@ -472,6 +620,36 @@ export function createMockRgs(opts = {}) {
 						if (!round || round.closed) {
 							return fail('error executing requested actions: play without bet');
 						}
+						let context = a.context;
+						if (addOn) {
+							// The base's own feature, then whatever the overlay queued behind it.
+							if (round.feature && !round.feature.ended) {
+								playRespin(events, round);
+								if (round.feature.ended) handOver(events, session, round, addOn);
+								break;
+							}
+							// Refused before the overlay draws anything: a play the round no longer takes.
+							const overlayOwns = round.potsFeature?.feature && !round.potsFeature.feature.ended;
+							if (!overlayOwns && !round.bonus?.active && (round.played || round.feature)) {
+								return fail('unexpected action: play (was expecting: collect)');
+							}
+							const parts = forceParts(a.context);
+							const turn = addOn.beginPlay(session, round, parts.overlay, {
+								mode: round.bonus?.active ? 'freeSpins' : 'basegame',
+								sid,
+							});
+							if (turn.refused) return fail(turn.refused);
+							if (turn.owned) {
+								addOn.playOwned(events, session, round);
+								break;
+							}
+							if (round.bonus?.active) {
+								playFreeSpin(events, session, round);
+								addOn.endPlay(events, dealtFrom, session, round);
+								break;
+							}
+							context = parts.rest;
+						}
 						if (round.feature) {
 							if (round.feature.ended) {
 								return fail('unexpected action: play (was expecting: collect)');
@@ -480,7 +658,6 @@ export function createMockRgs(opts = {}) {
 							break;
 						}
 						if (round.played) return fail('unexpected action: play (was expecting: collect)');
-						let context = a.context;
 						if (typeof context === 'string' && context.startsWith('force:')) {
 							if (!allowForce) return fail('forcing is off on this mock', 101);
 							const parsed = parseForce(context.slice('force:'.length));
@@ -498,6 +675,10 @@ export function createMockRgs(opts = {}) {
 						}
 						round.played = true;
 						playBase(events, round, session, context);
+						if (addOn) {
+							if (!round.feature) handOver(events, session, round, addOn);
+							addOn.endPlay(events, dealtFrom, session, round);
+						}
 						break;
 					}
 					case 'collect': {
@@ -505,6 +686,8 @@ export function createMockRgs(opts = {}) {
 							!round ||
 							round.id !== gid ||
 							(round.feature && !round.feature.ended) ||
+							(round.potsFeature?.feature && !round.potsFeature.feature.ended) ||
+							round.bonus?.active ||
 							!round.played
 						) {
 							return fail('error executing requested actions: unexpected action: collect');
@@ -528,9 +711,11 @@ export function createMockRgs(opts = {}) {
 					events.push(grown);
 					round.stored[position].events.push(grown);
 				}
-				if (a.action === 'play' && meters.length) {
-					// Every play answer reports the meters as they stand — the client never computes one.
-					const levels = { event: 'meterLevels', context: { meters: meterList(session) } };
+				const reported = [...meterList(session), ...(addOn?.potLevels(session) ?? [])];
+				if (a.action === 'play' && reported.length) {
+					// Every play answer reports the meters as they stand (an overlay's pots beside them) —
+					// the client never computes one.
+					const levels = { event: 'meterLevels', context: { meters: reported } };
 					events.push(levels);
 					round.stored[position].events.push(levels);
 				}

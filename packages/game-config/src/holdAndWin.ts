@@ -17,7 +17,8 @@
  * reference — a jackpot name, a reel index, a role no symbol carries — is the validator's to report.
  */
 
-import { legacyPotsOverlay, primaryRespinMode } from './bonusGames';
+import { potsOverlayOf, primaryHoldAndWin, primaryRespinMode } from './bonusGames';
+import { overlayDropsTokens } from './coinOverlay';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
 import { BASE_GAME_MODE, HOLD_AND_WIN_MODE, gameModeById, gameTypeForMode } from './modes';
 import type { GameConfigDoc } from './types';
@@ -765,9 +766,9 @@ export const coinEntryLabel = (entry: CoinValueEntry): string =>
 export const jackpotLadder = (block: Pick<HoldAndWin, 'jackpots'>): string[] =>
 	[...block.jackpots].sort((a, b) => a.multiplier - b.multiplier).map((j) => j.name);
 
-/** The rows the respin board can reach: `maxRows` when it expands, else the grid's. */
-export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'holdAndWin'>): number =>
-	doc.holdAndWin?.expansion?.maxRows ?? doc.numRows[0] ?? 0;
+/** The rows the primary respin board can reach: `maxRows` when it expands, else the grid's. */
+export const respinBoardMaxRows = (doc: Pick<GameConfigDoc, 'numRows' | 'modes'>): number =>
+	primaryRespinMode(doc.modes)?.holdAndWin.expansion?.maxRows ?? doc.numRows[0] ?? 0;
 
 /** The feature's special kinds a game uses, in apply order — the mechanics a profile names. */
 export const configuredSpecials = (block: {
@@ -775,35 +776,91 @@ export const configuredSpecials = (block: {
 }): HoldAndWinSpecial[] => HOLD_AND_WIN_SPECIALS.filter((s) => block.specials[s]);
 
 /**
- * Is the `holdAndWin` block the pots overlay's BONUS rather than the base game
- * (`docs/design/pots-overlay.md` §3.1)? It is when an overlay is present and the base game's strips
- * deal no Hold and Win symbol: the host's own mock deals the base game, and the feature is reached
+ * Is the primary respin game the pots overlay's BONUS rather than the base game
+ * (`docs/design/pots-overlay.md` §3.1)? It is when the coin overlay drops tokens and the base game's
+ * strips deal no Hold and Win symbol: the host's own mock deals the base game, and the feature is reached
  * only through the overlay. A Hold and Win game that adds an overlay keeps its base-game block.
  * Decided from the data, here only, so the validator, the mock, the facade and the runtime agree.
  */
 export const holdAndWinIsOverlayBonus = (doc: GameConfigDoc): boolean =>
-	Boolean(legacyPotsOverlay(doc)) &&
-	!symbolsInPlayForGameType(
+	overlayDropsTokens(doc.coinOverlay) && !baseGameDealsHoldAndWin(doc);
+
+/** Do the base game's strips deal a Hold and Win symbol (a coin, a special, a meter's symbol)? */
+export const baseGameDealsHoldAndWin = (doc: GameConfigDoc): boolean =>
+	symbolsInPlayForGameType(
 		doc,
 		gameTypeForMode(gameModeById(doc, BASE_GAME_MODE) ?? { id: BASE_GAME_MODE }),
 	).some((name) => isHoldAndWinSymbol(doc.symbols[name]));
 
+/**
+ * Is the respin game reached only through the coin overlay — its bonus, never the base game? The
+ * overlay's drops case is {@link holdAndWinIsOverlayBonus}; with nothing dropping, it is a respin
+ * mode with rules that the base strips deal no symbol of, started by the overlay's other routes (a
+ * buy, a Lucky Spin, a random metre).
+ */
+export const respinIsOverlayBonus = (doc: GameConfigDoc): boolean =>
+	holdAndWinIsOverlayBonus(doc) ||
+	(Boolean(primaryRespinMode(doc.modes)) &&
+		!overlayDropsTokens(doc.coinOverlay) &&
+		!baseGameDealsHoldAndWin(doc));
+
+/** A route to a respin mode, as {@link respinRouteDealt} weighs it. */
+export type RespinRouteKind =
+	'pot' | 'count' | 'pattern' | 'luckySpin' | 'randomMetre' | 'meter' | 'buy';
+
+/** The base kind dealt by the Hold and Win engine, and the one dealt by the book mock. */
+const HOLD_AND_WIN_BASE = 'holdAndWin';
+const BOOK_BASE = 'bookOf';
+
+/**
+ * Why a `route` to a respin mode would not be dealt in `doc`, whose base game is of kind `baseKind`,
+ * or `undefined` when it is (bonus-games Phase 7a). The base engine comes from the kind; the coin
+ * overlay composes over any of them.
+ *
+ * - A Hold and Win base deals every route: its own engine deals the reels' routes, and the overlay
+ *   over it its pots and dropped coins.
+ * - Over any other base, a pot, a buy, a Lucky Spin and a random metre are always dealt.
+ * - The count and a pattern count DROPPED value coins, so they need some to drop.
+ * - A meter fills from a symbol landing on the base reels, which that base deals in its own
+ *   vocabulary, so it is not dealt.
+ * - The book mock sells only its own buy.
+ * - Hold and Win symbols on the base strips of another kind are dealt by no mock.
+ */
+export function respinRouteDealt(
+	doc: GameConfigDoc,
+	route: RespinRouteKind,
+	baseKind: string | undefined,
+): string | undefined {
+	if (baseKind === HOLD_AND_WIN_BASE) return undefined;
+	if (baseGameDealsHoldAndWin(doc))
+		return 'Hold and Win symbols land on the base reels of a game that is not a Hold and Win game, which no mock deals — take them off the base strips.';
+	if (route === 'buy' && baseKind === BOOK_BASE)
+		return "This game's mock sells only its own buy, so a buy cannot start a respin mode here.";
+	if (route === 'meter')
+		return 'A meter fills from a symbol landing on the base reels — make it a pot of the coin overlay.';
+	const coins = doc.coinOverlay?.drops?.table.some((entry) => 'coin' in entry);
+	if ((route === 'count' || route === 'pattern') && !coins)
+		return 'It counts dropped value coins, and nothing drops any — add value coins to the coin overlay.';
+	return undefined;
+}
+
 // ─── validate ─────────────────────────────────────────────────────────────────────────────────
 
 /**
- * Internal consistency of a normalized doc's `holdAndWin` block. Every `error` is a config the mock
+ * Internal consistency of a normalized doc's primary respin game, read as its Hold and Win block
+ * ({@link primaryHoldAndWin}); issues are reported under `holdAndWin.*`. Every `error` is a config the mock
  * could not generate a round from or the board could not show; every `warning` is one that renders
  * but has a knob that does nothing.
  *
- * Beside a `potsOverlay` block, a pot routed to Hold and Win also starts the feature. When the block
+ * Beside a coin overlay that drops tokens, a pot routed to it also starts the feature. When the block
  * is the overlay's BONUS ({@link holdAndWinIsOverlayBonus}) the host's own mock deals the base game:
  * the lines-only rule does not apply, the feature starts only from a pot or from dropped coins, and
  * the base-board-only options — symbol-filled meters among them — are refused.
  */
 export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
-	const block = doc.holdAndWin;
+	const block = primaryHoldAndWin(doc);
 	if (!block) return [];
-	const overlay = doc.potsOverlay;
+	const overlay = potsOverlayOf(doc);
 	const asBonus = holdAndWinIsOverlayBonus(doc);
 	const issues: GameConfigIssue[] = [];
 	const error = (path: string, message: string) =>
@@ -812,8 +869,8 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 		issues.push({ severity: 'warning', path: `holdAndWin.${path}`, message });
 
 	const tagged = (role: HoldAndWinSymbolRole) => symbolsWithRole(doc, role);
-	// The block is the mirror of the primary respin mode (`./bonusGames`), which need not be called
-	// `holdAndWin`; another respin mode's specials give their tagged symbols a use too.
+	// The block is the primary respin mode's, which need not be called `holdAndWin`; another respin
+	// mode's specials give their tagged symbols a use too.
 	const primary = primaryRespinMode(doc.modes);
 	const blockMode = primary?.id ?? HOLD_AND_WIN_MODE;
 	const elsewhere = new Set(
@@ -926,21 +983,33 @@ export function validateHoldAndWin(doc: GameConfigDoc): GameConfigIssue[] {
 	const baseTriggers = Boolean(
 		t.count || t.pattern || t.buy?.length || t.randomMetre || t.luckySpin || block.meters?.length,
 	);
-	if (!(potRoute || (asBonus ? t.count && coinDrops : baseTriggers))) {
+	// On an overlay host the count and a pattern count DROPPED value coins; a buy, a Lucky Spin and a
+	// random metre are dealt by the overlay itself (bonus-games Phase 7a).
+	const overlayTriggers = Boolean(
+		((t.count || t.pattern) && coinDrops) || t.buy?.length || t.randomMetre || t.luckySpin,
+	);
+	if (!(potRoute || (asBonus ? overlayTriggers : baseTriggers))) {
 		error(
 			'trigger',
 			asBonus
-				? 'Nothing can start the feature — route a pot to Hold and Win, or drop value coins for the count trigger.'
+				? 'Nothing can start the feature — route a pot to Hold and Win, drop value coins for the count trigger, or add a buy, a Lucky Spin or a random metre.'
 				: 'Nothing can start the feature — add a trigger.',
 		);
 	}
 	if (asBonus) {
 		const notForOverlay = (path: string, what: string) =>
 			error(path, `${what} is not built for an overlay host yet.`);
-		if (t.pattern) notForOverlay('trigger.pattern', 'A pattern trigger');
-		if (t.luckySpin) notForOverlay('trigger.luckySpin', 'A lucky spin');
-		if (t.randomMetre) notForOverlay('trigger.randomMetre', 'A random metre');
-		if (t.buy?.length) notForOverlay('trigger.buy', 'Buying the feature');
+		if (t.pattern && !coinDrops) {
+			warning(
+				'trigger.pattern',
+				'The pattern counts dropped value coins, but the overlay drops none, so it never fires.',
+			);
+		} else if (t.pattern?.some((req) => !req.roles.some((r) => r === 'coin' || r === 'jackpot'))) {
+			warning(
+				'trigger.pattern',
+				'Only value coins drop, so a pattern step that counts no coin or jackpot never fires.',
+			);
+		}
 		for (const kind of ['collector', 'multiplier'] as const) {
 			if (block.specials[kind]?.instantCollectInBaseGame) {
 				notForOverlay(

@@ -37,7 +37,7 @@ import {
 	sceneLayerZIndex,
 	type Scene,
 } from 'engine-layout';
-import { potsOverlayPreset, resolveMeters } from 'game-config';
+import { normalizeBonusGames, potsOverlayPreset, resolveMeters } from 'game-config';
 
 import { enginePotsScreen } from './flowV2PotsScreen.ts';
 
@@ -54,7 +54,9 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 };
 
 const meterIds = (preset: 'threePots' | 'coinsOnly'): string[] =>
-	resolveMeters({ potsOverlay: potsOverlayPreset(preset).potsOverlay }).map((m) => m.id);
+	resolveMeters(normalizeBonusGames({ potsOverlay: potsOverlayPreset(preset).potsOverlay })).map(
+		(m) => m.id,
+	);
 const POT_IDS = meterIds('threePots');
 
 const scenesOf = (gameType: string, options?: Parameters<typeof getFullSceneSet>[1]): Scene[] => {

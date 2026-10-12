@@ -1207,13 +1207,18 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const stackedWinHoldMs = (): number | undefined => deps.stackedConfig()?.winHoldMs;
 
 	/**
-	 * Rebuild the board from the CURRENT active config, replacing `stateGame.board`. Called once from
+	 * Rebuild the board from the CURRENT active config, replacing `stateGame.board`. Called from
 	 * `Game.svelte` right after the live runtime bundle is applied (beside `resetGameConfigCache()`),
 	 * so an online project whose config resolved asynchronously gets its authored grid — without this
 	 * the board stays the compiled template's size, the same freeze `resetGameConfigCache` fixes for
 	 * the symbol map. A no-op in effect for baked/dev (the board was already built with the right
-	 * config at import), preserving parity. Safe to call at boot: no spin has run, so no reel holds
-	 * in-flight animation state.
+	 * config at import), preserving parity.
+	 *
+	 * Also called MID-ROUND, between spins, when a spins bonus mode with a grid of its own comes on or
+	 * goes off screen (`syncSpinsBoard` in the game's `stateModes`, on the mode stack's `onStack`): its
+	 * entry, its exit, a round's reset and a resume's restore. Never while a reel rolls — the stack moves
+	 * only on a mode's trigger and end events, which are presented between reveals — so, as at boot, no
+	 * reel holds in-flight animation state. A game with no spins mode never calls it after boot.
 	 */
 	function rebuildBoard(): void {
 		// Rebuild the reels IN PLACE, preserving the array's identity — do NOT reassign `stateGame.board`

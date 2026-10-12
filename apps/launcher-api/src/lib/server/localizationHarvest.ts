@@ -7,7 +7,10 @@ import type {
 } from 'engine-layout';
 import {
 	collectUiTextStrings,
+	collectWinTextModeTemplates,
+	collectWinTextSpinsModeTemplates,
 	collectWinTextTemplates,
+	kindCapabilities,
 	resolveLayoutInstanceParams,
 } from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
@@ -15,6 +18,13 @@ import { collectTextMessages } from 'engine-flow-v2';
 import type { GameConfigDoc } from 'game-config';
 import { resolveBetModes } from 'game-config';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
+import { projectAddOns } from '../addOns';
+import {
+	winTextRespinModes,
+	winTextSpinsModes,
+	type WinTextRespinMode,
+	type WinTextSpinsMode,
+} from '../winTextModes';
 import type { SymbolsDoc } from './symbolsStorage';
 
 /**
@@ -219,14 +229,79 @@ export const WIN_TEXT_SECTION_ID = '__winText';
  *
  * Source-as-key + exact/untrimmed, matching {@link harvestSceneText}. The Win Text tool owns
  * these sources, so they're read-only here (`origin: 'winText'`).
+ *
+ * `otherModes` are the respin modes besides the primary (bonus games §2.4); each gets a section of
+ * its own, `Win text — <its label>` (keyed `__winText:<id>`), after the primary's. A game with one respin mode passes none, so its
+ * sections are what they always were. `spinsModes` (Phase 8) get one each the same way, listing only
+ * the lines the mode wrote itself.
  */
 export function harvestWinText(
 	doc: WinTextDoc | undefined,
 	options: Parameters<typeof collectWinTextTemplates>[1] = {},
+	otherModes: readonly WinTextRespinMode[] = [],
+	spinsModes: readonly WinTextSpinsMode[] = [],
 ): HarvestSection[] {
+	const out: HarvestSection[] = [];
 	const items = collectWinTextTemplates(doc, options).filter((i) => isLocalizableText(i.source));
-	if (items.length === 0) return [];
-	return [{ sceneId: WIN_TEXT_SECTION_ID, sceneName: 'Win text', items, origin: 'winText' }];
+	if (items.length) {
+		out.push({ sceneId: WIN_TEXT_SECTION_ID, sceneName: 'Win text', items, origin: 'winText' });
+	}
+	// Each other respin mode's lines under its mode — its own, else the primary's it reads — so a
+	// translator sees what the player reads in that mode, tiers and all.
+	for (const { mode, label, jackpotTiers, hasWheel } of otherModes) {
+		const modeItems = collectWinTextModeTemplates(doc, mode, {
+			jackpots: jackpotTiers,
+			wheel: hasWheel,
+		}).filter((i) => isLocalizableText(i.source));
+		if (!modeItems.length) continue;
+		out.push({
+			sceneId: `${WIN_TEXT_SECTION_ID}:${mode}`,
+			sceneName: `Win text — ${label}`,
+			items: modeItems,
+			origin: 'winText',
+		});
+	}
+	// Each spins mode's own win-line message and win-tier captions (what it inherits is the base
+	// game's, listed above).
+	for (const { mode, label } of spinsModes) {
+		const modeItems = collectWinTextSpinsModeTemplates(doc, mode).filter((i) =>
+			isLocalizableText(i.source),
+		);
+		if (!modeItems.length) continue;
+		out.push({
+			sceneId: `${WIN_TEXT_SECTION_ID}:${mode}`,
+			sceneName: `Win text — ${label}`,
+			items: modeItems,
+			origin: 'winText',
+		});
+	}
+	return out;
+}
+
+/**
+ * {@link harvestWinText} for a project: its kind's capabilities with the config's add-ons, its pots,
+ * and its respin modes read from the split form — the primary's tiers in the "Win text" section,
+ * every other mode in a section of its own. `config` is the RESOLVED config, the game's precedence.
+ */
+export function harvestProjectWinText(
+	doc: WinTextDoc | undefined,
+	gameType: string,
+	config: GameConfigDoc | null | undefined,
+): HarvestSection[] {
+	const { addOns, potIds } = projectAddOns(config ?? null);
+	const capabilities = kindCapabilities(gameType, addOns);
+	const [primary, ...otherModes] = winTextRespinModes(config);
+	return harvestWinText(
+		doc,
+		{
+			holdAndWin: capabilities.holdAndWin,
+			pots: capabilities.pots,
+			jackpots: primary?.jackpotTiers ?? [],
+			meters: potIds ?? [],
+		},
+		otherModes,
+		winTextSpinsModes(config),
+	);
 }
 
 /** The synthetic section id the symbol display names are grouped under (see {@link WIN_TEXT_SECTION_ID}). */

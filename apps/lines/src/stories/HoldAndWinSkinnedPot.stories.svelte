@@ -11,7 +11,12 @@
 
 	import { App, resolveAnchorPoint } from 'pixi-svelte';
 	import { StoryLocale, StoryGameTemplate } from 'components-storybook';
-	import { HOLD_AND_WIN_PRESETS, normalizeGameConfigDoc } from 'game-config';
+	import {
+		HOLD_AND_WIN_PRESETS,
+		normalizeGameConfigDoc,
+		primaryHoldAndWin,
+		setPrimaryHoldAndWin,
+	} from 'game-config';
 	import { isComponentMounted, LayoutScene } from 'engine-layout/svelte';
 	import {
 		POT_METER_DEF,
@@ -48,14 +53,16 @@
 	 * where a pot's flights land with `window.__potAnchor(id)`.
 	 */
 	const config = getActiveGameConfig();
-	const block = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots)?.holdAndWin;
-	config.holdAndWin = block && {
-		...block,
-		meters: [
-			...(block.meters ?? []),
-			{ id: 'gold', symbol: 'H4', maxLevel: 12, sizeStages: [5, 9], activates: 'payer' },
-		],
-	};
+	const block = primaryHoldAndWin(normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.pots)!);
+	if (block) {
+		setPrimaryHoldAndWin(config, {
+			...block,
+			meters: [
+				...(block.meters ?? []),
+				{ id: 'gold', symbol: 'H4', maxLevel: 12, sizeStages: [5, 9], activates: 'payer' },
+			],
+		});
+	}
 
 	const MAX = 12;
 	const levels: Record<string, number> = { red: 4, blue: 6, green: 10, gold: 2 };

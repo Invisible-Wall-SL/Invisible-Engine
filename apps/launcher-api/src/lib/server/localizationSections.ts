@@ -1,5 +1,3 @@
-import { kindCapabilities } from 'engine-layout';
-import { projectAddOns } from '$lib/addOns';
 import { loadComponent } from './componentStorage';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
@@ -9,8 +7,8 @@ import {
 	harvestFlowMessages,
 	harvestSceneText,
 	harvestSymbolNames,
+	harvestProjectWinText,
 	harvestUiText,
-	harvestWinText,
 	type HarvestSection,
 } from './localizationHarvest';
 import { projectGameType } from './projects';
@@ -43,16 +41,9 @@ export async function harvestProjectSections(
 		// game runs on, so a project that never authored a config still lists the copy it renders.
 		resolveGameConfig(clientKey, projectKey, gameType),
 	]);
-	const { addOns, potIds } = projectAddOns(gameConfig.doc);
-	const capabilities = kindCapabilities(gameType, addOns);
 	return [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
-		...harvestWinText(winTextDoc, {
-			holdAndWin: capabilities.holdAndWin,
-			pots: capabilities.pots,
-			jackpots: (gameConfig.doc?.holdAndWin?.jackpots ?? []).map((jackpot) => jackpot.name),
-			meters: potIds ?? [],
-		}),
+		...harvestProjectWinText(winTextDoc, gameType, gameConfig.doc),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
 		...harvestBetModeText(gameConfig.doc),

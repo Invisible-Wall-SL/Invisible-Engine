@@ -11,6 +11,7 @@
 		WIN_TEXT_FEATURE_LABELS,
 		WIN_TEXT_JACKPOT_FIELDS,
 		WIN_TEXT_JACKPOT_LABELS,
+		WIN_TEXT_MODE_FEATURE_FIELDS,
 		WIN_TEXT_PLATFORM_JACKPOT_FIELDS,
 		WIN_TEXT_PLATFORM_JACKPOT_LABELS,
 		WIN_TEXT_POT_FIELDS,
@@ -26,6 +27,10 @@
 		resolveSymbolName,
 		resolveToastTemplate,
 		resolveWinText,
+		resolveWinTextForMode,
+		hasRespinModeLines,
+		hasSpinsModeLines,
+		swapWinTextModeLines,
 		resolveWinLineMessage,
 		specialDisplayName,
 		symbolDrawsWinLine,
@@ -36,6 +41,8 @@
 		WinTextFeatureField,
 		WinTextJackpotField,
 		WinTextFeatureMap,
+		WinTextModeFeatureField,
+		WinTextModeLines,
 		WinTextPlatformJackpotField,
 		WinTextRespinField,
 		WinTextWheelField,
@@ -60,6 +67,109 @@
 	const resolved = $derived(resolveWinText($state.snapshot(doc)));
 
 	/**
+	 * The respin mode whose jackpot, respin, wheel and feature-frame lines the Hold and Win sections
+	 * edit (`docs/design/bonus-games.md` §2.4). The primary's are the doc's own families; another
+	 * mode's are `doc.modes[<id>]`, and a line it leaves blank reads the primary's.
+	 */
+	let editMode = $state(data.respinModes[0]?.mode ?? '');
+	const editing = $derived(
+		data.respinModes.find((m) => m.mode === editMode) ?? data.respinModes[0],
+	);
+	const onPrimary = $derived(!editing || editing === data.respinModes[0]);
+	const jackpotTiers = $derived(editing?.jackpotTiers ?? []);
+	/** What the edited mode speaks — its own lines over the primary's. */
+	const modeResolved = $derived(
+		resolveWinTextForMode($state.snapshot(doc), onPrimary ? undefined : editMode),
+	);
+	/** The edited mode's own lines, as stored (read side). Own keys only: a mode id may be
+	 *  `constructor`. */
+	const lines = $derived<WinTextModeLines | undefined>(
+		onPrimary
+			? doc
+			: doc.modes && Object.hasOwn(doc.modes, editMode)
+				? doc.modes[editMode]
+				: undefined,
+	);
+	/** The edited mode's own lines, created on first write. */
+	function linesToWrite(): WinTextModeLines {
+		if (onPrimary) return doc;
+		const modes = (doc.modes ??= {});
+		if (!Object.hasOwn(modes, editMode)) modes[editMode] = {};
+		return modes[editMode];
+	}
+
+	/**
+	 * Mode lines no current mode reads: written for a respin or spins mode that was renamed or removed,
+	 * or for a respin mode that has since become the primary (whose lines are the doc's families). They
+	 * are saved and shipped but never played, so the page offers to move them to a current mode of the
+	 * same kind — swapping with that mode's lines, so nothing is lost — or to remove them.
+	 */
+	const orphanModes = $derived(
+		Object.keys(doc.modes ?? {}).filter(
+			(id) =>
+				!data.respinModes.slice(1).some((mode) => mode.mode === id) &&
+				!data.spinsModes.some((mode) => mode.mode === id),
+		),
+	);
+	/** The kind of lines an orphan holds — its Move targets are the current modes of that kind. A
+	 *  spins mode's lines never move onto the respin primary (`swapWinTextModeLines` refuses it), and
+	 *  an entry holding both kinds can only be removed. */
+	const orphanKind = (orphan: string): 'respin' | 'spins' | 'both' => {
+		const lines = doc.modes && Object.hasOwn(doc.modes, orphan) ? doc.modes[orphan] : undefined;
+		const spins = hasSpinsModeLines(lines);
+		return spins && hasRespinModeLines(lines) ? 'both' : spins ? 'spins' : 'respin';
+	};
+	/** An orphan's Move targets: `{ mode, label, primary }`, the default first. */
+	const orphanTargets = (orphan: string) => {
+		const kind = orphanKind(orphan);
+		if (kind === 'spins') {
+			return data.spinsModes.map((m) => ({ mode: m.mode, label: m.label, primary: false }));
+		}
+		if (kind === 'both') return [];
+		return data.respinModes.map((m, i) => ({ mode: m.mode, label: m.label, primary: i === 0 }));
+	};
+	let moveTargets = $state<Record<string, string>>({});
+	function moveOrphan(orphan: string) {
+		const targets = orphanTargets(orphan);
+		const target = targets.find((t) => t.mode === moveTargets[orphan]) ?? targets[0];
+		if (!target) return;
+		doc = swapWinTextModeLines(
+			$state.snapshot(doc),
+			orphan,
+			target.primary ? undefined : target.mode,
+		);
+	}
+	function removeOrphan(orphan: string) {
+		if (!doc.modes) return;
+		delete doc.modes[orphan];
+		if (!Object.keys(doc.modes).length) delete doc.modes;
+	}
+
+	/**
+	 * The board whose win-line message and win-tier captions those two sections edit: `''` is the base
+	 * game (the doc's own families), a spins mode id its own lines (`doc.modes[<id>]`, bonus-games
+	 * Phase 8). A spins mode plays another game, so it can speak its wins differently; a line it leaves
+	 * blank reads the base game's.
+	 */
+	let board = $state('');
+	const onBaseBoard = $derived(!data.spinsModes.some((mode) => mode.mode === board));
+	/** What the edited board speaks — a spins mode's own lines over the base game's. */
+	const boardResolved = $derived(
+		onBaseBoard ? resolved : resolveWinTextForMode($state.snapshot(doc), board),
+	);
+	/** The edited board's own lines, as stored (read side; own keys only). */
+	const boardLines = $derived<Pick<WinTextModeLines, 'lineMessage' | 'winLevels'> | undefined>(
+		onBaseBoard ? doc : doc.modes && Object.hasOwn(doc.modes, board) ? doc.modes[board] : undefined,
+	);
+	/** The edited board's own lines, created on first write. */
+	function boardLinesToWrite(): Pick<WinTextModeLines, 'lineMessage' | 'winLevels'> {
+		if (onBaseBoard) return doc;
+		const modes = (doc.modes ??= {});
+		if (!Object.hasOwn(modes, board)) modes[board] = {};
+		return modes[board];
+	}
+
+	/**
 	 * The match counts the grid offers. Every current game template is a 5-reel board, so a line
 	 * pays on 2–5 of a kind. The DOC accepts any count key, so a future wider board only needs
 	 * this list widened — nothing downstream is bounded by it.
@@ -77,7 +187,7 @@
 		const rows = data.bigTiers.length
 			? data.bigTiers.map((tier) => ({ alias: tier.alias, name: tier.name }))
 			: CODED_BIG_ALIASES.map((alias) => ({ alias, name: alias }));
-		for (const alias of Object.keys(doc.winLevels ?? {})) {
+		for (const alias of Object.keys(boardLines?.winLevels ?? {})) {
 			if (!rows.some((row) => row.alias === alias)) rows.push({ alias, name: alias });
 		}
 		return rows;
@@ -132,20 +242,20 @@
 	/** Write a sparse nested value, deleting the key when the input is blank so a cleared
 	 *  override falls back through the chain instead of persisting an empty string. */
 	function setLineMessage(bucket: 'byCount' | 'bySymbol' | 'byCell', key: string, value: string) {
-		const lm = (doc.lineMessage ??= {});
+		const lm = (boardLinesToWrite().lineMessage ??= {});
 		const map = (lm[bucket] ??= {});
 		if (value.trim()) map[key] = value;
 		else delete map[key];
 	}
 
 	function setDefault(value: string) {
-		const lm = (doc.lineMessage ??= {});
+		const lm = (boardLinesToWrite().lineMessage ??= {});
 		if (value.trim()) lm.default = value;
 		else delete lm.default;
 	}
 
 	function setWinLevel(alias: string, value: string) {
-		const levels = (doc.winLevels ??= {});
+		const levels = (boardLinesToWrite().winLevels ??= {});
 		if (value.trim()) levels[alias] = value;
 		else delete levels[alias];
 	}
@@ -169,13 +279,13 @@
 	}
 
 	function setJackpot(field: WinTextJackpotField, value: string) {
-		const jackpots = (doc.jackpots ??= {});
+		const jackpots = (linesToWrite().jackpots ??= {});
 		if (value.trim()) jackpots[field] = value;
 		else delete jackpots[field];
 	}
 
 	function setJackpotCaption(tier: string, value: string) {
-		const captions = ((doc.jackpots ??= {}).captions ??= {});
+		const captions = ((linesToWrite().jackpots ??= {}).captions ??= {});
 		if (value.trim()) captions[tier] = value;
 		else delete captions[tier];
 	}
@@ -201,13 +311,19 @@
 		});
 
 	function setRespins(field: WinTextRespinField, value: string) {
-		const respins = (doc.respins ??= {});
+		const respins = (linesToWrite().respins ??= {});
 		if (value.trim()) respins[field] = value;
 		else delete respins[field];
 	}
 
 	function setFeature(field: WinTextFeatureField, value: string) {
 		const feature = (doc.feature ??= {});
+		if (value.trim()) feature[field] = value;
+		else delete feature[field];
+	}
+
+	function setModeFeature(field: WinTextModeFeatureField, value: string) {
+		const feature = (linesToWrite().feature ??= {});
 		if (value.trim()) feature[field] = value;
 		else delete feature[field];
 	}
@@ -219,7 +335,7 @@
 	}
 
 	function setWheel(field: WinTextWheelField, value: string) {
-		const wheel = (doc.wheel ??= {});
+		const wheel = (linesToWrite().wheel ??= {});
 		if (value.trim()) wheel[field] = value;
 		else delete wheel[field];
 	}
@@ -258,7 +374,7 @@
 	const holdAndWinVars = $derived({
 		amount: '$4.00',
 		count: 3,
-		jackpot: jackpotCaption(resolved, data.jackpotTiers[0] ?? 'MINI'),
+		jackpot: jackpotCaption(modeResolved, jackpotTiers[0] ?? 'MINI'),
 		meter: specialDisplayName(resolved, 'payer'),
 		modifiers: ['payer', 'multiplier'].map((kind) => specialDisplayName(resolved, kind)).join(', '),
 		level: collectorLevelCaption(resolved, 2),
@@ -288,7 +404,7 @@
 	/** What a `(symbol, count)` win will actually say, and which level of the chain said it —
 	 *  the same call the game makes, so the badge can't drift from behaviour. */
 	function effective(symbol: string, count: number) {
-		return resolveWinLineMessage(resolved, symbol, count);
+		return resolveWinLineMessage(boardResolved, symbol, count);
 	}
 
 	/**
@@ -366,6 +482,25 @@
 			: null,
 	);
 </script>
+
+{#snippet boardPicker()}
+	{#if data.spinsModes.length}
+		<label class="single">
+			<span
+				title="A spins bonus mode plays another game, so it can speak its wins its own way; a blank line reads the base game's (shown greyed)."
+				>Board</span
+			>
+			<select bind:value={board}>
+				<option value="">Base game</option>
+				{#each data.spinsModes as mode (mode.mode)}
+					<option value={mode.mode}
+						>{mode.label}{mode.label === mode.mode ? '' : ` (${mode.mode})`} — spins mode</option
+					>
+				{/each}
+			</select>
+		</label>
+	{/if}
+{/snippet}
 
 <svelte:head><title>Invisible Win Text — {data.projectKey}</title></svelte:head>
 
@@ -451,6 +586,7 @@
 					coins over a cell, never along a line, so no win line names them.
 				{/if}
 			</p>
+			{@render boardPicker()}
 
 			<div class="grid-wrap">
 				<table class="grid">
@@ -469,8 +605,8 @@
 							{#each COUNTS as count (count)}
 								<td>
 									<input
-										value={doc.lineMessage?.byCount?.[String(count)] ?? ''}
-										placeholder={resolved.lineMessage.default || '—'}
+										value={boardLines?.lineMessage?.byCount?.[String(count)] ?? ''}
+										placeholder={boardResolved.lineMessage.default || '—'}
 										oninput={(e) => setLineMessage('byCount', String(count), e.currentTarget.value)}
 									/>
 								</td>
@@ -478,8 +614,10 @@
 							<td class="corner">
 								<input
 									class="default-input"
-									value={doc.lineMessage?.default ?? ''}
-									placeholder="Default — e.g. {'{count}'} {'{symbolName}'}"
+									value={boardLines?.lineMessage?.default ?? ''}
+									placeholder={onBaseBoard
+										? `Default — e.g. {count} {symbolName}`
+										: resolved.lineMessage.default || '—'}
 									oninput={(e) => setDefault(e.currentTarget.value)}
 								/>
 							</td>
@@ -499,7 +637,7 @@
 									{@const eff = effective(symbol, count)}
 									<td>
 										<input
-											value={doc.lineMessage?.byCell?.[winTextCellKey(symbol, count)] ?? ''}
+											value={boardLines?.lineMessage?.byCell?.[winTextCellKey(symbol, count)] ?? ''}
 											placeholder={eff.template || '—'}
 											title={eff.source === 'cell'
 												? 'Set here'
@@ -515,8 +653,8 @@
 								{/each}
 								<td class="any-col">
 									<input
-										value={doc.lineMessage?.bySymbol?.[symbol] ?? ''}
-										placeholder={resolved.lineMessage.default || '—'}
+										value={boardLines?.lineMessage?.bySymbol?.[symbol] ?? ''}
+										placeholder={boardResolved.lineMessage.default || '—'}
 										oninput={(e) => setLineMessage('bySymbol', symbol, e.currentTarget.value)}
 									/>
 								</td>
@@ -644,6 +782,50 @@
 			</section>
 		{/if}
 
+		{#if orphanModes.length}
+			<section>
+				<h2>Lines for a mode that no longer exists</h2>
+				<p class="hint">
+					These lines belong to a mode this game's config no longer has: <em>Hold and Win lines</em>
+					of a respin mode that was renamed or removed, or is now the primary, or a
+					<em>spins mode's</em> win-line message and win-level captions for a spins mode that was
+					renamed or removed. They are kept, but the game never shows them. <strong>Move</strong>
+					them to a current mode of the same kind (its own lines take their place here, so nothing is
+					lost) or <strong>Remove</strong> them, then save.
+				</p>
+				{#each orphanModes as orphan (orphan)}
+					{@const kind = orphanKind(orphan)}
+					{@const targets = orphanTargets(orphan)}
+					<div class="single orphan">
+						<span
+							>{orphan}
+							<em
+								>({kind === 'spins'
+									? 'spins mode lines'
+									: kind === 'respin'
+										? 'Hold and Win lines'
+										: 'Hold and Win and spins mode lines — remove only'})</em
+							></span
+						>
+						{#if targets.length}
+							<select
+								value={moveTargets[orphan] ?? targets[0].mode}
+								onchange={(e) => (moveTargets[orphan] = e.currentTarget.value)}
+							>
+								{#each targets as target (target.mode)}
+									<option value={target.mode}
+										>{target.label}{target.primary ? ' — primary' : ''}</option
+									>
+								{/each}
+							</select>
+							<button onclick={() => moveOrphan(orphan)}>Move</button>
+						{/if}
+						<button class="danger" onclick={() => removeOrphan(orphan)}>Remove</button>
+					</div>
+				{/each}
+			</section>
+		{/if}
+
 		{#if data.capabilities.holdAndWin}
 			<p class="hint">
 				A few lines have no place on screen yet: <em>Respins awarded</em>, <em>Respins reset</em>,
@@ -651,6 +833,29 @@
 				and translated, and show once a scene or beat uses them. Every other line here is what the game
 				draws.
 			</p>
+			{#if data.respinModes.length > 1}
+				<section>
+					<h2>Respin mode</h2>
+					<p class="hint">
+						This game has several respin modes, and each speaks its own jackpot, respin, wheel and
+						feature total / intro / outro lines. The primary's are every mode's fallback: a line
+						another mode leaves blank reads the primary's (shown greyed in its field). The special,
+						collector and pot names are the whole game's, written on the primary.
+					</p>
+					<label class="single">
+						<span>Editing</span>
+						<select bind:value={editMode}>
+							{#each data.respinModes as mode, i (mode.mode)}
+								<option value={mode.mode}
+									>{mode.label}{mode.label === mode.mode ? '' : ` (${mode.mode})`}{i === 0
+										? ' — primary'
+										: ''}</option
+								>
+							{/each}
+						</select>
+					</label>
+				</section>
+			{/if}
 			<section>
 				<h2>Jackpots</h2>
 				<p class="hint">
@@ -661,12 +866,12 @@
 					<code>{'{amount}'}</code> for what it paid — for a progressive tier, the live pool the server
 					paid out, not its seed.
 				</p>
-				{#each data.jackpotTiers as tier (tier)}
+				{#each jackpotTiers as tier (tier)}
 					<label class="single">
 						<span>{tier}</span>
 						<input
-							value={doc.jackpots?.captions?.[tier] ?? ''}
-							placeholder={tier}
+							value={lines?.jackpots?.captions?.[tier] ?? ''}
+							placeholder={onPrimary ? tier : resolved.jackpots.captions[tier] || tier}
 							oninput={(e) => setJackpotCaption(tier, e.currentTarget.value)}
 						/>
 					</label>
@@ -680,11 +885,11 @@
 					<label class="single">
 						<span>{WIN_TEXT_JACKPOT_LABELS[field]}</span>
 						<input
-							value={doc.jackpots?.[field] ?? ''}
+							value={lines?.jackpots?.[field] ?? ''}
 							placeholder={resolved.jackpots[field]}
 							oninput={(e) => setJackpot(field, e.currentTarget.value)}
 						/>
-						<em class="row-preview">{holdAndWinPreview(resolved.jackpots[field]) || '—'}</em>
+						<em class="row-preview">{holdAndWinPreview(modeResolved.jackpots[field]) || '—'}</em>
 					</label>
 				{/each}
 			</section>
@@ -700,57 +905,80 @@
 					<label class="single">
 						<span>{WIN_TEXT_RESPIN_LABELS[field]}</span>
 						<input
-							value={doc.respins?.[field] ?? ''}
+							value={lines?.respins?.[field] ?? ''}
 							placeholder={resolved.respins[field]}
 							oninput={(e) => setRespins(field, e.currentTarget.value)}
 						/>
-						<em class="row-preview">{holdAndWinPreview(resolved.respins[field]) || '—'}</em>
+						<em class="row-preview">{holdAndWinPreview(modeResolved.respins[field]) || '—'}</em>
 					</label>
 				{/each}
 			</section>
 
-			<section>
-				<h2>Hold and Win feature</h2>
-				<p class="hint">
-					The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
-					<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins or
-					another mode reads as its own pot name, below) and
-					<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
-					names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
-					outro draw nothing until you write them.
-				</p>
-				{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
-					<label class="single">
-						<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
-						<input
-							value={doc.feature?.[field] ?? ''}
-							placeholder={resolved.feature[field] || 'not drawn'}
-							oninput={(e) => setFeature(field, e.currentTarget.value)}
-						/>
-						<em class="row-preview"
-							>{(field === 'potLabel' ? potPreview : holdAndWinPreview(resolved.feature[field])) ||
-								'—'}</em
-						>
-					</label>
-				{/each}
-				<p class="hint">
-					Names: the specials (as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write
-					them), the collector levels the wheel raises (<code>{'{level}'}</code>; an unnamed level
-					reads ×4) and this game's pots (<code>{'{pot}'}</code>):
-				</p>
-				{#each nameRows as row (`${row.map}:${row.key}`)}
-					<label class="single">
-						<span>{row.label}</span>
-						<input
-							value={doc.feature?.[row.map]?.[row.key] ?? ''}
-							placeholder={row.placeholder}
-							oninput={(e) => setFeatureName(row.map, row.key, e.currentTarget.value)}
-						/>
-					</label>
-				{/each}
-			</section>
+			{#if onPrimary}
+				<section>
+					<h2>Hold and Win feature</h2>
+					<p class="hint">
+						The feature's own lines. <code>{'{amount}'}</code> is the feature's total,
+						<code>{'{meter}'}</code> the special a full pot activates (a pot that starts free spins
+						or another mode reads as its own pot name, below) and
+						<code>{'{modifiers}'}</code> the specials a feature runs with — each written with the
+						names below; <code>{'{rows}'}</code> is the rows an expanding board has open. The intro and
+						outro draw nothing until you write them.
+					</p>
+					{#each WIN_TEXT_FEATURE_FIELDS as field (field)}
+						<label class="single">
+							<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
+							<input
+								value={doc.feature?.[field] ?? ''}
+								placeholder={resolved.feature[field] || 'not drawn'}
+								oninput={(e) => setFeature(field, e.currentTarget.value)}
+							/>
+							<em class="row-preview"
+								>{(field === 'potLabel'
+									? potPreview
+									: holdAndWinPreview(resolved.feature[field])) || '—'}</em
+							>
+						</label>
+					{/each}
+					<p class="hint">
+						Names: the specials (as <code>{'{meter}'}</code> and <code>{'{modifiers}'}</code> write
+						them), the collector levels the wheel raises (<code>{'{level}'}</code>; an unnamed level
+						reads ×4) and this game's pots (<code>{'{pot}'}</code>):
+					</p>
+					{#each nameRows as row (`${row.map}:${row.key}`)}
+						<label class="single">
+							<span>{row.label}</span>
+							<input
+								value={doc.feature?.[row.map]?.[row.key] ?? ''}
+								placeholder={row.placeholder}
+								oninput={(e) => setFeatureName(row.map, row.key, e.currentTarget.value)}
+							/>
+						</label>
+					{/each}
+				</section>
+			{:else}
+				<section>
+					<h2>Hold and Win feature — {editing?.label}</h2>
+					<p class="hint">
+						This mode's total, intro and outro. <code>{'{amount}'}</code> is the feature's total and
+						<code>{'{count}'}</code> the respins it opens with. The other feature lines and the names
+						are the whole game's — switch to the primary to edit them.
+					</p>
+					{#each WIN_TEXT_MODE_FEATURE_FIELDS as field (field)}
+						<label class="single">
+							<span>{WIN_TEXT_FEATURE_LABELS[field]}</span>
+							<input
+								value={lines?.feature?.[field] ?? ''}
+								placeholder={resolved.feature[field] || 'not drawn'}
+								oninput={(e) => setModeFeature(field, e.currentTarget.value)}
+							/>
+							<em class="row-preview">{holdAndWinPreview(modeResolved.feature[field]) || '—'}</em>
+						</label>
+					{/each}
+				</section>
+			{/if}
 
-			{#if data.hasWheel}
+			{#if editing?.hasWheel}
 				<section>
 					<h2>Wheel</h2>
 					<p class="hint">
@@ -763,11 +991,11 @@
 						<label class="single">
 							<span>{WIN_TEXT_WHEEL_LABELS[field]}</span>
 							<input
-								value={doc.wheel?.[field] ?? ''}
+								value={lines?.wheel?.[field] ?? ''}
 								placeholder={resolved.wheel[field]}
 								oninput={(e) => setWheel(field, e.currentTarget.value)}
 							/>
-							<em class="row-preview">{holdAndWinPreview(resolved.wheel[field]) || '—'}</em>
+							<em class="row-preview">{holdAndWinPreview(modeResolved.wheel[field]) || '—'}</em>
 						</label>
 					{/each}
 				</section>
@@ -855,12 +1083,13 @@
 				big-win art carries no words (which is also what lets the tier be translated without re-cutting
 				the art per language).
 			</p>
+			{@render boardPicker()}
 			{#each winLevelRows as row (row.alias)}
 				<label class="single">
 					<span title={row.alias}>{row.name}</span>
 					<input
-						value={doc.winLevels?.[row.alias] ?? ''}
-						placeholder="not drawn"
+						value={boardLines?.winLevels?.[row.alias] ?? ''}
+						placeholder={onBaseBoard ? 'not drawn' : resolved.winLevels[row.alias] || 'not drawn'}
 						oninput={(e) => setWinLevel(row.alias, e.currentTarget.value)}
 					/>
 				</label>
@@ -1025,6 +1254,31 @@
 		background: #0e0e13;
 		color: #e8e8ee;
 		font-size: 12px;
+	}
+	.single select {
+		flex: 1;
+		padding: 7px 9px;
+		border-radius: 6px;
+		border: 1px solid #24242e;
+		background: #0e0e13;
+		color: #e8e8ee;
+		font-size: 12px;
+	}
+	.orphan button {
+		flex: none;
+		padding: 6px 12px;
+		border-radius: 8px;
+		border: 1px solid #3a3a48;
+		background: #16161d;
+		color: #e8e8ee;
+		font-size: 12px;
+		font-weight: 600;
+		cursor: pointer;
+	}
+	.orphan .danger {
+		border-color: #6b3030;
+		background: #2c1618;
+		color: #ffbdbd;
 	}
 	.single input::placeholder {
 		color: #4d4d5a;

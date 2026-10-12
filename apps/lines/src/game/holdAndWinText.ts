@@ -7,7 +7,8 @@ import {
 } from 'engine-layout';
 import type { HoldAndWinWheelPrize } from 'engine-game';
 
-import { bakedWinText } from '../editor-scenes';
+import { bakedWinText, bakedWinTextFor } from '../editor-scenes';
+import { activeRespinMode, isPrimaryRespinMode } from './activeRespinMode.svelte';
 
 /**
  * Every player-facing Hold and Win line, read from the project's Invisible Win Text templates
@@ -17,13 +18,21 @@ import { bakedWinText } from '../editor-scenes';
  */
 
 /**
+ * The lines of the respin mode playing now (`activeRespinMode()`): its own, else the primary's
+ * (`docs/design/bonus-games.md` §2.4). The pot lines and the names are the base game's, so they read
+ * {@link bakedWinText}; every mode speaks them alike.
+ */
+const modeWinText = () =>
+	bakedWinTextFor(isPrimaryRespinMode() ? undefined : activeRespinMode()?.mode);
+
+/**
  * The respin counter's line. `note` is the beat it is announcing: the award as the feature opens
  * ("3 RESPINS", until the first respin rolls) and a reset while its pulse plays ("RESPINS RESET");
  * otherwise it counts, and the last respin reads as such ("LAST RESPIN"). An authored note left
  * empty falls back to the count.
  */
 export const respinCounterText = (left: number, note: 'award' | 'reset' | null = null) => {
-	const { respins } = bakedWinText();
+	const { respins } = modeWinText();
 	const template =
 		note === 'award'
 			? respins.award
@@ -37,7 +46,7 @@ export const respinCounterText = (left: number, note: 'award' | 'reset' | null =
 
 /** An add-respins special joining the counter ("+2 RESPINS"); `count` is the respins it added. */
 export const respinsAddedText = (count: number) =>
-	formatWinText(bakedWinText().respins.added, { count });
+	formatWinText(modeWinText().respins.added, { count });
 
 /** An expanding board opened a row ("ROW UNLOCKED"), and the rows now open under it ("5 ROWS"). */
 export const rowUnlockedText = (rows: number) => {
@@ -53,20 +62,20 @@ export const upgradeText = () => formatWinText(bakedWinText().feature.upgrade);
 
 /** A jackpot coin an upgrade stepped up a tier, named by its NEW tier ("MINOR UPGRADE"). */
 export const jackpotUpgradeText = (tier: string) => {
-	const resolved = bakedWinText();
+	const resolved = modeWinText();
 	return formatWinText(resolved.jackpots.upgrade, { jackpot: jackpotCaption(resolved, tier) });
 };
 
 /** The feature's total over the board once the Total Win bar has landed ("BONUS WIN $20.00"). */
 export const featureTotalText = (amount: string) =>
-	formatWinText(bakedWinText().feature.total, { amount });
+	formatWinText(modeWinText().feature.total, { amount });
 
 /** The feature's intro and outro lines — empty by default, so nothing is drawn unless authored. */
 export const featureIntroText = (respins: number) =>
-	formatWinText(bakedWinText().feature.intro, { count: respins });
+	formatWinText(modeWinText().feature.intro, { count: respins });
 
 export const featureOutroText = (amount: string) =>
-	formatWinText(bakedWinText().feature.outro, { amount });
+	formatWinText(modeWinText().feature.outro, { amount });
 
 /**
  * A pot that filled, named by the special it activates ("PAYER ACTIVATED"); a pot that activates
@@ -112,7 +121,7 @@ export const instantCollectText = () => formatWinText(bakedWinText().feature.ins
 
 /** A banked jackpot's banner: its title and the amount (or full-board) line under it. */
 export const jackpotBannerText = (tier: string, amount: string, fullBoard: boolean) => {
-	const resolved = bakedWinText();
+	const resolved = modeWinText();
 	return {
 		title: formatWinText(resolved.jackpots.award, { jackpot: jackpotCaption(resolved, tier) }),
 		detail: formatWinText(
@@ -124,13 +133,13 @@ export const jackpotBannerText = (tier: string, amount: string, fullBoard: boole
 
 /** The small banner over a jackpot coin in the tally. */
 export const jackpotCoinText = (tier: string) => {
-	const resolved = bakedWinText();
+	const resolved = modeWinText();
 	return formatWinText(resolved.jackpots.coin, { jackpot: jackpotCaption(resolved, tier) });
 };
 
 /** A wheel segment's label. */
 export const wheelPrizeText = (prize: HoldAndWinWheelPrize) => {
-	const resolved = bakedWinText();
+	const resolved = modeWinText();
 	switch (prize.type) {
 		case 'coinBoost':
 			return formatWinText(resolved.wheel.coinBoost, { count: prize.multiplier });
@@ -147,7 +156,7 @@ export const wheelPrizeDetailText = (
 	prize: Exclude<HoldAndWinWheelPrize, { type: 'jackpot' }>,
 	collectorLevel: number,
 ) => {
-	const resolved = bakedWinText();
+	const resolved = modeWinText();
 	return prize.type === 'coinBoost'
 		? formatWinText(resolved.wheel.coinBoostDetail, { count: prize.multiplier })
 		: formatWinText(resolved.wheel.extraCollectDetail, {

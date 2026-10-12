@@ -1,3 +1,4 @@
+import { primaryRespinMode } from './bonusGames';
 import { holdAndWinIsOverlayBonus, isHoldAndWinSymbol } from './holdAndWin';
 import { symbolsInPlay, symbolsInPlayFromStrips } from './inPlay';
 import { isScatterSymbol } from './serverPaytable';
@@ -141,7 +142,7 @@ export const validateExpandingSymbol = (doc: GameConfigDoc): GameConfigIssue[] =
 				'An expanding symbol pays on every line of the reels it fills, so it needs a game that pays by lines. Choose Lines under How wins are decided, or remove the expanding symbol.',
 		});
 	}
-	if (doc.holdAndWin && !holdAndWinIsOverlayBonus(doc)) {
+	if (primaryRespinMode(doc.modes) && !holdAndWinIsOverlayBonus(doc)) {
 		issues.push({
 			severity: 'error',
 			path,

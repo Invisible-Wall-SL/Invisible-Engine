@@ -10,6 +10,7 @@
 
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync } from 'node:fs';
+import { primaryHoldAndWin, potsOverlayOf } from './src/bonusGames.ts';
 import { bookOfThermopylaePreset } from './src/bookOfPresets.ts';
 import {
 	bookSymbols,
@@ -70,6 +71,8 @@ console.log('\nwithout the block, nothing changes');
 const PINNED: Record<string, string> = {
 	'holdAndWin.classic.json': 'b8dddf930e614ea7',
 	'holdAndWin.collector.json': 'e506f3c02d3aac09',
+	'holdAndWin.plain.json': 'e72734cb8bc64953',
+	'holdAndWin.plainNoJackpots.json': 'fa0faee3b4a6955a',
 	'holdAndWin.pots.json': '01e2ac04f676ba9f',
 	'lines.json': '4e6d5bb1764ee30c',
 	'scatter.json': '7e9591cdf9382419',
@@ -103,10 +106,25 @@ for (const file of files) {
 	const normalized = normalizeGameConfigDoc(
 		JSON.parse(readFileSync(new URL(file, DEFAULTS), 'utf8')),
 	) as GameConfigDoc;
-	// Bonus-games Phase 1 adds the split form (`coinOverlay`, the declared respin mode) beside the
-	// legacy blocks it mirrors byte-identically; everything else is pinned as it was.
-	const { coinOverlay: _overlay, modes, ...rest } = normalized;
+	// The pins predate the split form (`coinOverlay`, the declared respin mode): its legacy views
+	// stand where the mirror was stored, so the bonus is pinned too; the rest is pinned as it was.
+	const { modes } = normalized;
 	const others = modes?.filter((m) => m.id !== 'holdAndWin');
+	const legacy: [string, unknown][] = Object.entries({
+		holdAndWin: primaryHoldAndWin(normalized),
+		potsOverlay: potsOverlayOf(normalized),
+	}).filter(([, block]) => block);
+	check(
+		`${file}: stores no legacy key`,
+		['holdAndWin', 'potsOverlay'].filter((k) => k in normalized),
+		[],
+	);
+	check(`${file}: a bonus has its overlay`, !legacy.length || 'coinOverlay' in normalized, true);
+	const rest = Object.fromEntries(
+		Object.entries(normalized).flatMap(([key, value]): [string, unknown][] =>
+			key === 'coinOverlay' ? legacy : key === 'modes' ? [] : [[key, value]],
+		),
+	);
 	const pinned = others?.length ? { ...rest, modes: others } : rest;
 	check(`${file}: normalizes byte-identically`, digest(pinned), PINNED[file]);
 	check(`${file}: carries no expanding symbol`, resolveExpandingSymbol(normalized), undefined);

@@ -451,6 +451,85 @@ const COLLECTOR: RawGameConfig = {
 	holdAndWin: COLLECTOR_HOLD_AND_WIN,
 };
 
+// ─── The plain Hold and Win (the template) ────────────────────────────────────────────────────
+
+/**
+ * Game Maker's "Hold and Win" TEMPLATE (`docs/design/bonus-games.md` §0, owner 2026-10-09): the plain
+ * game. Coins land on the base reels, 6+ start three respins with every coin sticky, and the coins
+ * pay at the end. No pots, no drops, no collector, no specials; those are coin overlay styles, added
+ * through "＋ Coin overlay…". Jackpots are a choice: on, the Classic preset's four tiers with a
+ * full board paying GRAND; off, no tier and no board end.
+ */
+export const HOLD_AND_WIN_TEMPLATE_JACKPOTS = ['on', 'off'] as const;
+
+export type HoldAndWinTemplateJackpots = (typeof HOLD_AND_WIN_TEMPLATE_JACKPOTS)[number];
+
+/** The committed-default key the template is stored under: `holdAndWin.plain` /
+ *  `holdAndWin.plainNoJackpots`. */
+export const holdAndWinTemplateKey = (jackpots: HoldAndWinTemplateJackpots): string =>
+	jackpots === 'on' ? 'holdAndWin.plain' : 'holdAndWin.plainNoJackpots';
+
+const plainHoldAndWin = (jackpots: boolean): HoldAndWin => ({
+	trigger: { count: { min: 6, roles: jackpots ? ['coin', 'jackpot'] : ['coin'] } },
+	stickiness: 'allCoins',
+	respins: { start: 3, reset: 'anyCoin' },
+	boardEnd: jackpots
+		? { type: 'fullBoardJackpot', jackpot: 'GRAND', roles: ['coin', 'jackpot'] }
+		: { type: 'none' },
+	coins: [
+		...CLASSIC_HOLD_AND_WIN.coins.filter((c) => c.kind === 'cash'),
+		...(jackpots ? CLASSIC_HOLD_AND_WIN.coins.filter((c) => c.kind === 'jackpot') : []),
+	],
+	jackpots: jackpots ? CLASSIC_HOLD_AND_WIN.jackpots : [],
+	specials: {},
+	applyOrder: [],
+	activeModifiers: { atEntry: [], fromTriggeringSpecials: false },
+});
+
+/** The base strips: Classic's, its multiplier coin a line symbol, and with no jackpots its jackpot
+ *  coin a plain one. */
+const plainBaseStrips = (jackpots: boolean): ReelStrip[] => {
+	const swap: Record<string, string> = { BOOST: 'L2', ...(jackpots ? {} : { JACKPOT: 'BONUS' }) };
+	return CLASSIC.paddingReels.basegame.map((reel) =>
+		reel.map((cell) => ({ name: swap[cell.name] ?? cell.name })),
+	);
+};
+
+const plainConfig = (jackpots: boolean): RawGameConfig => ({
+	providerName: 'invisible_wall',
+	gameName: 'hold_and_win',
+	gameID: jackpots ? 'hold_and_win_plain_jp' : 'hold_and_win_plain',
+	rtp: 0.96,
+	numReels: 5,
+	numRows: [3, 3, 3, 3, 3],
+	betModes: { base: BASE_MODE },
+	paylines: FIVE_LINES_5X3,
+	symbols: {
+		...LINE_SYMBOLS_5,
+		BONUS: tag('coin'),
+		...(jackpots && { JACKPOT: tag('jackpot') }),
+		BLANK: tag('blank'),
+	},
+	paddingReels: {
+		basegame: plainBaseStrips(jackpots),
+		respin: Array.from({ length: 5 }, () =>
+			strip(
+				jackpots
+					? ['BLANK', 'BONUS', 'BLANK', 'BLANK', 'JACKPOT', 'BLANK', 'BONUS']
+					: ['BLANK', 'BONUS', 'BLANK', 'BLANK', 'BONUS'],
+			),
+		),
+	},
+	winLevels: winLevels([15, 30, 50, 80]),
+	holdAndWin: plainHoldAndWin(jackpots),
+});
+
+/** The template's raw configs, by the Jackpots choice — read by the defaults generator only. */
+export const HOLD_AND_WIN_TEMPLATES: Record<HoldAndWinTemplateJackpots, RawGameConfig> = {
+	on: plainConfig(true),
+	off: plainConfig(false),
+};
+
 /** The raw preset configs — read by the defaults generator and the offline fixture only. */
 export const HOLD_AND_WIN_PRESETS: Record<HoldAndWinPresetId, RawGameConfig> = {
 	pots: POTS,

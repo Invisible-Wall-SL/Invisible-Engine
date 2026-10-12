@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import {
-	HOLD_AND_WIN_PRESET_IDS,
+	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
@@ -9,6 +9,7 @@ import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
 import { SESSION_COOKIE, sessionIdFromToken } from '$lib/server/auth';
+import { modeRouteOptions } from '$lib/bonusImport';
 import type { AddOnOutcome } from '$lib/potsOverlayAddOn';
 import { OWNER_ROLE } from '$lib/launcherGates';
 import {
@@ -21,6 +22,7 @@ import {
 	gameConfigDefaultFor,
 	gameConfigPresetsFor,
 	gameConfigSeedFor,
+	holdAndWinTemplateSeed,
 	isLinesPresetId,
 	LINES_PRESET_IDS,
 	resolveGameConfig,
@@ -81,8 +83,8 @@ async function gate(locals: App.Locals): Promise<NonNullable<App.Locals['user']>
 }
 
 /**
- * The overlay presets the Create form offers, keyed like its pickers: a kind, or
- * `holdAndWin:<preset>` / `lines:<preset>` for each of their presets — what adds cleanly to the
+ * The overlay presets the Create form offers, keyed like its pickers: a kind, `holdAndWin:on|off`
+ * for the Hold and Win template's Jackpots choice, or `lines:<preset>` — what adds cleanly to the
  * config the new game starts from (its seed, else the kind's template, which the add-on resolves to).
  */
 function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPresetId[]> {
@@ -90,8 +92,8 @@ function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPreset
 	for (const kind of kinds) {
 		out[kind] = cleanOverlayPresets(gameConfigSeedFor(kind) ?? gameConfigDefaultFor(kind));
 	}
-	for (const preset of HOLD_AND_WIN_PRESET_IDS) {
-		out[`holdAndWin:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('holdAndWin', preset));
+	for (const jackpots of HOLD_AND_WIN_TEMPLATE_JACKPOTS) {
+		out[`holdAndWin:${jackpots}`] = cleanOverlayPresets(holdAndWinTemplateSeed(jackpots));
 	}
 	for (const preset of LINES_PRESET_IDS) {
 		out[`lines:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('lines', preset));
@@ -219,17 +221,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				clientName: p.clientName,
 				gameType: p.gameType,
 				profile,
-				// The card offers "＋ Pots overlay" without one, and "fill in its parts" with one.
-				hasPotsOverlay: Boolean(config.doc?.potsOverlay),
+				// The card offers "＋ Coin overlay" without a dropping one, and "fill in its parts" with one.
+				hasPotsOverlay: Boolean(config.doc?.coinOverlay?.drops),
 				/** The overlay presets that add cleanly to this game's config. */
 				overlayPresets: cleanOverlayPresets(config.doc),
-				/** The pots a bonus import can route, with the mode each starts now. */
-				pots: (config.doc?.potsOverlay?.pots ?? []).map((pot) => ({
-					id: pot.id,
-					mode: pot.bonus.mode,
-				})),
-				/** Whether the overlay's Hold and Win bonus is there (an import then replaces it). */
-				hasHoldAndWin: Boolean(config.doc?.holdAndWin),
+				/** The routes "Add a bonus mode…" can point at the new mode. */
+				modeRoutes: modeRouteOptions(config.doc, p.gameType),
 				/** Bonuses imported from another project, for "Re-sync". */
 				imports: (config.doc?.imports ?? []).map((i) => ({
 					mode: i.mode,
@@ -282,7 +279,7 @@ export const actions: Actions = {
 		const rawClient = String(data.get('clientKey') ?? '').trim();
 		const clientKey = rawClient === '' ? null : rawClient;
 		const rawGameType = String(data.get('gameType') ?? '').trim();
-		const rawPreset = String(data.get('holdAndWinPreset') ?? '').trim();
+		const rawJackpots = String(data.get('holdAndWinJackpots') ?? '').trim();
 		const rawLinesPreset = String(data.get('linesPreset') ?? '').trim();
 		const rawOverlay = String(data.get('potsOverlayPreset') ?? '').trim();
 
@@ -309,9 +306,11 @@ export const actions: Actions = {
 				error: kind === 'lines' ? 'Unknown lines preset.' : 'A lines preset needs a Lines game.',
 			});
 		}
-		const holdAndWinPreset = HOLD_AND_WIN_PRESET_IDS.find((id) => id === rawPreset);
-		if (rawGameType === 'holdAndWin' && rawPreset !== '' && !holdAndWinPreset) {
-			return fail(400, { action: 'create', error: 'Unknown Hold and Win preset.' });
+		// The plain Hold and Win (bonus-games §0): jackpots on unless asked off. Pots and Collector are
+		// coin overlay styles, added on the card with "＋ Coin overlay…".
+		const holdAndWinJackpots = HOLD_AND_WIN_TEMPLATE_JACKPOTS.find((j) => j === rawJackpots);
+		if (rawGameType === 'holdAndWin' && rawJackpots !== '' && !holdAndWinJackpots) {
+			return fail(400, { action: 'create', error: 'Jackpots must be on or off.' });
 		}
 		const potsOverlayPreset = POTS_OVERLAY_PRESET_IDS.find((id) => id === rawOverlay);
 		if (rawOverlay !== '' && !potsOverlayPreset) {
@@ -343,7 +342,7 @@ export const actions: Actions = {
 			throw e;
 		}
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
-			holdAndWinPreset: rawGameType === 'holdAndWin' ? holdAndWinPreset : undefined,
+			holdAndWinJackpots: rawGameType === 'holdAndWin' ? (holdAndWinJackpots ?? 'on') : undefined,
 			linesPreset,
 		});
 		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a
@@ -360,7 +359,7 @@ export const actions: Actions = {
 			: null;
 		return {
 			action: 'create',
-			ok: `Created project ${key}${addOn?.ok ? ' with the pots overlay' : ''}.`,
+			ok: `Created project ${key}${addOn?.ok ? ' with the coin overlay' : ''}.`,
 			createdKey: key,
 			addOn,
 		};

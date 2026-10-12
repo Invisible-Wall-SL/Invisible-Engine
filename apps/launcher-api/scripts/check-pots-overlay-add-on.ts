@@ -22,11 +22,17 @@ import { mock } from 'node:test';
 import type { LiveLease } from '../src/lib/server/lease.ts';
 import { getFullSceneSet, type LayoutDoc, type Scene } from 'engine-layout';
 import {
+	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESETS,
 	addPotsOverlay,
 	normalizeGameConfigDoc,
+	potsOverlayOf,
+	primaryHoldAndWin,
+	setOverlayPots,
+	setPrimaryHoldAndWin,
 	type GameConfigDoc,
 	type PotsOverlayPresetId,
+	type RawGameConfig,
 } from 'game-config';
 
 type Obj = { body: string; etag: string };
@@ -100,6 +106,7 @@ const GAME_TYPES: Record<string, string> = {
 	hwClassic: 'holdAndWin',
 	hwNew: 'holdAndWin',
 	hwFit: 'holdAndWin',
+	linesOff: 'lines',
 };
 mock.module(src('lib/server/projects.ts'), {
 	namedExports: {
@@ -381,10 +388,14 @@ console.log('\n2b. an overlay with no pots (value coins only)');
 /** A coins-only overlay, by hand: the 3 Pots add with its pots and tokens taken out again. */
 const coinsOnly = (): GameConfigDoc => {
 	const doc = structuredClone(withOverlay(lines, 'threePots').doc);
-	for (const pot of doc.potsOverlay?.pots ?? []) delete doc.symbols[pot.token];
-	if (doc.potsOverlay) {
-		doc.potsOverlay.pots = [];
-		doc.potsOverlay.drops.table = [{ coin: true, weight: 1 }];
+	const pots = potsOverlayOf(doc);
+	for (const pot of pots?.pots ?? []) delete doc.symbols[pot.token];
+	if (pots) {
+		setOverlayPots(doc, {
+			...pots,
+			pots: [],
+			drops: { ...pots.drops, table: [{ coin: true, weight: 1 }] },
+		});
 	}
 	return doc;
 };
@@ -424,15 +435,21 @@ console.log('\n3. scaffold scene set');
 const KINDS = ['lines', 'bookOf', 'ways', 'cluster', 'scatter', 'holdAndWin'];
 /** What the scaffold passed before the add-ons: a Hold and Win kind's `maxRows`, nothing else. */
 const legacyOptions = (kind: string, doc: GameConfigDoc | null) => {
-	const maxRows = kind === 'holdAndWin' ? doc?.holdAndWin?.expansion?.maxRows : undefined;
+	const maxRows =
+		kind === 'holdAndWin' && doc ? primaryHoldAndWin(doc)?.expansion?.maxRows : undefined;
 	return maxRows ? { maxRows } : {};
 };
 
 await check('every project without an add-on: byte-identical to before', () => {
 	const expanding = structuredClone(hwPots);
-	if (expanding.holdAndWin) {
-		expanding.holdAndWin.expansion = { startRows: 3, maxRows: 6, rule: 'fullRow' };
+	const block = primaryHoldAndWin(expanding);
+	if (block) {
+		setPrimaryHoldAndWin(expanding, {
+			...block,
+			expansion: { startRows: 3, maxRows: 6, rule: 'fullRow', resetsRespins: true },
+		});
 	}
+	assert(primaryHoldAndWin(expanding)?.expansion?.maxRows === 6, 'the expansion did not take');
 	const configs: (GameConfigDoc | null)[] = [
 		null,
 		lines,
@@ -495,9 +512,11 @@ await check(
 		same(out.seeds.layout.status, 'added', 'layout');
 		same(out.seeds.winText.status, 'present', 'win text');
 		assert(!out.seeds.flow, 'the flow was grafted unasked');
+		const storedConfig = storedJson<RawGameConfig>(gameConfigDocKey(CLIENT, 'book'));
+		assert(potsOverlayOf(storedConfig), 'no overlay stored');
 		assert(
-			storedJson<GameConfigDoc>(gameConfigDocKey(CLIENT, 'book')).potsOverlay,
-			'no overlay stored',
+			!('potsOverlay' in storedConfig) && !('holdAndWin' in storedConfig),
+			'the legacy mirror was stored',
 		);
 		const symbols = storedJson<{ symbols: Record<string, unknown> }>(symbolsDocKey(CLIENT, 'book'));
 		assert(symbols.symbols.POT_RED, 'POT_RED not bound');
@@ -789,19 +808,36 @@ await check('unreadable symbols, layout and flow: skipped, their bytes untouched
 });
 
 await check('presets offered are the ones that add cleanly', () => {
-	same(cleanOverlayPresets(lines), ['threePots', 'potsToFreeSpins', 'coinsOnly'], 'lines');
-	same(cleanOverlayPresets(hwPots), ['threePots', 'potsToFreeSpins'], 'a 3 Pots game');
-	for (const id of ['classic', 'collector'] as const) {
-		same(cleanOverlayPresets(normalized(HOLD_AND_WIN_PRESETS[id])), ['potsToFreeSpins'], id);
+	same(
+		cleanOverlayPresets(lines),
+		['threePots', 'potsToFreeSpins', 'coinsOnly', 'collector'],
+		'lines',
+	);
+	// bonus-games Phase 8b: a preset brings the specials its pots start, so every preset with pots
+	// fits every Hold and Win game; coins alone start nothing on one.
+	for (const id of HOLD_AND_WIN_PRESET_IDS) {
+		same(
+			cleanOverlayPresets(normalized(HOLD_AND_WIN_PRESETS[id])),
+			['threePots', 'potsToFreeSpins', 'collector'],
+			id,
+		);
 	}
 	same(cleanOverlayPresets(withOverlay(lines, 'threePots').doc), [], 'one already added');
 	same(cleanOverlayPresets(null), [], 'no config');
 });
 
 await check('a preset that does not fit: a readable refusal, no validator paths', async () => {
-	await scaffoldProject(CLIENT, 'hwFit', { holdAndWinPreset: 'classic' });
+	const off = structuredClone(lines);
+	off.freeSpins = { ...off.freeSpins, enabled: false };
+	R2.set(gameConfigDocKey(CLIENT, 'linesOff'), {
+		body: JSON.stringify(off),
+		etag: `"e${++etagSeq}"`,
+	});
 	const before = snapshot();
-	const out = await applyPotsOverlayAddOn(CLIENT, 'hwFit', { sessionId: ME, preset: 'threePots' });
+	const out = await applyPotsOverlayAddOn(CLIENT, 'linesOff', {
+		sessionId: ME,
+		preset: 'potsToFreeSpins',
+	});
 	assert(!out.ok && out.status === 400, 'not refused');
 	assert(out.error.startsWith("This preset doesn't fit this game: "), out.error);
 	assert(!/potsOverlay\.|holdAndWin\./.test(out.error), `a path leaked: ${out.error}`);

@@ -1,4 +1,4 @@
-import type { GameConfigDoc } from 'game-config';
+import { primaryRespinMode, type GameConfigDoc } from 'game-config';
 import { mapWithConcurrency } from '../concurrency';
 import type { Project } from '../db/schema';
 import { resolveGameConfig } from '../gameConfigDefaults';
@@ -66,8 +66,8 @@ export function lockedItemsOf(config: GameConfigDoc | null): LockedItem[] {
 	const lines = config?.paylines ? Object.keys(config.paylines).length : 0;
 	const features = [
 		config?.cascade ? 'cascade' : null,
-		config?.holdAndWin ? 'Hold and Win' : null,
-		config?.potsOverlay ? 'pots overlay' : null,
+		primaryRespinMode(config?.modes) ? 'Hold and Win' : null,
+		config?.coinOverlay?.drops ? 'pots overlay' : null,
 		...(config?.modes ?? []).map((m) => `mode ${m.id}`),
 	].filter((f): f is string => f !== null);
 	const grid = config ? `${config.numReels} reels × ${config.numRows.join('/')} rows` : 'unknown';

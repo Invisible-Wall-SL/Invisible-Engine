@@ -25,7 +25,12 @@
 		type Scene,
 	} from 'engine-layout';
 	import { valueSource } from 'engine-game';
-	import { HOLD_AND_WIN_PRESETS, normalizeGameConfigDoc } from 'game-config';
+	import {
+		HOLD_AND_WIN_PRESETS,
+		normalizeGameConfigDoc,
+		primaryHoldAndWin,
+		setPrimaryHoldAndWin,
+	} from 'game-config';
 	import { scopeOf } from 'utils-event-emitter';
 
 	import LetterTilePart from '../components/LetterTilePart.svelte';
@@ -47,8 +52,8 @@
 	 * `window.__light(reel)` lights a letter as the column-complete beat does; `window.__probe()` lists
 	 * the strip's texts (shown, fill, on-screen scale) and whether the coded row would step aside.
 	 */
-	const block = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.classic)?.holdAndWin;
-	if (block) getActiveGameConfig().holdAndWin = block;
+	const block = primaryHoldAndWin(normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS.classic)!);
+	if (block) setPrimaryHoldAndWin(getActiveGameConfig(), block);
 
 	const tilePart = LETTER_TILE_DEF.root.children[0] as LayoutNode & { kind: 'container' };
 	const gatedTile: ComponentDef = {

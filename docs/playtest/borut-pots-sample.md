@@ -18,6 +18,13 @@ base game is still the `book` kind, so the test server deals it with the book mo
 `grid.potsOverlay` (`makeBookMock` in `services/test-server/server.mjs`). The wire is described in
 [hold-and-win-wire.md § Pots overlay](../reference/hold-and-win-wire.md).
 
+> **Known state (2026-10-09, Phase 7c,
+> [bonus-games-7c.md](bonus-games-7c.md)):** the PUBLISHED sample (snapshot 20261008T084334Z) has
+> ONE pot, `red` → Hold and Win (payer), so the blue / green steps below are refused (`no pot
+> "blue"`). Every other scenario passed in Chromium on main 0cc277d. It cannot be republished until
+> its Flow's `show_13.n_3n85lhy8.onBuyBonus → showContainer-22` edge is fixed in `/flow-v2`: a scenes
+> save after the publish removed `n_3n85lhy8`.
+
 ## What the 3 Pots preset adds (`packages/game-config/src/potsOverlayPresets.ts` → `threePots`)
 
 | Pot | Token | Max | Size stages | Full pot starts |

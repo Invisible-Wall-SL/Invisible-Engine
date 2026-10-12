@@ -344,7 +344,10 @@ total stake (a book host's `betPerLine × 10`; a bought round's premium never ra
       "bonus": "holdAndWin", "activates": "payer" }   // `activates`: a holdAndWin pot that has one
   ],
   "bonuses": { "feature": "freeSpins", "respin": "holdAndWin" }, // spinTrigger.bonus → mode id
-  "modes": { "freeSpins_2": { "gameType": "freegame_2" } }        // optional: reels modes of its own
+  "modes": {                                                      // optional: reels modes of its own
+    "freeSpins_2": { "gameType": "freegame_2" },
+    "waysBonus": { "gameType": "waysBonus", "window": { "reels": 6, "rows": [4, 4, 4, 4, 4, 4] } }
+  }
 }
 ```
 
@@ -362,6 +365,11 @@ total stake (a book host's `betPerLine × 10`; a bought round's premium never ra
   mode's own strips, and its `bonusWin` / `retrigger` name the same key. The facade enters it as free
   spins IN that mode (`freeSpinTrigger.mode`), revealing its spins on `gameType`. Without the field
   every reels bonus is the book's own free spins.
+- A **spins mode** (a game of its own, `game-config` `spinsGame.ts`, bonus-games Phase 8a) also
+  carries `window`: the grid its spins are dealt on (`reels`, per-reel `rows`). It plays exactly its
+  authored number of spins, paid by its own win model (`spinWin.mode` is `line`, `ways`, `cluster` or
+  `scatterPays`), and never retriggers. The facade clamps that mode's reveals to `window` rather than
+  the base game's. Without `window` a reels mode plays on the base grid, as before.
 - Pot levels are server state, per player (per session on the mock) and across rounds, exactly like
   Hold and Win meters.
 - **Coins only:** an overlay with no pots sends `"pots": []`. The block is still sent, because

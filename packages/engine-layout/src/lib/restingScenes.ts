@@ -41,6 +41,13 @@ const TRANSIENT_ROLES: ReadonlySet<SceneRole> = new Set([
 	'mode',
 ]);
 
+/** A mode screen's id without its `-<modeId>` suffix (the reference screen a mode's copy is of),
+ *  else the scene's own id. */
+const referenceId = (scene: Scene): string => {
+	const suffix = scene.role === 'mode' && scene.modeId ? `-${scene.modeId}` : '';
+	return suffix && scene.id.endsWith(suffix) ? scene.id.slice(0, -suffix.length) : scene.id;
+};
+
 /**
  * Whether the idle base game shows `scene` — the Scene Editor's "In-game view" draws only these
  * (plus the screen being edited), so the canvas reads like the game at rest instead of every
@@ -48,7 +55,7 @@ const TRANSIENT_ROLES: ReadonlySet<SceneRole> = new Set([
  * shown by its source, which is off at rest.
  */
 export function isShownAtRest(scene: Scene): boolean {
-	if (TRANSIENT_SCENE_IDS.has(scene.id)) return false;
+	if (TRANSIENT_SCENE_IDS.has(referenceId(scene))) return false;
 	if (scene.role && TRANSIENT_ROLES.has(scene.role)) return false;
 	return !scene.visibleSource;
 }
@@ -77,7 +84,8 @@ export function inGameViewSceneIds(
 	const ids = new Set(scenes.filter(isShownAtRest).map((scene) => scene.id));
 	if (mode !== undefined) {
 		for (const scene of modeScenes(scenes, mode)) {
-			const beat = TRANSIENT_SCENE_IDS.has(scene.id) && !MODE_LONG_LIVED_IDS.has(scene.id);
+			const id = referenceId(scene);
+			const beat = TRANSIENT_SCENE_IDS.has(id) && !MODE_LONG_LIVED_IDS.has(id);
 			if (!beat && !scene.visibleSource) ids.add(scene.id);
 		}
 	}

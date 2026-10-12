@@ -2,15 +2,20 @@ import {
 	DEFAULT_HOLD_AND_WIN_PRESET,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESET_LABELS,
+	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
 	holdAndWinPresetKey,
+	holdAndWinTemplateKey,
 	normalizeGameConfigDoc,
 	resolveWinLevels,
 	type GameConfigDoc,
 	type HoldAndWinPresetId,
+	type HoldAndWinTemplateJackpots,
 } from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
 import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
 import holdAndWinCollector from '$lib/data/gameConfig/holdAndWin.collector.json';
+import holdAndWinPlain from '$lib/data/gameConfig/holdAndWin.plain.json';
+import holdAndWinPlainNoJackpots from '$lib/data/gameConfig/holdAndWin.plainNoJackpots.json';
 import holdAndWinPots from '$lib/data/gameConfig/holdAndWin.pots.json';
 import linesBookOfThermopylae from '$lib/data/gameConfig/lines.bookOfThermopylae.json';
 import linesConfig from '$lib/data/gameConfig/lines.json';
@@ -64,6 +69,8 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[holdAndWinPresetKey('pots')]: holdAndWinPots,
 		[holdAndWinPresetKey('classic')]: holdAndWinClassic,
 		[holdAndWinPresetKey('collector')]: holdAndWinCollector,
+		[holdAndWinTemplateKey('on')]: holdAndWinPlain,
+		[holdAndWinTemplateKey('off')]: holdAndWinPlainNoJackpots,
 		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
 	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
@@ -78,9 +85,15 @@ const KIND_DEFAULT_KEY: Record<string, string> = {
 
 export type GameConfigPreset = { id: string; label: string; doc: GameConfigDoc };
 
+const HOLD_AND_WIN_TEMPLATE_LABELS: Record<HoldAndWinTemplateJackpots, string> = {
+	on: 'Plain (Jackpots on)',
+	off: 'Plain (Jackpots off)',
+};
+
 /**
  * The presets a kind offers in `/config`'s "Reset to preset" — empty for a kind with none.
- * `holdAndWin`: Pots / Classic sticky / Collector streak (`docs/design/hold-and-win.md` §6).
+ * `holdAndWin`: the plain template with jackpots on / off (bonus-games §0), then Pots / Classic
+ * sticky / Collector streak (`docs/design/hold-and-win.md` §6).
  * `lines`: the Book of Thermopylae (the Book-of mechanic as a lines config).
  */
 export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPreset[] {
@@ -91,10 +104,25 @@ export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPr
 		});
 	}
 	if (gameType !== 'holdAndWin') return [];
-	return HOLD_AND_WIN_PRESET_IDS.flatMap((id) => {
-		const doc = DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(id)];
-		return doc ? [{ id, label: HOLD_AND_WIN_PRESET_LABELS[id], doc }] : [];
+	const plain = HOLD_AND_WIN_TEMPLATE_JACKPOTS.flatMap((jackpots) => {
+		const doc = holdAndWinTemplateSeed(jackpots);
+		return doc
+			? [
+					{
+						id: holdAndWinTemplateKey(jackpots),
+						label: HOLD_AND_WIN_TEMPLATE_LABELS[jackpots],
+						doc,
+					},
+				]
+			: [];
 	});
+	return [
+		...plain,
+		...HOLD_AND_WIN_PRESET_IDS.flatMap((id) => {
+			const doc = DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(id)];
+			return doc ? [{ id, label: HOLD_AND_WIN_PRESET_LABELS[id], doc }] : [];
+		}),
+	];
 }
 
 /**
@@ -142,6 +170,15 @@ export function gameConfigSeedFor(
 	}
 	return gameConfigDefaultFor(gameType);
 }
+
+/**
+ * The config Game Maker's "Hold and Win" template creates (`docs/design/bonus-games.md` §0): the plain
+ * game, coins only, with or without jackpots. Pots and Collector are coin overlay styles now, added
+ * through "＋ Coin overlay…"; the three presets stay `/config`'s "Reset to preset" and the samples'.
+ */
+export const holdAndWinTemplateSeed = (
+	jackpots: HoldAndWinTemplateJackpots,
+): GameConfigDoc | null => DEFAULTS_BY_GAME_TYPE[holdAndWinTemplateKey(jackpots)] ?? null;
 
 export type GameConfigSource = 'authored' | 'template';
 

@@ -17,7 +17,7 @@
 	import { WinAnimation, type WinAnimationStep } from 'engine-game';
 	import { WinCoins } from 'engine-game';
 	import { winState } from '../game/winState.svelte';
-	import { bakedWinText } from '../editor-scenes';
+	import { boardWinText } from '../game/boardWinText';
 
 	// The board-relative VISUAL of the WIN overlay (big-win presentation): the tier rig (via
 	// `WinAnimation`) + the count number in the rig's slot, PLUS the small/medium plain-number
@@ -157,7 +157,7 @@
 	 */
 	const levelCaption = $derived(
 		winLevelData?.alias
-			? formatWinText(bakedWinText().winLevels[winLevelData.alias] ?? '', {
+			? formatWinText(boardWinText().winLevels[winLevelData.alias] ?? '', {
 					amount: bookEventAmountToCurrencyString(amount),
 				})
 			: '',

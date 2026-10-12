@@ -1,6 +1,10 @@
 import {
+	gameTypeForMode,
+	migrateLegacyBonus,
 	normalizeGameConfigDoc,
 	ownReelsModeForGameType,
+	spinsGameView,
+	type SpinsGameView,
 	resolveWinLevel,
 	resolveWinLevelChain,
 	resolveWinLevels,
@@ -16,6 +20,8 @@ import {
 	resolveSounds,
 	resolveWinModel,
 	symbolsInPlay,
+	spinsModeDecls,
+	symbolsInPlayForGameType,
 	validateGameConfigDoc,
 	type GameConfigDoc,
 	type GameSounds,
@@ -60,6 +66,14 @@ export interface GameConfigDeps {
 	compiledConfig: unknown;
 }
 
+/** A spins bonus mode's game as the board plays it: its view and its resolved grid. */
+export type ActiveSpinsGame = {
+	mode: string;
+	gameType: string;
+	view: SpinsGameView;
+	grid: ResolvedGrid;
+};
+
 export function createGameConfig<TGameType extends string>(deps: GameConfigDeps) {
 	/**
 	 * The game config the game actually runs on — Phase 3 of `docs/design/invisible-game-config.md`.
@@ -89,6 +103,11 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 *  reconciles against. `undefined` until captured, and on every game whose server declares no
 	 *  window, which is what makes the un-captured state byte-identical to having no overlay at all. */
 	let capturedWindow: ServerWindow | undefined;
+	/** The mode on screen, bound by the app's mode stack ({@link bindActiveMode}); reactive there. */
+	let activeModeOf: (() => string) | undefined;
+	/** The doc's spins modes (`game-config` `spinsGame.ts`) by id, memoised on the doc's identity. */
+	let spinsMemoFor: GameConfigDoc | null = null;
+	let spinsMemo: Map<string, ActiveSpinsGame> = new Map();
 
 	/**
 	 * The compiled template, normalized. Kept as a lazily-built fallback rather than a module-scope
@@ -105,9 +124,61 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		return doc;
 	}
 
-	/** The active config: the authored doc when one shipped, else the compiled template. */
+	/** Bind the reader of the mode on screen. The app's mode stack is reactive, so every accessor
+	 *  below that follows a spins mode re-runs when the mode changes. */
+	function bindActiveMode(read: () => string): void {
+		activeModeOf = read;
+	}
+
+	function spinsModesOf(config: GameConfigDoc): Map<string, ActiveSpinsGame> {
+		if (spinsMemoFor === config) return spinsMemo;
+		spinsMemoFor = config;
+		spinsMemo = new Map();
+		for (const mode of spinsModeDecls(config)) {
+			const view = spinsGameView(config, mode.spins);
+			spinsMemo.set(mode.id, {
+				mode: mode.id,
+				gameType: gameTypeForMode(mode),
+				view,
+				grid: resolveGrid(view),
+			});
+		}
+		return spinsMemo;
+	}
+
+	/**
+	 * The SPINS bonus mode on screen (`docs/design/bonus-games.md` §0, Phase 8), or `undefined`. While
+	 * one is on top the grid, the win model and the paylines are ITS game's. A doc with no spins mode
+	 * never reads the mode stack, so every game without one keeps its accessors exactly as they were.
+	 */
+	function activeSpinsGame(): ActiveSpinsGame | undefined {
+		const modes = spinsModesOf(getActiveGameConfig());
+		if (!modes.size || !activeModeOf) return undefined;
+		return modes.get(activeModeOf());
+	}
+
+	/** Spins mode `mode`'s game, or `undefined` when `mode` is not one of the doc's spins modes. */
+	function spinsGameOf(mode: string | undefined): ActiveSpinsGame | undefined {
+		return mode === undefined ? undefined : spinsModesOf(getActiveGameConfig()).get(mode);
+	}
+
+	/** A baked config normalize refused (no symbol dictionary, or no reel strips): played as it
+	 *  shipped, as before, its legacy bonus blocks still migrated so its bonus modes are not lost. */
+	function unnormalized(baked: GameConfigDoc): GameConfigDoc {
+		console.warn(
+			'[game-config] the baked config does not normalize (no symbol dictionary, or no reel strips); playing it as it shipped.',
+		);
+		return migrateLegacyBonus(baked);
+	}
+
+	/** The active config: the authored doc when one shipped, else the compiled template. The authored
+	 *  one is normalized too, so a bundle baked before the bonus split (a legacy `holdAndWin` /
+	 *  `potsOverlay` block) boots in the split form every reader reads. */
 	function getActiveGameConfig(): GameConfigDoc {
-		if (!cached) cached = deps.bakedConfig() ?? compiled();
+		if (!cached) {
+			const baked = deps.bakedConfig();
+			cached = baked ? (normalizeGameConfigDoc(baked) ?? unnormalized(baked)) : compiled();
+		}
 		return cached;
 	}
 
@@ -272,7 +343,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		// Compare the SHAPE, not just the box: with a declared `rowsPerReel` the server can replace the
 		// authored step while the bounding box agrees, and that is still the board changing under the
 		// author's feet.
-		const drawn = activeGrid();
+		const drawn = baseGrid();
 		const same =
 			drawn.reels === authored.reels &&
 			drawn.rows.length === authored.rows.length &&
@@ -283,7 +354,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		const shapeOf = (g: ResolvedGrid) =>
 			g.stepped ? `${g.reels}×[${g.rows.join(',')}]` : `${g.reels}×${g.maxRows}`;
 		console.error(
-			`[game-config] error: the RGS deals ${shapeOf(activeGrid())} and this project authored ` +
+			`[game-config] error: the RGS deals ${shapeOf(baseGrid())} and this project authored ` +
 				`${shapeOf(authored)} (Invisible Game Config numReels/numRows). THE SERVER WINS — the ` +
 				`board now draws ${shapeOf(drawn)}` +
 				(stepRefused
@@ -398,6 +469,26 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		return symbolsInPlay(getActiveGameConfig());
 	}
 
+	/**
+	 * What the info page's paytable is built from: the symbol dictionary and the symbols the board on
+	 * screen deals. While a spins mode is on top that is its game — its own pays over the dictionary's
+	 * and the symbols its strips deal (bonus-games Phase 8); otherwise the doc's dictionary and
+	 * {@link getSymbolsInPlay}, exactly as before.
+	 */
+	function activePaytableInputs(): {
+		symbols: GameConfigDoc['symbols'];
+		inPlay: string[];
+	} {
+		const spins = activeSpinsGame();
+		if (spins) {
+			return {
+				symbols: spins.view.symbols,
+				inPlay: symbolsInPlayForGameType(getActiveGameConfig(), spins.gameType),
+			};
+		}
+		return { symbols: getActiveGameConfig().symbols, inPlay: getSymbolsInPlay() };
+	}
+
 	/** The cosmetic strips for one game type, or `[]` when the config declares no such type. Empty
 	 *  rather than `undefined` so a caller indexing an unknown game type gets an empty reel, not a
 	 *  crash mid-spin. When the RGS is authoritative the strips are auto-generated from its in-play set
@@ -430,6 +521,8 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 *  count when the RGS is authoritative (so displayed per-line pay values divide by the real line
 	 *  count), else the authored doc's payline count. */
 	function getNumLines(): number {
+		const spins = activeSpinsGame();
+		if (spins) return Object.keys(spins.view.paylines).length;
 		const lines = serverConfig()?.availablePayLines;
 		if (lines && lines.length > 0) return lines.length;
 		return Object.keys(getActiveGameConfig().paylines).length;
@@ -447,6 +540,8 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		// (`buildPayTableRows`, `createLinesReach`), and what a ways paytable should show per WAY is
 		// a presentation decision, not a mechanical one. Left for whoever designs that surface.
 		if (activeWinModel().type !== 'lines') return [];
+		const spins = activeSpinsGame();
+		if (spins) return Object.values(spins.view.paylines);
 		const lines = serverConfig()?.availablePayLines;
 		if (lines && lines.length > 0) return lines;
 		return Object.values(getActiveGameConfig().paylines);
@@ -470,6 +565,9 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		// the two call sites (`winLineColorFor`, the info page's `paylineColors`) so the rule has one
 		// home — Phase D of docs/design/game-type-templates.md.
 		if (activeWinModel().type !== 'lines') return undefined;
+		// A spins mode with paylines of its own has no authored colours for them.
+		const spins = activeSpinsGame();
+		if (spins && spins.view.paylines !== config.paylines) return undefined;
 		const id = Object.keys(config.paylines)[lineIndex];
 		return id === undefined ? undefined : config.paylineColors?.[id];
 	}
@@ -489,7 +587,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * credits it. `pnpm check:stake` is the gate on that agreement.
 	 */
 	function activeWinModel(): WinModel {
-		return resolveWinModel(getActiveGameConfig());
+		return activeSpinsGame()?.view.winModel ?? resolveWinModel(getActiveGameConfig());
 	}
 
 	/**
@@ -614,6 +712,11 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * after this module evaluates, so a const would freeze to the compiled template's grid.
 	 */
 	function activeGrid(): ResolvedGrid {
+		return activeSpinsGame()?.grid ?? baseGrid();
+	}
+
+	/** The base game's grid, whatever mode is on screen — what the server-grid checks compare. */
+	function baseGrid(): ResolvedGrid {
 		const config = getActiveGameConfig();
 		// Memoised on the config's IDENTITY, not in a cache of its own. `resolveGrid` allocates two
 		// arrays and this runs per cell per render, so re-resolving it every call is real garbage on
@@ -656,7 +759,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 */
 	function initialBoard(): RawSymbol[][] {
 		const grid = activeGrid();
-		const strips = paddingReels('basegame');
+		const strips = paddingReels((activeSpinsGame()?.gameType ?? 'basegame') as TGameType);
 		const fallback =
 			strips.flat()[0]?.name ??
 			getSymbolsInPlay()[0] ??
@@ -1019,6 +1122,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		publishSoundBindings,
 		activeWinModel,
 		activeGrid,
+		activeSpinsGame,
+		activePaytableInputs,
+		spinsGameOf,
+		bindActiveMode,
 		boardDimensions,
 		boardSizes,
 		getActiveGameConfig,

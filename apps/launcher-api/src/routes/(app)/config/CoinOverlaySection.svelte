@@ -9,6 +9,7 @@
 		POTS_OVERLAY_PRESET_IDS,
 		POTS_OVERLAY_PRESET_LABELS,
 		addPotsOverlay,
+		coinEntryLabel,
 		holdAndWinIsOverlayBonus,
 		isCoinDrop,
 		overlayDropModes,
@@ -18,7 +19,6 @@
 		removePotsOverlay,
 		resolveGameModes,
 		setOverlayPotCount,
-		splitFormOf,
 		symbolsInPlay,
 		symbolsWithRole,
 		zeroPotsRefusal,
@@ -26,6 +26,7 @@
 		type CoinOverlay,
 		type CoinOverlayStyle,
 		type CoinOverlayTrigger,
+		type CoinValueEntry,
 		type GameConfigDoc,
 		type GameConfigIssue,
 		type HoldAndWinSpecial,
@@ -77,6 +78,11 @@
 	/** The modes a trigger or a meter can start: the respin modes (scatters start free spins). */
 	const respinModes = $derived(modes.filter((m) => m.board === 'respinBoard'));
 	const defaultMode = $derived(primaryRespinMode(doc.modes)?.id ?? respinModes[0]?.id ?? '');
+	/** The spins games (`GameModeDecl.spins`, bonus-games Phase 8): a buy, Lucky Spin or a random
+	 *  metre may start one too; the coin count, a pattern and a meter count coins, so they may not. */
+	const spinsModes = $derived(modes.filter((m) => m.board === 'reels' && m.spins));
+	/** What a buy, Lucky Spin or random metre starts when switched on. */
+	const defaultRoute = $derived(defaultMode || (spinsModes[0]?.id ?? ''));
 	const rulesOf = (id: string) => modes.find((m) => m.id === id)?.holdAndWin;
 	/** The specials some respin mode configures — the only ones a base-game flag can be about. */
 	const configuredKinds = $derived(
@@ -119,7 +125,7 @@
 			notice = { kind: 'error', text: result.reason };
 			return;
 		}
-		doc = splitFormOf(result.doc);
+		doc = result.doc;
 		const renames = [
 			...Object.entries(result.renamed.symbols).map(([from, to]) => `symbol ${from} → ${to}`),
 			...Object.entries(result.renamed.pots).map(([from, to]) => `pot ${from} → ${to}`),
@@ -168,7 +174,7 @@
 			danger: true,
 		});
 		if (!ok) return;
-		doc = splitFormOf(removePotsOverlay(snapshot()));
+		doc = removePotsOverlay(snapshot());
 		drafts = [];
 		notice = null;
 	}
@@ -381,6 +387,29 @@
 	}
 
 	// ── base game ──────────────────────────────────────────────────────────────────────────────
+	/** Every jackpot tier a respin mode has, once each: what a base-game jackpot coin can name. */
+	const tierNames = $derived([
+		...new Set(respinModes.flatMap((m) => m.holdAndWin?.jackpots.map((j) => j.name) ?? [])),
+	]);
+	/** The base game's own coin values, starting from the primary respin mode's table. */
+	function ownBaseCoins(overlay: CoinOverlay) {
+		const table = rulesOf(defaultMode)?.coins ?? [];
+		overlay.coins = table.length
+			? $state.snapshot(table).map(({ reels: _reels, ...entry }) => entry)
+			: [{ kind: 'cash', value: 1, weight: 1 }];
+	}
+	function setBaseCoinKind(overlay: CoinOverlay, i: number, kind: string) {
+		const entry = overlay.coins![i];
+		overlay.coins![i] =
+			kind === 'jackpot'
+				? { kind: 'jackpot', jackpot: tierNames[0] ?? '', weight: entry.weight }
+				: { kind: 'cash', value: 1, weight: entry.weight };
+	}
+	const baseCoinShare = (entry: CoinValueEntry, coins: CoinValueEntry[]) => {
+		const total = coins.reduce((sum, c) => sum + c.weight, 0);
+		return total > 0 ? `${((entry.weight / total) * 100).toFixed(1)}%` : '—';
+	};
+
 	/** Sparse, as the normalizer stores it: a flag is present only while it is on. */
 	function setFlag(
 		overlay: CoinOverlay,
@@ -433,7 +462,7 @@
 		const used = new Set(t.buy?.map((tier) => tier.betMode));
 		const betMode = buyModes.find((m) => !used.has(m)) ?? buyModes[0];
 		t.buy ??= [];
-		t.buy.push({ betMode, mode: defaultMode, guaranteed: [], boostedSpecials: false });
+		t.buy.push({ betMode, mode: defaultRoute, guaranteed: [], boostedSpecials: false });
 	}
 	function removeBuyTier(overlay: CoinOverlay, i: number) {
 		overlay.trigger?.buy?.splice(i, 1);
@@ -441,12 +470,12 @@
 		tidyTrigger(overlay);
 	}
 	function setRandomMetre(overlay: CoinOverlay, on: boolean) {
-		if (on) triggerOf(overlay).randomMetre = { name: 'Metre', mode: defaultMode };
+		if (on) triggerOf(overlay).randomMetre = { name: 'Metre', mode: defaultRoute };
 		else delete overlay.trigger?.randomMetre;
 		tidyTrigger(overlay);
 	}
 	function setLuckySpin(overlay: CoinOverlay, on: boolean) {
-		if (on) triggerOf(overlay).luckySpin = { mode: defaultMode };
+		if (on) triggerOf(overlay).luckySpin = { mode: defaultRoute };
 		else delete overlay.trigger?.luckySpin;
 		tidyTrigger(overlay);
 	}
@@ -841,14 +870,17 @@
 	</fieldset>
 {/snippet}
 
-{#snippet modePick(value: string, set: (mode: string) => void)}
+{#snippet modePick(value: string, set: (mode: string) => void, spins = false)}
+	{@const choices = spins ? [...respinModes, ...spinsModes] : respinModes}
 	<label class="inline"
 		><span>starts →</span><select {value} onchange={(e) => set(e.currentTarget.value)}>
-			{#each respinModes as m (m.id)}
-				<option value={m.id}>{m.label ?? m.id}</option>
+			{#each choices as m (m.id)}
+				<option value={m.id}>{m.label ?? m.id}{m.spins ? ` (${m.spins.spins} spins)` : ''}</option>
 			{/each}
-			{#if !respinModes.some((m) => m.id === value)}
-				<option {value}>{value || '(none)'} — not a respin mode</option>
+			{#if !choices.some((m) => m.id === value)}
+				<option {value}
+					>{value || '(none)'} — not a {spins ? 'respin or spins' : 'respin'} mode</option
+				>
 			{/if}
 		</select></label
 	>
@@ -898,16 +930,115 @@
 				</div>
 			{/each}
 		{/if}
+		<span class="legend"
+			>Coin values in the base game <em>on the base reels, and the value coins that drop</em></span
+		>
+		{#if !overlay.coins}
+			<div class="row tight">
+				<span class="note">the coin table of the respin mode the coins start</span>
+				<button class="small" onclick={() => ownBaseCoins(overlay)}>Set the base game's own</button>
+			</div>
+		{:else}
+			<table class="tbl">
+				<thead>
+					<tr><th>Shows</th><th>Kind</th><th>Value</th><th>Weight</th><th></th></tr>
+				</thead>
+				<tbody>
+					{#each overlay.coins as entry, i (i)}
+						<tr>
+							<td><span class="chip">{coinEntryLabel(entry)}</span></td>
+							<td
+								><select
+									value={entry.kind}
+									onchange={(e) => setBaseCoinKind(overlay, i, e.currentTarget.value)}
+								>
+									<option value="cash">cash</option>
+									<option value="jackpot" disabled={!tierNames.length}>jackpot</option>
+								</select></td
+							>
+							<td>
+								{#if entry.kind === 'cash'}
+									<input
+										type="number"
+										min="0"
+										step="0.5"
+										value={entry.value}
+										oninput={num((n) => n > 0 && (entry.value = n))}
+									/>
+								{:else}
+									<select
+										value={entry.jackpot}
+										onchange={(e) => (entry.jackpot = e.currentTarget.value)}
+									>
+										{#each tierNames as name (name)}
+											<option value={name}>{name}</option>
+										{/each}
+										{#if !tierNames.includes(entry.jackpot)}
+											<option value={entry.jackpot}>{entry.jackpot || '(none)'} — not a tier</option
+											>
+										{/if}
+									</select>
+								{/if}
+							</td>
+							<td class="weight"
+								><input
+									type="number"
+									min="0"
+									step="any"
+									value={entry.weight}
+									oninput={num((n) => n >= 0 && (entry.weight = n))}
+								/><span class="note">{baseCoinShare(entry, overlay.coins)}</span></td
+							>
+							<td
+								><button
+									class="del"
+									title="Remove"
+									disabled={overlay.coins.length === 1}
+									onclick={() => overlay.coins!.splice(i, 1)}>×</button
+								></td
+							>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+			<div class="row">
+				<button
+					class="small"
+					onclick={() => overlay.coins!.push({ kind: 'cash', value: 1, weight: 1 })}
+					>+ cash coin</button
+				>
+				<button
+					class="small"
+					disabled={!tierNames.length}
+					onclick={() =>
+						overlay.coins!.push({ kind: 'jackpot', jackpot: tierNames[0] ?? '', weight: 1 })}
+					>+ jackpot coin</button
+				>
+				<button class="small" onclick={() => delete overlay.coins}
+					>Use the respin mode's table</button
+				>
+			</div>
+		{/if}
 		{@render issueLines([...issuesAt('coinOverlay.coins'), ...issuesFor('coinOverlay.baseGame')])}
 	</fieldset>
 {/snippet}
 
 {#snippet triggersEditor(overlay: CoinOverlay)}
 	{@const t = overlay.trigger}
-	<fieldset class="panel" disabled={readOnly || !respinModes.length}>
-		<h3>Triggers <em>what starts a respin mode — any one of these; each names the mode</em></h3>
-		{#if !respinModes.length}
-			<p class="note">Add a respin mode in <strong>Bonus modes</strong> first.</p>
+	<fieldset class="panel" disabled={readOnly || (!respinModes.length && !spinsModes.length)}>
+		<h3>
+			Triggers <em
+				>what starts a {spinsModes.length ? 'bonus' : 'respin'} mode — any one of these; each names the
+				mode</em
+			>
+		</h3>
+		{#if !respinModes.length && !spinsModes.length}
+			<p class="note">Add a respin or spins mode in <strong>Bonus modes</strong> first.</p>
+		{:else if !respinModes.length}
+			<p class="note">
+				A spins mode is started by a buy, Lucky Spin or the random metre; the coin count and a
+				pattern start a respin mode.
+			</p>
 		{/if}
 		<div class="row tight">
 			<label class="check"
@@ -1007,7 +1138,7 @@
 							</select></label
 						>
 						<span class="chip">{bet ? `${bet.cost}× bet` : 'no such mode'}</span>
-						{@render modePick(tier.mode, (m) => (tier.mode = m))}
+						{@render modePick(tier.mode, (m) => (tier.mode = m), true)}
 						<label class="check"
 							><input type="checkbox" bind:checked={tier.boostedSpecials} /><span
 								>Specials land more often in this feature</span
@@ -1064,7 +1195,7 @@
 			{#if t?.randomMetre}
 				{@const metre = t.randomMetre}
 				<label class="inline"><span>Name</span><input bind:value={metre.name} /></label>
-				{@render modePick(metre.mode, (m) => (metre.mode = m))}
+				{@render modePick(metre.mode, (m) => (metre.mode = m), true)}
 			{/if}
 		</div>
 		<div class="row tight">
@@ -1077,7 +1208,7 @@
 			>
 			{#if t?.luckySpin}
 				{@const lucky = t.luckySpin}
-				{@render modePick(lucky.mode, (m) => (lucky.mode = m))}
+				{@render modePick(lucky.mode, (m) => (lucky.mode = m), true)}
 			{/if}
 		</div>
 
@@ -1173,8 +1304,8 @@
 	</p>
 	<p class="hint">
 		After saving an overlay change, reload any open game tab: a tab keeps the overlay it booted
-		with. Token art is seeded only by Game Maker's <strong>＋ Pots overlay…</strong> (or
-		<strong>Pots overlay parts…</strong>); otherwise bind it in /symbols.
+		with. Token art is seeded only by Game Maker's <strong>＋ Coin overlay…</strong> (or
+		<strong>Coin overlay parts…</strong>); otherwise bind it in /symbols.
 	</p>
 	{#if notice}
 		<p class="inline-issue {notice.kind === 'error' ? 'error' : 'info'}">{notice.text}</p>
@@ -1229,7 +1360,7 @@
 		</div>
 	{/if}
 	{#if doc.coinOverlay}
-		{#if configuredKinds.length || issuesFor('coinOverlay.coins').length}
+		{#if respinModes.length || issuesFor('coinOverlay.coins').length}
 			{@render baseGameEditor(doc.coinOverlay)}
 		{/if}
 		{@render triggersEditor(doc.coinOverlay)}

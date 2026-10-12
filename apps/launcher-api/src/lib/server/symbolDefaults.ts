@@ -1,5 +1,5 @@
 import {
-	HOLD_AND_WIN_PRESETS,
+	presetHoldAndWin,
 	HOLD_AND_WIN_SYMBOL_ROLES,
 	holdAndWinIsOverlayBonus,
 	resolveMeters,
@@ -201,7 +201,7 @@ const TOKEN_FALLBACK_ART = 'BONUS';
 /** A pots overlay token's placeholder art: the 3 Pots special that fills the pot it was named after
  *  (red → BOOST, blue → COLLECT, green → MULTI), else the coin's. */
 function tokenArtSymbol(potId: string): string {
-	const meters = HOLD_AND_WIN_PRESETS.pots.holdAndWin?.meters ?? [];
+	const meters = presetHoldAndWin('pots').meters ?? [];
 	return meters.find((m) => m.id === unsuffixed(potId))?.symbol ?? TOKEN_FALLBACK_ART;
 }
 

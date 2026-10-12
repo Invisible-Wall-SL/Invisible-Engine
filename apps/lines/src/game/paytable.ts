@@ -1,7 +1,7 @@
 import { shownPaytable } from 'game-config';
 import type { ServerPayEntry } from 'utils-shared/paytable';
 
-import { getActiveGameConfig, getSymbolsInPlay, payoutDivisor } from './gameConfig';
+import { activePaytableInputs, payoutDivisor } from './gameConfig';
 
 /**
  * The display paytable, derived from the ACTIVE game config (Invisible Game Config) rather than the
@@ -53,9 +53,14 @@ const rank = (entry: ServerPayEntry): number => {
  *
  * The scatter row is the scatter symbol's own authored `paytable` (× total bet), or the default row
  * when it authors none.
+ *
+ * While a spins bonus mode is on top it is THAT game's table — its own pays, the symbols its strips
+ * deal (`activePaytableInputs`), priced against its own divisor — beside its paylines and grid, which
+ * the info page already reads off the mode.
  */
 export function paytable(): ServerPayEntry[] {
-	const entries = shownPaytable(getActiveGameConfig().symbols, getSymbolsInPlay());
+	const { symbols, inPlay } = activePaytableInputs();
+	const entries = shownPaytable(symbols, inPlay);
 	const lines = entries.filter((entry) => entry.on.mode !== 'scatter');
 	const scatter = entries.find((entry) => entry.on.mode === 'scatter');
 	lines.sort((a, b) => rank(a) - rank(b));

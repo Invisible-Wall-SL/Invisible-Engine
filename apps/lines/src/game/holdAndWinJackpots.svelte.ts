@@ -1,7 +1,7 @@
 import type { HoldAndWinJackpotLevel } from 'engine-game';
 
 import { activeRespinMode, everyRespinRules, respinModes } from './activeRespinMode.svelte';
-import { jackpotTier } from './respinModes';
+import { jackpotTier, jackpotTierMode, poolLevel } from './respinModes';
 import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte';
 
 /**
@@ -14,23 +14,20 @@ import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte
  * one; until the server has spoken, a progressive tier shows its multiplier, as it did before 11c.
  */
 
-const sameTier =
-	(tier: string) =>
-	({ name }: { name: string }) =>
-		name.toLowerCase() === tier.toLowerCase();
-
-const levelOf = (tier: string): HoldAndWinJackpotLevel | undefined =>
-	stateHoldAndWin.jackpots.find(sameTier(tier));
-
 /**
  * A tier's worth × total bet — its live pool when progressive, else its multiplier. The tier is the
- * active respin mode's, else the first respin mode's that has it (`jackpotTier`); pools are shared by
- * tier name, as the server deals them. 0 when no respin mode names such a tier.
+ * active respin mode's, else the first respin mode's that has it (`jackpotTier`); its pool is that
+ * mode's when the server keeps one per mode (`poolLevel`), else the one shared by tier name. 0 when no
+ * respin mode names such a tier.
  */
 export const jackpotMultiplier = (tier: string): number => {
-	const jackpot = jackpotTier(respinModes(), activeRespinMode(), tier);
+	const modes = respinModes();
+	const active = activeRespinMode();
+	const jackpot = jackpotTier(modes, active, tier);
 	if (!jackpot) return 0;
-	return jackpot.fixed ? jackpot.multiplier : (levelOf(tier)?.value ?? jackpot.multiplier);
+	if (jackpot.fixed) return jackpot.multiplier;
+	const owner = jackpotTierMode(modes, active, tier);
+	return poolLevel(stateHoldAndWin.jackpots, tier, owner?.mode)?.value ?? jackpot.multiplier;
 };
 
 const readGlobal = (): HoldAndWinJackpotLevel[] | undefined =>

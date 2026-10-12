@@ -30,7 +30,10 @@ import {
 	bookOfThermopylaePreset,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_PRESET_IDS,
+	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
+	HOLD_AND_WIN_TEMPLATES,
 	holdAndWinPresetKey,
+	holdAndWinTemplateKey,
 	gameConfigErrors,
 	normalizeGameConfigDoc,
 	symbolsInPlay,
@@ -61,6 +64,13 @@ const BUILT_IN: Record<string, string> = {
 const PRESETS: Record<string, () => unknown> = {
 	...Object.fromEntries(
 		HOLD_AND_WIN_PRESET_IDS.map((id) => [holdAndWinPresetKey(id), () => HOLD_AND_WIN_PRESETS[id]]),
+	),
+	// The plain Hold and Win Game Maker's template creates, jackpots on and off (bonus-games §0).
+	...Object.fromEntries(
+		HOLD_AND_WIN_TEMPLATE_JACKPOTS.map((j) => [
+			holdAndWinTemplateKey(j),
+			() => HOLD_AND_WIN_TEMPLATES[j],
+		]),
 	),
 	// A LINES preset: the captured Book of Thermopylae, the Book-of mechanic as config
 	// (docs/design/book-feature.md §3.5) — offered by `/config` and Game Maker's Create.

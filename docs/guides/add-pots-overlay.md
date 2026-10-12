@@ -31,9 +31,10 @@ the next Publish ships it to players.
 
 ## 2. Add the overlay — Invisible Game Maker
 
-**Do:** on the copy's card, click **＋ Pots overlay…**, pick **3 Pots (each pot a Hold and Win with
-its special)**, leave the Flow checkbox off, and click **Add**. Read the report, then click
-**Done**. Guide: [Add the pots overlay](../tools/game-maker.md#add-the-pots-overlay-to-a-project).
+**Do:** on the copy's card, click **＋ Coin overlay…**, pick the style **3 Pots** and the preset
+**3 Pots (each pot a Hold and Win with its special)**, leave the Flow checkbox off, and click
+**Add**. Read the report, then click **Done**. Guide:
+[Add a coin overlay](../tools/game-maker.md#add-a-coin-overlay-to-a-project).
 
 It adds the overlay and a Hold and Win bonus to the Game Config, placeholder art for the tokens and
 the bonus's symbols, and the Pots, Jackpot bar and feature screens to the layout. It never
@@ -123,7 +124,8 @@ still trigger from its book.
 
 ## The coins-only variant
 
-Pick **Coins only (6+ value coins start a classic Hold and Win)** in step 2 instead. There are no
+In step 2, pick the style **Classic** and the preset **Coins only (6+ value coins start a classic
+Hold and Win)** instead. There are no
 pots: value coins drop over the symbols, and 6 or more on one spin start a classic Hold and Win with
 those coins held. Fewer are shown and then gone. With no pots there is no Pots screen and no token,
 so step 4 is only the Jackpot bar and the feature's screens, step 5 only the bonus's coins, and

@@ -229,7 +229,7 @@ eq(
 );
 check(
 	'the game registers the feature signals: the Hold and Win family by its respin modes, the pots by either',
-	/\.\.\.featureComponentSignals\(\s*context\.eventEmitter,\s*respinModes\(\)\.length > 0,\s*respinModes\(\)\.length > 0 \|\| !!getActiveGameConfig\(\)\.potsOverlay,?\s*\)/.test(
+	/\.\.\.featureComponentSignals\(\s*context\.eventEmitter,\s*respinModes\(\)\.length > 0,\s*respinModes\(\)\.length > 0 \|\| !!getActiveGameConfig\(\)\.coinOverlay\?\.drops,?\s*\)/.test(
 		read('apps/lines/src/components/Game.svelte'),
 	),
 );

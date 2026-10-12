@@ -11,7 +11,6 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		normalizeGameConfigDoc,
-		withLegacyPair,
 		resolveBetModes,
 		resolveWinLevels,
 		resolveWinModel,
@@ -40,6 +39,11 @@
 		symbolsInPlay,
 		symbolsUsed,
 		symbolUses,
+		spinsGamesRefusal,
+		spinsModeKindIssues,
+		stripWidthFor,
+		stripsToWidth,
+		undealtRouteWarnings,
 		validateGameConfigDoc,
 		type BetModeKind,
 		type ExpandingSymbolConfig,
@@ -65,7 +69,13 @@
 	import BonusModesSection from './BonusModesSection.svelte';
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
-	import { adoptSaved, bodyFor, openDoc } from './pageDoc';
+	import {
+		adoptSaved,
+		baseWidthGameTypes,
+		bodyFor,
+		gridMismatch as gridMismatchOf,
+		openDoc,
+	} from './pageDoc';
 	import { overlayTokenPots, projectAddOns } from '$lib/addOns';
 	import { askConfirm } from '$lib/dialogs.svelte';
 	import type { PageData } from './$types';
@@ -95,9 +105,8 @@
 	let baseline = $state(JSON.stringify(initial));
 	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
 
-	/** The live doc as the game reads it: the split form plus the compat mirror a save regenerates,
-	 *  so every validator and reader that still reads the legacy keys sees the edit. */
-	const snapshot = $derived(withLegacyPair($state.snapshot(doc) as GameConfigDoc));
+	/** The live doc as the game reads it. */
+	const snapshot = $derived($state.snapshot(doc) as GameConfigDoc);
 
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
@@ -115,7 +124,11 @@
 		const { freeSpins: _old, ...others } = config;
 		return Object.keys(rest).length ? { ...others, freeSpins: rest } : others;
 	};
-	const issues = $derived(validateGameConfigDoc(withoutBookTrigger(snapshot)));
+	const issues = $derived([
+		...validateGameConfigDoc(withoutBookTrigger(snapshot)),
+		...undealtRouteWarnings(snapshot, data.gameType),
+		...spinsModeKindIssues(snapshot, data.gameType),
+	]);
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
 
@@ -201,7 +214,7 @@
 	 */
 	function growGridToWidth() {
 		const n = doc.numReels;
-		for (const key of Object.keys(doc.paddingReels)) {
+		for (const key of baseWidthGameTypes(doc)) {
 			const strips = doc.paddingReels[key];
 			const template = strips[strips.length - 1] ?? [];
 			while (strips.length < n) strips.push(template.map((cell) => ({ ...cell })));
@@ -213,25 +226,28 @@
 	}
 
 	/**
-	 * Any strip set or payline whose width still doesn't match `numReels` — only ever true after a
-	 * SHRINK (auto-grow already handles widening) or a raw-JSON paste that arrived mismatched. Drives
-	 * the "Match grid" button, the deliberate one-click fix for those, since trimming reels is real
-	 * data loss the author should trigger rather than have happen mid-type.
+	 * Any strip set or payline whose width still doesn't match its grid (`numReels`, or a spins
+	 * mode's own, `./pageDoc`) — only ever true after a SHRINK (auto-grow already handles widening)
+	 * or a raw-JSON paste that arrived mismatched. Drives the "Match grid" button, the deliberate
+	 * one-click fix for those, since trimming reels is real data loss the author should trigger
+	 * rather than have happen mid-type.
 	 */
-	const gridMismatch = $derived(
-		gameTypes.some((g) => (doc.paddingReels[g]?.length ?? 0) !== doc.numReels) ||
-			Object.keys(doc.paylines).some((id) => doc.paylines[id].length !== doc.numReels),
-	);
+	const gridMismatch = $derived(gridMismatchOf(doc));
 
 	/**
 	 * Make every strip set and payline EXACTLY `numReels` — grow (as above) then TRUNCATE the extra
-	 * reels. The explicit fix for a still-mismatched grid; unlike {@link growGridToWidth} it drops
-	 * reels, which is why it is a button press and not automatic.
+	 * reels; a spins mode's strips on a grid of its own are cycled or cut to that grid instead. The
+	 * explicit fix for a still-mismatched grid; unlike {@link growGridToWidth} it drops reels, which
+	 * is why it is a button press and not automatic.
 	 */
 	function matchGridWidth() {
 		growGridToWidth();
 		const n = doc.numReels;
-		for (const key of Object.keys(doc.paddingReels)) doc.paddingReels[key].length = n;
+		const baseWidth = baseWidthGameTypes(doc);
+		for (const key of baseWidth) doc.paddingReels[key].length = n;
+		for (const key of gameTypes.filter((g) => !baseWidth.includes(g))) {
+			doc.paddingReels[key] = stripsToWidth(doc.paddingReels[key], stripWidthFor(doc, key));
+		}
 		for (const id of Object.keys(doc.paylines)) doc.paylines[id].length = n;
 	}
 
@@ -1254,8 +1270,8 @@
 		doc = openDoc(data.templateDefault as GameConfigDoc);
 	}
 
-	/** A kind with starting configs of its own (Hold and Win: Pots / Classic / Collector; lines: the
-	 *  Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it
+	/** A kind with starting configs of its own (Hold and Win: Plain with jackpots on / off, Pots,
+	 *  Classic, Collector; lines: the Book of Thermopylae) offers each as a whole-doc reset. Nothing saves until Save, but it
 	 *  discards every field, so it asks first. */
 	let pickedPreset = $state('');
 	const presetId = $derived(pickedPreset || data.presets[0]?.id || '');
@@ -1468,7 +1484,14 @@
 				Editing this project's <strong>authored config</strong>.
 			{/if}
 			{#if data.templateDefault}
-				<button class="linkish" onclick={resetToTemplate}>Reset to template default</button>
+				<button
+					class="linkish"
+					onclick={resetToTemplate}
+					title={data.gameType === 'holdAndWin'
+						? "The Hold and Win kind's legacy default, the Pots preset. For the plain game Game Maker creates, use Reset to preset → Plain."
+						: undefined}
+					>Reset to template default{data.gameType === 'holdAndWin' ? ' (Pots)' : ''}</button
+				>
 			{/if}
 			{#if data.presets.length}
 				<span class="preset-pick">
@@ -1973,7 +1996,13 @@
 
 		<CoinOverlaySection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
 
-		<BonusModesSection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
+		<BonusModesSection
+			bind:doc
+			view={snapshot}
+			{issuesFor}
+			readOnly={lease.readOnly}
+			spinsRefusal={spinsGamesRefusal(data.gameType)}
+		/>
 
 		<!-- Symbols ---------------------------------------------------------------->
 		<section>
@@ -2669,8 +2698,8 @@
 				{:else if swapStyle === 'emerge'}
 					Per <strong>column</strong>, on that column's own beat, ahead of the symbols surfacing
 					there. This is the half of the emerge picture that makes the old board <em>leave</em>
-					rather than simply blink out — without it, a column's old symbols are gone the instant its
-					new ones appear.
+					rather than simply blink out — without it, a column's old symbols are gone the instant its new
+					ones appear.
 				{:else}
 					The whole board clears at once, ahead of the fall. Off, the old board is simply gone when
 					the new one arrives.
@@ -2794,10 +2823,10 @@
 			<p class="hint">
 				The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
 				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
-				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and
-				sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
-				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
-				aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
+				<strong>presentation</strong> — rig bundle, intro/idle/outro animations, duration and sound
+				— is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which reads these
+				tiers by alias so the two stay in sync. Smaller wins are handled automatically and aren't shown
+				here. Leave this empty to keep the game's built-in tiers (byte-identical).
 			</p>
 
 			{#if bigResolved.length}
@@ -2812,8 +2841,8 @@
 				<div class="tier-seed">
 					<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
 					<span class="hint"
-						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or
-						retune them. Or add one below.</span
+						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or retune
+						them. Or add one below.</span
 					>
 				</div>
 			{/if}

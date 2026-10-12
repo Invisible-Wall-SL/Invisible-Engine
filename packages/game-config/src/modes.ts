@@ -1,4 +1,5 @@
 import { normalizeHoldAndWinGame, type HoldAndWinGame } from './holdAndWinGame';
+import { normalizeSpinsGame, validateSpinsGame, type SpinsGame } from './spinsGame';
 import type { GameConfigDoc } from './types';
 
 /**
@@ -18,8 +19,7 @@ import type { GameConfigDoc } from './types';
  * A BONUS MODE is a game of its own (`docs/design/bonus-games.md` §1): a `respinBoard` mode carries
  * its Hold and Win rules (`holdAndWin`), so a project may have several. A respin mode exists because
  * it is declared — normalization declares `holdAndWin` for a config that still carries the legacy
- * `holdAndWin` block (`./bonusGames`), and {@link resolveGameModes} reads such an unnormalized config
- * the same way.
+ * `holdAndWin` block (`./bonusGames`).
  */
 
 /** What a mode plays on. `reels` is the shared column-strip board; the rest are their own surfaces. */
@@ -62,6 +62,8 @@ export type GameModeDecl = {
 	label?: string;
 	/** A `respinBoard` mode only: the Hold and Win game it plays (`./holdAndWinGame`). */
 	holdAndWin?: HoldAndWinGame;
+	/** A `reels` mode of the project's own only: the game it plays N spins of (`./spinsGame`). */
+	spins?: SpinsGame;
 };
 
 /** The Hold and Win mode as the built-in used to declare it — what migration and a new respin mode
@@ -91,33 +93,13 @@ export function builtinGameModes(): GameModeDecl[] {
 }
 
 /**
- * The modes the doc declares. An unnormalized LEGACY config — a `holdAndWin` block and no respin mode
- * carrying rules — declares its Hold and Win mode implicitly, ahead of its own modes and with any
- * authored override of it on top, which is exactly where and how the built-in used to resolve.
- */
-function declaredModes(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
-): GameModeDecl[] {
-	const own = doc?.modes ?? [];
-	if (!doc?.holdAndWin || own.some((m) => m.board === 'respinBoard' && m.holdAndWin)) return own;
-	const at = own.findIndex((m) => m.id === HOLD_AND_WIN_MODE);
-	// The block plays on the respin board whatever an override of the mode says.
-	return [
-		{ ...holdAndWinModeDecl(), ...own[at], board: 'respinBoard' },
-		...own.filter((_unused, i) => i !== at),
-	];
-}
-
-/**
  * Every mode this project has: the built-ins with the authored overrides applied field by field, then
  * the project's own modes in the order they were authored. Read modes through here, never through
  * `doc.modes`, so "absent means the built-in" lives in one place.
  */
-export function resolveGameModes(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
-): GameModeDecl[] {
+export function resolveGameModes(doc: Pick<GameConfigDoc, 'modes'> | undefined): GameModeDecl[] {
 	const resolved = builtinGameModes();
-	for (const authored of declaredModes(doc)) {
+	for (const authored of doc?.modes ?? []) {
 		const at = resolved.findIndex((mode) => mode.id === authored.id);
 		if (at >= 0) resolved[at] = { ...resolved[at], ...authored };
 		else resolved.push(authored);
@@ -127,7 +109,7 @@ export function resolveGameModes(
 
 /** The one mode named `id`, or `undefined` when the project has no such mode. */
 export function gameModeById(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'modes'> | undefined,
 	id: string,
 ): GameModeDecl | undefined {
 	return resolveGameModes(doc).find((mode) => mode.id === id);
@@ -140,7 +122,7 @@ export function gameModeById(
  * without such a mode answers `undefined` for every game type, as before it could have one.
  */
 export function ownReelsModeForGameType(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'modes'> | undefined,
 	gameType: string,
 ): GameModeDecl | undefined {
 	const builtins = builtinGameModes();
@@ -163,7 +145,7 @@ export function gameTypeForMode(mode: Pick<GameModeDecl, 'id' | 'gameType'>): st
  * `reveal.gameType: 'freegame'` reads as the `freeSpins` mode. An unknown game type is its own id.
  */
 export function modeIdForGameType(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'modes'> | undefined,
 	gameType: string,
 ): string {
 	const modes = resolveGameModes(doc);
@@ -215,6 +197,8 @@ export function normalizeGameModes(raw: unknown): GameModeDecl[] | undefined {
 		}
 		const rules = board === 'respinBoard' ? normalizeHoldAndWinGame(entry.holdAndWin) : undefined;
 		if (rules) mode.holdAndWin = rules;
+		const spins = board === 'reels' && !builtin ? normalizeSpinsGame(entry.spins) : undefined;
+		if (spins) mode.spins = spins;
 		if (builtin) {
 			const departure = departureFrom(builtin, mode);
 			if (departure) out.push(departure);
@@ -242,11 +226,10 @@ export type GameModeIssue = { path: string; message: string; severity: 'error' |
 
 /**
  * What is wrong with the resolved modes. A `reels` mode must pad from a strip set the config deals;
- * the base game must stay on the reels, because every round starts and ends there.
+ * the base game must stay on the reels, because every round starts and ends there; a spins mode's
+ * game must fill its own grid and be able to pay.
  */
-export function validateGameModes(
-	doc: Pick<GameConfigDoc, 'holdAndWin' | 'modes' | 'paddingReels'>,
-): GameModeIssue[] {
+export function validateGameModes(doc: GameConfigDoc): GameModeIssue[] {
 	const issues: GameModeIssue[] = [];
 	for (const mode of resolveGameModes(doc)) {
 		const path = `modes.${mode.id}`;
@@ -267,6 +250,70 @@ export function validateGameModes(
 				message: `No padding strips for game type "${gameType}"; the reels pad from nothing in this mode.`,
 			});
 		}
+		if (mode.spins)
+			issues.push(...validateSpinsGame(doc, { id: mode.id, spins: mode.spins }, gameType));
+		// A spins game on a grid of its own has strips of its own: sharing another mode's would size
+		// that mode's strips to this grid, or this grid's to that mode's.
+		const sharedWith =
+			mode.spins?.numReels !== undefined
+				? resolveGameModes(doc).find((m) => m.id !== mode.id && gameTypeForMode(m) === gameType)
+				: undefined;
+		if (sharedWith) {
+			issues.push({
+				path: `${path}.gameType`,
+				severity: 'error',
+				message: `The spins game "${mode.id}" has a grid of its own, so it needs strips of its own: "${gameType}" is also "${sharedWith.id}"'s.`,
+			});
+		}
 	}
 	return issues;
+}
+
+/** A spins bonus mode: a `reels` mode of the project's own that carries a `spins` game. */
+export type SpinsModeDecl = GameModeDecl & { board: 'reels'; spins: SpinsGame };
+
+/**
+ * The doc's SPINS bonus modes (`./spinsGame`, bonus-games Phase 8), in declaration order: its own
+ * `reels` modes that carry a `spins` game. The one lister the tools, Flow and the runtime read.
+ */
+export function spinsModeDecls(doc: Pick<GameConfigDoc, 'modes'>): SpinsModeDecl[] {
+	return resolveGameModes(doc).filter(
+		(mode): mode is SpinsModeDecl => mode.board === 'reels' && mode.spins !== undefined,
+	);
+}
+
+/** The base kinds whose mock deals a bonus on its own board, not a spins game of another type. */
+const NO_SPINS_GAMES_KINDS: Record<string, string> = {
+	bookOf: 'a Book-of game',
+	holdAndWin: 'a Hold and Win game',
+};
+
+/** Why a game of kind `baseKind` plays no spins mode (`./spinsGame`), or `undefined` when it does:
+ *  what `/config` and the Game Maker's import say instead of offering one (bonus-games Phase 8b). */
+export function spinsGamesRefusal(baseKind: string | undefined): string | undefined {
+	const kind = baseKind ? NO_SPINS_GAMES_KINDS[baseKind] : undefined;
+	return kind
+		? `A spins mode plays N spins of a lines, ways, cluster or scatter game, which ${kind} does not deal: its bonuses play on its own board.`
+		: undefined;
+}
+
+/**
+ * An ERROR on each spins mode (`./spinsGame`) of a game of kind `baseKind` that does not play one:
+ * the book mock and the Hold and Win engine deal their bonuses on their own board, so a spins game's
+ * grid and pays would be drawn by the client and never dealt (bonus-games Phase 8a). The base kind
+ * is the project's, so this sits beside the doc's own validator where the kind is known (`/config`).
+ */
+export function spinsModeKindIssues(
+	doc: Pick<GameConfigDoc, 'modes'>,
+	baseKind: string | undefined,
+): GameModeIssue[] {
+	const kind = baseKind ? NO_SPINS_GAMES_KINDS[baseKind] : undefined;
+	if (!kind) return [];
+	return resolveGameModes(doc)
+		.filter((mode) => mode.spins)
+		.map((mode) => ({
+			path: `modes.${mode.id}.spins`,
+			severity: 'error' as const,
+			message: `"${mode.id}" is a spins game, which ${kind} does not play: its bonuses play on its own board. Play it from a lines, ways, cluster or scatter game.`,
+		}));
 }

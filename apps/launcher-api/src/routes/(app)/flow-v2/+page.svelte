@@ -9,7 +9,10 @@
 		derivePins,
 		deriveGraphPins,
 		graftAddOnSteps,
+		respinTabIssues,
+		spinsTabIssues,
 		validateFlowDoc,
+		vocabForTab,
 		validateFunctionDef,
 		assignable,
 		type ContainerEventDecl,
@@ -178,6 +181,8 @@
 
 	// The open mode tab's id, or null on the Global tab / in a function body.
 	const activeModeId = $derived(view.kind === 'mode' ? view.modeId : null);
+	// A tab that is not a respin mode's is offered no respin-only event (`vocabForTab`).
+	const tabVocab = $derived(vocabForTab(vocab, activeModeId, data.addOns));
 
 	// If the open function or mode section is deleted (or otherwise vanishes), return to the flow
 	// view so the canvas never edits a dangling graph.
@@ -387,7 +392,11 @@
 	const issues = $derived(
 		view.kind === 'function' && activeFn
 			? validateFunctionDef(activeFn, vocab, library)
-			: validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
+			: [
+					...validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
+					...respinTabIssues(doc, data.addOns),
+					...spinsTabIssues(doc, data.addOns, sceneIds),
+				],
 	);
 
 	// Issues per doc section, for the tab badges (`''` = the global graph).
@@ -1357,7 +1366,9 @@
 	// "＋ Add overlay steps" — graft the add-on steps this flow lacks (the pots' filling beat, the
 	// Hold and Win mode tab) without touching an authored node. Offered only to a project whose Game
 	// Config carries an add-on block; one undo step, saved like any edit.
-	const hasAddOns = $derived(Boolean(data.addOns?.holdAndWin || data.addOns?.potsOverlay));
+	const hasAddOns = $derived(
+		Boolean(data.addOns?.holdAndWin || data.addOns?.potsOverlay || data.addOns?.spinsModes?.length),
+	);
 	const graftable = $derived(hasAddOns ? graftAddOnSteps(doc, data.addOns).added : []);
 	function addOverlaySteps(): void {
 		const { doc: next, added } = graftAddOnSteps(doc, data.addOns);
@@ -1884,7 +1895,7 @@
 					</p>
 				{/if}
 				<AddNodePalette
-					{vocab}
+					vocab={tabVocab}
 					{library}
 					doc={paletteDoc}
 					onadd={addNodeOfKind}

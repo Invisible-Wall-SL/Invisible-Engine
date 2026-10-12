@@ -805,6 +805,8 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
     respin modes' presentation fields only.
   - The page holds and PUTs `splitFormOf(doc)`, so neither legacy key is ever sent; the save
     regenerates the mirror.
+    Superseded by bonus-games Phase 7b (#1158): the mirror and `splitFormOf` are gone, and the page
+    opens a legacy doc through `migrateLegacyBonus`.
   - New in `game-config`: `splitFormOf`, `addRespinMode` / `renameRespinMode` /
     `removeRespinMode` (`src/bonusModes.ts`) and `retargetRoutes`. Every respin mode's rules are
     validated under `modes.<id>.holdAndWin`.
@@ -822,7 +824,8 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
     - `GameModeDecl.holdAndWin` holds a respin mode's rules.
   - `normalize` migrates a legacy `holdAndWin` / `potsOverlay` into the split form and declares
     the `holdAndWin` mode. It also keeps both legacy keys as a compat mirror until the readers
-    move (design §3 Phases 2–7).
+    move (design §3 Phases 2–7). Superseded by bonus-games Phase 7b (#1158): a normalized doc no
+    longer carries the mirror; see [status/bonus-games.md](bonus-games.md).
   - `builtinGameModes()` no longer lists `holdAndWin`.
   - The committed Hold and Win defaults gain the split keys. Their legacy blocks are unchanged.
 

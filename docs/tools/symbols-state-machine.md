@@ -47,6 +47,10 @@ compiled template, as the Game Config guide explains). Nothing is deleted: a hid
 authored states (and its stacked picture) stay in the doc untouched, and its row comes back with
 its art intact the moment you put the symbol back on a strip.
 
+A symbol that only a **spins mode**'s reels deal (a Game Config bonus that plays N spins of its own
+game), never the base game's, carries a **&lt;mode label&gt; only** chip on its row head. Its states
+are bound like any other row: bindings are per symbol, not per mode.
+
 Each row's **default art** comes from the **active project's** symbol set. The launcher is cloud and
 can't import a game's source, so each game publishes its coded `SYMBOL_INFO_MAP` to R2 at build time
 and the tool reads it; an un-published project (or `apps/lines` dev) falls back to the committed set

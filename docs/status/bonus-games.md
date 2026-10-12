@@ -4,10 +4,7 @@
 > [status/hold-and-win](hold-and-win.md), [status/pots-overlay](pots-overlay.md) · Guide: _per phase_
 > · Agents: per phase — see the design's build plan.
 
-**One-line state:** Phases 1, 2, 3 and 5b are merged: normalized docs carry the split form plus a
-legacy compat mirror, the mock plays one Hold and Win engine per respin mode, and the facade reads
-the rules per mode. Phase 5a (`/config` Bonus modes + Coin overlay) is in review as PR #1136. The
-game still plays only `holdAndWin` until Phase 4.
+**One-line state:** (2026-10-09) Phases 0–6, 6b, 7a, 7b, 8a, 8b and 8c merged; 7c (the browser playtest, one engine fix) in review. Model: design §0.
 
 ## How sessions use this file (the hub)
 
@@ -33,16 +30,118 @@ starts the phase sessions, reviews their PRs and merges them.
 | 0 | Plan + hub | merged | Hold and Wins as standalone project | #1131 |
 | 1 | Contract: config split + migration | merged | Bonus games Phase 1 — config split + migration | #1133 |
 | 2 | Mock: per-mode engines | merged | Bonus games Phase 2: Mock RGS, one Hold and Win engine per respin mode | #1138 |
-| 3 | Facade + wire + event types | in review | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
-| 4 | Engine runtime: active-mode rules | in review | Bonus games Phase 4: the engine runtime plays the active respin mode | #1141 |
-| 5a | `/config` Bonus modes + Coin overlay | in review | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
-| 5b | Scene Editor + capabilities + `/symbols` | in review | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
-| 5c | Flow v2 vocabulary by board | not started (needs 1, 4) | — | — |
-| 5d | Win Text + Localization per mode | not started (needs 1, 4) | — | — |
-| 6 | Game Maker: template + Add a bonus mode… | not started (needs 2–5) | — | — |
-| 7 | Migrate and prove (samples, current-games) | not started (needs 6) | — | — |
+| 3 | Facade + wire + event types | merged | Bonus games Phase 3: Facade, wire and event types, per mode | #1139 |
+| 4 | Engine runtime: active-mode rules | merged | Bonus games Phase 4: the engine runtime plays the active respin mode | #1141 |
+| 5a | `/config` Bonus modes + Coin overlay | merged | Bonus games Phase 5a — /config Bonus modes + Coin overlay | #1136 |
+| 5b | Scene Editor + capabilities + `/symbols` | merged | Bonus games Phase 5b: capabilities, Scene Editor and /symbols, per mode | #1137 |
+| 5c | Flow v2 vocabulary by board | merged | Bonus games Phase 5c: Flow v2 vocabulary by board | #1147 |
+| 5d | Win Text + Localization per mode | merged | Bonus games Phase 5d: Win Text + Localization per mode | #1146 |
+| 6 | Game Maker: template + Add a bonus mode… | merged | Bonus games Phase 6: Game Maker template + "Add a bonus mode…" | #1149 |
+| 6b | Plain Hold and Win template (no pots, jackpots optional) | merged (2443c28) | Bonus games Phase 6b — plain Hold and Win template, jackpots optional | #1153 |
+| 7a | Mock composition: overlay over any base, every route plays, per-mode pools | merged (d728b1a) | Bonus games Phase 7a: deal from the doc, lift the route guard, per-mode pools | #1152 |
+| 8a | Overlay bonus of any game type: contract, mock, runtime (N spins of lines/scatter/ways/cluster) | merged (56f5342) | Bonus games Phase 8a — overlay bonus of any game type (contract, runtime, mock) | #1151 |
+| 8b | Spins modes in `/config` + Game Maker "Add a bonus mode…" from any base game + self-contained overlay presets | merged (65d47c1) | Bonus games Phase 8b: spins modes in /config and Game Maker; self-contained overlay presets | #1156 |
+| 8c | Spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the info page | merged (3d07881) | Bonus games Phase 8c — spins modes in Scene Editor, Flow v2, Win Text, /symbols, info page | #1155 |
+| 7b | Drop the legacy mirror (the `holdAndWin` kind stays a base kind) | merged (0cc277d) | Bonus games Phase 7b — drop the legacy mirror | #1158 |
+| 7c | Migrate and prove the samples (needs R2 + a browser) | in review | Bonus games Phase 7c — migrate and prove the samples | #1159 |
 
 ## Decisions & findings
+
+- 2026-10-09 — **Phase 7c: what the first browser play found** (report:
+  [playtest/bonus-games-7c.md](../playtest/bonus-games-7c.md)).
+  - **Every case passes:** the four published samples (pre-7b bundles), plain Lines / Ways with free
+    spins, and the new layers (a)–(f). The one exception was the bug below, which this phase fixes.
+  - **Found and fixed: the first round after a spins mode could roll forever.** `Board.svelte`
+    installed each reel's ready-to-spin hook once, at mount, but a spins mode's `rebuildBoard`
+    splices in new reels. A pre-spun round then waited on reels nothing released. Gate:
+    `check:spins-modes` §5b.
+  - **A "mid-mode reload" is a resume only while the connection is down.** The facade plays a round's
+    remaining spins and its `collect` in one burst (`playOutRound`). The real resume case is a
+    connection lost inside that burst; it replays the round at the same `seq` / `gid` and pays exactly.
+  - **Manual respins** (`play: 'manual'`) are presentation only: the requests still go out up front,
+    and the board waits for each SPIN press.
+  - **Migration on save, measured:**
+    - The `hw-*` samples are stored legacy-only. A save writes `coinOverlay` + `modes` and drops
+      `holdAndWin`.
+    - `borut-pots-sample` loses only `holdAndWin` / `potsOverlay`.
+    - Every save validates. A republish of the migrated doc deals byte-identically to the legacy one
+      (58 / 58 rounds over the four samples).
+  - **For the owner:**
+    - **borut-pots-sample cannot be republished until one Flow edge is fixed.** Its scenes were
+      saved after its 8 Oct publish and lost the buy-bonus element `n_3n85lhy8`, which
+      `show_13 → showContainer-22` still wires. Fix it in `/flow-v2`.
+    - A republish also moves its mock protocol from `book` to `lines` (book-feature), with or
+      without the migration.
+  - **`check:deal-parity` (the 7a note "a sample migrated in 7c belongs there"):** nothing to add.
+    The `hw-*` samples' shapes are the Hold and Win presets and `borut-pots-sample` is pinned by
+    name, all in `MAIN_DIGESTS`. 7c migrated local copies only (R2 is read-only here); the samples'
+    stored docs migrate on their owner's next save.
+
+- 2026-10-09 — **Phase 7b: the mirror is gone; what the later phases inherit** (PR #1158).
+  - **The legacy keys have one reader:** `normalizeBonusGames` (and `migrateLegacyBonus`, its
+    whole-doc form for `/config`'s unnormalized live doc). Its precedence is main's: a legacy key in
+    the input wins as a pair (an absent half means none). `check:bonus-migration` fails on any other
+    reader in product code, and on the removed helpers.
+  - **The legacy shapes are views now:** `primaryHoldAndWin(doc)` (the old `holdAndWin` block) and
+    `potsOverlayOf(doc)` (the old `potsOverlay` block). The writers are `setPrimaryHoldAndWin` (a
+    preset's or source's block installed as the primary respin mode) and `setOverlayPots`.
+    `GameConfigDoc` lost both fields; `RawGameConfig` carries them (`LegacyBonusKeys`), so presets
+    and old JSON still type.
+  - **Found: the runtime used the baked config raw.** `getActiveGameConfig()` normalized only the
+    compiled template, despite `editor-scenes.ts` saying it owned normalization. Now it normalizes
+    the baked doc too, so a bundle baked before the split boots its respin mode
+    (`check:bonus-migration` §4 fails without it).
+  - **For 7b, done:**
+    - `holdAndWinIsOverlayBonus`, `respinIsOverlayBonus`, `respinRouteDealt`, the `coinsAlone` error
+      and `zeroPotsRefusal` read the split form. Classic stays refused on a Hold and Win base.
+    - `bringPotSpecials` and every `addOns.ts` / `imports.ts` writer edit the split form.
+    - Presets route their Hold and Win pots to the host's PRIMARY respin mode id
+      (`holdAndWinModeId`). Every current host's primary is `holdAndWin`, so nothing moved.
+    - `removePotsOverlay` keeps a mode added on its own (`asMode` imports) and the overlay's other
+      routes to it, and drops `coinOverlay.coins` only when no respin mode is left. On main it took
+      such a mode out half-way: the mirror re-declared its rules as a new `holdAndWin` on strips it
+      had just deleted. This is the one difference the differential run found.
+    - The Collector style lives on the split form only; the legacy reader still infers `pots` for
+      a legacy-only Collector overlay (`bonusGames.fixture`).
+    - `swapWinTextModeLines`' refusal is untouched (it reads the Win Text doc only).
+  - **For 7b, recorded:**
+    - `holdAndWinBonusFrom` keeps stripping pattern, Lucky Spin, random metre and buy. Dropping the
+      strip changed about 23,000 of the differential run's add-on and import outputs (every Hold and
+      Win bonus added to lines, ways, scatter or Book-of), so it fails the parity condition.
+    - A base-game jackpot coin (`coinOverlay.coins`) naming a tier only a non-primary respin mode
+      has pays 0 there, because the primary's engine deals the base game. It is now a validator
+      WARNING on `coinOverlay.coins.<i>.jackpot`; the mock fix (deal it from the mode the coins
+      start) is a follow-up.
+  - **Deploy and rollback skew (hub review).** A pre-7b engine reads `getActiveGameConfig().potsOverlay`
+    raw in `Game.svelte` (the pot signals of an overlay with no respin mode) and `flowEffects.ts` (the
+    per-reel token timing), and the 7b launcher bakes no such key. A game published after the
+    launcher deploy therefore misplays on a pre-7b engine. That covers the window before the engine
+    release, a pin to an older release, and a rollback past 7b. Republishing does not help (the
+    launcher still bakes without the key): roll forward or unpin. Recorded in
+    `docs/guides/release-and-rollback.md` §4 and `docs/design/games-deploy.md`. No compat shim was
+    added.
+  - **For 7c: what a stored project looks like on its next save.** Its legacy `holdAndWin` /
+    `potsOverlay` keys are dropped and nothing else changes. `check:bonus-migration` §2 pins this for
+    every template, preset, sample shape and add-on result: the split form is byte for byte main's
+    minus the two keys. A project that was never saved since Phase 1 (legacy keys only) is migrated
+    on read, with main's precedence. The five Hold and Win templates were regenerated without the
+    keys (a pure deletion). An old published bundle keeps working without a republish, because the
+    runtime normalizes its config.
+
+- 2026-10-09 — **The owner revised the model** (hub session; design §0, which supersedes §1 and §6.4).
+  - **Base kinds:** lines, scatter, ways, cluster and Hold and Win. Book-of is an option on lines.
+  - **Hold and Win stays a base kind** and plays alone. Decision §6.4 (retire the kind) is reversed.
+  - **The coin overlay** (classic / 3 Pots / Collector) is optional over ANY base kind, Hold and Win
+    included. Each trigger starts an overlay bonus.
+  - **An overlay bonus can be ANY game type.** A Hold and Win bonus plays its respin rules. A lines /
+    scatter / ways / cluster bonus plays N spins of that game, then returns (Phase 8).
+  - **Free spins** stay the normal bonus, from scatters or a buy.
+  - **The mock only has to work for authoring:** approximate math is fine for new combinations, and
+    current games stay byte-identical.
+  - **Phase 7 is re-cut** into 7a (mock composition), 7b (drop the mirror), 8 (bonus of any game type)
+    and 7c (samples).
+  - **A Hold and Win base is the plain game:** no pots, no collector, jackpots optional. Classic /
+    3 Pots / Collector are coin-overlay styles only (Phase 6b fixes the template).
 
 - 2026-10-08 — **The owner's model** (hub session): the coin overlay (classic / 3 Pots / Collector)
   is an option a base game turns on, and it only triggers. The bonus stage is a game of its own,
@@ -275,6 +374,22 @@ starts the phase sessions, reviews their PRs and merges them.
     the active board, because the presentation reads `activeRespinMode()`.
   - **For 5d:** the Win Text lines (`featureIntroText`, jackpot, wheel) are still one family for
     every mode.
+
+- 2026-10-08 — **Phase 5d: Win Text per mode** (hub-approved contract, review of #1146).
+  - **Shape.** `WinTextDoc.modes[<id>]` holds every respin mode but the primary, keyed by its plain
+    id (not Phase 4's `-<modeId>` screen naming). The primary's lines are the top-level families, so
+    a one-mode doc never carries the key. A mode's line falls back to the primary's field by field.
+  - **The primary moves, the lines don't.** If `holdAndWin` is removed, or with no `holdAndWin` the
+    first respin mode changes, a former `modes.<id>` becomes the primary: it now speaks the
+    top-level lines, and its old entry is saved and shipped but never read. A renamed mode strands
+    `modes[<old>]` the same way. `/win-text` lists such entries ("Lines for a mode that no longer
+    exists") with **Move to…** (swaps with that mode's lines, the primary's families included) and
+    **Remove**. `/config` makes no cross-doc write.
+  - **Round-trip.** A save keeps what a newer build wrote inside a mode's lines (fields inside a
+    family, and whole families), as for the top-level families.
+  - **Follow-up (Director):** `director/ops/wintext.ts`'s `PATH` regex cannot address
+    `modes.<id>.<family>.<field>`, so Director's Win Text adapter cannot write a non-primary mode's
+    lines yet.
   - **For 6:** an imported mode's `play` travels with its rules. Re-sync carries it.
   - **For 6: screen naming.** The runtime finds a respin mode's screens as `<reference id>-<modeId>`
     (5b's seeding). The importer's own `-2` / `-3` copy naming (`projectBonusImport.ts` `freeIn`)
@@ -297,7 +412,795 @@ starts the phase sessions, reviews their PRs and merges them.
       in place, so a doc-keyed WeakMap would serve stale meters there;
     - meter ids two modes share resolve to one pot, the first mode's.
 
+- 2026-10-08 — **Phase 5c: how "keyed on the board" reads in Flow** (for 6 and 7).
+  - **The vocabulary stays one per doc.** A respin feature event never reaches a non-respin tab (a
+    signal goes to the on-screen mode's tab, then Global), so that tab's palette hides them and the
+    validator WARNS. It does not refuse: an error would refuse a stored flow that published before.
+  - A tab is a respin tab when its id is one of the add-ons' `respinModes`, or `holdAndWin` (the
+    Hold and Win kind's own, which resolves even without a saved config).
+  - **For 6:** a new mode's Flow tab is `graftAddOnSteps(doc, flowAddOnsOf(config))` after the
+    config is saved. Its screens must exist as `<reference id>-<modeId>` scenes (5b's seeding); the
+    importer's `-2` naming would leave them `container-scene-missing` warnings.
+  - **For 7:** `FlowAddOns.respinModes` is emitted only off the lone default (like the wire's emit
+    rule). Phase 7 can always emit it.
+
+- 2026-10-08 — **Phase 6: what "Add a bonus mode…" settled** (for the hub and Phase 7).
+  - **Two import paths, told apart by the record.** "Add a bonus mode…" adds a respin mode through
+    `importRespinMode` (game-config `imports.ts`), which works on the split form only and returns no
+    legacy keys. Its `imports` record carries `asMode: true`, and `resyncBonus` sends such a record back
+    through `importRespinMode`. A record without the marker (today's "Import a bonus…" of the primary
+    `holdAndWin`) re-syncs through `importBonus` exactly as before. The old replace path is no longer
+    offered in the UI ("an added mode never replaces one"). The API keeps `replace` for those old
+    re-syncs and the old gate.
+  - **Ids.** A clash takes `_2`, `_3`… on the id's base, so a copy of `holdAndWin_2` becomes
+    `holdAndWin_3`, not `holdAndWin_2_2`. `respinModeIdProblem` still refuses `holdAndWin` beside
+    another primary. The strip key is `respinGameTypeFor(id)`, made free when taken. A re-sync keeps
+    the id, the game type, the label and the HUD the host gave it.
+  - **Routes are the author's pick.** They are the host's pots, overlay triggers (count / pattern /
+    Lucky Spin / random metre), meters, and a buy tier on any buy-bonus bet mode (a new buy route
+    creates a minimal `coinOverlay` on a host that has none). Never scatters. A pot taken over starts
+    the mode plain, as the old import did. A meter whose special the mode lacks is refused.
+  - **A mode that would be the host's only Hold and Win needs a route.** The primary keeps today's
+    "Nothing can start the feature" error (5a). So the importer refuses up front with a clear reason
+    rather than failing the save. A second mode may wait unstarted (a warning, as 5a set).
+  - **What travels:**
+    - the rules whole, `play` included, with `blank` renamed;
+    - the strips cycled to the host's reels;
+    - the strip symbols (and the blank), each renamed on a clash and stripped of `meterSpecial`. They
+      are never shared with the host, as the old Hold and Win import did it.
+  - **Screens** are copied as `<reference id>-<newModeId>` on scene AND node ids
+    (`respinModeCopyId`: the source mode's `-<sourceMode>` suffix stripped, then `modeScreenId`). The
+    `holdAndWin` mode keeps the plain ids. `freeIn` is only a fallback on a real clash. A reels import
+    keeps today's naming.
+  - **The Flow tab** is the source's tab, rehomed (`mergeImportedModeFlow`):
+    - every node id gets a free `hw`/`hw2`/… prefix;
+    - show/hide refs follow the layout merge's screen renames, and missing containers are declared at
+      the source's z;
+    - a container event pin (`<componentId>.on…`) follows its node's rename;
+    - mode triggers / enter / exit name the new mode.
+
+    With no source tab, the starter (`holdAndWinModeGraph`) is seeded only when the host has no tab
+    for the mode (`seedModeFlow`). A re-sync replaces the tab from the source, as today's import
+    replaces its section.
+  - **Win Text** uses 5d's merge unchanged: `modes[<newId>]`, or the families when the new mode is the
+    host's primary.
+  - **Template.** `scaffoldProject` saves `splitFormOf(seed)`. `normalize` of it is byte-identical to
+    the old stored config for all three presets, mirror included. The engine-layout scene template
+    (`templates/holdAndWin.ts`) needed no change: it lists screens, not config.
+  - **"＋ Coin overlay…"** (hub-approved as proposed; no new Collector preset, since that is new
+    math (ground rule 4). The hub is asking the owner whether they want one as a follow-up):
+    - Style **Classic** → the Coins only preset;
+    - **3 Pots** → 3 Pots or Pots to free spins;
+    - **Collector** → listed with no preset, because a collector lands on the base reels and the add-on
+      never edits a game's strips.
+
+    The add-on saves `splitFormOf(added.doc)`, which normalizes byte-identically on every host and
+    preset (gated). The card still keys "parts…" on the overlay dropping tokens (the
+    `potsOverlay` mirror), as before.
+  - **Only routes the mock deals are offered (hub decision on #1149: never save a route that
+    silently won't play).** One helper, game-config `modeRouteRefusal(doc, route, hostKind)`, is read
+    by both `importRespinMode` and the dialog (`modeRouteOptions`).
+    - **A Hold and Win KIND** deals every route.
+    - **Any other kind** composes the overlay over its own mock (`withPotsOverlay`), which starts a
+      respin mode only from a full pot, or from the count trigger when the overlay drops value coins.
+      A buy, pattern, Lucky Spin, random-metre or meter route there is refused: "route a pot to it —
+      buy and trigger routes on a lines game arrive in Phase 7".
+    - **A plain lines host with no overlay** can't take its first Hold and Win (it needs a route),
+      and the refusal says "Add a coin overlay with pots first". After "＋ Coin overlay… → 3 Pots" it
+      takes it on a pot route. `check:add-bonus-mode` §3 pins both.
+  - **Hub review of #1149 (one push):**
+    - **Rename, then re-sync.** `renameRespinMode` moves the declaration, routes and record but not
+      the `-<old>` screens, `flow.modes[old]` or Win Text `modes[old]`. An `asMode` record now stores
+      `wroteAs`, the id its pieces were last written under. A re-sync whose `wroteAs` differs
+      retags the old screens to the mode, so the merge replaces them in place. It drops the old Flow
+      tab, with the containers only that tab showed, and the old Win Text entry, then writes all three
+      under the new id. Gate §2b: rename to `gold` → re-sync leaves no `-holdAndWin_2` screen,
+      container, tab or lines, and no duplicate node id.
+    - **`/config` parity with the guard.** `undealtRouteWarnings(doc, kind)` (game-config) warns on
+      every coin overlay route to a respin mode that `modeRouteRefusal` would refuse for the kind.
+      `/config` adds it to its issues on the page and in the server load. It is a WARNING, so stored
+      configs still save. `check:config-bonus-modes` §4 pins it, and no sample warns.
+    - **Unshipped refs.** A copied Flow tab's `functionCall` that the shared library lacks, or a
+      `playCinematic` this project has no cinematic for, is named in the Flow part's note
+      ("copy them too, or remap"). Nothing more is copied.
+    - **A fresh add** with no source tab replaces a stale `flow.modes[<id>]` with the starter. A
+      re-sync still keeps the host's tab.
+    - **Copied screens are named** `<name> (<mode label>)`, as 5b's `screenForMode` names them
+      (`respinModeCopyName`).
+    - **Guide:** Re-sync replaces local edits to the mode (all but label and HUD), and only the
+      config has a backup. Pot routes on a host whose base strips deal Hold and Win symbols, or on a
+      stepped board, are not dealt (the old import's limit).
+    - **Record only:** the API-only `importableFeatures` / `BOARD_NOT_BUILT` path stays as is.
+  - **Phase 7 must-do:** lift the `modeRouteRefusal` guard (and its gate cases) when the deal
+    decision moves from the kind onto the doc, so a lines game deals buy and trigger routes to a
+    respin mode. Until then, the pot route into a Book-of host with a second respin mode is what
+    plays (gate §1). The sample host playing two Hold and Win bonuses stays Phase 7's proof.
+
+- 2026-10-09 — **Phase 6b: the plain Hold and Win template** (hub-approved option (a)).
+  - **The template is the plain game.** Game Maker's "Hold and Win" seeds `holdAndWin.plain` or
+    `holdAndWin.plainNoJackpots` (game-config `HOLD_AND_WIN_TEMPLATES`): Classic's 5×3 / 5-line base
+    with coins on the base strips, `count` 6+, 3 respins, `allCoins`, `anyCoin` reset, and no
+    specials, pots or meters. Jackpots On: Classic's four tiers, jackpot coins and `fullBoardJackpot`
+    GRAND. Off: `jackpots: []` and `boardEnd: none`, which `validateHoldAndWin` already accepts.
+  - **Screens.** The plain project seeds no `pots` screen, and with Off no `jackpotBar`. The starter
+    Flow drops their show/hide steps and containers (the chain is re-joined), so it publishes with no
+    `container-scene-missing`. "＋ Coin overlay…" merges the Pots screen back.
+  - **The presets stay** for `/config` → Reset to preset, the samples, the gates and the
+    `scaffoldProject({ holdAndWinPreset })` option. The kind's un-authored default is still Pots, so
+    a re-scaffold or duplicate of an un-authored project seeds what it already played. `/admin`'s
+    create also gets the plain template (Jackpots On).
+  - **Gap, by decision:** on a plain Hold and Win, "＋ Coin overlay…" offers only **Pots to free
+    spins**. 3 Pots needs the payer, collector and multiplier specials its pots start, and Collector
+    has no overlay preset. Since Phase 7a (#1152) the test server deals the overlay on a Hold and
+    Win kind, so Pots to free spins on a plain game plays: a full pot plays approximate free spins.
+  - **For 8b / follow-up:** overlay presets become self-contained, so any overlay goes over any base
+    (the owner's model). 3 Pots brings the specials its pots need onto a host that lacks them, and
+    Collector gets an overlay preset. This comes after 7a merges, with `check:pots-overlay-add-on`
+    parity for every existing case.
+
+- 2026-10-09 — **Phase 7a: the overlay composes over any base, every route plays** (hub-approved
+  twice: a first "deal by the doc" proposal, then the owner's revised model, which replaced it).
+  - **The base engine comes from the KIND**, as on main: the Hold and Win engine for `holdAndWin`,
+    the lines-family mock (or the book mock) otherwise. The doc predicate first built here was
+    reverted. The kind is not retired.
+  - **The coin overlay composes over the Hold and Win engine too** (`mock-rgs-server-holdandwin.mjs`
+    takes `opts.overlay` like the lines and book mocks).
+    - It hands the overlay its own respin engines (`host.respinEngines`), so a pot starts the base's
+      own mode and nothing is declared twice.
+    - On that base the overlay deals only its pots and dropped coins; every route of the reels stays
+      the engine's.
+    - Drops draw from the overlay's own stream, so the base board is untouched.
+    - The base's feature plays first, then a queued pot's (`handOver` moves the round's end after
+      it).
+    - `getSession` keeps pot levels beside the meters, and `meterLevels` lists both
+      (`reportsMeters`, `potLevels`).
+    - `force:` tokens split: `overlay:` / `pot:` go to the overlay, the rest to the engine.
+    - Hub review of #1152 (one push):
+      - a dropped coin's value draws from the overlay's own RNG, so the base board is the same with
+        or without it;
+      - a round plays each respin mode once: a pot whose mode the base's own feature played this
+        round stays full for the next round's first spin;
+      - an abandoned round plays out the overlay's feature, the free spins and the queue before it
+        is credited;
+      - a `play` the round no longer takes is refused before the overlay draws anything;
+      - a bought round over a lines host no longer uses up a scripted natural spin
+        (`potsBought`);
+      - the test server's `validGrid` and `makeMock` moved to `services/test-server/makeMock.mjs`
+        (no start-up side effects), which the parity gate drives.
+  - **A Hold and Win base enters free spins, approximately.** `startFreeSpins` plays N (10, or the
+    pot's `spins`) plain line spins on its board (`engine.playSpin`) in the lines mock's events
+    (`spinTrigger`, `enterBonus`, `playedBonusSpin`, `playedBonusSpins`). Only a pot starts them; a
+    natural scatter trigger on a Hold and Win base is not dealt.
+  - **The contract.** A `holdAndWin`-kind project's grid carries `potsOverlay` (last) only when the
+    overlay drops something. Today's presets carry a classic coin overlay that drops nothing, so no
+    current game's contract moves.
+  - **Over a lines or book base, the overlay deals every route but meters**
+    (`mock-pots-overlay.mjs`):
+    - a **buy**: a bought option whose bet mode a buy tier names enters that respin mode with the
+      tier's guarantees, and the host deals the spin unbought. The lines mock passes the round's
+      `betMode` and sells such an option even with free spins off (`sellsBuy`);
+    - **Lucky Spin** / **random metre**: drawn from the overlay's RNG, only when some mode has the
+      route;
+    - a **pattern**: formed by the dropped value coins;
+    - new forces `trigger:luckySpin`, `trigger:randomMetre`, `trigger:pattern`;
+    - a coin overlay with only such routes and nothing dropping gets overlay inputs (`pots: []`)
+      when its respin mode is reached only through it (`respinIsOverlayBonus`).
+  - **One route dispatch, `startBonus(modeId)`** (for Phase 8a). In order:
+    - a respin engine;
+    - a mode the host registered (`opts.bonusModes[modeId].start(events, round, info)` on any host
+      mock);
+    - the host's free spins / a reels mode, through `host.startFreeSpins` with `cause`, `spins`
+      (the pot's, else `game.spins`) and the mode's `game` passed through untouched;
+    - a stub.
+
+    A buy, Lucky Spin or random metre reaches a reels mode when its input names it
+    (`inputs.modes[id].trigger`, the respin trigger shape). 8a was sent the signature.
+  - **Refusals narrowed** (`respinRouteDealt`, read by `modeRouteRefusal` and
+    `undealtRouteWarnings`). On a Hold and Win base nothing is refused. On any other base, only:
+    - a meter (a landing symbol fills it);
+    - the count or a pattern with no value coins dropping;
+    - a buy on the Book-of kind (the book mock sells only its own; it goes with #1140);
+    - every route when Hold and Win symbols land on the base strips of another kind (no mock deals
+      that).
+  - **Validator.** `validateHoldAndWin` no longer errors on a pattern, Lucky Spin, random metre or buy
+    for an overlay's bonus. A pattern that counts no coin/jackpot, or with no coins dropping, warns.
+    Meters and the base-game instant collects stay refused on an overlay host.
+  - **Emit rules (item 3): both kept.** Dropping Phase 2's wire rule would add `bonusModes` and `mode`
+    to every current Hold and Win game's answer. Dropping 5c's `FlowAddOns.respinModes` rule would
+    move every current doc's add-ons (`check:flow-bonus-modes` `MAIN_DIGESTS`).
+  - **Per-mode pools (item 4).** A tier name progressive in 2+ respin modes keeps a pool per mode
+    (`splitPoolNames`, session key `<name>@<mode>`), and its `jackpotLevels` entries carry `mode`.
+    Every other pool stays shared by name, untagged.
+    - The facade applies a tagged entry to that mode only, and reads the boot pools per mode from
+      `bonusModes`.
+    - The runtime's `jackpot.<tier>` reads the pool of the mode whose tier it shows
+      (`jackpotTierMode` + `poolLevel`).
+  - **`coinOverlay.coins` (item 5)** rides the mock inputs as `baseCoins` (only when set).
+    - The engine's base-board draws and the overlay's dropped coins use it.
+    - `/config` → Coin overlay → Base game shows the panel again. It writes nothing until edited
+      (pinned).
+    - It is not in the legacy mirror.
+  - **What changes, exactly** (hub-approved, `check:deal-parity` §2). Only a doc with something
+    main never dealt:
+    - **a Hold and Win KIND whose coin overlay drops anything** (pots, value coins or both). Main
+      dealt it without the overlay; now the pots start their bonus and the coins drop;
+    - **a respin block on a kind that is not Hold and Win, with a buy, Lucky Spin or random-metre
+      route** (on Book-of: Lucky Spin or random metre; it sells no authored buy). Main dealt nothing
+      of its respin mode; now the route starts it. Such a doc only exists if a route was saved
+      against Phase 6's `undealtRouteWarnings` warning since 2026-10-08.
+
+    Everything else deals byte-identically, the rest of that sweep included (no route, only a
+    count, no coin overlay, Book-of with only a buy, pots with only a count, base symbols beside
+    pots, ways with no route).
+  - **For 7b:**
+    - `holdAndWinIsOverlayBonus` and `respinIsOverlayBonus` read the `potsOverlay` mirror; port them
+      to the split form when it goes. So does the HW contract's `legacyPotsOverlay` test.
+    - `potsOverlayPresets.ts` `holdAndWinBonusFrom` still strips pattern, Lucky Spin, random metre
+      and buy from a preset made an overlay's bonus. They are dealt now; dropping the strip changes
+      the add-on's output, so it needs its own parity.
+    - With `baseCoins` set, a dropped jackpot coin may name a tier the coin engine's mode lacks; it
+      then pays 0 there.
+  - **For 8 (spins bonus modes), agreed with 8a:**
+    - 8a produces `inputs.modes[id].trigger` and `game` (its `reelsModeMockInput`);
+    - 8a lifts `validateBonusModes`' "only a respin-board mode is started this way" guard;
+    - 8a reads `game` in the lines mock's free-spin loop.
+
+    The count and a pattern stay respin-only, because the dropped coins belong to a respin mode.
+  - **For 7c:** `check:deal-parity` lists every shape a current game has. A sample migrated in 7c
+    belongs there with its stored kind.
+
+- 2026-10-09 — **Phase 8b: spins modes in `/config` and Game Maker; self-contained overlay presets**
+  (hub to confirm the two marked decisions).
+  - **Writers live in game-config `spinsModes.ts`:** `addSpinsMode`, `removeSpinsMode`,
+    `setSpinsGrid`, `stripWidthFor`, `stripsToWidth`, `spinsWinModelFor`, `freeSpinsModeId`. They
+    are `/config`'s and the import's only; 8c needs none of them. `reroutePots` is now exported from
+    `bonusModes.ts`, and `spinsGamesRefusal(kind)` sits beside `spinsModeKindIssues` in `modes.ts`.
+  - **A new spins mode** is `spinsBonus` (then `_2`…), its game type its id, 10 spins, the base
+    strips copied, every other field the host's (sparse). Strips follow the mode's own grid: the base
+    grid's grow / Match grid never touch them (`pageDoc.ts` `baseWidthGameTypes`, `gridMismatch`).
+  - **A base game imported as a spins mode** (`importSpinsMode`): the base game is now the first
+    `importableFeatures` entry of every source (`spins: true`). It copies `winModel` (stored even when
+    `lines`), `numReels` / `numRows`, `paylines` (a lines game's) and the pays of every symbol its
+    strips deal, explicitly. Every symbol name the host already uses takes `_2`, as
+    `importRespinMode` does (no identical-entry sharing, so the art stays the source's). The copied
+    symbols carry no `paytable` (the pays live in `spins.paytable`), so the host's info paytable
+    never lists them. The record is `importedFrom.mode: 'basegame'`, `asMode`, `wroteAs`. Re-sync
+    replaces only the mode's game and keeps every other field of it (label, HUD, music, counter,
+    values, the spin count set here), the names and every route. Routes: a pot, a buy, Lucky Spin or
+    the random metre (`SPINS_MODE_ROUTE_KINDS`, which the Game Maker dialog also reads). Refused on a
+    Hold and Win or Book-of host, and for a Hold and Win or Book-of SOURCE (`spinsSourceRefusal`;
+    `importableFeatures(source, sourceKind)` lists its base game as refused).
+  - **It brings no screens, Flow tab or Win Text** (the import reports say so): it plays on the
+    host's screens. **For 8c:** a spins mode added this way (or in `/config`) has no
+    `<ref>-<modeId>` screens and no Flow tab; 8c's seeding should cover one that has none.
+  - **Overlay presets.** `PotsOverlayPreset.style`: 3 Pots sets `pots`, the new **Collector** preset
+    (`collector`, appended to `POTS_OVERLAY_PRESET_IDS`) sets `collector`: one `green` pot whose
+    full pot starts the Collector Hold and Win with its collector on. On a host with its own Hold
+    and Win rules, a preset brings each special that the pots it keeps start and the rules lack
+    (`bringPotSpecials`): the respin rules from the preset's Hold and Win, its place in the apply
+    order, its symbol (renamed on a clash) and one cell of it on each respin strip. The preset's
+    style replaces the host's only when the add-on built that Hold and Win or brought a special, so
+    an overlay over a bonus that already deals its specials keeps the style it had (hub review).
+  - **Decision (hub to confirm): Classic stays refused on a Hold and Win base.** That game is the
+    Classic style already. Letting dropped coins count toward its own count would need the
+    `potsOverlay` validator's `coinsAlone` error and `zeroPotsRefusal` changed; that belongs with 7b.
+    So the plain template is offered 3 Pots, Pots to free spins and Collector, and the dialog says
+    why Classic is not.
+  - **Decision (hub to confirm): deal-parity's "Hold and Win kind whose overlay drops tokens"** is
+    built by the add-on, which now also brings the payer and collector. The gate rebuilds main's doc
+    (`threePotsOnClassicAsMain`, Classic's style restored). Its doc is pinned byte for byte against
+    main 4067dfb's `normalize(addPotsOverlay(classic, 'threePots'))`, and it reproduces main's deal
+    digests exactly, so no shape moved.
+  - **Parity:** every add-on result that was clean on main is byte-identical (`check:bonus-authoring`
+    §4): 112 template × preset × pot count cases, and 75 cases of a lines / Book-of / ways host with
+    a Hold and Win bonus added before or after the overlay (measured on main 4067dfb). The 20
+    template cases that changed (3 Pots on Classic, Collector, plain and plain without jackpots,
+    × 5 counts) were not clean on main.
+  - **For 7b:**
+    - `bringPotSpecials` edits the legacy pair, as every `addOns.ts` writer does.
+    - The presets route their pots to `HOLD_AND_WIN_MODE`; a host whose primary respin mode has
+      another id would orphan them (as before 8b).
+    - `removePotsOverlay` takes out every import that is not `holdAndWin`, including one added as a
+      mode of its own and started by a buy (as before 8b).
+    - The legacy-only read of a Collector overlay infers style `pots` (`bonusGames.fixture`); the
+      style lives on the split form only.
+
+- 2026-10-09 — **Phase 8c: what a spins mode is in the tools** (PR #1155; for 8b, 7b and 7c).
+  - **Screens.** A spins mode copies the kind's three free-spin screens (`SPINS_MODE_SCREENS`:
+    `freeSpinIntro`, `freeSpinCounter`, `freeSpinOutro`) as `<screen>-<modeId>`, `role: 'mode'` +
+    `modeId`, every node id suffixed too, each right after the screen it copies. The naming is 5b's
+    (`modeCopy`, shared with `screenForMode`); unlike a respin mode, the id is always suffixed (no
+    spins mode keeps the reference ids). A kind with no free-spin screens gets none.
+  - **The board preview.** The copies carry no board: the reel grid is `basegame`'s, and the game
+    sizes it from `boardDimensions`, which follows the mode. So the Scene Editor draws the grid at the
+    mode's own (`modeGridDimensions`, from `spinsGameView` → `resolveGrid`, the runtime's resolver)
+    while In-game view shows that mode.
+  - **In-game view judges a mode screen by its reference id** (`restingScenes` strips `-<modeId>`).
+    This also fixes 5b's respin copies: In-game view of a second respin mode used to draw its
+    `featureIntro-<id>` / `jackpotWin-<id>` beat screens as if they stayed up for the whole mode.
+  - **The runtime reserves mode copies for spins modes too** (`reservedModeCopies`, by
+    `spinsGameOf`), so a `freeSpinIntro-<id>` never mounts as an always-on tap surface. The coded
+    counter draws the active spins mode's copy when the doc has one (`modeScreenFor`).
+  - **Flow.** `FlowAddOns.spinsModes` is emitted only when the doc has one, so every current doc's
+    add-ons are byte-identical. The vocabulary is unchanged: a spins tab is a reels tab
+    (`vocabForTab` already hides the respin feature events there). The graft's tab
+    (`spinsModeGraph`) presents `freeSpinTrigger` / `updateFreeSpin` / `freeSpinEnd` only; every
+    other event of a spin (reveal, wins) falls back to the global graph. The counter swap (hide the
+    base counter, show the mode's) is added only when the flow drives the screens and declares
+    `freeSpinCounter`; otherwise the coded counter already draws the mode's copy.
+  - **Win Text: a spins mode's lines are its win-line message and win-tier captions**
+    (`WIN_TEXT_SPINS_MODE_FAMILIES`, under `modes[<id>]` beside 5d's respin entries). Win Text has
+    no free-spin intro / outro / counter lines (the visuals draw bare numbers), and a spins mode
+    never retriggers, so those two families are what a ways or cluster game on a lines host speaks
+    differently. They fall back to the base game's field by field. The game reads them through
+    `boardWinText()` (win line, info-bar toast, big-win caption).
+  - **Per-mode win TIERS are a follow-up**, not built: tiers are `GameConfigDoc.winLevels`, one
+    ladder per doc, and `activeWinLevels` does not follow the mode. A per-mode ladder is a `/config`
+    contract change (8b's side). The captions per mode are built.
+  - **`/symbols` needed no new binding shape.** Symbols are one dictionary and the symbol doc is
+    keyed by name, and `symbolGrid` already lists every strip's symbols, a spins mode's included.
+    What was missing is knowing whose rows they are: the page now chips the symbols only a spins
+    mode's strips deal (`spinsModeSymbols`). A symbol the base game also deals keeps one binding for
+    both; per-mode bindings for a shared symbol would need a mode key in the symbol doc.
+  - **Info page.** `activePaytableInputs()` (engine-game): while a spins mode is on top the paytable
+    is its game's, `shownPaytable(view.symbols, symbolsInPlayForGameType(doc, its gameType))`. The
+    base page is unchanged. Note that the base page lists every strip's symbols, a spins mode's
+    included (main's behaviour, `getSymbolsInPlay`); the rules text stays the doc's.
+  - **For 8b:** nothing in `/config` or Game Maker was touched. An imported spins mode should copy
+    its `-<sourceMode>` free-spin screens as `-<newModeId>` (`modeCopy`'s naming), its Flow tab and
+    its `modes[<id>]` Win Text, as Phase 6 does for a respin mode.
+  - **Renamed or removed spins modes** (hub review of #1155): their `modes[<old id>]` entry is an
+    orphan like a respin mode's. `/win-text` lists it as spins mode lines and offers only the current
+    spins modes as Move targets (a plain key swap of every family). `swapWinTextModeLines` refuses
+    to move spins lines onto the respin primary, whose families have no place for them (it returns
+    the doc unchanged rather than drop them). An entry holding both kinds can only be removed.
+  - **A spins tab's holds are gated** (`spinsTabIssues`, beside `respinTabIssues`; the publish gate
+    and `/flow-v2` add it). A hold on a screen the layout lacks is an ERROR,
+    `spins-hold-scene-missing`: "＋ Add overlay steps" run before "Add missing screens" would never
+    continue. No flow had a spins tab before, so nothing that published is refused (§6 pins every
+    current doc at no issue). A screen-driving flow whose spins tab never hides the base counter (a
+    tab seeded before the flow drove the screens) gets the WARNING `spins-counter-unswapped`. A
+    template without free spins gets no empty tab.
+  - **Anticipation follows the spins mode.** `buildReach` reads the info paytable (`paytable()`), so
+    while a spins mode is on top the near-miss tease is reached with its own pays. The gate pins the
+    call.
+  - **One lister:** game-config `spinsModeDecls(doc)` (`modes.ts`). Flow add-ons, the launcher and
+    the engine's `spinsModesOf` read it; `spinsModeKindIssues` (8a's) still filters inline. 8b can
+    switch to it whichever merges second.
+  - **For 7b:** keep `swapWinTextModeLines`' refusal when the mirror goes: the primary still speaks
+    the respin families only.
+  - **For 7c:** the free-spin intro lock (`celebrationLock`) still keys on the plain
+    `freeSpinIntro` / `freeSpinOutro` ids. A mode's copies held with `awaitComplete` lock the spin
+    button through `flowHoldsPresentation`. Check it in the browser playtest, with the board swap.
+
 ## Recent changes
+
+- 2026-10-09 — **Phase 7c: the samples and the new layers played in a real browser** (PR #1159).
+  - **Played** in Chromium against the shipped runtime and the real test server: the four published
+    samples (read-only from R2) and games built on a local launcher for each new layer. The
+    per-case table is in [playtest/bonus-games-7c.md](../playtest/bonus-games-7c.md).
+  - **Engine fix:** `apps/lines/src/components/Board.svelte` installs the ready-to-spin hook in an
+    `$effect` that follows the board. A spins mode's rebuild used to leave its new reels without it,
+    and the next pre-spun round hung. A game with no spins mode installs the same hooks once, as
+    before. Gate: `check:spins-modes` §5b (fails 2 of 3 without the fix).
+  - **New tool:** `scripts/playtest/sample-play.mjs`, the playtest driver used here (forced beats,
+    buys, manual-hold check, dropped-connection resume, per-round money and HUD checks).
+  - **Docs:** the report, its screenshots (`docs/playtest/bonus-games-7c/`), and the `hw-*` and
+    `borut-pots-sample` playbooks' known state.
+  - **Gates:** `check:all` 429/429; `check:holdandwin` / `check:pots-overlay` `MAIN_DIGESTS`
+    unchanged; `check:deal-parity` passes.
+  - **Still owed:** the info page per mode was checked by `check:spins-modes-tools`, not opened in a
+    browser; per-mode win tiers (8c follow-up).
+
+- 2026-10-09 — **Phase 7b: the legacy mirror is dropped** (PR #1158).
+  - **game-config:**
+    - `normalize` emits the split form only.
+    - `bonusGames.ts` lost `withLegacyPair`, `syncBonusSplit`, `splitFormOf`, `bonusSplitOf`,
+      `legacyHoldAndWin` and `legacyPotsOverlay`, and gained `primaryHoldAndWin`, `potsOverlayOf`,
+      `setPrimaryHoldAndWin`, `setOverlayPots` and `migrateLegacyBonus`.
+    - `coinOverlay.ts`: `legacyPotsOverlayOf` is now `potsBlockOf`.
+    - `modes.ts` no longer reads an unnormalized legacy block.
+    - Every reader and writer in game-config is ported.
+  - **Launcher:** `/config` (`pageDoc`, `CoinOverlaySection`), `projectAddOn`, `projectScaffold`,
+    `publishGame`, `gameProfile`, the director templates, the Game Maker page, `mockContract`,
+    `bonusImport` and `symbolDefaults`.
+  - **Runtime:** `getActiveGameConfig` normalizes the baked config; `Game.svelte` and `flowEffects`
+    read the overlay. The `HoldAndWin*` stories install their block through `setPrimaryHoldAndWin`.
+  - **Templates** regenerated without the keys.
+  - **New gate, `check:bonus-migration`:** 75 docs; mutation-tested against real code changes.
+  - **Re-pinned on main 65d47c1 with the keys stripped:** the add-on doc digests in
+    `check:bonus-authoring` (112 + 75) and deal-parity's `MAIN_THREE_POTS_ON_CLASSIC`. Every one
+    reproduces on the branch.
+  - **Unchanged:** the deal, contract and wire digests.
+  - **A differential run over 92,265 game-config outputs** (normalized docs, validators, mock
+    inputs, every add-on, import and bonus-mode writer) matches main except the `removePotsOverlay`
+    fix.
+  - **Hub review round:**
+    - `importBonus` with `replace` moves the replaced primary's pots onto the imported mode. Before,
+      a primary of another id left them naming a mode that was gone, and the doc did not save.
+    - `bonusForNewPot` matches main again on a doc with no respin mode.
+    - The baked-config fallback warns and still migrates the legacy blocks.
+    - `addOns.fixture` gains a Phase 7b section that turns red when any of four fixes is reverted:
+      pots routed to the primary's id, `removePotsOverlay` keeping an `asMode` mode, the tier
+      warning and the replace retarget.
+    - `check:bonus-migration`'s scan is inverted. Any `.holdAndWin` / `.potsOverlay` read, indexed
+      read or destructuring fails it unless the receiver is a mode's rules, the wire, a flag or an
+      add-on part. Its scope now includes the launcher's `.mjs` scripts and every service.
+
+- 2026-10-09 — **Phase 8b: spins modes in `/config` and Game Maker; self-contained overlay presets**
+  (PR #1156; game-config `spinsModes.ts`, `imports.ts`, `addOns.ts`, `potsOverlayPresets.ts`,
+  `modes.ts`; `/config` `BonusModesSection`, new `SpinsModeEditor`, `CoinOverlaySection`,
+  `pageDoc.ts`, `+page.svelte`; Game Maker `+page.svelte`, `projectBonusImport.ts`,
+  `potsOverlayAddOn.ts`; guides `docs/tools/game-config.md`, `game-maker.md`).
+  - **What landed:** "Phase 8b" in Decisions & findings.
+    - `/config` → Bonus modes: add / edit / remove a spins mode (spins, game, own grid, own
+      paylines, own pays, strips). The buy, Lucky Spin and random-metre pickers offer spins modes;
+      the count, pattern and meters don't.
+    - Game Maker → Add a bonus mode…: any same-client project's base game, as a self-contained
+      spins mode, with re-sync.
+    - ＋ Coin overlay…: 3 Pots and the new Collector preset add cleanly to the plain Hold and Win
+      template and deal.
+  - **Gates:**
+    - New `pnpm --filter launcher-api check:bonus-authoring`, 17/17:
+      - every committed default saves and reloads byte-identically, measured on the base grid;
+      - a cluster spins mode on its own 7×7 grid, saved, bought and played (4 spins on 7×7, paid by
+        clusters); Hold and Win / Book-of kinds refuse it; a coin count may not start it; removing it
+        gives the doc back;
+      - lines base game of A into a ways B, bought on B (10 spins on A's 5×3, paid on A's lines);
+        re-sync after an edit to A; Hold and Win host and coin-count route refused;
+      - 3 Pots and Collector on the plain Hold and Win and the plain lines templates, each pot dealing
+        its Hold and Win with its special active;
+      - a Hold and Win / Book-of source refused; re-sync keeping the mode's music, values, counter
+        and label; the imported symbols carrying no pays;
+      - add-on parity with main (112 + 75 cases); 3 Pots keeping one pot brings only its special.
+    - Mutation-tested: 18 code removals (specials not brought, strips measured on the base grid, no
+      pays / grid / paylines copied, re-sync branch, strip resize, preset style, Collector's special,
+      remove keeping strips, the launcher's spins branch, the kind refusal, `baseWidthGameTypes`;
+      after the hub review: style on every host, specials from every pot, re-sync rebuilding the
+      mode, symbols keeping their pays, the source refusal) each turn it red.
+    - `check:holdandwin` 2078 + 428, `check:pots-overlay` 112: `MAIN_DIGESTS` unchanged.
+    - `check:deal-parity` passes with no new changed shape; `check:spins-modes` 54,
+      `check:spins-modes-contract` 15, `check:respin-modes` 220, `check:add-bonus-mode`,
+      `check:freespins`, `check:pots-overlay-add-on`, `check:bonus-import`, `check:config-bonus-modes`
+      pass.
+    - Root `pnpm check:all`: 427/427.
+    - `check:svelte` at baseline (launcher-api 48, engine-game 36, lines 163). ESLint and Prettier
+      clean on the touched code.
+  - **Not run here:** a browser pass of the new `/config` panel and the Game Maker dialogs (no R2 in
+    this container). CI's Current games renders the games.
+- 2026-10-09 — **Phase 8c: spins modes in the Scene Editor, Flow v2, Win Text, `/symbols` and the
+  info page** (PR #1155; `engine-layout` `referenceLayouts`, `restingScenes`, `winText`;
+  `engine-flow-v2` `drivenSeed`, `addOns`; `engine-game` `gameConfig`; game-config `flowAddOns`;
+  launcher `addOns`, `/editor`, `/flow-v2`, `/win-text`, `/symbols`, `winTextStorage`,
+  `localizationHarvest`; `apps/lines` `Game.svelte`, `respinModes`, `paytable`, `boardWinText`).
+  - **What landed:** "Phase 8c" in Decisions & findings.
+  - **Gates:** new `pnpm --filter launcher-api check:spins-modes-tools`, 321 checks after the hub's
+    review round. Lines, ways and
+    cluster hosts, each with a ways, a cluster and a lines spins mode (`spinsGame.sample.ts`) and a
+    symbol only the ways mode deals. It covers:
+    - per-mode screens with distinct scene and node ids, In-game view, reservation, the counter, the
+      board preview;
+    - each Flow tab (Mode triggers, its own screens, distinct node ids, clean and warning-free
+      publish, idempotent graft, the reels vocabulary, the interpreter's mode graph);
+    - Win Text save / resolve / harvest and the game's `boardWinText`;
+    - the `/symbols` chip;
+    - the info paytable, grid and paylines per mode.
+
+    It also compiles the game's own call sites (the reservation predicate, the counter pick and the
+    `paytable()` wrapper, sliced from `Game.svelte` / `paytable.ts`) and checks the Win Text readers
+    (`WinVisual`, `flowEffects`) and anticipation. Mutation-tested: 28 mutations, the reviewer's six
+    included, each turns it red. §6 pins 117 facts of every current doc
+    (scenes, add-on screens, Flow add-ons / seed / verdict, Win Text, Localization, `/symbols`,
+    info) byte-identical to main 4067dfb, measured by `scripts/lib/spinsToolsFacts.ts` on that
+    tree. The docs are the `hw-*` presets, the plain Hold and Win templates, `borut-pots-sample`,
+    lines / ways / cluster / free spins and the overlay presets.
+  - Also passing: `check:holdandwin` and `check:pots-overlay` with `MAIN_DIGESTS` unchanged,
+    `check:deal-parity`, `check:spins-modes`, `check:spins-modes-contract`, `check:respin-modes`,
+    `check:bonus-modes-tools`, `check:flow-bonus-modes`, `check:win-text-bonus-modes` and
+    `check:freespins`.
+  - **Guides:** `docs/tools/` for the Scene Editor, Flow v2, Win Text and `/symbols`.
+  - **Still owed:** a live browser playtest of a spins mode's screens, tab and counter swap (7c);
+    per-mode win tiers (a `/config` contract, after 8b).
+
+- 2026-10-09 — **Phase 8a: a spins bonus mode of any game type** (PR #1151; `game-config`
+  `spinsGame.ts`, `potsOverlayMock.ts`; `scripts/mock-rgs-server.mjs`, `mock-pots-overlay.mjs`;
+  facade `engineFacade.ts`, `potsOverlay.ts`; `engine-game` `gameConfig.ts`, `modeController`;
+  `apps/lines` `stateModes.svelte.ts`).
+  - **What landed:**
+    - **Contract.** A `reels` mode of the project's own may carry `spins: { spins, winModel?,
+      numReels?, numRows?, paylines?, paytable? }`: N spins of that game. Anything it leaves out is
+      the host's (`spinsGameView`), so an imported free spins is a reels mode without `spins`, as
+      before. Its strips stay `paddingReels[gameType]`, its symbols the one dictionary. Normalize
+      stores it sparse; validation measures its strips against its own grid and asks that its game
+      can pay (the doc's own checks now share `winModelIssues`, same messages, same order).
+    - **Routes.** A pot, a buy, a Lucky Spin or a random metre may start a spins game; the coin
+      count, a pattern and a meter count coins, so they start only a respin game (their own error;
+      every existing message is unchanged).
+    - **Mock.** `reelsModeMockInput` gives a spins mode its `game` and, for a buy / Lucky Spin /
+      random metre, its `trigger` in the legacy shape, which 7a's `startBonus` dispatches. The lines
+      mock's `startFreeSpins({ game })` deals exactly `game.spins` spins on the mode's grid from its
+      strips, paid by its own model at its own prices, with no retrigger, then returns.
+    - **Wire.** The free-spins events, unchanged, with `mode`. One addition:
+      `potsOverlay.modes[<id>].window` (`reels`, per-reel `rows`) when the mode has a game of its own;
+      the facade clamps that mode's reveals to it (`docs/reference/hold-and-win-wire.md`).
+    - **Runtime.** While a spins mode is on top, `activeGrid` / `boardDimensions` / `activeWinModel` /
+      `getPaylines` / `getNumLines` / `paylineColor` / `initialBoard` answer for its game. The mode is
+      read through a reactive reader the mode stack binds (`bindActiveMode`); a doc with no spins mode
+      never reads it. `createModeController` gained `onStack`, on which `syncSpinsBoard` rebuilds the
+      board when the spins game on screen changes: entry, exit, a round's reset and a resume's
+      restore — never mid-spin.
+  - **Gates:** `check:spins-modes` (real mock, facade, compiled mode controller and the shipped
+    `syncSpinsBoard`): blue pot → WAYS 6×4 plays 5 spins paid by ways only; buy → CLUSTER 7×7 plays
+    4 spins paid by clusters at its own price; the host's own free spins stay 5×3, lines, `freegame`;
+    the board is rebuilt exactly on entry and exit, once on a resume mid-mode; every committed
+    default answers the grid / board / model / payline / divisor / colour / initial-board accessors
+    identically with the stack bound and unbound, with no rebuild. `spinsGame.fixture.ts` pins
+    parity and the contract. `check:holdandwin`, `check:pots-overlay`, `check:freespins`,
+    `check:respin-modes`, `check:bonus-modes`, `check:resume`, `check:lines-parity` pass.
+  - **Hub review round** (#1151 @ 2c299a7):
+    - A spins game plays only on a host that deals it: the lines mock says so (`host.spinsGames`) and
+      the overlay advertises a `window` only then; `/config` refuses a spins mode on a Book-of or Hold
+      and Win game (`spinsModeKindIssues`, beside `undealtRouteWarnings`).
+    - Validation: an own-grid spins mode may not share another mode's strip key; its strips are
+      measured once; a spins mode may not be a dropping mode; a pot's `spins` on one is warned
+      (it plays its own count).
+    - The contract leaves no empty overlay when a clashing mode was all that composed it.
+    - `check:spins-modes` now builds the board with the engine's real `createGameState` and its
+      `rebuildBoard` (in place, the array the spinning board closes over); `check:spins-modes-contract`
+      plays a bought CLUSTER round and a random-metre LINES round (its own paylines) through the
+      launcher's contract and the test server's `validGrid` + `makeMock`.
+    - Still owed: a live playtest of the board swap in a browser (7c).
+  - **For 8b:**
+    - `/config`'s strip-width readout (`+page.svelte`, `gameTypes.some(… !== doc.numReels)`) measures
+      every game type against the base grid; a spins mode on its own grid must be measured against
+      its own.
+    - `/config`: a Bonus modes entry for a spins mode — its game type, grid, paylines, own pays, spin
+      count and strips (`paddingReels[<gameType>]` on its own grid), and the route pickers offering a
+      spins mode to pots, buys, Lucky Spin and random metre only.
+    - Scene Editor: `<ref>-<modeId>` screens for a spins mode (free-spin intro / outro / counter
+      seeded per mode), and a board layout for its grid (the reel grid node sizes from
+      `boardDimensions`, which already follows the mode).
+    - Flow v2: the reels vocabulary on a spins mode's tab (it plays as free spins in that mode:
+      `freeSpinTrigger.mode`, `freeSpinEnd.mode`).
+    - Win Text: a spins mode's lines (`modes[<id>]`), and its own win tiers if wanted.
+    - `/symbols`: per-mode symbol bindings for the symbols only it deals.
+    - Game Maker "Add a bonus mode…" from any project's BASE game: copy its `winModel`, grid,
+      paylines and pays explicitly into `spins` (so an imported mode is self-contained), its strips
+      to a new game type, its symbols `_2`-renamed, and `importableFeatures` offering the base game.
+    - The info page / paytable for a spins mode (today it shows the base game's).
+- 2026-10-09 — **Phase 7a: the overlay over any base, every route plays, per-mode pools** (PR #1152).
+  Touched: game-config, the four mocks, the test server, the launcher contract, the facade,
+  `apps/lines` pools, `/config` base coins, the Game Maker dialog text, and the guides
+  `docs/tools/game-maker.md` and `game-config.md`.
+  - **What landed:** "Phase 7a" in Decisions & findings.
+  - **Gates:**
+    - New `pnpm --filter launcher-api check:deal-parity`. It runs 38 current shapes through the
+      contract and a seeded deal on the REAL test-server factory (`validGrid` + `makeMock`, moved to
+      `services/test-server/makeMock.mjs`): the authoring twin's natural, forced and feature rounds,
+      the players' mock, and bought rounds on every buy. The shapes, under their stored kinds:
+      - the 3 presets, the 5 fixtures and the 3 templates;
+      - lines, ways, scatter and cluster;
+      - Book of Thermopylae under lines and bookOf;
+      - the 3 overlay presets on lines and on Book-of;
+      - `borut-pots-sample` and the flagged lines + 3 Pots + coin-on-a-base-strip;
+      - an imported bonus;
+      - a Hold and Win with a second mode;
+      - Phase 6's added mode on lines and Book-of;
+      - the Hold and Win template under the lines kind;
+      - a Hold and Win kind with no rules;
+      - the sweep of a respin block on another kind with no route main ignored (7 variants).
+
+      All 38 are byte-identical to digests measured on main 7db698b through main's own factory. The
+      5 changed shapes (above) are pinned to their new digests, and each is shown to start the bonus
+      main never dealt.
+    - `check:respin-modes` 220/0, REAL mocks + REAL facade.
+      - **§7, a LINES host** (coin overlay, its free spins, two respin modes) plays:
+        - red pot → mode 1 (Automatic, never parks);
+        - buy → mode 2 (Manual, parks before every respin, never under autoplay; no free spins);
+        - Lucky Spin → mode 2;
+        - scatters → free spins.
+
+        Each feature has its own rules, strip, screens and Win Text. A shared progressive tier keeps
+        a pool per mode, and the dropped coins carry the authored base value.
+      - **§8, a HOLD AND WIN BASE** (Classic) plus a pots overlay and the Collector as a second mode:
+        - its reels → its own feature, unchanged;
+        - red pot → that mode;
+        - green pot → the Collector;
+        - reels and green pot in one round → base feature first, then the Collector;
+        - blue pot → free spins.
+      - **§8, a resume** mid the pot's mode 2, after the base feature: a fresh `config` reopens it
+        (`resume: true`), play goes on at the same `seq` and `gid` to one `gameEnd`, and the collect
+        pays it once. **An abandoned round** (a fresh `bet` mid a pot's feature) is credited the whole
+        win playing it out pays.
+      - **§8, the plain Hold and Win game** (no jackpots, no board end, no overlay): coins →
+        respins → a paying end, and no jackpot event.
+      - **The dispatch:** a buy routed to a spins mode starts it through `startFreeSpins` with
+        `game` untouched; a pot to a host-registered mode starts it through its hook.
+      - **Mutations that turn it red:** buy routes off (8), pools by name (2), base coins ignored
+        (1), no hand-over after the base feature (13), no shared engines (crash), no overlay
+        play-out on an abandoned round (1).
+    - `check:add-bonus-mode` §3: a buy route into a plain lines host is taken, and its bought round
+      deals the respin mode.
+    - `check:config-bonus-modes` §1 and §4:
+      - no base coin values are written unless authored;
+      - a buy warns only on Book-of;
+      - a meter warns on an overlay host.
+    - `potsOverlay.fixture` and `imports.fixture` follow the narrowed refusals.
+    - `check:holdandwin` 1892/0 + 428/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS`
+      unchanged.
+    - These pass: `check:mock-contract` (main's, unchanged), `check:freespins`, `check:bonus-modes`,
+      `check:resume`, `check:bonus-import`, `check:flow-bonus-modes` 88,
+      `check:win-text-bonus-modes` 73, `check:bonus-modes-tools` 82, `check:unused-symbols-in-game`
+      and `check:book-of-migration`.
+    - `check:svelte` is at baseline: launcher-api 48, lines 164, engine-game 37.
+    - ESLint and Prettier are clean on the touched code.
+  - **Not run here:** the live samples need R2 and the browser. CI's Current games renders them.
+
+- 2026-10-09 — **Phase 6b: the plain Hold and Win template, jackpots optional** (PR #1153,
+  game-config `holdAndWinPresets.ts`, launcher `projectScaffold.ts`, `gameConfigDefaults.ts`,
+  `/game-maker`, `/admin`).
+  - **What landed:**
+    - Create → Hold and Win shows **Jackpots: On / Off** instead of the Pots / Classic / Collector
+      preset picker, and creates the plain game. `/admin`'s create does the same (Jackpots on).
+    - The new committed defaults are `holdAndWin.plain.json` (`gameID` `hold_and_win_plain_jp`) and
+      `holdAndWin.plainNoJackpots.json` (`hold_and_win_plain`). The three preset JSONs are
+      byte-unchanged.
+    - `/config` → Reset to preset lists **Plain (Jackpots on)** and **Plain (Jackpots off)** before
+      the three presets. "Reset to template default" stays the kind's legacy default and now reads
+      "(Pots)": that is what a never-saved Hold and Win project plays, so no project's behaviour
+      changes.
+    - The Scene Editor's "Add missing screens" no longer puts the template's dropped screens back.
+      There is no pots screen without pots (the config's empty meter list already did that), and no
+      Jackpot bar when no respin mode has a jackpot tier: engine-layout's new `jackpotBar: false`
+      scene-set option, fed by launcher `noJackpotTiers` in `sceneSetOptionsFor` and the editor.
+    - The scaffold throws rather than write a plain project without its config, and the dropped
+      screens' Flow nodes take their data edges with them.
+    - Guides: `docs/tools/game-maker.md` and `docs/tools/game-config.md` (docs-keeper, then the
+      review fixes).
+  - **Gates:**
+    - `check:add-bonus-mode` §5, for Jackpots On and Off:
+      - the stored config is the template, normalizes and validates clean;
+      - it has one respin mode and no pots, meters, drops or special roles;
+      - the tiers follow the choice (`respinModesOf().jackpotTiers` empty when Off), as do the board
+        end and the `jackpotBar` screen, and there is never a `pots` screen;
+      - the Flow has no error and no `container-scene-missing`;
+      - on the Hold and Win mock, 20 forced-trigger rounds each start the respins, play at least 3
+        and pay the coins' total. Across them coins land on a respin, and a jackpot coin is dealt
+        only with On;
+      - each overlay the plain game is offered adds cleanly;
+      - the editor's missing set is empty on both, and the add-on's set has the Jackpot bar only
+        with On;
+      - Reset to preset lists the two Plain entries first.
+
+      Mutations that turn it red: screens not dropped (2), Flow not stripped (2), Off seeded as On
+      (3), `noJackpotTiers` off (1), the reference layout ignoring `jackpotBar: false` (1).
+    - `holdAndWin.fixture.ts` (the facade) adds `plain` trigger / fullBoard and `plain-no-jackpots`
+      trigger / chain through the real facade and mock. On Off: no jackpot event or cell, every
+      total finite, no pools published. Pointed at On's full board, the jackpot check fails.
+    - `check:lines-presets` pins the new preset order, and `expandingSymbol.fixture.ts` pins the two
+      new defaults.
+    - `check:holdandwin` 2078/0 + 428/0 and `check:pots-overlay` 112/0, with `MAIN_DIGESTS`
+      unchanged.
+    - `check:all` 420/420. `check:svelte` launcher-api is at its baseline of 48,
+      `check:undefined-names` is clean, and eslint and prettier are clean on the touched TS files.
+      `game-maker/+page.svelte` keeps three pre-existing prettier wraps from main untouched.
+  - **Not run here:** the browser playtest and CI's Current games. No stored config or sample
+    changes, so Current games should show 0 changed screens.
+
+- 2026-10-08 — **Phase 6: Game Maker template + "Add a bonus mode…"** (PR #1149, `game-config`
+  `imports.ts` / `bonusImports.ts`, launcher `projectBonusImport.ts`, `projectScaffold.ts`,
+  `projectAddOn.ts`, `/game-maker`, `/api/game-maker/import`).
+  - **What landed:**
+    - The Hold and Win template writes the split form (a lines base game, a coin overlay, and one
+      `holdAndWin` mode with the preset's rules).
+    - **Add a bonus mode…** is on every card. It copies any respin mode with rules of a same-client
+      project as a NEW mode (`_2` on a clash), with its rules (`play` included), strips, symbols, art,
+      `-<mode>` screens, Flow tab and Win Text, routed to the pots, triggers, meters or buy tiers the
+      author ticks.
+    - Re-sync updates that mode alone.
+    - **＋ Coin overlay…** replaces "＋ Pots overlay…", with a style picker.
+    - Guides: `docs/tools/game-maker.md`, `docs/guides/add-pots-overlay.md` and
+      `docs/tools/game-config.md` (docs-keeper).
+  - **Gates:**
+    - new `pnpm --filter launcher-api check:add-bonus-mode`, over the real import, scaffold, add-on and
+      stores on an in-memory R2:
+      - `hw-classic-sample` (set to Manual) into a 3 Pots Book-of host that has `holdAndWin` becomes
+        `holdAndWin_2`, with its rules and `play`, renamed symbols and art, `featureIntro-holdAndWin_2`…
+        screens, a rehomed Flow tab that publishes clean with no new warning, Win Text under
+        `modes.holdAndWin_2`, pot `green` routed to it, and nothing else of the host moved;
+      - a re-sync after a source edit moves only `holdAndWin_2`;
+      - a `/config` rename to `gold`, then a re-sync, leaves no orphan or duplicate, and names the
+        copied tab's missing cinematic;
+      - a plain lines host with no overlay refuses a buy route (its mock would not deal it before
+        Phase 7) and refuses no route ("add a coin overlay with pots first"); after "＋ Coin overlay…
+        → 3 Pots" it takes the mode on a pot route;
+      - a second unstarted mode saves;
+      - template and add-on parity.
+
+      Mutations that turn it red: no `-<mode>` screen naming (2), Flow mode triggers not rehomed (1),
+      the re-sync not dispatched on `asMode` (1), the route guard off (4), the rename's stale id
+      never cleared (1).
+    - `imports.fixture.ts` §9.
+    - `check:holdandwin` 1892/0 + 428/0 and `check:pots-overlay` 112/0, both with `MAIN_DIGESTS`
+      unchanged;
+    - `check:freespins` and `check:respin-modes` 141/0 pass;
+    - `check:bonus-import`, `check:pots-overlay-add-on`, `check:flow-bonus-modes` 88, `check:win-text-bonus-modes` 73,
+      `check:bonus-modes-tools` 82, `check:config-bonus-modes`, `check:mock-contract`,
+      `check:game-config-defaults`, `check:symbols-kind-gating`, `check:flow-publish-gate` and
+      `check:launcher-gates` pass;
+    - `check:all` 419/419 (plus the new gate, which it now discovers), `check:svelte` launcher-api
+      is at its baseline of 48, and lint is clean on the touched files.
+  - **Not run here:** the live samples need R2 and the browser playtester. CI's Current games renders
+    them. No current game's stored config changes: the template affects new projects only, and the
+    add-on's and import's old paths normalize byte-identically.
+
+- 2026-10-08 — **Phase 5c: the Flow v2 vocabulary keyed on the board** (PR #1147,
+  `game-config`, `engine-flow-v2`, `/flow-v2`).
+  - **What landed:**
+    - `flowAddOnsOf` reads the split form (`bonusCapabilityInputs` + the new `respinModeIds`, on
+      `respinModeDecls`: the one "respin modes with rules, primary first" list that
+      `respinModeBlocks` and the launcher's `respinModesOf` now build on too), so
+      Flow no longer reads the legacy mirror. It adds `respinModes` (the primary first) only when the
+      set is not the lone `holdAndWin`, so every current doc's add-ons are byte-identical.
+    - `graftAddOnSteps` ("＋ Add overlay steps") seeds a Hold and Win starter section for EVERY
+      respin mode the flow has no tab for. `holdAndWinModeGraph(prefix, modeId)` names its Mode
+      triggers for that mode and shows that mode's `-<modeId>` screens (`modeScreenId`); the prefixes
+      (`hw`, `hw2`, …) keep node ids unique, and missing containers are declared at the reference z.
+    - Tabs by board: a respin mode's tab (`isRespinTab`) is offered and accepts the whole vocabulary.
+      Any other mode tab's palette leaves out the events that fire only inside a respin feature
+      (`vocabForTab`; `jackpotWin`, `holdAndWinTrigger` and `holdAndWinWheel` stay, since they can
+      arrive outside it), and one
+      handled there is a new `respin-event-off-board` WARNING (`respinTabIssues`, added by the editor
+      and the publish gate). A warning, so nothing that published before is refused.
+    - The `mode` field descriptions of `respinReveal` and `holdAndWinState` read "absent ⇒ the
+      primary respin mode" (editor text only). They are the one difference in a current doc's
+      vocabulary.
+    - **Runtime:** nothing to change. The interpreter hands a signal to `stateModes.active()`'s
+      section, the Hold and Win beats read `activeRespinMode()`, and the banners and reserved
+      screens find the active mode's copy (Phase 4). The gate pins the mode-2 graph running while
+      mode 2 is on the stack.
+  - **Gates:** new `pnpm --filter launcher-api check:flow-bonus-modes` (88 checks): a lines doc with two
+    respin modes (both tabs seeded, distinct node ids, per-mode screens that are all in the scene set,
+    publishes clean and warning free, idempotent graft); the runtime predicates per mode; tabs by
+    board; a second mode on the `holdAndWin` kind; and byte-identical add-ons, grafted seed and
+    publish verdict to `main` for 12 current docs (`MAIN_DIGESTS`). Their vocabulary is
+    byte-identical except the two reworded descriptions: the gate pins the new wording on exactly
+    those two fields and hashes them as `main` words them. `check:bonus-modes-tools`' "before" baseline now reads the legacy
+    keys directly, since `flowAddOnsOf` no longer does.
+  - **What's left:** nothing for 5c. Phase 6's "Add a bonus mode…" gets the new mode's Flow tab from
+    the graft (or seeds it itself with `holdAndWinModeGraph(prefix, modeId)`).
+
+- 2026-10-08 — **Phase 5d: Win Text and Localization per respin mode** (PR #1146, `engine-layout`
+  `winText.ts`, launcher `winTextStorage.ts` / `/win-text` / `localizationHarvest.ts` /
+  `projectBonusImport.ts`, `apps/lines` `holdAndWin` text).
+  - **The shape.** `WinTextDoc.modes?: Record<modeId, WinTextModeLines>` holds every respin mode but
+    the PRIMARY: its `jackpots` (captions + banners), `respins`, `wheel` and the feature's frame
+    (`WIN_TEXT_MODE_FEATURE_FIELDS`: total, intro, outro). The primary's lines stay the top-level
+    families, so a one-mode doc never carries the key: no migration, the stored JSON unchanged.
+    The pot lines and the special / collector / pot names stay game-wide (they are the overlay's).
+  - **Fallback.** `resolveWinTextForMode(doc, mode)` puts a mode's own lines over the primary's
+    resolved ones, field by field; `undefined` is the primary (`resolveWinText`).
+  - **Runtime.** `holdAndWinText.ts` reads the counter, jackpot, wheel and total/intro/outro lines
+    through `bakedWinTextFor(<active mode>)` (`activeRespinMode()`, the primary as `undefined`). The
+    doc ships verbatim through both bundle paths, so `modes` travels export → bake → pull with no new
+    step.
+  - **`/win-text`.** With several respin modes an "Editing" picker chooses the mode; tiers and the
+    wheel come from that mode's rules (`winTextRespinModes`, `respinModeBlocks` → `decl.holdAndWin`,
+    never the mirror). A non-primary mode edits only its total / intro / outro feature lines.
+  - **Localization.** `harvestProjectWinText` (shared by every harvest caller) keeps the "Win text"
+    section and adds `Win text — <mode>` (`__winText:<mode>`) per other mode, listing what the player
+    reads there, inherited lines included.
+  - **Import.** As the target's primary: today's family replace. As another respin mode:
+    `mergeImportedModeWinText` writes `modes[<mode>]` from `spokenModeLines(source, sourceMode)` and
+    replaces no family. That branch is unreachable until Phase 6 can import a second respin mode.
+  - **Hub review (one push):** a /win-text panel re-homes the lines of a mode that no longer exists;
+    a save keeps a newer build's fields inside `modes[<id>]`; the page reads a mode's lines by own
+    key only (`constructor` is a valid mode id); Localization names a mode's section by its label;
+    an import copies only the receiving mode's tier captions.
+  - **Gates:** new `check:win-text-bonus-modes` (73 checks, mutation-tested). It runs the real
+    `saveWinTextDoc` over an in-memory R2, the runtime bundle's `winText` step (`shippedWinText`),
+    and the game's own selection sliced from `apps/lines` (`modeWinText`, `isPrimaryRespinMode`,
+    `bakedWinTextFor`). `check:bonus-import` gained the per-mode merge case.
 
 - 2026-10-08 — **Phase 4: the engine runtime plays the active respin mode** (PR #1141, `apps/lines`,
   `engine-game` `playBook.ts`, game-config).

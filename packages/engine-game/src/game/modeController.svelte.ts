@@ -20,6 +20,11 @@ export type ModeControllerDeps = {
 	 * authored intro finishes before the mode's first book event plays.
 	 */
 	present?: (transition: ModeTransition) => void | Promise<void>;
+	/**
+	 * The stack just changed (a step, a reset or a restore), before any transition is presented —
+	 * where a board sized by the mode on screen is rebuilt (a spins bonus mode's own grid).
+	 */
+	onStack?: () => void;
 };
 
 /**
@@ -59,6 +64,7 @@ export function createModeController(deps: ModeControllerDeps) {
 
 	const present = async (step: ModeStep, op: ModeOp | undefined): Promise<void> => {
 		state.current = step.state;
+		deps.onStack?.();
 		for (const transition of step.transitions) {
 			// The free-spin aliases' own handlers write the game type, each at its own moment (the
 			// coded trigger, or the flow's `setFreeGameType` after an intro). Writing it here too would
@@ -112,6 +118,7 @@ export function createModeController(deps: ModeControllerDeps) {
 		reset: (): void => {
 			state.current = emptyModeStack();
 			deferred.length = 0;
+			deps.onStack?.();
 		},
 		/**
 		 * Rebuild the stack from the mode events a resume snapshot kept, with NO transitions — a reload
@@ -121,6 +128,7 @@ export function createModeController(deps: ModeControllerDeps) {
 		restore: (bookEvents: readonly { type: string }[]): void => {
 			const ops = bookEvents.map(modeOpOf).filter((op): op is ModeOp => op !== undefined);
 			state.current = restoreModes(ops);
+			deps.onStack?.();
 			const top = activeModeId(state.current);
 			const lastEnter = [...ops].reverse().find((op) => op.op === 'enter' && op.id === top);
 			if (lastEnter && !lastEnter.legacyGameType) deps.setGameType(deps.gameTypeOf(top));

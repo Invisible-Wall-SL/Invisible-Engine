@@ -693,6 +693,7 @@ export function createMockRgs(opts = {}) {
 				freeSpinsMode: 'freeSpins',
 				freeSpinsOn,
 				startFreeSpins,
+				bonusModes: opts.bonusModes,
 			})
 		: null;
 
