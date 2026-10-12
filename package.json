@@ -75,11 +75,11 @@
 		]
 	},
 	"devDependencies": {
-		"@aws-sdk/client-s3": "^3.1146.0",
+		"@aws-sdk/client-s3": "^3.1148.0",
 		"@jridgewell/trace-mapping": "0.3.31",
 		"pixelmatch": "7.2.0",
 		"pngjs": "7.0.0",
-		"svelte": "5.57.1",
+		"svelte": "5.57.2",
 		"svelte2tsx": "0.7.61"
 	}
 }

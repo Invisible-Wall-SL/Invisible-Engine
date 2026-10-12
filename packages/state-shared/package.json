@@ -16,7 +16,7 @@
 		"config-lingui": "workspace:*"
 	},
 	"dependencies": {
-		"svelte": "5.57.1",
+		"svelte": "5.57.2",
 		"@sveltejs/kit": "2.70.3",
 		"utils-bet": "workspace:*",
 		"constants-shared": "workspace:*",
