@@ -3,7 +3,7 @@ Pillow>=12.3.0
 # (1.35.0 has neither precondition; 1.35.4-1.35.68 have IfNoneMatch only). A
 # resolver that picked a lower floor would ParamValidationError at RUNTIME, and
 # every catch site turns that into a silently wrong answer, not a crash.
-boto3>=1.43.108
+boto3>=1.43.110
 # The shared semantic taxonomy is YAML, and `shared_taxonomy.validate` is the only place a
 # typo in it is ever visible: the ComfyUI node's own behaviour is to fall back to a much
 # smaller built-in vocabulary and carry on, so an unchecked save fails silently at render
