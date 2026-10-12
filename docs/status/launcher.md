@@ -59,6 +59,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-12 — **The per-file-limit refusal fits its advice to the file type** (desktop launcher,
+  `invisible-launcher` repo, `oversize_advice()`; ships in the next launcher release). It always said
+  *Tick 🗜 Optimize*, but since v1.0.56 Optimize leaves WebPs untouched, so a 34 MB background WebP
+  was refused again after ticking it. Now a PNG gets the Optimize advice, a WebP/JPEG is told to
+  re-export smaller, and anything else gets only the `BODY_SIZE_LIMIT` route. The runbook has a
+  *Shrinking an oversized image* section ([guides/publisher-runbook.md](../guides/publisher-runbook.md)).
 - 2026-10-08 — **`/admin` sets and clears the table-capable stamp** (book-feature Phase 6, §6 step
   5; runbook step 1 in [game-config.md](game-config.md) "Book-of migration"). Projects → **Desktop
   builds: table-capable stamp**, under the Book-of migration, lists every own-bundle (no shared

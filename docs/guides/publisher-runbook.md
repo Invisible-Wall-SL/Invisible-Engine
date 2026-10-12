@@ -61,7 +61,7 @@ takes seconds; a flow or paytable override rebuilds.
 | Message | Do this |
 | --- | --- |
 | *needs "Build & publish games" (gamePublish)* | ask an admin for the capability |
-| *N file(s) are over the portal's … MB per-file limit* | tick **🗜 Optimize** and publish again (it re-encodes PNG pages as WebP) |
+| *N file(s) are over the portal's … MB per-file limit* | a **PNG**: tick **🗜 Optimize** and publish again (it re-encodes PNG pages as WebP). A **WebP or JPEG**: Optimize leaves it as is, so re-export it smaller (see below), replace it in the project and publish again. Otherwise ask the owner to raise `BODY_SIZE_LIMIT` (the portal never takes a file over 64 MB). |
 | *'…' is published ONLINE by the Invisible Game Maker* | give the desktop build its own cloud key (e.g. `<game>build`) in Edit → Cloud publish |
 | *Session expired — sign in again* | sign in from the header and press ☁ Publish again. The unchanged files are skipped, so the retry is quick. |
 | *Uploaded, but the live server hadn't caught up* | wait a minute and reopen the game. The build is already in the cloud. |
@@ -73,6 +73,20 @@ Optimize makes the upload smaller without changing how the game looks. PNG atlas
 **near-lossless WebP**, the setting the engine's page store uses: each pixel moves by at most
 4/255, and there is no banding. Pages the server already encoded are left untouched, other PNGs are
 re-packed losslessly, and audio is trimmed to mp3. Log: `%TEMP%\iw_optimize.log`.
+
+## Shrinking an oversized image
+
+A file over the per-file limit is almost always a background or splash saved far bigger than the
+game shows it. Open the source in your image editor and:
+
+1. **Resize it to the size the game displays it**: the game's design resolution (e.g. 1920×1080),
+   2× that at most. Pixels beyond that are never seen.
+2. **Export as lossy WebP at about quality 85.** Not lossless: a lossless WebP is often as big as
+   the PNG. Photoshop: *File → Export → Export As… → WebP* (or *Save a Copy → WebP*, "Lossy").
+   GIMP: *File → Export As… → `.webp`*, untick *Lossless*. Command line:
+   `cwebp -q 85 -resize 1920 0 in.png -o out.webp`.
+3. Keep the **same file name and path**, replace it in the project (or in the tool it came from),
+   and publish again. A full-screen background usually lands well under 2 MB.
 
 ## For the owner
 
