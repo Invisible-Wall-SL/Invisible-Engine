@@ -114,6 +114,7 @@ yet shipped an authored cinematic through a `playCinematic` node.
 
 ## Open items / next
 
+0. **Proposed (2026-10-08, owner review):** the Cinematic timeline becomes the ONE timeline system — node actors, component/screen hosts, a shared sequencer module mounted by `/rigger` and `/editor`. Plan: [rive-style-editor.md](../design/rive-style-editor.md) §3.
 1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
    but only with a probe doc injected into the runtime bundle and started from the flow handle. No
    authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
