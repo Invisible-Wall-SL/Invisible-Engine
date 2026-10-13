@@ -245,7 +245,11 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
 
 - **Inputs** absorb what `signals` do for behaviour: a signal reads as a trigger input
   (`componentInputs(def)` folds the two — §12 #4), and an engine value source (`winAmount`) can
-  feed a number input (`source`).
+  feed a number input (`source`). An input's `id` IS its wire contract (the name the game, a Flow
+  `fireCue`, a rig `completeSignal` and Phase 7's pins use), so it has no display name: renaming
+  an input is delete + add, and fields a newer build added to it are not kept (owner 2026-10-13).
+  Layers, states and transitions keep their ids across renames (a display `name` on layers and
+  states), which is what the keep-unknown-fields save grafts on.
 - **Listeners** are a node field: `on: 'down' | 'up' | 'enter' | 'leave' | 'click'` sets an input or
   fires a trigger. Button `stateAnimations` become a seeded state machine.
 - The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.
@@ -443,7 +447,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
 | 3 | **Animate a screen** — built 2026-10-13, owner browser check pending | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
 | 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
-| 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) built 2026-10-13; 5b (the editor) next | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
+| 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |

@@ -34,8 +34,10 @@
 		WHEEL_DEF,
 	} from 'engine-layout';
 	import type {
+		CinematicHost,
 		ComponentCategory,
 		ComponentDef,
+		ComponentInput,
 		ComponentInstanceNode,
 		ComponentParam,
 		ContainerNode,
@@ -44,7 +46,7 @@
 		Scene,
 	} from 'engine-layout';
 	import { onMount, untrack } from 'svelte';
-	import { askConfirm, dialogQueue } from '$lib/dialogs.svelte';
+	import { askConfirm, askMessage, askText, dialogQueue } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ComponentList from './ComponentList.svelte';
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
@@ -53,7 +55,16 @@
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
-	import { componentTimelineSignals } from '$lib/timeline/screenTimeline';
+	import EditorStateMachinePanel from './EditorStateMachinePanel.svelte';
+	import {
+		addInput,
+		inputUsage,
+		removeInput,
+		renameInput,
+		setInputDefault,
+		setInputSource,
+	} from '$lib/timeline/stateMachineEdit';
+	import { componentTimelineSignals, componentTimelinesOf } from '$lib/timeline/screenTimeline';
 	import type { RigMeta } from './rigRuntime.client';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
@@ -967,6 +978,14 @@
 	 *  across components), so leaving Animate or the component never drops an unsaved timeline — the
 	 *  panel saves it when the host changes, as on a screen. */
 	let animateVisited = $state(false);
+	/** Animate's two panels, Rive-style tabs: the Timeline, or the State Machine (Phase 5b). */
+	let animateTab = $state<'timeline' | 'stateMachine'>('timeline');
+	/** A state card asked for its timeline: the Timeline tab opens it. */
+	let timelineOpenRequest = $state<{ id: string; nonce: number } | undefined>(undefined);
+	function openTimelineFromStateMachine(id: string): void {
+		animateTab = 'timeline';
+		timelineOpenRequest = { id, nonce: (timelineOpenRequest?.nonce ?? 0) + 1 };
+	}
 	/** The host the panel animates: the open component, kept after it closes so the panel can still
 	 *  save what it holds. */
 	let timelineScene = $state<Scene | undefined>(undefined);
@@ -1689,19 +1708,125 @@
 
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. Off removes it from
 	 *  `signals` and from a `trigger` input of that id alike; on declares it in `signals`. */
-	function toggleComponentSignal(key: string): void {
-		if (!componentDraft) return;
+	async function toggleComponentSignal(key: string): Promise<void> {
+		if (!componentDraft || isInspecting) return;
+		const componentId = componentDraft.id;
 		const signals = componentDraft.signals ?? [];
 		const inputs = componentDraft.inputs ?? [];
 		const has =
 			signals.some((s) => s.key === key) ||
 			inputs.some((i) => i.id === key && i.kind === 'trigger');
+		// Un-ticking is removing the input: the same warning × gives.
+		if (has && !(await confirmInputRemoval(componentDraft, key))) return;
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
 		componentDraft.signals = has ? signals.filter((s) => s.key !== key) : [...signals, { key }];
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
 		if (has && inputs.length) {
 			componentDraft.inputs = inputs.filter((i) => !(i.id === key && i.kind === 'trigger'));
 			if (componentDraft.inputs.length === 0) delete componentDraft.inputs;
 		}
+	}
+
+	// ---- Inputs (Rive plan Phase 5b; plan §12 #4): bool / number inputs live in `inputs`, a
+	// trigger is a declared signal (the catalog picker above) or an `inputs` row of kind trigger.
+	const draftInputs = $derived(componentInputs(componentDraft));
+	/** The component as last loaded or saved — the State Machine panel never reuses its ids. */
+	const savedDef = $derived(savedSnapshot ? (JSON.parse(savedSnapshot) as ComponentDef) : null);
+	function addComponentInput(id: string, kind: ComponentInput['kind']): void {
+		if (!componentDraft || isInspecting) return;
+		if (!addInput(componentDraft, id, kind)) {
+			void askMessage({ title: 'Input not added', message: `"${id}" is already an input.` });
+		}
+	}
+	/** True to go ahead: nothing reads the input, or the author confirmed knowing what does. */
+	async function confirmInputRemoval(draft: ComponentDef, id: string): Promise<boolean> {
+		const used = inputUsage(draft, id);
+		if (!used.length) return true;
+		return askConfirm({
+			title: `Remove input "${id}"?`,
+			message: `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`,
+			confirmLabel: 'Remove',
+			danger: true,
+		});
+	}
+	async function removeComponentInput(id: string): Promise<void> {
+		if (!componentDraft || isInspecting) return;
+		const componentId = componentDraft.id;
+		if (!(await confirmInputRemoval(componentDraft, id))) return;
+		// The dialog awaited: the removal lands only on the component it was asked on.
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
+		removeInput(componentDraft, id);
+	}
+	/** The timelines of component `componentId` that play on `signal` (4b `playOn`), by name — a
+	 *  rename breaks them. Throws when any read fails, so the dialog never under-reports. */
+	async function timelinesPlayingOn(componentId: string, signal: string): Promise<string[]> {
+		const project = encodeURIComponent(data.projectKey);
+		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
+		if (!res.ok) throw new Error(`list: ${res.status}`);
+		const rows = componentTimelinesOf(
+			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
+				.cinematics,
+			componentId,
+		);
+		const docs = await Promise.all(
+			rows.map(async (row) => {
+				const r = await fetch(
+					`/api/cinematics/get?id=${encodeURIComponent(row.id)}&projectKey=${project}`,
+				);
+				if (!r.ok) throw new Error(`"${row.name || row.id}": ${r.status}`);
+				const body = (await r.json()) as { doc: { playOn?: string } | null };
+				return body.doc?.playOn === signal ? row.name || row.id : null;
+			}),
+		);
+		return docs.filter((name): name is string => !!name);
+	}
+	async function renameComponentInput(id: string): Promise<void> {
+		if (!componentDraft || isInspecting) return;
+		const componentId = componentDraft.id;
+		// An input's id IS its wire contract — the name the game, a Flow fireCue, a rig completeSignal
+		// and the timelines' Plays on fire — so a rename is a delete + add of that contract.
+		const wires: string[] = [];
+		if (componentDraft.signals?.some((sg) => sg.key === id)) wires.push('a declared signal');
+		let playOn: string[];
+		try {
+			playOn = await timelinesPlayingOn(componentId, id);
+		} catch (e) {
+			void askMessage({
+				title: 'Could not check the timelines',
+				message: `The timelines that play on "${id}" could not be listed: ${e instanceof Error ? e.message : String(e)}. Try again.`,
+			});
+			return;
+		}
+		if (playOn.length) wires.push(`Plays on of ${playOn.map((n) => `"${n}"`).join(', ')}`);
+		const conditions = inputUsage(componentDraft, id).length;
+		const next = await askText({
+			title: 'Rename input',
+			label: 'Name',
+			value: id,
+			message: [
+				`"${id}" is the name the game and Flow fire it as. Renaming it is a delete + add: whatever fires "${id}" today stops reaching this component until it fires the new name.`,
+				wires.length ? `In use as ${wires.join(' and ')}.` : '',
+				conditions ? `${conditions} state-machine condition(s) will follow the rename.` : '',
+			]
+				.filter(Boolean)
+				.join(' '),
+		});
+		if (next === null || next.trim() === id) return;
+		// The dialogs awaited: the rename lands only on the component it was asked on.
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
+		if (!renameInput(componentDraft, id, next)) {
+			void askMessage({
+				title: 'Input not renamed',
+				message: `"${next.trim()}" is empty or already an input.`,
+			});
+			return;
+		}
+	}
+	function setComponentInputDefault(id: string, value: boolean | number): void {
+		if (componentDraft && !isInspecting) setInputDefault(componentDraft, id, value);
+	}
+	function setComponentInputSource(id: string, source: string): void {
+		if (componentDraft && !isInspecting) setInputSource(componentDraft, id, source);
 	}
 
 	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it
@@ -2261,7 +2386,11 @@
 			{/if}
 		</aside>
 
-		<main class="canvas-area" class:animating>
+		<main
+			class="canvas-area"
+			class:animating
+			class:tall={animating && animateTab === 'stateMachine'}
+		>
 			{#if componentDraft && componentScene}
 				<div class="canvas-slot">
 					<EditorCanvas
@@ -2296,14 +2425,49 @@
 				</div>
 			{/if}
 			{#if animateVisited}
-				<div class="timeline-slot" class:hidden={!animating}>
-					<EditorTimelinePanel
-						scene={timelineScene}
-						component={timelineComponent}
-						selectedId={selectedIds.at(-1) ?? null}
-						projectKey={data.projectKey}
-						active={active && animating}
-					/>
+				<div
+					class="timeline-slot"
+					class:hidden={!animating}
+					class:tall={animateTab === 'stateMachine'}
+				>
+					<div class="animate-tabs" role="tablist" aria-label="Animate panels">
+						<button
+							type="button"
+							role="tab"
+							class:on={animateTab === 'timeline'}
+							aria-selected={animateTab === 'timeline'}
+							onclick={() => (animateTab = 'timeline')}>Timeline</button
+						>
+						<button
+							type="button"
+							role="tab"
+							class:on={animateTab === 'stateMachine'}
+							aria-selected={animateTab === 'stateMachine'}
+							title="Which timeline plays when: states, transitions and the inputs that move between them."
+							onclick={() => (animateTab = 'stateMachine')}>State machine</button
+						>
+					</div>
+					<div class="animate-pane" class:hidden={animateTab !== 'timeline'}>
+						<EditorTimelinePanel
+							scene={timelineScene}
+							component={timelineComponent}
+							selectedId={selectedIds.at(-1) ?? null}
+							projectKey={data.projectKey}
+							active={active && animating && animateTab === 'timeline'}
+							openRequest={timelineOpenRequest}
+						/>
+					</div>
+					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
+						<EditorStateMachinePanel
+							def={componentDraft}
+							{savedDef}
+							scene={timelineScene}
+							projectKey={data.projectKey}
+							active={active && animating && animateTab === 'stateMachine'}
+							onChanged={() => (editNonce += 1)}
+							onOpenTimeline={openTimelineFromStateMachine}
+						/>
+					</div>
 				</div>
 			{/if}
 		</main>
@@ -2324,6 +2488,12 @@
 						componentParams={componentDraft.params ?? []}
 						componentRoot={componentDraft.root}
 						componentSignals={draftSignals}
+						componentInputs={draftInputs}
+						onAddInput={addComponentInput}
+						onRemoveInput={(id) => void removeComponentInput(id)}
+						onRenameInput={(id) => void renameComponentInput(id)}
+						onSetInputDefault={setComponentInputDefault}
+						onSetInputSource={setComponentInputSource}
 						componentSignalScope={componentDraft.signalScope}
 						componentSignalScopeKind={componentDraft.signalScopeKind}
 						gameType={data.gameType}
@@ -2351,7 +2521,7 @@
 						onUnexposeRigParam={unexposeRigParam}
 						onExposeImageParam={exposeImageParam}
 						onUnexposeImageParam={unexposeImageParam}
-						onToggleSignal={toggleComponentSignal}
+						onToggleSignal={(key) => void toggleComponentSignal(key)}
 						onSetSignalScope={setComponentSignalScope}
 						projectParamDefaults={projectDefaults}
 						onSetProjectParamDefault={setProjectParamDefault}
@@ -2675,18 +2845,53 @@
 		position: absolute;
 		inset: 0;
 	}
+	.canvas-area.animating.tall .canvas-slot {
+		bottom: 380px;
+	}
 	.canvas-area.animating .canvas-slot {
-		bottom: 280px;
+		bottom: 305px;
 	}
 	.timeline-slot {
 		position: absolute;
 		left: 0;
 		right: 0;
 		bottom: 0;
-		height: 280px;
+		/* The 4b panel's 280px plus the tab strip above it. */
+		height: 305px;
+		display: flex;
+		flex-direction: column;
 	}
-	.timeline-slot.hidden {
+	.timeline-slot.tall {
+		height: 380px;
+	}
+	.timeline-slot.hidden,
+	.animate-pane.hidden {
 		display: none;
+	}
+	.animate-pane {
+		flex: 1;
+		min-height: 0;
+	}
+	.animate-tabs {
+		display: flex;
+		gap: 2px;
+		padding: 0 10px;
+		background: #1b1d22;
+		border-top: 1px solid #363b45;
+	}
+	.animate-tabs button {
+		background: transparent;
+		color: #8b93a1;
+		border: none;
+		border-bottom: 2px solid transparent;
+		padding: 4px 10px;
+		font: inherit;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.animate-tabs button.on {
+		color: #7ee0c0;
+		border-bottom-color: #7ee0c0;
 	}
 	.mode-toggle {
 		display: inline-flex;

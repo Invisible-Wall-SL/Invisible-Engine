@@ -1470,6 +1470,13 @@ export interface SmState {
 	speed?: number;
 	/** Wrap at the end instead of holding the last frame. */
 	loop?: boolean;
+	/** Where the editor draws the state's card; the runtime ignores it. */
+	pos?: SmPoint;
+}
+
+export interface SmPoint {
+	x: number;
+	y: number;
 }
 
 export interface SmTransition {
@@ -1495,6 +1502,8 @@ export interface SmLayer {
 	entry: string;
 	states: SmState[];
 	transitions: SmTransition[];
+	/** Where the editor draws the Entry, Any and Exit nodes; the runtime ignores them. */
+	pseudoPos?: { entry?: SmPoint; any?: SmPoint; exit?: SmPoint };
 }
 
 /** Layers run in order; a later layer wins a node property both key. */

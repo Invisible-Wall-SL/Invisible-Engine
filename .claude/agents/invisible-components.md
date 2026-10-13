@@ -72,6 +72,11 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   inputs (plan §12 #4 — never read `def.signals` directly; nothing is migrated). The launcher
   normalizes both blocks in `componentStorage.ts` (`COMPONENT_INPUT_KINDS`, `SM_CONDITION_OPS`
   are the imported lists). Gate: `pnpm --filter launcher-api check:component-state-machine`.
+  The EDITOR side (Phase 5b): Animate's **State machine** tab (`editor/EditorStateMachinePanel.svelte`
+  + `SmGraphNode.svelte`, xyflow like `/flow-v2`), pure edits in `$lib/timeline/stateMachineEdit.ts`,
+  the stage preview in `$lib/timeline/stateMachinePreview.ts`, Properties' **Inputs** block
+  (`EditorProperties.svelte`). It saves with the def — no new write. Gate:
+  `pnpm --filter launcher-api check:component-state-machine-editor`.
 - **Bound coded parts** (`hudReadout`, `button`, `loadingIntro` bar, the transitions
   and FS visuals): a child carries `bind: { component: '<RegisteredName>' }` mounting
   a small coded part registered via `registerBoundComponents`. Use ONLY when the

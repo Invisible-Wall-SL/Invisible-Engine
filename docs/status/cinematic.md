@@ -150,6 +150,10 @@ through the same player; headless-proven, no editor yet (5b).
     `pnpm --filter launcher-api check:component-state-machine` (89 checks: the fold, the
     semantics above, two instances, scoping, coexistence, validation, parity, what saves, the
     ship chain).
+  - **Editor (Phase 5b).** The State Machine panel previews the machine with the same runner,
+    and the game's own timeline player, placed and sampled through `previewPlayer` / `placeLayers` / `playerDrives`
+    (`$lib/timeline/stateMachinePreview.ts` — the layers' side of `sample(nodeId)` above); authoring
+    state in [component-editor status](component-editor.md).
   - **Flow.** Component timelines are left out of `/flow-v2`'s playCinematic picker
     (`cinematicPickerOptions`): instances play them.
   - **Ship chain (rule 8): no new asset class.** `cinematicExport.ts` already exports every
