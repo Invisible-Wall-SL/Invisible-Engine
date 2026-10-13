@@ -485,6 +485,118 @@ eq(
 	);
 }
 {
+	// The hold is narrow: only while a transition is blocked by its exit time ALONE.
+	const held = (
+		transitions: ReturnType<typeof layer>['transitions'],
+		extra: ReturnType<typeof layer>['states'] = [],
+	) =>
+		new M.ComponentStateMachineRunner(
+			machine(layer({ states: [...layer().states, ...extra], transitions })),
+			[
+				...(inputs ?? []),
+				{ id: 'go', kind: 'trigger' },
+				{ id: 'armed', kind: 'bool' },
+				{ id: 'b', kind: 'trigger' },
+			],
+			durations,
+		);
+	const gated = held([
+		{
+			id: 't',
+			from: 'idle',
+			to: 'win',
+			exitTime: 1,
+			conditions: [
+				{ input: 'go', op: 'fired' },
+				{ input: 'armed', op: '==', value: true },
+			],
+		},
+	]);
+	gated.fire('go');
+	for (let i = 0; i < 100; i++) gated.advance(0.1);
+	gated.setInput('armed', true);
+	for (let i = 0; i < 12; i++) gated.advance(0.1);
+	eq(
+		'a trigger blocked by another condition is not held: arming later does not fire it',
+		gated.stateOf('main'),
+		'idle',
+	);
+	const pair = held([
+		{
+			id: 't',
+			from: 'idle',
+			to: 'win',
+			exitTime: 1,
+			conditions: [
+				{ input: 'go', op: 'fired' },
+				{ input: 'b', op: 'fired' },
+			],
+		},
+	]);
+	pair.fire('go');
+	for (let i = 0; i < 100; i++) pair.advance(0.1);
+	pair.fire('b');
+	for (let i = 0; i < 12; i++) pair.advance(0.1);
+	eq(
+		'two triggers must arrive in the same evaluation: the first is not kept for the second',
+		pair.stateOf('main'),
+		'idle',
+	);
+	const moved = held(
+		[
+			{
+				id: 'aw',
+				from: 'idle',
+				to: 'win',
+				exitTime: 1,
+				conditions: [{ input: 'win', op: 'fired' }],
+			},
+			{ id: 'ab', from: 'idle', to: 'b', conditions: [{ input: 'armed', op: '==', value: true }] },
+			{ id: 'by', from: 'b', to: 'win', conditions: [{ input: 'win', op: 'fired' }] },
+		],
+		[{ id: 'b', timeline: 'c_coin_win', loop: true }],
+	);
+	moved.fire('win');
+	moved.advance(0.1);
+	moved.setInput('armed', true);
+	moved.advance(0.1);
+	eq(
+		'a state change drops what was held: the trigger kept for A does not fire B’s transition',
+		moved.stateOf('main'),
+		'b',
+	);
+	moved.advance(0.1);
+	eq('…nor later', moved.stateOf('main'), 'b');
+	const atRest = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				states: [
+					{ id: 'idle', timeline: 'c_coin_idle', speed: 0 },
+					{ id: 'win', timeline: 'c_coin_win' },
+				],
+				transitions: [
+					{
+						id: 't',
+						from: 'idle',
+						to: 'win',
+						exitTime: 1,
+						conditions: [{ input: 'go', op: 'fired' }],
+					},
+				],
+			}),
+		),
+		[{ id: 'go', kind: 'trigger' }],
+		durations,
+	);
+	atRest.fire('go');
+	atRest.advance(0.1);
+	eq(
+		'a resting state holds nothing, so it needs no tick',
+		[atRest.stateOf('main'), atRest.needsTick()],
+		['idle', false],
+	);
+}
+{
 	// A missing timeline never throws: the state holds, its exit gate is open, listed once.
 	const r = new M.ComponentStateMachineRunner(
 		machine(
@@ -709,16 +821,19 @@ eq(
 		[player.isPlaying(), player.sample('n_coin')],
 		[false, { alpha: 0.5 }],
 	);
-	eq(
-		'a node no layer drives keeps holding the finished pop-in (4b)',
-		new L.ComponentTimelinePlayer(
+	{
+		const alone = new L.ComponentTimelinePlayer(
 			[timeline('c_coin_pop', { playOn: 'enter', target: 'Glow' })],
 			nodes,
-		)
-			.drivenNodes()
-			.has('n_glow'),
-		true,
-	);
+		);
+		alone.trigger('enter');
+		alone.advance(1);
+		eq(
+			'a node no layer drives keeps holding the finished pop-in (4b)',
+			[alone.drivenNodes().has('n_glow'), alone.sample('n_glow')],
+			[true, { y: 0, alpha: 1 }],
+		);
+	}
 }
 {
 	// A blend from the pose left: half way between idle's alpha 0.5 and win's first frame.
@@ -819,6 +934,35 @@ eq(
 		[cues, r.stateOf('main')],
 		[[{ cue: 'signal:done', timeline: 'c_coin_done' }], 'idle'],
 	);
+	// The same cue at the end of a one-shot left for Exit, and for a state whose timeline is missing.
+	for (const [name, to, extra] of [
+		['exit', 'exit', []],
+		['a missing timeline', 'gone', [{ id: 'gone', timeline: 'c_coin_gone' }]],
+	] as const) {
+		const rr = new M.ComponentStateMachineRunner(
+			machine(
+				layer({
+					entry: 'win',
+					states: [{ id: 'win', timeline: 'c_coin_done' }, ...extra],
+					transitions: [{ id: 'out', from: 'win', to, exitTime: 1 }],
+				}),
+			),
+			inputs,
+			new Map([...durations, ['c_coin_done', 1]]),
+		);
+		const pl = new L.ComponentTimelinePlayer([done], nodes);
+		const fired: string[] = [];
+		pl.drive('main', 0, rr.plays()[0]);
+		for (let i = 0; i < 12; i++) {
+			rr.advance(0.1);
+			fired.push(...pl.drive('main', 0, rr.plays()[0]).map((x) => x.cue));
+		}
+		eq(
+			`…and once when the state is left for ${name}`,
+			[fired, rr.stateOf('main'), pl.drivenSlot('main')],
+			[['signal:done'], to, undefined],
+		);
+	}
 	// A fast state: the slot never seeks, so a big step still crosses its cues.
 	const fast = new M.ComponentStateMachineRunner(
 		machine(
@@ -919,6 +1063,87 @@ eq(
 	for (let i = 0; i < 10; i++) r.advance(0.1);
 	apply();
 	eq('…and arrives at c', player.sample('n_coin')?.alpha, 1);
+	// A same-tick chain a → b → c with a blend on the last hop leaves from a's pose, not b's 0.
+	const chain = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				entry: 'a',
+				states: [
+					{ id: 'a', timeline: 'c_coin_a' },
+					{ id: 'b', timeline: 'c_coin_b' },
+					{ id: 'c', timeline: 'c_coin_c' },
+				],
+				transitions: [
+					{ id: 'ab', from: 'a', to: 'b', conditions: [{ input: 'win', op: 'fired' }] },
+					{ id: 'bc', from: 'b', to: 'c', blend: 1000 },
+				],
+			}),
+		),
+		inputs,
+		new Map([
+			['c_coin_a', 1],
+			['c_coin_b', 1],
+			['c_coin_c', 1],
+		]),
+	);
+	const a6 = timeline('c_coin_a', { channels: { alpha: [{ time: 0, value: 0.6 }] } });
+	const chainPlayer = new L.ComponentTimelinePlayer([a6, b, c], nodes);
+	const applyChain = (): void =>
+		void chain.plays().forEach((play, i) => chainPlayer.drive(play.layer, i, play));
+	applyChain();
+	chain.fire('win');
+	chain.advance(0.1);
+	applyChain();
+	eq(
+		'a → b → c in one tick: the blend leaves from a’s on-screen pose (0.6), not b’s first frame',
+		[chain.stateOf('main'), r2(chainPlayer.sample('n_coin')?.alpha)],
+		['c', 0.6],
+	);
+	// Ten thousand interruptions: the frozen pose is flat, so nothing nests or overflows.
+	const flip = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				entry: 'a',
+				states: [
+					{ id: 'a', timeline: 'c_coin_a', loop: true },
+					{ id: 'b', timeline: 'c_coin_b', loop: true },
+				],
+				transitions: [
+					{
+						id: 'ab',
+						from: 'a',
+						to: 'b',
+						conditions: [{ input: 'win', op: 'fired' }],
+						blend: 1000,
+					},
+					{
+						id: 'ba',
+						from: 'b',
+						to: 'a',
+						conditions: [{ input: 'win', op: 'fired' }],
+						blend: 1000,
+					},
+				],
+			}),
+		),
+		inputs,
+		new Map([
+			['c_coin_a', 1],
+			['c_coin_b', 1],
+		]),
+	);
+	const flipPlayer = new L.ComponentTimelinePlayer([a, b], nodes);
+	for (let i = 0; i < 10_000; i++) {
+		flip.fire('win');
+		flip.advance(0.01);
+		flip.plays().forEach((play, n) => flipPlayer.drive(play.layer, n, play));
+	}
+	const after = flipPlayer.sample('n_coin')?.alpha;
+	eq(
+		'10,000 interrupted blends still sample (no nesting, no stack overflow)',
+		typeof after === 'number' && after >= 0 && after <= 1,
+		true,
+	);
 }
 {
 	// A state timeline reused from another component keeps its playOn there, not here.
@@ -1117,6 +1342,11 @@ eq(
 		true,
 	);
 	eq(
+		'…ignores every trigger but enter until the machine has started',
+		/if \(!stateMachineStarted && signal !== ENTER_SIGNAL\) continue;/.test(src),
+		true,
+	);
+	eq(
 		'…and feeds triggers off the same per-instance bus every signal records on',
 		/firedSignals\[signal\][\s\S]*stateMachineRunner\.fire\(signal\)/.test(src),
 		true,
@@ -1209,6 +1439,26 @@ eq(
 			to: 'exit',
 		});
 	}
+	eq(
+		'a condition with no value is kept (the runtime reads a bool == as true)',
+		normalizeComponent({
+			id: 'c',
+			name: 'c',
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'r', kind: 'container', x: 0, y: 0, children: [] },
+			inputs,
+			stateMachine: machine(
+				layer({
+					transitions: [
+						{ id: 'x', from: 'idle', to: 'win', conditions: [{ input: 'big', op: '==' }] },
+					],
+				}),
+			),
+		} as unknown as ComponentDef).stateMachine?.layers[0].transitions[0].conditions,
+		[{ input: 'big', op: '==' }],
+	);
 	eq(
 		'a value of the wrong type is malformed too',
 		normalizeComponent({

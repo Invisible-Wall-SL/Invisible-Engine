@@ -179,15 +179,19 @@ the ops (a "not win" bool test); a state and a layer may carry a display `name`.
 **Interpreter semantics** (`ComponentStateMachineRunner`, pure and Pixi-free — advanced by `dt`
 and input changes, it only says "layer L plays timeline X at t, mixing in from Y frozen at u"):
 
-- Every layer starts in its `entry` state, at time 0, and that state shows from the first frame.
-- **Triggers are consumed once per evaluation.** A trigger fired between ticks is seen by every
-  layer on the next tick and used by at most one transition per layer (a chain in the same tick
-  cannot re-use it); the transition that takes it consumes it for that layer. A layer **holds** a
-  trigger it did not take only while a transition leaving its current state (or `any`) reads it —
-  so "finish the current loop, then play win" works: `win` waits on the transition's `exitTime` —
-  and drops it at the end of the tick otherwise, so a trigger nothing is waiting for never goes
-  stale. Firing a trigger IS firing the signal of that name on the instance's bus (§12 #4), so it
-  is scoped exactly as a signal is.
+- Every layer starts in its `entry` state, at time 0, when the machine starts (on the instance's
+  first visible frame — below).
+- **Triggers last one evaluation, unless a transition is only waiting on its exit time.** A
+  trigger fired between ticks is seen by every layer on the next tick and used by at most one
+  transition per layer (a chain in the same tick cannot re-use it); the transition that takes it
+  consumes it for that layer; what no transition took is cleared at the end of the tick (as Rive
+  does). The one exception is "finish the current loop, then play win": a layer **holds** a trigger
+  while a transition leaving its current state (or `any`) reads it and is blocked by its
+  `exitTime` alone — every other condition already holds (a second trigger must arrive in the
+  same evaluation, a bool must already be true) and the state is still playing — and drops every
+  held trigger the moment the layer changes state, so a hold never outlasts the rest of one loop,
+  a resting state holds nothing, and a stale trigger never fires later. Firing a trigger IS firing
+  the signal of that name on the instance's bus (§12 #4), so it is scoped exactly as a signal is.
 - **`any`-state transitions are checked first**, in authored order, then the current state's; the
   first whose conditions all hold and whose `exitTime` has been reached fires. An `any` transition
   never re-enters the state the layer is already in.
@@ -203,8 +207,9 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
 - **`blend`** mixes the target timeline in over that many ms from the pose being left — the
   previous timeline frozen at the moment of leaving (`blendNodeSamples`: offsets from 0, factors
   from 1, tint per colour channel, frame/visible/text stepping at half way). A transition taken
-  mid-blend leaves from the pose on screen: the player freezes the half-mixed pose and mixes the
-  next timeline in from it, so an interrupted blend never jumps.
+  mid-blend (or reached through a same-tick chain) leaves from the pose on screen: the player
+  freezes every driven node's sampled values as a flat snapshot and mixes the next timeline in
+  from it, so an interrupted blend never jumps and nothing nests.
 - **At most 8 transitions fire per layer per tick** (`SM_MAX_TRANSITIONS_PER_TICK`); a longer
   chain continues next tick. A non-looping timeline holds its last frame.
 - **The cues a leaving state crossed on the tick it was left still fire** (`LayerPlay.left`): a
@@ -217,9 +222,11 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   transition to `exit` (nothing to mix into).
 - **The machine starts when its instance is first shown** — the rule 4b's `enter` follows: the
   entry state is entered and its cues at 0 fire on the first visible frame, never on a hidden
-  screen at mount; from then on its clock runs whether or not the instance stays shown, like a
-  `playOn` timeline's, and it keeps its state across re-appearances (Phase 7 may reset it from
-  Flow). The editor's preview, always visible, shows the entry pose as soon as it is built.
+  screen at mount; until then every trigger but `enter` is ignored (a win heard while the screen
+  was hidden must not play minutes late); from then on its clock runs whether or not the instance
+  stays shown, like a `playOn` timeline's, and it keeps its state across re-appearances (Phase 7
+  may reset it from Flow). The editor's preview, always visible, shows the entry pose as soon as
+  it is built.
 - **`exit`** ends the layer: it drives nothing and takes no transition until `reset()`.
 - **A missing timeline never crashes the game**: the state is entered and holds (drives nothing,
   its exit gate is open) and the instance warns once with the ids.

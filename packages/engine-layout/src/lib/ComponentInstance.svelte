@@ -106,7 +106,6 @@
 	import { ComponentTimelinePlayer, instanceTimelineDocs } from './componentTimelines';
 	import { ComponentStateMachineRunner } from './stateMachine';
 	import { componentInputs, componentTriggers } from './componentInterface';
-	import { SM_EXIT_STATE } from './types';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
@@ -749,6 +748,7 @@
 	}
 	/** The signals the state machine's trigger inputs are fired as. */
 	const stateMachineTriggers = stateMachineRunner && def ? componentTriggers(def) : [];
+	let stateMachineStarted = false;
 	let timelineClock = $state(0);
 	if (timelinePlayer) {
 		const driven = timelinePlayer.drivenNodes();
@@ -804,6 +804,9 @@
 	// signal through the def's scope, a Flow `fireCue`, a rig `completeSignal`, a timeline's
 	// `signal:` cue, or `enter`. Counted apart from the `playOn` watcher above, so a cue that
 	// restarted a timeline still fires the trigger.
+	// Until the machine has started (the instance's first visible frame) only `enter` — the fire
+	// that starts it — reaches it: a win heard while the screen was still hidden must not play
+	// minutes late on its first appearance.
 	const triggerFires: Record<string, number> = {};
 	$effect(() => {
 		if (!stateMachineRunner) return;
@@ -811,6 +814,7 @@
 			const count = firedSignals[signal] ?? 0;
 			if (count <= (triggerFires[signal] ?? 0)) continue;
 			triggerFires[signal] = count;
+			if (!stateMachineStarted && signal !== ENTER_SIGNAL) continue;
 			untrack(() => stateMachineRunner.fire(signal));
 		}
 	});
@@ -865,10 +869,8 @@
 	const applyStateMachine = (): void => {
 		if (!stateMachineRunner) return;
 		stateMachineRunner.plays().forEach((play, index) => {
-			if (play.state === SM_EXIT_STATE) {
-				timelinePlayer?.release(play.layer);
-				return;
-			}
+			// An exited layer drives nothing (the player empties its slot), after the cues of the
+			// stretch it left.
 			for (const { cue, timeline } of timelinePlayer?.drive(play.layer, index, play) ?? []) {
 				routeTimelineCue(cue, timeline);
 			}
@@ -877,7 +879,6 @@
 	};
 	// The machine starts when the instance is first SHOWN (as `enter` fires): the entry pose and
 	// its cues at 0 then, the clock running from there on whether or not it stays shown.
-	let stateMachineStarted = false;
 	const startStateMachine = (): void => {
 		stateMachineStarted = true;
 		applyStateMachine();

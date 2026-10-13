@@ -926,9 +926,11 @@ function normalizeConditions(input: unknown): SmCondition[] | undefined {
 		if (!isRecord(c) || typeof c.input !== 'string' || !c.input) return undefined;
 		if (!CONDITION_OPS.has(c.op as SmCondition['op'])) return undefined;
 		const condition: SmCondition = { input: c.input, op: c.op as SmCondition['op'] };
-		if (condition.op !== 'fired') {
+		// A value is optional (the runtime reads a bool `==` with none as `true`); one of another
+		// type is malformed.
+		if (c.value !== undefined) {
 			if (!(typeof c.value === 'boolean' || finite(c.value))) return undefined;
-			condition.value = c.value;
+			if (condition.op !== 'fired') condition.value = c.value;
 		}
 		out.push(condition);
 	}
