@@ -9,7 +9,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
 - **Event trigger end-to-end.** A `trigger.on:'event'` layer fires when a matching cue crosses the runtime event bus (a Flow v1 Broadcast / v2 `fireCue`), with an optional **Stop event** and **Duration**. The full author→ship→fire chain (export → `deploy/effects/` → bake → pull → `bakedEffects()` register) is wired.
-- **Pro `/fx` inspector knobs:** emission **direction (centre °) + spread (±°)**, particle **spin min/max + accel**, and a **rotation lock** (`noRotation` — travel along the arc without facing it); a **movement** toggle (eased `moveSpeed` vs **gravity/acceleration** — up-direction + downward gravity = a fountain); **colour** start/end tint **plus a colour overlay with a per-particle intensity min/max**; **blend mode** (Normal/Add/Screen/Multiply); five **spawn kinds** — point / circle / ring / rectangle / **burst** (even fan). Alpha, Scale and the eased Speed each carry an **On** switch (a config with no such behavior can grow one instead of the section silently vanishing) and a **Min / Max** switch that splits each end into a per-particle range — four INDEPENDENT bounds (see the 2026-08-28 fix entry). All are live sliders + number boxes that re-tune the preview verbatim.
+- **Pro `/fx` inspector knobs:** emission **direction (centre °) + spread (±°)**, particle **spin min/max + accel**, and a **rotation lock** (`noRotation` — travel along the arc without facing it); a **movement** toggle (eased `moveSpeed` vs **acceleration** — up-direction + a downward pull = a fountain); a stackable **Forces** section (gravity at any angle, wind with gusts, vortex with swirl + centrifugal/centripetal radial, attractor/repulsor with an absorb sink, turbulence, drag — see the 2026-10-13 entry); **colour** start/end tint **plus a colour overlay with a per-particle intensity min/max**; **blend mode** (Normal/Add/Screen/Multiply); five **spawn kinds** — point / circle / ring / rectangle / **burst** (even fan). Alpha, Scale and the eased Speed each carry an **On** switch (a config with no such behavior can grow one instead of the section silently vanishing) and a **Min / Max** switch that splits each end into a per-particle range — four INDEPENDENT bounds (see the 2026-08-28 fix entry). All are live sliders + number boxes that re-tune the preview verbatim.
 - **Layer stack ops** — ▲/▼ reorder (list order IS draw order; `FxStage` re-appends the emitter containers in doc order each rebuild so the preview restacks), ⧉ duplicate, and a `localStorage`-backed **⧉ Copy / 📋 Paste** that survives navigation, so a layer moves **between effects**.
 - **Flipbook playback is authorable** — an `animated` layer chooses **Match particle lifetime** (`framerate: -1`, the long-standing default) or an explicit **fps + loop**, carried on `art.framerate`/`art.loop` through `bindArt` at all four render sites.
 - **Preset library** — per-layer "Apply preset…" (Fountain, Fire, Smoke, Sparks, Explosion-burst, Rain, Snow, Confetti, Magic glow) preserving art/placement/trigger.
@@ -21,6 +21,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game.
 
 ## Open items / next
+0. **Owner browser-pass over the Forces section** (2026-10-13) — the math and the real-`Emitter` coupling are gated headlessly, but no slider has been dragged in a browser. Worth checking while there: a Fire / Smoke / Fountain / Sparks / Rain preset now goes the way its name says (see the entry), and an existing effect's Direction reads the way its particles actually fly.
 1. **Owner browser-pass over the Min / Max rows.** Two passes have now happened and each found a real defect (see the two 2026-08-28 fix entries) — the model is heavily covered headlessly, but every symptom so far has been a CLICK, and `/fx` is auth + Postgres + R2 gated so those sliders still cannot be driven from a session. A third pass on the corrected rows is owed.
 2. **Tier-C perf ceiling live-verify** — confirm a published game renders a rig-particle effect at 60fps and find the pool-size ceiling; flipbook-bake stays the per-effect fallback.
 3. **Owner pixel-check on a rig FX mounted OUTSIDE a layout rig node** (the 2026-09-04 change) — the reported case is the best one: play a big win in `invisible_wall/test6` and confirm `v_winripple` fires on `R_Wins`'s tier animations at `bone114`/`slot12`. `?fxdebug=1` on the game URL prints how every baked effect is routed. While there: that rig keys the SAME effect `continuous` on all ten tier animations, and a binding is one keyframe — so `Big_Intro → Big_Idle → Super_Intro` stacks three independent never-stopping emitters. `continuous` should be keyed ONCE, on the animation that starts it. **Also worth an eye on the BACKGROUND rigs:** `engine-game`'s `Background.svelte` mounts `foregroundAnimation` (and `foregroundFeatureAnimation`) TWICE concurrently — one instance driving `idle`, one driving `dust` — and each instance now mounts the rig's whole binding set independently. A binding that carries its `animation` is self-limiting (it only fires in the instance playing that animation), but a LEGACY manifest entry baked before beats existed has no `animation` and matches any, so such a binding on a background rig would fire twice, at double density. Nothing baked today is in that shape; re-bake rather than patch if it shows up.
@@ -30,6 +31,69 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-13 — **Forces: stackable gravity / wind / vortex / attractor / turbulence / drag on every layer.**
+  Owner ask: controllable gravity, a vortex that can also throw particles outward, and any other
+  forces worth having.
+  - **What shipped.** One new custom behavior, `fxForces` (`packages/engine-fx/src/forces.ts`). Its
+    config is a stack of entries, each with an `enabled` switch:
+    - **gravity**: strength, angle;
+    - **wind**: strength, angle, gust 0..1, gusts/s;
+    - **vortex**: centre x/y (offset from the emitter), swirl, CW/CCW, radial (+ out = centrifugal,
+      − in = centripetal), radius, falloff;
+    - **attractor**: centre, ± strength, radius, falloff, absorb radius (particles inside it are
+      recycled);
+    - **turbulence**: strength, cell size, evolve/s. It is a two-octave curl field, so particles
+      swirl without bunching;
+    - **drag**: amount.
+
+    The `/fx` inspector has a **Forces** section with **Add a force…**, and each entry has **On**,
+    **✕**, and slider + number-box rows.
+  - **How it combines with movement.** No movement behavior is replaced. With `moveAcceleration`
+    or `moveSpeedStatic` on the layer, the forces add into that behavior's `config.velocity`, so its
+    max-speed cap and rotate-to-travel apply to the forced motion and drag slows the launch. With
+    anything else (`moveSpeed`/`fxSpeed`, or no movement) the forces keep their own velocity, from
+    rest, and add it on top. So Gravity works in either movement mode. The old acceleration-mode
+    knobs are untouched in the data, so saved effects render the same. Only their labels changed:
+    "Acceleration X/Y", "Acceleration (launch + constant pull)".
+  - **Frame-rate independent.** Each step uses `deltaSec`, and with drag it is the exact solution
+    of `v' = a − k·v`, so the decay and the terminal speed `a/k` do not depend on fps. Gusts and
+    turbulence follow particle age, not the frame count.
+  - **Back-compat + schema.** Forces live inside `layer.config.behaviors`, the verbatim
+    `EmitterConfigV3`, like `fxAlpha`, so there is NO EffectDoc schema change and no
+    normalize/export/bake/pull change: those pass `config` through untouched (asserted). A layer
+    without forces carries no `fxForces` entry, and removing the last force deletes it, so every
+    existing effect stays byte-identical. `readFxForces` is the one clamp: it drops unknown kinds,
+    pins ranges, wraps angles and maps NaN to the default. The behavior and the inspector both
+    read through it.
+  - **One registration.** `fxForces` joins `registerFxBehaviors`, which the runtime
+    `<ParticleEmitter>` and the launcher's shared `effectEmitter.client.ts` already call at module
+    load, before any emitter is built. That covers `/fx`, the Scene Editor, the Rigger/Symbols
+    overlay and the game.
+  - **Pre-existing bug fixed alongside: the angle convention was upside down.** The Direction hint
+    (and the guide) said 90° = up. The library rotates in screen space, where y grows down, so 90°
+    is DOWN. The real `Emitter` proves it in the gate. As a result the Fountain, Fire, Smoke and
+    Sparks presets launched downward and Rain launched upward. Those presets now use 270° / 90°,
+    and the hint, guide and `emitterParams.ts` assertion are corrected. Saved effects are NOT
+    rewritten: an effect someone tuned by eye already looks the way it was tuned.
+  - **Found, not fixed (library):** a stock `moveSpeed` whose start and end values are EQUAL throws
+    inside `@barvynkoa/particle-emitter` (`PropertyList.intValueComplex`: `next` is null) on the
+    first update. Typing the same Speed start and end in the inspector can therefore hit it. It was
+    reproduced headlessly and is untouched here.
+  - **Verified.**
+    - New gate `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, 59 assertions, run in CI by
+      `check:all` in the Checks workflow like the other fx-spike harnesses). It covers: the clamp; absent forces = no change;
+      gravity ½gt² along 0/90/270° with 30 vs 240 fps agreement; vortex radial out/in, CW/CCW
+      sense, radius and falloff, centre offset and the no-NaN centre; attractor pull/push/absorb;
+      exact drag and terminal speed; wind gust range; turbulence that is bounded, divergence-free
+      and deterministic. It then drives the real `Emitter` with no movement, `fxSpeed` and
+      `moveAcceleration`, checks the max-speed cap, a vortex on a moved emitter and sink recycling,
+      and runs the save → export → bake round-trip that rebuilds the behavior.
+    - The 14 other fx-spike harnesses plus `check:rig-fx-overrides` and
+      `check:rig-flipbook-overrides` are green.
+    - `engine-fx` typecheck and lint are clean. `pnpm check:svelte --only apps/launcher-api` is at
+      48, the same as the baseline, with none in FX files.
+  - **NOT browser-verified.** `/fx` is auth + Postgres + R2 gated (open item 0). **Engine change on
+    `main`**: it reaches shipped games only through a runtime-bundle republish.
 - 2026-10-03 — **An effect placed inside a component no longer also bursts at the stage origin**
   (found by the Hold and Win 12c done-when rehearsal, #1006).
   - **The bug:** `Effects.svelte` auto-mounts every event-triggered effect that is not placed, at

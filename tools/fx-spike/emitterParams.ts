@@ -280,8 +280,8 @@ const fountainLayer = applyPreset(layer, 'fountain');
 assert(fountainLayer.art.assetKey === 'sparks', 'applyPreset preserves the layer art');
 assert(movementModel(fountainLayer.config) === 'gravity', 'fountain preset uses the gravity model');
 assert(
-	emissionArc(fountainLayer.config)?.center === 90,
-	'fountain preset emits upward (centre 90)',
+	emissionArc(fountainLayer.config)?.center === 270,
+	'fountain preset emits upward (centre 270 — screen y grows down)',
 );
 assert(applyPreset(layer, 'nope') === layer, 'unknown preset key is a no-op');
 

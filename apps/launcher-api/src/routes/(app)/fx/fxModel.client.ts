@@ -14,13 +14,19 @@ import {
 	EFFECT_DOC_VERSION,
 	FX_ALPHA_BEHAVIOR_TYPE,
 	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
+	FX_FORCES_BEHAVIOR_TYPE,
 	FX_SCALE_BEHAVIOR_TYPE,
 	FX_SPEED_BEHAVIOR_TYPE,
 	behaviorsOf,
+	defaultFxForce,
+	readFxForce,
+	readFxForces,
 	type BehaviorEntry,
 	type EffectDoc,
 	type EmitterConfigV3,
 	type EmitterLayer,
+	type FxForce,
+	type FxForceKind,
 	type RigParticleConfig,
 } from 'engine-fx';
 
@@ -787,8 +793,8 @@ function upsertBehavior(
 // `@barvynkoa/particle-emitter` gives a particle its launch DIRECTION via a
 // rotation behavior — `rotationStatic { min, max }` (no spin) or `rotation
 // { minStart, maxStart, minSpeed, maxSpeed, accel }` (with spin). Both speak
-// the library's angle convention: **0° = right, 90° = up, 180° = left, 270° =
-// down.** The MOVEMENT behavior (`moveSpeed` / `moveAcceleration`) then pushes
+// the library's angle convention, in screen space where y grows DOWN: **0° =
+// right, 90° = down, 180° = left, 270° = up.** The MOVEMENT behavior (`moveSpeed` / `moveAcceleration`) then pushes
 // the particle along that direction — so direction + a gravity model = a
 // fountain. We author direction as CENTRE + SPREAD (half-angle), the natural
 // FX knobs, and project them onto the behavior's min/max angles.
@@ -1326,7 +1332,7 @@ export const FX_PRESETS: FxPreset[] = [
 					alpha(1, 0),
 					scale(0.4, 0.18),
 					colorList('#bfe6ff', '#3b82f6'),
-					rotStatic(90, 16),
+					rotStatic(270, 16),
 					accel(0, 1500, 520, 720),
 					torus(8),
 					blend('add'),
@@ -1345,7 +1351,7 @@ export const FX_PRESETS: FxPreset[] = [
 					alpha(0.85, 0),
 					scale(0.5, 0.9),
 					colorList('#fff1a8', '#ff3b1d'),
-					rotStatic(90, 28),
+					rotStatic(270, 28),
 					moveSpeed(140, 60),
 					torus(14),
 					blend('add'),
@@ -1364,7 +1370,7 @@ export const FX_PRESETS: FxPreset[] = [
 					alpha(0.5, 0),
 					scale(0.5, 1.6),
 					colorList('#9aa3ad', '#3b4250'),
-					rotStatic(90, 22),
+					rotStatic(270, 22),
 					moveSpeed(70, 30),
 					torus(18),
 				],
@@ -1382,7 +1388,7 @@ export const FX_PRESETS: FxPreset[] = [
 					alpha(1, 0),
 					scale(0.35, 0.05),
 					colorList('#fff7cc', '#ff8a1f'),
-					rotStatic(90, 60),
+					rotStatic(270, 60),
 					accel(0, 1800, 500, 900, true),
 					torus(6),
 					blend('add'),
@@ -1420,7 +1426,7 @@ export const FX_PRESETS: FxPreset[] = [
 					alpha(0.6, 0.4),
 					scale(0.4, 0.4),
 					colorList('#cfe8ff', '#9ec5ff'),
-					rotStatic(270, 4),
+					rotStatic(90, 4),
 					accel(0, 2200, 900, 1100, true),
 					torus(0),
 					{
@@ -1926,6 +1932,73 @@ export function setColorOverlayField(
 			if (v < min) b.config.minIntensity = v;
 		}
 	});
+}
+
+// ---------------------------------------------------------------------------
+// Forces — a stack of gravity / wind / vortex / attractor / turbulence / drag
+// entries on ONE custom `fxForces` behavior (engine-fx `forces.ts`). It sits
+// beside whichever movement behavior the layer has, so a force works in either
+// movement mode. A layer with no forces carries no `fxForces` behavior at all
+// (removing the last entry removes it), so an untouched effect stays stock.
+// Every write goes back through `readFxForce`, the same clamp the behavior reads.
+// ---------------------------------------------------------------------------
+
+/** The layer's force stack (empty when it has no `fxForces` behavior). */
+export function forcesOf(config: EmitterConfigV3): FxForce[] {
+	const b = behaviorsOf(config).find((x) => x.type === FX_FORCES_BEHAVIOR_TYPE);
+	return b ? readFxForces(b.config) : [];
+}
+
+/** Write a stack back immutably: an empty stack drops the behavior entirely. */
+function writeForces(config: EmitterConfigV3, forces: FxForce[]): EmitterConfigV3 {
+	if (forces.length === 0) return removeBehaviors(config, FX_FORCES_BEHAVIOR_TYPE);
+	const stored = JSON.parse(JSON.stringify(forces)) as FxForce[];
+	return upsertBehavior(
+		config,
+		FX_FORCES_BEHAVIOR_TYPE,
+		() => ({ forces: stored }),
+		(b) => {
+			b.config = { ...b.config, forces: stored };
+		},
+	);
+}
+
+/** Append a force of `kind` at its defaults. */
+export function addForce(config: EmitterConfigV3, kind: FxForceKind): EmitterConfigV3 {
+	return writeForces(config, [...forcesOf(config), defaultFxForce(kind)]);
+}
+
+/** Remove the force at `index` (the last one removes the behavior). */
+export function removeForce(config: EmitterConfigV3, index: number): EmitterConfigV3 {
+	const forces = forcesOf(config);
+	if (index < 0 || index >= forces.length) return config;
+	return writeForces(
+		config,
+		forces.filter((_, i) => i !== index),
+	);
+}
+
+/**
+ * Set one field of the force at `index` immutably, re-clamped through `readFxForce` — so a typed
+ * value past a slider's end is pinned to the range the runtime would read anyway. `kind` is not a
+ * field: switching kind is remove + add.
+ */
+export function setForceField(
+	config: EmitterConfigV3,
+	index: number,
+	field: string,
+	value: number | string | boolean,
+): EmitterConfigV3 {
+	if (field === 'kind') return config;
+	const forces = forcesOf(config);
+	const current = forces[index];
+	if (!current) return config;
+	const next = readFxForce({ ...current, [field]: value });
+	if (!next) return config;
+	return writeForces(
+		config,
+		forces.map((f, i) => (i === index ? next : f)),
+	);
 }
 
 // ---------------------------------------------------------------------------

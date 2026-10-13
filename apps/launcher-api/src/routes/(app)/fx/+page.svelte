@@ -6,11 +6,19 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
-	import type { EffectDoc, EmitterConfigV3, EmitterLayer } from 'engine-fx';
+	import {
+		FX_FORCE_KINDS,
+		FX_FORCE_LIMITS,
+		type EffectDoc,
+		type EmitterConfigV3,
+		type EmitterLayer,
+		type FxForceKind,
+	} from 'engine-fx';
 	import { onMount } from 'svelte';
 	import { replaceState } from '$app/navigation';
 	import FxStage, { type ResolvedArt } from './FxStage.svelte';
 	import {
+		addForce,
 		applyPreset,
 		blendMode,
 		burst,
@@ -20,6 +28,7 @@
 		emissionArc,
 		emptyEffectDoc,
 		flipbookPlay,
+		forcesOf,
 		frameMixPercents,
 		frameWeightInputs,
 		FX_PRESETS,
@@ -29,6 +38,7 @@
 		moveLayer,
 		newLayer,
 		nextLayerKey,
+		removeForce,
 		rotationLock,
 		setFrameWeight,
 		toggleArtFrame,
@@ -47,6 +57,7 @@
 		setEmissionEnabled,
 		setFlipbookFps,
 		setFlipbookLoop,
+		setForceField,
 		setGravity,
 		setMovementModel,
 		setParticleColor,
@@ -744,10 +755,27 @@
 	const spin = $derived(config ? particleSpin(config) : undefined);
 	const moveModel = $derived<MovementModel>(config ? movementModel(config) : 'speed');
 	const grav = $derived(config ? gravity(config) : undefined);
+	const forces = $derived(config ? forcesOf(config) : []);
 	const tint = $derived(config ? particleColor(config) : undefined);
 	const blend = $derived<BlendKind>(config ? blendMode(config) : 'normal');
 
 	let presetId = $state<string>('');
+	let forceKind = $state<FxForceKind | ''>('');
+
+	const FORCE_LABELS: Record<FxForceKind, string> = {
+		gravity: 'Gravity',
+		wind: 'Wind',
+		vortex: 'Vortex',
+		attractor: 'Attractor / repulsor',
+		turbulence: 'Turbulence',
+		drag: 'Drag',
+	};
+
+	function addSelectedForce(kind: FxForceKind | ''): void {
+		if (!kind || !config) return;
+		patchConfig(addForce(config, kind));
+		forceKind = '';
+	}
 
 	function applySelectedPreset(key: string): void {
 		if (!key) return;
@@ -1571,7 +1599,7 @@
 							patchConfig(setEmissionArc(config, emission.center, v)),
 						)}
 						<p class="hint">
-							Launch direction: 0° = right, 90° = up, 180° = left, 270° = down. Spread 180° = all
+							Launch direction: 0° = right, 90° = down, 180° = left, 270° = up. Spread 180° = all
 							directions (each particle picks an angle in Direction ± Spread). A narrow upward arc +
 							gravity makes a fountain.
 						</p>
@@ -1655,7 +1683,7 @@
 								)}
 						>
 							<option value="speed">Eased speed</option>
-							<option value="gravity">Gravity (acceleration)</option>
+							<option value="gravity">Acceleration (launch + constant pull)</option>
 						</select>
 					</label>
 					{#if moveModel === 'speed' && speedRange}
@@ -1709,10 +1737,10 @@
 						{@render slider('Start speed max', grav.maxStart, 0, 2000, 10, (v) =>
 							patchConfig(setGravity(config, 'maxStart', v)),
 						)}
-						{@render slider('Gravity X', grav.accelX, -3000, 3000, 10, (v) =>
+						{@render slider('Acceleration X', grav.accelX, -3000, 3000, 10, (v) =>
 							patchConfig(setGravity(config, 'accelX', v)),
 						)}
-						{@render slider('Gravity Y', grav.accelY, -3000, 3000, 10, (v) =>
+						{@render slider('Acceleration Y', grav.accelY, -3000, 3000, 10, (v) =>
 							patchConfig(setGravity(config, 'accelY', v)),
 						)}
 						{@render slider('Max speed', grav.maxSpeed, 0, 4000, 10, (v) =>
@@ -1731,9 +1759,183 @@
 						</label>
 						<p class="hint">
 							Particles launch along the Emission direction at the start speed, then accelerate by
-							gravity (positive Y pulls down). Up-direction + downward gravity = a fountain.
+							this constant pull (positive Y pulls down). Up-direction + downward pull = a fountain.
+							For a gravity you can angle and use in either model, add one under Forces.
 						</p>
 					{/if}
+				</section>
+
+				<section>
+					<h3>Forces</h3>
+					{#each forces as force, fi (fi)}
+						<div class="force" class:off={!force.enabled}>
+							<div class="grouphead">
+								<strong>{FORCE_LABELS[force.kind]}</strong>
+								<label class="toggle">
+									<input
+										type="checkbox"
+										checked={force.enabled}
+										onchange={(e) =>
+											patchConfig(
+												setForceField(
+													config,
+													fi,
+													'enabled',
+													(e.currentTarget as HTMLInputElement).checked,
+												),
+											)}
+									/>
+									<span>On</span>
+								</label>
+								<button
+									class="ico del"
+									title="Remove force"
+									onclick={() => patchConfig(removeForce(config, fi))}>✕</button
+								>
+							</div>
+							{#if force.kind === 'gravity'}
+								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
+									patchConfig(setForceField(config, fi, 'strength', v)),
+								)}
+								{@render slider('Angle (°)', force.angle, 0, 359, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'angle', v)),
+								)}
+							{:else if force.kind === 'wind'}
+								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
+									patchConfig(setForceField(config, fi, 'strength', v)),
+								)}
+								{@render slider('Angle (°)', force.angle, 0, 359, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'angle', v)),
+								)}
+								{@render slider('Gust', force.gust, 0, 1, 0.01, (v) =>
+									patchConfig(setForceField(config, fi, 'gust', v)),
+								)}
+								{@render slider(
+									'Gusts / s',
+									force.gustFrequency,
+									0,
+									FX_FORCE_LIMITS.gustFrequency.max,
+									0.1,
+									(v) => patchConfig(setForceField(config, fi, 'gustFrequency', v)),
+								)}
+							{:else if force.kind === 'vortex'}
+								{@render slider('Centre X', force.x, -1000, 1000, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'x', v)),
+								)}
+								{@render slider('Centre Y', force.y, -1000, 1000, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'y', v)),
+								)}
+								<label class="row">
+									<span>Direction</span>
+									<select
+										value={force.direction}
+										onchange={(e) =>
+											patchConfig(
+												setForceField(
+													config,
+													fi,
+													'direction',
+													(e.currentTarget as HTMLSelectElement).value,
+												),
+											)}
+									>
+										<option value="cw">Clockwise</option>
+										<option value="ccw">Counter-clockwise</option>
+									</select>
+								</label>
+								{@render slider('Swirl', force.swirl, 0, 10000, 10, (v) =>
+									patchConfig(setForceField(config, fi, 'swirl', v)),
+								)}
+								{@render slider('Radial', force.radial, -10000, 10000, 10, (v) =>
+									patchConfig(setForceField(config, fi, 'radial', v)),
+								)}
+								{@render slider('Radius', force.radius, 0, 2000, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'radius', v)),
+								)}
+								{@render slider(
+									'Falloff',
+									force.falloff,
+									0,
+									FX_FORCE_LIMITS.falloff.max,
+									0.1,
+									(v) => patchConfig(setForceField(config, fi, 'falloff', v)),
+								)}
+								<p class="hint">
+									Swirl spins particles around the centre. Radial above 0 flings them OUT
+									(centrifugal); below 0 pulls them IN (centripetal) — balance the two for an orbit.
+								</p>
+							{:else if force.kind === 'attractor'}
+								{@render slider('Centre X', force.x, -1000, 1000, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'x', v)),
+								)}
+								{@render slider('Centre Y', force.y, -1000, 1000, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'y', v)),
+								)}
+								{@render slider('Strength', force.strength, -10000, 10000, 10, (v) =>
+									patchConfig(setForceField(config, fi, 'strength', v)),
+								)}
+								{@render slider('Radius', force.radius, 0, 2000, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'radius', v)),
+								)}
+								{@render slider(
+									'Falloff',
+									force.falloff,
+									0,
+									FX_FORCE_LIMITS.falloff.max,
+									0.1,
+									(v) => patchConfig(setForceField(config, fi, 'falloff', v)),
+								)}
+								{@render slider('Absorb radius', force.absorb, 0, 200, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'absorb', v)),
+								)}
+								<p class="hint">
+									Positive strength pulls toward the point, negative pushes away. Particles that
+									reach the Absorb radius disappear (0 = never).
+								</p>
+							{:else if force.kind === 'turbulence'}
+								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
+									patchConfig(setForceField(config, fi, 'strength', v)),
+								)}
+								{@render slider('Cell size', force.scale, 1, 1000, 1, (v) =>
+									patchConfig(setForceField(config, fi, 'scale', v)),
+								)}
+								{@render slider(
+									'Evolve / s',
+									force.speed,
+									0,
+									FX_FORCE_LIMITS.turbulenceSpeed.max,
+									0.05,
+									(v) => patchConfig(setForceField(config, fi, 'speed', v)),
+								)}
+							{:else if force.kind === 'drag'}
+								{@render slider('Amount', force.amount, 0, FX_FORCE_LIMITS.drag.max, 0.05, (v) =>
+									patchConfig(setForceField(config, fi, 'amount', v)),
+								)}
+								<p class="hint">
+									Air resistance on the forced motion (and on the launch in Acceleration mode). The
+									eased Speed curve keeps owning its own launch.
+								</p>
+							{/if}
+						</div>
+					{/each}
+					<label class="row">
+						<span>Add</span>
+						<select
+							value={forceKind}
+							onchange={(e) =>
+								addSelectedForce((e.currentTarget as HTMLSelectElement).value as FxForceKind | '')}
+						>
+							<option value="">Add a force…</option>
+							{#each FX_FORCE_KINDS as kind (kind)}
+								<option value={kind}>{FORCE_LABELS[kind]}</option>
+							{/each}
+						</select>
+					</label>
+					<p class="hint">
+						Forces stack on top of the Movement above and work in either model. Strengths are px/s².
+						Angles: 0° = right, 90° = down, 180° = left, 270° = up. Centres are offsets from the
+						emitter.
+					</p>
 				</section>
 
 				<section>
@@ -2185,6 +2387,19 @@
 		gap: 6px;
 		font-size: 11px;
 		color: #cbd5e1;
+	}
+	.force {
+		border: 1px solid #263041;
+		border-radius: 6px;
+		padding: 6px 8px;
+		margin-bottom: 8px;
+	}
+	.force.off {
+		opacity: 0.55;
+	}
+	.force .grouphead strong {
+		flex: 1;
+		font-size: 12px;
 	}
 	.hint {
 		color: #64748b;

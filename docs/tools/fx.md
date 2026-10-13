@@ -5,12 +5,13 @@ emitter **layers** — over a project's atlas art, tune each emitter live in a W
 preview, and save it. The saved artifact is an **EffectDoc** stored in the project's
 cloud storage.
 
-> **Status (as of 2026-08-28):** **All three particle tiers + the full author→ship→fire
+> **Status (as of 2026-10-13):** **All three particle tiers + the full author→ship→fire
 > loop ship.** What you get: stack emitter layers (reorder, duplicate, copy/paste them —
 > including between effects), draw their particle art from a project atlas, tune every
 > emitter knob live — **direction & spread, spin, alpha, scale, speed, gravity, colour and
-> a colour overlay, each with an optional per-particle Min / Max range** — **load a project
-> Rig as a backdrop and pin a layer onto one of its bones**, emit **whole rig clips
+> a colour overlay, each with an optional per-particle Min / Max range**, plus stackable
+> **forces** (gravity at any angle, wind, vortex, attractor, turbulence, drag) — **load a
+> project Rig as a backdrop and pin a layer onto one of its bones**, emit **whole rig clips
 > as the particles** (Tier C), author **when** a layer fires (ambient, or on a game event),
 > and save/reopen the effect. A saved effect travels into a game through the export →
 > `deploy/` → bake → pull → register chain, and a layer set to fire **on event** plays
@@ -211,9 +212,10 @@ With a layer selected, the right **Inspector** edits it:
   one particle every *Spacing°* from a *Start angle*, spawned *Distance* px out. Burst
   owns the launch direction, so the Direction controls step aside while it's selected.
 - **Direction & rotation** — **Direction (°)** and **Spread (±°)** set the launch arc
-  (0° = right, 90° = up, 180° = left, 270° = down; spread 180° = every direction, and each
-  particle picks an angle inside Direction ± Spread). **Spin min/max (°/s)** and **Spin
-  accel** turn the particle as it flies — each particle picks a rate between min and max.
+  (0° = right, 90° = down, 180° = left, 270° = up — screen y grows downward; spread 180° =
+  every direction, and each particle picks an angle inside Direction ± Spread). **Spin
+  min/max (°/s)** and **Spin accel** turn the particle as it flies — each particle picks a
+  rate between min and max.
   **On** adds or removes the whole direction control, so a layer that has none can grow
   one. **Lock the particle's angle** pins the sprite to a fixed **Locked angle** —
   particles still travel along the direction, they just don't rotate to face it, which is
@@ -221,9 +223,38 @@ With a layer selected, the right **Inspector** edits it:
 - **Alpha**, **Scale** — each has **On** (add/remove the curve entirely) and a **Start**
   and **End** value, so a particle can fade and grow/shrink over its lifetime.
 - **Movement** — **Eased speed** (a **Speed start**/**end** curve along the launch
-  direction) or **Gravity (acceleration)** (**Start speed min/max**, **Gravity X/Y**, a
-  **Max speed** cap, and *Rotate particle to its travel direction*). Up-direction +
-  downward gravity = a fountain.
+  direction) or **Acceleration (launch + constant pull)** (**Start speed min/max**,
+  **Acceleration X/Y** — positive Y pulls down — a **Max speed** cap, and *Rotate particle to
+  its travel direction*). Up-direction (270°) + a downward pull = a fountain. Effects saved
+  before this label change are unchanged: it is the same setting.
+- **Forces** — a stack of forces that act on the particles **on top of** the Movement above,
+  in either model. Pick one from **Add a force…**; each entry has an **On** switch (off keeps
+  its numbers but stops it pushing) and **✕** to remove it. Add as many as you like, of any
+  kind — they add together. Strengths are in px/s²; angles use the Direction convention
+  (0° = right, 90° = down, 180° = left, 270° = up); a **Centre X/Y** is an offset from the
+  emitter, so it moves with an emitter pinned to a bone.
+  - **Gravity** — **Strength** and **Angle (°)**. 90° is ordinary downward gravity; any
+    other angle pulls that way instead.
+  - **Wind** — **Strength**, **Angle (°)**, **Gust** (0 = steady, 1 = each particle's push
+    swings between none and double) and **Gusts / s**.
+  - **Vortex** — **Centre X/Y**, **Direction** (Clockwise / Counter-clockwise), **Swirl**
+    (how hard it spins particles around the centre), **Radial** (above 0 flings them
+    **out** — centrifugal; below 0 pulls them **in** — centripetal; balance the two for an
+    orbit), **Radius** (0 = reaches everywhere) and **Falloff** (0 = full strength out to the
+    radius, 1 = fades linearly to nothing at it, higher = fades faster).
+  - **Attractor / repulsor** — **Centre X/Y**, **Strength** (positive pulls in, negative
+    pushes away), **Radius**, **Falloff**, and **Absorb radius**: particles that reach it
+    disappear (0 = never) — a sink.
+  - **Turbulence** — **Strength**, **Cell size** (small = jittery, large = lazy swirls) and
+    **Evolve / s** (how fast the swirls change). The field swirls particles around without
+    bunching them into clumps.
+  - **Drag** — **Amount**: air resistance. Gravity plus drag settles at a steady falling
+    speed instead of speeding up forever. Drag slows the forced motion, and in the
+    Acceleration model the launch too; with Eased speed the speed curve keeps owning the
+    launch (lower its End to slow it).
+
+  A layer with no forces is saved exactly as before; removing the last force removes the
+  whole thing from the effect.
 - **Min / Max (vary per particle)** — Alpha, Scale and the eased Speed each carry this
   toggle. Off, every particle follows the same curve. On, Start and End each split into a
   **min** and a **max**, and every particle spawns somewhere in the Start band and ends
@@ -306,8 +337,11 @@ mere save.
   live WebGL pixels.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
+- **Forces don't vary per particle**, apart from each particle's own gust and turbulence
+  phase. A force's centre is a fixed offset from the emitter; it can't be keyed or follow a
+  different bone than the emitter's.
 - **Not everything can vary per particle.** Frequency and Max particles are emitter-wide,
-  and gravity's acceleration is a constant field — none of them are per-particle values,
+  and the Acceleration model's pull is a constant field — none of them are per-particle values,
   so they have no Min / Max. Lifetime, the launch arc, spin and the gravity start speed
   are already authored as ranges.
 
@@ -325,7 +359,7 @@ mere save.
   the Trigger picker offers exactly the events a Flow Broadcast can emit). `+page.svelte`
   is the authoring shell (sub-bar, Layers panel with the stack ops, Inspector with Layer /
   Particle / Art / Placement / Trigger / Emitter / Spawn / Direction &amp; rotation / Alpha /
-  Scale / Movement / Colour / Blend sections, and the Backdrop bar above the canvas).
+  Scale / Movement / Forces / Colour / Blend sections, and the Backdrop bar above the canvas).
   `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
   play-pause + a live `Emitter` per layer, the centre-spawned placeholder dots for an
   unbound layer, and the Tier-B rig backdrop — loaded imperatively and ridden per-frame,
@@ -360,3 +394,11 @@ mere save.
   it from `$lib/fx/effectEmitter.client.ts`, which every one of them imports. A config only
   carries these types while the author has that toggle on, so an effect that doesn't use them
   stays 100% stock library config.
+- **Forces:** `packages/engine-fx/src/forces.ts` — one more custom behavior, `fxForces`, whose
+  config is the force stack (`{ forces: FxForce[] }`). `readFxForces` is the single clamp the
+  behavior and the inspector (`forcesOf` / `addForce` / `removeForce` / `setForceField` in
+  `fxModel.client.ts`) both read through. It is registered by the same `registerFxBehaviors`,
+  so the preview and the game cannot diverge. With `moveAcceleration` / `moveSpeedStatic` on the
+  layer it adds into their `config.velocity`; otherwise it integrates its own velocity on top of
+  the movement. Gate: `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, run by the Lint
+  workflow).
