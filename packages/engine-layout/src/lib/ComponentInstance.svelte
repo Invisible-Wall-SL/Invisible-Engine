@@ -804,9 +804,11 @@
 	// signal through the def's scope, a Flow `fireCue`, a rig `completeSignal`, a timeline's
 	// `signal:` cue, or `enter`. Counted apart from the `playOn` watcher above, so a cue that
 	// restarted a timeline still fires the trigger.
-	// Until the machine has started (the instance's first visible frame) only `enter` — the fire
-	// that starts it — reaches it: a win heard while the screen was still hidden must not play
-	// minutes late on its first appearance.
+	// Until the machine has started (the instance's first visible frame) nothing reaches it: a win
+	// heard while the screen was still hidden must not play minutes late on its first appearance.
+	// A fire on the frame the instance appears (the visible-edge effect runs first, so `enter` and
+	// a book event that shows the screen and fires together) starts it right here, ahead of the
+	// ticker, so that fire is not lost.
 	const triggerFires: Record<string, number> = {};
 	$effect(() => {
 		if (!stateMachineRunner) return;
@@ -814,8 +816,13 @@
 			const count = firedSignals[signal] ?? 0;
 			if (count <= (triggerFires[signal] ?? 0)) continue;
 			triggerFires[signal] = count;
-			if (!stateMachineStarted && signal !== ENTER_SIGNAL) continue;
-			untrack(() => stateMachineRunner.fire(signal));
+			untrack(() => {
+				if (!stateMachineStarted) {
+					if (!selfVisible) return;
+					startStateMachine();
+				}
+				stateMachineRunner.fire(signal);
+			});
 		}
 	});
 	// A number input with a `source` follows that engine value (the registry a value binding's

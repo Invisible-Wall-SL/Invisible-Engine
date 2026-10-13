@@ -29,8 +29,10 @@ import {
  *   advance (as Rive does). The one exception is the "finish the loop, then play win" idiom: a
  *   layer HOLDS a trigger while a transition leaving its current state (or `any`) reads it and
  *   is blocked by its `exitTime` ALONE — every other condition already holds and the state is
- *   still playing — and drops every held trigger the moment the layer changes state, so a hold
- *   never outlasts the rest of one loop and a stale trigger never fires later.
+ *   still playing — for THAT transition only (no other transition may take a held trigger), and
+ *   drops every held trigger the moment the layer changes state, so a hold never outlasts the
+ *   rest of one loop and a stale trigger never fires later. A trigger fired in the same advance
+ *   as a state change is held for the new state's exit-time transition, if one reads it.
  * - **`any`-state transitions are checked first**, in authored order, then the current state's.
  *   The first whose conditions all hold (and whose `exitTime` has been reached) fires. An `any`
  *   transition never re-enters the state the layer is already in.
@@ -120,8 +122,9 @@ interface LayerRun {
 	blend?: { timeline?: string; time: number; elapsed: number; total: number };
 	/** Triggers fired since the last advance, for this layer. */
 	fresh: Set<string>;
-	/** Triggers kept from an earlier advance for a transition waiting only on its exit time. */
-	held: Set<string>;
+	/** Triggers kept from an earlier advance, each for the transition ids waiting only on their
+	 *  exit time to take it — no other transition may. */
+	held: Map<string, Set<string>>;
 	left: LeftSegment[];
 }
 
@@ -175,7 +178,7 @@ export class ComponentStateMachineRunner {
 			wrapped: false,
 			entered: true,
 			fresh: new Set(),
-			held: new Set(),
+			held: new Map(),
 			left: [],
 		};
 	}
@@ -267,9 +270,10 @@ export class ComponentStateMachineRunner {
 		return step;
 	}
 
-	/** Is the trigger `id` available to this layer's conditions right now? */
-	private pending(layer: LayerRun, id: string): boolean {
-		return layer.fresh.has(id) || layer.held.has(id);
+	/** Is the trigger `id` available to transition `transitionId` right now: fired since the last
+	 *  advance, or held for that very transition? */
+	private pending(layer: LayerRun, id: string, transitionId: string): boolean {
+		return layer.fresh.has(id) || !!layer.held.get(id)?.has(transitionId);
 	}
 
 	/**
@@ -279,22 +283,30 @@ export class ComponentStateMachineRunner {
 	 * trigger is cleared.
 	 */
 	private settleTriggers(layer: LayerRun, used: ReadonlySet<string>): void {
-		const available = new Set([...layer.fresh, ...layer.held]);
-		layer.fresh.clear();
-		layer.held.clear();
-		if (!available.size || layer.state === SM_EXIT_STATE || !this.layerPlaying(layer)) return;
+		const fresh = new Set(layer.fresh);
+		const held = layer.held;
+		layer.fresh = new Set();
+		layer.held = new Map();
+		if ((!fresh.size && !held.size) || layer.state === SM_EXIT_STATE) return;
+		if (!this.layerPlaying(layer)) return;
 		for (const t of layer.def.transitions ?? []) {
 			const leaves = t.from === layer.state || (t.from === SM_ANY_STATE && t.to !== layer.state);
 			if (!leaves || t.exitTime === undefined || this.exitReached(layer, t.exitTime)) continue;
 			const conditions = t.conditions ?? [];
 			const triggers = conditions.filter((c) => c.op === 'fired').map((c) => c.input);
 			if (!triggers.length) continue;
+			const present = (id: string): boolean => fresh.has(id) || !!held.get(id)?.has(t.id);
 			const waitingOnExitOnly = conditions.every((c) =>
 				c.op === 'fired'
-					? this.kinds.get(c.input) === 'trigger' && available.has(c.input) && !used.has(c.input)
-					: this.holds(layer, c, used),
+					? this.kinds.get(c.input) === 'trigger' && present(c.input) && !used.has(c.input)
+					: this.holds(layer, c, used, t.id),
 			);
-			if (waitingOnExitOnly) for (const id of triggers) layer.held.add(id);
+			if (!waitingOnExitOnly) continue;
+			for (const id of triggers) {
+				const forTransitions = layer.held.get(id) ?? new Set<string>();
+				forTransitions.add(t.id);
+				layer.held.set(id, forTransitions);
+			}
 		}
 	}
 
@@ -334,12 +346,19 @@ export class ComponentStateMachineRunner {
 		return point > layer.prevTime && point <= layer.time;
 	}
 
-	private holds(layer: LayerRun, condition: SmCondition, used: ReadonlySet<string>): boolean {
+	private holds(
+		layer: LayerRun,
+		condition: SmCondition,
+		used: ReadonlySet<string>,
+		transitionId: string,
+	): boolean {
 		const kind = this.kinds.get(condition.input);
 		if (!kind) return false;
 		if (condition.op === 'fired') {
 			return (
-				kind === 'trigger' && this.pending(layer, condition.input) && !used.has(condition.input)
+				kind === 'trigger' &&
+				this.pending(layer, condition.input, transitionId) &&
+				!used.has(condition.input)
 			);
 		}
 		if (kind === 'trigger') return false;
@@ -368,7 +387,7 @@ export class ComponentStateMachineRunner {
 
 	private fires(layer: LayerRun, transition: SmTransition, used: ReadonlySet<string>): boolean {
 		if (!this.exitReached(layer, transition.exitTime)) return false;
-		return (transition.conditions ?? []).every((c) => this.holds(layer, c, used));
+		return (transition.conditions ?? []).every((c) => this.holds(layer, c, used, transition.id));
 	}
 
 	/** `used`: the triggers this layer's transitions already took this tick. */
@@ -391,7 +410,7 @@ export class ComponentStateMachineRunner {
 				? { timeline: layer.stateDef.timeline, time: layer.time }
 				: { time: 0 };
 		// A state change drops what was held: a trigger waited for a transition out of the old state.
-		layer.held.clear();
+		layer.held = new Map();
 		if (left.timeline) {
 			layer.left.push({
 				timeline: left.timeline,
@@ -529,6 +548,7 @@ export type StateMachineIssueCode =
 	| 'transition-to-unknown'
 	| 'condition-input-unknown'
 	| 'condition-op-mismatch'
+	| 'condition-value-missing'
 	| 'exit-time-out-of-range'
 	| 'state-unreachable';
 
@@ -708,6 +728,16 @@ export function validateStateMachine(
 						message: `Layer "${name}": a condition reads input "${condition.input}", which is not declared.`,
 					});
 					continue;
+				}
+				if (kind === 'number' && condition.op !== 'fired' && condition.value === undefined) {
+					issues.push({
+						code: 'condition-value-missing',
+						level: 'error',
+						layer: layer.id,
+						transition: transition.id,
+						input: condition.input,
+						message: `Layer "${name}": the condition on the number input "${condition.input}" has no value to compare with.`,
+					});
 				}
 				if (!OP_FOR_KIND[kind].includes(condition.op)) {
 					issues.push({

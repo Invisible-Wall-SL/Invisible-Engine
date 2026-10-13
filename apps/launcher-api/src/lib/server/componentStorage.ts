@@ -912,12 +912,12 @@ function normalizeConditions(input: unknown): SmCondition[] | undefined {
 		if (!isRecord(c) || typeof c.input !== 'string' || !c.input) return undefined;
 		if (!CONDITION_OPS.has(c.op as SmCondition['op'])) return undefined;
 		const condition: SmCondition = { input: c.input, op: c.op as SmCondition['op'] };
-		// A value is optional (the runtime reads a bool `==` with none as `true`); one of another
-		// type is malformed.
+		// `==` / `!=` may omit the value (the runtime reads a bool one as `true`; validation flags a
+		// number one); `<` / `>` need one, and a value of another type is malformed.
 		if (c.value !== undefined) {
 			if (!(typeof c.value === 'boolean' || finite(c.value))) return undefined;
 			if (condition.op !== 'fired') condition.value = c.value;
-		}
+		} else if (condition.op === '<' || condition.op === '>') return undefined;
 		out.push(condition);
 	}
 	return out;
