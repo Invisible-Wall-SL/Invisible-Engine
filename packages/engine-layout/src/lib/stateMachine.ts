@@ -361,7 +361,8 @@ export class ComponentStateMachineRunner {
 				!used.has(condition.input)
 			);
 		}
-		if (kind === 'trigger') return false;
+		// A text input is never a condition (plan §8): it holds a localization key, not state.
+		if (kind === 'trigger' || kind === 'text') return false;
 		const value = this.current.get(condition.input);
 		if (kind === 'bool') {
 			const expected = condition.value === undefined ? true : condition.value === true;
@@ -547,6 +548,7 @@ export type StateMachineIssueCode =
 	| 'transition-from-unknown'
 	| 'transition-to-unknown'
 	| 'condition-input-unknown'
+	| 'condition-input-text'
 	| 'condition-op-mismatch'
 	| 'condition-value-missing'
 	| 'exit-time-out-of-range'
@@ -568,6 +570,8 @@ const OP_FOR_KIND: Record<ComponentInputKind, readonly SmCondition['op'][]> = {
 	trigger: ['fired'],
 	bool: ['==', '!='],
 	number: ['==', '!=', '<', '>'],
+	// A text input carries a localization key (plan §8); the machine never conditions on text.
+	text: [],
 };
 
 /**
@@ -726,6 +730,17 @@ export function validateStateMachine(
 						transition: transition.id,
 						input: condition.input,
 						message: `Layer "${name}": a condition reads input "${condition.input}", which is not declared.`,
+					});
+					continue;
+				}
+				if (kind === 'text') {
+					issues.push({
+						code: 'condition-input-text',
+						level: 'error',
+						layer: layer.id,
+						transition: transition.id,
+						input: condition.input,
+						message: `Layer "${name}": a condition reads the text input "${condition.input}"; the state machine never conditions on text (a text input carries a localization key).`,
 					});
 					continue;
 				}

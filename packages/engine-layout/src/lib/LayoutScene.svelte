@@ -14,12 +14,17 @@
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getSceneCameraTransform } from './registerSceneCameraTransform';
+	import { setSceneIdContext } from './sceneIdContext';
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
 	import { setTapPortal, type TapPortalEntry } from './tapPortalContext';
 	import { tapDimBehind } from './tapToContinue';
 	import { sceneMountKey, trackComponentMount } from './mountedComponents';
 
 	const { scene }: Props = $props();
+
+	// The screen a placed component instance registers its Flow handle under (`flowInstances.ts`).
+	// A keyed scene never changes id, so it is read once.
+	setSceneIdContext(untrack(() => scene.id));
 
 	// Count this screen in while it is mounted (`isComponentMounted(sceneMountKey(id))`), so a coded
 	// default can step aside for an authored screen the flow is showing — the Hold and Win banner for

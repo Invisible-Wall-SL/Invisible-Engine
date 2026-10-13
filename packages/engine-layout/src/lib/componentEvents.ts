@@ -1,3 +1,5 @@
+import { isLocalizationKey } from 'engine-flow-v2';
+
 import { componentEvents, componentInputs } from './componentInterface';
 import { getFlowPress } from './registerFlowPress';
 import type { FiredTransition } from './stateMachine';
@@ -59,11 +61,10 @@ export function raiseComponentEvent(raised: RaisedComponentEvent): void {
 
 /**
  * A payload's localization key: the stack is source-as-key, so a key is its source text, and the
- * harvest's rule applies — a string with at least one letter (`localizationHarvest.ts`). The
- * harvest collects every `{ key }` a def raises, so none bypasses localization (plan §8).
+ * harvest's rule applies — a string with at least one letter. One rule for a payload `{ key }`, a
+ * `text` input and Flow's harvest, so it lives in `engine-flow-v2` and is re-exported here.
  */
-export const isLocalizationKey = (key: unknown): key is string =>
-	typeof key === 'string' && /\p{L}/u.test(key);
+export { isLocalizationKey };
 
 /** The event id an `event:<id>` cue raises; `undefined` for any other cue. */
 export function eventCueId(cue: string): string | undefined {

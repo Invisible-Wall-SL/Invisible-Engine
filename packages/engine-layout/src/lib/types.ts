@@ -1500,10 +1500,11 @@ export interface ComponentEvent {
 
 /**
  * Every `ComponentInput.kind`, as a VALUE (the `COMPONENT_PARAM_KINDS` pattern: the launcher's
- * saved-def normalizer imports this list instead of copying it). Kept open on purpose: Phase 7 adds
- * `text` here without a format break.
+ * saved-def normalizer imports this list instead of copying it). `text` (Phase 7, plan §8) carries
+ * a LOCALIZATION KEY, never a sentence: the stack is source-as-key, a Flow literal fed to it is
+ * harvested like a `textMessage`, and the state machine never conditions on it.
  */
-export const COMPONENT_INPUT_KINDS = ['bool', 'number', 'trigger'] as const;
+export const COMPONENT_INPUT_KINDS = ['bool', 'number', 'trigger', 'text'] as const;
 export type ComponentInputKind = (typeof COMPONENT_INPUT_KINDS)[number];
 
 /** One input of a component's interface (plan §6.1). */
@@ -1511,8 +1512,9 @@ export interface ComponentInput {
 	/** Unique within the def; a trigger's id is the SIGNAL it is fired as on the instance's bus. */
 	id: string;
 	kind: ComponentInputKind;
-	/** `bool` ⇒ `false`, `number` ⇒ `0` when absent; meaningless on a trigger. */
-	default?: boolean | number;
+	/** `bool` ⇒ `false`, `number` ⇒ `0`, `text` ⇒ no key when absent; meaningless on a trigger. A
+	 *  `text` default is a localization key (`isLocalizationKey`). */
+	default?: boolean | number | string;
 	/**
 	 * A `number` input the ENGINE feeds: a registered value-source name (`winAmount`, `balance`…),
 	 * the same registry a value binding's `source` reads. Absent ⇒ Flow sets it (Phase 7), else it

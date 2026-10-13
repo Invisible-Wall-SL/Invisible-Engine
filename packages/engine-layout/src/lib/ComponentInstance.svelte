@@ -9,6 +9,7 @@
 	} from './types';
 
 	import { onDestroy, untrack, type Snippet } from 'svelte';
+	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	export type Props = {
 		node: ComponentInstanceNode;
@@ -109,6 +110,8 @@
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
 	import { ComponentEventDispatcher, hasNodeListeners, routeComponentCue } from './componentEvents';
 	import { setComponentListen } from './componentListenerContext';
+	import { registerFlowInstance } from './flowInstances';
+	import { getSceneIdContext } from './sceneIdContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
 
@@ -721,15 +724,18 @@
 	// The host reads the runner built below at call time. No listener and no event ⇒ no dispatcher,
 	// no context, nothing new (parity).
 	const listened = allowed && !!def && hasNodeListeners(def);
+	/** Fire a trigger input on THIS instance, exactly as a heard signal is: its rig cues play and
+	 *  the per-instance bus records it (the state machine, a `playOn` timeline and a gate hear it). */
+	const fireTrigger = (id: string): void => {
+		const targets = signalToTargets.get(id);
+		if (targets) fireCue(targets);
+		fireComponentSignal(id);
+	};
 	const eventDispatcher =
 		allowed && def && (listened || !!def.events?.length)
 			? new ComponentEventDispatcher(def, {
 					instanceId: untrack(() => node.id),
-					fireTrigger: (id) => {
-						const targets = signalToTargets.get(id);
-						if (targets) fireCue(targets);
-						fireComponentSignal(id);
-					},
+					fireTrigger,
 					input: (id) => stateMachineRunner?.input(id),
 					setInput: (id, value) => void stateMachineRunner?.setInput(id, value),
 					schedule: (drain) => queueMicrotask(drain),
@@ -921,12 +927,62 @@
 		});
 		timelineClock += 1;
 	};
+	// FLOW INSTANCE (Rive plan §6.2, Phase 7): a placement on a screen registers a live handle under
+	// its node id (`flowInstances.ts`) while mounted, so a Flow `componentInstance` node can fire its
+	// triggers (through `fireTrigger`, as a listener does), set its bool / number inputs on the
+	// runner and its text inputs here, read its layer states and wait for one. Only a TOP-LEVEL
+	// placement registers: an instance nested inside another component's def is not Flow's to name.
+	// A set of the wrong kind, or an unknown id, does nothing. The handle is a Map entry and a few
+	// closures: an instance nothing in Flow names pays nothing else (parity).
+	// Reactive collections only to satisfy `svelte/prefer-svelte-reactivity`; nothing renders them.
+	const textInputs = new SvelteMap<string, string>();
+	const flowChangeListeners = new SvelteSet<() => void>();
+	const notifyFlowInstance = (): void => {
+		for (const listener of [...flowChangeListeners]) listener();
+	};
+	if (allowed && def && parentNest.depth === 0) {
+		const kinds = new Map(componentInputs(def).map((input) => [input.id, input.kind]));
+		for (const input of componentInputs(def)) {
+			if (input.kind === 'text' && typeof input.default === 'string')
+				textInputs.set(input.id, input.default);
+		}
+		const unregister = registerFlowInstance({
+			instanceId: untrack(() => node.id),
+			componentId: node.componentId,
+			version: node.componentVersion,
+			sceneId: getSceneIdContext(),
+			fire: (trigger) => {
+				if (kinds.get(trigger) === 'trigger') fireTrigger(trigger);
+			},
+			setInput: (input, value) => {
+				const kind = kinds.get(input);
+				if (kind === 'text') {
+					if (typeof value === 'string') textInputs.set(input, value);
+				} else if (
+					(kind === 'bool' && typeof value === 'boolean') ||
+					(kind === 'number' && typeof value === 'number')
+				) {
+					stateMachineRunner?.setInput(input, value);
+				}
+			},
+			input: (input) =>
+				kinds.get(input) === 'text' ? textInputs.get(input) : stateMachineRunner?.input(input),
+			values: () => stateMachineRunner?.values() ?? {},
+			stateOf: (layer) => stateMachineRunner?.stateOf(layer),
+			onChange: (listener) => {
+				flowChangeListeners.add(listener);
+				return () => flowChangeListeners.delete(listener);
+			},
+		});
+		onDestroy(unregister);
+	}
 	// The machine starts when the instance is first SHOWN (as `enter` fires): the entry pose and
 	// its cues at 0 then, the clock running from there on whether or not it stays shown.
 	const startStateMachine = (): void => {
 		stateMachineStarted = true;
 		applyStateMachine();
 		if (stateMachineRunner) eventDispatcher?.started(stateMachineRunner.plays());
+		notifyFlowInstance();
 	};
 	if (stateMachineRunner && untrack(() => selfVisible)) startStateMachine();
 	const timelineTicker =
@@ -950,6 +1006,7 @@
 			const step = stateMachineRunner.advance(dt);
 			applyStateMachine();
 			eventDispatcher?.transitions(step.fired);
+			if (step.fired.length) notifyFlowInstance();
 		}
 	};
 	timelineTicker?.add(tickTimelines);
