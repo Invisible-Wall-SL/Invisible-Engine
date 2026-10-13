@@ -12,7 +12,7 @@ import {
 	STATE_MACHINE_FIELDS,
 	TEMPLATE_SLOT_FIELDS,
 } from './componentFields';
-import { isPlainObject, setKey } from './stripUnknownKeys';
+import { isPlainObject } from './stripUnknownKeys';
 import { unknownFields, withUnknownFields } from './unknownBlocks';
 
 type IsKnown = (key: string) => boolean;
@@ -100,13 +100,9 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 	const machine = graftStateMachine(next.stateMachine as Row | undefined, stored.stateMachine);
 	set('stateMachine', machine, next.stateMachine);
 
-	const blocks = Object.entries(unknownFields(isDefField, stored)).filter(
-		([key]) => !Object.hasOwn(out, key),
-	);
-	for (const [key, value] of blocks) setKey(out, key, value);
-	if (blocks.length) grafted = true;
-
-	return grafted ? (out as unknown as ComponentDef) : next;
+	// In its stored position, so an older launcher's no-op save rewrites the very same bytes.
+	const withBlocks = withUnknownFields(isDefField, stored, out);
+	return grafted || withBlocks !== out ? (withBlocks as unknown as ComponentDef) : next;
 }
 
 interface TwinRule {
@@ -202,13 +198,13 @@ function graftStateMachine(next: Row | undefined, stored: unknown): Row | undefi
 	const merged = layers
 		? graftRows(layers, stored.layers, 'id', isLayerField, { inner: graftLayer })
 		: layers;
-	const extra = Object.entries(unknownFields(isStateMachineField, stored)).filter(
-		([key]) => !next || !Object.hasOwn(next, key),
-	);
-	if (merged === layers && !extra.length) return next;
-	const out: Row = next ? { ...next, layers: merged } : { layers: [] };
-	for (const [key, value] of extra) setKey(out, key, value);
-	return out;
+	const base: Row = next
+		? merged === layers
+			? next
+			: { ...next, layers: merged }
+		: { layers: [] };
+	const out = withUnknownFields(isStateMachineField, stored, base);
+	return out === base && !next ? next : out;
 }
 
 function graftLayer(layer: Row, stored: Row): Row {

@@ -1378,6 +1378,54 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	);
 }
 
+{
+	// A newer build's top-level and `stateMachine` fields sit mid-object: an older launcher's no-op
+	// save keeps them in place, so the bytes (and the ETag every other tab holds) do not change.
+	resetComponents();
+	const { id, name, ...rest } = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	const machine = rest.stateMachine as Machine;
+	const doc = {
+		id,
+		name,
+		events: [{ id: 'e_tap' }],
+		...rest,
+		stateMachine: { blend: 'smooth', ...machine },
+	};
+	const bytes = JSON.stringify(normalizeComponent(structuredClone(doc) as unknown as Def), null, 2);
+	const stored0 = JSON.parse(bytes) as Record<string, unknown>;
+	const withExtras = JSON.stringify(
+		{
+			id: stored0.id,
+			name: stored0.name,
+			events: doc.events,
+			...Object.fromEntries(Object.entries(stored0).filter(([k]) => k !== 'id' && k !== 'name')),
+			stateMachine: { blend: 'smooth', ...(stored0.stateMachine as object) },
+		},
+		null,
+		2,
+	);
+	bucket.set(componentKey, { text: withExtras, etag: etagOf(withExtras) });
+	const result = await saveComponent(olderView(), 'p', etagOf(withExtras));
+	check(
+		'components: a no-op save keeps mid-object top-level and stateMachine fields byte-identical',
+		[result.version, bucket.get(componentKey)?.text === withExtras],
+		[3, true],
+	);
+}
+
+{
+	// A forced save racing another author's write: its CAS on the same read refuses it.
+	resetComponents();
+	seed(componentKey, newerComponent());
+	afterGet = () => void seed(componentKey, { ...COMPONENT, theirs: 1 });
+	check(
+		'components: a forced save landing after the graft read still conflicts',
+		await outcome(() => saveComponent(olderView(), 'p', undefined)),
+		'ConflictError',
+	);
+	check('components: …and the other author’s def stands', stored(componentKey).theirs, 1);
+}
+
 // ── Component defaults ("This game's defaults"): `{ id, params }` plus a newer build's fields ─
 
 {

@@ -55,7 +55,7 @@ Shipped capabilities on `main`:
   "This game's defaults" and its restore keep theirs (a restore, the backup's). Known fields:
   `apps/launcher-api/src/lib/server/componentFields.ts`. Rules and reasoning:
   [doc-readers](../conventions/doc-readers.md) "Round-tripping". Gate:
-  `check:save-keeps-unknown-blocks` gains a components section (138 checks in all).
+  `check:save-keeps-unknown-blocks` gains a components section (141 checks in all).
 - 2026-10-13 — **The State Machine panel (Rive plan Phase 5b, branch
   `claude/rive-p5b-state-machine-editor`, stacked on 5a).** Timeline | State machine tabs in
   Animate; `EditorStateMachinePanel.svelte` + `SmGraphNode.svelte` on `@xyflow/svelte`; pure edits

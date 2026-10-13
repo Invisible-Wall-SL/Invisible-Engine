@@ -1249,6 +1249,20 @@
 	 */
 	async function promoteToShared(): Promise<void> {
 		if (!componentDraft || busy || !data.canPublishShared || isInspecting || writesBlocked) return;
+		// A stored project def whose ETag is still being read (`loadEtag`) would promote without
+		// `promotedFrom`, dropping the fields a newer launcher wrote into it.
+		const draftId = componentDraft.id;
+		if (
+			componentDraft.scope === 'project' &&
+			saveState.etag === null &&
+			components.some((c) => c.id === draftId && c.scope === 'project')
+		) {
+			saveStatus = {
+				kind: 'error',
+				message: 'Still reading this component’s saved version. Try Promote again in a moment.',
+			};
+			return;
+		}
 		const ok = await askConfirm({
 			title: `Promote "${componentDraft.name}" to the SHARED library?`,
 			message:
