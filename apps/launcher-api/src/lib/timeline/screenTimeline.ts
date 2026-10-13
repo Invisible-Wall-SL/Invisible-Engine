@@ -90,6 +90,64 @@ export function newScreenTimeline(opts: {
 	};
 }
 
+/** A fresh id for a timeline on component `componentId` named `name`, unique among `taken`. */
+export function componentTimelineId(
+	componentId: string,
+	name: string,
+	taken: Iterable<string>,
+): string {
+	return screenTimelineId(`c_${componentId}`, name, taken);
+}
+
+/**
+ * A new, empty timeline animating component `componentId` — played on every placed instance when
+ * `playOn` fires there (Rive plan Phase 4).
+ */
+export function newComponentTimeline(opts: {
+	id: string;
+	name: string;
+	componentId: string;
+	playOn?: string;
+	duration?: number;
+	fps?: number;
+}): CinematicDoc {
+	return {
+		...newScreenTimeline({ ...opts, sceneId: '' }),
+		host: { kind: 'component', componentId: opts.componentId },
+		...(opts.playOn ? { playOn: opts.playOn } : {}),
+	};
+}
+
+/** The rows of a cinematic listing hosted on component `componentId`. */
+export function componentTimelinesOf<T extends { host?: CinematicDoc['host'] }>(
+	rows: T[],
+	componentId: string | undefined,
+): T[] {
+	if (!componentId) return [];
+	return rows.filter(
+		(row) => row.host?.kind === 'component' && row.host.componentId === componentId,
+	);
+}
+
+/**
+ * The signals a component timeline can start on: `enter` (the instance appears), then the def's
+ * own declared signals, then the names its rig cues complete with — each once, in that order.
+ */
+export function componentTimelineSignals(def: {
+	signals?: { key: string }[];
+	root: LayoutNode;
+}): string[] {
+	const declared = (def.signals ?? []).map((signal) => signal.key).filter(Boolean);
+	const out = new Set<string>(['enter', ...declared]);
+	const walk = (node: LayoutNode): void => {
+		const cues = (node as { cues?: { completeSignal?: string }[] }).cues;
+		for (const cue of cues ?? []) if (cue.completeSignal) out.add(cue.completeSignal);
+		for (const child of (node as { children?: LayoutNode[] }).children ?? []) walk(child);
+	};
+	walk(def.root);
+	return [...out];
+}
+
 /** The rows of a cinematic listing that are timelines of screen `sceneId`. */
 export function screenTimelinesOf<T extends { host?: CinematicDoc['host'] }>(
 	rows: T[],
@@ -129,25 +187,24 @@ export type NodeTarget =
  * for nodes nobody named — so Animate mode refuses an unnamed node or a shared name rather than
  * silently binding to an id or to the wrong node.
  */
-export function nodeActorTarget(scene: Scene, nodeId: string): NodeTarget {
+export function nodeActorTarget(scene: Scene, nodeId: string, where = 'screen'): NodeTarget {
 	const node = findById(scene.nodes, nodeId);
 	if (!node) {
-		return { ok: false, reason: 'not-found', message: 'That node is not on this screen.' };
+		return { ok: false, reason: 'not-found', message: `That node is not on this ${where}.` };
 	}
 	const label = node.label ?? '';
 	if (!label.trim()) {
 		return {
 			ok: false,
 			reason: 'unnamed',
-			message:
-				'Name this node first (Properties → Name). A timeline drives a node by its name, so it plays on any screen that has a node with that name.',
+			message: `Name this node first (Properties → Name). A timeline drives a node by its name, so it plays on any ${where} that has a node with that name.`,
 		};
 	}
 	if (countLabel(scene.nodes, label) > 1 || findNodeByName(scene.nodes, label)?.id !== node.id) {
 		return {
 			ok: false,
 			reason: 'duplicate',
-			message: `Another node on this screen is also named "${label}". Give this one a unique name so the timeline drives the right node.`,
+			message: `Another node on this ${where} is also named "${label}". Give this one a unique name so the timeline drives the right node.`,
 		};
 	}
 	return { ok: true, target: label, node };
@@ -244,6 +301,7 @@ export interface CinematicPickerOption {
  * The `/flow-v2` cinematic picker's options: screen timelines as "Timeline · <screen> · <name>",
  * then the Rigger's cinematics by name, each group alphabetical. A timeline whose screen is gone
  * keeps its id as the screen label, so it stays pickable and visibly broken.
+ * Component timelines are left out: their instances play them (`playOn`).
  */
 export function cinematicPickerOptions(
 	rows: { id: string; name: string; host?: CinematicDoc['host'] }[],
@@ -256,6 +314,10 @@ export function cinematicPickerOptions(
 		if (row.host?.kind === 'screen') {
 			const screen = sceneNames[row.host.sceneId] ?? row.host.sceneId;
 			timelines.push({ id: row.id, label: `Timeline · ${screen} · ${name}` });
+		} else if (row.host?.kind === 'component') {
+			// A component timeline plays on its instances (`playOn`), not from Flow: a
+			// `playCinematic` would mount it with no component to drive.
+			continue;
 		} else {
 			cinematics.push({ id: row.id, label: `Cinematic · ${name}` });
 		}

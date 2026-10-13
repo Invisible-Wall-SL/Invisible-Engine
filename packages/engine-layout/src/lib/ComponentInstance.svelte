@@ -42,10 +42,15 @@
 </script>
 
 <script lang="ts">
-	import { Container, createPressHold } from 'pixi-svelte';
+	import { Container, createPressHold, getContextApp } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
-	import { scopeMatches, scopeOf, type EventScope } from 'utils-event-emitter';
+	import {
+		getContextEventEmitter,
+		scopeMatches,
+		scopeOf,
+		type EventScope,
+	} from 'utils-event-emitter';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import { resolveComponent } from './registerComponents';
@@ -94,6 +99,8 @@
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
 	import { getFlowComplete } from './registerFlowComplete';
 	import { getTapPortal } from './tapPortalContext';
+	import { ComponentTimelinePlayer, componentTimelinesFor } from './componentTimelines';
+	import { setCinematicNodeDriver } from './cinematicNodeContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
 
@@ -696,6 +703,103 @@
 		}
 		wasVisible = selfVisible;
 	});
+
+	// Component TIMELINES (Rive plan Phase 4): the def's timelines (`host: {kind:'component'}`,
+	// registered from the baked cinematics) play on THIS instance when the signal each names in
+	// `playOn` is heard — a game signal or Flow `fireCue` through the def's signal scope, a rig's
+	// `completeSignal`, or `enter`. Each instance owns its player, so two placements play
+	// independently. The player drives the def's nodes through the same node-actor driver a
+	// screen timeline uses, scoped to this instance's nest depth. No timeline ⇒ no player, no
+	// driver, no subscription, no ticker work (parity).
+	const timelinePlayer =
+		allowed && def && componentTimelinesFor(def.id).length
+			? new ComponentTimelinePlayer(componentTimelinesFor(def.id), def.root.children)
+			: undefined;
+	let timelineClock = $state(0);
+	if (timelinePlayer) {
+		const driven = timelinePlayer.drivenNodes();
+		setCinematicNodeDriver((nodeId) => {
+			const channels = driven.get(nodeId);
+			if (!channels) return undefined;
+			return {
+				channels,
+				textTrack: timelinePlayer.textTrack(nodeId),
+				sample: () => {
+					void timelineClock;
+					return timelinePlayer.sample(nodeId) ?? {};
+				},
+			};
+		}, parentNest.depth + 1);
+	}
+	// A timeline signal no cue or gate already listens for still has to reach the per-instance bus.
+	$effect(() =>
+		untrack(() => {
+			if (!timelinePlayer) return;
+			const unsubs: (() => void)[] = [];
+			for (const signal of timelinePlayer.signals()) {
+				if (signal === ENTER_SIGNAL || signalToTargets.has(signal) || gateSignals.has(signal))
+					continue;
+				unsubs.push(
+					getComponentSignal(signal).subscribe((scope) => {
+						if (hears(scope)) fireComponentSignal(signal);
+					}),
+				);
+			}
+			return () => {
+				for (const unsub of unsubs) unsub();
+			};
+		}),
+	);
+	// Every fire of a `playOn` signal on the per-instance bus (re)starts its timelines.
+	const timelineFires: Record<string, number> = {};
+	$effect(() => {
+		if (!timelinePlayer) return;
+		for (const signal of timelinePlayer.signals()) {
+			const count = firedSignals[signal] ?? 0;
+			if (count <= (timelineFires[signal] ?? 0)) continue;
+			timelineFires[signal] = count;
+			untrack(() => {
+				timelinePlayer.trigger(signal);
+				timelineClock += 1;
+			});
+		}
+	});
+	const timelineEvents = timelinePlayer
+		? getContextEventEmitter<{ type: string }>()?.eventEmitter
+		: undefined;
+	/**
+	 * A cue a component timeline crosses. `signal:x` fires on this instance's own bus (so a
+	 * `hiddenUntilSignal`, a tap gate or another timeline can follow it) and restarts every other
+	 * timeline playing on `x` here — never the one that crossed it, which would loop it forever.
+	 * `sfx:` / `music:` are dropped: this package has no sound player, and broadcasting a sound's
+	 * bare name could collide with a real game event. Any other cue (`fx:`) is broadcast by its bare
+	 * name, the seam a screen timeline's cues use.
+	 */
+	const routeTimelineCue = (cue: string, timeline: string): void => {
+		const sep = cue.indexOf(':');
+		const ns = sep > 0 ? cue.slice(0, sep) : '';
+		const name = sep > 0 ? cue.slice(sep + 1) : cue;
+		if (!name || ns === 'sfx' || ns === 'music') return;
+		if (ns !== 'signal') {
+			timelineEvents?.broadcast({ type: name });
+			return;
+		}
+		if (timelinePlayer?.trigger(name, timeline)) timelineClock += 1;
+		// Handled above, so the fire-count watcher must not restart them (the crossing one included).
+		timelineFires[name] = (untrack(() => firedSignals[name]) ?? 0) + 1;
+		fireComponentSignal(name);
+	};
+	const timelineTicker = timelinePlayer
+		? getContextApp().stateApp.pixiApplication?.ticker
+		: undefined;
+	const tickTimelines = (): void => {
+		if (!timelinePlayer?.isPlaying() || !timelineTicker) return;
+		const step = timelinePlayer.advance(timelineTicker.deltaMS / 1000);
+		timelineClock += 1;
+		for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);
+	};
+	timelineTicker?.add(tickTimelines);
+	onDestroy(() => timelineTicker?.remove(tickTimelines));
 
 	// Default hit surface (§18.4): a def authored ONLY from art nodes (sprite/text/
 	// container — no coded `bind` part) has nothing to own the press: `ButtonFrame`

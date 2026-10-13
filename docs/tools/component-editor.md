@@ -403,6 +403,15 @@ the left pane's **Components** list or the Library tab's Components panel. From 
 You can also start a component from **◇ Edit as component** on a container: it is saved as a new
 component and opened here in place.
 
+### 7. Animate it (timelines)
+
+Click **Animate** in the editor bar to key the component's nodes on a Timeline. Every placed
+instance plays it in the game when its **Plays on** signal fires there: **enter** (the instance
+appears), one of the signals you declared in step 3, a rig cue's complete signal, or any name you
+type (a Flow **fireCue** name, say). **Also on** plays the same timeline on other components that
+name their nodes alike. How to author, reuse and check one is in the Scene Editor guide under
+[Animate a component](invisible-editor.md#animate-a-component).
+
 ## Win Overlay — per-tier presentation
 
 The built-in **Win Overlay** (`win`) component owns the big-win **presentation**,
@@ -608,18 +617,10 @@ placed inside a Cell Tile does nothing.
 These reflect the registered editor design (`docs/design/invisible-editor.md`
 §8.5–§8.10) and the current build:
 
-- **The behaviour/timeline layer is not authored here yet.** Numbers can drive a node
-  ([Bind to value](#3b-drive-a-node-from-a-number-bind-to-value)), and a rig or
-  flipbook can play on a signal. The Scene Editor's Animate mode works on screens only;
-  component timelines are the next phase (`docs/design/rive-style-editor.md` §10). The
-  `Component variables` block is purely the *declare* half.
-- **The behaviour ceiling is intentionally low (v1).** Even once timelines land,
-  the design caps v1 at node-prop tweens + rig playback + signal-triggered
-  tracks + a single count-up data binding. Anything needing branching, RGS math,
-  or stateful logic stays a coded `mount` for now (a migration scaffold, not the
-  destination).
-- **No timeline / signal-track UI.** Signals can be declared but there is no
-  per-signal track editor yet.
+- **No state machine yet.** A component can be animated ([Animate it](#7-animate-it-timelines)),
+  but there are no states or transitions between timelines; the per-component state machine is
+  the next phase (`docs/design/rive-style-editor.md` §10). Anything needing branching, RGS math
+  or stateful logic stays a coded `mount` for now.
 - **Versioning is pin-by-default with a true multi-version store (v2 landed).**
   Saving bumps the `version` on a changed def AND retains every historical version, so
   the engine resolves an instance's pin to the **exact** def it was authored against

@@ -31,7 +31,8 @@ foundation and `launcher-studio` for launcher/auth/R2) — your edge is this too
   `flowV2LibraryStorage.ts` (shared function library), `flowV2Export.ts`, `flowV2Validation.ts`.
 - **`playCinematic` picker:** `+page.server.ts` lists cinematics through
   `cinematicPickerOptions` (screen timelines from `/editor` Animate first) and runs
-  `validateNodeActors` per screen timeline — `docs/status/cinematic.md`.
+  `validateNodeActors` per screen timeline; component timelines are left out (their instances
+  play them on `playOn`) — `docs/status/cinematic.md`.
 - **Game side:** `apps/lines/src/game/flowV2Runtime.svelte.ts` (`flowV2DrivesScreens`, ownership),
   `flowV2InterpreterHolder.ts`, `flowEffects.ts`; the v1 `flow*` modules and `packages/engine-flow`
   are still imported by v2 export, the FX tool and the runtime — do not delete them.

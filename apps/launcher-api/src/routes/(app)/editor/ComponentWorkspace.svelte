@@ -51,6 +51,8 @@
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
+	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import { componentTimelineSignals } from '$lib/timeline/screenTimeline';
 	import type { RigMeta } from './rigRuntime.client';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
@@ -951,6 +953,48 @@
 		});
 	}
 
+	// ---- Animate mode: the open component's timelines (Rive plan Phase 4) ----------------------
+	/** Design edits the def; Animate keys its nodes on a Timeline the placed instances play. */
+	let editorMode = $state<'design' | 'animate'>('design');
+	/** A historical snapshot is read-only, and so is everything keyed against it. */
+	const animating = $derived(editorMode === 'animate' && !!componentDraft && !isInspecting);
+	/** The Timeline panel mounts on the first visit to Animate and then stays (hidden in Design, and
+	 *  across components), so leaving Animate or the component never drops an unsaved timeline — the
+	 *  panel saves it when the host changes, as on a screen. */
+	let animateVisited = $state(false);
+	/** The host the panel animates: the open component, kept after it closes so the panel can still
+	 *  save what it holds. */
+	let timelineScene = $state<Scene | undefined>(undefined);
+	let timelineComponent = $state<
+		| {
+				id: string;
+				name: string;
+				signals: string[];
+				others: { id: string; name: string; nodes: LayoutNode[] }[];
+		  }
+		| undefined
+	>(undefined);
+	$effect(() => {
+		if (!componentDraft || !componentScene) return;
+		const draftId = componentDraft.id;
+		// The WHOLE def, even while editing inside a skinnable part: the game resolves a timeline's
+		// node names across all of `root`, so naming and duplicate checks must too.
+		timelineScene = {
+			id: 's_component',
+			name: componentDraft.name,
+			nodes: componentDraft.root.children,
+			space: componentDraft.space ?? 'game',
+		};
+		timelineComponent = {
+			id: draftId,
+			name: componentDraft.name,
+			signals: componentTimelineSignals(componentDraft),
+			others: components
+				.filter((c) => c.id !== draftId)
+				.map((c) => ({ id: c.id, name: c.name, nodes: c.root.children })),
+		};
+	});
+
 	// ---- Edit in place: the breadcrumb of nested defs (Rive plan Phase 4) ----------------------
 	/** The screen the author came from (the breadcrumb's first crumb), or null from the list. */
 	let rootLabel = $state<string | null>(null);
@@ -1832,6 +1876,32 @@
 
 		{#if componentDraft}
 			<div class="eb-group">
+				<div class="mode-toggle" role="group" aria-label="Component mode">
+					<button
+						type="button"
+						class:on={!animating}
+						aria-pressed={!animating}
+						title="Design — build the component's nodes."
+						onclick={() => (editorMode = 'design')}
+					>
+						Design
+					</button>
+					<button
+						type="button"
+						class:on={animating}
+						aria-pressed={animating}
+						disabled={isInspecting}
+						title={isInspecting
+							? 'Read-only — return to latest to animate.'
+							: 'Animate — key the component\'s nodes on a Timeline. Every placed instance plays it when its "Plays on" signal fires. The canvas only selects in this mode.'}
+						onclick={() => {
+							editorMode = 'animate';
+							animateVisited = true;
+						}}
+					>
+						Animate
+					</button>
+				</div>
 				<!-- Another author (or your own other tab) holds this component's lease → read-only
 				     here. The draft saveState refuses to save (its blockWhen); Take over is always
 				     offered. Promote-to-shared is a SEPARATE global key and is not lease-gated. -->
@@ -2170,26 +2240,29 @@
 			{/if}
 		</aside>
 
-		<main class="canvas-area">
+		<main class="canvas-area" class:animating>
 			{#if componentDraft && componentScene}
-				<EditorCanvas
-					scene={componentScene}
-					scenes={[componentScene]}
-					mainSizesMap={projectMainSizes}
-					frameWidth={frameSize.width}
-					frameHeight={frameSize.height}
-					layoutType={currentLayoutType}
-					assets={data.assets}
-					{componentMap}
-					{onSpawn}
-					bind:selectedIds
-					onDelete={onDeleteNode}
-					projectGameName={null}
-					componentParams={resolvedParams}
-					redrawNonce={editNonce}
-					onRigMeta={(meta) => (rigMeta = meta)}
-					onEditInstance={(node) => void enterInstance(node)}
-				/>
+				<div class="canvas-slot">
+					<EditorCanvas
+						scene={componentScene}
+						scenes={[componentScene]}
+						mainSizesMap={projectMainSizes}
+						frameWidth={frameSize.width}
+						frameHeight={frameSize.height}
+						layoutType={currentLayoutType}
+						assets={data.assets}
+						{componentMap}
+						{onSpawn}
+						bind:selectedIds
+						onDelete={onDeleteNode}
+						projectGameName={null}
+						componentParams={resolvedParams}
+						redrawNonce={editNonce}
+						onRigMeta={(meta) => (rigMeta = meta)}
+						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}
+						animate={animating}
+					/>
+				</div>
 			{:else}
 				<div class="empty">
 					<Emblem height={48} />
@@ -2199,6 +2272,17 @@
 						screens. Create one on the left, or open an existing component, then build its element
 						tree on this stage. On a screen, double-click a placed component to edit it in place.
 					</p>
+				</div>
+			{/if}
+			{#if animateVisited}
+				<div class="timeline-slot" class:hidden={!animating}>
+					<EditorTimelinePanel
+						scene={timelineScene}
+						component={timelineComponent}
+						selectedId={selectedIds.at(-1) ?? null}
+						projectKey={data.projectKey}
+						active={active && animating}
+					/>
 				</div>
 			{/if}
 		</main>
@@ -2564,6 +2648,46 @@
 		background: #08080c;
 		overflow: hidden;
 		position: relative;
+	}
+	/* The canvas fills the area; Animate lifts its bottom edge over the Timeline. */
+	.canvas-slot {
+		position: absolute;
+		inset: 0;
+	}
+	.canvas-area.animating .canvas-slot {
+		bottom: 280px;
+	}
+	.timeline-slot {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 280px;
+	}
+	.timeline-slot.hidden {
+		display: none;
+	}
+	.mode-toggle {
+		display: inline-flex;
+		border: 1px solid #2a2a36;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.mode-toggle button {
+		background: transparent;
+		color: #a0a0b0;
+		border: none;
+		padding: 4px 12px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.mode-toggle button.on {
+		background: #24324a;
+		color: #e8f2ff;
+	}
+	.mode-toggle button:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 	.empty {
 		display: flex;

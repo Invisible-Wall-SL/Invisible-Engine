@@ -89,6 +89,22 @@ export function findNodeByName(nodes: LayoutNode[], name: string): LayoutNode | 
 	return walk(nodes) ?? byId;
 }
 
+/**
+ * The node `doc`'s actor targeting `name` drives in `nodes`. A COMPONENT timeline binds by name
+ * only, never by id: it is reused on other components and screens (plan §3.3), where a node id
+ * means nothing, so an unnamed node is never bound. A screen timeline keeps
+ * {@link findNodeByName}'s id fallback, which the screens authored before names relied on.
+ */
+export function findActorNode(
+	doc: CinematicDoc,
+	nodes: LayoutNode[],
+	name: string,
+): LayoutNode | undefined {
+	if (doc.host?.kind !== 'component') return findNodeByName(nodes, name);
+	const hit = findNodeByName(nodes, name);
+	return hit?.label === name ? hit : undefined;
+}
+
 /** The tracks one actor owns. */
 function tracksOf(doc: CinematicDoc, actorId: string): LooseTrack[] {
 	return (doc.tracks as LooseTrack[]).filter((t) => t && t.actorId === actorId);
@@ -102,18 +118,25 @@ export interface ResolvedNodeActor {
 
 /**
  * Every node actor of `doc` bound to its node in `scene`, keyed by NODE ID. An actor whose node is
- * missing is left out: the player skips it, and {@link validateNodeActors} reports it. Only a
- * `screen`-hosted timeline playing on that scene binds (a `cast` or `component` host binds none).
+ * missing is left out: the player skips it, and {@link validateNodeActors} reports it.
+ *
+ * A `screen`-hosted timeline binds only on its own screen. A `component`-hosted one binds by name
+ * on whatever node list it is handed — its own def's root, another component's (`playOnComponents`)
+ * or a screen — which is what makes it reusable (plan §3.3). A `cast` host binds none.
  */
 export function resolveNodeActors(
 	doc: CinematicDoc,
 	scene: Scene | undefined,
 ): Map<string, ResolvedNodeActor> {
 	const out = new Map<string, ResolvedNodeActor>();
-	if (!scene || doc.host?.kind !== 'screen' || doc.host.sceneId !== scene.id) return out;
+	if (!scene) return out;
+	const host = doc.host;
+	const binds =
+		(host?.kind === 'screen' && host.sceneId === scene.id) || host?.kind === 'component';
+	if (!binds) return out;
 	for (const cast of doc.stage?.cast ?? []) {
 		if (!isNodeActorCast(cast) || typeof cast.target !== 'string') continue;
-		const node = findNodeByName(scene.nodes, cast.target);
+		const node = findActorNode(doc, scene.nodes, cast.target);
 		if (!node || out.has(node.id)) continue;
 		out.set(node.id, { actorId: cast.actorId, node, tracks: tracksOf(doc, cast.actorId) });
 	}
@@ -170,7 +193,7 @@ export function validateNodeActors(doc: CinematicDoc, scene: Scene | undefined):
 			issues.push({ actorId, code: 'no-target', message: `Actor "${actorId}" names no node.` });
 			continue;
 		}
-		const node = scene ? findNodeByName(scene.nodes, cast.target) : undefined;
+		const node = scene ? findActorNode(doc, scene.nodes, cast.target) : undefined;
 		if (!node) {
 			issues.push({
 				actorId,

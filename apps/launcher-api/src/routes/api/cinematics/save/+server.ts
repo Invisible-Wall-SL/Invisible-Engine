@@ -15,8 +15,8 @@ import type { RequestHandler } from './$types';
  *
  * Body: `{ doc: <CinematicDoc>, baseEtag?: string | null, force?: boolean, projectKey?: string }`.
  *
- * A Scene Editor-only caller (`access: 'screen'`) may write a screen timeline over a screen
- * timeline or nothing; see {@link screenPrecondition}.
+ * A Scene Editor-only caller (`access: 'hosted'`) may write a screen or component timeline over
+ * one of those or nothing; see {@link hostedPrecondition}.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);
@@ -44,11 +44,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			{ status: 409 },
 		);
 
-	if (access === 'screen') {
+	if (access === 'hosted') {
 		assertReach(access, body.doc);
 		const stored = await loadCinematic(clientKey, projectKey, body.doc.id);
 		if (stored.etag !== null) assertReach(access, stored.doc);
-		const pinned = screenPrecondition(baseEtag, stored.etag);
+		const pinned = hostedPrecondition(baseEtag, stored.etag);
 		if (pinned === 'conflict') return conflict();
 		baseEtag = pinned;
 	}
@@ -75,13 +75,13 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 };
 
 /**
- * The precondition a `screen` save writes under: ALWAYS the version the host check just read
+ * The precondition a `hosted` save writes under: ALWAYS the version the host check just read
  * (`storedEtag`, `null` = absent ⇒ create-only), never an unconditional put — so a rig cinematic
  * written under the same id between the check and the put makes this save fail rather than
  * overwrite it. `force` (`baseEtag` undefined) still overwrites, but only that checked version. A
  * caller's own `baseEtag` that no longer matches it is the ordinary conflict.
  */
-function screenPrecondition(
+function hostedPrecondition(
 	baseEtag: string | null | undefined,
 	storedEtag: string | null,
 ): string | null | 'conflict' {

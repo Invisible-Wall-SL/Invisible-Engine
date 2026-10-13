@@ -6,7 +6,8 @@ import type { RequestHandler } from './$types';
 
 /**
  * Delete one cinematic from the active project. The client confirms first. Scene Editor-only
- * callers may delete a screen timeline and nothing else, so the stored doc is read first.
+ * callers may delete a screen or component timeline and nothing else, so the stored doc is read
+ * first.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);

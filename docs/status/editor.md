@@ -34,6 +34,10 @@ Shipped capabilities on `main`:
   prop: no drag, handles, drop, delete or item toolbar); the Timeline owns Ctrl+Z/Shift+Z/Y, Ctrl+S,
   Ctrl+D and Delete, and the page's undo/clipboard handler stands down. Design mode is unchanged.
   Pure helpers: `$lib/timeline/screenTimeline.ts`. Detail: [cinematic status](cinematic.md).
+  Since Phase 4b (2026-10-13, in review) the same panel takes an optional `component` host and the
+  Components side mounts its own copy, so both can be mounted; each claims the canvas preview with
+  its own owner token (`setTimelinePreview(drives, owner)`). Component authoring: [component-editor
+  status](component-editor.md).
 - **Components side** (Rive plan Phase 4a, 2026-10-13 — ⏳ not yet browser-verified). The old
   `/components` page is `ComponentWorkspace.svelte`, mounted inside `/editor` on first visit and
   then kept; the side not shown is only hidden, so neither loses its canvas or unsaved state. Entry points: the left pane's **Components** section under Screens
@@ -76,8 +80,9 @@ Shipped capabilities on `main`:
 ## Open items / next
 
 0. **⏳ Browser-verify Animate mode** (the list is in [cinematic status](cinematic.md) item 0).
-   Not in Phase 3: text tracks, visibility keys and cues in the panel, keying by dragging on the
-   canvas, component timelines (Phase 4b — next; Animate stays screens-only until then).
+   Not yet in the panel (screens or components): text tracks, visibility keys and cues, keying by
+   dragging on the canvas. Component timelines (Phase 4b) are built, in review; their browser-verify
+   list is in [component-editor status](component-editor.md) Blocked.
 0b. **⏳ Browser-verify the Components side** (Phase 4a): the checklist is in
    [component-editor status](component-editor.md) Blocked. Editor-side extras: the left-pane ＋
    places on the active screen; double-click does nothing in Animate; Design/Animate state and the
@@ -94,6 +99,12 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-13 — **Component timelines (Rive plan Phase 4b, in review).** `EditorTimelinePanel.svelte`
+  generalised from "the active screen" to a host: a screen, or an open component (`component`
+  prop: timelines listed by `componentTimelinesOf`, ids from `componentTimelineId`, Plays on / Also
+  on / issues pill). The Components side gets its own Design | Animate toggle; screen-side
+  behaviour is unchanged. Authoring: [component-editor status](component-editor.md); runtime and
+  access: [cinematic status](cinematic.md).
 - 2026-10-13 — **Components side (Rive plan Phase 4a).** `/components` folded into `/editor`:
   `ComponentWorkspace.svelte` (moved from `components/+page.svelte`) mounts beside the Screens
   side; a left-pane Components section; double-click / **◇ Edit component in place** / **◇ Edit as
