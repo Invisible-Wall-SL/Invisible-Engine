@@ -29,6 +29,7 @@ Works today on `main` / live:
   load / save / rename / delete passes through it): switching releases the old sheet and claims the
   new one, a 10 s heartbeat renews it, `pagehide` releases it. Blocks nothing. `test_presence.py`
   (32). ⏳ Not yet run live with two browsers (folded into item 4).
+- **🧹 Clean sheet…** _(2026-10-13)_ — empties the canvas but keeps the sheet's name + loaded version, so the images can be re-uploaded and Save replaces the sheet in place. Gated by a dialog (counts of sprites / FX layers / sprites carrying AI fields, typed sheet name to enable Clean); refuses a locked sheet or a blank name. Clean itself sends only the session autosave; the re-uploads overwrite same-named originals on R2 at once, so Load sheet undoes a clean only until the first upload (the dialog says so and suggests Save As a backup).
 - **Region + sheet rename** — renaming a sheet moves **all** its R2 objects (`sheets/`, `sheet_src/`, `manifests/`) and rewrites the manifest's internal back-refs + every region `shape_ref`, then deletes the old keys; refuses to overwrite an existing target.
 - **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging. It
   clears and verifies **every tree the sheet owns alone** — `sheets/`, `sheet_src/`, and the Atlas
@@ -65,7 +66,7 @@ Works today on `main` / live:
 - **Atlas round-trip hardened** — `relinkFx` enforces one child per `(base, mode)` (a second claimant is demoted, not dropped) and collapses duplicates, fixing the "duplicate region names" / wrong-`_glow` art after a bounce through the Atlas Maker; `_serve_sprite` cache set to `max-age=0` for the stale-recolour fix.
 
 ## Open items / next
-1. **Browser live-verify owed** — the project-file workflow (B19: rename / Save / Save As + name guards), the FX-layer picker and now the `.plist` import + lock UI landed with local/headless verification; a full live browser pass on Railway is still owed. For the import specifically: a REAL shipped `.plist` (not the synthetic fixture) and confirmation that the imported page/JSON/manifest land in R2.
+1. **Browser live-verify owed** — the project-file workflow (B19: rename / Save / Save As + name guards), the FX-layer picker, 🧹 Clean sheet (on an R2-backed sheet: the AI-field count, clean → refresh keeps the name, clean → re-upload → in-place Save) and the `.plist` import + lock UI landed with local/headless verification; a full live browser pass on Railway is still owed. For the import specifically: a REAL shipped `.plist` (not the synthetic fixture) and confirmation that the imported page/JSON/manifest land in R2.
 2. **Per-user session parity (Phase 4) — planned, unbuilt** (design `atlas-per-user-session.md`): thread the launcher `user` id and scope any server-remembered view state / canvas defaults per user. Minimal — the tool is largely stateless server-side (compose is synchronous, geometry rides in the request).
 
 3. **Signed launch tokens: live since 2026-09-29 14:17Z; the legacy cut-over remains.** — both signing secrets set and verified: the launcher redirect carries only `iw_launch` (+ tool bar), each tool lands on a clean URL with a working session, a genuinely signed token with an edited client or project is refused 403 inside its lifetime, `/healthz` 200 on both. Remaining: **after 2026-10-13** delete the legacy handoff and remove `SHEET_TOOL_SECRET` from Railway (one change with atlas-maker status #6).
@@ -81,6 +82,23 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-10-13 — **🧹 Clean sheet… is back, behind a gate.** The old one-click "New / clear canvas"
+  (replaced 2026-09-02 by the named `New sheet…` dialog) was also how people emptied a sheet to
+  re-import its images; that use had no button since. The new Upload-tab button opens a dialog that
+  counts what goes (sprites, FX layers, regions carrying AI fields), says whether a saved version
+  exists to Load back, and keeps **Clean** disabled until the sheet's name is typed back. It drops the
+  regions only — name, canvas size and the loaded version stay, so the next Save is the usual
+  in-place CAS save. No fx-sync is sent; stale copies in `sheet_src/<sheet>/` are overwritten by
+  same-named uploads and are never packed unless on the canvas. Because `api_upload` mirrors each
+  sprite to R2 at once and `api_load_sheet` prefers the loose sprite over re-slicing the page, Load
+  sheet after a re-upload gives the saved rects with the NEW art — the dialog promises the undo only
+  until the first upload. The AI-field count ignores the `shape_ref` Save fills in itself (the
+  sprite's own `sheet_src/<pile>/<file>` key). Review follow-ups in the same change: the page's
+  Delete/Backspace shortcut no longer fires behind an open dialog (it could delete the selected
+  sprite — and its FX copies on R2 — from behind New sheet / Downscale / Clean), and a late fx-sync
+  answer for a base that has since gone is dropped instead of adding an orphan FX cell. Verified locally (R2-less, headless Chromium): wrong/empty name keeps Clean disabled
+  (Enter too), Esc/Cancel keep the canvas, clean → re-upload → in-place Save lands, Load sheet
+  restores a cleaned saved sheet, an empty canvas answers "Nothing to clean". ⏳ Live pass owed (item 1).
 - 2026-10-01 — **"👤 X is editing this sheet".** The Atlas Maker's `/presence` (#910) moved into
   `iw_common/presence.py` (`beat()` — lease key, holder from the signed identity, who-else answer)
   and `iw_common/presence.js` (`iwPresence.track(doc)` — tab id, heartbeat, banner, release); the

@@ -32,7 +32,7 @@ build pill, Atlas-Maker-link status), then three columns:
   list, with **Load sheet**, **↻ Refresh** (re-pull from R2), **↺ Reset**
   (re-download from R2, dropping local-only files), and **Rename…**. Click to
   select; double-click to load. Below it: the sheet name, **Upload** / **Import**
-  tabs (with **New sheet…**), canvas size, and **Save** / **Save As**.
+  tabs (with **New sheet…** and **🧹 Clean sheet…**), canvas size, and **Save** / **Save As**.
 - **Centre — canvas:** the packed sheet you're editing (zoom / fit / auto-arrange).
 - **Right — Selected sprite inspector (resizable):** name, region/image size,
   AI fields, FX layers. Drag either divider to resize; widths are remembered per
@@ -110,6 +110,22 @@ leave the current canvas untouched. The name survives a browser refresh.
 **Save As (new copy)** applies the same check: if the current name is already a
 saved sheet, it asks before overwriting (Save over the sheet you loaded asks as
 before).
+
+### Cleaning a sheet to re-import its images
+
+**🧹 Clean sheet…** (Upload tab) removes every sprite (and FX layer) from the open
+sheet but keeps its **name and canvas size**, so you can upload the images again
+from scratch and **Save** to replace the sheet in place. It asks first: the dialog
+says how many sprites and FX layers go, and how many of those sprites carry AI
+fields (prompt / seed / a shape ref you set), and **Clean** stays disabled until you type the sheet's name back (Enter
+cleans, Esc / Cancel leaves everything as it was). A read-only 🔒 sheet must be
+unlocked first, and the sheet needs a name.
+
+Until you upload, **Load sheet** brings the saved version back. Uploading
+replaces same-named images straight away — on R2 too — so after that, Load sheet
+shows the saved layout with the NEW art. If you may want the old art, **Save As**
+a backup copy before cleaning. A sheet not saved under its current name has no
+saved version, and the dialog says so.
 
 ### Adding sprites to an existing sheet
 
