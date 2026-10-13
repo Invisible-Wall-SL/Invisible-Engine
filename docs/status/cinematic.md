@@ -85,15 +85,31 @@ yet shipped an authored cinematic through a `playCinematic` node.
     through); masks are for using part of an existing full-body clip. An empty mask is deleted.
 - **Undo / redo** — snapshot-based, coalescing edits within 600 ms, only in cinematic mode and never
   while a field has focus; cinematic-document only (rig editing still has no undo).
+- **The sequencer is a shared module (Rive plan Phase 2, built on `claude/rive-p2-shared-sequencer`,
+  not merged).** Everything above from "The sequencer" down — ruler + scrub, track rows, strips,
+  property / camera / visibility / cue keys, the strip / key / cue inspector, the camera + cue panel
+  sections and undo / redo — lives in `apps/launcher-api/src/lib/cinematic/sequencer.js`, mounted
+  with `mount(el, { doc, ev, inspector, host, extensions })`. `/rigger` loads a **generated verbatim
+  copy**, `static/shared/cinematicSequencer.mjs` (`node scripts/sync-cinematic-sequencer.mjs`;
+  `--check` fails on drift, run by `check:all`). The module has no imports and touches no global
+  until `mount`, so Svelte code imports it from `$lib` (Phase 3). The evaluator is injected (`ev`).
+  `static/rigger/cinematic.js` is now the **rig host**: the cast panel, rig loading, posing and
+  drawing the stage, R2 save/open, and the rig **extensions** the module takes — Tweak Mode,
+  inline posing, the underlay and bone masks (`rigExtension`: `timelineSuspended`, `stripBadge`,
+  `onStripActivate`, `stripInspector`, `stripActions`, `wireInspector`, `keydown`). Track rows are
+  data: `orderedRows()` lists them and `ROW_KINDS` draws and wires each kind, so a node-actor row
+  (Phase 1) is one more entry.
 
 ### Gates + verification
 
 | Proof | Result |
 |---|---|
 | `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cues, visibility, tweak-mode time inverse, evaluator-drift (headless) | **118/118** |
-| `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **14/14** |
+| `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **15/15** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
-| `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
+| `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **39/39** |
+| `tools/rigger-spike/cinematic-sequencer.mjs` — the REAL `/rigger` page in headless Chrome, 104 author actions through the page's own handlers (strips, inspector, layers, masks, keys, cues, set row, undo/redo + coalescing, Tweak Mode, ＋ New clip, inline posing, save/open/new/delete); document, history and the three panels' HTML compared to a golden recorded on the pre-extraction code | **104/104** |
+| `apps/launcher-api/cinematicSequencer.fixture.ts` — the module imports through `$lib` with no browser globals and keeps the undo contract headless | **16/16** |
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
@@ -114,7 +130,14 @@ yet shipped an authored cinematic through a `playCinematic` node.
 
 ## Open items / next
 
-0. **Proposed (2026-10-08, owner review):** the Cinematic timeline becomes the ONE timeline system — node actors, component/screen hosts, a shared sequencer module mounted by `/rigger` and `/editor`. Plan: [rive-style-editor.md](../design/rive-style-editor.md) §3.
+0. **The ONE timeline system** ([rive-style-editor.md](../design/rive-style-editor.md) §3, §10). Phase 2
+   (the shared sequencer) is built and awaiting owner review — merge only after the owner has run
+   these in a logged-in `/rigger` (the headless gate drives the same handlers with dispatched events,
+   so these are the flows NOT browser-verified by a person on this change): undo/redo by buttons and
+   keys, the sequencer (drag / trim / Alt / Ctrl+wheel zoom / Ctrl+D / Delete), property + camera
+   keys (🎥 live), visibility keys, cues + the fx row, bone masks, Tweak Mode (double-click, ✎ Tweak
+   clip, Esc, the dopesheet seek mapping back), ＋ New clip, inline posing + the underlay, and R2
+   save / open / new / delete. Phase 3 (the `/editor` Svelte wrapper) is next.
 1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
    but only with a probe doc injected into the runtime bundle and started from the flow handle. No
    authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
@@ -142,6 +165,16 @@ yet shipped an authored cinematic through a `playCinematic` node.
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-13 — **The sequencer is a shared module** (Rive plan Phase 2; branch
+  `claude/rive-p2-shared-sequencer`, draft PR, not merged). The timeline panel moved out of
+  `static/rigger/cinematic.js` (2,743 → ~1,590 lines) into `$lib/cinematic/sequencer.js`, shipped to
+  the static page as a generated copy like the evaluator. Rig-only authoring plugs in as
+  extensions. **No behaviour change, and proven, not promised:** a new browser gate recorded the
+  document, history and DOM after 104 author actions on the OLD code, and the extracted module
+  reproduces all 104 exactly; planted mutants (no coalescing, a smaller trim zone, the timeline not
+  yielding to Tweak Mode, the mask badge dropped) each fail it. No format, evaluator, storage or
+  endpoint change.
 
 - 2026-10-01 — **`<Cinematic>` threw on every in-game mount, and now plays.** It read
   `appContext.app.ticker`, but pixi-svelte's app context is `{ stateApp }` (the application is
