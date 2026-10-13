@@ -1106,7 +1106,10 @@ function openClean(){
   if(!regions.length){ m.className='note'; m.textContent='Nothing to clean — this sheet has no sprites.'; return; }
   if(isLocked(safeNm(sheetName))){ m.className='note'; m.textContent='🔒 "'+name+'" is read-only — Unlock it first, or Save As a new name.'; return; }
   const fx=regions.filter(isFx).length, base=regions.length-fx;
-  const ai=regions.filter(r=>r.prompt||r.shape_ref||r.seed).length;
+  // Save fills shape_ref with the sprite's own sheet_src/<sheet>/ key, so only a
+  // ref pointing elsewhere is something a person set.
+  const own='sheet_src/'+safeNm(sheetName)+'/';
+  const ai=regions.filter(r=>r.prompt||r.seed||(r.shape_ref && !r.shape_ref.includes(own))).length;
   $('clean-what').textContent='Removes all '+base+' sprite(s)'+(fx?' and '+fx+' FX layer(s)':'')
     +' from "'+name+'"'+(ai?', with the AI fields of '+ai+' of them':'')
     +'. The name and canvas size stay — upload the images again, then Save to replace the sheet.';
