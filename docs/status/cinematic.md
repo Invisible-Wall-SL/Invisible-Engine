@@ -34,12 +34,15 @@ headless only.
     untouched.
   - **Binding** (`engine-layout/cinematicNodes.ts`): `resolveNodeActors`, `findNodeByName`,
     `cinematicSetSceneId` (a screen host IS the set), `validateNodeActors` (no-target /
-    node-missing / channel-unsupported / switch-key-undeclared), `collectTimelineSwitchKeys`.
+    node-missing / target-duplicate / text-track-duplicate / channel-unsupported /
+    switch-key-undeclared), `collectTimelineSwitchKeys`. Two actors on one node: the first wins.
+    Two text tracks on one actor: the last one plays, in the evaluator and the player alike.
   - **Player.** `<Cinematic>` provides a driver (`cinematicNodeContext.ts`) to the set it mounts;
     each TOP-LEVEL `<LayoutNodeView>` of the screen (never a node inside a placed component) asks it
     once whether an actor drives it, and feeds the sampled channels into its existing value-binding
     fold (`foldBoundTransform` / fill / frame), so a keyed number does to a node exactly what a value
-    binding would. `FlowV2Cinematics` resolves the set through `cinematicSetSceneId`.
+    binding would. Its own outputs are padded to one per binding first (`withNodeActorOutputs`): a
+    smoothed binding's outputs start empty, and the timeline's would otherwise slide onto them. `FlowV2Cinematics` resolves the set through `cinematicSetSceneId`.
   - **Not in Phase 1:** playing a **component** host (valid in the format only — Rive plan
     Phase 4); `animation` strips on a rig NODE; any `/rigger` UI for node actors (the sequencer is
     being extracted in Phase 2, branch `claude/rive-p2-shared-sequencer`); `validateNodeActors` is
@@ -131,7 +134,7 @@ headless only.
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **41/41** |
-| `tools/rigger-spike/cinematic-nodes.mjs` — node actors, hosts, the text channel modes, the binding fold, rig-only parity (headless) | **63/63** |
+| `tools/rigger-spike/cinematic-nodes.mjs` — node actors, hosts, the text channel modes, the binding fold, rig-only parity (headless) | **69/69** |
 | `apps/launcher-api/localizationHarvest.fixture.ts` — timeline switch-key harvest + the `timeline` origin | **all pass** |
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
@@ -189,7 +192,7 @@ headless only.
 - 2026-10-13 — **Node actors + hosts (Rive plan Phase 1).** Format, evaluator, binding and
   `<Cinematic>` player as described under Current state; localization harvests switch-key strings
   as `origin: 'timeline'`. Verified headless: the four existing cinematic gates (118/118, 15/15,
-  19/19, 41/41) plus the new `cinematic-nodes.mjs` (63/63) and the harvest fixture;
+  19/19, 41/41) plus the new `cinematic-nodes.mjs` (69/69) and the harvest fixture;
   `check:art-scope`, `check:doc-readers-unknown-fields` (247), `check:save-keeps-unknown-blocks`
   (58), `check:renderable-fonts`, `check:scene-cues`, `check:director-adapters` (442), svelte-check
   at baseline, lint clean. **Not browser-verified** — nothing renders a node-actor timeline yet.

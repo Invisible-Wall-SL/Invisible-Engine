@@ -121,7 +121,8 @@
 		const tracks = actor.tracks as unknown as CinematicTrack[];
 		return {
 			channels: keyedNodeChannels(actor.tracks),
-			textTrack: tracks.find((t) => t.kind === 'text'),
+			// The LAST text track, the one `sampleNodeActor` samples (validation flags a second one).
+			textTrack: tracks.filter((t) => t.kind === 'text').pop(),
 			sample: () => sampleNodeActor(tracks, time),
 		};
 	});

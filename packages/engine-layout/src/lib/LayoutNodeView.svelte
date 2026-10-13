@@ -79,7 +79,7 @@
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { getComponentNestState } from './componentInstanceContext';
 	import { getCinematicNodeDriver } from './cinematicNodeContext';
-	import { nodeActorBindings, nodeActorOutputs, textNodeStrings } from './cinematicNodes';
+	import { nodeActorBindings, textNodeStrings, withNodeActorOutputs } from './cinematicNodes';
 	import { getComponentValueSource } from './registerComponentValues';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
@@ -219,7 +219,7 @@
 		: bindings;
 	const allOutputs = $derived(
 		timelineBindings.length
-			? [...bound.outputs, ...nodeActorOutputs(timelineBindings, timelineSample)]
+			? withNodeActorOutputs(bindings, bound.outputs, timelineBindings, timelineSample)
 			: bound.outputs,
 	);
 	const bindsTarget = (...targets: string[]): boolean =>

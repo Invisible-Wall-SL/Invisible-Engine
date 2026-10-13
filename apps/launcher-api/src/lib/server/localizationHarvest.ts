@@ -9,6 +9,8 @@ import type {
 import {
 	collectTimelineSwitchKeys,
 	collectUiTextStrings,
+	findNodeByName,
+	textNodeStrings,
 	collectWinTextModeTemplates,
 	collectWinTextSpinsModeTemplates,
 	collectWinTextTemplates,
@@ -185,11 +187,7 @@ export async function harvestSceneText(
 
 		const visit = async (node: LayoutNode): Promise<void> => {
 			const label = nodeLabel(node);
-			if (node.kind === 'text') {
-				add(node.text, label);
-				// The strings a timeline may switch this node to are its text too (Rive plan §8).
-				for (const alt of node.switchKeys ?? []) add(alt, label);
-			}
+			if (node.kind === 'text') add(node.text, label);
 			if (node.kind === 'componentInstance') {
 				const def = await getDef(node.componentId, node.componentVersion);
 				// The game binds a `source` feed from the BASE params only (`ComponentInstance`'s
@@ -370,17 +368,30 @@ export const TIMELINE_TEXT_SECTION_ID = '__timelines';
 /**
  * Collect every string a cinematic timeline's `switchKey` text tracks switch a node to, as one
  * translatable section (Rive plan §8). A timeline never carries free text — it names one of the
- * text node's own strings — but a key used ONLY in an animation would otherwise have no row, and
- * the node would switch to an untranslated string. Source-as-key, exact/untrimmed: the node
- * renders the switched-to key through `resolveLocalizedText` like its own `text`. The timeline
- * owns these references, so they're read-only here (`origin: 'timeline'`).
+ * text node's own strings (`text` or `switchKeys`) — and a `switchKeys` string only ever shows
+ * through a timeline, so this section is where it gets its row. Source-as-key, exact/untrimmed:
+ * the node renders the switched-to key through `resolveLocalizedText` like its own `text`.
+ *
+ * Only keys the target node DECLARES in the host screen (`editorDoc`) are listed: the runtime
+ * refuses any other, so a row for it would translate text nobody sees (`validateNodeActors` flags
+ * those instead). Keys another section already lists (`owned` — e.g. the node's own `text`, which
+ * the scene section owns) are left to that section, so a row never changes owner.
  */
-export function harvestTimelineText(docs: readonly CinematicDoc[]): HarvestSection[] {
+export function harvestTimelineText(
+	docs: readonly CinematicDoc[],
+	editorDoc: LayoutDoc,
+	owned: ReadonlySet<string> = new Set(),
+): HarvestSection[] {
 	const items: HarvestedItem[] = [];
 	const seen = new Set<string>();
 	for (const doc of docs) {
+		const sceneId = doc.host?.kind === 'screen' ? doc.host.sceneId : undefined;
+		const scene = editorDoc.scenes.find((s) => s.id === sceneId);
+		if (!scene) continue;
 		for (const { key, target } of collectTimelineSwitchKeys(doc)) {
-			if (!isLocalizableText(key) || seen.has(key)) continue;
+			if (!isLocalizableText(key) || seen.has(key) || owned.has(key)) continue;
+			const node = findNodeByName(scene.nodes, target);
+			if (!node || !textNodeStrings(node).includes(key)) continue;
 			seen.add(key);
 			items.push({ key, source: key, label: `${doc.name || doc.id} — ${target}` });
 		}

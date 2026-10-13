@@ -46,9 +46,9 @@ A spreadsheet-style table of the game's text, in two kinds of section:
   - **Flow messages** — the text on Invisible Flow's Text Message nodes.
   - **Timelines** — the strings a cinematic timeline switches a text node to
     (a `switchKey` text track). A timeline never holds free text: it names one
-    of the node's own strings, and the node's other strings (`switchKeys`) are
-    listed with its screen too. This section catches a key that only an
-    animation uses.
+    of the node's own strings (its text or its `switchKeys`). Only strings the
+    node declares are listed, and a string another section already lists (the
+    node's own text) stays in that section.
   - **Bet modes** — Invisible Game Config's bet-mode copy: each buy-feature
     card's title, description and button, the confirm dialog's body, and the
     bet-mode badge the HUD shows while that mode is the active stake. This copy

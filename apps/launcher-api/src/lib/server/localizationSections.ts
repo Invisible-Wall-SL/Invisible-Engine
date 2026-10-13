@@ -46,16 +46,19 @@ export async function harvestProjectSections(
 		// The cinematics that ship — the same set the export publishes — for their switch-key text.
 		loadAuthoredCinematics(clientKey, projectKey),
 	]);
-	return [
+	const sections = [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestProjectWinText(winTextDoc, gameType, gameConfig.doc),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
-		...harvestTimelineText(cinematics),
 		...harvestBetModeText(gameConfig.doc),
 		// The engine's own coded chrome (HUD captions, menus, modals, info-page rules) — the same
 		// registry the runtime renders from, so the shipped UI is translatable per project instead of
 		// being stuck on the two languages the code catalogs happen to ship.
 		...harvestUiText(),
 	];
+	// Last, and only for keys no section above lists: `reconcileWithEditor` stamps each row with
+	// the origin of the LAST section listing it, so a timeline must never take a row it shares.
+	const owned = new Set(sections.flatMap((s) => s.items.map((i) => i.key)));
+	return [...sections, ...harvestTimelineText(cinematics, editorDoc, owned)];
 }

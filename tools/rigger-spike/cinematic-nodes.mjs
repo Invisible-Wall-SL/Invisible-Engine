@@ -210,6 +210,36 @@ const fbOut = L.nodeActorOutputs(fb, sampleNodeActor(bound.get('n3').tracks, 1))
 eq('fold: fill reveals the keyed share', L.boundFillShare(fb, fbOut), { share: 0.5, direction: 'right' });
 eq('fold: frame holds the keyed frame', L.boundFrameOutput(fb, fbOut), 4);
 
+// Review fixes (PR #1170): one answer for two text tracks, duplicate targets reported, and the
+// timeline's outputs never sliding onto the node's own bindings.
+const twoText = [
+	{ kind: 'text', mode: 'countUp', keys: [{ time: 0, value: 7 }] },
+	{ kind: 'text', mode: 'switchKey', keys: [] },
+];
+eq('two text tracks: the LAST one is sampled even when it is un-keyed (as the player reads it)', sampleNodeActor(twoText, 0).text, undefined);
+const dupDoc = {
+	...nodeDoc,
+	stage: { ...nodeDoc.stage, cast: [
+		{ actorId: 'd1', kind: 'node', target: 'title', place: {} },
+		{ actorId: 'd2', kind: 'node', target: 'n2', place: {} },
+	] },
+	tracks: [
+		{ id: 'x1', kind: 'text', actorId: 'd1', mode: 'switchKey', keys: [{ time: 0, key: 'BIG WIN' }] },
+		{ id: 'x2', kind: 'text', actorId: 'd1', mode: 'countUp', keys: [{ time: 0, value: 1 }] },
+	],
+};
+eq('validate: a second text track and a second actor on one node are reported',
+	L.validateNodeActors(dupDoc, scene).map((i) => `${i.actorId}:${i.code}`),
+	['d1:text-track-duplicate', 'd2:target-duplicate']);
+eq('...and the player binds the FIRST actor only', [...L.resolveNodeActors(dupDoc, scene).values()].map((a) => a.actorId), ['d1']);
+const own = [{ target: 'visible', smooth: 0.5 }, { target: 'alpha', smooth: 0.5 }];
+const xOnly = L.nodeActorBindings(new Set(['x']));
+eq('outputs: a smoothed binding with no output yet is PADDED, so the timeline x stays on x',
+	L.withNodeActorOutputs(own, [], xOnly, { x: 0 }), [undefined, undefined, 0]);
+eq('outputs: no own bindings ⇒ just the timeline', L.withNodeActorOutputs(undefined, [], xOnly, { x: 3 }), [3]);
+const notHidden = L.foldBoundTransform(authored, [...own, ...xOnly], L.withNodeActorOutputs(own, [], xOnly, { x: 0 }));
+ok('...so a timeline x of 0 never reads as `visible: 0` on the first frame', notHidden.visible === true);
+
 // ---- 3. parity ------------------------------------------------------------
 
 console.log('\n3. parity: an existing (rig-only) cinematic gains nothing');

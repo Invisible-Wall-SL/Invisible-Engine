@@ -107,9 +107,9 @@ check(
 	['Hello', 'Default Title', 'CREDIT'],
 );
 
-// Rive plan §8: a timeline's switch-key strings are text, harvested from both ends — the strings a
-// text node declares (`switchKeys`, with the scene's text) and the keys a timeline switches to
-// (their own `timeline` section), so a key used only in an animation is never left untranslated.
+// Rive plan §8: the keys a timeline switches a text node to get rows — in their own `timeline`
+// section, only when the target node DECLARES them (the runtime shows nothing else), and never a
+// key another section already owns (the node's own `text` stays the scene section's).
 const sceneDoc = {
 	version: 1,
 	scenes: [
@@ -124,25 +124,26 @@ const sceneDoc = {
 					x: 0,
 					y: 0,
 					text: 'GOOD LUCK',
-					switchKeys: ['BIG WIN', '123'],
+					switchKeys: ['BIG WIN', 'MEGA WIN', '777'],
 				},
 			],
 		},
 	],
 } as unknown as LayoutDoc;
+const sceneSections = await harvestSceneText(sceneDoc, async () => undefined);
 check(
-	'a text node’s switchKeys are harvested with its text (numbers skipped)',
-	(await harvestSceneText(sceneDoc, async () => undefined))[0]?.items.map((i) => i.key),
-	['GOOD LUCK', 'BIG WIN'],
+	'the scene section lists the node’s own text, not its switchKeys',
+	sceneSections[0]?.items.map((i) => i.key),
+	['GOOD LUCK'],
 );
-const timeline = (id: string, keys: string[]): CinematicDoc =>
+const timeline = (id: string, keys: string[], sceneId = 'base'): CinematicDoc =>
 	({
 		schemaVersion: 1,
 		id,
 		name: id,
 		duration: 2,
 		fps: 30,
-		host: { kind: 'screen', sceneId: 'base' },
+		host: { kind: 'screen', sceneId },
 		stage: {
 			sceneId: null,
 			cast: [
@@ -158,26 +159,31 @@ const timeline = (id: string, keys: string[]): CinematicDoc =>
 				mode: 'switchKey',
 				keys: keys.map((key, i) => ({ time: i, key })),
 			},
-			{ id: 'c', kind: 'text', actorId: 'a', mode: 'countUp', keys: [{ time: 0, value: 5 }] },
 			{ id: 'x', kind: 'text', actorId: 'r', mode: 'switchKey', keys: [{ time: 0, key: 'RIG' }] },
 		],
 		markers: [],
 	}) as CinematicDoc;
-const sections = harvestTimelineText([
-	timeline('intro', ['BIG WIN', 'MEGA WIN']),
-	timeline('outro', ['MEGA WIN', '777']),
-]);
-check(
-	'timelines: one `timeline` section, keys deduped across docs, rig actors and count-ups ignored',
-	sections.map((sec) => [sec.sceneId, sec.origin, sec.items.map((i) => `${i.key}@${i.label}`)]),
-	[['__timelines', 'timeline', ['BIG WIN@intro — title', 'MEGA WIN@intro — title']]],
+const owned = new Set(sceneSections.flatMap((sec) => sec.items.map((i) => i.key)));
+const sections = harvestTimelineText(
+	[
+		timeline('intro', ['GOOD LUCK', 'BIG WIN', 'UNDECLARED']),
+		timeline('outro', ['BIG WIN', 'MEGA WIN', '777']),
+		timeline('elsewhere', ['MEGA WIN'], 'missing'),
+	],
+	sceneDoc,
+	owned,
 );
-check('timelines: no cinematic ⇒ no section', harvestTimelineText([]), []);
-const merged = reconcileWithEditor(normalizeDoc({ entries: [] }), sections);
 check(
-	'reconcile stamps the `timeline` origin, and the stored doc keeps it',
-	normalizeDoc({ entries: merged.entries }).entries.map((e) => e.origin),
-	['timeline', 'timeline'],
+	'timelines: declared keys only, deduped, owned keys / numbers / rig actors / other hosts skipped',
+	sections.map((sec) => [sec.sceneId, sec.origin, sec.items.map((i) => `${i.key}@${i.label}`)]),
+	[['__timelines', 'timeline', ['BIG WIN@intro — title', 'MEGA WIN@outro — title']]],
+);
+check('timelines: no cinematic ⇒ no section', harvestTimelineText([], sceneDoc), []);
+const merged = reconcileWithEditor(normalizeDoc({ entries: [] }), [...sceneSections, ...sections]);
+check(
+	'reconcile: the node’s own text stays `editor`; timeline rows are `timeline`, and persist so',
+	normalizeDoc({ entries: merged.entries }).entries.map((e) => `${e.key}:${e.origin}`),
+	['GOOD LUCK:editor', 'BIG WIN:timeline', 'MEGA WIN:timeline'],
 );
 
 console.log(failures === 0 ? '\nAll assertions passed.' : `\n${failures} assertion(s) FAILED.`);

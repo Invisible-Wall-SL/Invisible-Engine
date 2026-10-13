@@ -145,7 +145,13 @@ export function textNodeStrings(node: LayoutNode): string[] {
 
 export interface NodeActorIssue {
 	actorId: string;
-	code: 'node-missing' | 'channel-unsupported' | 'switch-key-undeclared' | 'no-target';
+	code:
+		| 'node-missing'
+		| 'channel-unsupported'
+		| 'switch-key-undeclared'
+		| 'no-target'
+		| 'target-duplicate'
+		| 'text-track-duplicate';
 	message: string;
 }
 
@@ -156,6 +162,7 @@ export interface NodeActorIssue {
  */
 export function validateNodeActors(doc: CinematicDoc, scene: Scene | undefined): NodeActorIssue[] {
 	const issues: NodeActorIssue[] = [];
+	const driven = new Map<string, string>();
 	for (const cast of doc.stage?.cast ?? []) {
 		if (!isNodeActorCast(cast)) continue;
 		const actorId = cast.actorId;
@@ -172,7 +179,24 @@ export function validateNodeActors(doc: CinematicDoc, scene: Scene | undefined):
 			});
 			continue;
 		}
+		const owner = driven.get(node.id);
+		if (owner) {
+			issues.push({
+				actorId,
+				code: 'target-duplicate',
+				message: `"${cast.target}" is already driven by actor "${owner}"; this actor is skipped.`,
+			});
+			continue;
+		}
+		driven.set(node.id, actorId);
 		const tracks = tracksOf(doc, actorId);
+		if (tracks.filter((t) => t.kind === 'text').length > 1) {
+			issues.push({
+				actorId,
+				code: 'text-track-duplicate',
+				message: `"${cast.target}" has more than one text track; only the last one plays.`,
+			});
+		}
 		const allowed = new Set(nodeActorChannelsForKind(node.kind));
 		for (const channel of keyedNodeChannels(tracks)) {
 			if (allowed.has(channel)) continue;
@@ -253,6 +277,20 @@ export function nodeActorBindings(channels: ReadonlySet<NodeActorChannel>): Valu
 		out.push({ target: 'scaleX' }, { target: 'scaleY' });
 	}
 	return out;
+}
+
+/**
+ * A driven node's outputs: its OWN bindings' outputs, padded by index to one per binding, then the
+ * timeline's. Padding matters: a smoothed binding's outputs start empty and fill in an effect, and
+ * without it the timeline's first-frame values would land on the node's own bindings.
+ */
+export function withNodeActorOutputs(
+	own: readonly ValueBinding[] | undefined,
+	ownOutputs: readonly (number | undefined)[],
+	actorBindings: readonly ValueBinding[],
+	sample: NodeActorSample | undefined,
+): (number | undefined)[] {
+	return [...(own ?? []).map((_, i) => ownOutputs[i]), ...nodeActorOutputs(actorBindings, sample)];
 }
 
 /** {@link nodeActorBindings}' outputs for one sample, in the same order. */

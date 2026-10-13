@@ -494,6 +494,7 @@ export function sampleNodeActor(tracks, t) {
 	let sy;
 	let uniform;
 	const visibility = [];
+	let textTrack;
 	for (const track of tracks || []) {
 		if (!track) continue;
 		if (track.kind === 'property' && track.channels) {
@@ -509,10 +510,11 @@ export function sampleNodeActor(tracks, t) {
 		} else if (track.kind === 'visibility') {
 			visibility.push(track);
 		} else if (track.kind === 'text') {
-			const text = sampleText(track, t);
-			if (text) out.text = text;
+			textTrack = track; // one text track per actor; the LAST wins, as the player reads it
 		}
 	}
+	const text = sampleText(textTrack, t);
+	if (text) out.text = text;
 	if (uniform !== undefined || sx !== undefined || sy !== undefined) {
 		out.scaleX = (uniform ?? 1) * (sx ?? 1);
 		out.scaleY = (uniform ?? 1) * (sy ?? 1);
