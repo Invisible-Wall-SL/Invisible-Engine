@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { getReferenceLayout, type LayoutDoc, type LayoutNode } from 'engine-layout';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { listProjectAssets } from '$lib/server/projectAssets';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -40,6 +41,13 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
 		includeSharedRigs: true,
 	});
+
+	// The import rewrites sprites onto THIS project's manifest keys, so it must be the project the
+	// importing tab was loaded for (`scopeMismatch`; the editor is its only caller).
+	const mismatch = scopeMismatch(url.searchParams.get('projectKey'), projectKey, {
+		required: true,
+	});
+	if (mismatch) return mismatch;
 
 	const gameType = url.searchParams.get('gameType');
 	if (!gameType) throw error(400, 'missing gameType');

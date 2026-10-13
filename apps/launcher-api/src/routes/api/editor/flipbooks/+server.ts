@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { loadFlipbookDoc } from '$lib/server/flipbookStorage';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -25,12 +26,15 @@ import type { RequestHandler } from './$types';
  * directly (rig-timeline direct flipbook binding), and the stage cuts that clip's frames itself.
  * Scope bound to the SESSION's project.
  */
-export const GET: RequestHandler = async ({ locals, cookies }) => {
+export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'editor',
 		altTools: ['flipbook', 'rigger'],
 		forbiddenMessage: 'Your role does not have access to the project flipbook clips.',
 	});
+	// The editor sends its tab's project; a read for another one is refused (`scopeMismatch`).
+	const mismatch = scopeMismatch(url.searchParams.get('projectKey') ?? undefined, projectKey);
+	if (mismatch) return mismatch;
 
 	const doc = await loadFlipbookDoc(clientKey, projectKey);
 	return json({ clips: doc.clips });

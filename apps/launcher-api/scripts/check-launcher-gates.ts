@@ -288,13 +288,17 @@ for (const route of [...FIXED, ...Object.keys(PROJECT_READ_EXEMPT)]) {
  * Its behaviour is `check-lease-scope.ts`. Read per FILE, because lease parses its key in a helper
  * outside the handler, so every handler in such a file must carry the checks.
  */
-const BODY_PROJECT_KEY = /\bbody\.projectKey\b|\{[^}]*\bprojectKey\b[^}]*\}\s*=\s*body\b/;
+const BODY_PROJECT_KEY =
+	/\bbody\??\.projectKey\b|\(body as [^)]*\)\.projectKey\b|\{[^}]*\bprojectKey\b[^}]*\}\s*=\s*body\b/;
 const ACTS_ON_BODY_PROJECT_KEY: Record<string, string[]> = {
 	lease: ['canAccessProject(', 'projectClientKey('],
 };
 const STALE_TAB_GUARDS = [
+	'cinematics/delete',
 	'cinematics/save',
+	'editor/art-bounds',
 	'editor/backups',
+	'editor/rigs/reindex',
 	'editor/rigs/upload',
 	'flipbook/save',
 	'flow-v2/backups',
@@ -314,7 +318,7 @@ for (const file of handlers) {
 		check(
 			`api/${route} only compares body.projectKey against the session's project`,
 			/\bbody\.projectKey\s*!==\s*projectKey\b/.test(src) ||
-				/\bscopeMismatch\(\s*body\.projectKey,\s*projectKey\s*\)/.test(src),
+				/\bscopeMismatch\(\s*(?:body\??|\(body as [^)]*\))\.projectKey,\s*projectKey\b/.test(src),
 			true,
 		);
 		continue;

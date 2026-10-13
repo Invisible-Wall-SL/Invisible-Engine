@@ -209,23 +209,45 @@ check(
 
 // Every WRITE the editor makes names the project the page was loaded for, so the server can
 // refuse one that would land in another (`scopeMismatch`, or an explicit `project` target). This
-// enumerates every `fetch(` in the editor route: a new write without the pin fails here by file
-// and line, unless it is listed below with the reason it is not project-scoped.
+// enumerates every `fetch(` in the editor route and in the `$lib` client modules it imports: a
+// new write without the pin fails here by file and line, unless it is listed below with the
+// reason it is not project-scoped. A pin only counts in code, never in a comment, and a write is
+// recognised whether its method is inline or comes from a prebuilt `RequestInit`.
 const editorDir = `${routes}(app)/editor/`;
 const WRITE = /method:\s*'(POST|PUT|DELETE|PATCH)'/;
-const PIN = /projectKey|project:|project=|editorActionUrl\(/;
-/** `file:line-of-fetch` substrings → why that write carries no project. */
-const UNPINNED_WRITES: Record<string, string> = {
-	"+page.svelte:fetch('/api/editor/kind'": 'game kinds are a global, shared library',
-	"+page.svelte:fetch('/api/editor/template'": 'templates are global, per game type',
-	'+page.svelte:fetch(target.url': 'a presigned R2 PUT, signed for the pinned upload request',
-	"ComponentWorkspace.svelte:fetch('/api/editor/component', {":
-		'a scope:shared promote has no project; the project save is pinned (checked below)',
-};
+// `this.#key()` is the lease helper's key, which carries `projectKey` (`leaseState.svelte.ts`).
+const PIN = /projectKey|project:|project=|editorActionUrl\(|withEditorProject\(|this\.#key\(\)/;
+/** A write that carries no project, matched by file, the call's opening and its context. */
+const UNPINNED_WRITES: { file: string; call: string; context?: RegExp; why: string }[] = [
+	{
+		file: '+page.svelte',
+		call: "fetch('/api/editor/kind'",
+		why: 'game kinds are a global library',
+	},
+	{ file: '+page.svelte', call: "fetch('/api/editor/template'", why: 'templates are global' },
+	{
+		file: '+page.svelte',
+		call: 'fetch(target.url',
+		why: 'a presigned R2 PUT, signed for the pinned upload request',
+	},
+	{
+		file: 'ComponentWorkspace.svelte',
+		call: "fetch('/api/editor/component', {",
+		context: /const body = \{ \.\.\.\$state\.snapshot\(componentDraft\), scope: 'shared' \}/,
+		why: 'the promote to the shared library has no project (componentPublish-gated)',
+	},
+];
+/** Code only: line comments, block comments and HTML comments removed. */
+const code = (text: string): string =>
+	text
+		.replace(/<!--[\s\S]*?-->/g, '')
+		.replace(/\/\*[\s\S]*?\*\//g, '')
+		.replace(/(^|[\s;{}(])\/\/.*$/gm, '$1');
 function fetchCalls(text: string): { line: number; call: string; before: string }[] {
 	const out: { line: number; call: string; before: string }[] = [];
-	let i = text.indexOf('fetch(');
-	while (i !== -1) {
+	const re = /\bfetch\(/g;
+	for (let m = re.exec(text); m; m = re.exec(text)) {
+		const i = m.index;
 		let depth = 0;
 		let j = i + 'fetch'.length;
 		for (; j < text.length; j++) {
@@ -233,29 +255,103 @@ function fetchCalls(text: string): { line: number; call: string; before: string 
 			else if (text[j] === ')' && --depth === 0) break;
 		}
 		const lineStart = text.lastIndexOf('\n', i);
-		const before = text.slice(Math.max(0, text.lastIndexOf('\n', i - 1200)), lineStart);
+		const before = text.slice(Math.max(0, text.lastIndexOf('\n', i - 1500)), lineStart);
 		out.push({ line: text.slice(0, i).split('\n').length, call: text.slice(i, j + 1), before });
-		i = text.indexOf('fetch(', j);
+		re.lastIndex = j;
 	}
 	return out;
 }
+/** The call's second argument, when it is a name (a prebuilt `RequestInit`) rather than a literal. */
+const initName = (call: string): string | null =>
+	/^fetch\([\s\S]*?,\s*([A-Za-z_$][\w$]*)\s*\)$/.exec(call)?.[1] ?? null;
+function isWrite(call: string, before: string): boolean {
+	if (WRITE.test(code(call))) return true;
+	const init = initName(call);
+	return (
+		!!init && new RegExp(`\\b${init}\\b[^;]*?=[\\s\\S]{0,400}?${WRITE.source}`).test(code(before))
+	);
+}
+const scanned: { file: string; text: string }[] = readdirSync(editorDir)
+	.filter((f) => /\.(svelte|ts)$/.test(f))
+	.map((f) => ({ file: f, text: readFileSync(`${editorDir}${f}`, 'utf8') }));
+// The `$lib` CLIENT modules the editor imports (server modules never run in the tab).
+const libImports = new Set<string>();
+for (const { text } of scanned) {
+	for (const m of text.matchAll(/from '\$lib\/((?!server\/)[^']+)'/g)) libImports.add(m[1]);
+}
+for (const rel of libImports) {
+	for (const ext of ['', '.ts', '.svelte.ts', '.svelte', '.js']) {
+		const path = `${src}lib/${rel}${ext}`;
+		if (existsSync(path) && !path.endsWith('/')) {
+			try {
+				scanned.push({ file: `$lib/${rel}${ext}`, text: readFileSync(path, 'utf8') });
+				break;
+			} catch {
+				/* a directory */
+			}
+		}
+	}
+}
 const unpinned: string[] = [];
+const sideChannels: string[] = [];
 let writes = 0;
-for (const file of readdirSync(editorDir).filter((f) => /\.(svelte|ts)$/.test(f))) {
-	for (const { line, call, before } of fetchCalls(readFileSync(`${editorDir}${file}`, 'utf8'))) {
-		if (!WRITE.test(call) && !/fetch\(target, \{ method: 'POST'/.test(call)) continue;
+for (const { file, text } of scanned) {
+	if (!file.startsWith('$lib/')) {
+		for (const [i, line] of code(text).split('\n').entries()) {
+			if (/navigator\.sendBeacon|new XMLHttpRequest|new Request\(/.test(line)) {
+				sideChannels.push(`${file}:${i + 1} ${line.trim()}`);
+			}
+		}
+	}
+	for (const { line, call, before } of fetchCalls(text)) {
+		if (!isWrite(call, before) && !/fetch\(target, \{ method: 'POST'/.test(call)) continue;
 		writes++;
-		const allowed = Object.keys(UNPINNED_WRITES).some((k) => {
-			const [f, snippet] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];
-			return f === file && call.startsWith(snippet);
-		});
-		if (!allowed && !PIN.test(call) && !PIN.test(before.split('\n').slice(-15).join('\n'))) {
+		const allowed = UNPINNED_WRITES.some(
+			(w) => w.file === file && call.startsWith(w.call) && (!w.context || w.context.test(before)),
+		);
+		const window = code(before).split('\n').slice(-15).join('\n');
+		if (!allowed && !PIN.test(code(call)) && !PIN.test(window)) {
 			unpinned.push(`${file}:${line} ${call.split('\n')[0]}`);
 		}
 	}
 }
-check('the enumeration finds the editor’s writes', writes >= 14, true);
+check(
+	'the enumeration finds the editor’s writes (editor route + $lib helpers)',
+	writes >= 16,
+	true,
+);
 check('every editor write names the loaded project (or is listed with its reason)', unpinned, []);
+check(
+	'the editor sends nothing around fetch (sendBeacon, XMLHttpRequest, new Request)',
+	sideChannels,
+	[],
+);
+check(
+	'the enumeration reads the $lib lease helper the editor writes through',
+	scanned.some((s) => s.file.startsWith('$lib/leaseState')),
+	true,
+);
+// The detector itself: a pin in a comment does not count; a prebuilt RequestInit is a write.
+check(
+	'a pin only in a comment is not a pin',
+	PIN.test(code("fetch('/api/x', { method: 'POST', body }) // projectKey")),
+	false,
+);
+check(
+	'a write whose method comes from a prebuilt RequestInit is still a write',
+	isWrite('fetch(url, init)', "const init = { method: 'DELETE' };"),
+	true,
+);
+check('a plain read is not a write', isWrite("fetch('/api/x')", ''), false);
+check(
+	'the promote allowance does not cover the project save',
+	UNPINNED_WRITES.filter((w) => w.file === 'ComponentWorkspace.svelte').every(
+		(w) =>
+			!!w.context &&
+			!w.context.test('const body = { ...componentDraft, project: data.projectKey }'),
+	),
+	true,
+);
 check(
 	'the project save of a component names its project',
 	workspace.includes('{ ...componentDraft, project: data.projectKey }'),
