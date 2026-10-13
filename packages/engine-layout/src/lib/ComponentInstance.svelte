@@ -107,7 +107,7 @@
 	import { ComponentStateMachineRunner } from './stateMachine';
 	import { componentInputs, componentTriggers } from './componentInterface';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
-	import { ComponentEventDispatcher, hasNodeListeners } from './componentEvents';
+	import { ComponentEventDispatcher, hasNodeListeners, routeComponentCue } from './componentEvents';
 	import { setComponentListen } from './componentListenerContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
@@ -713,30 +713,35 @@
 	});
 
 	// LISTENERS and EVENTS (Rive plan Phase 6): a node's `on` listeners act on THIS instance — a
-	// trigger input fired on its own bus (as any signal is, so the state machine, a `playOn` timeline
-	// and a `hiddenUntilSignal` gate hear it), a bool or number input set on its own runner — and the
-	// def's events (raised by a listener, a state's `onEnter` or an `event:` timeline cue) leave
-	// through the Flow press road tagged with this instance's node id (`componentEvents.ts`). The
-	// host reads the runner built below at call time. No listener and no event ⇒ no dispatcher, no
-	// context, nothing new (parity).
+	// trigger input fired as a signal on its own bus, exactly as a heard signal is (its rig cues play;
+	// the state machine, a `playOn` timeline and a `hiddenUntilSignal` gate hear it), a bool or number
+	// input set on its own runner — and the def's events (raised by a listener, a state's `onEnter` or
+	// an `event:` timeline cue) leave through the Flow press road tagged with this instance's node id,
+	// in order, after the current work and never once the instance is gone (`componentEvents.ts`).
+	// The host reads the runner built below at call time. No listener and no event ⇒ no dispatcher,
+	// no context, nothing new (parity).
 	const listened = allowed && !!def && hasNodeListeners(def);
 	const eventDispatcher =
 		allowed && def && (listened || !!def.events?.length)
 			? new ComponentEventDispatcher(def, {
-					instanceId: node.id,
-					fireTrigger: (id) => fireComponentSignal(id),
+					instanceId: untrack(() => node.id),
+					fireTrigger: (id) => {
+						const targets = signalToTargets.get(id);
+						if (targets) fireCue(targets);
+						fireComponentSignal(id);
+					},
 					input: (id) => stateMachineRunner?.input(id),
 					setInput: (id, value) => void stateMachineRunner?.setInput(id, value),
+					schedule: (drain) => queueMicrotask(drain),
 				})
 			: undefined;
-	if (eventDispatcher && listened && def) {
-		const ids = (n: LayoutNode): string[] =>
-			n.kind === 'container' ? [n.id, ...n.children.flatMap(ids)] : [n.id];
-		const ownNodes = ids(def.root);
-		setComponentListen((target, event) => {
-			if (ownNodes.includes(target.id)) eventDispatcher.pointer(target.on, event);
+	if (eventDispatcher && listened) {
+		setComponentListen({
+			owns: (nodeId) => eventDispatcher.owns(nodeId),
+			listen: (target, event) => eventDispatcher.pointer(target, event),
 		});
 	}
+	onDestroy(() => eventDispatcher?.destroy());
 
 	// Component TIMELINES (Rive plan Phase 4): the def's timelines (`host: {kind:'component'}`,
 	// registered from the baked cinematics) play on THIS instance when the signal each names in
@@ -883,21 +888,19 @@
 	 * `hiddenUntilSignal`, a tap gate or another timeline can follow it) and restarts every other
 	 * timeline playing on `x` here — never the one that crossed it, which would loop it forever.
 	 * `sfx:` / `music:` are dropped: this package has no sound player, and broadcasting a sound's
-	 * bare name could collide with a real game event. Any other cue (`fx:`) is broadcast by its bare
-	 * name, the seam a screen timeline's cues use.
+	 * bare name could collide with a real game event. `event:x` raises the def's event `x` (Phase 6),
+	 * on a def that declares events. Any other cue (`fx:`) is broadcast by its bare name, the seam a
+	 * screen timeline's cues use. The routing is `routeComponentCue`.
 	 */
 	const routeTimelineCue = (cue: string, timeline: string): void => {
-		const sep = cue.indexOf(':');
-		const ns = sep > 0 ? cue.slice(0, sep) : '';
-		const name = sep > 0 ? cue.slice(sep + 1) : cue;
-		// `event:<id>` raises one of the def's events (Phase 6) and is never broadcast. A def that
-		// declares none keeps the cue's old meaning (broadcast by its bare name, below).
-		if (ns === 'event' && def?.events?.length) {
-			eventDispatcher?.cue(cue);
+		const route = routeComponentCue(cue, !!def?.events?.length);
+		if (route.kind === 'event') {
+			eventDispatcher?.cue(route.cue);
 			return;
 		}
-		if (!name || ns === 'sfx' || ns === 'music') return;
-		if (ns !== 'signal') {
+		if (route.kind === 'drop') return;
+		const name = route.name;
+		if (route.kind === 'broadcast') {
 			timelineEvents?.broadcast({ type: name });
 			return;
 		}
@@ -923,12 +926,7 @@
 	const startStateMachine = (): void => {
 		stateMachineStarted = true;
 		applyStateMachine();
-		// The entry states' `onEnter`, raised after this frame's work: starting can happen while the
-		// instance is still being created, and a Flow chain must not show or hide screens mid-mount.
-		if (stateMachineRunner && eventDispatcher) {
-			const entered = stateMachineRunner.plays();
-			queueMicrotask(() => eventDispatcher.started(entered));
-		}
+		if (stateMachineRunner) eventDispatcher?.started(stateMachineRunner.plays());
 	};
 	if (stateMachineRunner && untrack(() => selfVisible)) startStateMachine();
 	const timelineTicker =

@@ -101,12 +101,18 @@
 		if (node.pressAction) componentPress?.(node.pressAction);
 	};
 
-	// Listeners (Rive plan Phase 6): pointer events on this node act on its owning instance. Only a
-	// node that carries `on` reads the context, so every other node is untouched (parity).
-	const listen = node.on?.length ? getComponentListen() : undefined;
-	// A hover-only node keeps the default cursor; one that answers a press shows the hand. `up` fires
-	// over the node only (as Rive's does): a release outside it is a `leave`, never an `up`.
-	const listenerCursor = node.on?.some((l) => l.event !== 'enter' && l.event !== 'leave')
+	// Listeners (Rive plan Phase 6): pointer events on this node act on its owning instance — only a
+	// node of that instance's own def that carries `on` reads the context, so every other node is
+	// untouched (parity). Init-stable, like the press target: a keyed node never swaps its listeners.
+	// A hover-only node keeps the default cursor but, as any hit surface, takes the pointer from what
+	// lies beneath it; `up` fires over the node only (as Rive's does): a release outside it is a
+	// `leave`. Order against a press on the same node: events bubble from the deepest node, so a
+	// `pressAction` container's press runs before the wrapper's `up`, and the art-button surface
+	// around the whole instance after it.
+	const listeners = untrack(() => node.on);
+	const componentListen = listeners?.length ? getComponentListen() : undefined;
+	const listen = componentListen?.owns(untrack(() => node.id)) ? componentListen : undefined;
+	const listenerCursor = listeners?.some((l) => l.event !== 'enter' && l.event !== 'leave')
 		? 'pointer'
 		: undefined;
 
@@ -1596,11 +1602,11 @@
 		eventMode="static"
 		cursor={listenerCursor}
 		zIndex={transform.zIndex}
-		onpointerdown={() => listen(node, 'down')}
-		onpointerup={() => listen(node, 'up')}
-		onpointerenter={() => listen(node, 'enter')}
-		onpointerleave={() => listen(node, 'leave')}
-		onpointertap={() => listen(node, 'click')}
+		onpointerdown={() => listen.listen(node, 'down')}
+		onpointerup={() => listen.listen(node, 'up')}
+		onpointerenter={() => listen.listen(node, 'enter')}
+		onpointerleave={() => listen.listen(node, 'leave')}
+		onpointertap={() => listen.listen(node, 'click')}
 	>
 		{@render nodeBody()}
 	</Container>

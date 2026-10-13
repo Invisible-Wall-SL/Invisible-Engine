@@ -15,6 +15,7 @@ import {
 	collectWinTextSpinsModeTemplates,
 	collectWinTextTemplates,
 	kindCapabilities,
+	raisedPayloadKeys,
 	resolveLayoutInstanceParams,
 } from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
@@ -148,6 +149,8 @@ function collectDefText(
 		childrenOf(node).forEach(walk);
 	};
 	walk(def.root);
+	// The localization keys the def's events carry (Rive plan Phase 6): source-as-key, like its text.
+	for (const key of raisedPayloadKeys(def)) add(key, label);
 }
 
 /**

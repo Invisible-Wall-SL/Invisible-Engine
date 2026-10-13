@@ -268,20 +268,30 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   (the instance provides the context; a top-level scene node with `on` is inert). A node with
   listeners is wrapped in a `static` hit surface that takes the node's `zIndex` (`down` →
   `pointerdown`, `up` → `pointerup`, `enter`/`leave` → `pointerenter`/`pointerleave`, `click` →
-  `pointertap`); a hover-only node keeps the default cursor. `up` fires over the node only, as Rive's
-  does: a release outside it is a `leave`. An instance answers only for its own def's nodes (a
-  layout tree a coded part renders inside it is not its to answer). Listeners act on THEIR instance: `fire`
-  fires the trigger on the instance's own bus (as any signal is — the state machine, a `playOn`
-  timeline and a `hiddenUntilSignal` gate hear it, scoped as the instance's signals are); `set` and
-  `toggle` set the instance's runner's input. A wrong kind, an unknown input or an undeclared event
-  does nothing (validation reports it). **Coexistence:** a listener on a node that is also a press
-  target (`pressAction`, the art-button hit surface, a coded `ButtonFrame`) does not replace it —
-  pointer events bubble, so the press and the listener both fire; nothing about the press changes.
-  Button `stateAnimations` become a seeded state machine in Phase 8.
-- **States raise events on entry**: `SmState.onEnter?: RaiseEventAction[]` — raised when the
-  layer's entry state is entered as the machine starts (deferred to a microtask: starting can happen
-  while the instance mounts, and a Flow chain must not show or hide screens mid-mount), and for every
-  state a transition enters (a same-tick chain raises each state it passes, in order).
+  `pointertap`); a hover-only node keeps the default cursor but, like any hit surface, takes the
+  pointer from what lies beneath it. `up` fires over the node only, as Rive's does: a release
+  outside it is a `leave`. An instance answers only for its own def's nodes: a node of a layout tree
+  a coded part renders inside it gets no wrapper. Listeners act on THEIR instance: `fire` fires the
+  trigger exactly as a heard signal is (its rig `cues` play; the state machine, a `playOn` timeline
+  and a `hiddenUntilSignal` gate hear it, scoped as the instance's signals are); `set` and `toggle`
+  set the instance's runner's input. A wrong kind, an unknown input or an undeclared event does
+  nothing (validation reports it). **Coexistence:** a listener on a node that is also a press target
+  (`pressAction`, the art-button hit surface, a coded `ButtonFrame`) does not replace it — pointer
+  events bubble and nothing stops them, so the press and the listener both fire and nothing about
+  the press changes. Order: from the deepest node out, so a `pressAction` container's press runs
+  before its own listeners' `up`, and the art-button surface around the whole instance (and its
+  `pointerout` hover/pressed reset) after them. Button `stateAnimations` become a seeded state
+  machine in Phase 8.
+- **States raise events on entry**: `SmState.onEnter?: SmEnterAction[]` (a raise plus an `id`,
+  unique within the state, that the editor selects and the keep-unknown save grafts on) — raised
+  when the layer's entry state is entered as the machine starts, and for every state a transition
+  enters (a same-tick chain raises each state it passes, in order).
+- **One ordered raise queue per instance** (`ComponentEventDispatcher`): a state's `onEnter` and an
+  `event:` cue are raised from inside a tick, or from the mount when the machine starts there, so
+  they are queued and drained after the current work (a microtask in game) — a Flow chain never
+  shows or hides screens mid-mount. A pointer event's raise drains the queue at once, after what was
+  already queued. Within one tick, the cues the timelines crossed come first, then the states
+  entered. A destroyed instance raises nothing, queued or later.
 - The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.
 - Existing `signals`, `cues`, `stateAnimations` and `valueBindings` keep working. Phase 8
   migrates them; nothing is migrated earlier.
@@ -320,31 +330,43 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   played before changes. Screen and cast timelines are unchanged. A cue carries no payload.
 - **Payloads** carry numbers, bools and localization keys only (§8): a raise's `payload` maps a
   declared field to a number, a bool, `{ input: id }` (the current value of a bool or number input)
-  or `{ key: 'loc.key' }`. A bare string is not a value, and a key must have a key's shape
-  (`PAYLOAD_KEY_PATTERN`: letters, digits, `_ . : -`, no spaces), so free text cannot be written. A
-  field's `ParamDecl.type` is `int` / `float` / `ms` / `bool` / `string`; the normalizer drops any
-  other. At runtime only the fields the event declares, each with a value its type takes, are sent.
+  or `{ key }`. A bare string is not a value. The stack is source-as-key, so a key IS its source
+  text, held to the harvest's rule (`isLocalizationKey`: at least one letter), and the localization
+  harvest collects every `{ key }` a placed def raises (`raisedPayloadKeys`, read with the def's
+  text) — so no payload text bypasses translation. A field's `ParamDecl.type` is one of
+  `EVENT_PAYLOAD_TYPES` (`int` / `float` / `ms` / `bool` / `string`); the normalizer drops any other.
+  At runtime only the fields the event declares, each with a value its type takes (an `int` / `ms`
+  a whole number), are sent.
 - **The runtime road:** a raised event leaves through the same resolver a button's `action` press
   takes — `getFlowPress()(instanceNodeId, eventId, payload, 'event')`, tagged with the placed
-  instance's node id and the event id. Phase 7 only has to project `<instance>.on<Event>` pins
-  (`containerEventDeclId`). The fourth argument tells the game it is not a press, so
-  `apps/lines` plays no press sound for it; every existing caller passes none. Nobody listening ⇒ the
-  resolver returns nothing ⇒ a no-op. `observeComponentEvents` lets the editor's events log watch the
-  same raises. Only declared events are raised.
+  instance's node id and the event id. **Events have their own namespace on it** (coordinator
+  decision, 2026-10-13): the resolver matches a `kind: 'event'` call against EVENT pins only, never a
+  press or `action` pin of the same name, so an event `confirm` cannot run a `pressAction: 'confirm'`
+  chain (`resolveFlowV2Press` returns nothing for it). Event pins are Phase 7's: until then a raised
+  event reaches nothing in Flow, and the game plays no press sound for one. Every existing caller
+  passes no kind. `observeComponentEvents` lets the editor's events log watch the same raises. Only
+  declared events are raised.
 - **Validation** (`validateComponentEvents(def, timelines)`): `event-duplicate`,
   `event-payload-duplicate`, `event-payload-type`, `listener-duplicate`, `listener-input-unknown`,
   `listener-input-kind`, `listener-value-kind`, `raise-event-unknown` (from a listener, an `onEnter`
   or an `event:` cue), `raise-payload-unknown`, `raise-payload-type`, `raise-payload-input`,
   `raise-payload-key` — errors;
   `raise-payload-missing` (a required field left empty) and `event-input-collision` — warnings.
-- **Decision: an event may share an input's id** (a warning, not an error). An input comes in and an
-  event goes out, so Flow keys them apart (an exec-in `▸ win`, an exec-out `onWin`), and a declared
-  signal is already both today (a trigger input, and a container event the confirm dialog presses);
-  forbidding it would block Phase 8 from turning those signals into events.
-- **Normalizer** (`componentStorage.ts`): keeps `events`, node `on` (the one node field it reads —
-  every other node field still passes through) and `onEnter`, fail-closed: a listener whose event,
-  action kind, input, value or payload it cannot read is dropped whole, never widened; a malformed
-  `onEnter` entry is dropped; a duplicate event or listener id keeps the first.
+- **Decision: an event may share an input's id** (a warning, not an error). They are different wires
+  — an input comes in (an exec-in `▸ win`), an event goes out (an exec-out `onWin`), and events
+  have their own namespace on the road — but a trigger of that id is also a signal on the
+  instance's bus, which the warning says. A declared signal is already both today (a trigger input,
+  and a container event the confirm dialog presses), so forbidding it would block Phase 8 from
+  turning those signals into events.
+- **Normalizer** (`componentEventRows.ts`, used by `componentStorage.ts`): keeps `events`, node `on`
+  (the one node field it reads — every other node field still passes through) and `onEnter`,
+  fail-closed on the read: a listener whose event, action kind, input, value or payload it cannot
+  read is dropped whole, never widened; so is an `onEnter` row without an id or not a raise; a
+  duplicate event, listener or `onEnter` id keeps the first. **An older build's save loses none of
+  it** (#1185's rule): listeners graft a newer build's fields by id within their node, `onEnter`
+  rows by id within their state, payload fields by name within their event, and a stored row the
+  read dropped (an unknown action kind or pointer event, a payload type Flow cannot carry yet) is
+  put back where it stood, as an unreadable input is; a row the author deleted is not.
 - This **generalises what exists**. Today a screen's container already surfaces its components'
   configured `action` events as exec-out pins (`containerEvents.ts`, derived and never stored, so it
   cannot drift). The interface is the same idea in both directions, typed: exec-out pins for events,

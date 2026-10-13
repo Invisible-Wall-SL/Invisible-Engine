@@ -676,7 +676,7 @@
 		// fused `onSelect` pin's data-out resolves to WHICH card fired. Dropping it here armed the flow's
 		// `selectBetMode` with `undefined`, so a buy-card press committed no mode. A button passes none
 		// (byte-identical). Consulted at click time, so it tracks the live handle regardless of boot order.
-		const routed = resolveFlowV2Press(componentId, action, payload);
+		const routed = resolveFlowV2Press(componentId, action, payload, kind);
 		if (!routed) return undefined;
 		// An event a component RAISED (a listener, a state entered, a timeline cue) is not a press.
 		if (kind === 'event') return routed;

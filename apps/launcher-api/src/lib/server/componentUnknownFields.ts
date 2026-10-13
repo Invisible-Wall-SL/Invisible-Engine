@@ -3,6 +3,9 @@ import { COMPONENT_INPUT_KINDS } from 'engine-layout';
 import {
 	COMPONENT_DEF_FIELDS,
 	COMPONENT_EVENT_FIELDS,
+	EVENT_PAYLOAD_FIELDS,
+	NODE_LISTENER_FIELDS,
+	SM_ENTER_ACTION_FIELDS,
 	COMPONENT_INPUT_FIELDS,
 	COMPONENT_PARAM_FIELDS,
 	COMPONENT_SIGNAL_FIELDS,
@@ -13,6 +16,7 @@ import {
 	STATE_MACHINE_FIELDS,
 	TEMPLATE_SLOT_FIELDS,
 } from './componentFields';
+import { readEnterAction, readListener, readPayloadField, unreadable } from './componentEventRows';
 import { isPlainObject } from './stripUnknownKeys';
 import { unknownFields, withUnknownFields } from './unknownBlocks';
 
@@ -30,6 +34,31 @@ const isLayerField = known(SM_LAYER_FIELDS);
 const INPUT_KINDS: ReadonlySet<string> = new Set(COMPONENT_INPUT_KINDS);
 
 /**
+ * The Phase 6 rows nested in an entity (Rive plan §5–6.1): a node's listeners and a state's
+ * on-enter actions by `id`, an event's payload fields by `name`. Each kept row takes its twin's
+ * unknown fields; a stored row this build cannot read (a newer action kind or pointer event, a
+ * payload type Flow cannot carry yet) is put back where it stood, as an unreadable input is.
+ */
+const graftListeners = nested(
+	'on',
+	'id',
+	known(NODE_LISTENER_FIELDS),
+	unreadable('id', readListener),
+);
+const graftEnterActions = nested(
+	'onEnter',
+	'id',
+	known(SM_ENTER_ACTION_FIELDS),
+	unreadable('id', readEnterAction),
+);
+const graftPayload = nested(
+	'payload',
+	'name',
+	known(EVENT_PAYLOAD_FIELDS),
+	unreadable('name', readPayloadField),
+);
+
+/**
  * The def's id-keyed rows, which a normalizer rebuilds field by field. Their ids are NAMES the
  * editor re-adds (a deleted `label` param can come back as `label`), so a row that carries a
  * `kind` takes its twin's fields only while the kind is the same: a `label` re-added as an image
@@ -40,12 +69,18 @@ const ROW_ARRAYS = [
 	{ field: 'signals', id: 'key', isKnown: known(COMPONENT_SIGNAL_FIELDS), byKind: false },
 	{ field: 'slots', id: 'slotId', isKnown: known(TEMPLATE_SLOT_FIELDS), byKind: true },
 	{ field: 'inputs', id: 'id', isKnown: known(COMPONENT_INPUT_FIELDS), byKind: true },
-	{ field: 'events', id: 'id', isKnown: known(COMPONENT_EVENT_FIELDS), byKind: false },
+	{
+		field: 'events',
+		id: 'id',
+		isKnown: known(COMPONENT_EVENT_FIELDS),
+		byKind: false,
+		inner: graftPayload,
+	},
 ] as const;
 /** The rows of one state-machine layer, matched by id within that layer. */
 const LAYER_ARRAYS = [
-	{ field: 'states', isKnown: known(SM_STATE_FIELDS) },
-	{ field: 'transitions', isKnown: known(SM_TRANSITION_FIELDS) },
+	{ field: 'states', isKnown: known(SM_STATE_FIELDS), inner: graftEnterActions },
+	{ field: 'transitions', isKnown: known(SM_TRANSITION_FIELDS), inner: undefined },
 ] as const;
 
 /**
@@ -91,10 +126,12 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 	}
 	set('root', graftNode(next.root, storedNodes), next.root);
 
-	for (const { field, id, isKnown, byKind } of ROW_ARRAYS) {
+	for (const row of ROW_ARRAYS) {
+		const { field, id, isKnown, byKind } = row;
 		const rows = next[field] as Row[] | undefined;
 		const isInputs = field === 'inputs';
-		const twin = { skip: isInputs ? isUnreadableInput : undefined, byKind };
+		const inner = 'inner' in row ? row.inner : undefined;
+		const twin = { skip: isInputs ? isUnreadableInput : undefined, byKind, inner };
 		const merged = rows ? graftRows(rows, stored[field], id, isKnown, twin) : rows;
 		set(field, isInputs ? withUnreadableInputs(merged, stored.inputs, next.signals) : merged, rows);
 	}
@@ -175,23 +212,57 @@ function withUnreadableInputs(
 	stored: unknown,
 	signals: ComponentDef['signals'],
 ): Row[] | undefined {
-	if (!Array.isArray(stored)) return inputs;
-	const out = [...(inputs ?? [])];
 	const signalKeys = new Set((signals ?? []).map((signal) => signal.key));
+	return withUnreadableRows(inputs, stored, 'id', isUnreadableInput, signalKeys);
+}
+
+/**
+ * `rows` with every stored row `isUnreadable` picks that it lacks put back where it stood: after
+ * the nearest stored row before it that is still there, else first. Not when the author's save
+ * now uses that id (or `taken` holds it): the author's entity wins. Its fields are never
+ * re-normalized, so a newer value inside it cannot fail a save.
+ */
+function withUnreadableRows(
+	rows: Row[] | undefined,
+	stored: unknown,
+	id: string,
+	isUnreadable: (row: Row) => boolean,
+	taken?: ReadonlySet<string>,
+): Row[] | undefined {
+	if (!Array.isArray(stored)) return rows;
+	const out = [...(rows ?? [])];
 	let added = false;
 	let anchor = -1;
 	for (const row of stored) {
 		if (!isPlainObject(row)) continue;
-		const at = out.findIndex((kept) => kept.id === row.id);
+		const at = out.findIndex((kept) => kept[id] === row[id]);
 		if (at !== -1) {
 			anchor = at;
 			continue;
 		}
-		if (!isUnreadableInput(row) || signalKeys.has(row.id as string)) continue;
+		if (!isUnreadable(row) || taken?.has(row[id] as string)) continue;
 		out.splice(++anchor, 0, row);
 		added = true;
 	}
-	return added ? out : inputs;
+	return added ? out : rows;
+}
+
+/** A grafter for the rows `field` of an entity: see {@link graftListeners}. */
+function nested(
+	field: string,
+	id: string,
+	isKnown: IsKnown,
+	isUnreadable: (row: Row) => boolean,
+): (row: Row, stored: Row | undefined) => Row {
+	return (row, stored) => {
+		if (!isPlainObject(stored) || !Array.isArray(stored[field])) return row;
+		const rows = Array.isArray(row[field]) ? (row[field] as Row[]) : undefined;
+		const grafted = rows
+			? graftRows(rows, stored[field], id, isKnown, { skip: isUnreadable })
+			: rows;
+		const kept = withUnreadableRows(grafted, stored[field], id, isUnreadable);
+		return kept === rows || !kept?.length ? row : { ...row, [field]: kept };
+	};
 }
 
 function graftStateMachine(next: Row | undefined, stored: unknown): Row | undefined {
@@ -211,10 +282,10 @@ function graftStateMachine(next: Row | undefined, stored: unknown): Row | undefi
 
 function graftLayer(layer: Row, stored: Row): Row {
 	let out = layer;
-	for (const { field, isKnown } of LAYER_ARRAYS) {
+	for (const { field, isKnown, inner } of LAYER_ARRAYS) {
 		const rows = layer[field];
 		if (!Array.isArray(rows)) continue;
-		const merged = graftRows(rows as Row[], stored[field], 'id', isKnown);
+		const merged = graftRows(rows as Row[], stored[field], 'id', isKnown, { inner });
 		if (merged !== rows) out = { ...out, [field]: merged };
 	}
 	return out;
@@ -307,7 +378,9 @@ function indexNodes(node: unknown, out: Map<string, Row>, duplicated?: Set<strin
 
 /** `node` and its subtree, each node that still has a stored twin given back its unknown fields. */
 function graftNode<T extends LayoutNode>(node: T, stored: Map<string, Row>): T {
-	const next = withUnknownFields(isNodeField, stored.get(node.id), node);
+	const twin = stored.get(node.id);
+	const own = withUnknownFields(isNodeField, twin, node) as unknown as Row;
+	const next = graftListeners(own, twin) as unknown as T;
 	if (next.kind !== 'container' || !Array.isArray(next.children)) return next;
 	const before: LayoutNode[] = next.children;
 	const children = before.map((child) => graftNode(child, stored));

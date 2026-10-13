@@ -26,13 +26,15 @@
  *  behaviour (byte-identical for every button).
  *
  *  `kind` is `'event'` when a component RAISED one of its declared events (Rive plan Phase 6 — a
- *  listener, a state being entered, a timeline cue) rather than a press: the game must not play a
- *  press sound for it. Absent ⇒ a press (every existing caller). */
+ *  listener, a state being entered, a timeline cue) rather than a press. Events have their own
+ *  namespace on this road: the resolver matches one against event pins only (Phase 7 adds them),
+ *  never a press or `action` pin of the same name, and plays no press sound for it. Absent ⇒ a
+ *  press (every existing caller). */
 export type FlowPressResolver = (
 	instanceId: string,
 	action: string,
 	payload?: Record<string, unknown>,
-	kind?: 'press' | 'event',
+	kind?: 'event',
 ) => (() => void) | undefined;
 
 let registered: FlowPressResolver | undefined;

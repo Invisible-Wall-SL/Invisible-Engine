@@ -211,9 +211,12 @@ the save guard for every field in the table above.
     - inside each ENTITY, matched to its stored copy by id, the fields it does not declare: a node
       anywhere under `root` (the root included; matched by `id`, so a node moved to another parent
       keeps them), a param or signal (by `key`), a slot (by `slotId`), an input or an event (by
-      `id`), and a
-      state-machine layer (by `id`) with its states and transitions (by `id` within that layer, so
-      a namesake state in another layer is a different entity). A transition's `conditions` are
+      `id`), a node's listeners (by `id` within the node), an event's payload fields (by `name`
+      within the event), and a state-machine layer (by `id`) with its states and transitions (by
+      `id` within that layer, so a namesake state in another layer is a different entity) and a
+      state's `onEnter` rows (by `id` within the state). A listener, payload field or `onEnter`
+      row the read dropped (an action kind, pointer event or payload type a newer build added) is
+      put back where it stood, as an unreadable input is. A transition's `conditions` are
       its own known data: they have no id and are not walked, so a newer field inside a
       condition is dropped with it;
     - every field of `stateMachine` itself it does not declare. That block is a fixed namespace,

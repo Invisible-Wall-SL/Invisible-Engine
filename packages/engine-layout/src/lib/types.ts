@@ -323,9 +323,18 @@ export type ListenerActionKind = (typeof LISTENER_ACTION_KINDS)[number];
 
 /**
  * One value of a raised event's payload: a number, a bool, the current value of a bool or number
- * input, or a LOCALIZATION KEY — never free text (plan §8). A bare string is not a value.
+ * input, or a LOCALIZATION KEY (plan §8). The stack is source-as-key, so a key is its source text;
+ * the harvest collects every `{ key }` a def raises, so none bypasses localization. A bare string
+ * is not a value.
  */
 export type EventPayloadValue = number | boolean | { input: string } | { key: string };
+
+/**
+ * The `ParamDecl` types an event's payload field may have — a value is a number, a bool or a
+ * localization key — as a VALUE (the normalizer and validation import it).
+ */
+export const EVENT_PAYLOAD_TYPES = ['int', 'float', 'ms', 'bool', 'string'] as const;
+export type EventPayloadType = (typeof EVENT_PAYLOAD_TYPES)[number];
 
 /** Raise one of the def's {@link ComponentDef.events}; `payload` fills its declared fields. */
 export interface RaiseEventAction {
@@ -350,6 +359,10 @@ export interface NodeListener {
 	event: NodeListenerEvent;
 	action: ListenerAction;
 }
+
+/** A state's on-enter action. Its `id` (unique within the state) is what the editor selects and
+ *  the keep-unknown save grafts on. */
+export type SmEnterAction = RaiseEventAction & { id: string };
 
 /** A timeline cue `event:<id>` on a component timeline raises event `<id>` (plan §6.1). */
 export const EVENT_CUE_PREFIX = 'event:';
@@ -1543,7 +1556,7 @@ export interface SmState {
 	pos?: SmPoint;
 	/** Raised each time the state is entered — the layer's entry when the machine starts, and every
 	 *  transition into it (Phase 6). */
-	onEnter?: RaiseEventAction[];
+	onEnter?: SmEnterAction[];
 }
 
 export interface SmPoint {

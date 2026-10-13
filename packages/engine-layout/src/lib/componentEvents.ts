@@ -3,6 +3,7 @@ import { getFlowPress } from './registerFlowPress';
 import type { FiredTransition } from './stateMachine';
 import {
 	EVENT_CUE_PREFIX,
+	EVENT_PAYLOAD_TYPES,
 	type CinematicDoc,
 	type ComponentDef,
 	type ComponentEvent,
@@ -10,7 +11,6 @@ import {
 	type EventPayloadValue,
 	type LayoutNode,
 	type ListenerAction,
-	type NodeListener,
 	type NodeListenerEvent,
 	type RaiseEventAction,
 } from './types';
@@ -49,7 +49,8 @@ export function observeComponentEvents(
 	return () => observers.delete(observer);
 }
 
-/** Send a raised event down the press road. */
+/** Send a raised event down the press road, as `kind: 'event'`: the resolver matches it against
+ *  event pins only (Phase 7 adds them), never a press or `action` pin of the same name. */
 export function raiseComponentEvent(raised: RaisedComponentEvent): void {
 	for (const observer of [...observers]) observer(raised);
 	const payload = Object.keys(raised.payload).length ? raised.payload : undefined;
@@ -57,18 +58,62 @@ export function raiseComponentEvent(raised: RaisedComponentEvent): void {
 }
 
 /**
- * The shape a payload's localization key must have: no spaces, so a sentence cannot pass as a key
- * (plan §8). The normalizer drops a raise whose key fails it; the runtime never sends one.
+ * A payload's localization key: the stack is source-as-key, so a key is its source text, and the
+ * harvest's rule applies — a string with at least one letter (`localizationHarvest.ts`). The
+ * harvest collects every `{ key }` a def raises, so none bypasses localization (plan §8).
  */
-export const PAYLOAD_KEY_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
-
-export const isPayloadKey = (key: unknown): key is string =>
-	typeof key === 'string' && PAYLOAD_KEY_PATTERN.test(key);
+export const isLocalizationKey = (key: unknown): key is string =>
+	typeof key === 'string' && /\p{L}/u.test(key);
 
 /** The event id an `event:<id>` cue raises; `undefined` for any other cue. */
 export function eventCueId(cue: string): string | undefined {
 	if (!cue.startsWith(EVENT_CUE_PREFIX)) return undefined;
 	return cue.slice(EVENT_CUE_PREFIX.length) || undefined;
+}
+
+/**
+ * Where a cue a COMPONENT timeline crosses goes. `event:` raises one of the def's events — only on
+ * a def that declares some; on any other it keeps its old meaning (broadcast by its bare name), so
+ * nothing that played before changes. `signal:` fires on the instance's own bus. `sfx:` / `music:`
+ * are dropped (this package has no sound player). Anything else is broadcast by its bare name.
+ */
+export type ComponentCueRoute =
+	| { kind: 'event'; cue: string }
+	| { kind: 'signal'; name: string }
+	| { kind: 'broadcast'; name: string }
+	| { kind: 'drop' };
+
+export function routeComponentCue(cue: string, declaresEvents: boolean): ComponentCueRoute {
+	const sep = cue.indexOf(':');
+	const ns = sep > 0 ? cue.slice(0, sep) : '';
+	const name = sep > 0 ? cue.slice(sep + 1) : cue;
+	if (ns === 'event' && declaresEvents) return { kind: 'event', cue };
+	if (!name || ns === 'sfx' || ns === 'music') return { kind: 'drop' };
+	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
+}
+
+/** Every localization key a def's raises carry — its listeners' and its states' `onEnter` — for the
+ *  harvest, in tree then layer order, each once. */
+export function raisedPayloadKeys(
+	def: Pick<ComponentDef, 'root' | 'stateMachine'> | null | undefined,
+): string[] {
+	const keys = new Set<string>();
+	const collect = (action: ListenerAction): void => {
+		if (action.kind !== 'raise') return;
+		for (const value of Object.values(action.payload ?? {})) {
+			if (typeof value === 'object' && 'key' in value && isLocalizationKey(value.key))
+				keys.add(value.key);
+		}
+	};
+	const walk = (n: LayoutNode): void => {
+		for (const listener of n.on ?? []) collect(listener.action);
+		if (n.kind === 'container') n.children.forEach(walk);
+	};
+	if (def?.root) walk(def.root);
+	for (const layer of def?.stateMachine?.layers ?? []) {
+		for (const state of layer.states ?? []) state.onEnter?.forEach(collect);
+	}
+	return [...keys];
 }
 
 /** Does any node of the def's tree carry a listener? */
@@ -81,7 +126,7 @@ export function hasNodeListeners(def: Pick<ComponentDef, 'root'> | null | undefi
 /**
  * What a dispatcher acts on: the instance's own bus and state machine. `fireTrigger` fires a trigger
  * input as the signal of that name on the instance's bus (plan §12 #4), so the state machine, a
- * `playOn` timeline and a `hiddenUntilSignal` gate all hear it.
+ * `playOn` timeline, a rig cue and a `hiddenUntilSignal` gate all hear it.
  */
 export interface ComponentEventHost {
 	instanceId: string;
@@ -91,10 +136,20 @@ export interface ComponentEventHost {
 	setInput?(id: string, value: number | boolean): void;
 	/** Where a raise goes; absent ⇒ {@link raiseComponentEvent}. */
 	raise?(raised: RaisedComponentEvent): void;
+	/**
+	 * Run `drain` once the current work is done (the game: `queueMicrotask`). A state's `onEnter` and
+	 * a cue are raised from inside a tick — or the mount, when the machine starts on it — and a Flow
+	 * chain must not show or hide screens from there. Absent ⇒ drained at once.
+	 */
+	schedule?(drain: () => void): void;
 }
 
-/** One instance's listeners and raises. Unknown inputs, wrong kinds and undeclared events are
- *  ignored here (validation reports them). */
+/**
+ * One instance's listeners and raises. Every raise goes through ONE queue, drained in order: what a
+ * tick raised (its cues, then the states it entered) leaves before a later pointer event's raise,
+ * and nothing leaves once the instance is {@link destroy}ed. Unknown inputs, wrong kinds and
+ * undeclared events are ignored here (validation reports them).
+ */
 export class ComponentEventDispatcher {
 	private readonly componentId: string;
 	private readonly host: ComponentEventHost;
@@ -102,9 +157,13 @@ export class ComponentEventDispatcher {
 	private readonly defaults = new Map<string, number | boolean>();
 	private readonly events = new Map<string, ComponentEvent>();
 	private readonly onEnter = new Map<string, RaiseEventAction[]>();
+	private readonly owned = new Set<string>();
+	private queue: RaisedComponentEvent[] = [];
+	private scheduled = false;
+	private destroyed = false;
 
 	constructor(
-		def: Pick<ComponentDef, 'id' | 'inputs' | 'signals' | 'events' | 'stateMachine'>,
+		def: Pick<ComponentDef, 'id' | 'root' | 'inputs' | 'signals' | 'events' | 'stateMachine'>,
 		host: ComponentEventHost,
 	) {
 		this.componentId = def.id;
@@ -121,16 +180,30 @@ export class ComponentEventDispatcher {
 				if (state.onEnter?.length) this.onEnter.set(stateKey(layer.id, state.id), state.onEnter);
 			}
 		}
+		const walk = (n: LayoutNode): void => {
+			this.owned.add(n.id);
+			if (n.kind === 'container') for (const child of n.children) walk(child);
+		};
+		if (def.root) walk(def.root);
 	}
 
-	/** A pointer event on a node: every listener of that event runs, in authored order. */
-	pointer(listeners: readonly NodeListener[] | undefined, event: NodeListenerEvent): void {
-		for (const listener of listeners ?? []) {
+	/** Is `nodeId` a node of this def? A layout tree a coded part renders inside the instance is not
+	 *  its to answer. */
+	owns(nodeId: string): boolean {
+		return this.owned.has(nodeId);
+	}
+
+	/** A pointer event on one of the def's nodes: every listener of that event runs, in authored
+	 *  order, after anything already queued. */
+	pointer(node: Pick<LayoutNode, 'id' | 'on'>, event: NodeListenerEvent): void {
+		if (this.destroyed || !this.owns(node.id)) return;
+		for (const listener of node.on ?? []) {
 			if (listener.event === event) this.run(listener.action, 'listener');
 		}
+		this.drain();
 	}
 
-	/** Run one action. */
+	/** Run one action. A raise is queued; call {@link drain} (or let a pointer event) to send it. */
 	run(action: ListenerAction, origin: ComponentEventOrigin): void {
 		switch (action.kind) {
 			case 'fire':
@@ -157,19 +230,46 @@ export class ComponentEventDispatcher {
 	/** The machine started: every layer's entry state was entered. */
 	started(plays: readonly { layer: string; state: string }[]): void {
 		for (const play of plays) this.entered(play.layer, play.state);
+		this.later();
 	}
 
 	/** The transitions one advance took: each target state was entered, in order. */
 	transitions(fired: readonly FiredTransition[]): void {
 		for (const t of fired) this.entered(t.layer, t.to);
+		this.later();
 	}
 
-	/** A cue a component timeline crossed. True when it is an `event:` cue (handled, raised or not). */
-	cue(cue: string): boolean {
+	/** An `event:` cue a component timeline crossed (see {@link routeComponentCue}). */
+	cue(cue: string): void {
 		const id = eventCueId(cue);
-		if (id === undefined) return cue.startsWith(EVENT_CUE_PREFIX);
-		this.raise({ kind: 'raise', event: id }, 'cue');
-		return true;
+		if (id !== undefined) this.raise({ kind: 'raise', event: id }, 'cue');
+		this.later();
+	}
+
+	/** Send everything queued, in order. */
+	drain(): void {
+		const queued = this.queue;
+		this.queue = [];
+		for (const raised of queued) (this.host.raise ?? raiseComponentEvent)(raised);
+	}
+
+	/** The instance is gone: nothing queued or later raised leaves. */
+	destroy(): void {
+		this.destroyed = true;
+		this.queue = [];
+	}
+
+	private later(): void {
+		if (!this.queue.length || this.scheduled) return;
+		if (!this.host.schedule) {
+			this.drain();
+			return;
+		}
+		this.scheduled = true;
+		this.host.schedule(() => {
+			this.scheduled = false;
+			this.drain();
+		});
 	}
 
 	private entered(layer: string, state: string): void {
@@ -183,7 +283,7 @@ export class ComponentEventDispatcher {
 
 	private raise(action: RaiseEventAction, origin: ComponentEventOrigin): void {
 		const event = this.events.get(action.event);
-		if (!event) return;
+		if (!event || this.destroyed) return;
 		// Only the fields the event declares, each with a value its type takes (validation reports
 		// the rest): Flow never receives a field it has no pin for.
 		const payload: Record<string, number | boolean | string> = {};
@@ -191,9 +291,10 @@ export class ComponentEventDispatcher {
 			const value = action.payload?.[field.name];
 			if (value === undefined || !fits(field.type?.t, valueType(value, this.kinds))) continue;
 			const resolved = this.payloadValue(value);
-			if (resolved !== undefined) payload[field.name] = resolved;
+			if (resolved === undefined || !integral(field.type?.t, resolved)) continue;
+			payload[field.name] = resolved;
 		}
-		(this.host.raise ?? raiseComponentEvent)({
+		this.queue.push({
 			instanceId: this.host.instanceId,
 			componentId: this.componentId,
 			event: action.event,
@@ -208,11 +309,15 @@ export class ComponentEventDispatcher {
 			const kind = this.kinds.get(value.input);
 			return kind === 'bool' || kind === 'number' ? this.inputValue(value.input) : undefined;
 		}
-		return isPayloadKey(value.key) ? value.key : undefined;
+		return isLocalizationKey(value.key) ? value.key : undefined;
 	}
 }
 
 const stateKey = (layer: string, state: string): string => `${layer}\u0000${state}`;
+
+/** An `int` / `ms` field takes a whole number only. */
+const integral = (type: string | undefined, value: number | boolean | string): boolean =>
+	(type !== 'int' && type !== 'ms') || Number.isInteger(value);
 
 // ---- validation ---------------------------------------------------------------------------------
 
@@ -249,8 +354,7 @@ export interface ComponentEventIssue {
 	timeline?: string;
 }
 
-/** The payload field types a value can fill: a number, a bool or a localization key. */
-const PAYLOAD_TYPES = new Set(['int', 'float', 'ms', 'bool', 'string']);
+const PAYLOAD_TYPES: ReadonlySet<string> = new Set(EVENT_PAYLOAD_TYPES);
 
 const valueType = (
 	value: EventPayloadValue,
@@ -310,7 +414,7 @@ export function validateComponentEvents(
 				level: 'warning',
 				event: event.id,
 				input: event.id,
-				message: `Event "${event.id}" has the same id as an input. Flow keeps them apart (one goes in, one comes out); rename one if that is not intended.`,
+				message: `Event "${event.id}" has the same id as an input. They are different wires (an input comes in, an event goes out)${kinds.get(event.id) === 'trigger' ? ', but the trigger is also a signal on the instance bus' : ''}; rename one if that is not intended.`,
 			});
 		}
 		const fields = new Set<string>();
@@ -377,13 +481,13 @@ export function validateComponentEvents(
 				});
 				continue;
 			}
-			if (typeof value === 'object' && 'key' in value && !isPayloadKey(value.key)) {
+			if (typeof value === 'object' && 'key' in value && !isLocalizationKey(value.key)) {
 				issues.push({
 					...at,
 					code: 'raise-payload-key',
 					level: 'error',
 					event: action.event,
-					message: `${where(at)} fills "${name}" with ${JSON.stringify(value.key)}, which is not a localization key (letters, digits, _ . : - and no spaces).`,
+					message: `${where(at)} fills "${name}" with ${JSON.stringify(value.key)}, which is not a localization key (a key is its source text and has at least one letter).`,
 				});
 				continue;
 			}
@@ -395,6 +499,14 @@ export function validateComponentEvents(
 					level: 'error',
 					event: action.event,
 					message: `${where(at)} fills "${name}" (${String(field.type?.t)}) with a ${type}.`,
+				});
+			} else if (typeof value === 'number' && !integral(field.type?.t, value)) {
+				issues.push({
+					...at,
+					code: 'raise-payload-type',
+					level: 'error',
+					event: action.event,
+					message: `${where(at)} fills "${name}" (${String(field.type?.t)}) with ${value}, which is not a whole number.`,
 				});
 			}
 		}

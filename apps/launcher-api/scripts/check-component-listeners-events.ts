@@ -45,6 +45,7 @@ const { CONFIRM_DIALOG_DEF } =
 const { componentSignalConfiguredEvents, deriveContainerEvents } =
 	await import('../../../packages/engine-flow-v2/src/containerEvents.ts');
 const { normalizeComponent } = await import('../src/lib/server/componentStorage.ts');
+const { harvestSceneText } = await import('../src/lib/server/localizationHarvest.ts');
 const S = await import('../src/lib/timeline/screenTimeline.ts');
 
 let failures = 0;
@@ -104,11 +105,15 @@ function coinDef(over: Partial<ComponentDef> = {}): ComponentDef {
 					entry: 'idle',
 					states: [
 						{ id: 'idle', timeline: 't_idle', loop: true },
-						{ id: 'win', timeline: 't_win', onEnter: [{ kind: 'raise', event: 'winShown' }] },
+						{
+							id: 'win',
+							timeline: 't_win',
+							onEnter: [{ id: 'e1', kind: 'raise', event: 'winShown' }],
+						},
 						{
 							id: 'flash',
 							timeline: 't_win',
-							onEnter: [{ kind: 'raise', event: 'winShown', payload: { level: 2 } }],
+							onEnter: [{ id: 'e1', kind: 'raise', event: 'winShown', payload: { level: 2 } }],
 						},
 					],
 					transitions: [
@@ -159,6 +164,11 @@ const strip = (r: { instanceId: string; event: string; payload: unknown; origin:
 	payload: r.payload,
 	origin: r.origin,
 });
+/** The def's own sprite carrying `listeners`. */
+const coinNode = (...listeners: NodeListener[]): Pick<LayoutNode, 'id' | 'on'> => ({
+	id: 'n_coin',
+	on: listeners,
+});
 const listener = (
 	id: string,
 	event: NodeListenerEvent,
@@ -182,34 +192,40 @@ for (const event of POINTER) {
 	const other = POINTER.find((e) => e !== event)!;
 	{
 		const { runner, bus, dispatcher } = instance('i');
-		dispatcher.pointer([listener('l', event, { kind: 'fire', input: 'win' })], other);
+		dispatcher.pointer(coinNode(listener('l', event, { kind: 'fire', input: 'win' })), other);
 		eq(`${event} → fire: another pointer event does nothing`, bus, []);
-		dispatcher.pointer([listener('l', event, { kind: 'fire', input: 'win' })], event);
+		dispatcher.pointer(coinNode(listener('l', event, { kind: 'fire', input: 'win' })), event);
 		eq(`${event} → fire: the trigger is fired on the instance bus`, bus, ['win']);
 		runner.advance(0.1);
 		eq(`${event} → fire: the instance's state machine hears it`, runner.stateOf('main'), 'win');
 	}
 	{
 		const { runner, dispatcher } = instance('i');
-		dispatcher.pointer([listener('l', event, { kind: 'set', input: 'lit', value: true })], event);
+		dispatcher.pointer(
+			coinNode(listener('l', event, { kind: 'set', input: 'lit', value: true })),
+			event,
+		);
 		eq(`${event} → set bool`, runner.input('lit'), true);
-		dispatcher.pointer([listener('l', event, { kind: 'set', input: 'amount', value: 9 })], event);
+		dispatcher.pointer(
+			coinNode(listener('l', event, { kind: 'set', input: 'amount', value: 9 })),
+			event,
+		);
 		eq(`${event} → set number`, runner.input('amount'), 9);
-		dispatcher.pointer([listener('l', event, { kind: 'toggle', input: 'lit' })], event);
+		dispatcher.pointer(coinNode(listener('l', event, { kind: 'toggle', input: 'lit' })), event);
 		eq(`${event} → toggle bool (true → false)`, runner.input('lit'), false);
-		dispatcher.pointer([listener('l', event, { kind: 'toggle', input: 'lit' })], event);
+		dispatcher.pointer(coinNode(listener('l', event, { kind: 'toggle', input: 'lit' })), event);
 		eq(`${event} → toggle bool (false → true)`, runner.input('lit'), true);
 	}
 	{
 		const { raised, dispatcher } = instance('coin_1');
 		dispatcher.pointer(
-			[
+			coinNode(
 				listener('l', event, {
 					kind: 'raise',
 					event: 'pressed',
 					payload: { amount: { input: 'amount' }, lit: false, label: { key: 'coin.pressed' } },
 				}),
-			],
+			),
 			event,
 		);
 		eq(`${event} → raise: the event leaves tagged with the instance`, raised, [
@@ -225,14 +241,14 @@ for (const event of POINTER) {
 {
 	const { runner, bus, raised, dispatcher } = instance('i');
 	dispatcher.pointer(
-		[
+		coinNode(
 			listener('a', 'click', { kind: 'fire', input: 'lit' }),
 			listener('b', 'click', { kind: 'fire', input: 'nope' }),
 			listener('c', 'click', { kind: 'set', input: 'lit', value: 4 }),
 			listener('d', 'click', { kind: 'set', input: 'amount', value: true }),
 			listener('e', 'click', { kind: 'toggle', input: 'amount' }),
 			listener('f', 'click', { kind: 'raise', event: 'undeclared' }),
-		],
+		),
 		'click',
 	);
 	eq(
@@ -241,10 +257,10 @@ for (const event of POINTER) {
 		[[], false, 3, []],
 	);
 	dispatcher.pointer(
-		[
+		coinNode(
 			listener('a', 'down', { kind: 'set', input: 'amount', value: 1 }),
 			listener('b', 'down', { kind: 'set', input: 'amount', value: 2 }),
-		],
+		),
 		'down',
 	);
 	eq('several listeners on one event run in authored order', runner.input('amount'), 2);
@@ -255,9 +271,9 @@ for (const event of POINTER) {
 {
 	const a = instance('coin_a');
 	const b = instance('coin_b');
-	a.dispatcher.pointer([listener('l', 'click', { kind: 'fire', input: 'win' })], 'click');
+	a.dispatcher.pointer(coinNode(listener('l', 'click', { kind: 'fire', input: 'win' })), 'click');
 	a.dispatcher.pointer(
-		[listener('l', 'click', { kind: 'set', input: 'amount', value: 7 })],
+		coinNode(listener('l', 'click', { kind: 'set', input: 'amount', value: 7 })),
 		'click',
 	);
 	a.runner.advance(0.1);
@@ -272,7 +288,7 @@ for (const event of POINTER) {
 		[b.bus, b.runner.stateOf('main'), b.runner.input('amount')],
 		[[], 'idle', 3],
 	);
-	a.dispatcher.pointer([listener('l', 'up', { kind: 'raise', event: 'winShown' })], 'up');
+	a.dispatcher.pointer(coinNode(listener('l', 'up', { kind: 'raise', event: 'winShown' })), 'up');
 	eq(
 		'…and raises carry their own instance id',
 		[a.raised.map((r) => r.instanceId), b.raised],
@@ -321,7 +337,7 @@ for (const event of POINTER) {
 		for (const [pixi, ours] of map) {
 			target.on(pixi, () => {
 				log.push(`${name}:${ours}`);
-				dispatcher.pointer(listeners, ours);
+				dispatcher.pointer({ id: 'n_coin', on: listeners }, ours);
 			});
 		}
 	};
@@ -379,47 +395,25 @@ for (const event of POINTER) {
 	eq('a node with no listeners gets no wrapper and hears nothing (parity)', log, []);
 }
 {
+	// Wiring guards: the Svelte markup this gate cannot mount binds the map above.
 	const view = source('packages/engine-layout/src/lib/LayoutNodeView.svelte');
-	for (const [pixi, ours] of [
-		['onpointerdown', 'down'],
-		['onpointerup', 'up'],
-		['onpointerenter', 'enter'],
-		['onpointerleave', 'leave'],
-		['onpointertap', 'click'],
-	]) {
-		eq(
-			`LayoutNodeView binds ${pixi} to the "${ours}" listeners (the map above)`,
-			view.includes(`${pixi}={() => listen(node, '${ours}')}`),
-			true,
-		);
-	}
 	eq(
-		'LayoutNodeView wraps only a listening node, static, sorted by its zIndex',
+		'LayoutNodeView binds each Pixi pointer event to its listener event (the map above)',
 		[
-			/\{#if listen\}\s*<Container\s+eventMode="static"\s+cursor=\{listenerCursor\}\s+zIndex=\{transform\.zIndex\}/.test(
-				view,
-			),
-			/\{:else\}\s*\{@render nodeBody\(\)\}\s*\{\/if\}\s*$/.test(view),
-		],
-		[true, true],
-	);
-	eq(
-		'…and reads the listener context only for a node that carries `on`',
-		view.includes('const listen = node.on?.length ? getComponentListen() : undefined;'),
+			['onpointerdown', 'down'],
+			['onpointerup', 'up'],
+			['onpointerenter', 'enter'],
+			['onpointerleave', 'leave'],
+			['onpointertap', 'click'],
+		].every(([pixi, ours]) => view.includes(`${pixi}={() => listen.listen(node, '${ours}')}`)),
 		true,
 	);
 	eq(
-		'…a hover-only node keeps the default cursor',
-		view.includes("node.on?.some((l) => l.event !== 'enter' && l.event !== 'leave')"),
+		'…and wraps a node only when it listens AND its instance owns it',
+		view.includes(
+			'const listen = componentListen?.owns(untrack(() => node.id)) ? componentListen : undefined;',
+		),
 		true,
-	);
-	eq(
-		'the press target path is untouched (pressAction container, its own handlers)',
-		[
-			view.includes("eventMode={isPressTarget ? 'static' : undefined}"),
-			view.includes('onpointerup={isPressTarget ? onNodePress : undefined}'),
-		],
-		[true, true],
 	);
 }
 
@@ -448,13 +442,13 @@ for (const event of POINTER) {
 	const unobserve = E.observeComponentEvents((r) => seen.push(`${r.origin}:${r.event}`));
 
 	dispatcher.pointer(
-		[
+		coinNode(
 			listener('l', 'click', {
 				kind: 'raise',
 				event: 'pressed',
 				payload: { amount: 2.5, lit: { input: 'lit' } },
 			}),
-		],
+		),
 		'click',
 	);
 	eq('a listener’s raise takes the press road with the instance tag and kind "event"', road, [
@@ -468,27 +462,25 @@ for (const event of POINTER) {
 	eq('…and runs the handler the road returns (Flow owns it)', ran, ['coin_7.pressed']);
 	road.length = 0;
 	dispatcher.pointer(
-		[
+		coinNode(
 			listener('l', 'click', {
 				kind: 'raise',
 				event: 'pressed',
 				payload: {
 					amount: { key: 'not.a.number' },
 					lit: 1,
-					label: { key: 'You won 500 coins!' },
+					label: { key: '500' },
 					extra: 4,
 				},
 			}),
-		],
+		),
 		'click',
 	);
 	eq(
-		'a value that does not fit its field, free text as a key and an undeclared field never leave',
+		'a value that does not fit its field, a key with no letter and an undeclared field never leave',
 		road,
 		[{ instanceId: 'coin_7', action: 'pressed', payload: undefined, kind: 'event' }],
 	);
-	road.length = 0;
-
 	road.length = 0;
 	dispatcher.started(runner.plays());
 	eq('the machine starting enters the entry state (no onEnter there ⇒ nothing)', road, []);
@@ -513,7 +505,9 @@ for (const event of POINTER) {
 	);
 
 	const entered = coinDef();
-	entered.stateMachine!.layers[0].states[0].onEnter = [{ kind: 'raise', event: 'winShown' }];
+	entered.stateMachine!.layers[0].states[0].onEnter = [
+		{ id: 'e1', kind: 'raise', event: 'winShown' },
+	];
 	road.length = 0;
 	const r2 = new M.ComponentStateMachineRunner(
 		entered.stateMachine!,
@@ -576,17 +570,34 @@ for (const event of POINTER) {
 	for (let i = 0; i < 6; i++) cues.push(...player.advance(0.1).cues.map((c) => c.cue));
 	eq('the player crosses both event cues', cues, ['event:winShown', 'event:nope']);
 	eq(
-		'…the dispatcher handles every `event:` cue (never broadcast)',
-		cues.map((c) => dispatcher.cue(c)),
-		[true, true],
+		'…on a def that declares events every `event:` cue is the dispatcher’s',
+		cues.map((c) => E.routeComponentCue(c, true).kind),
+		['event', 'event'],
 	);
-	eq('…and raises the declared one on the road', road, [
+	for (const c of cues) dispatcher.cue(c);
+	eq('…which raises the declared one on the road', road, [
 		{ instanceId: 'coin_7', action: 'winShown', payload: undefined, kind: 'event' },
 	]);
 	eq(
-		'…any other cue is not its business',
-		['signal:x', 'fx:spark', 'sfx:pop'].map((c) => dispatcher.cue(c)),
-		[false, false, false],
+		'cue routing: a def with no events broadcasts `event:` as before (parity); signal, fx, sounds, a bare name',
+		[
+			E.routeComponentCue('event:winShown', false),
+			E.routeComponentCue('signal:x', true),
+			E.routeComponentCue('fx:spark', true),
+			E.routeComponentCue('sfx:pop', true),
+			E.routeComponentCue('music:bed', true),
+			E.routeComponentCue('bare', true),
+			E.routeComponentCue('signal:', true),
+		],
+		[
+			{ kind: 'broadcast', name: 'winShown' },
+			{ kind: 'signal', name: 'x' },
+			{ kind: 'broadcast', name: 'spark' },
+			{ kind: 'drop' },
+			{ kind: 'drop' },
+			{ kind: 'broadcast', name: 'bare' },
+			{ kind: 'drop' },
+		],
 	);
 	eq('the observer saw every raise with its origin', seen, [
 		'listener:pressed',
@@ -595,42 +606,6 @@ for (const event of POINTER) {
 		'cue:winShown',
 	]);
 	unobserve();
-
-	const instanceSvelte = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
-	eq(
-		'ComponentInstance routes `event:` cues to the dispatcher before any broadcast — only for a def that declares events (else the cue is broadcast as before: parity)',
-		/if \(ns === 'event' && def\?\.events\?\.length\) \{\s*eventDispatcher\?\.cue\(cue\);\s*return;\s*\}\s*if \(!name \|\| ns === 'sfx'/.test(
-			instanceSvelte,
-		),
-		true,
-	);
-	eq(
-		'…raises the entry states’ onEnter as the machine starts (deferred out of the mount), and every state a tick enters',
-		[
-			/const entered = stateMachineRunner\.plays\(\);\s*queueMicrotask\(\(\) => eventDispatcher\.started\(entered\)\);/.test(
-				instanceSvelte,
-			),
-			/const step = stateMachineRunner\.advance\(dt\);\s*applyStateMachine\(\);\s*eventDispatcher\?\.transitions\(step\.fired\);/.test(
-				instanceSvelte,
-			),
-		],
-		[true, true],
-	);
-	eq(
-		'…and fires a listener’s trigger on its own bus, tagged with the instance’s node id',
-		[
-			instanceSvelte.includes('instanceId: node.id,'),
-			instanceSvelte.includes('fireTrigger: (id) => fireComponentSignal(id),'),
-		],
-		[true, true],
-	);
-	eq(
-		'…and answers pointer events only for its own def’s nodes',
-		instanceSvelte.includes(
-			'if (ownNodes.includes(target.id)) eventDispatcher.pointer(target.on, event);',
-		),
-		true,
-	);
 
 	F.clearFlowPress();
 	let threw = false;
@@ -646,14 +621,197 @@ for (const event of POINTER) {
 		threw = true;
 	}
 	eq('nobody listening (no resolver registered) is a harmless no-op', threw, false);
+}
 
-	const game = source('apps/lines/src/components/Game.svelte');
+{
+	// ONE queue, drained in order after the current work; nothing once destroyed.
+	const ordered = coinDef({
+		events: [{ id: 'enteredIdle' }, { id: 'enteredIntro' }, { id: 'pressed' }],
+	});
+	ordered.stateMachine = {
+		layers: [
+			{
+				id: 'main',
+				entry: 'idle',
+				states: [
+					{
+						id: 'idle',
+						timeline: 't_idle',
+						onEnter: [{ id: 'a', kind: 'raise', event: 'enteredIdle' }],
+					},
+					{
+						id: 'intro',
+						timeline: 't_win',
+						onEnter: [{ id: 'a', kind: 'raise', event: 'enteredIntro' }],
+					},
+				],
+				transitions: [{ id: 't', from: 'idle', to: 'intro' }],
+			},
+		],
+	};
+	const make = (order: string[], tasks: (() => void)[]) => {
+		const runner = new M.ComponentStateMachineRunner(
+			ordered.stateMachine!,
+			I.componentInputs(ordered),
+			durations,
+		);
+		const d = new E.ComponentEventDispatcher(ordered, {
+			instanceId: 'i',
+			fireTrigger: () => undefined,
+			raise: (r) => order.push(r.event),
+			schedule: (drain) => tasks.push(drain),
+		});
+		return { runner, d };
+	};
+	const run = (tasks: (() => void)[]): void => tasks.splice(0).forEach((t) => t());
+	const press = coinNode(listener('l', 'click', { kind: 'raise', event: 'pressed' }));
+
+	let order: string[] = [];
+	let tasks: (() => void)[] = [];
+	let { runner, d } = make(order, tasks);
+	// The machine starts from the ticker and the same tick advances into `intro`.
+	d.started(runner.plays());
+	d.transitions(runner.advance(0.1).fired);
 	eq(
-		'the game’s press resolver plays no press sound for a raised event',
-		/registerFlowPress\(\(componentId, action, payload, kind\) => \{[\s\S]*?if \(!routed\) return undefined;\s*\/\/[^\n]*\n\s*if \(kind === 'event'\) return routed;/.test(
-			game,
+		'a tick’s raises wait for the scheduled drain (never mid-mount)',
+		[order, tasks.length],
+		[[], 1],
+	);
+	run(tasks);
+	eq('…then leave in the order they happened: the entry, then the state entered', order, [
+		'enteredIdle',
+		'enteredIntro',
+	]);
+
+	order = [];
+	tasks = [];
+	({ runner, d } = make(order, tasks));
+	d.started(runner.plays());
+	d.pointer(press, 'click');
+	run(tasks);
+	eq('a pointer raise leaves at once, after what was already queued, and nothing twice', order, [
+		'enteredIdle',
+		'pressed',
+	]);
+
+	order = [];
+	tasks = [];
+	({ runner, d } = make(order, tasks));
+	d.started(runner.plays());
+	d.destroy();
+	run(tasks);
+	d.pointer(press, 'click');
+	d.transitions(runner.advance(0.1).fired);
+	d.cue('event:pressed');
+	run(tasks);
+	eq('a destroyed instance raises nothing — not what it had queued, nor anything after', order, []);
+
+	order = [];
+	({ d } = make(order, []));
+	eq(
+		'a dispatcher owns its def’s nodes only',
+		[d.owns('root'), d.owns('n_coin'), d.owns('n_foreign')],
+		[true, true, false],
+	);
+	d.pointer({ id: 'n_foreign', on: press.on }, 'click');
+	eq('…and ignores a node it does not own (a coded part’s own tree)', order, []);
+}
+
+{
+	// Events have their own namespace on the Flow road (the game's real resolver, a fake handle).
+	const H = await import('../../lines/src/game/flowV2InterpreterHolder.ts');
+	const dispatched: string[] = [];
+	H.setFlowV2({
+		ownsContainerEvent: (id: string, action: string) => id === 'dlg' && action === 'confirm',
+		dispatchContainerEvent: async (id: string, action: string) => {
+			dispatched.push(`${id}.${action}`);
+		},
+	} as unknown as Parameters<typeof H.setFlowV2>[0]);
+	F.registerFlowPress(H.resolveFlowV2Press);
+	F.getFlowPress()?.('dlg', 'confirm')?.();
+	E.raiseComponentEvent({
+		instanceId: 'dlg',
+		componentId: 'confirmDialog',
+		event: 'confirm',
+		payload: {},
+		origin: 'listener',
+	});
+	eq(
+		'a press `confirm` runs its chain once; a raised event `confirm` never runs the press’s (no event pins before Phase 7)',
+		dispatched,
+		['dlg.confirm'],
+	);
+	eq(
+		'…the resolver never matches an event against a press or action pin',
+		H.resolveFlowV2Press('dlg', 'confirm', undefined, 'event'),
+		undefined,
+	);
+	H.setFlowV2(undefined);
+	F.clearFlowPress();
+}
+
+{
+	// Wiring guards: the instance's Svelte script this gate cannot mount.
+	const instanceSvelte = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
+	eq(
+		'ComponentInstance drains raises after the current work, stops them on destroy, routes cues through routeComponentCue, and plays a fired trigger’s rig cues',
+		[
+			instanceSvelte.includes('schedule: (drain) => queueMicrotask(drain),'),
+			instanceSvelte.includes('onDestroy(() => eventDispatcher?.destroy());'),
+			instanceSvelte.includes('routeComponentCue(cue, !!def?.events?.length)'),
+			/fireTrigger: \(id\) => \{\s*const targets = signalToTargets\.get\(id\);\s*if \(targets\) fireCue\(targets\);\s*fireComponentSignal\(id\);/.test(
+				instanceSvelte,
+			),
+		],
+		[true, true, true, true],
+	);
+	eq(
+		'the game hands the raise’s kind to the resolver',
+		source('apps/lines/src/components/Game.svelte').includes(
+			'resolveFlowV2Press(componentId, action, payload, kind)',
 		),
 		true,
+	);
+}
+
+{
+	// The harvest collects the localization keys a def's raises carry (source-as-key, plan §8).
+	const def = coinDef({
+		events: [
+			{ id: 'pressed', payload: [{ name: 'label', type: { t: 'string' } }] },
+			{ id: 'winShown', payload: [{ name: 'title', type: { t: 'string' } }] },
+		],
+	});
+	(def.root.children[0] as LayoutNode).on = [
+		listener('l', 'click', {
+			kind: 'raise',
+			event: 'pressed',
+			payload: { label: { key: 'Tap to win' } },
+		}),
+	];
+	def.stateMachine!.layers[0].states[1].onEnter = [
+		{ id: 'e1', kind: 'raise', event: 'winShown', payload: { title: { key: 'BIG WIN' } } },
+	];
+	eq('raisedPayloadKeys lists every key the def raises', E.raisedPayloadKeys(def), [
+		'Tap to win',
+		'BIG WIN',
+	]);
+	const sections = await harvestSceneText(
+		{
+			scenes: [
+				{
+					id: 's',
+					name: 'Base',
+					nodes: [{ id: 'i1', kind: 'componentInstance', componentId: 'coin', x: 0, y: 0 }],
+				},
+			],
+		} as unknown as Parameters<typeof harvestSceneText>[0],
+		async () => def,
+	);
+	eq(
+		'…and the localization harvest collects them with the def’s text',
+		sections.flatMap((section) => section.items.map((item) => item.key)),
+		['Tap to win', 'BIG WIN'],
 	);
 }
 
@@ -668,7 +826,9 @@ for (const event of POINTER) {
 		['error:raise-payload-unknown'],
 	);
 	const clean = coinDef({ events: [{ id: 'pressed' }, { id: 'winShown', payload: [] }] });
-	clean.stateMachine!.layers[0].states[2].onEnter = [{ kind: 'raise', event: 'winShown' }];
+	clean.stateMachine!.layers[0].states[2].onEnter = [
+		{ id: 'e1', kind: 'raise', event: 'winShown' },
+	];
 	eq('a well-formed def has no issues', codes(clean), []);
 
 	const def = coinDef({
@@ -686,7 +846,7 @@ for (const event of POINTER) {
 			{ id: 'winShown' },
 		],
 	});
-	def.stateMachine!.layers[0].states[2].onEnter = [{ kind: 'raise', event: 'ghost' }];
+	def.stateMachine!.layers[0].states[2].onEnter = [{ id: 'e1', kind: 'raise', event: 'ghost' }];
 	(def.root.children[0] as LayoutNode).on = [
 		listener('a', 'click', { kind: 'fire', input: 'nope' }),
 		listener('a', 'click', { kind: 'fire', input: 'lit' }),
@@ -696,7 +856,8 @@ for (const event of POINTER) {
 		listener('e', 'leave', { kind: 'raise', event: 'pressed', payload: { x: 1 } }),
 		listener('f', 'leave', { kind: 'raise', event: 'pressed', payload: { n: true } }),
 		listener('g', 'leave', { kind: 'raise', event: 'pressed', payload: { n: { input: 'win' } } }),
-		listener('h', 'leave', { kind: 'raise', event: 'pressed', payload: { n: { key: 'a b' } } }),
+		listener('h', 'leave', { kind: 'raise', event: 'pressed', payload: { n: { key: '42' } } }),
+		listener('i', 'leave', { kind: 'raise', event: 'pressed', payload: { n: 2.5 } }),
 	];
 	const cue = {
 		id: 't',
@@ -719,6 +880,7 @@ for (const event of POINTER) {
 			'error:raise-event-unknown',
 			'error:raise-payload-unknown',
 			'warning:raise-payload-missing',
+			'error:raise-payload-type',
 			'error:raise-payload-type',
 			'error:raise-payload-input',
 			'error:raise-payload-key',
@@ -797,7 +959,7 @@ for (const event of POINTER) {
 			{
 				id: 'x8',
 				event: 'click',
-				action: { kind: 'raise', event: 'pressed', payload: { t: { key: 'You won 500 coins!' } } },
+				action: { kind: 'raise', event: 'pressed', payload: { t: { key: '500' } } },
 			},
 			{ id: 'x6', event: 'click', action: { kind: 'fire' } },
 			{ event: 'click', action: { kind: 'fire', input: 'win' } },
@@ -807,10 +969,12 @@ for (const event of POINTER) {
 	};
 	(raw.root.children as unknown[]).push(child);
 	raw.stateMachine!.layers[0].states[1].onEnter = [
+		{ id: 'a', kind: 'raise', event: 'winShown' },
+		{ id: 'a', kind: 'raise', event: 'pressed' },
 		{ kind: 'raise', event: 'winShown' },
-		{ kind: 'fire', input: 'win' },
-		{ kind: 'raise', event: 'pressed', payload: { t: 'text' } },
-		{ kind: 'raise' },
+		{ id: 'b', kind: 'fire', input: 'win' },
+		{ id: 'c', kind: 'raise', event: 'pressed', payload: { t: 'text' } },
+		{ id: 'd', kind: 'raise' },
 	] as unknown as NonNullable<ComponentDef['stateMachine']>['layers'][0]['states'][0]['onEnter'];
 	const out = normalizeComponent(raw);
 	const btn = out.root.children[1] as LayoutNode & { future?: unknown; children: LayoutNode[] };
@@ -850,9 +1014,9 @@ for (const event of POINTER) {
 		true,
 	);
 	eq(
-		'state onEnter: only readable raises are kept',
+		'state onEnter: only readable raises with an id are kept, the first of each id',
 		out.stateMachine?.layers[0].states[1].onEnter,
-		[{ kind: 'raise', event: 'winShown' }],
+		[{ id: 'a', kind: 'raise', event: 'winShown' }],
 	);
 	eq(
 		'a def with none of the new fields normalizes without them (parity)',
@@ -868,21 +1032,12 @@ for (const event of POINTER) {
 	eq('…every built-in def has none', E.hasNodeListeners(CONFIRM_DIALOG_DEF), false);
 	const instanceSvelte = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
 	eq(
-		'ComponentInstance builds a dispatcher only for a def with listeners or events',
-		instanceSvelte.includes(
-			'allowed && def && (listened || !!def.events?.length)\n\t\t\t? new ComponentEventDispatcher(',
-		),
-		true,
-	);
-	eq(
-		'…and provides the listener context only when a node listens',
-		instanceSvelte.includes('if (eventDispatcher && listened && def) {'),
-		true,
-	);
-	eq(
-		'…every other use is optional-chained (no dispatcher ⇒ nothing runs)',
-		(instanceSvelte.match(/eventDispatcher\./g) ?? []).length,
-		2,
+		'ComponentInstance builds a dispatcher only for a def with listeners or events, and provides the listener context only when a node listens',
+		[
+			instanceSvelte.includes('allowed && def && (listened || !!def.events?.length)'),
+			instanceSvelte.includes('if (eventDispatcher && listened) {'),
+		],
+		[true, true],
 	);
 	eq(
 		'Flow’s container-event projection is unchanged: events are not projected yet (Phase 7)',
@@ -894,12 +1049,11 @@ for (const event of POINTER) {
 		).map((d) => d.id),
 		['dlg.onConfirm', 'dlg.onCancel'],
 	);
-	const press = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
 	eq(
-		'the button press still calls the resolver with three arguments (kind absent ⇒ a press)',
+		'the button press still calls the resolver without a kind (a press)',
 		[
-			press.includes('getFlowPress()?.(node.id, action)'),
-			press.includes('getFlowPress()?.(node.id, name)'),
+			instanceSvelte.includes('getFlowPress()?.(node.id, action)'),
+			instanceSvelte.includes('getFlowPress()?.(node.id, name)'),
 		],
 		[true, true],
 	);
@@ -925,7 +1079,7 @@ for (const event of POINTER) {
 		[
 			['pressed', 'winShown'],
 			{ kind: 'raise', event: 'pressed', payload: { amount: 1 } },
-			[{ kind: 'raise', event: 'winShown' }],
+			[{ id: 'e1', kind: 'raise', event: 'winShown' }],
 		],
 	);
 }

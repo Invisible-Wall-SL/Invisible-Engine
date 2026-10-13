@@ -12,7 +12,11 @@ import type { LayoutNode, NodeListenerEvent } from './types';
  */
 const NS = '@@engine_layout_component_listen';
 
-export type ComponentListen = (node: LayoutNode, event: NodeListenerEvent) => void;
+export interface ComponentListen {
+	/** Is this node one of the instance's own? Only those become hit surfaces. */
+	owns(nodeId: string): boolean;
+	listen(node: LayoutNode, event: NodeListenerEvent): void;
+}
 
 export function setComponentListen(listen: ComponentListen): void {
 	setContext(NS, listen);

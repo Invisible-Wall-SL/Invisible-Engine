@@ -712,7 +712,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 							id: 'idle',
 							timeline: 'c_spin_idle',
 							loop: true,
-							onEnter: [{ kind: 'raise', event: 'pressed', payload: { n: 1 } }],
+							onEnter: [{ id: 'x1', kind: 'raise', event: 'pressed', payload: { n: 1 } }],
 						},
 					],
 					transitions: [

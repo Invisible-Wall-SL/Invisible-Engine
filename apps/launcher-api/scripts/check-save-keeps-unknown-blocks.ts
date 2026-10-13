@@ -1458,17 +1458,41 @@ const P6_COMPONENT = {
 			{
 				id: 'L',
 				entry: 's_idle',
-				states: [{ id: 's_idle', timeline: 'idle', onEnter: [{ kind: 'raise', event: 'shown' }] }],
+				states: [
+					{
+						id: 's_idle',
+						timeline: 'idle',
+						onEnter: [{ id: 'x1', kind: 'raise', event: 'shown' }],
+					},
+				],
 				transitions: [],
 			},
 		],
 	},
 };
 interface P6Doc {
-	events?: SmRow[];
-	root: { children: { on?: unknown }[] };
-	stateMachine: { layers: { states: { onEnter?: unknown }[] }[] };
+	events?: (SmRow & { payload?: SmRow[] })[];
+	root: { children: { on?: SmRow[] }[] };
+	stateMachine: { layers: { states: { onEnter?: SmRow[] }[] }[] };
 }
+/** A newer launcher's Phase 6 rows: what this build cannot read, and newer fields on what it can. */
+const newerP6 = (): P6Doc => {
+	const doc = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	const node = doc.root.children[0];
+	const state = doc.stateMachine.layers[0].states[0];
+	Object.assign(node.on![0], { delay: 2 });
+	node.on!.push(
+		{ id: 'l_goto', event: 'click', action: { kind: 'goto', state: 's_idle' } },
+		{ id: 'l_swipe', event: 'swipe', action: { kind: 'fire', input: 'tap' } },
+	);
+	doc.events![0].payload = [
+		{ name: 'n', type: { t: 'int' }, unit: 'coins' },
+		{ name: 'symbol', type: { t: 'enum', name: 'SymbolName' } },
+	];
+	Object.assign(state.onEnter![0], { once: true });
+	state.onEnter!.push({ id: 'x_goto', kind: 'goto', state: 's_idle' });
+	return doc;
+};
 {
 	// A newer launcher's field on an event row comes back on a no-op save, matched by id.
 	resetComponents();
@@ -1486,6 +1510,52 @@ interface P6Doc {
 		'components 6a: the listeners and onEnter are known and saved as they were',
 		[after.root.children[0].on, after.stateMachine.layers[0].states[0].onEnter],
 		[P6_COMPONENT.root.children[0].on, P6_COMPONENT.stateMachine.layers[0].states[0].onEnter],
+	);
+}
+{
+	// An older build's no-op save of a newer build's rows loses none of them.
+	resetComponents();
+	const etag = seed(componentKey, newerP6());
+	const loaded = olderView() as unknown as P6Doc;
+	check(
+		'components 6a: the read drops what it cannot read',
+		[
+			loaded.root.children[0].on?.map((l) => l.id),
+			loaded.events?.[0].payload?.map((f) => f.name),
+			loaded.stateMachine.layers[0].states[0].onEnter?.map((a) => a.id),
+		],
+		[['l1'], ['n'], ['x1']],
+	);
+	await saveComponent(loaded as unknown as Def, 'p', etag);
+	const after = stored(componentKey) as unknown as P6Doc;
+	const before = newerP6();
+	check(
+		'components 6a: listeners of an unknown kind or pointer event are kept, in place, with a newer listener field',
+		after.root.children[0].on,
+		before.root.children[0].on,
+	);
+	check(
+		'components 6a: a payload field of a type this build cannot carry is kept, in place, with a newer field',
+		after.events?.[0].payload,
+		before.events![0].payload,
+	);
+	check(
+		'components 6a: an onEnter row of an unknown kind is kept, in place, with a newer field',
+		after.stateMachine.layers[0].states[0].onEnter,
+		before.stateMachine.layers[0].states[0].onEnter,
+	);
+}
+{
+	// The author deleted the readable listener: the unreadable ones stay, the deleted one does not.
+	resetComponents();
+	const etag = seed(componentKey, newerP6());
+	const edited = structuredClone(olderView()) as unknown as P6Doc;
+	delete edited.root.children[0].on;
+	await saveComponent(edited as unknown as Def, 'p', etag);
+	check(
+		'components 6a: a deleted listener is not resurrected; the ones the author never saw stay',
+		(stored(componentKey) as unknown as P6Doc).root.children[0].on?.map((l) => l.id),
+		['l_goto', 'l_swipe'],
 	);
 }
 {

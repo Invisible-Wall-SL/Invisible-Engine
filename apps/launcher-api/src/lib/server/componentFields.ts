@@ -6,6 +6,8 @@ import type {
 	ComponentSignal,
 	ComponentStateMachine,
 	LayoutNode,
+	NodeListener,
+	SmEnterAction,
 	SmLayer,
 	SmState,
 	SmTransition,
@@ -181,6 +183,23 @@ const componentEventFields: Record<keyof ComponentEvent, true> = {
 	payload: true,
 	note: true,
 };
+const eventPayloadFields: Record<keyof NonNullable<ComponentEvent['payload']>[number], true> = {
+	name: true,
+	type: true,
+	description: true,
+	optional: true,
+};
+const nodeListenerFields: Record<keyof NodeListener, true> = {
+	id: true,
+	event: true,
+	action: true,
+};
+const smEnterActionFields: Record<keyof SmEnterAction, true> = {
+	id: true,
+	kind: true,
+	event: true,
+	payload: true,
+};
 const smTransitionFields: Record<keyof SmTransition, true> = {
 	id: true,
 	from: true,
@@ -206,6 +225,9 @@ export const COMPONENT_SIGNAL_FIELDS = fields(componentSignalFields);
 export const TEMPLATE_SLOT_FIELDS = fields(templateSlotFields);
 export const COMPONENT_INPUT_FIELDS = fields(componentInputFields);
 export const COMPONENT_EVENT_FIELDS = fields(componentEventFields);
+export const EVENT_PAYLOAD_FIELDS = fields(eventPayloadFields);
+export const NODE_LISTENER_FIELDS = fields(nodeListenerFields);
+export const SM_ENTER_ACTION_FIELDS = fields(smEnterActionFields);
 export const STATE_MACHINE_FIELDS = fields(stateMachineFields);
 export const SM_LAYER_FIELDS = fields(smLayerFields);
 export const SM_STATE_FIELDS = fields(smStateFields);
