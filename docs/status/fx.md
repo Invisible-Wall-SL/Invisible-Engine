@@ -31,6 +31,18 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-13 — **The Rigger now plays the forces; every vendored bundle is gated against its source.**
+  Owner report: the new forces did not play in the Rigger. The Rigger's static `view.html` loads a
+  COMMITTED build of `fxOverlay` (`static/rigger/vendor/rigger-fx.js`), not the source, and the
+  forces PR never rebuilt it — the bundle had last been built at #1108, so it had no `fxForces` and
+  was still on PixiJS ~8.8 while the launcher runs ~8.22. Rebuilt `rigger-fx.js`, and
+  `rigger-text.js`, which had drifted the same way. A "rebuild `rigger-fx.js` after editing the
+  overlay" note had been written five times in the Rigger docs and still decayed, so the fix is a
+  gate rather than another note: `pnpm --filter launcher-api check:vendored-bundles` rebuilds
+  `rigger-fx.js`, `rigger-text.js` and `invisible-rig.js` into a temp dir and fails if any differs
+  byte-for-byte from the committed file, naming the `build:<name>` that fixes it (the builds are
+  deterministic). `check:all` discovers it, so CI runs it with no workflow edit. Verified: it fails
+  on the stale bundles and passes after the rebuild. Not driven in a browser.
 - 2026-10-13 — **Forces: stackable gravity / wind / vortex / attractor / turbulence / drag on every layer.**
   Owner ask: controllable gravity, a vortex that can also throw particles outward, and any other
   forces worth having.
@@ -67,8 +79,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     read through it.
   - **One registration.** `fxForces` joins `registerFxBehaviors`, which the runtime
     `<ParticleEmitter>` and the launcher's shared `effectEmitter.client.ts` already call at module
-    load, before any emitter is built. That covers `/fx`, the Scene Editor, the Rigger/Symbols
-    overlay and the game.
+    load, before any emitter is built. That covers `/fx`, the Scene Editor, the Symbols overlay
+    and the game — but NOT the Rigger until its committed bundle was rebuilt (next entry).
   - **Pre-existing bug fixed alongside: the angle convention was upside down.** The Direction hint
     (and the guide) said 90° = up. The library rotates in screen space, where y grows down, so 90°
     is DOWN. The real `Emitter` proves it in the gate. As a result the Fountain, Fire, Smoke and
