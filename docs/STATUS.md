@@ -60,7 +60,7 @@ initiative on top of Invisible Flow, tracked in [status/flow](status/flow.md) �
 [its design doc](design/flow-driven-game.md).
 
 Cross-cutting design docs (not tools — platform/pipeline plans):
-- [rive-style-editor](design/rive-style-editor.md) — **proposed (2026-10-08, not started; owner decisions in §12 open):** Rive-style Scene + Component Editor — the Cinematic timeline as the one reusable timeline system, per-component state machines, the component ↔ Flow interface, one text stack, every pipeline connection kept, and the path to non-slot games (arcade, match-3).
+- [rive-style-editor](design/rive-style-editor.md) — **approved 2026-10-13, Phases 0–2 in progress (§12 decisions 1, 2, 3, 5 made; 4, 6, 7 still open):** Rive-style Scene + Component Editor — the Timeline (file format still `.icin`) as the one reusable timeline system, per-component state machines, the component ↔ Flow interface, one text stack, every pipeline connection kept, and the path to non-slot games (arcade, match-3).
 - [multi-user-concurrency](design/multi-user-concurrency.md) — **lost-update prevention**: doc leases + R2 conditional writes, so two users stop overwriting each other. Agent: `pipeline-concurrency`.
 - [invisible-blueprints](design/invisible-blueprints.md) — shareable ComfyUI workflows for the Atlas Maker (feature, not a tool).
 - [unified-project-repo](design/unified-project-repo.md) — **the live R2 folder layout**: one `<client>/<project>/` tree (by asset type) shared by all tools.
