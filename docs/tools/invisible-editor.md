@@ -989,6 +989,66 @@ How it plays in the game:
 - Switching back to Design keeps the open timeline with any unsaved changes. Opening another
   component saves it and closes it, the same as switching screens.
 
+#### The State Machine
+
+Animate on a component has two tabs under the stage: **Timeline** (above) and **State machine**.
+The state machine says *which timeline plays when*, Rive-style: states that each play one of the
+component's timelines, transitions between them, and the **inputs** the game fires or sets that
+move it along. It saves with the component (Save in the editor bar, the usual version and History),
+so it needs no Flow node and no extra publish step; it is read-only while you are Inspecting an old
+version, like the rest of Animate.
+
+**Inputs** are declared in the Properties panel under **Component variables → Inputs** (the block
+that used to be *Signals*). Three kinds:
+
+- a **trigger** ⚡ — a signal: **+ Add trigger** picks an engine moment (`win`, `bigWin`…), a
+  Flow **Fire Cue** name, or any name. Every signal the component already declared shows here as
+  a trigger; nothing changed for them. A trigger plays the component's **Plays on** timelines
+  exactly as before, and the state machine hears it too.
+- a **bool** ◐ and a **number** # — typed in the row at the top of the block (name, kind, **Add**).
+  Each has a default; a number can also follow an engine value (**from**: `winAmount`, `balance`…,
+  the same names *Bind to value* offers). Flow sets them in game from Phase 7 on.
+
+Rename an input with **✎** — every transition condition that reads it follows. **×** removes it,
+and warns first when a transition reads it (that condition is removed too).
+
+**Building the graph** (the **State machine** tab):
+
+1. **＋ State** picks one of the component's timelines and adds a card named after it. The first
+   state of a layer is its **entry** (the ● dot); **Set as entry** in the inspector moves it, or
+   drag a wire from **Entry** onto another card.
+2. **Transitions** are arrows: drag from a card's right handle onto another card. Drag from
+   **Any** for a transition that fires from every state; drop onto **Exit** to end the layer (its
+   nodes go back to how they are drawn until the machine resets). Click an arrow to open its
+   inspector:
+   - **Conditions** — all must hold: a trigger **fired**, a bool `==` / `!=`, a number `==` /
+     `!=` / `<` / `>` a value. With none, the transition fires as soon as its exit time does.
+   - **Exit time** — how far through the leaving state's timeline (0–1) before it may fire; on a
+     looping state, the point is checked each lap. Leave it empty for "at once".
+   - **Blend (ms)** — mixes the new timeline in from the pose being left.
+3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **Open timeline**
+   (double-clicking the card does the same: it opens the Timeline tab on that timeline) and
+   **Delete**. Delete / Backspace removes the selected card or arrow.
+4. **Layers** are the tab strip in the panel bar: **＋ Layer** adds one; each runs on its own, and
+   where two key the same property of a node, the later layer wins.
+
+**Preview**: **▶ Run** plays the machine on the stage — the live state is shown on each layer's
+tab and the active card lights up; a transition that fires flashes its arrow. **Preview inputs** in
+the inspector fire the triggers and set the bools and numbers, so you can walk the graph by hand.
+**↺ Reset** returns every layer to its entry. The preview uses the same interpreter the game runs.
+
+**The ⚠ pill** lists what would not work in game: a state whose timeline is missing (the state
+holds in game), a layer with no entry, an arrow to or from a state that no longer exists, a
+condition on an input that is not declared or with an operator its kind cannot take, and —
+as warnings — states or an Exit nothing reaches.
+
+How it plays in the game: each placed instance runs its own machine from the entry state, hears
+its triggers through the same per-instance signal bus as **Plays on** (so a component **scoped by**
+a param hears only its own part's fires), and a trigger a transition is waiting on (an exit time)
+is held until that transition fires. A **Plays on** timeline that is still playing wins a node over
+the machine; once it ends, the machine's layers take the node back — a pop-in, then idle, needs no
+transition.
+
 ### Advanced modes (optional)
 
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,

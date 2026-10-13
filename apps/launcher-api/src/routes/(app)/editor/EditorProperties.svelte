@@ -35,6 +35,7 @@
 		TAP_TO_CONTINUE_PARAMS,
 		COMPLETE_ON_LOADED_PARAMS,
 		type ComponentDef,
+		type ComponentInput,
 		type BlendMode,
 		type ComponentParam,
 		type ComponentSignal,
@@ -121,8 +122,20 @@
 		componentParams?: ComponentParam[];
 		/** The draft component's root (component mode) — hides defaults no node of it reads. */
 		componentRoot?: LayoutNode;
-		/** The draft component's currently-declared signals (component mode). */
+		/** The draft component's currently-declared signals — its TRIGGER inputs (component mode). */
 		componentSignals?: ComponentSignal[];
+		/** The draft component's whole interface, signals folded in (`componentInputs`): what the
+		 *  Inputs block lists (component mode, Rive plan Phase 5b). */
+		componentInputs?: ComponentInput[];
+		/** Add a bool / number input (a trigger is added through the signal picker). */
+		onAddInput?: (id: string, kind: ComponentInput['kind']) => void;
+		/** Remove an input of any kind — it also drops a declared signal of that id. */
+		onRemoveInput?: (id: string) => void;
+		/** Rename an input everywhere it is read (the page asks for the new name). */
+		onRenameInput?: (id: string) => void;
+		onSetInputDefault?: (id: string, value: boolean | number) => void;
+		/** Name (or with '', clear) the engine value a number input follows. */
+		onSetInputSource?: (id: string, source: string) => void;
 		/** When the selected node is a `componentInstance`, its resolved def — drives
 		 * the author-set param override list (scene mode). */
 		instanceComponent?: ComponentDef | null;
@@ -294,6 +307,12 @@
 		onExposeImageParam,
 		onUnexposeImageParam,
 		onToggleSignal,
+		componentInputs = [],
+		onAddInput,
+		onRemoveInput,
+		onRenameInput,
+		onSetInputDefault,
+		onSetInputSource,
 		componentSignalScope,
 		componentSignalScopeKind,
 		onSetSignalScope,
@@ -875,6 +894,17 @@
 	function closeVarPicker(): void {
 		varPickerOpen = false;
 		varSearch = '';
+	}
+
+	/** The bool / number inputs, in declaration order (triggers are the signal rows above). */
+	const valueInputRows = $derived(componentInputs.filter((i) => i.kind !== 'trigger'));
+	let newInputKey = $state('');
+	let newInputKind = $state<'bool' | 'number'>('bool');
+	function addValueInput(): void {
+		const key = newInputKey.trim();
+		if (!key) return;
+		onAddInput?.(key, newInputKind);
+		newInputKey = '';
 	}
 
 	// Signal picker (popover) — open state + search filter.
@@ -2210,7 +2240,7 @@
 		{/if}
 
 		<div class="vars-head">
-			<h4>Signals in use</h4>
+			<h4>Inputs</h4>
 			<div class="picker-anchor" bind:this={signalAnchorEl}>
 				<button
 					type="button"
@@ -2218,7 +2248,7 @@
 					aria-expanded={signalPickerOpen}
 					onclick={() => (signalPickerOpen ? closeSignalPicker() : (signalPickerOpen = true))}
 				>
-					+ Add signal
+					+ Add trigger
 				</button>
 				{#if signalPickerOpen}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -2276,9 +2306,32 @@
 				{/if}
 			</div>
 		</div>
-		{#if signalRows.length === 0}
+		<p class="muted small">
+			What the game can fire or set on a placed instance: a <strong>trigger</strong> is a signal (an
+			engine moment, a Flow cue, a rig's complete signal) and plays timelines; a
+			<strong>bool</strong> or <strong>number</strong> is read by the state machine's transitions.
+		</p>
+		{#if onAddInput}
+			<div class="add-param">
+				<input
+					type="text"
+					placeholder="new input, e.g. isBig"
+					bind:value={newInputKey}
+					onkeydown={(e) => {
+						if (e.key === 'Enter') addValueInput();
+					}}
+				/>
+				<select bind:value={newInputKind}>
+					<option value="bool">bool</option>
+					<option value="number">number</option>
+				</select>
+				<button type="button" disabled={!newInputKey.trim()} onclick={addValueInput}>Add</button>
+			</div>
+		{/if}
+		{#if signalRows.length === 0 && valueInputRows.length === 0}
 			<p class="muted small">
-				No signals yet — use <strong>+ Add signal</strong> to fire a rig cue on enter / win / big win.
+				No inputs yet — <strong>+ Add trigger</strong> picks a signal to fire a rig cue or a timeline
+				on enter / win / big win.
 			</p>
 		{:else}
 			<ul class="var-rows">
@@ -2287,13 +2340,81 @@
 						<div class="var-row-head">
 							<span class="var-icon" aria-hidden="true">⚡</span>
 							<span class="var-name" title={s.note ?? undefined}>{s.label}</span>
-							{#if s.scope}<span class="opt-note">per {s.scope}</span>{/if}
+							<span class="opt-note"
+								>trigger{#if s.scope}
+									· per {s.scope}{/if}</span
+							>
+							{#if onRenameInput}
+								<button
+									type="button"
+									class="param-remove"
+									title="Rename this input everywhere it is read"
+									onclick={() => onRenameInput?.(s.key)}>✎</button
+								>
+							{/if}
 							<button
 								type="button"
 								class="param-remove"
-								title="Remove signal"
-								onclick={() => onToggleSignal?.(s.key)}>×</button
+								title="Remove input"
+								onclick={() => (onRemoveInput ? onRemoveInput(s.key) : onToggleSignal?.(s.key))}
+								>×</button
 							>
+						</div>
+					</li>
+				{/each}
+				{#each valueInputRows as input (input.id)}
+					<li class="var-row">
+						<div class="var-row-head">
+							<span class="var-icon" aria-hidden="true">{input.kind === 'bool' ? '◐' : '#'}</span>
+							<span class="var-name" title={input.note ?? undefined}>{input.id}</span>
+							<span class="opt-note">{input.kind}</span>
+							<button
+								type="button"
+								class="param-remove"
+								title="Rename this input everywhere it is read"
+								onclick={() => onRenameInput?.(input.id)}>✎</button
+							>
+							<button
+								type="button"
+								class="param-remove"
+								title="Remove input"
+								onclick={() => onRemoveInput?.(input.id)}>×</button
+							>
+						</div>
+						<div class="var-row-body input-defaults">
+							{#if input.kind === 'bool'}
+								<label class="input-default">
+									<input
+										type="checkbox"
+										checked={input.default === true}
+										onchange={(e) => onSetInputDefault?.(input.id, e.currentTarget.checked)}
+									/>
+									starts on
+								</label>
+							{:else}
+								<label class="input-default">
+									default
+									<input
+										type="number"
+										step="any"
+										value={typeof input.default === 'number' ? input.default : 0}
+										onchange={(e) =>
+											onSetInputDefault?.(input.id, Number(e.currentTarget.value) || 0)}
+									/>
+								</label>
+								<label
+									class="input-default"
+									title="An engine value this number follows in game (winAmount, balance…), the same names Bind to value offers. Empty: Flow sets it."
+								>
+									from
+									<input
+										type="text"
+										value={input.source ?? ''}
+										placeholder="engine value"
+										onchange={(e) => onSetInputSource?.(input.id, e.currentTarget.value)}
+									/>
+								</label>
+							{/if}
 						</div>
 					</li>
 				{/each}
@@ -5875,6 +5996,23 @@
 		border-radius: 4px;
 		background: transparent;
 		cursor: pointer;
+	}
+	.input-defaults {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		padding: 2px 0 4px 22px;
+	}
+	.input-default {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 11px;
+		color: #8b93a1;
+	}
+	.input-default input[type='number'],
+	.input-default input[type='text'] {
+		width: 90px;
 	}
 	.add-param {
 		display: flex;

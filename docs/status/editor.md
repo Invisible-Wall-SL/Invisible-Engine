@@ -86,6 +86,11 @@ Shipped capabilities on `main`:
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
 - **Pipeline** — layout-doc bake + **editor-art export** (`deploy/editor-art/`) travel export→deploy→bake→pull→register; Art bounds ship as TexturePacker trim, component `spine`-param bundles and `_shared/` rigs export like placed ones, and art picked only in a per-layoutType param override ships too.
 
+- **Animate's second tab — the State Machine** (Rive plan Phase 5b, 2026-10-13, in review, ⏳
+  not browser-verified). On the Components side only: the panel under the stage has **Timeline**
+  and **State machine** tabs; screens keep the Timeline alone (plan §12 #1: screens get no state
+  machine). Everything about the panel is in [component-editor status](component-editor.md).
+
 ## Open items / next
 
 0. **⏳ Browser-verify Animate mode** (the list is in [cinematic status](cinematic.md) item 0).
@@ -108,6 +113,8 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-13 — **State Machine tab in Animate (Rive plan Phase 5b, in review).** Components side
+  only; see [component-editor status](component-editor.md).
 - 2026-10-13 — **Component timelines (Rive plan Phase 4b, in review).** `EditorTimelinePanel.svelte`
   generalised from "the active screen" to a host: a screen, or an open component (`component`
   prop: timelines listed by `componentTimelinesOf`, ids from `componentTimelineId`, Plays on / Also

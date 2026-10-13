@@ -73,9 +73,12 @@
 		/** Animate mode is on. The page keeps this panel mounted (hidden) after leaving Animate so
 		 *  unsaved edits survive the toggle; inactive, it owns no key and previews nothing. */
 		active: boolean;
+		/** Open this timeline (the State Machine panel asked: a state card was double-clicked). The
+		 *  nonce makes the same id openable again. */
+		openRequest?: { id: string; nonce: number };
 	}
 
-	let { scene, component, selectedId, projectKey, active }: Props = $props();
+	let { scene, component, selectedId, projectKey, active, openRequest }: Props = $props();
 
 	/** This panel's claim on the shared canvas preview (a screen's and a component's panel can both
 	 *  be mounted). */
@@ -540,6 +543,14 @@
 	$effect(() => {
 		void scene;
 		untrack(preview);
+	});
+
+	let lastOpenRequest = 0;
+	$effect(() => {
+		const request = openRequest;
+		if (!request || request.nonce === lastOpenRequest) return;
+		lastOpenRequest = request.nonce;
+		untrack(() => void refresh().then(() => open(request.id)));
 	});
 
 	onMount(() => {

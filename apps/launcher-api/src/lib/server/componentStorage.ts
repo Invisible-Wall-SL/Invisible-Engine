@@ -10,6 +10,7 @@ import type {
 	SlotKind,
 	SmCondition,
 	SmLayer,
+	SmPoint,
 	SmState,
 	SmTransition,
 	TemplateSlot,
@@ -859,6 +860,9 @@ function normalizeInputs(input: unknown): ComponentInput[] {
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
+const point = (v: unknown): SmPoint | undefined =>
+	isRecord(v) && finite(v.x) && finite(v.y) ? { x: v.x, y: v.y } : undefined;
+
 function normalizeStateMachine(input: unknown): ComponentStateMachine | undefined {
 	if (!isRecord(input) || !Array.isArray(input.layers)) return undefined;
 	const layers: SmLayer[] = [];
@@ -880,6 +884,8 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (typeof item.name === 'string' && item.name) state.name = item.name;
 			if (finite(item.speed)) state.speed = item.speed;
 			if (item.loop === true) state.loop = true;
+			const pos = point(item.pos);
+			if (pos) state.pos = pos;
 			layer.states.push(state);
 		}
 		for (const item of Array.isArray(raw.transitions) ? raw.transitions : []) {
@@ -894,6 +900,14 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (finite(item.exitTime)) transition.exitTime = item.exitTime;
 			if (finite(item.blend) && item.blend > 0) transition.blend = item.blend;
 			layer.transitions.push(transition);
+		}
+		if (isRecord(raw.pseudoPos)) {
+			const pseudo: NonNullable<SmLayer['pseudoPos']> = {};
+			for (const key of ['entry', 'any', 'exit'] as const) {
+				const pos = point(raw.pseudoPos[key]);
+				if (pos) pseudo[key] = pos;
+			}
+			if (Object.keys(pseudo).length) layer.pseudoPos = pseudo;
 		}
 		layers.push(layer);
 	}

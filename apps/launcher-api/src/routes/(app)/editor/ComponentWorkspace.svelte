@@ -36,6 +36,7 @@
 	import type {
 		ComponentCategory,
 		ComponentDef,
+		ComponentInput,
 		ComponentInstanceNode,
 		ComponentParam,
 		ContainerNode,
@@ -44,7 +45,7 @@
 		Scene,
 	} from 'engine-layout';
 	import { onMount, untrack } from 'svelte';
-	import { askConfirm, dialogQueue } from '$lib/dialogs.svelte';
+	import { askConfirm, askMessage, askText, dialogQueue } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
 	import ComponentList from './ComponentList.svelte';
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
@@ -53,6 +54,15 @@
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import EditorStateMachinePanel from './EditorStateMachinePanel.svelte';
+	import {
+		addInput,
+		inputUsage,
+		removeInput,
+		renameInput,
+		setInputDefault,
+		setInputSource,
+	} from '$lib/timeline/stateMachineEdit';
 	import { componentTimelineSignals } from '$lib/timeline/screenTimeline';
 	import type { RigMeta } from './rigRuntime.client';
 	import PanelResizers from './PanelResizers.svelte';
@@ -967,6 +977,14 @@
 	 *  across components), so leaving Animate or the component never drops an unsaved timeline — the
 	 *  panel saves it when the host changes, as on a screen. */
 	let animateVisited = $state(false);
+	/** Animate's two panels, Rive-style tabs: the Timeline, or the State Machine (Phase 5b). */
+	let animateTab = $state<'timeline' | 'stateMachine'>('timeline');
+	/** A state card asked for its timeline: the Timeline tab opens it. */
+	let timelineOpenRequest = $state<{ id: string; nonce: number } | undefined>(undefined);
+	function openTimelineFromStateMachine(id: string): void {
+		animateTab = 'timeline';
+		timelineOpenRequest = { id, nonce: (timelineOpenRequest?.nonce ?? 0) + 1 };
+	}
 	/** The host the panel animates: the open component, kept after it closes so the panel can still
 	 *  save what it holds. */
 	let timelineScene = $state<Scene | undefined>(undefined);
@@ -1704,6 +1722,55 @@
 		}
 	}
 
+	// ---- Inputs (Rive plan Phase 5b; plan §12 #4): bool / number inputs live in `inputs`, a
+	// trigger is a declared signal (the catalog picker above) or an `inputs` row of kind trigger.
+	const draftInputs = $derived(componentInputs(componentDraft));
+	function addComponentInput(id: string, kind: ComponentInput['kind']): void {
+		if (!componentDraft) return;
+		if (!addInput(componentDraft, id, kind)) {
+			void askMessage({ title: 'Input not added', message: `"${id}" is already an input.` });
+		}
+	}
+	async function removeComponentInput(id: string): Promise<void> {
+		if (!componentDraft) return;
+		const used = inputUsage(componentDraft, id);
+		if (used.length) {
+			const ok = await askConfirm({
+				title: `Remove input "${id}"?`,
+				message: `${used.length} state-machine transition(s) read it; their condition on it will be removed.`,
+				confirmLabel: 'Remove',
+				danger: true,
+			});
+			if (!ok) return;
+		}
+		removeInput(componentDraft, id);
+	}
+	async function renameComponentInput(id: string): Promise<void> {
+		if (!componentDraft) return;
+		const next = await askText({ title: 'Rename input', label: 'Name', value: id });
+		if (next === null || next.trim() === id) return;
+		if (!renameInput(componentDraft, id, next)) {
+			void askMessage({
+				title: 'Input not renamed',
+				message: `"${next.trim()}" is empty or already an input.`,
+			});
+			return;
+		}
+		const used = inputUsage(componentDraft, next.trim());
+		if (used.length) {
+			void askMessage({
+				title: 'Input renamed',
+				message: `${used.length} state-machine transition condition(s) now read "${next.trim()}".`,
+			});
+		}
+	}
+	function setComponentInputDefault(id: string, value: boolean | number): void {
+		if (componentDraft) setInputDefault(componentDraft, id, value);
+	}
+	function setComponentInputSource(id: string, source: string): void {
+		if (componentDraft) setInputSource(componentDraft, id, source);
+	}
+
 	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it
 	 * names (Phase 12a) — the pot's `meter` as a meter, a tile's `source` as a tier — or `undefined`
 	 * for none (every instance hears every fire). */
@@ -2296,14 +2363,48 @@
 				</div>
 			{/if}
 			{#if animateVisited}
-				<div class="timeline-slot" class:hidden={!animating}>
-					<EditorTimelinePanel
-						scene={timelineScene}
-						component={timelineComponent}
-						selectedId={selectedIds.at(-1) ?? null}
-						projectKey={data.projectKey}
-						active={active && animating}
-					/>
+				<div
+					class="timeline-slot"
+					class:hidden={!animating}
+					class:tall={animateTab === 'stateMachine'}
+				>
+					<div class="animate-tabs" role="tablist" aria-label="Animate panels">
+						<button
+							type="button"
+							role="tab"
+							class:on={animateTab === 'timeline'}
+							aria-selected={animateTab === 'timeline'}
+							onclick={() => (animateTab = 'timeline')}>Timeline</button
+						>
+						<button
+							type="button"
+							role="tab"
+							class:on={animateTab === 'stateMachine'}
+							aria-selected={animateTab === 'stateMachine'}
+							title="Which timeline plays when: states, transitions and the inputs that move between them."
+							onclick={() => (animateTab = 'stateMachine')}>State machine</button
+						>
+					</div>
+					<div class="animate-pane" class:hidden={animateTab !== 'timeline'}>
+						<EditorTimelinePanel
+							scene={timelineScene}
+							component={timelineComponent}
+							selectedId={selectedIds.at(-1) ?? null}
+							projectKey={data.projectKey}
+							active={active && animating && animateTab === 'timeline'}
+							openRequest={timelineOpenRequest}
+						/>
+					</div>
+					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
+						<EditorStateMachinePanel
+							def={componentDraft}
+							scene={timelineScene}
+							projectKey={data.projectKey}
+							active={active && animating && animateTab === 'stateMachine'}
+							onChanged={() => (editNonce += 1)}
+							onOpenTimeline={openTimelineFromStateMachine}
+						/>
+					</div>
 				</div>
 			{/if}
 		</main>
@@ -2324,6 +2425,12 @@
 						componentParams={componentDraft.params ?? []}
 						componentRoot={componentDraft.root}
 						componentSignals={draftSignals}
+						componentInputs={draftInputs}
+						onAddInput={addComponentInput}
+						onRemoveInput={(id) => void removeComponentInput(id)}
+						onRenameInput={(id) => void renameComponentInput(id)}
+						onSetInputDefault={setComponentInputDefault}
+						onSetInputSource={setComponentInputSource}
 						componentSignalScope={componentDraft.signalScope}
 						componentSignalScopeKind={componentDraft.signalScopeKind}
 						gameType={data.gameType}
@@ -2684,9 +2791,40 @@
 		right: 0;
 		bottom: 0;
 		height: 280px;
+		display: flex;
+		flex-direction: column;
 	}
-	.timeline-slot.hidden {
+	.timeline-slot.tall {
+		height: 380px;
+	}
+	.timeline-slot.hidden,
+	.animate-pane.hidden {
 		display: none;
+	}
+	.animate-pane {
+		flex: 1;
+		min-height: 0;
+	}
+	.animate-tabs {
+		display: flex;
+		gap: 2px;
+		padding: 0 10px;
+		background: #1b1d22;
+		border-top: 1px solid #363b45;
+	}
+	.animate-tabs button {
+		background: transparent;
+		color: #8b93a1;
+		border: none;
+		border-bottom: 2px solid transparent;
+		padding: 4px 10px;
+		font: inherit;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.animate-tabs button.on {
+		color: #7ee0c0;
+		border-bottom-color: #7ee0c0;
 	}
 	.mode-toggle {
 		display: inline-flex;
