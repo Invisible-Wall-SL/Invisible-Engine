@@ -653,7 +653,11 @@
 				componentDraft = structuredClone(stored);
 				savedSnapshot = JSON.stringify(componentDraft);
 				components = components.map((c) => (c.id === stored.id ? stored : c));
+				// Their version is a different tree: nothing selected or stepped into survives it.
+				selectedIds = [];
+				insidePartId = null;
 				editNonce += 1;
+				void loadVersionList(stored);
 			}
 			componentEtags = { ...componentEtags, [def.id]: etag };
 			saveState.adoptEtag(etag);

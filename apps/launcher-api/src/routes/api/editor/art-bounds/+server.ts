@@ -20,12 +20,16 @@ import type { RequestHandler } from './$types';
  * The doc never ships as its own asset: `editorArtExport` folds each box into the TexturePacker
  * JSON's `sourceSize`/`spriteSourceSize`, which is where PIXI reads a declared box from.
  */
-export const GET: RequestHandler = async ({ locals, cookies }) => {
+export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'editor',
 		altTools: ['flipbook', 'fx', 'rigger'],
 		forbiddenMessage: 'Your role does not have access to the project art bounds.',
 	});
+	const mismatch = scopeMismatch(url.searchParams.get('projectKey'), projectKey, {
+		required: true,
+	});
+	if (mismatch) return mismatch;
 	const { doc, etag } = await loadArtBoundsDocWithEtag(clientKey, projectKey);
 	return json({ bounds: doc.bounds, etag });
 };
@@ -54,7 +58,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (typeof body !== 'object' || body === null || Array.isArray(body)) {
 		throw error(400, 'Body must be an object.');
 	}
-	const mismatch = scopeMismatch((body as Record<string, unknown>).projectKey, projectKey);
+	const mismatch = scopeMismatch((body as Record<string, unknown>).projectKey, projectKey, {
+		required: true,
+	});
 	if (mismatch) return mismatch;
 	const bounds = (body as Record<string, unknown>).bounds;
 	if (typeof bounds !== 'object' || bounds === null || Array.isArray(bounds)) {

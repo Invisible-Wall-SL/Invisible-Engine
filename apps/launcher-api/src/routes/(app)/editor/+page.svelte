@@ -92,7 +92,7 @@
 	import PanelSection from './PanelSection.svelte';
 	import type { RigMeta } from './rigRuntime.client';
 	import { fetchClips } from './editorFlipbooks.client';
-	import { bindArtBoundsProject } from './editorArtBounds.client.svelte';
+	import { bindEditorProject } from './editorProject.client';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import type { PageData } from './$types';
 
@@ -106,7 +106,7 @@
 	const loadedProjectKey = data.projectKey;
 	/** The page's data now describes another project: every save is blocked and a reload asked. */
 	const projectDrift = $derived(data.projectKey !== loadedProjectKey);
-	bindArtBoundsProject(loadedProjectKey);
+	bindEditorProject(loadedProjectKey);
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
 	 * doc has none — persistence is handled by the debounced autosave below. */
@@ -1461,7 +1461,9 @@
 			}
 		} else if (kind === 'ref') {
 			try {
-				const res = await fetch(`/api/editor/import?gameType=${encodeURIComponent(gameType)}`);
+				const res = await fetch(
+					`/api/editor/import?gameType=${encodeURIComponent(gameType)}&projectKey=${encodeURIComponent(loadedProjectKey)}`,
+				);
 				if (res.ok) {
 					const doc = (await res.json()) as LayoutDoc;
 					await adoptScenes(doc, loadsAs);
@@ -4047,7 +4049,7 @@
 
 <DocHistoryModal
 	open={historyOpen}
-	listUrl="/api/editor/backups"
+	listUrl={`/api/editor/backups?projectKey=${encodeURIComponent(loadedProjectKey)}`}
 	docLabel="layout"
 	readOnly={lease.readOnly}
 	dirty={saveState.dirty || loadedPreview}

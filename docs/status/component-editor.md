@@ -62,7 +62,7 @@ Shipped capabilities on `main`:
   screen), Esc up one level, double-click a placed instance to edit its def in place (capped at the
   game's nesting depth), a **Browse** left tab. `/components` is a 307 redirect; the registry card
   URL is `/editor?view=components`. Storage unchanged. Gate: `pnpm --filter launcher-api
-  check:component-links` (62 checks). Editor-side detail: [editor status](./editor.md).
+  check:component-links` (68 checks). Editor-side detail: [editor status](./editor.md).
 - 2026-10-13 — **Owner decisions for the Rive-style editor (Phase 0, docs only).** The 2026-06 route-A
   deferral is lifted for component state machines only (screens get none), and `/components` will
   merge into `/editor` (Phase 4; component storage unchanged). Plan: [rive-style-editor](../design/rive-style-editor.md) §12.
