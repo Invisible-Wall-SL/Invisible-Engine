@@ -134,15 +134,6 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: pnpm check:engine-game
 
-      # Invisible FX forces gate — steps the `fxForces` math (gravity along its angle, vortex
-      # radial out/in and swirl sense, attractor + absorb, exact drag, bounded divergence-free
-      # turbulence) and drives it through the real particle-emitter `Emitter` in both movement
-      # couplings, plus the save → export → bake round-trip. A force that silently stops pushing
-      # renders as "nothing happened", which no build catches.
-      - name: fx forces gate
-        if: steps.changes.outputs.code == 'true'
-        run: pnpm check:fx-forces
-
       # Launcher authorization gate. A gate that quietly stops refusing is invisible until someone
       # hits it: the `?project=` authoring APIs resolved ANY project for anyone holding the tool,
       # and the publish chain once refused every publisher the owner had granted. `launcher-gates`

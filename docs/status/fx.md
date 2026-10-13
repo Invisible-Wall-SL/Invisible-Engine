@@ -80,8 +80,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     first update. Typing the same Speed start and end in the inspector can therefore hit it. It was
     reproduced headlessly and is untouched here.
   - **Verified.**
-    - New gate `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, 59 assertions, wired into the
-      Lint workflow, and discovered by `check:all`). It covers: the clamp; absent forces = no change;
+    - New gate `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, 59 assertions, run in CI by
+      `check:all` in the Checks workflow like the other fx-spike harnesses). It covers: the clamp; absent forces = no change;
       gravity ½gt² along 0/90/270° with 30 vs 240 fps agreement; vortex radial out/in, CW/CCW
       sense, radius and falloff, centre offset and the no-NaN centre; attractor pull/push/absorb;
       exact drag and terminal speed; wind gust range; turbulence that is bounded, divergence-free
