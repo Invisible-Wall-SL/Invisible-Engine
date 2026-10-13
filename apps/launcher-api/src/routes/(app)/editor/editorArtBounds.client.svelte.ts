@@ -61,14 +61,24 @@ export function artBoundsOf(assetKey: string, region: string): ArtBoundsBox | un
  * draw every region (the `fetchClips` degradation).
  */
 export function loadArtBounds(): Promise<void> {
-	if (loadedFor !== editorProjectKey()) clearArtBoundsCache();
+	if (loadedFor !== editorProjectKey()) {
+		// Another project's boxes must never draw here — not even while this project's GET is in
+		// flight, nor forever if it fails (manifest keys are project-relative, so they can match).
+		map = {};
+		etag = null;
+		version++;
+		clearArtBoundsCache();
+	}
 	if (pending) return pending;
-	loadedFor = editorProjectKey();
+	const project = editorProjectKey();
+	loadedFor = project;
 	pending = (async () => {
 		try {
 			const res = await fetch(withEditorProject('/api/editor/art-bounds'));
 			if (!res.ok) return;
 			const body = (await res.json()) as { bounds?: Record<string, ArtBoundsBox>; etag?: string };
+			// The bound project changed while this read was in flight: its answer is not ours.
+			if (loadedFor !== project) return;
 			map = body.bounds ?? {};
 			etag = body.etag ?? null;
 			version++;
@@ -111,6 +121,7 @@ export async function saveArtBounds(
 	box: ArtBoundsBox | undefined,
 ): Promise<string | null> {
 	const ref = artBoundsRef(assetKey, region);
+	const previous = map;
 	const next = { ...map };
 	if (box) next[ref] = box;
 	else delete next[ref];
@@ -131,7 +142,10 @@ export async function saveArtBounds(
 		};
 		if (res.status === 409 && body.error === 'scope-mismatch') {
 			// Not a conflict: this tab's project is no longer the session's. Nothing to reload from
-			// here (the read would be refused the same way) — the author must reload the page.
+			// here (the read would be refused the same way) — the author must reload the page. The
+			// optimistic box was never saved, so it must not stay on the canvas either.
+			map = previous;
+			version++;
 			return body.message ?? 'This tab’s project changed — reload the page.';
 		}
 		if (res.status === 409) {

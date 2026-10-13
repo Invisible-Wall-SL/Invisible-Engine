@@ -237,12 +237,34 @@ const UNPINNED_WRITES: { file: string; call: string; context?: RegExp; why: stri
 		why: 'the promote to the shared library has no project (componentPublish-gated)',
 	},
 ];
-/** Code only: line comments, block comments and HTML comments removed. */
-const code = (text: string): string =>
-	text
-		.replace(/<!--[\s\S]*?-->/g, '')
-		.replace(/\/\*[\s\S]*?\*\//g, '')
-		.replace(/(^|[\s;{}(])\/\/.*$/gm, '$1');
+/** Code only: line, block and HTML comments removed, never inside a string (a glob, a URL). */
+function code(text: string): string {
+	let out = '';
+	let quote: string | null = null;
+	for (let i = 0; i < text.length; i++) {
+		const c = text[i];
+		if (quote) {
+			out += c;
+			if (c === '\\') out += text[++i] ?? '';
+			else if (c === quote) quote = null;
+			continue;
+		}
+		if (c === "'" || c === '"' || c === '`') {
+			quote = c;
+			out += c;
+		} else if (text.startsWith('<!--', i)) {
+			const end = text.indexOf('-->', i);
+			i = end === -1 ? text.length : end + 2;
+		} else if (text.startsWith('/*', i)) {
+			const end = text.indexOf('*/', i + 2);
+			i = end === -1 ? text.length : end + 1;
+		} else if (text.startsWith('//', i) && !/[:\w]$/.test(out)) {
+			const end = text.indexOf('\n', i);
+			i = end === -1 ? text.length : end - 1;
+		} else out += c;
+	}
+	return out;
+}
 function fetchCalls(text: string): { line: number; call: string; before: string }[] {
 	const out: { line: number; call: string; before: string }[] = [];
 	const re = /\bfetch\(/g;
@@ -321,6 +343,31 @@ check(
 	true,
 );
 check('every editor write names the loaded project (or is listed with its reason)', unpinned, []);
+// The routes that REQUIRE the tab's project (`scopeMismatch(…, { required: true })`): every call
+// to one — read or write — and every `listUrl` naming one must carry the pin in the call itself,
+// or it is a production 400 that nothing else would catch.
+const REQUIRED_ROUTES = /\/api\/editor\/(?:backups|art-bounds|import|rigs\/upload|rigs\/reindex)\b/;
+const unpinnedRequired: string[] = [];
+let requiredCalls = 0;
+for (const { file, text } of scanned) {
+	for (const { line, call } of fetchCalls(text)) {
+		if (!REQUIRED_ROUTES.test(call)) continue;
+		requiredCalls++;
+		if (!PIN.test(code(call))) unpinnedRequired.push(`${file}:${line} ${call.split('\n')[0]}`);
+	}
+	for (const [i, line] of code(text).split('\n').entries()) {
+		if (!/\blistUrl=/.test(line) || !REQUIRED_ROUTES.test(line)) continue;
+		requiredCalls++;
+		if (!/projectKey=/.test(line)) unpinnedRequired.push(`${file}:${i + 1} ${line.trim()}`);
+	}
+}
+check('the scan finds the editor’s calls to the project-required routes', requiredCalls >= 6, true);
+check('every call to a project-required route carries the pin in the call', unpinnedRequired, []);
+check(
+	'a string that looks like a comment is not stripped',
+	code("fetch('/a/**/*.json', { projectKey }) // x"),
+	"fetch('/a/**/*.json', { projectKey }) ",
+);
 check(
 	'the editor sends nothing around fetch (sendBeacon, XMLHttpRequest, new Request)',
 	sideChannels,

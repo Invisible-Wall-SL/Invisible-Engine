@@ -65,6 +65,7 @@
 		"precheck:cinematic-access": "node scripts/ensure-svelte-kit.mjs",
 		"precheck:component-timelines": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-timelines": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-timelines.ts",
+		"precheck:editor-write-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:editor-write-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-editor-write-scope.ts",
 		"precheck:component-links": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-links": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-links.ts",

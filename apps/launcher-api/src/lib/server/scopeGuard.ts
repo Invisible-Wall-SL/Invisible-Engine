@@ -10,8 +10,9 @@ import { json } from '@sveltejs/kit';
  * `scope-mismatch`, which `force` never bypasses. The sent key is only ever COMPARED, never used as
  * the target, so a client still cannot name a project the session does not hold. Absent ⇒ no
  * check (older callers, e.g. the Rigger's static page) — unless `required`, for the routes whose
- * only caller is the editor, which always sends it (`check:component-links` enumerates them): there
- * a missing key is a 400, so a caller that forgot the pin fails loudly instead of writing blind.
+ * only caller is the editor, which always sends it (`check:component-links` requires the pin on
+ * every editor call to them, reads included): there a missing key is a 400, so a caller that
+ * forgot the pin fails loudly instead of acting blind.
  *
  * Returns the 409 response to send, or `null` to go ahead. `json(…)`, never `error()`: the tools
  * read `error: 'scope-mismatch'` from the body.

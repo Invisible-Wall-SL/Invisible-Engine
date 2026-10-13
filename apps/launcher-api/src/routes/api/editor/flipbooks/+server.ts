@@ -32,8 +32,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		altTools: ['flipbook', 'rigger'],
 		forbiddenMessage: 'Your role does not have access to the project flipbook clips.',
 	});
-	// The editor sends its tab's project; a read for another one is refused (`scopeMismatch`).
-	const mismatch = scopeMismatch(url.searchParams.get('projectKey') ?? undefined, projectKey);
+	const mismatch = scopeMismatch(url.searchParams.get('projectKey'), projectKey);
 	if (mismatch) return mismatch;
 
 	const doc = await loadFlipbookDoc(clientKey, projectKey);

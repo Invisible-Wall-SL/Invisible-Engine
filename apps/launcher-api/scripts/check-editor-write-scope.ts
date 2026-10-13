@@ -3,7 +3,8 @@
  * none (Rive plan Phase 4c):
  *   pnpm --filter launcher-api check:editor-write-scope
  *
- * Runs the REAL `/api/editor/rigs/upload` and `/api/editor/art-bounds` handlers and the real
+ * Runs the REAL `/api/editor/rigs/upload`, `/api/editor/art-bounds`, `/api/editor/import` and
+ * `/api/editor/flipbooks` handlers and the real
  * `scopeGuard`. Only the boundaries are replaced: the session gate (fixed project `p1`), R2's URL
  * signer, the rig-extension table and the art-bounds store. `editor/backups` is covered in
  * `check-doc-backups.ts` and `editor/rigs/reindex` in `check-rigger-writes.ts`, beside their other
@@ -53,9 +54,27 @@ mock.module(server('artBoundsStorage.ts'), {
 	},
 });
 
+const flipbookReads: string[] = [];
+mock.module(server('flipbookStorage.ts'), {
+	namedExports: {
+		loadFlipbookDoc: async (_c: string, projectKey: string) => {
+			flipbookReads.push(projectKey);
+			return { clips: [] };
+		},
+	},
+});
+mock.module(server('projectAssets.ts'), {
+	namedExports: { listProjectAssets: async () => ({ atlases: [], spines: [], sheets: [] }) },
+});
+mock.module(server('editorRegions.ts'), {
+	namedExports: { loadRegionSet: async (key: string) => ({ assetKey: key, regions: [] }) },
+});
+
 const routes = new URL('../src/routes/api/editor/', import.meta.url).href;
 const upload = await import(`${routes}rigs/upload/+server.ts`);
 const artBounds = await import(`${routes}art-bounds/+server.ts`);
+const importRoute = await import(`${routes}import/+server.ts`);
+const flipbooks = await import(`${routes}flipbooks/+server.ts`);
 
 type Handler = (event: never) => Promise<Response>;
 interface Answer {
@@ -146,6 +165,37 @@ check(
 	'art-bounds read for the session’s project',
 	(await call(artBounds.GET, '/a?projectKey=p1')).status,
 	200,
+);
+
+// ── reads that copy content into the tab's project ───────────────────────────
+check(
+	'reference import for another project: 409 (its sprites would be rewritten onto that project)',
+	outcome(await call(importRoute.GET, '/i?gameType=lines&projectKey=p2')),
+	[409, 'scope-mismatch'],
+);
+check(
+	'reference import naming no project: 400',
+	outcome(await call(importRoute.GET, '/i?gameType=lines'))[0],
+	400,
+);
+check(
+	'reference import for the session’s project goes ahead',
+	[200, 404].includes((await call(importRoute.GET, '/i?gameType=lines&projectKey=p1')).status),
+	true,
+);
+check(
+	'flipbook clips for another project: 409, nothing read',
+	[...outcome(await call(flipbooks.GET, '/f?projectKey=p2')), flipbookReads.length],
+	[409, 'scope-mismatch', 0],
+);
+check(
+	'flipbook clips for the session’s project (and for a caller naming none) are read',
+	[
+		(await call(flipbooks.GET, '/f?projectKey=p1')).status,
+		(await call(flipbooks.GET, '/f')).status,
+		flipbookReads,
+	],
+	[200, 200, ['p1', 'p1']],
 );
 
 console.log(
