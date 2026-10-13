@@ -55,6 +55,7 @@ export * from './cueDuration';
 export * from './textBoxLayout';
 export * from './componentParams';
 export * from './valueBindings';
+export * from './cinematicNodes';
 export * from './tapToContinue';
 export * from './signalGates';
 export * from './completeOnLoaded';

@@ -400,6 +400,129 @@ export function putKey(keys, time, value, ease = 'linear') {
 	return key;
 }
 
+// ---- node actors (Rive plan §3.1) ------------------------------------------
+//
+// A NODE actor (`cast.kind === 'node'`) drives a layout node of the timeline's host instead of a
+// rig. Its `property` channels are RELATIVE to the node's authored pose (offsets, multipliers,
+// degrees), so a timeline made on one screen plays on any host with a node of that name, and an
+// un-keyed channel is the identity. Everything here is a pure function of `t`, like the rig path.
+// A rig actor (kind absent or 'rig') never reaches this code, so existing documents evaluate
+// exactly as before.
+
+/** The `property` channels a node actor honours; any other channel name is skipped. */
+export const NODE_CHANNELS = Object.freeze([
+	'x', 'y', 'scale', 'scaleX', 'scaleY', 'rotation', 'alpha', 'tint', 'frame', 'fill',
+]);
+
+/** Whether a cast entry is a node actor. Absent `kind` reads as a rig. */
+export const isNodeActor = (cast) => !!cast && cast.kind === 'node';
+
+/**
+ * The timeline's host, normalised. Absent or malformed ⇒ `{ kind: 'cast' }` (today's behaviour), so
+ * a document a newer tool wrote with a host we cannot read still plays its rigs.
+ */
+export function cinematicHost(doc) {
+	const host = doc && doc.host;
+	if (host && host.kind === 'screen' && typeof host.sceneId === 'string' && host.sceneId) {
+		return { kind: 'screen', sceneId: host.sceneId };
+	}
+	if (host && host.kind === 'component' && typeof host.componentId === 'string' && host.componentId) {
+		return { kind: 'component', componentId: host.componentId };
+	}
+	return { kind: 'cast' };
+}
+
+const rgb = (c) => [(c >> 16) & 0xff, (c >> 8) & 0xff, c & 0xff];
+
+/**
+ * A `tint` channel at `t`: 0xRRGGBB eased PER CHANNEL. Interpolating the packed integer would run
+ * red through every green and blue in between. Holds its first/last key like any channel.
+ */
+export function sampleTint(keys, t) {
+	if (!keys || !keys.length) return undefined;
+	if (keys.length === 1 || t <= keys[0].time) return keys[0].value;
+	const last = keys[keys.length - 1];
+	if (t >= last.time) return last.value;
+	let i = 0;
+	while (i < keys.length - 2 && keys[i + 1].time <= t) i++;
+	const a = keys[i];
+	const b = keys[i + 1];
+	const span = b.time - a.time;
+	if (span <= 0) return b.value;
+	const u = (EASE[a.ease] || EASE.linear)((t - a.time) / span);
+	const [ar, ag, ab] = rgb(a.value);
+	const [br, bg, bb] = rgb(b.value);
+	const mix = (p, q) => Math.round(p + (q - p) * u);
+	return (mix(ar, br) << 16) | (mix(ag, bg) << 8) | mix(ab, bb);
+}
+
+/**
+ * A `text` track at `t`, or undefined when it has no usable key.
+ *   countUp   — the keyed number, eased like any channel.
+ *   switchKey — STEPPED: the last key at or before `t`, holding the first key backwards (as a
+ *               visibility track does, so a switched node never flashes its own text at frame 0).
+ * Keys missing their `value` / `key` are skipped; an unknown mode yields nothing.
+ */
+export function sampleText(track, t) {
+	if (!track || !Array.isArray(track.keys)) return undefined;
+	if (track.mode === 'countUp') {
+		const keys = track.keys.filter((k) => typeof k.value === 'number' && Number.isFinite(k.value));
+		const value = sampleChannel(keys, t);
+		return value === undefined ? undefined : { mode: 'countUp', value };
+	}
+	if (track.mode === 'switchKey') {
+		const keys = track.keys.filter((k) => typeof k.key === 'string');
+		if (!keys.length) return undefined;
+		let key = keys[0].key;
+		for (const k of keys) {
+			if (k.time <= t + 1e-9) key = k.key;
+			else break;
+		}
+		return { mode: 'switchKey', key };
+	}
+	return undefined;
+}
+
+/**
+ * Every channel of ONE node actor at `t`, from its tracks (any order, any kind). Only keyed values
+ * are present; `scale` folds into `scaleX`/`scaleY` (multiplied). Visibility is present only when a
+ * visibility track has keys, so an un-keyed node keeps its own visibility.
+ */
+export function sampleNodeActor(tracks, t) {
+	const out = {};
+	let sx;
+	let sy;
+	let uniform;
+	const visibility = [];
+	for (const track of tracks || []) {
+		if (!track) continue;
+		if (track.kind === 'property' && track.channels) {
+			for (const name of NODE_CHANNELS) {
+				const keys = track.channels[name];
+				const v = name === 'tint' ? sampleTint(keys, t) : sampleChannel(keys, t);
+				if (v === undefined) continue;
+				if (name === 'scale') uniform = v;
+				else if (name === 'scaleX') sx = v;
+				else if (name === 'scaleY') sy = v;
+				else out[name] = v;
+			}
+		} else if (track.kind === 'visibility') {
+			visibility.push(track);
+		} else if (track.kind === 'text') {
+			const text = sampleText(track, t);
+			if (text) out.text = text;
+		}
+	}
+	if (uniform !== undefined || sx !== undefined || sy !== undefined) {
+		out.scaleX = (uniform ?? 1) * (sx ?? 1);
+		out.scaleY = (uniform ?? 1) * (sy ?? 1);
+	}
+	if (visibility.some((tr) => tr.keys && tr.keys.length)) {
+		out.visible = resolveVisible(true, visibility, t);
+	}
+	return out;
+}
+
 // ---- cues -----------------------------------------------------------------
 
 /**

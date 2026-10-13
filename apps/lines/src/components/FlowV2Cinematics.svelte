@@ -15,6 +15,7 @@
 	 * still runs, and the validator already warns about an empty `ref` at authoring time.
 	 */
 	import { MainContainer } from 'components-layout';
+	import { cinematicSetSceneId } from 'engine-layout';
 	import { Cinematic } from 'engine-layout/svelte';
 	import { getContextEventEmitter } from 'utils-event-emitter';
 
@@ -64,8 +65,10 @@
 			.map(([id, opts]) => {
 				const doc = bakedCinematic(id);
 				// `resolveScene` is the flow runtime's own scene lookup, so a cinematic set resolves
-				// exactly like any flow screen — no second scene registry.
-				const scene = doc?.stage?.sceneId ? flow?.resolveScene(doc.stage.sceneId) : undefined;
+				// exactly like any flow screen — no second scene registry. A `screen`-hosted timeline's
+				// set is its host screen, whose nodes its node actors drive.
+				const sceneId = doc ? cinematicSetSceneId(doc) : null;
+				const scene = sceneId ? flow?.resolveScene(sceneId) : undefined;
 				return { id, opts, doc, scene };
 			})
 			.filter((entry) => !!entry.doc),

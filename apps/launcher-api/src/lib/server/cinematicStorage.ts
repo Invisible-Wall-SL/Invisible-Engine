@@ -1,3 +1,4 @@
+import type { CinematicHost } from 'engine-layout';
 import { SUB, r2Slug } from './projectPaths';
 import {
 	deleteObject,
@@ -24,10 +25,12 @@ import {
  * one raises `ConflictError` → 409, rather than overwriting whoever saved first.
  */
 
-/** One actor placed on the stage. */
+/** One actor placed on the stage: a cast rig, or (`kind: 'node'`) a node of the host by name. */
 export interface CinematicCast {
 	actorId: string;
-	rigId: string;
+	kind?: 'rig' | 'node';
+	target?: string;
+	rigId?: string;
 	rigName?: string;
 	nodeId?: string | null;
 	place: Record<string, number | boolean>;
@@ -43,6 +46,8 @@ export interface CinematicDoc {
 	fps: number;
 	/** `setZ` = the bound set's depth on the cast's z line; absent ⇒ -1 ⇒ behind every actor. */
 	stage: { sceneId: string | null; setZ?: number; cast: CinematicCast[] };
+	/** What the timeline animates; absent ⇒ its own cast (see engine-layout `CinematicHost`). */
+	host?: CinematicHost;
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

@@ -77,6 +77,10 @@
 	} from './valueBindings';
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
+	import { getComponentNestState } from './componentInstanceContext';
+	import { getCinematicNodeDriver } from './cinematicNodeContext';
+	import { nodeActorBindings, nodeActorOutputs, textNodeStrings } from './cinematicNodes';
+	import { getComponentValueSource } from './registerComponentValues';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
 
@@ -199,18 +203,39 @@
 		() => bindingParams,
 		() => (node.kind === 'flipbook' ? flipbookClip?.frames?.length : undefined),
 	);
+	// Timeline NODE ACTOR (Rive plan §3.1): a `screen`-hosted cinematic playing this screen may
+	// drive this node by name. Its keyed channels join the node's value bindings as extra outputs,
+	// so the one fold below moves, fades, reveals and holds a frame for both. Only a screen's own
+	// nodes are driven (nest depth 0), never the nodes inside a placed component. Asked once:
+	// which channels a node takes must not flip while it lives (a mask would remount its art).
+	// No driver ⇒ no timeline bindings ⇒ `allBindings`/`allOutputs` ARE the node's own (parity).
+	// svelte-ignore state_referenced_locally
+	const timelineDrive =
+		getComponentNestState().depth === 0 ? getCinematicNodeDriver()?.(node.id) : undefined;
+	const timelineBindings = timelineDrive ? nodeActorBindings(timelineDrive.channels) : [];
+	const timelineSample = $derived(timelineDrive?.sample());
+	const allBindings = timelineBindings.length
+		? [...(bindings ?? []), ...timelineBindings]
+		: bindings;
+	const allOutputs = $derived(
+		timelineBindings.length
+			? [...bound.outputs, ...nodeActorOutputs(timelineBindings, timelineSample)]
+			: bound.outputs,
+	);
 	const bindsTarget = (...targets: string[]): boolean =>
-		bindings?.some((binding) => targets.includes(binding.target)) ?? false;
+		allBindings?.some((binding) => targets.includes(binding.target)) ?? false;
 	const frameBound = bindsTarget('frame');
 	const fillBound = bindsTarget('fill');
 	const poseBound = bindsTarget('animTime', 'bone');
-	const transform = $derived(
-		foldBoundTransform(
+	const transform = $derived.by(() => {
+		const folded = foldBoundTransform(
 			resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()),
-			bindings,
-			bound.outputs,
-		),
-	);
+			allBindings,
+			allOutputs,
+		);
+		const tint = timelineSample?.tint;
+		return tint === undefined ? folded : { ...folded, tint };
+	});
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
 	// The author's own nodes inside a coded part (Phase 12c): handed to the part as its `skin`
@@ -541,13 +566,38 @@
 			? resolveBoundValue(node.paramBindings, 'text', componentParams)
 			: undefined,
 	);
-	const numericValue = $derived(typeof boundText === 'number' ? boundText : undefined);
+	// Timeline `text` track (Rive plan §8): count up to a number, or switch to one of this node's
+	// own strings. A count-up's keys are SHARES of a value source when the track names one (`to`),
+	// read live, so a timeline counts up to "the win" without knowing it.
+	const timelineText = $derived(timelineSample?.text);
+	const textTrack = timelineDrive?.textTrack;
+	let countUpTo = $state<number | undefined>(undefined);
+	if (textTrack?.to) {
+		const source = getComponentValueSource(textTrack.to);
+		$effect(() =>
+			source?.subscribe((value) => {
+				countUpTo = typeof value === 'number' ? value : Number(value) || 0;
+			}),
+		);
+	}
+	const timelineCount = $derived.by(() => {
+		if (timelineText?.mode !== 'countUp') return undefined;
+		if (!textTrack?.to) return timelineText.value;
+		return countUpTo === undefined ? undefined : timelineText.value * countUpTo;
+	});
+	const timelineKey = $derived.by(() => {
+		if (timelineText?.mode !== 'switchKey') return undefined;
+		return textNodeStrings(node).includes(timelineText.key) ? timelineText.key : undefined;
+	});
+	const numericValue = $derived(
+		timelineCount ?? (typeof boundText === 'number' ? boundText : undefined),
+	);
 	// Localization (§18): the FINAL string — static `node.text` or a string param
 	// bind — runs through the game-registered text resolver, so any text field may
 	// be a localization key. Unknown keys / no resolver render the literal (parity).
 	const resolvedText = $derived.by(() => {
 		if (node.kind !== 'text') return undefined;
-		const raw = typeof boundText === 'string' ? boundText : node.text;
+		const raw = timelineKey ?? (typeof boundText === 'string' ? boundText : node.text);
 		return resolveLocalizedText(raw);
 	});
 	// Author-set count-up flag (§13.2): read from the resolved params; absent ⇒ snap.
@@ -567,6 +617,12 @@
 	// source formatter is present (parity). Cached formatter instance.
 	const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 	const formatValue = (value: number) => {
+		// A count-up names the engine value source whose formatter it reads like (`win`, `balance`).
+		const timelineFormat =
+			timelineCount !== undefined && textTrack?.format
+				? getComponentValueSource(textTrack.format)?.format
+				: undefined;
+		if (timelineFormat) return timelineFormat(value);
 		const fmt = componentParams['valueFormat'];
 		return typeof fmt === 'function'
 			? (fmt as (v: number) => string)(value)
@@ -732,7 +788,10 @@
 	});
 	const spriteKey = $derived(spriteRef?.key);
 	const spriteFallbackKey = $derived(spriteRef?.fallbackKey);
-	const spriteTint = $derived(typeof boundTint === 'number' ? boundTint : transform.tint);
+	// A timeline's `tint` channel wins over a param-bound tint: it is the animation playing now.
+	const spriteTint = $derived(
+		timelineSample?.tint ?? (typeof boundTint === 'number' ? boundTint : transform.tint),
+	);
 	// `keepAspect`: the sized box is a BOUNDING box the frame fits inside (pixi-svelte `contain`),
 	// so a per-instance frame of another shape is not stretched. Unset ⇒ stretch (parity).
 	const spriteContain = $derived(node.kind === 'sprite' && node.keepAspect === true);
@@ -868,8 +927,8 @@
 	 * reveal masks a sprite / flipbook / rect, a `frame` holds a flipbook on one frame, an `animTime`
 	 * scrub and a `bone` offset ride a rig. All empty for an unbound node (parity).
 	 */
-	const fill = $derived(boundFillShare(bindings, bound.outputs));
-	const heldFrame = $derived(boundFrameOutput(bindings, bound.outputs));
+	const fill = $derived(boundFillShare(allBindings, allOutputs));
+	const heldFrame = $derived(boundFrameOutput(allBindings, allOutputs));
 	const scrubs = $derived(boundScrubs(bindings, bound.outputs));
 	const boneOffsets = $derived(boundBoneOffsets(bindings, bound.outputs));
 

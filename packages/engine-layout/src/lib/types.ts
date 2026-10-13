@@ -608,6 +608,12 @@ export interface TextNode extends BaseNode {
 	 * `height - 2·padding` tall. Only meaningful with an explicit box. Absent ⇒ 0.
 	 */
 	padding?: number;
+	/**
+	 * Other strings a timeline's `switchKey` text track may switch this node to (Rive plan §8) —
+	 * localization keys or source text, harvested like `text`. A timeline names one of these (or
+	 * `text` itself) and never carries text of its own. Absent ⇒ the node only ever shows `text`.
+	 */
+	switchKeys?: string[];
 }
 
 /**
@@ -1525,6 +1531,13 @@ export interface ResolvedTransform {
  */
 export interface CinematicCast {
 	actorId: string;
+	/**
+	 * Absent or `rig` = a cast rig (everything below). `node` = a layout node of the timeline's
+	 * host, found by {@link CinematicCast.target}; it renders nothing of its own (Rive plan §3.1).
+	 */
+	kind?: 'rig' | 'node';
+	/** Node actors only: the host node's NAME (its `label`), falling back to its `id`. */
+	target?: string;
 	/** The rig's folder under `<project>/spines/` — the STABLE identity, and the rig bundle
 	 *  name the game registers. Never the skeleton index's positional `id`. */
 	rigFolder?: string;
@@ -1556,6 +1569,17 @@ export interface CinematicDoc {
 		setZ?: number;
 		cast: CinematicCast[];
 	};
+	/**
+	 * What the timeline animates (Rive plan §3.2). Absent ⇒ `cast` (rigs on their own stage — every
+	 * document before node actors). `screen` animates that Scene's nodes and is the set;
+	 * `component` is valid in the format, but no player runs a component timeline yet.
+	 */
+	host?: CinematicHost;
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }
+
+export type CinematicHost =
+	| { kind: 'cast' }
+	| { kind: 'component'; componentId: string }
+	| { kind: 'screen'; sceneId: string };
