@@ -36,6 +36,7 @@ import { execSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, existsSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { engineParserVersions } from '../packages/config-vite/svelteVersions.js';
 
 const ENGINE_URL = 'https://github.com/Invisible-Wall-SL/Invisible-Engine.git';
 const DEFAULT_PARENT = 'C:/Invisible Wall SL/Projects/iGaming';
@@ -130,6 +131,21 @@ const seedPkg = seedAppManifest();
 const SEED_DEPS = seedPkg.dependencies ?? {};
 const SEED_DEV_DEPS = seedPkg.devDependencies ?? {};
 
+/**
+ * Svelte's parser/printer, at the versions the engine's lockfile resolved for the Svelte it pins.
+ * Read rather than written here: a hand-written copy sat at esrap 2.0.1 / acorn 8.15.0 /
+ * acorn-typescript 1.0.5 long after the engine moved to Svelte 5.57.1, which needs newer ones.
+ */
+const PARSER_OVERRIDES = engineParserVersions(ENGINE_ROOT, SEED_DEPS.svelte);
+if (!PARSER_OVERRIDES) {
+	console.error(
+		`✗ the engine's pnpm-lock.yaml has no snapshot for svelte@${SEED_DEPS.svelte} (apps/` +
+			`${SEED_APP}'s pin) — run pnpm install in the engine; the scaffolder pins Svelte's ` +
+			`parser from the lockfile.`,
+	);
+	process.exit(1);
+}
+
 const files = {
 	// `/delivery` + `/*.zip` are `build-delivery.mjs`'s output — tens of megabytes of build
 	// artifact sitting in the working tree, one `git add -A` away from being committed.
@@ -217,13 +233,11 @@ const files = {
 					format: 'prettier --write --ignore-path=./engine/.prettierignore .',
 				},
 				devDependencies: { ...SEED_DEV_DEPS },
-				dependencies: {
-					// Match the engine packages (they all declare 5.35.1) and therefore the
-					// pnpm.overrides below — svelte and its parser/printer are ONE set. A stale
-					// 5.20.5 here paired with the engine's esrap fails on kit's own error.svelte
-					// with "Not implemented: Program".
-					...SEED_DEPS,
-				},
+				// svelte + @sveltejs/kit come from the seed app, so they match the engine on scaffold
+				// day. This file is never regenerated, so the engine's next bump leaves them behind;
+				// config-vite's guard (packages/config-vite/svelteVersions.js) fails that build and
+				// names the pins to set.
+				dependencies: { ...SEED_DEPS },
 				// Svelte depends on its parser/printer through CARET ranges, and a brand-new
 				// standalone repo has no lockfile — so a fresh install floats them to the
 				// newest release while the engine monorepo stays on what its committed
@@ -231,14 +245,8 @@ const files = {
 				// TypeScript optional-parameter marker into compiled JS (`function f(x?)`),
 				// which is invalid JavaScript, and rollup dies with "Expected ',', got '?'"
 				// on any component using a typed snippet parameter. Pin them to the versions
-				// the engine builds against; re-check these when bumping svelte.
-				pnpm: {
-					overrides: {
-						esrap: '2.0.1',
-						acorn: '8.15.0',
-						'@sveltejs/acorn-typescript': '1.0.5',
-					},
-				},
+				// the engine's lockfile resolved.
+				pnpm: { overrides: PARSER_OVERRIDES },
 			},
 			null,
 			'\t',
