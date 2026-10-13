@@ -11,6 +11,7 @@
 	import {
 		addEvent,
 		addPayloadField,
+		isEventId,
 		PAYLOAD_TYPE_CHOICES,
 		removePayloadField,
 		setPayloadFieldOptional,
@@ -40,6 +41,7 @@
 		return validateComponentEvents(def).filter((i) => i.code.startsWith('event-'));
 	});
 	let newEvent = $state('');
+	let addError = $state('');
 	let newField = $state<Record<string, string>>({});
 	let open = $state<Record<string, boolean>>({});
 
@@ -52,10 +54,19 @@
 	function add(): void {
 		const id = newEvent.trim();
 		if (!id) return;
+		if (!isEventId(id)) {
+			addError = 'An event name has no spaces and no ":".';
+			return;
+		}
+		if (events.some((e) => e.id === id)) {
+			addError = `"${id}" is already an event.`;
+			return;
+		}
 		edit(() => {
 			if (addEvent(def, id)) {
 				open[id] = true;
 				newEvent = '';
+				addError = '';
 			}
 		});
 	}
@@ -75,12 +86,14 @@
 		placeholder="new event, e.g. pressed"
 		disabled={readOnly}
 		bind:value={newEvent}
+		oninput={() => (addError = '')}
 		onkeydown={(e) => {
 			if (e.key === 'Enter') add();
 		}}
 	/>
 	<button type="button" disabled={readOnly || !newEvent.trim()} onclick={add}>Add</button>
 </div>
+{#if addError}<p class="add-error">{addError}</p>{/if}
 {#if events.length}
 	<ul class="var-rows">
 		{#each events as ev (ev.id)}
@@ -290,6 +303,11 @@
 		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.add-error {
+		margin: 4px 0 0;
+		font-size: 11px;
+		color: #ff9a9a;
 	}
 	.issues {
 		list-style: none;

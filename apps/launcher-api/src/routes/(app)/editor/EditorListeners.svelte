@@ -54,8 +54,8 @@
 	});
 	const issues = $derived.by(() => {
 		void version;
-		const here = node.label || node.id;
-		return validateComponentEvents(def).filter((i) => i.node === here);
+		const mine = (node.on ?? []).map((l) => l.id);
+		return validateComponentEvents(def).filter((i) => !!i.listener && mine.includes(i.listener));
 	});
 	const nothingToDo = $derived(!inputs.length && !events.length);
 

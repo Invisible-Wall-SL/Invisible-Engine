@@ -29,6 +29,7 @@ const S = await import('../src/lib/timeline/screenTimeline.ts');
 const EV = await import('../../../packages/engine-layout/src/lib/componentEvents.ts');
 const I = await import('../../../packages/engine-layout/src/lib/componentInterface.ts');
 const M = await import('../../../packages/engine-layout/src/lib/stateMachine.ts');
+const SME = await import('../src/lib/timeline/stateMachineEdit.ts');
 const { normalizeComponent } = await import('../src/lib/server/componentStorage.ts');
 
 let failures = 0;
@@ -287,6 +288,73 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 	eq('removing the last payload field removes `payload`', 'payload' in pressed, false);
 }
 
+// ---- 4. inputs the listeners read --------------------------------------------------------------
+
+{
+	const d = def();
+	d.events = [{ id: 'paid', payload: [{ name: 'amount', type: { t: 'int' } }] }];
+	node(d, 'n_btn').on = [
+		{ id: 'l_set', event: 'click', action: { kind: 'set', input: 'lit', value: true } },
+		{
+			id: 'l_raise',
+			event: 'up',
+			action: { kind: 'raise', event: 'paid', payload: { amount: { input: 'amount' } } },
+		},
+	];
+	d.stateMachine = {
+		layers: [
+			{
+				id: 'main',
+				entry: 'idle',
+				states: [
+					{
+						id: 'idle',
+						name: 'Idle',
+						timeline: 't_idle',
+						onEnter: [
+							{ id: 'e1', kind: 'raise', event: 'paid', payload: { amount: { input: 'amount' } } },
+						],
+					},
+				],
+				transitions: [],
+			},
+		],
+	};
+	eq(
+		'inputReads names the listeners and on-enter rows that read an input',
+		[L.inputReads(d, 'lit'), L.inputReads(d, 'amount'), L.inputReads(d, 'win')],
+		[['a listener on "Button"'], ['a listener on "Button"', 'On enter of "Idle"'], []],
+	);
+	SME.renameInput(d, 'amount', 'stake');
+	SME.renameInput(d, 'lit', 'glow');
+	const [set, raise] = node(d, 'n_btn').on!;
+	eq(
+		'renaming an input: the listeners and raise payloads that read it follow',
+		[
+			set.action,
+			raise.action.kind === 'raise' ? raise.action.payload : null,
+			d.stateMachine.layers[0].states[0].onEnter![0].payload,
+			L.inputReads(d, 'amount'),
+		],
+		[
+			{ kind: 'set', input: 'glow', value: true },
+			{ amount: { input: 'stake' } },
+			{ amount: { input: 'stake' } },
+			[],
+		],
+	);
+	eq(
+		'an event id a cue can name: no spaces, no ":"',
+		[L.isEventId('paid'), L.isEventId('a b'), L.isEventId('a:b'), L.isEventId('')],
+		[true, false, false, false],
+	);
+	eq(
+		'add / rename refuse an id a cue cannot name',
+		[!!L.addEvent(d, 'two words'), L.renameEvent(d, 'paid', 'x:y'), d.events.map((e) => e.id)],
+		[false, false, ['paid']],
+	);
+}
+
 // ---- 5. the stage preview's pointer -----------------------------------------------------------
 
 {
@@ -462,9 +530,10 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 		'the stage reports the pointer in Animate only, and only to the State machine tab',
 		[
 			canvas.includes("if (animate) onStagePointer?.('down', deepHitId(world));"),
+			canvas.includes('if (animate && onStagePointer && canvas && e.button === 0)'),
 			/onStagePointer=\{animating && animateTab === 'stateMachine'/.test(workspace),
 		],
-		[true, true],
+		[true, true, true],
 	);
 	eq(
 		'Inspecting: listeners and events are read-only, and the page’s event edits refuse',

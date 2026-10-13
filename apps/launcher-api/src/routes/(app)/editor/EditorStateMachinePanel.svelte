@@ -640,8 +640,10 @@
 			pointer = new StagePointer((node, event) => dispatcher?.pointer(node, event));
 		});
 	});
-	// A listener or an event edited in Properties: the dispatcher reads the def as it now is.
+	// Another component opened, or a listener, an event or an input edited: the dispatcher reads
+	// the def as it now is.
 	$effect(() => {
+		void def;
 		void editVersion;
 		void graphVersion;
 		untrack(buildDispatcher);

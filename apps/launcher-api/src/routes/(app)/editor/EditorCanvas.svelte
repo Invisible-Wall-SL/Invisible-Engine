@@ -3930,8 +3930,11 @@
 	 * The DEEPEST node under `world` — into containers, each child in its parent's local space (the
 	 * composition `drawNode` uses) — for the listener preview: a listener on a nested node must hear
 	 * the pointer. A container with children is hit through them (the game's hit area is its
-	 * children's), else by its own box.
+	 * children's), else by its own box. Read off the DRAWN transform (the value-binding preview
+	 * folded on), so the pointer hits what the author sees.
 	 */
+	/** The pointer was over the stage at the last move — a `leave` is reported once, on exit. */
+	let stageInside = false;
 	function deepHitId(world: Vec2): string | null {
 		const toLocal = (p: Vec2, t: ResolvedTransform): Vec2 => {
 			const dx = p.x - t.x;
@@ -3946,8 +3949,15 @@
 		};
 		const hit = (node: LayoutNode, p: Vec2, nested: boolean): string | null => {
 			const t = nested
-				? childLocalTransform(node, layoutType, scene.space, frameWidth, frameHeight)
-				: nodeTransform(node);
+				? childLocalTransform(
+						node,
+						layoutType,
+						scene.space,
+						frameWidth,
+						frameHeight,
+						previewResolveTransform,
+					)
+				: drawTransform(node);
 			if (!t.visible) return null;
 			if (node.kind === 'container' && node.children.length) {
 				const local = toLocal(p, t);
@@ -4381,9 +4391,11 @@
 		if (screen.x < 0 || screen.y < 0 || screen.x > rect.width || screen.y > rect.height) {
 			hoverHandle = null;
 			hoverNodeId = null;
-			if (animate) onStagePointer?.('leave', null);
+			if (animate && stageInside) onStagePointer?.('leave', null);
+			stageInside = false;
 			return;
 		}
+		stageInside = true;
 		if (animate && onStagePointer)
 			onStagePointer('move', deepHitId(clientToWorld(e.clientX, e.clientY)));
 		hoverHandle = hitTestHandle(screen);
@@ -4397,7 +4409,7 @@
 	}
 
 	function onWindowMouseUp(e: MouseEvent): void {
-		if (animate && onStagePointer && canvas) {
+		if (animate && onStagePointer && canvas && e.button === 0) {
 			const rect = canvas.getBoundingClientRect();
 			const inside =
 				e.clientX >= rect.left &&

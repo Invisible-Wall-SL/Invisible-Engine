@@ -65,6 +65,48 @@ export function rowIds(
 	return out;
 }
 
+/** Every listener and raise payload of the def that reads input `id` — what a rename must follow
+ *  and a removal must warn about, beside the state machine's conditions. */
+export function inputReads(def: ComponentDef, id: string): string[] {
+	const out: string[] = [];
+	const readsPayload = (payload: RaiseEventAction['payload']): boolean =>
+		Object.values(payload ?? {}).some(
+			(v) => typeof v === 'object' && 'input' in v && v.input === id,
+		);
+	for (const n of defNodes(def)) {
+		for (const l of n.on ?? []) {
+			const a = l.action;
+			if ((a.kind !== 'raise' && a.input === id) || (a.kind === 'raise' && readsPayload(a.payload)))
+				out.push(`a listener on "${n.label || n.id}"`);
+		}
+	}
+	for (const layer of def.stateMachine?.layers ?? []) {
+		for (const state of layer.states) {
+			if ((state.onEnter ?? []).some((a) => readsPayload(a.payload)))
+				out.push(`On enter of "${state.name || state.id}"`);
+		}
+	}
+	return out;
+}
+
+/** Point every listener and raise payload that reads input `from` at `to`. */
+export function renameInputReads(def: ComponentDef, from: string, to: string): void {
+	const follow = (payload: RaiseEventAction['payload']): void => {
+		for (const v of Object.values(payload ?? {})) {
+			if (typeof v === 'object' && 'input' in v && v.input === from) v.input = to;
+		}
+	};
+	for (const n of defNodes(def)) {
+		for (const l of n.on ?? []) {
+			if (l.action.kind === 'raise') follow(l.action.payload);
+			else if (l.action.input === from) l.action.input = to;
+		}
+	}
+	for (const layer of def.stateMachine?.layers ?? []) {
+		for (const state of layer.states) for (const a of state.onEnter ?? []) follow(a.payload);
+	}
+}
+
 // ---- actions ------------------------------------------------------------------------------------
 
 /** The listener action kinds the editor offers, with what each needs. */
@@ -217,9 +259,14 @@ export const PAYLOAD_TYPE_CHOICES: { t: EventPayloadType; label: string }[] = [
 ];
 
 /** Add an event; an empty or taken id adds nothing. */
+/** An event id a timeline cue can name (`event:<id>`): no spaces, no `:`. */
+export function isEventId(id: string): boolean {
+	return id.length > 0 && !/[\s:]/.test(id);
+}
+
 export function addEvent(def: ComponentDef, id: string): ComponentEvent | undefined {
 	const clean = id.trim();
-	if (!clean || componentEvents(def).some((e) => e.id === clean)) return undefined;
+	if (!isEventId(clean) || componentEvents(def).some((e) => e.id === clean)) return undefined;
 	const event: ComponentEvent = { id: clean };
 	def.events = [...(def.events ?? []), event];
 	return event;
@@ -286,7 +333,7 @@ export function removeEvent(def: ComponentDef, id: string): EventUsage {
  */
 export function renameEvent(def: ComponentDef, from: string, to: string): boolean {
 	const next = to.trim();
-	if (!next || next === from) return false;
+	if (!isEventId(next) || next === from) return false;
 	if (componentEvents(def).some((e) => e.id === next)) return false;
 	for (const event of def.events ?? []) if (event.id === from) event.id = next;
 	for (const n of defNodes(def)) {

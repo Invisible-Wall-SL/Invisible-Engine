@@ -34,6 +34,7 @@
 		return 'key';
 	}
 	function pick(name: string, t: string, choice: string): void {
+		if (readOnly) return;
 		const value: EventPayloadValue | undefined =
 			choice === ''
 				? undefined
@@ -49,11 +50,13 @@
 		onChanged();
 	}
 	function setNumber(name: string, raw: string): void {
+		if (readOnly) return;
 		const n = Number(raw);
 		setRaisePayload(action, name, Number.isFinite(n) ? n : 0);
 		onChanged();
 	}
 	function setKey(name: string, raw: string): void {
+		if (readOnly) return;
 		setRaisePayload(action, name, raw ? { key: raw } : undefined);
 		onChanged();
 	}

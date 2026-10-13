@@ -67,6 +67,7 @@
 	} from '$lib/timeline/stateMachineEdit';
 	import {
 		eventUsage,
+		inputReads,
 		removeEvent,
 		renameEvent,
 		rowIds,
@@ -1768,15 +1769,27 @@
 		if (!componentDraft || isInspecting) return;
 		if (!addInput(componentDraft, id, kind)) {
 			void askMessage({ title: 'Input not added', message: `"${id}" is already an input.` });
+			return;
 		}
+		editNonce += 1;
 	}
 	/** True to go ahead: nothing reads the input, or the author confirmed knowing what does. */
 	async function confirmInputRemoval(draft: ComponentDef, id: string): Promise<boolean> {
 		const used = inputUsage(draft, id);
-		if (!used.length) return true;
+		const reads = inputReads(draft, id);
+		if (!used.length && !reads.length) return true;
 		return askConfirm({
 			title: `Remove input "${id}"?`,
-			message: `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`,
+			message: [
+				used.length
+					? `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`
+					: '',
+				reads.length
+					? `Also read by ${reads.join(', ')} — those stay, flagged ⚠, until you repoint them.`
+					: '',
+			]
+				.filter(Boolean)
+				.join(' '),
 			confirmLabel: 'Remove',
 			danger: true,
 		});
@@ -1788,6 +1801,7 @@
 		// The dialog awaited: the removal lands only on the component it was asked on.
 		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
 		removeInput(componentDraft, id);
+		editNonce += 1;
 	}
 	/** The timelines of component `componentId` that play on `signal` (4b `playOn`), by name — a
 	 *  rename breaks them. Throws when any read fails, so the dialog never under-reports. */
@@ -1831,6 +1845,7 @@
 		}
 		if (playOn.length) wires.push(`Plays on of ${playOn.map((n) => `"${n}"`).join(', ')}`);
 		const conditions = inputUsage(componentDraft, id).length;
+		const reads = inputReads(componentDraft, id);
 		const next = await askText({
 			title: 'Rename input',
 			label: 'Name',
@@ -1839,6 +1854,7 @@
 				`"${id}" is the name the game and Flow fire it as. Renaming it is a delete + add: whatever fires "${id}" today stops reaching this component until it fires the new name.`,
 				wires.length ? `In use as ${wires.join(' and ')}.` : '',
 				conditions ? `${conditions} state-machine condition(s) will follow the rename.` : '',
+				reads.length ? `${reads.join(', ')} will follow it too.` : '',
 			]
 				.filter(Boolean)
 				.join(' '),
@@ -1853,9 +1869,12 @@
 			});
 			return;
 		}
+		editNonce += 1;
 	}
 	function setComponentInputDefault(id: string, value: boolean | number): void {
-		if (componentDraft && !isInspecting) setInputDefault(componentDraft, id, value);
+		if (!componentDraft || isInspecting) return;
+		setInputDefault(componentDraft, id, value);
+		editNonce += 1;
 	}
 	// ---- Events (Rive plan Phase 6b, §6.1): what the component tells Flow. An event's id is its
 	// wire contract, like an input's, so a rename is a replace; what raises it inside the def
@@ -1892,7 +1911,7 @@
 		const parts = [
 			...used.listeners.map((l) => `a listener on "${l.node}"`),
 			...used.states.map((st) => `entering "${st.state}" (${st.layer})`),
-			...cues.map((name) => `an event: cue in timeline "${name}"`),
+			...cues.map((name) => `an event: cue in timeline "${name}" (as last saved)`),
 		];
 		return parts.length ? `It is raised by ${parts.join(', ')}.` : 'Nothing raises it yet.';
 	}
@@ -1930,7 +1949,7 @@
 		if (!renameEvent(componentDraft, id, next)) {
 			void askMessage({
 				title: 'Event not renamed',
-				message: `"${next.trim()}" is empty or already an event.`,
+				message: `"${next.trim()}" is empty, already an event, or has a space or ":".`,
 			});
 			return;
 		}
@@ -1965,7 +1984,9 @@
 	}
 
 	function setComponentInputSource(id: string, source: string): void {
-		if (componentDraft && !isInspecting) setInputSource(componentDraft, id, source);
+		if (!componentDraft || isInspecting) return;
+		setInputSource(componentDraft, id, source);
+		editNonce += 1;
 	}
 
 	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it

@@ -1063,13 +1063,16 @@ Inputs. Type a name (`pressed`, `revealDone`) and **Add**. Click an event's name
 **payload**: fields Flow will receive with it, each a **number** (`int`, `number` or `ms`), a
 **bool** or a **text key**. A text key is a localization key — the text as it is written in the
 game; it is collected into Localization like any other text, so nothing in a payload skips
-translation. Tick **optional** when a raise may leave a field empty.
+translation. Tick **optional** when a raise may leave a field empty. An event name has no spaces
+and no `:` (a timeline cue names it as `event:<name>`).
 
 - **✎** renames an event. Its name is what Flow will hear it by, so a rename is a replace: the
   dialog lists what raises it (listeners, states, timeline cues). The listeners and states follow
   the rename; a timeline's `event:` cue is not rewritten — change it in the Timeline tab.
 - **×** removes it, asking first when something raises it. Those raises stay and do nothing in
   game until you fix them; each shows a ⚠.
+- Renaming an **input** also repoints the listeners and payload fields that read it; removing one
+  lists them in its warning, and they stay, flagged ⚠.
 
 **Listeners** are per node: select a node of the component and use **Listeners → + Listener**
 (under the node's name in Properties). Each row reads **On [event] → [action]**:
