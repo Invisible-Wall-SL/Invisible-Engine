@@ -59,6 +59,17 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-13 (follow-up) — **A game repo's COMMITTED unused art no longer ships either.** The fix
+  below still failed Test6's publish: its repo commits a 377 MB snapshot of `static/assets/`
+  (`build: seed the actual game source`, 2026-09-09), including a 77 MB
+  `sprites/S_Background/S_Background.png` nothing loads, which 🗜 Optimize turned into the 34 MB
+  WebP the portal refused. Committed files were only reported. Now `pruneDecision` deletes an
+  unloaded file in a standalone game repo whether committed or not (a synced checkout is
+  hard-reset before every build, so nothing is lost); only the engine's own apps keep their
+  committed art (reported). The log lists what was removed, by folder and size. Dry-run against
+  Test6's real tree: removes `sprites/S_Background` (76.7 MB) plus ~6 MB of stale sheet copies and
+  unused template art; keeps every sheet, rig, font and audio file the game loads.
+  `check-pull-reachability.mjs`: 38 checks.
 - 2026-10-13 — **A desktop build pulls only the art the game loads.** `pull-project-assets.mjs`
   mirrored ALL of `deploy/` and pruned stale copies only in the export-generated subtrees, so
   anything the Atlas Maker's Deploy put in `sprites/`, `spines/`, … shipped loaded or not, and
@@ -66,8 +77,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   `sprites/S_Background/S_Background.webp`, which no code names. Now a non-generated deploy folder
   is pulled only if the game's code (the app source `config-svelte` compiles, plus
   `packages/*/src`) names it, or a kept descriptor does; an unloaded local copy from an earlier
-  pull is deleted; a committed one is left and reported; the log lists what was not pulled, by
-  folder and size. A runtime-built path keeps its folder, and a scan that finds no game code keeps
+  pull is deleted (committed ones too since the follow-up above); the log lists what was not
+  pulled, by folder and size. A runtime-built path keeps its folder, and a scan that finds no game code keeps
   everything. `--no-prune` restores the old behaviour. Covers ☁ Publish and 📦 Deliver (both run
   `pnpm build`); the online runtime never runs the pull. On the engine's own apps the scan leaves
   four committed folders unloaded (`spines/bonusButton`, `spines/winMeterExplosion`,

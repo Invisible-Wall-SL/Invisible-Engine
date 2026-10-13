@@ -115,6 +115,25 @@ export const isReachable = (rel, refs) => {
 	return false;
 };
 
+/**
+ * What the pull does with a file already under the local assets tree:
+ *   - a generated-subtree file converges on the deploy listing (`listed`), committed or not;
+ *   - a file the game can load stays;
+ *   - an unloaded file is deleted — in a standalone GAME repo even when committed, because there
+ *     `static/assets/` is only ever a mirror of `deploy/` (Test6 committed a 377 MB snapshot of
+ *     one, with a 77 MB `sprites/S_Background` page nothing loads, and every publish shipped it).
+ *     The launcher hard-resets a synced checkout before each build, so nothing is lost.
+ *   - in the engine's own apps a committed file is the reference game's art: it is reported
+ *     ('report'), never deleted. So is any file when git cannot say whether it is committed.
+ * `refs === null` (no game code found) keeps everything outside the generated subtrees.
+ */
+export function pruneDecision(rel, { listed, refs, tracked, standalone }) {
+	if (isGenerated(rel)) return listed.has(rel) ? 'keep' : 'delete';
+	if (refs === null || isReachable(rel, refs)) return 'keep';
+	if (standalone) return 'delete';
+	return tracked === null || tracked.has(rel) ? 'report' : 'delete';
+}
+
 /** True when `refs` names at least one non-generated asset — i.e. the scan found the game. */
 export const foundGameRefs = (refs) => [...refs.files, ...refs.dirs].some((p) => !isGenerated(p));
 

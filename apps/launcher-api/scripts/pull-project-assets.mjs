@@ -25,16 +25,21 @@
 //     --project invisible_wall/bookofborutremake --dest ./static/assets --token <t> --dry-run
 
 import { spawnSync } from 'node:child_process';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 // By relative path, not `config-svelte`: inside a game repo the engine submodule's node_modules is
 // never installed (same reason as bake-editor-doc.mjs).
-import { appSrcDir, ENGINE_ROOT } from '../../../packages/config-svelte/appSrc.js';
+import {
+	appSrcDir,
+	ENGINE_ROOT,
+	isStandaloneGame,
+} from '../../../packages/config-svelte/appSrc.js';
 import {
 	foundGameRefs,
 	followDescriptors,
 	isGenerated,
 	isReachable,
+	pruneDecision,
 	scanSources,
 } from './lib/assetReachability.mjs';
 
@@ -269,9 +274,9 @@ for (;;) {
 // lands at a NEW hash, and the superseded local file used to stay and ship (~46 MB on one Book of
 // Borut Remake checkout). Untracked, so the launcher's `git reset --hard` never cleared it.
 //
-// Every other folder is pruned by reachability instead: a local file no game code can load is a
-// copy an earlier pull mirrored (the old behaviour) and is deleted. A file the game repo COMMITS
-// there is left alone and reported — deleting tracked files would dirty the checkout.
+// Every other folder is pruned by reachability instead: a local file no game code can load is
+// deleted — in a game repo even when committed, in the engine's own apps only when it is not (see
+// `pruneDecision`).
 function trackedFiles() {
 	const res = spawnSync('git', ['ls-files', '-z', '--full-name', '--', '.'], {
 		cwd: dest,
@@ -291,24 +296,23 @@ function trackedFiles() {
 
 async function prune() {
 	const listed = new Set(files.map((f) => f.rel));
-	const tracked = refs === null ? null : trackedFiles();
+	const standalone = isStandaloneGame();
+	const tracked = refs === null || standalone ? null : trackedFiles();
 	const removed = [];
+	const unloaded = new Map();
 	const kept = [];
 	for (const rel of await localFiles()) {
-		let stale;
-		if (isGenerated(rel)) stale = !listed.has(rel);
-		else if (refs === null || isReachable(rel, refs)) stale = false;
-		else if (tracked === null || tracked.has(rel)) {
-			kept.push(rel);
-			continue;
-		} else stale = true;
-		if (!stale) continue;
+		const decision = pruneDecision(rel, { listed, refs, tracked, standalone });
+		if (decision === 'report') kept.push(rel);
+		if (decision !== 'delete') continue;
 		removed.push(rel);
+		const abs = join(dest, ...rel.split('/'));
+		if (!isGenerated(rel)) unloaded.set(rel, (await stat(abs).catch(() => null))?.size ?? 0);
 		if (dryRun) console.info(`  prune ${rel}`);
-		else await rm(join(dest, ...rel.split('/')), { force: true });
+		else await rm(abs, { force: true });
 	}
 	if (!dryRun) await removeEmptyDirs(dest);
-	return { removed, kept, gitKnown: tracked !== null };
+	return { removed, unloaded, kept, gitKnown: tracked !== null };
 }
 
 async function removeEmptyDirs(dir) {
@@ -341,8 +345,8 @@ function byFolder(rels, sizeOf) {
 		.map(([k, g]) => `  ${k}  (${g.n} file(s), ${(g.size / 1048576).toFixed(1)} MB)`);
 }
 
-const { removed, kept, gitKnown } = noPrune
-	? { removed: [], kept: [], gitKnown: true }
+const { removed, unloaded, kept, gitKnown } = noPrune
+	? { removed: [], unloaded: new Map(), kept: [], gitKnown: true }
 	: await prune();
 const pruned = removed.length;
 const skipped = files.filter((f) => !mirrored.has(f.rel));
@@ -358,10 +362,17 @@ if (skipped.length) {
 	))
 		console.info(line);
 }
+if (unloaded.size) {
+	console.info(
+		`\n${dryRun ? 'Would remove' : 'Removed'} — in static/assets/ but loaded by nothing:`,
+	);
+	for (const line of byFolder([...unloaded.keys()], (rel) => unloaded.get(rel) ?? 0))
+		console.info(line);
+}
 if (kept.length) {
 	console.info(
 		gitKnown
-			? `\nCommitted in the game repo but loaded by nothing (left in place, and they ship):`
+			? `\nCommitted in the engine app but loaded by nothing (left in place, and they ship):`
 			: `\nLoaded by nothing, left in place (no git to tell an old pull from a committed file):`,
 	);
 	for (const line of byFolder(kept, () => 0)) console.info(line.replace(/, 0\.0 MB\)$/, ')'));
