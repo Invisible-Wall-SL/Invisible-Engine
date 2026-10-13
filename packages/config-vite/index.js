@@ -9,6 +9,7 @@ import { defineConfig } from 'vite';
 // see the note there. Importing this file instead would run sveltekit()/lingui() first.
 import { deliveryProfileProblems } from './deliveryProfile.js';
 import { buildProvenance } from './provenance.js';
+import { assertSvelteVersions } from './svelteVersions.js';
 
 const NODE_ENV = process.env.NODE_ENV;
 let dev = NODE_ENV === 'development';
@@ -167,8 +168,14 @@ export const buildStamp = (debug) => ({
  */
 const sourcemap = () => (dev ? true : process.env.IE_SOURCEMAPS === 'hidden' ? 'hidden' : false);
 
-export default () =>
-	defineConfig({
+/**
+ * Every game build passes through this factory — the engine's apps and every standalone game repo's
+ * `vite.config.js` alike — so it is where a game repo whose Svelte pins drifted from the engine's is
+ * stopped, before anything compiles (`svelteVersions.js`).
+ */
+export default () => {
+	assertSvelteVersions();
+	return defineConfig({
 		plugins: [sveltekit(), lingui()],
 		logLevel: 'info',
 		define: { ...gameBuildDefine(), ...deliveryProfileDefine(), ...deliveryProfilesDefine() },
@@ -189,3 +196,4 @@ export default () =>
 			},
 		},
 	});
+};
