@@ -1,5 +1,5 @@
 import type { Scene } from 'engine-layout';
-import { actionBindingOf, BUILTIN_COMPONENTS } from 'engine-layout';
+import { actionBindingOf, BUILTIN_COMPONENTS, componentTriggers } from 'engine-layout';
 import {
 	deriveContainerEvents,
 	repeaterSelectConfiguredEvent,
@@ -67,9 +67,9 @@ export function projectContainerEvents(
 				// net; this keeps the surface clean.)
 				const itemId = (node as { componentId?: string }).componentId;
 				const itemDef = itemId ? BUILTIN_COMPONENTS.find((d) => d.id === itemId) : undefined;
-				for (const signal of itemDef?.signals ?? []) {
-					if (signal.key === canonical.event) continue;
-					repeaterEvents.push({ componentId: node.id, event: signal.key });
+				for (const signal of componentTriggers(itemDef)) {
+					if (signal === canonical.event) continue;
+					repeaterEvents.push({ componentId: node.id, event: signal });
 				}
 				return repeaterEvents;
 			}
@@ -82,15 +82,15 @@ export function projectContainerEvents(
 			if (action) events.push({ componentId: node.id, event: action });
 			// A component's DECLARED signals ALSO project — one fused pin per signal — so a multi-button
 			// component surfaces every press it exposes (the confirm dialog's `confirm`/`cancel`, generic
-			// over any def's `signals`, never special-cased by name). Resolved from the BUILT-IN defs
+			// over any def's trigger inputs — `signals` fold into them). Resolved from the BUILT-IN defs
 			// synchronously; a CUSTOM (R2) component's signals are not yet projected here (the loader would
 			// need to resolve its def) — a follow-up, flagged in the buy-flow work.
 			const componentId = (node as { componentId?: string }).componentId;
 			if ((node as { kind?: string }).kind === 'componentInstance' && componentId) {
 				const def = BUILTIN_COMPONENTS.find((d) => d.id === componentId);
-				for (const signal of def?.signals ?? []) {
-					if (!events.some((e) => e.event === signal.key)) {
-						events.push({ componentId: node.id, event: signal.key });
+				for (const signal of componentTriggers(def)) {
+					if (!events.some((e) => e.event === signal)) {
+						events.push({ componentId: node.id, event: signal });
 					}
 				}
 			}

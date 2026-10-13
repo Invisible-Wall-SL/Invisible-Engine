@@ -6,7 +6,8 @@ import {
 } from 'engine-cinematic';
 
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
-import type { CinematicDoc, LayoutNode } from './types';
+import { blendNodeSamples, type LayerPlay } from './stateMachine';
+import type { CinematicDoc, ComponentStateMachine, LayoutNode } from './types';
 
 /**
  * COMPONENT TIMELINES at runtime (Rive plan Phase 4, `docs/design/rive-style-editor.md` §3.3):
@@ -17,16 +18,21 @@ import type { CinematicDoc, LayoutNode } from './types';
  */
 
 let byComponent = new Map<string, CinematicDoc[]>();
+let byId = new Map<string, CinematicDoc>();
 
 /**
- * Register the game's timelines (the baked cinematics). Only component-hosted ones with a
- * `playOn` are kept, indexed by every component they play on: the host, plus `playOnComponents`.
- * Replaces the previous registration. Nothing registered ⇒ every instance plays nothing (parity).
+ * Register the game's timelines (the baked cinematics). Every component-hosted one is kept by id
+ * (a state machine names its timelines that way — Phase 5); those with a `playOn` are also indexed
+ * by every component they play on: the host, plus `playOnComponents`. Replaces the previous
+ * registration. Nothing registered ⇒ every instance plays nothing (parity).
  */
 export function registerComponentTimelines(docs: readonly CinematicDoc[]): void {
 	const next = new Map<string, CinematicDoc[]>();
+	const nextById = new Map<string, CinematicDoc>();
 	for (const doc of docs) {
-		if (doc.host?.kind !== 'component' || !doc.playOn) continue;
+		if (doc.host?.kind !== 'component') continue;
+		if (doc.id) nextById.set(doc.id, doc);
+		if (!doc.playOn) continue;
 		const ids = new Set([doc.host.componentId, ...(doc.playOnComponents ?? [])]);
 		for (const id of ids) {
 			if (!id) continue;
@@ -36,11 +42,40 @@ export function registerComponentTimelines(docs: readonly CinematicDoc[]): void 
 		}
 	}
 	byComponent = next;
+	byId = nextById;
 }
 
-/** The timelines an instance of `componentId` plays, in registration order. */
+/** The timelines an instance of `componentId` plays on a signal, in registration order. */
 export function componentTimelinesFor(componentId: string): CinematicDoc[] {
 	return byComponent.get(componentId) ?? [];
+}
+
+/** A registered component timeline by cinematic id, `playOn` or not. */
+export function componentTimelineById(id: string): CinematicDoc | undefined {
+	return byId.get(id);
+}
+
+/**
+ * The registered timelines a state machine's states play, each once, and their durations by id —
+ * what a {@link ComponentTimelinePlayer} binds and a `ComponentStateMachineRunner` is handed. An
+ * id nothing registered is simply absent (the runner lists it as missing and holds).
+ */
+export function stateMachineTimelines(machine: ComponentStateMachine | undefined): {
+	docs: CinematicDoc[];
+	durations: Map<string, number>;
+} {
+	const docs: CinematicDoc[] = [];
+	const durations = new Map<string, number>();
+	for (const layer of machine?.layers ?? []) {
+		for (const state of layer.states ?? []) {
+			if (!state.timeline || durations.has(state.timeline)) continue;
+			const doc = byId.get(state.timeline);
+			if (!doc) continue;
+			docs.push(doc);
+			durations.set(doc.id, Math.max(doc.duration || 0, 0));
+		}
+	}
+	return { docs, durations };
 }
 
 interface Bound {
@@ -58,7 +93,13 @@ interface Running {
 	done: boolean;
 	/** Start order: the most recently started timeline wins a node two of them drive. */
 	order: number;
+	/** Set on a state-machine layer's playback (`drive`): its playhead is placed, never advanced. */
+	layer?: number;
+	/** The pose a layer is still mixing in from (`blendNodeSamples`). */
+	from?: { bound?: Bound; time: number; progress: number };
 }
+
+const EPSILON = 1e-9;
 
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
@@ -77,10 +118,20 @@ export interface TimelineStep {
  *   frame, so a "pop in" stays popped in.
  * - `sample(nodeId)` is the node's channels from the most recently started timeline driving it, or
  *   `undefined` before any has started (the node renders as authored).
+ *
+ * A STATE MACHINE (Phase 5) plays through the same player: each layer owns a slot that `drive`
+ * places on a timeline at a time (the interpreter's `LayerPlay`), and `release` empties. The
+ * player then samples a node like this: the most recently started of the `playOn` timelines and
+ * the state-machine layers driving it wins the node (so a `playOn` pop-in started after the
+ * machine's idle shows, and the machine's next state change takes the node back); when a layer
+ * wins, every layer driving the node applies in layer order, a later layer winning each property
+ * both key, each mixed in from the pose it left while its blend runs.
  */
 export class ComponentTimelinePlayer {
 	private readonly bound: Bound[];
+	private readonly boundById = new Map<string, Bound>();
 	private readonly running = new Map<string, Running>();
+	private readonly driven = new Map<string, Running>();
 	private started = 0;
 
 	constructor(docs: readonly CinematicDoc[], nodes: LayoutNode[]) {
@@ -96,6 +147,7 @@ export class ComponentTimelinePlayer {
 				{ keys?: { time: number; cue: string }[] } | undefined;
 			return { doc, actors, channels, cueKeys: cue?.keys ?? [] };
 		});
+		for (const b of this.bound) this.boundById.set(b.doc.id, b);
 	}
 
 	/** The signals that start at least one of this instance's timelines. */
@@ -174,13 +226,90 @@ export class ComponentTimelinePlayer {
 		return step;
 	}
 
+	/**
+	 * Place a state-machine layer's slot on what it plays now. Returns the cues crossed since the
+	 * slot's last placement: entering a state crosses its cues from 0 (so a cue at 0 fires), a loop
+	 * that wrapped crosses the end of the timeline and then the start. A timeline this player did
+	 * not bind empties the slot (the state holds, as the interpreter said it would).
+	 */
+	drive(slot: string, layer: number, play: LayerPlay): { cue: string; timeline: string }[] {
+		const bound = play.timeline ? this.boundById.get(play.timeline) : undefined;
+		if (!bound) {
+			this.driven.delete(slot);
+			return [];
+		}
+		const cues: { cue: string; timeline: string }[] = [];
+		const crossed = (prev: number, next: number): void => {
+			for (const k of cuesCrossed(bound.cueKeys, prev, next)) {
+				cues.push({ cue: k.cue, timeline: bound.doc.id });
+			}
+		};
+		let r = this.driven.get(slot);
+		if (!r || r.bound !== bound || play.entered) {
+			r = { bound, time: play.time, done: true, order: ++this.started, layer };
+			this.driven.set(slot, r);
+			crossed(-EPSILON, play.time);
+		} else {
+			if (play.wrapped) {
+				crossed(play.prevTime, Math.max(bound.doc.duration || 0, 0));
+				crossed(-EPSILON, play.time);
+			} else {
+				crossed(play.prevTime, play.time);
+			}
+			r.time = play.time;
+			r.layer = layer;
+		}
+		r.from = play.from
+			? {
+					bound: play.from.timeline ? this.boundById.get(play.from.timeline) : undefined,
+					time: play.from.time,
+					progress: play.from.progress,
+				}
+			: undefined;
+		return cues;
+	}
+
+	/** Empty a layer's slot (the layer exited): it drives nothing until placed again. */
+	release(slot: string): void {
+		this.driven.delete(slot);
+	}
+
+	/** What a state-machine slot plays, for the gates. */
+	drivenSlot(slot: string): { timeline: string; time: number } | undefined {
+		const r = this.driven.get(slot);
+		return r ? { timeline: r.bound.doc.id, time: r.time } : undefined;
+	}
+
+	private sampleOf(r: Running, nodeId: string): CinematicNodeSample | undefined {
+		const tracks = r.bound.actors.get(nodeId);
+		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
+		if (!r.from) return to;
+		const fromTracks = r.from.bound?.actors.get(nodeId);
+		const from = fromTracks ? sampleNodeActor(fromTracks, r.from.time) : undefined;
+		return blendNodeSamples(from, to, r.from.progress);
+	}
+
 	sample(nodeId: string): CinematicNodeSample | undefined {
 		let best: Running | undefined;
 		for (const r of this.running.values()) {
 			if (!r.bound.actors.has(nodeId)) continue;
 			if (!best || r.order > best.order) best = r;
 		}
-		if (!best) return undefined;
-		return sampleNodeActor(best.bound.actors.get(nodeId)!, best.time);
+		const layers: Running[] = [];
+		for (const r of this.driven.values()) {
+			if (r.bound.actors.has(nodeId) || r.from?.bound?.actors.has(nodeId)) layers.push(r);
+		}
+		if (!layers.length) return best ? this.sampleOf(best, nodeId) : undefined;
+		const latest = Math.max(...layers.map((r) => r.order));
+		if (best && best.order > latest) return this.sampleOf(best, nodeId);
+		layers.sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
+		const out: Record<string, unknown> = {};
+		for (const r of layers) {
+			const sample = this.sampleOf(r, nodeId) as Record<string, unknown> | undefined;
+			for (const [channel, value] of Object.entries(sample ?? {})) {
+				if (value !== undefined) out[channel] = value;
+			}
+		}
+		return out as CinematicNodeSample;
 	}
 }

@@ -155,19 +155,63 @@ verbatim copy, with a gate that fails when the two differ. `/rigger` keeps the r
 
 ## 5. Component state machine (additive to `ComponentDef`)
 
-```ts
-interface ComponentInput { id: string; kind: 'bool' | 'number' | 'trigger'; default?: boolean | number }
+As built (Phase 5a, 2026-10-13 — `engine-layout/types.ts`, interpreter in
+`engine-layout/stateMachine.ts`, interface in `componentInterface.ts`):
 
-interface ComponentStateMachine {
-	layers: { id: string; entry: string; states: SmState[]; transitions: SmTransition[] }[];
-}
-// SmState:      { id, timeline: string /* cinematic id */, speed?, loop? } | 'any' | 'exit'
-// SmTransition: { from, to, conditions: (bool == | number < > == | trigger fired)[],
-//                 exitTime?, blend? }
+```ts
+interface ComponentInput { id; kind: 'bool' | 'number' | 'trigger'; default?; source?; note? }
+// COMPONENT_INPUT_KINDS is the one exported list (the normalizer imports it); Phase 7 adds `text`.
+// `source` (number only): a registered engine value source (`winAmount`) that feeds the input.
+
+interface ComponentStateMachine { layers: SmLayer[] }
+interface SmLayer      { id; name?; entry: string /* a state id */; states: SmState[]; transitions: SmTransition[] }
+interface SmState      { id; name?; timeline: string /* cinematic id */; speed?; loop? }
+interface SmTransition { id; from /* state id | 'any' */; to /* state id | 'exit' */;
+                         conditions?: SmCondition[]; exitTime?; blend? /* ms */ }
+interface SmCondition  { input; op: 'fired' | '==' | '!=' | '<' | '>'; value? }
 ```
 
-- **Inputs** absorb what `signals` do for behaviour: a signal reads as a trigger input, and an
-  engine param (`winAmount`) can feed a number input.
+Deviations from the draft above, found while building: `entry` is a real state's id (no Entry
+pseudo-state in the data; the editor draws one); `any` and `exit` are reserved ids a transition
+names, never entries in `states`; transitions carry an `id` (the editor selects them); `!=` joins
+the ops (a "not win" bool test); a state and a layer may carry a display `name`.
+
+**Interpreter semantics** (`ComponentStateMachineRunner`, pure and Pixi-free — advanced by `dt`
+and input changes, it only says "layer L plays timeline X at t, mixing in from Y frozen at u"):
+
+- Every layer starts in its `entry` state, at time 0, and that state shows from the first frame.
+- **Triggers are consumed once per evaluation.** A trigger fired between ticks is seen by every
+  layer on the next tick, used by at most one transition per layer (a chain in the same tick cannot
+  re-use it), then cleared whether or not anything used it. Firing a trigger IS firing the signal
+  of that name on the instance's bus (§12 #4), so it is scoped exactly as a signal is.
+- **`any`-state transitions are checked first**, in authored order, then the current state's; the
+  first whose conditions all hold and whose `exitTime` has been reached fires. An `any` transition
+  never re-enters the state the layer is already in.
+- **`exitTime`** is a fraction of the leaving state's timeline the playhead must have reached, or,
+  on a looping state, crossed during this tick. A transition with no conditions fires as soon as
+  its exit time does — the usual "back to idle when the win ends".
+- **Layers run in order**, and a later layer wins each node property both key (per property, not
+  per node). Against a `playOn` timeline on the same node, the most recently started wins the
+  node: a pop-in started after the machine's idle shows, and the machine's next state change takes
+  the node back.
+- **`blend`** mixes the target timeline in over that many ms from the pose being left — the
+  previous timeline frozen at the moment of leaving (`blendNodeSamples`: offsets from 0, factors
+  from 1, tint per colour channel, frame/visible/text stepping at half way).
+- **At most 8 transitions fire per layer per tick** (`SM_MAX_TRANSITIONS_PER_TICK`); a longer
+  chain continues next tick. A non-looping timeline holds its last frame.
+- **`exit`** ends the layer: it drives nothing and takes no transition until `reset()`.
+- **A missing timeline never crashes the game**: the state is entered and holds (drives nothing,
+  its exit gate is open) and the instance warns once with the ids.
+- **Values** are derived, never stored: `<layer>.state` is the current state id
+  (`componentInterface(def).values`, `runner.values()`); Phase 7's *Wait for state* reads them.
+- **Per instance**: each placed instance with a `stateMachine` owns one runner, fed by its own
+  signal bus (triggers) and the value sources its number inputs name, advanced on the Pixi ticker,
+  each layer placed on its timeline through the 4b player's `drive(slot, layer, play)` — one node-
+  driving path. No `inputs`/`stateMachine` ⇒ no runner, no subscription, no ticker work (parity).
+
+- **Inputs** absorb what `signals` do for behaviour: a signal reads as a trigger input
+  (`componentInputs(def)` folds the two — §12 #4), and an engine value source (`winAmount`) can
+  feed a number input (`source`).
 - **Listeners** are a node field: `on: 'down' | 'up' | 'enter' | 'leave' | 'click'` sets an input or
   fires a trigger. Button `stateAnimations` become a seeded state machine.
 - The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.
@@ -365,7 +409,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
 | 3 | **Animate a screen** — built 2026-10-13, owner browser check pending | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
 | 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
-| 5 | **Interface + state machine** | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`), new editor panel | L |
+| 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) built 2026-10-13; 5b (the editor) next | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
@@ -403,8 +447,14 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
    Rive-style editor with in-place component editing. Component storage does not change.
 3. **Name.** — **DECIDED (owner 2026-10-13): the UI name is *Timeline*.** The Rigger's multi-rig
    mode may keep the label "Cinematic". The file format (`.icin` / `CinematicDoc`) stays.
-4. **Inputs vs signals:** fold `signals` into trigger inputs (one concept, signals read as
-   triggers for back-compat), or keep both?
+4. **Inputs vs signals** — **DECIDED (owner 2026-10-13): fold.** One concept: a declared
+   signal reads as a trigger input (`componentInputs()` / `componentTriggers()` in
+   `engine-layout/componentInterface.ts`), every reader of `ComponentDef.signals` goes through
+   that helper, and no def is rewritten (`signals` stays readable forever; Phase 8 migrates). Firing
+   a trigger is the same event as firing the signal on the instance's bus, with the same scoping,
+   so a Flow `fireCue`, a 4b `playOn` timeline and the state machine all hear it. In the editor,
+   "Component variables → Signals" becomes **Inputs** (a kind per row; existing signals show as
+   trigger inputs) — Phase 5b.
 5. **Which proof first** for Phase 3 — **DECIDED (owner 2026-10-13): a screen intro.** Animate a
    screen's intro in the Scene Editor and have Flow's `playCinematic` play it in game.
 6. **Outcome source for the new families.** Are the arcade and match-3 games real-money games
