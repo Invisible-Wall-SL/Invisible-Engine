@@ -44,6 +44,18 @@
 		onSelect(scoped ? scopedFrameRef(sheetKey, region) : region);
 		open = false;
 	}
+
+	// Escape closes the open frame list (a page-level Escape stands down while it is open).
+	$effect(() => {
+		if (!open) return;
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.key !== 'Escape') return;
+			e.preventDefault();
+			open = false;
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
 </script>
 
 <div class="region-picker">

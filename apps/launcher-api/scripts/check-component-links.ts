@@ -10,7 +10,10 @@
  *  4. edit-in-place stops where the game stops drawing nested components;
  *  5. a link to `/editor` followed from inside `/editor` never swaps one project's state for
  *     another's: tool links carry the shown project, and `/editor` applies the same project in
- *     place and fully reloads for any other (or for a link naming none).
+ *     place and fully reloads for any other (or for a link naming none);
+ *  6. every `/editor` write targets the project the page was LOADED for, even from a bookmarked
+ *     bare `/editor` after another tab moved the session; drift blocks saves;
+ *  7. a component this tab has no ETag for has it read before its first save.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -18,9 +21,11 @@ import { MAX_COMPONENT_DEPTH } from '../../../packages/engine-layout/src/lib/reg
 import {
 	componentsHref,
 	componentsTarget,
+	editorActionUrl,
 	editorSelfNavigation,
 	legacyComponentsRedirect,
 } from '../src/lib/componentLinks.ts';
+import { etagKnown } from '../src/routes/(app)/editor/componentWorkspace.ts';
 import { withProject } from '../src/lib/toolLinks.ts';
 import { TOOLS } from '../src/lib/roles.ts';
 import { canEnterNested } from '../src/routes/(app)/editor/componentWorkspace.ts';
@@ -159,6 +164,63 @@ check(
 check(
 	'/editor reloads should its data arrive for another project',
 	editorPage.includes('data.projectKey !== loadedProjectKey'),
+	true,
+);
+
+// ── 6. Writes are pinned to the loaded project ──────────────────────────────
+// Tab A opens a bookmarked bare `/editor` and gets X; tab B moves the session to Y; tab A saves.
+check(
+	'a bare /editor posts its save to the loaded project',
+	editorActionUrl('save', '', 'X'),
+	'?/save&project=X',
+);
+check(
+	'the loaded project wins over whatever the address bar names',
+	editorActionUrl('save', '?project=Y&view=components', 'X'),
+	'?/save&project=X&view=components',
+);
+check('no project at all ⇒ the bare action', editorActionUrl('save', '', ''), '?/save');
+check(
+	'postAction builds its URL with editorActionUrl and the loaded project',
+	editorPage.includes('editorActionUrl(action, location.search, loadedProjectKey)'),
+	true,
+);
+check(
+	'a bare /editor pins ?project= into the address bar on first load',
+	/function setEditorUrl[\s\S]*?params\.set\('project', loadedProjectKey\)/.test(editorPage) &&
+		/type !== 'enter'[\s\S]*?setEditorUrl\(/.test(editorPage),
+	true,
+);
+check(
+	'the layout save is blocked while the data has drifted to another project',
+	editorPage.includes('blockWhen: () => lease.readOnly || projectDrift'),
+	true,
+);
+check(
+	'only the capture, its comment, the drift check and the drift banner read the live data.projectKey',
+	(editorPage.match(/data\.projectKey/g) ?? []).length,
+	4,
+);
+const workspace = readFileSync(`${routes}(app)/editor/ComponentWorkspace.svelte`, 'utf8');
+check(
+	'the Components side blocks its saves on drift (draft + defaults)',
+	[
+		workspace.includes('blockWhen: () => lease.readOnly || writesBlocked'),
+		workspace.includes('blockWhen: () => writesBlocked'),
+	],
+	[true, true],
+);
+
+// ── 7. ETags of components the page created or refreshed ─────────────────────
+check('a def with a stored ETag is known', etagKnown({ coin: '"e1"' }, 'coin'), true);
+check('a built-in (null) is known: its first save creates', etagKnown({ win: null }, 'win'), true);
+check('a def refreshed after load is not, so it is read on open', etagKnown({}, 'gem'), false);
+check('an inherited key is not an ETag', etagKnown({}, 'toString'), false);
+check(
+	'a created def’s ETag is recorded even when the def is already listed',
+	/if \(request\.def\) \{[\s\S]*?componentEtags = \{ \.\.\.componentEtags, \[created\.id\]: request\.etag/.test(
+		workspace,
+	),
 	true,
 );
 

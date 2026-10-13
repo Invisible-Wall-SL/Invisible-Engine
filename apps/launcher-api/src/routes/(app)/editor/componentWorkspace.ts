@@ -25,3 +25,12 @@ export interface ComponentOpenRequest {
 export function canEnterNested(trailDepth: number): boolean {
 	return trailDepth + 1 < MAX_COMPONENT_DEPTH;
 }
+
+/**
+ * Does this tab hold the ETag of `id`'s stored object? `null` counts (a built-in, or a def never
+ * saved: the first save creates); only a def the map has never heard of — one refreshed from the
+ * listing after load — needs its ETag read before it can be saved.
+ */
+export function etagKnown(etags: Record<string, string | null>, id: string): boolean {
+	return Object.prototype.hasOwnProperty.call(etags, id);
+}
