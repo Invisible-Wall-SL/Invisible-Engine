@@ -43,8 +43,10 @@ import {
 	UNASSIGNED_CLIENT,
 } from './projectPaths';
 import { foreignRigRefs } from '$lib/rigBundleKey';
+import { sameUnknownComponentFields, withUnknownComponentFields } from './componentUnknownFields';
 import { projectClientKey } from './projects';
 import { loadSharedSkeletonIndex } from './rig';
+import { loadedStoredDoc } from './unknownBlocks';
 import {
 	ConflictError,
 	deleteObject,
@@ -232,12 +234,17 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
  */
 async function readComponentForWrite(
 	key: string,
-): Promise<{ def: ComponentDef | undefined; etag: string | null }> {
+	keepStored = false,
+): Promise<{ def: ComponentDef | undefined; etag: string | null; stored?: unknown }> {
 	const obj = await getObjectTextWithEtag(key);
 	if (!obj) return { def: undefined, etag: null };
 	try {
 		const parsed: unknown = JSON.parse(obj.text);
-		if (isComponentShape(parsed)) return { def: normalizeComponent(parsed), etag: obj.etag };
+		if (isComponentShape(parsed)) {
+			// The parsed bytes, before `normalizeComponent` rebuilds them (and mutates their nodes).
+			const stored = keepStored ? structuredClone(parsed) : undefined;
+			return { def: normalizeComponent(parsed), etag: obj.etag, stored };
+		}
 	} catch {
 		return { def: undefined, etag: obj.etag };
 	}
@@ -383,6 +390,7 @@ export async function saveComponent(
 	component: ComponentDef,
 	projectKey?: string,
 	baseEtag?: string | null,
+	{ promotedFrom }: { promotedFrom?: PromoteSource } = {},
 ): Promise<{ version: number; etag: string | null }> {
 	let normalized: ComponentDef;
 	try {
@@ -411,7 +419,22 @@ export async function saveComponent(
 	const key = isProject
 		? projectComponentKey(projectKey as string, normalized.id)
 		: editorComponentKey(normalized.id);
-	const { def: existing, etag: existingEtag } = await readComponentForWrite(key);
+	// Read before the target, so this round trip is not inside the check-to-write window below.
+	const promoted = promotedFrom
+		? await loadedStoredDoc(
+				projectComponentKey(promotedFrom.projectKey, normalized.id),
+				promotedFrom.baseEtag,
+			)
+		: undefined;
+	// A promote CARRIES the project def's fields. Without them it would silently drop what a newer
+	// launcher wrote there, so a project def saved (or removed) since the draft loaded refuses the
+	// promote: the author reloads it.
+	if (promotedFrom && promoted === undefined) {
+		throw new PromoteSourceConflictError(
+			projectComponentKey(promotedFrom.projectKey, normalized.id),
+		);
+	}
+	const { def: existing, etag: existingEtag, stored } = await readComponentForWrite(key, true);
 	// CHECK BEFORE WRITING ANYTHING. The snapshot is written first and is immutable, so
 	// discovering a lost CAS at the LATEST pointer (the second write) would already have
 	// left an orphan `<id>.v<N+1>.json` behind — and every later save would then compute
@@ -419,7 +442,21 @@ export async function saveComponent(
 	// An in-process compare makes the ordinary conflict path write nothing at all.
 	if (baseEtag !== undefined && baseEtag !== existingEtag) throw new ConflictError(key);
 
-	const toWrite = reconcileVersion(normalized, existing);
+	// A forced save grafts too: it CASes on `existingEtag` from the same read as `stored`, so the
+	// graft is as race-free as an `If-Match` one, and "Save on top" from a stale tab is exactly
+	// the tab that lacks a newer launcher's fields.
+	const merged = withUnknownComponentFields(normalized, promotedFrom ? promoted : stored);
+	// The version is decided on what this build can see, so a no-op save from an older launcher
+	// does not bump over the fields its draft lacks. A save that CHANGES those fields (a promote
+	// carrying the project's over the shared copy's) bumps, as any content change does.
+	let { version } = reconcileVersion(
+		merged === normalized ? normalized : normalizeComponent(structuredClone(merged)),
+		existing,
+	);
+	if (existing && version === existing.version && !sameUnknownComponentFields(merged, stored)) {
+		version = Math.max(normalized.version, existing.version) + 1;
+	}
+	const toWrite = version === merged.version ? merged : { ...merged, version };
 	const body = JSON.stringify(toWrite, null, 2);
 	// Snapshot first (immutable history), latest pointer last — so a failed snapshot
 	// write never advances the latest pointer past a version that has no snapshot.
@@ -440,6 +477,23 @@ export async function saveComponent(
 	return { version: toWrite.version, etag };
 }
 
+/** The project def a promote copies was saved, or removed, since the draft loaded it. */
+export class PromoteSourceConflictError extends ConflictError {
+	constructor(key: string) {
+		super(key);
+		this.name = 'PromoteSourceConflictError';
+	}
+}
+
+/**
+ * The project def a promote-to-shared copies, as the author loaded it: the stored bytes whose
+ * unknown fields the shared copy keeps (`docs/conventions/doc-readers.md`, "Round-tripping").
+ */
+export interface PromoteSource {
+	projectKey: string;
+	baseEtag: string;
+}
+
 /**
  * Write the immutable `<id>.v<N>.json` snapshot.
  *
@@ -453,9 +507,14 @@ export async function saveComponent(
  */
 async function writeSnapshot(versionKey: string, body: string, guard: boolean): Promise<void> {
 	if (!guard) {
-		// Same version, same content — rewriting identical bytes, which also heals a
-		// snapshot missing from a pre-v2 def.
-		await putObjectText(versionKey, body, 'application/json');
+		// Same version: only heal a snapshot missing from a pre-v2 def. An existing one is never
+		// rewritten, even when this save's bytes differ — an older launcher's no-op save drops the
+		// rows its read dropped, and the snapshot must keep what that version really held.
+		try {
+			await putObjectText(versionKey, body, 'application/json', { ifNoneMatch: '*' });
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
 		return;
 	}
 	try {

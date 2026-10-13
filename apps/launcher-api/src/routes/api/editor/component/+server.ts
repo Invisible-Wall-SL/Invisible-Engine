@@ -7,7 +7,9 @@ import {
 	listComponentVersions,
 	loadComponent,
 	loadComponentWithEtag,
+	PromoteSourceConflictError,
 	saveComponent,
+	type PromoteSource,
 } from '$lib/server/componentStorage';
 import { ConflictError } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -60,7 +62,8 @@ async function gateSharedWrite(locals: App.Locals): Promise<void> {
  * RECONCILED `version` + the new `etag` — the old `{ok:true}` told the client nothing,
  * so it could not even learn what version its own save produced.
  *
- * Body: the `ComponentDef`, plus `project?`, `baseEtag?: string | null`, `force?`.
+ * Body: the `ComponentDef`, plus `project?`, `baseEtag?: string | null`, `force?`, and for a
+ * promote `promotedFrom?` + `sourceEtag?` ({@link promoteSource}).
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = await gate(locals);
@@ -88,10 +91,27 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// of "overwrite what's there now". A non-force save now MUST carry `baseEtag` (string or
 	// null) or it is a 400 — the fail-open is closed (Phase 1).
 	const baseEtag = writeBaseEtagJson(body);
+	const promotedFrom = await promoteSource(user, body);
 	try {
-		const { version, etag } = await saveComponent(body as ComponentDef, projectKey, baseEtag);
+		const { version, etag } = await saveComponent(body as ComponentDef, projectKey, baseEtag, {
+			promotedFrom,
+		});
 		return json({ ok: true, version, etag });
 	} catch (e) {
+		// Before the generic conflict: "Promote on top" cannot help here, only a reload of the
+		// project copy can, so the client must not offer it.
+		if (e instanceof PromoteSourceConflictError) {
+			return json(
+				{
+					ok: false,
+					error: 'source-conflict',
+					message:
+						'This project component was saved or removed somewhere else since you opened it. ' +
+						'Reload it, then promote again.',
+				},
+				{ status: 409 },
+			);
+		}
 		// Conflict before the generic 400 — a lost CAS is not a malformed component.
 		if (e instanceof ConflictError) {
 			return json(
@@ -196,6 +216,23 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
 	}
 	return json({ ok: true });
 };
+
+/**
+ * The project def a promote-to-shared copies (`promotedFrom` + `sourceEtag`, the ETag the draft
+ * was loaded at), so the shared copy keeps the fields that def holds and this build does not know
+ * — not the replaced shared copy's. Access to that project is checked like `project`. Absent on a
+ * plain shared save, and on a draft never saved to its project.
+ */
+async function promoteSource(
+	user: NonNullable<App.Locals['user']>,
+	body: unknown,
+): Promise<PromoteSource | undefined> {
+	if (!isRecord(body) || body.scope !== 'shared') return undefined;
+	if (typeof body.promotedFrom !== 'string' || typeof body.sourceEtag !== 'string')
+		return undefined;
+	const projectKey = await requireOptionalProjectKey(user, body.promotedFrom);
+	return projectKey ? { projectKey, baseEtag: body.sourceEtag } : undefined;
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === 'object' && v !== null && !Array.isArray(v);

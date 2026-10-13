@@ -49,8 +49,22 @@ Shipped capabilities on `main`:
   `componentListenerContext.ts`; `LayoutNodeView` wraps a listening node only; `ComponentInstance`
   builds a dispatcher only for a def with listeners or events; `FlowPressResolver` gains an optional
   `kind` (`'event'`) and `apps/lines` skips the press sound for it; `engine-layout` now depends on
-  `engine-flow-v2` for the `ParamDecl` type. Gate `check:component-listeners-events`. Coordination:
-  #1185's known-fields list must add `events` (def), `on` (node) and `onEnter` (state).
+  `engine-flow-v2` for the `ParamDecl` type. Gate `check:component-listeners-events`. The new fields
+  are in #1185's known-fields sets (`componentFields.ts`), so a cleared value is never grafted back.
+- 2026-10-13 — **Component saves keep the fields they do not know** (owner decision; branch
+  `claude/component-save-keeps-unknown-fields`, #1185). An older launcher no longer erases a newer
+  one's fields from R2. `saveComponent` (also on a forced "Save on top") keeps the stored def's
+  unknown top-level fields and, matched by id, the unknown fields of every node (root included),
+  param, signal, slot and input the author kept (a param / slot / input only while its `kind` is
+  the same), and of each state-machine layer and its states and transitions (`stateMachine` itself
+  is a fixed namespace). A deleted entity is never resurrected. An input of a kind this build does
+  not know (Phase 7's `text`) is kept in place. An existing `<id>.v<N>.json` snapshot is never
+  rewritten. Promote to shared carries the promoted project def's fields (`promotedFrom` +
+  `sourceEtag`) and answers 409 `source-conflict` when that def changed since the draft loaded.
+  "This game's defaults" and its restore keep theirs (a restore, the backup's). Known fields:
+  `apps/launcher-api/src/lib/server/componentFields.ts`. Rules and reasoning:
+  [doc-readers](../conventions/doc-readers.md) "Round-tripping". Gate:
+  `check:save-keeps-unknown-blocks` gains a components section (141 checks in all).
 - 2026-10-13 — **The State Machine panel (Rive plan Phase 5b, branch
   `claude/rive-p5b-state-machine-editor`, stacked on 5a).** Timeline | State machine tabs in
   Animate; `EditorStateMachinePanel.svelte` + `SmGraphNode.svelte` on `@xyflow/svelte`; pure edits
