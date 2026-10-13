@@ -1472,7 +1472,10 @@ ${seq.cueMarkup()}
 	 */
 	async function init(bridge) {
 		ctx = bridge;
-		[EV, SEQ] = await Promise.all([import('/shared/cinematicEval.mjs'), import('/shared/cinematicSequencer.mjs')]);
+		// Same cache-bust as this script: a redeploy must not pair a fresh host with a cached module.
+		const v = new URLSearchParams(location.search).get('v');
+		const q = v ? '?v=' + encodeURIComponent(v) : '';
+		[EV, SEQ] = await Promise.all([import('/shared/cinematicEval.mjs' + q), import('/shared/cinematicSequencer.mjs' + q)]);
 		doc = restore() || newDoc();
 		seq = SEQ.mount($('#timeline'), {
 			doc,
@@ -1522,6 +1525,7 @@ ${seq.cueMarkup()}
 	}
 
 	function activate() {
+		if (!seq) return;
 		seq.setActive(true);
 		renderPanel();
 		seq.renderTimeline();

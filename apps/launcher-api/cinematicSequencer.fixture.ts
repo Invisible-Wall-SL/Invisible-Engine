@@ -63,7 +63,7 @@ const doc: CinematicDoc = {
 };
 
 const seen = { evaluate: [] as number[], seeked: 0, changed: 0, replaced: [] as CinematicDoc[] };
-const seq = mount(null as unknown as HTMLElement, {
+const seq = mount(null, {
 	doc,
 	ev: EV,
 	host: {

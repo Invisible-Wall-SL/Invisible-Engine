@@ -45,7 +45,7 @@ export interface SequencerHost {
 	save?(): void;
 	/** Whether the set / `fx:` band draws in front of the whole cast, after each timeline render. */
 	setDepth?(inFront: boolean): void;
-	/** The row label for an actor. Default: `name`, `target` or the actor id. */
+	/** The row label for an actor. Default: the actor id. */
 	actorLabel?(cast: CinematicCast): { text: string; title: string };
 	/** An actor's clips — the strip inspector's picker; the first is what ＋ strip adds. */
 	clips?(actorId: string): SequencerClip[];
@@ -151,4 +151,5 @@ export const CAM_CHANNELS: SequencerChannel[];
 export const CUE_KINDS: Array<{ prefix: string; label: string; color: string; hint: string }>;
 export function hasStrips(track: Track): boolean;
 export function esc(s: unknown): string;
-export function mount(el: HTMLElement, options: SequencerOptions): Sequencer;
+/** `el` may be null: the sequencer then runs headless (history, keys, time) and draws nothing. */
+export function mount(el: HTMLElement | null, options: SequencerOptions): Sequencer;

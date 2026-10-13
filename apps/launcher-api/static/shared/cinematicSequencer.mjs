@@ -84,10 +84,7 @@ const HOST_DEFAULTS = {
 	tracksChanged: noop,
 	save: noop,
 	setDepth: noop,
-	actorLabel: (cast) => {
-		const text = cast.name || cast.target || cast.actorId;
-		return { text, title: text };
-	},
+	actorLabel: (cast) => ({ text: cast.actorId, title: cast.actorId }),
 	clips: () => [],
 	sceneName: () => null,
 	effects: () => [],
@@ -98,7 +95,7 @@ const HOST_DEFAULTS = {
  * Mount the sequencer on `el` (the timeline container). Nothing is drawn until the host calls
  * `renderTimeline()` / `renderInspector()` — the host decides when its own panel is ready.
  *
- * @param {HTMLElement} el
+ * @param {HTMLElement | null} el
  * @param {import('./sequencer').SequencerOptions} options
  * @returns {import('./sequencer').Sequencer}
  */

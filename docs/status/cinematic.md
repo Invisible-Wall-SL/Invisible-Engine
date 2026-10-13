@@ -160,6 +160,11 @@ yet shipped an authored cinematic through a `playCinematic` node.
    upload of the cast rigs' large atlases. Measure the longest frame at mount; preloading the cast's
    textures when the flow arms a `playCinematic` would hide it.
 
+8. **Two old sequencer bugs, carried over unchanged by the Phase 2 extraction (left as-is so it changes
+   no behaviour):** opening or starting a cinematic keeps the selected cue's time, so a cue at that
+   same time in the new doc opens pre-selected; and leaving 🎬 before the mode's first load finishes
+   writes a `{doc:null}` draft over the saved local draft.
+
 ## Blocked (owner / external)
 
 - Nothing external.
