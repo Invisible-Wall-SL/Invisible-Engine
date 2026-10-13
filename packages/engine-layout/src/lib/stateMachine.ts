@@ -96,6 +96,7 @@ const asNumber = (v: unknown, fallback: number): number =>
 
 export class ComponentStateMachineRunner {
 	private readonly layers: LayerRun[];
+	private readonly durations: ReadonlyMap<string, number>;
 	private readonly kinds = new Map<string, ComponentInputKind>();
 	private readonly current = new Map<string, number | boolean>();
 	private readonly fired = new Set<string>();
@@ -108,10 +109,11 @@ export class ComponentStateMachineRunner {
 	 *   naming an id not here holds.
 	 */
 	constructor(
-		private readonly machine: ComponentStateMachine,
+		machine: ComponentStateMachine,
 		inputs: readonly ComponentInput[],
-		private readonly durations: ReadonlyMap<string, number>,
+		durations: ReadonlyMap<string, number>,
 	) {
+		this.durations = durations;
 		for (const input of inputs) {
 			if (!input.id || this.kinds.has(input.id)) continue;
 			this.kinds.set(input.id, input.kind);
