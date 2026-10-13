@@ -7,9 +7,46 @@
 saves per project, ships with the rigs it casts, and plays in game through `<Cinematic>` from a
 Flow `playCinematic` node. ⏳ The editor is live-verified. The in-game player plays at authored
 speed on a real clock (2026-10-01, a probe cinematic injected into the remake), but no project has
-yet shipped an authored cinematic through a `playCinematic` node.
+yet shipped an authored cinematic through a `playCinematic` node. **Rive plan Phase 1** (node
+actors + screen/component hosts, 2026-10-13) is in the format, evaluator and player, verified
+headless only.
 
 ## Current state
+
+- **Node actors + hosts (Rive plan Phase 1, 2026-10-13, format + evaluator + player — not
+  browser-verified).** A timeline can now drive layout NODES, not only rigs
+  ([rive-style-editor.md](../design/rive-style-editor.md) §3.1–3.2):
+  - **Format (additive).** `cast[].kind: 'node'` + `target` (the node's NAME — its `label`, falling
+    back to its id); `doc.host`: `{kind:'cast'}` (absent = today) · `{kind:'screen', sceneId}` ·
+    `{kind:'component', componentId}`. A new `text` track kind. `TextNode.switchKeys` declares the
+    other strings a timeline may switch a text node to. Absent `kind` / `host` = byte-identical
+    behaviour: old players skip node actors (no `rigFolder`), and the evaluator never sees them.
+  - **Channels.** Node `property` channels are RELATIVE to the node's authored pose so one timeline
+    plays on any host with that node name: `x`/`y` add, `scale`/`scaleX`/`scaleY` and `alpha`
+    multiply, `rotation` adds degrees, `tint` replaces (eased per RGB channel), `frame` holds a
+    flipbook frame, `fill` reveals 0..1 (sprite / rect / flipbook). Visibility tracks work too.
+    `text` has exactly two modes (§8): **countUp** (eased number, formatted by a named engine value
+    source's formatter — `format: 'win'` — or a grouped integer; `to: '<source>'` makes the keys
+    shares of that source's live value) and **switchKey** (stepped, names one of the node's own
+    strings; an undeclared key is ignored). No free text.
+  - **Evaluator** (`engine-cinematic`, synced to `static/shared/cinematicEval.mjs`): `isNodeActor`,
+    `cinematicHost`, `sampleNodeActor`, `sampleTint`, `sampleText`, `NODE_CHANNELS`. Rig paths
+    untouched.
+  - **Binding** (`engine-layout/cinematicNodes.ts`): `resolveNodeActors`, `findNodeByName`,
+    `cinematicSetSceneId` (a screen host IS the set), `validateNodeActors` (no-target /
+    node-missing / channel-unsupported / switch-key-undeclared), `collectTimelineSwitchKeys`.
+  - **Player.** `<Cinematic>` provides a driver (`cinematicNodeContext.ts`) to the set it mounts;
+    each TOP-LEVEL `<LayoutNodeView>` of the screen (never a node inside a placed component) asks it
+    once whether an actor drives it, and feeds the sampled channels into its existing value-binding
+    fold (`foldBoundTransform` / fill / frame), so a keyed number does to a node exactly what a value
+    binding would. `FlowV2Cinematics` resolves the set through `cinematicSetSceneId`.
+  - **Not in Phase 1:** playing a **component** host (valid in the format only — Rive plan
+    Phase 4); `animation` strips on a rig NODE; any `/rigger` UI for node actors (the sequencer is
+    being extracted in Phase 2, branch `claude/rive-p2-shared-sequencer`); `validateNodeActors` is
+    not yet called by a publish gate or an editor.
+  - **Ship chain (rule 8):** nothing new to seed. A node actor's art, clip, font and text node all
+    belong to its host scene, which the editor-art export already ships; `cinematicRigNames` skips
+    node actors (they have no `rigFolder`), and `check:art-scope` covers the unchanged paths.
 
 - **`/rigger` cinematic mode (Phase 1).** A fourth mode beside Preview / Setup / Animate. Cast a
   rig from the project as an **actor** (the same rig twice = independent instances), place it
@@ -93,7 +130,9 @@ yet shipped an authored cinematic through a `playCinematic` node.
 | `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cues, visibility, tweak-mode time inverse, evaluator-drift (headless) | **118/118** |
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
-| `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
+| `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **41/41** |
+| `tools/rigger-spike/cinematic-nodes.mjs` — node actors, hosts, the text channel modes, the binding fold, rig-only parity (headless) | **63/63** |
+| `apps/launcher-api/localizationHarvest.fixture.ts` — timeline switch-key harvest + the `timeline` origin | **all pass** |
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
@@ -114,7 +153,11 @@ yet shipped an authored cinematic through a `playCinematic` node.
 
 ## Open items / next
 
-0. **Proposed (2026-10-08, owner review):** the Cinematic timeline becomes the ONE timeline system — node actors, component/screen hosts, a shared sequencer module mounted by `/rigger` and `/editor`. Plan: [rive-style-editor.md](../design/rive-style-editor.md) §3.
+0. **The ONE timeline system** ([rive-style-editor.md](../design/rive-style-editor.md) §3). Phase 1
+   (node actors + hosts) is built, headless-verified only. ⏳ Browser-verify a screen-hosted
+   timeline in a game (no authoring UI exists until Phase 2/3, so a probe doc has to be injected);
+   wire `validateNodeActors` into a gate once an editor writes node actors; component hosts play in
+   Phase 4; `animation` strips on rig nodes are still open.
 1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
    but only with a probe doc injected into the runtime bundle and started from the flow handle. No
    authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
@@ -143,6 +186,15 @@ yet shipped an authored cinematic through a `playCinematic` node.
 
 ## Recent changes
 
+- 2026-10-13 — **Node actors + hosts (Rive plan Phase 1).** Format, evaluator, binding and
+  `<Cinematic>` player as described under Current state; localization harvests switch-key strings
+  as `origin: 'timeline'`. Verified headless: the four existing cinematic gates (118/118, 15/15,
+  19/19, 41/41) plus the new `cinematic-nodes.mjs` (63/63) and the harvest fixture;
+  `check:art-scope`, `check:doc-readers-unknown-fields` (247), `check:save-keeps-unknown-blocks`
+  (58), `check:renderable-fonts`, `check:scene-cues`, `check:director-adapters` (442), svelte-check
+  at baseline, lint clean. **Not browser-verified** — nothing renders a node-actor timeline yet.
+  `cinematic-storage.mjs` had been red on `main` since #1112 (its esbuild bundles did not know
+  SvelteKit's `$lib` alias); it now passes the alias.
 - 2026-10-01 — **`<Cinematic>` threw on every in-game mount, and now plays.** It read
   `appContext.app.ticker`, but pixi-svelte's app context is `{ stateApp }` (the application is
   `stateApp.pixiApplication`), so mounting it threw "Cannot read properties of undefined (reading
