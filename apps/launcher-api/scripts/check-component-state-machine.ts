@@ -1424,7 +1424,7 @@ eq(
 			{ id: 'win', kind: 'trigger' },
 			{ id: 'amount', kind: 'number', default: 3, source: 'winAmount' },
 			{ id: 'big', kind: 'bool', default: true },
-			{ id: 'later', kind: 'text' },
+			{ id: 'later', kind: 'colour' },
 			{ id: '', kind: 'bool' },
 		],
 		stateMachine: machine(

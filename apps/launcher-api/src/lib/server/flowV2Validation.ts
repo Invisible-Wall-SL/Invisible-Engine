@@ -23,14 +23,19 @@ import {
 	type FlowIssue,
 	type FunctionLibraryDoc,
 } from 'engine-flow-v2';
-import type { ComponentDef, Scene, SoundsDoc } from 'engine-layout';
+import { collectComponentPins, type ComponentDef, type Scene, type SoundsDoc } from 'engine-layout';
 import { flowAddOnsOf, type GameConfigDoc } from 'game-config';
 import { collectContainerTaps } from '$lib/containerTaps';
-import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
+import {
+	instanceDefResolver,
+	projectContainerEvents,
+	projectFlowInstances,
+	syncFlowContainers,
+} from '$lib/flowV2Projection';
 import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
 import { collectSceneCueNames } from '$lib/sceneCues';
 import { soundOptionsFor } from '$lib/soundOptions';
-import { listComponents } from './componentStorage';
+import { listComponents, loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { isAuthoredFlowV2 } from './flowV2Export';
 import { loadFlowV2Library } from './flowV2LibraryStorage';
@@ -46,8 +51,10 @@ export type FlowPublishCheck =
 /**
  * Validate a v2 FlowDoc against a project's scenes, sound library and function library — pure, so
  * an offline check can run it over scaffold scenes. The doc is cloned before the container sync.
- * `components` are the defs the scenes place, whose own cue names a flow may fire too. `addOns` are
- * the project's Game Config add-ons (`flowAddOnsOf`); absent ⇒ the kind's vocabulary alone.
+ * `components` are the defs the scenes place (latest, plus the pinned versions the caller loaded —
+ * `withPlacedComponentVersions`), whose own cue names a flow may fire too and whose interfaces the
+ * placed instances' Flow nodes are judged against (§6.3). `addOns` are the project's Game Config
+ * add-ons (`flowAddOnsOf`); absent ⇒ the kind's vocabulary alone.
  */
 export function validateFlowV2Against(
 	stored: FlowDoc,
@@ -72,6 +79,7 @@ export function validateFlowV2Against(
 			projectContainerEvents(doc.containers, scenes),
 			collectContainerTaps(doc.containers, scenes),
 			scenes.map((s) => s.id),
+			projectFlowInstances(doc.containers, scenes, instanceDefResolver(components)),
 		),
 		...respinTabIssues(doc, addOns),
 		...spinsTabIssues(
@@ -80,6 +88,26 @@ export function validateFlowV2Against(
 			scenes.map((s) => s.id),
 		),
 	];
+}
+
+/**
+ * The project's defs plus the exact VERSIONS its placements pin (`collectComponentPins`), so an
+ * instance node is judged against the interface the placement actually renders, not latest — the
+ * bundle ships those versions the same way (`resolveReferencedDefs`). A pin the store has lost loads
+ * nothing, and the projection then reports it (`instance-missing`).
+ */
+export async function withPlacedComponentVersions(
+	projectKey: string,
+	scenes: readonly Scene[],
+	components: readonly ComponentDef[],
+): Promise<ComponentDef[]> {
+	const pins = collectComponentPins(scenes.flatMap((s) => s.nodes ?? [])).filter(
+		(pin) => !components.some((def) => def.id === pin.id && def.version === pin.version),
+	);
+	const pinned = await Promise.all(
+		pins.map((pin) => loadComponent(pin.id, projectKey, pin.version)),
+	);
+	return [...components, ...pinned.filter((def): def is ComponentDef => def !== undefined)];
 }
 
 /** {@link validateFlowV2Against} with the project's stored scenes, sounds, Game Config add-ons and
@@ -102,7 +130,7 @@ export async function validateFlowV2ForProject(
 		layout.scenes ?? [],
 		sounds,
 		library ?? { version: 2, functions: [] },
-		components,
+		await withPlacedComponentVersions(projectKey, layout.scenes ?? [], components),
 		flowAddOnsOf(stored),
 	);
 }

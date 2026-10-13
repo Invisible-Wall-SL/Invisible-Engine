@@ -49,6 +49,11 @@
  *    starter flow names only screens its scaffold has, so a fresh project publishes with no note;
  *    the lines starter against its scaffold minus `loading` reports `loading`, warns on each Show /
  *    Hide of it, and gains no error from it.
+ * 14. **Placed component instances go through the gate** (Rive plan §6.2, Phase 7): a starter flow
+ *    with a `componentInstance` node wired to a pin the placed def declares passes; a wire to a pin
+ *    the pinned interface lacks (`instance-pin-missing`), a node naming an instance the screen does
+ *    not place (`instance-missing`) and a wait for a state the layer never enters
+ *    (`instance-state-unknown`) are refused. Detail: `check:flow-instance-nodes`.
  */
 import { GAME_KINDS } from 'constants-shared/gameKinds';
 import {
@@ -73,7 +78,13 @@ import {
 	type TemplateVocabulary,
 	type TypeRef,
 } from 'engine-flow-v2';
-import { engineOwnedOnly, getFullSceneSet, kindCapabilities } from 'engine-layout';
+import {
+	engineOwnedOnly,
+	getFullSceneSet,
+	kindCapabilities,
+	type ComponentDef,
+	type Scene,
+} from 'engine-layout';
 import {
 	flowAddOnsOf,
 	holdAndWinBonus,
@@ -750,6 +761,101 @@ check(
 		json(errorsOf(lostIssues)) === json(errorsOf(fullIssues)),
 	json(errorsOf(lostIssues).map((i) => i.message)),
 );
+
+{
+	const linesScenes = engineOwnedOnly(getFullSceneSet('lines')!).scenes;
+	const placed: ComponentDef = {
+		id: 'p7banner',
+		name: 'Banner',
+		version: 1,
+		scope: 'project',
+		category: 'ui',
+		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+		inputs: [{ id: 'win', kind: 'trigger' }],
+		events: [{ id: 'done' }],
+		stateMachine: {
+			layers: [
+				{
+					id: 'main',
+					entry: 'idle',
+					states: [{ id: 'idle', timeline: 'tl' }],
+					transitions: [],
+				},
+			],
+		},
+	};
+	const scenes: Scene[] = [
+		...linesScenes,
+		{
+			id: 'p7screen',
+			name: 'Banner screen',
+			nodes: [
+				{
+					id: 'c_p7',
+					kind: 'componentInstance',
+					label: 'winBanner',
+					x: 0,
+					y: 0,
+					componentId: 'p7banner',
+					componentVersion: 1,
+				},
+			],
+		} as Scene,
+	];
+	const seed = freshDrivenSeedDoc('lines');
+	const at = { x: 0, y: 0 };
+	const withNodes = (nodes: Node[], exec: FlowDoc['graph']['exec']): FlowDoc => ({
+		...seed,
+		graph: {
+			...seed.graph,
+			nodes: [...seed.graph.nodes, ...nodes],
+			exec: [...seed.graph.exec, ...exec],
+		},
+	});
+	const codes = (doc: FlowDoc): string[] =>
+		validateFlowV2Against(doc, scenes, null, EMPTY_LIBRARY, [placed])
+			.filter((i) => i.severity === 'error')
+			.map((i) => i.code);
+	const node = (instance: string): Node => ({
+		id: 'p7_i',
+		kind: 'componentInstance',
+		pos: at,
+		container: 'p7screen',
+		instance,
+	});
+	const ping: Node = { id: 'p7_ping', kind: 'action', pos: at, ref: 'startSpin' };
+	const wired = (pin: string): FlowDoc =>
+		withNodes(
+			[node('c_p7'), ping],
+			[{ from: { node: 'p7_i', pin }, to: { node: 'p7_ping', pin: 'exec' } }],
+		);
+	check(
+		'14. a starter flow with a wired instance node passes the gate',
+		codes(wired('event:done')).length === 0,
+		codes(wired('event:done')).join(','),
+	);
+	check(
+		'14. a wire to a pin the placed def lacks is refused',
+		codes(wired('event:gone')).includes('instance-pin-missing'),
+	);
+	check(
+		'14. an instance the screen does not place is refused',
+		codes(withNodes([node('c_elsewhere')], [])).includes('instance-missing'),
+	);
+	const wait: Node = {
+		id: 'p7_w',
+		kind: 'waitForState',
+		pos: at,
+		container: 'p7screen',
+		instance: 'c_p7',
+		layer: 'main',
+		state: 'celebrating',
+	};
+	check(
+		'14. a wait for a state the layer never enters is refused',
+		codes(withNodes([wait], [])).includes('instance-state-unknown'),
+	);
+}
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASS');
 if (fails) process.exitCode = 1;

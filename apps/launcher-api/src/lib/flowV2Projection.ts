@@ -1,11 +1,17 @@
-import type { Scene } from 'engine-layout';
-import { actionBindingOf, BUILTIN_COMPONENTS, componentTriggers } from 'engine-layout';
+import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
+import {
+	actionBindingOf,
+	BUILTIN_COMPONENTS,
+	componentTriggers,
+	flowInstanceInterface,
+} from 'engine-layout';
 import {
 	deriveContainerEvents,
 	repeaterSelectConfiguredEvent,
 	type ConfiguredComponentEvent,
 	type ContainerEventDecl,
 	type FlowDoc,
+	type FlowInstanceDecl,
 } from 'engine-flow-v2';
 
 /**
@@ -99,4 +105,73 @@ export function projectContainerEvents(
 		containerEvents[container.id] = deriveContainerEvents(configured);
 	}
 	return containerEvents;
+}
+
+/** Resolve a component def for a placed instance: the exact pinned version, or latest unpinned. */
+export type ComponentDefResolver = (id: string, version?: number) => ComponentDef | undefined;
+
+/**
+ * A resolver over a list of defs (latest ones, plus any pinned versions the caller loaded): a pin
+ * resolves only a def of THAT version — except a BUILT-IN, which has one coded version that
+ * `loadComponent` hands back for any pin (the engine's `resolveComponent` flags the mismatch
+ * separately); no pin resolves the highest version in the list.
+ */
+export function instanceDefResolver(defs: readonly ComponentDef[]): ComponentDefResolver {
+	return (id, version) => {
+		const ofId = defs.filter((def) => def.id === id);
+		if (ofId.length === 0) return undefined;
+		if (version === undefined) {
+			return ofId.reduce((best, def) => (def.version > best.version ? def : best));
+		}
+		return (
+			ofId.find((def) => def.version === version) ??
+			(BUILTIN_COMPONENTS.some((def) => def.id === id) ? ofId[0] : undefined)
+		);
+	};
+}
+
+/**
+ * §6.3 — the placed, NAMED component instances, keyed by the placed node's id → what Flow sees of
+ * each (`FlowInstanceDecl`): its screen (the container whose scene holds it), its name, the pinned
+ * def's interface (`flowInstanceInterface`), or `missing` when the def or the exact pinned version
+ * cannot be resolved. Walks every container's scene tree (an instance inside a container node is
+ * placed too). An instance with no name is not offered — a Flow wire needs something to call it.
+ * The ONE projection the `/flow-v2` editor, the publish gate and the localization harvest share.
+ */
+export function projectFlowInstances(
+	containers: FlowDoc['containers'],
+	scenes: readonly Scene[],
+	resolve: ComponentDefResolver,
+): Record<string, FlowInstanceDecl> {
+	const scenesById = new Map(scenes.map((s) => [s.id, s]));
+	const instances: Record<string, FlowInstanceDecl> = {};
+	const empty = { inputs: [], events: [], values: [] };
+	for (const container of containers) {
+		const scene = scenesById.get(container.sceneId);
+		if (!scene) continue;
+		const walk = (node: LayoutNode): void => {
+			if (node.kind === 'componentInstance') {
+				const name = typeof node.label === 'string' ? node.label.trim() : '';
+				// First placement wins a duplicated id (the editor never mints one): the other placement
+				// then reads as unplaced on its screen, which the validator reports.
+				if (name && !instances[node.id]) {
+					const def = resolve(node.componentId, node.componentVersion);
+					const decl: FlowInstanceDecl = {
+						container: container.id,
+						instance: node.id,
+						name,
+						componentId: node.componentId,
+						...(node.componentVersion !== undefined ? { version: node.componentVersion } : {}),
+						interface: def ? flowInstanceInterface(def) : empty,
+					};
+					if (!def) decl.missing = resolve(node.componentId) ? 'version' : 'def';
+					instances[node.id] = decl;
+				}
+			}
+			const children = (node as { children?: LayoutNode[] }).children;
+			if (Array.isArray(children)) children.forEach(walk);
+		};
+		(scene.nodes ?? []).forEach(walk);
+	}
+	return instances;
 }

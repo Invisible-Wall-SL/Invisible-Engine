@@ -13,7 +13,13 @@ import { flowSymbolsFrom } from '$lib/server/flowV2Symbols';
 import { projectGameType } from '$lib/server/projects';
 import { flowAddOnsOf, resolveGameModes } from 'game-config';
 import { resolveToolScope } from '$lib/server/toolScope';
-import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
+import {
+	instanceDefResolver,
+	projectContainerEvents,
+	projectFlowInstances,
+	syncFlowContainers,
+} from '$lib/flowV2Projection';
+import { withPlacedComponentVersions } from '$lib/server/flowV2Validation';
 import { listCinematics, loadCinematic } from '$lib/server/cinematicStorage';
 import { cinematicPickerOptions, type CinematicPickerOption } from '$lib/timeline/screenTimeline';
 import { validateNodeActors, type Scene } from 'engine-layout';
@@ -122,6 +128,16 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// §6.1 — the container-event surface (see `projectContainerEvents`).
 	const containerEvents = projectContainerEvents(doc.containers, layout.scenes ?? []);
 
+	// §6.3 — the placed, named component instances (Rive plan §6.2): what a `componentInstance` node
+	// derives its pins from, judged against the def version each placement pins.
+	const instances = projectFlowInstances(
+		doc.containers,
+		layout.scenes ?? [],
+		instanceDefResolver(
+			await withPlacedComponentVersions(projectKey, layout.scenes ?? [], components),
+		),
+	);
+
 	// GAME MODES (`docs/design/hold-and-win.md` §4.5) — the project's mode registry (the built-ins plus
 	// its Game Config `modes`), offered by the "+ Mode" tab picker and the mode nodes' inspector. An
 	// unauthored config resolves to the built-ins.
@@ -158,6 +174,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		 *  address a placed asset (see the harvest above). Composed client-side by `withSceneCues`. */
 		sceneCues,
 		containerEvents,
+		/** Placed node id → the instance's projected interface (`projectFlowInstances`), the source of
+		 *  a `componentInstance` node's pins and of every `instance-*` validation. */
+		instances,
 		/** ContainerId → whether that screen can complete itself (a tap-to-continue / completeOnLoaded
 		 *  surface). Fed to `validateFlowDoc` so an unreleasable round-block hold is caught at authoring
 		 *  time; a container absent from the map is unresolved and stays unchecked. */

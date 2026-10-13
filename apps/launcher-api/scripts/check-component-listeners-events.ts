@@ -819,7 +819,7 @@ for (const event of POINTER) {
 		origin: 'listener',
 	});
 	eq(
-		'a press `confirm` runs its chain once; a raised event `confirm` never runs the press’s (no event pins before Phase 7)',
+		'a press `confirm` runs its chain once; a raised event `confirm` never runs the press’s (it resolves against event pins only — Phase 7)',
 		dispatched,
 		['dlg.confirm'],
 	);
@@ -841,9 +841,9 @@ for (const event of POINTER) {
 			instanceSvelte.includes('schedule: (drain) => queueMicrotask(drain),'),
 			instanceSvelte.includes('onDestroy(() => eventDispatcher?.destroy());'),
 			instanceSvelte.includes('routeComponentCue(cue, !!def?.events?.length)'),
-			/fireTrigger: \(id\) => \{\s*const targets = signalToTargets\.get\(id\);\s*if \(targets\) fireCue\(targets\);\s*fireComponentSignal\(id\);/.test(
+			/const fireTrigger = \(id: string\): void => \{\s*const targets = signalToTargets\.get\(id\);\s*if \(targets\) fireCue\(targets\);\s*fireComponentSignal\(id\);/.test(
 				instanceSvelte,
-			),
+			) && instanceSvelte.includes('\t\t\t\t\tfireTrigger,\n'),
 		],
 		[true, true, true, true],
 	);

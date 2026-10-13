@@ -70,6 +70,7 @@
 		delay: 'delay',
 		show: 'show',
 		hide: 'hide',
+		instance: 'instance',
 	};
 
 	// The right-hand detail for one timeline entry (name + resolved payload, or the delay/container).
@@ -81,6 +82,8 @@
 				return `${e.container} · z ${e.z}`;
 			case 'hide':
 				return e.container;
+			case 'instance':
+				return `${e.instance} · ${e.op} ${e.name}${e.value !== undefined ? ` = ${JSON.stringify(e.value)}` : ''}`;
 			default:
 				return e.name + (e.payload ? ` ${JSON.stringify(e.payload)}` : '');
 		}
