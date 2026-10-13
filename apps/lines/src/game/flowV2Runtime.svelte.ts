@@ -636,9 +636,16 @@ export const createLinesFlowV2 = (
 			return;
 		}
 		if (current === state) return;
+		// Mounted but hidden (its own gate or its screen's): its machine has not started, or nobody
+		// sees it advance — "not on screen", so the wait resolves at once rather than holding a chain
+		// a press outside a round started (no slam would ever release it).
+		if (!handle.shown()) {
+			trace('instance wait', label, '· skipped (hidden)');
+			return;
+		}
 		trace('instance HOLD', label, '⏸');
-		// Released by the state, by the instance leaving the screen (its screen was hidden — nothing
-		// could reach the state), or by a slam (an authored wait never outlives a skipped round).
+		// Released by the state, by the instance hiding or leaving the screen (nothing visible could
+		// reach the state), or by a slam (an authored wait never outlives a skipped round).
 		await new Promise<void>((resolve) => {
 			let settled = false;
 			const finish = (why: string): void => {
@@ -652,6 +659,7 @@ export const createLinesFlowV2 = (
 			};
 			const unchange = handle.onChange(() => {
 				if (handle.stateOf(layer) === state) finish('▶ reached');
+				else if (!handle.shown()) finish('▶ instance hidden');
 			});
 			const unwatch = watchFlowInstance(ref.instance, (next) => {
 				if (next !== handle) finish('▶ instance left the screen');
@@ -774,14 +782,14 @@ export const createLinesFlowV2 = (
 		},
 		setInstanceInput: (ref, input, value) => {
 			const live = getFlowInstance(ref.instance);
-			trace(
-				'instance',
-				`${ref.instance}.${input} =`,
-				JSON.stringify(value),
-				live ? '' : '(stashed)',
-			);
-			if (live) live.setInput(input, value);
-			else stashFlowInstanceInput(ref.instance, input, value);
+			const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
+			if (live) {
+				trace('instance', line);
+				live.setInput(input, value);
+			} else {
+				trace('instance', line, '(stashed)');
+				stashFlowInstanceInput(ref.instance, input, value);
+			}
 		},
 		readInstanceValue: (ref, value) => getFlowInstance(ref.instance)?.values()[value],
 		awaitInstanceState,

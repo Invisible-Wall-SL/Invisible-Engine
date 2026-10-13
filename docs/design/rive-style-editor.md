@@ -427,15 +427,19 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
 - **Validation** (errors, so Publish refuses): `instance-missing` (not placed with a name on that
   screen; def or pinned version lost), `instance-pin-missing` (a wire or stored source to an input,
   event or value the pinned interface lacks; a wait on a missing layer), `instance-state-unknown`,
-  `instance-text-key` (a literal fed to a `text` input that is not a key). An event pin is its own
-  entry root (`eventOwners`), so a payload data-out wired off its chain is `signal-cross-event`.
-  Every check runs only when the caller projects the instances (never guess).
+  `instance-text-key` (a literal fed to a `text` input that is not a key),
+  `instance-event-duplicate` (two nodes naming one instance wire the same event — the runtime walks
+  the first wire only). An event pin is its own entry root (`eventOwners`), so a payload data-out
+  wired off its chain is `signal-cross-event`. Every check runs only when the caller projects the
+  instances (never guess).
 - **Runtime** (`runtime.ts`, env hooks `fireInstanceTrigger` / `setInstanceInput` /
   `readInstanceValue` / `awaitInstanceState`, all optional — a recorder env sets and fires nothing,
   reads `undefined`, never waits): on any exec-in every FED data-in is applied first, a `fire:` inlet
   then fires the trigger; `runFlowInstanceEvent` walks from the `event:<event>` pin's wired target
   with the payload on `$trigger` (the active mode's graph first); `flowOwnsInstanceEvent` is the pure
-  ownership read. The preview records each op as an `instance` entry.
+  ownership read, on the stored doc — a wire inside a collapsed group, or one crossing its boundary
+  (stored from the group's `out_<i>` pin), both count. The preview records each op as an `instance`
+  entry.
 - **The road:** `resolveFlowV2Press(id, event, payload, 'event')` (`apps/lines`
   `flowV2InterpreterHolder.ts`) resolves against `ownsInstanceEvent` ONLY — never the press pins —
   and the game plays no press sound for it.
@@ -445,13 +449,18 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   (bool / number on the runner, text kept on the instance), `values`, `stateOf`, `onChange` (the
   machine started or changed state) and the screen id (`sceneIdContext`). The game env
   (`flowV2Runtime.svelte.ts`) defines the outcomes when it is NOT registered: its screen shown per
-  the mount model ⇒ it is mounting, a fire or a wait defers to the registration (250 ms grace);
+  the mount model ⇒ it is mounting, a fire or a wait defers to the registration (250 ms grace — a
+  placement that never registers, say a def the game lacks, costs the chain that much once);
   not shown ⇒ a trigger is DROPPED (the state machine's own rule), a value reads `undefined`, a
   wait resolves at once, and an input set is STASHED and applied on the next mount (so "set the
-  amount, then show the screen" works). A wait is released by the state, by the instance leaving the
-  screen, or by a slam. Every case is traced (`?flowlog=1`).
+  amount, then show the screen" works). A mounted but HIDDEN instance (its own gate or its screen's,
+  `handle.shown()`) is "not on screen" to a wait too: it resolves at once, and a running wait is
+  released when the instance hides. A wait is also released by the state, by the instance leaving
+  the screen, or by a slam. Every case is traced (`?flowlog=1`).
 - **`text` inputs** (§8): `COMPONENT_INPUT_KINDS` gains `text`; a default is a localization key;
-  `isLocalizationKey` lives in `engine-flow-v2` and `engine-layout` re-exports it. The state machine
+  `isLocalizationKey` has a twin in each package (engine-layout must not pull the `engine-flow-v2`
+  barrel into every game's runtime graph for one regex; the gate holds the two together). The state
+  machine
   never conditions on text (`condition-input-text`); the normalizer keeps the kind (an older build's
   save had kept the row in place, #1185); the harvest's **Flow component inputs** section
   (`origin: 'flow'`, `collectInstanceTextKeys`) lists every literal key a flow feeds one. Nothing

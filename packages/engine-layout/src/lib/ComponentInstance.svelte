@@ -712,6 +712,9 @@
 			// gate can key on `enter` directly (appear on mount) as well as on a rig `completeSignal`.
 			fireComponentSignal(ENTER_SIGNAL);
 		}
+		// A Flow wait on this instance follows its visibility too (a hidden instance is "not on
+		// screen" to Flow). Untracked: the listener set is bookkeeping, not a dependency.
+		if (selfVisible !== wasVisible) untrack(notifyFlowInstance);
 		wasVisible = selfVisible;
 	});
 
@@ -948,9 +951,10 @@
 		}
 		const unregister = registerFlowInstance({
 			instanceId: untrack(() => node.id),
-			componentId: node.componentId,
-			version: node.componentVersion,
+			componentId: untrack(() => node.componentId),
+			version: untrack(() => node.componentVersion),
 			sceneId: getSceneIdContext(),
+			shown: () => untrack(() => selfVisible),
 			fire: (trigger) => {
 				if (kinds.get(trigger) === 'trigger') fireTrigger(trigger);
 			},

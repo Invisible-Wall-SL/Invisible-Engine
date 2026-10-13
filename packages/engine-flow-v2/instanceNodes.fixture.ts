@@ -480,6 +480,41 @@ const errorsOf = (
 		['signal-cross-event'],
 	);
 	eq(
+		'3. a second node wiring the same event of one instance is instance-event-duplicate (the first runs)',
+		errorsOf(
+			doc({
+				nodes: [
+					banner('n1'),
+					banner('n2'),
+					{ id: 'ping', kind: 'action', pos: at, ref: 'ping' },
+					{ id: 'cel', kind: 'action', pos: at, ref: 'celebrate' },
+				],
+				exec: [
+					{ from: { node: 'n1', pin: 'event:pressed' }, to: { node: 'ping', pin: 'exec' } },
+					{ from: { node: 'n2', pin: 'event:pressed' }, to: { node: 'cel', pin: 'exec' } },
+				],
+				data: [
+					{ from: { node: 'n2', pin: 'event:done.amount' }, to: { node: 'cel', pin: 'amount' } },
+				],
+			}),
+		),
+		['instance-event-duplicate', 'signal-cross-event'],
+	);
+	eq(
+		'3. a bad endpoint on a base pin, or a deleted node, stays a plain edge-endpoint',
+		errorsOf(
+			doc({
+				nodes: [banner('n1'), { id: 'ping', kind: 'action', pos: at, ref: 'ping' }],
+				exec: [
+					{ from: { node: 'n1', pin: 'exec' }, to: { node: 'ghost', pin: 'exec' } },
+					{ from: { node: 'ping', pin: 'exec' }, to: { node: 'n1', pin: 'exec' } },
+				],
+				data: [{ from: { node: 'n1', pin: 'value:main.state' }, to: { node: 'ghost', pin: 'x' } }],
+			}),
+		),
+		['edge-endpoint', 'edge-endpoint', 'edge-endpoint'],
+	);
+	eq(
 		'3. two placements raising the same event own separate chains',
 		errorsOf(
 			doc({
@@ -647,6 +682,44 @@ const recorder = () => {
 		const { log, ctx } = recorder();
 		await runFlowInstanceEvent(inGroup, ctx, 'c_banner', 'pressed');
 		eq('5. …and runs', log, ['effect ping {}']);
+	}
+	// A wire that CROSSES the group's boundary: stored on the outer graph from the group's `out_0`
+	// pin, whose `boundary[].inner` names the instance node's event pin (`collapseToGroup`'s shape).
+	const crossing = doc({
+		nodes: [
+			{
+				id: 'g',
+				kind: 'group',
+				pos: at,
+				label: 'g',
+				body: { nodes: [banner('n1')], exec: [], data: [] },
+				boundary: [
+					{
+						id: 'out_0',
+						dir: 'out',
+						kind: 'exec',
+						label: 'onDone',
+						inner: { node: 'n1', pin: 'event:done' },
+					},
+				],
+			},
+			{ id: 'ping', kind: 'action', pos: at, ref: 'ping' },
+		],
+		exec: [{ from: { node: 'g', pin: 'out_0' }, to: { node: 'ping', pin: 'exec' } }],
+		data: [],
+	});
+	eq(
+		'5. a wire crossing a group boundary owns (the stored doc keeps its groups)',
+		[
+			flowOwnsInstanceEvent(crossing, 'c_banner', 'done'),
+			flowOwnsInstanceEvent(crossing, 'c_banner', 'pressed'),
+		],
+		[true, false],
+	);
+	{
+		const { log, ctx } = recorder();
+		await runFlowInstanceEvent(crossing, ctx, 'c_banner', 'done', { amount: 4 });
+		eq('5. …and runs through the flattened graph', log, ['effect ping {}']);
 	}
 	const modeDoc = doc(
 		{ nodes: [], exec: [], data: [] },

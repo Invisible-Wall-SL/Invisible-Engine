@@ -22,9 +22,9 @@
  */
 
 import type {
-	ComponentInstanceNode,
 	FlowDoc,
 	FlowInstanceDecl,
+	FlowInstanceNode,
 	Graph,
 	InstanceInputKind,
 	Node,
@@ -81,8 +81,9 @@ export const instanceInputType = (kind: InstanceInputKind): TypeRef | undefined 
 
 /**
  * A localization KEY (plan §8): the stack is source-as-key, so a key is its source text, and the
- * harvest's rule is a string with at least one letter. A `text` input, an event payload `{ key }`
- * and the localization harvest all read it; engine-layout re-exports it.
+ * harvest's rule is a string with at least one letter. The twin of engine-layout's
+ * `isLocalizationKey` (an event payload `{ key }`); kept apart so that package never imports this
+ * barrel at runtime. `check:flow-instance-nodes` holds the two together.
  */
 export const isLocalizationKey = (key: unknown): key is string =>
 	typeof key === 'string' && /\p{L}/u.test(key);
@@ -184,8 +185,8 @@ export const parseInstanceNodeRef = (
 };
 
 /** Every `componentInstance` node of a graph, group bodies included. */
-export const componentInstanceNodes = (graph: Graph): ComponentInstanceNode[] => {
-	const out: ComponentInstanceNode[] = [];
+export const componentInstanceNodes = (graph: Graph): FlowInstanceNode[] => {
+	const out: FlowInstanceNode[] = [];
 	const scan = (nodes: Node[]): void => {
 		for (const node of nodes) {
 			if (node.kind === 'componentInstance') out.push(node);
@@ -197,7 +198,7 @@ export const componentInstanceNodes = (graph: Graph): ComponentInstanceNode[] =>
 };
 
 /** Every `componentInstance` node of a doc, in every section, group bodies included. */
-export const docComponentInstanceNodes = (doc: FlowDoc): ComponentInstanceNode[] => [
+export const docComponentInstanceNodes = (doc: FlowDoc): FlowInstanceNode[] => [
 	...componentInstanceNodes(doc.graph),
 	...Object.values(doc.modes ?? {}).flatMap((scope) =>
 		scope?.graph ? componentInstanceNodes(scope.graph) : [],

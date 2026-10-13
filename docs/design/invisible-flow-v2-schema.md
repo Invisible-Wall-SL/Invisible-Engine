@@ -409,14 +409,16 @@ interface FlowInstanceDecl { container; instance; name; componentId; version?; i
   `confirm` and a `pressAction: 'confirm'` share an instance id and must never share a pin, on a
   saved wire or on the runtime road (`resolveFlowV2Press(…, 'event')` matches `event:` pins only).
 - **Validation** (`validate.ts`, only when `instances` is projected in — never guess):
-  `instance-missing`, `instance-pin-missing`, `instance-state-unknown`, `instance-text-key`; an
-  event pin is an entry root of its own, so `signal-cross-event` covers its payload data-outs.
+  `instance-missing`, `instance-pin-missing`, `instance-state-unknown`, `instance-text-key`,
+  `instance-event-duplicate`; an event pin is an entry root of its own, so `signal-cross-event`
+  covers its payload data-outs.
 - **Runtime** (`runtime.ts`): on any exec-in the fed `in:` data-ins are applied
   (`env.setInstanceInput`), a `fire:` inlet fires the trigger (`env.fireInstanceTrigger`), both
   continue on `exec`; a `value:` data-out reads `env.readInstanceValue`; a wait calls
   `env.awaitInstanceState`; `runFlowInstanceEvent(doc, ctx, instanceId, event, payload)` walks from
-  the event pin's wired target (the mirror of §10.4), `flowOwnsInstanceEvent` is the pure read. The
-  hooks are optional: a recorder env sets and fires nothing, reads `undefined`, never waits. What
+  the event pin's wired target (the mirror of §10.4), `flowOwnsInstanceEvent` is the pure read on
+  the stored doc (a wire inside a group, or crossing its boundary through `boundary[].inner`, counts;
+  nothing is flattened at click time). The hooks are optional: a recorder env sets and fires nothing, reads `undefined`, never waits. What
   the game does for an instance that is not on screen is the env's rule, documented in the plan's
   §6.2 "As built".
 

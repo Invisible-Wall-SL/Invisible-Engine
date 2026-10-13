@@ -83,7 +83,7 @@ export const resolveFlowV2Press: FlowPressResolver = (
 	// chain). `payload` is the raised event's fields, which seed the pin's data-outs.
 	if (kind === 'event') {
 		const h = getFlowV2();
-		if (!h?.ownsInstanceEvent?.(componentId, action)) return undefined;
+		if (!h?.ownsInstanceEvent(componentId, action)) return undefined;
 		return () => void h.dispatchInstanceEvent(componentId, action, payload);
 	}
 	const h = getFlowV2();

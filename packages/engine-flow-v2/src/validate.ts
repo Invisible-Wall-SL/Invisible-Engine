@@ -79,6 +79,8 @@
  *                            the wait would never resolve).
  *  - `instance-text-key`   — a literal fed to a `text` input that is not a localization key (no
  *                            letter) — plan §8: a text input carries a key, never free text.
+ *  - `instance-event-duplicate` — two nodes naming the same instance both wire the same event pin:
+ *                            the runtime runs the first wire only, so the second is dead (an ERROR).
  *                            Every instance check runs only when the caller projects the instances
  *                            in (`PinContext.instances`); absent ⇒ unknown layout ⇒ never guess.
  *
@@ -97,6 +99,8 @@ import {
 	instanceEventOf,
 	instanceInputOf,
 	instanceInputPin,
+	instanceTriggerOf,
+	instanceValueOf,
 	isLocalizationKey,
 } from './instanceNodes';
 import { flowGraphs } from './runtime';
@@ -157,7 +161,8 @@ export type FlowIssueCode =
 	| 'instance-missing'
 	| 'instance-pin-missing'
 	| 'instance-state-unknown'
-	| 'instance-text-key';
+	| 'instance-text-key'
+	| 'instance-event-duplicate';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -755,6 +760,7 @@ const validateGraph = (
 	// a wait must name a layer and a state the machine has; a text literal must be a key. Judged only
 	// when the caller projected the instances in — an absent map is an unknown layout.
 	issues.push(...instanceIssues(nodes, pinsById, ctx));
+	issues.push(...instanceEventDuplicateIssues(nodes, exec, ctx));
 
 	// --- (b + c) edge endpoints + fan-in + fan-out + entry-has-no-exec-in ---
 	const execInCount = new Map<string, number>(); // keyed by `key(pin)`.
@@ -768,16 +774,23 @@ const validateGraph = (
 	};
 
 	// A wire to an instance pin the interface no longer has (an input, event or value removed from
-	// the component) is reported as `instance-pin-missing`, not a bare bad endpoint — judged only when
-	// the instance resolved (an unresolved node already reports `instance-missing`).
-	const stalePin = (p: PinPath): string | undefined => {
+	// the component) is reported as `instance-pin-missing`, not a bare bad endpoint — judged only for
+	// the endpoint that FAILED, on a resolved instance node (an unresolved one already reports
+	// `instance-missing`), and only for an interface pin form (a bad `exec` is a bad endpoint).
+	const stalePin = (p: PinPath, kind: PinKind, dir: PinDir): string | undefined => {
+		if (endpointOk(p, kind, dir)) return undefined;
 		const node = nodeById.get(p.node);
 		if (node?.kind !== 'componentInstance' || !resolvedInstance(node, ctx)) return undefined;
-		return p.pin;
+		const interfacePin =
+			instanceTriggerOf(p.pin) ??
+			instanceInputOf(p.pin) ??
+			instanceEventOf(p.pin) ??
+			instanceValueOf(p.pin);
+		return interfacePin === undefined ? undefined : p.pin;
 	};
 	for (const edge of exec) {
 		if (!endpointOk(edge.from, 'exec', 'out') || !endpointOk(edge.to, 'exec', 'in')) {
-			const stale = stalePin(edge.from) ?? stalePin(edge.to);
+			const stale = stalePin(edge.from, 'exec', 'out') ?? stalePin(edge.to, 'exec', 'in');
 			issues.push(
 				stale !== undefined
 					? {
@@ -839,7 +852,7 @@ const validateGraph = (
 	const dataInCount = new Map<string, number>();
 	for (const edge of data) {
 		if (!endpointOk(edge.from, 'data', 'out') || !endpointOk(edge.to, 'data', 'in')) {
-			const stale = stalePin(edge.from) ?? stalePin(edge.to);
+			const stale = stalePin(edge.from, 'data', 'out') ?? stalePin(edge.to, 'data', 'in');
 			issues.push(
 				stale !== undefined
 					? {
@@ -1122,6 +1135,39 @@ const instanceIssues = (
 				at: { on: 'pin', node: node.id, pin: instanceInputPin(input.id) },
 			});
 		}
+	}
+	return issues;
+};
+
+/** `instance-event-duplicate`: the runtime walks the FIRST wire out of an instance's event pin, so
+ *  a second node naming the same instance and wiring the same event is dead. */
+const instanceEventDuplicateIssues = (
+	nodes: Node[],
+	exec: FlowDoc['graph']['exec'],
+	ctx: PinContext,
+): FlowIssue[] => {
+	const issues: FlowIssue[] = [];
+	if (!ctx.instances) return issues;
+	const nodeById = new Map(nodes.map((n) => [n.id, n]));
+	const first = new Map<string, string>();
+	for (const edge of exec) {
+		const node = nodeById.get(edge.from.node);
+		if (node?.kind !== 'componentInstance') continue;
+		const event = instanceEventOf(edge.from.pin);
+		if (event === undefined) continue;
+		const key = `${node.instance}\u0000${event}`;
+		const owner = first.get(key);
+		if (owner === undefined) {
+			first.set(key, node.id);
+			continue;
+		}
+		if (owner === node.id) continue;
+		issues.push({
+			code: 'instance-event-duplicate',
+			severity: 'error',
+			message: `component node '${node.id}' wires event '${event}' of instance '${node.instance}', which node '${owner}' already wires — only the first wire runs; keep one node per instance event`,
+			at: { on: 'execEdge', from: edge.from, to: edge.to },
+		});
 	}
 	return issues;
 };

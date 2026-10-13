@@ -29,6 +29,10 @@ export interface FlowInstanceHandle {
 	version?: number;
 	/** The screen it is placed on, when the scene provides it. */
 	sceneId?: string;
+	/** Is the instance drawn right now — its own gate and its screen's (`selfVisible`)? A mounted
+	 *  but hidden instance is "not on screen" to Flow: its machine has not started, or it will not
+	 *  advance where anyone can see it. */
+	shown(): boolean;
 	/** Fire a trigger input on this instance — as the signal of that name on its own bus, scoped
 	 *  exactly as a heard signal is. An unknown id, or a non-trigger, does nothing. */
 	fire(trigger: string): void;
@@ -41,7 +45,8 @@ export interface FlowInstanceHandle {
 	values(): Record<string, string>;
 	/** The current state of a layer; `undefined` without that layer. */
 	stateOf(layer: string): string | undefined;
-	/** Run `listener` whenever the state machine starts or changes state. Returns the unsubscribe. */
+	/** Run `listener` whenever the state machine starts or changes state, or the instance is shown
+	 *  or hidden. Returns the unsubscribe. */
 	onChange(listener: () => void): () => void;
 }
 

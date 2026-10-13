@@ -499,7 +499,7 @@ export interface InstanceRef {
  * on every node), so changing the component changes the pins, and a wire to a pin the interface no
  * longer has is a validation error.
  */
-export interface ComponentInstanceNode extends NodeBase, InstanceRef {
+export interface FlowInstanceNode extends NodeBase, InstanceRef {
 	kind: 'componentInstance';
 }
 
@@ -537,7 +537,7 @@ export type Node =
 	| AllModesFinishedNode
 	| EnterModeNode
 	| ExitModeNode
-	| ComponentInstanceNode
+	| FlowInstanceNode
 	| WaitForStateNode;
 
 // ---------------------------------------------------------------------------

@@ -32,6 +32,8 @@ const M = await import('../../../packages/engine-layout/src/lib/stateMachine.ts'
 const L = await import('../../../packages/engine-layout/src/lib/componentTimelines.ts');
 const G = await import('../../../packages/engine-layout/src/lib/flowInstances.ts');
 const F = await import('../../../packages/engine-layout/src/lib/registerFlowPress.ts');
+const E = await import('../../../packages/engine-layout/src/lib/componentEvents.ts');
+const N = await import('../../../packages/engine-flow-v2/src/instanceNodes.ts');
 const { collectComponentPins } =
 	await import('../../../packages/engine-layout/src/lib/collectComponentIds.ts');
 const { freshDrivenSeedDoc } =
@@ -398,6 +400,12 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		[['__flowInstanceText', 'flow', [['Big win!', 'winBanner — title']]]],
 	);
 	eq('4. nothing fed ⇒ no section', harvestFlowInstanceText(doc, {}), []);
+	const samples = ['Big win', '12', '', 'ü', 5, null, 'a b'];
+	eq(
+		'4. the two localization-key twins (engine-layout, engine-flow-v2) agree',
+		samples.map((v) => E.isLocalizationKey(v)),
+		samples.map((v) => N.isLocalizationKey(v)),
+	);
 }
 
 // ---- 5. registry -------------------------------------------------------------------------------
@@ -412,6 +420,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		input: () => undefined,
 		values: () => ({ 'main.state': 'idle' }),
 		stateOf: (layer: string) => (layer === 'main' ? 'idle' : undefined),
+		shown: () => true,
 		onChange: () => () => undefined,
 	});
 	const seen: (string | undefined)[] = [];
@@ -583,9 +592,10 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			'awaitInstanceState,',
 			'ownsInstanceEvent: (instanceId, event) =>',
 			"const unskip = roundSkip.onSkip(() => finish('▶ slammed'));",
-			'else stashFlowInstanceInput(ref.instance, input, value);',
+			'stashFlowInstanceInput(ref.instance, input, value);',
+			'if (!handle.shown()) {',
 		].map((line) => runtime.includes(line)),
-		[true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true],
 	);
 	eq(
 		'8. a raised event plays no press sound',

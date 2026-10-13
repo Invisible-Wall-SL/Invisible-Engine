@@ -805,6 +805,7 @@ for (const event of POINTER) {
 	const dispatched: string[] = [];
 	H.setFlowV2({
 		ownsContainerEvent: (id: string, action: string) => id === 'dlg' && action === 'confirm',
+		ownsInstanceEvent: () => false,
 		dispatchContainerEvent: async (id: string, action: string) => {
 			dispatched.push(`${id}.${action}`);
 		},

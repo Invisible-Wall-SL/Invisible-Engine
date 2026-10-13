@@ -1033,9 +1033,16 @@ const graphOwnsContainerEvent = (graph: Graph, componentId: string, event: strin
 	);
 };
 
-/** The exec edge out of the `event:<event>` pin of the `componentInstance` node naming `instanceId`
- *  (group bodies are flattened before this runs on an interpreter's graph; a raw graph's groups are
- *  scanned too, since the ownership read runs on the stored doc). */
+/**
+ * The exec edge out of the `event:<event>` pin of the `componentInstance` node naming `instanceId`.
+ * An interpreter's graph is flattened, so the edge is on it directly. The OWNERSHIP read runs on the
+ * stored doc, where a group keeps its body: a wire inside the body is found there, and a wire that
+ * CROSSES the group's boundary is stored on the outer graph from the group's `out_<i>` pin, whose
+ * `boundary[].inner` names the real source — so that pin is followed too. Never flattens (which
+ * rewires and throws on a malformed group; this runs at click time). A second node naming the same
+ * instance and wiring the same event is a validation error (`instance-event-duplicate`); the first
+ * wire wins here.
+ */
 const instanceEventEdge = (
 	graph: Graph,
 	instanceId: string,
@@ -1053,6 +1060,17 @@ const instanceEventEdge = (
 		if (node.kind !== 'group' || !node.body) continue;
 		const inner = instanceEventEdge(node.body, instanceId, event);
 		if (inner) return inner;
+		const bodyOwners = new Set(
+			node.body.nodes
+				.filter((n) => n.kind === 'componentInstance' && n.instance === instanceId)
+				.map((n) => n.id),
+		);
+		for (const b of node.boundary ?? []) {
+			if (b.dir !== 'out' || b.kind !== 'exec' || b.inner.pin !== pin) continue;
+			if (!bodyOwners.has(b.inner.node)) continue;
+			const crossing = graph.exec.find((e) => e.from.node === node.id && e.from.pin === b.id);
+			if (crossing) return crossing;
+		}
 	}
 	return undefined;
 };
