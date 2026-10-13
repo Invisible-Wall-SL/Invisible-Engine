@@ -767,16 +767,27 @@
 	const timelineEvents = timelinePlayer
 		? getContextEventEmitter<{ type: string }>()?.eventEmitter
 		: undefined;
-	/** A cue a component timeline crosses: `signal:x` fires on this instance's own bus (so a
-	 *  `hiddenUntilSignal`, a tap gate or another timeline can follow it); any other cue (`fx:`) is
-	 *  broadcast by its bare name, the seam a screen timeline's cues use. */
-	const routeTimelineCue = (cue: string): void => {
+	/**
+	 * A cue a component timeline crosses. `signal:x` fires on this instance's own bus (so a
+	 * `hiddenUntilSignal`, a tap gate or another timeline can follow it) and restarts every other
+	 * timeline playing on `x` here — never the one that crossed it, which would loop it forever.
+	 * `sfx:` / `music:` are dropped: this package has no sound player, and broadcasting a sound's
+	 * bare name could collide with a real game event. Any other cue (`fx:`) is broadcast by its bare
+	 * name, the seam a screen timeline's cues use.
+	 */
+	const routeTimelineCue = (cue: string, timeline: string): void => {
 		const sep = cue.indexOf(':');
 		const ns = sep > 0 ? cue.slice(0, sep) : '';
 		const name = sep > 0 ? cue.slice(sep + 1) : cue;
-		if (!name) return;
-		if (ns === 'signal') fireComponentSignal(name);
-		else timelineEvents?.broadcast({ type: name });
+		if (!name || ns === 'sfx' || ns === 'music') return;
+		if (ns !== 'signal') {
+			timelineEvents?.broadcast({ type: name });
+			return;
+		}
+		if (timelinePlayer?.trigger(name, timeline)) timelineClock += 1;
+		// Handled above, so the fire-count watcher must not restart them (the crossing one included).
+		timelineFires[name] = (untrack(() => firedSignals[name]) ?? 0) + 1;
+		fireComponentSignal(name);
 	};
 	const timelineTicker = timelinePlayer
 		? getContextApp().stateApp.pixiApplication?.ticker
@@ -785,7 +796,7 @@
 		if (!timelinePlayer?.isPlaying() || !timelineTicker) return;
 		const step = timelinePlayer.advance(timelineTicker.deltaMS / 1000);
 		timelineClock += 1;
-		for (const cue of step.cues) routeTimelineCue(cue);
+		for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);
 	};
 	timelineTicker?.add(tickTimelines);
 	onDestroy(() => timelineTicker?.remove(tickTimelines));

@@ -44,7 +44,7 @@ Shipped capabilities on `main`:
   component host, **Plays on** (`playOn`), **Also on** (`playOnComponents`) and a validation pill.
   Each placed instance plays its def's timelines on its own signal bus (engine detail, access and
   ship chain in [cinematic status](cinematic.md)). New gate `pnpm --filter launcher-api
-  check:component-timelines` (34 checks); `check:cinematic-access` 36. Browser-verify list under
+  check:component-timelines` (39 checks); `check:cinematic-access` 36. Browser-verify list under
   Blocked.
 - 2026-10-13 — **Folded into `/editor` (Rive plan Phase 4a).** `components/+page.svelte` moved to
   `editor/ComponentWorkspace.svelte` and mounts as the editor's Components side; every capability

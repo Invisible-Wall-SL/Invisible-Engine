@@ -97,8 +97,10 @@ them per placed instance (`componentTimelines.ts`); headless-proven, not yet bro
     cast timelines. Ids: `c_<component>_<name>`; storage unchanged
     (`<client>/<project>/cinematics/<id>.json`).
   - **Binding (`cinematicNodes.ts`).** A component-hosted timeline binds BY NAME on whatever node
-    list it is handed (its def's root, a reused-on component's); a screen timeline still binds only
-    on its own screen. The panel runs `validateNodeActors` on the def and on each
+    list it is handed (its def's root, a reused-on component's) — by NAME only, never by node id
+    (`findActorNode`; a screen timeline keeps `findNodeByName`'s id fallback) — and a screen
+    timeline still binds only on its own screen. Names are checked across the whole def, also while
+    editing inside a skinnable part. The panel runs `validateNodeActors` on the def and on each
     `playOnComponents` entry.
   - **Runtime (`componentTimelines.ts` + `ComponentInstance.svelte`).** `registerComponentTimelines(
     bakedCinematics())` runs at boot inside `registerBakedComponents()` (`apps/lines/src/
@@ -108,7 +110,10 @@ them per placed instance (`componentTimelines.ts`); headless-proven, not yet bro
     def's `signalScope`, a rig `completeSignal`, or `enter`) (re)starts it from 0; it advances on the
     Pixi ticker; the last frame HOLDS; two timelines on one node ⇒ the most recently started wins.
     Cues crossed: `signal:x` fires on the instance's own bus (so `hiddenUntilSignal`, a tap gate or
-    another timeline can follow); any other cue (`fx:` …) is broadcast by bare name. Instances play
+    another timeline can follow) and restarts the other timelines on `x`, never the one that
+    crossed it (no self-restart loop); `sfx:` / `music:` are dropped (never broadcast — a sound's
+    bare name could collide with a real game event); any other cue (`fx:` …) is broadcast by bare
+    name. Instances play
     independently. The node driver is scoped to the instance's nest depth + 1, so a component's
     timeline never reaches into a nested component. No timeline ⇒ no player, no subscription, no
     ticker work (parity). `cues`, `stateAnimations`, `valueBindings` untouched.
@@ -119,8 +124,8 @@ them per placed instance (`componentTimelines.ts`); headless-proven, not yet bro
     component timeline ships with the game; node actors seed no rig bundle (the nodes' art ships
     with the component). Timelines are project-scoped: a shared component's timeline authored in
     project A does not ship for project B (shared timeline library = Phase 9).
-  - **Not in Phase 4b:** `sfx:` / `music:` cues are not played from a component timeline (only
-    `signal:` locally, the rest broadcast); the panel keys no text tracks, visibility or cues (as on
+  - **Not in Phase 4b:** `sfx:` / `music:` cues are not played from a component timeline (they
+    are dropped); the panel keys no text tracks, visibility or cues (as on
     screens).
 
 - **`/rigger` cinematic mode (Phase 1).** A fourth mode beside Preview / Setup / Animate. Cast a
@@ -226,7 +231,7 @@ them per placed instance (`componentTimelines.ts`); headless-proven, not yet bro
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | `tools/rigger-spike/cinematic-screen-timeline.mjs` — Phase 3 end to end: author (headless Timeline + name targeting) → save (in-memory R2) → picker labels → `validateNodeActors` → `exportCinematics` / bundle → `playCinematic` on the REAL interpreter → game fold vs the editor's compiled preview module at six times; parity with no preview | **41/41** |
 | `apps/launcher-api/scripts/check-cinematic-access.ts` — the REAL `/api/cinematics/*` handlers per entitlement (rigger / editor / both / neither), incl. the same-id hijack, force, the mid-request race, and a component-host section (Phase 4b) | **36/36** |
-| `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name + validation, export of a component timeline no Flow node names | **34/34** |
+| `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name only (never an id) + validation, no self-restart from a timeline's own cue, export of a component timeline no Flow node names | **39/39** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
 ### What the gates established
@@ -308,7 +313,7 @@ them per placed instance (`componentTimelines.ts`); headless-proven, not yet bro
   `playOn` / `playOnComponents` in the format, `ComponentTimelinePlayer` per placed instance, the
   node driver scoped by nest depth, the access level `screen` → `hosted` (component hosts too, rig
   cinematics still Rigger-only), component timelines out of the Flow picker — as described under
-  Current state. New gate `check:component-timelines` 34/34; `check:cinematic-access` 36/36; the
+  Current state. New gate `check:component-timelines` 39/39; `check:cinematic-access` 36/36; the
   Phase 1 spike's component-host assertion now expects binding by name (69/69).
 - 2026-10-13 — **Screen timelines in the Scene Editor (Rive plan Phase 3).** Animate mode in
   `/editor`, editor-gated access to screen timelines, the Flow picker, and the editor preview

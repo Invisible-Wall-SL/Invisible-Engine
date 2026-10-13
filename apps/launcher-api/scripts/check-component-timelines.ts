@@ -8,7 +8,8 @@
  *     the most recently started timeline win a node two of them drive;
  *  3. TWO instances play independently: a fire heard through one instance's signal scope moves only
  *     that instance's playhead (the same `scopeMatches` rule `ComponentInstance` applies);
- *  4. reuse binds by node name, and validation flags a reused-on component that lacks a name;
+ *  4. reuse binds by node NAME only (never an id), and validation flags a component that lacks it;
+ *     a timeline never restarts itself from its own `signal:` cue;
  *  5. the ship chain: a component timeline no Flow node names is still exported to `deploy/` and
  *     embedded for the game (rule 8), and it seeds no rig the export would then miss.
  *
@@ -157,10 +158,12 @@ eq('another signal starts nothing', player.trigger('win'), false);
 eq('its own signal starts it', player.trigger('enter'), true);
 eq('at 0 it samples the first key', player.sample('n_coin'), { y: -100, alpha: 0 });
 // Frame-sized steps: a step over `cuesCrossed`'s seek limit fires no cue, as in the player.
-const halfCues: string[] = [];
+const halfCues: { cue: string; timeline: string }[] = [];
 for (let i = 0; i < 5; i++) halfCues.push(...player.advance(0.1).cues);
 eq('half way', player.sample('n_coin'), { y: -50, alpha: 0.5 });
-eq('a crossed cue is reported once', halfCues, ['signal:landed']);
+eq('a crossed cue is reported once, with its timeline', halfCues, [
+	{ cue: 'signal:landed', timeline: 'pop' },
+]);
 const end = player.advance(0.6);
 eq('the end is reported once', end.completed, ['pop']);
 eq('...and the last frame HOLDS', player.sample('n_coin'), { y: 0, alpha: 1 });
@@ -239,6 +242,48 @@ eq(
 	'validation flags a reused-on component that lacks the name',
 	N.validateNodeActors(glowOnly, { id: 'gem', name: 'Gem', nodes: gemNodes }).map((i) => i.code),
 	['node-missing'],
+);
+const byId = timeline('byid', { playOn: 'enter', target: 'g1' });
+eq(
+	'a component timeline never binds a node by its id',
+	N.resolveNodeActors(byId, { id: 'gem', name: 'Gem', nodes: gemNodes }).size,
+	0,
+);
+eq(
+	'...and validation says so',
+	N.validateNodeActors(byId, { id: 'gem', name: 'Gem', nodes: gemNodes }).map((i) => i.code),
+	['node-missing'],
+);
+eq(
+	'a screen timeline keeps its id fallback (unchanged)',
+	[
+		...N.resolveNodeActors(
+			{ ...byId, host: { kind: 'screen', sceneId: 'base' } },
+			{ id: 'base', name: 'Base', nodes: gemNodes },
+		).keys(),
+	],
+	['g1'],
+);
+// A timeline that cues the very signal it plays on: its own cue must not restart it.
+const echo = {
+	...timeline('echo', { playOn: 'landed' }),
+} as CinematicDoc;
+const echoed = new L.ComponentTimelinePlayer(
+	[echo, timeline('follow', { playOn: 'landed', target: 'Glow' })],
+	coinNodes,
+);
+echoed.trigger('landed');
+let echoCue: { cue: string; timeline: string } | undefined;
+for (let i = 0; i < 6 && !echoCue; i++) echoCue = echoed.advance(0.1).cues[0];
+eq('the echo timeline crosses its own signal:landed cue', echoCue, {
+	cue: 'signal:landed',
+	timeline: 'echo',
+});
+echoed.trigger('landed', echoCue?.timeline);
+eq(
+	'routing that cue restarts the OTHER timeline on that signal, never the one that crossed it',
+	[echoed.timeOf('follow'), Number(echoed.timeOf('echo')?.toFixed(2))],
+	[0, 0.5],
 );
 eq(
 	'a component timeline binds on a screen with the same names too',

@@ -62,8 +62,8 @@ interface Running {
 
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
-	/** Cue strings (`signal:x`, `fx:y`, …) the playheads crossed, in order. */
-	cues: string[];
+	/** Cues the playheads crossed, in order, each with the id of the timeline that crossed it. */
+	cues: { cue: string; timeline: string }[];
 	/** Ids of the timelines that reached their end on this step. */
 	completed: string[];
 }
@@ -128,11 +128,15 @@ export class ComponentTimelinePlayer {
 		return undefined;
 	}
 
-	/** (Re)start every timeline that plays on `signal`. True when one did. */
-	trigger(signal: string): boolean {
+	/**
+	 * (Re)start every timeline that plays on `signal`. True when one did. `except` is the timeline
+	 * whose own `signal:` cue fired it: a timeline never restarts itself from its own cue, which
+	 * would loop it forever from that cue's time.
+	 */
+	trigger(signal: string, except?: string): boolean {
 		let any = false;
 		for (const b of this.bound) {
-			if (b.doc.playOn !== signal) continue;
+			if (b.doc.playOn !== signal || b.doc.id === except) continue;
 			this.running.set(b.doc.id, { bound: b, time: 0, done: false, order: ++this.started });
 			any = true;
 		}
@@ -158,7 +162,9 @@ export class ComponentTimelinePlayer {
 			const duration = Math.max(r.bound.doc.duration || 0, 0);
 			const prev = r.time;
 			const next = Math.min(prev + dtSeconds, duration);
-			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) step.cues.push(k.cue);
+			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
+				step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
+			}
 			r.time = next;
 			if (next >= duration) {
 				r.done = true;

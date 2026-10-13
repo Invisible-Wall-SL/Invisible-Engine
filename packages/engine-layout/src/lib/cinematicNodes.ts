@@ -89,6 +89,22 @@ export function findNodeByName(nodes: LayoutNode[], name: string): LayoutNode | 
 	return walk(nodes) ?? byId;
 }
 
+/**
+ * The node `doc`'s actor targeting `name` drives in `nodes`. A COMPONENT timeline binds by name
+ * only, never by id: it is reused on other components and screens (plan §3.3), where a node id
+ * means nothing, so an unnamed node is never bound. A screen timeline keeps
+ * {@link findNodeByName}'s id fallback, which the screens authored before names relied on.
+ */
+export function findActorNode(
+	doc: CinematicDoc,
+	nodes: LayoutNode[],
+	name: string,
+): LayoutNode | undefined {
+	if (doc.host?.kind !== 'component') return findNodeByName(nodes, name);
+	const hit = findNodeByName(nodes, name);
+	return hit?.label === name ? hit : undefined;
+}
+
 /** The tracks one actor owns. */
 function tracksOf(doc: CinematicDoc, actorId: string): LooseTrack[] {
 	return (doc.tracks as LooseTrack[]).filter((t) => t && t.actorId === actorId);
@@ -120,7 +136,7 @@ export function resolveNodeActors(
 	if (!binds) return out;
 	for (const cast of doc.stage?.cast ?? []) {
 		if (!isNodeActorCast(cast) || typeof cast.target !== 'string') continue;
-		const node = findNodeByName(scene.nodes, cast.target);
+		const node = findActorNode(doc, scene.nodes, cast.target);
 		if (!node || out.has(node.id)) continue;
 		out.set(node.id, { actorId: cast.actorId, node, tracks: tracksOf(doc, cast.actorId) });
 	}
@@ -177,7 +193,7 @@ export function validateNodeActors(doc: CinematicDoc, scene: Scene | undefined):
 			issues.push({ actorId, code: 'no-target', message: `Actor "${actorId}" names no node.` });
 			continue;
 		}
-		const node = scene ? findNodeByName(scene.nodes, cast.target) : undefined;
+		const node = scene ? findActorNode(doc, scene.nodes, cast.target) : undefined;
 		if (!node) {
 			issues.push({
 				actorId,

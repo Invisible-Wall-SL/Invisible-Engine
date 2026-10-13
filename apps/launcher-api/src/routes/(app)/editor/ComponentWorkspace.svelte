@@ -922,7 +922,14 @@
 	$effect(() => {
 		if (!componentDraft || !componentScene) return;
 		const draftId = componentDraft.id;
-		timelineScene = componentScene;
+		// The WHOLE def, even while editing inside a skinnable part: the game resolves a timeline's
+		// node names across all of `root`, so naming and duplicate checks must too.
+		timelineScene = {
+			id: 's_component',
+			name: componentDraft.name,
+			nodes: componentDraft.root.children,
+			space: componentDraft.space ?? 'game',
+		};
 		timelineComponent = {
 			id: draftId,
 			name: componentDraft.name,
