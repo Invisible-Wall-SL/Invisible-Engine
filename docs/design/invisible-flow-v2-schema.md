@@ -384,6 +384,42 @@ node per signal.
   event with no matching `event` node AND no `gameSignals` pin (an intent, or an unknown/unsurfaced
   event) is a **parity-safe no-op**.
 
+### 6.3 Placed component instance nodes (Rive plan §6.2, Phase 7 — 2026-10-13)
+
+Where §6.1 surfaces a container's *configured presses* on the `showContainer` node, a
+**`componentInstance`** node is one placed, named instance of a component, wired through its
+declared **interface** (`docs/design/rive-style-editor.md` §6.1): triggers in, inputs in, events
+out, values out. A **`waitForState`** node holds the chain until one of its state-machine layers
+reaches a state.
+
+```ts
+interface ComponentInstanceNode extends NodeBase { kind: 'componentInstance'; container: ContainerId; instance: string }
+interface WaitForStateNode      extends NodeBase { kind: 'waitForState'; container; instance; layer: string; state: string }
+interface FlowInstanceDecl { container; instance; name; componentId; version?; interface: InstanceInterface; missing?: 'def' | 'version' }
+```
+
+- **Derived, never stored** (the §2 rule). `PinContext.instances` maps a placed node id to its
+  `FlowInstanceDecl` — projected by the launcher from the LayoutDoc and the def at the EXACT pinned
+  version (`projectFlowInstances`). `deriveInstancePins` (`instanceNodes.ts`, the one home of the
+  pin-id forms): exec-in `set`, exec-in `fire:<trigger>`, optional data-in `in:<input>`
+  (bool / float / string for a `text` input), exec-out `exec`, exec-out `event:<event>` with
+  `event:<event>.<field>` data-outs, data-out `value:<layer>.state`. No projection, a lost def or a
+  decl on another screen ⇒ `[set, exec]` only.
+- **Events have their own pin form.** Never `containerEventDeclId`'s `<id>.on<Event>`: an event
+  `confirm` and a `pressAction: 'confirm'` share an instance id and must never share a pin, on a
+  saved wire or on the runtime road (`resolveFlowV2Press(…, 'event')` matches `event:` pins only).
+- **Validation** (`validate.ts`, only when `instances` is projected in — never guess):
+  `instance-missing`, `instance-pin-missing`, `instance-state-unknown`, `instance-text-key`; an
+  event pin is an entry root of its own, so `signal-cross-event` covers its payload data-outs.
+- **Runtime** (`runtime.ts`): on any exec-in the fed `in:` data-ins are applied
+  (`env.setInstanceInput`), a `fire:` inlet fires the trigger (`env.fireInstanceTrigger`), both
+  continue on `exec`; a `value:` data-out reads `env.readInstanceValue`; a wait calls
+  `env.awaitInstanceState`; `runFlowInstanceEvent(doc, ctx, instanceId, event, payload)` walks from
+  the event pin's wired target (the mirror of §10.4), `flowOwnsInstanceEvent` is the pure read. The
+  hooks are optional: a recorder env sets and fires nothing, reads `undefined`, never waits. What
+  the game does for an instance that is not on screen is the env's rule, documented in the plan's
+  §6.2 "As built".
+
 ## 7. Template vocabulary (the contract)
 
 Declared by each template; loaded by the editor; **the type checker's source of truth.**

@@ -43,6 +43,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-13 — **Flow instance nodes (Rive plan Phase 7a, branch
+  `claude/rive-p7a-flow-instance-nodes-runtime`)** — the component side: input kind **`text`**
+  (`COMPONENT_INPUT_KINDS`; a default is a localization key; the state machine never conditions on
+  it — `condition-input-text`; the normalizer keeps it, so a row an older build kept unreadable now
+  reads), `flowInstanceInterface(def)` (the interface as a Flow node sees it), and every TOP-LEVEL
+  placement registers a live handle (`flowInstances.ts`) Flow fires, sets, reads and waits on. The
+  Flow side is in [flow.md](flow.md). The Inputs block does not offer `text` yet (7b / the 6b UI).
 - 2026-10-13 — **Listeners + events, format and runtime (Rive plan Phase 6a, branch
   `claude/rive-p6a-listeners-events-runtime`).** New `ComponentDef.events`, node `on`, state
   `onEnter`; `componentEvents.ts` (dispatcher, raise road, `event:` cues, validation) and

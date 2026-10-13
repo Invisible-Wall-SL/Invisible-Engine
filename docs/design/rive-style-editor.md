@@ -402,6 +402,68 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
 5. **Preview together.** Flow's Preview drives the stage. Firing a trigger in Flow plays the
    component's state machine on the canvas, so logic and animation are checked in one place.
 
+**As built (Phase 7a, 2026-10-13 — format, validator, runtime; the `/flow-v2` UI and the jumps are
+7b):**
+
+- **Two node kinds** in `engine-flow-v2` (`types.ts`): `componentInstance { container, instance }`
+  — the screen (a container of the flow) and the placed node id — and
+  `waitForState { container, instance, layer, state }`. Nothing of the component is stored on the
+  node; `inputs` holds only the data-in sources, as on every node.
+- **Pins are derived** (`instanceNodes.ts`, `deriveInstancePins`) from `PinContext.instances`: the
+  placed, NAMED instances keyed by node id → `FlowInstanceDecl` (screen, name, component id, the
+  pinned version, its `InstanceInterface`, or `missing: 'def' | 'version'`). Pin ids: exec-in `set`
+  (apply the fed inputs, continue), exec-in `fire:<trigger>` (apply, fire, continue), optional
+  data-in `in:<input>` (bool → `bool`, number → `float`, text → `string`), exec-out `exec`, exec-out
+  `event:<event>` with data-outs `event:<event>.<field>`, data-out `value:<layer>.state` (string).
+  The event form is deliberately not `containerEventDeclId`'s `<id>.on<Event>`. No projection, a
+  missing def or a decl on another screen ⇒ the base `[set, exec]` only, never guessed.
+- **The projection** is the launcher's (`flowV2Projection.ts` `projectFlowInstances`): every
+  container's scene tree, each `componentInstance` node with a non-blank `label`, its def resolved
+  at the EXACT pinned version (`instanceDefResolver`; a built-in resolves any pin, as
+  `loadComponent` does); `withPlacedComponentVersions` loads the pinned snapshots the way the bundle
+  does (`collectComponentPins`). The `/flow-v2` loader, the publish gate (`validateFlowV2Against`)
+  and the localization harvest share it. `engine-layout` turns a def into the Flow shape
+  (`flowInstanceInterface`).
+- **Validation** (errors, so Publish refuses): `instance-missing` (not placed with a name on that
+  screen; def or pinned version lost), `instance-pin-missing` (a wire or stored source to an input,
+  event or value the pinned interface lacks; a wait on a missing layer), `instance-state-unknown`,
+  `instance-text-key` (a literal fed to a `text` input that is not a key). An event pin is its own
+  entry root (`eventOwners`), so a payload data-out wired off its chain is `signal-cross-event`.
+  Every check runs only when the caller projects the instances (never guess).
+- **Runtime** (`runtime.ts`, env hooks `fireInstanceTrigger` / `setInstanceInput` /
+  `readInstanceValue` / `awaitInstanceState`, all optional — a recorder env sets and fires nothing,
+  reads `undefined`, never waits): on any exec-in every FED data-in is applied first, a `fire:` inlet
+  then fires the trigger; `runFlowInstanceEvent` walks from the `event:<event>` pin's wired target
+  with the payload on `$trigger` (the active mode's graph first); `flowOwnsInstanceEvent` is the pure
+  ownership read. The preview records each op as an `instance` entry.
+- **The road:** `resolveFlowV2Press(id, event, payload, 'event')` (`apps/lines`
+  `flowV2InterpreterHolder.ts`) resolves against `ownsInstanceEvent` ONLY — never the press pins —
+  and the game plays no press sound for it.
+- **The live instance** (`engine-layout` `flowInstances.ts`): `<ComponentInstance>` registers a
+  handle under its node id while mounted — a TOP-LEVEL placement only (one nested inside another
+  def is not Flow's to name) — with `fire` (through the same `fireTrigger` a listener uses), `setInput`
+  (bool / number on the runner, text kept on the instance), `values`, `stateOf`, `onChange` (the
+  machine started or changed state) and the screen id (`sceneIdContext`). The game env
+  (`flowV2Runtime.svelte.ts`) defines the outcomes when it is NOT registered: its screen shown per
+  the mount model ⇒ it is mounting, a fire or a wait defers to the registration (250 ms grace);
+  not shown ⇒ a trigger is DROPPED (the state machine's own rule), a value reads `undefined`, a
+  wait resolves at once, and an input set is STASHED and applied on the next mount (so "set the
+  amount, then show the screen" works). A wait is released by the state, by the instance leaving the
+  screen, or by a slam. Every case is traced (`?flowlog=1`).
+- **`text` inputs** (§8): `COMPONENT_INPUT_KINDS` gains `text`; a default is a localization key;
+  `isLocalizationKey` lives in `engine-flow-v2` and `engine-layout` re-exports it. The state machine
+  never conditions on text (`condition-input-text`); the normalizer keeps the kind (an older build's
+  save had kept the row in place, #1185); the harvest's **Flow component inputs** section
+  (`origin: 'flow'`, `collectInstanceTextKeys`) lists every literal key a flow feeds one. Nothing
+  renders a text input's value yet (`handle.input(id)` reads it) — binding it to a param, Rive's
+  data binding, is an owner decision (§12).
+- **Ship chain:** nothing new. The FlowDoc already ships; the placed def and its pinned version
+  ride `resolveReferencedDefs`; the state timelines ride the cinematic export.
+- **Gates:** `packages/engine-flow-v2/instanceNodes.fixture.ts` (pins, validation, runtime,
+  preview, parity over every starter flow), `check:flow-instance-nodes` (projection, publish gate,
+  text inputs, harvest, registry, the event road, the ship chain, source-scanned wiring),
+  `check:flow-publish-gate` §14.
+
 ### 6.3 Why it stays safe
 
 - The pins are **derived** from the interface. Change the component and Flow's palette and
@@ -553,7 +615,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) built 2026-10-13; 6b (editor) next | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
-| 7 | **Flow instance nodes** | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
+| 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) built 2026-10-13; 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) next | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
