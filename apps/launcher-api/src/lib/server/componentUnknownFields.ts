@@ -77,8 +77,10 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 
 	for (const { field, id, isKnown } of ROW_ARRAYS) {
 		const rows = next[field] as Row[] | undefined;
-		const merged = rows ? graftRows(rows, stored[field], id, isKnown) : rows;
-		set(field, field === 'inputs' ? withUnreadableInputs(merged, stored.inputs) : merged, rows);
+		const isInputs = field === 'inputs';
+		const skip = isInputs ? isUnreadableInput : undefined;
+		const merged = rows ? graftRows(rows, stored[field], id, isKnown, undefined, skip) : rows;
+		set(field, isInputs ? withUnreadableInputs(merged, stored.inputs, next.signals) : merged, rows);
 	}
 
 	const machine = graftStateMachine(next.stateMachine as Row | undefined, stored.stateMachine);
@@ -101,8 +103,9 @@ function graftRows(
 	id: string,
 	isKnown: IsKnown,
 	inner?: (row: Row, stored: Row) => Row,
+	skip?: (row: Row) => boolean,
 ): Row[] {
-	const byId = rowsById(stored, id);
+	const byId = rowsById(stored, id, skip);
 	let changed = false;
 	const merged = rows.map((row) => {
 		const twin = typeof row[id] === 'string' ? byId.get(row[id]) : undefined;
@@ -115,34 +118,56 @@ function graftRows(
 	return changed ? merged : rows;
 }
 
-function rowsById(stored: unknown, id: string): Map<string, Row> {
+/**
+ * The rows of `stored` by `id`, first wins. `skip` leaves out rows the read drops, so a twin is
+ * always the row the author saw, the way `normalizeInputs` claims an id only for a readable row.
+ */
+function rowsById(stored: unknown, id: string, skip?: (row: Row) => boolean): Map<string, Row> {
 	const byId = new Map<string, Row>();
 	for (const row of Array.isArray(stored) ? stored : []) {
-		if (isPlainObject(row) && typeof row[id] === 'string' && !byId.has(row[id])) {
-			byId.set(row[id], row);
-		}
+		if (!isPlainObject(row) || typeof row[id] !== 'string' || byId.has(row[id])) continue;
+		if (!skip?.(row)) byId.set(row[id], row);
 	}
 	return byId;
 }
 
+/** An input row the read dropped for its kind alone: a non-empty id and a kind this build does
+ *  not know (a newer build's), not a malformed row. */
+function isUnreadableInput(row: Row): boolean {
+	return (
+		typeof row.id === 'string' &&
+		row.id !== '' &&
+		typeof row.kind === 'string' &&
+		row.kind !== '' &&
+		!INPUT_KINDS.has(row.kind)
+	);
+}
+
 /**
  * `inputs` with every stored row of an unknown `kind` that it lacks put back where it stood: after
- * the nearest stored row before it that is still there, else first. Its fields are never
- * re-normalized, so a newer value inside it cannot fail a save.
+ * the nearest stored row before it that is still there, else first. Not when the author's save
+ * now uses that id for an input or a signal (signals share the input id space,
+ * `componentInputs`): the author's entity wins. Its fields are never re-normalized, so a newer
+ * value inside it cannot fail a save.
  */
-function withUnreadableInputs(inputs: Row[] | undefined, stored: unknown): Row[] | undefined {
+function withUnreadableInputs(
+	inputs: Row[] | undefined,
+	stored: unknown,
+	signals: ComponentDef['signals'],
+): Row[] | undefined {
 	if (!Array.isArray(stored)) return inputs;
 	const out = [...(inputs ?? [])];
+	const signalKeys = new Set((signals ?? []).map((signal) => signal.key));
 	let added = false;
 	let anchor = -1;
-	for (const row of stored as unknown[]) {
-		if (!isPlainObject(row) || typeof row.id !== 'string') continue;
+	for (const row of stored) {
+		if (!isPlainObject(row)) continue;
 		const at = out.findIndex((kept) => kept.id === row.id);
 		if (at !== -1) {
 			anchor = at;
 			continue;
 		}
-		if (typeof row.kind !== 'string' || INPUT_KINDS.has(row.kind)) continue;
+		if (!isUnreadableInput(row) || signalKeys.has(row.id as string)) continue;
 		out.splice(++anchor, 0, row);
 		added = true;
 	}
@@ -157,7 +182,7 @@ function graftStateMachine(next: Row | undefined, stored: unknown): Row | undefi
 		([key]) => !next || !Object.hasOwn(next, key),
 	);
 	if (merged === layers && !extra.length) return next;
-	const out: Row = next ? { ...next, layers: merged } : {};
+	const out: Row = next ? { ...next, layers: merged } : { layers: [] };
 	for (const [key, value] of extra) setKey(out, key, value);
 	return out;
 }
@@ -184,34 +209,49 @@ export function sameUnknownComponentFields(next: unknown, stored: unknown): bool
 	const mine = unknownComponentFields(next);
 	const theirs = unknownComponentFields(stored);
 	for (const key of theirs.keys()) {
-		if (!mine.has(key) && key !== 'def' && key !== 'stateMachine') theirs.delete(key);
+		if (!mine.has(key) && !ALWAYS_COMPARED.has(JSON.parse(key)[0])) theirs.delete(key);
 	}
 	return canonical(mine) === canonical(theirs);
 }
 
-/** Every entity of a def, keyed `<kind>:<id>` (states and transitions under their layer), mapped
- *  to its unknown fields. The first of a duplicated key wins. */
+/** Projection keys compared whether or not the save still has them: the two fixed namespaces,
+ *  and the input rows the read dropped (their absence is never the author's). */
+const ALWAYS_COMPARED = new Set(['def', 'stateMachine', 'unreadableInput']);
+
+/**
+ * Every entity of a def, keyed by a JSON `[kind, …ids]` (states and transitions under their
+ * layer), mapped to its unknown fields. An input of an unknown kind is projected WHOLE, since all
+ * of it is unknown here. The first of a duplicated key wins.
+ */
 function unknownComponentFields(doc: unknown): Map<string, Row> {
 	const out = new Map<string, Row>();
-	const add = (key: string, value: unknown, isKnown: IsKnown): void => {
-		if (!out.has(key)) out.set(key, unknownFields(isKnown, value));
+	const add = (key: string[], value: Row): void => {
+		const at = JSON.stringify(key);
+		if (!out.has(at)) out.set(at, value);
 	};
 	if (!isPlainObject(doc)) return out;
-	add('def', doc, isDefField);
+	add(['def'], unknownFields(isDefField, doc));
 	const nodes = new Map<string, Row>();
 	indexNodes(doc.root, nodes);
-	for (const [id, node] of nodes) add(`node:${id}`, node, isNodeField);
+	for (const [id, node] of nodes) add(['node', id], unknownFields(isNodeField, node));
 	for (const { field, id, isKnown } of ROW_ARRAYS) {
-		for (const [rowId, row] of rowsById(doc[field], id)) add(`${field}:${rowId}`, row, isKnown);
+		const skip = field === 'inputs' ? isUnreadableInput : undefined;
+		for (const [rowId, row] of rowsById(doc[field], id, skip)) {
+			add([field, rowId], unknownFields(isKnown, row));
+		}
+	}
+	for (const row of Array.isArray(doc.inputs) ? doc.inputs : []) {
+		if (isPlainObject(row) && isUnreadableInput(row))
+			add(['unreadableInput', row.id as string], row);
 	}
 	const machine = doc.stateMachine;
 	if (isPlainObject(machine)) {
-		add('stateMachine', machine, isStateMachineField);
+		add(['stateMachine'], unknownFields(isStateMachineField, machine));
 		for (const [layerId, layer] of rowsById(machine.layers, 'id')) {
-			add(`layer:${layerId}`, layer, isLayerField);
+			add(['layer', layerId], unknownFields(isLayerField, layer));
 			for (const { field, isKnown } of LAYER_ARRAYS) {
 				for (const [rowId, row] of rowsById(layer[field], 'id')) {
-					add(`${field}:${layerId}/${rowId}`, row, isKnown);
+					add([field, layerId, rowId], unknownFields(isKnown, row));
 				}
 			}
 		}

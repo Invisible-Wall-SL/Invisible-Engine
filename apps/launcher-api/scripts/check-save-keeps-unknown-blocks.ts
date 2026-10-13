@@ -1069,7 +1069,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	check(
 		'components 5a: clearing the state machine keeps only its namespace field',
 		machineOf(stored(componentKey)),
-		{ blend: 'smooth' },
+		{ layers: [], blend: 'smooth' },
 	);
 }
 
@@ -1102,6 +1102,102 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 		'components 5a: a known-only state machine saves byte-identically',
 		bucket.get(componentKey)?.text,
 		before,
+	);
+}
+
+{
+	// The text input is the ONLY difference: the save still bumps, never rewriting the v3 snapshot.
+	const onlyText = (label: SmRow | null): StoredDef => {
+		const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+		if (label) doc.inputs.push(label);
+		return doc as unknown as StoredDef;
+	};
+	const pin = (key: string): string => {
+		const bytes = bucket.get(key)?.text ?? '';
+		bucket.set(key.replace(/\.json$/, '.v3.json'), { text: bytes, etag: etagOf(bytes) });
+		return bytes;
+	};
+	resetComponents();
+	seed(componentKey, onlyText({ id: 'label', kind: 'text', default: 'SPIN' }));
+	const v3 = pin(componentKey);
+	const forced = await saveComponent(olderView(), 'p', undefined);
+	check(
+		'components 5a: a forced save dropping only a text input bumps, leaving v3 alone',
+		[forced.version, bucket.get(projectComponentVersionKey('p', COMPONENT.id, 3))?.text === v3],
+		[4, true],
+	);
+	resetComponents();
+	const projectEtag = seed(componentKey, onlyText({ id: 'label', kind: 'text', default: 'B' }));
+	const sharedEtag = seed(sharedComponentKey, {
+		...(onlyText({ id: 'label', kind: 'text', default: 'SPIN' }) as object),
+		scope: 'shared',
+	});
+	const sharedV3 = pin(sharedComponentKey);
+	const promoted = await saveComponent(
+		{ ...olderView(), scope: 'shared' as const },
+		undefined,
+		sharedEtag,
+		{ promotedFrom: { projectKey: 'p', baseEtag: projectEtag } },
+	);
+	check(
+		'components 5a: a promote changing only a text input bumps, leaving v3 alone',
+		[promoted.version, bucket.get(editorComponentVersionKey(COMPONENT.id, 3))?.text === sharedV3],
+		[4, true],
+	);
+}
+
+{
+	// A twin is the row the author SAW: with a duplicated id, the readable row, not an unreadable one.
+	resetComponents();
+	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	doc.inputs = [
+		{ id: 'x', kind: 'text', foo: 1 },
+		{ id: 'x', kind: 'bool', bar: 2 },
+	];
+	const etag = seed(componentKey, doc);
+	await saveComponent(olderView(), 'p', etag);
+	check(
+		'components 5a: a duplicated id grafts from the row the read kept',
+		inputsOf(stored(componentKey)).find((i) => i.kind === 'bool'),
+		{ id: 'x', kind: 'bool', bar: 2 },
+	);
+}
+
+{
+	// The author now uses a dropped text input's id: their entity wins, and inherits nothing.
+	resetComponents();
+	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	doc.inputs.push({ id: 'label', kind: 'text', maxLen: 8 });
+	let etag = seed(componentKey, doc);
+	const asInput = structuredClone(olderView()) as unknown as SmDoc;
+	asInput.inputs.push({ id: 'label', kind: 'bool' });
+	await saveComponent(asInput as unknown as Def, 'p', etag);
+	check(
+		'components 5a: a new input on a dropped row’s id wins and inherits nothing',
+		inputsOf(stored(componentKey)).filter((i) => i.id === 'label'),
+		[{ id: 'label', kind: 'bool' }],
+	);
+	resetComponents();
+	etag = seed(componentKey, doc);
+	const asSignal = structuredClone(olderView()) as unknown as SmDoc & {
+		signals: { key: string }[];
+	};
+	asSignal.signals.push({ key: 'label' });
+	await saveComponent(asSignal as unknown as Def, 'p', etag);
+	check(
+		'components 5a: …and so does a new signal (signals share the input ids)',
+		inputsOf(stored(componentKey)).some((i) => i.id === 'label'),
+		false,
+	);
+	resetComponents();
+	const junk = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	junk.inputs.push({ id: '', kind: 'text' }, { id: 'y', kind: '' });
+	etag = seed(componentKey, junk);
+	await saveComponent(olderView(), 'p', etag);
+	check(
+		'components 5a: a malformed input row is not kept as "a newer kind"',
+		inputsOf(stored(componentKey)).map((i) => i.id),
+		['hover', 'tap'],
 	);
 }
 

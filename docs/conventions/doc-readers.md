@@ -217,7 +217,10 @@ the save guard for every field in the table above.
       condition is dropped with it;
     - every field of `stateMachine` itself it does not declare. That block is a fixed namespace,
       like a win-text family, so those fields are kept also when the author removed every layer
-      (the block is then only them).
+      (the block is then `{ layers: [] }` plus them, which a read takes for no state machine).
+
+    The stored twin of an entity is the row the author SAW: of a duplicated id, the first row the
+    read keeps, never an input the read dropped for its kind.
 
     "Does not declare" means not a key of the engine-layout TYPE (`componentFields.ts`, written as
     `Record<keyof …, true>` so `pnpm check:svelte` fails in both directions when a type and its set
@@ -288,7 +291,11 @@ the save guard for every field in the table above.
   row alone restores a working interface, as a sound keeps its entry. Second, an older build can
   tell the row was never shown (its kind is unknown here), so its absence from the save is not a
   deletion. The kept row goes back after the nearest stored row before it that the save still
-  has. A forced save does not keep it. A transition the read dropped over a condition it cannot
+  has. It is not kept when the save now uses its id for an input or a signal (signals share the
+  input id space): the author's entity wins and inherits none of it. A row with an empty id or
+  kind is malformed, not newer, and is not kept. A forced save does not keep it. Since it changes
+  nothing this build can see, the version compare looks at the whole row, so a save that drops or
+  replaces it (a force, a promote) still bumps. A transition the read dropped over a condition it cannot
   read is NOT kept: it names states by id, and the author may have deleted them. Like every
   graft, a kept row is never re-normalized, so a newer value inside it cannot make a save answer 400.
 

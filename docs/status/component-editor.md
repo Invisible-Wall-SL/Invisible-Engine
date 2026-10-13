@@ -50,7 +50,7 @@ Shipped capabilities on `main`:
   shared (from the promoted project def, via `promotedFrom` + `sourceEtag`), "This game's
   defaults" and its restore (the backup's fields). Known fields come from `engine-layout`'s
   `componentFields.ts`. Rules and reasoning: [doc-readers](../conventions/doc-readers.md)
-  "Round-tripping". Gate: `check:save-keeps-unknown-blocks` gains a components section (117 checks
+  "Round-tripping". Gate: `check:save-keeps-unknown-blocks` gains a components section (123 checks
   in all).
 - 2026-10-13 — **State machine format + runtime (Rive plan Phase 5a, branch
   `claude/rive-p5a-state-machine-runtime`).** `inputs` + `stateMachine` on the `ComponentDef`
