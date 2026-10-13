@@ -144,7 +144,8 @@ export interface TimelineStep {
  *   `undefined` before any has started (the node renders as authored).
  *
  * A STATE MACHINE (Phase 5) plays through the same player: each layer owns a slot that `drive`
- * places on a timeline at a time (the interpreter's `LayerPlay`), and `release` empties. The
+ * places on a timeline at a time (the interpreter's `LayerPlay`) or empties (an exited layer, a
+ * missing timeline). The
  * player then samples a node like this: a `playOn` timeline that is still PLAYING and started
  * after every layer driving the node wins it (a pop-in started after the machine's idle shows);
  * once it ends, or the machine changes state, the layers take the node back (a pop-in then idle
@@ -313,11 +314,6 @@ export class ComponentTimelinePlayer {
 		if (r.from && play.from) r.from.progress = play.from.progress;
 		else if (!play.from) r.from = undefined;
 		return cues;
-	}
-
-	/** Empty a layer's slot (the layer exited): it drives nothing until placed again. */
-	release(slot: string): void {
-		this.driven.delete(slot);
 	}
 
 	/** What a state-machine slot plays, for the gates. */

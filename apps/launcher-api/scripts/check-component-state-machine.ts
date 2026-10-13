@@ -595,6 +595,65 @@ eq(
 		[atRest.stateOf('main'), atRest.needsTick()],
 		['idle', false],
 	);
+	// A held trigger satisfies only the transition it is held for.
+	const sibling = held(
+		[
+			{
+				id: 'w',
+				from: 'idle',
+				to: 'win',
+				exitTime: 1,
+				conditions: [{ input: 'win', op: 'fired' }],
+			},
+			{
+				id: 'bw',
+				from: 'idle',
+				to: 'b',
+				conditions: [
+					{ input: 'win', op: 'fired' },
+					{ input: 'armed', op: '==', value: true },
+				],
+			},
+		],
+		[{ id: 'b', timeline: 'c_coin_win' }],
+	);
+	sibling.fire('win');
+	sibling.advance(0.1);
+	for (let i = 0; i < 4; i++) sibling.advance(0.1);
+	sibling.setInput('armed', true);
+	sibling.advance(0.1);
+	eq(
+		'a win held for idle → win does not fire the sibling fired win && big when big arrives later',
+		sibling.stateOf('main'),
+		'idle',
+	);
+	for (let i = 0; i < 6; i++) sibling.advance(0.1);
+	eq('…it fires its own transition when the loop ends', sibling.stateOf('main'), 'win');
+	const ab = held(
+		[
+			{ id: 'w', from: 'idle', to: 'win', exitTime: 1, conditions: [{ input: 'go', op: 'fired' }] },
+			{
+				id: 'x',
+				from: 'idle',
+				to: 'b',
+				conditions: [
+					{ input: 'go', op: 'fired' },
+					{ input: 'b', op: 'fired' },
+				],
+			},
+		],
+		[{ id: 'b', timeline: 'c_coin_win' }],
+	);
+	ab.fire('go');
+	ab.advance(0.1);
+	for (let i = 0; i < 7; i++) ab.advance(0.1);
+	ab.fire('b');
+	ab.advance(0.1);
+	eq(
+		'a go held for idle → win does not pair with a b that arrives 0.8 s later',
+		ab.stateOf('main'),
+		'idle',
+	);
 }
 {
 	// A missing timeline never throws: the state holds, its exit gate is open, listed once.
@@ -691,13 +750,7 @@ eq(
 	]);
 	const r = new M.ComponentStateMachineRunner(machine(layer()), inputs, durations);
 	const apply = (): { cue: string; timeline: string }[] =>
-		r
-			.plays()
-			.flatMap((play, i) =>
-				play.state === 'exit'
-					? (player.release(play.layer), [])
-					: player.drive(play.layer, i, play),
-			);
+		r.plays().flatMap((play, i) => player.drive(play.layer, i, play));
 	apply();
 	eq('the entry state drives its node from the first frame', player.sample('n_coin'), {
 		alpha: 0.5,
@@ -748,8 +801,8 @@ eq(
 	]);
 	r.advance(0.1);
 	eq('but not on an ordinary step', player.drive('fx', 0, r.plays()[0]), []);
-	player.release('fx');
-	eq('a released slot drives nothing', player.sample('n_glow'), undefined);
+	player.drive('fx', 0, { ...r.plays()[0], state: 'exit', timeline: undefined });
+	eq('an exited layer’s slot drives nothing', player.sample('n_glow'), undefined);
 }
 {
 	// Two layers on one node: the later layer wins each property both key; a property only the
@@ -1342,8 +1395,10 @@ eq(
 		true,
 	);
 	eq(
-		'…ignores every trigger but enter until the machine has started',
-		/if \(!stateMachineStarted && signal !== ENTER_SIGNAL\) continue;/.test(src),
+		'…ignores every trigger until the instance is visible, and a fire on that first visible frame starts the machine',
+		/if \(!stateMachineStarted\) \{\s*if \(!selfVisible\) return;\s*startStateMachine\(\);/.test(
+			src,
+		),
 		true,
 	);
 	eq(
@@ -1439,6 +1494,43 @@ eq(
 			to: 'exit',
 		});
 	}
+	eq(
+		'a < or > with no value is malformed (the transition is dropped)',
+		normalizeComponent({
+			id: 'c',
+			name: 'c',
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'r', kind: 'container', x: 0, y: 0, children: [] },
+			inputs,
+			stateMachine: machine(
+				layer({
+					transitions: [
+						{ id: 'x', from: 'idle', to: 'win', conditions: [{ input: 'amount', op: '>' }] },
+					],
+				}),
+			),
+		} as unknown as ComponentDef).stateMachine?.layers[0].transitions,
+		[],
+	);
+	eq(
+		'…and a number == with none is kept but flagged by validation',
+		M.validateStateMachine(
+			{
+				inputs,
+				stateMachine: machine(
+					layer({
+						transitions: [
+							{ id: 'x', from: 'idle', to: 'win', conditions: [{ input: 'amount', op: '==' }] },
+						],
+					}),
+				),
+			},
+			['c_coin_idle', 'c_coin_win'],
+		).map((i) => i.code),
+		['condition-value-missing'],
+	);
 	eq(
 		'a condition with no value is kept (the runtime reads a bool == as true)',
 		normalizeComponent({

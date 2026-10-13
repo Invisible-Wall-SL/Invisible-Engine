@@ -190,7 +190,10 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   `exitTime` alone — every other condition already holds (a second trigger must arrive in the
   same evaluation, a bool must already be true) and the state is still playing — and drops every
   held trigger the moment the layer changes state, so a hold never outlasts the rest of one loop,
-  a resting state holds nothing, and a stale trigger never fires later. Firing a trigger IS firing
+  a resting state holds nothing, and a stale trigger never fires later. A held trigger satisfies
+  only the transition it is held for (a sibling `fired win && big` never takes a `win` held for
+  `idle → win`); a trigger fired in the same advance as a state change is held for the new
+  state's exit-time transition, if one reads it. Firing a trigger IS firing
   the signal of that name on the instance's bus (§12 #4), so it is scoped exactly as a signal is.
 - **`any`-state transitions are checked first**, in authored order, then the current state's; the
   first whose conditions all hold and whose `exitTime` has been reached fires. An `any` transition
