@@ -1,18 +1,26 @@
 import type {
 	ComponentCategory,
 	ComponentDef,
+	ComponentInput,
 	ComponentParam,
 	ComponentSignal,
+	ComponentStateMachine,
 	ContainerNode,
 	LayoutNode,
 	SlotKind,
+	SmCondition,
+	SmLayer,
+	SmState,
+	SmTransition,
 	TemplateSlot,
 } from 'engine-layout';
 import {
 	BUILTIN_COMPONENTS,
+	COMPONENT_INPUT_KINDS,
 	COMPONENT_PARAM_KINDS,
 	mergeBuiltinCodedParams,
 	pruneOrphanParamBindings,
+	SM_CONDITION_OPS,
 } from 'engine-layout';
 import {
 	editorComponentKey,
@@ -62,6 +70,8 @@ const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
  * makes a third occurrence impossible.
  */
 const PARAM_KINDS = new Set<ComponentParam['kind']>(COMPONENT_PARAM_KINDS);
+const INPUT_KINDS = new Set<ComponentInput['kind']>(COMPONENT_INPUT_KINDS);
+const CONDITION_OPS = new Set<SmCondition['op']>(SM_CONDITION_OPS);
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
@@ -764,6 +774,13 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	if (params.length) def.params = params;
 	const signals = normalizeSignals(raw.signals);
 	if (signals.length) def.signals = signals;
+	// The interface and the state machine (Rive plan Phase 5): kept as authored, malformed rows
+	// dropped, like params. `signals` above stays as it is — it reads as trigger inputs
+	// (`componentInputs`), nothing is migrated.
+	const inputs = normalizeInputs(raw.inputs);
+	if (inputs.length) def.inputs = inputs;
+	const stateMachine = normalizeStateMachine(raw.stateMachine);
+	if (stateMachine) def.stateMachine = stateMachine;
 	// The param an instance's signal scope comes from, and the kind of part it names — kept only
 	// while that param exists, so a deleted param can't leave the def scoped by nothing.
 	if (typeof raw.signalScope === 'string' && params.some((p) => p.key === raw.signalScope)) {
@@ -809,6 +826,99 @@ function normalizeParams(input: unknown): ComponentParam[] {
 			if (fed.length) param.fedParams = fed;
 		}
 		out.push(param);
+	}
+	return out;
+}
+
+function normalizeInputs(input: unknown): ComponentInput[] {
+	if (!Array.isArray(input)) return [];
+	const out: ComponentInput[] = [];
+	const seen = new Set<string>();
+	for (const item of input) {
+		if (!isRecord(item)) continue;
+		if (typeof item.id !== 'string' || !item.id || seen.has(item.id)) continue;
+		if (!INPUT_KINDS.has(item.kind as ComponentInput['kind'])) continue;
+		seen.add(item.id);
+		const row: ComponentInput = { id: item.id, kind: item.kind as ComponentInput['kind'] };
+		if (row.kind === 'bool' && typeof item.default === 'boolean') row.default = item.default;
+		if (
+			row.kind === 'number' &&
+			typeof item.default === 'number' &&
+			Number.isFinite(item.default)
+		) {
+			row.default = item.default;
+		}
+		if (row.kind === 'number' && typeof item.source === 'string' && item.source) {
+			row.source = item.source;
+		}
+		if (typeof item.note === 'string' && item.note) row.note = item.note;
+		out.push(row);
+	}
+	return out;
+}
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+function normalizeStateMachine(input: unknown): ComponentStateMachine | undefined {
+	if (!isRecord(input) || !Array.isArray(input.layers)) return undefined;
+	const layers: SmLayer[] = [];
+	const layerIds = new Set<string>();
+	for (const raw of input.layers) {
+		if (!isRecord(raw) || typeof raw.id !== 'string' || !raw.id || layerIds.has(raw.id)) continue;
+		layerIds.add(raw.id);
+		const layer: SmLayer = {
+			id: raw.id,
+			entry: typeof raw.entry === 'string' ? raw.entry : '',
+			states: [],
+			transitions: [],
+		};
+		if (typeof raw.name === 'string' && raw.name) layer.name = raw.name;
+		for (const item of Array.isArray(raw.states) ? raw.states : []) {
+			if (!isRecord(item) || typeof item.id !== 'string' || !item.id) continue;
+			const state: SmState = {
+				id: item.id,
+				timeline: typeof item.timeline === 'string' ? item.timeline : '',
+			};
+			if (typeof item.name === 'string' && item.name) state.name = item.name;
+			if (finite(item.speed) && item.speed > 0) state.speed = item.speed;
+			if (item.loop === true) state.loop = true;
+			layer.states.push(state);
+		}
+		for (const item of Array.isArray(raw.transitions) ? raw.transitions : []) {
+			if (!isRecord(item) || typeof item.id !== 'string' || !item.id) continue;
+			if (typeof item.from !== 'string' || typeof item.to !== 'string') continue;
+			const transition: SmTransition = { id: item.id, from: item.from, to: item.to };
+			// A condition this build cannot read drops the WHOLE transition: keeping the others would
+			// widen a guarded edge into one that fires on its exit time alone.
+			const conditions = normalizeConditions(item.conditions);
+			if (conditions === undefined) continue;
+			if (conditions.length) transition.conditions = conditions;
+			if (finite(item.exitTime)) transition.exitTime = item.exitTime;
+			// Exit has no pose to mix into, so a blend on a transition to it means nothing.
+			if (finite(item.blend) && item.blend > 0 && item.to !== 'exit') transition.blend = item.blend;
+			layer.transitions.push(transition);
+		}
+		layers.push(layer);
+	}
+	return layers.length ? { layers } : undefined;
+}
+
+/** The conditions, or `undefined` when one is malformed (unknown op, a value of the wrong type). */
+function normalizeConditions(input: unknown): SmCondition[] | undefined {
+	if (input === undefined) return [];
+	if (!Array.isArray(input)) return undefined;
+	const out: SmCondition[] = [];
+	for (const c of input) {
+		if (!isRecord(c) || typeof c.input !== 'string' || !c.input) return undefined;
+		if (!CONDITION_OPS.has(c.op as SmCondition['op'])) return undefined;
+		const condition: SmCondition = { input: c.input, op: c.op as SmCondition['op'] };
+		// `==` / `!=` may omit the value (the runtime reads a bool one as `true`; validation flags a
+		// number one); `<` / `>` need one, and a value of another type is malformed.
+		if (c.value !== undefined) {
+			if (!(typeof c.value === 'boolean' || finite(c.value))) return undefined;
+			if (condition.op !== 'fired') condition.value = c.value;
+		} else if (condition.op === '<' || condition.op === '>') return undefined;
+		out.push(condition);
 	}
 	return out;
 }

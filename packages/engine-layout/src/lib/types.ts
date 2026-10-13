@@ -1399,7 +1399,107 @@ export interface ComponentDef {
 	 * it still renders it, whatever its kind. Absent ⇒ offered to every kind.
 	 */
 	capability?: keyof KindCapabilities;
-	// tracks?: BehaviorTrack[]  // RESERVED for v2 authored-behavior timeline (§8.5) — NOT in v1
+	/**
+	 * The component's INPUTS (Rive plan §5–6.1, Phase 5): what Flow can set or fire, and what the
+	 * state machine reads. A declared {@link signals} entry reads as a `trigger` input too — one
+	 * concept, folded by `componentInputs()` (`componentInterface.ts`); every reader goes through
+	 * it, and no def is rewritten. Absent ⇒ only the signals, as before (parity).
+	 */
+	inputs?: ComponentInput[];
+	/**
+	 * The component's STATE MACHINE (Rive plan §5, Phase 5): per layer, which component timeline
+	 * plays and how inputs move between them. Presentation-only — it never decides game logic (Flow
+	 * does). Every placed instance runs its own interpreter (`stateMachine.ts`), driven on the
+	 * ticker through the same per-instance timeline player a `playOn` timeline uses. Absent ⇒ no
+	 * interpreter, no subscription, no ticker work (parity).
+	 */
+	stateMachine?: ComponentStateMachine;
+}
+
+/**
+ * Every `ComponentInput.kind`, as a VALUE (the `COMPONENT_PARAM_KINDS` pattern: the launcher's
+ * saved-def normalizer imports this list instead of copying it). Kept open on purpose: Phase 7 adds
+ * `text` here without a format break.
+ */
+export const COMPONENT_INPUT_KINDS = ['bool', 'number', 'trigger'] as const;
+export type ComponentInputKind = (typeof COMPONENT_INPUT_KINDS)[number];
+
+/** One input of a component's interface (plan §6.1). */
+export interface ComponentInput {
+	/** Unique within the def; a trigger's id is the SIGNAL it is fired as on the instance's bus. */
+	id: string;
+	kind: ComponentInputKind;
+	/** `bool` ⇒ `false`, `number` ⇒ `0` when absent; meaningless on a trigger. */
+	default?: boolean | number;
+	/**
+	 * A `number` input the ENGINE feeds: a registered value-source name (`winAmount`, `balance`…),
+	 * the same registry a value binding's `source` reads. Absent ⇒ Flow sets it (Phase 7), else it
+	 * stays at its default.
+	 */
+	source?: string;
+	note?: string;
+}
+
+/** The id a transition names to leave from ANY state, and the one that ends a layer. */
+export const SM_ANY_STATE = 'any';
+export const SM_EXIT_STATE = 'exit';
+
+/** Every `SmCondition.op`, as a VALUE (imported by the normalizer, like the kinds). */
+export const SM_CONDITION_OPS = ['fired', '==', '!=', '<', '>'] as const;
+export type SmConditionOp = (typeof SM_CONDITION_OPS)[number];
+
+/**
+ * One condition of a transition, read against the def's inputs: `fired` on a trigger (consumed
+ * once per evaluation), `==` / `!=` on a bool or a number, `<` / `>` on a number. Every condition
+ * of a transition must hold; a transition with none holds as soon as its `exitTime` does.
+ */
+export interface SmCondition {
+	input: string;
+	op: SmConditionOp;
+	value?: boolean | number;
+}
+
+/** A state of a layer: it plays one COMPONENT timeline by cinematic id. */
+export interface SmState {
+	id: string;
+	/** Shown instead of the timeline's name when set. */
+	name?: string;
+	/** The `CinematicDoc.id` it plays — a component timeline of this def (or one reused on it). */
+	timeline: string;
+	/** Playback rate; absent ⇒ 1. */
+	speed?: number;
+	/** Wrap at the end instead of holding the last frame. */
+	loop?: boolean;
+}
+
+export interface SmTransition {
+	id: string;
+	/** A state id, or {@link SM_ANY_STATE}. */
+	from: string;
+	/** A state id, or {@link SM_EXIT_STATE}. */
+	to: string;
+	conditions?: SmCondition[];
+	/**
+	 * A fraction of the leaving state's timeline (0..1) the playhead must have reached (or, on a
+	 * looping state, crossed this tick) before the transition may fire. Absent ⇒ no gate.
+	 */
+	exitTime?: number;
+	/** Milliseconds over which the target timeline is mixed in from the pose being left. */
+	blend?: number;
+}
+
+export interface SmLayer {
+	id: string;
+	name?: string;
+	/** The state id entered on mount (and on reset). */
+	entry: string;
+	states: SmState[];
+	transitions: SmTransition[];
+}
+
+/** Layers run in order; a later layer wins a node property both key. */
+export interface ComponentStateMachine {
+	layers: SmLayer[];
 }
 
 /**

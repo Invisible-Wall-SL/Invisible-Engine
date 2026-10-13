@@ -1,11 +1,13 @@
 import { sampleChannel, sampleNodeActor, sampleTint, type CinematicTrack } from 'engine-cinematic';
 import {
+	componentTriggers,
 	findNodeByName,
 	keyedNodeChannels,
 	nodeActorBindings,
 	nodeActorChannelsForKind,
 	resolveNodeActors,
 	type CinematicDoc,
+	type ComponentDef,
 	type LayoutNode,
 	type NodeActorChannel,
 	type NodeActorSample,
@@ -131,14 +133,15 @@ export function componentTimelinesOf<T extends { host?: CinematicDoc['host'] }>(
 
 /**
  * The signals a component timeline can start on: `enter` (the instance appears), then the def's
- * own declared signals, then the names its rig cues complete with — each once, in that order.
+ * own trigger inputs (its declared signals fold in — `componentTriggers`), then the names its rig
+ * cues complete with — each once, in that order.
  */
 export function componentTimelineSignals(def: {
-	signals?: { key: string }[];
+	inputs?: ComponentDef['inputs'];
+	signals?: ComponentDef['signals'];
 	root: LayoutNode;
 }): string[] {
-	const declared = (def.signals ?? []).map((signal) => signal.key).filter(Boolean);
-	const out = new Set<string>(['enter', ...declared]);
+	const out = new Set<string>(['enter', ...componentTriggers(def)]);
 	const walk = (node: LayoutNode): void => {
 		const cues = (node as { cues?: { completeSignal?: string }[] }).cues;
 		for (const cue of cues ?? []) if (cue.completeSignal) out.add(cue.completeSignal);

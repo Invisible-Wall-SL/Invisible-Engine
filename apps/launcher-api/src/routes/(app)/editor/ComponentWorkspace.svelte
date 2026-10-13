@@ -21,6 +21,7 @@
 		LETTER_TILE_DEF,
 		LETTERS_STRIP_DEF,
 		MAX_COMPONENT_DEPTH,
+		componentInputs,
 		POT_METER_DEF,
 		RESPIN_CELLS_DEF,
 		RESPIN_COUNTER_DEF,
@@ -1678,13 +1679,29 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 	}
 
-	/** Toggle the component SIGNAL identified by a catalog entry on the draft. */
+	/** The draft's trigger inputs as the Signals block shows them: its declared `signals` plus
+	 *  every `trigger` input (one concept — Rive plan §12 #4), each with its note. */
+	const draftSignals = $derived(
+		componentInputs(componentDraft)
+			.filter((input) => input.kind === 'trigger')
+			.map((input) => (input.note ? { key: input.id, note: input.note } : { key: input.id })),
+	);
+
+	/** Toggle the component SIGNAL identified by a catalog entry on the draft. Off removes it from
+	 *  `signals` and from a `trigger` input of that id alike; on declares it in `signals`. */
 	function toggleComponentSignal(key: string): void {
 		if (!componentDraft) return;
 		const signals = componentDraft.signals ?? [];
-		const has = signals.some((s) => s.key === key);
+		const inputs = componentDraft.inputs ?? [];
+		const has =
+			signals.some((s) => s.key === key) ||
+			inputs.some((i) => i.id === key && i.kind === 'trigger');
 		componentDraft.signals = has ? signals.filter((s) => s.key !== key) : [...signals, { key }];
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
+		if (has && inputs.length) {
+			componentDraft.inputs = inputs.filter((i) => !(i.id === key && i.kind === 'trigger'));
+			if (componentDraft.inputs.length === 0) delete componentDraft.inputs;
+		}
 	}
 
 	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it
@@ -2306,7 +2323,7 @@
 						{pickSheets}
 						componentParams={componentDraft.params ?? []}
 						componentRoot={componentDraft.root}
-						componentSignals={componentDraft.signals ?? []}
+						componentSignals={draftSignals}
 						componentSignalScope={componentDraft.signalScope}
 						componentSignalScopeKind={componentDraft.signalScopeKind}
 						gameType={data.gameType}

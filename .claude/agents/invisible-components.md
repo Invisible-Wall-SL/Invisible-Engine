@@ -64,6 +64,14 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   registered at boot by `registerComponentTimelines` in `apps/lines/src/editor-scenes.ts`). The
   node driver is scoped to one nest depth (`cinematicNodeContext.ts`). Gate:
   `pnpm --filter launcher-api check:component-timelines`.
+  A COMPONENT STATE MACHINE (Phase 5a; `ComponentDef.inputs` + `stateMachine`, plan §5 for the
+  shapes and semantics) runs per placed instance: `engine-layout/src/lib/stateMachine.ts` (the
+  pure interpreter `ComponentStateMachineRunner`, `blendNodeSamples`, `validateStateMachine`)
+  placing each layer on a timeline through the same player's `drive`. `componentInterface.ts`
+  is the ONE reader of a def's inputs: `componentInputs(def)` folds `signals` into trigger
+  inputs (plan §12 #4 — never read `def.signals` directly; nothing is migrated). The launcher
+  normalizes both blocks in `componentStorage.ts` (`COMPONENT_INPUT_KINDS`, `SM_CONDITION_OPS`
+  are the imported lists). Gate: `pnpm --filter launcher-api check:component-state-machine`.
 - **Bound coded parts** (`hudReadout`, `button`, `loadingIntro` bar, the transitions
   and FS visuals): a child carries `bind: { component: '<RegisteredName>' }` mounting
   a small coded part registered via `registerBoundComponents`. Use ONLY when the
