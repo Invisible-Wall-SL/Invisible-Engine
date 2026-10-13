@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-editor.md](../design/invisible-editor.md) · Guide: [docs/tools/invisible-editor.md](../tools/invisible-editor.md) · Agent: [`.claude/agents/invisible-components.md`](../../.claude/agents/invisible-components.md) (component system + both editors)
 >
-> Companion tool: [Component Editor status](./component-editor.md) — this editor **places** component instances; that tool **authors** the `ComponentDef`s.
+> Companion tool: [Component Editor status](./component-editor.md) — since Rive plan Phase 4a (2026-10-13) component authoring is this editor's **Components side**; that file owns the authoring story, this one the navigation between screens and components.
 
 **One-line state:** Built and in daily use — the full build plan + Templates/Import are on `main`,
 and an authored screen (new, reordered, HUD or menu) mounts in the shipped game in Screens-list
@@ -18,7 +18,7 @@ Shipped capabilities on `main`:
 - **Every authored screen ships.** `extraMountScenes` / `fullReplaceHudScenes` (`engine-layout/genericMountScenes.ts`) mount author screens the game doesn't reserve, and `sceneLayerZIndex` gives every mount path the Screens-list z; under a screen-driving v2 flow every screen mounts through `<FlowV2Mount>`. Flow owns visibility (no "Shows during" gates).
 - **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate. Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws.
 - **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
-- **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on rig nodes) / text box (width/height, align, auto-fit) / rig anim + slot fill / **Plays on signal** cues on rig and flipbook nodes (free-text signal here, declared signals in `/components`) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
+- **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on rig nodes) / text box (width/height, align, auto-fit) / rig anim + slot fill / **Plays on signal** cues on rig and flipbook nodes (free-text signal here, declared signals on the Components side) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
 - **Device layouts** — per-layoutType overrides of transform, blend, visibility, cover fit/scale, text style and component params; per-layoutType **Canvas Size** (the MAIN box the runtime adopts). The bucket set is an authorable **layout profile** (Game Settings → Layout; pipeline default in Admin → Settings); `DEFAULT_LAYOUT_PROFILE` reproduces the legacy four exactly.
 - **Animate mode — the Timeline** (Rive plan Phase 3, 2026-10-13 — ⏳ not yet browser-verified).
   A **Design | Animate** toggle in the editor bar. Animate opens `EditorTimelinePanel.svelte` under
@@ -34,6 +34,39 @@ Shipped capabilities on `main`:
   prop: no drag, handles, drop, delete or item toolbar); the Timeline owns Ctrl+Z/Shift+Z/Y, Ctrl+S,
   Ctrl+D and Delete, and the page's undo/clipboard handler stands down. Design mode is unchanged.
   Pure helpers: `$lib/timeline/screenTimeline.ts`. Detail: [cinematic status](cinematic.md).
+- **Components side** (Rive plan Phase 4a, 2026-10-13 — ⏳ not yet browser-verified). The old
+  `/components` page is `ComponentWorkspace.svelte`, mounted inside `/editor` on first visit and
+  then kept; the side not shown is only hidden, so neither loses its canvas or unsaved state. Entry points: the left pane's **Components** section under Screens
+  (row = edit, ＋ = place on the active screen, **＋ New component…** = the components home);
+  double-click a placed instance (`EditorCanvas` `onEditInstance`, off in Animate); Properties'
+  **◇ Edit component in place** and **◇ Edit as component** (creates, then opens in place); the
+  Library panel's **◇ Open components**. A breadcrumb (`Screens › Components › X`, or
+  `‹screen› › X › Y`) with Esc up one level (part → nested def → home / origin screen; Esc first
+  clears a selection; capture phase, skipped while typing or a dialog is open); nested defs open in
+  place up to `MAX_COMPONENT_DEPTH` (`canEnterNested`); a **Browse** left tab. URLs:
+  `/editor?view=components`, `/editor?component=<id>`, kept current with a shallow `replaceState`
+  and read on first load; `/components` 307-redirects (`$lib/componentLinks.ts`). A link to
+  `/editor` followed from inside `/editor` never runs as a navigation (the page holds one project's
+  state and is not remounted): `beforeNavigate` applies the same project in place and does a full
+  load for any other or for none (`editorSelfNavigation`); every tool bar link carries the shown
+  `?project=` (`$lib/toolLinks.ts`, shared with the launcher home). Every project-scoped write the
+  editor makes names the project the page was LOADED for (`loadedProjectKey`): the layout save's
+  action URL (`editorActionUrl`), leases, the component / defaults saves (explicit `project`
+  target), and the session-bound endpoints — timeline list/get/save/delete, backup restore, rig
+  upload + reindex, art bounds — which send `projectKey` and refuse a mismatch with a 409
+  (`$lib/server/scopeGuard.ts` `scopeMismatch`, one helper for all of them). Not project-scoped,
+  so not pinned: game kinds, templates, promote-to-shared. `check:component-links` enumerates
+  every write `fetch(` in the editor route and fails on a new one without the pin. A bare
+  `/editor` (a bookmark) gets `?project=` pinned into the address bar on first load. Should the
+  data drift to another project, every save and restore is blocked (both sides' `blockWhen`, the
+  remaining writes early-return), a banner says so, and the page reloads. Component ETags arrive
+  with their defs (the focus refresh uses the `?etags=1` listing); a def opened without one has
+  it read and adopted only if the stored def is still the one opened (else a clean draft reseeds
+  from theirs and a dirty one gets the ordinary conflict — `etagAdoption`). Esc stands down while a popover marked
+  `data-esc-owner` is open in this side (a frame list, which also closes on Escape) or portalled
+  onto the page (a colour picker). Gate: `check:component-links`.
+  **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
+  redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not paused.
 - **Game Settings** — per-project boot splash (`bootLoader`), layout profile.
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
@@ -44,7 +77,11 @@ Shipped capabilities on `main`:
 
 0. **⏳ Browser-verify Animate mode** (the list is in [cinematic status](cinematic.md) item 0).
    Not in Phase 3: text tracks, visibility keys and cues in the panel, keying by dragging on the
-   canvas, component timelines (Phase 4).
+   canvas, component timelines (Phase 4b — next; Animate stays screens-only until then).
+0b. **⏳ Browser-verify the Components side** (Phase 4a): the checklist is in
+   [component-editor status](component-editor.md) Blocked. Editor-side extras: the left-pane ＋
+   places on the active screen; double-click does nothing in Animate; Design/Animate state and the
+   screens' unsaved edits survive a trip to Components and back.
 
 1. **HUD parity gap** — the corner logo/game-name containers still ignore `scale` in-game, so scaling those two corner texts in the editor won't ship.
 2. **Animated / book-event content stays coded** — symbols, win-line draws and count-ups mount via the engine `mount`/`bind` escape hatch; the editor only places their anchor and has no book-event playback.
@@ -57,6 +94,19 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-13 — **Components side (Rive plan Phase 4a).** `/components` folded into `/editor`:
+  `ComponentWorkspace.svelte` (moved from `components/+page.svelte`) mounts beside the Screens
+  side; a left-pane Components section; double-click / **◇ Edit component in place** / **◇ Edit as
+  component** open a def in place with a breadcrumb and Esc-up navigation, capped at the game's
+  nesting depth; URLs `/editor?view=components` and `?component=<id>`; `/components` is a 307
+  redirect; the `componentEditor` card now opens `/editor?view=components`. Animate mode stays
+  screens-only (component timelines = Phase 4b). New gate `check:component-links` (62 checks).
+  Review fix: same-route `/editor` links keep their project (tool bar links carry `?project=`,
+  `beforeNavigate` applies the same project in place and reloads for any other), so a card click
+  after another tab switched project can no longer save one project's layout into another; every
+  write is pinned to the loaded project (also from a bookmarked bare `/editor`), drift blocks saves,
+  and created / refreshed components keep their ETag.
+  Authoring detail: [component-editor status](component-editor.md).
 - 2026-10-13 — **Animate mode (Rive plan Phase 3).** Design | Animate toggle; the Timeline panel
   animates the active screen's nodes; the canvas previews with the game's maths; Flow's
   `playCinematic` plays the result. Editor-only users can reach screen timelines (server-gated).

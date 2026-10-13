@@ -96,11 +96,6 @@
       "count": 5
     }
   },
-  "apps/launcher-api/src/routes/(app)/components/+page.svelte": {
-    "svelte/prefer-svelte-reactivity": {
-      "count": 9
-    }
-  },
   "apps/launcher-api/src/routes/(app)/config/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
       "count": 1
@@ -115,8 +110,16 @@
     }
   },
   "apps/launcher-api/src/routes/(app)/editor/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    },
     "svelte/prefer-svelte-reactivity": {
       "count": 4
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/ComponentWorkspace.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 9
     }
   },
   "apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte": {

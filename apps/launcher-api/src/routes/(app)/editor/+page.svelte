@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import {
+		componentsHref,
+		componentsTarget,
+		editorActionUrl,
+		editorSelfNavigation,
+	} from '$lib/componentLinks';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -74,6 +81,9 @@
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
+	import ComponentList from './ComponentList.svelte';
+	import ComponentWorkspace from './ComponentWorkspace.svelte';
+	import type { ComponentOpenRequest } from './componentWorkspace';
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
@@ -82,10 +92,21 @@
 	import PanelSection from './PanelSection.svelte';
 	import type { RigMeta } from './rigRuntime.client';
 	import { fetchClips } from './editorFlipbooks.client';
+	import { bindArtBoundsProject } from './editorArtBounds.client.svelte';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+	/**
+	 * The project this page was loaded for — the target of EVERY write it makes (the layout save,
+	 * leases, component and timeline saves), never the live `data.projectKey`: a load rerun that
+	 * fell back to the session's project must not move where this tab's state is written.
+	 */
+	// svelte-ignore state_referenced_locally
+	const loadedProjectKey = data.projectKey;
+	/** The page's data now describes another project: every save is blocked and a reload asked. */
+	const projectDrift = $derived(data.projectKey !== loadedProjectKey);
+	bindArtBoundsProject(loadedProjectKey);
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
 	 * doc has none — persistence is handled by the debounced autosave below. */
@@ -350,7 +371,7 @@
 	// the doc. Restores the active right tab and which screens are hidden when you reopen
 	// the same project. Panel WIDTHS are owned by the shared <PanelResizers> (its own
 	// key), so the resizable-sidebar behaviour is inherited by every editor-family tool.
-	const uiKey = `iw-editor-ui:${data.projectKey}`;
+	const uiKey = `iw-editor-ui:${loadedProjectKey}`;
 	let leftWidth = $state(280);
 	let rightWidth = $state(320);
 	let resizing = $state<'left' | 'right' | null>(null);
@@ -515,13 +536,115 @@
 	 *  so leaving Animate never drops an unsaved timeline. */
 	let animateVisited = $state(false);
 
-	// ---------- components (§8.4) ----------
-	// Authoring components moved OUT of the editor into the standalone Invisible
-	// Component Editor (`/components`). The editor keeps a lean PICKER: list the
-	// project's components, PLACE a `componentInstance` into the active scene, and
-	// deep-link into the Component Editor (new tab) to author/create them.
+	// ---------- components (§8.4, Rive plan Phase 4) ----------
+	// The Screens side places `componentInstance`s; the Components side
+	// (`ComponentWorkspace`) authors the defs on the same stage. Double-click a placed instance,
+	// or pick a component in the left pane, to edit it in place.
 
-	/** The two editor modes. (Component authoring is its own tool now.) */
+	/** Which side of the editor is on the stage. The Components side mounts on first visit and
+	 * then stays (hidden on the Screens side) rather than rebuilding its canvas on every trip. */
+	let workspaceView = $state<'screens' | 'components'>('screens');
+	const componentsView = $derived(workspaceView === 'components');
+	let workspaceMounted = $state(false);
+	let componentRequest = $state<ComponentOpenRequest | null>(null);
+	let componentRequestSeq = 0;
+
+	/** Show the Components side on `id` (`null` = its home). `rootLabel` is the screen the author
+	 * came from; `def`/`etag` carry a component this page just created. */
+	function openComponents(
+		id: string | null,
+		rootLabel: string | null,
+		created?: { def: ComponentDef; etag: string | null },
+	): void {
+		// The Screens canvas stays mounted underneath and listens for Delete — drop its selection
+		// so a key meant for the component can never delete a screen node.
+		clearSelection();
+		componentRequest = {
+			seq: ++componentRequestSeq,
+			id,
+			rootLabel,
+			...(created ? { def: created.def, etag: created.etag } : {}),
+		};
+		workspaceMounted = true;
+		workspaceView = 'components';
+	}
+
+	/** Ask the Components side to close its component (asking about unsaved work) and step back. */
+	function requestExitComponents(): void {
+		componentRequest = { seq: ++componentRequestSeq, id: null, rootLabel: null, exit: true };
+	}
+
+	function backToScreens(): void {
+		workspaceView = 'screens';
+		setEditorUrl(undefined);
+	}
+
+	function openScreenById(id: string): void {
+		const idx = scenes.findIndex((s) => s.id === id);
+		if (idx !== -1) selectScene(idx);
+		backToScreens();
+	}
+
+	/** Double-click on a placed instance: edit its def in place, the active screen as the root. */
+	function editInstanceInPlace(node: ComponentInstanceNode): void {
+		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
+	}
+
+	/** Keep the address bar on what is open, so a reload or a shared link lands there. Shallow:
+	 * no navigation, no reload of the page data. */
+	function setEditorUrl(target: string | null | undefined): void {
+		const params = new URLSearchParams(page.url.searchParams);
+		// Always pinned to the loaded project, so a reload, a bookmark or a copied link of this tab
+		// opens the project it shows. (Shallow: the URL a later load rerun uses is not guaranteed
+		// to follow, which is why every write names `loadedProjectKey` itself.)
+		if (loadedProjectKey) params.set('project', loadedProjectKey);
+		const href =
+			target === undefined
+				? (() => {
+						params.delete('component');
+						params.delete('view');
+						const q = params.toString();
+						return `/editor${q ? `?${q}` : ''}`;
+					})()
+				: componentsHref(target, params);
+		if (href !== `${page.url.pathname}${page.url.search}`) replaceState(href, {});
+	}
+
+	function applyUrlTarget(url: URL): void {
+		const target = componentsTarget(url.searchParams);
+		if (target !== undefined) openComponents(target, null);
+	}
+
+	afterNavigate(({ type, to }) => {
+		if (type !== 'enter' || !to) return;
+		// Pins `?project=` into the address bar too (`setEditorUrl`).
+		setEditorUrl(componentsTarget(to.url.searchParams));
+		applyUrlTarget(to.url);
+	});
+	// A link to `/editor` followed from inside `/editor` (the tool bar's Component Editor card, a
+	// deep link) does not remount this page, and the page holds ONE project's screens, components,
+	// ETags and leases. So it never runs as a navigation: the same project is applied in place,
+	// anything else is a full document load (`editorSelfNavigation`).
+	beforeNavigate((navigation) => {
+		const to = navigation.to?.url;
+		if (navigation.willUnload || !to || to.pathname !== '/editor') return;
+		navigation.cancel();
+		if (editorSelfNavigation(to, loadedProjectKey) === 'reload') {
+			window.location.assign(to.href);
+			return;
+		}
+		const target = componentsTarget(to.searchParams);
+		if (target !== undefined) openComponents(target, null);
+		else if (componentsView) requestExitComponents();
+	});
+	// Should the data ever arrive for another project, reload rather than hold two projects'
+	// state. The reload can be refused (the unsaved-work prompt), so `projectDrift` also blocks
+	// every save until it happens.
+	$effect(() => {
+		if (projectDrift) window.location.reload();
+	});
+
+	/** The two editor modes. */
 	let mode = $state<'scene' | 'template'>('scene');
 	/** The game's real sounds for the win component's per-tier SFX / BGM dropdowns — the ONE generated
 	 * enum (`engine-flow-v2`). BGM = the `bgm_*` beds; SFX = the non-bgm cues (`sfx_*` / `jng_*`). This
@@ -550,9 +673,17 @@
 		});
 	}
 
-	/** Components the project can use (shared + project shadow) — drives the picker +
-	 * the canvas's `componentInstance` resolution. */
-	let components = $state<ComponentDef[]>(withConfigWinTiers(structuredClone(data.components)));
+	/** Components the project can use (shared + project shadow), as stored — what the Components
+	 * side seeds from and saves. Kept apart from {@link components} because the `win` tier groups
+	 * are an editor-only hint that must never reach a saved def. */
+	let storedComponents = $state<ComponentDef[]>(structuredClone(data.components));
+	/** id → the ETag a component's next save must match (`null` = create), for the defs this page
+	 * knows one for. A def refreshed from the listing has none here: the Components side reads it
+	 * when it opens that def. */
+	let storedEtags = $state<Record<string, string | null>>({ ...data.componentEtags });
+	/** The same list with the `win` tier groups rebuilt — drives the picker + the canvas's
+	 * `componentInstance` resolution. */
+	const components = $derived(withConfigWinTiers(storedComponents));
 	/** Status pill for the "Edit as component" materialize→open-tool flow. */
 	let componentBusy = $state(false);
 	let componentStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
@@ -675,6 +806,10 @@
 	 */
 	async function editContainerAsComponent(container: ContainerNode): Promise<void> {
 		if (componentBusy) return;
+		if (projectDrift) {
+			componentStatus = { kind: 'error', message: 'This tab’s project changed — reload first.' };
+			return;
+		}
 		componentBusy = true;
 		componentStatus = null;
 		// Bail BEFORE creating the def if the scene can't be persisted (e.g. another
@@ -688,6 +823,7 @@
 		}
 		const name = container.label || 'Component';
 		const existing = components.find((c) => c.scope === 'project' && c.name === name);
+		let createdEtag: string | null = null;
 		try {
 			let def: ComponentDef;
 			if (existing) {
@@ -709,7 +845,7 @@
 					// A freshly-generated id ⇒ a create: `baseEtag: null` asserts it (`ifNoneMatch:'*'`)
 					// so this never silently overwrites an existing def, and satisfies the required
 					// precondition (Phase 1 of `docs/design/multi-user-concurrency.md`).
-					body: JSON.stringify({ ...def, project: data.projectKey, baseEtag: null }),
+					body: JSON.stringify({ ...def, project: loadedProjectKey, baseEtag: null }),
 				});
 				if (!res.ok) {
 					let message = 'Component save failed';
@@ -722,8 +858,11 @@
 					componentStatus = { kind: 'error', message };
 					return;
 				}
+				const out = (await res.json().catch(() => ({}))) as { etag?: string | null };
+				createdEtag = out.etag ?? null;
 				// Reflect the new def locally so the picker + canvas resolve it immediately.
-				components = [...components, def];
+				storedComponents = [...storedComponents, def];
+				storedEtags = { ...storedEtags, [def.id]: createdEtag };
 			}
 			// Link the scene container to the def (container → componentInstance), so
 			// component edits reflect into the scene, and persist the conversion before
@@ -746,10 +885,11 @@
 				kind: 'ok',
 				message: existing ? 'Linked to component' : 'Component created',
 			};
-			const href = `/components?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(
-				data.projectKey,
-			)}`;
-			window.location.href = href;
+			openComponents(
+				def.id,
+				activeScene?.name || activeScene?.id || null,
+				existing ? undefined : { def, etag: createdEtag },
+			);
 		} catch (e) {
 			componentStatus = {
 				kind: 'error',
@@ -879,21 +1019,10 @@
 		selectOnly(node.id);
 	}
 
-	/** Open the standalone Component Editor in THIS window (optionally on `id`).
-	 * Flushes the layout to the doc first so scene edits aren't lost on navigation —
-	 * except a cross-type preview, which must never autosave (the user Saves/Discards
-	 * it deliberately). Uses a FULL-PAGE navigation (not SPA `goto`): the editor and
-	 * component editor are heavy WebGL tools that expect a clean document load — an
-	 * in-app remount between them leaves the canvas broken (the "← Editor" link
-	 * stopped working). Same window/tab, fresh document. */
-	async function openComponentEditor(id?: string): Promise<void> {
-		// Never navigate away from a doc that failed to flush — this is a full page
-		// load, so unsaved work would be gone with no way back.
-		if (saveState.dirty && !crossTypeLoaded && !(await save())) return;
-		const params = new URLSearchParams();
-		if (id) params.set('id', id);
-		params.set('project', data.projectKey);
-		window.location.href = `/components?${params.toString()}`;
+	/** Open the Components side from the component list (on `id`, or its home). The screens
+	 * stay in memory and keep autosaving, so nothing is flushed first. */
+	function openComponentEditor(id?: string): void {
+		openComponents(id ?? null, null);
 	}
 
 	/** Per-slot authoring metadata not carried on `LayoutNode` (which has no
@@ -1401,7 +1530,7 @@
 		}
 		const doc: LayoutDoc = {
 			version: data.doc.version,
-			projectKey: data.projectKey,
+			projectKey: loadedProjectKey,
 			gameType: id,
 			mainSizesMap: JSON.parse(JSON.stringify(mainSizesMap)),
 			scenes: JSON.parse(JSON.stringify(scenes)) as Scene[],
@@ -1937,9 +2066,9 @@
 	const lease = new LeaseState({
 		toolId: 'editor',
 		clientKey: data.clientKey,
-		projectKey: data.projectKey,
+		projectKey: loadedProjectKey,
 		docKey: 'editor',
-		enabled: data.projectKey.length > 0,
+		enabled: loadedProjectKey.length > 0,
 	});
 
 	const saveState = new SaveState({
@@ -1948,7 +2077,7 @@
 		initialEtag: data.docEtag,
 		conflictMessage: 'Someone else saved this project while you were editing.',
 		canAutosave: () => !crossTypeLoaded,
-		blockWhen: () => lease.readOnly,
+		blockWhen: () => lease.readOnly || projectDrift,
 		save: async ({ baseEtag, force }) => {
 			const fields: Record<string, string> = { doc: JSON.stringify(buildDocPayload()) };
 			// '' encodes "no doc existed when I loaded" (FormData has no null); omitted when forcing.
@@ -2159,7 +2288,7 @@
 			updatedAt: string;
 		} = {
 			version: data.doc.version,
-			projectKey: data.projectKey,
+			projectKey: loadedProjectKey,
 			gameType: authoringGameType,
 			mainSizesMap,
 			scenes,
@@ -2187,8 +2316,8 @@
 		// SvelteKit's action selector must stay the literal `/<action>` key, so the
 		// existing query is appended as extra params (not re-encoded). No
 		// `?project=` ⇒ this is just `?/save`, byte-identical to before.
-		const existing = location.search.replace(/^\?/, '');
-		const target = existing ? `?/${action}&${existing}` : `?/${action}`;
+		// The project is always the one this page was LOADED for (`editorActionUrl`).
+		const target = editorActionUrl(action, location.search, loadedProjectKey);
 		const res = await fetch(target, { method: 'POST', body: fd });
 		const json = (await res.json()) as { type: string; data?: string };
 		if (!json.data) return {};
@@ -2244,6 +2373,7 @@
 	 * CASes against), and a reload is the one way to get all of that right.
 	 */
 	async function restoreBackup(id: string): Promise<string | null> {
+		if (projectDrift) return 'This tab’s project changed — reload before restoring.';
 		if (lease.readOnly)
 			return 'Another author is editing this project — take over before restoring.';
 		if (saveState.busy) return 'A save is in progress — try again in a moment.';
@@ -2251,7 +2381,7 @@
 		const res = await fetch('/api/editor/backups', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ id, baseEtag: saveState.etag }),
+			body: JSON.stringify({ id, baseEtag: saveState.etag, projectKey: loadedProjectKey }),
 		});
 		if (res.ok) {
 			location.reload();
@@ -2476,6 +2606,10 @@
 		const picked = input.files ? Array.from(input.files) : [];
 		input.value = '';
 		if (rigUploadBusy) return;
+		if (projectDrift) {
+			rigUploadStatus = { kind: 'error', message: 'This tab’s project changed — reload first.' };
+			return;
+		}
 
 		const files = picked
 			.map((f) => ({ file: f, relpath: relpathFor(f) }))
@@ -2491,7 +2625,10 @@
 			const presignRes = await fetch('/api/editor/rigs/upload', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ files: files.map((f) => f.relpath) }),
+				body: JSON.stringify({
+					files: files.map((f) => f.relpath),
+					projectKey: loadedProjectKey,
+				}),
 			});
 			if (!presignRes.ok)
 				throw new Error(await readApiError(presignRes, 'Could not prepare upload'));
@@ -2515,7 +2652,11 @@
 			}
 
 			rigUploadStatus = { kind: 'busy', message: 'Building skeletons.json…' };
-			const reindexRes = await fetch('/api/editor/rigs/reindex', { method: 'POST' });
+			const reindexRes = await fetch('/api/editor/rigs/reindex', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ projectKey: loadedProjectKey }),
+			});
 			if (!reindexRes.ok) throw new Error(await readApiError(reindexRes, 'Reindex failed'));
 			const reindex = (await reindexRes.json()) as { count: number };
 
@@ -2569,10 +2710,18 @@
 		if (document.visibilityState !== 'visible' || refreshingComponents) return;
 		refreshingComponents = true;
 		try {
+			// With ETags, so a refreshed def and its save precondition always arrive together.
 			const res = await fetch(
-				`/api/editor/components?project=${encodeURIComponent(data.projectKey)}`,
+				`/api/editor/components?etags=1&project=${encodeURIComponent(loadedProjectKey)}`,
 			);
-			if (res.ok) components = (await res.json()) as ComponentDef[];
+			if (res.ok) {
+				const body = (await res.json()) as {
+					components: ComponentDef[];
+					etags: Record<string, string | null>;
+				};
+				storedComponents = body.components;
+				storedEtags = body.etags;
+			}
 		} catch {
 			/* transient fetch failure — keep the current list */
 		} finally {
@@ -2596,7 +2745,7 @@
 	/** Page-level editor shortcuts (the canvas owns Delete/Escape on its own listener).
 	 * Undo/redo here; copy/cut/paste/duplicate are added in the clipboard block. */
 	function onEditorKeyDown(e: KeyboardEvent): void {
-		if (isTypingTarget(e.target) || animating) return;
+		if (isTypingTarget(e.target) || animating || componentsView) return;
 		const mod = e.ctrlKey || e.metaKey;
 		if (!mod) return;
 		const k = e.key.toLowerCase();
@@ -2663,12 +2812,12 @@
 
 <svelte:head><title>Invisible Scene Editor — Invisible Wall</title></svelte:head>
 
-<div class="shell">
+<div class="shell" class:components-view={componentsView}>
 	<ToolTopBar
 		current="editor"
 		tools={data.tools}
 		clientKey={data.clientKey}
-		projectKey={data.projectKey}
+		projectKey={loadedProjectKey}
 	>
 		{#snippet meta()}
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
@@ -2679,11 +2828,21 @@
 		{/snippet}
 	</ToolTopBar>
 
+	{#if projectDrift}
+		<div class="drift-banner" role="alert">
+			This tab was opened for <strong>{loadedProjectKey}</strong>, but its data now belongs to
+			<strong>{data.projectKey}</strong>. Saving is off so nothing lands in the wrong project.
+			<button class="save-btn" type="button" onclick={() => window.location.reload()}>
+				Reload
+			</button>
+		</div>
+	{/if}
+
 	<!-- Dedicated editor action row. Kept OFF the ToolTopBar chrome (mirrors the Component
 	     Editor) so the top row gives the brand + project scope + tool switcher their full
 	     width, and the save/warnings/mode controls get their own space — wrapping to a
 	     second line before anything clips on a narrow window. -->
-	<div class="editor-bar">
+	<div class="editor-bar screens-only">
 		<div class="eb-group">
 			{#if lease.readOnly}
 				<PresenceBanner {lease} />
@@ -2797,7 +2956,7 @@
 			{:else if componentStatus?.kind === 'error'}
 				<span class="save-pill error" title={componentStatus.message}>Component failed</span>
 			{:else if componentStatus?.kind === 'ok'}
-				<span class="save-pill ok" title="Opened in the Component Editor (new tab)">
+				<span class="save-pill ok" title="Opened on the Components side">
 					{componentStatus.message}
 				</span>
 			{/if}
@@ -2837,7 +2996,7 @@
 		</div>
 	</div>
 
-	{#if showContentWarnings && contentWarnings.length > 0}
+	{#if showContentWarnings && contentWarnings.length > 0 && !componentsView}
 		<div class="warn-panel" role="dialog" aria-label="Asset issues">
 			<div class="warn-head">
 				<strong>Asset issues</strong>
@@ -2869,7 +3028,7 @@
 	{/if}
 
 	<div
-		class="layout"
+		class="layout screens-only"
 		class:resizing={resizing !== null}
 		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
 	>
@@ -3187,6 +3346,38 @@
 						⧉ Save as new game kind…
 					</button>
 				</PanelSection>
+
+				<PanelSection id="components" title="Components" count={paletteComponents.length}>
+					{#if paletteComponents.length === 0}
+						<p class="muted">No components yet.</p>
+					{:else}
+						<ComponentList
+							components={paletteComponents}
+							onRowClick={(def) => openComponentEditor(def.id)}
+							rowTitle={(def) => `Edit ${def.name} on the stage`}
+						>
+							{#snippet actions(def)}
+								<button
+									type="button"
+									class="cmp-place"
+									title={`Drop a ${def.name} instance into the active screen`}
+									aria-label={`Place ${def.name} on the active screen`}
+									onclick={() => placeComponentInstance(def)}
+								>
+									＋
+								</button>
+							{/snippet}
+						</ComponentList>
+					{/if}
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Create a component, or browse every component with its versions"
+						onclick={() => openComponentEditor()}
+					>
+						＋ New component…
+					</button>
+				</PanelSection>
 			</div>
 		</aside>
 
@@ -3224,6 +3415,7 @@
 						bind:viewMode={() => shownViewMode, (mode) => (viewMode = mode)}
 						projectGameName={data.gameName}
 						onRigMeta={(meta) => (rigMeta = meta)}
+						onEditInstance={animating ? undefined : editInstanceInPlace}
 						canUndo={canUndo && !animating}
 						canRedo={canRedo && !animating}
 						onUndo={undo}
@@ -3245,8 +3437,8 @@
 						<EditorTimelinePanel
 							scene={editScene}
 							selectedId={selectedIds.at(-1) ?? null}
-							projectKey={data.projectKey}
-							active={animating}
+							projectKey={loadedProjectKey}
+							active={animating && !componentsView}
 						/>
 					</div>
 				{/if}
@@ -3585,7 +3777,8 @@
 							selectedNode.cueSignalOverrides = Object.keys(all).length ? all : undefined;
 							markDirty();
 						}}
-						onOpenComponentEditor={openComponentEditor}
+						onOpenComponentEditor={(id) =>
+							openComponents(id, activeScene?.name || activeScene?.id || null)}
 						onUpdateInstanceToLatest={updateInstanceToLatest}
 					/>
 
@@ -3804,12 +3997,45 @@
 		</aside>
 
 		<PanelResizers
-			storageKey={`iw-editor-panels:${data.projectKey}`}
+			storageKey={`iw-editor-panels:${loadedProjectKey}`}
 			bind:leftWidth
 			bind:rightWidth
 			bind:resizing
 		/>
 	</div>
+
+	{#if workspaceMounted}
+		<div class="workspace-slot" class:hidden={!componentsView}>
+			<ComponentWorkspace
+				data={{
+					clientKey: data.clientKey,
+					projectKey: loadedProjectKey,
+					components: $state.snapshot(storedComponents) as ComponentDef[],
+					componentEtags: $state.snapshot(storedEtags),
+					assets: data.assets,
+					componentDefaults: data.componentDefaults,
+					gameName: data.gameName,
+					addOns: data.addOns,
+					canPublishShared: data.canPublishShared,
+					gameType: projectGameType,
+					mainSizesMap: data.doc.mainSizesMap,
+				}}
+				screens={scenes.map((s) => ({ id: s.id, name: s.name || s.id }))}
+				openRequest={componentRequest}
+				active={componentsView}
+				onExit={backToScreens}
+				onOpenScreen={openScreenById}
+				onComponentsChange={(list, etags) => {
+					storedComponents = list;
+					storedEtags = etags;
+				}}
+				writesBlocked={projectDrift}
+				onOpenedChange={(id) => {
+					if (componentsView) setEditorUrl(id);
+				}}
+			/>
+		</div>
+	{/if}
 
 	<footer class="help-strip">
 		<span class="muted">
@@ -3886,6 +4112,52 @@
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
+	}
+	/* The Components side replaces the Screens bar + layout with its own; the Screens side stays
+	   mounted (display:none) so its canvas, selection and timelines survive the round trip. */
+	.shell.components-view {
+		grid-template-rows: auto 1fr auto;
+	}
+	.shell.components-view > .screens-only,
+	.workspace-slot.hidden {
+		display: none;
+	}
+	.drift-banner {
+		position: absolute;
+		top: 56px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 40;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 14px;
+		border: 1px solid #4a2a30;
+		border-radius: 8px;
+		background: #1f1114;
+		color: #ffb4b4;
+		font-size: 12px;
+	}
+	.workspace-slot {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+	.workspace-slot > :global(*) {
+		flex: 1 1 auto;
+	}
+	.cmp-place {
+		background: none;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		color: #9a9aa6;
+		font-size: 12px;
+		padding: 0 6px;
+		cursor: pointer;
+	}
+	.cmp-place:hover {
+		color: #7ee0c0;
+		border-color: #2b6f5a;
 	}
 	/* ---- Layout profile (Game Settings panel + modal) ---- */
 	.gs-buckets {

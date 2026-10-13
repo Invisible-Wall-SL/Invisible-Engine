@@ -245,8 +245,8 @@
 		 * (scene mode). `origSignal` = the cue's def signal; `signal` = the replacement
 		 * engine-signal key, or `''`/`undefined` to clear the override (inherit the def). */
 		onSetInstanceCueSignal?: (nodeId: string, origSignal: string, signal: string) => void;
-		/** "Edit in Component Editor": open the selected instance's def (`componentId`) in
-		 * the standalone Component Editor (new tab). Scene mode, componentInstance only. */
+		/** "Edit component in place": open the selected instance's def (`componentId`) on the
+		 * Components side of `/editor`. componentInstance only. */
 		onOpenComponentEditor?: (componentId: string) => void;
 		/** Re-pin the selected instance's `componentVersion` to the resolved def's current
 		 * version (§8.9 explicit, per-instance "update to latest"). Shown only when the
@@ -1797,7 +1797,7 @@
 	 * finished cue can fire `completeSignal` back on the instance's own bus, and a scoped
 	 * instance hears only its own part's fires. A rig placed straight in a screen has no
 	 * instance bus to fire `completeSignal` on, so that sub-field is hidden there.
-	 * `componentMode` is the discriminator (only `/components` passes it). */
+	 * `componentMode` is the discriminator (only the Components side passes it). */
 	const cueSceneMode = $derived(!componentMode);
 
 	function addCue(n: RigNode): void {
@@ -2572,7 +2572,7 @@
 			<button
 				class="ghost-sm"
 				onclick={() => onEditAsComponent?.(node as ContainerNode)}
-				title="Save this container's sub-tree as a reusable component and open it in the Invisible Component Editor (new tab)"
+				title="Save this container's sub-tree as a reusable component and edit it in place on the Components side"
 			>
 				◇ Edit as component
 			</button>
@@ -2603,9 +2603,9 @@
 			<button
 				class="ghost-sm"
 				onclick={() => onOpenComponentEditor?.(node.componentId)}
-				title="Open this component's definition in the Invisible Component Editor (new tab) to edit its layout, params, and signals"
+				title="Edit this component's definition in place — its layout, params and signals (or double-click it on the stage). Esc comes back."
 			>
-				◇ Edit in Component Editor
+				◇ Edit component in place
 			</button>
 			{#if componentDefs.length > 0}
 				<!-- Swap the component this placement draws — a Pot Meter for the project's own Pot copy,

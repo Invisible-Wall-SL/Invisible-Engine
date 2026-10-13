@@ -195,9 +195,9 @@ bookReveal: !!config.expandingSymbol, // Phases 2–6: kind === 'bookOf' || !!co
 ```
 
 - `ProjectAddOns` / `projectAddOns` (`apps/launcher-api/src/lib/addOns.ts`) gain `expandingSymbol`.
-  Every caller that passes add-ons (`/config`, `/symbols`, `/win-text`, `/editor`, `/components`,
-  `gameProfile.ts`, `localizationSections.ts`, `symbolsPageConfig.ts`) then gets it with no other
-  edit.
+  Every caller that passes add-ons (`/config`, `/symbols`, `/win-text`, `/editor` and its
+  Components side, `gameProfile.ts`, `localizationSections.ts`, `symbolsPageConfig.ts`) then gets it
+  with no other edit.
 - `flowAddOnsOf` does not change. The flow vocabulary does not change with the feature.
 - The OR with the kind is the transition shim. Phase 7 deletes it.
 - `bookSymbolVfx` stays as it is: on for every kind with free spins.
@@ -346,7 +346,7 @@ then runs over both hosts, and the book host's digests must not move.
 | `routes/(app)/editor/+page.svelte`, `+page.server.ts` | "Import composed reference" offers `lines` and `bookOf`; cross-type guard against `doc.gameType` | The Book-of layout stays importable as a **reference** (Borut's look, `gameType: 'lines'`), not a kind (Phase 7 splits `listImportableKinds` from the scene-set kinds) |
 | `lib/emitterVocabularies.ts` (generated, `/flow` v1) | A `bookOf` entry, byte-equal to `lines` once the key is renamed (checked 2026-10-07) | The entry is dropped at regeneration. `tools/flow-spike/vocabulary.ts` stops asserting it. |
 | Game Maker: `routes/(app)/game-maker/+page.server.ts`, `lib/server/projectScaffold.ts`, `duplicateProject.ts` | Create offers the "Book of" kind. The scaffold seeds the layout, flow and config per kind. Duplicate copies the kind. | Create offers **Lines + "Book of Thermopylae" preset**. The preset names the Book-of reference scene set to scaffold from (Phase 5). Duplicate needs no change; the migration is re-runnable for copies made in the window. |
-| `lib/server/localizationSections.ts`, `symbolsPageConfig.ts`, `routes/(app)/components` | `kindCapabilities` callers, no `bookReveal` read | Pass add-ons; nothing else |
+| `lib/server/localizationSections.ts`, `symbolsPageConfig.ts`, `routes/(app)/editor/ComponentWorkspace.svelte` | `kindCapabilities` callers, no `bookReveal` read | Pass add-ons; nothing else |
 
 **Mock, test server and mock contract**
 

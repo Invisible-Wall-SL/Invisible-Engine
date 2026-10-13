@@ -37,6 +37,7 @@
 		STANDARD_MAIN_SIZES_MAP,
 		type BlendMode,
 		type ComponentDef,
+		type ComponentInstanceNode,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -109,14 +110,7 @@
 		// `effect` carries an authored FX id in `key` (the Library's Effects section);
 		// `flipbook` an authored clip id (the Library's Flipbooks section).
 		kind:
-			| 'atlas-page'
-			| 'atlas-manifest'
-			| 'sheet'
-			| 'spine'
-			| 'text'
-			| 'rect'
-			| 'effect'
-			| 'flipbook';
+			'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect' | 'effect' | 'flipbook';
 		key: string;
 		name: string;
 	}
@@ -296,6 +290,9 @@
 		 * drop, delete or item toolbar, because geometry edits there would change the authored
 		 * pose under the timeline. Keys are set in the Timeline panel. Absent ⇒ Design mode. */
 		animate?: boolean;
+		/** Double-click on a placed component instance: edit its def in place (Rive plan Phase 4).
+		 * Absent ⇒ a double-click does nothing beyond the two clicks. */
+		onEditInstance?: (node: ComponentInstanceNode) => void;
 	}
 
 	let {
@@ -336,6 +333,7 @@
 		onRedo,
 		modeBar,
 		animate = false,
+		onEditInstance,
 	}: Props = $props();
 
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
@@ -1613,10 +1611,7 @@
 	 * against the project's assets). The 2D canvas + the rig overlay both resolve
 	 * through this so they agree on ONE art per anchor. Triggers the lazy sprite-region
 	 * scan when a node's catalog default is a sprite the index hasn't located yet. */
-	function anchorArt(
-		node: LayoutNode,
-		previewRigBundle?: string,
-	): ResolvedPreviewArt | undefined {
+	function anchorArt(node: LayoutNode, previewRigBundle?: string): ResolvedPreviewArt | undefined {
 		const art = resolveAnchorPreviewArt(
 			node,
 			assets,
@@ -1832,8 +1827,7 @@
 					componentDefaults[def.id],
 				);
 				const rigBundle = instancePreviewRigBundle(def, params);
-				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle))
-					return true;
+				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle)) return true;
 			}
 		}
 		return false;
@@ -4392,6 +4386,14 @@
 		}
 	}
 
+	function onDoubleClick(e: MouseEvent): void {
+		if (!onEditInstance || e.button !== 0) return;
+		const node = hitTestNode(clientToWorld(e.clientX, e.clientY));
+		if (node?.kind !== 'componentInstance') return;
+		e.preventDefault();
+		onEditInstance(node);
+	}
+
 	function onDragOver(e: DragEvent): void {
 		if (!e.dataTransfer || animate) return;
 		if (!Array.from(e.dataTransfer.types).includes('application/x-iw-asset')) return;
@@ -4794,7 +4796,8 @@
 	<!-- Base canvas: frame backdrop + the interaction surface. The per-scene composite
 	     groups above are `pointer-events:none`, so input (select/drag/zoom/pan) always
 	     reaches here; hit-testing is world-space math, independent of what's drawn. -->
-	<canvas bind:this={canvas} onwheel={onWheel} onmousedown={onMouseDown}></canvas>
+	<canvas bind:this={canvas} onwheel={onWheel} onmousedown={onMouseDown} ondblclick={onDoubleClick}
+	></canvas>
 
 	<!-- One z-ordered group per non-hidden GAME scene, in doc order. Each group stacks
 	     (bottom→top) its own 2D canvas, then its rig sublayer, then its text sublayer.
@@ -5084,8 +5087,8 @@
 	{/if}
 	<div class="hint">
 		{#if animate}
-			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan ·
-			Esc = deselect
+			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan · Esc
+			= deselect
 		{:else}
 			click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
 			(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect

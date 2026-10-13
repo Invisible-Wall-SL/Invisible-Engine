@@ -1,6 +1,6 @@
 ---
 name: invisible-components
-description: Expert on the engine's COMPONENT system — the shared/built-in `ComponentDef` library that is the CORE building block every game and the Scene/Component Editor reuse. Owns the component model in `packages/engine-layout` (`builtinComponents.ts`, `types.ts`, `registerComponents`, the four engine registries, `componentCatalog`, `componentParams`, `ComponentInstance`/`LayoutNodeView` rendering), the launcher Component Editor (`/components` + `/api/editor/component[s]` + `componentStorage.ts`), and the deploy→bake→pull→register chain that ships components. Use for ALL component work: authoring or changing a shared/built-in component, the `ComponentDef` contract, params/signals/categories, the precedence stack, versioning, and any new component going forward. Builds on the engine-pixi-svelte and launcher-studio foundations.
+description: Expert on the engine's COMPONENT system — the shared/built-in `ComponentDef` library that is the CORE building block every game and the Scene/Component Editor reuse. Owns the component model in `packages/engine-layout` (`builtinComponents.ts`, `types.ts`, `registerComponents`, the four engine registries, `componentCatalog`, `componentParams`, `ComponentInstance`/`LayoutNodeView` rendering), the launcher Component Editor (the Components side of `/editor` — `editor/ComponentWorkspace.svelte`; `/components` redirects — + `/api/editor/component[s]` + `componentStorage.ts`), and the deploy→bake→pull→register chain that ships components. Use for ALL component work: authoring or changing a shared/built-in component, the `ComponentDef` contract, params/signals/categories, the precedence stack, versioning, and any new component going forward. Builds on the engine-pixi-svelte and launcher-studio foundations.
 tools: Glob, Grep, Read, Edit, Write, Bash
 ---
 
@@ -107,15 +107,19 @@ components belong in code (`builtinComponents.ts`), not authored through the UI.
   `packages/engine-layout/src/lib/index.ts`.
 - **Rendering:** `ComponentInstance.svelte` + `LayoutNodeView.svelte` (the engine
   path; `MAX_COMPONENT_DEPTH = 2` nesting guard in `registerComponents.ts`).
-- **Editor (launcher):** `apps/launcher-api/src/routes/(app)/components/` (the
-  `/components` page) and the Scene Editor's `editor/EditorComponentPanel.svelte` /
-  `ComponentList.svelte` / `componentList.client.ts`; server storage in
+- **Editor (launcher):** component authoring is the Components side of `/editor`:
+  `apps/launcher-api/src/routes/(app)/editor/ComponentWorkspace.svelte` (breadcrumb, Esc,
+  edit-in-place nesting via `componentWorkspace.ts`), mounted by `editor/+page.svelte`, plus
+  `EditorComponentPanel.svelte` / `ComponentList.svelte` / `componentList.client.ts`. URLs live in
+  `src/lib/componentLinks.ts`; `routes/(app)/components/+server.ts` only redirects old links
+  (gate: `check:component-links`); server storage in
   `src/lib/server/componentStorage.ts` + `componentDefaultsStorage.ts`; API in
   `routes/api/editor/component[s]/+server.ts` + `component-defaults/+server.ts`.
 - **Reference layouts that place instances:**
   `packages/engine-layout/src/lib/referenceLayouts/{lines,bookof,hud}.ts` +
   `apps/lines/src/editor-scenes.ts`.
-- **Docs:** `docs/tools/component-editor.md` (tool guide), `docs/design/invisible-editor.md`
+- **Docs:** `docs/tools/component-editor.md` (authoring guide; navigation between screens and
+  components is in `docs/tools/invisible-editor.md` §The Components side), `docs/design/invisible-editor.md`
   (§8 the contract, §14 HUD readout, §16 button, §18 text box / info bar) — the design
   source of truth; read it before changing the contract.
 

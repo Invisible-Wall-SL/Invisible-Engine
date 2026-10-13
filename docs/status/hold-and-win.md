@@ -104,7 +104,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - **A skinnable part is declared in the bound catalog** (`BOUND_COMPONENT_DEFAULTS.PotMeter.skin`:
     its layer params, box params). The editor canvas draws a skinned part's art and children instead
     of its stand-in chip. The Component Editor's bar offers **Edit inside ‹part› ›**, which points
-    the canvas, outline and spawns at the part's children (`/components` `insidePartId`).
+    the canvas, outline and spawns at the part's children (`insidePartId` in `editor/ComponentWorkspace.svelte`).
   - **A game skins its pots through a project copy, not the built-in.** Saving the built-in Pot
     Meter writes the SHARED library. The create type **Pot Meter (Hold and Win)** clones it for the
     project, the way the Free-Spin Counter does. Per-instance art params need no copy.

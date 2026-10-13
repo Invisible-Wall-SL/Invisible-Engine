@@ -113,7 +113,8 @@ a frog rig inside it that plays "celebrate" plus an FX on **Pot — activate** f
 its belly bone growing with the pot's level. All three pots, no Flow branch.
 
 - **Author** (needs #1006 on the runtime, and the project's Pots screen — hub Owner checklist 5):
-  1. `/components`: type a name, pick the type **Pot Meter (Hold and Win)** and click **Create**.
+  1. The components home (`/editor?view=components`, or **＋ New component…** in the editor's left
+     pane): type a name, pick the type **Pot Meter (Hold and Win)** and click **Create**.
      Then click **Edit inside Pot ›**.
   2. Inside the part, drop the frog rig. Give it a cue on **Pot — activate** playing its
      celebrate animation. Add a **Bind to value**: drives **rig bone** (its belly bone, **scale**),

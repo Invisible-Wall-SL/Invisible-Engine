@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { loadCinematic } from '$lib/server/cinematicStorage';
 import { assertReach, cinematicGate } from '$lib/server/cinematicAccess';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -14,6 +15,8 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);
 	const id = url.searchParams.get('id');
 	if (!id) throw error(400, 'missing id');
+	const mismatch = scopeMismatch(url.searchParams.get('projectKey') ?? undefined, projectKey);
+	if (mismatch) return mismatch;
 
 	const { doc, etag } = await loadCinematic(clientKey, projectKey, id);
 	if (!doc && etag === null) throw error(404, `No cinematic "${id}" in ${projectKey}.`);

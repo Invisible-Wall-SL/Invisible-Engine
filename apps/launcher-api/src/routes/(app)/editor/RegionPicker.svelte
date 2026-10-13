@@ -44,6 +44,18 @@
 		onSelect(scoped ? scopedFrameRef(sheetKey, region) : region);
 		open = false;
 	}
+
+	// Escape closes the open frame list (a page-level Escape stands down while it is open).
+	$effect(() => {
+		if (!open) return;
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.key !== 'Escape') return;
+			e.preventDefault();
+			open = false;
+		};
+		window.addEventListener('keydown', onKey);
+		return () => window.removeEventListener('keydown', onKey);
+	});
 </script>
 
 <div class="region-picker">
@@ -57,7 +69,8 @@
 		{/if}
 	</div>
 	{#if open}
-		<div class="sheets">
+		<!-- `data-esc-owner`: while the frame list is open a page-level Escape stands down. -->
+		<div class="sheets" data-esc-owner>
 			{#if sheets.length === 0}
 				<p class="note">No atlases or sheets in this project.</p>
 			{/if}

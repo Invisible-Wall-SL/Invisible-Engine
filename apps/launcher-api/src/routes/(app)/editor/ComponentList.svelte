@@ -12,7 +12,7 @@
 		/** Title for each row's main button (hover hint). */
 		rowTitle?: (def: ComponentDef) => string;
 		/** Trailing controls for a row (e.g. ＋place or ✕delete). */
-		actions: Snippet<[ComponentDef]>;
+		actions?: Snippet<[ComponentDef]>;
 	}
 	let { components, onRowClick, rowTitle, actions }: Props = $props();
 
@@ -36,7 +36,7 @@
 						<span class="scope" class:project={def.scope === 'project'}>{def.scope}</span>
 						<span class="ver">v{def.version}</span>
 					</button>
-					{@render actions(def)}
+					{@render actions?.(def)}
 				</li>
 			{/each}
 		</ul>

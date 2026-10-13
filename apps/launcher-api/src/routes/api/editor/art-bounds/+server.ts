@@ -4,6 +4,7 @@ import {
 	loadArtBoundsDocWithEtag,
 	saveArtBoundsDoc,
 } from '$lib/server/artBoundsStorage';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
@@ -53,6 +54,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (typeof body !== 'object' || body === null || Array.isArray(body)) {
 		throw error(400, 'Body must be an object.');
 	}
+	const mismatch = scopeMismatch((body as Record<string, unknown>).projectKey, projectKey);
+	if (mismatch) return mismatch;
 	const bounds = (body as Record<string, unknown>).bounds;
 	if (typeof bounds !== 'object' || bounds === null || Array.isArray(bounds)) {
 		throw error(400, '`bounds` must be a plain object.');

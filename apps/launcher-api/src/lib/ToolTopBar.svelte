@@ -6,6 +6,7 @@
 	// See docs/design/unified-tool-bar.md.
 	import Emblem from '$lib/Emblem.svelte';
 	import { TOOLS, toolBarItems, toolAccent, type ToolDef } from '$lib/roles';
+	import { withProject } from '$lib/toolLinks';
 	import { untrack, type Snippet } from 'svelte';
 
 	// `clientKey`/`projectKey` are the loudly-shown active project (project-explicit
@@ -80,7 +81,9 @@
 	{#if items.length}
 		<nav class="switcher" class:compact bind:this={nav} aria-label="Switch tool">
 			{#each items as tool (tool.id)}
-				<a class="tool" href={tool.url} title={tool.name}>
+				<!-- Carries the shown project, so a tool opens what this bar says is open even after
+				     another tab moved the session (`resolveToolScope` reads `?project=`). -->
+				<a class="tool" href={tool.url && withProject(tool.url, projectKey)} title={tool.name}>
 					{#if tool.icon}<span class="ic" style="color:{toolAccent(tool.id)}">{@html tool.icon}</span>{/if}
 					<span class="label">{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
 				</a>
