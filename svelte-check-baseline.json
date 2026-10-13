@@ -151,7 +151,7 @@
 		}
 	},
 	"apps/launcher-api": {
-		"errors": 48,
+		"errors": 47,
 		"byFile": {
 			"apps/launcher-api/src/lib/server/atlasManifestCheck.ts": {
 				"ts:2352": 1
@@ -164,9 +164,6 @@
 			},
 			"apps/launcher-api/src/routes/(app)/admin/+page.svelte": {
 				"ts:2322": 1
-			},
-			"apps/launcher-api/src/routes/(app)/components/+page.svelte": {
-				"ts:7053": 1
 			},
 			"apps/launcher-api/src/routes/(app)/editor/ArtBoundsEditor.svelte": {
 				"ts:2322": 1

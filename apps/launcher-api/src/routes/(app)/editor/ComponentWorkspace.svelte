@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
-	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
@@ -21,6 +20,7 @@
 		JACKPOT_TILE_DEF,
 		LETTER_TILE_DEF,
 		LETTERS_STRIP_DEF,
+		MAX_COMPONENT_DEPTH,
 		POT_METER_DEF,
 		RESPIN_CELLS_DEF,
 		RESPIN_COUNTER_DEF,
@@ -35,33 +35,76 @@
 	import type {
 		ComponentCategory,
 		ComponentDef,
+		ComponentInstanceNode,
 		ComponentParam,
 		ContainerNode,
 		LayoutNode,
 		LayoutType,
 		Scene,
 	} from 'engine-layout';
-	import { onMount } from 'svelte';
-	import { askConfirm } from '$lib/dialogs.svelte';
+	import { onMount, untrack } from 'svelte';
+	import { askConfirm, dialogQueue } from '$lib/dialogs.svelte';
 	import { guardUnsavedWork } from '$lib/unsavedGuard';
-	// Reuse the editor's child components across routes (only `+page`/`+layout`/
-	// `+server` are route-special in SvelteKit; these `.svelte`/`.ts` modules are
-	// plain imports). `/editor` keeps owning them — this tool is the standalone
-	// authoring slice that used to live as "component mode" inside the editor.
-	import ComponentList from '../editor/ComponentList.svelte';
-	import EditorAssetLibrary from '../editor/EditorAssetLibrary.svelte';
-	import EditorCanvas from '../editor/EditorCanvas.svelte';
-	import EditorElementsPalette from '../editor/EditorElementsPalette.svelte';
-	import EditorOutline from '../editor/EditorOutline.svelte';
-	import EditorProperties from '../editor/EditorProperties.svelte';
-	import type { RigMeta } from '../editor/rigRuntime.client';
-	import PanelResizers from '../editor/PanelResizers.svelte';
-	import PanelSection from '../editor/PanelSection.svelte';
-	import { CATEGORIES } from '../editor/componentList.client';
-	import { findById, genComponentId, removeNode } from '../editor/layoutTree.client';
+	import ComponentList from './ComponentList.svelte';
+	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
+	import EditorCanvas from './EditorCanvas.svelte';
+	import EditorElementsPalette from './EditorElementsPalette.svelte';
+	import EditorOutline from './EditorOutline.svelte';
+	import EditorProperties from './EditorProperties.svelte';
+	import type { RigMeta } from './rigRuntime.client';
+	import PanelResizers from './PanelResizers.svelte';
+	import PanelSection from './PanelSection.svelte';
+	import { CATEGORIES } from './componentList.client';
+	import { findById, genComponentId, removeNode } from './layoutTree.client';
+	import { canEnterNested, type ComponentOpenRequest } from './componentWorkspace';
 	import type { PageData } from './$types';
 
-	let { data }: { data: PageData } = $props();
+	/**
+	 * The Components side of `/editor` (Rive plan Phase 4): everything the standalone Component
+	 * Editor did, mounted on the editor's stage. The editor page owns the Screens; this owns the
+	 * open component, its draft, its saves and the breadcrumb of nested defs edited in place.
+	 */
+	interface Props {
+		data: Pick<
+			PageData,
+			| 'clientKey'
+			| 'projectKey'
+			| 'components'
+			| 'componentEtags'
+			| 'assets'
+			| 'componentDefaults'
+			| 'gameName'
+			| 'addOns'
+			| 'canPublishShared'
+		> & {
+			gameType: string;
+			mainSizesMap: PageData['doc']['mainSizesMap'];
+		};
+		/** The editor's screens, listed above the components so either is one click away. */
+		screens: { id: string; name: string }[];
+		/** What to open next; a new `seq` is a new request. */
+		openRequest: ComponentOpenRequest | null;
+		/** False while the Screens side is shown — keyboard shortcuts stay off. */
+		active: boolean;
+		/** Back to the Screens side. */
+		onExit: () => void;
+		onOpenScreen: (id: string) => void;
+		/** The component list after a save, create or delete, so placed instances redraw. */
+		onComponentsChange: (components: ComponentDef[]) => void;
+		/** The open component changed (`null` = the components home), for the page URL. */
+		onOpenedChange: (id: string | null) => void;
+	}
+
+	let {
+		data,
+		screens,
+		openRequest,
+		active,
+		onExit,
+		onOpenScreen,
+		onComponentsChange,
+		onOpenedChange,
+	}: Props = $props();
 
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (region picker). */
 	const pickSheets = $derived(pickSheetsFrom(data.assets));
@@ -409,7 +452,7 @@
 	/** Left sidebar tab (when a component is open): the asset Library to drag from,
 	 * or the Outline of the open component's tree. Properties always show on the
 	 * right, so selecting a node never needs a tab switch. */
-	let leftTab = $state<'library' | 'outline'>('outline');
+	let leftTab = $state<'library' | 'outline' | 'browse'>('outline');
 	// Resizable sidebars — shared behaviour via <PanelResizers> (same as the
 	// Scene Editor); widths persist under this tool's own key.
 	let leftWidth = $state(280);
@@ -479,7 +522,7 @@
 	/** The preview FRAME is the standard window (its aspect comfortably contains the
 	 * project's main box at `mainScale`) — same choice the Scene Editor makes. The
 	 * game-space mapping below scales the project's real main box into this window. */
-	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP[currentLayoutType]);
+	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP.desktop);
 
 	/** The project's real MAIN box (e.g. 1422×800 for Borut) — game-space component
 	 * nodes are mapped through THIS box (exactly as `<MainContainer>` / the Scene
@@ -512,11 +555,11 @@
 	/** Open `def` for editing. `$state.snapshot` (NOT `structuredClone`): `def` may be
 	 * a reactive proxy (a `components` list entry), which `structuredClone` rejects
 	 * with DataCloneError — snapshot returns a plain, detached deep copy. */
-	async function openComponent(def: ComponentDef): Promise<void> {
+	async function openComponent(def: ComponentDef, confirmed = false): Promise<void> {
 		// Switching components in the sidebar is the MOST common way to leave one, and it bypasses
 		// every other guard (the navigation guard sees no navigation, `closeComponent` isn't called).
 		// The defaults panel is a second, separately-saved store, so it needs asking about here.
-		if (defaultsDirty && componentDraft?.id !== def.id) {
+		if (!confirmed && defaultsDirty && componentDraft?.id !== def.id) {
 			const ok = await askConfirm({
 				title: 'Discard the unsaved defaults?',
 				message:
@@ -558,6 +601,7 @@
 		pickVersion = '';
 		versionList = null;
 		if (components.some((c) => c.id === def.id)) void loadVersionList(def);
+		onOpenedChange(def.id);
 	}
 
 	/**
@@ -811,22 +855,10 @@
 	/** Close the open component, back to the sidebar home. Confirms first when the draft OR this
 	 * game's defaults have unsaved edits (a never-saved component would vanish entirely; the
 	 * defaults sidecar is a separate save, so a dirty panel must be warned about too). */
-	async function closeComponent(): Promise<void> {
-		if (draftDirty || defaultsDirty) {
-			const ok = await askConfirm({
-				title:
-					draftDirty && savedSnapshot === null
-						? 'This component has never been saved'
-						: draftDirty
-							? 'Discard the unsaved changes to this component?'
-							: 'Discard the unsaved changes to this game’s defaults for this component?',
-				message: draftDirty && savedSnapshot === null ? 'Closing discards it entirely.' : undefined,
-				confirmLabel: 'Discard and close',
-				danger: true,
-			});
-			if (!ok) return;
-		}
+	async function closeComponent(): Promise<boolean> {
+		if (!(await confirmLeaveDraft('Discard and close'))) return false;
 		componentDraft = null;
+		trail = [];
 		savedSnapshot = null;
 		projectDefaults = {};
 		projectDefaultsBaseline = defaultsSignature({});
@@ -839,7 +871,140 @@
 		versionList = null;
 		// No component open ⇒ nothing to lease; release + go inert.
 		void lease.switchDoc(null);
+		onOpenedChange(null);
+		return true;
 	}
+
+	/** Ask before the open draft or this game's defaults are discarded; true = go ahead. */
+	async function confirmLeaveDraft(confirmLabel: string): Promise<boolean> {
+		if (!draftDirty && !defaultsDirty) return true;
+		return askConfirm({
+			title:
+				draftDirty && savedSnapshot === null
+					? 'This component has never been saved'
+					: draftDirty
+						? 'Discard the unsaved changes to this component?'
+						: 'Discard the unsaved changes to this game’s defaults for this component?',
+			message: draftDirty && savedSnapshot === null ? 'Leaving discards it entirely.' : undefined,
+			confirmLabel,
+			danger: true,
+		});
+	}
+
+	// ---- Edit in place: the breadcrumb of nested defs (Rive plan Phase 4) ----------------------
+	/** The screen the author came from (the breadcrumb's first crumb), or null from the list. */
+	let rootLabel = $state<string | null>(null);
+	/** Ids of the defs enclosing the open one, outermost first: `Win banner › Coin` is `['win…']`
+	 * while Coin is open. Empty for a component opened at the top. */
+	let trail = $state<string[]>([]);
+	let navStatus = $state<string | null>(null);
+
+	/** Open `def` at a breadcrumb position, asking first about unsaved work. */
+	async function navigateTo(
+		def: ComponentDef,
+		nextTrail: string[],
+		nextRoot: string | null,
+	): Promise<boolean> {
+		navStatus = null;
+		if (componentDraft?.id === def.id && !isInspecting) {
+			// Already open: only where it sits in the breadcrumb changes, never its draft.
+			trail = nextTrail;
+			rootLabel = nextRoot;
+			return true;
+		}
+		if (!(await confirmLeaveDraft('Discard and open'))) return false;
+		trail = nextTrail;
+		rootLabel = nextRoot;
+		await openComponent(def, true);
+		return true;
+	}
+
+	/** Double-click on a placed instance inside the open def: open ITS def in place. */
+	async function enterInstance(node: ComponentInstanceNode): Promise<void> {
+		if (!componentDraft || insidePart) return;
+		const def = componentMap.get(node.componentId);
+		if (!def) {
+			navStatus = `Component "${node.componentId}" is not in this project.`;
+			return;
+		}
+		if (!canEnterNested(trail.length)) {
+			navStatus = `The game draws components ${MAX_COMPONENT_DEPTH} levels deep at most, so ${def.name} is not opened here. Open it from the list instead.`;
+			return;
+		}
+		await navigateTo(def, [...trail, componentDraft.id], rootLabel);
+	}
+
+	/** Go to breadcrumb position `depth` (0 = the outermost def in the trail). */
+	async function goToCrumb(depth: number): Promise<void> {
+		const id = trail[depth];
+		const def = id ? componentMap.get(id) : undefined;
+		if (def) await navigateTo(def, trail.slice(0, depth), rootLabel);
+	}
+
+	/** Leave the components side entirely, back to the screen the author came from. */
+	async function exitToScreens(): Promise<void> {
+		if (componentDraft && !(await closeComponent())) return;
+		rootLabel = null;
+		onExit();
+	}
+
+	/** Up one level: out of a skinnable part, out of a nested def, out of the component. */
+	async function goUp(): Promise<void> {
+		if (insidePart) enterPart(null);
+		else if (trail.length > 0) await goToCrumb(trail.length - 1);
+		else if (componentDraft && rootLabel === null) await closeComponent();
+		else await exitToScreens();
+	}
+
+	function isTypingTarget(t: EventTarget | null): boolean {
+		const el = t as HTMLElement | null;
+		return (
+			!!el &&
+			(el.tagName === 'INPUT' ||
+				el.tagName === 'TEXTAREA' ||
+				el.tagName === 'SELECT' ||
+				el.isContentEditable)
+		);
+	}
+
+	/** Esc goes up a level. Runs in the capture phase, before the canvas's own Escape (which
+	 * clears a selection), so a press that clears a selection never also leaves the level. */
+	function onKeyDownCapture(e: KeyboardEvent): void {
+		if (!active || e.key !== 'Escape' || isTypingTarget(e.target)) return;
+		if (dialogQueue.current || defaultsHistoryOpen || selectedIds.length > 0) return;
+		e.preventDefault();
+		void goUp();
+	}
+
+	let handledRequest = -1;
+	$effect(() => {
+		const request = openRequest;
+		if (!request || request.seq === handledRequest) return;
+		handledRequest = request.seq;
+		untrack(() => void handleOpenRequest(request));
+	});
+
+	async function handleOpenRequest(request: ComponentOpenRequest): Promise<void> {
+		if (request.def && !components.some((c) => c.id === request.def?.id)) {
+			components = [...components, request.def];
+			componentEtags = { ...componentEtags, [request.def.id]: request.etag ?? null };
+		}
+		if (request.id === null) {
+			if (componentDraft) await closeComponent();
+			rootLabel = request.rootLabel;
+			return;
+		}
+		const def = components.find((c) => c.id === request.id);
+		if (!def) {
+			navStatus = `Component "${request.id}" is not in this project.`;
+			return;
+		}
+		await navigateTo(def, [], request.rootLabel);
+	}
+
+	$effect(() => {
+		onComponentsChange($state.snapshot(components) as ComponentDef[]);
+	});
 
 	/** Delete a component from R2 + the local list (with a confirm). Stops the row's
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
@@ -1434,16 +1599,11 @@
 		e.dataTransfer.effectAllowed = 'copy';
 	}
 
-	// Deep-link: `/components?id=<id>` opens that component once the list is loaded. Also owns the
-	// lease teardown — `openComponent` (called here + on every row click) acquires per item; a
-	// tab close / navigation must release so the item isn't wedged until expiry.
+	// Lease teardown — `openComponent` acquires per item; a tab close / navigation must release
+	// so the item isn't wedged until expiry.
 	onMount(() => {
 		const onUnload = () => lease.release();
 		window.addEventListener('pagehide', onUnload);
-		if (data.openId) {
-			const def = components.find((c) => c.id === data.openId);
-			if (def) void openComponent(def);
-		}
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
 			lease.release();
@@ -1451,33 +1611,77 @@
 	});
 </script>
 
-<div class="shell">
-	<ToolTopBar
-		current="componentEditor"
-		tools={data.tools}
-		clientKey={data.clientKey}
-		projectKey={data.projectKey}
-	>
-		{#snippet meta()}
-			{#if !componentDraft}
-				<span class="counter">
-					{components.length}
-					{components.length === 1 ? 'component' : 'components'}
-				</span>
-			{/if}
-		{/snippet}
-	</ToolTopBar>
+<svelte:window onkeydowncapture={onKeyDownCapture} />
 
-	{#if componentDraft}
-		<!-- Dedicated editor action row. Kept OFF the ToolTopBar chrome so the top row can
-		     give the brand + project scope + tool switcher their full width, and these
-		     controls get their own space (wrapping to a second line on a narrow window). -->
-		<div class="editor-bar">
-			<div class="eb-group">
-				<span class="open-pill" title="The component currently open for editing">
-					◇ {componentDraft.name}{#if insidePart}
-						› {insidePart.label ?? insidePart.id}{/if}
-				</span>
+<div class="workspace">
+	<!-- The component action row: the breadcrumb of where the author is (Esc goes up one crumb),
+	     then the open component's identity, version and save controls. -->
+	<div class="editor-bar">
+		<div class="eb-group">
+			<nav class="crumbs" aria-label="Where you are">
+				<button
+					class="crumb"
+					type="button"
+					title="Back to the screens (Esc from the top level)"
+					onclick={() => void exitToScreens()}
+				>
+					{rootLabel ?? 'Screens'}
+				</button>
+				<span class="crumb-sep" aria-hidden="true">›</span>
+				{#if componentDraft}
+					{#if rootLabel === null}
+						<button
+							class="crumb"
+							type="button"
+							title="All components"
+							onclick={() => void closeComponent()}
+						>
+							Components
+						</button>
+						<span class="crumb-sep" aria-hidden="true">›</span>
+					{/if}
+					{#each trail as id, depth (depth)}
+						<button
+							class="crumb"
+							type="button"
+							title="Back up to this component"
+							onclick={() => void goToCrumb(depth)}
+						>
+							{componentMap.get(id)?.name ?? id}
+						</button>
+						<span class="crumb-sep" aria-hidden="true">›</span>
+					{/each}
+					{#if insidePart}
+						<button
+							class="crumb"
+							type="button"
+							title="Back to the component's own nodes"
+							onclick={() => enterPart(null)}
+						>
+							{componentDraft.name}
+						</button>
+						<span class="crumb-sep" aria-hidden="true">›</span>
+						<span class="crumb current">{insidePart.label ?? insidePart.id}</span>
+					{:else}
+						<span
+							class="crumb current"
+							title="The component open for editing. Double-click a component placed inside it to edit that one in place."
+						>
+							◇ {componentDraft.name}
+						</span>
+					{/if}
+				{:else}
+					<span class="crumb current">Components</span>
+					<span class="counter">
+						{components.length}
+						{components.length === 1 ? 'component' : 'components'}
+					</span>
+				{/if}
+			</nav>
+			{#if navStatus}
+				<span class="save-pill error" title={navStatus}>{navStatus}</span>
+			{/if}
+			{#if componentDraft}
 				{#if insidePart}
 					<button
 						class="save-btn"
@@ -1549,8 +1753,10 @@
 						Inspect
 					</button>
 				{/if}
-			</div>
+			{/if}
+		</div>
 
+		{#if componentDraft}
 			<div class="eb-group">
 				<!-- Another author (or your own other tab) holds this component's lease → read-only
 				     here. The draft saveState refuses to save (its blockWhen); Take over is always
@@ -1591,8 +1797,8 @@
 					← All components
 				</button>
 			</div>
-		</div>
-	{/if}
+		{/if}
+	</div>
 
 	<div
 		class="layout"
@@ -1600,12 +1806,34 @@
 		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
 	>
 		<aside class="left">
+			{#snippet screensSection()}
+				<PanelSection id="cmp-screens" title="Screens" count={screens.length}>
+					<ul class="nav-list">
+						{#each screens as screen (screen.id)}
+							<li>
+								<button
+									type="button"
+									class="nav-row"
+									title="Back to the screens with this one open"
+									onclick={async () => {
+										if (componentDraft && !(await closeComponent())) return;
+										rootLabel = null;
+										onOpenScreen(screen.id);
+									}}
+								>
+									{screen.name}
+								</button>
+							</li>
+						{:else}
+							<li class="muted">No screens yet.</li>
+						{/each}
+					</ul>
+				</PanelSection>
+			{/snippet}
 			{#if !componentDraft}
-				<div class="panel-head">
-					<h2 class="panel-title">Components</h2>
-				</div>
-
 				<div class="tab-body">
+					{@render screensSection()}
+
 					<PanelSection id="cmp-create" title="New component">
 						<div class="create">
 							<div class="create-row">
@@ -1783,11 +2011,11 @@
 						</div>
 					</PanelSection>
 
-					<PanelSection id="cmp-library" title="Library" count={components.length}>
+					<PanelSection id="cmp-library" title="Components" count={components.length}>
 						{#if components.length === 0}
 							<p class="muted">No components yet. Create one above to start authoring.</p>
 						{:else}
-							<ComponentList {components} onRowClick={(def) => void openComponent(def)}>
+							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
 								{#snippet actions(def)}
 									<button
 										type="button"
@@ -1823,10 +2051,25 @@
 					>
 						Outline
 					</button>
+					<button
+						role="tab"
+						aria-selected={leftTab === 'browse'}
+						class="tab"
+						class:active={leftTab === 'browse'}
+						title="The screens and every component, to jump to another"
+						onclick={() => (leftTab = 'browse')}
+					>
+						Browse
+					</button>
 				</div>
 
 				<div class="tab-body">
-					{#if leftTab === 'library'}
+					{#if leftTab === 'browse'}
+						{@render screensSection()}
+						<PanelSection id="cmp-browse" title="Components" count={components.length}>
+							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)} />
+						</PanelSection>
+					{:else if leftTab === 'library'}
 						<PanelSection id="cmp-lib-elements" title="Elements">
 							<ul>
 								<EditorElementsPalette {onElementDragStart} />
@@ -1871,15 +2114,16 @@
 					componentParams={resolvedParams}
 					redrawNonce={editNonce}
 					onRigMeta={(meta) => (rigMeta = meta)}
+					onEditInstance={(node) => void enterInstance(node)}
 				/>
 			{:else}
 				<div class="empty">
 					<Emblem height={48} />
-					<h2>Invisible Component Editor</h2>
+					<h2>Components</h2>
 					<p>
-						Author reusable game components — overlays, UI groups and scenery you can drop across
-						scenes in the Invisible Editor. Create one on the left, or open an existing component,
-						then build its element tree on this canvas.
+						Author reusable game components — overlays, UI groups and scenery you place on your
+						screens. Create one on the left, or open an existing component, then build its element
+						tree on this stage. On a screen, double-click a placed component to edit it in place.
 					</p>
 				</div>
 			{/if}
@@ -1933,6 +2177,9 @@
 						projectParamDefaults={projectDefaults}
 						onSetProjectParamDefault={setProjectParamDefault}
 						projectLabel={defaultsPanelLabel}
+						onOpenComponentEditor={() => {
+							if (selectedNode?.kind === 'componentInstance') void enterInstance(selectedNode);
+						}}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
 							const params = { ...(selectedNode.params ?? {}) };
@@ -2013,23 +2260,17 @@
 {/if}
 
 <style>
-	.shell {
+	.workspace {
 		position: relative;
 		display: flex;
 		flex-direction: column;
-		height: 100vh;
+		min-height: 0;
 		color: #e8e8ee;
 		background: #0b0b10;
-		font-family:
-			ui-sans-serif,
-			system-ui,
-			-apple-system,
-			'Segoe UI',
-			sans-serif;
 	}
-	/* Dedicated component-editing action row, below the shared ToolTopBar chrome.
-	   Two groups (identity/history · save/exit) pushed apart; wraps to a second line
-	   before anything clips on a narrow window. */
+	/* The component action row, below the shared ToolTopBar chrome. Two groups
+	   (breadcrumb/history · save/exit) pushed apart; wraps to a second line before
+	   anything clips on a narrow window. */
 	.editor-bar {
 		display: flex;
 		align-items: center;
@@ -2047,15 +2288,60 @@
 		flex-wrap: wrap;
 		gap: 10px;
 	}
-	.open-pill {
+	.crumbs {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 4px;
+	}
+	.crumb {
 		font-size: 12px;
-		font-weight: 600;
-		padding: 3px 10px;
+		padding: 3px 8px;
 		border-radius: 999px;
-		border: 1px solid #2b6f5a;
+		border: 1px solid transparent;
+		background: none;
+		color: #9a9aa6;
+		white-space: nowrap;
+	}
+	button.crumb {
+		cursor: pointer;
+	}
+	button.crumb:hover {
+		color: #e8e8ee;
+		border-color: #2a2a33;
+	}
+	.crumb.current {
+		font-weight: 600;
+		border-color: #2b6f5a;
 		background: #14241d;
 		color: #7ee0c0;
-		white-space: nowrap;
+	}
+	.crumb-sep {
+		color: #55555f;
+		font-size: 12px;
+	}
+	.nav-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.nav-row {
+		width: 100%;
+		text-align: left;
+		font-size: 12px;
+		padding: 4px 8px;
+		border-radius: 6px;
+		border: 1px solid transparent;
+		background: none;
+		color: #c8c8d0;
+		cursor: pointer;
+	}
+	.nav-row:hover {
+		background: #16161d;
+		border-color: #2a2a33;
 	}
 	.counter {
 		font-size: 11px;
@@ -2164,19 +2450,6 @@
 	}
 	.properties {
 		border-left: 1px solid #1c1c24;
-	}
-	.panel-head {
-		display: flex;
-		align-items: center;
-		padding: 10px 12px;
-		border-bottom: 1px solid #1c1c24;
-	}
-	.panel-title {
-		margin: 0;
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		color: #b8b8c4;
 	}
 	.tabs {
 		display: flex;

@@ -6,9 +6,9 @@
  * INVISIBLE: the ref simply names a namespace nothing ever registers, the sprite resolves no
  * texture, and the art is absent in-game with only a console line to say so.
  *
- * Four surfaces write scoped refs (`/editor`, `/components`, `/symbols`, `/config`) and two more
- * resolve them (`resolveManifestKey`'s ship-path repair, `listSheets`' asset listing). They all
- * come here, because a disagreement between any two of them IS the bug.
+ * Four surfaces write scoped refs (`/editor`'s Screens and Components sides, `/symbols`,
+ * `/config`) and two more resolve them (`resolveManifestKey`'s ship-path repair, `listSheets`'
+ * asset listing). They all come here, because a disagreement between any two of them IS the bug.
  *
  * Dependency-free on purpose — `node apps/launcher-api/pickSheets.fixture.ts` runs it directly.
  */
@@ -66,7 +66,7 @@ export function manifestKeyByFolder(root: string, allKeys: string[]): Map<string
 /**
  * The region picker's source list — atlas MANIFESTS + sheets, in that order.
  *
- * Shared by `/editor`, `/components`, `/symbols` and `/config`, which each derived this by hand and
+ * Shared by `/editor` (both sides), `/symbols` and `/config`, which each derived this by hand and
  * must not drift: they are the only writers of scoped frame refs.
  *
  * A `SheetAsset.key` is the sheet's R2 output PREFIX — that field is the prefix the FTP browser and

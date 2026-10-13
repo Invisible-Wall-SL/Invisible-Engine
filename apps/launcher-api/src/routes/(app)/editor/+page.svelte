@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { invalidateAll } from '$app/navigation';
+	import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import { componentsHref, componentsTarget } from '$lib/componentLinks';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -74,6 +76,9 @@
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
+	import ComponentList from './ComponentList.svelte';
+	import ComponentWorkspace from './ComponentWorkspace.svelte';
+	import type { ComponentOpenRequest } from './componentWorkspace';
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
@@ -515,13 +520,83 @@
 	 *  so leaving Animate never drops an unsaved timeline. */
 	let animateVisited = $state(false);
 
-	// ---------- components (§8.4) ----------
-	// Authoring components moved OUT of the editor into the standalone Invisible
-	// Component Editor (`/components`). The editor keeps a lean PICKER: list the
-	// project's components, PLACE a `componentInstance` into the active scene, and
-	// deep-link into the Component Editor (new tab) to author/create them.
+	// ---------- components (§8.4, Rive plan Phase 4) ----------
+	// The Screens side places `componentInstance`s; the Components side
+	// (`ComponentWorkspace`) authors the defs on the same stage. Double-click a placed instance,
+	// or pick a component in the left pane, to edit it in place.
 
-	/** The two editor modes. (Component authoring is its own tool now.) */
+	/** Which side of the editor is on the stage. The Components side mounts on first visit and
+	 * then stays (hidden on the Screens side) rather than rebuilding its canvas on every trip. */
+	let workspaceView = $state<'screens' | 'components'>('screens');
+	const componentsView = $derived(workspaceView === 'components');
+	let workspaceMounted = $state(false);
+	let componentRequest = $state<ComponentOpenRequest | null>(null);
+	let componentRequestSeq = 0;
+
+	/** Show the Components side on `id` (`null` = its home). `rootLabel` is the screen the author
+	 * came from; `def`/`etag` carry a component this page just created. */
+	function openComponents(
+		id: string | null,
+		rootLabel: string | null,
+		created?: { def: ComponentDef; etag: string | null },
+	): void {
+		// The Screens canvas stays mounted underneath and listens for Delete — drop its selection
+		// so a key meant for the component can never delete a screen node.
+		clearSelection();
+		componentRequest = {
+			seq: ++componentRequestSeq,
+			id,
+			rootLabel,
+			...(created ? { def: created.def, etag: created.etag } : {}),
+		};
+		workspaceMounted = true;
+		workspaceView = 'components';
+	}
+
+	function backToScreens(): void {
+		workspaceView = 'screens';
+		setEditorUrl(undefined);
+	}
+
+	function openScreenById(id: string): void {
+		const idx = scenes.findIndex((s) => s.id === id);
+		if (idx !== -1) selectScene(idx);
+		backToScreens();
+	}
+
+	/** Double-click on a placed instance: edit its def in place, the active screen as the root. */
+	function editInstanceInPlace(node: ComponentInstanceNode): void {
+		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
+	}
+
+	/** Keep the address bar on what is open, so a reload or a shared link lands there. Shallow:
+	 * no navigation, no reload of the page data. */
+	function setEditorUrl(target: string | null | undefined): void {
+		const params = new URLSearchParams(page.url.searchParams);
+		const href =
+			target === undefined
+				? (() => {
+						params.delete('component');
+						params.delete('view');
+						const q = params.toString();
+						return `/editor${q ? `?${q}` : ''}`;
+					})()
+				: componentsHref(target, params);
+		if (href !== `${page.url.pathname}${page.url.search}`) replaceState(href, {});
+	}
+
+	function applyUrlTarget(url: URL): void {
+		const target = componentsTarget(url.searchParams);
+		if (target !== undefined) openComponents(target, null);
+	}
+
+	// The first load, and a link to `/editor?view=components` followed from inside `/editor` (the
+	// tool bar's Component Editor card), which is a same-page navigation.
+	afterNavigate(({ to }) => {
+		if (to) applyUrlTarget(to.url);
+	});
+
+	/** The two editor modes. */
 	let mode = $state<'scene' | 'template'>('scene');
 	/** The game's real sounds for the win component's per-tier SFX / BGM dropdowns — the ONE generated
 	 * enum (`engine-flow-v2`). BGM = the `bgm_*` beds; SFX = the non-bgm cues (`sfx_*` / `jng_*`). This
@@ -688,6 +763,7 @@
 		}
 		const name = container.label || 'Component';
 		const existing = components.find((c) => c.scope === 'project' && c.name === name);
+		let createdEtag: string | null = null;
 		try {
 			let def: ComponentDef;
 			if (existing) {
@@ -722,6 +798,8 @@
 					componentStatus = { kind: 'error', message };
 					return;
 				}
+				const out = (await res.json().catch(() => ({}))) as { etag?: string | null };
+				createdEtag = out.etag ?? null;
 				// Reflect the new def locally so the picker + canvas resolve it immediately.
 				components = [...components, def];
 			}
@@ -746,10 +824,11 @@
 				kind: 'ok',
 				message: existing ? 'Linked to component' : 'Component created',
 			};
-			const href = `/components?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(
-				data.projectKey,
-			)}`;
-			window.location.href = href;
+			openComponents(
+				def.id,
+				activeScene?.name || activeScene?.id || null,
+				existing ? undefined : { def, etag: createdEtag },
+			);
 		} catch (e) {
 			componentStatus = {
 				kind: 'error',
@@ -879,21 +958,10 @@
 		selectOnly(node.id);
 	}
 
-	/** Open the standalone Component Editor in THIS window (optionally on `id`).
-	 * Flushes the layout to the doc first so scene edits aren't lost on navigation —
-	 * except a cross-type preview, which must never autosave (the user Saves/Discards
-	 * it deliberately). Uses a FULL-PAGE navigation (not SPA `goto`): the editor and
-	 * component editor are heavy WebGL tools that expect a clean document load — an
-	 * in-app remount between them leaves the canvas broken (the "← Editor" link
-	 * stopped working). Same window/tab, fresh document. */
-	async function openComponentEditor(id?: string): Promise<void> {
-		// Never navigate away from a doc that failed to flush — this is a full page
-		// load, so unsaved work would be gone with no way back.
-		if (saveState.dirty && !crossTypeLoaded && !(await save())) return;
-		const params = new URLSearchParams();
-		if (id) params.set('id', id);
-		params.set('project', data.projectKey);
-		window.location.href = `/components?${params.toString()}`;
+	/** Open the Components side from the component list (on `id`, or its home). The screens
+	 * stay in memory and keep autosaving, so nothing is flushed first. */
+	function openComponentEditor(id?: string): void {
+		openComponents(id ?? null, null);
 	}
 
 	/** Per-slot authoring metadata not carried on `LayoutNode` (which has no
@@ -2596,7 +2664,7 @@
 	/** Page-level editor shortcuts (the canvas owns Delete/Escape on its own listener).
 	 * Undo/redo here; copy/cut/paste/duplicate are added in the clipboard block. */
 	function onEditorKeyDown(e: KeyboardEvent): void {
-		if (isTypingTarget(e.target) || animating) return;
+		if (isTypingTarget(e.target) || animating || componentsView) return;
 		const mod = e.ctrlKey || e.metaKey;
 		if (!mod) return;
 		const k = e.key.toLowerCase();
@@ -2663,7 +2731,7 @@
 
 <svelte:head><title>Invisible Scene Editor — Invisible Wall</title></svelte:head>
 
-<div class="shell">
+<div class="shell" class:components-view={componentsView}>
 	<ToolTopBar
 		current="editor"
 		tools={data.tools}
@@ -2683,7 +2751,7 @@
 	     Editor) so the top row gives the brand + project scope + tool switcher their full
 	     width, and the save/warnings/mode controls get their own space — wrapping to a
 	     second line before anything clips on a narrow window. -->
-	<div class="editor-bar">
+	<div class="editor-bar screens-only">
 		<div class="eb-group">
 			{#if lease.readOnly}
 				<PresenceBanner {lease} />
@@ -2797,7 +2865,7 @@
 			{:else if componentStatus?.kind === 'error'}
 				<span class="save-pill error" title={componentStatus.message}>Component failed</span>
 			{:else if componentStatus?.kind === 'ok'}
-				<span class="save-pill ok" title="Opened in the Component Editor (new tab)">
+				<span class="save-pill ok" title="Opened on the Components side">
 					{componentStatus.message}
 				</span>
 			{/if}
@@ -2837,7 +2905,7 @@
 		</div>
 	</div>
 
-	{#if showContentWarnings && contentWarnings.length > 0}
+	{#if showContentWarnings && contentWarnings.length > 0 && !componentsView}
 		<div class="warn-panel" role="dialog" aria-label="Asset issues">
 			<div class="warn-head">
 				<strong>Asset issues</strong>
@@ -2869,7 +2937,7 @@
 	{/if}
 
 	<div
-		class="layout"
+		class="layout screens-only"
 		class:resizing={resizing !== null}
 		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
 	>
@@ -3187,6 +3255,38 @@
 						⧉ Save as new game kind…
 					</button>
 				</PanelSection>
+
+				<PanelSection id="components" title="Components" count={paletteComponents.length}>
+					{#if paletteComponents.length === 0}
+						<p class="muted">No components yet.</p>
+					{:else}
+						<ComponentList
+							components={paletteComponents}
+							onRowClick={(def) => openComponentEditor(def.id)}
+							rowTitle={(def) => `Edit ${def.name} on the stage`}
+						>
+							{#snippet actions(def)}
+								<button
+									type="button"
+									class="cmp-place"
+									title={`Drop a ${def.name} instance into the active screen`}
+									aria-label={`Place ${def.name} on the active screen`}
+									onclick={() => placeComponentInstance(def)}
+								>
+									＋
+								</button>
+							{/snippet}
+						</ComponentList>
+					{/if}
+					<button
+						class="add-hud-btn"
+						type="button"
+						title="Create a component, or browse every component with its versions"
+						onclick={() => openComponentEditor()}
+					>
+						＋ New component…
+					</button>
+				</PanelSection>
 			</div>
 		</aside>
 
@@ -3224,6 +3324,7 @@
 						bind:viewMode={() => shownViewMode, (mode) => (viewMode = mode)}
 						projectGameName={data.gameName}
 						onRigMeta={(meta) => (rigMeta = meta)}
+						onEditInstance={animating ? undefined : editInstanceInPlace}
 						canUndo={canUndo && !animating}
 						canRedo={canRedo && !animating}
 						onUndo={undo}
@@ -3246,7 +3347,7 @@
 							scene={editScene}
 							selectedId={selectedIds.at(-1) ?? null}
 							projectKey={data.projectKey}
-							active={animating}
+							active={animating && !componentsView}
 						/>
 					</div>
 				{/if}
@@ -3585,7 +3686,8 @@
 							selectedNode.cueSignalOverrides = Object.keys(all).length ? all : undefined;
 							markDirty();
 						}}
-						onOpenComponentEditor={openComponentEditor}
+						onOpenComponentEditor={(id) =>
+							openComponents(id, activeScene?.name || activeScene?.id || null)}
 						onUpdateInstanceToLatest={updateInstanceToLatest}
 					/>
 
@@ -3811,6 +3913,35 @@
 		/>
 	</div>
 
+	{#if workspaceMounted}
+		<div class="workspace-slot" class:hidden={!componentsView}>
+			<ComponentWorkspace
+				data={{
+					clientKey: data.clientKey,
+					projectKey: data.projectKey,
+					components: data.components,
+					componentEtags: data.componentEtags,
+					assets: data.assets,
+					componentDefaults: data.componentDefaults,
+					gameName: data.gameName,
+					addOns: data.addOns,
+					canPublishShared: data.canPublishShared,
+					gameType: projectGameType,
+					mainSizesMap: data.doc.mainSizesMap,
+				}}
+				screens={scenes.map((s) => ({ id: s.id, name: s.name || s.id }))}
+				openRequest={componentRequest}
+				active={componentsView}
+				onExit={backToScreens}
+				onOpenScreen={openScreenById}
+				onComponentsChange={(list) => (components = withConfigWinTiers(list))}
+				onOpenedChange={(id) => {
+					if (componentsView) setEditorUrl(id);
+				}}
+			/>
+		</div>
+	{/if}
+
 	<footer class="help-strip">
 		<span class="muted">
 			Doc updatedAt: <code>{lastSavedAt || '—'}</code>
@@ -3886,6 +4017,36 @@
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
+	}
+	/* The Components side replaces the Screens bar + layout with its own; the Screens side stays
+	   mounted (display:none) so its canvas, selection and timelines survive the round trip. */
+	.shell.components-view {
+		grid-template-rows: auto 1fr auto;
+	}
+	.shell.components-view > .screens-only,
+	.workspace-slot.hidden {
+		display: none;
+	}
+	.workspace-slot {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+	.workspace-slot > :global(*) {
+		flex: 1 1 auto;
+	}
+	.cmp-place {
+		background: none;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		color: #9a9aa6;
+		font-size: 12px;
+		padding: 0 6px;
+		cursor: pointer;
+	}
+	.cmp-place:hover {
+		color: #7ee0c0;
+		border-color: #2b6f5a;
 	}
 	/* ---- Layout profile (Game Settings panel + modal) ---- */
 	.gs-buckets {

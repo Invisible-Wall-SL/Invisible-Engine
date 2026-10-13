@@ -8,8 +8,7 @@
 		components: ComponentDef[];
 		/** Drop a `componentInstance` of this component into the active scene. */
 		onPlace: (def: ComponentDef) => void;
-		/** Open the standalone Invisible Component Editor (new tab); optionally on a
-		 * specific component id. Authoring now lives in that tool, not the editor. */
+		/** Open the Components side of the editor; optionally on a specific component id. */
 		onOpenTool: (id?: string) => void;
 	}
 	let { components, onPlace, onOpenTool }: Props = $props();
@@ -19,24 +18,24 @@
 	<div class="tool-link">
 		<p class="hint">
 			Reusable prefabs (overlays, UI groups, scenery). <strong>Place</strong> one into the active scene,
-			or author them in the Component Editor.
+			or open one to edit it on the stage.
 		</p>
 		<button type="button" class="open-tool" onclick={() => onOpenTool()}>
-			◇ Open Component Editor ↗
+			◇ Open components
 		</button>
 	</div>
 
 	<h3 class="list-h">Components <span class="count">{components.length}</span></h3>
 	{#if components.length === 0}
 		<p class="muted">
-			No components yet. Open the Component Editor to create one, or use "Edit as component" on a
+			No components yet. Open the components to create one, or use "Edit as component" on a
 			container in Properties.
 		</p>
 	{:else}
 		<ComponentList
 			{components}
 			onRowClick={(def) => onOpenTool(def.id)}
-			rowTitle={(def) => `Open ${def.name} in the Component Editor`}
+			rowTitle={(def) => `Edit ${def.name} on the stage`}
 		>
 			{#snippet actions(def)}
 				<button

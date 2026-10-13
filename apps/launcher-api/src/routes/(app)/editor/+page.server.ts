@@ -23,13 +23,13 @@ import {
 	SINGLE_WIN_LIMIT_TEXT_OPTIONS,
 } from 'constants-shared/autoSpins';
 import { noJackpotTiers, projectAddOns, respinMaxRows, respinModesOf } from '$lib/addOns';
-import { roleHasTool } from '$lib/roles';
+import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import {
 	keyComponentDefaultsById,
 	listComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
-import { listComponents } from '$lib/server/componentStorage';
+import { listComponentsWithEtags } from '$lib/server/componentStorage';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
@@ -119,19 +119,22 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const [
 		loaded,
 		assets,
-		components,
+		componentEntries,
 		storedComponentDefaults,
 		customKinds,
 		symbolsDoc,
 		publishedSymbolDefaults,
+		roleOverrides,
+		toolOverrides,
 	] = await Promise.all([
 		loadDocWithEtag(clientKey, projectKey, resolvedProjectGameType),
 		listProjectAssets(clientKey, projectKey),
 		// Components the project can use (shared + project, project shadowing shared,
 		// §8.3). Drives the scene-mode component picker AND the editor canvas's
 		// `componentInstance` resolution (passed down so the canvas renders an
-		// instance's `root` without calling the engine registry).
-		listComponents({ projectKey }),
+		// instance's `root` without calling the engine registry). Each carries the ETag of
+		// the object it was read from — the Components side's save precondition.
+		listComponentsWithEtags({ projectKey }),
 		// Per-project component DEFAULTS (§13.3) — the `projectDefaults` layer
 		// `resolveComponentParams` applies under each placed instance's own params. The
 		// canvas needs it to preview what the GAME renders (the runtime registers the same
@@ -147,7 +150,21 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// (mirrors symbols/+page.server.ts). Both degrade gracefully to a fallback.
 		loadSymbolsDoc(clientKey, projectKey),
 		loadPublishedSymbolDefaults(clientKey, projectKey),
+		getRoleOverrides(locals.user.role),
+		getToolOverrides(locals.user.id),
 	]);
+	const components = componentEntries.map((e) => e.def);
+	// id → the ETag its next save must match (`null` = built-in / never stored ⇒ create).
+	const componentEtags: Record<string, string | null> = {};
+	for (const e of componentEntries) componentEtags[e.def.id] = e.etag;
+	// Whether the user may PROMOTE a component to the shared library. The API enforces
+	// `componentPublish` server-side; this only keeps the page from offering a button that 403s.
+	const canPublishShared = roleHasCapability(
+		locals.user.role,
+		COMPONENT_PUBLISH_CAPABILITY,
+		roleOverrides,
+		toolOverrides,
+	);
 	// `docEtag` is what the client must send back on save so a concurrent author can't
 	// be clobbered; `null` means the doc does not exist yet (a create). It is carried
 	// separately from `doc` because a corrupt-but-present doc still HAS an etag — see
@@ -263,6 +280,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		warnings,
 		gameName,
 		components,
+		componentEtags,
+		canPublishShared,
 		// Re-keyed onto the real def ids: a sidecar's filename is `r2Slug(id)`, so the raw
 		// listing keys `hudReadout` as `hudreadout` and `componentDefaults[def.id]` would miss.
 		componentDefaults: keyComponentDefaultsById(

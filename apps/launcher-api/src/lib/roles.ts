@@ -331,9 +331,9 @@ export const TOOLS: Record<string, ToolDef> = {
 		id: 'componentEditor',
 		name: 'Invisible Component Editor',
 		description:
-			'Author reusable game components — edit their elements and bind the engine variables.',
+			'Author reusable game components on the Scene Editor stage — edit them in place and bind the engine variables.',
 		kind: 'online',
-		url: '/components',
+		url: '/editor?view=components',
 		icon: TOOL_ICONS.componentEditor,
 	},
 	fontMaker: {
