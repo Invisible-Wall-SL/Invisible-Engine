@@ -90,7 +90,6 @@ export function stalePinLabel(pin: string): string {
 	return instanceInputOf(pin) ?? instanceEventOf(pin) ?? instanceValueOf(pin) ?? pin;
 }
 
-export const FLOW_NODE_PARAM = 'node';
 export const FLOW_INSTANCE_PARAM = 'instance';
 
 const withProject = (projectKey: string): URLSearchParams => {
@@ -98,13 +97,6 @@ const withProject = (projectKey: string): URLSearchParams => {
 	if (projectKey) params.set('project', projectKey);
 	return params;
 };
-
-/** `/flow-v2` opened on a node (the Validation panel's and the editor's jump). */
-export function flowHrefForNode(projectKey: string, nodeId: string): string {
-	const params = withProject(projectKey);
-	params.set(FLOW_NODE_PARAM, nodeId);
-	return `/flow-v2?${params.toString()}`;
-}
 
 /** `/flow-v2` opened on the node(s) naming a placed instance — the Scene Editor's *Show in Flow*.
  *  With no such node yet, the page highlights the instance in the palette. */
@@ -119,11 +111,10 @@ export function editorHrefForComponent(projectKey: string, componentId: string):
 	return componentsHref(componentId, withProject(projectKey));
 }
 
-/** What a `/flow-v2` URL asks the page to open on. */
-export function flowDeepLink(search: URLSearchParams): { node?: string; instance?: string } {
-	const node = search.get(FLOW_NODE_PARAM)?.trim();
+/** The placed instance a `/flow-v2` URL asks the page to open on, if any. */
+export function flowDeepLink(search: URLSearchParams): { instance?: string } {
 	const instance = search.get(FLOW_INSTANCE_PARAM)?.trim();
-	return { ...(node ? { node } : {}), ...(instance ? { instance } : {}) };
+	return instance ? { instance } : {};
 }
 
 /** The first `componentInstance` node naming `instanceId`, top-level in `graph` first, then

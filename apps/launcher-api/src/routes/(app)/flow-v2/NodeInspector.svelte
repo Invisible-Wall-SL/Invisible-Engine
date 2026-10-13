@@ -54,6 +54,7 @@
 		timelineIssues = {},
 		projectKey = '',
 		onchange,
+		onjump,
 	}: {
 		doc: FlowDoc;
 		node: V2Node;
@@ -70,6 +71,8 @@
 		/** The project pin every jump to `/editor` carries. */
 		projectKey?: string;
 		onchange: (next: FlowDoc) => void;
+		/** Leave for another tool at `href` — the page flushes its autosave first. */
+		onjump?: (href: string) => void;
 	} = $props();
 
 	// --- placed component instances (Rive plan §6.2, Phase 7) --------------------------------
@@ -576,8 +579,7 @@
 				<button
 					type="button"
 					class="jump"
-					onclick={() =>
-						window.location.assign(editorHrefForComponent(projectKey, instanceDecl.componentId))}
+					onclick={() => onjump?.(editorHrefForComponent(projectKey, instanceDecl.componentId))}
 					title="Open this component in the Scene Editor, in place (or double-click the node)"
 				>
 					◇ Edit component

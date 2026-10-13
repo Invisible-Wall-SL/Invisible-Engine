@@ -11,7 +11,7 @@
 export interface FlowStageMessage {
 	v: 1;
 	componentId: string;
-	/** The placed node id the Flow node named (for the panel's log). */
+	/** The placed node id the Flow node named — which placement of the component the op was for. */
 	instance: string;
 	op: 'fire' | 'set';
 	/** The trigger or input id. */

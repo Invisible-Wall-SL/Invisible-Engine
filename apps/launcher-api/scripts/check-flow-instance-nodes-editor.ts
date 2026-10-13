@@ -138,25 +138,17 @@ const at = { x: 0, y: 0 };
 {
 	eq(
 		'3. every jump carries the project pin',
-		[
-			U.flowHrefForInstance('proj', 'c_a'),
-			U.flowHrefForNode('proj', 'n1'),
-			U.editorHrefForComponent('proj', 'banner'),
-		],
-		[
-			'/flow-v2?project=proj&instance=c_a',
-			'/flow-v2?project=proj&node=n1',
-			'/editor?project=proj&component=banner',
-		],
+		[U.flowHrefForInstance('proj', 'c_a'), U.editorHrefForComponent('proj', 'banner')],
+		['/flow-v2?project=proj&instance=c_a', '/editor?project=proj&component=banner'],
 	);
 	eq(
 		'3. the Flow page reads its deep link',
 		[
 			U.flowDeepLink(new URLSearchParams('project=proj&instance=c_a')),
 			U.flowDeepLink(new URLSearchParams('node=n1')),
-			U.flowDeepLink(new URLSearchParams('node=%20')),
+			U.flowDeepLink(new URLSearchParams('instance=%20')),
 		],
-		[{ instance: 'c_a' }, { node: 'n1' }, {}],
+		[{ instance: 'c_a' }, {}, {}],
 	);
 	const graph: Graph = {
 		nodes: [
@@ -363,26 +355,29 @@ const at = { x: 0, y: 0 };
 		has(inspector, [
 			"setWaitForStateFields(doc, node.id, { layer: e.currentTarget.value, state: '' })",
 			'setWaitForStateFields(doc, node.id, { state: e.currentTarget.value })',
-			'window.location.assign(editorHrefForComponent(projectKey, instanceDecl.componentId))',
+			'onclick={() => onjump?.(editorHrefForComponent(projectKey, instanceDecl.componentId))}',
 		]),
 		[true, true, true],
 	);
 	const page = source('src/routes/(app)/flow-v2/+page.svelte');
 	eq(
-		'6. the page opens its deep link, re-projects when shown again, double-clicks to the component, paints broken wires',
+		'6. the page opens its deep link, re-projects when shown again, double-clicks to the component after saving, paints broken wires',
 		has(page, [
 			'openDeepLink();',
 			"document.addEventListener('visibilitychange', onVisible);",
-			"const res = await fetch('/api/flow-v2/instances');",
+			'`/api/flow-v2/instances?project=${encodeURIComponent(data.projectKey)}`',
 			'if (body.projectKey !== data.projectKey || !body.instances) return;',
 			'void editComponentOf(model.instance);',
-			'window.location.assign(editorHrefForComponent(data.projectKey, decl.componentId));',
+			'if (saveState.dirty && !(await saveState.save())) return;',
+			'if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));',
+			'onjump={hopTo}',
+			'parseInstanceNodeRef(ref).instance === highlightInstance',
 			"class: broken ? 'v2-exec v2-bad' : 'v2-exec',",
 			'stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])',
 			'{instanceGroups}',
 			'<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />',
 		]),
-		[true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true, true, true],
 	);
 	const preview = source('src/routes/(app)/flow-v2/PreviewPanelV2.svelte');
 	eq(
@@ -401,9 +396,10 @@ const at = { x: 0, y: 0 };
 		'6. the editor offers Show in Flow from Properties and a right-click menu that is rendered only while open',
 		has(props, ['onclick={() => onShowInFlow?.(node.id)}', '↗ Show in Flow']).concat(
 			has(canvas, [
-				'oncontextmenu={onContextMenu}',
+				'oncontextmenu={(e) => e.preventDefault()}',
+				'if (e.button === 2) openInstanceMenuAt(e);',
 				'{#if instanceMenu}',
-				'if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;',
+				'if (Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;',
 				"window.addEventListener('mousedown', closeInstanceMenu);",
 			]),
 			has(editor, [
@@ -412,7 +408,7 @@ const at = { x: 0, y: 0 };
 				'onShowInFlow={showInFlow}',
 			]),
 		),
-		[true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true],
 	);
 	const panel = source('src/routes/(app)/editor/EditorStateMachinePanel.svelte');
 	eq(
@@ -420,10 +416,11 @@ const at = { x: 0, y: 0 };
 		has(panel, [
 			'const channel = openFlowStageChannel(projectKey);',
 			'if (m.componentId !== id) return;',
+			'if (!id || !active) return;',
 			"if (m.op === 'fire') fire(m.name);",
 			'setPreviewInput(m.name, m.value);',
 		]),
-		[true, true, true, true],
+		[true, true, true, true, true],
 	);
 	const endpoint = source('src/routes/api/flow-v2/instances/+server.ts');
 	eq(
@@ -432,8 +429,9 @@ const at = { x: 0, y: 0 };
 			"tool: 'flow',",
 			'syncFlowContainers(doc, scenes);',
 			'withPlacedComponentVersions(projectKey, scenes, components)',
+			'throw error(409, `This tab is on "${pinned}" but your active project is "${projectKey}".`);',
 		]),
-		[true, true, true],
+		[true, true, true, true],
 	);
 }
 

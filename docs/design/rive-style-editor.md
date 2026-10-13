@@ -487,12 +487,12 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
 - **Pins follow the component:** the page re-reads the projection (`GET /api/flow-v2/instances`,
   same gate as the save) when its tab is shown again, so an edit in `/editor` updates the pins
   and reddens stale wires without a reload (a response for another project is ignored).
-- **Jumps:** `?node=<id>` and `?instance=<placed node id>` deep links (`flowDeepLink`,
+- **Jumps:** the `?instance=<placed node id>` deep link (`flowDeepLink`,
   `nodeNamingInstance` across sections and groups; no node yet ⇒ the palette entry is lit and
   its section opened). The Scene Editor's **↗ Show in Flow** (Properties, and a right-click menu
   on the stage that is rendered only while open; a right-drag still pans) navigates with
   `flowHrefForInstance(loadedProjectKey, nodeId)`; Flow's double-click (a confirm, then
-  `editorHrefForComponent`) comes back. Every link carries `?project=`.
+  a flush of a dirty doc, then `editorHrefForComponent`) comes back. Every link carries `?project=`.
 - **Preview drives the stage:** `$lib/flowStageBridge.ts` — one `BroadcastChannel` per project
   (`ie-flow-stage:<project>`), a typed message (`fire` / `set` per component id). The Preview
   panel's **Drive the editor stage** tick posts the run's instance ops; `EditorStateMachinePanel`

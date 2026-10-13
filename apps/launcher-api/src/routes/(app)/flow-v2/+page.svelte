@@ -9,6 +9,7 @@
 		derivePins,
 		deriveGraphPins,
 		flowGraphs,
+		parseInstanceNodeRef,
 		graftAddOnSteps,
 		respinTabIssues,
 		spinsTabIssues,
@@ -151,7 +152,9 @@
 	let instances = $state<Record<string, FlowInstanceDecl>>(data.instances ?? {});
 	async function refreshInstances(): Promise<void> {
 		try {
-			const res = await fetch('/api/flow-v2/instances');
+			const res = await fetch(
+				`/api/flow-v2/instances?project=${encodeURIComponent(data.projectKey)}`,
+			);
 			if (!res.ok) return;
 			const body = (await res.json()) as {
 				projectKey?: string;
@@ -569,11 +572,9 @@
 		`${from.node}\u0000${from.pin}\u0000${to.node}\u0000${to.pin}`;
 	const badEdges = (): Set<string> =>
 		new Set(
-			issues
-				.filter((i) => i.at.on === 'execEdge' || i.at.on === 'dataEdge')
-				.map((i) =>
-					i.at.on === 'execEdge' || i.at.on === 'dataEdge' ? edgeKey(i.at.from, i.at.to) : '',
-				),
+			issues.flatMap((i) =>
+				i.at.on === 'execEdge' || i.at.on === 'dataEdge' ? [edgeKey(i.at.from, i.at.to)] : [],
+			),
 		);
 
 	function buildEdges(): Edge[] {
@@ -615,17 +616,12 @@
 		edges = buildEdges();
 	}
 
-	// Deep links (Rive plan §6.2 step 4): `?node=<id>` opens on that node (the Validation panel's
-	// jump); `?instance=<placed node id>` (the Scene Editor's *Show in Flow*) opens on the first node
-	// naming the placement — in any section, a grouped one on its group — or, with none yet, lights
-	// the placement in the palette so the author sees where to drag from.
+	// Deep link (Rive plan §6.2 step 4): `?instance=<placed node id>` (the Scene Editor's *Show in
+	// Flow*) opens on the first node naming the placement — in any section, a grouped one on its
+	// group — or, with none yet, lights the placement in the palette so the author sees where to
+	// drag from.
 	function openDeepLink(): void {
 		const link = flowDeepLink(new URLSearchParams(window.location.search));
-		if (link.node) {
-			focusNode(link.node);
-			fitSignal += 1;
-			return;
-		}
 		if (!link.instance) return;
 		for (const { modeId, graph } of flowGraphs(doc)) {
 			const hit = nodeNamingInstance(graph, link.instance);
@@ -931,15 +927,22 @@
 	// §6.2 step 4), keeping the project pin.
 	let lastClickId: string | null = null;
 	let lastClickAt = 0;
+	// Leave for another tool page: a dirty doc is saved first, and a save that does not land (a
+	// conflict, a tab without the lease) keeps the author here with the status pill saying why —
+	// the same rule as the Scene Editor's hop into its Component Editor.
+	async function hopTo(href: string): Promise<void> {
+		if (saveState.dirty && !(await saveState.save())) return;
+		window.location.assign(href);
+	}
 	async function editComponentOf(instanceId: string): Promise<void> {
 		const decl = instances[instanceId];
 		if (!decl) return;
 		const ok = await askConfirm({
 			title: `Edit component '${decl.componentId}'?`,
-			message: `Opens ${decl.name}'s component in the Scene Editor, in place. Unsaved flow edits are autosaved first.`,
+			message: `Opens ${decl.name}'s component in the Scene Editor, in place. Unsaved flow edits are saved first.`,
 			confirmLabel: 'Edit component',
 		});
-		if (ok) window.location.assign(editorHrefForComponent(data.projectKey, decl.componentId));
+		if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));
 	}
 	function onNodeClick({ node }: { node: Node }): void {
 		const now = Date.now();
@@ -1459,6 +1462,14 @@
 		const id = freshNodeIdIn(allGraphs(), kind);
 		selectedNodeId = id;
 		applyGraphEdit(addNodeIn(activeGraph, makeNode(kind, id, pos, ref)));
+		// The palette light from a *Show in Flow* deep link goes out once the placement has a node.
+		if (
+			kind === 'componentInstance' &&
+			highlightInstance &&
+			ref &&
+			parseInstanceNodeRef(ref).instance === highlightInstance
+		)
+			highlightInstance = null;
 		return id;
 	}
 
@@ -1996,6 +2007,7 @@
 					timelineIssues={data.timelineIssues}
 					projectKey={data.projectKey}
 					onchange={applyDocEdit}
+					onjump={hopTo}
 				/>
 			{:else if view.kind === 'function' && activeFn}
 				<h3>Function body</h3>

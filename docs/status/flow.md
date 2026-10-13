@@ -60,7 +60,7 @@
   section (named placements per screen; a component node and a wait node each), the node's
   caption and emerald header, stale wires drawn to red ⚠ placeholder pins (`stalePinsOf`) and as
   red dashed edges, the inspector's placement summary / **◇ Edit component** link / wait layer +
-  state pickers (`setWaitForStateFields`), `?node=` and `?instance=` deep links, a re-read of the
+  state pickers (`setWaitForStateFields`), the `?instance=` deep link, a re-read of the
   projection on tab return (`GET /api/flow-v2/instances`), double-click → *Edit component*; the
   Preview's **Drive the editor stage** tick posts the run's instance ops on
   `$lib/flowStageBridge.ts`. `/editor`: **↗ Show in Flow** in Properties and in a new right-click

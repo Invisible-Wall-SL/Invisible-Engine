@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		docComponentInstanceNodes,
 		previewFlowEvent,
 		type FlowDoc,
 		type FlowPreviewEntry,
@@ -35,9 +36,7 @@
 	// the project's bridge, and a State Machine panel open on that component in `/editor` plays it
 	// through its own preview path. Off by default — a headless run should not move another tab.
 	let driveStage = $state(false);
-	const hasInstanceNodes = $derived(
-		doc.graph.nodes.some((n) => n.kind === 'componentInstance' || n.kind === 'group'),
-	);
+	const hasInstanceNodes = $derived(docComponentInstanceNodes(doc).length > 0);
 
 	// The event nodes authored in the MAIN flow graph — the entry points a preview can run from.
 	const eventRefs = $derived(
