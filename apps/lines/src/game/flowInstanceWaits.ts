@@ -61,7 +61,7 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			deps.trace(
 				'instance',
 				ref.instance,
-				`· not on screen '${ref.container}' (on ${handle.sceneId})`,
+				`· not on screen '${ref.container}' (scene ${scene}; the handle is on ${handle.sceneId})`,
 			);
 			return undefined;
 		}
@@ -119,6 +119,11 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			deps.trace('instance wait', label, '· skipped (round slammed)');
 			return;
 		}
+		// The handle resolved a tick ago: one that unregistered meanwhile would hold until a slam.
+		if (deps.getFlowInstance(ref.instance) !== handle) {
+			deps.trace('instance wait', label, '· skipped (instance left the screen)');
+			return;
+		}
 		deps.trace('instance HOLD', label, '⏸');
 		await new Promise<void>((resolve) => {
 			let settled = false;
@@ -144,6 +149,9 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 				if (next !== handle) finish('▶ instance left the screen');
 			});
 			unskip = deps.skip.onSkip(() => finish('▶ slammed'));
+			// A synchronous fire (the token tripped between the check above and here) released the
+			// hold before `unskip` was assigned: drop the listener now, or the round-long token keeps it.
+			if (settled) unskip();
 		});
 	};
 	return { instanceWhenMounted, awaitInstanceState };

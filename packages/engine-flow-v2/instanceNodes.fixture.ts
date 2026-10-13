@@ -2,6 +2,8 @@
  * Offline fixture for placed component INSTANCE nodes (schema §6.3, Rive plan §6.2 — Phase 7a).
  * Run with tsx:
  *   pnpm --filter launcher-api exec tsx ../../packages/engine-flow-v2/instanceNodes.fixture.ts
+ * (The package's `tsconfig.json` excludes this file alone: its top-level `await` and `process` do
+ * not compile under the package's module target; `containerScenes.fixture.ts` stays type-checked.)
  *
  * A `componentInstance` node names a placed instance on a screen; its pins are DERIVED from that
  * instance's pinned component interface (`PinContext.instances`), never stored. SEVEN claims:

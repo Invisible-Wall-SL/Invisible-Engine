@@ -489,7 +489,7 @@ export interface InstanceRef {
  *  - data-in `in:<input>` per bool / number / text input, all optional (an unfed input is left);
  *  - exec-out `exec` — continues from whichever exec-in fired (the `textMessage` pattern);
  *  - exec-out `event:<event>` per event the component declares, with a data-out
- *    `event:<event>.<field>` per payload field — its OWN entry root, never a continuation of the
+ *    `event:<event>:<field>` per payload field — its OWN entry root, never a continuation of the
  *    chain that set the inputs (the §6.1 container-event pins' rule). The id form is deliberately
  *    NOT `containerEventDeclId` (`<id>.on<Event>`): an event `confirm` must never resolve to a
  *    `pressAction: 'confirm'` chain, on the runtime road or in a saved wire;

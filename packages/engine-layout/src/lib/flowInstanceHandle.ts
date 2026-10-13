@@ -26,9 +26,11 @@ export interface FlowInstanceHost {
 
 /**
  * A Flow value read as an input's kind, the way the runner's own `setInput` reads one: a bool from
- * a boolean or `0` / `1`, a number from a finite number or a numeric string (a `float` pin fed by a
- * string compute), a text key from a string. `undefined` ⇒ not of that kind (the set is dropped).
+ * a boolean or `0` / `1`, a number from a finite number or a decimal string (a `float` pin fed by a
+ * string compute; `'1e3'` and `'0x10'` are not), a text key from a string. `undefined` ⇒ not of that
+ * kind (the set is dropped).
  */
+const DECIMAL = /^-?(\d+\.?\d*|\.\d+)$/;
 export const coerceInstanceInput = (
 	kind: ComponentInputKind | undefined,
 	value: unknown,
@@ -38,7 +40,7 @@ export const coerceInstanceInput = (
 			if (typeof value === 'boolean') return value;
 			return value === 0 || value === 1 ? value === 1 : undefined;
 		case 'number': {
-			const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+			const n = typeof value === 'string' && DECIMAL.test(value.trim()) ? Number(value) : value;
 			return typeof n === 'number' && Number.isFinite(n) ? n : undefined;
 		}
 		case 'text':

@@ -14,7 +14,7 @@
  *  - `in:<input>`             data-in per bool / number / text input (optional).
  *  - `exec`                   exec-out: the continuation of every exec-in.
  *  - `event:<event>`          exec-out per declared event — its own entry root.
- *  - `event:<event>.<field>`  data-out per payload field of that event.
+ *  - `event:<event>:<field>`  data-out per payload field of that event.
  *  - `value:<layer>.state`    data-out per state-machine layer.
  *
  * The event form is deliberately not `containerEventDeclId`'s `<id>.on<Event>`: an event `confirm`

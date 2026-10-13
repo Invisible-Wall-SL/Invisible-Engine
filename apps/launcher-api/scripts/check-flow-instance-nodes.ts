@@ -535,12 +535,14 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			h.setInput('lit', 2),
 			h.setInput('amount', 'abc'),
 			h.setInput('amount', ''),
+			h.setInput('amount', '1e3'),
+			h.setInput('amount', '0x10'),
 			h.setInput('title', 7),
 			h.setInput('win', true),
 			h.setInput('nope', 1),
 			set.length,
 		],
-		[false, false, false, false, false, false, false, 5],
+		[false, false, false, false, false, false, false, false, false, 5],
 	);
 	eq(
 		'5. a fire takes a trigger only; the handle reads the runner; notify runs every listener',
@@ -802,7 +804,10 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		eq(
 			'6b. a handle on another screen is not the node’s instance',
 			[await w.instanceWhenMounted(ref), trace[0]],
-			[undefined, "instance c_banner · not on screen 'basegame' (on basegame)"],
+			[
+				undefined,
+				"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
+			],
 		);
 		unregister();
 	}

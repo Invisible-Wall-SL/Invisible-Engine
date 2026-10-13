@@ -917,7 +917,7 @@ const validateGraph = (
 			if (dot === -1) continue;
 			event = owner = edge.from.pin.slice(0, dot);
 		} else if (fromNode?.kind === 'componentInstance') {
-			// An instance event's payload data-out (`event:<event>.<field>`) reads the same way: only on
+			// An instance event's payload data-out (`event:<event>:<field>`) reads the same way: only on
 			// the chain its `event:<event>` pin starts.
 			const field = instanceEventFieldOf(edge.from.pin);
 			if (!field) continue;
