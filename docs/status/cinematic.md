@@ -45,7 +45,7 @@ headless only.
     smoothed binding's outputs start empty, and the timeline's would otherwise slide onto them. `FlowV2Cinematics` resolves the set through `cinematicSetSceneId`.
   - **Not in Phase 1:** playing a **component** host (valid in the format only — Rive plan
     Phase 4); `animation` strips on a rig NODE; any `/rigger` UI for node actors (the sequencer is
-    being extracted in Phase 2, branch `claude/rive-p2-shared-sequencer`); `validateNodeActors` is
+    now the shared Timeline module — Phase 2, below; node-actor rows are one `ROW_KINDS` entry); `validateNodeActors` is
     not yet called by a publish gate or an editor.
   - **Ship chain (rule 8):** nothing new to seed. A node actor's art, clip, font and text node all
     belong to its host scene, which the editor-art export already ships; `cinematicRigNames` skips
@@ -125,17 +125,32 @@ headless only.
     through); masks are for using part of an existing full-body clip. An empty mask is deleted.
 - **Undo / redo** — snapshot-based, coalescing edits within 600 ms, only in cinematic mode and never
   while a field has focus; cinematic-document only (rig editing still has no undo).
+- **The sequencer is the shared Timeline module (Rive plan Phase 2, PR #1171).** Everything above from "The sequencer" down — ruler + scrub, track rows, strips,
+  property / camera / visibility / cue keys, the strip / key / cue inspector, the camera + cue panel
+  sections and undo / redo — lives in `apps/launcher-api/src/lib/timeline/timeline.js`, mounted
+  with `mount(el, { doc, ev, inspector, host, extensions })`. `/rigger` loads a **generated verbatim
+  copy**, `static/shared/timeline.mjs` (`node scripts/sync-timeline.mjs`;
+  `--check` fails on drift, run by `check:all`). The module has no imports and touches no global
+  until `mount`, so Svelte code imports it from `$lib` (Phase 3). The evaluator is injected (`ev`).
+  `static/rigger/cinematic.js` is now the **rig host**: the cast panel, rig loading, posing and
+  drawing the stage, R2 save/open, and the rig **extensions** the module takes — Tweak Mode,
+  inline posing, the underlay and bone masks (`rigExtension`: `timelineSuspended`, `stripBadge`,
+  `onStripActivate`, `stripInspector`, `stripActions`, `wireInspector`, `keydown`). Track rows are
+  data: `orderedRows()` lists them and `ROW_KINDS` draws and wires each kind, so a node-actor row
+  (Phase 1) is one more entry.
 
 ### Gates + verification
 
 | Proof | Result |
 |---|---|
 | `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cues, visibility, tweak-mode time inverse, evaluator-drift (headless) | **118/118** |
-| `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **14/14** |
+| `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **15/15** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **41/41** |
 | `tools/rigger-spike/cinematic-nodes.mjs` — node actors, hosts, the text channel modes, the binding fold, rig-only parity (headless) | **69/69** |
 | `apps/launcher-api/localizationHarvest.fixture.ts` — timeline switch-key harvest + the `timeline` origin | **all pass** |
+| `tools/rigger-spike/cinematic-timeline.mjs` — the REAL `/rigger` page in headless Chrome, 104 author actions through the page's own handlers (strips, inspector, layers, masks, keys, cues, set row, undo/redo + coalescing, Tweak Mode, ＋ New clip, inline posing, save/open/new/delete); document, history and the three panels' HTML compared to a golden recorded on the pre-extraction code | **104/104** |
+| `apps/launcher-api/timeline.fixture.ts` — the module imports through `$lib` with no browser globals and keeps the undo contract headless | **16/16** |
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
@@ -161,6 +176,13 @@ headless only.
    timeline in a game (no authoring UI exists until Phase 2/3, so a probe doc has to be injected);
    wire `validateNodeActors` into a gate once an editor writes node actors; component hosts play in
    Phase 4; `animation` strips on rig nodes are still open.
+   Phase 2 (the shared Timeline panel, PR #1171) is built. Owner, please run these in a logged-in
+   `/rigger` (the headless gate drives the same handlers with dispatched events,
+   so these are the flows NOT browser-verified by a person on this change): undo/redo by buttons and
+   keys, the sequencer (drag / trim / Alt / Ctrl+wheel zoom / Ctrl+D / Delete), property + camera
+   keys (🎥 live), visibility keys, cues + the fx row, bone masks, Tweak Mode (double-click, ✎ Tweak
+   clip, Esc, the dopesheet seek mapping back), ＋ New clip, inline posing + the underlay, and R2
+   save / open / new / delete. Phase 3 (the `/editor` Svelte wrapper) is next.
 1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
    but only with a probe doc injected into the runtime bundle and started from the flow handle. No
    authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
@@ -183,11 +205,25 @@ headless only.
    upload of the cast rigs' large atlases. Measure the longest frame at mount; preloading the cast's
    textures when the flow arms a `playCinematic` would hide it.
 
+8. **Two old sequencer bugs, carried over unchanged by the Phase 2 extraction (left as-is so it changes
+   no behaviour):** opening or starting a cinematic keeps the selected cue's time, so a cue at that
+   same time in the new doc opens pre-selected; and leaving 🎬 before the mode's first load finishes
+   writes a `{doc:null}` draft over the saved local draft.
+
 ## Blocked (owner / external)
 
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-13 — **The sequencer is the shared Timeline module** (Rive plan Phase 2, PR #1171). The timeline panel moved out of
+  `static/rigger/cinematic.js` (2,743 → ~1,590 lines) into `$lib/timeline/timeline.js`, shipped to
+  the static page as a generated copy like the evaluator. Rig-only authoring plugs in as
+  extensions. **No behaviour change, and proven, not promised:** a new browser gate recorded the
+  document, history and DOM after 104 author actions on the OLD code, and the extracted module
+  reproduces all 104 exactly; planted mutants (no coalescing, a smaller trim zone, the timeline not
+  yielding to Tweak Mode, the mask badge dropped) each fail it. No format, evaluator, storage or
+  endpoint change.
 
 - 2026-10-13 — **Node actors + hosts (Rive plan Phase 1).** Format, evaluator, binding and
   `<Cinematic>` player as described under Current state; localization harvests switch-key strings

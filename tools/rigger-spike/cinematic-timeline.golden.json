@@ -1,0 +1,1980 @@
+{
+	"steps": [
+		{
+			"name": "enter cinematic mode",
+			"doc": "74234e98afe7498f",
+			"hist": {
+				"index": 0,
+				"size": 1,
+				"label": ""
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": false,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "81071fc01859240e",
+			"panel": "4ac2759671ff1798",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "cast A",
+			"doc": "92c7a9be941f97bb",
+			"hist": {
+				"index": 1,
+				"size": 2,
+				"label": "cast A"
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "32f05683123804f6",
+			"panel": "1a5c5ea3c0074094",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "cast B",
+			"doc": "0082c472bd946cd7",
+			"hist": {
+				"index": 2,
+				"size": 3,
+				"label": "cast B"
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "1498f5430a7b4bb8",
+			"panel": "667400e30c432751",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "length 8 s",
+			"doc": "c67b159b37b3d8de",
+			"hist": {
+				"index": 3,
+				"size": 4,
+				"label": "change length"
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "96c68e5756a670f3",
+			"panel": "059c0d7953807c24",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "set the time field to 1.5 s",
+			"doc": "c67b159b37b3d8de",
+			"hist": {
+				"index": 3,
+				"size": 4,
+				"label": "change length"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "23a7123ccbe05c88",
+			"panel": "059c0d7953807c24",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "select A’s strip",
+			"doc": "c67b159b37b3d8de",
+			"hist": {
+				"index": 3,
+				"size": 4,
+				"label": "change length"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "56a4de4e168fdfa7",
+			"panel": "a63cde3a0c092fed",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "drag A’s strip right",
+			"doc": "9587671d5001562c",
+			"hist": {
+				"index": 4,
+				"size": 5,
+				"label": "move strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "47123379dffef90a",
+			"panel": "dac1b8330ebe41e1",
+			"props": "6bc56c6a0039860d"
+		},
+		{
+			"name": "trim its right edge",
+			"doc": "7f9c4f51275a7e23",
+			"hist": {
+				"index": 5,
+				"size": 6,
+				"label": "trim strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "04b6513b90c82d94",
+			"panel": "32e3827661291046",
+			"props": "28bb511a020f3927"
+		},
+		{
+			"name": "trim its left edge (Alt = off the grid)",
+			"doc": "d73cd2a37a187cae",
+			"hist": {
+				"index": 6,
+				"size": 7,
+				"label": "trim strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "8225b1a0e29660d8",
+			"panel": "32e3827661291046",
+			"props": "43ed94832b22a6ea"
+		},
+		{
+			"name": "inspector: speed 1.5",
+			"doc": "e0b1be6a0c0a8a65",
+			"hist": {
+				"index": 7,
+				"size": 8,
+				"label": "edit strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "8225b1a0e29660d8",
+			"panel": "08d8ecc911239c79",
+			"props": "ec63362dd6b71242"
+		},
+		{
+			"name": "inspector: loop N times",
+			"doc": "49a22578bc195350",
+			"hist": {
+				"index": 8,
+				"size": 9,
+				"label": "edit strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "8225b1a0e29660d8",
+			"panel": "08d8ecc911239c79",
+			"props": "c4463a12ee8f6fde"
+		},
+		{
+			"name": "inspector: 3 times",
+			"doc": "92bd4498032bccaa",
+			"hist": {
+				"index": 9,
+				"size": 10,
+				"label": "edit strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "8225b1a0e29660d8",
+			"panel": "08d8ecc911239c79",
+			"props": "6e472849fb7f428e"
+		},
+		{
+			"name": "inspector: additive",
+			"doc": "f5b17525ed20b4ae",
+			"hist": {
+				"index": 10,
+				"size": 11,
+				"label": "edit strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "e75b430aa7cc1546",
+			"panel": "08d8ecc911239c79",
+			"props": "9c3b605e13128aab"
+		},
+		{
+			"name": "inspector: blend in 0.25",
+			"doc": "a8ca307060e0b06c",
+			"hist": {
+				"index": 11,
+				"size": 12,
+				"label": "edit strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "1513dada5ce42ee1",
+			"panel": "08d8ecc911239c79",
+			"props": "d44bc48c74ea65e6"
+		},
+		{
+			"name": "inspector: replace again",
+			"doc": "cba20f61baf35924",
+			"hist": {
+				"index": 12,
+				"size": 13,
+				"label": "edit strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "d0cb2c420e452da3",
+			"panel": "08d8ecc911239c79",
+			"props": "48e3ae6fbe742b06"
+		},
+		{
+			"name": "inspector: second clip",
+			"doc": "73e55311d773cf37",
+			"hist": {
+				"index": 13,
+				"size": 14,
+				"label": "edit strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "b5a67306d5d56bf5",
+			"panel": "9af9e3ebcdff1237",
+			"props": "be4bad070987003c"
+		},
+		{
+			"name": "add a layer to A (⧉)",
+			"doc": "602490f3c95b0d8e",
+			"hist": {
+				"index": 14,
+				"size": 15,
+				"label": "add layer"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "49a5388b10edf9d6",
+			"panel": "9af9e3ebcdff1237",
+			"props": "be4bad070987003c"
+		},
+		{
+			"name": "＋ strip on the new layer",
+			"doc": "2059759c87dc6dc4",
+			"hist": {
+				"index": 15,
+				"size": 16,
+				"label": "add strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "7ba2849fec9afdf4",
+			"panel": "13407b34770b99f2",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "Ctrl+D duplicates it",
+			"doc": "8faf2249cd6b1c27",
+			"hist": {
+				"index": 16,
+				"size": 17,
+				"label": "duplicate strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "330aa0f8cf86e719",
+			"panel": "4137b464de414336",
+			"props": "4f1cb1d5085667a6"
+		},
+		{
+			"name": "Delete removes the copy",
+			"doc": "2059759c87dc6dc4",
+			"hist": {
+				"index": 17,
+				"size": 18,
+				"label": "delete strip"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "59ddf5383f80a6dc",
+			"panel": "33a0f173b0b16697",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "🗑 the layer",
+			"doc": "a0c21415cec120dc",
+			"hist": {
+				"index": 18,
+				"size": 19,
+				"label": "remove layer"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "c99dc8812074bc87",
+			"panel": "fed04b2532a383cc",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "select A’s strip again",
+			"doc": "a0c21415cec120dc",
+			"hist": {
+				"index": 18,
+				"size": 19,
+				"label": "remove layer"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "c9ad84bb77773a64",
+			"panel": "fed04b2532a383cc",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "mask: add a bone",
+			"doc": "3f47e42559ed8d54",
+			"hist": {
+				"index": 19,
+				"size": 20,
+				"label": "add mask bone"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "76d3b5b0cf2d90a7",
+			"panel": "1da06cd2b9bd1de2",
+			"props": "e0e0fb02c18dafe0"
+		},
+		{
+			"name": "mask: add another",
+			"doc": "9c3a682507de8961",
+			"hist": {
+				"index": 20,
+				"size": 21,
+				"label": "add mask bone"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "76d3b5b0cf2d90a7",
+			"panel": "1da06cd2b9bd1de2",
+			"props": "e287b16447ed371c"
+		},
+		{
+			"name": "mask: children off",
+			"doc": "ef7dc5ffa4964281",
+			"hist": {
+				"index": 21,
+				"size": 22,
+				"label": "mask children"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "76d3b5b0cf2d90a7",
+			"panel": "6bd258faf84a2e93",
+			"props": "2e9d71a5b3508be4"
+		},
+		{
+			"name": "mask: remove a chip",
+			"doc": "57a80204c9c6bdad",
+			"hist": {
+				"index": 22,
+				"size": 23,
+				"label": "remove mask bone"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "76d3b5b0cf2d90a7",
+			"panel": "a3239928033d04bf",
+			"props": "62fbdae94629a5dd"
+		},
+		{
+			"name": "mask: clear",
+			"doc": "a0c21415cec120dc",
+			"hist": {
+				"index": 23,
+				"size": 24,
+				"label": "clear mask"
+			},
+			"time": 1.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "c9ad84bb77773a64",
+			"panel": "a15bb22ba183e356",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "time 0.5",
+			"doc": "a0c21415cec120dc",
+			"hist": {
+				"index": 23,
+				"size": 24,
+				"label": "clear mask"
+			},
+			"time": 0.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "009bc4ee94c669df",
+			"panel": "a15bb22ba183e356",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "◆ x on A",
+			"doc": "f38205c88e08d25f",
+			"hist": {
+				"index": 24,
+				"size": 25,
+				"label": "key x"
+			},
+			"time": 0.5,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "090ae446242b4fd5",
+			"panel": "178f8f8ace242f09",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "time 2",
+			"doc": "f38205c88e08d25f",
+			"hist": {
+				"index": 24,
+				"size": 25,
+				"label": "key x"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "4dfb517547cf2609",
+			"panel": "178f8f8ace242f09",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "typing x keys it",
+			"doc": "540aa1d69b8860f5",
+			"hist": {
+				"index": 25,
+				"size": 26,
+				"label": "key x"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "22de1a39b4dbd960",
+			"panel": "679804e9caeaeac3",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "◆ alpha on B",
+			"doc": "ae9dbcef4dfae7c0",
+			"hist": {
+				"index": 26,
+				"size": 27,
+				"label": "key alpha"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "439af52ce585b2db",
+			"panel": "678c2f0931759155",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "select an x key",
+			"doc": "ae9dbcef4dfae7c0",
+			"hist": {
+				"index": 26,
+				"size": 27,
+				"label": "key alpha"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "d815c244be8ec8cf",
+			"panel": "678c2f0931759155",
+			"props": "0b49029db592f2c6"
+		},
+		{
+			"name": "key inspector: ease",
+			"doc": "620ac0c65f92b87d",
+			"hist": {
+				"index": 27,
+				"size": 28,
+				"label": "edit key"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "18659a325c6610b6",
+			"panel": "9e98e3a0063086bc",
+			"props": "204b8d2a39b864fa"
+		},
+		{
+			"name": "key inspector: value",
+			"doc": "0f2a7d3c244aa39f",
+			"hist": {
+				"index": 28,
+				"size": 29,
+				"label": "edit key"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "2ca193c8bb7c069e",
+			"panel": "9e98e3a0063086bc",
+			"props": "0fd2ac672ee32d06"
+		},
+		{
+			"name": "key inspector: time",
+			"doc": "98bffdf3543bc49e",
+			"hist": {
+				"index": 29,
+				"size": 30,
+				"label": "edit key"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "d81ac90d95ffa578",
+			"panel": "9e98e3a0063086bc",
+			"props": "2cda860ad9336ca3"
+		},
+		{
+			"name": "drag the key",
+			"doc": "479310214e2c9c9a",
+			"hist": {
+				"index": 30,
+				"size": 31,
+				"label": "move key"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "1293aee5e9c4846e",
+			"panel": "d8e114e4d7c43aca",
+			"props": "f89d1c9f84b05e34"
+		},
+		{
+			"name": "Delete the selected key",
+			"doc": "de944e68c32be773",
+			"hist": {
+				"index": 31,
+				"size": 32,
+				"label": "delete key"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "9ca9894b3d4229a0",
+			"panel": "0a611dec64da497a",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "◆ visibility on A",
+			"doc": "6fa4a8d188b7a7fb",
+			"hist": {
+				"index": 32,
+				"size": 33,
+				"label": "key visibility"
+			},
+			"time": 2,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "bb94c6f6018031f5",
+			"panel": "d94c2592657ec815",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "time 3",
+			"doc": "6fa4a8d188b7a7fb",
+			"hist": {
+				"index": 32,
+				"size": 33,
+				"label": "key visibility"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "c43e15a3b0c2aee8",
+			"panel": "d94c2592657ec815",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "hide A (keys it)",
+			"doc": "589fb02ab43b3ceb",
+			"hist": {
+				"index": 33,
+				"size": 34,
+				"label": "key visibility"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "41c827c8886e7a85",
+			"panel": "e5c3eda9b16d0982",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "drag a visibility key",
+			"doc": "65cf372ace8ef20d",
+			"hist": {
+				"index": 34,
+				"size": 35,
+				"label": "move visibility key"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "d08c3a4fc4a7aec8",
+			"panel": "e5c3eda9b16d0982",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "hide B (static)",
+			"doc": "01b3aa0e2488d7fe",
+			"hist": {
+				"index": 35,
+				"size": 36,
+				"label": "toggle visibility"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "d08c3a4fc4a7aec8",
+			"panel": "46c6fd90eb19196c",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "double-click deletes a visibility key",
+			"doc": "bce53b264d1d616c",
+			"hist": {
+				"index": 36,
+				"size": 37,
+				"label": "delete visibility key"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "51c9a33024d790d6",
+			"panel": "7218118e7e312d41",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "◆ camera x",
+			"doc": "8eb4585f478ff750",
+			"hist": {
+				"index": 37,
+				"size": 38,
+				"label": "key camera x"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "efc10b480e95aecf",
+			"panel": "e21d41de856e96e0",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "◆ camera zoom",
+			"doc": "a82904f3349bf858",
+			"hist": {
+				"index": 38,
+				"size": 39,
+				"label": "key camera zoom"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "c87b51e1add96fd9",
+			"panel": "e25ea4d8b3cd0460",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "🎥 live off",
+			"doc": "a82904f3349bf858",
+			"hist": {
+				"index": 38,
+				"size": 39,
+				"label": "key camera zoom"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "c87b51e1add96fd9",
+			"panel": "f32fb4545c29b39f",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "🎥 live on",
+			"doc": "a82904f3349bf858",
+			"hist": {
+				"index": 38,
+				"size": 39,
+				"label": "key camera zoom"
+			},
+			"time": 3,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "c87b51e1add96fd9",
+			"panel": "e25ea4d8b3cd0460",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "time 4",
+			"doc": "a82904f3349bf858",
+			"hist": {
+				"index": 38,
+				"size": 39,
+				"label": "key camera zoom"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "2d0f3629e07c0dbb",
+			"panel": "e25ea4d8b3cd0460",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "＋ cue",
+			"doc": "e04cffdd5e673135",
+			"hist": {
+				"index": 39,
+				"size": 40,
+				"label": "add cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "b758ca78276215af",
+			"panel": "d481604f3699be97",
+			"props": "675fd15d1e126309"
+		},
+		{
+			"name": "pick fx:burst",
+			"doc": "6e214e0b7794fac8",
+			"hist": {
+				"index": 40,
+				"size": 41,
+				"label": "edit cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "acdf928cd518318b",
+			"panel": "d80ab2c728a27fee",
+			"props": "71a073801da23365"
+		},
+		{
+			"name": "pick a KIND seeds the field",
+			"doc": "6e214e0b7794fac8",
+			"hist": {
+				"index": 40,
+				"size": 41,
+				"label": "edit cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "acdf928cd518318b",
+			"panel": "d80ab2c728a27fee",
+			"props": "71a073801da23365"
+		},
+		{
+			"name": "type a sound cue",
+			"doc": "025f774a191cc484",
+			"hist": {
+				"index": 41,
+				"size": 42,
+				"label": "edit cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "ec743e75b1f3cbe7",
+			"panel": "d80ab2c728a27fee",
+			"props": "930f3ab6636c65ac"
+		},
+		{
+			"name": "cue time 4.5",
+			"doc": "a66f5742a2c321ec",
+			"hist": {
+				"index": 42,
+				"size": 43,
+				"label": "edit cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "4a7644a4dea77e17",
+			"panel": "d80ab2c728a27fee",
+			"props": "a60cef48d438a05b"
+		},
+		{
+			"name": "＋ a second cue at the playhead",
+			"doc": "800c8dc8d987db3e",
+			"hist": {
+				"index": 43,
+				"size": 44,
+				"label": "add cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "cd062a0ba4fb06be",
+			"panel": "083f9192c26be459",
+			"props": "675fd15d1e126309"
+		},
+		{
+			"name": "pick fx:burst on it",
+			"doc": "1d85cd0cad80731c",
+			"hist": {
+				"index": 44,
+				"size": 45,
+				"label": "edit cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "404688bdee2b5621",
+			"panel": "b02b10ba59c745d1",
+			"props": "71a073801da23365"
+		},
+		{
+			"name": "drag the cue",
+			"doc": "8d6e374a44f2801f",
+			"hist": {
+				"index": 45,
+				"size": 46,
+				"label": "move cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "14d0831da6d1d564",
+			"panel": "439ed27fd7138da7",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "fx row ▼",
+			"doc": "2761ea7e4c232cf8",
+			"hist": {
+				"index": 46,
+				"size": 47,
+				"label": "reorder set"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "0ff416395f2d59a9",
+			"panel": "439ed27fd7138da7",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "fx row ▲",
+			"doc": "8d6e374a44f2801f",
+			"hist": {
+				"index": 47,
+				"size": 48,
+				"label": "reorder set"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "14d0831da6d1d564",
+			"panel": "439ed27fd7138da7",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "select the cue",
+			"doc": "8d6e374a44f2801f",
+			"hist": {
+				"index": 47,
+				"size": 48,
+				"label": "reorder set"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "ab07b787a92ef2df",
+			"panel": "b191ed3c20377f4c",
+			"props": "777853558861d344"
+		},
+		{
+			"name": "🗑 the cue",
+			"doc": "a66f5742a2c321ec",
+			"hist": {
+				"index": 48,
+				"size": 49,
+				"label": "delete cue"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "2d71c8a302ceff81",
+			"panel": "0f36954009b68718",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "bind the set",
+			"doc": "c06d532ab5f87e06",
+			"hist": {
+				"index": 49,
+				"size": 50,
+				"label": "set the scene"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "2d71c8a302ceff81",
+			"panel": "19d1c2ee6e0ce5ab",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "frame: desktop",
+			"doc": "99cfb5ca87feb5a9",
+			"hist": {
+				"index": 50,
+				"size": 51,
+				"label": "change frame"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "2d71c8a302ceff81",
+			"panel": "e5b97e9e891276f1",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "A ▼ (in front)",
+			"doc": "b2cd61750bb7048b",
+			"hist": {
+				"index": 51,
+				"size": 52,
+				"label": "reorder actor"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "8ee3132f8507abbf",
+			"panel": "00a51673b04ef585",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "B y = 30",
+			"doc": "3e06a9e86455bed8",
+			"hist": {
+				"index": 52,
+				"size": 53,
+				"label": "move actor"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "8ee3132f8507abbf",
+			"panel": "00a51673b04ef585",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "B flip",
+			"doc": "1ac1dbd1dd55021d",
+			"hist": {
+				"index": 53,
+				"size": 54,
+				"label": "move actor"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "8ee3132f8507abbf",
+			"panel": "00a51673b04ef585",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "B clip: none",
+			"doc": "4dafa1623995c550",
+			"hist": {
+				"index": 54,
+				"size": 55,
+				"label": "change clip"
+			},
+			"time": 4,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "dedf3f7884b92c15",
+			"panel": "a2a6b81145ec461c",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "scrub the ruler",
+			"doc": "4dafa1623995c550",
+			"hist": {
+				"index": 54,
+				"size": 55,
+				"label": "change clip"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "a2a6b81145ec461c",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "zoom in",
+			"doc": "4dafa1623995c550",
+			"hist": {
+				"index": 54,
+				"size": 55,
+				"label": "change clip"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "958f84808b48028f",
+			"panel": "a2a6b81145ec461c",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "zoom out",
+			"doc": "4dafa1623995c550",
+			"hist": {
+				"index": 54,
+				"size": 55,
+				"label": "change clip"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "a2a6b81145ec461c",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "B scale = 1.5",
+			"doc": "c6729cddf742234d",
+			"hist": {
+				"index": 55,
+				"size": 56,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "a2a6b81145ec461c",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "B scale = 2 within 600 ms (coalesces)",
+			"doc": "b4506eb501ac96ed",
+			"hist": {
+				"index": 55,
+				"size": 56,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "a2a6b81145ec461c",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "B scale = 2.5 later (new step)",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "a2a6b81145ec461c",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "Ctrl+Z",
+			"doc": "b4506eb501ac96ed",
+			"hist": {
+				"index": 55,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "47c8bb14a0b60f71",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "Ctrl+Z again",
+			"doc": "4dafa1623995c550",
+			"hist": {
+				"index": 54,
+				"size": 57,
+				"label": "change clip"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "ef153f3483f4cf66",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "↷ Redo button",
+			"doc": "b4506eb501ac96ed",
+			"hist": {
+				"index": 55,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "47c8bb14a0b60f71",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "Ctrl+Y",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "cd694fe196651b05",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "Ctrl+Shift+Z with nothing to redo",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "cd694fe196651b05",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "↶ Undo button ×3",
+			"doc": "1ac1dbd1dd55021d",
+			"hist": {
+				"index": 53,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "3cb5f1820c8a7cae",
+			"panel": "70d0561c421c91df",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "Ctrl+Z is the field’s own while one has focus",
+			"doc": "1ac1dbd1dd55021d",
+			"hist": {
+				"index": 53,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "3cb5f1820c8a7cae",
+			"panel": "70d0561c421c91df",
+			"props": "7619deb3e85cbbfd"
+		},
+		{
+			"name": "Ctrl+Shift+Z ×3",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "f2c68003193d6f2b",
+			"panel": "cd694fe196651b05",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "select a strip",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "e7730c61e5690457",
+			"panel": "cd694fe196651b05",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "double-click → Tweak Mode",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": true,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "f258c93da47c7b93",
+			"panel": "cd694fe196651b05",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "Esc leaves Tweak Mode",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "e7730c61e5690457",
+			"panel": "cd694fe196651b05",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "select a strip again",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "e7730c61e5690457",
+			"panel": "cd694fe196651b05",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "✎ Tweak clip button",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": true,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a bone or slot"
+			},
+			"tl": "7719475c88fdf69f",
+			"panel": "a4e4e399365b135e",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "Ctrl+Z is the animator’s while tweaking",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": true,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a bone or slot"
+			},
+			"tl": "7719475c88fdf69f",
+			"panel": "a4e4e399365b135e",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "done",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "e7730c61e5690457",
+			"panel": "cd694fe196651b05",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "select a strip again",
+			"doc": "a40ba9413925d0e7",
+			"hist": {
+				"index": 56,
+				"size": 57,
+				"label": "move actor"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "e7730c61e5690457",
+			"panel": "cd694fe196651b05",
+			"props": "da9824f66da0ed0b"
+		},
+		{
+			"name": "＋ New clip",
+			"doc": "d58e0fa4a2068649",
+			"hist": {
+				"index": 57,
+				"size": 58,
+				"label": "new clip"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": true,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a bone or slot"
+			},
+			"tl": "ee6966b3773f5756",
+			"panel": "840029bfdc5ca703",
+			"props": "f69a943fbf55021f"
+		},
+		{
+			"name": "done again",
+			"doc": "d58e0fa4a2068649",
+			"hist": {
+				"index": 57,
+				"size": 58,
+				"label": "new clip"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "81616900615952de",
+			"panel": "fe5d14c2025e75b9",
+			"props": "b568e3fea2c3a549"
+		},
+		{
+			"name": "✎ pose B inline",
+			"doc": "d58e0fa4a2068649",
+			"hist": {
+				"index": 57,
+				"size": 58,
+				"label": "new clip"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": true,
+				"posing": true,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "81616900615952de",
+			"panel": "b2725538b07b81c8",
+			"props": "b568e3fea2c3a549"
+		},
+		{
+			"name": "first key makes the override",
+			"doc": "dbf38528f7edafc4",
+			"hist": {
+				"index": 58,
+				"size": 59,
+				"label": "add override"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": true,
+				"posing": true,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "68d0ed9780aa9d3a",
+			"panel": "52710deabd4fb9ec",
+			"props": "a1e1ea91be132664"
+		},
+		{
+			"name": "✎ again stops posing",
+			"doc": "dbf38528f7edafc4",
+			"hist": {
+				"index": 58,
+				"size": 59,
+				"label": "add override"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "68d0ed9780aa9d3a",
+			"panel": "a33f210de7be154a",
+			"props": "5aedce49681c1878"
+		},
+		{
+			"name": "rename",
+			"doc": "4549da001c31d55a",
+			"hist": {
+				"index": 59,
+				"size": 60,
+				"label": "rename"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "68d0ed9780aa9d3a",
+			"panel": "6a9045531db0ee3c",
+			"props": "5aedce49681c1878"
+		},
+		{
+			"name": "Ctrl+S saves",
+			"doc": "355618a45084430a",
+			"hist": {
+				"index": 59,
+				"size": 60,
+				"label": "rename"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": false,
+				"propSub": "cinematic"
+			},
+			"tl": "68d0ed9780aa9d3a",
+			"panel": "4d9a52eda72bb461",
+			"props": "5aedce49681c1878"
+		},
+		{
+			"name": "rename after save keeps the id",
+			"doc": "31cd293fdf320586",
+			"hist": {
+				"index": 60,
+				"size": 61,
+				"label": "rename"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "cinematic"
+			},
+			"tl": "68d0ed9780aa9d3a",
+			"panel": "23f99421540c7c6f",
+			"props": "5aedce49681c1878"
+		},
+		{
+			"name": "💾 Save",
+			"doc": "dd10d95e421ef0de",
+			"hist": {
+				"index": 60,
+				"size": 61,
+				"label": "rename"
+			},
+			"time": 1.969697,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": false,
+				"propSub": "cinematic"
+			},
+			"tl": "68d0ed9780aa9d3a",
+			"panel": "a18db8d964ffd8b1",
+			"props": "5aedce49681c1878"
+		},
+		{
+			"name": "＋ New",
+			"doc": "2db6d806694706bf",
+			"hist": {
+				"index": 0,
+				"size": 1,
+				"label": ""
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": false,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "81071fc01859240e",
+			"panel": "e34442ddf14e3a15",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "cast A into it",
+			"doc": "be08a419a61d9059",
+			"hist": {
+				"index": 1,
+				"size": 2,
+				"label": "cast A"
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "06fc7a87c87e0399",
+			"panel": "e78475ad13d4f01f",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "open the first one",
+			"doc": "6cdad7bf6bbb0fd1",
+			"hist": {
+				"index": 0,
+				"size": 1,
+				"label": ""
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": false,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "baee4b71fecf8984",
+			"panel": "b58f255fa6909aa1",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "🗑 an actor",
+			"doc": "83828fee3cd6ad02",
+			"hist": {
+				"index": 1,
+				"size": 2,
+				"label": "remove actor"
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "b6a6767b1c384398",
+			"panel": "b2ae78a3f92ddc21",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "🗑 the cinematic",
+			"doc": "2651e7b26cbdfb2e",
+			"hist": {
+				"index": 0,
+				"size": 1,
+				"label": ""
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": false,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "81071fc01859240e",
+			"panel": "4ac2759671ff1798",
+			"props": "2f2b330e5ea576ed"
+		},
+		{
+			"name": "leave and come back",
+			"doc": "2651e7b26cbdfb2e",
+			"hist": {
+				"index": 0,
+				"size": 1,
+				"label": ""
+			},
+			"time": 0,
+			"state": {
+				"tweaking": false,
+				"posing": false,
+				"dirty": true,
+				"propSub": "select a strip, key or cue"
+			},
+			"tl": "81071fc01859240e",
+			"panel": "dd384dca0fd0e334",
+			"props": "2f2b330e5ea576ed"
+		}
+	]
+}
