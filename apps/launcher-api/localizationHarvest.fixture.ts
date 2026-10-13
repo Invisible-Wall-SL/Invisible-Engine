@@ -10,8 +10,13 @@
  * BASE params only (`ComponentInstance`), so it suppresses `text` in every ratio or in none.
  */
 
-import type { ComponentDef, LayoutDoc } from 'engine-layout';
-import { harvestSceneText } from './src/lib/server/localizationHarvest.ts';
+import type { CinematicDoc, ComponentDef, LayoutDoc } from 'engine-layout';
+import { normalizeDoc } from './src/lib/server/localization.ts';
+import {
+	harvestSceneText,
+	harvestTimelineText,
+	reconcileWithEditor,
+} from './src/lib/server/localizationHarvest.ts';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -100,6 +105,79 @@ check(
 		}),
 	]),
 	['Hello', 'Default Title', 'CREDIT'],
+);
+
+// Rive plan §8: a timeline's switch-key strings are text, harvested from both ends — the strings a
+// text node declares (`switchKeys`, with the scene's text) and the keys a timeline switches to
+// (their own `timeline` section), so a key used only in an animation is never left untranslated.
+const sceneDoc = {
+	version: 1,
+	scenes: [
+		{
+			id: 'base',
+			name: 'Base',
+			nodes: [
+				{
+					id: 'n',
+					kind: 'text',
+					label: 'title',
+					x: 0,
+					y: 0,
+					text: 'GOOD LUCK',
+					switchKeys: ['BIG WIN', '123'],
+				},
+			],
+		},
+	],
+} as unknown as LayoutDoc;
+check(
+	'a text node’s switchKeys are harvested with its text (numbers skipped)',
+	(await harvestSceneText(sceneDoc, async () => undefined))[0]?.items.map((i) => i.key),
+	['GOOD LUCK', 'BIG WIN'],
+);
+const timeline = (id: string, keys: string[]): CinematicDoc =>
+	({
+		schemaVersion: 1,
+		id,
+		name: id,
+		duration: 2,
+		fps: 30,
+		host: { kind: 'screen', sceneId: 'base' },
+		stage: {
+			sceneId: null,
+			cast: [
+				{ actorId: 'a', kind: 'node', target: 'title', place: {} },
+				{ actorId: 'r', rigFolder: 'bigwin', place: {} },
+			],
+		},
+		tracks: [
+			{
+				id: 't',
+				kind: 'text',
+				actorId: 'a',
+				mode: 'switchKey',
+				keys: keys.map((key, i) => ({ time: i, key })),
+			},
+			{ id: 'c', kind: 'text', actorId: 'a', mode: 'countUp', keys: [{ time: 0, value: 5 }] },
+			{ id: 'x', kind: 'text', actorId: 'r', mode: 'switchKey', keys: [{ time: 0, key: 'RIG' }] },
+		],
+		markers: [],
+	}) as CinematicDoc;
+const sections = harvestTimelineText([
+	timeline('intro', ['BIG WIN', 'MEGA WIN']),
+	timeline('outro', ['MEGA WIN', '777']),
+]);
+check(
+	'timelines: one `timeline` section, keys deduped across docs, rig actors and count-ups ignored',
+	sections.map((sec) => [sec.sceneId, sec.origin, sec.items.map((i) => `${i.key}@${i.label}`)]),
+	[['__timelines', 'timeline', ['BIG WIN@intro — title', 'MEGA WIN@intro — title']]],
+);
+check('timelines: no cinematic ⇒ no section', harvestTimelineText([]), []);
+const merged = reconcileWithEditor(normalizeDoc({ entries: [] }), sections);
+check(
+	'reconcile stamps the `timeline` origin, and the stored doc keeps it',
+	normalizeDoc({ entries: merged.entries }).entries.map((e) => e.origin),
+	['timeline', 'timeline'],
 );
 
 console.log(failures === 0 ? '\nAll assertions passed.' : `\n${failures} assertion(s) FAILED.`);

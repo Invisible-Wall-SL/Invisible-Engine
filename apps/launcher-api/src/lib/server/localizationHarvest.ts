@@ -1,4 +1,5 @@
 import type {
+	CinematicDoc,
 	ComponentDef,
 	ComponentParam,
 	LayoutDoc,
@@ -6,6 +7,7 @@ import type {
 	WinTextDoc,
 } from 'engine-layout';
 import {
+	collectTimelineSwitchKeys,
 	collectUiTextStrings,
 	collectWinTextModeTemplates,
 	collectWinTextSpinsModeTemplates,
@@ -55,7 +57,7 @@ export interface HarvestSection {
 	items: HarvestedItem[];
 	/** Which tool owns these sources — stamped onto every entry the section reconciles.
 	 *  Defaults to `'editor'` (the original collector). */
-	origin?: 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText';
+	origin?: 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText' | 'timeline';
 }
 
 /** Display grouping handed to the page: a section is a list of entry keys, in order. */
@@ -183,7 +185,11 @@ export async function harvestSceneText(
 
 		const visit = async (node: LayoutNode): Promise<void> => {
 			const label = nodeLabel(node);
-			if (node.kind === 'text') add(node.text, label);
+			if (node.kind === 'text') {
+				add(node.text, label);
+				// The strings a timeline may switch this node to are its text too (Rive plan §8).
+				for (const alt of node.switchKeys ?? []) add(alt, label);
+			}
 			if (node.kind === 'componentInstance') {
 				const def = await getDef(node.componentId, node.componentVersion);
 				// The game binds a `source` feed from the BASE params only (`ComponentInstance`'s
@@ -356,6 +362,31 @@ export function harvestFlowMessages(doc: FlowDoc | undefined): HarvestSection[] 
 	const items = collectTextMessages(doc).filter((i) => isLocalizableText(i.source));
 	if (items.length === 0) return [];
 	return [{ sceneId: FLOW_MESSAGE_SECTION_ID, sceneName: 'Flow messages', items, origin: 'flow' }];
+}
+
+/** The synthetic section id the timeline switch-key strings are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const TIMELINE_TEXT_SECTION_ID = '__timelines';
+
+/**
+ * Collect every string a cinematic timeline's `switchKey` text tracks switch a node to, as one
+ * translatable section (Rive plan §8). A timeline never carries free text — it names one of the
+ * text node's own strings — but a key used ONLY in an animation would otherwise have no row, and
+ * the node would switch to an untranslated string. Source-as-key, exact/untrimmed: the node
+ * renders the switched-to key through `resolveLocalizedText` like its own `text`. The timeline
+ * owns these references, so they're read-only here (`origin: 'timeline'`).
+ */
+export function harvestTimelineText(docs: readonly CinematicDoc[]): HarvestSection[] {
+	const items: HarvestedItem[] = [];
+	const seen = new Set<string>();
+	for (const doc of docs) {
+		for (const { key, target } of collectTimelineSwitchKeys(doc)) {
+			if (!isLocalizableText(key) || seen.has(key)) continue;
+			seen.add(key);
+			items.push({ key, source: key, label: `${doc.name || doc.id} — ${target}` });
+		}
+	}
+	if (items.length === 0) return [];
+	return [{ sceneId: TIMELINE_TEXT_SECTION_ID, sceneName: 'Timelines', items, origin: 'timeline' }];
 }
 
 /** The synthetic section id the engine's coded UI strings are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
