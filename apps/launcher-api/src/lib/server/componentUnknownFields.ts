@@ -39,24 +39,38 @@ const INPUT_KINDS: ReadonlySet<string> = new Set(COMPONENT_INPUT_KINDS);
  * unknown fields; a stored row this build cannot read (a newer action kind or pointer event, a
  * payload type Flow cannot carry yet) is put back where it stood, as an unreadable input is.
  */
-const graftListeners = nested(
-	'on',
-	'id',
-	known(NODE_LISTENER_FIELDS),
-	unreadable('id', readListener),
-);
-const graftEnterActions = nested(
-	'onEnter',
-	'id',
-	known(SM_ENTER_ACTION_FIELDS),
-	unreadable('id', readEnterAction),
-);
-const graftPayload = nested(
-	'payload',
-	'name',
-	known(EVENT_PAYLOAD_FIELDS),
-	unreadable('name', readPayloadField),
-);
+interface NestedRows {
+	/** The projection key's kind. */
+	name: string;
+	field: string;
+	id: string;
+	isKnown: IsKnown;
+	isUnreadable: (row: Row) => boolean;
+}
+const LISTENER_ROWS: NestedRows = {
+	name: 'listener',
+	field: 'on',
+	id: 'id',
+	isKnown: known(NODE_LISTENER_FIELDS),
+	isUnreadable: unreadable('id', readListener),
+};
+const ENTER_ROWS: NestedRows = {
+	name: 'onEnter',
+	field: 'onEnter',
+	id: 'id',
+	isKnown: known(SM_ENTER_ACTION_FIELDS),
+	isUnreadable: unreadable('id', readEnterAction),
+};
+const PAYLOAD_ROWS: NestedRows = {
+	name: 'payload',
+	field: 'payload',
+	id: 'name',
+	isKnown: known(EVENT_PAYLOAD_FIELDS),
+	isUnreadable: unreadable('name', readPayloadField),
+};
+const graftListeners = nested(LISTENER_ROWS);
+const graftEnterActions = nested(ENTER_ROWS);
+const graftPayload = nested(PAYLOAD_ROWS);
 
 /**
  * The def's id-keyed rows, which a normalizer rebuilds field by field. Their ids are NAMES the
@@ -248,12 +262,12 @@ function withUnreadableRows(
 }
 
 /** A grafter for the rows `field` of an entity: see {@link graftListeners}. */
-function nested(
-	field: string,
-	id: string,
-	isKnown: IsKnown,
-	isUnreadable: (row: Row) => boolean,
-): (row: Row, stored: Row | undefined) => Row {
+function nested({
+	field,
+	id,
+	isKnown,
+	isUnreadable,
+}: NestedRows): (row: Row, stored: Row | undefined) => Row {
 	return (row, stored) => {
 		if (!isPlainObject(stored) || !Array.isArray(stored[field])) return row;
 		const rows = Array.isArray(row[field]) ? (row[field] as Row[]) : undefined;
@@ -309,11 +323,17 @@ export function sameUnknownComponentFields(next: unknown, stored: unknown): bool
 
 /** Projection keys compared whether or not the save still has them: the two fixed namespaces,
  *  and the input rows the read dropped (their absence is never the author's). */
-const ALWAYS_COMPARED = new Set(['def', 'stateMachine', 'unreadableInput']);
+const ALWAYS_COMPARED = new Set([
+	'def',
+	'stateMachine',
+	'unreadableInput',
+	...[LISTENER_ROWS, ENTER_ROWS, PAYLOAD_ROWS].map(({ name }) => `unreadable:${name}`),
+]);
 
 /**
  * Every entity of a def, keyed by a JSON `[kind, …ids]` (states and transitions under their
- * layer), mapped to its unknown fields. An input of an unknown kind is projected WHOLE, since all
+ * layer; listeners, `onEnter` rows and payload fields under their node, state or event), mapped to
+ * its unknown fields. An input or a nested row this build cannot read is projected WHOLE, since all
  * of it is unknown here. The first of a duplicated key wins.
  */
 function unknownComponentFields(doc: unknown): Map<string, Row> {
@@ -323,14 +343,29 @@ function unknownComponentFields(doc: unknown): Map<string, Row> {
 		if (!out.has(at)) out.set(at, value);
 	};
 	if (!isPlainObject(doc)) return out;
+	/** A nested row under its parent's ids: a readable one by its unknown fields, an unreadable one
+	 *  WHOLE, as an unreadable input is. */
+	const addNested = (parent: string[], row: Row, spec: NestedRows): void => {
+		const rows: unknown[] = Array.isArray(row[spec.field]) ? (row[spec.field] as unknown[]) : [];
+		for (const r of rows) {
+			if (!isPlainObject(r) || typeof r[spec.id] !== 'string') continue;
+			const at = [...parent, r[spec.id] as string];
+			if (spec.isUnreadable(r)) add([`unreadable:${spec.name}`, ...at], r);
+			else add([spec.name, ...at], unknownFields(spec.isKnown, r));
+		}
+	};
 	add(['def'], unknownFields(isDefField, doc));
 	const nodes = new Map<string, Row>();
 	indexNodes(doc.root, nodes);
-	for (const [id, node] of nodes) add(['node', id], unknownFields(isNodeField, node));
+	for (const [id, node] of nodes) {
+		add(['node', id], unknownFields(isNodeField, node));
+		addNested([id], node, LISTENER_ROWS);
+	}
 	for (const { field, id, isKnown } of ROW_ARRAYS) {
 		const skip = field === 'inputs' ? isUnreadableInput : undefined;
 		for (const [rowId, row] of rowsById(doc[field], id, skip)) {
 			add([field, rowId], unknownFields(isKnown, row));
+			if (field === 'events') addNested([rowId], row, PAYLOAD_ROWS);
 		}
 	}
 	for (const row of Array.isArray(doc.inputs) ? doc.inputs : []) {
@@ -345,6 +380,7 @@ function unknownComponentFields(doc: unknown): Map<string, Row> {
 			for (const { field, isKnown } of LAYER_ARRAYS) {
 				for (const [rowId, row] of rowsById(layer[field], 'id')) {
 					add([field, layerId, rowId], unknownFields(isKnown, row));
+					if (field === 'states') addNested([layerId, rowId], row, ENTER_ROWS);
 				}
 			}
 		}

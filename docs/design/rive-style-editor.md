@@ -291,7 +291,13 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   they are queued and drained after the current work (a microtask in game) — a Flow chain never
   shows or hides screens mid-mount. A pointer event's raise drains the queue at once, after what was
   already queued. Within one tick, the cues the timelines crossed come first, then the states
-  entered. A destroyed instance raises nothing, queued or later.
+  entered — so a newly entered state's `onEnter` is raised AFTER the `event:` cues at t=0 of its
+  own timeline. The drain sends one raise at a time: a raise a Flow handler causes joins the end of
+  the queue, and a destroy mid-drain stops the rest. A destroyed instance raises nothing, queued or
+  later.
+- **Ids for 6b:** the editor mints listener, `onEnter` and event ids that never collide with an id
+  the last-saved def holds — including a row this build could not read (the save keeps it in place),
+  the 5b `stateMachineIds` / `reserved` rule.
 - The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.
 - Existing `signals`, `cues`, `stateAnimations` and `valueBindings` keep working. Phase 8
   migrates them; nothing is migrated earlier.
@@ -361,12 +367,15 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
 - **Normalizer** (`componentEventRows.ts`, used by `componentStorage.ts`): keeps `events`, node `on`
   (the one node field it reads — every other node field still passes through) and `onEnter`,
   fail-closed on the read: a listener whose event, action kind, input, value or payload it cannot
-  read is dropped whole, never widened; so is an `onEnter` row without an id or not a raise; a
+  read — or that carries a key this build does not know inside its action, a payload value or a
+  payload field's `type` — is dropped whole, never rebuilt without it; so is an `onEnter` row without an id or not a raise; a
   duplicate event, listener or `onEnter` id keeps the first. **An older build's save loses none of
   it** (#1185's rule): listeners graft a newer build's fields by id within their node, `onEnter`
   rows by id within their state, payload fields by name within their event, and a stored row the
   read dropped (an unknown action kind or pointer event, a payload type Flow cannot carry yet) is
-  put back where it stood, as an unreadable input is; a row the author deleted is not.
+  put back where it stood, as an unreadable input is; a row the author deleted is not. The version
+  bump sees those rows too: a promote whose listeners, `onEnter` or payload differ only in what
+  this build cannot read still bumps.
 - This **generalises what exists**. Today a screen's container already surfaces its components'
   configured `action` events as exec-out pins (`containerEvents.ts`, derived and never stored, so it
   cannot drift). The interface is the same idea in both directions, typed: exec-out pins for events,
@@ -378,7 +387,10 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
    `scoreReadout`, `board`.
 2. **In Flow**, that instance appears in the palette under its screen, the way screens already
    appear today (`syncFlowContainers`). Drag it in and you get an **instance node**:
-   - one exec-out per event (`spinButton ▸ onPressed`)
+   - one exec-out per event (`spinButton ▸ onPressed`). Its pin id must NOT be the press pins'
+     `containerEventDeclId` (`<id>.on<Event>`): on the same node, an event `confirm` would collide
+     with the `pressAction: 'confirm'` pin `onConfirm`. Events have their own namespace on the
+     runtime road (§6.1), so they get their own pin id form too.
    - one exec-in per trigger (`▸ win`)
    - one data-in per input (`amount #`)
    - one data-out per value (`state`)

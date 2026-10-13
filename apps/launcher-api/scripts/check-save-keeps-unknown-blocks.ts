@@ -1518,13 +1518,13 @@ const newerP6 = (): P6Doc => {
 	const etag = seed(componentKey, newerP6());
 	const loaded = olderView() as unknown as P6Doc;
 	check(
-		'components 6a: the read drops what it cannot read',
+		'components 6a: the read drops what it cannot read (an onEnter row IS its action, so a newer key on it makes it unreadable too)',
 		[
 			loaded.root.children[0].on?.map((l) => l.id),
 			loaded.events?.[0].payload?.map((f) => f.name),
-			loaded.stateMachine.layers[0].states[0].onEnter?.map((a) => a.id),
+			loaded.stateMachine.layers[0].states[0].onEnter?.map((a) => a.id) ?? null,
 		],
-		[['l1'], ['n'], ['x1']],
+		[['l1'], ['n'], null],
 	);
 	await saveComponent(loaded as unknown as Def, 'p', etag);
 	const after = stored(componentKey) as unknown as P6Doc;
@@ -1578,6 +1578,90 @@ const newerP6 = (): P6Doc => {
 			after.events?.map((e) => e.id),
 		],
 		[false, false, ['shown']],
+	);
+}
+
+{
+	// A newer key ONE LEVEL DOWN — inside an action, a payload value, a payload field's type — makes
+	// the row unreadable here, so an older build's no-op save keeps it whole, at the same version.
+	resetComponents();
+	const doc = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	const node = doc.root.children[0];
+	node.on = [
+		{ id: 'l_times', event: 'click', action: { kind: 'fire', input: 'tap', times: 2 } },
+		{
+			id: 'l_ns',
+			event: 'up',
+			action: {
+				kind: 'raise',
+				event: 'pressed',
+				payload: { label: { key: 'Hi', ns: 'ui' }, n: { input: 'hover', scale: 2 } },
+			},
+		},
+	];
+	doc.events![0].payload = [{ name: 'n', type: { t: 'int', min: 0 } }];
+	doc.stateMachine.layers[0].states[0].onEnter = [
+		{ id: 'x_ns', kind: 'raise', event: 'shown', payload: { t: { key: 'Hi', ns: 'ui' } } },
+	];
+	const before = structuredClone(doc);
+	const etag = seed(componentKey, doc);
+	const loaded = olderView() as unknown as P6Doc;
+	check(
+		'components 6a: a newer key inside an action, a payload value or a type is not read (never rebuilt without it)',
+		[
+			loaded.root.children[0].on ?? null,
+			loaded.events?.[0].payload ?? null,
+			loaded.stateMachine.layers[0].states[0].onEnter ?? null,
+		],
+		[null, null, null],
+	);
+	const result = await saveComponent(loaded as unknown as Def, 'p', etag);
+	const after = stored(componentKey) as unknown as P6Doc;
+	check(
+		'components 6a: …and an older no-op save keeps each row whole, at the same version',
+		[
+			result.version,
+			after.root.children[0].on,
+			after.events?.[0].payload,
+			after.stateMachine.layers[0].states[0].onEnter,
+		],
+		[
+			3,
+			before.root.children[0].on,
+			before.events![0].payload,
+			before.stateMachine.layers[0].states[0].onEnter,
+		],
+	);
+}
+{
+	// A promote whose listeners differ only in what this build cannot read still bumps.
+	resetComponents();
+	const project = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	project.root.children[0].on!.push({
+		id: 'l_goto',
+		event: 'click',
+		action: { kind: 'goto', state: 's_idle' },
+	});
+	const shared = { ...structuredClone(P6_COMPONENT), scope: 'shared' };
+	const projectEtag = seed(componentKey, project);
+	const sharedEtag = seed(sharedComponentKey, shared);
+	const sharedBytes = bucket.get(sharedComponentKey)?.text ?? '';
+	const sharedV3Key = editorComponentVersionKey(COMPONENT.id, 3);
+	bucket.set(sharedV3Key, { text: sharedBytes, etag: etagOf(sharedBytes) });
+	const promoted = await saveComponent(
+		{ ...olderView(), scope: 'shared' as const },
+		undefined,
+		sharedEtag,
+		{ promotedFrom: { projectKey: 'p', baseEtag: projectEtag } },
+	);
+	check(
+		'components 6a: a promote changing only unreadable listener / onEnter / payload rows bumps, leaving v3 alone',
+		[
+			promoted.version,
+			bucket.get(sharedV3Key)?.text === sharedBytes,
+			(stored(sharedComponentKey) as unknown as P6Doc).root.children[0].on?.map((l) => l.id),
+		],
+		[4, true, ['l1', 'l_goto']],
 	);
 }
 

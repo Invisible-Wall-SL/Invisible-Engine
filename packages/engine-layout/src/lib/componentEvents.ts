@@ -92,17 +92,17 @@ export function routeComponentCue(cue: string, declaresEvents: boolean): Compone
 	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
 }
 
-/** Every localization key a def's raises carry — its listeners' and its states' `onEnter` — for the
- *  harvest, in tree then layer order, each once. */
+/** Every localization key a def's raises carry — its listeners' and its states' `onEnter` — with
+ *  the event that carries it, for the harvest, in tree then layer order, each key once. */
 export function raisedPayloadKeys(
 	def: Pick<ComponentDef, 'root' | 'stateMachine'> | null | undefined,
-): string[] {
-	const keys = new Set<string>();
+): { key: string; event: string }[] {
+	const keys = new Map<string, string>();
 	const collect = (action: ListenerAction): void => {
 		if (action.kind !== 'raise') return;
 		for (const value of Object.values(action.payload ?? {})) {
-			if (typeof value === 'object' && 'key' in value && isLocalizationKey(value.key))
-				keys.add(value.key);
+			if (typeof value !== 'object' || !('key' in value) || !isLocalizationKey(value.key)) continue;
+			if (!keys.has(value.key)) keys.set(value.key, action.event);
 		}
 	};
 	const walk = (n: LayoutNode): void => {
@@ -113,7 +113,7 @@ export function raisedPayloadKeys(
 	for (const layer of def?.stateMachine?.layers ?? []) {
 		for (const state of layer.states ?? []) state.onEnter?.forEach(collect);
 	}
-	return [...keys];
+	return [...keys].map(([key, event]) => ({ key, event }));
 }
 
 /** Does any node of the def's tree carry a listener? */
@@ -246,11 +246,12 @@ export class ComponentEventDispatcher {
 		this.later();
 	}
 
-	/** Send everything queued, in order. */
+	/** Send everything queued, in order, one at a time: a raise a handler causes joins the end of the
+	 *  queue (never ahead of what was already waiting), and a destroy mid-drain stops the rest. */
 	drain(): void {
-		const queued = this.queue;
-		this.queue = [];
-		for (const raised of queued) (this.host.raise ?? raiseComponentEvent)(raised);
+		while (this.queue.length && !this.destroyed) {
+			(this.host.raise ?? raiseComponentEvent)(this.queue.shift()!);
+		}
 	}
 
 	/** The instance is gone: nothing queued or later raised leaves. */

@@ -741,8 +741,6 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 	Object.assign(extras.events[0], { color: 'blue' });
 	Object.assign(extras.events[0].payload[0], { unit: 'coins' });
 	Object.assign(extras.root.children[0].on[0], { note: 'tap' });
-	Object.assign(extras.root.children[0].on[0].action, { delay: 2 });
-	Object.assign(extras.stateMachine.layers[0].states[0].onEnter[0], { once: true });
 	ignores('13. component', (d) => normalizeComponent(d as unknown as ComponentDef), base, extras, [
 		'"root":{',
 		'"params":[{',
@@ -753,6 +751,20 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'"on":[{',
 		'"onEnter":[{',
 	]);
+	// The one exception, by design (Rive plan §6.1): a key this build does not know INSIDE an action
+	// (a listener's, or an `onEnter` row, which IS its action) is not ignored — rebuilding the action
+	// without it would change what it does — so the read drops that row whole, without throwing, and
+	// the save puts it back (`check:save-keeps-unknown-blocks`).
+	const nested = clone(base);
+	Object.assign(nested.root.children[0].on[0].action, { delay: 2 });
+	Object.assign(nested.stateMachine.layers[0].states[0].onEnter[0], { once: true });
+	const read = run(() => normalizeComponent(nested as unknown as ComponentDef));
+	check('13. component: a newer key inside an action does not throw', read.threw === null);
+	check(
+		'13. component: …and drops that listener and that onEnter row whole',
+		!read.out.includes('"on":[') && !read.out.includes('"onEnter":['),
+		read.out,
+	);
 }
 
 // 14. the bake's rebuilds of `symbols.coinLabel` (whitelist) and `symbols.flights` (per-style pass).

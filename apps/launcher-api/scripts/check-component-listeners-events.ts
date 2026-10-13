@@ -40,7 +40,7 @@ const M = await import('../../../packages/engine-layout/src/lib/stateMachine.ts'
 const L = await import('../../../packages/engine-layout/src/lib/componentTimelines.ts');
 const F = await import('../../../packages/engine-layout/src/lib/registerFlowPress.ts');
 const R = await import('../../../packages/engine-layout/src/lib/registerComponents.ts');
-const { CONFIRM_DIALOG_DEF } =
+const { BUILTIN_COMPONENTS, CONFIRM_DIALOG_DEF } =
 	await import('../../../packages/engine-layout/src/lib/builtinComponents.ts');
 const { componentSignalConfiguredEvents, deriveContainerEvents } =
 	await import('../../../packages/engine-flow-v2/src/containerEvents.ts');
@@ -476,6 +476,38 @@ for (const event of POINTER) {
 		),
 		'click',
 	);
+	{
+		const whole = coinDef({
+			events: [
+				{
+					id: 'counted',
+					payload: [
+						{ name: 'n', type: { t: 'int' } },
+						{ name: 'ms', type: { t: 'ms' } },
+						{ name: 'f', type: { t: 'float' } },
+					],
+				},
+			],
+		});
+		const got: unknown[] = [];
+		new E.ComponentEventDispatcher(whole, {
+			instanceId: 'w',
+			fireTrigger: () => undefined,
+			raise: (r) => got.push(r.payload),
+		}).pointer(
+			coinNode(
+				listener('l', 'click', {
+					kind: 'raise',
+					event: 'counted',
+					payload: { n: 2.5, ms: 120, f: 2.5 },
+				}),
+			),
+			'click',
+		);
+		eq('an int / ms field drops a value that is not a whole number; a float keeps it', got, [
+			{ ms: 120, f: 2.5 },
+		]);
+	}
 	eq(
 		'a value that does not fit its field, a key with no letter and an undeclared field never leave',
 		road,
@@ -706,6 +738,56 @@ for (const event of POINTER) {
 	run(tasks);
 	eq('a destroyed instance raises nothing — not what it had queued, nor anything after', order, []);
 
+	{
+		// Re-entry: a handler that causes a raise queues it BEHIND what was already waiting, and a
+		// destroy mid-drain stops the rest (Phase 7 runs Flow from these handlers).
+		const sent: string[] = [];
+		const later: (() => void)[] = [];
+		const reentrant = new E.ComponentEventDispatcher(ordered, {
+			instanceId: 'i',
+			fireTrigger: () => undefined,
+			schedule: (drain) => later.push(drain),
+			raise: (r) => {
+				sent.push(r.event);
+				if (r.event === 'enteredIdle') reentrant.pointer(press, 'click');
+			},
+		});
+		const r = new M.ComponentStateMachineRunner(
+			ordered.stateMachine!,
+			I.componentInputs(ordered),
+			durations,
+		);
+		reentrant.started(r.plays());
+		reentrant.transitions(r.advance(0.1).fired);
+		run(later);
+		eq('a raise a handler causes joins the END of the queue', sent, [
+			'enteredIdle',
+			'enteredIntro',
+			'pressed',
+		]);
+
+		const stopped: string[] = [];
+		const later2: (() => void)[] = [];
+		const dying = new E.ComponentEventDispatcher(ordered, {
+			instanceId: 'i',
+			fireTrigger: () => undefined,
+			schedule: (drain) => later2.push(drain),
+			raise: (raised) => {
+				stopped.push(raised.event);
+				dying.destroy();
+			},
+		});
+		const r2 = new M.ComponentStateMachineRunner(
+			ordered.stateMachine!,
+			I.componentInputs(ordered),
+			durations,
+		);
+		dying.started(r2.plays());
+		dying.transitions(r2.advance(0.1).fired);
+		run(later2);
+		eq('a destroy mid-drain stops the rest', stopped, ['enteredIdle']);
+	}
+
 	order = [];
 	({ d } = make(order, []));
 	eq(
@@ -792,9 +874,9 @@ for (const event of POINTER) {
 	def.stateMachine!.layers[0].states[1].onEnter = [
 		{ id: 'e1', kind: 'raise', event: 'winShown', payload: { title: { key: 'BIG WIN' } } },
 	];
-	eq('raisedPayloadKeys lists every key the def raises', E.raisedPayloadKeys(def), [
-		'Tap to win',
-		'BIG WIN',
+	eq('raisedPayloadKeys lists every key the def raises, with its event', E.raisedPayloadKeys(def), [
+		{ key: 'Tap to win', event: 'pressed' },
+		{ key: 'BIG WIN', event: 'winShown' },
 	]);
 	const sections = await harvestSceneText(
 		{
@@ -810,8 +892,11 @@ for (const event of POINTER) {
 	);
 	eq(
 		'…and the localization harvest collects them with the def’s text',
-		sections.flatMap((section) => section.items.map((item) => item.key)),
-		['Tap to win', 'BIG WIN'],
+		sections.flatMap((section) => section.items.map((item) => [item.key, item.label])),
+		[
+			['Tap to win', 'coin — event pressed'],
+			['BIG WIN', 'coin — event winShown'],
+		],
 	);
 }
 
@@ -1029,7 +1114,13 @@ for (const event of POINTER) {
 
 {
 	eq('a def with no listeners reports none', E.hasNodeListeners(coinDef()), false);
-	eq('…every built-in def has none', E.hasNodeListeners(CONFIRM_DIALOG_DEF), false);
+	eq(
+		'…no built-in def has listeners or events',
+		Object.values(BUILTIN_COMPONENTS)
+			.filter((d) => E.hasNodeListeners(d) || d.events?.length)
+			.map((d) => d.id),
+		[],
+	);
 	const instanceSvelte = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
 	eq(
 		'ComponentInstance builds a dispatcher only for a def with listeners or events, and provides the listener context only when a node listens',

@@ -678,8 +678,6 @@
 		// (byte-identical). Consulted at click time, so it tracks the live handle regardless of boot order.
 		const routed = resolveFlowV2Press(componentId, action, payload, kind);
 		if (!routed) return undefined;
-		// An event a component RAISED (a listener, a state entered, a timeline cue) is not a press.
-		if (kind === 'event') return routed;
 		return () => {
 			context.eventEmitter.broadcast(
 				action === 'spin'

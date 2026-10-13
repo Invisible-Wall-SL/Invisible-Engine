@@ -35,6 +35,11 @@ const PAYLOAD_TYPES: ReadonlySet<unknown> = new Set(EVENT_PAYLOAD_TYPES);
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isId = (v: unknown): v is string => typeof v === 'string' && v !== '';
+/** Every key of `obj` is one this build knows. A newer key inside an action, a payload value or a
+ *  payload type makes the whole row unreadable: rebuilding it without the key would change what
+ *  it does, so the read drops it and the save puts it back whole. */
+const only = (obj: Row, ...keys: string[]): boolean =>
+	Object.keys(obj).every((k) => keys.includes(k));
 
 /** An event's payload field, or `undefined` when Flow could not carry it (an enum, a struct, a
  *  list — a payload holds numbers, bools and localization keys) or it is malformed. */
@@ -42,7 +47,8 @@ export function readPayloadField(
 	f: unknown,
 ): NonNullable<ComponentEvent['payload']>[number] | undefined {
 	if (!isPlainObject(f) || !isId(f.name)) return undefined;
-	if (!isPlainObject(f.type) || !PAYLOAD_TYPES.has(f.type.t)) return undefined;
+	if (!isPlainObject(f.type) || !only(f.type, 't') || !PAYLOAD_TYPES.has(f.type.t))
+		return undefined;
 	const field: NonNullable<ComponentEvent['payload']>[number] = {
 		name: f.name,
 		type: { t: f.type.t as EventPayloadType },
@@ -53,31 +59,36 @@ export function readPayloadField(
 }
 
 /**
- * An action, or `undefined` when this build cannot read it — an unknown kind, a missing input or
- * event, a payload value that is not a number, a bool, `{ input }` or `{ key }` holding a
- * localization key (`isLocalizationKey`).
+ * An action, or `undefined` when this build cannot read it — an unknown kind, a key it does not
+ * know, a missing input or event, a payload value that is not a number, a bool, `{ input }` or
+ * `{ key }` holding a localization key (`isLocalizationKey`). `extra` names the keys the row the
+ * action is read from may also carry (an on-enter row's `id`).
  */
-export function readAction(input: unknown): ListenerAction | undefined {
+export function readAction(input: unknown, ...extra: string[]): ListenerAction | undefined {
 	if (!isPlainObject(input) || !ACTION_KINDS.has(input.kind)) return undefined;
-	if (input.kind === 'raise') return readRaise(input);
+	if (input.kind === 'raise') return readRaise(input, extra);
 	if (!isId(input.input)) return undefined;
 	if (input.kind === 'set') {
+		if (!only(input, 'kind', 'input', 'value', ...extra)) return undefined;
 		if (!(typeof input.value === 'boolean' || finite(input.value))) return undefined;
 		return { kind: 'set', input: input.input, value: input.value };
 	}
+	if (!only(input, 'kind', 'input', ...extra)) return undefined;
 	return { kind: input.kind as 'fire' | 'toggle', input: input.input };
 }
 
-function readRaise(input: Row): RaiseEventAction | undefined {
-	if (!isId(input.event)) return undefined;
+function readRaise(input: Row, extra: string[]): RaiseEventAction | undefined {
+	if (!isId(input.event) || !only(input, 'kind', 'event', 'payload', ...extra)) return undefined;
 	const action: RaiseEventAction = { kind: 'raise', event: input.event };
 	if (input.payload === undefined) return action;
 	if (!isPlainObject(input.payload)) return undefined;
 	const payload: Record<string, EventPayloadValue> = {};
 	for (const [name, v] of Object.entries(input.payload)) {
 		if (typeof v === 'boolean' || finite(v)) payload[name] = v;
-		else if (isPlainObject(v) && isId(v.input)) payload[name] = { input: v.input };
-		else if (isPlainObject(v) && isLocalizationKey(v.key)) payload[name] = { key: v.key };
+		else if (isPlainObject(v) && only(v, 'input') && isId(v.input))
+			payload[name] = { input: v.input };
+		else if (isPlainObject(v) && only(v, 'key') && isLocalizationKey(v.key))
+			payload[name] = { key: v.key };
 		else return undefined;
 	}
 	if (Object.keys(payload).length) action.payload = payload;
@@ -92,7 +103,7 @@ export function readListener(item: unknown): NodeListener | undefined {
 
 export function readEnterAction(item: unknown): SmEnterAction | undefined {
 	if (!isPlainObject(item) || !isId(item.id)) return undefined;
-	const action = readAction(item);
+	const action = readAction(item, 'id');
 	return action?.kind === 'raise' ? { id: item.id, ...action } : undefined;
 }
 

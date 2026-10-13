@@ -150,7 +150,7 @@ function collectDefText(
 	};
 	walk(def.root);
 	// The localization keys the def's events carry (Rive plan Phase 6): source-as-key, like its text.
-	for (const key of raisedPayloadKeys(def)) add(key, label);
+	for (const { key, event } of raisedPayloadKeys(def)) add(key, `${label} — event ${event}`);
 }
 
 /**

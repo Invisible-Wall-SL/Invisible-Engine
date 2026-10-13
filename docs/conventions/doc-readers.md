@@ -215,8 +215,9 @@ the save guard for every field in the table above.
       within the event), and a state-machine layer (by `id`) with its states and transitions (by
       `id` within that layer, so a namesake state in another layer is a different entity) and a
       state's `onEnter` rows (by `id` within the state). A listener, payload field or `onEnter`
-      row the read dropped (an action kind, pointer event or payload type a newer build added) is
-      put back where it stood, as an unreadable input is. A transition's `conditions` are
+      row the read dropped (an action kind, pointer event or payload type a newer build added, or
+      a key it does not know INSIDE an action, a payload value or a payload field's `type`, which
+      the read must not rebuild without) is put back where it stood, as an unreadable input is. A transition's `conditions` are
       its own known data: they have no id and are not walked, so a newer field inside a
       condition is dropped with it;
     - every field of `stateMachine` itself it does not declare. That block is a fixed namespace,
