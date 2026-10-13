@@ -60,10 +60,21 @@ export function clearNodePreview(nodeId: string): void {
 	version.n += 1;
 }
 
-/** Show (or with `null`, stop showing) a timeline's sampled channels, keyed by node id. */
-export function setTimelinePreview(next: Map<string, TimelineNodeDrive> | null): void {
+let drivesOwner: symbol | null = null;
+
+/**
+ * Show (or with `null`, stop showing) a timeline's sampled channels, keyed by node id. `owner`
+ * names the panel: a screen's and a component's Timeline panel can both be mounted, and one going
+ * quiet must not clear what the other is showing.
+ */
+export function setTimelinePreview(
+	next: Map<string, TimelineNodeDrive> | null,
+	owner: symbol | null = null,
+): void {
+	if (!next && drivesOwner !== owner) return;
 	if (!drives && !next) return;
 	drives = next;
+	drivesOwner = next ? owner : null;
 	version.n += 1;
 }
 

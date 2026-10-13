@@ -1,12 +1,15 @@
 <script lang="ts">
 	/**
-	 * Animate mode's bottom panel (Rive plan Phase 3, `docs/design/rive-style-editor.md`): the active
-	 * SCREEN's timelines, edited in the shared Timeline module (`$lib/timeline/timeline.js` — the
-	 * same sequencer `/rigger` mounts) and previewed live on the Scene Editor canvas.
+	 * Animate mode's bottom panel (Rive plan Phases 3–4, `docs/design/rive-style-editor.md`): the
+	 * active SCREEN's timelines, or the open COMPONENT's (`component` set), edited in the shared
+	 * Timeline module (`$lib/timeline/timeline.js` — the same sequencer `/rigger` mounts) and
+	 * previewed live on the editor canvas. A component timeline also names the instance signal that
+	 * plays it in game (`playOn`) and the other components it is reused on (`playOnComponents`).
 	 *
 	 * - Storage is the cinematic store: `/api/cinematics/*`, the same ETag-conditional save, 409
 	 *   conflict flow and project-scope guard as `/rigger`. A timeline is a cinematic whose `host`
-	 *   is `{kind:'screen', sceneId}`; the endpoints let an `editor`-only user reach exactly those.
+	 *   is `{kind:'screen', sceneId}` or `{kind:'component', componentId}`; the endpoints let an
+	 *   `editor`-only user reach exactly those.
 	 * - Keying: the node selected on the canvas becomes a node actor targeting its NAME
 	 *   (`nodeActorTarget` refuses an unnamed or shared name — never an id), and its fields key
 	 *   x / y / scale / rotation / alpha / tint at the playhead through the module's `keyProperty`.
@@ -18,15 +21,24 @@
 	 */
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { putKey, resolvePlace, resolveVisible } from 'engine-cinematic';
-	import type { CinematicCast, CinematicDoc, Scene } from 'engine-layout';
+	import {
+		validateNodeActors,
+		type CinematicCast,
+		type CinematicDoc,
+		type LayoutNode,
+		type Scene,
+	} from 'engine-layout';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
 	import { mount, type Timeline, type TimelineEvaluator } from '$lib/timeline/timeline';
 	import {
 		NODE_IDENTITY,
 		SCREEN_CHANNELS,
+		componentTimelineId,
+		componentTimelinesOf,
 		ensureNodeActor,
 		isChannelKeyed,
 		keyableChannels,
+		newComponentTimeline,
 		newScreenTimeline,
 		nodeActorOf,
 		nodeActorTarget,
@@ -38,9 +50,22 @@
 	} from '$lib/timeline/screenTimeline';
 	import { setTimelinePreview } from './valuePreview.client.svelte';
 
+	/** The open component, when the panel animates a component instead of a screen. */
+	interface ComponentHost {
+		id: string;
+		name: string;
+		/** The signals `playOn` offers (`componentTimelineSignals`). */
+		signals: string[];
+		/** Every other component, for reuse (`playOnComponents`) and its validation. */
+		others: { id: string; name: string; nodes: LayoutNode[] }[];
+	}
+
 	interface Props {
-		/** The active screen — the host every timeline listed here animates. */
+		/** The node list every timeline listed here animates: the active screen, or the open
+		 *  component's root (a synthetic scene). */
 		scene: Scene | undefined;
+		/** Set ⇒ the timelines are the component's (`host: {kind:'component'}`), not the screen's. */
+		component?: ComponentHost;
 		/** The canvas selection's primary node. */
 		selectedId: string | null;
 		/** The project this tab loaded — every save posts it, and a mismatch is refused. */
@@ -50,7 +75,13 @@
 		active: boolean;
 	}
 
-	let { scene, selectedId, projectKey, active }: Props = $props();
+	let { scene, component, selectedId, projectKey, active }: Props = $props();
+
+	/** This panel's claim on the shared canvas preview (a screen's and a component's panel can both
+	 *  be mounted). */
+	const previewOwner = Symbol('timeline-panel');
+	/** What the open host is called in messages. */
+	const where = $derived(component ? 'component' : 'screen');
 
 	interface Row {
 		id: string;
@@ -86,11 +117,27 @@
 	let raf = 0;
 
 	const sceneId = $derived(scene?.id);
-	const screenRows = $derived(screenTimelinesOf(rows, sceneId));
+	/** Which host's timelines are listed: a switch closes the open one (`leaveHost`). */
+	const hostKey = $derived(component ? `component:${component.id}` : `screen:${sceneId ?? ''}`);
+	const screenRows = $derived(
+		component ? componentTimelinesOf(rows, component.id) : screenTimelinesOf(rows, sceneId),
+	);
+	const hostLabel = $derived(
+		component ? `◇ ${component.name}` : scene ? scene.name || scene.id : 'no screen',
+	);
+
+	/** Does `doc` belong to the host this panel is on? Keys never land on another host's doc. */
+	function ownsDoc(doc: CinematicDoc): boolean {
+		if (component) return doc.host?.kind === 'component' && doc.host.componentId === component.id;
+		return doc.host?.kind === 'screen' && doc.host.sceneId === scene?.id;
+	}
 
 	function preview(): void {
 		const doc = tl?.doc();
-		setTimelinePreview(active && doc && scene ? timelineDrives(doc, scene, time) : null);
+		setTimelinePreview(
+			active && doc && scene ? timelineDrives(doc, scene, time) : null,
+			previewOwner,
+		);
 	}
 
 	function mountTimeline(doc: CinematicDoc): void {
@@ -126,7 +173,7 @@
 				},
 				actorLabel: (cast: CinematicCast) => ({
 					text: `◇ ${cast.target ?? cast.actorId}`,
-					title: `Node "${cast.target ?? ''}" on this screen`,
+					title: `Node "${cast.target ?? ''}" on this ${where}`,
 				}),
 				sceneName: (id: string) => (id === scene?.id ? (scene?.name ?? id) : id),
 			},
@@ -153,7 +200,7 @@
 		if (tlEl) tlEl.innerHTML = '';
 		if (inspEl) inspEl.innerHTML = '';
 		/* eslint-enable svelte/no-dom-manipulating */
-		setTimelinePreview(null);
+		setTimelinePreview(null, previewOwner);
 	}
 
 	async function readError(res: Response): Promise<string> {
@@ -209,20 +256,30 @@
 		if (!scene || !(await guardUnsaved())) return;
 		const name = await askText({
 			title: 'New timeline',
-			message: `A timeline animates the nodes of "${scene.name || scene.id}". Flow plays it with a playCinematic node.`,
+			message: component
+				? `A timeline animates the nodes of "${component.name}". Every placed instance plays it when its "Plays on" signal fires there.`
+				: `A timeline animates the nodes of "${scene.name || scene.id}". Flow plays it with a playCinematic node.`,
 			label: 'Name',
-			value: 'Intro',
+			value: component ? 'Pop in' : 'Intro',
 		});
 		if (!name?.trim()) return;
-		const id = screenTimelineId(
-			scene.id,
-			name,
-			rows.map((r) => r.id),
-		);
+		const taken = rows.map((r) => r.id);
+		const id = component
+			? componentTimelineId(component.id, name, taken)
+			: screenTimelineId(scene.id, name, taken);
 		closeTimeline();
 		openId = id;
 		etag = null;
-		mountTimeline(newScreenTimeline({ id, name: name.trim(), sceneId: scene.id }));
+		mountTimeline(
+			component
+				? newComponentTimeline({
+						id,
+						name: name.trim(),
+						componentId: component.id,
+						playOn: component.signals[0],
+					})
+				: newScreenTimeline({ id, name: name.trim(), sceneId: scene.id }),
+		);
 		dirty = true;
 		await save();
 		if (etag === null) {
@@ -249,8 +306,9 @@
 		if (!doc) return;
 		const ok = await askConfirm({
 			title: `Delete the timeline "${doc.name}"?`,
-			message:
-				'It is removed from the project. A Flow playCinematic node that plays it will play nothing.',
+			message: component
+				? 'It is removed from the project. Placed instances stop playing it.'
+				: 'It is removed from the project. A Flow playCinematic node that plays it will play nothing.',
 			confirmLabel: 'Delete',
 			danger: true,
 		});
@@ -351,7 +409,7 @@
 
 	// ---- keying the selected node ------------------------------------------------------------
 
-	const target = $derived(scene && selectedId ? nodeActorTarget(scene, selectedId) : null);
+	const target = $derived(scene && selectedId ? nodeActorTarget(scene, selectedId, where) : null);
 	const channels = $derived(target?.ok ? keyableChannels(target.node.kind) : []);
 
 	/** The selected node's actor in the open timeline, if it has one. */
@@ -379,7 +437,7 @@
 	function key(channel: KeyedChannel, v?: number): void {
 		const doc = tl?.doc();
 		if (!doc || !tl || !target?.ok) return;
-		if (doc.host?.kind !== 'screen' || doc.host.sceneId !== scene?.id) return;
+		if (!ownsDoc(doc)) return;
 		const id = ensureNodeActor(doc, target.target);
 		const next = v ?? value(channel);
 		tl.keyProperty(id, channel, Number.isFinite(next) ? next : 0);
@@ -397,17 +455,67 @@
 		tint: 'tint',
 	};
 
-	// A different screen has different timelines: save the open one, then close it. A failed save
-	// (a conflict, say) keeps it open with its error, previewing nothing on the other screen.
-	async function leaveScreen(): Promise<void> {
+	// ---- component trigger + reuse -------------------------------------------------------------
+
+	/** The open component timeline's `playOn`, re-read on every doc change. */
+	function playOn(): string {
+		void docVersion;
+		return tl?.doc().playOn ?? '';
+	}
+	function setPlayOn(signal: string): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !component) return;
+		if (signal) doc.playOn = signal;
+		else delete doc.playOn;
+		tl.commit('plays on');
+		docVersion++;
+	}
+	function reusedOn(id: string): boolean {
+		void docVersion;
+		return tl?.doc().playOnComponents?.includes(id) ?? false;
+	}
+	function setReusedOn(id: string, on: boolean): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !component) return;
+		const rest = (doc.playOnComponents ?? []).filter((other) => other !== id);
+		const next = on ? [...rest, id] : rest;
+		if (next.length) doc.playOnComponents = next;
+		else delete doc.playOnComponents;
+		tl.commit('also plays on');
+		docVersion++;
+	}
+	/** What would silently do nothing in game: on this component, and on each it is reused on. */
+	function issues(): string[] {
+		void docVersion;
+		const doc = tl?.doc();
+		if (!doc || !scene) return [];
+		const out = validateNodeActors(doc, scene).map((i) => i.message);
+		for (const id of doc.playOnComponents ?? []) {
+			const other = component?.others.find((o) => o.id === id);
+			if (!other) {
+				out.push(`Also plays on "${id}", which is not in this project.`);
+				continue;
+			}
+			const host = { id: other.id, name: other.name, nodes: other.nodes };
+			for (const issue of validateNodeActors(doc, host)) {
+				out.push(`On ${other.name}: ${issue.message}`);
+			}
+		}
+		if (component && !doc.playOn) out.push('No "Plays on" signal: nothing in the game starts it.');
+		return out;
+	}
+
+	// A different host has different timelines: save the open one, then close it. A failed save
+	// (a conflict, say) keeps it open with its error, previewing nothing on the other host.
+	async function leaveHost(): Promise<void> {
 		if (dirty) await save();
 		if (!dirty) closeTimeline();
 	}
-	let lastSceneId: string | undefined;
+	let lastHostKey: string | undefined;
 	$effect(() => {
-		const id = sceneId;
-		if (lastSceneId !== undefined && id !== lastSceneId && tl) void untrack(leaveScreen);
-		lastSceneId = id;
+		const key = hostKey;
+		if (lastHostKey !== undefined && key !== lastHostKey && tl) void untrack(leaveHost);
+		lastHostKey = key;
 	});
 
 	// Hidden (Design mode): no keys, no preview, no playback — Design draws exactly as before.
@@ -444,14 +552,14 @@
 		// answering Ctrl+Z / Delete after Animate mode is left.
 		tl?.destroy();
 		tl = null;
-		setTimelinePreview(null);
+		setTimelinePreview(null, previewOwner);
 	});
 </script>
 
 <section class="tl-panel" aria-label="Timeline">
 	<div class="tl-bar">
 		<b class="tl-title">Timeline</b>
-		<span class="tl-host">{scene ? scene.name || scene.id : 'no screen'}</span>
+		<span class="tl-host">{hostLabel}</span>
 		<select
 			bind:this={pickerEl}
 			value={openId ?? ''}
@@ -459,10 +567,10 @@
 				const id = e.currentTarget.value;
 				if (id) void open(id);
 			}}
-			aria-label="Timelines of this screen"
+			aria-label={`Timelines of this ${where}`}
 		>
 			<option value="" disabled>
-				{screenRows.length ? 'Open a timeline…' : 'No timelines on this screen'}
+				{screenRows.length ? 'Open a timeline…' : `No timelines on this ${where}`}
 			</option>
 			{#each screenRows as row (row.id)}
 				<option value={row.id}>{row.name}</option>
@@ -478,6 +586,66 @@
 				<button type="button" title="Pause" onclick={stop}>⏸</button>
 			{:else}
 				<button type="button" title="Play" onclick={play}>▶</button>
+			{/if}
+			{#if component}
+				{@const current = playOn()}
+				{@const problems = issues()}
+				<label
+					class="tl-playon"
+					title="The instance signal that plays this timeline in game: enter (the instance appears), a signal the component declares, a Flow fireCue name or a rig cue's complete signal. Heard per instance, so two placements play on their own."
+				>
+					Plays on
+					<select value={current} onchange={(e) => setPlayOn(e.currentTarget.value)}>
+						<option value="">(nothing — not played)</option>
+						{#each component.signals as signal (signal)}
+							<option value={signal}>{signal}</option>
+						{/each}
+						{#if current && !component.signals.includes(current)}
+							<option value={current}>{current}</option>
+						{/if}
+					</select>
+				</label>
+				<button
+					type="button"
+					title="Type any signal name — a Flow fireCue name, say"
+					onclick={async () => {
+						const name = await askText({
+							title: 'Plays on signal',
+							label: 'Signal name',
+							value: playOn(),
+						});
+						if (name !== null) setPlayOn(name.trim());
+					}}>✎</button
+				>
+				{#if component.others.length}
+					<details class="tl-reuse">
+						<summary
+							title="Play this timeline on other components' instances too. It drives their nodes by name."
+						>
+							Also on{#if tl?.doc().playOnComponents?.length}
+								({tl?.doc().playOnComponents?.length}){/if}
+						</summary>
+						<div class="tl-reuse-list">
+							{#each component.others as other (other.id)}
+								<label>
+									<input
+										type="checkbox"
+										checked={reusedOn(other.id)}
+										onchange={(e) => setReusedOn(other.id, e.currentTarget.checked)}
+									/>
+									{other.name}
+								</label>
+							{/each}
+						</div>
+					</details>
+				{/if}
+				{#if problems.length}
+					<span class="pill error" title={problems.join('\n')}>
+						⚠ {problems.length}
+						{problems.length === 1 ? 'issue' : 'issues'}
+					</span>
+				{/if}
+				<span class="sep"></span>
 			{/if}
 			<span class="tl-time">{time.toFixed(2)}s /</span>
 			{#key docVersion}
@@ -514,7 +682,7 @@
 		<div class="tl-keys">
 			{#if !openId}
 				<p class="note">
-					Open or create a timeline for this screen, select a node on the canvas, then key it here.
+					Open or create a timeline for this {where}, select a node on the canvas, then key it here.
 					Keys are relative to the node's Design pose: x/y add, scale and alpha multiply, rotation
 					adds degrees. End an intro on the unchanged pose so the screen settles where you laid it
 					out.
@@ -636,6 +804,36 @@
 	}
 	.tl-dur {
 		width: 60px;
+	}
+	.tl-playon {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		color: var(--dim);
+	}
+	.tl-reuse {
+		position: relative;
+		color: var(--dim);
+	}
+	.tl-reuse summary {
+		cursor: pointer;
+	}
+	.tl-reuse-list {
+		position: absolute;
+		z-index: 5;
+		top: 100%;
+		left: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 180px;
+		max-height: 240px;
+		overflow: auto;
+		padding: 6px 8px;
+		background: var(--panel);
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		color: var(--txt);
 	}
 	.pill {
 		padding: 1px 8px;

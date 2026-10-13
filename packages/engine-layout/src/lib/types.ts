@@ -1572,9 +1572,23 @@ export interface CinematicDoc {
 	/**
 	 * What the timeline animates (Rive plan §3.2). Absent ⇒ `cast` (rigs on their own stage — every
 	 * document before node actors). `screen` animates that Scene's nodes and is the set;
-	 * `component` is valid in the format, but no player runs a component timeline yet.
+	 * `component` animates the nodes inside that component's `root`, on every placed instance.
 	 */
 	host?: CinematicHost;
+	/**
+	 * A COMPONENT timeline's trigger (Rive plan Phase 4): the instance signal that starts it —
+	 * one of the def's declared `signals`, a Flow `fireCue` name, a rig cue's `completeSignal`, or
+	 * `enter` (the instance becoming visible). Heard per instance, through the def's `signalScope`,
+	 * so two placements play independently. Absent ⇒ nothing in the game starts it on its own.
+	 * Ignored on screen and cast timelines (Flow's `playCinematic` plays those).
+	 */
+	playOn?: string;
+	/**
+	 * Other components whose instances also play this timeline on `playOn` (plan §3.3 reuse). It
+	 * binds by node NAME, so it drives whatever nodes of those components carry the names it
+	 * targets; a name one of them lacks is skipped there (validation flags it).
+	 */
+	playOnComponents?: string[];
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

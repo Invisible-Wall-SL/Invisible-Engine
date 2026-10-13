@@ -25,6 +25,7 @@ import {
 	editorArtNamespace,
 	normalizeHudScenes,
 	registerComponentDefaults,
+	registerComponentTimelines,
 	registerComponents,
 	registerRigFx,
 	registerTextResolver,
@@ -582,6 +583,9 @@ export function registerBakedComponents(): void {
 	}
 	if (source.componentDefs) registerComponents(source.componentDefs);
 	if (source.componentDefaults) registerComponentDefaults(source.componentDefaults);
+	// Component timelines (Rive plan Phase 4): each placed instance plays its def's timelines on
+	// their `playOn` signal. No component-hosted timeline ⇒ an empty registry (parity).
+	registerComponentTimelines(bakedCinematics());
 }
 
 /**

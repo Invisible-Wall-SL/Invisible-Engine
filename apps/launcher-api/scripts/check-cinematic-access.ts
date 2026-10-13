@@ -1,5 +1,5 @@
 /**
- * Who may reach which cinematic through `/api/cinematics/*` (Rive plan Phase 3):
+ * Who may reach which cinematic through `/api/cinematics/*` (Rive plan Phases 3 and 4):
  *   pnpm --filter launcher-api check:cinematic-access
  *
  * Runs the REAL route handlers (`list`, `get`, `save`, `delete`) and the real `cinematicAccess` /
@@ -9,9 +9,9 @@
  * fixed. The real gate's own behaviour is `check-launcher-gates.ts` / `check-project-scope.ts`.
  *
  * The contract: `rigger` reaches every cinematic as before; `editor` alone reaches exactly the
- * timelines whose host is a screen — it never lists, opens, overwrites or deletes a rig cinematic,
- * not even by saving a screen doc under a rig cinematic's id, and its writes are always conditional
- * on the version it checked. Neither tool ⇒ 403 everywhere.
+ * timelines whose host is a screen or a component — it never lists, opens, overwrites or deletes a
+ * rig cinematic, not even by saving a screen or component doc under a rig cinematic's id, and its
+ * writes are always conditional on the version it checked. Neither tool ⇒ 403 everywhere.
  *
  * What it cannot prove: R2 itself, and the browser side (the Animate panel's conflict prompt).
  */
@@ -150,6 +150,11 @@ const screenDoc = (id: string, name = 'Intro') => ({
 	host: { kind: 'screen', sceneId: 'base' },
 	tracks: [],
 	markers: [],
+});
+const componentDoc = (id: string, name = 'Pop in') => ({
+	...screenDoc(id, name),
+	host: { kind: 'component', componentId: 'coin' },
+	playOn: 'enter',
 });
 function seed(doc: { id: string }): string {
 	const text = JSON.stringify(doc);
@@ -332,6 +337,81 @@ console.log('\n2. editor alone — screen timelines only');
 	ok(
 		'and cannot be deleted by it',
 		(await call(del.POST as Handler, '/api/cinematics/delete', { id: 'broken' })).status === 403,
+	);
+}
+
+console.log('\n2b. editor alone — component timelines too (Phase 4)');
+{
+	reset();
+	entitled = new Set(['editor']);
+	const rigEtag = seed(rigDoc('bonus'));
+	seed(screenDoc('base_intro'));
+	seed(componentDoc('c_coin_pop'));
+	const l = await call(list.GET as Handler, '/api/cinematics/list');
+	ok(
+		'lists the screen and the component timeline, not the rig cinematic',
+		JSON.stringify(ids(l)) === '["base_intro","c_coin_pop"]',
+		ids(l),
+	);
+	const g = await call(get.GET as Handler, '/api/cinematics/get?id=c_coin_pop');
+	ok(
+		'opens a component timeline, playOn intact',
+		g.status === 200 && (g.body.doc as { playOn?: string })?.playOn === 'enter',
+		g,
+	);
+	const create = await call(save.POST as Handler, '/api/cinematics/save', {
+		doc: componentDoc('c_coin_win', 'Win'),
+		baseEtag: null,
+		projectKey: SESSION.projectKey,
+	});
+	ok(
+		'creates a component timeline',
+		create.status === 200 && stored('c_coin_win')?.name === 'Win',
+		create,
+	);
+	const update = await call(save.POST as Handler, '/api/cinematics/save', {
+		doc: { ...componentDoc('c_coin_win', 'Win'), playOn: 'potWin' },
+		baseEtag: create.body.etag,
+		projectKey: SESSION.projectKey,
+	});
+	ok(
+		'updates it with its etag',
+		update.status === 200 && stored('c_coin_win')?.playOn === 'potWin',
+		update,
+	);
+	const toRig = await call(save.POST as Handler, '/api/cinematics/save', {
+		doc: rigDoc('c_coin_win'),
+		baseEtag: update.body.etag,
+		projectKey: SESSION.projectKey,
+	});
+	ok('may not turn it into a rig cinematic', toRig.status === 403, toRig);
+	const hijack = await call(save.POST as Handler, '/api/cinematics/save', {
+		doc: componentDoc('bonus'),
+		baseEtag: rigEtag,
+		projectKey: SESSION.projectKey,
+	});
+	ok(
+		'may not overwrite a rig cinematic with a component doc of the same id',
+		hijack.status === 403 && stored('bonus')?.host === undefined,
+		hijack,
+	);
+	const blank = await call(save.POST as Handler, '/api/cinematics/save', {
+		doc: { ...componentDoc('c_blank'), host: { kind: 'component', componentId: '' } },
+		baseEtag: null,
+		projectKey: SESSION.projectKey,
+	});
+	ok(
+		'a component host naming no component is not a component timeline',
+		blank.status === 403,
+		blank,
+	);
+	const delComponent = await call(del.POST as Handler, '/api/cinematics/delete', {
+		id: 'c_coin_win',
+	});
+	ok(
+		'deletes a component timeline',
+		delComponent.status === 200 && stored('c_coin_win') === null,
+		delComponent,
 	);
 }
 

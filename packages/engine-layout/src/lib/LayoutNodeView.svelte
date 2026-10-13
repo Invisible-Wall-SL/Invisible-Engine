@@ -203,15 +203,15 @@
 		() => bindingParams,
 		() => (node.kind === 'flipbook' ? flipbookClip?.frames?.length : undefined),
 	);
-	// Timeline NODE ACTOR (Rive plan §3.1): a `screen`-hosted cinematic playing this screen may
-	// drive this node by name. Its keyed channels join the node's value bindings as extra outputs,
-	// so the one fold below moves, fades, reveals and holds a frame for both. Only a screen's own
-	// nodes are driven (nest depth 0), never the nodes inside a placed component. Asked once:
-	// which channels a node takes must not flip while it lives (a mask would remount its art).
-	// No driver ⇒ no timeline bindings ⇒ `allBindings`/`allOutputs` ARE the node's own (parity).
+	// Timeline NODE ACTOR (Rive plan §3.1): a `screen`-hosted cinematic playing this screen, or a
+	// placed instance playing its def's timelines (Phase 4), may drive this node by name. Its keyed
+	// channels join the node's value bindings as extra outputs, so the one fold below moves, fades,
+	// reveals and holds a frame for both. A driver reaches only the nodes at its own nest depth
+	// (`cinematicNodeContext`). Asked once: which channels a node takes must not flip while it
+	// lives (a mask would remount its art). No driver ⇒ no timeline bindings ⇒
+	// `allBindings`/`allOutputs` ARE the node's own (parity).
 	// svelte-ignore state_referenced_locally
-	const timelineDrive =
-		getComponentNestState().depth === 0 ? getCinematicNodeDriver()?.(node.id) : undefined;
+	const timelineDrive = getCinematicNodeDriver(getComponentNestState().depth)?.(node.id);
 	const timelineBindings = timelineDrive ? nodeActorBindings(timelineDrive.channels) : [];
 	const timelineSample = $derived(timelineDrive?.sample());
 	const allBindings = timelineBindings.length

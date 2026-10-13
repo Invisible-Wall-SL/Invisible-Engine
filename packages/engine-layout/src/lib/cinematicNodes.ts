@@ -102,15 +102,22 @@ export interface ResolvedNodeActor {
 
 /**
  * Every node actor of `doc` bound to its node in `scene`, keyed by NODE ID. An actor whose node is
- * missing is left out: the player skips it, and {@link validateNodeActors} reports it. Only a
- * `screen`-hosted timeline playing on that scene binds (a `cast` or `component` host binds none).
+ * missing is left out: the player skips it, and {@link validateNodeActors} reports it.
+ *
+ * A `screen`-hosted timeline binds only on its own screen. A `component`-hosted one binds by name
+ * on whatever node list it is handed — its own def's root, another component's (`playOnComponents`)
+ * or a screen — which is what makes it reusable (plan §3.3). A `cast` host binds none.
  */
 export function resolveNodeActors(
 	doc: CinematicDoc,
 	scene: Scene | undefined,
 ): Map<string, ResolvedNodeActor> {
 	const out = new Map<string, ResolvedNodeActor>();
-	if (!scene || doc.host?.kind !== 'screen' || doc.host.sceneId !== scene.id) return out;
+	if (!scene) return out;
+	const host = doc.host;
+	const binds =
+		(host?.kind === 'screen' && host.sceneId === scene.id) || host?.kind === 'component';
+	if (!binds) return out;
 	for (const cast of doc.stage?.cast ?? []) {
 		if (!isNodeActorCast(cast) || typeof cast.target !== 'string') continue;
 		const node = findNodeByName(scene.nodes, cast.target);

@@ -4,17 +4,18 @@ import { gate } from './toolScope';
 
 /**
  * Who may touch which cinematic (`/api/cinematics/*`). Plan: `docs/design/rive-style-editor.md`
- * Phase 3.
+ * Phases 3 and 4.
  *
  * - **`rigger`** → every cinematic in the project (`full`) — the Rigger's 🎬 Cinematic mode, as
  *   before.
- * - **`editor`** without `rigger` → only the timelines whose `host` is a **screen** (`screen`) —
- *   the Scene Editor's Animate mode. It can list, open, save and delete those, and nothing else: a
- *   rig cinematic is never listed to it, never returned, never overwritten and never deleted.
+ * - **`editor`** without `rigger` → only the timelines whose `host` is a **screen** or a
+ *   **component** (`hosted`) — the Scene Editor's Animate mode, on either side. It can list, open,
+ *   save and delete those, and nothing else: a rig cinematic is never listed to it, never
+ *   returned, never overwritten and never deleted.
  *
  * The rule is enforced HERE, server-side, never by the client filtering a list.
  */
-export type CinematicAccess = 'full' | 'screen';
+export type CinematicAccess = 'full' | 'hosted';
 
 export interface CinematicScope {
 	clientKey: string;
@@ -33,13 +34,20 @@ export async function cinematicGate(locals: App.Locals, cookies: Cookies): Promi
 		if (!isHttpError(e) || e.status !== 403) throw e;
 	}
 	const scope = await gate(locals, cookies, { tool: 'editor', forbiddenMessage: FORBIDDEN });
-	return { clientKey: scope.clientKey, projectKey: scope.projectKey, access: 'screen' };
+	return { clientKey: scope.clientKey, projectKey: scope.projectKey, access: 'hosted' };
 }
 
-/** A timeline that animates a Scene Editor screen (`host: {kind:'screen', sceneId}`). */
-export function isScreenHosted(doc: { host?: CinematicHost } | null | undefined): boolean {
+const nonEmpty = (v: unknown): boolean => typeof v === 'string' && v.length > 0;
+
+/**
+ * A timeline the Scene Editor authors: one that animates a screen (`host: {kind:'screen',
+ * sceneId}`) or a component (`host: {kind:'component', componentId}`).
+ */
+export function isEditorHosted(doc: { host?: CinematicHost } | null | undefined): boolean {
 	const host = doc?.host;
-	return host?.kind === 'screen' && typeof host.sceneId === 'string' && host.sceneId.length > 0;
+	if (host?.kind === 'screen') return nonEmpty(host.sceneId);
+	if (host?.kind === 'component') return nonEmpty(host.componentId);
+	return false;
 }
 
 /** May `access` reach `doc`? A missing or malformed doc (`null`) is reachable only with `full`. */
@@ -47,7 +55,7 @@ export function canReach(
 	access: CinematicAccess,
 	doc: { host?: CinematicHost } | null | undefined,
 ): boolean {
-	return access === 'full' || isScreenHosted(doc);
+	return access === 'full' || isEditorHosted(doc);
 }
 
 /** 403 unless `access` may reach `doc`. */
@@ -58,7 +66,7 @@ export function assertReach(
 	if (!canReach(access, doc)) {
 		throw error(
 			403,
-			'Only screen timelines can be opened from the Scene Editor — this one belongs to the Invisible Rigger.',
+			'Only screen and component timelines can be opened from the Scene Editor — this one belongs to the Invisible Rigger.',
 		);
 	}
 }

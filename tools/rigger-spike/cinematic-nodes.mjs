@@ -172,7 +172,7 @@ const bound = L.resolveNodeActors(nodeDoc, scene);
 eq('resolveNodeActors: keyed by NODE id; missing nodes left out', [...bound.keys()], ['n1', 'n2', 'n3', 'n4']);
 eq('...each carrying only its own tracks', bound.get('n1').tracks.map((t) => t.id), ['p1', 'v1']);
 eq('a cast-hosted doc drives no node', L.resolveNodeActors({ ...nodeDoc, host: undefined }, scene).size, 0);
-eq('a component host drives no screen node (Phase 4)', L.resolveNodeActors({ ...nodeDoc, host: { kind: 'component', componentId: 'btn' } }, scene).size, 0);
+eq('a component host binds by name on the node list it is handed (Phase 4 reuse)', [...L.resolveNodeActors({ ...nodeDoc, host: { kind: 'component', componentId: 'btn' } }, scene).keys()], ['n1', 'n2', 'n3', 'n4']);
 eq('a screen host for ANOTHER scene drives nothing here', L.resolveNodeActors({ ...nodeDoc, host: { kind: 'screen', sceneId: 'other' } }, scene).size, 0);
 eq('the set of a screen host is its scene', L.cinematicSetSceneId(nodeDoc), 'base');
 eq('the set of a cast doc is stage.sceneId', L.cinematicSetSceneId({ ...nodeDoc, host: undefined, stage: { ...nodeDoc.stage, sceneId: 'fs' } }), 'fs');
