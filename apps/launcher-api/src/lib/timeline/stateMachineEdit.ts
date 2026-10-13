@@ -52,15 +52,33 @@ export function ensureStateMachine(def: ComponentDef): ComponentStateMachine {
 	return def.stateMachine;
 }
 
+/**
+ * Every layer, state and transition id a def's machine uses — what a new item must avoid. A new
+ * item never takes the id of one deleted since the last save (`reserved`: the saved def's ids),
+ * because the save grafts unknown fields by id and the newcomer would inherit the old item's.
+ */
+export function stateMachineIds(
+	def: Pick<ComponentDef, 'stateMachine'> | null | undefined,
+): Set<string> {
+	const out = new Set<string>();
+	for (const layer of def?.stateMachine?.layers ?? []) {
+		out.add(layer.id);
+		for (const st of layer.states) out.add(st.id);
+		for (const t of layer.transitions) out.add(t.id);
+	}
+	return out;
+}
+
 /** Add a layer named `name` (default "Layer N"); its entry is set by the first state added. */
-export function addLayer(def: ComponentDef, name?: string): SmLayer {
+export function addLayer(
+	def: ComponentDef,
+	name?: string,
+	reserved: Iterable<string> = [],
+): SmLayer {
 	const machine = ensureStateMachine(def);
 	const label = name?.trim() || `Layer ${machine.layers.length + 1}`;
 	const layer: SmLayer = {
-		id: uniqueId(
-			label,
-			machine.layers.map((l) => l.id),
-		),
+		id: uniqueId(label, [...machine.layers.map((l) => l.id), ...reserved]),
 		name: label,
 		entry: '',
 		states: [],
@@ -90,14 +108,11 @@ export function defaultStatePos(index: number): SmPoint {
 export function addState(
 	layer: SmLayer,
 	timeline: { id: string; name: string },
-	opts: { name?: string; pos?: SmPoint } = {},
+	opts: { name?: string; pos?: SmPoint; reserved?: Iterable<string> } = {},
 ): SmState {
 	const name = opts.name?.trim() || timeline.name || timeline.id;
 	const state: SmState = {
-		id: uniqueId(
-			name,
-			layer.states.map((s) => s.id),
-		),
+		id: uniqueId(name, [...layer.states.map((s) => s.id), ...(opts.reserved ?? [])]),
 		timeline: timeline.id,
 		pos: opts.pos ?? defaultStatePos(layer.states.length),
 	};
@@ -115,16 +130,18 @@ export function removeState(layer: SmLayer, stateId: string): void {
 }
 
 /** Add a transition `from` → `to` (state ids, `any`, `exit`); none from Exit or into Any. */
-export function addTransition(layer: SmLayer, from: string, to: string): SmTransition | undefined {
+export function addTransition(
+	layer: SmLayer,
+	from: string,
+	to: string,
+	reserved: Iterable<string> = [],
+): SmTransition | undefined {
 	if (from === SM_EXIT_STATE || to === SM_ANY_STATE) return undefined;
 	const known = (id: string): boolean =>
 		id === SM_ANY_STATE || id === SM_EXIT_STATE || layer.states.some((s) => s.id === id);
 	if (!known(from) || !known(to)) return undefined;
 	const transition: SmTransition = {
-		id: uniqueId(
-			`t_${from}_${to}`,
-			layer.transitions.map((t) => t.id),
-		),
+		id: uniqueId(`t_${from}_${to}`, [...layer.transitions.map((t) => t.id), ...reserved]),
 		from,
 		to,
 	};
@@ -187,8 +204,10 @@ export function inputUsage(def: ComponentDef, inputId: string): string[] {
 }
 
 /**
- * Remove an input: from `inputs`, from `signals` (a declared signal IS a trigger input) and from
- * every condition that read it. Returns the transitions that lost a condition.
+ * Remove an input: from `inputs` and from `signals` (a declared signal IS a trigger input). The
+ * conditions that read it are LEFT IN PLACE — they fail closed in game (`holds()` is false) and
+ * validation flags them `condition-input-unknown`, so the author sees ⚠ and fixes them; dropping
+ * them would widen a guarded transition into one that always fires. Returns those transitions.
  */
 export function removeInput(def: ComponentDef, inputId: string): string[] {
 	const used = inputUsage(def, inputId);
@@ -199,13 +218,6 @@ export function removeInput(def: ComponentDef, inputId: string): string[] {
 	if (def.signals) {
 		def.signals = def.signals.filter((s) => s.key !== inputId);
 		if (!def.signals.length) delete def.signals;
-	}
-	for (const layer of def.stateMachine?.layers ?? []) {
-		for (const t of layer.transitions) {
-			if (!t.conditions) continue;
-			t.conditions = t.conditions.filter((c) => c.input !== inputId);
-			if (!t.conditions.length) delete t.conditions;
-		}
 	}
 	return used;
 }
@@ -318,10 +330,15 @@ export function setNodePos(layer: SmLayer, nodeId: string, pos: SmPoint): void {
 
 /** A wire drawn from `source` to `target` on the graph: Entry sets the layer's entry, anything
  *  else adds a transition. Returns the transition added, if one was. */
-export function connect(layer: SmLayer, source: string, target: string): SmTransition | undefined {
+export function connect(
+	layer: SmLayer,
+	source: string,
+	target: string,
+	reserved: Iterable<string> = [],
+): SmTransition | undefined {
 	if (source === ENTRY_NODE) {
 		if (layer.states.some((s) => s.id === target)) layer.entry = target;
 		return undefined;
 	}
-	return addTransition(layer, source, target);
+	return addTransition(layer, source, target, reserved);
 }

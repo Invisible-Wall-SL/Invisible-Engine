@@ -1012,8 +1012,9 @@ that used to be *Signals*). Three kinds:
 Rename an input with **✎** — every transition condition that reads it follows. The name is what
 the game and Flow fire it as, so a rename is a delete + add: the dialog says what fires the old
 name (a declared signal, timelines that **Play on** it), and fields a newer build added to that
-input are not kept. **×** removes it, and warns first when a transition reads it (that condition
-is removed too).
+input are not kept. **×** removes it, and warns first when a transition reads it: that condition stays, the
+transition never fires until you fix it, and the ⚠ list says so. Inputs are read-only while you
+are Inspecting an old version.
 
 **Building the graph** (the **State machine** tab):
 

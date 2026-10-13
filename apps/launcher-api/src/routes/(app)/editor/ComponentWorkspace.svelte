@@ -1709,7 +1709,7 @@
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. Off removes it from
 	 *  `signals` and from a `trigger` input of that id alike; on declares it in `signals`. */
 	function toggleComponentSignal(key: string): void {
-		if (!componentDraft) return;
+		if (!componentDraft || isInspecting) return;
 		const signals = componentDraft.signals ?? [];
 		const inputs = componentDraft.inputs ?? [];
 		const has =
@@ -1726,23 +1726,25 @@
 	// ---- Inputs (Rive plan Phase 5b; plan §12 #4): bool / number inputs live in `inputs`, a
 	// trigger is a declared signal (the catalog picker above) or an `inputs` row of kind trigger.
 	const draftInputs = $derived(componentInputs(componentDraft));
+	/** The component as last loaded or saved — the State Machine panel never reuses its ids. */
+	const savedDef = $derived(savedSnapshot ? (JSON.parse(savedSnapshot) as ComponentDef) : null);
 	function addComponentInput(id: string, kind: ComponentInput['kind']): void {
-		if (!componentDraft) return;
+		if (!componentDraft || isInspecting) return;
 		if (!addInput(componentDraft, id, kind)) {
 			void askMessage({ title: 'Input not added', message: `"${id}" is already an input.` });
 		}
 	}
 	async function removeComponentInput(id: string): Promise<void> {
-		if (!componentDraft) return;
+		if (!componentDraft || isInspecting) return;
 		const used = inputUsage(componentDraft, id);
 		if (used.length) {
 			const ok = await askConfirm({
 				title: `Remove input "${id}"?`,
-				message: `${used.length} state-machine transition(s) read it; their condition on it will be removed.`,
+				message: `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`,
 				confirmLabel: 'Remove',
 				danger: true,
 			});
-			if (!ok) return;
+			if (!ok || !componentDraft || isInspecting) return;
 		}
 		removeInput(componentDraft, id);
 	}
@@ -1751,7 +1753,7 @@
 		if (!componentDraft) return [];
 		const project = encodeURIComponent(data.projectKey);
 		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
-		if (!res.ok) return [];
+		if (!res.ok) throw new Error(`list: ${res.status}`);
 		const rows = componentTimelinesOf(
 			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
 				.cinematics,
@@ -1770,12 +1772,22 @@
 		return docs.filter((name): name is string => !!name);
 	}
 	async function renameComponentInput(id: string): Promise<void> {
-		if (!componentDraft) return;
+		if (!componentDraft || isInspecting) return;
+		const componentId = componentDraft.id;
 		// An input's id IS its wire contract — the name the game, a Flow fireCue, a rig completeSignal
 		// and the timelines' Plays on fire — so a rename is a delete + add of that contract.
 		const wires: string[] = [];
 		if (componentDraft.signals?.some((sg) => sg.key === id)) wires.push('a declared signal');
-		const playOn = await timelinesPlayingOn(id);
+		let playOn: string[];
+		try {
+			playOn = await timelinesPlayingOn(id);
+		} catch (e) {
+			void askMessage({
+				title: 'Could not check the timelines',
+				message: `The timelines that play on "${id}" could not be listed: ${e instanceof Error ? e.message : String(e)}. Try again.`,
+			});
+			return;
+		}
 		if (playOn.length) wires.push(`Plays on of ${playOn.map((n) => `"${n}"`).join(', ')}`);
 		const conditions = inputUsage(componentDraft, id).length;
 		const next = await askText({
@@ -1791,6 +1803,8 @@
 				.join(' '),
 		});
 		if (next === null || next.trim() === id) return;
+		// The dialogs awaited: the rename lands only on the component it was asked on.
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
 		if (!renameInput(componentDraft, id, next)) {
 			void askMessage({
 				title: 'Input not renamed',
@@ -1800,10 +1814,10 @@
 		}
 	}
 	function setComponentInputDefault(id: string, value: boolean | number): void {
-		if (componentDraft) setInputDefault(componentDraft, id, value);
+		if (componentDraft && !isInspecting) setInputDefault(componentDraft, id, value);
 	}
 	function setComponentInputSource(id: string, source: string): void {
-		if (componentDraft) setInputSource(componentDraft, id, source);
+		if (componentDraft && !isInspecting) setInputSource(componentDraft, id, source);
 	}
 
 	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it
@@ -2437,6 +2451,7 @@
 					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
 						<EditorStateMachinePanel
 							def={componentDraft}
+							{savedDef}
 							scene={timelineScene}
 							projectKey={data.projectKey}
 							active={active && animating && animateTab === 'stateMachine'}
@@ -2825,14 +2840,15 @@
 		bottom: 380px;
 	}
 	.canvas-area.animating .canvas-slot {
-		bottom: 280px;
+		bottom: 305px;
 	}
 	.timeline-slot {
 		position: absolute;
 		left: 0;
 		right: 0;
 		bottom: 0;
-		height: 280px;
+		/* The 4b panel's 280px plus the tab strip above it. */
+		height: 305px;
 		display: flex;
 		flex-direction: column;
 	}

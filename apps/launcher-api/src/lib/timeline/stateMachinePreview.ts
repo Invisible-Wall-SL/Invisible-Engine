@@ -1,73 +1,54 @@
-import { sampleNodeActor, type CinematicTrack } from 'engine-cinematic';
 import {
-	blendNodeSamples,
-	keyedNodeChannels,
+	ComponentStateMachineRunner,
+	ComponentTimelinePlayer,
 	nodeActorBindings,
-	resolveNodeActors,
 	type CinematicDoc,
-	type LayerPlay,
-	type NodeActorChannel,
-	type NodeActorSample,
-	type Scene,
+	type LayoutNode,
 } from 'engine-layout';
 
 import type { TimelineNodeDrive } from './screenTimeline';
 
 /**
- * The State Machine panel's STAGE PREVIEW (Rive plan Phase 5b): what every layer plays, as the
- * same per-node drives the Timeline panel pushes into the canvas (`setTimelinePreview`), so the
- * stage shows what the game's player shows. Pure: the interpreter's `plays()` in, drives out.
- *
- * Mirrors `ComponentTimelinePlayer.sample` for the layers' side: layers in order, a later layer
- * winning each property both key, each mixed from the pose it left while its blend runs. (The
- * `playOn` side has no place here — the panel previews the machine alone.)
+ * The State Machine panel's STAGE PREVIEW (Rive plan Phase 5b) runs the GAME's own pieces — the
+ * interpreter and the per-instance timeline player — so what the stage shows is what a placed
+ * instance plays, blends, interruptions, cues and missing timelines included. These helpers are
+ * the pure seams around them, so the gate can drive the same sequences the panel does.
  */
-export function stateMachineDrives(
-	plays: readonly LayerPlay[],
-	docs: ReadonlyMap<string, CinematicDoc>,
-	scene: Scene | undefined,
-): Map<string, TimelineNodeDrive> {
+
+/** The player a preview binds: the states' timelines, their `playOn` stripped as in game
+ *  (`instanceTimelineDocs`), on the component's nodes. */
+export function previewPlayer(
+	docs: Iterable<CinematicDoc>,
+	nodes: LayoutNode[],
+): ComponentTimelinePlayer {
+	return new ComponentTimelinePlayer(
+		[...docs].map((doc) => (doc.playOn ? { ...doc, playOn: undefined } : doc)),
+		nodes,
+	);
+}
+
+/**
+ * One preview step after the runner advanced: place every layer's slot (`drive`, as the instance
+ * does) and route the cues it crossed — a `signal:` cue fires the trigger of that name on the
+ * runner, as it would on the instance's bus; sounds and effects have nowhere to go on the stage.
+ * Returns the cues, for the gate.
+ */
+export function placeLayers(
+	runner: ComponentStateMachineRunner,
+	player: ComponentTimelinePlayer,
+): { cue: string; timeline: string }[] {
+	const cues = runner.plays().flatMap((play, i) => player.drive(play.layer, i, play));
+	for (const { cue } of cues) if (cue.startsWith('signal:')) runner.fire(cue.slice(7));
+	return cues;
+}
+
+/** Every node the player drives, as the canvas's drives (`setTimelinePreview`). */
+export function playerDrives(player: ComponentTimelinePlayer): Map<string, TimelineNodeDrive> {
 	const out = new Map<string, TimelineNodeDrive>();
-	if (!scene) return out;
-	const samples = new Map<string, NodeActorSample>();
-	const channels = new Map<string, Set<NodeActorChannel>>();
-	const actorsOf = (id: string | undefined) =>
-		id && docs.has(id) ? resolveNodeActors(docs.get(id)!, scene) : undefined;
-	for (const play of plays) {
-		const to = actorsOf(play.timeline);
-		const from = play.from ? actorsOf(play.from.timeline) : undefined;
-		if (!to && !from) continue;
-		const nodeIds = new Set([...(to?.keys() ?? []), ...(from?.keys() ?? [])]);
-		for (const nodeId of nodeIds) {
-			const toActor = to?.get(nodeId);
-			const fromActor = from?.get(nodeId);
-			const toSample = toActor
-				? sampleNodeActor(toActor.tracks as unknown as CinematicTrack[], play.time)
-				: undefined;
-			const sample = play.from
-				? blendNodeSamples(
-						fromActor
-							? sampleNodeActor(fromActor.tracks as unknown as CinematicTrack[], play.from.time)
-							: undefined,
-						toSample,
-						play.from.progress,
-					)
-				: toSample;
-			if (!sample) continue;
-			const keyed = channels.get(nodeId) ?? new Set<NodeActorChannel>();
-			for (const actor of [toActor, fromActor]) {
-				if (actor) for (const c of keyedNodeChannels(actor.tracks)) keyed.add(c);
-			}
-			channels.set(nodeId, keyed);
-			const merged = { ...(samples.get(nodeId) ?? {}) } as Record<string, unknown>;
-			for (const [channel, value] of Object.entries(sample)) {
-				if (value !== undefined) merged[channel] = value;
-			}
-			samples.set(nodeId, merged as NodeActorSample);
-		}
-	}
-	for (const [nodeId, sample] of samples) {
-		const bindings = nodeActorBindings(channels.get(nodeId) ?? new Set());
+	for (const [nodeId, channels] of player.drivenNodes()) {
+		const sample = player.sample(nodeId);
+		if (!sample) continue;
+		const bindings = nodeActorBindings(channels);
 		if (bindings.length || sample.tint !== undefined) out.set(nodeId, { bindings, sample });
 	}
 	return out;

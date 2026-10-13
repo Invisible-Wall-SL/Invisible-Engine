@@ -27,6 +27,7 @@
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
 		ComponentStateMachineRunner,
+		type ComponentTimelinePlayer,
 		SM_ANY_STATE,
 		SM_EXIT_STATE,
 		componentInputs,
@@ -59,14 +60,17 @@
 		removeTransition,
 		setNodePos,
 		stateLabel,
+		stateMachineIds,
 	} from '$lib/timeline/stateMachineEdit';
-	import { stateMachineDrives } from '$lib/timeline/stateMachinePreview';
+	import { placeLayers, playerDrives, previewPlayer } from '$lib/timeline/stateMachinePreview';
 	import SmGraphNode from './SmGraphNode.svelte';
 	import { setTimelinePreview } from './valuePreview.client.svelte';
 
 	interface Props {
 		/** The open component's draft — edited in place. */
 		def: ComponentDef | null;
+		/** The component as last loaded or saved: a new item never reuses an id it had. */
+		savedDef?: ComponentDef | null;
 		/** The component's nodes as a scene, for the stage preview. */
 		scene: Scene | undefined;
 		projectKey: string;
@@ -77,7 +81,15 @@
 		/** Open a timeline in the Timeline panel (a state card was double-clicked). */
 		onOpenTimeline: (id: string) => void;
 	}
-	let { def, scene, projectKey, active, onChanged, onOpenTimeline }: Props = $props();
+	let {
+		def,
+		savedDef = null,
+		scene,
+		projectKey,
+		active,
+		onChanged,
+		onOpenTimeline,
+	}: Props = $props();
 
 	const previewOwner = Symbol('state-machine-panel');
 	const nodeTypes = { sm: SmGraphNode };
@@ -135,7 +147,10 @@
 			return;
 		}
 		rows = ((await res.json()) as { cinematics: Row[] }).cinematics;
+		error = '';
 	}
+	/** Ids the saved component used: never handed to a new layer, state or transition. */
+	const reserved = $derived(stateMachineIds(savedDef));
 	// The list follows the component: a timeline saved in the Timeline tab shows up here.
 	$effect(() => {
 		void def?.id;
@@ -158,7 +173,7 @@
 			value: `Layer ${(def.stateMachine?.layers.length ?? 0) + 1}`,
 		});
 		if (name === null) return;
-		const added = addLayer(def, name);
+		const added = addLayer(def, name, reserved);
 		activeLayerId = added.id;
 		selected = null;
 		changed();
@@ -167,7 +182,8 @@
 		if (!def || !layer) return;
 		const name = await askText({ title: 'Rename layer', label: 'Name', value: layer.name ?? '' });
 		if (name === null) return;
-		layer.name = name.trim() || undefined;
+		if (name.trim()) layer.name = name.trim();
+		else delete layer.name;
 		changed();
 	}
 	async function deleteLayer(): Promise<void> {
@@ -191,9 +207,9 @@
 		if (!def) return;
 		const row = timelines.find((t) => t.id === timelineId);
 		if (!row) return;
-		const target = layer ?? addLayer(def, 'Main');
+		const target = layer ?? addLayer(def, 'Main', reserved);
 		activeLayerId = target.id;
-		const state = addState(target, { id: row.id, name: row.name || row.id });
+		const state = addState(target, { id: row.id, name: row.name || row.id }, { reserved });
 		selected = { kind: 'state', id: state.id };
 		changed();
 	}
@@ -248,7 +264,12 @@
 	// ---- preview state (read by the graph: the active state and the lit transition) --------------
 
 	let runner: ComponentStateMachineRunner | null = null;
+	/** The game's per-instance player, on the component's nodes — the stage shows its samples. */
+	let player: ComponentTimelinePlayer | null = null;
 	let running = $state(false);
+	/** Bumped by every `run`/`stop`: a run that resumes after its fetch checks it is still wanted. */
+	let runToken = 0;
+	let destroyed = false;
 	/** Layer id → current state, from the preview runner. */
 	let runnerStates = $state<Record<string, string>>({});
 	/** Bool / number inputs as the preview holds them. */
@@ -276,7 +297,9 @@
 		const sel = selected;
 		const lit = litTransition;
 		const states = runnerStates;
-		const broken = new Set(issues.filter((i) => i.state).map((i) => `${i.layer}/${i.state}`));
+		const broken = new Set(
+			issues.filter((i) => i.state && i.level === 'error').map((i) => `${i.layer}/${i.state}`),
+		);
 		if (!current) {
 			nodes = [];
 			edges = [];
@@ -333,7 +356,7 @@
 	}
 	function onConnect(c: Connection): void {
 		if (!layer || !c.source || !c.target) return;
-		const t = connect(layer, c.source, c.target);
+		const t = connect(layer, c.source, c.target, reserved);
 		if (t) selected = { kind: 'transition', id: t.id };
 		changed();
 	}
@@ -385,41 +408,48 @@
 		);
 	}
 	function buildRunner(): void {
-		if (!def?.stateMachine?.layers.length) {
+		if (!def?.stateMachine?.layers.length || !scene) {
 			runner = null;
-			runnerStates = {};
-			return;
-		}
-		runner = new ComponentStateMachineRunner(def.stateMachine, inputs, durations());
-		for (const [id, value] of Object.entries(previewValues)) runner.setInput(id, value);
-		apply();
-	}
-	function apply(): void {
-		if (!runner) {
+			player = null;
 			runnerStates = {};
 			setTimelinePreview(null, previewOwner);
 			return;
 		}
-		const plays = runner.plays();
+		runner = new ComponentStateMachineRunner(def.stateMachine, inputs, durations());
+		player = previewPlayer(docs.values(), scene.nodes);
+		for (const [id, value] of Object.entries(previewValues)) runner.setInput(id, value);
+		apply();
+	}
+	/** Place the layers on the player and show it — the instance's `applyStateMachine`. */
+	function apply(): void {
+		if (!runner || !player) {
+			runnerStates = {};
+			setTimelinePreview(null, previewOwner);
+			return;
+		}
+		placeLayers(runner, player);
 		const next: Record<string, string> = {};
-		for (const p of plays) next[p.layer] = p.state;
+		for (const p of runner.plays()) next[p.layer] = p.state;
 		// Reassigned only on a change: the graph rebuilds off it, and a rebuild every frame would
 		// fight xyflow (a card dragged while running would snap back).
 		const changed =
 			Object.keys(next).length !== Object.keys(runnerStates).length ||
 			Object.entries(next).some(([k, v]) => runnerStates[k] !== v);
 		if (changed) runnerStates = next;
-		setTimelinePreview(active ? stateMachineDrives(plays, docs, scene) : null, previewOwner);
+		setTimelinePreview(active ? playerDrives(player) : null, previewOwner);
 	}
 	function tick(now: number): void {
 		if (!running || !runner) return;
 		const dt = Math.min((now - last) / 1000, 0.1);
 		last = now;
-		if (runner.needsTick()) {
-			const step = runner.advance(dt);
-			if (step.fired.length) light(step.fired[step.fired.length - 1].transition);
-			apply();
+		if (!runner.needsTick()) {
+			// At rest: the loop sleeps; the next input or trigger runs it again.
+			running = false;
+			return;
 		}
+		const step = runner.advance(dt);
+		if (step.fired.length) light(step.fired[step.fired.length - 1].transition);
+		apply();
 		raf = requestAnimationFrame(tick);
 	}
 	function light(transitionId: string): void {
@@ -427,21 +457,28 @@
 		clearTimeout(litTimer);
 		litTimer = window.setTimeout(() => (litTransition = null), 600);
 	}
-	async function run(): Promise<void> {
+	/** The machine's first visible frame, as in game: `enter` fires on Run and on Reset. */
+	async function run(enter = false): Promise<void> {
+		const token = ++runToken;
 		await loadDocs();
+		if (destroyed || !active || token !== runToken) return;
 		if (!runner) buildRunner();
+		if (enter) runner?.fire('enter');
 		running = true;
 		last = performance.now();
 		cancelAnimationFrame(raf);
 		raf = requestAnimationFrame(tick);
 	}
 	function stop(): void {
+		runToken += 1;
 		running = false;
 		cancelAnimationFrame(raf);
 	}
 	function reset(): void {
 		runner?.reset();
+		runner?.fire('enter');
 		apply();
+		if (!running) void run();
 	}
 	function fire(id: string): void {
 		if (!runner) buildRunner();
@@ -454,6 +491,20 @@
 		runner?.setInput(id, value);
 		if (!running) void run();
 	}
+	// Another component (or another version of it) opened: nothing of the old one's panel state
+	// carries over — selection, layer tab, preview inputs, the lit arrow, the fetched timelines.
+	$effect.pre(() => {
+		void def;
+		untrack(() => {
+			stop();
+			selected = null;
+			activeLayerId = null;
+			previewValues = {};
+			litTransition = null;
+			clearTimeout(litTimer);
+			docs.clear();
+		});
+	});
 	// An edit, or the timeline list arriving (the durations), rebuilds the runner from the new
 	// machine — and the entry pose shows at once.
 	$effect(() => {
@@ -474,14 +525,18 @@
 		untrack(() => {
 			if (!on) {
 				stop();
+				// Hidden, the graph must hold no selection: xyflow's Delete handler listens on the
+				// window and would delete a selected card from another tab or mode.
+				selected = null;
 				setTimelinePreview(null, previewOwner);
 				return;
 			}
 			docs.clear();
-			void loadDocs().then(apply);
+			void loadDocs().then(() => buildRunner());
 		});
 	});
 	onDestroy(() => {
+		destroyed = true;
 		stop();
 		clearTimeout(litTimer);
 		setTimelinePreview(null, previewOwner);
@@ -572,7 +627,7 @@
 				type="button"
 				title="Run the state machine on the stage"
 				disabled={!layers.length}
-				onclick={() => void run()}>▶ Run</button
+				onclick={() => void run(true)}>▶ Run</button
 			>
 		{/if}
 		<button
@@ -587,7 +642,7 @@
 	<div class="sm-body">
 		<div class="sm-graph">
 			{#if layer}
-				{#key layer.id}
+				{#key `${def?.id ?? ''}:${layer.id}`}
 					<SvelteFlow
 						bind:nodes
 						bind:edges
@@ -595,7 +650,7 @@
 						colorMode="dark"
 						fitView
 						minZoom={0.3}
-						deleteKey={['Delete', 'Backspace']}
+						deleteKey={active ? ['Delete', 'Backspace'] : null}
 						{isValidConnection}
 						onconnect={onConnect}
 						ondelete={onGraphDelete}
@@ -761,11 +816,12 @@
 					<span>Speed</span>
 					<input
 						type="number"
+						min="0.05"
 						step="0.1"
 						value={s.speed ?? 1}
 						onchange={(e) => {
 							const v = Number(e.currentTarget.value);
-							setStateField(s, 'speed', Number.isFinite(v) && v !== 1 ? v : undefined);
+							setStateField(s, 'speed', v > 0 && v !== 1 ? v : undefined);
 						}}
 					/>
 				</label>
@@ -903,7 +959,6 @@
 		color: var(--accent2);
 	}
 	.sm-bar select,
-	.sm-bar input,
 	.sm-bar button,
 	.sm-insp select,
 	.sm-insp input,

@@ -67,6 +67,7 @@
 		"check:component-timelines": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-timelines.ts",
 		"precheck:component-state-machine": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-state-machine": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-state-machine.ts",
+		"precheck:component-state-machine-editor": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-state-machine-editor": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-state-machine-editor.ts",
 		"precheck:editor-write-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:editor-write-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-editor-write-scope.ts",

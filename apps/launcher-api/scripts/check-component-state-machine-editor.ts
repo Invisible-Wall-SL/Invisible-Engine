@@ -17,6 +17,7 @@
  *
  * What it cannot prove: the xyflow canvas, the panel's Svelte wiring — the owner's browser check.
  */
+import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
 import type { CinematicDoc, ComponentDef, LayoutNode, Scene } from 'engine-layout';
 
@@ -227,15 +228,46 @@ const names = new Map([
 		[true, 'total', 'total'],
 	);
 	eq(
-		'removing a signal-declared trigger reports the transitions that lose a condition',
+		'removing a signal-declared trigger reports the transitions that read it and LEAVES their conditions (they fail closed, flagged ⚠ — never widened)',
 		[E.removeInput(d, 'potWin'), d.signals, t.conditions],
-		[['Layer_1/t_Idle_Win'], undefined, [{ input: 'total', op: '>', value: 0 }]],
+		[
+			['Layer_1/t_Idle_Win'],
+			undefined,
+			[
+				{ input: 'potWin', op: 'fired' },
+				{ input: 'total', op: '>', value: 0 },
+			],
+		],
 	);
-	E.removeInput(d, 'total');
 	eq(
-		'removing the last condition of a transition leaves it unconditional',
-		'conditions' in t,
-		false,
+		'…and validation flags the orphaned condition',
+		M.validateStateMachine(d, ['c_coin_idle', 'c_coin_win']).map((i) => i.code),
+		['condition-input-unknown'],
+	);
+	// Ids a saved def used are never handed to a new item (the save grafts unknown fields by id).
+	const saved = {
+		stateMachine: {
+			layers: [
+				{
+					id: 'Main',
+					entry: 'Win',
+					states: [{ id: 'Win', timeline: 'c_coin_win' }],
+					transitions: [{ id: 't_Idle_Win', from: 'Idle', to: 'Win' }],
+				},
+			],
+		},
+	};
+	const reserved = E.stateMachineIds(saved);
+	eq('the saved def’s ids are collected', [...reserved].sort(), ['Main', 'Win', 't_Idle_Win']);
+	const fresh = def();
+	const l2 = E.addLayer(fresh, 'Main', reserved);
+	const w2 = E.addState(l2, { id: 'c_coin_win', name: 'Win' }, { reserved });
+	E.addState(l2, { id: 'c_coin_idle', name: 'Idle' }, { reserved });
+	const t2 = E.connect(l2, 'Idle', 'Win_2', reserved);
+	eq(
+		'a re-created layer, state and transition take new ids',
+		[l2.id, w2.id, t2?.id],
+		['Main_2', 'Win_2', 't_Idle_Win_2'],
 	);
 }
 
@@ -276,102 +308,122 @@ const names = new Map([
 // ---- 4. the preview ----------------------------------------------------------------------------
 
 {
+	// The preview runs the game's own interpreter and timeline player; these are the seams the
+	// panel uses around them, driven here through the same sequences a placed instance plays.
 	const d = def();
+	const sc = scene(d);
 	const idle = timeline('c_coin_idle', { alpha: [{ time: 0, value: 0.5 }] });
-	const win = timeline('c_coin_win', {
-		y: [
-			{ time: 0, value: -100 },
-			{ time: 1, value: 0 },
+	const win = {
+		...timeline('c_coin_win', {
+			y: [
+				{ time: 0, value: -100 },
+				{ time: 1, value: 0 },
+			],
+		}),
+		playOn: 'enter',
+		tracks: [
+			...timeline('c_coin_win', {
+				y: [
+					{ time: 0, value: -100 },
+					{ time: 1, value: 0 },
+				],
+			}).tracks,
+			{ id: 'c', kind: 'cue', actorId: '', keys: [{ time: 1, cue: 'signal:done' }] },
 		],
-	});
-	const glow = timeline(
-		'c_coin_glow',
-		{ x: [{ time: 0, value: 7 }], alpha: [{ time: 0, value: 1 }] },
-		'Glow',
-	);
+	} as unknown as CinematicDoc;
 	const docs = new Map([
 		['c_coin_idle', idle],
 		['c_coin_win', win],
-		['c_coin_glow', glow],
 	]);
-	const sc = scene(d);
-	const play = (
-		timelineId: string,
-		time: number,
-		from?: { timeline?: string; time: number; progress: number },
-	) => ({
-		layer: 'l',
-		state: 's',
-		timeline: timelineId,
-		time,
-		prevTime: 0,
-		wrapped: false,
-		entered: false,
-		...(from ? { from } : {}),
-	});
-	const drive = (m: Map<string, { bindings: unknown; sample: unknown }>) =>
-		[...m.entries()].map(([k, v]) => [k, v.bindings, v.sample]);
+	const player = P.previewPlayer(docs.values(), sc.nodes);
 	eq(
-		'a state at t previews exactly what the Timeline panel previews for its timeline at t',
-		drive(P.stateMachineDrives([play('c_coin_win', 0.25)], docs, sc)),
-		drive(S.timelineDrives(win, sc, 0.25)),
+		'the preview player binds the states’ timelines without their playOn (as instanceTimelineDocs does)',
+		player.signals(),
+		[],
 	);
-	eq(
-		'two layers merge per property, the later winning',
-		drive(
-			P.stateMachineDrives(
-				[
-					{ ...play('c_coin_idle', 0), layer: 'a' },
-					{ ...play('c_coin_win', 0.5), layer: 'b' },
-				],
-				docs,
-				sc,
-			),
-		),
-		[['n_coin', [{ target: 'y' }, { target: 'alpha' }], { alpha: 0.5, y: -50 }]],
-	);
-	const blended = P.stateMachineDrives(
-		[play('c_coin_win', 0, { timeline: 'c_coin_idle', time: 0, progress: 0.5 })],
-		docs,
-		sc,
-	).get('n_coin');
-	eq(
-		'a blend mixes the pose left into the new timeline (the game’s blendNodeSamples)',
-		blended?.sample,
-		M.blendNodeSamples({ alpha: 0.5 }, { y: -100 }, 0.5),
-	);
-	eq('…and binds the channels of both sides', blended?.bindings, [
-		{ target: 'y' },
-		{ target: 'alpha' },
-	]);
-	eq(
-		'a layer on another node drives only that node',
-		[...P.stateMachineDrives([play('c_coin_glow', 0)], docs, sc).keys()],
-		['n_glow'],
-	);
-	eq(
-		'a missing timeline, or exit, drives nothing',
-		[
-			P.stateMachineDrives([play('gone', 0)], docs, sc).size,
-			P.stateMachineDrives([{ ...play('c_coin_idle', 0), timeline: undefined }], docs, sc).size,
-		],
-		[0, 0],
-	);
-	// The runner's own plays feed it the same way the panel does.
-	const r = new M.ComponentStateMachineRunner(
+	eq('…on the component’s nodes', [...player.drivenNodes().keys()], ['n_coin']);
+	const runner = new M.ComponentStateMachineRunner(
 		{
 			layers: [
-				{ id: 'l', entry: 's', states: [{ id: 's', timeline: 'c_coin_win' }], transitions: [] },
+				{
+					id: 'main',
+					entry: 'idle',
+					states: [
+						{ id: 'idle', timeline: 'c_coin_idle', loop: true },
+						{ id: 'win', timeline: 'c_coin_win' },
+					],
+					transitions: [
+						{
+							id: 'w',
+							from: 'idle',
+							to: 'win',
+							conditions: [{ input: 'win', op: 'fired' }],
+							blend: 200,
+						},
+						{ id: 'back', from: 'win', to: 'idle', conditions: [{ input: 'done', op: 'fired' }] },
+					],
+				},
+			],
+		},
+		[
+			{ id: 'win', kind: 'trigger' },
+			{ id: 'done', kind: 'trigger' },
+			{ id: 'enter', kind: 'trigger' },
+		],
+		new Map([
+			['c_coin_idle', 1],
+			['c_coin_win', 1],
+		]),
+	);
+	P.placeLayers(runner, player);
+	eq('the entry pose is what the player samples', P.playerDrives(player).get('n_coin'), {
+		bindings: [{ target: 'y' }, { target: 'alpha' }],
+		sample: { alpha: 0.5 },
+	});
+	runner.fire('win');
+	runner.advance(0.1);
+	P.placeLayers(runner, player);
+	runner.advance(0.1);
+	P.placeLayers(runner, player);
+	const mid = P.playerDrives(player).get('n_coin')?.sample;
+	eq(
+		'a blend previews as the player blends it (half way: alpha 0.5 → the authored 1 since win keys none, y 0 → -90)',
+		[Math.round((mid?.alpha ?? 0) * 100) / 100, Math.round((mid?.y ?? 0) * 100) / 100],
+		[0.75, -45],
+	);
+	const cues: string[] = [];
+	for (let i = 0; i < 12; i++) {
+		runner.advance(0.1);
+		cues.push(...P.placeLayers(runner, player).map((c) => c.cue));
+	}
+	runner.advance(0.1);
+	P.placeLayers(runner, player);
+	eq(
+		'a signal: cue a state timeline crosses fires the trigger of that name on the runner, so "Win → Idle on signal:done" works in the preview',
+		[cues, runner.stateOf('main')],
+		[['signal:done'], 'idle'],
+	);
+	// A missing timeline empties the layer's slot, as in game.
+	const missing = new M.ComponentStateMachineRunner(
+		{
+			layers: [
+				{
+					id: 'main',
+					entry: 'gone',
+					states: [{ id: 'gone', timeline: 'c_coin_gone' }],
+					transitions: [],
+				},
 			],
 		},
 		[],
-		new Map([['c_coin_win', 1]]),
+		new Map(),
 	);
-	r.advance(0.5);
+	const emptyPlayer = P.previewPlayer(docs.values(), sc.nodes);
+	P.placeLayers(missing, emptyPlayer);
 	eq(
-		'the runner’s plays drive the stage at its playhead',
-		P.stateMachineDrives(r.plays(), docs, sc).get('n_coin')?.sample,
-		{ y: -50 },
+		'a state whose timeline is missing drives nothing on the stage',
+		P.playerDrives(emptyPlayer).size,
+		0,
 	);
 }
 
@@ -401,6 +453,34 @@ const names = new Map([
 		} as unknown as ComponentDef).stateMachine?.layers[0].states[0].pos,
 		undefined,
 	);
+	{
+		const src = readFileSync(
+			new URL('../src/routes/(app)/editor/EditorStateMachinePanel.svelte', import.meta.url),
+			'utf8',
+		);
+		eq(
+			'the graph answers Delete only while its tab is shown (xyflow listens on the window)',
+			/deleteKey=\{active \? \['Delete', 'Backspace'\] : null\}/.test(src),
+			true,
+		);
+		eq(
+			'…and drops its selection when hidden',
+			/if \(!on\) \{[\s\S]*?selected = null;/.test(src),
+			true,
+		);
+		eq(
+			'…and resets its state when another component opens',
+			/\$effect\.pre\(\(\) => \{\s*void def;[\s\S]*?selected = null;[\s\S]*?activeLayerId = null;[\s\S]*?previewValues = \{\};/.test(
+				src,
+			),
+			true,
+		);
+		eq(
+			'…and never lets a run resume after a stop or unmount',
+			/if \(destroyed \|\| !active \|\| token !== runToken\) return;/.test(src),
+			true,
+		);
+	}
 	eq(
 		'a node list is unchanged by the editing helpers',
 		(d.root as { children: LayoutNode[] }).children.length,
