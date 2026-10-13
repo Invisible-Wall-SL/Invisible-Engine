@@ -5,7 +5,7 @@
 	 * and land on another's left one; Entry and Any have no left handle (nothing enters them),
 	 * Exit no right one (nothing leaves it). Double-clicking a state opens its timeline.
 	 */
-	import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+	import { Handle, Position, type Node, type NodeProps } from '@xyflow/svelte';
 
 	type Data = {
 		kind: 'entry' | 'any' | 'exit' | 'state';
@@ -22,8 +22,7 @@
 		broken?: boolean;
 		onopen?: () => void;
 	};
-	let { data, selected }: NodeProps & { data: Data } = $props();
-	const d = $derived(data as Data);
+	let { data: d, selected }: NodeProps<Node<Data>> = $props();
 </script>
 
 {#if d.kind === 'state'}
@@ -34,7 +33,9 @@
 		class:active={d.active}
 		class:broken={d.broken}
 		ondblclick={() => d.onopen?.()}
-		title={d.broken ? 'This state has a problem — see the ⚠ list' : 'Double-click to open its timeline'}
+		title={d.broken
+			? 'This state has a problem — see the ⚠ list'
+			: 'Double-click to open its timeline'}
 	>
 		<Handle type="target" position={Position.Left} class="sm-h" />
 		<div class="title">

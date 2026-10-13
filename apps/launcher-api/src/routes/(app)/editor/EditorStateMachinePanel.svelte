@@ -253,16 +253,19 @@
 	let runnerStates = $state<Record<string, string>>({});
 	/** Bool / number inputs as the preview holds them. */
 	let previewValues = $state<Record<string, number | boolean>>({});
-	/** The states' timelines, fetched once each for the preview (a Map so the drives can read it;
-	 *  nothing reacts to it). */
+	/** The states' timelines for the preview, re-fetched each time the tab is shown so a timeline
+	 *  saved in the Timeline tab previews as saved. (A `SvelteMap` only for the reactivity lint;
+	 *  nothing reads it reactively.) */
 	const docs = new SvelteMap<string, CinematicDoc>();
 	let raf = 0;
 	let last = 0;
 
 	// ---- the graph --------------------------------------------------------------------------------
 
-	let nodes = $state<Node[]>([]);
-	let edges = $state<Edge[]>([]);
+	// Raw: xyflow replaces the arrays itself, and proxying every node (its closures, `measured`)
+	// buys nothing.
+	let nodes = $state.raw<Node[]>([]);
+	let edges = $state.raw<Edge[]>([]);
 	/** The transition the preview took most recently, lit for a moment. */
 	let litTransition = $state<string | null>(null);
 	let litTimer = 0;
@@ -354,7 +357,7 @@
 	function onNodeDragStop(detail: { targetNode: Node | null; nodes: Node[] }): void {
 		if (!layer) return;
 		for (const n of detail.nodes) setNodePos(layer, n.id, n.position);
-		// A move is a doc edit (the position saves with the def) but needs no graph rebuild.
+		// A move is a doc edit: the position saves with the def.
 		onChanged();
 	}
 
@@ -400,7 +403,12 @@
 		const plays = runner.plays();
 		const next: Record<string, string> = {};
 		for (const p of plays) next[p.layer] = p.state;
-		runnerStates = next;
+		// Reassigned only on a change: the graph rebuilds off it, and a rebuild every frame would
+		// fight xyflow (a card dragged while running would snap back).
+		const changed =
+			Object.keys(next).length !== Object.keys(runnerStates).length ||
+			Object.entries(next).some(([k, v]) => runnerStates[k] !== v);
+		if (changed) runnerStates = next;
 		setTimelinePreview(active ? stateMachineDrives(plays, docs, scene) : null, previewOwner);
 	}
 	function tick(now: number): void {
@@ -438,7 +446,6 @@
 	function fire(id: string): void {
 		if (!runner) buildRunner();
 		runner?.fire(id);
-		light('');
 		if (!running) void run();
 	}
 	function setPreviewInput(id: string, value: number | boolean): void {
@@ -447,10 +454,12 @@
 		runner?.setInput(id, value);
 		if (!running) void run();
 	}
-	// An edit rebuilds the runner from the new machine (and the entry pose shows at once).
+	// An edit, or the timeline list arriving (the durations), rebuilds the runner from the new
+	// machine — and the entry pose shows at once.
 	$effect(() => {
 		void graphVersion;
 		void inputs;
+		void timelines;
 		untrack(() => {
 			stop();
 			void loadDocs().then(() => {
@@ -458,14 +467,18 @@
 			});
 		});
 	});
-	// Hidden: no preview, no clock. Shown again: the entry pose, until Run.
+	// Hidden: no preview, no clock. Shown again: the timelines as last saved, the entry pose until
+	// Run.
 	$effect(() => {
 		const on = active;
 		untrack(() => {
 			if (!on) {
 				stop();
 				setTimelinePreview(null, previewOwner);
-			} else apply();
+				return;
+			}
+			docs.clear();
+			void loadDocs().then(apply);
 		});
 	});
 	onDestroy(() => {

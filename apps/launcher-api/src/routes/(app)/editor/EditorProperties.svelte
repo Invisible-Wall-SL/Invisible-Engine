@@ -2344,20 +2344,17 @@
 								>trigger{#if s.scope}
 									· per {s.scope}{/if}</span
 							>
-							{#if onRenameInput}
-								<button
-									type="button"
-									class="param-remove"
-									title="Rename this input everywhere it is read"
-									onclick={() => onRenameInput?.(s.key)}>✎</button
-								>
-							{/if}
+							<button
+								type="button"
+								class="param-remove"
+								title="Rename this input everywhere it is read"
+								onclick={() => onRenameInput?.(s.key)}>✎</button
+							>
 							<button
 								type="button"
 								class="param-remove"
 								title="Remove input"
-								onclick={() => (onRemoveInput ? onRemoveInput(s.key) : onToggleSignal?.(s.key))}
-								>×</button
+								onclick={() => onRemoveInput?.(s.key)}>×</button
 							>
 						</div>
 					</li>

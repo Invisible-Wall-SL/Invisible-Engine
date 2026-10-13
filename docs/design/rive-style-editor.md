@@ -235,7 +235,11 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
 
 - **Inputs** absorb what `signals` do for behaviour: a signal reads as a trigger input
   (`componentInputs(def)` folds the two — §12 #4), and an engine value source (`winAmount`) can
-  feed a number input (`source`).
+  feed a number input (`source`). An input's `id` IS its wire contract (the name the game, a Flow
+  `fireCue`, a rig `completeSignal` and Phase 7's pins use), so it has no display name: renaming
+  an input is delete + add, and fields a newer build added to it are not kept (owner 2026-10-13).
+  Layers, states and transitions keep their ids across renames (a display `name` on layers and
+  states), which is what the keep-unknown-fields save grafts on.
 - **Listeners** are a node field: `on: 'down' | 'up' | 'enter' | 'leave' | 'click'` sets an input or
   fires a trigger. Button `stateAnimations` become a seeded state machine.
 - The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.

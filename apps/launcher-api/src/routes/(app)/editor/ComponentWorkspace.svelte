@@ -34,6 +34,7 @@
 		WHEEL_DEF,
 	} from 'engine-layout';
 	import type {
+		CinematicHost,
 		ComponentCategory,
 		ComponentDef,
 		ComponentInput,
@@ -63,7 +64,7 @@
 		setInputDefault,
 		setInputSource,
 	} from '$lib/timeline/stateMachineEdit';
-	import { componentTimelineSignals } from '$lib/timeline/screenTimeline';
+	import { componentTimelineSignals, componentTimelinesOf } from '$lib/timeline/screenTimeline';
 	import type { RigMeta } from './rigRuntime.client';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
@@ -1745,9 +1746,50 @@
 		}
 		removeInput(componentDraft, id);
 	}
+	/** The component timelines that play on `signal` (4b `playOn`), by name — a rename breaks them. */
+	async function timelinesPlayingOn(signal: string): Promise<string[]> {
+		if (!componentDraft) return [];
+		const project = encodeURIComponent(data.projectKey);
+		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
+		if (!res.ok) return [];
+		const rows = componentTimelinesOf(
+			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
+				.cinematics,
+			componentDraft.id,
+		);
+		const docs = await Promise.all(
+			rows.map(async (row) => {
+				const r = await fetch(
+					`/api/cinematics/get?id=${encodeURIComponent(row.id)}&projectKey=${project}`,
+				);
+				if (!r.ok) return null;
+				const body = (await r.json()) as { doc: { playOn?: string } | null };
+				return body.doc?.playOn === signal ? row.name || row.id : null;
+			}),
+		);
+		return docs.filter((name): name is string => !!name);
+	}
 	async function renameComponentInput(id: string): Promise<void> {
 		if (!componentDraft) return;
-		const next = await askText({ title: 'Rename input', label: 'Name', value: id });
+		// An input's id IS its wire contract — the name the game, a Flow fireCue, a rig completeSignal
+		// and the timelines' Plays on fire — so a rename is a delete + add of that contract.
+		const wires: string[] = [];
+		if (componentDraft.signals?.some((sg) => sg.key === id)) wires.push('a declared signal');
+		const playOn = await timelinesPlayingOn(id);
+		if (playOn.length) wires.push(`Plays on of ${playOn.map((n) => `"${n}"`).join(', ')}`);
+		const conditions = inputUsage(componentDraft, id).length;
+		const next = await askText({
+			title: 'Rename input',
+			label: 'Name',
+			value: id,
+			message: [
+				`"${id}" is the name the game and Flow fire it as. Renaming it is a delete + add: whatever fires "${id}" today stops reaching this component until it fires the new name.`,
+				wires.length ? `In use as ${wires.join(' and ')}.` : '',
+				conditions ? `${conditions} state-machine condition(s) will follow the rename.` : '',
+			]
+				.filter(Boolean)
+				.join(' '),
+		});
 		if (next === null || next.trim() === id) return;
 		if (!renameInput(componentDraft, id, next)) {
 			void askMessage({
@@ -1755,13 +1797,6 @@
 				message: `"${next.trim()}" is empty or already an input.`,
 			});
 			return;
-		}
-		const used = inputUsage(componentDraft, next.trim());
-		if (used.length) {
-			void askMessage({
-				title: 'Input renamed',
-				message: `${used.length} state-machine transition condition(s) now read "${next.trim()}".`,
-			});
 		}
 	}
 	function setComponentInputDefault(id: string, value: boolean | number): void {
@@ -2328,7 +2363,11 @@
 			{/if}
 		</aside>
 
-		<main class="canvas-area" class:animating>
+		<main
+			class="canvas-area"
+			class:animating
+			class:tall={animating && animateTab === 'stateMachine'}
+		>
 			{#if componentDraft && componentScene}
 				<div class="canvas-slot">
 					<EditorCanvas
@@ -2781,6 +2820,9 @@
 	.canvas-slot {
 		position: absolute;
 		inset: 0;
+	}
+	.canvas-area.animating.tall .canvas-slot {
+		bottom: 380px;
 	}
 	.canvas-area.animating .canvas-slot {
 		bottom: 280px;

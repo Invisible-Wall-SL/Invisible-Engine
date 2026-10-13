@@ -1009,8 +1009,11 @@ that used to be *Signals*). Three kinds:
   Each has a default; a number can also follow an engine value (**from**: `winAmount`, `balance`…,
   the same names *Bind to value* offers). Flow sets them in game from Phase 7 on.
 
-Rename an input with **✎** — every transition condition that reads it follows. **×** removes it,
-and warns first when a transition reads it (that condition is removed too).
+Rename an input with **✎** — every transition condition that reads it follows. The name is what
+the game and Flow fire it as, so a rename is a delete + add: the dialog says what fires the old
+name (a declared signal, timelines that **Play on** it), and fields a newer build added to that
+input are not kept. **×** removes it, and warns first when a transition reads it (that condition
+is removed too).
 
 **Building the graph** (the **State machine** tab):
 
