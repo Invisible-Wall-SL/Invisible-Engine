@@ -114,6 +114,12 @@ The error lists every difference and the exact values to set. To fix:
    engine's `pnpm-lock.yaml` snapshot for that Svelte.
 3. `pnpm install`, build again, and commit `package.json` + `pnpm-lock.yaml` in the game repo.
 
+The desktop launcher applies steps 1–2 itself before every synced ☁ Publish / 📦 Deliver
+(`align_svelte_pins`, invisible-launcher#16, from the release after v1.0.56). It reads the values
+from `svelteVersions.js` and writes them into that build's `package.json` only, the way it
+backfills missing workspace packages, so a repo that was never updated still builds. Committing
+them (step 3) is still what fixes a repo at rest, and what a local `pnpm build` needs.
+
 `IE_ALLOW_SVELTE_MISMATCH=1` turns the error into a warning, for investigating only: the bundle is
 still broken.
 
