@@ -722,20 +722,25 @@
 	const unsavedWork = $derived(draftDirty || defaultsDirty);
 	// Unsaved work is ONLY in memory — ask before a tool-bar switch, Back, a reload or a tab close
 	// discards the draft and the defaults.
-	guardUnsavedWork(() => {
-		if (!unsavedWork) return null;
-		const what = draftDirty
-			? defaultsDirty
-				? 'this component and this game’s defaults for it'
-				: 'this component'
-			: 'this game’s defaults for this component';
-		return {
-			title: `You have unsaved changes to ${what}`,
-			message: 'Leaving this page discards them.',
-			confirmLabel: 'Leave anyway',
-			danger: true,
-		};
-	});
+	guardUnsavedWork(
+		() => {
+			if (!unsavedWork) return null;
+			const what = draftDirty
+				? defaultsDirty
+					? 'this component and this game’s defaults for it'
+					: 'this component'
+				: 'this game’s defaults for this component';
+			return {
+				title: `You have unsaved changes to ${what}`,
+				message: 'Leaving this page discards them.',
+				confirmLabel: 'Leave anyway',
+				danger: true,
+			};
+		},
+		// A link to `/editor` itself is cancelled by the page and applied in place, where closing
+		// the component asks; asking here too would ask twice.
+		(navigation) => navigation.to?.url.pathname === '/editor',
+	);
 
 	let newName = $state('');
 	let newCategory = $state<ComponentCategory>('overlay');
@@ -1009,6 +1014,8 @@
 	function onKeyDownCapture(e: KeyboardEvent): void {
 		if (!active || e.key !== 'Escape' || isTypingTarget(e.target)) return;
 		if (dialogQueue.current || defaultsHistoryOpen || selectedIds.length > 0) return;
+		// An open popover (a colour picker, a frame list) answers Escape itself.
+		if (document.querySelector('[data-esc-owner]')) return;
 		e.preventDefault();
 		void goUp();
 	}
@@ -1025,6 +1032,10 @@
 		if (request.def && !components.some((c) => c.id === request.def?.id)) {
 			components = [...components, request.def];
 			componentEtags = { ...componentEtags, [request.def.id]: request.etag ?? null };
+		}
+		if (request.exit) {
+			await exitToScreens();
+			return;
 		}
 		if (request.id === null) {
 			if (componentDraft) await closeComponent();

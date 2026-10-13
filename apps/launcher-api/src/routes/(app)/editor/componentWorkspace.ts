@@ -13,6 +13,8 @@ export interface ComponentOpenRequest {
 	rootLabel: string | null;
 	def?: ComponentDef;
 	etag?: string | null;
+	/** Close the open component (asking about unsaved work) and go back to the Screens side. */
+	exit?: boolean;
 }
 
 /**

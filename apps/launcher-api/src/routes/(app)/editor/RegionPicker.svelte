@@ -57,7 +57,8 @@
 		{/if}
 	</div>
 	{#if open}
-		<div class="sheets">
+		<!-- `data-esc-owner`: while the frame list is open a page-level Escape stands down. -->
+		<div class="sheets" data-esc-owner>
 			{#if sheets.length === 0}
 				<p class="note">No atlases or sheets in this project.</p>
 			{/if}
