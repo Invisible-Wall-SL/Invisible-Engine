@@ -53,16 +53,80 @@ export interface CinematicKey {
 	ease?: 'linear' | 'ease' | 'hold';
 }
 
+/**
+ * What a timeline animates (Rive plan §3.2). Absent ⇒ `cast`: rigs on the cinematic's own stage,
+ * every document authored before node actors. `screen` animates the nodes of that Scene (it is
+ * also the timeline's set); `component` animates the nodes of that component's root — valid in
+ * the format, but nothing plays a component timeline yet (Rive plan Phase 4).
+ */
+export type CinematicHost =
+	| { kind: 'cast' }
+	| { kind: 'component'; componentId: string }
+	| { kind: 'screen'; sceneId: string };
+
+/**
+ * An actor's kind (Rive plan §3.1). Absent or `rig` = a cast rig (today's actor). `node` = a layout
+ * node in the host, found by `target`: the node's NAME (its label), falling back to its id.
+ */
+export type CinematicActorKind = 'rig' | 'node';
+
+/**
+ * The `property` channels a NODE actor honours. Unlike a rig actor's (absolute placement), they
+ * are RELATIVE to the node's authored pose, so one timeline plays on any host with a node of that
+ * name: `x`/`y` add design pixels, `scale`/`scaleX`/`scaleY` multiply, `rotation` adds degrees,
+ * `alpha` multiplies. `tint` replaces the colour (0xRRGGBB, eased per channel), `frame` holds a
+ * flipbook on a frame of its own clip, `fill` reveals 0..1 of a sprite / rect / flipbook.
+ */
+export type CinematicNodeChannel =
+	'x' | 'y' | 'scale' | 'scaleX' | 'scaleY' | 'rotation' | 'alpha' | 'tint' | 'frame' | 'fill';
+
+/**
+ * One key of a `text` track (Rive plan §8). `countUp` keys carry a `value` (eased like any
+ * channel); `switchKey` keys carry a `key`, stepped, naming one of the text node's own strings
+ * (its `text` or one of its `switchKeys`). A timeline never carries free text.
+ */
+export interface CinematicTextKey {
+	time: number;
+	value?: number;
+	ease?: CinematicKey['ease'];
+	key?: string;
+}
+
+/** A node actor's channels sampled at one time — only what is keyed is present. */
+export interface CinematicNodeSample {
+	x?: number;
+	y?: number;
+	scaleX?: number;
+	scaleY?: number;
+	rotation?: number;
+	alpha?: number;
+	tint?: number;
+	frame?: number;
+	fill?: number;
+	visible?: boolean;
+	text?: { mode: 'countUp'; value: number } | { mode: 'switchKey'; key: string };
+}
+
 export interface CinematicTrack {
 	id: string;
-	kind: 'animation' | 'property' | 'camera' | 'visibility' | 'cue' | 'subCinematic';
+	kind: 'animation' | 'property' | 'camera' | 'visibility' | 'cue' | 'subCinematic' | 'text';
 	/** Null/absent for global tracks (camera). */
 	actorId?: string | null;
 	/** Animation tracks only — layers blend bottom-up. */
 	layer?: number;
 	strips?: CinematicStrip[];
-	/** Visibility tracks only — stepped on/off keys. */
-	keys?: Array<{ time: number; visible?: boolean; cue?: string }>;
+	/** Visibility (stepped on/off), cue and text keys. */
+	keys?: Array<{ time: number; visible?: boolean; cue?: string } & Partial<CinematicTextKey>>;
 	/** Property/camera tracks only. */
 	channels?: Record<string, CinematicKey[]>;
+	/** Text tracks only: count up to a number, or switch among the node's own strings. */
+	mode?: 'countUp' | 'switchKey';
+	/**
+	 * Count-up only. `format` names an engine value source (`win`, `balance`, …) whose formatter
+	 * renders the number, so a count-up reads exactly like that readout; absent ⇒ a grouped
+	 * integer. `to` names a value source too: the keys are then SHARES (0..1) of its current value,
+	 * which is how a timeline counts up to "the win" without knowing it.
+	 */
+	format?: string;
+	to?: string;
 }

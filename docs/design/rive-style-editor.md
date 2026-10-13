@@ -1,6 +1,6 @@
 # Rive-style Scene + Component Editor — Plan (draft, owner review)
 
-> Status: **PROPOSED, not started.** Owner ask (2026-10-08): make the Scene Editor and the
+> Status: **APPROVED (owner 2026-10-13); Phase 0 done, Phases 1–2 next.** Owner ask (2026-10-08): make the Scene Editor and the
 > Component Editor work like [Rive](https://rive.app/) — components built on the stage, timelines
 > and a state machine attached to each component, a friendlier interface, and everything wired to
 > Invisible Flow. This file is the plan; progress will live in [editor status](../status/editor.md)
@@ -12,10 +12,11 @@
 > 2. **Timelines are reusable, and there is only one timeline system:** the Rigger's
 >    [Invisible Cinematic](invisible-cinematic.md) timeline, extended. No second timeline is built.
 >
-> ⚠️ Phase 5 **reverses a standing decision**: [invisible-editor.md §8.7](invisible-editor.md) and
-> §17 deferred "route A — Rive state machine" (2026-06-05, re-confirmed 2026-06-09). The owner
-> needs to lift that deferral, scoped to *component* state machines (§2). §17's planned
-> `BehaviorTrack`/`TweenStep` timeline is superseded by §4 here; neither was ever built.
+> ✅ Phase 5 **reverses a standing decision**, and the owner has approved it (2026-10-13):
+> [invisible-editor.md §8.7](invisible-editor.md) and §17 deferred "route A — Rive state machine"
+> (2026-06-05, re-confirmed 2026-06-09). That deferral is **lifted, scoped to *component* state
+> machines only** (§2); screens get none. §17's planned `BehaviorTrack`/`TweenStep` timeline is
+> superseded by §4 here; neither was ever built.
 >
 > **Owner direction (2026-10-09, third pass):** this is part of a bigger plan. The same tools must
 > later build **other kinds of games — arcade, match-3** — the way Rive can, so the Flow connection
@@ -33,7 +34,7 @@
 | **Screens** | Screens list, spaces (`game`/`standard`/`canvas`/`background`), list order = layer order, device layouts, In-game view | Screens can carry timelines (enter / exit / idle) played by Flow |
 | **Game logic** | **Invisible Flow** is the game's top-level state machine: book events, screens, wins, features | — (Rive's root state machine is what Flow already is) |
 | **Components** | `ComponentDef`, params, versions, per-project defaults, value bindings, the ship chain | Edited **in place on the stage**; **Animate mode**; a **state machine** with **inputs**; **listeners** (pointer events → inputs) |
-| **Timelines** | The **Cinematic** timeline from `/rigger` (format, evaluator, player, UI) | Timelines on any component or screen, reusable across them |
+| **Timelines** | The **Timeline** from `/rigger` (format, evaluator, player, UI) | Timelines on any component or screen, reusable across them |
 | **Flow ↔ component** | `playCinematic`, `fireCue` | Flow sets a component's inputs, fires its triggers, waits on its states |
 
 So: **screens are where things live, Flow decides what happens, components are the Rive part.**
@@ -48,7 +49,11 @@ inputs are what Flow drives.
 - **Flow (existing)** — owns the game logic and drives component inputs.
 - **Game math** — stays in books and Game Config. Untouched.
 
-## 3. One timeline system (the Cinematic timeline, extended)
+## 3. One timeline system (the Timeline, extended)
+
+> UI name: **Timeline** (owner 2026-10-13). "Cinematic" survives only as the file format
+> (`.icin` / `CinematicDoc`, `engine-cinematic`, `playCinematic`) and as the label of the Rigger's
+> multi-rig mode.
 
 What exists today (see [cinematic status](../status/cinematic.md)):
 
@@ -62,7 +67,7 @@ What exists today (see [cinematic status](../status/cinematic.md)):
 - **Player** — `<Cinematic>` in `engine-layout/svelte`, played from Flow's `playCinematic`.
 - **Storage + ship** — `<client>/<project>/cinematics/<id>.json` → `cinematicExport.ts` →
   `deploy/cinematics/` → bake → `bakedCinematic(id)`.
-- **UI** — the sequencer + dopesheet in `/rigger` 🎬 Cinematic mode (`static/rigger/cinematic.js`).
+- **UI** — the sequencer + dopesheet in `/rigger` 🎬 Cinematic mode (`static/rigger/cinematic.js`), which keeps that label.
 
 The one limit: **actors are rigs only.** Everything below generalises that, additively.
 
@@ -133,7 +138,7 @@ verbatim copy, with a gate that fails when the two differ. `/rigger` keeps the r
 │ Components         │                                                          │           │
 │ Library (art/rigs) │                                                          │           │
 ├────────────────────┴──────────────────────────────────────────────────────────┴───────────┤
-│ Animate: [Timelines ▾ intro | win | idle]  ← the shared Cinematic sequencer              │
+│ Animate: [Timelines ▾ intro | win | idle]  ← the shared Timeline sequencer               │
 │          [State machine]  Entry → Idle ⇄ Win → Exit   Inputs: win ▸  amount #   (comps)  │
 └──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -353,7 +358,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
-| 0 | **Decisions + ADR** | Owner signs off §12; `invisible-editor.md` §8.7/§17 point here | docs | S |
+| 0 | **Decisions + ADR** — ✅ done 2026-10-13 | Owner signed off §12 (4, 6, 7 stay open); `invisible-editor.md` §8.7/§17 point here | docs | S |
 | 1 | **Node actors + hosts** | §3.1–3.2 in the format, evaluator and `<Cinematic>` player; existing cinematics byte-identical; localization harvest reads timelines (§8) | `engine-cinematic`, `engine-layout`, rigger-spike gates | M |
 | 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
 | 3 | **Animate a screen** | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
@@ -389,13 +394,17 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
 
 ## 12. Open decisions (owner)
 
-1. **Lift the `invisible-editor.md` §8.7 deferral** for *component* state machines (screens stay on Flow, §2)?
-2. **Merge `/components` into `/editor`** (Phase 4), or keep two pages that share the new panels?
-3. **Name.** Keep calling the shared timeline a *Cinematic* everywhere, or rename it *Timeline*
-   in the UI (the file format can stay `.icin`)?
+1. **Lift the `invisible-editor.md` §8.7 deferral** for *component* state machines — **DECIDED
+   (owner 2026-10-13): yes, lifted for component state machines only.** Presentation-only; screens
+   get no state machine; Flow stays the game's top-level logic.
+2. **Merge `/components` into `/editor`** (Phase 4) — **DECIDED (owner 2026-10-13): merge.** One
+   Rive-style editor with in-place component editing. Component storage does not change.
+3. **Name.** — **DECIDED (owner 2026-10-13): the UI name is *Timeline*.** The Rigger's multi-rig
+   mode may keep the label "Cinematic". The file format (`.icin` / `CinematicDoc`) stays.
 4. **Inputs vs signals:** fold `signals` into trigger inputs (one concept, signals read as
    triggers for back-compat), or keep both?
-5. **Which proof first** for Phase 3: a screen intro, the `Transition` overlay, or the Win banner?
+5. **Which proof first** for Phase 3 — **DECIDED (owner 2026-10-13): a screen intro.** Animate a
+   screen's intro in the Scene Editor and have Flow's `playCinematic` play it in game.
 6. **Outcome source for the new families.** Are the arcade and match-3 games real-money games
    whose results come from the RGS (the player's moves are presentation, as in a cascade slot), or
    skill / free-play games where the client's own rules decide? This decides how much logic Flow

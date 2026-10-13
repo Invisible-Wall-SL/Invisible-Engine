@@ -44,6 +44,11 @@ A spreadsheet-style table of the game's text, in two kinds of section:
     (`H1` → "Banana"/"Bananas"), so a translated win line doesn't end in an
     English symbol name.
   - **Flow messages** — the text on Invisible Flow's Text Message nodes.
+  - **Timelines** — the strings a cinematic timeline switches a text node to
+    (a `switchKey` text track). A timeline never holds free text: it names one
+    of the node's own strings (its text or its `switchKeys`). Only strings the
+    node declares are listed, and a string another section already lists (the
+    node's own text) stays in that section.
   - **Bet modes** — Invisible Game Config's bet-mode copy: each buy-feature
     card's title, description and button, the confirm dialog's body, and the
     bet-mode badge the HUD shows while that mode is the active stake. This copy
@@ -139,7 +144,8 @@ Shape:
 
 `origin` says which section a row belongs to: `"manual"` for hand-authored rows
 (absent ⇒ manual), otherwise the auto-collected source — `"editor"` (Scene Editor),
-`"winText"`, `"symbols"`, `"flow"`, `"gameConfig"` (bet modes) or `"uiText"` (Game UI).
+`"winText"`, `"symbols"`, `"flow"`, `"gameConfig"` (bet modes), `"uiText"` (Game UI) or
+`"timeline"` (Timelines).
 On **Save**, auto-collected rows with **no** translation are _not_ persisted — they're
 re-derived from their owning tool's data (for Scene Editor rows, the editor doc
 `<client>/<project>/editor/scenes.json`) on every load, so the table self-heals when

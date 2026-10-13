@@ -1,4 +1,5 @@
 import type {
+	CinematicDoc,
 	ComponentDef,
 	ComponentParam,
 	LayoutDoc,
@@ -6,7 +7,10 @@ import type {
 	WinTextDoc,
 } from 'engine-layout';
 import {
+	collectTimelineSwitchKeys,
 	collectUiTextStrings,
+	findNodeByName,
+	textNodeStrings,
 	collectWinTextModeTemplates,
 	collectWinTextSpinsModeTemplates,
 	collectWinTextTemplates,
@@ -55,7 +59,7 @@ export interface HarvestSection {
 	items: HarvestedItem[];
 	/** Which tool owns these sources — stamped onto every entry the section reconciles.
 	 *  Defaults to `'editor'` (the original collector). */
-	origin?: 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText';
+	origin?: 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText' | 'timeline';
 }
 
 /** Display grouping handed to the page: a section is a list of entry keys, in order. */
@@ -356,6 +360,44 @@ export function harvestFlowMessages(doc: FlowDoc | undefined): HarvestSection[] 
 	const items = collectTextMessages(doc).filter((i) => isLocalizableText(i.source));
 	if (items.length === 0) return [];
 	return [{ sceneId: FLOW_MESSAGE_SECTION_ID, sceneName: 'Flow messages', items, origin: 'flow' }];
+}
+
+/** The synthetic section id the timeline switch-key strings are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const TIMELINE_TEXT_SECTION_ID = '__timelines';
+
+/**
+ * Collect every string a cinematic timeline's `switchKey` text tracks switch a node to, as one
+ * translatable section (Rive plan §8). A timeline never carries free text — it names one of the
+ * text node's own strings (`text` or `switchKeys`) — and a `switchKeys` string only ever shows
+ * through a timeline, so this section is where it gets its row. Source-as-key, exact/untrimmed:
+ * the node renders the switched-to key through `resolveLocalizedText` like its own `text`.
+ *
+ * Only keys the target node DECLARES in the host screen (`editorDoc`) are listed: the runtime
+ * refuses any other, so a row for it would translate text nobody sees (`validateNodeActors` flags
+ * those instead). Keys another section already lists (`owned` — e.g. the node's own `text`, which
+ * the scene section owns) are left to that section, so a row never changes owner.
+ */
+export function harvestTimelineText(
+	docs: readonly CinematicDoc[],
+	editorDoc: LayoutDoc,
+	owned: ReadonlySet<string> = new Set(),
+): HarvestSection[] {
+	const items: HarvestedItem[] = [];
+	const seen = new Set<string>();
+	for (const doc of docs) {
+		const sceneId = doc.host?.kind === 'screen' ? doc.host.sceneId : undefined;
+		const scene = editorDoc.scenes.find((s) => s.id === sceneId);
+		if (!scene) continue;
+		for (const { key, target } of collectTimelineSwitchKeys(doc)) {
+			if (!isLocalizableText(key) || seen.has(key) || owned.has(key)) continue;
+			const node = findNodeByName(scene.nodes, target);
+			if (!node || !textNodeStrings(node).includes(key)) continue;
+			seen.add(key);
+			items.push({ key, source: key, label: `${doc.name || doc.id} — ${target}` });
+		}
+	}
+	if (items.length === 0) return [];
+	return [{ sceneId: TIMELINE_TEXT_SECTION_ID, sceneName: 'Timelines', items, origin: 'timeline' }];
 }
 
 /** The synthetic section id the engine's coded UI strings are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
