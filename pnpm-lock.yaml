@@ -193,6 +193,9 @@ importers:
       drizzle-orm:
         specifier: 0.45.3
         version: 0.45.3(@opentelemetry/api@1.9.1)(gel@2.2.0)(postgres@3.4.9)
+      engine-cinematic:
+        specifier: workspace:*
+        version: link:../../packages/engine-cinematic
       engine-flipbook:
         specifier: workspace:*
         version: link:../../packages/engine-flipbook

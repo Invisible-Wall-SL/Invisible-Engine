@@ -70,6 +70,9 @@ export const esc = (s) =>
 		(c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c],
 	);
 
+/** 0xRRGGBB → `#rrggbb`. */
+const hexColor = (n) => '#' + (Math.round(n) & 0xffffff).toString(16).padStart(6, '0');
+
 const uid = (p) => p + '_' + Math.random().toString(36).slice(2, 9);
 
 const noop = () => {};
@@ -102,6 +105,7 @@ export function mount(el, options) {
 	const inspectorEl = options.inspector || null;
 	const host = { ...HOST_DEFAULTS, ...(options.host || {}) };
 	const extensions = options.extensions || [];
+	const propChannels = options.channels || PROP_CHANNELS;
 	const render = () => (host.render ? host.render() : renderInspector());
 
 	let doc = options.doc;
@@ -314,7 +318,7 @@ export function mount(el, options) {
 				if (track.keys.length) out.push({ kind: 'visibility', cast, track });
 			}
 			for (const track of propertyTracksOf(cast.actorId)) {
-				for (const chan of PROP_CHANNELS) {
+				for (const chan of propChannels) {
 					if (track.channels[chan.key]) out.push({ kind: 'channel', cast, track, chan });
 				}
 			}
@@ -578,7 +582,7 @@ export function mount(el, options) {
 					dot.title =
 						entry.chan.label +
 						' = ' +
-						+k.value.toFixed(3) +
+						(entry.chan.input === 'color' ? hexColor(k.value) : +k.value.toFixed(3)) +
 						' @ ' +
 						+k.time.toFixed(3) +
 						's (' +
@@ -1320,13 +1324,19 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const k = keys && keys.find((x) => Math.abs(x.time - selKey.time) < 1e-6);
 		if (!k) return '';
 		const ease = k.ease || 'linear';
+		const chan =
+			track.kind === 'camera' ? null : propChannels.find((c) => c.key === selKey.channel);
+		const valueField =
+			chan && chan.input === 'color'
+				? `<input type="color" data-kact="value" value="${hexColor(k.value)}">`
+				: `<input type="number" step="0.1" data-kact="value" value="${+k.value.toFixed(3)}">`;
 		const opt = (v, label) =>
 			`<option value="${v}"${ease === v ? ' selected' : ''}>${label}</option>`;
 		return `
 <div class="cineHead" style="border-top:1px solid var(--line);"><b>Key</b><small>${esc(selKey.channel)}${track.kind === 'camera' ? ' (camera)' : ''}</small></div>
 <div class="cineStripInsp">
 	<label>time<input type="number" step="0.05" min="0" data-kact="time" value="${+k.time.toFixed(3)}"></label>
-	<label>value<input type="number" step="0.1" data-kact="value" value="${+k.value.toFixed(3)}"></label>
+	<label>value${valueField}</label>
 	<label class="wide">out<select data-kact="ease">
 		${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}
 	</select></label>
@@ -1461,7 +1471,15 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		root.querySelectorAll('[data-kact]').forEach((node) => {
 			node.onchange = (e) => {
 				const f = node.dataset.kact;
-				setKeyField(f, f === 'ease' ? e.target.value : parseFloat(e.target.value) || 0);
+				const v = e.target.value;
+				setKeyField(
+					f,
+					f === 'ease'
+						? v
+						: node.type === 'color'
+							? parseInt(v.slice(1), 16) || 0
+							: parseFloat(v) || 0,
+				);
 			};
 		});
 	}

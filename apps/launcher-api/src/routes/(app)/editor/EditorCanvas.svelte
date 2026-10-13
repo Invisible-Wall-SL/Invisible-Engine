@@ -88,8 +88,10 @@
 		loadArtBounds,
 	} from './editorArtBounds.client.svelte';
 	import {
+		previewBindings,
 		previewOutputs,
 		previewResolveTransform,
+		previewTint,
 		previewVersion,
 	} from './valuePreview.client.svelte';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
@@ -290,6 +292,10 @@
 		 * wrap instead) and both sit above the canvas art. The Scene Editor passes its
 		 * `<CanvasModeBar inline>`; omit for a bare canvas. */
 		modeBar?: Snippet;
+		/** Animate mode (Rive plan Phase 3): the canvas SELECTS but never edits — no drag, handle,
+		 * drop, delete or item toolbar, because geometry edits there would change the authored
+		 * pose under the timeline. Keys are set in the Timeline panel. Absent ⇒ Design mode. */
+		animate?: boolean;
 	}
 
 	let {
@@ -329,6 +335,7 @@
 		onUndo,
 		onRedo,
 		modeBar,
+		animate = false,
 	}: Props = $props();
 
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
@@ -2420,13 +2427,11 @@
 		}
 		// The value-binding preview's other outputs: a `fill` reveal clips the art to its rect in the
 		// node's local box (the runtime's mask), a `frame` holds a clip frame (below).
-		const previewed = node.valueBindings
-			? previewOutputs(
-					node,
-					node.kind === 'flipbook' ? clipsById.get(node.clipId)?.frames.length : undefined,
-				)
-			: [];
-		const previewFill = boundFillShare(node.valueBindings, previewed);
+		const previewed = previewOutputs(
+			node,
+			node.kind === 'flipbook' ? clipsById.get(node.clipId)?.frames.length : undefined,
+		);
+		const previewFill = boundFillShare(previewBindings(node), previewed);
 		if (
 			previewFill &&
 			(node.kind === 'sprite' || node.kind === 'rect' || node.kind === 'flipbook')
@@ -2628,7 +2633,10 @@
 			// `assetKey` is looked up by name across atlases) — so a bound `image`-param swap
 			// OR a static region whose atlas no longer packs it both render.
 			const assetKey = scopedFrame.assetKey ?? boundAssetKey ?? node.assetKey;
-			const tint = boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined;
+			// A previewed timeline's tint wins over a param-bound one, as `LayoutNodeView` orders them.
+			const tint =
+				previewTint(node) ??
+				(boundTint !== undefined && boundTint !== 0xffffff ? boundTint : undefined);
 			if (region) {
 				drawRegionSprite(ctx, node, t, region, assetKey, tint);
 			} else if (!assetKey && nested && gameView) {
@@ -2735,7 +2743,7 @@
 			// A dangling / un-baked clipId has no frames to draw: the labelled chip says so, and the
 			// node stays selectable and movable so the reference can be re-pointed in Properties.
 			const heldClip = clipsById.get(node.clipId);
-			const held = boundFrameOutput(node.valueBindings, previewed);
+			const held = boundFrameOutput(previewBindings(node), previewed);
 			const frame =
 				held !== undefined && heldClip?.frames.length
 					? clipFrameAt(heldClip, bindingFrameIndex(held, heldClip.frames.length))
@@ -4256,7 +4264,7 @@
 
 		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
-		if (!e.shiftKey) {
+		if (!e.shiftKey && !animate) {
 			const hh = hitTestHandle(screen);
 			if (hh && selectedId) {
 				const node = findNodeById(selectedId);
@@ -4286,7 +4294,7 @@
 			if (!selectedIds.includes(node.id)) selectOnly(node.id);
 			// Locked nodes select but never move; background-cover nodes select but
 			// never drag (transform is synthesised). Only movement is locked, not selection.
-			if (!node.locked && !isBackgroundCover(node)) startTranslate(node, world);
+			if (!animate && !node.locked && !isBackgroundCover(node)) startTranslate(node, world);
 			schedule();
 			e.preventDefault();
 			return;
@@ -4371,7 +4379,7 @@
 			schedule();
 			return;
 		}
-		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0) {
+		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0 && !animate) {
 			// Delete every selected node that isn't locked, in one transaction.
 			const ids = selectedIds.filter((id) => {
 				const n = findNodeById(id);
@@ -4385,7 +4393,7 @@
 	}
 
 	function onDragOver(e: DragEvent): void {
-		if (!e.dataTransfer) return;
+		if (!e.dataTransfer || animate) return;
 		if (!Array.from(e.dataTransfer.types).includes('application/x-iw-asset')) return;
 		e.preventDefault();
 		e.dataTransfer.dropEffect = 'copy';
@@ -4396,7 +4404,7 @@
 	}
 	function onDrop(e: DragEvent): void {
 		dragOver = false;
-		if (!e.dataTransfer) return;
+		if (!e.dataTransfer || animate) return;
 		const raw = e.dataTransfer.getData('application/x-iw-asset');
 		if (!raw) return;
 		e.preventDefault();
@@ -5061,7 +5069,7 @@
 	{#if showOverlay}
 		<BusyOverlay label="Loading assets…" detail="{loadDone} / {batchTotal}" progress={loadPct} />
 	{/if}
-	{#if overlayInfo}
+	{#if overlayInfo && !animate}
 		<EditorItemOverlay
 			info={overlayInfo}
 			onDelete={(n) => onDelete?.(n.id)}
@@ -5075,8 +5083,13 @@
 		/>
 	{/if}
 	<div class="hint">
-		click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
-		(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
+		{#if animate}
+			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan ·
+			Esc = deselect
+		{:else}
+			click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
+			(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
+		{/if}
 	</div>
 	<div class="canvas-top">
 		{@render modeBar?.()}

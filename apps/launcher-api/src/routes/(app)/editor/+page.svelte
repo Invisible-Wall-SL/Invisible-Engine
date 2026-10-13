@@ -72,6 +72,7 @@
 	import { onMount } from 'svelte';
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
+	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
@@ -501,6 +502,18 @@
 	/** Template-authoring mode (§7.5): tag nodes as slots + export a `GameTemplate`
 	 * instead of just filling one. Normal mode is unchanged when this is off. */
 	let templateMode = $state(false);
+	/**
+	 * Design (today's Scene Editor) or Animate (Rive plan Phase 3): Animate opens the active
+	 * screen's timelines in the shared Timeline panel and makes the canvas select-only. While it is
+	 * on, the Timeline owns Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y / Ctrl+S / Ctrl+D / Delete for the
+	 * timeline, and the scene's own undo, clipboard and delete stand down (`onEditorKeyDown`, the
+	 * canvas's `animate` prop) — so one key never edits two documents.
+	 */
+	let editorMode = $state<'design' | 'animate'>('design');
+	const animating = $derived(editorMode === 'animate');
+	/** The Timeline panel mounts on the first visit to Animate and then stays (hidden in Design),
+	 *  so leaving Animate never drops an unsaved timeline. */
+	let animateVisited = $state(false);
 
 	// ---------- components (§8.4) ----------
 	// Authoring components moved OUT of the editor into the standalone Invisible
@@ -2583,7 +2596,7 @@
 	/** Page-level editor shortcuts (the canvas owns Delete/Escape on its own listener).
 	 * Undo/redo here; copy/cut/paste/duplicate are added in the clipboard block. */
 	function onEditorKeyDown(e: KeyboardEvent): void {
-		if (isTypingTarget(e.target)) return;
+		if (isTypingTarget(e.target) || animating) return;
 		const mod = e.ctrlKey || e.metaKey;
 		if (!mod) return;
 		const k = e.key.toLowerCase();
@@ -2756,6 +2769,29 @@
 		</div>
 
 		<div class="eb-group">
+			<div class="mode-toggle" role="group" aria-label="Editor mode">
+				<button
+					type="button"
+					class:on={!animating}
+					aria-pressed={!animating}
+					title="Design — lay out the screens (the Scene Editor as always)."
+					onclick={() => (editorMode = 'design')}
+				>
+					Design
+				</button>
+				<button
+					type="button"
+					class:on={animating}
+					aria-pressed={animating}
+					title="Animate — key the active screen's nodes on a Timeline that Flow plays with a playCinematic node. The canvas only selects in this mode."
+					onclick={() => {
+						editorMode = 'animate';
+						animateVisited = true;
+					}}
+				>
+					Animate
+				</button>
+			</div>
 			{#if componentBusy}
 				<span class="save-pill busy">Creating component…</span>
 			{:else if componentStatus?.kind === 'error'}
@@ -3154,53 +3190,66 @@
 			</div>
 		</aside>
 
-		<main class="canvas-area">
+		<main class="canvas-area" class:animating>
 			{#if editScene}
-				<EditorCanvas
-					scene={editScene}
-					scenes={editScenes}
-					{mainSizesMap}
-					frameWidth={frameSize.width}
-					frameHeight={frameSize.height}
-					layoutType={currentLayoutType}
-					{baseLayoutType}
-					standardBox={frameSize}
-					assets={data.assets}
-					symbolDefaults={data.symbolDefaults}
-					symbolsDoc={data.symbolsDoc}
-					gridDimensions={shownGridDimensions}
-					repeaterSources={data.repeaterSources}
-					componentDefaults={data.componentDefaults}
-					{componentMap}
-					{rigPreview}
-					{rigPreviewNodeId}
-					{onSpawn}
-					bind:selectedIds
-					onDirty={markDirty}
-					onDelete={onDeleteNode}
-					onDeleteMany={onDeleteNodes}
-					redrawNonce={canvasRedrawNonce}
-					{fillRequest}
-					hiddenSceneIds={canvasHiddenScenes}
-					bind:gameView
-					{viewModes}
-					bind:viewMode={() => shownViewMode, (mode) => (viewMode = mode)}
-					projectGameName={data.gameName}
-					onRigMeta={(meta) => (rigMeta = meta)}
-					{canUndo}
-					{canRedo}
-					onUndo={undo}
-					onRedo={redo}
-				>
-					{#snippet modeBar()}
-						<CanvasModeBar
-							options={layoutOptions}
-							bind:value={currentLayoutType}
-							ariaLabel="Authoring layout"
-							inline
+				<div class="canvas-slot">
+					<EditorCanvas
+						scene={editScene}
+						scenes={editScenes}
+						{mainSizesMap}
+						frameWidth={frameSize.width}
+						frameHeight={frameSize.height}
+						layoutType={currentLayoutType}
+						{baseLayoutType}
+						standardBox={frameSize}
+						assets={data.assets}
+						symbolDefaults={data.symbolDefaults}
+						symbolsDoc={data.symbolsDoc}
+						gridDimensions={shownGridDimensions}
+						repeaterSources={data.repeaterSources}
+						componentDefaults={data.componentDefaults}
+						{componentMap}
+						{rigPreview}
+						{rigPreviewNodeId}
+						{onSpawn}
+						bind:selectedIds
+						onDirty={markDirty}
+						onDelete={onDeleteNode}
+						onDeleteMany={onDeleteNodes}
+						redrawNonce={canvasRedrawNonce}
+						{fillRequest}
+						hiddenSceneIds={canvasHiddenScenes}
+						bind:gameView
+						{viewModes}
+						bind:viewMode={() => shownViewMode, (mode) => (viewMode = mode)}
+						projectGameName={data.gameName}
+						onRigMeta={(meta) => (rigMeta = meta)}
+						canUndo={canUndo && !animating}
+						canRedo={canRedo && !animating}
+						onUndo={undo}
+						onRedo={redo}
+						animate={animating}
+					>
+						{#snippet modeBar()}
+							<CanvasModeBar
+								options={layoutOptions}
+								bind:value={currentLayoutType}
+								ariaLabel="Authoring layout"
+								inline
+							/>
+						{/snippet}
+					</EditorCanvas>
+				</div>
+				{#if animateVisited}
+					<div class="timeline-slot" class:hidden={!animating}>
+						<EditorTimelinePanel
+							scene={editScene}
+							selectedId={selectedIds.at(-1) ?? null}
+							projectKey={data.projectKey}
+							active={animating}
 						/>
-					{/snippet}
-				</EditorCanvas>
+					</div>
+				{/if}
 			{/if}
 		</main>
 
@@ -4743,6 +4792,42 @@
 		min-width: 0;
 		min-height: 0;
 		background: #0b0b10;
+	}
+	/* The canvas fills the area as before; Animate lifts its bottom edge over the Timeline. */
+	.canvas-slot {
+		position: absolute;
+		inset: 0;
+	}
+	.canvas-area.animating .canvas-slot {
+		bottom: 280px;
+	}
+	.timeline-slot {
+		position: absolute;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		height: 280px;
+	}
+	.timeline-slot.hidden {
+		display: none;
+	}
+	.mode-toggle {
+		display: inline-flex;
+		border: 1px solid #2a2a36;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.mode-toggle button {
+		background: transparent;
+		color: #a0a0b0;
+		border: none;
+		padding: 4px 12px;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.mode-toggle button.on {
+		background: #24324a;
+		color: #e8f2ff;
 	}
 	.help-strip {
 		display: flex;

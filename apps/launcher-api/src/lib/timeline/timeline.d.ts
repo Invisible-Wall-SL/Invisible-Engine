@@ -88,6 +88,8 @@ export interface TimelineOptions {
 	inspector?: HTMLElement | null;
 	host?: TimelineHost;
 	extensions?: TimelineExtension[];
+	/** The property channels an actor's rows show, in order. Default: {@link PROP_CHANNELS}. */
+	channels?: TimelineChannel[];
 }
 
 export interface Timeline {
@@ -144,6 +146,8 @@ export interface TimelineChannel {
 	key: string;
 	label: string;
 	color: string;
+	/** `color`: the value is 0xRRGGBB — the key inspector edits it with a colour picker. */
+	input?: 'color';
 }
 
 export const PROP_CHANNELS: TimelineChannel[];

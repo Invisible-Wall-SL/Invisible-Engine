@@ -186,6 +186,7 @@
 		"config-lingui": "workspace:*",
 		"constants-shared": "workspace:*",
 		"drizzle-orm": "0.45.3",
+		"engine-cinematic": "workspace:*",
 		"engine-flipbook": "workspace:*",
 		"engine-flow": "workspace:*",
 		"engine-flow-migrate": "workspace:*",
