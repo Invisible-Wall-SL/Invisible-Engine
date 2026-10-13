@@ -663,7 +663,8 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 }
 
 // 13. components — `normalizeComponent` (the load path's normalizer) rebuilds the def and root; the
-//     root's `children` are nodes and pass through, like the layout doc's.
+//     root's `children` are nodes and pass through, like the layout doc's — except a node's `on`
+//     listeners (Rive plan Phase 6), which are whitelisted, so an unknown field inside one is ignored.
 {
 	const base = {
 		id: 'c_spin',
@@ -671,19 +672,49 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		version: 3,
 		scope: 'project',
 		category: 'ui',
-		root: { id: 'root', kind: 'container', x: 0, y: 0, width: 200, height: 200, children: [] },
+		root: {
+			id: 'root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			width: 200,
+			height: 200,
+			children: [
+				{
+					id: 'n_bg',
+					kind: 'sprite',
+					x: 0,
+					y: 0,
+					on: [
+						{
+							id: 'l1',
+							event: 'click',
+							action: { kind: 'raise', event: 'pressed', payload: { n: { input: 'amount' } } },
+						},
+					],
+				},
+			],
+		},
 		params: [{ key: 'label', kind: 'string', default: 'SPIN', group: 'Copy' }],
 		signals: [{ key: 'onSpin', note: 'pressed' }],
 		inputs: [
 			{ id: 'win', kind: 'trigger' },
 			{ id: 'amount', kind: 'number', default: 0, source: 'winAmount' },
 		],
+		events: [{ id: 'pressed', payload: [{ name: 'n', type: { t: 'int' } }], note: 'tapped' }],
 		stateMachine: {
 			layers: [
 				{
 					id: 'main',
 					entry: 'idle',
-					states: [{ id: 'idle', timeline: 'c_spin_idle', loop: true }],
+					states: [
+						{
+							id: 'idle',
+							timeline: 'c_spin_idle',
+							loop: true,
+							onEnter: [{ kind: 'raise', event: 'pressed', payload: { n: 1 } }],
+						},
+					],
 					transitions: [
 						{
 							id: 't',
@@ -707,12 +738,20 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 	Object.assign(extras.stateMachine.layers[0], { color: 'red' });
 	Object.assign(extras.stateMachine.layers[0].states[0], { thumb: 'idle.png' });
 	Object.assign(extras.stateMachine.layers[0].transitions[0], { curve: 'ease' });
+	Object.assign(extras.events[0], { color: 'blue' });
+	Object.assign(extras.events[0].payload[0], { unit: 'coins' });
+	Object.assign(extras.root.children[0].on[0], { note: 'tap' });
+	Object.assign(extras.root.children[0].on[0].action, { delay: 2 });
+	Object.assign(extras.stateMachine.layers[0].states[0].onEnter[0], { once: true });
 	ignores('13. component', (d) => normalizeComponent(d as unknown as ComponentDef), base, extras, [
 		'"root":{',
 		'"params":[{',
 		'"signals":[{',
 		'"inputs":[{',
 		'"stateMachine":{',
+		'"events":[{',
+		'"on":[{',
+		'"onEnter":[{',
 	]);
 }
 

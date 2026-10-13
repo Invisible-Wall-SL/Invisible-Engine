@@ -54,6 +54,7 @@
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
+	import { getComponentListen } from './componentListenerContext';
 	import {
 		getComponentSignalAnims,
 		type ComponentCuePayload,
@@ -99,6 +100,14 @@
 	const onNodePress = () => {
 		if (node.pressAction) componentPress?.(node.pressAction);
 	};
+
+	// Listeners (Rive plan Phase 6): pointer events on this node act on its owning instance. Only a
+	// node that carries `on` reads the context, so every other node is untouched (parity).
+	const listen = node.on?.length ? getComponentListen() : undefined;
+	// A hover-only node keeps the default cursor; one that answers a press shows the hand.
+	const listenerCursor = node.on?.some((l) => l.event !== 'enter' && l.event !== 'leave')
+		? 'pointer'
+		: undefined;
 
 	// The hoisted tap-to-continue surface exposed by a `tapToContinue`-enabled
 	// `componentInstance` child (see the componentInstance branch below). `undefined`
@@ -1002,571 +1011,599 @@
 	{/if}
 {/snippet}
 
-{#if transform.visible && revealed}
-	{#if Bound}
-		<!--
-			Bound-component contract (read before migrating a coded component to a
-			`bind` node — see docs/design/invisible-editor.md §7.1):
-			this wrapping <Container> already applies POSITION x/y + scale/rotation/
-			alpha/zIndex. The bound component is therefore mounted at the node's
-			placement and MUST render its art at LOCAL origin — do NOT re-apply
-			transform.x/y (that double-positions it). It SHOULD read transform.anchor
-			+ transform.width/height for its own sprite/rig (Containers carry no
-			anchor/size), and leave scale at 1 (the container scales). With the
-			generator's transform == the component's current placement, a no-doc boot
-			renders byte-for-byte as before.
-
-			`cover` is the doc-driven background cover intent (§10.3 step 5): a
-			`background`-space bind anchor (the full-bleed Background) receives the
-			canonical cover `scale` + `fit` so the coded component sizes its rig to
-			the canvas via pixi-svelte's `fit` instead of hardcoding a scale. Purely
-			additive — a bound component that ignores `cover` renders exactly as today
-			(parity). The cover scale is applied OUTSIDE this container (against the
-			canvas), so the container's own `transform.scale` stays the placement scale.
-		-->
-		<Container
-			x={posX}
-			y={posY}
-			scale={transform.scale}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-		>
-			<Anchor name={node.id} />
-			{#if isBackground}
-				<Bound
-					{transform}
-					cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
-					{...node.bind?.props ?? {}}
-					{...boundSkin}
-				/>
-			{:else}
-				<Bound {transform} {...node.bind?.props ?? {}} {...boundSkin} />
-			{/if}
-		</Container>
-	{:else if node.kind === 'container'}
-		<!--
-			A container carrying `pressAction` (a dialog button) turns interactive: the WHOLE container
-			becomes the hit surface (pixi hit-tests the children's bounds — the button's bg rect + label),
-			mirroring the authored art-button path. Non-press containers pass `undefined`, which
-			`propsSyncEffect` skips ⇒ the default (non-interactive) container — byte-identical parity.
-		-->
-		<Container
-			x={posX}
-			y={posY}
-			scale={transform.scale}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-			eventMode={isPressTarget ? 'static' : undefined}
-			cursor={isPressTarget ? 'pointer' : undefined}
-			onpointerup={isPressTarget ? onNodePress : undefined}
-		>
-			<Anchor name={node.id} />
-			{#each node.children as child (child.id)}
-				<svelte:self node={child} {space} />
-			{/each}
-		</Container>
-	{:else if node.kind === 'componentInstance'}
-		<!--
-			Component-instance placement (§8.6): this wrapping <Container> applies the
-			instance node's transform; <ComponentInstance> resolves the ComponentDef and
-			renders `def.root` through this same node-walk (so a component composes
-			identically to an inlined container). Static only in v1 — params/signals are
-			ignored (see ComponentInstance.svelte).
-
-			In a `background`-space scene the instance cover-fits the window as ONE unit:
-			`bgComponent` synthesises a centred cover transform (position + per-axis cover
-			scale) from the component's computed design box, replacing the authored x/y/
-			scale — mirroring the sprite/rig `bg` path. Outside background space, or until
-			the design box resolves, `bgComponent` is undefined ⇒ the authored transform is
-			used verbatim (byte-identical parity).
-		-->
-		<Container
-			x={gameFrame ? gameFrame.x : bgComponent ? bgComponent.x : posX}
-			y={gameFrame ? gameFrame.y : bgComponent ? bgComponent.y : posY}
-			scale={gameFrame ? gameFrame.scale : bgComponent ? bgComponent.scale : transform.scale}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-		>
-			<Anchor name={node.id} />
-			<ComponentInstance {node} {space} bind:tap={instanceTap} />
-		</Container>
-		<!--
-			Tap-to-continue hoist (Invisible Flow §6.2): a `tapToContinue`-enabled overlay
-			instance exposes its full-CANVAS tap surface (dim + full-screen hit area + prompt)
-			via `bind:tap`; we render it HERE, as a SIBLING of the transform wrapper above, so
-			it covers the real canvas regardless of the instance's per-layoutType placement/
-			scale (the portrait offset+scale used to push the "full-screen" hit rectangle off
-			the visible canvas and double-scale the prompt). This mirrors the engine-owned
-			free-spin gate, which is a scene-root canvas bind — never positioned. OFF ⇒
-			`instanceTap` stays undefined ⇒ nothing renders here (byte-identical parity).
-		-->
-		{#if instanceTap}
-			{@render instanceTap()}
-		{/if}
-	{:else if node.kind === 'repeater'}
-		<!--
-			Data-driven repeater (§ feature cards): this wrapping <Container> applies the repeater
-			node's own transform (position the WHOLE list), then <Repeater> resolves the live
-			`source` array and renders one <ComponentInstance> per item, each offset by the layout
-			rule inside its own container. The editor can't run the live source, so it draws a
-			placeholder; the game mounts the real per-item instances. No registered source ⇒
-			nothing renders (parity).
-		-->
-		<Container
-			x={posX}
-			y={posY}
-			scale={transform.scale}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-		>
-			<Repeater {node} {space} />
-		</Container>
-	{:else if node.kind === 'sprite'}
-		{#if fillBound && !bg && spriteKey}
+{#snippet nodeBody()}
+	{#if transform.visible && revealed}
+		{#if Bound}
 			<!--
-				A `fill` value binding reveals the sprite from one edge: the placement moves onto a wrapper
-				so the mask rect is drawn in the sprite's own (unrotated) space — a pot's liquid filling
-				upward, a bar filling rightward, at any rotation. The branch is the node's for life (a
-				switch would remount the art); the mask is off until there is a rect. A node without a
-				fill binding takes the plain sprite below, byte-identical.
+				Bound-component contract (read before migrating a coded component to a
+				`bind` node — see docs/design/invisible-editor.md §7.1):
+				this wrapping <Container> already applies POSITION x/y + scale/rotation/
+				alpha/zIndex. The bound component is therefore mounted at the node's
+				placement and MUST render its art at LOCAL origin — do NOT re-apply
+				transform.x/y (that double-positions it). It SHOULD read transform.anchor
+				+ transform.width/height for its own sprite/rig (Containers carry no
+				anchor/size), and leave scale at 1 (the container scales). With the
+				generator's transform == the component's current placement, a no-doc boot
+				renders byte-for-byte as before.
+
+				`cover` is the doc-driven background cover intent (§10.3 step 5): a
+				`background`-space bind anchor (the full-bleed Background) receives the
+				canonical cover `scale` + `fit` so the coded component sizes its rig to
+				the canvas via pixi-svelte's `fit` instead of hardcoding a scale. Purely
+				additive — a bound component that ignores `cover` renders exactly as today
+				(parity). The cover scale is applied OUTSIDE this container (against the
+				canvas), so the container's own `transform.scale` stays the placement scale.
 			-->
 			<Container
 				x={posX}
 				y={posY}
+				scale={transform.scale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
 			>
-				<Sprite
-					key={spriteKey}
-					fallbackKey={spriteFallbackKey}
-					anchor={transform.anchor}
-					scale={sizedScale}
-					width={sizedWidth}
-					height={sizedHeight}
-					contain={spriteContain}
-					tint={spriteTint}
-					{blendMode}
-				/>
-				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
+				<Anchor name={node.id} />
+				{#if isBackground}
+					<Bound
+						{transform}
+						cover={{ scale: bgCoverScale, fit: bgFit, stretch: bgStretch, anchor: bgAnchor }}
+						{...node.bind?.props ?? {}}
+						{...boundSkin}
+					/>
+				{:else}
+					<Bound {transform} {...node.bind?.props ?? {}} {...boundSkin} />
+				{/if}
 			</Container>
-		{:else}
-			<Sprite
-				key={spriteKey}
-				fallbackKey={spriteFallbackKey}
-				x={bg ? bg.x : posX}
-				y={bg ? bg.y : posY}
-				anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
-				scale={bg ? bg.scale : sizedScale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-				width={bg ? undefined : sizedWidth}
-				height={bg ? undefined : sizedHeight}
-				contain={bg ? undefined : spriteContain}
-				tint={spriteTint}
-				{blendMode}
-			/>
-		{/if}
-	{:else if node.kind === 'rect'}
-		<!--
-			Flat filled rectangle (§ rect node): a vector `<Rectangle>` (pixi `Graphics`
-			rect) — the basic fill primitive for full-screen dims, panels and colour
-			blocks. Vector, so it scales losslessly. `width`/`height` come from the node
-			(scale folded in above); `color` → `backgroundColor` (default `0xffffff`);
-			opacity is the standard `transform.alpha`. Default anchor `{0.5,0.5}` (centred —
-			matching the editor's 2D draw, hit-test and spawn, so an anchor-less rect lands
-			identically in editor + game); set `{0,0}` to pin from the top-left.
-		-->
-		{#if fillBound}
-			<!-- A `fill` reveal — the same wrapper + mask as the sprite branch. -->
+		{:else if node.kind === 'container'}
+			<!--
+				A container carrying `pressAction` (a dialog button) turns interactive: the WHOLE container
+				becomes the hit surface (pixi hit-tests the children's bounds — the button's bg rect + label),
+				mirroring the authored art-button path. Non-press containers pass `undefined`, which
+				`propsSyncEffect` skips ⇒ the default (non-interactive) container — byte-identical parity.
+			-->
 			<Container
 				x={posX}
 				y={posY}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+				eventMode={isPressTarget ? 'static' : undefined}
+				cursor={isPressTarget ? 'pointer' : undefined}
+				onpointerup={isPressTarget ? onNodePress : undefined}
+			>
+				<Anchor name={node.id} />
+				{#each node.children as child (child.id)}
+					<svelte:self node={child} {space} />
+				{/each}
+			</Container>
+		{:else if node.kind === 'componentInstance'}
+			<!--
+				Component-instance placement (§8.6): this wrapping <Container> applies the
+				instance node's transform; <ComponentInstance> resolves the ComponentDef and
+				renders `def.root` through this same node-walk (so a component composes
+				identically to an inlined container). Static only in v1 — params/signals are
+				ignored (see ComponentInstance.svelte).
+
+				In a `background`-space scene the instance cover-fits the window as ONE unit:
+				`bgComponent` synthesises a centred cover transform (position + per-axis cover
+				scale) from the component's computed design box, replacing the authored x/y/
+				scale — mirroring the sprite/rig `bg` path. Outside background space, or until
+				the design box resolves, `bgComponent` is undefined ⇒ the authored transform is
+				used verbatim (byte-identical parity).
+			-->
+			<Container
+				x={gameFrame ? gameFrame.x : bgComponent ? bgComponent.x : posX}
+				y={gameFrame ? gameFrame.y : bgComponent ? bgComponent.y : posY}
+				scale={gameFrame ? gameFrame.scale : bgComponent ? bgComponent.scale : transform.scale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
 			>
+				<Anchor name={node.id} />
+				<ComponentInstance {node} {space} bind:tap={instanceTap} />
+			</Container>
+			<!--
+				Tap-to-continue hoist (Invisible Flow §6.2): a `tapToContinue`-enabled overlay
+				instance exposes its full-CANVAS tap surface (dim + full-screen hit area + prompt)
+				via `bind:tap`; we render it HERE, as a SIBLING of the transform wrapper above, so
+				it covers the real canvas regardless of the instance's per-layoutType placement/
+				scale (the portrait offset+scale used to push the "full-screen" hit rectangle off
+				the visible canvas and double-scale the prompt). This mirrors the engine-owned
+				free-spin gate, which is a scene-root canvas bind — never positioned. OFF ⇒
+				`instanceTap` stays undefined ⇒ nothing renders here (byte-identical parity).
+			-->
+			{#if instanceTap}
+				{@render instanceTap()}
+			{/if}
+		{:else if node.kind === 'repeater'}
+			<!--
+				Data-driven repeater (§ feature cards): this wrapping <Container> applies the repeater
+				node's own transform (position the WHOLE list), then <Repeater> resolves the live
+				`source` array and renders one <ComponentInstance> per item, each offset by the layout
+				rule inside its own container. The editor can't run the live source, so it draws a
+				placeholder; the game mounts the real per-item instances. No registered source ⇒
+				nothing renders (parity).
+			-->
+			<Container
+				x={posX}
+				y={posY}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			>
+				<Repeater {node} {space} />
+			</Container>
+		{:else if node.kind === 'sprite'}
+			{#if fillBound && !bg && spriteKey}
+				<!--
+					A `fill` value binding reveals the sprite from one edge: the placement moves onto a wrapper
+					so the mask rect is drawn in the sprite's own (unrotated) space — a pot's liquid filling
+					upward, a bar filling rightward, at any rotation. The branch is the node's for life (a
+					switch would remount the art); the mask is off until there is a rect. A node without a
+					fill binding takes the plain sprite below, byte-identical.
+				-->
+				<Container
+					x={posX}
+					y={posY}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+				>
+					<Sprite
+						key={spriteKey}
+						fallbackKey={spriteFallbackKey}
+						anchor={transform.anchor}
+						scale={sizedScale}
+						width={sizedWidth}
+						height={sizedHeight}
+						contain={spriteContain}
+						tint={spriteTint}
+						{blendMode}
+					/>
+					<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
+				</Container>
+			{:else}
+				<Sprite
+					key={spriteKey}
+					fallbackKey={spriteFallbackKey}
+					x={bg ? bg.x : posX}
+					y={bg ? bg.y : posY}
+					anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
+					scale={bg ? bg.scale : sizedScale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+					width={bg ? undefined : sizedWidth}
+					height={bg ? undefined : sizedHeight}
+					contain={bg ? undefined : spriteContain}
+					tint={spriteTint}
+					{blendMode}
+				/>
+			{/if}
+		{:else if node.kind === 'rect'}
+			<!--
+				Flat filled rectangle (§ rect node): a vector `<Rectangle>` (pixi `Graphics`
+				rect) — the basic fill primitive for full-screen dims, panels and colour
+				blocks. Vector, so it scales losslessly. `width`/`height` come from the node
+				(scale folded in above); `color` → `backgroundColor` (default `0xffffff`);
+				opacity is the standard `transform.alpha`. Default anchor `{0.5,0.5}` (centred —
+				matching the editor's 2D draw, hit-test and spawn, so an anchor-less rect lands
+				identically in editor + game); set `{0,0}` to pin from the top-left.
+			-->
+			{#if fillBound}
+				<!-- A `fill` reveal — the same wrapper + mask as the sprite branch. -->
+				<Container
+					x={posX}
+					y={posY}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+				>
+					<Rectangle
+						anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
+						width={rectWidth}
+						height={rectHeight}
+						backgroundColor={rectColor}
+					/>
+					<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
+				</Container>
+			{:else}
 				<Rectangle
+					x={posX}
+					y={posY}
 					anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
 					width={rectWidth}
 					height={rectHeight}
 					backgroundColor={rectColor}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
 				/>
-				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
-			</Container>
-		{:else}
-			<Rectangle
-				x={posX}
-				y={posY}
-				anchor={transform.anchor ?? { x: 0.5, y: 0.5 }}
-				width={rectWidth}
-				height={rectHeight}
-				backgroundColor={rectColor}
+			{/if}
+		{:else if node.kind === 'spine'}
+			{@const stateAnim = stateAnims?.[node.id]}
+			<!--
+				An owning `componentInstance`'s cue map wins; a rig placed straight in a screen falls
+				back to its own scene-level subscription (`sceneSigAnim`). Exactly one of the two is ever
+				populated — the effect above no-ops whenever `signalAnims` exists — so this is a fallback,
+				not a merge.
+			-->
+			{@const sigAnim = signalAnims?.[node.id] ?? sceneSigAnim}
+			{@const override = stateAnim ?? sigAnim}
+			<!--
+				Per-instance RESTING overrides: a placement may swap this rig's resting
+				animation / loop / skin (its at-rest look) without touching the def. Each
+				falls back to the def node's value, so an un-overridden rig is parity.
+			-->
+			{@const rest = rigRest?.[node.id]}
+			<!--
+				Resting animation / loop precedence: a per-instance `rigRest` override (keyed by node
+				id) wins, then a `paramBindings`-driven param (`boundRigAnimation`/`boundRigLoop` — a
+				prefab picking its clip per instance), then the node's own static value. Empty/wrong-type
+				bound values fall through, so an unbound rig is byte-identical to today (parity).
+			-->
+			{@const effDefaultAnimation =
+				rest?.defaultAnimation ??
+				(typeof boundRigAnimation === 'string' && boundRigAnimation
+					? boundRigAnimation
+					: node.defaultAnimation)}
+			{@const effLoop =
+				rest?.loop ?? (typeof boundRigLoop === 'boolean' ? boundRigLoop : node.loop)}
+			{@const effSkin = rest?.skin ?? node.skin}
+			<!--
+				State-overlay rig: a rig that declares button `stateAnimations` but NO resting
+				`defaultAnimation` is meant to appear ONLY while a state is active (e.g. an image
+				button that turns into a rig during the spin). Hide it until an override (a state
+				animation or a signal cue) gives it something to play; otherwise it would sit on its
+				static bind pose over the button. A rig with a `defaultAnimation`, or one without
+				`stateAnimations` at all (every rig before this feature), is always visible — parity.
+			-->
+			{@const isStateOverlay =
+				!effDefaultAnimation &&
+				!!node.stateAnimations &&
+				Object.keys(node.stateAnimations).length > 0}
+			{@const rigVisible = !isStateOverlay || !!override}
+			<!--
+				Anchor / placement parity with the editor: the editor preview places a rig's
+				SKELETON ORIGIN at the node position (anchor only frames the selection box, never
+				shifts the art — see `matFromTransform` "Anchor is NOT folded in here" + the rig
+				overlay's `skeleton.x = world.x`). `RigProvider`'s `anchorToPivot` instead pivots
+				the art by `anchor·size` (assuming top-left-origin art), which offsets an
+				origin-centred skeleton in-game vs the editor. So for a NON-background rig we pass
+				NO anchor → pivot 0 → origin at the node position, matching the editor exactly.
+				Background rigs keep `transform.anchor` (their cover path centres via `coverTransform`
+				and is untouched). Default-anchor (0) rigs already resolved to pivot 0, so they're
+				byte-identical; only the previously-offset non-zero-anchor case moves into parity.
+			-->
+			<RigProvider
+				key={rigAssetKey ?? node.assetKey}
+				x={bg ? bg.x : (rigCoverCenter?.x ?? posX) + (bgRigOffset?.dx ?? 0)}
+				y={bg ? bg.y : (rigCoverCenter?.y ?? posY) + (bgRigOffset?.dy ?? 0)}
+				anchor={isCover ? transform.anchor : undefined}
+				scale={bgRigBox ? bgRigScale : sizedScale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
-			/>
-		{/if}
-	{:else if node.kind === 'spine'}
-		{@const stateAnim = stateAnims?.[node.id]}
-		<!--
-			An owning `componentInstance`'s cue map wins; a rig placed straight in a screen falls
-			back to its own scene-level subscription (`sceneSigAnim`). Exactly one of the two is ever
-			populated — the effect above no-ops whenever `signalAnims` exists — so this is a fallback,
-			not a merge.
-		-->
-		{@const sigAnim = signalAnims?.[node.id] ?? sceneSigAnim}
-		{@const override = stateAnim ?? sigAnim}
-		<!--
-			Per-instance RESTING overrides: a placement may swap this rig's resting
-			animation / loop / skin (its at-rest look) without touching the def. Each
-			falls back to the def node's value, so an un-overridden rig is parity.
-		-->
-		{@const rest = rigRest?.[node.id]}
-		<!--
-			Resting animation / loop precedence: a per-instance `rigRest` override (keyed by node
-			id) wins, then a `paramBindings`-driven param (`boundRigAnimation`/`boundRigLoop` — a
-			prefab picking its clip per instance), then the node's own static value. Empty/wrong-type
-			bound values fall through, so an unbound rig is byte-identical to today (parity).
-		-->
-		{@const effDefaultAnimation =
-			rest?.defaultAnimation ??
-			(typeof boundRigAnimation === 'string' && boundRigAnimation
-				? boundRigAnimation
-				: node.defaultAnimation)}
-		{@const effLoop = rest?.loop ?? (typeof boundRigLoop === 'boolean' ? boundRigLoop : node.loop)}
-		{@const effSkin = rest?.skin ?? node.skin}
-		<!--
-			State-overlay rig: a rig that declares button `stateAnimations` but NO resting
-			`defaultAnimation` is meant to appear ONLY while a state is active (e.g. an image
-			button that turns into a rig during the spin). Hide it until an override (a state
-			animation or a signal cue) gives it something to play; otherwise it would sit on its
-			static bind pose over the button. A rig with a `defaultAnimation`, or one without
-			`stateAnimations` at all (every rig before this feature), is always visible — parity.
-		-->
-		{@const isStateOverlay =
-			!effDefaultAnimation &&
-			!!node.stateAnimations &&
-			Object.keys(node.stateAnimations).length > 0}
-		{@const rigVisible = !isStateOverlay || !!override}
-		<!--
-			Anchor / placement parity with the editor: the editor preview places a rig's
-			SKELETON ORIGIN at the node position (anchor only frames the selection box, never
-			shifts the art — see `matFromTransform` "Anchor is NOT folded in here" + the rig
-			overlay's `skeleton.x = world.x`). `RigProvider`'s `anchorToPivot` instead pivots
-			the art by `anchor·size` (assuming top-left-origin art), which offsets an
-			origin-centred skeleton in-game vs the editor. So for a NON-background rig we pass
-			NO anchor → pivot 0 → origin at the node position, matching the editor exactly.
-			Background rigs keep `transform.anchor` (their cover path centres via `coverTransform`
-			and is untouched). Default-anchor (0) rigs already resolved to pivot 0, so they're
-			byte-identical; only the previously-offset non-zero-anchor case moves into parity.
-		-->
-		<RigProvider
-			key={rigAssetKey ?? node.assetKey}
-			x={bg ? bg.x : (rigCoverCenter?.x ?? posX) + (bgRigOffset?.dx ?? 0)}
-			y={bg ? bg.y : (rigCoverCenter?.y ?? posY) + (bgRigOffset?.dy ?? 0)}
-			anchor={isCover ? transform.anchor : undefined}
-			scale={bgRigBox ? bgRigScale : sizedScale}
-			rotation={transform.rotation}
-			alpha={transform.alpha}
-			zIndex={transform.zIndex}
-			width={bgRigBox ? bgRigBox.width : sizedWidth}
-			height={bgRigBox ? bgRigBox.height : sizedHeight}
-			fit={bgRigBox ? bgFit : undefined}
-			skin={effSkin}
-			visible={rigVisible}
-			rebroadcastEvents
-		>
-			<!--
-				A button-STATE animation (hover/press/…) wins over a signal cue, which wins
-				over the resting `defaultAnimation` — so a rig button reacts to its state
-				immediately and returns to rest when the state clears.
-
-				One-shot → idle hand-off (signal cues only): when a NON-LOOPING signal cue is active
-				(e.g. `enter` → `intro`) AND the node has a different `defaultAnimation` (the resting
-				`idle`), play the cue animation ONCE then settle into the looping default — the
-				free-spin-intro pattern (intro plays, idle loops, the gate holds the screen until
-				the tap). A state animation loops/holds while its state is active instead, so the
-				hand-off is suppressed while one is in effect. With no override, or no distinct
-				default, this is the prior single-animation behaviour.
-
-				A cue that explicitly asks to LOOP is exempt: the hand-off used to fire on "cue
-				animation ≠ default", which is exactly the idle-plus-a-held-mode shape (an idle
-				character that plays a spin loop for the length of the spin), so the cue's own
-				`loop` was silently overridden to `false` and the mode animation played once. A
-				looping cue now holds until another cue replaces it — which is the only way to end
-				one, since a fired cue is never cleared. An unticked cue is unchanged.
-			-->
-			{@const anim = override?.animation ?? effDefaultAnimation}
-			{@const oneShotToIdle = handsOffToIdle(sigAnim, effDefaultAnimation, !!stateAnim)}
-			<!--
-				A signal cue is an EVENT: firing it again asks for a REPLAY, even though the animation
-				name is unchanged. Hand its fire token to the track so the repeat is distinguishable
-				from a re-render — without it the second fire compares equal, the track is left as-is,
-				and a finished one-shot rig sits frozen on its last frame for the rest of the session.
-				Only while the cue is the ACTIVE override: a button state animation drives the track
-				declaratively and must keep the plain value comparison.
-			-->
-			{@const replay = stateAnim ? undefined : sigAnim?.fire}
-			{#if anim}
+				width={bgRigBox ? bgRigBox.width : sizedWidth}
+				height={bgRigBox ? bgRigBox.height : sizedHeight}
+				fit={bgRigBox ? bgFit : undefined}
+				skin={effSkin}
+				visible={rigVisible}
+				rebroadcastEvents
+			>
 				<!--
-					Completion signal (Invisible Flow — intro-complete sequencing): when the ACTIVE signal
-					cue names a `completeSignal`, fire it on the instance's fired-signal bus the moment this
-					one-shot finishes — so sibling nodes gated by `hiddenUntilSignal` reveal + a tap arms.
-					Only for a signal cue (`sigAnim`), never a button-state animation; only when the owning
-					instance provides the bus. Absent ⇒ no listener (parity).
+					A button-STATE animation (hover/press/…) wins over a signal cue, which wins
+					over the resting `defaultAnimation` — so a rig button reacts to its state
+					immediately and returns to rest when the state clears.
+
+					One-shot → idle hand-off (signal cues only): when a NON-LOOPING signal cue is active
+					(e.g. `enter` → `intro`) AND the node has a different `defaultAnimation` (the resting
+					`idle`), play the cue animation ONCE then settle into the looping default — the
+					free-spin-intro pattern (intro plays, idle loops, the gate holds the screen until
+					the tap). A state animation loops/holds while its state is active instead, so the
+					hand-off is suppressed while one is in effect. With no override, or no distinct
+					default, this is the prior single-animation behaviour.
+
+					A cue that explicitly asks to LOOP is exempt: the hand-off used to fire on "cue
+					animation ≠ default", which is exactly the idle-plus-a-held-mode shape (an idle
+					character that plays a spin loop for the length of the spin), so the cue's own
+					`loop` was silently overridden to `false` and the mode animation played once. A
+					looping cue now holds until another cue replaces it — which is the only way to end
+					one, since a fired cue is never cleared. An unticked cue is unchanged.
 				-->
-				{@const completeSignal = stateAnim ? undefined : sigAnim?.completeSignal}
-				<RigTrack
-					trackIndex={0}
-					animationName={anim}
-					loop={oneShotToIdle ? false : (override?.loop ?? effLoop ?? true)}
-					then={oneShotToIdle ? effDefaultAnimation : undefined}
-					thenLoop={effLoop ?? true}
-					{replay}
-					oncomplete={completeSignal && firedSignals
-						? () => firedSignals.fire(completeSignal)
-						: undefined}
+				{@const anim = override?.animation ?? effDefaultAnimation}
+				{@const oneShotToIdle = handsOffToIdle(sigAnim, effDefaultAnimation, !!stateAnim)}
+				<!--
+					A signal cue is an EVENT: firing it again asks for a REPLAY, even though the animation
+					name is unchanged. Hand its fire token to the track so the repeat is distinguishable
+					from a re-render — without it the second fire compares equal, the track is left as-is,
+					and a finished one-shot rig sits frozen on its last frame for the rest of the session.
+					Only while the cue is the ACTIVE override: a button state animation drives the track
+					declaratively and must keep the plain value comparison.
+				-->
+				{@const replay = stateAnim ? undefined : sigAnim?.fire}
+				{#if anim}
+					<!--
+						Completion signal (Invisible Flow — intro-complete sequencing): when the ACTIVE signal
+						cue names a `completeSignal`, fire it on the instance's fired-signal bus the moment this
+						one-shot finishes — so sibling nodes gated by `hiddenUntilSignal` reveal + a tap arms.
+						Only for a signal cue (`sigAnim`), never a button-state animation; only when the owning
+						instance provides the bus. Absent ⇒ no listener (parity).
+					-->
+					{@const completeSignal = stateAnim ? undefined : sigAnim?.completeSignal}
+					<RigTrack
+						trackIndex={0}
+						animationName={anim}
+						loop={oneShotToIdle ? false : (override?.loop ?? effLoop ?? true)}
+						then={oneShotToIdle ? effDefaultAnimation : undefined}
+						thenLoop={effLoop ?? true}
+						{replay}
+						oncomplete={completeSignal && firedSignals
+							? () => firedSignals.fire(completeSignal)
+							: undefined}
+					/>
+				{/if}
+				<!--
+					Value bindings on a rig (Phase 12b): an `animTime` scrub holds an animation at the bound
+					share of its length and a `bone` offset poses a bone, both on top of whatever is playing,
+					every frame (`<RigPose>`). Mounted for the node's life when it binds either, so a value
+					arriving never remounts it; not at all for any other rig (parity).
+				-->
+				{#if poseBound}
+					<RigPose {scrubs} bones={boneOffsets} />
+				{/if}
+				<!--
+					Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
+					`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<RigProvider>` — no extra
+					transform, so a bone layer resolves this rig's bone (`RigBoneAttach` → `getContextRig`)
+					and the rig's timeline events (rebroadcast) fire it. The effect rides the rig; its own node
+					transform is intentionally not applied here.
+				-->
+				{#each attachedEffects ?? [] as fx (fx.id)}
+					{@const fxDoc = resolveEffect(fx.effectId)}
+					{#if fxDoc}
+						<EffectPlayer doc={fxDoc} scope={signalScope} />
+					{/if}
+				{/each}
+				<!--
+					Reveal-symbol rider: ride the chosen `stateGame.specialSymbol` on a named bone of THIS
+					rig (`RigNode.revealSymbolBone`) — the on-node alternative to the rig-spawning
+					`freeSpinIntroSymbolReveal` component. Same bone-hosting mechanism as `attachedEffects`
+					above: mount the game's registered `revealSymbolRider` on the bone via `<RigBoneAttach>`
+					so the symbol banks/scales with the rig. Unset bone, or a game that didn't register the
+					rider ⇒ nothing mounts (parity).
+				-->
+				{#if node.revealSymbolBone}
+					{@const RevealRider = getBoundComponent('revealSymbolRider')}
+					{#if RevealRider}
+						<RigBoneAttach
+							boneName={node.revealSymbolBone}
+							offset={{ x: node.revealSymbolOffsetX ?? 0, y: node.revealSymbolOffsetY ?? 0 }}
+							followRotation={node.revealSymbolFollowRotation ?? true}
+							followScale={node.revealSymbolFollowScale ?? true}
+						>
+							<RevealRider
+								state={node.revealSymbolState ?? 'bookIdle'}
+								scale={node.revealSymbolScale ?? 1}
+							/>
+						</RigBoneAttach>
+					{/if}
+				{/if}
+			</RigProvider>
+		{:else if node.kind === 'text'}
+			{#if numericValue !== undefined}
+				<!--
+					B2 numeric readout: this text node is bound to a numeric `value` param
+					fed by `<ComponentInstance>`. `<ParamReadoutText>` formats it (and counts
+					up when `params.countUp` is set). Every other text node falls through to
+					the unchanged B1 `<Text>` below — parity.
+				-->
+				<ParamReadoutText
+					target={numericValue}
+					x={posX}
+					y={posY}
+					anchor={transform.anchor}
+					scale={transform.scale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+					style={resolvedStyle}
+					{countUp}
+					format={formatValue}
+					boxWidth={textHasBox ? textBoxWidth : undefined}
+					boxHeight={textBoxHeight}
+					padding={textPadding}
+					autoFit={textAutoFit}
+				/>
+			{:else if resolvedText && hasInlineImage(resolvedText)}
+				<!--
+					Inline-image message (`inlineImage.ts`): a text node whose resolved string carries a
+					symbol-image sentinel (the Invisible Win Text "show symbol as image" toast) lays out as
+					mixed text runs + the game's symbol renderer rather than one `<Text>`. Only ever true
+					for a string a game deliberately built (`wrapInlineImage`); no authored copy contains
+					the private-use sentinel, so every existing text node falls straight through to the
+					branches below (parity).
+
+					Checked BEFORE the box branch, and handed the box knobs when there is one: the Info
+					Bar's message is engine-fed and LOCALIZED, so its instance routinely carries a box
+					width + auto-fit to keep a translation inside the plaque art — and while `<TextBox>`
+					owned every boxed node, that box silently `stripInlineImage`d the message back to the
+					symbol NAME, so the toggle did nothing on exactly the bars that needed the box.
+					`<InlineImageText>` lays the row out with the SAME `textBoxLayout` helpers, so a boxed
+					message with an image sits where one without it would.
+				-->
+				<InlineImageText
+					text={resolvedText}
+					style={resolvedStyle}
+					boxWidth={textHasBox ? textBoxWidth : undefined}
+					boxHeight={textBoxHeight}
+					padding={textPadding}
+					autoFit={textAutoFit}
+					x={posX}
+					y={posY}
+					anchor={transform.anchor}
+					scale={transform.scale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+				/>
+			{:else if textHasBox}
+				<!--
+					Text BOX (explicit `width`, from the node or a bound `boxWidth` param): the
+					glyphs lay out INSIDE the box — aligned horizontally across `width` (`style.align`)
+					and vertically across `height` (`style.verticalAlign`), auto-shrinking the font
+					when `autoFit`. `<TextBox>` owns the box math + measurement; it still renders
+					through `<CatalogText>`, so the bitmap-vs-system-font decision is unchanged. A
+					box-less text node falls to the plain `<CatalogText>` below (byte-identical parity).
+
+					`stripInlineImage` is a safety net only — a sentinel-bearing string now takes the
+					branch above — and is identity for every string without a sentinel (parity).
+				-->
+				<TextBox
+					text={stripInlineImage(resolvedText ?? '')}
+					style={resolvedStyle}
+					boxWidth={textBoxWidth ?? 0}
+					boxHeight={textBoxHeight}
+					padding={textPadding}
+					autoFit={textAutoFit}
+					x={posX}
+					y={posY}
+					anchor={transform.anchor}
+					scale={transform.scale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+				/>
+			{:else}
+				<!--
+					§9.4 non-numeric text: `<CatalogText>` renders `<BitmapText>` (pixi's
+					BitmapFont blitter) when `resolvedStyle.fontFamily` names a bitmap family in
+					the boot-registered catalog, else the system-font `<Text>` (parity). The
+					SAME bitmap-vs-system decision every coded text part shares, kept in ONE
+					place so the HUD/button parts and layout text nodes can never drift.
+				-->
+				<CatalogText
+					text={resolvedText}
+					x={posX}
+					y={posY}
+					anchor={transform.anchor}
+					scale={transform.scale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+					style={resolvedStyle}
 				/>
 			{/if}
+		{:else if node.kind === 'effect'}
 			<!--
-				Value bindings on a rig (Phase 12b): an `animTime` scrub holds an animation at the bound
-				share of its length and a `bone` offset poses a bone, both on top of whatever is playing,
-				every frame (`<RigPose>`). Mounted for the node's life when it binds either, so a value
-				arriving never remounts it; not at all for any other rig (parity).
+				Placed Invisible FX effect: mount an <EffectPlayer> for the resolved doc inside this
+				node's transform <Container> (the SAME wrapper container/componentInstance use), so the
+				effect plays at the placed position; each layer's own `placement.offset` composes on top.
+				The doc resolves from the boot-registered effects (`registerEffects` ← `bakedEffects()`);
+				a dangling / un-baked id ⇒ undefined ⇒ nothing mounts (never crashes). A `bone`-placed
+				layer has no host <RigProvider> here, so it falls back to origin+offset (v1: scene-placed
+				effects are for FREE layers; bone effects mount on their host rig via Effects.svelte).
 			-->
-			{#if poseBound}
-				<RigPose {scrubs} bones={boneOffsets} />
+			{@const effectDoc = resolveEffect(node.effectId)}
+			{#if effectDoc}
+				<Container
+					x={posX}
+					y={posY}
+					scale={transform.scale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+					{blendMode}
+				>
+					<EffectPlayer doc={effectDoc} scope={signalScope} />
+				</Container>
 			{/if}
+		{:else if node.kind === 'flipbook'}
 			<!--
-				Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
-				`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<RigProvider>` — no extra
-				transform, so a bone layer resolves this rig's bone (`RigBoneAttach` → `getContextRig`)
-				and the rig's timeline events (rebroadcast) fire it. The effect rides the rig; its own node
-				transform is intentionally not applied here.
-			-->
-			{#each attachedEffects ?? [] as fx (fx.id)}
-				{@const fxDoc = resolveEffect(fx.effectId)}
-				{#if fxDoc}
-					<EffectPlayer doc={fxDoc} scope={signalScope} />
-				{/if}
-			{/each}
-			<!--
-				Reveal-symbol rider: ride the chosen `stateGame.specialSymbol` on a named bone of THIS
-				rig (`RigNode.revealSymbolBone`) — the on-node alternative to the rig-spawning
-				`freeSpinIntroSymbolReveal` component. Same bone-hosting mechanism as `attachedEffects`
-				above: mount the game's registered `revealSymbolRider` on the bone via `<RigBoneAttach>`
-				so the symbol banks/scales with the rig. Unset bone, or a game that didn't register the
-				rider ⇒ nothing mounts (parity).
-			-->
-			{#if node.revealSymbolBone}
-				{@const RevealRider = getBoundComponent('revealSymbolRider')}
-				{#if RevealRider}
-					<RigBoneAttach
-						boneName={node.revealSymbolBone}
-						offset={{ x: node.revealSymbolOffsetX ?? 0, y: node.revealSymbolOffsetY ?? 0 }}
-						followRotation={node.revealSymbolFollowRotation ?? true}
-						followScale={node.revealSymbolFollowScale ?? true}
-					>
-						<RevealRider
-							state={node.revealSymbolState ?? 'bookIdle'}
-							scale={node.revealSymbolScale ?? 1}
-						/>
-					</RigBoneAttach>
-				{/if}
-			{/if}
-		</RigProvider>
-	{:else if node.kind === 'text'}
-		{#if numericValue !== undefined}
-			<!--
-				B2 numeric readout: this text node is bound to a numeric `value` param
-				fed by `<ComponentInstance>`. `<ParamReadoutText>` formats it (and counts
-				up when `params.countUp` is set). Every other text node falls through to
-				the unchanged B1 `<Text>` below — parity.
-			-->
-			<ParamReadoutText
-				target={numericValue}
-				x={posX}
-				y={posY}
-				anchor={transform.anchor}
-				scale={transform.scale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-				style={resolvedStyle}
-				{countUp}
-				format={formatValue}
-				boxWidth={textHasBox ? textBoxWidth : undefined}
-				boxHeight={textBoxHeight}
-				padding={textPadding}
-				autoFit={textAutoFit}
-			/>
-		{:else if resolvedText && hasInlineImage(resolvedText)}
-			<!--
-				Inline-image message (`inlineImage.ts`): a text node whose resolved string carries a
-				symbol-image sentinel (the Invisible Win Text "show symbol as image" toast) lays out as
-				mixed text runs + the game's symbol renderer rather than one `<Text>`. Only ever true
-				for a string a game deliberately built (`wrapInlineImage`); no authored copy contains
-				the private-use sentinel, so every existing text node falls straight through to the
-				branches below (parity).
+				Placed Invisible Flipbook clip: the frame-animation twin of the `sprite` branch above.
+				The clip resolves from the boot-registered clips (`registerFlipbooks` ← `bakedFlipbooks()`);
+				a dangling / un-baked id ⇒ undefined ⇒ nothing mounts (never crashes, and deliberately no
+				whole-sheet fallback — see <Flipbook>). `<Flipbook>` resolves the ordered frames to textures
+				itself, so this branch only supplies placement, exactly like <Sprite>: size folded into
+				width/height (scale then stays 1) or a plain `scale` when unsized, so "what you size in the
+				editor" is what the game draws. `fps`/`loop`/`direction`/`flipX`/`flipY` are per-PLACEMENT
+				overrides of the clip's own values, folded into the clip object above — absent ⇒ the
+				authored clip is played verbatim.
 
-				Checked BEFORE the box branch, and handed the box knobs when there is one: the Info
-				Bar's message is engine-fed and LOCALIZED, so its instance routinely carries a box
-				width + auto-fit to keep a translation inside the plaque art — and while `<TextBox>`
-				owned every boxed node, that box silently `stripInlineImage`d the message back to the
-				symbol NAME, so the toggle did nothing on exactly the bars that needed the box.
-				`<InlineImageText>` lays the row out with the SAME `textBoxLayout` helpers, so a boxed
-				message with an image sits where one without it would.
+				`bg` is the cover branch, shared verbatim with <Sprite> above: a clip on a `background`
+				screen (or a `coverFit` one on a flow-gated `canvas` screen) fills the window with a true
+				aspect-preserving cover instead of drawing at its authored size — the clip's first frame
+				supplies the natural dims (`flipbookCoverRef`). Without it a full-bleed animated backdrop
+				had to be hand-scaled to the window and letterboxed on every other device ratio.
 			-->
-			<InlineImageText
-				text={resolvedText}
-				style={resolvedStyle}
-				boxWidth={textHasBox ? textBoxWidth : undefined}
-				boxHeight={textBoxHeight}
-				padding={textPadding}
-				autoFit={textAutoFit}
-				x={posX}
-				y={posY}
-				anchor={transform.anchor}
-				scale={transform.scale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-			/>
-		{:else if textHasBox}
 			<!--
-				Text BOX (explicit `width`, from the node or a bound `boxWidth` param): the
-				glyphs lay out INSIDE the box — aligned horizontally across `width` (`style.align`)
-				and vertically across `height` (`style.verticalAlign`), auto-shrinking the font
-				when `autoFit`. `<TextBox>` owns the box math + measurement; it still renders
-				through `<CatalogText>`, so the bitmap-vs-system-font decision is unchanged. A
-				box-less text node falls to the plain `<CatalogText>` below (byte-identical parity).
-
-				`stripInlineImage` is a safety net only — a sentinel-bearing string now takes the
-				branch above — and is identity for every string without a sentinel (parity).
+				`frame`: a `frame` value binding holds the clip on the bound frame instead of playing it.
+				`fillRect`: a `fill` binding reveals it from one edge, as in the sprite branch.
 			-->
-			<TextBox
-				text={stripInlineImage(resolvedText ?? '')}
-				style={resolvedStyle}
-				boxWidth={textBoxWidth ?? 0}
-				boxHeight={textBoxHeight}
-				padding={textPadding}
-				autoFit={textAutoFit}
-				x={posX}
-				y={posY}
-				anchor={transform.anchor}
-				scale={transform.scale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-			/>
-		{:else}
-			<!--
-				§9.4 non-numeric text: `<CatalogText>` renders `<BitmapText>` (pixi's
-				BitmapFont blitter) when `resolvedStyle.fontFamily` names a bitmap family in
-				the boot-registered catalog, else the system-font `<Text>` (parity). The
-				SAME bitmap-vs-system decision every coded text part shares, kept in ONE
-				place so the HUD/button parts and layout text nodes can never drift.
-			-->
-			<CatalogText
-				text={resolvedText}
-				x={posX}
-				y={posY}
-				anchor={transform.anchor}
-				scale={transform.scale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-				style={resolvedStyle}
-			/>
-		{/if}
-	{:else if node.kind === 'effect'}
-		<!--
-			Placed Invisible FX effect: mount an <EffectPlayer> for the resolved doc inside this
-			node's transform <Container> (the SAME wrapper container/componentInstance use), so the
-			effect plays at the placed position; each layer's own `placement.offset` composes on top.
-			The doc resolves from the boot-registered effects (`registerEffects` ← `bakedEffects()`);
-			a dangling / un-baked id ⇒ undefined ⇒ nothing mounts (never crashes). A `bone`-placed
-			layer has no host <RigProvider> here, so it falls back to origin+offset (v1: scene-placed
-			effects are for FREE layers; bone effects mount on their host rig via Effects.svelte).
-		-->
-		{@const effectDoc = resolveEffect(node.effectId)}
-		{#if effectDoc}
-			<Container
-				x={posX}
-				y={posY}
-				scale={transform.scale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-				{blendMode}
-			>
-				<EffectPlayer doc={effectDoc} scope={signalScope} />
-			</Container>
-		{/if}
-	{:else if node.kind === 'flipbook'}
-		<!--
-			Placed Invisible Flipbook clip: the frame-animation twin of the `sprite` branch above.
-			The clip resolves from the boot-registered clips (`registerFlipbooks` ← `bakedFlipbooks()`);
-			a dangling / un-baked id ⇒ undefined ⇒ nothing mounts (never crashes, and deliberately no
-			whole-sheet fallback — see <Flipbook>). `<Flipbook>` resolves the ordered frames to textures
-			itself, so this branch only supplies placement, exactly like <Sprite>: size folded into
-			width/height (scale then stays 1) or a plain `scale` when unsized, so "what you size in the
-			editor" is what the game draws. `fps`/`loop`/`direction`/`flipX`/`flipY` are per-PLACEMENT
-			overrides of the clip's own values, folded into the clip object above — absent ⇒ the
-			authored clip is played verbatim.
-
-			`bg` is the cover branch, shared verbatim with <Sprite> above: a clip on a `background`
-			screen (or a `coverFit` one on a flow-gated `canvas` screen) fills the window with a true
-			aspect-preserving cover instead of drawing at its authored size — the clip's first frame
-			supplies the natural dims (`flipbookCoverRef`). Without it a full-bleed animated backdrop
-			had to be hand-scaled to the window and letterboxed on every other device ratio.
-		-->
-		<!--
-			`frame`: a `frame` value binding holds the clip on the bound frame instead of playing it.
-			`fillRect`: a `fill` binding reveals it from one edge, as in the sprite branch.
-		-->
-		{#if flipbookClip && fillBound && !bg}
-			<Container
-				x={posX}
-				y={posY}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-			>
+			{#if flipbookClip && fillBound && !bg}
+				<Container
+					x={posX}
+					y={posY}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+				>
+					<Flipbook
+						clip={flipbookClip}
+						anchor={transform.anchor}
+						scale={sizedScale}
+						width={sizedWidth}
+						height={sizedHeight}
+						tint={transform.tint}
+						frame={heldFrame}
+						{blendMode}
+					/>
+					<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
+				</Container>
+			{:else if flipbookClip}
 				<Flipbook
 					clip={flipbookClip}
-					anchor={transform.anchor}
-					scale={sizedScale}
-					width={sizedWidth}
-					height={sizedHeight}
+					x={bg ? bg.x : posX}
+					y={bg ? bg.y : posY}
+					anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
+					scale={bg ? bg.scale : sizedScale}
+					rotation={transform.rotation}
+					alpha={transform.alpha}
+					zIndex={transform.zIndex}
+					width={bg ? undefined : sizedWidth}
+					height={bg ? undefined : sizedHeight}
 					tint={transform.tint}
 					frame={heldFrame}
 					{blendMode}
 				/>
-				<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
-			</Container>
-		{:else if flipbookClip}
-			<Flipbook
-				clip={flipbookClip}
-				x={bg ? bg.x : posX}
-				y={bg ? bg.y : posY}
-				anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
-				scale={bg ? bg.scale : sizedScale}
-				rotation={transform.rotation}
-				alpha={transform.alpha}
-				zIndex={transform.zIndex}
-				width={bg ? undefined : sizedWidth}
-				height={bg ? undefined : sizedHeight}
-				tint={transform.tint}
-				frame={heldFrame}
-				{blendMode}
-			/>
+			{/if}
 		{/if}
 	{/if}
+{/snippet}
+
+<!--
+	LISTENERS (Rive plan Phase 6): a node carrying `on` inside a component instance is wrapped in a
+	hit surface that hands its pointer events to the instance. The wrapper takes the node's `zIndex`
+	so it sorts among its siblings as the node did, and a press target inside it (a `pressAction`
+	container) still fires — events bubble to the wrapper too. No listeners, or no instance to
+	route them to, ⇒ the node renders bare, byte-identical (parity).
+-->
+{#if listen && node.on}
+	{@const listeners = node.on}
+	<Container
+		eventMode="static"
+		cursor={listenerCursor}
+		zIndex={transform.zIndex}
+		onpointerdown={() => listen(listeners, 'down')}
+		onpointerup={() => listen(listeners, 'up')}
+		onpointerenter={() => listen(listeners, 'enter')}
+		onpointerleave={() => listen(listeners, 'leave')}
+		onpointertap={() => listen(listeners, 'click')}
+	>
+		{@render nodeBody()}
+	</Container>
+{:else}
+	{@render nodeBody()}
 {/if}

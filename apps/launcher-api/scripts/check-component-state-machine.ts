@@ -236,6 +236,7 @@ eq(
 	I.componentInterface({ signals: [{ key: 'win' }], stateMachine: machine(layer()) }),
 	{
 		inputs: [{ id: 'win', kind: 'trigger' }],
+		events: [],
 		values: [{ id: 'main.state', kind: 'state', layer: 'main', states: ['idle', 'win', 'exit'] }],
 	},
 );

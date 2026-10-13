@@ -1,4 +1,10 @@
-import { SM_ANY_STATE, SM_EXIT_STATE, type ComponentDef, type ComponentInput } from './types';
+import {
+	SM_ANY_STATE,
+	SM_EXIT_STATE,
+	type ComponentDef,
+	type ComponentEvent,
+	type ComponentInput,
+} from './types';
 
 /**
  * The component INTERFACE (Rive plan §6.1): the one typed view of a `ComponentDef` that the state
@@ -55,12 +61,27 @@ export interface ComponentValue {
 
 export interface ComponentInterface {
 	inputs: ComponentInput[];
+	/** What the component TELLS Flow (Phase 6), deduped by id. */
+	events: ComponentEvent[];
 	values: ComponentValue[];
 }
 
-/** The derived interface of a def: its inputs (signals folded in) and the values it reports. */
+/** A def's declared events, the first of each id. */
+export function componentEvents(
+	def: Pick<ComponentDef, 'events'> | null | undefined,
+): ComponentEvent[] {
+	const seen = new Set<string>();
+	return (def?.events ?? []).filter((event) => {
+		if (!event?.id || seen.has(event.id)) return false;
+		seen.add(event.id);
+		return true;
+	});
+}
+
+/** The derived interface of a def: its inputs (signals folded in), its events and the values it
+ *  reports. */
 export function componentInterface(
-	def: Pick<ComponentDef, 'inputs' | 'signals' | 'stateMachine'> | null | undefined,
+	def: Pick<ComponentDef, 'inputs' | 'signals' | 'stateMachine' | 'events'> | null | undefined,
 ): ComponentInterface {
 	const values: ComponentValue[] = [];
 	for (const layer of def?.stateMachine?.layers ?? []) {
@@ -75,5 +96,5 @@ export function componentInterface(
 			],
 		});
 	}
-	return { inputs: componentInputs(def), values };
+	return { inputs: componentInputs(def), events: componentEvents(def), values };
 }

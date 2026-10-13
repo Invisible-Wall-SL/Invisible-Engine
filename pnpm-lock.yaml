@@ -1622,6 +1622,9 @@ importers:
       engine-cinematic:
         specifier: workspace:*
         version: link:../engine-cinematic
+      engine-flow-v2:
+        specifier: workspace:*
+        version: link:../engine-flow-v2
       engine-rig:
         specifier: workspace:*
         version: link:../engine-rig

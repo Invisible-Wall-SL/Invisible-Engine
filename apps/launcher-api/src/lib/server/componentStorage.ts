@@ -1,6 +1,11 @@
 import type {
 	ComponentCategory,
 	ComponentDef,
+	ComponentEvent,
+	EventPayloadValue,
+	ListenerAction,
+	NodeListener,
+	RaiseEventAction,
 	ComponentInput,
 	ComponentParam,
 	ComponentSignal,
@@ -19,7 +24,9 @@ import {
 	BUILTIN_COMPONENTS,
 	COMPONENT_INPUT_KINDS,
 	COMPONENT_PARAM_KINDS,
+	LISTENER_ACTION_KINDS,
 	mergeBuiltinCodedParams,
+	NODE_LISTENER_EVENTS,
 	pruneOrphanParamBindings,
 	SM_CONDITION_OPS,
 } from 'engine-layout';
@@ -73,6 +80,10 @@ const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
 const PARAM_KINDS = new Set<ComponentParam['kind']>(COMPONENT_PARAM_KINDS);
 const INPUT_KINDS = new Set<ComponentInput['kind']>(COMPONENT_INPUT_KINDS);
 const CONDITION_OPS = new Set<SmCondition['op']>(SM_CONDITION_OPS);
+const LISTENER_EVENTS = new Set<string>(NODE_LISTENER_EVENTS);
+const ACTION_KINDS = new Set<string>(LISTENER_ACTION_KINDS);
+/** The payload field types a raise can fill: numbers, bools and localization keys (plan §8). */
+const PAYLOAD_TYPES = new Set(['int', 'float', 'ms', 'bool', 'string']);
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
@@ -764,7 +775,7 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 		version: raw.version,
 		scope: raw.scope,
 		category: raw.category,
-		root: identityComponentRoot(raw.root),
+		root: normalizeRootListeners(identityComponentRoot(raw.root)),
 	};
 	// Authoring/preview space (default 'game' = omitted). Only persist a non-default
 	// value the editor understands; an unknown/absent value falls back to game space.
@@ -782,6 +793,9 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	if (inputs.length) def.inputs = inputs;
 	const stateMachine = normalizeStateMachine(raw.stateMachine);
 	if (stateMachine) def.stateMachine = stateMachine;
+	// What the component tells Flow (Phase 6). Node listeners are normalized on the root above.
+	const events = normalizeEvents(raw.events);
+	if (events.length) def.events = events;
 	// The param an instance's signal scope comes from, and the kind of part it names — kept only
 	// while that param exists, so a deleted param can't leave the def scoped by nothing.
 	if (typeof raw.signalScope === 'string' && params.some((p) => p.key === raw.signalScope)) {
@@ -888,6 +902,10 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (item.loop === true) state.loop = true;
 			const pos = point(item.pos);
 			if (pos) state.pos = pos;
+			const onEnter = (Array.isArray(item.onEnter) ? item.onEnter : [])
+				.map(normalizeAction)
+				.filter((a): a is RaiseEventAction => a?.kind === 'raise');
+			if (onEnter.length) state.onEnter = onEnter;
 			layer.states.push(state);
 		}
 		for (const item of Array.isArray(raw.transitions) ? raw.transitions : []) {
@@ -935,6 +953,108 @@ function normalizeConditions(input: unknown): SmCondition[] | undefined {
 		out.push(condition);
 	}
 	return out;
+}
+
+function normalizeEvents(input: unknown): ComponentEvent[] {
+	if (!Array.isArray(input)) return [];
+	const out: ComponentEvent[] = [];
+	const seen = new Set<string>();
+	for (const item of input) {
+		if (!isRecord(item) || typeof item.id !== 'string' || !item.id || seen.has(item.id)) continue;
+		seen.add(item.id);
+		const event: ComponentEvent = { id: item.id };
+		// A field Flow cannot carry (an enum, a struct, a list) is dropped: a payload holds numbers,
+		// bools and localization keys only.
+		const payload: NonNullable<ComponentEvent['payload']> = [];
+		const names = new Set<string>();
+		for (const f of Array.isArray(item.payload) ? item.payload : []) {
+			if (!isRecord(f) || typeof f.name !== 'string' || !f.name || names.has(f.name)) continue;
+			if (!isRecord(f.type) || !PAYLOAD_TYPES.has(f.type.t as string)) continue;
+			names.add(f.name);
+			const field: (typeof payload)[number] = {
+				name: f.name,
+				type: { t: f.type.t } as (typeof payload)[number]['type'],
+			};
+			if (typeof f.description === 'string' && f.description) field.description = f.description;
+			if (f.optional === true) field.optional = true;
+			payload.push(field);
+		}
+		if (payload.length) event.payload = payload;
+		if (typeof item.note === 'string' && item.note) event.note = item.note;
+		out.push(event);
+	}
+	return out;
+}
+
+/**
+ * A listener's or a state's action, or `undefined` when this build cannot read it — an unknown
+ * kind, a missing input or event, a payload value that is not a number, a bool, `{ input }` or
+ * `{ key }`. The caller drops the whole row: keeping part of it would widen what it does.
+ */
+function normalizeAction(input: unknown): ListenerAction | undefined {
+	if (!isRecord(input) || !ACTION_KINDS.has(input.kind as string)) return undefined;
+	if (input.kind === 'raise') {
+		if (typeof input.event !== 'string' || !input.event) return undefined;
+		const action: RaiseEventAction = { kind: 'raise', event: input.event };
+		if (input.payload !== undefined) {
+			if (!isRecord(input.payload)) return undefined;
+			const payload: Record<string, EventPayloadValue> = {};
+			for (const [name, v] of Object.entries(input.payload)) {
+				if (typeof v === 'boolean' || finite(v)) payload[name] = v;
+				else if (isRecord(v) && typeof v.input === 'string' && v.input)
+					payload[name] = { input: v.input };
+				else if (isRecord(v) && typeof v.key === 'string' && v.key) payload[name] = { key: v.key };
+				else return undefined;
+			}
+			if (Object.keys(payload).length) action.payload = payload;
+		}
+		return action;
+	}
+	if (typeof input.input !== 'string' || !input.input) return undefined;
+	if (input.kind === 'set') {
+		if (!(typeof input.value === 'boolean' || finite(input.value))) return undefined;
+		return { kind: 'set', input: input.input, value: input.value };
+	}
+	return { kind: input.kind as 'fire' | 'toggle', input: input.input };
+}
+
+function normalizeListeners(input: unknown): NodeListener[] {
+	if (!Array.isArray(input)) return [];
+	const out: NodeListener[] = [];
+	const seen = new Set<string>();
+	for (const item of input) {
+		if (!isRecord(item) || typeof item.id !== 'string' || !item.id || seen.has(item.id)) continue;
+		if (!LISTENER_EVENTS.has(item.event as string)) continue;
+		const action = normalizeAction(item.action);
+		if (!action) continue;
+		seen.add(item.id);
+		out.push({ id: item.id, event: item.event as NodeListener['event'], action });
+	}
+	return out;
+}
+
+/**
+ * Node listeners (Phase 6) are the one node field this normalizer reads: every other node field
+ * passes through. A node whose `on` normalizes to nothing loses the key; a node without one is the
+ * same object.
+ */
+function normalizeRootListeners(root: ContainerNode): ContainerNode {
+	const walk = (node: LayoutNode): LayoutNode => {
+		if (!isRecord(node)) return node;
+		let next: LayoutNode = node;
+		if ('on' in node) {
+			const { on, ...rest } = node;
+			const listeners = normalizeListeners(on);
+			next = (listeners.length ? { ...rest, on: listeners } : rest) as LayoutNode;
+		}
+		if (next.kind === 'container' && Array.isArray(next.children)) {
+			const before = next.children;
+			const children = before.map(walk);
+			if (children.some((c, i) => c !== before[i])) next = { ...next, children };
+		}
+		return next;
+	};
+	return walk(root) as ContainerNode;
 }
 
 function normalizeSignals(input: unknown): ComponentSignal[] {

@@ -250,8 +250,35 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   an input is delete + add, and fields a newer build added to it are not kept (owner 2026-10-13).
   Layers, states and transitions keep their ids across renames (a display `name` on layers and
   states), which is what the keep-unknown-fields save grafts on.
-- **Listeners** are a node field: `on: 'down' | 'up' | 'enter' | 'leave' | 'click'` sets an input or
-  fires a trigger. Button `stateAnimations` become a seeded state machine.
+- **Listeners** (as built, Phase 6a — `engine-layout/types.ts`, runtime in `componentEvents.ts`)
+  are a node field, `on?: NodeListener[]`:
+
+  ```ts
+  interface NodeListener { id; event: 'down' | 'up' | 'enter' | 'leave' | 'click'; action: ListenerAction }
+  type ListenerAction =
+  	| { kind: 'fire'; input }                    // a trigger input
+  	| { kind: 'set'; input; value: boolean | number } // a bool or number input
+  	| { kind: 'toggle'; input }                  // a bool input
+  	| { kind: 'raise'; event; payload? }         // one of the def's events (§6.1)
+  // NODE_LISTENER_EVENTS / LISTENER_ACTION_KINDS are the exported lists the normalizer imports.
+  ```
+
+  `kind` discriminates the action so a later phase only adds kinds; a listener carries an `id` (the
+  editor selects it; the keep-unknown save grafts on it). Runtime: only inside a component instance
+  (the instance provides the context; a top-level scene node with `on` is inert). A node with
+  listeners is wrapped in a `static` hit surface that takes the node's `zIndex` (`down` →
+  `pointerdown`, `up` → `pointerup`, `enter`/`leave` → `pointerenter`/`pointerleave`, `click` →
+  `pointertap`); a hover-only node keeps the default cursor. Listeners act on THEIR instance: `fire`
+  fires the trigger on the instance's own bus (as any signal is — the state machine, a `playOn`
+  timeline and a `hiddenUntilSignal` gate hear it, scoped as the instance's signals are); `set` and
+  `toggle` set the instance's runner's input. A wrong kind, an unknown input or an undeclared event
+  does nothing (validation reports it). **Coexistence:** a listener on a node that is also a press
+  target (`pressAction`, the art-button hit surface, a coded `ButtonFrame`) does not replace it —
+  pointer events bubble, so the press and the listener both fire; nothing about the press changes.
+  Button `stateAnimations` become a seeded state machine in Phase 8.
+- **States raise events on entry**: `SmState.onEnter?: RaiseEventAction[]` — raised when the
+  layer's entry state is entered as the machine starts, and for every state a transition enters
+  (a same-tick chain raises each state it passes, in order).
 - The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.
 - Existing `signals`, `cues`, `stateAnimations` and `valueBindings` keep working. Phase 8
   migrates them; nothing is migrated earlier.
@@ -277,8 +304,40 @@ interface ComponentEvent { id: string; payload?: ParamDecl[] }   // ParamDecl = 
   is shown. Rive draws the same line between its state machine and the host app's code. Here, the
   host app's code is Flow.
 - **Events are raised by the component itself:** a listener (`on click → event 'pressed'`), a
-  state being entered (`on enter Win → event 'winShown'`), or a timeline cue
-  (`signal:revealDone`).
+  state being entered (`on enter Win → event 'winShown'`), or a timeline cue `event:revealDone`.
+
+**As built (Phase 6a):** `ComponentDef.events?: ComponentEvent[]`, `ComponentEvent = { id;
+payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout imports the type from
+`engine-flow-v2`, no copy). `componentInterface(def)` now returns `{ inputs, events, values }`.
+
+- **Cue syntax:** `event:<id>` on a COMPONENT timeline raises event `<id>` of the instance playing
+  it. It is distinct from `signal:<id>`, which fires a trigger INTO the instance's own bus; an
+  `event:` cue is never broadcast on the game's event emitter. Screen and cast timelines are
+  unchanged. A cue carries no payload.
+- **Payloads** carry numbers, bools and localization keys only (§8): a raise's `payload` maps a
+  declared field to a number, a bool, `{ input: id }` (the current value of a bool or number input)
+  or `{ key: 'loc.key' }`. A bare string is not a value, so free text cannot be written. A field's
+  `ParamDecl.type` is `int` / `float` / `ms` / `bool` / `string`; the normalizer drops any other.
+- **The runtime road:** a raised event leaves through the same resolver a button's `action` press
+  takes — `getFlowPress()(instanceNodeId, eventId, payload, 'event')`, tagged with the placed
+  instance's node id and the event id. Phase 7 only has to project `<instance>.on<Event>` pins
+  (`containerEventDeclId`). The fourth argument tells the game it is not a press, so
+  `apps/lines` plays no press sound for it; every existing caller passes none. Nobody listening ⇒ the
+  resolver returns nothing ⇒ a no-op. `observeComponentEvents` lets the editor's events log watch the
+  same raises. Only declared events are raised.
+- **Validation** (`validateComponentEvents(def, timelines)`): `event-duplicate`,
+  `event-payload-duplicate`, `event-payload-type`, `listener-duplicate`, `listener-input-unknown`,
+  `listener-input-kind`, `listener-value-kind`, `raise-event-unknown` (from a listener, an `onEnter`
+  or an `event:` cue), `raise-payload-unknown`, `raise-payload-type`, `raise-payload-input` — errors;
+  `raise-payload-missing` (a required field left empty) and `event-input-collision` — warnings.
+- **Decision: an event may share an input's id** (a warning, not an error). An input comes in and an
+  event goes out, so Flow keys them apart (an exec-in `▸ win`, an exec-out `onWin`), and a declared
+  signal is already both today (a trigger input, and a container event the confirm dialog presses);
+  forbidding it would block Phase 8 from turning those signals into events.
+- **Normalizer** (`componentStorage.ts`): keeps `events`, node `on` (the one node field it reads —
+  every other node field still passes through) and `onEnter`, fail-closed: a listener whose event,
+  action kind, input, value or payload it cannot read is dropped whole, never widened; a malformed
+  `onEnter` entry is dropped; a duplicate event or listener id keeps the first.
 - This **generalises what exists**. Today a screen's container already surfaces its components'
   configured `action` events as exec-out pins (`containerEvents.ts`, derived and never stored, so it
   cannot drift). The interface is the same idea in both directions, typed: exec-out pins for events,
@@ -448,7 +507,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 3 | **Animate a screen** — built 2026-10-13, owner browser check pending | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
 | 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
-| 6 | **Listeners + events** | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
+| 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) built 2026-10-13; 6b (editor) next | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
