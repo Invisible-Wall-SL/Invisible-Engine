@@ -1865,6 +1865,8 @@
 					{ctx}
 					scope={graphPins.scopes.get(selectedNode.id)}
 					modes={knownModes}
+					cinematics={data.cinematicOptions}
+					timelineIssues={data.timelineIssues}
 					onchange={applyDocEdit}
 				/>
 			{:else if view.kind === 'function' && activeFn}
