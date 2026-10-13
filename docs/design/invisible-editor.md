@@ -408,6 +408,8 @@ The game wires book-event → signal + supplies params **once**, via a small reg
 
 ### 8.7 The `mount`/`bind` hatch is a scaffold, driven to zero (owner direction 2026-06-05)
 
+> **Update 2026-10-13 (owner):** route A's deferral is **lifted for component state machines only** (presentation-only; screens get none, Flow stays the game's top-level logic). See [rive-style-editor.md](rive-style-editor.md) §12. The history below is unchanged.
+
 **Correction to the earlier "both coexist permanently" steer.** The owner does *not* want a permanent coded escape hatch. The end-goal is a **bidirectional translator between code and editor** so that *all* hand-coded work can be done visually. `mount`/`bind` is therefore a **migration scaffold**, not a fixture: it holds a concern until that concern has a real visual primitive, then it goes away. The target is **zero coded mounts** for the games we ship.
 
 That goal is more reachable than it sounds, but only because the work splits into three layers that are *not* equally hard — and being honest about which is which is the whole plan:
@@ -701,6 +703,8 @@ B5 (§14.3 "separate coded parts") is the reference: **one `ComponentDef`** (`HU
 > **Status:** SCOPED. Decisions locked: split coded parts; Borut HUD cluster only. Verify each phase online before the B6.4 flip.
 
 ## 17. Addendum — Component behavior layer: signal-triggered timelines (the animated overlays) (owner direction 2026-06-09)
+
+> **Update 2026-10-13 (owner):** the `BehaviorTrack` timeline planned here is **superseded** by the shared Timeline in [rive-style-editor.md](rive-style-editor.md); route A is no longer deferred for component state machines (see §8.7 note). The history below is unchanged.
 
 **Owner ask:** make the animated overlays (`Win`, `Transition`, FreeSpin `intro`/`outro`) editor-owned, not just placement-editable. This is the §8.8-step-6 / §8.5 "behavior" layer — deliberately deferred until the static/composition tier was solid. It is now scoped.
 

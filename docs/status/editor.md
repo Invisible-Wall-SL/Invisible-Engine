@@ -39,6 +39,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-13 — **Owner decisions for the Rive-style editor (Phase 0, docs only).** `/components` merges
+  into `/editor` (Phase 4); the shared timeline is called **Timeline** in the UI; the Phase 3 proof is a
+  screen intro played by Flow's `playCinematic`. Plan: [rive-style-editor](../design/rive-style-editor.md) §12.
 - 2026-10-08 — **A HUD Readout's selection box follows its background image.** The selection
   outline, resize handles and hit-test still used the coded 326:73 tile box after the draw switched
   to `aspectBox`, so a custom background of another ratio sat outside its outline. `nodeBox` now takes
