@@ -372,12 +372,13 @@ const at = { x: 0, y: 0 };
 			'if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));',
 			'onjump={hopTo}',
 			'parseInstanceNodeRef(ref).instance === highlightInstance',
+			'if (firstInstanceNode) void refreshInstances();',
 			"class: broken ? 'v2-exec v2-bad' : 'v2-exec',",
 			'stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])',
 			'{instanceGroups}',
 			'<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />',
 		]),
-		[true, true, true, true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true, true, true, true],
 	);
 	const preview = source('src/routes/(app)/flow-v2/PreviewPanelV2.svelte');
 	eq(

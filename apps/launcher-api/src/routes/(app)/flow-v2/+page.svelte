@@ -8,6 +8,7 @@
 		expandGroup,
 		derivePins,
 		deriveGraphPins,
+		docNamesInstance,
 		flowGraphs,
 		parseInstanceNodeRef,
 		graftAddOnSteps,
@@ -1461,7 +1462,13 @@
 	): string {
 		const id = freshNodeIdIn(allGraphs(), kind);
 		selectedNodeId = id;
+		// The loader resolves the placed, PINNED interfaces only for a flow that already names an
+		// instance; the first node naming one re-reads them, so a placement pinned below latest
+		// shows its exact pins before its first wire.
+		const namesInstance = kind === 'componentInstance' || kind === 'waitForState';
+		const firstInstanceNode = namesInstance && !docNamesInstance(doc);
 		applyGraphEdit(addNodeIn(activeGraph, makeNode(kind, id, pos, ref)));
+		if (firstInstanceNode) void refreshInstances();
 		// The palette light from a *Show in Flow* deep link goes out once the placement has a node.
 		if (
 			kind === 'componentInstance' &&
