@@ -53,6 +53,13 @@ export interface FlowV2EnvDeps {
 	 *  Optional — omit for a headless/recorder env, which makes both nodes no-ops. */
 	enterMode?: FlowV2Env['enterMode'];
 	exitMode?: FlowV2Env['exitMode'];
+	/** The placed component instances a `componentInstance` / `waitForState` node reaches (§6.3).
+	 *  Optional — omit for a headless/recorder env: the nodes then set and fire nothing, a value
+	 *  reads `undefined` and a wait resolves at once. */
+	fireInstanceTrigger?: FlowV2Env['fireInstanceTrigger'];
+	setInstanceInput?: FlowV2Env['setInstanceInput'];
+	readInstanceValue?: FlowV2Env['readInstanceValue'];
+	awaitInstanceState?: FlowV2Env['awaitInstanceState'];
 }
 
 /**
@@ -79,4 +86,9 @@ export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
 	setMessageShown: (nodeId, shown) => deps.setMessageShown?.(nodeId, shown),
 	enterMode: (modeId, opts) => deps.enterMode?.(modeId, opts),
 	exitMode: (modeId, total) => deps.exitMode?.(modeId, total),
+	fireInstanceTrigger: (ref, trigger) => deps.fireInstanceTrigger?.(ref, trigger),
+	setInstanceInput: (ref, input, value) => deps.setInstanceInput?.(ref, input, value),
+	readInstanceValue: (ref, value) => deps.readInstanceValue?.(ref, value),
+	awaitInstanceState: (ref, layer, state) =>
+		deps.awaitInstanceState?.(ref, layer, state) ?? Promise.resolve(),
 });

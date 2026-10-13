@@ -32,11 +32,14 @@ import {
 	ENTER_SIGNAL,
 	flipbookCycleMs,
 	getComponent,
+	getFlowInstance,
 	isRegisteredComponentSignal,
 	resolveComponent,
 	resolveEffect,
 	sceneAnimationDurationMs,
 	sceneLayerZIndex,
+	stashFlowInstanceInput,
+	watchFlowInstance,
 } from 'engine-layout';
 import { emitterSecondsToWallMs } from 'engine-fx';
 import { flowAddOnsOf } from 'game-config';
@@ -49,11 +52,13 @@ import {
 	flowGraphs,
 	flowHandlesModeTransitions,
 	flowOwnsContainerEvent,
+	flowOwnsInstanceEvent,
 	flowOwnsSignal,
 	flowScreenDrivingStatus,
 	hideContainerIds,
 	runFlowContainerEvent,
 	runFlowEvent,
+	runFlowInstanceEvent,
 	runFlowModeTransition,
 	SCREEN_LIFECYCLE_SIGNALS,
 	signalChainCallsAction,
@@ -82,6 +87,7 @@ import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
 import { getActiveGameConfig } from './gameConfig';
 import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
+import { createInstanceWaits } from './flowInstanceWaits';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { stateModes } from './stateModes.svelte';
 import type { ModeTransition } from 'engine-game';
@@ -248,6 +254,19 @@ export type LinesFlowV2 = {
 	dispatchContainerEvent: (
 		componentId: string,
 		action: string,
+		payload?: Record<string, unknown>,
+	) => Promise<void>;
+	/** Does the flow OWN this placed instance's raised EVENT — i.e. author an exec edge from the
+	 *  `event:<event>` pin of a `componentInstance` node naming it (Rive plan §6.2)? Events have
+	 *  their own namespace: a press or `action` pin of the same name never counts, and nothing coded
+	 *  runs for a raised event, so ownership suppresses nothing. */
+	ownsInstanceEvent: (instanceId: string, event: string) => boolean;
+	/** Run the authored chain for a placed instance's raised event — walks FROM its `event:<event>`
+	 *  pin's wired target (the instance node is not re-run). `payload` seeds `$trigger`, so the pin's
+	 *  payload data-outs resolve. A no-op if un-authored. */
+	dispatchInstanceEvent: (
+		instanceId: string,
+		event: string,
 		payload?: Record<string, unknown>,
 	) => Promise<void>;
 	/** The authored Text Message nodes (§6.3) — static, read from the doc (groups flattened).
@@ -571,6 +590,19 @@ export const createLinesFlowV2 = (
 		{ loop: boolean; speed: number; done?: () => void }
 	>();
 
+	// PLACED COMPONENT INSTANCES (Rive plan §6.2, Phase 7): a `componentInstance` / `waitForState`
+	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`), where
+	// Placed component instances (Rive plan §6.2): the outcomes for one that is not registered, and
+	// how a wait on one is released, live in `flowInstanceWaits.ts` (gated in Node).
+	const { instanceWhenMounted, awaitInstanceState } = createInstanceWaits({
+		isShown: (container) => mount.isShown(container),
+		sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
+		getFlowInstance,
+		watchFlowInstance,
+		skip: roundSkip,
+		trace,
+	});
+
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
@@ -673,6 +705,29 @@ export const createLinesFlowV2 = (
 			playingCinematics.get(cinematicId)?.done?.();
 			playingCinematics.delete(cinematicId);
 		},
+		// Placed component instances (Rive plan §6.2) — see `instanceWhenMounted` above.
+		fireInstanceTrigger: async (ref, trigger) => {
+			const handle = await instanceWhenMounted(ref);
+			if (!handle) {
+				trace('instance', `${ref.instance} ▸ ${trigger}`, '· dropped (not on screen)');
+				return;
+			}
+			trace('instance', `${ref.instance} ▸ ${trigger}`);
+			handle.fire(trigger);
+		},
+		setInstanceInput: (ref, input, value) => {
+			const live = getFlowInstance(ref.instance);
+			const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
+			if (live) {
+				if (live.setInput(input, value)) trace('instance', line);
+				else trace('instance', line, '· dropped (no such input, or not its kind)');
+			} else {
+				trace('instance', line, '(stashed)');
+				stashFlowInstanceInput(ref.instance, input, value);
+			}
+		},
+		readInstanceValue: (ref, value) => getFlowInstance(ref.instance)?.values()[value],
+		awaitInstanceState,
 	});
 
 	// A signal goes to the ACTIVE mode's graph first (`FlowDoc.modes`), then the global one.
@@ -721,6 +776,12 @@ export const createLinesFlowV2 = (
 		dispatchContainerEvent: (componentId, action, payload) => {
 			trace('containerEvent ▶', `${componentId}.${action}`);
 			return runFlowContainerEvent(doc, ctx, componentId, action, payload);
+		},
+		ownsInstanceEvent: (instanceId, event) =>
+			flowOwnsInstanceEvent(doc, instanceId, event, stateModes.active()),
+		dispatchInstanceEvent: (instanceId, event, payload) => {
+			trace('instanceEvent ▶', `${instanceId} on${event}`);
+			return runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
 		},
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),

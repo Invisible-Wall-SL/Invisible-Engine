@@ -73,6 +73,8 @@
 		"check:component-listeners-events": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-listeners-events.ts",
 		"precheck:component-listeners-events-editor": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-listeners-events-editor": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-listeners-events-editor.ts",
+		"precheck:flow-instance-nodes": "node scripts/ensure-svelte-kit.mjs",
+		"check:flow-instance-nodes": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-instance-nodes.ts",
 		"precheck:editor-write-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:editor-write-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-editor-write-scope.ts",
 		"precheck:component-links": "node scripts/ensure-svelte-kit.mjs",

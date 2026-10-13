@@ -34,7 +34,19 @@ export type FlowPreviewEntry =
 	/** A `delay` node — `ms` is the ELAPSED (already speed-scaled) duration the clock advanced. */
 	| { kind: 'delay'; at: number; ms: number }
 	| { kind: 'show'; at: number; container: string; z: number }
-	| { kind: 'hide'; at: number; container: string };
+	| { kind: 'hide'; at: number; container: string }
+	/** A `componentInstance` / `waitForState` node reaching a placed instance (§6.3): an input set
+	 *  (`name` = the input, with its resolved `value`), a trigger fired, or a wait on a layer's state
+	 *  (`name` = `<layer>.state`, `value` = the state) — which resolves at once, as no instance runs
+	 *  headlessly. */
+	| {
+			kind: 'instance';
+			at: number;
+			instance: string;
+			op: 'set' | 'fire' | 'wait';
+			name: string;
+			value?: unknown;
+	  };
 
 export interface FlowPreviewResult {
 	/** The ordered side-effect timeline with virtual-clock `at` stamps. */
@@ -171,6 +183,35 @@ export const previewFlowEvent = async (
 			timeline.push({ kind: 'hide', at: clock, container });
 		},
 		engineRead: (key) => engine(key),
+		setInstanceInput: (ref, input, value) => {
+			timeline.push({
+				kind: 'instance',
+				at: clock,
+				instance: ref.instance,
+				op: 'set',
+				name: input,
+				value,
+			});
+		},
+		fireInstanceTrigger: (ref, trigger) => {
+			timeline.push({
+				kind: 'instance',
+				at: clock,
+				instance: ref.instance,
+				op: 'fire',
+				name: trigger,
+			});
+		},
+		awaitInstanceState: async (ref, layer, state) => {
+			timeline.push({
+				kind: 'instance',
+				at: clock,
+				instance: ref.instance,
+				op: 'wait',
+				name: `${layer}.state`,
+				value: state,
+			});
+		},
 	};
 
 	const ctx: RunContext = { vocab: lookups.vocab, library: lookups.library, env };

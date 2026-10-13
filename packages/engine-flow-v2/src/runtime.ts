@@ -22,6 +22,13 @@
 
 import { flattenGroups } from './collapse';
 import { containerEventDeclId } from './containerEvents';
+import {
+	instanceEventFieldOf,
+	instanceEventPin,
+	instanceInputOf,
+	instanceTriggerOf,
+	instanceValueOf,
+} from './instanceNodes';
 import { CUE_SCOPE_PIN } from './pins';
 import type {
 	Accessor,
@@ -38,6 +45,7 @@ import type {
 	FunctionLibraryDoc,
 	Graph,
 	Guard,
+	InstanceRef,
 	Node,
 	NodeId,
 	PinPath,
@@ -118,6 +126,22 @@ export interface FlowV2Env {
 	): void | Promise<void>;
 	/** An `exitMode` node — close `modeId` (the mode on screen when undefined). Optional. */
 	exitMode?(modeId: string | undefined, total?: number): void | Promise<void>;
+	/**
+	 * A `componentInstance` node's `fire:<trigger>` exec-in (§6.3) — fire the trigger on THAT placed
+	 * instance (its own bus and scope). The game decides what an instance that is not on screen
+	 * gets (`apps/lines` `flowV2Runtime`: dropped, with a trace). Optional: a recorder env without
+	 * it fires nothing.
+	 */
+	fireInstanceTrigger?(ref: InstanceRef, trigger: string): void | Promise<void>;
+	/** A `componentInstance` node's `in:<input>` data-in, applied on any of its exec-ins — set the
+	 *  bool / number / text input on that instance. Optional. */
+	setInstanceInput?(ref: InstanceRef, input: string, value: unknown): void;
+	/** A `componentInstance` node's `value:<id>` data-out — the instance's current value
+	 *  (`<layer>.state`). Optional: a recorder env reads `undefined`. */
+	readInstanceValue?(ref: InstanceRef, value: string): unknown;
+	/** A `waitForState` node — resolve once the instance's layer is in `state` (at once when it
+	 *  already is). Optional: a recorder env without it makes the wait a no-op. */
+	awaitInstanceState?(ref: InstanceRef, layer: string, state: string): Promise<void>;
 }
 
 /** The lookups + environment a run needs — the template contract, the function library,
@@ -240,6 +264,23 @@ class FlowInterpreter {
 			trigger: payload,
 			context,
 		});
+	}
+
+	/**
+	 * Fire a placed instance's raised EVENT (§6.3): the `event:<event>` exec-out on the
+	 * `componentInstance` node that names `instanceId`. Walks from the edge's target — the instance
+	 * node is not re-run (re-running it would re-apply its inputs). The payload seeds `$trigger`, so
+	 * the pin's `event:<event>:<field>` data-outs resolve. No wired edge ⇒ parity-safe no-op.
+	 */
+	async runInstanceEvent(
+		instanceId: string,
+		event: string,
+		payload: Record<string, unknown>,
+		context: Record<string, unknown>,
+	): Promise<void> {
+		const edge = instanceEventEdge(this.doc.graph, instanceId, event);
+		if (!edge) return;
+		await this.execFrom(this.doc.graph, edge.to.node, edge.to.pin, { trigger: payload, context });
 	}
 
 	/**
@@ -469,6 +510,32 @@ class FlowInterpreter {
 				return this.nextExec(graph, node.id, 'exec');
 			}
 
+			case 'componentInstance': {
+				// §6.3: every fed `in:<input>` data-in is applied first — a wired one, or one with a stored
+				// source — so "set the amount, then fire win" is one node. An unfed input is left alone
+				// (every data-in is optional). A `fire:<trigger>` inlet then fires that trigger on the
+				// placed instance; `set` fires nothing. Both continue from the one `exec` out-pin.
+				// An `event:` pin is never an inlet: `runInstanceEvent` walks from its wired target.
+				const ref: InstanceRef = { container: node.container, instance: node.instance };
+				const fed = new Set<string>(Object.keys(node.inputs ?? {}));
+				for (const edge of graph.data) if (edge.to.node === node.id) fed.add(edge.to.pin);
+				for (const pin of fed) {
+					const input = instanceInputOf(pin);
+					if (input === undefined) continue;
+					const value = this.resolveDataIn(graph, node.id, pin, scope);
+					if (value !== undefined) this.ctx.env.setInstanceInput?.(ref, input, value);
+				}
+				const trigger = instanceTriggerOf(execPinId);
+				if (trigger !== undefined) await this.ctx.env.fireInstanceTrigger?.(ref, trigger);
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'waitForState': {
+				const ref: InstanceRef = { container: node.container, instance: node.instance };
+				await this.ctx.env.awaitInstanceState?.(ref, node.layer, node.state);
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
 			case 'functionResult':
 			case 'compute':
 				// A result ends a function body (its data-ins are pulled by the caller); a compute
@@ -619,6 +686,21 @@ class FlowInterpreter {
 				// Only ONE container-event chain runs at a time, so `scope.trigger` IS that event's payload
 				// (`{ betModeKey: key }`). The field is the tail after the last `.` (field names carry none).
 				return scope.trigger[from.pin.slice(from.pin.lastIndexOf('.') + 1)];
+			}
+			case 'componentInstance': {
+				// A `value:<id>` data-out reads the live instance through the env (`undefined` when the
+				// instance is not on screen, or in a recorder env). An `event:<event>:<field>` data-out is
+				// the raised event's payload field: only one instance-event chain runs at a time, so
+				// `scope.trigger` IS that event's payload.
+				const value = instanceValueOf(from.pin);
+				if (value !== undefined) {
+					return this.ctx.env.readInstanceValue?.(
+						{ container: src.container, instance: src.instance },
+						value,
+					);
+				}
+				const field = instanceEventFieldOf(from.pin);
+				return field ? scope.trigger[field.field] : undefined;
 			}
 			default:
 				return undefined;
@@ -948,6 +1030,94 @@ const graphOwnsContainerEvent = (graph: Graph, componentId: string, event: strin
 	const nodesById = new Map(graph.nodes.map((n) => [n.id, n] as const));
 	return graph.exec.some(
 		(e) => e.from.pin === declId && nodesById.get(e.from.node)?.kind === 'showContainer',
+	);
+};
+
+/**
+ * Does `pin` of `node` carry the `event:<event>` exec-out of the `componentInstance` naming
+ * `instanceId` — directly, or through a group's `out_<i>` boundary pin whose `inner` leads there,
+ * however many groups deep (a node inside B inside A reaches the outer graph through A's pin, whose
+ * `inner` is B's pin, whose `inner` is the node's)?
+ */
+const carriesInstanceEvent = (
+	node: Node | undefined,
+	pin: string,
+	instanceId: string,
+	eventPin: string,
+): boolean => {
+	if (node?.kind === 'componentInstance') return node.instance === instanceId && pin === eventPin;
+	if (node?.kind !== 'group' || !node.body) return false;
+	const b = (node.boundary ?? []).find((p) => p.id === pin && p.dir === 'out' && p.kind === 'exec');
+	if (!b) return false;
+	const inner = node.body.nodes.find((n) => n.id === b.inner.node);
+	return carriesInstanceEvent(inner, b.inner.pin, instanceId, eventPin);
+};
+
+/**
+ * The exec edge out of the `event:<event>` pin of the `componentInstance` node naming `instanceId`.
+ * An interpreter's graph is flattened, so the edge is on it directly. The OWNERSHIP read runs on the
+ * stored doc, where a group keeps its body: a wire inside the body is found there, and a wire that
+ * CROSSES one or more group boundaries is stored on the graph outside them from the outermost
+ * group's `out_<i>` pin, which `carriesInstanceEvent` follows back in. Never flattens (which
+ * rewires and throws on a malformed group; this runs at click time). A second node naming the same
+ * instance and wiring the same event is a validation error (`instance-event-duplicate`); the first
+ * wire wins here.
+ */
+const instanceEventEdge = (
+	graph: Graph,
+	instanceId: string,
+	event: string,
+): { to: PinPath } | undefined => {
+	const pin = instanceEventPin(event);
+	const nodeById = new Map(graph.nodes.map((n) => [n.id, n] as const));
+	const edge = graph.exec.find((e) =>
+		carriesInstanceEvent(nodeById.get(e.from.node), e.from.pin, instanceId, pin),
+	);
+	if (edge) return edge;
+	for (const node of graph.nodes) {
+		if (node.kind !== 'group' || !node.body) continue;
+		const inner = instanceEventEdge(node.body, instanceId, event);
+		if (inner) return inner;
+	}
+	return undefined;
+};
+
+/**
+ * Run the authored chain for a placed instance's raised EVENT (`<instanceId>` raising `<event>`,
+ * §6.3) — the instance-node twin of {@link runFlowContainerEvent}. Entry is the `event:<event>`
+ * exec-out of the `componentInstance` node naming the instance; the walk starts at its wired target.
+ * The active mode's graph first when it owns the event, else the global one. Unwired ⇒ no-op.
+ */
+export const runFlowInstanceEvent = async (
+	doc: FlowDoc,
+	ctx: RunContext,
+	instanceId: string,
+	event: string,
+	payload: Record<string, unknown> = {},
+	context: Record<string, unknown> = {},
+): Promise<void> => {
+	const modeGraph = flowModeGraph(doc, ctx.activeMode?.());
+	const scoped =
+		modeGraph && instanceEventEdge(modeGraph, instanceId, event) ? withGraph(doc, modeGraph) : doc;
+	await new FlowInterpreter(scoped, ctx).runInstanceEvent(instanceId, event, payload, context);
+};
+
+/**
+ * PURE ownership predicate — true iff the FlowDoc wires an exec edge FROM the `event:<event>` pin of
+ * a `componentInstance` node naming `instanceId`, in the global graph or the active mode's. Events
+ * have their own namespace: a press or `action` pin of the same name never counts, and an owned
+ * event never suppresses a press (nothing coded runs for a raised event).
+ */
+export const flowOwnsInstanceEvent = (
+	doc: FlowDoc,
+	instanceId: string,
+	event: string,
+	activeMode?: string,
+): boolean => {
+	const modeGraph = flowModeGraph(doc, activeMode);
+	return (
+		instanceEventEdge(doc.graph, instanceId, event) !== undefined ||
+		(modeGraph !== undefined && instanceEventEdge(modeGraph, instanceId, event) !== undefined)
 	);
 };
 

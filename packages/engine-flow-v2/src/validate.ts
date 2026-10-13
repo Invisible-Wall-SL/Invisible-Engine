@@ -69,6 +69,24 @@
  *                            its free spins never continue (an ERROR; `spinsTabIssues`, beside it).
  *  - `spins-counter-unswapped` — a spins mode's tab in a flow that drives the screens never takes the
  *                            base free-spin counter down, so both counters draw (a WARNING; same).
+ *  - `instance-missing`    — a `componentInstance` / `waitForState` node names an instance that is
+ *                            not placed (with a name) on that screen, or whose component def or exact
+ *                            pinned version cannot be resolved (an ERROR: the node reaches nothing).
+ *  - `instance-pin-missing` — a wire or a stored source to an input, event or value the instance's
+ *                            pinned interface no longer has, or a wait on a layer it lacks (an ERROR;
+ *                            §6.3: the pins follow the component, so a removed input breaks the wire).
+ *  - `instance-state-unknown` — a `waitForState` naming a state its layer never enters (an ERROR:
+ *                            the wait would never resolve).
+ *  - `instance-text-key`   — a literal fed to a `text` input that is not a localization key (no
+ *                            letter) — plan §8: a text input carries a key, never free text.
+ *  - `instance-text-wire`  — a `text` input fed by a wire from a pin that is not a harvested key
+ *                            source (an instance event's payload field is; a compute string or a
+ *                            game-signal value is not), so the text would bypass localization
+ *                            (a WARNING: the wire runs, untranslated).
+ *  - `instance-event-duplicate` — two nodes naming the same instance both wire the same event pin:
+ *                            the runtime runs the first wire only, so the second is dead (an ERROR).
+ *                            Every instance check runs only when the caller projects the instances
+ *                            in (`PinContext.instances`); absent ⇒ unknown layout ⇒ never guess.
  *
  * GAME MODES (`docs/design/hold-and-win.md` §4.5): `FlowDoc.modes` sections are each validated like
  * the global graph, and an issue found in one carries that section's `mode`. Node ids are unique
@@ -80,6 +98,15 @@
 
 import { flattenGroups } from './collapse';
 import { containersMissingScene } from './containerScenes';
+import {
+	instanceEventFieldOf,
+	instanceEventOf,
+	instanceInputOf,
+	instanceInputPin,
+	instanceTriggerOf,
+	instanceValueOf,
+	isLocalizationKey,
+} from './instanceNodes';
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
@@ -90,6 +117,7 @@ import type {
 	DataEdge,
 	DataSource,
 	FlowDoc,
+	FlowInstanceDecl,
 	FunctionDef,
 	FunctionLibraryDoc,
 	Node,
@@ -133,7 +161,13 @@ export type FlowIssueCode =
 	| 'symbol-not-in-play'
 	| 'respin-event-off-board'
 	| 'spins-hold-scene-missing'
-	| 'spins-counter-unswapped';
+	| 'spins-counter-unswapped'
+	| 'instance-missing'
+	| 'instance-pin-missing'
+	| 'instance-state-unknown'
+	| 'instance-text-key'
+	| 'instance-text-wire'
+	| 'instance-event-duplicate';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -245,6 +279,16 @@ const collectIdCounts = (
 const isContainerEventPin = (node: Node | undefined, pin: string): boolean =>
 	node?.kind === 'showContainer' && pin !== 'exec';
 
+/** A `componentInstance`'s `event:<event>` exec-out (§6.3) — like a container-event pin, its own
+ *  entry root: `runInstanceEvent` starts a fresh run at the wire's target with the raised event's
+ *  payload as `trigger`, never continuing the chain that set the node's inputs. */
+const isInstanceEventPin = (node: Node | undefined, pin: string): boolean =>
+	node?.kind === 'componentInstance' && instanceEventOf(pin) !== undefined;
+
+/** The owner key an instance-event chain runs under: the node and its pin, since two placements
+ *  of one component raise the same event ids. */
+const instanceEventOwner = (nodeId: string, pin: string): string => `${nodeId}.${pin}`;
+
 /**
  * Which dispatches can reach each node — its exec-chain owner set.
  *
@@ -284,7 +328,8 @@ const eventOwners = (graph: FlowDoc['graph']): Map<string, Set<string>> => {
 		for (const e of graph.exec) {
 			if (e.from.node !== nodeId) continue;
 			// A container-event pin re-roots below under its OWN trigger — it does not continue this one.
-			if (isContainerEventPin(nodeById.get(nodeId), e.from.pin)) continue;
+			const from = nodeById.get(nodeId);
+			if (isContainerEventPin(from, e.from.pin) || isInstanceEventPin(from, e.from.pin)) continue;
 			walk(e.to.node, trigger);
 		}
 	};
@@ -300,6 +345,8 @@ const eventOwners = (graph: FlowDoc['graph']): Map<string, Set<string>> => {
 				walk(e.to.node, `mode:${node.modeId}:${node.on ?? 'enter'}`);
 			else if (node.kind === 'allModesFinished') walk(e.to.node, 'mode:allFinished');
 			else if (isContainerEventPin(node, e.from.pin)) walk(e.to.node, e.from.pin);
+			else if (isInstanceEventPin(node, e.from.pin))
+				walk(e.to.node, instanceEventOwner(node.id, e.from.pin));
 		}
 	}
 	return owners;
@@ -509,8 +556,12 @@ export const validateFlowDoc = (
 	// The layout's scene ids, for `container-scene-missing`. Absent or empty ⇒ the layout is unknown
 	// and that check reports nothing.
 	sceneIds?: Iterable<string>,
+	// §6.3: the placed, named component instances (placed node id → projected interface). Feeds the
+	// `componentInstance` / `waitForState` pins and every `instance-*` check. Absent ⇒ the layout is
+	// unknown: base pins only, and those checks report nothing — never guess.
+	instances?: Record<string, FlowInstanceDecl>,
 ): FlowIssue[] => {
-	const ctx: PinContext = { vocab, library, containerEvents, containerTaps };
+	const ctx: PinContext = { vocab, library, containerEvents, containerTaps, instances };
 	const containerIds = new Set(doc.containers.map((c) => c.id));
 	const missingScenes = new Map(
 		containersMissingScene(doc.containers, sceneIds ?? []).map((c) => [c.id, c.sceneId]),
@@ -709,6 +760,13 @@ const validateGraph = (
 		}
 	}
 
+	// --- (a2) §6.3 placed instances: the node must name a placed, named instance on that screen whose
+	// def (and exact pinned version) resolved; a stored source must feed a pin the interface still has;
+	// a wait must name a layer and a state the machine has; a text literal must be a key. Judged only
+	// when the caller projected the instances in — an absent map is an unknown layout.
+	issues.push(...instanceIssues(nodes, pinsById, data, ctx));
+	issues.push(...instanceEventDuplicateIssues(nodes, exec, ctx));
+
 	// --- (b + c) edge endpoints + fan-in + fan-out + entry-has-no-exec-in ---
 	const execInCount = new Map<string, number>(); // keyed by `key(pin)`.
 	const execOutCount = new Map<string, number>();
@@ -720,14 +778,39 @@ const validateGraph = (
 		return !!pinOf(pins, p.pin, wantDir, wantKind);
 	};
 
+	// A wire to an instance pin the interface no longer has (an input, event or value removed from
+	// the component) is reported as `instance-pin-missing`, not a bare bad endpoint — judged only for
+	// the endpoint that FAILED, on a resolved instance node (an unresolved one already reports
+	// `instance-missing`), and only for an interface pin form (a bad `exec` is a bad endpoint).
+	const stalePin = (p: PinPath, kind: PinKind, dir: PinDir): string | undefined => {
+		if (endpointOk(p, kind, dir)) return undefined;
+		const node = nodeById.get(p.node);
+		if (node?.kind !== 'componentInstance' || !resolvedInstance(node, ctx)) return undefined;
+		const interfacePin =
+			instanceTriggerOf(p.pin) ??
+			instanceInputOf(p.pin) ??
+			instanceEventOf(p.pin) ??
+			instanceValueOf(p.pin);
+		return interfacePin === undefined ? undefined : p.pin;
+	};
 	for (const edge of exec) {
 		if (!endpointOk(edge.from, 'exec', 'out') || !endpointOk(edge.to, 'exec', 'in')) {
-			issues.push({
-				code: 'edge-endpoint',
-				severity: 'error',
-				message: `exec edge ${edge.from.node}.${edge.from.pin} → ${edge.to.node}.${edge.to.pin} has an invalid endpoint`,
-				at: { on: 'execEdge', from: edge.from, to: edge.to },
-			});
+			const stale = stalePin(edge.from, 'exec', 'out') ?? stalePin(edge.to, 'exec', 'in');
+			issues.push(
+				stale !== undefined
+					? {
+							code: 'instance-pin-missing',
+							severity: 'error',
+							message: `exec edge ${edge.from.node}.${edge.from.pin} → ${edge.to.node}.${edge.to.pin}: the component no longer has the pin '${stale}' (its trigger or event was removed or renamed) — rewire it or remove the wire`,
+							at: { on: 'execEdge', from: edge.from, to: edge.to },
+						}
+					: {
+							code: 'edge-endpoint',
+							severity: 'error',
+							message: `exec edge ${edge.from.node}.${edge.from.pin} → ${edge.to.node}.${edge.to.pin} has an invalid endpoint`,
+							at: { on: 'execEdge', from: edge.from, to: edge.to },
+						},
+			);
 			continue;
 		}
 		execInCount.set(key(edge.to), (execInCount.get(key(edge.to)) ?? 0) + 1);
@@ -774,12 +857,22 @@ const validateGraph = (
 	const dataInCount = new Map<string, number>();
 	for (const edge of data) {
 		if (!endpointOk(edge.from, 'data', 'out') || !endpointOk(edge.to, 'data', 'in')) {
-			issues.push({
-				code: 'edge-endpoint',
-				severity: 'error',
-				message: `data edge ${edge.from.node}.${edge.from.pin} → ${edge.to.node}.${edge.to.pin} has an invalid endpoint`,
-				at: { on: 'dataEdge', from: edge.from, to: edge.to },
-			});
+			const stale = stalePin(edge.from, 'data', 'out') ?? stalePin(edge.to, 'data', 'in');
+			issues.push(
+				stale !== undefined
+					? {
+							code: 'instance-pin-missing',
+							severity: 'error',
+							message: `data edge ${edge.from.node}.${edge.from.pin} → ${edge.to.node}.${edge.to.pin}: the component no longer has the pin '${stale}' (its input, payload field or state layer was removed or renamed) — rewire it or remove the wire`,
+							at: { on: 'dataEdge', from: edge.from, to: edge.to },
+						}
+					: {
+							code: 'edge-endpoint',
+							severity: 'error',
+							message: `data edge ${edge.from.node}.${edge.from.pin} → ${edge.to.node}.${edge.to.pin} has an invalid endpoint`,
+							at: { on: 'dataEdge', from: edge.from, to: edge.to },
+						},
+			);
 			continue;
 		}
 		dataInCount.set(key(edge.to), (dataInCount.get(key(edge.to)) ?? 0) + 1);
@@ -816,13 +909,24 @@ const validateGraph = (
 	// becomes `NaN` inside any effect that does arithmetic on it. Silent at runtime by design (the
 	// interpreter never throws on an unresolved pin), so this is where it must be caught.
 	for (const edge of data) {
-		if (nodeById.get(edge.from.node)?.kind !== 'gameSignals') continue;
-		const dot = edge.from.pin.indexOf('.');
-		if (dot === -1) continue;
-		const event = edge.from.pin.slice(0, dot);
+		const fromNode = nodeById.get(edge.from.node);
+		let event: string;
+		let owner: string;
+		if (fromNode?.kind === 'gameSignals') {
+			const dot = edge.from.pin.indexOf('.');
+			if (dot === -1) continue;
+			event = owner = edge.from.pin.slice(0, dot);
+		} else if (fromNode?.kind === 'componentInstance') {
+			// An instance event's payload data-out (`event:<event>:<field>`) reads the same way: only on
+			// the chain its `event:<event>` pin starts.
+			const field = instanceEventFieldOf(edge.from.pin);
+			if (!field) continue;
+			event = field.event;
+			owner = instanceEventOwner(fromNode.id, `event:${field.event}`);
+		} else continue;
 		const reached = owners.get(edge.to.node);
 		// Absent ⇒ no entry reaches the target (an orphan chain) ⇒ never guess.
-		if (!reached || reached.has(event)) continue;
+		if (!reached || reached.has(owner)) continue;
 		// Sorted so the message is deterministic. An owner may be a container-event chain rather than a
 		// vocab event, so the fix is phrased without naming a pin to re-source from (there may be none).
 		const on = [...reached]
@@ -944,6 +1048,150 @@ const validateGraph = (
 		}
 	}
 
+	return issues;
+};
+
+// ---------------------------------------------------------------------------
+// §6.3 — placed component instances.
+// ---------------------------------------------------------------------------
+
+/** The instance decl a node names, when the projection has it ON THAT SCREEN with its def resolved. */
+const resolvedInstance = (
+	node: Node & { container: string; instance: string },
+	ctx: PinContext,
+): FlowInstanceDecl | undefined => {
+	const decl = ctx.instances?.[node.instance];
+	return decl && decl.container === node.container && !decl.missing ? decl : undefined;
+};
+
+const instanceIssues = (
+	nodes: Node[],
+	pinsById: Map<string, Pin[]>,
+	data: FlowDoc['graph']['data'],
+	ctx: PinContext,
+): FlowIssue[] => {
+	const issues: FlowIssue[] = [];
+	if (!ctx.instances) return issues; // unknown layout ⇒ never guess.
+	const nodeById = new Map(nodes.map((n) => [n.id, n] as const));
+	// A wire into a text input carries a key only when its source is one the harvest already lists:
+	// an instance event's payload field (`{ key }`, harvested with the def).
+	const keySource = (from: PinPath): boolean =>
+		nodeById.get(from.node)?.kind === 'componentInstance' &&
+		instanceEventFieldOf(from.pin) !== undefined;
+	for (const node of nodes) {
+		if (node.kind !== 'componentInstance' && node.kind !== 'waitForState') continue;
+		const label = node.kind === 'componentInstance' ? 'component node' : 'wait-for-state node';
+		const decl = ctx.instances[node.instance];
+		if (!decl || decl.container !== node.container) {
+			issues.push({
+				code: 'instance-missing',
+				severity: 'error',
+				message: `${label} '${node.id}' names component instance '${node.instance}' on screen '${node.container}', which is not placed there with a name — place and name it in /editor, or remove the node`,
+				at: { on: 'node', node: node.id },
+			});
+			continue;
+		}
+		if (decl.missing) {
+			issues.push({
+				code: 'instance-missing',
+				severity: 'error',
+				message:
+					decl.missing === 'def'
+						? `${label} '${node.id}': the component '${decl.componentId}' of instance '${decl.name}' is not in this project — restore it in /editor`
+						: `${label} '${node.id}': instance '${decl.name}' pins version ${decl.version} of component '${decl.componentId}', which no longer exists — update the instance in /editor`,
+				at: { on: 'node', node: node.id },
+			});
+			continue;
+		}
+		if (node.kind === 'waitForState') {
+			const value = decl.interface.values.find((v) => v.layer === node.layer);
+			if (!value) {
+				issues.push({
+					code: 'instance-pin-missing',
+					severity: 'error',
+					message: `wait-for-state node '${node.id}' waits on layer '${node.layer}' of '${decl.name}', which its state machine does not have${decl.interface.values.length ? ` (${decl.interface.values.map((v) => v.layer).join(', ')})` : ''}`,
+					at: { on: 'node', node: node.id },
+				});
+			} else if (!value.states.includes(node.state)) {
+				issues.push({
+					code: 'instance-state-unknown',
+					severity: 'error',
+					message: `wait-for-state node '${node.id}' waits for '${decl.name}' layer '${node.layer}' to reach '${node.state}', which is not one of its states (${value.states.join(', ')}) — the wait would never end`,
+					at: { on: 'node', node: node.id },
+				});
+			}
+			continue;
+		}
+		const pins = pinsById.get(node.id) ?? [];
+		for (const [pinId, src] of Object.entries(node.inputs ?? {})) {
+			if (pinOf(pins, pinId, 'in', 'data')) continue;
+			const input = instanceInputOf(pinId);
+			issues.push({
+				code: 'instance-pin-missing',
+				severity: 'error',
+				message:
+					input === undefined
+						? `component node '${node.id}' stores a ${src.kind} for '${pinId}', which is not an input of '${decl.name}'`
+						: `component node '${node.id}' sets '${input}', which '${decl.name}' (${decl.componentId}) no longer declares as a bool, number or text input — remove the stored value or restore the input`,
+				at: { on: 'pin', node: node.id, pin: pinId },
+			});
+		}
+		for (const input of decl.interface.inputs) {
+			if (input.kind !== 'text') continue;
+			const pin = instanceInputPin(input.id);
+			const src = node.inputs?.[pin];
+			if (src?.kind === 'literal' && !isLocalizationKey(src.value)) {
+				issues.push({
+					code: 'instance-text-key',
+					severity: 'error',
+					message: `component node '${node.id}' feeds text input '${input.id}' of '${decl.name}' with ${JSON.stringify(src.value)}, which is not a localization key — a text input carries a key (at least one letter), never free text or a bare number`,
+					at: { on: 'pin', node: node.id, pin },
+				});
+			}
+			for (const edge of data) {
+				if (edge.to.node !== node.id || edge.to.pin !== pin || keySource(edge.from)) continue;
+				issues.push({
+					code: 'instance-text-wire',
+					severity: 'warning',
+					message: `component node '${node.id}' feeds text input '${input.id}' of '${decl.name}' from ${edge.from.node}.${edge.from.pin}, which is not a localization key source — the text shows untranslated. Feed it a key literal, or an event payload field (harvested with its component)`,
+					at: { on: 'dataEdge', from: edge.from, to: edge.to },
+				});
+			}
+		}
+	}
+	return issues;
+};
+
+/** `instance-event-duplicate`: the runtime walks the FIRST wire out of an instance's event pin, so
+ *  a second node naming the same instance and wiring the same event is dead. */
+const instanceEventDuplicateIssues = (
+	nodes: Node[],
+	exec: FlowDoc['graph']['exec'],
+	ctx: PinContext,
+): FlowIssue[] => {
+	const issues: FlowIssue[] = [];
+	if (!ctx.instances) return issues;
+	const nodeById = new Map(nodes.map((n) => [n.id, n]));
+	const first = new Map<string, string>();
+	for (const edge of exec) {
+		const node = nodeById.get(edge.from.node);
+		if (node?.kind !== 'componentInstance') continue;
+		const event = instanceEventOf(edge.from.pin);
+		if (event === undefined) continue;
+		const key = `${node.instance}\u0000${event}`;
+		const owner = first.get(key);
+		if (owner === undefined) {
+			first.set(key, node.id);
+			continue;
+		}
+		if (owner === node.id) continue;
+		issues.push({
+			code: 'instance-event-duplicate',
+			severity: 'error',
+			message: `component node '${node.id}' wires event '${event}' of instance '${node.instance}', which node '${owner}' already wires — only the first wire runs; keep one node per instance event`,
+			at: { on: 'execEdge', from: edge.from, to: edge.to },
+		});
+	}
 	return issues;
 };
 

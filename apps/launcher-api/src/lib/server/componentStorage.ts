@@ -19,6 +19,7 @@ import {
 	BUILTIN_COMPONENTS,
 	COMPONENT_INPUT_KINDS,
 	COMPONENT_PARAM_KINDS,
+	isLocalizationKey,
 	mergeBuiltinCodedParams,
 	pruneOrphanParamBindings,
 	SM_CONDITION_OPS,
@@ -919,6 +920,8 @@ function normalizeInputs(input: unknown): ComponentInput[] {
 		if (row.kind === 'number' && typeof item.source === 'string' && item.source) {
 			row.source = item.source;
 		}
+		// A text default is a localization key (plan §8) — anything else is not a default.
+		if (row.kind === 'text' && isLocalizationKey(item.default)) row.default = item.default;
 		if (typeof item.note === 'string' && item.note) row.note = item.note;
 		out.push(row);
 	}

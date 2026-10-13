@@ -422,6 +422,15 @@ export function mergeImportedModeFlow(
 					return { ...node, id, modeId: ownMode(node.modeId) };
 				case 'exitMode':
 					return node.modeId ? { ...node, id, modeId: ownMode(node.modeId) } : { ...node, id };
+				// A placed instance follows its screen's and its node's new ids.
+				case 'componentInstance':
+				case 'waitForState':
+					return {
+						...node,
+						id,
+						container: screen(node.container),
+						instance: ids.nodes[node.instance] ?? node.instance,
+					};
 				case 'group':
 					return {
 						...node,

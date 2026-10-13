@@ -18,13 +18,19 @@
  *  - functionCall  — the target `FunctionDef`'s declared `inputs` / `outputs`, verbatim.
  *  - sequence / parallel — in `exec`; N ordered/concurrent out execs `then[0..count-1]`.
  *  - compute       — no exec; one data-out `out` whose type follows the op + operands.
+ *  - componentInstance — `deriveInstancePins` over `PinContext.instances` (§6.3): exec-ins `set` +
+ *                    `fire:<trigger>`, data-ins `in:<input>`, exec-out `exec`, exec-outs
+ *                    `event:<event>` (+ `event:<event>:<field>` data-outs), data-outs `value:<id>`.
+ *  - waitForState  — in `exec`, out `exec`; the layer and state live on the node.
  */
 
+import { deriveInstancePins } from './instanceNodes';
 import type {
 	Accessor,
 	ComputeOp,
 	ContainerEventDecl,
 	DataSource,
+	FlowInstanceDecl,
 	FunctionDef,
 	FunctionLibraryDoc,
 	Guard,
@@ -64,6 +70,14 @@ export interface PinContext {
 	 * or standalone project (empty map) yields NO issues rather than a false error on every flow.
 	 */
 	containerTaps?: Record<string, boolean>;
+	/**
+	 * §6.3 — the placed, named component instances, keyed by the placed node's id → the instance's
+	 * projected interface (`FlowInstanceDecl`). A `componentInstance` node derives its pins from its
+	 * entry (`deriveInstancePins`); a `waitForState` node is judged against its values. Absent ⇒
+	 * the layout is unknown: an instance node derives its base pins only and every instance check
+	 * is skipped (never guess — a bare harness, the game at runtime).
+	 */
+	instances?: Record<string, FlowInstanceDecl>;
 }
 
 const EXEC_IN: Pin = { id: 'exec', dir: 'in', kind: 'exec' };
@@ -432,6 +446,14 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 				.map((p) => dataOut(p.id, p.dataType!, p.label));
 			return [EXEC_OUT, ...outs];
 		}
+		case 'componentInstance': {
+			// §6.3: the pins ARE the placed instance's interface (`PinContext.instances`), keyed by the
+			// placed node id; a decl on another container is not this node's. Unknown layout ⇒ base pins.
+			const decl = ctx.instances?.[node.instance];
+			return deriveInstancePins(decl && decl.container === node.container ? decl : undefined);
+		}
+		case 'waitForState':
+			return [EXEC_IN, EXEC_OUT];
 		case 'functionResult': {
 			// The result collects the function's outputs: exec-IN + one data-IN per the
 			// FunctionDef's declared data output (§5). If `ref` doesn't resolve, only exec.

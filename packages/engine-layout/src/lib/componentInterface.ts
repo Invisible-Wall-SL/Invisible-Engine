@@ -1,3 +1,5 @@
+import type { InstanceInterface } from 'engine-flow-v2';
+
 import {
 	SM_ANY_STATE,
 	SM_EXIT_STATE,
@@ -97,4 +99,33 @@ export function componentInterface(
 		});
 	}
 	return { inputs: componentInputs(def), events: componentEvents(def), values };
+}
+
+/**
+ * The interface as a Flow `componentInstance` node sees it (Rive plan §6.2, Phase 7): the same
+ * inputs, events and values, in Flow's own structural shape — an input is its id and kind (a
+ * default is the component's business), an event its id and payload, a value its layer and states.
+ * A number input the ENGINE feeds (`source`) is left out: the source writes it on every emit, so a
+ * Flow set would be overwritten — it gets no pin. The launcher projects it per placed instance
+ * (`projectFlowInstances`).
+ */
+export function flowInstanceInterface(
+	def: Parameters<typeof componentInterface>[0],
+): InstanceInterface {
+	const { inputs, events, values } = componentInterface(def);
+	return {
+		inputs: inputs
+			.filter((input) => !input.source)
+			.map((input) =>
+				input.note
+					? { id: input.id, kind: input.kind, note: input.note }
+					: { id: input.id, kind: input.kind },
+			),
+		events: events.map((event) => ({
+			id: event.id,
+			...(event.payload ? { payload: event.payload } : {}),
+			...(event.note ? { note: event.note } : {}),
+		})),
+		values: values.map((value) => ({ id: value.id, layer: value.layer, states: value.states })),
+	};
 }

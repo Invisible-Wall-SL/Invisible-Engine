@@ -60,7 +60,10 @@ export function raiseComponentEvent(raised: RaisedComponentEvent): void {
 /**
  * A payload's localization key: the stack is source-as-key, so a key is its source text, and the
  * harvest's rule applies — a string with at least one letter (`localizationHarvest.ts`). The
- * harvest collects every `{ key }` a def raises, so none bypasses localization (plan §8).
+ * harvest collects every `{ key }` a def raises, so none bypasses localization (plan §8). Its twin
+ * in `engine-flow-v2` (`instanceNodes.ts`, for a `text` input's literal) is the same regex; it is
+ * not imported from there so this package's runtime graph stays free of that barrel.
+ * `check:flow-instance-nodes` holds the two together.
  */
 export const isLocalizationKey = (key: unknown): key is string =>
 	typeof key === 'string' && /\p{L}/u.test(key);
@@ -327,6 +330,7 @@ export type ComponentEventIssueCode =
 	| 'event-input-collision'
 	| 'event-payload-duplicate'
 	| 'event-payload-type'
+	| 'event-pin-id'
 	| 'listener-duplicate'
 	| 'listener-input-unknown'
 	| 'listener-input-kind'
@@ -409,6 +413,14 @@ export function validateComponentEvents(
 			continue;
 		}
 		events.set(event.id, event);
+		if (event.id.includes(':')) {
+			issues.push({
+				code: 'event-pin-id',
+				level: 'error',
+				event: event.id,
+				message: `Event "${event.id}": an event id cannot carry ":" (Flow's pin separator); the event gets no pin.`,
+			});
+		}
 		if (kinds.has(event.id)) {
 			issues.push({
 				code: 'event-input-collision',
@@ -429,6 +441,14 @@ export function validateComponentEvents(
 				});
 			}
 			fields.add(field.name);
+			if (field.name.includes(':')) {
+				issues.push({
+					code: 'event-pin-id',
+					level: 'error',
+					event: event.id,
+					message: `Event "${event.id}": payload field "${field.name}" cannot carry ":" (Flow's pin separator); the field gets no pin.`,
+				});
+			}
 			if (!PAYLOAD_TYPES.has(field.type?.t)) {
 				issues.push({
 					code: 'event-payload-type',

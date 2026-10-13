@@ -19,7 +19,11 @@ import {
 	resolveLayoutInstanceParams,
 } from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
-import { collectTextMessages } from 'engine-flow-v2';
+import {
+	collectInstanceTextKeys,
+	collectTextMessages,
+	type FlowInstanceDecl,
+} from 'engine-flow-v2';
 import type { GameConfigDoc } from 'game-config';
 import { resolveBetModes } from 'game-config';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
@@ -363,6 +367,31 @@ export function harvestFlowMessages(doc: FlowDoc | undefined): HarvestSection[] 
 	const items = collectTextMessages(doc).filter((i) => isLocalizableText(i.source));
 	if (items.length === 0) return [];
 	return [{ sceneId: FLOW_MESSAGE_SECTION_ID, sceneName: 'Flow messages', items, origin: 'flow' }];
+}
+
+/** The synthetic section id the Flow component-input keys are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const FLOW_INSTANCE_TEXT_SECTION_ID = '__flowInstanceText';
+
+/**
+ * Collect every localization key the flow feeds a placed component's `text` input as a literal
+ * (Rive plan §8: a Flow wire into a text input is harvested like a `textMessage`, so no text
+ * bypasses translation). `instances` is the same projection the flow editor and the publish gate
+ * use (`projectFlowInstances`). Flow owns these sources, so they're read-only here (`origin: 'flow'`).
+ */
+export function harvestFlowInstanceText(
+	doc: FlowDoc | undefined,
+	instances: Record<string, FlowInstanceDecl> | undefined,
+): HarvestSection[] {
+	const items = collectInstanceTextKeys(doc, instances).filter((i) => isLocalizableText(i.source));
+	if (items.length === 0) return [];
+	return [
+		{
+			sceneId: FLOW_INSTANCE_TEXT_SECTION_ID,
+			sceneName: 'Flow component inputs',
+			items,
+			origin: 'flow',
+		},
+	];
 }
 
 /** The synthetic section id the timeline switch-key strings are grouped under (see {@link WIN_TEXT_SECTION_ID}). */

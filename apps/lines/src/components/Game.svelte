@@ -678,6 +678,8 @@
 		// (byte-identical). Consulted at click time, so it tracks the live handle regardless of boot order.
 		const routed = resolveFlowV2Press(componentId, action, payload, kind);
 		if (!routed) return undefined;
+		// A RAISED EVENT (Rive plan Phase 6–7) is not a press: no press-feedback sound for it.
+		if (kind === 'event') return routed;
 		return () => {
 			context.eventEmitter.broadcast(
 				action === 'spin'

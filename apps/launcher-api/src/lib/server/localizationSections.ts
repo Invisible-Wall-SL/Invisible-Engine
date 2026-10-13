@@ -1,10 +1,14 @@
+import { docComponentInstanceNodes } from 'engine-flow-v2';
+import { instanceDefResolver, projectFlowInstances } from '$lib/flowV2Projection';
 import { loadAuthoredCinematics } from './cinematicExport';
-import { loadComponent } from './componentStorage';
+import { listComponents, loadComponent } from './componentStorage';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
 import { resolveGameConfig } from './gameConfigDefaults';
+import { withPlacedComponentVersions } from './flowV2Validation';
 import {
 	harvestBetModeText,
+	harvestFlowInstanceText,
 	harvestFlowMessages,
 	harvestSceneText,
 	harvestSymbolNames,
@@ -46,11 +50,28 @@ export async function harvestProjectSections(
 		// The cinematics that ship — the same set the export publishes — for their switch-key text.
 		loadAuthoredCinematics(clientKey, projectKey),
 	]);
+	// The flow's placed-instance projection (Rive plan §6.2), for the keys it feeds `text` inputs —
+	// only when the flow places an instance at all, so a project without one reads no components.
+	const instances =
+		flowV2Doc && docComponentInstanceNodes(flowV2Doc).length
+			? projectFlowInstances(
+					flowV2Doc.containers,
+					editorDoc.scenes ?? [],
+					instanceDefResolver(
+						await withPlacedComponentVersions(
+							projectKey,
+							editorDoc.scenes ?? [],
+							await listComponents({ projectKey }),
+						),
+					),
+				)
+			: undefined;
 	const sections = [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestProjectWinText(winTextDoc, gameType, gameConfig.doc),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
+		...harvestFlowInstanceText(flowV2Doc ?? undefined, instances),
 		...harvestBetModeText(gameConfig.doc),
 		// The engine's own coded chrome (HUD captions, menus, modals, info-page rules) — the same
 		// registry the runtime renders from, so the shipped UI is translatable per project instead of

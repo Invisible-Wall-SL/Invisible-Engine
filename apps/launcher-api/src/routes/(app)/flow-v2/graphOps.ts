@@ -23,7 +23,7 @@ import type {
 	PlayCinematicNode,
 	TextMessageNode,
 } from 'engine-flow-v2';
-import { TEXT_MESSAGE_DEFAULTS } from 'engine-flow-v2';
+import { parseInstanceNodeRef, TEXT_MESSAGE_DEFAULTS } from 'engine-flow-v2';
 
 // ---------------------------------------------------------------------------
 // Graph-level ops (2c.3). Every structural edit is fundamentally a pure `Graph → Graph`;
@@ -242,6 +242,11 @@ export const makeNode = (
 			return { id, kind, pos, modeId: ref ?? '' };
 		case 'exitMode':
 			return ref ? { id, kind, pos, modeId: ref } : { id, kind, pos };
+		// A placed component instance (§6.3): `ref` is the palette's `<container>/<instance>`.
+		case 'componentInstance':
+			return { id, kind, pos, ...parseInstanceNodeRef(ref) };
+		case 'waitForState':
+			return { id, kind, pos, ...parseInstanceNodeRef(ref), layer: '', state: '' };
 	}
 };
 

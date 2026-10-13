@@ -171,7 +171,9 @@ export type NodeKind =
 	| 'modeTrigger'
 	| 'allModesFinished'
 	| 'enterMode'
-	| 'exitMode';
+	| 'exitMode'
+	| 'componentInstance'
+	| 'waitForState';
 
 /** Shared node fields. `inputs` maps each DATA-IN pin id → its `DataSource` (a `wire`
  *  source defers to the data edges); it is absent for nodes with no data-ins. */
@@ -465,6 +467,53 @@ export interface ExitModeNode extends NodeBase {
 	modeId?: string;
 }
 
+/**
+ * Where a placed component instance lives: the Scene-Editor screen (as a container of this flow)
+ * and the placed node's id in that screen. Both are stored, because the game addresses the live
+ * instance by node id and the validator judges the pair against the layout.
+ */
+export interface InstanceRef {
+	container: ContainerId;
+	instance: string;
+}
+
+/**
+ * Component INSTANCE node (Rive plan §6.2, Phase 7): a placed component instance on a screen,
+ * wired like any other node. Its pins are DERIVED from the instance's pinned `ComponentDef`
+ * interface (`PinContext.instances`, projected by whoever holds the LayoutDoc — the same
+ * anti-drift rule as §2 and §6.1), never stored:
+ *
+ *  - exec-in `set` — apply every fed data-in to the instance, then continue;
+ *  - exec-in `fire:<trigger>` per trigger input — apply the data-ins, fire the trigger on THAT
+ *    instance (its own bus and scope), then continue;
+ *  - data-in `in:<input>` per bool / number / text input, all optional (an unfed input is left);
+ *  - exec-out `exec` — continues from whichever exec-in fired (the `textMessage` pattern);
+ *  - exec-out `event:<event>` per event the component declares, with a data-out
+ *    `event:<event>:<field>` per payload field — its OWN entry root, never a continuation of the
+ *    chain that set the inputs (the §6.1 container-event pins' rule). The id form is deliberately
+ *    NOT `containerEventDeclId` (`<id>.on<Event>`): an event `confirm` must never resolve to a
+ *    `pressAction: 'confirm'` chain, on the runtime road or in a saved wire;
+ *  - data-out `value:<layer>.state` per state-machine layer — the layer's current state id.
+ *
+ * Nothing about the component is stored on the node (`inputs` holds only the data-in sources, as
+ * on every node), so changing the component changes the pins, and a wire to a pin the interface no
+ * longer has is a validation error.
+ */
+export interface FlowInstanceNode extends NodeBase, InstanceRef {
+	kind: 'componentInstance';
+}
+
+/**
+ * Wait for state (Phase 7): hold the exec chain until the instance's state-machine layer `layer`
+ * is in state `state` — at once when it already is. exec-in `exec`, exec-out `exec`. What the wait
+ * does for an instance that is not on screen is the game env's rule (`FlowV2Env.awaitInstanceState`).
+ */
+export interface WaitForStateNode extends NodeBase, InstanceRef {
+	kind: 'waitForState';
+	layer: string;
+	state: string;
+}
+
 export type Node =
 	| EventNode
 	| GameSignalsNode
@@ -487,7 +536,9 @@ export type Node =
 	| ModeTriggerNode
 	| AllModesFinishedNode
 	| EnterModeNode
-	| ExitModeNode;
+	| ExitModeNode
+	| FlowInstanceNode
+	| WaitForStateNode;
 
 // ---------------------------------------------------------------------------
 // §5 — functions (the reuse model). A function is authored once and dropped as a
@@ -549,6 +600,61 @@ export interface ContainerEventDecl {
 	event: string; // the configured action/intent name, e.g. 'spin'.
 	label: string; // the exec-out pin label — the `on<Event>` tail (e.g. 'onSpin').
 	payload?: ParamDecl[]; // data-outs; usually empty (mirrors `EventDecl`/`CueDecl` payloads).
+}
+
+// ---------------------------------------------------------------------------
+// §6.3 — placed component instances (Rive plan §6.2, Phase 7). A `componentInstance` node's pins
+// come from the INTERFACE of the instance's pinned `ComponentDef` version: what Flow can set or
+// fire (inputs), what the component tells Flow (events) and what Flow can read (values). The
+// shape is structural — engine-layout derives it from the def (`componentInterface`) and the
+// launcher projects it per placed instance; this package never reads a `ComponentDef`.
+// ---------------------------------------------------------------------------
+
+/** A component input's kind. `text` carries a LOCALIZATION KEY (plan §8), never a sentence. */
+export type InstanceInputKind = 'bool' | 'number' | 'trigger' | 'text';
+
+export interface InstanceInputDecl {
+	id: string;
+	kind: InstanceInputKind;
+	note?: string;
+}
+
+/** An event the component raises; `payload` fields become the event pin's data-outs. */
+export interface InstanceEventDecl {
+	id: string;
+	payload?: ParamDecl[];
+	note?: string;
+}
+
+/** A value the component reports: a state-machine layer's current state (`<layer>.state`). */
+export interface InstanceValueDecl {
+	/** `<layer>.state`. */
+	id: string;
+	layer: string;
+	/** The state ids it can read as. */
+	states: string[];
+}
+
+export interface InstanceInterface {
+	inputs: InstanceInputDecl[];
+	events: InstanceEventDecl[];
+	values: InstanceValueDecl[];
+}
+
+/**
+ * One placed, NAMED component instance as Flow sees it, keyed in `PinContext.instances` by the
+ * placed node's id. Derived from the LayoutDoc and the component defs, never stored.
+ */
+export interface FlowInstanceDecl extends InstanceRef {
+	/** The author's name for the placement (the node's label) — the palette caption. */
+	name: string;
+	componentId: string;
+	/** The pinned `ComponentDef.version`; absent ⇒ latest. */
+	version?: number;
+	interface: InstanceInterface;
+	/** Set when the def (or the exact pinned version) could not be resolved: the pins are then
+	 *  derived from nothing and the validator reports `instance-missing`. */
+	missing?: 'def' | 'version';
 }
 
 // ---------------------------------------------------------------------------

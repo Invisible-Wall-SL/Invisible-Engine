@@ -18,6 +18,7 @@
 		type ContainerEventDecl,
 		type FlowComment,
 		type FlowDoc,
+		type FlowInstanceDecl,
 		type FunctionDef,
 		type FunctionLibraryDoc,
 		type Graph,
@@ -134,6 +135,10 @@
 	// unsaved project yields an empty one), which those checks treat as "unknown" and skip.
 	const containerTaps = $derived<Record<string, boolean>>(data.containerTaps ?? {});
 
+	// §6.3 — the placed, named component instances (Rive plan §6.2), keyed by placed node id. A
+	// `componentInstance` node derives its pins from its entry; the validator judges every wire to one.
+	const instances = $derived<Record<string, FlowInstanceDecl>>(data.instances ?? {});
+
 	// The project's Scene-Editor screen ids (the keys of `sceneNames`), so Validation can flag a Show /
 	// Hide of a screen the layout no longer has (`container-scene-missing`). An unsaved project has
 	// none, and that check stays silent.
@@ -142,7 +147,7 @@
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
 	// `derivePins`, `validateFlowDoc`, the palette, the inspector — sees the current library. It also
 	// carries the container-event surface so a `showContainer` node fuses its component events (§6.1).
-	const ctx = $derived<PinContext>({ vocab, library, containerEvents, containerTaps });
+	const ctx = $derived<PinContext>({ vocab, library, containerEvents, containerTaps, instances });
 
 	// --- The editing TARGET (2c.3) ---------------------------------------------
 	// The canvas + all tools edit an "active graph": either the main `FlowDoc.graph` or a
@@ -154,9 +159,7 @@
 	// `doc.modes` — a mode's own graph, which the runtime asks first while that mode is on screen
 	// before falling back to the global `doc.graph` (the "Global" tab, `{ kind: 'flow' }`).
 	type FlowView =
-		| { kind: 'flow' }
-		| { kind: 'function'; functionId: string }
-		| { kind: 'mode'; modeId: string };
+		{ kind: 'flow' } | { kind: 'function'; functionId: string } | { kind: 'mode'; modeId: string };
 	let view = $state<FlowView>({ kind: 'flow' });
 	// The doc section (Global or a mode tab) the function crumb returns to.
 	let lastSection = $state<FlowView>({ kind: 'flow' });
@@ -393,7 +396,15 @@
 		view.kind === 'function' && activeFn
 			? validateFunctionDef(activeFn, vocab, library)
 			: [
-					...validateFlowDoc(doc, vocab, library, containerEvents, containerTaps, sceneIds),
+					...validateFlowDoc(
+						doc,
+						vocab,
+						library,
+						containerEvents,
+						containerTaps,
+						sceneIds,
+						instances,
+					),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),
 				],
@@ -1611,8 +1622,7 @@
 			     hands a signal to the ON-SCREEN mode's graph first and falls back to Global. -->
 			<span class="mode-tabs" role="tablist" aria-label="Flow sections">
 				{#snippet badge(key: string)}
-					{#if issuesBySection[key]}<span class="tab-issues">{issuesBySection[key]}</span
-						>{/if}
+					{#if issuesBySection[key]}<span class="tab-issues">{issuesBySection[key]}</span>{/if}
 				{/snippet}
 				<button
 					class="mode-tab"

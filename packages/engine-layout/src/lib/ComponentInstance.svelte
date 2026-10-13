@@ -109,6 +109,9 @@
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
 	import { ComponentEventDispatcher, hasNodeListeners, routeComponentCue } from './componentEvents';
 	import { setComponentListen } from './componentListenerContext';
+	import { registerFlowInstance } from './flowInstances';
+	import { createFlowInstanceHandle } from './flowInstanceHandle';
+	import { getSceneIdContext } from './sceneIdContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
 
@@ -709,6 +712,9 @@
 			// gate can key on `enter` directly (appear on mount) as well as on a rig `completeSignal`.
 			fireComponentSignal(ENTER_SIGNAL);
 		}
+		// A Flow wait on this instance follows its visibility too (a hidden instance is "not on
+		// screen" to Flow). Untracked: the listener set is bookkeeping, not a dependency.
+		if (selfVisible !== wasVisible) untrack(notifyFlowInstance);
 		wasVisible = selfVisible;
 	});
 
@@ -721,15 +727,18 @@
 	// The host reads the runner built below at call time. No listener and no event ⇒ no dispatcher,
 	// no context, nothing new (parity).
 	const listened = allowed && !!def && hasNodeListeners(def);
+	/** Fire a trigger input on THIS instance, exactly as a heard signal is: its rig cues play and
+	 *  the per-instance bus records it (the state machine, a `playOn` timeline and a gate hear it). */
+	const fireTrigger = (id: string): void => {
+		const targets = signalToTargets.get(id);
+		if (targets) fireCue(targets);
+		fireComponentSignal(id);
+	};
 	const eventDispatcher =
 		allowed && def && (listened || !!def.events?.length)
 			? new ComponentEventDispatcher(def, {
 					instanceId: untrack(() => node.id),
-					fireTrigger: (id) => {
-						const targets = signalToTargets.get(id);
-						if (targets) fireCue(targets);
-						fireComponentSignal(id);
-					},
+					fireTrigger,
 					input: (id) => stateMachineRunner?.input(id),
 					setInput: (id, value) => void stateMachineRunner?.setInput(id, value),
 					schedule: (drain) => queueMicrotask(drain),
@@ -921,12 +930,35 @@
 		});
 		timelineClock += 1;
 	};
+	// FLOW INSTANCE (Rive plan §6.2, Phase 7): a placement on a screen registers a live handle under
+	// its node id (`flowInstances.ts`) while mounted, so a Flow `componentInstance` node can fire its
+	// triggers (through `fireTrigger`, as a listener does), set its bool / number inputs on the
+	// runner and its text inputs on the handle, read its layer states and wait for one. Only a
+	// TOP-LEVEL placement registers: an instance nested inside another component's def is not Flow's
+	// to name. The handle (`flowInstanceHandle.ts`) is a Map entry and a few closures: an instance
+	// nothing in Flow names pays nothing else (parity).
+	const flowInstance =
+		allowed && def && parentNest.depth === 0
+			? createFlowInstanceHandle({
+					instanceId: untrack(() => node.id),
+					componentId: untrack(() => node.componentId),
+					version: untrack(() => node.componentVersion),
+					sceneId: getSceneIdContext(),
+					inputs: componentInputs(def),
+					shown: () => untrack(() => selfVisible),
+					fireTrigger,
+					runner: () => stateMachineRunner,
+				})
+			: undefined;
+	if (flowInstance) onDestroy(registerFlowInstance(flowInstance.handle));
+	const notifyFlowInstance = (): void => flowInstance?.notify();
 	// The machine starts when the instance is first SHOWN (as `enter` fires): the entry pose and
 	// its cues at 0 then, the clock running from there on whether or not it stays shown.
 	const startStateMachine = (): void => {
 		stateMachineStarted = true;
 		applyStateMachine();
 		if (stateMachineRunner) eventDispatcher?.started(stateMachineRunner.plays());
+		notifyFlowInstance();
 	};
 	if (stateMachineRunner && untrack(() => selfVisible)) startStateMachine();
 	const timelineTicker =
@@ -950,6 +982,7 @@
 			const step = stateMachineRunner.advance(dt);
 			applyStateMachine();
 			eventDispatcher?.transitions(step.fired);
+			if (step.fired.length) notifyFlowInstance();
 		}
 	};
 	timelineTicker?.add(tickTimelines);

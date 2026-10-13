@@ -57,6 +57,15 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-13 — **Flow instance nodes (Rive plan Phase 7a, branch
+  `claude/rive-p7a-flow-instance-nodes-runtime`)** — the component side: input kind **`text`**
+  (`COMPONENT_INPUT_KINDS`; a default is a localization key; the state machine never conditions on
+  it — `condition-input-text`; the normalizer keeps it, so a row an older build kept unreadable now
+  reads), `flowInstanceInterface(def)` (the interface as a Flow node sees it), and every TOP-LEVEL
+  placement registers a live handle (`flowInstances.ts`, built by `flowInstanceHandle.ts`: a Flow set
+  is read as the input's kind the way the runner reads one) Flow fires, sets, reads and waits on. An
+  event id or a payload field name carrying `:` (Flow's pin separator) is refused (`event-pin-id`) and
+  a number input with an engine `source` gets no Flow pin. The Flow side is in [flow.md](flow.md). The Inputs block does not offer `text` yet (7b / the 6b UI).
 - 2026-10-13 — **Listeners + events in the editor (Rive plan Phase 6b, branch
   `claude/rive-p6b-listeners-events-editor`).** `EditorListeners.svelte`, `EditorEvents.svelte`,
   `EditorRaisePayload.svelte`; On enter + an Events log in `EditorStateMachinePanel.svelte`; the
@@ -85,7 +94,7 @@ Shipped capabilities on `main`:
   param, signal, slot and input the author kept (a param / slot / input only while its `kind` is
   the same), and of each state-machine layer and its states and transitions (`stateMachine` itself
   is a fixed namespace). A deleted entity is never resurrected. An input of a kind this build does
-  not know (Phase 7's `text`) is kept in place. An existing `<id>.v<N>.json` snapshot is never
+  not know (the gate stands one in as `vec2`; `text` is known since Phase 7) is kept in place. An existing `<id>.v<N>.json` snapshot is never
   rewritten. Promote to shared carries the promoted project def's fields (`promotedFrom` +
   `sourceEtag`) and answers 409 `source-conflict` when that def changed since the draft loaded.
   "This game's defaults" and its restore keep theirs (a restore, the backup's). Known fields:
