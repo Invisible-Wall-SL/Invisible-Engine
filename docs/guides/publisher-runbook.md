@@ -61,7 +61,7 @@ takes seconds; a flow or paytable override rebuilds.
 | Message | Do this |
 | --- | --- |
 | *needs "Build & publish games" (gamePublish)* | ask an admin for the capability |
-| *N file(s) are over the portal's … MB per-file limit* | tick **🗜 Optimize** and publish again (it re-encodes PNG pages as WebP) |
+| *N file(s) are over the portal's … MB per-file limit* | a **PNG**: tick **🗜 Optimize** and publish again (it re-encodes PNG pages as WebP). A **WebP or JPEG**: Optimize leaves it as is, so shrink its sheet (see below) and publish again. Otherwise ask the owner to raise `BODY_SIZE_LIMIT` (the portal never takes a file over 64 MB). |
 | *'…' is published ONLINE by the Invisible Game Maker* | give the desktop build its own cloud key (e.g. `<game>build`) in Edit → Cloud publish |
 | *Session expired — sign in again* | sign in from the header and press ☁ Publish again. The unchanged files are skipped, so the retry is quick. |
 | *Uploaded, but the live server hadn't caught up* | wait a minute and reopen the game. The build is already in the cloud. |
@@ -73,6 +73,23 @@ Optimize makes the upload smaller without changing how the game looks. PNG atlas
 **near-lossless WebP**, the setting the engine's page store uses: each pixel moves by at most
 4/255, and there is no banding. Pages the server already encoded are left untouched, other PNGs are
 re-packed losslessly, and audio is trimmed to mp3. Log: `%TEMP%\iw_optimize.log`.
+
+## Shrinking an oversized image
+
+A build ships only the art the game loads: a folder in the project's `deploy/` that no game code
+names is not pulled into the build (the build log lists it under *Not pulled*). So an oversized
+file is one the game really uses, almost always a sheet packed far bigger than the game shows it
+(an 8192×8192 page of animation frames, say).
+
+1. Find its sheet: the folder name is the sheet name (`assets/sprites/S_Background/…` is the
+   sheet **S_Background**). Open it in **Invisible Sheet Maker** and check *Canvas size*.
+2. **Downscale sheet ↓** to the size the game needs (the game's resolution, 2× at most), then
+   **Save**.
+3. Deploy it again from **Invisible Atlas Maker** and publish. The Atlas Maker writes the WebP
+   page itself (lossy, quality 95); there is no format setting to change.
+
+A sheet the game no longer uses can be deleted from `deploy/` in the **Invisible FTP Browser** to
+keep the project tidy, but it does not ship either way.
 
 ## For the owner
 
