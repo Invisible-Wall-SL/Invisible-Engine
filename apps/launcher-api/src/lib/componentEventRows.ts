@@ -15,19 +15,22 @@ import {
 	LISTENER_ACTION_KINDS,
 	NODE_LISTENER_EVENTS,
 } from 'engine-layout';
-import { isPlainObject } from './stripUnknownKeys';
 
 /**
  * The readers of a component's Phase 6 rows (Rive plan §5–6.1) — an event's payload fields, a
- * node's listeners, a state's on-enter actions — shared by the normalizer (`componentStorage.ts`)
- * and the save graft (`componentUnknownFields.ts`), so both agree on which stored row this build
- * cannot read: the read drops it, and the save puts it back where it stood.
+ * node's listeners, a state's on-enter actions — shared by the normalizer (`componentStorage.ts`),
+ * the save graft (`componentUnknownFields.ts`) and the editor's save guard (`listenerEdit.ts`), so
+ * all three agree on which row this build cannot read: the read drops it, the save puts a stored
+ * one back where it stood, and the editor refuses to save one it made.
  *
  * Fail-closed: a row this build cannot read whole is dropped whole, never widened (a listener
  * whose payload has one unreadable value is not kept as a raise with fewer fields).
  */
 
 type Row = Record<string, unknown>;
+
+const isPlainObject = (value: unknown): value is Row =>
+	typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const LISTENER_EVENTS: ReadonlySet<unknown> = new Set(NODE_LISTENER_EVENTS);
 const ACTION_KINDS: ReadonlySet<unknown> = new Set(LISTENER_ACTION_KINDS);

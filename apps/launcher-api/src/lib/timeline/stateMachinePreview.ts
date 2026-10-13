@@ -2,6 +2,8 @@ import {
 	ComponentStateMachineRunner,
 	ComponentTimelinePlayer,
 	nodeActorBindings,
+	routeComponentCue,
+	type ComponentEventDispatcher,
 	type CinematicDoc,
 	type LayoutNode,
 } from 'engine-layout';
@@ -30,16 +32,37 @@ export function previewPlayer(
 
 /**
  * One preview step after the runner advanced: place every layer's slot (`drive`, as the instance
- * does) and route the cues it crossed — a `signal:` cue fires the trigger of that name on the
- * runner, as it would on the instance's bus; sounds and effects have nowhere to go on the stage.
- * Returns the cues, for the gate.
+ * does) and route the cues it crossed as the instance does (`routeComponentCue`) — a `signal:` cue
+ * fires the trigger of that name on the runner, as it would on the instance's bus; an `event:` cue
+ * raises through `events` (Phase 6) on a def that declares events; sounds and effects have nowhere
+ * to go on the stage. Returns the cues, for the gate.
  */
 export function placeLayers(
 	runner: ComponentStateMachineRunner,
 	player: ComponentTimelinePlayer,
+	events?: { dispatcher: ComponentEventDispatcher; declaresEvents: boolean },
 ): { cue: string; timeline: string }[] {
 	const cues = runner.plays().flatMap((play, i) => player.drive(play.layer, i, play));
-	for (const { cue } of cues) if (cue.startsWith('signal:')) runner.fire(cue.slice(7));
+	for (const { cue } of cues) {
+		const route = routeComponentCue(cue, events?.declaresEvents ?? false);
+		if (route.kind === 'signal') runner.fire(route.name);
+		else if (route.kind === 'event') events?.dispatcher.cue(route.cue);
+	}
+	return cues;
+}
+
+/**
+ * The run's first frame, as the game's `startStateMachine`: `player` must be fresh, so the entry
+ * timelines cross 0 again — their cues routed (an `event:` cue raised) — and then the dispatcher
+ * hears the machine start (the entry states' `onEnter`).
+ */
+export function startLayers(
+	runner: ComponentStateMachineRunner,
+	player: ComponentTimelinePlayer,
+	events?: { dispatcher: ComponentEventDispatcher; declaresEvents: boolean },
+): { cue: string; timeline: string }[] {
+	const cues = placeLayers(runner, player, events);
+	events?.dispatcher.started(runner.plays());
 	return cues;
 }
 

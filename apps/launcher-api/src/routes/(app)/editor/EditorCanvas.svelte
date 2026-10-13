@@ -96,6 +96,7 @@
 		previewVersion,
 	} from './valuePreview.client.svelte';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
+	import { deepHit } from '$lib/timeline/listenerPreview';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
 	import EditorRigLayer from './EditorRigLayer.svelte';
@@ -293,6 +294,10 @@
 		/** Double-click on a placed component instance: edit its def in place (Rive plan Phase 4).
 		 * Absent ⇒ a double-click does nothing beyond the two clicks. */
 		onEditInstance?: (node: ComponentInstanceNode) => void;
+		/** The State Machine preview's pointer (Rive plan Phase 6b): in Animate, every move, press
+		 *  and release over the stage, with the DEEPEST node under it (into containers), so the
+		 *  preview can drive the component's listeners. Absent ⇒ the stage only selects. */
+		onStagePointer?: (kind: 'move' | 'down' | 'up' | 'leave', nodeId: string | null) => void;
 	}
 
 	let {
@@ -334,6 +339,7 @@
 		modeBar,
 		animate = false,
 		onEditInstance,
+		onStagePointer,
 	}: Props = $props();
 
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
@@ -3921,6 +3927,29 @@
 		return { x: (p.x - panX) / zoom, y: (p.y - panY) / zoom };
 	}
 
+	/** The pointer was over the stage at the last move — a `leave` is reported once, on exit. */
+	let stageInside = false;
+	/** The deepest node under `world` for the listener preview (`deepHit`), read off the DRAWN
+	 *  transform (the value-binding preview folded on), so the pointer hits what the author sees. */
+	function deepHitId(world: Vec2): string | null {
+		return deepHit(
+			visibleSceneNodes(),
+			world,
+			(node, nested) =>
+				nested
+					? childLocalTransform(
+							node,
+							layoutType,
+							scene.space,
+							frameWidth,
+							frameHeight,
+							previewResolveTransform,
+						)
+					: drawTransform(node),
+			(node, t, p) => pointInQuad(p, nodeCornersWorld(t, boxOf(node, t))),
+		);
+	}
+
 	function hitTestNode(world: Vec2): LayoutNode | null {
 		const list = visibleSceneNodes();
 		for (let i = list.length - 1; i >= 0; i--) {
@@ -4255,6 +4284,7 @@
 		const rect = canvas!.getBoundingClientRect();
 		const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 		const world = clientToWorld(e.clientX, e.clientY);
+		if (animate) onStagePointer?.('down', deepHitId(world));
 
 		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
@@ -4334,8 +4364,13 @@
 		if (screen.x < 0 || screen.y < 0 || screen.x > rect.width || screen.y > rect.height) {
 			hoverHandle = null;
 			hoverNodeId = null;
+			if (animate && stageInside) onStagePointer?.('leave', null);
+			stageInside = false;
 			return;
 		}
+		stageInside = true;
+		if (animate && onStagePointer)
+			onStagePointer('move', deepHitId(clientToWorld(e.clientX, e.clientY)));
 		hoverHandle = hitTestHandle(screen);
 		if (!hoverHandle) {
 			const w = clientToWorld(e.clientX, e.clientY);
@@ -4346,7 +4381,17 @@
 		}
 	}
 
-	function onWindowMouseUp(): void {
+	function onWindowMouseUp(e: MouseEvent): void {
+		if (animate && onStagePointer && canvas && e.button === 0) {
+			const rect = canvas.getBoundingClientRect();
+			const inside =
+				e.clientX >= rect.left &&
+				e.clientX <= rect.right &&
+				e.clientY >= rect.top &&
+				e.clientY <= rect.bottom;
+			// A release off the stage is no `up` on any node (as in the game).
+			onStagePointer('up', inside ? deepHitId(clientToWorld(e.clientX, e.clientY)) : null);
+		}
 		panning = false;
 		lastXY = null;
 		if (dragMode) {

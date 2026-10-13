@@ -960,6 +960,7 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
 
    **✎** next to it lets you type any other name, for example a Flow **fireCue** name. Choose
    **(nothing — not played)** and nothing in the game starts it.
+
 4. **Select a node and key it**, exactly as on a screen (steps 2 to 5 of
    [Animate mode](#animate-mode--the-timeline)). The canvas only selects in Animate: no dragging,
    no Delete, and double-click does not open a nested component. Keys find nodes by **name**, so
@@ -992,14 +993,14 @@ How it plays in the game:
 #### The State Machine
 
 Animate on a component has two tabs under the stage: **Timeline** (above) and **State machine**.
-The state machine says *which timeline plays when*, Rive-style: states that each play one of the
+The state machine says _which timeline plays when_, Rive-style: states that each play one of the
 component's timelines, transitions between them, and the **inputs** the game fires or sets that
 move it along. It saves with the component (Save in the editor bar, the usual version and History),
 so it needs no Flow node and no extra publish step; it is read-only while you are Inspecting an old
 version, like the rest of Animate.
 
 **Inputs** are declared in the Properties panel under **Component variables → Inputs** (the block
-that used to be *Signals*). Three kinds:
+that used to be _Signals_). Three kinds:
 
 - a **trigger** ⚡ — a signal: **+ Add trigger** picks an engine moment (`win`, `bigWin`…), a
   Flow **Fire Cue** name, or any name. Every signal the component already declared shows here as
@@ -1007,7 +1008,7 @@ that used to be *Signals*). Three kinds:
   exactly as before, and the state machine hears it too.
 - a **bool** ◐ and a **number** # — typed in the row at the top of the block (name, kind, **Add**).
   Each has a default; a number can also follow an engine value (**from**: `winAmount`, `balance`…,
-  the same names *Bind to value* offers). Flow sets them in game from Phase 7 on.
+  the same names _Bind to value_ offers). Flow sets them in game from Phase 7 on.
 
 Rename an input with **✎** — every transition condition that reads it follows. The name is what
 the game and Flow fire it as, so a rename is a delete + add: the dialog says what fires the old
@@ -1052,6 +1053,71 @@ a param hears only its own part's fires), and a trigger a transition is waiting 
 is held until that transition fires. A **Plays on** timeline that is still playing wins a node over
 the machine; once it ends, the machine's layers take the node back — a pop-in, then idle, needs no
 transition.
+
+#### Listeners and events
+
+A component can react to the pointer and tell the game what happened — the Rive idea of
+**listeners**, plus **events** for Flow.
+
+**Events** are declared in the Properties panel under **Component variables → Events**, below
+Inputs. Type a name (`pressed`, `revealDone`) and **Add**. Click an event's name to open its
+**payload**: fields Flow will receive with it, each a **number** (`int`, `number` or `ms`), a
+**bool** or a **text key**. A text key is a localization key — the text as it is written in the
+game; it is collected into Localization like any other text, so nothing in a payload skips
+translation. Tick **optional** when a raise may leave a field empty. An event name has no spaces
+and no `:` (a timeline cue names it as `event:<name>`).
+
+- **✎** renames an event. Its name is what Flow will hear it by, so a rename is a replace: the
+  dialog lists what raises it (listeners, states, timeline cues). The listeners and states follow
+  the rename; a timeline's `event:` cue is not rewritten — change it in the Timeline tab.
+- A name that listeners or On enter rows of an event you removed earlier still raise can't be
+  added or renamed to (taking it would quietly reconnect them) — repoint those rows first. A name
+  only a timeline cue uses is free: declaring it is how you fix a cue's typo.
+- **×** removes it, asking first when something raises it. Those raises stay and do nothing in
+  game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter in its
+  inspector, and a timeline cue under **Events** in the State machine tab.
+- The **last** event cannot be removed while any of this project's timelines for the component
+  (as last saved) has an `event:` cue: a component with no events plays such a cue the old way, as
+  a message to the whole screen. Remove or change those cues first. A **shared** component always
+  keeps its last event — other projects' timelines may raise it.
+- Adding the **first** event to a component whose timelines already have `event:` cues asks first
+  (a shared component always asks: other projects' timelines may have some): from then on those
+  cues raise the component's events instead of messaging the whole screen.
+- Renaming onto a name only a timeline cue uses asks first, naming the cues that will now raise it.
+- Renaming an **input** also repoints the listeners and payload fields that read it; removing one
+  lists them in its warning, and they stay, flagged ⚠.
+
+**Listeners** are per node: select a node of the component and use **Listeners → + Listener**
+(under the node's name in Properties). Each row reads **On [event] → [action]**:
+
+- **On**: `down`, `up`, `hover in`, `hover out`, `click`. `up` counts only when the pointer is
+  released over the node; a click is a down and an up on the same node.
+- The action: **fire trigger** (one of the trigger inputs), **set input** (a bool to true/false or
+  a number to a value), **toggle bool**, or **raise event** — then fill the event's payload fields:
+  a value, an input's current value, or a text key (it needs at least one letter — it is the text
+  as the game shows it). An `int` or `ms` value is rounded to a whole number.
+
+**Save** refuses while a listener or an On enter row would be lost by it — no trigger, input or
+event picked, say — and names the rows to fix.
+
+A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
+still works as before if it also presses a button or a dialog action: both fire. A listener acts
+on its own placed instance only. Listeners need an input or an event to act on, so **+ Listener**
+is off until the component declares one.
+
+**On enter**: in the **State machine** tab, a state's inspector has **On enter → ＋ raise event**:
+the event is raised every time that state is entered (and when the machine starts, for an entry
+state). A timeline can raise one too with a cue named `event:<name>`.
+
+**Preview**: in the **State machine** tab, the stage answers the pointer — hover, press and click
+the component's nodes and their listeners run, on the same preview as **▶ Run**. The **Events**
+list in the inspector logs every raised event with its time, what raised it (`listener`, `state`,
+`cue`) and its payload; **Clear** empties it, **↺ Reset** starts it over. In the preview a
+**fire trigger** listener moves the state machine; it does not start **Plays on** timelines (the
+game does).
+
+Raised events reach Flow once Phase 7 adds the component's event pins; until then they are
+previewed here and do nothing in game. Everything is read-only while Inspecting an old version.
 
 ### Advanced modes (optional)
 

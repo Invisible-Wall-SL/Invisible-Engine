@@ -13,6 +13,8 @@ import {
 	type SmTransition,
 } from 'engine-layout';
 
+import { renameInputReads } from './listenerEdit';
+
 /**
  * The State Machine panel's EDITS (Rive plan Phase 5b), as pure functions over the draft
  * `ComponentDef` so the gate can prove them: ids, layers, states, transitions, the inputs list
@@ -223,8 +225,9 @@ export function removeInput(def: ComponentDef, inputId: string): string[] {
 }
 
 /**
- * Rename an input everywhere it is read: `inputs`, `signals` and every condition. Refused (false)
- * when the new id is empty or already taken.
+ * Rename an input everywhere it is read: `inputs`, `signals`, every condition, and every listener
+ * and raise payload that names it (Phase 6). Refused (false) when the new id is empty or already
+ * taken.
  */
 export function renameInput(def: ComponentDef, from: string, to: string): boolean {
 	const next = to.trim();
@@ -237,6 +240,7 @@ export function renameInput(def: ComponentDef, from: string, to: string): boolea
 			for (const c of t.conditions ?? []) if (c.input === from) c.input = next;
 		}
 	}
+	renameInputReads(def, from, next);
 	return true;
 }
 
