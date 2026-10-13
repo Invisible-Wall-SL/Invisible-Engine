@@ -646,7 +646,7 @@
 				<strong>Cinematic</strong> stages rigs (<strong>/rigger → Cinematic</strong>). Either ships
 				with the game.
 			</p>
-			{#each timelineIssues[node.ref] ?? [] as issue (issue)}
+			{#each timelineIssues[node.ref] ?? [] as issue, i (`${i}:${issue}`)}
 				<p class="hint warn">⚠ {issue}</p>
 			{/each}
 

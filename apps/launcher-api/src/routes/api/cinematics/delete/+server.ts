@@ -15,6 +15,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (access !== 'full') {
 		const stored = await loadCinematic(clientKey, projectKey, id);
 		if (stored.etag !== null) assertReach(access, stored.doc);
+		// KNOWN WINDOW: the delete below is unconditional (`deleteObject` takes no If-Match), so a
+		// Rigger cinematic written under this id between the read above and the delete is deleted.
+		// It needs a Rigger user to reuse a screen timeline's id within that request; the save path
+		// has no such window (it writes under the checked etag).
 	}
 
 	await deleteCinematic(clientKey, projectKey, id);

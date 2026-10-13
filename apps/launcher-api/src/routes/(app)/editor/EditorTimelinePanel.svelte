@@ -80,6 +80,7 @@
 	let docVersion = $state(0);
 
 	let tlEl: HTMLDivElement | undefined = $state();
+	let pickerEl: HTMLSelectElement | undefined = $state();
 	let inspEl: HTMLDivElement | undefined = $state();
 	let tl: Timeline | null = null;
 	let raf = 0;
@@ -181,7 +182,12 @@
 	}
 
 	async function open(id: string): Promise<void> {
-		if (id === openId || !(await guardUnsaved())) return;
+		if (id === openId) return;
+		if (!(await guardUnsaved())) {
+			// The <select> already shows `id`; put it back on the timeline that is still open.
+			if (pickerEl) pickerEl.value = openId ?? '';
+			return;
+		}
 		error = '';
 		const res = await fetch(`/api/cinematics/get?id=${encodeURIComponent(id)}`);
 		if (!res.ok) {
@@ -219,6 +225,13 @@
 		mountTimeline(newScreenTimeline({ id, name: name.trim(), sceneId: scene.id }));
 		dirty = true;
 		await save();
+		if (etag === null) {
+			// The first save never landed (say the id belongs to a Rigger cinematic this role cannot
+			// see, a 403): nothing exists to keep editing, so close it and leave the reason showing.
+			const reason = error || 'The new timeline could not be saved.';
+			closeTimeline();
+			error = reason;
+		}
 	}
 
 	async function rename(): Promise<void> {
@@ -440,6 +453,7 @@
 		<b class="tl-title">Timeline</b>
 		<span class="tl-host">{scene ? scene.name || scene.id : 'no screen'}</span>
 		<select
+			bind:this={pickerEl}
 			value={openId ?? ''}
 			onchange={(e) => {
 				const id = e.currentTarget.value;
@@ -528,7 +542,17 @@
 								type="number"
 								step={channel === 'x' || channel === 'y' || channel === 'rotation' ? 1 : 0.05}
 								value={fmt(value(channel))}
-								onchange={(e) => key(channel, Number(e.currentTarget.value))}
+								onchange={(e) => {
+									const raw = e.currentTarget.value.trim();
+									const v = Number(raw);
+									// An emptied or junk field keys nothing — `Number('')` is 0, which would
+									// collapse a scale or hide an alpha.
+									if (raw === '' || !Number.isFinite(v)) {
+										e.currentTarget.value = fmt(value(channel));
+										return;
+									}
+									key(channel, v);
+								}}
 							/>
 						{/if}
 						<button

@@ -63,6 +63,8 @@ lists them in Flow's picker; proven headless end to end, not yet browser-verifie
     including a malformed doc; `save` requires the body AND the stored doc to be screen-hosted and
     writes under the etag it just checked (a forced save overwrites only that version, so a rig
     cinematic written under the same id mid-request is a 409, never clobbered); `delete` reads first.
+    Known window: that delete is unconditional (`deleteObject` takes no If-Match), so a Rigger
+    cinematic written under the same id between the read and the delete would be deleted.
   - **Authoring (`$lib/timeline/screenTimeline.ts`).** `nodeActorTarget` (name only; refuses
     unnamed or shared names with a message), `ensureNodeActor` (identity `place`), `nodeChannelValue`,
     `SCREEN_CHANNELS` (the module's channels + `tint`, a colour input). The module gained an

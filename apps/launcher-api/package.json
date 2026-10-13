@@ -62,6 +62,7 @@
 		"precheck:lease-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:lease-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-lease-scope.ts",
 		"precheck:rigger-writes": "node scripts/ensure-svelte-kit.mjs",
+		"precheck:cinematic-access": "node scripts/ensure-svelte-kit.mjs",
 		"check:cinematic-access": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-cinematic-access.ts",
 		"check:rigger-writes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rigger-writes.ts",
 		"precheck:doc-backups": "node scripts/ensure-svelte-kit.mjs",
