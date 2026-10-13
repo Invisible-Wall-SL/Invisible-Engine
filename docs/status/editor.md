@@ -53,9 +53,15 @@ Shipped capabilities on `main`:
   `/editor` followed from inside `/editor` never runs as a navigation (the page holds one project's
   state and is not remounted): `beforeNavigate` applies the same project in place and does a full
   load for any other or for none (`editorSelfNavigation`); every tool bar link carries the shown
-  `?project=` (`$lib/toolLinks.ts`, shared with the launcher home); and data arriving for another
-  project reloads the page. Esc stands down while a popover marked `data-esc-owner` (colour
-  picker, frame list) is open. Gate: `check:component-links`.
+  `?project=` (`$lib/toolLinks.ts`, shared with the launcher home). Every write targets the project
+  the page was LOADED for (`loadedProjectKey`): the layout save's action URL
+  (`editorActionUrl`), leases, component, defaults and timeline saves; a bare `/editor` (a
+  bookmark) gets `?project=` pinned into the address bar on first load. Should the data drift to
+  another project, every save is blocked (both sides' `blockWhen`), a banner says so, and the page
+  reloads. A component the page created or refreshed keeps a correct ETag (page-held map; an
+  unknown one is read when the def opens). Esc stands down while a popover marked
+  `data-esc-owner` is open in this side (a frame list, which also closes on Escape) or portalled
+  onto the page (a colour picker). Gate: `check:component-links`.
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
   redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not paused.
 - **Game Settings** — per-project boot splash (`bootLoader`), layout profile.
@@ -98,10 +104,12 @@ Shipped capabilities on `main`:
   component** open a def in place with a breadcrumb and Esc-up navigation, capped at the game's
   nesting depth; URLs `/editor?view=components` and `?component=<id>`; `/components` is a 307
   redirect; the `componentEditor` card now opens `/editor?view=components`. Animate mode stays
-  screens-only (component timelines = Phase 4b). New gate `check:component-links` (29 checks).
+  screens-only (component timelines = Phase 4b). New gate `check:component-links` (42 checks).
   Review fix: same-route `/editor` links keep their project (tool bar links carry `?project=`,
   `beforeNavigate` applies the same project in place and reloads for any other), so a card click
-  after another tab switched project can no longer save one project's layout into another.
+  after another tab switched project can no longer save one project's layout into another; every
+  write is pinned to the loaded project (also from a bookmarked bare `/editor`), drift blocks saves,
+  and created / refreshed components keep their ETag.
   Authoring detail: [component-editor status](component-editor.md).
 - 2026-10-13 — **Animate mode (Rive plan Phase 3).** Design | Animate toggle; the Timeline panel
   animates the active screen's nodes; the canvas previews with the game's maths; Flow's

@@ -58,7 +58,7 @@
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
-	import { canEnterNested, type ComponentOpenRequest } from './componentWorkspace';
+	import { canEnterNested, etagKnown, type ComponentOpenRequest } from './componentWorkspace';
 	import type { PageData } from './$types';
 
 	/**
@@ -91,8 +91,11 @@
 		/** Back to the Screens side. */
 		onExit: () => void;
 		onOpenScreen: (id: string) => void;
-		/** The component list after a save, create or delete, so placed instances redraw. */
-		onComponentsChange: (components: ComponentDef[]) => void;
+		/** The component list (and the ETags known for it) after a save, create or delete, so
+		 *  placed instances redraw and a later remount starts from the same list. */
+		onComponentsChange: (components: ComponentDef[], etags: Record<string, string | null>) => void;
+		/** The page's data drifted to another project: no write may run. */
+		writesBlocked: boolean;
 		/** The open component changed (`null` = the components home), for the page URL. */
 		onOpenedChange: (id: string | null) => void;
 	}
@@ -106,6 +109,7 @@
 		onOpenScreen,
 		onComponentsChange,
 		onOpenedChange,
+		writesBlocked,
 	}: Props = $props();
 
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (region picker). */
@@ -160,7 +164,7 @@
 
 	const saveState = new SaveState({
 		initialEtag: null,
-		blockWhen: () => lease.readOnly,
+		blockWhen: () => lease.readOnly || writesBlocked,
 		conflictMessage: 'Someone else saved this component while you were editing it.',
 		save: async ({ baseEtag, force }) => {
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
@@ -255,6 +259,7 @@
 	 */
 	const defaultsSave = new SaveState({
 		initialEtag: null,
+		blockWhen: () => writesBlocked,
 		conflictMessage: 'Someone else saved this game’s defaults while you were editing them.',
 		save: async ({ baseEtag, force }) => {
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
@@ -603,7 +608,32 @@
 		pickVersion = '';
 		versionList = null;
 		if (components.some((c) => c.id === def.id)) void loadVersionList(def);
+		if (components.some((c) => c.id === def.id) && !etagKnown(componentEtags, def.id)) {
+			void loadEtag(def);
+		}
 		onOpenedChange(def.id);
+	}
+
+	/**
+	 * Read the ETag of a def this tab never got one for (one the page refreshed from the listing):
+	 * without it the first save would assert a create and conflict with the def it is editing.
+	 * Adopted only while that def is still open and unsaved.
+	 */
+	async function loadEtag(def: ComponentDef): Promise<void> {
+		const project =
+			def.scope === 'project' ? `&project=${encodeURIComponent(data.projectKey)}` : '';
+		try {
+			const res = await fetch(`/api/editor/component?id=${encodeURIComponent(def.id)}${project}`);
+			if (!res.ok) return;
+			const body = (await res.json()) as { etag?: string | null };
+			const etag = body.etag ?? null;
+			componentEtags = { ...componentEtags, [def.id]: etag };
+			if (componentDraft?.id === def.id && saveState.etag === null && !saveState.busy) {
+				saveState.adoptEtag(etag);
+			}
+		} catch {
+			/* the save's own conflict path still covers it */
+		}
 	}
 
 	/**
@@ -1021,12 +1051,15 @@
 	function onKeyDownCapture(e: KeyboardEvent): void {
 		if (!active || e.key !== 'Escape' || isTypingTarget(e.target)) return;
 		if (dialogQueue.current || defaultsHistoryOpen || selectedIds.length > 0) return;
-		// An open popover (a colour picker, a frame list) answers Escape itself.
-		if (document.querySelector('[data-esc-owner]')) return;
+		// An open popover answers Escape itself: a frame list in this side, or a colour picker
+		// (portalled onto <body>). One left open on the hidden Screens side does not count.
+		if (workspaceEl?.querySelector('[data-esc-owner]')) return;
+		if (document.querySelector('body > [data-esc-owner]')) return;
 		e.preventDefault();
 		void goUp();
 	}
 
+	let workspaceEl = $state<HTMLDivElement | undefined>(undefined);
 	let handledRequest = -1;
 	$effect(() => {
 		const request = openRequest;
@@ -1036,16 +1069,19 @@
 	});
 
 	async function handleOpenRequest(request: ComponentOpenRequest): Promise<void> {
-		if (request.def && !components.some((c) => c.id === request.def?.id)) {
-			components = [...components, request.def];
-			componentEtags = { ...componentEtags, [request.def.id]: request.etag ?? null };
+		if (request.def) {
+			// The page just created it: its ETag is the save precondition, whether or not the def
+			// already reached this list.
+			const created = request.def;
+			if (!components.some((c) => c.id === created.id)) components = [...components, created];
+			componentEtags = { ...componentEtags, [created.id]: request.etag ?? null };
 		}
 		if (request.exit) {
 			await exitToScreens();
 			return;
 		}
 		if (request.id === null) {
-			if (componentDraft) await closeComponent();
+			if (componentDraft && !(await closeComponent())) return;
 			rootLabel = request.rootLabel;
 			return;
 		}
@@ -1058,7 +1094,7 @@
 	}
 
 	$effect(() => {
-		onComponentsChange($state.snapshot(components) as ComponentDef[]);
+		onComponentsChange($state.snapshot(components) as ComponentDef[], { ...componentEtags });
 	});
 
 	/** Delete a component from R2 + the local list (with a confirm). Stops the row's
@@ -1161,7 +1197,7 @@
 	 * spells this out). Reuses the same status pill as a project save.
 	 */
 	async function promoteToShared(): Promise<void> {
-		if (!componentDraft || busy || !data.canPublishShared || isInspecting) return;
+		if (!componentDraft || busy || !data.canPublishShared || isInspecting || writesBlocked) return;
 		const ok = await askConfirm({
 			title: `Promote "${componentDraft.name}" to the SHARED library?`,
 			message:
@@ -1668,7 +1704,7 @@
 
 <svelte:window onkeydowncapture={onKeyDownCapture} />
 
-<div class="workspace">
+<div class="workspace" bind:this={workspaceEl}>
 	<!-- The component action row: the breadcrumb of where the author is (Esc goes up one crumb),
 	     then the open component's identity, version and save controls. -->
 	<div class="editor-bar">

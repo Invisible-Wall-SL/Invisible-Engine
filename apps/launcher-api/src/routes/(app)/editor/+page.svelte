@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { afterNavigate, beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import { componentsHref, componentsTarget, editorSelfNavigation } from '$lib/componentLinks';
+	import {
+		componentsHref,
+		componentsTarget,
+		editorActionUrl,
+		editorSelfNavigation,
+	} from '$lib/componentLinks';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -91,6 +96,15 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+	/**
+	 * The project this page was loaded for — the target of EVERY write it makes (the layout save,
+	 * leases, component and timeline saves), never the live `data.projectKey`: a load rerun that
+	 * fell back to the session's project must not move where this tab's state is written.
+	 */
+	// svelte-ignore state_referenced_locally
+	const loadedProjectKey = data.projectKey;
+	/** The page's data now describes another project: every save is blocked and a reload asked. */
+	const projectDrift = $derived(data.projectKey !== loadedProjectKey);
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
 	 * doc has none — persistence is handled by the debounced autosave below. */
@@ -355,7 +369,7 @@
 	// the doc. Restores the active right tab and which screens are hidden when you reopen
 	// the same project. Panel WIDTHS are owned by the shared <PanelResizers> (its own
 	// key), so the resizable-sidebar behaviour is inherited by every editor-family tool.
-	const uiKey = `iw-editor-ui:${data.projectKey}`;
+	const uiKey = `iw-editor-ui:${loadedProjectKey}`;
 	let leftWidth = $state(280);
 	let rightWidth = $state(320);
 	let resizing = $state<'left' | 'right' | null>(null);
@@ -578,6 +592,9 @@
 	 * no navigation, no reload of the page data. */
 	function setEditorUrl(target: string | null | undefined): void {
 		const params = new URLSearchParams(page.url.searchParams);
+		// Always pinned to the loaded project: a bookmark of a bare `/editor` would otherwise let
+		// every later load rerun follow the session to whatever project another tab picked.
+		if (loadedProjectKey) params.set('project', loadedProjectKey);
 		const href =
 			target === undefined
 				? (() => {
@@ -596,7 +613,10 @@
 	}
 
 	afterNavigate(({ type, to }) => {
-		if (type === 'enter' && to) applyUrlTarget(to.url);
+		if (type !== 'enter' || !to) return;
+		// Pins `?project=` into the address bar too (`setEditorUrl`).
+		setEditorUrl(componentsTarget(to.url.searchParams));
+		applyUrlTarget(to.url);
 	});
 	// A link to `/editor` followed from inside `/editor` (the tool bar's Component Editor card, a
 	// deep link) does not remount this page, and the page holds ONE project's screens, components,
@@ -606,7 +626,7 @@
 		const to = navigation.to?.url;
 		if (navigation.willUnload || !to || to.pathname !== '/editor') return;
 		navigation.cancel();
-		if (editorSelfNavigation(to, data.projectKey) === 'reload') {
+		if (editorSelfNavigation(to, loadedProjectKey) === 'reload') {
 			window.location.assign(to.href);
 			return;
 		}
@@ -614,11 +634,11 @@
 		if (target !== undefined) openComponents(target, null);
 		else if (componentsView) requestExitComponents();
 	});
-	/** The project this page was loaded for. Should the data ever arrive for another one (a load
-	 * rerun that fell back to the session's project), reload rather than hold two projects' state. */
-	const loadedProjectKey = data.projectKey;
+	// Should the data ever arrive for another project, reload rather than hold two projects'
+	// state. The reload can be refused (the unsaved-work prompt), so `projectDrift` also blocks
+	// every save until it happens.
 	$effect(() => {
-		if (data.projectKey !== loadedProjectKey) window.location.reload();
+		if (projectDrift) window.location.reload();
 	});
 
 	/** The two editor modes. */
@@ -654,6 +674,10 @@
 	 * side seeds from and saves. Kept apart from {@link components} because the `win` tier groups
 	 * are an editor-only hint that must never reach a saved def. */
 	let storedComponents = $state<ComponentDef[]>(structuredClone(data.components));
+	/** id → the ETag a component's next save must match (`null` = create), for the defs this page
+	 * knows one for. A def refreshed from the listing has none here: the Components side reads it
+	 * when it opens that def. */
+	let storedEtags = $state<Record<string, string | null>>({ ...data.componentEtags });
 	/** The same list with the `win` tier groups rebuilt — drives the picker + the canvas's
 	 * `componentInstance` resolution. */
 	const components = $derived(withConfigWinTiers(storedComponents));
@@ -814,7 +838,7 @@
 					// A freshly-generated id ⇒ a create: `baseEtag: null` asserts it (`ifNoneMatch:'*'`)
 					// so this never silently overwrites an existing def, and satisfies the required
 					// precondition (Phase 1 of `docs/design/multi-user-concurrency.md`).
-					body: JSON.stringify({ ...def, project: data.projectKey, baseEtag: null }),
+					body: JSON.stringify({ ...def, project: loadedProjectKey, baseEtag: null }),
 				});
 				if (!res.ok) {
 					let message = 'Component save failed';
@@ -831,6 +855,7 @@
 				createdEtag = out.etag ?? null;
 				// Reflect the new def locally so the picker + canvas resolve it immediately.
 				storedComponents = [...storedComponents, def];
+				storedEtags = { ...storedEtags, [def.id]: createdEtag };
 			}
 			// Link the scene container to the def (container → componentInstance), so
 			// component edits reflect into the scene, and persist the conversion before
@@ -1498,7 +1523,7 @@
 		}
 		const doc: LayoutDoc = {
 			version: data.doc.version,
-			projectKey: data.projectKey,
+			projectKey: loadedProjectKey,
 			gameType: id,
 			mainSizesMap: JSON.parse(JSON.stringify(mainSizesMap)),
 			scenes: JSON.parse(JSON.stringify(scenes)) as Scene[],
@@ -2034,9 +2059,9 @@
 	const lease = new LeaseState({
 		toolId: 'editor',
 		clientKey: data.clientKey,
-		projectKey: data.projectKey,
+		projectKey: loadedProjectKey,
 		docKey: 'editor',
-		enabled: data.projectKey.length > 0,
+		enabled: loadedProjectKey.length > 0,
 	});
 
 	const saveState = new SaveState({
@@ -2045,7 +2070,7 @@
 		initialEtag: data.docEtag,
 		conflictMessage: 'Someone else saved this project while you were editing.',
 		canAutosave: () => !crossTypeLoaded,
-		blockWhen: () => lease.readOnly,
+		blockWhen: () => lease.readOnly || projectDrift,
 		save: async ({ baseEtag, force }) => {
 			const fields: Record<string, string> = { doc: JSON.stringify(buildDocPayload()) };
 			// '' encodes "no doc existed when I loaded" (FormData has no null); omitted when forcing.
@@ -2256,7 +2281,7 @@
 			updatedAt: string;
 		} = {
 			version: data.doc.version,
-			projectKey: data.projectKey,
+			projectKey: loadedProjectKey,
 			gameType: authoringGameType,
 			mainSizesMap,
 			scenes,
@@ -2284,8 +2309,8 @@
 		// SvelteKit's action selector must stay the literal `/<action>` key, so the
 		// existing query is appended as extra params (not re-encoded). No
 		// `?project=` ⇒ this is just `?/save`, byte-identical to before.
-		const existing = location.search.replace(/^\?/, '');
-		const target = existing ? `?/${action}&${existing}` : `?/${action}`;
+		// The project is always the one this page was LOADED for (`editorActionUrl`).
+		const target = editorActionUrl(action, location.search, loadedProjectKey);
 		const res = await fetch(target, { method: 'POST', body: fd });
 		const json = (await res.json()) as { type: string; data?: string };
 		if (!json.data) return {};
@@ -2667,7 +2692,7 @@
 		refreshingComponents = true;
 		try {
 			const res = await fetch(
-				`/api/editor/components?project=${encodeURIComponent(data.projectKey)}`,
+				`/api/editor/components?project=${encodeURIComponent(loadedProjectKey)}`,
 			);
 			if (res.ok) storedComponents = (await res.json()) as ComponentDef[];
 		} catch {
@@ -2765,7 +2790,7 @@
 		current="editor"
 		tools={data.tools}
 		clientKey={data.clientKey}
-		projectKey={data.projectKey}
+		projectKey={loadedProjectKey}
 	>
 		{#snippet meta()}
 			<span class="counter">{sceneCount} {sceneCount === 1 ? 'scene' : 'scenes'}</span>
@@ -2775,6 +2800,16 @@
 			</span>
 		{/snippet}
 	</ToolTopBar>
+
+	{#if projectDrift}
+		<div class="drift-banner" role="alert">
+			This tab was opened for <strong>{loadedProjectKey}</strong>, but its data now belongs to
+			<strong>{data.projectKey}</strong>. Saving is off so nothing lands in the wrong project.
+			<button class="save-btn" type="button" onclick={() => window.location.reload()}>
+				Reload
+			</button>
+		</div>
+	{/if}
 
 	<!-- Dedicated editor action row. Kept OFF the ToolTopBar chrome (mirrors the Component
 	     Editor) so the top row gives the brand + project scope + tool switcher their full
@@ -3375,7 +3410,7 @@
 						<EditorTimelinePanel
 							scene={editScene}
 							selectedId={selectedIds.at(-1) ?? null}
-							projectKey={data.projectKey}
+							projectKey={loadedProjectKey}
 							active={animating && !componentsView}
 						/>
 					</div>
@@ -3935,7 +3970,7 @@
 		</aside>
 
 		<PanelResizers
-			storageKey={`iw-editor-panels:${data.projectKey}`}
+			storageKey={`iw-editor-panels:${loadedProjectKey}`}
 			bind:leftWidth
 			bind:rightWidth
 			bind:resizing
@@ -3947,9 +3982,9 @@
 			<ComponentWorkspace
 				data={{
 					clientKey: data.clientKey,
-					projectKey: data.projectKey,
+					projectKey: loadedProjectKey,
 					components: $state.snapshot(storedComponents) as ComponentDef[],
-					componentEtags: data.componentEtags,
+					componentEtags: $state.snapshot(storedEtags),
 					assets: data.assets,
 					componentDefaults: data.componentDefaults,
 					gameName: data.gameName,
@@ -3963,7 +3998,11 @@
 				active={componentsView}
 				onExit={backToScreens}
 				onOpenScreen={openScreenById}
-				onComponentsChange={(list) => (storedComponents = list)}
+				onComponentsChange={(list, etags) => {
+					storedComponents = list;
+					storedEtags = etags;
+				}}
+				writesBlocked={projectDrift}
 				onOpenedChange={(id) => {
 					if (componentsView) setEditorUrl(id);
 				}}
@@ -4055,6 +4094,22 @@
 	.shell.components-view > .screens-only,
 	.workspace-slot.hidden {
 		display: none;
+	}
+	.drift-banner {
+		position: absolute;
+		top: 56px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 40;
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 14px;
+		border: 1px solid #4a2a30;
+		border-radius: 8px;
+		background: #1f1114;
+		color: #ffb4b4;
+		font-size: 12px;
 	}
 	.workspace-slot {
 		display: flex;

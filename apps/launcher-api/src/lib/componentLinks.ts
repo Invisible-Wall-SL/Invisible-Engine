@@ -51,3 +51,16 @@ export function componentsTarget(search: URLSearchParams): string | null | undef
 export function editorSelfNavigation(to: URL, projectKey: string): 'in-place' | 'reload' {
 	return to.searchParams.get('project')?.trim() === projectKey ? 'in-place' : 'reload';
 }
+
+/**
+ * The URL `/editor` posts a form action to (`?/save`, …). The project is always the one the page
+ * was LOADED for, whatever the address bar says: a bookmarked bare `/editor` would otherwise save
+ * into whatever project the session moved to since. The other query params ride along; SvelteKit's
+ * action selector stays the literal `?/<action>` key.
+ */
+export function editorActionUrl(action: string, search: string, projectKey: string): string {
+	const params = new URLSearchParams(search);
+	if (projectKey) params.set('project', projectKey);
+	const query = params.toString();
+	return query ? `?/${action}&${query}` : `?/${action}`;
+}
