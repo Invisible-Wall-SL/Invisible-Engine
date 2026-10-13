@@ -116,14 +116,16 @@ before).
 **🧹 Clean sheet…** (Upload tab) removes every sprite (and FX layer) from the open
 sheet but keeps its **name and canvas size**, so you can upload the images again
 from scratch and **Save** to replace the sheet in place. It asks first: the dialog
-says how many sprites, FX layers and AI fields (prompt / shape ref / seed) go with
-it, and **Clean** stays disabled until you type the sheet's name back (Enter
+says how many sprites and FX layers go, and how many of those sprites carry AI
+fields (prompt / seed / a shape ref you set), and **Clean** stays disabled until you type the sheet's name back (Enter
 cleans, Esc / Cancel leaves everything as it was). A read-only 🔒 sheet must be
-unlocked first.
+unlocked first, and the sheet needs a name.
 
-Nothing on R2 changes until you Save — if you change your mind, **Load sheet**
-brings the saved version back. A sheet that was never saved has no saved version,
-and the dialog says so.
+Until you upload, **Load sheet** brings the saved version back. Uploading
+replaces same-named images straight away — on R2 too — so after that, Load sheet
+shows the saved layout with the NEW art. If you may want the old art, **Save As**
+a backup copy before cleaning. A sheet not saved under its current name has no
+saved version, and the dialog says so.
 
 ### Adding sprites to an existing sheet
 
