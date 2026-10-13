@@ -47,6 +47,7 @@
 		type SmTransition,
 	} from 'engine-layout';
 	import { askConfirm, askText } from '$lib/dialogs.svelte';
+	import { openFlowStageChannel } from '$lib/flowStageBridge';
 	import { componentTimelinesOf } from '$lib/timeline/screenTimeline';
 	import {
 		ANY_NODE,
@@ -720,6 +721,27 @@
 		const state = l.states.find((s) => s.id === id);
 		return state ? stateLabel(state, timelineNames) : id;
 	}
+
+	// Flow Preview → this stage (Rive plan §6.2 step 5): a `/flow-v2` preview run on this project
+	// posts each trigger it fires and input it sets on the project's bridge; while this panel is
+	// on that component, each goes through the same `fire` / `setPreviewInput` its own Preview
+	// inputs use — one runner, one dispatcher. A message for another component is ignored.
+	$effect(() => {
+		const id = def?.id;
+		if (!id) return;
+		const channel = openFlowStageChannel(projectKey);
+		if (!channel) return;
+		const unsubscribe = channel.subscribe((m) => {
+			if (m.componentId !== id) return;
+			if (m.op === 'fire') fire(m.name);
+			else if (typeof m.value === 'number' || typeof m.value === 'boolean')
+				setPreviewInput(m.name, m.value);
+		});
+		return () => {
+			unsubscribe();
+			channel.close();
+		};
+	});
 </script>
 
 <section class="sm-panel" aria-label="State machine">

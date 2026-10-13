@@ -298,6 +298,9 @@
 		 *  and release over the stage, with the DEEPEST node under it (into containers), so the
 		 *  preview can drive the component's listeners. Absent ⇒ the stage only selects. */
 		onStagePointer?: (kind: 'move' | 'down' | 'up' | 'leave', nodeId: string | null) => void;
+		/** Right-click on a placed component instance: *Show in Flow* (Rive plan §6.2 step 4).
+		 * Absent ⇒ no context menu (a right-drag still pans). */
+		onShowInFlow?: (node: ComponentInstanceNode) => void;
 	}
 
 	let {
@@ -340,7 +343,39 @@
 		animate = false,
 		onEditInstance,
 		onStagePointer,
+		onShowInFlow,
 	}: Props = $props();
+
+	// The instance context menu (Rive plan §6.2 step 4): a right-CLICK (not a right-drag, which pans)
+	// on a placed instance offers *Show in Flow* and *Edit component in place*. Rendered only while
+	// open, so a closed menu captures no pointer or keyboard input; any mousedown or Escape closes it.
+	let instanceMenu = $state<{ x: number; y: number; node: ComponentInstanceNode } | null>(null);
+	let rightDownXY: [number, number] | null = null;
+	function onContextMenu(e: MouseEvent): void {
+		e.preventDefault();
+		if (!onShowInFlow && !onEditInstance) return;
+		const down = rightDownXY;
+		rightDownXY = null;
+		if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+		const node = hitTestNode(clientToWorld(e.clientX, e.clientY));
+		if (node?.kind !== 'componentInstance') return;
+		instanceMenu = { x: e.clientX, y: e.clientY, node };
+	}
+	function closeInstanceMenu(): void {
+		instanceMenu = null;
+	}
+	$effect(() => {
+		if (!instanceMenu) return;
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.key === 'Escape') closeInstanceMenu();
+		};
+		window.addEventListener('mousedown', closeInstanceMenu);
+		window.addEventListener('keydown', onKey);
+		return () => {
+			window.removeEventListener('mousedown', closeInstanceMenu);
+			window.removeEventListener('keydown', onKey);
+		};
+	});
 
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
 	 * cell, with the override doc's `static` cell layered on top (sparse). Computed once
@@ -4274,6 +4309,7 @@
 	function onMouseDown(e: MouseEvent): void {
 		// Middle / right always pan.
 		if (e.button === 1 || e.button === 2) {
+			rightDownXY = e.button === 2 ? [e.clientX, e.clientY] : null;
 			panning = true;
 			lastXY = [e.clientX, e.clientY];
 			e.preventDefault();
@@ -4834,10 +4870,49 @@
 	ondragover={onDragOver}
 	ondragleave={onDragLeave}
 	ondrop={onDrop}
-	oncontextmenu={(e) => e.preventDefault()}
+	oncontextmenu={onContextMenu}
 	role="region"
 	aria-label="Editor canvas"
 >
+	{#if instanceMenu}
+		{@const menuNode = instanceMenu.node}
+		<div
+			class="instance-menu"
+			style="left:{instanceMenu.x}px; top:{instanceMenu.y}px"
+			role="menu"
+			onmousedown={(e) => e.stopPropagation()}
+		>
+			<div class="menu-title">{menuNode.label?.trim() || menuNode.componentId}</div>
+			{#if onShowInFlow}
+				<button
+					type="button"
+					role="menuitem"
+					disabled={!menuNode.label?.trim()}
+					title={menuNode.label?.trim()
+						? 'Open Invisible Flow on the node that names this placement'
+						: 'Name the instance first — Flow lists named placements only'}
+					onclick={() => {
+						closeInstanceMenu();
+						onShowInFlow?.(menuNode);
+					}}
+				>
+					↗ Show in Flow
+				</button>
+			{/if}
+			{#if onEditInstance}
+				<button
+					type="button"
+					role="menuitem"
+					onclick={() => {
+						closeInstanceMenu();
+						onEditInstance?.(menuNode);
+					}}
+				>
+					◇ Edit component in place
+				</button>
+			{/if}
+		</div>
+	{/if}
 	<!-- Base canvas: frame backdrop + the interaction surface. The per-scene composite
 	     groups above are `pointer-events:none`, so input (select/drag/zoom/pan) always
 	     reaches here; hit-testing is world-space math, independent of what's drawn. -->
@@ -5230,6 +5305,43 @@
 </div>
 
 <style>
+	.instance-menu {
+		position: fixed;
+		z-index: 40;
+		min-width: 200px;
+		padding: 4px;
+		background: #14181f;
+		border: 1px solid #2a323d;
+		border-radius: 6px;
+		box-shadow: 0 8px 24px #00000088;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.instance-menu .menu-title {
+		padding: 4px 8px;
+		font-size: 11px;
+		color: #94a3b8;
+		border-bottom: 1px solid #2a323d;
+	}
+	.instance-menu button {
+		text-align: left;
+		padding: 6px 8px;
+		font: inherit;
+		font-size: 12px;
+		color: #e2e8f0;
+		background: transparent;
+		border: 0;
+		border-radius: 4px;
+		cursor: pointer;
+	}
+	.instance-menu button:hover:not(:disabled) {
+		background: #1f2937;
+	}
+	.instance-menu button:disabled {
+		color: #64748b;
+		cursor: default;
+	}
 	.wrap {
 		position: relative;
 		width: 100%;

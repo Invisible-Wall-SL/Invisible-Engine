@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { afterNavigate, beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
+	import { flowHrefForInstance } from '$lib/flowInstanceUi';
 	import { page } from '$app/state';
 	import {
 		componentsHref,
@@ -588,6 +589,15 @@
 	/** Double-click on a placed instance: edit its def in place, the active screen as the root. */
 	function editInstanceInPlace(node: ComponentInstanceNode): void {
 		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
+	}
+
+	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
+	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
+	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
+	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
+	 *  below still asks about unsaved work. */
+	function showInFlow(nodeId: string): void {
+		window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));
 	}
 
 	/** Keep the address bar on what is open, so a reload or a shared link lands there. Shallow:
@@ -3418,6 +3428,7 @@
 						projectGameName={data.gameName}
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : editInstanceInPlace}
+						onShowInFlow={animating ? undefined : (node) => showInFlow(node.id)}
 						canUndo={canUndo && !animating}
 						canRedo={canRedo && !animating}
 						onUndo={undo}
@@ -3782,6 +3793,7 @@
 						onOpenComponentEditor={(id) =>
 							openComponents(id, activeScene?.name || activeScene?.id || null)}
 						onUpdateInstanceToLatest={updateInstanceToLatest}
+						onShowInFlow={showInFlow}
 					/>
 
 					<div class="game-settings">
