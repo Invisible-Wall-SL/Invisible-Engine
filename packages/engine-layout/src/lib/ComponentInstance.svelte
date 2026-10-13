@@ -103,14 +103,10 @@
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
 	import { getFlowComplete } from './registerFlowComplete';
 	import { getTapPortal } from './tapPortalContext';
-	import {
-		ComponentTimelinePlayer,
-		componentTimelinesFor,
-		stateMachineTimelines,
-	} from './componentTimelines';
+	import { ComponentTimelinePlayer, instanceTimelineDocs } from './componentTimelines';
 	import { ComponentStateMachineRunner } from './stateMachine';
 	import { componentInputs, componentTriggers } from './componentInterface';
-	import { SM_EXIT_STATE, type CinematicDoc } from './types';
+	import { SM_EXIT_STATE } from './types';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
@@ -729,24 +725,20 @@
 	// engine value source each names, advanced on the same ticker, each layer placed on its
 	// timeline through `drive`. No state machine ⇒ no interpreter (parity).
 	const stateMachine = allowed && def?.stateMachine?.layers?.length ? def.stateMachine : undefined;
-	const stateMachineDocs = stateMachine ? stateMachineTimelines(stateMachine) : undefined;
-	const timelineDocs = ((): CinematicDoc[] => {
-		const docs = allowed && def ? [...componentTimelinesFor(def.id)] : [];
-		for (const doc of stateMachineDocs?.docs ?? []) {
-			if (!docs.some((d) => d.id === doc.id)) docs.push(doc);
-		}
-		return docs;
-	})();
+	const instanceTimelines =
+		allowed && def
+			? instanceTimelineDocs(def.id, stateMachine)
+			: { docs: [], durations: new Map() };
 	const timelinePlayer =
-		def && timelineDocs.length
-			? new ComponentTimelinePlayer(timelineDocs, def.root.children)
+		def && instanceTimelines.docs.length
+			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children)
 			: undefined;
 	const stateMachineRunner =
-		stateMachine && def && stateMachineDocs
+		stateMachine && def
 			? new ComponentStateMachineRunner(
 					stateMachine,
 					componentInputs(def),
-					stateMachineDocs.durations,
+					instanceTimelines.durations,
 				)
 			: undefined;
 	if (stateMachineRunner?.missingTimelines.length && def && !warnedMissingTimelines[def.id]) {
@@ -883,8 +875,14 @@
 		});
 		timelineClock += 1;
 	};
-	// The entry states show from the first frame.
-	applyStateMachine();
+	// The machine starts when the instance is first SHOWN (as `enter` fires): the entry pose and
+	// its cues at 0 then, the clock running from there on whether or not it stays shown.
+	let stateMachineStarted = false;
+	const startStateMachine = (): void => {
+		stateMachineStarted = true;
+		applyStateMachine();
+	};
+	if (stateMachineRunner && untrack(() => selfVisible)) startStateMachine();
 	const timelineTicker =
 		timelinePlayer || stateMachineRunner
 			? getContextApp().stateApp.pixiApplication?.ticker
@@ -897,7 +895,12 @@
 			timelineClock += 1;
 			for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);
 		}
-		if (stateMachineRunner?.needsTick()) {
+		if (!stateMachineRunner) return;
+		if (!stateMachineStarted) {
+			if (!untrack(() => selfVisible)) return;
+			startStateMachine();
+		}
+		if (stateMachineRunner.needsTick()) {
 			stateMachineRunner.advance(dt);
 			applyStateMachine();
 		}

@@ -39,8 +39,16 @@ import {
  *   frozen at the moment of leaving) over `blend` ms — {@link blendNodeSamples}.
  * - **No transition loops within one tick**: at most {@link SM_MAX_TRANSITIONS_PER_TICK} fire per
  *   layer per tick; a chain beyond that continues next tick.
- * - A transition taken mid-blend mixes from the timeline being left at its playhead, not from the
- *   half-mixed pose, so a fast re-transition can pop to that timeline's pose first.
+ * - A transition taken mid-blend leaves from the pose on screen: the player freezes the half-mixed
+ *   pose and mixes the next timeline in from it.
+ * - **The cues a leaving state crossed on the tick it was left still fire** (`LayerPlay.left`):
+ *   a one-shot's cue at its very end is not lost to the "back to idle" transition on that frame.
+ * - **A state with `speed` ≤ 0, or a timeline of duration 0, is at rest**: it shows its pose and
+ *   needs no tick (the normalizer refuses such a speed; validation flags it).
+ * - **The machine starts when its instance first becomes visible** (as 4b's `enter` fires): the
+ *   entry state is entered then, its cues at 0 fire then, and from then on the clock runs whether
+ *   or not the instance is shown, like a `playOn` timeline's. The editor's preview, always
+ *   visible, shows the entry pose at once.
  * - **`exit` ends the layer**: it drives nothing and takes no transition until {@link reset}.
  * - **A missing timeline never throws**: the state is entered and holds (drives nothing; its exit
  *   gate is open); the ids are listed in {@link ComponentStateMachineRunner.missingTimelines} for
@@ -50,6 +58,16 @@ import {
 export const SM_MAX_TRANSITIONS_PER_TICK = 8;
 
 /** What one layer plays after a step. */
+/** A stretch of a timeline a layer played before leaving it on this step. */
+export interface LeftSegment {
+	timeline: string;
+	prevTime: number;
+	time: number;
+	wrapped: boolean;
+	/** The state was entered on this same step: its cues at 0 count too. */
+	entered: boolean;
+}
+
 export interface LayerPlay {
 	layer: string;
 	/** The current state id, or `exit`. */
@@ -68,6 +86,9 @@ export interface LayerPlay {
 	/** Mixing in from the pose left behind: its timeline (absent = the authored pose) frozen at
 	 *  `time`, `progress` 0..1 through the blend. */
 	from?: { timeline?: string; time: number; progress: number };
+	/** What the layer played on this step before each transition it took, in order — the player
+	 *  fires those cues before restarting on the new state. */
+	left?: LeftSegment[];
 }
 
 export interface FiredTransition {
@@ -97,6 +118,7 @@ interface LayerRun {
 	blend?: { timeline?: string; time: number; elapsed: number; total: number };
 	/** Triggers fired and not yet taken by a transition of this layer. */
 	pending: Set<string>;
+	left: LeftSegment[];
 }
 
 const asNumber = (v: unknown, fallback: number): number =>
@@ -149,6 +171,7 @@ export class ComponentStateMachineRunner {
 			wrapped: false,
 			entered: true,
 			pending: new Set(),
+			left: [],
 		};
 	}
 
@@ -189,6 +212,7 @@ export class ComponentStateMachineRunner {
 		return this.layers.some((layer) => {
 			if (layer.blend) return true;
 			if (!layer.stateDef || layer.duration === undefined) return false;
+			if (!(asNumber(layer.stateDef.speed, 1) > 0) || layer.duration <= 0) return false;
 			return !!layer.stateDef.loop || layer.time < layer.duration;
 		});
 	}
@@ -253,13 +277,16 @@ export class ComponentStateMachineRunner {
 		layer.prevTime = layer.time;
 		layer.wrapped = false;
 		layer.entered = false;
+		layer.left = [];
 		if (layer.blend) {
 			layer.blend.elapsed += dt * 1000;
 			if (layer.blend.elapsed >= layer.blend.total) layer.blend = undefined;
 		}
 		const { stateDef, duration } = layer;
 		if (!stateDef || duration === undefined) return;
-		const next = layer.time + dt * asNumber(stateDef.speed, 1);
+		const speed = asNumber(stateDef.speed, 1);
+		if (!(speed > 0)) return;
+		const next = layer.time + dt * speed;
 		if (stateDef.loop && duration > 0) {
 			layer.wrapped = next >= duration || next < 0;
 			layer.time = ((next % duration) + duration) % duration;
@@ -336,6 +363,15 @@ export class ComponentStateMachineRunner {
 			layer.stateDef && layer.duration !== undefined
 				? { timeline: layer.stateDef.timeline, time: layer.time }
 				: { time: 0 };
+		if (left.timeline) {
+			layer.left.push({
+				timeline: left.timeline,
+				prevTime: layer.prevTime,
+				time: layer.time,
+				wrapped: layer.wrapped,
+				entered: layer.entered,
+			});
+		}
 		if (transition.to === SM_EXIT_STATE) {
 			layer.state = SM_EXIT_STATE;
 			layer.stateDef = undefined;
@@ -378,6 +414,7 @@ export class ComponentStateMachineRunner {
 				};
 				if (layer.blend.timeline) play.from.timeline = layer.blend.timeline;
 			}
+			if (layer.left.length) play.left = layer.left.map((seg) => ({ ...seg }));
 			return play;
 		});
 	}
@@ -451,11 +488,13 @@ export function blendNodeSamples(
 export type StateMachineIssueCode =
 	| 'input-duplicate'
 	| 'input-kind-unknown'
+	| 'layer-duplicate'
 	| 'layer-no-entry'
 	| 'layer-entry-unknown'
 	| 'state-duplicate'
 	| 'state-reserved-id'
 	| 'state-no-timeline'
+	| 'state-speed-invalid'
 	| 'state-timeline-missing'
 	| 'transition-from-unknown'
 	| 'transition-to-unknown'
@@ -520,8 +559,18 @@ export function validateStateMachine(
 		}
 		kinds.set(input.id, input.kind);
 	}
+	const layerIds = new Set<string>();
 	for (const layer of def.stateMachine?.layers ?? []) {
 		const name = layer.name || layer.id;
+		if (layerIds.has(layer.id)) {
+			issues.push({
+				code: 'layer-duplicate',
+				level: 'error',
+				layer: layer.id,
+				message: `Layer id "${layer.id}" is used twice.`,
+			});
+		}
+		layerIds.add(layer.id);
 		const stateIds = new Set<string>();
 		for (const state of layer.states ?? []) {
 			if (state.id === SM_ANY_STATE || state.id === SM_EXIT_STATE) {
@@ -543,6 +592,15 @@ export function validateStateMachine(
 				});
 			}
 			stateIds.add(state.id);
+			if (state.speed !== undefined && !(state.speed > 0 && Number.isFinite(state.speed))) {
+				issues.push({
+					code: 'state-speed-invalid',
+					level: 'error',
+					layer: layer.id,
+					state: state.id,
+					message: `Layer "${name}": state "${state.name || state.id}" has speed ${String(state.speed)}; it must be above 0.`,
+				});
+			}
 			if (!state.timeline) {
 				issues.push({
 					code: 'state-no-timeline',

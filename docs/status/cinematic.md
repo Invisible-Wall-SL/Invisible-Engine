@@ -137,7 +137,11 @@ through the same player; headless-proven, no editor yet (5b).
     cue at 0 fires on entry and a loop wrap fires the end then the start. `sample(nodeId)`: a `playOn`
     timeline still playing and started after the layers driving the node wins it; once it ends, or
     the machine changes state, the layers take the node back; among layers, each property goes to
-    the later layer, each mixed from the pose it left while its blend runs (`blendNodeSamples`). A missing timeline holds and warns once. No `stateMachine` ⇒ no
+    the later layer, each mixed from the pose it left while its blend runs (`blendNodeSamples`). A missing timeline holds and warns once (per def). The machine starts on the instance's first
+    visible frame (the rule `enter` follows) and its clock runs from then on; the cues a leaving
+    state crossed on the frame of a transition still fire; an interrupted blend leaves from the
+    pose on screen; a state timeline reused from another component binds here without its
+    `playOn` (`instanceTimelineDocs`). No `stateMachine` ⇒ no
     runner, no subscription, no ticker (parity; `check:component-timelines` still 39 green). Ship
     chain (rule 8): a state's timeline needs no `playOn` and no Flow node to ship — every authored
     component timeline is exported and embedded, and the gate asserts it. Gate:

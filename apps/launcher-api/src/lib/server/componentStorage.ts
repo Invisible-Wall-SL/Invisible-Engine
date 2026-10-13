@@ -866,8 +866,10 @@ const point = (v: unknown): SmPoint | undefined =>
 function normalizeStateMachine(input: unknown): ComponentStateMachine | undefined {
 	if (!isRecord(input) || !Array.isArray(input.layers)) return undefined;
 	const layers: SmLayer[] = [];
+	const layerIds = new Set<string>();
 	for (const raw of input.layers) {
-		if (!isRecord(raw) || typeof raw.id !== 'string' || !raw.id) continue;
+		if (!isRecord(raw) || typeof raw.id !== 'string' || !raw.id || layerIds.has(raw.id)) continue;
+		layerIds.add(raw.id);
 		const layer: SmLayer = {
 			id: raw.id,
 			entry: typeof raw.entry === 'string' ? raw.entry : '',
@@ -882,7 +884,7 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 				timeline: typeof item.timeline === 'string' ? item.timeline : '',
 			};
 			if (typeof item.name === 'string' && item.name) state.name = item.name;
-			if (finite(item.speed)) state.speed = item.speed;
+			if (finite(item.speed) && item.speed > 0) state.speed = item.speed;
 			if (item.loop === true) state.loop = true;
 			const pos = point(item.pos);
 			if (pos) state.pos = pos;
@@ -898,7 +900,8 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (conditions === undefined) continue;
 			if (conditions.length) transition.conditions = conditions;
 			if (finite(item.exitTime)) transition.exitTime = item.exitTime;
-			if (finite(item.blend) && item.blend > 0) transition.blend = item.blend;
+			// Exit has no pose to mix into, so a blend on a transition to it means nothing.
+			if (finite(item.blend) && item.blend > 0 && item.to !== 'exit') transition.blend = item.blend;
 			layer.transitions.push(transition);
 		}
 		if (isRecord(raw.pseudoPos)) {

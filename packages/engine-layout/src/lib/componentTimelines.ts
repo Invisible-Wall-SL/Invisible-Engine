@@ -6,7 +6,7 @@ import {
 } from 'engine-cinematic';
 
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
-import { blendNodeSamples, type LayerPlay } from './stateMachine';
+import { blendNodeSamples, type LayerPlay, type LeftSegment } from './stateMachine';
 import type { CinematicDoc, ComponentStateMachine, LayoutNode } from './types';
 
 /**
@@ -51,6 +51,25 @@ export function componentTimelinesFor(componentId: string): CinematicDoc[] {
 }
 
 /**
+ * Everything a placed instance's player binds: the component's `playOn` timelines, then the
+ * timelines its state machine plays that are not already among them — with their `playOn`
+ * stripped, since a state timeline reused from another component must not also play here as a
+ * free timeline on that component's signal. `durations` is what the runner is handed.
+ */
+export function instanceTimelineDocs(
+	componentId: string,
+	machine: ComponentStateMachine | undefined,
+): { docs: CinematicDoc[]; durations: Map<string, number> } {
+	const docs = [...componentTimelinesFor(componentId)];
+	const { docs: stateDocs, durations } = stateMachineTimelines(machine);
+	for (const doc of stateDocs) {
+		if (docs.some((d) => d.id === doc.id)) continue;
+		docs.push(doc.playOn ? { ...doc, playOn: undefined } : doc);
+	}
+	return { docs, durations };
+}
+
+/**
  * The registered timelines a state machine's states play, each once, and their durations by id —
  * what a {@link ComponentTimelinePlayer} binds and a `ComponentStateMachineRunner` is handed. An
  * id nothing registered is simply absent (the runner lists it as missing and holds).
@@ -91,7 +110,21 @@ interface Running {
 	/** Set on a state-machine layer's playback (`drive`): its playhead is placed, never advanced. */
 	layer?: number;
 	/** The pose a layer is still mixing in from (`blendNodeSamples`). */
-	from?: { bound?: Bound; time: number; progress: number };
+	from?: Mix;
+}
+
+/** A pose being mixed FROM, and how far (0..1) the new timeline has mixed in over it. */
+interface Mix {
+	source: Pose;
+	progress: number;
+}
+
+/** A frozen pose: a timeline at a time, itself possibly still mid-mix — a blend interrupted by
+ *  another transition leaves from the pose that was on screen, not from a timeline alone. */
+interface Pose {
+	bound?: Bound;
+	time: number;
+	mix?: Mix;
 }
 
 const EPSILON = 1e-9;
@@ -236,33 +269,47 @@ export class ComponentTimelinePlayer {
 			return [];
 		}
 		const cues: { cue: string; timeline: string }[] = [];
-		const crossed = (prev: number, next: number): void => {
-			for (const k of cuesCrossed(bound.cueKeys, prev, next)) {
-				cues.push({ cue: k.cue, timeline: bound.doc.id });
+		// A slot never seeks, so every step is a real stretch of playback: no step-size guard.
+		const crossed = (on: Bound, prev: number, next: number): void => {
+			for (const k of cuesCrossed(on.cueKeys, prev, next, Infinity)) {
+				cues.push({ cue: k.cue, timeline: on.doc.id });
 			}
 		};
+		const segment = (on: Bound, seg: LeftSegment | LayerPlay): void => {
+			if (seg.entered) crossed(on, -EPSILON, seg.time);
+			else if (seg.wrapped) {
+				crossed(on, seg.prevTime, Math.max(on.doc.duration || 0, 0));
+				crossed(on, -EPSILON, seg.time);
+			} else crossed(on, seg.prevTime, seg.time);
+		};
+		for (const left of play.left ?? []) {
+			const on = this.boundById.get(left.timeline);
+			if (on) segment(on, left);
+		}
 		let r = this.driven.get(slot);
 		if (!r || r.bound !== bound || play.entered) {
+			const previous = r;
 			r = { bound, time: play.time, done: true, order: ++this.started, layer };
 			this.driven.set(slot, r);
-			crossed(-EPSILON, play.time);
-		} else {
-			if (play.wrapped) {
-				crossed(play.prevTime, Math.max(bound.doc.duration || 0, 0));
-				crossed(-EPSILON, play.time);
-			} else {
-				crossed(play.prevTime, play.time);
+			crossed(bound, -EPSILON, play.time);
+			if (play.from) {
+				// Leave from the pose that was on screen: the previous slot frozen, its own blend
+				// included, so interrupting a blend never jumps.
+				const source: Pose = previous
+					? { bound: previous.bound, time: play.from.time, mix: previous.from }
+					: {
+							bound: play.from.timeline ? this.boundById.get(play.from.timeline) : undefined,
+							time: play.from.time,
+						};
+				r.from = { source, progress: 0 };
 			}
+		} else {
+			segment(bound, play);
 			r.time = play.time;
 			r.layer = layer;
 		}
-		r.from = play.from
-			? {
-					bound: play.from.timeline ? this.boundById.get(play.from.timeline) : undefined,
-					time: play.from.time,
-					progress: play.from.progress,
-				}
-			: undefined;
+		if (r.from && play.from) r.from.progress = play.from.progress;
+		else if (!play.from) r.from = undefined;
 		return cues;
 	}
 
@@ -277,13 +324,18 @@ export class ComponentTimelinePlayer {
 		return r ? { timeline: r.bound.doc.id, time: r.time } : undefined;
 	}
 
+	private samplePose(pose: Pose, nodeId: string): CinematicNodeSample | undefined {
+		const tracks = pose.bound?.actors.get(nodeId);
+		const own = tracks ? sampleNodeActor(tracks, pose.time) : undefined;
+		if (!pose.mix) return own;
+		return blendNodeSamples(this.samplePose(pose.mix.source, nodeId), own, pose.mix.progress);
+	}
+
 	private sampleOf(r: Running, nodeId: string): CinematicNodeSample | undefined {
 		const tracks = r.bound.actors.get(nodeId);
 		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
 		if (!r.from) return to;
-		const fromTracks = r.from.bound?.actors.get(nodeId);
-		const from = fromTracks ? sampleNodeActor(fromTracks, r.from.time) : undefined;
-		return blendNodeSamples(from, to, r.from.progress);
+		return blendNodeSamples(this.samplePose(r.from.source, nodeId), to, r.from.progress);
 	}
 
 	sample(nodeId: string): CinematicNodeSample | undefined {
@@ -293,8 +345,10 @@ export class ComponentTimelinePlayer {
 			if (!best || r.order > best.order) best = r;
 		}
 		const layers: Running[] = [];
+		const sourceDrives = (mix: Mix | undefined): boolean =>
+			!!mix && (!!mix.source.bound?.actors.has(nodeId) || sourceDrives(mix.source.mix));
 		for (const r of this.driven.values()) {
-			if (r.bound.actors.has(nodeId) || r.from?.bound?.actors.has(nodeId)) layers.push(r);
+			if (r.bound.actors.has(nodeId) || sourceDrives(r.from)) layers.push(r);
 		}
 		if (!layers.length) return best ? this.sampleOf(best, nodeId) : undefined;
 		const latest = Math.max(...layers.map((r) => r.order));

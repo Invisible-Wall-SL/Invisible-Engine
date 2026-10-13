@@ -203,11 +203,23 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
 - **`blend`** mixes the target timeline in over that many ms from the pose being left — the
   previous timeline frozen at the moment of leaving (`blendNodeSamples`: offsets from 0, factors
   from 1, tint per colour channel, frame/visible/text stepping at half way). A transition taken
-  mid-blend mixes from that timeline's pose, not from the half-mixed one, so a fast re-transition
-  can pop first. Cues are found with the player's `cuesCrossed`, whose 0.25 s step guard means a
-  state with a very high `speed` can skip cues.
+  mid-blend leaves from the pose on screen: the player freezes the half-mixed pose and mixes the
+  next timeline in from it, so an interrupted blend never jumps.
 - **At most 8 transitions fire per layer per tick** (`SM_MAX_TRANSITIONS_PER_TICK`); a longer
   chain continues next tick. A non-looping timeline holds its last frame.
+- **The cues a leaving state crossed on the tick it was left still fire** (`LayerPlay.left`): a
+  one-shot's `signal:done` at its very end is not lost to the "back to idle" transition on that
+  frame. A layer's slot never seeks, so a big step (a fast `speed`, a capped frame) crosses every
+  cue in it.
+- **A state with `speed` ≤ 0, or a zero-duration timeline, is at rest**: it shows its pose and
+  needs no tick. The normalizer keeps only a finite speed above 0 (validation: `state-speed-
+  invalid`), drops a second layer with the same id (`layer-duplicate`) and a `blend` on a
+  transition to `exit` (nothing to mix into).
+- **The machine starts when its instance is first shown** — the rule 4b's `enter` follows: the
+  entry state is entered and its cues at 0 fire on the first visible frame, never on a hidden
+  screen at mount; from then on its clock runs whether or not the instance stays shown, like a
+  `playOn` timeline's, and it keeps its state across re-appearances (Phase 7 may reset it from
+  Flow). The editor's preview, always visible, shows the entry pose as soon as it is built.
 - **`exit`** ends the layer: it drives nothing and takes no transition until `reset()`.
 - **A missing timeline never crashes the game**: the state is entered and holds (drives nothing,
   its exit gate is open) and the instance warns once with the ids.
@@ -216,7 +228,10 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
 - **Per instance**: each placed instance with a `stateMachine` owns one runner, fed by its own
   signal bus (triggers) and the value sources its number inputs name, advanced on the Pixi ticker,
   each layer placed on its timeline through the 4b player's `drive(slot, layer, play)` — one node-
-  driving path. No `inputs`/`stateMachine` ⇒ no runner, no subscription, no ticker work (parity).
+  driving path. The player binds the component's `playOn` timelines plus the state timelines it
+  lacks, with their `playOn` stripped (`instanceTimelineDocs`): a state timeline reused from
+  another component never also plays here as a free timeline on that component's signal. No
+  `inputs`/`stateMachine` ⇒ no runner, no subscription, no ticker work (parity).
 
 - **Inputs** absorb what `signals` do for behaviour: a signal reads as a trigger input
   (`componentInputs(def)` folds the two — §12 #4), and an engine value source (`winAmount`) can
