@@ -77,7 +77,8 @@ re-packed losslessly, and audio is trimmed to mp3. Log: `%TEMP%\iw_optimize.log`
 ## Shrinking an oversized image
 
 A build ships only the art the game loads: a folder in the project's `deploy/` that no game code
-names is not pulled into the build (the build log lists it under *Not pulled*). So an oversized
+names is not pulled into the build, and an unused file in the game repo's `static/assets/` is
+removed before it is built (the build log lists both). So an oversized
 file is one the game really uses, almost always a sheet packed far bigger than the game shows it
 (an 8192×8192 page of animation frames, say).
 

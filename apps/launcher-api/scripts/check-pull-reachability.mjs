@@ -6,17 +6,22 @@
 // pruned stale copies only inside the export-generated subtrees. Anything the Atlas Maker's Deploy
 // button had written to `sprites/`, `spines/`, … shipped whether the game loaded it or not, and
 // never left a checkout once pulled — Test6's publish stopped at the portal's 32 MB file limit on a
-// `sprites/S_Background/S_Background.webp` no code names. Claims:
+// `sprites/S_Background/S_Background.webp` no code names. The first fix still shipped it: Test6's
+// repo COMMITS a 377 MB snapshot of `static/assets/`, including a 77 MB `S_Background.png` that
+// 🗜 Optimize turned into that WebP, and committed files were only reported. Claims:
 //
 //   1. The scanner: a literal `assets/<folder>/<name>/…` path is reachable with its siblings; a
 //      runtime-built `assets/<folder>/${x}` keeps that folder; a comment keeps nothing; a bare
 //      `assets/` base keeps nothing; a data file's prefix-less rel counts.
 //   2. On the REAL engine source, every literal asset path the game names is reachable, and
 //      `sprites/S_Background/` is not.
-//   3. End to end against a fake /api/deploy, in a standalone game checkout: unloaded deploy
+//   3. The prune decision: a generated file converges on the listing; an unloaded file is
+//      deleted in a game repo even when committed; in the engine's own apps a committed one is
+//      only reported, as is any file when git cannot tell.
+//   4. End to end against a fake /api/deploy, in a standalone game checkout: unloaded deploy
 //      folders are not pulled, a chain through a kept descriptor is followed, stale generated
-//      files and stale unloaded copies are deleted, committed files are left and reported, and
-//      `--no-prune` still mirrors everything.
+//      files, stale unloaded copies AND committed unloaded files are deleted (and named in the
+//      log), and `--no-prune` still mirrors everything.
 
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -29,6 +34,7 @@ import {
 	emptyRefs,
 	foundGameRefs,
 	isReachable,
+	pruneDecision,
 	scanSources,
 } from './lib/assetReachability.mjs';
 
@@ -108,7 +114,37 @@ console.log('2. the real engine source');
 	);
 }
 
-console.log('3. end to end');
+console.log('3. the prune decision');
+{
+	const refs = collectRefs(emptyRefs(), "'assets/sprites/reelsFrame/reels_frame.json'");
+	const listed = new Set(['_pages/live.webp']);
+	const tracked = new Set(['sprites/S_Background/S_Background.png']);
+	const game = { listed, refs, tracked: null, standalone: true };
+	const engine = { listed, refs, tracked, standalone: false };
+	const unused = 'sprites/S_Background/S_Background.png';
+	ok('a listed generated page stays', pruneDecision('_pages/live.webp', game) === 'keep');
+	ok('an unlisted generated page goes', pruneDecision('_pages/old.webp', engine) === 'delete');
+	ok('loaded art stays', pruneDecision('sprites/reelsFrame/reels_frame.png', game) === 'keep');
+	ok(
+		'a game repo deletes unloaded art even when committed',
+		pruneDecision(unused, game) === 'delete',
+	);
+	ok('an engine app only reports its committed art', pruneDecision(unused, engine) === 'report');
+	ok(
+		'  but deletes an uncommitted copy',
+		pruneDecision('sprites/Old/old.webp', engine) === 'delete',
+	);
+	ok(
+		'  and reports when git cannot tell',
+		pruneDecision('sprites/Old/old.webp', { ...engine, tracked: null }) === 'report',
+	);
+	ok(
+		'no game code found keeps everything outside the generated subtrees',
+		pruneDecision(unused, { ...game, refs: null }) === 'keep',
+	);
+}
+
+console.log('4. end to end');
 {
 	const TOKEN = 'fixture-token';
 	const deploy = {
@@ -147,7 +183,7 @@ console.log('3. end to end');
 	};
 	const git = (...a) => spawnSync('git', a, { cwd: game, encoding: 'utf8' });
 	git('init', '-q');
-	put('sprites/Committed/c.png');
+	put('sprites/Committed/c.png', 'y'.repeat(2 * 1048576));
 	git('add', '.');
 	git('-c', 'user.email=f@x', '-c', 'user.name=f', 'commit', '-qm', 'seed');
 	put('sprites/OldPull/old.webp');
@@ -189,8 +225,12 @@ console.log('3. end to end');
 		ok('a stale unloaded copy from an earlier pull is deleted', !has('sprites/OldPull/old.webp'));
 		ok('  with its now-empty folder', !has('sprites/OldPull'));
 		ok('a stale generated page is deleted', !has('_pages/stale.webp'));
-		ok('a committed unloaded file is left in place', has('sprites/Committed/c.png'));
-		ok('  and reported', first.out.includes('sprites/Committed'), first.out);
+		ok('a committed unloaded file is deleted too (a game repo)', !has('sprites/Committed/c.png'));
+		ok(
+			'  and the log names it with its size',
+			/Removed[^]*sprites\/Committed {2}\(1 file\(s\), 2\.0 MB\)/.test(first.out),
+			first.out,
+		);
 
 		const all = await run('--no-prune');
 		ok(

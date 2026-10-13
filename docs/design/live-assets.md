@@ -41,8 +41,9 @@ folder means renaming on both sides — convention over config, no silent indire
 **A build pulls only what the game loads** (2026-10-13). The export-generated subtrees
 (`editor-art/`, `_pages/`, `editor-fonts/`, …) are already limited to what the game's scenes, flow
 and symbols reach. Every other folder is pulled only if the game's code names it
-(`assets/sprites/reelsFrame/…`), or a kept file names it; a stale or unloaded local copy is
-deleted, and a committed one is left and reported. `--no-prune` restores mirror-everything.
+(`assets/sprites/reelsFrame/…`), or a kept file names it. A local file nothing loads is deleted
+— in a game repo even when committed (its `static/assets/` is only a mirror of `deploy/`); in the
+engine's own apps a committed one is left and reported. `--no-prune` restores mirror-everything.
 Rules and their safety limits: `apps/launcher-api/scripts/lib/assetReachability.mjs`.
 
 ## Two gaps to close
