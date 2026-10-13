@@ -35,8 +35,10 @@
 		setTextMessageFields,
 		setPlayCinematicFields,
 		setModeNodeFields,
+		setWaitForStateFields,
 		type ModeNodePatch,
 	} from './graphOps';
+	import { editorHrefForComponent } from '$lib/flowInstanceUi';
 	import { typeLabel } from './palette';
 	import EnumLiteral from './EnumLiteral.svelte';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
@@ -50,6 +52,7 @@
 		modes = [],
 		cinematics = [],
 		timelineIssues = {},
+		projectKey = '',
 		onchange,
 	}: {
 		doc: FlowDoc;
@@ -64,8 +67,27 @@
 		cinematics?: { id: string; label: string }[];
 		/** Screen-timeline id → its node-actor problems (`validateNodeActors`, from the server). */
 		timelineIssues?: Record<string, string[]>;
+		/** The project pin every jump to `/editor` carries. */
+		projectKey?: string;
 		onchange: (next: FlowDoc) => void;
 	} = $props();
+
+	// --- placed component instances (Rive plan §6.2, Phase 7) --------------------------------
+	/** The projected instance this node names — on ITS screen, else undefined. */
+	const instanceDecl = $derived(
+		node.kind === 'componentInstance' || node.kind === 'waitForState'
+			? (() => {
+					const decl = ctx.instances?.[node.instance];
+					return decl && decl.container === node.container ? decl : undefined;
+				})()
+			: undefined,
+	);
+	const waitLayers = $derived(instanceDecl?.interface.values ?? []);
+	const waitStates = $derived(
+		node.kind === 'waitForState'
+			? (waitLayers.find((v) => v.layer === node.layer)?.states ?? [])
+			: [],
+	);
 
 	// --- game-mode nodes --------------------------------------------------------
 	function onModeFieldChange(patch: ModeNodePatch): void {
@@ -525,16 +547,93 @@
 			<p class="hint">
 				What "finishes" means depends on the cue. An <strong>engine</strong> cue waits for its
 				listeners. A cue <strong>you named</strong> in the Scene Editor has no listener that can
-				report back, so it waits for the <strong>animation it starts</strong> — the longest clip any
-				cued rig or flipbook plays for this signal, on a screen this flow currently shows. A looping
-				cue waits one cycle (a loop has no end, and you asked to wait). Nothing shown names the cue ⇒
-				no wait. The wait is turbo-scaled and a slam collapses it, like a Delay.
+				report back, so it waits for the <strong>animation it starts</strong> — the longest clip any cued
+				rig or flipbook plays for this signal, on a screen this flow currently shows. A looping cue waits
+				one cycle (a loop has no end, and you asked to wait). Nothing shown names the cue ⇒ no wait. The
+				wait is turbo-scaled and a slam collapses it, like a Delay.
 			</p>
 			<p class="hint">
 				"Shown" means <strong>shown by this flow</strong> — a screen it mounted with
 				<strong>Show</strong>. A cued character on a screen the <em>game</em> puts up, with no
 				<strong>Show</strong> for it anywhere in this flow, is not measured and the wait is zero
 				(the cue still fires, and still animates). Pair it with a <strong>Delay</strong> there.
+			</p>
+		{/if}
+
+		{#if node.kind === 'componentInstance' || node.kind === 'waitForState'}
+			{#if instanceDecl}
+				<p class="hint">
+					<strong>{instanceDecl.name}</strong> on screen <code>{node.container}</code> — component
+					<code>{instanceDecl.componentId}</code>{instanceDecl.version !== undefined
+						? ` v${instanceDecl.version}`
+						: ' (latest)'}.
+					{#if instanceDecl.missing === 'def'}
+						<strong>Its component is not in this project</strong> — restore it in the Scene Editor.
+					{:else if instanceDecl.missing === 'version'}
+						<strong>Its pinned version no longer exists</strong> — update the instance in the Scene Editor.
+					{/if}
+				</p>
+				<button
+					type="button"
+					class="jump"
+					onclick={() =>
+						window.location.assign(editorHrefForComponent(projectKey, instanceDecl.componentId))}
+					title="Open this component in the Scene Editor, in place (or double-click the node)"
+				>
+					◇ Edit component
+				</button>
+			{:else}
+				<p class="hint">
+					<strong
+						>Instance <code>{node.instance}</code> is not placed on screen
+						<code>{node.container}</code> with a name.</strong
+					> Place and name it in the Scene Editor, or remove this node.
+				</p>
+			{/if}
+		{/if}
+
+		{#if node.kind === 'componentInstance' && instanceDecl}
+			<p class="hint">
+				Its pins follow the component: <strong>Set</strong> applies the fed inputs;
+				<strong>▸ trigger</strong>
+				inlets apply them and fire; <strong>on‹Event›</strong> outlets start their own chain when
+				the component raises the event; <strong>‹layer›.state</strong> reads the state machine. A text
+				input takes a localization key.
+			</p>
+		{/if}
+
+		{#if node.kind === 'waitForState'}
+			<label class="field">
+				<span class="flabel">Layer</span>
+				<select
+					value={node.layer}
+					onchange={(e) =>
+						onchange(
+							setWaitForStateFields(doc, node.id, { layer: e.currentTarget.value, state: '' }),
+						)}
+				>
+					<option value="" disabled>— choose —</option>
+					{#each waitLayers as v (v.layer)}
+						<option value={v.layer}>{v.layer}</option>
+					{/each}
+				</select>
+			</label>
+			<label class="field">
+				<span class="flabel">Wait until state</span>
+				<select
+					value={node.state}
+					onchange={(e) =>
+						onchange(setWaitForStateFields(doc, node.id, { state: e.currentTarget.value }))}
+				>
+					<option value="" disabled>— choose —</option>
+					{#each waitStates as s (s)}
+						<option value={s}>{s}</option>
+					{/each}
+				</select>
+			</label>
+			<p class="hint">
+				Holds the chain until the layer is in that state (at once when it already is). An instance
+				not on screen, or hidden, does not hold; a slam releases it.
 			</p>
 		{/if}
 
@@ -820,8 +919,8 @@
 				</div>
 				<p class="hint">
 					Blank fields fall back to the game's default text style. <strong>Font</strong> lists the
-					project's fonts (the same set the Scene Editor offers); <strong>Game default</strong> uses
-					the font the rest of the game text renders in.
+					project's fonts (the same set the Scene Editor offers); <strong>Game default</strong> uses the
+					font the rest of the game text renders in.
 				</p>
 			{/if}
 		{/if}
@@ -1307,6 +1406,20 @@
 	}
 	.field.check input[type='checkbox'] {
 		flex: none;
+	}
+	.jump {
+		align-self: flex-start;
+		padding: 4px 10px;
+		font: inherit;
+		font-size: 12px;
+		color: #e2e8f0;
+		background: #1f2937;
+		border: 1px solid #2a323d;
+		border-radius: 6px;
+		cursor: pointer;
+	}
+	.jump:hover {
+		border-color: #34d399;
 	}
 	.hint {
 		margin: 0;

@@ -4,9 +4,11 @@
 		type FlowDoc,
 		type FlowPreviewEntry,
 		type FlowPreviewResult,
+		type FlowInstanceDecl,
 		type FunctionLibraryDoc,
 		type TemplateVocabulary,
 	} from 'engine-flow-v2';
+	import { openFlowStageChannel } from '$lib/flowStageBridge';
 
 	// The v2 DETERMINISTIC preview panel (Phase 2d). Pick one of the flow's event nodes and run its
 	// authored handler headlessly through the real `previewFlowEvent` (virtual clock — no waiting),
@@ -18,11 +20,24 @@
 		doc,
 		library,
 		vocab,
+		instances = {},
+		projectKey = '',
 	}: {
 		doc: FlowDoc;
 		library: FunctionLibraryDoc;
 		vocab: TemplateVocabulary;
+		/** The placed instances (node id → decl), to name a component for the stage bridge. */
+		instances?: Record<string, FlowInstanceDecl>;
+		projectKey?: string;
 	} = $props();
+
+	// Drive the editor stage (Rive plan §6.2 step 5): every instance op the run reaches is posted on
+	// the project's bridge, and a State Machine panel open on that component in `/editor` plays it
+	// through its own preview path. Off by default — a headless run should not move another tab.
+	let driveStage = $state(false);
+	const hasInstanceNodes = $derived(
+		doc.graph.nodes.some((n) => n.kind === 'componentInstance' || n.kind === 'group'),
+	);
 
 	// The event nodes authored in the MAIN flow graph — the entry points a preview can run from.
 	const eventRefs = $derived(
@@ -59,10 +74,35 @@
 				selected,
 				{ speed },
 			);
+			if (driveStage && result) sendToStage(result.timeline);
 		} finally {
 			running = false;
 		}
 	};
+
+	/** Post each fired trigger and set input to the stage bridge, in timeline order; a wait is the
+	 *  stage's own to show. An instance the projection does not know names no component: skipped. */
+	function sendToStage(timeline: FlowPreviewEntry[]): void {
+		const channel = openFlowStageChannel(projectKey);
+		if (!channel) return;
+		for (const e of timeline) {
+			if (e.kind !== 'instance' || e.op === 'wait') continue;
+			const decl = instances[e.instance];
+			if (!decl) continue;
+			const value = e.value;
+			channel.post({
+				v: 1,
+				componentId: decl.componentId,
+				instance: e.instance,
+				op: e.op,
+				name: e.name,
+				...(typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string'
+					? { value }
+					: {}),
+			});
+		}
+		channel.close();
+	}
 
 	const KIND_LABEL: Record<FlowPreviewEntry['kind'], string> = {
 		effect: 'effect',
@@ -108,6 +148,15 @@
 			<button type="button" class="run" onclick={() => void run()} disabled={running}>
 				{running ? '…' : 'Run'}
 			</button>
+			{#if hasInstanceNodes}
+				<label
+					class="stage"
+					title="Also play each fired trigger and set input on the State Machine panel open on that component in the Scene Editor (same project, another tab)"
+				>
+					<input type="checkbox" bind:checked={driveStage} />
+					<span>Drive the editor stage</span>
+				</label>
+			{/if}
 		</div>
 
 		{#if result}
