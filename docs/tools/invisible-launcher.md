@@ -110,7 +110,8 @@ route quick and safe:
   connection is quick for the same reason.
 - **An oversized file is caught before anything is sent.** The portal reports its
   real per-file limit (32 MB by default), and any file over it stops the publish
-  up front with its name. Ticking 🗜 Optimize usually fixes it.
+  up front with its name. For a PNG, ticking 🗜 Optimize usually fixes it; for a WebP or JPEG,
+  shrink its sheet (see the [publisher runbook](../guides/publisher-runbook.md)).
 - **Nothing is registered half-uploaded.** The portal checks that every file arrived
   before it touches the games list. An interrupted publish leaves the previous build
   serving.

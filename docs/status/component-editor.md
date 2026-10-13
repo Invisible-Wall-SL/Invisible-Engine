@@ -36,6 +36,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-13 — **Owner decisions for the Rive-style editor (Phase 0, docs only).** The 2026-06 route-A
+  deferral is lifted for component state machines only (screens get none), and `/components` will
+  merge into `/editor` (Phase 4; component storage unchanged). Plan: [rive-style-editor](../design/rive-style-editor.md) §12.
 - 2026-10-03 — **The respin cell tiles are skinnable** (Hold and Win 12c, #1006). New **Cell Tile**
   built-in: the tile and a held overlay sit inside a `Cell` part (**Edit inside Cell ›**). The
   Respin Cell Tiles' new **tile** (a `component` param) picks it for every cell. New **Respin Cell
