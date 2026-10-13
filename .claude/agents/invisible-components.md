@@ -58,6 +58,12 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   Hold and Win Phase 12b), so a masked fill or a growing bone no longer needs a coded part.
   A SCREEN timeline (Scene Editor → Animate, Rive plan Phase 3) drives screen nodes by
   NAME through the same fold (`$lib/timeline/screenTimeline.ts`, `docs/status/cinematic.md`).
+  A COMPONENT timeline (Components side → Animate, Phase 4b; `host: {kind:'component'}`,
+  `playOn`, `playOnComponents`) is played per placed instance by `ComponentTimelinePlayer`
+  (`engine-layout/src/lib/componentTimelines.ts`, wired in `ComponentInstance.svelte`,
+  registered at boot by `registerComponentTimelines` in `apps/lines/src/editor-scenes.ts`). The
+  node driver is scoped to one nest depth (`cinematicNodeContext.ts`). Gate:
+  `pnpm --filter launcher-api check:component-timelines`.
 - **Bound coded parts** (`hudReadout`, `button`, `loadingIntro` bar, the transitions
   and FS visuals): a child carries `bind: { component: '<RegisteredName>' }` mounting
   a small coded part registered via `registerBoundComponents`. Use ONLY when the
@@ -119,7 +125,7 @@ components belong in code (`builtinComponents.ts`), not authored through the UI.
   `packages/engine-layout/src/lib/referenceLayouts/{lines,bookof,hud}.ts` +
   `apps/lines/src/editor-scenes.ts`.
 - **Docs:** `docs/tools/component-editor.md` (authoring guide; navigation between screens and
-  components is in `docs/tools/invisible-editor.md` §The Components side), `docs/design/invisible-editor.md`
+  components, and Animate a component, are in `docs/tools/invisible-editor.md` §The Components side), `docs/design/invisible-editor.md`
   (§8 the contract, §14 HUD readout, §16 button, §18 text box / info bar) — the design
   source of truth; read it before changing the contract.
 

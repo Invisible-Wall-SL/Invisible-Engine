@@ -10,7 +10,9 @@ speed on a real clock (2026-10-01, a probe cinematic injected into the remake), 
 yet shipped an authored cinematic through a `playCinematic` node. **Rive plan Phase 1** (node
 actors + screen/component hosts, 2026-10-13) is in the format, evaluator and player, verified
 headless only. **Phase 3** (2026-10-13) authors screen timelines in `/editor`'s Animate mode and
-lists them in Flow's picker; proven headless end to end, not yet browser-verified.
+lists them in Flow's picker; proven headless end to end, not yet browser-verified. **Phase 4b**
+(2026-10-13, in review) authors **component** timelines on `/editor`'s Components side and plays
+them per placed instance (`componentTimelines.ts`); headless-proven, not yet browser-verified.
 
 ## Current state
 
@@ -39,13 +41,13 @@ lists them in Flow's picker; proven headless end to end, not yet browser-verifie
     switch-key-undeclared), `collectTimelineSwitchKeys`. Two actors on one node: the first wins.
     Two text tracks on one actor: the last one plays, in the evaluator and the player alike.
   - **Player.** `<Cinematic>` provides a driver (`cinematicNodeContext.ts`) to the set it mounts;
-    each TOP-LEVEL `<LayoutNodeView>` of the screen (never a node inside a placed component) asks it
+    each `<LayoutNodeView>` at the driver's component nest depth (depth 0 for a screen, so never a
+    node inside a placed component — Phase 4b scoped the driver by depth) asks it
     once whether an actor drives it, and feeds the sampled channels into its existing value-binding
     fold (`foldBoundTransform` / fill / frame), so a keyed number does to a node exactly what a value
     binding would. Its own outputs are padded to one per binding first (`withNodeActorOutputs`): a
     smoothed binding's outputs start empty, and the timeline's would otherwise slide onto them. `FlowV2Cinematics` resolves the set through `cinematicSetSceneId`.
-  - **Not in Phase 1:** playing a **component** host (valid in the format only — Rive plan
-    Phase 4); `animation` strips on a rig NODE; any `/rigger` UI for node actors (the sequencer is
+  - **Not in Phase 1:** playing a **component** host (now plays — Phase 4b, below); `animation` strips on a rig NODE; any `/rigger` UI for node actors (the sequencer is
     now the shared Timeline module — Phase 2, below; node-actor rows are one `ROW_KINDS` entry); `validateNodeActors` is
     not yet called by a publish gate or an editor.
   - **Ship chain (rule 8):** nothing new to seed. A node actor's art, clip, font and text node all
@@ -59,8 +61,10 @@ lists them in Flow's picker; proven headless end to end, not yet browser-verifie
     `stage.sceneId: null` — the host is the set), saved through `/api/cinematics/*` with the same
     `baseEtag` / 409 / scope guard. `CinematicSummary` gains an optional `host`.
   - **Access (`cinematicAccess.ts`).** `rigger` ⇒ `full`, as before. `editor` without `rigger` ⇒
-    `screen`: the list is filtered to screen timelines; `get` refuses (403) anything else,
-    including a malformed doc; `save` requires the body AND the stored doc to be screen-hosted and
+    `hosted` (named `screen` until Phase 4b, which widened it to component hosts too —
+    `isEditorHosted`): the list is filtered to screen and component timelines; `get` refuses (403)
+    anything else, including a malformed doc; `save` requires the body AND the stored doc to be
+    editor-hosted and
     writes under the etag it just checked (a forced save overwrites only that version, so a rig
     cinematic written under the same id mid-request is a 409, never clobbered); `delete` reads first.
     Known window: that delete is unconditional (`deleteObject` takes no If-Match), so a Rigger
@@ -79,8 +83,45 @@ lists them in Flow's picker; proven headless end to end, not yet browser-verifie
     under the picker.
   - **Not in Phase 3:** `text` tracks (count-up / switch-key — the format and player have them;
     the panel does not expose them yet), visibility keys and cues in the panel, keying by dragging
-    on the canvas, component hosts (Phase 4). The in-game set still mounts as its own copy of the
+    on the canvas, component hosts (Phase 4b, below). The in-game set still mounts as its own copy of the
     screen inside `<MainContainer>` (Phase 1 behaviour), so an intro should end on the identity pose.
+
+- **Component timelines (Rive plan Phase 4b, 2026-10-13 — in review, headless-proven, ⏳ not
+  browser-verified).** Authored on `/editor`'s Components side (Animate; UI in [the
+  guide](../tools/invisible-editor.md#animate-a-component), authoring state in
+  [component-editor status](component-editor.md)).
+  - **Format (additive, `engine-layout/types.ts`).** `host: {kind:'component', componentId}`; new
+    optional `CinematicDoc.playOn` (the instance signal that starts it — `enter`, a declared signal,
+    a Flow `fireCue` name or a rig cue's `completeSignal`; absent ⇒ never played) and
+    `playOnComponents` (other components whose instances also play it). Both ignored on screen and
+    cast timelines. Ids: `c_<component>_<name>`; storage unchanged
+    (`<client>/<project>/cinematics/<id>.json`).
+  - **Binding (`cinematicNodes.ts`).** A component-hosted timeline binds BY NAME on whatever node
+    list it is handed (its def's root, a reused-on component's); a screen timeline still binds only
+    on its own screen. The panel runs `validateNodeActors` on the def and on each
+    `playOnComponents` entry.
+  - **Runtime (`componentTimelines.ts` + `ComponentInstance.svelte`).** `registerComponentTimelines(
+    bakedCinematics())` runs at boot inside `registerBakedComponents()` (`apps/lines/src/
+    editor-scenes.ts`), indexing every component-hosted doc with a `playOn` under its host and its
+    `playOnComponents`. Each placed instance with ≥1 timeline owns a `ComponentTimelinePlayer`:
+    the `playOn` signal heard on the instance's own bus (a game signal / Flow `fireCue` through the
+    def's `signalScope`, a rig `completeSignal`, or `enter`) (re)starts it from 0; it advances on the
+    Pixi ticker; the last frame HOLDS; two timelines on one node ⇒ the most recently started wins.
+    Cues crossed: `signal:x` fires on the instance's own bus (so `hiddenUntilSignal`, a tap gate or
+    another timeline can follow); any other cue (`fx:` …) is broadcast by bare name. Instances play
+    independently. The node driver is scoped to the instance's nest depth + 1, so a component's
+    timeline never reaches into a nested component. No timeline ⇒ no player, no subscription, no
+    ticker work (parity). `cues`, `stateAnimations`, `valueBindings` untouched.
+  - **Flow.** Component timelines are left out of `/flow-v2`'s playCinematic picker
+    (`cinematicPickerOptions`): instances play them.
+  - **Ship chain (rule 8): no new asset class.** `cinematicExport.ts` already exports every
+    cinematic with ≥1 actor to `deploy/cinematics/` whether or not a Flow node names it, so a
+    component timeline ships with the game; node actors seed no rig bundle (the nodes' art ships
+    with the component). Timelines are project-scoped: a shared component's timeline authored in
+    project A does not ship for project B (shared timeline library = Phase 9).
+  - **Not in Phase 4b:** `sfx:` / `music:` cues are not played from a component timeline (only
+    `signal:` locally, the rest broadcast); the panel keys no text tracks, visibility or cues (as on
+    screens).
 
 - **`/rigger` cinematic mode (Phase 1).** A fourth mode beside Preview / Setup / Animate. Cast a
   rig from the project as an **actor** (the same rig twice = independent instances), place it
@@ -178,13 +219,14 @@ lists them in Flow's picker; proven headless end to end, not yet browser-verifie
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the reference Pixi runtime pose contract (not rendering — see its header) | **15/15** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **41/41** |
-| `tools/rigger-spike/cinematic-nodes.mjs` — node actors, hosts, the text channel modes, the binding fold, rig-only parity (headless) | **69/69** |
+| `tools/rigger-spike/cinematic-nodes.mjs` — node actors, hosts (a component host binds by name on the list it is handed, since Phase 4b), the text channel modes, the binding fold, rig-only parity (headless) | **69/69** |
 | `apps/launcher-api/localizationHarvest.fixture.ts` — timeline switch-key harvest + the `timeline` origin | **all pass** |
 | `tools/rigger-spike/cinematic-timeline.mjs` — the REAL `/rigger` page in headless Chrome, 104 author actions through the page's own handlers (strips, inspector, layers, masks, keys, cues, set row, undo/redo + coalescing, Tweak Mode, ＋ New clip, inline posing, save/open/new/delete); document, history and the three panels' HTML compared to a golden recorded on the pre-extraction code | **104/104** |
 | `apps/launcher-api/timeline.fixture.ts` — the module imports through `$lib` with no browser globals and keeps the undo contract headless | **16/16** |
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | `tools/rigger-spike/cinematic-screen-timeline.mjs` — Phase 3 end to end: author (headless Timeline + name targeting) → save (in-memory R2) → picker labels → `validateNodeActors` → `exportCinematics` / bundle → `playCinematic` on the REAL interpreter → game fold vs the editor's compiled preview module at six times; parity with no preview | **41/41** |
-| `apps/launcher-api/scripts/check-cinematic-access.ts` — the REAL `/api/cinematics/*` handlers per entitlement (rigger / editor / both / neither), incl. the same-id hijack, force, and the mid-request race | **28/28** |
+| `apps/launcher-api/scripts/check-cinematic-access.ts` — the REAL `/api/cinematics/*` handlers per entitlement (rigger / editor / both / neither), incl. the same-id hijack, force, the mid-request race, and a component-host section (Phase 4b) | **36/36** |
+| `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name + validation, export of a component timeline no Flow node names | **34/34** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
 ### What the gates established
@@ -207,8 +249,9 @@ lists them in Flow's picker; proven headless end to end, not yet browser-verifie
 0. **The ONE timeline system** ([rive-style-editor.md](../design/rive-style-editor.md) §3). Phase 1
    (node actors + hosts) is built, headless-verified only. ⏳ Browser-verify a screen-hosted
    timeline in a game (no authoring UI exists until Phase 2/3, so a probe doc has to be injected);
-   wire `validateNodeActors` into a gate once an editor writes node actors; component hosts play in
-   Phase 4; `animation` strips on rig nodes are still open.
+   wire `validateNodeActors` into a gate once an editor writes node actors; `animation` strips on
+   rig nodes are still open. Component hosts play since Phase 4b (in review); its browser-verify
+   list is in [component-editor status](component-editor.md) Blocked.
    Phase 2 (the shared Timeline panel, PR #1171) is built. Owner, please run these in a logged-in
    `/rigger` (the headless gate drives the same handlers with dispatched events,
    so these are the flows NOT browser-verified by a person on this change): undo/redo by buttons and
@@ -260,6 +303,13 @@ lists them in Flow's picker; proven headless end to end, not yet browser-verifie
 
 ## Recent changes
 
+- 2026-10-13 — **Component timelines (Rive plan Phase 4b, branch
+  `claude/rive-p4b-component-timelines`, stacked on 4a).** A component-hosted timeline now plays:
+  `playOn` / `playOnComponents` in the format, `ComponentTimelinePlayer` per placed instance, the
+  node driver scoped by nest depth, the access level `screen` → `hosted` (component hosts too, rig
+  cinematics still Rigger-only), component timelines out of the Flow picker — as described under
+  Current state. New gate `check:component-timelines` 34/34; `check:cinematic-access` 36/36; the
+  Phase 1 spike's component-host assertion now expects binding by name (69/69).
 - 2026-10-13 — **Screen timelines in the Scene Editor (Rive plan Phase 3).** Animate mode in
   `/editor`, editor-gated access to screen timelines, the Flow picker, and the editor preview
   through the game's fold — as described under Current state. Verified headless: all nine cinematic

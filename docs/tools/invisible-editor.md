@@ -841,7 +841,8 @@ game on the next **Publish** — the same trip as the rest of your art.
 The **Design | Animate** toggle in the editor bar switches what the editor is for. **Design** is
 everything above. **Animate** opens the **Timeline** panel under the canvas, for the screen that is
 active in the Screens list. It animates that screen's nodes, for example a screen intro, and Flow
-plays the result in the game.
+plays the result in the game. A component has its own Animate mode on the Components side: see
+[Animate a component](#animate-a-component).
 
 1. **Open or create a timeline.** The panel's picker lists this screen's timelines. **＋ New** asks
    for a name and saves an empty one. **Rename** and **🗑** act on the open timeline. Switching to
@@ -887,11 +888,10 @@ timeline), **Ctrl+S** (save the timeline), **Ctrl+D** (duplicate the selected st
 and delete are off until you switch back to Design. Esc still clears the selection, and typing in
 a field is never intercepted.
 
-Who can do this: anyone with the Scene Editor can open, save and delete **screen** timelines. The
-Rigger's cinematics stay with the Rigger.
+Who can do this: anyone with the Scene Editor can open, save and delete **screen** and
+**component** timelines. The Rigger's cinematics stay with the Rigger.
 
-Not here yet: text tracks (count-up / switch key), visibility keys, cues, and timelines for
-components. Animate mode works on screens only; component timelines are the next phase.
+Not here yet: text tracks (count-up / switch key), visibility keys and cues.
 
 ### The Components side
 
@@ -937,9 +937,57 @@ to another). Clicking a screen in Browse takes you back to that screen.
 **Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
 component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
 
-Everything you do with an open component — create types, params and signals, value bindings,
-skinning coded parts, the canvas Space, saving, versions, promoting to shared and this game's
-defaults — is described in the [Component Editor guide](component-editor.md).
+Everything else you do with an open component — create types, params and signals, value
+bindings, skinning coded parts, the canvas Space, saving, versions, promoting to shared and this
+game's defaults — is described in the [Component Editor guide](component-editor.md).
+
+#### Animate a component
+
+An open component has the same **Design | Animate** toggle in the editor bar. **Animate** opens the
+same Timeline panel as on a screen, but its timelines belong to the component: every placed
+instance of the component plays them in the game, each on its own. Use it for a banner that pops
+in, a button that pulses when a signal fires, a coin that spins in when it lands.
+
+1. **Open the component and click Animate.** The panel's host label shows `◇ <component name>`.
+   Animate is off while you are **Inspecting** an old version; go back to latest first.
+2. **＋ New** asks for a name (it suggests "Pop in") and saves an empty timeline.
+3. **Pick what plays it: Plays on.** This is the signal, heard on each placed instance, that starts
+   the timeline from the beginning. The list offers:
+   - **enter** — the instance appears. A new timeline starts on this.
+   - the **signals** the component declares (see the
+     [Component Editor guide](component-editor.md#3-bind-the-engine-variables)),
+   - the **complete signals** of its rigs' cues.
+
+   **✎** next to it lets you type any other name, for example a Flow **fireCue** name. Choose
+   **(nothing — not played)** and nothing in the game starts it.
+4. **Select a node and key it**, exactly as on a screen (steps 2 to 5 of
+   [Animate mode](#animate-mode--the-timeline)). The canvas only selects in Animate: no dragging,
+   no Delete, and double-click does not open a nested component. Keys find nodes by **name**, so
+   each node you key needs a name no other node in the component shares.
+5. **Save** (or Ctrl+S). Publish as usual: the timeline ships with the game. You don't add a Flow
+   node; component timelines are not in `/flow-v2`'s playCinematic picker, because the instances
+   play them.
+
+**Also on** lists your other components. Tick one and its instances play this timeline too, on
+the same **Plays on** signal. It moves the nodes in that component that have the same names, so
+reuse works when the components name their parts alike (say, `Panel` and `Label`).
+
+**The ⚠ issues pill** appears when something would silently do nothing in the game: a keyed name
+the component (or a component in **Also on**) doesn't have, a channel that node can't take, or no
+**Plays on** signal. Hover it for the list.
+
+How it plays in the game:
+
+- Each placed instance has its own playhead. With **enter**, each instance starts when it appears.
+  A component **scoped by** a param (a pot, say) hears a scoped signal only on the matching
+  instance, so only that one plays.
+- When the timeline ends, the last frame **holds**, so a pop-in stays popped in. The signal firing
+  again restarts it from the beginning.
+- If two timelines key the same node, the one that started most recently wins.
+- A screen's timeline never moves the nodes inside a placed component, and a component's timeline
+  never moves the nodes inside a component nested in it. Animate the nested one on its own.
+- Switching back to Design keeps the open timeline with any unsaved changes. Opening another
+  component saves it and closes it, the same as switching screens.
 
 ### Advanced modes (optional)
 
@@ -1031,6 +1079,9 @@ defaults — is described in the [Component Editor guide](component-editor.md).
 - **No in-editor book-event playback.** A screen's own motion can be keyed and previewed in
   [Animate mode](#animate-mode--the-timeline); anything a book event drives must still be checked
   in the live game.
+- **Component timelines belong to the project.** A shared component's timeline authored in one
+  project does not ship with another project's game. A shared timeline library is a later phase
+  (`docs/design/rive-style-editor.md` §10).
 - **Some HUD parity gaps remain.** Rotation now ships for HUD elements, but the
   corner logo/game-name containers still ignore `scale` in-game, so scaling those
   two corner texts in the editor won't ship yet.

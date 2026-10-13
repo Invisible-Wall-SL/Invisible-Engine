@@ -18,6 +18,11 @@ launcher/auth/R2/tool-registry foundation).
 - **`docs/status/rigger.md`** — the LIVING current state (what's on `main`, ⏳ live-verify,
   open items). Update THIS when you finish work — not the design doc's progress log.
 - **`docs/tools/rigger.md`** — the user guide (CLAUDE.md rule 9; keep it in sync on UI change).
+- **`docs/status/cinematic.md`** — 🎬 Cinematic mode, which is the ONE timeline format (Rive plan):
+  the Scene Editor also authors screen and component timelines in it (`host`, `playOn`). Access is
+  `src/lib/server/cinematicAccess.ts` (`rigger` = every cinematic, `editor` alone = screen +
+  component timelines only; gate `check:cinematic-access`). Per-instance component playback is
+  `engine-layout/src/lib/componentTimelines.ts` (gate `check:component-timelines`).
 
 ## What Invisible Rigger IS
 - A launcher-native **skeletal animation editor**. The saved artifact is an **`.irig`** — a

@@ -100,7 +100,9 @@ host?: { kind: 'cast' }                        // today's cinematic: rigs on the
 ```
 
 Same document, same store, same export and bake. A component's state can point at a timeline id, a
-screen's enter/exit can, and Flow's `playCinematic` can play any of them.
+screen's enter/exit can, and Flow's `playCinematic` plays cast and screen timelines. A component
+timeline is played by its placed instances instead, each on its own, started by the instance signal
+the doc names in `playOn` (Phase 4b): a `playCinematic` would have no instance to drive.
 
 ### 3.3 Reuse
 
@@ -331,7 +333,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | Font Maker → every text node | font catalog | Unchanged (§8). |
 | Scene Editor → Flow | screens as containers (`syncFlowContainers`), component events (`containerEvents.ts`) | **Extended only:** instance nodes join them (§6). Existing container pins are untouched. |
 | Component Editor → Scene Editor | `ComponentDef` + version pins + project defaults | **Extended:** optional `interface`, `stateMachine`, listeners. Pins and per-project defaults unchanged. Old instances render exactly as now. |
-| Cinematic → Flow | `playCinematic` | Unchanged; it now plays screen and component timelines too. |
+| Cinematic → Flow | `playCinematic` | Unchanged; it now plays screen timelines too. Component timelines play on their instances (`playOn`, §3.2), so Flow reaches them through the instance's signals (a `fireCue`). |
 | Symbols, Win Text, Game Config, Sound, Localization → game | their own docs and bakes | Not touched. |
 | Everything → game | export → `deploy/` → bake → pull → register (`runtimeBundle.ts`, `*Export.ts`) | **No new asset class.** Timelines ride the cinematic export; what they reference is added to `collectArtRefs` (rule 8). |
 | Invisible Director → tools | `director/ops/*.ts` (`scene.ts`, `localization.ts`, …) | Its writes go through the same storage helpers, which keep fields they don't know. Director ops for timelines and state machines are a later addition, not a dependency. |
@@ -362,7 +364,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 1 | **Node actors + hosts** | §3.1–3.2 in the format, evaluator and `<Cinematic>` player; existing cinematics byte-identical; localization harvest reads timelines (§8) | `engine-cinematic`, `engine-layout`, rigger-spike gates | M |
 | 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
 | 3 | **Animate a screen** — built 2026-10-13, owner browser check pending | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
-| 4 | **Components in place** — 4a built 2026-10-13 (components in place, `/components` folded in); 4b (component timelines) next | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
+| 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
 | 5 | **Interface + state machine** | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`), new editor panel | L |
 | 6 | **Listeners + events** | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
