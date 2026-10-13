@@ -1076,9 +1076,13 @@ and no `:` (a timeline cue names it as `event:<name>`).
 - **×** removes it, asking first when something raises it. Those raises stay and do nothing in
   game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter in its
   inspector, and a timeline cue under **Events** in the State machine tab.
-- The **last** event cannot be removed while any of the component's timelines has an `event:` cue:
-  a component with no events plays such a cue the old way, as a message to the whole screen.
-  Remove or change those cues first.
+- The **last** event cannot be removed while any of this project's timelines for the component
+  (as last saved) has an `event:` cue: a component with no events plays such a cue the old way, as
+  a message to the whole screen. Remove or change those cues first. A **shared** component always
+  keeps its last event — other projects' timelines may raise it.
+- Adding the **first** event to a component whose timelines already have `event:` cues asks first:
+  from then on those cues raise the component's events instead of messaging the whole screen.
+- Renaming onto a name only a timeline cue uses asks first, naming the cues that will now raise it.
 - Renaming an **input** also repoints the listeners and payload fields that read it; removing one
   lists them in its warning, and they stay, flagged ⚠.
 

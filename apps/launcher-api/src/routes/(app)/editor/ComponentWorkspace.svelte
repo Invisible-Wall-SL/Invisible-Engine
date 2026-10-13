@@ -21,6 +21,7 @@
 		LETTER_TILE_DEF,
 		LETTERS_STRIP_DEF,
 		MAX_COMPONENT_DEPTH,
+		componentEvents,
 		componentInputs,
 		POT_METER_DEF,
 		RESPIN_CELLS_DEF,
@@ -71,7 +72,9 @@
 		removeEvent,
 		removeEventRefusal,
 		renameEvent,
+		addEvent,
 		eventNameRefusal,
+		firstEventCues,
 		rowIds,
 		timelinesRaising,
 		unsavableRows,
@@ -1967,8 +1970,51 @@
 			void askMessage({ title: 'Event not renamed', message: refused });
 			return;
 		}
-		renameEvent(componentDraft, id, next);
+		const name = next.trim();
+		const connects = timelinesRaising(docs, name);
+		if (connects.length) {
+			const ok = await askConfirm({
+				title: `Rename "${id}" to "${name}"?`,
+				message: `Cue(s) event:${name} in ${connects.map((n) => `"${n}"`).join(', ')} (as last saved) will now raise it.`,
+				confirmLabel: 'Rename',
+			});
+			if (!ok || !componentDraft || componentDraft.id !== componentId || isInspecting) return;
+			if (eventNameRefusal(componentDraft, name)) return;
+		}
+		renameEvent(componentDraft, id, name);
 		editNonce += 1;
+	}
+	/** Add an event: null when added, else why not ('' when the author cancelled). The FIRST
+	 *  event re-routes the timelines' `event:` cues from screen-wide broadcasts to the component's
+	 *  events, so that one is confirmed, listing them. */
+	async function addComponentEvent(id: string): Promise<string | null> {
+		if (!componentDraft || isInspecting) return '';
+		const componentId = componentDraft.id;
+		const refused = eventNameRefusal(componentDraft, id);
+		if (refused) return refused;
+		if (!componentEvents(componentDraft).length) {
+			let docs: CinematicDoc[];
+			try {
+				docs = await componentTimelineDocs(componentId);
+			} catch (e) {
+				return `The timelines could not be checked: ${e instanceof Error ? e.message : String(e)}. Try again.`;
+			}
+			if (!componentDraft || componentDraft.id !== componentId || isInspecting) return '';
+			const cues = firstEventCues(componentDraft, docs);
+			if (cues.length) {
+				const ok = await askConfirm({
+					title: `Add the first event, "${id.trim()}"?`,
+					message: `This component's timelines (as last saved) have event cues that today are messages to the whole screen: ${cues.map((c) => `event:${c.event} in "${c.timeline}"`).join(', ')}. With an event declared, each raises the component's event of that name instead — and one naming no declared event raises nothing.`,
+					confirmLabel: 'Add',
+				});
+				if (!ok || !componentDraft || componentDraft.id !== componentId || isInspecting) return '';
+			}
+		}
+		const again = eventNameRefusal(componentDraft, id);
+		if (again) return again;
+		addEvent(componentDraft, id);
+		editNonce += 1;
+		return null;
 	}
 	async function removeComponentEvent(id: string): Promise<void> {
 		if (!componentDraft || isInspecting) return;
@@ -2685,6 +2731,7 @@
 						componentReadOnly={isInspecting}
 						onRenameEvent={(id) => void renameComponentEvent(id)}
 						onRemoveEvent={(id) => void removeComponentEvent(id)}
+						onAddEvent={addComponentEvent}
 						componentSignalScope={componentDraft.signalScope}
 						componentSignalScopeKind={componentDraft.signalScopeKind}
 						gameType={data.gameType}

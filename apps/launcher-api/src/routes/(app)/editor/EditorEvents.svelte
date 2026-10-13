@@ -9,9 +9,7 @@
 	 */
 	import { componentEvents, validateComponentEvents, type ComponentDef } from 'engine-layout';
 	import {
-		addEvent,
 		addPayloadField,
-		eventNameRefusal,
 		PAYLOAD_TYPE_CHOICES,
 		removePayloadField,
 		setPayloadFieldOptional,
@@ -26,8 +24,11 @@
 		onRename: (id: string) => void;
 		/** Ask and remove. */
 		onRemove: (id: string) => void;
+		/** Ask (the first event re-routes the timelines' `event:` cues) and add: null when added,
+		 *  else why not ('' when the author cancelled). */
+		onAdd: (id: string) => Promise<string | null>;
 	}
-	let { def, readOnly = false, onChanged, onRename, onRemove }: Props = $props();
+	let { def, readOnly = false, onChanged, onRename, onRemove, onAdd }: Props = $props();
 
 	let version = $state(0);
 	const events = $derived.by(() => {
@@ -49,21 +50,18 @@
 		version += 1;
 		onChanged();
 	}
-	function add(): void {
+	async function add(): Promise<void> {
 		const id = newEvent.trim();
-		if (!id) return;
-		const refused = eventNameRefusal(def, id);
-		if (refused) {
+		if (!id || readOnly) return;
+		const refused = await onAdd(id);
+		if (refused !== null) {
 			addError = refused;
 			return;
 		}
-		edit(() => {
-			if (addEvent(def, id)) {
-				open[id] = true;
-				newEvent = '';
-				addError = '';
-			}
-		});
+		version += 1;
+		open[id] = true;
+		newEvent = '';
+		addError = '';
 	}
 </script>
 
@@ -83,10 +81,12 @@
 		bind:value={newEvent}
 		oninput={() => (addError = '')}
 		onkeydown={(e) => {
-			if (e.key === 'Enter') add();
+			if (e.key === 'Enter') void add();
 		}}
 	/>
-	<button type="button" disabled={readOnly || !newEvent.trim()} onclick={add}>Add</button>
+	<button type="button" disabled={readOnly || !newEvent.trim()} onclick={() => void add()}
+		>Add</button
+	>
 </div>
 {#if addError}<p class="add-error">{addError}</p>{/if}
 {#if events.length}

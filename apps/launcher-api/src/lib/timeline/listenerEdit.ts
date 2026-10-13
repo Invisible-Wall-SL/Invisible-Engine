@@ -355,7 +355,9 @@ export function eventCues(docs: Iterable<CinematicDoc>): { timeline: string; eve
  * Why removing event `id` is refused, or null. Removing the LAST event turns the def back into
  * one that declares none, and there an `event:` cue keeps its pre-Phase-6 meaning — a broadcast of
  * its bare name to the whole screen (`routeComponentCue`) — so a cue left behind would be widened,
- * not left inert. The cues are fixed first.
+ * not left inert. The cues are fixed first. `timelines` are this project's, as last saved: a
+ * SHARED def's timelines live in every project that uses it, out of sight, so it keeps its last
+ * event outright.
  */
 export function removeEventRefusal(
 	def: ComponentDef,
@@ -363,10 +365,24 @@ export function removeEventRefusal(
 	timelines: Iterable<CinematicDoc>,
 ): string | null {
 	if (componentEvents(def).some((e) => e.id !== id)) return null;
+	if (def.scope !== 'project')
+		return `"${id}" is this component's last event. Shared components keep their last event: other projects' timelines may raise it.`;
 	const cues = eventCues(timelines);
 	if (!cues.length) return null;
 	const list = cues.map((c) => `event:${c.event} in "${c.timeline}"`).join(', ');
-	return `"${id}" is this component's last event, and its timelines still have event cues (${list}). Without any event a cue is broadcast to the whole screen, so remove or change those cues in the Timeline tab first.`;
+	return `"${id}" is this component's last event, and its timelines (as last saved) still have event cues (${list}). Without any event a cue is broadcast to the whole screen, so remove or change those cues in the Timeline tab first.`;
+}
+
+/**
+ * The `event:` cues of `timelines` that adding a first event would re-route: on a def that declares
+ * none they are broadcasts by bare name; once it declares one they raise its events (and an
+ * undeclared one raises nothing). Empty when the def already declares events.
+ */
+export function firstEventCues(
+	def: ComponentDef,
+	timelines: Iterable<CinematicDoc>,
+): { timeline: string; event: string }[] {
+	return componentEvents(def).length ? [] : eventCues(timelines);
 }
 
 /**
@@ -459,11 +475,14 @@ export function actionLabel(action: ListenerAction): string {
 // ---- the save guard -----------------------------------------------------------------------------
 
 /**
- * The rows the server's reader would DROP from this def on save (`componentEventRows.ts` — the
- * same functions): a listener or on-enter row with an empty target, an unreadable payload value (a
- * text key that is not a localization key), an event's unreadable payload field — plus an `int` /
- * `ms` payload value that is not a whole number. The editor refuses to save while any is left:
- * the save would lose the row while the editor showed it as saved.
+ * The rows the server's reader would drop from this def on save because it cannot READ them
+ * (`componentEventRows.ts` — the same functions, row by row): a listener or on-enter row with an
+ * empty target or an unreadable payload value (a text key that is not a localization key), an
+ * event's unreadable payload field — plus an `int` / `ms` payload value that is not a whole number
+ * (which the server keeps). Not mirrored: the reader's drop of a second row with an id or a field
+ * name already taken — the editor mints ids and refuses taken names, so it never makes one. The
+ * editor refuses to save while any listed row is left: the save would lose it while the editor
+ * showed it as saved.
  */
 export function unsavableRows(def: ComponentDef): string[] {
 	const out: string[] = [];

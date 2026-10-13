@@ -560,6 +560,21 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 		L.removeEventRefusal(d, 'revealDone', []),
 		null,
 	);
+	const shared = { ...structuredClone(d), scope: 'shared' as const };
+	eq(
+		'a SHARED def keeps its last event even with no cue in this project (others may raise it)',
+		[
+			!!L.removeEventRefusal(shared, 'revealDone', [])?.includes('Shared components keep'),
+			L.removeEventRefusal({ ...shared, events: [...shared.events!, { id: 'x' }] }, 'x', []),
+		],
+		[true, null],
+	);
+	const bare = def();
+	eq(
+		'the first event re-routes the cues: listed; once one is declared, nothing is',
+		[L.firstEventCues(bare, [cue('revealDone')]), L.firstEventCues(d, [cue('revealDone')])],
+		[[{ timeline: 'Reveal', event: 'revealDone' }], []],
+	);
 
 	const e = def();
 	L.addEvent(e, 'a');

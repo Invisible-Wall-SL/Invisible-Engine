@@ -149,6 +149,8 @@
 		onRenameEvent?: (id: string) => void;
 		/** Ask and remove an event. */
 		onRemoveEvent?: (id: string) => void;
+		/** Ask and add an event: null when added, else why not. */
+		onAddEvent?: (id: string) => Promise<string | null>;
 		/** When the selected node is a `componentInstance`, its resolved def — drives
 		 * the author-set param override list (scene mode). */
 		instanceComponent?: ComponentDef | null;
@@ -331,6 +333,7 @@
 		componentReadOnly = false,
 		onRenameEvent,
 		onRemoveEvent,
+		onAddEvent,
 		componentSignalScope,
 		componentSignalScopeKind,
 		onSetSignalScope,
@@ -2469,13 +2472,14 @@
 			red pot and a cue on <strong>Pot — activate</strong> plays when the red pot activates. Signals about
 			another kind of part (a jackpot tier's win) or no part (Win, Feature — enter) still reach it.
 		</p>
-		{#if componentDraft && onRenameEvent && onRemoveEvent}
+		{#if componentDraft && onRenameEvent && onRemoveEvent && onAddEvent}
 			<EditorEvents
 				def={componentDraft}
 				readOnly={componentReadOnly}
 				onChanged={() => onDirty?.()}
 				onRename={onRenameEvent}
 				onRemove={onRemoveEvent}
+				onAdd={onAddEvent}
 			/>
 		{/if}
 	</section>
