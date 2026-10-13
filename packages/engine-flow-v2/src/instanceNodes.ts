@@ -217,6 +217,23 @@ export const docComponentInstanceNodes = (doc: FlowDoc): FlowInstanceNode[] => [
 	),
 ];
 
+/** Does any section's graph, group bodies included, carry a node naming a placed instance — a
+ *  `componentInstance` or a `waitForState`? The launcher resolves the placed, pinned interfaces
+ *  only then (a flow naming none judges none, and makes no read for them). */
+export const docNamesInstance = (doc: FlowDoc): boolean => {
+	const scan = (nodes: Node[]): boolean =>
+		nodes.some(
+			(node) =>
+				node.kind === 'componentInstance' ||
+				node.kind === 'waitForState' ||
+				(node.kind === 'group' && !!node.body && scan(node.body.nodes)),
+		);
+	return (
+		scan(doc.graph.nodes) ||
+		Object.values(doc.modes ?? {}).some((scope) => !!scope?.graph && scan(scope.graph.nodes))
+	);
+};
+
 /**
  * Every localization key a doc feeds a `text` input as a LITERAL, for Invisible Localization's
  * harvest (plan §8: a Flow wire into a text input is harvested like a `textMessage`, so no text
