@@ -270,7 +270,7 @@ class FlowInterpreter {
 	 * Fire a placed instance's raised EVENT (§6.3): the `event:<event>` exec-out on the
 	 * `componentInstance` node that names `instanceId`. Walks from the edge's target — the instance
 	 * node is not re-run (re-running it would re-apply its inputs). The payload seeds `$trigger`, so
-	 * the pin's `event:<event>.<field>` data-outs resolve. No wired edge ⇒ parity-safe no-op.
+	 * the pin's `event:<event>:<field>` data-outs resolve. No wired edge ⇒ parity-safe no-op.
 	 */
 	async runInstanceEvent(
 		instanceId: string,
@@ -689,7 +689,7 @@ class FlowInterpreter {
 			}
 			case 'componentInstance': {
 				// A `value:<id>` data-out reads the live instance through the env (`undefined` when the
-				// instance is not on screen, or in a recorder env). An `event:<event>.<field>` data-out is
+				// instance is not on screen, or in a recorder env). An `event:<event>:<field>` data-out is
 				// the raised event's payload field: only one instance-event chain runs at a time, so
 				// `scope.trigger` IS that event's payload.
 				const value = instanceValueOf(from.pin);
@@ -1034,11 +1034,31 @@ const graphOwnsContainerEvent = (graph: Graph, componentId: string, event: strin
 };
 
 /**
+ * Does `pin` of `node` carry the `event:<event>` exec-out of the `componentInstance` naming
+ * `instanceId` — directly, or through a group's `out_<i>` boundary pin whose `inner` leads there,
+ * however many groups deep (a node inside B inside A reaches the outer graph through A's pin, whose
+ * `inner` is B's pin, whose `inner` is the node's)?
+ */
+const carriesInstanceEvent = (
+	node: Node | undefined,
+	pin: string,
+	instanceId: string,
+	eventPin: string,
+): boolean => {
+	if (node?.kind === 'componentInstance') return node.instance === instanceId && pin === eventPin;
+	if (node?.kind !== 'group' || !node.body) return false;
+	const b = (node.boundary ?? []).find((p) => p.id === pin && p.dir === 'out' && p.kind === 'exec');
+	if (!b) return false;
+	const inner = node.body.nodes.find((n) => n.id === b.inner.node);
+	return carriesInstanceEvent(inner, b.inner.pin, instanceId, eventPin);
+};
+
+/**
  * The exec edge out of the `event:<event>` pin of the `componentInstance` node naming `instanceId`.
  * An interpreter's graph is flattened, so the edge is on it directly. The OWNERSHIP read runs on the
  * stored doc, where a group keeps its body: a wire inside the body is found there, and a wire that
- * CROSSES the group's boundary is stored on the outer graph from the group's `out_<i>` pin, whose
- * `boundary[].inner` names the real source — so that pin is followed too. Never flattens (which
+ * CROSSES one or more group boundaries is stored on the graph outside them from the outermost
+ * group's `out_<i>` pin, which `carriesInstanceEvent` follows back in. Never flattens (which
  * rewires and throws on a malformed group; this runs at click time). A second node naming the same
  * instance and wiring the same event is a validation error (`instance-event-duplicate`); the first
  * wire wins here.
@@ -1049,28 +1069,15 @@ const instanceEventEdge = (
 	event: string,
 ): { to: PinPath } | undefined => {
 	const pin = instanceEventPin(event);
-	const owners = new Set(
-		graph.nodes
-			.filter((n) => n.kind === 'componentInstance' && n.instance === instanceId)
-			.map((n) => n.id),
+	const nodeById = new Map(graph.nodes.map((n) => [n.id, n] as const));
+	const edge = graph.exec.find((e) =>
+		carriesInstanceEvent(nodeById.get(e.from.node), e.from.pin, instanceId, pin),
 	);
-	const edge = graph.exec.find((e) => e.from.pin === pin && owners.has(e.from.node));
 	if (edge) return edge;
 	for (const node of graph.nodes) {
 		if (node.kind !== 'group' || !node.body) continue;
 		const inner = instanceEventEdge(node.body, instanceId, event);
 		if (inner) return inner;
-		const bodyOwners = new Set(
-			node.body.nodes
-				.filter((n) => n.kind === 'componentInstance' && n.instance === instanceId)
-				.map((n) => n.id),
-		);
-		for (const b of node.boundary ?? []) {
-			if (b.dir !== 'out' || b.kind !== 'exec' || b.inner.pin !== pin) continue;
-			if (!bodyOwners.has(b.inner.node)) continue;
-			const crossing = graph.exec.find((e) => e.from.node === node.id && e.from.pin === b.id);
-			if (crossing) return crossing;
-		}
 	}
 	return undefined;
 };

@@ -79,6 +79,10 @@
  *                            the wait would never resolve).
  *  - `instance-text-key`   — a literal fed to a `text` input that is not a localization key (no
  *                            letter) — plan §8: a text input carries a key, never free text.
+ *  - `instance-text-wire`  — a `text` input fed by a wire from a pin that is not a harvested key
+ *                            source (an instance event's payload field is; a compute string or a
+ *                            game-signal value is not), so the text would bypass localization
+ *                            (a WARNING: the wire runs, untranslated).
  *  - `instance-event-duplicate` — two nodes naming the same instance both wire the same event pin:
  *                            the runtime runs the first wire only, so the second is dead (an ERROR).
  *                            Every instance check runs only when the caller projects the instances
@@ -162,6 +166,7 @@ export type FlowIssueCode =
 	| 'instance-pin-missing'
 	| 'instance-state-unknown'
 	| 'instance-text-key'
+	| 'instance-text-wire'
 	| 'instance-event-duplicate';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
@@ -759,7 +764,7 @@ const validateGraph = (
 	// def (and exact pinned version) resolved; a stored source must feed a pin the interface still has;
 	// a wait must name a layer and a state the machine has; a text literal must be a key. Judged only
 	// when the caller projected the instances in — an absent map is an unknown layout.
-	issues.push(...instanceIssues(nodes, pinsById, ctx));
+	issues.push(...instanceIssues(nodes, pinsById, data, ctx));
 	issues.push(...instanceEventDuplicateIssues(nodes, exec, ctx));
 
 	// --- (b + c) edge endpoints + fan-in + fan-out + entry-has-no-exec-in ---
@@ -912,7 +917,7 @@ const validateGraph = (
 			if (dot === -1) continue;
 			event = owner = edge.from.pin.slice(0, dot);
 		} else if (fromNode?.kind === 'componentInstance') {
-			// An instance event's payload data-out (`event:<event>.<field>`) reads the same way: only on
+			// An instance event's payload data-out (`event:<event>:<field>`) reads the same way: only on
 			// the chain its `event:<event>` pin starts.
 			const field = instanceEventFieldOf(edge.from.pin);
 			if (!field) continue;
@@ -1062,10 +1067,17 @@ const resolvedInstance = (
 const instanceIssues = (
 	nodes: Node[],
 	pinsById: Map<string, Pin[]>,
+	data: FlowDoc['graph']['data'],
 	ctx: PinContext,
 ): FlowIssue[] => {
 	const issues: FlowIssue[] = [];
 	if (!ctx.instances) return issues; // unknown layout ⇒ never guess.
+	const nodeById = new Map(nodes.map((n) => [n.id, n] as const));
+	// A wire into a text input carries a key only when its source is one the harvest already lists:
+	// an instance event's payload field (`{ key }`, harvested with the def).
+	const keySource = (from: PinPath): boolean =>
+		nodeById.get(from.node)?.kind === 'componentInstance' &&
+		instanceEventFieldOf(from.pin) !== undefined;
 	for (const node of nodes) {
 		if (node.kind !== 'componentInstance' && node.kind !== 'waitForState') continue;
 		const label = node.kind === 'componentInstance' ? 'component node' : 'wait-for-state node';
@@ -1126,14 +1138,25 @@ const instanceIssues = (
 		}
 		for (const input of decl.interface.inputs) {
 			if (input.kind !== 'text') continue;
-			const src = node.inputs?.[instanceInputPin(input.id)];
-			if (src?.kind !== 'literal' || isLocalizationKey(src.value)) continue;
-			issues.push({
-				code: 'instance-text-key',
-				severity: 'error',
-				message: `component node '${node.id}' feeds text input '${input.id}' of '${decl.name}' with ${JSON.stringify(src.value)}, which is not a localization key — a text input carries a key (at least one letter), never free text or a bare number`,
-				at: { on: 'pin', node: node.id, pin: instanceInputPin(input.id) },
-			});
+			const pin = instanceInputPin(input.id);
+			const src = node.inputs?.[pin];
+			if (src?.kind === 'literal' && !isLocalizationKey(src.value)) {
+				issues.push({
+					code: 'instance-text-key',
+					severity: 'error',
+					message: `component node '${node.id}' feeds text input '${input.id}' of '${decl.name}' with ${JSON.stringify(src.value)}, which is not a localization key — a text input carries a key (at least one letter), never free text or a bare number`,
+					at: { on: 'pin', node: node.id, pin },
+				});
+			}
+			for (const edge of data) {
+				if (edge.to.node !== node.id || edge.to.pin !== pin || keySource(edge.from)) continue;
+				issues.push({
+					code: 'instance-text-wire',
+					severity: 'warning',
+					message: `component node '${node.id}' feeds text input '${input.id}' of '${decl.name}' from ${edge.from.node}.${edge.from.pin}, which is not a localization key source — the text shows untranslated. Feed it a key literal, or an event payload field (harvested with its component)`,
+					at: { on: 'dataEdge', from: edge.from, to: edge.to },
+				});
+			}
 		}
 	}
 	return issues;

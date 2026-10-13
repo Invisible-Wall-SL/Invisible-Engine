@@ -14,7 +14,7 @@
  *  - `in:<input>`             data-in per bool / number / text input (optional).
  *  - `exec`                   exec-out: the continuation of every exec-in.
  *  - `event:<event>`          exec-out per declared event — its own entry root.
- *  - `event:<event>.<field>`  data-out per payload field of that event.
+ *  - `event:<event>:<field>`  data-out per payload field of that event.
  *  - `value:<layer>.state`    data-out per state-machine layer.
  *
  * The event form is deliberately not `containerEventDeclId`'s `<id>.on<Event>`: an event `confirm`
@@ -41,8 +41,11 @@ const VALUE = 'value:';
 export const instanceTriggerPin = (trigger: string): string => `${FIRE}${trigger}`;
 export const instanceInputPin = (input: string): string => `${IN}${input}`;
 export const instanceEventPin = (event: string): string => `${EVENT}${event}`;
+/** A payload data-out: the field is split off with `:`, which no event id carries (an event id
+ *  may carry a `.`, and `event:a.b` must never be read as both event `a.b` and field `b` of `a`). A
+ *  field name carrying `:` is refused by the def's validation and minted no pin. */
 export const instanceEventFieldPin = (event: string, field: string): string =>
-	`${EVENT}${event}.${field}`;
+	`${EVENT}${event}:${field}`;
 export const instanceValuePin = (valueId: string): string => `${VALUE}${valueId}`;
 
 const after = (pin: string, prefix: string): string | undefined =>
@@ -52,18 +55,25 @@ const after = (pin: string, prefix: string): string | undefined =>
 export const instanceTriggerOf = (pin: string): string | undefined => after(pin, FIRE);
 /** The input a data-in `in:<input>` sets; `undefined` for any other pin. */
 export const instanceInputOf = (pin: string): string | undefined => after(pin, IN);
-/** The event an exec-out `event:<event>` is; `undefined` for any other pin. */
-export const instanceEventOf = (pin: string): string | undefined => after(pin, EVENT);
+/** The event an exec-out `event:<event>` is; `undefined` for any other pin, a payload data-out
+ *  (`event:<event>:<field>`) included. */
+export const instanceEventOf = (pin: string): string | undefined => {
+	const tail = after(pin, EVENT);
+	return tail !== undefined && !tail.includes(':') ? tail : undefined;
+};
 /** The value a data-out `value:<id>` reads; `undefined` for any other pin. */
 export const instanceValueOf = (pin: string): string | undefined => after(pin, VALUE);
-/** The event and field of a data-out `event:<event>.<field>` (a field name carries no `.`, so the
- *  split is at the LAST one); `undefined` for any other pin. */
+/** The event and field of a data-out `event:<event>:<field>` (split at the first `:` after the
+ *  prefix, as an event id never carries one); `undefined` for any other pin. */
 export const instanceEventFieldOf = (pin: string): { event: string; field: string } | undefined => {
 	const tail = after(pin, EVENT);
-	const dot = tail?.lastIndexOf('.') ?? -1;
-	if (tail === undefined || dot <= 0 || dot === tail.length - 1) return undefined;
-	return { event: tail.slice(0, dot), field: tail.slice(dot + 1) };
+	const colon = tail?.indexOf(':') ?? -1;
+	if (tail === undefined || colon <= 0 || colon === tail.length - 1) return undefined;
+	return { event: tail.slice(0, colon), field: tail.slice(colon + 1) };
 };
+
+/** May this id be an event's, or a payload field's, in a pin? The `:` is the pin's own separator. */
+export const isInstancePinSafeId = (id: string): boolean => id.length > 0 && !id.includes(':');
 
 /** The data type a bool / number / text input's pin carries; a trigger has no data pin. */
 export const instanceInputType = (kind: InstanceInputKind): TypeRef | undefined => {
@@ -136,6 +146,7 @@ export const deriveInstancePins = (decl: FlowInstanceDecl | undefined): Pin[] =>
 	}
 	pins.push(EXEC_OUT);
 	for (const event of events) {
+		if (!isInstancePinSafeId(event.id)) continue;
 		pins.push({
 			id: instanceEventPin(event.id),
 			dir: 'out',
@@ -144,6 +155,7 @@ export const deriveInstancePins = (decl: FlowInstanceDecl | undefined): Pin[] =>
 			doc: event.note ?? `Fires when the component raises "${event.id}".`,
 		});
 		for (const field of event.payload ?? []) {
+			if (!isInstancePinSafeId(field.name)) continue;
 			pins.push({
 				id: instanceEventFieldPin(event.id, field.name),
 				dir: 'out',

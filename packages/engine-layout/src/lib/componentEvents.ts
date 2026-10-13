@@ -330,6 +330,7 @@ export type ComponentEventIssueCode =
 	| 'event-input-collision'
 	| 'event-payload-duplicate'
 	| 'event-payload-type'
+	| 'event-pin-id'
 	| 'listener-duplicate'
 	| 'listener-input-unknown'
 	| 'listener-input-kind'
@@ -412,6 +413,14 @@ export function validateComponentEvents(
 			continue;
 		}
 		events.set(event.id, event);
+		if (event.id.includes(':')) {
+			issues.push({
+				code: 'event-pin-id',
+				level: 'error',
+				event: event.id,
+				message: `Event "${event.id}": an event id cannot carry ":" (Flow's pin separator); the event gets no pin.`,
+			});
+		}
 		if (kinds.has(event.id)) {
 			issues.push({
 				code: 'event-input-collision',
@@ -432,6 +441,14 @@ export function validateComponentEvents(
 				});
 			}
 			fields.add(field.name);
+			if (field.name.includes(':')) {
+				issues.push({
+					code: 'event-pin-id',
+					level: 'error',
+					event: event.id,
+					message: `Event "${event.id}": payload field "${field.name}" cannot carry ":" (Flow's pin separator); the field gets no pin.`,
+				});
+			}
 			if (!PAYLOAD_TYPES.has(field.type?.t)) {
 				issues.push({
 					code: 'event-payload-type',

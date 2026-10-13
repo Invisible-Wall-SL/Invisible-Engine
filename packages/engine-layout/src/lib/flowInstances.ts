@@ -9,9 +9,10 @@
  * Addressing: Flow stores a screen (container) AND the placed node id; the registry is keyed by
  * the node id alone, because the Scene Editor mints ids that are unique across a layout
  * (`c_<random>`) and `registerFlowPress` already addresses an instance that way. The handle carries
- * its `sceneId` for the env's trace. Only a TOP-LEVEL placement registers (one placed on a screen,
- * not an instance nested inside another component's def, which Flow cannot name); should two
- * mounted placements ever share an id, the last mounted one is the live handle.
+ * its `sceneId` so the env can check the address (a Flow node names the screen too). Only a
+ * TOP-LEVEL placement registers (one placed on a screen, not an instance nested inside another
+ * component's def, which Flow cannot name); should two mounted placements ever share an id, the
+ * last mounted one is the live handle, and unmounting it hands the older one back.
  *
  * Not mounted (the screen is hidden, or not shown yet): `getFlowInstance` is `undefined`. What a
  * Flow node does then is the game env's rule (`apps/lines` `flowV2Runtime`): an input set while the
@@ -36,9 +37,10 @@ export interface FlowInstanceHandle {
 	/** Fire a trigger input on this instance — as the signal of that name on its own bus, scoped
 	 *  exactly as a heard signal is. An unknown id, or a non-trigger, does nothing. */
 	fire(trigger: string): void;
-	/** Set a bool / number input on its state machine, or a text input's key. A value of the wrong
-	 *  kind, or an unknown id, does nothing. */
-	setInput(input: string, value: unknown): void;
+	/** Set a bool / number input on its state machine, or a text input's key, read as the input's
+	 *  kind (`coerceInstanceInput`). False — nothing set — for a value not of that kind or an
+	 *  unknown id. */
+	setInput(input: string, value: unknown): boolean;
 	/** The current value of a bool / number / text input. */
 	input(input: string): unknown;
 	/** The values the component reports (`<layer>.state`), `{}` without a state machine. */
@@ -50,7 +52,8 @@ export interface FlowInstanceHandle {
 	onChange(listener: () => void): () => void;
 }
 
-const live = new Map<string, FlowInstanceHandle>();
+/** Mounted handles per id, oldest first; the last is live. */
+const live = new Map<string, FlowInstanceHandle[]>();
 const stashed = new Map<string, Map<string, unknown>>();
 const watchers = new Map<string, Set<(handle: FlowInstanceHandle | undefined) => void>>();
 
@@ -60,12 +63,15 @@ const notify = (instanceId: string, handle: FlowInstanceHandle | undefined): voi
 
 /**
  * Register a mounted placement's handle. Inputs stashed while it was away are applied first, so a
- * watcher already sees them. Returns the unregister, which removes only THIS handle (a later
- * registration under the same id is left in place).
+ * watcher already sees them. Returns the unregister, which removes only THIS handle: a later
+ * registration under the same id stays live, and when the live one leaves, an older one still
+ * mounted is live again (watchers hear it).
  */
 export function registerFlowInstance(handle: FlowInstanceHandle): () => void {
 	const id = handle.instanceId;
-	live.set(id, handle);
+	let stack = live.get(id);
+	if (!stack) live.set(id, (stack = []));
+	stack.push(handle);
 	const pending = stashed.get(id);
 	if (pending) {
 		stashed.delete(id);
@@ -73,21 +79,25 @@ export function registerFlowInstance(handle: FlowInstanceHandle): () => void {
 	}
 	notify(id, handle);
 	return () => {
-		if (live.get(id) !== handle) return;
-		live.delete(id);
-		notify(id, undefined);
+		const mounted = live.get(id);
+		const at = mounted?.indexOf(handle) ?? -1;
+		if (!mounted || at === -1) return;
+		const wasLive = at === mounted.length - 1;
+		mounted.splice(at, 1);
+		if (mounted.length === 0) live.delete(id);
+		if (wasLive) notify(id, mounted.at(-1));
 	};
 }
 
 /** The live handle for a placed node id, or `undefined` while it is not mounted. */
 export function getFlowInstance(instanceId: string): FlowInstanceHandle | undefined {
-	return live.get(instanceId);
+	return live.get(instanceId)?.at(-1);
 }
 
 /** Keep an input value for an instance that is not mounted; applied when it next registers
  *  (last write wins). A mounted instance takes the value at once. */
 export function stashFlowInstanceInput(instanceId: string, input: string, value: unknown): void {
-	const handle = live.get(instanceId);
+	const handle = getFlowInstance(instanceId);
 	if (handle) {
 		handle.setInput(input, value);
 		return;

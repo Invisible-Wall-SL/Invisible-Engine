@@ -20,7 +20,7 @@
  *  - compute       — no exec; one data-out `out` whose type follows the op + operands.
  *  - componentInstance — `deriveInstancePins` over `PinContext.instances` (§6.3): exec-ins `set` +
  *                    `fire:<trigger>`, data-ins `in:<input>`, exec-out `exec`, exec-outs
- *                    `event:<event>` (+ `event:<event>.<field>` data-outs), data-outs `value:<id>`.
+ *                    `event:<event>` (+ `event:<event>:<field>` data-outs), data-outs `value:<id>`.
  *  - waitForState  — in `exec`, out `exec`; the layer and state live on the node.
  */
 

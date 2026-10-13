@@ -414,49 +414,66 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   pinned version, its `InstanceInterface`, or `missing: 'def' | 'version'`). Pin ids: exec-in `set`
   (apply the fed inputs, continue), exec-in `fire:<trigger>` (apply, fire, continue), optional
   data-in `in:<input>` (bool → `bool`, number → `float`, text → `string`), exec-out `exec`, exec-out
-  `event:<event>` with data-outs `event:<event>.<field>`, data-out `value:<layer>.state` (string).
-  The event form is deliberately not `containerEventDeclId`'s `<id>.on<Event>`. No projection, a
-  missing def or a decl on another screen ⇒ the base `[set, exec]` only, never guessed.
+  `event:<event>` with data-outs `event:<event>:<field>`, data-out `value:<layer>.state` (string).
+  The field is split off with `:`, which no event id or field name may carry (the def's validation
+  refuses one, `event-pin-id`, and it gets no pin): an event id may carry a `.`, so `event:a.b`
+  must never read as both event `a.b` and field `b` of `a`. The event form is deliberately not
+  `containerEventDeclId`'s `<id>.on<Event>`. A number input the ENGINE feeds (`source`) gets no
+  pin: the source would overwrite a Flow set on its next emit. No projection, a missing def or a
+  decl on another screen ⇒ the base `[set, exec]` only, never guessed.
 - **The projection** is the launcher's (`flowV2Projection.ts` `projectFlowInstances`): every
   container's scene tree, each `componentInstance` node with a non-blank `label`, its def resolved
   at the EXACT pinned version (`instanceDefResolver`; a built-in resolves any pin, as
   `loadComponent` does); `withPlacedComponentVersions` loads the pinned snapshots the way the bundle
-  does (`collectComponentPins`). The `/flow-v2` loader, the publish gate (`validateFlowV2Against`)
-  and the localization harvest share it. `engine-layout` turns a def into the Flow shape
+  does (`collectComponentPins`) — only for a doc with an instance node, so a flow without one
+  makes no new read. The `/flow-v2` loader, the publish gate (`validateFlowV2Against`) and the
+  localization harvest share it. `engine-layout` turns a def into the Flow shape
   (`flowInstanceInterface`).
 - **Validation** (errors, so Publish refuses): `instance-missing` (not placed with a name on that
   screen; def or pinned version lost), `instance-pin-missing` (a wire or stored source to an input,
   event or value the pinned interface lacks; a wait on a missing layer), `instance-state-unknown`,
   `instance-text-key` (a literal fed to a `text` input that is not a key),
   `instance-event-duplicate` (two nodes naming one instance wire the same event — the runtime walks
-  the first wire only). An event pin is its own entry root (`eventOwners`), so a payload data-out
-  wired off its chain is `signal-cross-event`. Every check runs only when the caller projects the
-  instances (never guess).
+  the first wire only); a warning, `instance-text-wire`, when a `text` input is wired from a pin
+  that is not a harvested key source (an instance event's payload field is; a compute string or a
+  game-signal value is not), so no text bypasses localization silently. An event pin is its own
+  entry root (`eventOwners`), so a payload data-out wired off its chain is `signal-cross-event`;
+  `collapseToFunction` refuses a component node whose event pin is wired, as it refuses an entry
+  point. Every check runs only when the caller projects the instances (never guess).
 - **Runtime** (`runtime.ts`, env hooks `fireInstanceTrigger` / `setInstanceInput` /
   `readInstanceValue` / `awaitInstanceState`, all optional — a recorder env sets and fires nothing,
   reads `undefined`, never waits): on any exec-in every FED data-in is applied first, a `fire:` inlet
   then fires the trigger; `runFlowInstanceEvent` walks from the `event:<event>` pin's wired target
   with the payload on `$trigger` (the active mode's graph first); `flowOwnsInstanceEvent` is the pure
-  ownership read, on the stored doc — a wire inside a collapsed group, or one crossing its boundary
-  (stored from the group's `out_<i>` pin), both count. The preview records each op as an `instance`
+  ownership read, on the stored doc — a wire inside a collapsed group, or one crossing one or more
+  group boundaries (stored from the outermost group's `out_<i>` pin, followed back in through each
+  `boundary[].inner`), all count. The preview records each op as an `instance`
   entry.
 - **The road:** `resolveFlowV2Press(id, event, payload, 'event')` (`apps/lines`
   `flowV2InterpreterHolder.ts`) resolves against `ownsInstanceEvent` ONLY — never the press pins —
   and the game plays no press sound for it.
 - **The live instance** (`engine-layout` `flowInstances.ts`): `<ComponentInstance>` registers a
   handle under its node id while mounted — a TOP-LEVEL placement only (one nested inside another
-  def is not Flow's to name) — with `fire` (through the same `fireTrigger` a listener uses), `setInput`
-  (bool / number on the runner, text kept on the instance), `values`, `stateOf`, `onChange` (the
-  machine started or changed state) and the screen id (`sceneIdContext`). The game env
-  (`flowV2Runtime.svelte.ts`) defines the outcomes when it is NOT registered: its screen shown per
-  the mount model ⇒ it is mounting, a fire or a wait defers to the registration (250 ms grace — a
-  placement that never registers, say a def the game lacks, costs the chain that much once);
+  def is not Flow's to name); two mounted under one id stack, the last live — built Svelte-free by
+  `flowInstanceHandle.ts`: `fire` (through the same `fireTrigger` a listener uses), `setInput`
+  (the value read as the input's kind the way the runner reads one — a bool from a boolean or 0/1,
+  a number from a number or a numeric string, a text key from a string; bool / number on the
+  runner, text kept on the handle; anything else is dropped and the env traces the drop), `values`,
+  `stateOf`, `onChange` (the machine started or changed state, the instance shown or hidden) and
+  the screen id (`sceneIdContext`), which the env checks against the node's container: a handle on
+  another screen is not the addressed placement. The game env's rule for one that is NOT
+  registered lives in `apps/lines` `flowInstanceWaits.ts` (Svelte-free, every case gated): its
+  screen shown per the mount model ⇒ it is mounting, a fire or a wait defers to the registration
+  (250 ms grace, paid on EACH fire or wait against a placement that never registers, say a def the
+  game lacks);
   not shown ⇒ a trigger is DROPPED (the state machine's own rule), a value reads `undefined`, a
   wait resolves at once, and an input set is STASHED and applied on the next mount (so "set the
   amount, then show the screen" works). A mounted but HIDDEN instance (its own gate or its screen's,
   `handle.shown()`) is "not on screen" to a wait too: it resolves at once, and a running wait is
   released when the instance hides. A wait is also released by the state, by the instance leaving
-  the screen, or by a slam. Every case is traced (`?flowlog=1`).
+  the screen, or by a slam — and a round already slammed holds nothing (checked before the mount
+  grace, so a slam several book events before the hold costs no wait). Every case is traced
+  (`?flowlog=1`).
 - **`text` inputs** (§8): `COMPONENT_INPUT_KINDS` gains `text`; a default is a localization key;
   `isLocalizationKey` has a twin in each package (engine-layout must not pull the `engine-flow-v2`
   barrel into every game's runtime graph for one regex; the gate holds the two together). The state

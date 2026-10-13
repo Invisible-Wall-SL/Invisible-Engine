@@ -23,6 +23,7 @@
  *    and re-attach the EXTERNAL side of each crossing to the call's matching pin.
  */
 
+import { instanceEventOf } from './instanceNodes';
 import { derivePins, type PinContext } from './pins';
 import type {
 	DataEdge,
@@ -84,6 +85,14 @@ export const collapseToFunction = (params: CollapseParams, ctx: PinContext): Col
 		}
 		if (node.kind === 'functionEntry' || node.kind === 'functionResult') {
 			return { error: `cannot collapse a function boundary node '${id}'` };
+		}
+		if (
+			node.kind === 'componentInstance' &&
+			graph.exec.some((e) => e.from.node === id && instanceEventOf(e.from.pin) !== undefined)
+		) {
+			return {
+				error: `cannot collapse the component node '${id}': its wired event pins are entry points`,
+			};
 		}
 	}
 

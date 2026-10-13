@@ -13,9 +13,13 @@
  *     a `text` row an older build kept unreadable (#1185) now reads; a state-machine condition on
  *     text is flagged and the runner never takes it;
  *  4. the LOCALIZATION HARVEST lists every literal key the flow feeds a text input (`origin: 'flow'`);
- *  5. the live REGISTRY (`flowInstances.ts`): register / get / stash-then-apply / watch / unregister;
+ *  5. the live REGISTRY (`flowInstances.ts`): register / get / stash-then-apply / watch / unregister,
+ *     a stack per id; the HANDLE (`flowInstanceHandle.ts`): a Flow set read as the input's kind, a
+ *     fire only on a trigger; a sourced number input gets no pin;
  *  6. the EVENT ROAD: the game's resolver routes a raised event to the instance's event pins only,
- *     with its payload, and never consults the press ownership for it;
+ *     with its payload, and never consults the press ownership for it; and the game env's WAITS
+ *     (`flowInstanceWaits.ts`): slammed before the hold, slammed during it, not on screen, mounting
+ *     late, never mounting, placed on another screen;
  *  7. the SHIP CHAIN (rule 8): the placed pin is what the bundle walks, the runtime registry resolves
  *     that version, and its interface equals the projection's — plus the state timelines resolve;
  *  8. the Svelte and game wiring this gate cannot mount, source-scanned.
@@ -31,6 +35,9 @@ const I = await import('../../../packages/engine-layout/src/lib/componentInterfa
 const M = await import('../../../packages/engine-layout/src/lib/stateMachine.ts');
 const L = await import('../../../packages/engine-layout/src/lib/componentTimelines.ts');
 const G = await import('../../../packages/engine-layout/src/lib/flowInstances.ts');
+const HD = await import('../../../packages/engine-layout/src/lib/flowInstanceHandle.ts');
+const { createSkipToken } = await import('../../../packages/utils-shared/skipToken.ts');
+const { createInstanceWaits } = await import('../../lines/src/game/flowInstanceWaits.ts');
 const F = await import('../../../packages/engine-layout/src/lib/registerFlowPress.ts');
 const E = await import('../../../packages/engine-layout/src/lib/componentEvents.ts');
 const N = await import('../../../packages/engine-flow-v2/src/instanceNodes.ts');
@@ -416,7 +423,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		instanceId: id,
 		componentId: 'banner',
 		fire: (t: string) => log.push(`${id} fire ${t}`),
-		setInput: (i: string, v: unknown) => log.push(`${id} set ${i}=${JSON.stringify(v)}`),
+		setInput: (i: string, v: unknown) => log.push(`${id} set ${i}=${JSON.stringify(v)}`) > 0,
 		input: () => undefined,
 		values: () => ({ 'main.state': 'idle' }),
 		stateOf: (layer: string) => (layer === 'main' ? 'idle' : undefined),
@@ -456,6 +463,115 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 	G.registerFlowInstance(handle('c_banner'));
 	eq('5. an unsubscribed watcher hears nothing', seen.length, 3);
 	G.clearFlowInstances();
+	const older = handle('c_banner');
+	const newer = handle('c_banner');
+	const heard: (string | undefined)[] = [];
+	G.watchFlowInstance('c_banner', (h) => heard.push(h === older ? 'older' : h?.instanceId));
+	G.registerFlowInstance(older);
+	const unregisterNewer = G.registerFlowInstance(newer);
+	unregisterNewer();
+	eq(
+		'5. unmounting the newer of two handles hands the older one back (a stack per id)',
+		[G.getFlowInstance('c_banner') === older, heard],
+		[true, ['older', 'c_banner', 'older']],
+	);
+	G.clearFlowInstances();
+
+	// The handle a mounted instance registers: a Flow value read as the input's kind.
+	const fired: string[] = [];
+	const set: [string, unknown][] = [];
+	const { handle: h, notify } = HD.createFlowInstanceHandle({
+		instanceId: 'c_banner',
+		componentId: 'banner',
+		version: 2,
+		inputs: [
+			{ id: 'win', kind: 'trigger' },
+			{ id: 'lit', kind: 'bool' },
+			{ id: 'amount', kind: 'number' },
+			{ id: 'title', kind: 'text', default: 'win.title' },
+		],
+		shown: () => true,
+		fireTrigger: (id) => void fired.push(id),
+		runner: () => ({
+			setInput: (id, value) => set.push([id, value]) > 0,
+			input: (id) => (id === 'lit' ? false : 0),
+			values: () => ({ 'main.state': 'idle' }),
+			stateOf: (layer) => (layer === 'main' ? 'idle' : undefined),
+		}),
+	});
+	eq(
+		'5. a set is read as the input’s kind: a bool from a boolean or 0/1, a number from a number or a numeric string, a text key from a string',
+		[
+			h.setInput('lit', true),
+			h.setInput('lit', 1),
+			h.setInput('lit', 0),
+			h.setInput('amount', 12.5),
+			h.setInput('amount', '42'),
+			h.setInput('title', 'win.big'),
+			set,
+			h.input('title'),
+		],
+		[
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			[
+				['lit', true],
+				['lit', true],
+				['lit', false],
+				['amount', 12.5],
+				['amount', 42],
+			],
+			'win.big',
+		],
+	);
+	eq(
+		'5. a value not of the kind, or an unknown id, is dropped and says so',
+		[
+			h.setInput('lit', 'true'),
+			h.setInput('lit', 2),
+			h.setInput('amount', 'abc'),
+			h.setInput('amount', ''),
+			h.setInput('amount', '1e3'),
+			h.setInput('amount', '0x10'),
+			h.setInput('title', 7),
+			h.setInput('win', true),
+			h.setInput('nope', 1),
+			set.length,
+		],
+		[false, false, false, false, false, false, false, false, false, 5],
+	);
+	eq(
+		'5. a fire takes a trigger only; the handle reads the runner; notify runs every listener',
+		(() => {
+			h.fire('win');
+			h.fire('lit');
+			h.fire('nope');
+			const calls: number[] = [];
+			const off = h.onChange(() => calls.push(1));
+			notify();
+			off();
+			notify();
+			return [fired, h.values(), h.stateOf('main'), h.stateOf('x'), h.input('lit'), calls];
+		})(),
+		[['win'], { 'main.state': 'idle' }, 'idle', undefined, false, [1]],
+	);
+	eq(
+		'5. a number input the engine feeds (`source`) gets no Flow pin',
+		I.flowInstanceInterface({
+			id: 'meter',
+			name: 'Meter',
+			root: { id: 'r', type: 'group', name: 'r', children: [] },
+			inputs: [
+				{ id: 'balance', kind: 'number', source: 'balance' },
+				{ id: 'amount', kind: 'number' },
+			],
+		} as unknown as ComponentDef).inputs.map((i) => i.id),
+		['amount'],
+	);
 }
 
 // ---- 6. the event road -------------------------------------------------------------------------
@@ -504,6 +620,198 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		H.resolveFlowV2Press('c_banner', 'done', undefined, 'event'),
 		undefined,
 	);
+}
+
+// ---- 6b. the game env's waits ------------------------------------------------------------------
+{
+	const tick = (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
+	const waits = (shown: boolean, trace: string[], sceneOf?: string) => {
+		const skip = createSkipToken();
+		const w = createInstanceWaits({
+			isShown: () => shown,
+			sceneIdOf: () => sceneOf,
+			getFlowInstance: G.getFlowInstance,
+			watchFlowInstance: G.watchFlowInstance,
+			skip,
+			trace: (op, ...rest) => void trace.push([op, ...rest].join(' ')),
+			graceMs: 20,
+		});
+		return { ...w, skip };
+	};
+	const liveHandle = (state: { main: string; shown: boolean }) => {
+		const listeners = new Set<() => void>();
+		return {
+			handle: {
+				instanceId: 'c_banner',
+				componentId: 'banner',
+				sceneId: 'basegame',
+				fire: () => undefined,
+				setInput: () => true,
+				input: () => undefined,
+				values: () => ({ 'main.state': state.main }),
+				stateOf: (layer: string) => (layer === 'main' ? state.main : undefined),
+				shown: () => state.shown,
+				onChange: (l: () => void) => {
+					listeners.add(l);
+					return () => listeners.delete(l);
+				},
+			},
+			change: () => {
+				for (const l of [...listeners]) l();
+			},
+		};
+	};
+	const ref = { container: 'basegame', instance: 'c_banner' };
+	G.clearFlowInstances();
+	{
+		// Slammed BEFORE the wait starts (a slam several book events before the hold): resolves at
+		// once, and never subscribes — `onSkip` fires synchronously on a tripped token.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const { handle } = liveHandle(state);
+		const unregister = G.registerFlowInstance(handle);
+		const w = waits(true, trace);
+		w.skip.skip();
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await p;
+		eq(
+			'6b. slammed before the hold ⇒ resolves at once, traced',
+			[settled, trace],
+			[true, ['instance wait c_banner main.state == win · skipped (round slammed)']],
+		);
+		unregister();
+	}
+	{
+		// A slam DURING the hold releases it.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const { handle } = liveHandle(state);
+		const unregister = G.registerFlowInstance(handle);
+		const w = waits(true, trace);
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await tick();
+		const held = !settled;
+		w.skip.skip();
+		await p;
+		eq(
+			'6b. a slam during the hold releases it',
+			[held, settled, trace.at(-1)],
+			[true, true, 'instance RELEASE c_banner main.state == win ▶ slammed'],
+		);
+		unregister();
+	}
+	{
+		// Released by the state; a hidden instance releases too; a wait already satisfied holds nothing.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const { handle, change } = liveHandle(state);
+		const unregister = G.registerFlowInstance(handle);
+		const w = waits(true, trace);
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await tick();
+		state.main = 'win';
+		change();
+		await p;
+		const reached = trace.at(-1);
+		await w.awaitInstanceState(ref, 'main', 'win');
+		state.main = 'idle';
+		state.shown = false;
+		await w.awaitInstanceState(ref, 'main', 'win');
+		eq(
+			'6b. released by the state; satisfied and hidden waits hold nothing',
+			[settled, reached, trace.at(-1)],
+			[
+				true,
+				'instance RELEASE c_banner main.state == win ▶ reached',
+				'instance wait c_banner main.state == win · skipped (hidden)',
+			],
+		);
+		unregister();
+	}
+	{
+		// Not registered and the screen not shown: skipped at once; a fire resolves to no handle.
+		const trace: string[] = [];
+		const w = waits(false, trace);
+		await w.awaitInstanceState(ref, 'main', 'win');
+		eq(
+			'6b. not on screen ⇒ skipped at once, no handle for a fire',
+			[trace, await w.instanceWhenMounted(ref)],
+			[['instance wait c_banner main.state == win · skipped (not on screen)'], undefined],
+		);
+	}
+	{
+		// The screen is shown and the instance registers within the grace: the wait proceeds on it.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const { handle, change } = liveHandle(state);
+		const w = waits(true, trace);
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await tick(5);
+		const unregister = G.registerFlowInstance(handle);
+		await tick();
+		const held = !settled && trace.at(-1) === 'instance HOLD c_banner main.state == win ⏸';
+		state.main = 'win';
+		change();
+		await p;
+		eq(
+			'6b. mounting late within the grace ⇒ the wait holds on the handle',
+			[held, settled],
+			[true, true],
+		);
+		unregister();
+	}
+	{
+		// Never registers: the grace runs out and the wait is skipped.
+		const trace: string[] = [];
+		const w = waits(true, trace);
+		const t0 = Date.now();
+		await w.awaitInstanceState(ref, 'main', 'win');
+		eq(
+			'6b. never mounting ⇒ skipped after the grace',
+			[Date.now() - t0 >= 15, trace],
+			[true, ['instance wait c_banner main.state == win · skipped (not on screen)']],
+		);
+	}
+	{
+		// The instance leaves the screen mid-hold.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const { handle } = liveHandle(state);
+		const unregister = G.registerFlowInstance(handle);
+		const w = waits(true, trace);
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await tick();
+		unregister();
+		await p;
+		eq(
+			'6b. the instance leaving the screen releases the hold',
+			[settled, trace.at(-1)],
+			[true, 'instance RELEASE c_banner main.state == win ▶ instance left the screen'],
+		);
+	}
+	{
+		// A handle placed on ANOTHER screen is not the addressed placement.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const { handle } = liveHandle(state);
+		const unregister = G.registerFlowInstance(handle);
+		const w = waits(true, trace, 'hud');
+		eq(
+			'6b. a handle on another screen is not the node’s instance',
+			[await w.instanceWhenMounted(ref), trace[0]],
+			[
+				undefined,
+				"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
+			],
+		);
+		unregister();
+	}
+	G.clearFlowInstances();
 }
 
 // ---- 7. the ship chain -------------------------------------------------------------------------
@@ -564,16 +872,21 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 {
 	const instanceSvelte = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
 	eq(
-		'8. ComponentInstance registers a top-level placement, unregisters on destroy, and notifies on start and on fired transitions',
+		'8. ComponentInstance registers a top-level placement through the handle module, unregisters on destroy, and notifies on start, on fired transitions and on the visibility edge',
 		[
-			instanceSvelte.includes('if (allowed && def && parentNest.depth === 0) {'),
-			instanceSvelte.includes('const unregister = registerFlowInstance({'),
-			instanceSvelte.includes('onDestroy(unregister);'),
+			instanceSvelte.includes('allowed && def && parentNest.depth === 0'),
+			instanceSvelte.includes('? createFlowInstanceHandle({'),
+			instanceSvelte.includes(
+				'if (flowInstance) onDestroy(registerFlowInstance(flowInstance.handle));',
+			),
 			instanceSvelte.includes('sceneId: getSceneIdContext(),'),
+			instanceSvelte.includes('fireTrigger,\n\t\t\t\t\trunner: () => stateMachineRunner,'),
 			(instanceSvelte.match(/notifyFlowInstance\(\);/g) ?? []).length,
 			instanceSvelte.includes('if (step.fired.length) notifyFlowInstance();'),
+			instanceSvelte.includes('if (selfVisible !== wasVisible) untrack(notifyFlowInstance);'),
+			instanceSvelte.includes('svelte/reactivity'),
 		],
-		[true, true, true, true, 2, true],
+		[true, true, true, true, true, 2, true, true, false],
 	);
 	eq(
 		'8. LayoutScene provides its id',
@@ -584,18 +897,20 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 	);
 	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
 	eq(
-		'8. the game env wires the four hooks and the event ownership',
+		'8. the game env wires the four hooks, the waits module on the round’s slam token, and the event ownership',
 		[
 			'fireInstanceTrigger: async (ref, trigger) => {',
 			'setInstanceInput: (ref, input, value) => {',
 			'readInstanceValue: (ref, value) => getFlowInstance(ref.instance)?.values()[value],',
 			'awaitInstanceState,',
 			'ownsInstanceEvent: (instanceId, event) =>',
-			"const unskip = roundSkip.onSkip(() => finish('▶ slammed'));",
+			'const { instanceWhenMounted, awaitInstanceState } = createInstanceWaits({',
+			'skip: roundSkip,',
+			'sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,',
 			'stashFlowInstanceInput(ref.instance, input, value);',
-			'if (!handle.shown()) {',
+			"else trace('instance', line, '· dropped (no such input, or not its kind)');",
 		].map((line) => runtime.includes(line)),
-		[true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true],
 	);
 	eq(
 		'8. a raised event plays no press sound',

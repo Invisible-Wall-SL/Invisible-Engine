@@ -17,6 +17,7 @@ import {
 	containersMissingScene,
 	respinTabIssues,
 	spinsTabIssues,
+	docComponentInstanceNodes,
 	validateFlowDoc,
 	type FlowAddOns,
 	type FlowDoc,
@@ -100,7 +101,14 @@ export async function withPlacedComponentVersions(
 	projectKey: string,
 	scenes: readonly Scene[],
 	components: readonly ComponentDef[],
+	doc?: FlowDoc,
 ): Promise<ComponentDef[]> {
+	// A flow with no instance node judges no interface: no extra read, no new way to fail (the
+	// no-instance path stays byte-for-byte the pre-7a one). The editor's loader passes its doc too,
+	// and re-reads the projection through `/api/flow-v2/instances` (no doc ⇒ every pin resolved)
+	// once the first instance node is placed, so a placement pinned below latest gets its exact
+	// interface before its first wire.
+	if (doc && docComponentInstanceNodes(doc).length === 0) return [...components];
 	const pins = collectComponentPins(scenes.flatMap((s) => s.nodes ?? [])).filter(
 		(pin) => !components.some((def) => def.id === pin.id && def.version === pin.version),
 	);
@@ -130,7 +138,7 @@ export async function validateFlowV2ForProject(
 		layout.scenes ?? [],
 		sounds,
 		library ?? { version: 2, functions: [] },
-		await withPlacedComponentVersions(projectKey, layout.scenes ?? [], components),
+		await withPlacedComponentVersions(projectKey, layout.scenes ?? [], components, doc),
 		flowAddOnsOf(stored),
 	);
 }
