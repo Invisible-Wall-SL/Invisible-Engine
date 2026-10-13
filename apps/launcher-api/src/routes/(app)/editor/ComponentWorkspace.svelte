@@ -1249,6 +1249,20 @@
 	 */
 	async function promoteToShared(): Promise<void> {
 		if (!componentDraft || busy || !data.canPublishShared || isInspecting || writesBlocked) return;
+		// A stored project def whose ETag is still being read (`loadEtag`) would promote without
+		// `promotedFrom`, dropping the fields a newer launcher wrote into it.
+		const draftId = componentDraft.id;
+		if (
+			componentDraft.scope === 'project' &&
+			saveState.etag === null &&
+			components.some((c) => c.id === draftId && c.scope === 'project')
+		) {
+			saveStatus = {
+				kind: 'error',
+				message: 'Still reading this component’s saved version. Try Promote again in a moment.',
+			};
+			return;
+		}
 		const ok = await askConfirm({
 			title: `Promote "${componentDraft.name}" to the SHARED library?`,
 			message:
@@ -1263,7 +1277,13 @@
 		try {
 			// A shared write carries no `project` and a `scope:'shared'` def, so the API
 			// routes it to `_shared/editor-components/` behind the `componentPublish` gate.
-			const body = { ...$state.snapshot(componentDraft), scope: 'shared' };
+			// The project def this copies, at the ETag the draft was loaded from: the shared copy keeps
+			// the fields that def holds and this build does not know (it never received them).
+			const source =
+				componentDraft.scope === 'project' && saveState.etag !== null
+					? { promotedFrom: data.projectKey, sourceEtag: saveState.etag }
+					: {};
+			const body = { ...$state.snapshot(componentDraft), ...source, scope: 'shared' };
 			// Resolve the SHARED key's current etag (this project draft never loaded it) so the
 			// promote CASes against the global key rather than writing unconditionally. `id` with
 			// no `project`/`version` returns `{ def, etag }` for the shared/built-in layer; a 404
@@ -1289,9 +1309,10 @@
 				// This is the GLOBAL `_shared/` key — no project lease could ever cover it, so
 				// this refusal is the only thing standing between two authors. Offer the same
 				// stack-on-top choice the normal save does, rather than dead-ending.
-				const b = (await res.json().catch(() => ({}))) as { message?: string };
+				const b = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
 				const msg = b.message ?? 'Someone else changed this shared component.';
 				saveStatus = { kind: 'error', message: msg };
+				if (b.error === 'source-conflict') return;
 				const stack = await askConfirm({
 					title: 'Promote yours as a NEW version on top of theirs?',
 					message: msg,

@@ -3,6 +3,20 @@ import { etagDiffers } from './docBackups';
 import { getObjectTextWithEtag } from './r2';
 import { isPlainObject, setKey } from './stripUnknownKeys';
 
+/** The fields of `value` that `isKnown` rejects, as a fresh object (empty when there are none, or
+ *  when `value` is not a plain object). */
+export function unknownFields(
+	isKnown: (key: string) => boolean,
+	value: unknown,
+): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	if (!isPlainObject(value)) return out;
+	for (const [key, field] of Object.entries(value)) {
+		if (!isKnown(key)) setKey(out, key, field);
+	}
+	return out;
+}
+
 /**
  * The top-level blocks of `doc` that `schema` does not declare, as a fresh object (empty when
  * there are none, or when `doc` is not a plain object).
@@ -14,12 +28,40 @@ export function unknownTopLevelBlocks(
 	schema: z.AnyZodObject,
 	doc: unknown,
 ): Record<string, unknown> {
-	const out: Record<string, unknown> = {};
-	if (!isPlainObject(doc)) return out;
-	for (const [key, value] of Object.entries(doc)) {
-		if (!Object.hasOwn(schema.shape, key)) setKey(out, key, value);
+	return unknownFields((key) => Object.hasOwn(schema.shape, key), doc);
+}
+
+/**
+ * `next` with the fields of `stored` that `isKnown` rejects and `next` lacks — the graft for one
+ * ENTITY the author kept (the caller matches it to its stored copy by id). A field `next` already
+ * has is left as posted. Each grafted field goes back after the stored field before it that `next`
+ * has (first when there is none), so an entity whose stored bytes held it saves in its stored key
+ * order. Returns `next` itself when nothing is grafted, so a known-only entity saves
+ * byte-identically.
+ */
+export function withUnknownFields<T extends object>(
+	isKnown: (key: string) => boolean,
+	stored: unknown,
+	next: T,
+): T {
+	if (!isPlainObject(stored)) return next;
+	const own = next as Record<string, unknown>;
+	const keys = Object.keys(own);
+	let grafted = false;
+	let anchor = -1;
+	for (const key of Object.keys(stored)) {
+		const at = keys.indexOf(key);
+		if (at !== -1) {
+			anchor = at;
+		} else if (!isKnown(key)) {
+			keys.splice(++anchor, 0, key);
+			grafted = true;
+		}
 	}
-	return out;
+	if (!grafted) return next;
+	const out: Record<string, unknown> = {};
+	for (const key of keys) setKey(out, key, Object.hasOwn(own, key) ? own[key] : stored[key]);
+	return out as unknown as T;
 }
 
 /**

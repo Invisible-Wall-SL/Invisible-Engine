@@ -6,6 +6,10 @@ import {
 	r2Slug,
 } from './projectPaths';
 import { ConflictError, getObjectText, getObjectTextWithEtag, listAllKeys } from './r2';
+import { loadedStoredDoc, unknownFields } from './unknownBlocks';
+
+/** The sidecar envelope's fields this build knows; any other top-level field is a newer build's. */
+const isEnvelopeField = (key: string): boolean => key === 'id' || key === 'params';
 
 /**
  * Per-project component-DEFAULTS store (§13.3) — a thin sidecar to `ComponentDef`,
@@ -71,6 +75,11 @@ export async function loadComponentDefaultsWithEtag(
  *
  * The version it replaces is preserved first (`docBackups.putDocWithBackup`, restorable via
  * `/api/editor/component-defaults/backups`); `backup: 'always'` is for a restore.
+ *
+ * Top-level fields a NEWER launcher wrote beside `params` are kept: copied from the stored sidecar
+ * under an `If-Match` save (`docs/conventions/doc-readers.md`, "Round-tripping"), or, for a
+ * restore, from the backup (`unknownFrom`). `params` itself is an open map and is written as
+ * posted.
  */
 export async function saveComponentDefaults(
 	projectKey: string,
@@ -78,6 +87,7 @@ export async function saveComponentDefaults(
 	params: Record<string, unknown>,
 	baseEtag?: string | null,
 	backup: BackupMode = 'auto',
+	{ unknownFrom }: { unknownFrom?: unknown } = {},
 ): Promise<{ etag: string | null }> {
 	if (!isRecord(params)) {
 		throw new Error('Component defaults `params` must be a plain object.');
@@ -85,9 +95,14 @@ export async function saveComponentDefaults(
 	// Stamp the REAL component id beside the params. The filename is `r2Slug(componentId)`, which
 	// is lossy (`hudReadout` → `hudreadout.json`), so without this the listing can only key by the
 	// slug and every lookup by `ComponentDef.id` misses.
+	const kept = unknownFields(
+		isEnvelopeField,
+		unknownFrom ??
+			(await loadedStoredDoc(projectComponentDefaultsKey(projectKey, componentId), baseEtag)),
+	);
 	const etag = await putDocWithBackup(
 		componentDefaultsBackupTarget(projectKey, componentId),
-		JSON.stringify({ id: componentId, params }, null, 2),
+		JSON.stringify({ id: componentId, params, ...kept }, null, 2),
 		baseEtag,
 		backup,
 	);

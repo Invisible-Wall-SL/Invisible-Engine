@@ -7,12 +7,15 @@
  * wrote, its reader drops the block it does not know, and the author's next `If-Match` save
  * deleted that block from R2. Symbols could recover it from a backup; win text had no backup.
  * Win text also keeps a field a newer launcher wrote one level down, inside a family (`toast`,
- * `jackpots`, …).
+ * `jackpots`, …). Components keep their unknown top-level fields and, matched by id, the unknown
+ * fields of every node, param, signal and slot the author kept, across the save, the project
+ * defaults sidecar, promote-to-shared and a defaults restore.
  *
- * Runs the REAL `saveSymbolsDoc` / `saveWinTextDoc` / `storedUnknownBlocks`. Only `r2.ts` is
- * replaced, by an in-memory bucket that honours `If-Match` / `If-None-Match` and records every
- * GET, so "no read was made" is observable. A newer launcher is played by seeding R2 with a doc
- * carrying blocks this build's schemas do not declare.
+ * Runs the REAL `saveSymbolsDoc` / `saveWinTextDoc` / `saveComponent` / `saveComponentDefaults` /
+ * `storedUnknownBlocks`. `r2.ts` is replaced by an in-memory bucket that honours `If-Match` /
+ * `If-None-Match` and records every GET, so "no read was made" is observable (`rig.ts` and
+ * `projects.ts` are stubbed, unreached by these fixtures). A newer launcher is played by seeding
+ * R2 with a doc carrying blocks this build's schemas do not declare.
  */
 import { createHash } from 'node:crypto';
 import { mock } from 'node:test';
@@ -68,6 +71,7 @@ mock.module(server('r2.ts'), {
 			return etag;
 		},
 		getObjectText: async (key: string) => bucket.get(key)?.text ?? null,
+		deleteObject: async (key: string) => void bucket.delete(key),
 		getObjectTextWithEtag: async (key: string) => {
 			gets.push(key);
 			const o = bucket.get(key);
@@ -86,7 +90,23 @@ mock.module(server('r2.ts'), {
 		listAllKeys: async (prefix: string) =>
 			[...bucket.keys()].filter((key) => key.startsWith(prefix)),
 		listObjects: async () => ({ keys: [], prefixes: [] }),
+		// Copies of `r2.ts`'s pure precondition readers (the route's `writeGuard` imports them).
+		jsonBaseEtag: (v: unknown) => (v === null ? null : typeof v === 'string' ? v : undefined),
+		formBaseEtag: (v: unknown) => (typeof v !== 'string' ? undefined : v === '' ? null : v),
 		objectExists: async (key: string) => bucket.has(key),
+	},
+});
+
+// `componentStorage` reaches these only for a cross-project rig ref, which no fixture here has.
+mock.module(server('rig.ts'), { namedExports: { loadSharedSkeletonIndex: async () => [] } });
+mock.module(server('projects.ts'), { namedExports: { projectClientKey: async () => null } });
+// The routes' gates: an admin with no overrides, and a project key taken as given.
+mock.module(server('roleToolAccess.ts'), { namedExports: { getRoleOverrides: async () => ({}) } });
+mock.module(server('userToolAccess.ts'), { namedExports: { getToolOverrides: async () => ({}) } });
+mock.module(server('toolScope.ts'), {
+	namedExports: {
+		requireOptionalProjectKey: async (_user: unknown, project: string | null | undefined) =>
+			project?.trim() ? project : undefined,
 	},
 });
 
@@ -97,6 +117,35 @@ const { normalizeWinTextDoc, saveWinTextDoc, winTextDocSchema } =
 	await import('../src/lib/server/winTextStorage.ts');
 const { storedUnknownBlocks, unknownTopLevelBlocks } =
 	await import('../src/lib/server/unknownBlocks.ts');
+const {
+	editorComponentKey,
+	editorComponentVersionKey,
+	projectComponentDefaultsKey,
+	projectComponentKey,
+	projectComponentVersionKey,
+} = await import('../src/lib/server/projectPaths.ts');
+const { normalizeComponent, saveComponent } = await import('../src/lib/server/componentStorage.ts');
+const { saveComponentDefaults } = await import('../src/lib/server/componentDefaultsStorage.ts');
+const { BUILTIN_COMPONENTS } = await import('engine-layout');
+const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
+const defaultsBackupsRoute =
+	await import('../src/routes/api/editor/component-defaults/backups/+server.ts');
+const { listBackups } = await import('../src/lib/server/docBackups.ts');
+const { componentDefaultsBackupTarget } = await import('../src/lib/server/projectPaths.ts');
+
+type RouteEvent = Parameters<typeof componentRoute.POST>[0];
+/** POST `body` through a real route handler as an admin. */
+const post = async (
+	handler: (event: RouteEvent) => Response | Promise<Response>,
+	body: unknown,
+	query = '',
+): Promise<{ status: number; body: Record<string, unknown> }> => {
+	const url = new URL(`http://launcher.test/api${query}`);
+	const request = new Request(url, { method: 'POST', body: JSON.stringify(body) });
+	const event = { request, url, locals: { user: { id: 'u', role: 'admin' } } };
+	const res = await handler(event as unknown as RouteEvent);
+	return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+};
 
 let checks = 0;
 let failures = 0;
@@ -528,6 +577,930 @@ const NESTED = { futureField: { mode: 'swirl' }, futureFlag: true };
 		...WIN_TEXT.toast,
 		futureFlag: true,
 	});
+}
+
+// ── Components: top-level fields, and the fields of every entity the author kept (by id) ─────
+
+type Def = import('engine-layout').ComponentDef;
+const COMPONENT = {
+	id: 'c_spin',
+	name: 'Spin button',
+	version: 3,
+	scope: 'project',
+	category: 'ui',
+	root: {
+		id: 'root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{ id: 'n_a', kind: 'sprite', x: 10, y: 0, rotation: 0.5 },
+			{
+				id: 'n_box',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				children: [{ id: 'n_b', kind: 'text', x: 0, y: 0, text: 'SPIN' }],
+			},
+		],
+	},
+	params: [{ key: 'label', kind: 'string', default: 'SPIN' }],
+	signals: [{ key: 'onSpin' }],
+	slots: [{ slotId: 's_icon', name: 'Icon', kind: 'sprite' }],
+	standsFor: 'SpinButton',
+} as const;
+const componentKey = projectComponentKey('p', COMPONENT.id);
+const sharedComponentKey = editorComponentKey(COMPONENT.id);
+const LISTENER = { on: [{ event: 'tap', fire: 'spin' }] };
+/** What a newer launcher wrote: a top-level block, and a field in a node, the root and each row. */
+const newerComponent = (): Record<string, unknown> => {
+	const doc = JSON.parse(JSON.stringify(COMPONENT)) as StoredDef;
+	doc.events = [{ id: 'e_tap', name: 'tap' }];
+	Object.assign(doc.root, LISTENER);
+	Object.assign(doc.root.children[0], LISTENER);
+	Object.assign(doc.root.children[1].children[0], LISTENER);
+	Object.assign(doc.params[0], { tooltip: 'Button text' });
+	Object.assign(doc.signals[0], { payload: 'none' });
+	Object.assign(doc.slots[0], { aspect: 'square' });
+	return doc;
+};
+/** The older launcher's view: the read drops what it does not know, except on child nodes (pass-through). */
+const olderView = (): Def => normalizeComponent(stored(componentKey) as unknown as Def);
+/** A tab that also lost a field on a child node (a client-side rebuild). */
+const withoutChildListener = (def: Def): Def => {
+	const out = structuredClone(def) as StoredDef;
+	delete out.root.children[0].on;
+	return out as Def;
+};
+/** Each case starts from no stored defs and no version snapshots (snapshots are immutable). */
+const resetComponents = (): void => {
+	for (const key of [...bucket.keys()]) {
+		if (key.startsWith('editor/p/components/') || key.startsWith('_shared/editor-components/')) {
+			bucket.delete(key);
+		}
+	}
+};
+/** A stored def as the cases poke at it: loose, since half of what it holds this build does not know. */
+interface StoredNode {
+	id: string;
+	children: StoredNode[];
+	[key: string]: unknown;
+}
+interface StoredDef {
+	root: StoredNode;
+	params: Record<string, unknown>[];
+	signals: Record<string, unknown>[];
+	slots: Record<string, unknown>[];
+	events?: { id: string }[];
+	[key: string]: unknown;
+}
+const nodeById = (root: unknown, id: string): StoredNode | undefined => {
+	const walk = (n: StoredNode): StoredNode | undefined =>
+		n.id === id ? n : (n.children ?? []).map(walk).find(Boolean);
+	return walk(root as StoredNode);
+};
+
+{
+	resetComponents();
+	const etag = seed(componentKey, newerComponent());
+	const loaded = olderView();
+	check(
+		'components: the read drops the unknown top-level, root and row fields',
+		['events' in loaded, 'on' in loaded.root, 'tooltip' in loaded.params![0]],
+		[false, false, false],
+	);
+	check(
+		'components: …and passes a child node’s through',
+		'on' in (nodeById(loaded.root, 'n_b') ?? {}),
+		true,
+	);
+	const result = await saveComponent(withoutChildListener(loaded), 'p', etag);
+	const after = stored(componentKey) as StoredDef;
+	check('components: a no-op save from the older view keeps the version', result.version, 3);
+	check('components: …and keeps the unknown top-level block', after.events, [
+		{ id: 'e_tap', name: 'tap' },
+	]);
+	check('components: …the root’s unknown field', after.root.on, LISTENER.on);
+	check(
+		'components: …a surviving node’s unknown field the tab lost',
+		nodeById(after.root, 'n_a')?.on,
+		LISTENER.on,
+	);
+	check('components: …a nested node’s', nodeById(after.root, 'n_b')?.on, LISTENER.on);
+	check(
+		'components: …and each row’s, matched by id',
+		[after.params[0].tooltip, after.signals[0].payload, after.slots[0].aspect],
+		['Button text', 'none', 'square'],
+	);
+	check(
+		'components: the version snapshot is the merged doc',
+		bucket.get(projectComponentVersionKey('p', COMPONENT.id, 3))?.text,
+		bucket.get(componentKey)?.text,
+	);
+	check(
+		'components: the returned ETag is the stored one',
+		result.etag,
+		bucket.get(componentKey)?.etag,
+	);
+}
+
+{
+	resetComponents();
+	// The author deleted a node, a param and a slot, and cleared known fields.
+	const etag = seed(componentKey, newerComponent());
+	const edited = structuredClone(olderView()) as StoredDef;
+	edited.root.children = edited.root.children.filter((n: StoredNode) => n.id !== 'n_box');
+	delete edited.root.children[0].rotation;
+	edited.params = [{ key: 'title', kind: 'string' }];
+	delete edited.slots;
+	delete edited.standsFor;
+	const result = await saveComponent(edited as Def, 'p', etag);
+	const after = stored(componentKey) as StoredDef;
+	check('components: an edit bumps the version', result.version, 4);
+	check('components: a deleted node is not resurrected', nodeById(after.root, 'n_b'), undefined);
+	check('components: …nor its parent', nodeById(after.root, 'n_box'), undefined);
+	check(
+		'components: a known node field the author cleared is not resurrected',
+		'rotation' in (nodeById(after.root, 'n_a') ?? {}),
+		false,
+	);
+	check('components: a deleted row is not resurrected, nor grafted onto a new row', after.params, [
+		{ key: 'title', kind: 'string' },
+	]);
+	check(
+		'components: a cleared known block / field is not resurrected',
+		['slots' in after, 'standsFor' in after],
+		[false, false],
+	);
+	check('components: the top-level block still is kept', after.events?.length, 1);
+	check(
+		'components: the snapshot of the bumped version is the merged doc',
+		bucket.get(projectComponentVersionKey('p', COMPONENT.id, 4))?.text,
+		bucket.get(componentKey)?.text,
+	);
+}
+
+{
+	// A row the READ dropped (a param of a kind this build does not know) is not the author's change:
+	// a no-op save keeps the version, with or without unknown fields on that row. So does a stored
+	// duplicate id (first wins, on both sides of the compare).
+	for (const extra of [{}, { tooltip: 'x' }]) {
+		resetComponents();
+		const doc = newerComponent() as StoredDef;
+		doc.params.push({ key: 'clip', kind: 'video', ...extra });
+		doc.signals.push({ key: 'onSpin', payload: 'other' });
+		const etag = seed(componentKey, doc);
+		const result = await saveComponent(olderView(), 'p', etag);
+		check(
+			`components: a no-op save over a dropped row${'tooltip' in extra ? ' with extras' : ''} keeps the version`,
+			result.version,
+			3,
+		);
+	}
+}
+
+{
+	// The graft matches by id, so an editor must NEVER reuse a stored id for a different entity: a
+	// node created under a deleted node's id takes that node's unknown fields.
+	resetComponents();
+	const etag = seed(componentKey, newerComponent());
+	const edited = structuredClone(olderView()) as StoredDef;
+	edited.root.children[0] = { id: 'n_a', kind: 'text', x: 0, y: 0, text: 'new', children: [] };
+	await saveComponent(edited as unknown as Def, 'p', etag);
+	check(
+		'components: an id reused for a new entity inherits the stored fields (editors must not)',
+		nodeById(stored(componentKey).root, 'n_a')?.on,
+		LISTENER.on,
+	);
+}
+
+{
+	resetComponents();
+	// A node that MOVED keeps its fields: entities match by id anywhere under the root.
+	const etag = seed(componentKey, newerComponent());
+	const edited = structuredClone(olderView()) as StoredDef;
+	const moved = edited.root.children[1].children.pop();
+	delete moved.on;
+	edited.root.children.push(moved);
+	await saveComponent(edited as Def, 'p', etag);
+	check(
+		'components: a node moved to another parent keeps its unknown field',
+		nodeById(stored(componentKey).root, 'n_b')?.on,
+		LISTENER.on,
+	);
+}
+
+{
+	resetComponents();
+	// A NEWER tab posting values this build does not know: the stored copy wins where the normalizer
+	// drops the posted value; a child node passes through, so its posted value stands.
+	const etag = seed(componentKey, newerComponent());
+	const posted = newerComponent() as StoredDef;
+	posted.events = [{ id: 'e_new', name: 'hold' }];
+	posted.params[0].tooltip = 'Theirs';
+	posted.root.children[0].on = [{ event: 'hover', fire: 'glow' }];
+	await saveComponent(posted as unknown as Def, 'p', etag);
+	const after = stored(componentKey) as StoredDef;
+	check(
+		'components: a posted unknown top-level / row field loses to the stored copy',
+		[after.events?.[0]?.id, after.params[0].tooltip],
+		['e_tap', 'Button text'],
+	);
+	check('components: a posted child node field stands', nodeById(after.root, 'n_a')?.on, [
+		{ event: 'hover', fire: 'glow' },
+	]);
+}
+
+{
+	resetComponents();
+	// Force ("Save on top" from a stale tab) CASes on the same read, so it grafts too. Create: nothing.
+	seed(componentKey, newerComponent());
+	await saveComponent(withoutChildListener(olderView()), 'p', undefined);
+	const after = stored(componentKey) as StoredDef;
+	check(
+		'components: a forced save from a tab lacking the fields keeps them',
+		[after.events?.length, after.root.on, nodeById(after.root, 'n_a')?.on],
+		[1, LISTENER.on, LISTENER.on],
+	);
+	resetComponents();
+	await saveComponent(COMPONENT as unknown as Def, 'p', null);
+	check('components: a create writes the normalized def', stored(componentKey), {
+		...normalizeComponent(structuredClone(COMPONENT) as unknown as Def),
+	});
+}
+
+{
+	// Snapshots are immutable: an older launcher's no-op save over a row its read DROPPED (a param of
+	// a newer kind) keeps the version, and the latest copy loses the row, but `<id>.v3.json` keeps it.
+	resetComponents();
+	const doc = newerComponent() as StoredDef;
+	doc.params.push({ key: 'clip', kind: 'video' });
+	const etag = seed(componentKey, doc);
+	const v3 = projectComponentVersionKey('p', COMPONENT.id, 3);
+	const v3Bytes = bucket.get(componentKey)?.text ?? '';
+	bucket.set(v3, { text: v3Bytes, etag: etagOf(v3Bytes) });
+	const result = await saveComponent(olderView(), 'p', etag);
+	check(
+		'components: a no-op save over a dropped row leaves the v3 snapshot unchanged',
+		[
+			result.version,
+			bucket.get(v3)?.text === v3Bytes,
+			(stored(componentKey) as StoredDef).params.length,
+		],
+		[3, true, 1],
+	);
+}
+
+{
+	// A name-keyed row re-added under the same key takes the stored fields only while its kind is the
+	// same: a `label` re-added as an image param is a different param.
+	resetComponents();
+	let etag = seed(componentKey, newerComponent());
+	const asImage = structuredClone(olderView()) as unknown as StoredDef;
+	asImage.params = [{ key: 'label', kind: 'image' }];
+	await saveComponent(asImage as unknown as Def, 'p', etag);
+	check(
+		'components: a row re-added with another kind inherits nothing',
+		(stored(componentKey) as StoredDef).params,
+		[{ key: 'label', kind: 'image' }],
+	);
+	resetComponents();
+	etag = seed(componentKey, newerComponent());
+	const asString = structuredClone(olderView()) as unknown as StoredDef;
+	asString.params = [{ key: 'label', kind: 'string' }];
+	await saveComponent(asString as unknown as Def, 'p', etag);
+	check(
+		'components: …and with the same kind it is the same param, and keeps them',
+		(stored(componentKey) as StoredDef).params[0].tooltip,
+		'Button text',
+	);
+}
+
+{
+	// A grafted field goes back in its stored position, so a no-op save keeps the version and bytes.
+	resetComponents();
+	const doc = newerComponent() as StoredDef;
+	const { id, ...rest } = doc.root.children[0];
+	doc.root.children[0] = { id, ...LISTENER, ...rest, on: LISTENER.on };
+	const bytes = JSON.stringify(doc, null, 2);
+	bucket.set(componentKey, { text: bytes, etag: etagOf(bytes) });
+	const result = await saveComponent(withoutChildListener(olderView()), 'p', etagOf(bytes));
+	check(
+		'components: an unknown field in the middle of a node goes back in place, no bump',
+		[result.version, Object.keys(nodeById(stored(componentKey).root, 'n_a') ?? {})],
+		[3, Object.keys(doc.root.children[0])],
+	);
+}
+
+{
+	// A legacy doc with a duplicated node id: no single twin, so neither copy takes the other's fields.
+	resetComponents();
+	const doc = newerComponent() as StoredDef;
+	doc.root.children.push({ id: 'n_a', kind: 'sprite', x: 0, y: 0, on: 'second', children: [] });
+	const etag = seed(componentKey, doc);
+	const posted = structuredClone(olderView()) as unknown as StoredDef;
+	for (const node of posted.root.children) if (node.id === 'n_a') delete node.on;
+	await saveComponent(posted as unknown as Def, 'p', etag);
+	check(
+		'components: duplicated node ids are not grafted',
+		(stored(componentKey) as StoredDef).root.children
+			.filter((n) => n.id === 'n_a')
+			.map((n) => 'on' in n),
+		[false, false],
+	);
+	// …nor compared: a no-op save over them (the read passes both through) keeps the version.
+	resetComponents();
+	const noOpEtag = seed(componentKey, doc);
+	const noOp = await saveComponent(olderView(), 'p', noOpEtag);
+	check('components: a no-op save over duplicated node ids keeps the version', noOp.version, 3);
+}
+
+{
+	// Another author saves between the save's read and its PUT: the PUT's If-Match refuses it.
+	resetComponents();
+	const etag = seed(componentKey, newerComponent());
+	afterGet = () => void seed(componentKey, { ...COMPONENT, theirs: 1 });
+	check(
+		'components: a save landing after the graft read still conflicts',
+		await outcome(() => saveComponent(olderView(), 'p', etag)),
+		'ConflictError',
+	);
+	check('components: …and the other author’s def stands', stored(componentKey).theirs, 1);
+}
+
+{
+	resetComponents();
+	seed(componentKey, newerComponent());
+	const before = bucket.get(componentKey)?.text;
+	check(
+		'components: a stale If-Match save still conflicts',
+		await outcome(() => saveComponent(olderView(), 'p', '"stale"')),
+		'ConflictError',
+	);
+	check('components: …and writes nothing', bucket.get(componentKey)?.text, before);
+}
+
+{
+	resetComponents();
+	// Byte-identical for known-only defs: the bytes a save wrote before the graft existed.
+	const etag = seed(componentKey, normalizeComponent(structuredClone(COMPONENT) as unknown as Def));
+	const edited = { ...structuredClone(COMPONENT), name: 'Spin' } as unknown as Def;
+	await saveComponent(edited, 'p', etag);
+	check(
+		'components: a known-only def saves byte-identically',
+		bucket.get(componentKey)?.text,
+		JSON.stringify({ ...normalizeComponent(structuredClone(edited)), version: 4 }, null, 2),
+	);
+	// Every built-in, stored as a fork and saved unchanged, round-trips to the same bytes.
+	const drift: string[] = [];
+	for (const builtin of BUILTIN_COMPONENTS) {
+		const def = normalizeComponent(structuredClone({ ...builtin, scope: 'project' }) as Def);
+		const key = projectComponentKey('p', def.id);
+		const bytes = JSON.stringify(def, null, 2);
+		const builtinEtag = seed(key, def);
+		await saveComponent(normalizeComponent(JSON.parse(bytes) as Def), 'p', builtinEtag);
+		if (bucket.get(key)?.text !== bytes) drift.push(def.id);
+	}
+	check('components: every built-in round-trips byte-identically', drift, []);
+}
+
+{
+	resetComponents();
+	// Promote-to-shared keeps the PROMOTED project def's unknown fields, not the replaced shared
+	// copy's, also when the author promotes on top of theirs (`force`).
+	const projectEtag = seed(componentKey, newerComponent());
+	const seedShared = (doc: unknown): string => {
+		for (const key of [...bucket.keys()]) {
+			if (key.startsWith('_shared/editor-components/')) bucket.delete(key);
+		}
+		return seed(sharedComponentKey, doc);
+	};
+	const draft = { ...withoutChildListener(olderView()), scope: 'shared' as const };
+	for (const force of [false, true]) {
+		const sharedEtag = seedShared({
+			...COMPONENT,
+			scope: 'shared',
+			sharedOnly: 1,
+		});
+		await saveComponent(draft, undefined, force ? undefined : sharedEtag, {
+			promotedFrom: { projectKey: 'p', baseEtag: projectEtag },
+		});
+		const after = stored(sharedComponentKey) as StoredDef;
+		check(
+			`components promote${force ? ' (force)' : ''}: keeps the project def’s unknown fields`,
+			[
+				after.events?.length,
+				after.root.on,
+				nodeById(after.root, 'n_a')?.on,
+				after.params[0].tooltip,
+			],
+			[1, LISTENER.on, LISTENER.on, 'Button text'],
+		);
+		check(
+			`components promote${force ? ' (force)' : ''}: drops the shared copy’s`,
+			'sharedOnly' in after,
+			false,
+		);
+	}
+	{
+		// Same known content, different unknown fields: the promote bumps rather than rewriting the
+		// shared copy's immutable snapshot of its current version.
+		const sharedDoc = { ...newerComponent(), scope: 'shared', events: [{ id: 'e_other' }] };
+		const etag = seedShared(sharedDoc);
+		const v3 = editorComponentVersionKey(COMPONENT.id, 3);
+		const v3Bytes = JSON.stringify(sharedDoc, null, 2);
+		bucket.set(v3, { text: v3Bytes, etag: etagOf(v3Bytes) });
+		const result = await saveComponent(draft, undefined, etag, {
+			promotedFrom: { projectKey: 'p', baseEtag: projectEtag },
+		});
+		check('components promote: changing only unknown fields bumps the version', result.version, 4);
+		check('components promote: …and leaves the v3 snapshot alone', bucket.get(v3)?.text, v3Bytes);
+	}
+	const sharedEtag = seedShared({ ...COMPONENT, scope: 'shared' });
+	const sharedBefore = bucket.get(sharedComponentKey)?.text;
+	check(
+		'components promote: a project def saved since the draft loaded refuses the promote',
+		await outcome(() =>
+			saveComponent(draft, undefined, sharedEtag, {
+				promotedFrom: { projectKey: 'p', baseEtag: '"stale"' },
+			}),
+		),
+		'PromoteSourceConflictError',
+	);
+	check('components promote: …writing nothing', bucket.get(sharedComponentKey)?.text, sharedBefore);
+	const plainEtag = seedShared(newerComponent());
+	await saveComponent(
+		{ ...normalizeComponent(stored(sharedComponentKey) as unknown as Def), scope: 'shared' },
+		undefined,
+		plainEtag,
+	);
+	check(
+		'components: a plain shared save keeps the shared copy’s own unknown fields',
+		stored(sharedComponentKey).events,
+		[{ id: 'e_tap', name: 'tap' }],
+	);
+}
+
+// ── Components: inputs and the state machine (Rive plan Phase 5a) ─────────────────────────────
+
+const SM_COMPONENT = {
+	...COMPONENT,
+	inputs: [
+		{ id: 'hover', kind: 'bool', default: false },
+		{ id: 'tap', kind: 'trigger' },
+	],
+	stateMachine: {
+		layers: [
+			{
+				id: 'L',
+				entry: 's_idle',
+				states: [
+					{ id: 's_idle', timeline: 'idle' },
+					{ id: 's_win', timeline: 'win' },
+				],
+				transitions: [
+					{
+						id: 't_a',
+						from: 's_idle',
+						to: 's_win',
+						conditions: [{ input: 'hover', op: '==', value: true }],
+					},
+					{ id: 't_b', from: 's_win', to: 's_idle', conditions: [{ input: 'tap', op: 'fired' }] },
+				],
+			},
+			{ id: 'M', entry: 's_idle', states: [{ id: 's_idle', timeline: 'idle' }], transitions: [] },
+		],
+	},
+};
+const MARK = { mark: 'newer' };
+/** A newer launcher's state machine: a field on the block, each layer / state / transition / input,
+ *  a condition, a text input, and a namesake state in layer M without one. */
+const newerMachine = (): StoredDef => {
+	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	Object.assign(doc.inputs[0], MARK);
+	doc.inputs.splice(1, 0, { id: 'label', kind: 'text', default: 'SPIN', ...MARK });
+	Object.assign(doc.stateMachine, { blend: 'smooth' });
+	const [layer] = doc.stateMachine.layers;
+	Object.assign(layer, MARK);
+	Object.assign(layer.states[1], MARK);
+	Object.assign(layer.transitions[0], MARK);
+	Object.assign(layer.transitions[0].conditions[0], MARK);
+	return doc as unknown as StoredDef;
+};
+/** The 5a blocks as the cases poke at them; `mark` is the newer field. */
+interface SmRow {
+	id: string;
+	mark?: string;
+	conditions?: unknown;
+	[key: string]: unknown;
+}
+interface SmLayerRow extends SmRow {
+	states: SmRow[];
+	transitions: SmRow[];
+}
+interface Machine {
+	layers: SmLayerRow[];
+	blend?: string;
+	[key: string]: unknown;
+}
+interface SmDoc {
+	inputs: SmRow[];
+	stateMachine?: Machine;
+	[key: string]: unknown;
+}
+const machineOf = (doc: unknown): Machine => (doc as { stateMachine: Machine }).stateMachine;
+const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
+
+{
+	resetComponents();
+	const etag = seed(componentKey, newerMachine());
+	const loaded = olderView();
+	check(
+		'components 5a: the read drops the unknown fields and the text input',
+		[
+			inputsOf(loaded).map((i) => i.id),
+			'blend' in machineOf(loaded),
+			'mark' in machineOf(loaded).layers[0],
+		],
+		[['hover', 'tap'], false, false],
+	);
+	const result = await saveComponent(loaded, 'p', etag);
+	const after = stored(componentKey);
+	const machine = machineOf(after);
+	const [L, M] = machine.layers;
+	check('components 5a: a no-op save keeps the version', result.version, 3);
+	check('components 5a: the state machine’s own unknown field is kept', machine.blend, 'smooth');
+	check(
+		'components 5a: …each layer’s, state’s and transition’s, matched by id',
+		[L.mark, L.states[1].mark, L.transitions[0].mark],
+		['newer', 'newer', 'newer'],
+	);
+	check('components 5a: …each input’s', inputsOf(after)[0].mark, 'newer');
+	check('components 5a: a state matches within its layer only', 'mark' in M.states[0], false);
+	check(
+		'components 5a: a condition is its transition’s data, not grafted on its own',
+		L.transitions[0].conditions,
+		[{ input: 'hover', op: '==', value: true }],
+	);
+	check(
+		'components 5a: an input of a kind this build does not know is kept, in place',
+		inputsOf(after).map((i) => i.id),
+		['hover', 'label', 'tap'],
+	);
+	check('components 5a: …unchanged', inputsOf(after)[1], {
+		id: 'label',
+		kind: 'text',
+		default: 'SPIN',
+		...MARK,
+	});
+}
+
+{
+	// The author deleted a state, a transition and an input: none comes back with its fields.
+	resetComponents();
+	const etag = seed(componentKey, newerMachine());
+	const edited = structuredClone(olderView()) as unknown as SmDoc;
+	const layer = edited.stateMachine!.layers[0];
+	layer.states = layer.states.filter((s: SmRow) => s.id !== 's_win');
+	layer.transitions = [];
+	edited.inputs = edited.inputs.filter((i: SmRow) => i.id !== 'hover');
+	const result = await saveComponent(edited as unknown as Def, 'p', etag);
+	const after = stored(componentKey);
+	const L = machineOf(after).layers[0];
+	check('components 5a: an edit bumps the version', result.version, 4);
+	check(
+		'components 5a: deleted states / transitions / inputs are not resurrected',
+		[L.states.map((s) => s.id), L.transitions, inputsOf(after).map((i) => i.id)],
+		[['s_idle'], [], ['label', 'tap']],
+	);
+	check('components 5a: the surviving layer keeps its field', L.mark, 'newer');
+}
+
+{
+	// The author removed the whole state machine: its layers go, its namespace field stays.
+	resetComponents();
+	const etag = seed(componentKey, newerMachine());
+	const edited = structuredClone(olderView()) as unknown as SmDoc;
+	delete edited.stateMachine;
+	await saveComponent(edited as unknown as Def, 'p', etag);
+	check(
+		'components 5a: clearing the state machine keeps only its namespace field',
+		machineOf(stored(componentKey)),
+		{ layers: [], blend: 'smooth' },
+	);
+}
+
+{
+	// Force grafts like an If-Match save: the namespace field and the text input stay.
+	resetComponents();
+	seed(componentKey, newerMachine());
+	await saveComponent(olderView(), 'p', undefined);
+	const after = stored(componentKey);
+	check(
+		'components 5a: a forced save keeps them too',
+		['blend' in machineOf(after), inputsOf(after).map((i) => i.id)],
+		[true, ['hover', 'label', 'tap']],
+	);
+}
+
+{
+	resetComponents();
+	const etag = seed(
+		componentKey,
+		normalizeComponent(structuredClone(SM_COMPONENT) as unknown as Def),
+	);
+	const before = bucket.get(componentKey)?.text;
+	await saveComponent(
+		normalizeComponent(structuredClone(SM_COMPONENT) as unknown as Def),
+		'p',
+		etag,
+	);
+	check(
+		'components 5a: a known-only state machine saves byte-identically',
+		bucket.get(componentKey)?.text,
+		before,
+	);
+}
+
+{
+	// 5b's `pos` / `pseudoPos` are KNOWN here: a cleared `pos` stays cleared. A state field this
+	// build does not know (`thumb`) survives, as `pos` did through a 5a-only build's save.
+	resetComponents();
+	const doc = newerMachine() as unknown as Required<SmDoc>;
+	const [layer] = doc.stateMachine.layers;
+	Object.assign(layer, { pseudoPos: { entry: { x: 1, y: 2 } } });
+	Object.assign(layer.states[0], { pos: { x: 10, y: 20 }, thumb: 'idle.png' });
+	const etag = seed(componentKey, doc);
+	const loaded = structuredClone(olderView()) as unknown as SmDoc;
+	check(
+		'components 5b: pos / pseudoPos are read as known',
+		[!!loaded.stateMachine?.layers[0].states[0].pos, !!loaded.stateMachine?.layers[0].pseudoPos],
+		[true, true],
+	);
+	delete loaded.stateMachine!.layers[0].states[0].pos;
+	await saveComponent(loaded as unknown as Def, 'p', etag);
+	const state = machineOf(stored(componentKey)).layers[0].states[0];
+	check(
+		'components 5b: a cleared pos is not resurrected; an unknown state field is kept',
+		['pos' in state, state.thumb],
+		[false, 'idle.png'],
+	);
+}
+
+{
+	// The text input is the ONLY difference: the save still bumps, never rewriting the v3 snapshot.
+	const onlyText = (label: SmRow | null): StoredDef => {
+		const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+		if (label) doc.inputs.push(label);
+		return doc as unknown as StoredDef;
+	};
+	const pin = (key: string): string => {
+		const bytes = bucket.get(key)?.text ?? '';
+		bucket.set(key.replace(/\.json$/, '.v3.json'), { text: bytes, etag: etagOf(bytes) });
+		return bytes;
+	};
+	resetComponents();
+	seed(componentKey, onlyText({ id: 'label', kind: 'text', default: 'SPIN' }));
+	const v3 = pin(componentKey);
+	const forced = await saveComponent(olderView(), 'p', undefined);
+	check(
+		'components 5a: a forced save keeps a text input, at the same version and v3',
+		[
+			forced.version,
+			bucket.get(projectComponentVersionKey('p', COMPONENT.id, 3))?.text === v3,
+			inputsOf(stored(componentKey)).some((i) => i.id === 'label'),
+		],
+		[3, true, true],
+	);
+	resetComponents();
+	const projectEtag = seed(componentKey, onlyText({ id: 'label', kind: 'text', default: 'B' }));
+	const sharedEtag = seed(sharedComponentKey, {
+		...(onlyText({ id: 'label', kind: 'text', default: 'SPIN' }) as object),
+		scope: 'shared',
+	});
+	const sharedV3 = pin(sharedComponentKey);
+	const promoted = await saveComponent(
+		{ ...olderView(), scope: 'shared' as const },
+		undefined,
+		sharedEtag,
+		{ promotedFrom: { projectKey: 'p', baseEtag: projectEtag } },
+	);
+	check(
+		'components 5a: a promote changing only a text input bumps, leaving v3 alone',
+		[promoted.version, bucket.get(editorComponentVersionKey(COMPONENT.id, 3))?.text === sharedV3],
+		[4, true],
+	);
+}
+
+{
+	// A twin is the row the author SAW: with a duplicated id, the readable row, not an unreadable one.
+	resetComponents();
+	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	doc.inputs = [
+		{ id: 'x', kind: 'text', foo: 1 },
+		{ id: 'x', kind: 'bool', bar: 2 },
+	];
+	const etag = seed(componentKey, doc);
+	await saveComponent(olderView(), 'p', etag);
+	check(
+		'components 5a: a duplicated id grafts from the row the read kept',
+		inputsOf(stored(componentKey)).find((i) => i.kind === 'bool'),
+		{ id: 'x', kind: 'bool', bar: 2 },
+	);
+}
+
+{
+	// The author now uses a dropped text input's id: their entity wins, and inherits nothing.
+	resetComponents();
+	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	doc.inputs.push({ id: 'label', kind: 'text', maxLen: 8 });
+	let etag = seed(componentKey, doc);
+	const asInput = structuredClone(olderView()) as unknown as SmDoc;
+	asInput.inputs.push({ id: 'label', kind: 'bool' });
+	await saveComponent(asInput as unknown as Def, 'p', etag);
+	check(
+		'components 5a: a new input on a dropped row’s id wins and inherits nothing',
+		inputsOf(stored(componentKey)).filter((i) => i.id === 'label'),
+		[{ id: 'label', kind: 'bool' }],
+	);
+	resetComponents();
+	etag = seed(componentKey, doc);
+	const asSignal = structuredClone(olderView()) as unknown as SmDoc & {
+		signals: { key: string }[];
+	};
+	asSignal.signals.push({ key: 'label' });
+	await saveComponent(asSignal as unknown as Def, 'p', etag);
+	check(
+		'components 5a: …and so does a new signal (signals share the input ids)',
+		inputsOf(stored(componentKey)).some((i) => i.id === 'label'),
+		false,
+	);
+	resetComponents();
+	const junk = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	junk.inputs.push({ id: '', kind: 'text' }, { id: 'y', kind: '' });
+	etag = seed(componentKey, junk);
+	await saveComponent(olderView(), 'p', etag);
+	check(
+		'components 5a: a malformed input row is not kept as "a newer kind"',
+		inputsOf(stored(componentKey)).map((i) => i.id),
+		['hover', 'tap'],
+	);
+}
+
+{
+	// Through the real route: `promotedFrom` + `sourceEtag` reach `saveComponent`, and a stale
+	// source answers a 409 the client must not offer "Promote on top" for.
+	resetComponents();
+	const projectEtag = seed(componentKey, newerComponent());
+	const sharedEtag = seed(sharedComponentKey, { ...COMPONENT, scope: 'shared' });
+	const draft = { ...olderView(), scope: 'shared' };
+	const promoted = await post(componentRoute.POST, {
+		...draft,
+		promotedFrom: 'p',
+		sourceEtag: projectEtag,
+		baseEtag: sharedEtag,
+	});
+	check(
+		'component route: a promote carries the project def’s unknown fields',
+		[promoted.status, (stored(sharedComponentKey) as StoredDef).events?.length],
+		[200, 1],
+	);
+	const stale = await post(componentRoute.POST, {
+		...draft,
+		promotedFrom: 'p',
+		sourceEtag: '"stale"',
+		baseEtag: bucket.get(sharedComponentKey)?.etag,
+	});
+	check(
+		'component route: a stale promote source is a source-conflict 409',
+		[stale.status, stale.body.error],
+		[409, 'source-conflict'],
+	);
+}
+
+{
+	// A newer build's top-level and `stateMachine` fields sit mid-object: an older launcher's no-op
+	// save keeps them in place, so the bytes (and the ETag every other tab holds) do not change.
+	resetComponents();
+	const { id, name, ...rest } = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	const machine = rest.stateMachine as Machine;
+	const doc = {
+		id,
+		name,
+		events: [{ id: 'e_tap' }],
+		...rest,
+		stateMachine: { blend: 'smooth', ...machine },
+	};
+	const bytes = JSON.stringify(normalizeComponent(structuredClone(doc) as unknown as Def), null, 2);
+	const stored0 = JSON.parse(bytes) as Record<string, unknown>;
+	const withExtras = JSON.stringify(
+		{
+			id: stored0.id,
+			name: stored0.name,
+			events: doc.events,
+			...Object.fromEntries(Object.entries(stored0).filter(([k]) => k !== 'id' && k !== 'name')),
+			stateMachine: { blend: 'smooth', ...(stored0.stateMachine as object) },
+		},
+		null,
+		2,
+	);
+	bucket.set(componentKey, { text: withExtras, etag: etagOf(withExtras) });
+	const result = await saveComponent(olderView(), 'p', etagOf(withExtras));
+	check(
+		'components: a no-op save keeps mid-object top-level and stateMachine fields byte-identical',
+		[result.version, bucket.get(componentKey)?.text === withExtras],
+		[3, true],
+	);
+}
+
+{
+	// A forced save racing another author's write: its CAS on the same read refuses it.
+	resetComponents();
+	seed(componentKey, newerComponent());
+	afterGet = () => void seed(componentKey, { ...COMPONENT, theirs: 1 });
+	check(
+		'components: a forced save landing after the graft read still conflicts',
+		await outcome(() => saveComponent(olderView(), 'p', undefined)),
+		'ConflictError',
+	);
+	check('components: …and the other author’s def stands', stored(componentKey).theirs, 1);
+}
+
+// ── Component defaults ("This game's defaults"): `{ id, params }` plus a newer build's fields ─
+
+{
+	const defaultsKey = projectComponentDefaultsKey('p', COMPONENT.id);
+	const etag = seed(defaultsKey, { id: COMPONENT.id, params: { label: 'GO' }, inputs: { on: 1 } });
+	await saveComponentDefaults('p', COMPONENT.id, { label: 'SPIN' }, etag);
+	check('component defaults: an If-Match save keeps the unknown field', stored(defaultsKey), {
+		id: COMPONENT.id,
+		params: { label: 'SPIN' },
+		inputs: { on: 1 },
+	});
+	seed(defaultsKey, { id: COMPONENT.id, params: {}, inputs: { on: 1 } });
+	await saveComponentDefaults('p', COMPONENT.id, { label: 'SPIN' }, undefined);
+	check('component defaults: a forced save keeps nothing', 'inputs' in stored(defaultsKey), false);
+	seed(defaultsKey, { id: COMPONENT.id, params: {}, inputs: { on: 1 } });
+	check(
+		'component defaults: a stale If-Match save still conflicts',
+		await outcome(() => saveComponentDefaults('p', COMPONENT.id, {}, '"stale"')),
+		'ConflictError',
+	);
+	const liveEtag = seed(defaultsKey, { id: COMPONENT.id, params: {}, liveOnly: 1 });
+	const backup = { id: COMPONENT.id, params: { label: 'OLD' }, inputs: { on: 2 } };
+	await saveComponentDefaults('p', COMPONENT.id, backup.params, liveEtag, 'always', {
+		unknownFrom: backup,
+	});
+	check(
+		'component defaults restore: keeps the backup’s unknown fields, not the live doc’s',
+		stored(defaultsKey),
+		backup,
+	);
+	// Through the real restore route: the backup's unknown fields come back, not the live sidecar's.
+	const target = componentDefaultsBackupTarget('p', COMPONENT.id);
+	for (const key of [...bucket.keys()]) if (key.startsWith(target.prefix)) bucket.delete(key);
+	const backedUp = seed(defaultsKey, {
+		id: COMPONENT.id,
+		params: { label: 'OLD' },
+		inputs: { on: 3 },
+	});
+	const { etag: liveRouteEtag } = await saveComponentDefaults(
+		'p',
+		COMPONENT.id,
+		{ label: 'NEW' },
+		backedUp,
+		'always',
+		{ unknownFrom: { liveOnly: 1 } },
+	);
+	const [newest] = await listBackups(target);
+	const restored = await post(
+		defaultsBackupsRoute.POST,
+		{ id: newest?.id, baseEtag: liveRouteEtag },
+		`?project=p&component=${COMPONENT.id}`,
+	);
+	check(
+		'component defaults restore route: keeps the backup’s unknown fields',
+		[restored.status, stored(defaultsKey)],
+		[200, { id: COMPONENT.id, params: { label: 'OLD' }, inputs: { on: 3 } }],
+	);
+	// Another author saves between the graft's read and the write: the write's If-Match refuses it.
+	const raceEtag = seed(defaultsKey, { id: COMPONENT.id, params: {}, inputs: { on: 1 } });
+	afterGet = () => void seed(defaultsKey, { id: COMPONENT.id, params: { theirs: 1 } });
+	check(
+		'component defaults: a save landing after the graft read still conflicts',
+		await outcome(() => saveComponentDefaults('p', COMPONENT.id, {}, raceEtag)),
+		'ConflictError',
+	);
+	check('component defaults: …and the other author’s stands', stored(defaultsKey).params, {
+		theirs: 1,
+	});
+	const knownEtag = seed(defaultsKey, { id: COMPONENT.id, params: { label: 'GO' } });
+	await saveComponentDefaults('p', COMPONENT.id, { label: 'SPIN' }, knownEtag);
+	check(
+		'component defaults: a known-only sidecar saves byte-identically',
+		bucket.get(defaultsKey)?.text,
+		JSON.stringify({ id: COMPONENT.id, params: { label: 'SPIN' } }, null, 2),
+	);
 }
 
 console.log();

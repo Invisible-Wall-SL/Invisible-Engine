@@ -428,6 +428,10 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
    `check:doc-readers-unknown-fields` and `check:save-keeps-unknown-blocks` prove that every
    reader tolerates unknown fields and every save keeps what it doesn't understand. So an older
    tool opening a newer doc does not strip the new parts.
+   **Owner decision (2026-10-13): component saves keep the fields they do not know**, like symbols
+   and win text: unknown top-level fields, and inside every entity the author kept (matched by
+   id) its unknown fields, on the save, the project defaults, promote and restore. A deleted
+   entity is never resurrected. Rules: `docs/conventions/doc-readers.md`, "Round-tripping".
 2. **Same storage, same ids.** No R2 path moves. Merging `/components` into `/editor` (Phase 4)
    changes the page, not where or how a component is stored.
 3. **Gates run before each merge:** `check:all`, the launcher `check:*` gates (`art-scope`,

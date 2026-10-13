@@ -42,6 +42,20 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-13 — **Component saves keep the fields they do not know** (owner decision; branch
+  `claude/component-save-keeps-unknown-fields`, #1185). An older launcher no longer erases a newer
+  one's fields from R2. `saveComponent` (also on a forced "Save on top") keeps the stored def's
+  unknown top-level fields and, matched by id, the unknown fields of every node (root included),
+  param, signal, slot and input the author kept (a param / slot / input only while its `kind` is
+  the same), and of each state-machine layer and its states and transitions (`stateMachine` itself
+  is a fixed namespace). A deleted entity is never resurrected. An input of a kind this build does
+  not know (Phase 7's `text`) is kept in place. An existing `<id>.v<N>.json` snapshot is never
+  rewritten. Promote to shared carries the promoted project def's fields (`promotedFrom` +
+  `sourceEtag`) and answers 409 `source-conflict` when that def changed since the draft loaded.
+  "This game's defaults" and its restore keep theirs (a restore, the backup's). Known fields:
+  `apps/launcher-api/src/lib/server/componentFields.ts`. Rules and reasoning:
+  [doc-readers](../conventions/doc-readers.md) "Round-tripping". Gate:
+  `check:save-keeps-unknown-blocks` gains a components section (141 checks in all).
 - 2026-10-13 — **The State Machine panel (Rive plan Phase 5b, branch
   `claude/rive-p5b-state-machine-editor`, stacked on 5a).** Timeline | State machine tabs in
   Animate; `EditorStateMachinePanel.svelte` + `SmGraphNode.svelte` on `@xyflow/svelte`; pure edits
