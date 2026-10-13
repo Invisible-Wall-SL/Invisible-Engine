@@ -21,6 +21,7 @@
 		LETTER_TILE_DEF,
 		LETTERS_STRIP_DEF,
 		MAX_COMPONENT_DEPTH,
+		componentEvents,
 		componentInputs,
 		POT_METER_DEF,
 		RESPIN_CELLS_DEF,
@@ -34,6 +35,7 @@
 		WHEEL_DEF,
 	} from 'engine-layout';
 	import type {
+		CinematicDoc,
 		CinematicHost,
 		ComponentCategory,
 		ComponentDef,
@@ -64,6 +66,20 @@
 		setInputDefault,
 		setInputSource,
 	} from '$lib/timeline/stateMachineEdit';
+	import {
+		eventUsage,
+		inputReads,
+		removeEvent,
+		removeEventRefusal,
+		renameEvent,
+		addEvent,
+		eventNameRefusal,
+		firstEventCues,
+		rowIds,
+		timelinesRaising,
+		unsavableRows,
+		type EventUsage,
+	} from '$lib/timeline/listenerEdit';
 	import { componentTimelineSignals, componentTimelinesOf } from '$lib/timeline/screenTimeline';
 	import type { RigMeta } from './rigRuntime.client';
 	import PanelResizers from './PanelResizers.svelte';
@@ -185,6 +201,8 @@
 		conflictMessage: 'Someone else saved this component while you were editing it.',
 		save: async ({ baseEtag, force }) => {
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
+			const unsavable = unsavableRowsMessage(componentDraft);
+			if (unsavable) return { ok: false, reason: 'error', message: unsavable };
 			const body = {
 				...(componentDraft.scope === 'project'
 					? { ...componentDraft, project: data.projectKey }
@@ -980,6 +998,8 @@
 	let animateVisited = $state(false);
 	/** Animate's two panels, Rive-style tabs: the Timeline, or the State Machine (Phase 5b). */
 	let animateTab = $state<'timeline' | 'stateMachine'>('timeline');
+	/** The State Machine panel: the stage's pointer drives its listener preview (Phase 6b). */
+	let stateMachinePanel = $state<ReturnType<typeof EditorStateMachinePanel>>();
 	/** A state card asked for its timeline: the Timeline tab opens it. */
 	let timelineOpenRequest = $state<{ id: string; nonce: number } | undefined>(undefined);
 	function openTimelineFromStateMachine(id: string): void {
@@ -1249,6 +1269,11 @@
 	 */
 	async function promoteToShared(): Promise<void> {
 		if (!componentDraft || busy || !data.canPublishShared || isInspecting || writesBlocked) return;
+		const unsavable = unsavableRowsMessage(componentDraft);
+		if (unsavable) {
+			saveStatus = { kind: 'error', message: unsavable };
+			return;
+		}
 		// A stored project def whose ETag is still being read (`loadEtag`) would promote without
 		// `promotedFrom`, dropping the fields a newer launcher wrote into it.
 		const draftId = componentDraft.id;
@@ -1757,15 +1782,27 @@
 		if (!componentDraft || isInspecting) return;
 		if (!addInput(componentDraft, id, kind)) {
 			void askMessage({ title: 'Input not added', message: `"${id}" is already an input.` });
+			return;
 		}
+		editNonce += 1;
 	}
 	/** True to go ahead: nothing reads the input, or the author confirmed knowing what does. */
 	async function confirmInputRemoval(draft: ComponentDef, id: string): Promise<boolean> {
 		const used = inputUsage(draft, id);
-		if (!used.length) return true;
+		const reads = inputReads(draft, id);
+		if (!used.length && !reads.length) return true;
 		return askConfirm({
 			title: `Remove input "${id}"?`,
-			message: `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`,
+			message: [
+				used.length
+					? `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`
+					: '',
+				reads.length
+					? `Also read by ${reads.join(', ')} — those stay, flagged ⚠, until you repoint them.`
+					: '',
+			]
+				.filter(Boolean)
+				.join(' '),
 			confirmLabel: 'Remove',
 			danger: true,
 		});
@@ -1777,6 +1814,7 @@
 		// The dialog awaited: the removal lands only on the component it was asked on.
 		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
 		removeInput(componentDraft, id);
+		editNonce += 1;
 	}
 	/** The timelines of component `componentId` that play on `signal` (4b `playOn`), by name — a
 	 *  rename breaks them. Throws when any read fails, so the dialog never under-reports. */
@@ -1820,6 +1858,7 @@
 		}
 		if (playOn.length) wires.push(`Plays on of ${playOn.map((n) => `"${n}"`).join(', ')}`);
 		const conditions = inputUsage(componentDraft, id).length;
+		const reads = inputReads(componentDraft, id);
 		const next = await askText({
 			title: 'Rename input',
 			label: 'Name',
@@ -1828,6 +1867,7 @@
 				`"${id}" is the name the game and Flow fire it as. Renaming it is a delete + add: whatever fires "${id}" today stops reaching this component until it fires the new name.`,
 				wires.length ? `In use as ${wires.join(' and ')}.` : '',
 				conditions ? `${conditions} state-machine condition(s) will follow the rename.` : '',
+				reads.length ? `${reads.join(', ')} will follow it too.` : '',
 			]
 				.filter(Boolean)
 				.join(' '),
@@ -1842,12 +1882,196 @@
 			});
 			return;
 		}
+		editNonce += 1;
 	}
 	function setComponentInputDefault(id: string, value: boolean | number): void {
-		if (componentDraft && !isInspecting) setInputDefault(componentDraft, id, value);
+		if (!componentDraft || isInspecting) return;
+		setInputDefault(componentDraft, id, value);
+		editNonce += 1;
 	}
+	// ---- Events (Rive plan Phase 6b, §6.1): what the component tells Flow. An event's id is its
+	// wire contract, like an input's, so a rename is a replace; what raises it inside the def
+	// follows, a timeline's `event:` cue (another document) does not and is listed instead.
+	/** Ids of the last-saved component's listeners and on-enter rows: a new row never takes one. */
+	const savedRowIds = $derived(rowIds(savedDef));
+	/** Why the draft cannot be saved (rows the server would drop), or null. */
+	function unsavableRowsMessage(draft: ComponentDef): string | null {
+		const rows = unsavableRows(draft);
+		return rows.length
+			? `Not saved: ${rows.join(', ')} would be lost — a row needs its target picked, a text key a letter, and an int or ms value a whole number. Fix ${rows.length === 1 ? 'it' : 'them'} (flagged ⚠) and save again.`
+			: null;
+	}
+	/** The saved timelines of component `componentId`. Throws when any read fails, so a dialog
+	 *  never under-reports. */
+	async function componentTimelineDocs(componentId: string): Promise<CinematicDoc[]> {
+		const project = encodeURIComponent(data.projectKey);
+		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
+		if (!res.ok) throw new Error(`list: ${res.status}`);
+		const rows = componentTimelinesOf(
+			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
+				.cinematics,
+			componentId,
+		);
+		const docs = await Promise.all(
+			rows.map(async (row) => {
+				const r = await fetch(
+					`/api/cinematics/get?id=${encodeURIComponent(row.id)}&projectKey=${project}`,
+				);
+				if (!r.ok) throw new Error(`"${row.name || row.id}": ${r.status}`);
+				return ((await r.json()) as { doc: CinematicDoc | null }).doc;
+			}),
+		);
+		return docs.filter((d): d is CinematicDoc => !!d);
+	}
+	/** "raised by …" for a dialog: the listeners, the states and the timeline cues. */
+	function usageText(used: EventUsage, cues: string[]): string {
+		const parts = [
+			...used.listeners.map((l) => `a listener on "${l.node}"`),
+			...used.states.map((st) => `entering "${st.state}" (${st.layer})`),
+			...cues.map((name) => `an event: cue in timeline "${name}" (as last saved)`),
+		];
+		return parts.length ? `It is raised by ${parts.join(', ')}.` : 'Nothing raises it yet.';
+	}
+	async function renameComponentEvent(id: string): Promise<void> {
+		if (!componentDraft || isInspecting) return;
+		const componentId = componentDraft.id;
+		let docs: CinematicDoc[];
+		try {
+			docs = await componentTimelineDocs(componentId);
+		} catch (e) {
+			void askMessage({
+				title: 'Could not check the timelines',
+				message: `The timelines that raise "${id}" could not be listed: ${e instanceof Error ? e.message : String(e)}. Try again.`,
+			});
+			return;
+		}
+		const cues = timelinesRaising(docs, id);
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
+		const next = await askText({
+			title: 'Rename event',
+			label: 'Name',
+			value: id,
+			message: [
+				`"${id}" is the name Flow will hear it by. Renaming it is a replace: whatever Flow wired to "${id}" stops hearing it.`,
+				usageText(eventUsage(componentDraft, id), []),
+				'The listeners and states follow the rename.',
+				cues.length
+					? `Timeline cue(s) event:${id} in ${cues.map((n) => `"${n}"`).join(', ')} do NOT follow — change them in the Timeline tab.`
+					: '',
+				'A listener or On enter row this build cannot read keeps the old name.',
+			]
+				.filter(Boolean)
+				.join(' '),
+		});
+		if (next === null || next.trim() === id) return;
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
+		const refused = eventNameRefusal(componentDraft, next);
+		if (refused) {
+			void askMessage({ title: 'Event not renamed', message: refused });
+			return;
+		}
+		const name = next.trim();
+		const connects = timelinesRaising(docs, name);
+		if (connects.length) {
+			const ok = await askConfirm({
+				title: `Rename "${id}" to "${name}"?`,
+				message: `Cue(s) event:${name} in ${connects.map((n) => `"${n}"`).join(', ')} (as last saved) will now raise it.`,
+				confirmLabel: 'Rename',
+			});
+			if (!ok || !componentDraft || componentDraft.id !== componentId || isInspecting) return;
+			const late = eventNameRefusal(componentDraft, name);
+			if (late) {
+				void askMessage({ title: 'Event not renamed', message: late });
+				return;
+			}
+		}
+		renameEvent(componentDraft, id, name);
+		editNonce += 1;
+	}
+	/** Add an event: null when added, else why not ('' when the author cancelled). The FIRST
+	 *  event re-routes the timelines' `event:` cues from screen-wide broadcasts to the component's
+	 *  events, so that one is confirmed — listing this project's cues, and for a shared component
+	 *  always, since other projects' timelines may have some. */
+	async function addComponentEvent(raw: string): Promise<string | null> {
+		const id = raw.trim();
+		if (!componentDraft || isInspecting) return '';
+		const componentId = componentDraft.id;
+		const refused = eventNameRefusal(componentDraft, id);
+		if (refused) return refused;
+		if (!componentEvents(componentDraft).length) {
+			let docs: CinematicDoc[];
+			try {
+				docs = await componentTimelineDocs(componentId);
+			} catch (e) {
+				return `The timelines could not be checked: ${e instanceof Error ? e.message : String(e)}. Try again.`;
+			}
+			if (!componentDraft || componentDraft.id !== componentId || isInspecting) return '';
+			const cues = firstEventCues(componentDraft, docs);
+			const shared = componentDraft.scope !== 'project';
+			if (cues.length || shared) {
+				const list = cues.map((c) => `event:${c.event} in "${c.timeline}"`).join(', ');
+				const ok = await askConfirm({
+					title: `Add the first event, "${id}"?`,
+					message: [
+						cues.length
+							? `This project's timelines (as last saved) have event cues that today are messages to the whole screen: ${list}.`
+							: '',
+						shared
+							? "This is a shared component: other projects' timelines may have event cues too."
+							: '',
+						"With an event declared, each such cue raises the component's event of that name instead — and one naming no declared event raises nothing.",
+					]
+						.filter(Boolean)
+						.join(' '),
+					confirmLabel: 'Add',
+				});
+				if (!ok || !componentDraft || componentDraft.id !== componentId || isInspecting) return '';
+			}
+		}
+		const again = eventNameRefusal(componentDraft, id);
+		if (again) return again;
+		addEvent(componentDraft, id);
+		editNonce += 1;
+		return null;
+	}
+	async function removeComponentEvent(id: string): Promise<void> {
+		if (!componentDraft || isInspecting) return;
+		const componentId = componentDraft.id;
+		let docs: CinematicDoc[];
+		try {
+			docs = await componentTimelineDocs(componentId);
+		} catch (e) {
+			void askMessage({
+				title: 'Could not check the timelines',
+				message: `The timelines that raise "${id}" could not be listed: ${e instanceof Error ? e.message : String(e)}. Try again.`,
+			});
+			return;
+		}
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
+		const refused = removeEventRefusal(componentDraft, id, docs);
+		if (refused) {
+			void askMessage({ title: 'Event not removed', message: refused });
+			return;
+		}
+		const cues = timelinesRaising(docs, id);
+		const used = eventUsage(componentDraft, id);
+		if (used.listeners.length || used.states.length || cues.length) {
+			const ok = await askConfirm({
+				title: `Remove event "${id}"?`,
+				message: `${usageText(used, cues)} Those raises stay and do nothing in game until you fix them: the listeners and states are flagged ⚠ in Properties and the State machine tab, a timeline cue in the State machine tab's Events.`,
+				confirmLabel: 'Remove',
+				danger: true,
+			});
+			if (!ok || !componentDraft || componentDraft.id !== componentId || isInspecting) return;
+		}
+		removeEvent(componentDraft, id);
+		editNonce += 1;
+	}
+
 	function setComponentInputSource(id: string, source: string): void {
-		if (componentDraft && !isInspecting) setInputSource(componentDraft, id, source);
+		if (!componentDraft || isInspecting) return;
+		setInputSource(componentDraft, id, source);
+		editNonce += 1;
 	}
 
 	/** Name the param each placed instance takes its SIGNAL SCOPE from, and the kind of part it
@@ -2432,6 +2656,9 @@
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}
 						animate={animating}
+						onStagePointer={animating && animateTab === 'stateMachine'
+							? (kind, id) => stateMachinePanel?.stagePointer(kind, id)
+							: undefined}
 					/>
 				</div>
 			{:else}
@@ -2480,6 +2707,8 @@
 					</div>
 					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
 						<EditorStateMachinePanel
+							bind:this={stateMachinePanel}
+							editVersion={editNonce}
 							def={componentDraft}
 							{savedDef}
 							scene={timelineScene}
@@ -2515,6 +2744,12 @@
 						onRenameInput={(id) => void renameComponentInput(id)}
 						onSetInputDefault={setComponentInputDefault}
 						onSetInputSource={setComponentInputSource}
+						{componentDraft}
+						componentReservedIds={savedRowIds}
+						componentReadOnly={isInspecting}
+						onRenameEvent={(id) => void renameComponentEvent(id)}
+						onRemoveEvent={(id) => void removeComponentEvent(id)}
+						onAddEvent={addComponentEvent}
 						componentSignalScope={componentDraft.signalScope}
 						componentSignalScopeKind={componentDraft.signalScopeKind}
 						gameType={data.gameType}

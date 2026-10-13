@@ -40,7 +40,7 @@ import {
 	normalizeEnterActions,
 	normalizeEvents,
 	normalizeRootListeners,
-} from './componentEventRows';
+} from '../componentEventRows';
 import { sameUnknownComponentFields, withUnknownComponentFields } from './componentUnknownFields';
 import { projectClientKey } from './projects';
 import { loadSharedSkeletonIndex } from './rig';

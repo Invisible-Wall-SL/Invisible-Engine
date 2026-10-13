@@ -77,6 +77,20 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   the stage preview in `$lib/timeline/stateMachinePreview.ts`, Properties' **Inputs** block
   (`EditorProperties.svelte`). It saves with the def — no new write. Gate:
   `pnpm --filter launcher-api check:component-state-machine-editor`.
+  LISTENERS + EVENTS (Phase 6; plan §5 / §6.1 for the shapes and semantics): `ComponentDef.events`,
+  node `on` listeners, `SmState.onEnter`, `event:<id>` cues. Runtime: `engine-layout/src/lib/
+  componentEvents.ts` (`ComponentEventDispatcher` — one ordered raise queue per instance, the raise
+  road = the Flow press resolver with `kind: 'event'`, `routeComponentCue`, `validateComponentEvents`,
+  `raisedPayloadKeys` for the harvest), `componentListenerContext.ts`, the wrapper in
+  `LayoutNodeView`. Launcher: the readers in `lib/componentEventRows.ts` (a key this build does
+  not know inside an action makes the row unreadable; the save keeps it whole), the graft in
+  `componentUnknownFields.ts`. Gates: `check:component-listeners-events`,
+  `check:save-keeps-unknown-blocks` (6a section). The EDITOR side (6b): Properties' **Listeners**
+  (`editor/EditorListeners.svelte`) and **Events** (`EditorEvents.svelte`), the shared payload
+  editor (`EditorRaisePayload.svelte`), On enter in the State machine inspector, the stage pointer
+  (`$lib/timeline/listenerPreview.ts`, `EditorCanvas` `onStagePointer`) and the Events log; pure
+  edits in `$lib/timeline/listenerEdit.ts` (minted row ids never reuse a saved one). Gate:
+  `check:component-listeners-events-editor`.
 - **Bound coded parts** (`hudReadout`, `button`, `loadingIntro` bar, the transitions
   and FS visuals): a child carries `bind: { component: '<RegisteredName>' }` mounting
   a small coded part registered via `registerBoundComponents`. Use ONLY when the

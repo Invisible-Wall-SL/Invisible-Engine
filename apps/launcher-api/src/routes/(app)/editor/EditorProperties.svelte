@@ -2,6 +2,8 @@
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
 	import EditorValueBindings from './EditorValueBindings.svelte';
+	import EditorEvents from './EditorEvents.svelte';
+	import EditorListeners from './EditorListeners.svelte';
 	import {
 		backgroundCoverAnchor,
 		backgroundCoverScale,
@@ -136,6 +138,19 @@
 		onSetInputDefault?: (id: string, value: boolean | number) => void;
 		/** Name (or with '', clear) the engine value a number input follows. */
 		onSetInputSource?: (id: string, source: string) => void;
+		/** The open component's draft, for its Events list and a node's Listeners (Rive plan Phase 6b,
+		 *  component mode). */
+		componentDraft?: ComponentDef | null;
+		/** Ids of the last-saved component: a new listener or on-enter row never takes one. */
+		componentReservedIds?: Iterable<string>;
+		/** Inspecting a version: the Events list and Listeners are read-only. */
+		componentReadOnly?: boolean;
+		/** Ask and rename an event (the page lists what raises it). */
+		onRenameEvent?: (id: string) => void;
+		/** Ask and remove an event. */
+		onRemoveEvent?: (id: string) => void;
+		/** Ask and add an event: null when added, else why not. */
+		onAddEvent?: (id: string) => Promise<string | null>;
 		/** When the selected node is a `componentInstance`, its resolved def — drives
 		 * the author-set param override list (scene mode). */
 		instanceComponent?: ComponentDef | null;
@@ -313,6 +328,12 @@
 		onRenameInput,
 		onSetInputDefault,
 		onSetInputSource,
+		componentDraft = null,
+		componentReservedIds = [],
+		componentReadOnly = false,
+		onRenameEvent,
+		onRemoveEvent,
+		onAddEvent,
 		componentSignalScope,
 		componentSignalScopeKind,
 		onSetSignalScope,
@@ -2451,6 +2472,16 @@
 			red pot and a cue on <strong>Pot — activate</strong> plays when the red pot activates. Signals about
 			another kind of part (a jackpot tier's win) or no part (Win, Feature — enter) still reach it.
 		</p>
+		{#if componentDraft && onRenameEvent && onRemoveEvent && onAddEvent}
+			<EditorEvents
+				def={componentDraft}
+				readOnly={componentReadOnly}
+				onChanged={() => onDirty?.()}
+				onRename={onRenameEvent}
+				onRemove={onRemoveEvent}
+				onAdd={onAddEvent}
+			/>
+		{/if}
 	</section>
 
 	{#if projectLabel}
@@ -2714,6 +2745,16 @@
 			</button>
 		{/if}
 	</div>
+
+	{#if componentMode && componentDraft}
+		<EditorListeners
+			{node}
+			def={componentDraft}
+			reserved={componentReservedIds}
+			readOnly={componentReadOnly}
+			onChanged={() => onDirty?.()}
+		/>
+	{/if}
 
 	{#if node.kind === 'componentInstance'}
 		<section>
