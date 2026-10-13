@@ -287,7 +287,10 @@ async function act(name, js, until) {
 			dirty: snap.dirty,
 			propSub: snap.propSub,
 		},
-		tl: digest(snap.tl),
+		// While tweaking, `#timeline` holds the rig animator's dopesheet, whose playhead is placed by
+		// whichever frame lands first after the clip opens — a race in view.html, not the Timeline
+		// (it varies on the pre-extraction code too). Its position is left out; the rest is compared.
+		tl: digest(snap.tl.replace(/(id="tlPlayhead" style="left: )[^p]*px/, '$1·px')),
 		panel: digest(snap.panel),
 		props: digest(snap.props),
 	};
