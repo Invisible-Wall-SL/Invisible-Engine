@@ -96,6 +96,27 @@ launcher instead. What makes a build traceable is not the pin but its provenance
 version), also baked into the game as `__IE_BUILD__`. See
 [tools/invisible-launcher](../tools/invisible-launcher.md).
 
+### Game repo dependency pins must match the engine
+
+The submodule advances on every build, but the game repo's root `package.json` does not: it is
+written once by `new-game.mjs`. Its `svelte` / `@sveltejs/kit` pins and the `pnpm.overrides` for
+Svelte's parser (`esrap`, `acorn`, `@sveltejs/acorn-typescript`) must still equal the engine's,
+or pnpm installs two Svelte copies. The bundle then pairs the engine's compiler with the root's
+older runtime and boots to a black screen (Book of Borut Remake: 5.35.1 against 5.57.1,
+`e.exclude.includes is not a function`).
+
+`config-vite` refuses such a build before compiling (`packages/config-vite/svelteVersions.js`).
+The error lists every difference and the exact values to set. To fix:
+
+1. In the game repo's root `package.json`, set `svelte` and `@sveltejs/kit` to what
+   `engine/apps/lines/package.json` pins.
+2. Set `pnpm.overrides` for the three parser packages to what the error names. These come from the
+   engine's `pnpm-lock.yaml` snapshot for that Svelte.
+3. `pnpm install`, build again, and commit `package.json` + `pnpm-lock.yaml` in the game repo.
+
+`IE_ALLOW_SVELTE_MISMATCH=1` turns the error into a warning, for investigating only: the bundle is
+still broken.
+
 ## Runtime releases (the online games' engine)
 
 Online games (Game Maker publishes, `runtime: "lines"` in `test_server/games.json`) run no build of

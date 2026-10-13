@@ -29,6 +29,11 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readLF } from './lib/read-lf.mjs';
+import {
+	PARSER_PACKAGES,
+	engineParserVersions,
+	engineVersions,
+} from '../packages/config-vite/svelteVersions.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = readLF(join(ROOT, 'scripts', 'new-game.mjs'));
@@ -136,6 +141,31 @@ ok(
 	'no single-quoted config-ts specifier survives',
 	!src.includes("'config-ts"),
 	'a scaffolded game would fail pnpm install, or its build on an unresolvable extends',
+);
+
+console.log("5. Svelte's parser pins are read from the engine's lockfile, never hand-written");
+// The hand-written overrides sat at esrap 2.0.1 / acorn 8.15.0 / acorn-typescript 1.0.5 while the
+// engine moved to svelte 5.57.1, which needs newer ones — under a comment claiming the engine
+// packages still declared 5.35.1.
+ok(
+	'no hard-coded parser version survives in the template',
+	!/\b(esrap|acorn)['"]?\s*:\s*'\d/.test(src),
+	'derive the overrides with engineParserVersions()',
+);
+ok(
+	'the overrides come from engineParserVersions()',
+	/overrides: PARSER_OVERRIDES/.test(src) && src.includes('engineParserVersions('),
+);
+const enginePins = engineVersions(ROOT);
+ok(
+	`the seed app's svelte is the engine's (${enginePins.svelte})`,
+	seedDeps.svelte === enginePins.svelte && seedDeps['@sveltejs/kit'] === enginePins.kit,
+);
+const parsers = engineParserVersions(ROOT, seedDeps.svelte);
+ok(
+	`the lockfile pins every parser package for svelte ${seedDeps.svelte}`,
+	parsers && PARSER_PACKAGES.every((name) => parsers[name]),
+	JSON.stringify(parsers),
 );
 
 console.log(`\nPASS — ${checks} checks.`);
