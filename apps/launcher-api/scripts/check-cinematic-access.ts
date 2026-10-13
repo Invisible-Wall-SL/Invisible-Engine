@@ -317,6 +317,28 @@ console.log('\n2. editor alone — screen timelines only');
 		mismatch,
 	);
 
+	const delOther = await call(del.POST as Handler, '/api/cinematics/delete', {
+		id: 'base_outro',
+		projectKey: 'other',
+	});
+	ok(
+		'a delete sent from a tab on another project is refused (scope-mismatch), nothing deleted',
+		delOther.status === 409 &&
+			delOther.body.error === 'scope-mismatch' &&
+			stored('base_outro') !== null,
+		delOther,
+	);
+	const listOther = await call(list.GET as Handler, '/api/cinematics/list?projectKey=other');
+	ok(
+		'a list for another project is refused too',
+		listOther.status === 409 && listOther.body.error === 'scope-mismatch',
+		listOther,
+	);
+	const getOther = await call(
+		get.GET as Handler,
+		'/api/cinematics/get?id=base_intro&projectKey=other',
+	);
+	ok('and a get', getOther.status === 409, getOther);
 	const delRig = await call(del.POST as Handler, '/api/cinematics/delete', { id: 'bonus' });
 	ok('may not delete a rig cinematic', delRig.status === 403 && stored('bonus') !== null, delRig);
 	const delScreen = await call(del.POST as Handler, '/api/cinematics/delete', { id: 'base_outro' });

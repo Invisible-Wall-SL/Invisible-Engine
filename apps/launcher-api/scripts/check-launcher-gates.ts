@@ -294,6 +294,8 @@ const ACTS_ON_BODY_PROJECT_KEY: Record<string, string[]> = {
 };
 const STALE_TAB_GUARDS = [
 	'cinematics/save',
+	'editor/backups',
+	'editor/rigs/upload',
 	'flipbook/save',
 	'flow-v2/backups',
 	'flow-v2/save',
@@ -311,7 +313,8 @@ for (const file of handlers) {
 	if (STALE_TAB_GUARDS.includes(route)) {
 		check(
 			`api/${route} only compares body.projectKey against the session's project`,
-			/\bbody\.projectKey\s*!==\s*projectKey\b/.test(src),
+			/\bbody\.projectKey\s*!==\s*projectKey\b/.test(src) ||
+				/\bscopeMismatch\(\s*body\.projectKey,\s*projectKey\s*\)/.test(src),
 			true,
 		);
 		continue;
@@ -325,6 +328,16 @@ for (const file of handlers) {
 		}
 	}
 }
+// The shared stale-tab guard only ever COMPARES the sent key; it is never a write target.
+const scopeGuard = readFileSync(
+	new URL('../src/lib/server/scopeGuard.ts', import.meta.url),
+	'utf8',
+);
+check(
+	'scopeMismatch only compares the sent project against the session’s',
+	/typeof sent !== 'string' \|\| sent === projectKey/.test(scopeGuard),
+	true,
+);
 for (const route of [...Object.keys(ACTS_ON_BODY_PROJECT_KEY), ...STALE_TAB_GUARDS]) {
 	check(`the scan sees api/${route} read body.projectKey`, readsBodyProjectKey.has(route), true);
 }

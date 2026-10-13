@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { assertReach, cinematicGate } from '$lib/server/cinematicAccess';
 import { isCinematicDoc, loadCinematic, saveCinematic } from '$lib/server/cinematicStorage';
 import { ConflictError } from '$lib/server/r2';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
@@ -23,24 +24,10 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body || !isCinematicDoc(body.doc)) throw error(400, 'missing or malformed cinematic doc');
 
-	// SCOPE GUARD — this endpoint resolves the project from the SESSION, but the tab that loaded
-	// the doc resolved it when it opened. Switching project in another tab leaves this one holding
-	// project X's cinematic while its save now targets Y. Unguarded that is a silent cross-project
-	// clobber; with `If-Match` alone it would masquerade as an ordinary conflict and invite the
-	// author to "overwrite" — destroying an unrelated project's work. `force` deliberately does
-	// NOT bypass this: overwriting YOUR doc is a choice, overwriting SOMEONE ELSE'S never is.
-	if (typeof body.projectKey === 'string' && body.projectKey !== projectKey) {
-		return json(
-			{
-				ok: false,
-				error: 'scope-mismatch',
-				message:
-					`This tab is editing "${body.projectKey}" but your active project is now ` +
-					`"${projectKey}". Reload to continue — saving here would write to the wrong project.`,
-			},
-			{ status: 409 },
-		);
-	}
+	// SCOPE GUARD — `force` deliberately does NOT bypass it: overwriting YOUR doc is a choice,
+	// overwriting SOMEONE ELSE'S project never is (`scopeMismatch`).
+	const mismatch = scopeMismatch(body.projectKey, projectKey);
+	if (mismatch) return mismatch;
 
 	let baseEtag = writeBaseEtagJson(body);
 	// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and hides the cause

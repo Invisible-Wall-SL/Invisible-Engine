@@ -58,7 +58,12 @@
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
-	import { canEnterNested, etagKnown, type ComponentOpenRequest } from './componentWorkspace';
+	import {
+		canEnterNested,
+		etagAdoption,
+		etagKnown,
+		type ComponentOpenRequest,
+	} from './componentWorkspace';
 	import type { PageData } from './$types';
 
 	/**
@@ -365,6 +370,7 @@
 	async function restoreDefaultsBackup(backupId: string): Promise<string | null> {
 		const id = componentDraft?.id;
 		if (!id) return 'No component open.';
+		if (writesBlocked) return 'This tab’s project changed — reload before restoring.';
 		if (defaultsSave.busy) return 'A save is in progress — try again in a moment.';
 		const res = await fetch(defaultsHistoryUrl, {
 			method: 'POST',
@@ -620,17 +626,36 @@
 	 * Adopted only while that def is still open and unsaved.
 	 */
 	async function loadEtag(def: ComponentDef): Promise<void> {
+		const openedFrom = $state.snapshot(def);
 		const project =
 			def.scope === 'project' ? `&project=${encodeURIComponent(data.projectKey)}` : '';
 		try {
 			const res = await fetch(`/api/editor/component?id=${encodeURIComponent(def.id)}${project}`);
 			if (!res.ok) return;
-			const body = (await res.json()) as { etag?: string | null };
+			const body = (await res.json()) as { def?: ComponentDef; etag?: string | null };
+			if (!body.def || componentDraft?.id !== def.id) return;
 			const etag = body.etag ?? null;
-			componentEtags = { ...componentEtags, [def.id]: etag };
-			if (componentDraft?.id === def.id && saveState.etag === null && !saveState.busy) {
-				saveState.adoptEtag(etag);
+			const action = etagAdoption({
+				openedFrom,
+				stored: body.def,
+				dirty: draftDirty,
+				blocked:
+					saveState.busy ||
+					saveState.status === 'conflict' ||
+					saveState.etag !== null ||
+					writesBlocked ||
+					isInspecting,
+			});
+			if (action === 'keep') return;
+			if (action === 'reseed') {
+				const stored = body.def;
+				componentDraft = structuredClone(stored);
+				savedSnapshot = JSON.stringify(componentDraft);
+				components = components.map((c) => (c.id === stored.id ? stored : c));
+				editNonce += 1;
 			}
+			componentEtags = { ...componentEtags, [def.id]: etag };
+			saveState.adoptEtag(etag);
 		} catch {
 			/* the save's own conflict path still covers it */
 		}
@@ -1051,8 +1076,9 @@
 	function onKeyDownCapture(e: KeyboardEvent): void {
 		if (!active || e.key !== 'Escape' || isTypingTarget(e.target)) return;
 		if (dialogQueue.current || defaultsHistoryOpen || selectedIds.length > 0) return;
-		// An open popover answers Escape itself: a frame list in this side, or a colour picker
-		// (portalled onto <body>). One left open on the hidden Screens side does not count.
+		// An open popover answers Escape itself: a frame list in THIS side (one left open on the
+		// hidden Screens side does not count), or a colour picker, which `ColorField` portals onto
+		// <body> wherever it was opened from (and closes on any click elsewhere).
 		if (workspaceEl?.querySelector('[data-esc-owner]')) return;
 		if (document.querySelector('body > [data-esc-owner]')) return;
 		e.preventDefault();
@@ -1101,6 +1127,7 @@
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
 	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
+		if (writesBlocked) return;
 		const ok = await askConfirm({
 			title: `Delete component "${def.name}"?`,
 			message: 'Every version of it goes with it. This cannot be undone.',

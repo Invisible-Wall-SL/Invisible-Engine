@@ -29,6 +29,14 @@ let map: Record<string, ArtBoundsBox> = {};
 let etag: string | null = null;
 let loaded = false;
 let pending: Promise<void> | null = null;
+/** The project the editor page was loaded for: sent with every save, so the server refuses one
+ * that would land in another project the session moved to (`scopeMismatch`). */
+let projectKey: string | undefined;
+
+/** Bind the saves to the project the editor page was loaded for. */
+export function bindArtBoundsProject(key: string): void {
+	projectKey = key || undefined;
+}
 
 /**
  * Bumped on every change. The 2D canvas is repainted by explicit triggers rather than by tracking
@@ -114,7 +122,7 @@ export async function saveArtBounds(
 		const res = await fetch('/api/editor/art-bounds', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ bounds: next, baseEtag: etag }),
+			body: JSON.stringify({ bounds: next, baseEtag: etag, projectKey }),
 		});
 		const body = (await res.json().catch(() => ({}))) as {
 			ok?: boolean;

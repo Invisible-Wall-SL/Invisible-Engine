@@ -53,13 +53,20 @@ Shipped capabilities on `main`:
   `/editor` followed from inside `/editor` never runs as a navigation (the page holds one project's
   state and is not remounted): `beforeNavigate` applies the same project in place and does a full
   load for any other or for none (`editorSelfNavigation`); every tool bar link carries the shown
-  `?project=` (`$lib/toolLinks.ts`, shared with the launcher home). Every write targets the project
-  the page was LOADED for (`loadedProjectKey`): the layout save's action URL
-  (`editorActionUrl`), leases, component, defaults and timeline saves; a bare `/editor` (a
-  bookmark) gets `?project=` pinned into the address bar on first load. Should the data drift to
-  another project, every save is blocked (both sides' `blockWhen`), a banner says so, and the page
-  reloads. A component the page created or refreshed keeps a correct ETag (page-held map; an
-  unknown one is read when the def opens). Esc stands down while a popover marked
+  `?project=` (`$lib/toolLinks.ts`, shared with the launcher home). Every project-scoped write the
+  editor makes names the project the page was LOADED for (`loadedProjectKey`): the layout save's
+  action URL (`editorActionUrl`), leases, the component / defaults saves (explicit `project`
+  target), and the session-bound endpoints — timeline list/get/save/delete, backup restore, rig
+  upload + reindex, art bounds — which send `projectKey` and refuse a mismatch with a 409
+  (`$lib/server/scopeGuard.ts` `scopeMismatch`, one helper for all of them). Not project-scoped,
+  so not pinned: game kinds, templates, promote-to-shared. `check:component-links` enumerates
+  every write `fetch(` in the editor route and fails on a new one without the pin. A bare
+  `/editor` (a bookmark) gets `?project=` pinned into the address bar on first load. Should the
+  data drift to another project, every save and restore is blocked (both sides' `blockWhen`, the
+  remaining writes early-return), a banner says so, and the page reloads. Component ETags arrive
+  with their defs (the focus refresh uses the `?etags=1` listing); a def opened without one has
+  it read and adopted only if the stored def is still the one opened (else a clean draft reseeds
+  from theirs and a dirty one gets the ordinary conflict — `etagAdoption`). Esc stands down while a popover marked
   `data-esc-owner` is open in this side (a frame list, which also closes on Escape) or portalled
   onto the page (a colour picker). Gate: `check:component-links`.
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
@@ -104,7 +111,7 @@ Shipped capabilities on `main`:
   component** open a def in place with a breadcrumb and Esc-up navigation, capped at the game's
   nesting depth; URLs `/editor?view=components` and `?component=<id>`; `/components` is a 307
   redirect; the `componentEditor` card now opens `/editor?view=components`. Animate mode stays
-  screens-only (component timelines = Phase 4b). New gate `check:component-links` (42 checks).
+  screens-only (component timelines = Phase 4b). New gate `check:component-links` (62 checks).
   Review fix: same-route `/editor` links keep their project (tool bar links carry `?project=`,
   `beforeNavigate` applies the same project in place and reloads for any other), so a card click
   after another tab switched project can no longer save one project's layout into another; every

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { SUB } from '$lib/server/projectPaths';
 import { reindexProjectSkeletons, writeSkeletonsIndex } from '$lib/server/rigReindex';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -15,11 +16,15 @@ import type { RequestHandler } from './$types';
  * when it has one (`rederived`), else its prior entry is kept (`preserved`). `atlasMissing` names
  * the folders still without an atlas — an upload that forgot its `.atlas` shows up there.
  */
-export const POST: RequestHandler = async ({ locals, cookies }) => {
+export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'editor',
 		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
 	});
+	// Optional body `{ projectKey }`: the tab's project, refused on a mismatch (`scopeMismatch`).
+	const body = (await request.json().catch(() => null)) as { projectKey?: unknown } | null;
+	const mismatch = scopeMismatch(body?.projectKey, projectKey);
+	if (mismatch) return mismatch;
 
 	const rigsPrefix = SUB.spines(clientKey, projectKey);
 	// `prefix` written into the index === the slug-normalized rigs root the

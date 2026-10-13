@@ -209,7 +209,7 @@
 	}
 
 	async function refresh(): Promise<void> {
-		const res = await fetch('/api/cinematics/list');
+		const res = await fetch(`/api/cinematics/list?projectKey=${encodeURIComponent(projectKey)}`);
 		if (!res.ok) {
 			error = `Could not list timelines: ${await readError(res)}`;
 			return;
@@ -236,7 +236,9 @@
 			return;
 		}
 		error = '';
-		const res = await fetch(`/api/cinematics/get?id=${encodeURIComponent(id)}`);
+		const res = await fetch(
+			`/api/cinematics/get?id=${encodeURIComponent(id)}&projectKey=${encodeURIComponent(projectKey)}`,
+		);
 		if (!res.ok) {
 			error = `Could not open "${id}": ${await readError(res)}`;
 			return;
@@ -316,7 +318,7 @@
 		const res = await fetch('/api/cinematics/delete', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ id: doc.id }),
+			body: JSON.stringify({ id: doc.id, projectKey }),
 		});
 		if (!res.ok) {
 			error = `Delete failed: ${await readError(res)}`;

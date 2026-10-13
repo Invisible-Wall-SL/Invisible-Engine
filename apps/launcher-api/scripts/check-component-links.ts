@@ -25,7 +25,8 @@ import {
 	editorSelfNavigation,
 	legacyComponentsRedirect,
 } from '../src/lib/componentLinks.ts';
-import { etagKnown } from '../src/routes/(app)/editor/componentWorkspace.ts';
+import { etagAdoption, etagKnown } from '../src/routes/(app)/editor/componentWorkspace.ts';
+import { scopeMismatch } from '../src/lib/server/scopeGuard.ts';
 import { withProject } from '../src/lib/toolLinks.ts';
 import { TOOLS } from '../src/lib/roles.ts';
 import { canEnterNested } from '../src/routes/(app)/editor/componentWorkspace.ts';
@@ -196,11 +197,6 @@ check(
 	editorPage.includes('blockWhen: () => lease.readOnly || projectDrift'),
 	true,
 );
-check(
-	'only the capture, its comment, the drift check and the drift banner read the live data.projectKey',
-	(editorPage.match(/data\.projectKey/g) ?? []).length,
-	4,
-);
 const workspace = readFileSync(`${routes}(app)/editor/ComponentWorkspace.svelte`, 'utf8');
 check(
 	'the Components side blocks its saves on drift (draft + defaults)',
@@ -211,11 +207,140 @@ check(
 	[true, true],
 );
 
+// Every WRITE the editor makes names the project the page was loaded for, so the server can
+// refuse one that would land in another (`scopeMismatch`, or an explicit `project` target). This
+// enumerates every `fetch(` in the editor route: a new write without the pin fails here by file
+// and line, unless it is listed below with the reason it is not project-scoped.
+const editorDir = `${routes}(app)/editor/`;
+const WRITE = /method:\s*'(POST|PUT|DELETE|PATCH)'/;
+const PIN = /projectKey|project:|project=|editorActionUrl\(/;
+/** `file:line-of-fetch` substrings → why that write carries no project. */
+const UNPINNED_WRITES: Record<string, string> = {
+	"+page.svelte:fetch('/api/editor/kind'": 'game kinds are a global, shared library',
+	"+page.svelte:fetch('/api/editor/template'": 'templates are global, per game type',
+	'+page.svelte:fetch(target.url': 'a presigned R2 PUT, signed for the pinned upload request',
+	"ComponentWorkspace.svelte:fetch('/api/editor/component', {":
+		'a scope:shared promote has no project; the project save is pinned (checked below)',
+};
+function fetchCalls(text: string): { line: number; call: string; before: string }[] {
+	const out: { line: number; call: string; before: string }[] = [];
+	let i = text.indexOf('fetch(');
+	while (i !== -1) {
+		let depth = 0;
+		let j = i + 'fetch'.length;
+		for (; j < text.length; j++) {
+			if (text[j] === '(') depth++;
+			else if (text[j] === ')' && --depth === 0) break;
+		}
+		const lineStart = text.lastIndexOf('\n', i);
+		const before = text.slice(Math.max(0, text.lastIndexOf('\n', i - 1200)), lineStart);
+		out.push({ line: text.slice(0, i).split('\n').length, call: text.slice(i, j + 1), before });
+		i = text.indexOf('fetch(', j);
+	}
+	return out;
+}
+const unpinned: string[] = [];
+let writes = 0;
+for (const file of readdirSync(editorDir).filter((f) => /\.(svelte|ts)$/.test(f))) {
+	for (const { line, call, before } of fetchCalls(readFileSync(`${editorDir}${file}`, 'utf8'))) {
+		if (!WRITE.test(call) && !/fetch\(target, \{ method: 'POST'/.test(call)) continue;
+		writes++;
+		const allowed = Object.keys(UNPINNED_WRITES).some((k) => {
+			const [f, snippet] = [k.slice(0, k.indexOf(':')), k.slice(k.indexOf(':') + 1)];
+			return f === file && call.startsWith(snippet);
+		});
+		if (!allowed && !PIN.test(call) && !PIN.test(before.split('\n').slice(-15).join('\n'))) {
+			unpinned.push(`${file}:${line} ${call.split('\n')[0]}`);
+		}
+	}
+}
+check('the enumeration finds the editor’s writes', writes >= 14, true);
+check('every editor write names the loaded project (or is listed with its reason)', unpinned, []);
+check(
+	'the project save of a component names its project',
+	workspace.includes('{ ...componentDraft, project: data.projectKey }'),
+	true,
+);
+const server = fileURLToPath(new URL('../src/routes/api/', import.meta.url));
+for (const route of [
+	'cinematics/save',
+	'cinematics/delete',
+	'cinematics/get',
+	'cinematics/list',
+	'editor/backups',
+	'editor/rigs/upload',
+	'editor/rigs/reindex',
+	'editor/art-bounds',
+]) {
+	check(
+		`the session-bound /api/${route} refuses a mismatched project (scopeMismatch)`,
+		readFileSync(`${server}${route}/+server.ts`, 'utf8').includes('scopeMismatch('),
+		true,
+	);
+}
+check('scopeMismatch: no project sent ⇒ go ahead', scopeMismatch(undefined, 'X'), null);
+check('scopeMismatch: the same project ⇒ go ahead', scopeMismatch('X', 'X'), null);
+const refused = scopeMismatch('X', 'Y');
+check(
+	'scopeMismatch: another project ⇒ 409 scope-mismatch',
+	[refused?.status, refused ? ((await refused.json()) as { error: string }).error : null],
+	[409, 'scope-mismatch'],
+);
+
 // ── 7. ETags of components the page created or refreshed ─────────────────────
 check('a def with a stored ETag is known', etagKnown({ coin: '"e1"' }, 'coin'), true);
 check('a built-in (null) is known: its first save creates', etagKnown({ win: null }, 'win'), true);
 check('a def refreshed after load is not, so it is read on open', etagKnown({}, 'gem'), false);
 check('an inherited key is not an ETag', etagKnown({}, 'toString'), false);
+const v1 = {
+	id: 'coin',
+	name: 'Coin',
+	version: 1,
+	root: { id: 'r', kind: 'container', children: [] },
+};
+const v2 = { ...v1, version: 2 };
+check(
+	'the stored def is the one the draft opened from (any key order) ⇒ adopt its ETag',
+	etagAdoption({
+		openedFrom: v1,
+		stored: { root: v1.root, version: 1, name: 'Coin', id: 'coin' },
+		dirty: true,
+		blocked: false,
+	}),
+	'adopt',
+);
+check(
+	'someone saved since and the draft is clean ⇒ reseed from theirs, with its ETag',
+	etagAdoption({ openedFrom: v1, stored: v2, dirty: false, blocked: false }),
+	'reseed',
+);
+check(
+	'someone saved since and the draft has edits ⇒ adopt nothing (the save conflicts)',
+	etagAdoption({ openedFrom: v1, stored: v2, dirty: true, blocked: false }),
+	'keep',
+);
+check(
+	'a save already landed or conflicted meanwhile ⇒ adopt nothing',
+	etagAdoption({ openedFrom: v1, stored: v1, dirty: false, blocked: true }),
+	'keep',
+);
+check(
+	'loadEtag decides with etagAdoption over the def the GET returned',
+	/async function loadEtag[\s\S]*?etagAdoption\(\{[\s\S]*?stored: body\.def/.test(workspace),
+	true,
+);
+check(
+	'loadEtag never adopts while a save is busy, conflicted, already holds an ETag or is blocked',
+	/blocked:\s*saveState\.busy \|\|\s*saveState\.status === 'conflict' \|\|\s*saveState\.etag !== null \|\|\s*writesBlocked/.test(
+		workspace,
+	),
+	true,
+);
+check(
+	'the page’s focus refresh takes defs and ETags together',
+	editorPage.includes('/api/editor/components?etags=1&project='),
+	true,
+);
 check(
 	'a created def’s ETag is recorded even when the def is already listed',
 	/if \(request\.def\) \{[\s\S]*?componentEtags = \{ \.\.\.componentEtags, \[created\.id\]: request\.etag/.test(
