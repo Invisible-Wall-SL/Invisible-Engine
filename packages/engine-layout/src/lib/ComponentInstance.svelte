@@ -730,14 +730,11 @@
 				})
 			: undefined;
 	if (eventDispatcher && listened && def) {
-		const ownNodes = new Set<string>();
-		const walk = (n: LayoutNode): void => {
-			ownNodes.add(n.id);
-			if (n.kind === 'container') for (const child of n.children) walk(child);
-		};
-		walk(def.root);
+		const ids = (n: LayoutNode): string[] =>
+			n.kind === 'container' ? [n.id, ...n.children.flatMap(ids)] : [n.id];
+		const ownNodes = ids(def.root);
 		setComponentListen((target, event) => {
-			if (ownNodes.has(target.id)) eventDispatcher.pointer(target.on, event);
+			if (ownNodes.includes(target.id)) eventDispatcher.pointer(target.on, event);
 		});
 	}
 

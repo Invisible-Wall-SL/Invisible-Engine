@@ -627,7 +627,7 @@ for (const event of POINTER) {
 	eq(
 		'…and answers pointer events only for its own def’s nodes',
 		instanceSvelte.includes(
-			'if (ownNodes.has(target.id)) eventDispatcher.pointer(target.on, event);',
+			'if (ownNodes.includes(target.id)) eventDispatcher.pointer(target.on, event);',
 		),
 		true,
 	);
