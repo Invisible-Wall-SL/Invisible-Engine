@@ -42,7 +42,7 @@
    **Decision (2026-10-01): close the `templateId` gap with a `/flow-v2` template picker, not a migration. Nothing was migrated.** Since 2026-10-01 a NEW cluster/scatter/holdAndWin project starts on its own seed, but a project scaffolded before that (e.g. `hw-3pots-sample`) keeps its stored `templateId: 'bookOf'` flow and the Book-of palette. At runtime that costs nothing: the cascade events fall through to the coded handlers under either vocabulary, and the seeds own the same events. What the project lacks is palette access to the cascade surfaces. A one-shot rewrite would have to change `templateId` AND cut the Book-of-only chains (`setExpandingSymbol`, `expandBookColumns`, `specialBookHide`, the `specialBook` show) out of graphs authors may have edited. It could not tell a seeded beat from an authored one, and changing `templateId` alone makes those chains `ref-unresolved` errors, so Publish would refuse the project. The picker leaves the choice with the author, per project. It should list `TEMPLATE_VOCABULARIES`, preview how many nodes stop resolving under the target vocabulary (`validateFlowDoc`), and commit as ONE undoable edit through `undoHistory`. The Validation panel and the publish gate then catch whatever is left. It is not built yet because it needs undo and autosave wiring in `+page.svelte`. Before building it, run the read-only `apps/launcher-api/scripts/audit-flow-v2.ts` to count the cluster/scatter projects that still carry `bookOf`.
 10. **Flow gate follow-ups (2026-09-28).** (a) ✅ **Closed 2026-09-29 by published snapshots** — players now boot the snapshot Publish froze, and Publish re-validates the flow that snapshot actually ships (`checkShippedFlowV2`), so an invalid autosave reaches only authoring boots (`ie_authoring=1`), never players. See [game-maker.md](game-maker.md). (b) The desktop launcher (separate `invisible-launcher` repo) has no UI for the bake's `--allow-invalid-flow`; only `ALLOW_INVALID_FLOW=1` in its environment gets an invalid project through. (c) Library function bodies are not validated at publish (the editor does, in function view). (d) Admin **Rescaffold** of a flow-less legacy project stores the starter flow, which may not fit its older scenes — it can turn an `absent` (publishes with a note) into an `invalid` (refused); custom kinds are not covered by `check:flow-publish-gate`.
 
-12. **Rive plan Phase 7b** — the `/flow-v2` side of instance nodes: the palette lists every named placement under its screen, the node renders its derived pins (stale wires red), *Show in Flow* / *Edit component* jumps keep `?project=`, Flow Preview drives the editor stage. 7a's format and runtime are on this branch; `makeNode` already builds both kinds from a `<container>/<instance>` ref (`parseInstanceNodeRef`). Open from 7a: nothing renders a `text` input's value yet (owner decision: bind it to a same-named param?); a wait on an instance whose screen is shown but still mounting waits a 250 ms grace.
+12. ✅ ~~**Rive plan Phase 7b**~~ — **built 2026-10-13** (branch `claude/rive-p7b-flow-instance-nodes-editor`, off 7a): the Components palette, the instance node with stale pins drawn red, the inspector, the deep links and jumps, the re-projection on tab return, Flow Preview → the editor stage. ⏳ Browser-verify (owner, auth-gated) — see the 2026-10-13 7b entry below. Open from 7a: nothing renders a `text` input's value yet (owner decision: bind it to a same-named param?); a wait on an instance whose screen is shown but still mounting waits a 250 ms grace.
 11. **Undo/History follow-ups (2026-09-29).** The shared function LIBRARY
     (`_shared/flow-v2/functions.json`) has no server-side version history — only in-tab undo
     reaches it. Undo history is per tab and in memory (a reload starts fresh); History is the
@@ -55,6 +55,31 @@
 
 ## Recent changes
 
+- 2026-10-13 — **Flow instance nodes in the editors (Rive plan Phase 7b, branch
+  `claude/rive-p7b-flow-instance-nodes-editor`, off 7a).** `/flow-v2`: a **Components** palette
+  section (named placements per screen; a component node and a wait node each), the node's
+  caption and emerald header, stale wires drawn to red ⚠ placeholder pins (`stalePinsOf`) and as
+  red dashed edges, the inspector's placement summary / **◇ Edit component** link / wait layer +
+  state pickers (`setWaitForStateFields`), `?node=` and `?instance=` deep links, a re-read of the
+  projection on tab return (`GET /api/flow-v2/instances`), double-click → *Edit component*; the
+  Preview's **Drive the editor stage** tick posts the run's instance ops on
+  `$lib/flowStageBridge.ts`. `/editor`: **↗ Show in Flow** in Properties and in a new right-click
+  menu on a placed instance (rendered only while open), `EditorStateMachinePanel` plays the
+  bridge through its own `fire` / `setPreviewInput`. Every jump keeps `?project=`. Gate
+  `check:flow-instance-nodes-editor` (22). Guides: [flow.md](../tools/flow.md) "Components",
+  [invisible-editor.md](../tools/invisible-editor.md) "The Components side". **⏳ Owner browser
+  check:** (a) `/editor`: name a placed component, Properties → **↗ Show in Flow** → `/flow-v2`
+  opens with the project pinned and the placement lit under **Components**; drag it out, wire
+  `on‹Event›` to an action, `▸ trigger` from an event; (b) remove that event on the component,
+  Save, return to the Flow tab: the wire turns red and dashed to a ⚠ pin and Validation lists
+  `instance-pin-missing`; restore it: the wire heals; (c) double-click the node → *Edit
+  component* lands on the component in place, `?project=` kept; back in Flow, **↗ Show in Flow**
+  from the editor now selects the node; (d) right-click a placement on the stage: the menu shows,
+  Escape closes it, a right-drag still pans; (e) with the component's State machine ▶ Run in one
+  tab and Flow's Preview with **Drive the editor stage** ticked in another, **Run** on an event
+  that fires the trigger: the stage plays the state; (f) a **wait** node: pick layer + state in the
+  inspector; Validation errors on a state that does not exist; (g) Publish of a flow with a red
+  instance wire is refused, naming it.
 - 2026-10-13 — **Flow instance nodes: format, validator, runtime (Rive plan Phase 7a, branch
   `claude/rive-p7a-flow-instance-nodes-runtime`).** `engine-flow-v2`: node kinds
   `componentInstance` and `waitForState`, `instanceNodes.ts` (pin ids, `deriveInstancePins`,

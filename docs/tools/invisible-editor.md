@@ -908,8 +908,19 @@ stay open and keep autosaving while you are on the Components side.
 - **Double-click a placed component** on a screen's canvas to edit it in place. Double-click is off
   in Animate mode.
 - Select a placed instance and click **◇ Edit component in place** in Properties.
+- **Right-click a placed component** on the stage for the same **◇ Edit component in place** and
+  **↗ Show in Flow** (a right-*drag* still pans; Escape or a click closes the menu).
 - Select a container and click **◇ Edit as component** in Properties. It is saved as a new
   component and opened in place.
+
+**↗ Show in Flow** (Properties → *Component instance*, or the right-click menu) opens [Invisible
+Flow](./flow.md) on the node that names this placement — or, when no node does yet, with the
+placement lit in Flow's **Components** palette, ready to drag out. It needs the placement to have
+a **name**: Flow lists named placements only. The link keeps this tab's project pinned. Flow's own
+**◇ Edit component** (or a double-click on its node) comes back here, on that component, in place.
+A Flow Preview run with **Drive the editor stage** ticked plays its fired triggers and set inputs on
+this editor's State Machine panel when it is open on that component (Animate → State machine →
+▶ Run).
 - **◇ Open components** in the Library tab's Components panel.
 - The **Invisible Component Editor** card on the launcher home. It opens `/editor?view=components`.
 

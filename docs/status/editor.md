@@ -10,6 +10,8 @@ order. ⏳ Many render paths are code-verified only; the auth-gated canvas is ow
 
 ## Current state
 
+- **↗ Show in Flow** (Rive plan Phase 7b, 2026-10-13): a named placed component jumps to its Invisible Flow node (Properties → *Component instance*, or a right-click menu on the stage), project pinned; Flow's *Edit component* comes back in place; a Flow Preview run can drive the State Machine panel's stage (`$lib/flowStageBridge.ts`). Detail in [flow.md](flow.md) Recent changes (7b).
+
 Launcher-native, full-page WebGL/canvas layout editor at `/editor` (auth + `editor`-tool gated; SSR off, `load` runs server-side). Project-centric: loads the active project's `scenes.json`, asset library (atlases/spines/sheets/effects/clips), components (+ the project's component defaults), and its game-type template. Layout is written to R2 at `editor/<client>/<project>/scenes.json` on a debounced, ETag-conditional autosave; the engine fetches it at boot (`GET /api/editor/doc`) and renders it via `<LayoutScene>`, falling back to the checked-in `editor-scenes.ts` fixture.
 
 Shipped capabilities on `main`:

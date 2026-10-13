@@ -473,6 +473,34 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   text inputs, harvest, registry, the event road, the ship chain, source-scanned wiring),
   `check:flow-publish-gate` §14.
 
+**As built (Phase 7b, 2026-10-13 — the editors):**
+
+- **Palette:** a **Components** section lists every named placement under its screen
+  (`$lib/flowInstanceUi.ts` `paletteInstanceGroups`), each as a `componentInstance` and a
+  `waitForState` entry carrying `instanceNodeRef(container, instance)`; `makeNode` parses it.
+- **Node:** emerald header, the placement's name and `component v<pin>` (or ⚠ not placed / lost)
+  under it; a wire to a pin the interface no longer has is drawn to a red ⚠ placeholder pin
+  (`stalePinsOf`, so xyflow still has a handle) and the wire itself is red and dashed
+  (`buildEdges` marks every edge a validation issue sits on). The inspector names the placement,
+  links **◇ Edit component** (`editorHrefForComponent`, project pinned) and, on a wait, picks the
+  layer and state from the interface (`setWaitForStateFields`).
+- **Pins follow the component:** the page re-reads the projection (`GET /api/flow-v2/instances`,
+  same gate as the save) when its tab is shown again, so an edit in `/editor` updates the pins
+  and reddens stale wires without a reload (a response for another project is ignored).
+- **Jumps:** `?node=<id>` and `?instance=<placed node id>` deep links (`flowDeepLink`,
+  `nodeNamingInstance` across sections and groups; no node yet ⇒ the palette entry is lit and
+  its section opened). The Scene Editor's **↗ Show in Flow** (Properties, and a right-click menu
+  on the stage that is rendered only while open; a right-drag still pans) navigates with
+  `flowHrefForInstance(loadedProjectKey, nodeId)`; Flow's double-click (a confirm, then
+  `editorHrefForComponent`) comes back. Every link carries `?project=`.
+- **Preview drives the stage:** `$lib/flowStageBridge.ts` — one `BroadcastChannel` per project
+  (`ie-flow-stage:<project>`), a typed message (`fire` / `set` per component id). The Preview
+  panel's **Drive the editor stage** tick posts the run's instance ops; `EditorStateMachinePanel`
+  subscribes while on that component and plays each through its own `fire` / `setPreviewInput` —
+  the same runner and dispatcher as its Preview inputs. No `BroadcastChannel` ⇒ no bridge.
+- **Gate:** `check:flow-instance-nodes-editor` (the pure helpers, the bridge with a stub channel,
+  the node factory and wait setter, and the Svelte wiring source-scanned).
+
 ### 6.3 Why it stays safe
 
 - The pins are **derived** from the interface. Change the component and Flow's palette and
@@ -624,7 +652,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
-| 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) built 2026-10-13; 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) next | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
+| 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
