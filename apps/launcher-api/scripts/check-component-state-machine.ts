@@ -418,14 +418,19 @@ eq(
 		r.advance(0.1).fired.map((f) => f.transition),
 		['c_x'],
 	);
-	eq('exit ends the layer: it drives nothing', r.plays()[0], {
-		layer: 'main',
-		state: 'exit',
-		time: 0,
-		prevTime: 0,
-		wrapped: false,
-		entered: false,
-	});
+	eq(
+		'exit ends the layer: it drives nothing (the stretch it left is still reported once)',
+		r.plays()[0],
+		{
+			layer: 'main',
+			state: 'exit',
+			time: 0,
+			prevTime: 0,
+			wrapped: false,
+			entered: false,
+			left: [{ timeline: 'c_coin_win', prevTime: 0.1, time: 0.2, wrapped: false, entered: false }],
+		},
+	);
 	eq(
 		'…takes no transition and needs no tick',
 		[r.advance(0.1).fired.length, r.needsTick()],
@@ -777,6 +782,184 @@ eq(
 	eq('…without touching red’s playhead', r2(red.runner.plays()[0].time), 0.1);
 }
 
+{
+	// The cues a leaving state crossed on the tick it was left still fire: a one-shot whose
+	// `signal:done` sits at its very end, left by a "back to idle" transition on that frame.
+	const done = timeline('c_coin_done', { cues: [{ time: 1, cue: 'signal:done' }] });
+	const player = new L.ComponentTimelinePlayer([idle, done], nodes);
+	const r = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				states: [
+					{ id: 'idle', timeline: 'c_coin_idle', loop: true },
+					{ id: 'win', timeline: 'c_coin_done' },
+				],
+				transitions: [
+					{ id: 't', from: 'idle', to: 'win', conditions: [{ input: 'win', op: 'fired' }] },
+					{ id: 'back', from: 'win', to: 'idle', exitTime: 1 },
+				],
+			}),
+		),
+		inputs,
+		new Map([...durations, ['c_coin_done', 1]]),
+	);
+	const apply = (): { cue: string; timeline: string }[] =>
+		r.plays().flatMap((play, i) => player.drive(play.layer, i, play));
+	apply();
+	r.fire('win');
+	r.advance(0.1);
+	apply();
+	const cues: { cue: string; timeline: string }[] = [];
+	for (let i = 0; i < 12; i++) {
+		r.advance(0.1);
+		cues.push(...apply());
+	}
+	eq(
+		'…the cue at the end fires on the frame the transition leaves the state',
+		[cues, r.stateOf('main')],
+		[[{ cue: 'signal:done', timeline: 'c_coin_done' }], 'idle'],
+	);
+	// A fast state: the slot never seeks, so a big step still crosses its cues.
+	const fast = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				entry: 'win',
+				states: [{ id: 'win', timeline: 'c_coin_win', speed: 3 }],
+				transitions: [],
+			}),
+		),
+		inputs,
+		durations,
+	);
+	const fastPlayer = new L.ComponentTimelinePlayer([win], nodes);
+	fastPlayer.drive('main', 0, fast.plays()[0]);
+	fast.advance(0.1);
+	fast.advance(0.1);
+	eq(
+		'a speed-3 state at a 100 ms frame still fires the cue it crossed',
+		fastPlayer.drive('main', 0, fast.plays()[0]),
+		[{ cue: 'signal:half', timeline: 'c_coin_win' }],
+	);
+}
+{
+	// At rest: speed 0, a negative speed, a zero-duration timeline, NaN or negative dt.
+	const rest = (over: Partial<ReturnType<typeof layer>['states'][number]>, dur = 1) =>
+		new M.ComponentStateMachineRunner(
+			machine(
+				layer({
+					entry: 'win',
+					states: [{ id: 'win', timeline: 'c_coin_win', ...over }],
+					transitions: [],
+				}),
+			),
+			inputs,
+			new Map([['c_coin_win', dur]]),
+		);
+	for (const [name, r] of [
+		['speed 0', rest({ speed: 0 })],
+		['a negative speed', rest({ speed: -1, loop: true })],
+		['a zero-duration loop', rest({ loop: true }, 0)],
+	] as const) {
+		r.advance(0.1);
+		eq(
+			`${name} is at rest: nothing plays, no tick is needed`,
+			[r.isPlaying(), r.needsTick(), r.plays()[0].time],
+			[false, false, 0],
+		);
+	}
+	const r = rest({});
+	r.advance(Number.NaN);
+	r.advance(-1);
+	eq('a NaN or negative dt moves nothing', r.plays()[0].time, 0);
+}
+{
+	// Interrupting a blend leaves from the pose on screen, not from the previous timeline alone.
+	const a = timeline('c_coin_a', { channels: { alpha: [{ time: 0, value: 0 }] } });
+	const b = timeline('c_coin_b', { channels: { alpha: [{ time: 0, value: 1 }] } });
+	const c = timeline('c_coin_c', { channels: { alpha: [{ time: 0, value: 1 }] } });
+	const player = new L.ComponentTimelinePlayer([a, b, c], nodes);
+	const r = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				entry: 'a',
+				states: [
+					{ id: 'a', timeline: 'c_coin_a' },
+					{ id: 'b', timeline: 'c_coin_b' },
+					{ id: 'c', timeline: 'c_coin_c' },
+				],
+				transitions: [
+					{ id: 'ab', from: 'a', to: 'b', conditions: [{ input: 'win', op: 'fired' }], blend: 200 },
+					{ id: 'bc', from: 'b', to: 'c', conditions: [{ input: 'big', op: '==' }], blend: 1000 },
+				],
+			}),
+		),
+		inputs,
+		new Map([
+			['c_coin_a', 1],
+			['c_coin_b', 1],
+			['c_coin_c', 1],
+		]),
+	);
+	const apply = (): void => void r.plays().forEach((play, i) => player.drive(play.layer, i, play));
+	apply();
+	r.fire('win');
+	r.advance(0.1);
+	apply();
+	r.advance(0.1);
+	apply();
+	eq('half way through a → b the pose is the mix', r2(player.sample('n_coin')?.alpha), 0.5);
+	r.setInput('big', true);
+	r.advance(0.001);
+	apply();
+	eq(
+		'interrupted by b → c, the first frame leaves from that mix (no jump to 1)',
+		r2(player.sample('n_coin')?.alpha),
+		0.5,
+	);
+	for (let i = 0; i < 10; i++) r.advance(0.1);
+	apply();
+	eq('…and arrives at c', player.sample('n_coin')?.alpha, 1);
+}
+{
+	// A state timeline reused from another component keeps its playOn there, not here.
+	const foreign = {
+		...timeline('c_gem_pop', { playOn: 'enter' }),
+		host: { kind: 'component', componentId: 'gem' },
+	} as CinematicDoc;
+	L.registerComponentTimelines([timeline('c_coin_pop', { playOn: 'enter' }), idle, foreign]);
+	const bound = L.instanceTimelineDocs(
+		'coin',
+		machine(
+			layer({
+				states: [
+					{ id: 'idle', timeline: 'c_coin_idle' },
+					{ id: 'win', timeline: 'c_gem_pop' },
+				],
+			}),
+		),
+	);
+	eq(
+		'an instance binds its playOn timelines, then the state timelines it lacks — the foreign one without its playOn',
+		bound.docs.map((d) => [d.id, d.playOn ?? null]),
+		[
+			['c_coin_pop', 'enter'],
+			['c_coin_idle', null],
+			['c_gem_pop', null],
+		],
+	);
+	eq(
+		'…so the player never plays it as a free timeline on that signal',
+		new L.ComponentTimelinePlayer(bound.docs, nodes).signals(),
+		['enter'],
+	);
+	eq(
+		'…and the runner gets every state timeline’s duration',
+		[...bound.durations.keys()],
+		['c_coin_idle', 'c_gem_pop'],
+	);
+	L.registerComponentTimelines([]);
+}
+
 // ---- 4. validation -----------------------------------------------------------------------------
 
 {
@@ -857,6 +1040,17 @@ eq(
 		[],
 	);
 	eq(
+		'a duplicate layer id and a speed that is not above 0',
+		codes({
+			inputs,
+			stateMachine: machine(
+				layer(),
+				layer({ states: [{ id: 'idle', timeline: 'c_coin_idle', speed: 0 }], transitions: [] }),
+			),
+		}),
+		['error:layer-duplicate', 'error:state-speed-invalid'],
+	);
+	eq(
 		'a signal-only def is a valid input source for conditions',
 		codes({ signals: [{ key: 'win' }], stateMachine: machine(layer()) }),
 		[],
@@ -898,7 +1092,7 @@ eq(
 );
 eq('no state machine ⇒ no timelines to bind', L.stateMachineTimelines(undefined), {
 	docs: [],
-	durations: {},
+	durations: new Map(),
 });
 eq(
 	'a state machine resolves its timelines by id, missing ones absent',
@@ -984,6 +1178,37 @@ eq(
 		saved.stateMachine?.layers[0].transitions.map((t) => t.id),
 		['t_win', 't_back'],
 	);
+	{
+		const twice = normalizeComponent({
+			id: 'c',
+			name: 'c',
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'r', kind: 'container', x: 0, y: 0, children: [] },
+			stateMachine: machine(
+				layer({
+					states: [
+						{ id: 'idle', timeline: 'c_coin_idle', speed: 0 },
+						{ id: 'win', timeline: 'c_coin_win', speed: 2 },
+					],
+					transitions: [{ id: 'x', from: 'idle', to: 'exit', blend: 100 }],
+				}),
+				layer(),
+			),
+		} as unknown as ComponentDef).stateMachine;
+		eq('a second layer with the same id is dropped', twice?.layers.length, 1);
+		eq(
+			'a speed not above 0 is dropped, a valid one kept',
+			twice?.layers[0].states.map((st) => st.speed ?? null),
+			[null, 2],
+		);
+		eq('a blend on a transition to exit is dropped', twice?.layers[0].transitions[0], {
+			id: 'x',
+			from: 'idle',
+			to: 'exit',
+		});
+	}
 	eq(
 		'a value of the wrong type is malformed too',
 		normalizeComponent({

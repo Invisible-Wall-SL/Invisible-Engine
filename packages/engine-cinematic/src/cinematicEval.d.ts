@@ -62,7 +62,13 @@ export function evaluateActor(
 ): void;
 
 /** Cue keys crossed moving from `prev` to `next` (edge-triggered; empty when scrubbing back). */
-export function cuesCrossed<T extends { time: number }>(keys: T[], prev: number, next: number): T[];
+/** The keys in `(prev, next]`; a step over `maxStep` seconds reads as a seek and crosses none. */
+export function cuesCrossed<T extends { time: number }>(
+	keys: T[],
+	prev: number,
+	next: number,
+	maxStep?: number,
+): T[];
 
 /** Expand a bone mask to the full set of bone names it covers (the named bones + descendants). */
 export function expandBoneMask(
