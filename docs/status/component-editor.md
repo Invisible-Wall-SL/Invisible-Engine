@@ -39,6 +39,16 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-13 — **Component saves keep the fields they do not know** (owner decision; branch
+  `claude/component-save-keeps-unknown-fields`). An older launcher no longer erases a newer one's
+  fields from R2. `saveComponent` keeps the stored def's unknown top-level fields and, matched by
+  id, the unknown fields of every node (root included), param, signal and slot the author kept. A
+  deleted entity is never resurrected. The same applies to the version snapshot, promote to shared
+  (from the promoted project def, via `promotedFrom` + `sourceEtag`), "This game's defaults" and
+  its restore (the backup's fields). Known fields come from `engine-layout`'s `componentFields.ts`.
+  Rules and reasoning: [doc-readers](../conventions/doc-readers.md) "Round-tripping". Gate:
+  `check:save-keeps-unknown-blocks` gains a components section (96 checks in all). **Pending:** 5a's
+  `inputs` and state-machine entities, and keeping a `text` input row, once #1183 is on `main`.
 - 2026-10-13 — **Component timelines (Rive plan Phase 4b, branch `claude/rive-p4b-component-timelines`
   stacked on 4a).** Design | Animate on an open component; the shared Timeline panel with a
   component host, **Plays on** (`playOn`), **Also on** (`playOnComponents`) and a validation pill.

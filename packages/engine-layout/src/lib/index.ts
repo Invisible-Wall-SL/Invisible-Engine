@@ -77,6 +77,7 @@ export * from './hudText';
 export * from './registerBoundComponents';
 export * from './registerComponents';
 export * from './componentTimelines';
+export * from './componentFields';
 export * from './registerEffects';
 export * from './rigBeat';
 export * from './registerRigFx';

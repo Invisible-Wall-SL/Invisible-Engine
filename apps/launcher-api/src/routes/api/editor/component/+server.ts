@@ -8,6 +8,7 @@ import {
 	loadComponent,
 	loadComponentWithEtag,
 	saveComponent,
+	type PromoteSource,
 } from '$lib/server/componentStorage';
 import { ConflictError } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -88,8 +89,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	// of "overwrite what's there now". A non-force save now MUST carry `baseEtag` (string or
 	// null) or it is a 400 — the fail-open is closed (Phase 1).
 	const baseEtag = writeBaseEtagJson(body);
+	const promotedFrom = await promoteSource(user, body);
 	try {
-		const { version, etag } = await saveComponent(body as ComponentDef, projectKey, baseEtag);
+		const { version, etag } = await saveComponent(body as ComponentDef, projectKey, baseEtag, {
+			promotedFrom,
+		});
 		return json({ ok: true, version, etag });
 	} catch (e) {
 		// Conflict before the generic 400 — a lost CAS is not a malformed component.
@@ -196,6 +200,23 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
 	}
 	return json({ ok: true });
 };
+
+/**
+ * The project def a promote-to-shared copies (`promotedFrom` + `sourceEtag`, the ETag the draft
+ * was loaded at), so the shared copy keeps the fields that def holds and this build does not know
+ * — not the replaced shared copy's. Access to that project is checked like `project`. Absent on a
+ * plain shared save, and on a draft never saved to its project.
+ */
+async function promoteSource(
+	user: NonNullable<App.Locals['user']>,
+	body: unknown,
+): Promise<PromoteSource | undefined> {
+	if (!isRecord(body) || body.scope !== 'shared') return undefined;
+	if (typeof body.promotedFrom !== 'string' || typeof body.sourceEtag !== 'string')
+		return undefined;
+	const projectKey = await requireOptionalProjectKey(user, body.promotedFrom);
+	return projectKey ? { projectKey, baseEtag: body.sourceEtag } : undefined;
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
 	return typeof v === 'object' && v !== null && !Array.isArray(v);

@@ -1243,7 +1243,13 @@
 		try {
 			// A shared write carries no `project` and a `scope:'shared'` def, so the API
 			// routes it to `_shared/editor-components/` behind the `componentPublish` gate.
-			const body = { ...$state.snapshot(componentDraft), scope: 'shared' };
+			// The project def this copies, at the ETag the draft was loaded from: the shared copy keeps
+			// the fields that def holds and this build does not know (it never received them).
+			const source =
+				componentDraft.scope === 'project' && saveState.etag !== null
+					? { promotedFrom: data.projectKey, sourceEtag: saveState.etag }
+					: {};
+			const body = { ...$state.snapshot(componentDraft), ...source, scope: 'shared' };
 			// Resolve the SHARED key's current etag (this project draft never loaded it) so the
 			// promote CASes against the global key rather than writing unconditionally. `id` with
 			// no `project`/`version` returns `{ def, etag }` for the shared/built-in layer; a 404

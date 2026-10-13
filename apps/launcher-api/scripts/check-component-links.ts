@@ -233,8 +233,11 @@ const UNPINNED_WRITES: { file: string; call: string; context?: RegExp; why: stri
 	{
 		file: 'ComponentWorkspace.svelte',
 		call: "fetch('/api/editor/component', {",
-		context: /const body = \{ \.\.\.\$state\.snapshot\(componentDraft\), scope: 'shared' \}/,
-		why: 'the promote to the shared library has no project (componentPublish-gated)',
+		context:
+			/const body = \{ \.\.\.\$state\.snapshot\(componentDraft\), \.\.\.source, scope: 'shared' \}/,
+		why:
+			'the promote to the shared library has no project (componentPublish-gated); its ' +
+			'`promotedFrom` names the project def it copies, read for its unknown fields only',
 	},
 ];
 /** Code only: line, block and HTML comments removed, never inside a string (a glob, a URL). */

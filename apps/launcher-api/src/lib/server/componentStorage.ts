@@ -26,8 +26,10 @@ import {
 	UNASSIGNED_CLIENT,
 } from './projectPaths';
 import { foreignRigRefs } from '$lib/rigBundleKey';
+import { withUnknownComponentFields } from './componentUnknownFields';
 import { projectClientKey } from './projects';
 import { loadSharedSkeletonIndex } from './rig';
+import { loadedStoredDoc } from './unknownBlocks';
 import {
 	ConflictError,
 	deleteObject,
@@ -201,12 +203,16 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
  */
 async function readComponentForWrite(
 	key: string,
-): Promise<{ def: ComponentDef | undefined; etag: string | null }> {
+): Promise<{ def: ComponentDef | undefined; etag: string | null; stored?: unknown }> {
 	const obj = await getObjectTextWithEtag(key);
 	if (!obj) return { def: undefined, etag: null };
 	try {
 		const parsed: unknown = JSON.parse(obj.text);
-		if (isComponentShape(parsed)) return { def: normalizeComponent(parsed), etag: obj.etag };
+		if (isComponentShape(parsed)) {
+			// The parsed bytes, before `normalizeComponent` rebuilds them (and mutates their nodes).
+			const stored = structuredClone(parsed);
+			return { def: normalizeComponent(parsed), etag: obj.etag, stored };
+		}
 	} catch {
 		return { def: undefined, etag: obj.etag };
 	}
@@ -352,6 +358,7 @@ export async function saveComponent(
 	component: ComponentDef,
 	projectKey?: string,
 	baseEtag?: string | null,
+	{ promotedFrom }: { promotedFrom?: PromoteSource } = {},
 ): Promise<{ version: number; etag: string | null }> {
 	let normalized: ComponentDef;
 	try {
@@ -380,7 +387,7 @@ export async function saveComponent(
 	const key = isProject
 		? projectComponentKey(projectKey as string, normalized.id)
 		: editorComponentKey(normalized.id);
-	const { def: existing, etag: existingEtag } = await readComponentForWrite(key);
+	const { def: existing, etag: existingEtag, stored } = await readComponentForWrite(key);
 	// CHECK BEFORE WRITING ANYTHING. The snapshot is written first and is immutable, so
 	// discovering a lost CAS at the LATEST pointer (the second write) would already have
 	// left an orphan `<id>.v<N+1>.json` behind — and every later save would then compute
@@ -388,7 +395,24 @@ export async function saveComponent(
 	// An in-process compare makes the ordinary conflict path write nothing at all.
 	if (baseEtag !== undefined && baseEtag !== existingEtag) throw new ConflictError(key);
 
-	const toWrite = reconcileVersion(normalized, existing);
+	const merged = withUnknownComponentFields(
+		normalized,
+		promotedFrom
+			? await loadedStoredDoc(
+					projectComponentKey(promotedFrom.projectKey, normalized.id),
+					promotedFrom.baseEtag,
+				)
+			: typeof baseEtag === 'string'
+				? stored
+				: undefined,
+	);
+	// The version is decided on what this build can see: a no-op save from an older launcher must
+	// not bump because the stored bytes carry fields its normalized draft lacks.
+	const { version } = reconcileVersion(
+		merged === normalized ? normalized : normalizeComponent(structuredClone(merged)),
+		existing,
+	);
+	const toWrite = version === merged.version ? merged : { ...merged, version };
 	const body = JSON.stringify(toWrite, null, 2);
 	// Snapshot first (immutable history), latest pointer last — so a failed snapshot
 	// write never advances the latest pointer past a version that has no snapshot.
@@ -407,6 +431,15 @@ export async function saveComponent(
 		precondition(baseEtag === undefined ? existingEtag : baseEtag),
 	);
 	return { version: toWrite.version, etag };
+}
+
+/**
+ * The project def a promote-to-shared copies, as the author loaded it: the stored bytes whose
+ * unknown fields the shared copy keeps (`docs/conventions/doc-readers.md`, "Round-tripping").
+ */
+export interface PromoteSource {
+	projectKey: string;
+	baseEtag: string;
 }
 
 /**

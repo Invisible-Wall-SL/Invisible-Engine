@@ -202,6 +202,55 @@ the save guard for every field in the table above.
   - **Symbols drops nested unknown keys**, because a graft could resurrect an entity the author
     deleted (a symbol, a state, a layer) along with what it held. They are recoverable from
     `/api/editor/symbols/backups`, which keeps the raw replaced bytes.
+  - **Components keep unknown fields at the top level and inside every entity the author kept**
+    (owner decision 2026-10-13; `withUnknownComponentFields` in
+    `apps/launcher-api/src/lib/server/componentUnknownFields.ts`). A component has no backups, and
+    the next phases of `docs/design/rive-style-editor.md` add fields to the def, its nodes and its
+    rows. What `saveComponent` keeps from the stored def:
+    - every top-level field the def does not declare;
+    - inside each ENTITY, matched to its stored copy by id, the fields it does not declare: a node
+      anywhere under `root` (the root included; matched by `id`, so a node moved to another parent
+      keeps them), a param or signal (by `key`), a slot (by `slotId`). 5a's `inputs` and
+      state-machine layers, states and transitions join this list when they land.
+
+    "Does not declare" means not a key of the engine-layout TYPE (`componentFields.ts`, written as
+    `Record<keyof …, true>` so `pnpm check:svelte` fails in both directions when a type and its set
+    drift). It does not mean "not kept by the normalizer". So a known field the author cleared
+    (`rotation`, `standsFor`, `slots`) is never put back, and a known field the normalizer drops
+    (`capability`) is not kept either.
+
+    **Matching by id is what makes the nested graft safe.** Symbols refuses nested keys because a
+    graft could resurrect a deleted entity. Here an entity whose id is gone from the save was
+    deleted, so nothing of it comes back, and a new entity never takes a deleted one's fields. The
+    same goes for an entity inside a known block the author cleared: deleting every slot deletes
+    their unknown fields too. They are entities the author saw and removed, unlike a win-text
+    family, which is a fixed namespace. For a component, the fixed namespace is the def itself, so
+    its top-level fields are always kept. A fixed-namespace block (5a's `stateMachine`) will get
+    the win-text family treatment.
+
+    The graft goes one level into each entity. The fields inside a known field (a node's
+    `overrides`, `preview`, `bind`) are not walked. A child node's fields are never dropped by a
+    READ: the normalizer passes `root.children` through, so the tab normally posts them back
+    itself. For nodes, the graft fills only what the posted node lacks, and a posted value stands.
+    A NEWER tab's edit of a child node field therefore lands, unlike its edit of a top-level or row
+    field, which the normalizer drops in favour of the stored copy.
+
+    Conditions are those of symbols: an `If-Match` save whose `baseEtag` is the stored ETag. The
+    save's own read is the graft source, so this costs no extra GET. Nothing is kept for a create,
+    a forced save, or unparseable bytes. The version bump is decided on what this build can see,
+    so a no-op save from an older launcher does not bump. The `<id>.v<N>.json` snapshot is the
+    merged doc. A known-only def saves byte-identically, and every built-in does too (gate).
+
+    **Promote to shared keeps the PROMOTED project def's unknown fields**, not the replaced shared
+    copy's: the client sends `promotedFrom` (the project) and `sourceEtag` (the ETag its draft
+    loaded). They are kept for **Promote on top** too, since `force` is about the target. They are
+    not kept when the project def was saved since the draft loaded. A plain shared save keeps the
+    shared copy's own fields.
+
+    **"This game's defaults"** (`saveComponentDefaults`) keeps top-level fields beside
+    `id`/`params` under the same `If-Match` conditions, at the cost of one extra GET. A restore
+    keeps the BACKUP's fields, not the live sidecar's. `params` is an open map, written as posted.
+
   - **A NEWER tab saving to an older server** keeps the stored copy of an unknown block or family
     field, not the tab's edit of it: the server drops the posted value and copies the stored one.
   - **Retiring a field** is now a deliberate act. A top-level key (or win-text family field)
@@ -210,6 +259,18 @@ the save guard for every field in the table above.
   - **The graft is added after the save's `'reject'` normalize** and is never normalized itself,
     so a newer enum value inside a kept block cannot make every save answer 400.
   - The graft only helps after a rollback to a build that contains it.
+
+  **A component row a read DROPPED over an unknown value.** A param of an unknown `kind` is
+  dropped by the read, and with it every node binding that names it (`pruneOrphanParamBindings`).
+  It is NOT kept: putting the row back without its bindings would store an unbound param that no
+  author made. The previous `<id>.v<N>.json` snapshot still holds both, because a changed save
+  bumps the version. **A Phase 7 `text` INPUT is the opposite, and its row is kept.** The read
+  drops it, and the save puts the stored row back by id, in its stored position. Two facts justify
+  that. First, conditions name inputs by id and are not pruned when an input is missing, so the
+  row alone restores a working interface, as a sound keeps its entry. Second, an older build can
+  tell the row was never shown (its kind is unknown here), so its absence from the save is not a
+  deletion. That rule ships with 5a's entity graft. Like every graft, a kept row is never
+  re-normalized, so a newer value inside it cannot make a save answer 400.
 
   **A known block a read DROPPED over an unknown value is NOT kept.** That covers a cell, layer,
   stacked symbol or override block (`transition`, `highlight`). It is not an unknown key, and

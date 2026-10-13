@@ -47,7 +47,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
  * Restore a backup over the live sidecar. Body: `{ id, baseEtag: string | null }` (or
  * `{ id, force: true }`). Goes through `saveComponentDefaults` with `'always'`, so it keeps the
  * ETag CAS (a stale tab answers 409) and backs up what it replaces. The stored envelope is
- * `{ id, params }`; only `params` is restored, under the component the REQUEST names.
+ * `{ id, params }`; `params` is restored under the component the REQUEST names, with the
+ * backup's own unknown top-level fields (a newer build's), not the live sidecar's.
  */
 export const POST: RequestHandler = async ({ request, url, locals }) => {
 	const user = await requireEditorAccess(locals);
@@ -68,6 +69,7 @@ export const POST: RequestHandler = async ({ request, url, locals }) => {
 			params,
 			baseEtag,
 			'always',
+			{ unknownFrom: restored },
 		);
 		return json({ ok: true, id, etag, params });
 	} catch (e) {
