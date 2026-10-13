@@ -24,6 +24,7 @@ import {
 	BUILTIN_COMPONENTS,
 	COMPONENT_INPUT_KINDS,
 	COMPONENT_PARAM_KINDS,
+	isPayloadKey,
 	LISTENER_ACTION_KINDS,
 	mergeBuiltinCodedParams,
 	NODE_LISTENER_EVENTS,
@@ -83,7 +84,15 @@ const CONDITION_OPS = new Set<SmCondition['op']>(SM_CONDITION_OPS);
 const LISTENER_EVENTS = new Set<string>(NODE_LISTENER_EVENTS);
 const ACTION_KINDS = new Set<string>(LISTENER_ACTION_KINDS);
 /** The payload field types a raise can fill: numbers, bools and localization keys (plan §8). */
-const PAYLOAD_TYPES = new Set(['int', 'float', 'ms', 'bool', 'string']);
+type PayloadType = 'int' | 'float' | 'ms' | 'bool' | 'string';
+const PAYLOAD_TYPES = new Set<unknown>([
+	'int',
+	'float',
+	'ms',
+	'bool',
+	'string',
+] satisfies PayloadType[]);
+const isPayloadType = (t: unknown): t is PayloadType => PAYLOAD_TYPES.has(t);
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
@@ -969,11 +978,11 @@ function normalizeEvents(input: unknown): ComponentEvent[] {
 		const names = new Set<string>();
 		for (const f of Array.isArray(item.payload) ? item.payload : []) {
 			if (!isRecord(f) || typeof f.name !== 'string' || !f.name || names.has(f.name)) continue;
-			if (!isRecord(f.type) || !PAYLOAD_TYPES.has(f.type.t as string)) continue;
+			if (!isRecord(f.type) || !isPayloadType(f.type.t)) continue;
 			names.add(f.name);
 			const field: (typeof payload)[number] = {
 				name: f.name,
-				type: { t: f.type.t } as (typeof payload)[number]['type'],
+				type: { t: f.type.t },
 			};
 			if (typeof f.description === 'string' && f.description) field.description = f.description;
 			if (f.optional === true) field.optional = true;
@@ -989,7 +998,8 @@ function normalizeEvents(input: unknown): ComponentEvent[] {
 /**
  * A listener's or a state's action, or `undefined` when this build cannot read it — an unknown
  * kind, a missing input or event, a payload value that is not a number, a bool, `{ input }` or
- * `{ key }`. The caller drops the whole row: keeping part of it would widen what it does.
+ * `{ key }` with a localization key's shape (`isPayloadKey` — a sentence is not a key). The caller
+ * drops the whole row: keeping part of it would widen what it does.
  */
 function normalizeAction(input: unknown): ListenerAction | undefined {
 	if (!isRecord(input) || !ACTION_KINDS.has(input.kind as string)) return undefined;
@@ -1003,7 +1013,7 @@ function normalizeAction(input: unknown): ListenerAction | undefined {
 				if (typeof v === 'boolean' || finite(v)) payload[name] = v;
 				else if (isRecord(v) && typeof v.input === 'string' && v.input)
 					payload[name] = { input: v.input };
-				else if (isRecord(v) && typeof v.key === 'string' && v.key) payload[name] = { key: v.key };
+				else if (isRecord(v) && isPayloadKey(v.key)) payload[name] = { key: v.key };
 				else return undefined;
 			}
 			if (Object.keys(payload).length) action.payload = payload;

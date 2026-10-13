@@ -56,6 +56,15 @@ export function raiseComponentEvent(raised: RaisedComponentEvent): void {
 	getFlowPress()?.(raised.instanceId, raised.event, payload, 'event')?.();
 }
 
+/**
+ * The shape a payload's localization key must have: no spaces, so a sentence cannot pass as a key
+ * (plan §8). The normalizer drops a raise whose key fails it; the runtime never sends one.
+ */
+export const PAYLOAD_KEY_PATTERN = /^[A-Za-z0-9_.:-]{1,128}$/;
+
+export const isPayloadKey = (key: unknown): key is string =>
+	typeof key === 'string' && PAYLOAD_KEY_PATTERN.test(key);
+
 /** The event id an `event:<id>` cue raises; `undefined` for any other cue. */
 export function eventCueId(cue: string): string | undefined {
 	if (!cue.startsWith(EVENT_CUE_PREFIX)) return undefined;
@@ -173,11 +182,16 @@ export class ComponentEventDispatcher {
 	}
 
 	private raise(action: RaiseEventAction, origin: ComponentEventOrigin): void {
-		if (!this.events.has(action.event)) return;
+		const event = this.events.get(action.event);
+		if (!event) return;
+		// Only the fields the event declares, each with a value its type takes (validation reports
+		// the rest): Flow never receives a field it has no pin for.
 		const payload: Record<string, number | boolean | string> = {};
-		for (const [field, value] of Object.entries(action.payload ?? {})) {
+		for (const field of event.payload ?? []) {
+			const value = action.payload?.[field.name];
+			if (value === undefined || !fits(field.type?.t, valueType(value, this.kinds))) continue;
 			const resolved = this.payloadValue(value);
-			if (resolved !== undefined) payload[field] = resolved;
+			if (resolved !== undefined) payload[field.name] = resolved;
 		}
 		(this.host.raise ?? raiseComponentEvent)({
 			instanceId: this.host.instanceId,
@@ -194,7 +208,7 @@ export class ComponentEventDispatcher {
 			const kind = this.kinds.get(value.input);
 			return kind === 'bool' || kind === 'number' ? this.inputValue(value.input) : undefined;
 		}
-		return typeof value.key === 'string' && value.key ? value.key : undefined;
+		return isPayloadKey(value.key) ? value.key : undefined;
 	}
 }
 
@@ -215,6 +229,7 @@ export type ComponentEventIssueCode =
 	| 'raise-payload-unknown'
 	| 'raise-payload-type'
 	| 'raise-payload-input'
+	| 'raise-payload-key'
 	| 'raise-payload-missing';
 
 export interface ComponentEventIssue {
@@ -250,8 +265,15 @@ const valueType = (
 	return 'string';
 };
 
-const fits = (type: string, value: 'number' | 'bool' | 'string'): boolean =>
-	value === 'number' ? type === 'int' || type === 'float' || type === 'ms' : type === value;
+const fits = (
+	type: string | undefined,
+	value: 'number' | 'bool' | 'string' | undefined,
+): boolean =>
+	value === undefined
+		? false
+		: value === 'number'
+			? type === 'int' || type === 'float' || type === 'ms'
+			: type === value;
 
 /**
  * Everything the editor shows and the gate asserts about a def's events and listeners: a duplicate
@@ -352,6 +374,16 @@ export function validateComponentEvents(
 					event: action.event,
 					input: value.input,
 					message: `${where(at)} fills "${name}" from input "${value.input}", which is not a bool or number input.`,
+				});
+				continue;
+			}
+			if (typeof value === 'object' && 'key' in value && !isPayloadKey(value.key)) {
+				issues.push({
+					...at,
+					code: 'raise-payload-key',
+					level: 'error',
+					event: action.event,
+					message: `${where(at)} fills "${name}" with ${JSON.stringify(value.key)}, which is not a localization key (letters, digits, _ . : - and no spaces).`,
 				});
 				continue;
 			}

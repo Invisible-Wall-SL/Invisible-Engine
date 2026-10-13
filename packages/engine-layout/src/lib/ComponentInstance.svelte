@@ -729,8 +729,16 @@
 					setInput: (id, value) => void stateMachineRunner?.setInput(id, value),
 				})
 			: undefined;
-	if (eventDispatcher && listened) {
-		setComponentListen((listeners, event) => eventDispatcher.pointer(listeners, event));
+	if (eventDispatcher && listened && def) {
+		const ownNodes = new Set<string>();
+		const walk = (n: LayoutNode): void => {
+			ownNodes.add(n.id);
+			if (n.kind === 'container') for (const child of n.children) walk(child);
+		};
+		walk(def.root);
+		setComponentListen((target, event) => {
+			if (ownNodes.has(target.id)) eventDispatcher.pointer(target.on, event);
+		});
 	}
 
 	// Component TIMELINES (Rive plan Phase 4): the def's timelines (`host: {kind:'component'}`,
@@ -885,8 +893,9 @@
 		const sep = cue.indexOf(':');
 		const ns = sep > 0 ? cue.slice(0, sep) : '';
 		const name = sep > 0 ? cue.slice(sep + 1) : cue;
-		// `event:<id>` raises one of the def's events (Phase 6) and is never broadcast.
-		if (ns === 'event') {
+		// `event:<id>` raises one of the def's events (Phase 6) and is never broadcast. A def that
+		// declares none keeps the cue's old meaning (broadcast by its bare name, below).
+		if (ns === 'event' && def?.events?.length) {
 			eventDispatcher?.cue(cue);
 			return;
 		}
@@ -917,7 +926,12 @@
 	const startStateMachine = (): void => {
 		stateMachineStarted = true;
 		applyStateMachine();
-		if (stateMachineRunner) eventDispatcher?.started(stateMachineRunner.plays());
+		// The entry states' `onEnter`, raised after this frame's work: starting can happen while the
+		// instance is still being created, and a Flow chain must not show or hide screens mid-mount.
+		if (stateMachineRunner && eventDispatcher) {
+			const entered = stateMachineRunner.plays();
+			queueMicrotask(() => eventDispatcher.started(entered));
+		}
 	};
 	if (stateMachineRunner && untrack(() => selfVisible)) startStateMachine();
 	const timelineTicker =

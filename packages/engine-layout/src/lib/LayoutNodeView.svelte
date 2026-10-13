@@ -104,7 +104,8 @@
 	// Listeners (Rive plan Phase 6): pointer events on this node act on its owning instance. Only a
 	// node that carries `on` reads the context, so every other node is untouched (parity).
 	const listen = node.on?.length ? getComponentListen() : undefined;
-	// A hover-only node keeps the default cursor; one that answers a press shows the hand.
+	// A hover-only node keeps the default cursor; one that answers a press shows the hand. `up` fires
+	// over the node only (as Rive's does): a release outside it is a `leave`, never an `up`.
 	const listenerCursor = node.on?.some((l) => l.event !== 'enter' && l.event !== 'leave')
 		? 'pointer'
 		: undefined;
@@ -1590,17 +1591,16 @@
 	container) still fires — events bubble to the wrapper too. No listeners, or no instance to
 	route them to, ⇒ the node renders bare, byte-identical (parity).
 -->
-{#if listen && node.on}
-	{@const listeners = node.on}
+{#if listen}
 	<Container
 		eventMode="static"
 		cursor={listenerCursor}
 		zIndex={transform.zIndex}
-		onpointerdown={() => listen(listeners, 'down')}
-		onpointerup={() => listen(listeners, 'up')}
-		onpointerenter={() => listen(listeners, 'enter')}
-		onpointerleave={() => listen(listeners, 'leave')}
-		onpointertap={() => listen(listeners, 'click')}
+		onpointerdown={() => listen(node, 'down')}
+		onpointerup={() => listen(node, 'up')}
+		onpointerenter={() => listen(node, 'enter')}
+		onpointerleave={() => listen(node, 'leave')}
+		onpointertap={() => listen(node, 'click')}
 	>
 		{@render nodeBody()}
 	</Container>

@@ -389,14 +389,14 @@ for (const event of POINTER) {
 	]) {
 		eq(
 			`LayoutNodeView binds ${pixi} to the "${ours}" listeners (the map above)`,
-			view.includes(`${pixi}={() => listen(listeners, '${ours}')}`),
+			view.includes(`${pixi}={() => listen(node, '${ours}')}`),
 			true,
 		);
 	}
 	eq(
 		'LayoutNodeView wraps only a listening node, static, sorted by its zIndex',
 		[
-			/\{#if listen && node\.on\}\s*\{@const listeners = node\.on\}\s*<Container\s+eventMode="static"\s+cursor=\{listenerCursor\}\s+zIndex=\{transform\.zIndex\}/.test(
+			/\{#if listen\}\s*<Container\s+eventMode="static"\s+cursor=\{listenerCursor\}\s+zIndex=\{transform\.zIndex\}/.test(
 				view,
 			),
 			/\{:else\}\s*\{@render nodeBody\(\)\}\s*\{\/if\}\s*$/.test(view),
@@ -466,6 +466,28 @@ for (const event of POINTER) {
 		},
 	]);
 	eq('…and runs the handler the road returns (Flow owns it)', ran, ['coin_7.pressed']);
+	road.length = 0;
+	dispatcher.pointer(
+		[
+			listener('l', 'click', {
+				kind: 'raise',
+				event: 'pressed',
+				payload: {
+					amount: { key: 'not.a.number' },
+					lit: 1,
+					label: { key: 'You won 500 coins!' },
+					extra: 4,
+				},
+			}),
+		],
+		'click',
+	);
+	eq(
+		'a value that does not fit its field, free text as a key and an undeclared field never leave',
+		road,
+		[{ instanceId: 'coin_7', action: 'pressed', payload: undefined, kind: 'event' }],
+	);
+	road.length = 0;
 
 	road.length = 0;
 	dispatcher.started(runner.plays());
@@ -475,19 +497,19 @@ for (const event of POINTER) {
 	eq('a transition into a state raises its onEnter, payload-less', road, [
 		{ instanceId: 'coin_7', action: 'winShown', payload: undefined, kind: 'event' },
 	]);
-	eq('…nobody owns it: the road returns nothing, nothing runs', ran, ['coin_7.pressed']);
+	eq('…nobody owns it: the road returns nothing, nothing runs', ran, [
+		'coin_7.pressed',
+		'coin_7.pressed',
+	]);
 
 	road.length = 0;
 	runner.setInput('lit', true);
 	const step = runner.advance(0.1);
 	dispatcher.transitions(step.fired);
 	eq(
-		'an `any` transition into a state raises its onEnter, payload as authored',
+		'an `any` transition into a state raises its onEnter; a field the event does not declare never leaves',
 		[step.fired.map((f) => f.to), road],
-		[
-			['flash'],
-			[{ instanceId: 'coin_7', action: 'winShown', payload: { level: 2 }, kind: 'event' }],
-		],
+		[['flash'], [{ instanceId: 'coin_7', action: 'winShown', payload: undefined, kind: 'event' }]],
 	);
 
 	const entered = coinDef();
@@ -527,7 +549,7 @@ for (const event of POINTER) {
 	eq(
 		'a same-tick chain raises every state it passes through, in order',
 		road.map((r) => (r as { payload?: unknown }).payload ?? null),
-		[null, { level: 2 }],
+		[null, null],
 	);
 
 	// A timeline cue: the real player crosses `event:winShown` and the dispatcher raises it.
@@ -568,6 +590,7 @@ for (const event of POINTER) {
 	);
 	eq('the observer saw every raise with its origin', seen, [
 		'listener:pressed',
+		'listener:pressed',
 		...Array(5).fill('state:winShown'),
 		'cue:winShown',
 	]);
@@ -575,17 +598,17 @@ for (const event of POINTER) {
 
 	const instanceSvelte = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
 	eq(
-		'ComponentInstance routes `event:` cues to the dispatcher before any broadcast',
-		/if \(ns === 'event'\) \{\s*eventDispatcher\?\.cue\(cue\);\s*return;\s*\}\s*if \(!name \|\| ns === 'sfx'/.test(
+		'ComponentInstance routes `event:` cues to the dispatcher before any broadcast — only for a def that declares events (else the cue is broadcast as before: parity)',
+		/if \(ns === 'event' && def\?\.events\?\.length\) \{\s*eventDispatcher\?\.cue\(cue\);\s*return;\s*\}\s*if \(!name \|\| ns === 'sfx'/.test(
 			instanceSvelte,
 		),
 		true,
 	);
 	eq(
-		'…raises the entry states’ onEnter as the machine starts, and every state a tick enters',
+		'…raises the entry states’ onEnter as the machine starts (deferred out of the mount), and every state a tick enters',
 		[
-			instanceSvelte.includes(
-				'if (stateMachineRunner) eventDispatcher?.started(stateMachineRunner.plays());',
+			/const entered = stateMachineRunner\.plays\(\);\s*queueMicrotask\(\(\) => eventDispatcher\.started\(entered\)\);/.test(
+				instanceSvelte,
 			),
 			/const step = stateMachineRunner\.advance\(dt\);\s*applyStateMachine\(\);\s*eventDispatcher\?\.transitions\(step\.fired\);/.test(
 				instanceSvelte,
@@ -600,6 +623,13 @@ for (const event of POINTER) {
 			instanceSvelte.includes('fireTrigger: (id) => fireComponentSignal(id),'),
 		],
 		[true, true],
+	);
+	eq(
+		'…and answers pointer events only for its own def’s nodes',
+		instanceSvelte.includes(
+			'if (ownNodes.has(target.id)) eventDispatcher.pointer(target.on, event);',
+		),
+		true,
 	);
 
 	F.clearFlowPress();
@@ -666,6 +696,7 @@ for (const event of POINTER) {
 		listener('e', 'leave', { kind: 'raise', event: 'pressed', payload: { x: 1 } }),
 		listener('f', 'leave', { kind: 'raise', event: 'pressed', payload: { n: true } }),
 		listener('g', 'leave', { kind: 'raise', event: 'pressed', payload: { n: { input: 'win' } } }),
+		listener('h', 'leave', { kind: 'raise', event: 'pressed', payload: { n: { key: 'a b' } } }),
 	];
 	const cue = {
 		id: 't',
@@ -690,6 +721,7 @@ for (const event of POINTER) {
 			'warning:raise-payload-missing',
 			'error:raise-payload-type',
 			'error:raise-payload-input',
+			'error:raise-payload-key',
 			'error:raise-event-unknown',
 			'error:raise-event-unknown',
 		].sort((a, b) => a.localeCompare(b)),
@@ -762,6 +794,11 @@ for (const event of POINTER) {
 				action: { kind: 'raise', event: 'pressed', payload: { t: 'Free text!' } },
 			},
 			{ id: 'x5', event: 'click', action: { kind: 'raise', event: 'pressed', payload: { t: {} } } },
+			{
+				id: 'x8',
+				event: 'click',
+				action: { kind: 'raise', event: 'pressed', payload: { t: { key: 'You won 500 coins!' } } },
+			},
 			{ id: 'x6', event: 'click', action: { kind: 'fire' } },
 			{ event: 'click', action: { kind: 'fire', input: 'win' } },
 			{ id: 'x7', event: 'click' },
@@ -839,15 +876,13 @@ for (const event of POINTER) {
 	);
 	eq(
 		'…and provides the listener context only when a node listens',
-		instanceSvelte.includes(
-			'if (eventDispatcher && listened) {\n\t\tsetComponentListen((listeners, event) => eventDispatcher.pointer(listeners, event));',
-		),
+		instanceSvelte.includes('if (eventDispatcher && listened && def) {'),
 		true,
 	);
 	eq(
 		'…every other use is optional-chained (no dispatcher ⇒ nothing runs)',
 		(instanceSvelte.match(/eventDispatcher\./g) ?? []).length,
-		1,
+		2,
 	);
 	eq(
 		'Flow’s container-event projection is unchanged: events are not projected yet (Phase 7)',

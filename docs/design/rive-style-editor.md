@@ -268,7 +268,9 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   (the instance provides the context; a top-level scene node with `on` is inert). A node with
   listeners is wrapped in a `static` hit surface that takes the node's `zIndex` (`down` →
   `pointerdown`, `up` → `pointerup`, `enter`/`leave` → `pointerenter`/`pointerleave`, `click` →
-  `pointertap`); a hover-only node keeps the default cursor. Listeners act on THEIR instance: `fire`
+  `pointertap`); a hover-only node keeps the default cursor. `up` fires over the node only, as Rive's
+  does: a release outside it is a `leave`. An instance answers only for its own def's nodes (a
+  layout tree a coded part renders inside it is not its to answer). Listeners act on THEIR instance: `fire`
   fires the trigger on the instance's own bus (as any signal is — the state machine, a `playOn`
   timeline and a `hiddenUntilSignal` gate hear it, scoped as the instance's signals are); `set` and
   `toggle` set the instance's runner's input. A wrong kind, an unknown input or an undeclared event
@@ -277,8 +279,9 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   pointer events bubble, so the press and the listener both fire; nothing about the press changes.
   Button `stateAnimations` become a seeded state machine in Phase 8.
 - **States raise events on entry**: `SmState.onEnter?: RaiseEventAction[]` — raised when the
-  layer's entry state is entered as the machine starts, and for every state a transition enters
-  (a same-tick chain raises each state it passes, in order).
+  layer's entry state is entered as the machine starts (deferred to a microtask: starting can happen
+  while the instance mounts, and a Flow chain must not show or hide screens mid-mount), and for every
+  state a transition enters (a same-tick chain raises each state it passes, in order).
 - The graph editor reuses `@xyflow/svelte`, as `/flow-v2` does.
 - Existing `signals`, `cues`, `stateAnimations` and `valueBindings` keep working. Phase 8
   migrates them; nothing is migrated earlier.
@@ -312,12 +315,15 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
 
 - **Cue syntax:** `event:<id>` on a COMPONENT timeline raises event `<id>` of the instance playing
   it. It is distinct from `signal:<id>`, which fires a trigger INTO the instance's own bus; an
-  `event:` cue is never broadcast on the game's event emitter. Screen and cast timelines are
-  unchanged. A cue carries no payload.
+  `event:` cue is never broadcast on the game's event emitter — on a def that declares events. A def
+  that declares none keeps the cue's old meaning (broadcast by its bare name), so nothing that
+  played before changes. Screen and cast timelines are unchanged. A cue carries no payload.
 - **Payloads** carry numbers, bools and localization keys only (§8): a raise's `payload` maps a
   declared field to a number, a bool, `{ input: id }` (the current value of a bool or number input)
-  or `{ key: 'loc.key' }`. A bare string is not a value, so free text cannot be written. A field's
-  `ParamDecl.type` is `int` / `float` / `ms` / `bool` / `string`; the normalizer drops any other.
+  or `{ key: 'loc.key' }`. A bare string is not a value, and a key must have a key's shape
+  (`PAYLOAD_KEY_PATTERN`: letters, digits, `_ . : -`, no spaces), so free text cannot be written. A
+  field's `ParamDecl.type` is `int` / `float` / `ms` / `bool` / `string`; the normalizer drops any
+  other. At runtime only the fields the event declares, each with a value its type takes, are sent.
 - **The runtime road:** a raised event leaves through the same resolver a button's `action` press
   takes — `getFlowPress()(instanceNodeId, eventId, payload, 'event')`, tagged with the placed
   instance's node id and the event id. Phase 7 only has to project `<instance>.on<Event>` pins
@@ -328,7 +334,8 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
 - **Validation** (`validateComponentEvents(def, timelines)`): `event-duplicate`,
   `event-payload-duplicate`, `event-payload-type`, `listener-duplicate`, `listener-input-unknown`,
   `listener-input-kind`, `listener-value-kind`, `raise-event-unknown` (from a listener, an `onEnter`
-  or an `event:` cue), `raise-payload-unknown`, `raise-payload-type`, `raise-payload-input` — errors;
+  or an `event:` cue), `raise-payload-unknown`, `raise-payload-type`, `raise-payload-input`,
+  `raise-payload-key` — errors;
   `raise-payload-missing` (a required field left empty) and `event-input-collision` — warnings.
 - **Decision: an event may share an input's id** (a warning, not an error). An input comes in and an
   event goes out, so Flow keys them apart (an exec-in `▸ win`, an exec-out `onWin`), and a declared
