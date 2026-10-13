@@ -728,7 +728,7 @@
 	// inputs use — one runner, one dispatcher. A message for another component is ignored.
 	$effect(() => {
 		const id = def?.id;
-		if (!id) return;
+		if (!id || !active) return;
 		const channel = openFlowStageChannel(projectKey);
 		if (!channel) return;
 		const unsubscribe = channel.subscribe((m) => {

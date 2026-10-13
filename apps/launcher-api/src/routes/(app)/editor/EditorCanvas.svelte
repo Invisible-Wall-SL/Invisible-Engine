@@ -347,21 +347,26 @@
 	}: Props = $props();
 
 	// The instance context menu (Rive plan §6.2 step 4): a right-CLICK (not a right-drag, which pans)
-	// on a placed instance offers *Show in Flow* and *Edit component in place*. Rendered only while
-	// open, so a closed menu captures no pointer or keyboard input; any mousedown or Escape closes it.
+	// on a placed instance offers *Show in Flow* and *Edit component in place*. Decided on the
+	// right button's mouse-UP — `contextmenu` fires on mouse-down on macOS and Linux, before any
+	// drag could be told from a click — so the native menu is only ever suppressed there. Rendered
+	// only while open, so a closed menu captures no pointer or keyboard input; a mousedown outside
+	// it or Escape closes it.
 	let instanceMenu = $state<{ x: number; y: number; node: ComponentInstanceNode } | null>(null);
+	let instanceMenuEl: HTMLDivElement | undefined = $state();
 	let rightDownXY: [number, number] | null = null;
-	function onContextMenu(e: MouseEvent): void {
-		e.preventDefault();
-		if (!onShowInFlow && !onEditInstance) return;
+	function openInstanceMenuAt(e: MouseEvent): void {
 		const down = rightDownXY;
 		rightDownXY = null;
-		if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
+		if (!down || (!onShowInFlow && !onEditInstance)) return;
+		if (Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;
 		const node = hitTestNode(clientToWorld(e.clientX, e.clientY));
 		if (node?.kind !== 'componentInstance') return;
 		instanceMenu = { x: e.clientX, y: e.clientY, node };
 	}
-	function closeInstanceMenu(): void {
+	function closeInstanceMenu(e?: Event): void {
+		if (e && instanceMenuEl && e.target instanceof Node && instanceMenuEl.contains(e.target))
+			return;
 		instanceMenu = null;
 	}
 	$effect(() => {
@@ -4418,6 +4423,7 @@
 	}
 
 	function onWindowMouseUp(e: MouseEvent): void {
+		if (e.button === 2) openInstanceMenuAt(e);
 		if (animate && onStagePointer && canvas && e.button === 0) {
 			const rect = canvas.getBoundingClientRect();
 			const inside =
@@ -4870,17 +4876,17 @@
 	ondragover={onDragOver}
 	ondragleave={onDragLeave}
 	ondrop={onDrop}
-	oncontextmenu={onContextMenu}
+	oncontextmenu={(e) => e.preventDefault()}
 	role="region"
 	aria-label="Editor canvas"
 >
 	{#if instanceMenu}
 		{@const menuNode = instanceMenu.node}
 		<div
+			bind:this={instanceMenuEl}
 			class="instance-menu"
 			style="left:{instanceMenu.x}px; top:{instanceMenu.y}px"
 			role="menu"
-			onmousedown={(e) => e.stopPropagation()}
 		>
 			<div class="menu-title">{menuNode.label?.trim() || menuNode.componentId}</div>
 			{#if onShowInFlow}
