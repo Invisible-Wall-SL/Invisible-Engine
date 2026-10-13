@@ -113,18 +113,14 @@ interface Running {
 	from?: Mix;
 }
 
-/** A pose being mixed FROM, and how far (0..1) the new timeline has mixed in over it. */
+/**
+ * The pose being mixed FROM — a flat snapshot of every driven node's on-screen values at the
+ * moment the layer left it (a blend interrupted by another transition leaves from the mix that
+ * was on screen; nothing nests) — and how far (0..1) the new timeline has mixed in over it.
+ */
 interface Mix {
-	source: Pose;
+	snapshot: Map<string, CinematicNodeSample>;
 	progress: number;
-}
-
-/** A frozen pose: a timeline at a time, itself possibly still mid-mix — a blend interrupted by
- *  another transition leaves from the pose that was on screen, not from a timeline alone. */
-interface Pose {
-	bound?: Bound;
-	time: number;
-	mix?: Mix;
 }
 
 const EPSILON = 1e-9;
@@ -263,11 +259,6 @@ export class ComponentTimelinePlayer {
 	 * not bind empties the slot (the state holds, as the interpreter said it would).
 	 */
 	drive(slot: string, layer: number, play: LayerPlay): { cue: string; timeline: string }[] {
-		const bound = play.timeline ? this.boundById.get(play.timeline) : undefined;
-		if (!bound) {
-			this.driven.delete(slot);
-			return [];
-		}
 		const cues: { cue: string; timeline: string }[] = [];
 		// A slot never seeks, so every step is a real stretch of playback: no step-size guard.
 		const crossed = (on: Bound, prev: number, next: number): void => {
@@ -286,6 +277,11 @@ export class ComponentTimelinePlayer {
 			const on = this.boundById.get(left.timeline);
 			if (on) segment(on, left);
 		}
+		const bound = play.timeline ? this.boundById.get(play.timeline) : undefined;
+		if (!bound) {
+			this.driven.delete(slot);
+			return cues;
+		}
 		let r = this.driven.get(slot);
 		if (!r || r.bound !== bound || play.entered) {
 			const previous = r;
@@ -293,15 +289,21 @@ export class ComponentTimelinePlayer {
 			this.driven.set(slot, r);
 			crossed(bound, -EPSILON, play.time);
 			if (play.from) {
-				// Leave from the pose that was on screen: the previous slot frozen, its own blend
-				// included, so interrupting a blend never jumps.
-				const source: Pose = previous
-					? { bound: previous.bound, time: play.from.time, mix: previous.from }
-					: {
-							bound: play.from.timeline ? this.boundById.get(play.from.timeline) : undefined,
-							time: play.from.time,
-						};
-				r.from = { source, progress: 0 };
+				// Leave from the pose that was on screen: every node the previous slot drove, sampled
+				// as it was (its own blend included) and frozen flat, so interrupting a blend never
+				// jumps and a chain of interruptions never nests.
+				const snapshot = new Map<string, CinematicNodeSample>();
+				if (previous) {
+					const nodeIds = new Set([
+						...previous.bound.actors.keys(),
+						...(previous.from?.snapshot.keys() ?? []),
+					]);
+					for (const nodeId of nodeIds) {
+						const sample = this.sampleOf(previous, nodeId);
+						if (sample) snapshot.set(nodeId, sample);
+					}
+				}
+				r.from = { snapshot, progress: 0 };
 			}
 		} else {
 			segment(bound, play);
@@ -324,18 +326,11 @@ export class ComponentTimelinePlayer {
 		return r ? { timeline: r.bound.doc.id, time: r.time } : undefined;
 	}
 
-	private samplePose(pose: Pose, nodeId: string): CinematicNodeSample | undefined {
-		const tracks = pose.bound?.actors.get(nodeId);
-		const own = tracks ? sampleNodeActor(tracks, pose.time) : undefined;
-		if (!pose.mix) return own;
-		return blendNodeSamples(this.samplePose(pose.mix.source, nodeId), own, pose.mix.progress);
-	}
-
 	private sampleOf(r: Running, nodeId: string): CinematicNodeSample | undefined {
 		const tracks = r.bound.actors.get(nodeId);
 		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
 		if (!r.from) return to;
-		return blendNodeSamples(this.samplePose(r.from.source, nodeId), to, r.from.progress);
+		return blendNodeSamples(r.from.snapshot.get(nodeId), to, r.from.progress);
 	}
 
 	sample(nodeId: string): CinematicNodeSample | undefined {
@@ -345,10 +340,8 @@ export class ComponentTimelinePlayer {
 			if (!best || r.order > best.order) best = r;
 		}
 		const layers: Running[] = [];
-		const sourceDrives = (mix: Mix | undefined): boolean =>
-			!!mix && (!!mix.source.bound?.actors.has(nodeId) || sourceDrives(mix.source.mix));
 		for (const r of this.driven.values()) {
-			if (r.bound.actors.has(nodeId) || sourceDrives(r.from)) layers.push(r);
+			if (r.bound.actors.has(nodeId) || r.from?.snapshot.has(nodeId)) layers.push(r);
 		}
 		if (!layers.length) return best ? this.sampleOf(best, nodeId) : undefined;
 		const latest = Math.max(...layers.map((r) => r.order));

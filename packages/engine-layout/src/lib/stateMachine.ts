@@ -22,13 +22,15 @@ import {
  * instance, `ComponentInstance.svelte` feeding `ComponentTimelinePlayer`) and in the editor's stage
  * preview. Semantics, also recorded in the plan:
  *
- * - **Triggers are consumed once per evaluation.** A trigger fired between ticks is seen by every
- *   layer on the next `advance` and used by at most one transition per layer (a chain in the same
- *   tick cannot re-use it); a transition that takes it consumes it for that layer. A layer HOLDS
- *   a trigger it did not take only while a transition leaving its current state (or `any`) reads
- *   it — the "finish the loop, then play win" idiom, where the trigger waits on an `exitTime` —
- *   and drops it at the end of the tick otherwise, so a trigger nothing is waiting for never goes
- *   stale.
+ * - **Triggers last one evaluation, unless a transition is only waiting on its exit time.** A
+ *   trigger fired between ticks is seen by every layer on the next `advance` and used by at most
+ *   one transition per layer (a chain in the same tick cannot re-use it); the transition that
+ *   takes it consumes it for that layer; what no transition took is cleared at the end of the
+ *   advance (as Rive does). The one exception is the "finish the loop, then play win" idiom: a
+ *   layer HOLDS a trigger while a transition leaving its current state (or `any`) reads it and
+ *   is blocked by its `exitTime` ALONE — every other condition already holds and the state is
+ *   still playing — and drops every held trigger the moment the layer changes state, so a hold
+ *   never outlasts the rest of one loop and a stale trigger never fires later.
  * - **`any`-state transitions are checked first**, in authored order, then the current state's.
  *   The first whose conditions all hold (and whose `exitTime` has been reached) fires. An `any`
  *   transition never re-enters the state the layer is already in.
@@ -57,7 +59,6 @@ import {
 
 export const SM_MAX_TRANSITIONS_PER_TICK = 8;
 
-/** What one layer plays after a step. */
 /** A stretch of a timeline a layer played before leaving it on this step. */
 export interface LeftSegment {
 	timeline: string;
@@ -68,6 +69,7 @@ export interface LeftSegment {
 	entered: boolean;
 }
 
+/** What one layer plays after a step. */
 export interface LayerPlay {
 	layer: string;
 	/** The current state id, or `exit`. */
@@ -116,8 +118,10 @@ interface LayerRun {
 	wrapped: boolean;
 	entered: boolean;
 	blend?: { timeline?: string; time: number; elapsed: number; total: number };
-	/** Triggers fired and not yet taken by a transition of this layer. */
-	pending: Set<string>;
+	/** Triggers fired since the last advance, for this layer. */
+	fresh: Set<string>;
+	/** Triggers kept from an earlier advance for a transition waiting only on its exit time. */
+	held: Set<string>;
 	left: LeftSegment[];
 }
 
@@ -170,7 +174,8 @@ export class ComponentStateMachineRunner {
 			prevTime: 0,
 			wrapped: false,
 			entered: true,
-			pending: new Set(),
+			fresh: new Set(),
+			held: new Set(),
 			left: [],
 		};
 	}
@@ -202,32 +207,38 @@ export class ComponentStateMachineRunner {
 	/** Fire a trigger input; seen by every layer on the next {@link advance}. */
 	fire(id: string): boolean {
 		if (this.kinds.get(id) !== 'trigger') return false;
-		for (const layer of this.layers) if (layer.state !== SM_EXIT_STATE) layer.pending.add(id);
+		for (const layer of this.layers) if (layer.state !== SM_EXIT_STATE) layer.fresh.add(id);
 		this.dirty = true;
 		return true;
 	}
 
-	/** Is any layer's timeline still moving, or a blend still mixing? */
-	isPlaying(): boolean {
-		return this.layers.some((layer) => {
-			if (layer.blend) return true;
-			if (!layer.stateDef || layer.duration === undefined) return false;
-			if (!(asNumber(layer.stateDef.speed, 1) > 0) || layer.duration <= 0) return false;
-			return !!layer.stateDef.loop || layer.time < layer.duration;
-		});
+	private layerPlaying(layer: LayerRun): boolean {
+		if (layer.blend) return true;
+		if (!layer.stateDef || layer.duration === undefined) return false;
+		if (!(asNumber(layer.stateDef.speed, 1) > 0) || layer.duration <= 0) return false;
+		return !!layer.stateDef.loop || layer.time < layer.duration;
 	}
 
-	/** Should the host advance this tick: something plays, an input changed since the last one, or
-	 *  a layer holds a trigger. */
+	/** Is any layer's timeline still moving, or a blend still mixing? */
+	isPlaying(): boolean {
+		return this.layers.some((layer) => this.layerPlaying(layer));
+	}
+
+	/** Should the host advance this tick: something plays, or an input changed since the last one.
+	 *  (A held trigger needs no tick of its own: it waits on a playing state.) */
 	needsTick(): boolean {
-		return this.dirty || this.isPlaying() || this.layers.some((l) => l.pending.size > 0);
+		return this.dirty || this.isPlaying();
 	}
 
 	advance(dtSeconds: number): StateMachineStep {
 		const step: StateMachineStep = { fired: [] };
 		const dt = asNumber(dtSeconds, 0) > 0 ? dtSeconds : 0;
 		for (const layer of this.layers) {
-			if (layer.state === SM_EXIT_STATE) continue;
+			if (layer.state === SM_EXIT_STATE) {
+				// The stretch it left was reported with the step that exited it; not again.
+				layer.left = [];
+				continue;
+			}
 			this.advanceLayer(layer, dt);
 			const used = new Set<string>();
 			let n = 0;
@@ -237,7 +248,7 @@ export class ComponentStateMachineRunner {
 				for (const c of transition.conditions ?? []) {
 					if (c.op !== 'fired') continue;
 					used.add(c.input);
-					layer.pending.delete(c.input);
+					layer.fresh.delete(c.input);
 				}
 				step.fired.push({
 					layer: layer.def.id,
@@ -250,27 +261,41 @@ export class ComponentStateMachineRunner {
 			}
 			// The cap stopped a longer chain: it continues next tick.
 			if (n === SM_MAX_TRANSITIONS_PER_TICK) this.dirty = true;
-			this.dropUnreadTriggers(layer);
+			this.settleTriggers(layer, used);
 		}
 		this.dirty = false;
 		return step;
 	}
 
-	/** Keep only the pending triggers a transition leaving the layer's current state (or `any`)
-	 *  reads; the rest were for nobody and would otherwise go stale. */
-	private dropUnreadTriggers(layer: LayerRun): void {
-		if (!layer.pending.size) return;
-		if (layer.state === SM_EXIT_STATE) {
-			layer.pending.clear();
-			return;
-		}
-		const read = new Set<string>();
+	/** Is the trigger `id` available to this layer's conditions right now? */
+	private pending(layer: LayerRun, id: string): boolean {
+		return layer.fresh.has(id) || layer.held.has(id);
+	}
+
+	/**
+	 * End of a layer's step: a trigger stays only while a transition leaving the current state (or
+	 * `any`) reads it and is blocked by its exit time ALONE — the state still plays, its other
+	 * conditions hold, its other triggers are present — and was not taken this step; every other
+	 * trigger is cleared.
+	 */
+	private settleTriggers(layer: LayerRun, used: ReadonlySet<string>): void {
+		const available = new Set([...layer.fresh, ...layer.held]);
+		layer.fresh.clear();
+		layer.held.clear();
+		if (!available.size || layer.state === SM_EXIT_STATE || !this.layerPlaying(layer)) return;
 		for (const t of layer.def.transitions ?? []) {
 			const leaves = t.from === layer.state || (t.from === SM_ANY_STATE && t.to !== layer.state);
-			if (!leaves) continue;
-			for (const c of t.conditions ?? []) if (c.op === 'fired') read.add(c.input);
+			if (!leaves || t.exitTime === undefined || this.exitReached(layer, t.exitTime)) continue;
+			const conditions = t.conditions ?? [];
+			const triggers = conditions.filter((c) => c.op === 'fired').map((c) => c.input);
+			if (!triggers.length) continue;
+			const waitingOnExitOnly = conditions.every((c) =>
+				c.op === 'fired'
+					? this.kinds.get(c.input) === 'trigger' && available.has(c.input) && !used.has(c.input)
+					: this.holds(layer, c, used),
+			);
+			if (waitingOnExitOnly) for (const id of triggers) layer.held.add(id);
 		}
-		for (const id of layer.pending) if (!read.has(id)) layer.pending.delete(id);
 	}
 
 	private advanceLayer(layer: LayerRun, dt: number): void {
@@ -313,7 +338,9 @@ export class ComponentStateMachineRunner {
 		const kind = this.kinds.get(condition.input);
 		if (!kind) return false;
 		if (condition.op === 'fired') {
-			return kind === 'trigger' && layer.pending.has(condition.input) && !used.has(condition.input);
+			return (
+				kind === 'trigger' && this.pending(layer, condition.input) && !used.has(condition.input)
+			);
 		}
 		if (kind === 'trigger') return false;
 		const value = this.current.get(condition.input);
@@ -363,6 +390,8 @@ export class ComponentStateMachineRunner {
 			layer.stateDef && layer.duration !== undefined
 				? { timeline: layer.stateDef.timeline, time: layer.time }
 				: { time: 0 };
+		// A state change drops what was held: a trigger waited for a transition out of the old state.
+		layer.held.clear();
 		if (left.timeline) {
 			layer.left.push({
 				timeline: left.timeline,

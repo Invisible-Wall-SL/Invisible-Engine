@@ -127,7 +127,7 @@ through the same player; headless-proven, no editor yet (5b).
     (`engine-layout/stateMachine.ts`, pure — `dt` + inputs in, `LayerPlay`s out) is built with the
     def's inputs (`componentInputs`, signals folded in) and the durations of the timelines its states
     name (`stateMachineTimelines`, from the registry, which now keeps EVERY component-hosted doc by
-    id — `componentTimelineById` — not only the `playOn` ones). Its trigger inputs are fed by the
+    id, not only the `playOn` ones). Its trigger inputs are fed by the
     instance's own fired-signal bus (so a game signal through the def's `signalScope`, a Flow
     `fireCue`, a rig `completeSignal`, a timeline's `signal:` cue and `enter` all fire a trigger of
     that name, scoped as signals are); a number input with a `source` follows that registered value
@@ -137,12 +137,14 @@ through the same player; headless-proven, no editor yet (5b).
     cue at 0 fires on entry and a loop wrap fires the end then the start. `sample(nodeId)`: a `playOn`
     timeline still playing and started after the layers driving the node wins it; once it ends, or
     the machine changes state, the layers take the node back; among layers, each property goes to
-    the later layer, each mixed from the pose it left while its blend runs (`blendNodeSamples`). A missing timeline holds and warns once (per def). The machine starts on the instance's first
+    the later layer, each mixed from the pose it left while its blend runs (`blendNodeSamples`). A
+    missing timeline holds and warns once (per def). The machine starts on the instance's first
     visible frame (the rule `enter` follows) and its clock runs from then on; the cues a leaving
     state crossed on the frame of a transition still fire; an interrupted blend leaves from the
     pose on screen; a state timeline reused from another component binds here without its
-    `playOn` (`instanceTimelineDocs`). No `stateMachine` ⇒ no
-    runner, no subscription, no ticker (parity; `check:component-timelines` still 39 green). Ship
+    `playOn` (`instanceTimelineDocs`); a trigger is held only while a transition waits on its
+    exit time alone, and dropped on any state change. No `stateMachine` ⇒ no runner, no
+    subscription, no ticker (parity; `check:component-timelines` still 39 green). Ship
     chain (rule 8): a state's timeline needs no `playOn` and no Flow node to ship — every authored
     component timeline is exported and embedded, and the gate asserts it. Gate:
     `pnpm --filter launcher-api check:component-state-machine` (89 checks: the fold, the
