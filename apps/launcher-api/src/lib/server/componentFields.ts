@@ -1,10 +1,13 @@
 import type {
 	ComponentDef,
+	ComponentEvent,
 	ComponentInput,
 	ComponentParam,
 	ComponentSignal,
 	ComponentStateMachine,
 	LayoutNode,
+	NodeListener,
+	SmEnterAction,
 	SmLayer,
 	SmState,
 	SmTransition,
@@ -56,6 +59,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	valueBindings: true,
 	pressAction: true,
 	hiddenUntilSignal: true,
+	on: true,
 	assetKey: true,
 	region: true,
 	keepAspect: true,
@@ -131,6 +135,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	capability: true,
 	inputs: true,
 	stateMachine: true,
+	events: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
 	key: true,
@@ -171,6 +176,29 @@ const smStateFields: Record<keyof SmState, true> = {
 	speed: true,
 	loop: true,
 	pos: true,
+	onEnter: true,
+};
+const componentEventFields: Record<keyof ComponentEvent, true> = {
+	id: true,
+	payload: true,
+	note: true,
+};
+const eventPayloadFields: Record<keyof NonNullable<ComponentEvent['payload']>[number], true> = {
+	name: true,
+	type: true,
+	description: true,
+	optional: true,
+};
+const nodeListenerFields: Record<keyof NodeListener, true> = {
+	id: true,
+	event: true,
+	action: true,
+};
+const smEnterActionFields: Record<keyof SmEnterAction, true> = {
+	id: true,
+	kind: true,
+	event: true,
+	payload: true,
 };
 const smTransitionFields: Record<keyof SmTransition, true> = {
 	id: true,
@@ -196,6 +224,10 @@ export const COMPONENT_PARAM_FIELDS = fields(componentParamFields);
 export const COMPONENT_SIGNAL_FIELDS = fields(componentSignalFields);
 export const TEMPLATE_SLOT_FIELDS = fields(templateSlotFields);
 export const COMPONENT_INPUT_FIELDS = fields(componentInputFields);
+export const COMPONENT_EVENT_FIELDS = fields(componentEventFields);
+export const EVENT_PAYLOAD_FIELDS = fields(eventPayloadFields);
+export const NODE_LISTENER_FIELDS = fields(nodeListenerFields);
+export const SM_ENTER_ACTION_FIELDS = fields(smEnterActionFields);
 export const STATE_MACHINE_FIELDS = fields(stateMachineFields);
 export const SM_LAYER_FIELDS = fields(smLayerFields);
 export const SM_STATE_FIELDS = fields(smStateFields);

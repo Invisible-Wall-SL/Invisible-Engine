@@ -6,6 +6,7 @@
  */
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
 import type { BootSplashRef } from 'constants-shared/bootSplash';
+import type { ParamDecl } from 'engine-flow-v2';
 
 import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
@@ -302,7 +303,69 @@ interface BaseNode {
 	 * (parity — byte-identical to today).
 	 */
 	hiddenUntilSignal?: string;
+	/**
+	 * LISTENERS (Rive plan §5, Phase 6): pointer events on this node that act on the owning
+	 * component instance — fire a trigger input, set or toggle a bool input, set a number input,
+	 * or raise one of the def's {@link ComponentDef.events}. Only inside a `componentInstance`
+	 * expansion (the instance provides the context); a top-level scene node is inert. A node
+	 * with listeners becomes a hit surface; one without them is untouched (parity).
+	 */
+	on?: NodeListener[];
 }
+
+/** The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). */
+export const NODE_LISTENER_EVENTS = ['down', 'up', 'enter', 'leave', 'click'] as const;
+export type NodeListenerEvent = (typeof NODE_LISTENER_EVENTS)[number];
+
+/** Every {@link ListenerAction.kind}, as a VALUE. Open: a later phase adds kinds here. */
+export const LISTENER_ACTION_KINDS = ['fire', 'set', 'toggle', 'raise'] as const;
+export type ListenerActionKind = (typeof LISTENER_ACTION_KINDS)[number];
+
+/**
+ * One value of a raised event's payload: a number, a bool, the current value of a bool or number
+ * input, or a LOCALIZATION KEY (plan §8). The stack is source-as-key, so a key is its source text;
+ * the harvest collects every `{ key }` a def raises, so none bypasses localization. A bare string
+ * is not a value.
+ */
+export type EventPayloadValue = number | boolean | { input: string } | { key: string };
+
+/**
+ * The `ParamDecl` types an event's payload field may have — a value is a number, a bool or a
+ * localization key — as a VALUE (the normalizer and validation import it).
+ */
+export const EVENT_PAYLOAD_TYPES = ['int', 'float', 'ms', 'bool', 'string'] as const;
+export type EventPayloadType = (typeof EVENT_PAYLOAD_TYPES)[number];
+
+/** Raise one of the def's {@link ComponentDef.events}; `payload` fills its declared fields. */
+export interface RaiseEventAction {
+	kind: 'raise';
+	event: string;
+	payload?: Record<string, EventPayloadValue>;
+}
+
+/**
+ * What a listener does, discriminated by `kind` so new kinds only add: `fire` a trigger input,
+ * `set` a bool or number input to `value`, `toggle` a bool input, `raise` an event.
+ */
+export type ListenerAction =
+	| { kind: 'fire'; input: string }
+	| { kind: 'set'; input: string; value: boolean | number }
+	| { kind: 'toggle'; input: string }
+	| RaiseEventAction;
+
+export interface NodeListener {
+	/** Unique within the node; the editor selects and the keep-unknown save grafts by it. */
+	id: string;
+	event: NodeListenerEvent;
+	action: ListenerAction;
+}
+
+/** A state's on-enter action. Its `id` (unique within the state) is what the editor selects and
+ *  the keep-unknown save grafts on. */
+export type SmEnterAction = RaiseEventAction & { id: string };
+
+/** A timeline cue `event:<id>` on a component timeline raises event `<id>` (plan §6.1). */
+export const EVENT_CUE_PREFIX = 'event:';
 
 /**
  * What a {@link ValueBinding} drives. The transform targets are RELATIVE to the authored node, so a
@@ -1414,6 +1477,25 @@ export interface ComponentDef {
 	 * interpreter, no subscription, no ticker work (parity).
 	 */
 	stateMachine?: ComponentStateMachine;
+	/**
+	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
+	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A
+	 * raise leaves the instance on the same road a button's `action` press takes
+	 * (`registerFlowPress`), tagged with the instance's node id and the event id. Absent ⇒ nothing
+	 * is ever raised (parity).
+	 */
+	events?: ComponentEvent[];
+}
+
+/**
+ * One event of a component's interface. `payload` declares its typed fields with Flow's own
+ * `ParamDecl` (Phase 7 projects them as the exec-out pin's data-outs). A field's value is a
+ * number, a bool or a localization key, so its type is `int` / `float` / `ms` / `bool` / `string`.
+ */
+export interface ComponentEvent {
+	id: string;
+	payload?: ParamDecl[];
+	note?: string;
 }
 
 /**
@@ -1472,6 +1554,9 @@ export interface SmState {
 	loop?: boolean;
 	/** Where the editor draws the state's card; the runtime ignores it. */
 	pos?: SmPoint;
+	/** Raised each time the state is entered — the layer's entry when the machine starts, and every
+	 *  transition into it (Phase 6). */
+	onEnter?: SmEnterAction[];
 }
 
 export interface SmPoint {

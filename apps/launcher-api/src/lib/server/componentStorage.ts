@@ -35,6 +35,11 @@ import {
 	UNASSIGNED_CLIENT,
 } from './projectPaths';
 import { foreignRigRefs } from '$lib/rigBundleKey';
+import {
+	normalizeEnterActions,
+	normalizeEvents,
+	normalizeRootListeners,
+} from './componentEventRows';
 import { sameUnknownComponentFields, withUnknownComponentFields } from './componentUnknownFields';
 import { projectClientKey } from './projects';
 import { loadSharedSkeletonIndex } from './rig';
@@ -823,7 +828,7 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 		version: raw.version,
 		scope: raw.scope,
 		category: raw.category,
-		root: identityComponentRoot(raw.root),
+		root: normalizeRootListeners(identityComponentRoot(raw.root)),
 	};
 	// Authoring/preview space (default 'game' = omitted). Only persist a non-default
 	// value the editor understands; an unknown/absent value falls back to game space.
@@ -841,6 +846,9 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 	if (inputs.length) def.inputs = inputs;
 	const stateMachine = normalizeStateMachine(raw.stateMachine);
 	if (stateMachine) def.stateMachine = stateMachine;
+	// What the component tells Flow (Phase 6). Node listeners are normalized on the root above.
+	const events = normalizeEvents(raw.events);
+	if (events.length) def.events = events;
 	// The param an instance's signal scope comes from, and the kind of part it names — kept only
 	// while that param exists, so a deleted param can't leave the def scoped by nothing.
 	if (typeof raw.signalScope === 'string' && params.some((p) => p.key === raw.signalScope)) {
@@ -947,6 +955,8 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (item.loop === true) state.loop = true;
 			const pos = point(item.pos);
 			if (pos) state.pos = pos;
+			const onEnter = normalizeEnterActions(item.onEnter);
+			if (onEnter.length) state.onEnter = onEnter;
 			layer.states.push(state);
 		}
 		for (const item of Array.isArray(raw.transitions) ? raw.transitions : []) {

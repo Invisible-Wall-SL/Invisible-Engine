@@ -48,6 +48,7 @@
 		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
 		"engine-cinematic": "workspace:*",
+		"engine-flow-v2": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.22.0",
 		"svelte": "5.57.1",

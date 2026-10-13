@@ -23,11 +23,18 @@
  *  `payload` seeds the fired event's `$trigger` scope — WHICH item a fused list pin fired for. Buttons
  *  pass none (a button press carries no selection); a `<Repeater>` card passes `{ betModeKey: key }` so
  *  the pin's data-out resolves to the pressed card's key. Absent ⇒ the flow's existing empty-payload
- *  behaviour (byte-identical for every button). */
+ *  behaviour (byte-identical for every button).
+ *
+ *  `kind` is `'event'` when a component RAISED one of its declared events (Rive plan Phase 6 — a
+ *  listener, a state being entered, a timeline cue) rather than a press. Events have their own
+ *  namespace on this road: the resolver matches one against event pins only (Phase 7 adds them),
+ *  never a press or `action` pin of the same name, and plays no press sound for it. Absent ⇒ a
+ *  press (every existing caller). */
 export type FlowPressResolver = (
 	instanceId: string,
 	action: string,
 	payload?: Record<string, unknown>,
+	kind?: 'event',
 ) => (() => void) | undefined;
 
 let registered: FlowPressResolver | undefined;

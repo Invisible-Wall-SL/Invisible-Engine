@@ -75,7 +75,12 @@ export const resolveFlowV2Press: FlowPressResolver = (
 	componentId: string,
 	action: string,
 	payload?: Record<string, unknown>,
+	kind?: 'event',
 ): (() => void) | undefined => {
+	// A component's raised EVENT (Rive plan Phase 6) has its own namespace: it never owns a press or
+	// `action` pin of the same name (an event `confirm` must not run a `pressAction: 'confirm'`
+	// chain). Phase 7 adds the event pins it resolves against; until then it reaches nothing here.
+	if (kind === 'event') return undefined;
 	const h = getFlowV2();
 	if (!h?.ownsContainerEvent(componentId, action)) return undefined;
 	return () => void h.dispatchContainerEvent(componentId, action, payload);

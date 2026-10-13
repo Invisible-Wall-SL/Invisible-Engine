@@ -611,11 +611,11 @@ const COMPONENT = {
 } as const;
 const componentKey = projectComponentKey('p', COMPONENT.id);
 const sharedComponentKey = editorComponentKey(COMPONENT.id);
-const LISTENER = { on: [{ event: 'tap', fire: 'spin' }] };
+const LISTENER = { gesture: [{ event: 'tap', fire: 'spin' }] };
 /** What a newer launcher wrote: a top-level block, and a field in a node, the root and each row. */
 const newerComponent = (): Record<string, unknown> => {
 	const doc = JSON.parse(JSON.stringify(COMPONENT)) as StoredDef;
-	doc.events = [{ id: 'e_tap', name: 'tap' }];
+	doc.gestures = [{ id: 'e_tap', name: 'tap' }];
 	Object.assign(doc.root, LISTENER);
 	Object.assign(doc.root.children[0], LISTENER);
 	Object.assign(doc.root.children[1].children[0], LISTENER);
@@ -629,7 +629,7 @@ const olderView = (): Def => normalizeComponent(stored(componentKey) as unknown 
 /** A tab that also lost a field on a child node (a client-side rebuild). */
 const withoutChildListener = (def: Def): Def => {
 	const out = structuredClone(def) as StoredDef;
-	delete out.root.children[0].on;
+	delete out.root.children[0].gesture;
 	return out as Def;
 };
 /** Each case starts from no stored defs and no version snapshots (snapshots are immutable). */
@@ -651,7 +651,7 @@ interface StoredDef {
 	params: Record<string, unknown>[];
 	signals: Record<string, unknown>[];
 	slots: Record<string, unknown>[];
-	events?: { id: string }[];
+	gestures?: { id: string }[];
 	[key: string]: unknown;
 }
 const nodeById = (root: unknown, id: string): StoredNode | undefined => {
@@ -666,27 +666,27 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	const loaded = olderView();
 	check(
 		'components: the read drops the unknown top-level, root and row fields',
-		['events' in loaded, 'on' in loaded.root, 'tooltip' in loaded.params![0]],
+		['gestures' in loaded, 'gesture' in loaded.root, 'tooltip' in loaded.params![0]],
 		[false, false, false],
 	);
 	check(
 		'components: …and passes a child node’s through',
-		'on' in (nodeById(loaded.root, 'n_b') ?? {}),
+		'gesture' in (nodeById(loaded.root, 'n_b') ?? {}),
 		true,
 	);
 	const result = await saveComponent(withoutChildListener(loaded), 'p', etag);
 	const after = stored(componentKey) as StoredDef;
 	check('components: a no-op save from the older view keeps the version', result.version, 3);
-	check('components: …and keeps the unknown top-level block', after.events, [
+	check('components: …and keeps the unknown top-level block', after.gestures, [
 		{ id: 'e_tap', name: 'tap' },
 	]);
-	check('components: …the root’s unknown field', after.root.on, LISTENER.on);
+	check('components: …the root’s unknown field', after.root.gesture, LISTENER.gesture);
 	check(
 		'components: …a surviving node’s unknown field the tab lost',
-		nodeById(after.root, 'n_a')?.on,
-		LISTENER.on,
+		nodeById(after.root, 'n_a')?.gesture,
+		LISTENER.gesture,
 	);
-	check('components: …a nested node’s', nodeById(after.root, 'n_b')?.on, LISTENER.on);
+	check('components: …a nested node’s', nodeById(after.root, 'n_b')?.gesture, LISTENER.gesture);
 	check(
 		'components: …and each row’s, matched by id',
 		[after.params[0].tooltip, after.signals[0].payload, after.slots[0].aspect],
@@ -732,7 +732,7 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 		['slots' in after, 'standsFor' in after],
 		[false, false],
 	);
-	check('components: the top-level block still is kept', after.events?.length, 1);
+	check('components: the top-level block still is kept', after.gestures?.length, 1);
 	check(
 		'components: the snapshot of the bumped version is the merged doc',
 		bucket.get(projectComponentVersionKey('p', COMPONENT.id, 4))?.text,
@@ -769,8 +769,8 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	await saveComponent(edited as unknown as Def, 'p', etag);
 	check(
 		'components: an id reused for a new entity inherits the stored fields (editors must not)',
-		nodeById(stored(componentKey).root, 'n_a')?.on,
-		LISTENER.on,
+		nodeById(stored(componentKey).root, 'n_a')?.gesture,
+		LISTENER.gesture,
 	);
 }
 
@@ -780,13 +780,13 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	const etag = seed(componentKey, newerComponent());
 	const edited = structuredClone(olderView()) as StoredDef;
 	const moved = edited.root.children[1].children.pop();
-	delete moved.on;
+	delete moved.gesture;
 	edited.root.children.push(moved);
 	await saveComponent(edited as Def, 'p', etag);
 	check(
 		'components: a node moved to another parent keeps its unknown field',
-		nodeById(stored(componentKey).root, 'n_b')?.on,
-		LISTENER.on,
+		nodeById(stored(componentKey).root, 'n_b')?.gesture,
+		LISTENER.gesture,
 	);
 }
 
@@ -796,17 +796,17 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	// drops the posted value; a child node passes through, so its posted value stands.
 	const etag = seed(componentKey, newerComponent());
 	const posted = newerComponent() as StoredDef;
-	posted.events = [{ id: 'e_new', name: 'hold' }];
+	posted.gestures = [{ id: 'e_new', name: 'hold' }];
 	posted.params[0].tooltip = 'Theirs';
-	posted.root.children[0].on = [{ event: 'hover', fire: 'glow' }];
+	posted.root.children[0].gesture = [{ event: 'hover', fire: 'glow' }];
 	await saveComponent(posted as unknown as Def, 'p', etag);
 	const after = stored(componentKey) as StoredDef;
 	check(
 		'components: a posted unknown top-level / row field loses to the stored copy',
-		[after.events?.[0]?.id, after.params[0].tooltip],
+		[after.gestures?.[0]?.id, after.params[0].tooltip],
 		['e_tap', 'Button text'],
 	);
-	check('components: a posted child node field stands', nodeById(after.root, 'n_a')?.on, [
+	check('components: a posted child node field stands', nodeById(after.root, 'n_a')?.gesture, [
 		{ event: 'hover', fire: 'glow' },
 	]);
 }
@@ -819,8 +819,8 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	const after = stored(componentKey) as StoredDef;
 	check(
 		'components: a forced save from a tab lacking the fields keeps them',
-		[after.events?.length, after.root.on, nodeById(after.root, 'n_a')?.on],
-		[1, LISTENER.on, LISTENER.on],
+		[after.gestures?.length, after.root.gesture, nodeById(after.root, 'n_a')?.gesture],
+		[1, LISTENER.gesture, LISTENER.gesture],
 	);
 	resetComponents();
 	await saveComponent(COMPONENT as unknown as Def, 'p', null);
@@ -881,7 +881,7 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	resetComponents();
 	const doc = newerComponent() as StoredDef;
 	const { id, ...rest } = doc.root.children[0];
-	doc.root.children[0] = { id, ...LISTENER, ...rest, on: LISTENER.on };
+	doc.root.children[0] = { id, ...LISTENER, ...rest, gesture: LISTENER.gesture };
 	const bytes = JSON.stringify(doc, null, 2);
 	bucket.set(componentKey, { text: bytes, etag: etagOf(bytes) });
 	const result = await saveComponent(withoutChildListener(olderView()), 'p', etagOf(bytes));
@@ -896,16 +896,23 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	// A legacy doc with a duplicated node id: no single twin, so neither copy takes the other's fields.
 	resetComponents();
 	const doc = newerComponent() as StoredDef;
-	doc.root.children.push({ id: 'n_a', kind: 'sprite', x: 0, y: 0, on: 'second', children: [] });
+	doc.root.children.push({
+		id: 'n_a',
+		kind: 'sprite',
+		x: 0,
+		y: 0,
+		gesture: 'second',
+		children: [],
+	});
 	const etag = seed(componentKey, doc);
 	const posted = structuredClone(olderView()) as unknown as StoredDef;
-	for (const node of posted.root.children) if (node.id === 'n_a') delete node.on;
+	for (const node of posted.root.children) if (node.id === 'n_a') delete node.gesture;
 	await saveComponent(posted as unknown as Def, 'p', etag);
 	check(
 		'components: duplicated node ids are not grafted',
 		(stored(componentKey) as StoredDef).root.children
 			.filter((n) => n.id === 'n_a')
-			.map((n) => 'on' in n),
+			.map((n) => 'gesture' in n),
 		[false, false],
 	);
 	// …nor compared: a no-op save over them (the read passes both through) keeps the version.
@@ -989,12 +996,12 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 		check(
 			`components promote${force ? ' (force)' : ''}: keeps the project def’s unknown fields`,
 			[
-				after.events?.length,
-				after.root.on,
-				nodeById(after.root, 'n_a')?.on,
+				after.gestures?.length,
+				after.root.gesture,
+				nodeById(after.root, 'n_a')?.gesture,
 				after.params[0].tooltip,
 			],
-			[1, LISTENER.on, LISTENER.on, 'Button text'],
+			[1, LISTENER.gesture, LISTENER.gesture, 'Button text'],
 		);
 		check(
 			`components promote${force ? ' (force)' : ''}: drops the shared copy’s`,
@@ -1005,7 +1012,7 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	{
 		// Same known content, different unknown fields: the promote bumps rather than rewriting the
 		// shared copy's immutable snapshot of its current version.
-		const sharedDoc = { ...newerComponent(), scope: 'shared', events: [{ id: 'e_other' }] };
+		const sharedDoc = { ...newerComponent(), scope: 'shared', gestures: [{ id: 'e_other' }] };
 		const etag = seedShared(sharedDoc);
 		const v3 = editorComponentVersionKey(COMPONENT.id, 3);
 		const v3Bytes = JSON.stringify(sharedDoc, null, 2);
@@ -1036,7 +1043,7 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	);
 	check(
 		'components: a plain shared save keeps the shared copy’s own unknown fields',
-		stored(sharedComponentKey).events,
+		stored(sharedComponentKey).gestures,
 		[{ id: 'e_tap', name: 'tap' }],
 	);
 }
@@ -1362,7 +1369,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	});
 	check(
 		'component route: a promote carries the project def’s unknown fields',
-		[promoted.status, (stored(sharedComponentKey) as StoredDef).events?.length],
+		[promoted.status, (stored(sharedComponentKey) as StoredDef).gestures?.length],
 		[200, 1],
 	);
 	const stale = await post(componentRoute.POST, {
@@ -1387,7 +1394,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	const doc = {
 		id,
 		name,
-		events: [{ id: 'e_tap' }],
+		gestures: [{ id: 'e_tap' }],
 		...rest,
 		stateMachine: { blend: 'smooth', ...machine },
 	};
@@ -1397,7 +1404,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 		{
 			id: stored0.id,
 			name: stored0.name,
-			events: doc.events,
+			gestures: doc.gestures,
 			...Object.fromEntries(Object.entries(stored0).filter(([k]) => k !== 'id' && k !== 'name')),
 			stateMachine: { blend: 'smooth', ...(stored0.stateMachine as object) },
 		},
@@ -1424,6 +1431,238 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 		'ConflictError',
 	);
 	check('components: …and the other author’s def stands', stored(componentKey).theirs, 1);
+}
+
+// ── Components: events, listeners and onEnter (Rive plan Phase 6a) ─────────────────────────────
+
+const P6_COMPONENT = {
+	...SM_COMPONENT,
+	root: {
+		id: 'root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'n_a',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				on: [{ id: 'l1', event: 'click', action: { kind: 'raise', event: 'pressed' } }],
+			},
+		],
+	},
+	events: [{ id: 'pressed' }, { id: 'shown' }],
+	stateMachine: {
+		layers: [
+			{
+				id: 'L',
+				entry: 's_idle',
+				states: [
+					{
+						id: 's_idle',
+						timeline: 'idle',
+						onEnter: [{ id: 'x1', kind: 'raise', event: 'shown' }],
+					},
+				],
+				transitions: [],
+			},
+		],
+	},
+};
+interface P6Doc {
+	events?: (SmRow & { payload?: SmRow[] })[];
+	root: { children: { on?: SmRow[] }[] };
+	stateMachine: { layers: { states: { onEnter?: SmRow[] }[] }[] };
+}
+/** A newer launcher's Phase 6 rows: what this build cannot read, and newer fields on what it can. */
+const newerP6 = (): P6Doc => {
+	const doc = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	const node = doc.root.children[0];
+	const state = doc.stateMachine.layers[0].states[0];
+	Object.assign(node.on![0], { delay: 2 });
+	node.on!.push(
+		{ id: 'l_goto', event: 'click', action: { kind: 'goto', state: 's_idle' } },
+		{ id: 'l_swipe', event: 'swipe', action: { kind: 'fire', input: 'tap' } },
+	);
+	doc.events![0].payload = [
+		{ name: 'n', type: { t: 'int' }, unit: 'coins' },
+		{ name: 'symbol', type: { t: 'enum', name: 'SymbolName' } },
+	];
+	Object.assign(state.onEnter![0], { once: true });
+	state.onEnter!.push({ id: 'x_goto', kind: 'goto', state: 's_idle' });
+	return doc;
+};
+{
+	// A newer launcher's field on an event row comes back on a no-op save, matched by id.
+	resetComponents();
+	const doc = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	Object.assign(doc.events![0], MARK);
+	const etag = seed(componentKey, doc);
+	await saveComponent(olderView(), 'p', etag);
+	const after = stored(componentKey) as unknown as P6Doc;
+	check(
+		'components 6a: an event row’s unknown field is kept, by id',
+		after.events?.[0].mark,
+		'newer',
+	);
+	check(
+		'components 6a: the listeners and onEnter are known and saved as they were',
+		[after.root.children[0].on, after.stateMachine.layers[0].states[0].onEnter],
+		[P6_COMPONENT.root.children[0].on, P6_COMPONENT.stateMachine.layers[0].states[0].onEnter],
+	);
+}
+{
+	// An older build's no-op save of a newer build's rows loses none of them.
+	resetComponents();
+	const etag = seed(componentKey, newerP6());
+	const loaded = olderView() as unknown as P6Doc;
+	check(
+		'components 6a: the read drops what it cannot read (an onEnter row IS its action, so a newer key on it makes it unreadable too)',
+		[
+			loaded.root.children[0].on?.map((l) => l.id),
+			loaded.events?.[0].payload?.map((f) => f.name),
+			loaded.stateMachine.layers[0].states[0].onEnter?.map((a) => a.id) ?? null,
+		],
+		[['l1'], ['n'], null],
+	);
+	await saveComponent(loaded as unknown as Def, 'p', etag);
+	const after = stored(componentKey) as unknown as P6Doc;
+	const before = newerP6();
+	check(
+		'components 6a: listeners of an unknown kind or pointer event are kept, in place, with a newer listener field',
+		after.root.children[0].on,
+		before.root.children[0].on,
+	);
+	check(
+		'components 6a: a payload field of a type this build cannot carry is kept, in place, with a newer field',
+		after.events?.[0].payload,
+		before.events![0].payload,
+	);
+	check(
+		'components 6a: an onEnter row of an unknown kind is kept, in place, with a newer field',
+		after.stateMachine.layers[0].states[0].onEnter,
+		before.stateMachine.layers[0].states[0].onEnter,
+	);
+}
+{
+	// The author deleted the readable listener: the unreadable ones stay, the deleted one does not.
+	resetComponents();
+	const etag = seed(componentKey, newerP6());
+	const edited = structuredClone(olderView()) as unknown as P6Doc;
+	delete edited.root.children[0].on;
+	await saveComponent(edited as unknown as Def, 'p', etag);
+	check(
+		'components 6a: a deleted listener is not resurrected; the ones the author never saw stay',
+		(stored(componentKey) as unknown as P6Doc).root.children[0].on?.map((l) => l.id),
+		['l_goto', 'l_swipe'],
+	);
+}
+{
+	// The author cleared the listeners, the onEnter and an event: none is grafted back.
+	resetComponents();
+	const doc = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	Object.assign(doc.events![0], MARK);
+	const etag = seed(componentKey, doc);
+	const edited = structuredClone(olderView()) as unknown as P6Doc;
+	delete edited.root.children[0].on;
+	delete edited.stateMachine.layers[0].states[0].onEnter;
+	edited.events = edited.events!.filter((e) => e.id !== 'pressed');
+	await saveComponent(edited as unknown as Def, 'p', etag);
+	const after = stored(componentKey) as unknown as P6Doc;
+	check(
+		'components 6a: cleared listeners, onEnter and a deleted event are not resurrected',
+		[
+			'on' in after.root.children[0],
+			'onEnter' in after.stateMachine.layers[0].states[0],
+			after.events?.map((e) => e.id),
+		],
+		[false, false, ['shown']],
+	);
+}
+
+{
+	// A newer key ONE LEVEL DOWN — inside an action, a payload value, a payload field's type — makes
+	// the row unreadable here, so an older build's no-op save keeps it whole, at the same version.
+	resetComponents();
+	const doc = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	const node = doc.root.children[0];
+	node.on = [
+		{ id: 'l_times', event: 'click', action: { kind: 'fire', input: 'tap', times: 2 } },
+		{
+			id: 'l_ns',
+			event: 'up',
+			action: {
+				kind: 'raise',
+				event: 'pressed',
+				payload: { label: { key: 'Hi', ns: 'ui' }, n: { input: 'hover', scale: 2 } },
+			},
+		},
+	];
+	doc.events![0].payload = [{ name: 'n', type: { t: 'int', min: 0 } }];
+	doc.stateMachine.layers[0].states[0].onEnter = [
+		{ id: 'x_ns', kind: 'raise', event: 'shown', payload: { t: { key: 'Hi', ns: 'ui' } } },
+	];
+	const before = structuredClone(doc);
+	const etag = seed(componentKey, doc);
+	const loaded = olderView() as unknown as P6Doc;
+	check(
+		'components 6a: a newer key inside an action, a payload value or a type is not read (never rebuilt without it)',
+		[
+			loaded.root.children[0].on ?? null,
+			loaded.events?.[0].payload ?? null,
+			loaded.stateMachine.layers[0].states[0].onEnter ?? null,
+		],
+		[null, null, null],
+	);
+	const result = await saveComponent(loaded as unknown as Def, 'p', etag);
+	const after = stored(componentKey) as unknown as P6Doc;
+	check(
+		'components 6a: …and an older no-op save keeps each row whole, at the same version',
+		[
+			result.version,
+			after.root.children[0].on,
+			after.events?.[0].payload,
+			after.stateMachine.layers[0].states[0].onEnter,
+		],
+		[
+			3,
+			before.root.children[0].on,
+			before.events![0].payload,
+			before.stateMachine.layers[0].states[0].onEnter,
+		],
+	);
+}
+{
+	// A promote whose listeners differ only in what this build cannot read still bumps.
+	resetComponents();
+	const project = structuredClone(P6_COMPONENT) as unknown as P6Doc;
+	project.root.children[0].on!.push({
+		id: 'l_goto',
+		event: 'click',
+		action: { kind: 'goto', state: 's_idle' },
+	});
+	const shared = { ...structuredClone(P6_COMPONENT), scope: 'shared' };
+	const projectEtag = seed(componentKey, project);
+	const sharedEtag = seed(sharedComponentKey, shared);
+	const sharedBytes = bucket.get(sharedComponentKey)?.text ?? '';
+	const sharedV3Key = editorComponentVersionKey(COMPONENT.id, 3);
+	bucket.set(sharedV3Key, { text: sharedBytes, etag: etagOf(sharedBytes) });
+	const promoted = await saveComponent(
+		{ ...olderView(), scope: 'shared' as const },
+		undefined,
+		sharedEtag,
+		{ promotedFrom: { projectKey: 'p', baseEtag: projectEtag } },
+	);
+	check(
+		'components 6a: a promote changing only unreadable listener / onEnter / payload rows bumps, leaving v3 alone',
+		[
+			promoted.version,
+			bucket.get(sharedV3Key)?.text === sharedBytes,
+			(stored(sharedComponentKey) as unknown as P6Doc).root.children[0].on?.map((l) => l.id),
+		],
+		[4, true, ['l1', 'l_goto']],
+	);
 }
 
 // ── Component defaults ("This game's defaults"): `{ id, params }` plus a newer build's fields ─

@@ -671,12 +671,12 @@
 	// Flow routing SKIPS the coded `onpress`, which is where the press-feedback SOUND is broadcast — so
 	// replay it here before dispatching (faithful mapping: spin → the shared bet/slam cue, every other
 	// HUD button → `soundPressGeneral`), else a flow-owned button press would be silent.
-	registerFlowPress((componentId, action, payload) => {
+	registerFlowPress((componentId, action, payload, kind) => {
 		// Thread the press PAYLOAD through: a `<Repeater>` card passes `{ betModeKey: <key> }` so the
 		// fused `onSelect` pin's data-out resolves to WHICH card fired. Dropping it here armed the flow's
 		// `selectBetMode` with `undefined`, so a buy-card press committed no mode. A button passes none
 		// (byte-identical). Consulted at click time, so it tracks the live handle regardless of boot order.
-		const routed = resolveFlowV2Press(componentId, action, payload);
+		const routed = resolveFlowV2Press(componentId, action, payload, kind);
 		if (!routed) return undefined;
 		return () => {
 			context.eventEmitter.broadcast(
