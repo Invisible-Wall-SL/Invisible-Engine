@@ -48,6 +48,8 @@
 		ctx,
 		scope,
 		modes = [],
+		cinematics = [],
+		timelineIssues = {},
 		onchange,
 	}: {
 		doc: FlowDoc;
@@ -58,6 +60,10 @@
 		scope?: PinScope;
 		/** The game modes a mode node can name (the project's registry + the doc's mode tabs). */
 		modes?: { id: string; label: string }[];
+		/** What a `playCinematic` node can play — screen timelines first (`cinematicPickerOptions`). */
+		cinematics?: { id: string; label: string }[];
+		/** Screen-timeline id → its node-actor problems (`validateNodeActors`, from the server). */
+		timelineIssues?: Record<string, string[]>;
 		onchange: (next: FlowDoc) => void;
 	} = $props();
 
@@ -616,17 +622,33 @@
 		{#if node.kind === 'playCinematic'}
 			<label class="field">
 				<span class="flabel">Cinematic</span>
-				<input
-					type="text"
-					value={node.ref}
-					placeholder="e.g. bonus_intro"
-					onchange={(e) => onCinematicRefChange(e.currentTarget.value)}
-				/>
+				{#if cinematics.length}
+					<select value={node.ref} onchange={(e) => onCinematicRefChange(e.currentTarget.value)}>
+						<option value="">— pick a timeline or cinematic —</option>
+						{#if node.ref && !cinematics.some((c) => c.id === node.ref)}
+							<option value={node.ref}>{node.ref} (not in this project)</option>
+						{/if}
+						{#each cinematics as option (option.id)}
+							<option value={option.id}>{option.label}</option>
+						{/each}
+					</select>
+				{:else}
+					<input
+						type="text"
+						value={node.ref}
+						placeholder="e.g. bonus_intro"
+						onchange={(e) => onCinematicRefChange(e.currentTarget.value)}
+					/>
+				{/if}
 			</label>
 			<p class="hint">
-				The cinematic's id, as saved in <strong>/rigger → Cinematic</strong>. It ships with the
-				game, along with every rig it casts.
+				A <strong>Timeline</strong> animates a screen's nodes (Scene Editor → Animate); a
+				<strong>Cinematic</strong> stages rigs (<strong>/rigger → Cinematic</strong>). Either ships
+				with the game.
 			</p>
+			{#each timelineIssues[node.ref] ?? [] as issue, i (`${i}:${issue}`)}
+				<p class="hint warn">⚠ {issue}</p>
+			{/each}
 
 			<label class="field">
 				<span class="flabel">Speed</span>
@@ -1294,6 +1316,9 @@
 	}
 	.hint code {
 		color: #93c5fd;
+	}
+	.hint.warn {
+		color: #fbbf24;
 	}
 	.pinname {
 		font-size: 11px;

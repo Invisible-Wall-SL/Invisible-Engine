@@ -1068,7 +1068,8 @@ never silently clobbered, and switching project in another tab can't make a save
 land in the wrong project. `localStorage` holds only a crash/reload draft.
 
 To play one in a game, wire the Flow node **`playCinematic`** in `/flow-v2`: pick
-the cinematic by id, set `speed`, and choose **`loop`** *or* **`awaitComplete`**.
+the cinematic from its list (listed as **Cinematic · <name>**, after the Scene Editor's screen
+timelines), set `speed`, and choose **`loop`** *or* **`awaitComplete`**.
 Those two are mutually exclusive — together they hang the round forever with no
 error, so the inspector clears one when you set the other and the graph refuses to
 validate with both. The rigs a cinematic casts ship with it automatically, even if

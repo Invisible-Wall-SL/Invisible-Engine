@@ -2,10 +2,13 @@ import {
 	evaluateBinding,
 	foldBoundTransform,
 	resolveTransform,
+	withNodeActorOutputs,
 	type LayoutNode,
 	type LayoutType,
 	type ResolvedTransform,
+	type ValueBinding,
 } from 'engine-layout';
+import type { TimelineNodeDrive } from '$lib/timeline/screenTimeline';
 
 /**
  * The editor's VALUE-BINDING PREVIEW (Hold and Win Phase 12b): a test input per binding, set by
@@ -20,8 +23,14 @@ import {
  *
  * Applied in the DRAW paths only — never in the drag / scale / rotate / snap math, which keep
  * reading the authored transform, so a scrubbed offset can never be written into the doc.
+ *
+ * The TIMELINE PREVIEW (Animate mode, Rive plan Phase 3) rides the same seam: the playhead's
+ * sampled node-actor channels join a node's own bindings exactly as `<LayoutNodeView>` joins them
+ * in game (`withNodeActorOutputs` + `foldBoundTransform`), so the stage shows what the game plays.
+ * Null outside Animate mode ⇒ every node draws as before.
  */
 const inputs: Record<string, number> = {};
+let drives: Map<string, TimelineNodeDrive> | null = null;
 const version = $state({ n: 0 });
 
 const keyOf = (nodeId: string, index: number): string => `${nodeId}#${index}`;
@@ -51,14 +60,38 @@ export function clearNodePreview(nodeId: string): void {
 	version.n += 1;
 }
 
-/** Each binding's preview output for `node` (`undefined` where nothing is being previewed). */
+/** Show (or with `null`, stop showing) a timeline's sampled channels, keyed by node id. */
+export function setTimelinePreview(next: Map<string, TimelineNodeDrive> | null): void {
+	if (!drives && !next) return;
+	drives = next;
+	version.n += 1;
+}
+
+/** `node`'s own bindings plus whatever the previewed timeline keys on it. */
+export function previewBindings(node: LayoutNode): ValueBinding[] | undefined {
+	const drive = drives?.get(node.id);
+	return drive?.bindings.length
+		? [...(node.valueBindings ?? []), ...drive.bindings]
+		: node.valueBindings;
+}
+
+/** The previewed timeline's tint for `node` — it wins over a param-bound tint, as in game. */
+export function previewTint(node: LayoutNode): number | undefined {
+	return drives?.get(node.id)?.sample.tint;
+}
+
+/** Each binding's preview output for `node` (`undefined` where nothing is being previewed), in
+ *  {@link previewBindings} order. */
 export function previewOutputs(node: LayoutNode, frameCount?: number): (number | undefined)[] {
 	const bindings = node.valueBindings;
-	if (!bindings?.length) return [];
-	return bindings.map((binding, i) => {
+	const own = (bindings ?? []).map((binding, i) => {
 		const input = inputs[keyOf(node.id, i)];
 		return input === undefined ? undefined : evaluateBinding(binding, input, frameCount);
 	});
+	const drive = drives?.get(node.id);
+	return drive?.bindings.length
+		? withNodeActorOutputs(bindings, own, drive.bindings, drive.sample)
+		: own;
 }
 
 /** `resolveTransform` with the previewed transform targets folded on — for the draw paths. */
@@ -66,9 +99,11 @@ export function previewResolveTransform(
 	node: LayoutNode,
 	layoutType: LayoutType,
 ): ResolvedTransform {
-	return foldBoundTransform(
+	const folded = foldBoundTransform(
 		resolveTransform(node, layoutType),
-		node.valueBindings,
+		previewBindings(node),
 		previewOutputs(node),
 	);
+	const tint = previewTint(node);
+	return tint === undefined ? folded : { ...folded, tint };
 }

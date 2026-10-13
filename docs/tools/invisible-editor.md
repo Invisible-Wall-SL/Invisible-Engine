@@ -10,8 +10,8 @@ An in-launcher, full-page WebGL/canvas layout editor. You pick a screen, drag
 assets out of the project's library onto a canvas, position/scale/rotate them
 per device layout, and the result is saved as a `scenes.json` layout document in
 the project's cloud storage. The engine reads that document at game boot and
-renders it; animation and book-event logic stay in code on top of this static
-layout.
+renders it; book-event logic stays in code on top of this layout. A screen's own
+motion (an intro, say) can be keyed in [Animate mode](#animate-mode--the-timeline).
 
 The editor is **project-centric** — it always works on the project you currently
 have selected in the launcher. It loads that project's saved layout, its asset
@@ -832,6 +832,63 @@ broken splash rather than an unset one.
 The splash ships through the project's `deploy/_boot/` tree, so it reaches the
 game on the next **Publish** — the same trip as the rest of your art.
 
+### Animate mode — the Timeline
+
+The **Design | Animate** toggle in the editor bar switches what the editor is for. **Design** is
+everything above. **Animate** opens the **Timeline** panel under the canvas, for the screen that is
+active in the Screens list. It animates that screen's nodes, for example a screen intro, and Flow
+plays the result in the game.
+
+1. **Open or create a timeline.** The panel's picker lists this screen's timelines. **＋ New** asks
+   for a name and saves an empty one. **Rename** and **🗑** act on the open timeline. Switching to
+   another screen saves it and closes it, because a timeline belongs to one screen. Switching back
+   to Design keeps it open with any unsaved changes, and closing the tab with unsaved timeline
+   changes asks first.
+2. **Select a node on the canvas.** In Animate mode the canvas only selects. Dragging, the
+   handles, dropping from the Library, Delete and the item toolbar are all off, so you can't move
+   the Design pose by accident.
+3. **Key it.** The left of the panel lists what that node can take: **x**, **y**, **scale**,
+   **rotation**, **alpha**, plus **tint** on sprites and flipbooks. Typing a value keys it at the
+   playhead, and **◆** keys the current value. A keyed channel turns yellow, and its keys appear as
+   diamonds on the timeline. Drag a diamond to retime it, or click it to edit its time, value and
+   easing on the right (**hold** = stepped). The first key on a node adds that node to the timeline.
+4. **Preview.** Drag the ruler, or press **▶**. The canvas draws each frame through the game's own
+   maths, so what you see is what plays. The number next to the time readout is the timeline's
+   length in seconds.
+5. **Save** (or Ctrl+S). Timelines save to the project like the Rigger's cinematics. If someone
+   else saved the same timeline first you get **Reload theirs / Overwrite with mine**, the same as
+   the layout.
+6. **Play it in the game.** In `/flow-v2`, add a **playCinematic** node. Its picker lists this
+   screen's timelines as **Timeline · <screen> · <name>**, ahead of the Rigger's cinematics. Turn on
+   **Wait for it to finish** to hold the flow until the intro ends. If the timeline names a node the
+   screen no longer has, the node shows a ⚠ warning under the picker. Publish as usual: timelines
+   ship with the game like cinematics.
+
+How keys behave:
+
+- **Keys are relative to the Design pose.** x/y add to the node's position, scale and alpha
+  multiply, rotation adds degrees, and tint replaces the colour. A key of 0 on y means "where you
+  laid it out". End an intro on the unchanged pose (x/y 0, scale 1, alpha 1, white tint), so that
+  when the timeline ends the screen sits exactly as designed.
+- **A timeline finds a node by its name.** That is what lets the same timeline play on another
+  screen that has a node with the same name. So a node needs a **Name** (Properties) that no other
+  node on the screen shares before you can key it. The panel says so when it doesn't, and never
+  falls back to the hidden id.
+- **Properties still edits the Design pose.** Fields like x or alpha in the Properties panel change
+  the layout, not the timeline. Key motion in the Timeline panel.
+
+Keyboard in Animate mode: the Timeline owns **Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y** (undo and redo the
+timeline), **Ctrl+S** (save the timeline), **Ctrl+D** (duplicate the selected strip) and
+**Delete / Backspace** (delete the selected key). The layout's own undo, copy/cut/paste/duplicate
+and delete are off until you switch back to Design. Esc still clears the selection, and typing in
+a field is never intercepted.
+
+Who can do this: anyone with the Scene Editor can open, save and delete **screen** timelines. The
+Rigger's cinematics stay with the Rigger.
+
+Not here yet: text tracks (count-up / switch key), visibility keys, cues, and timelines for
+components. Those come in later phases.
+
 ### Advanced modes (optional)
 
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
@@ -919,8 +976,9 @@ game on the next **Publish** — the same trip as the rest of your art.
   `mount`/`bind` escape hatch — the editor only places their anchor. (The design
   intent is to drive that hatch to zero over time, but it is the current
   boundary.)
-- **No in-editor book-event playback or timeline.** Verify animated behaviour by
-  running the live game, not in the editor.
+- **No in-editor book-event playback.** A screen's own motion can be keyed and previewed in
+  [Animate mode](#animate-mode--the-timeline); anything a book event drives must still be checked
+  in the live game.
 - **Some HUD parity gaps remain.** Rotation now ships for HUD elements, but the
   corner logo/game-name containers still ignore `scale` in-game, so scaling those
   two corner texts in the editor won't ship yet.

@@ -14,6 +14,9 @@ import { projectGameType } from '$lib/server/projects';
 import { flowAddOnsOf, resolveGameModes } from 'game-config';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { projectContainerEvents, syncFlowContainers } from '$lib/flowV2Projection';
+import { listCinematics, loadCinematic } from '$lib/server/cinematicStorage';
+import { cinematicPickerOptions, type CinematicPickerOption } from '$lib/timeline/screenTimeline';
+import { validateNodeActors, type Scene } from 'engine-layout';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -127,11 +130,23 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		label: mode.label ?? mode.id,
 	}));
 
+	const { cinematicOptions, timelineIssues } = await cinematicChoices(
+		clientKey,
+		projectKey,
+		layout.scenes ?? [],
+		sceneNames,
+	);
+
 	return {
 		clientKey,
 		projectKey,
 		doc,
 		docEtag,
+		/** What the `playCinematic` picker offers: screen timelines (Scene Editor → Animate) as
+		 *  "Timeline · <screen> · <name>", then the Rigger's cinematics. */
+		cinematicOptions,
+		/** Screen-timeline id → what would silently do nothing in game (`validateNodeActors`). */
+		timelineIssues,
 		/** What every sound picker on this page may offer: the engine's own sounds PLUS the ones this
 		 *  project uploaded in Invisible Sound. Before this, an uploaded sound was unselectable here. */
 		soundOptions: soundOptionsFor(await loadSoundsDoc(clientKey, projectKey)),
@@ -155,3 +170,38 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		symbols,
 	};
 };
+
+/**
+ * The project's cinematics as picker options, and the node-actor problems of each SCREEN timeline
+ * against the screen it animates. Best-effort: a listing failure leaves the picker empty (the
+ * inspector still accepts a typed id), never breaks the page.
+ */
+async function cinematicChoices(
+	clientKey: string,
+	projectKey: string,
+	scenes: Scene[],
+	sceneNames: Record<string, string>,
+): Promise<{
+	cinematicOptions: CinematicPickerOption[];
+	timelineIssues: Record<string, string[]>;
+}> {
+	const timelineIssues: Record<string, string[]> = {};
+	try {
+		const rows = await listCinematics(clientKey, projectKey);
+		for (const row of rows) {
+			if (row.host?.kind !== 'screen') continue;
+			const sceneId = row.host.sceneId;
+			const scene = scenes.find((s) => s.id === sceneId);
+			if (!scene) {
+				timelineIssues[row.id] = [`Its screen "${sceneId}" is not in this project's layout.`];
+				continue;
+			}
+			const { doc } = await loadCinematic(clientKey, projectKey, row.id);
+			const issues = doc ? validateNodeActors(doc, scene).map((i) => i.message) : [];
+			if (issues.length) timelineIssues[row.id] = issues;
+		}
+		return { cinematicOptions: cinematicPickerOptions(rows, sceneNames), timelineIssues };
+	} catch {
+		return { cinematicOptions: [], timelineIssues };
+	}
+}

@@ -1,0 +1,918 @@
+<script lang="ts">
+	/**
+	 * Animate mode's bottom panel (Rive plan Phase 3, `docs/design/rive-style-editor.md`): the active
+	 * SCREEN's timelines, edited in the shared Timeline module (`$lib/timeline/timeline.js` — the
+	 * same sequencer `/rigger` mounts) and previewed live on the Scene Editor canvas.
+	 *
+	 * - Storage is the cinematic store: `/api/cinematics/*`, the same ETag-conditional save, 409
+	 *   conflict flow and project-scope guard as `/rigger`. A timeline is a cinematic whose `host`
+	 *   is `{kind:'screen', sceneId}`; the endpoints let an `editor`-only user reach exactly those.
+	 * - Keying: the node selected on the canvas becomes a node actor targeting its NAME
+	 *   (`nodeActorTarget` refuses an unnamed or shared name — never an id), and its fields key
+	 *   x / y / scale / rotation / alpha / tint at the playhead through the module's `keyProperty`.
+	 * - Preview: every seek pushes `timelineDrives()` — the inputs `<LayoutNodeView>` folds in
+	 *   game — into the canvas's value-binding preview (`setTimelinePreview`).
+	 * - Keys: the module owns Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (timeline undo), Ctrl+S (save the
+	 *   timeline), Ctrl+D (duplicate a strip) and Delete / Backspace (the selected key) while this
+	 *   panel is mounted; the page and the canvas stand down on those (see `+page.svelte`).
+	 */
+	import { onDestroy, onMount, untrack } from 'svelte';
+	import { putKey, resolvePlace, resolveVisible } from 'engine-cinematic';
+	import type { CinematicCast, CinematicDoc, Scene } from 'engine-layout';
+	import { askConfirm, askText } from '$lib/dialogs.svelte';
+	import { mount, type Timeline, type TimelineEvaluator } from '$lib/timeline/timeline';
+	import {
+		NODE_IDENTITY,
+		SCREEN_CHANNELS,
+		ensureNodeActor,
+		isChannelKeyed,
+		keyableChannels,
+		newScreenTimeline,
+		nodeActorOf,
+		nodeActorTarget,
+		nodeChannelValue,
+		screenTimelineId,
+		screenTimelinesOf,
+		timelineDrives,
+		type KeyedChannel,
+	} from '$lib/timeline/screenTimeline';
+	import { setTimelinePreview } from './valuePreview.client.svelte';
+
+	interface Props {
+		/** The active screen — the host every timeline listed here animates. */
+		scene: Scene | undefined;
+		/** The canvas selection's primary node. */
+		selectedId: string | null;
+		/** The project this tab loaded — every save posts it, and a mismatch is refused. */
+		projectKey: string;
+		/** Animate mode is on. The page keeps this panel mounted (hidden) after leaving Animate so
+		 *  unsaved edits survive the toggle; inactive, it owns no key and previews nothing. */
+		active: boolean;
+	}
+
+	let { scene, selectedId, projectKey, active }: Props = $props();
+
+	interface Row {
+		id: string;
+		name: string;
+		duration: number;
+		host?: CinematicDoc['host'];
+	}
+
+	const EV: TimelineEvaluator = {
+		resolvePlace: resolvePlace as TimelineEvaluator['resolvePlace'],
+		resolveVisible: resolveVisible as TimelineEvaluator['resolveVisible'],
+		putKey: putKey as TimelineEvaluator['putKey'],
+	};
+
+	let rows = $state<Row[]>([]);
+	let openId = $state<string | null>(null);
+	/** The ETag the next save must match; `null` = never saved (create-only). */
+	let etag: string | null = null;
+	let dirty = $state(false);
+	let busy = $state(false);
+	let status = $state('');
+	let error = $state('');
+	let conflict = $state(false);
+	let time = $state(0);
+	let playing = $state(false);
+	/** Bumped whenever the document or the playhead changes — the fields re-read the doc. */
+	let docVersion = $state(0);
+
+	let tlEl: HTMLDivElement | undefined = $state();
+	let pickerEl: HTMLSelectElement | undefined = $state();
+	let inspEl: HTMLDivElement | undefined = $state();
+	let tl: Timeline | null = null;
+	let raf = 0;
+
+	const sceneId = $derived(scene?.id);
+	const screenRows = $derived(screenTimelinesOf(rows, sceneId));
+
+	function preview(): void {
+		const doc = tl?.doc();
+		setTimelinePreview(active && doc && scene ? timelineDrives(doc, scene, time) : null);
+	}
+
+	function mountTimeline(doc: CinematicDoc): void {
+		tl?.destroy();
+		tl = mount(tlEl ?? null, {
+			doc,
+			ev: EV,
+			inspector: inspEl ?? null,
+			channels: SCREEN_CHANNELS,
+			host: {
+				evaluate(t) {
+					time = t;
+					preview();
+				},
+				seeked(t) {
+					time = t;
+					docVersion++;
+				},
+				changed() {
+					dirty = true;
+					docVersion++;
+					preview();
+				},
+				render() {
+					tl?.renderInspector();
+					docVersion++;
+				},
+				docReplaced() {
+					docVersion++;
+				},
+				save() {
+					void save();
+				},
+				actorLabel: (cast: CinematicCast) => ({
+					text: `◇ ${cast.target ?? cast.actorId}`,
+					title: `Node "${cast.target ?? ''}" on this screen`,
+				}),
+				sceneName: (id: string) => (id === scene?.id ? (scene?.name ?? id) : id),
+			},
+		});
+		tl.setActive(active);
+		tl.historyReset();
+		tl.setTime(0);
+		tl.renderTimeline();
+		tl.renderInspector();
+	}
+
+	function closeTimeline(): void {
+		stop();
+		tl?.destroy();
+		tl = null;
+		openId = null;
+		etag = null;
+		dirty = false;
+		conflict = false;
+		time = 0;
+		// Both elements are the vanilla Timeline module's to fill — Svelte renders no children
+		// into them — so clearing what it drew is the module's markup, not Svelte's.
+		/* eslint-disable svelte/no-dom-manipulating */
+		if (tlEl) tlEl.innerHTML = '';
+		if (inspEl) inspEl.innerHTML = '';
+		/* eslint-enable svelte/no-dom-manipulating */
+		setTimelinePreview(null);
+	}
+
+	async function readError(res: Response): Promise<string> {
+		const body = (await res.json().catch(() => null)) as { message?: string } | null;
+		return body?.message ?? `${res.status} ${res.statusText}`;
+	}
+
+	async function refresh(): Promise<void> {
+		const res = await fetch('/api/cinematics/list');
+		if (!res.ok) {
+			error = `Could not list timelines: ${await readError(res)}`;
+			return;
+		}
+		const body = (await res.json()) as { cinematics: Row[] };
+		rows = body.cinematics;
+	}
+
+	async function guardUnsaved(): Promise<boolean> {
+		if (!dirty) return true;
+		return askConfirm({
+			title: 'Discard unsaved timeline changes?',
+			message: `"${tl?.doc().name ?? openId}" has changes that are not saved.`,
+			confirmLabel: 'Discard',
+			danger: true,
+		});
+	}
+
+	async function open(id: string): Promise<void> {
+		if (id === openId) return;
+		if (!(await guardUnsaved())) {
+			// The <select> already shows `id`; put it back on the timeline that is still open.
+			if (pickerEl) pickerEl.value = openId ?? '';
+			return;
+		}
+		error = '';
+		const res = await fetch(`/api/cinematics/get?id=${encodeURIComponent(id)}`);
+		if (!res.ok) {
+			error = `Could not open "${id}": ${await readError(res)}`;
+			return;
+		}
+		const body = (await res.json()) as { doc: CinematicDoc | null; etag: string | null };
+		if (!body.doc) {
+			error = `"${id}" is not a readable timeline.`;
+			return;
+		}
+		closeTimeline();
+		openId = id;
+		etag = body.etag;
+		mountTimeline(body.doc);
+	}
+
+	async function create(): Promise<void> {
+		if (!scene || !(await guardUnsaved())) return;
+		const name = await askText({
+			title: 'New timeline',
+			message: `A timeline animates the nodes of "${scene.name || scene.id}". Flow plays it with a playCinematic node.`,
+			label: 'Name',
+			value: 'Intro',
+		});
+		if (!name?.trim()) return;
+		const id = screenTimelineId(
+			scene.id,
+			name,
+			rows.map((r) => r.id),
+		);
+		closeTimeline();
+		openId = id;
+		etag = null;
+		mountTimeline(newScreenTimeline({ id, name: name.trim(), sceneId: scene.id }));
+		dirty = true;
+		await save();
+		if (etag === null) {
+			// The first save never landed (say the id belongs to a Rigger cinematic this role cannot
+			// see, a 403): nothing exists to keep editing, so close it and leave the reason showing.
+			const reason = error || 'The new timeline could not be saved.';
+			closeTimeline();
+			error = reason;
+		}
+	}
+
+	async function rename(): Promise<void> {
+		const doc = tl?.doc();
+		if (!doc) return;
+		const name = await askText({ title: 'Rename timeline', label: 'Name', value: doc.name });
+		if (!name?.trim() || name.trim() === doc.name) return;
+		doc.name = name.trim();
+		tl?.commit('rename');
+		await save();
+	}
+
+	async function remove(): Promise<void> {
+		const doc = tl?.doc();
+		if (!doc) return;
+		const ok = await askConfirm({
+			title: `Delete the timeline "${doc.name}"?`,
+			message:
+				'It is removed from the project. A Flow playCinematic node that plays it will play nothing.',
+			confirmLabel: 'Delete',
+			danger: true,
+		});
+		if (!ok) return;
+		const res = await fetch('/api/cinematics/delete', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id: doc.id }),
+		});
+		if (!res.ok) {
+			error = `Delete failed: ${await readError(res)}`;
+			return;
+		}
+		closeTimeline();
+		await refresh();
+	}
+
+	async function save(force = false): Promise<void> {
+		const doc = tl?.doc();
+		if (!doc || busy) return;
+		busy = true;
+		error = '';
+		try {
+			const res = await fetch('/api/cinematics/save', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(
+					force ? { doc, force: true, projectKey } : { doc, baseEtag: etag, projectKey },
+				),
+			});
+			const body = (await res.json().catch(() => null)) as {
+				etag?: string | null;
+				error?: string;
+				message?: string;
+			} | null;
+			if (res.status === 409 && body?.error === 'conflict') {
+				conflict = true;
+				error = body.message ?? 'Someone else saved this timeline.';
+				return;
+			}
+			if (!res.ok) {
+				error = `Save failed: ${body?.message ?? `${res.status} ${res.statusText}`}`;
+				return;
+			}
+			etag = body?.etag ?? null;
+			dirty = false;
+			conflict = false;
+			status = `Saved ${new Date().toLocaleTimeString()}`;
+			await refresh();
+		} finally {
+			busy = false;
+		}
+	}
+
+	async function reloadTheirs(): Promise<void> {
+		const id = openId;
+		if (!id) return;
+		dirty = false;
+		closeTimeline();
+		await open(id);
+	}
+
+	// ---- transport -------------------------------------------------------------------------
+
+	function stop(): void {
+		playing = false;
+		if (raf) cancelAnimationFrame(raf);
+		raf = 0;
+	}
+
+	function play(): void {
+		const doc = tl?.doc();
+		if (!doc || !tl) return;
+		if (time >= doc.duration) tl.setTime(0);
+		playing = true;
+		let last = performance.now();
+		const tick = (now: number): void => {
+			if (!playing || !tl) return;
+			const next = time + (now - last) / 1000;
+			last = now;
+			const end = tl.doc().duration;
+			tl.setTime(Math.min(next, end));
+			tl.positionPlayhead();
+			if (next >= end) stop();
+			else raf = requestAnimationFrame(tick);
+		};
+		raf = requestAnimationFrame(tick);
+	}
+
+	function setDuration(value: number): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !Number.isFinite(value) || value <= 0) return;
+		doc.duration = Math.round(value * 1000) / 1000;
+		tl.commit('duration', 'duration');
+		if (time > doc.duration) tl.setTime(doc.duration);
+		tl.renderTimeline();
+	}
+
+	// ---- keying the selected node ------------------------------------------------------------
+
+	const target = $derived(scene && selectedId ? nodeActorTarget(scene, selectedId) : null);
+	const channels = $derived(target?.ok ? keyableChannels(target.node.kind) : []);
+
+	/** The selected node's actor in the open timeline, if it has one. */
+	function actorId(): string | null {
+		void docVersion;
+		const doc = tl?.doc();
+		return doc && target?.ok ? nodeActorOf(doc, target.target) : null;
+	}
+
+	function value(channel: KeyedChannel): number {
+		void docVersion;
+		const doc = tl?.doc();
+		const id = actorId();
+		return doc && id ? nodeChannelValue(doc, id, channel, time) : NODE_IDENTITY[channel];
+	}
+
+	function keyed(channel: KeyedChannel): boolean {
+		void docVersion;
+		const doc = tl?.doc();
+		const id = actorId();
+		return !!doc && !!id && isChannelKeyed(doc, id, channel);
+	}
+
+	/** Key `channel` at the playhead to `v` (default: its current value), creating the actor. */
+	function key(channel: KeyedChannel, v?: number): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !target?.ok) return;
+		if (doc.host?.kind !== 'screen' || doc.host.sceneId !== scene?.id) return;
+		const id = ensureNodeActor(doc, target.target);
+		const next = v ?? value(channel);
+		tl.keyProperty(id, channel, Number.isFinite(next) ? next : 0);
+		preview();
+	}
+
+	const hex = (n: number): string => '#' + (Math.round(n) & 0xffffff).toString(16).padStart(6, '0');
+	const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
+	const CHANNEL_LABEL: Record<KeyedChannel, string> = {
+		x: 'x (offset)',
+		y: 'y (offset)',
+		scale: 'scale (×)',
+		rotation: 'rotation (°)',
+		alpha: 'alpha (×)',
+		tint: 'tint',
+	};
+
+	// A different screen has different timelines: save the open one, then close it. A failed save
+	// (a conflict, say) keeps it open with its error, previewing nothing on the other screen.
+	async function leaveScreen(): Promise<void> {
+		if (dirty) await save();
+		if (!dirty) closeTimeline();
+	}
+	let lastSceneId: string | undefined;
+	$effect(() => {
+		const id = sceneId;
+		if (lastSceneId !== undefined && id !== lastSceneId && tl) void untrack(leaveScreen);
+		lastSceneId = id;
+	});
+
+	// Hidden (Design mode): no keys, no preview, no playback — Design draws exactly as before.
+	$effect(() => {
+		const on = active;
+		void openId;
+		untrack(() => {
+			tl?.setActive(on);
+			if (!on) stop();
+			preview();
+		});
+	});
+
+	function onBeforeUnload(e: BeforeUnloadEvent): void {
+		if (dirty) e.preventDefault();
+	}
+
+	// The scene object is replaced on every node edit (a rename in Properties, say): re-bind the
+	// preview so it follows the screen the canvas is drawing.
+	$effect(() => {
+		void scene;
+		untrack(preview);
+	});
+
+	onMount(() => {
+		void refresh();
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => window.removeEventListener('beforeunload', onBeforeUnload);
+	});
+
+	onDestroy(() => {
+		stop();
+		// Detaches the module's window keydown listener; without it the Timeline would keep
+		// answering Ctrl+Z / Delete after Animate mode is left.
+		tl?.destroy();
+		tl = null;
+		setTimelinePreview(null);
+	});
+</script>
+
+<section class="tl-panel" aria-label="Timeline">
+	<div class="tl-bar">
+		<b class="tl-title">Timeline</b>
+		<span class="tl-host">{scene ? scene.name || scene.id : 'no screen'}</span>
+		<select
+			bind:this={pickerEl}
+			value={openId ?? ''}
+			onchange={(e) => {
+				const id = e.currentTarget.value;
+				if (id) void open(id);
+			}}
+			aria-label="Timelines of this screen"
+		>
+			<option value="" disabled>
+				{screenRows.length ? 'Open a timeline…' : 'No timelines on this screen'}
+			</option>
+			{#each screenRows as row (row.id)}
+				<option value={row.id}>{row.name}</option>
+			{/each}
+		</select>
+		<button type="button" onclick={() => void create()} disabled={!scene}>＋ New</button>
+		{#if openId}
+			<button type="button" onclick={() => void rename()}>Rename</button>
+			<button type="button" class="danger" onclick={() => void remove()}>🗑</button>
+			<span class="sep"></span>
+			<button type="button" title="Back to the start" onclick={() => tl?.setTime(0)}>⏮</button>
+			{#if playing}
+				<button type="button" title="Pause" onclick={stop}>⏸</button>
+			{:else}
+				<button type="button" title="Play" onclick={play}>▶</button>
+			{/if}
+			<span class="tl-time">{time.toFixed(2)}s /</span>
+			{#key docVersion}
+				<input
+					class="tl-dur"
+					type="number"
+					min="0.1"
+					step="0.1"
+					value={tl?.doc().duration ?? 1}
+					title="Duration (seconds)"
+					onchange={(e) => setDuration(Number(e.currentTarget.value))}
+				/>
+			{/key}
+			<span class="sep"></span>
+			{#if conflict}
+				<span class="pill error" title={error}>⚠ Someone else saved this</span>
+				<button type="button" onclick={() => void reloadTheirs()}>Reload theirs</button>
+				<button type="button" onclick={() => void save(true)}>Overwrite with mine</button>
+			{:else if busy}
+				<span class="pill">Saving…</span>
+			{:else if dirty}
+				<span class="pill dirty">Unsaved</span>
+				<button type="button" onclick={() => void save()}>Save</button>
+			{:else if status}
+				<span class="pill ok">{status}</span>
+			{/if}
+		{/if}
+		{#if error && !conflict}
+			<span class="pill error" title={error}>{error}</span>
+		{/if}
+	</div>
+
+	<div class="tl-body">
+		<div class="tl-keys">
+			{#if !openId}
+				<p class="note">
+					Open or create a timeline for this screen, select a node on the canvas, then key it here.
+					Keys are relative to the node's Design pose: x/y add, scale and alpha multiply, rotation
+					adds degrees. End an intro on the unchanged pose so the screen settles where you laid it
+					out.
+				</p>
+			{:else if !selectedId}
+				<p class="note">Select a node on the canvas to key it.</p>
+			{:else if target && !target.ok}
+				<p class="note warn">{target.message}</p>
+			{:else if target?.ok}
+				<div class="keys-head">
+					<b>{target.target}</b>
+					<small>{target.node.kind}</small>
+				</div>
+				{#each channels as channel (channel)}
+					<label class="keyrow" class:keyed={keyed(channel)}>
+						<span>{CHANNEL_LABEL[channel]}</span>
+						{#if channel === 'tint'}
+							<input
+								type="color"
+								value={hex(value(channel))}
+								onchange={(e) => key(channel, parseInt(e.currentTarget.value.slice(1), 16))}
+							/>
+						{:else}
+							<input
+								type="number"
+								step={channel === 'x' || channel === 'y' || channel === 'rotation' ? 1 : 0.05}
+								value={fmt(value(channel))}
+								onchange={(e) => {
+									const raw = e.currentTarget.value.trim();
+									const v = Number(raw);
+									// An emptied or junk field keys nothing — `Number('')` is 0, which would
+									// collapse a scale or hide an alpha.
+									if (raw === '' || !Number.isFinite(v)) {
+										e.currentTarget.value = fmt(value(channel));
+										return;
+									}
+									key(channel, v);
+								}}
+							/>
+						{/if}
+						<button
+							type="button"
+							class="diamond"
+							title={`Key ${channel} at ${time.toFixed(2)}s`}
+							onclick={() => key(channel)}>◆</button
+						>
+					</label>
+				{/each}
+			{/if}
+		</div>
+		<div class="tl-lanes" bind:this={tlEl}></div>
+		<div class="tl-insp" bind:this={inspEl}></div>
+	</div>
+</section>
+
+<style>
+	.tl-panel {
+		--bg: #1b1d22;
+		--panel: #23262d;
+		--panel2: #2b2f38;
+		--line: #363b45;
+		--txt: #d7dbe2;
+		--dim: #8b93a1;
+		--accent: #5db0ff;
+		--accent2: #7ee0c0;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		height: 100%;
+		background: var(--panel);
+		color: var(--txt);
+		border-top: 1px solid var(--line);
+		font-size: 12px;
+	}
+	.tl-bar {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 6px 10px;
+		border-bottom: 1px solid var(--line);
+		flex-wrap: wrap;
+	}
+	.tl-title {
+		color: var(--accent2);
+		letter-spacing: 0.08em;
+	}
+	.tl-host {
+		color: var(--dim);
+	}
+	.tl-bar select,
+	.tl-bar input,
+	.tl-bar button,
+	.keyrow input {
+		background: var(--panel2);
+		color: var(--txt);
+		border: 1px solid var(--line);
+		border-radius: 5px;
+		padding: 2px 6px;
+		font-size: 12px;
+	}
+	.tl-bar button {
+		cursor: pointer;
+	}
+	.tl-bar button:disabled {
+		opacity: 0.5;
+		cursor: default;
+	}
+	.tl-bar .danger:hover {
+		color: #ff7a7a;
+	}
+	.sep {
+		width: 1px;
+		height: 16px;
+		background: var(--line);
+	}
+	.tl-time {
+		color: var(--dim);
+		font-variant-numeric: tabular-nums;
+	}
+	.tl-dur {
+		width: 60px;
+	}
+	.pill {
+		padding: 1px 8px;
+		border-radius: 10px;
+		background: var(--panel2);
+		color: var(--dim);
+		max-width: 420px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.pill.ok {
+		color: var(--accent2);
+	}
+	.pill.dirty {
+		color: #ffd24a;
+	}
+	.pill.error {
+		color: #ff7a7a;
+	}
+	.tl-body {
+		display: grid;
+		grid-template-columns: 220px minmax(0, 1fr) 240px;
+		flex: 1;
+		min-height: 0;
+	}
+	.tl-keys,
+	.tl-insp {
+		overflow: auto;
+		border-right: 1px solid var(--line);
+	}
+	.tl-insp {
+		border-right: none;
+		border-left: 1px solid var(--line);
+	}
+	.tl-lanes {
+		position: relative;
+		overflow: auto;
+		min-width: 0;
+		background: var(--panel);
+	}
+	.note {
+		padding: 10px 12px;
+		margin: 0;
+		color: var(--dim);
+		line-height: 1.5;
+		font-size: 11px;
+	}
+	.note.warn {
+		color: #ffd24a;
+	}
+	.keys-head {
+		display: flex;
+		gap: 8px;
+		align-items: baseline;
+		padding: 8px 12px;
+		border-bottom: 1px solid var(--line);
+	}
+	.keys-head small {
+		color: var(--dim);
+	}
+	.keyrow {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 3px 12px;
+		color: var(--dim);
+	}
+	.keyrow span {
+		flex: 1;
+	}
+	.keyrow.keyed span {
+		color: #ffd24a;
+	}
+	.keyrow input[type='number'] {
+		width: 70px;
+	}
+	.keyrow input[type='color'] {
+		width: 70px;
+		height: 22px;
+		padding: 0 2px;
+	}
+	.diamond {
+		background: none;
+		border: none;
+		color: var(--dim);
+		cursor: pointer;
+		font-size: 11px;
+	}
+	.keyrow.keyed .diamond,
+	.diamond:hover {
+		color: #ffd24a;
+	}
+
+	/* The shared Timeline module's markup (the same classes `/rigger`'s view.html styles). */
+	.tl-panel :global(.cineHead) {
+		padding: 8px 12px;
+		border-bottom: 1px solid var(--line);
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+	}
+	.tl-panel :global(.cineHead b) {
+		color: var(--accent2);
+		letter-spacing: 0.08em;
+	}
+	.tl-panel :global(.cineHead small),
+	.tl-panel :global(.cineNote) {
+		color: var(--dim);
+	}
+	.tl-panel :global(.cineNote) {
+		padding: 10px 12px;
+		font-size: 11px;
+		line-height: 1.5;
+	}
+	.tl-panel :global(.cineRow) {
+		padding: 6px 12px;
+		display: flex;
+		gap: 6px;
+		align-items: center;
+	}
+	.tl-panel :global(.cineStripInsp) {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px 8px;
+		padding: 8px 12px;
+		color: var(--dim);
+		font-size: 11px;
+	}
+	.tl-panel :global(.cineStripInsp label) {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.tl-panel :global(.cineStripInsp label.wide) {
+		flex: 1 0 100%;
+	}
+	.tl-panel :global(.cineStripInsp input),
+	.tl-panel :global(.cineStripInsp select),
+	.tl-panel :global(.cineRow button),
+	.tl-panel :global(.cineGutter button) {
+		background: var(--panel2);
+		color: var(--txt);
+		border: 1px solid var(--line);
+		border-radius: 4px;
+		font-size: 11px;
+	}
+	.tl-panel :global(.cineStripInsp input[type='number']) {
+		width: 64px;
+	}
+	.tl-panel :global(.cineRuler),
+	.tl-panel :global(.cineTrack) {
+		display: flex;
+		height: 22px;
+		align-items: stretch;
+	}
+	.tl-panel :global(.cineTrack) {
+		height: 28px;
+		border-bottom: 1px solid #2a2e36;
+	}
+	.tl-panel :global(.cineRuler) {
+		position: sticky;
+		top: 0;
+		z-index: 5;
+		height: 24px;
+		background: var(--panel);
+		border-bottom: 1px solid var(--line);
+	}
+	.tl-panel :global(.cineGutter) {
+		width: 132px;
+		flex: 0 0 132px;
+		position: sticky;
+		left: 0;
+		z-index: 4;
+		background: var(--panel);
+		border-right: 1px solid var(--line);
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		padding: 0 6px;
+		font-size: 11px;
+		overflow: hidden;
+		box-sizing: border-box;
+	}
+	.tl-panel :global(.cineRulerGutter) {
+		color: var(--dim);
+		font-size: 10px;
+	}
+	.tl-panel :global(.cineTrackName) {
+		flex: 1;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.tl-panel :global(.cineLane) {
+		position: relative;
+		flex: 0 0 auto;
+	}
+	.tl-panel :global(.cineTick) {
+		position: absolute;
+		top: 5px;
+		font-size: 9px;
+		color: var(--dim);
+		padding-left: 3px;
+		border-left: 1px solid var(--line);
+		height: 14px;
+	}
+	.tl-panel :global(.cineVisRow) {
+		background: rgba(126, 224, 192, 0.07);
+	}
+	.tl-panel :global(.cineVisKey) {
+		position: absolute;
+		top: 5px;
+		width: 10px;
+		height: 10px;
+		margin-left: -5px;
+		cursor: ew-resize;
+		background: #7ee0c0;
+		border: 1px solid #0c0f14;
+		border-radius: 2px;
+		z-index: 1;
+	}
+	.tl-panel :global(.cineVisKey.off) {
+		background: transparent;
+		border-color: #7ee0c0;
+	}
+	.tl-panel :global(.cineCueRow) {
+		background: rgba(201, 139, 255, 0.07);
+	}
+	.tl-panel :global(.cineCue) {
+		position: absolute;
+		top: 4px;
+		width: 0;
+		height: 0;
+		margin-left: -6px;
+		cursor: ew-resize;
+		border-left: 6px solid transparent;
+		border-right: 6px solid transparent;
+		border-top: 12px solid currentColor;
+		z-index: 1;
+	}
+	.tl-panel :global(.cinePlayhead) {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		width: 1px;
+		background: #ffd24a;
+		z-index: 6;
+		pointer-events: none;
+		box-shadow: 0 0 4px rgba(255, 210, 74, 0.6);
+	}
+	.tl-panel :global(.cineChanRow) {
+		height: 20px;
+		background: rgba(0, 0, 0, 0.12);
+	}
+	.tl-panel :global(.cineChanName) {
+		font-size: 10px;
+		opacity: 0.9;
+	}
+	.tl-panel :global(.cineKey) {
+		position: absolute;
+		top: 4px;
+		width: 11px;
+		height: 11px;
+		margin-left: -6px;
+		transform: rotate(45deg);
+		border: 1px solid #0c0f14;
+		cursor: ew-resize;
+		z-index: 1;
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+	}
+	.tl-panel :global(.cineKey.hold) {
+		transform: none;
+		border-radius: 1px;
+	}
+	.tl-panel :global(.cineKey.sel),
+	.tl-panel :global(.cineCue.sel) {
+		outline: 1px solid #fff;
+	}
+</style>
