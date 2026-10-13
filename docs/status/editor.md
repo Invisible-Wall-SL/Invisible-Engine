@@ -113,6 +113,11 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-13 — **Listeners + events in the editor (Rive plan Phase 6b, in review).** Components
+  side only: Properties gains **Listeners** (per node) and **Component variables → Events**; the
+  State machine tab gains **On enter → raise event** and an **Events** log; in Animate the stage
+  answers the pointer for the preview (`EditorCanvas` `onStagePointer`, a deep hit-test into
+  containers). See [component-editor status](component-editor.md).
 - 2026-10-13 — **State Machine tab in Animate (Rive plan Phase 5b, in review).** Components side
   only; see [component-editor status](component-editor.md).
 - 2026-10-13 — **Component timelines (Rive plan Phase 4b, in review).** `EditorTimelinePanel.svelte`

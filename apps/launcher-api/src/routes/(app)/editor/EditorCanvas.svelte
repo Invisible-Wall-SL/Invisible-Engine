@@ -293,6 +293,10 @@
 		/** Double-click on a placed component instance: edit its def in place (Rive plan Phase 4).
 		 * Absent ⇒ a double-click does nothing beyond the two clicks. */
 		onEditInstance?: (node: ComponentInstanceNode) => void;
+		/** The State Machine preview's pointer (Rive plan Phase 6b): in Animate, every move, press
+		 *  and release over the stage, with the DEEPEST node under it (into containers), so the
+		 *  preview can drive the component's listeners. Absent ⇒ the stage only selects. */
+		onStagePointer?: (kind: 'move' | 'down' | 'up' | 'leave', nodeId: string | null) => void;
 	}
 
 	let {
@@ -334,6 +338,7 @@
 		modeBar,
 		animate = false,
 		onEditInstance,
+		onStagePointer,
 	}: Props = $props();
 
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
@@ -3921,6 +3926,47 @@
 		return { x: (p.x - panX) / zoom, y: (p.y - panY) / zoom };
 	}
 
+	/**
+	 * The DEEPEST node under `world` — into containers, each child in its parent's local space (the
+	 * composition `drawNode` uses) — for the listener preview: a listener on a nested node must hear
+	 * the pointer. A container with children is hit through them (the game's hit area is its
+	 * children's), else by its own box.
+	 */
+	function deepHitId(world: Vec2): string | null {
+		const toLocal = (p: Vec2, t: ResolvedTransform): Vec2 => {
+			const dx = p.x - t.x;
+			const dy = p.y - t.y;
+			const rot = t.rotation ?? 0;
+			const cos = Math.cos(-rot);
+			const sin = Math.sin(-rot);
+			return {
+				x: (dx * cos - dy * sin) / (t.scale?.x || 1),
+				y: (dx * sin + dy * cos) / (t.scale?.y || 1),
+			};
+		};
+		const hit = (node: LayoutNode, p: Vec2, nested: boolean): string | null => {
+			const t = nested
+				? childLocalTransform(node, layoutType, scene.space, frameWidth, frameHeight)
+				: nodeTransform(node);
+			if (!t.visible) return null;
+			if (node.kind === 'container' && node.children.length) {
+				const local = toLocal(p, t);
+				for (let i = node.children.length - 1; i >= 0; i--) {
+					const found = hit(node.children[i], local, true);
+					if (found) return found;
+				}
+				if (!node.bind) return null;
+			}
+			return pointInQuad(p, nodeCornersWorld(t, boxOf(node, t))) ? node.id : null;
+		};
+		const list = visibleSceneNodes();
+		for (let i = list.length - 1; i >= 0; i--) {
+			const found = hit(list[i], world, false);
+			if (found) return found;
+		}
+		return null;
+	}
+
 	function hitTestNode(world: Vec2): LayoutNode | null {
 		const list = visibleSceneNodes();
 		for (let i = list.length - 1; i >= 0; i--) {
@@ -4255,6 +4301,7 @@
 		const rect = canvas!.getBoundingClientRect();
 		const screen = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 		const world = clientToWorld(e.clientX, e.clientY);
+		if (animate) onStagePointer?.('down', deepHitId(world));
 
 		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
@@ -4334,8 +4381,11 @@
 		if (screen.x < 0 || screen.y < 0 || screen.x > rect.width || screen.y > rect.height) {
 			hoverHandle = null;
 			hoverNodeId = null;
+			if (animate) onStagePointer?.('leave', null);
 			return;
 		}
+		if (animate && onStagePointer)
+			onStagePointer('move', deepHitId(clientToWorld(e.clientX, e.clientY)));
 		hoverHandle = hitTestHandle(screen);
 		if (!hoverHandle) {
 			const w = clientToWorld(e.clientX, e.clientY);
@@ -4346,7 +4396,17 @@
 		}
 	}
 
-	function onWindowMouseUp(): void {
+	function onWindowMouseUp(e: MouseEvent): void {
+		if (animate && onStagePointer && canvas) {
+			const rect = canvas.getBoundingClientRect();
+			const inside =
+				e.clientX >= rect.left &&
+				e.clientX <= rect.right &&
+				e.clientY >= rect.top &&
+				e.clientY <= rect.bottom;
+			// A release off the stage is no `up` on any node (as in the game).
+			onStagePointer('up', inside ? deepHitId(clientToWorld(e.clientX, e.clientY)) : null);
+		}
 		panning = false;
 		lastXY = null;
 		if (dragMode) {

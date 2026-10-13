@@ -26,12 +26,17 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import {
+		ComponentEventDispatcher,
 		ComponentStateMachineRunner,
 		type ComponentTimelinePlayer,
 		SM_ANY_STATE,
 		SM_EXIT_STATE,
+		componentEvents,
 		componentInputs,
+		hasNodeListeners,
+		validateComponentEvents,
 		validateStateMachine,
+		type RaisedComponentEvent,
 		type CinematicDoc,
 		type ComponentDef,
 		type ComponentInput,
@@ -63,6 +68,9 @@
 		stateMachineIds,
 	} from '$lib/timeline/stateMachineEdit';
 	import { placeLayers, playerDrives, previewPlayer } from '$lib/timeline/stateMachinePreview';
+	import { addEnterAction, removeEnterAction, rowIds } from '$lib/timeline/listenerEdit';
+	import { StagePointer, listeningChain } from '$lib/timeline/listenerPreview';
+	import EditorRaisePayload from './EditorRaisePayload.svelte';
 	import SmGraphNode from './SmGraphNode.svelte';
 	import { setTimelinePreview } from './valuePreview.client.svelte';
 
@@ -80,6 +88,9 @@
 		onChanged: () => void;
 		/** Open a timeline in the Timeline panel (a state card was double-clicked). */
 		onOpenTimeline: (id: string) => void;
+		/** Bumped by every edit of the draft elsewhere (Properties: listeners, events): the preview's
+		 *  event dispatcher is rebuilt from the def as it now is. */
+		editVersion?: number;
 	}
 	let {
 		def,
@@ -89,6 +100,7 @@
 		active,
 		onChanged,
 		onOpenTimeline,
+		editVersion = 0,
 	}: Props = $props();
 
 	const previewOwner = Symbol('state-machine-panel');
@@ -151,6 +163,18 @@
 	}
 	/** Ids the saved component used: never handed to a new layer, state or transition. */
 	const reserved = $derived(stateMachineIds(savedDef));
+	/** Ids of the saved component's listeners and on-enter rows: never handed to a new row. */
+	const reservedRows = $derived(rowIds(savedDef));
+	const events = $derived.by(() => {
+		void graphVersion;
+		void editVersion;
+		return def ? componentEvents(def) : [];
+	});
+	const eventIssues = $derived.by(() => {
+		void graphVersion;
+		void editVersion;
+		return def ? validateComponentEvents(def) : [];
+	});
 	// The list follows the component: a timeline saved in the Timeline tab shows up here.
 	$effect(() => {
 		void def?.id;
@@ -286,6 +310,76 @@
 	const docs = new SvelteMap<string, CinematicDoc>();
 	let raf = 0;
 	let last = 0;
+
+	/** The game's event dispatcher for the previewed instance (Phase 6): the stage's pointer reaches
+	 *  the listeners through it, and what it raises lands in the Events log. */
+	let dispatcher: ComponentEventDispatcher | null = null;
+	interface LogRow {
+		n: number;
+		t: number;
+		event: string;
+		origin: RaisedComponentEvent['origin'];
+		payload: string;
+	}
+	let eventLog = $state<LogRow[]>([]);
+	let logN = 0;
+	let logStart = 0;
+	const LOG_MAX = 40;
+	function logRaise(raised: RaisedComponentEvent): void {
+		const payload = Object.entries(raised.payload)
+			.map(([k, v]) => `${k}=${typeof v === 'string' ? JSON.stringify(v) : String(v)}`)
+			.join(' ');
+		const row: LogRow = {
+			n: ++logN,
+			t: (performance.now() - logStart) / 1000,
+			event: raised.event,
+			origin: raised.origin,
+			payload,
+		};
+		eventLog = [row, ...eventLog].slice(0, LOG_MAX);
+	}
+	/** The previewed instance's dispatcher, on the def as it is now. */
+	function buildDispatcher(): void {
+		dispatcher?.destroy();
+		dispatcher =
+			def && (hasNodeListeners(def) || def.events?.length)
+				? new ComponentEventDispatcher(def, {
+						instanceId: 'preview',
+						fireTrigger: (id) => fire(id),
+						input: (id) => runner?.input(id) ?? previewValues[id],
+						setInput: (id, value) => setPreviewInput(id, value),
+						raise: logRaise,
+						schedule: (drain) => queueMicrotask(drain),
+					})
+				: null;
+	}
+	/** The stage's pointer, routed as the game's wrappers route it. */
+	let pointer = new StagePointer((node, event) => dispatcher?.pointer(node, event));
+	/**
+	 * The canvas's pointer over the component's own drawing (`nodeId`: the node under it, or null):
+	 * while this panel is shown, the listening nodes under it hear `enter` / `leave` / `down` / `up`
+	 * / `click`, deepest first, through the game's dispatcher. Hidden, it hears nothing.
+	 */
+	export function stagePointer(
+		kind: 'move' | 'down' | 'up' | 'leave',
+		nodeId: string | null,
+	): void {
+		if (!active || !def) return;
+		if (!dispatcher) buildDispatcher();
+		if (!dispatcher) return;
+		if (kind === 'leave') {
+			pointer.leave();
+			return;
+		}
+		const chain = listeningChain(def.root, nodeId);
+		if (kind === 'move') pointer.move(chain);
+		else if (kind === 'down') pointer.down(chain);
+		else pointer.up(chain);
+	}
+	function clearLog(): void {
+		eventLog = [];
+		logStart = performance.now();
+	}
 
 	// ---- the graph --------------------------------------------------------------------------------
 
@@ -434,7 +528,11 @@
 			setTimelinePreview(null, previewOwner);
 			return;
 		}
-		placeLayers(runner, player);
+		placeLayers(
+			runner,
+			player,
+			running && dispatcher ? { dispatcher, declaresEvents: events.length > 0 } : undefined,
+		);
 		const next: Record<string, string> = {};
 		for (const p of runner.plays()) next[p.layer] = p.state;
 		// Reassigned only on a change: the graph rebuilds off it, and a rebuild every frame would
@@ -460,6 +558,7 @@
 		const step = runner.advance(dt);
 		if (step.fired.length) light(step.fired[step.fired.length - 1].transition);
 		apply();
+		dispatcher?.transitions(step.fired);
 		raf = requestAnimationFrame(tick);
 	}
 	function arm(): void {
@@ -485,6 +584,8 @@
 		running = true;
 		if (!entered) {
 			entered = true;
+			logStart = performance.now();
+			dispatcher?.started(runner.plays());
 			runner.fire('enter');
 		}
 		arm();
@@ -499,23 +600,27 @@
 	function reset(): void {
 		runner?.reset();
 		entered = false;
+		clearLog();
 		apply();
-		if (running) {
+		if (running && runner) {
 			entered = true;
-			runner?.fire('enter');
+			dispatcher?.started(runner.plays());
+			runner.fire('enter');
 			arm();
 		}
 	}
 	function fire(id: string): void {
 		if (!runner) buildRunner();
-		runner?.fire(id);
+		if (!runner) return;
+		runner.fire(id);
 		if (running) arm();
 		else void run();
 	}
 	function setPreviewInput(id: string, value: number | boolean): void {
 		previewValues[id] = value;
 		if (!runner) buildRunner();
-		runner?.setInput(id, value);
+		if (!runner) return;
+		runner.setInput(id, value);
 		if (running) arm();
 		else void run();
 	}
@@ -531,7 +636,15 @@
 			litTransition = null;
 			clearTimeout(litTimer);
 			docs.clear();
+			clearLog();
+			pointer = new StagePointer((node, event) => dispatcher?.pointer(node, event));
 		});
+	});
+	// A listener or an event edited in Properties: the dispatcher reads the def as it now is.
+	$effect(() => {
+		void editVersion;
+		void graphVersion;
+		untrack(buildDispatcher);
 	});
 	// An edit, or the timeline list arriving (the durations), rebuilds the runner from the new
 	// machine — and the entry pose shows at once.
@@ -555,6 +668,9 @@
 		untrack(() => {
 			if (!on) {
 				stop();
+				// Hidden, the stage's pointer reaches nothing: forget what it was over, without
+				// raising a `leave` from a panel nobody sees.
+				pointer = new StagePointer((node, event) => dispatcher?.pointer(node, event));
 				// Hidden, the graph must hold no selection: xyflow's Delete handler listens on the
 				// window and would delete a selected card from another tab or mode.
 				selected = null;
@@ -567,6 +683,7 @@
 	});
 	onDestroy(() => {
 		destroyed = true;
+		dispatcher?.destroy();
 		stop();
 		clearTimeout(litTimer);
 		setTimelinePreview(null, previewOwner);
@@ -863,6 +980,52 @@
 					/>
 					<span>Loop</span>
 				</label>
+				<h5>On enter</h5>
+				{#each s.onEnter ?? [] as a (a.id)}
+					<div class="enter-row">
+						<span class="dim">raise</span>
+						<select
+							value={a.event}
+							onchange={(e) => {
+								a.event = e.currentTarget.value;
+								delete a.payload;
+								changed();
+							}}
+						>
+							{#if !events.some((ev) => ev.id === a.event)}<option value={a.event}
+									>{a.event || '— pick —'} (unknown)</option
+								>{/if}
+							{#each events as ev (ev.id)}<option value={ev.id}>{ev.id}</option>{/each}
+						</select>
+						<button
+							type="button"
+							class="x"
+							title="Remove"
+							onclick={() => (removeEnterAction(s, a.id), changed())}>×</button
+						>
+					</div>
+					<EditorRaisePayload
+						action={a}
+						event={events.find((ev) => ev.id === a.event)}
+						{inputs}
+						onChanged={changed}
+					/>
+				{/each}
+				<button
+					type="button"
+					class="ghost"
+					disabled={!events.length}
+					title={events.length
+						? 'Raise one of the component’s events each time this state is entered'
+						: 'Declare an event first (Properties → Component variables → Events)'}
+					onclick={() => {
+						if (def) addEnterAction(s, def, reservedRows);
+						changed();
+					}}>＋ raise event</button
+				>
+				{#each eventIssues.filter((i) => i.state === (s.name || s.id) && i.layer === (layer.name || layer.id)) as i, n (n)}
+					<p class="issue {i.level}">⚠ {i.message}</p>
+				{/each}
 				<div class="btns">
 					<button type="button" onclick={() => onOpenTimeline(s.timeline)}>Open timeline</button>
 					<button type="button" disabled={layer.entry === s.id} onclick={() => setEntry(s.id)}
@@ -923,6 +1086,29 @@
 					{/each}
 				</div>
 			{/if}
+			<div class="log-h">
+				<h4 class="preview-h">Events</h4>
+				{#if eventLog.length}<button type="button" class="ghost" onclick={clearLog}>Clear</button
+					>{/if}
+			</div>
+			{#if !eventLog.length}
+				<p class="dim">
+					{events.length
+						? 'Raised events show here — click or hover a listening node on the stage, or ▶ Run.'
+						: 'This component declares no events.'}
+				</p>
+			{:else}
+				<ol class="event-log">
+					{#each eventLog as row (row.n)}
+						<li>
+							<span class="t">{row.t.toFixed(2)}s</span>
+							<b>{row.event}</b>
+							<span class="origin">{row.origin}</span>
+							{#if row.payload}<span class="payload">{row.payload}</span>{/if}
+						</li>
+					{/each}
+				</ol>
+			{/if}
 			{#if layers.length}
 				<p class="dim states">
 					{#each layers as l (l.id)}
@@ -938,6 +1124,62 @@
 </section>
 
 <style>
+	.enter-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 4px;
+	}
+	.enter-row select {
+		flex: 1;
+		min-width: 0;
+	}
+	.issue {
+		margin: 4px 0 0;
+		font-size: 11px;
+	}
+	.issue.error {
+		color: #ff9a9a;
+	}
+	.issue.warning {
+		color: #d98a3a;
+	}
+	.log-h {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.event-log {
+		list-style: none;
+		margin: 4px 0 0;
+		padding: 0;
+		max-height: 140px;
+		overflow: auto;
+		font-size: 11px;
+		font-family: ui-monospace, monospace;
+	}
+	.event-log li {
+		display: flex;
+		gap: 6px;
+		align-items: baseline;
+		padding: 1px 0;
+		border-bottom: 1px solid var(--line);
+	}
+	.event-log .t {
+		color: var(--dim);
+		width: 46px;
+		flex: none;
+	}
+	.event-log .origin {
+		color: var(--dim);
+		font-size: 10px;
+	}
+	.event-log .payload {
+		color: var(--accent2);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
 	.sm-panel {
 		--panel: #23262d;
 		--panel2: #2b2f38;
@@ -1144,7 +1386,8 @@
 		min-width: 0;
 		flex: 1;
 	}
-	.cond .x {
+	.cond .x,
+	.enter-row .x {
 		flex: none;
 		padding: 2px 6px;
 	}

@@ -1053,6 +1053,52 @@ is held until that transition fires. A **Plays on** timeline that is still playi
 the machine; once it ends, the machine's layers take the node back — a pop-in, then idle, needs no
 transition.
 
+#### Listeners and events
+
+A component can react to the pointer and tell the game what happened — the Rive idea of
+**listeners**, plus **events** for Flow.
+
+**Events** are declared in the Properties panel under **Component variables → Events**, below
+Inputs. Type a name (`pressed`, `revealDone`) and **Add**. Click an event's name to open its
+**payload**: fields Flow will receive with it, each a **number** (`int`, `number` or `ms`), a
+**bool** or a **text key**. A text key is a localization key — the text as it is written in the
+game; it is collected into Localization like any other text, so nothing in a payload skips
+translation. Tick **optional** when a raise may leave a field empty.
+
+- **✎** renames an event. Its name is what Flow will hear it by, so a rename is a replace: the
+  dialog lists what raises it (listeners, states, timeline cues). The listeners and states follow
+  the rename; a timeline's `event:` cue is not rewritten — change it in the Timeline tab.
+- **×** removes it, asking first when something raises it. Those raises stay and do nothing in
+  game until you fix them; each shows a ⚠.
+
+**Listeners** are per node: select a node of the component and use **Listeners → + Listener**
+(under the node's name in Properties). Each row reads **On [event] → [action]**:
+
+- **On**: `down`, `up`, `hover in`, `hover out`, `click`. `up` counts only when the pointer is
+  released over the node; a click is a down and an up on the same node.
+- The action: **fire trigger** (one of the trigger inputs), **set input** (a bool to true/false or
+  a number to a value), **toggle bool**, or **raise event** — then fill the event's payload fields:
+  a value, an input's current value, or a text key.
+
+A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
+still works as before if it also presses a button or a dialog action: both fire. A listener acts
+on its own placed instance only. Listeners need an input or an event to act on, so **+ Listener**
+is off until the component declares one.
+
+**On enter**: in the **State machine** tab, a state's inspector has **On enter → ＋ raise event**:
+the event is raised every time that state is entered (and when the machine starts, for an entry
+state). A timeline can raise one too with a cue named `event:<name>`.
+
+**Preview**: in the **State machine** tab, the stage answers the pointer — hover, press and click
+the component's nodes and their listeners run, on the same preview as **▶ Run**. The **Events**
+list in the inspector logs every raised event with its time, what raised it (`listener`, `state`,
+`cue`) and its payload; **Clear** empties it, **↺ Reset** starts it over. In the preview a
+**fire trigger** listener moves the state machine; it does not start **Plays on** timelines (the
+game does).
+
+Raised events reach Flow once Phase 7 adds the component's event pins; until then they are
+previewed here and do nothing in game. Everything is read-only while Inspecting an old version.
+
 ### Advanced modes (optional)
 
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
