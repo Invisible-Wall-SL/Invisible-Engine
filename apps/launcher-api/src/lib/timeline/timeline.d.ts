@@ -1,12 +1,12 @@
 /**
- * Types for the cinematic sequencer. The implementation is plain JS (`sequencer.js`) because
+ * Types for the Timeline panel. The implementation is plain JS (`timeline.js`) because
  * `/rigger`'s static page loads a verbatim copy of the same file — see its header — so the contract
- * is declared here. Its behaviour is pinned by `tools/rigger-spike/cinematic-sequencer.mjs`.
+ * is declared here. Its behaviour is pinned by `tools/rigger-spike/cinematic-timeline.mjs`.
  */
 import type { CinematicCast, CinematicDoc } from 'engine-layout';
 
-/** The evaluator calls the sequencer makes (`engine-cinematic` / `/shared/cinematicEval.mjs`). */
-export interface SequencerEvaluator {
+/** The evaluator calls the Timeline makes (`engine-cinematic` / `/shared/cinematicEval.mjs`). */
+export interface TimelineEvaluator {
 	resolvePlace(
 		place: Record<string, number | boolean>,
 		propertyTracks: unknown[] | undefined,
@@ -20,21 +20,21 @@ export interface SequencerEvaluator {
 	putKey(keys: unknown[], time: number, value: number): void;
 }
 
-export interface SequencerClip {
+export interface TimelineClip {
 	name: string;
 	/** Seconds. */
 	duration: number;
 }
 
 /** What the HOST supplies. Every hook is optional; an absent one is a no-op. */
-export interface SequencerHost {
+export interface TimelineHost {
 	/** Pose the stage at cinematic time `t`. Called on every seek and during drags. */
 	evaluate?(t: number): void;
 	/** The playhead moved (after `evaluate`) — sync the host's transport readouts. */
 	seeked?(t: number): void;
 	/** The document changed and is now an undo step (or an undo/redo landed) — save a draft. */
 	changed?(): void;
-	/** Re-render the host's panel, which places the sequencer's sections + inspector. Default:
+	/** Re-render the host's panel, which places the Timeline's sections + inspector. Default:
 	 *  re-render the inspector only. */
 	render?(): void;
 	/** Undo/redo replaced the document object — rebuild whatever the host derived from it. */
@@ -48,7 +48,7 @@ export interface SequencerHost {
 	/** The row label for an actor. Default: the actor id. */
 	actorLabel?(cast: CinematicCast): { text: string; title: string };
 	/** An actor's clips — the strip inspector's picker; the first is what ＋ strip adds. */
-	clips?(actorId: string): SequencerClip[];
+	clips?(actorId: string): TimelineClip[];
 	/** A bound Scene's display name. */
 	sceneName?(sceneId: string): string | null;
 	/** The project's FX effects, for the cue picker. */
@@ -61,11 +61,11 @@ type Strip = Record<string, unknown> & { id: string };
 type Track = Record<string, unknown> & { id: string; actorId?: string | null };
 
 /**
- * Tool-specific authoring that plugs into the sequencer (in `/rigger`: Tweak Mode, inline posing,
+ * Tool-specific authoring that plugs into the Timeline (in `/rigger`: Tweak Mode, inline posing,
  * bone masks). Markup hooks return HTML strings.
  */
-export interface SequencerExtension {
-	/** True while something else owns the timeline element (the sequencer will not redraw it). */
+export interface TimelineExtension {
+	/** True while something else owns the timeline element (the Timeline will not redraw it). */
 	timelineSuspended?(): boolean;
 	/** Extra text after a strip's label. */
 	stripBadge?(strip: Strip): string;
@@ -77,20 +77,20 @@ export interface SequencerExtension {
 	stripActions?(strip: Strip, track: Track): string;
 	/** Wire what the hooks above rendered. */
 	wireInspector?(root: HTMLElement): void;
-	/** Claim a keydown before the sequencer's own keys; return true to stop them. */
+	/** Claim a keydown before the Timeline's own keys; return true to stop them. */
 	keydown?(e: KeyboardEvent): boolean;
 }
 
-export interface SequencerOptions {
+export interface TimelineOptions {
 	doc: CinematicDoc;
-	ev: SequencerEvaluator;
+	ev: TimelineEvaluator;
 	/** Where the selected strip / key / cue's inspector renders. */
 	inspector?: HTMLElement | null;
-	host?: SequencerHost;
-	extensions?: SequencerExtension[];
+	host?: TimelineHost;
+	extensions?: TimelineExtension[];
 }
 
-export interface Sequencer {
+export interface Timeline {
 	doc(): CinematicDoc;
 	setDoc(doc: CinematicDoc): void;
 	time(): number;
@@ -140,16 +140,16 @@ export interface Sequencer {
 	keyVisibility(actorId: string, visible: boolean): void;
 }
 
-export interface SequencerChannel {
+export interface TimelineChannel {
 	key: string;
 	label: string;
 	color: string;
 }
 
-export const PROP_CHANNELS: SequencerChannel[];
-export const CAM_CHANNELS: SequencerChannel[];
+export const PROP_CHANNELS: TimelineChannel[];
+export const CAM_CHANNELS: TimelineChannel[];
 export const CUE_KINDS: Array<{ prefix: string; label: string; color: string; hint: string }>;
 export function hasStrips(track: Track): boolean;
 export function esc(s: unknown): string;
-/** `el` may be null: the sequencer then runs headless (history, keys, time) and draws nothing. */
-export function mount(el: HTMLElement | null, options: SequencerOptions): Sequencer;
+/** `el` may be null: the Timeline then runs headless (history, keys, time) and draws nothing. */
+export function mount(el: HTMLElement | null, options: TimelineOptions): Timeline;

@@ -1,18 +1,18 @@
 /**
- * Import smoke test for the shared cinematic SEQUENCER — the module `/rigger` mounts today and
+ * Import smoke test for the shared Timeline panel — the module `/rigger` mounts today and
  * `/editor`'s Svelte wrapper mounts next (docs/design/rive-style-editor.md §3.4, Phase 3):
- *   pnpm --filter launcher-api exec tsx --tsconfig tsconfig.scripts.json cinematicSequencer.fixture.ts
+ *   pnpm --filter launcher-api exec tsx --tsconfig tsconfig.scripts.json timeline.fixture.ts
  *
  * What it pins: the module imports through the `$lib` path Svelte code uses, touches no browser
  * global until `mount` (so a Svelte component can import it during SSR), runs headless with no
  * timeline element, and keeps the undo contract — one step per discrete edit, edits sharing a
  * coalesce key within 600 ms merge, a new edit drops the redo branch, and undo hands the host a NEW
  * document object. The DOM side (every row, drag and inspector) is gated in a real browser by
- * `tools/rigger-spike/cinematic-sequencer.mjs`.
+ * `tools/rigger-spike/cinematic-timeline.mjs`.
  */
 import type { CinematicDoc } from 'engine-layout';
 import * as EV from '../../packages/engine-cinematic/src/cinematicEval.js';
-import { CAM_CHANNELS, PROP_CHANNELS, hasStrips, mount } from '$lib/cinematic/sequencer.js';
+import { CAM_CHANNELS, PROP_CHANNELS, hasStrips, mount } from '$lib/timeline/timeline.js';
 
 let failures = 0;
 const check = (label: string, actual: unknown, expected: unknown): void => {
@@ -127,7 +127,7 @@ check('destroy removes the key handler', listeners, []);
 
 console.log('');
 if (failures > 0) {
-	console.error(`CINEMATIC SEQUENCER: ${failures} FAILURE(S)`);
+	console.error(`TIMELINE: ${failures} FAILURE(S)`);
 	process.exit(1);
 }
-console.log('CINEMATIC SEQUENCER: PASSED');
+console.log('TIMELINE: PASSED');

@@ -1,8 +1,8 @@
-// End-to-end browser gate for the 🎬 Cinematic SEQUENCER in /rigger — the timeline panel that
-// `static/shared/cinematicSequencer.mjs` (source: `apps/launcher-api/src/lib/cinematic/`) renders.
+// End-to-end browser gate for the 🎬 Cinematic sequencer in /rigger — the shared Timeline panel that
+// `static/shared/timeline.mjs` (source: `apps/launcher-api/src/lib/timeline/`) renders.
 //
-//   node tools/rigger-spike/cinematic-sequencer.mjs
-//   node tools/rigger-spike/cinematic-sequencer.mjs --update   # re-record the golden (an INTENDED change)
+//   node tools/rigger-spike/cinematic-timeline.mjs
+//   node tools/rigger-spike/cinematic-timeline.mjs --update   # re-record the golden (an INTENDED change)
 //
 // Drives the REAL `apps/launcher-api/static/rigger/view.html` in a REAL Chromium against a fake
 // launcher API, and works the sequencer the way an author does — through the page's own DOM
@@ -14,7 +14,7 @@
 //
 // After every action it records the cinematic document, the undo history, the playhead and the
 // rendered HTML of the timeline, the left panel and the right-hand inspector, and compares them
-// with `cinematic-sequencer.golden.json`.
+// with `cinematic-timeline.golden.json`.
 //
 // WHY A GOLDEN: the sequencer was extracted out of `static/rigger/cinematic.js` into a shared module
 // (Rive plan Phase 2, docs/design/rive-style-editor.md §3.4) with the hard requirement "zero
@@ -40,7 +40,7 @@ import { launchChrome } from './chrome.mjs';
 const ROOT = new URL('../../', import.meta.url);
 const STATIC = fileURLToPath(new URL('apps/launcher-api/static/', ROOT));
 const RIG_ASSETS = fileURLToPath(new URL('apps/lines/static/assets/spines/', ROOT));
-const GOLDEN = fileURLToPath(new URL('cinematic-sequencer.golden.json', import.meta.url));
+const GOLDEN = fileURLToPath(new URL('cinematic-timeline.golden.json', import.meta.url));
 const UPDATE = process.argv.includes('--update');
 
 // Seeded before ANY page script runs, so every id the tool mints is the same on every run.
@@ -181,7 +181,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const PORT = server.address().port;
 
 const browser = await launchChrome({
-	name: 'cinematic-sequencer',
+	name: 'cinematic-timeline',
 	url: `http://127.0.0.1:${PORT}/`,
 	args: ['--window-size=1600,1000'],
 });
@@ -312,7 +312,7 @@ try {
 	await evaluate(`S.click(document.querySelector('#modeSeg button[data-mode="cinematic"]')); true`);
 	await waitFor('!!window.RiggerCinematic && !!document.querySelector("#cineAdd")', 30000);
 	await settle();
-	console.log('\nsequencer actions');
+	console.log('\ntimeline actions');
 
 	await act('enter cinematic mode', '');
 	await act(
@@ -516,7 +516,7 @@ if (results.length !== golden.steps.length) {
 	console.log(`  ✗ ran ${results.length} steps, the golden has ${golden.steps.length}`);
 }
 if (failures) {
-	const out = join(tmpdir(), 'cinematic-sequencer.actual.json');
+	const out = join(tmpdir(), 'cinematic-timeline.actual.json');
 	writeFileSync(
 		out,
 		JSON.stringify(

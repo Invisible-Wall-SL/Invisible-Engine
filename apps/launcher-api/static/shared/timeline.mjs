@@ -1,7 +1,7 @@
-// GENERATED — do not edit. Source: apps/launcher-api/src/lib/cinematic/sequencer.js
-// Regenerate: node scripts/sync-cinematic-sequencer.mjs   (CI/gate check: --check)
+// GENERATED — do not edit. Source: apps/launcher-api/src/lib/timeline/timeline.js
+// Regenerate: node scripts/sync-timeline.mjs   (CI/gate check: --check)
 /**
- * Invisible Cinematic — the SEQUENCER: one timeline panel, mounted by every tool that edits a
+ * Invisible Timeline — ONE timeline panel (a sequencer), mounted by every tool that edits a
  * cinematic. Plan: docs/design/rive-style-editor.md §3.4 · State: docs/status/cinematic.md
  *
  * What it owns: the ruler + scrub, the track rows (animation layers + strips, property / camera /
@@ -16,7 +16,7 @@
  * from a Svelte component alike.
  *
  * SHIPPING: this file is the SOURCE. `/rigger`'s static page fetches a generated verbatim copy,
- * `static/shared/cinematicSequencer.mjs` (`node scripts/sync-cinematic-sequencer.mjs`; `--check`
+ * `static/shared/timeline.mjs` (`node scripts/sync-timeline.mjs`; `--check`
  * fails on drift), exactly as it fetches the evaluator. So it stays plain dependency-free ESM: no
  * imports at all — the evaluator is INJECTED (`options.ev`), because the two hosts reach it by
  * different paths (an HTTP URL on the static page, the `engine-cinematic` package in Svelte).
@@ -92,12 +92,12 @@ const HOST_DEFAULTS = {
 };
 
 /**
- * Mount the sequencer on `el` (the timeline container). Nothing is drawn until the host calls
+ * Mount the Timeline on `el` (the timeline container). Nothing is drawn until the host calls
  * `renderTimeline()` / `renderInspector()` — the host decides when its own panel is ready.
  *
  * @param {HTMLElement | null} el
- * @param {import('./sequencer').SequencerOptions} options
- * @returns {import('./sequencer').Sequencer}
+ * @param {import('./timeline').TimelineOptions} options
+ * @returns {import('./timeline').Timeline}
  */
 export function mount(el, options) {
 	const EV = options.ev;
@@ -1471,7 +1471,7 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 	// ---- keyboard -----------------------------------------------------------
 
 	/**
-	 * Undo/redo, duplicate, delete and save. Scoped so they can never reach past the sequencer:
+	 * Undo/redo, duplicate, delete and save. Scoped so they can never reach past the Timeline:
 	 *  - only while the host says it is active,
 	 *  - never while focus is in a field (the browser's own text undo must win there),
 	 *  - an extension may claim the keyboard first (Tweak Mode hands it to the rig animator),

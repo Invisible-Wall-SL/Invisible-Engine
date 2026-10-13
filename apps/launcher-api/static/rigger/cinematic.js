@@ -5,12 +5,12 @@
  * A cinematic is a non-linear SEQUENCER over several actors, not a bigger animation: the
  * animator edits one clip on one skeleton, this edits many rigs on one timeline.
  *
- * THIS FILE IS THE RIG HOST, not the sequencer. The timeline panel itself — ruler, tracks,
- * strips, keys, cues, the inspector, undo/redo — is the shared `/shared/cinematicSequencer.mjs`
- * (source: `apps/launcher-api/src/lib/cinematic/sequencer.js`; plan: docs/design/rive-style-editor.md
+ * THIS FILE IS THE RIG HOST, not the sequencer UI. The timeline panel itself — ruler, tracks,
+ * strips, keys, cues, the inspector, undo/redo — is the shared Timeline, `/shared/timeline.mjs`
+ * (source: `apps/launcher-api/src/lib/timeline/timeline.js`; plan: docs/design/rive-style-editor.md
  * §3.4), the same module `/editor` mounts. What stays here is everything only a RIG stage has: the
  * cast of rigs and their placement, posing + drawing the stage, the R2 document, and the rig
- * extensions the sequencer accepts — Tweak Mode, inline posing, the underlay and bone masks.
+ * extensions the Timeline accepts — Tweak Mode, inline posing, the underlay and bone masks.
  *
  * WHY A SEPARATE FILE: `view.html` is already ~9.5k lines. Everything cinematic lives here so
  * the rig editor's blast radius stays at four small hooks (a mode button, a `setMode` branch, a
@@ -29,9 +29,9 @@ window.RiggerCinematic = (function () {
 
 	let ctx = null; // the bridge from view.html
 	let EV = null; // /shared/cinematicEval.mjs
-	let SEQ = null; // /shared/cinematicSequencer.mjs
-	let seq = null; // the mounted sequencer — owns the playhead, the selection and the history
-	let doc = null; // the CinematicDoc (design §4.2) — the same object the sequencer edits
+	let TL = null; // /shared/timeline.mjs
+	let tl = null; // the mounted Timeline — owns the playhead, the selection and the history
+	let doc = null; // the CinematicDoc (design §4.2) — the same object the Timeline edits
 	let actors = []; // runtime instances, parallel to doc.stage.cast
 	let selActorId = null;
 	// TWEAK MODE (design §4.4): { stripId, actorId, clip } while the animator is open on one strip.
@@ -146,7 +146,7 @@ window.RiggerCinematic = (function () {
 		// row in the timeline, which names the scene (it showed the raw id until this landed).
 		if (doc) {
 			renderPanel();
-			seq.renderTimeline();
+			tl.renderTimeline();
 		}
 		return scenes;
 	}
@@ -236,19 +236,19 @@ window.RiggerCinematic = (function () {
 				return;
 			}
 			doc = r.body.doc;
-			seq.setDoc(doc);
+			tl.setDoc(doc);
 			r2Etag = r.body.etag ?? null;
 			r2SavedAt = null;
 			dirty = false;
-			seq.clearSelection();
+			tl.clearSelection();
 			selActorId = doc.stage.cast.length ? doc.stage.cast[0].actorId : null;
-			seq.setTimeQuiet(0);
-			seq.historyReset(); // a freshly-opened doc has nothing behind it to undo to
+			tl.setTimeQuiet(0);
+			tl.historyReset(); // a freshly-opened doc has nothing behind it to undo to
 			statusMsg = '';
 			writeDraft();
 			await rebuildActors();
 			renderPanel();
-			seq.renderTimeline();
+			tl.renderTimeline();
 			fitAll();
 		} finally {
 			busy = false;
@@ -264,18 +264,18 @@ window.RiggerCinematic = (function () {
 		doc = newDoc();
 		doc.name = name;
 		doc.id = slugify(name);
-		seq.setDoc(doc);
+		tl.setDoc(doc);
 		r2Etag = null; // nothing stored yet → the save creates with ifNoneMatch:'*'
 		r2SavedAt = null;
 		dirty = false;
-		seq.clearSelection();
+		tl.clearSelection();
 		selActorId = null;
-		seq.setTimeQuiet(0);
+		tl.setTimeQuiet(0);
 		actors = [];
-		seq.historyReset();
+		tl.historyReset();
 		writeDraft();
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 	}
 
 	/**
@@ -314,16 +314,16 @@ window.RiggerCinematic = (function () {
 	/** A blank doc with no prompt — used after a delete, where asking for a name is noise. */
 	function newCinematic0() {
 		doc = newDoc();
-		seq.setDoc(doc);
+		tl.setDoc(doc);
 		r2Etag = null;
 		r2SavedAt = null;
 		dirty = false;
 		actors = [];
-		seq.clearSelection();
-		seq.historyReset();
+		tl.clearSelection();
+		tl.historyReset();
 		writeDraft();
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 	}
 
 	const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'untitled';
@@ -452,8 +452,8 @@ window.RiggerCinematic = (function () {
 		}
 	}
 
-	const propertyTracksOf = (actorId) => seq.propertyTracksOf(actorId);
-	const visTracksOf = (actorId) => seq.visTracksOf(actorId);
+	const propertyTracksOf = (actorId) => tl.propertyTracksOf(actorId);
+	const visTracksOf = (actorId) => tl.visTracksOf(actorId);
 
 	/** Pose every actor at cinematic time `t`. Pure in `t` — see the evaluator's header. */
 	function evaluate(t) {
@@ -482,8 +482,8 @@ window.RiggerCinematic = (function () {
 	 * stage impossible to navigate. `cameraLive` is session UI state, deliberately NOT in the doc.
 	 */
 	function applyCamera(t) {
-		if (!seq.cameraLive()) return;
-		const track = seq.cameraTrack();
+		if (!tl.cameraLive()) return;
+		const track = tl.cameraTrack();
 		if (!track) return;
 		const v = EV.sampleTrack(track, t);
 		const cam = ctx.renderer() && ctx.renderer().camera;
@@ -508,7 +508,7 @@ window.RiggerCinematic = (function () {
 	 * nothing, so an author can see the cue fired.
 	 */
 	function fireCuesBetween(prev, next) {
-		const track = seq.cueTrack();
+		const track = tl.cueTrack();
 		if (!track || !EV) return;
 		const crossed = EV.cuesCrossed(track.keys, prev, next);
 		for (const k of crossed) {
@@ -530,13 +530,13 @@ window.RiggerCinematic = (function () {
 	function frame(delta, playing) {
 		// The page draws from the moment this script loads; `init` sets the doc once its imports land.
 		if (!doc) return;
-		const prevTime = seq.time();
+		const prevTime = tl.time();
 		if (playing && doc.duration > 0) {
 			let time = prevTime + delta * (ctx.playSpeed ? ctx.playSpeed() : 1);
 			if (time >= doc.duration) time = ctx.looping && ctx.looping() ? time % doc.duration : doc.duration;
-			seq.setTimeQuiet(time);
+			tl.setTimeQuiet(time);
 		}
-		const time = seq.time();
+		const time = tl.time();
 		if (playing) fireCuesBetween(prevTime, time);
 		evaluate(time);
 
@@ -560,13 +560,13 @@ window.RiggerCinematic = (function () {
 			// over nothing, which reads as a bug rather than as "this actor is off screen here".
 			if (tw && cast.actorId === tweak.actorId) { ctx.tweakDraw(renderer); continue; }
 			const actor = actorOf(cast.actorId);
-			if (actor && seq.effectiveVisible(cast.actorId)) renderer.drawSkeleton(actor.skeleton, ctx.pma());
+			if (actor && tl.effectiveVisible(cast.actorId)) renderer.drawSkeleton(actor.skeleton, ctx.pma());
 		}
 		drawScreenFrame(renderer);
 		if (tw) ctx.tweakOverlays(); // bones / gizmo / mesh — on top of the whole stage
 		renderer.end();
 		syncTransport();
-		if (tw) ctx.tweakAfter(seq.time(), tw.outside);
+		if (tw) ctx.tweakAfter(tl.time(), tw.outside);
 	}
 
 	// ---- tweak mode (design §4.4) -------------------------------------------
@@ -578,8 +578,8 @@ window.RiggerCinematic = (function () {
 
 	/** Where the tweaked actor is — clip-local time + stage placement — at the cinematic playhead. */
 	function tweakSample() {
-		const time = seq.time();
-		const found = tweak.stripId ? seq.stripById(tweak.stripId) : null;
+		const time = tl.time();
+		const found = tweak.stripId ? tl.stripById(tweak.stripId) : null;
 		const cast = castOf(tweak.actorId);
 		const place = cast ? EV.resolvePlace(cast.place, propertyTracksOf(tweak.actorId), time) : null;
 		// Inline posing before the first key: there is no override yet, so the actor is simply what
@@ -620,7 +620,7 @@ window.RiggerCinematic = (function () {
 		const lower = tracksOf(tweak.actorId).filter((t) => t.kind === 'animation' && (t.layer || 0) < layer);
 		if (!lower.length) return null;
 		const resolve = (strip) => (strip.clip && strip.clip.src === 'rig' ? sd.findAnimation(strip.clip.name) : null);
-		return (sk) => EV.evaluateActor(ctx.RIG, { skeleton: sk, skeletonData: sd, tracks: lower }, seq.time(), resolve);
+		return (sk) => EV.evaluateActor(ctx.RIG, { skeleton: sk, skeletonData: sd, tracks: lower }, tl.time(), resolve);
 	}
 
 	/**
@@ -633,11 +633,11 @@ window.RiggerCinematic = (function () {
 	/** The animator moved its playhead — pull the whole stage to the matching cinematic time. */
 	function seekFromLocal(local) {
 		if (!tweak) return;
-		const found = seq.stripById(tweak.stripId);
+		const found = tl.stripById(tweak.stripId);
 		if (!found) return;
 		// The inverse mapping is the evaluator's, NOT ours — re-deriving the trim/speed/loop maths
 		// here is exactly the drift the shared module exists to prevent.
-		seq.setTime(EV.cineTimeForLocal(found.strip, local, tweakClipDur(), seq.time()));
+		tl.setTime(EV.cineTimeForLocal(found.strip, local, tweakClipDur(), tl.time()));
 	}
 
 	/**
@@ -654,7 +654,7 @@ window.RiggerCinematic = (function () {
 	 */
 	async function newClipForStrip(stripId) {
 		if (tweak) return;
-		const found = seq.stripById(stripId);
+		const found = tl.stripById(stripId);
 		if (!found) return;
 		const cast = castOf(found.track.actorId);
 		const entry = cast && rigEntryFor(cast);
@@ -666,7 +666,7 @@ window.RiggerCinematic = (function () {
 		const name = ctx.createClip(suggested);
 		if (!name) return fail('could not create a clip on that rig (binary .skel rigs are view-only)');
 		found.strip.clip = { src: 'rig', name };
-		seq.commit('new clip', 'newclip:' + stripId);
+		tl.commit('new clip', 'newclip:' + stripId);
 		await enterTweak(stripId);
 	}
 
@@ -679,7 +679,7 @@ window.RiggerCinematic = (function () {
 	/** The expanded mask of the strip being tweaked — what `drawBonesOverlay` tints. */
 	function tweakMaskNames() {
 		if (!tweak || !EV) return null;
-		const found = seq.stripById(tweak.stripId);
+		const found = tl.stripById(tweak.stripId);
 		const mask = found && maskOf(found.strip);
 		if (!mask || !mask.bones.length) return null;
 		const actor = actorOf(tweak.actorId);
@@ -747,7 +747,7 @@ window.RiggerCinematic = (function () {
 		selActorId = actorId;
 		statusMsg = '✎ drag a bone on the stage — the first key makes the override';
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 	}
 
 	function stopPosing() {
@@ -780,7 +780,7 @@ window.RiggerCinematic = (function () {
 		};
 		// Clamped to the cinematic, and never shorter than a frame — a zero-length strip would key
 		// into something that can never be played back.
-		const start = Math.min(seq.time(), Math.max(doc.duration - 1 / (doc.fps || 30), 0));
+		const start = Math.min(tl.time(), Math.max(doc.duration - 1 / (doc.fps || 30), 0));
 		const length = Math.max(Math.min(OVERRIDE_LEN, doc.duration - start), 1 / (doc.fps || 30));
 		const ramp = Math.min(0.15, length / 4);
 		const strip = {
@@ -805,17 +805,17 @@ window.RiggerCinematic = (function () {
 		doc.tracks.push(track);
 		tweak.stripId = strip.id;
 		tweak.clip = name;
-		seq.selectStrip(strip.id);
-		seq.commit('add override', 'override:' + strip.id);
+		tl.selectStrip(strip.id);
+		tl.commit('add override', 'override:' + strip.id);
 		refreshTargets();
-		seq.renderTimeline();
+		tl.renderTimeline();
 		renderPanel();
 		return name;
 	}
 
 	async function enterTweak(stripId) {
 		if (tweak) return;
-		const found = seq.stripById(stripId);
+		const found = tl.stripById(stripId);
 		if (!found) return;
 		const { strip, track } = found;
 		const clip = strip.clip && strip.clip.src === 'rig' ? strip.clip.name : null;
@@ -834,12 +834,12 @@ window.RiggerCinematic = (function () {
 		const bad = ctx.beginTweak({ actorId: cast.actorId, clip, label, stripId });
 		if (bad) return fail(bad);
 		tweak = { stripId, actorId: cast.actorId, clip };
-		seq.selectStrip(stripId);
+		tl.selectStrip(stripId);
 		statusMsg = '';
 		// Park the playhead inside the strip: opening the animator on a stage where this clip is not
 		// even playing shows an author their edit having no effect.
-		const time = seq.time();
-		seq.setTime(time < strip.start || time > strip.start + strip.length ? strip.start : time);
+		const time = tl.time();
+		tl.setTime(time < strip.start || time > strip.start + strip.length ? strip.start : time);
 	}
 
 	function fail(msg) {
@@ -865,27 +865,27 @@ window.RiggerCinematic = (function () {
 			const stale = doc.stage.cast.filter((c) => (c.rigFolder || String(c.rigId)) === key).map((c) => c.actorId);
 			actors = actors.filter((a) => !stale.includes(a.actorId));
 			rebuildActors().then(() => {
-				evaluate(seq.time());
-				seq.renderTimeline();
+				evaluate(tl.time());
+				tl.renderTimeline();
 				renderPanel();
 			});
 			return;
 		}
-		evaluate(seq.time());
-		seq.renderTimeline();
+		evaluate(tl.time());
+		tl.renderTimeline();
 		renderPanel();
 	}
 
 	function syncTransport() {
 		const dur = doc ? doc.duration : 0;
-		const time = seq.time();
+		const time = tl.time();
 		const scrub = $('#scrub');
 		if (scrub && document.activeElement !== scrub) scrub.value = dur > 0 ? Math.round((time / dur) * 1000) : 0;
 		const readout = $('#time');
 		if (readout) readout.textContent = time.toFixed(2) + 's / ' + dur.toFixed(2) + 's';
 		const t = $('#cineTime');
 		if (t && document.activeElement !== t) t.value = time.toFixed(2);
-		seq.positionPlayhead(); // cheap: move one element, never re-render the timeline per frame
+		tl.positionPlayhead(); // cheap: move one element, never re-render the timeline per frame
 		syncPlaceFields();
 	}
 
@@ -900,11 +900,11 @@ window.RiggerCinematic = (function () {
 			const actorId = row.dataset.actor;
 			const track = propertyTracksOf(actorId)[0];
 			if (!track) return;
-			for (const chan of SEQ.PROP_CHANNELS) {
+			for (const chan of TL.PROP_CHANNELS) {
 				if (!track.channels[chan.key]) continue;
 				const input = row.querySelector('[data-act="' + chan.key + '"]');
 				if (!input || document.activeElement === input) continue;
-				const v = +seq.effectivePlaceValue(actorId, chan.key).toFixed(3);
+				const v = +tl.effectivePlaceValue(actorId, chan.key).toFixed(3);
 				if (parseFloat(input.value) !== v) input.value = v;
 			}
 		});
@@ -1004,9 +1004,9 @@ window.RiggerCinematic = (function () {
 		// Cast the rig's first clip by default so the actor is visibly alive on the timeline.
 		const first = actor.skeletonData.animations[0];
 		if (first) setActorClip(cast.actorId, first.name, false); // folded into the one step below
-		seq.commit('cast ' + (entry.name || 'rig'));
+		tl.commit('cast ' + (entry.name || 'rig'));
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 		if (actors.length === 1) fitAll();
 	}
 
@@ -1017,9 +1017,9 @@ window.RiggerCinematic = (function () {
 		refreshTargets();
 		if (selActorId === actorId) selActorId = doc.stage.cast.length ? doc.stage.cast[0].actorId : null;
 		normalizeZ();
-		seq.commit('remove actor');
+		tl.commit('remove actor');
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 	}
 
 	function normalizeZ() {
@@ -1040,9 +1040,9 @@ window.RiggerCinematic = (function () {
 		ordered[i].z = ordered[j].z;
 		ordered[j].z = z;
 		normalizeZ();
-		seq.commit('reorder actor');
+		tl.commit('reorder actor');
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 	}
 
 	/**
@@ -1068,9 +1068,9 @@ window.RiggerCinematic = (function () {
 					},
 				]
 			: [];
-		if (record) seq.commit('change clip');
+		if (record) tl.commit('change clip');
 		renderPanel();
-		if (record) seq.renderTimeline();
+		if (record) tl.renderTimeline();
 	}
 
 	function setPlace(actorId, key, value) {
@@ -1078,20 +1078,20 @@ window.RiggerCinematic = (function () {
 		if (!cast) return;
 		cast.place[key] = value;
 		// Coalesced per actor+field: a run of typing (and, in Phase 2, a drag) is ONE undo step.
-		seq.commit('move actor', 'place:' + actorId + ':' + key);
+		tl.commit('move actor', 'place:' + actorId + ':' + key);
 	}
 
 	function setDuration(secs) {
 		doc.duration = Math.max(0.1, Number(secs) || 0);
 		// Phase 1's implicit full-length strips follow the cinematic's length.
-		for (const track of doc.tracks) if (SEQ.hasStrips(track)) for (const strip of track.strips) if (strip.start === 0) strip.length = doc.duration;
-		if (seq.time() > doc.duration) seq.setTimeQuiet(doc.duration);
-		seq.commit('change length', 'duration');
+		for (const track of doc.tracks) if (TL.hasStrips(track)) for (const strip of track.strips) if (strip.start === 0) strip.length = doc.duration;
+		if (tl.time() > doc.duration) tl.setTimeQuiet(doc.duration);
+		tl.commit('change length', 'duration');
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 	}
 
-	// ---- strip bone mask (design §4.2 `mask.bones`) — a sequencer extension --
+	// ---- strip bone mask (design §4.2 `mask.bones`) — a Timeline extension ---
 	//
 	// A mask is what makes a strip an OVERRIDE OF PART of the skeleton: name a bone (or a few) and
 	// the strip poses only those, leaving every other bone to whatever the layers below did. It is
@@ -1116,17 +1116,17 @@ window.RiggerCinematic = (function () {
 	 * that says something it does not mean.
 	 */
 	function setMask(stripId, mask, label) {
-		const found = seq.stripById(stripId);
+		const found = tl.stripById(stripId);
 		if (!found) return;
 		if (!mask || !mask.bones.length) delete found.strip.mask;
 		else found.strip.mask = mask;
-		seq.commit(label, 'mask:' + stripId);
-		seq.renderTimeline();
+		tl.commit(label, 'mask:' + stripId);
+		tl.renderTimeline();
 		renderPanel();
 	}
 
 	function addMaskBone(stripId, boneName) {
-		const found = seq.stripById(stripId);
+		const found = tl.stripById(stripId);
 		if (!found || !boneName) return;
 		const cur = maskOf(found.strip);
 		const bones = cur ? cur.bones.slice() : [];
@@ -1138,14 +1138,14 @@ window.RiggerCinematic = (function () {
 	}
 
 	function removeMaskBone(stripId, boneName) {
-		const found = seq.stripById(stripId);
+		const found = tl.stripById(stripId);
 		const cur = found && maskOf(found.strip);
 		if (!cur) return;
 		setMask(stripId, { bones: cur.bones.filter((b) => b !== boneName), includeChildren: !!cur.includeChildren }, 'remove mask bone');
 	}
 
 	function setMaskChildren(stripId, on) {
-		const found = seq.stripById(stripId);
+		const found = tl.stripById(stripId);
 		const cur = found && maskOf(found.strip);
 		if (!cur) return;
 		setMask(stripId, { bones: cur.bones.slice(), includeChildren: !!on }, 'mask children');
@@ -1177,7 +1177,7 @@ window.RiggerCinematic = (function () {
 			.map((cast) => {
 				const actor = actorOf(cast.actorId);
 				const clips = actor ? actor.skeletonData.animations : [];
-				const strip = (tracksOf(cast.actorId).find(SEQ.hasStrips) || { strips: [] }).strips[0];
+				const strip = (tracksOf(cast.actorId).find(TL.hasStrips) || { strips: [] }).strips[0];
 				const cur = strip && strip.clip ? strip.clip.name : '';
 				const sel = cast.actorId === selActorId;
 				const opts = ['<option value="">— no clip —</option>']
@@ -1186,7 +1186,7 @@ window.RiggerCinematic = (function () {
 				const p = cast.place;
 				return `<div class="cineActor${sel ? ' sel' : ''}" data-actor="${cast.actorId}">
 	<div class="cineActorHead">
-		<button class="cineVis" data-act="vis" title="Show / hide this actor on stage">${seq.effectiveVisible(cast.actorId) ? '●' : '○'}</button>
+		<button class="cineVis" data-act="vis" title="Show / hide this actor on stage">${tl.effectiveVisible(cast.actorId) ? '●' : '○'}</button>
 		<button class="cineKeyBtn${visTracksOf(cast.actorId).length ? ' on' : ''}" data-viskey="1" title="Animate visibility — keys the current state at the playhead">◆</button>
 		<b>${esc(cast.rigName || cast.rigId)}</b>
 		<span class="cineZ" title="Draw order — lower draws first (behind)">z${cast.z}</span>
@@ -1197,9 +1197,9 @@ window.RiggerCinematic = (function () {
 	</div>
 	<select data-act="clip" title="Which of this rig's animations plays">${opts}</select>
 	<div class="cinePlace">
-		${SEQ.PROP_CHANNELS.map((c) => {
+		${TL.PROP_CHANNELS.map((c) => {
 			const keyed = !!(propertyTracksOf(cast.actorId)[0] || { channels: {} }).channels[c.key];
-			const shown = keyed ? +seq.effectivePlaceValue(cast.actorId, c.key).toFixed(3) : (p[c.key] == null ? (c.key === 'scale' || c.key === 'alpha' ? 1 : 0) : p[c.key]);
+			const shown = keyed ? +tl.effectivePlaceValue(cast.actorId, c.key).toFixed(3) : (p[c.key] == null ? (c.key === 'scale' || c.key === 'alpha' ? 1 : 0) : p[c.key]);
 			const step = c.key === 'scale' || c.key === 'alpha' ? 0.05 : 1;
 			return `<label${keyed ? ' class="keyed"' : ''}>${c.label}<input type="number" step="${step}" data-act="${c.key}" value="${shown}">` +
 				`<button class="cineKeyBtn${keyed ? ' on' : ''}" data-key="${c.key}" title="${keyed ? 'Key ' + c.label + ' at the playhead (this channel is animated)' : 'Animate ' + c.label + ' — keys it at the playhead'}">◆</button></label>`;
@@ -1248,18 +1248,18 @@ window.RiggerCinematic = (function () {
 ${doc.stage.sceneId && !scenes.some((sc) => sc.id === doc.stage.sceneId) ? '<div class="cineStatus">This cinematic names a set (' + esc(doc.stage.sceneId) + ') that is not in this project.</div>' : ''}
 <div class="cineRow">
 	<label>Length <input type="number" id="cineDur" min="0.1" step="0.5" value="${doc.duration}"> s</label>
-	<label>Time <input type="number" id="cineTime" step="0.05" value="${seq.time().toFixed(2)}"> s</label>
+	<label>Time <input type="number" id="cineTime" step="0.05" value="${tl.time().toFixed(2)}"> s</label>
 </div>
 <div class="cineRow">
 	<select id="cineAddSel" title="Pick a rig from this project to cast">${rigOpts || '<option value="">no rigs in this project</option>'}</select>
 	<button id="cineAdd" title="Cast this rig as a new actor on the stage">＋ Cast</button>
 	<button id="cineFit" title="Frame every actor">⤢ Fit</button>
 </div>
-${seq.historyMarkup()}
+${tl.historyMarkup()}
 <div class="cineStatus">${loadingCount ? 'loading rig…' : esc(statusMsg)}</div>
 <div id="cineCast">${rows || '<div class="cineEmpty">No actors yet — pick a rig above and press ＋ Cast.</div>'}</div>
-${seq.cameraMarkup()}
-${seq.cueMarkup()}
+${tl.cameraMarkup()}
+${tl.cueMarkup()}
 <div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>
 <div class="cineNote"><b>Text, sprites and placed FX</b> come from the <b>Set</b> above — author them as a Scene in the Scene Editor, then bind it here. The set is a <b>layer</b>: its 🎬 row in the timeline moves among the rigs with ▲▼, and that is the depth an <code>fx:</code> cue draws at too. They render in the game; the stage preview shows rigs plus the FX band. Adding them from inside the cinematic (and animating them) is not built yet. For a one-off effect or sound at a moment, use a ⚡ cue instead.</div>`;
 
@@ -1270,7 +1270,7 @@ ${seq.cueMarkup()}
 		};
 		// The selected strip / key / cue goes in the RIGHT column, where there is room to read it.
 		if ($('#cineProps')) {
-			const selected = seq.renderInspector();
+			const selected = tl.renderInspector();
 			const sub = $('#propSub');
 			if (sub) sub.textContent = selected ? 'cinematic' : 'select a strip, key or cue';
 		}
@@ -1278,7 +1278,7 @@ ${seq.cueMarkup()}
 		if (ratioSel) {
 			ratioSel.onchange = (e) => {
 				doc.stage.ratio = e.target.value || null;
-				seq.commit('change frame');
+				tl.commit('change frame');
 				renderPanel();
 			};
 		}
@@ -1286,7 +1286,7 @@ ${seq.cueMarkup()}
 		if (sceneSel) {
 			sceneSel.onchange = (e) => {
 				doc.stage.sceneId = e.target.value || null;
-				seq.commit(doc.stage.sceneId ? 'set the scene' : 'clear the scene');
+				tl.commit(doc.stage.sceneId ? 'set the scene' : 'clear the scene');
 				renderPanel();
 			};
 		}
@@ -1303,12 +1303,12 @@ ${seq.cueMarkup()}
 			// a different object (that would fork it into two files). Only an unsaved one takes the
 			// new id.
 			if (!r2Etag && !r2SavedAt) doc.id = slugify(name);
-			seq.commit('rename', 'name');
+			tl.commit('rename', 'name');
 			renderPanel();
 		};
-		seq.wirePanel(panel);
+		tl.wirePanel(panel);
 		$('#cineDur').onchange = (e) => setDuration(e.target.value);
-		$('#cineTime').onchange = (e) => seq.setTime(parseFloat(e.target.value) || 0);
+		$('#cineTime').onchange = (e) => tl.setTime(parseFloat(e.target.value) || 0);
 
 		panel.querySelectorAll('.cineActor').forEach((el) => {
 			const actorId = el.dataset.actor;
@@ -1318,10 +1318,10 @@ ${seq.cueMarkup()}
 				renderPanel();
 			};
 			el.querySelectorAll('.cineKeyBtn[data-viskey]').forEach((btn) => {
-				btn.onclick = (e) => { e.stopPropagation(); seq.keyVisibility(actorId, seq.effectiveVisible(actorId)); };
+				btn.onclick = (e) => { e.stopPropagation(); tl.keyVisibility(actorId, tl.effectiveVisible(actorId)); };
 			});
 			el.querySelectorAll('.cineKeyBtn[data-key]').forEach((btn) => {
-				btn.onclick = (e) => { e.stopPropagation(); seq.keyProperty(actorId, btn.dataset.key, null); };
+				btn.onclick = (e) => { e.stopPropagation(); tl.keyProperty(actorId, btn.dataset.key, null); };
 			});
 			el.querySelectorAll('[data-act]').forEach((node) => {
 				const act = node.dataset.act;
@@ -1336,7 +1336,7 @@ ${seq.cueMarkup()}
 						// editing the static placement — otherwise the field would appear to do nothing,
 						// because the channel overrides the static value on the very next frame.
 						const track = propertyTracksOf(actorId)[0];
-						if (track && track.channels[act]) seq.keyProperty(actorId, act, v);
+						if (track && track.channels[act]) tl.keyProperty(actorId, act, v);
 						else setPlace(actorId, act, v);
 					};
 					return;
@@ -1353,16 +1353,16 @@ ${seq.cueMarkup()}
 					else if (act === 'vis') {
 						const cast = castOf(actorId);
 						if (!cast) return;
-						const next = !seq.effectiveVisible(actorId);
+						const next = !tl.effectiveVisible(actorId);
 						// Once visibility is ANIMATED, the toggle keys the flipped state at the playhead —
 						// same rule as the numeric fields. Editing the static flag would appear to do
 						// nothing, because the track overrides it on the very next frame.
 						if (visTracksOf(actorId).length) {
-							seq.keyVisibility(actorId, next);
+							tl.keyVisibility(actorId, next);
 							return;
 						}
 						cast.visible = next;
-						seq.commit('toggle visibility');
+						tl.commit('toggle visibility');
 						renderPanel();
 					}
 				};
@@ -1414,7 +1414,7 @@ ${seq.cueMarkup()}
 	}
 
 	/**
-	 * The rig's sequencer extensions: what a strip on a RIG actor can do that the shared sequencer
+	 * The rig's Timeline extensions: what a strip on a RIG actor can do that the shared Timeline
 	 * knows nothing about — bone masks, Tweak Mode (double-click / ✎ Tweak clip), ＋ New clip — and
 	 * the keyboard + timeline handover while the animator is open.
 	 */
@@ -1428,7 +1428,7 @@ ${seq.cueMarkup()}
 			'\t<button id="cineTweakStrip" title="Open this clip in the animator with the rest of the stage posed around it (or double-click the strip)">✎ Tweak clip</button>\n',
 		wireInspector(root) {
 			const q = (sel) => root.querySelector(sel);
-			const sel = () => seq.selectedStripId();
+			const sel = () => tl.selectedStripId();
 			const add = q('#cineMaskAdd');
 			if (add) add.onchange = (e) => { const v = e.target.value; e.target.value = ''; addMaskBone(sel(), v); };
 			const kids = q('#cineMaskKids');
@@ -1461,12 +1461,12 @@ ${seq.cueMarkup()}
 		},
 	};
 
-	const esc = (s) => SEQ.esc(s);
+	const esc = (s) => TL.esc(s);
 
 	// ---- lifecycle ----------------------------------------------------------
 
 	/**
-	 * The sequencer's keyboard (undo/redo, Ctrl+D, Delete, Ctrl+S) is live only while this mode is.
+	 * The Timeline's keyboard (undo/redo, Ctrl+D, Delete, Ctrl+S) is live only while this mode is.
 	 * `/rigger` binds no other Ctrl chord today, and its two global key handlers already gate on
 	 * `editMode`/`animMode`, so nothing else fires here.
 	 */
@@ -1475,9 +1475,9 @@ ${seq.cueMarkup()}
 		// Same cache-bust as this script: a redeploy must not pair a fresh host with a cached module.
 		const v = new URLSearchParams(location.search).get('v');
 		const q = v ? '?v=' + encodeURIComponent(v) : '';
-		[EV, SEQ] = await Promise.all([import('/shared/cinematicEval.mjs' + q), import('/shared/cinematicSequencer.mjs' + q)]);
+		[EV, TL] = await Promise.all([import('/shared/cinematicEval.mjs' + q), import('/shared/timeline.mjs' + q)]);
 		doc = restore() || newDoc();
-		seq = SEQ.mount($('#timeline'), {
+		tl = TL.mount($('#timeline'), {
 			doc,
 			ev: EV,
 			inspector: $('#cineProps'),
@@ -1511,33 +1511,33 @@ ${seq.cueMarkup()}
 				},
 			},
 		});
-		seq.historyReset();
+		tl.historyReset();
 		await refreshList();
 		refreshEffects(); // best-effort, not awaited: the picker fills in when it lands
 		refreshScenes();
 		await rebuildActors();
-		seq.setActive(true);
+		tl.setActive(true);
 		renderPanel();
 		// `setMode` already ran its own renderTimeline() BEFORE this module finished loading (the
 		// script is lazy), so that call found no RiggerCinematic and drew nothing. Render here too,
 		// or the timeline is empty on first entry until some other edit happens to refresh it.
-		seq.renderTimeline();
+		tl.renderTimeline();
 	}
 
 	function activate() {
-		if (!seq) return;
-		seq.setActive(true);
+		if (!tl) return;
+		tl.setActive(true);
 		renderPanel();
-		seq.renderTimeline();
+		tl.renderTimeline();
 		// Rigs may have been added/removed (or the project switched) since we last rendered.
-		rebuildActors().then(seq.renderTimeline);
+		rebuildActors().then(tl.renderTimeline);
 	}
 
 	function deactivate() {
 		// Leaving cinematic mode with a tweak open would strand the animator on a rig the sequencer
 		// no longer draws — and would never re-parse the clip back into the strips.
 		if (tweak) exitTweak();
-		if (seq) seq.setActive(false);
+		if (tl) tl.setActive(false);
 		save();
 	}
 
@@ -1546,16 +1546,16 @@ ${seq.cueMarkup()}
 		activate,
 		deactivate,
 		frame,
-		// `view.html` can reach these before `init` has mounted the sequencer (the script loads
-		// lazily), so each is a no-op until then — as they were when the sequencer lived here.
-		setTime: (t) => seq && seq.setTime(t),
-		getTime: () => (seq ? seq.time() : 0),
+		// `view.html` can reach these before `init` has mounted the Timeline (the script loads
+		// lazily), so each is a no-op until then — as they were when the timeline lived here.
+		setTime: (t) => tl && tl.setTime(t),
+		getTime: () => (tl ? tl.time() : 0),
 		duration: () => (doc ? doc.duration : 0),
 		isDirty: () => dirty,
 		hasActors: () => actors.length > 0,
 		renderPanel,
-		renderTimeline: () => seq && seq.renderTimeline(),
-		zoom: (factor) => seq && seq.zoom(factor),
+		renderTimeline: () => tl && tl.renderTimeline(),
+		zoom: (factor) => tl && tl.zoom(factor),
 		// tweak mode — the entry/exit pair, the animator's seek hook, and the state for live checks
 		enterTweak,
 		exitTweak,
@@ -1571,13 +1571,13 @@ ${seq.cueMarkup()}
 		tweakMaskClear,
 		seekFromLocal,
 		isTweaking: () => !!tweak,
-		deleteSelectedStrip: () => { if (seq && seq.selectedStripId()) seq.deleteStrip(seq.selectedStripId()); },
-		hasSelectedStrip: () => !!(seq && seq.selectedStripId()),
+		deleteSelectedStrip: () => { if (tl && tl.selectedStripId()) tl.deleteStrip(tl.selectedStripId()); },
+		hasSelectedStrip: () => !!(tl && tl.selectedStripId()),
 		// history — exposed for live verification
-		undo: () => seq && seq.undo(),
-		redo: () => seq && seq.redo(),
-		canUndo: () => !!(seq && seq.canUndo()),
-		canRedo: () => !!(seq && seq.canRedo()),
-		historyDepth: () => (seq ? seq.historyDepth() : { index: -1, size: 0, label: '' }),
+		undo: () => tl && tl.undo(),
+		redo: () => tl && tl.redo(),
+		canUndo: () => !!(tl && tl.canUndo()),
+		canRedo: () => !!(tl && tl.canRedo()),
+		historyDepth: () => (tl ? tl.historyDepth() : { index: -1, size: 0, label: '' }),
 	};
 })();
