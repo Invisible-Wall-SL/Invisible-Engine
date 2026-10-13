@@ -106,7 +106,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 					ok: false,
 					error: 'source-conflict',
 					message:
-						'This project component was saved somewhere else since you opened it. ' +
+						'This project component was saved or removed somewhere else since you opened it. ' +
 						'Reload it, then promote again.',
 				},
 				{ status: 409 },

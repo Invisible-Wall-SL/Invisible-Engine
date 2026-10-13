@@ -14,9 +14,9 @@ import type {
 /**
  * The fields of the component model this build KNOWS, as runtime values: every key of the
  * engine-layout types, whatever a normalizer then keeps. Launcher-only, so no game bundle carries
- * them. A save tells a field a NEWER build wrote (unknown here, so a
- * read dropped it and the author never saw it) from one the author cleared (known, so its absence
- * is theirs) by these sets (`docs/conventions/doc-readers.md`, "Round-tripping").
+ * them. A save tells a field a NEWER build wrote (unknown here, so a read dropped it and the
+ * author never saw it) from one the author cleared (known, so its absence is theirs) by these sets
+ * (`docs/conventions/doc-readers.md`, "Round-tripping").
  *
  * Written as `Record<…, true>` objects so the type-check fails in BOTH directions: a field added
  * to a type and missing here, or listed here and not in the type. A field missing here would read

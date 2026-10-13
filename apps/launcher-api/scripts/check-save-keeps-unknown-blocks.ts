@@ -90,6 +90,7 @@ mock.module(server('r2.ts'), {
 		listAllKeys: async (prefix: string) =>
 			[...bucket.keys()].filter((key) => key.startsWith(prefix)),
 		listObjects: async () => ({ keys: [], prefixes: [] }),
+		// Copies of `r2.ts`'s pure precondition readers (the route's `writeGuard` imports them).
 		jsonBaseEtag: (v: unknown) => (v === null ? null : typeof v === 'string' ? v : undefined),
 		formBaseEtag: (v: unknown) => (typeof v !== 'string' ? undefined : v === '' ? null : v),
 		objectExists: async (key: string) => bucket.has(key),
@@ -907,6 +908,11 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 			.map((n) => 'on' in n),
 		[false, false],
 	);
+	// …nor compared: a no-op save over them (the read passes both through) keeps the version.
+	resetComponents();
+	const noOpEtag = seed(componentKey, doc);
+	const noOp = await saveComponent(olderView(), 'p', noOpEtag);
+	check('components: a no-op save over duplicated node ids keeps the version', noOp.version, 3);
 }
 
 {
