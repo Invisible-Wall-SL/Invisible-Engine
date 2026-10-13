@@ -47,10 +47,6 @@ with the default.
     atlas people were already seeing, only when the selection is blank or stale. *Suggested
     default:* accept as the one exception to "a Director never writes the config".
 
-18. **Abandoned-mockup sweep scope (from #1085).** Mockups under a deleted client are never swept,
-    the sweep has no dry run, and a generic catalogue font name (e.g. "Serif") drops any unhedged
-    gap naming it. *Suggested default:* accept all three (the safe side / owner's own catalogue).
-
 19. **Which App to pin `current-games` to (from #1082).** A dedicated statuses-only App, plus a
     second entry for the launcher's App if the ruleset accepts the same context twice; otherwise
     the launcher's App for both. *Suggested default:* try the dedicated App first. Order matters:
@@ -84,18 +80,19 @@ with the default.
     GPU pricing card (the handler reports its GPU; atlas-tool records it per job; `pricing.json`
     maps the owner's GPUs at their rates; an unknown GPU bills at the dearest enabled one).
 
-25. **Coordinator agent definition inputs (ADR-0007).** The coordinator's `inputs` line still
-    names the preset, which 8C removed (harmless: the brief carries none). *Suggested default:* a
-    one-file agent-definition PR with the line: "inputs: The run record (project, template,
-    starting point, checkpoints), the owner's messages, task reports from the other agents, spend
-    so far and the budget cap."
-
 26. **`queue_variants` outside `style_pack`/`regions` (from #1093).** A render can be queued in
     later run steps (e.g. build); a step there that fails three times renders nothing more in the
     run, and the owner is told. No money depends on it. *Suggested default:* leave it for the
     pilot; refuse queueing outside those steps if the pilot shows renders there are unwanted.
 
 ## Answered
+
+- **2026-10-13: abandoned-mockup sweep scope (#18, from #1085).** The owner accepted the suggested
+  default for all three points: mockups under a deleted client are never swept, the sweep has no
+  dry run, and a generic catalogue font name (e.g. "Serif") drops any unhedged gap naming it.
+
+- **2026-10-08: coordinator definition inputs (#25).** Done in #1118: the `inputs` line no longer
+  names the preset.
 
 - **2026-10-07: card 8F's deploy window (#1101).** For the seconds between the launcher's boot
   migration and the traffic swap, the previous build's Director routes return 500. The owner
