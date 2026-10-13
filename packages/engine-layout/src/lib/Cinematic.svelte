@@ -9,15 +9,23 @@
 	 * `engine-cinematic` evaluator. Same evaluator the editor preview runs, so what an author
 	 * scrubbed is what the game plays.
 	 *
-	 * Deliberately NOT a Scene: design §4.1 has a cinematic eventually binding tracks to an
-	 * existing Scene's nodes, but Phase 1–3 cast rigs directly (`cast[].nodeId` is null), so this
-	 * renders the cast itself. When the Scene binding lands, this component gains a branch; the
-	 * doc format does not change.
+	 * NODE ACTORS (Rive plan §3.1): a `screen`-hosted timeline also drives nodes of its set by
+	 * name. They render nothing here — the set's own `<LayoutNodeView>`s read their channels through
+	 * the `cinematicNodeContext` driver this component provides. A doc with no node actor provides
+	 * a driver that matches nothing, so every node renders as before.
 	 */
 	import { onDestroy } from 'svelte';
 	import { getContextApp, RigProvider } from 'pixi-svelte';
-	import { cuesCrossed, resolveVisible, type CinematicTrack } from 'engine-cinematic';
+	import {
+		cuesCrossed,
+		isNodeActor,
+		resolveVisible,
+		sampleNodeActor,
+		type CinematicTrack,
+	} from 'engine-cinematic';
 	import type { CinematicDoc, Scene } from './types';
+	import { keyedNodeChannels, resolveNodeActors } from './cinematicNodes';
+	import { setCinematicNodeDriver } from './cinematicNodeContext';
 	import CinematicActor from './CinematicActor.svelte';
 	import LayoutScene from './LayoutScene.svelte';
 
@@ -50,8 +58,13 @@
 	let done = false;
 
 	const duration = $derived(Math.max(props.doc.duration || 0, 0));
-	/** Cast in draw order — the same z the author saw on the /rigger stage. */
-	const cast = $derived([...(props.doc.stage?.cast ?? [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0)));
+	/** Cast RIGS in draw order — the same z the author saw on the /rigger stage. Node actors draw
+	 *  inside the set, so they take no place on this line. */
+	const cast = $derived(
+		(props.doc.stage?.cast ?? [])
+			.filter((member) => !isNodeActor(member))
+			.sort((a, b) => (a.z ?? 0) - (b.z ?? 0)),
+	);
 	/**
 	 * One draw-ordered list of LAYERS: the cast, with the set spliced in at its `setZ`. Mount
 	 * order is draw order inside the container, so emitting the set at the right index is the
@@ -98,6 +111,21 @@
 				{ keys?: { time: number; cue: string }[] } | undefined
 		)?.keys ?? [],
 	);
+
+	// The set's nodes that node actors drive, keyed by node id. Read by each top-level
+	// `<LayoutNodeView>` once, at init; `sample()` reads `time`, so a driven node follows the playhead.
+	const nodeActors = $derived(resolveNodeActors(props.doc, props.scene));
+	setCinematicNodeDriver((nodeId) => {
+		const actor = nodeActors.get(nodeId);
+		if (!actor) return undefined;
+		const tracks = actor.tracks as unknown as CinematicTrack[];
+		return {
+			channels: keyedNodeChannels(actor.tracks),
+			// The LAST text track, the one `sampleNodeActor` samples (validation flags a second one).
+			textTrack: tracks.filter((t) => t.kind === 'text').pop(),
+			sample: () => sampleNodeActor(tracks, time),
+		};
+	});
 
 	// Game content mounts after the Pixi app has initialised, so the application is already here.
 	const ticker = appContext.stateApp.pixiApplication?.ticker;

@@ -4,7 +4,14 @@
  * The behaviour these signatures describe is pinned by 87 headless assertions in
  * `tools/rigger-spike/cinematic.mjs`, which is the real specification.
  */
-import type { CinematicKey, CinematicStrip, CinematicTrack } from '../types';
+import type {
+	CinematicHost,
+	CinematicKey,
+	CinematicNodeChannel,
+	CinematicNodeSample,
+	CinematicStrip,
+	CinematicTrack,
+} from '../types';
 
 /** The rig runtime enums the evaluator needs. It constructs nothing, so any runtime that
  *  exposes these (engine-rig headless, the vendored WebGL bundle, engine-rig/pixi) works. */
@@ -90,3 +97,27 @@ export function resolveVisible(
 	visibilityTracks: CinematicTrack[] | undefined,
 	t: number,
 ): boolean;
+
+/** The `property` channels a node actor honours. */
+export const NODE_CHANNELS: readonly CinematicNodeChannel[];
+
+/** Whether a cast entry is a node actor (`kind: 'node'`); absent `kind` is a rig. */
+export function isNodeActor(cast: { kind?: string } | null | undefined): boolean;
+
+/** The document's host, normalised: absent or malformed ⇒ `{ kind: 'cast' }`. */
+export function cinematicHost(doc: { host?: unknown } | null | undefined): CinematicHost;
+
+/** A `tint` channel at `t` (0xRRGGBB, eased per colour channel), or undefined when un-keyed. */
+export function sampleTint(keys: CinematicKey[] | undefined, t: number): number | undefined;
+
+/** A `text` track at `t`: the count-up number or the switched-to key; undefined when un-keyed. */
+export function sampleText(
+	track: CinematicTrack | undefined,
+	t: number,
+): CinematicNodeSample['text'] | undefined;
+
+/** Every keyed channel of one node actor at `t` (relative to the node's authored pose). */
+export function sampleNodeActor(
+	tracks: CinematicTrack[] | undefined,
+	t: number,
+): CinematicNodeSample;

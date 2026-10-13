@@ -27,7 +27,9 @@ export interface LocalizationEntry {
 	 * cards' title/description/button, the confirm dialog's body, and the HUD's bet-mode badge.
 	 * `'uiText'` = the ENGINE's own coded UI strings (HUD captions, menus, modals, info-page rules).
 	 * Project-independent — the shared runtime bundle owns them; each project translates them.
-	 * All six are AUTO origins: the source is read-only here (the owning tool edits it), the rows
+	 * `'timeline'` = the strings a cinematic timeline's `switchKey` text tracks switch a node to
+	 * (Rive plan §8) — a key used only in an animation would otherwise never get a row.
+	 * All seven are AUTO origins: the source is read-only here (the owning tool edits it), the rows
 	 * are re-derived on every load, and an untranslated one is not persisted.
 	 * `'manual'` = hand-authored in this table; this tool owns it, so it is editable and always
 	 * persisted. Defaults to `'manual'` so legacy docs (no field) round-trip as before.
@@ -35,7 +37,8 @@ export interface LocalizationEntry {
 	 * Anything that is not `'manual'` is an auto origin — prefer testing for that rather than
 	 * listing origins, so a future collector doesn't silently fall into the manual bucket.
 	 */
-	origin: 'manual' | 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText';
+	origin:
+		'manual' | 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText' | 'timeline';
 }
 
 /** The whole per-project localization document stored as JSON in R2. */
@@ -151,7 +154,8 @@ function normalizeEntry(input: unknown, targetLangs: string[]): LocalizationEntr
 		e.origin === 'symbols' ||
 		e.origin === 'flow' ||
 		e.origin === 'gameConfig' ||
-		e.origin === 'uiText'
+		e.origin === 'uiText' ||
+		e.origin === 'timeline'
 			? e.origin
 			: 'manual';
 	return { id, key, source, translations, origin };

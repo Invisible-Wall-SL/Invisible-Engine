@@ -1,3 +1,4 @@
+import { loadAuthoredCinematics } from './cinematicExport';
 import { loadComponent } from './componentStorage';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { loadFlowV2Doc } from './flowV2Storage';
@@ -8,6 +9,7 @@ import {
 	harvestSceneText,
 	harvestSymbolNames,
 	harvestProjectWinText,
+	harvestTimelineText,
 	harvestUiText,
 	type HarvestSection,
 } from './localizationHarvest';
@@ -19,7 +21,8 @@ import { loadWinTextDoc } from './winTextStorage';
  * The project's auto-collected text, as read-only sections owned by the tool that authored them:
  * the Scene Editor's text nodes (grouped by scene), Invisible Win Text's templates (one "Win text"
  * section), the Invisible Symbols State Machine's display names (one "Symbol names" section),
- * Invisible Flow's `textMessage` node text (one "Flow messages" section), Invisible Game Config's
+ * Invisible Flow's `textMessage` node text (one "Flow messages" section), the strings cinematic
+ * timelines switch text nodes to (one "Timelines" section), Invisible Game Config's
  * bet-mode copy (one "Bet modes" section — the buy-feature cards, which live in the config and so
  * are invisible to the scene walk), and the engine's own coded UI strings (one "Game UI" section,
  * project-independent). A missing doc on any side harvests nothing.
@@ -32,7 +35,7 @@ export async function harvestProjectSections(
 	projectKey: string,
 ): Promise<HarvestSection[]> {
 	const gameType = await projectGameType(projectKey);
-	const [editorDoc, winTextDoc, symbolsDoc, flowV2Doc, gameConfig] = await Promise.all([
+	const [editorDoc, winTextDoc, symbolsDoc, flowV2Doc, gameConfig, cinematics] = await Promise.all([
 		loadEditorDoc(clientKey, projectKey),
 		loadWinTextDoc(clientKey, projectKey),
 		loadSymbolsDoc(clientKey, projectKey),
@@ -40,8 +43,10 @@ export async function harvestProjectSections(
 		// The RESOLVED config (authored doc ◁ game-type template default) — the same precedence the
 		// game runs on, so a project that never authored a config still lists the copy it renders.
 		resolveGameConfig(clientKey, projectKey, gameType),
+		// The cinematics that ship — the same set the export publishes — for their switch-key text.
+		loadAuthoredCinematics(clientKey, projectKey),
 	]);
-	return [
+	const sections = [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestProjectWinText(winTextDoc, gameType, gameConfig.doc),
 		...harvestSymbolNames(symbolsDoc),
@@ -52,4 +57,8 @@ export async function harvestProjectSections(
 		// being stuck on the two languages the code catalogs happen to ship.
 		...harvestUiText(),
 	];
+	// Last, and only for keys no section above lists: `reconcileWithEditor` stamps each row with
+	// the origin of the LAST section listing it, so a timeline must never take a row it shares.
+	const owned = new Set(sections.flatMap((s) => s.items.map((i) => i.key)));
+	return [...sections, ...harvestTimelineText(cinematics, editorDoc, owned)];
 }

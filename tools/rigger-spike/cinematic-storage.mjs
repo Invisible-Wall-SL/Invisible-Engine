@@ -18,6 +18,9 @@ import { ESBUILD } from './esbuild.mjs';
 
 const ROOT = new URL('../../', import.meta.url);
 const SERVER_DIR = fileURLToPath(new URL('apps/launcher-api/src/lib/server/', ROOT));
+// SvelteKit's `$lib` alias (`projectPaths.ts` imports `$lib/rigBundleKey`), which esbuild knows
+// nothing about on its own.
+const LIB_ALIAS = { $lib: fileURLToPath(new URL('apps/launcher-api/src/lib', ROOT)) };
 const esbuild = await import(ESBUILD);
 
 const stubR2Plugin = {
@@ -46,6 +49,7 @@ await esbuild.build({
 	platform: 'node',
 	outfile: out,
 	plugins: [stubR2Plugin],
+	alias: LIB_ALIAS,
 	logLevel: 'silent',
 });
 const { cinematicKey, isCinematicDoc } = await import(pathToFileURL(out).href);
@@ -80,6 +84,12 @@ console.log('\n2. isCinematicDoc — guards the stored doc without over-rejectin
 	ok('accepts a well-formed doc', isCinematicDoc(good));
 	ok('accepts a doc with unknown EXTRA fields (a newer client wrote it)', isCinematicDoc({ ...good, futureThing: { a: 1 }, markers: [{ kind: 'wait' }] }));
 	ok('accepts unknown TRACK kinds (forward compatible)', isCinematicDoc({ ...good, tracks: [{ kind: 'somethingNew', channels: {} }] }));
+	ok('accepts a screen-hosted doc with node actors + a text track (Rive plan Phase 1)', isCinematicDoc({
+		...good,
+		host: { kind: 'screen', sceneId: 'base' },
+		stage: { ...good.stage, cast: [{ actorId: 'n', kind: 'node', target: 'logo', place: {} }] },
+		tracks: [{ id: 't', kind: 'text', actorId: 'n', mode: 'switchKey', keys: [{ time: 0, key: 'BIG WIN' }] }],
+	}));
 
 	ok('rejects null / non-objects', !isCinematicDoc(null) && !isCinematicDoc('x') && !isCinematicDoc(42) && !isCinematicDoc([]));
 	ok('rejects a missing stage', !isCinematicDoc({ ...good, stage: undefined }));
@@ -133,6 +143,7 @@ await esbuild.build({
 	platform: 'node',
 	outfile: exportOut,
 	plugins: [workingR2Plugin],
+	alias: LIB_ALIAS,
 	logLevel: 'silent',
 });
 const EX = await import(pathToFileURL(exportOut).href);
@@ -152,6 +163,8 @@ console.log('\n3. cinematicRigNames — the seed that makes a cinematic\'s rigs 
 	ok('collects every cast rig folder, de-duplicated', [...names].sort().join(',') === 'hero,villain', [...names].join(','));
 	ok('ignores the positional rigId entirely', ![...names].includes('7') && ![...names].includes(7));
 	ok('a doc with no cast contributes nothing', EX.cinematicRigNames([mkDoc('c', [])]).size === 0);
+	ok('a NODE actor seeds no rig (its art ships with its host scene)',
+		EX.cinematicRigNames([mkDoc('n', [{ actorId: 'n', kind: 'node', target: 'logo', place: {} }])]).size === 0);
 	ok('a cast member with no rigFolder is skipped, not crashed on',
 		EX.cinematicRigNames([mkDoc('d', [{ actorId: 'x', place: {} }])]).size === 0);
 }
@@ -240,7 +253,7 @@ console.log('\n4. exportCinematics — deploy mirroring + pruning');
 	await esbuild.build({
 		entryPoints: [join(SERVER_DIR, 'cinematicStorage.ts')],
 		bundle: true, format: 'esm', platform: 'node', outfile: casOut,
-		plugins: [casR2Plugin], logLevel: 'silent',
+		plugins: [casR2Plugin], alias: LIB_ALIAS, logLevel: 'silent',
 	});
 	const ST = await import(pathToFileURL(casOut).href);
 	const store = globalThis.__CAS_R2__;
