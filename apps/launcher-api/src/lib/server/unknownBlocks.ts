@@ -34,20 +34,33 @@ export function unknownTopLevelBlocks(
 /**
  * `next` with the fields of `stored` that `isKnown` rejects and `next` lacks — the graft for one
  * ENTITY the author kept (the caller matches it to its stored copy by id). A field `next` already
- * has is left as posted. Returns `next` itself when nothing is grafted, so a known-only entity
- * saves byte-identically.
+ * has is left as posted. Each grafted field goes back after the stored field before it that `next`
+ * has (first when there is none), so an entity whose stored bytes held it saves in its stored key
+ * order. Returns `next` itself when nothing is grafted, so a known-only entity saves
+ * byte-identically.
  */
 export function withUnknownFields<T extends object>(
 	isKnown: (key: string) => boolean,
 	stored: unknown,
 	next: T,
 ): T {
-	const missing = Object.entries(unknownFields(isKnown, stored)).filter(
-		([key]) => !Object.hasOwn(next, key),
-	);
-	if (!missing.length) return next;
-	const out = { ...next } as Record<string, unknown>;
-	for (const [key, value] of missing) setKey(out, key, value);
+	if (!isPlainObject(stored)) return next;
+	const own = next as Record<string, unknown>;
+	const keys = Object.keys(own);
+	let grafted = false;
+	let anchor = -1;
+	for (const key of Object.keys(stored)) {
+		const at = keys.indexOf(key);
+		if (at !== -1) {
+			anchor = at;
+		} else if (!isKnown(key)) {
+			keys.splice(++anchor, 0, key);
+			grafted = true;
+		}
+	}
+	if (!grafted) return next;
+	const out: Record<string, unknown> = {};
+	for (const key of keys) setKey(out, key, Object.hasOwn(own, key) ? own[key] : stored[key]);
 	return out as unknown as T;
 }
 

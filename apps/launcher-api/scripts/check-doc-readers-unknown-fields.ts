@@ -705,7 +705,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 	Object.assign(extras.signals[0], { payload: 'none' });
 	Object.assign(extras.inputs[0], { label: 'Win!' });
 	Object.assign(extras.stateMachine.layers[0], { color: 'red' });
-	Object.assign(extras.stateMachine.layers[0].states[0], { pos: { x: 1, y: 2 } });
+	Object.assign(extras.stateMachine.layers[0].states[0], { thumb: 'idle.png' });
 	Object.assign(extras.stateMachine.layers[0].transitions[0], { curve: 'ease' });
 	ignores('13. component', (d) => normalizeComponent(d as unknown as ComponentDef), base, extras, [
 		'"root":{',

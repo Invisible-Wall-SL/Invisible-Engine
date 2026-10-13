@@ -90,6 +90,8 @@ mock.module(server('r2.ts'), {
 		listAllKeys: async (prefix: string) =>
 			[...bucket.keys()].filter((key) => key.startsWith(prefix)),
 		listObjects: async () => ({ keys: [], prefixes: [] }),
+		jsonBaseEtag: (v: unknown) => (v === null ? null : typeof v === 'string' ? v : undefined),
+		formBaseEtag: (v: unknown) => (typeof v !== 'string' ? undefined : v === '' ? null : v),
 		objectExists: async (key: string) => bucket.has(key),
 	},
 });
@@ -97,6 +99,15 @@ mock.module(server('r2.ts'), {
 // `componentStorage` reaches these only for a cross-project rig ref, which no fixture here has.
 mock.module(server('rig.ts'), { namedExports: { loadSharedSkeletonIndex: async () => [] } });
 mock.module(server('projects.ts'), { namedExports: { projectClientKey: async () => null } });
+// The routes' gates: an admin with no overrides, and a project key taken as given.
+mock.module(server('roleToolAccess.ts'), { namedExports: { getRoleOverrides: async () => ({}) } });
+mock.module(server('userToolAccess.ts'), { namedExports: { getToolOverrides: async () => ({}) } });
+mock.module(server('toolScope.ts'), {
+	namedExports: {
+		requireOptionalProjectKey: async (_user: unknown, project: string | null | undefined) =>
+			project?.trim() ? project : undefined,
+	},
+});
 
 const { symbolsDocKey, winTextDocKey } = await import('../src/lib/server/projectPaths.ts');
 const { normalizeSymbolsDoc, saveSymbolsDoc, symbolsDocSchema } =
@@ -115,6 +126,25 @@ const {
 const { normalizeComponent, saveComponent } = await import('../src/lib/server/componentStorage.ts');
 const { saveComponentDefaults } = await import('../src/lib/server/componentDefaultsStorage.ts');
 const { BUILTIN_COMPONENTS } = await import('engine-layout');
+const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
+const defaultsBackupsRoute =
+	await import('../src/routes/api/editor/component-defaults/backups/+server.ts');
+const { listBackups } = await import('../src/lib/server/docBackups.ts');
+const { componentDefaultsBackupTarget } = await import('../src/lib/server/projectPaths.ts');
+
+type RouteEvent = Parameters<typeof componentRoute.POST>[0];
+/** POST `body` through a real route handler as an admin. */
+const post = async (
+	handler: (event: RouteEvent) => Response | Promise<Response>,
+	body: unknown,
+	query = '',
+): Promise<{ status: number; body: Record<string, unknown> }> => {
+	const url = new URL(`http://launcher.test/api${query}`);
+	const request = new Request(url, { method: 'POST', body: JSON.stringify(body) });
+	const event = { request, url, locals: { user: { id: 'u', role: 'admin' } } };
+	const res = await handler(event as unknown as RouteEvent);
+	return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+};
 
 let checks = 0;
 let failures = 0;
@@ -782,16 +812,16 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 
 {
 	resetComponents();
-	// Force: the author overwrites bytes they never loaded. Create: nothing stored.
+	// Force ("Save on top" from a stale tab) CASes on the same read, so it grafts too. Create: nothing.
 	seed(componentKey, newerComponent());
 	await saveComponent(withoutChildListener(olderView()), 'p', undefined);
 	const after = stored(componentKey) as StoredDef;
 	check(
-		'components: a forced save keeps nothing',
-		['events' in after, 'on' in after.root, 'on' in (nodeById(after.root, 'n_a') ?? {})],
-		[false, false, false],
+		'components: a forced save from a tab lacking the fields keeps them',
+		[after.events?.length, after.root.on, nodeById(after.root, 'n_a')?.on],
+		[1, LISTENER.on, LISTENER.on],
 	);
-	bucket.delete(componentKey);
+	resetComponents();
 	await saveComponent(COMPONENT as unknown as Def, 'p', null);
 	check('components: a create writes the normalized def', stored(componentKey), {
 		...normalizeComponent(structuredClone(COMPONENT) as unknown as Def),
@@ -799,19 +829,97 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 }
 
 {
-	// A forced save that changes ONLY unknown fields (it drops them) bumps rather than rewriting the
-	// immutable snapshot of the stored version.
+	// Snapshots are immutable: an older launcher's no-op save over a row its read DROPPED (a param of
+	// a newer kind) keeps the version, and the latest copy loses the row, but `<id>.v3.json` keeps it.
 	resetComponents();
-	seed(componentKey, newerComponent());
-	const forceV3 = projectComponentVersionKey('p', COMPONENT.id, 3);
-	const forceV3Bytes = bucket.get(componentKey)?.text ?? '';
-	bucket.set(forceV3, { text: forceV3Bytes, etag: etagOf(forceV3Bytes) });
-	const forced = await saveComponent(olderView(), 'p', undefined);
+	const doc = newerComponent() as StoredDef;
+	doc.params.push({ key: 'clip', kind: 'video' });
+	const etag = seed(componentKey, doc);
+	const v3 = projectComponentVersionKey('p', COMPONENT.id, 3);
+	const v3Bytes = bucket.get(componentKey)?.text ?? '';
+	bucket.set(v3, { text: v3Bytes, etag: etagOf(v3Bytes) });
+	const result = await saveComponent(olderView(), 'p', etag);
 	check(
-		'components: a forced save that drops unknown fields bumps, leaving the snapshot alone',
-		[forced.version, bucket.get(forceV3)?.text === forceV3Bytes],
-		[4, true],
+		'components: a no-op save over a dropped row leaves the v3 snapshot unchanged',
+		[
+			result.version,
+			bucket.get(v3)?.text === v3Bytes,
+			(stored(componentKey) as StoredDef).params.length,
+		],
+		[3, true, 1],
 	);
+}
+
+{
+	// A name-keyed row re-added under the same key takes the stored fields only while its kind is the
+	// same: a `label` re-added as an image param is a different param.
+	resetComponents();
+	let etag = seed(componentKey, newerComponent());
+	const asImage = structuredClone(olderView()) as unknown as StoredDef;
+	asImage.params = [{ key: 'label', kind: 'image' }];
+	await saveComponent(asImage as unknown as Def, 'p', etag);
+	check(
+		'components: a row re-added with another kind inherits nothing',
+		(stored(componentKey) as StoredDef).params,
+		[{ key: 'label', kind: 'image' }],
+	);
+	resetComponents();
+	etag = seed(componentKey, newerComponent());
+	const asString = structuredClone(olderView()) as unknown as StoredDef;
+	asString.params = [{ key: 'label', kind: 'string' }];
+	await saveComponent(asString as unknown as Def, 'p', etag);
+	check(
+		'components: …and with the same kind it is the same param, and keeps them',
+		(stored(componentKey) as StoredDef).params[0].tooltip,
+		'Button text',
+	);
+}
+
+{
+	// A grafted field goes back in its stored position, so a no-op save keeps the version and bytes.
+	resetComponents();
+	const doc = newerComponent() as StoredDef;
+	const { id, ...rest } = doc.root.children[0];
+	doc.root.children[0] = { id, ...LISTENER, ...rest, on: LISTENER.on };
+	const bytes = JSON.stringify(doc, null, 2);
+	bucket.set(componentKey, { text: bytes, etag: etagOf(bytes) });
+	const result = await saveComponent(withoutChildListener(olderView()), 'p', etagOf(bytes));
+	check(
+		'components: an unknown field in the middle of a node goes back in place, no bump',
+		[result.version, Object.keys(nodeById(stored(componentKey).root, 'n_a') ?? {})],
+		[3, Object.keys(doc.root.children[0])],
+	);
+}
+
+{
+	// A legacy doc with a duplicated node id: no single twin, so neither copy takes the other's fields.
+	resetComponents();
+	const doc = newerComponent() as StoredDef;
+	doc.root.children.push({ id: 'n_a', kind: 'sprite', x: 0, y: 0, on: 'second', children: [] });
+	const etag = seed(componentKey, doc);
+	const posted = structuredClone(olderView()) as unknown as StoredDef;
+	for (const node of posted.root.children) if (node.id === 'n_a') delete node.on;
+	await saveComponent(posted as unknown as Def, 'p', etag);
+	check(
+		'components: duplicated node ids are not grafted',
+		(stored(componentKey) as StoredDef).root.children
+			.filter((n) => n.id === 'n_a')
+			.map((n) => 'on' in n),
+		[false, false],
+	);
+}
+
+{
+	// Another author saves between the save's read and its PUT: the PUT's If-Match refuses it.
+	resetComponents();
+	const etag = seed(componentKey, newerComponent());
+	afterGet = () => void seed(componentKey, { ...COMPONENT, theirs: 1 });
+	check(
+		'components: a save landing after the graft read still conflicts',
+		await outcome(() => saveComponent(olderView(), 'p', etag)),
+		'ConflictError',
+	);
+	check('components: …and the other author’s def stands', stored(componentKey).theirs, 1);
 }
 
 {
@@ -903,14 +1011,17 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 		check('components promote: …and leaves the v3 snapshot alone', bucket.get(v3)?.text, v3Bytes);
 	}
 	const sharedEtag = seedShared({ ...COMPONENT, scope: 'shared' });
-	await saveComponent(draft, undefined, sharedEtag, {
-		promotedFrom: { projectKey: 'p', baseEtag: '"stale"' },
-	});
+	const sharedBefore = bucket.get(sharedComponentKey)?.text;
 	check(
-		'components promote: a project def saved since the draft loaded is not grafted from',
-		'events' in stored(sharedComponentKey),
-		false,
+		'components promote: a project def saved since the draft loaded refuses the promote',
+		await outcome(() =>
+			saveComponent(draft, undefined, sharedEtag, {
+				promotedFrom: { projectKey: 'p', baseEtag: '"stale"' },
+			}),
+		),
+		'PromoteSourceConflictError',
 	);
+	check('components promote: …writing nothing', bucket.get(sharedComponentKey)?.text, sharedBefore);
 	const plainEtag = seedShared(newerComponent());
 	await saveComponent(
 		{ ...normalizeComponent(stored(sharedComponentKey) as unknown as Def), scope: 'shared' },
@@ -1074,15 +1185,15 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 }
 
 {
-	// Force keeps nothing; the text input the read dropped goes too (the author replaced the bytes).
+	// Force grafts like an If-Match save: the namespace field and the text input stay.
 	resetComponents();
 	seed(componentKey, newerMachine());
 	await saveComponent(olderView(), 'p', undefined);
 	const after = stored(componentKey);
 	check(
-		'components 5a: a forced save keeps nothing',
+		'components 5a: a forced save keeps them too',
 		['blend' in machineOf(after), inputsOf(after).map((i) => i.id)],
-		[false, ['hover', 'tap']],
+		[true, ['hover', 'label', 'tap']],
 	);
 }
 
@@ -1106,6 +1217,31 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 }
 
 {
+	// 5b's `pos` / `pseudoPos` are KNOWN here: a cleared `pos` stays cleared. A state field this
+	// build does not know (`thumb`) survives, as `pos` did through a 5a-only build's save.
+	resetComponents();
+	const doc = newerMachine() as unknown as Required<SmDoc>;
+	const [layer] = doc.stateMachine.layers;
+	Object.assign(layer, { pseudoPos: { entry: { x: 1, y: 2 } } });
+	Object.assign(layer.states[0], { pos: { x: 10, y: 20 }, thumb: 'idle.png' });
+	const etag = seed(componentKey, doc);
+	const loaded = structuredClone(olderView()) as unknown as SmDoc;
+	check(
+		'components 5b: pos / pseudoPos are read as known',
+		[!!loaded.stateMachine?.layers[0].states[0].pos, !!loaded.stateMachine?.layers[0].pseudoPos],
+		[true, true],
+	);
+	delete loaded.stateMachine!.layers[0].states[0].pos;
+	await saveComponent(loaded as unknown as Def, 'p', etag);
+	const state = machineOf(stored(componentKey)).layers[0].states[0];
+	check(
+		'components 5b: a cleared pos is not resurrected; an unknown state field is kept',
+		['pos' in state, state.thumb],
+		[false, 'idle.png'],
+	);
+}
+
+{
 	// The text input is the ONLY difference: the save still bumps, never rewriting the v3 snapshot.
 	const onlyText = (label: SmRow | null): StoredDef => {
 		const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
@@ -1122,9 +1258,13 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	const v3 = pin(componentKey);
 	const forced = await saveComponent(olderView(), 'p', undefined);
 	check(
-		'components 5a: a forced save dropping only a text input bumps, leaving v3 alone',
-		[forced.version, bucket.get(projectComponentVersionKey('p', COMPONENT.id, 3))?.text === v3],
-		[4, true],
+		'components 5a: a forced save keeps a text input, at the same version and v3',
+		[
+			forced.version,
+			bucket.get(projectComponentVersionKey('p', COMPONENT.id, 3))?.text === v3,
+			inputsOf(stored(componentKey)).some((i) => i.id === 'label'),
+		],
+		[3, true, true],
 	);
 	resetComponents();
 	const projectEtag = seed(componentKey, onlyText({ id: 'label', kind: 'text', default: 'B' }));
@@ -1201,6 +1341,37 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	);
 }
 
+{
+	// Through the real route: `promotedFrom` + `sourceEtag` reach `saveComponent`, and a stale
+	// source answers a 409 the client must not offer "Promote on top" for.
+	resetComponents();
+	const projectEtag = seed(componentKey, newerComponent());
+	const sharedEtag = seed(sharedComponentKey, { ...COMPONENT, scope: 'shared' });
+	const draft = { ...olderView(), scope: 'shared' };
+	const promoted = await post(componentRoute.POST, {
+		...draft,
+		promotedFrom: 'p',
+		sourceEtag: projectEtag,
+		baseEtag: sharedEtag,
+	});
+	check(
+		'component route: a promote carries the project def’s unknown fields',
+		[promoted.status, (stored(sharedComponentKey) as StoredDef).events?.length],
+		[200, 1],
+	);
+	const stale = await post(componentRoute.POST, {
+		...draft,
+		promotedFrom: 'p',
+		sourceEtag: '"stale"',
+		baseEtag: bucket.get(sharedComponentKey)?.etag,
+	});
+	check(
+		'component route: a stale promote source is a source-conflict 409',
+		[stale.status, stale.body.error],
+		[409, 'source-conflict'],
+	);
+}
+
 // ── Component defaults ("This game's defaults"): `{ id, params }` plus a newer build's fields ─
 
 {
@@ -1231,6 +1402,44 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 		stored(defaultsKey),
 		backup,
 	);
+	// Through the real restore route: the backup's unknown fields come back, not the live sidecar's.
+	const target = componentDefaultsBackupTarget('p', COMPONENT.id);
+	for (const key of [...bucket.keys()]) if (key.startsWith(target.prefix)) bucket.delete(key);
+	const backedUp = seed(defaultsKey, {
+		id: COMPONENT.id,
+		params: { label: 'OLD' },
+		inputs: { on: 3 },
+	});
+	const { etag: liveRouteEtag } = await saveComponentDefaults(
+		'p',
+		COMPONENT.id,
+		{ label: 'NEW' },
+		backedUp,
+		'always',
+		{ unknownFrom: { liveOnly: 1 } },
+	);
+	const [newest] = await listBackups(target);
+	const restored = await post(
+		defaultsBackupsRoute.POST,
+		{ id: newest?.id, baseEtag: liveRouteEtag },
+		`?project=p&component=${COMPONENT.id}`,
+	);
+	check(
+		'component defaults restore route: keeps the backup’s unknown fields',
+		[restored.status, stored(defaultsKey)],
+		[200, { id: COMPONENT.id, params: { label: 'OLD' }, inputs: { on: 3 } }],
+	);
+	// Another author saves between the graft's read and the write: the write's If-Match refuses it.
+	const raceEtag = seed(defaultsKey, { id: COMPONENT.id, params: {}, inputs: { on: 1 } });
+	afterGet = () => void seed(defaultsKey, { id: COMPONENT.id, params: { theirs: 1 } });
+	check(
+		'component defaults: a save landing after the graft read still conflicts',
+		await outcome(() => saveComponentDefaults('p', COMPONENT.id, {}, raceEtag)),
+		'ConflictError',
+	);
+	check('component defaults: …and the other author’s stands', stored(defaultsKey).params, {
+		theirs: 1,
+	});
 	const knownEtag = seed(defaultsKey, { id: COMPONENT.id, params: { label: 'GO' } });
 	await saveComponentDefaults('p', COMPONENT.id, { label: 'SPIN' }, knownEtag);
 	check(

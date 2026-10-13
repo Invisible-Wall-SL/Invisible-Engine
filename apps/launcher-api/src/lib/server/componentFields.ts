@@ -9,11 +9,12 @@ import type {
 	SmState,
 	SmTransition,
 	TemplateSlot,
-} from './types';
+} from 'engine-layout';
 
 /**
- * The fields of the component model this build KNOWS, as runtime values: every key of the types,
- * whatever a normalizer then keeps. A save tells a field a NEWER build wrote (unknown here, so a
+ * The fields of the component model this build KNOWS, as runtime values: every key of the
+ * engine-layout types, whatever a normalizer then keeps. Launcher-only, so no game bundle carries
+ * them. A save tells a field a NEWER build wrote (unknown here, so a
  * read dropped it and the author never saw it) from one the author cleared (known, so its absence
  * is theirs) by these sets (`docs/conventions/doc-readers.md`, "Round-tripping").
  *
@@ -161,6 +162,7 @@ const smLayerFields: Record<keyof SmLayer, true> = {
 	entry: true,
 	states: true,
 	transitions: true,
+	pseudoPos: true,
 };
 const smStateFields: Record<keyof SmState, true> = {
 	id: true,
@@ -168,6 +170,7 @@ const smStateFields: Record<keyof SmState, true> = {
 	timeline: true,
 	speed: true,
 	loop: true,
+	pos: true,
 };
 const smTransitionFields: Record<keyof SmTransition, true> = {
 	id: true,

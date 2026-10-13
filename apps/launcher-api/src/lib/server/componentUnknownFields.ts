@@ -1,8 +1,8 @@
 import type { ComponentDef, LayoutNode } from 'engine-layout';
+import { COMPONENT_INPUT_KINDS } from 'engine-layout';
 import {
 	COMPONENT_DEF_FIELDS,
 	COMPONENT_INPUT_FIELDS,
-	COMPONENT_INPUT_KINDS,
 	COMPONENT_PARAM_FIELDS,
 	COMPONENT_SIGNAL_FIELDS,
 	LAYOUT_NODE_FIELDS,
@@ -11,7 +11,7 @@ import {
 	SM_TRANSITION_FIELDS,
 	STATE_MACHINE_FIELDS,
 	TEMPLATE_SLOT_FIELDS,
-} from 'engine-layout';
+} from './componentFields';
 import { isPlainObject, setKey } from './stripUnknownKeys';
 import { unknownFields, withUnknownFields } from './unknownBlocks';
 
@@ -28,12 +28,17 @@ const isStateMachineField = known(STATE_MACHINE_FIELDS);
 const isLayerField = known(SM_LAYER_FIELDS);
 const INPUT_KINDS: ReadonlySet<string> = new Set(COMPONENT_INPUT_KINDS);
 
-/** The def's id-keyed rows, which a normalizer rebuilds field by field. */
+/**
+ * The def's id-keyed rows, which a normalizer rebuilds field by field. Their ids are NAMES the
+ * editor re-adds (a deleted `label` param can come back as `label`), so a row that carries a
+ * `kind` takes its twin's fields only while the kind is the same: a `label` re-added as an image
+ * param is a different param, though the engine binds both by key.
+ */
 const ROW_ARRAYS = [
-	{ field: 'params', id: 'key', isKnown: known(COMPONENT_PARAM_FIELDS) },
-	{ field: 'signals', id: 'key', isKnown: known(COMPONENT_SIGNAL_FIELDS) },
-	{ field: 'slots', id: 'slotId', isKnown: known(TEMPLATE_SLOT_FIELDS) },
-	{ field: 'inputs', id: 'id', isKnown: known(COMPONENT_INPUT_FIELDS) },
+	{ field: 'params', id: 'key', isKnown: known(COMPONENT_PARAM_FIELDS), byKind: true },
+	{ field: 'signals', id: 'key', isKnown: known(COMPONENT_SIGNAL_FIELDS), byKind: false },
+	{ field: 'slots', id: 'slotId', isKnown: known(TEMPLATE_SLOT_FIELDS), byKind: true },
+	{ field: 'inputs', id: 'id', isKnown: known(COMPONENT_INPUT_FIELDS), byKind: true },
 ] as const;
 /** The rows of one state-machine layer, matched by id within that layer. */
 const LAYER_ARRAYS = [
@@ -48,7 +53,8 @@ const LAYER_ARRAYS = [
  * - every unknown top-level field of the def, and of `stateMachine` (a fixed namespace, kept also
  *   when the author removed every layer, like a win-text family);
  * - inside each ENTITY the author kept, matched to its stored copy by id: the unknown fields of a
- *   node anywhere under `root` (the root included), of a param, signal, slot or input, and of a
+ *   node anywhere under `root` (the root included; not a node whose id is duplicated, which has
+ *   no single twin), of a param, signal, slot or input (and of the same `kind`), and of a
  *   state-machine layer and, within the same layer, its states and transitions. A transition's
  *   `conditions` are its own known data and are not walked;
  * - a stored INPUT row of a kind this build does not know, which the read dropped, back in its
@@ -72,14 +78,22 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 	};
 
 	const storedNodes = new Map<string, Row>();
-	indexNodes(stored.root, storedNodes);
+	const duplicated = new Set<string>();
+	indexNodes(stored.root, storedNodes, duplicated);
+	indexNodes(next.root, new Map(), duplicated);
+	if (duplicated.size) {
+		console.warn(`[component] ${next.id}: not grafting unknown fields onto duplicated node ids —`, [
+			...duplicated,
+		]);
+		for (const id of duplicated) storedNodes.delete(id);
+	}
 	set('root', graftNode(next.root, storedNodes), next.root);
 
-	for (const { field, id, isKnown } of ROW_ARRAYS) {
+	for (const { field, id, isKnown, byKind } of ROW_ARRAYS) {
 		const rows = next[field] as Row[] | undefined;
 		const isInputs = field === 'inputs';
-		const skip = isInputs ? isUnreadableInput : undefined;
-		const merged = rows ? graftRows(rows, stored[field], id, isKnown, undefined, skip) : rows;
+		const twin = { skip: isInputs ? isUnreadableInput : undefined, byKind };
+		const merged = rows ? graftRows(rows, stored[field], id, isKnown, twin) : rows;
 		set(field, isInputs ? withUnreadableInputs(merged, stored.inputs, next.signals) : merged, rows);
 	}
 
@@ -95,21 +109,29 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 	return grafted ? (out as unknown as ComponentDef) : next;
 }
 
+interface TwinRule {
+	/** Rows the read drops, which are never a twin. */
+	skip?: (row: Row) => boolean;
+	/** Only a stored row of the same `kind` is a twin. */
+	byKind?: boolean;
+	/** Applied to each matched pair after its own fields (a layer's states and transitions). */
+	inner?: (row: Row, stored: Row) => Row;
+}
+
 /** `rows` with each row that has a stored twin (same `id`, first of a duplicate) given back its
- *  unknown fields, then `inner` applied to the pair. `rows` itself when nothing changed. */
+ *  unknown fields. `rows` itself when nothing changed. */
 function graftRows(
 	rows: Row[],
 	stored: unknown,
 	id: string,
 	isKnown: IsKnown,
-	inner?: (row: Row, stored: Row) => Row,
-	skip?: (row: Row) => boolean,
+	{ skip, byKind, inner }: TwinRule = {},
 ): Row[] {
 	const byId = rowsById(stored, id, skip);
 	let changed = false;
 	const merged = rows.map((row) => {
 		const twin = typeof row[id] === 'string' ? byId.get(row[id]) : undefined;
-		if (!twin) return row;
+		if (!twin || (byKind && twin.kind !== row.kind)) return row;
 		const own = withUnknownFields(isKnown, twin, row);
 		const kept = inner ? inner(own, twin) : own;
 		if (kept !== row) changed = true;
@@ -177,7 +199,9 @@ function withUnreadableInputs(
 function graftStateMachine(next: Row | undefined, stored: unknown): Row | undefined {
 	if (!isPlainObject(stored)) return next;
 	const layers = next?.layers as Row[] | undefined;
-	const merged = layers ? graftRows(layers, stored.layers, 'id', isLayerField, graftLayer) : layers;
+	const merged = layers
+		? graftRows(layers, stored.layers, 'id', isLayerField, { inner: graftLayer })
+		: layers;
 	const extra = Object.entries(unknownFields(isStateMachineField, stored)).filter(
 		([key]) => !next || !Object.hasOwn(next, key),
 	);
@@ -271,10 +295,16 @@ function byKey([a]: [string, unknown], [b]: [string, unknown]): number {
 	return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function indexNodes(node: unknown, out: Map<string, Row>): void {
+/** Every node under `node` by id, first wins; an id seen twice is added to `duplicated`. */
+function indexNodes(node: unknown, out: Map<string, Row>, duplicated?: Set<string>): void {
 	if (!isPlainObject(node)) return;
-	if (typeof node.id === 'string' && !out.has(node.id)) out.set(node.id, node);
-	if (Array.isArray(node.children)) for (const child of node.children) indexNodes(child, out);
+	if (typeof node.id === 'string') {
+		if (!out.has(node.id)) out.set(node.id, node);
+		else duplicated?.add(node.id);
+	}
+	if (Array.isArray(node.children)) {
+		for (const child of node.children) indexNodes(child, out, duplicated);
+	}
 }
 
 /** `node` and its subtree, each node that still has a stored twin given back its unknown fields. */

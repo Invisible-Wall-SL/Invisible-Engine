@@ -7,6 +7,7 @@ import {
 	listComponentVersions,
 	loadComponent,
 	loadComponentWithEtag,
+	PromoteSourceConflictError,
 	saveComponent,
 	type PromoteSource,
 } from '$lib/server/componentStorage';
@@ -61,7 +62,8 @@ async function gateSharedWrite(locals: App.Locals): Promise<void> {
  * RECONCILED `version` + the new `etag` — the old `{ok:true}` told the client nothing,
  * so it could not even learn what version its own save produced.
  *
- * Body: the `ComponentDef`, plus `project?`, `baseEtag?: string | null`, `force?`.
+ * Body: the `ComponentDef`, plus `project?`, `baseEtag?: string | null`, `force?`, and for a
+ * promote `promotedFrom?` + `sourceEtag?` ({@link promoteSource}).
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	const user = await gate(locals);
@@ -96,6 +98,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		});
 		return json({ ok: true, version, etag });
 	} catch (e) {
+		// Before the generic conflict: "Promote on top" cannot help here, only a reload of the
+		// project copy can, so the client must not offer it.
+		if (e instanceof PromoteSourceConflictError) {
+			return json(
+				{
+					ok: false,
+					error: 'source-conflict',
+					message:
+						'This project component was saved somewhere else since you opened it. ' +
+						'Reload it, then promote again.',
+				},
+				{ status: 409 },
+			);
+		}
 		// Conflict before the generic 400 — a lost CAS is not a malformed component.
 		if (e instanceof ConflictError) {
 			return json(

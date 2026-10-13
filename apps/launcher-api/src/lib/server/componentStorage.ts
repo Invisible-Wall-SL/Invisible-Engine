@@ -10,6 +10,7 @@ import type {
 	SlotKind,
 	SmCondition,
 	SmLayer,
+	SmPoint,
 	SmState,
 	SmTransition,
 	TemplateSlot,
@@ -213,6 +214,7 @@ async function readComponent(key: string): Promise<ComponentDef | undefined> {
  */
 async function readComponentForWrite(
 	key: string,
+	keepStored = false,
 ): Promise<{ def: ComponentDef | undefined; etag: string | null; stored?: unknown }> {
 	const obj = await getObjectTextWithEtag(key);
 	if (!obj) return { def: undefined, etag: null };
@@ -220,7 +222,7 @@ async function readComponentForWrite(
 		const parsed: unknown = JSON.parse(obj.text);
 		if (isComponentShape(parsed)) {
 			// The parsed bytes, before `normalizeComponent` rebuilds them (and mutates their nodes).
-			const stored = structuredClone(parsed);
+			const stored = keepStored ? structuredClone(parsed) : undefined;
 			return { def: normalizeComponent(parsed), etag: obj.etag, stored };
 		}
 	} catch {
@@ -404,28 +406,29 @@ export async function saveComponent(
 				promotedFrom.baseEtag,
 			)
 		: undefined;
-	const { def: existing, etag: existingEtag, stored } = await readComponentForWrite(key);
+	// A promote CARRIES the project def's fields. Without them it would silently drop what a newer
+	// launcher wrote there, so a project def saved (or removed) since the draft loaded refuses the
+	// promote: the author reloads it.
+	if (promotedFrom && promoted === undefined) {
+		throw new PromoteSourceConflictError(
+			projectComponentKey(promotedFrom.projectKey, normalized.id),
+		);
+	}
+	const { def: existing, etag: existingEtag, stored } = await readComponentForWrite(key, true);
 	// CHECK BEFORE WRITING ANYTHING. The snapshot is written first and is immutable, so
 	// discovering a lost CAS at the LATEST pointer (the second write) would already have
 	// left an orphan `<id>.v<N+1>.json` behind — and every later save would then compute
 	// that same N+1, collide with the orphan, and 409 FOREVER with no way out of the UI.
 	// An in-process compare makes the ordinary conflict path write nothing at all.
 	if (baseEtag !== undefined && baseEtag !== existingEtag) throw new ConflictError(key);
-	if (promotedFrom && promoted === undefined) {
-		console.warn(
-			`[component] ${normalized.id}: promoted without the project def's unknown fields — it ` +
-				'changed since the draft loaded, or is unreadable',
-		);
-	}
 
-	const merged = withUnknownComponentFields(
-		normalized,
-		promotedFrom ? promoted : typeof baseEtag === 'string' ? stored : undefined,
-	);
+	// A forced save grafts too: it CASes on `existingEtag` from the same read as `stored`, so the
+	// graft is as race-free as an `If-Match` one, and "Save on top" from a stale tab is exactly
+	// the tab that lacks a newer launcher's fields.
+	const merged = withUnknownComponentFields(normalized, promotedFrom ? promoted : stored);
 	// The version is decided on what this build can see, so a no-op save from an older launcher
-	// does not bump over the fields its draft lacks. But a save that CHANGES those fields (a promote
-	// carrying the project's over the shared copy's, a forced save dropping them) must bump, or the
-	// same-version snapshot write below would rewrite an immutable `<id>.v<N>.json`.
+	// does not bump over the fields its draft lacks. A save that CHANGES those fields (a promote
+	// carrying the project's over the shared copy's) bumps, as any content change does.
 	let { version } = reconcileVersion(
 		merged === normalized ? normalized : normalizeComponent(structuredClone(merged)),
 		existing,
@@ -454,6 +457,14 @@ export async function saveComponent(
 	return { version: toWrite.version, etag };
 }
 
+/** The project def a promote copies was saved, or removed, since the draft loaded it. */
+export class PromoteSourceConflictError extends ConflictError {
+	constructor(key: string) {
+		super(key);
+		this.name = 'PromoteSourceConflictError';
+	}
+}
+
 /**
  * The project def a promote-to-shared copies, as the author loaded it: the stored bytes whose
  * unknown fields the shared copy keeps (`docs/conventions/doc-readers.md`, "Round-tripping").
@@ -476,9 +487,14 @@ export interface PromoteSource {
  */
 async function writeSnapshot(versionKey: string, body: string, guard: boolean): Promise<void> {
 	if (!guard) {
-		// Same version, same content — rewriting identical bytes, which also heals a
-		// snapshot missing from a pre-v2 def.
-		await putObjectText(versionKey, body, 'application/json');
+		// Same version: only heal a snapshot missing from a pre-v2 def. An existing one is never
+		// rewritten, even when this save's bytes differ — an older launcher's no-op save drops the
+		// rows its read dropped, and the snapshot must keep what that version really held.
+		try {
+			await putObjectText(versionKey, body, 'application/json', { ifNoneMatch: '*' });
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
 		return;
 	}
 	try {
@@ -903,6 +919,9 @@ function normalizeInputs(input: unknown): ComponentInput[] {
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
+const point = (v: unknown): SmPoint | undefined =>
+	isRecord(v) && finite(v.x) && finite(v.y) ? { x: v.x, y: v.y } : undefined;
+
 function normalizeStateMachine(input: unknown): ComponentStateMachine | undefined {
 	if (!isRecord(input) || !Array.isArray(input.layers)) return undefined;
 	const layers: SmLayer[] = [];
@@ -926,6 +945,8 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (typeof item.name === 'string' && item.name) state.name = item.name;
 			if (finite(item.speed) && item.speed > 0) state.speed = item.speed;
 			if (item.loop === true) state.loop = true;
+			const pos = point(item.pos);
+			if (pos) state.pos = pos;
 			layer.states.push(state);
 		}
 		for (const item of Array.isArray(raw.transitions) ? raw.transitions : []) {
@@ -941,6 +962,14 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			// Exit has no pose to mix into, so a blend on a transition to it means nothing.
 			if (finite(item.blend) && item.blend > 0 && item.to !== 'exit') transition.blend = item.blend;
 			layer.transitions.push(transition);
+		}
+		if (isRecord(raw.pseudoPos)) {
+			const pseudo: NonNullable<SmLayer['pseudoPos']> = {};
+			for (const key of ['entry', 'any', 'exit'] as const) {
+				const pos = point(raw.pseudoPos[key]);
+				if (pos) pseudo[key] = pos;
+			}
+			if (Object.keys(pseudo).length) layer.pseudoPos = pseudo;
 		}
 		layers.push(layer);
 	}

@@ -220,26 +220,37 @@ the save guard for every field in the table above.
       (the block is then `{ layers: [] }` plus them, which a read takes for no state machine).
 
     The stored twin of an entity is the row the author SAW: of a duplicated id, the first row the
-    read keeps, never an input the read dropped for its kind.
+    read keeps, never an input the read dropped for its kind. A node id that appears twice (a
+    legacy doc) has no single twin, so neither copy is grafted, and the save logs it. Each grafted
+    field goes back after the stored field before it, so a no-op save keeps the stored key order
+    and does not bump over a reordering.
 
-    "Does not declare" means not a key of the engine-layout TYPE (`componentFields.ts`, written as
-    `Record<keyof …, true>` so `pnpm check:svelte` fails in both directions when a type and its set
-    drift). It does not mean "not kept by the normalizer". So a known field the author cleared
-    (`rotation`, `standsFor`, `slots`) is never put back, and a known field the normalizer drops
-    (`capability`) is not kept either.
+    "Does not declare" means not a key of the engine-layout TYPE (the sets in
+    `apps/launcher-api/src/lib/server/componentFields.ts`, launcher-only so no game bundle carries
+    them, written as `Record<keyof …, true>` so `pnpm check:svelte` fails in both directions when a
+    type and its set drift). It does not mean "not kept by the normalizer". So a known field the
+    author cleared (`rotation`, `standsFor`, `slots`) is never put back, and a known field the
+    normalizer drops (`capability`) is not kept either.
 
     **Matching by id is what makes the nested graft safe.** Symbols refuses nested keys because a
     graft could resurrect a deleted entity. Here an entity whose id is gone from the save was
     deleted, so nothing of it comes back, and a new entity never takes a deleted one's fields.
-    **That holds only while ids are never reused: an editor must never give a new entity an id the
-    stored doc holds for a different one** (a deleted state's `Win`, a transition's `t_Idle_Win`),
-    or the new entity inherits the old one's unknown fields. The server cannot tell the two apart.
-    Matching by `kind` as well would not help: a node keeps its id when it is converted to a
-    button, and states and transitions have no kind. The same goes for an entity inside a known
-    block the author cleared: deleting every slot deletes their unknown fields too. They are
-    entities the author saw and removed, unlike a win-text family, which is a fixed namespace. A
-    component has two fixed namespaces, the def itself and its `stateMachine`, whose own fields are
-    always kept.
+    **That holds only while MINTED ids are never reused: an editor must never give a new node,
+    layer, state or transition an id the stored doc holds for a different one** (a deleted state's
+    `Win`, a transition's `t_Idle_Win`), or the new entity inherits the old one's unknown fields.
+    The server cannot tell the two apart. Nodes take no `kind` guard, since a node keeps its id when
+    it is converted to a button, and layers, states and transitions have no kind. **Name-keyed rows
+    are different**: a param, signal or slot is keyed by its name, and the editor re-adds fixed
+    names (`uniqueKey`, the catalog toggles). The engine binds a param by its key, so a row re-added
+    under the same key is the same entity to it and takes the stored fields. A row that carries a
+    `kind` (a param, slot or input) takes them only while the kind is the same, though: a `label`
+    string param deleted and re-added as an image param is a different param and inherits nothing. A
+    signal has no kind and always matches its key.
+
+    Deleting an entity takes its unknown fields with it, also inside a known block the author
+    cleared: deleting every slot deletes their unknown fields too. They are entities the
+    author saw and removed, unlike a win-text family, which is a fixed namespace. A component has
+    two fixed namespaces, the def itself and its `stateMachine`, whose own fields are always kept.
 
     The graft goes one level into each entity. The fields inside a known field (a node's
     `overrides`, `preview`, `bind`) are not walked. A child node's fields are never dropped by a
@@ -248,23 +259,27 @@ the save guard for every field in the table above.
     stands. A NEWER tab's edit of a child node field therefore lands, unlike its edit of a
     top-level, root or row field, which the normalizer drops in favour of the stored copy. A NEWER
     tab cannot CLEAR one of those fields through an older server at all: the field's absence looks
-    exactly like "this build never saw it", so the stored copy comes back.
+    exactly like "this build never saw it", so the stored copy comes back. That is a change: before
+    the graft, the child node's posted bytes were written as they were, so such a clear landed.
 
-    Conditions are those of symbols: an `If-Match` save whose `baseEtag` is the stored ETag. The
-    save's own read is the graft source, so this costs no extra GET. Nothing is kept for a create,
-    a forced save, or unparseable bytes. The version bump is decided on what this build can see,
-    so a no-op save from an older launcher does not bump. A save that leaves the known content as
-    it is but changes the unknown fields does bump: a promote that carries the project's fields
-    over the shared copy's, or a forced save that drops them. Without that bump, the same-version
-    snapshot write would rewrite an immutable `<id>.v<N>.json`. The compare covers only the
-    entities the save still has, so a row the read dropped bumps nothing. The snapshot is the
-    merged doc. A known-only def saves byte-identically, and every built-in does too (gate).
+    The save's own read is the graft source, so this costs no extra GET. Unlike symbols, a
+    **forced save grafts too** ("Save on top" after a 409): it CASes on the ETag of that same read,
+    so the graft is as race-free as an `If-Match` one, and a stale tab is exactly the tab that
+    lacks a newer launcher's fields. Nothing is kept for a create or unparseable bytes. The
+    version bump is decided on what this build can see, so a no-op save from an older launcher
+    does not bump. A save that leaves the known content as it is but changes the unknown fields
+    does bump (a promote that carries the project's fields over the shared copy's). The compare
+    covers only the entities the save still has, so a row the read dropped bumps nothing. The
+    snapshot is the merged doc. **An existing `<id>.v<N>.json` is never rewritten**: a
+    same-version save only creates a missing one (`If-None-Match: *`). A known-only def saves
+    byte-identically, and every built-in does too (gate).
 
     **Promote to shared keeps the PROMOTED project def's unknown fields**, not the replaced shared
     copy's: the client sends `promotedFrom` (the project) and `sourceEtag` (the ETag its draft
-    loaded). They are kept for **Promote on top** too, since `force` is about the target. They are
-    not kept when the project def was saved since the draft loaded. A plain shared save keeps the
-    shared copy's own fields.
+    loaded). They are kept for **Promote on top** too, since `force` is about the target. When the
+    project def was saved (or removed) since the draft loaded, the promote answers 409
+    `source-conflict` and writes nothing: the author reloads, because promoting without its fields
+    would drop them. A plain shared save keeps the shared copy's own fields.
 
     **"This game's defaults"** (`saveComponentDefaults`) keeps top-level fields beside
     `id`/`params` under the same `If-Match` conditions, at the cost of one extra GET. A restore
@@ -274,29 +289,29 @@ the save guard for every field in the table above.
     field, not the tab's edit of it: the server drops the posted value and copies the stored one.
   - **Retiring a field** is now a deliberate act. A top-level key (or win-text family field)
     removed from the schema reads as unknown and is carried through every save, so the change that
-    retires it must delete it from the stored docs.
+    retires it must delete it from the stored docs. The same holds for a component's def, node or
+    row field removed from the engine-layout types, and with them from `componentFields.ts`.
   - **The graft is added after the save's `'reject'` normalize** and is never normalized itself,
     so a newer enum value inside a kept block cannot make every save answer 400.
   - The graft only helps after a rollback to a build that contains it.
 
-  **A component row a read DROPPED over an unknown value.** A param of an unknown `kind` is
-  dropped by the read, and with it every node binding that names it (`pruneOrphanParamBindings`).
-  It is NOT kept: putting the row back without its bindings would store an unbound param that no
-  author made. When the older launcher's save changes the def, the version bumps and the previous
-  `<id>.v<N>.json` snapshot still holds both. A save that changes nothing it can see keeps the
-  version and rewrites that snapshot without them, so they are then lost, as they were before this
-  graft existed. **A Phase 7 `text` INPUT is the opposite, and its row is kept.** The read
-  drops it, and the save puts the stored row back by id, in its stored position. Two facts justify
-  that. First, conditions name inputs by id and are not pruned when an input is missing, so the
-  row alone restores a working interface, as a sound keeps its entry. Second, an older build can
-  tell the row was never shown (its kind is unknown here), so its absence from the save is not a
-  deletion. The kept row goes back after the nearest stored row before it that the save still
-  has. It is not kept when the save now uses its id for an input or a signal (signals share the
-  input id space): the author's entity wins and inherits none of it. A row with an empty id or
-  kind is malformed, not newer, and is not kept. A forced save does not keep it. Since it changes
-  nothing this build can see, the version compare looks at the whole row, so a save that drops or
-  replaces it (a force, a promote) still bumps. A transition the read dropped over a condition it cannot
-  read is NOT kept: it names states by id, and the author may have deleted them. Like every
+  **A component row a read DROPPED over an unknown value.** A param of an unknown `kind` is dropped
+  by the read, and with it every node binding that names it (`pruneOrphanParamBindings`). It is NOT
+  kept in the latest copy: putting the row back without its bindings would store an unbound param
+  that no author made. That matches symbols' rule for a known block a read dropped (below). The
+  `<id>.v<N>.json` snapshot keeps both, because an existing snapshot is never rewritten, whether the
+  older launcher's save bumps the version or not. **A Phase 7 `text` INPUT is the opposite, and its
+  row is kept.** The read drops it, and the save puts the stored row back by id, in its stored
+  position. Two facts justify that. First, conditions name inputs by id and are not pruned when an
+  input is missing, so the row alone restores a working interface, as a sound keeps its entry.
+  Second, an older build can tell the row was never shown (its kind is unknown here), so its absence
+  from the save is not a deletion. The kept row goes back after the nearest stored row before it
+  that the save still has. It is not kept when the save now uses its id for an input or a signal
+  (signals share the input id space): the author's entity wins and inherits none of it. A row with
+  an empty id or kind is malformed, not newer, and is not kept. A forced save keeps it like any
+  graft. Since it changes nothing this build can see, the version compare looks at the whole row, so
+  a save that replaces it (a promote) still bumps. A transition the read dropped over a condition it
+  cannot read is NOT kept: it names states by id, and the author may have deleted them. Like every
   graft, a kept row is never re-normalized, so a newer value inside it cannot make a save answer 400.
 
   **A known block a read DROPPED over an unknown value is NOT kept.** That covers a cell, layer,
