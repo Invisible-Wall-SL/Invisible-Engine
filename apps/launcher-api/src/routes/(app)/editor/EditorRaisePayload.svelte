@@ -27,6 +27,10 @@
 	const isNumeric = (t: string): boolean => t === 'int' || t === 'float' || t === 'ms';
 	/** Field name → why its last typed key was refused (the field keeps its previous value). */
 	let keyErrors = $state<Record<string, string>>({});
+	$effect.pre(() => {
+		void action.event;
+		keyErrors = {};
+	});
 
 	/** What a field's select shows: '' empty, 'value' a literal, 'true'/'false', '@<input>'. */
 	function mode(value: EventPayloadValue | undefined): string {

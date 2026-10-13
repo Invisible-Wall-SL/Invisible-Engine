@@ -1069,9 +1069,10 @@ and no `:` (a timeline cue names it as `event:<name>`).
 
 - **✎** renames an event. Its name is what Flow will hear it by, so a rename is a replace: the
   dialog lists what raises it (listeners, states, timeline cues). The listeners and states follow
-  the rename; a timeline's `event:` cue is not rewritten — change it in the Timeline tab. A name
-  that rows of an event you removed earlier still raise is refused (taking it would quietly
-  reconnect them).
+  the rename; a timeline's `event:` cue is not rewritten — change it in the Timeline tab.
+- A name that listeners or On enter rows of an event you removed earlier still raise can't be
+  added or renamed to (taking it would quietly reconnect them) — repoint those rows first. A name
+  only a timeline cue uses is free: declaring it is how you fix a cue's typo.
 - **×** removes it, asking first when something raises it. Those raises stay and do nothing in
   game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter in its
   inspector, and a timeline cue under **Events** in the State machine tab.

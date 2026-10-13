@@ -569,15 +569,19 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 	L.setActionTarget(e, l.action, 'a');
 	L.removeEvent(e, 'a');
 	eq(
-		'renaming onto a removed event still raised is refused (it would reconnect silently)',
+		'renaming OR adding onto a removed event its rows still raise is refused (no silent reconnect)',
 		[
-			L.renameEventRefusal(e, 'b', 'a') !== null,
+			L.eventNameRefusal(e, 'a') !== null,
 			L.renameEvent(e, 'b', 'a'),
+			!!L.addEvent(e, 'a'),
 			e.events!.map((x) => x.id),
-			L.renameEventRefusal(e, 'b', 'c', [cue('c')]) !== null,
-			L.renameEventRefusal(e, 'b', 'd'),
 		],
-		[true, false, ['b'], true, null],
+		[true, false, false, ['b']],
+	);
+	eq(
+		'a name only a timeline cue uses is free — declaring it is how a cue typo is fixed',
+		[L.eventNameRefusal(e, 'revealDone'), L.renameEvent(e, 'b', 'revealDone')],
+		[null, true],
 	);
 
 	const ok = def();

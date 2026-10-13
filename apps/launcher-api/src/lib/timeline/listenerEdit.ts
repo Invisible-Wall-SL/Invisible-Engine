@@ -265,10 +265,32 @@ export function isEventId(id: string): boolean {
 	return id.length > 0 && !/[\s:]/.test(id);
 }
 
-/** Add an event; an empty, taken or cue-unnameable id adds nothing. */
+/**
+ * Why naming an event `id` (adding one, or renaming one to it) is refused, or null: an empty name,
+ * one a cue cannot name, a taken one — or the name of an event removed earlier whose listeners or
+ * On enter rows are still there, flagged: taking it would silently reconnect them. (A timeline cue
+ * naming it is not counted: it shows ⚠ in the State machine tab, and declaring the event it names
+ * is how a typo is fixed.)
+ */
+export function eventNameRefusal(def: ComponentDef, id: string): string | null {
+	const name = id.trim();
+	if (!name) return 'Type a name.';
+	if (!isEventId(name)) return `"${name}" has a space or ":" — a timeline cue could not name it.`;
+	if (componentEvents(def).some((e) => e.id === name)) return `"${name}" is already an event.`;
+	const used = eventUsage(def, name);
+	const stale = [
+		...used.listeners.map((l) => `a listener on "${l.node}"`),
+		...used.states.map((st) => `entering "${st.state}" (${st.layer})`),
+	];
+	return stale.length
+		? `"${name}" is still raised by ${stale.join(', ')} (from an event removed earlier). Taking the name would silently reconnect them — repoint or remove those first, or pick another name.`
+		: null;
+}
+
+/** Add an event; refused (undefined) for any reason `eventNameRefusal` gives. */
 export function addEvent(def: ComponentDef, id: string): ComponentEvent | undefined {
+	if (eventNameRefusal(def, id) !== null) return undefined;
 	const clean = id.trim();
-	if (!isEventId(clean) || componentEvents(def).some((e) => e.id === clean)) return undefined;
 	const event: ComponentEvent = { id: clean };
 	def.events = [...(def.events ?? []), event];
 	return event;
@@ -362,43 +384,12 @@ export function removeEvent(def: ComponentDef, id: string): EventUsage {
 }
 
 /**
- * Why renaming event `from` to `to` is refused, or null: an empty name, one a cue cannot name, a
- * taken one — or the name of an event removed earlier whose raises (or `timelines`' cues) are
- * still there, flagged: taking it would silently reconnect them.
- */
-export function renameEventRefusal(
-	def: ComponentDef,
-	from: string,
-	to: string,
-	timelines: Iterable<CinematicDoc> = [],
-): string | null {
-	const next = to.trim();
-	if (!next || next === from) return 'Type a new name.';
-	if (!isEventId(next)) return `"${next}" has a space or ":" — a timeline cue could not name it.`;
-	if (componentEvents(def).some((e) => e.id === next)) return `"${next}" is already an event.`;
-	const used = eventUsage(def, next);
-	const stale = [
-		...used.listeners.map((l) => `a listener on "${l.node}"`),
-		...used.states.map((st) => `entering "${st.state}" (${st.layer})`),
-		...timelinesRaising(timelines, next).map((t) => `a cue in timeline "${t}"`),
-	];
-	return stale.length
-		? `"${next}" is still raised by ${stale.join(', ')} (from an event removed earlier). Taking the name would silently reconnect them — fix or remove those first, or pick another name.`
-		: null;
-}
-
-/**
  * Rename an event: the event and every listener and on-enter raise of it in the def follow. A cue
  * in a timeline is another document and is not rewritten (the dialog lists those). Refused (false)
- * for any reason `renameEventRefusal` gives.
+ * for any reason `eventNameRefusal` gives.
  */
-export function renameEvent(
-	def: ComponentDef,
-	from: string,
-	to: string,
-	timelines: Iterable<CinematicDoc> = [],
-): boolean {
-	if (renameEventRefusal(def, from, to, timelines) !== null) return false;
+export function renameEvent(def: ComponentDef, from: string, to: string): boolean {
+	if (to.trim() === from || eventNameRefusal(def, to) !== null) return false;
 	const next = to.trim();
 	for (const event of def.events ?? []) if (event.id === from) event.id = next;
 	for (const n of defNodes(def)) {

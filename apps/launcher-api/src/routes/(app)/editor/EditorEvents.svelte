@@ -11,7 +11,7 @@
 	import {
 		addEvent,
 		addPayloadField,
-		isEventId,
+		eventNameRefusal,
 		PAYLOAD_TYPE_CHOICES,
 		removePayloadField,
 		setPayloadFieldOptional,
@@ -52,12 +52,9 @@
 	function add(): void {
 		const id = newEvent.trim();
 		if (!id) return;
-		if (!isEventId(id)) {
-			addError = 'An event name has no spaces and no ":".';
-			return;
-		}
-		if (events.some((e) => e.id === id)) {
-			addError = `"${id}" is already an event.`;
+		const refused = eventNameRefusal(def, id);
+		if (refused) {
+			addError = refused;
 			return;
 		}
 		edit(() => {

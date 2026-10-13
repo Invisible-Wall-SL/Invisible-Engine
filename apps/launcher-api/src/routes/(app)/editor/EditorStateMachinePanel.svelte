@@ -312,9 +312,9 @@
 	let runnerStates = $state<Record<string, string>>({});
 	/** Bool / number inputs as the preview holds them. */
 	let previewValues = $state<Record<string, number | boolean>>({});
-	/** The states' timelines for the preview, re-fetched each time the tab is shown so a timeline
-	 *  saved in the Timeline tab previews as saved. (A `SvelteMap` only for the reactivity lint;
-	 *  nothing reads it reactively.) */
+	/** The component's timelines — the states' for the preview, all for the `event:` cue checks —
+	 *  re-fetched each time the tab is shown so a timeline saved in the Timeline tab previews as
+	 *  saved. A `SvelteMap`: `eventIssues` reads it, so the cue ⚠ appear once the fetch lands. */
 	const docs = new SvelteMap<string, CinematicDoc>();
 	let raf = 0;
 	let last = 0;

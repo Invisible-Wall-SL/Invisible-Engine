@@ -71,7 +71,7 @@
 		removeEvent,
 		removeEventRefusal,
 		renameEvent,
-		renameEventRefusal,
+		eventNameRefusal,
 		rowIds,
 		timelinesRaising,
 		unsavableRows,
@@ -1895,7 +1895,7 @@
 	function unsavableRowsMessage(draft: ComponentDef): string | null {
 		const rows = unsavableRows(draft);
 		return rows.length
-			? `Not saved: ${rows.join(', ')} would be lost — a row needs its target picked, and a text key needs a letter. Fix ${rows.length === 1 ? 'it' : 'them'} (flagged ⚠) and save again.`
+			? `Not saved: ${rows.join(', ')} would be lost — a row needs its target picked, a text key a letter, and an int or ms value a whole number. Fix ${rows.length === 1 ? 'it' : 'them'} (flagged ⚠) and save again.`
 			: null;
 	}
 	/** The saved timelines of component `componentId`. Throws when any read fails, so a dialog
@@ -1955,19 +1955,19 @@
 				cues.length
 					? `Timeline cue(s) event:${id} in ${cues.map((n) => `"${n}"`).join(', ')} do NOT follow — change them in the Timeline tab.`
 					: '',
-				'A payload value this build cannot read is not carried over.',
+				'A listener or On enter row this build cannot read keeps the old name.',
 			]
 				.filter(Boolean)
 				.join(' '),
 		});
 		if (next === null || next.trim() === id) return;
 		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
-		const refused = renameEventRefusal(componentDraft, id, next, docs);
+		const refused = eventNameRefusal(componentDraft, next);
 		if (refused) {
 			void askMessage({ title: 'Event not renamed', message: refused });
 			return;
 		}
-		renameEvent(componentDraft, id, next, docs);
+		renameEvent(componentDraft, id, next);
 		editNonce += 1;
 	}
 	async function removeComponentEvent(id: string): Promise<void> {
