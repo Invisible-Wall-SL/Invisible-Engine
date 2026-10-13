@@ -1,13 +1,17 @@
 # Invisible Component Editor
 
 Author reusable game components — overlays, UI groups, and scenery you build once
-and drop across scenes in the Invisible Editor. You compose a component's element
-tree on a canvas, declare the engine variables it consumes, and save it to the
-project's component library.
+and drop across screens. You compose a component's element tree on a canvas, declare the
+engine variables it consumes, and save it to the project's component library.
+
+The Component Editor is no longer a separate page. It is the **Components side** of the
+[Invisible Scene Editor](invisible-editor.md#the-components-side), on the same stage as your
+screens. This guide covers authoring a component once it is open; how to get there, the
+breadcrumb, Esc and editing nested components in place are in the Scene Editor guide.
 
 ## What it is
 
-A standalone authoring tool for **components** (prefabs): a named tree of layout
+The authoring view for **components** (prefabs): a named tree of layout
 elements — text, containers, atlas regions, rigs — that the Scene Editor places
 as a single reusable instance. It reuses the Scene Editor's own canvas, outline,
 and properties machinery, so editing a component feels exactly like editing a
@@ -30,14 +34,14 @@ fires the signals. This is the "declare ≠ implement" split from the editor des
 (`docs/design/invisible-editor.md` §8): the editor says *"show the live `value`
 of `win` here"*; the game says *"`win` is the `winInfo` book event."*
 
-- **Where it runs:** the launcher itself, at `/components` — a real full-page
-  route inside `(app)`, behind the auth + role gate. It is not a redirect and
-  never an iframe. SSR is disabled (it is a client-only canvas/WebGL app); only
-  `load` runs server-side to fetch the components, assets, and saved defaults.
+- **Where it runs:** inside the Scene Editor at `/editor`, full-page in the launcher, behind the
+  auth + role gate, never an iframe. The **Invisible Component Editor** card on the launcher home
+  opens `/editor?view=components` (the components home); `/editor?component=<id>` opens one
+  component. Old `/components` and `/components?id=<id>` links redirect to those addresses.
 - **Access:** granted to the `admin`, `developer`, `artist` and `pipelineTester`
-  roles — the same roles that get the Scene Editor. The page gates on the **`editor`** tool
+  roles — the same roles that get the Scene Editor. It gates on the **`editor`** tool
   (the component storage + `/api/editor/component[s]` API are gated there too), so
-  anyone who can open this page can always read and write its components. The
+  anyone who can open the Scene Editor can always read and write its components. The
   separate `componentEditor` tool entry only controls whether the home grid shows
   the tool card. Both are overridable per role/user from the admin panel.
 - **Scope:** components are loaded for the session's **active client/project**
@@ -51,9 +55,10 @@ of `win` here"*; the game says *"`win` is the `winInfo` book event."*
 
 ### 1. Create or open a component
 
-Open **Invisible Component Editor** from the launcher home. The home state shows a
-**Components** sidebar with two sections:
+Open the components home: the **Invisible Component Editor** card on the launcher home, or
+**＋ New component…** in the Scene Editor's left pane. Its sidebar has three sections:
 
+- **Screens** — the editor's screens. Click one to go back to it.
 - **New component** — type a name, choose a **type** and (for blank) a **category**,
   then **Create**:
   - **Blank** — an empty root in the category you pick (`UI` / `Overlay` /
@@ -76,36 +81,37 @@ Open **Invisible Component Editor** from the launcher home. The home state shows
     Meter, Respin Counter, Jackpot Tile, Total Win Bar, Letter Tile, Wheel or Cell Tile (see
     [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
     Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
-- **Library** — existing components grouped by category. Click a row to open it for
+- **Components** — existing components grouped by category. Click a row to open it for
   editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
 
-Creating opens the new component immediately. The Scene Editor's "Open Component
-Editor" also deep-links here (`/components?id=<id>`) and opens that component on
-load. A newly created component lives only in memory until you save it — closing
-or navigating away warns you it will be discarded.
+Creating opens the new component immediately. You can also open a component straight from a
+screen (double-click a placed instance, or the Scene Editor's component list); see
+[the Components side](invisible-editor.md#the-components-side). A newly created component lives
+only in memory until you save it — leaving it warns you it will be discarded.
 
 ### 2. Build the element tree
 
 With a component open, the layout switches to the familiar three-pane editor:
 
-- **Left** has two tabs:
+- **Left** has three tabs:
   - **Library** — drag elements onto the canvas: a **Text** node, a **Rect** fill,
     atlas pages, **rigs**, and sheet/atlas-manifest **regions** (expand
     a sheet or manifest to see its named regions and drag one in).
   - **Outline** — the open component's node tree; click to select (shift/⌘/ctrl-click
     to multi-select), and rename a node's outline label.
+  - **Browse** — the screens and every component, to jump to another.
 - **Centre** is the canvas: a fixed standard design frame around just this
-  component. Drag, transform, and arrange nodes exactly as in the Scene Editor.
-  Selecting a node here drives the right panel — no tab switch needed.
+  component. Drag, transform, and arrange nodes exactly as on a screen.
+  Selecting a node here drives the right panel — no tab switch needed. Double-click a component
+  placed inside this one to edit it in place.
 - **Right** is **Properties** for the selected node, plus the **Component variables**
   block at the top (see below).
 
-The footer shows the component name and its node count. Panel widths are
-resizable and persist under this tool's own key.
+Panel widths are resizable and persist separately from the Screens side.
 
-The editor bar above the panes shows the open component (**◇ name**) and a **Space**
-selector:
+The editor bar above the panes shows the breadcrumb ending in the open component (**◇ name**)
+and a **Space** selector:
 
 - **Game (main box)** — the default. The component is positioned in the game's main box,
   relative to the board, so the canvas matches this project's layout.
@@ -324,9 +330,9 @@ The panel then shows the restored values; the component you are editing is left 
 
 Click **Save component** in the editor bar. It saves the draft to the active project; the
 pill beside it shows *Saving… → Component saved* (or a *Save failed* pill with the error).
-On success the sidebar list updates without a reload. Use **← All components** to return
-to the library (it confirms first if the component or this game's defaults have unsaved
-edits).
+On success the component lists update without a reload, and instances placed on your screens
+redraw. Use **← All components** (or Esc) to return to the components home; it confirms first if
+the component or this game's defaults have unsaved edits.
 
 If someone else saved the component after you opened it, Save asks **Save yours as a NEW
 version on top of theirs?** — **Save on top** keeps their save as its own version, so
@@ -369,7 +375,7 @@ loadedAssets`. On save the server fixes it for you where it can:
 
 **Promote to shared.** Holders of the **`componentPublish`** capability (admin by
 default, grantable per role/user in `/admin`) also see a **Promote to shared** button
-in the top bar while a component is open. It saves a repo-wide copy to the shared
+in the editor bar while a component is open. It saves a repo-wide copy to the shared
 library (`_shared/editor-components/<id>.json`) that every project inherits, gated
 behind a confirm. It is a **snapshot**: the component you keep editing here stays a
 **project** component, and a project component of the same id still **shadows** the
@@ -377,15 +383,15 @@ shared copy wherever it loads — promoting does not move or delete your project
 Users without the capability never see the button (the API enforces the same gate
 server-side, so there is no button that would 403).
 
-### 6. Use it in the Scene Editor
+### 6. Use it on a screen
 
-Open the Scene Editor and find the component in its **Components** panel (grouped by
-the same categories). From there you can:
+Go back to a screen (the first crumb, Esc, or a screen in **Browse**) and find the component in
+the left pane's **Components** list or the Library tab's Components panel. From there you can:
 
-- **Place** an instance into the active scene (drops a `componentInstance` node),
-  then edit its param overrides and per-layout transform in the scene's Properties.
-- **Open in the Component Editor** (the `◇ Open …` link or a component row), which
-  deep-links back here on that component's id.
+- **Place** an instance into the active screen (drops a `componentInstance` node),
+  then edit its param overrides and per-layout transform in the screen's Properties.
+- **Edit it again** — double-click the placed instance, click **◇ Edit component in place** in
+  its Properties, or click its row in a list.
 - **Update an outdated instance to latest.** When you bump a component here, any
   placed instance still pinned to the older version shows an amber note in its
   Properties panel — *"Component vN available (instance pinned vM)"* — with an
@@ -394,8 +400,8 @@ the same categories). From there you can:
   exists and dropping overrides for params the new version removed. Up-to-date
   instances show no note.
 
-You can also start a component from the Scene Editor's "Edit as component" on a
-container, then refine it here.
+You can also start a component from **◇ Edit as component** on a container: it is saved as a new
+component and opened here in place.
 
 ## Win Overlay — per-tier presentation
 
@@ -569,8 +575,8 @@ landing can fill several cells. Use **held** for what a single cell shows.
 
 Then create a **Respin Cell Tiles (Hold and Win)**, or select the tiles on the **Respin board**
 screen, and set its **tile** to your Cell Tile. Every cell then draws on your tile. Blank keeps the
-**tileImage**. The **gap** still applies. Selecting the tiles in the Scene Editor previews the
-**tileImage**, not your Cell Tile; see it in the Component Editor or the game. A Respin Cell Tiles
+**tileImage**. The **gap** still applies. Selecting the tiles on a screen previews the
+**tileImage**, not your Cell Tile; see it by opening the Cell Tile, or in the game. A Respin Cell Tiles
 placed inside a Cell Tile does nothing.
 
 ## Traps
@@ -604,9 +610,9 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
 
 - **The behaviour/timeline layer is not authored here yet.** Numbers can drive a node
   ([Bind to value](#3b-drive-a-node-from-a-number-bind-to-value)), and a rig or
-  flipbook can play on a signal. Signal-triggered tweens and particle bursts are
-  the next, large phase. The `Component variables` block is purely the *declare*
-  half.
+  flipbook can play on a signal. The Scene Editor's Animate mode works on screens only;
+  component timelines are the next phase (`docs/design/rive-style-editor.md` §10). The
+  `Component variables` block is purely the *declare* half.
 - **The behaviour ceiling is intentionally low (v1).** Even once timelines land,
   the design caps v1 at node-prop tweens + rig playback + signal-triggered
   tracks + a single count-up data binding. Anything needing branching, RGS math,
@@ -630,10 +636,10 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
 - **Nesting depth is capped at 2.** Components-inside-components expand to
   `MAX_COMPONENT_DEPTH = 2` (`engine-layout` `registerComponents.ts`), enforced by
   both renderers with a transitive cycle guard (`ComponentInstance.svelte`); beyond
-  that, expansion stops rather than recursing.
+  that, expansion stops rather than recursing. Editing in place follows the same cap: a
+  component nested deeper than the game draws is not opened from its parent.
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
-  open draft; closing the tool or navigating away discards it (you are warned
-  first). There is no autosave — and **This game's defaults** (§4) is a second,
+  open draft; leaving it discards it (you are warned first). There is no autosave — and **This game's defaults** (§4) is a second,
   separate manual save, warned about the same way.
 - **A shipped game only picks up new defaults on its next publish.** Both editor
   canvases resolve the sidecar live, but a built game reads the defaults baked into

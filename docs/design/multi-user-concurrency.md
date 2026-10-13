@@ -231,7 +231,7 @@ The correctness floor. Contained because of the linchpin above.
 >    at every save endpoint (kind exempt — create-guard model). See the dated note below.
 > 2. **Components ETag load→editor→save — DONE.** `listComponentsWithEtags` /
 >    `loadComponentWithEtag` carry the etag; page load returns a `componentEtags` map;
->    `components/+page.svelte` stamps `draftEtag` on open and re-adopts the save response's
+>    `components/+page.svelte` (now `editor/ComponentWorkspace.svelte`) stamps `draftEtag` on open and re-adopts the save response's
 >    new etag; the POST CASes per scope key; the GET `?id=` (no version) returns
 >    `{ def, etag }`. Promote-to-shared GETs the shared key's etag first so it CASes the
 >    global key. Scene Editor's "convert to component" sends `baseEtag: null`. Version-bump
@@ -241,7 +241,7 @@ The correctness floor. Contained because of the linchpin above.
 >    conflicts were throwing `ReferenceError`→502; now 409.
 > 3. **`componentDefaultsStorage` — DONE.** `loadComponentDefaultsWithEtag` (reports
 >    `existed`) + `saveComponentDefaults(…, baseEtag)` + `precondition`; the
->    `/api/editor/component-defaults` POST is CAS-guarded and 409s (written by `/components`'
+>    `/api/editor/component-defaults` POST is CAS-guarded and 409s (written by the Components side's
 >    *Save for this game*; it also keeps rolling backups — `docBackups.ts`).
 > 4. **Shared `$lib/saveState.svelte.ts` — HELPER BUILT 2026-08-04, migration staged.** The
 >    rune module + `$lib/SaveStatusBadge.svelte` are written and verified offline (31

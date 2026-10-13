@@ -2,7 +2,8 @@
 
 Place images, rig, and text onto a game's screens and export a layout the
 engine renders — the layout step between the asset tools (Sheet Maker, Atlas
-Maker, rig) and the running game.
+Maker, rig) and the running game. Reusable components are authored here too, on the
+editor's [Components side](#the-components-side).
 
 ## What it is
 
@@ -36,7 +37,8 @@ The page is a three-pane layout under a top bar:
   with the save status pill, **Save**, **History…**, slot/asset warnings and the
   Template-editor toggle.
 - **Left pane** — the **Screens** list. The active screen expands in place to its
-  outline (the node tree, plus template slots when a template is loaded).
+  outline (the node tree, plus template slots when a template is loaded). Under it, the
+  **Components** list opens the [Components side](#the-components-side).
 - **Centre pane** — the **canvas**: the authoring frame for the active screen,
   with the placed nodes drawn at their real textures. Its top row carries the
   device-layout pills (`desktop · tablet · landscape · portrait` by default),
@@ -185,7 +187,7 @@ Components list, so a hybrid game places them on screens of its own. Each pot is
 Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter; the
 screen gets one per meter the config declares, so a preset without meters gets no Pots screen.
 Move and scale it here. Its **Pot art**, **Label** and **Motion** groups skin that one pot, and
-nodes you put inside its part in the Component Editor replace the coded drawing. See
+nodes you put inside its part on the Components side replace the coded drawing. See
 [Skin a coded part](component-editor.md#skin-a-coded-part). While no Pot Meter for a
 meter is on screen, the game draws its built-in pot for that meter. A screen
 reaches the game only when the flow shows it. The Hold and Win starter flow shows **Jackpot bar**
@@ -454,7 +456,9 @@ text nodes, rig animation/skin for rig nodes (driven by dropdowns when the
 canvas can read the bundle's animations), background cover (fit / zoom /
 alignment) for cover nodes, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
-and **Edit as component** (materialise a container into the Component Editor).
+and **Edit as component** (save a container as a new component and open it on the
+[Components side](#the-components-side)). A placed component instance gets **◇ Edit component in
+place** instead.
 
 #### Blend — how an item mixes with the art behind it
 
@@ -887,12 +891,60 @@ Who can do this: anyone with the Scene Editor can open, save and delete **screen
 Rigger's cinematics stay with the Rigger.
 
 Not here yet: text tracks (count-up / switch key), visibility keys, cues, and timelines for
-components. Those come in later phases.
+components. Animate mode works on screens only; component timelines are the next phase.
+
+### The Components side
+
+Components (reusable overlays, UI groups and scenery) are authored on the same stage as the
+screens. The editor has two sides: **Screens** (everything above) and **Components**. Your screens
+stay open and keep autosaving while you are on the Components side.
+
+**Get there** in any of these ways:
+
+- The **Components** section in the left pane, under Screens. Click a row to edit that component.
+  **＋** on a row places an instance of it on the active screen. **＋ New component…** opens the
+  components home, where you create one or pick from the full list. The list shows only the
+  components your game kind and add-ons use.
+- **Double-click a placed component** on a screen's canvas to edit it in place. Double-click is off
+  in Animate mode.
+- Select a placed instance and click **◇ Edit component in place** in Properties.
+- Select a container and click **◇ Edit as component** in Properties. It is saved as a new
+  component and opened in place.
+- **◇ Open components** in the Library tab's Components panel.
+- The **Invisible Component Editor** card on the launcher home. It opens `/editor?view=components`.
+
+The address bar follows what is open: `/editor?view=components` is the components home and
+`/editor?component=<id>` is one component, so a reload or a shared link lands in the same place.
+Old `/components` links redirect here.
+
+**The breadcrumb** at the left of the editor bar shows where you are, for example
+`Screens › Components › Win banner`, or `Base game › Win banner › Coin` when you came in from a
+screen and opened a component nested inside another. Click any crumb to go back to it.
+
+**Esc goes up one level:** out of a coded part you are editing inside, then out of a nested
+component, then back to the components home, or back to the screen you came from. If something is
+selected, the first Esc clears the selection. Esc does nothing while you are typing in a field.
+
+**Nested components.** Inside an open component, double-click a component placed in it to edit
+that one in place. The breadcrumb grows by one crumb. Nesting stops where the game stops drawing:
+the game draws components two levels deep, so a component deeper than that is not opened, and a
+message says so. Open it from the list instead.
+
+**The left tabs** while a component is open are **Library** (elements and art to drag in),
+**Outline** (the component's node tree) and **Browse** (the screens and every component, to jump
+to another). Clicking a screen in Browse takes you back to that screen.
+
+**Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
+component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
+
+Everything you do with an open component — create types, params and signals, value bindings,
+skinning coded parts, the canvas Space, saving, versions, promoting to shared and this game's
+defaults — is described in the [Component Editor guide](component-editor.md).
 
 ### Advanced modes (optional)
 
 - **Components** — the **Components** section of the Library tab lists reusable prefabs (overlays,
-  UI groups, scenery), grouped by category. **Place** one to drop a component
+  UI groups, scenery), grouped by category. **＋ place** one to drop a component
   instance into the active screen; instances' params are editable in Properties. An instance's
   **component** select switches the component it draws (say, a Pot Meter to your own Pot copy),
   keeping its position and params.
@@ -937,8 +989,8 @@ components. Those come in later phases.
   **⇕ Reserve rows for board expansion (N)** button in the screen list: it applies the same cell size
   and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
   grown board yourself.
-  Authoring components themselves now lives in the separate **Invisible
-  Component Editor** (`/components`), which the panel links out to.
+  Click a row (or **◇ Open components**) to author components on the
+  [Components side](#the-components-side).
 - **Template editor** — a separate, advanced mode (top-bar toggle) for defining
   a game type's slot schema: tag nodes with a `slotId`, choose the game type,
   and **Save template** to write `editor/templates/<gameType>.json`. Not needed
