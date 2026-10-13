@@ -703,7 +703,7 @@
 						}}
 					/>
 				</label>
-				<label class="row">
+				<label class="row" class:hidden={t.to === SM_EXIT_STATE}>
 					<span title="Milliseconds the new timeline is mixed in from the pose being left"
 						>Blend (ms)</span
 					>
@@ -1023,6 +1023,9 @@
 	.row > span {
 		min-width: 70px;
 		color: var(--dim);
+	}
+	.row.hidden {
+		display: none;
 	}
 	.row input[type='number'],
 	.row input[type='text'],
