@@ -56,6 +56,7 @@ import {
 	type RunContext,
 } from './src/runtime.ts';
 import { createFlowV2Env } from './src/env.ts';
+import { collapseToFunction } from './src/collapse.ts';
 import { createContainerMountModel } from './src/mount.ts';
 import { previewFlowEvent } from './src/preview.ts';
 import { DRIVEN_SEEDS, BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS } from './src/reference/drivenSeed.ts';
@@ -154,8 +155,8 @@ const pinIds = (pins: Pin[]): string[] => pins.map((p) => `${p.dir}:${p.kind}:${
 		'out:exec:exec',
 		'out:exec:event:pressed',
 		'out:exec:event:done',
-		'out:data:event:done.amount',
-		'out:data:event:done.title',
+		'out:data:event:done:amount',
+		'out:data:event:done:title',
 		'out:data:value:main.state',
 	]);
 	eq(
@@ -173,8 +174,8 @@ const pinIds = (pins: Pin[]): string[] => pins.map((p) => `${p.dir}:${p.kind}:${
 		'1. event and value data-out types',
 		pins.filter((p) => p.dir === 'out' && p.kind === 'data').map((p) => [p.id, p.dataType?.t]),
 		[
-			['event:done.amount', 'float'],
-			['event:done.title', 'string'],
+			['event:done:amount', 'float'],
+			['event:done:title', 'string'],
 			['value:main.state', 'string'],
 		],
 	);
@@ -182,6 +183,20 @@ const pinIds = (pins: Pin[]): string[] => pins.map((p) => `${p.dir}:${p.kind}:${
 		'1. the event exec-out is labelled on<Event>',
 		pins.find((p) => p.id === 'event:pressed')?.label,
 		'onPressed',
+	);
+	eq(
+		'1. an event id or a payload field carrying ":" (the pin separator) mints no pin',
+		pinIds(
+			deriveInstancePins({
+				...BANNER,
+				interface: {
+					inputs: [],
+					events: [{ id: 'a:b' }, { id: 'ok', payload: [{ name: 'x:y', type: { t: 'float' } }] }],
+					values: [],
+				},
+			}),
+		),
+		['in:exec:set', 'out:exec:exec', 'out:exec:event:ok'],
 	);
 	eq('1. no decl ⇒ base pins', pinIds(deriveInstancePins(undefined)), [
 		'in:exec:set',
@@ -243,24 +258,31 @@ const pinIds = (pins: Pin[]): string[] => pins.map((p) => `${p.dir}:${p.kind}:${
 			instanceTriggerOf(instanceTriggerPin('win')),
 			instanceInputOf(instanceInputPin('amount')),
 			instanceEventOf(instanceEventPin('big.win')),
-			instanceEventFieldOf(instanceEventFieldPin('big.win', 'amount')),
+			instanceEventFieldOf(instanceEventFieldPin('big.win', 'win.amount')),
+			instanceEventOf(instanceEventFieldPin('done', 'amount')),
 			instanceTriggerOf('in:win'),
 			instanceInputOf('fire:win'),
 			instanceEventFieldOf('event:win'),
-			instanceEventFieldOf('event:win.'),
+			instanceEventFieldOf('event:win:'),
 			instanceValuePin('main.state'),
 		],
 		[
 			'win',
 			'amount',
 			'big.win',
-			{ event: 'big.win', field: 'amount' },
+			{ event: 'big.win', field: 'win.amount' },
+			undefined,
 			undefined,
 			undefined,
 			undefined,
 			undefined,
 			'value:main.state',
 		],
+	);
+	eq(
+		'2. event "a.b" and field "b" of event "a" never share a pin',
+		instanceEventPin('a.b') === instanceEventFieldPin('a', 'b'),
+		false,
 	);
 	eq('2. the palette ref round-trips', parseInstanceNodeRef(instanceNodeRef('hud_1', 'c_2')), {
 		container: 'hud_1',
@@ -339,11 +361,79 @@ const errorsOf = (
 		],
 		data: [
 			{ from: { node: 'ev', pin: 'amount' }, to: { node: 'n1', pin: 'in:amount' } },
-			{ from: { node: 'n1', pin: 'event:done.amount' }, to: { node: 'cel', pin: 'amount' } },
+			{ from: { node: 'n1', pin: 'event:done:amount' }, to: { node: 'cel', pin: 'amount' } },
 			{ from: { node: 'n1', pin: 'value:main.state' }, to: { node: 'br', pin: 'all.0.left' } },
 		],
 	};
 	eq('3. a clean doc has no error', errorsOf(doc(CLEAN)), []);
+	const warningsOf = (d: FlowDoc) =>
+		validateFlowDoc(d, VOCAB, LIBRARY, undefined, undefined, undefined, INSTANCES)
+			.filter((i) => i.severity === 'warning')
+			.map((i) => i.code);
+	eq(
+		'3. a text input wired from a game-signal value warns instance-text-wire; from an event payload field it does not',
+		[
+			warningsOf(
+				doc({
+					...CLEAN,
+					nodes: CLEAN.nodes.map((n) => (n.id === 'n1' ? banner('n1') : n)),
+					data: [
+						...CLEAN.data,
+						{ from: { node: 'ev', pin: 'amount' }, to: { node: 'n1', pin: 'in:title' } },
+					],
+				}),
+			),
+			warningsOf(
+				doc({
+					nodes: [banner('n1'), banner('n2')],
+					exec: [{ from: { node: 'n1', pin: 'event:done' }, to: { node: 'n2', pin: 'set' } }],
+					data: [
+						{ from: { node: 'n1', pin: 'event:done:title' }, to: { node: 'n2', pin: 'in:title' } },
+					],
+				}),
+			),
+		],
+		[['instance-text-wire'], []],
+	);
+	eq(
+		'3. collapse to function refuses a component node whose event pin is wired, and takes one whose pins are not',
+		[
+			'error' in
+				collapseToFunction(
+					{
+						doc: doc(CLEAN),
+						library: LIBRARY,
+						selection: ['n1', 'w'],
+						functionId: 'fn_1',
+						functionName: 'fn',
+					},
+					{ vocab: VOCAB, library: LIBRARY, instances: INSTANCES },
+				),
+			'error' in
+				collapseToFunction(
+					{
+						doc: doc({
+							nodes: [
+								{ id: 'ev', kind: 'event', pos: at, ref: 'winInfo' },
+								banner('n1'),
+								{ id: 'ping', kind: 'action', pos: at, ref: 'ping' },
+							],
+							exec: [
+								{ from: { node: 'ev', pin: 'exec' }, to: { node: 'n1', pin: 'fire:win' } },
+								{ from: { node: 'n1', pin: 'exec' }, to: { node: 'ping', pin: 'exec' } },
+							],
+							data: [],
+						}),
+						library: LIBRARY,
+						selection: ['n1', 'ping'],
+						functionId: 'fn_1',
+						functionName: 'fn',
+					},
+					{ vocab: VOCAB, library: LIBRARY, instances: INSTANCES },
+				),
+		],
+		[true, false],
+	);
 	eq(
 		'3. …and its unfed inputs raise no unfilled-data-in',
 		validateFlowDoc(doc(CLEAN), VOCAB, LIBRARY, undefined, undefined, undefined, INSTANCES).map(
@@ -473,7 +563,7 @@ const errorsOf = (
 					{ from: { node: 'n1', pin: 'exec' }, to: { node: 'cel', pin: 'exec' } },
 				],
 				data: [
-					{ from: { node: 'n1', pin: 'event:done.amount' }, to: { node: 'cel', pin: 'amount' } },
+					{ from: { node: 'n1', pin: 'event:done:amount' }, to: { node: 'cel', pin: 'amount' } },
 				],
 			}),
 		),
@@ -494,7 +584,7 @@ const errorsOf = (
 					{ from: { node: 'n2', pin: 'event:pressed' }, to: { node: 'cel', pin: 'exec' } },
 				],
 				data: [
-					{ from: { node: 'n2', pin: 'event:done.amount' }, to: { node: 'cel', pin: 'amount' } },
+					{ from: { node: 'n2', pin: 'event:done:amount' }, to: { node: 'cel', pin: 'amount' } },
 				],
 			}),
 		),
@@ -525,7 +615,7 @@ const errorsOf = (
 				],
 				exec: [{ from: { node: 'n2', pin: 'event:done' }, to: { node: 'cel', pin: 'exec' } }],
 				data: [
-					{ from: { node: 'n1', pin: 'event:done.amount' }, to: { node: 'cel', pin: 'amount' } },
+					{ from: { node: 'n1', pin: 'event:done:amount' }, to: { node: 'cel', pin: 'amount' } },
 				],
 			}),
 		),
@@ -618,7 +708,7 @@ const recorder = () => {
 		],
 		data: [
 			{ from: { node: 'ev', pin: 'amount' }, to: { node: 'n1', pin: 'in:amount' } },
-			{ from: { node: 'n1', pin: 'event:done.amount' }, to: { node: 'cel', pin: 'amount' } },
+			{ from: { node: 'n1', pin: 'event:done:amount' }, to: { node: 'cel', pin: 'amount' } },
 			{ from: { node: 'n1', pin: 'value:main.state' }, to: { node: 'br', pin: 'all.0.left' } },
 		],
 	};
@@ -720,6 +810,65 @@ const recorder = () => {
 		const { log, ctx } = recorder();
 		await runFlowInstanceEvent(crossing, ctx, 'c_banner', 'done', { amount: 4 });
 		eq('5. …and runs through the flattened graph', log, ['effect ping {}']);
+	}
+	// Two groups deep: the node inside B inside A; B's `out_0` bridges to the node's event pin, A's
+	// `out_0` bridges to B's `out_0`, and the wire is stored on the outer graph from A's pin.
+	const nested = doc({
+		nodes: [
+			{
+				id: 'A',
+				kind: 'group',
+				pos: at,
+				label: 'A',
+				body: {
+					nodes: [
+						{
+							id: 'B',
+							kind: 'group',
+							pos: at,
+							label: 'B',
+							body: { nodes: [banner('n1')], exec: [], data: [] },
+							boundary: [
+								{
+									id: 'out_0',
+									dir: 'out',
+									kind: 'exec',
+									label: 'onDone',
+									inner: { node: 'n1', pin: 'event:done' },
+								},
+							],
+						},
+					],
+					exec: [],
+					data: [],
+				},
+				boundary: [
+					{
+						id: 'out_0',
+						dir: 'out',
+						kind: 'exec',
+						label: 'onDone',
+						inner: { node: 'B', pin: 'out_0' },
+					},
+				],
+			},
+			{ id: 'ping', kind: 'action', pos: at, ref: 'ping' },
+		],
+		exec: [{ from: { node: 'A', pin: 'out_0' }, to: { node: 'ping', pin: 'exec' } }],
+		data: [],
+	});
+	eq(
+		'5. a wire crossing two nested group boundaries owns',
+		[
+			flowOwnsInstanceEvent(nested, 'c_banner', 'done'),
+			flowOwnsInstanceEvent(nested, 'c_banner', 'pressed'),
+		],
+		[true, false],
+	);
+	{
+		const { log, ctx } = recorder();
+		await runFlowInstanceEvent(nested, ctx, 'c_banner', 'done');
+		eq('5. …and runs', log, ['effect ping {}']);
 	}
 	const modeDoc = doc(
 		{ nodes: [], exec: [], data: [] },

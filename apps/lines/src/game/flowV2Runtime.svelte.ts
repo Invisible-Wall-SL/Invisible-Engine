@@ -25,7 +25,7 @@
  * `assertVocabBacked` warns (dev) if an authored action has no implementation.
  */
 
-import type { FlowInstanceHandle, LayoutDoc, Scene } from 'engine-layout';
+import type { LayoutDoc, Scene } from 'engine-layout';
 import {
 	cueAnimationDurationMs,
 	emitComponentSignal,
@@ -67,7 +67,6 @@ import {
 	type ContainerMountModel,
 	type FlowDoc as FlowDocV2,
 	type FunctionLibraryDoc,
-	type InstanceRef,
 	type MountedContainer,
 	type RunContext,
 	type TemplateVocabulary,
@@ -88,6 +87,7 @@ import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
 import { getActiveGameConfig } from './gameConfig';
 import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
+import { createInstanceWaits } from './flowInstanceWaits';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { stateModes } from './stateModes.svelte';
 import type { ModeTransition } from 'engine-game';
@@ -592,81 +592,16 @@ export const createLinesFlowV2 = (
 
 	// PLACED COMPONENT INSTANCES (Rive plan §6.2, Phase 7): a `componentInstance` / `waitForState`
 	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`), where
-	// `<ComponentInstance>` registers while mounted. The outcomes when it is NOT registered:
-	//  - its screen is SHOWN (per the mount model) ⇒ it is mounting (the mirror renders on the next
-	//    flush): a fire or a wait defers to the registration, bounded by a short grace;
-	//  - its screen is not shown ⇒ a trigger is DROPPED (the state machine's own rule: a win heard
-	//    while hidden must not play minutes late), a value reads `undefined`, a wait resolves at once
-	//    (never a hang), and an input set is STASHED and applied when the instance next mounts — so
-	//    "set the amount, then show the screen" works in that order. Every case is traced.
-	const INSTANCE_MOUNT_GRACE_MS = 250;
-	const instanceWhenMounted = (ref: InstanceRef): Promise<FlowInstanceHandle | undefined> => {
-		const live = getFlowInstance(ref.instance);
-		if (live || !mount.isShown(ref.container)) return Promise.resolve(live);
-		return new Promise((resolve) => {
-			let settled = false;
-			const finish = (handle: FlowInstanceHandle | undefined): void => {
-				if (settled) return;
-				settled = true;
-				unwatch();
-				clearTimeout(timer);
-				resolve(handle);
-			};
-			const unwatch = watchFlowInstance(ref.instance, finish);
-			const timer = setTimeout(
-				() => finish(getFlowInstance(ref.instance)),
-				INSTANCE_MOUNT_GRACE_MS,
-			);
-		});
-	};
-	const awaitInstanceState = async (
-		ref: InstanceRef,
-		layer: string,
-		state: string,
-	): Promise<void> => {
-		const handle = await instanceWhenMounted(ref);
-		const label = `${ref.instance} ${layer}.state == ${state}`;
-		if (!handle) {
-			trace('instance wait', label, '· skipped (not on screen)');
-			return;
-		}
-		const current = handle.stateOf(layer);
-		if (current === undefined) {
-			trace('instance wait', label, '· skipped (no such layer)');
-			return;
-		}
-		if (current === state) return;
-		// Mounted but hidden (its own gate or its screen's): its machine has not started, or nobody
-		// sees it advance — "not on screen", so the wait resolves at once rather than holding a chain
-		// a press outside a round started (no slam would ever release it).
-		if (!handle.shown()) {
-			trace('instance wait', label, '· skipped (hidden)');
-			return;
-		}
-		trace('instance HOLD', label, '⏸');
-		// Released by the state, by the instance hiding or leaving the screen (nothing visible could
-		// reach the state), or by a slam (an authored wait never outlives a skipped round).
-		await new Promise<void>((resolve) => {
-			let settled = false;
-			const finish = (why: string): void => {
-				if (settled) return;
-				settled = true;
-				unchange();
-				unwatch();
-				unskip();
-				trace('instance RELEASE', label, why);
-				resolve();
-			};
-			const unchange = handle.onChange(() => {
-				if (handle.stateOf(layer) === state) finish('▶ reached');
-				else if (!handle.shown()) finish('▶ instance hidden');
-			});
-			const unwatch = watchFlowInstance(ref.instance, (next) => {
-				if (next !== handle) finish('▶ instance left the screen');
-			});
-			const unskip = roundSkip.onSkip(() => finish('▶ slammed'));
-		});
-	};
+	// Placed component instances (Rive plan §6.2): the outcomes for one that is not registered, and
+	// how a wait on one is released, live in `flowInstanceWaits.ts` (gated in Node).
+	const { instanceWhenMounted, awaitInstanceState } = createInstanceWaits({
+		isShown: (container) => mount.isShown(container),
+		sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
+		getFlowInstance,
+		watchFlowInstance,
+		skip: roundSkip,
+		trace,
+	});
 
 	const env = createFlowV2Env({
 		mount,
@@ -784,8 +719,8 @@ export const createLinesFlowV2 = (
 			const live = getFlowInstance(ref.instance);
 			const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
 			if (live) {
-				trace('instance', line);
-				live.setInput(input, value);
+				if (live.setInput(input, value)) trace('instance', line);
+				else trace('instance', line, '· dropped (no such input, or not its kind)');
 			} else {
 				trace('instance', line, '(stashed)');
 				stashFlowInstanceInput(ref.instance, input, value);

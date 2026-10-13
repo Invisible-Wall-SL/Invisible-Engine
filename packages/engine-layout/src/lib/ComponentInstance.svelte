@@ -9,7 +9,6 @@
 	} from './types';
 
 	import { onDestroy, untrack, type Snippet } from 'svelte';
-	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 
 	export type Props = {
 		node: ComponentInstanceNode;
@@ -111,6 +110,7 @@
 	import { ComponentEventDispatcher, hasNodeListeners, routeComponentCue } from './componentEvents';
 	import { setComponentListen } from './componentListenerContext';
 	import { registerFlowInstance } from './flowInstances';
+	import { createFlowInstanceHandle } from './flowInstanceHandle';
 	import { getSceneIdContext } from './sceneIdContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
@@ -933,53 +933,25 @@
 	// FLOW INSTANCE (Rive plan §6.2, Phase 7): a placement on a screen registers a live handle under
 	// its node id (`flowInstances.ts`) while mounted, so a Flow `componentInstance` node can fire its
 	// triggers (through `fireTrigger`, as a listener does), set its bool / number inputs on the
-	// runner and its text inputs here, read its layer states and wait for one. Only a TOP-LEVEL
-	// placement registers: an instance nested inside another component's def is not Flow's to name.
-	// A set of the wrong kind, or an unknown id, does nothing. The handle is a Map entry and a few
-	// closures: an instance nothing in Flow names pays nothing else (parity).
-	// Reactive collections only to satisfy `svelte/prefer-svelte-reactivity`; nothing renders them.
-	const textInputs = new SvelteMap<string, string>();
-	const flowChangeListeners = new SvelteSet<() => void>();
-	const notifyFlowInstance = (): void => {
-		for (const listener of [...flowChangeListeners]) listener();
-	};
-	if (allowed && def && parentNest.depth === 0) {
-		const kinds = new Map(componentInputs(def).map((input) => [input.id, input.kind]));
-		for (const input of componentInputs(def)) {
-			if (input.kind === 'text' && typeof input.default === 'string')
-				textInputs.set(input.id, input.default);
-		}
-		const unregister = registerFlowInstance({
-			instanceId: untrack(() => node.id),
-			componentId: untrack(() => node.componentId),
-			version: untrack(() => node.componentVersion),
-			sceneId: getSceneIdContext(),
-			shown: () => untrack(() => selfVisible),
-			fire: (trigger) => {
-				if (kinds.get(trigger) === 'trigger') fireTrigger(trigger);
-			},
-			setInput: (input, value) => {
-				const kind = kinds.get(input);
-				if (kind === 'text') {
-					if (typeof value === 'string') textInputs.set(input, value);
-				} else if (
-					(kind === 'bool' && typeof value === 'boolean') ||
-					(kind === 'number' && typeof value === 'number')
-				) {
-					stateMachineRunner?.setInput(input, value);
-				}
-			},
-			input: (input) =>
-				kinds.get(input) === 'text' ? textInputs.get(input) : stateMachineRunner?.input(input),
-			values: () => stateMachineRunner?.values() ?? {},
-			stateOf: (layer) => stateMachineRunner?.stateOf(layer),
-			onChange: (listener) => {
-				flowChangeListeners.add(listener);
-				return () => flowChangeListeners.delete(listener);
-			},
-		});
-		onDestroy(unregister);
-	}
+	// runner and its text inputs on the handle, read its layer states and wait for one. Only a
+	// TOP-LEVEL placement registers: an instance nested inside another component's def is not Flow's
+	// to name. The handle (`flowInstanceHandle.ts`) is a Map entry and a few closures: an instance
+	// nothing in Flow names pays nothing else (parity).
+	const flowInstance =
+		allowed && def && parentNest.depth === 0
+			? createFlowInstanceHandle({
+					instanceId: untrack(() => node.id),
+					componentId: untrack(() => node.componentId),
+					version: untrack(() => node.componentVersion),
+					sceneId: getSceneIdContext(),
+					inputs: componentInputs(def),
+					shown: () => untrack(() => selfVisible),
+					fireTrigger,
+					runner: () => stateMachineRunner,
+				})
+			: undefined;
+	if (flowInstance) onDestroy(registerFlowInstance(flowInstance.handle));
+	const notifyFlowInstance = (): void => flowInstance?.notify();
 	// The machine starts when the instance is first SHOWN (as `enter` fires): the entry pose and
 	// its cues at 0 then, the clock running from there on whether or not it stays shown.
 	const startStateMachine = (): void => {

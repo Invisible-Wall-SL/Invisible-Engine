@@ -98,6 +98,7 @@ export * from './registerFlowComplete';
 export * from './registerFlowValueSource';
 export * from './registerFlowPress';
 export * from './flowInstances';
+export * from './flowInstanceHandle';
 export * from './registerComponentSignals';
 export * from './registerComponentDefaults';
 export * from './registerTextResolver';

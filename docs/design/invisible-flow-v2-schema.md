@@ -402,23 +402,27 @@ interface FlowInstanceDecl { container; instance; name; componentId; version?; i
   `FlowInstanceDecl` — projected by the launcher from the LayoutDoc and the def at the EXACT pinned
   version (`projectFlowInstances`). `deriveInstancePins` (`instanceNodes.ts`, the one home of the
   pin-id forms): exec-in `set`, exec-in `fire:<trigger>`, optional data-in `in:<input>`
-  (bool / float / string for a `text` input), exec-out `exec`, exec-out `event:<event>` with
-  `event:<event>.<field>` data-outs, data-out `value:<layer>.state`. No projection, a lost def or a
-  decl on another screen ⇒ `[set, exec]` only.
+  (bool / float / string for a `text` input; a number input the engine feeds by `source` gets
+  none), exec-out `exec`, exec-out `event:<event>` with `event:<event>:<field>` data-outs (the
+  field split off with `:`, which no event id or field name may carry — an event id may carry a
+  `.`), data-out `value:<layer>.state`. No projection, a lost def or a decl on another screen ⇒
+  `[set, exec]` only.
 - **Events have their own pin form.** Never `containerEventDeclId`'s `<id>.on<Event>`: an event
   `confirm` and a `pressAction: 'confirm'` share an instance id and must never share a pin, on a
   saved wire or on the runtime road (`resolveFlowV2Press(…, 'event')` matches `event:` pins only).
 - **Validation** (`validate.ts`, only when `instances` is projected in — never guess):
   `instance-missing`, `instance-pin-missing`, `instance-state-unknown`, `instance-text-key`,
-  `instance-event-duplicate`; an event pin is an entry root of its own, so `signal-cross-event`
-  covers its payload data-outs.
+  `instance-event-duplicate` (errors) and `instance-text-wire` (a warning: a text input wired from
+  a pin that is not a harvested key source); an event pin is an entry root of its own, so
+  `signal-cross-event` covers its payload data-outs, and `collapseToFunction` refuses a component
+  node whose event pin is wired.
 - **Runtime** (`runtime.ts`): on any exec-in the fed `in:` data-ins are applied
   (`env.setInstanceInput`), a `fire:` inlet fires the trigger (`env.fireInstanceTrigger`), both
   continue on `exec`; a `value:` data-out reads `env.readInstanceValue`; a wait calls
   `env.awaitInstanceState`; `runFlowInstanceEvent(doc, ctx, instanceId, event, payload)` walks from
   the event pin's wired target (the mirror of §10.4), `flowOwnsInstanceEvent` is the pure read on
-  the stored doc (a wire inside a group, or crossing its boundary through `boundary[].inner`, counts;
-  nothing is flattened at click time). The hooks are optional: a recorder env sets and fires nothing, reads `undefined`, never waits. What
+  the stored doc (a wire inside a group, or crossing one or more group boundaries through each
+  `boundary[].inner`, counts; nothing is flattened at click time). The hooks are optional: a recorder env sets and fires nothing, reads `undefined`, never waits. What
   the game does for an instance that is not on screen is the env's rule, documented in the plan's
   §6.2 "As built".
 

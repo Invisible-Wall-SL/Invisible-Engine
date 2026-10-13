@@ -134,7 +134,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		doc.containers,
 		layout.scenes ?? [],
 		instanceDefResolver(
-			await withPlacedComponentVersions(projectKey, layout.scenes ?? [], components),
+			await withPlacedComponentVersions(projectKey, layout.scenes ?? [], components, doc),
 		),
 	);
 

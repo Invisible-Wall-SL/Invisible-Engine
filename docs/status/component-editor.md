@@ -62,8 +62,10 @@ Shipped capabilities on `main`:
   (`COMPONENT_INPUT_KINDS`; a default is a localization key; the state machine never conditions on
   it — `condition-input-text`; the normalizer keeps it, so a row an older build kept unreadable now
   reads), `flowInstanceInterface(def)` (the interface as a Flow node sees it), and every TOP-LEVEL
-  placement registers a live handle (`flowInstances.ts`) Flow fires, sets, reads and waits on. The
-  Flow side is in [flow.md](flow.md). The Inputs block does not offer `text` yet (7b / the 6b UI).
+  placement registers a live handle (`flowInstances.ts`, built by `flowInstanceHandle.ts`: a Flow set
+  is read as the input's kind the way the runner reads one) Flow fires, sets, reads and waits on. An
+  event id or a payload field name carrying `:` (Flow's pin separator) is refused (`event-pin-id`) and
+  a number input with an engine `source` gets no Flow pin. The Flow side is in [flow.md](flow.md). The Inputs block does not offer `text` yet (7b / the 6b UI).
 - 2026-10-13 — **Listeners + events in the editor (Rive plan Phase 6b, branch
   `claude/rive-p6b-listeners-events-editor`).** `EditorListeners.svelte`, `EditorEvents.svelte`,
   `EditorRaisePayload.svelte`; On enter + an Events log in `EditorStateMachinePanel.svelte`; the
