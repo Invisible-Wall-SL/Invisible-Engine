@@ -1081,11 +1081,12 @@ const SM_COMPONENT = {
 };
 const MARK = { mark: 'newer' };
 /** A newer launcher's state machine: a field on the block, each layer / state / transition / input,
- *  a condition, a text input, and a namesake state in layer M without one. */
+ *  a condition, an input of a kind no build knows (`vec2` — the stand-in for a kind a NEWER build
+ *  added; `text` is known since Phase 7), and a namesake state in layer M without one. */
 const newerMachine = (): StoredDef => {
 	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
 	Object.assign(doc.inputs[0], MARK);
-	doc.inputs.splice(1, 0, { id: 'label', kind: 'text', default: 'SPIN', ...MARK });
+	doc.inputs.splice(1, 0, { id: 'label', kind: 'vec2', default: 'SPIN', ...MARK });
 	Object.assign(doc.stateMachine, { blend: 'smooth' });
 	const [layer] = doc.stateMachine.layers;
 	Object.assign(layer, MARK);
@@ -1123,7 +1124,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	const etag = seed(componentKey, newerMachine());
 	const loaded = olderView();
 	check(
-		'components 5a: the read drops the unknown fields and the text input',
+		'components 5a: the read drops the unknown fields and the vec2 input',
 		[
 			inputsOf(loaded).map((i) => i.id),
 			'blend' in machineOf(loaded),
@@ -1156,7 +1157,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	);
 	check('components 5a: …unchanged', inputsOf(after)[1], {
 		id: 'label',
-		kind: 'text',
+		kind: 'vec2',
 		default: 'SPIN',
 		...MARK,
 	});
@@ -1198,7 +1199,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 }
 
 {
-	// Force grafts like an If-Match save: the namespace field and the text input stay.
+	// Force grafts like an If-Match save: the namespace field and the vec2 input stay.
 	resetComponents();
 	seed(componentKey, newerMachine());
 	await saveComponent(olderView(), 'p', undefined);
@@ -1255,7 +1256,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 }
 
 {
-	// The text input is the ONLY difference: the save still bumps, never rewriting the v3 snapshot.
+	// The vec2 input is the ONLY difference: the save still bumps, never rewriting the v3 snapshot.
 	const onlyText = (label: SmRow | null): StoredDef => {
 		const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
 		if (label) doc.inputs.push(label);
@@ -1267,11 +1268,11 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 		return bytes;
 	};
 	resetComponents();
-	seed(componentKey, onlyText({ id: 'label', kind: 'text', default: 'SPIN' }));
+	seed(componentKey, onlyText({ id: 'label', kind: 'vec2', default: 'SPIN' }));
 	const v3 = pin(componentKey);
 	const forced = await saveComponent(olderView(), 'p', undefined);
 	check(
-		'components 5a: a forced save keeps a text input, at the same version and v3',
+		'components 5a: a forced save keeps a vec2 input, at the same version and v3',
 		[
 			forced.version,
 			bucket.get(projectComponentVersionKey('p', COMPONENT.id, 3))?.text === v3,
@@ -1280,9 +1281,9 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 		[3, true, true],
 	);
 	resetComponents();
-	const projectEtag = seed(componentKey, onlyText({ id: 'label', kind: 'text', default: 'B' }));
+	const projectEtag = seed(componentKey, onlyText({ id: 'label', kind: 'vec2', default: 'B' }));
 	const sharedEtag = seed(sharedComponentKey, {
-		...(onlyText({ id: 'label', kind: 'text', default: 'SPIN' }) as object),
+		...(onlyText({ id: 'label', kind: 'vec2', default: 'SPIN' }) as object),
 		scope: 'shared',
 	});
 	const sharedV3 = pin(sharedComponentKey);
@@ -1293,9 +1294,39 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 		{ promotedFrom: { projectKey: 'p', baseEtag: projectEtag } },
 	);
 	check(
-		'components 5a: a promote changing only a text input bumps, leaving v3 alone',
+		'components 5a: a promote changing only a vec2 input bumps, leaving v3 alone',
 		[promoted.version, bucket.get(editorComponentVersionKey(COMPONENT.id, 3))?.text === sharedV3],
 		[4, true],
+	);
+}
+
+{
+	// `text` is a KNOWN kind since Phase 7: a stored text input is read, shown and saved back as is —
+	// a no-op save rewrites the very same bytes and keeps the version.
+	resetComponents();
+	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	doc.inputs.splice(1, 0, { id: 'label', kind: 'text', default: 'SPIN' });
+	// The seed's bytes are hand-written; the first save writes the canonical form, which the second
+	// (a no-op) must rewrite byte for byte.
+	const seeded = seed(componentKey, doc);
+	const first = await saveComponent(olderView(), 'p', seeded);
+	const before = bucket.get(componentKey)?.text;
+	const etag = etagOf(before ?? '');
+	const loaded = olderView();
+	check(
+		'components 7a: a text input reads as known',
+		inputsOf(loaded).map((i) => [i.id, i.kind]),
+		[
+			['hover', 'bool'],
+			['label', 'text'],
+			['tap', 'trigger'],
+		],
+	);
+	const result = await saveComponent(loaded, 'p', etag);
+	check(
+		'components 7a: …and a no-op save round-trips it byte-identically',
+		[first.version, result.version, bucket.get(componentKey)?.text === before],
+		[3, 3, true],
 	);
 }
 
@@ -1304,7 +1335,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	resetComponents();
 	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
 	doc.inputs = [
-		{ id: 'x', kind: 'text', foo: 1 },
+		{ id: 'x', kind: 'vec2', foo: 1 },
 		{ id: 'x', kind: 'bool', bar: 2 },
 	];
 	const etag = seed(componentKey, doc);
@@ -1317,10 +1348,10 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 }
 
 {
-	// The author now uses a dropped text input's id: their entity wins, and inherits nothing.
+	// The author now uses a dropped vec2 input's id: their entity wins, and inherits nothing.
 	resetComponents();
 	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
-	doc.inputs.push({ id: 'label', kind: 'text', maxLen: 8 });
+	doc.inputs.push({ id: 'label', kind: 'vec2', maxLen: 8 });
 	let etag = seed(componentKey, doc);
 	const asInput = structuredClone(olderView()) as unknown as SmDoc;
 	asInput.inputs.push({ id: 'label', kind: 'bool' });
@@ -1344,7 +1375,7 @@ const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
 	);
 	resetComponents();
 	const junk = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
-	junk.inputs.push({ id: '', kind: 'text' }, { id: 'y', kind: '' });
+	junk.inputs.push({ id: '', kind: 'vec2' }, { id: 'y', kind: '' });
 	etag = seed(componentKey, junk);
 	await saveComponent(olderView(), 'p', etag);
 	check(

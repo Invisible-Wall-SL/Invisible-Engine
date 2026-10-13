@@ -92,7 +92,7 @@ Shipped capabilities on `main`:
   param, signal, slot and input the author kept (a param / slot / input only while its `kind` is
   the same), and of each state-machine layer and its states and transitions (`stateMachine` itself
   is a fixed namespace). A deleted entity is never resurrected. An input of a kind this build does
-  not know (Phase 7's `text`) is kept in place. An existing `<id>.v<N>.json` snapshot is never
+  not know (the gate stands one in as `vec2`; `text` is known since Phase 7) is kept in place. An existing `<id>.v<N>.json` snapshot is never
   rewritten. Promote to shared carries the promoted project def's fields (`promotedFrom` +
   `sourceEtag`) and answers 409 `source-conflict` when that def changed since the draft loaded.
   "This game's defaults" and its restore keep theirs (a restore, the backup's). Known fields:
