@@ -29,6 +29,7 @@ Works today on `main` / live:
   load / save / rename / delete passes through it): switching releases the old sheet and claims the
   new one, a 10 s heartbeat renews it, `pagehide` releases it. Blocks nothing. `test_presence.py`
   (32). ⏳ Not yet run live with two browsers (folded into item 4).
+- **🧹 Clean sheet…** _(2026-10-13)_ — empties the canvas but keeps the sheet's name + loaded version, so the images can be re-uploaded and Save replaces the sheet in place. Gated by a dialog (counts of sprites / FX layers / AI fields lost, typed sheet name to enable Clean); refuses a locked sheet. Client-only — R2 is untouched until Save.
 - **Region + sheet rename** — renaming a sheet moves **all** its R2 objects (`sheets/`, `sheet_src/`, `manifests/`) and rewrites the manifest's internal back-refs + every region `shape_ref`, then deletes the old keys; refuses to overwrite an existing target.
 - **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging. It
   clears and verifies **every tree the sheet owns alone** — `sheets/`, `sheet_src/`, and the Atlas
@@ -81,6 +82,17 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-10-13 — **🧹 Clean sheet… is back, behind a gate.** The old one-click "New / clear canvas"
+  (replaced 2026-09-02 by the named `New sheet…` dialog) was also how people emptied a sheet to
+  re-import its images; that use had no button since. The new Upload-tab button opens a dialog that
+  counts what goes (sprites, FX layers, regions carrying AI fields), says whether a saved version
+  exists to Load back, and keeps **Clean** disabled until the sheet's name is typed back. It drops the
+  regions only — name, canvas size and the loaded version stay, so the next Save is the usual
+  in-place CAS save. No fx-sync is sent, so nothing reaches R2 before Save; stale copies in
+  `sheet_src/<sheet>/` are overwritten by same-named uploads and are never packed unless on the
+  canvas. Verified locally (R2-less, headless Chromium): wrong/empty name keeps Clean disabled
+  (Enter too), Esc/Cancel keep the canvas, clean → re-upload → in-place Save lands, Load sheet
+  restores a cleaned saved sheet, an empty canvas answers "Nothing to clean". ⏳ Live pass owed (item 1).
 - 2026-10-01 — **"👤 X is editing this sheet".** The Atlas Maker's `/presence` (#910) moved into
   `iw_common/presence.py` (`beat()` — lease key, holder from the signed identity, who-else answer)
   and `iw_common/presence.js` (`iwPresence.track(doc)` — tab id, heartbeat, banner, release); the

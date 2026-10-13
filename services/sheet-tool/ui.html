@@ -300,6 +300,7 @@
           <input type="file" id="files" accept=".png,.webp" multiple style="width:100%;margin-bottom:8px">
           <button class="wide" onclick="upload()">Upload sprites</button>
           <button class="sec wide" onclick="newSheet()" title="Start a new, empty sheet — asks for its name first.">New sheet…</button>
+          <button class="sec wide" onclick="openClean()" title="Remove every sprite from this sheet so its images can be uploaded again — keeps the name, so Save replaces it in place. Asks first.">🧹 Clean sheet…</button>
           <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
         </div>
         <div id="pane-load" style="display:none">
@@ -412,6 +413,16 @@
     <div class="field"><label for="newsheet-name">Sheet name</label><input id="newsheet-name" placeholder="e.g. symbols_hd" autocomplete="off" spellcheck="false" oninput="onNewSheetName()"></div>
     <div class="warn" id="newsheet-warn"></div>
     <div class="btns"><button class="sec" onclick="closeNewSheet()">Cancel</button><button onclick="confirmNewSheet()">Create</button></div>
+  </div>
+</div>
+
+<div id="clean" class="modal" hidden onclick="if(event.target===this) closeClean()">
+  <div class="box" role="dialog" aria-labelledby="clean-title" onkeydown="onCleanKey(event)">
+    <h2 id="clean-title">Clean sheet</h2>
+    <div class="hint" id="clean-what"></div>
+    <div class="warn" id="clean-undo"></div>
+    <div class="field"><label for="clean-name" id="clean-label"></label><input id="clean-name" autocomplete="off" spellcheck="false" oninput="onCleanName()"></div>
+    <div class="btns"><button class="sec" onclick="closeClean()">Cancel</button><button class="danger" id="clean-go" onclick="confirmClean()" disabled>Clean</button></div>
   </div>
 </div>
 
@@ -1083,6 +1094,44 @@ function confirmNewSheet(){
   updateReadouts();
   markDirty();   // persist the empty, NAMED session so a refresh keeps the name
   $('uploadmsg').className='muted'; $('uploadmsg').textContent='New sheet "'+name+'" — upload sprites to start.';
+}
+
+/* ---------- clean sheet ----------
+   Empties the canvas but keeps the sheet's identity (name, loaded version), so
+   the images can be uploaded again into the same sprite pile and Save replaces the
+   sheet in place. Nothing reaches R2 until that Save — FX copies are left for
+   fx-sync to redo — and the gate asks for the sheet's name typed back first. */
+function openClean(){
+  const m=$('uploadmsg'), name=currentName();
+  if(!regions.length){ m.className='note'; m.textContent='Nothing to clean — this sheet has no sprites.'; return; }
+  if(isLocked(safeNm(sheetName))){ m.className='note'; m.textContent='🔒 "'+name+'" is read-only — Unlock it first, or Save As a new name.'; return; }
+  const fx=regions.filter(isFx).length, base=regions.length-fx;
+  const ai=regions.filter(r=>r.prompt||r.shape_ref||r.seed).length;
+  $('clean-what').textContent='Removes all '+base+' sprite(s)'+(fx?' and '+fx+' FX layer(s)':'')
+    +' from "'+name+'"'+(ai?', with the AI fields of '+ai+' of them':'')
+    +'. The name and canvas size stay — upload the images again, then Save to replace the sheet.';
+  $('clean-undo').textContent=(isProject && loadedPath && safeNm(sheetName)===loadedName)
+    ? 'R2 is untouched until you Save. Changed your mind? Load sheet brings the saved version back.'
+    : 'This sheet is not saved yet — what is cleared cannot be brought back.';
+  $('clean-label').textContent='Type "'+name+'" to confirm';
+  $('clean-name').value=''; onCleanName();
+  $('clean').hidden=false;
+  $('clean-name').focus();
+}
+function closeClean(){ $('clean').hidden=true; }
+function onCleanName(){ $('clean-go').disabled=$('clean-name').value.trim()!==currentName(); }
+function onCleanKey(e){
+  if(e.key==='Enter' && e.target.id==='clean-name'){ e.preventDefault(); confirmClean(); }
+  else if(e.key==='Escape'){ e.preventDefault(); closeClean(); }
+}
+function confirmClean(){
+  if($('clean-go').disabled) return;
+  closeClean();
+  const n=regions.length;
+  regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
+  markDirty();
+  $('uploadmsg').className='ok';
+  $('uploadmsg').textContent='Cleaned "'+currentName()+'" ('+n+' removed) — upload the images, then Save.';
 }
 
 /* ---------- upload ---------- */
