@@ -59,11 +59,25 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-13 — **A desktop build pulls only the art the game loads.** `pull-project-assets.mjs`
+  mirrored ALL of `deploy/` and pruned stale copies only in the export-generated subtrees, so
+  anything the Atlas Maker's Deploy put in `sprites/`, `spines/`, … shipped loaded or not, and
+  stayed in the checkout once pulled. Test6 was refused at the portal's 32 MB file limit on
+  `sprites/S_Background/S_Background.webp`, which no code names. Now a non-generated deploy folder
+  is pulled only if the game's code (the app source `config-svelte` compiles, plus
+  `packages/*/src`) names it, or a kept descriptor does; an unloaded local copy from an earlier
+  pull is deleted; a committed one is left and reported; the log lists what was not pulled, by
+  folder and size. A runtime-built path keeps its folder, and a scan that finds no game code keeps
+  everything. `--no-prune` restores the old behaviour. Covers ☁ Publish and 📦 Deliver (both run
+  `pnpm build`); the online runtime never runs the pull. On the engine's own apps the scan leaves
+  four committed folders unloaded (`spines/bonusButton`, `spines/winMeterExplosion`,
+  `sprites/uiSlotsAssetsBespoke`): reported, not deleted. Check: `check-pull-reachability.mjs`
+  (30 checks).
 - 2026-10-12 — **The per-file-limit refusal fits its advice to the file type** (desktop launcher,
   `invisible-launcher` repo, `oversize_advice()`; ships in the next launcher release). It always said
   *Tick 🗜 Optimize*, but since v1.0.56 Optimize leaves WebPs untouched, so a 34 MB background WebP
   was refused again after ticking it. Now a PNG gets the Optimize advice, a WebP/JPEG is told to
-  re-export smaller, and anything else gets only the `BODY_SIZE_LIMIT` route. The runbook has a
+  downscale its sheet in the Sheet Maker and deploy it again, and anything else gets only the `BODY_SIZE_LIMIT` route. The runbook has a
   *Shrinking an oversized image* section ([guides/publisher-runbook.md](../guides/publisher-runbook.md)).
 - 2026-10-08 — **`/admin` sets and clears the table-capable stamp** (book-feature Phase 6, §6 step
   5; runbook step 1 in [game-config.md](game-config.md) "Book-of migration"). Projects → **Desktop
