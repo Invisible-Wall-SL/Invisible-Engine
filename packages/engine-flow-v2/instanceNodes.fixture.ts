@@ -33,6 +33,7 @@
 import {
 	collectInstanceTextKeys,
 	deriveInstancePins,
+	docNamesInstance,
 	instanceEventFieldOf,
 	instanceEventFieldPin,
 	instanceEventOf,
@@ -285,6 +286,83 @@ const pinIds = (pins: Pin[]): string[] => pins.map((p) => `${p.dir}:${p.kind}:${
 		'2. event "a.b" and field "b" of event "a" never share a pin',
 		instanceEventPin('a.b') === instanceEventFieldPin('a', 'b'),
 		false,
+	);
+	eq(
+		'2. docNamesInstance sees a component node or a wait, in a group body or a mode, and nothing else',
+		[
+			docNamesInstance(doc({ nodes: [], exec: [], data: [] })),
+			docNamesInstance(
+				doc({ nodes: [{ id: 'ev', kind: 'event', pos: at, ref: 'winInfo' }], exec: [], data: [] }),
+			),
+			docNamesInstance(
+				doc({
+					nodes: [
+						{
+							id: 'w',
+							kind: 'waitForState',
+							pos: at,
+							container: 'basegame',
+							instance: 'c_banner',
+							layer: 'main',
+							state: 'idle',
+						},
+					],
+					exec: [],
+					data: [],
+				}),
+			),
+			docNamesInstance(
+				doc({
+					nodes: [
+						{
+							id: 'g',
+							kind: 'group',
+							pos: at,
+							label: 'g',
+							body: {
+								nodes: [
+									{
+										id: 'n1',
+										kind: 'componentInstance',
+										pos: at,
+										container: 'basegame',
+										instance: 'c_banner',
+									},
+								],
+								exec: [],
+								data: [],
+							},
+							boundary: [],
+						},
+					],
+					exec: [],
+					data: [],
+				}),
+			),
+			docNamesInstance(
+				doc(
+					{ nodes: [], exec: [], data: [] },
+					{
+						bonus: {
+							graph: {
+								nodes: [
+									{
+										id: 'm1',
+										kind: 'componentInstance',
+										pos: at,
+										container: 'basegame',
+										instance: 'c_banner',
+									},
+								],
+								exec: [],
+								data: [],
+							},
+						},
+					},
+				),
+			),
+		],
+		[false, false, true, true, true],
 	);
 	eq('2. the palette ref round-trips', parseInstanceNodeRef(instanceNodeRef('hud_1', 'c_2')), {
 		container: 'hud_1',

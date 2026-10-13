@@ -17,7 +17,7 @@ import {
 	containersMissingScene,
 	respinTabIssues,
 	spinsTabIssues,
-	docComponentInstanceNodes,
+	docNamesInstance,
 	validateFlowDoc,
 	type FlowAddOns,
 	type FlowDoc,
@@ -108,7 +108,7 @@ export async function withPlacedComponentVersions(
 	// and re-reads the projection through `/api/flow-v2/instances` (no doc ⇒ every pin resolved)
 	// once the first instance node is placed, so a placement pinned below latest gets its exact
 	// interface before its first wire.
-	if (doc && docComponentInstanceNodes(doc).length === 0) return [...components];
+	if (doc && !docNamesInstance(doc)) return [...components];
 	const pins = collectComponentPins(scenes.flatMap((s) => s.nodes ?? [])).filter(
 		(pin) => !components.some((def) => def.id === pin.id && def.version === pin.version),
 	);
