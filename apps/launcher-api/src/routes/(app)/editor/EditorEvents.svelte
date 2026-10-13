@@ -50,18 +50,28 @@
 		version += 1;
 		onChanged();
 	}
+	/** A check (the timelines' fetch, a confirm) is in flight: a second Add waits for it. */
+	let adding = $state(false);
 	async function add(): Promise<void> {
 		const id = newEvent.trim();
-		if (!id || readOnly) return;
-		const refused = await onAdd(id);
-		if (refused !== null) {
-			addError = refused;
-			return;
+		if (!id || readOnly || adding) return;
+		adding = true;
+		try {
+			const refused = await onAdd(id);
+			if (refused !== null) {
+				addError = refused;
+				return;
+			}
+			version += 1;
+			open[id] = true;
+			addError = '';
+			if (newEvent.trim() === id) newEvent = '';
+		} finally {
+			adding = false;
 		}
-		version += 1;
-		open[id] = true;
-		newEvent = '';
-		addError = '';
+	}
+	function addClicked(): void {
+		void add();
 	}
 </script>
 
@@ -84,9 +94,9 @@
 			if (e.key === 'Enter') void add();
 		}}
 	/>
-	<button type="button" disabled={readOnly || !newEvent.trim()} onclick={() => void add()}
-		>Add</button
-	>
+	<button type="button" disabled={readOnly || adding || !newEvent.trim()} onclick={addClicked}>
+		Add
+	</button>
 </div>
 {#if addError}<p class="add-error">{addError}</p>{/if}
 {#if events.length}

@@ -654,6 +654,13 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 	);
 	const workspace = source('ComponentWorkspace.svelte');
 	eq(
+		'adding a shared def’s first event always confirms (other projects’ cues are out of sight)',
+		/const shared = componentDraft\.scope !== 'project';\s*if \(cues\.length \|\| shared\)/.test(
+			workspace,
+		),
+		true,
+	);
+	eq(
 		'Save and Promote both refuse an unsavable draft',
 		(workspace.match(/const unsavable = unsavableRowsMessage\(componentDraft\);/g) ?? []).length,
 		2,

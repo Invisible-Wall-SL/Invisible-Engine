@@ -1979,15 +1979,21 @@
 				confirmLabel: 'Rename',
 			});
 			if (!ok || !componentDraft || componentDraft.id !== componentId || isInspecting) return;
-			if (eventNameRefusal(componentDraft, name)) return;
+			const late = eventNameRefusal(componentDraft, name);
+			if (late) {
+				void askMessage({ title: 'Event not renamed', message: late });
+				return;
+			}
 		}
 		renameEvent(componentDraft, id, name);
 		editNonce += 1;
 	}
 	/** Add an event: null when added, else why not ('' when the author cancelled). The FIRST
 	 *  event re-routes the timelines' `event:` cues from screen-wide broadcasts to the component's
-	 *  events, so that one is confirmed, listing them. */
-	async function addComponentEvent(id: string): Promise<string | null> {
+	 *  events, so that one is confirmed — listing this project's cues, and for a shared component
+	 *  always, since other projects' timelines may have some. */
+	async function addComponentEvent(raw: string): Promise<string | null> {
+		const id = raw.trim();
 		if (!componentDraft || isInspecting) return '';
 		const componentId = componentDraft.id;
 		const refused = eventNameRefusal(componentDraft, id);
@@ -2001,10 +2007,22 @@
 			}
 			if (!componentDraft || componentDraft.id !== componentId || isInspecting) return '';
 			const cues = firstEventCues(componentDraft, docs);
-			if (cues.length) {
+			const shared = componentDraft.scope !== 'project';
+			if (cues.length || shared) {
+				const list = cues.map((c) => `event:${c.event} in "${c.timeline}"`).join(', ');
 				const ok = await askConfirm({
-					title: `Add the first event, "${id.trim()}"?`,
-					message: `This component's timelines (as last saved) have event cues that today are messages to the whole screen: ${cues.map((c) => `event:${c.event} in "${c.timeline}"`).join(', ')}. With an event declared, each raises the component's event of that name instead — and one naming no declared event raises nothing.`,
+					title: `Add the first event, "${id}"?`,
+					message: [
+						cues.length
+							? `This project's timelines (as last saved) have event cues that today are messages to the whole screen: ${list}.`
+							: '',
+						shared
+							? "This is a shared component: other projects' timelines may have event cues too."
+							: '',
+						"With an event declared, each such cue raises the component's event of that name instead — and one naming no declared event raises nothing.",
+					]
+						.filter(Boolean)
+						.join(' '),
 					confirmLabel: 'Add',
 				});
 				if (!ok || !componentDraft || componentDraft.id !== componentId || isInspecting) return '';
