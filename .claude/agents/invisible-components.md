@@ -56,6 +56,8 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   A LIVE number drives such a node through `valueBindings` (transform offsets,
   show/hide threshold, fill mask, clip frame, rig scrub, rig bone — `valueBindings.ts`,
   Hold and Win Phase 12b), so a masked fill or a growing bone no longer needs a coded part.
+  A SCREEN timeline (Scene Editor → Animate, Rive plan Phase 3) drives screen nodes by
+  NAME through the same fold (`$lib/timeline/screenTimeline.ts`, `docs/status/cinematic.md`).
 - **Bound coded parts** (`hudReadout`, `button`, `loadingIntro` bar, the transitions
   and FS visuals): a child carries `bind: { component: '<RegisteredName>' }` mounting
   a small coded part registered via `registerBoundComponents`. Use ONLY when the

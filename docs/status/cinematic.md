@@ -9,7 +9,8 @@ Flow `playCinematic` node. ⏳ The editor is live-verified. The in-game player p
 speed on a real clock (2026-10-01, a probe cinematic injected into the remake), but no project has
 yet shipped an authored cinematic through a `playCinematic` node. **Rive plan Phase 1** (node
 actors + screen/component hosts, 2026-10-13) is in the format, evaluator and player, verified
-headless only.
+headless only. **Phase 3** (2026-10-13) authors screen timelines in `/editor`'s Animate mode and
+lists them in Flow's picker; proven headless end to end, not yet browser-verified.
 
 ## Current state
 
@@ -50,6 +51,34 @@ headless only.
   - **Ship chain (rule 8):** nothing new to seed. A node actor's art, clip, font and text node all
     belong to its host scene, which the editor-art export already ships; `cinematicRigNames` skips
     node actors (they have no `rigFolder`), and `check:art-scope` covers the unchanged paths.
+
+- **Screen timelines in the Scene Editor (Rive plan Phase 3, 2026-10-13 — headless-proven, ⏳ not
+  browser-verified).** `/editor` → **Animate** mounts the shared Timeline module in
+  `EditorTimelinePanel.svelte` for the active screen. UI and keys: [the guide](../tools/invisible-editor.md#animate-mode--the-timeline).
+  - **Storage, unchanged.** A timeline is a cinematic with `host: {kind:'screen', sceneId}` (and
+    `stage.sceneId: null` — the host is the set), saved through `/api/cinematics/*` with the same
+    `baseEtag` / 409 / scope guard. `CinematicSummary` gains an optional `host`.
+  - **Access (`cinematicAccess.ts`).** `rigger` ⇒ `full`, as before. `editor` without `rigger` ⇒
+    `screen`: the list is filtered to screen timelines; `get` refuses (403) anything else,
+    including a malformed doc; `save` requires the body AND the stored doc to be screen-hosted and
+    writes under the etag it just checked (a forced save overwrites only that version, so a rig
+    cinematic written under the same id mid-request is a 409, never clobbered); `delete` reads first.
+  - **Authoring (`$lib/timeline/screenTimeline.ts`).** `nodeActorTarget` (name only; refuses
+    unnamed or shared names with a message), `ensureNodeActor` (identity `place`), `nodeChannelValue`,
+    `SCREEN_CHANNELS` (the module's channels + `tint`, a colour input). The module gained an
+    optional `channels` (default `PROP_CHANNELS`, so `/rigger` is byte-identical — the 104-action
+    golden still passes) and a colour key field for a `color` channel.
+  - **Preview = game.** `timelineDrives` feeds `resolveNodeActors` → `keyedNodeChannels` →
+    `nodeActorBindings` + `sampleNodeActor` into the editor's value-binding preview, which folds
+    them with `withNodeActorOutputs` + `foldBoundTransform` — the calls `LayoutNodeView` makes.
+  - **Flow.** `/flow-v2`'s `playCinematic` inspector is a picker (`cinematicPickerOptions`):
+    "Timeline · <screen> · <name>" first, then "Cinematic · <name>"; a ref not in the project stays
+    selectable. `validateNodeActors` runs server-side per screen timeline and its messages show
+    under the picker.
+  - **Not in Phase 3:** `text` tracks (count-up / switch-key — the format and player have them;
+    the panel does not expose them yet), visibility keys and cues in the panel, keying by dragging
+    on the canvas, component hosts (Phase 4). The in-game set still mounts as its own copy of the
+    screen inside `<MainContainer>` (Phase 1 behaviour), so an intro should end on the identity pose.
 
 - **`/rigger` cinematic mode (Phase 1).** A fourth mode beside Preview / Setup / Animate. Cast a
   rig from the project as an **actor** (the same rig twice = independent instances), place it
@@ -152,6 +181,8 @@ headless only.
 | `tools/rigger-spike/cinematic-timeline.mjs` — the REAL `/rigger` page in headless Chrome, 104 author actions through the page's own handlers (strips, inspector, layers, masks, keys, cues, set row, undo/redo + coalescing, Tweak Mode, ＋ New clip, inline posing, save/open/new/delete); document, history and the three panels' HTML compared to a golden recorded on the pre-extraction code | **104/104** |
 | `apps/launcher-api/timeline.fixture.ts` — the module imports through `$lib` with no browser globals and keeps the undo contract headless | **16/16** |
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
+| `tools/rigger-spike/cinematic-screen-timeline.mjs` — Phase 3 end to end: author (headless Timeline + name targeting) → save (in-memory R2) → picker labels → `validateNodeActors` → `exportCinematics` / bundle → `playCinematic` on the REAL interpreter → game fold vs the editor's compiled preview module at six times; parity with no preview | **41/41** |
+| `apps/launcher-api/scripts/check-cinematic-access.ts` — the REAL `/api/cinematics/*` handlers per entitlement (rigger / editor / both / neither), incl. the same-id hijack, force, and the mid-request race | **28/28** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
 ### What the gates established
@@ -182,7 +213,18 @@ headless only.
    keys, the sequencer (drag / trim / Alt / Ctrl+wheel zoom / Ctrl+D / Delete), property + camera
    keys (🎥 live), visibility keys, cues + the fx row, bone masks, Tweak Mode (double-click, ✎ Tweak
    clip, Esc, the dopesheet seek mapping back), ＋ New clip, inline posing + the underlay, and R2
-   save / open / new / delete. Phase 3 (the `/editor` Svelte wrapper) is next.
+   save / open / new / delete.
+   **Phase 3 (Animate a screen) is built; owner, please browser-verify in a logged-in `/editor`:**
+   (a) the Design | Animate toggle, and that Design behaves as before after leaving Animate (drag,
+   handles, drop, Delete, Ctrl+Z/C/V/D); (b) ＋ New / open / Rename / 🗑 a timeline, and the
+   screen switch closing it; (c) select a named node, type values and ◆ at two times, scrub the
+   ruler and ▶ — the canvas moves, fades, scales, rotates and tints the node (sprite, text, rig,
+   flipbook, a node inside a container); (d) an unnamed and a duplicate-named node show the
+   refusal; (e) keys in Animate: Ctrl+Z/Shift+Z undo the timeline only, Delete removes a selected
+   key and never a node, Ctrl+S saves the timeline; (f) Save, reload, reopen; the conflict prompt
+   with two tabs; (g) a user with `editor` but not `rigger` sees only screen timelines;
+   (h) `/flow-v2` → playCinematic lists "Timeline · <screen> · <name>" and shows a ⚠ for a renamed
+   node; (i) publish and watch the intro play in game (Live ↗), with **Wait for it to finish**.
 1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
    but only with a probe doc injected into the runtime bundle and started from the flow handle. No
    authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
@@ -215,6 +257,14 @@ headless only.
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-13 — **Screen timelines in the Scene Editor (Rive plan Phase 3).** Animate mode in
+  `/editor`, editor-gated access to screen timelines, the Flow picker, and the editor preview
+  through the game's fold — as described under Current state. Verified headless: all nine cinematic
+  gates via `check:all --only cinematic` (incl. the new 41/41 end-to-end proof and 28/28 access
+  check, and the `/rigger` golden 104/104), `check:launcher-gates` (366),
+  `check:doc-readers-unknown-fields` (247), `check:save-keeps-unknown-blocks` (58), svelte-check at
+  baseline, lint clean. **Not browser-verified** (the canvas is auth-gated) — see item 0.
 
 - 2026-10-13 — **The sequencer is the shared Timeline module** (Rive plan Phase 2, PR #1171). The timeline panel moved out of
   `static/rigger/cinematic.js` (2,743 → ~1,590 lines) into `$lib/timeline/timeline.js`, shipped to

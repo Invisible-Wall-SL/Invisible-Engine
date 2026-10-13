@@ -20,6 +20,20 @@ Shipped capabilities on `main`:
 - **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
 - **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on rig nodes) / text box (width/height, align, auto-fit) / rig anim + slot fill / **Plays on signal** cues on rig and flipbook nodes (free-text signal here, declared signals in `/components`) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
 - **Device layouts** — per-layoutType overrides of transform, blend, visibility, cover fit/scale, text style and component params; per-layoutType **Canvas Size** (the MAIN box the runtime adopts). The bucket set is an authorable **layout profile** (Game Settings → Layout; pipeline default in Admin → Settings); `DEFAULT_LAYOUT_PROFILE` reproduces the legacy four exactly.
+- **Animate mode — the Timeline** (Rive plan Phase 3, 2026-10-13 — ⏳ not yet browser-verified).
+  A **Design | Animate** toggle in the editor bar. Animate opens `EditorTimelinePanel.svelte` under
+  the canvas: the active screen's timelines (cinematics with `host: {kind:'screen', sceneId}`),
+  listed / created / renamed / deleted over `/api/cinematics/*`, edited in the shared Timeline
+  module (`$lib/timeline/timeline.js`, `destroy()`ed on unmount). After the first visit the panel
+  stays mounted, hidden and inactive in Design (no keys, no preview), so unsaved timeline edits
+  survive the toggle; a screen switch saves, then closes; `beforeunload` guards a dirty timeline. The selected node becomes a node
+  actor by **name** (`nodeActorTarget` refuses unnamed or shared names); x / y / scale / rotation /
+  alpha / tint key through the module's `keyProperty`. The canvas previews through the
+  value-binding seam (`setTimelinePreview` in `valuePreview.client.svelte.ts`) with the game's own
+  `withNodeActorOutputs` + `foldBoundTransform`. The canvas is select-only in Animate (`animate`
+  prop: no drag, handles, drop, delete or item toolbar); the Timeline owns Ctrl+Z/Shift+Z/Y, Ctrl+S,
+  Ctrl+D and Delete, and the page's undo/clipboard handler stands down. Design mode is unchanged.
+  Pure helpers: `$lib/timeline/screenTimeline.ts`. Detail: [cinematic status](cinematic.md).
 - **Game Settings** — per-project boot splash (`bootLoader`), layout profile.
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
@@ -27,6 +41,10 @@ Shipped capabilities on `main`:
 - **Pipeline** — layout-doc bake + **editor-art export** (`deploy/editor-art/`) travel export→deploy→bake→pull→register; Art bounds ship as TexturePacker trim, component `spine`-param bundles and `_shared/` rigs export like placed ones, and art picked only in a per-layoutType param override ships too.
 
 ## Open items / next
+
+0. **⏳ Browser-verify Animate mode** (the list is in [cinematic status](cinematic.md) item 0).
+   Not in Phase 3: text tracks, visibility keys and cues in the panel, keying by dragging on the
+   canvas, component timelines (Phase 4).
 
 1. **HUD parity gap** — the corner logo/game-name containers still ignore `scale` in-game, so scaling those two corner texts in the editor won't ship.
 2. **Animated / book-event content stays coded** — symbols, win-line draws and count-ups mount via the engine `mount`/`bind` escape hatch; the editor only places their anchor and has no book-event playback.
@@ -39,6 +57,11 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-13 — **Animate mode (Rive plan Phase 3).** Design | Animate toggle; the Timeline panel
+  animates the active screen's nodes; the canvas previews with the game's maths; Flow's
+  `playCinematic` plays the result. Editor-only users can reach screen timelines (server-gated).
+  Design mode is untouched: every change is behind `animate` / the preview map, both off outside
+  Animate. See [cinematic status](cinematic.md) for the gates.
 - 2026-10-13 — **Owner decisions for the Rive-style editor (Phase 0, docs only).** `/components` merges
   into `/editor` (Phase 4); the shared timeline is called **Timeline** in the UI; the Phase 3 proof is a
   screen intro played by Flow's `playCinematic`. Plan: [rive-style-editor](../design/rive-style-editor.md) §12.
