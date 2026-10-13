@@ -221,7 +221,12 @@ the save guard for every field in the table above.
 
     **Matching by id is what makes the nested graft safe.** Symbols refuses nested keys because a
     graft could resurrect a deleted entity. Here an entity whose id is gone from the save was
-    deleted, so nothing of it comes back, and a new entity never takes a deleted one's fields. The
+    deleted, so nothing of it comes back, and a new entity never takes a deleted one's fields.
+    **That holds only while ids are never reused: an editor must never give a new entity an id the
+    stored doc holds for a different one** (a deleted state's `Win`, a transition's `t_Idle_Win`),
+    or the new entity inherits the old one's unknown fields. The server cannot tell the two apart.
+    Matching by `kind` as well would not help: a node keeps its id when it is converted to a
+    button, and states and transitions have no kind. The
     same goes for an entity inside a known block the author cleared: deleting every slot deletes
     their unknown fields too. They are entities the author saw and removed, unlike a win-text
     family, which is a fixed namespace. For a component, the fixed namespace is the def itself, so
@@ -243,7 +248,9 @@ the save guard for every field in the table above.
     so a no-op save from an older launcher does not bump. A save that leaves the known content as
     it is but changes the unknown fields does bump: a promote that carries the project's fields
     over the shared copy's, or a forced save that drops them. Without that bump, the same-version
-    snapshot write would rewrite an immutable `<id>.v<N>.json`. The snapshot is the merged doc. A known-only def saves byte-identically, and every built-in does too (gate).
+    snapshot write would rewrite an immutable `<id>.v<N>.json`. The compare covers only the
+    entities the save still has, so a row the read dropped bumps nothing. The snapshot is the
+    merged doc. A known-only def saves byte-identically, and every built-in does too (gate).
 
     **Promote to shared keeps the PROMOTED project def's unknown fields**, not the replaced shared
     copy's: the client sends `promotedFrom` (the project) and `sourceEtag` (the ETag its draft

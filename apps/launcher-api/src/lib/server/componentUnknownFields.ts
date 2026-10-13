@@ -56,7 +56,9 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 		if (!rows) continue;
 		const byId = new Map<unknown, unknown>();
 		for (const row of Array.isArray(stored[field]) ? stored[field] : []) {
-			if (isPlainObject(row) && !byId.has(row[id])) byId.set(row[id], row);
+			if (isPlainObject(row) && typeof row[id] === 'string' && !byId.has(row[id])) {
+				byId.set(row[id], row);
+			}
 		}
 		let changed = false;
 		const merged = rows.map((row: object) => {
@@ -81,37 +83,57 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 }
 
 /**
- * Whether `a` and `b` hold the same unknown fields: at the top level, on each node by id, and on
- * each row by id. The version bump compares this beside the known-only content.
+ * Whether `next` holds the same unknown fields as `stored`: at the top level, and on each node and
+ * row `next` still has (by id; the first of a duplicated id). A stored entity `next` lacks is
+ * already a known-content change when the author deleted it; when the READ dropped it (a param of
+ * an unknown kind), the author changed nothing about it. The version bump compares this beside
+ * the known-only content.
  */
-export function sameUnknownComponentFields(a: unknown, b: unknown): boolean {
-	return canonical(unknownComponentFields(a)) === canonical(unknownComponentFields(b));
+export function sameUnknownComponentFields(next: unknown, stored: unknown): boolean {
+	const mine = unknownComponentFields(next);
+	return canonical(mine) === canonical(unknownComponentFields(stored, mine.ids));
 }
 
-function unknownComponentFields(doc: unknown): Record<string, unknown> {
-	if (!isPlainObject(doc)) return {};
-	const out: Record<string, unknown> = { def: unknownFields(isDefField, doc) };
+interface UnknownProjection {
+	def: Record<string, unknown>;
+	nodes: Record<string, unknown>;
+	rows: Record<string, Record<string, unknown>>;
+	/** The node and row ids this projection covers — the scope a stored one is compared within. */
+	ids: { nodes: Set<string>; rows: Record<string, Set<string>> };
+}
+
+function unknownComponentFields(doc: unknown, scope?: UnknownProjection['ids']): UnknownProjection {
+	const ids: UnknownProjection['ids'] = { nodes: new Set(), rows: {} };
+	const out: UnknownProjection = { def: {}, nodes: {}, rows: {}, ids };
+	if (!isPlainObject(doc)) return out;
+	out.def = unknownFields(isDefField, doc);
 	const nodes = new Map<string, Record<string, unknown>>();
 	indexNodes(doc.root, nodes);
-	const byNode: Record<string, unknown> = {};
 	for (const [id, node] of nodes) {
+		if (scope && !scope.nodes.has(id)) continue;
+		ids.nodes.add(id);
 		const extra = unknownFields(isNodeField, node);
-		if (Object.keys(extra).length) setKey(byNode, id, extra);
+		if (Object.keys(extra).length) setKey(out.nodes, id, extra);
 	}
-	out.nodes = byNode;
 	for (const { field, id, isKnown } of ENTITY_ARRAYS) {
 		const byRow: Record<string, unknown> = {};
+		const rowIds = new Set<string>();
 		for (const row of Array.isArray(doc[field]) ? doc[field] : []) {
+			if (!isPlainObject(row) || typeof row[id] !== 'string') continue;
+			const rowId = row[id];
+			if (rowIds.has(rowId) || (scope && !scope.rows[field]?.has(rowId))) continue;
+			rowIds.add(rowId);
 			const extra = unknownFields(isKnown, row);
-			if (isPlainObject(row) && Object.keys(extra).length) setKey(byRow, String(row[id]), extra);
+			if (Object.keys(extra).length) setKey(byRow, rowId, extra);
 		}
-		out[field] = byRow;
+		out.rows[field] = byRow;
+		ids.rows[field] = rowIds;
 	}
 	return out;
 }
 
-/** JSON with object keys sorted, so key order never reads as a change. */
-function canonical(value: unknown): string {
+/** JSON with object keys sorted, so key order never reads as a change (the id scope left out). */
+function canonical({ ids: _ids, ...value }: UnknownProjection): string {
 	return JSON.stringify(value, (_key, v: unknown) =>
 		isPlainObject(v)
 			? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))

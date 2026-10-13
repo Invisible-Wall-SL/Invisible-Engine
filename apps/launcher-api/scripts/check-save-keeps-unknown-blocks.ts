@@ -14,8 +14,8 @@
  * Runs the REAL `saveSymbolsDoc` / `saveWinTextDoc` / `saveComponent` / `saveComponentDefaults` /
  * `storedUnknownBlocks`. `r2.ts` is replaced by an in-memory bucket that honours `If-Match` /
  * `If-None-Match` and records every GET, so "no read was made" is observable (`rig.ts` and
- * `projects.ts` are stubbed, unreached by these fixtures). A newer launcher is played by seeding R2 with a doc
- * carrying blocks this build's schemas do not declare.
+ * `projects.ts` are stubbed, unreached by these fixtures). A newer launcher is played by seeding
+ * R2 with a doc carrying blocks this build's schemas do not declare.
  */
 import { createHash } from 'node:crypto';
 import { mock } from 'node:test';
@@ -706,6 +706,40 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 		'components: the snapshot of the bumped version is the merged doc',
 		bucket.get(projectComponentVersionKey('p', COMPONENT.id, 4))?.text,
 		bucket.get(componentKey)?.text,
+	);
+}
+
+{
+	// A row the READ dropped (a param of a kind this build does not know) is not the author's change:
+	// a no-op save keeps the version, with or without unknown fields on that row. So does a stored
+	// duplicate id (first wins, on both sides of the compare).
+	for (const extra of [{}, { tooltip: 'x' }]) {
+		resetComponents();
+		const doc = newerComponent() as StoredDef;
+		doc.params.push({ key: 'clip', kind: 'video', ...extra });
+		doc.signals.push({ key: 'onSpin', payload: 'other' });
+		const etag = seed(componentKey, doc);
+		const result = await saveComponent(olderView(), 'p', etag);
+		check(
+			`components: a no-op save over a dropped row${'tooltip' in extra ? ' with extras' : ''} keeps the version`,
+			result.version,
+			3,
+		);
+	}
+}
+
+{
+	// The graft matches by id, so an editor must NEVER reuse a stored id for a different entity: a
+	// node created under a deleted node's id takes that node's unknown fields.
+	resetComponents();
+	const etag = seed(componentKey, newerComponent());
+	const edited = structuredClone(olderView()) as StoredDef;
+	edited.root.children[0] = { id: 'n_a', kind: 'text', x: 0, y: 0, text: 'new', children: [] };
+	await saveComponent(edited as unknown as Def, 'p', etag);
+	check(
+		'components: an id reused for a new entity inherits the stored fields (editors must not)',
+		nodeById(stored(componentKey).root, 'n_a')?.on,
+		LISTENER.on,
 	);
 }
 

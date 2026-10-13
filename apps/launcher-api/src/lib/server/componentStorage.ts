@@ -394,12 +394,6 @@ export async function saveComponent(
 				promotedFrom.baseEtag,
 			)
 		: undefined;
-	if (promotedFrom && promoted === undefined) {
-		console.warn(
-			`[component] ${normalized.id}: promoted without the project def's unknown fields — it ` +
-				'changed since the draft loaded, or is unreadable',
-		);
-	}
 	const { def: existing, etag: existingEtag, stored } = await readComponentForWrite(key);
 	// CHECK BEFORE WRITING ANYTHING. The snapshot is written first and is immutable, so
 	// discovering a lost CAS at the LATEST pointer (the second write) would already have
@@ -407,6 +401,12 @@ export async function saveComponent(
 	// that same N+1, collide with the orphan, and 409 FOREVER with no way out of the UI.
 	// An in-process compare makes the ordinary conflict path write nothing at all.
 	if (baseEtag !== undefined && baseEtag !== existingEtag) throw new ConflictError(key);
+	if (promotedFrom && promoted === undefined) {
+		console.warn(
+			`[component] ${normalized.id}: promoted without the project def's unknown fields — it ` +
+				'changed since the draft loaded, or is unreadable',
+		);
+	}
 
 	const merged = withUnknownComponentFields(
 		normalized,
@@ -421,7 +421,7 @@ export async function saveComponent(
 		existing,
 	);
 	if (existing && version === existing.version && !sameUnknownComponentFields(merged, stored)) {
-		version = existing.version + 1;
+		version = Math.max(normalized.version, existing.version) + 1;
 	}
 	const toWrite = version === merged.version ? merged : { ...merged, version };
 	const body = JSON.stringify(toWrite, null, 2);
