@@ -266,7 +266,13 @@
 	let runner: ComponentStateMachineRunner | null = null;
 	/** The game's per-instance player, on the component's nodes — the stage shows its samples. */
 	let player: ComponentTimelinePlayer | null = null;
+	/** The author pressed ▶ Run (⏹ Stop clears it) — what the bar shows. */
 	let running = $state(false);
+	/** The rAF loop is armed. It sleeps while nothing needs a tick and the next input re-arms it,
+	 *  without touching `running`. */
+	let scheduled = false;
+	/** `enter` fired for this run — once, when it starts, as the game does on first appearance. */
+	let entered = false;
 	/** Bumped by every `run`/`stop`: a run that resumes after its fetch checks it is still wanted. */
 	let runToken = 0;
 	let destroyed = false;
@@ -417,6 +423,7 @@
 		}
 		runner = new ComponentStateMachineRunner(def.stateMachine, inputs, durations());
 		player = previewPlayer(docs.values(), scene.nodes);
+		entered = false;
 		for (const [id, value] of Object.entries(previewValues)) runner.setInput(id, value);
 		apply();
 	}
@@ -439,12 +446,15 @@
 		setTimelinePreview(active ? playerDrives(player) : null, previewOwner);
 	}
 	function tick(now: number): void {
-		if (!running || !runner) return;
+		if (!running || !runner) {
+			scheduled = false;
+			return;
+		}
 		const dt = Math.min((now - last) / 1000, 0.1);
 		last = now;
 		if (!runner.needsTick()) {
-			// At rest: the loop sleeps; the next input or trigger runs it again.
-			running = false;
+			// At rest: the loop sleeps; the next input or trigger arms it again.
+			scheduled = false;
 			return;
 		}
 		const step = runner.advance(dt);
@@ -452,44 +462,62 @@
 		apply();
 		raf = requestAnimationFrame(tick);
 	}
+	function arm(): void {
+		if (scheduled || !running) return;
+		scheduled = true;
+		last = performance.now();
+		cancelAnimationFrame(raf);
+		raf = requestAnimationFrame(tick);
+	}
 	function light(transitionId: string): void {
 		litTransition = transitionId;
 		clearTimeout(litTimer);
 		litTimer = window.setTimeout(() => (litTransition = null), 600);
 	}
-	/** The machine's first visible frame, as in game: `enter` fires on Run and on Reset. */
-	async function run(enter = false): Promise<void> {
+	/** ▶ Run: the machine's first visible frame, as in game — `enter` fires once, when the run
+	 *  starts; an input while running only arms the sleeping loop. */
+	async function run(): Promise<void> {
 		const token = ++runToken;
 		await loadDocs();
 		if (destroyed || !active || token !== runToken) return;
 		if (!runner) buildRunner();
-		if (enter) runner?.fire('enter');
+		if (!runner) return;
 		running = true;
-		last = performance.now();
-		cancelAnimationFrame(raf);
-		raf = requestAnimationFrame(tick);
+		if (!entered) {
+			entered = true;
+			runner.fire('enter');
+		}
+		arm();
 	}
 	function stop(): void {
 		runToken += 1;
 		running = false;
+		scheduled = false;
 		cancelAnimationFrame(raf);
 	}
+	/** ↺ Reset: back to the entry states — a fresh start, so the next run fires `enter` again. */
 	function reset(): void {
 		runner?.reset();
-		runner?.fire('enter');
+		entered = false;
 		apply();
-		if (!running) void run();
+		if (running) {
+			entered = true;
+			runner?.fire('enter');
+			arm();
+		}
 	}
 	function fire(id: string): void {
 		if (!runner) buildRunner();
 		runner?.fire(id);
-		if (!running) void run();
+		if (running) arm();
+		else void run();
 	}
 	function setPreviewInput(id: string, value: number | boolean): void {
 		previewValues[id] = value;
 		if (!runner) buildRunner();
 		runner?.setInput(id, value);
-		if (!running) void run();
+		if (running) arm();
+		else void run();
 	}
 	// Another component (or another version of it) opened: nothing of the old one's panel state
 	// carries over — selection, layer tab, preview inputs, the lit arrow, the fetched timelines.
@@ -512,9 +540,11 @@
 		void inputs;
 		void timelines;
 		untrack(() => {
+			const wasRunning = running;
 			stop();
 			void loadDocs().then(() => {
 				buildRunner();
+				if (wasRunning && !destroyed && active) void run();
 			});
 		});
 	});
@@ -627,7 +657,7 @@
 				type="button"
 				title="Run the state machine on the stage"
 				disabled={!layers.length}
-				onclick={() => void run(true)}>▶ Run</button
+				onclick={() => void run()}>▶ Run</button
 			>
 		{/if}
 		<button
@@ -650,7 +680,7 @@
 						colorMode="dark"
 						fitView
 						minZoom={0.3}
-						deleteKey={active ? ['Delete', 'Backspace'] : null}
+						deleteKey={active ? ['Delete', 'Backspace'] : []}
 						{isValidConnection}
 						onconnect={onConnect}
 						ondelete={onGraphDelete}

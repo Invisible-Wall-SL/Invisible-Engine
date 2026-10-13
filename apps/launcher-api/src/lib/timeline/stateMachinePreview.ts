@@ -15,8 +15,9 @@ import type { TimelineNodeDrive } from './screenTimeline';
  * the pure seams around them, so the gate can drive the same sequences the panel does.
  */
 
-/** The player a preview binds: the states' timelines, their `playOn` stripped as in game
- *  (`instanceTimelineDocs`), on the component's nodes. */
+/** The player a preview binds: the states' timelines on the component's nodes, every `playOn`
+ *  stripped — the stage previews the machine alone (in game, `instanceTimelineDocs` keeps the
+ *  component's own `playOn` timelines playing beside it). */
 export function previewPlayer(
 	docs: Iterable<CinematicDoc>,
 	nodes: LayoutNode[],

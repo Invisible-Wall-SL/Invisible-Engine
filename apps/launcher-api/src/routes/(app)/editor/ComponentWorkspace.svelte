@@ -1708,13 +1708,17 @@
 
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. Off removes it from
 	 *  `signals` and from a `trigger` input of that id alike; on declares it in `signals`. */
-	function toggleComponentSignal(key: string): void {
+	async function toggleComponentSignal(key: string): Promise<void> {
 		if (!componentDraft || isInspecting) return;
+		const componentId = componentDraft.id;
 		const signals = componentDraft.signals ?? [];
 		const inputs = componentDraft.inputs ?? [];
 		const has =
 			signals.some((s) => s.key === key) ||
 			inputs.some((i) => i.id === key && i.kind === 'trigger');
+		// Un-ticking is removing the input: the same warning × gives.
+		if (has && !(await confirmInputRemoval(componentDraft, key))) return;
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
 		componentDraft.signals = has ? signals.filter((s) => s.key !== key) : [...signals, { key }];
 		if (componentDraft.signals.length === 0) delete componentDraft.signals;
 		if (has && inputs.length) {
@@ -1734,37 +1738,42 @@
 			void askMessage({ title: 'Input not added', message: `"${id}" is already an input.` });
 		}
 	}
+	/** True to go ahead: nothing reads the input, or the author confirmed knowing what does. */
+	async function confirmInputRemoval(draft: ComponentDef, id: string): Promise<boolean> {
+		const used = inputUsage(draft, id);
+		if (!used.length) return true;
+		return askConfirm({
+			title: `Remove input "${id}"?`,
+			message: `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`,
+			confirmLabel: 'Remove',
+			danger: true,
+		});
+	}
 	async function removeComponentInput(id: string): Promise<void> {
 		if (!componentDraft || isInspecting) return;
-		const used = inputUsage(componentDraft, id);
-		if (used.length) {
-			const ok = await askConfirm({
-				title: `Remove input "${id}"?`,
-				message: `${used.length} state-machine transition(s) use it. They will never fire until you fix their conditions (flagged ⚠ in the State machine tab).`,
-				confirmLabel: 'Remove',
-				danger: true,
-			});
-			if (!ok || !componentDraft || isInspecting) return;
-		}
+		const componentId = componentDraft.id;
+		if (!(await confirmInputRemoval(componentDraft, id))) return;
+		// The dialog awaited: the removal lands only on the component it was asked on.
+		if (!componentDraft || componentDraft.id !== componentId || isInspecting) return;
 		removeInput(componentDraft, id);
 	}
-	/** The component timelines that play on `signal` (4b `playOn`), by name — a rename breaks them. */
-	async function timelinesPlayingOn(signal: string): Promise<string[]> {
-		if (!componentDraft) return [];
+	/** The timelines of component `componentId` that play on `signal` (4b `playOn`), by name — a
+	 *  rename breaks them. Throws when any read fails, so the dialog never under-reports. */
+	async function timelinesPlayingOn(componentId: string, signal: string): Promise<string[]> {
 		const project = encodeURIComponent(data.projectKey);
 		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
 		if (!res.ok) throw new Error(`list: ${res.status}`);
 		const rows = componentTimelinesOf(
 			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
 				.cinematics,
-			componentDraft.id,
+			componentId,
 		);
 		const docs = await Promise.all(
 			rows.map(async (row) => {
 				const r = await fetch(
 					`/api/cinematics/get?id=${encodeURIComponent(row.id)}&projectKey=${project}`,
 				);
-				if (!r.ok) return null;
+				if (!r.ok) throw new Error(`"${row.name || row.id}": ${r.status}`);
 				const body = (await r.json()) as { doc: { playOn?: string } | null };
 				return body.doc?.playOn === signal ? row.name || row.id : null;
 			}),
@@ -1780,7 +1789,7 @@
 		if (componentDraft.signals?.some((sg) => sg.key === id)) wires.push('a declared signal');
 		let playOn: string[];
 		try {
-			playOn = await timelinesPlayingOn(id);
+			playOn = await timelinesPlayingOn(componentId, id);
 		} catch (e) {
 			void askMessage({
 				title: 'Could not check the timelines',
@@ -2512,7 +2521,7 @@
 						onUnexposeRigParam={unexposeRigParam}
 						onExposeImageParam={exposeImageParam}
 						onUnexposeImageParam={unexposeImageParam}
-						onToggleSignal={toggleComponentSignal}
+						onToggleSignal={(key) => void toggleComponentSignal(key)}
 						onSetSignalScope={setComponentSignalScope}
 						projectParamDefaults={projectDefaults}
 						onSetProjectParamDefault={setProjectParamDefault}

@@ -4,14 +4,14 @@
  *
  *  1. editing the draft def: layers, states (the first becomes the entry), transitions (never
  *     from Exit or into Any; Entry sets the entry), conditions, positions;
- *  2. the inputs list: add (a trigger a signal declares adds nothing), remove (from `inputs`,
- *     `signals` AND every condition — reported), rename (everywhere it is read — refused when
- *     taken), defaults and sources;
+ *  2. the inputs list: add (a trigger a signal declares adds nothing), remove (from `inputs` and
+ *     `signals`; the conditions that read it stay and fail closed — reported), rename (everywhere
+ *     it is read — refused when taken), defaults and sources, ids a saved def used never reused;
  *  3. the graph the panel draws: Entry / Any / Exit, states named after their timeline, the
  *     Entry edge, transition labels;
- *  4. the stage preview: `stateMachineDrives` gives, for a state at time t, exactly what the
- *     Timeline panel's `timelineDrives` gives for that timeline at t, merges layers per property
- *     and mixes a blend — the same rules as the game's player;
+ *  4. the stage preview runs the game's own player through the panel's seams (`previewPlayer`,
+ *     `placeLayers`, `playerDrives`): a blend, a `signal:` cue reaching the runner, a missing
+ *     timeline;
  *  5. what saves: `normalizeComponent` keeps the editor's positions; the state machine still
  *     travels inside the def, so no new write exists for `check:component-links` to enumerate.
  *
@@ -460,7 +460,7 @@ const names = new Map([
 		);
 		eq(
 			'the graph answers Delete only while its tab is shown (xyflow listens on the window)',
-			/deleteKey=\{active \? \['Delete', 'Backspace'\] : null\}/.test(src),
+			/deleteKey=\{active \? \['Delete', 'Backspace'\] : \[\]\}/.test(src),
 			true,
 		);
 		eq(
