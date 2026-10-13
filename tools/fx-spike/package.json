@@ -17,7 +17,8 @@
 		"rig-particle": "tsx rigParticle.ts",
 		"rig-particle-behavior": "tsx rigParticleBehavior.ts",
 		"variation": "tsx variation.ts",
-		"rig-bound": "tsx rigBound.ts"
+		"rig-bound": "tsx rigBound.ts",
+		"forces": "tsx forces.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",

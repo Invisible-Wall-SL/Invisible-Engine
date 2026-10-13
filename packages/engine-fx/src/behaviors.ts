@@ -12,7 +12,8 @@
  *
  * Both are plain classes matching the library's `IEmitterBehavior` duck type (`order` +
  * `initParticles`, optional `updateParticle`) — the same pluggable seam Tier C's `spineParticle`
- * behavior stands on. They import NOTHING: no PixiJS, no particle-emitter, so this module stays
+ * behavior stands on. They import nothing but `./forces` (the `fxForces` behavior, registered
+ * here beside them): no PixiJS, no particle-emitter, so this module stays
  * pure and headlessly unit-coverable like the rest of `engine-fx`. Registration therefore takes
  * the `Emitter` class as an ARGUMENT ({@link registerFxBehaviors}) rather than importing it.
  *
@@ -23,6 +24,8 @@
  * Call sites: the runtime `<ParticleEmitter>` and the launcher's shared `effectEmitter.client.ts`
  * (which every launcher-side stage — `/fx`, the Scene Editor, the Rigger/Symbols overlay — imports).
  */
+
+import { FX_FORCES_BEHAVIOR_TYPE, FxForcesBehavior } from './forces';
 
 /** One point of a V3 `ValueList` curve (`{ time: 0..1, value }`). */
 export interface FxCurvePoint {
@@ -394,6 +397,7 @@ export const FX_BEHAVIOR_TYPES = [
 	FX_SCALE_BEHAVIOR_TYPE,
 	FX_SPEED_BEHAVIOR_TYPE,
 	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
+	FX_FORCES_BEHAVIOR_TYPE,
 ];
 
 /**
@@ -405,4 +409,5 @@ export function registerFxBehaviors(emitter: FxBehaviorRegistrar): void {
 	emitter.registerBehavior(FxScaleBehavior as never);
 	emitter.registerBehavior(FxSpeedBehavior as never);
 	emitter.registerBehavior(FxColorOverlayBehavior as never);
+	emitter.registerBehavior(FxForcesBehavior as never);
 }
