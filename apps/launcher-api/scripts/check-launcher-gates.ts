@@ -288,13 +288,22 @@ for (const route of [...FIXED, ...Object.keys(PROJECT_READ_EXEMPT)]) {
  * Its behaviour is `check-lease-scope.ts`. Read per FILE, because lease parses its key in a helper
  * outside the handler, so every handler in such a file must carry the checks.
  */
-const BODY_PROJECT_KEY = /\bbody\.projectKey\b|\{[^}]*\bprojectKey\b[^}]*\}\s*=\s*body\b/;
+// A tab's project key, from its body or its query string (`?projectKey=` on the GETs).
+const BODY_PROJECT_KEY =
+	/\bbody\??\.projectKey\b|\(body as [^)]*\)\.projectKey\b|\{[^}]*\bprojectKey\b[^}]*\}\s*=\s*body\b|searchParams\.get\(\s*['"`]projectKey['"`]\s*\)/;
 const ACTS_ON_BODY_PROJECT_KEY: Record<string, string[]> = {
 	lease: ['canAccessProject(', 'projectClientKey('],
 };
 const STALE_TAB_GUARDS = [
+	'cinematics/delete',
+	'cinematics/get',
+	'cinematics/list',
 	'cinematics/save',
+	'editor/art-bounds',
 	'editor/backups',
+	'editor/flipbooks',
+	'editor/import',
+	'editor/rigs/reindex',
 	'editor/rigs/upload',
 	'flipbook/save',
 	'flow-v2/backups',
@@ -314,9 +323,18 @@ for (const file of handlers) {
 		check(
 			`api/${route} only compares body.projectKey against the session's project`,
 			/\bbody\.projectKey\s*!==\s*projectKey\b/.test(src) ||
-				/\bscopeMismatch\(\s*body\.projectKey,\s*projectKey\s*\)/.test(src),
+				/\bscopeMismatch\(\s*(?:body\??|\(body as [^)]*\)|url\.searchParams\.get\(\s*'projectKey'\s*\))(?:\.projectKey)?[^,]*,\s*projectKey\b/.test(
+					src,
+				),
 			true,
 		);
+		// A guard whose answer is dropped guards nothing: every `scopeMismatch(` in the route is
+		// followed by returning its refusal.
+		const guards = (src.match(/\bscopeMismatch\(/g) ?? []).length;
+		const returned = (src.match(/if \(mismatch\) return mismatch;/g) ?? []).length;
+		if (guards > 0 && src.includes("from '$lib/server/scopeGuard'")) {
+			check(`api/${route} returns every scopeMismatch refusal it computes`, returned, guards);
+		}
 		continue;
 	}
 	const required = ACTS_ON_BODY_PROJECT_KEY[route];

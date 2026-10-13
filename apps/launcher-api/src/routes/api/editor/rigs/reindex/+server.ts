@@ -21,9 +21,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		tool: 'editor',
 		forbiddenMessage: 'Your role does not have access to the Invisible Editor.',
 	});
-	// Optional body `{ projectKey }`: the tab's project, refused on a mismatch (`scopeMismatch`).
+	// Body `{ projectKey }`: the tab's project, required and refused on a mismatch (`scopeMismatch`).
 	const body = (await request.json().catch(() => null)) as { projectKey?: unknown } | null;
-	const mismatch = scopeMismatch(body?.projectKey, projectKey);
+	const mismatch = scopeMismatch(body?.projectKey, projectKey, { required: true });
 	if (mismatch) return mismatch;
 
 	const rigsPrefix = SUB.spines(clientKey, projectKey);

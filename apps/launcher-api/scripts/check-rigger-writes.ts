@@ -370,7 +370,7 @@ const PAGE = Buffer.from('png').toString('base64');
 
 {
 	seedProject();
-	const res = await call(reindex.POST, {});
+	const res = await call(reindex.POST, { projectKey: 'p1' });
 	check('reindex: keeps the atlas-less rig B', [res.status, listed()], [200, ['A', 'B']]);
 	check(
 		'reindex: answers the count, and how many were preserved / re-derived',
@@ -381,11 +381,28 @@ const PAGE = Buffer.from('png').toString('base64');
 	seedProject();
 	seedStore(`${RIGS}/E/E.irig`, skel('E'));
 	seedStore(`${RIGS}/E/source.json`, '{"manifestKey":"m"}');
-	const healed = await call(reindex.POST, {});
+	const healed = await call(reindex.POST, { projectKey: 'p1' });
 	check(
 		'reindex: an atlas-less rig with a source gets its atlas re-derived and listed',
 		[listed(), healed.body.rederived, bucket.has(`${RIGS}/E/E.atlas`)],
 		[['A', 'B', 'E'], 1, true],
+	);
+
+	// The editor names its tab's project: a reindex for another one, or for none, writes nothing.
+	seedProject();
+	const before = text(`${RIGS}/skeletons.json`);
+	const other = await call(reindex.POST, { projectKey: 'p2' });
+	const bare = await call(reindex.POST, {});
+	check(
+		'reindex: a tab on another project is a 409 scope-mismatch; naming none is a 400',
+		[
+			other.status,
+			other.body.error,
+			bare.status,
+			bare.body.error,
+			text(`${RIGS}/skeletons.json`) === before,
+		],
+		[409, 'scope-mismatch', 400, 'project-required', true],
 	);
 
 	seedProject();

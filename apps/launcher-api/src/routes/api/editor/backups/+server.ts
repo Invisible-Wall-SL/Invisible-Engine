@@ -30,8 +30,12 @@ const GATE = {
 } as const;
 
 /** Newest-first `{ id, savedAt, size }` for the project's preserved editor docs. */
-export const GET: RequestHandler = async ({ locals, cookies }) => {
+export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
+	const mismatch = scopeMismatch(url.searchParams.get('projectKey'), projectKey, {
+		required: true,
+	});
+	if (mismatch) return mismatch;
 	const target = editorDocBackupTarget(clientKey, projectKey);
 	return json({ ok: true, projectKey, backups: await listBackups(target) });
 };
@@ -45,7 +49,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
 	const target = editorDocBackupTarget(clientKey, projectKey);
 	const body = await restoreBody(request);
-	const mismatch = scopeMismatch(body.projectKey, projectKey);
+	const mismatch = scopeMismatch(body.projectKey, projectKey, { required: true });
 	if (mismatch) return mismatch;
 	const { id, baseEtag } = restoreArgs(body, target);
 	// Re-normalize rather than trusting the stored bytes: a backup may predate a doc migration

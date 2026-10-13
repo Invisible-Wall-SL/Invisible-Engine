@@ -15,6 +15,7 @@
  * a texture's declared box from anyway.
  */
 
+import { editorProjectKey, withEditorProject } from './editorProject.client';
 import { applyClipBounds } from 'engine-flipbook';
 
 export interface ArtBoundsBox {
@@ -29,14 +30,8 @@ let map: Record<string, ArtBoundsBox> = {};
 let etag: string | null = null;
 let loaded = false;
 let pending: Promise<void> | null = null;
-/** The project the editor page was loaded for: sent with every save, so the server refuses one
- * that would land in another project the session moved to (`scopeMismatch`). */
-let projectKey: string | undefined;
-
-/** Bind the saves to the project the editor page was loaded for. */
-export function bindArtBoundsProject(key: string): void {
-	projectKey = key || undefined;
-}
+/** The project the cached map was read for: a different bound project drops the cache. */
+let loadedFor: string | null = null;
 
 /**
  * Bumped on every change. The 2D canvas is repainted by explicit triggers rather than by tracking
@@ -66,12 +61,24 @@ export function artBoundsOf(assetKey: string, region: string): ArtBoundsBox | un
  * draw every region (the `fetchClips` degradation).
  */
 export function loadArtBounds(): Promise<void> {
+	if (loadedFor !== editorProjectKey()) {
+		// Another project's boxes must never draw here — not even while this project's GET is in
+		// flight, nor forever if it fails (manifest keys are project-relative, so they can match).
+		map = {};
+		etag = null;
+		version++;
+		clearArtBoundsCache();
+	}
 	if (pending) return pending;
+	const project = editorProjectKey();
+	loadedFor = project;
 	pending = (async () => {
 		try {
-			const res = await fetch('/api/editor/art-bounds');
+			const res = await fetch(withEditorProject('/api/editor/art-bounds'));
 			if (!res.ok) return;
 			const body = (await res.json()) as { bounds?: Record<string, ArtBoundsBox>; etag?: string };
+			// The bound project changed while this read was in flight: its answer is not ours.
+			if (loadedFor !== project) return;
 			map = body.bounds ?? {};
 			etag = body.etag ?? null;
 			version++;
@@ -93,6 +100,7 @@ export function artBoundsLoaded(): boolean {
 export function clearArtBoundsCache(): void {
 	pending = null;
 	loaded = false;
+	loadedFor = null;
 }
 
 /**
@@ -113,6 +121,7 @@ export async function saveArtBounds(
 	box: ArtBoundsBox | undefined,
 ): Promise<string | null> {
 	const ref = artBoundsRef(assetKey, region);
+	const previous = map;
 	const next = { ...map };
 	if (box) next[ref] = box;
 	else delete next[ref];
@@ -122,14 +131,23 @@ export async function saveArtBounds(
 		const res = await fetch('/api/editor/art-bounds', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ bounds: next, baseEtag: etag, projectKey }),
+			body: JSON.stringify({ bounds: next, baseEtag: etag, projectKey: editorProjectKey() }),
 		});
 		const body = (await res.json().catch(() => ({}))) as {
 			ok?: boolean;
 			etag?: string;
 			message?: string;
 			bounds?: Record<string, ArtBoundsBox>;
+			error?: string;
 		};
+		if (res.status === 409 && body.error === 'scope-mismatch') {
+			// Not a conflict: this tab's project is no longer the session's. Nothing to reload from
+			// here (the read would be refused the same way) — the author must reload the page. The
+			// optimistic box was never saved, so it must not stay on the canvas either.
+			map = previous;
+			version++;
+			return body.message ?? 'This tab’s project changed — reload the page.';
+		}
 		if (res.status === 409) {
 			clearArtBoundsCache();
 			await loadArtBounds();

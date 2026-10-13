@@ -46,7 +46,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
-	const mismatch = scopeMismatch(body.projectKey, projectKey);
+	const mismatch = scopeMismatch(body.projectKey, projectKey, { required: true });
 	if (mismatch) return mismatch;
 	const files = body.files;
 	if (!Array.isArray(files) || files.length === 0) {

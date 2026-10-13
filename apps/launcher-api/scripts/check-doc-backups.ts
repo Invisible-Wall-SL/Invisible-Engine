@@ -735,10 +735,10 @@ const ROUTES: RouteCase[] = [
 	{
 		name: 'api/editor/backups',
 		target: T_SCENES,
-		path: '/api/editor/backups',
+		path: `/api/editor/backups?projectKey=${SESSION.projectKey}`,
 		GET: editorBackupsRoute.GET,
 		POST: editorBackupsRoute.POST,
-		extra: {},
+		extra: { projectKey: SESSION.projectKey },
 		save: async (tag, baseEtag) =>
 			(await saveDoc('r', 'route', normalizeDoc({ gameType: tag }, 'route'), baseEtag)).etag,
 		liveTag: () => liveJson(T_SCENES).gameType,
@@ -903,6 +903,39 @@ check('a config restore busts the runtime bundle for its project', invalidated, 
 		[res.status, res.body.error, calls],
 		[409, 'scope-mismatch', []],
 	);
+}
+{
+	// The Scene Editor's history is session-bound and its only caller is the editor, which always
+	// names its tab's project: a mismatch is refused, and so is a request naming none.
+	reset();
+	const id = paths.docBackupId('editor', T0, null);
+	const restoreOther = await call(editorBackupsRoute.POST, '/api/editor/backups', {
+		id,
+		force: true,
+		projectKey: 'another-project',
+	});
+	check(
+		'an editor restore from a tab on another project is a 409 scope-mismatch, even with force',
+		[restoreOther.status, restoreOther.body.error, calls],
+		[409, 'scope-mismatch', []],
+	);
+	const restoreBare = await call(editorBackupsRoute.POST, '/api/editor/backups', {
+		id,
+		force: true,
+	});
+	check(
+		'an editor restore naming no project is a 400 project-required',
+		[restoreBare.status, restoreBare.body.error, calls],
+		[400, 'project-required', []],
+	);
+	const listOther = await call(editorBackupsRoute.GET, '/api/editor/backups?projectKey=other');
+	check(
+		'the editor history list for another project is a 409 scope-mismatch',
+		[listOther.status, listOther.body.error],
+		[409, 'scope-mismatch'],
+	);
+	const listBare = await call(editorBackupsRoute.GET, '/api/editor/backups');
+	check('the editor history list naming no project is a 400', listBare.status, 400);
 }
 {
 	const invalid = paths.docBackupId('config', at(-3), null);

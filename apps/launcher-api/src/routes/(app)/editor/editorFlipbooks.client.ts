@@ -13,6 +13,7 @@
  * flipbook bake, never through the layout doc.
  */
 
+import { editorProjectKey, withEditorProject } from './editorProject.client';
 import { applyClipBounds } from 'engine-flipbook';
 
 /** One authored clip — the server's `FlipbookClip`, restated structurally so this client module
@@ -42,6 +43,8 @@ export type ClipDirection = 'forward' | 'reverse' | 'pingpong';
 export const DEFAULT_CLIP_FPS = 24;
 
 let pending: Promise<EditorClip[]> | null = null;
+/** The project the cached clips were read for: a different bound project drops the cache. */
+let loadedFor: string | null = null;
 
 /**
  * Fetch (once per page load) the project's clips. A failed/forbidden request resolves to `[]` —
@@ -49,10 +52,12 @@ let pending: Promise<EditorClip[]> | null = null;
  * section degrades.
  */
 export function fetchClips(): Promise<EditorClip[]> {
+	if (loadedFor !== editorProjectKey()) pending = null;
 	if (pending) return pending;
+	loadedFor = editorProjectKey();
 	pending = (async (): Promise<EditorClip[]> => {
 		try {
-			const res = await fetch('/api/editor/flipbooks');
+			const res = await fetch(withEditorProject('/api/editor/flipbooks'));
 			if (!res.ok) return [];
 			const body = (await res.json()) as { clips?: EditorClip[] };
 			return Array.isArray(body.clips) ? body.clips : [];
