@@ -924,6 +924,187 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	);
 }
 
+// ── Components: inputs and the state machine (Rive plan Phase 5a) ─────────────────────────────
+
+const SM_COMPONENT = {
+	...COMPONENT,
+	inputs: [
+		{ id: 'hover', kind: 'bool', default: false },
+		{ id: 'tap', kind: 'trigger' },
+	],
+	stateMachine: {
+		layers: [
+			{
+				id: 'L',
+				entry: 's_idle',
+				states: [
+					{ id: 's_idle', timeline: 'idle' },
+					{ id: 's_win', timeline: 'win' },
+				],
+				transitions: [
+					{
+						id: 't_a',
+						from: 's_idle',
+						to: 's_win',
+						conditions: [{ input: 'hover', op: '==', value: true }],
+					},
+					{ id: 't_b', from: 's_win', to: 's_idle', conditions: [{ input: 'tap', op: 'fired' }] },
+				],
+			},
+			{ id: 'M', entry: 's_idle', states: [{ id: 's_idle', timeline: 'idle' }], transitions: [] },
+		],
+	},
+};
+const MARK = { mark: 'newer' };
+/** A newer launcher's state machine: a field on the block, each layer / state / transition / input,
+ *  a condition, a text input, and a namesake state in layer M without one. */
+const newerMachine = (): StoredDef => {
+	const doc = structuredClone(SM_COMPONENT) as unknown as Required<SmDoc>;
+	Object.assign(doc.inputs[0], MARK);
+	doc.inputs.splice(1, 0, { id: 'label', kind: 'text', default: 'SPIN', ...MARK });
+	Object.assign(doc.stateMachine, { blend: 'smooth' });
+	const [layer] = doc.stateMachine.layers;
+	Object.assign(layer, MARK);
+	Object.assign(layer.states[1], MARK);
+	Object.assign(layer.transitions[0], MARK);
+	Object.assign(layer.transitions[0].conditions[0], MARK);
+	return doc as unknown as StoredDef;
+};
+/** The 5a blocks as the cases poke at them; `mark` is the newer field. */
+interface SmRow {
+	id: string;
+	mark?: string;
+	conditions?: unknown;
+	[key: string]: unknown;
+}
+interface SmLayerRow extends SmRow {
+	states: SmRow[];
+	transitions: SmRow[];
+}
+interface Machine {
+	layers: SmLayerRow[];
+	blend?: string;
+	[key: string]: unknown;
+}
+interface SmDoc {
+	inputs: SmRow[];
+	stateMachine?: Machine;
+	[key: string]: unknown;
+}
+const machineOf = (doc: unknown): Machine => (doc as { stateMachine: Machine }).stateMachine;
+const inputsOf = (doc: unknown): SmRow[] => (doc as SmDoc).inputs;
+
+{
+	resetComponents();
+	const etag = seed(componentKey, newerMachine());
+	const loaded = olderView();
+	check(
+		'components 5a: the read drops the unknown fields and the text input',
+		[
+			inputsOf(loaded).map((i) => i.id),
+			'blend' in machineOf(loaded),
+			'mark' in machineOf(loaded).layers[0],
+		],
+		[['hover', 'tap'], false, false],
+	);
+	const result = await saveComponent(loaded, 'p', etag);
+	const after = stored(componentKey);
+	const machine = machineOf(after);
+	const [L, M] = machine.layers;
+	check('components 5a: a no-op save keeps the version', result.version, 3);
+	check('components 5a: the state machine’s own unknown field is kept', machine.blend, 'smooth');
+	check(
+		'components 5a: …each layer’s, state’s and transition’s, matched by id',
+		[L.mark, L.states[1].mark, L.transitions[0].mark],
+		['newer', 'newer', 'newer'],
+	);
+	check('components 5a: …each input’s', inputsOf(after)[0].mark, 'newer');
+	check('components 5a: a state matches within its layer only', 'mark' in M.states[0], false);
+	check(
+		'components 5a: a condition is its transition’s data, not grafted on its own',
+		L.transitions[0].conditions,
+		[{ input: 'hover', op: '==', value: true }],
+	);
+	check(
+		'components 5a: an input of a kind this build does not know is kept, in place',
+		inputsOf(after).map((i) => i.id),
+		['hover', 'label', 'tap'],
+	);
+	check('components 5a: …unchanged', inputsOf(after)[1], {
+		id: 'label',
+		kind: 'text',
+		default: 'SPIN',
+		...MARK,
+	});
+}
+
+{
+	// The author deleted a state, a transition and an input: none comes back with its fields.
+	resetComponents();
+	const etag = seed(componentKey, newerMachine());
+	const edited = structuredClone(olderView()) as unknown as SmDoc;
+	const layer = edited.stateMachine!.layers[0];
+	layer.states = layer.states.filter((s: SmRow) => s.id !== 's_win');
+	layer.transitions = [];
+	edited.inputs = edited.inputs.filter((i: SmRow) => i.id !== 'hover');
+	const result = await saveComponent(edited as unknown as Def, 'p', etag);
+	const after = stored(componentKey);
+	const L = machineOf(after).layers[0];
+	check('components 5a: an edit bumps the version', result.version, 4);
+	check(
+		'components 5a: deleted states / transitions / inputs are not resurrected',
+		[L.states.map((s) => s.id), L.transitions, inputsOf(after).map((i) => i.id)],
+		[['s_idle'], [], ['label', 'tap']],
+	);
+	check('components 5a: the surviving layer keeps its field', L.mark, 'newer');
+}
+
+{
+	// The author removed the whole state machine: its layers go, its namespace field stays.
+	resetComponents();
+	const etag = seed(componentKey, newerMachine());
+	const edited = structuredClone(olderView()) as unknown as SmDoc;
+	delete edited.stateMachine;
+	await saveComponent(edited as unknown as Def, 'p', etag);
+	check(
+		'components 5a: clearing the state machine keeps only its namespace field',
+		machineOf(stored(componentKey)),
+		{ blend: 'smooth' },
+	);
+}
+
+{
+	// Force keeps nothing; the text input the read dropped goes too (the author replaced the bytes).
+	resetComponents();
+	seed(componentKey, newerMachine());
+	await saveComponent(olderView(), 'p', undefined);
+	const after = stored(componentKey);
+	check(
+		'components 5a: a forced save keeps nothing',
+		['blend' in machineOf(after), inputsOf(after).map((i) => i.id)],
+		[false, ['hover', 'tap']],
+	);
+}
+
+{
+	resetComponents();
+	const etag = seed(
+		componentKey,
+		normalizeComponent(structuredClone(SM_COMPONENT) as unknown as Def),
+	);
+	const before = bucket.get(componentKey)?.text;
+	await saveComponent(
+		normalizeComponent(structuredClone(SM_COMPONENT) as unknown as Def),
+		'p',
+		etag,
+	);
+	check(
+		'components 5a: a known-only state machine saves byte-identically',
+		bucket.get(componentKey)?.text,
+		before,
+	);
+}
+
 // ── Component defaults ("This game's defaults"): `{ id, params }` plus a newer build's fields ─
 
 {

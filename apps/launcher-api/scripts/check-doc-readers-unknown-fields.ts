@@ -674,16 +674,45 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		root: { id: 'root', kind: 'container', x: 0, y: 0, width: 200, height: 200, children: [] },
 		params: [{ key: 'label', kind: 'string', default: 'SPIN', group: 'Copy' }],
 		signals: [{ key: 'onSpin', note: 'pressed' }],
+		inputs: [
+			{ id: 'win', kind: 'trigger' },
+			{ id: 'amount', kind: 'number', default: 0, source: 'winAmount' },
+		],
+		stateMachine: {
+			layers: [
+				{
+					id: 'main',
+					entry: 'idle',
+					states: [{ id: 'idle', timeline: 'c_spin_idle', loop: true }],
+					transitions: [
+						{
+							id: 't',
+							from: 'idle',
+							to: 'exit',
+							conditions: [{ input: 'win', op: 'fired' }],
+							exitTime: 1,
+							blend: 120,
+						},
+					],
+				},
+			],
+		},
 	};
 	const extras = clone(base) as typeof base & Record<string, unknown>;
 	extras.thumbnail = 'thumb.png';
 	Object.assign(extras.root, { pivot: { x: 0.5, y: 0.5 } });
 	Object.assign(extras.params[0], { tooltip: 'Button text' });
 	Object.assign(extras.signals[0], { payload: 'none' });
+	Object.assign(extras.inputs[0], { label: 'Win!' });
+	Object.assign(extras.stateMachine.layers[0], { color: 'red' });
+	Object.assign(extras.stateMachine.layers[0].states[0], { pos: { x: 1, y: 2 } });
+	Object.assign(extras.stateMachine.layers[0].transitions[0], { curve: 'ease' });
 	ignores('13. component', (d) => normalizeComponent(d as unknown as ComponentDef), base, extras, [
 		'"root":{',
 		'"params":[{',
 		'"signals":[{',
+		'"inputs":[{',
+		'"stateMachine":{',
 	]);
 }
 

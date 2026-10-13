@@ -39,6 +39,10 @@
 		// context binding, else no routing (parity).
 		actions?: Record<string, () => void>;
 	};
+
+	/** Defs whose state machine names unregistered timelines: warned once per def, not per
+	 *  placement. */
+	const warnedMissingTimelines: Record<string, true> = {};
 </script>
 
 <script lang="ts">
@@ -99,7 +103,9 @@
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
 	import { getFlowComplete } from './registerFlowComplete';
 	import { getTapPortal } from './tapPortalContext';
-	import { ComponentTimelinePlayer, componentTimelinesFor } from './componentTimelines';
+	import { ComponentTimelinePlayer, instanceTimelineDocs } from './componentTimelines';
+	import { ComponentStateMachineRunner } from './stateMachine';
+	import { componentInputs, componentTriggers } from './componentInterface';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
 
 	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
@@ -711,10 +717,38 @@
 	// independently. The player drives the def's nodes through the same node-actor driver a
 	// screen timeline uses, scoped to this instance's nest depth. No timeline ⇒ no player, no
 	// driver, no subscription, no ticker work (parity).
+	//
+	// The def's STATE MACHINE (Rive plan Phase 5) plays through the same player: one interpreter
+	// per instance (`stateMachine.ts`, pure), its trigger inputs fed by the same per-instance bus the
+	// `playOn` fires come through (a signal IS a trigger — plan §12 #4), its number inputs by the
+	// engine value source each names, advanced on the same ticker, each layer placed on its
+	// timeline through `drive`. No state machine ⇒ no interpreter (parity).
+	const stateMachine = allowed && def?.stateMachine?.layers?.length ? def.stateMachine : undefined;
+	const instanceTimelines =
+		allowed && def
+			? instanceTimelineDocs(def.id, stateMachine)
+			: { docs: [], durations: new Map() };
 	const timelinePlayer =
-		allowed && def && componentTimelinesFor(def.id).length
-			? new ComponentTimelinePlayer(componentTimelinesFor(def.id), def.root.children)
+		def && instanceTimelines.docs.length
+			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children)
 			: undefined;
+	const stateMachineRunner =
+		stateMachine && def
+			? new ComponentStateMachineRunner(
+					stateMachine,
+					componentInputs(def),
+					instanceTimelines.durations,
+				)
+			: undefined;
+	if (stateMachineRunner?.missingTimelines.length && def && !warnedMissingTimelines[def.id]) {
+		warnedMissingTimelines[def.id] = true;
+		console.warn(
+			`[engine-layout] component "${def?.id}": its state machine plays timelines the game has not registered (${stateMachineRunner.missingTimelines.join(', ')}); those states hold.`,
+		);
+	}
+	/** The signals the state machine's trigger inputs are fired as. */
+	const stateMachineTriggers = stateMachineRunner && def ? componentTriggers(def) : [];
+	let stateMachineStarted = false;
 	let timelineClock = $state(0);
 	if (timelinePlayer) {
 		const driven = timelinePlayer.drivenNodes();
@@ -731,12 +765,14 @@
 			};
 		}, parentNest.depth + 1);
 	}
-	// A timeline signal no cue or gate already listens for still has to reach the per-instance bus.
+	// A timeline signal or a trigger input no cue or gate already listens for still has to reach
+	// the per-instance bus.
 	$effect(() =>
 		untrack(() => {
-			if (!timelinePlayer) return;
+			if (!timelinePlayer && !stateMachineRunner) return;
 			const unsubs: (() => void)[] = [];
-			for (const signal of timelinePlayer.signals()) {
+			const busSignals = [...(timelinePlayer?.signals() ?? []), ...stateMachineTriggers];
+			for (const signal of busSignals.filter((s, i) => busSignals.indexOf(s) === i)) {
 				if (signal === ENTER_SIGNAL || signalToTargets.has(signal) || gateSignals.has(signal))
 					continue;
 				unsubs.push(
@@ -764,9 +800,56 @@
 			});
 		}
 	});
-	const timelineEvents = timelinePlayer
-		? getContextEventEmitter<{ type: string }>()?.eventEmitter
-		: undefined;
+	// Every fire of a trigger input on the per-instance bus reaches the state machine: a game
+	// signal through the def's scope, a Flow `fireCue`, a rig `completeSignal`, a timeline's
+	// `signal:` cue, or `enter`. Counted apart from the `playOn` watcher above, so a cue that
+	// restarted a timeline still fires the trigger.
+	// Until the machine has started (the instance's first visible frame) nothing reaches it: a win
+	// heard while the screen was still hidden must not play minutes late on its first appearance.
+	// A fire on the frame the instance appears (the visible-edge effect runs first, so `enter` and
+	// a book event that shows the screen and fires together) starts it right here, ahead of the
+	// ticker, so that fire is not lost.
+	const triggerFires: Record<string, number> = {};
+	$effect(() => {
+		if (!stateMachineRunner) return;
+		for (const signal of stateMachineTriggers) {
+			const count = firedSignals[signal] ?? 0;
+			if (count <= (triggerFires[signal] ?? 0)) continue;
+			triggerFires[signal] = count;
+			untrack(() => {
+				if (!stateMachineStarted) {
+					if (!selfVisible) return;
+					startStateMachine();
+				}
+				stateMachineRunner.fire(signal);
+			});
+		}
+	});
+	// A number input with a `source` follows that engine value (the registry a value binding's
+	// `source` reads). Untracked: a source emits synchronously on subscribe.
+	$effect(() =>
+		untrack(() => {
+			if (!stateMachineRunner || !def) return;
+			const unsubs: (() => void)[] = [];
+			for (const input of componentInputs(def)) {
+				if (input.kind !== 'number' || !input.source) continue;
+				const source = getComponentValueSource(input.source);
+				if (!source) continue;
+				unsubs.push(
+					source.subscribe((value) => {
+						stateMachineRunner.setInput(input.id, Number(value));
+					}),
+				);
+			}
+			return () => {
+				for (const unsub of unsubs) unsub();
+			};
+		}),
+	);
+	const timelineEvents =
+		timelinePlayer || stateMachineRunner
+			? getContextEventEmitter<{ type: string }>()?.eventEmitter
+			: undefined;
 	/**
 	 * A cue a component timeline crosses. `signal:x` fires on this instance's own bus (so a
 	 * `hiddenUntilSignal`, a tap gate or another timeline can follow it) and restarts every other
@@ -789,14 +872,46 @@
 		timelineFires[name] = (untrack(() => firedSignals[name]) ?? 0) + 1;
 		fireComponentSignal(name);
 	};
-	const timelineTicker = timelinePlayer
-		? getContextApp().stateApp.pixiApplication?.ticker
-		: undefined;
-	const tickTimelines = (): void => {
-		if (!timelinePlayer?.isPlaying() || !timelineTicker) return;
-		const step = timelinePlayer.advance(timelineTicker.deltaMS / 1000);
+	/** Place every layer's slot on what the interpreter says it plays; an exited layer frees its slot. */
+	const applyStateMachine = (): void => {
+		if (!stateMachineRunner) return;
+		stateMachineRunner.plays().forEach((play, index) => {
+			// An exited layer drives nothing (the player empties its slot), after the cues of the
+			// stretch it left.
+			for (const { cue, timeline } of timelinePlayer?.drive(play.layer, index, play) ?? []) {
+				routeTimelineCue(cue, timeline);
+			}
+		});
 		timelineClock += 1;
-		for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);
+	};
+	// The machine starts when the instance is first SHOWN (as `enter` fires): the entry pose and
+	// its cues at 0 then, the clock running from there on whether or not it stays shown.
+	const startStateMachine = (): void => {
+		stateMachineStarted = true;
+		applyStateMachine();
+	};
+	if (stateMachineRunner && untrack(() => selfVisible)) startStateMachine();
+	const timelineTicker =
+		timelinePlayer || stateMachineRunner
+			? getContextApp().stateApp.pixiApplication?.ticker
+			: undefined;
+	const tickTimelines = (): void => {
+		if (!timelineTicker) return;
+		const dt = timelineTicker.deltaMS / 1000;
+		if (timelinePlayer?.isPlaying()) {
+			const step = timelinePlayer.advance(dt);
+			timelineClock += 1;
+			for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);
+		}
+		if (!stateMachineRunner) return;
+		if (!stateMachineStarted) {
+			if (!untrack(() => selfVisible)) return;
+			startStateMachine();
+		}
+		if (stateMachineRunner.needsTick()) {
+			stateMachineRunner.advance(dt);
+			applyStateMachine();
+		}
 	};
 	timelineTicker?.add(tickTimelines);
 	onDestroy(() => timelineTicker?.remove(tickTimelines));

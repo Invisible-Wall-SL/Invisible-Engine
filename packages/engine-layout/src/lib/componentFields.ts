@@ -1,8 +1,13 @@
 import type {
 	ComponentDef,
+	ComponentInput,
 	ComponentParam,
 	ComponentSignal,
+	ComponentStateMachine,
 	LayoutNode,
+	SmLayer,
+	SmState,
+	SmTransition,
 	TemplateSlot,
 } from './types';
 
@@ -123,6 +128,8 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	standsFor: true,
 	slots: true,
 	capability: true,
+	inputs: true,
+	stateMachine: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
 	key: true,
@@ -140,6 +147,36 @@ const componentSignalFields: Record<keyof ComponentSignal, true> = {
 	key: true,
 	note: true,
 };
+const componentInputFields: Record<keyof ComponentInput, true> = {
+	id: true,
+	kind: true,
+	default: true,
+	source: true,
+	note: true,
+};
+const stateMachineFields: Record<keyof ComponentStateMachine, true> = { layers: true };
+const smLayerFields: Record<keyof SmLayer, true> = {
+	id: true,
+	name: true,
+	entry: true,
+	states: true,
+	transitions: true,
+};
+const smStateFields: Record<keyof SmState, true> = {
+	id: true,
+	name: true,
+	timeline: true,
+	speed: true,
+	loop: true,
+};
+const smTransitionFields: Record<keyof SmTransition, true> = {
+	id: true,
+	from: true,
+	to: true,
+	conditions: true,
+	exitTime: true,
+	blend: true,
+};
 const templateSlotFields: Record<keyof TemplateSlot, true> = {
 	slotId: true,
 	name: true,
@@ -155,3 +192,8 @@ export const COMPONENT_DEF_FIELDS = fields(componentDefFields);
 export const COMPONENT_PARAM_FIELDS = fields(componentParamFields);
 export const COMPONENT_SIGNAL_FIELDS = fields(componentSignalFields);
 export const TEMPLATE_SLOT_FIELDS = fields(templateSlotFields);
+export const COMPONENT_INPUT_FIELDS = fields(componentInputFields);
+export const STATE_MACHINE_FIELDS = fields(stateMachineFields);
+export const SM_LAYER_FIELDS = fields(smLayerFields);
+export const SM_STATE_FIELDS = fields(smStateFields);
+export const SM_TRANSITION_FIELDS = fields(smTransitionFields);

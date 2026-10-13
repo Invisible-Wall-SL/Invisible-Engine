@@ -11,8 +11,11 @@ yet shipped an authored cinematic through a `playCinematic` node. **Rive plan Ph
 actors + screen/component hosts, 2026-10-13) is in the format, evaluator and player, verified
 headless only. **Phase 3** (2026-10-13) authors screen timelines in `/editor`'s Animate mode and
 lists them in Flow's picker; proven headless end to end, not yet browser-verified. **Phase 4b**
-(2026-10-13, in review) authors **component** timelines on `/editor`'s Components side and plays
+(2026-10-13) authors **component** timelines on `/editor`'s Components side and plays
 them per placed instance (`componentTimelines.ts`); headless-proven, not yet browser-verified.
+**Phase 5a** (2026-10-13, in review) adds the component **state machine** runtime: a pure
+interpreter per placed instance (`stateMachine.ts`) that places each layer on a component timeline
+through the same player; headless-proven, no editor yet (5b).
 
 ## Current state
 
@@ -117,6 +120,36 @@ them per placed instance (`componentTimelines.ts`); headless-proven, not yet bro
     independently. The node driver is scoped to the instance's nest depth + 1, so a component's
     timeline never reaches into a nested component. No timeline ⇒ no player, no subscription, no
     ticker work (parity). `cues`, `stateAnimations`, `valueBindings` untouched.
+  - **State machine (Rive plan Phase 5a, 2026-10-13 — in review, headless-proven, ⏳ not
+    browser-verified).** A def's `stateMachine` (format: [component-editor status](component-editor.md), semantics:
+    [the plan §5](../design/rive-style-editor.md#5-component-state-machine-additive-to-componentdef)) runs
+    per placed instance in `ComponentInstance.svelte`: `ComponentStateMachineRunner`
+    (`engine-layout/stateMachine.ts`, pure — `dt` + inputs in, `LayerPlay`s out) is built with the
+    def's inputs (`componentInputs`, signals folded in) and the durations of the timelines its states
+    name (`stateMachineTimelines`, from the registry, which now keeps EVERY component-hosted doc by
+    id, not only the `playOn` ones). Its trigger inputs are fed by the
+    instance's own fired-signal bus (so a game signal through the def's `signalScope`, a Flow
+    `fireCue`, a rig `completeSignal`, a timeline's `signal:` cue and `enter` all fire a trigger of
+    that name, scoped as signals are); a number input with a `source` follows that registered value
+    source. On the ticker, `advance(dt)` then `plays()` → `player.drive(layer, index, play)` per
+    layer (`release` on `exit`), so the 4b player is the one node-driving path: the slot's cues are
+    routed like a `playOn` timeline's (`signal:` to the bus, `fx:` broadcast, sounds dropped), a
+    cue at 0 fires on entry and a loop wrap fires the end then the start. `sample(nodeId)`: a `playOn`
+    timeline still playing and started after the layers driving the node wins it; once it ends, or
+    the machine changes state, the layers take the node back; among layers, each property goes to
+    the later layer, each mixed from the pose it left while its blend runs (`blendNodeSamples`). A
+    missing timeline holds and warns once (per def). The machine starts on the instance's first
+    visible frame (the rule `enter` follows) and its clock runs from then on; the cues a leaving
+    state crossed on the frame of a transition still fire; an interrupted blend leaves from the
+    pose on screen; a state timeline reused from another component binds here without its
+    `playOn` (`instanceTimelineDocs`); a trigger is held only while a transition waits on its
+    exit time alone, and dropped on any state change. No `stateMachine` ⇒ no runner, no
+    subscription, no ticker (parity; `check:component-timelines` still 39 green). Ship
+    chain (rule 8): a state's timeline needs no `playOn` and no Flow node to ship — every authored
+    component timeline is exported and embedded, and the gate asserts it. Gate:
+    `pnpm --filter launcher-api check:component-state-machine` (89 checks: the fold, the
+    semantics above, two instances, scoping, coexistence, validation, parity, what saves, the
+    ship chain).
   - **Flow.** Component timelines are left out of `/flow-v2`'s playCinematic picker
     (`cinematicPickerOptions`): instances play them.
   - **Ship chain (rule 8): no new asset class.** `cinematicExport.ts` already exports every
@@ -308,6 +341,13 @@ them per placed instance (`componentTimelines.ts`); headless-proven, not yet bro
 
 ## Recent changes
 
+- 2026-10-13 — **Component state machine runtime (Rive plan Phase 5a, branch
+  `claude/rive-p5a-state-machine-runtime`).** `stateMachine.ts` (interpreter, `blendNodeSamples`,
+  `validateStateMachine`), `componentInterface.ts` (the signal → trigger fold, `componentInterface`
+  values), the registry keeping every component timeline by id, `ComponentTimelinePlayer.drive`/
+  `release`/per-property layer merge, the per-instance wiring in `ComponentInstance.svelte` — as
+  described under Current state. Gate `check:component-state-machine` (89). Plan §5 updated with
+  the as-built shapes and semantics.
 - 2026-10-13 — **Component timelines (Rive plan Phase 4b, branch
   `claude/rive-p4b-component-timelines`, stacked on 4a).** A component-hosted timeline now plays:
   `playOn` / `playOnComponents` in the format, `ComponentTimelinePlayer` per placed instance, the

@@ -210,8 +210,14 @@ the save guard for every field in the table above.
     - every top-level field the def does not declare;
     - inside each ENTITY, matched to its stored copy by id, the fields it does not declare: a node
       anywhere under `root` (the root included; matched by `id`, so a node moved to another parent
-      keeps them), a param or signal (by `key`), a slot (by `slotId`). 5a's `inputs` and
-      state-machine layers, states and transitions join this list when they land.
+      keeps them), a param or signal (by `key`), a slot (by `slotId`), an input (by `id`), and a
+      state-machine layer (by `id`) with its states and transitions (by `id` within that layer, so
+      a namesake state in another layer is a different entity). A transition's `conditions` are
+      its own known data: they have no id and are not walked, so a newer field inside a
+      condition is dropped with it;
+    - every field of `stateMachine` itself it does not declare. That block is a fixed namespace,
+      like a win-text family, so those fields are kept also when the author removed every layer
+      (the block is then only them).
 
     "Does not declare" means not a key of the engine-layout TYPE (`componentFields.ts`, written as
     `Record<keyof …, true>` so `pnpm check:svelte` fails in both directions when a type and its set
@@ -226,12 +232,11 @@ the save guard for every field in the table above.
     stored doc holds for a different one** (a deleted state's `Win`, a transition's `t_Idle_Win`),
     or the new entity inherits the old one's unknown fields. The server cannot tell the two apart.
     Matching by `kind` as well would not help: a node keeps its id when it is converted to a
-    button, and states and transitions have no kind. The
-    same goes for an entity inside a known block the author cleared: deleting every slot deletes
-    their unknown fields too. They are entities the author saw and removed, unlike a win-text
-    family, which is a fixed namespace. For a component, the fixed namespace is the def itself, so
-    its top-level fields are always kept. A fixed-namespace block (5a's `stateMachine`) will get
-    the win-text family treatment.
+    button, and states and transitions have no kind. The same goes for an entity inside a known
+    block the author cleared: deleting every slot deletes their unknown fields too. They are
+    entities the author saw and removed, unlike a win-text family, which is a fixed namespace. A
+    component has two fixed namespaces, the def itself and its `stateMachine`, whose own fields are
+    always kept.
 
     The graft goes one level into each entity. The fields inside a known field (a node's
     `overrides`, `preview`, `bind`) are not walked. A child node's fields are never dropped by a
@@ -282,8 +287,10 @@ the save guard for every field in the table above.
   that. First, conditions name inputs by id and are not pruned when an input is missing, so the
   row alone restores a working interface, as a sound keeps its entry. Second, an older build can
   tell the row was never shown (its kind is unknown here), so its absence from the save is not a
-  deletion. That rule ships with 5a's entity graft. Like every graft, a kept row is never
-  re-normalized, so a newer value inside it cannot make a save answer 400.
+  deletion. The kept row goes back after the nearest stored row before it that the save still
+  has. A forced save does not keep it. A transition the read dropped over a condition it cannot
+  read is NOT kept: it names states by id, and the author may have deleted them. Like every
+  graft, a kept row is never re-normalized, so a newer value inside it cannot make a save answer 400.
 
   **A known block a read DROPPED over an unknown value is NOT kept.** That covers a cell, layer,
   stacked symbol or override block (`transition`, `highlight`). It is not an unknown key, and
