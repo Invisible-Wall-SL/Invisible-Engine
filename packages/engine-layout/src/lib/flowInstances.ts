@@ -56,6 +56,7 @@ export interface FlowInstanceHandle {
 const live = new Map<string, FlowInstanceHandle[]>();
 const stashed = new Map<string, Map<string, unknown>>();
 const watchers = new Map<string, Set<(handle: FlowInstanceHandle | undefined) => void>>();
+const dropListeners = new Set<(instanceId: string, input: string, value: unknown) => void>();
 
 const notify = (instanceId: string, handle: FlowInstanceHandle | undefined): void => {
 	for (const watcher of [...(watchers.get(instanceId) ?? [])]) watcher(handle);
@@ -75,7 +76,10 @@ export function registerFlowInstance(handle: FlowInstanceHandle): () => void {
 	const pending = stashed.get(id);
 	if (pending) {
 		stashed.delete(id);
-		for (const [input, value] of pending) handle.setInput(input, value);
+		for (const [input, value] of pending) {
+			if (!handle.setInput(input, value))
+				for (const listener of [...dropListeners]) listener(id, input, value);
+		}
 	}
 	notify(id, handle);
 	return () => {
@@ -122,9 +126,19 @@ export function watchFlowInstance(
 	};
 }
 
-/** Forget every handle, stash and watcher (tests). */
+/** Run `listener` when a stashed value is refused by the handle it was kept for (the env traces
+ *  it, as it traces a live drop). Returns the unsubscribe. */
+export function onFlowInstanceDrop(
+	listener: (instanceId: string, input: string, value: unknown) => void,
+): () => void {
+	dropListeners.add(listener);
+	return () => dropListeners.delete(listener);
+}
+
+/** Forget every handle, stash, watcher and drop listener (tests). */
 export function clearFlowInstances(): void {
 	live.clear();
 	stashed.clear();
 	watchers.clear();
+	dropListeners.clear();
 }

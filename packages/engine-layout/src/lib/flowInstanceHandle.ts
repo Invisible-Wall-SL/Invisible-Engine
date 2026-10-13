@@ -24,13 +24,14 @@ export interface FlowInstanceHost {
 		Pick<ComponentStateMachineRunner, 'setInput' | 'input' | 'values' | 'stateOf'> | undefined;
 }
 
+const DECIMAL = /^-?(\d+\.?\d*|\.\d+)$/;
+
 /**
  * A Flow value read as an input's kind, the way the runner's own `setInput` reads one: a bool from
  * a boolean or `0` / `1`, a number from a finite number or a decimal string (a `float` pin fed by a
  * string compute; `'1e3'` and `'0x10'` are not), a text key from a string. `undefined` ⇒ not of that
  * kind (the set is dropped).
  */
-const DECIMAL = /^-?(\d+\.?\d*|\.\d+)$/;
 export const coerceInstanceInput = (
 	kind: ComponentInputKind | undefined,
 	value: unknown,
@@ -76,8 +77,14 @@ export function createFlowInstanceHandle(host: FlowInstanceHost): {
 			const kind = kinds.get(input);
 			const coerced = coerceInstanceInput(kind, value);
 			if (coerced === undefined) return false;
-			if (kind === 'text') textInputs.set(input, coerced as string);
-			else host.runner()?.setInput(input, coerced as boolean | number);
+			if (kind === 'text') {
+				textInputs.set(input, coerced as string);
+				return true;
+			}
+			// A bool / number lives on the state machine: without one there is nothing to set.
+			const runner = host.runner();
+			if (!runner) return false;
+			runner.setInput(input, coerced as boolean | number);
 			return true;
 		},
 		input: (input) =>

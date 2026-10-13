@@ -91,7 +91,11 @@
   placement. `apps/lines`: the env hooks with the not-on-screen outcomes (dropped trigger, stashed
   input, skipped wait, 250 ms mount grace; a wait released by the state, the screen or a slam), the
   event road (`ownsInstanceEvent`, which sees a wire inside or crossing a collapsed group), a
-  mounted-but-hidden instance skips a wait (`handle.shown()`), no press sound for an event. Launcher: `projectFlowInstances` +
+  mounted-but-hidden instance skips a wait (`handle.shown()`), no press sound for an event. **By
+  design, recorded for the owner:** (a) the round's skip token stays tripped until the next bet, so
+  a wait in an idle chain after a slammed spin resolves at once — exactly as a Delay does; (b) a
+  wait ignores `inUnskippablePresentation()`: in the book-reveal / free-spin-intro carve-out a slam
+  releases the wait while the Delays in the same chain keep holding. Launcher: `projectFlowInstances` +
   `instanceDefResolver` + `withPlacedComponentVersions`, the loader and publish gate pass the
   projection, `harvestFlowInstanceText` (section **Flow component inputs**), `makeNode` and the
   bonus import know the kinds. Every starter flow's pins and verdict are byte-identical with the

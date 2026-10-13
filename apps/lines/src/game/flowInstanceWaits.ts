@@ -40,8 +40,12 @@ export interface InstanceWaitDeps {
 }
 
 export interface InstanceWaits {
+	/** The addressed placement's live handle right now, `undefined` when it is not mounted or the
+	 *  mounted one is on another screen. */
+	liveInstance(ref: InstanceRef): FlowInstanceHandle | undefined;
 	/** The addressed placement's live handle: at once when registered, after its registration when
-	 *  its screen is shown (bounded by the grace), `undefined` otherwise. */
+	 *  its screen is shown (bounded by the grace), `undefined` otherwise. A slam does not cut the
+	 *  grace short: a fire must not drop a beat. */
 	instanceWhenMounted(ref: InstanceRef): Promise<FlowInstanceHandle | undefined>;
 	/** Hold until `layer` of the instance is in `state`; released by the state, by the instance
 	 *  hiding or leaving the screen, or by a slam; resolved at once when the instance is not on
@@ -67,8 +71,10 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 		}
 		return handle;
 	};
+	const liveInstance = (ref: InstanceRef): FlowInstanceHandle | undefined =>
+		addressed(ref, deps.getFlowInstance(ref.instance));
 	const instanceWhenMounted = (ref: InstanceRef): Promise<FlowInstanceHandle | undefined> => {
-		const live = addressed(ref, deps.getFlowInstance(ref.instance));
+		const live = liveInstance(ref);
 		if (live || !deps.isShown(ref.container)) return Promise.resolve(live);
 		return new Promise((resolve) => {
 			let settled = false;
@@ -97,7 +103,20 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			deps.trace('instance wait', label, '· skipped (round slammed)');
 			return;
 		}
-		const handle = await instanceWhenMounted(ref);
+		// A slam that lands DURING the mount grace releases the wait at once (a fire keeps its grace:
+		// it must not drop a beat; a wait only holds time).
+		let unskipGrace = (): void => undefined;
+		const handle = await Promise.race([
+			instanceWhenMounted(ref),
+			new Promise<undefined>((resolve) => {
+				unskipGrace = deps.skip.onSkip(() => resolve(undefined));
+			}),
+		]);
+		unskipGrace();
+		if (deps.skip.isSkipped()) {
+			deps.trace('instance wait', label, '· skipped (round slammed)');
+			return;
+		}
 		if (!handle) {
 			deps.trace('instance wait', label, '· skipped (not on screen)');
 			return;
@@ -154,5 +173,5 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			if (settled) unskip();
 		});
 	};
-	return { instanceWhenMounted, awaitInstanceState };
+	return { liveInstance, instanceWhenMounted, awaitInstanceState };
 }

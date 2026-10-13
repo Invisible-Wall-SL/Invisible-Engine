@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { SvelteFlowProvider, type Connection, type Edge, type Node } from '@xyflow/svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import {
 		collapseToFunction,
 		collapseToGroup,
@@ -633,6 +633,15 @@
 		}
 		highlightInstance = link.instance;
 	}
+	// The loader resolves the placed, PINNED interfaces only for a flow that already names an
+	// instance; the first node naming one — dropped, pasted, imported, grafted or undone back in —
+	// re-reads them, so a placement pinned below latest shows its exact pins before its first wire.
+	let namedInstance = untrack(() => docNamesInstance(doc));
+	$effect(() => {
+		const names = docNamesInstance(doc);
+		if (names && !namedInstance) void refreshInstances();
+		namedInstance = names;
+	});
 	// A component edited in `/editor` while this tab was away: re-read the projection on return.
 	function onVisible(): void {
 		if (document.visibilityState === 'visible') void refreshInstances();
@@ -1462,13 +1471,7 @@
 	): string {
 		const id = freshNodeIdIn(allGraphs(), kind);
 		selectedNodeId = id;
-		// The loader resolves the placed, PINNED interfaces only for a flow that already names an
-		// instance; the first node naming one re-reads them, so a placement pinned below latest
-		// shows its exact pins before its first wire.
-		const namesInstance = kind === 'componentInstance' || kind === 'waitForState';
-		const firstInstanceNode = namesInstance && !docNamesInstance(doc);
 		applyGraphEdit(addNodeIn(activeGraph, makeNode(kind, id, pos, ref)));
-		if (firstInstanceNode) void refreshInstances();
 		// The palette light from a *Show in Flow* deep link goes out once the placement has a node.
 		if (
 			kind === 'componentInstance' &&

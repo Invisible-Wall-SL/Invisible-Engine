@@ -372,7 +372,7 @@ const at = { x: 0, y: 0 };
 			'if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));',
 			'onjump={hopTo}',
 			'parseInstanceNodeRef(ref).instance === highlightInstance',
-			'if (firstInstanceNode) void refreshInstances();',
+			'if (names && !namedInstance) void refreshInstances();',
 			"class: broken ? 'v2-exec v2-bad' : 'v2-exec',",
 			'stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])',
 			'{instanceGroups}',

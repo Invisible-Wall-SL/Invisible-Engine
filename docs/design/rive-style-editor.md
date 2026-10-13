@@ -458,10 +458,11 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   `flowInstanceHandle.ts`: `fire` (through the same `fireTrigger` a listener uses), `setInput`
   (the value read as the input's kind the way the runner reads one — a bool from a boolean or 0/1,
   a number from a number or a numeric string, a text key from a string; bool / number on the
-  runner, text kept on the handle; anything else is dropped and the env traces the drop), `values`,
+  runner, text kept on the handle; anything else is dropped and the env traces the drop, a value
+  replayed from the stash on mount included), `values`,
   `stateOf`, `onChange` (the machine started or changed state, the instance shown or hidden) and
-  the screen id (`sceneIdContext`), which the env checks against the node's container: a handle on
-  another screen is not the addressed placement. The game env's rule for one that is NOT
+  the screen id (`sceneIdContext`), which the env checks against the node's container on a fire, a
+  set, a read and a wait alike: a handle on another screen is not the addressed placement. The game env's rule for one that is NOT
   registered lives in `apps/lines` `flowInstanceWaits.ts` (Svelte-free, every case gated): its
   screen shown per the mount model ⇒ it is mounting, a fire or a wait defers to the registration
   (250 ms grace, paid on EACH fire or wait against a placement that never registers, say a def the
@@ -471,9 +472,9 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   amount, then show the screen" works). A mounted but HIDDEN instance (its own gate or its screen's,
   `handle.shown()`) is "not on screen" to a wait too: it resolves at once, and a running wait is
   released when the instance hides. A wait is also released by the state, by the instance leaving
-  the screen, or by a slam — and a round already slammed holds nothing (checked before the mount
-  grace, so a slam several book events before the hold costs no wait). Every case is traced
-  (`?flowlog=1`).
+  the screen, or by a slam — a round already slammed holds nothing, and a slam during the mount
+  grace releases the wait at once (a fire keeps its grace: it must not drop a beat). Every case is
+  traced (`?flowlog=1`).
 - **`text` inputs** (§8): `COMPONENT_INPUT_KINDS` gains `text`; a default is a localization key;
   `isLocalizationKey` has a twin in each package (engine-layout must not pull the `engine-flow-v2`
   barrel into every game's runtime graph for one regex; the gate holds the two together). The state

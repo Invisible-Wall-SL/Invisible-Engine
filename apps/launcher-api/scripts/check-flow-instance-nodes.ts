@@ -463,6 +463,16 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 	G.registerFlowInstance(handle('c_banner'));
 	eq('5. an unsubscribed watcher hears nothing', seen.length, 3);
 	G.clearFlowInstances();
+	const refused: string[] = [];
+	G.onFlowInstanceDrop((id, input, value) =>
+		refused.push(`${id}.${input}=${JSON.stringify(value)}`),
+	);
+	G.stashFlowInstanceInput('c_banner', 'gone', 3);
+	G.stashFlowInstanceInput('c_banner', 'amount', 4);
+	const picky = { ...handle('c_banner'), setInput: (i: string) => i === 'amount' };
+	G.registerFlowInstance(picky)();
+	eq('5. a stashed value the mounting handle refuses is reported', refused, ['c_banner.gone=3']);
+	G.clearFlowInstances();
 	const older = handle('c_banner');
 	const newer = handle('c_banner');
 	const heard: (string | undefined)[] = [];
@@ -558,6 +568,24 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			return [fired, h.values(), h.stateOf('main'), h.stateOf('x'), h.input('lit'), calls];
 		})(),
 		[['win'], { 'main.state': 'idle' }, 'idle', undefined, false, [1]],
+	);
+	eq(
+		'5. without a state machine a bool / number set is refused; a text set still lands',
+		(() => {
+			const { handle: bare } = HD.createFlowInstanceHandle({
+				instanceId: 'c_x',
+				componentId: 'x',
+				inputs: [
+					{ id: 'lit', kind: 'bool' },
+					{ id: 'title', kind: 'text' },
+				],
+				shown: () => true,
+				fireTrigger: () => undefined,
+				runner: () => undefined,
+			});
+			return [bare.setInput('lit', true), bare.setInput('title', 'k'), bare.input('title')];
+		})(),
+		[false, true, 'k'],
 	);
 	eq(
 		'5. a number input the engine feeds (`source`) gets no Flow pin',
@@ -795,6 +823,51 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		);
 	}
 	{
+		// A slam DURING the mount grace releases a wait at once; a fire keeps its grace.
+		const trace: string[] = [];
+		const w = waits(true, trace);
+		const t0 = Date.now();
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await tick(2);
+		w.skip.skip();
+		await p;
+		const fireHandle = w.instanceWhenMounted(ref);
+		const fireT0 = Date.now();
+		eq(
+			'6b. a slam during the grace releases the wait at once; the fire’s grace still runs',
+			[settled, Date.now() - t0 < 15, trace, (await fireHandle) ?? null, Date.now() - fireT0 >= 15],
+			[
+				true,
+				true,
+				['instance wait c_banner main.state == win · skipped (round slammed)'],
+				null,
+				true,
+			],
+		);
+	}
+	{
+		// A remount while waiting: the new handle is not the one the wait holds on.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const first = liveHandle(state);
+		const unregisterFirst = G.registerFlowInstance(first.handle);
+		const w = waits(true, trace);
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await tick();
+		unregisterFirst();
+		const second = liveHandle(state);
+		const unregisterSecond = G.registerFlowInstance(second.handle);
+		await p;
+		eq(
+			'6b. a remount while waiting releases the hold (the wait never spans two mounts)',
+			[settled, trace.at(-1), w.liveInstance(ref) === second.handle],
+			[true, 'instance RELEASE c_banner main.state == win ▶ instance left the screen', true],
+		);
+		unregisterSecond();
+	}
+	{
 		// A handle placed on ANOTHER screen is not the addressed placement.
 		const trace: string[] = [];
 		const state = { main: 'idle', shown: true };
@@ -802,9 +875,10 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		const unregister = G.registerFlowInstance(handle);
 		const w = waits(true, trace, 'hud');
 		eq(
-			'6b. a handle on another screen is not the node’s instance',
-			[await w.instanceWhenMounted(ref), trace[0]],
+			'6b. a handle on another screen is not the node’s instance, to a wait, a set or a read alike',
+			[await w.instanceWhenMounted(ref), w.liveInstance(ref), trace[0]],
 			[
+				undefined,
 				undefined,
 				"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
 			],
@@ -901,16 +975,18 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		[
 			'fireInstanceTrigger: async (ref, trigger) => {',
 			'setInstanceInput: (ref, input, value) => {',
-			'readInstanceValue: (ref, value) => getFlowInstance(ref.instance)?.values()[value],',
+			'readInstanceValue: (ref, value) => liveInstance(ref)?.values()[value],',
 			'awaitInstanceState,',
 			'ownsInstanceEvent: (instanceId, event) =>',
-			'const { instanceWhenMounted, awaitInstanceState } = createInstanceWaits({',
+			'const { liveInstance, instanceWhenMounted, awaitInstanceState } = createInstanceWaits({',
 			'skip: roundSkip,',
 			'sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,',
+			'const live = liveInstance(ref);',
 			'stashFlowInstanceInput(ref.instance, input, value);',
 			"else trace('instance', line, '· dropped (no such input, or not its kind)');",
+			'onFlowInstanceDrop((instanceId, input, value) =>',
 		].map((line) => runtime.includes(line)),
-		[true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true, true],
 	);
 	eq(
 		'8. a raised event plays no press sound',

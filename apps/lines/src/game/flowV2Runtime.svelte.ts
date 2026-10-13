@@ -33,6 +33,7 @@ import {
 	flipbookCycleMs,
 	getComponent,
 	getFlowInstance,
+	onFlowInstanceDrop,
 	isRegisteredComponentSignal,
 	resolveComponent,
 	resolveEffect,
@@ -591,10 +592,10 @@ export const createLinesFlowV2 = (
 	>();
 
 	// PLACED COMPONENT INSTANCES (Rive plan §6.2, Phase 7): a `componentInstance` / `waitForState`
-	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`), where
-	// Placed component instances (Rive plan §6.2): the outcomes for one that is not registered, and
-	// how a wait on one is released, live in `flowInstanceWaits.ts` (gated in Node).
-	const { instanceWhenMounted, awaitInstanceState } = createInstanceWaits({
+	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`). The
+	// outcomes for one that is not registered, and how a wait on one is released, live in
+	// `flowInstanceWaits.ts` (gated in Node); a handle on another screen is never the node's.
+	const { liveInstance, instanceWhenMounted, awaitInstanceState } = createInstanceWaits({
 		isShown: (container) => mount.isShown(container),
 		sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
 		getFlowInstance,
@@ -602,6 +603,15 @@ export const createLinesFlowV2 = (
 		skip: roundSkip,
 		trace,
 	});
+	// A stashed set the instance refuses when it mounts (an input gone from the def, or not its
+	// kind any more) is traced as the live drop is.
+	onFlowInstanceDrop((instanceId, input, value) =>
+		trace(
+			'instance',
+			`${instanceId}.${input} = ${JSON.stringify(value)}`,
+			'· dropped on mount (no such input, or not its kind)',
+		),
+	);
 
 	const env = createFlowV2Env({
 		mount,
@@ -716,7 +726,7 @@ export const createLinesFlowV2 = (
 			handle.fire(trigger);
 		},
 		setInstanceInput: (ref, input, value) => {
-			const live = getFlowInstance(ref.instance);
+			const live = liveInstance(ref);
 			const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
 			if (live) {
 				if (live.setInput(input, value)) trace('instance', line);
@@ -726,7 +736,7 @@ export const createLinesFlowV2 = (
 				stashFlowInstanceInput(ref.instance, input, value);
 			}
 		},
-		readInstanceValue: (ref, value) => getFlowInstance(ref.instance)?.values()[value],
+		readInstanceValue: (ref, value) => liveInstance(ref)?.values()[value],
 		awaitInstanceState,
 	});
 

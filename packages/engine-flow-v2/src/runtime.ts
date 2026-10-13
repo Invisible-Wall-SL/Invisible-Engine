@@ -1046,10 +1046,12 @@ const carriesInstanceEvent = (
 	eventPin: string,
 ): boolean => {
 	if (node?.kind === 'componentInstance') return node.instance === instanceId && pin === eventPin;
-	if (node?.kind !== 'group' || !node.body) return false;
+	// Read defensively: this runs at click time on the stored doc, and a malformed group (no
+	// `boundary`, a pin without `inner`, a body without `nodes`) simply does not own the event.
+	if (node?.kind !== 'group') return false;
 	const b = (node.boundary ?? []).find((p) => p.id === pin && p.dir === 'out' && p.kind === 'exec');
-	if (!b) return false;
-	const inner = node.body.nodes.find((n) => n.id === b.inner.node);
+	if (!b?.inner) return false;
+	const inner = (node.body?.nodes ?? []).find((n) => n.id === b.inner.node);
 	return carriesInstanceEvent(inner, b.inner.pin, instanceId, eventPin);
 };
 

@@ -420,14 +420,16 @@ export function renameEvent(def: ComponentDef, from: string, to: string): boolea
 	return true;
 }
 
-/** Add a payload field to an event; an empty or taken name adds nothing. */
+/** Add a payload field to an event; an empty or taken name, or one carrying `:` (Flow's pin
+ *  separator — the field would get no pin), adds nothing. */
 export function addPayloadField(
 	event: ComponentEvent,
 	name: string,
 	t: EventPayloadType = 'float',
 ): boolean {
 	const clean = name.trim();
-	if (!clean || (event.payload ?? []).some((f) => f.name === clean)) return false;
+	if (!clean || clean.includes(':') || (event.payload ?? []).some((f) => f.name === clean))
+		return false;
 	event.payload = [...(event.payload ?? []), { name: clean, type: { t } }];
 	return true;
 }
