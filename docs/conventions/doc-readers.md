@@ -300,9 +300,9 @@ the save guard for every field in the table above.
   kept in the latest copy: putting the row back without its bindings would store an unbound param
   that no author made. That matches symbols' rule for a known block a read dropped (below). The
   `<id>.v<N>.json` snapshot keeps both, because an existing snapshot is never rewritten, whether the
-  older launcher's save bumps the version or not. **A Phase 7 `text` INPUT is the opposite, and its
-  row is kept.** The read drops it, and the save puts the stored row back by id, in its stored
-  position. Two facts justify that. First, conditions name inputs by id and are not pruned when an
+  older launcher's save bumps the version or not. **A `text` INPUT is the opposite, and its row is
+  kept.** Phase 7 (planned) adds that kind; this rule is already built and gated. The read drops
+  it, and the save puts the stored row back by id, in its stored position. Two facts justify that. First, conditions name inputs by id and are not pruned when an
   input is missing, so the row alone restores a working interface, as a sound keeps its entry.
   Second, an older build can tell the row was never shown (its kind is unknown here), so its absence
   from the save is not a deletion. The kept row goes back after the nearest stored row before it
