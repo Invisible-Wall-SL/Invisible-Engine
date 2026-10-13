@@ -17,6 +17,8 @@ import {
 	type SmState,
 } from 'engine-layout';
 
+import { readEnterAction, readListener, readPayloadField } from '../componentEventRows';
+
 /**
  * The Listeners and Events EDITS (Rive plan Phase 6b), as pure functions over the draft
  * `ComponentDef` so the gate can prove them: node listeners, a state's on-enter raises, the def's
@@ -258,12 +260,12 @@ export const PAYLOAD_TYPE_CHOICES: { t: EventPayloadType; label: string }[] = [
 	{ t: 'string', label: 'text key' },
 ];
 
-/** Add an event; an empty or taken id adds nothing. */
 /** An event id a timeline cue can name (`event:<id>`): no spaces, no `:`. */
 export function isEventId(id: string): boolean {
 	return id.length > 0 && !/[\s:]/.test(id);
 }
 
+/** Add an event; an empty, taken or cue-unnameable id adds nothing. */
 export function addEvent(def: ComponentDef, id: string): ComponentEvent | undefined {
 	const clean = id.trim();
 	if (!isEventId(clean) || componentEvents(def).some((e) => e.id === clean)) return undefined;
@@ -312,6 +314,39 @@ export function timelinesRaising(docs: Iterable<CinematicDoc>, id: string): stri
 	return out;
 }
 
+/** Every `event:` cue in `docs`, by timeline name. */
+export function eventCues(docs: Iterable<CinematicDoc>): { timeline: string; event: string }[] {
+	const out: { timeline: string; event: string }[] = [];
+	for (const doc of docs) {
+		for (const track of doc.tracks ?? []) {
+			if (track.kind !== 'cue' || !Array.isArray(track.keys)) continue;
+			for (const k of track.keys as { cue?: unknown }[]) {
+				const event = typeof k?.cue === 'string' ? eventCueId(k.cue) : undefined;
+				if (event !== undefined) out.push({ timeline: doc.name || doc.id, event });
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * Why removing event `id` is refused, or null. Removing the LAST event turns the def back into
+ * one that declares none, and there an `event:` cue keeps its pre-Phase-6 meaning — a broadcast of
+ * its bare name to the whole screen (`routeComponentCue`) — so a cue left behind would be widened,
+ * not left inert. The cues are fixed first.
+ */
+export function removeEventRefusal(
+	def: ComponentDef,
+	id: string,
+	timelines: Iterable<CinematicDoc>,
+): string | null {
+	if (componentEvents(def).some((e) => e.id !== id)) return null;
+	const cues = eventCues(timelines);
+	if (!cues.length) return null;
+	const list = cues.map((c) => `event:${c.event} in "${c.timeline}"`).join(', ');
+	return `"${id}" is this component's last event, and its timelines still have event cues (${list}). Without any event a cue is broadcast to the whole screen, so remove or change those cues in the Timeline tab first.`;
+}
+
 /**
  * Remove an event. What raises it STAYS — a raise of an undeclared event does nothing in game and
  * validation flags it (`raise-event-unknown`), so the author sees ⚠ and fixes it; nothing is
@@ -327,14 +362,44 @@ export function removeEvent(def: ComponentDef, id: string): EventUsage {
 }
 
 /**
+ * Why renaming event `from` to `to` is refused, or null: an empty name, one a cue cannot name, a
+ * taken one — or the name of an event removed earlier whose raises (or `timelines`' cues) are
+ * still there, flagged: taking it would silently reconnect them.
+ */
+export function renameEventRefusal(
+	def: ComponentDef,
+	from: string,
+	to: string,
+	timelines: Iterable<CinematicDoc> = [],
+): string | null {
+	const next = to.trim();
+	if (!next || next === from) return 'Type a new name.';
+	if (!isEventId(next)) return `"${next}" has a space or ":" — a timeline cue could not name it.`;
+	if (componentEvents(def).some((e) => e.id === next)) return `"${next}" is already an event.`;
+	const used = eventUsage(def, next);
+	const stale = [
+		...used.listeners.map((l) => `a listener on "${l.node}"`),
+		...used.states.map((st) => `entering "${st.state}" (${st.layer})`),
+		...timelinesRaising(timelines, next).map((t) => `a cue in timeline "${t}"`),
+	];
+	return stale.length
+		? `"${next}" is still raised by ${stale.join(', ')} (from an event removed earlier). Taking the name would silently reconnect them — fix or remove those first, or pick another name.`
+		: null;
+}
+
+/**
  * Rename an event: the event and every listener and on-enter raise of it in the def follow. A cue
  * in a timeline is another document and is not rewritten (the dialog lists those). Refused (false)
- * when the new id is empty or already an event.
+ * for any reason `renameEventRefusal` gives.
  */
-export function renameEvent(def: ComponentDef, from: string, to: string): boolean {
+export function renameEvent(
+	def: ComponentDef,
+	from: string,
+	to: string,
+	timelines: Iterable<CinematicDoc> = [],
+): boolean {
+	if (renameEventRefusal(def, from, to, timelines) !== null) return false;
 	const next = to.trim();
-	if (!isEventId(next) || next === from) return false;
-	if (componentEvents(def).some((e) => e.id === next)) return false;
 	for (const event of def.events ?? []) if (event.id === from) event.id = next;
 	for (const n of defNodes(def)) {
 		for (const l of n.on ?? [])
@@ -398,4 +463,46 @@ export function actionLabel(action: ListenerAction): string {
 		case 'raise':
 			return `raise ${action.event || '?'}`;
 	}
+}
+
+// ---- the save guard -----------------------------------------------------------------------------
+
+/**
+ * The rows the server's reader would DROP from this def on save (`componentEventRows.ts` — the
+ * same functions): a listener or on-enter row with an empty target, an unreadable payload value (a
+ * text key that is not a localization key), an event's unreadable payload field — plus an `int` /
+ * `ms` payload value that is not a whole number. The editor refuses to save while any is left:
+ * the save would lose the row while the editor showed it as saved.
+ */
+export function unsavableRows(def: ComponentDef): string[] {
+	const out: string[] = [];
+	const types = new Map(
+		componentEvents(def).map((e) => [
+			e.id,
+			new Map((e.payload ?? []).map((f) => [f.name, f.type.t])),
+		]),
+	);
+	const fractional = (a: RaiseEventAction): boolean =>
+		Object.entries(a.payload ?? {}).some(([name, v]) => {
+			const t = types.get(a.event)?.get(name);
+			return typeof v === 'number' && (t === 'int' || t === 'ms') && !Number.isInteger(v);
+		});
+	const plain = <T>(row: T): unknown => JSON.parse(JSON.stringify(row));
+	for (const n of defNodes(def)) {
+		for (const l of n.on ?? []) {
+			if (!readListener(plain(l)) || (l.action.kind === 'raise' && fractional(l.action)))
+				out.push(`a listener on "${n.label || n.id}"`);
+		}
+	}
+	for (const layer of def.stateMachine?.layers ?? []) {
+		for (const state of layer.states) {
+			if ((state.onEnter ?? []).some((a) => !readEnterAction(plain(a)) || fractional(a)))
+				out.push(`On enter of "${state.name || state.id}"`);
+		}
+	}
+	for (const event of def.events ?? []) {
+		if ((event.payload ?? []).some((f) => !readPayloadField(plain(f))))
+			out.push(`a payload field of event "${event.id}"`);
+	}
+	return out;
 }

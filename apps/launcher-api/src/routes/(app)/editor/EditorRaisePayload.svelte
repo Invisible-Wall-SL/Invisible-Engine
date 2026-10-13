@@ -6,11 +6,12 @@
 	 * localization stack — a key is its source text, and the harvest collects it). An empty field
 	 * arrives empty in Flow.
 	 */
-	import type {
-		ComponentEvent,
-		ComponentInput,
-		EventPayloadValue,
-		RaiseEventAction,
+	import {
+		isLocalizationKey,
+		type ComponentEvent,
+		type ComponentInput,
+		type EventPayloadValue,
+		type RaiseEventAction,
 	} from 'engine-layout';
 	import { setRaisePayload } from '$lib/timeline/listenerEdit';
 
@@ -24,6 +25,8 @@
 	let { action, event, inputs, readOnly = false, onChanged }: Props = $props();
 
 	const isNumeric = (t: string): boolean => t === 'int' || t === 'float' || t === 'ms';
+	/** Field name → why its last typed key was refused (the field keeps its previous value). */
+	let keyErrors = $state<Record<string, string>>({});
 
 	/** What a field's select shows: '' empty, 'value' a literal, 'true'/'false', '@<input>'. */
 	function mode(value: EventPayloadValue | undefined): string {
@@ -49,15 +52,29 @@
 		setRaisePayload(action, name, value);
 		onChanged();
 	}
-	function setNumber(name: string, raw: string): void {
+	/** An `int` / `ms` field holds a whole number: a fraction is rounded as it is typed. */
+	function setNumber(name: string, t: string, input: HTMLInputElement): void {
 		if (readOnly) return;
-		const n = Number(raw);
-		setRaisePayload(action, name, Number.isFinite(n) ? n : 0);
+		const n = Number(input.value);
+		const value = Number.isFinite(n) ? (t === 'float' ? n : Math.round(n)) : 0;
+		input.value = String(value);
+		setRaisePayload(action, name, value);
 		onChanged();
 	}
-	function setKey(name: string, raw: string): void {
+	/** A key is its source text and must have a letter (the harvest's rule): anything else would be
+	 *  dropped by the save, so it is refused here and the field keeps what it had. */
+	function setKey(name: string, input: HTMLInputElement, previous: string): void {
 		if (readOnly) return;
-		setRaisePayload(action, name, raw ? { key: raw } : undefined);
+		const key = input.value.trim();
+		if (key && !isLocalizationKey(key)) {
+			keyErrors[name] =
+				'A text key needs at least one letter — it is the text as the game shows it.';
+			input.value = previous;
+			return;
+		}
+		delete keyErrors[name];
+		input.value = key;
+		setRaisePayload(action, name, key ? { key } : undefined);
 		onChanged();
 	}
 </script>
@@ -72,13 +89,14 @@
 					>{field.name}<span class="ftype">{t === 'string' ? 'key' : t}</span></span
 				>
 				{#if t === 'string'}
+					{@const key = value && typeof value === 'object' && 'key' in value ? value.key : ''}
 					<input
 						type="text"
 						placeholder={field.optional ? 'empty' : 'localization key'}
 						title="A localization key — the text as it is written in the game; it is translated like any text"
 						disabled={readOnly}
-						value={value && typeof value === 'object' && 'key' in value ? value.key : ''}
-						onchange={(e) => setKey(field.name, e.currentTarget.value)}
+						value={key}
+						onchange={(e) => setKey(field.name, e.currentTarget, key)}
 					/>
 				{:else}
 					<select
@@ -103,11 +121,12 @@
 							step={t === 'float' ? 'any' : '1'}
 							disabled={readOnly}
 							{value}
-							onchange={(e) => setNumber(field.name, e.currentTarget.value)}
+							onchange={(e) => setNumber(field.name, t, e.currentTarget)}
 						/>
 					{/if}
 				{/if}
 			</li>
+			{#if keyErrors[field.name]}<li class="key-error">{keyErrors[field.name]}</li>{/if}
 		{/each}
 	</ul>
 {/if}
@@ -126,6 +145,10 @@
 		align-items: center;
 		gap: 6px;
 		font-size: 11px;
+	}
+	.key-error {
+		color: #ff9a9a;
+		padding-left: 96px;
 	}
 	.fname {
 		width: 90px;

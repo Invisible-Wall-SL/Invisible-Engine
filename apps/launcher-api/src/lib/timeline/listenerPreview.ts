@@ -32,6 +32,63 @@ export function listeningChain(root: LayoutNode | undefined, id: string | null):
 		.reverse();
 }
 
+export interface Point {
+	x: number;
+	y: number;
+}
+/** What the hit-test reads of a node's transform: its parent-space placement. */
+export interface HitTransform {
+	x: number;
+	y: number;
+	rotation?: number;
+	scale?: { x: number; y: number };
+	visible: boolean;
+}
+
+/** `p` (in the space `t` places a node in) in that node's own space; null when a zero scale
+ *  collapses it (nothing in it can be hit). */
+export function toLocal(p: Point, t: HitTransform): Point | null {
+	const sx = t.scale?.x ?? 1;
+	const sy = t.scale?.y ?? 1;
+	if (sx === 0 || sy === 0) return null;
+	const dx = p.x - t.x;
+	const dy = p.y - t.y;
+	const cos = Math.cos(-(t.rotation ?? 0));
+	const sin = Math.sin(-(t.rotation ?? 0));
+	return { x: (dx * cos - dy * sin) / sx, y: (dx * sin + dy * cos) / sy };
+}
+
+/**
+ * The DEEPEST node under `p`, topmost first among `nodes` (the last drawn wins) — into containers,
+ * each child in its parent's local space (the composition the canvas draws with): a listener on a
+ * nested node must hear the pointer. A hidden node and all inside it are skipped. A container
+ * with children is hit through them (the game's hit area is its children's) — by its own box
+ * only when it is bound to a value; a leaf by its own box (`inBox`, `p` in the node's parent
+ * space). `transform(node, nested)` is the node's placement — top-level in the stage's space,
+ * nested in its parent's.
+ */
+export function deepHit<T extends HitTransform>(
+	nodes: readonly LayoutNode[],
+	p: Point,
+	transform: (node: LayoutNode, nested: boolean) => T,
+	inBox: (node: LayoutNode, t: T, p: Point) => boolean,
+	nested = false,
+): string | null {
+	for (let i = nodes.length - 1; i >= 0; i--) {
+		const node = nodes[i];
+		const t = transform(node, nested);
+		if (!t.visible) continue;
+		if (node.kind === 'container' && node.children.length) {
+			const local = toLocal(p, t);
+			const found = local && deepHit(node.children, local, transform, inBox, true);
+			if (found) return found;
+			if (!node.bind) continue;
+		}
+		if (inBox(node, t, p)) return node.id;
+	}
+	return null;
+}
+
 export class StagePointer {
 	private over: LayoutNode[] = [];
 	private pressed: LayoutNode[] = [];

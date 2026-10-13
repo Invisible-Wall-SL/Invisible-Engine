@@ -16,7 +16,7 @@ import {
 	STATE_MACHINE_FIELDS,
 	TEMPLATE_SLOT_FIELDS,
 } from './componentFields';
-import { readEnterAction, readListener, readPayloadField, unreadable } from './componentEventRows';
+import { readEnterAction, readListener, readPayloadField, unreadable } from '../componentEventRows';
 import { isPlainObject } from './stripUnknownKeys';
 import { unknownFields, withUnknownFields } from './unknownBlocks';
 

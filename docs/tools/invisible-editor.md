@@ -960,6 +960,7 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
 
    **✎** next to it lets you type any other name, for example a Flow **fireCue** name. Choose
    **(nothing — not played)** and nothing in the game starts it.
+
 4. **Select a node and key it**, exactly as on a screen (steps 2 to 5 of
    [Animate mode](#animate-mode--the-timeline)). The canvas only selects in Animate: no dragging,
    no Delete, and double-click does not open a nested component. Keys find nodes by **name**, so
@@ -992,14 +993,14 @@ How it plays in the game:
 #### The State Machine
 
 Animate on a component has two tabs under the stage: **Timeline** (above) and **State machine**.
-The state machine says *which timeline plays when*, Rive-style: states that each play one of the
+The state machine says _which timeline plays when_, Rive-style: states that each play one of the
 component's timelines, transitions between them, and the **inputs** the game fires or sets that
 move it along. It saves with the component (Save in the editor bar, the usual version and History),
 so it needs no Flow node and no extra publish step; it is read-only while you are Inspecting an old
 version, like the rest of Animate.
 
 **Inputs** are declared in the Properties panel under **Component variables → Inputs** (the block
-that used to be *Signals*). Three kinds:
+that used to be _Signals_). Three kinds:
 
 - a **trigger** ⚡ — a signal: **+ Add trigger** picks an engine moment (`win`, `bigWin`…), a
   Flow **Fire Cue** name, or any name. Every signal the component already declared shows here as
@@ -1007,7 +1008,7 @@ that used to be *Signals*). Three kinds:
   exactly as before, and the state machine hears it too.
 - a **bool** ◐ and a **number** # — typed in the row at the top of the block (name, kind, **Add**).
   Each has a default; a number can also follow an engine value (**from**: `winAmount`, `balance`…,
-  the same names *Bind to value* offers). Flow sets them in game from Phase 7 on.
+  the same names _Bind to value_ offers). Flow sets them in game from Phase 7 on.
 
 Rename an input with **✎** — every transition condition that reads it follows. The name is what
 the game and Flow fire it as, so a rename is a delete + add: the dialog says what fires the old
@@ -1068,9 +1069,15 @@ and no `:` (a timeline cue names it as `event:<name>`).
 
 - **✎** renames an event. Its name is what Flow will hear it by, so a rename is a replace: the
   dialog lists what raises it (listeners, states, timeline cues). The listeners and states follow
-  the rename; a timeline's `event:` cue is not rewritten — change it in the Timeline tab.
+  the rename; a timeline's `event:` cue is not rewritten — change it in the Timeline tab. A name
+  that rows of an event you removed earlier still raise is refused (taking it would quietly
+  reconnect them).
 - **×** removes it, asking first when something raises it. Those raises stay and do nothing in
-  game until you fix them; each shows a ⚠.
+  game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter in its
+  inspector, and a timeline cue under **Events** in the State machine tab.
+- The **last** event cannot be removed while any of the component's timelines has an `event:` cue:
+  a component with no events plays such a cue the old way, as a message to the whole screen.
+  Remove or change those cues first.
 - Renaming an **input** also repoints the listeners and payload fields that read it; removing one
   lists them in its warning, and they stay, flagged ⚠.
 
@@ -1081,7 +1088,11 @@ and no `:` (a timeline cue names it as `event:<name>`).
   released over the node; a click is a down and an up on the same node.
 - The action: **fire trigger** (one of the trigger inputs), **set input** (a bool to true/false or
   a number to a value), **toggle bool**, or **raise event** — then fill the event's payload fields:
-  a value, an input's current value, or a text key.
+  a value, an input's current value, or a text key (it needs at least one letter — it is the text
+  as the game shows it). An `int` or `ms` value is rounded to a whole number.
+
+**Save** refuses while a listener or an On enter row would be lost by it — no trigger, input or
+event picked, say — and names the rows to fix.
 
 A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
 still works as before if it also presses a button or a dialog action: both fire. A listener acts

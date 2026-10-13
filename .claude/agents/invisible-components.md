@@ -82,7 +82,7 @@ Mirror the existing built-ins; don't invent a third pattern without reason:
   componentEvents.ts` (`ComponentEventDispatcher` — one ordered raise queue per instance, the raise
   road = the Flow press resolver with `kind: 'event'`, `routeComponentCue`, `validateComponentEvents`,
   `raisedPayloadKeys` for the harvest), `componentListenerContext.ts`, the wrapper in
-  `LayoutNodeView`. Launcher: the readers in `server/componentEventRows.ts` (a key this build does
+  `LayoutNodeView`. Launcher: the readers in `lib/componentEventRows.ts` (a key this build does
   not know inside an action makes the row unreadable; the save keeps it whole), the graft in
   `componentUnknownFields.ts`. Gates: `check:component-listeners-events`,
   `check:save-keeps-unknown-blocks` (6a section). The EDITOR side (6b): Properties' **Listeners**

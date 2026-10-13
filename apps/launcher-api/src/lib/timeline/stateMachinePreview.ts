@@ -51,6 +51,21 @@ export function placeLayers(
 	return cues;
 }
 
+/**
+ * The run's first frame, as the game's `startStateMachine`: `player` must be fresh, so the entry
+ * timelines cross 0 again — their cues routed (an `event:` cue raised) — and then the dispatcher
+ * hears the machine start (the entry states' `onEnter`).
+ */
+export function startLayers(
+	runner: ComponentStateMachineRunner,
+	player: ComponentTimelinePlayer,
+	events?: { dispatcher: ComponentEventDispatcher; declaresEvents: boolean },
+): { cue: string; timeline: string }[] {
+	const cues = placeLayers(runner, player, events);
+	events?.dispatcher.started(runner.plays());
+	return cues;
+}
+
 /** Every node the player drives, as the canvas's drives (`setTimelinePreview`). */
 export function playerDrives(player: ComponentTimelinePlayer): Map<string, TimelineNodeDrive> {
 	const out = new Map<string, TimelineNodeDrive>();

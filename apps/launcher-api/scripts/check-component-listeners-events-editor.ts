@@ -484,6 +484,23 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 		declaresEvents: true,
 	});
 	eq('running: the `event:` cue at 0 is raised', log, ['cue:shown']);
+
+	// ▶ Run after the entry pose was placed while stopped: the game's startStateMachine order.
+	log.length = 0;
+	const r3 = new M.ComponentStateMachineRunner(
+		d.stateMachine,
+		I.componentInputs(d),
+		new Map([['t_idle', 1]]),
+	);
+	P.placeLayers(r3, P.previewPlayer([cueDoc], d.root.children));
+	P.startLayers(r3, P.previewPlayer([cueDoc], d.root.children), {
+		dispatcher,
+		declaresEvents: true,
+	});
+	eq('the first Run re-crosses 0: the entry cue, then the entry state’s On enter', log, [
+		'cue:shown',
+		'state:shown',
+	]);
 }
 
 // ---- 6. what saves -----------------------------------------------------------------------------
@@ -506,6 +523,167 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 		'everything the editor writes survives the save path unchanged',
 		[saved.events, node(saved, 'n_btn').on, saved.stateMachine?.layers[0].states[0].onEnter],
 		[d.events, node(d, 'n_btn').on, d.stateMachine.layers[0].states[0].onEnter],
+	);
+}
+
+// ---- 6b. what the editor refuses ---------------------------------------------------------------
+
+{
+	const cue = (event: string, name = 'Reveal'): CinematicDoc =>
+		({
+			id: `t_${name}`,
+			name,
+			tracks: [{ id: 'c', kind: 'cue', actorId: '', keys: [{ time: 0, cue: `event:${event}` }] }],
+		}) as unknown as CinematicDoc;
+	const d = def();
+	L.addEvent(d, 'revealDone');
+	L.addEvent(d, 'pressed');
+	eq(
+		'removing an event that is not the last: allowed',
+		L.removeEventRefusal(d, 'pressed', [cue('revealDone')]),
+		null,
+	);
+	L.removeEvent(d, 'pressed');
+	const refused = L.removeEventRefusal(d, 'revealDone', [cue('revealDone')]);
+	eq(
+		'removing the LAST event while a timeline has an event: cue is refused, naming the cue',
+		[refused !== null, !!refused?.includes('event:revealDone in "Reveal"')],
+		[true, true],
+	);
+	eq(
+		'…so the cue still routes as an event, never a screen-wide broadcast',
+		EV.routeComponentCue('event:revealDone', !!d.events?.length).kind,
+		'event',
+	);
+	eq(
+		'the last event with no cue anywhere: allowed',
+		L.removeEventRefusal(d, 'revealDone', []),
+		null,
+	);
+
+	const e = def();
+	L.addEvent(e, 'a');
+	L.addEvent(e, 'b');
+	const l = L.addListener(node(e, 'n_btn'), e, []);
+	L.setListenerKind(e, l, 'raise');
+	L.setActionTarget(e, l.action, 'a');
+	L.removeEvent(e, 'a');
+	eq(
+		'renaming onto a removed event still raised is refused (it would reconnect silently)',
+		[
+			L.renameEventRefusal(e, 'b', 'a') !== null,
+			L.renameEvent(e, 'b', 'a'),
+			e.events!.map((x) => x.id),
+			L.renameEventRefusal(e, 'b', 'c', [cue('c')]) !== null,
+			L.renameEventRefusal(e, 'b', 'd'),
+		],
+		[true, false, ['b'], true, null],
+	);
+
+	const ok = def();
+	L.addEvent(ok, 'paid');
+	L.addPayloadField(ok.events![0], 'amount', 'int');
+	L.addPayloadField(ok.events![0], 'label', 'string');
+	const pay = L.addListener(node(ok, 'n_btn'), ok, []);
+	L.setListenerKind(ok, pay, 'raise');
+	if (pay.action.kind === 'raise') {
+		L.setRaisePayload(pay.action, 'amount', 5);
+		L.setRaisePayload(pay.action, 'label', { key: 'You win' });
+	}
+	eq('a valid draft: nothing unsavable', L.unsavableRows(ok), []);
+	const saved = normalizeComponent(structuredClone(ok));
+	eq(
+		'…and it saves byte-identically',
+		JSON.stringify([saved.events, node(saved, 'n_btn').on]),
+		JSON.stringify([ok.events, node(ok, 'n_btn').on]),
+	);
+	const bad = structuredClone(ok);
+	const raise = node(bad, 'n_btn').on![0].action;
+	if (raise.kind === 'raise') raise.payload = { amount: 1.5, label: { key: '100' } };
+	node(bad, 'n_glow').on = [{ id: 'l_x', event: 'click', action: { kind: 'fire', input: '' } }];
+	bad.stateMachine = {
+		layers: [
+			{
+				id: 'main',
+				entry: 'idle',
+				states: [
+					{
+						id: 'idle',
+						name: 'Idle',
+						timeline: 't',
+						onEnter: [{ id: 'e_x', kind: 'raise', event: '' }],
+					},
+				],
+				transitions: [],
+			},
+		],
+	};
+	eq(
+		'unsavable: a non-key text, a fractional int, an empty target — each row named',
+		L.unsavableRows(bad),
+		['a listener on "Button"', 'a listener on "Glow"', 'On enter of "Idle"'],
+	);
+	const dropped = normalizeComponent(structuredClone(bad));
+	eq(
+		'…which are exactly the rows the server would drop (but the fractional int it keeps)',
+		[
+			node(dropped, 'n_glow').on,
+			dropped.stateMachine?.layers[0].states[0].onEnter,
+			node(dropped, 'n_btn').on,
+		],
+		[undefined, undefined, undefined],
+	);
+	const workspace = source('ComponentWorkspace.svelte');
+	eq(
+		'Save and Promote both refuse an unsavable draft',
+		(workspace.match(/const unsavable = unsavableRowsMessage\(componentDraft\);/g) ?? []).length,
+		2,
+	);
+}
+
+// ---- 6c. the stage hit-test --------------------------------------------------------------------
+
+{
+	const box = (id: string, extra: Partial<LayoutNode> = {}): LayoutNode =>
+		({ id, kind: 'sprite', x: 0, y: 0, ...extra }) as LayoutNode;
+	const group = (id: string, children: LayoutNode[]): LayoutNode =>
+		({ id, kind: 'container', x: 0, y: 0, children }) as unknown as LayoutNode;
+	interface T {
+		x: number;
+		y: number;
+		rotation?: number;
+		scale?: { x: number; y: number };
+		visible: boolean;
+	}
+	const place: Record<string, Partial<T>> = {
+		n_d: {},
+		n_a: { x: 100, rotation: Math.PI / 2, scale: { x: 2, y: 2 } },
+		n_b: { x: 10 },
+		n_b_hidden: { x: 10, visible: false },
+		n_c: { visible: false },
+		n_z: { scale: { x: 0, y: 1 } },
+		n_zz: {},
+	};
+	const size: Record<string, number> = { n_d: 50, n_b: 5, n_b_hidden: 5, n_c: 1000, n_zz: 1000 };
+	const transform = (n: LayoutNode): T => ({ x: 0, y: 0, visible: true, ...place[n.id] });
+	const inBox = (n: LayoutNode, t: T, p: { x: number; y: number }): boolean => {
+		const l = LP.toLocal(p, t);
+		const s = size[n.id] ?? 0;
+		return !!l && l.x >= 0 && l.x <= s && l.y >= 0 && l.y <= s;
+	};
+	const stage = [
+		box('n_d'),
+		group('n_a', [box('n_b'), box('n_b_hidden')]),
+		box('n_c'),
+		group('n_z', [box('n_zz')]),
+	];
+	const hit = (x: number, y: number): string | null =>
+		LP.deepHit(stage, { x, y }, transform, inBox);
+	// n_b's local (2, 2): in n_a's space (12, 2), scaled (24, 4), turned 90° (-4, 24), moved (96, 24).
+	eq(
+		'deepHit: into a moved, turned, scaled container, past hidden nodes and a collapsed one',
+		[hit(96, 24), hit(5, 5), hit(500, 500), hit(80, 24)],
+		['n_b', 'n_d', null, null],
 	);
 }
 
@@ -544,6 +722,11 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 			(workspace.match(/if \(!componentDraft \|\| isInspecting\) return;/g) ?? []).length >= 2,
 		],
 		[true, true, true, true],
+	);
+	eq(
+		'the canvas hit-tests the stage through deepHit, read off the drawn transform',
+		[canvas.includes('return deepHit('), canvas.includes(': drawTransform(node),')],
+		[true, true],
 	);
 	eq(
 		'no new write: the new editor files fetch nothing but the timeline reads',

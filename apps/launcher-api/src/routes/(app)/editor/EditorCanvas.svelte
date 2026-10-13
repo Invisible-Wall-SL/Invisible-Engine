@@ -96,6 +96,7 @@
 		previewVersion,
 	} from './valuePreview.client.svelte';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
+	import { deepHit } from '$lib/timeline/listenerPreview';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
 	import EditorRigLayer from './EditorRigLayer.svelte';
@@ -3926,55 +3927,27 @@
 		return { x: (p.x - panX) / zoom, y: (p.y - panY) / zoom };
 	}
 
-	/**
-	 * The DEEPEST node under `world` — into containers, each child in its parent's local space (the
-	 * composition `drawNode` uses) — for the listener preview: a listener on a nested node must hear
-	 * the pointer. A container with children is hit through them (the game's hit area is its
-	 * children's), else by its own box. Read off the DRAWN transform (the value-binding preview
-	 * folded on), so the pointer hits what the author sees.
-	 */
 	/** The pointer was over the stage at the last move — a `leave` is reported once, on exit. */
 	let stageInside = false;
+	/** The deepest node under `world` for the listener preview (`deepHit`), read off the DRAWN
+	 *  transform (the value-binding preview folded on), so the pointer hits what the author sees. */
 	function deepHitId(world: Vec2): string | null {
-		const toLocal = (p: Vec2, t: ResolvedTransform): Vec2 => {
-			const dx = p.x - t.x;
-			const dy = p.y - t.y;
-			const rot = t.rotation ?? 0;
-			const cos = Math.cos(-rot);
-			const sin = Math.sin(-rot);
-			return {
-				x: (dx * cos - dy * sin) / (t.scale?.x || 1),
-				y: (dx * sin + dy * cos) / (t.scale?.y || 1),
-			};
-		};
-		const hit = (node: LayoutNode, p: Vec2, nested: boolean): string | null => {
-			const t = nested
-				? childLocalTransform(
-						node,
-						layoutType,
-						scene.space,
-						frameWidth,
-						frameHeight,
-						previewResolveTransform,
-					)
-				: drawTransform(node);
-			if (!t.visible) return null;
-			if (node.kind === 'container' && node.children.length) {
-				const local = toLocal(p, t);
-				for (let i = node.children.length - 1; i >= 0; i--) {
-					const found = hit(node.children[i], local, true);
-					if (found) return found;
-				}
-				if (!node.bind) return null;
-			}
-			return pointInQuad(p, nodeCornersWorld(t, boxOf(node, t))) ? node.id : null;
-		};
-		const list = visibleSceneNodes();
-		for (let i = list.length - 1; i >= 0; i--) {
-			const found = hit(list[i], world, false);
-			if (found) return found;
-		}
-		return null;
+		return deepHit(
+			visibleSceneNodes(),
+			world,
+			(node, nested) =>
+				nested
+					? childLocalTransform(
+							node,
+							layoutType,
+							scene.space,
+							frameWidth,
+							frameHeight,
+							previewResolveTransform,
+						)
+					: drawTransform(node),
+			(node, t, p) => pointInQuad(p, nodeCornersWorld(t, boxOf(node, t))),
+		);
 	}
 
 	function hitTestNode(world: Vec2): LayoutNode | null {

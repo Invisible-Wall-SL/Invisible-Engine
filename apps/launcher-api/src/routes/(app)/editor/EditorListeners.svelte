@@ -16,6 +16,7 @@
 		type LayoutNode,
 		type ListenerActionKind,
 		type NodeListener,
+		type NodeListenerEvent,
 	} from 'engine-layout';
 	import {
 		ACTION_CHOICES,
@@ -59,7 +60,7 @@
 	});
 	const nothingToDo = $derived(!inputs.length && !events.length);
 
-	const EVENT_LABELS: Record<string, string> = {
+	const EVENT_LABELS: Record<NodeListenerEvent, string> = {
 		down: 'down',
 		up: 'up',
 		enter: 'hover in',

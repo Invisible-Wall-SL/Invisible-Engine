@@ -32,12 +32,10 @@
 	let version = $state(0);
 	const events = $derived.by(() => {
 		void version;
-		void def.events;
 		return componentEvents(def);
 	});
 	const issues = $derived.by(() => {
 		void version;
-		void def.events;
 		return validateComponentEvents(def).filter((i) => i.code.startsWith('event-'));
 	});
 	let newEvent = $state('');

@@ -67,7 +67,12 @@
 		stateLabel,
 		stateMachineIds,
 	} from '$lib/timeline/stateMachineEdit';
-	import { placeLayers, playerDrives, previewPlayer } from '$lib/timeline/stateMachinePreview';
+	import {
+		placeLayers,
+		playerDrives,
+		previewPlayer,
+		startLayers,
+	} from '$lib/timeline/stateMachinePreview';
 	import { addEnterAction, removeEnterAction, rowIds } from '$lib/timeline/listenerEdit';
 	import { StagePointer, listeningChain } from '$lib/timeline/listenerPreview';
 	import EditorRaisePayload from './EditorRaisePayload.svelte';
@@ -173,8 +178,11 @@
 	const eventIssues = $derived.by(() => {
 		void graphVersion;
 		void editVersion;
-		return def ? validateComponentEvents(def) : [];
+		// A cue is checked only on a def that declares events: on one that declares none, an
+		// `event:` cue keeps its old meaning (a broadcast) and is no error.
+		return def ? validateComponentEvents(def, events.length ? [...docs.values()] : []) : [];
 	});
+	const cueIssues = $derived(eventIssues.filter((i) => i.timeline !== undefined));
 	// The list follows the component: a timeline saved in the Timeline tab shows up here.
 	$effect(() => {
 		void def?.id;
@@ -491,9 +499,11 @@
 	}
 	async function loadDocs(): Promise<void> {
 		if (!def) return;
-		const wanted = (def.stateMachine?.layers ?? []).flatMap((l) =>
-			l.states.map((st) => st.timeline),
-		);
+		// Every timeline of the component — the states' play; all are checked for `event:` cues.
+		const wanted = [
+			...(def.stateMachine?.layers ?? []).flatMap((l) => l.states.map((st) => st.timeline)),
+			...timelines.map((t) => t.id),
+		];
 		await Promise.all(
 			wanted
 				.filter((id, i) => id && !docs.has(id) && wanted.indexOf(id) === i)
@@ -521,14 +531,15 @@
 		for (const [id, value] of Object.entries(previewValues)) runner.setInput(id, value);
 		apply();
 	}
-	/** Place the layers on the player and show it — the instance's `applyStateMachine`. */
-	function apply(): void {
+	/** Place the layers on the player and show it — the instance's `applyStateMachine`; `start`:
+	 *  the run's first frame (`startLayers`, the game's `startStateMachine`). */
+	function apply(start = false): void {
 		if (!runner || !player) {
 			runnerStates = {};
 			setTimelinePreview(null, previewOwner);
 			return;
 		}
-		placeLayers(
+		(start ? startLayers : placeLayers)(
 			runner,
 			player,
 			running && dispatcher ? { dispatcher, declaresEvents: events.length > 0 } : undefined,
@@ -585,7 +596,10 @@
 		if (!entered) {
 			entered = true;
 			logStart = performance.now();
-			dispatcher?.started(runner.plays());
+			// The entry pose was placed while stopped, its cues at 0 routed nowhere: a fresh player
+			// crosses 0 again, now with the dispatcher, then the machine starts — as in game.
+			if (scene) player = previewPlayer(docs.values(), scene.nodes);
+			apply(true);
 			runner.fire('enter');
 		}
 		arm();
@@ -601,13 +615,12 @@
 		runner?.reset();
 		entered = false;
 		clearLog();
-		apply();
 		if (running && runner) {
 			entered = true;
-			dispatcher?.started(runner.plays());
+			apply(true);
 			runner.fire('enter');
 			arm();
-		}
+		} else apply();
 	}
 	function fire(id: string): void {
 		if (!runner) buildRunner();
@@ -1093,6 +1106,11 @@
 				{#if eventLog.length}<button type="button" class="ghost" onclick={clearLog}>Clear</button
 					>{/if}
 			</div>
+			{#if cueIssues.length}
+				<ul class="issue-list">
+					{#each cueIssues as i, n (n)}<li class={i.level}>⚠ {i.message}</li>{/each}
+				</ul>
+			{/if}
 			{#if !eventLog.length}
 				<p class="dim">
 					{events.length
