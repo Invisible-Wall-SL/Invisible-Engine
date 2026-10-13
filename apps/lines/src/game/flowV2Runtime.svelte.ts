@@ -25,18 +25,21 @@
  * `assertVocabBacked` warns (dev) if an authored action has no implementation.
  */
 
-import type { LayoutDoc, Scene } from 'engine-layout';
+import type { FlowInstanceHandle, LayoutDoc, Scene } from 'engine-layout';
 import {
 	cueAnimationDurationMs,
 	emitComponentSignal,
 	ENTER_SIGNAL,
 	flipbookCycleMs,
 	getComponent,
+	getFlowInstance,
 	isRegisteredComponentSignal,
 	resolveComponent,
 	resolveEffect,
 	sceneAnimationDurationMs,
 	sceneLayerZIndex,
+	stashFlowInstanceInput,
+	watchFlowInstance,
 } from 'engine-layout';
 import { emitterSecondsToWallMs } from 'engine-fx';
 import { flowAddOnsOf } from 'game-config';
@@ -49,11 +52,13 @@ import {
 	flowGraphs,
 	flowHandlesModeTransitions,
 	flowOwnsContainerEvent,
+	flowOwnsInstanceEvent,
 	flowOwnsSignal,
 	flowScreenDrivingStatus,
 	hideContainerIds,
 	runFlowContainerEvent,
 	runFlowEvent,
+	runFlowInstanceEvent,
 	runFlowModeTransition,
 	SCREEN_LIFECYCLE_SIGNALS,
 	signalChainCallsAction,
@@ -62,6 +67,7 @@ import {
 	type ContainerMountModel,
 	type FlowDoc as FlowDocV2,
 	type FunctionLibraryDoc,
+	type InstanceRef,
 	type MountedContainer,
 	type RunContext,
 	type TemplateVocabulary,
@@ -248,6 +254,19 @@ export type LinesFlowV2 = {
 	dispatchContainerEvent: (
 		componentId: string,
 		action: string,
+		payload?: Record<string, unknown>,
+	) => Promise<void>;
+	/** Does the flow OWN this placed instance's raised EVENT — i.e. author an exec edge from the
+	 *  `event:<event>` pin of a `componentInstance` node naming it (Rive plan §6.2)? Events have
+	 *  their own namespace: a press or `action` pin of the same name never counts, and nothing coded
+	 *  runs for a raised event, so ownership suppresses nothing. */
+	ownsInstanceEvent: (instanceId: string, event: string) => boolean;
+	/** Run the authored chain for a placed instance's raised event — walks FROM its `event:<event>`
+	 *  pin's wired target (the instance node is not re-run). `payload` seeds `$trigger`, so the pin's
+	 *  payload data-outs resolve. A no-op if un-authored. */
+	dispatchInstanceEvent: (
+		instanceId: string,
+		event: string,
 		payload?: Record<string, unknown>,
 	) => Promise<void>;
 	/** The authored Text Message nodes (§6.3) — static, read from the doc (groups flattened).
@@ -571,6 +590,76 @@ export const createLinesFlowV2 = (
 		{ loop: boolean; speed: number; done?: () => void }
 	>();
 
+	// PLACED COMPONENT INSTANCES (Rive plan §6.2, Phase 7): a `componentInstance` / `waitForState`
+	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`), where
+	// `<ComponentInstance>` registers while mounted. The outcomes when it is NOT registered:
+	//  - its screen is SHOWN (per the mount model) ⇒ it is mounting (the mirror renders on the next
+	//    flush): a fire or a wait defers to the registration, bounded by a short grace;
+	//  - its screen is not shown ⇒ a trigger is DROPPED (the state machine's own rule: a win heard
+	//    while hidden must not play minutes late), a value reads `undefined`, a wait resolves at once
+	//    (never a hang), and an input set is STASHED and applied when the instance next mounts — so
+	//    "set the amount, then show the screen" works in that order. Every case is traced.
+	const INSTANCE_MOUNT_GRACE_MS = 250;
+	const instanceWhenMounted = (ref: InstanceRef): Promise<FlowInstanceHandle | undefined> => {
+		const live = getFlowInstance(ref.instance);
+		if (live || !mount.isShown(ref.container)) return Promise.resolve(live);
+		return new Promise((resolve) => {
+			let settled = false;
+			const finish = (handle: FlowInstanceHandle | undefined): void => {
+				if (settled) return;
+				settled = true;
+				unwatch();
+				clearTimeout(timer);
+				resolve(handle);
+			};
+			const unwatch = watchFlowInstance(ref.instance, finish);
+			const timer = setTimeout(
+				() => finish(getFlowInstance(ref.instance)),
+				INSTANCE_MOUNT_GRACE_MS,
+			);
+		});
+	};
+	const awaitInstanceState = async (
+		ref: InstanceRef,
+		layer: string,
+		state: string,
+	): Promise<void> => {
+		const handle = await instanceWhenMounted(ref);
+		const label = `${ref.instance} ${layer}.state == ${state}`;
+		if (!handle) {
+			trace('instance wait', label, '· skipped (not on screen)');
+			return;
+		}
+		const current = handle.stateOf(layer);
+		if (current === undefined) {
+			trace('instance wait', label, '· skipped (no such layer)');
+			return;
+		}
+		if (current === state) return;
+		trace('instance HOLD', label, '⏸');
+		// Released by the state, by the instance leaving the screen (its screen was hidden — nothing
+		// could reach the state), or by a slam (an authored wait never outlives a skipped round).
+		await new Promise<void>((resolve) => {
+			let settled = false;
+			const finish = (why: string): void => {
+				if (settled) return;
+				settled = true;
+				unchange();
+				unwatch();
+				unskip();
+				trace('instance RELEASE', label, why);
+				resolve();
+			};
+			const unchange = handle.onChange(() => {
+				if (handle.stateOf(layer) === state) finish('▶ reached');
+			});
+			const unwatch = watchFlowInstance(ref.instance, (next) => {
+				if (next !== handle) finish('▶ instance left the screen');
+			});
+			const unskip = roundSkip.onSkip(() => finish('▶ slammed'));
+		});
+	};
+
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
@@ -673,6 +762,29 @@ export const createLinesFlowV2 = (
 			playingCinematics.get(cinematicId)?.done?.();
 			playingCinematics.delete(cinematicId);
 		},
+		// Placed component instances (Rive plan §6.2) — see `instanceWhenMounted` above.
+		fireInstanceTrigger: async (ref, trigger) => {
+			const handle = await instanceWhenMounted(ref);
+			if (!handle) {
+				trace('instance', `${ref.instance} ▸ ${trigger}`, '· dropped (not on screen)');
+				return;
+			}
+			trace('instance', `${ref.instance} ▸ ${trigger}`);
+			handle.fire(trigger);
+		},
+		setInstanceInput: (ref, input, value) => {
+			const live = getFlowInstance(ref.instance);
+			trace(
+				'instance',
+				`${ref.instance}.${input} =`,
+				JSON.stringify(value),
+				live ? '' : '(stashed)',
+			);
+			if (live) live.setInput(input, value);
+			else stashFlowInstanceInput(ref.instance, input, value);
+		},
+		readInstanceValue: (ref, value) => getFlowInstance(ref.instance)?.values()[value],
+		awaitInstanceState,
 	});
 
 	// A signal goes to the ACTIVE mode's graph first (`FlowDoc.modes`), then the global one.
@@ -721,6 +833,12 @@ export const createLinesFlowV2 = (
 		dispatchContainerEvent: (componentId, action, payload) => {
 			trace('containerEvent ▶', `${componentId}.${action}`);
 			return runFlowContainerEvent(doc, ctx, componentId, action, payload);
+		},
+		ownsInstanceEvent: (instanceId, event) =>
+			flowOwnsInstanceEvent(doc, instanceId, event, stateModes.active()),
+		dispatchInstanceEvent: (instanceId, event, payload) => {
+			trace('instanceEvent ▶', `${instanceId} on${event}`);
+			return runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
 		},
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
