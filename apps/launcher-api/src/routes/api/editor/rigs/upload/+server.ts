@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { SUB } from '$lib/server/projectPaths';
 import { presignPut } from '$lib/server/r2';
 import { RIG_ASSET_EXT, contentTypeForRigFile, rigExt } from '$lib/server/rigIndex';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -22,6 +23,8 @@ function isValidRelpath(rel: string): boolean {
 
 interface UploadRequest {
 	files?: unknown;
+	/** The project the uploading tab was loaded for — compared, never used (`scopeMismatch`). */
+	projectKey?: unknown;
 }
 
 /**
@@ -43,6 +46,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
+	const mismatch = scopeMismatch(body.projectKey, projectKey);
+	if (mismatch) return mismatch;
 	const files = body.files;
 	if (!Array.isArray(files) || files.length === 0) {
 		throw error(400, 'Expected a non-empty `files` array of relative paths.');

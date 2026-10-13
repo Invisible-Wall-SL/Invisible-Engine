@@ -92,6 +92,7 @@
 	import PanelSection from './PanelSection.svelte';
 	import type { RigMeta } from './rigRuntime.client';
 	import { fetchClips } from './editorFlipbooks.client';
+	import { bindArtBoundsProject } from './editorArtBounds.client.svelte';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import type { PageData } from './$types';
 
@@ -105,6 +106,7 @@
 	const loadedProjectKey = data.projectKey;
 	/** The page's data now describes another project: every save is blocked and a reload asked. */
 	const projectDrift = $derived(data.projectKey !== loadedProjectKey);
+	bindArtBoundsProject(loadedProjectKey);
 
 	/** Scenes the canvas renders. Lazily seeded with a `'main'` scene when the
 	 * doc has none — persistence is handled by the debounced autosave below. */
@@ -592,8 +594,9 @@
 	 * no navigation, no reload of the page data. */
 	function setEditorUrl(target: string | null | undefined): void {
 		const params = new URLSearchParams(page.url.searchParams);
-		// Always pinned to the loaded project: a bookmark of a bare `/editor` would otherwise let
-		// every later load rerun follow the session to whatever project another tab picked.
+		// Always pinned to the loaded project, so a reload, a bookmark or a copied link of this tab
+		// opens the project it shows. (Shallow: the URL a later load rerun uses is not guaranteed
+		// to follow, which is why every write names `loadedProjectKey` itself.)
 		if (loadedProjectKey) params.set('project', loadedProjectKey);
 		const href =
 			target === undefined
@@ -803,6 +806,10 @@
 	 */
 	async function editContainerAsComponent(container: ContainerNode): Promise<void> {
 		if (componentBusy) return;
+		if (projectDrift) {
+			componentStatus = { kind: 'error', message: 'This tab’s project changed — reload first.' };
+			return;
+		}
 		componentBusy = true;
 		componentStatus = null;
 		// Bail BEFORE creating the def if the scene can't be persisted (e.g. another
@@ -2366,6 +2373,7 @@
 	 * CASes against), and a reload is the one way to get all of that right.
 	 */
 	async function restoreBackup(id: string): Promise<string | null> {
+		if (projectDrift) return 'This tab’s project changed — reload before restoring.';
 		if (lease.readOnly)
 			return 'Another author is editing this project — take over before restoring.';
 		if (saveState.busy) return 'A save is in progress — try again in a moment.';
@@ -2373,7 +2381,7 @@
 		const res = await fetch('/api/editor/backups', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ id, baseEtag: saveState.etag }),
+			body: JSON.stringify({ id, baseEtag: saveState.etag, projectKey: loadedProjectKey }),
 		});
 		if (res.ok) {
 			location.reload();
@@ -2598,6 +2606,10 @@
 		const picked = input.files ? Array.from(input.files) : [];
 		input.value = '';
 		if (rigUploadBusy) return;
+		if (projectDrift) {
+			rigUploadStatus = { kind: 'error', message: 'This tab’s project changed — reload first.' };
+			return;
+		}
 
 		const files = picked
 			.map((f) => ({ file: f, relpath: relpathFor(f) }))
@@ -2613,7 +2625,10 @@
 			const presignRes = await fetch('/api/editor/rigs/upload', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ files: files.map((f) => f.relpath) }),
+				body: JSON.stringify({
+					files: files.map((f) => f.relpath),
+					projectKey: loadedProjectKey,
+				}),
 			});
 			if (!presignRes.ok)
 				throw new Error(await readApiError(presignRes, 'Could not prepare upload'));
@@ -2637,7 +2652,11 @@
 			}
 
 			rigUploadStatus = { kind: 'busy', message: 'Building skeletons.json…' };
-			const reindexRes = await fetch('/api/editor/rigs/reindex', { method: 'POST' });
+			const reindexRes = await fetch('/api/editor/rigs/reindex', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ projectKey: loadedProjectKey }),
+			});
 			if (!reindexRes.ok) throw new Error(await readApiError(reindexRes, 'Reindex failed'));
 			const reindex = (await reindexRes.json()) as { count: number };
 
@@ -2691,10 +2710,18 @@
 		if (document.visibilityState !== 'visible' || refreshingComponents) return;
 		refreshingComponents = true;
 		try {
+			// With ETags, so a refreshed def and its save precondition always arrive together.
 			const res = await fetch(
-				`/api/editor/components?project=${encodeURIComponent(loadedProjectKey)}`,
+				`/api/editor/components?etags=1&project=${encodeURIComponent(loadedProjectKey)}`,
 			);
-			if (res.ok) storedComponents = (await res.json()) as ComponentDef[];
+			if (res.ok) {
+				const body = (await res.json()) as {
+					components: ComponentDef[];
+					etags: Record<string, string | null>;
+				};
+				storedComponents = body.components;
+				storedEtags = body.etags;
+			}
 		} catch {
 			/* transient fetch failure — keep the current list */
 		} finally {

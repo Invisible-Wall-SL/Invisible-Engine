@@ -34,3 +34,43 @@ export function canEnterNested(trailDepth: number): boolean {
 export function etagKnown(etags: Record<string, string | null>, id: string): boolean {
 	return Object.prototype.hasOwnProperty.call(etags, id);
 }
+
+/** JSON with object keys sorted at every depth, so two reads of one def compare equal. */
+function canonical(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonical);
+	if (value && typeof value === 'object') {
+		const out: Record<string, unknown> = {};
+		for (const key of Object.keys(value).sort()) {
+			out[key] = canonical((value as Record<string, unknown>)[key]);
+		}
+		return out;
+	}
+	return value;
+}
+
+/** Are two component defs the same content, whatever their key order? */
+export function sameDef(a: unknown, b: unknown): boolean {
+	return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}
+
+/**
+ * What to do with a def + ETag read for an open draft that had no ETag (`loadEtag`). The ETag
+ * belongs to the content it was read with, never to an older copy of the draft:
+ *   - `adopt` — the stored def is still the one the draft was opened from: its ETag is the save's
+ *     precondition;
+ *   - `reseed` — someone saved since, and the draft has no edits: open their version, with its
+ *     ETag;
+ *   - `keep` — someone saved since and the draft HAS edits, or the save is busy, conflicted or
+ *     blocked: adopt nothing. The save then asserts a create, which conflicts, and the author gets
+ *     the ordinary "save on top" choice instead of silently overwriting their version.
+ */
+export function etagAdoption(opts: {
+	openedFrom: unknown;
+	stored: unknown;
+	dirty: boolean;
+	blocked: boolean;
+}): 'adopt' | 'reseed' | 'keep' {
+	if (opts.blocked) return 'keep';
+	if (sameDef(opts.openedFrom, opts.stored)) return 'adopt';
+	return opts.dirty ? 'keep' : 'reseed';
+}

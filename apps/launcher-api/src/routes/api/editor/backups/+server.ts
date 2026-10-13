@@ -8,6 +8,7 @@ import {
 import { listBackups } from '$lib/server/docBackups';
 import { normalizeDoc, saveDoc } from '$lib/server/editorStorage';
 import { editorDocBackupTarget } from '$lib/server/projectPaths';
+import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -43,7 +44,10 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, GATE);
 	const target = editorDocBackupTarget(clientKey, projectKey);
-	const { id, baseEtag } = restoreArgs(await restoreBody(request), target);
+	const body = await restoreBody(request);
+	const mismatch = scopeMismatch(body.projectKey, projectKey);
+	if (mismatch) return mismatch;
+	const { id, baseEtag } = restoreArgs(body, target);
 	// Re-normalize rather than trusting the stored bytes: a backup may predate a doc migration
 	// (the `alwaysOnTop` backfill, the parametric-HUD rewrite), and `saveDoc` normalizes anyway
 	// — doing it here means a restore of an old doc lands in exactly the shape a save of it
