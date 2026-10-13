@@ -47,7 +47,7 @@ Shipped capabilities on `main`:
   (from the promoted project def, via `promotedFrom` + `sourceEtag`), "This game's defaults" and
   its restore (the backup's fields). Known fields come from `engine-layout`'s `componentFields.ts`.
   Rules and reasoning: [doc-readers](../conventions/doc-readers.md) "Round-tripping". Gate:
-  `check:save-keeps-unknown-blocks` gains a components section (96 checks in all). **Pending:** 5a's
+  `check:save-keeps-unknown-blocks` gains a components section (99 checks in all). **Pending:** 5a's
   `inputs` and state-machine entities, and keeping a `text` input row, once #1183 is on `main`.
 - 2026-10-13 — **Component timelines (Rive plan Phase 4b, branch `claude/rive-p4b-component-timelines`
   stacked on 4a).** Design | Animate on an open component; the shared Timeline panel with a

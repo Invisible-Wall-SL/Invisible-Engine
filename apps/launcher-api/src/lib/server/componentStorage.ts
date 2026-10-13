@@ -26,7 +26,7 @@ import {
 	UNASSIGNED_CLIENT,
 } from './projectPaths';
 import { foreignRigRefs } from '$lib/rigBundleKey';
-import { withUnknownComponentFields } from './componentUnknownFields';
+import { sameUnknownComponentFields, withUnknownComponentFields } from './componentUnknownFields';
 import { projectClientKey } from './projects';
 import { loadSharedSkeletonIndex } from './rig';
 import { loadedStoredDoc } from './unknownBlocks';
@@ -387,6 +387,19 @@ export async function saveComponent(
 	const key = isProject
 		? projectComponentKey(projectKey as string, normalized.id)
 		: editorComponentKey(normalized.id);
+	// Read before the target, so this round trip is not inside the check-to-write window below.
+	const promoted = promotedFrom
+		? await loadedStoredDoc(
+				projectComponentKey(promotedFrom.projectKey, normalized.id),
+				promotedFrom.baseEtag,
+			)
+		: undefined;
+	if (promotedFrom && promoted === undefined) {
+		console.warn(
+			`[component] ${normalized.id}: promoted without the project def's unknown fields — it ` +
+				'changed since the draft loaded, or is unreadable',
+		);
+	}
 	const { def: existing, etag: existingEtag, stored } = await readComponentForWrite(key);
 	// CHECK BEFORE WRITING ANYTHING. The snapshot is written first and is immutable, so
 	// discovering a lost CAS at the LATEST pointer (the second write) would already have
@@ -397,21 +410,19 @@ export async function saveComponent(
 
 	const merged = withUnknownComponentFields(
 		normalized,
-		promotedFrom
-			? await loadedStoredDoc(
-					projectComponentKey(promotedFrom.projectKey, normalized.id),
-					promotedFrom.baseEtag,
-				)
-			: typeof baseEtag === 'string'
-				? stored
-				: undefined,
+		promotedFrom ? promoted : typeof baseEtag === 'string' ? stored : undefined,
 	);
-	// The version is decided on what this build can see: a no-op save from an older launcher must
-	// not bump because the stored bytes carry fields its normalized draft lacks.
-	const { version } = reconcileVersion(
+	// The version is decided on what this build can see, so a no-op save from an older launcher
+	// does not bump over the fields its draft lacks. But a save that CHANGES those fields (a promote
+	// carrying the project's over the shared copy's, a forced save dropping them) must bump, or the
+	// same-version snapshot write below would rewrite an immutable `<id>.v<N>.json`.
+	let { version } = reconcileVersion(
 		merged === normalized ? normalized : normalizeComponent(structuredClone(merged)),
 		existing,
 	);
+	if (existing && version === existing.version && !sameUnknownComponentFields(merged, stored)) {
+		version = existing.version + 1;
+	}
 	const toWrite = version === merged.version ? merged : { ...merged, version };
 	const body = JSON.stringify(toWrite, null, 2);
 	// Snapshot first (immutable history), latest pointer last — so a failed snapshot

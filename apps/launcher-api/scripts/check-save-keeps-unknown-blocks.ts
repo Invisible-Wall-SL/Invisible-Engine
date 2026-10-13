@@ -12,9 +12,9 @@
  * defaults sidecar, promote-to-shared and a defaults restore.
  *
  * Runs the REAL `saveSymbolsDoc` / `saveWinTextDoc` / `saveComponent` / `saveComponentDefaults` /
- * `storedUnknownBlocks`. Only `r2.ts` is
- * replaced, by an in-memory bucket that honours `If-Match` / `If-None-Match` and records every
- * GET, so "no read was made" is observable. A newer launcher is played by seeding R2 with a doc
+ * `storedUnknownBlocks`. `r2.ts` is replaced by an in-memory bucket that honours `If-Match` /
+ * `If-None-Match` and records every GET, so "no read was made" is observable (`rig.ts` and
+ * `projects.ts` are stubbed, unreached by these fixtures). A newer launcher is played by seeding R2 with a doc
  * carrying blocks this build's schemas do not declare.
  */
 import { createHash } from 'node:crypto';
@@ -107,6 +107,7 @@ const { storedUnknownBlocks, unknownTopLevelBlocks } =
 	await import('../src/lib/server/unknownBlocks.ts');
 const {
 	editorComponentKey,
+	editorComponentVersionKey,
 	projectComponentDefaultsKey,
 	projectComponentKey,
 	projectComponentVersionKey,
@@ -608,7 +609,6 @@ const resetComponents = (): void => {
 		}
 	}
 };
-type Tree = { id: string; children?: Tree[]; [k: string]: unknown };
 /** A stored def as the cases poke at it: loose, since half of what it holds this build does not know. */
 interface StoredNode {
 	id: string;
@@ -623,10 +623,10 @@ interface StoredDef {
 	events?: { id: string }[];
 	[key: string]: unknown;
 }
-const nodeById = (root: unknown, id: string): Tree | undefined => {
-	const walk = (n: Tree): Tree | undefined =>
+const nodeById = (root: unknown, id: string): StoredNode | undefined => {
+	const walk = (n: StoredNode): StoredNode | undefined =>
 		n.id === id ? n : (n.children ?? []).map(walk).find(Boolean);
-	return walk(root as Tree);
+	return walk(root as StoredNode);
 };
 
 {
@@ -678,7 +678,7 @@ const nodeById = (root: unknown, id: string): Tree | undefined => {
 	// The author deleted a node, a param and a slot, and cleared known fields.
 	const etag = seed(componentKey, newerComponent());
 	const edited = structuredClone(olderView()) as StoredDef;
-	edited.root.children = edited.root.children.filter((n: Tree) => n.id !== 'n_box');
+	edited.root.children = edited.root.children.filter((n: StoredNode) => n.id !== 'n_box');
 	delete edited.root.children[0].rotation;
 	edited.params = [{ key: 'title', kind: 'string' }];
 	delete edited.slots;
@@ -765,6 +765,22 @@ const nodeById = (root: unknown, id: string): Tree | undefined => {
 }
 
 {
+	// A forced save that changes ONLY unknown fields (it drops them) bumps rather than rewriting the
+	// immutable snapshot of the stored version.
+	resetComponents();
+	seed(componentKey, newerComponent());
+	const forceV3 = projectComponentVersionKey('p', COMPONENT.id, 3);
+	const forceV3Bytes = bucket.get(componentKey)?.text ?? '';
+	bucket.set(forceV3, { text: forceV3Bytes, etag: etagOf(forceV3Bytes) });
+	const forced = await saveComponent(olderView(), 'p', undefined);
+	check(
+		'components: a forced save that drops unknown fields bumps, leaving the snapshot alone',
+		[forced.version, bucket.get(forceV3)?.text === forceV3Bytes],
+		[4, true],
+	);
+}
+
+{
 	resetComponents();
 	seed(componentKey, newerComponent());
 	const before = bucket.get(componentKey)?.text;
@@ -837,6 +853,20 @@ const nodeById = (root: unknown, id: string): Tree | undefined => {
 			'sharedOnly' in after,
 			false,
 		);
+	}
+	{
+		// Same known content, different unknown fields: the promote bumps rather than rewriting the
+		// shared copy's immutable snapshot of its current version.
+		const sharedDoc = { ...newerComponent(), scope: 'shared', events: [{ id: 'e_other' }] };
+		const etag = seedShared(sharedDoc);
+		const v3 = editorComponentVersionKey(COMPONENT.id, 3);
+		const v3Bytes = JSON.stringify(sharedDoc, null, 2);
+		bucket.set(v3, { text: v3Bytes, etag: etagOf(v3Bytes) });
+		const result = await saveComponent(draft, undefined, etag, {
+			promotedFrom: { projectKey: 'p', baseEtag: projectEtag },
+		});
+		check('components promote: changing only unknown fields bumps the version', result.version, 4);
+		check('components promote: …and leaves the v3 snapshot alone', bucket.get(v3)?.text, v3Bytes);
 	}
 	const sharedEtag = seedShared({ ...COMPONENT, scope: 'shared' });
 	await saveComponent(draft, undefined, sharedEtag, {

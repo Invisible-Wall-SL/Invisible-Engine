@@ -33,8 +33,8 @@ const ENTITY_ARRAYS = [
  *
  * An entity whose id is gone from `next` was deleted, so nothing of it comes back. One level per
  * entity: the fields of a known field (a node's `overrides`, `preview`) are not walked. A field
- * `next` already carries is left as posted; for every array but the node tree the normalizer has
- * already dropped what was posted, so the stored copy wins there.
+ * `next` already carries is left as posted. Only a child node can carry one: the normalizer has
+ * already dropped the posted top-level, root and row fields, so the stored copy wins there.
  *
  * Returns `next` itself when nothing is grafted, so a known-only def saves byte-identically.
  */
@@ -78,6 +78,45 @@ export function withUnknownComponentFields(next: ComponentDef, stored: unknown):
 	if (blocks.length) grafted = true;
 
 	return grafted ? (out as unknown as ComponentDef) : next;
+}
+
+/**
+ * Whether `a` and `b` hold the same unknown fields: at the top level, on each node by id, and on
+ * each row by id. The version bump compares this beside the known-only content.
+ */
+export function sameUnknownComponentFields(a: unknown, b: unknown): boolean {
+	return canonical(unknownComponentFields(a)) === canonical(unknownComponentFields(b));
+}
+
+function unknownComponentFields(doc: unknown): Record<string, unknown> {
+	if (!isPlainObject(doc)) return {};
+	const out: Record<string, unknown> = { def: unknownFields(isDefField, doc) };
+	const nodes = new Map<string, Record<string, unknown>>();
+	indexNodes(doc.root, nodes);
+	const byNode: Record<string, unknown> = {};
+	for (const [id, node] of nodes) {
+		const extra = unknownFields(isNodeField, node);
+		if (Object.keys(extra).length) setKey(byNode, id, extra);
+	}
+	out.nodes = byNode;
+	for (const { field, id, isKnown } of ENTITY_ARRAYS) {
+		const byRow: Record<string, unknown> = {};
+		for (const row of Array.isArray(doc[field]) ? doc[field] : []) {
+			const extra = unknownFields(isKnown, row);
+			if (isPlainObject(row) && Object.keys(extra).length) setKey(byRow, String(row[id]), extra);
+		}
+		out[field] = byRow;
+	}
+	return out;
+}
+
+/** JSON with object keys sorted, so key order never reads as a change. */
+function canonical(value: unknown): string {
+	return JSON.stringify(value, (_key, v: unknown) =>
+		isPlainObject(v)
+			? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
+			: v,
+	);
 }
 
 function indexNodes(node: unknown, out: Map<string, Record<string, unknown>>): void {

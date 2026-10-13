@@ -231,15 +231,19 @@ the save guard for every field in the table above.
     The graft goes one level into each entity. The fields inside a known field (a node's
     `overrides`, `preview`, `bind`) are not walked. A child node's fields are never dropped by a
     READ: the normalizer passes `root.children` through, so the tab normally posts them back
-    itself. For nodes, the graft fills only what the posted node lacks, and a posted value stands.
-    A NEWER tab's edit of a child node field therefore lands, unlike its edit of a top-level or row
-    field, which the normalizer drops in favour of the stored copy.
+    itself. For child nodes, the graft fills only what the posted node lacks, and a posted value
+    stands. A NEWER tab's edit of a child node field therefore lands, unlike its edit of a
+    top-level, root or row field, which the normalizer drops in favour of the stored copy. A NEWER
+    tab cannot CLEAR one of those fields through an older server at all: the field's absence looks
+    exactly like "this build never saw it", so the stored copy comes back.
 
     Conditions are those of symbols: an `If-Match` save whose `baseEtag` is the stored ETag. The
     save's own read is the graft source, so this costs no extra GET. Nothing is kept for a create,
     a forced save, or unparseable bytes. The version bump is decided on what this build can see,
-    so a no-op save from an older launcher does not bump. The `<id>.v<N>.json` snapshot is the
-    merged doc. A known-only def saves byte-identically, and every built-in does too (gate).
+    so a no-op save from an older launcher does not bump. A save that leaves the known content as
+    it is but changes the unknown fields does bump: a promote that carries the project's fields
+    over the shared copy's, or a forced save that drops them. Without that bump, the same-version
+    snapshot write would rewrite an immutable `<id>.v<N>.json`. The snapshot is the merged doc. A known-only def saves byte-identically, and every built-in does too (gate).
 
     **Promote to shared keeps the PROMOTED project def's unknown fields**, not the replaced shared
     copy's: the client sends `promotedFrom` (the project) and `sourceEtag` (the ETag its draft
@@ -263,8 +267,10 @@ the save guard for every field in the table above.
   **A component row a read DROPPED over an unknown value.** A param of an unknown `kind` is
   dropped by the read, and with it every node binding that names it (`pruneOrphanParamBindings`).
   It is NOT kept: putting the row back without its bindings would store an unbound param that no
-  author made. The previous `<id>.v<N>.json` snapshot still holds both, because a changed save
-  bumps the version. **A Phase 7 `text` INPUT is the opposite, and its row is kept.** The read
+  author made. When the older launcher's save changes the def, the version bumps and the previous
+  `<id>.v<N>.json` snapshot still holds both. A save that changes nothing it can see keeps the
+  version and rewrites that snapshot without them, so they are then lost, as they were before this
+  graft existed. **A Phase 7 `text` INPUT is the opposite, and its row is kept.** The read
   drops it, and the save puts the stored row back by id, in its stored position. Two facts justify
   that. First, conditions name inputs by id and are not pruned when an input is missing, so the
   row alone restores a working interface, as a sound keeps its entry. Second, an older build can
