@@ -58,6 +58,8 @@ export interface CinematicSummary {
 	duration: number;
 	actors: number;
 	updatedAt: string | null;
+	/** What the timeline animates; absent ⇒ its own cast (a `/rigger` cinematic). */
+	host?: CinematicHost;
 }
 
 /** R2 key for one cinematic. `id` is path-guarded by `r2Slug` at every entry point. */
@@ -151,6 +153,7 @@ export async function listCinematics(
 				name: parsed.name,
 				duration: parsed.duration,
 				actors: parsed.stage.cast.length,
+				...(parsed.host ? { host: parsed.host } : {}),
 				updatedAt: entry.lastModified ? new Date(entry.lastModified).toISOString() : null,
 			});
 		} catch {

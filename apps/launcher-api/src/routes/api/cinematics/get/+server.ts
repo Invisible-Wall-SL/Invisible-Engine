@@ -1,6 +1,6 @@
 import { error, json } from '@sveltejs/kit';
 import { loadCinematic } from '$lib/server/cinematicStorage';
-import { gate } from '$lib/server/toolScope';
+import { assertReach, cinematicGate } from '$lib/server/cinematicAccess';
 import type { RequestHandler } from './$types';
 
 /**
@@ -11,14 +11,12 @@ import type { RequestHandler } from './$types';
  * leave a corrupt cinematic permanently unsaveable).
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies, {
-		tool: 'rigger',
-		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
-	});
+	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);
 	const id = url.searchParams.get('id');
 	if (!id) throw error(400, 'missing id');
 
 	const { doc, etag } = await loadCinematic(clientKey, projectKey, id);
 	if (!doc && etag === null) throw error(404, `No cinematic "${id}" in ${projectKey}.`);
+	assertReach(access, doc);
 	return json({ ok: true, projectKey, doc, etag, malformed: !doc });
 };

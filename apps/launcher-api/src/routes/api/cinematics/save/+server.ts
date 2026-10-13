@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
-import { isCinematicDoc, saveCinematic } from '$lib/server/cinematicStorage';
+import { assertReach, cinematicGate } from '$lib/server/cinematicAccess';
+import { isCinematicDoc, loadCinematic, saveCinematic } from '$lib/server/cinematicStorage';
 import { ConflictError } from '$lib/server/r2';
-import { gate } from '$lib/server/toolScope';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
@@ -13,12 +13,12 @@ import type { RequestHandler } from './$types';
  * `force: true` is the author's explicit "overwrite theirs" from the conflict prompt.
  *
  * Body: `{ doc: <CinematicDoc>, baseEtag?: string | null, force?: boolean, projectKey?: string }`.
+ *
+ * A Scene Editor-only caller (`access: 'screen'`) may write a screen timeline over a screen
+ * timeline or nothing; see {@link screenPrecondition}.
  */
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
-	const { clientKey, projectKey } = await gate(locals, cookies, {
-		tool: 'rigger',
-		forbiddenMessage: 'Your role does not have access to the Invisible Rigger.',
-	});
+	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);
 
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body || !isCinematicDoc(body.doc)) throw error(400, 'missing or malformed cinematic doc');
@@ -42,26 +42,35 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		);
 	}
 
-	const baseEtag = writeBaseEtagJson(body);
+	let baseEtag = writeBaseEtagJson(body);
+	// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and hides the cause
+	// ([[gotcha_publish_502_flowv2_nodes_guard]]).
+	const conflict = () =>
+		json(
+			{
+				ok: false,
+				error: 'conflict',
+				message:
+					'Someone else saved this cinematic while you were editing. ' +
+					'Your changes are still here — reload to get their version first.',
+			},
+			{ status: 409 },
+		);
+
+	if (access === 'screen') {
+		assertReach(access, body.doc);
+		const stored = await loadCinematic(clientKey, projectKey, body.doc.id);
+		if (stored.etag !== null) assertReach(access, stored.doc);
+		const pinned = screenPrecondition(baseEtag, stored.etag);
+		if (pinned === 'conflict') return conflict();
+		baseEtag = pinned;
+	}
 
 	try {
 		const { etag, id } = await saveCinematic(clientKey, projectKey, body.doc, baseEtag);
 		return json({ ok: true, id, etag, updatedAt: new Date().toISOString() });
 	} catch (e) {
-		if (e instanceof ConflictError) {
-			// `json({error})`, never `error()` — the latter surfaces as an opaque 502 and hides the
-			// cause ([[gotcha_publish_502_flowv2_nodes_guard]]).
-			return json(
-				{
-					ok: false,
-					error: 'conflict',
-					message:
-						'Someone else saved this cinematic while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-				},
-				{ status: 409 },
-			);
-		}
+		if (e instanceof ConflictError) return conflict();
 		// Anything else (an R2 credential/permission problem, a bucket misconfiguration, a network
 		// fault) would otherwise become SvelteKit's opaque HTML 500, which reaches the author as
 		// "save failed (500)" and nothing more. Report the real reason instead: the tool shows it in
@@ -77,3 +86,18 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		);
 	}
 };
+
+/**
+ * The precondition a `screen` save writes under: ALWAYS the version the host check just read
+ * (`storedEtag`, `null` = absent ⇒ create-only), never an unconditional put — so a rig cinematic
+ * written under the same id between the check and the put makes this save fail rather than
+ * overwrite it. `force` (`baseEtag` undefined) still overwrites, but only that checked version. A
+ * caller's own `baseEtag` that no longer matches it is the ordinary conflict.
+ */
+function screenPrecondition(
+	baseEtag: string | null | undefined,
+	storedEtag: string | null,
+): string | null | 'conflict' {
+	if (baseEtag !== undefined && baseEtag !== storedEtag) return 'conflict';
+	return storedEtag;
+}
