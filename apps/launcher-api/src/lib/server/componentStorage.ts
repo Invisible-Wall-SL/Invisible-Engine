@@ -886,14 +886,10 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (!isRecord(item) || typeof item.id !== 'string' || !item.id) continue;
 			if (typeof item.from !== 'string' || typeof item.to !== 'string') continue;
 			const transition: SmTransition = { id: item.id, from: item.from, to: item.to };
-			const conditions: SmCondition[] = [];
-			for (const c of Array.isArray(item.conditions) ? item.conditions : []) {
-				if (!isRecord(c) || typeof c.input !== 'string' || !c.input) continue;
-				if (!CONDITION_OPS.has(c.op as SmCondition['op'])) continue;
-				const condition: SmCondition = { input: c.input, op: c.op as SmCondition['op'] };
-				if (typeof c.value === 'boolean' || finite(c.value)) condition.value = c.value;
-				conditions.push(condition);
-			}
+			// A condition this build cannot read drops the WHOLE transition: keeping the others would
+			// widen a guarded edge into one that fires on its exit time alone.
+			const conditions = normalizeConditions(item.conditions);
+			if (conditions === undefined) continue;
 			if (conditions.length) transition.conditions = conditions;
 			if (finite(item.exitTime)) transition.exitTime = item.exitTime;
 			if (finite(item.blend) && item.blend > 0) transition.blend = item.blend;
@@ -902,6 +898,24 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 		layers.push(layer);
 	}
 	return layers.length ? { layers } : undefined;
+}
+
+/** The conditions, or `undefined` when one is malformed (unknown op, a value of the wrong type). */
+function normalizeConditions(input: unknown): SmCondition[] | undefined {
+	if (input === undefined) return [];
+	if (!Array.isArray(input)) return undefined;
+	const out: SmCondition[] = [];
+	for (const c of input) {
+		if (!isRecord(c) || typeof c.input !== 'string' || !c.input) return undefined;
+		if (!CONDITION_OPS.has(c.op as SmCondition['op'])) return undefined;
+		const condition: SmCondition = { input: c.input, op: c.op as SmCondition['op'] };
+		if (condition.op !== 'fired') {
+			if (!(typeof c.value === 'boolean' || finite(c.value))) return undefined;
+			condition.value = c.value;
+		}
+		out.push(condition);
+	}
+	return out;
 }
 
 function normalizeSignals(input: unknown): ComponentSignal[] {

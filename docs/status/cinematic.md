@@ -134,10 +134,10 @@ through the same player; headless-proven, no editor yet (5b).
     source. On the ticker, `advance(dt)` then `plays()` → `player.drive(layer, index, play)` per
     layer (`release` on `exit`), so the 4b player is the one node-driving path: the slot's cues are
     routed like a `playOn` timeline's (`signal:` to the bus, `fx:` broadcast, sounds dropped), a
-    cue at 0 fires on entry and a loop wrap fires the end then the start. `sample(nodeId)`: the most
-    recently started of the `playOn` timelines and the layers driving the node wins it; among
-    layers, each property goes to the later layer, each mixed from the pose it left while its blend
-    runs (`blendNodeSamples`). A missing timeline holds and warns once. No `stateMachine` ⇒ no
+    cue at 0 fires on entry and a loop wrap fires the end then the start. `sample(nodeId)`: a `playOn`
+    timeline still playing and started after the layers driving the node wins it; once it ends, or
+    the machine changes state, the layers take the node back; among layers, each property goes to
+    the later layer, each mixed from the pose it left while its blend runs (`blendNodeSamples`). A missing timeline holds and warns once. No `stateMachine` ⇒ no
     runner, no subscription, no ticker (parity; `check:component-timelines` still 39 green). Ship
     chain (rule 8): a state's timeline needs no `playOn` and no Flow node to ship — every authored
     component timeline is exported and embedded, and the gate asserts it. Gate:

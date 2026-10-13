@@ -39,6 +39,10 @@
 		// context binding, else no routing (parity).
 		actions?: Record<string, () => void>;
 	};
+
+	/** Defs whose state machine names unregistered timelines: warned once per def, not per
+	 *  placement. */
+	const warnedMissingTimelines: Record<string, true> = {};
 </script>
 
 <script lang="ts">
@@ -745,7 +749,8 @@
 					stateMachineDocs.durations,
 				)
 			: undefined;
-	if (stateMachineRunner?.missingTimelines.length) {
+	if (stateMachineRunner?.missingTimelines.length && def && !warnedMissingTimelines[def.id]) {
+		warnedMissingTimelines[def.id] = true;
 		console.warn(
 			`[engine-layout] component "${def?.id}": its state machine plays timelines the game has not registered (${stateMachineRunner.missingTimelines.join(', ')}); those states hold.`,
 		);
@@ -774,10 +779,8 @@
 		untrack(() => {
 			if (!timelinePlayer && !stateMachineRunner) return;
 			const unsubs: (() => void)[] = [];
-			for (const signal of new Set([
-				...(timelinePlayer?.signals() ?? []),
-				...stateMachineTriggers,
-			])) {
+			const busSignals = [...(timelinePlayer?.signals() ?? []), ...stateMachineTriggers];
+			for (const signal of busSignals.filter((s, i) => busSignals.indexOf(s) === i)) {
 				if (signal === ENTER_SIGNAL || signalToTargets.has(signal) || gateSignals.has(signal))
 					continue;
 				unsubs.push(

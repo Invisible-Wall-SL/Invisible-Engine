@@ -181,9 +181,13 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
 
 - Every layer starts in its `entry` state, at time 0, and that state shows from the first frame.
 - **Triggers are consumed once per evaluation.** A trigger fired between ticks is seen by every
-  layer on the next tick, used by at most one transition per layer (a chain in the same tick cannot
-  re-use it), then cleared whether or not anything used it. Firing a trigger IS firing the signal
-  of that name on the instance's bus (§12 #4), so it is scoped exactly as a signal is.
+  layer on the next tick and used by at most one transition per layer (a chain in the same tick
+  cannot re-use it); the transition that takes it consumes it for that layer. A layer **holds** a
+  trigger it did not take only while a transition leaving its current state (or `any`) reads it —
+  so "finish the current loop, then play win" works: `win` waits on the transition's `exitTime` —
+  and drops it at the end of the tick otherwise, so a trigger nothing is waiting for never goes
+  stale. Firing a trigger IS firing the signal of that name on the instance's bus (§12 #4), so it
+  is scoped exactly as a signal is.
 - **`any`-state transitions are checked first**, in authored order, then the current state's; the
   first whose conditions all hold and whose `exitTime` has been reached fires. An `any` transition
   never re-enters the state the layer is already in.
@@ -191,12 +195,17 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   on a looping state, crossed during this tick. A transition with no conditions fires as soon as
   its exit time does — the usual "back to idle when the win ends".
 - **Layers run in order**, and a later layer wins each node property both key (per property, not
-  per node). Against a `playOn` timeline on the same node, the most recently started wins the
-  node: a pop-in started after the machine's idle shows, and the machine's next state change takes
-  the node back.
+  per node). Against a `playOn` timeline on the same node: a `playOn` timeline that is still
+  playing and started after every layer driving the node wins it (a pop-in started after the
+  machine's idle shows); once it ends, or the machine changes state, the layers take the node back
+  — a pop-in, then idle, needs no transition. A node no layer drives keeps 4b's rule (the most
+  recently started `playOn` timeline holds it, finished or not).
 - **`blend`** mixes the target timeline in over that many ms from the pose being left — the
   previous timeline frozen at the moment of leaving (`blendNodeSamples`: offsets from 0, factors
-  from 1, tint per colour channel, frame/visible/text stepping at half way).
+  from 1, tint per colour channel, frame/visible/text stepping at half way). A transition taken
+  mid-blend mixes from that timeline's pose, not from the half-mixed one, so a fast re-transition
+  can pop first. Cues are found with the player's `cuesCrossed`, whose 0.25 s step guard means a
+  state with a very high `speed` can skip cues.
 - **At most 8 transitions fire per layer per tick** (`SM_MAX_TRANSITIONS_PER_TICK`); a longer
   chain continues next tick. A non-looping timeline holds its last frame.
 - **`exit`** ends the layer: it drives nothing and takes no transition until `reset()`.

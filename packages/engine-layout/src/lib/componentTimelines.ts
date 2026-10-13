@@ -50,11 +50,6 @@ export function componentTimelinesFor(componentId: string): CinematicDoc[] {
 	return byComponent.get(componentId) ?? [];
 }
 
-/** A registered component timeline by cinematic id, `playOn` or not. */
-export function componentTimelineById(id: string): CinematicDoc | undefined {
-	return byId.get(id);
-}
-
 /**
  * The registered timelines a state machine's states play, each once, and their durations by id —
  * what a {@link ComponentTimelinePlayer} binds and a `ComponentStateMachineRunner` is handed. An
@@ -121,11 +116,13 @@ export interface TimelineStep {
  *
  * A STATE MACHINE (Phase 5) plays through the same player: each layer owns a slot that `drive`
  * places on a timeline at a time (the interpreter's `LayerPlay`), and `release` empties. The
- * player then samples a node like this: the most recently started of the `playOn` timelines and
- * the state-machine layers driving it wins the node (so a `playOn` pop-in started after the
- * machine's idle shows, and the machine's next state change takes the node back); when a layer
- * wins, every layer driving the node applies in layer order, a later layer winning each property
- * both key, each mixed in from the pose it left while its blend runs.
+ * player then samples a node like this: a `playOn` timeline that is still PLAYING and started
+ * after every layer driving the node wins it (a pop-in started after the machine's idle shows);
+ * once it ends, or the machine changes state, the layers take the node back (a pop-in then idle
+ * needs no transition). When the layers win, every layer driving the node applies in layer order,
+ * a later layer winning each property both key, each mixed in from the pose it left while its
+ * blend runs. A node no layer drives keeps 4b's rule: the most recently started `playOn` timeline
+ * holds it, finished or not.
  */
 export class ComponentTimelinePlayer {
 	private readonly bound: Bound[];
@@ -301,7 +298,7 @@ export class ComponentTimelinePlayer {
 		}
 		if (!layers.length) return best ? this.sampleOf(best, nodeId) : undefined;
 		const latest = Math.max(...layers.map((r) => r.order));
-		if (best && best.order > latest) return this.sampleOf(best, nodeId);
+		if (best && !best.done && best.order > latest) return this.sampleOf(best, nodeId);
 		layers.sort((a, b) => (a.layer ?? 0) - (b.layer ?? 0));
 		const out: Record<string, unknown> = {};
 		for (const r of layers) {

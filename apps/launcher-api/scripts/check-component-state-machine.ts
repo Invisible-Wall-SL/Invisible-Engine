@@ -399,6 +399,11 @@ eq(
 		step.fired.length,
 		M.SM_MAX_TRANSITIONS_PER_TICK,
 	);
+	eq(
+		'…and the chain the cap cut continues next tick',
+		[r.needsTick(), r.advance(0.1).fired.length],
+		[true, M.SM_MAX_TRANSITIONS_PER_TICK],
+	);
 	r.setInput('amount', 500);
 	r.setInput('big', true);
 	eq(
@@ -431,6 +436,47 @@ eq(
 		'reset re-enters the entry with the inputs kept',
 		[r.stateOf('main'), r.input('amount')],
 		['idle', 500],
+	);
+}
+{
+	// "Finish the loop, then play win": a trigger a transition leaving the current state reads
+	// is held until that transition's exit time lets it go; one nothing reads is dropped.
+	const r = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				transitions: [
+					{
+						id: 't',
+						from: 'idle',
+						to: 'win',
+						exitTime: 1,
+						conditions: [{ input: 'win', op: 'fired' }],
+					},
+					{ id: 'back', from: 'win', to: 'idle', exitTime: 1 },
+				],
+			}),
+		),
+		[...(inputs ?? []), { id: 'unread', kind: 'trigger' }],
+		durations,
+	);
+	r.advance(0.3);
+	r.fire('win');
+	r.fire('unread');
+	r.advance(0.1);
+	eq(
+		'the trigger waits on the exit time instead of being lost',
+		[r.stateOf('main'), r.needsTick()],
+		['idle', true],
+	);
+	for (let i = 0; i < 6; i++) r.advance(0.1);
+	eq('…and fires when the loop wraps', r.stateOf('main'), 'win');
+	eq('a held trigger is consumed by the transition that took it', r.advance(0.1).fired, []);
+	r.fire('win');
+	for (let i = 0; i < 12; i++) r.advance(0.1);
+	eq(
+		'a trigger no transition leaving the current state reads is dropped, not queued',
+		r.stateOf('main'),
+		'idle',
 	);
 }
 {
@@ -650,6 +696,24 @@ eq(
 		alpha: 0.5,
 	});
 	eq('the playOn timeline still plays on its own clock', player.isPlaying(), true);
+	player.trigger('enter');
+	eq('started again, it wins again', player.sample('n_coin')?.y, -100);
+	player.advance(1);
+	eq(
+		'once it has ended, the idle layer takes the node back (pop-in, then idle)',
+		[player.isPlaying(), player.sample('n_coin')],
+		[false, { alpha: 0.5 }],
+	);
+	eq(
+		'a node no layer drives keeps holding the finished pop-in (4b)',
+		new L.ComponentTimelinePlayer(
+			[timeline('c_coin_pop', { playOn: 'enter', target: 'Glow' })],
+			nodes,
+		)
+			.drivenNodes()
+			.has('n_glow'),
+		true,
+	);
 }
 {
 	// A blend from the pose left: half way between idle's alpha 0.5 and win's first frame.
@@ -832,11 +896,6 @@ eq(
 	L.componentTimelinesFor('coin').map((d) => d.id),
 	['c_coin_pop'],
 );
-eq(
-	'…and every component timeline by id',
-	[L.componentTimelineById('c_coin_idle')?.id, L.componentTimelineById('c_coin_pop')?.id],
-	['c_coin_idle', 'c_coin_pop'],
-);
 eq('no state machine ⇒ no timelines to bind', L.stateMachineTimelines(undefined), {
 	docs: [],
 	durations: {},
@@ -921,9 +980,34 @@ eq(
 		layer().states,
 	);
 	eq(
-		'…dropping a condition with an unknown op, keeping the rest',
-		saved.stateMachine?.layers[0].transitions[2],
-		{ id: 'bad', from: 'idle', to: 'win', conditions: [{ input: 'win', op: 'fired' }] },
+		'…dropping a transition WHOLE when one of its conditions is malformed (never widening it)',
+		saved.stateMachine?.layers[0].transitions.map((t) => t.id),
+		['t_win', 't_back'],
+	);
+	eq(
+		'a value of the wrong type is malformed too',
+		normalizeComponent({
+			id: 'c',
+			name: 'c',
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'r', kind: 'container', x: 0, y: 0, children: [] },
+			inputs,
+			stateMachine: machine(
+				layer({
+					transitions: [
+						{
+							id: 'x',
+							from: 'idle',
+							to: 'win',
+							conditions: [{ input: 'amount', op: '>', value: '100' }],
+						} as never,
+					],
+				}),
+			),
+		} as unknown as ComponentDef).stateMachine?.layers[0].transitions,
+		[],
 	);
 	eq(
 		'a def without them saves without them',

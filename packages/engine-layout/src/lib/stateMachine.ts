@@ -23,8 +23,12 @@ import {
  * preview. Semantics, also recorded in the plan:
  *
  * - **Triggers are consumed once per evaluation.** A trigger fired between ticks is seen by every
- *   layer on the next `advance`, used by at most one transition per layer (a chain in the same
- *   tick cannot re-use it), then cleared, whether or not a transition used it.
+ *   layer on the next `advance` and used by at most one transition per layer (a chain in the same
+ *   tick cannot re-use it); a transition that takes it consumes it for that layer. A layer HOLDS
+ *   a trigger it did not take only while a transition leaving its current state (or `any`) reads
+ *   it — the "finish the loop, then play win" idiom, where the trigger waits on an `exitTime` —
+ *   and drops it at the end of the tick otherwise, so a trigger nothing is waiting for never goes
+ *   stale.
  * - **`any`-state transitions are checked first**, in authored order, then the current state's.
  *   The first whose conditions all hold (and whose `exitTime` has been reached) fires. An `any`
  *   transition never re-enters the state the layer is already in.
@@ -35,6 +39,8 @@ import {
  *   frozen at the moment of leaving) over `blend` ms — {@link blendNodeSamples}.
  * - **No transition loops within one tick**: at most {@link SM_MAX_TRANSITIONS_PER_TICK} fire per
  *   layer per tick; a chain beyond that continues next tick.
+ * - A transition taken mid-blend mixes from the timeline being left at its playhead, not from the
+ *   half-mixed pose, so a fast re-transition can pop to that timeline's pose first.
  * - **`exit` ends the layer**: it drives nothing and takes no transition until {@link reset}.
  * - **A missing timeline never throws**: the state is entered and holds (drives nothing; its exit
  *   gate is open); the ids are listed in {@link ComponentStateMachineRunner.missingTimelines} for
@@ -89,6 +95,8 @@ interface LayerRun {
 	wrapped: boolean;
 	entered: boolean;
 	blend?: { timeline?: string; time: number; elapsed: number; total: number };
+	/** Triggers fired and not yet taken by a transition of this layer. */
+	pending: Set<string>;
 }
 
 const asNumber = (v: unknown, fallback: number): number =>
@@ -99,7 +107,6 @@ export class ComponentStateMachineRunner {
 	private readonly durations: ReadonlyMap<string, number>;
 	private readonly kinds = new Map<string, ComponentInputKind>();
 	private readonly current = new Map<string, number | boolean>();
-	private readonly fired = new Set<string>();
 	private dirty = true;
 	/** Timeline ids some state names that the host could not resolve, each once. */
 	readonly missingTimelines: string[];
@@ -141,6 +148,7 @@ export class ComponentStateMachineRunner {
 			prevTime: 0,
 			wrapped: false,
 			entered: true,
+			pending: new Set(),
 		};
 	}
 
@@ -148,13 +156,7 @@ export class ComponentStateMachineRunner {
 	reset(): void {
 		for (let i = 0; i < this.layers.length; i++)
 			this.layers[i] = this.enterLayer(this.layers[i].def);
-		this.fired.clear();
 		this.dirty = true;
-	}
-
-	/** The kind of a declared input, or `undefined` for a name the def does not declare. */
-	inputKind(id: string): ComponentInputKind | undefined {
-		return this.kinds.get(id);
 	}
 
 	/** A bool or number input's current value. */
@@ -177,7 +179,7 @@ export class ComponentStateMachineRunner {
 	/** Fire a trigger input; seen by every layer on the next {@link advance}. */
 	fire(id: string): boolean {
 		if (this.kinds.get(id) !== 'trigger') return false;
-		this.fired.add(id);
+		for (const layer of this.layers) if (layer.state !== SM_EXIT_STATE) layer.pending.add(id);
 		this.dirty = true;
 		return true;
 	}
@@ -191,9 +193,10 @@ export class ComponentStateMachineRunner {
 		});
 	}
 
-	/** Should the host advance this tick: something plays, or an input changed since the last one. */
+	/** Should the host advance this tick: something plays, an input changed since the last one, or
+	 *  a layer holds a trigger. */
 	needsTick(): boolean {
-		return this.dirty || this.isPlaying();
+		return this.dirty || this.isPlaying() || this.layers.some((l) => l.pending.size > 0);
 	}
 
 	advance(dtSeconds: number): StateMachineStep {
@@ -203,10 +206,15 @@ export class ComponentStateMachineRunner {
 			if (layer.state === SM_EXIT_STATE) continue;
 			this.advanceLayer(layer, dt);
 			const used = new Set<string>();
-			for (let n = 0; n < SM_MAX_TRANSITIONS_PER_TICK; n++) {
+			let n = 0;
+			for (; n < SM_MAX_TRANSITIONS_PER_TICK; n++) {
 				const transition = this.pickTransition(layer, used);
 				if (!transition) break;
-				for (const c of transition.conditions ?? []) if (c.op === 'fired') used.add(c.input);
+				for (const c of transition.conditions ?? []) {
+					if (c.op !== 'fired') continue;
+					used.add(c.input);
+					layer.pending.delete(c.input);
+				}
 				step.fired.push({
 					layer: layer.def.id,
 					transition: transition.id,
@@ -216,10 +224,29 @@ export class ComponentStateMachineRunner {
 				this.enterState(layer, transition);
 				if (layer.state === SM_EXIT_STATE) break;
 			}
+			// The cap stopped a longer chain: it continues next tick.
+			if (n === SM_MAX_TRANSITIONS_PER_TICK) this.dirty = true;
+			this.dropUnreadTriggers(layer);
 		}
-		this.fired.clear();
 		this.dirty = false;
 		return step;
+	}
+
+	/** Keep only the pending triggers a transition leaving the layer's current state (or `any`)
+	 *  reads; the rest were for nobody and would otherwise go stale. */
+	private dropUnreadTriggers(layer: LayerRun): void {
+		if (!layer.pending.size) return;
+		if (layer.state === SM_EXIT_STATE) {
+			layer.pending.clear();
+			return;
+		}
+		const read = new Set<string>();
+		for (const t of layer.def.transitions ?? []) {
+			const leaves = t.from === layer.state || (t.from === SM_ANY_STATE && t.to !== layer.state);
+			if (!leaves) continue;
+			for (const c of t.conditions ?? []) if (c.op === 'fired') read.add(c.input);
+		}
+		for (const id of layer.pending) if (!read.has(id)) layer.pending.delete(id);
 	}
 
 	private advanceLayer(layer: LayerRun, dt: number): void {
@@ -255,11 +282,11 @@ export class ComponentStateMachineRunner {
 		return point > layer.prevTime && point <= layer.time;
 	}
 
-	private holds(condition: SmCondition, used: ReadonlySet<string>): boolean {
+	private holds(layer: LayerRun, condition: SmCondition, used: ReadonlySet<string>): boolean {
 		const kind = this.kinds.get(condition.input);
 		if (!kind) return false;
 		if (condition.op === 'fired') {
-			return kind === 'trigger' && this.fired.has(condition.input) && !used.has(condition.input);
+			return kind === 'trigger' && layer.pending.has(condition.input) && !used.has(condition.input);
 		}
 		if (kind === 'trigger') return false;
 		const value = this.current.get(condition.input);
@@ -287,7 +314,7 @@ export class ComponentStateMachineRunner {
 
 	private fires(layer: LayerRun, transition: SmTransition, used: ReadonlySet<string>): boolean {
 		if (!this.exitReached(layer, transition.exitTime)) return false;
-		return (transition.conditions ?? []).every((c) => this.holds(c, used));
+		return (transition.conditions ?? []).every((c) => this.holds(layer, c, used));
 	}
 
 	/** `used`: the triggers this layer's transitions already took this tick. */
