@@ -7,7 +7,10 @@
  *     and every other parameter (`project`, `client`);
  *  2. what `/editor` reads back out of those URLs opens the same component;
  *  3. the tool card and every in-app link point at `/editor`, never the retired page;
- *  4. edit-in-place stops where the game stops drawing nested components.
+ *  4. edit-in-place stops where the game stops drawing nested components;
+ *  5. a link to `/editor` followed from inside `/editor` never swaps one project's state for
+ *     another's: tool links carry the shown project, and `/editor` applies the same project in
+ *     place and fully reloads for any other (or for a link naming none).
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -15,8 +18,10 @@ import { MAX_COMPONENT_DEPTH } from '../../../packages/engine-layout/src/lib/reg
 import {
 	componentsHref,
 	componentsTarget,
+	editorSelfNavigation,
 	legacyComponentsRedirect,
 } from '../src/lib/componentLinks.ts';
+import { withProject } from '../src/lib/toolLinks.ts';
 import { TOOLS } from '../src/lib/roles.ts';
 import { canEnterNested } from '../src/routes/(app)/editor/componentWorkspace.ts';
 
@@ -111,6 +116,50 @@ check(
 	`but not one ${MAX_COMPONENT_DEPTH} levels down, which the game skips`,
 	canEnterNested(MAX_COMPONENT_DEPTH - 1),
 	false,
+);
+
+// ── 5. Same-route navigations keep their project ─────────────────────────────
+check(
+	'a tool link carries the shown project',
+	withProject(TOOLS.componentEditor.url, 'book_of_borut'),
+	'/editor?view=components&project=book_of_borut',
+);
+check(
+	'a link that already names a project is re-pointed, not doubled',
+	withProject('/editor?project=other&component=coin', 'book_of_borut'),
+	'/editor?project=book_of_borut&component=coin',
+);
+check('no project shown ⇒ the link as registered', withProject('/files', undefined), '/files');
+check('a hash survives', withProject('/docs/flow#pins', 'p'), '/docs/flow?project=p#pins');
+const at = (href: string): URL => new URL(href, 'https://app.example');
+// Tab A holds /editor?project=X; tab B moved the session to Y; tab A clicks the card.
+check(
+	'the card, from the bar of a tab on X, opens the Components side of X in place',
+	editorSelfNavigation(at(withProject(TOOLS.componentEditor.url, 'X')), 'X'),
+	'in-place',
+);
+check(
+	'a link to /editor naming no project reloads (the server would take the session’s)',
+	editorSelfNavigation(at('/editor?view=components'), 'X'),
+	'reload',
+);
+check(
+	'a link to /editor naming another project reloads',
+	editorSelfNavigation(at('/editor?project=Y&component=coin'), 'X'),
+	'reload',
+);
+const bar = readFileSync(`${src}lib/ToolTopBar.svelte`, 'utf8');
+check('the tool bar builds its links with withProject', bar.includes('withProject(tool.url'), true);
+const editorPage = readFileSync(`${routes}(app)/editor/+page.svelte`, 'utf8');
+check(
+	'/editor decides its own-route navigations with editorSelfNavigation, in beforeNavigate',
+	/beforeNavigate\([\s\S]*?navigation\.cancel\(\)[\s\S]*?editorSelfNavigation\(/.test(editorPage),
+	true,
+);
+check(
+	'/editor reloads should its data arrive for another project',
+	editorPage.includes('data.projectKey !== loadedProjectKey'),
+	true,
 );
 
 if (failures > 0) {

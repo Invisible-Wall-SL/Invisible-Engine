@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
 	import { page } from '$app/state';
-	import { componentsHref, componentsTarget } from '$lib/componentLinks';
+	import { componentsHref, componentsTarget, editorSelfNavigation } from '$lib/componentLinks';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -553,6 +553,11 @@
 		workspaceView = 'components';
 	}
 
+	/** Ask the Components side to close its component (asking about unsaved work) and step back. */
+	function requestExitComponents(): void {
+		componentRequest = { seq: ++componentRequestSeq, id: null, rootLabel: null, exit: true };
+	}
+
 	function backToScreens(): void {
 		workspaceView = 'screens';
 		setEditorUrl(undefined);
@@ -590,10 +595,30 @@
 		if (target !== undefined) openComponents(target, null);
 	}
 
-	// The first load, and a link to `/editor?view=components` followed from inside `/editor` (the
-	// tool bar's Component Editor card), which is a same-page navigation.
-	afterNavigate(({ to }) => {
-		if (to) applyUrlTarget(to.url);
+	afterNavigate(({ type, to }) => {
+		if (type === 'enter' && to) applyUrlTarget(to.url);
+	});
+	// A link to `/editor` followed from inside `/editor` (the tool bar's Component Editor card, a
+	// deep link) does not remount this page, and the page holds ONE project's screens, components,
+	// ETags and leases. So it never runs as a navigation: the same project is applied in place,
+	// anything else is a full document load (`editorSelfNavigation`).
+	beforeNavigate((navigation) => {
+		const to = navigation.to?.url;
+		if (navigation.willUnload || !to || to.pathname !== '/editor') return;
+		navigation.cancel();
+		if (editorSelfNavigation(to, data.projectKey) === 'reload') {
+			window.location.assign(to.href);
+			return;
+		}
+		const target = componentsTarget(to.searchParams);
+		if (target !== undefined) openComponents(target, null);
+		else if (componentsView) requestExitComponents();
+	});
+	/** The project this page was loaded for. Should the data ever arrive for another one (a load
+	 * rerun that fell back to the session's project), reload rather than hold two projects' state. */
+	const loadedProjectKey = data.projectKey;
+	$effect(() => {
+		if (data.projectKey !== loadedProjectKey) window.location.reload();
 	});
 
 	/** The two editor modes. */
@@ -625,9 +650,13 @@
 		});
 	}
 
-	/** Components the project can use (shared + project shadow) — drives the picker +
-	 * the canvas's `componentInstance` resolution. */
-	let components = $state<ComponentDef[]>(withConfigWinTiers(structuredClone(data.components)));
+	/** Components the project can use (shared + project shadow), as stored — what the Components
+	 * side seeds from and saves. Kept apart from {@link components} because the `win` tier groups
+	 * are an editor-only hint that must never reach a saved def. */
+	let storedComponents = $state<ComponentDef[]>(structuredClone(data.components));
+	/** The same list with the `win` tier groups rebuilt — drives the picker + the canvas's
+	 * `componentInstance` resolution. */
+	const components = $derived(withConfigWinTiers(storedComponents));
 	/** Status pill for the "Edit as component" materialize→open-tool flow. */
 	let componentBusy = $state(false);
 	let componentStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
@@ -801,7 +830,7 @@
 				const out = (await res.json().catch(() => ({}))) as { etag?: string | null };
 				createdEtag = out.etag ?? null;
 				// Reflect the new def locally so the picker + canvas resolve it immediately.
-				components = [...components, def];
+				storedComponents = [...storedComponents, def];
 			}
 			// Link the scene container to the def (container → componentInstance), so
 			// component edits reflect into the scene, and persist the conversion before
@@ -2640,7 +2669,7 @@
 			const res = await fetch(
 				`/api/editor/components?project=${encodeURIComponent(data.projectKey)}`,
 			);
-			if (res.ok) components = (await res.json()) as ComponentDef[];
+			if (res.ok) storedComponents = (await res.json()) as ComponentDef[];
 		} catch {
 			/* transient fetch failure — keep the current list */
 		} finally {
@@ -3919,7 +3948,7 @@
 				data={{
 					clientKey: data.clientKey,
 					projectKey: data.projectKey,
-					components: data.components,
+					components: $state.snapshot(storedComponents) as ComponentDef[],
 					componentEtags: data.componentEtags,
 					assets: data.assets,
 					componentDefaults: data.componentDefaults,
@@ -3934,7 +3963,7 @@
 				active={componentsView}
 				onExit={backToScreens}
 				onOpenScreen={openScreenById}
-				onComponentsChange={(list) => (components = withConfigWinTiers(list))}
+				onComponentsChange={(list) => (storedComponents = list)}
 				onOpenedChange={(id) => {
 					if (componentsView) setEditorUrl(id);
 				}}

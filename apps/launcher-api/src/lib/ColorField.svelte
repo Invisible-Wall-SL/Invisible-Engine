@@ -265,7 +265,15 @@
 ></button>
 
 {#if open}
-	<div bind:this={popoverEl} use:portal class="cf-pop" style={popStyle} role="dialog">
+	<!-- `data-esc-owner`: this popover answers Escape itself, so a page-level Escape stands down. -->
+	<div
+		bind:this={popoverEl}
+		use:portal
+		class="cf-pop"
+		style={popStyle}
+		role="dialog"
+		data-esc-owner
+	>
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="cf-sv" style="background:{svBg}" onpointerdown={(e) => startDrag(e, 'sv')}>
 			<div class="cf-sv-thumb" style="left:{sat * 100}%;top:{(1 - val) * 100}%"></div>

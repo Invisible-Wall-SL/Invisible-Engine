@@ -1,4 +1,5 @@
 import { onMount } from 'svelte';
+import type { BeforeNavigate } from '@sveltejs/kit';
 import { beforeNavigate, goto } from '$app/navigation';
 import { askConfirm, type ConfirmOptions } from './dialogs.svelte';
 
@@ -35,8 +36,13 @@ import { askConfirm, type ConfirmOptions } from './dialogs.svelte';
  * Call it at component init, like `onMount` — it registers lifecycle hooks.
  *
  * @param cost Read at navigation time: the question to ask, or `null` when nothing is at risk.
+ * @param handledElsewhere A navigation the page itself cancels and applies in place, asking on its
+ *   own (`/editor` opening its Components side): this guard stands down, so nobody asks twice.
  */
-export function guardUnsavedWork(cost: () => ConfirmOptions | null): void {
+export function guardUnsavedWork(
+	cost: () => ConfirmOptions | null,
+	handledElsewhere?: (navigation: BeforeNavigate) => boolean,
+): void {
 	let approved = false;
 
 	onMount(() => {
@@ -54,7 +60,7 @@ export function guardUnsavedWork(cost: () => ConfirmOptions | null): void {
 			approved = false;
 			return;
 		}
-		if (navigation.willUnload) return;
+		if (navigation.willUnload || handledElsewhere?.(navigation)) return;
 		const question = cost();
 		if (!question) return;
 

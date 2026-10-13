@@ -4,6 +4,7 @@
 	import { resolve } from '$app/paths';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
+	import { withProject } from '$lib/toolLinks';
 	import { TOOL_STAGES, roleLabel, type ToolDef, type ToolStage } from '$lib/roles';
 	import {
 		LAUNCH_LOCALES,
@@ -191,8 +192,7 @@
 
 	// A tool opens the project this selector shows, never whatever the session moved to since
 	// (`resolveToolScope` takes `?project=` and syncs the session to it).
-	const toolUrl = (url: string | undefined) =>
-		url && `${url}${url.includes('?') ? '&' : '?'}project=${encodeURIComponent(projectKey)}`;
+	const toolUrl = (url: string | undefined) => url && withProject(url, projectKey);
 
 	// --- Engine deploy status pill (bundle-vs-source axis) --------------------
 	// Which engine commit the live shared runtime bundle was built from + whether a release is

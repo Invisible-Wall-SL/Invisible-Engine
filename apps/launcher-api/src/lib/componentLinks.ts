@@ -37,3 +37,17 @@ export function componentsTarget(search: URLSearchParams): string | null | undef
 	if (id) return id;
 	return search.get(COMPONENTS_VIEW_PARAM) === COMPONENTS_VIEW_VALUE ? null : undefined;
 }
+
+/**
+ * What `/editor`, open on `projectKey`, does with a navigation to `/editor` itself (a tool-bar
+ * card, a deep link). The page holds one project's screens, components, ETags and leases, and a
+ * same-route navigation does not remount it:
+ *   - `in-place` — the link names this same project: only the side or the open component changes,
+ *     which the page applies itself;
+ *   - `reload` — another project, or none named (the server would fall back to the session's,
+ *     which another tab may have moved): a full document load, so one project's state is never
+ *     saved into another.
+ */
+export function editorSelfNavigation(to: URL, projectKey: string): 'in-place' | 'reload' {
+	return to.searchParams.get('project')?.trim() === projectKey ? 'in-place' : 'reload';
+}
