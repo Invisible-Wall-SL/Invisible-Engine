@@ -802,12 +802,10 @@ free-spin-entry wipe stays unskippable, the exit wipe stays raced. Default off �
 `playOn` timeline keeps its fire-and-forget timing (parity). The awaited fire is NOT also
 measured: today's awaited `transition` measures 0 (`cueAnimationDurationMs` walks rig cues, never
 a `bind`), so the hold alone is exact parity; a measured wait on top would stack a second clock
-(decided at build time, 2026-10-14). The one knowing gap: `boundComponentMs` measures the coded
-part for `showContainer.durationMs`, and with the flag on there is no bound part, so a `Delay`
-wired off the `durationMs` of a screen holding the swapped node would read 0 instead of 1667 ms.
-The overlays scene is always mounted and never shown by a `showContainer`, so no flow reads that
-number today; a `holdsCue` rule for `sceneAnimationDurationMs` joins 8b, where the Win's screen is
-one a flow does show.
+(decided at build time, 2026-10-14). `showContainer.durationMs` keeps its number too:
+`sceneAnimationDurationMs` gains `instanceHoldMs` (an instance whose timeline holds a cue measures
+as that timeline), the authored twin of `boundComponentMs`, so a screen holding the swapped node
+measures the same 1667 ms.
 
 **The flag (per project, default off).** A sparse boolean in the Scene Editor's existing
 per-project game settings, `LayoutDoc.settings.authoredOverlays?: { transition?: true }`
@@ -827,17 +825,22 @@ parity gate does not need one — it serves the game a doc with the flag set, th
 project is served (with `?flowV2=lines`, the committed reference flow, since the coded handlers
 never fire `transition`).
 
-**How the runtime picks the path.** From the doc, after `loadEditorScenes()` settles and before any
-scene mounts, in the one place that already rewrites `basegameOverlays` (`Game.svelte:1071`,
-the Win degrade): with the flag on, every `bind: { component: 'Transition' }` node becomes
-`{ kind: 'componentInstance', componentId: 'transitionWipe', screenAnchor: { x: 0.5, y: 0.5 } }`,
-and the coded `Transition` bound part is retired for that boot (`registerBoundComponents` maps
-`Transition` to a part that renders nothing and subscribes to nothing), so a project that also
-placed the `transition` twin (Borut) plays one wipe, not two. With the flag off the scene object is
-returned unchanged — the same `=== scene` return the Win degrade makes — and `transitionWipe` is a
-registered def nothing references (parity, as `TRANSITION_DEF`'s registration is today). The
-emitter vocabulary, the Flow vocabulary (`transition` stays a cue), the choreography and every
-shipped FlowDoc are untouched.
+**How the runtime picks the path.** From the doc, when `loadEditorScenes()` settles and before any
+of its scenes mount: with the flag on, every `bind: { component: 'Transition' }` node in EVERY
+scene becomes `{ kind: 'componentInstance', componentId: 'transitionWipe' }` carrying the coded
+node's own x / y / scale / rotation / alpha and per-layout `overrides` (the coded part drew at the
+canvas centre inside the node's wrapper; the instance's rig cover-fits the canvas inside the
+instance the same way, so a moved Transition stays moved — the reference layouts keep it at the
+origin), through the pure `withAuthoredTransitionDoc` (`engine-layout/authoredOverlays.ts`); the
+reference overlays scene a doc without its own gets is swapped under the same flag; and the coded
+`Transition` part is retired for that boot (`engine-game` `retireCodedOverlay`: it neither
+subscribes nor draws), so a project that also placed the `transition` twin (Borut) plays one wipe,
+not two. ONE predicate, `docHasCodedTransition`, tells the runtime and the publish chip whether
+there is a Transition to swap (any scene, or the reference fallback), so the two never disagree.
+With the flag off the doc and every scene are the same objects (parity) and `transitionWipe` is a
+registered def nothing references (as `TRANSITION_DEF`'s registration is today); it is `internal`,
+so no palette offers it during the pilot. The emitter vocabulary, the Flow vocabulary
+(`transition` stays a cue), the choreography and every shipped FlowDoc are untouched.
 
 **Removal, later (not in 8a).** When the owner switches the live games: (1) the `transition`
 built-in def's next version replaces its bound child with the `wipe` rig node and the timeline
@@ -853,37 +856,41 @@ the general mechanism.
 - **Flag off: byte-identical.** The current-games harness must report **0 changed screens** on
   the PR (every fixture and every live doc has no `authoredOverlays`). A new launcher gate,
   `check:authored-transition`, drives the real code: the overlays rewrite returns the same scene
-  object for every reference layout and for a doc with the twin placed; the registered coded
-  `Transition` still mounts under headless Pixi, subscribes to `transition`, and resolves the
-  awaited broadcast on the rig's `complete`; `normalizeGameSettings` keeps `{ transition: true }`
-  and drops nothing else; `check:component-timelines` (39), `check:component-state-machine` (89)
-  and `check:cinematic-*` stay green with the built-in timeline registered first; a `playOn`
-  timeline without `holdsCue` still returns from an awaited fire at once.
+  object for every reference layout and for a doc with the twin placed; `normalizeGameSettings`
+  keeps `{ transition: true }` and drops nothing else; the existing component-timeline,
+  state-machine and cinematic gates stay green with the built-in timeline registered first; a
+  `playOn` timeline without `holdsCue` still returns from an awaited fire at once. The coded part
+  itself is proven by the parity gate's coded side (the real game, headless), not by a mount here.
 - **Flag on: authored vs coded frames.** A root gate, `check:transition-parity`
-  (`scripts/transition-parity/run.mjs`; its CI job is its own workflow file, landed as a
-  workflow-only follow-up PR because the current-games verdict counts every `.github/workflows/`
-  file as harness and would refuse to vouch for the runtime change beside it): it
+  (`scripts/transition-parity/run.mjs`; its CI job is its own workflow file,
+  `.github/workflows/transition-parity.yml`, landed as a workflow-only follow-up PR because the
+  current-games verdict counts every `.github/workflows/` file as harness and would refuse to vouch
+  for the runtime change beside it; the job is advisory, not in the `main` ruleset — the owner may
+  make it required): it
   boots the built `apps/lines` twice in the headless shell (`scripts/playtest/headless-shell.mjs`,
   `?ie_determinism=<seed>`, 1280×720, DPR 1, the book mock with `FORCE_TRIGGER=1`, `?flowV2=lines`),
   once on the harness's stand-in snapshot as published and once on the same snapshot with the flag
   set in its layout doc; it steps frames until the `transition` cue
   fires (the determinism probe's `state()` gains an additive `cues` list, the fired cue names in
-  order — `DeterminismApi`, `apps/lines/src/game/determinism.ts`), captures at **0, 400, 800, 1200 and
-  1600 ms** after it (frames 0 / 24 / 48 / 72 / 96 at 60 fps), and compares each pair with
-  `pixelmatch` under `scripts/current-games/tolerance.json`'s defaults (≤ 0.1 % differing pixels,
-  no 16×16 block over threshold). It also records the frame at which the next cue
+  order — `DeterminismApi`, `apps/lines/src/game/determinism.ts`), captures the cue frame as the
+  reference (no wipe yet on either side) and **200, 400, 800, 1200 and 1600 ms** after it (frames
+  12 / 24 / 48 / 72 / 96 at 60 fps), compares each pair with `pixelmatch` under
+  `scripts/current-games/tolerance.json`'s defaults (≤ 0.1 % differing pixels, no 16×16 block over
+  threshold), and requires each coded frame to differ from the reference by more than 0.5 % of its
+  pixels (the wipe IS on screen). It also records the frame at which the next cue
   (`freeSpinIntroShow`) fires on each side; they must be equal ± 1 frame. The gate reports the
   five diff ratios and the two frame numbers; a frame outside tolerance fails it and keeps the
   images as artifacts. The harness's own screen lists are not edited in 8a (editing
   `scripts/current-games/**` fails `current-games` by design); whether an `fs-transition` key
   screen joins `screens/*.json` is a separate pipeline change for the owner (13.5 #7).
 - **Timing parity, headless.** In `check:authored-transition`: with a stepped clock, an awaited
-  fire of `transition` against a mounted `transitionWipe` instance resolves at the strip's end and
-  not before; `rigClipMs('transition', 'animation')` equals that end; the exit wipe under a slammed
-  round releases the round without waiting (the `awaitCue` race); an instance on a hidden screen,
-  or none at all, adds no hold.
-- **Text.** The def has no text node; the localization harvest of a doc that enables the flag is
-  unchanged (asserted in the gate).
+  fire of `transition` through the instance's own hold seam resolves at the strip's end and not
+  before, an unmount mid-hold releases it, and `showContainer.durationMs` reads the same for the
+  coded and the swapped scene; the shipped rig clip's last key equals the timeline's length. The
+  slam race (`awaitCue` wraps the whole await, unchanged) and the hidden-instance rule (no hold
+  registered while the instance is off screen) live in the Svelte seam the parity run exercises.
+- **Text.** The def has no text node; the localization harvest of a doc with the flag on equals
+  the harvest with it off (asserted in the gate).
 
 ### 13.4 Text and localization
 
@@ -914,11 +921,9 @@ own.
 7. **Harness.** Add an `fs-transition` key screen (captured a fixed number of frames after the
    `transition` cue) to `screens/*.json` as its own pipeline change? Today no screen targets the
    wipe, so a regression in the coded path would pass the harness.
-8. **Known gap (build time): `showContainer.durationMs`** of a screen holding the swapped node
-   reads 0 with the flag on (13.2); no flow reads it for the overlays scene. 8b adds the rule.
-9. **Risk: the hidden coupling of `basegameOverlays`.** Projects that author the overlays scene
+8. **Risk: the hidden coupling of `basegameOverlays`.** Projects that author the overlays scene
    themselves (Borut) keep the `bound-transition` node only if the reference had it; the rewrite
    covers any `bind:Transition` node wherever it sits, and a project with none and the flag on gets
    no wipe at all — the gate reports that case as a warning in the publish chip.
-10. **Risk: a per-boot dev hook.** Resolved by not having one: the flag is read from the doc only,
+9. **Risk: a per-boot dev hook.** Resolved by not having one: the flag is read from the doc only,
    so no player URL can flip a live game, and the gate feeds the game a flagged doc instead.

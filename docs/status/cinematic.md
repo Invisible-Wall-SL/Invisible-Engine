@@ -350,16 +350,13 @@ through the same player; headless-proven, no editor yet (5b).
   plays — `sampleNodeActor` (synced copy too) samples the strip active at `t` as `animTime:
   { animation, time }` in clip-local SECONDS (`clipLocalTime` with the strip's new `clipLength`, else
   once-and-hold), `keyedNodeChannels` keys `animTime`, `nodeActorChannelsForKind('spine')` takes it
-  (`validateNodeActors`: `channel-unsupported` on any other kind), and the component player hands it
-  to `<LayoutNodeView>`, which poses the rig through `<RigPose>` (`unit: 'seconds'`) after the node's
-  own 12b scrubs (`withTimelineScrub`). Property-only timelines sample no `animTime` (gated). A
-  component timeline may carry `holdsCue` (Animate → **Holds the cue**): `ComponentTimelinePlayer.
-  holdsOn(signal)`, `cueHolds.ts`; see [engine status](engine.md) for the runtime seam. The registry
-  keeps ONE doc per id (the last wins) so the engine's built-in timelines (`builtinTimelines.ts`,
-  registered first) are shadowed by a project doc of the same id. Not built: the `/rigger` and
-  `/editor` sequencer rows for a rig-node strip (the first built-in timeline is code); loop modes
-  on a node strip need `clipLength`. Gates: `check:component-timelines` (54),
-  `check:authored-transition` (63), `cinematic-nodes.mjs` still 69/69, `cinematic.mjs` 118/118.
+  (`validateNodeActors`: `channel-unsupported` on any other kind), and the player hands it to
+  `<LayoutNodeView>` → `<RigPose>` (`unit: 'seconds'`). A component timeline may carry `holdsCue`
+  (Animate → **Holds the cue**, cleared with Plays on). Not built: the `/rigger` and `/editor`
+  sequencer rows for a rig-node strip (the first built-in timeline is code); loop modes on a node
+  strip need `clipLength`. Gates: `check:component-timelines` (53), `cinematic-nodes.mjs` 69/69,
+  `cinematic.mjs` 118/118. The runtime seam, the registry rule and the built-in timeline:
+  [engine status](engine.md), 2026-10-14.
 
 - 2026-10-13 — **Component state machine runtime (Rive plan Phase 5a, branch
   `claude/rive-p5a-state-machine-runtime`).** `stateMachine.ts` (interpreter, `blendNodeSamples`,

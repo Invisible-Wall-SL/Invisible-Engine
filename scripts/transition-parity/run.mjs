@@ -5,19 +5,21 @@
 // `transitionWipe` component and its timeline) — with the committed reference book-of flow
 // (`?flowV2=lines`, which fires the `transition` cue on free-spin entry), a forced scatter trigger
 // and one seed under the determinism clock. Then:
-//   - captures the frame the `transition` cue fires on and the frames 24, 48, 72 and 96 frames later
-//     (0 / 400 / 800 / 1200 / 1600 ms at 60 fps) on both sides and compares each pair under
-//     `scripts/current-games/tolerance.json`'s default (the harness's own bar);
+//   - captures the frame the `transition` cue fires on (the reference: no wipe yet) and the frames
+//     12, 24, 48, 72 and 96 frames later (200 / 400 / 800 / 1200 / 1600 ms at 60 fps) on both sides,
+//     compares each pair under `scripts/current-games/tolerance.json`'s default (the harness's own
+//     bar), and requires each coded frame to differ from the reference (the wipe IS on screen);
 //   - reads the frame the NEXT cue (`freeSpinIntroShow`) fires on, on both sides: the point where the
 //     flow continued, which must be the same frame (± 1).
 // Deterministic: a fixed seed, stepped frames, no wall clock. No URL flag flips the Transition: the
 // authored side is a DOC with the flag set, served the way a published project is.
 //
-//   node scripts/transition-parity/run.mjs [--build <dir>] [--chrome <exe>] [--out <dir>] [--seed <s>]
+//   node scripts/transition-parity/run.mjs [--build <dir>] [--chrome <exe>] [--out <dir>] [--seed <s>] [--fresh]
 //
 // `--build` is a built `apps/lines` (default: the harness's `.cache/current-games/runtimes/working-tree`,
-// built here when absent — `pnpm --filter lines build` with the release env). Exit 1 on any
-// difference; the captures and diffs stay under `<out>` for reading.
+// built here when absent, reused with a warning when present, rebuilt with `--fresh` — `pnpm
+// --filter lines build` with the release env). Exit 1 on any difference; the captures and diffs
+// stay under `<out>` for reading.
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,13 +45,19 @@ const { values: opt } = parseArgs({
 		chrome: { type: 'string' },
 		out: { type: 'string', default: join(ROOT, '.cache/transition-parity') },
 		seed: { type: 'string', default: 'transition-parity' },
+		fresh: { type: 'boolean', default: false },
 	},
 });
 const out = resolve(opt.out);
 const GAME = 'cg-lines';
 const CUE = 'transition';
 const NEXT_CUE = 'freeSpinIntroShow';
-const OFFSETS = [0, 24, 48, 72, 96];
+// The cue frame is captured as the REFERENCE (no wipe yet on either side); the compared frames
+// start off it, and each coded one must differ from the reference by more than `WIPE_ON_SCREEN`
+// of the pixels, or the gate would pass two frames with no wipe on them.
+const REFERENCE = 0;
+const OFFSETS = [12, 24, 48, 72, 96];
+const WIPE_ON_SCREEN = 0.005;
 const BOOT_PROBE_FRAMES = 10;
 const BOOT_STOPPED = '[runtime] boot stopped — ';
 const MAX_FRAMES_TO_CUE = 3600;
@@ -63,9 +71,13 @@ const build = opt.build
 	? resolve(opt.build)
 	: (() => {
 			const cached = join(ROOT, '.cache/current-games/runtimes/working-tree');
-			if (!existsSync(join(cached, 'index.html'))) {
+			if (opt.fresh || !existsSync(join(cached, 'index.html'))) {
 				log('building the working-tree runtime (pnpm --filter lines build, release env)…');
 				buildWorkingTree(ROOT, join(ROOT, '.cache/current-games'));
+			} else {
+				console.warn(
+					`[transition-parity] reusing the cached runtime at ${cached} — it may be stale; pass --fresh to rebuild`,
+				);
 			}
 			return cached;
 		})();
@@ -200,7 +212,7 @@ async function play(side) {
 		const fired = cueFired(s, CUE);
 		if (!fired) throw new Error(`the ${CUE} cue never fired within ${MAX_FRAMES_TO_CUE} frames`);
 		result.cueFrame = s.frame;
-		for (const offset of OFFSETS) {
+		for (const offset of [REFERENCE, ...OFFSETS]) {
 			const target = result.cueFrame + offset;
 			if (s.frame < target) {
 				await step(target - s.frame);
@@ -272,9 +284,21 @@ if (!coded.error && !authored.error) {
 			'the AUTHORED side did not hold the cue: the coded path ran where the authored one should',
 		);
 	if (!coded.held && authored.held) log('✓ the authored side held the cue, the coded side did not');
+	const reference = readFileSync(coded.captures[REFERENCE].file);
 	for (const offset of OFFSETS) {
 		const a = readFileSync(coded.captures[offset].file);
 		const b = readFileSync(authored.captures[offset].file);
+		// The wipe is on screen: the coded frame differs from the cue frame by more than the floor.
+		const moved = compareScreens(reference, a, tolerance);
+		report.frames.push({
+			offset,
+			kind: 'wipe-on-screen',
+			diffRatio: moved.diffRatio,
+			pass: moved.diffRatio > WIPE_ON_SCREEN,
+		});
+		const movedLine = `t+${String(offset).padStart(2)}: the coded frame differs from the cue frame by ${(moved.diffRatio * 100).toFixed(2)}% (floor ${WIPE_ON_SCREEN * 100}%)`;
+		if (moved.diffRatio > WIPE_ON_SCREEN) log(`✓ ${movedLine}`);
+		else fail(`${movedLine} — no wipe on screen`);
 		const same = identical(a, b);
 		const cmp = same
 			? { pass: true, diffPixels: 0, diffRatio: 0, maxBlockRatio: 0 }

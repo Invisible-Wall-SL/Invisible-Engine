@@ -5,7 +5,7 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import { hasCodedTransition } from 'engine-layout';
+import { docHasCodedTransition } from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -29,7 +29,7 @@ import {
 	resolveGameConfig,
 } from '$lib/server/gameConfigDefaults';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
-import { loadDoc } from '$lib/server/editorStorage';
+import { loadDocWithEtag } from '$lib/server/editorStorage';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -196,18 +196,22 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			const entry = manifest.games[p.key];
 			const engine = staleness.for(p.key, Boolean(game));
 
-			// The card's "what IS this game" summary. Two extra R2 reads per project (the config +
-			// the symbols doc); everything else is already in hand. Both loaders degrade to a
-			// usable value rather than throwing, so one unreadable doc costs a chip, not the page.
+			// The card's "what IS this game" summary. Three extra R2 reads per project (the config,
+			// the symbols doc and the layout doc); everything else is already in hand. The loaders
+			// degrade to a usable value rather than throwing, so one unreadable doc costs a chip, not
+			// the page.
 			const [config, symbols, pointer, layout] = await Promise.all([
 				resolveGameConfig(clientKey, p.key, p.gameType),
 				loadSymbolsDoc(clientKey, p.key),
 				// The published snapshots players boot (+ the ones a rollback can return to). Null for
 				// a game never published, or last published before snapshots existed.
 				game ? currentPointer(clientKey, p.key).catch(() => null) : null,
-				// The layout doc, for the authored-overlay chips (Rive plan Phase 8a): one more read
-				// per project, degraded to "no doc" rather than failing the page.
-				loadDoc(clientKey, p.key, p.gameType).catch(() => null),
+				// The layout doc, for the authored-overlay chips (Rive plan Phase 8a) — the plain read,
+				// not the ship-path `loadDoc` (which repairs atlas refs on the way); degraded to "no
+				// doc" rather than failing the page.
+				loadDocWithEtag(clientKey, p.key, p.gameType)
+					.then((r) => r.doc)
+					.catch(() => null),
 			]);
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
@@ -222,7 +226,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 							...(layout.settings?.authoredOverlays
 								? { authoredOverlays: layout.settings.authoredOverlays }
 								: {}),
-							hasCodedTransition: hasCodedTransition(layout.scenes.flatMap((s) => s.nodes)),
+							hasCodedTransition: docHasCodedTransition(layout),
 						}
 					: null,
 			});

@@ -263,49 +263,60 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 - 2026-10-14 — **The authored Transition behind a per-project flag (Rive plan Phase 8a, branch
-  `claude/rive-p8a-transition-overlay`, plan [§13](../design/rive-style-editor.md#13-phase-8-overlay-migration-plan--8a-transition-first)).**
+  `claude/rive-p8a-transition-overlay`, plan [§13](../design/rive-style-editor.md#13-phase-8-overlay-migration-plan--8a-transition-first)) — this entry is the one home of the build detail; the other status files point here.**
   A new built-in `transitionWipe` def (`builtinComponents.ts`: one rig node `wipe` on the engine's
   static `transition` bundle, `coverFit` + `fit: 'height'` + `coverScale: 1.7`, `hiddenUntilSignal:
-  'transition'`) and the engine's first BUILT-IN timeline (`engine-layout/builtinTimelines.ts`,
-  `BUILTIN_TIMELINES`, registered before the baked cinematics by `registerBakedComponents` — a project
-  timeline of the same id shadows it, the registry now keeping one doc per id): one `animation` strip
-  of clip `animation` over 1.6667 s, `playOn: 'transition'`, `holdsCue`, a visibility track that
-  shows the rig at 0 and hides it at the end. Two general mechanisms: **`animation` strips on rig
-  node actors** (`sampleNodeActor` samples the active strip as `animTime` in clip-local seconds —
-  `CinematicStrip.clipLength` records the clip's length for loop modes; `keyedNodeChannels` /
-  `nodeActorChannelsForKind` know `animTime` for `spine` nodes; `<LayoutNodeView>` feeds it to
-  `<RigPose>` as a `unit: 'seconds'` scrub through `withTimelineScrub`, after the node's own 12b
-  scrubs — the same array when no strip plays) and **cue holds** (`engine-layout/cueHolds.ts`:
-  `holdCue` / `cueHolds` / `InstanceCueHolds`; an instance whose `holdsCue` timeline a signal starts
-  registers, synchronously in the bus callback and only while the instance is on screen, a hold
-  that settles when the player reports the timeline's end or the instance is destroyed; the v2
-  runtime's awaited `broadcast(cue)` appends
+  'transition'`; `internal`, so no palette offers it during the pilot) and the engine's first
+  BUILT-IN timeline (`engine-layout/builtinTimelines.ts`, `BUILTIN_TIMELINES`, id
+  `c_transitionwipe_wipe` — lower-case so a project timeline can shadow it; registered by
+  `registerGameTimelines` before the baked cinematics, on a bundle-less boot too; the registry keeps
+  one doc per id, the last registered winning): one `animation` strip of clip `animation` over
+  1.6667 s, `playOn: 'transition'`, `holdsCue`, a visibility track that shows the rig at 0 and hides
+  it at the end. Two general mechanisms: **`animation` strips on rig node actors** (`sampleNodeActor`
+  samples the active strip as `animTime` in clip-local seconds — `CinematicStrip.clipLength` records
+  the clip's length for loop modes; `keyedNodeChannels` / `nodeActorChannelsForKind` know `animTime`
+  for `spine` nodes; `<LayoutNodeView>` feeds it to `<RigPose>` as a `unit: 'seconds'` scrub through
+  `withTimelineScrub`, after the node's own 12b scrubs — the same array when no strip plays) and
+  **cue holds** (`engine-layout/cueHolds.ts`: `holdCue` / `cueHolds` / `InstanceCueHolds`; an
+  instance whose `holdsCue` timeline a signal starts registers, synchronously in the bus callback
+  and only while the instance is on screen, a hold that settles when the player reports the
+  timeline's end or the instance is destroyed; the v2 runtime's awaited `broadcast(cue)` appends
   `cueHolds(cue)` to the promises it already awaits — only when there are any, so a cue nobody holds
-  awaits exactly what it did). **The flag:** `LayoutDoc.settings.authoredOverlays.transition`
-  (sparse, ON written only — `normalizeGameSettings`; the Game Settings row *Authored overlays
-  (pilot) → Transition*; the publish chips *Authored Transition (pilot)* / the amber *nothing to
-  replace*). **The runtime pick** (`engine-layout/authoredOverlays.ts`, pure, shared with the
-  launcher): with the flag on `Game.svelte`'s overlays rewrite swaps every `bind: Transition` for the
-  `transitionWipe` instance at the origin (`withAuthoredTransition`) and retires the coded part for
-  that boot (`engine-game` `retireCodedOverlay('transition')`: `Transition.svelte` neither
-  subscribes nor draws, so a project that also placed the hybrid `transition` twin plays one wipe);
-  off ⇒ the same scene object. `apps/lines` dev pilot: `AUTHORED_TRANSITION = false` in
-  `editorFlags.ts` (puts the flag on the fallback doc; no URL opt-in exists — the flag is read from
-  the doc only). The determinism probe's `state()` gains `cues` (every Flow cue with its frame).
-  **Gates:** `pnpm --filter launcher-api check:authored-transition` (63 checks: the flag through the
-  normalizer, the swap on every reference layout and nested, the def and timeline, the hold settling
-  on the clip's last frame under a stepped clock, the chips), `check:component-timelines` +15
-  (strips, `holdsOn`, the registry shadowing), `test-value-bindings.mjs` (the scrub merge), the
-  unknown-fields gate's authored-overlays case, and **`pnpm check:transition-parity`**
-  (`scripts/transition-parity/run.mjs` — its CI workflow is a workflow-only follow-up PR, since the
-  current-games verdict counts every `.github/workflows/` file as harness: the built runtime on
-  the harness's `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`, `FORCE_TRIGGER=1`, one
-  seed; frames at 0/24/48/72/96 after the `transition` cue under `tolerance.json`; the next cue's
-  frame; the positive control that the authored side held the cue and the coded side did not).
-  Measured 2026-10-14: **0 px differ at all five frames; `freeSpinIntroShow` 101 frames after the
-  cue on both sides.** Not in 8a: Win, free-spin intro/outro and buttons (8b–8d); the `/rigger`
-  sequencer has no UI for a rig-node strip (the built-in timeline is code); `sfx:` cues on component
-  timelines are still dropped. Owner browser check: plan §13 / the PR.
+  awaits exactly what it did; `sceneAnimationDurationMs` gains `instanceHoldMs`, the authored twin of
+  `boundComponentMs`, so `showContainer.durationMs` reads the same for the swapped node). **The
+  flag:** `LayoutDoc.settings.authoredOverlays.transition` (sparse, ON written only —
+  `normalizeGameSettings`; the Game Settings row *Authored overlays (pilot) → Transition*, switched
+  by a holder of the component-publish capability (`canPublishShared`), shown read-only to others
+  while on; the publish chips *Authored Transition (pilot)* / the amber *nothing to replace*).
+  **The runtime pick** (`engine-layout/authoredOverlays.ts`, pure, shared with the launcher): with
+  the flag on `Game.svelte` swaps every `bind: Transition` in every scene for the `transitionWipe`
+  instance when the doc loads (`withAuthoredTransitionDoc`, carrying the node's transform and
+  per-layout overrides), swaps the reference overlays scene a doc without its own gets, and retires
+  the coded part for that boot (`engine-game` `retireCodedOverlay('transition')`: `Transition.svelte`
+  neither subscribes nor draws, so a project that also placed the hybrid `transition` twin plays one
+  wipe); `docHasCodedTransition` is the one predicate the swap and the chip share (any scene, or the
+  reference fallback); off ⇒ the same doc and scene objects. `apps/lines` dev pilot:
+  `AUTHORED_TRANSITION = false` in `editorFlags.ts` (puts the flag on the fallback doc; no URL opt-in
+  exists — the flag is read from the doc only). The determinism probe's `state()` gains `cues` (every
+  Flow cue with its frame). **Gates:** `pnpm --filter launcher-api check:authored-transition` (the
+  flag through the normalizer, the swap on every reference layout, nested, moved and per-layout, the
+  shared predicate's cases, the def and timeline, the hold through `InstanceCueHolds` settling on
+  the clip's last frame under a stepped clock and released by an unmount, `durationMs` parity, the
+  built-ins on a bundle-less boot, the harvest unchanged, the chips), `check:component-timelines`
+  +14 (strips, `holdsOn`, the registry shadowing), `test-value-bindings.mjs` (the scrub merge), the
+  unknown-fields gate's authored-overlays case, the Hold and Win template gate (the new def pinned,
+  `internal` defs offered to no kind), and **`pnpm check:transition-parity`**
+  (`scripts/transition-parity/run.mjs`; its CI workflow,
+  `.github/workflows/transition-parity.yml`, is a workflow-only follow-up PR — the current-games
+  verdict counts every workflow file as harness — and advisory, not in the `main` ruleset: the built
+  runtime on the harness's `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`,
+  `FORCE_TRIGGER=1`, one seed; the cue frame as the reference and frames 12/24/48/72/96 after it
+  under `tolerance.json`, each coded frame differing from the reference by > 0.5 % (the wipe is on
+  screen); the next cue's frame; the positive control that the authored side held the cue and the
+  coded side did not). Measured numbers: the PR body of #1192. Not in 8a: Win, free-spin
+  intro/outro and buttons (8b–8d); the `/rigger` and `/editor` sequencers have no row for a rig-node
+  strip (the built-in timeline is code); `sfx:` cues on component timelines are still dropped.
+  Owner browser check: the PR.
 - 2026-10-13 — **A game build whose Svelte install drifted from the engine's fails before compiling** (`packages/config-vite/svelteVersions.js`, run first by `config-vite`'s factory, so every engine app and every game repo build passes through it). Book of Borut Remake's desktop build rendered black: its root `package.json` still pinned svelte 5.35.1 / kit 2.17.3 from scaffold day while the engine builds with 5.57.1 / 2.70.3, so pnpm installed both and the bundle paired the new compiler with the old runtime (`e.exclude.includes is not a function`). Fixed in the game repos (Book-of-Borut-Remake#1, Book-of-Borut#5). The guard compares what the project root resolves (svelte, kit), the engine packages' and the compiler's svelte, and that svelte's `esrap` / `acorn` / `@sveltejs/acorn-typescript` with `apps/lines/package.json` and the engine's `pnpm-lock.yaml`. Any difference throws, naming both versions, the game repo's root `package.json` and the exact pins and overrides; `IE_ALLOW_SVELTE_MISMATCH=1` (in turbo `globalEnv`) downgrades it to a warning. `scripts/new-game.mjs` now reads the parser overrides from the lockfile (its hand-written esrap 2.0.1 / acorn 8.15.0 / acorn-typescript 1.0.5 were stale), and `verify-scaffold-template.mjs` §5 rejects a hand-written one. Fix steps: [games-deploy](../design/games-deploy.md#game-repo-dependency-pins-must-match-the-engine). Gates: `check:svelte-pins` (fake pnpm installs: match, older root svelte, kit, two copies, stale parser, escape hatch; plus the real install). Proved on a copy of the remake at its old pins: the guard fires; with the pins set, the build completes. No runtime change; the release this merge triggers is unaffected (the engine's own pins match).
 - 2026-10-09 — **A `.ktx2` page transcodes to ASTC, not BC7, on a phone that offers both** (`pixi-svelte` `ktx2TranscodeTarget.ts`, installed by `InitialiseApplication`, runs inside `loadKTX2.load` before the first `.ktx2` is transcoded, so a game that loads none (every desktop, and the current-games harness) boots exactly as before). Owner-reported on `test6`: flipbook symbols and FX drew as solid black rectangles on the latest iPhones only. Pixi's KTX2 worker takes the first of `bc7 → astc-4x4 → etc2 → bc3 → rgba8` the device reports, and recent Apple GPUs expose BC7 to Safari next to their native ASTC, so the newest iPhones were the only ones transcoding to BC7: older iPhones report no BC7 and get ASTC. A device with WebGL ASTC now has the BC formats removed from Pixi's cached format list (the same array the worker is handed at its first load), so it transcodes to ASTC like every older iPhone. A desktop has no ASTC and keeps BC7 (and loads uncompressed pages anyway). Proved offline against the real pixi 8.22 modules with stubbed devices: BC7+ASTC → `astc-4x4-unorm`, ASTC only → `astc-4x4-unorm`, BC only → `bc7-rgba-unorm`. ⏳ **Not verified on a failing iPhone.** That BC7 is what renders black is inference from which devices fail. If the boxes survive the release, the cause is elsewhere; the next suspect is the backdrop-reading `lighten`/`overlay` blend filter, the only blend path limited to `sprite`/`flipbook`/`effect` nodes. Quick device check before and after: the same game URL with `&quality=high` loads the uncompressed pages; clean there means the compressed path is at fault. Needs a **runtime release** (automatic on merge).
 - 2026-10-08 — **A desktop build stamped table-capable is sold its bet table** ([book-feature.md](../design/book-feature.md) Phase 6, §6 step 5). `sellableGrid` (`services/test-server/server.mjs`) used to strip the bet table from every game not served from the shared runtime, because a desktop bundle may predate `betOptions`; a migrated Book-of desktop build would have lost its buy. The manifest entry now carries `tableCapable: true`, stamped by `register-game` only when the registration claims it (`tableCapable: true` in the body; the desktop launcher does not send it yet — see Blocked in [status/game-config](game-config.md)) and by `publish-game-bundle.mjs --table-capable` / `publish-game-via-portal.mjs --table-capable`; a registration or publish without the claim clears it; the test server keys `sellableGrid` on `runtime || tableCapable`, through a swap and a `/refresh`. Unstamped desktop builds are unchanged. Gates: `check:expanding-symbol` §9 (unstamped: no `betOptions`; stamped: `[10, 1000]`), `verify-test-server-project-pin`. Test-server only: no runtime release.

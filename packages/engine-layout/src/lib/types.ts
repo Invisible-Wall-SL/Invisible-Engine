@@ -1474,6 +1474,13 @@ export interface ComponentDef {
 	 */
 	capability?: keyof KindCapabilities;
 	/**
+	 * Placed by the ENGINE only: the Scene Editor's palette never offers it (`componentOfferedForKind`
+	 * is false for every kind), while a doc that holds it still renders it. The authored Transition
+	 * is one during its pilot: the game places it where the flag says, and a hand-placed copy would
+	 * play a second wipe. Absent ⇒ offered as `capability` says.
+	 */
+	internal?: boolean;
+	/**
 	 * The component's INPUTS (Rive plan §5–6.1, Phase 5): what Flow can set or fire, and what the
 	 * state machine reads. A declared {@link signals} entry reads as a `trigger` input too — one
 	 * concept, folded by `componentInputs()` (`componentInterface.ts`); every reader goes through
@@ -1800,7 +1807,7 @@ export interface CinematicDoc {
 	 * A COMPONENT timeline only (Rive plan Phase 8a): an awaited fire of `playOn` — a Flow
 	 * `fireCue` with "wait" ticked — is held until this timeline reaches its end on every instance it
 	 * started on, the way a coded overlay holds the awaited broadcast until its rig completes. Absent
-	 * ⇒ the fire returns as it always has (parity); a looping timeline never holds.
+	 * ⇒ the fire returns as it always has (parity); a zero-length timeline holds nothing.
 	 */
 	holdsCue?: boolean;
 	tracks: Array<Record<string, unknown>>;

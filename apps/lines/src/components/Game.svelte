@@ -96,6 +96,7 @@
 		TRANSITION_WIPE_DEF,
 		authoredTransitionEnabled,
 		withAuthoredTransition,
+		withAuthoredTransitionDoc,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		WIN_DEF,
@@ -1077,11 +1078,14 @@
 	// entirely (then `fallbackOverlays` supplies `bind:Win`, and the game gets both halves twice).
 	// No `Win` bind, or no authored win visual ⇒ the SAME scene object back ⇒ byte-identical (parity).
 	const basegameOverlaysScene = $derived.by(() => {
-		const found = editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ?? fallbackOverlays;
-		// The AUTHORED Transition (Rive plan Phase 8a): with the doc's flag on, the coded
-		// `bind:Transition` becomes the built-in `transitionWipe` instance. Off ⇒ the same scene
-		// object (parity); the swap is the pure `withAuthoredTransition`, which the gate drives.
-		const scene = authoredTransitionEnabled(editorDoc) ? withAuthoredTransition(found) : found;
+		// The AUTHORED Transition (Rive plan Phase 8a): the loaded doc's scenes were swapped once at
+		// load (`withAuthoredTransitionDoc`); the reference overlays a doc without its own gets are
+		// swapped here under the same flag. Off ⇒ the same scene object (parity).
+		const scene =
+			editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ??
+			(authoredTransitionEnabled(editorDoc)
+				? withAuthoredTransition(fallbackOverlays)
+				: fallbackOverlays);
 		if (!docPlacesWinVisual) return scene;
 		let degraded = false;
 		const nodes = scene.nodes.map((node) => {
@@ -2124,7 +2128,9 @@
 			// Rive plan Phase 8a: retire the coded Transition part BEFORE the doc's instances mount, so
 			// a project that also placed the hybrid `transition` twin plays one wipe (the authored one).
 			retireCodedOverlay('transition', authoredTransitionEnabled(doc));
-			editorDoc = doc;
+			// ...and swap every coded `bind: Transition` in the doc for the authored instance, wherever
+			// it sits (`withAuthoredTransitionDoc`, the same object back when the flag is off).
+			editorDoc = authoredTransitionEnabled(doc) ? withAuthoredTransitionDoc(doc) : doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);
 			// Game-level settings (§ Game Settings): apply the authored speed-feature
 			// toggles. A `UK` jurisdiction forces every speed feature off (overrides the

@@ -899,6 +899,7 @@ export const TRANSITION_WIPE_DEF: ComponentDef = {
 	version: 1,
 	scope: 'shared',
 	category: 'overlay',
+	internal: true,
 	root: {
 		id: 'transitionWipe-root',
 		kind: 'container',
@@ -2812,6 +2813,7 @@ export function componentOfferedForKind(
 	gameType: string | undefined,
 	config?: KindCapabilityConfig,
 ): boolean {
+	if (def.internal || BUILTIN_COMPONENTS.find((b) => b.id === def.id)?.internal) return false;
 	const capability = def.capability ?? BUILTIN_COMPONENTS.find((b) => b.id === def.id)?.capability;
 	return capability === undefined || kindCapabilities(gameType, config)[capability];
 }

@@ -133,6 +133,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	standsFor: true,
 	slots: true,
 	capability: true,
+	internal: true,
 	inputs: true,
 	stateMachine: true,
 	events: true,

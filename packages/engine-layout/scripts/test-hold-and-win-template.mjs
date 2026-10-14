@@ -93,7 +93,7 @@ const PINNED = {
 		transition: '4af3cf66eeaaead6',
 		// Rive plan Phase 8a: the authored Transition, offered everywhere like the `transition` twin it
 		// stands beside (a project renders it only behind `settings.authoredOverlays.transition`).
-		transitionWipe: 'd0c899da2071642e',
+		transitionWipe: '34f7523c850e26c8',
 		freeSpinIntroVisual: 'd5692d66c8d6226b',
 		freeSpinOutroVisual: 'ad4d1cd5c1253f8b',
 		win: '71a38a1aec1b23fe',
@@ -228,6 +228,14 @@ for (const def of mod.BUILTIN_COMPONENTS) {
 		!gated || def.capability === (pots ? 'pots' : 'holdAndWin'),
 		`${def.id} is not kind-gated (${def.capability})`,
 	);
+	// An `internal` def is placed by the engine, never offered: the palette rule is "no kind".
+	if (def.internal) {
+		assert(
+			!mod.componentOfferedForKind(def, 'holdAndWin') && !mod.componentOfferedForKind(def, 'lines'),
+			`${def.id} is internal yet offered`,
+		);
+		continue;
+	}
 	assert(mod.componentOfferedForKind(def, 'holdAndWin'), `${def.id} hidden from Hold and Win`);
 	assert(
 		mod.componentOfferedForKind(def, 'holdAndWin', { potsOverlay: true }),

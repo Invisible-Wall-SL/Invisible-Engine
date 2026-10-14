@@ -11,7 +11,8 @@ import type { CinematicDoc } from './types';
 /** The `transition` rig's one clip: `animation`, 1.6667 s (its last key) — the coded wipe's length. */
 export const TRANSITION_WIPE_CLIP = 'animation';
 export const TRANSITION_WIPE_CLIP_SECONDS = 1.6667;
-export const TRANSITION_WIPE_TIMELINE_ID = 'c_transitionWipe_wipe';
+// Lower-case, as a project's cinematic ids are stored (`r2Slug`), so a project timeline CAN shadow it.
+export const TRANSITION_WIPE_TIMELINE_ID = 'c_transitionwipe_wipe';
 
 /**
  * The authored Transition: on the game's `transition` cue, play the wipe rig's clip once, from the

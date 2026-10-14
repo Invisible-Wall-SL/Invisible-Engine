@@ -27,6 +27,7 @@
 
 import type { LayoutDoc, Scene } from 'engine-layout';
 import {
+	componentTimelinesFor,
 	cueAnimationDurationMs,
 	cueHolds,
 	emitComponentSignal,
@@ -525,6 +526,14 @@ export const createLinesFlowV2 = (
 			// wipe plays the preloaded `transition` skeleton's `animation` clip.
 			boundComponentMs: (component) =>
 				component === 'Transition' ? rigClipMs('transition', 'animation') : undefined,
+			// The authored twin (Rive plan Phase 8a): an instance whose timeline HOLDS an awaited cue
+			// measures as that timeline, so the swapped Transition reads the same `durationMs`.
+			instanceHoldMs: (defId) => {
+				const held = componentTimelinesFor(defId).filter((d) => d.holdsCue === true);
+				return held.length
+					? Math.max(...held.map((d) => Math.max(d.duration || 0, 0) * 1000))
+					: undefined;
+			},
 		});
 	};
 

@@ -3982,26 +3982,30 @@
 									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
 								{/if}
 
-								<hr class="gs-rule" />
-								<p class="gs-note">
-									<strong>Authored overlays (pilot)</strong> — render an overlay from its authored component
-									instead of the coded one. Leave off for live games until the owner's browser check;
-									the publish summary names it when on.
-								</p>
-								<label
-									class="gs-toggle"
-									title="The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount. Same rig, same timing; the flow continues when the wipe ends."
-								>
-									<input
-										type="checkbox"
-										checked={authoredTransition}
-										onchange={(e) => {
-											authoredTransition = e.currentTarget.checked;
-											onGameSettingChange();
-										}}
-									/>
-									<span>Transition</span>
-								</label>
+								{#if data.canPublishShared || authoredTransition}
+									<hr class="gs-rule" />
+									<p class="gs-note">
+										<strong>Authored overlays (pilot)</strong> — render an overlay from its authored component
+										instead of the coded one. Leave off for live games until the owner's browser check;
+										the publish summary names it when on.
+									</p>
+									<label
+										class="gs-toggle"
+										class:disabled={!data.canPublishShared}
+										title="The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount. Same rig, same timing; the flow continues when the wipe ends. Switched by a publisher (the component-publish capability)."
+									>
+										<input
+											type="checkbox"
+											checked={authoredTransition}
+											disabled={!data.canPublishShared}
+											onchange={(e) => {
+												authoredTransition = e.currentTarget.checked;
+												onGameSettingChange();
+											}}
+										/>
+										<span>Transition</span>
+									</label>
+								{/if}
 
 								<hr class="gs-rule" />
 								<p class="gs-note">

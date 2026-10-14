@@ -25,8 +25,7 @@ import {
 	editorArtNamespace,
 	normalizeHudScenes,
 	registerComponentDefaults,
-	registerComponentTimelines,
-	BUILTIN_TIMELINES,
+	registerGameTimelines,
 	registerComponents,
 	registerRigFx,
 	registerTextResolver,
@@ -577,7 +576,13 @@ function hasBakedDoc(): boolean {
  */
 export function registerBakedComponents(): void {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
-	if (!source) return;
+	if (!source) {
+		// No bundle and no baked doc (the layout-only fallback, the dev pilot): the engine's built-in
+		// timelines still register, or a `transitionWipe` the fallback doc places would mount with no
+		// timeline — no hold, and a rig revealed at its setup pose.
+		registerGameTimelines(undefined);
+		return;
+	}
 	// Pinned non-latest versions FIRST (§8.9 v2): each is retained in the registry's
 	// per-version map so a pinned instance resolves it, then `componentDefs` sets the
 	// id's `latest` last so unpinned instances follow latest. Register one at a time so
@@ -593,7 +598,7 @@ export function registerBakedComponents(): void {
 	// their `playOn` signal. The engine's BUILT-IN timelines (Phase 8a: the authored Transition's
 	// wipe) register first, so a project timeline of the same id shadows one; they play only on an
 	// instance of their built-in def, which no doc places until a project opts in (parity).
-	registerComponentTimelines([...BUILTIN_TIMELINES, ...bakedCinematics()]);
+	registerGameTimelines(bakedCinematics());
 }
 
 /**

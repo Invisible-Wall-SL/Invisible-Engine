@@ -22,10 +22,11 @@ const isCodedTransition = (node: LayoutNode): boolean => node.bind?.component ==
 
 /**
  * The authored stand-in for a coded `bind: Transition` node: an instance of the built-in
- * `transitionWipe` def at the scene origin. Its rig node cover-fits the canvas (centred, 1.7 × the
- * canvas height), so the instance carries no anchor and no offset — the coded part's placement.
- * The coded node's id, slot, z and layout gates (`visibleFor`, per-layout `overrides`) carry
- * over; its transform does not (the coded part ignored it too).
+ * `transitionWipe` def carrying the coded node's own transform. The coded part drew at the canvas
+ * centre INSIDE the node's wrapper (placed at the node's x / y / scale / rotation / alpha, per
+ * layout through `overrides`), and the instance's rig cover-fits the canvas inside the instance the
+ * same way, so carrying the transform keeps a moved or per-layout-adjusted Transition where it was.
+ * The reference layouts keep the node at the origin, so there the two are the same point.
  */
 const authoredTransitionNode = (coded: LayoutNode): LayoutNode => ({
 	id: coded.id,
@@ -33,8 +34,11 @@ const authoredTransitionNode = (coded: LayoutNode): LayoutNode => ({
 	label: 'Transition (authored)',
 	kind: 'componentInstance',
 	componentId: TRANSITION_WIPE_COMPONENT_ID,
-	x: 0,
-	y: 0,
+	x: coded.x,
+	y: coded.y,
+	...(coded.scale !== undefined ? { scale: coded.scale } : {}),
+	...(coded.rotation !== undefined ? { rotation: coded.rotation } : {}),
+	...(coded.alpha !== undefined ? { alpha: coded.alpha } : {}),
 	...(coded.zIndex !== undefined ? { zIndex: coded.zIndex } : {}),
 	...(coded.visibleFor ? { visibleFor: coded.visibleFor } : {}),
 	...(coded.overrides ? { overrides: coded.overrides } : {}),
@@ -49,9 +53,24 @@ export function hasCodedTransition(nodes: readonly LayoutNode[]): boolean {
 	);
 }
 
+/** The scene the game falls back to for the overlays when a doc carries none; it binds the wipe. */
+export const OVERLAYS_SCENE_ID = 'basegameOverlays';
+
 /**
- * The overlays scene with every coded `bind: Transition` node swapped for the authored instance,
- * wherever it sits. No such node ⇒ the SAME scene object (nothing to swap).
+ * Whether the game, rendering `doc`, has a coded Transition to swap: one in any of its scenes, or
+ * no `basegameOverlays` scene of its own (the game then mounts its reference overlays scene, which
+ * binds one). The ONE predicate the runtime swap and the publish chip share, so they never disagree.
+ */
+export function docHasCodedTransition(doc: Pick<LayoutDoc, 'scenes'>): boolean {
+	return (
+		!doc.scenes.some((scene) => scene.id === OVERLAYS_SCENE_ID) ||
+		hasCodedTransition(doc.scenes.flatMap((scene) => scene.nodes))
+	);
+}
+
+/**
+ * A scene with every coded `bind: Transition` node swapped for the authored instance, wherever it
+ * sits. No such node ⇒ the SAME scene object (nothing to swap).
  */
 export function withAuthoredTransition(scene: Scene): Scene {
 	let swapped = false;
@@ -68,4 +87,13 @@ export function withAuthoredTransition(scene: Scene): Scene {
 	};
 	const nodes = scene.nodes.map(rewrite);
 	return swapped ? { ...scene, nodes } : scene;
+}
+
+/**
+ * The doc with the swap applied to EVERY scene (the game applies it once, when the doc loads, so
+ * each mount path renders the authored wipe). A doc with no coded Transition ⇒ the SAME doc object.
+ */
+export function withAuthoredTransitionDoc<T extends Pick<LayoutDoc, 'scenes'>>(doc: T): T {
+	const scenes = doc.scenes.map(withAuthoredTransition);
+	return scenes.some((scene, i) => scene !== doc.scenes[i]) ? { ...doc, scenes } : doc;
 }

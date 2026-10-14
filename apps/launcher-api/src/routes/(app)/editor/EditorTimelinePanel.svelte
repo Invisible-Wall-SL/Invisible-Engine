@@ -485,7 +485,11 @@
 		const doc = tl?.doc();
 		if (!doc || !tl || !component) return;
 		if (signal) doc.playOn = signal;
-		else delete doc.playOn;
+		else {
+			delete doc.playOn;
+			// Nothing plays it, so nothing can hold a cue for it.
+			delete doc.holdsCue;
+		}
 		tl.commit('plays on');
 		docVersion++;
 	}

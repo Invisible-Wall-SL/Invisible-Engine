@@ -6,6 +6,7 @@ import {
 } from 'engine-cinematic';
 
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
+import { BUILTIN_TIMELINES } from './builtinTimelines';
 import { blendNodeSamples, type LayerPlay, type LeftSegment } from './stateMachine';
 import type { CinematicDoc, ComponentStateMachine, LayoutNode } from './types';
 
@@ -51,6 +52,15 @@ export function registerComponentTimelines(docs: readonly CinematicDoc[]): void 
 	}
 	byComponent = next;
 	byId = nextById;
+}
+
+/**
+ * What a game registers at boot: the engine's built-in timelines first (Rive plan Phase 8a), then
+ * the project's baked cinematics — on a boot with no bundle and no baked doc the built-ins alone,
+ * so a built-in def the fallback doc places still has its timeline. One call for both boot paths.
+ */
+export function registerGameTimelines(baked: readonly CinematicDoc[] | undefined): void {
+	registerComponentTimelines([...BUILTIN_TIMELINES, ...(baked ?? [])]);
 }
 
 /** The timelines an instance of `componentId` plays on a signal, in registration order. */
@@ -134,7 +144,7 @@ interface Mix {
 const EPSILON = 1e-9;
 
 /** A zero-length timeline never "ends" in a step the player can report; it holds nothing. */
-const loopsForever = (doc: CinematicDoc): boolean => !(Math.max(doc.duration || 0, 0) > 0);
+const isZeroLength = (doc: CinematicDoc): boolean => !(Math.max(doc.duration || 0, 0) > 0);
 
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
@@ -195,12 +205,13 @@ export class ComponentTimelinePlayer {
 
 	/**
 	 * The timelines `signal` starts that HOLD the cue (`holdsCue`, Rive plan Phase 8a): an awaited
-	 * fire of that signal waits for each to reach its end. A looping timeline never ends, so it is
-	 * left out; a timeline without the field, or a state-machine one (no `playOn`), holds nothing.
+	 * fire of that signal waits for each to reach its end. A zero-length timeline never reports an
+	 * end, so it is left out; a timeline without the field, or a state-machine one (no `playOn`),
+	 * holds nothing.
 	 */
 	holdsOn(signal: string): string[] {
 		return this.bound
-			.filter((b) => b.doc.playOn === signal && b.doc.holdsCue === true && !loopsForever(b.doc))
+			.filter((b) => b.doc.playOn === signal && b.doc.holdsCue === true && !isZeroLength(b.doc))
 			.map((b) => b.doc.id);
 	}
 

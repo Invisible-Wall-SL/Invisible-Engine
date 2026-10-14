@@ -6,13 +6,20 @@
  *     ON only (an OFF row, an unknown overlay, a non-boolean are dropped), and reads as the game
  *     reads it;
  *  2. the swap: with the flag on, every reference layout's overlays scene trades its coded
- *     `bind: Transition` for the built-in `transitionWipe` instance at the origin, nested or not,
- *     and a scene without one comes back as the SAME object; with the flag off nothing is swapped;
- *  3. the built-in def and timeline: in the built-ins list, offered to every kind, the timeline
+ *     `bind: Transition` for the built-in `transitionWipe` instance, nested or not, carrying the
+ *     node's transform and per-layout overrides; a scene without one comes back as the SAME object;
+ *     the doc-level swap reaches every scene; the ONE predicate the runtime and the publish chip
+ *     share agrees in every case (an overlays scene of the doc's own, the reference fallback, a
+ *     Transition in another scene);
+ *  3. the built-in def and timeline: in the built-ins list, internal (no palette offers it), the timeline
  *     binds the def's `wipe` rig node with no issue, plays on `transition`, holds the cue, and runs
  *     exactly the `transition` rig's clip (its length read off the shipped skeleton);
  *  4. timing: under a stepped clock the hold a fire opens settles on the frame the clip ends and
- *     not before; a timeline without `holdsCue`, a looping one and a cue nothing holds add no hold;
+ *     not before, through the instance's own seam (`InstanceCueHolds`: open, release on the step's
+ *     completed ids, release-all on unmount); a timeline without `holdsCue`, a zero-length one and a
+ *     cue nothing holds add no hold; a `showContainer.durationMs` measures the swapped node as the
+ *     coded one; the built-in timelines register on a boot with no bundle and no baked doc; the
+ *     localization harvest is unchanged by the flag;
  *  5. the publish chips: a project with the flag on shows "Authored Transition (pilot)", one with
  *     the flag on and no coded Transition to replace gets the warning, one with the flag off neither.
  *
@@ -168,7 +175,7 @@ for (const [name, doc] of Object.entries(layouts)) {
 	eq(
 		'a Transition nested in a group is swapped in place and keeps its z',
 		[t.id, t.componentId, t.zIndex, t.x],
-		['t', 'transitionWipe', 7, 0],
+		['t', 'transitionWipe', 7, 1],
 	);
 	eq(
 		'...its siblings untouched',
@@ -186,6 +193,97 @@ for (const [name, doc] of Object.entries(layouts)) {
 		true,
 	);
 }
+{
+	// The ONE predicate the runtime swap and the publish chip share.
+	const lines = layouts.lines;
+	eq('the reference doc has a coded Transition', A.docHasCodedTransition(lines), true);
+	const without = { ...lines, scenes: lines.scenes.filter((sc) => sc.id !== 'basegameOverlays') };
+	eq(
+		'a doc with no overlays scene of its own still has one (the reference fallback)',
+		A.docHasCodedTransition(without),
+		true,
+	);
+	const bare = {
+		...lines,
+		scenes: lines.scenes.map((sc) =>
+			sc.id === 'basegameOverlays'
+				? { ...sc, nodes: sc.nodes.filter((n) => n.bind?.component !== 'Transition') }
+				: sc,
+		),
+	};
+	eq(
+		'an overlays scene of its own without the node ⇒ nothing to replace',
+		A.docHasCodedTransition(bare),
+		false,
+	);
+	const elsewhere = {
+		...bare,
+		scenes: bare.scenes.map((sc) =>
+			sc.id === 'basegame'
+				? {
+						...sc,
+						nodes: [
+							...sc.nodes,
+							{
+								id: 'moved-t',
+								kind: 'container',
+								x: 0,
+								y: 0,
+								bind: { component: 'Transition' },
+								children: [],
+							} as unknown as LayoutNode,
+						],
+					}
+				: sc,
+		),
+	};
+	eq('a Transition in another scene counts', A.docHasCodedTransition(elsewhere), true);
+	const swappedDoc = A.withAuthoredTransitionDoc(elsewhere);
+	eq(
+		'the doc-level swap reaches a Transition in any scene',
+		[
+			A.hasCodedTransition(swappedDoc.scenes.flatMap((sc) => sc.nodes)),
+			transitionNodes(swappedDoc.scenes.find((sc) => sc.id === 'basegame')!.nodes).map(
+				(n) => (n as { componentId?: string }).componentId,
+			),
+		],
+		[false, ['transitionWipe']],
+	);
+	eq(
+		'...and leaves every other scene the same object',
+		swappedDoc.scenes.filter((sc, i) => sc === elsewhere.scenes[i]).length,
+		elsewhere.scenes.length - 1,
+	);
+	eq(
+		'a doc with nothing to swap is the same doc',
+		A.withAuthoredTransitionDoc(bare) === bare,
+		true,
+	);
+	const moved: Scene = {
+		id: 'm',
+		name: 'm',
+		nodes: [
+			{
+				id: 't',
+				kind: 'container',
+				x: 40,
+				y: -20,
+				scale: { x: 1.2, y: 1.2 },
+				rotation: 5,
+				alpha: 0.8,
+				bind: { component: 'Transition' },
+				children: [],
+				overrides: { portrait: { x: 0, y: 300 } },
+			},
+		] as unknown as LayoutNode[],
+	} as unknown as Scene;
+	const mv = A.withAuthoredTransition(moved).nodes[0] as LayoutNode & { componentId?: string };
+	eq(
+		'a moved Transition keeps x / y / scale / rotation / alpha and its per-layout overrides',
+		[mv.componentId, mv.x, mv.y, mv.scale, mv.rotation, mv.alpha, mv.overrides],
+		['transitionWipe', 40, -20, { x: 1.2, y: 1.2 }, 5, 0.8, { portrait: { x: 0, y: 300 } }],
+	);
+}
 
 // ---- 3. the built-in def and timeline ---------------------------------------------------------------
 
@@ -200,9 +298,9 @@ eq(
 	[true, true],
 );
 eq(
-	'it is offered to every kind',
-	Object.keys(layouts).every((k) => C.componentOfferedForKind(def, k)),
-	true,
+	'it is internal: the engine places it, no palette offers it',
+	[def.internal, Object.keys(layouts).some((k) => C.componentOfferedForKind(def, k))],
+	[true, false],
 );
 const rig = def.root.children[0] as LayoutNode & {
 	assetKey?: string;
@@ -299,34 +397,49 @@ eq(
 		[[wipe.id], []],
 	);
 	const framesToEnd = Math.ceil(wipe.duration * 60 - 1e-6);
-	let settled = -1;
-	let frames = 0;
-	const until = new Promise<void>((resolve) => {
-		player.trigger('transition');
-		const tick = (): void => {
-			frames++;
-			const step = player.advance(1 / 60);
-			if (step.completed.includes(wipe.id)) {
-				resolve();
-				return;
-			}
-			if (frames > 600) throw new Error('the wipe never completed');
-			tick();
-		};
-		tick();
-	}).then(() => {
-		settled = frames;
-	});
-	H.holdCue('transition', until);
+	// The instance's own seam: a heard fire opens the holds, the ticker's step releases them.
+	const seam = new H.InstanceCueHolds((signal) => player.holdsOn(signal));
+	seam.open('uiHide');
+	eq('a signal no timeline holds opens nothing', H.cueHolds('uiHide'), []);
+	seam.open('transition');
 	eq('the fire opened one hold on the cue', H.cueHolds('transition').length, 1);
+	let frames = 0;
+	let settledAt = -1;
+	const [until] = H.cueHolds('transition');
+	void until.then(() => {
+		settledAt = frames;
+	});
+	player.trigger('transition');
+	let completedOn = -1;
+	while (completedOn < 0 && frames < 600) {
+		frames++;
+		const step = player.advance(1 / 60);
+		seam.release(step.completed);
+		if (step.completed.includes(wipe.id)) completedOn = frames;
+	}
 	await until;
 	await Promise.resolve();
 	eq(
 		'the hold settles on the frame the clip ends (±1 frame of 1.6667 s at 60 fps)',
-		Math.abs(settled - framesToEnd) <= 1,
-		true,
+		[Math.abs(completedOn - framesToEnd) <= 1, settledAt === completedOn],
+		[true, true],
 	);
 	eq('...and is gone afterwards', H.cueHolds('transition'), []);
+	const gone = new H.InstanceCueHolds(() => [wipe.id]);
+	gone.open('transition');
+	const [pending] = H.cueHolds('transition');
+	let released = false;
+	void pending.then(() => {
+		released = true;
+	});
+	gone.releaseAll();
+	await pending;
+	await Promise.resolve();
+	eq(
+		'release-all on unmount settles a pending hold',
+		[released, H.cueHolds('transition')],
+		[true, []],
+	);
 	eq(
 		'after the clip the strip holds its last time and the node is hidden again',
 		player.sample(rig.id),
@@ -353,6 +466,73 @@ eq(
 		[],
 	);
 	L.registerComponentTimelines([]);
+}
+{
+	const D = await import('../../../packages/engine-layout/src/lib/sceneDuration.ts');
+	L.registerComponentTimelines([...B.BUILTIN_TIMELINES]);
+	const clipMs = wipe.duration * 1000;
+	const coded = overlaysOf(layouts.lines);
+	const resolvers = {
+		rigClipMs: () => undefined,
+		effectMs: () => undefined,
+		resolveComponent: (id: string) => (id === def.id ? { root: def.root } : undefined),
+		boundComponentMs: (component: string) => (component === 'Transition' ? clipMs : undefined),
+		instanceHoldMs: (id: string) => {
+			const held = L.componentTimelinesFor(id).filter((d) => d.holdsCue === true);
+			return held.length ? Math.max(...held.map((d) => d.duration * 1000)) : undefined;
+		},
+	};
+	eq(
+		'durationMs reads the same for the coded and the swapped overlays scene',
+		[
+			D.sceneAnimationDurationMs(coded, resolvers as never),
+			D.sceneAnimationDurationMs(A.withAuthoredTransition(coded), resolvers as never),
+		],
+		[clipMs, clipMs],
+	);
+	L.registerComponentTimelines([]);
+}
+{
+	// A boot with no runtime bundle and no baked doc (the layout-only fallback, the dev pilot) still
+	// registers the built-in timelines: `registerGameTimelines`, the one call both boot paths of
+	// `apps/lines` `registerBakedComponents` make (the source is checked to make it before its early
+	// return), with nothing baked.
+	L.registerComponentTimelines([]);
+	L.registerGameTimelines(undefined);
+	eq(
+		'registerGameTimelines with nothing baked registers the built-in timelines',
+		L.componentTimelinesFor('transitionWipe').map((d) => d.id),
+		[wipe.id],
+	);
+	L.registerGameTimelines([{ ...wipe, name: 'project copy' }]);
+	eq(
+		'...and a baked timeline of the same id shadows the built-in',
+		L.componentTimelinesFor('transitionWipe').map((d) => d.name),
+		['project copy'],
+	);
+	L.registerComponentTimelines([]);
+	const boot = readFileSync(new URL('../../lines/src/editor-scenes.ts', import.meta.url), 'utf8');
+	const body = boot.slice(boot.indexOf('export function registerBakedComponents'));
+	const early = body.indexOf('registerGameTimelines(undefined)');
+	eq(
+		'the game boot registers the built-ins before its no-bundle early return',
+		early > 0 && early < body.indexOf('return;'),
+		true,
+	);
+}
+{
+	// One text stack: the flag changes nothing the localization harvest sees.
+	const { harvestSceneText } = await import('../src/lib/server/localizationHarvest.ts');
+	const resolveDef = async (id: string) => C.BUILTIN_COMPONENTS.find((d) => d.id === id);
+	const off = await harvestSceneText(layouts.lines, resolveDef as never);
+	const on = await harvestSceneText(
+		A.withAuthoredTransitionDoc({
+			...layouts.lines,
+			settings: { authoredOverlays: { transition: true } },
+		}),
+		resolveDef as never,
+	);
+	eq('the harvest is identical with the flag on and off', JSON.stringify(on), JSON.stringify(off));
 }
 
 // ---- 5. the publish chips ------------------------------------------------------------------------------

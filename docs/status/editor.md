@@ -82,7 +82,7 @@ Shipped capabilities on `main`:
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
   redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not
   paused.
-- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a, 2026-10-14: `settings.authoredOverlays.transition`, sparse, ON only; off for every live game until the owner's browser check — [engine status](engine.md)).
+- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a, 2026-10-14; switched by a holder of the component-publish capability; off for every live game until the owner's browser check — the whole story in [engine status](engine.md)).
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
@@ -116,11 +116,11 @@ Shipped capabilities on `main`:
 
 ## Recent changes
 - 2026-10-14 — **Game Settings → Authored overlays (pilot) → Transition** (Rive plan Phase 8a, branch
-  `claude/rive-p8a-transition-overlay`): one checkbox writing `settings.authoredOverlays.transition:
-  true` (only when on — `buildGameSettings()` still returns `undefined` at the defaults;
-  `normalizeGameSettings` keeps only an ON row; `check:doc-readers-unknown-fields` covers it). The
-  Game Maker card chips it (*Authored Transition (pilot)*, or the amber *nothing to replace* when no
-  scene binds the coded Transition). Guide: [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot).
+  `claude/rive-p8a-transition-overlay`): one checkbox, enabled for `canPublishShared` holders (the
+  component-publish capability, admin by default) and shown read-only to others while on, writing
+  `settings.authoredOverlays.transition: true` only when on (`buildGameSettings()` still returns
+  `undefined` at the defaults). Guide: [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot);
+  the flag's normalizer, chips and runtime: [engine status](engine.md).
 - 2026-10-13 — **Listeners + events in the editor (Rive plan Phase 6b, in review).** Components
   side only: Properties gains **Listeners** (per node) and **Component variables → Events**; the
   State machine tab gains **On enter → raise event** and an **Events** log; in Animate the stage
