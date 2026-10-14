@@ -1167,7 +1167,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 {
 	const instanceSvelte = source('packages/engine-layout/src/lib/ComponentInstance.svelte');
 	eq(
-		'8. ComponentInstance registers a top-level placement through the handle module, unregisters on destroy, and notifies on start, on fired transitions and on the visibility edge',
+		'8. ComponentInstance registers a top-level placement through the handle module, unregisters on destroy, and notifies on start, on fired transitions (ticked, and taken at a trigger fire) and on the visibility edge',
 		[
 			instanceSvelte.includes('allowed && def && parentNest.depth === 0'),
 			instanceSvelte.includes('? createFlowInstanceHandle({'),
@@ -1180,8 +1180,9 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			instanceSvelte.includes('if (step.fired.length) notifyFlowInstance();'),
 			instanceSvelte.includes('if (selfVisible !== wasVisible) untrack(notifyFlowInstance);'),
 			instanceSvelte.includes('svelte/reactivity'),
+			instanceSvelte.includes('const step = stateMachineRunner.advance(0);'),
 		],
-		[true, true, true, true, true, 2, true, true, false],
+		[true, true, true, true, true, 3, true, true, false, true],
 	);
 	eq(
 		'8. LayoutScene provides its id',
