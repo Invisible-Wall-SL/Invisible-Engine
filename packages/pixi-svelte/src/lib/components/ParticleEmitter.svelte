@@ -78,6 +78,13 @@
 		 * exactly as before.
 		 */
 		ownerPos?: () => { x: number; y: number };
+		/**
+		 * The emitter's rotation, radians — read every tick with {@link ownerPos} and handed to
+		 * `emitter.rotate`, which turns every NEW particle (its art, launch direction and spawn
+		 * offset) by it; the ones already out keep theirs. A flight's trail passes its heading here
+		 * so it follows the arc. A `noRotation` layer still pins its art. Absent ⇒ unrotated.
+		 */
+		ownerRotation?: () => number;
 	};
 
 	/**
@@ -173,12 +180,21 @@
 		target: emitter,
 		// `ownerPos` is a getter, not a field: the emitter's own `ownerPos` is a Point the library
 		// owns, and assigning the function over it would break every spawn.
-		ignore: ['emit', 'animated', 'spineParticle', 'textures', 'weights', 'ownerPos'],
+		ignore: [
+			'emit',
+			'animated',
+			'spineParticle',
+			'textures',
+			'weights',
+			'ownerPos',
+			'ownerRotation',
+		],
 	});
 
 	/** Hand the owner's position to the emitter. `init` resets it to the origin, so this runs after. */
 	let ownerTracked = false;
 	const syncOwner = () => {
+		if (props.ownerRotation) emitter.rotate(props.ownerRotation());
 		const read = props.ownerPos;
 		if (!read) return;
 		const { x, y } = read();

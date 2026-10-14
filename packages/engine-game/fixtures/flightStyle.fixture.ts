@@ -13,6 +13,7 @@ import {
 	flightDuration,
 	flightEaseOf,
 	flightPlanOptions,
+	headingOnCurve,
 	planFlight,
 } from '../../engine-layout/src/lib/flightPath.ts';
 import {
@@ -49,6 +50,8 @@ const CODED = {
 	ease: 'easeInOut',
 	stagger: 70,
 	size: 1,
+	trailAlign: false,
+	trailRotation: 0,
 };
 
 it('no block ⇒ the coded flight', resolveFlightStyle(undefined, 'toTotal'), CODED);
@@ -60,6 +63,8 @@ it('the coded numbers are the ones flyTo used before the block existed', FLIGHT_
 	stagger: 70,
 	ease: 'easeInOut',
 	size: 1,
+	trailAlign: false,
+	trailRotation: 0,
 	padding: 0.1,
 	overRoute: true,
 	avoid: true,
@@ -92,6 +97,8 @@ it(
 		ease: 'linear',
 		stagger: 70,
 		size: 1,
+		trailAlign: false,
+		trailRotation: 0,
 		head: { kind: 'none' },
 		trail: { effectId: 'fx-meter' },
 		bend: 0.3,
@@ -205,6 +212,43 @@ it(
 		resolveFlightStyle({ toMeter: { size: 1.5 } }, 'toTotal').size,
 	],
 	[1.5, 0.5, 1],
+);
+it(
+	'normalize: trail rotation is clamped to −180…180; align is a boolean; 0 / false are kept',
+	[
+		normalizeFlights({ toTotal: { trailRotation: 270, trailAlign: 'yes' } })?.toTotal,
+		normalizeFlights({ toTotal: { trailRotation: 0, trailAlign: false } })?.toTotal,
+	],
+	[{ trailRotation: 180 }, { trailAlign: false, trailRotation: 0 }],
+);
+it(
+	'resolve: trail align / rotation follow the toMeter family, an own false beats it',
+	[
+		resolveFlightStyle({ toMeter: { trailAlign: true, trailRotation: 90 } }, 'toMeter:red'),
+		resolveFlightStyle(
+			{ toMeter: { trailAlign: true }, 'toMeter:red': { trailAlign: false } },
+			'toMeter:red',
+		).trailAlign,
+	].map((v) => (typeof v === 'object' ? [v.trailAlign, v.trailRotation] : v)),
+	[[true, 90], false],
+);
+it(
+	'heading: along a straight route, and the curve tangent at its ends',
+	[
+		headingOnCurve(
+			{ p0: { x: 0, y: 0 }, c1: { x: 0, y: 0 }, c2: { x: 10, y: 0 }, p3: { x: 10, y: 0 } },
+			0,
+		),
+		headingOnCurve(
+			{ p0: { x: 0, y: 0 }, c1: { x: 0, y: -10 }, c2: { x: 10, y: -10 }, p3: { x: 10, y: 0 } },
+			0,
+		),
+		headingOnCurve(
+			{ p0: { x: 0, y: 0 }, c1: { x: 0, y: -10 }, c2: { x: 10, y: -10 }, p3: { x: 10, y: 0 } },
+			1,
+		),
+	].map((r) => Math.round((r * 180) / Math.PI)),
+	[0, -90, 90],
 );
 it(
 	'resolve: arc follows the toMeter family and reaches the plan',

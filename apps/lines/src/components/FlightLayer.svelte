@@ -31,7 +31,9 @@
 	 * container at the board's scale; a glow head is `FlightView`'s coded glow re-tinted; `none` draws
 	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
 	 * instead, in its `flyToMeter` state, at the board's scale. The kind's `size` multiplies all of
-	 * it — the glow, the art, the carried symbol and a "+N" label. The trail is `FlightView`'s. The
+	 * it — the glow, the art, the carried symbol and a "+N" label. The trail is `FlightView`'s; its
+	 * particles spawn turned to the flight's heading when the kind aligns them (`trailAlign`), plus
+	 * the kind's `trailRotation`. The
 	 * arrival effect plays ONCE at the target when the head lands, and the flight stays mounted until
 	 * it has played out.
 	 */
@@ -77,6 +79,12 @@
 		};
 	};
 
+	/** The trail particles' spawn rotation: the heading when aligned, plus the authored offset. */
+	const trailRotation = (flight: ActiveFlight): (() => number) | undefined =>
+		flight.trailAlign || flight.trailRotation
+			? () => (flight.trailAlign ? flight.heading : 0) + flight.trailRotation
+			: undefined;
+
 	const trailDoc = (flight: ActiveFlight) => {
 		const trail = flight.trail;
 		if (trail === 'coded') return undefined;
@@ -103,6 +111,7 @@
 				headTint={hexTint(flight.headStyle?.tint)}
 				headScale={(flight.headStyle?.scale ?? 1) * flight.size}
 				trailDoc={trailDoc(flight)}
+				trailRotation={trailRotation(flight)}
 			/>
 		{/if}
 		{#if flight.phase === 'flying' && art}

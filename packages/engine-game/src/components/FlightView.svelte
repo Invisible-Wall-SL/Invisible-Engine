@@ -28,6 +28,9 @@
 		 * or `null` for no trail. Absent ⇒ the coded gold glow trail.
 		 */
 		trailDoc?: EffectDoc | null;
+		/** The trail particles' rotation as they spawn, radians — read every tick (the heading when
+		 *  the trail follows the arc, plus the authored offset). Absent ⇒ unrotated. */
+		trailRotation?: () => number;
 	};
 
 	/**
@@ -86,6 +89,7 @@
 			{textures}
 			emit={props.emit}
 			{ownerPos}
+			ownerRotation={props.trailRotation}
 		/>
 	</Container>
 {:else if freeTrailDoc}
@@ -95,6 +99,7 @@
 			forceEmit
 			emitFor={props.emit ? undefined : 0}
 			ownerPos={effectOwnerPos}
+			ownerRotation={props.trailRotation}
 		/>
 	</Container>
 {/if}

@@ -117,6 +117,10 @@ export type FlightStyle = {
 	 *  token, an add-respins "+N" label, and an authored head on top of its own `scale`. */
 	size?: number;
 	trail?: FlightTrail;
+	/** Turn every trail particle to the flight's heading as it spawns, so it follows the arc. */
+	trailAlign?: boolean;
+	/** Degrees added to every trail particle's rotation (−180…180), aligned or not. */
+	trailRotation?: number;
 	arrival?: FlightArrival;
 	path?: FlightPathStyle;
 	/** Board units per millisecond. */
@@ -139,6 +143,8 @@ export const FLIGHT_DEFAULTS = {
 	stagger: 70,
 	ease: 'easeInOut' as FlightEase,
 	size: 1,
+	trailAlign: false,
+	trailRotation: 0,
 	/** Cells. */
 	padding: 0.1,
 	overRoute: true,
@@ -156,6 +162,7 @@ export const FLIGHT_LIMITS = {
 	padding: { min: 0, max: 2 },
 	headScale: { min: 0.05, max: 5 },
 	size: { min: 0.05, max: 5 },
+	trailRotation: { min: -180, max: 180 },
 } as const;
 
 /** What a flight flies with once the authored block and the coded default are merged. */
@@ -164,6 +171,9 @@ export type ResolvedFlightStyle = {
 	/** × what the head carries ({@link FlightStyle.size}). */
 	size: number;
 	trail?: FlightTrail;
+	trailAlign: boolean;
+	/** Degrees. */
+	trailRotation: number;
 	arrival?: FlightArrival;
 	/** Absent ⇒ the coded bend ladder. */
 	bend?: number;
@@ -244,6 +254,10 @@ export function normalizeFlightStyle(raw: unknown): FlightStyle | undefined {
 	if (isRecord(raw.arrival) && nonBlank(raw.arrival.effectId)) {
 		style.arrival = { effectId: raw.arrival.effectId };
 	}
+	if (typeof raw.trailAlign === 'boolean') style.trailAlign = raw.trailAlign;
+	if (finite(raw.trailRotation)) {
+		style.trailRotation = clamp(raw.trailRotation, FLIGHT_LIMITS.trailRotation);
+	}
 	const path = normalizePath(raw.path);
 	if (path) style.path = path;
 	if (finite(raw.speed) && raw.speed > 0) style.speed = clamp(raw.speed, FLIGHT_LIMITS.speed);
@@ -301,6 +315,8 @@ export function resolveFlightStyle(
 		ease: pick((s) => s.ease) ?? FLIGHT_DEFAULTS.ease,
 		stagger: pick((s) => s.stagger) ?? FLIGHT_DEFAULTS.stagger,
 		size: pick((s) => s.size) ?? FLIGHT_DEFAULTS.size,
+		trailAlign: pick((s) => s.trailAlign) ?? FLIGHT_DEFAULTS.trailAlign,
+		trailRotation: pick((s) => s.trailRotation) ?? FLIGHT_DEFAULTS.trailRotation,
 	};
 	const head = pick((s) => s.head);
 	if (head) resolved.head = head;

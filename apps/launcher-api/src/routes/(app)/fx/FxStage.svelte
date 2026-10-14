@@ -93,6 +93,9 @@
 		 * The `/symbols` flight preview flies a head with it.
 		 */
 		ownerPos?: () => { x: number; y: number };
+		/** The moving owner's rotation, radians, for every free layer — the game's `<EffectPlayer
+		 *  ownerRotation>`: `emitter.rotate` turns each NEW particle by it. */
+		ownerRotation?: () => number;
 		/** Spawn new particles (default true). False lets the live ones play out — a trail whose head
 		 *  has landed. Independent of `playing`, which freezes the whole stage. */
 		emitting?: boolean;
@@ -117,6 +120,7 @@
 		rigSkin = '',
 		onRigMeta,
 		ownerPos,
+		ownerRotation,
 		emitting = true,
 		showReference = true,
 	}: Props = $props();
@@ -289,6 +293,7 @@
 				entry.container.scale.set(1, 1);
 				const owner = emitterOwnerLocal(layer, null, worldAffine);
 				const moving = ownerPos?.() ?? { x: 0, y: 0 };
+				if (ownerRotation) entry.emitter.rotate(ownerRotation());
 				entry.emitter.updateOwnerPos(owner.x + moving.x, owner.y + moving.y);
 			}
 		}

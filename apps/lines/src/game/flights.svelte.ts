@@ -15,6 +15,7 @@ import {
 	FLIGHT_METER_PREFIX,
 	flightEaseOf,
 	flightPlanOptions,
+	headingOnCurve,
 	resolveFlightStyle,
 	TOTAL_WIN_BAR_ANCHOR,
 	type FlightEase,
@@ -114,11 +115,17 @@ export type ActiveFlight = {
 	trailMs: number;
 	phase: FlightPhase;
 	head: FlightPoint;
+	/** The direction the head travels, radians — what an aligned trail turns its particles to. */
+	heading: number;
 	ease: FlightEase;
 	/** The authored head; absent ⇒ the coded glow. */
 	headStyle?: FlightHead;
 	/** × everything drawn at the head — glow, art, carried symbol, label (the kind's `size`). */
 	size: number;
+	/** The trail's particles turn to {@link heading} as they spawn (the kind's `trailAlign`). */
+	trailAlign: boolean;
+	/** Radians added to every trail particle's rotation (the kind's `trailRotation`). */
+	trailRotation: number;
 	/** Text riding on the head ({@link FlyToOptions.label}). */
 	label?: string;
 	/** The symbol that is the head ({@link FlyToOptions.symbol}). */
@@ -336,9 +343,12 @@ export const flyTo = (
 			trailMs: 0,
 			phase: 'waiting',
 			head: { ...route.curve.p0 },
+			heading: headingOnCurve(route.curve, 0),
 			ease: style.ease,
 			...(style.head ? { headStyle: style.head } : {}),
 			size: style.size,
+			trailAlign: style.trailAlign,
+			trailRotation: (style.trailRotation * Math.PI) / 180,
 			...(options.label ? { label: options.label } : {}),
 			...(options.symbol ? { symbol: { ...options.symbol } } : {}),
 			...(options.symbolScale !== undefined ? { symbolScale: options.symbolScale } : {}),
@@ -371,9 +381,11 @@ export const tickFlights = (deltaMs: number) => {
 		flight.elapsedMs += step;
 		if (flight.elapsedMs < flight.delayMs) continue;
 		const t = Math.min(1, (flight.elapsedMs - flight.delayMs) / flight.durationMs);
-		const point = pointOnCurve(flight.curve, flightEaseOf(flight.ease)(t));
+		const eased = flightEaseOf(flight.ease)(t);
+		const point = pointOnCurve(flight.curve, eased);
 		flight.head.x = point.x;
 		flight.head.y = point.y;
+		flight.heading = headingOnCurve(flight.curve, eased);
 		if (flight.phase === 'waiting') {
 			flight.phase = 'flying';
 			start(flight.id);

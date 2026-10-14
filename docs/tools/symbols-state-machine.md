@@ -992,6 +992,11 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   the moving head, so its particles stay where they were born and form a streak; once the head lands
   the trail stops spawning and dies out on its own. Author trails in Invisible FX as continuous,
   free-placed effects (a bone-placed layer does not follow the head).
+- **Trail follows the arc** — **On** turns each trail particle to the direction the head is flying
+  as it spawns, so streak or arrow art lines up with the curve (a particle keeps the angle it was
+  born with). **Trail rotation (°)** turns every particle by a fixed angle on top (−180…180) — for
+  art that points somewhere other than right. A round glow looks the same either way, and a layer
+  whose rotation is locked in Invisible FX keeps its art still.
 - **On arrival** — an Invisible FX effect played once where the head lands.
 - **Arc** — curves the route even when nothing is in the way, as a share of the straight distance
   (−1…1): positive bows it up on screen, negative down, blank or 0 flies straight. It shapes the
@@ -1016,8 +1021,8 @@ overlay fills, the "+2" label for the respin counter — and plays the arrival e
 head lands. The line under the board names the route (straight, a bend, or over), the flight time
 and the head. The built-in gold trail is drawn as an approximation.
 
-Stored as `flights: Record<kind, { head?, size?, trail?, arrival?, path?, speed?, minMs?, maxMs?,
-ease?, stagger? }>`; ships to the game like every other section (a head's art and the trail / arrival
+Stored as `flights: Record<kind, { head?, size?, trail?, trailAlign?, trailRotation?, arrival?,
+path?, speed?, minMs?, maxMs?, ease?, stagger? }>`; ships to the game like every other section (a head's art and the trail / arrival
 effects ship with it). The plan is in
 [the Hold and Win design §4.4](../design/hold-and-win.md#44-flights--things-that-travel-from-a-cell-to-a-target).
 

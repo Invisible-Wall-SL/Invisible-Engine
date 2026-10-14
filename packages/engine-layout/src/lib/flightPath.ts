@@ -75,6 +75,15 @@ export const pointOnCurve = ({ p0, c1, c2, p3 }: FlightCurve, t: number): Flight
 	};
 };
 
+/** The direction of travel at `t`, in radians (0 = right, y down): the curve's tangent, or the
+ *  straight line from start to end where the tangent vanishes (a control point on an end). */
+export const headingOnCurve = ({ p0, c1, c2, p3 }: FlightCurve, t: number): number => {
+	const u = 1 - t;
+	const x = 3 * u * u * (c1.x - p0.x) + 6 * u * t * (c2.x - c1.x) + 3 * t * t * (p3.x - c2.x);
+	const y = 3 * u * u * (c1.y - p0.y) + 6 * u * t * (c2.y - c1.y) + 3 * t * t * (p3.y - c2.y);
+	return Math.hypot(x, y) > 1e-6 ? Math.atan2(y, x) : Math.atan2(p3.y - p0.y, p3.x - p0.x);
+};
+
 /** Arc length by chords — `steps` segments are plenty for a curve this gentle. */
 export const curveLength = (curve: FlightCurve, steps = 32): number => {
 	let length = 0;
