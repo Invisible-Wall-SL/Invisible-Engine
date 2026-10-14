@@ -1295,7 +1295,7 @@ in order, then the conditions the build carried and the findings it made.
   (`authoredWinTiers.ts`) from the config, the placed instance's params and the Win Text doc through
   the engine's own `resolveTierPresentation`, which made `engine-game` (its Svelte-free deep paths)
   a launcher dependency rather than a second copy of the rule.
-- **Gates** — `check:authored-win` (launcher, 114), `check:component-timelines` (74), the engine-game
+- **Gates** — `check:authored-win` (launcher, 115), `check:component-timelines` (74), the engine-game
   fixtures (12, `winWalk` new), the template gates (the internal def pinned), `check:win-parity`
   (root; gating in #1194: `base`, `escalation`, `slam-small`, `slam-big`, `placed`). Its CI workflow,
   like 8a's, is a workflow-only follow-up PR. **Known gap:** `check:authored-transition`,

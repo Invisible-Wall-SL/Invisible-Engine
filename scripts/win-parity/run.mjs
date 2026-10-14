@@ -14,7 +14,9 @@
 //   base         WIN_X=10,20,40,70,120 — five consecutive base spins land one big tier each; the
 //                intro (+12 +24 +48 +96) and the idle (+120 +240) of every tier.
 //   slam-small   the seed's first non-big win, Space 6 frames after `winShow`: raced, as today.
-//   slam-big     WIN_X=10, Space 6 frames after `winShow`: unskippable, as today.
+//                NOT RUNNABLE on the stand-in yet: no `winShow` fired in 12 spins on either side,
+//                unforced or with WIN_X=1 / 4 (cause not traced) — the follow-up PR's to fix.
+//   slam-big     WIN_X=10, Space 6 frames after `winShow`: ends on the same frame on both sides.
 //   escalation   the snapshot's config with `escalateTiers: true` (the gate writes the variant as it
 //                writes the flagged doc), WIN_X=120: the walk climbs the tiers; the authored side
 //                reports PENDING cue holds while it climbs (the positive control), the coded none.
@@ -98,7 +100,7 @@ const VARIANTS = {
 		env: { WIN_X: '10,20,40,70,120' },
 		spins: BIG_TIERS.map((tier) => ({ tier, offsets: INTRO_AND_IDLE })),
 	},
-	'slam-small': { env: {}, smallWin: true, spins: [{ offsets: [12, 24, 48], press: 'slam' }] },
+	'slam-small': { env: {}, spins: [{ smallWin: true, offsets: [12, 24, 48], press: 'slam' }] },
 	'slam-big': {
 		env: { WIN_X: '10' },
 		spins: [{ tier: 'big', offsets: [12, 24, 48, 96], press: 'slam' }],
@@ -507,12 +509,10 @@ for (const name of chosen) {
 		const codedSpan = a.hideFrame - a.showFrame;
 		const authoredSpan = b.hideFrame - b.showFrame;
 		// A capture after the hide compares two empty frames: the presentation must outlast every
-		// capture, except a slammed small win, which may end early but must outlast one capture.
-		const compared =
-			spin.press === 'slam' && !spin.tier
-				? spin.offsets.filter((o) => o < codedSpan)
-				: spin.offsets;
-		if (!compared.length || Math.max(...compared) >= codedSpan)
+		// capture — except a slam, which ends it early by design; its proof is the hide on the same
+		// frame (checked above) and every capture, before or after the hide, matching.
+		const compared = spin.offsets;
+		if (spin.press !== 'slam' && Math.max(...compared) >= codedSpan)
 			fail(
 				`${label}: the presentation ended ${codedSpan} frames after ${SHOW}, before the capture at t+${Math.max(...spin.offsets)}`,
 			);

@@ -401,12 +401,28 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   gate's `if (authoredWin)` block / behind `authoredWinRuntime.on` — asserted against the source in
   `winWalk.fixture.ts`);
   `check:authored-transition` 85; `check:rgs` PASS; lint and Prettier clean; `pnpm --filter lines
-  build` ok. **Open for the launcher agent:** `normalizeGameSettings` + the unknown-fields case
-  (`win` row), the Game Settings row, the chips (`caption-variable` / `tier-presentation-unsupported`
-  wordings), `check:authored-win` over the pure functions above, `check:win-parity`; the node
-  normalizer need not know `rigSlot` / `boardFit` (they live on the built-in def, never stored).
-  Known divergence for the parity gate to weigh: a reel-grid override moves `boardLayout()` but not
-  the synthesized instance (per-layout overrides are the fallback).
+  build` ok. **Closing pass (PR #1194, after the handoff):** `check:win-parity` (not in CI yet —
+  its workflow is the follow-up PR) on the gating variants, under the unchanged default tolerance
+  and no masks: **base** 0 px at every capture on all five tiers, `winHide` on the same frame;
+  **slam-big** 0 px, `winHide` 6 frames after `winShow` on both (the harness called a big slam
+  "unskippable"; both sides end it at the press, so a slam is now judged on the same hide frame and
+  every capture matching); **placed** 0 px on both tiers
+  after a fix — the layout rig node never passed `loadScaleBase`, so a PLACED presentation drew the
+  tier rig (and the count riding its slot) at the bundle's `parser.scale` (2 for `bigwin`), twice
+  the coded natural size; a rig whose `boardFit` is param-BOUND and resolves off now divides the
+  load scale out as `WinAnimation` does without a width (`LayoutNodeView.naturalRigLoadScale`;
+  only the win presentation binds `boardFit`, so no other rig moves); **slam-small** NOT RUN: after a
+  harness fix (`smallWin` sat on the variant, the loop reads the spin) no `winShow` fires in 12
+  spins on either side, unforced or with `WIN_X=1` / `4` — cause not traced; the follow-up PR's. **escalation:**
+  0 px through t+240 and `winHide` on the same frame (1951), but **t+840 0.87 % and t+1680 5.96 %
+  differ** — the coins and count are identical, the tier banner is a frame or so off at each tier
+  hand-off. Suspected, not proven: a walk hold releases in the ticker, the next tier fires a
+  microtask later and first advances on the NEXT tick, where the coded `WinAnimation` switches in
+  the rig's `complete` callback that frame. Accepted visually by the owner for #1194; NOT gate-green.
+  Base's raw RGBA is not byte-identical either (channel Δ ≤ 2, ≤ 12 where the superwin rays reach)
+  — under the 0.1 threshold, uninvestigated. **Unverified:** `held` and `turbo` (the follow-up PR,
+  with the workflow, must merge before the Win flag is switched on for any project). Known
+  caveat: a reel-grid override moves `boardLayout()` but not the synthesized instance.
 
 - 2026-10-14 — **Two cue-anchored current-games scenarios, `fs-transition` and `big-win-intro`, in
   `screens/lines.json` and `screens/bookOf.json`** (PR #1197, Rive plan §13.5 #7). `fs-transition`
