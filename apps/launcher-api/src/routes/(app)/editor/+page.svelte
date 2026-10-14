@@ -2580,9 +2580,12 @@
 			}
 			ok = await templateState.save({ force: true });
 		}
+		// `idle` after a false save = the game type (so the template) changed mid-save.
 		templateStatus = ok
 			? { kind: 'ok', message: 'Template saved' }
-			: { kind: 'error', message: templateState.message || 'Template save failed' };
+			: templateState.status === 'idle'
+				? null
+				: { kind: 'error', message: templateState.message || 'Template save failed' };
 	}
 
 	// ---------- rig upload (sync a folder of rig assets to R2) ----------

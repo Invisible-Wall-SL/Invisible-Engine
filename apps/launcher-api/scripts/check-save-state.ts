@@ -140,6 +140,20 @@ const { flushSync } = (await import(svelteClient)) as { flushSync: () => void };
 
 // ---------- fake clock + transport ----------
 
+// A save the gate awaits that never settles is a failure, not a hung run: bounded on the REAL
+// clock (the fake one below only moves when the gate advances it).
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+function bounded<T>(promise: Promise<T>): Promise<T | 'hung'> {
+	return new Promise((done) => {
+		const timer = realSetTimeout(() => done('hung'), 2000);
+		void promise.then((value) => {
+			realClearTimeout(timer);
+			done(value);
+		});
+	});
+}
+
 type Timer = { at: number; fn: () => void };
 let now = 0;
 let nextId = 1;
@@ -177,13 +191,14 @@ interface Write {
 	ctx: SaveContext;
 	sent: string;
 	resolve: (out: SaveOutcome) => Promise<void>;
+	reject: (error: Error) => Promise<void>;
 }
 /** A store with one doc, written only when the gate resolves a write `ok`. */
 function fakeStore() {
 	const store = { doc: 'v0', etag: 'e0' as string | null, writes: [] as Write[] };
 	let n = 0;
 	const write = (ctx: SaveContext, sent: string): Promise<SaveOutcome> =>
-		new Promise((done) => {
+		new Promise((done, fail) => {
 			store.writes.push({
 				ctx: { ...ctx },
 				sent,
@@ -193,6 +208,10 @@ function fakeStore() {
 						store.etag = out.etag;
 					}
 					done(out);
+					await settle();
+				},
+				reject: async (error) => {
+					fail(error);
 					await settle();
 				},
 			});
@@ -214,7 +233,8 @@ function editTool(opts: Partial<SaveStateOptions> = {}) {
 		tool.doc = value;
 		state.markDirty();
 	};
-	return { ...fake, tool, state, edit };
+	const save = (o?: { force?: boolean }) => bounded(state.save(o));
+	return { ...fake, tool, state, edit, save };
 }
 
 const TRAILING = { autosaveMs: 800 };
@@ -342,8 +362,10 @@ const LEADING = { autosaveMs: 1200, resetDebounceOnEveryEdit: false };
 	await advance(800);
 	t.edit('C');
 	await t.store.writes[0].resolve(t.ok());
-	await advance(800);
+	// A duplicate re-fire would be in flight now; land it before the debounce fires.
 	await t.store.writes[1]?.resolve(t.ok());
+	await advance(800);
+	for (const w of t.store.writes.slice(1)) await w.resolve(t.ok());
 	await advance(5000);
 	check(
 		'coalesce + re-armed debounce: C written once',
@@ -351,6 +373,27 @@ const LEADING = { autosaveMs: 1200, resetDebounceOnEveryEdit: false };
 		['A', 'C'],
 	);
 	check('coalesce + re-armed debounce: clean', [t.store.doc, t.state.dirty], ['C', false]);
+}
+{
+	// Scene Editor, a write slower than the batch: an undo mid-flight re-arms a timer that fires
+	// and coalesces. Its re-fire is an autosave, so later typing keeps the 1200 ms batch instead of
+	// chaining writes at network speed.
+	const t = editTool(LEADING);
+	t.edit('A');
+	await advance(1200);
+	t.tool.doc = 'undo';
+	t.state.setDirty(true);
+	t.state.rearmAutosave();
+	await advance(1200);
+	await t.store.writes[0].resolve(t.ok());
+	check('cadence after coalesce: the undo re-fires', t.store.writes[1]?.sent, 'undo');
+	t.edit('D');
+	await t.store.writes[1]?.resolve(t.ok());
+	check('cadence after coalesce: D waits for the batch', t.store.writes.length, 2);
+	await advance(1200);
+	check('cadence after coalesce: D one batch later', t.store.writes[2]?.sent, 'D');
+	await t.store.writes[2]?.resolve(t.ok());
+	check('cadence after coalesce: clean', [t.store.doc, t.state.dirty], ['D', false]);
 }
 
 // ---------- 2. a navigating caller ----------
@@ -362,7 +405,7 @@ for (const [mode, opts] of [
 	const t = editTool(opts);
 	let leftWith: string | null = null;
 	t.edit('A');
-	const hop = t.state.save().then((ok) => {
+	const hop = t.save().then((ok) => {
 		if (ok) leftWith = t.store.doc;
 	});
 	t.edit('B');
@@ -376,7 +419,7 @@ for (const [mode, opts] of [
 	// The write of the mid-flight edit loses a CAS: the caller must not leave.
 	const t = editTool();
 	t.edit('A');
-	const saved = t.state.save();
+	const saved = t.save();
 	t.edit('B');
 	await t.store.writes[0].resolve(t.ok());
 	await t.store.writes[1]?.resolve({ ok: false, reason: 'conflict', message: 'theirs' });
@@ -397,7 +440,7 @@ for (const [mode, opts] of [
 ] as const) {
 	const t = editTool(opts);
 	t.edit('A');
-	const saved = t.state.save();
+	const saved = t.save();
 	check(`${mode} plain: busy while in flight`, t.state.busy, true);
 	await t.store.writes[0].resolve(t.ok());
 	check(`${mode} plain: save() is true`, await saved, true);
@@ -417,8 +460,8 @@ for (const [mode, opts] of [
 {
 	const t = editTool(LEADING);
 	t.edit('A');
-	const first = t.state.save();
-	check('in flight: a second save() coalesces to false', await t.state.save(), false);
+	const first = t.save();
+	check('in flight: a second save() coalesces to false', await t.save(), false);
 	await t.store.writes[0].resolve({ ok: false, reason: 'conflict', message: 'theirs' });
 	check('conflict: save() false', await first, false);
 	check(
@@ -429,8 +472,8 @@ for (const [mode, opts] of [
 	t.edit('B');
 	await advance(5000);
 	check('conflict: no autosave, no retry', t.store.writes.length, 1);
-	check('conflict: unforced save() refused', await t.state.save(), false);
-	const forced = t.state.save({ force: true });
+	check('conflict: unforced save() refused', await t.save(), false);
+	const forced = t.save({ force: true });
 	check('conflict: force writes', t.store.writes[1]?.ctx.force, true);
 	t.edit('C');
 	await t.store.writes[1]?.resolve(t.ok());
@@ -444,19 +487,19 @@ for (const [mode, opts] of [
 {
 	const t = editTool(TRAILING);
 	t.edit('A');
-	const first = t.state.save();
+	const first = t.save();
 	t.edit('B');
 	await t.store.writes[0].resolve({ ok: false, reason: 'scope-mismatch', message: 'other' });
 	check('scope-mismatch: false', await first, false);
 	check('scope-mismatch: terminal', [t.state.status, t.state.dirty], ['scope-mismatch', true]);
-	check('scope-mismatch: even force refused', await t.state.save({ force: true }), false);
+	check('scope-mismatch: even force refused', await t.save({ force: true }), false);
 	await advance(5000);
 	check('scope-mismatch: never retried', t.store.writes.length, 1);
 }
 {
 	const t = editTool(TRAILING);
 	t.edit('A');
-	const first = t.state.save();
+	const first = t.save();
 	t.edit('B');
 	await t.store.writes[0].resolve({ ok: false, reason: 'error', message: 'boom' });
 	check(
@@ -473,7 +516,7 @@ for (const [mode, opts] of [
 {
 	const t = editTool(LEADING);
 	t.edit('A');
-	const first = t.state.save();
+	const first = t.save();
 	t.edit('B');
 	await t.store.writes[0].resolve(t.ok());
 	check('error in follow-up: B attempted', t.store.writes[1]?.sent, 'B');
@@ -485,7 +528,7 @@ for (const [mode, opts] of [
 	let readOnly = false;
 	const t = editTool({ ...TRAILING, blockWhen: () => readOnly });
 	t.edit('A');
-	const first = t.state.save();
+	const first = t.save();
 	t.edit('B');
 	readOnly = true;
 	await t.store.writes[0].resolve(t.ok());
@@ -494,7 +537,7 @@ for (const [mode, opts] of [
 	check('read-only mid-flight: A ETag adopted', t.state.etag, 'e1');
 	await advance(5000);
 	check('read-only: no autosave', t.store.writes.length, 1);
-	check('read-only: save() refused', await t.state.save({ force: true }), false);
+	check('read-only: save() refused', await t.save({ force: true }), false);
 }
 
 {
@@ -503,7 +546,7 @@ for (const [mode, opts] of [
 	let canAutosave = true;
 	const t = editTool({ ...LEADING, canAutosave: () => canAutosave });
 	t.edit('A');
-	const saved = t.state.save();
+	const saved = t.save();
 	t.edit('B');
 	canAutosave = false;
 	await t.store.writes[0].resolve(t.ok());
@@ -513,7 +556,7 @@ for (const [mode, opts] of [
 	check(
 		'canAutosave veto: an explicit save still writes',
 		await (async () => {
-			const again = t.state.save();
+			const again = t.save();
 			await t.store.writes[1]?.resolve(t.ok());
 			return [await again, t.store.doc];
 		})(),
@@ -526,7 +569,7 @@ for (const [mode, opts] of [
 	for (const outcome of ['ok', 'conflict'] as const) {
 		const t = editTool();
 		t.edit('X');
-		const saved = t.state.save();
+		const saved = t.save();
 		t.state.adoptEtag('y0');
 		t.edit('Y');
 		await t.store.writes[0].resolve(
@@ -539,7 +582,7 @@ for (const [mode, opts] of [
 			[await saved, t.state.etag, t.state.status, t.state.dirty],
 			[false, 'y0', 'idle', true],
 		);
-		const next = t.state.save();
+		const next = t.save();
 		await t.store.writes[1]?.resolve(t.ok());
 		check(`adoptEtag mid-flight (${outcome}): Y saves on its own ETag`, t.store.writes[1]?.ctx, {
 			baseEtag: 'y0',
@@ -553,10 +596,37 @@ for (const [mode, opts] of [
 	}
 }
 {
+	// A transport that THROWS for the old target after the switch (a rejected fetch) must not put
+	// its error on the new target, nor drop the new target's own in-flight save out of `busy`.
+	const t = editTool();
+	t.edit('X');
+	const x = t.save();
+	t.state.adoptEtag('y0');
+	t.edit('Y');
+	const y = t.save();
+	check('throw after adoptEtag: Y writes on its ETag', t.store.writes[1]?.ctx.baseEtag, 'y0');
+	await t.store.writes[0].reject(new Error('Failed to fetch'));
+	check('throw after adoptEtag: X false', await x, false);
+	check(
+		'throw after adoptEtag: Y still saving, no error',
+		[t.state.status, t.state.busy, t.state.message],
+		['saving', true, ''],
+	);
+	check('throw after adoptEtag: a save now coalesces', await t.save(), false);
+	check('throw after adoptEtag: no extra write', t.store.writes.length, 2);
+	await t.store.writes[1]?.resolve(t.ok());
+	await advance(5000);
+	check(
+		'throw after adoptEtag: Y saved',
+		[await y, t.store.doc, t.state.dirty],
+		[true, 'Y', false],
+	);
+}
+{
 	// A tool that says "clean" mid-flight (`setDirty(false)`, e.g. its doc was replaced) is believed.
 	const t = editTool();
 	t.edit('A');
-	const saved = t.state.save();
+	const saved = t.save();
 	t.state.setDirty(true);
 	t.state.setDirty(false);
 	await t.store.writes[0].resolve(t.ok());
@@ -577,7 +647,7 @@ for (const adopt of ['sent', 'server'] as const) {
 	check(`signature/${adopt}: clean at load`, t.state.dirty, false);
 	t.edit('A');
 	check(`signature/${adopt}: an edit reads dirty`, t.state.dirty, true);
-	const saved = t.state.save();
+	const saved = bounded(t.state.save());
 	await fake.store.writes[0].resolve(fake.ok());
 	check(`signature/${adopt}: plain save is clean`, [await saved, t.state.dirty], [true, false]);
 	check(`signature/${adopt}: one write`, fake.store.writes.length, 1);
@@ -590,7 +660,7 @@ for (const adopt of ['sent', 'server'] as const) {
 	const fake = fakeStore();
 	const t = signatureTool((o) => new SaveState({ initialEtag: 'e0', ...o }), fake.write, 'sent');
 	t.edit('A');
-	const saved = t.state.save();
+	const saved = bounded(t.state.save());
 	t.edit('B');
 	await fake.store.writes[0].resolve(fake.ok());
 	check('signature/sent mid-flight: store holds A', fake.store.doc, 'A');
@@ -601,4 +671,6 @@ for (const adopt of ['sent', 'server'] as const) {
 }
 
 console.log(`\n${checks - failures}/${checks} save-state checks passed.`);
-if (failures > 0) process.exit(1);
+// A case whose write was never resolved leaves nothing to keep the process alive; exit with
+// the verdict rather than waiting on it.
+process.exit(failures > 0 ? 1 : 0);

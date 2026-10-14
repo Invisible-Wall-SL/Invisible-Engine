@@ -63,8 +63,9 @@ export interface SaveStateOptions {
 	 * Defaults to `true` (the trailing debounce most tools want).
 	 */
 	resetDebounceOnEveryEdit?: boolean;
-	/** Extra gate consulted before ARMING the debounce (never blocks a manual save).
-	 *  The editor passes `() => !crossTypeLoaded` so a cross-type preview never autosaves. */
+	/** Extra gate consulted before ARMING the debounce, and before a save writes an edit made
+	 *  during its flight; it never blocks the write a manual save was asked for. The editor
+	 *  passes `() => !crossTypeLoaded` so a cross-type preview never autosaves. */
 	canAutosave?: () => boolean;
 	/** Fallback message for a conflict whose transport supplied none. */
 	conflictMessage?: string;
@@ -231,10 +232,11 @@ export class SaveState {
 		}
 		this.#status = 'saving';
 		let saved = false;
+		let target = this.#target;
 		try {
 			for (;;) {
 				const edits = this.#edits;
-				const target = this.#target;
+				target = this.#target;
 				const outcome = await this.#opts.save({ baseEtag: this.#etag, force });
 				// The target moved mid-flight; `adoptEtag` already reset the machine for the new one.
 				if (this.#target !== target) break;
@@ -281,12 +283,15 @@ export class SaveState {
 				force = false;
 			}
 		} catch (e) {
-			this.#status = 'error';
-			this.#message = e instanceof Error ? e.message : 'Save failed.';
+			if (this.#target === target) {
+				this.#status = 'error';
+				this.#message = e instanceof Error ? e.message : 'Save failed.';
+			}
 		} finally {
 			if (this.#pending) {
 				this.#pending = false;
-				if (this.#dirty && !this.blocked) void this.save();
+				// Nobody awaits the coalesced re-fire, so it is an autosave: it keeps the cadence.
+				if (this.#dirty && !this.blocked) void this.#save(false, true);
 			}
 		}
 		return saved;
