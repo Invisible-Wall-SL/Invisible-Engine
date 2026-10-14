@@ -59,6 +59,12 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-14 — **`api/launcher/delivery-upload`**: relays a delivery build into the partner's R2
+  bucket (`$lib/server/partnerDelivery.ts`, `gamePublish` bearer like `game-upload`). GET suggests
+  the next `versionPath`; PUT writes one file into an unsealed `{brand}/games/{version}/{alias}/`
+  folder; POST verifies, prunes, seals (`deliveries/<alias>/<version>.json` in our bucket,
+  `If-None-Match: *`) and probes the public URL. 503 until `DELIVERY_R2_BUCKET` and the key pair are
+  set. Check: `check:partner-delivery` (26). Design: `docs/design/delivery-builds.md` Phase 5.
 - 2026-10-14 — **`SaveState` no longer marks an edit made during an in-flight save as saved.** The
   shared save machine (`$lib/saveState.svelte.ts`, used by the editor, components, config, flipbook,
   flow-v2, fx, localization, sound, symbols and win-text) cleared `dirty` on every success, so an edit

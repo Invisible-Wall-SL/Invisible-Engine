@@ -272,6 +272,36 @@ export const ENV = {
 	get GAMES_BASE_URL() {
 		return env.GAMES_BASE_URL ?? 'https://games.invisiblewall.org';
 	},
+	/** The PARTNER's R2 bucket that delivery builds are uploaded to — see `partnerDelivery.ts`.
+	 *  Their Cloudflare account, not ours: the key pair is the only credential we hold for it, so it
+	 *  lives here and nowhere else. Bucket or key pair unset ⇒ the delivery upload answers 503. */
+	get DELIVERY_R2_ENDPOINT() {
+		return (
+			(env.DELIVERY_R2_ENDPOINT ?? '').trim() ||
+			'https://5554d502e51ea2bd854c09aed87c4c08.eu.r2.cloudflarestorage.com'
+		);
+	},
+	get DELIVERY_R2_BUCKET() {
+		return (env.DELIVERY_R2_BUCKET ?? '').trim();
+	},
+	get DELIVERY_R2_ACCESS_KEY_ID() {
+		return (env.DELIVERY_R2_ACCESS_KEY_ID ?? '').trim();
+	},
+	get DELIVERY_R2_SECRET_ACCESS_KEY() {
+		return (env.DELIVERY_R2_SECRET_ACCESS_KEY ?? '').trim();
+	},
+	/** The public origin that serves that bucket — the `cdnUrl` their page composes `baseUrl` from.
+	 *  Non-secret; used to report and smoke-test the URL a delivery is served at. */
+	get DELIVERY_CDN_URL() {
+		return ((env.DELIVERY_CDN_URL ?? '').trim() || 'https://devr2.2-complex.science').replace(
+			/\/+$/,
+			'',
+		);
+	},
+	/** The `brand` segment of `{cdnUrl}/{brand}/games/{versionPath}/{gameAlias}/`. */
+	get DELIVERY_BRAND() {
+		return (env.DELIVERY_BRAND ?? '').trim() || 'eanew';
+	},
 	/** The test server's `/refresh` gate (its own `TEST_SERVER_SECRET`); unset ⇒ an ungated server.
 	 *  Sent only as a header by `testServerRefresh.ts`, never in a URL or a log line. */
 	get TEST_SERVER_SECRET() {
