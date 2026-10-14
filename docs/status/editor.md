@@ -115,6 +115,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-14 — **A rig flipped with `scale.x = -1` inside a group or component previews mirrored,
+  not upside down** (shared rig layer). Detail in [component editor status](component-editor.md),
+  2026-10-14.
 - 2026-10-14 — **Game Settings → Authored overlays (pilot) → Win** (Rive plan Phase 8b, branch
   `claude/rive-p8b-win-design`): the second checkbox beside Transition, same capability gate,
   writing `settings.authoredOverlays.win: true` only when on (`normalizeGameSettings` keeps each

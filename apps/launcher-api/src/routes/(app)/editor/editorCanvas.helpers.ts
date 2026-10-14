@@ -113,6 +113,28 @@ export function composeWorldMatrix(
 	return m;
 }
 
+/**
+ * The signed per-axis scale of a matrix's linear part (`a b c d`, see {@link Affine}) for a
+ * renderer that draws it UNROTATED (the rig preview: a skeleton is placed by x/y/scale alone).
+ * With the rotation dropped, the axis that carries the mirror is what the author sees, so it can't
+ * be left to the determinant alone: X is flipped when its axis points backwards (`a < 0`), and the
+ * determinant says whether Y flips with it (both axes mirrored, or a half turn — the same matrix)
+ * or on its own. A `scale.x = -1` then mirrors the rig left-right, as the game does, rather than
+ * turning it upside down.
+ */
+export function unrotatedScale(
+	a: number,
+	b: number,
+	c: number,
+	d: number,
+): { x: number; y: number } {
+	const sx = Math.hypot(a, b) || 1;
+	const sy = Math.hypot(c, d) || 1;
+	const flipX = a < 0;
+	const flipY = a * d - b * c < 0 ? !flipX : flipX;
+	return { x: flipX ? -sx : sx, y: flipY ? -sy : sy };
+}
+
 export interface NodeBox {
 	/** Untransformed local-space rect (before scale/rotation/translate). */
 	w: number;
