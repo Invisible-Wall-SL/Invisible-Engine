@@ -9,6 +9,7 @@ import {
 
 import { eventEmitter } from './eventEmitter';
 import { activeSpinsGame, bindActiveMode, getActiveGameConfig } from './gameConfig';
+import { bindRiderMode } from './overlayRiders';
 import { rebuildBoard, stateGame } from './stateGame.svelte';
 import type { MusicName } from './sound';
 import type { GameType } from './types';
@@ -77,6 +78,7 @@ export const stateModes = createModeController({
 });
 
 bindActiveMode(() => stateModes.active());
+bindRiderMode(() => stateModes.active());
 
 /**
  * The game type a free-spin round puts on screen: `freegame`, unless the round is a REELS mode of

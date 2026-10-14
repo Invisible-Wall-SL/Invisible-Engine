@@ -1054,8 +1054,10 @@ export const presentReveal = async ({
 	// The Lucky Spin intro armed THIS reveal (`luckySpin.ts`): taken here, by every reveal, so the
 	// one-shot never outlives the spin it was armed for.
 	const lucky = takeLuckySpinReveal();
-	// A pots overlay timed per reel: this board's tokens go down as their reels stop.
-	if (getActiveGameConfig().coinOverlay?.timing === 'perReel')
+	// A pots overlay timed per reel: this board's tokens go down as their reels stop (riding them in,
+	// under `withReel`).
+	const timing = getActiveGameConfig().coinOverlay?.timing;
+	if (timing === 'perReel' || timing === 'withReel')
 		armReelTokens(boardDropCells(bookEvents, bookEvent));
 
 	stateGame.gameType = bookEvent.gameType;
