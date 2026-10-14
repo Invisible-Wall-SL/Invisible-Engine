@@ -62,8 +62,10 @@ overlay add-on.
      retrigger and a 100× buy. It is saved as the project's own [Game Config](/docs/game-config) and
      the project's screens are scaffolded from the Book-of reference layout (Borut's look), saved as
      a lines layout. Change it later in Game Config (Free spins → Expanding symbol).
-   - **Hold and Win** shows a **Jackpots** dropdown: **On (MINI · MINOR · MAJOR · GRAND)** (the
-     default) or **Off**. Either way you get the plain Hold and Win: a 5×3, 5-line base game with
+   - **Hold and Win** shows a **Base game** dropdown: **Lines game** (the default) or **Coin board
+     only**. With **Lines game** it also shows a **Jackpots** dropdown:
+     **On (MINI · MINOR · MAJOR · GRAND)** (the default) or **Off**. Either way you get the plain
+     Hold and Win: a 5×3, 5-line base game with
      coin symbols on the base reels; 6 or more coins start 3 respins, every coin sticks, a new coin
      resets the count to 3, and the coins pay at the end. No pots, no dropped tokens, no collector,
      no specials. **On** adds four fixed jackpots (MINI 15×, MINOR 30×, MAJOR 100×, GRAND 1000×),
@@ -81,6 +83,19 @@ overlay add-on.
      games (Pots, Classic sticky, Collector streak), use **Reset to preset** in Game Config (the
      symbols doc is not re-seeded — bind any new preset symbol in Symbols). Projects created
      before 2026-10-09 keep the preset they were made with.
+
+     **Coin board only** makes a Hold and Win with no line game
+     ([plan](../design/hold-and-win-coin-board.md)): 5×3 with the 5 lines all paying, and only the
+     coin (`BONUS`), jackpot (`JACKPOT`) and blank (`BLANK`) symbols. Every spin deals coins and
+     blanks onto the board; 6 or more coins on the paying lines start the same respins as the
+     plain game with Jackpots **On**, and every held coin pays once. Jackpots are always on (the
+     dropdown is hidden). The config is saved with Game Config's **Coin board** section set to
+     _Coin board only_, where the lines, the pay rule, the trigger and the overlay are changed;
+     the coin and jackpot symbols are bound to placeholder art as for the plain game. The screens
+     and the starter Flow are the plain game's for now, and the game does not play the coin board
+     until the mock RGS and the runtime catch up (Hold and Win Phases 13b, 13c and 13e). Ticking **Add
+     a coin overlay** with it reads _No coin overlay preset fits this game type._: pots and dropped
+     tokens are not built for a coin board.
 4. Optionally tick **Add a coin overlay** and pick its preset from the dropdown beside it. The
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.
@@ -93,7 +108,7 @@ overlay add-on.
    `editor/scenes.json`, `editor/flow-v2.json` — the game type's starter
    [flow](/docs/flow) — `atlas_config.json`, `manifests/`, `input/refs/`,
    `sheet_config.json`, `localization/strings.json`; a **Hold and Win** project
-   also gets the plain Hold and Win as its own [Game Config](game-config.md)
+   also gets the plain Hold and Win (or the coin board one) as its own [Game Config](game-config.md)
    and `symbols/symbols.json` binding its Hold and Win symbols, so its first publish
    already deals and draws the feature). A confirmation appears and
    the project shows up under **Your projects** below. With the overlay ticked, the confirmation

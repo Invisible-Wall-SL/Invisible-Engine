@@ -19,6 +19,7 @@ import { validateHoldAndWin } from './holdAndWin';
 import { gameTypeForMode, resolveGameModes, validateGameModes } from './modes';
 import { winModelIssues } from './spinsGame';
 import { validateBonusModes } from './bonusGames';
+import { validateCoinBoard } from './coinBoard';
 import { validateBonusImports } from './bonusImports';
 import { validateExpandingSymbol } from './expandingSymbol';
 import { validateFreeSpins } from './freeSpins';
@@ -272,6 +273,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 	issues.push(...validateHoldAndWin(doc));
 	issues.push(...validatePotsOverlay(doc));
 	issues.push(...validateGameModes(doc));
+	issues.push(...validateCoinBoard(doc));
 	issues.push(...validateBonusModes(doc));
 	issues.push(...validateBonusImports(doc));
 

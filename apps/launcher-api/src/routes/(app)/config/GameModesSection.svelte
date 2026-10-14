@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		BASE_GAME_MODE,
 		GAME_MODE_BOARDS,
 		builtinGameModes,
 		resolveGameModes,
@@ -60,6 +61,9 @@
 	/** A respin mode is a bonus mode: it is added, renamed and removed (with its rules, strips and
 	 *  routes) in Bonus modes, and stays on the respin board. Its presentation fields are edited here. */
 	const isRespinMode = (mode: GameModeDecl) => mode.board === 'respinBoard';
+	/** A coin board's base game: on the respin board because the Coin board section says so. */
+	const isCoinBoardBase = (mode: GameModeDecl) =>
+		mode.id === BASE_GAME_MODE && Boolean(doc.coinBoard);
 	/** A respin board is chosen by adding a respin mode in Bonus modes, never by switching a board. */
 	const boardsFor = (mode: GameModeDecl) =>
 		isRespinMode(mode) ? GAME_MODE_BOARDS : GAME_MODE_BOARDS.filter((b) => b !== 'respinBoard');
@@ -180,15 +184,18 @@
 						<td class="id">
 							<code>{mode.id}</code>
 							{#if builtin}<span class="chip">built-in{overridden ? ' · edited' : ''}</span>{/if}
-							{#if isRespinMode(mode)}<span class="chip">Hold and Win · Bonus modes</span>{/if}
+							{#if isCoinBoardBase(mode)}<span class="chip">Coin board</span>
+							{:else if isRespinMode(mode)}<span class="chip">Hold and Win · Bonus modes</span>{/if}
 						</td>
 						<td
 							><select
 								value={mode.board}
 								disabled={isRespinMode(mode)}
-								title={isRespinMode(mode)
-									? 'A Hold and Win mode plays on the respin board; add or remove it in Bonus modes.'
-									: undefined}
+								title={isCoinBoardBase(mode)
+									? 'The coin board puts the base game on the respin board; switch it in Coin board.'
+									: isRespinMode(mode)
+										? 'A Hold and Win mode plays on the respin board; add or remove it in Bonus modes.'
+										: undefined}
 								onchange={(e) => setBoard(mode.id, e.currentTarget.value)}
 							>
 								{#each boardsFor(mode) as b (b)}

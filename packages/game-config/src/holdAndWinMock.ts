@@ -13,6 +13,7 @@ import {
 	type HoldAndWin,
 } from './holdAndWin';
 import { symbolsInPlay, symbolsInPlayForGameType } from './inPlay';
+import type { CoinBoard } from './coinBoard';
 import { isLoneDefaultRespinSet, primaryHoldAndWin, respinModeRules } from './bonusGames';
 import type { GameConfigDoc } from './types';
 
@@ -43,6 +44,9 @@ export type HoldAndWinMockInputs = {
 	/** The base game's coin values (`coinOverlay.coins`): what lands on the base reels and what the
 	 *  overlay drops. Absent ⇒ the started mode's own table, as before it could be authored. */
 	baseCoins?: CoinValueEntry[];
+	/** The coin board (`./coinBoard`): the base game deals on the respin board, and only its paying
+	 *  cells deal, trigger and pay. Absent ⇒ a lines base game. */
+	coinBoard?: CoinBoard;
 };
 
 /** One respin mode as the mock deals it: its own rules joined with the routes that start it. */
@@ -109,6 +113,7 @@ export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs |
 		symbols,
 		...(modes ? { modes } : {}),
 		...(baseCoins?.length ? { baseCoins } : {}),
+		...(doc.coinBoard ? { coinBoard: doc.coinBoard } : {}),
 	};
 }
 

@@ -139,8 +139,13 @@ const { applyBonusImport, respinModeCopyId } =
 	await import('../src/lib/server/projectBonusImport.ts');
 const { applyPotsOverlayAddOn } = await import('../src/lib/server/projectAddOn.ts');
 const { scaffoldProject } = await import('../src/lib/server/projectScaffold.ts');
-const { gameConfigDefaultFor, gameConfigPresetsFor, gameConfigSeedFor, holdAndWinTemplateSeed } =
-	await import('../src/lib/server/gameConfigDefaults.ts');
+const {
+	gameConfigDefaultFor,
+	gameConfigPresetsFor,
+	gameConfigSeedFor,
+	holdAndWinCoinBoardSeed,
+	holdAndWinTemplateSeed,
+} = await import('../src/lib/server/gameConfigDefaults.ts');
 const { cleanOverlayPresets } = await import('../src/lib/server/projectAddOn.ts');
 const { noJackpotTiers, projectAddOns, respinModesOf, sceneSetOptionsFor } =
 	await import('../src/lib/addOns.ts');
@@ -159,6 +164,7 @@ const {
 	normalizeGameConfigDoc,
 	renameRespinMode,
 	migrateLegacyBonus,
+	gameModeById,
 	potsOverlayOf,
 	primaryHoldAndWin,
 	respinModeDecls,
@@ -1069,19 +1075,49 @@ await check("the Scene Editor's full set never puts back what the template left 
 	}
 });
 
-await check('/config → Reset to preset offers the plain template first, then the three', () => {
-	const presets = gameConfigPresetsFor('holdAndWin');
-	same(
-		presets.map((p) => p.id),
-		['holdAndWin.plain', 'holdAndWin.plainNoJackpots', ...HOLD_AND_WIN_PRESET_IDS],
-		'ids',
-	);
-	for (const [at, jackpots] of (['on', 'off'] as const).entries()) {
-		const seed = holdAndWinTemplateSeed(jackpots);
-		assert(seed, 'no template');
-		same(presets[at].doc, seed, `Plain (Jackpots ${jackpots}) is the template`);
-	}
-});
+{
+	const project = 'tpl-coin-board';
+	KINDS[project] = 'holdAndWin';
+	await scaffoldProject(CLIENT, project, { holdAndWinJackpots: 'on', holdAndWinBase: 'coinBoard' });
+	const { config, symbols } = docsOf(project);
+
+	await check('Coin board only: stored as its template, validates clean, no line game', () => {
+		const seed = holdAndWinCoinBoardSeed();
+		assert(seed, 'no coin board template');
+		same(content(config), content(normalize(seed)), 'stored as the template');
+		same(gameConfigErrors(config), [], 'errors');
+		same(gameModeById(config, 'basegame')?.board, 'respinBoard', 'the base game board');
+		same(Object.keys(config.symbols).sort(), ['BLANK', 'BONUS', 'JACKPOT'], 'symbols');
+		same(
+			Object.keys(symbols?.symbols ?? {}).sort(),
+			['BONUS', 'JACKPOT'],
+			'symbols seeded (a blank draws nothing)',
+		);
+	});
+}
+
+await check(
+	'/config → Reset to preset offers the plain template, the coin board, then the three',
+	() => {
+		const presets = gameConfigPresetsFor('holdAndWin');
+		same(
+			presets.map((p) => p.id),
+			[
+				'holdAndWin.plain',
+				'holdAndWin.plainNoJackpots',
+				'holdAndWin.coinBoard',
+				...HOLD_AND_WIN_PRESET_IDS,
+			],
+			'ids',
+		);
+		same(presets[2].doc, holdAndWinCoinBoardSeed(), 'the coin board is its template');
+		for (const [at, jackpots] of (['on', 'off'] as const).entries()) {
+			const seed = holdAndWinTemplateSeed(jackpots);
+			assert(seed, 'no template');
+			same(presets[at].doc, seed, `Plain (Jackpots ${jackpots}) is the template`);
+		}
+	},
+);
 
 if (failures) {
 	console.error(`\ncheck:add-bonus-mode — ${failures} failed`);

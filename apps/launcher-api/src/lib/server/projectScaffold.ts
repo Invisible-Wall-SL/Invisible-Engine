@@ -5,12 +5,17 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc, type FlowDoc, type Graph } from 'engine-flow-v2';
-import type { HoldAndWinPresetId, HoldAndWinTemplateJackpots } from 'game-config';
+import type {
+	HoldAndWinPresetId,
+	HoldAndWinTemplateBase,
+	HoldAndWinTemplateJackpots,
+} from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet, POTS_SCREEN } from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
 import {
 	gameConfigSeedFor,
+	holdAndWinCoinBoardSeed,
 	holdAndWinTemplateSeed,
 	type LinesPresetId,
 } from './gameConfigDefaults';
@@ -172,7 +177,8 @@ const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = { bookOfThermopyla
 
 /**
  * Write any missing seed files for `(client, project)` into R2. A `holdAndWin` project's Game Config
- * is seeded from `holdAndWinJackpots`, the plain template (bonus-games §0) with jackpots on or off;
+ * is seeded from `holdAndWinJackpots`, the plain template (bonus-games §0) with jackpots on or off,
+ * or with `holdAndWinBase: 'coinBoard'` the template with no line game (hold-and-win-coin-board);
  * else from `holdAndWinPreset`, one of the three reference games (the samples and the gates); else
  * from the kind's default, the config an un-authored project already plays. `linesPreset` seeds a
  * `lines` project from a lines preset (the Book of Thermopylae) and its scenes from the preset's own
@@ -183,6 +189,7 @@ export async function scaffoldProject(
 	project: string,
 	opts: {
 		holdAndWinJackpots?: HoldAndWinTemplateJackpots;
+		holdAndWinBase?: HoldAndWinTemplateBase;
 		holdAndWinPreset?: HoldAndWinPresetId;
 		linesPreset?: LinesPresetId;
 	} = {},
@@ -200,11 +207,20 @@ export async function scaffoldProject(
 		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, stored)) ??
 		(await loadKind(gameType))?.doc;
 	const plain = gameType === 'holdAndWin' ? opts.holdAndWinJackpots : undefined;
-	const config = plain
-		? holdAndWinTemplateSeed(plain)
-		: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
+	const coinBoard = plain !== undefined && opts.holdAndWinBase === 'coinBoard';
+	const config = coinBoard
+		? holdAndWinCoinBoardSeed()
+		: plain
+			? holdAndWinTemplateSeed(plain)
+			: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
 	// The plain game's screens and Flow are never written without its config.
-	if (plain && !config) throw new Error(`No Hold and Win template default for jackpots ${plain}.`);
+	if (plain && !config) {
+		throw new Error(
+			coinBoard
+				? 'No Hold and Win coin board template default.'
+				: `No Hold and Win template default for jackpots ${plain}.`,
+		);
+	}
 	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
 	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
 	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.

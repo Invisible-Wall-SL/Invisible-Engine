@@ -83,8 +83,11 @@ const digest = (value: unknown) =>
 	createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 16);
 /** The lines PRESETS beside the defaults (book-feature Phase 5a): a new file, not a changed one. */
 const PRESET_FILES = ['lines.bookOfThermopylae.json'];
+/** The Hold and Win coin board template (hold-and-win-coin-board Phase 13a): also a new file,
+ *  pinned by `coinBoard.fixture.ts`. */
+const LATER_FILES = [...PRESET_FILES, 'holdAndWin.coinBoard.json'];
 const files = readdirSync(DEFAULTS).filter(
-	(name) => name.endsWith('.json') && !PRESET_FILES.includes(name),
+	(name) => name.endsWith('.json') && !LATER_FILES.includes(name),
 );
 check('every committed default is pinned', files.sort(), Object.keys(PINNED).sort());
 check(
