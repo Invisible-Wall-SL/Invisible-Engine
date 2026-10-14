@@ -109,11 +109,21 @@
 		// `text` / `rect` are not assets — they're blank ELEMENTS the
 		// Library's "Elements" palette drags in (key is unused for those).
 		// `effect` carries an authored FX id in `key` (the Library's Effects section);
-		// `flipbook` an authored clip id (the Library's Flipbooks section).
+		// `flipbook` an authored clip id (the Library's Flipbooks section); `component` a component
+		// id (the Component Editor's Components section), placed as an instance pinned to `version`.
 		kind:
-			'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect' | 'effect' | 'flipbook';
+			| 'atlas-page'
+			| 'atlas-manifest'
+			| 'sheet'
+			| 'spine'
+			| 'text'
+			| 'rect'
+			| 'effect'
+			| 'flipbook'
+			| 'component';
 		key: string;
 		name: string;
+		version?: number;
 	}
 	type DragPayload = AssetDragPayload | RegionDragPayload;
 
@@ -4659,6 +4669,13 @@
 			// loading at drop time, so there is no native size to bake in yet.
 			case 'flipbook':
 				return { ...base, kind: 'flipbook', clipId: p.key };
+			case 'component':
+				return {
+					...base,
+					kind: 'componentInstance',
+					componentId: p.key,
+					...(p.version !== undefined ? { componentVersion: p.version } : {}),
+				};
 			// Blank elements (the Library's "Elements" palette) — a default text node
 			// (edited via Properties → Text).
 			case 'text':

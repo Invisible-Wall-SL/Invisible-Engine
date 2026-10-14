@@ -13,7 +13,9 @@
  *     place and fully reloads for any other (or for a link naming none);
  *  6. every `/editor` write targets the project the page was LOADED for, even from a bookmarked
  *     bare `/editor` after another tab moved the session; drift blocks saves;
- *  7. a component this tab has no ETag for has it read before its first save.
+ *  7. a component this tab has no ETag for has it read before its first save;
+ *  8. the Library offers a component every other component that does not contain it, directly or
+ *     through a nested instance, so a placement can never make a cycle.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +27,11 @@ import {
 	editorSelfNavigation,
 	legacyComponentsRedirect,
 } from '../src/lib/componentLinks.ts';
-import { etagAdoption, etagKnown } from '../src/routes/(app)/editor/componentWorkspace.ts';
+import {
+	etagAdoption,
+	etagKnown,
+	placeableComponents,
+} from '../src/routes/(app)/editor/componentWorkspace.ts';
 import { scopeMismatch } from '../src/lib/server/scopeGuard.ts';
 import { withProject } from '../src/lib/toolLinks.ts';
 import { TOOLS } from '../src/lib/roles.ts';
@@ -494,6 +500,53 @@ check(
 	),
 	true,
 );
+
+{
+	const def = (id: string, children: string[] = []) =>
+		({
+			id,
+			name: id,
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: {
+				id: `${id}-root`,
+				kind: 'container',
+				x: 0,
+				y: 0,
+				children: children.map((c, i) => ({
+					id: `${id}-${i}`,
+					kind: 'container',
+					x: 0,
+					y: 0,
+					children: [{ id: `${id}-${i}-i`, kind: 'componentInstance', componentId: c, x: 0, y: 0 }],
+				})),
+			},
+		}) as unknown as Parameters<typeof placeableComponents>[0][number];
+	const all = [
+		def('potMeterCopy', ['firecracker']),
+		def('firecracker'),
+		def('coinHead'),
+		def('panel', ['potMeterCopy']),
+		def('loopA', ['loopB']),
+		def('loopB', ['loopA']),
+	];
+	check(
+		'inside the pot: every component but itself and the ones that contain it',
+		placeableComponents(all, 'potMeterCopy').map((d) => d.id),
+		['firecracker', 'coinHead', 'loopA', 'loopB'],
+	);
+	check(
+		'inside the firecracker: not the pot that holds it, nor the panel holding that pot',
+		placeableComponents(all, 'firecracker').map((d) => d.id),
+		['coinHead', 'loopA', 'loopB'],
+	);
+	check(
+		'an existing cycle elsewhere does not hang the walk',
+		placeableComponents(all, 'coinHead').map((d) => d.id),
+		['potMeterCopy', 'firecracker', 'panel', 'loopA', 'loopB'],
+	);
+}
 
 if (failures > 0) {
 	console.error(`\n${failures} of ${checks} component-link checks failed`);

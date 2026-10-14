@@ -4,40 +4,64 @@
 	 * Single source of truth for the draggable Text / Rect rows so a
 	 * new palette element is a one-place change. The optional Reel row is
 	 * scene-only (a reel grid doesn't belong in a reusable component): it renders
-	 * only when a `reel` prop is supplied.
+	 * only when a `reel` prop is supplied. Given `components`, it renders those instead: the
+	 * Component Editor's draggable Components section (a nested instance of each).
 	 *
 	 * Carries its own style block (canonical = the Scene Editor's palette CSS) so the
 	 * rows look identical in both pages — Svelte scoped styles do not cross the
 	 * component boundary, so the parent pages' `.name`/`.tag`/`li` rules wouldn't
 	 * otherwise apply here.
 	 */
-	type DragPayload = { kind: string; key: string; name: string };
+	type DragPayload = { kind: string; key: string; name: string; version?: number };
 
 	const {
 		onElementDragStart,
 		reel,
 		repeater,
+		components,
 	}: {
 		onElementDragStart: (e: DragEvent, payload: DragPayload) => void;
 		reel?: { active: boolean; onAdd: () => void };
 		repeater?: { onAdd: () => void };
+		components?: { id: string; name: string; version: number }[];
 	} = $props();
 </script>
 
-<li
-	draggable="true"
-	ondragstart={(e) => onElementDragStart(e, { kind: 'text', key: '', name: 'Text' })}
->
-	<span class="name">Text</span>
-	<span class="tag">text</span>
-</li>
-<li
-	draggable="true"
-	ondragstart={(e) => onElementDragStart(e, { kind: 'rect', key: '', name: 'Rect' })}
->
-	<span class="name">Rect</span>
-	<span class="tag">fill</span>
-</li>
+{#if components}
+	{#each components as def (def.id)}
+		<li
+			draggable="true"
+			title={`Drag onto the canvas to place "${def.name}" here`}
+			ondragstart={(e) =>
+				onElementDragStart(e, {
+					kind: 'component',
+					key: def.id,
+					name: def.name,
+					version: def.version,
+				})}
+		>
+			<span class="name">{def.name}</span>
+			<span class="tag">component</span>
+		</li>
+	{:else}
+		<li><span class="name">No other component can go in this one.</span></li>
+	{/each}
+{:else}
+	<li
+		draggable="true"
+		ondragstart={(e) => onElementDragStart(e, { kind: 'text', key: '', name: 'Text' })}
+	>
+		<span class="name">Text</span>
+		<span class="tag">text</span>
+	</li>
+	<li
+		draggable="true"
+		ondragstart={(e) => onElementDragStart(e, { kind: 'rect', key: '', name: 'Rect' })}
+	>
+		<span class="name">Rect</span>
+		<span class="tag">fill</span>
+	</li>
+{/if}
 {#if reel}
 	<li
 		class="click"

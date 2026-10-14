@@ -909,21 +909,23 @@
 								<option value="false">false</option>
 							</select>
 						{:else if input?.kind === 'number'}
-							{#if numberParams.length || c.param}
-								<select
-									title="Compare with a fixed value, or with each placed instance's own param"
-									value={c.param ?? ''}
-									onchange={(e) =>
-										setCondition(t, i, { param: e.currentTarget.value || undefined })}
-								>
-									<option value="">value</option>
-									{#if c.param && !numberParams.some((p) => p.key === c.param)}
-										<option value={c.param}>{`{${c.param}}`} (unknown)</option>
-									{/if}
-									{#each numberParams as p (p.key)}<option value={p.key}>{`{${p.key}}`}</option
-										>{/each}
-								</select>
-							{/if}
+							<select
+								title="Compare with a fixed value, or with each placed instance's own number param (Component variables → + Add variable → Custom input, kind number)"
+								value={c.param ?? ''}
+								onchange={(e) => setCondition(t, i, { param: e.currentTarget.value || undefined })}
+							>
+								<option value="">value</option>
+								{#if c.param && !numberParams.some((p) => p.key === c.param)}
+									<option value={c.param}>{`{${c.param}}`} (unknown)</option>
+								{/if}
+								{#each numberParams as p (p.key)}<option value={p.key}>{`{${p.key}}`}</option
+									>{/each}
+								{#if !numberParams.length}
+									<option value="" disabled
+										>{'{param}'} — add a number param under Component variables first</option
+									>
+								{/if}
+							</select>
 							{#if !c.param}
 								<input
 									type="number"
