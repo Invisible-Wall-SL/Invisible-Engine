@@ -423,6 +423,22 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   — under the 0.1 threshold, uninvestigated. **Unverified:** `held` and `turbo` (the follow-up PR,
   with the workflow, must merge before the Win flag is switched on for any project). Known
   caveat: a reel-grid override moves `boardLayout()` but not the synthesized instance.
+  **Flag off — what is engine-wide after the #1194 review** (everything else sits behind the flag
+  or the `winPresentation` def): (1) `ComponentDef.frameExact` (built-in only, never stored; only
+  `winPresentation` sets it) gates the two timing changes — a state machine taking a trigger's
+  transition AT the fire (`advance(0)` in `ComponentInstance`; on any other def two triggers fired
+  in one frame would no longer take a transition needing both — `check:component-state-machine`)
+  and the timeline snap-to-end within 1e-6 (six 1/60 s steps fall 1.4e-17 short of 0.1 s, so the
+  snap would end such a timeline a frame early); (2) a timeline strip poses from the setup pose
+  only on a rig with NO track (`withTimelineScrub(…, !anim)`), so a track-plus-strip rig layers as
+  on main and as the editor preview does; (3) the rig's `loadScaleBase` only for a param-BOUND
+  `boardFit` that resolves off (only the win binds it); (4) `cueHolds`' `Promise.race` — inert
+  without a release, and only the win's `winHide` releases; (5) the component play rate — 1 unless
+  the win conductor sets one; (6) `resolveAuthoredWinStatus` returns `off` before building tiers.
+  **The Win row is locked off** until the follow-up merges: the Game Settings row is disabled
+  (_pilot pending — parity follow-up_) and the save refuses switching it on for everyone
+  (`AUTHORED_WIN_LOCKED` in `authoredOverlayGuard.ts`, decision `locked`); switching off stays
+  allowed. Gates: `check:authored-win` 119, `check:component-state-machine` 131.
 
 - 2026-10-14 — **Two cue-anchored current-games scenarios, `fs-transition` and `big-win-intro`, in
   `screens/lines.json` and `screens/bookOf.json`** (PR #1197, Rive plan §13.5 #7). `fs-transition`

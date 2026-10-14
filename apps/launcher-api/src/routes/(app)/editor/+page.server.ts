@@ -30,7 +30,7 @@ import {
 	listComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
-import { authoredOverlaySaveDecision } from '$lib/server/authoredOverlayGuard';
+import { authoredOverlaySaveDecision, submitsWinOn } from '$lib/server/authoredOverlayGuard';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
@@ -389,17 +389,26 @@ export const actions: Actions = {
 		// ordinary conflict path above everything else, and only a write that would land can be
 		// refused for the flip. One read, for a non-publisher only, so a publisher's autosave pays
 		// no extra read; the write below is still conditional, so a save landing between this read
-		// and the PUT is the same 409.
-		if (!canPublishShared) {
+		// and the PUT is the same 409. While the Win pilot is locked off (its parity follow-up has not
+		// merged), a save that has it on reads the store too, a publisher's included, and switching
+		// it on is refused for everyone.
+		if (!canPublishShared || submitsWinOn(parsed as Partial<LayoutDoc>)) {
 			const stored = await loadDocWithEtag(clientKey, projectKey);
 			const decision = authoredOverlaySaveDecision({
 				before: stored.doc,
 				after: parsed as Partial<LayoutDoc>,
-				canPublish: false,
+				canPublish: canPublishShared,
 				baseEtag,
 				storedEtag: stored.etag,
 			});
 			if (decision === 'conflict') return conflict();
+			if (decision === 'locked') {
+				return fail(403, {
+					action: 'save' as const,
+					error:
+						'The authored Win pilot is locked off until its parity follow-up merges — it cannot be switched on yet.',
+				});
+			}
 			if (decision === 'forbidden') {
 				return fail(403, {
 					action: 'save' as const,

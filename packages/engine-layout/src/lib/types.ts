@@ -1524,6 +1524,13 @@ export interface ComponentDef {
 	 */
 	stateMachine?: ComponentStateMachine;
 	/**
+	 * FRAME-EXACT (built-in only, Rive plan Phase 8b): the authored twin of a coded part that must
+	 * land on the coded frame. Its state machine takes a trigger's transition at the fire (not on the
+	 * next tick), and its timelines snap to their end within a microsecond of float error. Only the
+	 * `winPresentation` def sets it; never stored, so no project def has it. Absent ⇒ neither (parity).
+	 */
+	frameExact?: true;
+	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A
 	 * raise leaves the instance on the same road a button's `action` press takes

@@ -1377,7 +1377,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 			storedEtag: '"current"',
 		});
 	eq(
-		'stale ⇒ conflict whoever saves and whatever flips; fresh ⇒ a flip is forbidden only for a non-publisher',
+		'stale ⇒ conflict whoever saves and whatever flips; fresh ⇒ switching Win on is locked for everyone',
 		[
 			decide(true, true, true),
 			decide(true, true, false),
@@ -1388,10 +1388,10 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 			decide(false, false, true),
 			decide(false, false, false),
 		],
-		['conflict', 'conflict', 'conflict', 'conflict', 'write', 'forbidden', 'write', 'write'],
+		['conflict', 'conflict', 'conflict', 'conflict', 'locked', 'locked', 'write', 'write'],
 	);
 	eq(
-		'force is never stale (a flip by a non-publisher is still refused); the create path compares null to null',
+		'force is never stale (switching Win on is still refused); the create path compares null to null',
 		[
 			G.authoredOverlaySaveDecision({
 				before: off,
@@ -1429,38 +1429,110 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 				storedEtag: null,
 			}),
 		],
-		['forbidden', 'write', 'write', 'conflict', 'conflict'],
+		['locked', 'write', 'write', 'conflict', 'conflict'],
 	);
 	const action = src('../src/routes/(app)/editor/+page.server.ts');
 	const save = action.slice(action.indexOf('save: async ('));
 	const decisionAt = save.indexOf('authoredOverlaySaveDecision(');
 	eq(
-		'the save action reads the base ETag, decides, and only then writes — a publisher pays no read',
+		'the save action reads the base ETag, decides, and only then writes — a publisher reads only to switch Win on',
 		[
 			save.indexOf('const baseEtag = writeBaseEtagForm(form)') < decisionAt,
 			decisionAt < save.indexOf('await saveDoc('),
-			/if \(!canPublishShared\) \{\s*const stored = await loadDocWithEtag\(/.test(save),
+			/if \(!canPublishShared \|\| submitsWinOn\(parsed as Partial<LayoutDoc>\)\) \{\s*const stored = await loadDocWithEtag\(/.test(
+				save,
+			),
 			(save.match(/await loadDocWithEtag\(/g) ?? []).length,
 			/if \(decision === 'conflict'\) return conflict\(\);/.test(save),
 			/if \(decision === 'forbidden'\) \{\s*return fail\(403/.test(save),
+			/if \(decision === 'locked'\) \{\s*return fail\(403/.test(save),
+			/canPublish: canPublishShared,/.test(save),
 			/if \(e instanceof ConflictError\) return conflict\(\);/.test(save),
 		],
-		[true, true, true, 1, true, true, true],
+		[true, true, true, 1, true, true, true, true, true],
+	);
+	eq(
+		'the Win pilot is locked OFF until its follow-up merges: on is refused for a publisher, off is allowed',
+		[
+			G.AUTHORED_WIN_LOCKED,
+			G.submitsWinOn(win),
+			G.submitsWinOn(off),
+			G.authoredOverlaySaveDecision({
+				before: win,
+				after: off,
+				canPublish: true,
+				baseEtag: '"c"',
+				storedEtag: '"c"',
+			}),
+			G.authoredOverlaySaveDecision({
+				before: win,
+				after: win,
+				canPublish: true,
+				baseEtag: '"c"',
+				storedEtag: '"c"',
+			}),
+		],
+		[true, true, false, 'write', 'write'],
 	);
 	const page = src('../src/routes/(app)/editor/+page.svelte');
 	eq(
-		'the Game Settings Win row sits beside Transition under the same capability gate, written sparse',
+		'the Game Settings Win row sits beside Transition, locked off (pilot pending), written sparse',
 		[
 			/let authoredWin = \$state<boolean>\(data\.doc\.settings\?\.authoredOverlays\?\.win === true\);/.test(
 				page,
 			),
-			/checked=\{authoredWin\}\s*disabled=\{!data\.canPublishShared\}/.test(page),
+			/checked=\{authoredWin\}\s*disabled=\{!data\.canPublishShared \|\| !authoredWin\}/.test(page),
+			page.includes('pilot pending — parity follow-up'),
 			/\.\.\.\(authoredWin \? \{ win: true \} : \{\}\)/.test(page),
 			/!bootLoader && !authoredOverlays\) return undefined/.test(page),
 		],
-		[true, true, true, true],
+		[true, true, true, true, true],
 	);
 }
 
+{
+	// Engine-wide effects stay off the default path (Phase 8b review): `frameExact` is the win
+	// presentation's alone; a strip poses from the setup pose only on a trackless rig; timelines
+	// snap to their end only for a `frameExact` def (six 1/60 s steps fall 1.4e-17 short of 0.1 s).
+	const instance = src('../../../packages/engine-layout/src/lib/ComponentInstance.svelte');
+	const nodeView = src('../../../packages/engine-layout/src/lib/LayoutNodeView.svelte');
+	eq(
+		'only the win presentation is frameExact; the instance gates advance-at-fire and the snap on it',
+		[
+			C.winPresentationDef().frameExact,
+			C.WIN_DEF.frameExact,
+			/if \(!def\?\.frameExact\) return;\s*const step = stateMachineRunner\.advance\(0\);/.test(
+				instance,
+			),
+			instance.includes('if (timelinePlayer && def?.frameExact) timelinePlayer.snapEnds = true;'),
+		],
+		[true, undefined, true, true],
+	);
+	const strip = { animation: 'big_win_idle', time: 1 };
+	const V = await import('../../../packages/engine-layout/src/lib/valueBindings.ts');
+	eq(
+		'a strip poses from the setup pose on a trackless rig only; over a track it layers (main)',
+		[
+			V.withTimelineScrub([], strip, true).at(-1)?.fromSetup,
+			'fromSetup' in (V.withTimelineScrub([], strip).at(-1) ?? {}),
+			nodeView.includes('scrubs={withTimelineScrub(ownScrubs, timelineStrip, !anim)}'),
+		],
+		[true, false, true],
+	);
+	const snapDoc = { ...generated[0], id: 'c_snap', playOn: 'snapTest', duration: 0.1 };
+	const run = (snap: boolean): boolean => {
+		const p = new L.ComponentTimelinePlayer([snapDoc], def.root.children);
+		p.snapEnds = snap;
+		p.trigger('snapTest');
+		let done = false;
+		for (let i = 0; i < 6; i++) done ||= p.advance(1 / 60).completed.includes('c_snap');
+		return done;
+	};
+	eq(
+		'a 0.1 s timeline after six 1/60 s steps: not done by default (main), done when snapping',
+		[run(false), run(true)],
+		[false, true],
+	);
+}
 console.log(`\n${failures === 0 ? '✅' : '❌'} authored win: ${passes} passed, ${failures} failed`);
 if (failures) process.exit(1);

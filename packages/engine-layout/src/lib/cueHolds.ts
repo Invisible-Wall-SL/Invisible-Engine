@@ -20,7 +20,9 @@ const holds = new Map<string, Set<Hold>>();
 /**
  * Hold `cue` until `until` settles — or until {@link releaseCueHolds} releases it (Rive plan Phase
  * 8b: a presentation that ends early, on `winHide`, must not leave its tier walk's hold in the map
- * for the next win to read). The hold is dropped once it settles, however it does.
+ * for the next win to read). The hold is dropped once it settles, however it does. Engine-wide but
+ * inert unless released: with no release the race settles exactly as `until` does, one microtask
+ * later, and nothing but the win's `winHide` releases a hold.
  */
 export function holdCue(cue: string, until: Promise<void>): void {
 	if (!cue) return;

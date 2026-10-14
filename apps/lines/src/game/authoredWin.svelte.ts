@@ -3,6 +3,7 @@ import {
 	WIN_FADE_SIGNAL,
 	WIN_HIDE_SIGNAL,
 	WIN_PLAIN_SIGNAL,
+	authoredWinEnabled,
 	authoredWinStatus,
 	registerGameTimelines,
 	releaseCueHolds,
@@ -106,6 +107,8 @@ export function authoredWinTiers(): AuthoredWinTier[] {
 export function resolveAuthoredWinStatus(
 	doc: Pick<LayoutDoc, 'scenes' | 'settings'>,
 ): AuthoredWinStatus {
+	// Flag off ⇒ 'off' before the tier list is built: a live game pays nothing for the pilot.
+	if (!authoredWinEnabled(doc)) return 'off';
 	return authoredWinStatus({ doc, tiers: authoredWinTiers() });
 }
 

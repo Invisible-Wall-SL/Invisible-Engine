@@ -18,6 +18,21 @@ const overlayOn = (doc: Settings, row: (typeof AUTHORED_OVERLAY_ROWS)[number]): 
 export const authoredOverlayFlipped = (before: Settings, after: Settings): boolean =>
 	AUTHORED_OVERLAY_ROWS.some((row) => overlayOn(before, row) !== overlayOn(after, row));
 
+/**
+ * The Win pilot is locked OFF until its parity follow-up (held / turbo / escalation hand-off /
+ * slam-small / the CI workflow) merges: no save, a publisher's included, may switch it ON. Switching
+ * it off stays allowed. The follow-up deletes this and the Game Settings row's lock together.
+ */
+export const AUTHORED_WIN_LOCKED = true;
+
+/** Whether `after` switches the Win pilot on where `before` had it off. */
+export const winSwitchedOn = (before: Settings, after: Settings): boolean =>
+	!overlayOn(before, 'win') && overlayOn(after, 'win');
+
+/** Whether a submitted doc has the Win pilot on — the one case a publisher's save reads the store. */
+export const submitsWinOn = (after: Settings): boolean =>
+	AUTHORED_WIN_LOCKED && overlayOn(after, 'win');
+
 export function authoredOverlayChangeAllowed(args: {
 	before: Settings;
 	after: Settings;
@@ -37,14 +52,15 @@ export const writeIsStale = (
 	storedEtag: string | null,
 ): boolean => baseEtag !== undefined && baseEtag !== storedEtag;
 
-export type AuthoredOverlaySaveDecision = 'write' | 'conflict' | 'forbidden';
+export type AuthoredOverlaySaveDecision = 'write' | 'conflict' | 'forbidden' | 'locked';
 
 /**
  * The editor save action's decision for a doc that may flip a pilot switch, in the order the
  * owner set: the ETag check FIRST — a stale tab gets the ordinary 409 conflict path whoever it is
  * and whatever it flips — and only a write that would NOT conflict (`force`, or the submitted base
- * ETag equals the stored one) can be refused for the flip (403, a non-publisher). Pure, so the
- * gate drives (stale, flip) × (publisher, non-publisher).
+ * ETag equals the stored one) can be refused for the flip (403, a non-publisher) — or, while
+ * {@link AUTHORED_WIN_LOCKED}, for switching the Win pilot on (`locked`, anyone). Pure, so the gate
+ * drives (stale, flip) × (publisher, non-publisher).
  */
 export function authoredOverlaySaveDecision(args: {
 	before: Settings;
@@ -54,5 +70,6 @@ export function authoredOverlaySaveDecision(args: {
 	storedEtag: string | null;
 }): AuthoredOverlaySaveDecision {
 	if (writeIsStale(args.baseEtag, args.storedEtag)) return 'conflict';
+	if (AUTHORED_WIN_LOCKED && winSwitchedOn(args.before, args.after)) return 'locked';
 	return authoredOverlayChangeAllowed(args) ? 'write' : 'forbidden';
 }

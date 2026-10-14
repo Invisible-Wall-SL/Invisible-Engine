@@ -1295,10 +1295,15 @@ in order, then the conditions the build carried and the findings it made.
   (`authoredWinTiers.ts`) from the config, the placed instance's params and the Win Text doc through
   the engine's own `resolveTierPresentation`, which made `engine-game` (its Svelte-free deep paths)
   a launcher dependency rather than a second copy of the rule.
-- **Gates** — `check:authored-win` (launcher, 115), `check:component-timelines` (74), the engine-game
+- **Gates** — `check:authored-win` (launcher, 119), `check:component-timelines` (74), the engine-game
   fixtures (12, `winWalk` new), the template gates (the internal def pinned), `check:win-parity`
-  (root; gating in #1194: `base`, `escalation`, `slam-small`, `slam-big`, `placed`). Its CI workflow,
-  like 8a's, is a workflow-only follow-up PR. **Known gap:** `check:authored-transition`,
+  (root; gate-green in #1194: `base`, `slam-big`, `placed`. `escalation` differs a frame at each
+  tier hand-off from t+840 on — accepted visually by the owner, NOT gate-green — and `slam-small`
+  is not runnable on the stand-in; both are deferred). Its CI workflow, like 8a's, is a
+  workflow-only follow-up PR, which also carries `held`, `turbo`, the escalation hand-off,
+  `slam-small` and the flag-on items the #1194 review listed, and must merge before the Win flag
+  is switched on for any project — until then the Game Settings Win row and the save lock it off
+  (`AUTHORED_WIN_LOCKED`). **Known gap:** `check:authored-transition`,
   `check:authored-win` and `check:component-timelines` are package scripts the Lint workflow's
   launcher list does not run yet — the same follow-up PR adds them.
 - **Left for the owner's browser check:** the tap grammar (step / land / dismiss / park), the ramp

@@ -989,12 +989,8 @@
 	 */
 	const fill = $derived(boundFillShare(allBindings, allOutputs));
 	const heldFrame = $derived(boundFrameOutput(allBindings, allOutputs));
-	const scrubs = $derived(
-		withTimelineScrub(
-			boundScrubs(bindings, bound.outputs),
-			timelineScrubbed ? timelineSample?.animTime : undefined,
-		),
-	);
+	const ownScrubs = $derived(boundScrubs(bindings, bound.outputs));
+	const timelineStrip = $derived(timelineScrubbed ? timelineSample?.animTime : undefined);
 	const boneOffsets = $derived(boundBoneOffsets(bindings, bound.outputs));
 
 	/** A loaded texture's natural size, by the scoped key then the bare fallback (the sprite rule). */
@@ -1424,7 +1420,12 @@
 					arriving never remounts it; not at all for any other rig (parity).
 				-->
 				{#if poseBound}
-					<RigPose {scrubs} bones={boneOffsets} />
+					<!-- A strip poses from the setup pose only on a rig with no track of its own (the win's
+						tier rig); over a running track it layers on top, as the editor preview does. -->
+					<RigPose
+						scrubs={withTimelineScrub(ownScrubs, timelineStrip, !anim)}
+						bones={boneOffsets}
+					/>
 				{/if}
 				<!--
 					Rig-slot riders (Rive plan Phase 8b): each group renders inside ONE `<RigSlot>`, the slot

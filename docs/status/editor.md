@@ -127,12 +127,15 @@ Shipped capabilities on `main`:
   config's ladder or the coded one, the placed `win` instance's params, the Win Text captions —
   one more R2 read per project with the flag on). `launcher-api` now depends on `engine-game`
   (deep imports of its pure `winPresentation` / `winLevelMap` modules; the index exports Svelte).
-  Gates: new `check:authored-win` (115), `check:authored-transition` 85 (two assertions updated to
+  Gates: new `check:authored-win` (119), `check:authored-transition` 85 (two assertions updated to
   the two-row contract), `check:doc-readers-unknown-fields` (the `win` row). Not wired into CI's
   Lint job: `check:authored-transition`, `check:component-timelines` and `check:authored-win` are
   package scripts only — the workflow list is a follow-up. Guide:
   [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot);
-  the engine side: [engine status](engine.md).
+  the engine side: [engine status](engine.md). **Locked off until the Win parity follow-up merges**
+  (#1194 review): the row is disabled unless already on (_pilot pending — parity follow-up_), and
+  the save refuses switching it on for everyone, publishers included (`AUTHORED_WIN_LOCKED`,
+  decision `locked`, 403; a publisher's save reads the store only when it submits Win on).
 - 2026-10-14 — **The way back from a component to its screen is visible.** After a double-click on
   a placed instance, the only exit that looked like a button was **← All components**, which lands
   on the components home, not on the screen. The breadcrumb's first crumb (the screen's name) did

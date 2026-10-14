@@ -1300,6 +1300,7 @@ export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TI
 		scope: 'shared',
 		category: 'overlay',
 		internal: true,
+		frameExact: true,
 		root: {
 			id: 'winPresentation-root',
 			kind: 'container',
