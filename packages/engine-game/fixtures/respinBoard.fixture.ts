@@ -98,6 +98,32 @@ it('a full board spins nothing', () => {
 	assert.equal(respinSpins({ reels: 3, rows: 1, held: full, reveal: full, blank: 'B' }).length, 0);
 });
 
+it('a coin board never spins a locked cell, whatever the reveal names there', () => {
+	// The middle line only: every row-0 and row-2 cell is locked.
+	const locked = Array.from({ length: 5 }, (_r, reel) => [
+		{ reel, row: 0 },
+		{ reel, row: 2 },
+	]).flat();
+	const spins = respinSpins({ reels: 5, rows: 3, held: [], reveal, blank: 'BLANK', locked });
+	assert.deepEqual(
+		spins.map((s) => [s.reel, s.row]),
+		Array.from({ length: 5 }, (_r, reel) => [reel, 1]),
+	);
+	assert.deepEqual(spins.find((s) => s.reel === 0)?.symbol, { name: 'BONUS', value: 2 });
+});
+
+it('held and locked cells together leave only the free paying cells', () => {
+	const spins = respinSpins({
+		reels: 5,
+		rows: 3,
+		held: [coin(0, 1, 2)],
+		reveal,
+		blank: 'BLANK',
+		locked: [{ reel: 4, row: 0 }],
+	});
+	assert.equal(spins.length, 13);
+});
+
 it('released cells are the held ones the new picture no longer holds', () => {
 	const before = [coin(0, 0, 1), coin(1, 1, 2), coin(2, 2, 3)];
 	const after = [coin(1, 1, 4)];

@@ -70,9 +70,11 @@ import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from '
 import { freeSpinsGameType, isFreeGameType, stateModes } from './stateModes.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import { hideRespinBoard, stateRespinBoard } from './stateRespinBoard.svelte';
+import { isCoinBoard } from './coinBoard.svelte';
 import {
 	presentCellsCleared,
 	presentRowsUnlocked,
+	presentCoinBoardReveal,
 	presentCoinBoost,
 	presentCoinCollect,
 	presentCoinPay,
@@ -1066,8 +1068,10 @@ export const presentReveal = async ({
 	// A base reveal always plays on the REEL board. A Hold and Win feature whose end never arrived (a
 	// respin the server refused mid-feature, so the book stops short of `holdAndWinEnd`) would
 	// otherwise leave the respin board up over reels rolling unseen. False for every game that never
-	// ran a feature, so this is one boolean read.
-	if (stateRespinBoard.shown) hideRespinBoard();
+	// ran a feature, so this is one boolean read. A COIN BOARD's base game IS the respin board
+	// (`docs/design/hold-and-win-coin-board.md`): it stays up, and its reveal spins it below.
+	const coinBoard = isCoinBoard();
+	if (stateRespinBoard.shown && !coinBoard) hideRespinBoard();
 
 	// THE OPERATOR'S MINIMUM SPIN DURATION: this spin's result may not show sooner than
 	// `minSpinDuration` after the spin started — the press for a paid round's first reveal
@@ -1084,11 +1088,16 @@ export const presentReveal = async ({
 		if (spinClock.remainingUntil(deadline) > 0) {
 			const { enhancedBoard } = stateGameDerived;
 			const rolling = enhancedBoard.board.some((reel) => reel.reelState.rolling);
-			if (!rolling && !stateGameDerived.boardSwapsInPlace()) {
+			if (!rolling && !stateGameDerived.boardSwapsInPlace() && !coinBoard) {
 				await enhancedBoard.preSpin({ paddingBoard: paddingReels(bookEvent.gameType) });
 			}
 			await waitForTimeout(spinClock.remainingUntil(deadline));
 		}
+	}
+
+	if (coinBoard) {
+		await presentCoinBoardReveal(bookEvent);
+		return;
 	}
 
 	// THE MODE SWITCH. A swap-in-place board has no reel path at all, so the opening board drops in

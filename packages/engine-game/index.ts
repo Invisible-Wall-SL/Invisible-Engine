@@ -117,10 +117,12 @@ export {
 	type HoldAndWinEventType,
 	type HoldAndWinJackpotLevel,
 	type HoldAndWinJackpotSource,
+	type HoldAndWinLineRun,
 	type HoldAndWinMeterLevel,
 	type HoldAndWinSnapshot,
 	type HoldAndWinState,
 	type HoldAndWinTally,
+	type HoldAndWinTallyCell,
 	type HoldAndWinUpgradeChange,
 	type HoldAndWinWheelPrize,
 	isHoldAndWinEvent,
@@ -132,6 +134,11 @@ export {
 	respinSpins,
 	type RespinSpin,
 } from './src/game/respinBoard';
+export {
+	coinBoardTallyPlan,
+	type CoinBoardTallyPlan,
+	type CoinBoardTallyStep,
+} from './src/game/coinBoardTally';
 export {
 	createRespinBoard,
 	type RespinBoard,

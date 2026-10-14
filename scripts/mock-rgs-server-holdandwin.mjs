@@ -28,9 +28,11 @@
  * CLI (the presets are TypeScript, so through the repo's loader):
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/mock-rgs-server-holdandwin.mjs
  *   PORT=7799 · PRESET=pots|classic|collector|pots-progressive|pots-extra (the last two are test
- *   fixtures) · SEED=… · START_BALANCE=10000 · FORCE=<spec>
+ *   fixtures)|coinBoard (Game Maker's coin board template) · CONFIG=<raw Game Config .json> (dealt
+ *   instead of a preset) · SEED=… · START_BALANCE=10000 · FORCE=<spec>
  */
 
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
@@ -814,15 +816,20 @@ const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? '').hr
 
 if (isMainModule) {
 	const gameConfig = await import('../packages/game-config/index.ts');
-	const preset = process.env.PRESET ?? gameConfig.DEFAULT_HOLD_AND_WIN_PRESET;
-	const raw =
-		gameConfig.HOLD_AND_WIN_PRESETS[preset] ?? gameConfig.HOLD_AND_WIN_TEST_FIXTURES[preset];
+	// CONFIG=<file.json> deals a Game Config of your own (a coin board variant, a project's export);
+	// PRESET=coinBoard is Game Maker's coin board template.
+	const preset = process.env.CONFIG ?? process.env.PRESET ?? gameConfig.DEFAULT_HOLD_AND_WIN_PRESET;
+	const raw = process.env.CONFIG
+		? JSON.parse(readFileSync(process.env.CONFIG, 'utf8'))
+		: preset === 'coinBoard'
+			? gameConfig.HOLD_AND_WIN_COIN_BOARD_TEMPLATE
+			: (gameConfig.HOLD_AND_WIN_PRESETS[preset] ?? gameConfig.HOLD_AND_WIN_TEST_FIXTURES[preset]);
 	if (!raw) {
 		const ids = [
 			...gameConfig.HOLD_AND_WIN_PRESET_IDS,
 			...Object.keys(gameConfig.HOLD_AND_WIN_TEST_FIXTURES),
 		];
-		console.error(`[mock-hnw] PRESET="${preset}" — use ${ids.join(' | ')}`);
+		console.error(`[mock-hnw] PRESET="${preset}" — use ${[...ids, 'coinBoard'].join(' | ')}`);
 		process.exit(1);
 	}
 	const doc = gameConfig.normalizeGameConfigDoc(raw);

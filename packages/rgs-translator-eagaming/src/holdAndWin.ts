@@ -106,6 +106,81 @@ export const readHoldAndWinModes = (cfg: unknown): HoldAndWinModes | null => {
 	return { modes, primary: [...modes.keys()][0] };
 };
 
+/**
+ * A coin board (`docs/design/hold-and-win-coin-board.md`): the base game deals on the respin board,
+ * and only the cells an active payline crosses pay. The boot `config.holdAndWin.coinBoard` (wire
+ * "Coin board"), in game-config's `CoinBoard` shape, restated for the no-engine-deps rule.
+ */
+export type CoinBoardConfig = {
+	lines:
+		| { selection: 'fixed'; active: string[] }
+		| { selection: 'player'; choices: number[]; default: number; order: string[] };
+	payRule: 'coinsOnLines' | 'lineFill' | 'perLine';
+	lineFill?: { min: number };
+	triggerMin: Record<string, number>;
+	inactiveOverlay?: { color: string; alpha: number };
+};
+
+const PAY_RULES = ['coinsOnLines', 'lineFill', 'perLine'] as const;
+
+const strings = (v: unknown): string[] =>
+	Array.isArray(v) ? v.filter((id): id is string => typeof id === 'string' && id !== '') : [];
+
+const integers = (v: unknown): number[] =>
+	Array.isArray(v) ? v.filter((n): n is number => Number.isInteger(n)) : [];
+
+/** The boot `config.holdAndWin.coinBoard`, or null for a lines base game (or a wire this client was
+ *  not written for). */
+export const readCoinBoard = (cfg: unknown): CoinBoardConfig | null => {
+	type Boot = { holdAndWin?: { wire?: unknown; coinBoard?: unknown } } | null;
+	const block = (cfg as Boot)?.holdAndWin;
+	const raw = block?.wire === HOLD_AND_WIN_WIRE ? block.coinBoard : undefined;
+	if (!raw || typeof raw !== 'object') return null;
+	const wire = raw as Record<string, unknown>;
+	const choices = integers(wire.choices);
+	const lines: CoinBoardConfig['lines'] =
+		wire.selection === 'player'
+			? {
+					selection: 'player',
+					choices,
+					default: Number.isInteger(wire.default) ? (wire.default as number) : (choices[0] ?? 1),
+					order: strings(wire.order),
+				}
+			: { selection: 'fixed', active: strings(wire.active) };
+	const payRule = PAY_RULES.find((rule) => rule === wire.payRule) ?? 'coinsOnLines';
+	const triggerMin = Object.fromEntries(
+		Object.entries((wire.triggerMin ?? {}) as Record<string, unknown>).filter(
+			(entry): entry is [string, number] => Number.isInteger(entry[1]),
+		),
+	);
+	const fill = (wire.lineFill as { min?: unknown } | undefined)?.min;
+	const overlay = wire.inactiveOverlay as { color?: unknown; alpha?: unknown } | undefined;
+	return {
+		lines,
+		payRule,
+		triggerMin,
+		...(payRule === 'lineFill' && Number.isInteger(fill)
+			? { lineFill: { min: fill as number } }
+			: {}),
+		...(typeof overlay?.color === 'string' && typeof overlay.alpha === 'number'
+			? { inactiveOverlay: { color: overlay.color, alpha: overlay.alpha } }
+			: {}),
+	};
+};
+
+/**
+ * The line count a coin-board bet plays: under `player`, the count the game asked for when it is
+ * one of the choices, else the default; a `fixed` board plays its active lines, whatever is asked.
+ * The stake is that count × the bet per line, so the count must be the one the server plays.
+ */
+export const coinBoardLineCount = (board: CoinBoardConfig, requested: unknown): number => {
+	const lines = board.lines;
+	if (lines.selection === 'fixed') return Math.max(1, new Set(lines.active).size);
+	return typeof requested === 'number' && lines.choices.includes(requested)
+		? requested
+		: lines.default;
+};
+
 /** A meter's level as the engine reads it (`HoldAndWinMeterLevel` in engine-game). */
 export type HoldAndWinMeterLevel = { id: string; level: number; max: number };
 
@@ -404,6 +479,34 @@ const withAmounts = (t: HoldAndWinTranslation, cells: unknown): CellAmount[] =>
 
 type Ctx = Record<string, unknown>;
 
+/** The end tally's cells; a coin board's `perLine` / `lineFill` cell says how often it paid. */
+const tallyCells = (t: HoldAndWinTranslation, cells: unknown) =>
+	withAmounts(t, cells).map((cell, i) => {
+		const lines = ((cells as { lines?: unknown }[])[i] ?? {}).lines;
+		return typeof lines === 'number' ? { ...cell, lines } : cell;
+	});
+
+/** A coin board's end: its pay rule, and under `lineFill` the runs that paid (their totals are
+ *  credits on the wire). Nothing for a classic board. */
+const coinBoardTally = (t: HoldAndWinTranslation, ctx: Ctx) => {
+	const payRule = PAY_RULES.find((rule) => rule === ctx.payRule);
+	if (!payRule) return {};
+	const runs = Array.isArray(ctx.runs)
+		? (ctx.runs as { id?: unknown; cells?: unknown; total?: unknown }[]).flatMap((run) =>
+				typeof run?.id === 'string'
+					? [
+							{
+								id: run.id,
+								cells: positionsOf(run.cells),
+								total: t.toAmount(typeof run.total === 'number' ? run.total : 0),
+							},
+						]
+					: [],
+			)
+		: undefined;
+	return { payRule, ...(runs ? { runs } : {}) };
+};
+
 /** A meter moved — the Hold and Win meters and the pots overlay's pots alike. */
 export const meterUpdateEvent = (ctx: Ctx) => ({
 	type: 'meterUpdate',
@@ -656,8 +759,9 @@ export const translateHoldAndWinEvent = (
 				mode: t.mode,
 				total: t.toAmount((ctx.total as number) ?? 0),
 				payload: {
-					cells: withAmounts(t, ctx.cells),
+					cells: tallyCells(t, ctx.cells),
 					banked: t.toAmount((ctx.banked as number) ?? 0),
+					...coinBoardTally(t, ctx),
 				},
 			};
 		// A second game mode the server announces (queued behind the feature, or nested). The Hold

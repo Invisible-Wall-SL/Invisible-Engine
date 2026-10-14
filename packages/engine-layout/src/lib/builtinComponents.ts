@@ -2577,6 +2577,10 @@ export const LETTERS_STRIP_DEF: ComponentDef = {
 	standsFor: 'LettersStrip',
 };
 
+/** What a mounted Line Overlay counts in under, whatever its id, so the coded coin-board line
+ *  markers step aside (`docs/design/hold-and-win-coin-board.md` §1.4; its component is Phase 13e). */
+export const LINE_OVERLAY_MOUNT = 'lineOverlay';
+
 /** What a mounted Wheel counts in under, whatever its id, so the coded wheel steps aside. */
 export const WHEEL_MOUNT = 'wheel';
 

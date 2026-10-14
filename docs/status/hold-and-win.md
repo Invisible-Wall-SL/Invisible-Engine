@@ -55,7 +55,7 @@ titled **"Hold and win game pipeline"**.
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
-| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | in progress — **13a (config + tools) and 13b (mock RGS) built on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14); 13c–13e unclaimed | 13a: invisible-game-config · 13b: engine-pixi-svelte | plan + 13a + 13b: #1200 |
+| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | in progress — **13a (config + tools), 13b (mock RGS) and 13c (runtime) built on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14); 13d–13e unclaimed | 13a: invisible-game-config · 13b + 13c: engine-pixi-svelte | plan + 13a + 13b + 13c: #1200 |
 
 ## Current state
 
@@ -1086,6 +1086,60 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-14 — **Phase 13c: the coin board plays in the shared runtime** (built on branch
+  `claude/practical-ptolemy-kes8j2`, PR #1200; played locally in Chromium against the 13b mock, not
+  yet live). Every path is gated on the Game Config's `coinBoard` (or the server's, below); without
+  it nothing changes.
+  - **Facade** (`rgs-translator-eagaming`): reads `config.holdAndWin.coinBoard` at boot
+    (`readCoinBoard`) and publishes it as `__IE_COIN_BOARD__` (game-config's `CoinBoard` shape). The
+    bet's line count is `coinBoardLineCount`: a `fixed` board sends its active count, a `player`
+    board the count in `__IE_COIN_BOARD_LINE_COUNT__` when it is one of `choices`, else `default`.
+    **That global is the one place 13d's selector sets.** Before this a middle-line board was sent
+    `[5, bet/5]` and charged a fifth of the bet. The base stake stays `paylines.length × betPerLine`
+    from the echo, which lists only the active lines. A base `reveal` carries `paylineIds` from the
+    `bet` echo. `holdAndWinEnd`'s payload passes `payRule`, per-cell `lines` and `runs` (totals in
+    book units) through.
+  - **Engine** (`engine-game`): `respinSpins` takes `locked` cells, which never spin.
+    `HoldAndWinTally` gains `payRule` / `runs`, and its cells gain `lines`. `coinBoardTallyPlan` is
+    pure: it orders the flights per rule, dims cells that pay 0, and lists the `perLine` ×N marks.
+  - **Runtime** (`apps/lines`, `coinBoard.svelte.ts`): the respin board is shown at boot
+    (`Game.svelte`), so the reels are never drawn. `presentReveal` hands a coin-board reveal to
+    `presentCoinBoardReveal`, which spins the paying cells like a respin (respin spin profile, no
+    reel pre-spin at the press). The trigger keeps the board, and the dealt coins become the held
+    coins. At the end, `hideRespinBoard` clears a coin board to blanks instead of hiding it (still
+    `respinBoardHide`, which is `featureExit`). No `settleReelsOnHeldCells` runs. Locked cells draw
+    the blank under `inactiveOverlay` (`CoinBoardLockedCells`, always on).
+  - **Line Overlay (coded):** `CoinBoardLineOverlay` draws each active line in its
+    `paylineColors` colour. The path runs between cells and stops short of each centre, so it never
+    crosses a coin's value. A numbered tab sits at each end. It redraws when the reveal's
+    `paylineIds` change, and it steps aside under `LINE_OVERLAY_MOUNT` (`lineOverlay`). The Scene
+    Editor component that counts in there is 13e's.
+  - **Tally per rule** (`presentHoldAndWinEnd`): `coinsOnLines` is unchanged (one volley, same
+    order). `perLine` puts a ×N mark on every coin and counts each cash label up to value × N
+    before the volley. `lineFill` lights each run's line through `winLineShow` in its payline colour,
+    stamped with the run total, while that run's coins fly. A coin shared by two runs flies once,
+    with the first. Coins that pay 0 dim to 0.35.
+  - **Local play:** the mock CLI now takes `PRESET=coinBoard` (the template) or `CONFIG=<raw Game
+    Config .json>`. The recipe is the 3 Pots S10 local rehearsal (a `/api/editor/runtime` stub serving
+    `holdAndWinReferenceLayout(undefined, { potIds: [] })` + the config, then
+    `PUBLIC_RGS_TRANSPORT=play4fun pnpm --filter lines dev`, `?runtime=1&k=local&editorDocBase=…&rgs_url=…`).
+    The template, the middle line only (minimum 3), `lineFill` (with `fullBoard`) and `perLine` all
+    played: stake $1 per spin, the board and money exact, 0 page errors.
+  - **Gates:** `rgs-translator-eagaming/coinBoard.fixture.ts` (new, 60 checks: boot publish, line
+    count and stake per selection, `paylineIds`, blank off-line cells, tally fields per rule, a
+    classic board untouched). `engine-game` `coinBoardTally.fixture.ts` (new) and
+    `respinBoard.fixture.ts` (+2 locked-cell cases).
+  - **Decisions the plan left open:** locked cells are drawn by the board, not the Line Overlay,
+    so an authored overlay cannot lose them. Uncoloured lines take a fixed six-colour fallback
+    (`/config`'s preview uses one colour). The board clears at the feature's end, not at the next
+    spin. A resume of a finished round boots a coin board on blanks. A random metre's or instant
+    collect's base-cell highlight finds no reels on a coin board and shows nothing.
+  - **For a playtest:** the trigger still switches to the reference layout's respin screens
+    (counter, Total Win), because a coin board has no screens of its own until 13e. A
+    middle-line board with minimum 5 is a full board at entry (GRAND at once), which is the config
+    and not a bug. The 13d selector should call one setter that writes
+    `__IE_COIN_BOARD_LINE_COUNT__` and resets `stateCoinBoard.playedIds`.
 
 - 2026-10-14 — **Phase 13b: the mock deals the coin board** (built on branch
   `claude/practical-ptolemy-kes8j2`, PR #1200; the runtime does not draw it yet — 13c). Wire:

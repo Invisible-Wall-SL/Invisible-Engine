@@ -208,8 +208,10 @@
 	import {
 		currentRespinBoard,
 		openRespinRows,
+		showRespinBoard,
 		stateRespinBoard,
 	} from '../game/stateRespinBoard.svelte';
+	import { isCoinBoard } from '../game/coinBoard.svelte';
 	import {
 		activeModifiersText,
 		shownCollectorLevel,
@@ -399,6 +401,8 @@
 	// on the same `config` request `<Authenticate>` gates this mount on). A no-op for every game whose
 	// server declares none, and once a book event has recorded the meters itself.
 	seedHoldAndWinMeters();
+	// A coin board's base game is the respin board, up from boot and never swapped out.
+	if (isCoinBoard()) showRespinBoard();
 	// …and its progressive jackpot pools, followed on every heartbeat refresh from here on.
 	onMount(seedHoldAndWinJackpots);
 	// The operator platform jackpot's tiers (any kind): seeded now, so a tier the platform names at

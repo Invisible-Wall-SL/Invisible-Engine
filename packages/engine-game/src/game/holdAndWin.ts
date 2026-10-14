@@ -1,4 +1,10 @@
-import type { ExpansionRule, HoldAndWinSpecial, Stickiness, UpgradeTarget } from 'game-config';
+import type {
+	CoinBoardPayRule,
+	ExpansionRule,
+	HoldAndWinSpecial,
+	Stickiness,
+	UpgradeTarget,
+} from 'game-config';
 
 import type { Position, RawSymbol, SymbolName } from './types';
 
@@ -63,8 +69,25 @@ export type HoldAndWinEntry = {
 	expansion?: { rows: number; maxRows: number };
 };
 
-/** What `holdAndWinEnd` carries as its mode payload (§4.5 `modeExit`): the per-coin tally. */
-export type HoldAndWinTally = { cells: HoldAndWinCellAmount[]; banked: number };
+/** A tallied cell. On a coin board paying `perLine` or `lineFill`, `lines` is how often it paid:
+ *  the active lines through it, or the runs it is in (`0` pays nothing). */
+export type HoldAndWinTallyCell = HoldAndWinCellAmount & { lines?: number };
+
+/** A coin board's `lineFill` run that paid: an active line whose cells, from reel 0, hold coins
+ *  `lineFill.min` or more in a row. `total` is its coins' sum, book-event units. */
+export type HoldAndWinLineRun = { id: string; cells: Position[]; total: number };
+
+/**
+ * What `holdAndWinEnd` carries as its mode payload (§4.5 `modeExit`): the per-coin tally. A coin
+ * board adds its `payRule`, and under `lineFill` the `runs` that paid
+ * (`docs/design/hold-and-win-coin-board.md` §1.2).
+ */
+export type HoldAndWinTally = {
+	cells: HoldAndWinTallyCell[];
+	banked: number;
+	payRule?: CoinBoardPayRule;
+	runs?: HoldAndWinLineRun[];
+};
 
 /**
  * An open feature, whole — what a resume rebuilds the respin board from without replaying an intro.

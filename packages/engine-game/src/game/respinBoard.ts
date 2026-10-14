@@ -19,8 +19,9 @@ const keysOf = (cells: Position[]) =>
 export type RespinSpin = Position & { symbol: RawSymbol; order: number };
 
 /**
- * The cells a respin SPINS and what each lands on: every cell of the board that is not held,
- * column by column.
+ * The cells a respin SPINS and what each lands on: every cell of the board that is neither held nor
+ * locked, column by column. A coin board's non-paying cells are locked: they never spin and stay
+ * the blank they were seeded with (`docs/design/hold-and-win-coin-board.md` §1.1).
  *
  * `respinReveal` names every cell of the board as it lands, held ones included, so it is read only
  * for the cells that move. A held cell never spins whatever the reveal says about it — the held
@@ -33,14 +34,16 @@ export const respinSpins = ({
 	held,
 	reveal,
 	blank,
+	locked = [],
 }: {
 	reels: number;
 	rows: number;
 	held: Position[];
 	reveal: HoldAndWinCell[];
 	blank: string;
+	locked?: Position[];
 }): RespinSpin[] => {
-	const heldKeys = keysOf(held);
+	const heldKeys = keysOf([...held, ...locked]);
 	const landing = new Map(reveal.map((cell) => [respinCellKey(cell.reel, cell.row), cell.symbol]));
 	const spins: RespinSpin[] = [];
 	for (let reel = 0; reel < reels; reel += 1) {

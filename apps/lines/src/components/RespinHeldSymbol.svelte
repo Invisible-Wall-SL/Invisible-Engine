@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { Container } from 'pixi-svelte';
-	import { respinCellKey, type HoldAndWinCell } from 'engine-game';
+	import { Container, Text } from 'pixi-svelte';
+	import { respinCellKey, SYMBOL_SIZE, type HoldAndWinCell } from 'engine-game';
 
 	import Symbol from './Symbol.svelte';
 	import { coinLabelPops, type CoinLabelPopCue } from '../game/coinLabel';
@@ -37,6 +37,10 @@
 			: undefined,
 	);
 	const cellState = $derived(stateRespinBoard.heldState[key] ?? HELD_REST);
+	/** A coin board's tally: a coin that pays nothing dims, and a `perLine` coin shows its ×N. */
+	const DIMMED_ALPHA = 0.35;
+	const alpha = $derived(stateRespinBoard.dimmed.includes(key) ? DIMMED_ALPHA : 1);
+	const mark = $derived(stateRespinBoard.marks[key]);
 
 	/**
 	 * The authored label pops (`coinLabel.animation`): one as the coin sticks (`coinStick`), one each
@@ -56,7 +60,7 @@
 	});
 </script>
 
-<Container x={seat.x} y={seat.y} {scale} {zIndex}>
+<Container x={seat.x} y={seat.y} {scale} {zIndex} {alpha}>
 	<Symbol
 		state={cellState}
 		rawSymbol={props.cell.symbol}
@@ -64,4 +68,19 @@
 		{labelPop}
 		oncomplete={() => completeHeldBeat(key)}
 	/>
+	{#if mark}
+		<Container x={SYMBOL_SIZE * 0.32} y={-SYMBOL_SIZE * 0.32}>
+			<Text
+				anchor={0.5}
+				text={mark}
+				style={{
+					fontFamily: 'Arial',
+					fontWeight: 'bold',
+					fontSize: Math.round(SYMBOL_SIZE * 0.2),
+					fill: 0xffe14d,
+					stroke: { color: 0x000000, width: 4 },
+				}}
+			/>
+		</Container>
+	{/if}
 </Container>
