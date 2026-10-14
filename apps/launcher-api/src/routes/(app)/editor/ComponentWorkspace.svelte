@@ -2137,12 +2137,12 @@
 		<div class="eb-group">
 			<nav class="crumbs" aria-label="Where you are">
 				<button
-					class="crumb"
+					class="crumb back"
 					type="button"
-					title="Back to the screens (Esc from the top level)"
+					title={`Back to ${rootLabel === null ? 'the screens' : `the ${rootLabel} screen`} (Esc goes up one level)`}
 					onclick={() => void exitToScreens()}
 				>
-					{rootLabel ?? 'Screens'}
+					← {rootLabel ?? 'Screens'}
 				</button>
 				<span class="crumb-sep" aria-hidden="true">›</span>
 				{#if componentDraft}
@@ -2922,6 +2922,16 @@
 	button.crumb:hover {
 		color: #e8e8ee;
 		border-color: #2a2a33;
+	}
+	/* The way out to the screens: drawn as a button, not as plain crumb text. */
+	button.crumb.back {
+		border-color: #2a2a33;
+		background: #14141a;
+		color: #c8c8d0;
+	}
+	button.crumb.back:hover {
+		border-color: #7ee0c0;
+		color: #7ee0c0;
 	}
 	.crumb.current {
 		font-weight: 600;

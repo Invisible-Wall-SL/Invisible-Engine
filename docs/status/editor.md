@@ -115,6 +115,11 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-14 — **The way back from a component to its screen is visible.** After a double-click on
+  a placed instance, the only exit that looked like a button was **← All components**, which lands
+  on the components home, not on the screen. The breadcrumb's first crumb (the screen's name) did
+  go back, but it was drawn as plain grey text. It is now a **← ‹screen›** button
+  (`ComponentWorkspace.svelte`, `button.crumb.back`); its behaviour (`exitToScreens`) is unchanged.
 - 2026-10-14 — **⌖ Any screen: select an item on another screen by clicking it.** The canvas drew
   every non-hidden screen but hit-tested only the edited one, so a click on another screen's item
   did nothing (or cleared the selection). New canvas-toolbar toggle (off by default, kept per

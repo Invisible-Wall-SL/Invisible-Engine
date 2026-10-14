@@ -955,8 +955,10 @@ The address bar follows what is open: `/editor?view=components` is the component
 Old `/components` links redirect here.
 
 **The breadcrumb** at the left of the editor bar shows where you are, for example
-`Screens › Components › Win banner`, or `Base game › Win banner › Coin` when you came in from a
-screen and opened a component nested inside another. Click any crumb to go back to it.
+`← Screens › Components › Win banner`, or `← Base game › Win banner › Coin` when you came in from a
+screen and opened a component nested inside another. Click any crumb to go back to it. The first
+one, drawn as a **←** button, takes you straight back to the screen you came from (or to the
+screens).
 
 **Esc goes up one level:** out of a coded part you are editing inside, then out of a nested
 component, then back to the components home, or back to the screen you came from. If something is
