@@ -21,8 +21,10 @@ animations.
 1. **One rig node** on your firecracker rig, at 0,0. Give it a **Name** (Properties), say `Cracker`,
    because timelines find nodes by name. Leave its default animation alone: the timelines decide what
    it plays.
-2. **One param:** add a number param **`lightAt`**, default `1`. It is the pot's fill share (0–1) at
-   which this firecracker lights.
+2. **One param** (a param, not an input): Properties → Component variables → **+ Add variable** →
+   **Custom input**, name `lightAt`, kind **number**, **Add**; default `1`. It is the pot's fill share
+   (0–1) at which this firecracker lights, and each placement keeps its own. An input of the same
+   name will not do: a condition's **{param}** choice lists number params only.
 3. **Two inputs** (Properties → Component variables → Inputs):
    - a number `share`, **from** `meter.{meter}.share` — type it. It is the pot's level over its
      maximum, 0..1. `{meter}` is read from the pot the firecracker sits in, so the piece needs no meter
