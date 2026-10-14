@@ -1,0 +1,97 @@
+# The authored Transition vs the coded one, frame for frame (Rive plan Phase 8a): builds the
+# `lines` runtime the way the release does and renders both sides in the headless shell
+# (`scripts/transition-parity/run.mjs`, `pnpm check:transition-parity`). Its own workflow: the
+# Checks shards have no build, and the current-games verdict treats every workflow file as harness,
+# so it lives apart from the runtime change it proves (#1192, merged first).
+#
+# ADVISORY: not in the required checks (docs/INFRA.md, "Required checks"); the owner decides whether
+# it joins them. Being advisory it can use path filters — it runs only when something it measures
+# can change (the runtime, the shared packages, the harness libraries it borrows, the mock RGS, the
+# lockfile) or this file itself, so a PR editing the job proves it green on its own run.
+
+name: Transition parity
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/transition-parity.yml'
+      - 'apps/lines/**'
+      - 'packages/**'
+      - 'scripts/transition-parity/**'
+      - 'scripts/current-games/**'
+      - 'scripts/playtest/**'
+      - 'services/test-server/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/transition-parity.yml'
+      - 'apps/lines/**'
+      - 'packages/**'
+      - 'scripts/transition-parity/**'
+      - 'scripts/current-games/**'
+      - 'scripts/playtest/**'
+      - 'services/test-server/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+
+concurrency:
+  group: transition-parity-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  transition-parity:
+    name: transition parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The same shell and sandbox setup as the current-games render job (its comments say why).
+      - name: Install the headless shell
+        timeout-minutes: 15
+        run: |
+          printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "30";' \
+            'Acquire::https::Timeout "30";' 'DPkg::Lock::Timeout "180";' \
+            | sudo tee /etc/apt/apt.conf.d/80-transition-parity >/dev/null
+          for attempt in 1 2 3; do
+            timeout 240 pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell && exit 0
+            echo "::warning::headless shell install attempt $attempt failed; retrying"
+            sleep 10
+          done
+          exit 1
+
+      - name: Let the headless shell start its sandbox
+        run: |
+          f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+
+      - name: transition parity
+        run: pnpm check:transition-parity
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: transition-parity
+          path: |
+            .cache/transition-parity/report.json
+            .cache/transition-parity/*/t+*.png
+            .cache/transition-parity/diff-*.png
+          if-no-files-found: ignore
