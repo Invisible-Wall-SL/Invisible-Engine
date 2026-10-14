@@ -439,6 +439,16 @@ snaps to other nodes' edges/centres (snap guides show as lines). The canvas
 itself supports **zoom** (mouse wheel, cursor-anchored) and **pan**
 (Shift / middle / right-drag), with a **Fit** action.
 
+A click normally selects on the active screen only; the other screens on the canvas are just
+backdrop. Turn on **⌖ Any screen** (canvas toolbar) to select anything the canvas draws: a
+click takes the topmost item under the pointer, whichever screen it belongs to, and an item on
+another screen makes that screen the active one with the item selected, ready to drag. Hovering
+such an item outlines it in purple, tagged `Screen › item`. The stacking is the canvas's own:
+HUD screens over game screens, and a screen lower in its list over the ones above it. Shift-click
+still adds to the selection on the active screen only. When a big item on another screen
+covers the one you want, pick it in the outline or hide that screen with its eye. The toggle is
+off in Animate and on the Components side, and is kept per project.
+
 Other editing affordances:
 
 - **Undo / redo** — `Ctrl/⌘+Z` / `Shift+Z` (or the ↶ ↷ buttons). Covers every

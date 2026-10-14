@@ -79,6 +79,7 @@ function scenarioReport(name, units, republished) {
 					bootStopped: u.bootStopped,
 					errors: u.errors ?? 0,
 					stalls: u.stalls ?? 0,
+					...(u.notes ? { notes: u.notes } : {}),
 					console: [],
 					seconds: 1,
 				}),
@@ -125,6 +126,25 @@ await test('the digest counts byte-identical screens and names one that passed u
 		digest({ games: [row] }),
 		/^noise: 1 of 2 compared screen\(s\) byte-identical; passed within tolerance, not byte-identical: g\/b 0\.0000%, worst block 0\.0000%$/m,
 	);
+});
+
+await test("a cue scenario's anchor notes reach the row, one line, the sides apart when they differ", () => {
+	const fell = 'cue `transition` not fired: fallback at frame 1002';
+	const row = scenarioRun('cue-notes', {
+		'fs-transition': {
+			base: { screens: { a: 1 }, notes: [fell] },
+			head: { screens: { a: 1 }, notes: [fell] },
+		},
+		'big-win-intro': {
+			base: { screens: { b: 1 }, notes: ['cue `winShow` at frame 544'] },
+			head: { screens: { b: 1 }, notes: ['cue `winShow` at frame 545'] },
+		},
+		base: { base: { screens: { c: 1 } }, head: { screens: { c: 1 } } },
+	});
+	assert.deepEqual(row.notes, [
+		`fs-transition: ${fell}`,
+		'big-win-intro: main cue `winShow` at frame 544 · branch cue `winShow` at frame 545',
+	]);
 });
 
 await test('one differing pixel fails the row, with a stable id', () => {

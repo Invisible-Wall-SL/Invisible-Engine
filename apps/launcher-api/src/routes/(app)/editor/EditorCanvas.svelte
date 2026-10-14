@@ -301,6 +301,14 @@
 		/** Right-click on a placed component instance: *Show in Flow* (Rive plan §6.2 step 4).
 		 * Absent ⇒ no context menu (a right-drag still pans). */
 		onShowInFlow?: (node: ComponentInstanceNode) => void;
+		/** "Any screen" picking (bindable; the Scene Editor persists it). While on, a plain click
+		 *  takes the topmost node drawn under the pointer on any screen the canvas shows, stacked as
+		 *  drawn: HUD screens over game screens, a later screen over an earlier one. Shift-click
+		 *  stays on the edited screen. */
+		pickAnyScreen?: boolean;
+		/** Edit screen `sceneId` with `nodeId` selected: the page makes it the edited screen. Absent
+		 *  (the Components side, Animate) ⇒ no "Any screen" toggle; clicks stay on the edited screen. */
+		onPickInScene?: (sceneId: string, nodeId: string) => void;
 	}
 
 	let {
@@ -344,7 +352,14 @@
 		onEditInstance,
 		onStagePointer,
 		onShowInFlow,
+		pickAnyScreen = $bindable(false),
+		onPickInScene,
 	}: Props = $props();
+
+	/** Clicks reach every drawn screen (see {@link pickAnyScreen}). */
+	const pickAcross = $derived(pickAnyScreen && onPickInScene !== undefined);
+	/** The node a plain click would pick on ANOTHER screen, outlined while hovered. */
+	let hoverPick = $state<{ sceneId: string; nodeId: string } | null>(null);
 
 	// The instance context menu (Rive plan §6.2 step 4): a right-CLICK (not a right-drag, which pans)
 	// on a placed instance offers *Show in Flow* and *Edit component in place*. Decided on the
@@ -1817,8 +1832,19 @@
 		return { x: p.x * zoom + panX, y: p.y * zoom + panY };
 	}
 
-	function visibleSceneNodes(): LayoutNode[] {
-		return scene.nodes.filter((n) => resolveTransform(n, layoutType).visible);
+	function visibleSceneNodes(sceneCtx: Scene = scene): LayoutNode[] {
+		return sceneCtx.nodes.filter((n) => resolveTransform(n, layoutType).visible);
+	}
+
+	/** Every screen the canvas draws, TOP first: the HUD screens (on the top-most `hudCanvas`) over
+	 *  the game screens, a later screen over an earlier one within each. The edited screen is always
+	 *  in, as its nodes stay clickable while its eye is off. */
+	function screensTopDown(): Scene[] {
+		const drawn = scenes.filter((s) => s.id === scene.id || !hiddenSceneIds.has(s.id));
+		return [
+			...drawn.filter((s) => !isHudScene(s)),
+			...drawn.filter((s) => isHudScene(s)),
+		].reverse();
 	}
 
 	/**
@@ -2312,6 +2338,7 @@
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		drawSelectionOverlay(ctx);
+		drawHoverPick(ctx);
 
 		// Always-on-top screen-border overlay. The window frame + play-area (main box) are
 		// normally drawn on the BASE canvas (bottom of the z-stack), so stacked art buries
@@ -3811,6 +3838,40 @@
 		}
 	}
 
+	/** "Any screen": outline the node a click would pick on ANOTHER screen, tagged with that screen's
+	 *  name, so the author sees which screen the click switches to before making it. */
+	function drawHoverPick(ctx: CanvasRenderingContext2D): void {
+		if (!pickAcross || !hoverPick || hoverPick.sceneId === scene.id) return;
+		const { sceneId, nodeId } = hoverPick;
+		const s = scenes.find((x) => x.id === sceneId);
+		const node = s?.nodes.find((n) => n.id === nodeId);
+		if (!s || !node) return;
+		const t = nodeTransform(node, s);
+		const corners = nodeCornersWorld(t, boxOf(node, t)).map(worldToScreen);
+		ctx.save();
+		ctx.lineWidth = 1.5;
+		ctx.strokeStyle = '#c4a1ff';
+		ctx.setLineDash([4, 3]);
+		ctx.beginPath();
+		ctx.moveTo(corners[0].x, corners[0].y);
+		for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+		ctx.closePath();
+		ctx.stroke();
+		ctx.setLineDash([]);
+		const label = `${s.name || s.id} › ${node.label || node.id}`;
+		const x = Math.min(...corners.map((c) => c.x));
+		const y = Math.min(...corners.map((c) => c.y));
+		ctx.font = '11px sans-serif';
+		const w = ctx.measureText(label).width + 10;
+		const tagY = y >= 18 ? y - 18 : y;
+		ctx.fillStyle = '#c4a1ff';
+		ctx.fillRect(x, tagY, w, 16);
+		ctx.fillStyle = '#0b0b10';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(label, x + 5, tagY + 8);
+		ctx.restore();
+	}
+
 	function drawNodeSelection(
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
@@ -3989,16 +4050,41 @@
 		);
 	}
 
-	function hitTestNode(world: Vec2): LayoutNode | null {
-		const list = visibleSceneNodes();
+	function hitTestNode(world: Vec2, sceneCtx: Scene = scene): LayoutNode | null {
+		const list = visibleSceneNodes(sceneCtx);
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
-			const t = nodeTransform(node);
+			const t = nodeTransform(node, sceneCtx);
 			const box = boxOf(node, t);
 			const corners = nodeCornersWorld(t, box);
 			if (pointInQuad(world, corners)) return node;
 		}
 		return null;
+	}
+
+	/** The topmost node drawn under `world` on any screen (see {@link screensTopDown}). */
+	function hitTestAnyScreen(world: Vec2): { scene: Scene; node: LayoutNode } | null {
+		for (const s of screensTopDown()) {
+			const node = hitTestNode(world, s);
+			if (node) return { scene: s, node };
+		}
+		return null;
+	}
+
+	/** A plain click with "Any screen" on: a node on another screen first becomes that screen's
+	 *  selection through `onPickInScene`. `scene` reads the page's edited screen, so after the switch
+	 *  it already holds the picked node. Null when nothing is hit or the page kept its screen. */
+	function pickAcrossScreens(world: Vec2): LayoutNode | null {
+		const hit = hitTestAnyScreen(world);
+		if (!hit) return null;
+		if (hit.scene.id !== scene.id) onPickInScene?.(hit.scene.id, hit.node.id);
+		return scene.id === hit.scene.id ? findNodeById(hit.node.id) : null;
+	}
+
+	function setHoverPick(next: { sceneId: string; nodeId: string } | null): void {
+		if (next?.sceneId === hoverPick?.sceneId && next?.nodeId === hoverPick?.nodeId) return;
+		hoverPick = next;
+		schedule();
 	}
 
 	// ---------- drag handlers ----------
@@ -4343,8 +4429,8 @@
 				}
 			}
 		}
-		// 2) body hit on any node
-		const node = hitTestNode(world);
+		// 2) body hit on any node (on any drawn screen with "Any screen" on, Shift aside)
+		const node = pickAcross && !e.shiftKey ? pickAcrossScreens(world) : hitTestNode(world);
 		if (node) {
 			if (e.shiftKey) {
 				// Shift+click toggles this node in/out of the selection (no drag).
@@ -4404,6 +4490,7 @@
 		if (screen.x < 0 || screen.y < 0 || screen.x > rect.width || screen.y > rect.height) {
 			hoverHandle = null;
 			hoverNodeId = null;
+			setHoverPick(null);
 			if (animate && stageInside) onStagePointer?.('leave', null);
 			stageInside = false;
 			return;
@@ -4412,13 +4499,20 @@
 		if (animate && onStagePointer)
 			onStagePointer('move', deepHitId(clientToWorld(e.clientX, e.clientY)));
 		hoverHandle = hitTestHandle(screen);
+		let hoverId: string | null = null;
+		let pick: { sceneId: string; nodeId: string } | null = null;
 		if (!hoverHandle) {
 			const w = clientToWorld(e.clientX, e.clientY);
-			const n = hitTestNode(w);
-			hoverNodeId = n?.id ?? null;
-		} else {
-			hoverNodeId = null;
+			if (pickAcross && !e.shiftKey) {
+				const hit = hitTestAnyScreen(w);
+				if (hit?.scene.id === scene.id) hoverId = hit.node.id;
+				else if (hit) pick = { sceneId: hit.scene.id, nodeId: hit.node.id };
+			} else {
+				hoverId = hitTestNode(w)?.id ?? null;
+			}
 		}
+		hoverNodeId = hoverId;
+		setHoverPick(pick);
 	}
 
 	function onWindowMouseUp(e: MouseEvent): void {
@@ -4819,6 +4913,7 @@
 			return hoverHandle.idx === 0 || hoverHandle.idx === 2 ? 'cursor-ns' : 'cursor-ew';
 		}
 		if (hoverHandle?.kind === 'body' || hoverNodeId) return 'cursor-move';
+		if (pickAcross && hoverPick) return 'cursor-pick';
 		return 'cursor-cross';
 	});
 
@@ -5215,8 +5310,8 @@
 			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan · Esc
 			= deselect
 		{:else}
-			click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
-			(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
+			click = select{pickAcross ? ' (any screen)' : ''} · drag = move · corners = scale (Shift = non-uniform)
+			· top circle = rotate (Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
 		{/if}
 	</div>
 	<div class="canvas-top">
@@ -5276,6 +5371,23 @@
 			>
 				⛶ Bounds
 			</button>
+			{#if onPickInScene}
+				<button
+					class="fit"
+					class:on={pickAnyScreen}
+					onclick={() => {
+						pickAnyScreen = !pickAnyScreen;
+						setHoverPick(null);
+					}}
+					type="button"
+					aria-pressed={pickAnyScreen}
+					title={pickAnyScreen
+						? 'Any screen: a click selects the topmost item drawn under the pointer, on whichever screen it belongs to, and switches to that screen. Shift-click stays on this screen. Click to select on the edited screen only.'
+						: 'Clicks select on the edited screen only. Click to select anything drawn on the canvas: an item on another screen switches to that screen.'}
+				>
+					⌖ Any screen
+				</button>
+			{/if}
 			{#if gameView !== undefined}
 				<button
 					class="fit"
@@ -5369,6 +5481,9 @@
 	}
 	.cursor-move {
 		cursor: move;
+	}
+	.cursor-pick {
+		cursor: pointer;
 	}
 	.cursor-grab {
 		cursor: grab;

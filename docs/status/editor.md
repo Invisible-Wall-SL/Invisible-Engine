@@ -18,7 +18,7 @@ Shipped capabilities on `main`:
 
 - **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels** and **Zoom with anticipation** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", "＋ New bet menu / auto spin screen".
 - **Every authored screen ships.** `extraMountScenes` / `fullReplaceHudScenes` (`engine-layout/genericMountScenes.ts`) mount author screens the game doesn't reserve, and `sceneLayerZIndex` gives every mount path the Screens-list z; under a screen-driving v2 flow every screen mounts through `<FlowV2Mount>`. Flow owns visibility (no "Shows during" gates).
-- **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate. Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws.
+- **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate, **⌖ Any screen** click-to-select across every drawn screen (⏳ not browser-verified). Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws.
 - **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
 - **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on rig nodes) / text box (width/height, align, auto-fit) / rig anim + slot fill / **Plays on signal** cues on rig and flipbook nodes (free-text signal here, declared signals on the Components side) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
 - **Device layouts** — per-layoutType overrides of transform, blend, visibility, cover fit/scale, text style and component params; per-layoutType **Canvas Size** (the MAIN box the runtime adopts). The bucket set is an authorable **layout profile** (Game Settings → Layout; pipeline default in Admin → Settings); `DEFAULT_LAYOUT_PROFILE` reproduces the legacy four exactly.
@@ -120,6 +120,20 @@ Shipped capabilities on `main`:
   on the components home, not on the screen. The breadcrumb's first crumb (the screen's name) did
   go back, but it was drawn as plain grey text. It is now a **← ‹screen›** button
   (`ComponentWorkspace.svelte`, `button.crumb.back`); its behaviour (`exitToScreens`) is unchanged.
+- 2026-10-14 — **⌖ Any screen: select an item on another screen by clicking it.** The canvas drew
+  every non-hidden screen but hit-tested only the edited one, so a click on another screen's item
+  did nothing (or cleared the selection). New canvas-toolbar toggle (off by default, kept per
+  project in the editor's UI localStorage): while on, a plain click takes the topmost node under
+  the pointer across the drawn screens, stacked as the canvas draws them (HUD screens over game
+  screens, later in the list over earlier — the canvas ignores Always on top / Behind the reels,
+  so this is the canvas's stacking, not the game's), and a node on another screen switches the
+  edited screen and selects it through `onPickInScene` (the page's `pickInScene`); the same press
+  drags it. Hover outlines the would-be pick in purple, tagged `Screen › item`. Shift-click stays
+  on the edited screen (selections never span screens); the selected node's handles still win
+  over anything drawn above it. Off in Animate (a screen switch there saves and closes the
+  timeline) and on the Components side (no `onPickInScene`). `EditorCanvas`: `screensTopDown`,
+  `hitTestAnyScreen`, `pickAcrossScreens`; `hitTestNode` / `visibleSceneNodes` take a scene. ⏳
+  Not browser-verified.
 - 2026-10-14 — **`/editor` crashed on every load** (#1190 → fixed in #1195): the lease take-over
   re-arm block read `lease` in an initializer ~1500 lines above `const lease`, so the component
   script threw `Cannot access … before initialization` (the component editor is the same page). The
