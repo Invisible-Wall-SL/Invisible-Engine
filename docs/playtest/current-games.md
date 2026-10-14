@@ -188,10 +188,11 @@ Scenario rules:
   `until`'s fallback: the anchor is 900 frames after the frame the `until` started on (the first
   frame of the spin), so `fs-transition` is captured 960 frames into the spin and the Win intro
   screens 912 and 948, the same frames on both sides. The capture is deterministic, not static: a
-  coded game can be mid count-up or mid free spin there. Each row's notes say how every
-  cue scenario anchored, for example `fs-transition: cue \`transition\` at frame 431` or
-  `fs-transition: cue \`transition\` not fired: fallback at frame 1002`, with main's and the
-  branch's notes apart when they differ.
+  coded game can be mid count-up or mid free spin there. Each row's notes say how every cue
+  scenario anchored, with main's and the branch's apart when they differ. On the stand-ins (the
+  spin starts at frame 156): ``fs-transition: cue `transition` at frame 541`` on `cg-lines` (782
+  on `cg-bookof`), ``big-win-intro: cue `winShow` at frame 544`` (907); the same games with no
+  flow doc read ``cue `transition` not fired: fallback at frame 1056``.
 
 A screen list is a pipeline-change artifact. Changing one is reviewed like code.
 
