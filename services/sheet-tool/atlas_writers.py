@@ -94,7 +94,8 @@ def build_manifest(sheet_image: str, width: int, height: int,
                    source_image_path: str = "",
                    atlas_file: str = "",
                    texturepacker_json: str = "",
-                   region_shape_keys: dict[str, str] | None = None) -> dict:
+                   region_shape_keys: dict[str, str] | None = None,
+                   layout: dict | None = None) -> dict:
     """Build the enriched manifest the Atlas Maker consumes.
 
     Regions are emitted FLAT in `regions` (the Atlas Maker includes
@@ -157,6 +158,11 @@ def build_manifest(sheet_image: str, width: int, height: int,
         fx_mode = str(r.get("fx_mode") or "").strip().lower()
         if fx_mode:
             man_region["mode"] = fx_mode
+        # The Sheet Maker's per-cell Region border override (sheet px kept clear
+        # around the cell when it re-packs); absent = the sheet's `layout` value.
+        for k in ("border_x", "border_y"):
+            if r.get(k) is not None:
+                man_region[k] = int(r[k])
         man_regions.append(man_region)
     atlas: dict = {
         # Bare name only — NEVER a local OS/Windows staging path. The resolvable
@@ -186,6 +192,8 @@ def build_manifest(sheet_image: str, width: int, height: int,
     }
     if export_prefix:
         man["export_prefix"] = export_prefix
+    if layout:
+        man["layout"] = layout
     return man
 
 

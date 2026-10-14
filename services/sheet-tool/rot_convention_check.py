@@ -69,7 +69,7 @@ check(
 # A tall sprite into a wide canvas is exactly the case a rotating packer would turn
 # sideways to save space.
 items = [{"name": "tall", "w": 16, "h": 64, "locked": False, "x": 0, "y": 0}]
-res = packer.arrange(256, 128, items, padding=2, allow_rotation=False)
+res = packer.arrange(256, 128, items, allow_rotation=False)
 placed = res["regions"][0]
 check("arrange(allow_rotation=False) leaves the region unrotated", placed["rotated"] is False)
 check("arrange(allow_rotation=False) keeps w/h upright", (placed["w"], placed["h"]) == (16, 64))

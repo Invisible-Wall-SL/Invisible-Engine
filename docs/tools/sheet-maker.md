@@ -62,24 +62,30 @@ binds `0.0.0.0:$PORT` (default **8766**).
    project (see [How to access it](#how-to-access-it)).
 2. **Upload** your loose sprite PNGs (`/api/upload`).
 3. **Arrange** them into a packed sheet (`/api/arrange`).
-   - **Canvas size → Border X / Y** keeps every region that many pixels away from
-     the left/right and top/bottom edges. The safe area shows as a dashed outline
-     on the canvas. Auto-arrange packs inside it, and dragging, resizing or typing
-     X/Y/W/H stops at it. A region that is already over the border gets an orange
-     dashed outline but is not moved: run Auto-arrange to re-pack the unlocked
-     ones inside. The border is saved with the editor session, like Padding, and
-     scales with **Downscale sheet**. 0 / 0 means no border.
+   - **Canvas size → Region padding X / Y** is the space between the art and
+     its cell edge on each side (room for glows and other FX): a cell is its art
+     plus the padding. Changing it resizes every cell that follows it, except
+     locked ones.
+   - **Canvas size → Region border X / Y** is the space each cell keeps clear
+     around itself. Two cells sit border + border apart (the default border 1
+     gives 2 px; borders 4 and 10 give 14), and a cell sits its border away from
+     the canvas edge. Auto-arrange packs to it, and dragging or resizing
+     stops at the canvas edge minus the border. A cell that crosses a border
+     gets an orange dashed outline: run Auto-arrange to re-pack.
+   - Both are saved with the sheet (manifest `layout`) and scale with
+     **Downscale sheet**. The selected cell's border shows as a faint dashed box.
 4. **Edit** region names, sizes, and the per-region AI fields in the UI.
-   - Each region has a resizable **Region** box (the packed/exported cell — what
-     the `.atlas`/JSON/manifest frame uses) shown in the **Selected sprite**
+   - Each region has a **Region** box (the packed/exported cell — what the
+     `.atlas`/JSON/manifest frame uses) shown in the **Selected sprite**
      inspector. The artwork keeps its **original size** and is **centred** inside
-     the region — only scaled *down* (aspect-preserved) when the region is
-     smaller than the art, never stretched or upscaled. So a larger region just
-     adds transparent margin around the original image — handy for giving
-     differently-sized icons a uniform cell. Centring uses the art's opaque
-     bounding box, so source PNGs with asymmetric transparent padding still land
-     centred. Resize the region with the corner drag handle or the on-canvas /
-     inspector **Region** W×H inputs; the **Image** size is shown read-only.
+     it. Centring uses the art's opaque bounding box, so source PNGs with
+     asymmetric transparent padding still land centred.
+   - **Per-cell overrides:** the inspector's **Padding X / Y** and **Border X / Y**
+     override the sheet's values for that cell; leave a field empty to follow the
+     sheet. Resizing a cell (corner handle, or the on-canvas / inspector W×H)
+     sets its padding. A negative padding makes the cell smaller than the art,
+     which then shrinks to fit (aspect kept, never stretched or upscaled). FX
+     layer cells follow their base sprite.
 5. **Export** (`/api/export`) — choose `.atlas`, TexturePacker JSON, and/or the
    AI manifest. The AI manifest is also pushed to the Atlas Maker's R2
    `manifests/` prefix.

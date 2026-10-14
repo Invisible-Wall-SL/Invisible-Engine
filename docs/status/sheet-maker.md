@@ -55,7 +55,7 @@ Works today on `main` / live:
   geometry). Detected numeric runs are recorded in `sequences` as the hint the /flipbook tool
   reads. `editable=1` is the opt-in lossy path (re-slices to loose sprites, **drops per-frame
   trim offsets**, doesn't lock).
-- **Border X / Y** _(2026-10-14)_ — Canvas-card setting that keeps regions that far from the canvas edges: `packer.arrange(border_x, border_y)` packs inside it (the bin may run `padding` into the far border; that strip is gap, never art), and drag / resize / typed X·Y·W·H clamp to it. Regions already over it get an orange outline and are not moved. Session-level like Padding (not in the manifest); scales with Downscale. `test_arrange_border.py` (9). ⏳ Not yet run live on Railway.
+- **Region padding + Region border, per sheet and per cell** _(2026-10-14)_ — Region padding X/Y = art to cell edge (cell = art + 2 × padding); Region border X/Y = space a cell keeps clear around itself, so neighbours sit border A + border B apart and a cell sits its border from the canvas edge (`packer.arrange` inflates each item by its own `border_x/border_y`). Each cell may override either (inspector; empty = follow the sheet; FX cells follow their base); resizing a cell sets its padding. The sheet values persist in the manifest's `layout`, per-cell border overrides on the region (`border_x/border_y`, kept by the Atlas Maker's merge); padding is re-derived on load from cell − art size. Crossed borders get an orange outline. `test_region_layout.py` (12). ⏳ Not yet run live on Railway.
 - **Whole-sheet downscale** — `Canvas size → Downscale sheet ⤓` scales the canvas, every
   region rect and this sheet's sprite copies by one factor (½ / ¼ / ⅛ presets or a target
   width), behind a numbers-first dialog + a confirm. `POST /api/rescale-sheet` does the
@@ -83,13 +83,17 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
-- 2026-10-14 — **Border X / Y on the canvas.** New Canvas-card inputs keep every region inside a
-  safe area. The server's `api_arrange` passes the border to `packer.arrange`, which starts its
-  MaxRects bin at `(border_x, border_y)` and refuses a border that leaves no room. The page draws the
-  safe area and clamps moves and resizes to it (`clampPos` / `maxSize`). It flags regions already
-  over the border instead of moving them, because a locked or imported layout must not shift on its
-  own. The border is saved in the session snapshot and scaled by Downscale. Verified headless:
-  arrange starts at the border, drags stop at it, and the setting survives a reload.
+- 2026-10-14 — **Region padding / Region border replace Padding (arrange) and the canvas Border.**
+  The old "Padding (arrange)" was the gap the packer left between cells, and the Border X/Y added
+  earlier the same day (#1201) kept cells away from the canvas edge. Neither gave sprites room for
+  glows. Now **Region padding** sizes each cell as art + padding, and **Region border** is the space
+  each cell keeps clear around itself. Packing adds the two borders of neighbouring cells together
+  and keeps each cell its border from the canvas edge, which also covers what the canvas Border did,
+  so that setting is gone. Both can be overridden per cell. Loading an existing sheet keeps every
+  cell's size: padding is derived from cell − art size and recorded as an override where it differs
+  from the sheet's. The session's old `padding` key is no longer read (the border defaults to 1, so
+  cells still pack 2 px apart). Verified headless: sizes, gaps (4+4, 20+4), override, resize →
+  padding, and a Save → Load round trip.
 - 2026-10-13 — **🧹 Clean sheet… is back, behind a gate.** The old one-click "New / clear canvas"
   (replaced 2026-09-02 by the named `New sheet…` dialog) was also how people emptied a sheet to
   re-import its images; that use had no button since. The new Upload-tab button opens a dialog that
