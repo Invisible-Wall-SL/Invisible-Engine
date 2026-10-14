@@ -400,6 +400,14 @@
 	// The operator platform jackpot's tiers (any kind): seeded now, so a tier the platform names at
 	// boot registers its value source below, and followed on every answer from here on.
 	onDestroy(seedPlatformJackpots());
+	// The flow handle is built once the scenes load; a Game destroyed before that disposes it on
+	// arrival rather than leaking its listener.
+	let disposeFlowV2: (() => void) | undefined;
+	let destroyed = false;
+	onDestroy(() => {
+		destroyed = true;
+		disposeFlowV2?.();
+	});
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
 	// The board follows the server now (above); this is what stops it doing so SILENTLY. An online
@@ -2119,6 +2127,9 @@
 			// screens). When it DRIVES screens it is the SOLE screen renderer (its containers via
 			// `<FlowV2Mount>`); its shown set becomes `activeScreenIds` (so the engine gates track it) and
 			// the v1 interpreter is NOT built (both mounting every screen is the double-logo/tap bug).
+			// A Game destroyed while the scenes loaded builds no flow: a handle built only to be
+			// disposed would still wipe the shared instance stash under another live Game (HMR).
+			if (destroyed) return;
 			const flowV2 = createLinesFlowV2(
 				doc,
 				(containers) => {
@@ -2131,6 +2142,7 @@
 				// body the button press runs (shared with v1's `invokeIntent`).
 				(intent) => invokeHostIntent(intent),
 			);
+			disposeFlowV2 = flowV2?.dispose;
 			setFlowV2(flowV2);
 			// The mode stack presents its transitions through this flow's Mode trigger entries, if any.
 			setModeTransitionPresenter(flowV2?.presentModeTransition);

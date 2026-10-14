@@ -32,7 +32,10 @@ import {
 	ENTER_SIGNAL,
 	flipbookCycleMs,
 	getComponent,
+	clearFlowInstanceStash,
 	getFlowInstance,
+	getFlowInstanceOn,
+	onFlowInstanceDrop,
 	isRegisteredComponentSignal,
 	resolveComponent,
 	resolveEffect,
@@ -269,6 +272,8 @@ export type LinesFlowV2 = {
 		event: string,
 		payload?: Record<string, unknown>,
 	) => Promise<void>;
+	/** Release what the handle holds outside itself (the stash-drop trace listener). */
+	dispose: () => void;
 	/** The authored Text Message nodes (§6.3) — static, read from the doc (groups flattened).
 	 *  `<FlowV2Messages>` renders one localized text overlay per node at its `place`. */
 	textMessages: TextMessageNode[];
@@ -591,17 +596,22 @@ export const createLinesFlowV2 = (
 	>();
 
 	// PLACED COMPONENT INSTANCES (Rive plan §6.2, Phase 7): a `componentInstance` / `waitForState`
-	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`), where
-	// Placed component instances (Rive plan §6.2): the outcomes for one that is not registered, and
-	// how a wait on one is released, live in `flowInstanceWaits.ts` (gated in Node).
-	const { instanceWhenMounted, awaitInstanceState } = createInstanceWaits({
+	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`). The
+	// outcomes for one that is not registered, and how a wait on one is released, live in
+	// `flowInstanceWaits.ts` (gated in Node); a handle on another screen is never the node's.
+	const waits = createInstanceWaits({
 		isShown: (container) => mount.isShown(container),
 		sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
 		getFlowInstance,
+		getFlowInstanceOn,
+		clearFlowInstanceStash,
+		stashFlowInstanceInput,
 		watchFlowInstance,
+		onFlowInstanceDrop,
 		skip: roundSkip,
 		trace,
 	});
+	const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } = waits;
 
 	const env = createFlowV2Env({
 		mount,
@@ -715,18 +725,8 @@ export const createLinesFlowV2 = (
 			trace('instance', `${ref.instance} ▸ ${trigger}`);
 			handle.fire(trigger);
 		},
-		setInstanceInput: (ref, input, value) => {
-			const live = getFlowInstance(ref.instance);
-			const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
-			if (live) {
-				if (live.setInput(input, value)) trace('instance', line);
-				else trace('instance', line, '· dropped (no such input, or not its kind)');
-			} else {
-				trace('instance', line, '(stashed)');
-				stashFlowInstanceInput(ref.instance, input, value);
-			}
-		},
-		readInstanceValue: (ref, value) => getFlowInstance(ref.instance)?.values()[value],
+		setInstanceInput,
+		readInstanceValue,
 		awaitInstanceState,
 	});
 
@@ -783,6 +783,7 @@ export const createLinesFlowV2 = (
 			trace('instanceEvent ▶', `${instanceId} on${event}`);
 			return runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
 		},
+		dispose: waits.dispose,
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
 		presentModeTransition: flowHandlesModeTransitions(doc)

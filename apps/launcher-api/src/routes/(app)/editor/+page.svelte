@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { afterNavigate, beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
+	import { flowHrefForInstance, hopRefusal } from '$lib/flowInstanceUi';
 	import { page } from '$app/state';
 	import {
 		componentsHref,
@@ -76,7 +77,7 @@
 		RigRestOverride,
 		TemplateSlot,
 	} from 'engine-layout';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
@@ -588,6 +589,48 @@
 	/** Double-click on a placed instance: edit its def in place, the active screen as the root. */
 	function editInstanceInPlace(node: ComponentInstanceNode): void {
 		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
+	}
+
+	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
+	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
+	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
+	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
+	 *  below still asks about unsaved work. */
+	// Only from a clean, idle doc (`hopRefusal` — the shared `SaveState`'s dirty flag can clear
+	// over a pending edit, fixed separately): otherwise a dialog says the pill's way out and the
+	// author stays. Never through `lastError`, which is the save pill's own.
+	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
+	// layout saves (and a hop is allowed) without another edit.
+	let wasReadOnly = untrack(() => lease.readOnly);
+	$effect(() => {
+		const readOnly = lease.readOnly;
+		untrack(() => {
+			if (wasReadOnly && !readOnly && saveState.dirty && !crossTypeLoaded && !projectDrift)
+				saveState.rearmAutosave();
+			wasReadOnly = readOnly;
+		});
+	});
+	async function showInFlow(nodeId: string): Promise<void> {
+		const why = hopRefusal({
+			what: 'layout',
+			status: saveState.status,
+			dirty: saveState.dirty,
+			readOnly: lease.readOnly,
+			// A dirty layout saves itself unless it is a cross-type preview (Save as / Discard), the
+			// tab's project drifted (the banner's Reload), or the autosave failed (the pill's Save).
+			manual: crossTypeLoaded
+				? 'cross-type'
+				: projectDrift
+					? 'drift'
+					: saveState.status === 'error'
+						? 'save'
+						: undefined,
+		});
+		if (why) {
+			await askMessage({ title: 'Not yet', message: why });
+			return;
+		}
+		window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));
 	}
 
 	/** Keep the address bar on what is open, so a reload or a shared link lands there. Shallow:
@@ -3428,6 +3471,7 @@
 						projectGameName={data.gameName}
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : editInstanceInPlace}
+						onShowInFlow={animating ? undefined : (node) => showInFlow(node.id)}
 						canUndo={canUndo && !animating}
 						canRedo={canRedo && !animating}
 						onUndo={undo}
@@ -3792,6 +3836,7 @@
 						onOpenComponentEditor={(id) =>
 							openComponents(id, activeScene?.name || activeScene?.id || null)}
 						onUpdateInstanceToLatest={updateInstanceToLatest}
+						onShowInFlow={showInFlow}
 					/>
 
 					<div class="game-settings">

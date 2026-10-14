@@ -175,3 +175,31 @@ export function projectFlowInstances(
 	}
 	return instances;
 }
+
+/**
+ * The projection a flow naming no instance loads with: the LATEST defs only (no pinned snapshot is
+ * read). A placement pinned below latest then has no exact interface yet — it is marked `unpinned`
+ * with the latest def's interface standing in, rather than `missing: 'version'`, so the palette and
+ * a freshly dropped node show no warning and the page marks nothing stale; it re-reads the exact
+ * pins the moment a node names a placement. `latestOf` resolves a component id to its latest def.
+ */
+export function unpinnedProjection(
+	instances: Record<string, FlowInstanceDecl>,
+	latestOf: (componentId: string) => ComponentDef | undefined,
+): Record<string, FlowInstanceDecl> {
+	return Object.fromEntries(
+		Object.entries(instances).map(([id, decl]) => {
+			if (decl.missing !== 'version') return [id, decl];
+			const { missing: _missing, ...rest } = decl;
+			const latest = latestOf(decl.componentId);
+			return [
+				id,
+				{
+					...rest,
+					interface: latest ? flowInstanceInterface(latest) : rest.interface,
+					unpinned: true,
+				},
+			];
+		}),
+	);
+}

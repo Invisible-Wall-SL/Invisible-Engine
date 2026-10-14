@@ -655,6 +655,11 @@ export interface FlowInstanceDecl extends InstanceRef {
 	/** Set when the def (or the exact pinned version) could not be resolved: the pins are then
 	 *  derived from nothing and the validator reports `instance-missing`. */
 	missing?: 'def' | 'version';
+	/** The interface is the LATEST version's, standing in for the pinned one's: the projection was
+	 *  taken without the pinned snapshots (a flow naming no instance loads none). The editor shows
+	 *  no version warning, marks no wire or pin stale, and re-reads the exact pins once a node names
+	 *  the placement. */
+	unpinned?: true;
 }
 
 // ---------------------------------------------------------------------------

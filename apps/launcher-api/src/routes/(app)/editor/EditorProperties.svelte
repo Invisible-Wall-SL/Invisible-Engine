@@ -281,6 +281,9 @@
 		 * instance is outdated (its pin < the def's version). The page reconciles params
 		 * (keeps still-valid overrides, drops ones the new version removed) + persists. */
 		onUpdateInstanceToLatest?: () => void;
+		/** *Show in Flow* (Rive plan §6.2): open Invisible Flow on the node naming this placement, or
+		 * on its palette entry. componentInstance only. */
+		onShowInFlow?: (nodeId: string) => void;
 	}
 	let {
 		node,
@@ -350,6 +353,7 @@
 		onSetInstanceCueSignal,
 		onOpenComponentEditor,
 		onUpdateInstanceToLatest,
+		onShowInFlow,
 		gameType,
 		addOns,
 	}: Props = $props();
@@ -2766,6 +2770,16 @@
 			>
 				◇ Edit component in place
 			</button>
+			{#if onShowInFlow}
+				<button
+					class="ghost-sm"
+					onclick={() => onShowInFlow?.(node.id)}
+					title="Open Invisible Flow on this placement: the node that names it, or its entry in the Components palette (a right-click on the stage offers it too). Needs a name."
+					disabled={!node.label?.trim()}
+				>
+					↗ Show in Flow
+				</button>
+			{/if}
 			{#if componentDefs.length > 0}
 				<!-- Swap the component this placement draws — a Pot Meter for the project's own Pot copy,
 				     a bar's tile for the project's Jackpot Tile (Phase 12c) — keeping its position and

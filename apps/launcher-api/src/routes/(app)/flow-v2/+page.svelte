@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { SvelteFlowProvider, type Connection, type Edge, type Node } from '@xyflow/svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import {
 		collapseToFunction,
 		collapseToGroup,
@@ -8,6 +8,9 @@
 		expandGroup,
 		derivePins,
 		deriveGraphPins,
+		docNamesInstance,
+		flowGraphs,
+		parseInstanceNodeRef,
 		graftAddOnSteps,
 		respinTabIssues,
 		spinsTabIssues,
@@ -19,6 +22,7 @@
 		type FlowComment,
 		type FlowDoc,
 		type FlowInstanceDecl,
+		type FlowIssue,
 		type FunctionDef,
 		type FunctionLibraryDoc,
 		type Graph,
@@ -28,7 +32,15 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
-	import { askConfirm } from '$lib/dialogs.svelte';
+	import { askConfirm, askMessage } from '$lib/dialogs.svelte';
+	import {
+		editorHrefForComponent,
+		flowDeepLink,
+		hopRefusal,
+		nodeNamingInstance,
+		paletteInstanceGroups,
+		stalePinsOf,
+	} from '$lib/flowInstanceUi';
 	import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
 	import { LIBRARY } from './sample';
 	import { MODE_NODES, modeNodeRef, offeredInSection, typeColor } from './palette';
@@ -137,7 +149,53 @@
 
 	// §6.3 — the placed, named component instances (Rive plan §6.2), keyed by placed node id. A
 	// `componentInstance` node derives its pins from its entry; the validator judges every wire to one.
-	const instances = $derived<Record<string, FlowInstanceDecl>>(data.instances ?? {});
+	// State, not derived: `refreshInstances` re-reads the projection when this tab is shown again, so
+	// a component edited in `/editor` meanwhile updates the pins here (a wire to a pin that is gone
+	// turns red) without a reload.
+	let instances = $state<Record<string, FlowInstanceDecl>>(data.instances ?? {});
+	// A failed re-read is said out loud (with a retry), or a node would read "loading pins…" for ever.
+	let instancesError = $state('');
+	async function refreshInstances(): Promise<void> {
+		try {
+			const res = await fetch(
+				`/api/flow-v2/instances?project=${encodeURIComponent(data.projectKey)}`,
+			);
+			if (!res.ok) {
+				instancesError = `Could not load the component pins (HTTP ${res.status}).`;
+				return;
+			}
+			const body = (await res.json()) as {
+				projectKey?: string;
+				instances?: Record<string, FlowInstanceDecl>;
+			};
+			// Another tab may have moved the session to another project: never take its instances.
+			if (body.projectKey !== data.projectKey || !body.instances) return;
+			instances = body.instances;
+			instancesError = '';
+			syncCanvas();
+		} catch {
+			instancesError = 'Could not load the component pins (offline?).';
+		}
+	}
+	// The nodes whose placement is still `unpinned` (its exact interface not read yet): nothing on
+	// them is judged stale until it is — no red pins, no red wires, no issue in the list.
+	const unpinnedNodeIds = $derived(
+		new Set(
+			flowGraphs(doc).flatMap(({ graph }) =>
+				graph.nodes
+					.filter(
+						(n) =>
+							(n.kind === 'componentInstance' || n.kind === 'waitForState') &&
+							instances[n.instance]?.unpinned,
+					)
+					.map((n) => n.id),
+			),
+		),
+	);
+	const touchesUnpinned = (issue: FlowIssue): boolean =>
+		issue.at.on === 'node' || issue.at.on === 'pin'
+			? unpinnedNodeIds.has(issue.at.node)
+			: unpinnedNodeIds.has(issue.at.from.node) || unpinnedNodeIds.has(issue.at.to.node);
 
 	// The project's Scene-Editor screen ids (the keys of `sceneNames`), so Validation can flag a Show /
 	// Hide of a screen the layout no longer has (`container-scene-missing`). An unsaved project has
@@ -354,6 +412,17 @@
 		return data.sceneNames?.[sceneId] ?? data.sceneNames?.[ref] ?? ref;
 	};
 
+	// The palette's Components section: every named placement per screen, in the doc's order.
+	const instanceGroups = $derived(
+		paletteInstanceGroups(
+			instances,
+			doc.containers.map((c) => c.id),
+			containerLabel,
+		),
+	);
+	// A placed node id the Scene Editor's *Show in Flow* sent here that no node names yet.
+	let highlightInstance = $state<string | null>(null);
+
 	// A human title for a node (its ref, else its kind) shown in the node header.
 	const nodeTitle = (n: V2Node): string => {
 		switch (n.kind) {
@@ -384,6 +453,14 @@
 				return 'Enter mode';
 			case 'exitMode':
 				return 'Exit mode';
+			case 'componentInstance': {
+				const decl = instances[n.instance];
+				return decl && decl.container === n.container ? decl.name : n.instance;
+			}
+			case 'waitForState': {
+				const decl = instances[n.instance];
+				return `Wait for ${decl && decl.container === n.container ? decl.name : n.instance}`;
+			}
 			default:
 				return n.kind;
 		}
@@ -404,7 +481,7 @@
 						containerTaps,
 						sceneIds,
 						instances,
-					),
+					).filter((issue) => !touchesUnpinned(issue)),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),
 				],
@@ -464,6 +541,12 @@
 						? (label: string) =>
 								applyGraphEdit(setGroupLabel(inspectorDoc, n.id, label).graph, `label:${n.id}`)
 						: undefined,
+				// A placed instance's wires to pins its component no longer has: drawn as red pins so
+				// the wire stays visible and reads as broken (the validator lists it too).
+				stalePins:
+					n.kind === 'componentInstance' && !instances[n.instance]?.unpinned
+						? stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])
+						: undefined,
 			},
 		}));
 		// Comment/group boxes. Flow view only — function bodies carry no comments. Listed FIRST so at
@@ -510,20 +593,38 @@
 		return pin?.dataType ? typeColor(pin.dataType) : '#94a3b8';
 	}
 
+	// A wire the validator reports as broken (an endpoint that no longer exists — a stale instance
+	// pin, a deleted node) is drawn red and dashed, so the error is on the canvas, not only in the list.
+	const BAD_EDGE_COLOR = '#f87171';
+	const edgeKey = (from: { node: string; pin: string }, to: { node: string; pin: string }) =>
+		`${from.node}\u0000${from.pin}\u0000${to.node}\u0000${to.pin}`;
+	const badEdges = (): Set<string> =>
+		new Set(
+			issues.flatMap((i) =>
+				i.at.on === 'execEdge' || i.at.on === 'dataEdge' ? [edgeKey(i.at.from, i.at.to)] : [],
+			),
+		);
+
 	function buildEdges(): Edge[] {
-		const exec: Edge[] = activeGraph.exec.map((e, i) => ({
-			id: `exec-${i}`,
-			source: e.from.node,
-			target: e.to.node,
-			sourceHandle: e.from.pin,
-			targetHandle: e.to.pin,
-			deletable: true,
-			style: `stroke:${EXEC_COLOR}; stroke-width:2.25`,
-			class: 'v2-exec',
-			markerEnd: { type: 'arrowclosed', color: EXEC_COLOR },
-		}));
+		const bad = badEdges();
+		const exec: Edge[] = activeGraph.exec.map((e, i) => {
+			const broken = bad.has(edgeKey(e.from, e.to));
+			const color = broken ? BAD_EDGE_COLOR : EXEC_COLOR;
+			return {
+				id: `exec-${i}`,
+				source: e.from.node,
+				target: e.to.node,
+				sourceHandle: e.from.pin,
+				targetHandle: e.to.pin,
+				deletable: true,
+				style: `stroke:${color}; stroke-width:2.25${broken ? '; stroke-dasharray:6 4' : ''}`,
+				class: broken ? 'v2-exec v2-bad' : 'v2-exec',
+				markerEnd: { type: 'arrowclosed', color },
+			};
+		});
 		const data: Edge[] = activeGraph.data.map((e, i) => {
-			const color = dataEdgeColor(e.from.node, e.from.pin);
+			const broken = bad.has(edgeKey(e.from, e.to));
+			const color = broken ? BAD_EDGE_COLOR : dataEdgeColor(e.from.node, e.from.pin);
 			return {
 				id: `data-${i}`,
 				source: e.from.node,
@@ -531,8 +632,8 @@
 				sourceHandle: e.from.pin,
 				targetHandle: e.to.pin,
 				deletable: true,
-				style: `stroke:${color}; stroke-width:1.25`,
-				class: 'v2-data',
+				style: `stroke:${color}; stroke-width:1.25${broken ? '; stroke-dasharray:6 4' : ''}`,
+				class: broken ? 'v2-data v2-bad' : 'v2-data',
 			};
 		});
 		return [...exec, ...data];
@@ -543,15 +644,48 @@
 		edges = buildEdges();
 	}
 
+	// Deep link (Rive plan §6.2 step 4): `?instance=<placed node id>` (the Scene Editor's *Show in
+	// Flow*) opens on the first node naming the placement — in any section, a grouped one on its
+	// group — or, with none yet, lights the placement in the palette so the author sees where to
+	// drag from.
+	function openDeepLink(): void {
+		const link = flowDeepLink(new URLSearchParams(window.location.search));
+		if (!link.instance) return;
+		for (const { modeId, graph } of flowGraphs(doc)) {
+			const hit = nodeNamingInstance(graph, link.instance);
+			if (!hit) continue;
+			focusNode(hit.group ?? hit.node, modeId);
+			fitSignal += 1;
+			return;
+		}
+		highlightInstance = link.instance;
+	}
+	// The loader resolves the placed, PINNED interfaces only for a flow that already names an
+	// instance; the first node naming one — dropped, pasted, imported, grafted or undone back in —
+	// re-reads them, so a placement pinned below latest shows its exact pins before its first wire.
+	let namedInstance = untrack(() => docNamesInstance(doc));
+	$effect(() => {
+		const names = docNamesInstance(doc);
+		if (names && !namedInstance) void refreshInstances();
+		namedInstance = names;
+	});
+	// A component edited in `/editor` while this tab was away: re-read the projection on return.
+	function onVisible(): void {
+		if (document.visibilityState === 'visible') void refreshInstances();
+	}
+
 	onMount(() => {
 		syncCanvas();
+		openDeepLink();
 		void lease.start();
 		const onUnload = () => lease.release();
 		window.addEventListener('pagehide', onUnload);
 		window.addEventListener('keydown', onUndoKey);
+		document.addEventListener('visibilitychange', onVisible);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
 			window.removeEventListener('keydown', onUndoKey);
+			document.removeEventListener('visibilitychange', onVisible);
 			saveState.cancelAutosave();
 			libraryState.cancelAutosave();
 			lease.release();
@@ -624,6 +758,16 @@
 		},
 	});
 	const saveDoc = (force = false) => void saveState.save({ force });
+	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
+	// doc saves (and a hop is allowed) without another edit.
+	let wasReadOnly = untrack(() => lease.readOnly);
+	$effect(() => {
+		const readOnly = lease.readOnly;
+		untrack(() => {
+			if (wasReadOnly && !readOnly && saveState.dirty) saveState.rearmAutosave();
+			wasReadOnly = readOnly;
+		});
+	});
 
 	// Every editing gesture calls this after mutating `doc`. It arms the trailing debounce; a
 	// fresh gesture within the window resets it (coalescing a burst of edits into one save). The
@@ -825,9 +969,37 @@
 	}
 
 	// xyflow 1.6 has no node-double-click event, so detect it (mirrors v1 /flow): two clicks on
-	// the SAME node within 350ms of a `functionCall` OPENS its body for editing (2c.3).
+	// the SAME node within 350ms of a `functionCall` OPENS its body for editing (2c.3); of a
+	// `componentInstance` / `waitForState` it offers *Edit component* in the Scene Editor (Rive plan
+	// §6.2 step 4), keeping the project pin.
 	let lastClickId: string | null = null;
 	let lastClickAt = 0;
+	// Leave for another tool page — only from a clean, idle doc (`hopRefusal`): otherwise say what
+	// the pill's way out is and stay.
+	const refuseHop = async (): Promise<boolean> => {
+		const why = hopRefusal(
+			{ what: 'flow', status: saveState.status, dirty: saveState.dirty, readOnly: lease.readOnly },
+			{ what: 'function library', status: libraryState.status, dirty: libraryState.dirty },
+		);
+		if (!why) return false;
+		await askMessage({ title: 'Not yet', message: why });
+		return true;
+	};
+	async function hopTo(href: string): Promise<void> {
+		if (await refuseHop()) return;
+		window.location.assign(href);
+	}
+	async function editComponentOf(instanceId: string): Promise<void> {
+		const decl = instances[instanceId];
+		if (!decl) return;
+		if (await refuseHop()) return;
+		const ok = await askConfirm({
+			title: `Edit component '${decl.componentId}'?`,
+			message: `Opens ${decl.name}'s component in the Scene Editor, in place.`,
+			confirmLabel: 'Edit component',
+		});
+		if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));
+	}
 	function onNodeClick({ node }: { node: Node }): void {
 		const now = Date.now();
 		if (node.id === lastClickId && now - lastClickAt < 350) {
@@ -835,6 +1007,10 @@
 			const model = activeGraph.nodes.find((n) => n.id === node.id);
 			if (model?.kind === 'functionCall') {
 				openFunction(model.ref);
+				return;
+			}
+			if (model?.kind === 'componentInstance' || model?.kind === 'waitForState') {
+				void editComponentOf(model.instance);
 				return;
 			}
 		}
@@ -1342,6 +1518,14 @@
 		const id = freshNodeIdIn(allGraphs(), kind);
 		selectedNodeId = id;
 		applyGraphEdit(addNodeIn(activeGraph, makeNode(kind, id, pos, ref)));
+		// The palette light from a *Show in Flow* deep link goes out once the placement has a node.
+		if (
+			kind === 'componentInstance' &&
+			highlightInstance &&
+			ref &&
+			parseInstanceNodeRef(ref).instance === highlightInstance
+		)
+			highlightInstance = null;
 		return id;
 	}
 
@@ -1794,6 +1978,14 @@
 				title="Browse and restore earlier saved versions of this flow">History…</button
 			>
 		{/if}
+		{#if instancesError}
+			<span class="save-pill dirty" role="alert"
+				>{instancesError}
+				<button class="collapse-btn" type="button" onclick={() => void refreshInstances()}
+					>Retry</button
+				></span
+			>
+		{/if}
 		{#if hasProject}
 			{#if lease.readOnly}
 				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
@@ -1878,6 +2070,7 @@
 					cinematics={data.cinematicOptions}
 					timelineIssues={data.timelineIssues}
 					onchange={applyDocEdit}
+					oneditcomponent={(instanceId) => void editComponentOf(instanceId)}
 				/>
 			{:else if view.kind === 'function' && activeFn}
 				<h3>Function body</h3>
@@ -1916,6 +2109,8 @@
 					ondelete={deleteFunction}
 					{deleteError}
 					modeNodes={paletteModeNodes}
+					{instanceGroups}
+					{highlightInstance}
 				/>
 			{/if}
 			<ValidationPanelV2
@@ -1926,7 +2121,7 @@
 				{modeLabel}
 			/>
 			{#if view.kind === 'flow'}
-				<PreviewPanelV2 {doc} {library} {vocab} />
+				<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />
 			{/if}
 		</aside>
 

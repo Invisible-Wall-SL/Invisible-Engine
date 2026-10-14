@@ -238,6 +238,7 @@ const PROJECT_READ_EXEMPT: Record<string, string> = {
 	'admin/rigs': 'gated on adminPanel, which spans every project',
 	'flipbook/clip': 'scoped by the session; ?project= only refuses a tab on a stale project',
 	'flow-v2/backups': 'scoped by the session; ?project= only refuses a tab on a stale project',
+	'flow-v2/instances': 'scoped by the session; ?project= only refuses a tab on a stale project',
 	'fx/effect': 'scoped by the session; ?project= only refuses a tab on a stale project',
 };
 /** Each exported handler's source (the module preamble dropped). */
