@@ -91,6 +91,11 @@ export function previewTint(node: LayoutNode): number | undefined {
 	return drives?.get(node.id)?.sample.tint;
 }
 
+/** The clip and clip-local seconds the previewed timeline's `animation` strip holds `node` at. */
+export function previewAnimTime(node: LayoutNode): { animation: string; time: number } | undefined {
+	return drives?.get(node.id)?.sample.animTime;
+}
+
 /** Each binding's preview output for `node` (`undefined` where nothing is being previewed), in
  *  {@link previewBindings} order. */
 export function previewOutputs(node: LayoutNode, frameCount?: number): (number | undefined)[] {

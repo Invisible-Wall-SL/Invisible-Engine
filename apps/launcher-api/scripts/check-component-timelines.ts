@@ -11,7 +11,10 @@
  *  4. reuse binds by node NAME only (never an id), and validation flags a component that lacks it;
  *     a timeline never restarts itself from its own `signal:` cue;
  *  5. the ship chain: a component timeline no Flow node names is still exported to `deploy/` and
- *     embedded for the game (rule 8), and it seeds no rig the export would then miss.
+ *     embedded for the game (rule 8), and it seeds no rig the export would then miss;
+ *  6. a rig clip authored from the editor (`addRigClipStrip`): one animation track per rig node, a
+ *     strip that records the clip's length, a timeline grown to fit it, and the editor's preview
+ *     drive carrying the clip time the game's rig node reads (`animTime`).
  *
  * Runs the real `engine-layout` player and the real `cinematicExport` / `cinematicStorage` over an
  * in-memory R2. What it cannot prove: the Svelte wiring in `ComponentInstance.svelte` (ticker,
@@ -513,6 +516,55 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 		['project copy'],
 	);
 	L.registerComponentTimelines([]);
+}
+
+// ---- 6. a rig clip authored from the editor ----------------------------------------------------
+
+{
+	const doc = S.newComponentTimeline({ id: 'c_cracker_lit', name: 'Lit', componentId: 'cracker' });
+	doc.duration = 0.5;
+	const actor = S.ensureNodeActor(doc, 'Cracker');
+	S.addRigClipStrip(doc, actor, { name: 'lit', duration: 1.25 }, 0);
+	S.addRigClipStrip(doc, actor, { name: 'fired', duration: 0.8 }, 1.25);
+	const tracks = doc.tracks.filter((t) => t.actorId === actor && t.kind === 'animation');
+	eq('one animation track per rig node, however many clips', tracks.length, 1);
+	const strips = tracks[0].strips as {
+		id: string;
+		clip: { name: string };
+		start: number;
+		length: number;
+		clipLength: number;
+	}[];
+	eq(
+		'each strip holds its clip for its length and records clipLength',
+		strips.map((st) => [st.clip.name, st.start, st.length, st.clipLength]),
+		[
+			['lit', 0, 1.25, 1.25],
+			['fired', 1.25, 0.8, 0.8],
+		],
+	);
+	eq('strip ids are unique', new Set(strips.map((st) => st.id)).size, 2);
+	eq('the timeline grows to end with the last strip', doc.duration, 2.05);
+	S.addRigClipStrip(doc, actor, { name: 'lit', duration: 0.1 }, 0);
+	eq('…and never shrinks', doc.duration, 2.05);
+	const scene = {
+		id: 'cracker',
+		name: 'Cracker',
+		nodes: [{ id: 'n_rig', kind: 'spine', label: 'Cracker', assetKey: 'k', x: 0, y: 0 }],
+	} as unknown as Parameters<typeof S.timelineDrives>[1];
+	eq(
+		'the rig node takes the animTime channel (no ⚠ in the panel)',
+		N.validateNodeActors(doc as unknown as CinematicDoc, scene),
+		[],
+	);
+	const drive = S.timelineDrives(doc as unknown as CinematicDoc, scene, 1.5).get('n_rig');
+	eq(
+		'the editor preview drive carries the clip time the game poses the rig at',
+		drive?.sample.animTime
+			? [drive.sample.animTime.animation, Math.round(drive.sample.animTime.time * 100) / 100]
+			: null,
+		['fired', 0.25],
+	);
 }
 
 console.log(

@@ -942,6 +942,7 @@ export function mount(el, options) {
 			clip: { src: 'rig', name: clip.name },
 			start: snapT(time),
 			length: Math.max(clip.duration, 1 / (doc.fps || 30)),
+			clipLength: clip.duration,
 			clipIn: 0,
 			speed: 1,
 			loop: { mode: 'once' },
@@ -984,8 +985,12 @@ export function mount(el, options) {
 		const found = stripById(stripId);
 		if (!found) return;
 		const s = found.strip;
-		if (path === 'clip') s.clip = value ? { src: 'rig', name: value } : null;
-		else if (path === 'loop.mode') s.loop = { mode: value, n: (s.loop && s.loop.n) || 2 };
+		if (path === 'clip') {
+			s.clip = value ? { src: 'rig', name: value } : null;
+			// A player with no skeleton (a rig node in game) wraps a looping strip by this length.
+			const known = value && host.clips(found.track.actorId).find((a) => a.name === value);
+			if (known) s.clipLength = known.duration;
+		} else if (path === 'loop.mode') s.loop = { mode: value, n: (s.loop && s.loop.n) || 2 };
 		else if (path === 'loop.n')
 			s.loop = { mode: (s.loop && s.loop.mode) || 'count', n: Math.max(1, value) };
 		else s[path] = value;
