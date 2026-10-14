@@ -870,8 +870,8 @@ the general mechanism.
   (`scripts/transition-parity/run.mjs`; its CI job is its own workflow file,
   `.github/workflows/transition-parity.yml`, landed as PR #1193, a workflow-only PR because the
   current-games verdict counts every `.github/workflows/` file as harness and would refuse to vouch
-  for the runtime change beside it; the job is path-filtered and advisory, not in the `main` ruleset — the owner may
-  make it required): it
+  for the runtime change beside it; the job is path-filtered and advisory, not in the `main`
+  ruleset — the owner may make it required): it
   boots the built `apps/lines` twice in the headless shell (`scripts/playtest/headless-shell.mjs`,
   `?ie_determinism=<seed>`, 1280×720, DPR 1, the book mock with `FORCE_TRIGGER=1`, `?flowV2=lines`),
   once on the harness's stand-in snapshot as published and once on the same snapshot with the flag

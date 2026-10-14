@@ -262,6 +262,24 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-14 — **Two cue-anchored current-games scenarios, `fs-transition` and `big-win-intro`, in
+  `screens/lines.json` and `screens/bookOf.json`** (PR #1197, Rive plan §13.5 #7). `fs-transition`
+  captures 60 frames after the Flow v2 `transition` cue; `bigwin-intro-12` / `bigwin-intro-48` 12
+  and 48 frames after `winShow`. Harness pieces (`scripts/current-games/lib/play.mjs`): `until {
+  cue }` checks every 10 frames for a cue the probe records after the op starts and anchors on the
+  frame the cue fired on (`state().cues[].frame`); `step { frames, from: 'cue' }` runs to anchor +
+  N and fails if that frame has passed; a game that never fires the cue (the coded flow) takes the
+  fallback, 900 frames after the spin starts, and each row's notes say which (`lib/render.mjs` →
+  `lib/assemble.mjs`). A scenario's `query` (`flowV2=lines`) reaches only stand-in games
+  (`standIn: true` from `fixtures.mjs`) and never overrides the harness's own params. The first CI
+  runs searched one frame at a time, which under `draw: 'last'` drew all 900 frames on every
+  coded-flow game (106–523 s per unit, the slowest shard 1,429–1,610 s against a 30-minute
+  limit);
+  batch-10 is 11–17 s per cue-anchored unit and 24–32 s per fallback unit on the stand-ins (from
+  58–111 s and 154–166 s), with the same six captures byte for byte. `costs.json` carries seeded
+  weights for the new scenarios. `play.fixture.mjs` proves the anchor rules. How it works:
+  [playtest/current-games.md](../playtest/current-games.md) § "Screen scripts". Harness only: no
+  runtime change, no release.
 - 2026-10-14 — **The authored Transition behind a per-project flag (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`, plan [§13](../design/rive-style-editor.md#13-phase-8-overlay-migration-plan--8a-transition-first)) — this entry is the one home of the build detail; the other status files point here.**
   A new built-in `transitionWipe` def (`builtinComponents.ts`: one rig node `wipe` on the engine's
@@ -315,7 +333,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `internal` defs offered to no kind), and **`pnpm check:transition-parity`**
   (`scripts/transition-parity/run.mjs`; its CI workflow,
   `.github/workflows/transition-parity.yml`, runs it (PR #1193, a workflow-only PR because the
-  current-games verdict counts every workflow file as harness), path-filtered and advisory, not in the `main` ruleset: the built
+  current-games verdict counts every workflow file as harness), path-filtered and advisory, not in
+  the `main` ruleset: the built
   runtime on the harness's `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`,
   `FORCE_TRIGGER=1`, one seed; two pairs — the reference overlays scene, and a variant with the
   Transition node moved into `hudCorners`, a canvas screen the flow mounts, which proves the swap
