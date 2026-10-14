@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { afterNavigate, beforeNavigate, invalidateAll, replaceState } from '$app/navigation';
-	import { flowHrefForInstance } from '$lib/flowInstanceUi';
+	import { flowHrefForInstance, hopRefusal } from '$lib/flowInstanceUi';
 	import { page } from '$app/state';
 	import {
 		componentsHref,
@@ -596,11 +596,17 @@
 	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
 	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
 	 *  below still asks about unsaved work. */
-	// Never with an edit in flight or unsaved (a save landing over a later edit clears the dirty
-	// flag without it — `SaveState`, fixed separately): say so in the pill and stay.
-	function showInFlow(nodeId: string): void {
-		if (saveState.busy || saveState.dirty) {
-			lastError = 'Saving — try again in a moment.';
+	// Only from a clean, idle doc (`hopRefusal` — the shared `SaveState`'s dirty flag can clear
+	// over a pending edit, fixed separately): otherwise a dialog says the pill's way out and the
+	// author stays. Never through `lastError`, which is the save pill's own.
+	async function showInFlow(nodeId: string): Promise<void> {
+		const why = hopRefusal({
+			status: saveState.status,
+			dirty: saveState.dirty,
+			readOnly: lease.readOnly,
+		});
+		if (why) {
+			await askMessage({ title: 'Not yet', message: why });
 			return;
 		}
 		window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));

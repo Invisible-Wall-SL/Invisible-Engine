@@ -894,6 +894,22 @@ async function main(): Promise<void> {
 			data: [],
 		});
 		eq(
+			'5. a null node in a body a boundary pin leads into is skipped, and the real one still owns',
+			flowOwnsInstanceEvent(
+				doc({
+					...crossing.graph,
+					nodes: crossing.graph.nodes.map((n) =>
+						n.kind === 'group'
+							? { ...n, body: { ...n.body, nodes: [null, ...n.body.nodes] as unknown as Node[] } }
+							: n,
+					),
+				}),
+				'c_banner',
+				'done',
+			),
+			true,
+		);
+		eq(
 			'5. a wire crossing a group boundary owns (the stored doc keeps its groups)',
 			[
 				flowOwnsInstanceEvent(crossing, 'c_banner', 'done'),

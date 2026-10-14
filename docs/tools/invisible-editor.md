@@ -915,9 +915,12 @@ stay open and keep autosaving while you are on the Components side.
 - **◇ Open components** in the Library tab's Components panel.
 - The **Invisible Component Editor** card on the launcher home. It opens `/editor?view=components`.
 
-**↗ Show in Flow** (Properties → _Component instance_, or the right-click menu) saves your unsaved
-edits first, then opens [Invisible Flow](./flow.md) on the node that names this placement — or,
-when no node does yet, with the placement lit in Flow's **Components** palette, ready to drag out.
+**↗ Show in Flow** (Properties → _Component instance_, or the right-click menu) opens [Invisible
+Flow](./flow.md) on the node that names this placement — or, when no node does yet, with the
+placement lit in Flow's **Components** palette, ready to drag out. It only leaves from a clean,
+saved layout: while a save is still running, your edits are not saved yet, or the save pill wants a
+decision (Reload theirs / Overwrite, Retry, Take over), a message says so and you stay — settle
+the pill, then try again.
 It needs the placement to have a **name**: Flow lists named placements only. The link keeps this
 tab's project pinned. Flow's own **◇ Edit component** (or a double-click on its node, after a
 confirmation) comes back here, on that component, in place. A Flow Preview run with **Drive the

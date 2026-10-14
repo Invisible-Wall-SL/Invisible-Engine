@@ -66,10 +66,9 @@
 		cinematics?: { id: string; label: string }[];
 		/** Screen-timeline id → its node-actor problems (`validateNodeActors`, from the server). */
 		timelineIssues?: Record<string, string[]>;
-		/** The project pin every jump to `/editor` carries. */
 		onchange: (next: FlowDoc) => void;
-		/** Leave for another tool at `href` — the page flushes its autosave first. */
-		/** Open the placement's component in the Scene Editor (the page confirms first). */
+		/** Open the placement's component in the Scene Editor (the page confirms first, and refuses
+		 *  while the doc is unsaved). */
 		oneditcomponent?: (instanceId: string) => void;
 	} = $props();
 

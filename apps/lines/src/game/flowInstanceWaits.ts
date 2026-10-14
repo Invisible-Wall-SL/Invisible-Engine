@@ -30,6 +30,13 @@ export interface InstanceWaitDeps {
 	/** The scene a container renders; `undefined` ⇒ unknown, the handle's screen is not checked. */
 	sceneIdOf(container: string): string | undefined;
 	getFlowInstance(instanceId: string): FlowInstanceHandle | undefined;
+	getFlowInstanceOn(
+		instanceId: string,
+		sceneId: string | undefined,
+	): FlowInstanceHandle | undefined;
+	/** Forget every value kept for a mount; called by `dispose` so a torn-down game hands nothing
+	 *  to the next. */
+	clearFlowInstanceStash?(): void;
 	stashFlowInstanceInput(
 		instanceId: string,
 		input: string,
@@ -75,7 +82,7 @@ export interface InstanceWaits {
 	 *  hiding or leaving the screen, or by a slam; resolved at once when the instance is not on
 	 *  screen, has no such layer, or the round is already slammed. */
 	awaitInstanceState(ref: InstanceRef, layer: string, state: string): Promise<void>;
-	/** Release the drop-trace listener. */
+	/** Release the drop-trace listener and forget every value kept for a mount. */
 	dispose(): void;
 }
 
@@ -88,24 +95,21 @@ export const DROP_REASON: Record<Exclude<InstanceSetOutcome, 'set'>, string> = {
 
 export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 	const grace = deps.graceMs ?? INSTANCE_MOUNT_GRACE_MS;
-	const addressed = (
-		ref: InstanceRef,
-		handle: FlowInstanceHandle | undefined,
-	): FlowInstanceHandle | undefined => {
-		if (!handle) return undefined;
+	/** The handle mounted on the node's screen, or `undefined` — traced when the only mounted
+	 *  placement of that id is on another screen. */
+	const liveInstance = (ref: InstanceRef): FlowInstanceHandle | undefined => {
 		const scene = deps.sceneIdOf(ref.container);
-		if (scene !== undefined && handle.sceneId !== undefined && handle.sceneId !== scene) {
+		const handle = deps.getFlowInstanceOn(ref.instance, scene);
+		if (handle) return handle;
+		const elsewhere = deps.getFlowInstance(ref.instance);
+		if (elsewhere)
 			deps.trace(
 				'instance',
 				ref.instance,
-				`· not on screen '${ref.container}' (scene ${scene}; the handle is on ${handle.sceneId})`,
+				`· not on screen '${ref.container}' (scene ${scene}; the handle is on ${elsewhere.sceneId})`,
 			);
-			return undefined;
-		}
-		return handle;
+		return undefined;
 	};
-	const liveInstance = (ref: InstanceRef): FlowInstanceHandle | undefined =>
-		addressed(ref, deps.getFlowInstance(ref.instance));
 	const setInstanceInput = (ref: InstanceRef, input: string, value: unknown): void => {
 		const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
 		const scene = deps.sceneIdOf(ref.container);
@@ -122,7 +126,7 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 				'instance',
 				line,
 				elsewhere
-					? `(stashed for screen '${ref.container}'; the mounted '${ref.instance}' is on another screen)`
+					? `(stashed for container '${ref.container}' (scene ${scene}); the mounted '${ref.instance}' is on screen ${mounted.sceneId})`
 					: '(stashed)',
 			);
 		else deps.trace('instance', line, `· dropped (${DROP_REASON[outcome]})`);
@@ -142,6 +146,7 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 	const instanceWhenMounted = (ref: InstanceRef): Promise<FlowInstanceHandle | undefined> => {
 		const live = liveInstance(ref);
 		if (live || !deps.isShown(ref.container)) return Promise.resolve(live);
+		const scene = deps.sceneIdOf(ref.container);
 		return new Promise((resolve) => {
 			let settled = false;
 			const finish = (handle: FlowInstanceHandle | undefined): void => {
@@ -149,12 +154,14 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 				settled = true;
 				unwatch();
 				clearTimeout(timer);
-				resolve(addressed(ref, handle));
+				resolve(handle);
 			};
-			const unwatch = deps.watchFlowInstance(ref.instance, (next) => {
-				if (next) finish(next);
+			// A registration on another screen is not the one awaited: keep waiting for the grace.
+			const unwatch = deps.watchFlowInstance(ref.instance, () => {
+				const mine = deps.getFlowInstanceOn(ref.instance, scene);
+				if (mine) finish(mine);
 			});
-			const timer = setTimeout(() => finish(deps.getFlowInstance(ref.instance)), grace);
+			const timer = setTimeout(() => finish(deps.getFlowInstanceOn(ref.instance, scene)), grace);
 		});
 	};
 	const awaitInstanceState = async (
@@ -245,6 +252,9 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 		readInstanceValue,
 		instanceWhenMounted,
 		awaitInstanceState,
-		dispose: () => stopDropTrace(),
+		dispose: () => {
+			stopDropTrace();
+			deps.clearFlowInstanceStash?.();
+		},
 	};
 }

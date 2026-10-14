@@ -98,6 +98,34 @@ const withProject = (projectKey: string): URLSearchParams => {
 	return params;
 };
 
+/**
+ * Why a hop to the other tool is refused right now, or `null` when the doc is clean and idle. A
+ * save landing over a later edit clears the shared `SaveState`'s dirty flag without it (fixed in
+ * its own PR), so the only safe hop is from a clean, idle doc; every other state names the pill's
+ * own way out.
+ */
+export function hopRefusal(save: {
+	status: 'idle' | 'saving' | 'saved' | 'error' | 'conflict' | 'scope-mismatch';
+	dirty: boolean;
+	readOnly?: boolean;
+}): string | null {
+	if (save.readOnly) return 'Another author holds this document — Take over (or reload) first.';
+	switch (save.status) {
+		case 'saving':
+			return 'Still saving — try again in a moment.';
+		case 'conflict':
+			return 'Someone else saved meanwhile — choose Reload theirs or Overwrite in the save pill first.';
+		case 'scope-mismatch':
+			return 'This tab is on another project — reload it first.';
+		case 'error':
+			return 'The last save failed — Retry in the save pill first.';
+		default:
+			return save.dirty
+				? 'Your edits are not saved yet — they save in a moment; try again then.'
+				: null;
+	}
+}
+
 /** `/flow-v2` opened on the node(s) naming a placed instance — the Scene Editor's *Show in Flow*.
  *  With no such node yet, the page highlights the instance in the palette. */
 export function flowHrefForInstance(projectKey: string, instanceId: string): string {

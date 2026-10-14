@@ -2139,9 +2139,14 @@
 				// body the button press runs (shared with v1's `invokeIntent`).
 				(intent) => invokeHostIntent(intent),
 			);
+			// A Game destroyed while the scenes loaded publishes nothing: the handle is released and
+			// no screen, mode or `load` runs on a dead Game.
+			if (destroyed) {
+				flowV2?.dispose();
+				return;
+			}
+			disposeFlowV2 = flowV2?.dispose;
 			setFlowV2(flowV2);
-			if (destroyed) flowV2?.dispose();
-			else disposeFlowV2 = flowV2?.dispose;
 			// The mode stack presents its transitions through this flow's Mode trigger entries, if any.
 			setModeTransitionPresenter(flowV2?.presentModeTransition);
 			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A

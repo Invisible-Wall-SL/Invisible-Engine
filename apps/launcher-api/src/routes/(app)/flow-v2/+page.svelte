@@ -36,6 +36,7 @@
 	import {
 		editorHrefForComponent,
 		flowDeepLink,
+		hopRefusal,
 		nodeNamingInstance,
 		paletteInstanceGroups,
 		stalePinsOf,
@@ -757,6 +758,16 @@
 		},
 	});
 	const saveDoc = (force = false) => void saveState.save({ force });
+	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
+	// doc saves (and a hop is allowed) without another edit.
+	let wasReadOnly = untrack(() => lease.readOnly);
+	$effect(() => {
+		const readOnly = lease.readOnly;
+		untrack(() => {
+			if (wasReadOnly && !readOnly && saveState.dirty) saveState.rearmAutosave();
+			wasReadOnly = readOnly;
+		});
+	});
 
 	// Every editing gesture calls this after mutating `doc`. It arms the trailing debounce; a
 	// fresh gesture within the window resets it (coalescing a burst of edits into one save). The
@@ -963,22 +974,26 @@
 	// §6.2 step 4), keeping the project pin.
 	let lastClickId: string | null = null;
 	let lastClickAt = 0;
-	// Leave for another tool page. Never with an edit in flight or unsaved: a save that lands while
-	// a later edit is pending clears the dirty flag without it (`SaveState`, fixed separately), so
-	// the only safe hop is from a clean, idle doc — otherwise say so and stay.
+	// Leave for another tool page — only from a clean, idle doc (`hopRefusal`): otherwise say what
+	// the pill's way out is and stay.
+	const refuseHop = async (): Promise<boolean> => {
+		const why = hopRefusal({
+			status: saveState.status,
+			dirty: saveState.dirty,
+			readOnly: lease.readOnly,
+		});
+		if (!why) return false;
+		await askMessage({ title: 'Not yet', message: why });
+		return true;
+	};
 	async function hopTo(href: string): Promise<void> {
-		if (saveState.busy || saveState.dirty) {
-			await askMessage({
-				title: 'Saving…',
-				message: 'Your flow is still saving — try again in a moment.',
-			});
-			return;
-		}
+		if (await refuseHop()) return;
 		window.location.assign(href);
 	}
 	async function editComponentOf(instanceId: string): Promise<void> {
 		const decl = instances[instanceId];
 		if (!decl) return;
+		if (await refuseHop()) return;
 		const ok = await askConfirm({
 			title: `Edit component '${decl.componentId}'?`,
 			message: `Opens ${decl.name}'s component in the Scene Editor, in place.`,

@@ -500,6 +500,37 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		[stillKept, applied],
 		[true, ['hud:amount=9']],
 	);
+	G.stashFlowInstanceInput('c_banner', 'amount', 1);
+	G.stashFlowInstanceInput('c_banner', 'amount', 2, 'hud');
+	G.stashFlowInstanceInput('c_banner', 'amount', 3);
+	applied.length = 0;
+	G.registerFlowInstance(onScreen('hud'))();
+	eq(
+		'5. kept values apply in arrival order on mount, screen-named or not: the last set wins',
+		applied,
+		['hud:amount=2', 'hud:amount=3'],
+	);
+	// Two screens mount the same id, basegame on top: a set addressed to hud lands on the hud
+	// handle under it, is not stashed, and a live set supersedes a value still kept for that screen.
+	const offHud = G.registerFlowInstance(onScreen('hud'));
+	const offBaseTop = G.registerFlowInstance(onScreen('basegame'));
+	applied.length = 0;
+	const toHud = G.stashFlowInstanceInput('c_banner', 'amount', 9, 'hud');
+	const onHud = G.getFlowInstanceOn('c_banner', 'hud')?.sceneId;
+	offBaseTop();
+	G.stashFlowInstanceInput('c_banner', 'amount', 10, 'hud');
+	offHud();
+	G.registerFlowInstance(onScreen('hud'))();
+	eq(
+		'5. a set addressed to a screen reaches the handle on it anywhere in the stack; a remount replays no stale value',
+		[toHud, onHud, applied],
+		['set', 'hud', ['hud:amount=9', 'hud:amount=10']],
+	);
+	G.stashFlowInstanceInput('c_banner', 'amount', 4, 'hud');
+	G.clearFlowInstanceStash();
+	applied.length = 0;
+	G.registerFlowInstance(onScreen('hud'))();
+	eq('5. clearing the stash hands nothing to the next mount', applied, []);
 	G.stashFlowInstanceInput('c_banner', 'amount', 1, 'basegame');
 	G.stashFlowInstanceInput('c_banner', 'amount', 2, 'hud');
 	applied.length = 0;
@@ -704,14 +735,22 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 // ---- 6b. the game env's waits ------------------------------------------------------------------
 {
 	const tick = (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
-	const waits = (shown: boolean, trace: string[], sceneOf?: string, graceMs = 20) => {
+	const waits = (
+		shown: boolean,
+		trace: string[],
+		sceneOf?: string,
+		graceMs = 20,
+		dropFeed = true,
+	) => {
 		const skip = createSkipToken();
 		const w = createInstanceWaits({
 			isShown: () => shown,
 			sceneIdOf: () => sceneOf,
 			getFlowInstance: G.getFlowInstance,
+			getFlowInstanceOn: G.getFlowInstanceOn,
+			clearFlowInstanceStash: G.clearFlowInstanceStash,
 			stashFlowInstanceInput: G.stashFlowInstanceInput,
-			onFlowInstanceDrop: G.onFlowInstanceDrop,
+			onFlowInstanceDrop: dropFeed ? G.onFlowInstanceDrop : undefined,
 			watchFlowInstance: G.watchFlowInstance,
 			skip,
 			trace: (op, ...rest) => void trace.push([op, ...rest].join(' ')),
@@ -946,10 +985,9 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		const w = waits(true, trace, 'basegame');
 		w.setInstanceInput(ref, 'amount', 5);
 		w.setInstanceInput(ref, 'gone', 1);
-		const onOther = waits(true, trace, 'hud');
+		const onOther = waits(true, trace, 'hud', 20, false); // one drop feed: `w`'s
 		onOther.setInstanceInput(ref, 'amount', 7);
 		const readOther = onOther.readInstanceValue(ref, 'main.state');
-		onOther.dispose(); // one drop feed from here on: `w`'s
 		const readOwn = w.readInstanceValue(ref, 'main.state');
 		unregister();
 		w.setInstanceInput(ref, 'amount', 8);
@@ -963,7 +1001,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 				[
 					'instance c_banner.amount = 5',
 					'instance c_banner.gone = 1 · dropped (no such input)',
-					"instance c_banner.amount = 7 (stashed for screen 'basegame'; the mounted 'c_banner' is on another screen)",
+					"instance c_banner.amount = 7 (stashed for container 'basegame' (scene hud); the mounted 'c_banner' is on screen basegame)",
 					"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
 					'instance c_banner.amount = 8 (stashed)',
 				],
@@ -996,7 +1034,40 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 				],
 			],
 		);
+		// A set kept for a mount is forgotten on dispose (a torn-down game hands the next one nothing).
+		w.setInstanceInput(ref, 'amount', 11);
 		w.dispose();
+		const after: string[] = [];
+		G.registerFlowInstance({
+			...handle,
+			sceneId: 'basegame',
+			setInput: (i: string, v: unknown) => {
+				after.push(`${i}=${JSON.stringify(v)}`);
+				return 'set' as const;
+			},
+		})();
+		eq('6b. dispose forgets every kept value', after, []);
+		G.clearFlowInstances();
+	}
+	{
+		// Two screens mount one id, basegame on top: a node naming hud reads, sets and waits on the
+		// hud handle under it.
+		const trace: string[] = [];
+		const hudState = { main: 'win', shown: true };
+		const baseState = { main: 'idle', shown: true };
+		const hud = liveHandle(hudState);
+		const base = liveHandle(baseState);
+		const offHud = G.registerFlowInstance({ ...hud.handle, sceneId: 'hud' });
+		const offBase = G.registerFlowInstance({ ...base.handle, sceneId: 'basegame' });
+		const w = waits(true, trace, 'hud');
+		eq(
+			'6b. a node naming a screen reaches the handle on it under another screen’s same-id one',
+			[w.readInstanceValue(ref, 'main.state'), w.liveInstance(ref)?.sceneId, trace],
+			['win', 'hud', []],
+		);
+		w.dispose();
+		offBase();
+		offHud();
 		G.clearFlowInstances();
 	}
 	{
@@ -1122,10 +1193,9 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		[
 			'destroyed = true;',
 			'disposeFlowV2?.();',
-			'if (destroyed) flowV2?.dispose();',
-			'else disposeFlowV2 = flowV2?.dispose;',
+			'if (destroyed) {\n\t\t\t\tflowV2?.dispose();\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tdisposeFlowV2 = flowV2?.dispose;\n\t\t\tsetFlowV2(flowV2);',
 		].map((line) => source('apps/lines/src/components/Game.svelte').includes(line)),
-		[true, true, true, true],
+		[true, true, true],
 	);
 	eq(
 		'8. a raised event plays no press sound',

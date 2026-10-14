@@ -144,6 +144,20 @@ const at = { x: 0, y: 0 };
 		['/flow-v2?project=proj&instance=c_a', '/editor?project=proj&component=banner'],
 	);
 	eq(
+		'3. a hop is refused from anything but a clean, idle doc, naming the pill’s way out',
+		[
+			U.hopRefusal({ status: 'saved', dirty: false }),
+			U.hopRefusal({ status: 'idle', dirty: false }),
+			U.hopRefusal({ status: 'saving', dirty: true })?.startsWith('Still saving'),
+			U.hopRefusal({ status: 'saved', dirty: true })?.includes('not saved yet'),
+			U.hopRefusal({ status: 'conflict', dirty: true })?.includes('Reload theirs or Overwrite'),
+			U.hopRefusal({ status: 'error', dirty: true })?.includes('Retry'),
+			U.hopRefusal({ status: 'scope-mismatch', dirty: false })?.includes('another project'),
+			U.hopRefusal({ status: 'saved', dirty: false, readOnly: true })?.includes('Take over'),
+		],
+		[null, null, true, true, true, true, true, true],
+	);
+	eq(
 		'3. the Flow page reads its deep link',
 		[
 			U.flowDeepLink(new URLSearchParams('project=proj&instance=c_a')),
@@ -370,7 +384,9 @@ const at = { x: 0, y: 0 };
 			'`/api/flow-v2/instances?project=${encodeURIComponent(data.projectKey)}`',
 			'if (body.projectKey !== data.projectKey || !body.instances) return;',
 			'void editComponentOf(model.instance);',
-			'if (saveState.busy || saveState.dirty) {',
+			'if (await refuseHop()) return;\n\t\twindow.location.assign(href);',
+			'if (await refuseHop()) return;\n\t\tconst ok = await askConfirm({',
+			'if (wasReadOnly && !readOnly && saveState.dirty) saveState.rearmAutosave();',
 			'if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));',
 			'oneditcomponent={(instanceId) => void editComponentOf(instanceId)}',
 			'.filter((issue) => !touchesUnpinned(issue)),',
@@ -385,6 +401,8 @@ const at = { x: 0, y: 0 };
 			'<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />',
 		]),
 		[
+			true,
+			true,
 			true,
 			true,
 			true,
@@ -513,7 +531,7 @@ const at = { x: 0, y: 0 };
 				'const onKey = (): void => closeInstanceMenu();',
 			]),
 			has(editor, [
-				"lastError = 'Saving — try again in a moment.';",
+				"await askMessage({ title: 'Not yet', message: why });",
 				'window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));',
 				'onShowInFlow={animating ? undefined : (node) => showInFlow(node.id)}',
 				'onShowInFlow={showInFlow}',

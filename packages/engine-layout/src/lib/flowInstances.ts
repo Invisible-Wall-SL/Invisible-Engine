@@ -119,6 +119,15 @@ export function getFlowInstance(instanceId: string): FlowInstanceHandle | undefi
 	return live.get(instanceId)?.at(-1);
 }
 
+/** The last mounted handle for a placed node id ON `sceneId` (any screen when undefined) — a
+ *  placement under another screen's same-id one is still reached by a node naming its screen. */
+export function getFlowInstanceOn(
+	instanceId: string,
+	sceneId: string | undefined,
+): FlowInstanceHandle | undefined {
+	return live.get(instanceId)?.findLast((handle) => onScreen(handle, sceneId));
+}
+
 /** Set an input on the instance mounted on `sceneId` (any screen when undefined) and return the
  *  outcome — or, when no placement is mounted THERE (none at all, or only one on another screen,
  *  which never takes it), keep the value for the next mount on that screen (last write per screen
@@ -129,12 +138,26 @@ export function stashFlowInstanceInput(
 	value: unknown,
 	sceneId?: string,
 ): InstanceSetOutcome | 'stashed' {
-	const handle = getFlowInstance(instanceId);
-	if (handle && onScreen(handle, sceneId)) return handle.setInput(input, value);
+	const key = stashKey(sceneId, input);
+	const handle = getFlowInstanceOn(instanceId, sceneId);
+	if (handle) {
+		// A live set supersedes anything still kept for that screen and input.
+		stashed.get(instanceId)?.delete(key);
+		return handle.setInput(input, value);
+	}
 	let pending = stashed.get(instanceId);
 	if (!pending) stashed.set(instanceId, (pending = new Map()));
-	pending.set(stashKey(sceneId, input), { input, value, sceneId });
+	// Re-inserted, not updated in place: on mount the kept values apply in ARRIVAL order, so the
+	// last set wins whether it named the screen or not.
+	pending.delete(key);
+	pending.set(key, { input, value, sceneId });
 	return 'stashed';
+}
+
+/** Forget every value kept for a mount (a game being torn down must not hand its sets to the next
+ *  one). Mounted handles and watchers stay. */
+export function clearFlowInstanceStash(): void {
+	stashed.clear();
 }
 
 /** Run `listener` with the handle on each registration under `instanceId`, and with `undefined`
