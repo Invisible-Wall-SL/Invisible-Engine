@@ -955,6 +955,24 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-14 — **A pot built from pieces (the firecracker pot)** (branch
+  `claude/admiring-noether-ptegsa`). The pot's body can be N placements of one authored piece, each
+  lighting at its own fill threshold, bottom → top, the coin head last; lit pieces fire on
+  `potActivate`. Walkthrough: [pot-from-pieces](../guides/pot-from-pieces.md). What landed:
+  - **State machine:** a number condition may compare against the placed instance's number param
+    (`SmCondition.param`, e.g. `share >= {lightAt}`); new ops `<=` / `>=`. The runner takes the
+    instance's params; the normalizer keeps `param`; the State Machine panel offers **value** or
+    `{param}` per condition.
+  - **Inputs:** a `{key}` in a number input's `source` expands from the instance's params, else the
+    enclosing instance's, so a piece inside a pot reads `meter.{meter}.share` through the pot.
+  - **Game:** each meter registers `meter.<id>.share` (level / max, 0..1); catalogued for bindings.
+  - **Editor:** a container holding pieces (instances whose def has a `lightAt` param) shows
+    **🔥 Light order: bottom → top** (`potPieces` + `lightOrderThresholds`, `potPieces.ts`).
+  - Gate: `check:component-state-machine` §8. Not yet eyeballed in a live game: the owner authors the
+    firecracker and checks a pot fills bottom → top.
+  - Not built: a staggered fire (each piece firing a beat after the one below). Today every lit piece
+    fires on the same `potActivate`; a per-piece delay would need a param-driven offset on a state.
+
 - 2026-10-14 — **Tokens can roll with the reels.** New third timing `withReel`
   (`OVERLAY_TIMINGS`, `storedOverlayTiming`): the drop's tokens roll in on their cells and land with
   the reel; other tokens roll past without landing. See "Rolling timing" above. Fixture:
