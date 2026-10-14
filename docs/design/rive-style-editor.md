@@ -652,7 +652,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
-| 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
+| 8 | **Migrate the coded overlays** — plan in §13 (inventory + 8a design, 2026-10-14) | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
 
@@ -703,3 +703,209 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
    must own, and it is the biggest single fork in §7. Not needed before Phase 10.
 7. **Rive references.** Screenshots or a short recording of the Rive screens you want copied
    would sharpen Phases 4 and 9.
+
+## 13. Phase 8: overlay migration (plan — 8a Transition first)
+
+> Plan only. Progress lives in [status/engine.md](../status/engine.md),
+> [status/component-editor.md](../status/component-editor.md) and [status/cinematic.md](../status/cinematic.md).
+> Owner policy for the pilot (coordinator default, 2026-10-14, pending owner input): the flag is
+> **off for every live game and project**; the coded Transition stays the default path everywhere;
+> the authored Transition is piloted on the `apps/lines` dev build (or a dev/test project), never
+> turned on for a live game in the 8a PR; live games switch only after an owner browser check.
+
+Phase 8 migrates the coded overlays to authored components one at a time, each behind a flag, in
+the order **Transition → Win → free-spin intro/outro → buttons**, and retires each coded mount only
+once its authored version matches on screen (`invisible-editor.md` §8.7 "defang, don't gut"). 8a
+is the Transition only. The other three are inventoried here so 8b–8d start from the same map;
+nothing about them changes in 8a.
+
+### 13.1 Inventory of the coded overlays (2026-10-14, `main` 038bcd9)
+
+Every coded overlay today is a `bind` node inside an authored scene (the §8.7 hatch), and three of
+the four already have a `componentInstance` twin whose bound child renders the same coded part at
+the node's position (`boundToInstance: true`, the 2026-06-19 "hybrid"). None has a Timeline or a
+state machine. The driver for all of them is the Flow v2 reference choreography
+(`packages/engine-flow-v2/src/reference/bookOfChoreo.ts`); the coded `bookEventHandlerMap`
+handlers in `apps/lines` are state-only and no longer show any of them.
+
+| | **Transition** | **Win** | **Free-spin intro / outro** | **Buttons** |
+|---|---|---|---|---|
+| **Mounts** | `basegameOverlays` node `bound-transition` → `bind: { component: 'Transition' }` (`referenceLayouts/lines.ts:143-164`, same node in `bookof.ts:206` and `engineSkeleton.ts:166`); the scene is mounted unconditionally (`Game.svelte:2567`). Coded part: `packages/engine-game/src/components/Transition.svelte` + `TransitionAnimation.svelte`; registered in `registerBoundComponents` (`Game.svelte:482-490`). Twin: `TRANSITION_DEF` (`builtinComponents.ts:845-874`, id `transition`), emitted by the fallback doc only when `TRANSITION_INSTANCE` (`apps/lines/src/game/editorFlags.ts:35`, **off**). | `basegameOverlays` `bind:Win` (composer) or `bind:WinGate` + a `game`-space `componentInstance(win)` when split (`lines.ts:170-215`, `WIN_INSTANCE` off). `Win.svelte` = `WinGate` (dim, count-up driver, press, round hold) + `WinVisual` (rig, count, caption, coins). Twin: `WIN_DEF` (`builtinComponents.ts:1170`). `resolveWinMount` (`engine-game/winOwnership.ts`) keeps exactly one `winUpdate` subscriber. | Screens `freeSpinIntro` / `freeSpinOutro` (`engine-layout/freeSpinScenes.ts`): a `tapToContinue` instance + a container `bind:FreeSpinIntroVisual` / `bind:FreeSpinOutroVisual`. Headless `FreeSpinOutroDriver` mounted under a v2 flow (`Game.svelte:2562`). Twins: `FREE_SPIN_INTRO_VISUAL_DEF` / `FREE_SPIN_OUTRO_VISUAL_DEF` (`builtinComponents.ts:887,944`). The coded composers were retired in #807. | Two paths: coded `UI.svelte` → `UIDefault` → `Layout*` (`components-ui-pixi`; cluster / ways / scatter / price, the book-of reference) and the parametric `componentInstance(button)` → `BUTTON_DEF` → bound `ButtonFrame` + `ButtonLabel` (`apps/lines` default, `HUD_BUTTON_INSTANCES = true`). Confirm dialogs: `CONFIRM_DIALOG_DEF` with `pressAction` containers and signals `confirm` / `cancel`. |
+| **Renders / animates** | One rig: asset key `transition` (`apps/lines/src/game/assets.ts:265`, static in every game, scale 2), clip `animation`, **≈1.667 s**, no Spine events; `RigProvider` at canvas centre, `height = canvasHeight × 1.7`. No tween, no FX, no sound, no text. | Count-up (`WinCountUpProvider`, linear, `presentDuration` per tier from `winLevelMap.ts`: 0.6 s … 32 s), the `bigwin` rig (`<tier>_win_intro/idle/exit`, escalation chain), coin particles (`fountain`), count text in font `gold` (`bookEventAmountToCurrencyString`), optional tier caption from the Win Text doc, dim 0.5 on big tiers. Sounds from the choreography (`bgm_winlevel_*`, `sfx_bigwin_coinloop`). | Intro: `fsIntro` frame rig + `fsIntroNumber` rig + sprites `freespins_{lang}.png` + the count in font `gold`. Outro: the same frame, `fsOutroNumber`, `winsmall_{lang}.png` / `totalwin.png`, a count-up with `CountUpInteraction`. Sounds from the choreography (`sfx_superfreespin`, `jng_intro_fs`, `sfx_youwon_panel`). | Painted tiles or `image*` state frames (`buttonStateImage.ts` cascade spinning → disabled → pressed → hover → selected), a ticker rotation while spinning, `UiFadeContainer` on `uiShow` / `uiHide`; no tween on the coded tile; press sounds `soundPressGeneral` / `soundPressBet` / `soundPressStop`. `RigNode.stateAnimations` exists for art buttons only. |
+| **Driven by** | Emitter event `{ type: 'transition' }`, **awaited**: `Transition.svelte` subscribes and holds `broadcastAsync` until the rig's `complete`. Fired by the v2 `fireCue transition {wait}` in `freeSpinTrigger` (`bookOfChoreo.ts:269`, unskippable) and `freeSpinEnd` (`:332`, raced by the slam); `flowV2Runtime.svelte.ts:642-669` awaits `Promise.all([waitPresentation(cueAnimationMs/timeScale), broadcastAsync])`; `boundComponentMs` (`:521-525`) tells `showContainer.durationMs` the clip length. The v1 fixture (`flowDoc.ts:124,167`) is dev-only. The coded handlers never fire it. | `setWin` → `winShow` · `winUpdate{amount, winLevelData}` (awaited, `awaitCue`; unskippable when big) · `winHide`. Taps through `PressToContinue` / `CountUpInteraction`. Signals `win`, `bigWin`, `winCountUpComplete`; values `winCountUpAmount`, `win`, `totalWin`. | Screen holds from `drivenSeed.ts` `withFreeSpinScreenHolds`: `Show(intro)` … `Show(intro, awaitComplete)` released by the tap; the outro count-up through `awaitPresentation('freeSpinOutroCountUp')`, always raced. Signals `freeSpinStart` / `freeSpinEnd` / `freeSpinOutroCountUpComplete`; values `freeSpinsWon`, `freeSpinOutroTotalWin`. | `pressAction` names → `firePress` → `getFlowPress()` (`resolveFlowV2Press`, container event pins) → else the coded `registerComponentActions` body; gates from XState / `stateBet` (`isSpinButtonDisabled`, `isCelebrationLocked`, …). |
+| **Used by** | Every lines / bookOf / ways / scatter / cluster / holdAndWin project carries the node; it plays only under a flow that fires `transition` (every driven-seed project, on free-spin entry and exit). Book of Borut may place the `transition` twin (editor-doc-driven). | Every reference layout (`bind:Win`); Borut places the `win` visual and authors the gate out. | Every reference layout and template seeds both screens; test2–test6 lost theirs pending data migration (#807). | `apps/lines` parametric; the other reference games coded. |
+| **Per-game customisation** | None: no params, fixed asset and clip; position only through the twin. | Per-tier params (`<alias>Spine/Slot/Intro/Idle/Outro/Duration`), Win Text doc (`winLevels`, `amountFormat`), `bakedWinPresentationParams()`. | Def params (`introSpine`, `idleAnimation`, `slotName`, …), scene overrides, `tapArmAfterSignal`. | Instance params (`variant`, `tint`, `image*`, `label`), `stateAnimationOverrides`, baked custom defs shadowing `button`. |
+| **Gates today** | **None** behavioural (`test-engine-owned-only.mjs` asserts the node's presence only). | `check:engine-game` (`winTapLand`, `winLadder`), `check:big-win-cue`, `check:win-x`, win-text gates, `fs7Win`. | `pressAfterArm`, `winLadder`, `introRevealRetrigger`, `fs7Outro`. | `check:hud-menu-pins`, the listeners/events and state-machine gates (confirm dialog), the harness. |
+| **current-games** | No screen targets it; `fs-trigger` is captured at a fixed frame and may or may not land on the wipe. | `bigwin-x10…x120`. | `fs-trigger`, `fs-board`, `fs-spin`, `fs-settled`. | `loaded`, `idle`, `spin`. |
+
+What the inventory decides for the order: the Transition is the only overlay with **no text, no
+sound, no params, no round state and one fixed clip**, so it is the pure proof of the
+component-timeline path. Win and the free-spin outro share a count-up and a round hold
+(`winState` / `freeSpinOutroState`), so 8b–8c reuse one "awaited count-up" pattern after 8a has
+proven the hold. Buttons are last because their behaviour is the press road, not an animation;
+8d is "`stateAnimations` and `image*` frames become a seeded state machine" on the existing
+`button` def.
+
+### 13.2 8a design: the Transition as an authored component
+
+**The component.** A new built-in `ComponentDef`, id `transitionWipe` ("Transition wipe",
+`scope: 'shared'`, `category: 'overlay'`), beside — not instead of — the existing `transition`
+twin. A new id touches no published doc (every game that baked a copy of `transition` would
+otherwise render "as republished" in the harness, and Borut's placed twin would change under it).
+Its root is one rig node named **`wipe`**: the engine bundle `transition`, resting on no clip
+(nothing drawn until the timeline plays), `coverFit: true`, `fit: 'height'`, `coverScale: 1.7`
+— the same cover math a `background` node uses, so the authored wipe sizes to the canvas height
+the way `TransitionAnimation`'s `height = canvasHeight × 1.7` does, on every layout type and on an
+authored Canvas Size. (If `coverFit` on a rig node inside an instance does not reproduce the coded
+box to within the tolerance, the fallback is a per-layoutType scale in the def's device layouts,
+measured once per layout type; the parity gate decides.)
+
+**The Timeline.** A built-in `CinematicDoc`, id `c_transitionWipe_wipe`, `host: { kind:
+'component', componentId: 'transitionWipe' }`, one node actor `wipe` with one **`animation`**
+track: a single strip of clip `animation` from 0 to its clip length (read from the loaded skeleton,
+≈1667 ms), no loop. `playOn: 'transition'` and the new field below. Built-in timelines are a new
+code module, `engine-layout/builtinTimelines.ts` (`BUILTIN_TIMELINES`), registered at boot by
+`registerBakedComponents()` as `registerComponentTimelines([...BUILTIN_TIMELINES,
+...bakedCinematics()])` — built-ins first, so a project doc with the same id shadows one, exactly
+as a project component shadows a built-in def. A built-in timeline is code, like a built-in def:
+**no new asset class** (rule 8). The rig it plays is `assets.ts`' static `transition` bundle,
+already in every game and in every delivery.
+
+**`animation` strips on rig node actors (new in 8a, §3.1's open item).** The evaluator already
+samples `animation` tracks for rig actors; the component player (`componentTimelines.ts`) gains the
+same for a `kind: 'node'` actor whose node is a rig: its sample carries `animTime: { animation,
+time }`, and the node driver feeds it into the rig's existing `animTime` value-binding fold
+(`valueBindings.ts` `animTimeScrubs`, the Hold and Win 12b scrub), so a strip does to a rig node
+exactly what a scrubbed binding does. A strip's end holds its last frame (the 4b rule). Screen
+timelines get the same for free; `/rigger` cast actors are untouched. Win (8b) and the free-spin
+rigs (8c) need this too, so it is built once here. Fallback if the owner judges this too large for
+8a: the rig node's existing `cues` ("Plays on signal `transition` → `animation`,
+`completeSignal`") with no timeline — rejected as the default because it proves nothing about the
+Timeline path Phase 8 exists to prove.
+
+**The trigger and the hold (timing parity).** The game fires `transition` as today: the v2
+`fireCue transition {await}` reaches the instance through the open signal bus (`emitComponentSignal`
+→ `getComponentSignal('transition')`, the 4b road), and the `playOn` timeline starts. What the
+coded part adds — holding the awaited broadcast until the rig completes — becomes one new,
+opt-in timeline field: **`CinematicDoc.holdsCue?: true`** ("Holds the cue until done", a tick
+beside **Plays on** in Animate). An instance whose started timeline carries it registers the play's
+end with a small Svelte-free registry (`engine-layout/cueHolds.ts`: `holdCue(cue, promise)` /
+`cueHolds(cue)`); the v2 runtime's awaited `broadcast(cue)` adds `Promise.all(cueHolds(cue))` to
+the `Promise.all` it already awaits (`broadcastAsync` + the measured `waitPresentation`). So the
+flow continues at the same point: the end of the wipe. The hold is observed, not measured, so it
+is right under turbo and on a slow frame, as the coded `complete` is; a looping timeline never
+holds; an instance that is not mounted holds nothing (as an unmounted coded part would not
+subscribe). `awaitCue` wraps the whole await as today, so the slam rule is unchanged: the
+free-spin-entry wipe stays unskippable, the exit wipe stays raced. Default off ⇒ every existing
+`playOn` timeline keeps its fire-and-forget timing (parity). `boundComponentMs` keeps measuring
+the coded part for `showContainer.durationMs`; with the flag on there is no bound part in the
+scene and `cueAnimationDurationMs` gains the same rule (a `holdsCue` timeline a mounted instance
+plays on that cue counts for its length), so a `Delay` wired off `durationMs` reads the same
+number either way.
+
+**The flag (per project, default off).** A sparse boolean in the Scene Editor's existing
+per-project game settings, `LayoutDoc.settings.authoredOverlays?: { transition?: true }`
+(`GameSettings`, `engine-layout/types.ts:1287`), written only when on — the pattern the symbols
+doc's `winExplode: { enabled: true }` set ("an implicit trigger would fire on every existing
+project and break byte-parity"). It needs no new storage, export, bake or pull: `settings` rides
+inside `bundle.doc` through live, publish (`runtime.json`) and the offline bake already. Three
+things to thread: `normalizeGameSettings` (`editorStorage.ts:236`, a whitelist — an unthreaded
+field round-trips away) and the `check:doc-readers-unknown-fields` §settings case; the `/editor`
+Game Settings panel gains an **Authored overlays (pilot)** block with one row, *Transition*, and
+`buildGameSettings()` keeps returning `undefined` when every setting is default; and the publish
+chip (`gameProfile.ts`) names it, so a publish shows what it ships. The `apps/lines` dev build
+pilots it the way its other engine flips are piloted: a module constant
+`AUTHORED_TRANSITION = false` in `editorFlags.ts` shapes the fallback doc (`settings` + node), and a
+dev URL opt-in `?authoredTransition=1` (beside `?flowV2=lines`, which the pilot needs anyway: the
+coded handlers never fire `transition`) flips it for one boot, which is what the parity gate uses.
+
+**How the runtime picks the path.** From the doc, after `loadEditorScenes()` settles and before any
+scene mounts, in the one place that already rewrites `basegameOverlays` (`Game.svelte:1071`,
+the Win degrade): with the flag on, every `bind: { component: 'Transition' }` node becomes
+`{ kind: 'componentInstance', componentId: 'transitionWipe', screenAnchor: { x: 0.5, y: 0.5 } }`,
+and the coded `Transition` bound part is retired for that boot (`registerBoundComponents` maps
+`Transition` to a part that renders nothing and subscribes to nothing), so a project that also
+placed the `transition` twin (Borut) plays one wipe, not two. With the flag off the scene object is
+returned unchanged — the same `=== scene` return the Win degrade makes — and `transitionWipe` is a
+registered def nothing references (parity, as `TRANSITION_DEF`'s registration is today). The
+emitter vocabulary, the Flow vocabulary (`transition` stays a cue), the choreography and every
+shipped FlowDoc are untouched.
+
+**Removal, later (not in 8a).** When the owner switches the live games: (1) the `transition`
+built-in def's next version replaces its bound child with the `wipe` rig node and the timeline
+(pinned instances update per instance, the designed path); (2) the reference layouts emit the
+authored node; (3) `Transition.svelte`, `TransitionAnimation.svelte`, `boundToInstance`,
+`TRANSITION_INSTANCE` and `boundComponentMs`'s Transition case are deleted; (4) the flag becomes a
+no-op, is dropped from the normalizer one release later, and the `authoredOverlays` block keeps
+only the rows 8b–8d still need. `holdsCue`, built-in timelines and rig-node strips stay: they are
+the general mechanism.
+
+### 13.3 The parity proof (gates, all behavioural)
+
+- **Flag off: byte-identical.** The current-games harness must report **0 changed screens** on
+  the PR (every fixture and every live doc has no `authoredOverlays`). A new launcher gate,
+  `check:authored-transition`, drives the real code: the overlays rewrite returns the same scene
+  object for every reference layout and for a doc with the twin placed; the registered coded
+  `Transition` still mounts under headless Pixi, subscribes to `transition`, and resolves the
+  awaited broadcast on the rig's `complete`; `normalizeGameSettings` keeps `{ transition: true }`
+  and drops nothing else; `check:component-timelines` (39), `check:component-state-machine` (89)
+  and `check:cinematic-*` stay green with the built-in timeline registered first; a `playOn`
+  timeline without `holdsCue` still returns from an awaited fire at once.
+- **Flag on: authored vs coded frames.** A root gate, `check:transition-parity`
+  (`scripts/check-transition-parity.mjs`, run by the Lint workflow like the other `check:*`): it
+  boots the built `apps/lines` twice in the headless shell (`scripts/playtest/headless-shell.mjs`,
+  `?ie_determinism=<seed>`, 1280×720, DPR 1, the book mock with `FORCE_TRIGGER=1`, `?flowV2=lines`),
+  once as built and once with `?authoredTransition=1`; it steps frames until the `transition` cue
+  fires (the determinism probe's `state()` gains an additive `cues` list, the fired cue names in
+  order — `DeterminismApi`, `apps/lines/src/game/determinism.ts`), captures at **0, 400, 800, 1200 and
+  1600 ms** after it (frames 0 / 24 / 48 / 72 / 96 at 60 fps), and compares each pair with
+  `pixelmatch` under `scripts/current-games/tolerance.json`'s defaults (≤ 0.1 % differing pixels,
+  no 16×16 block over threshold). It also records the frame at which the next cue
+  (`freeSpinIntroShow`) fires on each side; they must be equal ± 1 frame. The gate reports the
+  five diff ratios and the two frame numbers; a frame outside tolerance fails it and keeps the
+  images as artifacts. The harness's own screen lists are not edited in 8a (editing
+  `scripts/current-games/**` fails `current-games` by design); whether an `fs-transition` key
+  screen joins `screens/*.json` is a separate pipeline change for the owner (13.5 #7).
+- **Timing parity, headless.** In `check:authored-transition`: with a stepped clock, an awaited
+  fire of `transition` against a mounted `transitionWipe` instance resolves at the strip's end and
+  not before; `rigClipMs('transition', 'animation')` equals that end; the exit wipe under a slammed
+  round releases the round without waiting (the `awaitCue` race); an instance on a hidden screen,
+  or none at all, adds no hold.
+- **Text.** The def has no text node; the localization harvest of a doc that enables the flag is
+  unchanged (asserted in the gate).
+
+### 13.4 Text and localization
+
+The Transition carries no text, so one thing to prove, not to build: nothing new enters the text
+stack (§8). The built-in def declares no text node, the timeline no `text` track, and the harvest
+rows of a project are identical with the flag on and off. Later overlays keep their keys: the Win
+caption stays a Win Text key, the free-spin count stays a number, and 8b–8c add no key of their
+own.
+
+### 13.5 Risks and open questions (owner)
+
+1. **Flag home.** `LayoutDoc.settings.authoredOverlays` (recommended: no new storage, ships in the
+   doc) vs a symbols-style sparse switch in another doc. Default: the settings block.
+2. **New def id `transitionWipe`** beside `transition` (recommended: no published doc or Borut
+   placement changes) vs bumping `transition` to v2 now. Default: the new id; `transition` v2 at
+   retirement.
+3. **Build `animation` strips on rig node actors in 8a** (recommended: Win and FS need them, the
+   fold already has `animTime`) vs the rig-cue fallback with no timeline.
+4. **`holdsCue` as an opt-in timeline field** (recommended: existing `playOn` timelines keep their
+   timing) vs holding every awaited cue a `playOn` timeline starts.
+5. **Pilot surface.** The `apps/lines` dev build (`?authoredTransition=1` plus the parity gate,
+   recommended, verifiable without a login) vs a dev/test project in the launcher (needs the
+   owner's browser to set the flag and publish).
+6. **Sizing.** `coverFit` height × 1.7 on the rig node (recommended) vs per-layout scales; the gate
+   measures it. Risk: the coded box is the rig's authored height, the cover box is the measured
+   art; if they differ by more than the tolerance, per-layout scales are the fallback.
+7. **Harness.** Add an `fs-transition` key screen (captured a fixed number of frames after the
+   `transition` cue) to `screens/*.json` as its own pipeline change? Today no screen targets the
+   wipe, so a regression in the coded path would pass the harness.
+8. **Risk: the hidden coupling of `basegameOverlays`.** Projects that author the overlays scene
+   themselves (Borut) keep the `bound-transition` node only if the reference had it; the rewrite
+   covers any `bind:Transition` node wherever it sits, and a project with none and the flag on gets
+   no wipe at all — the gate reports that case as a warning in the publish chip.
+9. **Risk: `?authoredTransition=1` is a per-boot dev hook.** Unlike `?flowV2=lines`, it is
+   honoured only on a determinism boot (`?ie_determinism=<seed>`, which the gate always sets) or a
+   dev build, so a player URL cannot flip a live game.
