@@ -31,11 +31,11 @@ class _MaxRects:
     """Single-bin MaxRects with Best-Short-Side-Fit placement + free-rect
     splitting/pruning. Coordinates are integers."""
 
-    def __init__(self, width: int, height: int, allow_rotation: bool):
+    def __init__(self, width: int, height: int, allow_rotation: bool, x0: int = 0, y0: int = 0):
         self.width = width
         self.height = height
         self.allow_rotation = allow_rotation
-        self.free = [(0, 0, width, height)]  # (x, y, w, h)
+        self.free = [(x0, y0, width, height)]  # (x, y, w, h)
 
     def insert(self, w: int, h: int):
         """Place a wxh rect. Returns (x, y, placed_w, placed_h, rotated) or None."""
@@ -209,9 +209,14 @@ def pack(items: list[dict], *, width: int = 2048, height: int = 0, padding: int 
 
 
 def arrange(canvas_w: int, canvas_h: int, items: list[dict], *,
-            padding: int = 2, allow_rotation: bool = False) -> dict:
+            padding: int = 2, allow_rotation: bool = False,
+            border_x: int = 0, border_y: int = 0) -> dict:
     """Free-canvas auto-arrange: keep LOCKED sprites where they are, pack the
     UNLOCKED ones into the remaining space of a fixed canvas_w x canvas_h sheet.
+
+    border_x/border_y keep every packed sprite that far from the left/right and
+    top/bottom edges. Each insert reserves `padding` past its far edge, so the bin
+    may run `padding` into the far border: that strip is gap, never art.
 
     items: [{name, w, h, locked, x, y, rotated?}, ...] — w/h are the CURRENT
     (possibly user-resized) display sizes. Locked items must carry x/y.
@@ -219,7 +224,10 @@ def arrange(canvas_w: int, canvas_h: int, items: list[dict], *,
     Returns {regions:[{name,x,y,w,h,rotated,locked}], unplaced:[names]}.
     Locked items are returned unchanged; unplaced unlocked items keep their
     incoming x/y (or 0,0) and are flagged in `unplaced`."""
-    mr = _MaxRects(int(canvas_w), int(canvas_h), allow_rotation)
+    bx, by = max(0, int(border_x)), max(0, int(border_y))
+    inner_w = min(int(canvas_w) - 2 * bx + padding, int(canvas_w) - bx)
+    inner_h = min(int(canvas_h) - 2 * by + padding, int(canvas_h) - by)
+    mr = _MaxRects(max(0, inner_w), max(0, inner_h), allow_rotation, bx, by)
 
     out: list[dict] = []
     locked = [it for it in items if it.get("locked")]

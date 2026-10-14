@@ -92,6 +92,8 @@
     border-radius:3px;padding:0 3px;color:#fc6;display:none}
   .sprite.locked .lockbadge{display:block}
   .sprite.unplaced{outline:2px dashed #e66}
+  .sprite.outside{outline:2px dashed #e9a94a}
+  #safearea{position:absolute;pointer-events:none;outline:1px dashed #4ad9;outline-offset:0}
   /* FX placeholder cell (a `<base>_<mode>` sibling the Atlas Maker fills) */
   .sprite.fx{outline:2px dashed #b98cff}
   .sprite.fx.sel{outline:2px solid #b98cff}
@@ -338,6 +340,8 @@
         <div class="field"><label>Width</label><input type="number" id="cw" value="1024"></div>
         <div class="field"><label>Height</label><input type="number" id="ch" value="1024"></div>
         <div class="field"><label>Padding (arrange)</label><input type="number" id="pad" value="2" onchange="markDirty()"></div>
+        <div class="field" title="Keep every region this many px from the left/right and top/bottom edges. Auto-arrange packs inside it; dragging and resizing stop at it."><label>Border X / Y</label>
+          <span><input type="number" id="bx" value="0" min="0" style="width:62px" onchange="applyBorder()"> <input type="number" id="by" value="0" min="0" style="width:62px" onchange="applyBorder()"></span></div>
         <div class="field"><label>Allow 90° rotation</label><input type="checkbox" id="rot" onchange="markDirty()"></div>
         <button class="sec wide" onclick="applyCanvas()">Apply size</button>
         <button class="sec wide" onclick="doArrange()" style="margin-top:8px">Auto-arrange unlocked ▦</button>
@@ -457,6 +461,7 @@ let regions=[];              // {src,name,x,y,w,h,iw,ih,ow,oh,rotated,locked,pro
                              // w,h = REGION (footprint) box · iw,ih = image draw size, centred in the box · ow,oh = native px
 let sel=null;                // selected src
 let zoom=1, canvasW=1024, canvasH=1024, sheetName='newsheet';
+let borderX=0, borderY=0;    // regions stay this far from the canvas edges (arrange, drag, resize)
 let spriteEls={};            // src -> {wrap,img} cached DOM nodes (reused across renders)
 let bboxCache={};            // src -> {x0,y0,x1,y1,nw,nh} opaque bounds (native px) for content-aware centring
 let activeSheet=null;        // which sheet the current canvas regions belong to
@@ -499,6 +504,7 @@ function sessionSnapshot(){
     active_sheet:activeSheet||'',
     canvas_w:canvasW,canvas_h:canvasH,
     padding:parseInt($('pad').value)||2,allow_rotation:$('rot').checked,
+    border_x:borderX,border_y:borderY,
     loaded:{path:loadedPath,dir:loadedDir,name:loadedName,is_project:isProject,etag:loadedEtag},
     regions:regions.map(r=>({src:r.src,name:r.name,x:r.x,y:r.y,w:r.w,h:r.h,
       iw:r.iw||r.w,ih:r.ih||r.h,
@@ -530,6 +536,8 @@ function restoreSession(s){
   canvasW=+s.canvas_w||canvasW; canvasH=+s.canvas_h||canvasH;
   $('cw').value=canvasW; $('ch').value=canvasH;
   if(s.padding!=null) $('pad').value=s.padding;
+  borderX=Math.max(0,+s.border_x||0); borderY=Math.max(0,+s.border_y||0);
+  $('bx').value=borderX; $('by').value=borderY;
   if(s.allow_rotation!=null) $('rot').checked=!!s.allow_rotation;
   $('sheet').value=s.display_name||s.sheet||$('sheet').value;
   const ld=s.loaded||{};
@@ -704,6 +712,12 @@ function _renderImpl(){
   $('canvaslbl').textContent=canvasW+' × '+canvasH+' px · '+regions.length+' sprites';
   // selection decorations are rebuilt each render; sprite divs/imgs are reused.
   cv.querySelectorAll('.selbar,.handle').forEach(e=>e.remove());
+  let sa=$('safearea');
+  if(!sa){ sa=document.createElement('div'); sa.id='safearea'; cv.appendChild(sa); }
+  sa.hidden=!(borderX||borderY);
+  sa.style.left=(borderX*zoom)+'px'; sa.style.top=(borderY*zoom)+'px';
+  sa.style.width=(Math.max(0,canvasW-2*borderX)*zoom)+'px';
+  sa.style.height=(Math.max(0,canvasH-2*borderY)*zoom)+'px';
   const present=new Set();
   regions.forEach(r=>{
     present.add(r.src);
@@ -734,7 +748,8 @@ function _renderImpl(){
     wrap.style.width=(fw*zoom)+'px'; wrap.style.height=(fh*zoom)+'px';
     wrap.style.transform='';
     wrap.className='sprite'+(r.src===sel?' sel':'')+(r.locked?' locked':'')
-      +(r.unplaced?' unplaced':'')+((r.w>iw||r.h>ih)?' padded':'')+(r.fx_mode?' fx':'');
+      +(r.unplaced?' unplaced':'')+(!r.unplaced&&outsideBorder(r)?' outside':'')
+      +((r.w>iw||r.h>ih)?' padded':'')+(r.fx_mode?' fx':'');
     // Position the image inside the region footprint. When the region is padded
     // (larger than the art) and we know the art's opaque bounds, centre the
     // VISIBLE content — mirrors packer.compose, so a PNG with asymmetric
@@ -783,9 +798,9 @@ function makeSelBar(r){
     inp.onchange=()=>{
       const k=inp.dataset.k, v=parseInt(inp.value)||0;
       // W/H are the REGION box; the image keeps its size and re-fits/centres.
-      if(k==='w'||k==='h'){ r[k]=Math.max(8,v); fitImg(r);
+      if(k==='w'||k==='h'){ r[k]=Math.min(Math.max(8,v),maxSize(r,k)); fitImg(r);
         if(!isFx(r)) fxChildren(r).forEach(c=>slaveFxGeom(c,r)); }
-      else r[k]=Math.max(0,v);
+      else r[k]=clampPos(r,k,v);
       r.unplaced=false; render(); syncInspector(); markDirty();
     };
   });
@@ -826,13 +841,13 @@ function applyDrag(){
   raf=0; if(!drag||!lastE) return;
   const dx=lastE.clientX-drag.sx, dy=lastE.clientY-drag.sy;
   if(drag.mode==='move'){
-    const nx=Math.max(0,Math.round(drag.ox+dx/zoom)), ny=Math.max(0,Math.round(drag.oy+dy/zoom));
+    const nx=clampPos(drag.r,'x',Math.round(drag.ox+dx/zoom)), ny=clampPos(drag.r,'y',Math.round(drag.oy+dy/zoom));
     drag.nx=nx; drag.ny=ny;
     drag.el.style.transform='translate('+((nx-drag.ox)*zoom)+'px,'+((ny-drag.oy)*zoom)+'px)';
   }else{
     // The handle resizes the REGION box freely; the image re-fits and centres.
-    const nw=Math.max(8,Math.round(drag.ow+dx/zoom));
-    const nh=Math.max(8,Math.round(drag.oh+dy/zoom));
+    const nw=Math.min(Math.max(8,Math.round(drag.ow+dx/zoom)),maxSize(drag.r,'w'));
+    const nh=Math.min(Math.max(8,Math.round(drag.oh+dy/zoom)),maxSize(drag.r,'h'));
     drag.nw=nw; drag.nh=nh;
     drag.el.style.transform='scale('+(nw/drag.ow)+','+(nh/drag.oh)+')';
     $('i_w').value=nw; $('i_h').value=nh;
@@ -1026,7 +1041,7 @@ function fitImg(r){
 }
 /* Region box (the packed/exported cell) — freely resizable; the image keeps its
    own size and re-fits/centres inside it. */
-function setSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.max(8,parseInt(v)||8);
+function setSize(k,v){ const r=reg(sel); if(!r) return; const n=Math.min(Math.max(8,parseInt(v)||8),maxSize(r,k));
   r[k]=n; fitImg(r);
   if(!isFx(r)) fxChildren(r).forEach(c=>slaveFxGeom(c,r));   // FX cells mirror the base size
   r.unplaced=false; render(); syncInspector(); markDirty(); }
@@ -1052,6 +1067,34 @@ window.addEventListener('keydown',e=>{
 
 /* ---------- canvas size ---------- */
 function applyCanvas(){ canvasW=Math.max(16,parseInt($('cw').value)||1024); canvasH=Math.max(16,parseInt($('ch').value)||1024); fitView(); markDirty(); }
+
+/* ---------- border (safe area) ----------
+   Regions keep borderX px from the left/right edges and borderY px from the
+   top/bottom. Auto-arrange packs inside it (server side); a drag, a resize or a
+   typed X/Y/W/H stops at it. Regions already outside are outlined, not moved —
+   Auto-arrange re-packs the unlocked ones inside. */
+function applyBorder(){
+  borderX=Math.max(0,parseInt($('bx').value)||0); borderY=Math.max(0,parseInt($('by').value)||0);
+  $('bx').value=borderX; $('by').value=borderY;
+  render(); markDirty();
+}
+const footprint=r=>r.rotated?{w:r.h,h:r.w}:{w:r.w,h:r.h};
+function clampPos(r,k,v){
+  const lo=k==='x'?borderX:borderY;
+  const hi=(k==='x'?canvasW-borderX-footprint(r).w:canvasH-borderY-footprint(r).h);
+  return Math.max(lo,Math.min(v,Math.max(lo,hi)));
+}
+/* Largest W/H (the region box) that keeps its footprint inside the border at its position. */
+function maxSize(r,k){
+  const alongX=(k==='w')!==!!r.rotated;
+  const room=alongX?canvasW-borderX-r.x:canvasH-borderY-r.y;
+  return Math.max(8,room);
+}
+function outsideBorder(r){
+  if(!borderX&&!borderY) return false;
+  const f=footprint(r);
+  return r.x<borderX||r.y<borderY||r.x+f.w>canvasW-borderX||r.y+f.h>canvasH-borderY;
+}
 
 /* ---------- new sheet ----------
    The name is asked for in a dialog BEFORE anything is cleared. The old one-click
@@ -1194,7 +1237,7 @@ async function doArrange(){
   if(!regions.length) return;
   const m=$('arrmsg'); m.className='muted'; m.textContent=' arranging…';
   const body={sheet:sheetName,canvas_w:canvasW,canvas_h:canvasH,padding:+$('pad').value,
-    allow_rotation:$('rot').checked,
+    allow_rotation:$('rot').checked,border_x:borderX,border_y:borderY,
     regions:regions.map(r=>({src:r.src,w:r.w,h:r.h,locked:r.locked,x:r.x,y:r.y,rotated:r.rotated}))};
   const j=await jpost('/api/arrange',body);
   if(j.error){ m.className='err'; m.textContent=' '+j.error; return; }
@@ -1306,6 +1349,8 @@ async function runDownscale(f, inPlace){
   canvasW = Math.max(16, Math.round(canvasW * f));
   canvasH = Math.max(16, Math.round(canvasH * f));
   $('cw').value = canvasW; $('ch').value = canvasH;
+  borderX = Math.round(borderX * f); borderY = Math.round(borderY * f);
+  $('bx').value = borderX; $('by').value = borderY;
   regions.forEach(r => {
     const s = by[r.src];
     if(s){                        // native size changed -> re-fit + refetch the thumbnail

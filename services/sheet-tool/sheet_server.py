@@ -244,6 +244,8 @@ def api_session(payload: dict) -> dict:
         "canvas_w": _i("canvas_w", 1024),
         "canvas_h": _i("canvas_h", 1024),
         "padding": _i("padding", 2),
+        "border_x": max(0, _i("border_x", 0)),
+        "border_y": max(0, _i("border_y", 0)),
         "allow_rotation": bool(payload.get("allow_rotation")),
         "loaded": loaded if isinstance(loaded, dict) else {},
         "regions": regions,
@@ -1060,6 +1062,11 @@ def api_arrange(payload: dict) -> dict:
     canvas_h = int(payload.get("canvas_h", 1024))
     padding = int(payload.get("padding", 2))
     rot = bool(payload.get("allow_rotation", False))
+    border_x = max(0, int(payload.get("border_x") or 0))
+    border_y = max(0, int(payload.get("border_y") or 0))
+    if 2 * border_x >= canvas_w or 2 * border_y >= canvas_h:
+        return {"error": f"A {border_x} x {border_y} px border leaves no room on a "
+                         f"{canvas_w} x {canvas_h} canvas."}
 
     items = []
     for r in payload.get("regions", []):
@@ -1075,7 +1082,8 @@ def api_arrange(payload: dict) -> dict:
     if not items:
         return {"error": "No sprites to arrange."}
 
-    res = packer.arrange(canvas_w, canvas_h, items, padding=padding, allow_rotation=rot)
+    res = packer.arrange(canvas_w, canvas_h, items, padding=padding, allow_rotation=rot,
+                         border_x=border_x, border_y=border_y)
     # Re-key by src for the client.
     out = [{"src": r["name"], "x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"],
             "rotated": r["rotated"], "locked": r["locked"]} for r in res["regions"]]
