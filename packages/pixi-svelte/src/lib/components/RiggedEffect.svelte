@@ -83,6 +83,7 @@
 	import EffectPlayer from './EffectPlayer.svelte';
 	import RigBoneAttach from './RigBoneAttach.svelte';
 	import { riggedBeatMatches } from '../riggedBeat';
+	import { onRigPoseEvent } from '../rigPoseEvents';
 	import { attachToSlot } from '../rigSlotHost';
 
 	const props: Props = $props();
@@ -183,6 +184,21 @@
 	};
 	rig?.state?.addListener(listener);
 	onDestroy(() => rig?.state?.removeListener(listener));
+	// …and on the same beat when a timeline strip plays the clip (`<RigPose>` reports it).
+	if (rig) {
+		onDestroy(
+			onRigPoseEvent(rig, (animation, ev) => {
+				if (
+					riggedBeatMatches(
+						{ event: props.event, animation: props.animation, time: props.time },
+						{ name: ev?.data?.name, animation, time: ev?.time },
+					)
+				) {
+					fire();
+				}
+			}),
+		);
+	}
 </script>
 
 {#if runId > 0}
