@@ -81,6 +81,7 @@ const SLOT_KINDS = new Set<SlotKind>(['sprite', 'spine', 'text', 'mount']);
 const PARAM_KINDS = new Set<ComponentParam['kind']>(COMPONENT_PARAM_KINDS);
 const INPUT_KINDS = new Set<ComponentInput['kind']>(COMPONENT_INPUT_KINDS);
 const CONDITION_OPS = new Set<SmCondition['op']>(SM_CONDITION_OPS);
+const ORDERING_OPS = new Set<SmCondition['op']>(['<', '>', '<=', '>=']);
 
 /**
  * Resolve a component def (§8.3 / §14.2 B4.1). Precedence high → low: PROJECT R2
@@ -998,12 +999,18 @@ function normalizeConditions(input: unknown): SmCondition[] | undefined {
 		if (!isRecord(c) || typeof c.input !== 'string' || !c.input) return undefined;
 		if (!CONDITION_OPS.has(c.op as SmCondition['op'])) return undefined;
 		const condition: SmCondition = { input: c.input, op: c.op as SmCondition['op'] };
+		// A number condition may compare against the placed instance's param instead of a value.
+		if (c.param !== undefined) {
+			if (typeof c.param !== 'string' || !c.param) return undefined;
+			if (condition.op !== 'fired') condition.param = c.param;
+		}
 		// `==` / `!=` may omit the value (the runtime reads a bool one as `true`; validation flags a
-		// number one); `<` / `>` need one, and a value of another type is malformed.
+		// number one); an ordering op needs a value or a param, and a value of another type is
+		// malformed.
 		if (c.value !== undefined) {
 			if (!(typeof c.value === 'boolean' || finite(c.value))) return undefined;
 			if (condition.op !== 'fired') condition.value = c.value;
-		} else if (condition.op === '<' || condition.op === '>') return undefined;
+		} else if (ORDERING_OPS.has(condition.op) && !condition.param) return undefined;
 		out.push(condition);
 	}
 	return out;

@@ -278,7 +278,9 @@ export interface GraphEdge {
 }
 
 const conditionLabel = (c: SmCondition): string =>
-	c.op === 'fired' ? `${c.input} ▸` : `${c.input} ${c.op} ${String(c.value ?? '')}`;
+	c.op === 'fired'
+		? `${c.input} ▸`
+		: `${c.input} ${c.op} ${c.param ? `{${c.param}}` : String(c.value ?? '')}`;
 
 /** What a transition's arrow says: its conditions, else its exit time, else "always". */
 export function transitionLabel(t: SmTransition): string {

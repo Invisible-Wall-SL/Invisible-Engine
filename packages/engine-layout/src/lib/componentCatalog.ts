@@ -320,6 +320,13 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 		needsParam: 'meter',
 	},
 	{
+		key: 'meter.{meter}.share',
+		label: 'Pot fill share',
+		group: 'Pot (this instance’s meter)',
+		note: 'The level over the maximum, 0..1 — the threshold a piece of the pot lights at ("lightAt").',
+		needsParam: 'meter',
+	},
+	{
 		key: 'meter.{meter}.full',
 		label: 'Pot full',
 		group: 'Pot (this instance’s meter)',

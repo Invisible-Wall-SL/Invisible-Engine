@@ -63,7 +63,7 @@
 		setComponentNestState,
 		MAX_COMPONENT_DEPTH,
 	} from './componentInstanceContext';
-	import { setComponentParams } from './componentParamsContext';
+	import { getComponentParams, setComponentParams } from './componentParamsContext';
 	import { setComponentPress } from './componentActionsContext';
 	import { getInstanceBinding } from './instanceBindingContext';
 	import { setComponentSignalAnims, type ComponentSignalAnim } from './componentSignalContext';
@@ -77,6 +77,7 @@
 	import { setComponentStateAnims } from './componentStateAnimContext';
 	import { setComponentRigRest } from './componentRigRestContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
+	import { expandSourceTemplate } from './valueBindings';
 	import { getInstanceValueSource, type InstanceValueSource } from './registerInstanceValues';
 	import { getFlowValueSource } from './registerFlowValueSource';
 	import { getFlowPress } from './registerFlowPress';
@@ -223,6 +224,10 @@
 		allowed && def
 			? resolveComponentParams(def, node.params, getComponentDefaults(node.componentId))
 			: {};
+	// What a `{key}` in a state-machine input's `source` reads: this instance's params, else the
+	// enclosing instance's — a firecracker placed inside a pot reads `meter.{meter}.share` through
+	// the pot's `meter`. Read before this instance provides its own.
+	const sourceParams: Record<string, unknown> = { ...getComponentParams(), ...staticParams };
 
 	// Signal scope (Phase 12a, `docs/design/hold-and-win.md` §8): the part this instance stands for —
 	// the value of the param the def names (`signalScope`: the pot's `meter`, a jackpot tile's
@@ -787,6 +792,7 @@
 					stateMachine,
 					componentInputs(def),
 					instanceTimelines.durations,
+					(key) => staticParams[key],
 				)
 			: undefined;
 	if (stateMachineRunner?.missingTimelines.length && def && !warnedMissingTimelines[def.id]) {
@@ -899,7 +905,8 @@
 			const unsubs: (() => void)[] = [];
 			for (const input of componentInputs(def)) {
 				if (input.kind !== 'number' || !input.source) continue;
-				const source = getComponentValueSource(input.source);
+				const name = expandSourceTemplate(input.source, sourceParams);
+				const source = name ? getComponentValueSource(name) : undefined;
 				if (!source) continue;
 				unsubs.push(
 					source.subscribe((value) => {

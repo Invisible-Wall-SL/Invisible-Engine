@@ -57,6 +57,10 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-14 — **Per-placement thresholds in the state machine.** A number condition can compare
+  against the instance's own param (`{lightAt}`), ops `<=` / `>=` are added, and an input's `source`
+  `{key}` resolves through the enclosing instance. Built for the firecracker pot; detail in
+  [pots overlay status](pots-overlay.md), 2026-10-14.
 - 2026-10-14 — **The first authored overlay: `transitionWipe` (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`).** A new `internal` built-in def beside the hybrid
   `transition` twin (unchanged): one rig node `wipe`, no text, no params, no palette entry during the
