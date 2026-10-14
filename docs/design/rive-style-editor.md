@@ -1254,7 +1254,7 @@ in order, then the conditions the build carried and the findings it made.
   `componentPlayRate.ts`) and the gate drives it with the coded rule `max(speedScale, 1)` while
   escalating; no held-back status was needed. **#9 yes, `boardFit`**; per-layout scales stay the
   fallback. **#10 yes** — per-tier signals `winTier.<alias>` / `winTierLoop.<alias>` /
-  `winTierOutro.<alias>` (+ `winPlain`, `winHide`, `winFadeIn`), the one-signal-plus-input form
+  `winTierOutro.<alias>` (+ `winPlain`, `winHide`, and the def's `winFade` trigger input), the one-signal-plus-input form
   recorded for retirement. **#11** — the Win intro frames (`bigwin-intro-12` / `-48`, anchored on
   the `winShow` cue) joined the harness PR that adds `fs-transition`. **#12 yes** — the retired
   `WinVisual` publishes nothing to `winState` and `resolveWinMount` is pinned (sha256) with one
@@ -1269,19 +1269,23 @@ in order, then the conditions the build carried and the findings it made.
 - **Turbo (condition 1)** — no divergence: `timeScale` scales measured cue waits and delays only;
   the coded rigs ride the ticker and the timeline player advances by the same `deltaMS`, so the
   authored Transition and Win track the coded ones under turbo. The probe gained `setTurbo(on)` /
-  `?ie_turbo=1` (honoured with `ie_determinism` only); both parity gates run a turbo pair.
+  `?ie_turbo=1` (honoured with `ie_determinism` only). **Unverified in #1194:** the turbo pairs and
+  the `held` variant moved to the follow-up PR (with the win-parity CI workflow), which must merge
+  before the Win flag is switched on for any project, test projects included.
 - **The fade machine (found at build time).** The coded `FadeContainer` shows the FIRST win at once
   (`show` starts true), fades out over 400 ms linear on `winHide` and fades IN over 400 ms on every
-  later `winShow`. Mirrored: the walk/plain timelines key no alpha; `_hide` fades the outer `fade`
-  container 1 → 0 then hides `visual`; `c_winpresentation_fadein` (on `winFadeIn`, 0 → 1 over
-  0.4 s, never holds) is fired by the gate in the same tick before the tier signal, only once a hide
-  has completed since boot. Two player rules fell out of it and are gated: alpha and visibility live
-  on different nodes (a node is handed whole to the most recently started timeline that casts it, so
-  a walk keying only `visible` would wipe the hide's held alpha), and **a timeline casts only the
-  actors it keys** (`winCast`), or a later-started doc with an empty sample resets the channel.
-- **`showContainer.durationMs`** — the authored twin measures exactly when its coded part does:
-  one game-side table `MEASURED_BIND_TWINS` (`Transition` → `transitionWipe`); `winPresentation`
-  measures `undefined` as `Win` / `WinGate` do, so a placed instance never stalls a flow container.
+  later `winShow`. Mirrored by the def's state machine, not a keyed timeline: one `fade` layer,
+  `hidden` ⇄ `shown`, 400 ms blends on the `winFade` / `winHide` trigger inputs, so a hide inside
+  the fade-in (a slammed win) leaves from the half-faded pose on screen. The gate fires `winFade`
+  one frame after the FIRST `winUpdate` and on every later `winShow`; `c_winpresentation_hide`
+  keys only `visual`'s visibility (cut at 0.4 s). Two player rules fell out of it and are gated:
+  alpha and visibility live on different nodes (a node is handed whole to the most recently
+  started timeline that casts it), and **a timeline casts only the actors it keys** (`winCast`),
+  or a later-started doc with an empty sample resets the channel.
+- **`showContainer.durationMs`** — `instanceHoldMs` measures every `holdsCue` timeline of a def (a
+  project's own entrance included, the 8a contract) with ONE exemption: `winPresentation` measures
+  `undefined`, as its coded `Win` / `WinGate` measured 0, so a placed instance never stalls a flow
+  container on a 13 s tier hold. (A `MEASURED_BIND_TWINS` table was tried and dropped in review.)
 - **Launcher** — `settings.authoredOverlays.win` (sparse, ON-only, both rows kept independently);
   the Game Settings block gains the **Win** row under the same capability gate; the save action's
   guard now runs **after** the ETag check (`authoredOverlaySaveDecision`: stale ⇒ 409 for everyone,
@@ -1291,9 +1295,9 @@ in order, then the conditions the build carried and the findings it made.
   (`authoredWinTiers.ts`) from the config, the placed instance's params and the Win Text doc through
   the engine's own `resolveTierPresentation`, which made `engine-game` (its Svelte-free deep paths)
   a launcher dependency rather than a second copy of the rule.
-- **Gates** — `check:authored-win` (launcher, 106), `check:component-timelines` (71), the engine-game
+- **Gates** — `check:authored-win` (launcher, 114), `check:component-timelines` (74), the engine-game
   fixtures (12, `winWalk` new), the template gates (the internal def pinned), `check:win-parity`
-  (root; the variants in 13.6.7 plus the turbo pair on `check:transition-parity`). Its CI workflow,
+  (root; gating in #1194: `base`, `escalation`, `slam-small`, `slam-big`, `placed`). Its CI workflow,
   like 8a's, is a workflow-only follow-up PR. **Known gap:** `check:authored-transition`,
   `check:authored-win` and `check:component-timelines` are package scripts the Lint workflow's
   launcher list does not run yet — the same follow-up PR adds them.

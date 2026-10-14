@@ -1119,6 +1119,18 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		],
 		[true, false],
 	);
+	const gate = src('../../lines/src/components/WinGate.svelte');
+	eq(
+		'the gate releases the walk holds on winHide and the play-rate effect resets to 1 on teardown',
+		[
+			/winHide: \(\) => \{\s*show = false;\s*if \(authoredWin\) endWalk\(\);/.test(gate),
+			/const endWalk = \(\): void => \{[^}]*releaseAuthoredWinHolds\(\);\s*\};/.test(gate),
+			/setComponentPlayRate\(WIN_PRESENTATION_COMPONENT_ID, rate\);[^}]*return \(\) => setComponentPlayRate\(WIN_PRESENTATION_COMPONENT_ID, 1\);/.test(
+				gate,
+			),
+		],
+		[true, true, true],
+	);
 	const entrance = {
 		...generated[0],
 		id: 'c_project_entrance',

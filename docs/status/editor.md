@@ -127,7 +127,7 @@ Shipped capabilities on `main`:
   config's ladder or the coded one, the placed `win` instance's params, the Win Text captions —
   one more R2 read per project with the flag on). `launcher-api` now depends on `engine-game`
   (deep imports of its pure `winPresentation` / `winLevelMap` modules; the index exports Svelte).
-  Gates: new `check:authored-win` (106), `check:authored-transition` 85 (two assertions updated to
+  Gates: new `check:authored-win` (114), `check:authored-transition` 85 (two assertions updated to
   the two-row contract), `check:doc-readers-unknown-fields` (the `win` row). Not wired into CI's
   Lint job: `check:authored-transition`, `check:component-timelines` and `check:authored-win` are
   package scripts only — the workflow list is a follow-up. Guide:
