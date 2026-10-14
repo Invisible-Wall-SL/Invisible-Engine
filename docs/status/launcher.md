@@ -59,6 +59,32 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-14 — **`SaveState` no longer marks an edit made during an in-flight save as saved.** The
+  shared save machine (`$lib/saveState.svelte.ts`, used by the editor, components, config, flipbook,
+  flow-v2, fx, localization, sound, symbols and win-text) cleared `dirty` on every success, so an edit
+  landing mid-write was dropped: flow-v2's coalesced debounce never re-fired, the Scene Editor's
+  leading batch had no timer, and a caller navigating on `save() === true` (the editor's component
+  hop) could leave with it. It now counts edits (`markDirty`, `setDirty(true)`); a success with a
+  newer edit stays dirty and the edit is written next on the adopted ETag — at once inside an
+  explicit `save()` (whose `true` then means, for `markDirty`-driven tools, that the store holds
+  the screen), on the debounce's own cadence for an autosave (a coalesced re-fire included), never
+  behind `blockWhen` / `canAutosave`. `adoptEtag` now also makes a write still in flight for the
+  OLD target — landed, refused or thrown — change nothing of the new one (it used to adopt the old
+  ETag, or put its error on the new target).
+  `setDirty` reads before writing, so the component-defaults sidecar's signature `$effect` re-marks
+  dirty after a save that missed a mid-flight edit. The editor's save transport clears the
+  layout-load guards (`crossTypeLoaded`, `loadedPreview`, `pendingDestructiveSave`) only when no
+  layout was loaded during its flight. The Component Editor's draft and defaults transports
+  snapshot the component a write is for BEFORE the request and apply its result (version, ETag,
+  saved baseline, paint seed) to that component only, so switching component mid-save no longer
+  hands Y X's version / ETag / values, and an edit made during a draft save stays dirty; the draft
+  and template wrappers say nothing about a save whose target was switched away. New behavioural
+  gate `check:save-state` (Lint's launcher gates) drives the real compiled class with a fake
+  transport and clock. Still open, tool-side:
+  sound / win-text / config / symbols replace `doc` with the server's on save, and flipbook / fx
+  re-baseline from live state, so an edit made during their (manual) save is lost there regardless
+  of `SaveState`.
+
 - 2026-10-13 — **Older game repos stopped publishing at the Svelte-version guard (#1175); fixed per
   repo and in the desktop launcher.** Game repos pin `svelte` / `@sveltejs/kit` / the parser
   overrides at scaffold time, so once #1175 landed every repo scaffolded before it failed its next

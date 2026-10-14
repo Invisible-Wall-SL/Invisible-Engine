@@ -591,14 +591,6 @@
 		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
 	}
 
-	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
-	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
-	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
-	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
-	 *  below still asks about unsaved work. */
-	// Only from a clean, idle doc (`hopRefusal` — the shared `SaveState`'s dirty flag can clear
-	// over a pending edit, fixed separately): otherwise a dialog says the pill's way out and the
-	// author stays. Never through `lastError`, which is the save pill's own.
 	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
 	// layout saves (and a hop is allowed) without another edit.
 	let wasReadOnly = untrack(() => lease.readOnly);
@@ -610,6 +602,14 @@
 			wasReadOnly = readOnly;
 		});
 	});
+	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
+	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
+	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
+	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
+	 *  below still asks about unsaved work.
+	 *
+	 *  Only from a clean, idle doc (`hopRefusal`): otherwise a dialog says the pill's way out and
+	 *  the author stays. Never through `lastError`, which is the save pill's own. */
 	async function showInFlow(nodeId: string): Promise<void> {
 		const why = hopRefusal({
 			what: 'layout',
@@ -1419,6 +1419,8 @@
 	 * failed save, so a retry still asks for the backup.
 	 */
 	let pendingDestructiveSave = $state(false);
+	/** Bumped by every wholesale layout load, so a save can tell whether one landed mid-flight. */
+	let layoutLoads = 0;
 
 	/** Adopt a loaded `LayoutDoc`'s scenes (+ its game type and frame sizes) as the
 	 * project's layout, after confirming if it would discard placed nodes. */
@@ -1451,6 +1453,7 @@
 			danger: crossType,
 		});
 		if (!ok) return;
+		layoutLoads += 1;
 		pendingDestructiveSave = true;
 		scenes = structuredClone(doc.scenes);
 		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
@@ -2133,6 +2136,7 @@
 			// author asks to undo. Set on the `adoptScenes` clobber path and cleared only once
 			// the save actually lands, so a refused/failed save keeps the flag for the retry.
 			if (pendingDestructiveSave) fields.backup = 'always';
+			const loads = layoutLoads;
 			const out = (await postAction('save', fields)) as {
 				saved?: boolean;
 				updatedAt?: string;
@@ -2143,10 +2147,13 @@
 			if (out.conflict) return { ok: false, reason: 'conflict', message: out.error };
 			if (out.error) return { ok: false, reason: 'error', message: out.error };
 			lastSavedAt = out.updatedAt ?? new Date().toISOString();
-			loadedPreview = false;
-			crossTypeLoaded = false;
-			crossTypeFrom = '';
-			pendingDestructiveSave = false;
+			// A layout loaded while this write was in flight is not in it: keep its guards.
+			if (layoutLoads === loads) {
+				loadedPreview = false;
+				crossTypeLoaded = false;
+				crossTypeFrom = '';
+				pendingDestructiveSave = false;
+			}
 			return { ok: true, etag: out.etag ?? null };
 		},
 	});
@@ -2616,9 +2623,12 @@
 			}
 			ok = await templateState.save({ force: true });
 		}
+		// `idle` after a false save = the game type (so the template) changed mid-save.
 		templateStatus = ok
 			? { kind: 'ok', message: 'Template saved' }
-			: { kind: 'error', message: templateState.message || 'Template save failed' };
+			: templateState.status === 'idle'
+				? null
+				: { kind: 'error', message: templateState.message || 'Template save failed' };
 	}
 
 	// ---------- rig upload (sync a folder of rig assets to R2) ----------

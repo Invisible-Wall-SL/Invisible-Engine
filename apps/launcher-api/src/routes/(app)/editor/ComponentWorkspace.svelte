@@ -210,6 +210,9 @@
 				// A stored def CASes against `baseEtag`; a never-saved one sends `null` (create).
 				...(force ? { force: true } : { baseEtag }),
 			};
+			// Snapshot BEFORE the request: the draft open when it lands may be another component,
+			// or this one edited mid-flight — neither is what this write stored.
+			const saved = $state.snapshot(componentDraft) as ComponentDef;
 			const res = await fetch('/api/editor/component', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -233,24 +236,24 @@
 				version?: number;
 				etag?: string | null;
 			};
+			const stillOpen = componentDraft?.id === saved.id;
 			// Adopt the SERVER's reconciled version — it may have bumped past the posted one.
-			const saved = $state.snapshot(componentDraft) as ComponentDef;
 			if (typeof out.version === 'number') {
 				saved.version = out.version;
-				componentDraft.version = out.version;
+				if (stillOpen && componentDraft) componentDraft.version = out.version;
 			}
 			const newEtag = out.etag ?? null;
 			componentEtags = { ...componentEtags, [saved.id]: newEtag };
-			savedSnapshot = JSON.stringify(saved);
+			if (stillOpen) savedSnapshot = JSON.stringify(saved);
 			const i = components.findIndex((c) => c.id === saved.id);
 			if (i === -1) {
 				components = [...components, saved];
 				// A never-saved draft just reached the store — acquire its lease now (a re-save of
 				// an already-open component is `i !== -1`, so this fires once, on first save).
-				void lease.switchDoc(saved.id);
+				if (stillOpen) void lease.switchDoc(saved.id);
 			} else components = components.map((c) => (c.id === saved.id ? saved : c));
 			// A save may bump the version + write a new snapshot — refresh the browser.
-			void loadVersionList(saved);
+			if (stillOpen) void loadVersionList(saved);
 			return { ok: true, etag: newEtag };
 		},
 	});
@@ -301,6 +304,7 @@
 			// Snapshot BEFORE the request: an edit landing mid-flight must stay dirty, not be
 			// silently adopted as saved by the baseline below.
 			const params = $state.snapshot(projectDefaults);
+			const id = componentDraft.id;
 			const res = await fetch('/api/editor/component-defaults', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -326,10 +330,11 @@
 				return { ok: false, reason: 'error', message };
 			}
 			const out = (await res.json().catch(() => ({}))) as { etag?: string | null };
-			projectDefaultsBaseline = defaultsSignature(params);
+			// Only the component this write was for: another one may be open by now.
+			if (componentDraft?.id === id) projectDefaultsBaseline = defaultsSignature(params);
 			// Keep the paint-only seed in step, so re-opening this component in the same tab shows
 			// what we just saved rather than the (never-refetched) page-load values.
-			seededDefaults[componentDraft.id] = { ...params };
+			seededDefaults[id] = { ...params };
 			return { ok: true, etag: out.etag ?? null };
 		},
 	});
@@ -1237,7 +1242,10 @@
 		// the latest with an old snapshot, defeating the non-destructive guarantee.
 		if (!componentDraft || busy || isInspecting) return;
 		saveStatus = null;
+		const id = componentDraft.id;
 		const ok = await saveState.save({ force });
+		// Another component was opened mid-save: this outcome is not about the one on screen.
+		if (componentDraft?.id !== id) return;
 		if (ok) {
 			saveStatus = { kind: 'ok', message: 'Component saved' };
 			return;
