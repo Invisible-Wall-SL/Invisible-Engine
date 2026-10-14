@@ -15,15 +15,21 @@ import { readFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 
 import {
+	activePaylineIds,
+	coinBoardLineFillMin,
+	coinBoardTriggerMin,
+	HOLD_AND_WIN_COIN_BOARD_TEMPLATE,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_TEST_FIXTURES,
 	holdAndWinMockInputs,
 	jackpotLadder,
 	normalizeGameConfigDoc,
+	payingCells,
 	primaryHoldAndWin,
 	validateGameConfigDoc,
 } from '../packages/game-config/index.ts';
+import { createHoldAndWinEngine } from './mock-holdandwin-engine.mjs';
 import { createMockRgs } from './mock-rgs-server-holdandwin.mjs';
 import { carrySession } from './mock-rgs-server.mjs';
 
@@ -256,6 +262,42 @@ const roundProblems = (g, round, meters) => {
 	}
 	const trig = first(round, 'holdAndWinTrigger');
 	for (const id of trig?.meters ?? []) meters[id] = 0;
+
+	// A coin board (Phase 13b): the bet echoes the lines its count plays — game-config's own
+	// `activePaylineIds` — nothing lands off them, the base pays no line, and the trigger counts
+	// them.
+	const coinBoard = g.doc.coinBoard;
+	const lineCount = coinBoard && bet.total / bet.betPerLine;
+	const lineIds = coinBoard && activePaylineIds(coinBoard, g.doc.paylines, lineCount);
+	const lineRows = coinBoard && lineIds.map((id) => g.doc.paylines[id]);
+	const paying = coinBoard && payingCells(g.doc.paylines, lineIds, g.doc);
+	if (coinBoard) {
+		if (JSON.stringify(bet.paylineIds) !== JSON.stringify(lineIds))
+			fail(`the bet echoes lines ${bet.paylineIds}, ${lineCount} lines are ${lineIds}`);
+		if (JSON.stringify(bet.paylines) !== JSON.stringify(lineRows))
+			fail(`the bet echoes rows ${JSON.stringify(bet.paylines)}`);
+		for (const board of all(round, 'playedSpin')) {
+			board.forEach((column, reel) =>
+				column.forEach((text, row) => {
+					if (!paying[reel][row] && !g.rolesOf(parseCell(text).symbol).includes('blank'))
+						fail(`${reel}:${row} dealt ${text} off the paying lines`);
+				}),
+			);
+		}
+		if (all(round, 'spinWin').length) fail('a coin board base spin paid a line');
+		const roles = g.block.trigger.count.roles;
+		const min = coinBoardTriggerMin(coinBoard, lineCount);
+		const coins = all(round, 'playedSpin')[0].flatMap((column, reel) =>
+			column.filter(
+				(text, row) =>
+					paying[reel][row] && g.rolesOf(parseCell(text).symbol).some((r) => roles.includes(r)),
+			),
+		).length;
+		if (!trig && coins >= min) fail(`${coins} coins on the lines (min ${min}), no trigger`);
+		if (trig?.cause === 'count' && coins < min) fail(`a count trigger on ${coins} of ${min} coins`);
+		for (const c of trig?.cells ?? [])
+			if (!paying[c.reel][c.row]) fail(`the trigger held ${key(c)}, off the paying lines`);
+	}
 	const levels = all(round, 'meterLevels').at(-1);
 	if (block.meters?.length) {
 		for (const m of levels?.meters ?? []) {
@@ -658,10 +700,41 @@ const roundProblems = (g, round, meters) => {
 				.sort();
 			const got = end.cells.map(key).sort();
 			if (got.join() !== want.join()) fail(`tally ${got}, board ${want}`);
-			for (const c of end.cells) {
-				if (c.amount !== credits(worth(c)))
-					fail(`tally ${key(c)} ${c.amount} ≠ ${credits(worth(c))}`);
+			// How often each held cell pays: once, or by a coin board's rule over the bet's lines.
+			const rule = coinBoard?.payRule ?? 'coinsOnLines';
+			const pays = (at) => worth(tracked.get(key(at)) ?? {}) > 0;
+			const runs = [];
+			const times = new Map(want.map((k) => [k, rule === 'lineFill' ? 0 : 1]));
+			if (rule === 'perLine') {
+				for (const k of want) {
+					const [reel, row] = k.split(':').map(Number);
+					times.set(k, lineRows.filter((line) => line[reel] === row).length);
+				}
+			} else if (rule === 'lineFill') {
+				lineRows.forEach((line, i) => {
+					const cells = [];
+					while (cells.length < line.length) {
+						const at = { reel: cells.length, row: line[cells.length] };
+						if (!pays(at)) break;
+						cells.push(at);
+					}
+					if (cells.length < coinBoardLineFillMin(coinBoard)) return;
+					for (const at of cells) times.set(key(at), times.get(key(at)) + 1);
+					const total = cells.reduce((s, at) => s + credits(worth(tracked.get(key(at)))), 0);
+					runs.push({ id: lineIds[i], cells, total });
+				});
 			}
+			for (const c of end.cells) {
+				const n = times.get(key(c)) ?? 1;
+				if (c.amount !== credits(worth(c)) * n)
+					fail(`tally ${key(c)} ${c.amount} ≠ ${credits(worth(c))} × ${n}`);
+				if (c.lines !== (rule === 'coinsOnLines' ? undefined : n))
+					fail(`tally ${key(c)} pays on ${c.lines} lines, expected ${n}`);
+			}
+			if (end.payRule !== coinBoard?.payRule) fail(`the end names pay rule ${end.payRule}`);
+			if (JSON.stringify(end.runs) !== JSON.stringify(rule === 'lineFill' ? runs : undefined))
+				fail(`runs ${JSON.stringify(end.runs)}, re-derived ${JSON.stringify(runs)}`);
+
 			const bankedTotal = banked.jackpots + banked.columns;
 			if (end.banked !== bankedTotal) fail(`banked ${end.banked}, events say ${bankedTotal}`);
 			const total = end.banked + end.cells.reduce((s, c) => s + c.amount, 0);
@@ -2163,6 +2236,339 @@ for (const id of ['pots-expansion-fullrow', 'pots-expansion-unlock', 'pots-expan
 	}
 	check(!threw, 'a malformed trigger and letters deal without a 500', threw);
 	if (!failed) pass('forcing off is refused on both routes; a malformed block still deals');
+}
+
+// ---------- 8. the coin board (hold-and-win-coin-board Phase 13b) ----------
+
+/** The coin board template with its `coinBoard` block replaced. */
+const coinBoardVariant = (id, coinBoard) => {
+	const raw = structuredClone(HOLD_AND_WIN_COIN_BOARD_TEMPLATE);
+	raw.gameID = `coin_board_${id}`;
+	if (coinBoard) raw.coinBoard = coinBoard;
+	const errors = validateGameConfigDoc(normalizeGameConfigDoc(raw)).filter(
+		(i) => i.severity === 'error',
+	);
+	check(!errors.length, `the ${id} coin board validates`, errors.map((i) => i.message).join(' | '));
+	return raw;
+};
+const ALL_LINES = ['1', '2', '3', '4', '5'];
+const COIN_BOARDS = {
+	all: coinBoardVariant('all'),
+	middle: coinBoardVariant('middle', {
+		lines: { selection: 'fixed', active: ['1'] },
+		payRule: 'coinsOnLines',
+		triggerMin: { 1: 5 },
+	}),
+	player: coinBoardVariant('player', {
+		lines: {
+			selection: 'player',
+			choices: [1, 3, 5],
+			default: 5,
+			order: ['1', '4', '5', '2', '3'],
+		},
+		payRule: 'coinsOnLines',
+		triggerMin: { 1: 5, 3: 6, 5: 6 },
+	}),
+	lineFill: coinBoardVariant('lineFill', {
+		lines: { selection: 'fixed', active: ALL_LINES },
+		payRule: 'lineFill',
+		lineFill: { min: 3 },
+		triggerMin: { 5: 6 },
+		inactiveOverlay: { color: '#102030', alpha: 0.4 },
+	}),
+	perLine: coinBoardVariant('perLine', {
+		lines: { selection: 'fixed', active: ALL_LINES },
+		payRule: 'perLine',
+		triggerMin: { 5: 6 },
+	}),
+};
+
+/** `[bet, play]` on a fresh session: the answer, the boot config and the balance before. */
+const coinBet = async (g, bet, play = null) => {
+	const sid = `cb-${Math.random().toString(36).slice(2, 9)}`;
+	const booted = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
+	const resp = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: bet },
+		{ action: 'play', context: play },
+	]);
+	return { sid, resp, before: booted.platform.balance };
+};
+
+{
+	console.log('coin board: every rule and selection, re-derived from the wire');
+	for (const [id, raw] of Object.entries(COIN_BOARDS)) {
+		const g = await boot(raw);
+		const config = (await g.post(`/rgs/engine?sid=cfg&seq=0`, [{ action: 'config' }])).events.find(
+			(e) => e.event === 'config',
+		).context;
+		const cb = raw.coinBoard;
+		const player = cb.lines.selection === 'player';
+		check(
+			JSON.stringify(config.holdAndWin.coinBoard) ===
+				JSON.stringify({
+					payRule: cb.payRule,
+					...(cb.payRule === 'lineFill' ? { lineFill: cb.lineFill } : {}),
+					selection: cb.lines.selection,
+					...(player
+						? { choices: cb.lines.choices, default: cb.lines.default, order: cb.lines.order }
+						: { active: cb.lines.active }),
+					triggerMin: cb.triggerMin,
+					inactiveOverlay: cb.inactiveOverlay ?? { color: '#000000', alpha: 0.6 },
+					paylineIds: ALL_LINES,
+				}),
+			`${id}: the boot config carries the coin board`,
+			JSON.stringify(config.holdAndWin.coinBoard),
+		);
+		check(config.availablePayLines.length === 5, `${id}: availablePayLines lists every line`);
+		const counts = player ? cb.lines.choices : [5];
+		const meters = {};
+		let ok = 0;
+		let features = 0;
+		const ROUNDS = 180;
+		for (let i = 0; i < ROUNDS; i++) {
+			const bet = [counts[i % counts.length], 4];
+			const round = await playRound(
+				g,
+				`nat-cb-${id}`,
+				i % 6 === 0 ? { bet, force: 'trigger' } : { bet },
+			);
+			if (round.error) {
+				check(false, `${id} round ${i}`, round.error);
+				continue;
+			}
+			if (first(round, 'holdAndWinTrigger')) features++;
+			if (verifyRound(g, round, `${id} round ${i}`, meters)) ok++;
+		}
+		if (check(ok === ROUNDS, `${id}: ${ok}/${ROUNDS} rounds consistent (${features} features)`))
+			pass(
+				`${id}: ${ROUNDS} rounds, ${features} features — echoed lines, blank off-line cells, trigger, tally`,
+			);
+		await g.close();
+	}
+}
+
+{
+	console.log('coin board: fixed lines, the stake and the lines echoed');
+	const all = await boot(COIN_BOARDS.all);
+	const a = await coinBet(all, [5, 4]);
+	const echo = a.resp.events.find((e) => e.event === 'bet').context;
+	if (
+		check(
+			echo.total === 20 &&
+				echo.paylineIds.join() === ALL_LINES.join() &&
+				echo.paylines.length === 5 &&
+				a.resp.platform.balance === a.before - 20,
+			'all 5 lines: 5 × 4 staked, all 5 echoed',
+			JSON.stringify(echo),
+		)
+	)
+		pass('fixed all-5: stake 5 × bet per line, the echo lists all five lines');
+	await all.close();
+
+	const middle = await boot(COIN_BOARDS.middle);
+	const m = await coinBet(middle, [5, 4]);
+	const mEcho = m.resp.events.find((e) => e.event === 'bet').context;
+	if (
+		check(
+			mEcho.total === 4 &&
+				JSON.stringify(mEcho.paylines) === '[[1,1,1,1,1]]' &&
+				mEcho.paylineIds.join() === '1' &&
+				m.resp.platform.balance === m.before - 4,
+			'middle only: a fixed board stakes its own line, whatever bet[0] says',
+			JSON.stringify(mEcho),
+		)
+	)
+		pass('fixed middle-only: stake 1 × bet per line, the echo lists the middle line alone');
+	const full = await forced(middle, 'fullBoard', { bet: [1, 4] });
+	const grand = full && jackpotsWon(full, 'fullBoard')[0];
+	const fullEnd = full && first(full, 'holdAndWinEnd');
+	if (
+		check(
+			grand?.tier === 'GRAND' &&
+				grand.banked &&
+				fullEnd.cells.length === 5 &&
+				fullEnd.cells.every((c) => c.row === 1),
+			'middle only: the 5 middle cells held are the full board, and pay GRAND',
+			JSON.stringify(fullEnd),
+		)
+	)
+		pass('fixed middle-only: all 5 paying cells held is the full board — GRAND banked');
+	const trig = await forced(middle, 'trigger', { bet: [1, 4] });
+	const held = trig && first(trig, 'holdAndWinTrigger').cells;
+	if (
+		check(
+			held?.length >= 5 && held.every((c) => c.row === 1),
+			'middle only: a forced trigger places its 5 coins on the middle line',
+			JSON.stringify(held),
+		)
+	)
+		pass('fixed middle-only: a forced trigger holds 5 coins, all on the paying line');
+	await middle.close();
+}
+
+{
+	console.log('coin board: the player picks the lines');
+	const g = await boot(COIN_BOARDS.player);
+	let scaled = 0;
+	for (const [count, ids] of [
+		[1, ['1']],
+		[3, ['1', '4', '5']],
+		[5, ['1', '4', '5', '2', '3']],
+	]) {
+		const { resp, before } = await coinBet(g, [count, 4]);
+		const echo = resp.events.find((e) => e.event === 'bet').context;
+		if (
+			check(
+				echo.total === count * 4 &&
+					echo.paylineIds.join() === ids.join() &&
+					echo.paylines.length === count &&
+					resp.platform.balance === before - count * 4,
+				`${count} lines: ${count} × 4 staked, ${ids} echoed`,
+				JSON.stringify(echo),
+			)
+		)
+			scaled++;
+	}
+	if (scaled === 3) pass('player [1, 3, 5]: the stake scales with the lines, the echo lists them');
+	let refused = 0;
+	for (const bad of [2, 4, 0, 6]) {
+		const { sid, resp, before } = await coinBet(g, [bad, 4]);
+		const state = await g.get(`/state?sid=${sid}`);
+		if (
+			check(
+				/invalid bet/.test(resp.error ?? '') && resp.platform.balance === before && !state.round,
+				`${bad} lines is refused`,
+				JSON.stringify(resp),
+			)
+		)
+			refused++;
+	}
+	if (refused === 4) pass('player [1, 3, 5]: 0, 2, 4 and 6 lines are refused, nothing staked');
+
+	// Resume keeps the round's lines: an open feature at 3 lines.
+	const sid = 'cb-resume';
+	await g.post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }]);
+	const opening = await g.post(`/rgs/engine?sid=${sid}&seq=0`, [
+		{ action: 'bet', context: [3, 4] },
+		{ action: 'play', context: 'force:chain' },
+	]);
+	const gid = opening.platform.gameRound?.id;
+	const config = (await g.post(`/rgs/engine?sid=${sid}&seq=0`, [{ action: 'config' }])).events.find(
+		(e) => e.event === 'config',
+	);
+	const state = await g.get(`/state?sid=${sid}`);
+	const replay = await g.post(
+		`/rgs/engine?sid=${sid}&seq=0&gid=${gid}`,
+		config.actions.slice(0, 2),
+	);
+	const r2 = await g.post(`/rgs/engine?sid=${sid}&seq=2&gid=${gid}`, [{ action: 'play' }]);
+	const snapshot = r2.events.find((e) => e.event === 'playedBonusSpin')?.context.holdAndWin;
+	// Lines 1, 4 and 5 leave the top and bottom of reels 1 and 3 unpaid: those never land.
+	const board = r2.events.find((e) => e.event === 'playedSpin')?.context;
+	const locked = [1, 3].every((reel) => [0, 2].every((row) => board?.[reel][row] === 'BLANK'));
+	if (
+		check(
+			config.resume === true &&
+				JSON.stringify(config.actions[0].context) === '[3,4]' &&
+				state.round?.lineCount === 3 &&
+				state.round.feature.paylineIds.join() === '1,4,5' &&
+				JSON.stringify(replay.events) === JSON.stringify(opening.events) &&
+				snapshot?.paylineIds.join() === '1,4,5' &&
+				locked,
+			'resume: the open round keeps its 3 lines',
+			JSON.stringify({ state: state.round, snapshot: snapshot?.paylineIds }),
+		)
+	)
+		pass('player: a resumed round keeps its 3 lines — the stored bet, /state and the snapshot');
+	await g.close();
+}
+
+{
+	console.log('coin board: the three pay rules, hand-checked');
+	// 5×3, every line active, bet 4 per line ⇒ 20 per total stake. Held: the middle row's reels
+	// 0–2 (1, 2, 3), the top of reel 0 (5), a MINI (15) on top of reel 1, 10 at the bottom of reel 4
+	// and 4 at the bottom of reel 2. Nothing lands after (`dead`), so the board ends as it entered.
+	//   coinsOnLines  every coin once                                  1+2+3+5+15+10+4 = 40
+	//   perLine       × the lines through it (1,3,1,2,1,2,2)           1+6+3+10+15+20+8 = 63
+	//   lineFill 3    line 1: 1+2+3 = 6 · line 4 (V): 5+2+4 = 11 · lines 2, 3, 5 short   = 17
+	const HELD = [
+		[0, 1, 1],
+		[1, 1, 2],
+		[2, 1, 3],
+		[0, 0, 5],
+		[1, 0, 'MINI'],
+		[4, 2, 10],
+		[2, 2, 4],
+	];
+	const expected = {
+		all: { total: 800, lines: undefined, mini: [300] },
+		perLine: { total: 1260, lines: [1, 3, 1, 2, 1, 2, 2], mini: [300] },
+		lineFill: { total: 340, lines: [1, 2, 1, 1, 0, 0, 1], mini: [] },
+	};
+	const RUNS = [
+		{
+			id: '1',
+			cells: [
+				[0, 1],
+				[1, 1],
+				[2, 1],
+			],
+			total: 120,
+		},
+		{
+			id: '4',
+			cells: [
+				[0, 0],
+				[1, 1],
+				[2, 2],
+			],
+			total: 220,
+		},
+	].map((r) => ({ ...r, cells: r.cells.map(([reel, row]) => ({ reel, row })) }));
+	let ruled = 0;
+	for (const [id, want] of Object.entries(expected)) {
+		const { opts } = contractFor(COIN_BOARDS[id]);
+		const engine = createHoldAndWinEngine({ ...opts, label: `cb-${id}`, seed: 'hand' });
+		const board = engine.emptyBoard();
+		for (const [reel, row, value] of HELD) {
+			board[reel][row] =
+				typeof value === 'string'
+					? { symbol: 'JACKPOT', kind: 'jackpot', jackpot: value, factor: 1 }
+					: { symbol: 'BONUS', kind: 'coin', value };
+		}
+		const round = {
+			betPerLine: 4,
+			baseTotal: 20,
+			win: 0,
+			force: { dead: true, specials: [], jackpots: [] },
+			coinBoard: engine.coinBoard.linesFor(5),
+		};
+		const events = [];
+		engine.startFeature(events, round, { meters: {}, jackpots: {} }, board, 'count', []);
+		while (!round.feature.ended) engine.playRespin(events, round);
+		const end = events.find((e) => e.event === 'holdAndWinEnd').context;
+		const lines = HELD.map(
+			([reel, row]) => end.cells.find((c) => c.reel === reel && c.row === row)?.lines,
+		);
+		const minis = events.filter((e) => e.event === 'jackpotWin').map((e) => e.context.amount);
+		const parts = end.cells.reduce((s, c) => s + c.amount, 0);
+		if (
+			check(
+				end.total === want.total &&
+					parts === want.total &&
+					end.payRule === COIN_BOARDS[id].coinBoard.payRule &&
+					JSON.stringify(lines.filter((n) => n !== undefined)) ===
+						JSON.stringify(want.lines ?? []) &&
+					JSON.stringify(minis) === JSON.stringify(want.mini) &&
+					JSON.stringify(end.runs) === JSON.stringify(id === 'lineFill' ? RUNS : undefined),
+				`${end.payRule}: pays ${want.total}`,
+				JSON.stringify(end),
+			)
+		)
+			ruled++;
+	}
+	if (ruled === 3)
+		pass('coinsOnLines 40×, perLine 63×, lineFill 17× (runs on lines 1 and 4) the total stake');
 }
 
 // ---------- 7. the test-server image ships what it imports ----------

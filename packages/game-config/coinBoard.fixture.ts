@@ -64,11 +64,9 @@ for (const name of defaults.filter((n: string) => n !== COIN_BOARD_DEFAULT)) {
 	check(`${name} plays its base game on the reels`, gameModeById(doc, 'basegame')?.board, 'reels');
 	check(`${name} raises no coin board issue`, coinBoardIssues(doc), []);
 	if (name.startsWith('holdAndWin.')) {
-		check(
-			`${name}'s mock inputs carry no coin board`,
-			holdAndWinMockInputs(doc)?.coinBoard,
-			undefined,
-		);
+		const inputs = holdAndWinMockInputs(doc);
+		check(`${name}'s mock inputs carry no coin board`, inputs?.coinBoard, undefined);
+		check(`${name}'s mock inputs carry no payline ids`, inputs?.paylineIds, undefined);
 	}
 }
 
@@ -312,6 +310,11 @@ check('it deals only role symbols', Object.keys(template.symbols).sort(), [
 ]);
 const inputs = holdAndWinMockInputs(template);
 check('the mock gets its block', inputs?.coinBoard, template.coinBoard);
+check(
+	"…and the payline ids, in the contract's order",
+	inputs?.paylineIds,
+	Object.keys(template.paylines),
+);
 check('…and no line symbol', inputs?.lineSymbols, []);
 check('…and the primary respin rules', inputs?.block.respins, { start: 3, reset: 'anyCoin' });
 

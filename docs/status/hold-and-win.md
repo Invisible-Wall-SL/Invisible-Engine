@@ -55,7 +55,7 @@ titled **"Hold and win game pipeline"**.
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
-| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | in progress — **13a (config + tools) built on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14); 13b–13e unclaimed | 13a: invisible-game-config | plan + 13a: #1200 |
+| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | in progress — **13a (config + tools) and 13b (mock RGS) built on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14); 13c–13e unclaimed | 13a: invisible-game-config · 13b: engine-pixi-svelte | plan + 13a + 13b: #1200 |
 
 ## Current state
 
@@ -1086,6 +1086,40 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-14 — **Phase 13b: the mock deals the coin board** (built on branch
+  `claude/practical-ptolemy-kes8j2`, PR #1200; the runtime does not draw it yet — 13c). Wire:
+  [hold-and-win-wire.md](../reference/hold-and-win-wire.md) "Coin board".
+  - **Engine** (`scripts/mock-holdandwin-engine.mjs`): with the inputs' `coinBoard`, the base game
+    has no line game (no line symbols or line evaluation, no `spinWin`). A round carries its line
+    set (`round.coinBoard`: count, ids, rows, paying cells, trigger minimum, coin rate, pay rule), so
+    every respin mode's engine honours it. Non-paying cells are dealt the blank and never draw. The
+    count trigger, a forced trigger, a forced meter or instant collect, the respin landings, the
+    stick, the full board and column letters all read paying cells only. `finishFeature` pays by
+    `payRule`: `coinsOnLines` once, `perLine` × the lines through the cell, `lineFill` once per
+    qualifying run from reel 0.
+  - **Server** (`scripts/mock-rgs-server-holdandwin.mjs`): `bet[0]` is the line count under
+    `player` (refused unless one of `choices`); a fixed board ignores it. Stake = lines × bet per
+    line. The `bet` echo's `paylines` / `paylineIds` list only the round's lines; the boot config
+    gains `holdAndWin.coinBoard`; `/state` gains `lineCount`.
+  - **Mock inputs:** `holdAndWinMockInputs` adds `paylineIds` (`Object.keys(doc.paylines)`, the
+    order the contract sends its rows in) beside `coinBoard`: the contract sends lines as rows and
+    the coin board names them by id. Without a coin board it is absent.
+  - **Gates:** `check:holdandwin` §8 plays five coin boards (the template; the middle line only
+    with minimum 5; player `[1, 3, 5]`; `lineFill`; `perLine`), 180 re-derived rounds each against
+    game-config's own `activePaylineIds` / `payingCells` / `coinBoardTriggerMin`, plus the stake and
+    echo per selection, refused counts (0, 2, 4, 6), the middle-line full board paying GRAND, a
+    resume at 3 lines, and a hand-built board under each rule (40×, 63×, 17× the stake). The preset
+    parity digests are unchanged. `check:bonus-migration` now boots the coin board template (its
+    13a skip is gone); `coinBoard.fixture.ts` pins `paylineIds`.
+  - **Decisions the plan left open:** a fixed board ignores `bet[0]`; with a bet table the round
+    plays the default count and the table's unit is that count; the trigger counts the authored
+    count roles (the template: coin and jackpot), not every special; board expansion is refused on
+    a coin board, column letters are kept (a column completes when its paying cells are held); a
+    `lineFill` run is unbroken cells that pay at the end (cash, jackpot, a collector with value),
+    and a coin in no run is still tallied, with `lines: 0` and `amount: 0`; the end tally names the
+    runs `runs` (the per-cell count is `lines`); the base coin rate is solved per line count so the
+    trigger fires about 1 spin in 50 (pacing).
 
 - 2026-10-14 — **Phase 13a: the coin board in Game Config and Game Maker** (built on branch
   `claude/practical-ptolemy-kes8j2`, PR #1200; nothing plays it yet — 13b deals it, 13c draws it).

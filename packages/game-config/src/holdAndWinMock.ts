@@ -47,6 +47,10 @@ export type HoldAndWinMockInputs = {
 	/** The coin board (`./coinBoard`): the base game deals on the respin board, and only its paying
 	 *  cells deal, trigger and pay. Absent ⇒ a lines base game. */
 	coinBoard?: CoinBoard;
+	/** The payline ids, in the order the contract lists its `paylines` (`Object.values`): the
+	 *  coin board names its lines by id, the contract sends them as rows. Present only with
+	 *  `coinBoard`. */
+	paylineIds?: string[];
 };
 
 /** One respin mode as the mock deals it: its own rules joined with the routes that start it. */
@@ -113,7 +117,7 @@ export function holdAndWinMockInputs(doc: GameConfigDoc): HoldAndWinMockInputs |
 		symbols,
 		...(modes ? { modes } : {}),
 		...(baseCoins?.length ? { baseCoins } : {}),
-		...(doc.coinBoard ? { coinBoard: doc.coinBoard } : {}),
+		...(doc.coinBoard ? { coinBoard: doc.coinBoard, paylineIds: Object.keys(doc.paylines) } : {}),
 	};
 }
 

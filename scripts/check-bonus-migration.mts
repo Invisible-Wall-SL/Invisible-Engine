@@ -322,7 +322,7 @@ if (MEASURE) {
 }
 
 /** Corpus docs main never had, so there is nothing of main's to lose: the Hold and Win coin board
- *  template (hold-and-win-coin-board Phase 13a) is checked for 1 and 3 only. */
+ *  template (hold-and-win-coin-board Phase 13a) is checked for 1, 3 and 4 only. */
 const afterMain = (name: string): boolean => name === 'template:holdAndWin.coinBoard';
 for (const [name, doc] of Object.entries(docs)) {
 	check(`1 ${name}: no legacy key`, !carriesLegacy(doc));
@@ -420,10 +420,8 @@ async function bootOf(baked: Doc, compiled: Doc) {
 const sameBoot = (a: Awaited<ReturnType<typeof bootOf>>, b: Awaited<ReturnType<typeof bootOf>>) =>
 	a.config === b.config && a.boot === b.boot && a.modes === b.modes;
 
-// The coin board has no baked-on-main form, and the mock deals it from Phase 13b.
 const BOOTED = Object.keys(docs).filter(
-	(name) =>
-		(name.startsWith('preset:') || name.startsWith('template:holdAndWin')) && !afterMain(name),
+	(name) => name.startsWith('preset:') || name.startsWith('template:holdAndWin'),
 );
 for (const name of BOOTED) {
 	const doc = docs[name];
