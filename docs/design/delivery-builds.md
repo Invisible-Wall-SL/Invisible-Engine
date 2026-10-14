@@ -604,6 +604,46 @@ The result dialog offers **▶ Play it**, which is `serve-embed.mjs` with a sess
 origin. That pairing is the point: producing a delivery and playing one were two commands, and the
 second is the one people skip.
 
+## Phase 5 — upload to the partner's CDN ✅ BUILT 2026-10-14
+
+The partner gave us an R2 bucket in **their** Cloudflare account, served at
+`https://devr2.2-complex.science`, which their server passes to the page as `cdnUrl`. One partner,
+one bucket. A delivery no longer has to be handed over as a zip:
+
+```
+node engine/scripts/upload-delivery.mjs delivery --alias BookOfBorut [--version v3]
+```
+
+uploads the folder `build-delivery.mjs` wrote to `{brand}/games/{versionPath}/{gameAlias}/` in that
+bucket, through the portal (`api/launcher/delivery-upload`, `partnerDelivery.ts`), and prints the
+`versionPath` to tell them.
+
+- **We pick `versionPath`.** It is frontend-only, so it is ours: the portal suggests one past the
+  highest `v<N>` the game has been delivered under (`v1`, `v2`, …); `--version` overrides it.
+- **A delivered folder is never written again.** `game.js` has a fixed name and no hash, so
+  `versionPath` is the page's only cache-buster and every file is uploaded `immutable`. Overwriting a
+  folder their page already points at would serve a mix of two builds. The commit SEALS the folder
+  (a record in OUR bucket, `deliveries/<alias>/<versionPath>.json`, written `If-None-Match: *`) and
+  a sealed folder refuses every write. A rollback is the partner pointing back at an older
+  `versionPath`; nothing is deleted.
+- **The credential stays on the portal.** The key pair is the partner's and the only one we hold
+  for that bucket, so it is a launcher env var (`DELIVERY_R2_*`, `docs/INFRA.md`) and the uploader
+  needs only a portal sign-in with `gamePublish`, like ☁ Publish. That also keeps it working from a
+  line that null-routes `*.r2.cloudflarestorage.com`.
+- **Verify, prune, seal, then smoke-test.** The commit refuses while a declared file is missing or
+  its MD5 differs, so two publishers handed the same suggested `versionPath` cannot seal a mix of
+  both builds. Re-running resumes: files already there with the same MD5 are skipped. No object is
+  overwritten in place (`If-None-Match: *`); a resumed upload replacing a different file deletes it
+  first, which only an unsealed folder allows. Then it prunes leftovers from an abandoned attempt
+  at the same `versionPath`, seals (the record lists every file's MD5), and fetches `game.js` at the
+  public URL with an `Origin` header, reporting the status and `Access-Control-Allow-Origin`. Their
+  art loads cross-origin and WebGL refuses a texture without CORS, so a missing rule would be a
+  blank game.
+- **`embed.html` is refused** at any path: it is the app-server half and never goes on the CDN.
+
+Open: the desktop **📦 Deliver** dialog (the `invisible-launcher` repo) should offer **⬆ Upload**
+by calling the same endpoint. Until then the CLI is how a delivery is uploaded.
+
 ## Open questions for the partner
 
 1. ~~Which query param does their embed carry the session token in?~~ **ANSWERED** — not a query

@@ -620,6 +620,35 @@ Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and
 >   (`PUBLIC_DELIVERY_PROFILES`, see `docs/design/delivery-builds.md`).
 >   **Engine "release pending" pill (C2):** the launcher home pill can also flag when engine `main` has un-released ENGINE changes (`apps/lines/`, `packages/`) ahead of the live runtime bundle's stamped commit. To activate, set on the **launcher-api** Railway service: `GITHUB_ENGINE_READ_TOKEN` = a **fine-grained PAT** with **read-only "Contents"** on `Invisible-Wall-SL/Invisible-Engine` (optionally `GITHUB_ENGINE_REPO` = `owner/repo` to override the default). The launcher calls the GitHub compare API (`{deployed}...main`) best-effort, cached ~60s. **If `GITHUB_ENGINE_READ_TOKEN` is unset (or any GitHub error/timeout), the pill simply never shows "release pending"** — it behaves exactly as before (green/deployed). `GIT_CLONE_TOKEN` is used only as a best-effort fallback and is scoped to game repos, so a dedicated read token is preferred. After setting → **Apply changes / Deploy**.
 
+> **Partner CDN uploads (`DELIVERY_R2_*`):** where `scripts/upload-delivery.mjs` puts a delivery
+> build, through `api/launcher/delivery-upload` (`partnerDelivery.ts`). The bucket is in the
+> **partner's** Cloudflare account and served at `https://devr2.2-complex.science`, the `cdnUrl` their
+> page composes `{cdnUrl}/{brand}/games/{versionPath}/{gameAlias}/game.js` from. Set on the
+> **launcher** service:
+>
+> - `DELIVERY_R2_BUCKET` — the partner's bucket name.
+> - `DELIVERY_R2_ACCESS_KEY_ID` / `DELIVERY_R2_SECRET_ACCESS_KEY` — the R2 token they gave us
+>   (**secret**).
+> - `DELIVERY_R2_ENDPOINT` — code default: their account's `<account>.eu.r2.cloudflarestorage.com`
+>   S3 endpoint.
+> - `DELIVERY_CDN_URL` — code default `https://devr2.2-complex.science`.
+> - `DELIVERY_BRAND` — code default `eanew`.
+>
+> Bucket or key pair unset ⇒ the upload answers 503; nothing else is affected. The key pair lives
+> ONLY here: never on a publisher's machine, in a game repo or the desktop launcher. Ask the partner
+> for a token scoped to **Object Read & Write on that one bucket**. Seal records, one per delivered
+> version, live in OUR bucket at `deliveries/<gameAlias>/<versionPath>.json`.
+>
+> On THEIR bucket (their dashboard; the upload reports what it sees):
+>
+> - **Custom domain** `devr2.2-complex.science` connected to the bucket, not `r2.dev`
+>   (rate-limited, not for production).
+> - **CORS**: their page fetches our art, atlases and audio cross-origin, and WebGL refuses a
+>   texture without CORS, so a missing rule is a blank game:
+>   `[{"AllowedOrigins":["*"],"AllowedMethods":["GET","HEAD"],"AllowedHeaders":["*"],"MaxAgeSeconds":86400}]`
+> - Every object is uploaded `Cache-Control: public, max-age=31536000, immutable`. A delivered
+>   folder is never rewritten, so that is safe; a new build is a new `versionPath`.
+
 > **Game freshness — no edge cache in front of `games`.** `games.invisiblewall.org` is a DNS-only
 > CNAME to Railway (checked 2026-09-29: responses come from Railway's edge with no Cloudflare
 > headers), so there is no CDN copy to purge. Freshness is the test server's own headers: a game's
