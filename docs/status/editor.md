@@ -115,6 +115,11 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-14 — **The way back from a component to its screen is visible.** After a double-click on
+  a placed instance, the only exit that looked like a button was **← All components**, which lands
+  on the components home, not on the screen. The breadcrumb's first crumb (the screen's name) did
+  go back, but it was drawn as plain grey text. It is now a **← ‹screen›** button
+  (`ComponentWorkspace.svelte`, `button.crumb.back`); its behaviour (`exitToScreens`) is unchanged.
 - 2026-10-14 — **`/editor` crashed on every load** (#1190 → fixed in #1195): the lease take-over
   re-arm block read `lease` in an initializer ~1500 lines above `const lease`, so the component
   script threw `Cannot access … before initialization` (the component editor is the same page). The
