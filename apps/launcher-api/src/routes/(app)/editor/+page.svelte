@@ -2453,6 +2453,11 @@
 	let featureAutoplay = $state<boolean>(data.doc.settings?.features?.autoplay ?? true);
 	let featureSpaceHold = $state<boolean>(data.doc.settings?.features?.spaceHold ?? true);
 	const ukLocked = $derived(jurisdiction === 'UK');
+	// Authored overlays (Rive plan Phase 8a): the pilot switch that renders the Transition from its
+	// authored component instead of the coded mount. Off, and absent from the doc, unless turned on.
+	let authoredTransition = $state<boolean>(
+		data.doc.settings?.authoredOverlays?.transition === true,
+	);
 
 	// The project's own BOOT SPLASH — the second pre-game screen, after the admin-owned engine
 	// mark. A blank bundle means "no game splash", so the panel needs no separate clear button.
@@ -2476,7 +2481,7 @@
 			background: bootLoaderBackground,
 			size: bootLoaderSize,
 		});
-		if (jurisdiction === 'default' && allOn && !bootLoader) return undefined;
+		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredTransition) return undefined;
 		const settings: GameSettings = {};
 		if (jurisdiction !== 'default') settings.jurisdiction = jurisdiction;
 		if (!allOn) {
@@ -2487,6 +2492,8 @@
 			};
 		}
 		if (bootLoader) settings.bootLoader = bootLoader;
+		// Sparse: only an ON row is written (the normalizer keeps only that too).
+		if (authoredTransition) settings.authoredOverlays = { transition: true };
 		return settings;
 	}
 
@@ -3974,6 +3981,27 @@
 								{#if ukLocked}
 									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
 								{/if}
+
+								<hr class="gs-rule" />
+								<p class="gs-note">
+									<strong>Authored overlays (pilot)</strong> — render an overlay from its authored component
+									instead of the coded one. Leave off for live games until the owner's browser check;
+									the publish summary names it when on.
+								</p>
+								<label
+									class="gs-toggle"
+									title="The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount. Same rig, same timing; the flow continues when the wipe ends."
+								>
+									<input
+										type="checkbox"
+										checked={authoredTransition}
+										onchange={(e) => {
+											authoredTransition = e.currentTarget.checked;
+											onGameSettingChange();
+										}}
+									/>
+									<span>Transition</span>
+								</label>
 
 								<hr class="gs-rule" />
 								<p class="gs-note">

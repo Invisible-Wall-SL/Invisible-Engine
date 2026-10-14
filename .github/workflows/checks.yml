@@ -73,6 +73,69 @@ jobs:
         if: steps.changes.outputs.code == 'true'
         run: CHROME_PATH="$(command -v google-chrome)" pnpm check:all --exclude-lint --shard ${{ matrix.shard }}/3 --jobs 4
 
+  # The authored Transition vs the coded one, frame for frame (Rive plan Phase 8a): builds the
+  # `lines` runtime the way the release does and renders both sides in the headless shell
+  # (`scripts/transition-parity/run.mjs`). Its own job: the check-all shards have no build.
+  transition-parity:
+    name: transition parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - id: changes
+        uses: ./.github/actions/code-changed
+
+      - if: steps.changes.outputs.code == 'true'
+        uses: pnpm/action-setup@v6
+
+      - if: steps.changes.outputs.code == 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - if: steps.changes.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # The same shell and sandbox setup as the current-games render job (its comments say why).
+      - name: Install the headless shell
+        if: steps.changes.outputs.code == 'true'
+        timeout-minutes: 15
+        run: |
+          printf '%s\n' 'Acquire::Retries "5";' 'Acquire::http::Timeout "30";' \
+            'Acquire::https::Timeout "30";' 'DPkg::Lock::Timeout "180";' \
+            | sudo tee /etc/apt/apt.conf.d/80-transition-parity >/dev/null
+          for attempt in 1 2 3; do
+            timeout 240 pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell && exit 0
+            echo "::warning::headless shell install attempt $attempt failed; retrying"
+            sleep 10
+          done
+          exit 1
+
+      - name: Let the headless shell start its sandbox
+        if: steps.changes.outputs.code == 'true'
+        run: |
+          f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
+          if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+
+      - name: transition parity
+        if: steps.changes.outputs.code == 'true'
+        run: pnpm check:transition-parity
+
+      - uses: actions/upload-artifact@v6
+        if: always() && steps.changes.outputs.code == 'true'
+        with:
+          name: transition-parity
+          path: |
+            .cache/transition-parity/report.json
+            .cache/transition-parity/coded/*.png
+            .cache/transition-parity/authored/*.png
+            .cache/transition-parity/diff-*.png
+          if-no-files-found: ignore
+
   python:
     name: python tests
     runs-on: ubuntu-latest

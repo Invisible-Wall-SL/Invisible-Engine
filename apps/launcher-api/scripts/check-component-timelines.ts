@@ -364,6 +364,157 @@ eq(
 	[],
 );
 
+// ---- 6. animation strips on a rig node, and cue holds (Rive plan Phase 8a) ----------------------
+
+const H = await import('../../../packages/engine-layout/src/lib/cueHolds.ts');
+const B = await import('../../../packages/engine-layout/src/lib/builtinTimelines.ts');
+const rigNodes: LayoutNode[] = [
+	{ id: 'r_wipe', kind: 'spine', label: 'wipe', x: 0, y: 0, assetKey: 'transition' } as LayoutNode,
+	{ id: 'r_glow', kind: 'sprite', label: 'Glow', x: 0, y: 0 } as LayoutNode,
+];
+const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): CinematicDoc =>
+	({
+		...S.newComponentTimeline({ id, name: id, componentId: 'wipe', playOn: 'transition' }),
+		duration: 2,
+		stage: { sceneId: null, cast: [{ actorId: 'a', kind: 'node', target: 'wipe', place: {} }] },
+		tracks: [
+			{
+				id: 'anim',
+				kind: 'animation',
+				actorId: 'a',
+				strips: [
+					{
+						id: 's1',
+						clip: { src: 'rig', name: 'animation' },
+						start: 0.5,
+						length: 1,
+						clipIn: 0.25,
+					},
+				],
+			},
+		],
+		...extra,
+	}) as unknown as CinematicDoc;
+{
+	const doc = stripTimeline('strip');
+	eq(
+		'an animation strip keys the animTime channel on a rig node',
+		[...N.keyedNodeChannels(doc.tracks as never)],
+		['animTime'],
+	);
+	eq(
+		'...which a rig node takes and a sprite does not',
+		[
+			N.validateNodeActors(doc, { id: '', name: '', nodes: rigNodes }).map((i) => i.code),
+			N.validateNodeActors(
+				stripTimeline('x', {
+					stage: {
+						sceneId: null,
+						cast: [{ actorId: 'a', kind: 'node', target: 'Glow', place: {} }],
+					},
+				} as never),
+				{ id: '', name: '', nodes: rigNodes },
+			).map((i) => i.code),
+		],
+		[[], ['channel-unsupported']],
+	);
+	const p = new L.ComponentTimelinePlayer([doc], rigNodes);
+	p.trigger('transition');
+	eq('before the strip the rig holds no clip', p.sample('r_wipe'), {});
+	p.advance(0.5);
+	eq('at the strip start the clip is at its clip-in, in seconds', p.sample('r_wipe'), {
+		animTime: { animation: 'animation', time: 0.25 },
+	});
+	p.advance(0.75);
+	eq('mid-strip the clip time advances with the playhead', p.sample('r_wipe'), {
+		animTime: { animation: 'animation', time: 1 },
+	});
+	p.advance(1);
+	eq('past the strip the clip holds its last strip time', p.sample('r_wipe'), {
+		animTime: { animation: 'animation', time: 1.25 },
+	});
+	const propertyOnly = timeline('pop', { playOn: 'enter' });
+	const q = new L.ComponentTimelinePlayer([propertyOnly], coinNodes);
+	q.trigger('enter');
+	q.advance(0.5);
+	eq(
+		'a property-only timeline samples no animTime (every timeline before 8a is unchanged)',
+		Object.keys(q.sample('n_coin') ?? {}).sort(),
+		['alpha', 'y'],
+	);
+}
+{
+	const silent = stripTimeline('silent');
+	const holding = stripTimeline('holding', { holdsCue: true });
+	const empty = stripTimeline('empty', { holdsCue: true, duration: 0 });
+	const p = new L.ComponentTimelinePlayer([silent, holding, empty], rigNodes);
+	eq(
+		'only a holdsCue timeline with a length holds its cue',
+		[p.holdsOn('transition'), p.holdsOn('enter')],
+		[['holding'], []],
+	);
+	let settled = false;
+	const until = new Promise<void>((resolve) => {
+		let frames = 0;
+		p.trigger('transition');
+		const tick = (): void => {
+			frames++;
+			const step = p.advance(1 / 60);
+			if (step.completed.includes('holding')) {
+				eq(
+					'the hold ends on the frame the timeline reaches its end (2 s at 60 fps)',
+					Math.abs(frames / 60 - 2) <= 1 / 60,
+					true,
+				);
+				resolve();
+				return;
+			}
+			if (frames > 1000) throw new Error('the holding timeline never completed');
+			tick();
+		};
+		tick();
+	}).then(() => {
+		settled = true;
+	});
+	H.holdCue('transition', until);
+	eq(
+		'a registered hold is listed on its cue only',
+		[H.cueHolds('transition').length, H.cueHolds('uiHide').length],
+		[1, 0],
+	);
+	await until;
+	await Promise.resolve();
+	eq(
+		'...and dropped once it settles',
+		[settled, H.cueHolds('transition').length, H.pendingCueHolds()],
+		[true, 0, []],
+	);
+}
+{
+	const wipe = B.TRANSITION_WIPE_TIMELINE;
+	const def = (await import('../../../packages/engine-layout/src/lib/builtinComponents.ts'))
+		.TRANSITION_WIPE_DEF;
+	eq(
+		"the built-in wipe timeline binds the built-in def's rig node with no issue",
+		N.validateNodeActors(wipe, { id: '', name: '', nodes: def.root.children }),
+		[],
+	);
+	L.registerComponentTimelines([...B.BUILTIN_TIMELINES, timeline('project', { playOn: 'enter' })]);
+	eq(
+		'a built-in timeline registers on its def like a baked one',
+		L.componentTimelinesFor('transitionWipe').map((d) => d.id),
+		[wipe.id],
+	);
+	const shadow = { ...wipe, name: 'project copy', holdsCue: false } as CinematicDoc;
+	L.registerComponentTimelines([...B.BUILTIN_TIMELINES, shadow]);
+	eq(
+		'...and a project timeline of the same id shadows it',
+		L.componentTimelinesFor('transitionWipe').map((d) => d.name),
+		['project copy'],
+	);
+	L.registerComponentTimelines([]);
+}
+
 console.log(
 	`\n${failures === 0 ? '✅' : '❌'} component timelines: ${passes} passed, ${failures} failed`,
 );

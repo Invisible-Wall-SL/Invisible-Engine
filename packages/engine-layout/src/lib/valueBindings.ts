@@ -366,6 +366,19 @@ export function boundScrubs(
 	return [...byAnimation.values()];
 }
 
+/**
+ * The rig's scrubs with a timeline's `animation` strip appended (Rive plan Phase 8a): the strip's
+ * clip-local SECONDS, after the node's own scrubs so a playing timeline wins the pose. No strip ⇒
+ * the node's own scrubs, the SAME array (a node no timeline drives, or one whose timeline has not
+ * started or holds no clip, poses exactly as before).
+ */
+export function withTimelineScrub(
+	own: BoundScrub[],
+	strip: { animation: string; time: number } | undefined,
+): (BoundScrub & { unit?: 'seconds' })[] {
+	return strip ? [...own, { ...strip, unit: 'seconds' }] : own;
+}
+
 /** One bone's combined offset — what `<RigPose bones>` and the editor preview pose. */
 export type BoundBoneOffset = { bone: string; offset: RigBoneOffset };
 

@@ -28,6 +28,7 @@
 import type { LayoutDoc, Scene } from 'engine-layout';
 import {
 	cueAnimationDurationMs,
+	cueHolds,
 	emitComponentSignal,
 	ENTER_SIGNAL,
 	flipbookCycleMs,
@@ -81,6 +82,7 @@ import { eventScope } from 'utils-event-emitter';
 import { roundSkip } from 'utils-shared/skipToken';
 
 import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
+import { recordDeterminismCue } from './determinism';
 import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { stateLayoutDerived } from './stateLayout';
@@ -660,11 +662,22 @@ export const createLinesFlowV2 = (
 			const ms = opts?.await ? cueAnimationMs(cue) : 0;
 			if (ms > 0) trace('cue', cue, `⏱ ${Math.round(ms)}ms`);
 			else trace('cue', cue);
+			recordDeterminismCue(cue);
+			// The holds the fire just opened (Rive plan Phase 8a): a placed instance whose `holdsCue`
+			// timeline this cue started registered one in the emit above, and an awaited fire waits for
+			// its end — observed, not measured, exactly as a coded overlay's awaited subscriber is.
+			// Appended only when there are any, so a cue nobody holds awaits the same promises as ever.
+			// Read AFTER the emit above, which is where the holds are registered: a cue the GAME
+			// registered as a signal source would reach its instances through the emitter instead,
+			// after this read, and hold nothing — `transition` is not one (`isRegisteredComponentSignal`).
+			const holds = opts?.await ? cueHolds(cue) : [];
+			if (holds.length) trace('cue', cue, `⏳ held by ${holds.length}`);
 			return awaitCue(
 				cue,
 				Promise.all([
 					ms > 0 ? waitPresentation(ms / (stateBetDerived.timeScale() || 1)) : undefined,
 					eventEmitter.broadcastAsync({ type: cue, ...payload } as never),
+					...holds,
 				]),
 			);
 		},

@@ -104,6 +104,13 @@ export interface DefaultLayoutOptions {
 	 * `bind:Win` in `basegameOverlays` (parity); `apps/lines` forwards its `WIN_INSTANCE` flag.
 	 */
 	winInstance?: boolean;
+	/**
+	 * Set `settings.authoredOverlays.transition` on the doc (Rive plan Phase 8a): the game then
+	 * renders the Transition from the built-in `transitionWipe` component instead of the coded
+	 * `bind:Transition` (the node itself is unchanged — the game swaps it at mount). Default-OFF =
+	 * no `settings` block (parity); `apps/lines` forwards its `AUTHORED_TRANSITION` dev-pilot flag.
+	 */
+	authoredTransition?: boolean;
 }
 
 /**
@@ -225,6 +232,7 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 		projectKey: gameType,
 		gameType,
 		mainSizesMap: MAIN_SIZES_MAP,
+		...(options.authoredTransition ? { settings: { authoredOverlays: { transition: true } } } : {}),
 		scenes: [
 			{
 				// Startup splash: a generic `loadingBar` componentInstance (the masked

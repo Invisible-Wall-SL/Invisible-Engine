@@ -5,6 +5,7 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
+import { hasCodedTransition } from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -28,6 +29,7 @@ import {
 	resolveGameConfig,
 } from '$lib/server/gameConfigDefaults';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
+import { loadDoc } from '$lib/server/editorStorage';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -197,12 +199,15 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			// The card's "what IS this game" summary. Two extra R2 reads per project (the config +
 			// the symbols doc); everything else is already in hand. Both loaders degrade to a
 			// usable value rather than throwing, so one unreadable doc costs a chip, not the page.
-			const [config, symbols, pointer] = await Promise.all([
+			const [config, symbols, pointer, layout] = await Promise.all([
 				resolveGameConfig(clientKey, p.key, p.gameType),
 				loadSymbolsDoc(clientKey, p.key),
 				// The published snapshots players boot (+ the ones a rollback can return to). Null for
 				// a game never published, or last published before snapshots existed.
 				game ? currentPointer(clientKey, p.key).catch(() => null) : null,
+				// The layout doc, for the authored-overlay chips (Rive plan Phase 8a): one more read
+				// per project, degraded to "no doc" rather than failing the page.
+				loadDoc(clientKey, p.key, p.gameType).catch(() => null),
 			]);
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
@@ -212,6 +217,14 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				symbols,
 				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
+				layout: layout
+					? {
+							...(layout.settings?.authoredOverlays
+								? { authoredOverlays: layout.settings.authoredOverlays }
+								: {}),
+							hasCodedTransition: hasCodedTransition(layout.scenes.flatMap((s) => s.nodes)),
+						}
+					: null,
 			});
 
 			return {

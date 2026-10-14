@@ -497,8 +497,23 @@ export function sampleNodeActor(tracks, t) {
 	let uniform;
 	const visibility = [];
 	let textTrack;
+	let animTime;
 	for (const track of tracks || []) {
 		if (!track) continue;
+		if (track.kind === 'animation' && Array.isArray(track.strips)) {
+			// A rig NODE's clip (Rive plan Phase 8a): the strip active at `t` holds the node's rig at a
+			// clip-local time. Strips are read in start order, so a later one wins where two overlap;
+			// without the skeleton the clip's length is the strip's `clipLength`, else the clip plays
+			// once and the rig clamps the time (a loop mode needs the length recorded).
+			const strips = track.strips.filter((s) => s && s.clip && s.clip.name);
+			strips.sort((a, b) => a.start - b.start);
+			for (const strip of strips) {
+				const m = clipLocalTime(strip, t, strip.clipLength > 0 ? strip.clipLength : Infinity);
+				if (!m) continue;
+				animTime = { animation: strip.clip.name, time: m.local };
+			}
+			continue;
+		}
 		if (track.kind === 'property' && track.channels) {
 			for (const name of NODE_CHANNELS) {
 				const keys = track.channels[name];
@@ -517,6 +532,7 @@ export function sampleNodeActor(tracks, t) {
 	}
 	const text = sampleText(textTrack, t);
 	if (text) out.text = text;
+	if (animTime) out.animTime = animTime;
 	if (uniform !== undefined || sx !== undefined || sy !== undefined) {
 		out.scaleX = (uniform ?? 1) * (sx ?? 1);
 		out.scaleY = (uniform ?? 1) * (sy ?? 1);

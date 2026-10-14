@@ -446,6 +446,25 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'"features":{"turbo":true}',
 		'"id":"basegame"',
 	]);
+	// Authored overlays (Rive plan Phase 8a): an ON row round-trips; an unknown overlay, an OFF
+	// row and a non-boolean are dropped, so the block is sparse and never gains a key it cannot read.
+	const overlaysOn = clone(base) as typeof base & { settings: Record<string, unknown> };
+	overlaysOn.settings.authoredOverlays = { transition: true };
+	const overlaysExtras = clone(overlaysOn);
+	Object.assign(overlaysExtras.settings.authoredOverlays as object, { win: true, note: 'x' });
+	ignores(
+		'4. layout (authored overlays)',
+		(d) => normalizeLayoutDoc(d, 'demo'),
+		overlaysOn,
+		overlaysExtras,
+		['"authoredOverlays":{"transition":true}'],
+	);
+	const overlaysOff = clone(base) as typeof base & { settings: Record<string, unknown> };
+	overlaysOff.settings.authoredOverlays = { transition: false };
+	const offOut = JSON.stringify(normalizeLayoutDoc(overlaysOff, 'demo'));
+	if (offOut.includes('authoredOverlays')) {
+		throw new Error('4. layout: an OFF authored-overlay row must not be written');
+	}
 
 	const withNodeField = clone(base);
 	Object.assign(withNodeField.scenes[0].nodes[0], { glow: 0.2 });

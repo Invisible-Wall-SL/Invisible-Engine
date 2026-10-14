@@ -65,6 +65,8 @@
 		"precheck:cinematic-access": "node scripts/ensure-svelte-kit.mjs",
 		"precheck:component-timelines": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-timelines": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-timelines.ts",
+		"precheck:authored-transition": "node scripts/ensure-svelte-kit.mjs",
+		"check:authored-transition": "tsx --tsconfig tsconfig.scripts.json scripts/check-authored-transition.ts",
 		"precheck:component-state-machine": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-state-machine": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-state-machine.ts",
 		"precheck:component-state-machine-editor": "node scripts/ensure-svelte-kit.mjs",

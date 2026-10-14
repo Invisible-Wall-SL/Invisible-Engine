@@ -29,9 +29,17 @@ let byId = new Map<string, CinematicDoc>();
 export function registerComponentTimelines(docs: readonly CinematicDoc[]): void {
 	const next = new Map<string, CinematicDoc[]>();
 	const nextById = new Map<string, CinematicDoc>();
+	// One doc per id, the LAST registered winning: a project timeline shadows a built-in one of the
+	// same id (`BUILTIN_TIMELINES` register first) instead of playing beside it. Baked ids are
+	// storage keys, so a baked bundle never carries two docs of one id and loses nothing here.
+	const winnerById = new Map<string, CinematicDoc>();
+	for (const doc of docs) if (doc.host?.kind === 'component' && doc.id) winnerById.set(doc.id, doc);
 	for (const doc of docs) {
 		if (doc.host?.kind !== 'component') continue;
-		if (doc.id) nextById.set(doc.id, doc);
+		if (doc.id) {
+			if (winnerById.get(doc.id) !== doc) continue;
+			nextById.set(doc.id, doc);
+		}
 		if (!doc.playOn) continue;
 		const ids = new Set([doc.host.componentId, ...(doc.playOnComponents ?? [])]);
 		for (const id of ids) {
@@ -125,6 +133,9 @@ interface Mix {
 
 const EPSILON = 1e-9;
 
+/** A zero-length timeline never "ends" in a step the player can report; it holds nothing. */
+const loopsForever = (doc: CinematicDoc): boolean => !(Math.max(doc.duration || 0, 0) > 0);
+
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
 	/** Cues the playheads crossed, in order, each with the id of the timeline that crossed it. */
@@ -180,6 +191,17 @@ export class ComponentTimelinePlayer {
 	/** The signals that start at least one of this instance's timelines. */
 	signals(): string[] {
 		return [...new Set(this.bound.map((b) => b.doc.playOn).filter((s): s is string => !!s))];
+	}
+
+	/**
+	 * The timelines `signal` starts that HOLD the cue (`holdsCue`, Rive plan Phase 8a): an awaited
+	 * fire of that signal waits for each to reach its end. A looping timeline never ends, so it is
+	 * left out; a timeline without the field, or a state-machine one (no `playOn`), holds nothing.
+	 */
+	holdsOn(signal: string): string[] {
+		return this.bound
+			.filter((b) => b.doc.playOn === signal && b.doc.holdsCue === true && !loopsForever(b.doc))
+			.map((b) => b.doc.id);
 	}
 
 	/** Nodes some timeline drives, with the union of the channels they key — fixed for life. */

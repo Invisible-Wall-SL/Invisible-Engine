@@ -90,6 +90,9 @@ export type DeterminismState = DeterminismProbeState & {
 	pendingIo: number;
 	stalls: number;
 	errors: number;
+	/** The Flow cues fired so far, each with the frame it fired on (the last {@link CUE_LOG_MAX}),
+	 *  so a harness can step to a cue and capture at fixed frames after it. */
+	cues: readonly { cue: string; frame: number }[];
 };
 
 export type DeterminismApi = {
@@ -141,6 +144,21 @@ type VirtualTimer = {
 
 let probe: (() => DeterminismProbeState) | undefined;
 
+const CUE_LOG_MAX = 256;
+const cueLog: { cue: string; frame: number }[] = [];
+/** The current frame while the mode is on; bound by `installDeterminism`. */
+let frameNow: (() => number) | undefined;
+
+/**
+ * The Flow runtime reports every cue it fires. A no-op when the mode is off (nothing is kept);
+ * with it, `state().cues` lists them with the frame each fired on.
+ */
+export function recordDeterminismCue(cue: string): void {
+	if (!frameNow) return;
+	cueLog.push({ cue, frame: frameNow() });
+	if (cueLog.length > CUE_LOG_MAX) cueLog.shift();
+}
+
 /**
  * `Game.svelte` hands over a reader of its screen + round state. A no-op when the mode is off;
  * returns the unregister.
@@ -182,6 +200,7 @@ export function installDeterminism(): void {
 
 	let now = 0;
 	let frame = 0;
+	frameNow = () => frame;
 	let pendingIo = 0;
 	let stalls = 0;
 	let errors = 0;
@@ -576,6 +595,7 @@ export function installDeterminism(): void {
 		pendingIo,
 		stalls,
 		errors,
+		cues: [...cueLog],
 		...readProbe(),
 	});
 	const holds = (c: DeterminismCondition, s: DeterminismState): boolean =>

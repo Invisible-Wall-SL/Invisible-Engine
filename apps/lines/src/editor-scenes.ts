@@ -26,6 +26,7 @@ import {
 	normalizeHudScenes,
 	registerComponentDefaults,
 	registerComponentTimelines,
+	BUILTIN_TIMELINES,
 	registerComponents,
 	registerRigFx,
 	registerTextResolver,
@@ -42,7 +43,12 @@ import type { MessagesMap } from 'utils-shared/i18n';
 import bakedBundleJson from './baked-editor-bundle.json';
 import { gameAssetsBase } from './game/assets';
 import { defaultLayout } from './game/defaultLayout';
-import { HUD_BUTTON_INSTANCES, TRANSITION_INSTANCE, WIN_INSTANCE } from './game/editorFlags';
+import {
+	AUTHORED_TRANSITION,
+	HUD_BUTTON_INSTANCES,
+	TRANSITION_INSTANCE,
+	WIN_INSTANCE,
+} from './game/editorFlags';
 import type { SymbolInfoMap, SymbolLayerSpec } from './game/types';
 
 /**
@@ -584,8 +590,10 @@ export function registerBakedComponents(): void {
 	if (source.componentDefs) registerComponents(source.componentDefs);
 	if (source.componentDefaults) registerComponentDefaults(source.componentDefaults);
 	// Component timelines (Rive plan Phase 4): each placed instance plays its def's timelines on
-	// their `playOn` signal. No component-hosted timeline ⇒ an empty registry (parity).
-	registerComponentTimelines(bakedCinematics());
+	// their `playOn` signal. The engine's BUILT-IN timelines (Phase 8a: the authored Transition's
+	// wipe) register first, so a project timeline of the same id shadows one; they play only on an
+	// instance of their built-in def, which no doc places until a project opts in (parity).
+	registerComponentTimelines([...BUILTIN_TIMELINES, ...bakedCinematics()]);
 }
 
 /**
@@ -1556,6 +1564,7 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	buttons: HUD_BUTTON_INSTANCES,
 	transition: TRANSITION_INSTANCE,
 	winInstance: WIN_INSTANCE,
+	authoredTransition: AUTHORED_TRANSITION,
 });
 
 /**

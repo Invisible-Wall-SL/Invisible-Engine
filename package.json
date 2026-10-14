@@ -53,6 +53,7 @@
 		"check:build-provenance": "node scripts/check-build-provenance.mjs",
 		"check:svelte-pins": "node packages/config-vite/svelteVersions.fixture.mjs",
 		"check:toolbar-icons": "node scripts/check-toolbar-icons.mjs",
+		"check:transition-parity": "node scripts/transition-parity/run.mjs",
 		"check:all": "node scripts/check-all.mjs",
 		"check:svelte": "node scripts/svelte-check-ratchet.mjs",
 		"check:python": "python scripts/check-python.py"

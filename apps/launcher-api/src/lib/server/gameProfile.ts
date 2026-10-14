@@ -70,6 +70,12 @@ export interface GameProfileSignals {
 	runtimeId: string | null;
 	/** Which mock-RGS protocol the published game talks. Null until the project is published. */
 	protocol: MockProtocol | null;
+	/**
+	 * The layout doc's authored-overlay switches and whether its overlays scene still binds the
+	 * coded Transition (Rive plan Phase 8a) — read off `editor/scenes.json`; `null` when the project
+	 * has no doc yet.
+	 */
+	layout?: { authoredOverlays?: { transition?: boolean }; hasCodedTransition: boolean } | null;
 }
 
 /** One chip. `text` is self-describing (units baked in); `title` is the hover explanation. */
@@ -527,6 +533,25 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'highlight',
 		title: 'A custom win-frame rig looped over winning symbols.',
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),
+	},
+	{
+		id: 'authoredTransition',
+		title:
+			'The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount (Rive plan Phase 8a pilot).',
+		text: (ctx) =>
+			ctx.layout?.authoredOverlays?.transition === true && ctx.layout.hasCodedTransition
+				? 'Authored Transition (pilot)'
+				: null,
+	},
+	{
+		id: 'authoredTransitionUnbound',
+		title:
+			'The authored Transition is on, but no scene binds the coded Transition it replaces — the game plays no transition wipe at all. Add the Transition overlay node back (the reference overlays scene has it) or turn the pilot off.',
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.authoredOverlays?.transition === true && !ctx.layout.hasCodedTransition
+				? 'Authored Transition on, nothing to replace'
+				: null,
 	},
 	{
 		id: 'boardGlow',

@@ -122,7 +122,10 @@ nothing that can go stale:
   pictures, the win-line display and full-payline trace, per-line win colours,
   winning-symbol replay (and its dim / hold-after-big-win variants), win-frame
   highlight, free-spin board glow, book-symbol VFX, reel anticipation, explosion
-  animations, named symbols, big-win tiers and tier escalation.
+  animations, named symbols, big-win tiers and tier escalation, and the
+  **Authored Transition (pilot)** switch from the Scene Editor's Game Settings
+  (an amber chip instead when it is on but no scene binds the coded Transition it
+  replaces — the game would play no wipe).
 
 Hover any chip for what it means and where it comes from. A project that has
 switched nothing on says _"no optional features yet"_ rather than listing the

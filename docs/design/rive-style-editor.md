@@ -652,7 +652,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
-| 8 | **Migrate the coded overlays** — plan in §13 (inventory + 8a design, 2026-10-14) | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
+| 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) built 2026-10-14**, owner browser check pending, live games still coded | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
 
@@ -708,10 +708,12 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
 
 > Plan only. Progress lives in [status/engine.md](../status/engine.md),
 > [status/component-editor.md](../status/component-editor.md) and [status/cinematic.md](../status/cinematic.md).
-> Owner policy for the pilot (coordinator default, 2026-10-14, pending owner input): the flag is
-> **off for every live game and project**; the coded Transition stays the default path everywhere;
-> the authored Transition is piloted on the `apps/lines` dev build (or a dev/test project), never
-> turned on for a live game in the 8a PR; live games switch only after an owner browser check.
+> Pilot policy, **decided by the coordinator (2026-10-14), pending the owner**: the flag is **off
+> for every live game and project**; the coded Transition stays the default path everywhere; the
+> authored Transition is piloted on the `apps/lines` dev build and the parity gate, never turned on
+> for a live game in the 8a PR; a test project (test3/4/5) is switched by the owner through the Game
+> Settings row for the browser check, and live games only after it. Decisions 13.5 #1–#7 were taken
+> the same day (the recommended option each time; #7 as its own pipeline PR after 8a, before 8b).
 
 Phase 8 migrates the coded overlays to authored components one at a time, each behind a flag, in
 the order **Transition → Win → free-spin intro/outro → buttons**, and retires each coded mount only
@@ -797,11 +799,15 @@ is right under turbo and on a slow frame, as the coded `complete` is; a looping 
 holds; an instance that is not mounted holds nothing (as an unmounted coded part would not
 subscribe). `awaitCue` wraps the whole await as today, so the slam rule is unchanged: the
 free-spin-entry wipe stays unskippable, the exit wipe stays raced. Default off ⇒ every existing
-`playOn` timeline keeps its fire-and-forget timing (parity). `boundComponentMs` keeps measuring
-the coded part for `showContainer.durationMs`; with the flag on there is no bound part in the
-scene and `cueAnimationDurationMs` gains the same rule (a `holdsCue` timeline a mounted instance
-plays on that cue counts for its length), so a `Delay` wired off `durationMs` reads the same
-number either way.
+`playOn` timeline keeps its fire-and-forget timing (parity). The awaited fire is NOT also
+measured: today's awaited `transition` measures 0 (`cueAnimationDurationMs` walks rig cues, never
+a `bind`), so the hold alone is exact parity; a measured wait on top would stack a second clock
+(decided at build time, 2026-10-14). The one knowing gap: `boundComponentMs` measures the coded
+part for `showContainer.durationMs`, and with the flag on there is no bound part, so a `Delay`
+wired off the `durationMs` of a screen holding the swapped node would read 0 instead of 1667 ms.
+The overlays scene is always mounted and never shown by a `showContainer`, so no flow reads that
+number today; a `holdsCue` rule for `sceneAnimationDurationMs` joins 8b, where the Win's screen is
+one a flow does show.
 
 **The flag (per project, default off).** A sparse boolean in the Scene Editor's existing
 per-project game settings, `LayoutDoc.settings.authoredOverlays?: { transition?: true }`
@@ -815,9 +821,11 @@ Game Settings panel gains an **Authored overlays (pilot)** block with one row, *
 `buildGameSettings()` keeps returning `undefined` when every setting is default; and the publish
 chip (`gameProfile.ts`) names it, so a publish shows what it ships. The `apps/lines` dev build
 pilots it the way its other engine flips are piloted: a module constant
-`AUTHORED_TRANSITION = false` in `editorFlags.ts` shapes the fallback doc (`settings` + node), and a
-dev URL opt-in `?authoredTransition=1` (beside `?flowV2=lines`, which the pilot needs anyway: the
-coded handlers never fire `transition`) flips it for one boot, which is what the parity gate uses.
+`AUTHORED_TRANSITION = false` in `editorFlags.ts` puts the flag on the fallback doc. **No URL opt-in
+exists** (decided at build time, 2026-10-14): a per-boot hook could reach a live runtime, and the
+parity gate does not need one — it serves the game a doc with the flag set, the way a published
+project is served (with `?flowV2=lines`, the committed reference flow, since the coded handlers
+never fire `transition`).
 
 **How the runtime picks the path.** From the doc, after `loadEditorScenes()` settles and before any
 scene mounts, in the one place that already rewrites `basegameOverlays` (`Game.svelte:1071`,
@@ -855,7 +863,8 @@ the general mechanism.
   (`scripts/check-transition-parity.mjs`, run by the Lint workflow like the other `check:*`): it
   boots the built `apps/lines` twice in the headless shell (`scripts/playtest/headless-shell.mjs`,
   `?ie_determinism=<seed>`, 1280×720, DPR 1, the book mock with `FORCE_TRIGGER=1`, `?flowV2=lines`),
-  once as built and once with `?authoredTransition=1`; it steps frames until the `transition` cue
+  once on the harness's stand-in snapshot as published and once on the same snapshot with the flag
+  set in its layout doc; it steps frames until the `transition` cue
   fires (the determinism probe's `state()` gains an additive `cues` list, the fired cue names in
   order — `DeterminismApi`, `apps/lines/src/game/determinism.ts`), captures at **0, 400, 800, 1200 and
   1600 ms** after it (frames 0 / 24 / 48 / 72 / 96 at 60 fps), and compares each pair with
@@ -893,19 +902,21 @@ own.
    fold already has `animTime`) vs the rig-cue fallback with no timeline.
 4. **`holdsCue` as an opt-in timeline field** (recommended: existing `playOn` timelines keep their
    timing) vs holding every awaited cue a `playOn` timeline starts.
-5. **Pilot surface.** The `apps/lines` dev build (`?authoredTransition=1` plus the parity gate,
-   recommended, verifiable without a login) vs a dev/test project in the launcher (needs the
-   owner's browser to set the flag and publish).
+5. **Pilot surface.** The `apps/lines` dev build plus the parity gate (recommended, verifiable
+   without a login) vs a dev/test project in the launcher (needs the owner's browser to set the
+   flag and publish). Decided: both, in that order — the gate now, a test project for the owner's
+   browser check through the Game Settings row.
 6. **Sizing.** `coverFit` height × 1.7 on the rig node (recommended) vs per-layout scales; the gate
    measures it. Risk: the coded box is the rig's authored height, the cover box is the measured
    art; if they differ by more than the tolerance, per-layout scales are the fallback.
 7. **Harness.** Add an `fs-transition` key screen (captured a fixed number of frames after the
    `transition` cue) to `screens/*.json` as its own pipeline change? Today no screen targets the
    wipe, so a regression in the coded path would pass the harness.
-8. **Risk: the hidden coupling of `basegameOverlays`.** Projects that author the overlays scene
+8. **Known gap (build time): `showContainer.durationMs`** of a screen holding the swapped node
+   reads 0 with the flag on (13.2); no flow reads it for the overlays scene. 8b adds the rule.
+9. **Risk: the hidden coupling of `basegameOverlays`.** Projects that author the overlays scene
    themselves (Borut) keep the `bound-transition` node only if the reference had it; the rewrite
    covers any `bind:Transition` node wherever it sits, and a project with none and the flag on gets
    no wipe at all — the gate reports that case as a warning in the publish chip.
-9. **Risk: `?authoredTransition=1` is a per-boot dev hook.** Unlike `?flowV2=lines`, it is
-   honoured only on a determinism boot (`?ie_determinism=<seed>`, which the gate always sets) or a
-   dev build, so a player URL cannot flip a live game.
+10. **Risk: a per-boot dev hook.** Resolved by not having one: the flag is read from the doc only,
+   so no player URL can flip a live game, and the gate feeds the game a flagged doc instead.

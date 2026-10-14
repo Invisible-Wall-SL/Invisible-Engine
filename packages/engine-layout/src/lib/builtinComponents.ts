@@ -874,6 +874,54 @@ export const TRANSITION_DEF: ComponentDef = {
 };
 
 /**
+ * The AUTHORED Transition (Rive plan Phase 8a, `docs/design/rive-style-editor.md` §13.2): the
+ * same full-screen wipe as the coded `Transition` part, as a component the editor owns end to end
+ * — one rig node, `wipe`, on the engine's static `transition` bundle, and a built-in timeline
+ * (`builtinTimelines.ts`) that plays its clip on the game's `transition` cue and holds the awaited
+ * cue until the clip ends. The node reproduces the coded part's placement exactly: a `coverFit`
+ * rig in a `canvas` scene centres on the canvas and `fit: 'height'` × `coverScale` 1.7 sizes it to
+ * 1.7 × the canvas height, which is `TransitionAnimation`'s `height = canvasHeight × 1.7` at the
+ * canvas centre; so the instance is placed at (0, 0) with no anchor, and the rig node carries no
+ * anchor (pivot 0 — the skeleton origin at the centre, as `RigProvider` placed the coded one).
+ * `hiddenUntilSignal` keeps the rig off screen until the cue first fires; the timeline's visibility
+ * track hides it again when the clip ends (the coded part unmounted its rig at `complete`).
+ *
+ * A NEW id beside `transition` (the hybrid twin whose bound child is still the coded part): a game
+ * that baked a copy of `transition`, or placed it, is untouched. Nothing references this def until
+ * a project turns on `settings.authoredOverlays.transition`; the game then swaps its
+ * `bind: Transition` node for an instance of this def (`apps/lines` `authoredOverlays.ts`). The
+ * coded part retires, and `transition` moves to this content as its next version, only after the
+ * owner's browser check (§13.2 "Removal").
+ */
+export const TRANSITION_WIPE_DEF: ComponentDef = {
+	id: 'transitionWipe',
+	name: 'Transition wipe',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'transitionWipe-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'transitionWipe-rig',
+				label: 'wipe',
+				kind: 'spine',
+				x: 0,
+				y: 0,
+				assetKey: 'transition',
+				coverFit: true,
+				fit: 'height',
+				coverScale: 1.7,
+				hiddenUntilSignal: 'transition',
+			},
+		],
+	},
+};
+
+/**
  * The board-relative VISUAL of the free-spin INTRO (§17 Phase 3) — the editor-positioned
  * half of the intro/gate split. Wraps the coded `FreeSpinIntroVisual` (the `FreeSpinAnimation`
  * frame rig + the count rig, count in its slot) as a `bind` child with
@@ -2737,6 +2785,7 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	INFO_BAR_DEF,
 	LOADING_INTRO_DEF,
 	TRANSITION_DEF,
+	TRANSITION_WIPE_DEF,
 	FREE_SPIN_INTRO_VISUAL_DEF,
 	FREE_SPIN_OUTRO_VISUAL_DEF,
 	WIN_DEF,

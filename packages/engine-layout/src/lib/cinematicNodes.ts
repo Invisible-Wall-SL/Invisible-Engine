@@ -10,7 +10,8 @@ import type { CinematicCast, CinematicDoc, LayoutNode, Scene, ValueBinding } fro
 /** A track, as loosely as the document stores it. */
 type LooseTrack = Record<string, unknown> & { actorId?: unknown; kind?: unknown };
 
-/** The `property` channels a node actor can key, plus the text track and visibility. */
+/** The `property` channels a node actor can key, plus the text track, visibility and — on a rig
+ *  node — the clip an `animation` strip holds it at (`animTime`, Rive plan Phase 8a). */
 export type NodeActorChannel =
 	| 'x'
 	| 'y'
@@ -23,7 +24,8 @@ export type NodeActorChannel =
 	| 'frame'
 	| 'fill'
 	| 'text'
-	| 'visible';
+	| 'visible'
+	| 'animTime';
 
 const TRANSFORM: NodeActorChannel[] = [
 	'x',
@@ -46,6 +48,7 @@ export function nodeActorChannelsForKind(kind: LayoutNode['kind']): NodeActorCha
 	if (kind === 'flipbook') return [...TRANSFORM, 'tint', 'frame', 'fill'];
 	if (kind === 'rect') return [...TRANSFORM, 'fill'];
 	if (kind === 'text') return [...TRANSFORM, 'text'];
+	if (kind === 'spine') return [...TRANSFORM, 'animTime'];
 	return TRANSFORM;
 }
 
@@ -155,6 +158,12 @@ export function keyedNodeChannels(tracks: LooseTrack[]): Set<NodeActorChannel> {
 			out.add('text');
 		} else if (track.kind === 'visibility' && Array.isArray(track.keys) && track.keys.length) {
 			out.add('visible');
+		} else if (track.kind === 'animation' && Array.isArray(track.strips)) {
+			// A strip with a clip holds the rig node's clip; an empty strip keys nothing.
+			const strips = track.strips as { clip?: { name?: unknown } | null }[];
+			if (strips.some((strip) => typeof strip?.clip?.name === 'string' && strip.clip.name)) {
+				out.add('animTime');
+			}
 		}
 	}
 	return out;

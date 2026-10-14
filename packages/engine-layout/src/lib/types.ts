@@ -1300,6 +1300,17 @@ export interface GameSettings {
 	 * See `constants-shared/bootSplash`.
 	 */
 	bootLoader?: BootSplashRef;
+	/**
+	 * The coded overlays this project renders from their AUTHORED component instead of the coded
+	 * mount (Rive plan Phase 8, `docs/design/rive-style-editor.md` §13). Sparse: a row is written
+	 * only when it is on, so every doc authored before it, and every doc that never turned one on,
+	 * is byte-identical to the coded path. `transition` swaps the `bind: Transition` wipe for the
+	 * built-in `transitionWipe` component (8a). Off for every live game until the owner's browser
+	 * check; the Game Settings row says so.
+	 */
+	authoredOverlays?: {
+		transition?: boolean;
+	};
 }
 
 export interface LayoutDoc {
@@ -1785,6 +1796,13 @@ export interface CinematicDoc {
 	 * targets; a name one of them lacks is skipped there (validation flags it).
 	 */
 	playOnComponents?: string[];
+	/**
+	 * A COMPONENT timeline only (Rive plan Phase 8a): an awaited fire of `playOn` — a Flow
+	 * `fireCue` with "wait" ticked — is held until this timeline reaches its end on every instance it
+	 * started on, the way a coded overlay holds the awaited broadcast until its rig completes. Absent
+	 * ⇒ the fire returns as it always has (parity); a looping timeline never holds.
+	 */
+	holdsCue?: boolean;
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

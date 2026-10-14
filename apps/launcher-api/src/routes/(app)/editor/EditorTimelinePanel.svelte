@@ -462,6 +462,20 @@
 
 	// ---- component trigger + reuse -------------------------------------------------------------
 
+	/** Whether the open component timeline holds its awaited cue (`holdsCue`, Rive plan Phase 8a). */
+	function holdsCue(): boolean {
+		void docVersion;
+		return tl?.doc().holdsCue === true;
+	}
+	function setHoldsCue(on: boolean): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !component) return;
+		if (on) doc.holdsCue = true;
+		else delete doc.holdsCue;
+		tl.commit('holds the cue');
+		docVersion++;
+	}
+
 	/** The open component timeline's `playOn`, re-read on every doc change. */
 	function playOn(): string {
 		void docVersion;
@@ -630,6 +644,19 @@
 						if (name !== null) setPlayOn(name.trim());
 					}}>✎</button
 				>
+				{#if current}
+					<label
+						class="tl-playon"
+						title="An awaited fire of this signal (a Flow fireCue with “wait” ticked) continues only when this timeline has ended on every instance it started on — the way a coded overlay held its cue until its rig completed. Off: the fire returns at once, as before."
+					>
+						<input
+							type="checkbox"
+							checked={holdsCue()}
+							onchange={(e) => setHoldsCue(e.currentTarget.checked)}
+						/>
+						Holds the cue
+					</label>
+				{/if}
 				{#if component.others.length}
 					<details class="tl-reuse">
 						<summary
