@@ -136,6 +136,11 @@ With the coin board on, **Game modes** shows `basegame` on the respin board with
   - **Player** — **Line choices** (a comma list, e.g. `1, 3, 5`), the **Default** among them,
     and the **Order** lines switch on in (↑ / ↓ move a line): N lines are the first N. The total
     bet is lines × bet per line. Switching from Designer starts the order with the ticked lines.
+    In the game, a **Lines** panel beside the Bet steps through the choices (− / +), starting on
+    the Default. The bet steps are per line, and **Bet** shows the total, so changing the lines
+    keeps the bet per line. The board's lines and covered cells change at once, and the panel is
+    greyed while a spin or the feature plays. The choice lasts for the session. A server that
+    sells a bet option (an ante or a buy) plays the Default and shows no panel.
 - **Pay rule** — how the held coins pay when the feature ends:
   - **Coins on lines** — every held coin pays its value once (a classic Hold and Win).
   - **Line fill** — a paying line pays the sum of its coins in a run from the left, at least
@@ -155,8 +160,8 @@ the largest choice, a missing trigger minimum, a run longer than the reels, an a
 a coin board with no Hold and Win respin mode, and pots or dropped tokens (not built for a coin
 board: the coin overlay's pots presets are refused on it).
 
-The game does not play the coin board yet: the mock RGS and the runtime follow in Phase 13b and
-13c ([status](../status/hold-and-win.md)).
+The game plays the coin board against the local Hold and Win mock. The partner's server does not
+deal it yet ([status](../status/hold-and-win.md)).
 
 ## Coin overlay
 

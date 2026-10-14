@@ -1,8 +1,10 @@
 /**
- * The coin board through the facade (`docs/design/hold-and-win-coin-board.md` Phase 13c): the REAL
- * facade against the REAL Hold and Win mock dealing a coin board. The boot block reaches the game,
- * the bet buys the line count the board plays (and the stake follows it), the base reveal names the
- * lines the server played, and the end tally carries each pay rule's fields.
+ * The coin board through the facade (`docs/design/hold-and-win-coin-board.md` Phases 13c + 13d): the
+ * REAL facade against the REAL Hold and Win mock dealing a coin board. The boot block reaches the
+ * game, the bet buys the line count the board plays (and the stake follows it), the base reveal names
+ * the lines the server played, and the end tally carries each pay rule's fields. Under `player`, the
+ * game's stake (lines × bet per line) is charged exactly at every count, and only a board whose wire
+ * carries the count lets the player pick it.
  *
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs packages/rgs-translator-eagaming/coinBoard.fixture.ts
  */
@@ -23,7 +25,12 @@ import { BOOK_AMOUNT_MULTIPLIER } from '../constants-shared/bet.ts';
 type Facade = typeof import('./src/engineFacade.ts');
 type BookEvent = { type: string; [key: string]: unknown };
 type Answer = { balance?: { amount: number }; round?: { state?: BookEvent[] } };
-type Globals = { __IE_COIN_BOARD__?: unknown; __IE_COIN_BOARD_LINE_COUNT__?: unknown };
+type Globals = {
+	__IE_COIN_BOARD__?: unknown;
+	__IE_COIN_BOARD_LINE_COUNT__?: unknown;
+	__IE_COIN_BOARD_PICKS_LINES__?: unknown;
+};
+type BetModes = { mode: string; cost: number; kind: 'base' | 'buy' }[];
 
 let failures = 0;
 let passes = 0;
@@ -41,9 +48,11 @@ const check = (label: string, actual: unknown, expected: unknown): void => {
 
 const realLog = console.log.bind(console);
 const realWarn = console.warn.bind(console);
+/** What the facade warned while hushed — the stake-rounding warning is one. */
+let warnings: string[] = [];
 const hush = async <T>(fn: () => T | Promise<T>): Promise<T> => {
 	console.log = () => {};
-	console.warn = () => {};
+	console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(' '));
 	try {
 		return await fn();
 	} finally {
@@ -83,7 +92,7 @@ const BOARDS: Record<string, CoinBoard> = {
 	perLine: { lines: { selection: 'fixed', active: ALL }, payRule: 'perLine', triggerMin: { 5: 6 } },
 };
 
-const startMock = async (id: string, force: string) => {
+const startMock = async (id: string, force: string, betModes?: BetModes) => {
 	const doc = normalizeGameConfigDoc({
 		...structuredClone(HOLD_AND_WIN_COIN_BOARD_TEMPLATE),
 		coinBoard: BOARDS[id],
@@ -97,6 +106,7 @@ const startMock = async (id: string, force: string) => {
 		paylines: Object.values(doc.paylines),
 		holdAndWin: holdAndWinMockInputs(doc),
 		...(force ? { force } : {}),
+		...(betModes ? { betModes } : {}),
 	});
 	const server: Server = createServer((req, res) =>
 		mock.handle(req, res, new URL(req.url ?? '/', `http://${req.headers.host}`)),
@@ -108,12 +118,19 @@ const startMock = async (id: string, force: string) => {
 };
 
 /** One round on a fresh session: the book, and what the balance fell by before the win. */
-const playRound = async (id: string, force: string, lineCount?: number) => {
-	const { doc, server, rgsUrl } = await hush(() => startMock(id, force));
+const playRound = async (
+	id: string,
+	force: string,
+	lineCount?: number,
+	{ amount = 1, betModes }: { amount?: number; betModes?: BetModes } = {},
+) => {
+	const { doc, server, rgsUrl } = await hush(() => startMock(id, force, betModes));
 	const facade = await openTab();
-	const sid = `fx-coin-${id}-${force}-${lineCount ?? 'default'}`;
+	const sid = `fx-coin-${id}-${force}-${lineCount ?? 'default'}-${amount}-${betModes ? 'table' : ''}`;
 	const globals = globalThis as Globals;
 	delete globals.__IE_COIN_BOARD__;
+	delete globals.__IE_COIN_BOARD_PICKS_LINES__;
+	warnings = [];
 	if (lineCount === undefined) delete globals.__IE_COIN_BOARD_LINE_COUNT__;
 	else globals.__IE_COIN_BOARD_LINE_COUNT__ = lineCount;
 	const result = await hush(async () => {
@@ -123,14 +140,15 @@ const playRound = async (id: string, force: string, lineCount?: number) => {
 			language: 'en',
 		})) as Answer;
 		const published = globals.__IE_COIN_BOARD__;
+		const picksLines = globals.__IE_COIN_BOARD_PICKS_LINES__;
 		const bet = (await facade.requestBet({
 			sessionID: sid,
 			currency: 'EUR',
-			amount: 1,
+			amount,
 			mode: 'BASE',
 			rgsUrl,
 		})) as Answer;
-		return { auth, published, bet };
+		return { auth, published, picksLines, bet };
 	});
 	delete globals.__IE_COIN_BOARD_LINE_COUNT__;
 	await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -140,7 +158,14 @@ const playRound = async (id: string, force: string, lineCount?: number) => {
 		(result.auth.balance?.amount ?? 0) -
 		(result.bet.balance?.amount ?? 0) +
 		(win / BOOK_AMOUNT_MULTIPLIER) * 1_000_000;
-	return { doc, events, published: result.published, spent };
+	return {
+		doc,
+		events,
+		published: result.published,
+		picksLines: result.picksLines,
+		spent,
+		roundingWarned: warnings.some((w) => w.includes('does not divide evenly')),
+	};
 };
 
 const reveal = (events: BookEvent[]) =>
@@ -186,6 +211,59 @@ for (const [id, lineCount, plays] of SELECTIONS) {
 		`${label}: a coin board base spin pays no line`,
 		events.filter((e) => e.type === 'winInfo').length,
 		0,
+	);
+}
+
+// THE PLAYER'S LINES (13d): the game's stake is lines × the bet per line (`apps/lines`
+// `coinBoardStake.ts`), and the facade charges exactly that at every count, without the
+// stake-rounding warning, on the first `count` lines of the board's order.
+const PICKS: [id: string, picks: boolean][] = [
+	['player', true],
+	['all', false],
+	['middle', false],
+];
+for (const [id, picks] of PICKS) {
+	const { picksLines } = await playRound(id, '');
+	check(`${id}: the player picks the lines exactly on a player board`, picksLines, picks);
+}
+for (const betPerLine of [0.1, 1, 2.5]) {
+	for (const count of [1, 3, 5]) {
+		const label = `player ${count} lines × ${betPerLine}`;
+		const stake = Math.round(betPerLine * count * 1_000_000) / 1_000_000;
+		const { doc, events, spent, roundingWarned } = await playRound('player', '', count, {
+			amount: stake,
+		});
+		check(
+			`${label}: the stake charged is lines × bet per line`,
+			Math.round(spent),
+			stake * 1_000_000,
+		);
+		check(`${label}: no stake-rounding warning`, roundingWarned, false);
+		check(
+			`${label}: the round plays the first lines of the order`,
+			reveal(events)?.paylineIds,
+			activePaylineIds(BOARDS.player, doc.paylines, count),
+		);
+	}
+}
+{
+	// The control: a total that is no multiple of the lines (13c's $1 over 3) is charged 99 cents
+	// and warned about — what a stake of lines × bet per line can never be.
+	const { spent, roundingWarned } = await playRound('player', '', 3, { amount: 1 });
+	check('player 3 lines, $1 total: charged 3 × 33 cents', Math.round(spent), 990_000);
+	check('player 3 lines, $1 total: the rounding is warned', roundingWarned, true);
+}
+{
+	const table: BetModes = [
+		{ mode: 'BASE', cost: 1, kind: 'base' },
+		{ mode: 'BONUS', cost: 100, kind: 'buy' },
+	];
+	const { picksLines, events } = await playRound('player', '', 1, { betModes: table });
+	check('player with a bet table: the player does not pick the lines', picksLines, false);
+	check(
+		'player with a bet table: the round plays the default count',
+		reveal(events)?.paylineIds?.length,
+		(BOARDS.player.lines as { default: number }).default,
 	);
 }
 

@@ -55,7 +55,7 @@ titled **"Hold and win game pipeline"**.
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
-| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | in progress — **13a (config + tools), 13b (mock RGS) and 13c (runtime) built on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14); 13d–13e unclaimed | 13a: invisible-game-config · 13b + 13c: engine-pixi-svelte | plan + 13a + 13b + 13c: #1200 |
+| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | in progress — **13a (config + tools), 13b (mock RGS), 13c (runtime) and 13d (player lines) built on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14); 13e unclaimed | 13a: invisible-game-config · 13b–13d: engine-pixi-svelte | plan + 13a–13d: #1200 |
 
 ## Current state
 
@@ -1086,6 +1086,50 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-14 — **Phase 13d: the player picks the lines** (built on branch
+  `claude/practical-ptolemy-kes8j2`, PR #1200; played locally in Chromium against the 13b mock, not
+  yet live). Only a coin board with `lines.selection: 'player'` changes. A fixed board, a lines
+  base game and every other game render and stake as before.
+  - **Stake:** the bet ladder is the bet **per line**, and `stateBet.betAmount` is the **total**
+    (lines × bet per line). So the Bet readout, the balance check, the wins, the big-win thresholds,
+    the jackpot values and the coin values all read the real total with no other change.
+    `coinBoardStake.ts` (pure) snaps every total to the API unit, so `requestBet`'s
+    `[lines, round(total / lines)]` sends the exact rung back: $1 a line at 3 lines is `[3, 100]`.
+    Before this, the $1 ladder rung was the total, so 3 lines were charged `[3, 33]` (99 cents)
+    with the stake-rounding warning.
+  - **One setter:** `setCoinBoardLineCount(n)` (`coinBoard.svelte.ts`) writes
+    `__IE_COIN_BOARD_LINE_COUNT__`, sets `stateCoinBoard.playedIds` to the first n of `order` (so
+    the Line Overlay and the locked cells redraw before the next spin), keeps the bet per line, and
+    rescales `betAmountOptions` / `betMenuOptions`. The HUD bet − / + and the bet menu then step
+    whole multiples of the lines. It writes the stake raw (as the bet menu does), because the
+    balance clamp would leave a total that is not a multiple of the lines. At boot
+    (`startCoinBoardLines`, after `<Authenticate>`), the game takes `<Authenticate>`'s ladder as the
+    per-line ladder and plays `default`. A resumed round keeps the count its base reveal's
+    `paylineIds` names, and its stake is already the total. Nothing is persisted, and neither is the
+    bet.
+  - **Selector** (`CoinBoardLinesSelector.svelte`): a "Lines" panel styled like the bet readout,
+    with − / count / +. It sits right of the HUD's `hud-bet` node, or above it when the standard box
+    has no room. With no bet node it goes in the bottom-right corner. It is greyed under the bet
+    buttons' rule (not idle), mounted with the base game at the HUD's z, and folds away with the
+    portrait drawer. The caption is the new `UI_TEXT.lines` ("Lines", harvested for
+    `/localization`).
+  - **Facade:** it publishes `__IE_COIN_BOARD_PICKS_LINES__`, which is true only for a `player`
+    board with no bet-option table. A table puts an option index in `bet[0]`, so the round plays
+    `default` (13b), and the game offers no selector there.
+  - **Gates:** `apps/lines/src/game/coinBoardStake.fixture.ts` (new, 36 checks: exact stakes for
+    the placeholder ladder × 8 line counts, the bet per line kept across 5 → 1 → 3 → 5, stepping,
+    resumed counts). `rgs-translator-eagaming/coinBoard.fixture.ts` grows from 60 to 94 checks: the
+    picks-lines flag per board and under a table, and lines × bet per line charged exactly with no
+    rounding warning at 1/3/5 lines × $0.10/$1/$2.50 on the first n of `order`. A control shows a
+    $1 total over 3 lines charged 99 cents and warned.
+  - **Played** (player `[1, 3, 5]`, default 3): boot showed 3 lines, Bet $3.00, and jackpots ×3.
+    The selector at 1 showed the middle line and the other rows covered, with Bet $1.00. At 5 it
+    showed all five lines and Bet $5.00, and the ends greyed. A spin at 3 lines sent `[3, 100]`, the
+    mock charged $3, and the selector greyed mid-round and ignored a press. After the bet + went to
+    $2 a line, the panel read $6 / $2 / $10 at 3 / 1 / 5 lines, and a spin sent `[3, 200]`. A forced
+    feature at 3 lines paid coins in multiples of $3, Win $411 and Balance $508, the same as the
+    mock. A fixed board shows no selector. 0 page errors.
 
 - 2026-10-14 — **Phase 13c: the coin board plays in the shared runtime** (built on branch
   `claude/practical-ptolemy-kes8j2`, PR #1200; played locally in Chromium against the 13b mock, not

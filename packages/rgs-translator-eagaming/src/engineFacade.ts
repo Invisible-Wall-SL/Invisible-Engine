@@ -264,9 +264,18 @@ const publishHoldAndWinJackpots = (levels: HoldAndWinJackpotLevel[]): void => {
  * Publish the coin board to the GAME (`apps/lines` `coinBoard.svelte.ts`), which reads it when its
  * own Game Config carries none — the same decoupled-global bridge as the meters. The bet's line count
  * comes back the other way, from the one global the game writes (`__IE_COIN_BOARD_LINE_COUNT__`).
+ *
+ * `__IE_COIN_BOARD_PICKS_LINES__` says whether that count reaches the wire: only a `player` board on
+ * the legacy lines encoding sends it. A bet-option table puts an option index in `bet[0]`, so its
+ * rounds play the default count and the game must not offer a lines selector.
  */
-const publishCoinBoard = (board: CoinBoardConfig): void => {
-	(globalThis as { __IE_COIN_BOARD__?: CoinBoardConfig }).__IE_COIN_BOARD__ = board;
+const publishCoinBoard = (board: CoinBoardConfig, picksLines: boolean): void => {
+	const globals = globalThis as {
+		__IE_COIN_BOARD__?: CoinBoardConfig;
+		__IE_COIN_BOARD_PICKS_LINES__?: boolean;
+	};
+	globals.__IE_COIN_BOARD__ = board;
+	globals.__IE_COIN_BOARD_PICKS_LINES__ = picksLines;
 };
 
 /** A heartbeat's progressive pools: moved into the captured tiers and handed to the game. */
@@ -301,10 +310,7 @@ const captureConfig = (
 		if (!overlay) publishHoldAndWinMeters(readBootMeterLevels(cfg));
 		publishHoldAndWinJackpots(readBootJackpotLevels(cfg));
 		const coinBoard = readCoinBoard(cfg);
-		if (coinBoard) {
-			capturedCoinBoard.set(sid, coinBoard);
-			publishCoinBoard(coinBoard);
-		}
+		if (coinBoard) capturedCoinBoard.set(sid, coinBoard);
 	}
 	// An overlay host's pots seed at boot like Hold and Win meters, whatever its kind — in
 	// `resolveMeters` order, the Hold and Win block's own meters first.
@@ -322,6 +328,8 @@ const captureConfig = (
 		capturedBetOptions.set(sid, options);
 		publishServerBetOptions(options);
 	}
+	const coinBoard = capturedCoinBoard.get(sid);
+	if (coinBoard) publishCoinBoard(coinBoard, coinBoard.lines.selection === 'player' && !options);
 	return cfg;
 };
 

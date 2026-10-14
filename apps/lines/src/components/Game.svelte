@@ -211,7 +211,7 @@
 		showRespinBoard,
 		stateRespinBoard,
 	} from '../game/stateRespinBoard.svelte';
-	import { isCoinBoard } from '../game/coinBoard.svelte';
+	import { coinBoardPicksLines, isCoinBoard, startCoinBoardLines } from '../game/coinBoard.svelte';
 	import {
 		activeModifiersText,
 		shownCollectorLevel,
@@ -298,6 +298,7 @@
 	import MultiplierBoard from './MultiplierBoard.svelte';
 	import OverlayTokens from './OverlayTokens.svelte';
 	import RespinBoard from './RespinBoard.svelte';
+	import CoinBoardLinesSelector from './CoinBoardLinesSelector.svelte';
 	import FlightLayer from './FlightLayer.svelte';
 	import HoldAndWinBanner from './HoldAndWinBanner.svelte';
 	import HoldAndWinWheel from './HoldAndWinWheel.svelte';
@@ -403,6 +404,9 @@
 	seedHoldAndWinMeters();
 	// A coin board's base game is the respin board, up from boot and never swapped out.
 	if (isCoinBoard()) showRespinBoard();
+	// A coin board whose player picks the lines stakes lines × the bet per line from boot.
+	startCoinBoardLines();
+	const coinBoardLinesShown = coinBoardPicksLines();
 	// …and its progressive jackpot pools, followed on every heartbeat refresh from here on.
 	onMount(seedHoldAndWinJackpots);
 	// The operator platform jackpot's tiers (any kind): seeded now, so a tier the platform names at
@@ -2505,6 +2509,13 @@
 					</UI>
 				</FlowFade>
 			{/key}
+		</Container>
+	{/if}
+	<!-- A coin board's lines selector, beside the bet whichever path renders the HUD; up with the base
+	     game, at the HUD's band. -->
+	{#if coinBoardLinesShown && (!isFlowDriven || isBasegameActive)}
+		<Container zIndex={hudZIndexEffective}>
+			<CoinBoardLinesSelector bar={hudBarScene} />
 		</Container>
 	{/if}
 	<!--

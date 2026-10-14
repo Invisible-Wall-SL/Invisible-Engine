@@ -7,7 +7,14 @@ import {
 	type CoinBoard,
 	type CoinBoardOverlay,
 } from 'game-config';
+import { stateBet, stateConfig } from 'state-shared';
 
+import {
+	coinBoardBetPerLine,
+	coinBoardLadder,
+	coinBoardResumedLines,
+	coinBoardStake,
+} from './coinBoardStake';
 import { getActiveGameConfig } from './gameConfig';
 import { getSymbolSeat } from './stateGame.svelte';
 
@@ -41,9 +48,65 @@ export const isCoinBoard = (): boolean => coinBoardConfig() !== undefined;
 
 export const stateCoinBoard = $state({
 	/** The lines the server played the last round on (its `bet` echo, on the base reveal); `null`
-	 *  before the first round, when the board's own default lines are shown. */
+	 *  before the first round, when the board's own default lines are shown. Under `player`, also
+	 *  the lines the player just picked, so the board shows them before the next spin. */
 	playedIds: null as string[] | null,
+	/** The line count the player picked (`player` boards the server lets pick); `null` otherwise. */
+	lineCount: null as number | null,
 });
+
+type Globals = { __IE_COIN_BOARD_PICKS_LINES__?: unknown; __IE_COIN_BOARD_LINE_COUNT__?: unknown };
+
+/** Does the player pick the line count? A `player` board, and a server that takes the count on the
+ *  wire (the facade says so at boot: a bet-option table plays the default count). */
+export const coinBoardPicksLines = (): boolean =>
+	coinBoardConfig()?.lines.selection === 'player' &&
+	(globalThis as Globals).__IE_COIN_BOARD_PICKS_LINES__ === true;
+
+/** The ladder `<Authenticate>` set, read as the bet PER LINE (`coinBoardStake.ts`). */
+let perLineLadder: { options: number[]; menu: number[] } | null = null;
+
+/**
+ * Play `count` lines from the next spin: the one place the selection is set. Writes the facade's line
+ * count (`__IE_COIN_BOARD_LINE_COUNT__`), shows the first `count` of the board's `order` (the Line
+ * Overlay and the locked cells follow), and keeps the bet per line while the stake becomes
+ * `count` × it, the bet ladder with it. Ignored unless the board lets the player pick `count`.
+ */
+export const setCoinBoardLineCount = (count: number): void => {
+	const board = coinBoardConfig();
+	if (!perLineLadder || board?.lines.selection !== 'player') return;
+	if (!board.lines.choices.includes(count)) return;
+	const betPerLine = coinBoardBetPerLine(stateBet.betAmount, stateCoinBoard.lineCount ?? 1);
+	(globalThis as Globals).__IE_COIN_BOARD_LINE_COUNT__ = count;
+	stateCoinBoard.lineCount = count;
+	stateCoinBoard.playedIds = activePaylineIds(board, getActiveGameConfig().paylines, count);
+	stateConfig.betAmountOptions = coinBoardLadder(perLineLadder.options, count);
+	stateConfig.betMenuOptions = coinBoardLadder(perLineLadder.menu, count);
+	// Raw, as the bet menu writes it: the balance clamp would leave a stake that is no multiple of
+	// the lines. A stake the balance cannot cover greys the spin button instead.
+	stateBet.betAmount = coinBoardStake(betPerLine, count);
+};
+
+/**
+ * At boot (after `<Authenticate>`): read its ladder as the bet per line and play the default count,
+ * or the count a resumed round was staked on — whose stake is already the total, so it is not
+ * multiplied again. A remounted game whose ladder is still the scaled one keeps its count. A no-op
+ * unless the player picks the lines.
+ */
+export const startCoinBoardLines = (): void => {
+	const board = coinBoardConfig();
+	if (!coinBoardPicksLines() || board?.lines.selection !== 'player') return;
+	const count = stateCoinBoard.lineCount;
+	const scaled = perLineLadder && count && coinBoardLadder(perLineLadder.options, count);
+	if (scaled && JSON.stringify(scaled) === JSON.stringify(stateConfig.betAmountOptions)) return;
+	perLineLadder = {
+		options: [...stateConfig.betAmountOptions],
+		menu: [...stateConfig.betMenuOptions],
+	};
+	const resumed = coinBoardResumedLines(stateBet.betToResume?.state, board.lines.choices);
+	stateCoinBoard.lineCount = resumed ?? 1;
+	setCoinBoardLineCount(resumed ?? board.lines.default);
+};
 
 /** The active payline ids, in the board's order — what the Line Overlay draws (reactive). */
 export const coinBoardPaylineIds = (): string[] => {
