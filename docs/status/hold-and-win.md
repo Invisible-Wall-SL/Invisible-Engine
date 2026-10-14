@@ -55,6 +55,7 @@ titled **"Hold and win game pipeline"**.
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
+| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | planned — plan up for owner review; 13a–13e unclaimed | — | plan: this PR |
 
 ## Current state
 
@@ -78,6 +79,7 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
 
 ## Decisions & findings
 
+- 2026-10-14 — **A Hold and Win with no line game (Phase 13, planned).** The owner made `holdandwintestsolo` from the plain template and expected the whole game to be the coin board. The template is a lines base game with Hold and Win as its bonus, which is the 3 Oaks shape (design §1.1), and `validateGameModes` refuses any other base. The owner chose: the coin board on every spin; paying lines fixed in Game Config or picked by the player; all three pay rules as options; coins off the paying lines ignored entirely. Plan: [hold-and-win-coin-board.md](../design/hold-and-win-coin-board.md).
 - 2026-10-02 — **Phase 12c: how a coded part is skinned** (session "Hold and Win Phase 12c
   skinnable parts", #1006). Pinned by `packages/engine-layout/scripts/test-pot-skin.mjs`.
   - **Authored children reach the part, not the scene.** A `bind` container's children are handed
