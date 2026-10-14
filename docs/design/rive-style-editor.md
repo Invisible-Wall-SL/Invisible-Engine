@@ -860,7 +860,9 @@ the general mechanism.
   and `check:cinematic-*` stay green with the built-in timeline registered first; a `playOn`
   timeline without `holdsCue` still returns from an awaited fire at once.
 - **Flag on: authored vs coded frames.** A root gate, `check:transition-parity`
-  (`scripts/check-transition-parity.mjs`, run by the Lint workflow like the other `check:*`): it
+  (`scripts/transition-parity/run.mjs`; its CI job is its own workflow file, landed as a
+  workflow-only follow-up PR because the current-games verdict counts every `.github/workflows/`
+  file as harness and would refuse to vouch for the runtime change beside it): it
   boots the built `apps/lines` twice in the headless shell (`scripts/playtest/headless-shell.mjs`,
   `?ie_determinism=<seed>`, 1280×720, DPR 1, the book mock with `FORCE_TRIGGER=1`, `?flowV2=lines`),
   once on the harness's stand-in snapshot as published and once on the same snapshot with the flag

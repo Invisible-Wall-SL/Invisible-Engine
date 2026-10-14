@@ -297,7 +297,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   on the clip's last frame under a stepped clock, the chips), `check:component-timelines` +15
   (strips, `holdsOn`, the registry shadowing), `test-value-bindings.mjs` (the scrub merge), the
   unknown-fields gate's authored-overlays case, and **`pnpm check:transition-parity`**
-  (`scripts/transition-parity/run.mjs`, its own Checks job *transition parity*: the built runtime on
+  (`scripts/transition-parity/run.mjs` — its CI workflow is a workflow-only follow-up PR, since the
+  current-games verdict counts every `.github/workflows/` file as harness: the built runtime on
   the harness's `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`, `FORCE_TRIGGER=1`, one
   seed; frames at 0/24/48/72/96 after the `transition` cue under `tolerance.json`; the next cue's
   frame; the positive control that the authored side held the cue and the coded side did not).
