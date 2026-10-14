@@ -64,8 +64,8 @@ binds `0.0.0.0:$PORT` (default **8766**).
 3. **Arrange** them into a packed sheet (`/api/arrange`).
    - **Canvas size → Region padding X / Y** is the space between the art and
      its cell edge on each side (room for glows and other FX): a cell is its art
-     plus the padding. Changing it resizes every cell that follows it, except
-     locked ones.
+     plus the padding. Changing it resizes every cell without **Own padding**,
+     locked ones included (they keep their position).
    - **Canvas size → Region border X / Y** is the space each cell keeps clear
      around itself. Two cells sit border + border apart (the default border 1
      gives 2 px; borders 4 and 10 give 14), and a cell sits its border away from
@@ -80,10 +80,12 @@ binds `0.0.0.0:$PORT` (default **8766**).
      inspector. The artwork keeps its **original size** and is **centred** inside
      it. Centring uses the art's opaque bounding box, so source PNGs with
      asymmetric transparent padding still land centred.
-   - **Per-cell overrides:** the inspector's **Padding X / Y** and **Border X / Y**
-     override the sheet's values for that cell; leave a field empty to follow the
-     sheet. Resizing a cell (corner handle, or the on-canvas / inspector W×H)
-     sets its padding. A negative padding makes the cell smaller than the art,
+   - **Per-cell overrides:** in the inspector, tick **Own padding** to give a
+     cell its own Padding X / Y. It is off by default, and a cell with it off
+     always follows the sheet's Region padding, locked cells and loaded sheets
+     included. Resizing a cell (corner handle, or the on-canvas / inspector W×H)
+     turns Own padding on and sets it. **Border X / Y** overrides the sheet's
+     border; leave it empty to follow the sheet. A negative padding makes the cell smaller than the art,
      which then shrinks to fit (aspect kept, never stretched or upscaled). FX
      layer cells follow their base sprite.
 5. **Export** (`/api/export`) — choose `.atlas`, TexturePacker JSON, and/or the

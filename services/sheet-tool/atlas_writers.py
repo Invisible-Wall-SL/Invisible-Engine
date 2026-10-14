@@ -158,11 +158,12 @@ def build_manifest(sheet_image: str, width: int, height: int,
         fx_mode = str(r.get("fx_mode") or "").strip().lower()
         if fx_mode:
             man_region["mode"] = fx_mode
-        # The Sheet Maker's per-cell Region border override (sheet px kept clear
-        # around the cell when it re-packs); absent = the sheet's `layout` value.
-        for k in ("border_x", "border_y"):
+        # The Sheet Maker's per-cell overrides: Region border (sheet px kept clear
+        # around the cell when it re-packs) and Own padding (art to cell edge).
+        # Absent = the sheet's `layout` value.
+        for k in ("border_x", "border_y", "pad_x", "pad_y"):
             if r.get(k) is not None:
-                man_region[k] = int(r[k])
+                man_region[k] = r[k]
         man_regions.append(man_region)
     atlas: dict = {
         # Bare name only — NEVER a local OS/Windows staging path. The resolvable

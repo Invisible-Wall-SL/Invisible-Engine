@@ -88,6 +88,17 @@ def main() -> int:
     check("...a cell without one stays without", "border_x" in parsed["regions"][1], False)
     check("...and the sheet's layout comes back", parsed.get("layout"),
           {"region_pad_x": 4, "region_pad_y": 4, "region_border_x": 2, "region_border_y": 2})
+    man = atlas_writers.build_manifest(
+        "p.png", 64, 64,
+        [{"name": "own", "x": 0, "y": 0, "w": 8, "h": 8,
+          **sheet_server._cell_layout({"pad_x": "-1.5", "pad_y": 3})},
+         {"name": "global", "x": 9, "y": 0, "w": 8, "h": 8,
+          **sheet_server._cell_layout({"pad_x": None, "pad_y": "x"})}])
+    regs = sheet_server._parse_manifest(man)["regions"]
+    check("a cell with Own padding keeps it through save -> load (half and negative px too)",
+          (regs[0].get("pad_x"), regs[0].get("pad_y")), (-1.5, 3.0))
+    check("...a cell without it stores none, so it follows the sheet",
+          ("pad_x" in regs[1], "pad_y" in regs[1]), (False, False))
     check("an old manifest without a layout loads none", "layout" in sheet_server._parse_manifest(
         atlas_writers.build_manifest("p.png", 8, 8, [])), False)
 

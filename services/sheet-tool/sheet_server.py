@@ -208,7 +208,7 @@ def load_session() -> dict | None:
 _SESSION_REGION_KEYS = ("src", "name", "x", "y", "w", "h", "iw", "ih", "ow", "oh",
                         "rotated", "locked", "prompt", "shape_ref", "seed",
                         "unplaced", "fx_of", "fx_mode",
-                        "pad_x", "pad_y", "border_x", "border_y")
+                        "pad_on", "pad_x", "pad_y", "border_x", "border_y")
 
 
 def _px(v, default: int = 0) -> int:
@@ -217,6 +217,19 @@ def _px(v, default: int = 0) -> int:
         return max(0, int(v))
     except (TypeError, ValueError):
         return default
+
+
+def _cell_layout(r: dict) -> dict:
+    """A region's own layout overrides, as stored on the manifest: Region border
+    (non-negative px) and, when the cell has Own padding on, its padding (any
+    half-pixel value — a negative one shrinks the art)."""
+    out = {k: _px(r[k]) for k in ("border_x", "border_y") if r.get(k) is not None}
+    for k in ("pad_x", "pad_y"):
+        try:
+            out[k] = round(float(r[k]) * 2) / 2
+        except (KeyError, TypeError, ValueError):
+            pass
+    return out
 
 
 def _layout(src: dict) -> dict:
@@ -1247,7 +1260,7 @@ def _export(payload: dict, dest: Path) -> dict:
             # FX placeholder cells (named `<base>_<mode>`) carry their mode so the
             # manifest opens them in the Atlas Maker's matching local-FX mode.
             "fx_mode": r.get("fx_mode", ""),
-            **{k: _px(r[k]) for k in ("border_x", "border_y") if r.get(k) is not None},
+            **_cell_layout(r),
         })
     if not regions:
         return {"error": "Nothing to export — add some sprites first."}
@@ -2132,7 +2145,7 @@ def _parse_manifest(data: dict) -> dict:
             "rotated": bool(r.get("rotated")),
             "prompt": r.get("prompt", ""), "shape_ref": r.get("shape_ref", ""),
             "seed": str(r.get("seed", "") or ""),
-            **{k: _px(r[k]) for k in ("border_x", "border_y") if r.get(k) is not None},
+            **_cell_layout(r),
         })
     out = {"image": atlas.get("source_image", ""),
            "width": int(atlas.get("width", 0)), "height": int(atlas.get("height", 0)),
@@ -2790,7 +2803,7 @@ def api_load_sheet(payload: dict) -> dict:
             "rotated": bool(r["rotated"]), "locked": geom_ok,
             "prompt": r.get("prompt", ""), "shape_ref": shape_ref,
             "seed": r.get("seed", ""),
-            **{k: r[k] for k in ("border_x", "border_y") if k in r},
+            **{k: r[k] for k in ("border_x", "border_y", "pad_x", "pad_y") if k in r},
         })
 
     # Mirror exactly the sprites this load re-sliced (originals are already

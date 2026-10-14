@@ -93,6 +93,7 @@
   .sprite.locked .lockbadge{display:block}
   .sprite.unplaced{outline:2px dashed #e66}
   .sprite.crowded{outline:2px dashed #e9a94a}
+  #i_padx:disabled,#i_pady:disabled{opacity:.45}
   .sprite .bzone{position:absolute;pointer-events:none;outline:1px dashed #4ad9}
   /* FX placeholder cell (a `<base>_<mode>` sibling the Atlas Maker fills) */
   .sprite.fx{outline:2px dashed #b98cff}
@@ -397,8 +398,8 @@
         <span><input type="number" id="i_iw" disabled title="Original art size — resize the region, not the image"> ×
         <input type="number" id="i_ih" disabled></span>
       </div>
-      <div class="field" title="This cell's space between the art and its edge. Empty = the sheet's Region padding.">
-        <label>Padding X / Y</label>
+      <div class="field" title="Off: this cell uses the sheet's Region padding. On: it uses its own (resizing the cell turns it on).">
+        <label><input type="checkbox" id="i_padon" onchange="setOwnPadding(this.checked)"> Own padding X / Y</label>
         <span><input type="number" id="i_padx" style="width:62px" onchange="setCellLayout('pad_x',this.value)">
         <input type="number" id="i_pady" style="width:62px" onchange="setCellLayout('pad_y',this.value)"></span>
       </div>
@@ -407,7 +408,7 @@
         <span><input type="number" id="i_bordx" min="0" style="width:62px" onchange="setCellLayout('border_x',this.value)">
         <input type="number" id="i_bordy" min="0" style="width:62px" onchange="setCellLayout('border_y',this.value)"></span>
       </div>
-      <div class="hint">Leave padding / border empty to follow the sheet's values. Resizing the region sets its padding; the image keeps its original size, centred (it only shrinks when the padding is negative).</div>
+      <div class="hint">With Own padding off the cell follows the sheet's Region padding. Resizing the region turns Own padding on and sets it; the image keeps its original size, centred (it only shrinks when the padding is negative). Leave border empty to follow the sheet's.</div>
       <div class="field"><label><input type="checkbox" id="i_lock" onchange="setField('locked',this.checked)"> Locked</label></div>
       <div class="field"><label>Prompt</label></div>
       <input id="i_prompt" style="width:100%;margin-bottom:7px" oninput="setField('prompt',this.value)">
@@ -475,7 +476,8 @@ let regions=[];              // {src,name,x,y,w,h,iw,ih,ow,oh,rotated,locked,pro
 let sel=null;                // selected src
 let zoom=1, canvasW=1024, canvasH=1024, sheetName='newsheet';
 // Sheet-wide Region padding (art -> cell edge) and Region border (kept clear around
-// each cell). A region's own pad_x/pad_y/border_x/border_y (null = inherit) overrides them.
+// each cell). A region with pad_on uses its own pad_x/pad_y; its border_x/border_y
+// (null = inherit) override the sheet's border.
 let padX=0, padY=0, bordX=1, bordY=1;
 let spriteEls={};            // src -> {wrap,img} cached DOM nodes (reused across renders)
 let bboxCache={};            // src -> {x0,y0,x1,y1,nw,nh} opaque bounds (native px) for content-aware centring
@@ -526,7 +528,7 @@ function sessionSnapshot(){
       ow:r.ow,oh:r.oh,rotated:!!r.rotated,locked:!!r.locked,
       prompt:r.prompt||'',shape_ref:r.shape_ref||'',seed:r.seed||'',
       fx_of:r.fx_of||'',fx_mode:r.fx_mode||'',
-      pad_x:r.pad_x??null,pad_y:r.pad_y??null,border_x:r.border_x??null,border_y:r.border_y??null,
+      pad_on:!!r.pad_on,pad_x:r.pad_x??null,pad_y:r.pad_y??null,border_x:r.border_x??null,border_y:r.border_y??null,
       unplaced:!!r.unplaced}))};
 }
 function markDirty(){ clearTimeout(sessTimer); sessTimer=setTimeout(saveSession,600); }
@@ -571,14 +573,14 @@ function restoreSession(s){
     rotated:!!r.rotated,locked:!!r.locked,
     prompt:r.prompt||'',shape_ref:r.shape_ref||'',seed:r.seed||'',
     fx_of:r.fx_of||'',fx_mode:r.fx_mode||'',
-    pad_x:numOrNull(r.pad_x),pad_y:numOrNull(r.pad_y),
+    pad_on:!!r.pad_on,pad_x:numOrNull(r.pad_x),pad_y:numOrNull(r.pad_y),
     border_x:numOrNull(r.border_x),border_y:numOrNull(r.border_y),
     unplaced:!!r.unplaced}));
   // Re-derive image size from the native dims so a session saved by an older
   // build (where the image had been stretched to the region) self-corrects.
   regions.forEach(fitImg);
   relinkFx();   // repair the FX parent/child links from names (idempotent)
-  regions.forEach(adoptPadding);
+
   sel=null;
   const m=$('uploadmsg');
   if(dropped.length){
@@ -1017,7 +1019,11 @@ function syncInspector(){
   note.style.display='none';
   $('i_name').value=r.name; $('i_w').value=r.w; $('i_h').value=r.h;
   $('i_iw').value=r.iw||r.w; $('i_ih').value=r.ih||r.h;
-  [['i_padx','pad_x',padX],['i_pady','pad_y',padY],['i_bordx','border_x',bordX],['i_bordy','border_y',bordY]]
+  const pp=effPad(r);
+  $('i_padon').checked=!!r.pad_on;
+  $('i_padx').value=pp.x; $('i_pady').value=pp.y;
+  $('i_padx').disabled=$('i_pady').disabled=!r.pad_on;
+  [['i_bordx','border_x',bordX],['i_bordy','border_y',bordY]]
     .forEach(([id,k,g])=>{ $(id).value=r[k]??''; $(id).placeholder=String(g); });
   $('i_lock').checked=!!r.locked; $('i_prompt').value=r.prompt||'';
   $('i_shape').value=r.shape_ref||''; $('i_seed').value=r.seed||'';
@@ -1091,12 +1097,13 @@ function applyCanvas(){ canvasW=Math.max(16,parseInt($('cw').value)||1024); canv
    with a rotated cell): cell = art + 2 x padding. Border = space a cell keeps
    clear around itself on the sheet: two cells sit border A + border B apart and
    a cell sits its border from the canvas edge (packer.arrange). Each cell may
-   override either; null follows the sheet value. FX cells follow their base.
-   A cell's W/H stays the source of truth — resizing it sets its padding. */
+   override either: padding through its Own padding switch (pad_on, off by
+   default), border by a non-null value. FX cells follow their base. Resizing a
+   cell turns its Own padding on and sets it. */
 const numOrNull=v=>(v==null||v==='')?null:(isFinite(+v)?+v:null);
 const footprint=r=>r.rotated?{w:r.h,h:r.w}:{w:r.w,h:r.h};
 const layoutOf=r=>(isFx(r)&&reg(r.fx_of))||r;
-function effPad(r){ const b=layoutOf(r); return {x:b.pad_x??padX,y:b.pad_y??padY}; }
+function effPad(r){ const b=layoutOf(r); return b.pad_on?{x:b.pad_x??padX,y:b.pad_y??padY}:{x:padX,y:padY}; }
 function effBorder(r){ const b=layoutOf(r); return {x:b.border_x??bordX,y:b.border_y??bordY}; }
 function setLayoutGlobals(d){
   padX=Math.max(0,+d.region_pad_x||0); padY=Math.max(0,+d.region_pad_y||0);
@@ -1111,26 +1118,19 @@ function sizeFromPad(r){
   r.w=Math.max(8,Math.round(r.ow+2*p.x)); r.h=Math.max(8,Math.round(r.oh+2*p.y));
   fitImg(r); resizeFxOf(r);
 }
-/* A cell resized by hand: its new size becomes its own padding. */
+/* A cell resized by hand: Own padding turns on and takes the new size. */
 function resizeCell(r,k,v){
+  if(!r.pad_on){ const p=effPad(r); r.pad_on=true; r.pad_x=p.x; r.pad_y=p.y; }
   r[k]=Math.min(Math.max(8,Math.round(v)),maxSize(r,k));
   if(k==='w') r.pad_x=(r.w-r.ow)/2; else r.pad_y=(r.h-r.oh)/2;
   fitImg(r); resizeFxOf(r);
 }
-/* A loaded / restored cell keeps its size: whatever padding that size implies
-   becomes its override unless it already matches the sheet's. */
-function adoptPadding(r){
-  if(isFx(r)) return;
-  const px=(r.w-r.ow)/2, py=(r.h-r.oh)/2;
-  r.pad_x=(r.pad_x!=null||px!==padX)?px:null;
-  r.pad_y=(r.pad_y!=null||py!==padY)?py:null;
-}
+/* Every cell without Own padding follows the sheet value — locked ones too:
+   the lock holds a cell's place, the padding decides its size. */
 function applyRegionPad(){
-  const nx=Math.max(0,parseInt($('padx').value)||0), ny=Math.max(0,parseInt($('pady').value)||0);
-  // A locked cell keeps its size: pin the padding it has now before the sheet value moves.
-  regions.forEach(r=>{ if(r.locked&&!isFx(r)){ r.pad_x??=padX; r.pad_y??=padY; } });
-  padX=nx; padY=ny; $('padx').value=padX; $('pady').value=padY;
-  regions.filter(r=>!isFx(r)&&!r.locked).forEach(sizeFromPad);
+  padX=Math.max(0,parseInt($('padx').value)||0); padY=Math.max(0,parseInt($('pady').value)||0);
+  $('padx').value=padX; $('pady').value=padY;
+  regions.filter(r=>!isFx(r)&&!r.pad_on).forEach(sizeFromPad);
   render(); syncInspector(); markDirty();
   reportCrowding();
 }
@@ -1140,12 +1140,18 @@ function applyRegionBorder(){
   render(); syncInspector(); markDirty();
   reportCrowding();
 }
+function setOwnPadding(on){
+  const r=reg(sel); if(!r||isFx(r)) return;
+  if(on){ r.pad_x??=padX; r.pad_y??=padY; }   // start from the remembered values, else the sheet's
+  r.pad_on=on; sizeFromPad(r);
+  render(); syncInspector(); markDirty();
+  reportCrowding();
+}
 function setCellLayout(k,v){
   const r=reg(sel); if(!r||isFx(r)) return;
   let n=numOrNull(v);
-  if(n!=null&&k.startsWith('border')) n=Math.max(0,Math.round(n));
-  r[k]=n;
-  if(k.startsWith('pad')&&!r.locked) sizeFromPad(r);
+  if(k.startsWith('border')){ if(n!=null) n=Math.max(0,Math.round(n)); r[k]=n; }
+  else{ if(!r.pad_on||n==null) return; r[k]=n; sizeFromPad(r); }
   render(); syncInspector(); markDirty();
   reportCrowding();
 }
@@ -1307,7 +1313,7 @@ async function upload(){
       replaced++;
     } else { const nr={src:s.file,name:s.file.replace(/\.[^.]+$/,''),
       x:0,y:0,w:s.w,h:s.h,iw:s.w,ih:s.h,ow:s.w,oh:s.h,rotated:false,locked:false,prompt:'',shape_ref:'',seed:'',
-      pad_x:null,pad_y:null,border_x:null,border_y:null,_cb:Date.now()};
+      pad_on:false,pad_x:null,pad_y:null,border_x:null,border_y:null,_cb:Date.now()};
       sizeFromPad(nr); regions.push(nr); added++; }
   });
   $('files').value='';
@@ -1601,10 +1607,11 @@ async function loadSheet(){
   clearCanvasDom();
   if(j.layout) setLayoutGlobals(j.layout);
   regions=j.regions.map(r=>({...r,iw:r.iw||r.w,ih:r.ih||r.h,ow:r.ow||r.w,oh:r.oh||r.h,
-    pad_x:null,pad_y:null,border_x:numOrNull(r.border_x),border_y:numOrNull(r.border_y)}));
+    pad_on:r.pad_x!=null||r.pad_y!=null,pad_x:numOrNull(r.pad_x),pad_y:numOrNull(r.pad_y),
+    border_x:numOrNull(r.border_x),border_y:numOrNull(r.border_y)}));
   regions.forEach(fitImg);   // image = native, fitted/centred in its region
   relinkFx();                // reconstruct FX parent/child links from names
-  regions.forEach(adoptPadding);
+
   sel=null;
   // Key the session on the sheet's OWN name: uploads accumulate into the same
   // sheet_src/<sheet>/ pile (upload() only clears when the name changes) and
@@ -1757,10 +1764,10 @@ async function loadFile(path){
   $('cw').value=canvasW; $('ch').value=canvasH;
   clearCanvasDom();                          // drop any cached sprites from the previous sheet
   regions=j.regions.map(r=>({...r,iw:r.iw||r.w,ih:r.ih||r.h,ow:r.w,oh:r.h,
-    pad_x:null,pad_y:null,border_x:null,border_y:null}));
+    pad_on:false,pad_x:null,pad_y:null,border_x:null,border_y:null}));
   regions.forEach(fitImg);   // image = native, fitted/centred in its region
   relinkFx();                // reconstruct FX parent/child links from names
-  regions.forEach(adoptPadding);
+
   sel=null; activeSheet=sheetName;
   $('sheet').value=j.name||j.sheet;
   loadedPath=j.source_path; loadedDir=j.source_dir; loadedName=j.name; isProject=!!j.is_project;
@@ -1883,7 +1890,8 @@ async function runExport(destDir, baseEtag){
       iw:r.iw||r.w,ih:r.ih||r.h,rotated:r.rotated,
       prompt:r.prompt,shape_ref:r.shape_ref,seed:r.seed,
       fx_mode:r.fx_mode||'',      // FX cells carry their mode into the manifest
-      border_x:layoutOf(r).border_x??null,border_y:layoutOf(r).border_y??null})),
+      border_x:layoutOf(r).border_x??null,border_y:layoutOf(r).border_y??null,
+      ...(!isFx(r)&&r.pad_on?{pad_x:effPad(r).x,pad_y:effPad(r).y}:{})})),
     layout:{region_pad_x:padX,region_pad_y:padY,region_border_x:bordX,region_border_y:bordY}};
   if(destDir) body.dest_dir=destDir;
   body.base_etag=baseEtag||'';

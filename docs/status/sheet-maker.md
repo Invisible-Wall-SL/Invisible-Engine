@@ -55,7 +55,7 @@ Works today on `main` / live:
   geometry). Detected numeric runs are recorded in `sequences` as the hint the /flipbook tool
   reads. `editable=1` is the opt-in lossy path (re-slices to loose sprites, **drops per-frame
   trim offsets**, doesn't lock).
-- **Region padding + Region border, per sheet and per cell** _(2026-10-14)_ — Region padding X/Y = art to cell edge (cell = art + 2 × padding); Region border X/Y = space a cell keeps clear around itself, so neighbours sit border A + border B apart and a cell sits its border from the canvas edge (`packer.arrange` inflates each item by its own `border_x/border_y`). Each cell may override either (inspector; empty = follow the sheet; FX cells follow their base); resizing a cell sets its padding. The sheet values persist in the manifest's `layout`, per-cell border overrides on the region (`border_x/border_y`, kept by the Atlas Maker's merge); padding is re-derived on load from cell − art size. Crossed borders get an orange outline. `test_region_layout.py` (12). ⏳ Not yet run live on Railway.
+- **Region padding + Region border, per sheet and per cell** _(2026-10-14)_ — Region padding X/Y = art to cell edge (cell = art + 2 × padding); Region border X/Y = space a cell keeps clear around itself, so neighbours sit border A + border B apart and a cell sits its border from the canvas edge (`packer.arrange` inflates each item by its own `border_x/border_y`). Each cell may override either: padding through an **Own padding** switch (off by default; resizing a cell turns it on), border by a non-empty value; FX cells follow their base. The sheet values persist in the manifest's `layout`, per-cell overrides on the region (`border_x/border_y`, and `pad_x/pad_y` only for Own padding — kept by the Atlas Maker's merge). Crossed borders get an orange outline. `test_region_layout.py` (12). ⏳ Not yet run live on Railway.
 - **Whole-sheet downscale** — `Canvas size → Downscale sheet ⤓` scales the canvas, every
   region rect and this sheet's sprite copies by one factor (½ / ¼ / ⅛ presets or a target
   width), behind a numbers-first dialog + a confirm. `POST /api/rescale-sheet` does the
@@ -83,6 +83,16 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-10-14 — **Own padding switch: the sheet's Region padding reaches every cell again.** Loading
+  a sheet (or restoring a session) turned each cell's size into its own padding override, and a
+  global change also pinned locked cells (loaded cells arrive locked). So the global value never
+  reached a loaded sheet. Now a cell overrides padding only through an explicit **Own padding**
+  switch, off by default, set by the switch itself or by resizing the cell. Every other cell follows
+  the global value, locked ones included (a lock holds position, not size). Loading no longer
+  derives overrides. A pad-off cell keeps its stored size until the global value next changes. Own
+  padding is saved on the manifest region as `pad_x/pad_y` (absent = off). Sessions saved before
+  this load with every cell off. Verified headless: load → global 10/4/0 resizes all locked cells,
+  Own padding on ignores global and off rejoins it, resize turns it on, and it survives Save → Load.
 - 2026-10-14 — **Region padding / Region border replace Padding (arrange) and the canvas Border.**
   The old "Padding (arrange)" was the gap the packer left between cells, and the Border X/Y added
   earlier the same day (#1201) kept cells away from the canvas edge. Neither gave sprites room for
