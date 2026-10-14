@@ -17,16 +17,20 @@ import {
 	FX_FORCES_BEHAVIOR_TYPE,
 	FX_SCALE_BEHAVIOR_TYPE,
 	FX_SPEED_BEHAVIOR_TYPE,
+	FX_SPRITE_BEHAVIOR_TYPE,
 	behaviorsOf,
 	defaultFxForce,
 	readFxForce,
 	readFxForces,
+	readFxSprite,
+	isDefaultFxSprite,
 	type BehaviorEntry,
 	type EffectDoc,
 	type EmitterConfigV3,
 	type EmitterLayer,
 	type FxForce,
 	type FxForceKind,
+	type FxSpriteTransform,
 	type RigParticleConfig,
 } from 'engine-fx';
 
@@ -1520,7 +1524,7 @@ export const FX_PRESETS: FxPreset[] = [
 export function applyPreset(layer: EmitterLayer, presetKey: string): EmitterLayer {
 	const preset = FX_PRESETS.find((p) => p.key === presetKey);
 	if (!preset) return layer;
-	return { ...layer, config: preset.build() };
+	return { ...layer, config: setSpriteTransform(preset.build(), spriteTransform(layer.config)) };
 }
 
 // ===========================================================================
@@ -1932,6 +1936,36 @@ export function setColorOverlayField(
 			if (v < min) b.config.minIntensity = v;
 		}
 	});
+}
+
+// ---------------------------------------------------------------------------
+// Sprite transform (our `fxSprite` behavior) — a fixed rotation offset and a
+// pivot for the particle's art. Display-only: the launch direction, spin and
+// rotation lock are untouched. A layer at the defaults (0°, centred) carries no
+// `fxSprite` behavior, so an untouched effect stays stock.
+// ---------------------------------------------------------------------------
+
+/** The layer's sprite rotation (°) + pivot (0..1), defaults when it has no `fxSprite` behavior. */
+export function spriteTransform(config: EmitterConfigV3): FxSpriteTransform {
+	const b = behaviorsOf(config).find((x) => x.type === FX_SPRITE_BEHAVIOR_TYPE);
+	return readFxSprite(b?.config);
+}
+
+/** Patch the sprite transform immutably; landing back on the defaults drops the behavior. */
+export function setSpriteTransform(
+	config: EmitterConfigV3,
+	patch: Partial<FxSpriteTransform>,
+): EmitterConfigV3 {
+	const next = readFxSprite({ ...spriteTransform(config), ...patch });
+	if (isDefaultFxSprite(next)) return removeBehaviors(config, FX_SPRITE_BEHAVIOR_TYPE);
+	return upsertBehavior(
+		config,
+		FX_SPRITE_BEHAVIOR_TYPE,
+		() => ({ ...next }),
+		(b) => {
+			b.config = { ...next };
+		},
+	);
 }
 
 // ---------------------------------------------------------------------------

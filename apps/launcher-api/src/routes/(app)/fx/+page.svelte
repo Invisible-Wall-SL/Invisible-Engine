@@ -71,6 +71,8 @@
 		setSpawnRadius,
 		setSpawnRect,
 		setSpawnRing,
+		setSpriteTransform,
+		spriteTransform,
 		setRigParticleAnimation,
 		setRigParticleLoop,
 		setRigParticleSkeleton,
@@ -747,6 +749,18 @@
 	const speedRange = $derived(config ? curveRange(config, 'speed') : undefined);
 	const overlay = $derived(config ? colorOverlay(config) : undefined);
 	const lockAngle = $derived(config ? rotationLock(config) : undefined);
+	const spriteXf = $derived(config ? spriteTransform(config) : undefined);
+	const PIVOT_POINTS = [
+		{ label: 'Top left', x: 0, y: 0 },
+		{ label: 'Top', x: 0.5, y: 0 },
+		{ label: 'Top right', x: 1, y: 0 },
+		{ label: 'Left', x: 0, y: 0.5 },
+		{ label: 'Centre', x: 0.5, y: 0.5 },
+		{ label: 'Right', x: 1, y: 0.5 },
+		{ label: 'Bottom left', x: 0, y: 1 },
+		{ label: 'Bottom', x: 0.5, y: 1 },
+		{ label: 'Bottom right', x: 1, y: 1 },
+	];
 	const flipbook = $derived(selected ? flipbookPlay(selected) : undefined);
 	const shape = $derived(config ? spawnShape(config) : undefined);
 	const spawnSel = $derived<SpawnKind>(config ? (spawnKind(config) ?? 'circle') : 'circle');
@@ -1330,6 +1344,41 @@
 							{/if}
 						{/if}
 					</section>
+
+					{#if spriteXf}
+						<section>
+							<h3>Sprite</h3>
+							{@render slider('Rotation (°)', spriteXf.rotation, -180, 180, 1, (v) =>
+								patchConfig(setSpriteTransform(config, { rotation: v })),
+							)}
+							<div class="row">
+								<span>Pivot</span>
+								<div class="pivotgrid" role="group" aria-label="Sprite pivot">
+									{#each PIVOT_POINTS as pt (pt.label)}
+										<button
+											class="pivot"
+											class:on={spriteXf.anchorX === pt.x && spriteXf.anchorY === pt.y}
+											title={pt.label}
+											aria-label={pt.label}
+											onclick={() =>
+												patchConfig(setSpriteTransform(config, { anchorX: pt.x, anchorY: pt.y }))}
+										></button>
+									{/each}
+								</div>
+							</div>
+							{@render slider('Pivot X', spriteXf.anchorX, 0, 1, 0.01, (v) =>
+								patchConfig(setSpriteTransform(config, { anchorX: v })),
+							)}
+							{@render slider('Pivot Y', spriteXf.anchorY, 0, 1, 0.01, (v) =>
+								patchConfig(setSpriteTransform(config, { anchorY: v })),
+							)}
+							<p class="hint">
+								Rotation turns the art on the particle without changing where it flies, and adds to
+								any spin or locked angle. The pivot is the point of the art that sits on the spawn
+								position and that it turns around — centre by default; Top hangs the art below it.
+							</p>
+						</section>
+					{/if}
 				{/if}
 
 				<section>
@@ -2182,6 +2231,27 @@
 	.pick .meta {
 		color: #64748b;
 		font-size: 10px;
+	}
+	.pivotgrid {
+		display: grid;
+		grid-template-columns: repeat(3, 18px);
+		gap: 3px;
+	}
+	.pivot {
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		border-radius: 4px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		cursor: pointer;
+	}
+	.pivot:hover {
+		border-color: #3b82f6;
+	}
+	.pivot.on {
+		background: #3b82f6;
+		border-color: #3b82f6;
 	}
 	.ico {
 		flex: none;
