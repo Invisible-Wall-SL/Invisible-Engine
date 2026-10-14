@@ -57,6 +57,15 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-14 — **A flipped rig previews on the right axis.** A rig inside a group or a placed
+  component that was flipped with `scale.x = -1` showed upside down on the stage instead of
+  mirrored left-right. The rig preview draws without rotation, and it worked the flip out from the
+  determinant alone, so every single-axis flip landed on Y; flipping both axes showed no flip at
+  all. `unrotatedScale` (`editor/editorCanvas.helpers.ts`) now keeps X's sign from the matrix and
+  lets the determinant decide Y, and the three nested rig paths in `EditorRigLayer.svelte` use it.
+  Editor preview only: the game already drew these correctly, and top-level rigs were right. The
+  Scene Editor stage shares the rig layer, so it is fixed there too. A half turn on a parent now
+  previews upside down, as the game shows it, where it used to show upright.
 - 2026-10-14 — **The second authored overlay: `winPresentation` (Rive plan Phase 8b, branch
   `claude/rive-p8b-win-design`).** A new `internal` built-in def beside the hybrid `win` twin
   (unchanged, same params): one rig node `tier` with `boardFit`, the caption and count text nodes

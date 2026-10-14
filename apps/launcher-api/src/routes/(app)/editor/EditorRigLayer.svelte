@@ -34,6 +34,7 @@
 		reelGridGeometry,
 		resolveBoneRider,
 		resolveBoneRiderRigKey,
+		unrotatedScale,
 		type BoneRiderTransform,
 	} from './editorCanvas.helpers';
 	import { onMount } from 'svelte';
@@ -751,9 +752,7 @@
 					previewResolveTransform,
 				),
 		);
-		const sx = Math.hypot(a, b) || 1;
-		const sy = Math.hypot(c, d) || 1;
-		const det = a * d - b * c;
+		const scale = unrotatedScale(a, b, c, d);
 		const nt = previewResolveTransform(node, layoutType);
 		return {
 			nodeId: node.id,
@@ -764,7 +763,7 @@
 			height: nt.height,
 			transform: nt,
 			space: sc.space,
-			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
+			world: { x: tx, y: ty, scaleX: scale.x, scaleY: scale.y },
 		};
 	}
 
@@ -804,9 +803,7 @@
 					previewResolveTransform,
 				),
 		);
-		const sx = Math.hypot(a, b) || 1;
-		const sy = Math.hypot(c, d) || 1;
-		const det = a * d - b * c;
+		const scale = unrotatedScale(a, b, c, d);
 		const hostNodeId = chain[0]?.id ?? node.id;
 		return {
 			nodeId: node.id,
@@ -817,7 +814,7 @@
 			enterLoop: true,
 			transform: previewResolveTransform(node, layoutType),
 			space: sc.space,
-			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
+			world: { x: tx, y: ty, scaleX: scale.x, scaleY: scale.y },
 			rider: {
 				hostNodeId,
 				boneName: resolved.boneName,
@@ -834,8 +831,9 @@
 	/** Build a render target for a nested rig: its world transform composed from the
 	 * ancestor `chain` (top link framed via `worldTransformOf`, descendants pure-local via
 	 * `childLocalTransform` — the SAME rule the 2D canvas + game runtime use), decomposed
-	 * to x/y + scale. The rig preview ignores rotation (as the top-level path does), but
-	 * a single-axis flip in the chain (negative scale) is preserved via the determinant. */
+	 * to x/y + scale. The rig preview ignores rotation (as the top-level path does), but a
+	 * flip in the chain (negative scale) stays on the axis it was made on
+	 * ({@link unrotatedScale}). */
 	function nestedRigTarget(
 		node: Extract<LayoutNode, { kind: 'spine' }>,
 		sc: Scene,
@@ -860,9 +858,7 @@
 					previewResolveTransform,
 				),
 		);
-		const sx = Math.hypot(a, b) || 1;
-		const sy = Math.hypot(c, d) || 1;
-		const det = a * d - b * c;
+		const scale = unrotatedScale(a, b, c, d);
 		const nt = previewResolveTransform(node, layoutType);
 		const boundName = instanceParams
 			? resolveBoundValue(node.paramBindings, 'assetKey', instanceParams)
@@ -883,7 +879,7 @@
 			enterLoop: rigEnterCue(node)?.loop,
 			transform: nt,
 			space: sc.space,
-			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
+			world: { x: tx, y: ty, scaleX: scale.x, scaleY: scale.y },
 			pose: previewPose(node),
 		};
 	}
