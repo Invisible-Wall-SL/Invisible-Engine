@@ -91,6 +91,9 @@ const PINNED = {
 		infoBar: 'fc386c75fba28aa7',
 		loadingIntro: '1a9a5010e5aebad6',
 		transition: '4af3cf66eeaaead6',
+		// Rive plan Phase 8a: the authored Transition, offered everywhere like the `transition` twin it
+		// stands beside (a project renders it only behind `settings.authoredOverlays.transition`).
+		transitionWipe: 'd0c899da2071642e',
 		freeSpinIntroVisual: 'd5692d66c8d6226b',
 		freeSpinOutroVisual: 'ad4d1cd5c1253f8b',
 		win: '71a38a1aec1b23fe',
