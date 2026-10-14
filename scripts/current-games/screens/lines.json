@@ -419,7 +419,7 @@
 		},
 		{
 			"id": "fs-transition",
-			"about": "The free-spin entry wipe, mid-frame: the same forced trigger as free-spins, captured 60 frames after the probe records the `transition` cue (the wipe is on screen 12 to 96 frames after its cue). Anchored on the cue, one frame at a time, so both sides capture the same wipe frame. The scenario's query (flowV2=lines, the committed reference Flow v2 flow) is added only for the stand-in games (`standIn: true` in the games file the fixtures write), which carry no flow doc and so would record no cue; a live game keeps its own shipped flow, fires the cue from it and is captured at the same anchor, and a game on the coded flow, which records no cues, takes the fallback. A game that never fires the cue is captured at the fallback, 900 (plus 60) frames after its spin, the same frame on both sides, with no wipe.",
+			"about": "The free-spin entry wipe, mid-frame: the same forced trigger as free-spins, captured 60 frames after the frame the probe records the `transition` cue on (the wipe is on screen 12 to 96 frames after its cue). The `until` looks for the cue every 10 frames, then the step goes to the cue's own frame + 60, so both sides capture the same wipe frame. The scenario's query (flowV2=lines, the committed reference Flow v2 flow) is added only for the stand-in games (`standIn: true` in the games file the fixtures write), which carry no flow doc and so would record no cue; a live game keeps its own shipped flow and fires the cue from it. A game that never fires the cue (the coded flow records none) takes the fallback: 900 frames after its spin starts, + 60, the same frame on both sides; the row's note says which.",
 			"env": {
 				"FORCE_TRIGGER": "1"
 			},
@@ -465,12 +465,13 @@
 						"cue": "transition"
 					},
 					"maxFrames": 900,
-					"batch": 1,
+					"batch": 10,
 					"fallback": true
 				},
 				{
 					"op": "step",
-					"frames": 60
+					"frames": 60,
+					"from": "cue"
 				},
 				{
 					"op": "capture",
@@ -480,7 +481,7 @@
 		},
 		{
 			"id": "big-win-intro",
-			"about": "The Win intro, mid-frame: WIN_X=10 makes the first base spin pay at least 10x the stake; the capture is 12 frames (`bigwin-intro-12`) and 48 frames (`bigwin-intro-48`) after the probe records the `winShow` cue, with the tier rig's intro (1667 ms) on screen in both. Anchored on the cue, one frame at a time. The scenario's query (flowV2=lines, the committed reference Flow v2 flow) is added only for the stand-in games (`standIn: true` in the games file the fixtures write), which carry no flow doc and so would record no cue; a live game keeps its own shipped flow, fires the cue from it and is captured at the same anchor, and a game on the coded flow, which records no cues, takes the fallback. A game that never fires the cue is captured at the fallback, 900 frames after its spin, the same frame on both sides, with no wipe.",
+			"about": "The Win intro, mid-frame: WIN_X=10 makes the first base spin pay at least 10x the stake; the captures are 12 frames (`bigwin-intro-12`) and 48 frames (`bigwin-intro-48`) after the frame the probe records the `winShow` cue on, with the tier rig's intro (1667 ms) on screen in both. The `until` looks for the cue every 10 frames, then each step goes to the cue's own frame + N. The scenario's query (flowV2=lines) is added only for the stand-in games, as in fs-transition. A game that never fires the cue (the coded flow records none) takes the fallback: 900 frames after its spin starts, + 12 and + 48, the same frames on both sides, wherever its own win presentation is by then; the row's note says which.",
 			"env": {
 				"WIN_X": "10"
 			},
@@ -526,12 +527,13 @@
 						"cue": "winShow"
 					},
 					"maxFrames": 900,
-					"batch": 1,
+					"batch": 10,
 					"fallback": true
 				},
 				{
 					"op": "step",
-					"frames": 12
+					"frames": 12,
+					"from": "cue"
 				},
 				{
 					"op": "capture",
@@ -539,7 +541,8 @@
 				},
 				{
 					"op": "step",
-					"frames": 36
+					"frames": 48,
+					"from": "cue"
 				},
 				{
 					"op": "capture",

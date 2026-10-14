@@ -886,8 +886,8 @@ the general mechanism.
   (`freeSpinIntroShow`) fires on each side; they must be equal ± 1 frame. The gate reports the
   five diff ratios and the two frame numbers; a frame outside tolerance fails it and keeps the
   images as artifacts. The harness's own screen lists are not edited in 8a (editing
-  `scripts/current-games/**` fails `current-games` by design); whether an `fs-transition` key
-  screen joins `screens/*.json` is a separate pipeline change for the owner (13.5 #7).
+  `scripts/current-games/**` fails `current-games` by design); the `fs-transition` key screen
+  joined `screens/*.json` as its own pipeline change (PR #1197, 13.5 #7).
 - **Timing parity, headless.** In `check:authored-transition`: with a stepped clock, an awaited
   fire of `transition` through the instance's own hold seam resolves at the strip's end and not
   before, an unmount mid-hold releases it, and `showContainer.durationMs` reads the same for the
@@ -927,9 +927,12 @@ own.
 6. **Sizing.** `coverFit` height × 1.7 on the rig node (recommended) vs per-layout scales; the gate
    measures it. Risk: the coded box is the rig's authored height, the cover box is the measured
    art; if they differ by more than the tolerance, per-layout scales are the fallback.
-7. **Harness.** Add an `fs-transition` key screen (captured a fixed number of frames after the
-   `transition` cue) to `screens/*.json` as its own pipeline change? Today no screen targets the
-   wipe, so a regression in the coded path would pass the harness.
+7. **Harness.** Resolved by PR #1197: `screens/lines.json` and `screens/bookOf.json` capture
+   `fs-transition` 60 frames after the `transition` cue (and the Win intro 12 and 48 frames after
+   `winShow`), anchored on the frame the cue fired on. A game that fires no cue (the coded flow)
+   is captured at a fixed fallback frame instead, so the wipe is targeted only where a flow doc
+   fires the cue: the stand-in games (`?flowV2=lines`) and live games on Flow v2. How it works:
+   [playtest/current-games.md](../playtest/current-games.md) § "Screen scripts".
 8. **Risk: the hidden coupling of `basegameOverlays`.** Projects that author the overlays scene
    themselves (Borut) keep the `bound-transition` node only if the reference had it; the rewrite
    covers any `bind:Transition` node wherever it sits, and a project with none and the flag on gets

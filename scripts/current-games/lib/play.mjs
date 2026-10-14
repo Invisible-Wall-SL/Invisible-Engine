@@ -8,11 +8,13 @@
 //                                   loaded/playerIn/winLevel), stepped in-page with one draw
 //   until    { until, maxFrames, batch = 10, fallback }   step in `batch`-frame slices until a
 //                                   harness-side test holds — adds `winLevelIn: [..]`, `winAbove: n`,
-//                                   `cue: name` (a Flow v2 cue the probe has recorded),
-//                                   `anyOf: [..]`. `fallback: true` carries on at `maxFrames`
-//                                   instead of failing (a project whose win ladder has other
-//                                   aliases): still the same frame on both sides
-//   step     { frames }
+//                                   `cue: name` (a Flow v2 cue the probe records after this op
+//                                   starts; the cue's own frame becomes the anchor), `anyOf: [..]`.
+//                                   `fallback: true` carries on at `maxFrames` instead of failing
+//                                   (a project whose win ladder has other aliases): still the same
+//                                   frame on both sides, and for a `cue` that frame is the anchor
+//   step     { frames, from }       N frames; `from: 'cue'` steps to the last `until` cue's anchor
+//                                   + N, failing if that frame is already behind
 //   space                           a two-frame Space tap (spin from idle, tap past a hold)
 //   tapToStart                      a Space tap only while a tap-to-start screen covers the board
 //   force    { beat }               hold a forced beat for this session's next round (`…/force`)
@@ -24,6 +26,16 @@
 const DEFAULT_MAX_FRAMES = 3600;
 
 class ScriptError extends Error {}
+
+// Cues the probe recorded after `since` (the state an `until` op started from): later frames, and
+// any at its frame past the ones it already listed (an I/O answer between frames records there).
+export const cuesSince = (since, s) => {
+	const seenAtFrame = (since.cues ?? []).filter((c) => c.frame === since.frame).length;
+	let atFrame = 0;
+	return (s.cues ?? []).filter(
+		(c) => c.frame > since.frame || (c.frame === since.frame && ++atFrame > seenAtFrame),
+	);
+};
 
 const matches = (until, s) =>
 	(until.anyOf === undefined || until.anyOf.some((c) => matches(c, s))) &&
@@ -37,13 +49,14 @@ const matches = (until, s) =>
 	(until.winLevel === undefined || (s.winLevel ?? null) === until.winLevel) &&
 	(until.winLevelIn === undefined || until.winLevelIn.includes(s.winLevel)) &&
 	(until.winAbove === undefined || s.win > until.winAbove) &&
-	(until.cue === undefined || (s.cues ?? []).some((c) => c.cue === until.cue));
+	(until.cue === undefined || s.fresh.some((c) => c.cue === until.cue));
 
 /**
  * `page` is `openPage()`'s handle, `draw` the scenario's draw mode (`last` or the canary's
- * `every`), `force(beat)` posts to the game's mock, `capture(screen, state)` stores a screenshot.
+ * `every`), `force(beat)` posts to the game's mock, `capture(screen, state)` stores a screenshot,
+ * `note(text)` reports how a `cue` anchor was set (the cue's frame, or the fallback's).
  */
-export async function playScenario(scenario, { page, draw, force, capture, trace }) {
+export async function playScenario(scenario, { page, draw, force, capture, trace, note }) {
 	const api = (call) => page.evaluate(`window.__IE_DETERMINISM__.${call}`);
 	const state = () => api('state()');
 	const step = (frames) => api(`step(${Number(frames)}, { draw: '${draw}' })`);
@@ -57,13 +70,16 @@ export async function playScenario(scenario, { page, draw, force, capture, trace
 		return r.ok ? r.state : null;
 	};
 	const until = async (test, maxFrames = DEFAULT_MAX_FRAMES, batch = 10) => {
+		const since = await state();
 		for (let ran = 0; ; ran += batch) {
-			const s = await state();
+			const s = ran ? await state() : since;
+			s.fresh = cuesSince(since, s);
 			if (matches(test, s)) return s;
 			if (ran >= maxFrames) return null;
 			await step(batch);
 		}
 	};
+	let anchor;
 	const fail = (i, op, s) =>
 		new ScriptError(
 			`step ${i + 1} (${op.op}${op.screen ? ` ${op.screen}` : ''}): not reached — ` +
@@ -78,13 +94,35 @@ export async function playScenario(scenario, { page, draw, force, capture, trace
 				break;
 			}
 			case 'until': {
-				if (!(await until(op.until, op.maxFrames, op.batch)) && !op.fallback)
-					throw fail(i, op, await state());
+				const s = await until(op.until, op.maxFrames, op.batch);
+				if (!s && !op.fallback) throw fail(i, op, await state());
+				if (op.until.cue === undefined) break;
+				const cue = s?.fresh.find((c) => c.cue === op.until.cue);
+				anchor = cue ? cue.frame : (await state()).frame;
+				note?.(
+					cue
+						? `cue \`${op.until.cue}\` at frame ${anchor}`
+						: `cue \`${op.until.cue}\` not fired: fallback at frame ${anchor}`,
+				);
 				break;
 			}
-			case 'step':
-				await step(op.frames);
+			case 'step': {
+				if (op.from === undefined) {
+					await step(op.frames);
+					break;
+				}
+				if (op.from !== 'cue' || anchor === undefined)
+					throw new ScriptError(
+						`step ${i + 1}: \`from: '${op.from}'\` needs a \`cue\` until before it`,
+					);
+				const left = anchor + op.frames - (await state()).frame;
+				if (left < 0)
+					throw new ScriptError(
+						`step ${i + 1}: cue frame ${anchor} + ${op.frames} is ${-left} frame(s) behind`,
+					);
+				if (left) await step(left);
 				break;
+			}
 			case 'space':
 				await space();
 				break;

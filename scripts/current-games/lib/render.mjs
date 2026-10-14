@@ -76,10 +76,12 @@ export async function renderUnit({
 	let bootStopped;
 	let final;
 	let consoleLines = [];
+	const notes = [];
 	const play = async () => {
 		const sid = `cg-${game.key}-${scenario.id}`;
 		const rgs = `${server.origin}/api/${game.key}/authoring`;
 		const params = new URLSearchParams({
+			...(game.standIn ? scenario.query : {}),
 			runtime: '1',
 			project: game.projectKey ?? game.key,
 			k: 'current-games',
@@ -90,7 +92,6 @@ export async function renderUnit({
 			currency: 'USD',
 			device: 'desktop',
 			ie_determinism: seed,
-			...(game.standIn ? scenario.query : {}),
 		});
 		await page.navigate(`${server.origin}/${game.key}/?${params}`);
 		let ready = false;
@@ -110,6 +111,7 @@ export async function renderUnit({
 		await playScenario(scenario, {
 			page,
 			draw,
+			note: (text) => notes.push(text),
 			force: async (spec) => {
 				const beat = fillBeat(spec, contract);
 				const res = await fetch(
@@ -197,6 +199,7 @@ export async function renderUnit({
 		stalls: final?.stalls ?? 0,
 		frame: final?.frame,
 		renderer: final?.renderer,
+		notes,
 		console: consoleLines.slice(-10).map((l) => redactText(l)),
 		external: [...(page?.external ?? [])].map((l) => redactText(l)),
 		seconds: (Date.now() - started) / 1000,

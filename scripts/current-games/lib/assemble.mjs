@@ -140,6 +140,14 @@ function gameRow(
 		if (!sides.base || !sides.head) continue;
 		row.timings[scenario] = { base: sides.base.seconds, head: sides.head.seconds };
 		const { base, head } = sides;
+		// How each side anchored a cue screen (the cue's frame, or the fallback's).
+		const [baseNotes, headNotes] = [base, head].map((r) => (r.notes ?? []).join('; '));
+		if (baseNotes || headNotes)
+			row.notes.push(
+				baseNotes === headNotes
+					? `${scenario}: ${baseNotes}`
+					: `${scenario}: main ${baseNotes || '-'} · branch ${headNotes || '-'}`,
+			);
 		if (
 			base.bootStopped &&
 			head.bootStopped === base.bootStopped &&
