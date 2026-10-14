@@ -30,6 +30,8 @@
 		 * bone layer rides its bone by moving the container, so it ignores this.
 		 */
 		ownerPos?: () => { x: number; y: number };
+		/** The moving owner's rotation, radians — `<ParticleEmitter>`'s `ownerRotation`. FREE only. */
+		ownerRotation?: () => number;
 		/**
 		 * The scope of the component instance the effect sits in (Phase 12a — `meter:red`,
 		 * `tier:grand`). An `event` layer then skips events about ANOTHER part of that kind; events
@@ -262,6 +264,7 @@
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
 				ownerPos={props.ownerPos}
+				ownerRotation={props.ownerRotation}
 			/>
 		</Container>
 	{/if}

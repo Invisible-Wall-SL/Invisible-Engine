@@ -152,6 +152,17 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-14 — **Flights: the trail can follow the arc and be rotated.** `flights.<kind>.trailAlign`
+  (boolean) and `trailRotation` (degrees, −180…180), resolved exact → `toMeter` family → off / 0.
+  The game tracks each flight's heading (`engine-layout` `headingOnCurve`, the curve's tangent at
+  the eased t) and feeds `(aligned ? heading : 0) + rotation` to the trail emitter through a new
+  `ownerRotation` getter on `ParticleEmitter` / `EffectLayer` / `EffectPlayer` (→ `emitter.rotate`,
+  which turns each NEW particle's art, launch direction and spawn offset; the ones already out keep
+  theirs). The `/symbols` preview's `FxStage` takes the same getter. Fields under Trail in
+  `/symbols` → Flights; schema, normalize, resolve and fixtures (`flightStyle`, + heading). A
+  `noRotation` (rotation-locked) FX layer still pins its art; the coded glow trail is round, so
+  only authored trails show it.
+
 - 2026-10-14 — **Flights: a Size for the built-in head, and a preview that shows the picked head.**
   `flights.<kind>.size` (0.05–5, resolved exact → `toMeter` family → 1 like the timing fields)
   multiplies everything `FlightLayer` draws at the head: the coded glow, a pots overlay's token, the

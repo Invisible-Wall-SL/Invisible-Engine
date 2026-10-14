@@ -1376,7 +1376,7 @@
 	};
 
 	function setFlightNumber(
-		field: 'speed' | 'minMs' | 'maxMs' | 'stagger' | 'size',
+		field: 'speed' | 'minMs' | 'maxMs' | 'stagger' | 'size' | 'trailRotation',
 		value: number | undefined,
 	): void {
 		patchFlight((style) => {
@@ -1408,6 +1408,14 @@
 			else if (value === 'off') path[field] = false;
 			else delete path[field];
 			style.path = path;
+		});
+	}
+
+	function setFlightTrailAlign(value: string): void {
+		patchFlight((style) => {
+			if (value === 'on') style.trailAlign = true;
+			else if (value === 'off') style.trailAlign = false;
+			else delete style.trailAlign;
 		});
 	}
 
@@ -3407,6 +3415,42 @@
 												<option value={fx.id}>{fx.name}</option>
 											{/each}
 										</select>
+									</div>
+								</div>
+								<div class="bv-fit">
+									<div class="field">
+										<span
+											class="label"
+											title="Turn each trail particle to the direction the head is flying as it spawns, so a streak or arrow art follows the arc. A round glow looks the same either way. A layer with its rotation locked in Invisible FX keeps its art still."
+											>Trail follows the arc</span
+										>
+										<select
+											value={flagValue(flightOwn.trailAlign)}
+											onchange={(e) => setFlightTrailAlign(e.currentTarget.value)}
+										>
+											<option value="">Inherit ({flightInherited.trailAlign ? 'on' : 'off'})</option
+											>
+											<option value="on">On</option>
+											<option value="off">Off</option>
+										</select>
+									</div>
+									<div class="field">
+										<span
+											class="label"
+											title="Turns every trail particle by this many degrees as it spawns — on top of the arc when the trail follows it. Use it when the particle art points another way than right."
+											>Trail rotation (°)</span
+										>
+										<input
+											class="fl-num"
+											type="number"
+											step="15"
+											min={FLIGHT_LIMITS.trailRotation.min}
+											max={FLIGHT_LIMITS.trailRotation.max}
+											placeholder={String(flightInherited.trailRotation)}
+											value={flightOwn.trailRotation ?? ''}
+											onchange={(e) =>
+												setFlightNumber('trailRotation', numberOrUndefined(e.currentTarget.value))}
+										/>
 									</div>
 								</div>
 								{#if flightOwn.arrival?.effectId}

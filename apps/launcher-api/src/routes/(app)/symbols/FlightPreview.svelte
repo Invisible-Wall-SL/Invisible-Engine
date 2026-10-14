@@ -20,6 +20,7 @@
 		flightDuration,
 		flightEaseOf,
 		flightPlanOptions,
+		headingOnCurve,
 		planFlight,
 		pointOnCurve,
 		type FlightPoint,
@@ -147,8 +148,14 @@
 	let flying = $state(false);
 	/** The arrival is emitting — true from the landing for {@link arrivalEmitMs}. */
 	let arriving = $state(false);
-	const head = { x: 0, y: 0 };
+	const head = { x: 0, y: 0, heading: 0 };
 	const ownerPos = () => head;
+	/** The game's trail rotation (`FlightLayer`): the heading when aligned, plus the offset. */
+	const trailRotation = $derived(
+		style.trailAlign || style.trailRotation
+			? () => (style.trailAlign ? head.heading : 0) + (style.trailRotation * Math.PI) / 180
+			: undefined,
+	);
 	let streak: { x: number; y: number; at: number }[] = [];
 
 	const headSize = $derived(CELL * (token ? 1 : (style.head?.scale ?? 1)) * style.size);
@@ -268,9 +275,11 @@
 			const landedMs = flyMs - durationMs;
 			const emitArrival = !!arrivalDoc && landedMs >= 0 && landedMs < arrivalEmitMs;
 			if (arriving !== emitArrival) arriving = emitArrival;
-			const p = pointOnCurve(route.curve, ease(Math.min(1, Math.max(0, flyMs / durationMs))));
+			const eased = ease(Math.min(1, Math.max(0, flyMs / durationMs)));
+			const p = pointOnCurve(route.curve, eased);
 			head.x = p.x;
 			head.y = p.y;
+			head.heading = headingOnCurve(route.curve, eased);
 			if (inFlight && !style.trail) streak.push({ x: p.x, y: p.y, at: now });
 			if (flying !== inFlight) flying = inFlight;
 			if (artEl) {
@@ -351,6 +360,7 @@
 						playing
 						{resolveArt}
 						{ownerPos}
+						ownerRotation={trailRotation}
 						emitting={flying}
 						showReference={false}
 					/>
