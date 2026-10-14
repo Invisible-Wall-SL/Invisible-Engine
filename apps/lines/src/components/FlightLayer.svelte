@@ -30,7 +30,8 @@
 	 * `SymbolLayer` — the path a symbol layer takes — sized to a board cell × its `scale`, inside a
 	 * container at the board's scale; a glow head is `FlightView`'s coded glow re-tinted; `none` draws
 	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
-	 * instead, in its `flyToMeter` state, at the board's scale. The trail is `FlightView`'s. The
+	 * instead, in its `flyToMeter` state, at the board's scale. The kind's `size` multiplies all of
+	 * it — the glow, the art, the carried symbol and a "+N" label. The trail is `FlightView`'s. The
 	 * arrival effect plays ONCE at the target when the head lands, and the flight stays mounted until
 	 * it has played out.
 	 */
@@ -100,7 +101,7 @@
 					!flight.symbol &&
 					(!flight.headStyle || flight.headStyle.kind === 'glow')}
 				headTint={hexTint(flight.headStyle?.tint)}
-				headScale={flight.headStyle?.scale}
+				headScale={(flight.headStyle?.scale ?? 1) * flight.size}
 				trailDoc={trailDoc(flight)}
 			/>
 		{/if}
@@ -108,7 +109,7 @@
 			<Container
 				x={flight.head.x}
 				y={flight.head.y}
-				scale={flight.scale * (flight.headStyle?.scale ?? 1)}
+				scale={flight.scale * (flight.headStyle?.scale ?? 1) * flight.size}
 			>
 				<SymbolLayer layer={art} x={0} y={0} tint={hexTint(flight.headStyle?.tint)} />
 			</Container>
@@ -117,7 +118,7 @@
 			<Container
 				x={flight.head.x}
 				y={flight.head.y}
-				scale={flight.scale * (flight.symbolScale ?? 1)}
+				scale={flight.scale * (flight.symbolScale ?? 1) * flight.size}
 			>
 				<Symbol state="flyToMeter" rawSymbol={flight.symbol} />
 			</Container>
@@ -127,7 +128,7 @@
 				x={flight.head.x}
 				y={flight.head.y}
 				anchor={0.5}
-				scale={flight.scale}
+				scale={flight.scale * flight.size}
 				text={flight.label}
 				style={LABEL_STYLE}
 			/>

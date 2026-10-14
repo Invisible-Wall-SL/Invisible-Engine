@@ -117,6 +117,8 @@ export type ActiveFlight = {
 	ease: FlightEase;
 	/** The authored head; absent ⇒ the coded glow. */
 	headStyle?: FlightHead;
+	/** × everything drawn at the head — glow, art, carried symbol, label (the kind's `size`). */
+	size: number;
 	/** Text riding on the head ({@link FlyToOptions.label}). */
 	label?: string;
 	/** The symbol that is the head ({@link FlyToOptions.symbol}). */
@@ -336,6 +338,7 @@ export const flyTo = (
 			head: { ...route.curve.p0 },
 			ease: style.ease,
 			...(style.head ? { headStyle: style.head } : {}),
+			size: style.size,
 			...(options.label ? { label: options.label } : {}),
 			...(options.symbol ? { symbol: { ...options.symbol } } : {}),
 			...(options.symbolScale !== undefined ? { symbolScale: options.symbolScale } : {}),

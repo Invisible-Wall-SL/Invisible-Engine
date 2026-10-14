@@ -731,6 +731,7 @@ const flightStyleSchema = z
 			})
 			.strict()
 			.optional(),
+		size: z.number().optional(),
 		trail: z
 			.object({ effectId: z.string().optional(), off: z.boolean().optional() })
 			.strict()
