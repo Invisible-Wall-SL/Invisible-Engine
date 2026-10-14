@@ -29,6 +29,14 @@ The Studio portal at `app.invisiblewall.org` (Railway service `launcher`, + Post
   allowlist in `componentStorage.ts` silently stripped author params *twice* before it was made an
   import). Verify contracts offline in a Node fixture over the real modules; note the built `dist/`
   is not directly runnable (extensionless imports), so bundle with esbuild first.
+- **Vendored bundles must be rebuilt in the same change as their source.** The static Rigger and Rig
+  Viewer pages load COMMITTED builds, not source: `static/rigger/vendor/rigger-fx.js`
+  (`src/rigger-fx/` + `$lib/fx/*` + `engine-fx`), `static/rigger/vendor/rigger-text.js`
+  (`src/rigger-text/` and what it imports) and `static/rig-viewer/vendor/invisible-rig.js`
+  (`engine-rig/webgl`). Edit any of that, or bump `pixi.js` / `@barvynkoa/particle-emitter`, and
+  run `pnpm --filter launcher-api build:<name>`, then commit the bundle, or the page keeps the old
+  code (the FX forces once shipped everywhere but the Rigger this way). `check:vendored-bundles`
+  enforces it in CI and names the build to run.
 - **DB:** change `src/lib/server/db/schema.ts`, run `pnpm --filter launcher-api db:generate`, commit the
   new `drizzle/` migration. The launcher applies it itself at boot (`hooks.server.ts` `init` →
   `runMigrations()`), so schema + code ship in one deploy, and `/api/health` reports

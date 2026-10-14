@@ -28,3 +28,7 @@ packages/engine-layout/src/lib/builtinRigMeta.generated.ts text eol=lf
 *.7z binary
 *.exe binary
 *.ico binary
+
+# Vendored bundles — same reason: `check:vendored-bundles` rebuilds them and compares byte-for-byte.
+apps/launcher-api/static/rigger/vendor/*.js text eol=lf
+apps/launcher-api/static/rig-viewer/vendor/*.js text eol=lf

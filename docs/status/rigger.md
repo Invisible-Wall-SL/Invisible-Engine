@@ -76,6 +76,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-13 — **The vendored bundles can no longer go stale silently.** The FX forces played
+  everywhere but here because `static/rigger/vendor/rigger-fx.js` had not been rebuilt since #1108;
+  `rigger-text.js` had drifted the same way (both were still on PixiJS ~8.8). Both are rebuilt, and
+  `pnpm --filter launcher-api check:vendored-bundles` (run by CI through `check:all`) now fails
+  whenever a committed bundle (`rigger-fx.js`, `rigger-text.js`, `invisible-rig.js`) differs from a
+  fresh build of its source. Detail in [status/fx](fx.md).
 - 2026-10-07 — **Our own names everywhere.** Code, tools and docs now name rigs after our runtime:
   pixi-svelte's `RigProvider` / `RigTrack` / `RigSlot` / `RigBone` / … and `rig*.ts` helpers, the
   launcher's `lib/server/rig.ts` + `rigIndex.ts`, `constants-shared/rig`, the routes `/rig-viewer`,

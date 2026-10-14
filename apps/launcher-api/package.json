@@ -13,6 +13,7 @@
 		"prebuild": "node scripts/copy-tool-docs.mjs",
 		"build": "vite build && node ../../scripts/sentry-sourcemaps.mjs launcher build",
 		"build:rigger-fx": "vite build --config vite.rigger-fx.config.ts",
+		"check:vendored-bundles": "node scripts/check-vendored-bundles.mjs",
 		"build:rigger-text": "vite build --config vite.rigger-text.config.ts",
 		"build:invisible-rig": "vite build --config vite.invisible-rig.config.ts",
 		"preview": "vite preview",

@@ -100,6 +100,10 @@ owner-verify live) whenever you finish meaningful work.
   → bake (embed the effect index; `bake:doc` BEFORE `pull:assets`) → pull → `bakedEffects()`
   register; absent → no effect (or coded fallback). "Plays in `/fx`" ≠ "ships". Mind the
   build-env token trap that serves stale assets.
+- **"Plays in `/fx`" ≠ "plays in the Rigger".** The Rigger runs a COMMITTED build of the
+  overlay, `static/rigger/vendor/rigger-fx.js`. Any change to `engine-fx` or `$lib/fx/*` must
+  run `pnpm --filter launcher-api build:rigger-fx` and commit the bundle in the same change;
+  `check:vendored-bundles` fails CI otherwise (see `apps/launcher-api/CLAUDE.md`).
 - **Engine changes on `main`.** Engine/runtime changes go in this repo on a feature
   branch off `main`. There is no game submodule to bump — desktop builds advance it
   themselves.

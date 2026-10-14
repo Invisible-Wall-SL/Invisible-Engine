@@ -62,6 +62,10 @@ launcher/auth/R2/tool-registry foundation).
 - **Ship-from-Rigger is NOT built yet (rule 8).** An `.irig` currently only saves to R2 —
   there is no export→deploy→bake→pull→register wiring, so a rig doesn't reach a game. That is
   the recommended next build (see `docs/status/rigger.md`). "Saves in `/rigger`" ≠ "ships".
+- **The Rigger runs committed bundles, not source.** `static/rigger/vendor/rigger-fx.js` and
+  `rigger-text.js` must be rebuilt (`pnpm --filter launcher-api build:rigger-fx` /
+  `build:rigger-text`) and committed in the same change as any source they bundle;
+  `check:vendored-bundles` fails CI otherwise (see `apps/launcher-api/CLAUDE.md`).
 - **Engine changes on `main`.** There is no game submodule to bump — desktop builds advance
   it themselves.
 - **Reuse, don't rebuild** — launcher auth/scope/R2/registry, the `/rig-viewer` stage fork, the
