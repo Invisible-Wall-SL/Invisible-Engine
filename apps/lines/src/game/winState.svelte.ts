@@ -92,6 +92,11 @@ export const winState = $state<{
 	escalationForceStep: number;
 	awaitingDismiss: boolean;
 	flowHoldsPresentation: boolean;
+	/** The AUTHORED presentation's current tier signal (Rive plan Phase 8b: `winTier.<alias>` …),
+	 *  set by the gate's conductor as it fires each phase and cleared on `winHide`. The per-tier
+	 *  signal sources SEED off it on subscribe, so a `winPresentation` instance that mounts a frame
+	 *  after the fire still plays the current phase (the emitter has no replay). */
+	authoredSignal: string | undefined;
 }>({
 	winLevelData: undefined,
 	amount: 0,
@@ -108,6 +113,7 @@ export const winState = $state<{
 	escalationForceStep: 0,
 	awaitingDismiss: false,
 	flowHoldsPresentation: false,
+	authoredSignal: undefined,
 });
 
 /**

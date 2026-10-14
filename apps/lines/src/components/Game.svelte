@@ -95,6 +95,9 @@
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
 		authoredTransitionStatus,
+		registerBoardBox,
+		withAuthoredWin,
+		withAuthoredWinDoc,
 		withAuthoredTransition,
 		withAuthoredTransitionDoc,
 		FREE_SPIN_INTRO_VISUAL_DEF,
@@ -289,6 +292,14 @@
 	import Win from './Win.svelte';
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
+	import WinCoinsPart from './WinCoinsPart.svelte';
+	import {
+		authoredWinDef,
+		authoredWinRuntime,
+		authoredWinSignals,
+		registerAuthoredWinTimelines,
+		resolveAuthoredWinStatus,
+	} from '../game/authoredWin.svelte';
 	import { ContinuePressMask, PressToContinue } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -501,6 +512,9 @@
 		// node). Registered for the ON path; the OFF composer `Win` mounts both itself.
 		WinGate,
 		WinVisual,
+		// The authored presentation's coin fountain (Rive plan Phase 8b): the `winPresentation` def's
+		// bound `WinCoins` child, the coded emitter reading `winState` as `WinVisual` fed it.
+		WinCoins: WinCoinsPart,
 		Transition,
 		HudReadout,
 		HudTicker,
@@ -1095,11 +1109,15 @@
 		// The AUTHORED Transition (Rive plan Phase 8a): the loaded doc's scenes were swapped once at
 		// load (`withAuthoredTransitionDoc`); the reference overlays a doc without its own gets are
 		// swapped here under the same flag. Off ⇒ the same scene object (parity).
+		const swappedFallback =
+			authoredTransitionStatus(editorDoc) === 'ready'
+				? withAuthoredTransition(fallbackOverlays)
+				: fallbackOverlays;
 		const scene =
 			editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ??
-			(authoredTransitionStatus(editorDoc) === 'ready'
-				? withAuthoredTransition(fallbackOverlays)
-				: fallbackOverlays);
+			// The AUTHORED Win (Phase 8b) degrades the reference composer to its gate half the same
+			// way; the loaded doc's own scenes were swapped at load (`withAuthoredWinDoc`).
+			(authoredWinRuntime.on ? withAuthoredWin(swappedFallback) : swappedFallback);
 		if (!docPlacesWinVisual) return scene;
 		let degraded = false;
 		const nodes = scene.nodes.map((node) => {
@@ -1427,14 +1445,19 @@
 	);
 	// The determinism harness's ready signal (`game/determinism.ts`). Inert without `?ie_determinism`.
 	onMount(() =>
-		registerDeterminismProbe(() => ({
-			screens: activeScreenIds,
-			idle: context.stateXstateDerived.isIdle(),
-			loaded: stateApp.loaded,
-			playerIn: isPlayerIn,
-			winLevel: winState.winLevelData?.alias,
-			win: stateBet.winBookEventAmount,
-		})),
+		registerDeterminismProbe(
+			() => ({
+				screens: activeScreenIds,
+				idle: context.stateXstateDerived.isIdle(),
+				loaded: stateApp.loaded,
+				playerIn: isPlayerIn,
+				winLevel: winState.winLevelData?.alias,
+				win: stateBet.winBookEventAmount,
+			}),
+			// `setTurbo` / `?ie_turbo=1`: the player's persistent turbo, so a parity script can run the
+			// same book at `timeScale` 2.
+			{ setTurbo: (on) => stateBetDerived.updateIsTurbo(on, { persistent: true }) },
+		),
 	);
 	// Phase-5 above-reel z-order (design doc §11.5 follow-up B.1). When the interpreter
 	// AUTHORS basegame it owns the basegame mount, but the board MainContainer is engine-owned
@@ -2137,6 +2160,15 @@
 		doSpinBetOrStop();
 	};
 
+	// The authored Win's per-tier timelines are GENERATED from the loaded `bigwin` skeleton (clip
+	// lengths are read, never typed), so they register once assets are in — before the presentation
+	// mounts (`authoredWinRuntime.ready` gates the `winVisual` mount below). A pre-effect, so it runs
+	// ahead of the template's own reaction to `stateApp.loaded`. Inert on the coded path.
+	$effect.pre(() => {
+		if (!authoredWinRuntime.on || !stateApp.loaded) return;
+		registerAuthoredWinTimelines(stateApp.loadedAssets ?? {});
+	});
+
 	onMount(() => {
 		void loadEditorScenes().then((rawDoc) => {
 			// Rive plan Phase 8a: ONE swap of every coded `bind: Transition` for the authored instance,
@@ -2145,10 +2177,35 @@
 			// board override — is the swapped doc, so no mount path renders the coded node the retire
 			// below has made inert. Off, or not ready ⇒ the same doc object (parity).
 			const authored = authoredTransitionStatus(rawDoc) === 'ready';
-			const doc = authored ? withAuthoredTransitionDoc(rawDoc) : rawDoc;
+			const transitioned = authored ? withAuthoredTransitionDoc(rawDoc) : rawDoc;
+			// Rive plan Phase 8b: the AUTHORED Win, under its own flag and the shared status rule —
+			// every `bind: Win` degraded to its gate half, a placed `win` instance swapped for the
+			// built-in `winPresentation`, the `winVisual` scene synthesized when none is placed; both
+			// flows are built from this doc too. Off, or held back ⇒ the same doc object (parity).
+			const authoredWin = resolveAuthoredWinStatus(transitioned) === 'ready';
+			const doc = authoredWin ? withAuthoredWinDoc(transitioned) : transitioned;
 			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
 			// placed the hybrid `transition` twin plays one wipe (the authored one).
 			retireCodedOverlay('transition', authored);
+			// Likewise the coded `WinVisual` (the drawn half only — `WinGate` stays and conducts): the
+			// `win` twin's bound child and the composer's visual both go dark, one presentation plays.
+			retireCodedOverlay('win', authoredWin);
+			authoredWinRuntime.on = authoredWin;
+			if (authoredWin) {
+				// Everything the authored path registers is registered HERE and nowhere else, so a boot
+				// without the flag registers nothing new (byte-identical): the conductor's per-tier signals
+				// (`winTier.<alias>` …), `winFadeIn`, `winPlain` and `winHide`, before any instance of the
+				// swapped doc subscribes; and the board box the `boardFit` rig sizes to — the same
+				// `boardLayout()` the coded big-win rig was fitted to, read live.
+				registerComponentSignals(
+					authoredWinSignals((run) => context.eventEmitter.subscribe({ winHide: run })),
+				);
+				registerBoardBox(() => context.stateGameDerived.boardLayout());
+				// The def itself, generated from the active tiers (its caption `switchKeys`), registered
+				// here and nowhere else: an unregistered id expands to nothing — the swapped instance
+				// would mount, subscribe nothing and draw nothing.
+				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
+			}
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);
 			// Game-level settings (§ Game Settings): apply the authored speed-feature
@@ -2619,7 +2676,7 @@
 			 the editor); the full-screen `WinGate` is the `basegameOverlays` scene bind above. Empty ⇒
 			 renders nothing (the OFF composer `bind:Win` draws the visual itself) — byte-identical to
 			 `main` (parity). Mirrors the free-spin outro VISUAL scene. -->
-	{#if winVisualScene && winVisualScene.nodes.length}
+	{#if winVisualScene && winVisualScene.nodes.length && (!authoredWinRuntime.on || authoredWinRuntime.ready)}
 		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
 			<LayoutScene scene={winVisualScene} />
 		</Container>

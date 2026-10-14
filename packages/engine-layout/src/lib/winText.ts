@@ -735,6 +735,15 @@ export type WinTextVars = {
 const TOKEN = /\{(\w+)\}/g;
 
 /**
+ * Whether a Win Text template interpolates a resolver variable (`{amount}` …) — the one thing a
+ * timeline's `switchKey` text track cannot render, which is why the authored win presentation
+ * (Rive plan Phase 8b) holds back a project whose tier caption uses one.
+ */
+export function winTextHasVariable(template: string | undefined): boolean {
+	return !!template && new RegExp(TOKEN.source).test(template);
+}
+
+/**
  * Localize `template`, then interpolate `{tokens}` from `vars` — in that order (see the module
  * header; the reverse cannot be localized).
  *

@@ -248,6 +248,53 @@ eq(
 // ---- 2. the interpreter ------------------------------------------------------------------------
 
 {
+	// Two triggers fired in ONE frame take a transition that needs both, on the next tick — the
+	// path every def but a `frameExact` one takes (Phase 8b review). A zero-length step between the
+	// fires settles the first trigger unconsumed, which is why taking a transition at the fire is
+	// opt-in on the def, not the default.
+	const both = layer({
+		states: [
+			{ id: 'idle', timeline: 'c_coin_idle', loop: true },
+			{ id: 'win', timeline: 'c_coin_win' },
+		],
+		transitions: [
+			{
+				id: 'ab',
+				from: 'idle',
+				to: 'win',
+				conditions: [
+					{ input: 'x', op: 'fired' },
+					{ input: 'y', op: 'fired' },
+				],
+			},
+		],
+	});
+	const xy: ComponentDef['inputs'] = [
+		{ id: 'x', kind: 'trigger' },
+		{ id: 'y', kind: 'trigger' },
+	];
+	const r = new M.ComponentStateMachineRunner(machine(both), xy, durations);
+	r.advance(0.1);
+	r.fire('x');
+	r.fire('y');
+	eq(
+		'two triggers fired in one frame take the transition that needs both',
+		r.advance(1 / 60).fired.map((f) => f.transition),
+		['ab'],
+	);
+	const eager = new M.ComponentStateMachineRunner(machine(both), xy, durations);
+	eager.advance(0.1);
+	eager.fire('x');
+	eager.advance(0);
+	eager.fire('y');
+	eq(
+		'...a zero-length step between them settles the first (why advance-at-fire is frameExact-only)',
+		eager.advance(1 / 60).fired.map((f) => f.transition),
+		[],
+	);
+}
+
+{
 	const r = new M.ComponentStateMachineRunner(machine(layer()), inputs, durations);
 	eq('the entry state plays from the first frame', r.plays()[0], {
 		layer: 'main',

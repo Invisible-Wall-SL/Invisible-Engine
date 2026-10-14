@@ -304,6 +304,19 @@ interface BaseNode {
 	 */
 	hiddenUntilSignal?: string;
 	/**
+	 * RIDE A SIBLING RIG'S SLOT (Rive plan Phase 8b, `docs/design/rive-style-editor.md` §13.6.3): the
+	 * name of a slot on the first `spine` node among this node's siblings. The node then renders
+	 * INSIDE that rig, in the slot's own object — the container the rig drives every frame from the
+	 * slot's bone (position, rotation, scale) and colour (alpha), shown only while the slot has an
+	 * attachment — with the node's own transform composed on top, exactly as the coded win count
+	 * rides `slot_win_count` through `<RigSlot>`. Only inside a `componentInstance` expansion, and
+	 * only when a sibling rig exists; otherwise the node renders where it is authored (parity). While
+	 * the host rig is absent (hidden, or unmounted between wins) the rider renders nowhere, as the
+	 * coded `<RigSlot>` child did. May be param-bound (`paramBindings.rigSlot`) so one def follows a
+	 * per-instance slot name.
+	 */
+	rigSlot?: string;
+	/**
 	 * LISTENERS (Rive plan §5, Phase 6): pointer events on this node that act on the owning
 	 * component instance — fire a trigger input, set or toggle a bool input, set a number input,
 	 * or raise one of the def's {@link ComponentDef.events}. Only inside a `componentInstance`
@@ -542,6 +555,14 @@ export interface RigNode extends BaseNode {
 	assetKey: string;
 	width?: number;
 	height?: number;
+	/**
+	 * FIT THE RIG'S WIDTH TO THE GAME'S BOARD WIDTH (Rive plan Phase 8b) — the `game`-space twin of
+	 * {@link BaseNode.coverFit}: the rig is sized through `<RigProvider width>` to the board the game
+	 * registered (`registerBoardBox`), the way the coded big-win rig was fitted to
+	 * `boardLayout().width`, so one authored node reproduces that size on every layout type. Needs a
+	 * registered board; without one, or on any other kind, the node keeps its authored size (parity).
+	 */
+	boardFit?: boolean;
 	defaultAnimation?: string;
 	loop?: boolean;
 	skin?: string;
@@ -1310,6 +1331,13 @@ export interface GameSettings {
 	 */
 	authoredOverlays?: {
 		transition?: boolean;
+		/**
+		 * 8b: the big-win PRESENTATION (the tier rig, its per-tier clips, the count, the caption and
+		 * the plain number — what the coded `WinVisual` draws) renders from the built-in
+		 * `winPresentation` component and its generated per-tier timelines; the coded `WinGate`
+		 * (count-up, round hold, presses, dim, `winState`) stays and conducts them.
+		 */
+		win?: boolean;
 	};
 }
 
@@ -1495,6 +1523,13 @@ export interface ComponentDef {
 	 * interpreter, no subscription, no ticker work (parity).
 	 */
 	stateMachine?: ComponentStateMachine;
+	/**
+	 * FRAME-EXACT (built-in only, Rive plan Phase 8b): the authored twin of a coded part that must
+	 * land on the coded frame. Its state machine takes a trigger's transition at the fire (not on the
+	 * next tick), and its timelines snap to their end within a microsecond of float error. Only the
+	 * `winPresentation` def sets it; never stored, so no project def has it. Absent ⇒ neither (parity).
+	 */
+	frameExact?: true;
 	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A

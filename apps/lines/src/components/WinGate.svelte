@@ -1,17 +1,35 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { FadeContainer, WinCountUpProvider } from 'components-pixi';
 	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 	import { roundSkip } from 'utils-shared/skipToken';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { OnMount } from 'components-shared';
-	import type { WinLevelData } from 'engine-game';
+	import {
+		WIN_PLAIN_SIGNAL,
+		WIN_PRESENTATION_COMPONENT_ID,
+		cueHolds,
+		setComponentPlayRate,
+		winTierLoopSignal,
+		winTierOutroSignal,
+		winTierSignal,
+	} from 'engine-layout';
+	import type { WinLevelData, WinWalk, WinWalkEffect, WinWalkEvent } from 'engine-game';
 
 	import { getContext } from '../game/context';
 	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
 	import { CountUpInteraction, resolveWinTap } from 'engine-game';
 	import { PressToContinue } from 'engine-game';
+	import { awaitFireHolds, createWinWalk, isCodedOverlayRetired, nextStep } from 'engine-game';
 	import WinStatePublisher from './WinStatePublisher.svelte';
 	import { winState } from '../game/winState.svelte';
+	import {
+		authoredWinWalkTiers,
+		clearAuthoredWinSignal,
+		fireAuthoredWinFade,
+		fireAuthoredWinSignal,
+		releaseAuthoredWinHolds,
+	} from '../game/authoredWin.svelte';
 
 	// The full-screen GATE of the WIN overlay (big-win presentation): the `winShow/winHide/winUpdate`
 	// book-event subscription, the count-up driver (`WinCountUpProvider` + `OnMount startCountUp`),
@@ -146,6 +164,116 @@
 	let amount = $state(0);
 	let winLevelData = $state<WinLevelData | undefined>();
 	let oncomplete = $state(() => {});
+
+	// THE CONDUCTOR (Rive plan Phase 8b, §13.6.5). When the project renders the AUTHORED presentation
+	// (the coded `WinVisual` is retired for this boot), the tier WALK leaves `WinAnimation` and runs
+	// here, as the pure `nextStep` over plain data: each step fires a per-tier signal the placed
+	// `winPresentation` instance plays a timeline on, and the hold that timeline registers
+	// (`cueHolds`, synchronously in the bus callback) is the clock the coded rig `complete` was. The
+	// gate's own clocks — the count-up, the round hold on `winUpdate`, the presses and the three caps —
+	// are untouched: the walk only publishes what `WinAnimation` published (`escalationStepIndex`,
+	// `escalationOutroComplete`) and what `WinVisual` published (`escalationActive`,
+	// `escalationBoundaries`). Read once at mount, as the retired part reads it. Coded path ⇒ inert.
+	const authoredWin = isCodedOverlayRetired('win');
+	let walk: WinWalk | undefined;
+	// Bumped per presentation: a hold that ends after the overlay hid (or a newer win began) is dropped.
+	let walkGeneration = 0;
+
+	const runWalkEffect = (effect: WinWalkEffect): void => {
+		if (effect.kind === 'stepIndex') {
+			winState.escalationStepIndex = effect.index;
+			return;
+		}
+		if (effect.kind === 'outroComplete') {
+			winState.escalationOutroComplete = true;
+			return;
+		}
+		fireAuthoredWinSignal(effect.signal);
+		if (!effect.holds) return;
+		const generation = walkGeneration;
+		// The hold was registered in the fire above; an instance that mounts a frame late is given
+		// one deferred re-read (its subscription is seeded); none at all ⇒ the step falls through
+		// at once, as the coded gate concludes without a mounted visual. Never hangs.
+		void awaitFireHolds(
+			() => cueHolds(effect.signal),
+			() => waitForTimeout(0),
+		).then(() => {
+			if (generation !== walkGeneration) return;
+			applyWalk({ type: 'holdEnd', step: effect.step });
+		});
+	};
+	const applyWalk = (event: WinWalkEvent): void => {
+		if (!walk) return;
+		const next = nextStep(walk, event);
+		walk = next.walk;
+		for (const effect of next.effects) runWalkEffect(effect);
+	};
+	/** Begin the walk for the win on show: the chain, the single tier, or the plain number. */
+	const startWalk = (data: WinLevelData | undefined): void => {
+		walkGeneration += 1;
+		const { tiers, escalating } =
+			data === undefined ? { tiers: [], escalating: false } : authoredWinWalkTiers(data.level);
+		winState.escalationActive = escalating;
+		winState.escalationBoundaries = escalating ? tiers.map((tier) => tier.boundaryAmount) : [];
+		walk = createWinWalk(tiers, escalating, {
+			tier: winTierSignal,
+			loop: winTierLoopSignal,
+			outro: winTierOutroSignal,
+			plain: WIN_PLAIN_SIGNAL,
+		});
+		// The coded `FadeContainer` mounts its children (the rig, the count, the coins) only once its
+		// alpha is above 0 — the frame AFTER the fade starts — so the first tier fires from the next
+		// animation frame's callback (Pixi's ticker, registered earlier, has already ticked it), and
+		// the walk's strips, holds and emitter begin where the coded ones did. Measured by
+		// `check:win-parity`: fired synchronously, the art ran a frame ahead and the coins a frame
+		// older. The chain's own clocks are relative to this start, so nothing else moves.
+		const generation = walkGeneration;
+		requestAnimationFrame(() => {
+			if (generation !== walkGeneration) return;
+			applyWalk({ type: 'start' });
+		});
+	};
+	const endWalk = (): void => {
+		walkGeneration += 1;
+		walk = undefined;
+		clearAuthoredWinSignal();
+		// A hide mid-walk leaves the walk's hold pending until its idle ends; the next win's first
+		// read must see only its own hold.
+		releaseAuthoredWinHolds();
+	};
+	if (authoredWin) {
+		// The walk's inputs, as `WinAnimation` took them in props: the count landing, a tap's forward
+		// step, the land-then-dismiss hold. Untracked bodies: the walk is bookkeeping, not a dependency.
+		$effect(() => {
+			const done = winState.countUpComplete;
+			untrack(() => {
+				if (done) applyWalk({ type: 'countUpComplete' });
+			});
+		});
+		$effect(() => {
+			const toTier = winState.escalationForceStep;
+			untrack(() => {
+				if (toTier > 0) applyWalk({ type: 'tap', toTier });
+			});
+		});
+		$effect(() => {
+			const on = winState.awaitingDismiss;
+			untrack(() => applyWalk({ type: 'holdOutro', on }));
+		});
+		// The hold-to-speed-up RAMP on the tier art: the coded walk ran the escalating intro / idle
+		// rigs at `max(speedScale, 1)` while the count was running (`WinAnimation.rampTimeScale`); the
+		// authored presentation's timelines advance at the same rate. 1 otherwise (the outro, a
+		// single tier, a release) and on every other component.
+		$effect(() => {
+			const rate =
+				winState.escalationActive && !winState.countUpComplete
+					? Math.max(winState.escalationSpeedScale, 1)
+					: 1;
+			setComponentPlayRate(WIN_PRESENTATION_COMPONENT_ID, rate);
+			// A rate above 1 must never outlive the gate.
+			return () => setComponentPlayRate(WIN_PRESENTATION_COMPONENT_ID, 1);
+		});
+	}
 	// Guards `concludePresentation` against a double conclusion (OnMount + a post-count-up tap both
 	// route through it). Reset per win alongside the count-up latch.
 	let concluded = false;
@@ -307,6 +435,9 @@
 	context.eventEmitter.subscribeOnMount({
 		winShow: () => {
 			show = true;
+			// The coded visual's `FadeContainer` tweens 0 → 1 from `show` once it has mounted (a
+			// presentation ran before); its first mount fades from `winUpdate` instead (below).
+			if (authoredWin && winState.winLevelData !== undefined) fireAuthoredWinFade();
 			// Belt-and-suspenders reset (the real reset is on `winHide` below): under the CODED path
 			// `winShow` precedes the presentation, so clearing here keeps the first win clean too.
 			winState.countUpComplete = false;
@@ -324,6 +455,7 @@
 		},
 		winHide: () => {
 			show = false;
+			if (authoredWin) endWalk();
 			// The run-up belongs to the win that just ended. Cleared HERE and never on `winShow` —
 			// the cue runs BEFORE the overlay shows, so clearing it there would throw away the very
 			// number this win was handed.
@@ -351,8 +483,20 @@
 			holdToSpeedUp = emitterEvent.holdToSpeedUp ?? false;
 			tapToSkip = emitterEvent.tapToSkip ?? false;
 			waitForPress = emitterEvent.waitForPress ?? false;
+			const firstPresentation = winState.winLevelData === undefined;
 			winState.amount = emitterEvent.amount;
 			winState.winLevelData = emitterEvent.winLevelData;
+			// The authored presentation starts here, before the count-up mounts below, so
+			// `escalationActive` and the boundaries are published for the first tap and the first frame.
+			if (authoredWin) {
+				startWalk(emitterEvent.winLevelData);
+				// The coded visual's FIRST mount (`{#if winLevelData}` on this update) fades in from its
+				// `onMount` — synchronously with this flush (its zero-length tween settles at once) — so
+				// the fade fires here, now; every later win fades from `winShow` (above), as the mounted
+				// coded container does from `show`. Measured by `check:win-parity`: a frame either way
+				// shows as a coin-alpha diff at t+12.
+				if (firstPresentation) fireAuthoredWinFade();
+			}
 			await waitForResolve((resolve) => (oncomplete = resolve));
 		},
 	});

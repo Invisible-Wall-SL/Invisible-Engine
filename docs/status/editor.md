@@ -82,7 +82,7 @@ Shipped capabilities on `main`:
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
   redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not
   paused.
-- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a, 2026-10-14; switched by a holder of the component-publish capability; off for every live game until the owner's browser check — the whole story in [engine status](engine.md)).
+- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a) and *Win* (8b), 2026-10-14; each switched by a holder of the component-publish capability, both off for every live game until the owner's browser check — the whole story in [engine status](engine.md).
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
@@ -115,6 +115,27 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-14 — **Game Settings → Authored overlays (pilot) → Win** (Rive plan Phase 8b, branch
+  `claude/rive-p8b-win-design`): the second checkbox beside Transition, same capability gate,
+  writing `settings.authoredOverlays.win: true` only when on (`normalizeGameSettings` keeps each
+  ON row, drops OFF ones; `buildGameSettings()` returns `undefined` only with both off). The save
+  action's guard now covers both rows and runs AFTER the ETag check
+  (`authoredOverlayGuard.ts` `authoredOverlaySaveDecision`: stale ⇒ 409 whoever saves, fresh +
+  flip ⇒ 403 for a non-publisher, else write; one read for a non-publisher, none for a publisher).
+  Game Maker chips: *Authored Win (pilot)* and the three held-back warnings, from
+  `authoredWinStatus({ doc, tiers })` with the tiers built server-side (`authoredWinTiers.ts`: the
+  config's ladder or the coded one, the placed `win` instance's params, the Win Text captions —
+  one more R2 read per project with the flag on). `launcher-api` now depends on `engine-game`
+  (deep imports of its pure `winPresentation` / `winLevelMap` modules; the index exports Svelte).
+  Gates: new `check:authored-win` (119), `check:authored-transition` 85 (two assertions updated to
+  the two-row contract), `check:doc-readers-unknown-fields` (the `win` row). Not wired into CI's
+  Lint job: `check:authored-transition`, `check:component-timelines` and `check:authored-win` are
+  package scripts only — the workflow list is a follow-up. Guide:
+  [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot);
+  the engine side: [engine status](engine.md). **Locked off until the Win parity follow-up merges**
+  (#1194 review): the row is disabled unless already on (_pilot pending — parity follow-up_), and
+  the save refuses switching it on for everyone, publishers included (`AUTHORED_WIN_LOCKED`,
+  decision `locked`, 403; a publisher's save reads the store only when it submits Win on).
 - 2026-10-14 — **The way back from a component to its screen is visible.** After a double-click on
   a placed instance, the only exit that looked like a button was **← All components**, which lands
   on the components home, not on the screen. The breadcrumb's first crumb (the screen's name) did

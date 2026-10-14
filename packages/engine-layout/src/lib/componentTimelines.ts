@@ -56,11 +56,17 @@ export function registerComponentTimelines(docs: readonly CinematicDoc[]): void 
 
 /**
  * What a game registers at boot: the engine's built-in timelines first (Rive plan Phase 8a), then
- * the project's baked cinematics — on a boot with no bundle and no baked doc the built-ins alone,
- * so a built-in def the fallback doc places still has its timeline. One call for both boot paths.
+ * the timelines it GENERATED for this boot (Phase 8b: the authored win's per-tier docs, built from
+ * the active tiers and the loaded skeleton once assets are in — the game calls this again then),
+ * then the project's baked cinematics, so a project timeline shadows a built-in or generated id —
+ * on a boot with no bundle and no baked doc the built-ins alone, so a built-in def the fallback doc
+ * places still has its timeline. One call for both boot paths.
  */
-export function registerGameTimelines(baked: readonly CinematicDoc[] | undefined): void {
-	registerComponentTimelines([...BUILTIN_TIMELINES, ...(baked ?? [])]);
+export function registerGameTimelines(
+	baked: readonly CinematicDoc[] | undefined,
+	generated: readonly CinematicDoc[] = [],
+): void {
+	registerComponentTimelines([...BUILTIN_TIMELINES, ...generated, ...(baked ?? [])]);
 }
 
 /** The timelines an instance of `componentId` plays on a signal, in registration order. */
@@ -181,6 +187,15 @@ export class ComponentTimelinePlayer {
 	private readonly running = new Map<string, Running>();
 	private readonly driven = new Map<string, Running>();
 	private started = 0;
+	/**
+	 * The speed every running `playOn` timeline advances at (Rive plan Phase 8b): `advance(dt)`
+	 * moves the playheads by `dt × playRate`. The authored twin of the rig `timeScale` ramp the coded
+	 * big-win walk applied while the player held to speed up; the owning instance sets it from the
+	 * game's `componentPlayRate` each tick. 1 ⇒ exactly the step handed in (parity).
+	 */
+	playRate = 1;
+	/** Snap a playhead to its end within a microsecond (a `frameExact` def only, Phase 8b). */
+	snapEnds = false;
 
 	constructor(docs: readonly CinematicDoc[], nodes: LayoutNode[]) {
 		const scene = { id: '', name: '', nodes };
@@ -268,12 +283,19 @@ export class ComponentTimelinePlayer {
 
 	advance(dtSeconds: number): TimelineStep {
 		const step: TimelineStep = { cues: [], completed: [] };
-		if (!(dtSeconds > 0)) return step;
+		const dt = dtSeconds * this.playRate;
+		if (!(dt > 0)) return step;
 		for (const r of this.running.values()) {
 			if (r.done) continue;
 			const duration = Math.max(r.bound.doc.duration || 0, 0);
 			const prev = r.time;
-			const next = Math.min(prev + dtSeconds, duration);
+			// Frame deltas accumulate float error: 802 steps of 1/60 fall 1e-15 short of 13.3667, and
+			// a strip that ends on the frame after would hold its awaited cue a frame late (the win
+			// walk's tier boundary). A `frameExact` def snaps to the end within a microsecond, as the
+			// state-machine runner does; every other timeline ends exactly as before.
+			const stepped = prev + dt;
+			const next =
+				this.snapEnds && duration - stepped < 1e-6 ? duration : Math.min(stepped, duration);
 			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
 				step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
 			}

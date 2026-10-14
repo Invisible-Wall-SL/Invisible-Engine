@@ -59,8 +59,10 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	valueBindings: true,
 	pressAction: true,
 	hiddenUntilSignal: true,
+	rigSlot: true,
 	on: true,
 	assetKey: true,
+	boardFit: true,
 	region: true,
 	keepAspect: true,
 	tint: true,
@@ -136,6 +138,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	internal: true,
 	inputs: true,
 	stateMachine: true,
+	frameExact: true,
 	events: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {

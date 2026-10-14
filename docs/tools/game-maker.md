@@ -145,9 +145,13 @@ nothing that can go stale:
   winning-symbol replay (and its dim / hold-after-big-win variants), win-frame
   highlight, free-spin board glow, book-symbol VFX, reel anticipation, explosion
   animations, named symbols, big-win tiers and tier escalation, and the
-  **Authored Transition (pilot)** switch from the Scene Editor's Game Settings
-  (an amber chip instead when it is on but no scene binds the coded Transition it
-  replaces — the game would play no wipe).
+  **Authored Transition (pilot)** and **Authored Win (pilot)** switches from the
+  Scene Editor's Game Settings → Authored overlays (an amber chip instead when a
+  switch is on but held back: the Transition when no scene binds the coded
+  Transition it replaces, or one sits outside canvas space; the Win when nothing
+  binds a coded Win overlay or places a win instance — *nothing to replace* — when
+  a big-win tier's Win Text caption uses `{amount}`, or when the tiers resolve to
+  more than one rig or count slot; the game then keeps the coded path).
 
 Hover any chip for what it means and where it comes from. A project that has
 switched nothing on says _"no optional features yet"_ rather than listing the

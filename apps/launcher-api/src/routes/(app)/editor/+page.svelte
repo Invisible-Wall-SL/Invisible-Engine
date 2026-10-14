@@ -2477,11 +2477,13 @@
 	let featureAutoplay = $state<boolean>(data.doc.settings?.features?.autoplay ?? true);
 	let featureSpaceHold = $state<boolean>(data.doc.settings?.features?.spaceHold ?? true);
 	const ukLocked = $derived(jurisdiction === 'UK');
-	// Authored overlays (Rive plan Phase 8a): the pilot switch that renders the Transition from its
-	// authored component instead of the coded mount. Off, and absent from the doc, unless turned on.
+	// Authored overlays (Rive plan Phase 8a / 8b): the pilot switches that render the Transition /
+	// the big-win presentation from their authored components instead of the coded mounts. Off,
+	// and absent from the doc, unless turned on. Both read `data` (a prop declared above) only.
 	let authoredTransition = $state<boolean>(
 		data.doc.settings?.authoredOverlays?.transition === true,
 	);
+	let authoredWin = $state<boolean>(data.doc.settings?.authoredOverlays?.win === true);
 
 	// The project's own BOOT SPLASH — the second pre-game screen, after the admin-owned engine
 	// mark. A blank bundle means "no game splash", so the panel needs no separate clear button.
@@ -2505,7 +2507,8 @@
 			background: bootLoaderBackground,
 			size: bootLoaderSize,
 		});
-		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredTransition) return undefined;
+		const authoredOverlays = authoredTransition || authoredWin;
+		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredOverlays) return undefined;
 		const settings: GameSettings = {};
 		if (jurisdiction !== 'default') settings.jurisdiction = jurisdiction;
 		if (!allOn) {
@@ -2516,8 +2519,13 @@
 			};
 		}
 		if (bootLoader) settings.bootLoader = bootLoader;
-		// Sparse: only an ON row is written (the normalizer keeps only that too).
-		if (authoredTransition) settings.authoredOverlays = { transition: true };
+		// Sparse: only an ON row is written (the normalizer keeps only those too).
+		if (authoredOverlays) {
+			settings.authoredOverlays = {
+				...(authoredTransition ? { transition: true } : {}),
+				...(authoredWin ? { win: true } : {}),
+			};
+		}
 		return settings;
 	}
 
@@ -4012,12 +4020,12 @@
 									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
 								{/if}
 
-								{#if data.canPublishShared || authoredTransition}
+								{#if data.canPublishShared || authoredTransition || authoredWin}
 									<hr class="gs-rule" />
 									<p class="gs-note">
 										<strong>Authored overlays (pilot)</strong> — render an overlay from its authored component
-										instead of the coded one. Leave off for live games until the owner's browser check;
-										the publish summary names it when on.
+										instead of the coded one. Both rows are pilots: leave them off for live games until
+										the owner's browser check; the publish summary names each when on.
 									</p>
 									<label
 										class="gs-toggle"
@@ -4034,6 +4042,24 @@
 											}}
 										/>
 										<span>Transition</span>
+									</label>
+									<!-- Locked off until the Win parity follow-up merges (the save refuses it too,
+										`AUTHORED_WIN_LOCKED`); still switchable OFF if a doc has it on. -->
+									<label
+										class="gs-toggle"
+										class:disabled={!data.canPublishShared || !authoredWin}
+										title="The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses. Held back (the coded path stays, the publish summary warns) when nothing binds a coded Win, when a tier caption uses a &#123;amount&#125; token, or when the tiers resolve to more than one rig or count slot. Switched by a publisher (the component-publish capability)."
+									>
+										<input
+											type="checkbox"
+											checked={authoredWin}
+											disabled={!data.canPublishShared || !authoredWin}
+											onchange={(e) => {
+												authoredWin = e.currentTarget.checked;
+												onGameSettingChange();
+											}}
+										/>
+										<span>Win <em class="gs-pending">pilot pending — parity follow-up</em></span>
 									</label>
 								{/if}
 
@@ -5162,6 +5188,12 @@
 	.gs-toggle input {
 		accent-color: #7ee0c0;
 		cursor: inherit;
+	}
+	.gs-pending {
+		margin-left: 4px;
+		font-size: 11px;
+		font-style: normal;
+		color: #8a8a94;
 	}
 	.gs-locked {
 		margin: 0;

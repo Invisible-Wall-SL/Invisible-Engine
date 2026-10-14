@@ -45,6 +45,7 @@ export const {
 	activeSounds,
 	publishSoundBindings,
 	publishWinPresentation,
+	winPresentationParams,
 	activeWinLevelData,
 	activeWinLevelByAlias,
 	activeWinLevelIsBig,

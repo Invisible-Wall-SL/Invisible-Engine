@@ -211,6 +211,9 @@ importers:
       engine-fx:
         specifier: workspace:*
         version: link:../../packages/engine-fx
+      engine-game:
+        specifier: workspace:*
+        version: link:../../packages/engine-game
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout

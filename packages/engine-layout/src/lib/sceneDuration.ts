@@ -54,10 +54,11 @@ export interface SceneDurationResolvers {
 	 *  bind with no measurable animation (skipped). */
 	boundComponentMs?(component: string): number | undefined;
 	/**
-	 * How long the timelines an instance of `defId` HOLDS an awaited cue for run (`holdsCue`, Rive
-	 * plan Phase 8a) — the authored twin of `boundComponentMs`: the coded Transition measured as its
-	 * bound part's clip, the authored one measures as the wipe timeline, so a `durationMs` reads the
-	 * same number either way. `undefined` when the def holds nothing.
+	 * The authored twin of `boundComponentMs` (Rive plan Phase 8a): how long an instance of `defId`
+	 * HOLDS an awaited cue — the longest of its `holdsCue` timelines, a project's own included (an
+	 * authored 2 s entrance that holds measures 2 s). The ONE exemption is the win presentation
+	 * (8b): its holds are tier-walk timing, not an entrance, and the coded `Win` / `WinGate` it
+	 * replaces measured 0, so it measures `undefined` too. `undefined` when the def holds nothing.
 	 */
 	instanceHoldMs?(defId: string): number | undefined;
 }

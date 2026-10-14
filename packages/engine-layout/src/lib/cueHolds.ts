@@ -9,25 +9,50 @@
  * Svelte-free and Pixi-free: the instance registers, the Flow runtime reads, the gates drive both.
  */
 
-const holds = new Map<string, Set<Promise<void>>>();
+/** One registered hold: the promise a reader awaits, and the release that settles it early. */
+interface Hold {
+	promise: Promise<void>;
+	release: () => void;
+}
 
-/** Hold `cue` until `until` settles. The hold is dropped once it does, however it does. */
+const holds = new Map<string, Set<Hold>>();
+
+/**
+ * Hold `cue` until `until` settles — or until {@link releaseCueHolds} releases it (Rive plan Phase
+ * 8b: a presentation that ends early, on `winHide`, must not leave its tier walk's hold in the map
+ * for the next win to read). The hold is dropped once it settles, however it does. Engine-wide but
+ * inert unless released: with no release the race settles exactly as `until` does, one microtask
+ * later, and nothing but the win's `winHide` releases a hold.
+ */
 export function holdCue(cue: string, until: Promise<void>): void {
 	if (!cue) return;
-	const set = holds.get(cue) ?? new Set<Promise<void>>();
-	set.add(until);
+	const set = holds.get(cue) ?? new Set<Hold>();
+	let release = (): void => {};
+	const released = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const hold: Hold = { promise: Promise.race([until, released]), release };
+	set.add(hold);
 	holds.set(cue, set);
 	const drop = (): void => {
-		set.delete(until);
+		set.delete(hold);
 		if (set.size === 0 && holds.get(cue) === set) holds.delete(cue);
 	};
-	until.then(drop, drop);
+	hold.promise.then(drop, drop);
 }
 
 /** The holds pending on `cue` right now — empty for a cue no instance holds. */
 export function cueHolds(cue: string): Promise<void>[] {
 	const set = holds.get(cue);
-	return set ? [...set] : [];
+	return set ? [...set].map((hold) => hold.promise) : [];
+}
+
+/** Settle and drop every hold pending on `cue` now (its awaiters resolve); none ⇒ a no-op. */
+export function releaseCueHolds(cue: string): void {
+	const set = holds.get(cue);
+	if (!set) return;
+	holds.delete(cue);
+	for (const hold of set) hold.release();
 }
 
 /** Every pending hold, for the gates. */

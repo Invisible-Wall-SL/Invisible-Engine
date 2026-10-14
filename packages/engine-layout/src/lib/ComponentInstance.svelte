@@ -106,6 +106,7 @@
 	import { getTapPortal } from './tapPortalContext';
 	import { ComponentTimelinePlayer, instanceTimelineDocs } from './componentTimelines';
 	import { InstanceCueHolds } from './cueHolds';
+	import { componentPlayRate } from './componentPlayRate';
 	import { ComponentStateMachineRunner } from './stateMachine';
 	import { componentInputs, componentTriggers } from './componentInterface';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
@@ -786,6 +787,7 @@
 		def && instanceTimelines.docs.length
 			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children)
 			: undefined;
+	if (timelinePlayer && def?.frameExact) timelinePlayer.snapEnds = true;
 	const stateMachineRunner =
 		stateMachine && def
 			? new ComponentStateMachineRunner(
@@ -894,6 +896,15 @@
 					startStateMachine();
 				}
 				stateMachineRunner.fire(signal);
+				// A `frameExact` def takes the transition NOW (a zero-length step evaluates the fire), so
+				// the entered state and its blend start at the fire and render their first frame at
+				// `t = dt` on the next tick — as a coded tween started in the same callback does (Rive
+				// plan Phase 8b: the win fade). Every other def takes it on the next tick, as before.
+				if (!def?.frameExact) return;
+				const step = stateMachineRunner.advance(0);
+				applyStateMachine();
+				eventDispatcher?.transitions(step.fired);
+				if (step.fired.length) notifyFlowInstance();
 			});
 		}
 	});
@@ -1000,6 +1011,9 @@
 		if (!timelineTicker) return;
 		const dt = timelineTicker.deltaMS / 1000;
 		if (timelinePlayer?.isPlaying()) {
+			// The game's play rate for this component (Rive plan Phase 8b) — 1 unless its conductor set
+			// one, so every other component advances exactly as before.
+			if (def) timelinePlayer.playRate = componentPlayRate(def.id);
 			const step = timelinePlayer.advance(dt);
 			timelineClock += 1;
 			for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);

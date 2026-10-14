@@ -32,6 +32,8 @@
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
  */
 
+import { pendingCueHolds } from 'engine-layout';
+
 const FLAG = 'ie_determinism';
 export const DETERMINISM_FRAME_MS = 1000 / 60;
 // A fixed wall clock, so a rendered date or time reads the same on every run.
@@ -93,6 +95,10 @@ export type DeterminismState = DeterminismProbeState & {
 	/** The Flow cues fired so far, each with the frame it fired on (the last {@link CUE_LOG_MAX}),
 	 *  so a harness can step to a cue and capture at fixed frames after it. */
 	cues: readonly { cue: string; frame: number }[];
+	/** The cue / signal names with a PENDING cue hold right now (`pendingCueHolds`, Rive plan Phase
+	 *  8a/8b) — the positive control of a parity gate: the authored side holds, the coded side does not,
+	 *  including holds opened by a game-fired signal the cue trace never shows. */
+	holds: readonly string[];
 };
 
 export type DeterminismApi = {
@@ -105,6 +111,10 @@ export type DeterminismApi = {
 	waitFor(
 		condition: DeterminismCondition,
 	): Promise<{ ok: boolean; frame: number; state: DeterminismState }>;
+	/** Turn turbo on or off, as the player's persistent choice — so a parity script can run a turbo
+	 *  variant of the same book. Routed to the game's `stateBet` once it has registered its probe; a
+	 *  call before that is kept and applied then. */
+	setTurbo(on: boolean): void;
 };
 
 declare global {
@@ -143,6 +153,16 @@ type VirtualTimer = {
 };
 
 let probe: (() => DeterminismProbeState) | undefined;
+/** The game's turbo setter, once registered, and the last request made before it was. */
+let turboControl: ((on: boolean) => void) | undefined;
+let turboRequested: boolean | undefined;
+const TURBO_FLAG = 'ie_turbo';
+
+/** `?ie_turbo=1`, honoured only with the determinism flag: a turbo boot for the parity scripts. */
+const flagTurbo = (): boolean | undefined => {
+	if (typeof location === 'undefined' || !flagSeed()) return undefined;
+	return new URLSearchParams(location.search).get(TURBO_FLAG) === '1' ? true : undefined;
+};
 
 const CUE_LOG_MAX = 256;
 const cueLog: { cue: string; frame: number }[] = [];
@@ -163,11 +183,23 @@ export function recordDeterminismCue(cue: string): void {
  * `Game.svelte` hands over a reader of its screen + round state. A no-op when the mode is off;
  * returns the unregister.
  */
-export function registerDeterminismProbe(read: () => DeterminismProbeState): () => void {
+export function registerDeterminismProbe(
+	read: () => DeterminismProbeState,
+	controls?: { setTurbo(on: boolean): void },
+): () => void {
 	if (!globalThis.__IE_DETERMINISM__) return () => {};
 	probe = read;
+	turboControl = controls?.setTurbo;
+	// A turbo request that arrived before the game could take it (`?ie_turbo=1`, or a `setTurbo`
+	// call made before the probe registered) is applied now.
+	const pending = turboRequested ?? flagTurbo();
+	if (pending !== undefined && turboControl) {
+		turboRequested = undefined;
+		turboControl(pending);
+	}
 	return () => {
 		if (probe === read) probe = undefined;
+		if (turboControl === controls?.setTurbo) turboControl = undefined;
 	};
 }
 
@@ -596,6 +628,7 @@ export function installDeterminism(): void {
 		stalls,
 		errors,
 		cues: [...cueLog],
+		holds: pendingCueHolds(),
 		...readProbe(),
 	});
 	const holds = (c: DeterminismCondition, s: DeterminismState): boolean =>
@@ -642,5 +675,9 @@ export function installDeterminism(): void {
 				await runFrames(condition.draw, () => holds(condition, state()) || frame >= limit);
 				return { ok: holds(condition, state()), frame, state: state() };
 			}),
+		setTurbo: (on) => {
+			if (turboControl) turboControl(on);
+			else turboRequested = on;
+		},
 	};
 }

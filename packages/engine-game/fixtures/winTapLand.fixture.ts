@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { lfReaderFrom } from '../../../scripts/lib/read-lf.mjs';
 
 import { resolveWinTap } from '../src/game/winEscalation.ts';
+import { createWinWalk, nextStep } from '../src/game/winWalk.ts';
 
 /** `WinGate.svelte` — the post-count-up settle before the gate concludes. */
 const SETTLE_MS = 300;
@@ -287,6 +288,53 @@ assert.deepEqual(
 	{ kind: 'land', hold: true },
 	'expected the only tier of a one-tier chain to land-and-hold',
 );
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED PATH (Rive plan Phase 8b): the gate's taps drive the pure conductor with the SAME
+// `resolveWinTap` decisions — a step bumps the walk to the tapped tier (its intro fires), the landing
+// tap on the final tier lands and holds (no outro while held), a dismiss resolves the gate's wait.
+// ---------------------------------------------------------------------------------------------
+{
+	const tiers = [0, 1, 2, 3, 4].map((i) => ({
+		alias: `t${i}`,
+		hasExit: true,
+		boundaryAmount: i * 1_000,
+	}));
+	let walk = createWinWalk(tiers, true, {
+		tier: (a) => `winTier.${a}`,
+		loop: (a) => `winTierLoop.${a}`,
+		outro: (a) => `winTierOutro.${a}`,
+		plain: 'winPlain',
+	});
+	const fired: string[] = [];
+	const step = (event: Parameters<typeof nextStep>[1]) => {
+		const next = nextStep(walk, event);
+		walk = next.walk;
+		for (const e of next.effects) if (e.kind === 'fire') fired.push(e.signal);
+	};
+	step({ type: 'start' });
+	let tierIndex = 0;
+	let awaitingDismiss = false;
+	for (let tap = 1; tap <= 5; tap++) {
+		const action = resolveWinTap({ escalating: true, tierIndex, tierCount: tiers.length });
+		if (action.kind === 'step') {
+			tierIndex = action.toTier;
+			step({ type: 'tap', toTier: action.toTier });
+			assert.equal(walk.index, tap, `expected tap ${tap} to walk the conductor to tier ${tap}`);
+			assert.equal(fired.at(-1), `winTier.t${tap}`, "expected the tapped tier's intro to fire");
+			continue;
+		}
+		awaitingDismiss = action.hold;
+		step({ type: 'holdOutro', on: awaitingDismiss });
+		step({ type: 'countUpComplete' });
+	}
+	assert.equal(awaitingDismiss, true, 'expected the final tap to land and hold');
+	assert.ok(
+		!fired.some((f) => f.startsWith('winTierOutro')),
+		'expected no outro while the landed total is held for the dismiss tap',
+	);
+	assert.equal(walk.concluded, false);
+}
 
 // ---------------------------------------------------------------------------------------------
 // THE SEEK TARGET. A step is two things: the walk jumps to the tapped tier's ART, and the COUNT is

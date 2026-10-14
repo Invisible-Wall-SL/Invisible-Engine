@@ -16,6 +16,7 @@
 import assert from 'node:assert/strict';
 
 import { tierHasExit, type TierAnimationMap } from '../src/game/winEscalation.ts';
+import { createWinWalk, nextStep, type WinWalkEffect } from '../src/game/winWalk.ts';
 import {
 	shouldApplyRigAnimation,
 	type RigTrackSnapshot,
@@ -218,6 +219,73 @@ assert.equal(
 	3,
 	'expected every phase to re-apply once the token distinguishes them',
 );
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED PATH (Rive plan Phase 8b): the pure conductor replays the same two chains — every
+// tier's walk in order, then the exit decision through the same `tierHasExit` — so the round blocks
+// on exactly what the coded walk blocked on: a real exit's hold, and nothing for an idle-as-outro.
+// ---------------------------------------------------------------------------------------------
+const conduct = (tiers: Tier[]) => {
+	let walk = createWinWalk(
+		tiers.map((t) => ({
+			alias: t.key + ':' + t.animationMap.intro,
+			hasExit: tierHasExit(t.animationMap),
+			boundaryAmount: 0,
+		})),
+		true,
+		{
+			tier: (a) => `walk:${a}`,
+			loop: (a) => `loop:${a}`,
+			outro: (a) => `outro:${a}`,
+			plain: 'plain',
+		},
+	);
+	const fired: string[] = [];
+	let blockedMs = 0;
+	let outroComplete = false;
+	const run = (effects: WinWalkEffect[]) => {
+		for (const e of effects) {
+			if (e.kind === 'fire') fired.push(e.signal);
+			if (e.kind === 'outroComplete') outroComplete = true;
+		}
+	};
+	const step = (event: Parameters<typeof nextStep>[1]) => {
+		const next = nextStep(walk, event);
+		walk = next.walk;
+		run(next.effects);
+	};
+	step({ type: 'start' });
+	// Each walk hold ends at its idle's end; the final tier's loop takes over.
+	for (let i = 0; i < tiers.length; i++) step({ type: 'holdEnd', step: walk.step });
+	// The count lands: an exit is a held fire the round waits out; no exit ⇒ done at once.
+	step({ type: 'countUpComplete' });
+	const last = fired.at(-1) ?? '';
+	if (last.startsWith('outro:')) {
+		blockedMs = EXIT_MS;
+		step({ type: 'holdEnd', step: walk.step });
+	}
+	return { fired, blockedMs, outroComplete };
+};
+const conductedRemake = conduct(remakeTiers);
+const conductedReference = conduct(referenceTiers);
+assert.equal(
+	conductedRemake.blockedMs,
+	0,
+	'expected the conductor not to block on an outro that is an idle',
+);
+assert.equal(conductedRemake.outroComplete, true);
+assert.equal(
+	conductedRemake.fired.filter((f) => f.startsWith('walk:')).length,
+	remakeTiers.length,
+	'expected the conductor to walk every tier, in order',
+);
+assert.equal(
+	conductedReference.blockedMs,
+	EXIT_MS,
+	'expected a real exit to pace the conducted end',
+);
+assert.equal(conductedReference.fired.at(-1), 'outro:bigwin:mega_win_intro');
+assert.equal(conductedReference.outroComplete, true);
 
 console.log(
 	'\nOK — an outro authored as an idle no longer blocks the round; real exits still pace the end.',

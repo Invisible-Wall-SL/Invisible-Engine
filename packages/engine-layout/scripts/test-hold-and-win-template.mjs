@@ -97,6 +97,9 @@ const PINNED = {
 		freeSpinIntroVisual: 'd5692d66c8d6226b',
 		freeSpinOutroVisual: 'ad4d1cd5c1253f8b',
 		win: '71a38a1aec1b23fe',
+		// Rive plan Phase 8b: the authored Win presentation, internal (no palette offers it); a project
+		// renders it only behind `settings.authoredOverlays.win`.
+		winPresentation: 'f656a1d5729f2528',
 		tapToContinue: '39cf7fc4059e2116',
 		loadingBar: '3166440d4ac35911',
 		expandingSymbol: '5cf3a24b056c210d',

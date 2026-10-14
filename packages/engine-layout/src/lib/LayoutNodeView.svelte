@@ -10,6 +10,10 @@
 		 * INSIDE its `<RigProvider>` so their bone layers ride this rig's bone. Paired by `LayoutScene`;
 		 * only meaningful when this node is a rig. */
 		attachedEffects?: EffectNode[];
+		/** Rig-slot riders (Rive plan Phase 8b): sibling nodes whose `rigSlot` names a slot of THIS
+		 * (rig) node — rendered INSIDE its `<RigProvider>`, each group in one `<RigSlot>`, so the rig
+		 * drives them. Paired by the parent container's branch; only meaningful when this node is a rig. */
+		slotRiders?: LayoutNode[];
 	};
 </script>
 
@@ -24,6 +28,7 @@
 		RigBoneAttach,
 		RigPose,
 		RigProvider,
+		RigSlot,
 		RigTrack,
 		getContextApp,
 	} from 'pixi-svelte';
@@ -67,6 +72,8 @@
 	import { getComponentSignalScope } from './componentSignalScopeContext';
 	import { handsOffToIdle, isNodeRevealed } from './signalGates';
 	import { resolveBoundValue } from './componentParams';
+	import { boardBox } from './boardBox';
+	import { groupSlotRiders, splitSlotRiders } from './rigSlotRiders';
 	import { createBoundValues } from './boundValues.svelte';
 	import {
 		boundBoneOffsets,
@@ -85,8 +92,9 @@
 	import { getComponentValueSource } from './registerComponentValues';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
+	import { EDITOR_RIG_LOAD_SCALE } from './rigLoadScale';
 
-	const { node, space, attachedEffects }: Props = $props();
+	const { node, space, attachedEffects, slotRiders }: Props = $props();
 	const layoutContext = getContextLayout();
 	const appContext = getContextApp();
 
@@ -399,14 +407,42 @@
 	// dimension is set (texture-natural sizing).
 	const sizeScaleX = $derived(transform.scale?.x ?? 1);
 	const sizeScaleY = $derived(transform.scale?.y ?? 1);
-	const hasExplicitSize = $derived(transform.width !== undefined || transform.height !== undefined);
+	// A `boardFit` rig (Rive plan Phase 8b) takes the game's board WIDTH as its explicit width — the
+	// `game`-space twin of `coverFit`, sizing through `<RigProvider width>` exactly as the coded
+	// big-win rig was fitted to `boardLayout().width`. Read through the game's registered reader, so
+	// it follows the live layout; no reader, or any other node ⇒ `undefined` ⇒ the authored size.
+	// The owning instance's params (§13.2), read once per render; init-stable context.
+	const componentParams = $derived(getComponentParams());
+	// Param-bindable (`paramBindings.boardFit`, a boolean param): the win presentation turns it on
+	// per instance. A non-boolean bound value falls through to the node's own field (parity).
+	const boundBoardFit = $derived(
+		node.kind === 'spine'
+			? resolveBoundValue(node.paramBindings, 'boardFit', componentParams)
+			: undefined,
+	);
+	const boardFitOn = $derived(
+		node.kind === 'spine' &&
+			(typeof boundBoardFit === 'boolean' ? boundBoardFit : node.boardFit === true),
+	);
+	const boardFitWidth = $derived(boardFitOn ? boardBox()?.width : undefined);
+	const hasExplicitSize = $derived(
+		transform.width !== undefined || transform.height !== undefined || boardFitWidth !== undefined,
+	);
 	const sizedWidth = $derived(
-		transform.width !== undefined ? transform.width * sizeScaleX : undefined,
+		(boardFitWidth ?? transform.width) !== undefined
+			? (boardFitWidth ?? transform.width ?? 0) * sizeScaleX
+			: undefined,
 	);
 	const sizedHeight = $derived(
 		transform.height !== undefined ? transform.height * sizeScaleY : undefined,
 	);
 	const sizedScale = $derived(hasExplicitSize ? undefined : transform.scale);
+	// A rig whose `boardFit` is param-bound and resolves OFF (a placed win presentation) renders at
+	// the NATURAL size the coded placed `win` drew: the bundle's load scale divided out, as
+	// `WinAnimation` does without a width. Every other rig keeps its size (the bound case only).
+	const naturalRigLoadScale = $derived(
+		boundBoardFit === false && !hasExplicitSize ? EDITOR_RIG_LOAD_SCALE : undefined,
+	);
 
 	// A background RIG covers via pixi-svelte's `fit`: feed the full canvas box on
 	// BOTH axes (× the cover multiplier) and the doc fit; `RigProvider`/`rigSizeScale`
@@ -573,8 +609,12 @@
 	// level (no provider) `getComponentParams()` is `{}` and `node.paramBindings` is
 	// typically absent, so every existing doc renders byte-identical to today.
 	// Wrong-primitive bound values are ignored (prefer the static value over a crash).
-	const componentParams = $derived(getComponentParams());
 
+	// Rig-slot riders this rig hosts (Rive plan Phase 8b), grouped by the slot each rides — a
+	// param-bound `rigSlot` resolves through the owning instance's params like any bound field.
+	const slotRiderGroups = $derived(
+		node.kind === 'spine' && slotRiders?.length ? groupSlotRiders(slotRiders, componentParams) : [],
+	);
 	// Phase B2 — VALUE feed. The bound `text` value may now be a NUMBER (the
 	// `engineProvided` `value` param fed by `<ComponentInstance>`). A numeric bind
 	// routes through `<ParamReadoutText>` (formatted + optional count-up); a STRING
@@ -949,12 +989,8 @@
 	 */
 	const fill = $derived(boundFillShare(allBindings, allOutputs));
 	const heldFrame = $derived(boundFrameOutput(allBindings, allOutputs));
-	const scrubs = $derived(
-		withTimelineScrub(
-			boundScrubs(bindings, bound.outputs),
-			timelineScrubbed ? timelineSample?.animTime : undefined,
-		),
-	);
+	const ownScrubs = $derived(boundScrubs(bindings, bound.outputs));
+	const timelineStrip = $derived(timelineScrubbed ? timelineSample?.animTime : undefined);
 	const boneOffsets = $derived(boundBoneOffsets(bindings, bound.outputs));
 
 	/** A loaded texture's natural size, by the scoped key then the bare fallback (the sprite rule). */
@@ -1021,8 +1057,13 @@
 
 {#snippet authoredChildren()}
 	{#if node.kind === 'container'}
-		{#each node.children as child (child.id)}
-			<svelte:self node={child} {space} />
+		{@const split = splitSlotRiders(node.children)}
+		{#each split.inPlace as child (child.id)}
+			<svelte:self
+				node={child}
+				{space}
+				slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+			/>
 		{/each}
 	{/if}
 {/snippet}
@@ -1089,8 +1130,18 @@
 				onpointerup={isPressTarget ? onNodePress : undefined}
 			>
 				<Anchor name={node.id} />
-				{#each node.children as child (child.id)}
-					<svelte:self node={child} {space} />
+				<!--
+					Rig-slot riders (Rive plan Phase 8b): a child whose `rigSlot` names a slot is not drawn
+					here — the first rig child hosts it inside that slot, so the rig drives it every frame.
+					No rig child, or no rider ⇒ every child draws in place as before (parity).
+				-->
+				{@const split = splitSlotRiders(node.children)}
+				{#each split.inPlace as child (child.id)}
+					<svelte:self
+						node={child}
+						{space}
+						slotRiders={child === split.host && split.riders.length ? split.riders : undefined}
+					/>
 				{/each}
 			</Container>
 		{:else if node.kind === 'componentInstance'}
@@ -1305,6 +1356,7 @@
 				width={bgRigBox ? bgRigBox.width : sizedWidth}
 				height={bgRigBox ? bgRigBox.height : sizedHeight}
 				fit={bgRigBox ? bgFit : undefined}
+				loadScaleBase={naturalRigLoadScale}
 				skin={effSkin}
 				visible={rigVisible}
 				rebroadcastEvents
@@ -1368,8 +1420,26 @@
 					arriving never remounts it; not at all for any other rig (parity).
 				-->
 				{#if poseBound}
-					<RigPose {scrubs} bones={boneOffsets} />
+					<!-- A strip poses from the setup pose only on a rig with no track of its own (the win's
+						tier rig); over a running track it layers on top, as the editor preview does. -->
+					<RigPose
+						scrubs={withTimelineScrub(ownScrubs, timelineStrip, !anim)}
+						bones={boneOffsets}
+					/>
 				{/if}
+				<!--
+					Rig-slot riders (Rive plan Phase 8b): each group renders inside ONE `<RigSlot>`, the slot
+					object the rig drives from the slot's bone and colour every frame and shows only while the
+					slot has an attachment — the coded win count's `<RigSlot>` exactly. A rider's own x / y /
+					scale compose on top (it renders through this same view, at its authored transform).
+				-->
+				{#each slotRiderGroups as group (group.slot)}
+					<RigSlot slotName={group.slot}>
+						{#each group.riders as rider (rider.id)}
+							<svelte:self node={rider} {space} />
+						{/each}
+					</RigSlot>
+				{/each}
 				<!--
 					Per-rig bone hosting: effects that attach to THIS rig (`EffectNode.hostSpineId`, paired by
 					`LayoutScene`) mount their `<EffectPlayer>` DIRECTLY inside this `<RigProvider>` — no extra

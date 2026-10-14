@@ -6,7 +6,9 @@
  * never set ⇒ every coded part behaves exactly as before (parity).
  */
 
-export type CodedOverlay = 'transition';
+/** `transition` (8a) silences `Transition.svelte`; `win` (8b) silences `WinVisual` — the drawn half only,
+ *  the gate keeps conducting. */
+export type CodedOverlay = 'transition' | 'win';
 
 const retired = new Set<CodedOverlay>();
 

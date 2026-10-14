@@ -15,7 +15,7 @@
 	import { activeWinLevelChain } from '../game/gameConfig';
 	import type { WinLevelData } from 'engine-game';
 	import { WinAnimation, type WinAnimationStep } from 'engine-game';
-	import { WinCoins } from 'engine-game';
+	import { WinCoins, isCodedOverlayRetired } from 'engine-game';
 	import { winState } from '../game/winState.svelte';
 	import { boardWinText } from '../game/boardWinText';
 
@@ -39,6 +39,13 @@
 	} = $props();
 
 	const context = getContext();
+
+	// Retired for this boot (the project renders the AUTHORED presentation — Rive plan Phase 8b):
+	// draws nothing, subscribes to nothing and PUBLISHES nothing (`escalationActive` /
+	// `escalationBoundaries` come from the gate's conductor, and two writers would fight). Read once
+	// at mount, as `Transition.svelte` reads its own: the game retires the part before the doc's
+	// instances mount.
+	const retired = isCodedOverlayRetired('win');
 
 	const stringParam = (key: string): string | undefined => {
 		const value = getComponentParams()[key];
@@ -168,16 +175,19 @@
 	// the count-up cutting the escalation off. False whenever there's no chain ⇒ the gate concludes as
 	// before (byte-identical). See `winState` + `WinGate.concludePresentation`.
 	$effect(() => {
+		if (retired) return;
 		winState.escalationActive = escalationChain !== undefined;
 		// Publish the rendered tiers' boundary amounts (chain order) so the GATE's tap-to-step can seek the
 		// count to the NEXT tier's amount. Empty when un-escalating (the gate then falls back to its slam).
 		winState.escalationBoundaries = escalationTiers?.map((t) => t.boundaryAmount) ?? [];
 	});
 
-	context.eventEmitter.subscribeOnMount({
-		winShow: () => (show = true),
-		winHide: () => (show = false),
-	});
+	if (!retired) {
+		context.eventEmitter.subscribeOnMount({
+			winShow: () => (show = true),
+			winHide: () => (show = false),
+		});
+	}
 </script>
 
 {#snippet content()}
@@ -251,7 +261,7 @@
 	{/if}
 {/snippet}
 
-{#if winLevelData}
+{#if winLevelData && !retired}
 	<FadeContainer {show}>
 		{#if boundToInstance}
 			<!-- Bound to a `win` VISUAL componentInstance: no own MainContainer / boardLayout offset.

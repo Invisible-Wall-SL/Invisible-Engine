@@ -46,6 +46,7 @@ import {
 	kindCapabilities,
 	TUMBLE_PATTERN_LABELS,
 	type AuthoredTransitionStatus,
+	type AuthoredWinStatus,
 } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
@@ -75,11 +76,12 @@ export interface GameProfileSignals {
 	/** Which mock-RGS protocol the published game talks. Null until the project is published. */
 	protocol: MockProtocol | null;
 	/**
-	 * The layout doc's authored-overlay switches and whether its overlays scene still binds the
-	 * coded Transition (Rive plan Phase 8a) — read off `editor/scenes.json`; `null` when the project
-	 * has no doc yet.
+	 * The layout doc's authored-overlay switches, each resolved through the ONE rule the game reads
+	 * at boot (Rive plan Phase 8a `authoredTransitionStatus`, 8b `authoredWinStatus`) — off
+	 * `editor/scenes.json` (plus, for the Win, the config's tiers and the Win Text captions);
+	 * `null` when the project has no doc yet.
 	 */
-	layout?: { authoredTransition: AuthoredTransitionStatus } | null;
+	layout?: { authoredTransition: AuthoredTransitionStatus; authoredWin: AuthoredWinStatus } | null;
 }
 
 /** One chip. `text` is self-describing (units baked in); `title` is the hover explanation. */
@@ -563,6 +565,42 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) =>
 			ctx.layout?.authoredTransition === 'non-canvas-scene'
 				? 'Authored Transition on, held back: a Transition sits outside canvas space'
+				: null,
+	},
+	{
+		id: 'authoredWin',
+		title:
+			'The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses (Rive plan Phase 8b pilot). The tiers here are read from the saved layout doc; republish to apply a change.',
+		text: (ctx) => (ctx.layout?.authoredWin === 'ready' ? 'Authored Win (pilot)' : null),
+	},
+	{
+		id: 'authoredWinUnbound',
+		title:
+			'The authored Win is on, but no scene binds the coded Win overlay it replaces and none places a win instance — the game keeps the coded path and plays no big-win presentation at all. Add the Win overlay node back (the reference overlays scene has it) or turn the pilot off.',
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.authoredWin === 'nothing-to-replace'
+				? 'Authored Win on, nothing to replace'
+				: null,
+	},
+	{
+		id: 'authoredWinCaption',
+		title:
+			'The authored Win is on, but a big-win tier’s caption in Invisible Win Text interpolates a token such as {amount}, which the authored caption (a text switch to the Win Text key) cannot render — the game keeps the coded Win everywhere. Remove the token from the tier captions or turn the pilot off.',
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.authoredWin === 'caption-variable'
+				? 'Authored Win on, held back: a win caption uses {amount}'
+				: null,
+	},
+	{
+		id: 'authoredWinTier',
+		title:
+			'The authored Win is on, but the big-win tiers resolve to more than one rig bundle or count slot (per-tier Spine / Slot params on the win instance, or a tier’s own spineKey in the Game Config): the authored presentation has one rig node and cannot play them — the game keeps the coded Win everywhere. Give every tier the same rig and slot or turn the pilot off.',
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.authoredWin === 'tier-presentation-unsupported'
+				? 'Authored Win on, held back: the tiers use more than one rig or count slot'
 				: null,
 	},
 	{

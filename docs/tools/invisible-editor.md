@@ -840,15 +840,31 @@ travel the export → deploy → bake → pull chain to ship inside the game bun
 
 ### Game Settings → Authored overlays (pilot)
 
-Above the boot splash, **Authored overlays (pilot)** has one row, **Transition**. On, the game
-renders the free-spin transition wipe from the built-in **Transition wipe** component and its
-timeline (the same rig, the same timing; the flow continues when the wipe ends) instead of the
-coded Transition mount it replaces. Off — the default, and the state of every live game — nothing
-changes. Only a holder of the component-publish capability (admin by default) can switch it; others
-see it read-only while it is on. **Leave it off for live games until the owner's browser check.**
-The Game Maker card says
-*Authored Transition (pilot)* when it is on, and warns when it is on but no scene binds the coded
-Transition it would replace (the reference overlays scene has that node).
+Above the boot splash, **Authored overlays (pilot)** has two rows, **Transition** and **Win**.
+Both are pilots: off — the default, and the state of every live game — nothing changes. Only a
+holder of the component-publish capability (admin by default) can switch either; others see a row
+read-only while it is on, and a save that flips one from anyone else is refused (a stale tab still
+gets the ordinary "someone else saved" conflict first). **Leave both off for live games until the
+owner's browser check.** The Game Maker card names each when on.
+
+- **Transition** — the game renders the free-spin transition wipe from the built-in **Transition
+  wipe** component and its timeline (the same rig, the same timing; the flow continues when the
+  wipe ends) instead of the coded Transition mount it replaces. The card says _Authored Transition
+  (pilot)_, and warns when it is on but no scene binds the coded Transition it would replace (the
+  reference overlays scene has that node).
+- **Win** — **locked off for now** (the row reads _pilot pending — parity follow-up_): nobody,
+  publishers included, can switch it on until its parity follow-up merges, and the save refuses
+  it too; a doc that already has it on can still be switched off. When unlocked: the game renders
+  the big-win presentation (the tier rig and its per-tier clips, the
+  count riding the rig's count slot, the caption, the plain small/medium number, the fade) from
+  the built-in **Win presentation** component and per-tier timelines generated at boot from the
+  game's active big tiers, instead of the coded `WinVisual`; the coded gate keeps the count-up,
+  the round hold, the presses and the dim. Nothing to place: a doc that binds the coded Win
+  overlay gets the presentation at the board centre; a doc that places the hybrid **Win overlay**
+  instance keeps its position, overrides and params. The card says _Authored Win (pilot)_, and the
+  game keeps the coded path (the card warns) when no scene binds a coded Win or places a win
+  instance, when a big-win tier's caption in Invisible Win Text uses a token such as `{amount}`,
+  or when the tiers resolve to more than one rig or count slot.
 
 ### Game Settings → Boot splash
 

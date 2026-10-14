@@ -61,3 +61,17 @@ export const WIN_INSTANCE = false;
  * flag set, the way a published project would. No URL opt-in exists.
  */
 export const AUTHORED_TRANSITION = false;
+
+/**
+ * Rive plan Phase 8b — the `apps/lines` DEV PILOT of the authored Win: with this on, the fallback
+ * doc carries `settings.authoredOverlays.win: true`, the per-project switch a live project sets in
+ * the Scene Editor's Game Settings. The game then degrades the overlays scene's `bind:Win` to its
+ * gate half, places the built-in `winPresentation` instance where the coded visual drew
+ * (`authoredOverlays.ts`), generates its per-tier timelines from the loaded `bigwin` skeleton, and
+ * retires the coded `WinVisual`; `WinGate` conducts the tiers through their holds.
+ *
+ * DEFAULT OFF (parity gate): the dev build renders the coded visual, byte-identical to today. The
+ * parity gate serves the game a doc with the flag set, as a published project would. No URL
+ * opt-in exists.
+ */
+export const AUTHORED_WIN = false;
