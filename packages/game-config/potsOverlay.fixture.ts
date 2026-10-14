@@ -291,11 +291,11 @@ check(
 );
 check('a whole overlay doc is a fixed point', normalize(clone(three)), three);
 check(
-	'timing: per reel is stored; after the stop (the default) and anything unread are not',
-	['perReel', 'afterStop', 'sideways', undefined].map(
+	'timing: per reel and with the reel are stored; after the stop (the default) and anything unread are not',
+	['perReel', 'withReel', 'afterStop', 'sideways', undefined].map(
 		(timing) => normalizePotsOverlay({ pots: [onePot], timing })!.timing,
 	),
-	['perReel', undefined, undefined, undefined],
+	['perReel', 'withReel', undefined, undefined, undefined],
 );
 
 console.log('\n3. validate — every rule, both ways');

@@ -3,7 +3,8 @@
 	import type { OverlayDropCell } from 'engine-game';
 
 	import Symbol from './Symbol.svelte';
-	import { getSymbolSeat } from '../game/stateGame.svelte';
+	import { getActiveGameConfig } from '../game/gameConfig';
+	import { getSymbolSeat, stateGame } from '../game/stateGame.svelte';
 	import {
 		completeTokenBeat,
 		overlayTokenKey,
@@ -25,12 +26,20 @@
 	const seat = $derived(getSymbolSeat(props.token.reel, props.token.row));
 	const scale = $derived(seat.scale === 1 ? undefined : seat.scale);
 	const rawSymbol = $derived(overlayTokenSymbol(props.token));
+	/** Under `withReel` timing the token rides its reel's cell until the reel comes to rest
+	 *  (`ReelSymbol`), so it lands here only then — its land beat starting as the reel's does. */
+	const riding = $derived(
+		getActiveGameConfig().coinOverlay?.timing === 'withReel' &&
+			!!stateGame.board[props.token.reel]?.reelState.rolling,
+	);
 </script>
 
-<Container x={seat.x} y={seat.y} {scale}>
-	<Symbol
-		state={stateOverlayTokens.state[key] ?? TOKEN_REST}
-		{rawSymbol}
-		oncomplete={() => completeTokenBeat(key)}
-	/>
-</Container>
+{#if !riding}
+	<Container x={seat.x} y={seat.y} {scale}>
+		<Symbol
+			state={stateOverlayTokens.state[key] ?? TOKEN_REST}
+			{rawSymbol}
+			oncomplete={() => completeTokenBeat(key)}
+		/>
+	</Container>
+{/if}

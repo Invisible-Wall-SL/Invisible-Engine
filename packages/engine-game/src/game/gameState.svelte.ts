@@ -67,6 +67,13 @@ export interface GameStateDeps<TGameType extends string> {
 	/** GAME CONTENT: what this game shows as a reel stops (a pots overlay's per-reel tokens). Absent ⇒
 	 *  nothing beyond the reel-stop cue. */
 	onReelStopping?: (reelIndex: number) => void;
+	/** GAME CONTENT: what rides the rolling cells (a pots overlay's tokens under `withReel` timing) —
+	 *  `target` per cell of the board a spin lands on, by its VISIBLE row, `padding` per cell that only
+	 *  rolls past. Stored on the cell as `rider`; absent ⇒ no cell carries one. */
+	reelRiders?: {
+		target: (reelIndex: number, row: number) => unknown;
+		padding: (reelIndex: number) => unknown;
+	};
 	/**
 	 * How the board PRESENTS a round — `activeReelBehaviour()` from the app's game config, defaults
 	 * already applied (roll vs swap in place, the swap style, the per-column stagger, the clear step).
@@ -790,6 +797,16 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * lands — see {@link rebuildBoard}: the online config resolves asynchronously AFTER this module
 	 * evaluates, so a board built once at import would freeze to the compiled template's grid.
 	 */
+	/** One reel's riders: the strip counts from the padding row above the window, the game from the
+	 *  first visible row. */
+	const reelRidersFor = (
+		riders: NonNullable<GameStateDeps<TGameType>['reelRiders']>,
+		reelIndex: number,
+	) => ({
+		target: (symbolIndex: number) => riders.target(reelIndex, symbolIndex - 1),
+		padding: () => riders.padding(reelIndex),
+	});
+
 	const buildBoard = () => {
 		const init = deps.initialBoard();
 		return _.range(deps.boardDimensions().x).map((reelIndex) => {
@@ -821,6 +838,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 					});
 				},
 				onSymbolLand: deps.onSymbolLand,
+				...(deps.reelRiders ? { riders: reelRidersFor(deps.reelRiders, reelIndex) } : {}),
 			});
 
 			reel.reelState.spinOptions = () => {

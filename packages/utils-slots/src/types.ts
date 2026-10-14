@@ -77,7 +77,16 @@ type ReelCreateOptions<TRawSymbol extends object, TSymbolState extends string> =
 export type SpinningReelCreateOptions<
 	TRawSymbol extends object,
 	TSymbolState extends string,
-> = ReelCreateOptions<TRawSymbol, TSymbolState>;
+> = ReelCreateOptions<TRawSymbol, TSymbolState> & {
+	/**
+	 * RIDERS — something the game draws riding a cell while the strip rolls (a pots overlay's tokens
+	 * under `withReel` timing). The reel only stores what these return on the cell (`rider`); it never
+	 * reads it. `target` is asked once per cell of the board a spin lands on (by its strip index, the
+	 * padding row above the window being 0), `padding` once per cell that only rolls past. Absent ⇒
+	 * no cell carries one.
+	 */
+	riders?: { target: (symbolIndex: number) => unknown; padding: () => unknown };
+};
 
 export type CascadingReelCreateOptions<
 	TRawSymbol extends object,

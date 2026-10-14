@@ -7,6 +7,7 @@ import { eventEmitter } from './eventEmitter';
 import { bakedStackedConfig } from '../editor-scenes';
 import { STACKED_PICTURE } from './constants';
 import { presentReelTokens } from './overlayPresentation';
+import { overlayReelRiders } from './overlayRiders';
 import { playSymbolLandSound } from './soundBindings';
 import {
 	activeGrid,
@@ -63,6 +64,7 @@ const gameState = createGameState<GameType>({
 	stackedFallback: STACKED_PICTURE,
 	onSymbolLand,
 	onReelStopping: presentReelTokens,
+	reelRiders: overlayReelRiders,
 	// How a round PRESENTS — roll or swap in place, clear first, stagger the columns. Passed as the
 	// accessor, not its value: the live runtime bundle resolves after this module evaluates, so a
 	// value read here would freeze every board to the compiled sample config.

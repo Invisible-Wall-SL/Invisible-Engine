@@ -69,15 +69,20 @@ const forgetReelTokens = () => {
 };
 
 /**
- * PER-REEL TIMING (`potsOverlay.timing: 'perReel'`): the board about to roll will drop `cells` (its
- * `overlayDrop`, read ahead in the book — `boardDropCells`), so each reel shows its own as it stops
- * ({@link showReelTokens}). The drop then finds them down already; any a reel did not show (a board
+ * PER-REEL TIMING (`potsOverlay.timing: 'perReel'` or `'withReel'`): the board about to roll will
+ * drop `cells` (its `overlayDrop`, read ahead in the book — `boardDropCells`), so each reel shows its
+ * own as it stops ({@link showReelTokens}) — under `withReel` having ridden in on the reel's cells
+ * (`overlayRiders.ts`). The drop then finds them down already; any a reel did not show (a board
  * that swaps in place has no reel stop) appear with it, as they do after the stop.
  */
 export const armReelTokens = (cells: readonly OverlayDropCell[]) => {
 	forgetReelTokens();
 	reelDrop = cells.map((cell) => ({ ...cell }));
 };
+
+/** The token of the armed drop at `{reel, row}` — what rides that cell in under `withReel` timing. */
+export const armedReelToken = (reel: number, row: number): OverlayDropCell | undefined =>
+	reelDrop.find((cell) => cell.reel === reel && cell.row === row);
 
 /** A reel stopped: its tokens of the armed drop go down, landing. Returns the tokens shown. */
 export const showReelTokens = (reel: number): OverlayDropCell[] => {

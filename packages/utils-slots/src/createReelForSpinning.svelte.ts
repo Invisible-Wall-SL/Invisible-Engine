@@ -80,6 +80,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			 * the only source anything reads by default.
 			 */
 			cascade: null as ReelSymbolCascadeSeat | null,
+			/** What the game draws riding this cell while it rolls (`reelOptions.riders`). The reel
+			 *  never reads it; `undefined` on every cell of a game that passes no riders. */
+			rider: undefined as unknown,
 		});
 
 		return reelSymbol;
@@ -93,6 +96,16 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		);
 
 		return reelSymbols;
+	};
+
+	const withRiders = (reelSymbols: ReelSymbol[], rider: (symbolIndex: number) => unknown) => {
+		reelSymbols.forEach((reelSymbol, symbolIndex) => (reelSymbol.rider = rider(symbolIndex)));
+		return reelSymbols;
+	};
+	const paddingSymbolsOf = (rawSymbols: TRawSymbol[]) => {
+		const riders = reelOptions.riders;
+		const reelSymbols = createReelSymbols(rawSymbols);
+		return riders ? withRiders(reelSymbols, riders.padding) : reelSymbols;
 	};
 
 	const updateAllReelSymbolState = (value: SpinningReelSymbolState) => {
@@ -214,7 +227,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			start: targetPaddingPosition,
 			length: paddingSizeValue,
 		});
-		const paddingSymbols = createReelSymbols(paddingRawSymbols);
+		const paddingSymbols = paddingSymbolsOf(paddingRawSymbols);
 		const symbolsForSpin: ReelSymbol[] = [...targetSymbols, ...paddingSymbols, ...prevSymbols];
 		symbolsForSpin.forEach((symbol, newSymbolIndex) => (symbol.symbolIndex = newSymbolIndex));
 		reelState.symbols = [...symbolsForSpin];
@@ -265,7 +278,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			start: randomStart,
 			length: reelLength,
 		});
-		targetSymbols = createReelSymbols(targetRawSymbols);
+		targetSymbols = paddingSymbolsOf(targetRawSymbols);
 		const topY = await addPadding(0);
 		await placeY(topY);
 	};
@@ -440,6 +453,7 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		prevSymbols = targetSymbols;
 		targetPaddingPosition = prepareToSpinOptions.paddingPosition;
 		targetSymbols = createReelSymbols(prepareToSpinOptions.symbols);
+		if (reelOptions.riders) withRiders(targetSymbols, reelOptions.riders.target);
 		paddingRawReel = prepareToSpinOptions.paddingReel;
 		onSpinFinishing = prepareToSpinOptions.onSpinFinishing;
 
@@ -480,6 +494,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			// `preSpinPadding` replaces the target set — and both of those run before `addPadding`,
 			// which is the only thing that concatenates the two. That ordering is what keeps a spin
 			// strip free of the same cell twice.
+			// A settled strip carries no riders: what landed riding a cell is the game's to draw at rest.
+			reelSymbols.forEach((reelSymbol) => (reelSymbol.rider = undefined));
 			prevSymbols = [...reelSymbols];
 			targetSymbols = [...reelSymbols];
 			paddingRawReel = reelOptions.initialSymbols;
