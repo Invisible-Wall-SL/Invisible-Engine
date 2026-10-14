@@ -7,6 +7,7 @@
 		type PinContext,
 		type PinScope,
 	} from 'engine-flow-v2';
+	import { stalePinLabel, type StalePin } from '$lib/flowInstanceUi';
 	import { typeColor, typeLabel } from './palette';
 
 	// A v2 graph node. Its pins are DERIVED (§2 anti-drift rule) — never hand-stored — by
@@ -23,6 +24,9 @@
 		title: string;
 		/** Group nodes only — commit an inline header rename (double-click the title). */
 		onRename?: (label: string) => void;
+		/** Pins a wire still names but the node no longer derives (a component instance whose input,
+		 *  event or value was removed): rendered red so the wire still draws and reads as broken. */
+		stalePins?: { in: StalePin[]; out: StalePin[] };
 	};
 	let { data, selected }: NodeProps = $props();
 	// REACTIVE: `data` is a prop that xyflow replaces when the canvas re-seeds after an edit, so `d`
@@ -73,6 +77,8 @@
 		allModesFinished: '#f43f5e',
 		enterMode: '#f43f5e',
 		exitMode: '#f43f5e',
+		componentInstance: '#34d399', // a placed component (Rive plan §6.2) — emerald.
+		waitForState: '#34d399',
 	};
 
 	const headerColor = $derived(KIND_COLOR[d.node.kind] ?? '#64748b');
@@ -150,6 +156,24 @@
 				return `Enter ${n.modeId || '(no mode)'} (${n.policy ?? 'nest'})`;
 			case 'exitMode':
 				return n.modeId ? `Exit ${n.modeId}` : 'Exit the mode on screen';
+			case 'componentInstance': {
+				// The placed instance's name and component, from the projection; a decl the layout no
+				// longer has (or whose def is lost) says so here, and the validator lists it.
+				const decl = d.ctx.instances?.[n.instance];
+				if (!decl || decl.container !== n.container)
+					return `⚠ ${n.instance} · not placed on screen`;
+				const at = `${decl.componentId}${decl.version !== undefined ? ` v${decl.version}` : ''}`;
+				if (decl.missing)
+					return `⚠ ${decl.name} · ${decl.missing === 'def' ? 'component missing' : `${at} missing`}`;
+				// The projection was read without the pinned snapshots; the exact pins are on their way.
+				if (decl.unpinned) return `${decl.name} · ${at} · loading pins…`;
+				return `${decl.name} · ${at}`;
+			}
+			case 'waitForState': {
+				const decl = d.ctx.instances?.[n.instance];
+				const name = decl && decl.container === n.container ? decl.name : `⚠ ${n.instance}`;
+				return `${name} · ${n.layer || '(layer)'}.state == ${n.state || '(state)'}`;
+			}
 			default:
 				return '';
 		}
@@ -184,6 +208,23 @@
 
 	<div class="pins">
 		<ul class="col in">
+			{#each d.stalePins?.in ?? [] as stale (stale.id + ':stale-in')}
+				<li
+					class="stale"
+					class:exec={stale.kind === 'exec'}
+					title="This pin is gone from the component — rewire or remove the wire"
+				>
+					<Handle
+						type="target"
+						position={Position.Left}
+						id={stale.id}
+						class={stale.kind === 'exec' ? 'v2-h exec' : 'v2-h data'}
+						style="background:#f87171"
+					/>
+					<span class="glyph">⚠</span>
+					<span class="plabel">{stalePinLabel(stale.id)}</span>
+				</li>
+			{/each}
 			{#each inputs as pin (pin.id + ':in')}
 				<li
 					class:exec={pin.kind === 'exec'}
@@ -212,6 +253,23 @@
 			{/each}
 		</ul>
 		<ul class="col out">
+			{#each d.stalePins?.out ?? [] as stale (stale.id + ':stale-out')}
+				<li
+					class="stale"
+					class:exec={stale.kind === 'exec'}
+					title="This pin is gone from the component — rewire or remove the wire"
+				>
+					<span class="plabel">{stalePinLabel(stale.id)}</span>
+					<span class="glyph">⚠</span>
+					<Handle
+						type="source"
+						position={Position.Right}
+						id={stale.id}
+						class={stale.kind === 'exec' ? 'v2-h exec' : 'v2-h data'}
+						style="background:#f87171"
+					/>
+				</li>
+			{/each}
 			{#each outputs as pin (pin.id + ':out')}
 				<li
 					class:exec={pin.kind === 'exec'}
@@ -276,6 +334,12 @@
 	/* Raise the hovered node above its neighbours so its tooltip is never covered by another node. */
 	.v2-node:hover {
 		z-index: 20;
+	}
+	li.stale {
+		color: #f87171;
+	}
+	li.stale .glyph {
+		color: #f87171;
 	}
 	.v2-node.selected {
 		border-color: #2563eb;

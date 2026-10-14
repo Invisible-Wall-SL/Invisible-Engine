@@ -5,7 +5,7 @@
  * supplies the live pieces — its runner, its `fireTrigger`, its visibility — as closures read at
  * call time.
  */
-import type { FlowInstanceHandle } from './flowInstances';
+import type { FlowInstanceHandle, InstanceSetOutcome } from './flowInstances';
 import type { ComponentStateMachineRunner } from './stateMachine';
 import type { ComponentInput, ComponentInputKind } from './types';
 
@@ -24,13 +24,14 @@ export interface FlowInstanceHost {
 		Pick<ComponentStateMachineRunner, 'setInput' | 'input' | 'values' | 'stateOf'> | undefined;
 }
 
+const DECIMAL = /^-?(\d+\.?\d*|\.\d+)$/;
+
 /**
  * A Flow value read as an input's kind, the way the runner's own `setInput` reads one: a bool from
  * a boolean or `0` / `1`, a number from a finite number or a decimal string (a `float` pin fed by a
  * string compute; `'1e3'` and `'0x10'` are not), a text key from a string. `undefined` ⇒ not of that
  * kind (the set is dropped).
  */
-const DECIMAL = /^-?(\d+\.?\d*|\.\d+)$/;
 export const coerceInstanceInput = (
 	kind: ComponentInputKind | undefined,
 	value: unknown,
@@ -72,13 +73,20 @@ export function createFlowInstanceHandle(host: FlowInstanceHost): {
 		fire: (trigger) => {
 			if (kinds.get(trigger) === 'trigger') host.fireTrigger(trigger);
 		},
-		setInput: (input, value) => {
+		setInput: (input, value): InstanceSetOutcome => {
 			const kind = kinds.get(input);
+			if (kind === undefined || kind === 'trigger') return 'no-input';
 			const coerced = coerceInstanceInput(kind, value);
-			if (coerced === undefined) return false;
-			if (kind === 'text') textInputs.set(input, coerced as string);
-			else host.runner()?.setInput(input, coerced as boolean | number);
-			return true;
+			if (coerced === undefined) return 'wrong-kind';
+			if (kind === 'text') {
+				textInputs.set(input, coerced as string);
+				return 'set';
+			}
+			// A bool / number lives on the state machine: without one there is nothing to set.
+			const runner = host.runner();
+			if (!runner) return 'no-machine';
+			runner.setInput(input, coerced as boolean | number);
+			return 'set';
 		},
 		input: (input) =>
 			kinds.get(input) === 'text' ? textInputs.get(input) : host.runner()?.input(input),

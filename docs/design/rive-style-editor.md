@@ -458,10 +458,14 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   `flowInstanceHandle.ts`: `fire` (through the same `fireTrigger` a listener uses), `setInput`
   (the value read as the input's kind the way the runner reads one — a bool from a boolean or 0/1,
   a number from a number or a numeric string, a text key from a string; bool / number on the
-  runner, text kept on the handle; anything else is dropped and the env traces the drop), `values`,
+  runner, text kept on the handle; anything else is dropped and the env traces the drop, a value
+  replayed from the stash on mount included), `values`,
   `stateOf`, `onChange` (the machine started or changed state, the instance shown or hidden) and
-  the screen id (`sceneIdContext`), which the env checks against the node's container: a handle on
-  another screen is not the addressed placement. The game env's rule for one that is NOT
+  the screen id (`sceneIdContext`), which the env checks against the node's container on a fire, a
+  set, a read and a wait alike (`flowInstanceWaits.ts`, every path gated): a handle on another
+  screen is not the addressed placement — a fire, a read or a wait finds nothing there, and a set
+  is kept for the addressed screen's own mount (the stash is keyed by screen and input), never set
+  on that other handle. The game env's rule for one that is NOT
   registered lives in `apps/lines` `flowInstanceWaits.ts` (Svelte-free, every case gated): its
   screen shown per the mount model ⇒ it is mounting, a fire or a wait defers to the registration
   (250 ms grace, paid on EACH fire or wait against a placement that never registers, say a def the
@@ -471,9 +475,9 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   amount, then show the screen" works). A mounted but HIDDEN instance (its own gate or its screen's,
   `handle.shown()`) is "not on screen" to a wait too: it resolves at once, and a running wait is
   released when the instance hides. A wait is also released by the state, by the instance leaving
-  the screen, or by a slam — and a round already slammed holds nothing (checked before the mount
-  grace, so a slam several book events before the hold costs no wait). Every case is traced
-  (`?flowlog=1`).
+  the screen, or by a slam — a round already slammed holds nothing, and a slam during the mount
+  grace releases the wait at once (a fire keeps its grace: it must not drop a beat). Every case is
+  traced (`?flowlog=1`).
 - **`text` inputs** (§8): `COMPONENT_INPUT_KINDS` gains `text`; a default is a localization key;
   `isLocalizationKey` has a twin in each package (engine-layout must not pull the `engine-flow-v2`
   barrel into every game's runtime graph for one regex; the gate holds the two together). The state
@@ -489,6 +493,12 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   preview, parity over every starter flow), `check:flow-instance-nodes` (projection, publish gate,
   text inputs, harvest, registry, the event road, the ship chain, source-scanned wiring),
   `check:flow-publish-gate` §14.
+
+**As built (Phase 7b, 2026-10-13 — the editors):** the palette, node, inspector, jumps and the
+Preview → stage bridge are described once, for authors, in [the Flow guide](../tools/flow.md)
+("Components", "Jumps", "Drive the editor stage") and [the editor guide](../tools/invisible-editor.md)
+("↗ Show in Flow"); the build detail and the owner browser checks are in
+[status/flow.md](../status/flow.md) (2026-10-13, Phase 7b). Gate: `check:flow-instance-nodes-editor`.
 
 ### 6.3 Why it stays safe
 
@@ -641,7 +651,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
-| 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) built 2026-10-13; 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) next | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
+| 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** | Transition → Win → free-spin intro/outro → buttons, behind a flag, then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |

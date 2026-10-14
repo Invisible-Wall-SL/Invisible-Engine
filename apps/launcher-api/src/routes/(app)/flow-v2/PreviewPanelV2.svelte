@@ -1,12 +1,16 @@
 <script lang="ts">
 	import {
+		docComponentInstanceNodes,
 		previewFlowEvent,
 		type FlowDoc,
 		type FlowPreviewEntry,
 		type FlowPreviewResult,
+		type FlowInstanceDecl,
 		type FunctionLibraryDoc,
 		type TemplateVocabulary,
 	} from 'engine-flow-v2';
+	import { onDestroy } from 'svelte';
+	import { openFlowStageChannel } from '$lib/flowStageBridge';
 
 	// The v2 DETERMINISTIC preview panel (Phase 2d). Pick one of the flow's event nodes and run its
 	// authored handler headlessly through the real `previewFlowEvent` (virtual clock — no waiting),
@@ -18,11 +22,22 @@
 		doc,
 		library,
 		vocab,
+		instances = {},
+		projectKey = '',
 	}: {
 		doc: FlowDoc;
 		library: FunctionLibraryDoc;
 		vocab: TemplateVocabulary;
+		/** The placed instances (node id → decl), to name a component for the stage bridge. */
+		instances?: Record<string, FlowInstanceDecl>;
+		projectKey?: string;
 	} = $props();
+
+	// Drive the editor stage (Rive plan §6.2 step 5): every instance op the run reaches is posted on
+	// the project's bridge, and a State Machine panel open on that component in `/editor` plays it
+	// through its own preview path. Off by default — a headless run should not move another tab.
+	let driveStage = $state(false);
+	const hasInstanceNodes = $derived(docComponentInstanceNodes(doc).length > 0);
 
 	// The event nodes authored in the MAIN flow graph — the entry points a preview can run from.
 	const eventRefs = $derived(
@@ -59,10 +74,68 @@
 				selected,
 				{ speed },
 			);
+			if (driveStage && result) sendToStage(result.timeline);
 		} finally {
 			running = false;
 		}
 	};
+
+	/** The posts of the last run still to land on the stage; a new run, the tick going off or the
+	 *  panel leaving clears them. */
+	let stagePosts: ReturnType<typeof setTimeout>[] = [];
+	let stageChannel: ReturnType<typeof openFlowStageChannel> = null;
+	function clearStagePosts(): void {
+		for (const t of stagePosts) clearTimeout(t);
+		stagePosts = [];
+		stageChannel?.close();
+		stageChannel = null;
+	}
+	$effect(() => {
+		if (!driveStage) clearStagePosts();
+	});
+	onDestroy(clearStagePosts);
+	/** Post each fired trigger and set input to the stage bridge, each at its timeline time (`at`,
+	 *  ms), so fire → wait → fire plays on the stage as the run paced it; a wait is the stage's own
+	 *  to show. An instance the projection does not know names no component: skipped. A text set
+	 *  travels as its key; the stage has nothing to show it on yet (7a §12). */
+	function sendToStage(timeline: FlowPreviewEntry[]): void {
+		clearStagePosts();
+		const channel = openFlowStageChannel(projectKey);
+		if (!channel) return;
+		stageChannel = channel;
+		const posts = timeline.flatMap((e) => {
+			if (e.kind !== 'instance' || e.op === 'wait') return [];
+			const decl = instances[e.instance];
+			if (!decl) return [];
+			const value = e.value;
+			return [
+				{
+					at: e.at,
+					message: {
+						v: 1 as const,
+						componentId: decl.componentId,
+						instance: e.instance,
+						op: e.op,
+						name: e.name,
+						...(typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string'
+							? { value }
+							: {}),
+					},
+				},
+			];
+		});
+		const last = posts.length - 1;
+		stagePosts = posts.map(({ at, message }, i) =>
+			setTimeout(
+				() => {
+					channel.post(message);
+					if (i === last) clearStagePosts();
+				},
+				Math.max(0, at),
+			),
+		);
+		if (posts.length === 0) clearStagePosts();
+	}
 
 	const KIND_LABEL: Record<FlowPreviewEntry['kind'], string> = {
 		effect: 'effect',
@@ -108,6 +181,15 @@
 			<button type="button" class="run" onclick={() => void run()} disabled={running}>
 				{running ? '…' : 'Run'}
 			</button>
+			{#if hasInstanceNodes}
+				<label
+					class="stage"
+					title="Also play each fired trigger and set input on the State Machine panel open on that component in the Scene Editor (same project, another tab)"
+				>
+					<input type="checkbox" bind:checked={driveStage} />
+					<span>Drive the editor stage</span>
+				</label>
+			{/if}
 		</div>
 
 		{#if result}

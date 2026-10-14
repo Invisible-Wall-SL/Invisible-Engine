@@ -5,8 +5,15 @@
 	// drops the node at the cursor (the primary path); the payload it writes is read by the
 	// canvas `drop` handler. CLICKING still works as a fallback (centroid placement). Both carry
 	// the node KIND and (where relevant) the REFERENCE it should carry. Ref/field editing is 2b.2.
-	import type { FlowDoc, FunctionLibraryDoc, NodeKind, TemplateVocabulary } from 'engine-flow-v2';
+	import {
+		instanceNodeRef,
+		type FlowDoc,
+		type FunctionLibraryDoc,
+		type NodeKind,
+		type TemplateVocabulary,
+	} from 'engine-flow-v2';
 	import { browser } from '$app/environment';
+	import type { PaletteInstanceGroup } from '$lib/flowInstanceUi';
 	import { DROP_MIME, type DropPayload } from './dnd';
 	import { PRESENTATION_NODES } from './palette';
 
@@ -20,6 +27,8 @@
 		ondelete,
 		deleteError = null,
 		modeNodes = [],
+		instanceGroups = [],
+		highlightInstance = null,
 	}: {
 		vocab: TemplateVocabulary;
 		library: FunctionLibraryDoc;
@@ -38,6 +47,13 @@
 		// The game-mode nodes this section offers, each with the mode id it starts with (the page
 		// picks them per tab: none in a function body, no "all modes finished" in a mode's own tab).
 		modeNodes?: { kind: NodeKind; label: string; ref?: string }[];
+		// The placed, NAMED component instances per screen (Rive plan §6.2, Phase 7): each is a
+		// `componentInstance` node (its pins from the component's interface) or a `waitForState`.
+		// Derived from the Scene Editor screens, never stored here.
+		instanceGroups?: PaletteInstanceGroup[];
+		// A placed node id the Scene Editor's *Show in Flow* sent here that no node names yet: its
+		// entry is lit and its section opened, so the author sees where to drag from.
+		highlightInstance?: string | null;
 	} = $props();
 
 	// Control nodes carry no `ref` — their fields get defaults now (2b.1) and are edited in 2b.2.
@@ -71,7 +87,14 @@
 	$effect(() => {
 		if (browser) localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsed));
 	});
-	const isOpen = (key: string): boolean => !!query.trim() || !collapsed[key];
+	const isOpen = (key: string): boolean =>
+		!!query.trim() || !collapsed[key] || (key === 'components' && !!highlightInstance);
+	const instanceCount = $derived(
+		instanceGroups.reduce(
+			(n, g) => n + g.instances.filter((i) => matches(i.name) || matches(g.label)).length,
+			0,
+		),
+	);
 	function toggle(key: string): void {
 		collapsed = { ...collapsed, [key]: !collapsed[key] };
 	}
@@ -250,6 +273,51 @@
 			{/each}
 		{/if}
 	</section>
+
+	{#if instanceGroups.length > 0}
+		<section>
+			{@render head('components', 'Components', instanceCount)}
+			{#if isOpen('components')}
+				{#each instanceGroups as g (g.container)}
+					{@const shown = g.instances.filter((i) => matches(i.name) || matches(g.label))}
+					{#if shown.length > 0}
+						<div class="screen-head" title="screen · {g.container}">{g.label}</div>
+						{#each shown as i (i.instance)}
+							<div class="pair">
+								<button
+									class="entry instance"
+									class:lit={i.instance === highlightInstance}
+									class:missing={!!i.missing}
+									draggable={true}
+									ondragstart={(ev) =>
+										onDragStart(ev, 'componentInstance', instanceNodeRef(g.container, i.instance))}
+									onclick={() =>
+										onadd('componentInstance', instanceNodeRef(g.container, i.instance))}
+									title="componentInstance · {i.name} ({i.componentId}{i.version !== undefined
+										? ` v${i.version}`
+										: ''}){i.missing
+										? ` — ${i.missing === 'def' ? 'component missing' : 'pinned version missing'}`
+										: ''}"
+								>
+									{i.name}<span class="cat">{i.componentId}</span>
+								</button>
+								<button
+									class="entry instance wait"
+									draggable={true}
+									ondragstart={(ev) =>
+										onDragStart(ev, 'waitForState', instanceNodeRef(g.container, i.instance))}
+									onclick={() => onadd('waitForState', instanceNodeRef(g.container, i.instance))}
+									title="waitForState · hold the chain until a state of {i.name} is reached"
+								>
+									wait
+								</button>
+							</div>
+						{/each}
+					{/if}
+				{/each}
+			{/if}
+		</section>
+	{/if}
 
 	<section>
 		{@render head(
@@ -468,6 +536,26 @@
 	}
 	.entry.container {
 		border-left: 3px solid #6366f1;
+	}
+	.entry.instance {
+		/* Emerald — a placed component, the Flow face of the Scene Editor's instance. */
+		border-left: 3px solid #34d399;
+	}
+	.entry.instance.wait {
+		flex: 0 0 auto;
+		border-left-color: #6ee7b7;
+	}
+	.entry.instance.lit {
+		outline: 2px solid #34d399;
+		outline-offset: 1px;
+	}
+	.entry.instance.missing {
+		border-left-color: #f87171;
+	}
+	.screen-head {
+		margin: 6px 0 2px;
+		font-size: 11px;
+		color: #94a3b8;
 	}
 	.entry.presentation {
 		/* Sky — a presentation leaf; distinct from the indigo container show/hide it sits beside. */

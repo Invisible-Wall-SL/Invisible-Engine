@@ -104,6 +104,10 @@ function library:
   Each row also has **✎** (edit its body) and **✕** (delete it, blocked while it is in use).
 - **Containers** — a **show** and a **hide** button per container the flow declares
   (`show basegame`, `hide loading`, …). Adds a **showContainer** / **hideContainer** node.
+- **Components** — every **named** component instance placed on a screen, grouped under its
+  screen (see [Components](#components-placed-instances-as-nodes)). The named entry adds a
+  **component instance** node; **wait** adds a **wait for state** node for it. An unnamed
+  placement is not listed — name it in the Scene Editor first.
 - **Presentation** — a **Text Message** node: one line of on-screen text you author right on
   the node (see below).
 - **Modes** — **Mode trigger**, **On all modes finished**, **Enter mode** and **Exit mode**
@@ -378,6 +382,55 @@ things follow:
   outline before you wire.
 - **A screen only surfaces what is configured.** A decorative sprite contributes no pin; a
   button contributes one only once it has been given an **Action** in the Scene Editor.
+
+### Components (placed instances as nodes)
+
+A component placed on a screen in the Scene Editor and given a **name** is a node here: drag
+it from the palette's **Components** section. Its pins are the component's own **interface**
+— what it declares under **Inputs** and **Events** on the Components side of `/editor`, and its
+state machine's layers — so they follow the component:
+
+- **Set** (exec-in) applies every input you fed (a wire or a typed value) to that placement and
+  continues. **▸ ‹trigger›** inlets, one per trigger input, apply the inputs *then* fire the
+  trigger on that placement — its rig cues play, its state machine and its timelines hear it,
+  exactly as a listener on the component would fire it.
+- **‹input›** data-ins, one per bool / number / text input, all optional: an input you leave
+  unfed is left alone. A **text** input takes a **localization key** (its source text, at least
+  one letter), never a sentence — a typed key is harvested into [Invisible
+  Localization](./localization.md) (the **Flow component inputs** section) like a Text Message.
+- **on‹Event›** (exec-outs), one per declared event, start their own chain when the component
+  raises the event (a listener, a state's *On enter*, a timeline `event:` cue), with a data-out
+  per payload field. An event is never a press: a `confirm` event and a `confirm` button press are
+  different pins, and an event chain runs with no press sound.
+- **‹layer›.state** (data-outs) read the current state of each state-machine layer — feed one
+  into a Branch, or use a **wait for state** node (pick its layer and state in the inspector) to
+  hold the chain until the placement reaches it.
+
+What happens when the placement is **not on screen** when the chain gets there: a trigger is
+**dropped** (a win heard while hidden must not play minutes late), a value reads empty, a wait
+does not hold, and an input you set is **kept** and applied the moment the placement next
+appears — so "set the amount, then show the screen" works in that order. A wait is also released
+when the placement hides or its screen is taken down, and by a slam. With `?flowlog=1` the game
+traces each case.
+
+**Jumps.** Double-click a component node or a wait node (or the inspector's **◇ Edit
+component**) to open its component in the Scene Editor, in place — a confirmation asks first.
+The hop refuses unless the flow and its function library are clean and saved: while a save is
+still running, your edits are not saved yet, or a save pill wants a decision (Reload theirs /
+Overwrite, Retry, Take over), a message says so and nothing moves — settle the pill, then try
+again. From the Scene Editor, select a placement and
+use Properties → **↗ Show in Flow** (or right-click it on the stage): Flow opens on the node that
+names it, or lights its palette entry when no node does yet. Both keep the project pinned in
+the address bar. A node you have just placed reads **loading pins…** for a moment while Flow
+fetches the exact interface of the version the placement pins.
+
+**Pins follow the component.** Rename or remove an input, event or layer on the component and
+the node's pins change: a wire to a pin that is gone stays on the canvas as a **red, dashed wire
+to a ⚠ pin**, and Validation lists it (`instance-pin-missing`) — rewire it or delete it. Pins
+refresh when you come back to this tab after editing in `/editor`. Two nodes naming the same
+placement must not both wire the same event (`instance-event-duplicate`: only the first wire
+would run). A node for a placement the screen no longer has, or whose component (or pinned
+version) is gone, is `instance-missing`. All of these are errors, so Publish refuses them.
 
 ### Free-spin intro and outro — the flow holds the round
 
@@ -829,15 +882,33 @@ Publish still ships (and lists the screens in a note); the game logs it to the c
 has in play (taken off the reels in Invisible Game Config). The flow keeps it as authored, so it
 still loads and runs; the warning names the node and the symbol. It never blocks Publish.
 
+The **component instance** checks (all red): `instance-missing` (the node names a placement the
+screen does not have with a name, or its component or pinned version is gone), `instance-pin-
+missing` (a wire or a typed value to an input, event or state layer the component no longer has
+— drawn red and dashed on the canvas), `instance-state-unknown` (a wait for a state its layer
+never enters), `instance-text-key` (a typed value for a text input that is not a localization
+key), `instance-event-duplicate` (two nodes for one placement wire the same event). A broken wire
+is still an error when it targets any node: it reads `edge-endpoint` there.
+
 ### Preview (deterministic timeline)
 
 The left **Preview** panel runs a chosen **event** node's handler headlessly through the
 real interpreter on a virtual clock. Pick an event, pick a **speed** (**1×** or **2×**),
 and click **Run**: the panel lists the ordered side-effect timeline — each **effect / cue /
 delay / show / hide** with its resolved payload and virtual **at** stamp, plus the total
-step count and duration. Changing the graph clears a stale run. This proves the **order and
-timing** of your flow; it is **not** a live visual of the game — that is the running game's
-job.
+step count and duration. A **component instance** node shows as **instance** rows: each input
+set, trigger fired and state waited for (a wait does not hold the headless run). Changing the
+graph clears a stale run. This proves the **order and timing** of your flow; it is **not** a live
+visual of the game — that is the running game's job.
+
+**Drive the editor stage.** With a component node in the flow, a tick appears beside Run. Open
+the same project's component in the Scene Editor (Animate → **State machine**, ▶ Run) in another
+tab, tick it, and **Run** here: every trigger the run fires and every bool / number input it sets
+on that component plays on that stage through the panel's own preview inputs, each at its time
+on the preview timeline (so fire → wait → fire paces as the run did) — logic here, animation
+there. A **text** input's key is sent but not played: the stage has nothing to show it on yet.
+A panel open on another component ignores it; nothing happens with the tick off, and a new run
+or unticking cancels what was still to play.
 
 ### Auto-save
 

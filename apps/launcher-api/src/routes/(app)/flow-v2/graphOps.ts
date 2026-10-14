@@ -250,6 +250,18 @@ export const makeNode = (
 	}
 };
 
+/** A `waitForState` node's layer and state (the inspector's two pickers). */
+export const setWaitForStateFields = (
+	doc: FlowDoc,
+	nodeId: string,
+	patch: { layer?: string; state?: string },
+): FlowDoc =>
+	replaceNode(doc, nodeId, (n) =>
+		n.kind === 'waitForState'
+			? { ...n, layer: patch.layer ?? n.layer, state: patch.state ?? n.state }
+			: n,
+	);
+
 /** A game mode's section graph as a new mode tab seeds it: one On Enter trigger for that mode. */
 export const seedModeGraph = (modeId: string, triggerId: string): Graph => ({
 	nodes: [makeNode('modeTrigger', triggerId, { x: 200, y: 160 }, modeId)],

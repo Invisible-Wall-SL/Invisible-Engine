@@ -190,13 +190,14 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 	);
 	const pressed = d.events![0];
 	eq(
-		'payload fields: add, a taken name refused',
+		'payload fields: add, a taken name refused, a name carrying ":" (the pin separator) refused',
 		[
 			L.addPayloadField(pressed, 'amount'),
 			L.addPayloadField(pressed, 'amount'),
 			L.addPayloadField(pressed, 'label', 'string'),
+			L.addPayloadField(pressed, 'win:amount'),
 		],
-		[true, false, true],
+		[true, false, true, false],
 	);
 	L.setPayloadFieldType(pressed, 'amount', 'int');
 	L.setPayloadFieldOptional(pressed, 'label', true);

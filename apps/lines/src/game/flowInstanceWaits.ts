@@ -14,10 +14,11 @@
  *    (never a hang), and an input set is STASHED and applied when the instance next mounts — so
  *    "set the amount, then show the screen" works in that order.
  * A handle whose screen is not the node's (`sceneId` against the container's scene) is not the
- * addressed placement: Flow names a screen and a node id, and two screens could place one id.
- * Every outcome is traced.
+ * addressed placement: Flow names a screen and a node id, and two screens could place one id — a
+ * fire, a read or a wait finds nothing there, and a set is kept for the addressed screen's own
+ * mount. Every outcome is traced.
  */
-import type { FlowInstanceHandle } from 'engine-layout';
+import type { FlowInstanceHandle, InstanceSetOutcome } from 'engine-layout';
 import type { InstanceRef } from 'engine-flow-v2';
 import type { SkipToken } from 'utils-shared/skipToken';
 
@@ -29,47 +30,123 @@ export interface InstanceWaitDeps {
 	/** The scene a container renders; `undefined` ⇒ unknown, the handle's screen is not checked. */
 	sceneIdOf(container: string): string | undefined;
 	getFlowInstance(instanceId: string): FlowInstanceHandle | undefined;
+	getFlowInstanceOn(
+		instanceId: string,
+		sceneId: string | undefined,
+	): FlowInstanceHandle | undefined;
+	/** Forget every value kept for a mount; called by `dispose` so a torn-down game hands nothing
+	 *  to the next. */
+	clearFlowInstanceStash?(): void;
+	stashFlowInstanceInput(
+		instanceId: string,
+		input: string,
+		value: unknown,
+		sceneId?: string,
+	): InstanceSetOutcome | 'stashed';
 	watchFlowInstance(
 		instanceId: string,
 		listener: (handle: FlowInstanceHandle | undefined) => void,
 	): () => void;
 	/** The round's slam token: a wait never outlives a skipped round. */
 	skip: Pick<SkipToken, 'isSkipped' | 'onSkip'>;
+	/** The registry's drop feed (a stashed value refused on mount), traced here; released by
+	 *  `dispose`. */
+	onFlowInstanceDrop?(
+		listener: (
+			instanceId: string,
+			input: string,
+			value: unknown,
+			outcome: Exclude<InstanceSetOutcome, 'set'>,
+		) => void,
+	): () => void;
 	trace(op: string, ...rest: unknown[]): void;
 	graceMs?: number;
 }
 
 export interface InstanceWaits {
+	/** The addressed placement's live handle right now, `undefined` when it is not mounted or the
+	 *  mounted one is on another screen. */
+	liveInstance(ref: InstanceRef): FlowInstanceHandle | undefined;
+	/** A `componentInstance` node's fed data-in: set on the addressed placement when it is mounted;
+	 *  otherwise kept for its next mount on THAT screen — a same-id placement mounted on another
+	 *  screen never takes it. Every outcome is traced. */
+	setInstanceInput(ref: InstanceRef, input: string, value: unknown): void;
+	/** A `componentInstance` node's `value:` data-out: the addressed placement's value, `undefined`
+	 *  when it is not on screen. */
+	readInstanceValue(ref: InstanceRef, value: string): unknown;
 	/** The addressed placement's live handle: at once when registered, after its registration when
-	 *  its screen is shown (bounded by the grace), `undefined` otherwise. */
+	 *  its screen is shown (bounded by the grace), `undefined` otherwise. A slam does not cut the
+	 *  grace short: a fire must not drop a beat. */
 	instanceWhenMounted(ref: InstanceRef): Promise<FlowInstanceHandle | undefined>;
 	/** Hold until `layer` of the instance is in `state`; released by the state, by the instance
 	 *  hiding or leaving the screen, or by a slam; resolved at once when the instance is not on
 	 *  screen, has no such layer, or the round is already slammed. */
 	awaitInstanceState(ref: InstanceRef, layer: string, state: string): Promise<void>;
+	/** Release the drop-trace listener and forget every value kept for a mount. */
+	dispose(): void;
 }
+
+/** The trace wording for each way a set can be refused (`InstanceSetOutcome`). */
+export const DROP_REASON: Record<Exclude<InstanceSetOutcome, 'set'>, string> = {
+	'no-input': 'no such input',
+	'wrong-kind': 'not its kind',
+	'no-machine': 'no state machine to set it on',
+};
 
 export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 	const grace = deps.graceMs ?? INSTANCE_MOUNT_GRACE_MS;
-	const addressed = (
-		ref: InstanceRef,
-		handle: FlowInstanceHandle | undefined,
-	): FlowInstanceHandle | undefined => {
-		if (!handle) return undefined;
+	/** The handle mounted on the node's screen, or `undefined` — traced when the only mounted
+	 *  placement of that id is on another screen. */
+	const liveInstance = (ref: InstanceRef): FlowInstanceHandle | undefined => {
 		const scene = deps.sceneIdOf(ref.container);
-		if (scene !== undefined && handle.sceneId !== undefined && handle.sceneId !== scene) {
+		const handle = deps.getFlowInstanceOn(ref.instance, scene);
+		if (handle) return handle;
+		const elsewhere = deps.getFlowInstance(ref.instance);
+		if (elsewhere)
 			deps.trace(
 				'instance',
 				ref.instance,
-				`· not on screen '${ref.container}' (scene ${scene}; the handle is on ${handle.sceneId})`,
+				`· not on screen '${ref.container}' (scene ${scene}; the handle is on ${elsewhere.sceneId})`,
 			);
-			return undefined;
-		}
-		return handle;
+		return undefined;
 	};
+	const setInstanceInput = (ref: InstanceRef, input: string, value: unknown): void => {
+		const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
+		const scene = deps.sceneIdOf(ref.container);
+		const mounted = deps.getFlowInstance(ref.instance);
+		const elsewhere =
+			!!mounted &&
+			scene !== undefined &&
+			mounted.sceneId !== undefined &&
+			mounted.sceneId !== scene;
+		const outcome = deps.stashFlowInstanceInput(ref.instance, input, value, scene);
+		if (outcome === 'set') deps.trace('instance', line);
+		else if (outcome === 'stashed')
+			deps.trace(
+				'instance',
+				line,
+				elsewhere
+					? `(stashed for container '${ref.container}' (scene ${scene}); the mounted '${ref.instance}' is on screen ${mounted.sceneId})`
+					: '(stashed)',
+			);
+		else deps.trace('instance', line, `· dropped (${DROP_REASON[outcome]})`);
+	};
+	// A stashed set the instance refuses when it mounts (an input gone from the def, not its kind
+	// any more, no machine) is traced as a live drop is.
+	const stopDropTrace =
+		deps.onFlowInstanceDrop?.((instanceId, input, value, outcome) =>
+			deps.trace(
+				'instance',
+				`${instanceId}.${input} = ${JSON.stringify(value)}`,
+				`· dropped on mount (${DROP_REASON[outcome]})`,
+			),
+		) ?? ((): void => undefined);
+	const readInstanceValue = (ref: InstanceRef, value: string): unknown =>
+		liveInstance(ref)?.values()[value];
 	const instanceWhenMounted = (ref: InstanceRef): Promise<FlowInstanceHandle | undefined> => {
-		const live = addressed(ref, deps.getFlowInstance(ref.instance));
+		const live = liveInstance(ref);
 		if (live || !deps.isShown(ref.container)) return Promise.resolve(live);
+		const scene = deps.sceneIdOf(ref.container);
 		return new Promise((resolve) => {
 			let settled = false;
 			const finish = (handle: FlowInstanceHandle | undefined): void => {
@@ -77,12 +154,14 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 				settled = true;
 				unwatch();
 				clearTimeout(timer);
-				resolve(addressed(ref, handle));
+				resolve(handle);
 			};
-			const unwatch = deps.watchFlowInstance(ref.instance, (next) => {
-				if (next) finish(next);
+			// A registration on another screen is not the one awaited: keep waiting for the grace.
+			const unwatch = deps.watchFlowInstance(ref.instance, () => {
+				const mine = deps.getFlowInstanceOn(ref.instance, scene);
+				if (mine) finish(mine);
 			});
-			const timer = setTimeout(() => finish(deps.getFlowInstance(ref.instance)), grace);
+			const timer = setTimeout(() => finish(deps.getFlowInstanceOn(ref.instance, scene)), grace);
 		});
 	};
 	const awaitInstanceState = async (
@@ -97,7 +176,20 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			deps.trace('instance wait', label, '· skipped (round slammed)');
 			return;
 		}
-		const handle = await instanceWhenMounted(ref);
+		// A slam that lands DURING the mount grace releases the wait at once (a fire keeps its grace:
+		// it must not drop a beat; a wait only holds time).
+		let unskipGrace = (): void => undefined;
+		const handle = await Promise.race([
+			instanceWhenMounted(ref),
+			new Promise<undefined>((resolve) => {
+				unskipGrace = deps.skip.onSkip(() => resolve(undefined));
+			}),
+		]);
+		unskipGrace();
+		if (deps.skip.isSkipped()) {
+			deps.trace('instance wait', label, '· skipped (round slammed)');
+			return;
+		}
 		if (!handle) {
 			deps.trace('instance wait', label, '· skipped (not on screen)');
 			return;
@@ -120,7 +212,8 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			return;
 		}
 		// The handle resolved a tick ago: one that unregistered meanwhile would hold until a slam.
-		if (deps.getFlowInstance(ref.instance) !== handle) {
+		const scene = deps.sceneIdOf(ref.container);
+		if (deps.getFlowInstanceOn(ref.instance, scene) !== handle) {
 			deps.trace('instance wait', label, '· skipped (instance left the screen)');
 			return;
 		}
@@ -145,8 +238,11 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 				if (handle.stateOf(layer) === state) finish('▶ reached');
 				else if (!handle.shown()) finish('▶ instance hidden');
 			});
-			unwatch = deps.watchFlowInstance(ref.instance, (next) => {
-				if (next !== handle) finish('▶ instance left the screen');
+			unwatch = deps.watchFlowInstance(ref.instance, () => {
+				// Judged on the node's screen: another screen's same-id placement mounting on top (or
+				// leaving) is not this one leaving.
+				if (deps.getFlowInstanceOn(ref.instance, scene) !== handle)
+					finish('▶ instance left the screen');
 			});
 			unskip = deps.skip.onSkip(() => finish('▶ slammed'));
 			// A synchronous fire (the token tripped between the check above and here) released the
@@ -154,5 +250,15 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			if (settled) unskip();
 		});
 	};
-	return { instanceWhenMounted, awaitInstanceState };
+	return {
+		liveInstance,
+		setInstanceInput,
+		readInstanceValue,
+		instanceWhenMounted,
+		awaitInstanceState,
+		dispose: () => {
+			stopDropTrace();
+			deps.clearFlowInstanceStash?.();
+		},
+	};
 }
