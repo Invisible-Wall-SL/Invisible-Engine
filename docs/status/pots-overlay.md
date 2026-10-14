@@ -955,6 +955,16 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-14 — **Rig animations on component timelines, from the editor** (branch
+  `claude/admiring-noether-ptegsa`). Selecting a rig node in Animate shows an **animation** row in
+  the Timeline panel: pick an animation and it plays from the playhead as a strip on the rig's row
+  (`addRigClipStrip`, `screenTimeline.ts`: one animation track per rig node, `clipLength` recorded,
+  the timeline grown to fit). The strip inspector lists the rig's animations (`host.clips`, from the
+  canvas's loaded rigs, which now carry each animation's length), and the canvas previews the rig at
+  the playhead (`EditorRigLayer` poses `sample.animTime` the way the game's `<RigPose>` does). The
+  runtime was already there (Phase 8a's `animTime` channel). The pot-from-pieces guide now builds a
+  piece from one rig node. Gate: `check:component-timelines` §6. Not yet eyeballed in a browser.
+
 - 2026-10-14 — **A pot built from pieces (the firecracker pot)** (branch
   `claude/admiring-noether-ptegsa`). The pot's body can be N placements of one authored piece, each
   lighting at its own fill threshold, bottom → top, the coin head last; lit pieces fire on
@@ -970,10 +980,8 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     **🔥 Light order: bottom → top** (`potPieces` + `lightOrderThresholds`, `potPieces.ts`).
   - Gate: `check:component-state-machine` §8. Not yet eyeballed in a live game: the owner authors the
     firecracker and checks a pot fills bottom → top.
-  - The editor's component timelines key position, scale, rotation, alpha and tint only: no rig
-    clip strips and no cues yet (the runtime plays both; `transitionWipe` uses a clip). So the guide
-    builds a piece from three rig nodes, one per stage, shown by alpha, with the `fired` burst started by
-    a rig cue on `potActivate`. Exposing clip strips for rig nodes would let one rig node do it.
+  - A component timeline can play a rig animation from the editor (2026-10-14, see the next
+    entry), so a piece is one rig node whose three timelines each play one animation.
   - Not built: a staggered fire (each piece firing a beat after the one below). Today every lit piece
     fires on the same `potActivate`; a per-piece delay would need a param-driven offset on a state.
 

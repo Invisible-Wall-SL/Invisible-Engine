@@ -3520,6 +3520,7 @@
 							selectedId={selectedIds.at(-1) ?? null}
 							projectKey={loadedProjectKey}
 							active={animating && !componentsView}
+							{rigMeta}
 						/>
 					</div>
 				{/if}

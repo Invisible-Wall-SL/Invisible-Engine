@@ -12,20 +12,15 @@ the [pots overlay](add-pots-overlay.md)).
 
 ## 1. The piece — one firecracker with three stages
 
-Your firecracker rig has three animations, say `off`, `lit` and `fired`. A component timeline can key
-a node's position, scale, rotation, alpha and tint, but it cannot yet start a rig animation. So the
-piece places the rig three times, one node per stage, and the state machine shows one node at a time
-by its alpha.
+Your firecracker rig has three animations, say `off`, `lit` and `fired`. One rig node plays them:
+each state of the piece's state machine plays a timeline, and each timeline plays one of the rig's
+animations.
 
 **Do:** in `/editor` → **Components**, make a component `Firecracker`.
 
-1. **Three rig nodes, all on your firecracker rig, stacked at 0,0.** Give each a **Name**
-   (Properties), because timelines find nodes by name:
-   - `Off` — **default animation** `off`, looping.
-   - `Lit` — **default animation** `lit`, looping.
-   - `Fired` — no default animation. Under **Plays on signal**, **+ add cue**: signal
-     `potActivate`, animation `fired`, loop off. The burst then starts exactly when the pot is
-     consumed.
+1. **One rig node** on your firecracker rig, at 0,0. Give it a **Name** (Properties), say `Cracker`,
+   because timelines find nodes by name. Leave its default animation alone: the timelines decide what
+   it plays.
 2. **One param:** add a number param **`lightAt`**, default `1`. It is the pot's fill share (0–1) at
    which this firecracker lights.
 3. **Two inputs** (Properties → Component variables → Inputs):
@@ -33,14 +28,10 @@ by its alpha.
      maximum, 0..1. `{meter}` is read from the pot the firecracker sits in, so the piece needs no meter
      of its own;
    - a trigger `potActivate` (**+ Add trigger**) — the pot is consumed by its bonus.
-4. **Three timelines** (Animate → ＋ New), each keying **alpha** on the three nodes at time 0:
-
-   | Timeline | `Off` | `Lit` | `Fired` | Length |
-   |---|---|---|---|---|
-   | `Off` | 1 | 0 | 0 | short (0.1 s) |
-   | `Lit` | 0 | 1 | 0 | short (0.1 s) |
-   | `Fired` | 0 | 0 | 1 | the length of the `fired` animation |
-
+4. **Three timelines** (Animate → ＋ New): `Off`, `Lit`, `Fired`. In each, put the playhead at 0,
+   select `Cracker` on the canvas, and pick the animation in the **animation** row of the Timeline
+   panel (**＋ play from 0.00s…**): `off`, `lit` and `fired` respectively. A strip appears on the
+   rig's row and the timeline grows to the animation's length. Scrub to check it on the canvas.
    Leave **Plays on** empty: the state machine plays them.
 
 **Do:** Animate → **State machine**. **＋ State** for each timeline (tick **loop** on `Lit`), then
@@ -64,7 +55,7 @@ reads `lightAt` at its default), and firing `potActivate` moves Lit → Fired.
 
 The coin head is just another piece that lights last. Make it a second component, `CoinHead`, exactly
 as in step 1 (the same param, inputs, timelines and state machine) with the roof-and-coin rig on its
-three nodes. Its `lightAt` ends up at `1`, so it lights only when the pot is full.
+rig node. Its `lightAt` ends up at `1`, so it lights only when the pot is full.
 
 ## 3. The pot
 

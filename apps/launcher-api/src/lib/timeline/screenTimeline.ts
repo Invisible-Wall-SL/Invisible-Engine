@@ -1,4 +1,11 @@
-import { sampleChannel, sampleNodeActor, sampleTint, type CinematicTrack } from 'engine-cinematic';
+import {
+	sampleChannel,
+	sampleNodeActor,
+	sampleTint,
+	type CinematicNodeSample,
+	type CinematicStrip,
+	type CinematicTrack,
+} from 'engine-cinematic';
 import {
 	componentTriggers,
 	findNodeByName,
@@ -237,6 +244,54 @@ export function ensureNodeActor(doc: CinematicDoc, target: string): string {
 	return actorId;
 }
 
+/** A rig animation a strip can hold, and its length in seconds. */
+export interface RigClip {
+	name: string;
+	duration: number;
+}
+
+/**
+ * Play `clip` on the rig node actor `actorId` from `at` (Rive plan Phase 8a's `animation` strip,
+ * authored from the editor): the actor's animation track, created when it has none, gains a strip
+ * that holds the clip for its own length, with `clipLength` recorded so the game can loop it
+ * without the skeleton. The timeline grows to end no earlier than the strip; it never shrinks.
+ */
+export function addRigClipStrip(
+	doc: CinematicDoc,
+	actorId: string,
+	clip: RigClip,
+	at: number,
+): void {
+	let track = doc.tracks.find((t) => t.actorId === actorId && t.kind === 'animation');
+	if (!track) {
+		track = { id: `anim_${actorId}`, actorId, kind: 'animation', layer: 0, strips: [] };
+		doc.tracks.push(track);
+	}
+	const strips = (
+		Array.isArray(track.strips) ? track.strips : (track.strips = [])
+	) as CinematicStrip[];
+	const taken = new Set(strips.map((s) => s.id));
+	let id = `strip_${actorId}_${strips.length + 1}`;
+	for (let i = 2; taken.has(id); i++) id = `strip_${actorId}_${strips.length + i}`;
+	const start = Math.max(0, at);
+	const length = clip.duration > 0 ? clip.duration : 1;
+	strips.push({
+		id,
+		clip: { src: 'rig', name: clip.name },
+		start,
+		length,
+		clipLength: length,
+		clipIn: 0,
+		speed: 1,
+		loop: { mode: 'once' },
+		alpha: 1,
+		blend: 'replace',
+		blendIn: 0,
+		blendOut: 0,
+	});
+	doc.duration = Math.max(doc.duration, Math.round((start + length) * 1000) / 1000);
+}
+
 const tracksOf = (doc: CinematicDoc, actorId: string): CinematicTrack[] =>
 	doc.tracks.filter((t) => t.actorId === actorId) as unknown as CinematicTrack[];
 
@@ -272,8 +327,9 @@ export function isChannelKeyed(doc: CinematicDoc, actorId: string, channel: Keye
 export interface TimelineNodeDrive {
 	/** The value bindings the keyed channels stand for (`nodeActorBindings`). */
 	bindings: ValueBinding[];
-	/** The node's channels at `t` (`sampleNodeActor`). */
-	sample: NodeActorSample;
+	/** The node's channels at `t` (`sampleNodeActor`), and the clip an `animation` strip holds a
+	 *  rig node at. */
+	sample: NodeActorSample & Pick<CinematicNodeSample, 'animTime'>;
 }
 
 /**
@@ -290,7 +346,8 @@ export function timelineDrives(
 	for (const [nodeId, actor] of resolveNodeActors(doc, scene)) {
 		const bindings = nodeActorBindings(keyedNodeChannels(actor.tracks));
 		const sample = sampleNodeActor(actor.tracks as unknown as CinematicTrack[], t);
-		if (bindings.length || sample.tint !== undefined) out.set(nodeId, { bindings, sample });
+		if (bindings.length || sample.tint !== undefined || sample.animTime)
+			out.set(nodeId, { bindings, sample });
 	}
 	return out;
 }

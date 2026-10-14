@@ -7,6 +7,7 @@
 		boundBoneOffsets,
 		boundComponentRidesBone,
 		boundScrubs,
+		withTimelineScrub,
 		computeOverlayPlacement,
 		coverTransform,
 		instancePreviewRigBundle,
@@ -51,7 +52,11 @@
 		type RigSkeleton,
 	} from './rigRuntime.client';
 	import { applyRigBoneOffset } from 'pixi-svelte/rigBoneOffset';
-	import { previewOutputs, previewResolveTransform } from './valuePreview.client.svelte';
+	import {
+		previewAnimTime,
+		previewOutputs,
+		previewResolveTransform,
+	} from './valuePreview.client.svelte';
 
 	/** Structural view of the project's rigs (mirrors `ProjectAssets`) — used to
 	 * resolve catalog-default rig preview art for `bind` anchors, the SAME way
@@ -235,6 +240,9 @@
 				skins: entry.instance.data.skins.map((s) => s.name),
 				slots: entry.instance.data.slots.map((s) => s.name),
 				bones: entry.instance.data.bones.map((b) => b.name),
+				durations: Object.fromEntries(
+					entry.instance.data.animations.map((a) => [a.name, a.duration]),
+				),
 			});
 		}
 		if (next.size !== readyKeys.size || [...next].some((k) => !readyKeys.has(k))) {
@@ -451,14 +459,20 @@
 		pose?: RigPreviewPose;
 	}
 
-	type RigPreviewPose = { bones: BoundBoneOffset[]; scrubs: BoundScrub[] };
+	type RigPreviewPose = {
+		bones: BoundBoneOffset[];
+		scrubs: (BoundScrub & { unit?: 'seconds' })[];
+	};
 
-	/** A rig node's previewed bone offsets + scrubs, or undefined when it previews none. */
+	/** A rig node's previewed bone offsets + scrubs (its own bindings', then the Animate playhead's
+	 *  `animation` strip, as the game poses them), or undefined when it previews none. */
 	function previewPose(node: Extract<LayoutNode, { kind: 'spine' }>): RigPreviewPose | undefined {
-		if (!node.valueBindings?.length) return undefined;
 		const outputs = previewOutputs(node);
 		const bones = boundBoneOffsets(node.valueBindings, outputs);
-		const scrubs = boundScrubs(node.valueBindings, outputs);
+		const scrubs = withTimelineScrub(
+			boundScrubs(node.valueBindings, outputs),
+			previewAnimTime(node),
+		);
 		return bones.length || scrubs.length ? { bones, scrubs } : undefined;
 	}
 
@@ -479,7 +493,7 @@
 		for (const scrub of pose.scrubs) {
 			const anim = skeleton.data.animations.find((a) => a.name === scrub.animation);
 			if (!anim) continue;
-			const time = scrub.time * anim.duration;
+			const time = scrub.unit === 'seconds' ? scrub.time : scrub.time * anim.duration;
 			anim.apply(skeleton, time, time, false, null, 1, MIX_BLEND_REPLACE, MIX_DIRECTION_IN);
 		}
 		const restores: (() => void)[] = [];

@@ -1007,7 +1007,11 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
    clears it too.
 
 4. **Select a node and key it**, exactly as on a screen (steps 2 to 5 of
-   [Animate mode](#animate-mode--the-timeline)). The canvas only selects in Animate: no dragging,
+   [Animate mode](#animate-mode--the-timeline)).
+   A **rig** node also gets an **animation** row: pick one of the rig's animations and it plays from
+   the playhead, as a strip on the rig's row (drag, trim or loop it like any strip; its inspector
+   swaps the animation). The timeline grows to fit it, and the canvas shows the rig at the
+   playhead's frame. A component's state machine uses this to play a different animation per state. The canvas only selects in Animate: no dragging,
    no Delete, and double-click does not open a nested component. Keys find nodes by **name**, so
    each node you key needs a name no other node in the component shares.
 5. **Save** (or Ctrl+S). Publish as usual: the timeline ships with the game. You don't add a Flow

@@ -22,6 +22,7 @@
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import { putKey, resolvePlace, resolveVisible } from 'engine-cinematic';
 	import {
+		findActorNode,
 		validateNodeActors,
 		type CinematicCast,
 		type CinematicDoc,
@@ -33,6 +34,7 @@
 	import {
 		NODE_IDENTITY,
 		SCREEN_CHANNELS,
+		addRigClipStrip,
 		componentTimelineId,
 		componentTimelinesOf,
 		ensureNodeActor,
@@ -47,7 +49,9 @@
 		screenTimelinesOf,
 		timelineDrives,
 		type KeyedChannel,
+		type RigClip,
 	} from '$lib/timeline/screenTimeline';
+	import type { RigMeta } from './rigRuntime.client';
 	import { setTimelinePreview } from './valuePreview.client.svelte';
 
 	/** The open component, when the panel animates a component instead of a screen. */
@@ -76,9 +80,31 @@
 		/** Open this timeline (the State Machine panel asked: a state card was double-clicked). The
 		 *  nonce makes the same id openable again. */
 		openRequest?: { id: string; nonce: number };
+		/** The canvas's loaded rigs (animation names and lengths), by asset key: a rig node's clips
+		 *  for an `animation` strip. */
+		rigMeta?: Map<string, RigMeta>;
 	}
 
-	let { scene, component, selectedId, projectKey, active, openRequest }: Props = $props();
+	let {
+		scene,
+		component,
+		selectedId,
+		projectKey,
+		active,
+		openRequest,
+		rigMeta = new Map(),
+	}: Props = $props();
+
+	/** The animations a rig node can play on a strip; empty for any other node, or a rig the canvas
+	 *  has not loaded yet. */
+	function rigClipsOf(node: LayoutNode | undefined): RigClip[] {
+		if (node?.kind !== 'spine') return [];
+		const meta = rigMeta.get(node.assetKey);
+		return (meta?.animations ?? []).map((name) => ({
+			name,
+			duration: meta?.durations?.[name] ?? 1,
+		}));
+	}
 
 	/** This panel's claim on the shared canvas preview (a screen's and a component's panel can both
 	 *  be mounted). */
@@ -179,6 +205,13 @@
 					title: `Node "${cast.target ?? ''}" on this ${where}`,
 				}),
 				sceneName: (id: string) => (id === scene?.id ? (scene?.name ?? id) : id),
+				clips: (actorId: string) => {
+					const open = tl?.doc() ?? doc;
+					const cast = open.stage.cast.find((c) => c.actorId === actorId);
+					return cast?.target && scene
+						? rigClipsOf(findActorNode(open, scene.nodes, cast.target))
+						: [];
+				},
 			},
 		});
 		tl.setActive(active);
@@ -446,6 +479,20 @@
 		const id = ensureNodeActor(doc, target.target);
 		const next = v ?? value(channel);
 		tl.keyProperty(id, channel, Number.isFinite(next) ? next : 0);
+		preview();
+	}
+
+	/** The selected rig node's animations, offered as a strip at the playhead. */
+	const selectedClips = $derived(target?.ok ? rigClipsOf(target.node) : []);
+
+	/** Play `name` on the selected rig node from the playhead: a strip on its animation track. */
+	function addClip(name: string): void {
+		const doc = tl?.doc();
+		const clip = selectedClips.find((c) => c.name === name);
+		if (!doc || !tl || !clip || !target?.ok || !ownsDoc(doc)) return;
+		addRigClipStrip(doc, ensureNodeActor(doc, target.target), clip, time);
+		tl.commit('add animation');
+		tl.renderTimeline();
 		preview();
 	}
 
@@ -740,6 +787,27 @@
 					<b>{target.target}</b>
 					<small>{target.node.kind}</small>
 				</div>
+				{#if target.node.kind === 'spine'}
+					<label class="keyrow" title="Play one of this rig's animations from the playhead">
+						<span>animation</span>
+						{#if selectedClips.length}
+							<select
+								value=""
+								onchange={(e) => {
+									addClip(e.currentTarget.value);
+									e.currentTarget.value = '';
+								}}
+							>
+								<option value="" disabled>＋ play from {time.toFixed(2)}s…</option>
+								{#each selectedClips as clip (clip.name)}
+									<option value={clip.name}>{clip.name} ({clip.duration.toFixed(2)}s)</option>
+								{/each}
+							</select>
+						{:else}
+							<small>loading the rig…</small>
+						{/if}
+					</label>
+				{/if}
 				{#each channels as channel (channel)}
 					<label class="keyrow" class:keyed={keyed(channel)}>
 						<span>{CHANNEL_LABEL[channel]}</span>

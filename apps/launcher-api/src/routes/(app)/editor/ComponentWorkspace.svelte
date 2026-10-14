@@ -2711,6 +2711,7 @@
 							projectKey={data.projectKey}
 							active={active && animating && animateTab === 'timeline'}
 							openRequest={timelineOpenRequest}
+							{rigMeta}
 						/>
 					</div>
 					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
