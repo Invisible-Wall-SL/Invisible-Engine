@@ -2,7 +2,10 @@
 	"mcpServers": {
 		"playwright": {
 			"command": "node",
-			"args": ["scripts/playwright-mcp.mjs"]
+			"args": [
+				"-e",
+				"import(require('node:url').pathToFileURL(require('node:child_process').execSync('git rev-parse --show-toplevel', { encoding: 'utf8' }).trim() + '/scripts/playwright-mcp.mjs').href)"
+			]
 		}
 	}
 }
