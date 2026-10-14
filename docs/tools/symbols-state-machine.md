@@ -982,9 +982,12 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
 
 - **Head** — what travels. **Built-in** (or **Inherit** for a single meter) is the gold glow; **Glow**
   re-tints and re-sizes it; **Sprite**, **rig** and **Flipbook** fly your own art (a rig plays the
-  chosen animation on a loop while it flies); **None** flies only the trail. **Size** is × the glow
-  for a glow and × one cell for art; **Tint** colours it. A sprite / rig / flipbook head applies once
-  its frame, bundle + animation, or clip is picked.
+  chosen animation on a loop while it flies); **None** flies only the trail. **Size (×)** is there for
+  every head, **Built-in** included: it scales everything that flies at the head — the gold glow, a
+  pots overlay's token, the "+N" of an add-respins — and an authored head on top of its own **Head
+  size** (× the glow for a glow, × one cell for art). **Tint** colours an authored head. A sprite /
+  rig / flipbook head applies once its frame, bundle + animation, or clip is picked. A meter that a
+  pots overlay fills flies the token itself in place of any head, so there only **Size** matters.
 - **Trail** — an Invisible FX effect left behind the head, or **No trail**. The effect is emitted from
   the moving head, so its particles stay where they were born and form a streak; once the head lands
   the trail stops spawning and dies out on its own. Author trails in Invisible FX as continuous,
@@ -1008,12 +1011,13 @@ Blank fields show what they will use in grey. **↺ Reset** clears the selected 
 **The flight preview** under the editor is a mock 5 × 3 board. Drag **A** (where the coin starts)
 and **B** (the target), and click a cell to mark or unmark it as showing a win (red). The dashed line
 is the route the game would take — planned by the same code the game flies with — and the head flies
-it over and over with your timing, head and trail. The line under the board names the route
-(straight, a bend, or over) and the flight time. The arrival effect is shown by its thumbnail in the
-editor rather than on the board, and the built-in gold trail is drawn as an approximation.
+it over and over with your timing, head, size, tint and trail — the pots token for a meter a pots
+overlay fills, the "+2" label for the respin counter — and plays the arrival effect at **B** as the
+head lands. The line under the board names the route (straight, a bend, or over), the flight time
+and the head. The built-in gold trail is drawn as an approximation.
 
-Stored as `flights: Record<kind, { head?, trail?, arrival?, path?, speed?, minMs?, maxMs?, ease?,
-stagger? }>`; ships to the game like every other section (a head's art and the trail / arrival
+Stored as `flights: Record<kind, { head?, size?, trail?, arrival?, path?, speed?, minMs?, maxMs?,
+ease?, stagger? }>`; ships to the game like every other section (a head's art and the trail / arrival
 effects ship with it). The plan is in
 [the Hold and Win design §4.4](../design/hold-and-win.md#44-flights--things-that-travel-from-a-cell-to-a-target).
 

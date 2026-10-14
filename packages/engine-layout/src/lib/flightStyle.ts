@@ -67,7 +67,8 @@ export type FlightHeadKind = (typeof FLIGHT_HEAD_KINDS)[number];
  * `flipbook` carry the same fields a symbol layer does (`assetKey` a frame or bundle,
  * `animationName` the looping clip, `clipId` the Invisible Flipbook clip) and render through the
  * game's symbol-layer path; `none` flies only the trail. `scale` multiplies the head's size (a glow
- * is 0.45 of a cell, an art head one cell); `tint` is `#rrggbb`.
+ * is 0.45 of a cell, an art head one cell); `tint` is `#rrggbb`. The style's `size` stacks on
+ * `scale`, and is the only size knob of the built-in head (no `head`).
  */
 export type FlightHead = {
 	kind: FlightHeadKind;
@@ -112,6 +113,9 @@ export const FLIGHT_EASE_LABELS: Record<FlightEase, string> = {
 /** One flight kind's authored style. Sparse: every absent field falls through. */
 export type FlightStyle = {
 	head?: FlightHead;
+	/** Multiplies everything the flight carries at its head — the built-in glow, a pots overlay's
+	 *  token, an add-respins "+N" label, and an authored head on top of its own `scale`. */
+	size?: number;
 	trail?: FlightTrail;
 	arrival?: FlightArrival;
 	path?: FlightPathStyle;
@@ -134,6 +138,7 @@ export const FLIGHT_DEFAULTS = {
 	maxMs: 900,
 	stagger: 70,
 	ease: 'easeInOut' as FlightEase,
+	size: 1,
 	/** Cells. */
 	padding: 0.1,
 	overRoute: true,
@@ -150,11 +155,14 @@ export const FLIGHT_LIMITS = {
 	arc: { min: -1, max: 1 },
 	padding: { min: 0, max: 2 },
 	headScale: { min: 0.05, max: 5 },
+	size: { min: 0.05, max: 5 },
 } as const;
 
 /** What a flight flies with once the authored block and the coded default are merged. */
 export type ResolvedFlightStyle = {
 	head?: FlightHead;
+	/** × what the head carries ({@link FlightStyle.size}). */
+	size: number;
 	trail?: FlightTrail;
 	arrival?: FlightArrival;
 	/** Absent ⇒ the coded bend ladder. */
@@ -228,6 +236,7 @@ export function normalizeFlightStyle(raw: unknown): FlightStyle | undefined {
 	const style: FlightStyle = {};
 	const head = normalizeFlightHead(raw.head);
 	if (head) style.head = head;
+	if (finite(raw.size) && raw.size > 0) style.size = clamp(raw.size, FLIGHT_LIMITS.size);
 	if (isRecord(raw.trail)) {
 		if (raw.trail.off === true) style.trail = { off: true };
 		else if (nonBlank(raw.trail.effectId)) style.trail = { effectId: raw.trail.effectId };
@@ -291,6 +300,7 @@ export function resolveFlightStyle(
 		maxMs: pick((s) => s.maxMs) ?? FLIGHT_DEFAULTS.maxMs,
 		ease: pick((s) => s.ease) ?? FLIGHT_DEFAULTS.ease,
 		stagger: pick((s) => s.stagger) ?? FLIGHT_DEFAULTS.stagger,
+		size: pick((s) => s.size) ?? FLIGHT_DEFAULTS.size,
 	};
 	const head = pick((s) => s.head);
 	if (head) resolved.head = head;
