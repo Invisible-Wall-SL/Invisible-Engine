@@ -117,8 +117,12 @@ async function call(method, query, body, contentType) {
 	}
 }
 
+/** OS litter that would otherwise go public with a year-long immutable cache. */
+const JUNK = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini']);
+
 const walk = (dir) =>
 	readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+		if (JUNK.has(entry.name)) return [];
 		const full = join(dir, entry.name);
 		return entry.isDirectory() ? walk(full) : [full];
 	});
@@ -140,6 +144,7 @@ try {
 		full,
 		rel: relative(folder, full).split(sep).join('/'),
 		size: statSync(full).size,
+		md5: createHash('md5').update(readFileSync(full)).digest('hex'),
 	}));
 	const tooBig = files.filter((f) => f.size > info.maxFileBytes);
 	if (tooBig.length) {
@@ -149,9 +154,7 @@ try {
 		);
 	}
 
-	const todo = files.filter(
-		(f) => remote.get(f.rel) !== createHash('md5').update(readFileSync(f.full)).digest('hex'),
-	);
+	const todo = files.filter((f) => remote.get(f.rel) !== f.md5);
 	console.info(
 		`\n  Uploading ${alias} → ${state.folder}\n` +
 			`    ${files.length} files, ${todo.length} to send` +
@@ -183,7 +186,7 @@ try {
 	const result = await call(
 		'POST',
 		{ alias, version },
-		JSON.stringify({ files: files.map((f) => f.rel), build }),
+		JSON.stringify({ files: files.map((f) => ({ path: f.rel, md5: f.md5 })), build }),
 		'application/json',
 	);
 

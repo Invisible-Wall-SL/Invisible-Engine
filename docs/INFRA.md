@@ -618,6 +618,7 @@ Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and
 >   to boot. Defaults to `sid`.
 > - The game must be launched with a runtime bundle that carries the matching profile
 >   (`PUBLIC_DELIVERY_PROFILES`, see `docs/design/delivery-builds.md`).
+>   **Engine "release pending" pill (C2):** the launcher home pill can also flag when engine `main` has un-released ENGINE changes (`apps/lines/`, `packages/`) ahead of the live runtime bundle's stamped commit. To activate, set on the **launcher-api** Railway service: `GITHUB_ENGINE_READ_TOKEN` = a **fine-grained PAT** with **read-only "Contents"** on `Invisible-Wall-SL/Invisible-Engine` (optionally `GITHUB_ENGINE_REPO` = `owner/repo` to override the default). The launcher calls the GitHub compare API (`{deployed}...main`) best-effort, cached ~60s. **If `GITHUB_ENGINE_READ_TOKEN` is unset (or any GitHub error/timeout), the pill simply never shows "release pending"** — it behaves exactly as before (green/deployed). `GIT_CLONE_TOKEN` is used only as a best-effort fallback and is scoped to game repos, so a dedicated read token is preferred. After setting → **Apply changes / Deploy**.
 
 > **Partner CDN uploads (`DELIVERY_R2_*`):** where `scripts/upload-delivery.mjs` puts a delivery
 > build, through `api/launcher/delivery-upload` (`partnerDelivery.ts`). The bucket is in the
@@ -647,7 +648,6 @@ Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and
 >   `[{"AllowedOrigins":["*"],"AllowedMethods":["GET","HEAD"],"AllowedHeaders":["*"],"MaxAgeSeconds":86400}]`
 > - Every object is uploaded `Cache-Control: public, max-age=31536000, immutable`. A delivered
 >   folder is never rewritten, so that is safe; a new build is a new `versionPath`.
->   **Engine "release pending" pill (C2):** the launcher home pill can also flag when engine `main` has un-released ENGINE changes (`apps/lines/`, `packages/`) ahead of the live runtime bundle's stamped commit. To activate, set on the **launcher-api** Railway service: `GITHUB_ENGINE_READ_TOKEN` = a **fine-grained PAT** with **read-only "Contents"** on `Invisible-Wall-SL/Invisible-Engine` (optionally `GITHUB_ENGINE_REPO` = `owner/repo` to override the default). The launcher calls the GitHub compare API (`{deployed}...main`) best-effort, cached ~60s. **If `GITHUB_ENGINE_READ_TOKEN` is unset (or any GitHub error/timeout), the pill simply never shows "release pending"** — it behaves exactly as before (green/deployed). `GIT_CLONE_TOKEN` is used only as a best-effort fallback and is scoped to game repos, so a dedicated read token is preferred. After setting → **Apply changes / Deploy**.
 
 > **Game freshness — no edge cache in front of `games`.** `games.invisiblewall.org` is a DNS-only
 > CNAME to Railway (checked 2026-09-29: responses come from Railway's edge with no Cloudflare

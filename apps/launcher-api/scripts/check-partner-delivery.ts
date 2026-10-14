@@ -81,6 +81,7 @@ rejects('version that is traversal', () => deliveryPrefix('G', '..', 'eanew'));
 rejects('version with embedded traversal', () => deliveryPrefix('G', 'v1..2', 'eanew'));
 rejects('version starting with a dot', () => deliveryPrefix('G', '.v3', 'eanew'));
 rejects('empty version', () => deliveryPrefix('G', '', 'eanew'));
+rejects('brand that is a path', () => deliveryPrefix('G', 'v3', 'eanew/../x'));
 
 // ── The suggested versionPath never reuses a delivered one ────────────────────
 check('first delivery', nextVersionPath([]), 'v1');

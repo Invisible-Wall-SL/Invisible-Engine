@@ -630,11 +630,15 @@ bucket, through the portal (`api/launcher/delivery-upload`, `partnerDelivery.ts`
   for that bucket, so it is a launcher env var (`DELIVERY_R2_*`, `docs/INFRA.md`) and the uploader
   needs only a portal sign-in with `gamePublish`, like ☁ Publish. That also keeps it working from a
   line that null-routes `*.r2.cloudflarestorage.com`.
-- **Verify, prune, seal, then smoke-test.** The commit refuses while a declared file is missing (re-run
-  resumes: files already there with the same MD5 are skipped), prunes leftovers from an abandoned
-  attempt at the same `versionPath`, seals, then fetches `game.js` at the public URL with an
-  `Origin` header and reports the status and `Access-Control-Allow-Origin`. Their art loads
-  cross-origin and WebGL refuses a texture without CORS, so a missing rule would be a blank game.
+- **Verify, prune, seal, then smoke-test.** The commit refuses while a declared file is missing or
+  its MD5 differs, so two publishers handed the same suggested `versionPath` cannot seal a mix of
+  both builds. Re-running resumes: files already there with the same MD5 are skipped. No object is
+  overwritten in place (`If-None-Match: *`); a resumed upload replacing a different file deletes it
+  first, which only an unsealed folder allows. Then it prunes leftovers from an abandoned attempt
+  at the same `versionPath`, seals (the record lists every file's MD5), and fetches `game.js` at the
+  public URL with an `Origin` header, reporting the status and `Access-Control-Allow-Origin`. Their
+  art loads cross-origin and WebGL refuses a texture without CORS, so a missing rule would be a
+  blank game.
 - **`embed.html` is refused** at any path: it is the app-server half and never goes on the CDN.
 
 Open: the desktop **📦 Deliver** dialog (the `invisible-launcher` repo) should offer **⬆ Upload**

@@ -24,12 +24,14 @@ import type { RequestHandler } from './$types';
 //   GET  ?alias=<gameAlias>[&version=<versionPath>]   config, delivered versions, suggested next
 //                                                     versionPath; with &version, what it holds
 //   PUT  ?alias=…&version=…&path=<rel>  raw bytes  → {brand}/games/{version}/{alias}/{rel}
-//   POST ?alias=…&version=…  {files[], build}      → verify + prune + seal; reports the served URL
+//   POST ?alias=…&version=…  {files: [{path, md5}], build} → verify + prune + seal; reports the URL
 //
 // Bearer token from POST /api/launcher/login and the `gamePublish` capability, like every other
 // publish step. 401/403 auth, 400 bad alias/version/path/body, 409 already delivered or the upload
 // is incomplete, 413 too big, 503 the partner bucket is not configured. Never logs the body.
 const NO_STORE = { 'cache-control': 'no-store' };
+const MAX_FILES = 50_000;
+const MAX_BUILD_INFO = 64 * 1024;
 
 function params(url: URL): { alias: string; version: string } {
 	return {
@@ -110,9 +112,20 @@ export const POST: RequestHandler = async ({ request, url }) => {
 	} catch {
 		return json({ error: 'Invalid JSON' }, { status: 400, headers: NO_STORE });
 	}
-	const files = Array.isArray(body.files) ? body.files.filter((f) => typeof f === 'string') : [];
-	if (files.length === 0) {
-		return json({ error: 'files must be a non-empty list' }, { status: 400, headers: NO_STORE });
+	const files = Array.isArray(body.files)
+		? body.files.filter(
+				(f): f is { path: string; md5: string } =>
+					typeof f?.path === 'string' && typeof f?.md5 === 'string',
+			)
+		: [];
+	if (files.length === 0 || files.length !== (body.files as unknown[]).length) {
+		return json(
+			{ error: 'files must be a non-empty list of {path, md5}' },
+			{ status: 400, headers: NO_STORE },
+		);
+	}
+	if (files.length > MAX_FILES || JSON.stringify(body.build ?? null).length > MAX_BUILD_INFO) {
+		return json({ error: 'files or build is too large' }, { status: 413, headers: NO_STORE });
 	}
 
 	const result = await commitDelivery({
