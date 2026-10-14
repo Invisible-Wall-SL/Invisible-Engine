@@ -126,6 +126,19 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-14 — **New gate: a Svelte component may not read a binding before it is initialized.**
+  `scripts/check-svelte-init-order.mjs` (`pnpm check:svelte-init-order`, discovered by `check:all`,
+  ~10 s) exists because #1190 crashed `/editor` on every load with a top-level
+  `untrack(() => lease.readOnly)` above `const lease` (fixed in #1195), and no gate models
+  declaration order. It compiles each `.svelte` file git knows for the client and walks the
+  component function's top-level statements in order. A function body counts only where it runs
+  on the spot: an IIFE, a top-level function called by name (transitively), a callback given to
+  `untrack` (any alias), `$effect.pre`, a `$bindable` fallback, `new Promise` or an array method, and
+  a `$derived` thunk the statement reads. `$effect`, `onMount`, handlers, snippets and stored
+  functions are deferred, and an async body stops at its first `await`. A function's own
+  declarations shadow the component's. A hit names the source line. Not modelled: class static
+  initializers, `<script module>` order, and callbacks given to other callees. A self-test of
+  known-bad and known-good components runs first, so a blind or noisy walk fails the gate itself.
 - 2026-10-08 — **current-games no longer fails games republished mid-run.** Each render shard used
   to re-read `test_server/games.json` from R2 minutes after the plan hashed it. The launcher rewrites
   that one key on every publish (`upsertTestServerGame`, and the entry's `updatedAt` is part of the
