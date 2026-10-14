@@ -362,8 +362,13 @@ assert(
 		'the strip is a seconds scrub of its clip',
 	);
 	assert(
-		merged[1].fromSetup === true && own[0].fromSetup === undefined,
-		'the strip poses from the setup pose (it owns the rig); an own scrub rides on top of what plays',
+		!('fromSetup' in merged[1]) && own[0].fromSetup === undefined,
+		'over a running track the strip layers on what plays (main); an own scrub rides on top too',
+	);
+	const trackless = mod.withTimelineScrub(own, { animation: 'wipe', time: 0.8 }, true);
+	assert(
+		trackless[1].fromSetup === true,
+		'on a rig with no track the strip poses from the setup pose (it owns the rig)',
 	);
 	assert(own.length === 1 && own[0].unit === undefined, 'the own scrubs are not mutated');
 }

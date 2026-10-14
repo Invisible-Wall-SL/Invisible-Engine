@@ -138,6 +138,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	internal: true,
 	inputs: true,
 	stateMachine: true,
+	frameExact: true,
 	events: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
