@@ -591,14 +591,6 @@
 		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
 	}
 
-	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
-	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
-	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
-	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
-	 *  below still asks about unsaved work. */
-	// Only from a clean, idle doc (`hopRefusal` — the shared `SaveState`'s dirty flag can clear
-	// over a pending edit, fixed separately): otherwise a dialog says the pill's way out and the
-	// author stays. Never through `lastError`, which is the save pill's own.
 	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
 	// layout saves (and a hop is allowed) without another edit.
 	let wasReadOnly = untrack(() => lease.readOnly);
@@ -610,6 +602,14 @@
 			wasReadOnly = readOnly;
 		});
 	});
+	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
+	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
+	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
+	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
+	 *  below still asks about unsaved work.
+	 *
+	 *  Only from a clean, idle doc (`hopRefusal`): otherwise a dialog says the pill's way out and
+	 *  the author stays. Never through `lastError`, which is the save pill's own. */
 	async function showInFlow(nodeId: string): Promise<void> {
 		const why = hopRefusal({
 			what: 'layout',

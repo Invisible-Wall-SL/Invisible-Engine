@@ -115,9 +115,8 @@ export interface HopDoc {
 
 /**
  * Why a hop to the other tool is refused right now, or `null` when every doc is clean and idle.
- * A save landing over a later edit clears the shared `SaveState`'s dirty flag without it (fixed in
- * its own PR), so the only safe hop is from clean, idle docs; every other state names the pill's
- * own way out. The first refusal wins.
+ * The only safe hop is from clean, idle docs; every other state names the pill's own way out. The
+ * first refusal wins.
  */
 export function hopRefusal(...docs: HopDoc[]): string | null {
 	for (const doc of docs) {
