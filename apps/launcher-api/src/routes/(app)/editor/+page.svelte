@@ -77,7 +77,7 @@
 		RigRestOverride,
 		TemplateSlot,
 	} from 'engine-layout';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
@@ -599,11 +599,32 @@
 	// Only from a clean, idle doc (`hopRefusal` — the shared `SaveState`'s dirty flag can clear
 	// over a pending edit, fixed separately): otherwise a dialog says the pill's way out and the
 	// author stays. Never through `lastError`, which is the save pill's own.
+	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
+	// layout saves (and a hop is allowed) without another edit.
+	let wasReadOnly = untrack(() => lease.readOnly);
+	$effect(() => {
+		const readOnly = lease.readOnly;
+		untrack(() => {
+			if (wasReadOnly && !readOnly && saveState.dirty && !crossTypeLoaded && !projectDrift)
+				saveState.rearmAutosave();
+			wasReadOnly = readOnly;
+		});
+	});
 	async function showInFlow(nodeId: string): Promise<void> {
 		const why = hopRefusal({
+			what: 'layout',
 			status: saveState.status,
 			dirty: saveState.dirty,
 			readOnly: lease.readOnly,
+			// A dirty layout saves itself unless it is a cross-type preview (Save as / Discard), the
+			// tab's project drifted (the banner's Reload), or the autosave failed (the pill's Save).
+			manual: crossTypeLoaded
+				? 'cross-type'
+				: projectDrift
+					? 'drift'
+					: saveState.status === 'error'
+						? 'save'
+						: undefined,
 		});
 		if (why) {
 			await askMessage({ title: 'Not yet', message: why });

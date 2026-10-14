@@ -143,19 +143,39 @@ const at = { x: 0, y: 0 };
 		[U.flowHrefForInstance('proj', 'c_a'), U.editorHrefForComponent('proj', 'banner')],
 		['/flow-v2?project=proj&instance=c_a', '/editor?project=proj&component=banner'],
 	);
+	const clean = { what: 'flow', status: 'saved' as const, dirty: false };
 	eq(
-		'3. a hop is refused from anything but a clean, idle doc, naming the pill’s way out',
+		'3. a hop is refused from anything but clean, idle docs, naming each pill’s own way out; a read-only tab with a clean doc may leave',
 		[
-			U.hopRefusal({ status: 'saved', dirty: false }),
-			U.hopRefusal({ status: 'idle', dirty: false }),
-			U.hopRefusal({ status: 'saving', dirty: true })?.startsWith('Still saving'),
-			U.hopRefusal({ status: 'saved', dirty: true })?.includes('not saved yet'),
-			U.hopRefusal({ status: 'conflict', dirty: true })?.includes('Reload theirs or Overwrite'),
-			U.hopRefusal({ status: 'error', dirty: true })?.includes('Retry'),
-			U.hopRefusal({ status: 'scope-mismatch', dirty: false })?.includes('another project'),
-			U.hopRefusal({ status: 'saved', dirty: false, readOnly: true })?.includes('Take over'),
+			U.hopRefusal(clean),
+			U.hopRefusal({ ...clean, status: 'idle' }),
+			U.hopRefusal({ ...clean, readOnly: true }),
+			U.hopRefusal({ ...clean, readOnly: true, dirty: true })?.includes('Take over'),
+			U.hopRefusal({ ...clean, status: 'saving', dirty: true })?.startsWith(
+				'Still saving the flow',
+			),
+			U.hopRefusal({ ...clean, dirty: true })?.includes('not saved yet'),
+			U.hopRefusal({ ...clean, status: 'conflict', dirty: true })?.includes(
+				'Reload theirs or Overwrite',
+			),
+			U.hopRefusal({ ...clean, status: 'error', dirty: true })?.includes('Retry in its save pill'),
+			U.hopRefusal({ ...clean, status: 'error', dirty: true, manual: 'save' })?.includes(
+				'press Save',
+			),
+			U.hopRefusal({ ...clean, status: 'scope-mismatch' })?.includes('another project'),
+			U.hopRefusal({ ...clean, dirty: true, manual: 'cross-type' })?.includes(
+				'Save as, or Discard',
+			),
+			U.hopRefusal({ ...clean, dirty: true, manual: 'drift' })?.includes('Reload (the banner)'),
+			U.hopRefusal({ ...clean, dirty: true, manual: 'save' })?.includes('press Save'),
+			U.hopRefusal(clean, { what: 'function library', status: 'saving', dirty: true })?.includes(
+				'function library',
+			),
+			U.hopRefusal(clean, { what: 'function library', status: 'conflict', dirty: true })?.includes(
+				'function library',
+			),
 		],
-		[null, null, true, true, true, true, true, true],
+		[null, null, null, true, true, true, true, true, true, true, true, true, true, true, true],
 	);
 	eq(
 		'3. the Flow page reads its deep link',
@@ -385,6 +405,7 @@ const at = { x: 0, y: 0 };
 			'if (body.projectKey !== data.projectKey || !body.instances) return;',
 			'void editComponentOf(model.instance);',
 			'if (await refuseHop()) return;\n\t\twindow.location.assign(href);',
+			"{ what: 'function library', status: libraryState.status, dirty: libraryState.dirty },",
 			'if (await refuseHop()) return;\n\t\tconst ok = await askConfirm({',
 			'if (wasReadOnly && !readOnly && saveState.dirty) saveState.rearmAutosave();',
 			'if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));',
@@ -401,6 +422,7 @@ const at = { x: 0, y: 0 };
 			'<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />',
 		]),
 		[
+			true,
 			true,
 			true,
 			true,
@@ -532,12 +554,14 @@ const at = { x: 0, y: 0 };
 			]),
 			has(editor, [
 				"await askMessage({ title: 'Not yet', message: why });",
+				"manual: crossTypeLoaded\n\t\t\t\t? 'cross-type'\n\t\t\t\t: projectDrift\n\t\t\t\t\t? 'drift'\n\t\t\t\t\t: saveState.status === 'error'\n\t\t\t\t\t\t? 'save'\n\t\t\t\t\t\t: undefined,",
+				'if (wasReadOnly && !readOnly && saveState.dirty && !crossTypeLoaded && !projectDrift)',
 				'window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));',
 				'onShowInFlow={animating ? undefined : (node) => showInFlow(node.id)}',
 				'onShowInFlow={showInFlow}',
 			]),
 		),
-		[true, true, true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true, true, true, true],
 	);
 	const panel = source('src/routes/(app)/editor/EditorStateMachinePanel.svelte');
 	eq(

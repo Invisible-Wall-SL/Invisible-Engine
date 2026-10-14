@@ -1065,8 +1065,26 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			[w.readInstanceValue(ref, 'main.state'), w.liveInstance(ref)?.sceneId, trace],
 			['win', 'hud', []],
 		);
-		w.dispose();
+		// A wait on hud holds on the hud handle: basegame mounting on top (or leaving) does not
+		// release it; hud reaching the state does.
+		hudState.main = 'idle';
+		let settled = false;
+		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
+		await tick();
 		offBase();
+		const offBaseAgain = G.registerFlowInstance({ ...base.handle, sceneId: 'basegame' });
+		await tick();
+		const stillHeld = !settled;
+		hudState.main = 'win';
+		hud.change();
+		await p;
+		eq(
+			'6b. a wait judged on its screen survives another screen’s same-id mount and unmount',
+			[stillHeld, settled, trace.at(-1)],
+			[true, true, 'instance RELEASE c_banner main.state == win ▶ reached'],
+		);
+		w.dispose();
+		offBaseAgain();
 		offHud();
 		G.clearFlowInstances();
 	}
@@ -1183,19 +1201,25 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			'skip: roundSkip,',
 			'sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,',
 			'stashFlowInstanceInput,',
+			'clearFlowInstanceStash,',
 			'onFlowInstanceDrop,',
 			'dispose: waits.dispose,',
 		].map((line) => runtime.includes(line)),
-		[true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true],
 	);
 	eq(
-		'8. the game releases the flow handle on destroy, even one built after the destroy',
-		[
-			'destroyed = true;',
-			'disposeFlowV2?.();',
-			'if (destroyed) {\n\t\t\t\tflowV2?.dispose();\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tdisposeFlowV2 = flowV2?.dispose;\n\t\t\tsetFlowV2(flowV2);',
-		].map((line) => source('apps/lines/src/components/Game.svelte').includes(line)),
-		[true, true, true],
+		'8. the game releases the flow handle on destroy, and builds none for a Game already destroyed',
+		(() => {
+			const game = source('apps/lines/src/components/Game.svelte');
+			const guard = game.indexOf('if (destroyed) return;');
+			return [
+				game.includes('destroyed = true;'),
+				game.includes('disposeFlowV2?.();'),
+				guard > 0 && guard < game.indexOf('const flowV2 = createLinesFlowV2('),
+				game.includes('disposeFlowV2 = flowV2?.dispose;\n\t\t\tsetFlowV2(flowV2);'),
+			];
+		})(),
+		[true, true, true, true],
 	);
 	eq(
 		'8. a raised event plays no press sound',

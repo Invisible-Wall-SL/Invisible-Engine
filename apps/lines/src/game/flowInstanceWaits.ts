@@ -212,7 +212,8 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			return;
 		}
 		// The handle resolved a tick ago: one that unregistered meanwhile would hold until a slam.
-		if (deps.getFlowInstance(ref.instance) !== handle) {
+		const scene = deps.sceneIdOf(ref.container);
+		if (deps.getFlowInstanceOn(ref.instance, scene) !== handle) {
 			deps.trace('instance wait', label, '· skipped (instance left the screen)');
 			return;
 		}
@@ -237,8 +238,11 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 				if (handle.stateOf(layer) === state) finish('▶ reached');
 				else if (!handle.shown()) finish('▶ instance hidden');
 			});
-			unwatch = deps.watchFlowInstance(ref.instance, (next) => {
-				if (next !== handle) finish('▶ instance left the screen');
+			unwatch = deps.watchFlowInstance(ref.instance, () => {
+				// Judged on the node's screen: another screen's same-id placement mounting on top (or
+				// leaving) is not this one leaving.
+				if (deps.getFlowInstanceOn(ref.instance, scene) !== handle)
+					finish('▶ instance left the screen');
 			});
 			unskip = deps.skip.onSkip(() => finish('▶ slammed'));
 			// A synchronous fire (the token tripped between the check above and here) released the

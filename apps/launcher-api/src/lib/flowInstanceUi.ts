@@ -9,6 +9,7 @@ import {
 	type Pin,
 } from 'engine-flow-v2';
 import { componentsHref } from './componentLinks';
+import type { SaveStatus } from './saveState.svelte';
 
 /**
  * The `/flow-v2` editor's placed-instance helpers (Rive plan §6.2, Phase 7b), pure so the gate
@@ -98,31 +99,62 @@ const withProject = (projectKey: string): URLSearchParams => {
 	return params;
 };
 
-/**
- * Why a hop to the other tool is refused right now, or `null` when the doc is clean and idle. A
- * save landing over a later edit clears the shared `SaveState`'s dirty flag without it (fixed in
- * its own PR), so the only safe hop is from a clean, idle doc; every other state names the pill's
- * own way out.
- */
-export function hopRefusal(save: {
-	status: 'idle' | 'saving' | 'saved' | 'error' | 'conflict' | 'scope-mismatch';
+/** One document a hop must leave clean: its save state, and why a dirty one would not save itself. */
+export interface HopDoc {
+	/** How the message names it: "flow", "function library", "layout". */
+	what: string;
+	status: SaveStatus;
 	dirty: boolean;
+	/** Another author holds the lease. A clean doc may still leave; a dirty one cannot save. */
 	readOnly?: boolean;
-}): string | null {
-	if (save.readOnly) return 'Another author holds this document — Take over (or reload) first.';
-	switch (save.status) {
+	/** Why a dirty doc will NOT autosave, naming its own way out: a preview of another game kind
+	 *  (`Save as` / `Discard`), a project drift (the banner's Reload), or a save that only a press
+	 *  of Save retries (the editor after an autosave error). */
+	manual?: 'cross-type' | 'drift' | 'save';
+}
+
+/**
+ * Why a hop to the other tool is refused right now, or `null` when every doc is clean and idle.
+ * A save landing over a later edit clears the shared `SaveState`'s dirty flag without it (fixed in
+ * its own PR), so the only safe hop is from clean, idle docs; every other state names the pill's
+ * own way out. The first refusal wins.
+ */
+export function hopRefusal(...docs: HopDoc[]): string | null {
+	for (const doc of docs) {
+		const why = docRefusal(doc);
+		if (why) return why;
+	}
+	return null;
+}
+
+function docRefusal(doc: HopDoc): string | null {
+	const { what } = doc;
+	if (doc.readOnly && doc.dirty)
+		return `Another author holds this ${what} and your edits cannot save — Take over first, or reload and lose them.`;
+	switch (doc.status) {
 		case 'saving':
-			return 'Still saving — try again in a moment.';
+			return `Still saving the ${what} — try again in a moment.`;
 		case 'conflict':
-			return 'Someone else saved meanwhile — choose Reload theirs or Overwrite in the save pill first.';
+			return `Someone else saved the ${what} meanwhile — choose Reload theirs or Overwrite in its save pill first.`;
 		case 'scope-mismatch':
 			return 'This tab is on another project — reload it first.';
 		case 'error':
-			return 'The last save failed — Retry in the save pill first.';
+			return doc.manual === 'save'
+				? `The last ${what} save failed — press Save first.`
+				: `The last ${what} save failed — Retry in its save pill first.`;
 		default:
-			return save.dirty
-				? 'Your edits are not saved yet — they save in a moment; try again then.'
-				: null;
+			break;
+	}
+	if (!doc.dirty) return null;
+	switch (doc.manual) {
+		case 'cross-type':
+			return 'This preview of another game kind never autosaves — Save as, or Discard it, first.';
+		case 'drift':
+			return "This tab's project changed — Reload (the banner) first.";
+		case 'save':
+			return `Your ${what} edits are not saved — press Save first.`;
+		default:
+			return `Your ${what} edits are not saved yet — they save in a moment; try again then.`;
 	}
 }
 

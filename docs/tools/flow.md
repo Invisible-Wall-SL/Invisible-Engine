@@ -415,9 +415,10 @@ traces each case.
 
 **Jumps.** Double-click a component node or a wait node (or the inspector's **◇ Edit
 component**) to open its component in the Scene Editor, in place — a confirmation asks first.
-The hop waits for a clean, saved flow: while a save is still running, your edits are not saved
-yet, or the save pill wants a decision (Reload theirs / Overwrite, Retry, Take over), a message
-says so and nothing moves — settle the pill, then try again. From the Scene Editor, select a placement and
+The hop refuses unless the flow and its function library are clean and saved: while a save is
+still running, your edits are not saved yet, or a save pill wants a decision (Reload theirs /
+Overwrite, Retry, Take over), a message says so and nothing moves — settle the pill, then try
+again. From the Scene Editor, select a placement and
 use Properties → **↗ Show in Flow** (or right-click it on the stage): Flow opens on the node that
 names it, or lights its palette entry when no node does yet. Both keep the project pinned in
 the address bar. A node you have just placed reads **loading pins…** for a moment while Flow

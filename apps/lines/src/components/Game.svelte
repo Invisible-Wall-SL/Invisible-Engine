@@ -2127,6 +2127,9 @@
 			// screens). When it DRIVES screens it is the SOLE screen renderer (its containers via
 			// `<FlowV2Mount>`); its shown set becomes `activeScreenIds` (so the engine gates track it) and
 			// the v1 interpreter is NOT built (both mounting every screen is the double-logo/tap bug).
+			// A Game destroyed while the scenes loaded builds no flow: a handle built only to be
+			// disposed would still wipe the shared instance stash under another live Game (HMR).
+			if (destroyed) return;
 			const flowV2 = createLinesFlowV2(
 				doc,
 				(containers) => {
@@ -2139,12 +2142,6 @@
 				// body the button press runs (shared with v1's `invokeIntent`).
 				(intent) => invokeHostIntent(intent),
 			);
-			// A Game destroyed while the scenes loaded publishes nothing: the handle is released and
-			// no screen, mode or `load` runs on a dead Game.
-			if (destroyed) {
-				flowV2?.dispose();
-				return;
-			}
 			disposeFlowV2 = flowV2?.dispose;
 			setFlowV2(flowV2);
 			// The mode stack presents its transitions through this flow's Mode trigger entries, if any.

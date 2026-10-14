@@ -68,8 +68,9 @@
   new right-click menu on a placed instance (rendered only while open; any key closes it),
   `EditorStateMachinePanel` plays the bridge through its own `fire` / `setPreviewInput`. Every
   jump keeps `?project=`; a hop refuses, visibly (`hopRefusal`, a dialog naming the pill's way
-  out: still saving, not saved yet, Reload theirs / Overwrite, Retry, reload, Take over), unless
-  the doc is clean and idle (a save landing over a later edit clears the dirty flag without it —
+  out: still saving, not saved yet, Reload theirs / Overwrite, Retry, reload, Take over, the
+  editor's Save as / Discard, drift Reload and Save), unless the doc — and Flow's function library
+  — is clean and idle (a read-only tab with a clean doc may leave) (a save landing over a later edit clears the dirty flag without it —
   `SaveState`, fixed in its own PR); taking the lease over re-arms the autosave of a dirty doc. A flow naming no instance loads the latest defs only: a placement pinned below latest
   is `unpinned` (the latest interface stands in, nothing on its nodes reads stale, the node says
   "loading pins…") until the first instance node re-reads the exact pins; a failed re-read shows

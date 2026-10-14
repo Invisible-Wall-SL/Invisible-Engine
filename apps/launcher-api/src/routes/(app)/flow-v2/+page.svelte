@@ -977,11 +977,10 @@
 	// Leave for another tool page — only from a clean, idle doc (`hopRefusal`): otherwise say what
 	// the pill's way out is and stay.
 	const refuseHop = async (): Promise<boolean> => {
-		const why = hopRefusal({
-			status: saveState.status,
-			dirty: saveState.dirty,
-			readOnly: lease.readOnly,
-		});
+		const why = hopRefusal(
+			{ what: 'flow', status: saveState.status, dirty: saveState.dirty, readOnly: lease.readOnly },
+			{ what: 'function library', status: libraryState.status, dirty: libraryState.dirty },
+		);
 		if (!why) return false;
 		await askMessage({ title: 'Not yet', message: why });
 		return true;
