@@ -115,6 +115,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-14 — **`/editor` crashed on every load** (#1190 → fixed in #1195): the lease take-over
+  re-arm block read `lease` in an initializer ~1500 lines above `const lease`, so the component
+  script threw `Cannot access … before initialization` (the component editor is the same page). The
+  block now follows `saveState`. **Gate:** `pnpm check:svelte-init-order`
+  (`scripts/check-svelte-init-order.mjs`, run by `check:all`) compiles every `.svelte` file and
+  fails on any top-level read of a later `let`/`const`/`class` — `vite build`, `svelte-check` and
+  `check:undefined-names` all pass such a file.
 - 2026-10-14 — **Game Settings → Authored overlays (pilot) → Transition** (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`): one checkbox, enabled for `canPublishShared` holders (the
   component-publish capability, admin by default) and shown read-only to others while on — the save
