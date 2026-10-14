@@ -385,7 +385,8 @@ server-side, so there is no button that would 403).
 
 ### 6. Use it on a screen
 
-Go back to a screen (the first crumb, Esc, or a screen in **Browse**) and find the component in
+Go back to a screen (the **←** crumb at the left of the editor bar, Esc, or a screen in
+**Browse**) and find the component in
 the left pane's **Components** list or the Library tab's Components panel. From there you can:
 
 - **Place** an instance into the active screen (drops a `componentInstance` node),

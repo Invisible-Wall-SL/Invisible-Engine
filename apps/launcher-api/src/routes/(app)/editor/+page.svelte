@@ -136,6 +136,9 @@
 	 * canvas whichever screen is edited. Editing a mode screen switches to its mode. Persisted with
 	 * the rest of the UI layout. */
 	let viewMode = $state<string | undefined>(undefined);
+	/** The canvas's "Any screen" picking: a click selects whatever is drawn under it, switching to
+	 * that node's screen. Persisted with the rest of the UI layout. */
+	let pickAnyScreen = $state(false);
 	/** Canvas frame sizes per layoutType — `$state` (not `data.doc`) so loading a
 	 * game scene that ships its own `mainSizesMap` resizes the canvas. */
 	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
@@ -387,6 +390,7 @@
 				hiddenScenes?: string[];
 				gameView?: boolean;
 				viewMode?: string;
+				pickAnyScreen?: boolean;
 				libExpanded?: string[];
 			};
 			// Only the always-available right tabs — `template` is mode-gated.
@@ -396,6 +400,7 @@
 			}
 			if (typeof s.gameView === 'boolean') gameView = s.gameView;
 			if (typeof s.viewMode === 'string' && !activeSceneModeId) viewMode = s.viewMode;
+			if (typeof s.pickAnyScreen === 'boolean') pickAnyScreen = s.pickAnyScreen;
 			// Restore the expanded Library atlases — <EditorAssetLibrary> hydrates each
 			// open key's regions on mount.
 			if (Array.isArray(s.libExpanded)) {
@@ -414,6 +419,7 @@
 			hiddenScenes: [...hiddenScenes],
 			gameView,
 			viewMode,
+			pickAnyScreen,
 			libExpanded: Object.keys(expanded).filter((k) => expanded[k]),
 		});
 		if (!uiLoaded || typeof localStorage === 'undefined') return;
@@ -591,17 +597,6 @@
 		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
 	}
 
-	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
-	// layout saves (and a hop is allowed) without another edit.
-	let wasReadOnly = untrack(() => lease.readOnly);
-	$effect(() => {
-		const readOnly = lease.readOnly;
-		untrack(() => {
-			if (wasReadOnly && !readOnly && saveState.dirty && !crossTypeLoaded && !projectDrift)
-				saveState.rearmAutosave();
-			wasReadOnly = readOnly;
-		});
-	});
 	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
 	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
 	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
@@ -1312,6 +1307,14 @@
 		if (idx < 0 || idx >= scenes.length) return;
 		activeSceneIdx = idx;
 		clearSelection();
+	}
+
+	/** The canvas's "Any screen" click on another screen's node: edit that screen, node selected. */
+	function pickInScene(sceneId: string, nodeId: string): void {
+		const idx = scenes.findIndex((s) => s.id === sceneId);
+		if (idx === -1) return;
+		selectScene(idx);
+		selectOnly(nodeId);
 	}
 
 	/** Set the active scene's coordinate space. `'game'` is the default → omit it
@@ -2156,6 +2159,19 @@
 			}
 			return { ok: true, etag: out.etag ?? null };
 		},
+	});
+
+	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
+	// layout saves (and a hop is allowed) without another edit. Declared after `lease` and
+	// `saveState`: the initializer reads `lease` while the component script runs.
+	let wasReadOnly = untrack(() => lease.readOnly);
+	$effect(() => {
+		const readOnly = lease.readOnly;
+		untrack(() => {
+			if (wasReadOnly && !readOnly && saveState.dirty && !crossTypeLoaded && !projectDrift)
+				saveState.rearmAutosave();
+			wasReadOnly = readOnly;
+		});
 	});
 
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
@@ -3487,6 +3503,8 @@
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : editInstanceInPlace}
 						onShowInFlow={animating ? undefined : (node) => showInFlow(node.id)}
+						bind:pickAnyScreen
+						onPickInScene={animating ? undefined : pickInScene}
 						canUndo={canUndo && !animating}
 						canRedo={canRedo && !animating}
 						onUndo={undo}

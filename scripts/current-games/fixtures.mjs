@@ -205,6 +205,7 @@ for (const [key, make] of Object.entries(FIXTURES)) {
 		builtAt: null,
 		publishedPointerKey: `fixtures/${key}/published/pointer.json`,
 		hasOwnBuiltBundle: false,
+		standIn: true,
 		local: {
 			snapshot: dir,
 			publishedBuiltins: join(dir, 'published-builtins.json'),

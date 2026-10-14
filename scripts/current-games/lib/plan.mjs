@@ -111,6 +111,7 @@ export async function makePlan({ games, manifest, only, scenarioIds }) {
 			hasOwnBuiltBundle: Boolean(g.hasOwnBuiltBundle),
 			publishedPointerKey: g.publishedPointerKey,
 			...(g.local ? { local: g.local } : {}),
+			...(g.standIn ? { standIn: true } : {}),
 		};
 		const entry = { game, script: scriptFor(g.gameType), notes: [], scenarios: [] };
 		planned.push(entry);
