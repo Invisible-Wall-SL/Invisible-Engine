@@ -585,8 +585,8 @@ left alone.
 ### The button
 
 The desktop launcher's **📦 Deliver** (a separate repo, `Invisible-Wall-SL/invisible-launcher`) is
-what makes a delivery something other than a thing you type. It is not a publish: nothing is
-uploaded, no card is registered, the test server is never told.
+what makes a delivery something other than a thing you type. It is not a publish: no card is
+registered and the test server is never told. (Since Phase 5 it does upload, to the partner's CDN.)
 
 It **cannot** run `build-delivery.mjs` in one shot, and the reason generalises to any GUI caller:
 `vite build` regularly finishes writing its output and then never exits — an open sass-embedded or
@@ -608,15 +608,12 @@ second is the one people skip.
 
 The partner gave us an R2 bucket in **their** Cloudflare account, served at
 `https://devr2.2-complex.science`, which their server passes to the page as `cdnUrl`. One partner,
-one bucket. A delivery no longer has to be handed over as a zip:
-
-```
-node engine/scripts/upload-delivery.mjs delivery --alias BookOfBorut [--version v3]
-```
-
-uploads the folder `build-delivery.mjs` wrote to `{brand}/games/{versionPath}/{gameAlias}/` in that
-bucket, through the portal (`api/launcher/delivery-upload`, `partnerDelivery.ts`), and prints the
-`versionPath` to tell them.
+one bucket. A delivery no longer has to be handed over as a zip: the desktop **📦 Deliver**
+(launcher v1.0.57, `upload_delivery_via_portal`) uploads the folder `build-delivery.mjs` wrote to
+`{brand}/games/{versionPath}/{gameAlias}/` in that bucket, through the portal
+(`api/launcher/delivery-upload`, `partnerDelivery.ts`), and its result dialog names the
+`versionPath` to tell them. `scripts/upload-delivery.mjs <folder> --alias <gameAlias>` does the same
+from a terminal.
 
 - **We pick `versionPath`.** It is frontend-only, so it is ours: the portal suggests one past the
   highest `v<N>` the game has been delivered under (`v1`, `v2`, …); `--version` overrides it.
@@ -640,9 +637,6 @@ bucket, through the portal (`api/launcher/delivery-upload`, `partnerDelivery.ts`
   art loads cross-origin and WebGL refuses a texture without CORS, so a missing rule would be a
   blank game.
 - **`embed.html` is refused** at any path: it is the app-server half and never goes on the CDN.
-
-Open: the desktop **📦 Deliver** dialog (the `invisible-launcher` repo) should offer **⬆ Upload**
-by calling the same endpoint. Until then the CLI is how a delivery is uploaded.
 
 ## Open questions for the partner
 

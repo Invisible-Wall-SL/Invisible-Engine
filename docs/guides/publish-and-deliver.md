@@ -15,7 +15,7 @@ The **engine** that online games run is shipped separately, by a merge to `main`
 | --- | --- | --- | --- | --- |
 | **Online Publish** | `https://games.invisiblewall.org/<key>/`, against the mock RGS | the shared engine runtime, which every online game follows | a **published version** (snapshot) in R2 | `/game-maker` in the launcher |
 | **Desktop ☁ Publish** | `https://games.invisiblewall.org/<cloud key>/`, against the mock RGS | compiled into this build from the game repo's engine submodule | the build itself | the desktop Invisible Launcher |
-| **Desktop 📦 Deliver** | a partner's own site | compiled into this build, like ☁ Publish | the build itself; nothing is uploaded | the desktop Invisible Launcher |
+| **Desktop 📦 Deliver** | a partner's own site | compiled into this build, like ☁ Publish | the build itself, uploaded to the partner's CDN | the desktop Invisible Launcher |
 
 A game made in Game Maker uses the online path. A game only needs its own repo and a desktop build
 when it goes to a partner, or when it needs compiled code of its own.
@@ -196,12 +196,11 @@ desktop builds relate to the online path.
 - **Keep the keys apart.** An online game and a desktop build of the same game need different keys,
   for example `<game>remake` online and `<game>` for the desktop build. Each path refuses to
   overwrite the other's game.
-- **📦 Deliver uploads nothing.** No card is registered and the test server is not told.
-  **▶ Play it** in the result dialog is the only way to open a delivery before the partner does.
-- **Uploading to the partner's CDN** is a separate step:
-  `node engine/scripts/upload-delivery.mjs delivery --alias <gameAlias>` from the game repo, signed
-  in with a `gamePublish` portal account. It prints the `versionPath` to give the partner. A
-  delivered `versionPath` is never overwritten, so every upload gets a new one. See
+- **📦 Deliver registers no card** and the test server is not told. **▶ Play it** in the result
+  dialog is the only way to open a delivery before the partner does.
+- **📦 Deliver uploads to the partner's CDN** (launcher v1.0.57 or newer; untick the box in its
+  dialog to only build). The result dialog shows the public URL and the `versionPath` to give the
+  partner. A delivered `versionPath` is never overwritten, so every Deliver gets a new one. See
   [delivery-builds.md](../design/delivery-builds.md) Phase 5.
 
 ## If it goes wrong

@@ -269,8 +269,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `{brand}/games/{versionPath}/{gameAlias}/`. We pick `versionPath`: the portal suggests the next
   `v<N>`. A committed version folder is sealed and never written again; every file is `immutable`.
   The commit verifies, prunes, seals, then reports whether `game.js` is served with CORS. Needs the
-  `DELIVERY_R2_*` env on the launcher (`docs/INFRA.md`). Open: an ⬆ Upload button in the desktop
-  📦 Deliver dialog (`invisible-launcher` repo).
+  `DELIVERY_R2_*` env on the launcher (`docs/INFRA.md`). The desktop 📦 Deliver uploads through
+  the same endpoint automatically from launcher v1.0.57 (`invisible-launcher` #17).
 - 2026-10-14 — **Two cue-anchored current-games scenarios, `fs-transition` and `big-win-intro`, in
   `screens/lines.json` and `screens/bookOf.json`** (PR #1197, Rive plan §13.5 #7). `fs-transition`
   captures 60 frames after the Flow v2 `transition` cue; `bigwin-intro-12` / `bigwin-intro-48` 12
