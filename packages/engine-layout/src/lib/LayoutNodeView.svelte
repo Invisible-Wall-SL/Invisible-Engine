@@ -92,6 +92,7 @@
 	import { getComponentValueSource } from './registerComponentValues';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
+	import { EDITOR_RIG_LOAD_SCALE } from './rigLoadScale';
 
 	const { node, space, attachedEffects, slotRiders }: Props = $props();
 	const layoutContext = getContextLayout();
@@ -436,6 +437,12 @@
 		transform.height !== undefined ? transform.height * sizeScaleY : undefined,
 	);
 	const sizedScale = $derived(hasExplicitSize ? undefined : transform.scale);
+	// A rig whose `boardFit` is param-bound and resolves OFF (a placed win presentation) renders at
+	// the NATURAL size the coded placed `win` drew: the bundle's load scale divided out, as
+	// `WinAnimation` does without a width. Every other rig keeps its size (the bound case only).
+	const naturalRigLoadScale = $derived(
+		boundBoardFit === false && !hasExplicitSize ? EDITOR_RIG_LOAD_SCALE : undefined,
+	);
 
 	// A background RIG covers via pixi-svelte's `fit`: feed the full canvas box on
 	// BOTH axes (× the cover multiplier) and the doc fit; `RigProvider`/`rigSizeScale`
@@ -1353,6 +1360,7 @@
 				width={bgRigBox ? bgRigBox.width : sizedWidth}
 				height={bgRigBox ? bgRigBox.height : sizedHeight}
 				fit={bgRigBox ? bgFit : undefined}
+				loadScaleBase={naturalRigLoadScale}
 				skin={effSkin}
 				visible={rigVisible}
 				rebroadcastEvents

@@ -1119,6 +1119,17 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		],
 		[true, false],
 	);
+	const nodeView = src('../../../packages/engine-layout/src/lib/LayoutNodeView.svelte');
+	eq(
+		'a rig with boardFit bound OFF divides the load scale out (the coded natural size); no other rig does',
+		[
+			/boundBoardFit === false && !hasExplicitSize \? EDITOR_RIG_LOAD_SCALE : undefined/.test(
+				nodeView,
+			),
+			(nodeView.match(/loadScaleBase=\{naturalRigLoadScale\}/g) ?? []).length,
+		],
+		[true, 1],
+	);
 	const gate = src('../../lines/src/components/WinGate.svelte');
 	eq(
 		'the gate releases the walk holds on winHide and the play-rate effect resets to 1 on teardown',
