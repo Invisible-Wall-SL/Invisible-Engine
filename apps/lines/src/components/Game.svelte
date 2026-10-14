@@ -94,7 +94,7 @@
 		LOADING_INTRO_DEF,
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
-		authoredTransitionEnabled,
+		authoredTransitionStatus,
 		withAuthoredTransition,
 		withAuthoredTransitionDoc,
 		FREE_SPIN_INTRO_VISUAL_DEF,
@@ -1083,7 +1083,7 @@
 		// swapped here under the same flag. Off ⇒ the same scene object (parity).
 		const scene =
 			editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ??
-			(authoredTransitionEnabled(editorDoc)
+			(authoredTransitionStatus(editorDoc) === 'ready'
 				? withAuthoredTransition(fallbackOverlays)
 				: fallbackOverlays);
 		if (!docPlacesWinVisual) return scene;
@@ -2124,13 +2124,18 @@
 	};
 
 	onMount(() => {
-		void loadEditorScenes().then((doc) => {
-			// Rive plan Phase 8a: retire the coded Transition part BEFORE the doc's instances mount, so
-			// a project that also placed the hybrid `transition` twin plays one wipe (the authored one).
-			retireCodedOverlay('transition', authoredTransitionEnabled(doc));
-			// ...and swap every coded `bind: Transition` in the doc for the authored instance, wherever
-			// it sits (`withAuthoredTransitionDoc`, the same object back when the flag is off).
-			editorDoc = authoredTransitionEnabled(doc) ? withAuthoredTransitionDoc(doc) : doc;
+		void loadEditorScenes().then((rawDoc) => {
+			// Rive plan Phase 8a: ONE swap of every coded `bind: Transition` for the authored instance,
+			// wherever it sits (`withAuthoredTransitionDoc`), applied only when the shared rule says
+			// `ready`; `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
+			// board override — is the swapped doc, so no mount path renders the coded node the retire
+			// below has made inert. Off, or not ready ⇒ the same doc object (parity).
+			const authored = authoredTransitionStatus(rawDoc) === 'ready';
+			const doc = authored ? withAuthoredTransitionDoc(rawDoc) : rawDoc;
+			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
+			// placed the hybrid `transition` twin plays one wipe (the authored one).
+			retireCodedOverlay('transition', authored);
+			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);
 			// Game-level settings (§ Game Settings): apply the authored speed-feature
 			// toggles. A `UK` jurisdiction forces every speed feature off (overrides the

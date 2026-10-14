@@ -521,6 +521,37 @@ eq(
 	);
 }
 {
+	// The server side of the Game Settings row: a save that FLIPS the pilot switch needs the
+	// component-publish capability; one that leaves it as stored is anyone's.
+	const { authoredOverlayChangeAllowed } =
+		await import('../src/lib/server/authoredOverlayGuard.ts');
+	const onDoc = { settings: { authoredOverlays: { transition: true } } };
+	const offDoc = { settings: {} };
+	eq(
+		'a non-publisher may save without touching the switch, never flip it; a publisher may flip it',
+		[
+			authoredOverlayChangeAllowed({ before: offDoc, after: offDoc, canPublish: false }),
+			authoredOverlayChangeAllowed({ before: onDoc, after: onDoc, canPublish: false }),
+			authoredOverlayChangeAllowed({ before: offDoc, after: onDoc, canPublish: false }),
+			authoredOverlayChangeAllowed({ before: onDoc, after: offDoc, canPublish: false }),
+			authoredOverlayChangeAllowed({ before: null, after: onDoc, canPublish: false }),
+			authoredOverlayChangeAllowed({ before: offDoc, after: onDoc, canPublish: true }),
+		],
+		[true, true, false, false, false, true],
+	);
+	const action = readFileSync(
+		new URL('../src/routes/(app)/editor/+page.server.ts', import.meta.url),
+		'utf8',
+	);
+	const save = action.slice(action.indexOf('save: async ('));
+	eq(
+		'the editor save action refuses the flip before it writes',
+		save.indexOf('authoredOverlayChangeAllowed(') > 0 &&
+			save.indexOf('authoredOverlayChangeAllowed(') < save.indexOf('await saveDoc('),
+		true,
+	);
+}
+{
 	// One text stack: the flag changes nothing the localization harvest sees.
 	const { harvestSceneText } = await import('../src/lib/server/localizationHarvest.ts');
 	const resolveDef = async (id: string) => C.BUILTIN_COMPONENTS.find((d) => d.id === id);
@@ -538,9 +569,7 @@ eq(
 // ---- 5. the publish chips ------------------------------------------------------------------------------
 
 {
-	const signals = (
-		layout: { authoredOverlays?: { transition?: boolean }; hasCodedTransition: boolean } | null,
-	) =>
+	const signals = (layout: { authoredTransition: A.AuthoredTransitionStatus } | null) =>
 		buildGameProfile({
 			gameTypeId: 'lines',
 			gameTypeName: 'Lines',
@@ -552,25 +581,124 @@ eq(
 			layout,
 		}).features.filter((c) => c.id.startsWith('authoredTransition'));
 	eq(
-		'flag on with the coded node to replace ⇒ the pilot chip',
-		signals({ authoredOverlays: { transition: true }, hasCodedTransition: true }).map((c) => [
-			c.id,
-			c.tone,
-		]),
+		'ready ⇒ the pilot chip',
+		signals({ authoredTransition: 'ready' }).map((c) => [c.id, c.tone]),
 		[['authoredTransition', undefined]],
 	);
 	eq(
-		'flag on with nothing to replace ⇒ the warning',
-		signals({ authoredOverlays: { transition: true }, hasCodedTransition: false }).map((c) => [
-			c.id,
-			c.tone,
-		]),
+		'nothing to replace ⇒ the warning',
+		signals({ authoredTransition: 'nothing-to-replace' }).map((c) => [c.id, c.tone]),
 		[['authoredTransitionUnbound', 'warn']],
 	);
 	eq(
-		'flag off, or no doc ⇒ no chip',
-		[signals({ hasCodedTransition: true }), signals(null)],
-		[[], []],
+		'a Transition outside canvas space ⇒ the held-back warning',
+		signals({ authoredTransition: 'non-canvas-scene' }).map((c) => [c.id, c.tone]),
+		[['authoredTransitionNonCanvas', 'warn']],
+	);
+	eq('off, or no doc ⇒ no chip', [signals({ authoredTransition: 'off' }), signals(null)], [[], []]);
+}
+{
+	// The ONE rule the game's flip and the chips read, case by case.
+	const lines = layouts.lines;
+	const on = (doc: LayoutDoc): LayoutDoc => ({
+		...doc,
+		settings: { authoredOverlays: { transition: true } },
+	});
+	const codedNode = {
+		id: 'moved-t',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		bind: { component: 'Transition' },
+		children: [],
+	} as unknown as LayoutNode;
+	const strip = (doc: LayoutDoc): LayoutDoc => ({
+		...doc,
+		scenes: doc.scenes.map((sc) =>
+			sc.id === 'basegameOverlays'
+				? { ...sc, nodes: sc.nodes.filter((n) => n.bind?.component !== 'Transition') }
+				: sc,
+		),
+	});
+	const into = (doc: LayoutDoc, sceneId: string): LayoutDoc => ({
+		...doc,
+		scenes: doc.scenes.map((sc) =>
+			sc.id === sceneId ? { ...sc, nodes: [...sc.nodes, codedNode] } : sc,
+		),
+	});
+	const spaceOf = (id: string) => lines.scenes.find((sc) => sc.id === id)?.space ?? 'game';
+	eq(
+		'the variant scenes have the spaces the cases assume',
+		[spaceOf('hudCorners'), spaceOf('hudBar'), spaceOf('basegame')],
+		['canvas', 'standard', 'game'],
+	);
+	eq(
+		'off / ready / nothing to replace / non-canvas, from the one rule',
+		[
+			A.authoredTransitionStatus(lines),
+			A.authoredTransitionStatus(on(lines)),
+			A.authoredTransitionStatus(
+				on({ ...lines, scenes: lines.scenes.filter((sc) => sc.id !== 'basegameOverlays') }),
+			),
+			A.authoredTransitionStatus(on(strip(lines))),
+			A.authoredTransitionStatus(on(into(strip(lines), 'hudCorners'))),
+			A.authoredTransitionStatus(on(into(strip(lines), 'hudBar'))),
+			A.authoredTransitionStatus(on(into(strip(lines), 'basegame'))),
+			A.authoredTransitionStatus(on(into(lines, 'basegame'))),
+		],
+		[
+			'off',
+			'ready',
+			'ready',
+			'nothing-to-replace',
+			'ready',
+			'non-canvas-scene',
+			'non-canvas-scene',
+			'non-canvas-scene',
+		],
+	);
+	const anchored: Scene = {
+		id: 'a',
+		name: 'a',
+		space: 'canvas',
+		nodes: [
+			{
+				id: 't',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				screenAnchor: { x: 0.5, y: 0.5 },
+				blendMode: 'add',
+				bind: { component: 'Transition' },
+				children: [],
+			},
+		] as unknown as LayoutNode[],
+	} as unknown as Scene;
+	const an = A.withAuthoredTransition(anchored).nodes[0] as LayoutNode & {
+		screenAnchor?: unknown;
+		blendMode?: unknown;
+	};
+	eq(
+		'the base-level anchor, screenAnchor and blend mode carry across the swap',
+		[an.anchor, an.screenAnchor, an.blendMode],
+		[{ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, 'add'],
+	);
+	// Both flow interpreters are built from the SWAPPED doc: `Game.svelte` swaps once, into `doc`,
+	// and hands that `doc` to `createLinesFlowV2` and `createLinesFlow` (the parity gate's
+	// flow-container variant proves the render; this pins the wiring).
+	const game = readFileSync(
+		new URL('../../lines/src/components/Game.svelte', import.meta.url),
+		'utf8',
+	);
+	const load = game.slice(game.indexOf('loadEditorScenes().then((rawDoc)'));
+	const swapAt = load.indexOf('withAuthoredTransitionDoc(rawDoc)');
+	const v2At = load.indexOf('createLinesFlowV2(\n\t\t\t\tdoc,');
+	const v1At = load.indexOf('createLinesFlow(\n\t\t\t\t\t\tdoc,');
+	eq(
+		'the game swaps once and builds both flow interpreters from the swapped doc',
+		[swapAt > 0, v2At > swapAt, v1At > swapAt, /createLinesFlow(V2)?\(\s*rawDoc/.test(load)],
+		[true, true, true, false],
 	);
 }
 

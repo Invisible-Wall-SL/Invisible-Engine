@@ -5,7 +5,7 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import { docHasCodedTransition } from 'engine-layout';
+import { authoredTransitionStatus } from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -221,14 +221,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				symbols,
 				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
-				layout: layout
-					? {
-							...(layout.settings?.authoredOverlays
-								? { authoredOverlays: layout.settings.authoredOverlays }
-								: {}),
-							hasCodedTransition: docHasCodedTransition(layout),
-						}
-					: null,
+				layout: layout ? { authoredTransition: authoredTransitionStatus(layout) } : null,
 			});
 
 			return {

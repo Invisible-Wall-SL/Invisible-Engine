@@ -30,6 +30,7 @@ import {
 	listComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
+import { authoredOverlayChangeAllowed } from '$lib/server/authoredOverlayGuard';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
@@ -64,7 +65,7 @@ async function gate(
 	locals: App.Locals,
 	cookies: import('@sveltejs/kit').Cookies,
 	url: URL,
-): Promise<{ clientKey: string; projectKey: string }> {
+): Promise<{ clientKey: string; projectKey: string; canPublishShared: boolean }> {
 	if (!locals.user) throw redirect(303, '/login');
 	const roleOverrides = await getRoleOverrides(locals.user.role);
 	const overrides = await getToolOverrides(locals.user.id);
@@ -73,7 +74,20 @@ async function gate(
 	}
 	// The save MUST target the SAME explicit project the page was loaded with, so the
 	// action resolves scope from its own `url` (`?project=`) — not the session alone.
-	return resolveActionScope({ url, sessionToken: cookies.get(SESSION_COOKIE), user: locals.user });
+	const scope = await resolveActionScope({
+		url,
+		sessionToken: cookies.get(SESSION_COOKIE),
+		user: locals.user,
+	});
+	return {
+		...scope,
+		canPublishShared: roleHasCapability(
+			locals.user.role,
+			COMPONENT_PUBLISH_CAPABILITY,
+			roleOverrides,
+			overrides,
+		),
+	};
 }
 
 /**
@@ -341,7 +355,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 
 export const actions: Actions = {
 	save: async ({ request, locals, cookies, url }) => {
-		const { clientKey, projectKey } = await gate(locals, cookies, url);
+		const { clientKey, projectKey, canPublishShared } = await gate(locals, cookies, url);
 		const form = await request.formData();
 		const raw = form.get('doc');
 		if (typeof raw !== 'string') {
@@ -352,6 +366,24 @@ export const actions: Actions = {
 			parsed = JSON.parse(raw);
 		} catch {
 			return fail(400, { action: 'save' as const, error: 'Invalid doc.' });
+		}
+		// The authored-overlay pilot switch (Rive plan Phase 8a) is a publisher's to flip: the row
+		// is disabled for everyone else, and this refuses a save that would flip it anyway. Read
+		// only for a non-publisher, so a publisher's autosave pays no extra read.
+		if (!canPublishShared) {
+			const { doc: stored } = await loadDocWithEtag(clientKey, projectKey);
+			if (
+				!authoredOverlayChangeAllowed({
+					before: stored,
+					after: parsed as Partial<LayoutDoc>,
+					canPublish: false,
+				})
+			) {
+				return fail(403, {
+					action: 'save' as const,
+					error: 'Switching the authored Transition pilot needs the component-publish capability.',
+				});
+			}
 		}
 		// `force` is the author answering the conflict banner with "overwrite theirs" —
 		// the ONLY legitimate way to reach an unconditional write from a browser. It is

@@ -117,7 +117,8 @@ Shipped capabilities on `main`:
 ## Recent changes
 - 2026-10-14 — **Game Settings → Authored overlays (pilot) → Transition** (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`): one checkbox, enabled for `canPublishShared` holders (the
-  component-publish capability, admin by default) and shown read-only to others while on, writing
+  component-publish capability, admin by default) and shown read-only to others while on — the save
+  action refuses a flip from anyone else (`authoredOverlayGuard.ts`) — writing
   `settings.authoredOverlays.transition: true` only when on (`buildGameSettings()` still returns
   `undefined` at the defaults). Guide: [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot);
   the flag's normalizer, chips and runtime: [engine status](engine.md).

@@ -285,17 +285,24 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   awaits exactly what it did; `sceneAnimationDurationMs` gains `instanceHoldMs`, the authored twin of
   `boundComponentMs`, so `showContainer.durationMs` reads the same for the swapped node). **The
   flag:** `LayoutDoc.settings.authoredOverlays.transition` (sparse, ON written only —
-  `normalizeGameSettings`; the Game Settings row *Authored overlays (pilot) → Transition*, switched
-  by a holder of the component-publish capability (`canPublishShared`), shown read-only to others
-  while on; the publish chips *Authored Transition (pilot)* / the amber *nothing to replace*).
-  **The runtime pick** (`engine-layout/authoredOverlays.ts`, pure, shared with the launcher): with
-  the flag on `Game.svelte` swaps every `bind: Transition` in every scene for the `transitionWipe`
-  instance when the doc loads (`withAuthoredTransitionDoc`, carrying the node's transform and
-  per-layout overrides), swaps the reference overlays scene a doc without its own gets, and retires
-  the coded part for that boot (`engine-game` `retireCodedOverlay('transition')`: `Transition.svelte`
-  neither subscribes nor draws, so a project that also placed the hybrid `transition` twin plays one
-  wipe); `docHasCodedTransition` is the one predicate the swap and the chip share (any scene, or the
-  reference fallback); off ⇒ the same doc and scene objects. `apps/lines` dev pilot:
+  `normalizeGameSettings`; the Game Settings row *Authored overlays (pilot) → Transition*, enabled
+  for a holder of the component-publish capability (`canPublishShared`) and shown read-only to
+  others while on — and the editor's save action refuses a save that would flip it from anyone else
+  (`authoredOverlayGuard.ts`); the publish chips *Authored Transition (pilot)* / the amber *nothing
+  to replace* / the amber *held back: a Transition sits outside canvas space*).
+  **The runtime pick** (`engine-layout/authoredOverlays.ts`, pure, shared with the launcher):
+  `authoredTransitionStatus(doc)` is the ONE rule the game and the chips read — `off`, `ready`,
+  `nothing-to-replace` (no scene binds a coded Transition and the doc has its own overlays scene:
+  the coded path stays, the chip warns) or `non-canvas-scene` (a coded Transition sits in a
+  `game` / `standard` / `background` scene, where the authored rig cannot cover-fit: the coded path
+  stays everywhere, the chip warns). When `ready`, `Game.svelte` swaps ONCE at doc load every
+  `bind: Transition` in every scene for the `transitionWipe` instance (`withAuthoredTransitionDoc`,
+  carrying the node's x / y / scale / rotation / alpha, anchor, screenAnchor, blend mode, visibleFor
+  and per-layout overrides), hands that swapped doc to both flow interpreters and every mount
+  path, swaps the reference overlays scene a doc without its own gets, and retires the coded part
+  for that boot (`engine-game` `retireCodedOverlay('transition')`: `Transition.svelte` neither
+  subscribes nor draws, so a project that also placed the hybrid `transition` twin plays one
+  wipe); otherwise the same doc and scene objects. `apps/lines` dev pilot:
   `AUTHORED_TRANSITION = false` in `editorFlags.ts` (puts the flag on the fallback doc; no URL opt-in
   exists — the flag is read from the doc only). The determinism probe's `state()` gains `cues` (every
   Flow cue with its frame). **Gates:** `pnpm --filter launcher-api check:authored-transition` (the
@@ -310,10 +317,13 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `.github/workflows/transition-parity.yml`, is a workflow-only follow-up PR — the current-games
   verdict counts every workflow file as harness — and advisory, not in the `main` ruleset: the built
   runtime on the harness's `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`,
-  `FORCE_TRIGGER=1`, one seed; the cue frame as the reference and frames 12/24/48/72/96 after it
-  under `tolerance.json`, each coded frame differing from the reference by > 0.5 % (the wipe is on
-  screen); the next cue's frame; the positive control that the authored side held the cue and the
-  coded side did not). Measured numbers: the PR body of #1192. Not in 8a: Win, free-spin
+  `FORCE_TRIGGER=1`, one seed; two pairs — the reference overlays scene, and a variant with the
+  Transition node moved into `hudCorners`, a canvas screen the flow mounts, which proves the swap
+  reaches the scenes the interpreters render; the cue frame as the reference and frames
+  12/24/48/72/96 after it under `tolerance.json`, each coded frame differing from the reference by
+  > 0.5 % (the wipe is on screen); the next cue's frame; the positive control that the authored
+  side held the cue and the coded side did not). Browser check only (no headless gate): the slam
+  race on the exit wipe and the hidden-instance rule. Measured numbers: the PR body of #1192. Not in 8a: Win, free-spin
   intro/outro and buttons (8b–8d); the `/rigger` and `/editor` sequencers have no row for a rig-node
   strip (the built-in timeline is code); `sfx:` cues on component timelines are still dropped.
   Owner browser check: the PR.

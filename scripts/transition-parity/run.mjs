@@ -11,6 +11,9 @@
 //     bar), and requires each coded frame to differ from the reference (the wipe IS on screen);
 //   - reads the frame the NEXT cue (`freeSpinIntroShow`) fires on, on both sides: the point where the
 //     flow continued, which must be the same frame (± 1).
+// Both pairs run: the reference overlays scene as published, and a VARIANT with the Transition node
+// moved into a flow container (`hudCorners`, canvas space, mounted by the flow), which proves the
+// swap reaches the scenes the flow interpreters render, not only the overlays scene.
 // Deterministic: a fixed seed, stepped frames, no wall clock. No URL flag flips the Transition: the
 // authored side is a DOC with the flag set, served the way a published project is.
 //
@@ -108,15 +111,54 @@ if (!game) throw new Error(`the fixtures carry no ${GAME}`);
 const snapshotDir = game.local.snapshot;
 const published = JSON.parse(readFileSync(join(snapshotDir, 'runtime.json'), 'utf8'));
 // The authored side: the SAME snapshot with the per-project flag set in its layout doc.
-const authoredBundle = {
-	...published,
+const flagged = (bundle) => ({
+	...bundle,
 	doc: {
-		...published.doc,
-		settings: { ...(published.doc.settings ?? {}), authoredOverlays: { transition: true } },
+		...bundle.doc,
+		settings: { ...(bundle.doc.settings ?? {}), authoredOverlays: { transition: true } },
 	},
+});
+// The flow-container variant: the Transition node moved out of the overlays scene into
+// `hudCorners`, a canvas-space screen the flow mounts (`<FlowV2Mount>`), so a swap that reached
+// only the overlays scene would leave the coded node there.
+const VARIANT_SCENE = 'hudCorners';
+const inContainer = (bundle) => {
+	const overlays = bundle.doc.scenes.find((sc) => sc.id === 'basegameOverlays');
+	const node = overlays?.nodes.find((n) => n.bind?.component === 'Transition');
+	const target = bundle.doc.scenes.find((sc) => sc.id === VARIANT_SCENE);
+	if (!node || !target)
+		throw new Error(`the ${GAME} doc lacks the Transition node or ${VARIANT_SCENE}`);
+	if ((target.space ?? 'game') !== 'canvas')
+		throw new Error(`${VARIANT_SCENE} is not canvas space`);
+	return {
+		...bundle,
+		doc: {
+			...bundle.doc,
+			scenes: bundle.doc.scenes.map((sc) =>
+				sc.id === 'basegameOverlays'
+					? { ...sc, nodes: sc.nodes.filter((n) => n !== node) }
+					: sc.id === VARIANT_SCENE
+						? { ...sc, nodes: [...sc.nodes, node] }
+						: sc,
+			),
+		},
+	};
 };
-const authoredFile = join(out, 'runtime-authored.json');
-writeFileSync(authoredFile, JSON.stringify(authoredBundle));
+const bundleFile = (name, bundle) => {
+	const file = join(out, `runtime-${name}.json`);
+	writeFileSync(file, JSON.stringify(bundle));
+	return file;
+};
+const SIDES = {
+	coded: undefined,
+	authored: bundleFile('authored', flagged(published)),
+	'coded-container': bundleFile('coded-container', inContainer(published)),
+	'authored-container': bundleFile('authored-container', flagged(inContainer(published))),
+};
+const PAIRS = [
+	['coded', 'authored'],
+	['coded-container', 'authored-container'],
+];
 
 const chrome = headlessShell(opt.chrome);
 const tolerance = toleranceFor(
@@ -134,7 +176,7 @@ async function play(side) {
 	const server = await startTestServer(tree, { SEED: opt.seed, FORCE_TRIGGER: '1' });
 	const snap = await serveSnapshot({
 		dir: snapshotDir,
-		bundleFile: side === 'authored' ? authoredFile : undefined,
+		bundleFile: SIDES[side],
 		name: game.name,
 		snapshotId: side,
 		assetBase: `${server.origin}/${GAME}/`,
@@ -258,39 +300,34 @@ async function play(side) {
 
 // ---- both, then the comparison ----------------------------------------------------------------------------
 
-const coded = await play('coded');
-const authored = await play('authored');
-const report = {
-	build,
-	seed: opt.seed,
-	tolerance,
-	coded,
-	authored,
-	frames: [],
-	continues: undefined,
-	pass: true,
-};
+const results = {};
+for (const side of Object.keys(SIDES)) results[side] = await play(side);
+const report = { build, seed: opt.seed, tolerance, sides: results, pairs: [], pass: true };
 const fail = (why) => {
 	report.pass = false;
 	console.error(`✗ ${why}`);
 };
-for (const r of [coded, authored]) if (r.error) fail(`${r.side}: ${r.error}`);
-if (!coded.error && !authored.error) {
-	if (!coded.firedCue || !authored.firedCue) fail('the flow never traced the transition cue');
+for (const r of Object.values(results)) if (r.error) fail(`${r.side}: ${r.error}`);
+for (const [codedSide, authoredSide] of PAIRS) {
+	const coded = results[codedSide];
+	const authored = results[authoredSide];
+	if (coded.error || authored.error) continue;
+	const pair = { coded: codedSide, authored: authoredSide, frames: [], continues: undefined };
+	report.pairs.push(pair);
+	log(`— ${codedSide} vs ${authoredSide} —`);
+	if (!coded.firedCue || !authored.firedCue)
+		fail(`${codedSide}/${authoredSide}: the flow never traced the transition cue`);
 	if (coded.held)
-		fail('the CODED side held the cue: the authored path ran where the coded one should');
+		fail(`${codedSide} held the cue: the authored path ran where the coded one should`);
 	if (!authored.held)
-		fail(
-			'the AUTHORED side did not hold the cue: the coded path ran where the authored one should',
-		);
+		fail(`${authoredSide} did not hold the cue: the coded path ran where the authored one should`);
 	if (!coded.held && authored.held) log('✓ the authored side held the cue, the coded side did not');
 	const reference = readFileSync(coded.captures[REFERENCE].file);
 	for (const offset of OFFSETS) {
 		const a = readFileSync(coded.captures[offset].file);
 		const b = readFileSync(authored.captures[offset].file);
-		// The wipe is on screen: the coded frame differs from the cue frame by more than the floor.
 		const moved = compareScreens(reference, a, tolerance);
-		report.frames.push({
+		pair.frames.push({
 			offset,
 			kind: 'wipe-on-screen',
 			diffRatio: moved.diffRatio,
@@ -303,9 +340,10 @@ if (!coded.error && !authored.error) {
 		const cmp = same
 			? { pass: true, diffPixels: 0, diffRatio: 0, maxBlockRatio: 0 }
 			: compareScreens(a, b, tolerance);
-		if (cmp.diffPng) writeFileSync(join(out, `diff-t+${offset}.png`), cmp.diffPng);
-		report.frames.push({
+		if (cmp.diffPng) writeFileSync(join(out, `diff-${authoredSide}-t+${offset}.png`), cmp.diffPng);
+		pair.frames.push({
 			offset,
+			kind: 'parity',
 			ms: Math.round((offset / 60) * 1000),
 			pass: cmp.pass,
 			diffPixels: cmp.diffPixels,
@@ -320,13 +358,13 @@ if (!coded.error && !authored.error) {
 	}
 	const codedSpan = coded.nextCueFrame - coded.cueFrame;
 	const authoredSpan = authored.nextCueFrame - authored.cueFrame;
-	report.continues = {
+	pair.continues = {
 		coded: codedSpan,
 		authored: authoredSpan,
 		pass: Math.abs(codedSpan - authoredSpan) <= 1,
 	};
 	const line = `the flow continued (${NEXT_CUE}) ${codedSpan} frames after the cue on the coded side, ${authoredSpan} on the authored side`;
-	if (report.continues.pass) log(`✓ ${line}`);
+	if (pair.continues.pass) log(`✓ ${line}`);
 	else fail(line);
 }
 writeFileSync(join(out, 'report.json'), JSON.stringify(report, null, '\t'));

@@ -3,13 +3,14 @@ import type { LayoutDoc, LayoutNode, Scene } from './types';
 /**
  * AUTHORED OVERLAYS (Rive plan Phase 8a, `docs/design/rive-style-editor.md` §13.2): the per-project
  * switch that renders a coded overlay from its authored component, and the pure rewrite the game
- * applies to the `basegameOverlays` scene when it is on. Svelte-free, so the gate drives exactly
- * what `Game.svelte` runs.
+ * applies ONCE to the whole loaded doc (every scene, and the reference overlays fallback) when it
+ * is on. Svelte-free, so the gate drives exactly what `Game.svelte` runs.
  *
  * The flag is `settings.authoredOverlays.transition` on the layout doc — sparse, written only when
- * on, shipped inside the doc with the rest of the game's settings. Off, or absent, ⇒ the scene is
- * returned AS IS (the same object), so every doc authored before the flag renders byte-identically.
- * Lives here so the game (`Game.svelte`) and the launcher (the publish chips) read the one rule.
+ * on, shipped inside the doc with the rest of the game's settings. Off, or absent, ⇒ the doc and
+ * every scene are returned AS IS (the same objects), so every doc authored before the flag renders
+ * byte-identically. `authoredTransitionStatus` is the ONE rule the game's flip and the launcher's
+ * publish chips share, so the two never disagree.
  */
 
 export const TRANSITION_WIPE_COMPONENT_ID = 'transitionWipe';
@@ -40,6 +41,9 @@ const authoredTransitionNode = (coded: LayoutNode): LayoutNode => ({
 	...(coded.rotation !== undefined ? { rotation: coded.rotation } : {}),
 	...(coded.alpha !== undefined ? { alpha: coded.alpha } : {}),
 	...(coded.zIndex !== undefined ? { zIndex: coded.zIndex } : {}),
+	...(coded.anchor ? { anchor: coded.anchor } : {}),
+	...(coded.screenAnchor ? { screenAnchor: coded.screenAnchor } : {}),
+	...(coded.blendMode ? { blendMode: coded.blendMode } : {}),
 	...(coded.visibleFor ? { visibleFor: coded.visibleFor } : {}),
 	...(coded.overrides ? { overrides: coded.overrides } : {}),
 	params: {},
@@ -59,13 +63,36 @@ export const OVERLAYS_SCENE_ID = 'basegameOverlays';
 /**
  * Whether the game, rendering `doc`, has a coded Transition to swap: one in any of its scenes, or
  * no `basegameOverlays` scene of its own (the game then mounts its reference overlays scene, which
- * binds one). The ONE predicate the runtime swap and the publish chip share, so they never disagree.
+ * binds one).
  */
 export function docHasCodedTransition(doc: Pick<LayoutDoc, 'scenes'>): boolean {
 	return (
 		!doc.scenes.some((scene) => scene.id === OVERLAYS_SCENE_ID) ||
 		hasCodedTransition(doc.scenes.flatMap((scene) => scene.nodes))
 	);
+}
+
+/**
+ * What the flag does to `doc`, the ONE rule the game and the launcher share:
+ * - `off` — the flag is not on; the coded Transition renders.
+ * - `ready` — the authored wipe replaces every coded Transition.
+ * - `nothing-to-replace` — the flag is on, but no scene binds a coded Transition (and the doc has
+ *   an overlays scene of its own, so the reference fallback does not bind one either): no wipe
+ *   would play at all. The coded path stays; the chip warns.
+ * - `non-canvas-scene` — the flag is on, but a coded Transition sits in a scene that is not
+ *   `canvas` space (`game`, `standard`, `background`): the authored rig cover-fits only in a canvas
+ *   scene, so the swap would move the wipe. The coded path stays everywhere; the chip warns.
+ */
+export type AuthoredTransitionStatus = 'off' | 'ready' | 'nothing-to-replace' | 'non-canvas-scene';
+
+export function authoredTransitionStatus(
+	doc: Pick<LayoutDoc, 'scenes' | 'settings'>,
+): AuthoredTransitionStatus {
+	if (!authoredTransitionEnabled(doc)) return 'off';
+	if (!docHasCodedTransition(doc)) return 'nothing-to-replace';
+	const holding = doc.scenes.filter((scene) => hasCodedTransition(scene.nodes));
+	if (holding.some((scene) => (scene.space ?? 'game') !== 'canvas')) return 'non-canvas-scene';
+	return 'ready';
 }
 
 /**

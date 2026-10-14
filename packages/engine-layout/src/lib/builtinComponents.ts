@@ -889,7 +889,7 @@ export const TRANSITION_DEF: ComponentDef = {
  * A NEW id beside `transition` (the hybrid twin whose bound child is still the coded part): a game
  * that baked a copy of `transition`, or placed it, is untouched. Nothing references this def until
  * a project turns on `settings.authoredOverlays.transition`; the game then swaps its
- * `bind: Transition` node for an instance of this def (`apps/lines` `authoredOverlays.ts`). The
+ * `bind: Transition` node for an instance of this def (`authoredOverlays.ts`, this package). The
  * coded part retires, and `transition` moves to this content as its next version, only after the
  * owner's browser check (§13.2 "Removal").
  */

@@ -42,7 +42,11 @@ import {
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
-import { kindCapabilities, TUMBLE_PATTERN_LABELS } from 'engine-layout';
+import {
+	kindCapabilities,
+	TUMBLE_PATTERN_LABELS,
+	type AuthoredTransitionStatus,
+} from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
@@ -75,7 +79,7 @@ export interface GameProfileSignals {
 	 * coded Transition (Rive plan Phase 8a) — read off `editor/scenes.json`; `null` when the project
 	 * has no doc yet.
 	 */
-	layout?: { authoredOverlays?: { transition?: boolean }; hasCodedTransition: boolean } | null;
+	layout?: { authoredTransition: AuthoredTransitionStatus } | null;
 }
 
 /** One chip. `text` is self-describing (units baked in); `title` is the hover explanation. */
@@ -539,18 +543,26 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		title:
 			'The free-spin transition wipe plays from the built-in “Transition wipe” component and its timeline instead of the coded Transition mount (Rive plan Phase 8a pilot).',
 		text: (ctx) =>
-			ctx.layout?.authoredOverlays?.transition === true && ctx.layout.hasCodedTransition
-				? 'Authored Transition (pilot)'
-				: null,
+			ctx.layout?.authoredTransition === 'ready' ? 'Authored Transition (pilot)' : null,
 	},
 	{
 		id: 'authoredTransitionUnbound',
 		title:
-			'The authored Transition is on, but no scene binds the coded Transition it replaces — the game plays no transition wipe at all. Add the Transition overlay node back (the reference overlays scene has it) or turn the pilot off.',
+			'The authored Transition is on, but no scene binds the coded Transition it replaces — the game keeps the coded path and plays no transition wipe at all. Add the Transition overlay node back (the reference overlays scene has it) or turn the pilot off.',
 		tone: 'warn',
 		text: (ctx) =>
-			ctx.layout?.authoredOverlays?.transition === true && !ctx.layout.hasCodedTransition
+			ctx.layout?.authoredTransition === 'nothing-to-replace'
 				? 'Authored Transition on, nothing to replace'
+				: null,
+	},
+	{
+		id: 'authoredTransitionNonCanvas',
+		title:
+			'The authored Transition is on, but a Transition overlay node sits in a scene that is not canvas space (game, standard or background): the authored wipe cover-fits only in a canvas scene, so the game keeps the coded Transition everywhere. Move the node to a canvas-space scene (the reference overlays scene) or turn the pilot off.',
+		tone: 'warn',
+		text: (ctx) =>
+			ctx.layout?.authoredTransition === 'non-canvas-scene'
+				? 'Authored Transition on, held back: a Transition sits outside canvas space'
 				: null,
 	},
 	{

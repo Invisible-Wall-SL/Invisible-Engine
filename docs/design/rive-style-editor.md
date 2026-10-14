@@ -762,7 +762,8 @@ authored Canvas Size. (If `coverFit` on a rig node inside an instance does not r
 box to within the tolerance, the fallback is a per-layoutType scale in the def's device layouts,
 measured once per layout type; the parity gate decides.)
 
-**The Timeline.** A built-in `CinematicDoc`, id `c_transitionWipe_wipe`, `host: { kind:
+**The Timeline.** A built-in `CinematicDoc`, id `c_transitionwipe_wipe` (lower-case, as a project's
+cinematic ids are stored, so a project timeline can shadow it), `host: { kind:
 'component', componentId: 'transitionWipe' }`, one node actor `wipe` with one **`animation`**
 track: a single strip of clip `animation` from 0 to its clip length (read from the loaded skeleton,
 ≈1667 ms), no loop. `playOn: 'transition'` and the new field below. Built-in timelines are a new
@@ -835,8 +836,12 @@ origin), through the pure `withAuthoredTransitionDoc` (`engine-layout/authoredOv
 reference overlays scene a doc without its own gets is swapped under the same flag; and the coded
 `Transition` part is retired for that boot (`engine-game` `retireCodedOverlay`: it neither
 subscribes nor draws), so a project that also placed the `transition` twin (Borut) plays one wipe,
-not two. ONE predicate, `docHasCodedTransition`, tells the runtime and the publish chip whether
-there is a Transition to swap (any scene, or the reference fallback), so the two never disagree.
+not two; both flow interpreters are built from that swapped doc. ONE rule, `authoredTransitionStatus`,
+tells the runtime and the publish chip what the flag does to a doc, so the two never disagree:
+`ready` (swap), `nothing-to-replace` (no scene binds a coded Transition and the doc has an overlays
+scene of its own: the coded path stays, the chip warns) or `non-canvas-scene` (a coded Transition
+sits in a `game`, `standard` or `background` scene, where the authored rig cannot cover-fit: the
+coded path stays everywhere, the chip warns).
 With the flag off the doc and every scene are the same objects (parity) and `transitionWipe` is a
 registered def nothing references (as `TRANSITION_DEF`'s registration is today); it is `internal`,
 so no palette offers it during the pilot. The emitter vocabulary, the Flow vocabulary
@@ -887,8 +892,12 @@ the general mechanism.
   fire of `transition` through the instance's own hold seam resolves at the strip's end and not
   before, an unmount mid-hold releases it, and `showContainer.durationMs` reads the same for the
   coded and the swapped scene; the shipped rig clip's last key equals the timeline's length. The
-  slam race (`awaitCue` wraps the whole await, unchanged) and the hidden-instance rule (no hold
-  registered while the instance is off screen) live in the Svelte seam the parity run exercises.
+  parity gate also runs a flow-container variant (the Transition node moved into `hudCorners`, a
+  canvas screen the flow mounts), which proves the swap reaches the scenes the interpreters render.
+  **Browser check only:** the slam race on the exit wipe (`awaitCue` wraps the whole await,
+  unchanged in code) and the hidden-instance rule (no hold registered while the instance is off
+  screen) live in the Svelte seam; neither has a headless gate, so both are owner browser-check
+  steps in the PR.
 - **Text.** The def has no text node; the localization harvest of a doc with the flag on equals
   the harvest with it off (asserted in the gate).
 
