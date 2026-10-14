@@ -77,6 +77,8 @@
 		"check:flow-instance-nodes": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-instance-nodes.ts",
 		"precheck:editor-write-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:editor-write-scope": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-editor-write-scope.ts",
+		"precheck:save-state": "node scripts/ensure-svelte-kit.mjs",
+		"check:save-state": "tsx --tsconfig tsconfig.scripts.json scripts/check-save-state.ts",
 		"precheck:component-links": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-links": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-links.ts",
 		"check:cinematic-access": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-cinematic-access.ts",

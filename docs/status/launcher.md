@@ -59,6 +59,21 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-14 — **`SaveState` no longer marks an edit made during an in-flight save as saved.** The
+  shared save machine (`$lib/saveState.svelte.ts`, used by the editor, components, config, flipbook,
+  flow-v2, fx, localization, sound, symbols and win-text) cleared `dirty` on every success, so an edit
+  landing mid-write was dropped: flow-v2's coalesced debounce never re-fired, the Scene Editor's
+  leading batch had no timer, and a caller navigating on `save() === true` (the editor's
+  component hop) could leave with it. It now counts edits (`markDirty`, `setDirty(true)`); a success
+  with a newer edit stays dirty and writes again on the adopted ETag in the same call (trailing mode
+  lets that edit's armed debounce do it), and `true` means the store holds the screen. `setDirty`
+  reads before writing, so the component-defaults sidecar's signature `$effect` re-marks dirty
+  after a save that did not include a mid-flight edit. New behavioural gate `check:save-state`
+  (Lint's launcher gates) drives the real compiled class with a fake transport and clock. Still
+  open, tool-side: sound / win-text / config / symbols replace `doc` with the server's on save,
+  and flipbook / fx re-baseline from live state, so an edit made during their (manual) save is lost
+  there regardless of `SaveState`.
+
 - 2026-10-13 — **Older game repos stopped publishing at the Svelte-version guard (#1175); fixed per
   repo and in the desktop launcher.** Game repos pin `svelte` / `@sveltejs/kit` / the parser
   overrides at scaffold time, so once #1175 landed every repo scaffolded before it failed its next

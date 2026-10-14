@@ -92,6 +92,9 @@ export class SaveState {
 	#reset: boolean;
 	#timer: ReturnType<typeof setTimeout> | null = null;
 	#pending = false;
+	// Bumped by every edit. A save compares it across its flight: a change means the store does
+	// not hold what is on screen yet, so the save must not clear `dirty`.
+	#edits = 0;
 
 	constructor(opts: SaveStateOptions) {
 		this.#opts = opts;
@@ -141,9 +144,12 @@ export class SaveState {
 	}
 
 	/** Set the dirty flag directly — for tools whose dirty is a `$derived` signature
-	 *  compare (symbols / win-text / components) rather than an edit-driven flag. */
+	 *  compare (symbols / win-text / components) rather than an edit-driven flag. It READS the
+	 *  flag before writing, so an `$effect` that pushes a signature here re-runs when a save
+	 *  clears the flag, and puts it back if the signature still differs from what was written. */
 	setDirty(dirty: boolean): void {
-		this.#dirty = dirty;
+		if (dirty) this.#edits += 1;
+		if (this.#dirty !== dirty) this.#dirty = dirty;
 	}
 
 	/** An edit happened: flag dirty and (re)arm the autosave debounce per the configured
@@ -151,6 +157,7 @@ export class SaveState {
 	 *  when `canAutosave()` vetoes it — but the dirty flag is always set. */
 	markDirty(): void {
 		const wasDirty = this.#dirty;
+		this.#edits += 1;
 		this.#dirty = true;
 		this.#arm(wasDirty);
 	}
@@ -187,15 +194,19 @@ export class SaveState {
 
 	/**
 	 * Attempt a save. Returns TRUE only when the doc actually reached the store — callers
-	 * that navigate away on a flush (the editor's component-editor hop) MUST check it.
+	 * that navigate away on a flush (the editor's component-editor hop) MUST check it. An edit
+	 * made through `markDirty` / `setDirty(true)` while the write was in flight is part of that
+	 * doc: the same call writes it next and resolves TRUE only once the store holds it — or, in
+	 * trailing mode with that edit's debounce still armed, leaves it to the debounce and resolves
+	 * FALSE (still dirty).
 	 *
 	 * Policy enforced here so every tool spells it the same way:
 	 * - `scope-mismatch` is terminal until reload — never forceable, never retried.
 	 * - `conflict` blocks all but a `force` save (the explicit "overwrite theirs").
 	 * - a save already in flight COALESCES: the in-flight attempt's `finally` re-fires if
 	 *   still dirty and not blocked.
-	 * - on success the new ETag + clean state are adopted together, so the next autosave
-	 *   CASes against what was just written.
+	 * - on success the new ETag is adopted, so the next write CASes against what was just
+	 *   written; the state turns clean only when no edit landed during the flight.
 	 */
 	async save({ force = false }: { force?: boolean } = {}): Promise<boolean> {
 		// Read-only gate (Phase 2c): a user who doesn't hold the lease can't write — even the
@@ -210,30 +221,45 @@ export class SaveState {
 		this.#status = 'saving';
 		let saved = false;
 		try {
-			const outcome = await this.#opts.save({ baseEtag: this.#etag, force });
-			if (outcome.ok) {
+			for (;;) {
+				const edits = this.#edits;
+				const outcome = await this.#opts.save({ baseEtag: this.#etag, force });
+				if (!outcome.ok) {
+					if (outcome.reason === 'conflict') {
+						// Keep the local doc + stay dirty. Never discard the author's work here.
+						this.#status = 'conflict';
+						this.#message = outcome.message ?? this.#opts.conflictMessage ?? '';
+					} else if (outcome.reason === 'scope-mismatch') {
+						this.#status = 'scope-mismatch';
+						this.#message = outcome.message ?? '';
+					} else {
+						this.#status = 'error';
+						this.#message = outcome.message ?? 'Save failed.';
+					}
+					break;
+				}
 				this.#etag = outcome.etag;
-				this.#dirty = false;
 				this.#message = '';
+				if (this.#edits === edits || !this.#dirty) {
+					this.#dirty = false;
+					this.#status = 'saved';
+					// Cancel a pending debounce on success ONLY in leading mode (editor): the only
+					// timer that can exist there is a PRE-EXISTING one, and killing it reproduces
+					// the editor's `$effect`-on-`dirty` cleanup exactly. flow-v2 never cancelled on
+					// success, so trailing mode doesn't either.
+					if (!this.#reset) this.cancelAutosave();
+					saved = true;
+					break;
+				}
+				// An edit landed during the flight, so the store is behind the screen: stay dirty.
+				// A trailing debounce that edit armed writes it on its usual cadence; otherwise
+				// write it now, as a plain CAS against the ETag just adopted.
 				this.#status = 'saved';
-				// Cancel a pending debounce on success ONLY in leading mode (editor). There,
-				// an edit arriving mid-flight never armed a timer (the clean→dirty edge already
-				// passed), so the only timer that can exist is a PRE-EXISTING one, and killing
-				// it reproduces the editor's `$effect`-on-`dirty` cleanup exactly. In trailing
-				// mode (flow-v2) a mid-flight edit DID arm a fresh timer that must survive to
-				// save that edit — flow-v2 never cancels on success, so neither do we.
-				if (!this.#reset) this.cancelAutosave();
-				saved = true;
-			} else if (outcome.reason === 'conflict') {
-				// Keep the local doc + stay dirty. Never discard the author's work here.
-				this.#status = 'conflict';
-				this.#message = outcome.message ?? this.#opts.conflictMessage ?? '';
-			} else if (outcome.reason === 'scope-mismatch') {
-				this.#status = 'scope-mismatch';
-				this.#message = outcome.message ?? '';
-			} else {
-				this.#status = 'error';
-				this.#message = outcome.message ?? 'Save failed.';
+				if (this.#reset && this.#timer) break;
+				if (this.#opts.blockWhen && this.#opts.blockWhen()) break;
+				this.cancelAutosave();
+				this.#status = 'saving';
+				force = false;
 			}
 		} catch (e) {
 			this.#status = 'error';
