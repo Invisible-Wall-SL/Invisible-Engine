@@ -144,6 +144,7 @@
 		registerSceneCameraTransform,
 		sceneInActiveModes,
 		hudScenesForMode,
+		potFillShare,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -829,13 +830,15 @@
 		// the server's, ticking up as a special lands) and `meter.<id>.max`, what Phase 6's authored
 		// pots bind; `meter.<id>.stage` (how many size stages the shown level has reached) and
 		// `meter.<id>.full` (1 while the pot shows full, else 0), what a value binding gates or grows
-		// a pot's art by. None declared ⇒ none registered.
+		// a pot's art by; `meter.<id>.share` (level over max, 0..1), the threshold a pot's pieces light
+		// at. None declared ⇒ none registered.
 		...Object.fromEntries(
 			configuredMeters().flatMap(({ id }) => [
 				[`meter.${id}.level`, valueSource(() => meterLevelShown(id))],
 				[`meter.${id}.max`, valueSource(() => meterMax(id))],
 				[`meter.${id}.stage`, valueSource(() => meterStageShown(id))],
 				[`meter.${id}.full`, valueSource(() => (meterFullShown(id) ? 1 : 0))],
+				[`meter.${id}.share`, valueSource(() => potFillShare(meterLevelShown(id), meterMax(id)))],
 			]),
 		),
 		// An expanding board's open rows and the most the active respin mode opens (design §7 11b).

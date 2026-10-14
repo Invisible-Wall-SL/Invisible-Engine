@@ -134,6 +134,7 @@ const PUBLISH_BEARER = [
 	'launcher/git-credentials',
 	'launcher/register-game',
 	'launcher/game-upload',
+	'launcher/delivery-upload',
 	'launcher/projects',
 ];
 for (const route of PUBLISH_BEARER) {

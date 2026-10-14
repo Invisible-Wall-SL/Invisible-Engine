@@ -137,19 +137,24 @@ export class ComponentStateMachineRunner {
 	private readonly kinds = new Map<string, ComponentInputKind>();
 	private readonly current = new Map<string, number | boolean>();
 	private dirty = true;
+	private readonly param: ((key: string) => unknown) | undefined;
 	/** Timeline ids some state names that the host could not resolve, each once. */
 	readonly missingTimelines: string[];
 
 	/**
 	 * @param durations the seconds of every timeline the host resolved, by cinematic id; a state
 	 *   naming an id not here holds.
+	 * @param param the placed instance's param by key — what a condition with `param` compares
+	 *   against. Absent ⇒ every such condition fails.
 	 */
 	constructor(
 		machine: ComponentStateMachine,
 		inputs: readonly ComponentInput[],
 		durations: ReadonlyMap<string, number>,
+		param?: (key: string) => unknown,
 	) {
 		this.durations = durations;
+		this.param = param;
 		for (const input of inputs) {
 			if (!input.id || this.kinds.has(input.id)) continue;
 			this.kinds.set(input.id, input.kind);
@@ -370,7 +375,12 @@ export class ComponentStateMachineRunner {
 			if (condition.op === '!=') return value !== expected;
 			return false;
 		}
-		const expected = asNumber(condition.value, 0);
+		let expected = asNumber(condition.value, 0);
+		if (condition.param !== undefined) {
+			const fromParam = this.param?.(condition.param);
+			if (typeof fromParam !== 'number' || !Number.isFinite(fromParam)) return false;
+			expected = fromParam;
+		}
 		const actual = asNumber(value, 0);
 		switch (condition.op) {
 			case '==':
@@ -381,6 +391,10 @@ export class ComponentStateMachineRunner {
 				return actual < expected;
 			case '>':
 				return actual > expected;
+			case '<=':
+				return actual <= expected;
+			case '>=':
+				return actual >= expected;
 			default:
 				return false;
 		}
@@ -569,7 +583,7 @@ export interface StateMachineIssue {
 const OP_FOR_KIND: Record<ComponentInputKind, readonly SmCondition['op'][]> = {
 	trigger: ['fired'],
 	bool: ['==', '!='],
-	number: ['==', '!=', '<', '>'],
+	number: ['==', '!=', '<', '>', '<=', '>='],
 	// A text input carries a localization key (plan §8); the machine never conditions on text.
 	text: [],
 };
@@ -744,7 +758,12 @@ export function validateStateMachine(
 					});
 					continue;
 				}
-				if (kind === 'number' && condition.op !== 'fired' && condition.value === undefined) {
+				if (
+					kind === 'number' &&
+					condition.op !== 'fired' &&
+					condition.value === undefined &&
+					!condition.param
+				) {
 					issues.push({
 						code: 'condition-value-missing',
 						level: 'error',

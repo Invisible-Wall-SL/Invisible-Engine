@@ -1582,18 +1582,25 @@ export const SM_ANY_STATE = 'any';
 export const SM_EXIT_STATE = 'exit';
 
 /** Every `SmCondition.op`, as a VALUE (imported by the normalizer, like the kinds). */
-export const SM_CONDITION_OPS = ['fired', '==', '!=', '<', '>'] as const;
+export const SM_CONDITION_OPS = ['fired', '==', '!=', '<', '>', '<=', '>='] as const;
 export type SmConditionOp = (typeof SM_CONDITION_OPS)[number];
 
 /**
  * One condition of a transition, read against the def's inputs: `fired` on a trigger (consumed
- * once per evaluation), `==` / `!=` on a bool or a number, `<` / `>` on a number. Every condition
- * of a transition must hold; a transition with none holds as soon as its `exitTime` does.
+ * once per evaluation), `==` / `!=` on a bool or a number, `<` / `>` / `<=` / `>=` on a number.
+ * Every condition of a transition must hold; a transition with none holds as soon as its `exitTime`
+ * does.
  */
 export interface SmCondition {
 	input: string;
 	op: SmConditionOp;
 	value?: boolean | number;
+	/**
+	 * A number condition compares against the PLACED INSTANCE's number param of this key instead of
+	 * `value` — one def, a different threshold per placement (a firecracker in a pot lights at its own
+	 * `lightAt`). A param the instance does not resolve to a finite number fails the condition.
+	 */
+	param?: string;
 }
 
 /** A state of a layer: it plays one COMPONENT timeline by cinematic id. */

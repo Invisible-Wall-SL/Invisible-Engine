@@ -231,9 +231,12 @@ Changing **How many** discards open drafts first.
 - **Modes that drop** — the base game by default; only modes on the reels are offered, since only
   they have a cell to drop on.
 
-**Presentation → Tokens appear** — _after the last reel stops_ (the default) or _as each reel
-stops_. It changes only how the game shows a drop; the server never sees it. A board that swaps in
-place instead of rolling always shows its tokens together.
+**Presentation → Tokens appear** — _after the last reel stops_ (the default), _as each reel
+stops_, or _rolling with the reels_. With _rolling with the reels_, each token rolls in on its reel,
+bounces and lands with it, and every so often a token rolls past on the spinning strip without
+landing (about as often as the drop chance, never more than one cell in four). Switch back to
+either other choice to turn it off. It changes only how the game shows a drop; the server never
+sees it. A board that swaps in place instead of rolling always shows its tokens together.
 
 Problems show under the row or field they belong to, and that field gets a red border.
 

@@ -37,6 +37,7 @@ import type {
 import {
 	normalizeOverlayDrops,
 	normalizeOverlayPot,
+	storedOverlayTiming,
 	type OverlayDrops,
 	type OverlayPot,
 	type OverlayTiming,
@@ -197,11 +198,12 @@ export function normalizeCoinOverlay(raw: unknown): CoinOverlay | undefined {
 	const baseGame = baseGameSpecials(raw.baseGame);
 	const trigger = routes(raw.trigger);
 	const meters = list(raw.meters, coinMeter);
+	const timing = drops ? storedOverlayTiming(raw.timing) : undefined;
 
 	const body: Omit<CoinOverlay, 'style'> = {
 		...(pots.length ? { pots } : {}),
 		...(drops ? { drops } : {}),
-		...(drops && raw.timing === 'perReel' ? { timing: 'perReel' as const } : {}),
+		...(timing ? { timing } : {}),
 		...(coins ? { coins } : {}),
 		...(baseGame ? { baseGame } : {}),
 		...(trigger ? { trigger } : {}),

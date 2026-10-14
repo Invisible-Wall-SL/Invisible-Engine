@@ -67,7 +67,7 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 - [r2-client-isolation-and-scaffold](design/r2-client-isolation-and-scaffold.md) — the earlier per-tool R2 layout the unified repo superseded + project scaffolding.
 - [live-assets](design/live-assets.md) — the `deploy/` asset contract + export→bake→pull→register chain every authored doc travels.
 - [games-deploy](design/games-deploy.md) — one engine repo, shipped games as submodules.
-- [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile, the embeddable `game.js` and the `build-delivery.mjs` handover. Phases 1, 3 and 4 built; Phase 2 (protocol deltas) partly.
+- [delivery-builds](design/delivery-builds.md) — **a build we hand over, hosted by someone else**: the delivery profile, the embeddable `game.js`, the `build-delivery.mjs` handover and the upload to the partner's CDN. Phases 1, 3, 4 and 5 built; Phase 2 (protocol deltas) partly.
 - [project-explicit-tool-scoping](design/project-explicit-tool-scoping.md) — how tool capabilities/scopes are gated.
 - [unified-tool-bar](design/unified-tool-bar.md) — the shared `ToolTopBar` chrome every tool renders.
 - [invisible-debug-framework](design/invisible-debug-framework.md) — the shipped in-game `__IE_DEBUG__` menu framework.
@@ -105,7 +105,8 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    profile + `config.json`, the embeddable `game.js`, server-supplied bet levels + jurisdiction
    locks, every declared operator host setting (2026-09-30 — neutral when absent; field table in
    [the protocol reference](reference/play4fun-protocol.md#host-settings--gamesettingsconfig-2026-09-30)),
-   and the handover (`EMBED.md`, `--zip`) in `build-delivery.mjs`. Open: the line/way bet
+   the handover (`EMBED.md`, `--zip`) in `build-delivery.mjs`, and the upload to the partner's
+   CDN bucket (`upload-delivery.mjs`, 2026-10-14). Open: the line/way bet
    encoding, the host-setting meanings only the partner can confirm (`minNormalBet` units,
    `errorPanel`, `historyClient` — the reference's owed list), and the cascade vocabulary (waits on
    a real capture).

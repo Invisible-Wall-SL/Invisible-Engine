@@ -65,6 +65,10 @@ Shipped capabilities on `main`:
   as a bound child; no palette entry during the pilot. Its timelines are generated per tier at
   boot, not authored. Nothing changes in the Components side itself. The flag, the runtime and the
   gates: [engine status](engine.md), 2026-10-14; the launcher row and chips: [editor status](editor.md).
+- 2026-10-14 — **Per-placement thresholds in the state machine.** A number condition can compare
+  against the instance's own param (`{lightAt}`), ops `<=` / `>=` are added, and an input's `source`
+  `{key}` resolves through the enclosing instance. Built for the firecracker pot; detail in
+  [pots overlay status](pots-overlay.md), 2026-10-14.
 - 2026-10-14 — **The first authored overlay: `transitionWipe` (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`).** A new `internal` built-in def beside the hybrid
   `transition` twin (unchanged): one rig node `wipe`, no text, no params, no palette entry during the

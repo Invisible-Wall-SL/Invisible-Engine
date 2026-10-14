@@ -48,6 +48,7 @@ const CODED = {
 	maxMs: 900,
 	ease: 'easeInOut',
 	stagger: 70,
+	size: 1,
 };
 
 it('no block ⇒ the coded flight', resolveFlightStyle(undefined, 'toTotal'), CODED);
@@ -58,6 +59,7 @@ it('the coded numbers are the ones flyTo used before the block existed', FLIGHT_
 	maxMs: 900,
 	stagger: 70,
 	ease: 'easeInOut',
+	size: 1,
 	padding: 0.1,
 	overRoute: true,
 	avoid: true,
@@ -89,6 +91,7 @@ it(
 		maxMs: 900,
 		ease: 'linear',
 		stagger: 70,
+		size: 1,
 		head: { kind: 'none' },
 		trail: { effectId: 'fx-meter' },
 		bend: 0.3,
@@ -183,6 +186,25 @@ it(
 		normalizeFlights({ toTotal: { path: { arc: 0 } } })?.toTotal?.path,
 	],
 	[{ arc: 1 }, { arc: -0.4 }, { arc: 0 }],
+);
+it(
+	'normalize: size is clamped to 0.05…5 and a size ≤ 0 is dropped',
+	[
+		normalizeFlights({ toTotal: { size: 9 } })?.toTotal,
+		normalizeFlights({ toTotal: { size: 0.01 } })?.toTotal,
+		normalizeFlights({ toTotal: { size: 0 } }),
+	],
+	[{ size: 5 }, { size: 0.05 }, undefined],
+);
+it(
+	'resolve: size needs no head and follows the toMeter family',
+	[
+		resolveFlightStyle({ toMeter: { size: 1.5 } }, 'toMeter:red').size,
+		resolveFlightStyle({ toMeter: { size: 1.5 }, 'toMeter:red': { size: 0.5 } }, 'toMeter:red')
+			.size,
+		resolveFlightStyle({ toMeter: { size: 1.5 } }, 'toTotal').size,
+	],
+	[1.5, 0.5, 1],
 );
 it(
 	'resolve: arc follows the toMeter family and reaches the plan',

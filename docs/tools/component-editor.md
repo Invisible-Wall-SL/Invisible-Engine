@@ -413,6 +413,13 @@ type (a Flow **fireCue** name, say). **Also on** plays the same timeline on othe
 name their nodes alike. How to author, reuse and check one is in the Scene Editor guide under
 [Animate a component](invisible-editor.md#animate-a-component).
 
+**State machine — a threshold per placement.** In Animate → **State machine**, a condition on a
+number input can compare with a fixed **value** or with one of the component's number params, shown
+as `{lightAt}`. Each placed instance then uses its own param, so one component lights at a different
+point in every placement. The ops are `==` `!=` `<` `>` `<=` `>=`. A container holding instances of
+a component with a `lightAt` param shows **🔥 Light order: bottom → top**, which sets each one's
+`lightAt` from its height. Worked example: [build a pot from pieces](../guides/pot-from-pieces.md).
+
 ## Win Overlay — per-tier presentation
 
 The built-in **Win Overlay** (`win`) component owns the big-win **presentation**,
@@ -618,10 +625,6 @@ placed inside a Cell Tile does nothing.
 These reflect the registered editor design (`docs/design/invisible-editor.md`
 §8.5–§8.10) and the current build:
 
-- **No state machine yet.** A component can be animated ([Animate it](#7-animate-it-timelines)),
-  but there are no states or transitions between timelines; the per-component state machine is
-  the next phase (`docs/design/rive-style-editor.md` §10). Anything needing branching, RGS math
-  or stateful logic stays a coded `mount` for now.
 - **Versioning is pin-by-default with a true multi-version store (v2 landed).**
   Saving bumps the `version` on a changed def AND retains every historical version, so
   the engine resolves an instance's pin to the **exact** def it was authored against

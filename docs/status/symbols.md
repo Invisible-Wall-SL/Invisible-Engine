@@ -137,9 +137,8 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
    whether the resting board should show the winners instead is an open product call.
 9. **The no-flow branch of `playBookEvents` bypasses `dispatchBookEvent`**, so on a game with no
    FlowDoc the win-cycle record (and therefore `winExplode`) stays inert.
-10. **Flights: the preview does not play the arrival effect** (shown as a thumbnail in the editor)
-    and draws the CODED trail as a canvas approximation, not the `constants-shared` trail config the
-    game emits (the launcher does not depend on `constants-shared`/`engine-game`). An authored trail
+10. **Flights: the preview draws the CODED trail as a canvas approximation**, not the
+    `constants-shared` trail config the game emits (the launcher does not depend on `constants-shared`/`engine-game`). An authored trail
     and every route are the real thing (a bone-placed trail layer is mounted FREE by `FlightView`,
     as the preview draws it). `boostBeam` is listed and flown since Hold and Win Polish 2
     (booster → each coin it multiplies).
@@ -152,6 +151,16 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
   tints, the win dim, layers' blend, the pop, the arrival release, the transition, book VFX).
 
 ## Recent changes
+
+- 2026-10-14 — **Flights: a Size for the built-in head, and a preview that shows the picked head.**
+  `flights.<kind>.size` (0.05–5, resolved exact → `toMeter` family → 1 like the timing fields)
+  multiplies everything `FlightLayer` draws at the head: the coded glow, a pots overlay's token, the
+  "+N" label, and an authored head on top of its own `head.scale`. The `/symbols` Size (×) field
+  shows for every head, Built-in included; an authored head's own field is now "Head size". The
+  flight preview applies the size, draws the pots token (its `flyToMeter` art, falling back to
+  `static`) as the head of a meter an overlay fills — as the game does, whatever head is picked —
+  draws the "+2" of `toCounter`, and plays the arrival effect at B on landing (a second `FxStage`,
+  re-armed each loop). Schema, normalize, resolve and fixtures (`flightStyle`).
 
 - 2026-10-07 — **`/config` decides the rows, for every kind and setup.** The grid already hid a
   symbol `/config` badges unused, but only when the project had SAVED its config: a project still on

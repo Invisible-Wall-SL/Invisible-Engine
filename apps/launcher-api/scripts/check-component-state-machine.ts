@@ -16,7 +16,10 @@
  *     `ComponentInstance.svelte` too);
  *  6. what saves: the normalizer keeps the new blocks and drops malformed rows;
  *  7. the ship chain (rule 8): a state machine's timeline that no Flow node and no `playOn` names
- *     is still exported and embedded, and the runtime registry resolves it by id.
+ *     is still exported and embedded, and the runtime registry resolves it by id;
+ *  8. a pot built from pieces: a number condition compares against each placement's own param
+ *     (`{lightAt}`), so one firecracker def lights bottom → top as the pot's share rises, fires on
+ *     `potActivate` and goes dark once drained; `<=` / `>=`; the editor's light order.
  *
  * What it cannot prove: the Svelte wiring in `ComponentInstance.svelte` (ticker, bus, context) —
  * that is the owner's browser check.
@@ -81,6 +84,7 @@ const { exportCinematics, loadAuthoredCinematics } =
 	await import('../src/lib/server/cinematicExport.ts');
 const { normalizeComponent } = await import('../src/lib/server/componentStorage.ts');
 const S = await import('../src/lib/timeline/screenTimeline.ts');
+const PP = await import('../../../packages/engine-layout/src/lib/potPieces.ts');
 
 let failures = 0;
 let passes = 0;
@@ -1667,6 +1671,138 @@ eq(
 	L.stateMachineTimelines(machine(layer())).docs.map((d) => d.id),
 	['c_coin_idle'],
 );
+
+// ---- 8. a pot built from pieces ----------------------------------------------------------------
+
+{
+	const pieceDurations = new Map([
+		['c_cracker_off', 0],
+		['c_cracker_lit', 1],
+		['c_cracker_fired', 1],
+	]);
+	const pieceInputs: ComponentDef['inputs'] = [
+		{ id: 'share', kind: 'number', source: 'meter.{meter}.share' },
+		{ id: 'potActivate', kind: 'trigger' },
+	];
+	const cracker = machine({
+		id: 'main',
+		entry: 'off',
+		states: [
+			{ id: 'off', timeline: 'c_cracker_off' },
+			{ id: 'lit', timeline: 'c_cracker_lit', loop: true },
+			{ id: 'fired', timeline: 'c_cracker_fired' },
+		],
+		transitions: [
+			{
+				id: 't_light',
+				from: 'off',
+				to: 'lit',
+				conditions: [{ input: 'share', op: '>=', param: 'lightAt' }],
+			},
+			{
+				id: 't_fire',
+				from: 'lit',
+				to: 'fired',
+				conditions: [{ input: 'potActivate', op: 'fired' }],
+			},
+			{
+				id: 't_dark',
+				from: 'any',
+				to: 'off',
+				conditions: [{ input: 'share', op: '<', param: 'lightAt' }],
+				exitTime: 1,
+			},
+		],
+	});
+	const piece = (lightAt: unknown) =>
+		new M.ComponentStateMachineRunner(cracker, pieceInputs, pieceDurations, (key) =>
+			key === 'lightAt' ? lightAt : undefined,
+		);
+	const bottom = piece(0.5);
+	const head = piece(1);
+	const states = () => [bottom.stateOf('main'), head.stateOf('main')];
+	const step = (share: number, dt = 0.1) => {
+		for (const r of [bottom, head]) {
+			r.setInput('share', share);
+			r.advance(dt);
+		}
+	};
+	step(0.25);
+	eq('below every threshold every piece stays off', states(), ['off', 'off']);
+	step(0.5);
+	eq('the bottom piece lights at its own threshold, the head does not', states(), ['lit', 'off']);
+	step(1);
+	eq('a full pot lights the head too', states(), ['lit', 'lit']);
+	for (const r of [bottom, head]) r.fire('potActivate');
+	step(1);
+	eq('potActivate fires every lit piece', states(), ['fired', 'fired']);
+	step(0, 0.5);
+	eq('drained mid-fire: the fired piece finishes its timeline first', states(), ['fired', 'fired']);
+	step(0, 0.6);
+	eq('…then goes dark', states(), ['off', 'off']);
+	const unset = piece(undefined);
+	unset.setInput('share', 1);
+	unset.advance(0.1);
+	eq(
+		'a placement without the param never lights (the condition fails)',
+		unset.stateOf('main'),
+		'off',
+	);
+	eq(
+		'validation: `>=` is a number op and a param stands in for the value',
+		M.validateStateMachine({ inputs: pieceInputs, stateMachine: cracker }, pieceDurations.keys()),
+		[],
+	);
+	const saved = normalizeComponent({
+		id: 'cracker',
+		name: 'Firecracker',
+		version: 1,
+		scope: 'project',
+		category: 'ui',
+		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+		inputs: pieceInputs,
+		stateMachine: machine({
+			...cracker.layers[0],
+			transitions: [
+				...cracker.layers[0].transitions,
+				{ id: 'bad', from: 'off', to: 'lit', conditions: [{ input: 'share', op: '>=' }] },
+			],
+		}),
+	} as unknown as ComponentDef);
+	eq(
+		'what saves: a param condition and the new ops are kept; an ordering op with neither value nor param is dropped',
+		saved.stateMachine?.layers[0].transitions,
+		cracker.layers[0].transitions,
+	);
+	eq(
+		'light order: the lowest lights first, pieces at one height together, the top at a full pot',
+		PP.lightOrderThresholds([100, 0, 50, 50, -80]),
+		[0.25, 0.75, 0.5, 0.5, 1],
+	);
+	const inst = (id: string, componentId: string, y: number): LayoutNode =>
+		({ id, kind: 'componentInstance', componentId, x: 0, y, params: {} }) as LayoutNode;
+	const body = {
+		id: 'pot',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			inst('head', 'coinHead', -200),
+			{ id: 'g', kind: 'container', x: 0, y: 100, children: [inst('a', 'cracker', 50)] },
+			inst('b', 'cracker', 40),
+			inst('art', 'other', 300),
+		],
+	} as LayoutNode;
+	eq(
+		'pieces are found through groups, their y summed, other instances skipped',
+		PP.potPieces(body, (id) => id !== 'other').map((p) => [p.node.id, p.y]),
+		[
+			['head', -200],
+			['a', 150],
+			['b', 40],
+		],
+	);
+}
 
 console.log(
 	`\n${failures === 0 ? '✅' : '❌'} component state machine: ${passes} passed, ${failures} failed`,

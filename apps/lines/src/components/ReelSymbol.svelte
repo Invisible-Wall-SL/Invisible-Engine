@@ -16,6 +16,7 @@
 	import { SYMBOL_DIM_TINT } from 'engine-game';
 	import { activeGrid, boardDimensions } from '../game/gameConfig';
 	import { symbolZIndex } from '../game/paintOrder';
+	import { riderToken } from '../game/overlayRiders';
 
 	type Props = {
 		reelIndex: number;
@@ -156,6 +157,14 @@
 	// column would move all of them. `false` on every cell of a project that never turned the pop on
 	// ⇒ byte-parity.
 	const removed = $derived(props.reelSymbol.removed);
+	// A pots overlay's token riding this cell while the strip rolls (`withReel` timing). Drawn only
+	// while the reel moves: at rest the overlay layer draws the tokens that landed. `undefined` on
+	// every cell of a game whose overlay does not roll its tokens ⇒ byte-parity.
+	const rider = $derived(
+		stateGame.board[props.reelIndex]?.reelState.rolling
+			? riderToken(props.reelSymbol.rider)
+			: undefined,
+	);
 </script>
 
 {#if !covered && !removed}
@@ -216,5 +225,8 @@
 				}
 			}}
 		/>
+		{#if rider}
+			<Symbol state="static" rawSymbol={rider} />
+		{/if}
 	</SymbolWrap>
 {/if}

@@ -76,9 +76,18 @@ export type OverlayDrops = {
 	modes?: string[];
 };
 
-/** When a board's tokens appear: all together once the last reel has stopped (the default), or each
- *  reel's as that reel stops. A board with no reel roll (a swap in place) always shows them together. */
-export type OverlayTiming = 'afterStop' | 'perReel';
+/** When a board's tokens appear: all together once the last reel has stopped (the default), each
+ *  reel's as that reel stops, or riding the reels (`withReel`) — each token rolls in on its reel and
+ *  lands with it, and tokens that never land roll past on the strip. A board with no reel roll (a
+ *  swap in place) always shows them together. */
+export const OVERLAY_TIMINGS = ['afterStop', 'perReel', 'withReel'] as const;
+export type OverlayTiming = (typeof OVERLAY_TIMINGS)[number];
+
+/** A stored timing — every one but the default, which is not stored. */
+export const storedOverlayTiming = (
+	raw: unknown,
+): Exclude<OverlayTiming, 'afterStop'> | undefined =>
+	raw === 'perReel' || raw === 'withReel' ? raw : undefined;
 
 export type PotsOverlay = {
 	/** 0 to {@link MAX_OVERLAY_POTS}. Empty for a coins-only overlay: value coins drop and N+ start
@@ -194,7 +203,8 @@ export function normalizePotsOverlay(raw: unknown): PotsOverlay | undefined {
 	const pots = list(raw.pots, normalizeOverlayPot);
 	const dropped = normalizeOverlayDrops(raw.drops);
 	if (!pots.length && !dropped.table.length) return undefined;
-	return { pots, drops: dropped, ...(raw.timing === 'perReel' ? { timing: 'perReel' } : {}) };
+	const timing = storedOverlayTiming(raw.timing);
+	return { pots, drops: dropped, ...(timing ? { timing } : {}) };
 }
 
 // ─── meters ───────────────────────────────────────────────────────────────────────────────────

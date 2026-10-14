@@ -55,6 +55,7 @@ Works today on `main` / live:
   geometry). Detected numeric runs are recorded in `sequences` as the hint the /flipbook tool
   reads. `editable=1` is the opt-in lossy path (re-slices to loose sprites, **drops per-frame
   trim offsets**, doesn't lock).
+- **Region padding + Region border, per sheet and per cell** _(2026-10-14)_ — Region padding X/Y = art to cell edge (cell = art + 2 × padding); Region border X/Y = space a cell keeps clear around itself, so neighbours sit border A + border B apart and a cell sits its border from the canvas edge (`packer.arrange` inflates each item by its own `border_x/border_y`). Each cell may override either: padding through an **Own padding** switch (off by default; resizing a cell turns it on), border by a non-empty value; FX cells follow their base. The sheet values persist in the manifest's `layout`, per-cell overrides on the region (`border_x/border_y`, and `pad_x/pad_y` only for Own padding — kept by the Atlas Maker's merge). Crossed borders get an orange outline. `test_region_layout.py` (12). ⏳ Not yet run live on Railway.
 - **Whole-sheet downscale** — `Canvas size → Downscale sheet ⤓` scales the canvas, every
   region rect and this sheet's sprite copies by one factor (½ / ¼ / ⅛ presets or a target
   width), behind a numbers-first dialog + a confirm. `POST /api/rescale-sheet` does the
@@ -82,6 +83,27 @@ Works today on `main` / live:
 - None.
 
 ## Recent changes
+- 2026-10-14 — **Own padding switch: the sheet's Region padding reaches every cell again.** Loading
+  a sheet (or restoring a session) turned each cell's size into its own padding override, and a
+  global change also pinned locked cells (loaded cells arrive locked). So the global value never
+  reached a loaded sheet. Now a cell overrides padding only through an explicit **Own padding**
+  switch, off by default, set by the switch itself or by resizing the cell. Every other cell follows
+  the global value, locked ones included (a lock holds position, not size). Loading no longer
+  derives overrides. A pad-off cell keeps its stored size until the global value next changes. Own
+  padding is saved on the manifest region as `pad_x/pad_y` (absent = off). Sessions saved before
+  this load with every cell off. Verified headless: load → global 10/4/0 resizes all locked cells,
+  Own padding on ignores global and off rejoins it, resize turns it on, and it survives Save → Load.
+- 2026-10-14 — **Region padding / Region border replace Padding (arrange) and the canvas Border.**
+  The old "Padding (arrange)" was the gap the packer left between cells, and the Border X/Y added
+  earlier the same day (#1201) kept cells away from the canvas edge. Neither gave sprites room for
+  glows. Now **Region padding** sizes each cell as art + padding, and **Region border** is the space
+  each cell keeps clear around itself. Packing adds the two borders of neighbouring cells together
+  and keeps each cell its border from the canvas edge, which also covers what the canvas Border did,
+  so that setting is gone. Both can be overridden per cell. Loading an existing sheet keeps every
+  cell's size: padding is derived from cell − art size and recorded as an override where it differs
+  from the sheet's. The session's old `padding` key is no longer read (the border defaults to 1, so
+  cells still pack 2 px apart). Verified headless: sizes, gaps (4+4, 20+4), override, resize →
+  padding, and a Save → Load round trip.
 - 2026-10-13 — **🧹 Clean sheet… is back, behind a gate.** The old one-click "New / clear canvas"
   (replaced 2026-09-02 by the named `New sheet…` dialog) was also how people emptied a sheet to
   re-import its images; that use had no button since. The new Upload-tab button opens a dialog that

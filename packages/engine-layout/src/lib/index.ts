@@ -114,6 +114,7 @@ export * from './uiText';
 export * from './builtinComponents';
 export * from './builtinTimelines';
 export * from './potSkin';
+export * from './potPieces';
 export * from './wheelSkin';
 export * from './partStandIn';
 export * from './boundComponentCatalog';

@@ -13,6 +13,7 @@
 		holdAndWinIsOverlayBonus,
 		isCoinDrop,
 		overlayDropModes,
+		storedOverlayTiming,
 		overlayDropsTokens,
 		potsOverlayPreset,
 		primaryRespinMode,
@@ -372,7 +373,8 @@
 
 	/** After the stop is the default, which a doc never stores. */
 	function setTiming(overlay: Dropping, value: string) {
-		if (value === 'perReel') overlay.timing = 'perReel';
+		const timing = storedOverlayTiming(value);
+		if (timing) overlay.timing = timing;
 		else delete overlay.timing;
 	}
 	// ── the overlay itself ─────────────────────────────────────────────────────────────────────
@@ -864,8 +866,15 @@
 				>
 					<option value="afterStop">after the last reel stops</option>
 					<option value="perReel">as each reel stops</option>
+					<option value="withReel">rolling with the reels</option>
 				</select></label
 			>
+			{#if overlay.timing === 'withReel'}
+				<span class="hint"
+					>Each token rolls in on its reel and lands with it; tokens that never land roll past on
+					the strip, about as often as the drop chance.</span
+				>
+			{/if}
 		</div>
 	</fieldset>
 {/snippet}

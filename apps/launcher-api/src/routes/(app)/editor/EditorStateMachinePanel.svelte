@@ -285,6 +285,7 @@
 		}
 		Object.assign(c, patch);
 		if (c.op === 'fired') delete c.value;
+		if (!c.param) delete c.param;
 		changed();
 	}
 	const opsFor = (input: ComponentInput | undefined): SmCondition['op'][] =>
@@ -292,7 +293,9 @@
 			? ['fired']
 			: input?.kind === 'bool'
 				? ['==', '!=']
-				: ['==', '!=', '<', '>'];
+				: ['==', '!=', '<', '>', '<=', '>='];
+	/** The number params a number condition can compare against — a per-placement threshold. */
+	const numberParams = $derived((def?.params ?? []).filter((p) => p.kind === 'number'));
 
 	// ---- preview state (read by the graph: the active state and the lit transition) --------------
 
@@ -526,7 +529,13 @@
 			setTimelinePreview(null, previewOwner);
 			return;
 		}
-		runner = new ComponentStateMachineRunner(def.stateMachine, inputs, durations());
+		const params = def.params ?? [];
+		runner = new ComponentStateMachineRunner(
+			def.stateMachine,
+			inputs,
+			durations(),
+			(key) => params.find((p) => p.key === key)?.default,
+		);
 		player = previewPlayer(docs.values(), scene.nodes);
 		entered = false;
 		for (const [id, value] of Object.entries(previewValues)) runner.setInput(id, value);
@@ -900,12 +909,30 @@
 								<option value="false">false</option>
 							</select>
 						{:else if input?.kind === 'number'}
-							<input
-								type="number"
-								step="any"
-								value={typeof c.value === 'number' ? c.value : 0}
-								onchange={(e) => setCondition(t, i, { value: Number(e.currentTarget.value) || 0 })}
-							/>
+							{#if numberParams.length || c.param}
+								<select
+									title="Compare with a fixed value, or with each placed instance's own param"
+									value={c.param ?? ''}
+									onchange={(e) =>
+										setCondition(t, i, { param: e.currentTarget.value || undefined })}
+								>
+									<option value="">value</option>
+									{#if c.param && !numberParams.some((p) => p.key === c.param)}
+										<option value={c.param}>{`{${c.param}}`} (unknown)</option>
+									{/if}
+									{#each numberParams as p (p.key)}<option value={p.key}>{`{${p.key}}`}</option
+										>{/each}
+								</select>
+							{/if}
+							{#if !c.param}
+								<input
+									type="number"
+									step="any"
+									value={typeof c.value === 'number' ? c.value : 0}
+									onchange={(e) =>
+										setCondition(t, i, { value: Number(e.currentTarget.value) || 0 })}
+								/>
+							{/if}
 						{/if}
 						<button
 							type="button"

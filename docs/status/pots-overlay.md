@@ -284,6 +284,14 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     dep then puts each reel's tokens down as it stops, landing, with their sound. The drop later
     finds them down and neither restarts their landing nor replays their sound. Tokens a reel did not
     show (a board that swaps in place has no reel stop) appear with the drop, as after the stop.
+  - **Rolling timing:** `timing: 'withReel'` (`/config` → "rolling with the reels"). The board's
+    drop is armed as for per-reel timing, and each reel cell carries a `rider` (`utils-slots`
+    `riders` reel option, `engine-game` `reelRiders` dep, `apps/lines/src/game/overlayRiders.ts`):
+    the drop's tokens ride the cells they land on, and cells that only roll past carry a token from
+    the drop table at `min(drops.chance, 0.25)` in a dropping mode, on a dropping reel.
+    `ReelSymbol` draws a rider only while its reel is `rolling`, and `OverlayToken` waits for the
+    reel to settle, so a token hands over from the strip to the overlay layer on the same frame.
+    A settled strip clears its riders. Presentation only: a passing token is never recorded.
   - **Flow actions** (overlay fragment, `addOns.ts`; effects in `flowEffects.ts`):
     - `showTokens` (`overlayDrop`) — the coded drop beat.
     - `liftTokens` (`meterUpdate`) — takes a fill's tokens off their cells without flying, for a
@@ -946,6 +954,29 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 - **The partner's RGS** for production play (Phase 8). Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-14 — **A pot built from pieces (the firecracker pot)** (branch
+  `claude/admiring-noether-ptegsa`). The pot's body can be N placements of one authored piece, each
+  lighting at its own fill threshold, bottom → top, the coin head last; lit pieces fire on
+  `potActivate`. Walkthrough: [pot-from-pieces](../guides/pot-from-pieces.md). What landed:
+  - **State machine:** a number condition may compare against the placed instance's number param
+    (`SmCondition.param`, e.g. `share >= {lightAt}`); new ops `<=` / `>=`. The runner takes the
+    instance's params; the normalizer keeps `param`; the State Machine panel offers **value** or
+    `{param}` per condition.
+  - **Inputs:** a `{key}` in a number input's `source` expands from the instance's params, else the
+    enclosing instance's, so a piece inside a pot reads `meter.{meter}.share` through the pot.
+  - **Game:** each meter registers `meter.<id>.share` (level / max, 0..1); catalogued for bindings.
+  - **Editor:** a container holding pieces (instances whose def has a `lightAt` param) shows
+    **🔥 Light order: bottom → top** (`potPieces` + `lightOrderThresholds`, `potPieces.ts`).
+  - Gate: `check:component-state-machine` §8. Not yet eyeballed in a live game: the owner authors the
+    firecracker and checks a pot fills bottom → top.
+  - Not built: a staggered fire (each piece firing a beat after the one below). Today every lit piece
+    fires on the same `potActivate`; a per-piece delay would need a param-driven offset on a state.
+
+- 2026-10-14 — **Tokens can roll with the reels.** New third timing `withReel`
+  (`OVERLAY_TIMINGS`, `storedOverlayTiming`): the drop's tokens roll in on their cells and land with
+  the reel; other tokens roll past without landing. See "Rolling timing" above. Fixture:
+  `potsOverlay.fixture.ts` stores both non-default timings. Not yet eyeballed in a live game.
 
 - 2026-10-08 — **The lines mock hosts the overlay** ([book-feature.md](../design/book-feature.md)
   Phase 4). `scripts/mock-rgs-server.mjs` gives `withPotsOverlay` the book mock's seam

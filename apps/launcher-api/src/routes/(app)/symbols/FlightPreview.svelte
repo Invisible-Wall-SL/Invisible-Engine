@@ -10,9 +10,12 @@
 	 * that `FxStage` through its `ownerPos` hook: the emitter's container stays still and its OWNER
 	 * follows the head, the mechanism the game's `<EffectPlayer ownerPos>` uses, so particles stay
 	 * where they were born. The coded trail is drawn on the canvas as an approximation of the gold
-	 * glow; the head is the coded glow (re-tinted) or the authored art, moved along the route.
+	 * glow; the head is the coded glow (re-tinted) or the authored art — or, for a pots token, the
+	 * token itself, which replaces any head in the game too — at the kind's `size`, moved along the
+	 * route with the "+N" label it carries. The arrival effect plays at B as the head lands, on a
+	 * second `FxStage` that stays mounted and is re-armed each loop.
 	 */
-	import type { EffectDoc } from 'engine-fx';
+	import { emitterSecondsToWallMs, type EffectDoc } from 'engine-fx';
 	import {
 		flightDuration,
 		flightEaseOf,
@@ -29,10 +32,14 @@
 
 	interface Props {
 		style: ResolvedFlightStyle;
-		/** Draws an authored art head at `size` CSS px. Absent for a glow / none head. */
+		/** Draws the art head at `size` CSS px — the authored art, or the {@link token}. */
 		headArt?: Snippet<[number]>;
+		/** The head is a pots overlay token (drawn by `headArt` at a cell), not the style's head. */
+		token?: boolean;
+		/** Text riding on the head — an add-respins "+N". */
+		label?: string;
 	}
-	let { style, headArt }: Props = $props();
+	let { style, headArt, token = false, label }: Props = $props();
 
 	const W = 640;
 	const H = 480;
@@ -44,6 +51,11 @@
 	const HANDLE_R = 14;
 	const WAIT_MS = 250;
 	const SETTLE_MS = 900;
+	/** An arrival layer that would emit forever (no lifetime, no duration) bursts this long. */
+	const ARRIVAL_BURST_MS = 200;
+	/** The game's head label (`FlightLayer`'s `LABEL_STYLE`): 0.3 of a cell, black outline. */
+	const LABEL_CELLS = 0.3;
+	const LABEL_STROKE = 6;
 	/** The coded trail's particles live ~0.5 emitter-seconds; drawn as a fading streak. */
 	const CODED_TRAIL_MS = 220;
 	const CODED_HEAD_TINT = '#ffd45a';
@@ -91,25 +103,65 @@
 			live = false;
 		};
 	});
+	const arrivalEffectId = $derived(style.arrival?.effectId);
+	let arrivalDoc = $state<EffectDoc | null>(null);
+	$effect(() => {
+		const id = arrivalEffectId;
+		arrivalDoc = null;
+		if (!id) return;
+		let live = true;
+		void fetchEffectDoc(id).then((doc) => {
+			if (live) arrivalDoc = doc;
+		});
+		return () => {
+			live = false;
+		};
+	});
+	/** How long the arrival emits once the head lands: a layer's `duration`, else its lifetime. */
+	const arrivalEmitMs = $derived(
+		Math.max(
+			0,
+			...(arrivalDoc?.layers ?? []).map((layer) => {
+				if (layer.trigger?.duration) return layer.trigger.duration;
+				const lifetime = layer.config.emitterLifetime ?? -1;
+				return lifetime > 0 ? emitterSecondsToWallMs(lifetime) : ARRIVAL_BURST_MS;
+			}),
+		),
+	);
+	/** Its last particle, after emission stops — what the loop waits out before it restarts. */
+	const arrivalSettleMs = $derived(
+		arrivalEmitMs +
+			Math.max(
+				0,
+				...(arrivalDoc?.layers ?? []).map((layer) =>
+					emitterSecondsToWallMs(layer.config.lifetime?.max ?? 0),
+				),
+			),
+	);
+	const arrivalPos = () => end;
 	const resolveArt = createFxArtResolver();
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 	let artEl: HTMLDivElement | null = $state(null);
 	/** Spawning — drives the authored trail's `emitting`. */
 	let flying = $state(false);
+	/** The arrival is emitting — true from the landing for {@link arrivalEmitMs}. */
+	let arriving = $state(false);
 	const head = { x: 0, y: 0 };
 	const ownerPos = () => head;
 	let streak: { x: number; y: number; at: number }[] = [];
 
-	const headSize = $derived(CELL * (style.head?.scale ?? 1));
-	const glowHead = $derived(!style.head || style.head.kind === 'glow');
+	const headSize = $derived(CELL * (token ? 1 : (style.head?.scale ?? 1)) * style.size);
+	const glowHead = $derived(!token && (!style.head || style.head.kind === 'glow'));
 	const artHead = $derived(
-		style.head?.kind === 'sprite' ||
+		token ||
+			style.head?.kind === 'sprite' ||
 			style.head?.kind === 'spine' ||
 			style.head?.kind === 'flipbook',
 	);
 
-	function draw(now: number, showHead: boolean): void {
+	function draw(now: number, inFlight: boolean): void {
+		const showHead = inFlight && (token || style.head?.kind !== 'none');
 		const ctx = canvas?.getContext('2d');
 		if (!ctx || !canvas) return;
 		const dpr = window.devicePixelRatio || 1;
@@ -177,8 +229,19 @@
 			ctx.fill();
 		}
 		ctx.globalCompositeOperation = 'source-over';
+		if (inFlight && label) {
+			ctx.font = `bold ${LABEL_CELLS * CELL * style.size}px Arial, sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.lineJoin = 'round';
+			ctx.lineWidth = LABEL_STROKE * style.size;
+			ctx.strokeStyle = '#000000';
+			ctx.strokeText(label, head.x, head.y);
+			ctx.fillStyle = '#ffffff';
+			ctx.fillText(label, head.x, head.y);
+		}
 
-		for (const [point, label, colour] of [
+		for (const [point, handle, colour] of [
 			[start, 'A', '#4ade80'],
 			[end, 'B', '#60a5fa'],
 		] as const) {
@@ -190,7 +253,7 @@
 			ctx.font = 'bold 13px system-ui, sans-serif';
 			ctx.textAlign = 'center';
 			ctx.textBaseline = 'middle';
-			ctx.fillText(label, point.x, point.y + 1);
+			ctx.fillText(handle, point.x, point.y + 1);
 		}
 	}
 
@@ -201,7 +264,10 @@
 			const elapsed = now - cycleStart;
 			const flyMs = elapsed - WAIT_MS;
 			const inFlight = flyMs >= 0 && flyMs < durationMs;
-			if (flyMs >= durationMs + SETTLE_MS) cycleStart = now;
+			if (flyMs >= durationMs + Math.max(SETTLE_MS, arrivalSettleMs)) cycleStart = now;
+			const landedMs = flyMs - durationMs;
+			const emitArrival = !!arrivalDoc && landedMs >= 0 && landedMs < arrivalEmitMs;
+			if (arriving !== emitArrival) arriving = emitArrival;
 			const p = pointOnCurve(route.curve, ease(Math.min(1, Math.max(0, flyMs / durationMs))));
 			head.x = p.x;
 			head.y = p.y;
@@ -211,12 +277,22 @@
 				artEl.style.opacity = inFlight ? '1' : '0';
 				artEl.style.transform = `translate(${W / 2 + p.x - headSize / 2}px, ${H / 2 + p.y - headSize / 2}px)`;
 			}
-			draw(now, inFlight && style.head?.kind !== 'none');
+			draw(now, inFlight);
 			frame = requestAnimationFrame(loop);
 		};
 		frame = requestAnimationFrame(loop);
 		return () => cancelAnimationFrame(frame);
 	});
+
+	const headLabel = $derived(
+		token
+			? 'the pots token'
+			: !style.head
+				? 'built-in glow'
+				: style.head.kind === 'spine'
+					? 'rig'
+					: style.head.kind,
+	);
 
 	let dragging: 'start' | 'end' | null = null;
 	let moved = false;
@@ -281,6 +357,20 @@
 				{/key}
 			</div>
 		{/if}
+		{#if arrivalDoc?.layers.length}
+			<div class="fx-layer">
+				{#key arrivalDoc.id}
+					<FxStage
+						layers={arrivalDoc.layers}
+						playing
+						{resolveArt}
+						ownerPos={arrivalPos}
+						emitting={arriving}
+						showReference={false}
+					/>
+				{/key}
+			</div>
+		{/if}
 		{#if artHead && headArt}
 			<div class="art-head" bind:this={artEl} style="width:{headSize}px;height:{headSize}px">
 				{@render headArt(headSize)}
@@ -302,7 +392,9 @@
 			)}){/if}{#if route.hits}, {route.hits} blocked samples{/if} · {Math.round(durationMs)} ms{#if style.trail && 'off' in style.trail}
 			· no trail{:else if !style.trail}
 			· coded trail (approximation){:else if !trailDoc}
-			· loading the trail effect…{/if}
+			· loading the trail effect…{/if} · head: {headLabel}{#if style.size !== 1}
+			× {style.size}{/if}{#if arrivalEffectId && !arrivalDoc}
+			· loading the arrival effect…{/if}
 	</p>
 </div>
 

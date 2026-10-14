@@ -37,9 +37,11 @@ class _MaxRects:
         self.allow_rotation = allow_rotation
         self.free = [(0, 0, width, height)]  # (x, y, w, h)
 
-    def insert(self, w: int, h: int):
-        """Place a wxh rect. Returns (x, y, placed_w, placed_h, rotated) or None."""
-        best = self._find(w, h)
+    def insert(self, w: int, h: int, rotated_size: tuple[int, int] | None = None):
+        """Place a wxh rect. Returns (x, y, placed_w, placed_h, rotated) or None.
+        `rotated_size` is the footprint to try when rotating, for a rect whose
+        rotation is not a plain w/h swap (a border that differs on X and Y)."""
+        best = self._find(w, h, rotated_size)
         if best is None:
             return None
         x, y, pw, ph, rotated = best
@@ -51,11 +53,11 @@ class _MaxRects:
         avoid it. Used to honour locked sprites before auto-arranging."""
         self._place((int(x), int(y), int(w), int(h)))
 
-    def _find(self, w: int, h: int):
+    def _find(self, w: int, h: int, rotated_size: tuple[int, int] | None = None):
         best = None
         best_short = best_long = None
         for (fx, fy, fw, fh) in self.free:
-            for cand_w, cand_h, rot in self._orientations(w, h):
+            for cand_w, cand_h, rot in self._orientations(w, h, rotated_size):
                 if cand_w <= fw and cand_h <= fh:
                     leftover_h = fw - cand_w
                     leftover_v = fh - cand_h
@@ -66,10 +68,11 @@ class _MaxRects:
                         best_short, best_long = short, long_
         return best
 
-    def _orientations(self, w: int, h: int):
+    def _orientations(self, w: int, h: int, rotated_size: tuple[int, int] | None = None):
         yield (w, h, False)
-        if self.allow_rotation and w != h:
-            yield (h, w, True)
+        rw, rh = rotated_size or (h, w)
+        if self.allow_rotation and (rw, rh) != (w, h):
+            yield (rw, rh, True)
 
     def _place(self, used: tuple[int, int, int, int]) -> None:
         new_free = []
@@ -209,17 +212,23 @@ def pack(items: list[dict], *, width: int = 2048, height: int = 0, padding: int 
 
 
 def arrange(canvas_w: int, canvas_h: int, items: list[dict], *,
-            padding: int = 2, allow_rotation: bool = False) -> dict:
+            allow_rotation: bool = False) -> dict:
     """Free-canvas auto-arrange: keep LOCKED sprites where they are, pack the
     UNLOCKED ones into the remaining space of a fixed canvas_w x canvas_h sheet.
 
-    items: [{name, w, h, locked, x, y, rotated?}, ...] — w/h are the CURRENT
-    (possibly user-resized) display sizes. Locked items must carry x/y.
+    items: [{name, w, h, locked, x, y, rotated?, border_x?, border_y?}, ...] —
+    w/h are the CURRENT (possibly user-resized) display sizes. Locked items must
+    carry x/y. Each item keeps its own border (sheet px, default 0) clear on
+    every side, so two neighbours sit border A + border B apart and every item
+    sits at least its border away from the canvas edge.
 
     Returns {regions:[{name,x,y,w,h,rotated,locked}], unplaced:[names]}.
     Locked items are returned unchanged; unplaced unlocked items keep their
     incoming x/y (or 0,0) and are flagged in `unplaced`."""
     mr = _MaxRects(int(canvas_w), int(canvas_h), allow_rotation)
+
+    def border(it: dict) -> tuple[int, int]:
+        return max(0, int(it.get("border_x") or 0)), max(0, int(it.get("border_y") or 0))
 
     out: list[dict] = []
     locked = [it for it in items if it.get("locked")]
@@ -228,7 +237,8 @@ def arrange(canvas_w: int, canvas_h: int, items: list[dict], *,
     for it in locked:
         fw = it["h"] if it.get("rotated") else it["w"]
         fh = it["w"] if it.get("rotated") else it["h"]
-        mr.occupy(it.get("x", 0), it.get("y", 0), fw + padding, fh + padding)
+        bx, by = border(it)
+        mr.occupy(it.get("x", 0) - bx, it.get("y", 0) - by, fw + 2 * bx, fh + 2 * by)
         out.append({"name": it["name"], "x": int(it.get("x", 0)), "y": int(it.get("y", 0)),
                     "w": int(it["w"]), "h": int(it["h"]),
                     "rotated": bool(it.get("rotated")), "locked": True})
@@ -236,7 +246,9 @@ def arrange(canvas_w: int, canvas_h: int, items: list[dict], *,
     unplaced: list[str] = []
     # Largest-area first for a tighter pack.
     for it in sorted(unlocked, key=lambda i: i["w"] * i["h"], reverse=True):
-        res = mr.insert(it["w"] + padding, it["h"] + padding)
+        bx, by = border(it)
+        res = mr.insert(it["w"] + 2 * bx, it["h"] + 2 * by,
+                        rotated_size=(it["h"] + 2 * bx, it["w"] + 2 * by))
         if res is None:
             unplaced.append(it["name"])
             out.append({"name": it["name"], "x": int(it.get("x", 0)), "y": int(it.get("y", 0)),
@@ -244,7 +256,7 @@ def arrange(canvas_w: int, canvas_h: int, items: list[dict], *,
                         "rotated": bool(it.get("rotated")), "locked": False})
             continue
         x, y, _pw, _ph, rot = res
-        out.append({"name": it["name"], "x": x, "y": y,
+        out.append({"name": it["name"], "x": x + bx, "y": y + by,
                     "w": int(it["w"]), "h": int(it["h"]),
                     "rotated": bool(rot), "locked": False})
 

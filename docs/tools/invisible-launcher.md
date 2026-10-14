@@ -241,8 +241,9 @@ engine automatically.
 
 *(from **v1.0.54**)* **☁ Publish** puts a game on *our* server. **📦 Deliver** produces the folder
 somebody *else* serves — a client, a casino operator, an aggregator — from their
-own domain, launched by their own page. Nothing is uploaded, no game card is
-registered and the test server is never told.
+own domain, launched by their own page. No game card is registered and the test
+server is never told. *(From **v1.0.57**)* it is also uploaded to the partner's CDN
+for you — see **Upload to the partner's CDN** below.
 
 Press it and you pick two things:
 
@@ -271,6 +272,25 @@ one page of theirs serves every game and composes the URL server-side, so it can
 neither pass a per-game id nor know a content hash. Their cache-buster is the
 `versionPath` folder, which is why the whole folder moves per release.
 
+**Upload to the partner's CDN** *(from **v1.0.57**)*. The dialog's checkbox *Upload
+it to the partner's CDN when it is built* is ticked by default. Once the folder is
+packaged, the launcher sends it through the portal to the partner's bucket, as you
+(it needs *Build & publish games*), with no partner key on your machine. The portal
+picks the folder's `versionPath` — `v1` for a game's first delivery, then `v2`, … —
+and **seals** it: a delivered version is never overwritten, so every Deliver is a new
+`versionPath`, and going back is the partner pointing at an older one. A re-run after
+a dropped line sends only what is missing. The result dialog then shows:
+
+- **Live on the partner's CDN as v3** — the public `game.js` URL, with **Copy**.
+- **Tell the partner: versionPath = v3 for BookOfBorut** — the one value they set.
+- a served check: *✓ Served, with CORS*; or a red warning that the bucket's custom
+  domain is not connected yet, or that the bucket has no CORS rule (the game's art
+  loads from another domain and WebGL refuses it without one). Both are the
+  partner's bucket settings, listed in `docs/INFRA.md`.
+
+If the upload fails, the result dialog says why in red and the folder and zip are
+still there; 📦 Deliver again to retry. Untick the box to only build, as before.
+
 **▶ Play it, in the result dialog, is not optional polish.** A delivery build
 cannot be opened: there is no `index.html`, and it reads the session and RGS path
 from `window.params.GameSettings`, which only the partner's page supplies — so
@@ -289,7 +309,7 @@ operator.
   **📦 Deliver** — set them first, the dialog has no copy of them. They mean
   the same as for a publish, except that here Debug ships the in-game debug tooling
   *to the partner*, so untick it for a real handover.
-- **You still have to be signed in**, even though nothing is uploaded: the build
+- **You have to be signed in**: the upload goes through the portal as you, and the build
   pulls live art, fonts and scenes from R2 with a token fetched from the portal.
   Without it the progress log warns and the build falls back to the repo's
   placeholder art — a handover nobody wants to make twice.

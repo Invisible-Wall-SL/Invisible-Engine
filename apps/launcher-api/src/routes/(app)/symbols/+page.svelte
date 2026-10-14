@@ -1305,6 +1305,23 @@
 		flightKey.startsWith(FLIGHT_METER_PREFIX) && doc.flights?.toMeter ? toMeterLabel : 'coded',
 	);
 
+	/** The pots overlay token a meter flight carries — it IS the head in the game, whatever head the
+	 *  style picks. `toMeter` (every meter) shows the first token. */
+	const flightToken = $derived.by(() => {
+		if (!flightKey.startsWith('toMeter')) return undefined;
+		const meter = flightKey.startsWith(FLIGHT_METER_PREFIX)
+			? flightKey.slice(FLIGHT_METER_PREFIX.length)
+			: undefined;
+		return Object.entries(data.tokenPots).find(([, pots]) => !meter || pots.includes(meter))?.[0];
+	});
+	/** The token's art as it flies: its `flyToMeter` binding, else what that state falls back to. */
+	const flightTokenCell = $derived(
+		flightToken
+			? (effectiveCell(doc, data.defaults, flightToken, 'flyToMeter').cell ??
+					effectiveCell(doc, data.defaults, flightToken, 'static').cell)
+			: undefined,
+	);
+
 	function selectFlight(key: string): void {
 		flightPick = key;
 		flightHeadDraft = null;
@@ -1359,7 +1376,7 @@
 	};
 
 	function setFlightNumber(
-		field: 'speed' | 'minMs' | 'maxMs' | 'stagger',
+		field: 'speed' | 'minMs' | 'maxMs' | 'stagger' | 'size',
 		value: number | undefined,
 	): void {
 		patchFlight((style) => {
@@ -3123,7 +3140,9 @@
 
 				{#if flightsShown}
 					{#snippet flightHeadArt(size: number)}
-						{#if flightResolved.head && flightResolved.head.kind !== 'glow' && flightResolved.head.kind !== 'none'}
+						{#if flightToken}
+							{@render stackedArtPreview(flightTokenCell, size)}
+						{:else if flightResolved.head && flightResolved.head.kind !== 'glow' && flightResolved.head.kind !== 'none'}
 							{@render layerThumb(
 								{
 									kind: flightResolved.head.kind,
@@ -3300,11 +3319,29 @@
 									</div>
 								{/if}
 
-								{#if flightHead && flightHead.kind !== 'none'}
-									<div class="bv-fit">
+								<div class="bv-fit">
+									<div class="field">
+										<span
+											class="label"
+											title="Scales everything that flies at the head — the built-in glow, a pots overlay’s token, an add-respins “+N” label — and an authored head on top of its own head size."
+											>Size (×)</span
+										>
+										<input
+											class="fl-num"
+											type="number"
+											step="0.05"
+											min={FLIGHT_LIMITS.size.min}
+											max={FLIGHT_LIMITS.size.max}
+											placeholder={String(flightInherited.size)}
+											value={flightOwn.size ?? ''}
+											onchange={(e) =>
+												setFlightNumber('size', numberOrUndefined(e.currentTarget.value))}
+										/>
+									</div>
+									{#if flightHead && flightHead.kind !== 'none'}
 										<div class="field">
 											<span class="label"
-												>Size ({flightHead.kind === 'glow' ? '× the glow' : '× a cell'})</span
+												>Head size ({flightHead.kind === 'glow' ? '× the glow' : '× a cell'})</span
 											>
 											<input
 												class="fl-num"
@@ -3335,8 +3372,8 @@
 												{/if}
 											</div>
 										</div>
-									</div>
-								{/if}
+									{/if}
+								</div>
 
 								<div class="bv-fit">
 									<div class="field fl-grow">
@@ -3533,11 +3570,18 @@
 
 							<div class="fl-preview">
 								<span class="label">Preview</span>
-								<FlightPreview style={flightResolved} headArt={flightHeadArt} />
+								<FlightPreview
+									style={flightResolved}
+									headArt={flightHeadArt}
+									token={!!flightToken}
+									label={flightKey === 'toCounter' ? '+2' : undefined}
+								/>
 								<p class="hint">
-									The route is planned by the same code the game flies with. An arrival effect is
-									shown by its thumbnail in the editor; the coded trail is drawn as an approximation
-									of the in-game gold glow.
+									The route is planned by the same code the game flies with, and the head, its size,
+									tint, trail and arrival effect are the ones picked above. The coded trail is drawn
+									as an approximation of the in-game gold glow.{#if flightToken}
+										A pots token flies as itself in place of the head: it is drawn here as
+										<strong>{flightToken}</strong>.{/if}
 								</p>
 							</div>
 						</div>

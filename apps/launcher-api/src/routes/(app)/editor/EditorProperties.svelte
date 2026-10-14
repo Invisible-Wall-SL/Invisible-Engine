@@ -61,6 +61,9 @@
 		type RigNode,
 		type RigRestOverride,
 		type TextStyle,
+		lightOrderThresholds,
+		potPieces,
+		POT_PIECE_LIGHT_PARAM,
 	} from 'engine-layout';
 	import { onMount, type Snippet } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -1173,6 +1176,23 @@
 	// the coded component in-game. This subsumes the old bespoke "HUD text" override
 	// (font/size/fill/label) and adds button tint — placement/visibility stay on the
 	// transform section above (already universal).
+	// A container holding pot pieces (instances whose def has a `lightAt` param — a firecracker)
+	// offers to number them bottom → top, so the pot lights from the bottom up to its coin head.
+	const lightPieces = $derived(
+		node && node.kind === 'container'
+			? potPieces(
+					node,
+					(id) => !!componentDefs.find((c) => c.id === id)?.params?.includes(POT_PIECE_LIGHT_PARAM),
+				)
+			: [],
+	);
+	function setLightOrder(): void {
+		const thresholds = lightOrderThresholds(lightPieces.map((p) => p.y));
+		lightPieces.forEach(({ node: piece }, i) => {
+			piece.params = { ...piece.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
+		});
+		onDirty?.();
+	}
 	const editableParams = $derived<EditableParam[]>(
 		node && node.kind === 'container' && node.bind ? getEditableParams(node.bind.component) : [],
 	);
@@ -2728,6 +2748,15 @@
 				title="Save this container's sub-tree as a reusable component and edit it in place on the Components side"
 			>
 				◇ Edit as component
+			</button>
+		{/if}
+		{#if lightPieces.length > 1}
+			<button
+				class="ghost-sm"
+				onclick={setLightOrder}
+				title={`Set each piece's "${POT_PIECE_LIGHT_PARAM}" from its height: the lowest lights first, the highest at a full pot (${lightPieces.length} pieces)`}
+			>
+				🔥 Light order: bottom → top
 			</button>
 		{/if}
 		{#if !componentMode && onConvertToReelGrid && node.kind === 'container' && (node.slotId === 'reelGrid' || node.bind?.component === 'ReelGrid')}

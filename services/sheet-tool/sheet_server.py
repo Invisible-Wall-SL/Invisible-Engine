@@ -207,7 +207,38 @@ def load_session() -> dict | None:
 # else a (future/concurrent) client sends is dropped on save.
 _SESSION_REGION_KEYS = ("src", "name", "x", "y", "w", "h", "iw", "ih", "ow", "oh",
                         "rotated", "locked", "prompt", "shape_ref", "seed",
-                        "unplaced", "fx_of", "fx_mode")
+                        "unplaced", "fx_of", "fx_mode",
+                        "pad_on", "pad_x", "pad_y", "border_x", "border_y")
+
+
+def _px(v, default: int = 0) -> int:
+    """A non-negative pixel count from untrusted JSON (bad or missing -> default)."""
+    try:
+        return max(0, int(v))
+    except (TypeError, ValueError):
+        return default
+
+
+def _cell_layout(r: dict) -> dict:
+    """A region's own layout overrides, as stored on the manifest: Region border
+    (non-negative px) and, when the cell has Own padding on, its padding (any
+    half-pixel value — a negative one shrinks the art)."""
+    out = {k: _px(r[k]) for k in ("border_x", "border_y") if r.get(k) is not None}
+    for k in ("pad_x", "pad_y"):
+        try:
+            out[k] = round(float(r[k]) * 2) / 2
+        except (KeyError, TypeError, ValueError):
+            pass
+    return out
+
+
+def _layout(src: dict) -> dict:
+    """The sheet-wide Region padding (art to cell edge) and Region border (kept
+    clear around each cell) — what a cell without its own override uses."""
+    return {"region_pad_x": _px(src.get("region_pad_x")),
+            "region_pad_y": _px(src.get("region_pad_y")),
+            "region_border_x": _px(src.get("region_border_x"), 1),
+            "region_border_y": _px(src.get("region_border_y"), 1)}
 
 
 def api_session(payload: dict) -> dict:
@@ -243,7 +274,7 @@ def api_session(payload: dict) -> dict:
         "active_sheet": safe_name(str(payload.get("active_sheet") or ""), ""),
         "canvas_w": _i("canvas_w", 1024),
         "canvas_h": _i("canvas_h", 1024),
-        "padding": _i("padding", 2),
+        **_layout(payload),
         "allow_rotation": bool(payload.get("allow_rotation")),
         "loaded": loaded if isinstance(loaded, dict) else {},
         "regions": regions,
@@ -543,7 +574,7 @@ def api_state() -> dict:
         "defaults": {
             "canvas_w": cfg.get("width", 1024),
             "canvas_h": cfg.get("height", 1024),
-            "padding": cfg.get("padding", 2),
+            **_layout(cfg),
             "allow_rotation": cfg.get("allow_rotation", False),
         },
     }
@@ -1058,7 +1089,6 @@ def api_arrange(payload: dict) -> dict:
         return {"error": blocked}
     canvas_w = int(payload.get("canvas_w", 1024))
     canvas_h = int(payload.get("canvas_h", 1024))
-    padding = int(payload.get("padding", 2))
     rot = bool(payload.get("allow_rotation", False))
 
     items = []
@@ -1071,11 +1101,12 @@ def api_arrange(payload: dict) -> dict:
             "locked": bool(r.get("locked")),
             "x": int(r.get("x", 0)), "y": int(r.get("y", 0)),
             "rotated": bool(r.get("rotated")),
+            "border_x": _px(r.get("border_x")), "border_y": _px(r.get("border_y")),
         })
     if not items:
         return {"error": "No sprites to arrange."}
 
-    res = packer.arrange(canvas_w, canvas_h, items, padding=padding, allow_rotation=rot)
+    res = packer.arrange(canvas_w, canvas_h, items, allow_rotation=rot)
     # Re-key by src for the client.
     out = [{"src": r["name"], "x": r["x"], "y": r["y"], "w": r["w"], "h": r["h"],
             "rotated": r["rotated"], "locked": r["locked"]} for r in res["regions"]]
@@ -1229,6 +1260,7 @@ def _export(payload: dict, dest: Path) -> dict:
             # FX placeholder cells (named `<base>_<mode>`) carry their mode so the
             # manifest opens them in the Atlas Maker's matching local-FX mode.
             "fx_mode": r.get("fx_mode", ""),
+            **_cell_layout(r),
         })
     if not regions:
         return {"error": "Nothing to export — add some sprites first."}
@@ -1337,7 +1369,8 @@ def _export(payload: dict, dest: Path) -> dict:
         source_image_path=source_image_key,
         atlas_file=atlas_file_key,
         texturepacker_json=tp_json_key,
-        region_shape_keys=region_shape_keys)
+        region_shape_keys=region_shape_keys,
+        layout=_layout(payload.get("layout") or {}))
     man_name = f"atlas_manifest_{basename}.json"
     # The manifest lands in the SHARED manifests/ folder (mirrored to
     # <C>/<P>/manifests) — the single source of truth both tools read. No
@@ -2112,10 +2145,14 @@ def _parse_manifest(data: dict) -> dict:
             "rotated": bool(r.get("rotated")),
             "prompt": r.get("prompt", ""), "shape_ref": r.get("shape_ref", ""),
             "seed": str(r.get("seed", "") or ""),
+            **_cell_layout(r),
         })
-    return {"image": atlas.get("source_image", ""),
-            "width": int(atlas.get("width", 0)), "height": int(atlas.get("height", 0)),
-            "regions": regions}
+    out = {"image": atlas.get("source_image", ""),
+           "width": int(atlas.get("width", 0)), "height": int(atlas.get("height", 0)),
+           "regions": regions}
+    if isinstance(data.get("layout"), dict):
+        out["layout"] = _layout(data["layout"])
+    return out
 
 
 def _parse_texturepacker(data: dict) -> dict:
@@ -2766,6 +2803,7 @@ def api_load_sheet(payload: dict) -> dict:
             "rotated": bool(r["rotated"]), "locked": geom_ok,
             "prompt": r.get("prompt", ""), "shape_ref": shape_ref,
             "seed": r.get("seed", ""),
+            **{k: r[k] for k in ("border_x", "border_y", "pad_x", "pad_y") if k in r},
         })
 
     # Mirror exactly the sprites this load re-sliced (originals are already
@@ -2778,6 +2816,7 @@ def api_load_sheet(payload: dict) -> dict:
     canvas_h = int(parsed.get("height") or 0) or int(cfg.get("height", 1024))
     return {"sheet": sheet, "canvas_w": canvas_w, "canvas_h": canvas_h,
             "regions": regions_out, "count": len(regions_out),
+            **({"layout": parsed["layout"]} if "layout" in parsed else {}),
             "skipped": skipped, "missing": missing,
             "source_path": str(coords.resolve()), "source_dir": str(out.resolve()),
             "name": sheet,
@@ -3000,7 +3039,7 @@ def _import_plist(fields: dict, files: list) -> dict:
                 # False explicitly). The UI checkbox stays available for an artist who needs
                 # the packing density and accepts the reorient round-trip — it just is not
                 # switched on behind their back by an import.
-                "padding": 2, "allow_rotation": False,
+                "allow_rotation": False,
                 "loaded": {"path": loaded.get("source_path"),
                            "dir": loaded.get("source_dir"),
                            "name": sheet, "is_project": True,
