@@ -41,8 +41,13 @@ export function pendingCueHolds(): string[] {
  */
 export class InstanceCueHolds {
 	private readonly releases = new Map<string, (() => void)[]>();
+	private readonly holdsOn: (signal: string) => string[];
 
-	constructor(private readonly holdsOn: (signal: string) => string[]) {}
+	// An explicit field, not a parameter property: the root gates load this module under Node's
+	// strip-only TypeScript, which rejects parameter properties.
+	constructor(holdsOn: (signal: string) => string[]) {
+		this.holdsOn = holdsOn;
+	}
 
 	/** Register the holds `signal` opens — none when no timeline holds it. */
 	open(signal: string): void {
