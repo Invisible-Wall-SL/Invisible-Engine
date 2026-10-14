@@ -338,6 +338,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		),
 		// No respin mode has a jackpot tier: the scene set has no Jackpot bar.
 		noJackpotTiers: noJackpotTiers(respinModes),
+		// A Hold and Win coin board: the scene set is the coin-board template's.
+		coinBoard: Boolean(gameConfigDoc?.coinBoard),
 		// The config's add-on blocks (pots overlay / a Hold and Win bonus): the palette, the pickers
 		// and the scene set offer their parts. All false without a config ⇒ the kind's own answers.
 		addOns,

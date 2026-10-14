@@ -2350,147 +2350,150 @@
 					</div>
 				</section>
 
-				<section class="highlight" class:editing={glowEditing}>
-					<div class="hl-head">
-						<div class="hl-title">
-							<h2>Free-spin board glow</h2>
-							<p class="hl-sub">
-								The glow behind the reels during free spins. Swap the art for any R2 rig bundle (a
-								Rigger rig included); the game still plays it start → idle → exit.
-							</p>
-						</div>
-						<div class="hl-actions">
-							{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
-							{#if glowEditing}
-								<button type="button" class="ghost" onclick={closeGlow}>Cancel</button>
-							{:else}
-								<button type="button" class="hl-change" onclick={openGlow}>Change</button>
-								{#if doc.boardGlow}
-									<button type="button" class="ghost" onclick={resetGlow}>Reset to default</button>
-								{/if}
-							{/if}
-						</div>
-					</div>
-
-					<div class="hl-body">
-						<div class="hl-current">
-							{#if doc.boardGlow}
-								<div class="hl-preview">
-									<SymbolRigPreview
-										assetKey={doc.boardGlow.assetKey}
-										animationName={doc.boardGlow.animations?.idle ??
-											doc.boardGlow.animations?.start}
-										size={96}
-										{reloadToken}
-									/>
-								</div>
-								<div class="hl-meta">
-									<span class="hl-label">Override</span>
-									<span class="hl-chip">
-										{doc.boardGlow.assetKey.split('/').filter(Boolean).pop()}
-									</span>
-									{#if doc.boardGlow.animations?.idle}
-										<span class="hl-anim">{doc.boardGlow.animations.idle}</span>
+				{#if !data.coinBoard || doc.boardGlow}
+					<section class="highlight" class:editing={glowEditing}>
+						<div class="hl-head">
+							<div class="hl-title">
+								<h2>Free-spin board glow</h2>
+								<p class="hl-sub">
+									The glow behind the reels during free spins. Swap the art for any R2 rig bundle (a
+									Rigger rig included); the game still plays it start → idle → exit.
+								</p>
+							</div>
+							<div class="hl-actions">
+								{#if doc.boardGlow}<span class="badge">overridden</span>{/if}
+								{#if glowEditing}
+									<button type="button" class="ghost" onclick={closeGlow}>Cancel</button>
+								{:else}
+									<button type="button" class="hl-change" onclick={openGlow}>Change</button>
+									{#if doc.boardGlow}
+										<button type="button" class="ghost" onclick={resetGlow}>Reset to default</button
+										>
 									{/if}
-								</div>
-							{:else if defaultGlowBundle}
-								<div class="hl-preview">
-									<SymbolRigPreview
-										assetKey={defaultGlowBundle.key}
-										animationName={BUILTIN_GLOW.animations.idle}
-										size={96}
-										{reloadToken}
-									/>
-								</div>
-								<div class="hl-meta">
-									<span class="hl-label">Default (reelhouse)</span>
-									<span class="hl-chip">{defaultGlowBundle.name}</span>
-									<span class="hl-anim">{BUILTIN_GLOW.animations.idle}</span>
-								</div>
-							{:else}
-								<div class="hl-preview default">
-									<span class="hl-default-mark">reelhouse</span>
-								</div>
-								<div class="hl-meta">
-									<span class="hl-label">Default (reelhouse)</span>
-									<span class="hl-note">
-										The coded default ships with the game and still renders in-game; the launcher
-										just has no copy to preview. Pick an R2 rig to override it.
-									</span>
-								</div>
-							{/if}
+								{/if}
+							</div>
 						</div>
 
-						{#if glowEditing && glowDraft}
-							<div class="hl-editor">
-								<div class="field">
-									<span class="label">Rig bundle</span>
-									<select
-										value={glowDraft.assetKey}
-										onchange={(e) => {
-											if (!glowDraft) return;
-											glowDraft.assetKey = e.currentTarget.value;
-											glowDraft.animations = {};
-											glowAnimations = [];
-										}}
-									>
-										<option value="">Pick a bundle…</option>
-										{#each rigBundles as b (b.key)}
-											<option value={b.key}>{b.name}</option>
-										{/each}
-									</select>
-								</div>
-								{#if glowDraft.assetKey}
-									<!-- Three sparse tracks — each left blank keeps its coded `reelhouse_glow_*`
-											 name, so a rig that only renames its loop needs one field. -->
-									{#each GLOW_TRACKS as row (row.track)}
-										<div class="field">
-											<span class="label">{row.label}</span>
-											{#if glowAnimations.length}
-												<select
-													value={glowDraft.animations?.[row.track] ?? ''}
-													onchange={(e) => setGlowTrack(row.track, e.currentTarget.value)}
-												>
-													<option value="">(coded default)</option>
-													{#each glowAnimations as anim (anim)}
-														<option value={anim}>{anim}</option>
-													{/each}
-												</select>
-											{:else}
-												<input
-													type="text"
-													placeholder={BUILTIN_GLOW.animations[row.track]}
-													value={glowDraft.animations?.[row.track] ?? ''}
-													oninput={(e) => setGlowTrack(row.track, e.currentTarget.value)}
-												/>
-											{/if}
-										</div>
-									{/each}
-									<div class="field">
-										<span class="label">Preview</span>
-										<div class="hl-preview">
-											<SymbolRigPreview
-												assetKey={glowDraft.assetKey}
-												animationName={glowDraft.animations?.idle ?? glowDraft.animations?.start}
-												size={96}
-												{reloadToken}
-												onAnimations={(names) => (glowAnimations = names)}
-											/>
-										</div>
+						<div class="hl-body">
+							<div class="hl-current">
+								{#if doc.boardGlow}
+									<div class="hl-preview">
+										<SymbolRigPreview
+											assetKey={doc.boardGlow.assetKey}
+											animationName={doc.boardGlow.animations?.idle ??
+												doc.boardGlow.animations?.start}
+											size={96}
+											{reloadToken}
+										/>
+									</div>
+									<div class="hl-meta">
+										<span class="hl-label">Override</span>
+										<span class="hl-chip">
+											{doc.boardGlow.assetKey.split('/').filter(Boolean).pop()}
+										</span>
+										{#if doc.boardGlow.animations?.idle}
+											<span class="hl-anim">{doc.boardGlow.animations.idle}</span>
+										{/if}
+									</div>
+								{:else if defaultGlowBundle}
+									<div class="hl-preview">
+										<SymbolRigPreview
+											assetKey={defaultGlowBundle.key}
+											animationName={BUILTIN_GLOW.animations.idle}
+											size={96}
+											{reloadToken}
+										/>
+									</div>
+									<div class="hl-meta">
+										<span class="hl-label">Default (reelhouse)</span>
+										<span class="hl-chip">{defaultGlowBundle.name}</span>
+										<span class="hl-anim">{BUILTIN_GLOW.animations.idle}</span>
+									</div>
+								{:else}
+									<div class="hl-preview default">
+										<span class="hl-default-mark">reelhouse</span>
+									</div>
+									<div class="hl-meta">
+										<span class="hl-label">Default (reelhouse)</span>
+										<span class="hl-note">
+											The coded default ships with the game and still renders in-game; the launcher
+											just has no copy to preview. Pick an R2 rig to override it.
+										</span>
 									</div>
 								{/if}
-								<button
-									type="button"
-									class="apply"
-									disabled={!glowDraft.assetKey}
-									onclick={applyGlow}
-								>
-									Apply board glow
-								</button>
 							</div>
-						{/if}
-					</div>
-				</section>
+
+							{#if glowEditing && glowDraft}
+								<div class="hl-editor">
+									<div class="field">
+										<span class="label">Rig bundle</span>
+										<select
+											value={glowDraft.assetKey}
+											onchange={(e) => {
+												if (!glowDraft) return;
+												glowDraft.assetKey = e.currentTarget.value;
+												glowDraft.animations = {};
+												glowAnimations = [];
+											}}
+										>
+											<option value="">Pick a bundle…</option>
+											{#each rigBundles as b (b.key)}
+												<option value={b.key}>{b.name}</option>
+											{/each}
+										</select>
+									</div>
+									{#if glowDraft.assetKey}
+										<!-- Three sparse tracks — each left blank keeps its coded `reelhouse_glow_*`
+												 name, so a rig that only renames its loop needs one field. -->
+										{#each GLOW_TRACKS as row (row.track)}
+											<div class="field">
+												<span class="label">{row.label}</span>
+												{#if glowAnimations.length}
+													<select
+														value={glowDraft.animations?.[row.track] ?? ''}
+														onchange={(e) => setGlowTrack(row.track, e.currentTarget.value)}
+													>
+														<option value="">(coded default)</option>
+														{#each glowAnimations as anim (anim)}
+															<option value={anim}>{anim}</option>
+														{/each}
+													</select>
+												{:else}
+													<input
+														type="text"
+														placeholder={BUILTIN_GLOW.animations[row.track]}
+														value={glowDraft.animations?.[row.track] ?? ''}
+														oninput={(e) => setGlowTrack(row.track, e.currentTarget.value)}
+													/>
+												{/if}
+											</div>
+										{/each}
+										<div class="field">
+											<span class="label">Preview</span>
+											<div class="hl-preview">
+												<SymbolRigPreview
+													assetKey={glowDraft.assetKey}
+													animationName={glowDraft.animations?.idle ?? glowDraft.animations?.start}
+													size={96}
+													{reloadToken}
+													onAnimations={(names) => (glowAnimations = names)}
+												/>
+											</div>
+										</div>
+									{/if}
+									<button
+										type="button"
+										class="apply"
+										disabled={!glowDraft.assetKey}
+										onclick={applyGlow}
+									>
+										Apply board glow
+									</button>
+								</div>
+							{/if}
+						</div>
+					</section>
+				{/if}
 
 				{#if explodesSeats && (caps.tumblePattern || doc.tumblePattern)}
 					<section class="winline tumblepattern" class:expanded={tumblePattern !== 'all'}>
@@ -4508,246 +4511,255 @@
 					</section>
 				{/if}
 
-				<section class="winline" class:expanded={wcOn}>
-					<div class="wl-head">
-						<div class="wl-text">
-							<h2>Winning symbols after the spin</h2>
-							<p class="wl-sub">
-								Keep the round's winning symbols animating on the resting board until the player
-								spins again, instead of freezing on their post-win frame. A spin that paid several
-								lines steps through them one line at a time, in the order the round paid them, then
-								starts over. Autoplay and space-hold skip it, since the next spin is already on its
-								way.
-							</p>
+				{#if !data.coinBoard || doc.winCycle}
+					<section class="winline" class:expanded={wcOn}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Winning symbols after the spin</h2>
+								<p class="wl-sub">
+									Keep the round's winning symbols animating on the resting board until the player
+									spins again, instead of freezing on their post-win frame. A spin that paid several
+									lines steps through them one line at a time, in the order the round paid them,
+									then starts over. Autoplay and space-hold skip it, since the next spin is already
+									on its way.
+								</p>
+							</div>
+							<label class="switch" class:on={wcOn}>
+								<input
+									type="checkbox"
+									checked={wcOn}
+									onchange={(e) => (doc = setWinCycleEnabled(doc, e.currentTarget.checked))}
+								/>
+								<span class="track"><span class="knob"></span></span>
+								<span class="switch-label">{wcOn ? 'On' : 'Off'}</span>
+							</label>
 						</div>
-						<label class="switch" class:on={wcOn}>
-							<input
-								type="checkbox"
-								checked={wcOn}
-								onchange={(e) => (doc = setWinCycleEnabled(doc, e.currentTarget.checked))}
-							/>
-							<span class="track"><span class="knob"></span></span>
-							<span class="switch-label">{wcOn ? 'On' : 'Off'}</span>
-						</label>
-					</div>
 
-					<div class="wl-config">
-						<div class="wl-group">
-							<div class="wl-fields">
-								<div class="field">
-									<span class="label">Darken the non-winning symbols</span>
-									<label class="switch sm" class:on={wcDim}>
-										<input
-											type="checkbox"
-											checked={wcDim}
-											onchange={(e) =>
-												(doc = setWinCycleDimNonWinning(doc, e.currentTarget.checked))}
-										/>
-										<span class="track"><span class="knob"></span></span>
-										<span class="switch-label">{wcDim ? 'On' : 'Off'}</span>
-									</label>
+						<div class="wl-config">
+							<div class="wl-group">
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label">Darken the non-winning symbols</span>
+										<label class="switch sm" class:on={wcDim}>
+											<input
+												type="checkbox"
+												checked={wcDim}
+												onchange={(e) =>
+													(doc = setWinCycleDimNonWinning(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wcDim ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+								</div>
+								<p class="wl-note">
+									While the win is celebrated — and until the player spins again — every symbol that
+									is not part of a paying line is drawn darkened, so the winning line stands out.
+									This is independent of the replay above: it applies even with "Winning symbols
+									after the spin" off. A losing spin leaves the whole board at full brightness.
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label">Wait for a spin press after a big win (free spins)</span>
+										<label class="switch sm" class:on={wcHold}>
+											<input
+												type="checkbox"
+												checked={wcHold}
+												onchange={(e) =>
+													(doc = setWinCycleHoldAfterBigWin(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wcHold ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+								</div>
+								<p class="wl-note">
+									Free spins normally run one after another on their own, so closing a big win in
+									the middle of a feature hands straight over to the next spin and the reels start
+									rolling before the player has read the board. Turn this on and the feature rests
+									on the winning board instead — with the replay above narrating its paying lines —
+									and the next free spin only starts when the player presses spin. The button stays
+									live and reads SPIN for as long as the game waits. The last free spin's big win is
+									not held (the free-spin outro follows it, and that already waits for a press), and
+									autoplay or space-hold skips the wait, since the player has asked for hands-off
+									play.
+								</p>
+							</div>
+
+							<div class="wl-group">
+								<div class="wl-fields">
+									<div class="field">
+										<span class="label">Hold the spin button to keep spinning</span>
+										<label class="switch sm" class:on={wcSpinHold}>
+											<input
+												type="checkbox"
+												checked={wcSpinHold}
+												onchange={(e) =>
+													(doc = setWinCycleSpinButtonHold(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wcSpinHold ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+								</div>
+								<p class="wl-note">
+									Turn this on and pressing and holding the spin button plays like holding Space:
+									after a moment the button spins (or stops a spin already rolling), then rounds
+									keep coming in turbo until the player lets go. A quick press stays an ordinary
+									spin. Off, the button only takes a click. Holding Space works either way, and
+									neither is offered where the jurisdiction forbids autoplay.
+								</p>
+							</div>
+						</div>
+
+						{#if wcOn}
+							<div class="wl-config">
+								<div class="wl-group">
+									<div class="wl-fields">
+										<label class="field">
+											<span class="label">Gap between lines {wcDelay.toFixed(2)}s</span>
+											<input
+												type="range"
+												min="0"
+												max="3"
+												step="0.05"
+												value={wcDelay}
+												oninput={(e) =>
+													(doc = setWinCycleDelay(doc, Number(e.currentTarget.value)))}
+											/>
+										</label>
+										<div class="field">
+											<span class="label">Replay the win line too</span>
+											<label class="switch sm" class:on={wcShowLine}>
+												<input
+													type="checkbox"
+													checked={wcShowLine}
+													onchange={(e) =>
+														(doc = setWinCycleShowLine(doc, e.currentTarget.checked))}
+												/>
+												<span class="track"><span class="knob"></span></span>
+												<span class="switch-label">{wcShowLine ? 'On' : 'Off'}</span>
+											</label>
+										</div>
+										<div class="field" class:disabled={!wcShowLine}>
+											<span class="label">Replay the win text too</span>
+											<label class="switch sm" class:on={wcShowText && wcShowLine}>
+												<input
+													type="checkbox"
+													disabled={!wcShowLine}
+													checked={wcShowText}
+													onchange={(e) =>
+														(doc = setWinCycleShowText(doc, e.currentTarget.checked))}
+												/>
+												<span class="track"><span class="knob"></span></span>
+												<span class="switch-label">{wcShowText ? 'On' : 'Off'}</span>
+											</label>
+										</div>
+										<div class="field">
+											<span class="label">Replay the win message too</span>
+											<label class="switch sm" class:on={wcShowMessage}>
+												<input
+													type="checkbox"
+													checked={wcShowMessage}
+													onchange={(e) =>
+														(doc = setWinCycleShowMessage(doc, e.currentTarget.checked))}
+												/>
+												<span class="track"><span class="knob"></span></span>
+												<span class="switch-label">{wcShowMessage ? 'On' : 'Off'}</span>
+											</label>
+										</div>
+									</div>
+									<p class="wl-note">
+										On (the default), each pass also draws that line and stamps its amount — the
+										full per-win narration on repeat. Off, the replay re-animates the winning
+										symbols only and leaves the board's line as the spin left it. "Replay the win
+										text too" gates just the stamped amount, so you can keep the line replaying
+										without the number. The Win lines section above still has the final say: with
+										the overlay off, nothing is drawn either way, and a scatter win never draws a
+										line but still lights its symbols. "Replay the win message too" is independent
+										of the line and defaults OFF: turn it on to re-show that win's info toast ("You
+										win $X with N Bananas") on every pass, otherwise the message only shows once
+										when the round first presents.
+									</p>
 								</div>
 							</div>
-							<p class="wl-note">
-								While the win is celebrated — and until the player spins again — every symbol that
-								is not part of a paying line is drawn darkened, so the winning line stands out. This
-								is independent of the replay above: it applies even with "Winning symbols after the
-								spin" off. A losing spin leaves the whole board at full brightness.
-							</p>
-						</div>
+						{/if}
+					</section>
+				{/if}
 
-						<div class="wl-group">
-							<div class="wl-fields">
-								<div class="field">
-									<span class="label">Wait for a spin press after a big win (free spins)</span>
-									<label class="switch sm" class:on={wcHold}>
-										<input
-											type="checkbox"
-											checked={wcHold}
-											onchange={(e) =>
-												(doc = setWinCycleHoldAfterBigWin(doc, e.currentTarget.checked))}
-										/>
-										<span class="track"><span class="knob"></span></span>
-										<span class="switch-label">{wcHold ? 'On' : 'Off'}</span>
-									</label>
-								</div>
+				{#if !data.coinBoard || doc.winExplode}
+					<section class="winline" class:expanded={weOn}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Winning symbols explode</h2>
+								<p class="wl-sub">
+									When a win has finished playing, each winning symbol plays its <strong
+										>Explosion</strong
+									> animation before settling back into its post-win art — the symbol goes out with a
+									pop instead of simply stopping. It is not removed from the board: taking symbols off
+									stays the job of the cascade, or of "Clear the board" in Reel behaviour.
+								</p>
 							</div>
-							<p class="wl-note">
-								Free spins normally run one after another on their own, so closing a big win in the
-								middle of a feature hands straight over to the next spin and the reels start rolling
-								before the player has read the board. Turn this on and the feature rests on the
-								winning board instead — with the replay above narrating its paying lines — and the
-								next free spin only starts when the player presses spin. The button stays live and
-								reads SPIN for as long as the game waits. The last free spin's big win is not held
-								(the free-spin outro follows it, and that already waits for a press), and autoplay
-								or space-hold skips the wait, since the player has asked for hands-off play.
-							</p>
+							<label class="switch" class:on={weOn}>
+								<input
+									type="checkbox"
+									checked={weOn}
+									onchange={(e) => (doc = setWinExplodeEnabled(doc, e.currentTarget.checked))}
+								/>
+								<span class="track"><span class="knob"></span></span>
+								<span class="switch-label">{weOn ? 'On' : 'Off'}</span>
+							</label>
 						</div>
 
-						<div class="wl-group">
-							<div class="wl-fields">
-								<div class="field">
-									<span class="label">Hold the spin button to keep spinning</span>
-									<label class="switch sm" class:on={wcSpinHold}>
-										<input
-											type="checkbox"
-											checked={wcSpinHold}
-											onchange={(e) =>
-												(doc = setWinCycleSpinButtonHold(doc, e.currentTarget.checked))}
-										/>
-										<span class="track"><span class="knob"></span></span>
-										<span class="switch-label">{wcSpinHold ? 'On' : 'Off'}</span>
-									</label>
-								</div>
-							</div>
-							<p class="wl-note">
-								Turn this on and pressing and holding the spin button plays like holding Space:
-								after a moment the button spins (or stops a spin already rolling), then rounds keep
-								coming in turbo until the player lets go. A quick press stays an ordinary spin. Off,
-								the button only takes a click. Holding Space works either way, and neither is
-								offered where the jurisdiction forbids autoplay.
-							</p>
-						</div>
-					</div>
-
-					{#if wcOn}
 						<div class="wl-config">
 							<div class="wl-group">
 								<div class="wl-fields">
 									<label class="field">
-										<span class="label">Gap between lines {wcDelay.toFixed(2)}s</span>
+										<span class="label">Longest win beat (ms)</span>
 										<input
-											type="range"
-											min="0"
-											max="3"
-											step="0.05"
-											value={wcDelay}
-											oninput={(e) => (doc = setWinCycleDelay(doc, Number(e.currentTarget.value)))}
+											type="number"
+											min={WIN_BEAT_MAX_MS_MIN}
+											max={WIN_BEAT_MAX_MS_MAX}
+											step="50"
+											placeholder="Unset"
+											value={wbMaxMs ?? ''}
+											onchange={(e) => setWinBeatMax(e.currentTarget.value)}
 										/>
 									</label>
-									<div class="field">
-										<span class="label">Replay the win line too</span>
-										<label class="switch sm" class:on={wcShowLine}>
-											<input
-												type="checkbox"
-												checked={wcShowLine}
-												onchange={(e) => (doc = setWinCycleShowLine(doc, e.currentTarget.checked))}
-											/>
-											<span class="track"><span class="knob"></span></span>
-											<span class="switch-label">{wcShowLine ? 'On' : 'Off'}</span>
-										</label>
-									</div>
-									<div class="field" class:disabled={!wcShowLine}>
-										<span class="label">Replay the win text too</span>
-										<label class="switch sm" class:on={wcShowText && wcShowLine}>
-											<input
-												type="checkbox"
-												disabled={!wcShowLine}
-												checked={wcShowText}
-												onchange={(e) => (doc = setWinCycleShowText(doc, e.currentTarget.checked))}
-											/>
-											<span class="track"><span class="knob"></span></span>
-											<span class="switch-label">{wcShowText ? 'On' : 'Off'}</span>
-										</label>
-									</div>
-									<div class="field">
-										<span class="label">Replay the win message too</span>
-										<label class="switch sm" class:on={wcShowMessage}>
-											<input
-												type="checkbox"
-												checked={wcShowMessage}
-												onchange={(e) =>
-													(doc = setWinCycleShowMessage(doc, e.currentTarget.checked))}
-											/>
-											<span class="track"><span class="knob"></span></span>
-											<span class="switch-label">{wcShowMessage ? 'On' : 'Off'}</span>
-										</label>
-									</div>
 								</div>
 								<p class="wl-note">
-									On (the default), each pass also draws that line and stamps its amount — the full
-									per-win narration on repeat. Off, the replay re-animates the winning symbols only
-									and leaves the board's line as the spin left it. "Replay the win text too" gates
-									just the stamped amount, so you can keep the line replaying without the number.
-									The Win lines section above still has the final say: with the overlay off, nothing
-									is drawn either way, and a scatter win never draws a line but still lights its
-									symbols. "Replay the win message too" is independent of the line and defaults OFF:
-									turn it on to re-show that win's info toast ("You win $X with N Bananas") on every
-									pass, otherwise the message only shows once when the round first presents.
+									The longest ONE winning symbol may hold the round — its <strong>Win</strong>
+									animation, and the <strong>Explosion</strong> the switch above adds after it.
+									Leave the box empty and there is no limit: every beat runs for exactly as long as
+									its art does, which is the pace the animation was authored at. Fill it in and
+									anything longer is cut short there, in milliseconds ({WIN_BEAT_MAX_MS_MIN}–{WIN_BEAT_MAX_MS_MAX}).
+									It only ever shortens — a symbol whose animation is already quicker is untouched.
+									Worth reaching for on a cascading game, where a two-second win is paid once per
+									tumble and a three-step cascade spends six seconds celebrating before the next
+									spin is released. This is independent of the pop above and applies with it off.
 								</p>
 							</div>
 						</div>
-					{/if}
-				</section>
 
-				<section class="winline" class:expanded={weOn}>
-					<div class="wl-head">
-						<div class="wl-text">
-							<h2>Winning symbols explode</h2>
-							<p class="wl-sub">
-								When a win has finished playing, each winning symbol plays its <strong
-									>Explosion</strong
-								> animation before settling back into its post-win art — the symbol goes out with a pop
-								instead of simply stopping. It is not removed from the board: taking symbols off stays
-								the job of the cascade, or of "Clear the board" in Reel behaviour.
-							</p>
-						</div>
-						<label class="switch" class:on={weOn}>
-							<input
-								type="checkbox"
-								checked={weOn}
-								onchange={(e) => (doc = setWinExplodeEnabled(doc, e.currentTarget.checked))}
-							/>
-							<span class="track"><span class="knob"></span></span>
-							<span class="switch-label">{weOn ? 'On' : 'Off'}</span>
-						</label>
-					</div>
-
-					<div class="wl-config">
-						<div class="wl-group">
-							<div class="wl-fields">
-								<label class="field">
-									<span class="label">Longest win beat (ms)</span>
-									<input
-										type="number"
-										min={WIN_BEAT_MAX_MS_MIN}
-										max={WIN_BEAT_MAX_MS_MAX}
-										step="50"
-										placeholder="Unset"
-										value={wbMaxMs ?? ''}
-										onchange={(e) => setWinBeatMax(e.currentTarget.value)}
-									/>
-								</label>
+						{#if weOn}
+							<div class="wl-config">
+								<div class="wl-group">
+									<p class="wl-note">
+										Bind the art in the <strong>Explosion</strong> column of the grid below — this switch
+										plays whatever is there, and a symbol with nothing bound falls back the way it always
+										does. The pop happens once, on the spin's own win presentation: the resting replay
+										above re-lights the same symbols until the next spin and deliberately does not pop
+										them again. A symbol hidden underneath a stacked picture is skipped too, since the
+										tall picture is what is drawn there.
+									</p>
+								</div>
 							</div>
-							<p class="wl-note">
-								The longest ONE winning symbol may hold the round — its <strong>Win</strong>
-								animation, and the <strong>Explosion</strong> the switch above adds after it. Leave
-								the box empty and there is no limit: every beat runs for exactly as long as its art
-								does, which is the pace the animation was authored at. Fill it in and anything
-								longer is cut short there, in milliseconds ({WIN_BEAT_MAX_MS_MIN}–{WIN_BEAT_MAX_MS_MAX}).
-								It only ever shortens — a symbol whose animation is already quicker is untouched.
-								Worth reaching for on a cascading game, where a two-second win is paid once per
-								tumble and a three-step cascade spends six seconds celebrating before the next spin
-								is released. This is independent of the pop above and applies with it off.
-							</p>
-						</div>
-					</div>
-
-					{#if weOn}
-						<div class="wl-config">
-							<div class="wl-group">
-								<p class="wl-note">
-									Bind the art in the <strong>Explosion</strong> column of the grid below — this switch
-									plays whatever is there, and a symbol with nothing bound falls back the way it always
-									does. The pop happens once, on the spin's own win presentation: the resting replay above
-									re-lights the same symbols until the next spin and deliberately does not pop them again.
-									A symbol hidden underneath a stacked picture is skipped too, since the tall picture
-									is what is drawn there.
-								</p>
-							</div>
-						</div>
-					{/if}
-				</section>
+						{/if}
+					</section>
+				{/if}
 
 				<section class="winline symbolsounds" class:expanded={true}>
 					<div class="wl-head">
@@ -4762,304 +4774,309 @@
 					</div>
 				</section>
 
-				<section class="winline anticipation" class:expanded={true}>
-					<div class="wl-head">
-						<div class="wl-text">
-							<h2>Reel anticipation</h2>
-							<p class="wl-sub">
-								The escalating tease the game plays while a big win is still reachable on the reels
-								yet to stop. Pick the activation STING and the sustained LOOP sounds once for the
-								whole mode; then, per configured big-win tier, style the intensity (the camera zoom,
-								the overlay rig's scale / opacity / tint, and the loop + sting volumes), climbing as
-								the reachable win crosses each tier. The mode itself is turned on and off from Flow;
-								this only styles it. Leave a field at its default to keep the game's coded value.
-							</p>
-						</div>
-						{#if anticipationOverridden}
-							<div class="hl-actions">
-								<span class="badge">overridden</span>
-								<button type="button" class="ghost" onclick={resetAnticipation}>
-									Reset to default
-								</button>
+				{#if !data.coinBoard || anticipationOverridden}
+					<section class="winline anticipation" class:expanded={true}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Reel anticipation</h2>
+								<p class="wl-sub">
+									The escalating tease the game plays while a big win is still reachable on the
+									reels yet to stop. Pick the activation STING and the sustained LOOP sounds once
+									for the whole mode; then, per configured big-win tier, style the intensity (the
+									camera zoom, the overlay rig's scale / opacity / tint, and the loop + sting
+									volumes), climbing as the reachable win crosses each tier. The mode itself is
+									turned on and off from Flow; this only styles it. Leave a field at its default to
+									keep the game's coded value.
+								</p>
 							</div>
-						{/if}
-					</div>
-
-					<div class="wl-config">
-						<div class="wl-group">
-							<div class="ant-fields">
-								<div class="field">
-									<span class="label">Overlay rig</span>
-									<select
-										value={doc.anticipation?.spineKey ?? ''}
-										onchange={(e) => setAnticipationRig(e.currentTarget.value)}
-									>
-										<option value="">Default (coded anticipation rig)</option>
-										{#each anticipationRigBundles as b (b.key)}
-											<option value={b.key}>{b.name}</option>
-										{/each}
-									</select>
-									<span class="wl-note">
-										The per-reel overlay skeleton. The default is the game's built-in
-										<code>anticipation</code> rig; a swapped bundle must expose the
-										<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
-										intro → loop → out chaining).
-									</span>
+							{#if anticipationOverridden}
+								<div class="hl-actions">
+									<span class="badge">overridden</span>
+									<button type="button" class="ghost" onclick={resetAnticipation}>
+										Reset to default
+									</button>
 								</div>
+							{/if}
+						</div>
 
-								<div class="field">
-									<span class="label">Overlay animation</span>
-									{#if anticipationAnimations.length}
+						<div class="wl-config">
+							<div class="wl-group">
+								<div class="ant-fields">
+									<div class="field">
+										<span class="label">Overlay rig</span>
 										<select
-											value={doc.anticipation?.animationSet ?? 'anticipation'}
-											onchange={(e) =>
-												setAnticipationAnimation(
-													e.currentTarget.value === 'anticipation' ? '' : e.currentTarget.value,
-												)}
+											value={doc.anticipation?.spineKey ?? ''}
+											onchange={(e) => setAnticipationRig(e.currentTarget.value)}
 										>
-											{#each anticipationSets as base (base)}
-												<option value={base}>
-													{base}{base === 'anticipation' ? ' (unnumbered — default)' : ''}
-												</option>
+											<option value="">Default (coded anticipation rig)</option>
+											{#each anticipationRigBundles as b (b.key)}
+												<option value={b.key}>{b.name}</option>
 											{/each}
 										</select>
-									{:else}
-										<input
-											type="text"
-											placeholder="anticipation"
-											value={doc.anticipation?.animationSet ?? ''}
-											oninput={(e) => setAnticipationAnimation(e.currentTarget.value)}
-										/>
-									{/if}
-									<span class="wl-note">
-										Which animation SET the overlay plays — a rig's differently-sized anticipations.
-										The game appends <code>_intro / _loop / _out</code>, so this is the base name
-										(e.g. <code>anticipation3</code> →
-										<code>anticipation3_intro</code>). The unnumbered
-										<code>anticipation</code> is the game's default.
-									</span>
-								</div>
-
-								<div class="field">
-									<span class="label">Overlay size (cells)</span>
-									<div class="ant-size">
-										<label>
-											<span>Width</span>
-											<input
-												type="number"
-												min="0.1"
-												step="0.1"
-												placeholder="0.56"
-												value={doc.anticipation?.overlayWidthCells ?? ''}
-												oninput={(e) => setAnticipationOverlaySize('width', e.currentTarget.value)}
-											/>
-										</label>
-										<label>
-											<span>Height</span>
-											<input
-												type="number"
-												min="0.1"
-												step="0.1"
-												placeholder="1.6"
-												value={doc.anticipation?.overlayHeightCells ?? ''}
-												oninput={(e) => setAnticipationOverlaySize('height', e.currentTarget.value)}
-											/>
-										</label>
+										<span class="wl-note">
+											The per-reel overlay skeleton. The default is the game's built-in
+											<code>anticipation</code> rig; a swapped bundle must expose the
+											<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
+											intro → loop → out chaining).
+										</span>
 									</div>
-									<span class="wl-note">
-										The overlay box the animation is scaled to fit, in cells (1 = one symbol). The
-										coded default is a narrow beam (<code>0.56 × 1.6</code>); for a full-column
-										anticipation set the height to your reel's row count (e.g. <code>5</code>) and
-										the width to about <code>1</code>. Leave blank to keep the coded beam.
-									</span>
-								</div>
 
-								<div class="field">
-									<span class="label">Sounds</span>
-									<span class="wl-note">
-										The tease's activation STING and sustained LOOP are picked in
-										<a href="/sound">Invisible Sound</a>, with the rest of the game's audio. Their
-										per-tier VOLUMES stay here — they are part of the intensity ramp below, not a
-										choice of sound.
-									</span>
-								</div>
-							</div>
+									<div class="field">
+										<span class="label">Overlay animation</span>
+										{#if anticipationAnimations.length}
+											<select
+												value={doc.anticipation?.animationSet ?? 'anticipation'}
+												onchange={(e) =>
+													setAnticipationAnimation(
+														e.currentTarget.value === 'anticipation' ? '' : e.currentTarget.value,
+													)}
+											>
+												{#each anticipationSets as base (base)}
+													<option value={base}>
+														{base}{base === 'anticipation' ? ' (unnumbered — default)' : ''}
+													</option>
+												{/each}
+											</select>
+										{:else}
+											<input
+												type="text"
+												placeholder="anticipation"
+												value={doc.anticipation?.animationSet ?? ''}
+												oninput={(e) => setAnticipationAnimation(e.currentTarget.value)}
+											/>
+										{/if}
+										<span class="wl-note">
+											Which animation SET the overlay plays — a rig's differently-sized
+											anticipations. The game appends <code>_intro / _loop / _out</code>, so this is
+											the base name (e.g. <code>anticipation3</code> →
+											<code>anticipation3_intro</code>). The unnumbered
+											<code>anticipation</code> is the game's default.
+										</span>
+									</div>
 
-							{#if bigTiers.length === 0}
-								<p class="wl-note">
-									This project has no big-win tiers yet, so there's nothing to style. Add big-win
-									tiers in <strong>Invisible Game Config</strong> (<code>/config</code> → “Big win tiers”)
-									first — one anticipation FX column then appears here per big tier.
-								</p>
-							{:else}
-								<div class="ant-tiers">
-									{#each bigTiers as tier, rank (tier.alias)}
-										{@const count = bigTiers.length}
-										<div class="ant-tier">
-											<h3>{tier.name}</h3>
-											<label class="field">
-												<span class="label">
-													Zoom ×{anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'zoom',
-													).toFixed(2)}
-												</span>
+									<div class="field">
+										<span class="label">Overlay size (cells)</span>
+										<div class="ant-size">
+											<label>
+												<span>Width</span>
 												<input
-													type="range"
-													min="1"
-													max="1.6"
-													step="0.01"
-													value={anticipationFieldValue(doc, tier.alias, rank, count, 'zoom')}
+													type="number"
+													min="0.1"
+													step="0.1"
+													placeholder="0.56"
+													value={doc.anticipation?.overlayWidthCells ?? ''}
 													oninput={(e) =>
-														patchAnticipationTier(tier.alias, {
-															zoom: Number(e.currentTarget.value),
-														})}
+														setAnticipationOverlaySize('width', e.currentTarget.value)}
 												/>
 											</label>
-											<label class="field">
-												<span class="label">
-													Overlay scale ×{anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'overlayScale',
-													).toFixed(2)}
-												</span>
+											<label>
+												<span>Height</span>
 												<input
-													type="range"
-													min="0.5"
-													max="2"
-													step="0.01"
-													value={anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'overlayScale',
-													)}
+													type="number"
+													min="0.1"
+													step="0.1"
+													placeholder="1.6"
+													value={doc.anticipation?.overlayHeightCells ?? ''}
 													oninput={(e) =>
-														patchAnticipationTier(tier.alias, {
-															overlayScale: Number(e.currentTarget.value),
-														})}
-												/>
-											</label>
-											<label class="field">
-												<span class="label">
-													Overlay opacity {anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'overlayAlpha',
-													).toFixed(2)}
-												</span>
-												<input
-													type="range"
-													min="0"
-													max="1"
-													step="0.01"
-													value={anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'overlayAlpha',
-													)}
-													oninput={(e) =>
-														patchAnticipationTier(tier.alias, {
-															overlayAlpha: Number(e.currentTarget.value),
-														})}
-												/>
-											</label>
-											<label class="field">
-												<span class="label">Overlay tint</span>
-												<ColorField
-													value={anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'overlayTint',
-													)}
-													oninput={(hex) =>
-														patchAnticipationTier(tier.alias, {
-															overlayTint: hex,
-														})}
-												/>
-											</label>
-											<label class="field">
-												<span class="label">
-													Loop volume {anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'soundVolume',
-													).toFixed(2)}
-												</span>
-												<input
-													type="range"
-													min="0"
-													max="1"
-													step="0.05"
-													value={anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'soundVolume',
-													)}
-													oninput={(e) =>
-														patchAnticipationTier(tier.alias, {
-															soundVolume: Number(e.currentTarget.value),
-														})}
-												/>
-											</label>
-											<label class="field">
-												<span class="label">
-													Sting volume {anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'stingVolume',
-													).toFixed(2)}
-												</span>
-												<input
-													type="range"
-													min="0"
-													max="1"
-													step="0.05"
-													value={anticipationFieldValue(
-														doc,
-														tier.alias,
-														rank,
-														count,
-														'stingVolume',
-													)}
-													oninput={(e) =>
-														patchAnticipationTier(tier.alias, {
-															stingVolume: Number(e.currentTarget.value),
-														})}
+														setAnticipationOverlaySize('height', e.currentTarget.value)}
 												/>
 											</label>
 										</div>
-									{/each}
+										<span class="wl-note">
+											The overlay box the animation is scaled to fit, in cells (1 = one symbol). The
+											coded default is a narrow beam (<code>0.56 × 1.6</code>); for a full-column
+											anticipation set the height to your reel's row count (e.g. <code>5</code>) and
+											the width to about <code>1</code>. Leave blank to keep the coded beam.
+										</span>
+									</div>
+
+									<div class="field">
+										<span class="label">Sounds</span>
+										<span class="wl-note">
+											The tease's activation STING and sustained LOOP are picked in
+											<a href="/sound">Invisible Sound</a>, with the rest of the game's audio. Their
+											per-tier VOLUMES stay here — they are part of the intensity ramp below, not a
+											choice of sound.
+										</span>
+									</div>
 								</div>
-								<p class="wl-note">
-									A white tint (<code>#ffffff</code>) leaves the overlay's own colours; a hotter
-									tint multiplies over them — the coded defaults ramp white → hot orange as the
-									tiers climb. The reel-tease mode is armed from Flow (enable / disable
-									anticipation); with it off, none of this renders.
-								</p>
-							{/if}
+
+								{#if bigTiers.length === 0}
+									<p class="wl-note">
+										This project has no big-win tiers yet, so there's nothing to style. Add big-win
+										tiers in <strong>Invisible Game Config</strong> (<code>/config</code> → “Big win tiers”)
+										first — one anticipation FX column then appears here per big tier.
+									</p>
+								{:else}
+									<div class="ant-tiers">
+										{#each bigTiers as tier, rank (tier.alias)}
+											{@const count = bigTiers.length}
+											<div class="ant-tier">
+												<h3>{tier.name}</h3>
+												<label class="field">
+													<span class="label">
+														Zoom ×{anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'zoom',
+														).toFixed(2)}
+													</span>
+													<input
+														type="range"
+														min="1"
+														max="1.6"
+														step="0.01"
+														value={anticipationFieldValue(doc, tier.alias, rank, count, 'zoom')}
+														oninput={(e) =>
+															patchAnticipationTier(tier.alias, {
+																zoom: Number(e.currentTarget.value),
+															})}
+													/>
+												</label>
+												<label class="field">
+													<span class="label">
+														Overlay scale ×{anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'overlayScale',
+														).toFixed(2)}
+													</span>
+													<input
+														type="range"
+														min="0.5"
+														max="2"
+														step="0.01"
+														value={anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'overlayScale',
+														)}
+														oninput={(e) =>
+															patchAnticipationTier(tier.alias, {
+																overlayScale: Number(e.currentTarget.value),
+															})}
+													/>
+												</label>
+												<label class="field">
+													<span class="label">
+														Overlay opacity {anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'overlayAlpha',
+														).toFixed(2)}
+													</span>
+													<input
+														type="range"
+														min="0"
+														max="1"
+														step="0.01"
+														value={anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'overlayAlpha',
+														)}
+														oninput={(e) =>
+															patchAnticipationTier(tier.alias, {
+																overlayAlpha: Number(e.currentTarget.value),
+															})}
+													/>
+												</label>
+												<label class="field">
+													<span class="label">Overlay tint</span>
+													<ColorField
+														value={anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'overlayTint',
+														)}
+														oninput={(hex) =>
+															patchAnticipationTier(tier.alias, {
+																overlayTint: hex,
+															})}
+													/>
+												</label>
+												<label class="field">
+													<span class="label">
+														Loop volume {anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'soundVolume',
+														).toFixed(2)}
+													</span>
+													<input
+														type="range"
+														min="0"
+														max="1"
+														step="0.05"
+														value={anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'soundVolume',
+														)}
+														oninput={(e) =>
+															patchAnticipationTier(tier.alias, {
+																soundVolume: Number(e.currentTarget.value),
+															})}
+													/>
+												</label>
+												<label class="field">
+													<span class="label">
+														Sting volume {anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'stingVolume',
+														).toFixed(2)}
+													</span>
+													<input
+														type="range"
+														min="0"
+														max="1"
+														step="0.05"
+														value={anticipationFieldValue(
+															doc,
+															tier.alias,
+															rank,
+															count,
+															'stingVolume',
+														)}
+														oninput={(e) =>
+															patchAnticipationTier(tier.alias, {
+																stingVolume: Number(e.currentTarget.value),
+															})}
+													/>
+												</label>
+											</div>
+										{/each}
+									</div>
+									<p class="wl-note">
+										A white tint (<code>#ffffff</code>) leaves the overlay's own colours; a hotter
+										tint multiplies over them — the coded defaults ramp white → hot orange as the
+										tiers climb. The reel-tease mode is armed from Flow (enable / disable
+										anticipation); with it off, none of this renders.
+									</p>
+								{/if}
+							</div>
 						</div>
-					</div>
-				</section>
+					</section>
+				{/if}
 
 				{#if symbolNames.length === 0}
 					<p class="muted">No symbols defined for this game type.</p>

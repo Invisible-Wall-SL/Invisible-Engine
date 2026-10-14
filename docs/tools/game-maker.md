@@ -91,11 +91,18 @@ overlay add-on.
      plain game with Jackpots **On**, and every held coin pays once. Jackpots are always on (the
      dropdown is hidden). The config is saved with Game Config's **Coin board** section set to
      _Coin board only_, where the lines, the pay rule, the trigger and the overlay are changed;
-     the coin and jackpot symbols are bound to placeholder art as for the plain game. The screens
-     and the starter Flow are the plain game's for now, and the game does not play the coin board
-     until the mock RGS and the runtime catch up (Hold and Win Phases 13b, 13c and 13e). Ticking **Add
-     a coin overlay** with it reads _No coin overlay preset fits this game type._: pots and dropped
-     tokens are not built for a coin board.
+     the coin and jackpot symbols are bound to placeholder art as for the plain game, so the coins
+     draw from the first spin. The project gets the coin board's own screens and starter Flow:
+     the board (a **Coin board** screen with the cell tiles and a placed **Line Overlay**) and
+     the **Jackpot bar** are up from the start, the base game screen holds no reels, and the
+     respin counter and **Total win bar** show only in the feature (see
+     [Scene Editor](invisible-editor.md) and [Flow](flow.md)). The HUD bar
+     also gets a **Lines selector** anchor, where the player's Lines panel sits when Game Config
+     lets the player pick the lines. The game plays the coin board against the local Hold and Win
+     mock; the partner's server does not deal it yet. Ticking **Add a coin overlay** with it
+     reads _No coin overlay preset fits this game type._: pots and dropped tokens are not built
+     for a coin board. A project switched to the coin board later, in Game Config, keeps the
+     screens and Flow it was created with.
 4. Optionally tick **Add a coin overlay** and pick its preset from the dropdown beside it. The
    new project then gets the same add-on as the card's **＋ Coin overlay…** (see
    [Add a coin overlay](#add-a-coin-overlay-to-a-project) below), run on its fresh scaffold.

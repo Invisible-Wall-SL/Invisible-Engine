@@ -119,6 +119,7 @@ function buildSeeds(
 	gameType: string,
 	reference: LayoutDoc | undefined,
 	dropped: readonly string[],
+	flow: FlowDoc,
 ): Seed[] {
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
@@ -157,12 +158,13 @@ function buildSeeds(
 			body: JSON.stringify(scenes, null, 2),
 			contentType: 'application/json',
 		},
-		// The game type's starter flow — the SAME doc `/flow-v2` opens an unsaved project on. It has to
-		// be STORED, not just offered by the editor: the free-spin intro/outro are the flow's screens
-		// now, so a project nobody opened in Invisible Flow would publish without them.
+		// The game type's starter flow (a coin board's own) — the SAME doc `/flow-v2` opens an unsaved
+		// project on. It has to be STORED, not just offered by the editor: the free-spin intro/outro
+		// are the flow's screens now, so a project nobody opened in Invisible Flow would publish
+		// without them.
 		{
 			key: flowV2DocKey(client, project),
-			body: JSON.stringify(flowWithoutScreens(freshDrivenSeedDoc(gameType), dropped), null, 2),
+			body: JSON.stringify(flowWithoutScreens(flow, dropped), null, 2),
 			contentType: 'application/json',
 		},
 	];
@@ -203,9 +205,6 @@ export async function scaffoldProject(
 	// The STORED Game Config shapes the set (a re-scaffold, or a config written before the layout): a
 	// respin board that expands reserves the grown area, and an add-on merges in its screens.
 	const { doc: stored } = await loadGameConfigDocWithEtag(client, project);
-	const reference =
-		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, stored)) ??
-		(await loadKind(gameType))?.doc;
 	const plain = gameType === 'holdAndWin' ? opts.holdAndWinJackpots : undefined;
 	const coinBoard = plain !== undefined && opts.holdAndWinBase === 'coinBoard';
 	const config = coinBoard
@@ -213,6 +212,12 @@ export async function scaffoldProject(
 		: plain
 			? holdAndWinTemplateSeed(plain)
 			: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
+	// A coin board's screens and Flow are its own template's, so a new one (nothing stored yet) is
+	// shaped by the config about to be seeded.
+	const shapedBy = stored ?? (coinBoard ? config : null);
+	const reference =
+		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, shapedBy)) ??
+		(await loadKind(gameType))?.doc;
 	// The plain game's screens and Flow are never written without its config.
 	if (plain && !config) {
 		throw new Error(
@@ -222,9 +227,10 @@ export async function scaffoldProject(
 		);
 	}
 	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
+	const flow = freshDrivenSeedDoc(gameType, { coinBoard: Boolean(shapedBy?.coinBoard) });
 	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
 	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
-	for (const seed of buildSeeds(client, project, gameType, reference, dropped)) {
+	for (const seed of buildSeeds(client, project, gameType, reference, dropped, flow)) {
 		if (await objectExists(seed.key)) continue;
 		try {
 			await putObjectText(seed.key, seed.body, seed.contentType, { ifNoneMatch: '*' });

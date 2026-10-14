@@ -3,7 +3,7 @@
 	import { Button } from 'components-pixi';
 	import { MainContainer } from 'components-layout';
 	import { WHITE } from 'constants-shared/colors';
-	import { resolveTransform, STANDARD_MAIN_SIZES_MAP, UI_TEXT, type Scene } from 'engine-layout';
+	import { LINES_SELECTOR_PANEL, linesSelectorSpot, UI_TEXT, type Scene } from 'engine-layout';
 	import { CatalogText } from 'engine-layout/svelte';
 	import { stateI18nDerived, stateUi } from 'state-shared';
 
@@ -15,8 +15,9 @@
 	 * THE LINES SELECTOR (`docs/design/hold-and-win-coin-board.md` §1.3) — a coin board whose player
 	 * picks the line count gets − / count / + beside the bet readout, stepping through `choices`. It
 	 * reads like the bet readout (the same black panel and caption) and greys out while a round is in
-	 * play, the rule the bet − / + follow. Placed to the right of the HUD's `hud-bet` node, or above it
-	 * where the standard box has no room; a HUD with no bet node puts it in the bottom-right corner.
+	 * play, the rule the bet − / + follow. Placed at the HUD bar's `hud-lines` anchor (the coin-board
+	 * template seeds it), else right of the HUD's `hud-bet` node, or above it where the standard box
+	 * has no room; a HUD with no bet node puts it in the bottom-right corner (`linesSelectorSpot`).
 	 */
 	type Props = { bar: Scene | undefined };
 	const { bar }: Props = $props();
@@ -24,37 +25,11 @@
 	const context = getContext();
 
 	const FONT_SIZE = 45;
-	const WIDTH = 200;
-	const HEIGHT = FONT_SIZE * 3;
-	const PANEL_TOP = -20;
+	const { width: WIDTH, height: HEIGHT, top: PANEL_TOP } = LINES_SELECTOR_PANEL;
 	const STEP_SIZE = 50;
-	const GAP = 16;
-	/** The bet readout's panel width (`UiLabel`'s tiled ticker). */
-	const READOUT_WIDTH = FONT_SIZE * 3 * (326 / 73);
 
 	const layoutType = $derived(context.stateLayoutDerived.layoutType());
-	const box = $derived(
-		STANDARD_MAIN_SIZES_MAP[layoutType as keyof typeof STANDARD_MAIN_SIZES_MAP] ??
-			STANDARD_MAIN_SIZES_MAP.desktop,
-	);
-
-	const place = $derived.by(() => {
-		const node = bar?.nodes.find((n) => n.id === 'hud-bet');
-		const t = node && resolveTransform(node, layoutType);
-		if (!t?.visible) {
-			const scale = 0.8;
-			return {
-				x: box.width - GAP - (WIDTH / 2) * scale,
-				y: box.height - GAP - (HEIGHT + PANEL_TOP) * scale,
-				scale,
-			};
-		}
-		const scale = t.scale?.x ?? 1;
-		const right = t.x + (READOUT_WIDTH / 2 + GAP + WIDTH / 2) * scale;
-		return right + (WIDTH / 2) * scale <= box.width
-			? { x: right, y: t.y, scale }
-			: { x: t.x, y: t.y - (HEIGHT + GAP) * scale, scale };
-	});
+	const place = $derived(linesSelectorSpot(bar, layoutType));
 
 	const board = $derived(coinBoardConfig());
 	const choices = $derived(board?.lines.selection === 'player' ? board.lines.choices : []);

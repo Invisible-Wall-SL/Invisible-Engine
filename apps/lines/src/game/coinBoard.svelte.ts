@@ -1,4 +1,5 @@
-import type { Position } from 'engine-game';
+import { untrack } from 'svelte';
+import { SYMBOL_SIZE, type Position } from 'engine-game';
 import {
 	activePaylineIds,
 	coinBoardOverlay,
@@ -147,3 +148,76 @@ export const coinBoardLinePoints = (id: string): { x: number; y: number }[] =>
 		const seat = getSymbolSeat(reel, row);
 		return { x: seat.x, y: seat.y };
 	});
+
+/**
+ * How the Line Overlay draws (`docs/design/hold-and-win-coin-board.md` §1.4): line width (px) and
+ * opacity, one colour for every line (absent ⇒ each line's own), the tabs and their number colour.
+ */
+export type LineOverlayLook = {
+	lineWidth: number;
+	lineAlpha: number;
+	lineColor?: number | string;
+	showTabs: boolean;
+	tabScale: number;
+	tabTextFill: number | string;
+};
+
+/** The coded look — what a project that placed no Line Overlay sees, and the component's defaults. */
+export const CODED_LINE_OVERLAY_LOOK: LineOverlayLook = {
+	lineWidth: SYMBOL_SIZE * 0.035,
+	lineAlpha: 0.8,
+	showTabs: true,
+	tabScale: 1,
+	tabTextFill: 0x111111,
+};
+
+const HEX = /^#[0-9a-f]{6}$/i;
+const colourOf = (value: unknown): number | string | undefined =>
+	(typeof value === 'number' && Number.isFinite(value)) ||
+	(typeof value === 'string' && HEX.test(value))
+		? value
+		: undefined;
+const numberOf = (value: unknown, fallback: number, min: number, max: number): number =>
+	typeof value === 'number' && Number.isFinite(value)
+		? Math.min(Math.max(value, min), max)
+		: fallback;
+
+/** A placed Line Overlay's look from its params; a missing or invalid one keeps the coded value. */
+export const lineOverlayLookFrom = (params: Record<string, unknown>): LineOverlayLook => {
+	const coded = CODED_LINE_OVERLAY_LOOK;
+	const lineColor = colourOf(params.lineColor);
+	return {
+		lineWidth: numberOf(params.lineWidth, coded.lineWidth, 0, SYMBOL_SIZE),
+		lineAlpha: numberOf(params.lineAlpha, coded.lineAlpha, 0, 1),
+		...(lineColor !== undefined ? { lineColor } : {}),
+		showTabs: typeof params.showTabs === 'boolean' ? params.showTabs : coded.showTabs,
+		tabScale: numberOf(params.tabScale, coded.tabScale, 0, 4),
+		tabTextFill: colourOf(params.tabTextFill) ?? coded.tabTextFill,
+	};
+};
+
+/**
+ * The look a mounted Line Overlay (`LineOverlayPart`) hands the board. Each instance holds its own
+ * entry; the most recently published one draws, and unmounting one hands back to the one before it.
+ */
+let overlayLooks = $state.raw<{ id: number; look: LineOverlayLook }[]>([]);
+let nextOverlayLookId = 1;
+
+/** The placed Line Overlay's look, or `null` with none placed (or only a stand-in). */
+export const lineOverlayLook = (): LineOverlayLook | null => overlayLooks.at(-1)?.look ?? null;
+
+/** Start publishing a look; returns its setter and its release. */
+export const claimLineOverlayLook = () => {
+	const id = nextOverlayLookId++;
+	return {
+		// `untrack`: a component calls these from its effects, which must not come to depend on the
+		// list they write.
+		set: (look: LineOverlayLook) => {
+			const others = untrack(() => overlayLooks.filter((entry) => entry.id !== id));
+			overlayLooks = [...others, { id, look }];
+		},
+		release: () => {
+			overlayLooks = untrack(() => overlayLooks.filter((entry) => entry.id !== id));
+		},
+	};
+};

@@ -1213,6 +1213,16 @@ engine. Which of them get a row is still the config's call: the 3 Pots preset us
 `JACKPOT`, `BOOST`, `COLLECT`, `MULTI`, `MYSTERY` and `BLANK`, Classic and Collector fewer. `BLANK`
 has no art — an empty respin cell draws nothing.
 
+**A coin board** (Game Config → Coin board → _Coin board only_,
+[plan](../design/hold-and-win-coin-board.md)) has no line game, so it has no line symbols: the grid
+lists only `BONUS`, `JACKPOT` and `BLANK` (the template's), with their role chips, and the **Coin
+value label** section styles the values. A project created in Game Maker with **Base game: Coin board
+only** already binds `BONUS` and `JACKPOT` to the same placeholder art as the plain Hold and Win, so
+the coins draw from the first spin. The board has no reels and pays no line in its base game, so
+**Free-spin board glow**, **Reel anticipation**, **Winning symbols after the spin** and **Winning
+symbols explode** are hidden too, each kept while the project already authors it. **Win lines**
+stays: under the **Line fill** pay rule the feature's end lights each paying run as a win line.
+
 ### Pots overlay projects
 
 A project of any kind whose [Invisible Game Config](game-config.md) carries a `potsOverlay` block

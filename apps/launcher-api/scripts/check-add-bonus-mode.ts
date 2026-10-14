@@ -153,6 +153,9 @@ const { getFullSceneSet, kindCapabilities } = await import('engine-layout');
 const { createMockRgs: createHoldAndWinMock } =
 	await import('../../../scripts/mock-rgs-server-holdandwin.mjs');
 const { validateFlowV2Against } = await import('../src/lib/server/flowV2Validation.ts');
+const { symbolsPageConfig } = await import('../src/lib/server/symbolsPageConfig.ts');
+const { symbolDefaultsFor } = await import('../src/lib/server/symbolDefaults.ts');
+const { freshDrivenSeedDoc } = await import('engine-flow-v2');
 const { editorDocKey, flowV2DocKey, gameConfigDocKey, symbolsDocKey, winTextDocKey } =
 	await import('../src/lib/server/projectPaths.ts');
 const {
@@ -1079,7 +1082,7 @@ await check("the Scene Editor's full set never puts back what the template left 
 	const project = 'tpl-coin-board';
 	KINDS[project] = 'holdAndWin';
 	await scaffoldProject(CLIENT, project, { holdAndWinJackpots: 'on', holdAndWinBase: 'coinBoard' });
-	const { config, symbols } = docsOf(project);
+	const { config, symbols, layout, flow } = docsOf(project);
 
 	await check('Coin board only: stored as its template, validates clean, no line game', () => {
 		const seed = holdAndWinCoinBoardSeed();
@@ -1093,6 +1096,129 @@ await check("the Scene Editor's full set never puts back what the template left 
 			['BONUS', 'JACKPOT'],
 			'symbols seeded (a blank draws nothing)',
 		);
+	});
+
+	await check('Coin board only: the coins are bound to the placeholder coin art', () => {
+		const plain = docsOf('tpl-plain-on').symbols;
+		for (const name of ['BONUS', 'JACKPOT']) {
+			assert(Object.keys(symbols?.symbols[name] ?? {}).length, `${name} has no states`);
+			same(symbols?.symbols[name], plain?.symbols[name], `${name} binds the plain template's art`);
+		}
+	});
+
+	await check('Coin board only: its screens are the coin board template (13e)', () => {
+		const scene = (id: string) => layout.scenes.find((s: Scene) => s.id === id);
+		const ids = (sc: Scene | undefined) =>
+			(sc?.nodes ?? []).map((n) => (n.kind === 'componentInstance' ? n.componentId : n.kind));
+		const board = scene('respinBoard');
+		assert(board && board.role === undefined, 'the board is a base screen, up from the start');
+		same(
+			ids(board),
+			['respinCells', 'lineOverlay'],
+			'the board holds the cell tiles + Line Overlay',
+		);
+		same(ids(scene('basegame')), ['reelGrid', 'infoBar'], 'the base game: board position + host');
+		assert(scene('jackpotBar') && !scene('jackpotBar')?.role, 'the jackpot bar is always up');
+		assert(!scene('pots'), 'a pots screen');
+		for (const id of ['respinCounter', 'totalWinBar', 'respinBackground', 'letters']) {
+			same(scene(id)?.modeId, 'holdAndWin', `${id} is a feature screen`);
+		}
+		assert(
+			scene('hudBar')?.nodes.some((n) => n.id === 'hud-lines'),
+			'the HUD bar has the lines selector anchor',
+		);
+		const full = getFullSceneSet('holdAndWin', sceneSetOptionsFor('holdAndWin', config));
+		assert(full, 'no scene set');
+		same(
+			full.scenes.filter((ref) => !scene(ref.id)).map((ref) => ref.id),
+			[],
+			'"Add missing screens" offers',
+		);
+		const plain = docsOf('tpl-plain-on').layout;
+		assert(
+			!plain.scenes.some((sc: Scene) => sc.nodes.some((n) => n.id === 'line-overlay')),
+			'the plain template places a Line Overlay',
+		);
+	});
+
+	await check('Coin board only: the starter flow shows the board, never swaps it (13e)', () => {
+		const shows = (graph: { nodes: { kind: string; ref?: string }[] }, kind: string) =>
+			graph.nodes.filter((n) => n.kind === kind).map((n) => n.ref);
+		const containers = flow.containers.map((c) => c.id);
+		assert(containers.includes('respinBoard') && containers.includes('jackpotBar'), 'containers');
+		assert(!containers.includes('pots'), 'the flow declares the pots');
+		const global = shows(flow.graph, 'showContainer');
+		for (const id of ['basegame', 'jackpotBar', 'respinBoard']) {
+			assert(global.includes(id), `the base game never shows ${id}`);
+		}
+		const mode = flow.modes?.holdAndWin?.graph;
+		assert(mode, 'no holdAndWin section');
+		const modeShows = shows(mode, 'showContainer');
+		const modeHides = shows(mode, 'hideContainer');
+		for (const id of ['respinBackground', 'respinCounter', 'totalWinBar', 'letters']) {
+			assert(modeShows.includes(id) && modeHides.includes(id), `the feature does not swap ${id}`);
+		}
+		assert(
+			!modeShows.includes('respinBoard') && !modeHides.includes('respinBoard'),
+			'the feature swaps the board',
+		);
+		const lineWins = (doc: FlowDocV2) => doc.graph.exec.some((e) => e.from.pin === 'winInfo');
+		assert(!lineWins(flow), 'a line-win chain is seeded');
+		assert(lineWins(docsOf('tpl-plain-on').flow), '…while the plain starter has one');
+		same(
+			JSON.stringify(flow),
+			JSON.stringify(freshDrivenSeedDoc('holdAndWin', { coinBoard: true })),
+			'stored as the coin board starter',
+		);
+		const issues = publishErrors(project);
+		same(describe(issues.filter((i) => i.severity === 'error')), '', 'flow errors');
+		same(
+			describe(issues.filter((i) => i.code === 'container-scene-missing')),
+			'',
+			'a flow step on a screen the layout lacks',
+		);
+	});
+
+	await check('Coin board only: a plain project keeps the plain starter', () => {
+		const plain = docsOf('tpl-plain-on').flow;
+		const mode = plain.modes?.holdAndWin?.graph;
+		assert(
+			mode?.nodes.some((n) => n.kind === 'showContainer' && n.ref === 'respinBoard'),
+			'the plain feature no longer shows its board',
+		);
+		same(
+			JSON.stringify(freshDrivenSeedDoc('holdAndWin', { coinBoard: false })),
+			JSON.stringify(freshDrivenSeedDoc('holdAndWin')),
+			'the flag off is the plain starter',
+		);
+		same(
+			JSON.stringify(freshDrivenSeedDoc('lines', { coinBoard: true })),
+			JSON.stringify(freshDrivenSeedDoc('lines')),
+			'another kind ignores the flag',
+		);
+	});
+
+	await check('Coin board only: /symbols lists the coins and the coin label only (13e)', () => {
+		const page = symbolsPageConfig('holdAndWin', symbolDefaultsFor('holdAndWin'), {
+			doc: config,
+			source: 'authored',
+			etag: null,
+		} as Parameters<typeof symbolsPageConfig>[2]);
+		same(page.symbols, ['BONUS', 'JACKPOT', 'BLANK'], 'the rows');
+		assert(page.coinBoard, 'the page is not told it is a coin board');
+		same(Object.keys(page.holdAndWinRoles).sort(), ['BLANK', 'BONUS', 'JACKPOT'], 'role chips');
+		assert(kindCapabilities('holdAndWin', page.addOns).coinSymbols, 'no coin label section');
+		same(
+			page.respinModes.map((m) => m.jackpotTiers),
+			[['MINI', 'MINOR', 'MAJOR', 'GRAND']],
+			'the coin label jackpot tiers',
+		);
+		const plain = symbolsPageConfig('holdAndWin', symbolDefaultsFor('holdAndWin'), {
+			doc: docsOf('tpl-plain-on').config,
+			source: 'authored',
+			etag: null,
+		} as Parameters<typeof symbolsPageConfig>[2]);
+		assert(!plain.coinBoard, 'a plain project is told it is a coin board');
 	});
 }
 

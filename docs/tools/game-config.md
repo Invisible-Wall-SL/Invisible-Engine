@@ -163,6 +163,13 @@ board: the coin overlay's pots presets are refused on it).
 The game plays the coin board against the local Hold and Win mock. The partner's server does not
 deal it yet ([status](../status/hold-and-win.md)).
 
+Switching the base game here changes the game, not the project's screens, Flow or Symbols. A project
+created in Game Maker with **Base game: Coin board only** has the coin board's own screens (the
+board and the Jackpot bar up from the start, a placed **Line Overlay**, a **Lines selector** anchor
+in the HUD) and starter Flow. One switched here keeps what it was created with: it plays, but the
+board's frame and tiles show only during the feature and the lines draw in their coded look. For the
+coin board's own screens, create the game in Game Maker with **Coin board only**.
+
 ## Coin overlay
 
 The **Coin overlay** section sits after Bet modes, before Bonus modes, on every project. It is an

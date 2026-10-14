@@ -55,7 +55,7 @@ titled **"Hold and win game pipeline"**.
 | 12a | Signals: free names, engine signals reach components, scoped per instance (design §8) | merged (`97652ca9`; the runtime release passed) — owed: a live check on `hw-3pots-sample` (Open items) | Hold and Win Phase 12a | #1003 |
 | 12b | Value bindings: numbers → transform / fill / frame / animation / bone (design §8) | merged — whole pipeline (engine → sources → Scene + Component Editor → guides); owed: the live check (Open items) | Hold and Win Phase 12b value bindings | #1005 |
 | 12c | Skinnable feature parts — Pot first (design §8; after 12a + 12b) | in progress — built on #1006: the Pot (art params, nodes inside, `standsFor`, fill on 12b's `fillMaskRect`), the Respin Counter and the Jackpot Tile (their panels inside a coded part), a Jackpot Bar copy, a **component** swap on instances, the Total Win Bar (its part can catch the coins), the Letters Strip (each letter a Letter Tile instance), the Wheel (art params, nodes on its turning face), and the respin cells (each a Cell Tile instance). The done-when passes on the real game locally (all three pots); owed: the live run on `hw-3pots-sample` after merge (Owner checklist 13) | Hold and Win Phase 12c skinnable parts | #1006 |
-| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | in progress — **13a (config + tools), 13b (mock RGS), 13c (runtime) and 13d (player lines) built on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14); 13e unclaimed | 13a: invisible-game-config · 13b–13d: engine-pixi-svelte | plan + 13a–13d: #1200 |
+| 13 | Coin board as the base game — no line game; paying lines (fixed or player-picked) with a colour overlay; three pay rules ([plan](../design/hold-and-win-coin-board.md)) | **built end to end on branch `claude/practical-ptolemy-kes8j2`, PR #1200** (owner approved the plan 2026-10-14): 13a config + tools, 13b mock RGS, 13c runtime, 13d player lines, 13e authoring + docs (the coin board's own screens, Line Overlay component, starter Flow, Symbols gating, playbook). Mock-only (partner wire: Phase 10). Owed: merge, the runtime release, and `holdandwintestsolo` re-created as a coin board (Owner checklist 14) | 13a: invisible-game-config · 13b–13e: engine-pixi-svelte | plan + 13a–13e: #1200 |
 
 ## Current state
 
@@ -1081,11 +1081,91 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     only that pot's frog and FX, with no Flow branch. A cloud session needs `games.invisiblewall.org`
     allowed in its environment's network access to play it.
 
+14. **`holdandwintestsolo` as a coin board (13e)** — after #1200 merges and its runtime release
+    passes. That project was made from the plain template and keeps its plain screens and Flow
+    (switching its Game Config to the coin board plays, but the board's frame shows only in the
+    feature). Create a new game in Game Maker with **Hold and Win** → **Base game: Coin board
+    only** (e.g. `hw-coinboard-sample`), publish it, and play it per
+    [hold-and-win-coin-board.md](../playtest/hold-and-win-coin-board.md); then retire or keep
+    `holdandwintestsolo`. A session never touched it.
+
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-14 — **Phase 13e: a coin board is authorable end to end** (built on branch
+  `claude/practical-ptolemy-kes8j2`, PR #1200; a scaffolded project played locally in Chromium
+  against the 13b mock, not yet live). **Phase 13 is built.** Everything new is gated on a coin
+  board: the plain Hold and Win set and starter flow, every other kind's sets and seeds, and every
+  pre-existing built-in component hash the same as before (checked before and after).
+  - **Scene Editor template** (`holdAndWinReferenceLayout(…, { coinBoard: true })`, reached through
+    `SceneSetOptions.coinBoard`, which `sceneSetOptionsFor` sets from a Hold and Win config's
+    `coinBoard`; the scaffold shapes a NEW coin board by the config it is about to seed, since
+    nothing is stored yet). `respinBoard` becomes a base screen named **Coin board**, holding the
+    Respin Cell Tiles and a placed **Line Overlay** (no Locked Row: a coin board never grows). The
+    `basegame` screen ("Base game (coin board)") keeps its id, its reel grid (only the board's
+    position and cell size; the runtime draws the respin board in the reels' place only while
+    `basegame` is up, so it cannot go) and the message host. No Pots screen (whatever `potIds`
+    say). Counter, Total Win, backdrop, letters and banners stay `holdAndWin` mode screens; the
+    jackpot bar is always up. Same screen ids and order as a plain set without pots, so "Add
+    missing screens" offers nothing new to either. The Scene Editor passes `coinBoard` too.
+  - **Lines selector anchor:** the coin-board HUD bar gains `hud-lines`, an empty container placed
+    per layout exactly where 13d drew the panel (`linesSelectorAnchor`). The selector now places
+    itself with `linesSelectorSpot` (engine-layout `coinBoardLines.ts`, shared with the template):
+    the anchor where it is shown, else 13d's coded spot (right of `hud-bet`, above it, or the
+    corner), so a project without the anchor is unchanged and a hidden anchor never loses the
+    panel. Moving the anchor moved the panel in the game.
+  - **Line Overlay component** (`LINE_OVERLAY_DEF`, `lineOverlay`, Hold and Win capability, in
+    `HOLD_AND_WIN_COMPONENTS`): the Phase 12c pattern. Its coded part `LineOverlayPart` counts in
+    under `LINE_OVERLAY_MOUNT` and hands its look to the board (the Respin Cell Tiles' claim model:
+    `claimLineOverlayLook` in `coinBoard.svelte.ts`), which draws the lines on its own cells, so
+    where it sits does not matter. Params: `lineWidth` 4.2, `lineAlpha` 0.8, `lineColor` (blank =
+    payline colours), `showTabs`, `tabScale` 1, `tabTextFill` #111111, the coded look's values,
+    so a placed default looks exactly like none. `standsFor: 'LineOverlayPart'`: a copy with the
+    part deleted counts in through a stand-in that hands no look, so the board draws no lines and
+    the author's nodes are the overlay. Offered as a Component Editor copy type. No overlay placed
+    ⇒ `CoinBoardLineOverlay` draws the coded look, as in 13c.
+  - **Starter flow** (`HOLD_AND_WIN_COIN_BOARD_DRIVEN_SEED_DOC`; `freshDrivenSeedDoc(type, {
+    coinBoard })`, the scaffold and `/flow-v2`'s unsaved seed pass it from the config). Same
+    template id and vocabulary (`holdAndWin`); the global graph shows `basegame`, `hudBar`,
+    `hudCorners`, `jackpotBar` and `respinBoard` at load; the mode section shows/hides only
+    `respinBackground`, `respinCounter`, `totalWinBar`, `letters`, so the board never swaps out;
+    no `pots`; no `winInfo` chain (a coin board pays no line in its base game; one that arrived
+    would run its coded beat). The feature beats are the plain ones (13c made `showRespinBoard` /
+    `hideRespinBoard` keep and clear a coin board). Stored flows are never rewritten.
+  - **Symbols:** the scaffold already seeded `BONUS` and `JACKPOT` with the plain template's
+    placeholder art (13a; now asserted equal). 13c's "no entry in the symbol map" + placeholder
+    discs came from its harness stub, which served no `symbols` map; served the scaffolded doc,
+    the coins draw their art and the boot logs no such error. `/symbols` on a coin board lists
+    `BONUS`, `JACKPOT`, `BLANK` with role chips and the Coin value label (it follows the config),
+    and hides **Free-spin board glow**, **Reel anticipation**, **Winning symbols after the spin**
+    and **Winning symbols explode** unless already authored (`symbolsPageConfig().coinBoard`).
+    **Win lines** stays (Line fill lights its runs as win lines).
+  - **Docs:** `docs/tools/game-maker.md`, `game-config.md` (switching later keeps the old screens),
+    `invisible-editor.md` (coin board screens, Line Overlay), `component-editor.md` (the copy),
+    `flow.md` (the coin board starter), `symbols-state-machine.md`; playbook
+    [hold-and-win-coin-board.md](../playtest/hold-and-win-coin-board.md) (local boot, S1–S9 per
+    pay rule and selection).
+  - **Gates:** `packages/engine-layout/scripts/test-coin-board-template.mjs` (new, 35 checks: the
+    def, stand-in, defaults, gating; the template's screens; the anchor at the coded spot in all
+    four layouts, moved and hidden). `test-hold-and-win-template.mjs` gates `lineOverlay` to Hold
+    and Win. `check:add-bonus-mode` scaffolds a coin board and checks the art binding, the screens,
+    the flow (shows, mode swaps, no `winInfo`, publish-clean against its layout), the plain
+    starter and other kinds unchanged, and `/symbols`' rows.
+  - **Played** (a scaffolded coin board, its own layout/flow/symbols served by a local stub; 13b
+    mock): idle shows the five lines and the jackpot bar, no reels, no counter; a base spin rolled
+    the board; a forced feature kept the board, brought the backdrop, RESPINS and TOTAL WIN, and
+    the end cleared the board and hid them (balance exact with the mock). A Line Overlay set to
+    magenta / 10 px / 1.5× tabs restyled every line with no coded set beside it. A player board
+    put the Lines panel at the anchor (same spot as 13d), and a moved anchor moved it. Flow v2
+    drove every beat; 0 page errors.
+  - **Decisions:** the base game screen stays `basegame` (renaming it would hide the board); the
+    vocabulary is the plain Hold and Win one (a coin board fires a subset), not a new template id;
+    the anchor is a plain empty container in the HUD bar, read by id, not a new node kind; a
+    project switched to a coin board in `/config` keeps its screens and flow (documented), as does
+    `holdandwintestsolo` (Owner checklist 14).
 
 - 2026-10-14 — **Phase 13d: the player picks the lines** (built on branch
   `claude/practical-ptolemy-kes8j2`, PR #1200; played locally in Chromium against the 13b mock, not

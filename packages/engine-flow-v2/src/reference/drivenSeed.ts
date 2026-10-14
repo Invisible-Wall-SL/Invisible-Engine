@@ -138,6 +138,18 @@ const HOLD_AND_WIN_MODE_SCREENS = [
 	LETTERS,
 ];
 
+/** A COIN BOARD's screen set (`docs/design/hold-and-win-coin-board.md`): the board is the base game,
+ *  so its `respinBoard` screen is on from the start beside the jackpot bar; it has no pots. The
+ *  `basegame` screen stays, holding no reels: the runtime draws the board only while it is up. */
+const COIN_BOARD_SCREENS = [
+	...NO_SPECIAL_BOOK_SCREENS.filter((id) => id !== FS_COUNTER),
+	JACKPOT_BAR,
+	RESPIN_BOARD,
+];
+
+/** A coin board's feature screens: the mode's own, less the board, which never leaves. */
+const COIN_BOARD_MODE_SCREENS = HOLD_AND_WIN_MODE_SCREENS.filter((id) => id !== RESPIN_BOARD);
+
 /** The round-holding free-spin screens — shown only around their moment, never at start. */
 const HOLD_SCREENS = [FS_INTRO, FS_OUTRO];
 
@@ -720,9 +732,13 @@ export const modeContainerRefs = (ids: readonly string[], modeId: string): Conta
  * ({@link modeScreenId}). Also what `graftAddOnSteps` adds for each respin mode a project's flow has
  * no section for, under a prefix no id of that doc uses.
  */
-export const holdAndWinModeGraph = (prefix: string, modeId: string = HOLD_AND_WIN_MODE): Graph => {
+export const holdAndWinModeGraph = (
+	prefix: string,
+	modeId: string = HOLD_AND_WIN_MODE,
+	{ coinBoard = false }: { coinBoard?: boolean } = {},
+): Graph => {
 	const screen = (id: string) => modeScreenId(id, modeId);
-	const modeScreens = HOLD_AND_WIN_MODE_SCREENS.map(screen);
+	const modeScreens = (coinBoard ? COIN_BOARD_MODE_SCREENS : HOLD_AND_WIN_MODE_SCREENS).map(screen);
 	const modeTrigger = (on: 'enter' | 'exit'): Node => ({
 		id: `${prefix}_${on}`,
 		kind: 'modeTrigger',
@@ -786,15 +802,28 @@ export const holdAndWinModeGraph = (prefix: string, modeId: string = HOLD_AND_WI
  * Events with no beat of their own (the random metre, the meter restatement) stay unwired, so their
  * coded handler runs.
  */
-const holdAndWinDrivenSeed = (): FlowDoc => {
-	const base = buildDrivenSeed(HOLD_AND_WIN_VOCAB, HOLD_AND_WIN_SCREENS, {
-		choreo: {
-			...choreoForVocabulary(BOOK_OF_CHOREO, HOLD_AND_WIN_VOCAB),
-			...HOLD_AND_WIN_BASE_CHOREO,
+const holdAndWinDrivenSeed = ({ coinBoard = false }: { coinBoard?: boolean } = {}): FlowDoc => {
+	const choreo = {
+		...choreoForVocabulary(BOOK_OF_CHOREO, HOLD_AND_WIN_VOCAB),
+		...HOLD_AND_WIN_BASE_CHOREO,
+	};
+	// A coin board pays no line in its base game, so it seeds no line-win chain (a `winInfo` that did
+	// arrive would run its coded handler).
+	if (coinBoard) delete choreo.winInfo;
+	const base = buildDrivenSeed(
+		HOLD_AND_WIN_VOCAB,
+		coinBoard ? COIN_BOARD_SCREENS : HOLD_AND_WIN_SCREENS,
+		{
+			choreo,
+			around: { luckySpin: LUCKY_SPIN },
+			declared: [
+				...(coinBoard ? COIN_BOARD_MODE_SCREENS : HOLD_AND_WIN_MODE_SCREENS),
+				LUCKY_SPIN,
+				WHEEL,
+				JACKPOT_WIN,
+			],
 		},
-		around: { luckySpin: LUCKY_SPIN },
-		declared: [...HOLD_AND_WIN_MODE_SCREENS, LUCKY_SPIN, WHEEL, JACKPOT_WIN],
-	});
+	);
 	// Right of the global rig (x 0) and the buy subgraph (x 500).
 	const backToBase = buildEntryGraph({
 		prefix: 'base',
@@ -813,11 +842,26 @@ const holdAndWinDrivenSeed = (): FlowDoc => {
 			exec: [...base.graph.exec, ...backToBase.exec],
 			data: [...base.graph.data, ...backToBase.data],
 		},
-		modes: { [HOLD_AND_WIN_MODE]: { graph: holdAndWinModeGraph('hw') } },
+		modes: {
+			[HOLD_AND_WIN_MODE]: { graph: holdAndWinModeGraph('hw', HOLD_AND_WIN_MODE, { coinBoard }) },
+		},
 	};
 };
 
 export const HOLD_AND_WIN_DRIVEN_SEED_DOC: FlowDoc = holdAndWinDrivenSeed();
+
+/**
+ * The Hold and Win starter flow for a COIN BOARD (`docs/design/hold-and-win-coin-board.md`) — the
+ * same template (`holdAndWin`: its vocabulary, its feature beats), with the coin board's screens: the
+ * board (`respinBoard`) and the jackpot bar are on from the start, beside the base game screen that
+ * hosts the board; entering the feature shows only its own screens (backdrop, counter, Total Win bar,
+ * letters) and leaving hides only those, so the board never swaps out. No pots and no line-win chain.
+ * A new coin-board project is seeded with it ({@link freshDrivenSeedDoc}`(…, { coinBoard: true })`);
+ * a stored flow is never rewritten.
+ */
+export const HOLD_AND_WIN_COIN_BOARD_DRIVEN_SEED_DOC: FlowDoc = holdAndWinDrivenSeed({
+	coinBoard: true,
+});
 
 /** The free-spin events a spins mode plays its spins with, and so its section presents. */
 export const SPINS_MODE_EVENTS: readonly string[] = [
@@ -936,7 +980,17 @@ export const drivenSeedTemplateId = (gameType?: string): string =>
 /**
  * A fresh DEEP CLONE of the starter flow for a game type — the doc a new project is seeded with, so
  * it owns an independent copy the editor can mutate + save without touching the shared reference.
+ * `coinBoard` (a Hold and Win project whose Game Config carries a coin board) picks the coin board's
+ * starter; every other type ignores it.
  */
-export function freshDrivenSeedDoc(gameType?: string): FlowDoc {
-	return JSON.parse(JSON.stringify(DRIVEN_SEEDS[drivenSeedTemplateId(gameType)])) as FlowDoc;
+export function freshDrivenSeedDoc(
+	gameType?: string,
+	{ coinBoard = false }: { coinBoard?: boolean } = {},
+): FlowDoc {
+	const id = drivenSeedTemplateId(gameType);
+	const seed =
+		coinBoard && id === HOLD_AND_WIN_DRIVEN_SEED_DOC.templateId
+			? HOLD_AND_WIN_COIN_BOARD_DRIVEN_SEED_DOC
+			: DRIVEN_SEEDS[id];
+	return JSON.parse(JSON.stringify(seed)) as FlowDoc;
 }

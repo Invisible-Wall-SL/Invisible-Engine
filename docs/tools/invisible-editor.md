@@ -194,6 +194,21 @@ reaches the game only when the flow shows it. The Hold and Win starter flow show
 and **Pots** from the start. A project whose flow is older (scaffolded on the Book-of starter)
 also needs a **Show container** for each at load in `/flow-v2`.
 
+**Coin board screens.** A Hold and Win project created in Game Maker with **Base game: Coin board
+only** has no line game ([plan](../design/hold-and-win-coin-board.md)), and its screens say so. The
+board is the base game: its screen, **Coin board** (id `respinBoard`), is a base screen up from the
+start, holding the **Respin Cell Tiles** and a **Line Overlay**. **Base game (coin board)** keeps
+the reel grid, which only places and sizes the board (no reels ever draw), and the **Messages** info
+bar. The **Jackpot bar** is always up. The **Respin counter**, **Total win bar**, **Respin
+background**, **Letters** and the feature banners stay feature screens. There is no **Pots** screen
+and no **Locked Row** (a coin board neither has pots nor grows). The **HUD — bottom bar** gets a
+**Lines selector (when the player picks the lines)** node, an empty box: move and scale it per
+layout to place the player's **Lines** panel (Game Config → Coin board → Who picks the lines:
+Player). It starts where the game drew the panel before (right of **Bet**, or above it where there
+is no room); hidden in a layout, the panel falls back to that spot. A project switched to the coin
+board later in Game Config keeps the screens it has: the game still plays, with the board's frame
+and tiles only during the feature, and the panel at its default spot.
+
 ### The bet menu and the auto spin screens
 
 The two menus the player opens from the HUD — tapping the **bet** readout to change the
@@ -1171,7 +1186,7 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   keeping its position and params.
   The list shows only what your project's game kind and add-ons use: the Hold and Win pieces
   (Respin Counter, Jackpot Bar, Jackpot Tile, Total Win Bar, Pot Meter, Letters Strip, Letter Tile,
-  Wheel, Respin Cell Tiles, Locked Row) appear only in a Hold and Win project or one whose Game Config
+  Wheel, Respin Cell Tiles, Locked Row, Line Overlay) appear only in a Hold and Win project or one whose Game Config
   has a Hold and Win bonus; the Pot Meter also with the pots overlay. A screen that already holds
   one keeps drawing it.
   A **Jackpot Tile** reads `jackpot.<tier>`: the tier's prize at the current bet — for a
@@ -1210,6 +1225,15 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   **⇕ Reserve rows for board expansion (N)** button in the screen list: it applies the same cell size
   and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
   grown board yourself.
+  **Line Overlay** marks a coin board's paying lines: each active line as a path between its cells,
+  in its Game Config payline colour, with a numbered tab at each end of the board. Like the tiles,
+  where you drop it doesn't matter: the lines draw on the board's own cells, and only in a coin
+  board game (elsewhere it draws nothing). Its params restyle them: **lineWidth** (px),
+  **lineAlpha**, **lineColor** (one colour for every line; blank keeps the payline colours),
+  **showTabs**, **tabScale** and **tabTextFill**. Without one placed, the game draws the same lines
+  at those defaults; while one is placed, that one's look wins. The colour over the cells no line
+  crosses is Game Config's **Inactive overlay**, not this component. The coin board template puts one
+  on the **Coin board** screen. The lines show in the game only (**Live ↗**).
   Click a row (or **◇ Open components**) to author components on the
   [Components side](#the-components-side).
 - **Template editor** — a separate, advanced mode (top-bar toggle) for defining
