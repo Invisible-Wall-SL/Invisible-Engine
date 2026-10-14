@@ -122,6 +122,7 @@ export function mount(el, options) {
 	let cameraLive = true;
 
 	const castOf = (id) => doc.stage.cast.find((c) => c.actorId === id) || null;
+	const isNodeActor = (id) => (castOf(id) || {}).kind === 'node';
 	const propertyTracksOf = (actorId) =>
 		doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'property');
 	const visTracksOf = (actorId) =>
@@ -942,7 +943,6 @@ export function mount(el, options) {
 			clip: { src: 'rig', name: clip.name },
 			start: snapT(time),
 			length: Math.max(clip.duration, 1 / (doc.fps || 30)),
-			clipLength: clip.duration,
 			clipIn: 0,
 			speed: 1,
 			loop: { mode: 'once' },
@@ -951,6 +951,7 @@ export function mount(el, options) {
 			blendIn: 0,
 			blendOut: 0,
 		};
+		if (isNodeActor(track.actorId)) strip.clipLength = clip.duration;
 		track.strips.push(strip);
 		selStripId = strip.id;
 		commit('add strip');
@@ -987,8 +988,12 @@ export function mount(el, options) {
 		const s = found.strip;
 		if (path === 'clip') {
 			s.clip = value ? { src: 'rig', name: value } : null;
-			// A player with no skeleton (a rig node in game) wraps a looping strip by this length.
-			const known = value && host.clips(found.track.actorId).find((a) => a.name === value);
+			// A rig node in game has no skeleton to read the clip's length from, so a looping strip
+			// wraps by this. A cast actor's strips never read it.
+			const known =
+				value &&
+				isNodeActor(found.track.actorId) &&
+				host.clips(found.track.actorId).find((a) => a.name === value);
 			if (known) s.clipLength = known.duration;
 		} else if (path === 'loop.mode') s.loop = { mode: value, n: (s.loop && s.loop.n) || 2 };
 		else if (path === 'loop.n')
