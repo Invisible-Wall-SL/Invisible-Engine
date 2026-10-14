@@ -15,6 +15,8 @@ type BookEventReveal = {
 	board: RawSymbol[][];
 	paddingPositions: number[];
 	gameType: GameType;
+	/** A coin board's base spin: the lines the server played it on (its `bet` echo). */
+	paylineIds?: string[];
 };
 
 type BookEventSetTotalWin = {

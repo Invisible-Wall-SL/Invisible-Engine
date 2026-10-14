@@ -174,6 +174,7 @@ const laidOutFor = (
 				potIds: options.potIds,
 				maxRows,
 				...(options.jackpotBar === false ? { jackpotBar: false } : {}),
+				...(options.coinBoard ? { coinBoard: true } : {}),
 			}).scenes;
 
 /** The respin modes `options` seeds screens for. */
@@ -190,11 +191,12 @@ function referenceWithModes(
 	options: SceneSetOptions,
 	modes: readonly RespinModeScreens[],
 ): Scene[] {
-	const { potIds, maxRows, jackpotBar } = options;
+	const { potIds, maxRows, jackpotBar, coinBoard } = options;
 	const reference = holdAndWinReferenceLayout(HOLD_AND_WIN_BOARD, {
 		potIds,
 		maxRows,
 		...(jackpotBar === false ? { jackpotBar } : {}),
+		...(coinBoard ? { coinBoard } : {}),
 	}).scenes;
 	const perMode = modes.map((mode) => ({
 		mode,

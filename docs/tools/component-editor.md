@@ -76,11 +76,12 @@ Open the components home: the **Invisible Component Editor** card on the launche
     caption and **X OF Y** value), already wired to the engine. Swap the frame art,
     restyle the text or edit the label, then save.
   - **Pot Meter**, **Respin Counter**, **Jackpot Tile**, **Jackpot Bar**, **Total Win Bar**,
-    **Letters Strip**, **Letter Tile**, **Wheel**, **Respin Cell Tiles** and **Cell Tile (Hold and
-    Win)** — project copies of those built-ins. Put your own nodes inside the coded part of the Pot
-    Meter, Respin Counter, Jackpot Tile, Total Win Bar, Letter Tile, Wheel or Cell Tile (see
-    [Skin a coded part](#skin-a-coded-part)). Offered in a Hold and Win project, or one whose
-    Game Config has a Hold and Win bonus; the Pot Meter also with the pots overlay.
+    **Letters Strip**, **Letter Tile**, **Wheel**, **Respin Cell Tiles**, **Cell Tile (Hold and
+    Win)** and **Line Overlay (Hold and Win coin board)** — project copies of those built-ins. Put
+    your own nodes inside the coded part of the Pot Meter, Respin Counter, Jackpot Tile, Total Win
+    Bar, Letter Tile, Wheel or Cell Tile (see [Skin a coded part](#skin-a-coded-part)). Offered in
+    a Hold and Win project, or one whose Game Config has a Hold and Win bonus; the Pot Meter also
+    with the pots overlay.
 - **Components** — existing components grouped by category. Click a row to open it for
   editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
@@ -595,6 +596,15 @@ screen, and set its **tile** to your Cell Tile. Every cell then draws on your ti
 **tileImage**. The **gap** still applies. Selecting the tiles on a screen previews the
 **tileImage**, not your Cell Tile; see it by opening the Cell Tile, or in the game. A Respin Cell Tiles
 placed inside a Cell Tile does nothing.
+
+**The Line Overlay.** A coin board's paying lines are drawn by the game on the board's own cells,
+so the **Line Overlay**'s coded **Lines** part has nothing to put art inside. Restyle the lines with
+its params instead (on the placed instance, or as the defaults of your copy): **lineWidth**,
+**lineAlpha**, **lineColor** (one colour for every line; blank keeps each line's payline colour),
+**showTabs**, **tabScale** and **tabTextFill**. To draw the lines yourself, create a **Line Overlay
+(Hold and Win coin board)** copy, delete its **Lines** part and add your own nodes: the game then
+draws no lines of its own while your copy is on screen. Nodes you add **inside** the Lines part draw
+where the instance is placed, not on the board.
 
 ## Traps
 

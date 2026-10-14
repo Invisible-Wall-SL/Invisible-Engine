@@ -38,6 +38,7 @@ import {
 } from './types';
 import {
 	count,
+	hexColor,
 	isObject,
 	normalizeNumRows,
 	normalizePaylines,
@@ -45,6 +46,7 @@ import {
 	num,
 } from './normalizeParts';
 import { normalizeBonusGames } from './bonusGames';
+import { normalizeCoinBoard } from './coinBoard';
 import { gameTypeForMode, normalizeGameModes } from './modes';
 import { normalizeBonusImports } from './bonusImports';
 import { normalizeReelBehaviour } from './reelBehaviour';
@@ -225,16 +227,6 @@ const normalizeBetModePresentation = (
 	return Object.keys(map).length ? map : undefined;
 };
 
-/** A `#rgb` / `#rrggbb` hex colour, expanded to the canonical 6-digit lower-case form. Anything
- *  else is dropped — a malformed colour must not reach the renderer, where it would throw. */
-const hexColor = (v: unknown): string | undefined => {
-	const s = str(v)?.trim().toLowerCase();
-	if (!s) return undefined;
-	if (/^#[0-9a-f]{6}$/.test(s)) return s;
-	if (/^#[0-9a-f]{3}$/.test(s)) return `#${[...s.slice(1)].map((c) => c + c).join('')}`;
-	return undefined;
-};
-
 /**
  * Per-payline colours. Kept only for a line that actually EXISTS (`validIds`) and only when the
  * value is a real hex colour — a colour for a deleted line, or a typo, is silently dropped rather
@@ -400,6 +392,9 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	const { coinOverlay, modes } = normalizeBonusGames(raw);
 	if (coinOverlay) doc.coinOverlay = coinOverlay;
 	if (modes) doc.modes = modes;
+
+	const coinBoard = normalizeCoinBoard(raw.coinBoard);
+	if (coinBoard) doc.coinBoard = coinBoard;
 
 	const imports = normalizeBonusImports(raw.imports);
 	if (imports) doc.imports = imports;

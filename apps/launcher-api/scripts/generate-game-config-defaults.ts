@@ -28,6 +28,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
 	bookOfThermopylaePreset,
+	HOLD_AND_WIN_COIN_BOARD_KEY,
+	HOLD_AND_WIN_COIN_BOARD_TEMPLATE,
 	HOLD_AND_WIN_PRESETS,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
@@ -72,6 +74,8 @@ const PRESETS: Record<string, () => unknown> = {
 			() => HOLD_AND_WIN_TEMPLATES[j],
 		]),
 	),
+	// The same template with no line game: the coin board as the base game (hold-and-win-coin-board).
+	[HOLD_AND_WIN_COIN_BOARD_KEY]: () => HOLD_AND_WIN_COIN_BOARD_TEMPLATE,
 	// A LINES preset: the captured Book of Thermopylae, the Book-of mechanic as config
 	// (docs/design/book-feature.md §3.5) — offered by `/config` and Game Maker's Create.
 	'lines.bookOfThermopylae': bookOfThermopylaePreset,

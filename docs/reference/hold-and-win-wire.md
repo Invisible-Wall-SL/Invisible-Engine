@@ -287,6 +287,68 @@ respin cell lands something 6% of the time, a Lucky Spin 1%, the random metre 0.
 pacing, chosen so features come round in a playtest. WHICH value lands follows the config's weights.
 None of it is RTP.
 
+## Coin board — a Hold and Win with no line game
+
+> Plan: [hold-and-win-coin-board.md](../design/hold-and-win-coin-board.md) (Phase 13b). Sent only
+> when the project's Game Config carries `coinBoard`; **without it not one byte above changes.**
+
+The base game deals coins and blanks on the respin board. A cell is **paying** when an active payline
+crosses it. Only paying cells deal, count for the trigger, land in a respin, hold and pay. A
+non-paying cell is always the blank, on every `playedSpin`.
+
+**Boot `config`.** `availablePayLines` / `paylines` still list every line. `holdAndWin` gains:
+
+```jsonc
+"coinBoard": {
+  "payRule": "lineFill",                // | "coinsOnLines" | "perLine"
+  "lineFill": { "min": 3 },              // lineFill only
+  "selection": "player",                 // | "fixed"
+  "choices": [1, 3, 5], "default": 5,    // player only
+  "order": ["1", "4", "5", "2", "3"],    // player only: N lines = the first N
+  "active": ["1", "2", "3", "4", "5"],   // fixed only (instead of choices/default/order)
+  "triggerMin": { "1": 5, "3": 6, "5": 6 },  // coins on paying cells that trigger, per line count
+  "inactiveOverlay": { "color": "#000000", "alpha": 0.6 },
+  "paylineIds": ["1", "2", "3", "4", "5"]    // the id of each availablePayLines entry, in order
+}
+```
+
+**The bet.** Under `player`, `bet[0]` is the **line count** and must be one of `choices`, else
+`invalid bet` (code 101, nothing stored or staked). Under `fixed`, `bet[0]` is ignored: the board
+plays its `active` lines. The stake is `lines × bet[1]`. With a bet table (a buy), `bet[0]` stays the
+option index and the round plays the default count. **The `bet` echo lists only the lines the round
+plays:** `paylines` (their rows) and `paylineIds` (their ids). That is how the client learns them.
+
+**A base spin** pays no line (`spinWin` never comes). It triggers when the trigger's coins (the Game
+Config count roles; without a count, every coin and special) on paying cells reach `triggerMin` for
+the round's line count. The
+other routes (buy, Lucky Spin, random metre) work as above. A forced trigger places its coins on
+paying cells only.
+
+**The feature.** Only coins on paying cells hold, and only empty paying cells land, so only those
+reset the counter. The **full board** is every paying cell held: it ends the feature and pays the
+`fullBoardJackpot`. A column is complete when its paying cells are held. The snapshot's `holdAndWin`
+adds `paylineIds` (the round's lines), and the mock's `/state` round adds `lineCount`, so a resume
+keeps the round's lines.
+
+**The end tally** (`holdAndWinEnd`) adds `payRule`. Each cell's `amount` is `credits(worth) × lines`,
+and Σ `cells.amount` + `banked` = `total`:
+
+- `coinsOnLines`: every held coin pays once. No per-cell `lines` field.
+- `perLine`: each cell carries `lines`, the number of active paylines through it.
+- `lineFill`: each cell carries `lines`, the number of qualifying runs it is in (`0` pays
+  nothing). `runs: [{id, cells: [{reel,row}], total}]` lists each active line whose cells, from reel
+  0, hold `lineFill.min` or more paying coins in a row. `total` is the sum of the run's coins.
+
+A jackpot coin pays its prize under the same rule. Its `jackpotWin {source: "coin"}` `amount` is the
+prize × `lines`, and a jackpot coin in no run sends none.
+
+**Refused:** a coin board with board expansion (the mock will not build it; nothing would pay on the
+new rows).
+
+**Pacing.** A coin board's base coin rate is solved per line count, so that the trigger fires about
+one spin in 50, whatever the paying cells and `triggerMin`: about 16% on the 5-line template, 46%
+on the middle line alone with a minimum of 5. It is pacing, like the rest.
+
 ## Several respin modes (bonus-games Phase 2)
 
 A project can declare more than one respin mode (`docs/design/bonus-games.md` §2), each with its own

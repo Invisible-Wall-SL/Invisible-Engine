@@ -41,6 +41,7 @@ export const UI_TEXT = {
 	buyBonus: 'BUY BONUS',
 	playBonus: 'PLAY BONUS',
 	max: 'MAX',
+	lines: 'Lines',
 	// Menu / info surfaces
 	menu: 'MENU',
 	menuExit: 'EXIT',
@@ -105,6 +106,7 @@ const UI_TEXT_GROUP: Record<UiTextKey, string> = {
 	buyBonus: 'HUD',
 	playBonus: 'HUD',
 	max: 'HUD',
+	lines: 'HUD',
 	menu: 'Menu',
 	menuExit: 'Menu',
 	turbo: 'Menu',

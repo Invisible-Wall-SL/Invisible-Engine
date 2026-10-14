@@ -17,6 +17,7 @@ import { holdAndWinBlankSymbol } from 'game-config';
 import { stateBet } from 'state-shared';
 
 import { activeRespinMode } from './activeRespinMode.svelte';
+import { coinBoardLockedCells, isCoinBoard } from './coinBoard.svelte';
 import { respinBoardShape, sameRespinBoard } from './respinModes';
 import { eventEmitter } from './eventEmitter';
 import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
@@ -32,7 +33,8 @@ import { stateHoldAndWin } from './stateHoldAndWin.svelte';
  *
  * NOTHING EXISTS UNTIL A FEATURE DOES. The reels are built the first time the board is shown, so a
  * game that never receives a Hold and Win event never constructs one; until then this module is a
- * few empty fields.
+ * few empty fields. A COIN BOARD is the exception: the board is its base game, shown from boot and
+ * never swapped out (`coinBoard.svelte.ts`).
  */
 /** A count-up in flight on a held cell's label: which field it stands in for, and its tween — or a
  *  jackpot tier held at its old name until an upgrade's beam lands. */
@@ -62,6 +64,10 @@ export const stateRespinBoard = $state({
 	 * played, and the label falls back to it when the count ends ({@link releaseHeldDisplay}).
 	 */
 	heldDisplay: {} as Record<string, HeldDisplay>,
+	/** Held cells a coin board's tally pays nothing for, by `respinCellKey` — drawn dimmed. */
+	dimmed: [] as string[],
+	/** The "×N" a coin board's `perLine` tally marks a held cell with, by `respinCellKey`. */
+	marks: {} as Record<string, string>,
 	/**
 	 * `note`: the beat the counter is announcing instead of the count (`respinCounterText`). `resets`
 	 * and `adds` count the beats it pulses for — a reset, and an add-respins special's respins landing.
@@ -247,6 +253,8 @@ export const showRespinBoard = () => {
 	stateRespinBoard.held = $state.snapshot(stateHoldAndWin.cells);
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.heldDisplay = {};
+	stateRespinBoard.dimmed = [];
+	stateRespinBoard.marks = {};
 	respinBoard.settle(
 		respinSeedBoard({ reels: respinBoard.reels, rows: respinBoard.rows, blank: respinBlank() }),
 	);
@@ -278,21 +286,32 @@ export const settleReelsOnHeldCells = () => {
 	eventEmitter.broadcast({ type: 'boardSettle', board });
 };
 
-/** Swap back to the reel board. The held layer empties with it. Announced here rather than by the
- *  end beat, so the safety net in `presentReveal` (a feature whose end never arrived) is heard too. */
+/**
+ * Swap back to the reel board. The held layer empties with it. Announced here rather than by the
+ * end beat, so the safety net in `presentReveal` (a feature whose end never arrived) is heard too.
+ * A coin board has no reel board to go back to: it stays up, cleared to the blank for the next base
+ * spin.
+ */
 export const hideRespinBoard = () => {
 	if (!stateRespinBoard.shown) return;
-	stateRespinBoard.shown = false;
+	if (isCoinBoard()) {
+		board?.settle(respinSeedBoard({ reels: board.reels, rows: board.rows, blank: respinBlank() }));
+	} else {
+		stateRespinBoard.shown = false;
+		stateRespinBoard.rows = 0;
+	}
 	stateRespinBoard.held = [];
 	stateRespinBoard.heldState = {};
 	stateRespinBoard.heldDisplay = {};
+	stateRespinBoard.dimmed = [];
+	stateRespinBoard.marks = {};
 	stateRespinBoard.counter.show = false;
 	stateRespinBoard.counter.note = null;
-	stateRespinBoard.rows = 0;
 	eventEmitter.broadcast({ type: 'respinBoardHide' });
 };
 
-/** Spin every free cell onto what `cells` names for it; resolves when the last one has landed. */
+/** Spin every free cell onto what `cells` names for it; resolves when the last one has landed. A
+ *  coin board's locked cells are not free. */
 export const spinRespinCells = async (cells: HoldAndWinCell[]) => {
 	if (!board || !stateRespinBoard.shown) return;
 	soundedColumns = [];
@@ -303,6 +322,7 @@ export const spinRespinCells = async (cells: HoldAndWinCell[]) => {
 			held: stateRespinBoard.held,
 			reveal: cells,
 			blank: respinBlank(),
+			locked: coinBoardLockedCells(),
 		}),
 		padding: respinStrip,
 	});

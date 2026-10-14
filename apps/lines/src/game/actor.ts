@@ -12,6 +12,7 @@ import { resetLuckySpinReveal } from './luckySpin';
 import { clearOverlay } from './stateOverlay.svelte';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { paddingReels } from './gameConfig';
+import { isCoinBoard } from './coinBoard.svelte';
 
 const primaryMachines = createPrimaryMachines<Bet>({
 	onResumeGameActive: (betToResume) => convertTorResumableBet(betToResume),
@@ -21,7 +22,10 @@ const primaryMachines = createPrimaryMachines<Bet>({
 			(bookEvent) => bookEvent?.type === 'reveal',
 		);
 
-		if (lastRevealEvent) stateGameDerived.enhancedBoard.settle(lastRevealEvent.board);
+		// A coin board has no reels to settle: it boots on its blank board.
+		if (lastRevealEvent && !isCoinBoard()) {
+			stateGameDerived.enhancedBoard.settle(lastRevealEvent.board);
+		}
 	},
 	onNewGameStart: async () => {
 		// The reels are about to roll — clear the previous round's win line, stamped amount/message
@@ -42,6 +46,8 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		// visible rows, and the seat's depth ramp clamps there, so every symbol draws at front-row
 		// size for the length of the roll. Off ⇒ this is unreachable and the pre-spin is untouched.
 		if (stateGameDerived.boardSwapsInPlace()) return;
+		// A coin board's base game spins on the respin board, from the reveal: no reels to roll.
+		if (isCoinBoard()) return;
 		await stateGameDerived.enhancedBoard.preSpin({
 			paddingBoard: paddingReels(stateGame.gameType),
 		});

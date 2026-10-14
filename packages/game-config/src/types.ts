@@ -20,6 +20,7 @@ import type { PartnerPaytable } from './serverPaytable';
 import type { HoldAndWin } from './holdAndWin';
 import type { PotsOverlay } from './potsOverlay';
 import type { CoinOverlay } from './coinOverlay';
+import type { CoinBoard } from './coinBoard';
 import type { GameSounds } from './sounds';
 import type { GameModeDecl } from './modes';
 import type { BonusImport } from './bonusImports';
@@ -525,6 +526,12 @@ export type GameConfigDoc = {
 	 * mode it starts. Absent ⇒ no overlay.
 	 */
 	coinOverlay?: CoinOverlay;
+	/**
+	 * OPTIONAL coin board (see `./coinBoard`, `docs/design/hold-and-win-coin-board.md`) — a Hold and
+	 * Win with no line game: the base game plays on the respin board, and only the cells an active
+	 * payline passes through deal and pay. Absent ⇒ the base game plays on the reels.
+	 */
+	coinBoard?: CoinBoard;
 	/**
 	 * OPTIONAL game MODES (see `./modes`, `docs/design/hold-and-win.md` §4.5) — overrides of the
 	 * built-in modes (`basegame`, `freeSpins`) and the project's own, each respin mode carrying its Hold

@@ -15,6 +15,7 @@ export * from './src/holdAndWinPresets';
 export * from './src/holdAndWinMock';
 export * from './src/holdAndWinGame';
 export * from './src/coinOverlay';
+export * from './src/coinBoard';
 export * from './src/bonusGames';
 export * from './src/bonusModes';
 export * from './src/potsOverlay';

@@ -11,6 +11,16 @@ export const isObject = (v: unknown): v is Record<string, unknown> =>
 export const num = (v: unknown): number | undefined =>
 	typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 
+/** A `#rgb` / `#rrggbb` hex colour, expanded to the canonical 6-digit lower-case form. Anything
+ *  else is dropped — a malformed colour must not reach the renderer, where it would throw. */
+export const hexColor = (v: unknown): string | undefined => {
+	const s = typeof v === 'string' ? v.trim().toLowerCase() : '';
+	if (!s) return undefined;
+	if (/^#[0-9a-f]{6}$/.test(s)) return s;
+	if (/^#[0-9a-f]{3}$/.test(s)) return `#${[...s.slice(1)].map((c) => c + c).join('')}`;
+	return undefined;
+};
+
 /** A count/index: a finite non-negative integer. */
 export const count = (v: unknown): number | undefined => {
 	const n = num(v);

@@ -11,6 +11,7 @@ import type {
 	ReelGridNode,
 	Scene,
 } from '../types';
+import { linesSelectorAnchor } from '../coinBoardLines';
 import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton';
 
 /**
@@ -45,7 +46,16 @@ import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton
  *
  * Everything is placed AROUND the board, never on it, and the board's rows (3) are the same in
  * every preset — so the 3×3 Hotfire board (narrower) fits the same layout as 5×3; pass its shape as
- * `board`. An EXPANDING board (design §7 11b) passes its `maxRows`: the template then reserves the
+ * `board`.
+ *
+ * A COIN BOARD (`coinBoard`, `docs/design/hold-and-win-coin-board.md`) has no line game: the respin
+ * board is the base game. Its `respinBoard` screen is a base screen (up in the base game and the
+ * feature alike) named "Coin board", holding the cell tiles and a placed **Line Overlay**; the
+ * `basegame` screen keeps only the board's position (no reels draw), the message host and nothing
+ * else; it has no pots and no locked rows; and the HUD bar gains the `hud-lines` anchor the lines
+ * selector sits at. The counter, the Total Win bar and the rest of the feature stay mode screens.
+ *
+ * An EXPANDING board (design §7 11b) passes its `maxRows`: the template then reserves the
  * grown board's area ({@link reserveExpandingBoard}) and places the `lockedRow` handle over it. Two arrangements: wide (desktop/landscape) puts the counter and the total either side of
  * the board, tall (tablet/portrait) stacks them above and below.
  */
@@ -121,6 +131,9 @@ export type HoldAndWinTemplateOptions = {
 	maxRows?: number;
 	potIds?: readonly string[];
 	jackpotBar?: false;
+	/** The base game is the coin board (`docs/design/hold-and-win-coin-board.md`): see
+	 *  {@link holdAndWinReferenceLayout}. */
+	coinBoard?: true;
 };
 
 export const HOLD_AND_WIN_MODE = 'holdAndWin';
@@ -214,16 +227,34 @@ const modeScene = (scene: Omit<Scene, 'role' | 'modeId'>): Scene => ({
 	modeId: HOLD_AND_WIN_MODE,
 });
 
+/**
+ * A coin board's base-game screen. It keeps the id `basegame`, because the runtime draws the board
+ * (the reels' place) only while that screen is up, but it holds no reels: the reel grid there is
+ * only the board's position and cell size, and the coin board draws on it from boot.
+ */
+const coinBoardBase = (scene: Scene): Scene => ({
+	...scene,
+	name: 'Base game (coin board)',
+	nodes: scene.nodes.map((node) =>
+		node.kind === 'reelGrid' ? { ...node, label: 'Board (where the coin board sits)' } : node,
+	),
+});
+
 /** The skeleton screens the feature replaces. */
 const FREE_SPIN_SCENES = new Set(['freeSpinIntro', 'freeSpinCounter', 'freeSpinOutro']);
 
 export function holdAndWinReferenceLayout(
 	baseBoard: EngineSkeletonBoard = HOLD_AND_WIN_BOARD,
-	{ maxRows, potIds: rawPotIds = POT_METERS, jackpotBar }: HoldAndWinTemplateOptions = {},
+	{
+		maxRows,
+		potIds: rawPotIds = POT_METERS,
+		jackpotBar,
+		coinBoard,
+	}: HoldAndWinTemplateOptions = {},
 ): LayoutDoc {
 	// A doc that repeats a meter id fails validation but still loads; one pot per id keeps node ids
-	// unique.
-	const potIds = [...new Set(rawPotIds)];
+	// unique. A coin board has no pots (Game Config refuses them there).
+	const potIds = coinBoard ? [] : [...new Set(rawPotIds)];
 	const extraRows = Math.max(0, (maxRows ?? baseBoard.rows) - baseBoard.rows);
 	const raw = engineSkeletonLayout({
 		gameType: 'holdAndWin',
@@ -300,23 +331,40 @@ export function holdAndWinReferenceLayout(
 			space: 'background',
 			nodes: [],
 		}),
-		modeScene({
-			id: 'respinBoard',
-			name: 'Respin board',
-			// The cell tiles draw at the board's own seats, so the instance's spot is only where the
-			// editor shows its handle; with no tile image it draws nothing.
-			nodes: [
-				instance('respin-cell-tiles', 'Respin cell tiles', 'respinCells', place({ dx: 0, dy: 0 })),
-				// An expanding board's locked cells (draws nothing on a board that never grows). Its
-				// handle sits over the reserved rows below the base grid.
-				instance(
-					'locked-rows',
-					'Locked rows',
-					'lockedRow',
-					placeAround({ dx: 0, dy: (baseBoard.rows * cellSize) / 2 }),
-				),
-			],
-		}),
+		coinBoard
+			? // The coin board's base game IS this board, so its screen is up in the base game and the
+				// feature alike, and the Line Overlay marks the paying lines on it. A coin board never
+				// grows (Game Config refuses board expansion there), so it has no locked rows.
+				{
+					id: 'respinBoard',
+					name: 'Coin board',
+					nodes: [
+						instance('respin-cell-tiles', 'Cell tiles', 'respinCells', place({ dx: 0, dy: 0 })),
+						instance('line-overlay', 'Line Overlay', 'lineOverlay', place({ dx: 0, dy: 0 })),
+					],
+				}
+			: modeScene({
+					id: 'respinBoard',
+					name: 'Respin board',
+					// The cell tiles draw at the board's own seats, so the instance's spot is only where the
+					// editor shows its handle; with no tile image it draws nothing.
+					nodes: [
+						instance(
+							'respin-cell-tiles',
+							'Respin cell tiles',
+							'respinCells',
+							place({ dx: 0, dy: 0 }),
+						),
+						// An expanding board's locked cells (draws nothing on a board that never grows). Its
+						// handle sits over the reserved rows below the base grid.
+						instance(
+							'locked-rows',
+							'Locked rows',
+							'lockedRow',
+							placeAround({ dx: 0, dy: (baseBoard.rows * cellSize) / 2 }),
+						),
+					],
+				}),
 		modeScene({
 			id: 'respinCounter',
 			name: 'Respin counter',
@@ -440,9 +488,12 @@ export function holdAndWinReferenceLayout(
 	for (const scene of skeleton.scenes) {
 		if (FREE_SPIN_SCENES.has(scene.id)) continue;
 		if (scene.id === 'basegame') {
-			scenes.push({ ...scene, nodes: [...scene.nodes, messageHost] }, ...featureScenes);
+			const base = coinBoard ? coinBoardBase(scene) : scene;
+			scenes.push({ ...base, nodes: [...base.nodes, messageHost] }, ...featureScenes);
 		} else if (scene.id === 'basegameOverlays') {
 			scenes.push(scene, ...beatScenes);
+		} else if (coinBoard && scene.id === 'hudBar') {
+			scenes.push({ ...scene, nodes: [...scene.nodes, linesSelectorAnchor(scene)] });
 		} else {
 			scenes.push(scene);
 		}

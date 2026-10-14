@@ -96,20 +96,28 @@ export function builtinGameModes(): GameModeDecl[] {
  * Every mode this project has: the built-ins with the authored overrides applied field by field, then
  * the project's own modes in the order they were authored. Read modes through here, never through
  * `doc.modes`, so "absent means the built-in" lives in one place.
+ *
+ * A coin board (`./coinBoard`) puts the base game on the respin board, whatever board an override
+ * names: the block is the one statement of where the base game plays.
  */
-export function resolveGameModes(doc: Pick<GameConfigDoc, 'modes'> | undefined): GameModeDecl[] {
+export function resolveGameModes(
+	doc: Pick<GameConfigDoc, 'modes' | 'coinBoard'> | undefined,
+): GameModeDecl[] {
 	const resolved = builtinGameModes();
 	for (const authored of doc?.modes ?? []) {
 		const at = resolved.findIndex((mode) => mode.id === authored.id);
 		if (at >= 0) resolved[at] = { ...resolved[at], ...authored };
 		else resolved.push(authored);
 	}
-	return resolved;
+	if (!doc?.coinBoard) return resolved;
+	return resolved.map((mode) =>
+		mode.id === BASE_GAME_MODE ? { ...mode, board: 'respinBoard' as const } : mode,
+	);
 }
 
 /** The one mode named `id`, or `undefined` when the project has no such mode. */
 export function gameModeById(
-	doc: Pick<GameConfigDoc, 'modes'> | undefined,
+	doc: Pick<GameConfigDoc, 'modes' | 'coinBoard'> | undefined,
 	id: string,
 ): GameModeDecl | undefined {
 	return resolveGameModes(doc).find((mode) => mode.id === id);
@@ -226,14 +234,16 @@ export type GameModeIssue = { path: string; message: string; severity: 'error' |
 
 /**
  * What is wrong with the resolved modes. A `reels` mode must pad from a strip set the config deals;
- * the base game must stay on the reels, because every round starts and ends there; a spins mode's
- * game must fill its own grid and be able to pay.
+ * the base game must stay on the reels, because every round starts and ends there, unless a coin
+ * board puts it on the respin board, whose strips it then deals from; a spins mode's game must fill
+ * its own grid and be able to pay.
  */
 export function validateGameModes(doc: GameConfigDoc): GameModeIssue[] {
 	const issues: GameModeIssue[] = [];
 	for (const mode of resolveGameModes(doc)) {
 		const path = `modes.${mode.id}`;
-		if (mode.id === BASE_GAME_MODE && mode.board !== 'reels') {
+		const coinBoardBase = mode.id === BASE_GAME_MODE && Boolean(doc.coinBoard);
+		if (mode.id === BASE_GAME_MODE && mode.board !== 'reels' && !coinBoardBase) {
 			issues.push({
 				path: `${path}.board`,
 				severity: 'error',
@@ -243,11 +253,17 @@ export function validateGameModes(doc: GameConfigDoc): GameModeIssue[] {
 		const gameType = gameTypeForMode(mode);
 		const ownsStrips =
 			(doc.modes ?? []).some((m) => m.id === mode.id) || mode.id === BASE_GAME_MODE;
-		if (mode.board === 'reels' && ownsStrips && !doc.paddingReels[gameType]?.length) {
+		if (
+			(mode.board === 'reels' || coinBoardBase) &&
+			ownsStrips &&
+			!doc.paddingReels[gameType]?.length
+		) {
 			issues.push({
 				path: `${path}.gameType`,
 				severity: 'warning',
-				message: `No padding strips for game type "${gameType}"; the reels pad from nothing in this mode.`,
+				message: coinBoardBase
+					? `No padding strips for game type "${gameType}"; the coin board deals from nothing in the base game.`
+					: `No padding strips for game type "${gameType}"; the reels pad from nothing in this mode.`,
 			});
 		}
 		if (mode.spins)

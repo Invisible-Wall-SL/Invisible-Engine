@@ -2,6 +2,7 @@ import { cubicOut } from 'svelte/easing';
 import type { Tween } from 'svelte/motion';
 import {
 	cellWorth,
+	coinBoardTallyPlan,
 	countSteps,
 	respinCellKey,
 	staggerDelays,
@@ -10,7 +11,9 @@ import {
 	type HoldAndWinCell,
 	type HoldAndWinCoinChange,
 	type HoldAndWinEvent,
+	type HoldAndWinLineRun,
 	type Position,
+	type RawSymbol,
 	type SymbolState,
 } from 'engine-game';
 import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
@@ -22,6 +25,12 @@ import { scopeOf } from 'utils-event-emitter';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import { activeRespinRules, isPrimaryRespinMode } from './activeRespinMode.svelte';
+import {
+	coinBoardLineColor,
+	coinBoardLinePoints,
+	isCoinBoard,
+	stateCoinBoard,
+} from './coinBoard.svelte';
 import { coinLabelCountMs } from './coinLabel';
 import { eventEmitter } from './eventEmitter';
 import { FLIGHT_TARGET_TOTAL, flyTo } from './flights.svelte';
@@ -132,6 +141,11 @@ const ROW_UNLOCK_HOLD_MS = 900;
 const COUNTER_STEP_MS = 450;
 /** The final board stays up this long before the reel board comes back. */
 const END_HOLD_MS = 900;
+/** A coin board's `lineFill` run: its line holds at least this long, even when its coins flew with
+ *  an earlier run. */
+const RUN_LINE_MS = 700;
+/** A coin board's `perLine` ×N marks, held once every label has counted up. */
+const LINE_MULTIPLE_HOLD_MS = 500;
 /** The shortest a highlight (a win-highlight state on a held cell) is on screen — a sprite reports
  *  at once. */
 const HIGHLIGHT_MIN_MS = 400;
@@ -475,6 +489,27 @@ export const presentRespinReveal = async (event: Beat<'respinReveal'>) => {
 	if (stateRespinBoard.counter.note === 'award') stateRespinBoard.counter.note = null;
 	eventEmitter.broadcast({ type: 'respinBoardSpin', cells: event.cells });
 	await spinRespinCells(event.cells);
+};
+
+/**
+ * A COIN BOARD's base spin (`reveal`, `docs/design/hold-and-win-coin-board.md`): the board it plays
+ * on is the respin board, so the paying cells spin onto the dealt board like a respin and the locked
+ * ones stay blank. The reveal names the lines the server played this round (`paylineIds`), which the
+ * Line Overlay draws from now on. A feature whose end never arrived is cleared off the board first.
+ */
+export const presentCoinBoardReveal = async (event: {
+	board: RawSymbol[][];
+	paylineIds?: string[];
+}) => {
+	if (event.paylineIds) stateCoinBoard.playedIds = event.paylineIds;
+	if (stateRespinBoard.counter.show || stateRespinBoard.held.length > 0) hideRespinBoard();
+	showRespinBoard();
+	// The reveal's board is padded one row above and below the window, as every reveal is.
+	const cells = event.board.flatMap((reel, r) =>
+		reel.slice(1, -1).map((symbol, row) => ({ reel: r, row, symbol })),
+	);
+	eventEmitter.broadcast({ type: 'respinBoardSpin', cells });
+	await spinRespinCells(cells);
 };
 
 /** `coinsLand` — the cells that landed stick: they move into the held layer and play
@@ -1080,7 +1115,8 @@ export const presentRespinUpdate = async (event: Beat<'respinUpdate'>) => {
  * self-correction point — the held layer is re-synced, so a misread step lasts one respin at most.
  */
 export const presentHoldAndWinState = async (event: Beat<'holdAndWinState'>) => {
-	const opening = !stateRespinBoard.shown;
+	// A coin board is always up: its feature opens when its counter does.
+	const opening = !stateRespinBoard.shown || (isCoinBoard() && !stateRespinBoard.counter.show);
 	if (opening) featureCountedIntoBar = 0;
 	showRespinBoard();
 	syncLetters();
@@ -1118,7 +1154,8 @@ export const syncHoldAndWin = async () => {
 export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	if (!stateRespinBoard.shown) return;
 	await waitPresentation(END_HOLD_MS);
-	const order = [...event.payload.cells].sort((a, b) => a.reel - b.reel || a.row - b.row);
+	const plan = coinBoardTallyPlan(event.payload);
+	const order = plan.steps.flatMap((step) => step.cells);
 	// Swept columns already reached the bar during the feature; only the rest of `banked` is left.
 	const counted = Math.min(featureCountedIntoBar, event.payload.banked);
 	featureCountedIntoBar = 0;
@@ -1133,7 +1170,18 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 		stateBet.winBookEventAmount = shown;
 		eventEmitter.broadcast({ type: 'respinTallyStep', index, amount, total: shown });
 	};
-	await flyCoinsToTotal(order, (index) => step(index, order[index].amount, tally.arrive(index)));
+	stateRespinBoard.dimmed = plan.dimmed.map(({ reel, row }) => respinCellKey(reel, row));
+	await showLineMultiples(plan.marks);
+	let flown = 0;
+	for (const { run, cells } of plan.steps) {
+		const first = flown;
+		flown += cells.length;
+		const flights = flyCoinsToTotal(cells, (index) =>
+			step(first + index, order[first + index].amount, tally.arrive(first + index)),
+		);
+		if (!run) await flights;
+		else await presentLineRun(run, flights);
+	}
 	if (stateBet.winBookEventAmount !== tally.final) {
 		// The bar is still counting to the last coin's value: let it land, THEN hold the beat, or the
 		// banked part joins mid-count and the beat is never seen.
@@ -1158,9 +1206,64 @@ export const presentHoldAndWinEnd = async (event: Beat<'holdAndWinEnd'>) => {
 	// is a bonus, and the base board returns with the host's symbols as the trigger spin left them
 	// (design §3.4): its final board is mostly `blank`, which a host has no art for, so the reels
 	// would read as empty. Only the primary respin mode's coins land on the base reels (bonus-games
-	// Phase 2), so another respin mode is a bonus there too.
-	if (!holdAndWinIsOverlayBonus(getActiveGameConfig()) && isPrimaryRespinMode()) {
+	// Phase 2), so another respin mode is a bonus there too. A coin board has no reels to rest.
+	if (!holdAndWinIsOverlayBonus(getActiveGameConfig()) && isPrimaryRespinMode() && !isCoinBoard()) {
 		settleReelsOnHeldCells();
 	}
 	hideRespinBoard();
+};
+
+/**
+ * A coin board's `perLine` tally: every held coin shows the lines it pays on — a "×N" mark, and a
+ * cash coin's label counting up to its value × N (staggered) — before the coins fly. The counts
+ * stay on the labels until the board clears.
+ */
+const showLineMultiples = async (marks: (Position & { times: number })[]) => {
+	if (marks.length === 0) return;
+	stateRespinBoard.marks = Object.fromEntries(
+		marks.map(({ reel, row, times }) => [respinCellKey(reel, row), `×${times}`]),
+	);
+	const counts = marks.flatMap(({ reel, row, times }) => {
+		const symbol = stateRespinBoard.held.find(
+			(cell) => cell.reel === reel && cell.row === row,
+		)?.symbol;
+		if (times <= 1 || symbol?.value === undefined || symbol.jackpot !== undefined) return [];
+		const key = respinCellKey(reel, row);
+		const to = Math.round(symbol.value * times * 1e6) / 1e6;
+		return [{ tween: holdHeldDisplay(key, 'value', symbol.value), to }];
+	});
+	const delays = staggerDelays(counts.length, COUNT_STAGGER_MS, COUNT_SPAN_MS);
+	await Promise.all(
+		counts.map(async ({ tween, to }, i) => {
+			await roundSkip.wait(delays[i]);
+			await countTo(tween, to, coinLabelCountMs(COUNT_MS));
+		}),
+	);
+	await waitPresentation(LINE_MULTIPLE_HOLD_MS);
+};
+
+/**
+ * A coin board's `lineFill` run: its line lights in its payline colour, stamped with what the run
+ * pays, while its coins fly into the Total Win bar (`flights`) — held at least {@link RUN_LINE_MS},
+ * so a run whose coins all flew with an earlier one is still seen.
+ */
+const presentLineRun = async (run: HoldAndWinLineRun, flights: Promise<void>) => {
+	const amount = bookEventAmountToCurrencyString(run.total);
+	await Promise.all([
+		roundSkip.race(
+			eventEmitter.broadcastAsync({
+				type: 'winLineShow',
+				points: coinBoardLinePoints(run.id),
+				shape: 'path',
+				color: coinBoardLineColor(run.id),
+				amount,
+				message: '',
+				amountValue: run.total,
+				amountAt: bookEventAmountToCurrencyString,
+			}),
+		),
+		flights,
+		waitPresentation(RUN_LINE_MS),
+	]);
+	eventEmitter.broadcast({ type: 'winLineHide' });
 };

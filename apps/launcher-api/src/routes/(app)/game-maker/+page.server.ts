@@ -1,6 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { DEFAULT_GAME_KIND } from 'constants-shared/gameKinds';
 import {
+	HOLD_AND_WIN_TEMPLATE_BASES,
 	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
@@ -23,6 +24,7 @@ import {
 	gameConfigDefaultFor,
 	gameConfigPresetsFor,
 	gameConfigSeedFor,
+	holdAndWinCoinBoardSeed,
 	holdAndWinTemplateSeed,
 	isLinesPresetId,
 	LINES_PRESET_IDS,
@@ -97,6 +99,7 @@ function createOverlayPresets(kinds: string[]): Record<string, PotsOverlayPreset
 	for (const jackpots of HOLD_AND_WIN_TEMPLATE_JACKPOTS) {
 		out[`holdAndWin:${jackpots}`] = cleanOverlayPresets(holdAndWinTemplateSeed(jackpots));
 	}
+	out['holdAndWin:coinBoard'] = cleanOverlayPresets(holdAndWinCoinBoardSeed());
 	for (const preset of LINES_PRESET_IDS) {
 		out[`lines:${preset}`] = cleanOverlayPresets(gameConfigSeedFor('lines', preset));
 	}
@@ -290,6 +293,7 @@ export const actions: Actions = {
 		const clientKey = rawClient === '' ? null : rawClient;
 		const rawGameType = String(data.get('gameType') ?? '').trim();
 		const rawJackpots = String(data.get('holdAndWinJackpots') ?? '').trim();
+		const rawBase = String(data.get('holdAndWinBase') ?? '').trim();
 		const rawLinesPreset = String(data.get('linesPreset') ?? '').trim();
 		const rawOverlay = String(data.get('potsOverlayPreset') ?? '').trim();
 
@@ -322,6 +326,18 @@ export const actions: Actions = {
 		if (rawGameType === 'holdAndWin' && rawJackpots !== '' && !holdAndWinJackpots) {
 			return fail(400, { action: 'create', error: 'Jackpots must be on or off.' });
 		}
+		// The base game (hold-and-win-coin-board): a lines game unless asked for the coin board only,
+		// whose template has its jackpots on.
+		const holdAndWinBase = HOLD_AND_WIN_TEMPLATE_BASES.find((b) => b === rawBase);
+		if (rawGameType === 'holdAndWin' && rawBase !== '' && !holdAndWinBase) {
+			return fail(400, {
+				action: 'create',
+				error: 'Base game must be a lines game or the coin board.',
+			});
+		}
+		if (holdAndWinBase === 'coinBoard' && holdAndWinJackpots === 'off') {
+			return fail(400, { action: 'create', error: 'The coin board template has its jackpots on.' });
+		}
 		const potsOverlayPreset = POTS_OVERLAY_PRESET_IDS.find((id) => id === rawOverlay);
 		if (rawOverlay !== '' && !potsOverlayPreset) {
 			return fail(400, { action: 'create', error: 'Unknown pots overlay preset.' });
@@ -353,6 +369,7 @@ export const actions: Actions = {
 		}
 		await scaffoldProject(clientKey ?? UNASSIGNED_CLIENT, key, {
 			holdAndWinJackpots: rawGameType === 'holdAndWin' ? (holdAndWinJackpots ?? 'on') : undefined,
+			holdAndWinBase: rawGameType === 'holdAndWin' ? holdAndWinBase : undefined,
 			linesPreset,
 		});
 		// The add-on runs on the scaffolded project exactly as the card's "＋ Pots overlay" does, so a

@@ -17,7 +17,10 @@ import {
 export type ProjectAddOns = { holdAndWin: boolean; potsOverlay: boolean; expandingSymbol: boolean };
 
 type AddOnDoc =
-	| Pick<GameConfigDoc, 'coinOverlay' | 'modes' | 'freeSpins' | 'symbols' | 'paddingReels'>
+	| Pick<
+			GameConfigDoc,
+			'coinOverlay' | 'modes' | 'freeSpins' | 'symbols' | 'paddingReels' | 'coinBoard'
+	  >
 	| null
 	| undefined;
 
@@ -90,7 +93,8 @@ export function respinMaxRows(modes: readonly RespinModeInfo[]): number | undefi
  * names every respin mode with its own `maxRows`, so each gets its own screens; `spinsModes` names
  * every spins mode, so each gets its own free-spin screens. Without an add-on or a spins mode the
  * result is what the scaffold has always passed (`maxRows` alone, read by the Hold and Win kind
- * only), so its layout is unchanged.
+ * only), so its layout is unchanged. A Hold and Win coin board (`coinBoard`) gets the coin-board
+ * template's screens.
  */
 export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOptions {
 	const { addOns, potIds } = projectAddOns(doc);
@@ -102,6 +106,7 @@ export function sceneSetOptionsFor(gameType: string, doc: AddOnDoc): SceneSetOpt
 	return {
 		...(maxRows ? { maxRows } : {}),
 		...(noJackpotTiers(modes) ? { jackpotBar: false as const } : {}),
+		...(gameType === 'holdAndWin' && doc?.coinBoard ? { coinBoard: true as const } : {}),
 		...(modes.length
 			? {
 					respinModes: modes.map(({ id, label, maxRows }) => ({

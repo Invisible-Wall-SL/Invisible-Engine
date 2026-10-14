@@ -1,5 +1,6 @@
 import {
 	DEFAULT_HOLD_AND_WIN_PRESET,
+	HOLD_AND_WIN_COIN_BOARD_KEY,
 	HOLD_AND_WIN_PRESET_IDS,
 	HOLD_AND_WIN_PRESET_LABELS,
 	HOLD_AND_WIN_TEMPLATE_JACKPOTS,
@@ -13,6 +14,7 @@ import {
 } from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
 import holdAndWinClassic from '$lib/data/gameConfig/holdAndWin.classic.json';
+import holdAndWinCoinBoard from '$lib/data/gameConfig/holdAndWin.coinBoard.json';
 import holdAndWinCollector from '$lib/data/gameConfig/holdAndWin.collector.json';
 import holdAndWinPlain from '$lib/data/gameConfig/holdAndWin.plain.json';
 import holdAndWinPlainNoJackpots from '$lib/data/gameConfig/holdAndWin.plainNoJackpots.json';
@@ -71,6 +73,7 @@ const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
 		[holdAndWinPresetKey('collector')]: holdAndWinCollector,
 		[holdAndWinTemplateKey('on')]: holdAndWinPlain,
 		[holdAndWinTemplateKey('off')]: holdAndWinPlainNoJackpots,
+		[HOLD_AND_WIN_COIN_BOARD_KEY]: holdAndWinCoinBoard,
 		[LINES_PRESET_KEY.bookOfThermopylae]: linesBookOfThermopylae,
 	}).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
@@ -92,8 +95,9 @@ const HOLD_AND_WIN_TEMPLATE_LABELS: Record<HoldAndWinTemplateJackpots, string> =
 
 /**
  * The presets a kind offers in `/config`'s "Reset to preset" — empty for a kind with none.
- * `holdAndWin`: the plain template with jackpots on / off (bonus-games §0), then Pots / Classic
- * sticky / Collector streak (`docs/design/hold-and-win.md` §6).
+ * `holdAndWin`: the plain template with jackpots on / off (bonus-games §0), the coin board template
+ * (`docs/design/hold-and-win-coin-board.md`), then Pots / Classic sticky / Collector streak
+ * (`docs/design/hold-and-win.md` §6).
  * `lines`: the Book of Thermopylae (the Book-of mechanic as a lines config).
  */
 export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPreset[] {
@@ -116,8 +120,18 @@ export function gameConfigPresetsFor(gameType: string | undefined): GameConfigPr
 				]
 			: [];
 	});
+	const coinBoard = holdAndWinCoinBoardSeed();
 	return [
 		...plain,
+		...(coinBoard
+			? [
+					{
+						id: HOLD_AND_WIN_COIN_BOARD_KEY,
+						label: 'Coin board only (no line game)',
+						doc: coinBoard,
+					},
+				]
+			: []),
 		...HOLD_AND_WIN_PRESET_IDS.flatMap((id) => {
 			const doc = DEFAULTS_BY_GAME_TYPE[holdAndWinPresetKey(id)];
 			return doc ? [{ id, label: HOLD_AND_WIN_PRESET_LABELS[id], doc }] : [];
@@ -179,6 +193,11 @@ export function gameConfigSeedFor(
 export const holdAndWinTemplateSeed = (
 	jackpots: HoldAndWinTemplateJackpots,
 ): GameConfigDoc | null => DEFAULTS_BY_GAME_TYPE[holdAndWinTemplateKey(jackpots)] ?? null;
+
+/** The config Game Maker's "Hold and Win" template creates with **Base game: Coin board only**
+ * (`docs/design/hold-and-win-coin-board.md`): no line game, the coin board on every spin. */
+export const holdAndWinCoinBoardSeed = (): GameConfigDoc | null =>
+	DEFAULTS_BY_GAME_TYPE[HOLD_AND_WIN_COIN_BOARD_KEY] ?? null;
 
 export type GameConfigSource = 'authored' | 'template';
 

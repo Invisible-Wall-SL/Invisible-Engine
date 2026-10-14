@@ -473,7 +473,8 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 	const stripOwner = new Map<string, string>();
 
 	for (const mode of resolveGameModes(doc)) {
-		if (mode.board !== 'respinBoard') continue;
+		// A coin board's base game plays on the respin board, but it is the base game, not a bonus.
+		if (mode.board !== 'respinBoard' || mode.id === BASE_GAME_MODE) continue;
 		const path = `modes.${mode.id}`;
 		const strip = gameTypeForMode(mode);
 		const sharer = stripOwner.get(strip);
@@ -582,7 +583,10 @@ export function validateBonusModes(doc: GameConfigDoc): GameConfigIssue[] {
 			isPot || route.path === 'trigger.count.mode'
 				? [BASE_GAME_MODE, ...dropping]
 				: [BASE_GAME_MODE];
-		const host = from.find((m) => gameModeById(doc, m)?.board === 'respinBoard');
+		// A coin board's respins play on the base game's own board, so the base game hosts none.
+		const host = from.find(
+			(m) => m !== BASE_GAME_MODE && gameModeById(doc, m)?.board === 'respinBoard',
+		);
 		if (target?.board === 'respinBoard' && host) {
 			issues.push({
 				severity: 'error',

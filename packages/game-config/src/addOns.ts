@@ -170,6 +170,9 @@ export function addPotsOverlay(
 	id: PotsOverlayPresetId,
 	pots?: number,
 ): AddOnResult {
+	if (doc.coinBoard) {
+		return { ok: false, reason: 'Pots and dropped tokens are not built for a coin board.' };
+	}
 	const result = mergePotsOverlay(doc, id, pots);
 	if (!result.ok) return result;
 	if (pots === undefined || pots === result.doc.coinOverlay?.pots?.length) {

@@ -530,6 +530,48 @@ export const HOLD_AND_WIN_TEMPLATES: Record<HoldAndWinTemplateJackpots, RawGameC
 	off: plainConfig(false),
 };
 
+/** Game Maker's Base game choice for the template: a lines base game, or the coin board only. */
+export const HOLD_AND_WIN_TEMPLATE_BASES = ['lines', 'coinBoard'] as const;
+
+export type HoldAndWinTemplateBase = (typeof HOLD_AND_WIN_TEMPLATE_BASES)[number];
+
+/**
+ * Game Maker's "Hold and Win" template with **Base game: Coin board only**
+ * (`docs/design/hold-and-win-coin-board.md`): no line game. Every spin deals coins and blanks on the
+ * 5×3 board, all five lines pay, 6+ coins on them start the plain template's respins (Jackpots on),
+ * and every held coin pays once. The paytable carries only the coin, jackpot and blank roles.
+ */
+export const HOLD_AND_WIN_COIN_BOARD_KEY = 'holdAndWin.coinBoard';
+
+const COIN_BOARD_STRIP = ['BLANK', 'BONUS', 'BLANK', 'BLANK', 'JACKPOT', 'BLANK', 'BONUS'];
+
+export const HOLD_AND_WIN_COIN_BOARD_TEMPLATE: RawGameConfig = {
+	providerName: 'invisible_wall',
+	gameName: 'hold_and_win',
+	gameID: 'hold_and_win_coin_board',
+	rtp: 0.96,
+	numReels: 5,
+	numRows: [3, 3, 3, 3, 3],
+	betModes: { base: BASE_MODE },
+	paylines: FIVE_LINES_5X3,
+	symbols: {
+		BONUS: tag('coin'),
+		JACKPOT: tag('jackpot'),
+		BLANK: tag('blank'),
+	},
+	paddingReels: {
+		basegame: Array.from({ length: 5 }, () => strip(COIN_BOARD_STRIP)),
+		respin: Array.from({ length: 5 }, () => strip(COIN_BOARD_STRIP)),
+	},
+	winLevels: winLevels([15, 30, 50, 80]),
+	holdAndWin: plainHoldAndWin(true),
+	coinBoard: {
+		lines: { selection: 'fixed', active: Object.keys(FIVE_LINES_5X3) },
+		payRule: 'coinsOnLines',
+		triggerMin: { '5': 6 },
+	},
+};
+
 /** The raw preset configs — read by the defaults generator and the offline fixture only. */
 export const HOLD_AND_WIN_PRESETS: Record<HoldAndWinPresetId, RawGameConfig> = {
 	pots: POTS,

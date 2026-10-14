@@ -79,6 +79,7 @@ import { engineToPlay4Fun, play4FunAmountMultiplier, play4FunToEngine } from './
 import {
 	applyPools,
 	boardCells,
+	coinBoardLineCount,
 	holdAndWinState,
 	meterLevelsEvent,
 	meterUpdateEvent,
@@ -86,12 +87,14 @@ import {
 	modeExitEvent,
 	parseHoldAndWinCell,
 	readBootJackpotLevels,
+	readCoinBoard,
 	readBootMeterLevels,
 	isName,
 	readHoldAndWinModes,
 	respinModesOf,
 	readJackpotLevels,
 	translateHoldAndWinEvent,
+	type CoinBoardConfig,
 	type HoldAndWinJackpotLevel,
 	type HoldAndWinMeterLevel,
 	type HoldAndWinModes,
@@ -133,6 +136,10 @@ const capturedBetOptions = new Map<string, ServerBetOptions>();
  *  `holdAndWin` block as mode `holdAndWin`) — present only for a server that deals respins, and the
  *  gate for the whole Hold and Win translation (`holdAndWin.ts`). */
 const capturedHoldAndWin = new Map<string, HoldAndWinModes>();
+
+/** Per-session coin board from the boot config (`config.holdAndWin.coinBoard`) — the gate for a
+ *  base game dealt on the respin board and a bet that buys its line count. */
+const capturedCoinBoard = new Map<string, CoinBoardConfig>();
 
 /**
  * Per-session pots-overlay block from the boot config (design `pots-overlay.md` §3.3) — the gate for
@@ -253,6 +260,24 @@ const publishHoldAndWinJackpots = (levels: HoldAndWinJackpotLevel[]): void => {
 	globalThis.dispatchEvent?.(new CustomEvent('ie:holdAndWinJackpots', { detail: levels }));
 };
 
+/**
+ * Publish the coin board to the GAME (`apps/lines` `coinBoard.svelte.ts`), which reads it when its
+ * own Game Config carries none — the same decoupled-global bridge as the meters. The bet's line count
+ * comes back the other way, from the one global the game writes (`__IE_COIN_BOARD_LINE_COUNT__`).
+ *
+ * `__IE_COIN_BOARD_PICKS_LINES__` says whether that count reaches the wire: only a `player` board on
+ * the legacy lines encoding sends it. A bet-option table puts an option index in `bet[0]`, so its
+ * rounds play the default count and the game must not offer a lines selector.
+ */
+const publishCoinBoard = (board: CoinBoardConfig, picksLines: boolean): void => {
+	const globals = globalThis as {
+		__IE_COIN_BOARD__?: CoinBoardConfig;
+		__IE_COIN_BOARD_PICKS_LINES__?: boolean;
+	};
+	globals.__IE_COIN_BOARD__ = board;
+	globals.__IE_COIN_BOARD_PICKS_LINES__ = picksLines;
+};
+
 /** A heartbeat's progressive pools: moved into the captured tiers and handed to the game. */
 const refreshHoldAndWinJackpots = (sid: string, response: unknown): void => {
 	const respin = capturedHoldAndWin.get(sid);
@@ -284,6 +309,8 @@ const captureConfig = (
 		capturedHoldAndWin.set(sid, holdAndWin);
 		if (!overlay) publishHoldAndWinMeters(readBootMeterLevels(cfg));
 		publishHoldAndWinJackpots(readBootJackpotLevels(cfg));
+		const coinBoard = readCoinBoard(cfg);
+		if (coinBoard) capturedCoinBoard.set(sid, coinBoard);
 	}
 	// An overlay host's pots seed at boot like Hold and Win meters, whatever its kind — in
 	// `resolveMeters` order, the Hold and Win block's own meters first.
@@ -301,6 +328,8 @@ const captureConfig = (
 		capturedBetOptions.set(sid, options);
 		publishServerBetOptions(options);
 	}
+	const coinBoard = capturedCoinBoard.get(sid);
+	if (coinBoard) publishCoinBoard(coinBoard, coinBoard.lines.selection === 'player' && !options);
 	return cfg;
 };
 
@@ -411,8 +440,18 @@ const declaredPayLines = (sid: string): number[][] | null => {
  *
  * Falls back to 5 only when no config has been captured (a server that sends none) — the legacy
  * behaviour, kept so an unknown server degrades rather than divides by a guess.
+ *
+ * A COIN BOARD declares every line but plays only its active ones, and charges the line count it
+ * plays × `betPerLine`: the count the game picked (`__IE_COIN_BOARD_LINE_COUNT__`, Phase 13d's lines
+ * selector) when the board lets the player pick it, else its default or fixed count.
  */
 const betLineCount = (sid: string): number => {
+	const coinBoard = capturedCoinBoard.get(sid);
+	if (coinBoard) {
+		const requested = (globalThis as { __IE_COIN_BOARD_LINE_COUNT__?: unknown })
+			.__IE_COIN_BOARD_LINE_COUNT__;
+		return coinBoardLineCount(coinBoard, requested);
+	}
 	const lines = declaredPayLines(sid);
 	if (!lines) return 5;
 	return Math.max(1, lines.length);
@@ -809,6 +848,10 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 	};
 	// The respin mode playing on the respin board, or null on the reels.
 	let inHoldAndWin: HoldAndWinTranslation | null = null;
+	// A coin board's base game deals on the respin board too, on the lines the round's `bet` echo
+	// names — carried on its reveal, so the game draws the lines the server played.
+	const coinBoard = capturedCoinBoard.has(sid);
+	let roundPaylineIds: string[] | undefined;
 
 	// A POTS-OVERLAY host (design `pots-overlay.md` §3.3) can hold two bonuses — its own free spins
 	// and a pot's Hold and Win — so each bonus is routed by the key its `spinTrigger` names, not by
@@ -1033,9 +1076,12 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			case 'spinStart':
 			case 'bonusWin': // wrapper around the following spinWin — pay comes from spinWin
 				break;
-			case 'bet':
+			case 'bet': {
 				betBaseCents = baseStakeCents(e.context as BetEventContext);
+				const ids = (e.context as { paylineIds?: unknown } | undefined)?.paylineIds;
+				if (coinBoard && Array.isArray(ids)) roundPaylineIds = ids.map(String);
 				break;
+			}
 			case 'spinWin': {
 				const c = e.context as { what: string; occurs: number; mode?: string; pay: number };
 				pendingWins.push(c);
@@ -1099,6 +1145,9 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 					),
 					paddingPositions: reels.map(() => 0),
 					gameType,
+					...(coinBoard && !inFreeSpins() && roundPaylineIds
+						? { paylineIds: roundPaylineIds }
+						: {}),
 				});
 				// The tokens dropped on this board appear with it, before anything it pays (§3.2).
 				pushDropOf(i);

@@ -114,6 +114,7 @@ export function importableFeatures(
 	};
 	const baseRefused =
 		spinsSourceRefusal(sourceKind) ??
+		(source.coinBoard ? 'Its base game is a coin board, not a game of spins.' : undefined) ??
 		(source.paddingReels.basegame?.length
 			? undefined
 			: 'Its base game has no strips to deal from.');
