@@ -62,6 +62,13 @@ binds `0.0.0.0:$PORT` (default **8766**).
    project (see [How to access it](#how-to-access-it)).
 2. **Upload** your loose sprite PNGs (`/api/upload`).
 3. **Arrange** them into a packed sheet (`/api/arrange`).
+   - **Canvas size → Border X / Y** keeps every region that many pixels away from
+     the left/right and top/bottom edges. The safe area shows as a dashed outline
+     on the canvas. Auto-arrange packs inside it, and dragging, resizing or typing
+     X/Y/W/H stops at it. A region that is already over the border gets an orange
+     dashed outline but is not moved: run Auto-arrange to re-pack the unlocked
+     ones inside. The border is saved with the editor session, like Padding, and
+     scales with **Downscale sheet**. 0 / 0 means no border.
 4. **Edit** region names, sizes, and the per-region AI fields in the UI.
    - Each region has a resizable **Region** box (the packed/exported cell — what
      the `.atlas`/JSON/manifest frame uses) shown in the **Selected sprite**
