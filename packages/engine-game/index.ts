@@ -207,6 +207,11 @@ export {
 } from './src/components/Transition.svelte';
 export { default as TransitionAnimation } from './src/components/TransitionAnimation.svelte';
 export {
+	isCodedOverlayRetired,
+	retireCodedOverlay,
+	type CodedOverlay,
+} from './src/game/codedOverlays';
+export {
 	default as WinAnimation,
 	type WinAnimationStep,
 } from './src/components/WinAnimation.svelte';

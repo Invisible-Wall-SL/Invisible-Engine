@@ -6,6 +6,7 @@
 	import { waitForResolve } from 'utils-shared/wait';
 
 	import TransitionAnimation from './TransitionAnimation.svelte';
+	import { isCodedOverlayRetired } from '../game/codedOverlays';
 	import { getGameContext } from '../game/context';
 
 	// `boundToInstance` = mounted as the bound child of the `transition` componentInstance
@@ -16,15 +17,22 @@
 
 	const context = getGameContext();
 
+	// Retired for this boot (the project renders the AUTHORED Transition — Rive plan Phase 8a): no
+	// subscription, so the awaited `transition` is held by the authored instance alone and this part
+	// draws nothing. Read once at mount: the game retires the part before the doc's instances mount.
+	const retired = isCodedOverlayRetired('transition');
+
 	let transitioning = $state(false);
 	let oncomplete = $state(() => {});
 
-	context.eventEmitter.subscribeOnMount({
-		transition: async () => {
-			transitioning = true;
-			await waitForResolve((resolve) => (oncomplete = resolve));
-		},
-	});
+	if (!retired) {
+		context.eventEmitter.subscribeOnMount({
+			transition: async () => {
+				transitioning = true;
+				await waitForResolve((resolve) => (oncomplete = resolve));
+			},
+		});
+	}
 </script>
 
 {#if transitioning}

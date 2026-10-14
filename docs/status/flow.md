@@ -55,6 +55,14 @@
 
 ## Recent changes
 
+- 2026-10-14 — **An awaited `fireCue` waits for the component timelines that hold it** (Rive plan
+  Phase 8a, branch `claude/rive-p8a-transition-overlay`). `flowV2Runtime`'s awaited `broadcast(cue)`
+  appends `cueHolds(cue)` to the `Promise.all` it already awaits — only when there are any — and
+  `containerAnimationMs` measures a holding instance through `instanceHoldMs`; `trace` logs
+  `⏳ held by N`; the determinism probe's `state()` lists every fired cue with its frame (`cues`).
+  Nothing else in Flow changes: the vocabulary's `transition` cue, the choreography and every shipped
+  FlowDoc are as they were. The whole story: [engine status](engine.md), 2026-10-14.
+
 - 2026-10-13 — **Flow instance nodes in the editors (Rive plan Phase 7b, branch
   `claude/rive-p7b-flow-instance-nodes-editor`, off 7a).** `/flow-v2`: a **Components** palette
   section (named placements per screen; a component node and a wait node each), the node's

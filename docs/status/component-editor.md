@@ -57,6 +57,14 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-14 — **The first authored overlay: `transitionWipe` (Rive plan Phase 8a, branch
+  `claude/rive-p8a-transition-overlay`).** A new `internal` built-in def beside the hybrid
+  `transition` twin (unchanged): one rig node `wipe`, no text, no params, no palette entry during the
+  pilot; its timeline is the engine's first built-in timeline. Animate → **Plays on** gains a
+  **Holds the cue** tick (`CinematicDoc.holdsCue`, saved through the existing cinematic save, cleared
+  with Plays on). Phase 8 continues with Win (8b), the free-spin intro/outro (8c) and the buttons'
+  `stateAnimations` → a seeded state machine (8d), per the plan's §13 inventory. The flag, the
+  runtime and the gates: [engine status](engine.md), 2026-10-14.
 - 2026-10-13 — **Flow instance nodes (Rive plan Phase 7a, branch
   `claude/rive-p7a-flow-instance-nodes-runtime`)** — the component side: input kind **`text`**
   (`COMPONENT_INPUT_KINDS`; a default is a localization key; the state machine never conditions on

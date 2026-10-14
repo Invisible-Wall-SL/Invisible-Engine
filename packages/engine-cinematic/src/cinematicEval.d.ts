@@ -122,7 +122,8 @@ export function sampleText(
 	t: number,
 ): CinematicNodeSample['text'] | undefined;
 
-/** Every keyed channel of one node actor at `t` (relative to the node's authored pose). */
+/** Every keyed channel of one node actor at `t` (relative to the node's authored pose), and the
+ *  clip an `animation` strip holds a rig node at (`animTime`, clip-local seconds). */
 export function sampleNodeActor(
 	tracks: CinematicTrack[] | undefined,
 	t: number,

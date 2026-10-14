@@ -41,6 +41,7 @@ const bundled = await esbuild.build({
 			isLiveBinding,
 			resolveBindingInputs,
 			smoothedValue,
+			withTimelineScrub,
 		} from '../src/lib/valueBindings.ts';
 		export { applyRigBoneOffset, isIdentityBoneOffset } from '../../pixi-svelte/src/lib/rigBoneOffset.ts';`,
 		resolveDir: HERE,
@@ -344,6 +345,24 @@ assert(
 	mod.bindingTargetsForKind('flipbook').includes('frame'),
 	'a flipbook offers the frame target',
 );
+
+// (e) a timeline's animation strip (Rive plan Phase 8a) rides AFTER the node's own scrubs, in
+//     seconds; with no strip the node's own scrubs come back untouched — the same array — so a rig
+//     no timeline drives (every Hold and Win 12b scrub today) poses byte-identically.
+{
+	const own = mod.boundScrubs([{ target: 'animTime', animation: 'fill' }], [0.25]);
+	assert(
+		mod.withTimelineScrub(own, undefined) === own,
+		"no timeline strip ⇒ the node's own scrubs, the same array",
+	);
+	const merged = mod.withTimelineScrub(own, { animation: 'wipe', time: 0.8 });
+	assert(merged.length === 2 && merged[0] === own[0], 'the strip rides after the own scrubs');
+	assert(
+		merged[1].animation === 'wipe' && merged[1].time === 0.8 && merged[1].unit === 'seconds',
+		'the strip is a seconds scrub of its clip',
+	);
+	assert(own.length === 1 && own[0].unit === undefined, 'the own scrubs are not mutated');
+}
 
 if (failures) {
 	console.error(`\n${failures} value-binding assertion(s) FAILED`);

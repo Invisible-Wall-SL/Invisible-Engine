@@ -104,6 +104,7 @@
 	import { getFlowComplete } from './registerFlowComplete';
 	import { getTapPortal } from './tapPortalContext';
 	import { ComponentTimelinePlayer, instanceTimelineDocs } from './componentTimelines';
+	import { InstanceCueHolds } from './cueHolds';
 	import { ComponentStateMachineRunner } from './stateMachine';
 	import { componentInputs, componentTriggers } from './componentInterface';
 	import { setCinematicNodeDriver } from './cinematicNodeContext';
@@ -617,8 +618,14 @@
 	// (a new `$state({})`), so a re-entered free-spin screen re-hides + re-arms. Provided to the
 	// rendered sub-tree via context (the `$state` proxy, so descendant reads stay reactive).
 	let firedSignals = $state<Record<string, number>>({});
+	/** Register the cue holds a fired signal opens (`holdsCue`, Rive plan Phase 8a) — bound once
+	 *  the timeline player below exists; a no-op before, and for an instance without one. */
+	let registerCueHolds: (signal: string) => void = () => {};
 	const fireComponentSignal = (signal: string | undefined): void => {
 		if (!signal) return;
+		// Synchronous, inside the bus callback: an awaited `fireCue` reads the holds right after it
+		// emitted the signal, before the `$effect` that starts the timeline has run.
+		registerCueHolds(signal);
 		firedSignals[signal] = (firedSignals[signal] ?? 0) + 1;
 	};
 	setComponentFiredSignals({ counts: firedSignals, fire: fireComponentSignal });
@@ -787,6 +794,23 @@
 		console.warn(
 			`[engine-layout] component "${def?.id}": its state machine plays timelines the game has not registered (${stateMachineRunner.missingTimelines.join(', ')}); those states hold.`,
 		);
+	}
+	// CUE HOLDS (Rive plan Phase 8a): a timeline with `holdsCue` holds the awaited cue that started
+	// it until it ends — the way the coded Transition held its broadcast until its rig completed. The
+	// hold is registered the moment the signal is heard (above) and released when `advance` reports
+	// the timeline's end, or when this instance is destroyed (a hold must never outlive what plays
+	// it). A timeline nothing holds registers nothing, so an awaited cue no instance holds awaits
+	// exactly what it did before (parity).
+	const cueHoldsOf = timelinePlayer
+		? new InstanceCueHolds((signal) => timelinePlayer.holdsOn(signal))
+		: undefined;
+	if (cueHoldsOf) {
+		// An instance that is not on screen holds nothing: its wipe would play unseen, and the round
+		// must not wait for it (the rule a `playOn` timeline on a hidden screen already follows).
+		registerCueHolds = (signal) => {
+			if (untrack(() => selfVisible)) cueHoldsOf.open(signal);
+		};
+		onDestroy(() => cueHoldsOf.releaseAll());
 	}
 	/** The signals the state machine's trigger inputs are fired as. */
 	const stateMachineTriggers = stateMachineRunner && def ? componentTriggers(def) : [];
@@ -972,6 +996,7 @@
 			const step = timelinePlayer.advance(dt);
 			timelineClock += 1;
 			for (const { cue, timeline } of step.cues) routeTimelineCue(cue, timeline);
+			cueHoldsOf?.release(step.completed);
 		}
 		if (!stateMachineRunner) return;
 		if (!stateMachineStarted) {

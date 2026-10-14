@@ -992,7 +992,7 @@ owner only; agents never change repository settings.
 | Block force pushes | **on** |
 | Require a pull request before merging | **on** — required approvals **0**, no code-owner review, allowed methods merge/squash/rebase (the repo itself only enables squash) |
 | Require status checks to pass | **on** — "Require branches to be up to date" **off**; source **GitHub Actions** for each check |
-| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` |
+| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` — `transition parity` (`.github/workflows/transition-parity.yml`, the authored-vs-coded Transition frames, Rive plan Phase 8a; lands in a follow-up PR after #1192) will run on every PR but be **advisory**: adding it here is the owner's call |
 
 Approvals stay at 0 because the owner and agents open and merge their own PRs; the checks are the
 gate. "Up to date" stays off because it would re-run ~15 CPU-minutes of `check-all` on every PR each

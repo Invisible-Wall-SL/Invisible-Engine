@@ -1300,6 +1300,17 @@ export interface GameSettings {
 	 * See `constants-shared/bootSplash`.
 	 */
 	bootLoader?: BootSplashRef;
+	/**
+	 * The coded overlays this project renders from their AUTHORED component instead of the coded
+	 * mount (Rive plan Phase 8, `docs/design/rive-style-editor.md` §13). Sparse: a row is written
+	 * only when it is on, so every doc authored before it, and every doc that never turned one on,
+	 * is byte-identical to the coded path. `transition` swaps the `bind: Transition` wipe for the
+	 * built-in `transitionWipe` component (8a). Off for every live game until the owner's browser
+	 * check; the Game Settings row says so.
+	 */
+	authoredOverlays?: {
+		transition?: boolean;
+	};
 }
 
 export interface LayoutDoc {
@@ -1462,6 +1473,13 @@ export interface ComponentDef {
 	 * it still renders it, whatever its kind. Absent ⇒ offered to every kind.
 	 */
 	capability?: keyof KindCapabilities;
+	/**
+	 * Placed by the ENGINE only: the Scene Editor's palette never offers it (`componentOfferedForKind`
+	 * is false for every kind), while a doc that holds it still renders it. The authored Transition
+	 * is one during its pilot: the game places it where the flag says, and a hand-placed copy would
+	 * play a second wipe. Absent ⇒ offered as `capability` says.
+	 */
+	internal?: boolean;
 	/**
 	 * The component's INPUTS (Rive plan §5–6.1, Phase 5): what Flow can set or fire, and what the
 	 * state machine reads. A declared {@link signals} entry reads as a `trigger` input too — one
@@ -1785,6 +1803,13 @@ export interface CinematicDoc {
 	 * targets; a name one of them lacks is skipped there (validation flags it).
 	 */
 	playOnComponents?: string[];
+	/**
+	 * A COMPONENT timeline only (Rive plan Phase 8a): an awaited fire of `playOn` — a Flow
+	 * `fireCue` with "wait" ticked — is held until this timeline reaches its end on every instance it
+	 * started on, the way a coded overlay holds the awaited broadcast until its rig completes. Absent
+	 * ⇒ the fire returns as it always has (parity); a zero-length timeline holds nothing.
+	 */
+	holdsCue?: boolean;
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

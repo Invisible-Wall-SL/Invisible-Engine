@@ -93,6 +93,10 @@
 		INFO_BAR_DEF,
 		LOADING_INTRO_DEF,
 		TRANSITION_DEF,
+		TRANSITION_WIPE_DEF,
+		authoredTransitionStatus,
+		withAuthoredTransition,
+		withAuthoredTransitionDoc,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		WIN_DEF,
@@ -311,7 +315,7 @@
 	import MessageSymbol from './MessageSymbol.svelte';
 	import RevealSymbolRider from './RevealSymbolRider.svelte';
 	import TapToContinue from './TapToContinue.svelte';
-	import { Transition } from 'engine-game';
+	import { retireCodedOverlay, Transition } from 'engine-game';
 	import Effects from './Effects.svelte';
 	import FlowV2Messages from './FlowV2Messages.svelte';
 	import FlowV2Cinematics from './FlowV2Cinematics.svelte';
@@ -605,6 +609,11 @@
 			// `Transition` part, now positioned by the editor node. Pure registration otherwise
 			// (no scene references it ⇒ no render change — parity).
 			[TRANSITION_DEF.id]: TRANSITION_DEF,
+			// Rive plan Phase 8a — the AUTHORED Transition: a project whose doc sets
+			// `settings.authoredOverlays.transition` renders this def (its wipe rig + built-in timeline)
+			// where its overlays scene bound the coded `Transition` (`withAuthoredTransition`). Pure
+			// registration otherwise: no doc places it until a project opts in (parity).
+			[TRANSITION_WIPE_DEF.id]: TRANSITION_WIPE_DEF,
 			// §17 Phase 3 — makes `getComponent('freeSpinIntroVisual')` resolve so an
 			// author-placed `freeSpinIntroVisual` instance expands into its bound
 			// `FreeSpinIntroVisual` part, positioned by the editor node.
@@ -1069,7 +1078,14 @@
 	// entirely (then `fallbackOverlays` supplies `bind:Win`, and the game gets both halves twice).
 	// No `Win` bind, or no authored win visual ⇒ the SAME scene object back ⇒ byte-identical (parity).
 	const basegameOverlaysScene = $derived.by(() => {
-		const scene = editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ?? fallbackOverlays;
+		// The AUTHORED Transition (Rive plan Phase 8a): the loaded doc's scenes were swapped once at
+		// load (`withAuthoredTransitionDoc`); the reference overlays a doc without its own gets are
+		// swapped here under the same flag. Off ⇒ the same scene object (parity).
+		const scene =
+			editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ??
+			(authoredTransitionStatus(editorDoc) === 'ready'
+				? withAuthoredTransition(fallbackOverlays)
+				: fallbackOverlays);
 		if (!docPlacesWinVisual) return scene;
 		let degraded = false;
 		const nodes = scene.nodes.map((node) => {
@@ -2108,7 +2124,17 @@
 	};
 
 	onMount(() => {
-		void loadEditorScenes().then((doc) => {
+		void loadEditorScenes().then((rawDoc) => {
+			// Rive plan Phase 8a: ONE swap of every coded `bind: Transition` for the authored instance,
+			// wherever it sits (`withAuthoredTransitionDoc`), applied only when the shared rule says
+			// `ready`; `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
+			// board override — is the swapped doc, so no mount path renders the coded node the retire
+			// below has made inert. Off, or not ready ⇒ the same doc object (parity).
+			const authored = authoredTransitionStatus(rawDoc) === 'ready';
+			const doc = authored ? withAuthoredTransitionDoc(rawDoc) : rawDoc;
+			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
+			// placed the hybrid `transition` twin plays one wipe (the authored one).
+			retireCodedOverlay('transition', authored);
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);
 			// Game-level settings (§ Game Settings): apply the authored speed-feature

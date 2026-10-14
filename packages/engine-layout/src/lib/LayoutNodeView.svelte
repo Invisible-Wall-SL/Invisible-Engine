@@ -73,6 +73,7 @@
 		boundFillShare,
 		boundFrameOutput,
 		boundScrubs,
+		withTimelineScrub,
 		fillMaskRect,
 		foldBoundTransform,
 	} from './valueBindings';
@@ -242,7 +243,10 @@
 		allBindings?.some((binding) => targets.includes(binding.target)) ?? false;
 	const frameBound = bindsTarget('frame');
 	const fillBound = bindsTarget('fill');
-	const poseBound = bindsTarget('animTime', 'bone');
+	// A timeline's `animation` strip on a rig node (Rive plan Phase 8a) poses the rig through the same
+	// `<RigPose>` an `animTime` value binding does, so the strip's time reaches the rig the one way.
+	const timelineScrubbed = !!timelineDrive?.channels.has('animTime');
+	const poseBound = bindsTarget('animTime', 'bone') || timelineScrubbed;
 	const transform = $derived.by(() => {
 		const folded = foldBoundTransform(
 			resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()),
@@ -945,7 +949,12 @@
 	 */
 	const fill = $derived(boundFillShare(allBindings, allOutputs));
 	const heldFrame = $derived(boundFrameOutput(allBindings, allOutputs));
-	const scrubs = $derived(boundScrubs(bindings, bound.outputs));
+	const scrubs = $derived(
+		withTimelineScrub(
+			boundScrubs(bindings, bound.outputs),
+			timelineScrubbed ? timelineSample?.animTime : undefined,
+		),
+	);
 	const boneOffsets = $derived(boundBoneOffsets(bindings, bound.outputs));
 
 	/** A loaded texture's natural size, by the scoped key then the bare fallback (the sprite rule). */

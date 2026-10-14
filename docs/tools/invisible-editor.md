@@ -813,6 +813,18 @@ keep mounting at their layout positions through the engine's bound-component
 registry. As with every R2 asset class, anything the layout references must also
 travel the export → deploy → bake → pull chain to ship inside the game bundle.
 
+### Game Settings → Authored overlays (pilot)
+
+Above the boot splash, **Authored overlays (pilot)** has one row, **Transition**. On, the game
+renders the free-spin transition wipe from the built-in **Transition wipe** component and its
+timeline (the same rig, the same timing; the flow continues when the wipe ends) instead of the
+coded Transition mount it replaces. Off — the default, and the state of every live game — nothing
+changes. Only a holder of the component-publish capability (admin by default) can switch it; others
+see it read-only while it is on. **Leave it off for live games until the owner's browser check.**
+The Game Maker card says
+*Authored Transition (pilot)* when it is on, and warns when it is on but no scene binds the coded
+Transition it would replace (the reference overlays scene has that node).
+
 ### Game Settings → Boot splash
 
 The right panel's **Game Settings** section carries this game's own boot splash —
@@ -975,6 +987,12 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
 
    **✎** next to it lets you type any other name, for example a Flow **fireCue** name. Choose
    **(nothing — not played)** and nothing in the game starts it.
+
+   **Holds the cue** (shown once a signal is picked): tick it and an *awaited* fire of that signal
+   — a Flow **fireCue** with "wait" ticked — continues only when this timeline has ended on every
+   instance it started on, the way the engine's coded overlays held their cue until their rig
+   finished. Off (the default), the fire returns at once, as it always did; clearing **Plays on**
+   clears it too.
 
 4. **Select a node and key it**, exactly as on a screen (steps 2 to 5 of
    [Animate mode](#animate-mode--the-timeline)). The canvas only selects in Animate: no dragging,

@@ -1,8 +1,9 @@
 <script lang="ts" module>
 	import type { RigBoneOffset } from '../rigBoneOffset';
 
-	/** Hold `animation` at `time` (0 = its first frame, 1 = its last). */
-	export type RigPoseScrub = { animation: string; time: number };
+	/** Hold `animation` at `time`: a share of its length (0 = its first frame, 1 = its last), or,
+	 *  with `unit: 'seconds'`, a clip-local time clamped to the clip (a timeline strip's time). */
+	export type RigPoseScrub = { animation: string; time: number; unit?: 'share' | 'seconds' };
 	/** Offset `bone` on top of whatever poses it — see `rigBoneOffset.ts`. */
 	export type RigPoseBone = { bone: string; offset: RigBoneOffset };
 
@@ -51,7 +52,7 @@
 	const pose = (): void =>
 		untrack(() => {
 			const skeleton = rig.skeleton;
-			for (const { animation: name, time } of props.scrubs ?? []) {
+			for (const { animation: name, time, unit } of props.scrubs ?? []) {
 				const animation = skeleton.data.findAnimation(name);
 				if (!animation) {
 					warnOnce(
@@ -60,7 +61,10 @@
 					);
 					continue;
 				}
-				const at = Math.min(1, Math.max(0, time)) * animation.duration;
+				const at =
+					unit === 'seconds'
+						? Math.min(animation.duration, Math.max(0, time))
+						: Math.min(1, Math.max(0, time)) * animation.duration;
 				animation.apply(
 					skeleton,
 					at,

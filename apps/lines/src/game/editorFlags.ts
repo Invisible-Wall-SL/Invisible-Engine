@@ -48,3 +48,16 @@ export const TRANSITION_INSTANCE = false;
  * the `win` component in the editor (the shared `WIN_DEF` carries `boundToInstance:true`).
  */
 export const WIN_INSTANCE = false;
+
+/**
+ * Rive plan Phase 8a — the `apps/lines` DEV PILOT of the authored Transition: with this on, the
+ * fallback doc (`editor-scenes.ts` → `defaultLayout('lines', …)`) carries
+ * `settings.authoredOverlays.transition: true`, the per-project switch a live project sets in the
+ * Scene Editor's Game Settings. The game then swaps the overlays scene's coded `bind:Transition`
+ * for the built-in `transitionWipe` instance (`authoredOverlays.ts`) and retires the coded part.
+ *
+ * DEFAULT OFF (parity gate): the dev build renders the coded wipe, byte-identical to today. The
+ * parity gate (`scripts/transition-parity`) never flips this: it serves the game a doc with the
+ * flag set, the way a published project would. No URL opt-in exists.
+ */
+export const AUTHORED_TRANSITION = false;

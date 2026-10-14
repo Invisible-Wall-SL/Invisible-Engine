@@ -53,6 +53,13 @@ export interface SceneDurationResolvers {
 	 *  seam, mirroring the coded `bookEventHandlerMap`), so the game supplies it here. `undefined` for a
 	 *  bind with no measurable animation (skipped). */
 	boundComponentMs?(component: string): number | undefined;
+	/**
+	 * How long the timelines an instance of `defId` HOLDS an awaited cue for run (`holdsCue`, Rive
+	 * plan Phase 8a) — the authored twin of `boundComponentMs`: the coded Transition measured as its
+	 * bound part's clip, the authored one measures as the wipe timeline, so a `durationMs` reads the
+	 * same number either way. `undefined` when the def holds nothing.
+	 */
+	instanceHoldMs?(defId: string): number | undefined;
 }
 
 /**
@@ -104,6 +111,7 @@ export const sceneAnimationDurationMs = (
 				break;
 			case 'componentInstance': {
 				if (expanding.has(node.componentId)) break; // cycle guard.
+				consider(resolvers.instanceHoldMs?.(node.componentId));
 				const def = resolvers.resolveComponent(node.componentId);
 				if (!def) break;
 				expanding.add(node.componentId);
