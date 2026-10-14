@@ -162,6 +162,14 @@ With a layer selected, the right **Inspector** edits it:
   particle's life so the sequence plays through exactly once, however long the particle
   lives), or untick it for an explicit **Speed (fps)** plus a **Loop while the particle
   lives** toggle (off = the animation holds on its last frame once it has played).
+- **Sprite** (sprite layers only) — how the art sits on each particle. **Rotation (°)**
+  (−180..180) turns the art by a fixed amount without changing where the particle flies; it
+  adds to any spin or **Locked angle**, so e.g. art drawn pointing up can be turned 90° to
+  face along its travel. **Pivot** is a 3×3 grid (corners, edges, centre) picking which point
+  of the art sits on the spawn position and that the art turns around — **Top** hangs the art
+  below the spawn point, **Bottom** stands it on top, and so on; **Pivot X / Y** (0..1) set
+  any point in between. The defaults (0°, centre) are the library's own, and a layer left at
+  them stores nothing extra. **Apply preset…** keeps the layer's Sprite settings.
 - **Placement** — where the layer's emitter sits. **Mode** is **Free (scene)** (spawns
   at the scene origin) or **Bone (rig)** (follows a bone of the loaded rig backdrop —
   enabled only when a backdrop is loaded). In **Bone** mode a **Bone** dropdown lists the
@@ -358,7 +366,7 @@ mere save.
   the LayoutDoc `gameType` via `resolveEmitterVocabulary`, the same source `/flow` uses, so
   the Trigger picker offers exactly the events a Flow Broadcast can emit). `+page.svelte`
   is the authoring shell (sub-bar, Layers panel with the stack ops, Inspector with Layer /
-  Particle / Art / Placement / Trigger / Emitter / Spawn / Direction &amp; rotation / Alpha /
+  Particle / Art / Sprite / Placement / Trigger / Emitter / Spawn / Direction &amp; rotation / Alpha /
   Scale / Movement / Forces / Colour / Blend sections, and the Backdrop bar above the canvas).
   `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
   play-pause + a live `Emitter` per layer, the centre-spawned placeholder dots for an
@@ -402,3 +410,11 @@ mere save.
   layer it adds into their `config.velocity`; otherwise it integrates its own velocity on top of
   the movement. Gate: `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, run by the Lint
   workflow).
+- **Sprite transform:** `packages/engine-fx/src/sprite.ts` — the `fxSprite` behavior
+  (`{ rotation, anchorX, anchorY }`, read through the `readFxSprite` clamp). The pivot is the
+  particle's `anchor`; the rotation offset is carried on `skew = (−θ, θ)`, which PIXI composes
+  into a pure rotation by `rotation + θ`, so `particle.rotation` (the launch direction and the
+  target of spin / `noRotation` / rotate-to-travel) is never touched. `recycleParticle` restores
+  the centred, unskewed default because pooled particles keep both fields across `emitter.init`.
+  Inspector: `spriteTransform` / `setSpriteTransform` in `fxModel.client.ts` (back at the
+  defaults ⇒ the behavior is removed). Gate: `pnpm check:fx-sprite` (`tools/fx-spike/sprite.ts`).

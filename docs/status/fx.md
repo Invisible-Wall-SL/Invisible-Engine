@@ -9,7 +9,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
 - **Event trigger end-to-end.** A `trigger.on:'event'` layer fires when a matching cue crosses the runtime event bus (a Flow v1 Broadcast / v2 `fireCue`), with an optional **Stop event** and **Duration**. The full author→ship→fire chain (export → `deploy/effects/` → bake → pull → `bakedEffects()` register) is wired.
-- **Pro `/fx` inspector knobs:** emission **direction (centre °) + spread (±°)**, particle **spin min/max + accel**, and a **rotation lock** (`noRotation` — travel along the arc without facing it); a **movement** toggle (eased `moveSpeed` vs **acceleration** — up-direction + a downward pull = a fountain); a stackable **Forces** section (gravity at any angle, wind with gusts, vortex with swirl + centrifugal/centripetal radial, attractor/repulsor with an absorb sink, turbulence, drag — see the 2026-10-13 entry); **colour** start/end tint **plus a colour overlay with a per-particle intensity min/max**; **blend mode** (Normal/Add/Screen/Multiply); five **spawn kinds** — point / circle / ring / rectangle / **burst** (even fan). Alpha, Scale and the eased Speed each carry an **On** switch (a config with no such behavior can grow one instead of the section silently vanishing) and a **Min / Max** switch that splits each end into a per-particle range — four INDEPENDENT bounds (see the 2026-08-28 fix entry). All are live sliders + number boxes that re-tune the preview verbatim.
+- **Pro `/fx` inspector knobs:** emission **direction (centre °) + spread (±°)**, particle **spin min/max + accel**, a **rotation lock** (`noRotation` — travel along the arc without facing it), and a **Sprite** section — a fixed art **rotation offset** + a **pivot** (anchor) grid (see the 2026-10-14 entry); a **movement** toggle (eased `moveSpeed` vs **acceleration** — up-direction + a downward pull = a fountain); a stackable **Forces** section (gravity at any angle, wind with gusts, vortex with swirl + centrifugal/centripetal radial, attractor/repulsor with an absorb sink, turbulence, drag — see the 2026-10-13 entry); **colour** start/end tint **plus a colour overlay with a per-particle intensity min/max**; **blend mode** (Normal/Add/Screen/Multiply); five **spawn kinds** — point / circle / ring / rectangle / **burst** (even fan). Alpha, Scale and the eased Speed each carry an **On** switch (a config with no such behavior can grow one instead of the section silently vanishing) and a **Min / Max** switch that splits each end into a per-particle range — four INDEPENDENT bounds (see the 2026-08-28 fix entry). All are live sliders + number boxes that re-tune the preview verbatim.
 - **Layer stack ops** — ▲/▼ reorder (list order IS draw order; `FxStage` re-appends the emitter containers in doc order each rebuild so the preview restacks), ⧉ duplicate, and a `localStorage`-backed **⧉ Copy / 📋 Paste** that survives navigation, so a layer moves **between effects**.
 - **Flipbook playback is authorable** — an `animated` layer chooses **Match particle lifetime** (`framerate: -1`, the long-standing default) or an explicit **fps + loop**, carried on `art.framerate`/`art.loop` through `bindArt` at all four render sites.
 - **Preset library** — per-layer "Apply preset…" (Fountain, Fire, Smoke, Sparks, Explosion-burst, Rain, Snow, Confetti, Magic glow) preserving art/placement/trigger.
@@ -21,6 +21,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game.
 
 ## Open items / next
+- **Owner browser-pass over the Sprite section** (2026-10-14) — rotate a directional sprite (an arrow or a streak) and check it turns by the slider amount without changing its flight, and that Top / Bottom / Left / Right pivots put that edge on the spawn point (easiest with a big sprite and a single slow particle).
 0. **Owner browser-pass over the Forces section** (2026-10-13) — the math and the real-`Emitter` coupling are gated headlessly, but no slider has been dragged in a browser. Worth checking while there: a Fire / Smoke / Fountain / Sparks / Rain preset now goes the way its name says (see the entry), and an existing effect's Direction reads the way its particles actually fly.
 1. **Owner browser-pass over the Min / Max rows.** Two passes have now happened and each found a real defect (see the two 2026-08-28 fix entries) — the model is heavily covered headlessly, but every symptom so far has been a CLICK, and `/fx` is auth + Postgres + R2 gated so those sliders still cannot be driven from a session. A third pass on the corrected rows is owed.
 2. **Tier-C perf ceiling live-verify** — confirm a published game renders a rig-particle effect at 60fps and find the pool-size ceiling; flipbook-bake stays the per-effect fallback.
@@ -31,6 +32,28 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-14 — **Sprite rotation + pivot on sprite layers.** Owner ask: rotate the art the way it
+  spawns on the particle, and choose whether it spawns at its centre, top, bottom, left or right.
+  - **What shipped.** A **Sprite** section under Art (sprite layers only): **Rotation (°)**
+    −180..180, a 3×3 **Pivot** grid (centre, edges, corners) plus **Pivot X / Y** 0..1 for any
+    point in between. One new custom behavior, `fxSprite` (`packages/engine-fx/src/sprite.ts`).
+  - **How it works.** The pivot is the particle's `anchor`. The rotation offset is NOT added to
+    `particle.rotation`, which is also the launch direction and what spin, `noRotation` and
+    rotate-to-travel write. It rides on `skew = (−θ, θ)`, which PIXI's matrix turns into a pure
+    rotation by `rotation + θ`, so the offset composes with all of them and the particle flies
+    exactly where it did before. `recycleParticle` resets both fields, because pooled particles
+    keep them across `emitter.init` (switching the section back to defaults in the editor would
+    otherwise leave stale art).
+  - **Back-compat.** Like `fxForces`, it lives in `layer.config.behaviors`, so no EffectDoc schema
+    or ship-chain change. A layer at the defaults carries no `fxSprite`, so existing effects are
+    byte-identical; **Apply preset…** keeps the layer's sprite settings. Registered in
+    `registerFxBehaviors`, so the runtime, `/fx`, the Scene Editor and the Rigger/Symbols overlay
+    all render it; `rigger-fx.js` rebuilt.
+  - **Verified.** `pnpm check:fx-sprite` (new, discovered by `check:all`): the clamp, defaults ⇒
+    no behavior, position + rotation identical with and without the offset on the real `Emitter`,
+    PIXI's own local matrix is an unsheared rotation by `rotation + θ`, recycle resets, preset
+    keeps it, and the save → export → bake chain carries it verbatim. All 16 fx-spike gates,
+    lint and `check:vendored-bundles` pass. **Not driven in a browser** — owner pass owed.
 - 2026-10-13 — **The Rigger now plays the forces; every vendored bundle is gated against its source.**
   Owner report: the new forces did not play in the Rigger. The Rigger's static `view.html` loads a
   COMMITTED build of `fxOverlay` (`static/rigger/vendor/rigger-fx.js`), not the source, and the
