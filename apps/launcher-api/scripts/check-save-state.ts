@@ -5,16 +5,19 @@
  * resolve when the gate says so, and a fake clock for the autosave debounce:
  *
  *   1. an edit made while a write is in flight is written too, in the trailing (flow-v2) and the
- *      leading (Scene Editor) debounce, and the store ends up holding it;
+ *      leading (Scene Editor) debounce, on that debounce's own cadence, exactly once, and the
+ *      store ends up holding it;
  *   2. a caller that navigates once `save()` resolves TRUE never leaves with that edit unsaved;
  *   3. with no edit during the flight nothing changes: one write, clean, no extra write;
- *   4. conflict, scope-mismatch, error and the read-only gate keep their policies mid-flight;
+ *   4. conflict, scope-mismatch, error, the read-only gate and the `canAutosave` veto keep their
+ *      policies mid-flight, and a write that lands after `adoptEtag` moved the target changes
+ *      nothing of the new one;
  *   5. tools that push a `$derived` signature through `setDirty` read clean after a save that
  *      wrote what is on screen, and dirty after one that did not.
  *
  * Run:  pnpm --filter launcher-api check:save-state
  */
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setImmediate } from 'node:timers';
@@ -42,8 +45,17 @@ function check(label: string, actual: unknown, expected: unknown): void {
 // ---------- the real module, client-compiled ----------
 
 const internalClient = import.meta.resolve('svelte/internal/client');
-const svelteClient = new URL('../../index-client.js', internalClient).href;
+// The app is bundled for the browser, so `svelte` must be its `browser` export (Node's own
+// resolution picks the server build, whose effects never run).
+const svelteManifest = import.meta.resolve('svelte/package.json');
+const svelteExports = (
+	JSON.parse(readFileSync(new URL(svelteManifest), 'utf8')) as {
+		exports: { '.': { browser: string } };
+	}
+).exports['.'];
+const svelteClient = new URL(svelteExports.browser, svelteManifest).href;
 const dir = mkdtempSync(join(tmpdir(), 'save-state-'));
+process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 
 async function compiled<T>(name: string, source: string, typescript: boolean): Promise<T> {
 	const js = typescript
@@ -263,16 +275,18 @@ const LEADING = { autosaveMs: 1200, resetDebounceOnEveryEdit: false };
 }
 {
 	// Scene Editor: a mid-flight edit arms no timer (already dirty), and success cancels autosave.
+	// The edit is written one leading batch after the autosave lands, not at network speed.
 	const t = editTool(LEADING);
 	t.edit('A');
 	await advance(1200);
 	t.edit('B');
 	await t.store.writes[0].resolve(t.ok());
-	check(
-		'leading: B written right after A lands',
-		t.store.writes.map((w) => w.sent),
-		['A', 'B'],
-	);
+	check('leading: dirty, B not written yet', [t.state.dirty, t.store.writes.length], [true, 1]);
+	await advance(1199);
+	check('leading: still batching', t.store.writes.length, 1);
+	await advance(1);
+	check('leading: B written one batch later', t.store.writes[1]?.sent, 'B');
+	check('leading: on the ETag A got', t.store.writes[1]?.ctx.baseEtag, 'e1');
 	await t.store.writes[1]?.resolve(t.ok());
 	await advance(5000);
 	check('leading: the store holds B', t.store.doc, 'B');
@@ -287,20 +301,23 @@ const LEADING = { autosaveMs: 1200, resetDebounceOnEveryEdit: false };
 	t.state.setDirty(true);
 	t.state.rearmAutosave();
 	await t.store.writes[0].resolve(t.ok());
+	await advance(1200);
 	await t.store.writes[1]?.resolve(t.ok());
 	await advance(5000);
 	check('leading undo: the undone doc is written', t.store.doc, 'undo');
 	check('leading undo: clean, two writes', [t.state.dirty, t.store.writes.length], [false, 2]);
 }
 {
-	// Edits that keep landing in every flight keep being written, each on the previous ETag.
+	// Continuous editing under the leading batch: one write per batch, each on the previous ETag.
 	const t = editTool(LEADING);
 	t.edit('A');
 	await advance(1200);
 	t.edit('B');
 	await t.store.writes[0].resolve(t.ok());
+	await advance(1200);
 	t.edit('C');
 	await t.store.writes[1]?.resolve(t.ok());
+	await advance(1200);
 	await t.store.writes[2]?.resolve(t.ok());
 	await advance(5000);
 	check(
@@ -314,6 +331,26 @@ const LEADING = { autosaveMs: 1200, resetDebounceOnEveryEdit: false };
 		['e0', 'e1', 'e2'],
 	);
 	check('chain: clean', [t.store.doc, t.state.dirty], ['C', false]);
+}
+{
+	// flow-v2, a write slower than the debounce: B's debounce coalesces mid-flight, C re-arms it.
+	// The armed debounce writes C; the coalesced re-fire must not write it a second time.
+	const t = editTool(TRAILING);
+	t.edit('A');
+	await advance(800);
+	t.edit('B');
+	await advance(800);
+	t.edit('C');
+	await t.store.writes[0].resolve(t.ok());
+	await advance(800);
+	await t.store.writes[1]?.resolve(t.ok());
+	await advance(5000);
+	check(
+		'coalesce + re-armed debounce: C written once',
+		t.store.writes.map((w) => w.sent),
+		['A', 'C'],
+	);
+	check('coalesce + re-armed debounce: clean', [t.store.doc, t.state.dirty], ['C', false]);
 }
 
 // ---------- 2. a navigating caller ----------
@@ -458,6 +495,78 @@ for (const [mode, opts] of [
 	await advance(5000);
 	check('read-only: no autosave', t.store.writes.length, 1);
 	check('read-only: save() refused', await t.state.save({ force: true }), false);
+}
+
+{
+	// The editor's `canAutosave` veto (a cross-type layout): an explicit save writes what it sent,
+	// but the edit made during its flight is not auto-written behind the veto.
+	let canAutosave = true;
+	const t = editTool({ ...LEADING, canAutosave: () => canAutosave });
+	t.edit('A');
+	const saved = t.state.save();
+	t.edit('B');
+	canAutosave = false;
+	await t.store.writes[0].resolve(t.ok());
+	await advance(5000);
+	check('canAutosave veto: no follow-up write', t.store.writes.length, 1);
+	check('canAutosave veto: false, still dirty', [await saved, t.state.dirty], [false, true]);
+	check(
+		'canAutosave veto: an explicit save still writes',
+		await (async () => {
+			const again = t.state.save();
+			await t.store.writes[1]?.resolve(t.ok());
+			return [await again, t.store.doc];
+		})(),
+		[true, 'B'],
+	);
+}
+{
+	// The target moves mid-flight (open another component / template): the old write's outcome
+	// touches nothing of the new target — no ETag, no status, no follow-up write.
+	for (const outcome of ['ok', 'conflict'] as const) {
+		const t = editTool();
+		t.edit('X');
+		const saved = t.state.save();
+		t.state.adoptEtag('y0');
+		t.edit('Y');
+		await t.store.writes[0].resolve(
+			outcome === 'ok' ? t.ok() : { ok: false, reason: 'conflict', message: 'theirs' },
+		);
+		await advance(5000);
+		check(`adoptEtag mid-flight (${outcome}): only X written`, t.store.writes.length, 1);
+		check(
+			`adoptEtag mid-flight (${outcome}): new target untouched`,
+			[await saved, t.state.etag, t.state.status, t.state.dirty],
+			[false, 'y0', 'idle', true],
+		);
+		const next = t.state.save();
+		await t.store.writes[1]?.resolve(t.ok());
+		check(`adoptEtag mid-flight (${outcome}): Y saves on its own ETag`, t.store.writes[1]?.ctx, {
+			baseEtag: 'y0',
+			force: false,
+		});
+		check(
+			`adoptEtag mid-flight (${outcome}): then clean`,
+			[await next, t.state.dirty],
+			[true, false],
+		);
+	}
+}
+{
+	// A tool that says "clean" mid-flight (`setDirty(false)`, e.g. its doc was replaced) is believed.
+	const t = editTool();
+	t.edit('A');
+	const saved = t.state.save();
+	t.state.setDirty(true);
+	t.state.setDirty(false);
+	await t.store.writes[0].resolve(t.ok());
+	await advance(5000);
+	check(
+		'setDirty(false) mid-flight: clean, one write',
+		[await saved, t.state.dirty],
+		[true, false],
+	);
+	check('setDirty(false) mid-flight: writes', t.store.writes.length, 1);
 }
 
 // ---------- 5. `setDirty` signature tools ----------

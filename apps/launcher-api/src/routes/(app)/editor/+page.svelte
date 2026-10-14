@@ -1376,6 +1376,8 @@
 	 * failed save, so a retry still asks for the backup.
 	 */
 	let pendingDestructiveSave = $state(false);
+	/** Bumped by every wholesale layout load, so a save can tell whether one landed mid-flight. */
+	let layoutLoads = 0;
 
 	/** Adopt a loaded `LayoutDoc`'s scenes (+ its game type and frame sizes) as the
 	 * project's layout, after confirming if it would discard placed nodes. */
@@ -1408,6 +1410,7 @@
 			danger: crossType,
 		});
 		if (!ok) return;
+		layoutLoads += 1;
 		pendingDestructiveSave = true;
 		scenes = structuredClone(doc.scenes);
 		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
@@ -2090,6 +2093,7 @@
 			// author asks to undo. Set on the `adoptScenes` clobber path and cleared only once
 			// the save actually lands, so a refused/failed save keeps the flag for the retry.
 			if (pendingDestructiveSave) fields.backup = 'always';
+			const loads = layoutLoads;
 			const out = (await postAction('save', fields)) as {
 				saved?: boolean;
 				updatedAt?: string;
@@ -2100,10 +2104,13 @@
 			if (out.conflict) return { ok: false, reason: 'conflict', message: out.error };
 			if (out.error) return { ok: false, reason: 'error', message: out.error };
 			lastSavedAt = out.updatedAt ?? new Date().toISOString();
-			loadedPreview = false;
-			crossTypeLoaded = false;
-			crossTypeFrom = '';
-			pendingDestructiveSave = false;
+			// A layout loaded while this write was in flight is not in it: keep its guards.
+			if (layoutLoads === loads) {
+				loadedPreview = false;
+				crossTypeLoaded = false;
+				crossTypeFrom = '';
+				pendingDestructiveSave = false;
+			}
 			return { ok: true, etag: out.etag ?? null };
 		},
 	});

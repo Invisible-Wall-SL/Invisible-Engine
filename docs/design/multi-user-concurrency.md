@@ -531,9 +531,12 @@ Design decisions worth keeping:
   (never forceable). `save()` coalesces an in-flight request and re-fires on settle only
   while still dirty — byte-for-byte the tools' `pendingSave` idiom.
 - **A success turns the doc clean only if no edit landed during the flight** (2026-10-14).
-  Otherwise the doc stays dirty and the same `save()` writes it next, CASing on the ETag just
-  adopted (trailing mode leaves it to that edit's own armed debounce), so `true` still means the
-  store holds what is on screen. Pinned by `check:save-state`.
+  Otherwise the doc stays dirty and the edit is written next, CASing on the ETag just adopted: at
+  once for an explicit `save()` (so, for `markDirty`-driven tools, `true` means the store holds
+  what is on screen), on the debounce's own cadence for an autosave, never behind `blockWhen` or
+  `canAutosave`. A `setDirty` signature tool's edit while already dirty is invisible here; its
+  pill, not `save()`'s result, reports it. A write landing after `adoptEtag` moved the target
+  changes nothing of the new target. Pinned by `check:save-state`.
 - **No visual imposed.** The state is read by the caller; **`$lib/SaveStatusBadge.svelte`**
   renders the common saving/saved/dirty/error/conflict/scope-mismatch pill for the two
   pill consumers (editor, flow-v2 doc + library), parameterized where their pills have
