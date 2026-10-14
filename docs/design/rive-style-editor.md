@@ -652,7 +652,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
-| 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) built 2026-10-14**, owner browser check pending, live games still coded; **8b (Win) designed in §13.6**, not built | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
+| 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) and 8b (Win) built 2026-10-14** (§13.2, §13.6), owner browser checks pending, live games still coded | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
 
@@ -719,7 +719,8 @@ Phase 8 migrates the coded overlays to authored components one at a time, each b
 the order **Transition → Win → free-spin intro/outro → buttons**, and retires each coded mount only
 once its authored version matches on screen (`invisible-editor.md` §8.7 "defang, don't gut"). 8a
 is the Transition only. The other three are inventoried here so 8b–8d start from the same map;
-nothing about them changes in 8a. §13.6 is the 8b (Win) design, written after 8a merged.
+nothing about them changes in 8a. §13.6 is the 8b (Win) design, written after 8a merged and built
+the same day; 13.6.10 records the decisions.
 
 ### 13.1 Inventory of the coded overlays (2026-10-14, `main` 038bcd9)
 
@@ -937,7 +938,7 @@ own.
 9. **Risk: a per-boot dev hook.** Resolved by not having one: the flag is read from the doc only,
    so no player URL can flip a live game, and the gate feeds the game a flagged doc instead.
 
-### 13.6 Phase 8b: Win (design — plan only, nothing built)
+### 13.6 Phase 8b: Win (design 2026-10-14; built the same day on the coordinator's GO — 13.6.10)
 
 > Written 2026-10-14 against `main` 35c5d94 (8a merged). Same pattern as 8a: a new built-in def
 > beside the hybrid twin, built-in timelines, one sparse flag row, one shared status rule, one
@@ -1154,23 +1155,22 @@ the gate stays until 8c has proven the outro on the same conductor, then the two
   0.467 s, a `winTierLoop.*` fire holds nothing, an unmount releases; `winWalk` replays the three
   escalation fixtures step for step; the harvest is unchanged by the flag; `fs7Win` unchanged.
 - **Flag on: authored vs coded frames.** A root gate, **`check:win-parity`**
-  (`scripts/win-parity/run.mjs`, a copy of `transition-parity/run.mjs` with the cue and the mock
-  changed; its workflow file is its own follow-up PR, advisory, as 8a's): the built `apps/lines` on
-  the `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`, one seed, **`WIN_X=10,20,40,70,120`**
-  so five consecutive base spins land one tier each; per tier the frame the **`winShow`** cue fires
-  (`state().cues`, `determinism.ts:93-95`) is the reference, and frames **12, 24, 48, 96** (the
-  intro) and **120, 240** (the idle, the harness's own capture offset) after it are compared under
-  `tolerance.json`; each coded frame must differ from the reference by > 0.5 % (the rig is on
-  screen); the **`winHide`** cue frame must be equal ± 1 (the flow continued at the same point —
-  on the single-tier path that is the gate's own clock on both sides, so it is the negative
-  control); the count text is the same glyphs on the same frame (it is in the pixels). **The hold
-  positive control** is an escalation variant: the same snapshot with `escalateTiers: true` baked
-  into its config (the `cg-lines` config is un-authored; the gate writes the variant as it writes
-  the flagged doc) — the authored side reports `pendingCueHolds()` non-empty between `winShow` and
-  the outro while the coded side reports none, and the two `winHide` frames are still equal ± 1
-  (the tier holds end where the idle `complete` did). **The placed-twin variant**: a doc that places
-  `componentInstance(win)` at a moved position (Borut's shape) — one presentation at that position,
-  the degrade applied, no second rig board-centred.
+  (`scripts/win-parity/run.mjs`, the twin of `transition-parity/run.mjs`; its workflow file is its
+  own follow-up PR, advisory, as 8a's): the built `apps/lines` on the `cg-lines` snapshot, coded vs
+  flagged doc, `?flowV2=lines`, one seed, stepped frames. Per win the frame the **`winShow`** cue
+  fires is the reference (nothing on screen yet), the compared frames start off it under
+  `tolerance.json`, each coded frame must differ from the reference by > 0.5 % (the presentation IS
+  on screen), and the **`winHide`** cue must fire the same number of frames after `winShow` on both
+  sides (± 1). Variants, each a coded/authored pair: **base** (`WIN_X=10,20,40,70,120`, five base
+  spins land one tier each; +12 +24 +48 +96 the intro, +120 +240 the idle); **slam-small** (the
+  seed's first non-big win, Space 6 frames after `winShow`: raced) and **slam-big** (`WIN_X=10`,
+  the same press: unskippable); **escalation** (the snapshot's config with `escalateTiers: true`,
+  `WIN_X=120`; the authored side reports PENDING cue holds while the walk climbs — the probe's
+  `holds` — the coded none: the positive control); **held** (the escalation config with Space held
+  from 6 frames after `winShow` until `winHide`: the coded ramp vs the authored play rate);
+  **turbo** (`ie_turbo=1`); **placed** (a `componentInstance(win)` at a moved position in a
+  game-space scene — the live Borut shape — the degrade applied, one presentation where the author
+  put it). The count text is in the pixels.
 - **Browser check only:** the tap grammar (step / land / dismiss / park) on the authored path, the
   hold-to-speed-up ramp (deliberately 1× on the rig), the dim under the moved instance. All three
   are Svelte seams with no headless gate; they are owner steps in the PR.
@@ -1232,3 +1232,69 @@ parity gate never draws one; the `{amount}` token `formatWinText` interpolates
     (`escalationActive`, `escalationBoundaries`); a retired `WinVisual` must write nothing, or the
     two fight. The retire is read once at mount, as `Transition.svelte:19-23` reads it; the gate
     asserts the retired visual's effects are inert.
+
+**13.6.10 Decisions (coordinator GO, 2026-10-14) and what the build settled.** Answers to 13.6.9,
+in order, then the conditions the build carried and the findings it made.
+
+- **#1 Scope line: yes** — the visual and the walk timing are authored; `WinGate` stays coded.
+  **#2 yes** — `awaitPresentation` is untouched; the gate's `waitForResolve` is the hold and the
+  conductor reads the tier holds itself. **#3 yes** — per-tier timelines generated at boot from the
+  active tiers + the published params, deterministically (gated: same inputs ⇒ deep-equal docs);
+  the **retirement target** is the §5 state machine with the tier as a number input. **#4 yes,
+  `rigSlot`** — measured first: `slot_win_count` rides `bone_win_count`, keyed in every clip (the
+  intro pops it 0.01 → 1.244 → 1, the exit scales it to 2, the slot colour fades in at ≈0.9 s), so a
+  fixed offset would not have been parity. **#5 condition** — `authoredWinStatus` never returns
+  `ready` when a tier caption carries `{amount}` (or any `{token}`): the held-back status
+  `caption-variable` keeps the coded path and the chip names it. **#6, #7 yes** — coins stay a
+  `WinCoins` bound child; the dim stays in the gate. **#8 no silent divergence** — the timeline
+  player gained a per-instance **play rate** (`ComponentTimelinePlayer.playRate`,
+  `componentPlayRate.ts`) and the gate drives it with the coded rule `max(speedScale, 1)` while
+  escalating; no held-back status was needed. **#9 yes, `boardFit`**; per-layout scales stay the
+  fallback. **#10 yes** — per-tier signals `winTier.<alias>` / `winTierLoop.<alias>` /
+  `winTierOutro.<alias>` (+ `winPlain`, `winHide`, `winFadeIn`), the one-signal-plus-input form
+  recorded for retirement. **#11** — the Win intro frames (`bigwin-intro-12` / `-48`, anchored on
+  the `winShow` cue) joined the harness PR that adds `fs-transition`. **#12 yes** — the retired
+  `WinVisual` publishes nothing to `winState` and `resolveWinMount` is pinned (sha256) with one
+  `winUpdate` subscriber flag on and off; both gated.
+- **Sanity (a)** — the hold registers synchronously in the bus callback, gated; a late-mounting
+  instance is covered by the **late-mount rule**: `awaitFireHolds` reads the holds right after the
+  fire, re-reads ONCE after a zero timeout (the tier signals are seeded, so an instance mounting a
+  frame late plays the current phase and registers then), and falls through at once when still
+  empty — exactly how the coded gate concludes with no visual mounted; never hangs. **(b)** — the
+  `cg-lines` snapshot's `runtime.json` carries `config` at the top level and `escalateTiers` is a
+  top-level config boolean, so the gate writes the escalation variant as it writes the flagged doc.
+- **Turbo (condition 1)** — no divergence: `timeScale` scales measured cue waits and delays only;
+  the coded rigs ride the ticker and the timeline player advances by the same `deltaMS`, so the
+  authored Transition and Win track the coded ones under turbo. The probe gained `setTurbo(on)` /
+  `?ie_turbo=1` (honoured with `ie_determinism` only); both parity gates run a turbo pair.
+- **The fade machine (found at build time).** The coded `FadeContainer` shows the FIRST win at once
+  (`show` starts true), fades out over 400 ms linear on `winHide` and fades IN over 400 ms on every
+  later `winShow`. Mirrored: the walk/plain timelines key no alpha; `_hide` fades the outer `fade`
+  container 1 → 0 then hides `visual`; `c_winpresentation_fadein` (on `winFadeIn`, 0 → 1 over
+  0.4 s, never holds) is fired by the gate in the same tick before the tier signal, only once a hide
+  has completed since boot. Two player rules fell out of it and are gated: alpha and visibility live
+  on different nodes (a node is handed whole to the most recently started timeline that casts it, so
+  a walk keying only `visible` would wipe the hide's held alpha), and **a timeline casts only the
+  actors it keys** (`winCast`), or a later-started doc with an empty sample resets the channel.
+- **`showContainer.durationMs`** — the authored twin measures exactly when its coded part does:
+  one game-side table `MEASURED_BIND_TWINS` (`Transition` → `transitionWipe`); `winPresentation`
+  measures `undefined` as `Win` / `WinGate` do, so a placed instance never stalls a flow container.
+- **Launcher** — `settings.authoredOverlays.win` (sparse, ON-only, both rows kept independently);
+  the Game Settings block gains the **Win** row under the same capability gate; the save action's
+  guard now runs **after** the ETag check (`authoredOverlaySaveDecision`: stale ⇒ 409 for everyone,
+  a genuine flip by a non-publisher ⇒ 403, else write); chips for `ready`, `nothing-to-replace`,
+  `caption-variable` and `tier-presentation-unsupported` (the tiers resolve to more than one rig or
+  count slot — the def has one rig node); the server builds the status rule's tier input
+  (`authoredWinTiers.ts`) from the config, the placed instance's params and the Win Text doc through
+  the engine's own `resolveTierPresentation`, which made `engine-game` (its Svelte-free deep paths)
+  a launcher dependency rather than a second copy of the rule.
+- **Gates** — `check:authored-win` (launcher, 106), `check:component-timelines` (71), the engine-game
+  fixtures (12, `winWalk` new), the template gates (the internal def pinned), `check:win-parity`
+  (root; the variants in 13.6.7 plus the turbo pair on `check:transition-parity`). Its CI workflow,
+  like 8a's, is a workflow-only follow-up PR. **Known gap:** `check:authored-transition`,
+  `check:authored-win` and `check:component-timelines` are package scripts the Lint workflow's
+  launcher list does not run yet — the same follow-up PR adds them.
+- **Left for the owner's browser check:** the tap grammar (step / land / dismiss / park), the ramp
+  while holding, the dim under a moved instance, the first-win instant show vs the later fades.
+  Known caveat: a reel-grid override moves `boardLayout()` but not the synthesized instance (the
+  per-layout-override fallback covers it).

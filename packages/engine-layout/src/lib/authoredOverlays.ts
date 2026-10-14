@@ -1,4 +1,7 @@
-import type { LayoutDoc, LayoutNode, Scene } from './types';
+import { WIN_PRESENTATION_DEFAULTS } from './builtinComponents';
+import { WIN_PRESENTATION_COMPONENT_ID } from './builtinTimelines';
+import type { LayoutDoc, LayoutNode, NodeOverride, Scene } from './types';
+import { winTextHasVariable } from './winText';
 
 /**
  * AUTHORED OVERLAYS (Rive plan Phase 8a, `docs/design/rive-style-editor.md` §13.2): the per-project
@@ -123,4 +126,188 @@ export function withAuthoredTransition(scene: Scene): Scene {
 export function withAuthoredTransitionDoc<T extends Pick<LayoutDoc, 'scenes'>>(doc: T): T {
 	const scenes = doc.scenes.map(withAuthoredTransition);
 	return scenes.some((scene, i) => scene !== doc.scenes[i]) ? { ...doc, scenes } : doc;
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED WIN (Rive plan Phase 8b, §13.6.6): the same pattern, one flag row further. The
+// scope line: what the coded `WinVisual` DRAWS becomes the built-in `winPresentation` instance and
+// its generated per-tier timelines; the coded `WinGate` stays (count-up, round hold, presses, dim,
+// `winState`) and conducts them.
+// ---------------------------------------------------------------------------------------------
+
+/** The `game`-space scene the split win overlay's visual lives in (`referenceLayouts/lines.ts`). */
+export const WIN_VISUAL_SCENE_ID = 'winVisual';
+
+/** Whether the doc renders the big-win presentation from its authored component. */
+export const authoredWinEnabled = (doc: Pick<LayoutDoc, 'settings'>): boolean =>
+	doc.settings?.authoredOverlays?.win === true;
+
+const isCodedWinComposer = (node: LayoutNode): boolean => node.bind?.component === 'Win';
+const isCodedWinGate = (node: LayoutNode): boolean =>
+	isCodedWinComposer(node) || node.bind?.component === 'WinGate';
+const isWinInstance = (node: LayoutNode): boolean =>
+	node.kind === 'componentInstance' && node.componentId === 'win';
+const isWinPresentationInstance = (node: LayoutNode): boolean =>
+	node.kind === 'componentInstance' && node.componentId === WIN_PRESENTATION_COMPONENT_ID;
+
+const some = (nodes: readonly LayoutNode[], test: (node: LayoutNode) => boolean): boolean =>
+	nodes.some((node) => test(node) || (node.kind === 'container' && some(node.children, test)));
+
+/** Whether `nodes` bind a coded `Win` / `WinGate`, at any depth. */
+export const hasCodedWinGate = (nodes: readonly LayoutNode[]): boolean =>
+	some(nodes, isCodedWinGate);
+/** Whether `nodes` place a `win` instance (the hybrid twin), at any depth. */
+export const hasWinInstance = (nodes: readonly LayoutNode[]): boolean => some(nodes, isWinInstance);
+/** Whether `nodes` place a `winPresentation` instance (a doc already swapped), at any depth. */
+export const hasWinPresentationInstance = (nodes: readonly LayoutNode[]): boolean =>
+	some(nodes, isWinPresentationInstance);
+
+/**
+ * Whether the game, rendering `doc`, has a coded win presentation to replace: a coded `Win` /
+ * `WinGate` bind or a placed `win` instance in any scene, or no `basegameOverlays` scene of its own
+ * (the reference overlays scene it then mounts binds the composer).
+ */
+export function docHasCodedWin(doc: Pick<LayoutDoc, 'scenes'>): boolean {
+	const nodes = doc.scenes.flatMap((scene) => scene.nodes);
+	return (
+		!doc.scenes.some((scene) => scene.id === OVERLAYS_SCENE_ID) ||
+		hasCodedWinGate(nodes) ||
+		hasWinInstance(nodes)
+	);
+}
+
+/**
+ * What the flag does to a project, the ONE rule the game and the launcher share:
+ * - `off` — the flag is not on; the coded visual renders.
+ * - `ready` — the authored presentation replaces the coded visual.
+ * - `nothing-to-replace` — the flag is on, but no scene binds a coded `Win` / `WinGate`, none
+ *   places a `win` instance, and the doc has an overlays scene of its own: no presentation would
+ *   play at all. The coded path stays; the chip warns.
+ * - `caption-variable` — an active tier's Win Text caption interpolates a resolver variable
+ *   (`{amount}` …), which the authored text track cannot render. The coded path stays; the chip
+ *   warns (the resolver variable is 8c's).
+ * - `tier-presentation-unsupported` — the active tiers resolve to more than one rig bundle or
+ *   count slot: the authored presentation has ONE rig node, so it cannot play them. The coded path
+ *   stays; the chip warns.
+ */
+export type AuthoredWinStatus =
+	'off' | 'ready' | 'nothing-to-replace' | 'caption-variable' | 'tier-presentation-unsupported';
+
+/** One active big tier, as the game resolved its presentation — plain data, so the launcher can build it too. */
+export interface AuthoredWinTier {
+	alias: string;
+	/** The tier's Win Text caption (`winLevels.<alias>`), when authored. */
+	caption?: string;
+	/** The rig bundle the tier resolves to (`<alias>Spine` ?? the tier's `spineKey` ?? `winSpine`). */
+	rigKey: string;
+	/** The count slot the tier resolves to (`<alias>Slot` ?? `slotName`). */
+	slotName: string;
+}
+
+export function authoredWinStatus(input: {
+	doc: Pick<LayoutDoc, 'scenes' | 'settings'>;
+	tiers: readonly AuthoredWinTier[];
+}): AuthoredWinStatus {
+	if (!authoredWinEnabled(input.doc)) return 'off';
+	if (!docHasCodedWin(input.doc)) return 'nothing-to-replace';
+	if (input.tiers.some((tier) => winTextHasVariable(tier.caption))) return 'caption-variable';
+	const rigs = new Set(input.tiers.map((tier) => tier.rigKey));
+	const slots = new Set(input.tiers.map((tier) => tier.slotName));
+	if (rigs.size > 1 || slots.size > 1) return 'tier-presentation-unsupported';
+	return 'ready';
+}
+
+/**
+ * A scene with the win swap applied, wherever it sits: every coded `bind: Win` composer becomes its
+ * GATE half (`bind: WinGate` — the degrade the game already applied for a doc that placed its own
+ * visual), and every placed `win` instance becomes a `winPresentation` instance carrying its
+ * transform, overrides and params (the same keys). Nothing to swap ⇒ the SAME scene object.
+ */
+export function withAuthoredWin(scene: Scene): Scene {
+	let swapped = false;
+	const rewrite = (node: LayoutNode): LayoutNode => {
+		if (isCodedWinComposer(node) && node.bind) {
+			swapped = true;
+			return { ...node, bind: { ...node.bind, component: 'WinGate' } };
+		}
+		if (node.kind === 'componentInstance' && node.componentId === 'win') {
+			swapped = true;
+			const { componentVersion: _pinned, ...rest } = node;
+			return { ...rest, componentId: WIN_PRESENTATION_COMPONENT_ID };
+		}
+		if (node.kind === 'container') {
+			const children = node.children.map(rewrite);
+			return children.some((child, i) => child !== node.children[i]) ? { ...node, children } : node;
+		}
+		return node;
+	};
+	const nodes = scene.nodes.map(rewrite);
+	return swapped ? { ...scene, nodes } : scene;
+}
+
+type MainSizes = Record<string, { width: number; height: number } | undefined>;
+
+/**
+ * The `game`-space scene that places the authored presentation where the coded OFF composer drew:
+ * the board centre, which without a reel-grid override is the main box's centre on every layout
+ * type (`boardLayout()`), hence the per-layout overrides. Rendered by the existing `winVisual`
+ * mount, so nothing new mounts. Params default the shared rig + slot the coded part hardcoded, and
+ * `fitBoard` — the coded composer fitted its rig to the board width; a PLACED instance (swapped
+ * above) never gets it, so it keeps the natural size the coded `win` instance rendered at.
+ */
+export function authoredWinVisualScene(mainSizesMap: MainSizes): Scene {
+	const centre = (size: { width: number; height: number } | undefined) =>
+		size ? { x: size.width * 0.5, y: size.height * 0.5 } : undefined;
+	const base = centre(mainSizesMap.desktop) ?? { x: 0, y: 0 };
+	const overrides: Record<string, NodeOverride> = {};
+	for (const [layoutType, size] of Object.entries(mainSizesMap)) {
+		if (layoutType === 'desktop') continue;
+		const at = centre(size);
+		if (at) overrides[layoutType] = at;
+	}
+	return {
+		id: WIN_VISUAL_SCENE_ID,
+		name: 'Win visual',
+		space: 'game',
+		nodes: [
+			{
+				id: 'win-visual',
+				slotId: 'Win',
+				label: 'Win presentation (authored)',
+				kind: 'componentInstance',
+				componentId: WIN_PRESENTATION_COMPONENT_ID,
+				x: base.x,
+				y: base.y,
+				...(Object.keys(overrides).length ? { overrides } : {}),
+				params: { ...WIN_PRESENTATION_DEFAULTS, fitBoard: true },
+			},
+		],
+	};
+}
+
+/**
+ * The doc with the win swap applied to EVERY scene, plus the `winVisual` scene when no scene
+ * PLACES a win visual (a `win` instance, or a `winPresentation` one on a doc swapped already) — the
+ * split's shape, `referenceLayouts/lines.ts`. A `winVisual` scene that holds no instance (its win
+ * was deleted) is replaced, not kept: the scene id alone places nothing, and `authoredWinStatus`
+ * says `ready` for that doc, so the swap must leave a presentation to draw. The game applies it
+ * once, when the doc loads, before either flow is built. A doc with nothing to swap and a visual of
+ * its own ⇒ the SAME doc object.
+ */
+export function withAuthoredWinDoc<T extends Pick<LayoutDoc, 'scenes' | 'mainSizesMap'>>(
+	doc: T,
+): T {
+	const scenes = doc.scenes.map(withAuthoredWin);
+	const changed = scenes.some((scene, i) => scene !== doc.scenes[i]);
+	const nodes = doc.scenes.flatMap((scene) => scene.nodes);
+	const placed = hasWinInstance(nodes) || hasWinPresentationInstance(nodes);
+	if (placed) return changed ? { ...doc, scenes } : doc;
+	const visual = authoredWinVisualScene((doc.mainSizesMap ?? {}) as MainSizes);
+	const hasEmptyVisualScene = scenes.some((scene) => scene.id === WIN_VISUAL_SCENE_ID);
+	return {
+		...doc,
+		scenes: hasEmptyVisualScene
+			? scenes.map((scene) => (scene.id === WIN_VISUAL_SCENE_ID ? visual : scene))
+			: [...scenes, visual],
+	};
 }

@@ -30,6 +30,7 @@ import {
 	componentTimelinesFor,
 	cueAnimationDurationMs,
 	cueHolds,
+	WIN_PRESENTATION_COMPONENT_ID,
 	emitComponentSignal,
 	ENTER_SIGNAL,
 	flipbookCycleMs,
@@ -527,8 +528,12 @@ export const createLinesFlowV2 = (
 			boundComponentMs: (component) =>
 				component === 'Transition' ? rigClipMs('transition', 'animation') : undefined,
 			// The authored twin (Rive plan Phase 8a): an instance whose timeline HOLDS an awaited cue
-			// measures as that timeline, so the swapped Transition reads the same `durationMs`.
+			// measures as that timeline — a project's own `holdsCue` entrance included. The ONE exemption
+			// is the win presentation (8b): its holds are tier-walk timing, not an entrance, and the coded
+			// `Win` / `WinGate` it replaces measure 0 above, or a flow container holding a placed win would
+			// wait out a 13 s tier hold on `showContainer{await}` the coded path never had.
 			instanceHoldMs: (defId) => {
+				if (defId === WIN_PRESENTATION_COMPONENT_ID) return undefined;
 				const held = componentTimelinesFor(defId).filter((d) => d.holdsCue === true);
 				return held.length
 					? Math.max(...held.map((d) => Math.max(d.duration || 0, 0) * 1000))

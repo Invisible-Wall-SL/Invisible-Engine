@@ -44,6 +44,7 @@ import { gameAssetsBase } from './game/assets';
 import { defaultLayout } from './game/defaultLayout';
 import {
 	AUTHORED_TRANSITION,
+	AUTHORED_WIN,
 	HUD_BUTTON_INSTANCES,
 	TRANSITION_INSTANCE,
 	WIN_INSTANCE,
@@ -1570,6 +1571,7 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	transition: TRANSITION_INSTANCE,
 	winInstance: WIN_INSTANCE,
 	authoredTransition: AUTHORED_TRANSITION,
+	authoredWin: AUTHORED_WIN,
 });
 
 /**

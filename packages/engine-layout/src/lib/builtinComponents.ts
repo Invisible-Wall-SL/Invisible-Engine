@@ -1218,6 +1218,219 @@ export function winComponentDef(tiers: WinTierMeta[] = DEFAULT_WIN_TIERS): Compo
 
 export const WIN_DEF: ComponentDef = winComponentDef();
 
+/** The coded board cell (`engine-game` `SYMBOL_SIZE`), the unit `WinVisual` sized its text by. */
+const WIN_SYMBOL_SIZE = 120;
+
+/** The coded `FadeContainer`'s tween: 400 ms, linear (`svelte/motion` `Tween` defaults). */
+export const WIN_FADE_MS = 400;
+/** The fade layer's two static poses (generated beside the tier timelines, `builtinTimelines.ts`). */
+export const WIN_FADE_HIDDEN_TIMELINE_ID = 'c_winpresentation_fade_hidden';
+export const WIN_FADE_SHOWN_TIMELINE_ID = 'c_winpresentation_fade_shown';
+
+/** The shared rig + count slot the coded `WinVisual` hardcoded — `WIN_BASE_PARAMS`' defaults, the
+ *  one fact the synthesized `winVisual` instance and the game's tier resolution both read. */
+export const WIN_PRESENTATION_DEFAULTS = {
+	winSpine: 'bigwin',
+	slotName: 'slot_win_count',
+} as const;
+
+/** One big tier the authored win presentation (Rive plan Phase 8b) is generated for. */
+export interface WinPresentationTier extends WinTierMeta {
+	/** The tier's Win Text caption (`winLevels.<alias>`, a key or source text); empty ⇒ none drawn. */
+	caption?: string;
+}
+
+/** The node names the generated win timelines bind (`findActorNode` matches a component's nodes by label). */
+export const WIN_PRESENTATION_NODES = {
+	fade: 'fade',
+	visual: 'visual',
+	coins: 'coins',
+	tier: 'tier',
+	caption: 'caption',
+	count: 'count',
+	countPlain: 'countPlain',
+} as const;
+
+const winGoldText = (fontSize: number) => ({
+	fontFamily: 'gold',
+	fontSize,
+	align: 'center' as const,
+	fontWeight: 'bold',
+	letterSpacing: 0,
+});
+
+/**
+ * The AUTHORED big-win presentation (Rive plan Phase 8b, `docs/design/rive-style-editor.md`
+ * §13.6.3): what the coded `WinVisual` draws, as nodes the generated per-tier timelines
+ * (`winTierTimelines`) drive — beside, not instead of, the `win` twin whose bound child is still
+ * the coded part. Same params as `win` (a `win` instance's params map one-to-one when the game
+ * swaps it), generated from the same tier list. `internal`: nothing references it until a project
+ * turns on `settings.authoredOverlays.win`, and no palette offers it during the pilot.
+ *
+ * Root, back to front as `WinVisual` stacks them, inside a `fade` container holding a `visual`
+ * container. The `fade` node's alpha is the coded `FadeContainer`'s TWEEN, reproduced by the def's
+ * state machine (one layer, `hidden` ⇄ `shown`, 400 ms linear blends on the `winFade` / `winHide`
+ * triggers): that container fades IN on every win (its mount, then every `show`) and, on
+ * `winHide`, tweens to 0 FROM WHEREVER IT IS — a hide inside the fade-in (a slammed win) leaves
+ * from the half-faded value, which only a blend from the pose on screen can do, not a keyed
+ * timeline. The `visual` node's visibility is the mount the coded container dropped at alpha 0
+ * (the hide and rest timelines key it) — a separate node, because a timeline wins a node whole:
+ * - `tier` — ONE rig node on the shared `winSpine` bundle, no resting clip (nothing drawn until a
+ *   tier timeline poses it); its `boardFit` is bound to the `fitBoard` param (default off), which
+ *   ONLY the synthesized `winVisual` instance turns on — the coded composer fitted the rig to the
+ *   board width, a placed `win` instance rendered at its natural size, and the swap keeps both;
+ * - `caption` / `count` — text nodes riding the rig's count slot (`rigSlot`, bound to `slotName`),
+ *   as the coded ones did through `<RigSlot>`; the count reads the live `winCountUpAmount` through
+ *   the def's `source` param (self-animated, currency-formatted — the HudReadout road), the caption
+ *   is switched to a tier's Win Text key by that tier's walk timeline (`switchKeys` lists them);
+ * - `countPlain` — the small / medium number, shown only by the plain timeline;
+ * - `coins` — LAST, in front: the coded `WinCoins` fountain as a bound child (`showCoins` read by
+ *   the part). The emitter adds each particle straight into its enclosing container as it spawns,
+ *   so on the coded path the coins land after the rig and draw over the banner; the node sits last
+ *   for the same reason (measured by `check:win-parity`: first, they hid behind the banner).
+ */
+export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TIERS): ComponentDef {
+	const captions = [
+		...new Set(tiers.map((tier) => tier.caption ?? '').filter((caption) => caption.length > 0)),
+	];
+	return {
+		id: 'winPresentation',
+		name: 'Win presentation',
+		version: 1,
+		scope: 'shared',
+		category: 'overlay',
+		internal: true,
+		root: {
+			id: 'winPresentation-root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [
+				{
+					id: 'winPresentation-fade',
+					label: WIN_PRESENTATION_NODES.fade,
+					kind: 'container',
+					x: 0,
+					y: 0,
+					children: [
+						{
+							id: 'winPresentation-visual',
+							label: WIN_PRESENTATION_NODES.visual,
+							kind: 'container',
+							x: 0,
+							y: 0,
+							children: [
+								{
+									id: 'winPresentation-tier',
+									label: WIN_PRESENTATION_NODES.tier,
+									kind: 'spine',
+									x: 0,
+									y: 0,
+									assetKey: WIN_PRESENTATION_DEFAULTS.winSpine,
+									paramBindings: { assetKey: 'winSpine', boardFit: 'fitBoard' },
+								},
+								{
+									id: 'winPresentation-caption',
+									label: WIN_PRESENTATION_NODES.caption,
+									kind: 'text',
+									x: 0,
+									y: -WIN_SYMBOL_SIZE * 2.6,
+									anchor: { x: 0.5, y: 0.5 },
+									text: '',
+									...(captions.length ? { switchKeys: captions } : {}),
+									style: winGoldText(WIN_SYMBOL_SIZE * 1.8),
+									rigSlot: WIN_PRESENTATION_DEFAULTS.slotName,
+									paramBindings: { rigSlot: 'slotName' },
+								},
+								{
+									id: 'winPresentation-count',
+									label: WIN_PRESENTATION_NODES.count,
+									kind: 'text',
+									x: 0,
+									y: 0,
+									anchor: { x: 0.5, y: 0.5 },
+									text: '',
+									style: winGoldText(WIN_SYMBOL_SIZE * 3.6),
+									rigSlot: WIN_PRESENTATION_DEFAULTS.slotName,
+									paramBindings: { text: 'value', rigSlot: 'slotName' },
+								},
+								{
+									id: 'winPresentation-countPlain',
+									label: WIN_PRESENTATION_NODES.countPlain,
+									kind: 'text',
+									x: 0,
+									y: 0,
+									anchor: { x: 0.5, y: 0.5 },
+									text: '',
+									style: winGoldText(WIN_SYMBOL_SIZE),
+									paramBindings: { text: 'value' },
+								},
+								{
+									id: 'winPresentation-coins',
+									label: WIN_PRESENTATION_NODES.coins,
+									kind: 'container',
+									x: 0,
+									y: 0,
+									bind: { component: 'WinCoins' },
+									children: [],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		inputs: [
+			// Fired by the gate when the coded `FadeContainer` would start its tween: on `winShow` once a
+			// presentation has mounted before, and one frame after the FIRST `winUpdate` (the coded
+			// container's mount awaits a zero-length tween before it fades in).
+			{ id: 'winFade', kind: 'trigger', note: 'The win presentation fades in.' },
+			{ id: 'winHide', kind: 'trigger', note: 'The win presentation ends.' },
+		],
+		stateMachine: {
+			layers: [
+				{
+					id: 'fade',
+					name: 'Fade',
+					entry: 'hidden',
+					states: [
+						{ id: 'hidden', timeline: WIN_FADE_HIDDEN_TIMELINE_ID },
+						{ id: 'shown', timeline: WIN_FADE_SHOWN_TIMELINE_ID },
+					],
+					transitions: [
+						{
+							id: 'show',
+							from: 'any',
+							to: 'shown',
+							conditions: [{ input: 'winFade', op: 'fired' }],
+							blend: WIN_FADE_MS,
+						},
+						{
+							id: 'hide',
+							from: 'any',
+							to: 'hidden',
+							conditions: [{ input: 'winHide', op: 'fired' }],
+							blend: WIN_FADE_MS,
+						},
+					],
+				},
+			],
+		},
+		params: [
+			// The live count: the game's `winCountUpAmount` value source (self-animated, so the bound
+			// text snaps to it each frame — no second count-up on top).
+			{ key: 'source', kind: 'string', default: 'winCountUpAmount', options: VALUE_SOURCE_KEYS },
+			// Fit the tier rig to the game's board width (the coded composer's size). Off by default: a
+			// placed instance keeps its natural size, as the coded `win` instance did.
+			{ key: 'fitBoard', kind: 'boolean', default: false, label: 'fit to board width' },
+			...WIN_BASE_PARAMS,
+			...winTierPresentationParams(tiers),
+		],
+	};
+}
+
+export const WIN_PRESENTATION_DEF: ComponentDef = winPresentationDef();
+
 /**
  * A droppable full-screen TAP-TO-CONTINUE overlay (Invisible Flow §6.2). An author
  * drops this on ANY Flow screen from the Scene Editor palette to get a full-screen
@@ -2790,6 +3003,7 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FREE_SPIN_INTRO_VISUAL_DEF,
 	FREE_SPIN_OUTRO_VISUAL_DEF,
 	WIN_DEF,
+	WIN_PRESENTATION_DEF,
 	TAP_TO_CONTINUE_DEF,
 	LOADING_BAR_DEF,
 	EXPANDING_SYMBOL_DEF,

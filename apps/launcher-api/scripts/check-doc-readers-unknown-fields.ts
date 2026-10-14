@@ -446,25 +446,37 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'"features":{"turbo":true}',
 		'"id":"basegame"',
 	]);
-	// Authored overlays (Rive plan Phase 8a): an ON row round-trips; an unknown overlay, an OFF
-	// row and a non-boolean are dropped, so the block is sparse and never gains a key it cannot read.
+	// Authored overlays (Rive plan Phase 8a / 8b): the ON rows (`transition`, `win`) round-trip; an
+	// unknown overlay, an OFF row and a non-boolean are dropped, so the block is sparse and never
+	// gains a key it cannot read.
 	const overlaysOn = clone(base) as typeof base & { settings: Record<string, unknown> };
-	overlaysOn.settings.authoredOverlays = { transition: true };
+	overlaysOn.settings.authoredOverlays = { transition: true, win: true };
 	const overlaysExtras = clone(overlaysOn);
-	Object.assign(overlaysExtras.settings.authoredOverlays as object, { win: true, note: 'x' });
+	Object.assign(overlaysExtras.settings.authoredOverlays as object, { outro: true, note: 'x' });
 	ignores(
 		'4. layout (authored overlays)',
 		(d) => normalizeLayoutDoc(d, 'demo'),
 		overlaysOn,
 		overlaysExtras,
-		['"authoredOverlays":{"transition":true}'],
+		['"authoredOverlays":{"transition":true,"win":true}'],
 	);
-	const overlaysOff = clone(base) as typeof base & { settings: Record<string, unknown> };
-	overlaysOff.settings.authoredOverlays = { transition: false };
-	const offOut = JSON.stringify(normalizeLayoutDoc(overlaysOff, 'demo'));
-	if (offOut.includes('authoredOverlays')) {
-		throw new Error('4. layout: an OFF authored-overlay row must not be written');
+	for (const [label, row] of [
+		['an OFF row', { transition: false, win: false }],
+		['a non-boolean row', { transition: 'yes', win: 1 }],
+	] as const) {
+		const overlaysOff = clone(base) as typeof base & { settings: Record<string, unknown> };
+		overlaysOff.settings.authoredOverlays = row;
+		const offOut = JSON.stringify(normalizeLayoutDoc(overlaysOff, 'demo'));
+		if (offOut.includes('authoredOverlays')) {
+			throw new Error(`4. layout: ${label} of an authored overlay must not be written`);
+		}
 	}
+	const winOnly = clone(base) as typeof base & { settings: Record<string, unknown> };
+	winOnly.settings.authoredOverlays = { transition: false, win: true };
+	check(
+		'4. layout: an ON win row survives beside an OFF transition row (sparse, ON-only)',
+		JSON.stringify(normalizeLayoutDoc(winOnly, 'demo')).includes('"authoredOverlays":{"win":true}'),
+	);
 
 	const withNodeField = clone(base);
 	Object.assign(withNodeField.scenes[0].nodes[0], { glow: 0.2 });

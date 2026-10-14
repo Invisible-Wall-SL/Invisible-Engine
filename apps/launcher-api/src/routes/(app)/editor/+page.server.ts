@@ -30,7 +30,7 @@ import {
 	listComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
-import { authoredOverlayChangeAllowed } from '$lib/server/authoredOverlayGuard';
+import { authoredOverlaySaveDecision } from '$lib/server/authoredOverlayGuard';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
@@ -367,29 +367,47 @@ export const actions: Actions = {
 		} catch {
 			return fail(400, { action: 'save' as const, error: 'Invalid doc.' });
 		}
-		// The authored-overlay pilot switch (Rive plan Phase 8a) is a publisher's to flip: the row
-		// is disabled for everyone else, and this refuses a save that would flip it anyway. Read
-		// only for a non-publisher, so a publisher's autosave pays no extra read.
-		if (!canPublishShared) {
-			const { doc: stored } = await loadDocWithEtag(clientKey, projectKey);
-			if (
-				!authoredOverlayChangeAllowed({
-					before: stored,
-					after: parsed as Partial<LayoutDoc>,
-					canPublish: false,
-				})
-			) {
-				return fail(403, {
-					action: 'save' as const,
-					error: 'Switching the authored Transition pilot needs the component-publish capability.',
-				});
-			}
-		}
 		// `force` is the author answering the conflict banner with "overwrite theirs" —
 		// the ONLY legitimate way to reach an unconditional write from a browser. It is
 		// deliberately a separate field rather than an omitted etag, so an unguarded
 		// write is always an explicit choice in the payload, never an accident.
 		const baseEtag = writeBaseEtagForm(form);
+		// Someone else saved this project since this tab loaded it. Refuse rather than overwrite
+		// their work — and return `fail`, NOT `error()`, so the client's envelope parser can read
+		// the reason. The client keeps its local doc and stays dirty; nothing here may discard it.
+		const conflict = () =>
+			fail(409, {
+				action: 'save' as const,
+				error:
+					'Someone else saved this project while you were editing. ' +
+					'Your changes are still here — reload to get their version first.',
+				conflict: true as const,
+			});
+		// The authored-overlay pilot switches (Rive plan Phase 8a / 8b) are a publisher's to flip:
+		// the rows are disabled for everyone else, and this refuses a save that would flip one
+		// anyway — AFTER the ETag check (`authoredOverlaySaveDecision`): a stale tab keeps the
+		// ordinary conflict path above everything else, and only a write that would land can be
+		// refused for the flip. One read, for a non-publisher only, so a publisher's autosave pays
+		// no extra read; the write below is still conditional, so a save landing between this read
+		// and the PUT is the same 409.
+		if (!canPublishShared) {
+			const stored = await loadDocWithEtag(clientKey, projectKey);
+			const decision = authoredOverlaySaveDecision({
+				before: stored.doc,
+				after: parsed as Partial<LayoutDoc>,
+				canPublish: false,
+				baseEtag,
+				storedEtag: stored.etag,
+			});
+			if (decision === 'conflict') return conflict();
+			if (decision === 'forbidden') {
+				return fail(403, {
+					action: 'save' as const,
+					error:
+						'Switching an authored-overlay pilot (Transition, Win) needs the component-publish capability.',
+				});
+			}
+		}
 		// `backup: 'always'` = "this save is committing a DESTRUCTIVE layout swap" (a scaffold /
 		// custom-kind / reference load the author accepted). Those are exactly the writes someone
 		// wants back, and they are rare, so they bypass the autosave coalescing window in
@@ -410,19 +428,7 @@ export const actions: Actions = {
 				backup,
 			));
 		} catch (e) {
-			if (e instanceof ConflictError) {
-				// Someone else saved this project since this tab loaded it. Refuse rather
-				// than overwrite their work — and return `fail`, NOT `error()`, so the
-				// client's envelope parser can read the reason. The client keeps its local
-				// doc and stays dirty; nothing here may discard it.
-				return fail(409, {
-					action: 'save' as const,
-					error:
-						'Someone else saved this project while you were editing. ' +
-						'Your changes are still here — reload to get their version first.',
-					conflict: true as const,
-				});
-			}
+			if (e instanceof ConflictError) return conflict();
 			throw e;
 		}
 		// Non-blocking template validation (§7.1): flag any required slot the

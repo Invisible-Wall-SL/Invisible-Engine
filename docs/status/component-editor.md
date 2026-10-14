@@ -57,6 +57,14 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-14 — **The second authored overlay: `winPresentation` (Rive plan Phase 8b, branch
+  `claude/rive-p8b-win-design`).** A new `internal` built-in def beside the hybrid `win` twin
+  (unchanged, same params): one rig node `tier` with `boardFit`, the caption and count text nodes
+  riding the rig's count slot through the new `rigSlot` node field (both fields live on the
+  built-in def only — the launcher's node normalizer does not know them and need not), the coins
+  as a bound child; no palette entry during the pilot. Its timelines are generated per tier at
+  boot, not authored. Nothing changes in the Components side itself. The flag, the runtime and the
+  gates: [engine status](engine.md), 2026-10-14; the launcher row and chips: [editor status](editor.md).
 - 2026-10-14 — **The first authored overlay: `transitionWipe` (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`).** A new `internal` built-in def beside the hybrid
   `transition` twin (unchanged): one rig node `wipe`, no text, no params, no palette entry during the

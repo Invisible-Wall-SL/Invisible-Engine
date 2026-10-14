@@ -5,7 +5,7 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import { authoredTransitionStatus } from 'engine-layout';
+import { authoredTransitionStatus, authoredWinEnabled, authoredWinStatus } from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -30,6 +30,7 @@ import {
 } from '$lib/server/gameConfigDefaults';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
+import { authoredWinTiersFor } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -52,6 +53,7 @@ import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { engineStalenessIndex } from '$lib/server/engineStaleness';
 import { loadTestServerManifest } from '$lib/server/testServerManifest';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
+import { loadWinTextDoc } from '$lib/server/winTextStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -197,9 +199,9 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			const engine = staleness.for(p.key, Boolean(game));
 
 			// The card's "what IS this game" summary. Three extra R2 reads per project (the config,
-			// the symbols doc and the layout doc); everything else is already in hand. The loaders
-			// degrade to a usable value rather than throwing, so one unreadable doc costs a chip, not
-			// the page.
+			// the symbols doc and the layout doc) — four with the authored Win on (its Win Text doc,
+			// below); everything else is already in hand. The loaders degrade to a usable value
+			// rather than throwing, so one unreadable doc costs a chip, not the page.
 			const [config, symbols, pointer, layout] = await Promise.all([
 				resolveGameConfig(clientKey, p.key, p.gameType),
 				loadSymbolsDoc(clientKey, p.key),
@@ -213,6 +215,13 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 					.then((r) => r.doc)
 					.catch(() => null),
 			]);
+			// The authored Win's status needs the active tiers (the config, in hand) and their Win Text
+			// captions — one more read, paid only by a project with the flag on (Rive plan Phase 8b);
+			// off, the status is `off` whatever the captions say.
+			const winText =
+				layout && authoredWinEnabled(layout)
+					? await loadWinTextDoc(clientKey, p.key).catch(() => undefined)
+					: undefined;
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
 				gameTypeName: kindNames.get(p.gameType) ?? p.gameType,
@@ -221,7 +230,15 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				symbols,
 				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
-				layout: layout ? { authoredTransition: authoredTransitionStatus(layout) } : null,
+				layout: layout
+					? {
+							authoredTransition: authoredTransitionStatus(layout),
+							authoredWin: authoredWinStatus({
+								doc: layout,
+								tiers: authoredWinTiersFor({ config: config.doc, layout, winText }),
+							}),
+						}
+					: null,
 			});
 
 			return {

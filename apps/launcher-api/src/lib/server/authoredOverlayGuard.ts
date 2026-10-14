@@ -1,18 +1,58 @@
 import type { LayoutDoc } from 'engine-layout';
 
 /**
- * Who may flip an authored-overlay pilot switch (Rive plan Phase 8a): the Game Settings row is
- * enabled for holders of the component-publish capability, and the save enforces the same rule —
- * a save that changes `settings.authoredOverlays.transition` from a user without it is refused,
- * so the UI gate is not the only one. A save that leaves the switch as stored is anyone's.
+ * Who may flip an authored-overlay pilot switch (Rive plan Phase 8a / 8b): the Game Settings rows
+ * are enabled for holders of the component-publish capability, and the save enforces the same
+ * rule — a save that changes `settings.authoredOverlays.transition` or `.win` from a user without
+ * it is refused, so the UI gate is not the only one. A save that leaves both switches as stored
+ * is anyone's.
  */
-const transitionOn = (doc: Pick<LayoutDoc, 'settings'> | null | undefined): boolean =>
-	doc?.settings?.authoredOverlays?.transition === true;
+type Settings = Pick<LayoutDoc, 'settings'> | null | undefined;
+
+const AUTHORED_OVERLAY_ROWS = ['transition', 'win'] as const;
+
+const overlayOn = (doc: Settings, row: (typeof AUTHORED_OVERLAY_ROWS)[number]): boolean =>
+	doc?.settings?.authoredOverlays?.[row] === true;
+
+/** Whether `after` flips any pilot switch `before` has (an absent doc has every switch off). */
+export const authoredOverlayFlipped = (before: Settings, after: Settings): boolean =>
+	AUTHORED_OVERLAY_ROWS.some((row) => overlayOn(before, row) !== overlayOn(after, row));
 
 export function authoredOverlayChangeAllowed(args: {
-	before: Pick<LayoutDoc, 'settings'> | null | undefined;
-	after: Pick<LayoutDoc, 'settings'> | null | undefined;
+	before: Settings;
+	after: Settings;
 	canPublish: boolean;
 }): boolean {
-	return args.canPublish || transitionOn(args.before) === transitionOn(args.after);
+	return args.canPublish || !authoredOverlayFlipped(args.before, args.after);
+}
+
+/**
+ * Whether a conditional write would lose its CAS: the tab's `baseEtag` precondition
+ * (`writeGuard.ts`: a string = "I loaded this version", `null` = "I believe there is no doc yet",
+ * `undefined` = `force`, an unconditional overwrite) against the ETag stored right now (`null` =
+ * no object). A `force` write is never stale.
+ */
+export const writeIsStale = (
+	baseEtag: string | null | undefined,
+	storedEtag: string | null,
+): boolean => baseEtag !== undefined && baseEtag !== storedEtag;
+
+export type AuthoredOverlaySaveDecision = 'write' | 'conflict' | 'forbidden';
+
+/**
+ * The editor save action's decision for a doc that may flip a pilot switch, in the order the
+ * owner set: the ETag check FIRST — a stale tab gets the ordinary 409 conflict path whoever it is
+ * and whatever it flips — and only a write that would NOT conflict (`force`, or the submitted base
+ * ETag equals the stored one) can be refused for the flip (403, a non-publisher). Pure, so the
+ * gate drives (stale, flip) × (publisher, non-publisher).
+ */
+export function authoredOverlaySaveDecision(args: {
+	before: Settings;
+	after: Settings;
+	canPublish: boolean;
+	baseEtag: string | null | undefined;
+	storedEtag: string | null;
+}): AuthoredOverlaySaveDecision {
+	if (writeIsStale(args.baseEtag, args.storedEtag)) return 'conflict';
+	return authoredOverlayChangeAllowed(args) ? 'write' : 'forbidden';
 }

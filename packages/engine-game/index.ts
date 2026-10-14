@@ -186,11 +186,29 @@ export {
 	type WinTapAction,
 } from './src/game/winEscalation';
 export {
+	WIN_PRESENTATION_DEFAULTS,
+	authoredWinTierClips,
+	resolveTierPresentation,
+	type AuthoredWinTierClips,
+	type TierPresentation,
+} from './src/game/winPresentation';
+export {
+	awaitFireHolds,
+	createWinWalk,
+	nextStep,
+	type WinWalk,
+	type WinWalkEffect,
+	type WinWalkEvent,
+	type WinWalkPhase,
+	type WinWalkSignals,
+	type WinWalkTier,
+} from './src/game/winWalk';
+export {
 	freeSpinsRemaining,
 	freeSpinsTotal,
 	freeSpinsCurrent,
 } from './src/game/freeSpinCounterValues';
-export { eventSignal } from './src/game/signalSource';
+export { eventSignal, manualSignal, type ManualSignal } from './src/game/signalSource';
 export { boolSource } from './src/game/boolSource.svelte';
 export { textSource } from './src/game/textSource.svelte';
 export { valueSource } from './src/game/valueSource.svelte';

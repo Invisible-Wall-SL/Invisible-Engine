@@ -2,8 +2,16 @@
 	import type { RigBoneOffset } from '../rigBoneOffset';
 
 	/** Hold `animation` at `time`: a share of its length (0 = its first frame, 1 = its last), or,
-	 *  with `unit: 'seconds'`, a clip-local time clamped to the clip (a timeline strip's time). */
-	export type RigPoseScrub = { animation: string; time: number; unit?: 'share' | 'seconds' };
+	 *  with `unit: 'seconds'`, a clip-local time clamped to the clip (a timeline strip's time).
+	 *  `fromSetup` poses from the SETUP pose each frame (a timeline strip: the rig shows this clip
+	 *  and nothing else, as a track does — a bone the previous clip keyed and this one does not
+	 *  returns to setup, as `AnimationState` mixes it out); absent ⇒ on top of what is playing. */
+	export type RigPoseScrub = {
+		animation: string;
+		time: number;
+		unit?: 'share' | 'seconds';
+		fromSetup?: boolean;
+	};
 	/** Offset `bone` on top of whatever poses it — see `rigBoneOffset.ts`. */
 	export type RigPoseBone = { bone: string; offset: RigBoneOffset };
 
@@ -52,7 +60,14 @@
 	const pose = (): void =>
 		untrack(() => {
 			const skeleton = rig.skeleton;
-			for (const { animation: name, time, unit } of props.scrubs ?? []) {
+			const scrubs = props.scrubs ?? [];
+			// A strip scrub owns the rig: reset to the setup pose first, so a bone, slot colour or
+			// attachment keyed by an earlier clip (the intro) and not by this one (the idle) does not
+			// linger — `AnimationState` resets those to setup when it mixes the old entry out, and a
+			// `replace` apply alone would keep them (measured: the authored idle drifted from the
+			// coded one from the intro's end on, `check:win-parity` base).
+			if (scrubs.some((scrub) => scrub.fromSetup)) skeleton.setToSetupPose();
+			for (const { animation: name, time, unit } of scrubs) {
 				const animation = skeleton.data.findAnimation(name);
 				if (!animation) {
 					warnOnce(

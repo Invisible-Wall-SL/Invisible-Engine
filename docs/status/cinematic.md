@@ -345,6 +345,14 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-14 — **Generated timelines and a per-component play rate (Rive plan Phase 8b, branch
+  `claude/rive-p8b-win-design`).** `registerGameTimelines(baked, generated)` takes timelines the
+  game GENERATES at boot (the authored win's per-tier walk / loop / outro docs, `winTierTimelines`,
+  lower-case ids a baked project timeline shadows); `ComponentTimelinePlayer.playRate` advances
+  every running `playOn` timeline by `dt × playRate` (`componentPlayRate.ts`, set by the game);
+  a `text` track in `switchKey` mode drives the caption. No Animate UI for any of it in this
+  change. Detail: [engine status](engine.md), 2026-10-14; launcher gate `check:authored-win`.
+
 - 2026-10-14 — **`animation` strips on rig NODE actors + `holdsCue` (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`).** The §3.1 open item: a node actor's `animation` track now
   plays — `sampleNodeActor` (synced copy too) samples the strip active at `t` as `animTime:

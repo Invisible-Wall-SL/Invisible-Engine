@@ -375,8 +375,11 @@ export function boundScrubs(
 export function withTimelineScrub(
 	own: BoundScrub[],
 	strip: { animation: string; time: number } | undefined,
-): (BoundScrub & { unit?: 'seconds' })[] {
-	return strip ? [...own, { ...strip, unit: 'seconds' }] : own;
+): (BoundScrub & { unit?: 'seconds'; fromSetup?: boolean })[] {
+	// `fromSetup`: a strip owns the rig — it poses from the setup pose each frame, as a track does
+	// (Rive plan Phase 8b: without it, a bone the intro keyed and the idle does not kept its
+	// intro-end pose on the authored side while the coded track reset it).
+	return strip ? [...own, { ...strip, unit: 'seconds', fromSetup: true }] : own;
 }
 
 /** One bone's combined offset — what `<RigPose bones>` and the editor preview pose. */

@@ -55,6 +55,13 @@
 
 ## Recent changes
 
+- 2026-10-14 — **`instanceHoldMs` measures only the authored twins of a coded bind that measured**
+  (Rive plan Phase 8b, branch `claude/rive-p8b-win-design`): `flowV2Runtime`'s
+  `MEASURED_BIND_TWINS` (the Transition wipe) — the authored win presentation holds its cues but
+  measures `undefined`, as its coded bound part measured 0 through `boundComponentMs`, so a
+  `showContainer.durationMs` reads the same on both paths. Nothing else in Flow changes. Detail:
+  [engine status](engine.md), 2026-10-14.
+
 - 2026-10-14 — **An awaited `fireCue` waits for the component timelines that hold it** (Rive plan
   Phase 8a, branch `claude/rive-p8a-transition-overlay`). `flowV2Runtime`'s awaited `broadcast(cue)`
   appends `cueHolds(cue)` to the `Promise.all` it already awaits — only when there are any — and

@@ -68,10 +68,17 @@ const baseDoc = (settings?: unknown): LayoutDoc =>
 // ---- 1. the flag ---------------------------------------------------------------------------------
 
 eq(
-	'an ON row survives the normalizer, alone',
-	normalizeLayoutDoc(baseDoc({ authoredOverlays: { transition: true, win: true } }), 'demo')
-		.settings,
-	{ authoredOverlays: { transition: true } },
+	'an ON row survives the normalizer, alone (an unknown overlay is dropped; the 8b `win` row is kept)',
+	[
+		normalizeLayoutDoc(baseDoc({ authoredOverlays: { transition: true, outro: true } }), 'demo')
+			.settings,
+		normalizeLayoutDoc(baseDoc({ authoredOverlays: { transition: true, win: true } }), 'demo')
+			.settings,
+	],
+	[
+		{ authoredOverlays: { transition: true } },
+		{ authoredOverlays: { transition: true, win: true } },
+	],
 );
 eq(
 	'an OFF row, a string and an empty block are not written',
@@ -544,10 +551,12 @@ eq(
 		'utf8',
 	);
 	const save = action.slice(action.indexOf('save: async ('));
+	// Since 8b the action reaches `authoredOverlayChangeAllowed` through `authoredOverlaySaveDecision`
+	// (the ETag check first); `check:authored-win` drives that decision's truth table.
 	eq(
 		'the editor save action refuses the flip before it writes',
-		save.indexOf('authoredOverlayChangeAllowed(') > 0 &&
-			save.indexOf('authoredOverlayChangeAllowed(') < save.indexOf('await saveDoc('),
+		save.indexOf('authoredOverlaySaveDecision(') > 0 &&
+			save.indexOf('authoredOverlaySaveDecision(') < save.indexOf('await saveDoc('),
 		true,
 	);
 }

@@ -840,6 +840,12 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		winPresentation = params ?? {};
 	}
 
+	/** The published `win` instance params, as {@link publishWinPresentation} left them (`{}` un-authored) —
+	 *  what the authored presentation resolves each tier's clips from (`resolveTierPresentation`). */
+	function winPresentationParams(): Record<string, unknown> {
+		return winPresentation;
+	}
+
 	// ---------------------------------------------------------------------------
 	// WHAT PLAYS WHEN — the Invisible Sound doc's choices, published at boot from the baked catalog.
 	//
@@ -1141,6 +1147,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		publishWinLevelsToFacade,
 		publishExpandMinReelsToFacade,
 		publishWinPresentation,
+		winPresentationParams,
 		resetGameConfigCache,
 		captureServerGrid,
 		warnOnGameConfigIssues,

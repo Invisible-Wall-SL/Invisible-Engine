@@ -253,10 +253,13 @@ function normalizeGameSettings(input: unknown): GameSettings | undefined {
 	// the next save — the field would appear to save in the editor and never reach R2.
 	const bootLoader = normalizeBootSplashRef(input.bootLoader);
 	if (bootLoader) out.bootLoader = bootLoader;
-	// Authored overlays (Rive plan Phase 8a): sparse, ON rows only — an off row is the same as an
-	// absent one to the runtime, so it is never written and an older doc never gains the block.
-	if (isRecord(input.authoredOverlays) && input.authoredOverlays.transition === true) {
-		out.authoredOverlays = { transition: true };
+	// Authored overlays (Rive plan Phase 8a / 8b): sparse, ON rows only — an off row is the same as
+	// an absent one to the runtime, so it is never written and an older doc never gains the block.
+	if (isRecord(input.authoredOverlays)) {
+		const overlays: NonNullable<GameSettings['authoredOverlays']> = {};
+		if (input.authoredOverlays.transition === true) overlays.transition = true;
+		if (input.authoredOverlays.win === true) overlays.win = true;
+		if (Object.keys(overlays).length > 0) out.authoredOverlays = overlays;
 	}
 	return Object.keys(out).length > 0 ? out : undefined;
 }

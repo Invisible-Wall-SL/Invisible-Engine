@@ -12,6 +12,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Persistent background scene (coded path only)** — without a screen-driving flow, a `space:'background'` scene renders behind the game for the whole session (`engine-layout/backgroundScenes.ts`), cover-fit as one group so multi-part backgrounds keep their real size + animate (`ComponentInstance` cover path). Under a v2 flow that drives the screens it is an ordinary container the flow shows/hides — the space is only the coordinate frame (2026-09-02, see [flow history](flow-history.md)).
 - **Per-node cover-fit (`node.coverFit`)** — a cover-capable node in a normal `canvas`-space (FLOW-GATED) scene can opt into true cover-fit to the window via a `coverFit` boolean on `BaseNode` (`engine-layout/types.ts`), reusing the exact `background` cover math (`coverTransform` + `backgroundCoverScale`/`backgroundFit`/`scale` stretch) WITHOUT the always-on persistent mounting of `space:'background'` — so a free-spin intro screen can host a full-screen stretched animation the flow still shows/hides. **Which kinds cover is ONE exported list, not a condition repeated at each gate:** `isCoverFitKind` (sprite / rig / flipbook) and its texture-measured subset `isCoverArtKind` (sprite / flipbook) in `coverTransform.ts` — every gate below reads them, because when the list was spelled out per-gate the `flipbook` kind reached none of them. Runtime gate `isCanvasCoverFit`/`isCover` in `LayoutNodeView.svelte` (a `coverFit` rig is force-CENTRED on the canvas via `rigCoverCenter`, matching the sprite cover + the editor — it ignores authored x/y, since a flow screen places it anywhere); editor previews it WYSIWYG (`EditorCanvas.nodeTransform` + `isBackgroundCover`, `EditorRigLayer` `coverFit` target, `+page.svelte` `isBackgroundCoverSelected`); authored via a "Cover / full-screen fill" toggle in `EditorProperties.svelte` (canvas-space cover-capable kinds only) that reveals the existing cover-scale/fit/stretch controls. Additive — `coverFit` unset is byte-identical, `background` scenes unchanged. Verify offline: `node packages/engine-layout/scripts/test-cover-fit.mjs`. Persistence: node fields pass through `editorStorage.normalizeNode` + `identityComponentRoot`'s child-preserving copy untouched (no allowlist), and `markDirty` always bumps the canvas redraw nonce, so no whitelist change was needed. Reaching a live game needs a runtime release + reconcile.
 - **Authored Transition behind a per-project flag (Rive plan Phase 8a, 2026-10-14, ⏳ owner browser check pending)** — `settings.authoredOverlays.transition` on the layout doc (Scene Editor → Game Settings → *Authored overlays (pilot)*) renders the free-spin transition wipe from the built-in `transitionWipe` component and its built-in timeline instead of the coded `bind: Transition`; off for every live game. The general pieces it adds: `animation` strips on rig node actors and `holdsCue` timelines (an awaited `fireCue` waits for the timeline's end). Parity: `check:transition-parity` (0 px at five frames, the flow continues on the same frame) and `check:authored-transition`. Detail in Recent changes; the plan's §13 is the map for 8b–8d.
+- **Authored Win behind a per-project flag (Rive plan Phase 8b, 2026-10-14, ⏳ owner browser check pending)** — `settings.authoredOverlays.win` renders what the coded `WinVisual` draws (the tier rig and its per-tier clips, the count in the rig's slot, the caption, the plain number, the fade) from the built-in `winPresentation` component and per-tier timelines GENERATED at boot from the active tiers + the loaded `bigwin` skeleton; the coded `WinGate` stays and conducts them (`winWalk.ts`). General pieces it adds: `rigSlot` (a node rides a sibling rig's slot through `<RigSlot>`), `boardFit` (a rig sized to the registered board width), a per-component timeline **play rate**, generated timelines in `registerGameTimelines`, and the determinism probe's `setTurbo` / `?ie_turbo=1`. Off for every live game and the dev build (`AUTHORED_WIN = false`). Detail in Recent changes.
 - **Bitmap-font layout text** — `LayoutNodeView` renders `<BitmapText>` for authored bitmap fonts via `registerFontCatalog`; coded HUD/label text honors authored bitmap fonts through the shared `engine-layout/CatalogText` component (one source, canvas `<Text>` + `<BitmapText>` can't drift). `pixi-svelte`'s `<BitmapText>` applies three font guards before pixi sees the text (`sanitizeBitmapText.ts`): a synthesised space glyph + unbaked-glyph sanitisation (the two black-screen guards) and `normalizeBitmapFontMetrics`, which corrects a descriptor that under-reports its glyph box so `fontSize` means the same thing for every font (the bundled `silver` declares 97 for 199px glyphs). The launcher's `EditorTextLayer` calls the same normaliser so the editor canvas can't drift from the game.
 - **Component value/defaults + HUD readouts (B1–B4)** — the component value/defaults system + the live Balance/Win/Bet readouts now render as `hudReadout` component INSTANCES in `apps/lines` (B4.1–B4.4 flip, shipped 2026-06-08: `readoutNode()` emits `componentInstance` nodes, `LayoutEditable` mounts them + suppresses the coded snippets via `coveredSources`; `hudScenes({readouts:true})` is on for lines, off → coded `UiLabel*` binds for Borut/editor-picker = parity). Remaining tail: owner live-verify.
 - **Default-HUD fallback (Phase 1, 2026-08-06)** — a project seeded with the legacy CODED `hudBar` (`UiLabel*`/`UiButton*` `bind` nodes) rendered BLANK under a flow-v2-driven game: those names aren't registered bound components (only the coded `<UI>` drew them, from the scene positions), and `de772aec` suppresses the coded `<UI>` under `flowV2DrivesScreens` so `<FlowV2Mount>` mounts them as empty containers. Fix: `normalizeHudScenes(doc)` (engine-layout) rewrites each legacy `hudBar` node → its parametric `componentInstance` (`hudReadout`/`button`) at doc load (`loadEditorScenes`), preserving the transform byte-for-byte via `labelBindToInstance`/`buttonBindToInstance`; the parametric HUD renders through the generic mounter in BOTH paths. Runs in memory (no re-save) so every old project self-heals; strict no-op for docs already parametric or with no `hudBar` (`scripts/verify-hud-fallback.mts` = 14/14). The parametric HUD is the go-forward default; the coded `<UI>` HUD is slated for retirement. Phase 1 shipped to `main` + runtime-released 2026-08-06 (PR #252), verified live on `test2` (bottom bar back). **Phase 2 (corners) — on `main`:** `HudGameName`/`HudLogo` are now REGISTERED bound components (`components-ui-pixi`), so under a flow-v2-driven game `<FlowV2Mount>` mounts the reserved `hudCorners` scene and `LayoutNodeView` resolves those binds (they mounted as EMPTY containers before — the logo/game-name twin of the Phase-1 blank bar, the open item from the 2026-07-24 double-mount fix in [engine-history](engine-history.md)). The coded `<UI>` `gameName`/`logo` snippets now render through the SAME two components (one home, no drift); `hudCorners` is a RESERVED scene so no double-mount in the coded path. Phase 2 SHIPPED + runtime-released (PR #255), verified live on `test2` (clock + game name + logo back). **Phase 2b — on `main`:** the persist + reset half, in the launcher/editor. (a) `editorStorage.normalizeDoc` now runs `normalizeHudScenes` — same migrate-on-read shape as `backfillAlwaysOnTop` — so the editor SHOWS the flow-v2-safe parametric HUD and the next save PERSISTS the migrated doc (and `/api/editor/doc` serves it migrated to the runtime too, before `applyHudGameNameDefault`). (b) the editor "↻ Refresh HUD layer" action → "↻ Reset HUD to default", now emitting `hudScenes({ readouts: true, buttons: true })` (was `readouts` only, which re-seeded coded `UiButton*` binds that go blank under flow-v2). Verified: `launcher-api` build green. Remaining: Phase 3 = client-scoped default HUD layer.
@@ -262,6 +263,151 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-14 — **The authored Win behind a per-project flag (Rive plan Phase 8b, PR #1194, plan
+  [§13.6](../design/rive-style-editor.md); the GO decisions and build findings are its 13.6.10;
+  the launcher side — normalizer row, Game Settings row, chips, the save guard after the ETag check,
+  `check:authored-win` — is in [status/editor.md](editor.md)).**
+  **Scope line (GO Q1):** what `WinVisual` draws is authored; `WinGate` stays coded — count-up,
+  round hold (`winUpdate`'s `waitForResolve`, not extended, Q2), presses + the three caps, dim,
+  `winState`, `winCountUpComplete`, `resolveWinMount` untouched (Q6/Q7/Q12). **The component:**
+  `winPresentationDef(tiers)` / `WIN_PRESENTATION_DEF` (`builtinComponents.ts`, id
+  `winPresentation`, `internal`, pinned in the template gate; the same params as `win` + a `source`
+  defaulted to `winCountUpAmount`): one `visual` container holding `coins` (bound `WinCoins` —
+  `apps/lines` `WinCoinsPart.svelte`, reading `winState` as `WinVisual` fed it), `tier` (ONE rig node,
+  `assetKey` bound to `winSpine`, **`boardFit`**), `caption` and `count` (text nodes, font `gold`
+  × 1.8 / × 3.6, **`rigSlot: 'slot_win_count'`** bound to `slotName`; the count's `text` bound to
+  `value`, self-animated), `countPlain` (× 1). **The timelines** (`builtinTimelines.ts`
+  `winTierTimelines(tiers, clipMs)`, pure and deterministic — same inputs ⇒ identical docs, gated):
+  per active big tier `c_winpresentation_<alias>_walk` (`playOn: winTier.<alias>`, `holdsCue`: the
+  intro strip then ONE idle strip — the coded "idle `complete` ⇒ next tier" clock), `…_loop`
+  (`winTierLoop.<alias>`: the idle as a `fill` strip over an hour, never holds), `…_outro`
+  (`winTierOutro.<alias>`, `holdsCue`; only for a tier `tierHasExit` says has one), plus
+  `c_winpresentation_plain` (`winPlain`), `c_winpresentation_hide` (`winHide`: the coded
+  `FadeContainer`'s 400 ms linear fade, then hidden) and `c_winpresentation_rest` (`enter`: hidden
+  until a win shows it). Lower-case ids, so a project timeline shadows one (gated). Clip lengths are
+  read off the LOADED skeleton (`apps/lines/src/game/authoredWin.svelte.ts` `loadedRigClipMs`), so
+  the game registers them in a `$effect.pre` once `stateApp.loaded` flips
+  (`registerGameTimelines(baked, generated)` — built-ins, then generated, then baked) and the
+  `winVisual` scene mounts only once `authoredWinRuntime.ready` (an instance snapshots its timelines
+  at mount). Measured on the reference `bigwin`: intros 1333 / 1367 / 1367 / 1667 / 1667 ms (big,
+  superwin, mega, epic, max — the plan's "1667" is the epic / max value), idles 12 000, exits 467.
+  **`rigSlot` (Q4), measured first:** `slot_win_count` rides `bone_win_count`, which every intro
+  keys (scale 0.01 → 1.244 → 1, a pop-in) and every exit keys (scale 1 → 1.4 → 2), and the slot's
+  colour alpha is keyed too (0 until ≈ 0.9 s into the intro, fading out through the exit) — so a
+  fixed offset is NOT parity and `rigSlot` was built: a node naming a slot of the first rig among
+  its siblings is not drawn in place; the rig hosts it inside a `<RigSlot>` (`LayoutNodeView`,
+  `rigSlotRiders.ts` `splitSlotRiders` / `groupSlotRiders`), the slot object the rig drives from the
+  bone and colour each frame and shows only while the slot has an attachment — exactly the coded
+  count's road; a scrubbed strip poses the slot through `RigPose`'s `Animation.apply`, so the
+  pop-in and the alpha ride along. **`boardFit` (Q9):** `registerBoardBox` / `boardBox`
+  (`boardBox.ts`; the game registers `stateGameDerived.boardLayout()`), the rig node takes the board
+  width as its explicit width (`<RigProvider width>`), the coded composer's fit; per-layout scales
+  stay the fallback if the parity gate misses. **Play rate (Q8, built, not held back):**
+  `ComponentTimelinePlayer.playRate` (`advance(dt)` moves by `dt × playRate`) and
+  `componentPlayRate.ts` `setComponentPlayRate(componentId, rate)` read by every instance each tick;
+  the gate drives it as the coded `rampTimeScale` — `max(escalationSpeedScale, 1)` while escalating
+  and the count runs, 1 otherwise. **The conductor (Q3/Q10):** `engine-game/winWalk.ts` —
+  `createWinWalk(tiers, escalating, signals)` / `nextStep(walk, event)` over `{ index, phase,
+  countUpComplete, holdOutro, concluded, step }`, events `start` / `holdEnd(step)` /
+  `countUpComplete` / `tap(toTier)` / `holdOutro(on)`, effects `fire(signal, holds)` / `stepIndex` /
+  `outroComplete`; `WinGate` runs it when `isCodedOverlayRetired('win')`: on `winUpdate` it resolves
+  the chain (`authoredWinWalkTiers`: `activeWinLevelChain` + the pure
+  `resolveTierPresentation(params, tier)` extracted to `engine-game/winPresentation.ts`, the same
+  precedence `WinVisual` reads), publishes `escalationActive` / `escalationBoundaries` itself (the
+  retired `WinVisual` publishes nothing, draws nothing, subscribes to nothing — Q12), fires
+  `winTier.<first>` or `winPlain` through game-registered `manualSignal`s (registered only when the
+  status is `ready`, beside `winHide` off the emitter), reads `cueHolds(signal)` right after the fire
+  (registered synchronously in the bus callback) and advances on the hold's end; a stale hold is
+  dropped by its `step`; a tap fires the tapped tier's walk; `countUpComplete` fires the final outro
+  (or concludes at once without an exit); `holdOutro` keeps the loop. **The late-mount rule
+  (sanity a):** `awaitFireHolds(read, defer)` — no hold on the synchronous read ⇒ ONE deferred
+  re-read after `waitForTimeout(0)` (the tier signals SEED off `winState.authoredSignal` on
+  subscribe, so an instance mounting a frame late plays the current phase and registers its hold
+  then) ⇒ still none ⇒ the step falls through at once, as the coded gate concludes with no visual
+  mounted; never hangs (a hold settles on the timeline's end or the instance's destroy; the gate's
+  own caps are unchanged). **The flag, status and swap:** `GameSettings.authoredOverlays.win`;
+  `authoredOverlays.ts` `authoredWinEnabled`, `authoredWinStatus({ doc, tiers })` — `off` / `ready`
+  / `nothing-to-replace` / **`caption-variable`** (an active tier's Win Text caption interpolates a
+  `{token}` — `winText.ts` `winTextHasVariable`, Q5) / **`tier-presentation-unsupported`** (the
+  tiers resolve to more than one rig or slot; the def has one rig node) — `withAuthoredWinDoc(doc)`
+  (every `bind: Win` → `bind: WinGate`, every `componentInstance(win)` → `winPresentation` keeping
+  transform / overrides / params and dropping the pin, the `winVisual` scene synthesized at the main
+  box's centre per layout type — `boardLayout()`'s point, not the frame's 1.01-adjusted one — when no
+  scene places a visual; the same objects when nothing changes), `withAuthoredWin(scene)` for the
+  reference overlays fallback, `retireCodedOverlay('win')`. `Game.svelte` swaps in the same
+  `loadEditorScenes().then` as the Transition, before both flows are built. `apps/lines` dev pilot:
+  `AUTHORED_WIN = false` (`editorFlags.ts`, `DefaultLayoutOptions.authoredWin`); no URL opt-in.
+  **Turbo (extra 1):** `DeterminismApi.setTurbo(on)` and `?ie_turbo=1` (honoured only with
+  `ie_determinism`), routed to `stateBetDerived.updateIsTurbo(on, { persistent: true })` through
+  `registerDeterminismProbe`'s new `controls`. Finding: no divergence to fix — turbo scales only the
+  measured cue waits and delays (`timeScale`); the coded rigs ride the ticker at 1× and the
+  timeline player advances by the same `ticker.deltaMS`, so the authored Transition and the
+  authored Win track the coded ones under turbo as they do without it (the count-up's own clock is
+  the gate's on both paths). **`showContainer.durationMs`:** every `holdsCue` timeline of a def measures (a project's
+  own 2 s entrance → 2000 ms, the 8a contract), with ONE exemption in `flowV2Runtime.svelte.ts`
+  `instanceHoldMs`: `winPresentation` measures `undefined` — its holds are tier-walk timing, not an
+  entrance, and the coded `Win` / `WinGate` it replaces measure 0 (`sceneDuration.ts` says so;
+  `transitionWipe` still measures 1667 ms). **Determinism probe:** `state().holds` — the cue / signal names with
+  a pending cue hold (`pendingCueHolds`), the parity gate's positive control for holds a game-fired
+  signal opens. **Review fixes (2026-10-14):** `fitBoard` — a def param (default off) the tier rig's
+  `boardFit` binds to (`paramBindings.boardFit`; `LayoutNodeView` resolves a boolean binding), set
+  ONLY on the synthesized `winVisual` instance, so a placed `win` instance keeps the natural size the
+  coded one rendered at; `withAuthoredWinDoc` treats a doc as placed only when a `win` (or an
+  already-swapped `winPresentation`) instance exists and REPLACES an emptied `winVisual` scene, so it
+  agrees with `authoredWinStatus` (`ready`); `registerAuthoredWinTimelines` registers with no clip
+  lengths and warns once when the tier rig is not among the loaded assets (the walks then hold
+  nothing and fall through); `cueHolds.ts` `releaseCueHolds(cue)` (a hold settles on its timeline's
+  end OR a release) and the gate's `endWalk` releases every tier / plain signal's holds on
+  `winHide`, so the next win's first read sees only its own; the play-rate effect tears down to 1;
+  the chip title says the tiers come from the saved doc (republish to apply);
+  `WIN_PRESENTATION_DEFAULTS` lives in engine-layout (re-exported by engine-game). **The parity
+  finding:** the first `check:win-parity` run drew nothing on the authored side because
+  `Game.svelte` never registered the `winPresentation` DEF (an unregistered id expands to nothing,
+  subscribes nothing, holds nothing) — it is now registered inside the same `if (authoredWin)`
+  block as the signals and the board box, generated from the active tiers (`authoredWinDef()`), and
+  the fixture asserts it. Three more parity findings from `check:win-parity`, each measured, then
+  fixed: (1) the coins drew BEHIND the banner — `ParticleEmitter` adds each particle straight into
+  its enclosing container as it spawns, so on the coded path they land after the rig and draw over
+  it; the `coins` node is now the LAST child of `visual`; (2) the idle drifted from the intro's end
+  on — a timeline strip scrubbed with `Animation.apply(…, replace)` on top of the skeleton's current
+  pose, so a bone the intro keyed and the idle did not kept its intro-end value, while
+  `AnimationState` mixes the old entry out to the setup pose; `RigPoseScrub.fromSetup` (set by
+  `withTimelineScrub` on every strip) now resets the skeleton to its setup pose before the strip
+  applies; (3) the art and coins ran one frame ahead — the coded `FadeContainer` mounts its children
+  only once its alpha is above 0, the frame after the fade starts — so the gate fires the walk's
+  first tier from a `requestAnimationFrame` callback at `winUpdate` (the fade itself fires
+  synchronously there for the first win, and at `winShow` after); (4) the escalation chain ran a
+  frame ahead at every tier boundary whose intro is not a whole number of frames (1.3667 s =
+  82.002 frames): the coded track completes a clip on the first frame at or past its end and starts
+  the next clip at 0 THERE, dropping the overshoot, while a strip carried it — `winTierTimelines`
+  now rounds each intro's end up to its 60 fps frame for the idle strip's start and the walk's
+  length, and `ComponentTimelinePlayer.advance` snaps a playhead within 1e-6 of the end to it (803
+  steps of 1/60 sum a hair under 803/60), so a walk's hold ends on the coded boundary frame. What
+  remains is the background sparkle particles only (red specks in the diffs; rig, count and coins
+  identical): ≤ 0.18 % on wins after the first, from the one shared `Math.random` stream the dust
+  and coin emitters interleave — not masked; see the PR report. **Slam (extra 2):** untouched — the conductor sits inside the gate's
+  existing `winUpdate` await. **Flag off (extra 3):** every doc without the row is the same object;
+  the template gates pin the new internal def (`winPresentation: 857d8f6b68e9abdc`; scene sets and
+  templates unchanged). **Gates run:** `check:svelte` engine-layout 291 / engine-game 36 /
+  pixi-svelte 14 / lines 163 — all at baseline; `check:engine-game` 12/12 (new
+  `winWalk.fixture.ts`: the natural walk, the fast-count collapse + stale hold, no-exit, tap step /
+  clamp / never back, land-then-dismiss hold + lapse, un-escalating and plain parity, the three
+  late-mount readings; `winEscalationOutro` and `winTapLand` extended to replay the conductor);
+  `test-hold-and-win-template.mjs` and `test-engine-owned-only.mjs` green;
+  `check:component-timelines` 71 (+18: the generated list, determinism, every generated doc binds
+  the def's nodes and casts only what it keys, hold lengths, `registerGameTimelines` order +
+  shadowing, `playRate`, the fade machine — first fire untouched, hide linear to 0 and held, fade-in
+  0 → 0.25 → 1); flag OFF registers nothing new (signals, board box, timelines all sit inside the
+  gate's `if (authoredWin)` block / behind `authoredWinRuntime.on` — asserted against the source in
+  `winWalk.fixture.ts`);
+  `check:authored-transition` 85; `check:rgs` PASS; lint and Prettier clean; `pnpm --filter lines
+  build` ok. **Open for the launcher agent:** `normalizeGameSettings` + the unknown-fields case
+  (`win` row), the Game Settings row, the chips (`caption-variable` / `tier-presentation-unsupported`
+  wordings), `check:authored-win` over the pure functions above, `check:win-parity`; the node
+  normalizer need not know `rigSlot` / `boardFit` (they live on the built-in def, never stored).
+  Known divergence for the parity gate to weigh: a reel-grid override moves `boardLayout()` but not
+  the synthesized instance (per-layout overrides are the fallback).
+
 - 2026-10-14 — **The authored Transition behind a per-project flag (Rive plan Phase 8a, branch
   `claude/rive-p8a-transition-overlay`, plan [§13](../design/rive-style-editor.md#13-phase-8-overlay-migration-plan--8a-transition-first)) — this entry is the one home of the build detail; the other status files point here.**
   A new built-in `transitionWipe` def (`builtinComponents.ts`: one rig node `wipe` on the engine's

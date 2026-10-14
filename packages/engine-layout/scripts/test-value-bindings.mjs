@@ -361,6 +361,10 @@ assert(
 		merged[1].animation === 'wipe' && merged[1].time === 0.8 && merged[1].unit === 'seconds',
 		'the strip is a seconds scrub of its clip',
 	);
+	assert(
+		merged[1].fromSetup === true && own[0].fromSetup === undefined,
+		'the strip poses from the setup pose (it owns the rig); an own scrub rides on top of what plays',
+	);
 	assert(own.length === 1 && own[0].unit === undefined, 'the own scrubs are not mutated');
 }
 

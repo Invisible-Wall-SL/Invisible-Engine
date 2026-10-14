@@ -111,6 +111,13 @@ export interface DefaultLayoutOptions {
 	 * no `settings` block (parity); `apps/lines` forwards its `AUTHORED_TRANSITION` dev-pilot flag.
 	 */
 	authoredTransition?: boolean;
+	/**
+	 * Set `settings.authoredOverlays.win` on the doc (Rive plan Phase 8b): the game then renders the
+	 * big-win presentation from the built-in `winPresentation` component and its generated timelines
+	 * instead of the coded `WinVisual` (the gate stays coded). Default-OFF = no row (parity);
+	 * `apps/lines` forwards its `AUTHORED_WIN` dev-pilot flag.
+	 */
+	authoredWin?: boolean;
 }
 
 /**
@@ -232,7 +239,16 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 		projectKey: gameType,
 		gameType,
 		mainSizesMap: MAIN_SIZES_MAP,
-		...(options.authoredTransition ? { settings: { authoredOverlays: { transition: true } } } : {}),
+		...(options.authoredTransition || options.authoredWin
+			? {
+					settings: {
+						authoredOverlays: {
+							...(options.authoredTransition ? { transition: true } : {}),
+							...(options.authoredWin ? { win: true } : {}),
+						},
+					},
+				}
+			: {}),
 		scenes: [
 			{
 				// Startup splash: a generic `loadingBar` componentInstance (the masked
