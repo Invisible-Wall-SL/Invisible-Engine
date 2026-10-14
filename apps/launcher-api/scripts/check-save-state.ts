@@ -17,6 +17,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers';
 import { pathToFileURL } from 'node:url';
 import { compileModule } from 'svelte/compiler';
 import ts from 'typescript';
