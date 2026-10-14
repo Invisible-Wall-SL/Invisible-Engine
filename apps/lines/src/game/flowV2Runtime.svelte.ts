@@ -88,7 +88,7 @@ import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
 import { getActiveGameConfig } from './gameConfig';
 import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
-import { createInstanceWaits } from './flowInstanceWaits';
+import { createInstanceWaits, DROP_REASON } from './flowInstanceWaits';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { stateModes } from './stateModes.svelte';
 import type { ModeTransition } from 'engine-game';
@@ -270,6 +270,8 @@ export type LinesFlowV2 = {
 		event: string,
 		payload?: Record<string, unknown>,
 	) => Promise<void>;
+	/** Release what the handle holds outside itself (the stash-drop trace listener). */
+	dispose: () => void;
 	/** The authored Text Message nodes (§6.3) — static, read from the doc (groups flattened).
 	 *  `<FlowV2Messages>` renders one localized text overlay per node at its `place`. */
 	textMessages: TextMessageNode[];
@@ -595,21 +597,23 @@ export const createLinesFlowV2 = (
 	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`). The
 	// outcomes for one that is not registered, and how a wait on one is released, live in
 	// `flowInstanceWaits.ts` (gated in Node); a handle on another screen is never the node's.
-	const { liveInstance, instanceWhenMounted, awaitInstanceState } = createInstanceWaits({
-		isShown: (container) => mount.isShown(container),
-		sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
-		getFlowInstance,
-		watchFlowInstance,
-		skip: roundSkip,
-		trace,
-	});
-	// A stashed set the instance refuses when it mounts (an input gone from the def, or not its
-	// kind any more) is traced as the live drop is.
-	onFlowInstanceDrop((instanceId, input, value) =>
+	const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } =
+		createInstanceWaits({
+			isShown: (container) => mount.isShown(container),
+			sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
+			getFlowInstance,
+			stashFlowInstanceInput,
+			watchFlowInstance,
+			skip: roundSkip,
+			trace,
+		});
+	// A stashed set the instance refuses when it mounts (an input gone from the def, not its kind
+	// any more, no machine) is traced as the live drop is. Released by `dispose`.
+	const stopDropTrace = onFlowInstanceDrop((instanceId, input, value, outcome) =>
 		trace(
 			'instance',
 			`${instanceId}.${input} = ${JSON.stringify(value)}`,
-			'· dropped on mount (no such input, or not its kind)',
+			`· dropped on mount (${DROP_REASON[outcome]})`,
 		),
 	);
 
@@ -725,18 +729,8 @@ export const createLinesFlowV2 = (
 			trace('instance', `${ref.instance} ▸ ${trigger}`);
 			handle.fire(trigger);
 		},
-		setInstanceInput: (ref, input, value) => {
-			const live = liveInstance(ref);
-			const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
-			if (live) {
-				if (live.setInput(input, value)) trace('instance', line);
-				else trace('instance', line, '· dropped (no such input, or not its kind)');
-			} else {
-				trace('instance', line, '(stashed)');
-				stashFlowInstanceInput(ref.instance, input, value);
-			}
-		},
-		readInstanceValue: (ref, value) => liveInstance(ref)?.values()[value],
+		setInstanceInput,
+		readInstanceValue,
 		awaitInstanceState,
 	});
 
@@ -793,6 +787,7 @@ export const createLinesFlowV2 = (
 			trace('instanceEvent ▶', `${instanceId} on${event}`);
 			return runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
 		},
+		dispose: () => stopDropTrace(),
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
 		presentModeTransition: flowHandlesModeTransitions(doc)

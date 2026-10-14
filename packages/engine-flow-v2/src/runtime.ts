@@ -1049,7 +1049,9 @@ const carriesInstanceEvent = (
 	// Read defensively: this runs at click time on the stored doc, and a malformed group (no
 	// `boundary`, a pin without `inner`, a body without `nodes`) simply does not own the event.
 	if (node?.kind !== 'group') return false;
-	const b = (node.boundary ?? []).find((p) => p.id === pin && p.dir === 'out' && p.kind === 'exec');
+	const b = (node.boundary ?? []).find(
+		(p) => p?.id === pin && p.dir === 'out' && p.kind === 'exec',
+	);
 	if (!b?.inner) return false;
 	const inner = (node.body?.nodes ?? []).find((n) => n.id === b.inner.node);
 	return carriesInstanceEvent(inner, b.inner.pin, instanceId, eventPin);
@@ -1070,14 +1072,17 @@ const instanceEventEdge = (
 	instanceId: string,
 	event: string,
 ): { to: PinPath } | undefined => {
+	// Read defensively, like `carriesInstanceEvent`: a stored group body may be malformed.
 	const pin = instanceEventPin(event);
-	const nodeById = new Map(graph.nodes.map((n) => [n.id, n] as const));
-	const edge = graph.exec.find((e) =>
-		carriesInstanceEvent(nodeById.get(e.from.node), e.from.pin, instanceId, pin),
+	const nodes = graph.nodes ?? [];
+	const nodeById = new Map(nodes.map((n) => [n.id, n] as const));
+	const edge = (graph.exec ?? []).find(
+		(e) =>
+			!!e?.from && carriesInstanceEvent(nodeById.get(e.from.node), e.from.pin, instanceId, pin),
 	);
 	if (edge) return edge;
-	for (const node of graph.nodes) {
-		if (node.kind !== 'group' || !node.body) continue;
+	for (const node of nodes) {
+		if (node?.kind !== 'group' || !node.body) continue;
 		const inner = instanceEventEdge(node.body, instanceId, event);
 		if (inner) return inner;
 	}

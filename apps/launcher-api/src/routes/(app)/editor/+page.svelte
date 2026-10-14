@@ -596,7 +596,10 @@
 	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
 	 *  navigation (not `goto`): the other tool is a full page load, and the `beforeunload` guard
 	 *  below still asks about unsaved work. */
-	function showInFlow(nodeId: string): void {
+	// Saves a dirty doc first, as the component-editor hop does: a refused save keeps the author
+	// here with the pill saying why, never a lost edit behind a navigation.
+	async function showInFlow(nodeId: string): Promise<void> {
+		if (saveState.dirty && !(await save())) return;
 		window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));
 	}
 

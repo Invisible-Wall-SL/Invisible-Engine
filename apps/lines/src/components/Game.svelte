@@ -400,6 +400,8 @@
 	// The operator platform jackpot's tiers (any kind): seeded now, so a tier the platform names at
 	// boot registers its value source below, and followed on every answer from here on.
 	onDestroy(seedPlatformJackpots());
+	let disposeFlowV2: (() => void) | undefined;
+	onDestroy(() => disposeFlowV2?.());
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
 	// The board follows the server now (above); this is what stops it doing so SILENTLY. An online
@@ -2132,6 +2134,7 @@
 				(intent) => invokeHostIntent(intent),
 			);
 			setFlowV2(flowV2);
+			disposeFlowV2 = flowV2?.dispose;
 			// The mode stack presents its transitions through this flow's Mode trigger entries, if any.
 			setModeTransitionPresenter(flowV2?.presentModeTransition);
 			// "Drives screens" ⇒ the flow authors the `load` entry (shows the initial screen). A

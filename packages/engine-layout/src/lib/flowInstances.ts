@@ -22,6 +22,9 @@
  * defer to a registration it knows is imminent (the screen is shown, the instance is mounting).
  */
 
+/** What became of a Flow set: applied, or why not. */
+export type InstanceSetOutcome = 'set' | 'no-input' | 'wrong-kind' | 'no-machine';
+
 export interface FlowInstanceHandle {
 	/** The placed node id. */
 	instanceId: string;
@@ -38,9 +41,9 @@ export interface FlowInstanceHandle {
 	 *  exactly as a heard signal is. An unknown id, or a non-trigger, does nothing. */
 	fire(trigger: string): void;
 	/** Set a bool / number input on its state machine, or a text input's key, read as the input's
-	 *  kind (`coerceInstanceInput`). False — nothing set — for a value not of that kind or an
-	 *  unknown id. */
-	setInput(input: string, value: unknown): boolean;
+	 *  kind (`coerceInstanceInput`). Anything but `'set'` set nothing and says why: an unknown id,
+	 *  a value not of that kind, or a bool / number on a def with no state machine. */
+	setInput(input: string, value: unknown): InstanceSetOutcome;
 	/** The current value of a bool / number / text input. */
 	input(input: string): unknown;
 	/** The values the component reports (`<layer>.state`), `{}` without a state machine. */
@@ -54,9 +57,21 @@ export interface FlowInstanceHandle {
 
 /** Mounted handles per id, oldest first; the last is live. */
 const live = new Map<string, FlowInstanceHandle[]>();
-const stashed = new Map<string, Map<string, unknown>>();
+/** Per id, per input: the value kept for the next mount, and the screen it was addressed to (an
+ *  undefined screen matches any mount). */
+const stashed = new Map<string, Map<string, { value: unknown; sceneId?: string }>>();
 const watchers = new Map<string, Set<(handle: FlowInstanceHandle | undefined) => void>>();
-const dropListeners = new Set<(instanceId: string, input: string, value: unknown) => void>();
+type DropListener = (
+	instanceId: string,
+	input: string,
+	value: unknown,
+	outcome: Exclude<InstanceSetOutcome, 'set'>,
+) => void;
+const dropListeners = new Set<DropListener>();
+
+/** Is a handle the placement a set addressed — on that screen, or with no screen to compare? */
+const onScreen = (handle: FlowInstanceHandle, sceneId: string | undefined): boolean =>
+	sceneId === undefined || handle.sceneId === undefined || handle.sceneId === sceneId;
 
 const notify = (instanceId: string, handle: FlowInstanceHandle | undefined): void => {
 	for (const watcher of [...(watchers.get(instanceId) ?? [])]) watcher(handle);
@@ -75,11 +90,14 @@ export function registerFlowInstance(handle: FlowInstanceHandle): () => void {
 	stack.push(handle);
 	const pending = stashed.get(id);
 	if (pending) {
-		stashed.delete(id);
-		for (const [input, value] of pending) {
-			if (!handle.setInput(input, value))
-				for (const listener of [...dropListeners]) listener(id, input, value);
+		for (const [input, kept] of [...pending]) {
+			if (!onScreen(handle, kept.sceneId)) continue; // kept for a mount on its own screen
+			pending.delete(input);
+			const outcome = handle.setInput(input, kept.value);
+			if (outcome !== 'set')
+				for (const listener of [...dropListeners]) listener(id, input, kept.value, outcome);
 		}
+		if (pending.size === 0) stashed.delete(id);
 	}
 	notify(id, handle);
 	return () => {
@@ -98,17 +116,21 @@ export function getFlowInstance(instanceId: string): FlowInstanceHandle | undefi
 	return live.get(instanceId)?.at(-1);
 }
 
-/** Keep an input value for an instance that is not mounted; applied when it next registers
- *  (last write wins). A mounted instance takes the value at once. */
-export function stashFlowInstanceInput(instanceId: string, input: string, value: unknown): void {
+/** Keep an input value for an instance that is not mounted on `sceneId` (any screen when
+ *  undefined); applied when it next registers there (last write wins). A mounted instance on that
+ *  screen takes the value at once and the outcome is returned; `'stashed'` otherwise. */
+export function stashFlowInstanceInput(
+	instanceId: string,
+	input: string,
+	value: unknown,
+	sceneId?: string,
+): InstanceSetOutcome | 'stashed' {
 	const handle = getFlowInstance(instanceId);
-	if (handle) {
-		handle.setInput(input, value);
-		return;
-	}
+	if (handle && onScreen(handle, sceneId)) return handle.setInput(input, value);
 	let pending = stashed.get(instanceId);
 	if (!pending) stashed.set(instanceId, (pending = new Map()));
-	pending.set(input, value);
+	pending.set(input, { value, sceneId });
+	return 'stashed';
 }
 
 /** Run `listener` with the handle on each registration under `instanceId`, and with `undefined`
@@ -126,11 +148,9 @@ export function watchFlowInstance(
 	};
 }
 
-/** Run `listener` when a stashed value is refused by the handle it was kept for (the env traces
- *  it, as it traces a live drop). Returns the unsubscribe. */
-export function onFlowInstanceDrop(
-	listener: (instanceId: string, input: string, value: unknown) => void,
-): () => void {
+/** Run `listener` when a stashed value is refused by the handle it was kept for, with the reason
+ *  (the env traces it, as it traces a live drop). Returns the unsubscribe. */
+export function onFlowInstanceDrop(listener: DropListener): () => void {
 	dropListeners.add(listener);
 	return () => dropListeners.delete(listener);
 }

@@ -941,6 +941,9 @@
 	// conflict, a tab without the lease) keeps the author here with the status pill saying why —
 	// the same rule as the Scene Editor's hop into its Component Editor.
 	async function hopTo(href: string): Promise<void> {
+		// A save in flight: the hop waits for it (bounded), then flushes what is still dirty.
+		for (let waited = 0; saveState.busy && waited < 10_000; waited += 100)
+			await new Promise((r) => setTimeout(r, 100));
 		if (saveState.dirty && !(await saveState.save())) return;
 		window.location.assign(href);
 	}

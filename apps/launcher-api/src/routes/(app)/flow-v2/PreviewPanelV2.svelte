@@ -9,6 +9,7 @@
 		type FunctionLibraryDoc,
 		type TemplateVocabulary,
 	} from 'engine-flow-v2';
+	import { onDestroy } from 'svelte';
 	import { openFlowStageChannel } from '$lib/flowStageBridge';
 
 	// The v2 DETERMINISTIC preview panel (Phase 2d). Pick one of the flow's event nodes and run its
@@ -79,28 +80,61 @@
 		}
 	};
 
-	/** Post each fired trigger and set input to the stage bridge, in timeline order; a wait is the
-	 *  stage's own to show. An instance the projection does not know names no component: skipped. */
+	/** The posts of the last run still to land on the stage; a new run, the tick going off or the
+	 *  panel leaving clears them. */
+	let stagePosts: ReturnType<typeof setTimeout>[] = [];
+	let stageChannel: ReturnType<typeof openFlowStageChannel> = null;
+	function clearStagePosts(): void {
+		for (const t of stagePosts) clearTimeout(t);
+		stagePosts = [];
+		stageChannel?.close();
+		stageChannel = null;
+	}
+	$effect(() => {
+		if (!driveStage) clearStagePosts();
+	});
+	onDestroy(clearStagePosts);
+	/** Post each fired trigger and set input to the stage bridge, each at its timeline time (`at`,
+	 *  ms), so fire → wait → fire plays on the stage as the run paced it; a wait is the stage's own
+	 *  to show. An instance the projection does not know names no component: skipped. A text set
+	 *  travels as its key; the stage has nothing to show it on yet (7a §12). */
 	function sendToStage(timeline: FlowPreviewEntry[]): void {
+		clearStagePosts();
 		const channel = openFlowStageChannel(projectKey);
 		if (!channel) return;
-		for (const e of timeline) {
-			if (e.kind !== 'instance' || e.op === 'wait') continue;
+		stageChannel = channel;
+		const posts = timeline.flatMap((e) => {
+			if (e.kind !== 'instance' || e.op === 'wait') return [];
 			const decl = instances[e.instance];
-			if (!decl) continue;
+			if (!decl) return [];
 			const value = e.value;
-			channel.post({
-				v: 1,
-				componentId: decl.componentId,
-				instance: e.instance,
-				op: e.op,
-				name: e.name,
-				...(typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string'
-					? { value }
-					: {}),
-			});
-		}
-		channel.close();
+			return [
+				{
+					at: e.at,
+					message: {
+						v: 1 as const,
+						componentId: decl.componentId,
+						instance: e.instance,
+						op: e.op,
+						name: e.name,
+						...(typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string'
+							? { value }
+							: {}),
+					},
+				},
+			];
+		});
+		const last = posts.length - 1;
+		stagePosts = posts.map(({ at, message }, i) =>
+			setTimeout(
+				() => {
+					channel.post(message);
+					if (i === last) clearStagePosts();
+				},
+				Math.max(0, at),
+			),
+		);
+		if (posts.length === 0) clearStagePosts();
 	}
 
 	const KIND_LABEL: Record<FlowPreviewEntry['kind'], string> = {

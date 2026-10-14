@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import type { FlowDoc, FlowInstanceDecl, Graph, Pin } from 'engine-flow-v2';
 
 const U = await import('../src/lib/flowInstanceUi.ts');
+const P = await import('../src/lib/flowV2Projection.ts');
 const B = await import('../src/lib/flowStageBridge.ts');
 const G = await import('../src/routes/(app)/flow-v2/graphOps.ts');
 const { deriveInstancePins, instanceNodeRef } =
@@ -368,6 +369,7 @@ const at = { x: 0, y: 0 };
 			'`/api/flow-v2/instances?project=${encodeURIComponent(data.projectKey)}`',
 			'if (body.projectKey !== data.projectKey || !body.instances) return;',
 			'void editComponentOf(model.instance);',
+			'for (let waited = 0; saveState.busy && waited < 10_000; waited += 100)',
 			'if (saveState.dirty && !(await saveState.save())) return;',
 			'if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));',
 			'onjump={hopTo}',
@@ -378,16 +380,89 @@ const at = { x: 0, y: 0 };
 			'{instanceGroups}',
 			'<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />',
 		]),
-		[true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
 	);
 	const preview = source('src/routes/(app)/flow-v2/PreviewPanelV2.svelte');
 	eq(
-		'6. the preview posts fired triggers and set inputs only when the author ticks it',
+		'6. the preview posts fired triggers and set inputs only when the author ticks it, each at its timeline time, and clears them on a new run or the tick going off',
 		has(preview, [
 			'if (driveStage && result) sendToStage(result.timeline);',
-			"if (e.kind !== 'instance' || e.op === 'wait') continue;",
+			"if (e.kind !== 'instance' || e.op === 'wait') return [];",
 			'<input type="checkbox" bind:checked={driveStage} />',
+			'Math.max(0, at),',
+			'if (!driveStage) clearStagePosts();',
+			'onDestroy(clearStagePosts);',
 		]),
+		[true, true, true, true, true, true],
+	);
+	const iface = { inputs: [], events: [], values: [] };
+	eq(
+		'6. a projection read without the pinned snapshots marks a placement pinned below latest as unpinned, never lost',
+		P.unpinnedProjection({
+			a: {
+				container: 'c',
+				instance: 'a',
+				name: 'A',
+				componentId: 'x',
+				version: 1,
+				missing: 'version',
+				interface: iface,
+			},
+			b: {
+				container: 'c',
+				instance: 'b',
+				name: 'B',
+				componentId: 'y',
+				missing: 'def',
+				interface: iface,
+			},
+			c: {
+				container: 'c',
+				instance: 'c',
+				name: 'C',
+				componentId: 'z',
+				version: 2,
+				interface: iface,
+			},
+		}),
+		{
+			a: {
+				container: 'c',
+				instance: 'a',
+				name: 'A',
+				componentId: 'x',
+				version: 1,
+				interface: iface,
+				unpinned: true,
+			},
+			b: {
+				container: 'c',
+				instance: 'b',
+				name: 'B',
+				componentId: 'y',
+				missing: 'def',
+				interface: iface,
+			},
+			c: {
+				container: 'c',
+				instance: 'c',
+				name: 'C',
+				componentId: 'z',
+				version: 2,
+				interface: iface,
+			},
+		},
+	);
+	eq(
+		'6. the loader takes the unpinned projection for a flow naming no instance; the node and inspector say the pins are loading',
+		has(source('src/routes/(app)/flow-v2/+page.server.ts'), [
+			'const instances = docNamesInstance(doc) ? projected : unpinnedProjection(projected);',
+		]).concat(
+			has(source('src/routes/(app)/flow-v2/FlowV2Node.svelte'), [
+				'if (decl.unpinned) return `${decl.name} · ${at} · loading pins…`;',
+			]),
+			has(inspector, ['{#if instanceDecl.unpinned}']),
+		),
 		[true, true, true],
 	);
 	const props = source('src/routes/(app)/editor/EditorProperties.svelte');
@@ -402,14 +477,15 @@ const at = { x: 0, y: 0 };
 				'{#if instanceMenu}',
 				'if (Math.hypot(e.clientX - down[0], e.clientY - down[1]) > 4) return;',
 				"window.addEventListener('mousedown', closeInstanceMenu);",
+				'const onKey = (): void => closeInstanceMenu();',
 			]),
 			has(editor, [
-				'window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));',
+				'if (saveState.dirty && !(await save())) return;\n\t\twindow.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));',
 				'onShowInFlow={animating ? undefined : (node) => showInFlow(node.id)}',
 				'onShowInFlow={showInFlow}',
 			]),
 		),
-		[true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true],
 	);
 	const panel = source('src/routes/(app)/editor/EditorStateMachinePanel.svelte');
 	eq(

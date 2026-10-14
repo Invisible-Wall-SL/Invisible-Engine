@@ -423,7 +423,10 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		instanceId: id,
 		componentId: 'banner',
 		fire: (t: string) => log.push(`${id} fire ${t}`),
-		setInput: (i: string, v: unknown) => log.push(`${id} set ${i}=${JSON.stringify(v)}`) > 0,
+		setInput: (i: string, v: unknown) => {
+			log.push(`${id} set ${i}=${JSON.stringify(v)}`);
+			return 'set' as const;
+		},
 		input: () => undefined,
 		values: () => ({ 'main.state': 'idle' }),
 		stateOf: (layer: string) => (layer === 'main' ? 'idle' : undefined),
@@ -464,14 +467,39 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 	eq('5. an unsubscribed watcher hears nothing', seen.length, 3);
 	G.clearFlowInstances();
 	const refused: string[] = [];
-	G.onFlowInstanceDrop((id, input, value) =>
-		refused.push(`${id}.${input}=${JSON.stringify(value)}`),
+	G.onFlowInstanceDrop((id, input, value, outcome) =>
+		refused.push(`${id}.${input}=${JSON.stringify(value)} ${outcome}`),
 	);
 	G.stashFlowInstanceInput('c_banner', 'gone', 3);
 	G.stashFlowInstanceInput('c_banner', 'amount', 4);
-	const picky = { ...handle('c_banner'), setInput: (i: string) => i === 'amount' };
+	const picky = {
+		...handle('c_banner'),
+		setInput: (i: string) => (i === 'amount' ? ('set' as const) : ('no-input' as const)),
+	};
 	G.registerFlowInstance(picky)();
-	eq('5. a stashed value the mounting handle refuses is reported', refused, ['c_banner.gone=3']);
+	eq('5. a stashed value the mounting handle refuses is reported, with the reason', refused, [
+		'c_banner.gone=3 no-input',
+	]);
+	// A stash addressed to a screen waits for a mount on THAT screen.
+	G.stashFlowInstanceInput('c_banner', 'amount', 9, 'hud');
+	const applied: string[] = [];
+	const onScreen = (sceneId: string) => ({
+		...handle('c_banner'),
+		sceneId,
+		setInput: (i: string, v: unknown) => {
+			applied.push(`${sceneId}:${i}=${JSON.stringify(v)}`);
+			return 'set' as const;
+		},
+	});
+	const offBase = G.registerFlowInstance(onScreen('basegame'));
+	const stillKept = applied.length === 0;
+	offBase();
+	G.registerFlowInstance(onScreen('hud'))();
+	eq(
+		'5. a stash addressed to a screen skips a mount on another screen and lands on its own',
+		[stillKept, applied],
+		[true, ['hud:amount=9']],
+	);
 	G.clearFlowInstances();
 	const older = handle('c_banner');
 	const newer = handle('c_banner');
@@ -503,7 +531,10 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		shown: () => true,
 		fireTrigger: (id) => void fired.push(id),
 		runner: () => ({
-			setInput: (id, value) => set.push([id, value]) > 0,
+			setInput: (id, value) => {
+				set.push([id, value]);
+				return true;
+			},
 			input: (id) => (id === 'lit' ? false : 0),
 			values: () => ({ 'main.state': 'idle' }),
 			stateOf: (layer) => (layer === 'main' ? 'idle' : undefined),
@@ -522,12 +553,12 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			h.input('title'),
 		],
 		[
-			true,
-			true,
-			true,
-			true,
-			true,
-			true,
+			'set',
+			'set',
+			'set',
+			'set',
+			'set',
+			'set',
 			[
 				['lit', true],
 				['lit', true],
@@ -539,7 +570,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		],
 	);
 	eq(
-		'5. a value not of the kind, or an unknown id, is dropped and says so',
+		'5. a value not of the kind, or an unknown id, is refused and says why',
 		[
 			h.setInput('lit', 'true'),
 			h.setInput('lit', 2),
@@ -552,7 +583,18 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			h.setInput('nope', 1),
 			set.length,
 		],
-		[false, false, false, false, false, false, false, false, false, 5],
+		[
+			'wrong-kind',
+			'wrong-kind',
+			'wrong-kind',
+			'wrong-kind',
+			'wrong-kind',
+			'wrong-kind',
+			'wrong-kind',
+			'no-input',
+			'no-input',
+			5,
+		],
 	);
 	eq(
 		'5. a fire takes a trigger only; the handle reads the runner; notify runs every listener',
@@ -585,7 +627,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			});
 			return [bare.setInput('lit', true), bare.setInput('title', 'k'), bare.input('title')];
 		})(),
-		[false, true, 'k'],
+		['no-machine', 'set', 'k'],
 	);
 	eq(
 		'5. a number input the engine feeds (`source`) gets no Flow pin',
@@ -653,16 +695,17 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 // ---- 6b. the game env's waits ------------------------------------------------------------------
 {
 	const tick = (ms = 0) => new Promise<void>((r) => setTimeout(r, ms));
-	const waits = (shown: boolean, trace: string[], sceneOf?: string) => {
+	const waits = (shown: boolean, trace: string[], sceneOf?: string, graceMs = 20) => {
 		const skip = createSkipToken();
 		const w = createInstanceWaits({
 			isShown: () => shown,
 			sceneIdOf: () => sceneOf,
 			getFlowInstance: G.getFlowInstance,
+			stashFlowInstanceInput: G.stashFlowInstanceInput,
 			watchFlowInstance: G.watchFlowInstance,
 			skip,
 			trace: (op, ...rest) => void trace.push([op, ...rest].join(' ')),
-			graceMs: 20,
+			graceMs,
 		});
 		return { ...w, skip };
 	};
@@ -674,7 +717,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 				componentId: 'banner',
 				sceneId: 'basegame',
 				fire: () => undefined,
-				setInput: () => true,
+				setInput: () => 'set' as const,
 				input: () => undefined,
 				values: () => ({ 'main.state': state.main }),
 				stateOf: (layer: string) => (layer === 'main' ? state.main : undefined),
@@ -823,20 +866,27 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		);
 	}
 	{
-		// A slam DURING the mount grace releases a wait at once; a fire keeps its grace.
+		// A slam DURING the mount grace releases a wait at once; a fire keeps its grace. A long
+		// grace keeps the bound honest on a busy runner.
 		const trace: string[] = [];
-		const w = waits(true, trace);
+		const w = waits(true, trace, undefined, 600);
 		const t0 = Date.now();
 		let settled = false;
 		const p = w.awaitInstanceState(ref, 'main', 'win').then(() => (settled = true));
-		await tick(2);
+		await tick(5);
 		w.skip.skip();
 		await p;
 		const fireHandle = w.instanceWhenMounted(ref);
 		const fireT0 = Date.now();
 		eq(
 			'6b. a slam during the grace releases the wait at once; the fire’s grace still runs',
-			[settled, Date.now() - t0 < 15, trace, (await fireHandle) ?? null, Date.now() - fireT0 >= 15],
+			[
+				settled,
+				Date.now() - t0 < 300,
+				trace,
+				(await fireHandle) ?? null,
+				Date.now() - fireT0 >= 500,
+			],
 			[
 				true,
 				true,
@@ -866,6 +916,66 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			[true, 'instance RELEASE c_banner main.state == win ▶ instance left the screen', true],
 		);
 		unregisterSecond();
+	}
+	{
+		// A set lands on the addressed placement, is stashed while it is away, and is DROPPED — never
+		// set, never stashed — when the id's mounted placement is on another screen; a read on another
+		// screen reads nothing.
+		const trace: string[] = [];
+		const state = { main: 'idle', shown: true };
+		const sets: string[] = [];
+		const { handle } = liveHandle(state);
+		const traced = {
+			...handle,
+			setInput: (i: string, v: unknown) => {
+				sets.push(`${i}=${JSON.stringify(v)}`);
+				return i === 'amount' ? ('set' as const) : ('no-input' as const);
+			},
+		};
+		const unregister = G.registerFlowInstance(traced);
+		const w = waits(true, trace, 'basegame');
+		w.setInstanceInput(ref, 'amount', 5);
+		w.setInstanceInput(ref, 'gone', 1);
+		const onOther = waits(true, trace, 'hud');
+		onOther.setInstanceInput(ref, 'amount', 7);
+		const readOther = onOther.readInstanceValue(ref, 'main.state');
+		const readOwn = w.readInstanceValue(ref, 'main.state');
+		unregister();
+		w.setInstanceInput(ref, 'amount', 8);
+		eq(
+			'6b. a set lands on the addressed placement, is dropped for one on another screen, is stashed while away; a read follows the screen',
+			[sets, readOther, readOwn, trace],
+			[
+				['amount=5', 'gone=1'],
+				undefined,
+				'idle',
+				[
+					'instance c_banner.amount = 5',
+					'instance c_banner.gone = 1 · dropped (no such input)',
+					"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
+					"instance c_banner.amount = 7 · dropped (the mounted 'c_banner' is on another screen)",
+					"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
+					'instance c_banner.amount = 8 (stashed)',
+				],
+			],
+		);
+		// The stash was addressed to basegame: a mount there takes it, and a refused one is traced
+		// with its reason through the drop listener.
+		const dropped: string[] = [];
+		const offDrop = G.onFlowInstanceDrop((id, input, value, outcome) =>
+			dropped.push(`${id}.${input}=${JSON.stringify(value)} ${outcome}`),
+		);
+		w.setInstanceInput(ref, 'nope', 'x');
+		const late = {
+			...handle,
+			setInput: (i: string) => (i === 'amount' ? ('set' as const) : ('wrong-kind' as const)),
+		};
+		G.registerFlowInstance(late)();
+		offDrop();
+		eq('6b. a stash lands on the next mount on its screen; a refused one says why', dropped, [
+			'c_banner.nope="x" wrong-kind',
+		]);
+		G.clearFlowInstances();
 	}
 	{
 		// A handle placed on ANOTHER screen is not the addressed placement.
@@ -974,19 +1084,23 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		'8. the game env wires the four hooks, the waits module on the round’s slam token, and the event ownership',
 		[
 			'fireInstanceTrigger: async (ref, trigger) => {',
-			'setInstanceInput: (ref, input, value) => {',
-			'readInstanceValue: (ref, value) => liveInstance(ref)?.values()[value],',
-			'awaitInstanceState,',
+			'\t\tsetInstanceInput,\n\t\treadInstanceValue,\n\t\tawaitInstanceState,',
 			'ownsInstanceEvent: (instanceId, event) =>',
-			'const { liveInstance, instanceWhenMounted, awaitInstanceState } = createInstanceWaits({',
+			'const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } =',
 			'skip: roundSkip,',
 			'sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,',
-			'const live = liveInstance(ref);',
-			'stashFlowInstanceInput(ref.instance, input, value);',
-			"else trace('instance', line, '· dropped (no such input, or not its kind)');",
-			'onFlowInstanceDrop((instanceId, input, value) =>',
+			'stashFlowInstanceInput,',
+			'const stopDropTrace = onFlowInstanceDrop((instanceId, input, value, outcome) =>',
+			'dispose: () => stopDropTrace(),',
 		].map((line) => runtime.includes(line)),
-		[true, true, true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true],
+	);
+	eq(
+		'8. the game releases the flow handle on destroy (the drop-trace listener is not re-added per mount)',
+		['onDestroy(() => disposeFlowV2?.());', 'disposeFlowV2 = flowV2?.dispose;'].map((line) =>
+			source('apps/lines/src/components/Game.svelte').includes(line),
+		),
+		[true, true],
 	);
 	eq(
 		'8. a raised event plays no press sound',

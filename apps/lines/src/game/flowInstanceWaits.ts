@@ -17,7 +17,7 @@
  * addressed placement: Flow names a screen and a node id, and two screens could place one id.
  * Every outcome is traced.
  */
-import type { FlowInstanceHandle } from 'engine-layout';
+import type { FlowInstanceHandle, InstanceSetOutcome } from 'engine-layout';
 import type { InstanceRef } from 'engine-flow-v2';
 import type { SkipToken } from 'utils-shared/skipToken';
 
@@ -29,6 +29,12 @@ export interface InstanceWaitDeps {
 	/** The scene a container renders; `undefined` ⇒ unknown, the handle's screen is not checked. */
 	sceneIdOf(container: string): string | undefined;
 	getFlowInstance(instanceId: string): FlowInstanceHandle | undefined;
+	stashFlowInstanceInput(
+		instanceId: string,
+		input: string,
+		value: unknown,
+		sceneId?: string,
+	): InstanceSetOutcome | 'stashed';
 	watchFlowInstance(
 		instanceId: string,
 		listener: (handle: FlowInstanceHandle | undefined) => void,
@@ -43,6 +49,13 @@ export interface InstanceWaits {
 	/** The addressed placement's live handle right now, `undefined` when it is not mounted or the
 	 *  mounted one is on another screen. */
 	liveInstance(ref: InstanceRef): FlowInstanceHandle | undefined;
+	/** A `componentInstance` node's fed data-in: set on the addressed placement when mounted;
+	 *  stashed for its next mount on that screen when not; DROPPED (never set, never stashed) when
+	 *  the id's mounted placement is on another screen. Every outcome is traced. */
+	setInstanceInput(ref: InstanceRef, input: string, value: unknown): void;
+	/** A `componentInstance` node's `value:` data-out: the addressed placement's value, `undefined`
+	 *  when it is not on screen. */
+	readInstanceValue(ref: InstanceRef, value: string): unknown;
 	/** The addressed placement's live handle: at once when registered, after its registration when
 	 *  its screen is shown (bounded by the grace), `undefined` otherwise. A slam does not cut the
 	 *  grace short: a fire must not drop a beat. */
@@ -52,6 +65,13 @@ export interface InstanceWaits {
 	 *  screen, has no such layer, or the round is already slammed. */
 	awaitInstanceState(ref: InstanceRef, layer: string, state: string): Promise<void>;
 }
+
+/** The trace wording for each way a set can be refused (`InstanceSetOutcome`). */
+export const DROP_REASON: Record<Exclude<InstanceSetOutcome, 'set'>, string> = {
+	'no-input': 'no such input',
+	'wrong-kind': 'not its kind',
+	'no-machine': 'no state machine to set it on',
+};
 
 export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 	const grace = deps.graceMs ?? INSTANCE_MOUNT_GRACE_MS;
@@ -73,6 +93,25 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 	};
 	const liveInstance = (ref: InstanceRef): FlowInstanceHandle | undefined =>
 		addressed(ref, deps.getFlowInstance(ref.instance));
+	const setInstanceInput = (ref: InstanceRef, input: string, value: unknown): void => {
+		const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
+		const mounted = deps.getFlowInstance(ref.instance);
+		const scene = deps.sceneIdOf(ref.container);
+		if (mounted && !addressed(ref, mounted)) {
+			deps.trace(
+				'instance',
+				line,
+				`· dropped (the mounted '${ref.instance}' is on another screen)`,
+			);
+			return;
+		}
+		const outcome = deps.stashFlowInstanceInput(ref.instance, input, value, scene);
+		if (outcome === 'set') deps.trace('instance', line);
+		else if (outcome === 'stashed') deps.trace('instance', line, '(stashed)');
+		else deps.trace('instance', line, `· dropped (${DROP_REASON[outcome]})`);
+	};
+	const readInstanceValue = (ref: InstanceRef, value: string): unknown =>
+		liveInstance(ref)?.values()[value];
 	const instanceWhenMounted = (ref: InstanceRef): Promise<FlowInstanceHandle | undefined> => {
 		const live = liveInstance(ref);
 		if (live || !deps.isShown(ref.container)) return Promise.resolve(live);
@@ -173,5 +212,11 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 			if (settled) unskip();
 		});
 	};
-	return { liveInstance, instanceWhenMounted, awaitInstanceState };
+	return {
+		liveInstance,
+		setInstanceInput,
+		readInstanceValue,
+		instanceWhenMounted,
+		awaitInstanceState,
+	};
 }

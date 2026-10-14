@@ -953,6 +953,48 @@ async function main(): Promise<void> {
 			data: [],
 		});
 		eq(
+			'5. a malformed stored group never throws at click time: an empty body, a body without exec, a null boundary pin',
+			[
+				flowOwnsInstanceEvent(
+					doc({
+						nodes: [
+							{
+								id: 'g',
+								kind: 'group',
+								pos: at,
+								label: 'g',
+								body: {},
+								boundary: [],
+							} as unknown as Node,
+						],
+						exec: [],
+						data: [],
+					}),
+					'c_banner',
+					'done',
+				),
+				flowOwnsInstanceEvent(
+					doc({
+						nodes: [
+							{
+								id: 'g',
+								kind: 'group',
+								pos: at,
+								label: 'g',
+								body: { nodes: [banner('n1')] },
+								boundary: [null],
+							} as unknown as Node,
+						],
+						exec: [{ from: { node: 'g', pin: 'out_0' }, to: { node: 'x', pin: 'exec' } }],
+						data: [],
+					}),
+					'c_banner',
+					'done',
+				),
+			],
+			[false, false],
+		);
+		eq(
 			'5. a wire crossing two nested group boundaries owns',
 			[
 				flowOwnsInstanceEvent(nested, 'c_banner', 'done'),

@@ -462,7 +462,10 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   replayed from the stash on mount included), `values`,
   `stateOf`, `onChange` (the machine started or changed state, the instance shown or hidden) and
   the screen id (`sceneIdContext`), which the env checks against the node's container on a fire, a
-  set, a read and a wait alike: a handle on another screen is not the addressed placement. The game env's rule for one that is NOT
+  set, a read and a wait alike (`flowInstanceWaits.ts`, every path gated): a handle on another
+  screen is not the addressed placement — a fire, a read or a wait finds nothing, a set is DROPPED
+  (never set, never stashed), and a stash is addressed to its screen and lands only on a mount
+  there. The game env's rule for one that is NOT
   registered lives in `apps/lines` `flowInstanceWaits.ts` (Svelte-free, every case gated): its
   screen shown per the mount model ⇒ it is mounting, a fire or a wait defers to the registration
   (250 ms grace, paid on EACH fire or wait against a placement that never registers, say a def the
@@ -491,33 +494,11 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   text inputs, harvest, registry, the event road, the ship chain, source-scanned wiring),
   `check:flow-publish-gate` §14.
 
-**As built (Phase 7b, 2026-10-13 — the editors):**
-
-- **Palette:** a **Components** section lists every named placement under its screen
-  (`$lib/flowInstanceUi.ts` `paletteInstanceGroups`), each as a `componentInstance` and a
-  `waitForState` entry carrying `instanceNodeRef(container, instance)`; `makeNode` parses it.
-- **Node:** emerald header, the placement's name and `component v<pin>` (or ⚠ not placed / lost)
-  under it; a wire to a pin the interface no longer has is drawn to a red ⚠ placeholder pin
-  (`stalePinsOf`, so xyflow still has a handle) and the wire itself is red and dashed
-  (`buildEdges` marks every edge a validation issue sits on). The inspector names the placement,
-  links **◇ Edit component** (`editorHrefForComponent`, project pinned) and, on a wait, picks the
-  layer and state from the interface (`setWaitForStateFields`).
-- **Pins follow the component:** the page re-reads the projection (`GET /api/flow-v2/instances`,
-  same gate as the save) when its tab is shown again, so an edit in `/editor` updates the pins
-  and reddens stale wires without a reload (a response for another project is ignored).
-- **Jumps:** the `?instance=<placed node id>` deep link (`flowDeepLink`,
-  `nodeNamingInstance` across sections and groups; no node yet ⇒ the palette entry is lit and
-  its section opened). The Scene Editor's **↗ Show in Flow** (Properties, and a right-click menu
-  on the stage that is rendered only while open; a right-drag still pans) navigates with
-  `flowHrefForInstance(loadedProjectKey, nodeId)`; Flow's double-click (a confirm, then
-  a flush of a dirty doc, then `editorHrefForComponent`) comes back. Every link carries `?project=`.
-- **Preview drives the stage:** `$lib/flowStageBridge.ts` — one `BroadcastChannel` per project
-  (`ie-flow-stage:<project>`), a typed message (`fire` / `set` per component id). The Preview
-  panel's **Drive the editor stage** tick posts the run's instance ops; `EditorStateMachinePanel`
-  subscribes while on that component and plays each through its own `fire` / `setPreviewInput` —
-  the same runner and dispatcher as its Preview inputs. No `BroadcastChannel` ⇒ no bridge.
-- **Gate:** `check:flow-instance-nodes-editor` (the pure helpers, the bridge with a stub channel,
-  the node factory and wait setter, and the Svelte wiring source-scanned).
+**As built (Phase 7b, 2026-10-13 — the editors):** the palette, node, inspector, jumps and the
+Preview → stage bridge are described once, for authors, in [the Flow guide](../tools/flow.md)
+("Components", "Jumps", "Drive the editor stage") and [the editor guide](../tools/invisible-editor.md)
+("↗ Show in Flow"); the build detail and the owner browser checks are in
+[status/flow.md](../status/flow.md) (2026-10-13, Phase 7b). Gate: `check:flow-instance-nodes-editor`.
 
 ### 6.3 Why it stays safe
 

@@ -5,7 +5,7 @@
  * supplies the live pieces — its runner, its `fireTrigger`, its visibility — as closures read at
  * call time.
  */
-import type { FlowInstanceHandle } from './flowInstances';
+import type { FlowInstanceHandle, InstanceSetOutcome } from './flowInstances';
 import type { ComponentStateMachineRunner } from './stateMachine';
 import type { ComponentInput, ComponentInputKind } from './types';
 
@@ -73,19 +73,20 @@ export function createFlowInstanceHandle(host: FlowInstanceHost): {
 		fire: (trigger) => {
 			if (kinds.get(trigger) === 'trigger') host.fireTrigger(trigger);
 		},
-		setInput: (input, value) => {
+		setInput: (input, value): InstanceSetOutcome => {
 			const kind = kinds.get(input);
+			if (kind === undefined || kind === 'trigger') return 'no-input';
 			const coerced = coerceInstanceInput(kind, value);
-			if (coerced === undefined) return false;
+			if (coerced === undefined) return 'wrong-kind';
 			if (kind === 'text') {
 				textInputs.set(input, coerced as string);
-				return true;
+				return 'set';
 			}
 			// A bool / number lives on the state machine: without one there is nothing to set.
 			const runner = host.runner();
-			if (!runner) return false;
+			if (!runner) return 'no-machine';
 			runner.setInput(input, coerced as boolean | number);
-			return true;
+			return 'set';
 		},
 		input: (input) =>
 			kinds.get(input) === 'text' ? textInputs.get(input) : host.runner()?.input(input),

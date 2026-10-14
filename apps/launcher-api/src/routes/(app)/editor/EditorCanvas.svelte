@@ -371,9 +371,8 @@
 	}
 	$effect(() => {
 		if (!instanceMenu) return;
-		const onKey = (e: KeyboardEvent): void => {
-			if (e.key === 'Escape') closeInstanceMenu();
-		};
+		// Any key closes it: a Delete meant for the selection must not land under an open menu.
+		const onKey = (): void => closeInstanceMenu();
 		window.addEventListener('mousedown', closeInstanceMenu);
 		window.addEventListener('keydown', onKey);
 		return () => {

@@ -413,11 +413,13 @@ appears — so "set the amount, then show the screen" works in that order. A wai
 when the placement hides or its screen is taken down, and by a slam. With `?flowlog=1` the game
 traces each case.
 
-**Jumps.** Double-click a component node (or the inspector's **◇ Edit component**) to open its
-component in the Scene Editor, in place. From the Scene Editor, select a placement and use
-Properties → **↗ Show in Flow** (or right-click it on the stage): Flow opens on the node that
+**Jumps.** Double-click a component node or a wait node (or the inspector's **◇ Edit
+component**) to open its component in the Scene Editor, in place — a confirmation asks first,
+and unsaved flow edits are saved before the hop. From the Scene Editor, select a placement and
+use Properties → **↗ Show in Flow** (or right-click it on the stage): Flow opens on the node that
 names it, or lights its palette entry when no node does yet. Both keep the project pinned in
-the address bar.
+the address bar. A node you have just placed reads **loading pins…** for a moment while Flow
+fetches the exact interface of the version the placement pins.
 
 **Pins follow the component.** Rename or remove an input, event or layer on the component and
 the node's pins change: a wire to a pin that is gone stays on the canvas as a **red, dashed wire
@@ -898,9 +900,12 @@ visual of the game — that is the running game's job.
 
 **Drive the editor stage.** With a component node in the flow, a tick appears beside Run. Open
 the same project's component in the Scene Editor (Animate → **State machine**, ▶ Run) in another
-tab, tick it, and **Run** here: every trigger the run fires and every input it sets on that
-component plays on that stage through the panel's own preview inputs — logic here, animation
-there. A panel open on another component ignores it; nothing happens with the tick off.
+tab, tick it, and **Run** here: every trigger the run fires and every bool / number input it sets
+on that component plays on that stage through the panel's own preview inputs, each at its time
+on the preview timeline (so fire → wait → fire paces as the run did) — logic here, animation
+there. A **text** input's key is sent but not played: the stage has nothing to show it on yet.
+A panel open on another component ignores it; nothing happens with the tick off, and a new run
+or unticking cancels what was still to play.
 
 ### Auto-save
 

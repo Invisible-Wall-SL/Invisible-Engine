@@ -165,6 +165,8 @@
 				const at = `${decl.componentId}${decl.version !== undefined ? ` v${decl.version}` : ''}`;
 				if (decl.missing)
 					return `⚠ ${decl.name} · ${decl.missing === 'def' ? 'component missing' : `${at} missing`}`;
+				// The projection was read without the pinned snapshots; the exact pins are on their way.
+				if (decl.unpinned) return `${decl.name} · ${at} · loading pins…`;
 				return `${decl.name} · ${at}`;
 			}
 			case 'waitForState': {

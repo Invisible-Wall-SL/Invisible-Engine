@@ -570,7 +570,9 @@
 					<code>{instanceDecl.componentId}</code>{instanceDecl.version !== undefined
 						? ` v${instanceDecl.version}`
 						: ' (latest)'}.
-					{#if instanceDecl.missing === 'def'}
+					{#if instanceDecl.unpinned}
+						<strong>Loading the pinned version's pins…</strong>
+					{:else if instanceDecl.missing === 'def'}
 						<strong>Its component is not in this project</strong> — restore it in the Scene Editor.
 					{:else if instanceDecl.missing === 'version'}
 						<strong>Its pinned version no longer exists</strong> — update the instance in the Scene Editor.
