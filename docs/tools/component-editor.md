@@ -414,12 +414,17 @@ type (a Flow **fireCue** name, say). **Also on** plays the same timeline on othe
 name their nodes alike. How to author, reuse and check one is in the Scene Editor guide under
 [Animate a component](invisible-editor.md#animate-a-component).
 
+**Place a component inside another.** Library → **Components** lists every other component of the
+project; drag one onto the canvas to place an instance of it (at the component's root, or inside a
+part you are editing). A component that holds the open one, directly or through another, is left
+out, since that would loop. The game draws nesting two components deep.
+
 **State machine — a threshold per placement.** In Animate → **State machine**, a condition on a
 number input can compare with a fixed **value** or with one of the component's number params, shown
 as `{lightAt}`. Each placed instance then uses its own param, so one component lights at a different
-point in every placement. The ops are `==` `!=` `<` `>` `<=` `>=`. A container holding instances of
-a component with a `lightAt` param shows **🔥 Light order: bottom → top**, which sets each one's
-`lightAt` from its height. Worked example: [build a pot from pieces](../guides/pot-from-pieces.md).
+point in every placement. The ops are `==` `!=` `<` `>` `<=` `>=`. Two or more instances of a
+component with a `lightAt` param show **🔥 Light order: bottom → top** (in the editor bar, and in
+Properties on a container holding them), which sets each one's `lightAt` from its height. Worked example: [build a pot from pieces](../guides/pot-from-pieces.md).
 
 ## Win Overlay — per-tier presentation
 
@@ -480,8 +485,8 @@ part-full so you can see which way it grows. The labels and the size stages show
 
 **2. Put your own nodes inside the part.** Create a component of type **Pot Meter (Hold and Win)**,
 a copy of the Pot Meter for this project. Click **Edit inside Pot ›** in the editor bar. The canvas,
-Outline and Library now work on the part's own nodes. Drop a rig, an effect, sprites or text
-there, at positions relative to the pot's centre. In the game, your nodes replace the coded bar and
+Outline and Library now work on the part's own nodes. Drop a rig, an effect, sprites, text or
+another component (Library → **Components**) there, at positions relative to the pot's centre. In the game, your nodes replace the coded bar and
 both labels. Any art picked on the instance still draws under them. The part keeps its behaviour:
 
 - It follows its meter's level.

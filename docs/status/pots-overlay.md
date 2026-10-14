@@ -955,6 +955,15 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-14 — **Components inside components, from the Library** (branch
+  `claude/admiring-noether-ptegsa`). The Component Editor's Library gains a **Components** section:
+  drag one onto the canvas to place a nested instance, at the root or inside a coded part (the
+  firecrackers inside the Pot Meter's `Pot`). Components that hold the open one are left out
+  (`placeableComponents`, `componentWorkspace.ts`; `check:component-links` §8). **🔥 Light order**
+  also shows in the editor bar, since a part's pieces have no container to select. The State Machine
+  panel always shows **value / {param}** on a number condition, with a hint when the component has no
+  number param yet.
+
 - 2026-10-14 — **Rig animations on component timelines, from the editor** (branch
   `claude/admiring-noether-ptegsa`). Selecting a rig node in Animate shows an **animation** row in
   the Timeline panel: pick an animation and it plays from the playhead as a strip on the rig's row

@@ -34,6 +34,9 @@
 		STANDARD_MAIN_SIZES_MAP,
 		TOTAL_WIN_BAR_DEF,
 		WHEEL_DEF,
+		POT_PIECE_LIGHT_PARAM,
+		lightOrderThresholds,
+		potPieces,
 	} from 'engine-layout';
 	import type {
 		CinematicDoc,
@@ -91,6 +94,7 @@
 		canEnterNested,
 		etagAdoption,
 		etagKnown,
+		placeableComponents,
 		type ComponentOpenRequest,
 	} from './componentWorkspace';
 	import type { PageData } from './$types';
@@ -549,6 +553,31 @@
 	function enterPart(id: string | null): void {
 		insidePartId = id;
 		selectedIds = [];
+	}
+
+	/** The pot pieces (instances of a component with a `lightAt` param) among the edited nodes. */
+	const lightPieces = $derived.by(() => {
+		void editNonce;
+		const root: LayoutNode = {
+			id: '_edited',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: editedNodes,
+		};
+		return potPieces(
+			root,
+			(id) =>
+				!!components.find((c) => c.id === id)?.params?.some((p) => p.key === POT_PIECE_LIGHT_PARAM),
+		);
+	});
+	/** Number every piece's `lightAt` from its height: the lowest lights first, the top at a full pot. */
+	function setLightOrder(): void {
+		const thresholds = lightOrderThresholds(lightPieces.map((p) => p.y));
+		lightPieces.forEach(({ node }, i) => {
+			node.params = { ...node.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
+		});
+		editNonce += 1;
 	}
 
 	/** Synthetic scene wrapping the edited node list (the draft's `root.children`, or a skinnable
@@ -2111,7 +2140,7 @@
 	 * the matching kind. Same wire format as a Library asset drag. */
 	function onElementDragStart(
 		e: DragEvent,
-		payload: { kind: string; key: string; name: string },
+		payload: { kind: string; key: string; name: string; version?: number },
 	): void {
 		if (!e.dataTransfer) return;
 		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
@@ -2221,6 +2250,16 @@
 							Edit inside {part.label ?? part.id} ›
 						</button>
 					{/each}
+				{/if}
+				{#if lightPieces.length > 1 && !isInspecting}
+					<button
+						class="save-btn"
+						type="button"
+						title={`Set each piece's "${POT_PIECE_LIGHT_PARAM}" from its height: the lowest lights first, the highest at a full pot (${lightPieces.length} pieces)`}
+						onclick={setLightOrder}
+					>
+						🔥 Light order: bottom → top
+					</button>
 				{/if}
 				<label
 					class="space-toggle"
@@ -2629,6 +2668,15 @@
 								<EditorElementsPalette {onElementDragStart} />
 							</ul>
 						</PanelSection>
+
+						{#if componentDraft}
+							{@const placeable = placeableComponents(components, componentDraft.id)}
+							<PanelSection id="cmp-lib-components" title="Components" count={placeable.length}>
+								<ul>
+									<EditorElementsPalette {onElementDragStart} components={placeable} />
+								</ul>
+							</PanelSection>
+						{/if}
 
 						<EditorAssetLibrary assets={data.assets} />
 					{:else}

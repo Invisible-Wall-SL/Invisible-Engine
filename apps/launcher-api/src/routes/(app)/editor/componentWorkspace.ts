@@ -1,5 +1,5 @@
 import type { ComponentDef } from 'engine-layout';
-import { MAX_COMPONENT_DEPTH } from 'engine-layout';
+import { MAX_COMPONENT_DEPTH, collectComponentIds } from 'engine-layout';
 
 /**
  * A request from the Screens side of `/editor` to the Components side. `id: null` opens the
@@ -24,6 +24,23 @@ export interface ComponentOpenRequest {
  */
 export function canEnterNested(trailDepth: number): boolean {
 	return trailDepth + 1 < MAX_COMPONENT_DEPTH;
+}
+
+/**
+ * The components the open one (`openId`) may place inside itself, from the Library: every other
+ * component that does not contain the open one, directly or through its own nested instances. A
+ * cycle would never draw (the game stops at `MAX_COMPONENT_DEPTH`), so it is never offered.
+ */
+export function placeableComponents(all: ComponentDef[], openId: string): ComponentDef[] {
+	const byId = new Map(all.map((def) => [def.id, def]));
+	const containsOpen = (id: string, path: Set<string>): boolean => {
+		if (id === openId) return true;
+		if (path.has(id)) return false;
+		const def = byId.get(id);
+		const next = new Set(path).add(id);
+		return !!def && collectComponentIds([def.root]).some((child) => containsOpen(child, next));
+	};
+	return all.filter((def) => !containsOpen(def.id, new Set()));
 }
 
 /**

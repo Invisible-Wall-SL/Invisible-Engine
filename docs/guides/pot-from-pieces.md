@@ -61,14 +61,23 @@ rig node. Its `lightAt` ends up at `1`, so it lights only when the pot is full.
 
 ## 3. The pot
 
-**Do:** open the **Pot Meter** (fork it to the project if you have not), and place the firecrackers
-and the coin head **inside its `Pot` part**. Anything inside the part replaces the coded bar, while
-the pot keeps its level, its flights' landing point and its signals.
+**Do:** make the project's own pot: **＋ New component…** of type **Pot Meter (Hold and Win)** (never
+edit the built-in Pot Meter itself). Click **Edit inside Pot ›** in the editor bar: the canvas now
+edits the part's own nodes. Anything inside the part replaces the coded bar, while the pot keeps its
+level, its flights' landing point and its signals.
 
-**Do:** select the `Pot` part (or any group holding the pieces) → **🔥 Light order: bottom → top**.
-Each piece's `lightAt` is set from its height: with N heights the lowest lights at 1/N, the next at
-2/N, … the highest (the coin head) at 1. Pieces at the same height light together. Edit any single
-`lightAt` afterwards to tune it.
+**Do:** Library → **Components**, drag `Firecracker` onto the canvas once per firecracker, and
+`CoinHead` once at the top. Arrange them like the art. (The list leaves out any component that holds
+this one, so a placement can never loop.)
+
+**Do:** click **🔥 Light order: bottom → top** in the editor bar (it appears once two pieces are
+placed; selecting a container that holds pieces shows it in Properties too). Each piece's `lightAt`
+is set from its height: with N heights the lowest lights at 1/N, the next at 2/N, … the highest (the
+coin head) at 1. Pieces at the same height light together. Edit any single `lightAt` afterwards to
+tune it. **Save**.
+
+**Do:** in the Scene Editor, on the **Pots** screen, select each pot and switch its **component** to
+yours. It keeps its position and its **meter**.
 
 **Done when:** each placed piece shows its own `lightAt` in Properties.
 
