@@ -955,6 +955,17 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-14 — **Rig FX play when a timeline strip plays their animation** (branch
+  `claude/admiring-noether-ptegsa`). Found on `commonoverlayproject`: the firecrackers lit, but the
+  sparks the Rigger bound to `ON` never showed. A strip poses the rig through `<RigPose>`
+  (`Animation.apply`), so no `AnimationState` event fired and `<RiggedEffect>` / `<RiggedFlipbook>`
+  never heard their beat. `<RigPose>` now reports the events a strip's playhead crosses
+  (`pixi-svelte` `rigPoseEvents.ts`) to the rig's bound content only; the game bus
+  (`rebroadcastEvents`) still hears the state alone, and a value binding's scrub still fires
+  nothing. Verified by playing the project headless with and without the change. The same session
+  found the firecrackers' "never lit" report was the **Lit** state not looping: `ON` (0.5 s) played
+  once and held a last frame that looks like `OFF`.
+
 - 2026-10-14 — **Components inside components, from the Library** (branch
   `claude/admiring-noether-ptegsa`). The Component Editor's Library gains a **Components** section:
   drag one onto the canvas to place a nested instance, at the root or inside a coded part (the

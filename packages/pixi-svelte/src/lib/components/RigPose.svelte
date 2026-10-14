@@ -24,6 +24,7 @@
 
 	import { getContextRig } from '../context.svelte';
 	import { applyRigBoneOffset, isIdentityBoneOffset } from '../rigBoneOffset';
+	import { emitRigPoseEvent } from '../rigPoseEvents';
 
 	/**
 	 * Pose a playing rig on top of its animation, every frame — the rig half of a layout value
@@ -31,9 +32,11 @@
 	 *
 	 * It runs on the rig's world-transform hooks, after the animation state has applied:
 	 * 1. Each SCRUB applies its animation at the held time, replacing the channels that animation keys.
-	 *    It goes through `Animation.apply`, whose events are dropped, so a scrub fires none of the
-	 *    animation's events. A track entry would replay every event up to the time on each new
-	 *    entry, and those reach the game bus through `rebroadcastEvents`.
+	 *    It goes through `Animation.apply`, so a value binding's scrub fires none of the animation's
+	 *    events (a track entry would replay every event up to the time on each new entry, and those
+	 *    reach the game bus through `rebroadcastEvents`). A timeline STRIP (`unit: 'seconds'`) plays
+	 *    its clip, so the events its playhead crosses go to the rig's bound content only
+	 *    (`rigPoseEvents.ts`) — the effects and clips keyed on them play, the game bus hears nothing.
 	 * 2. Each BONE offset is applied on top of that.
 	 * After the world transform the offsets are undone, last first, so an unkeyed channel never
 	 * compounds.
@@ -54,8 +57,10 @@
 		console.warn(`[RigPose] ${message}`);
 	};
 
-	/** Where a scrub's events land and are dropped — never dispatched, cleared after each apply. */
+	/** Where a scrub's events land: dropped for a value binding, reported for a strip. */
 	const droppedEvents: RIG.Event[] = [];
+	/** A strip's last applied time per animation: the next apply reports the events between. */
+	const stripTimes: Record<string, number> = {};
 	let restores: (() => void)[] = [];
 	const pose = (): void =>
 		untrack(() => {
@@ -80,9 +85,15 @@
 					unit === 'seconds'
 						? Math.min(animation.duration, Math.max(0, time))
 						: Math.min(1, Math.max(0, time)) * animation.duration;
+				// A strip reports what its playhead crossed since the last apply; a playhead that moved
+				// back (the state re-entered, or a loop wrapped) starts a new pass from before 0, so a
+				// key at 0 fires again. A key in the last frame of a wrapping loop can be skipped.
+				const strip = unit === 'seconds';
+				const last = strip ? stripTimes[name] : undefined;
+				const from = last !== undefined && last <= at ? last : -1;
 				animation.apply(
 					skeleton,
-					at,
+					strip ? from : at,
 					at,
 					false,
 					droppedEvents,
@@ -90,6 +101,10 @@
 					RIG.MixBlend.replace,
 					RIG.MixDirection.mixIn,
 				);
+				if (strip) {
+					stripTimes[name] = at;
+					for (const event of droppedEvents) emitRigPoseEvent(rig, name, event);
+				}
 				droppedEvents.length = 0;
 			}
 			for (const { bone: name, offset } of props.bones ?? []) {
