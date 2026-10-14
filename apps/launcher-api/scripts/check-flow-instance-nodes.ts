@@ -500,6 +500,15 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		[stillKept, applied],
 		[true, ['hud:amount=9']],
 	);
+	G.stashFlowInstanceInput('c_banner', 'amount', 1, 'basegame');
+	G.stashFlowInstanceInput('c_banner', 'amount', 2, 'hud');
+	applied.length = 0;
+	G.registerFlowInstance(onScreen('hud'))();
+	G.registerFlowInstance(onScreen('basegame'))();
+	eq('5. a stash is kept per screen: a later one for another screen replaces nothing', applied, [
+		'hud:amount=2',
+		'basegame:amount=1',
+	]);
 	G.clearFlowInstances();
 	const older = handle('c_banner');
 	const newer = handle('c_banner');
@@ -702,6 +711,7 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			sceneIdOf: () => sceneOf,
 			getFlowInstance: G.getFlowInstance,
 			stashFlowInstanceInput: G.stashFlowInstanceInput,
+			onFlowInstanceDrop: G.onFlowInstanceDrop,
 			watchFlowInstance: G.watchFlowInstance,
 			skip,
 			trace: (op, ...rest) => void trace.push([op, ...rest].join(' ')),
@@ -918,9 +928,9 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		unregisterSecond();
 	}
 	{
-		// A set lands on the addressed placement, is stashed while it is away, and is DROPPED — never
-		// set, never stashed — when the id's mounted placement is on another screen; a read on another
-		// screen reads nothing.
+		// A set lands on the addressed placement, is stashed while it is away — and when the id's mounted
+		// placement is on ANOTHER screen it is kept for the addressed screen's own mount, never set on
+		// that other handle; a read on another screen reads nothing.
 		const trace: string[] = [];
 		const state = { main: 'idle', shown: true };
 		const sets: string[] = [];
@@ -939,11 +949,12 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 		const onOther = waits(true, trace, 'hud');
 		onOther.setInstanceInput(ref, 'amount', 7);
 		const readOther = onOther.readInstanceValue(ref, 'main.state');
+		onOther.dispose(); // one drop feed from here on: `w`'s
 		const readOwn = w.readInstanceValue(ref, 'main.state');
 		unregister();
 		w.setInstanceInput(ref, 'amount', 8);
 		eq(
-			'6b. a set lands on the addressed placement, is dropped for one on another screen, is stashed while away; a read follows the screen',
+			'6b. a set lands on the addressed placement, is kept for another screen’s own mount, is stashed while away; a read follows the screen',
 			[sets, readOther, readOwn, trace],
 			[
 				['amount=5', 'gone=1'],
@@ -952,29 +963,40 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 				[
 					'instance c_banner.amount = 5',
 					'instance c_banner.gone = 1 · dropped (no such input)',
-					"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
-					"instance c_banner.amount = 7 · dropped (the mounted 'c_banner' is on another screen)",
+					"instance c_banner.amount = 7 (stashed for screen 'basegame'; the mounted 'c_banner' is on another screen)",
 					"instance c_banner · not on screen 'basegame' (scene hud; the handle is on basegame)",
 					'instance c_banner.amount = 8 (stashed)',
 				],
 			],
 		);
-		// The stash was addressed to basegame: a mount there takes it, and a refused one is traced
-		// with its reason through the drop listener.
-		const dropped: string[] = [];
-		const offDrop = G.onFlowInstanceDrop((id, input, value, outcome) =>
-			dropped.push(`${id}.${input}=${JSON.stringify(value)} ${outcome}`),
-		);
+		// The hud stash lands on a hud mount only; the basegame stash on a basegame mount; a refused
+		// one is traced on the waits' own drop feed with its reason.
+		const landed: string[] = [];
+		const mountOn = (sceneId: string, refuse?: string) =>
+			G.registerFlowInstance({
+				...handle,
+				sceneId,
+				setInput: (i: string, v: unknown) => {
+					if (i === refuse) return 'wrong-kind' as const;
+					landed.push(`${sceneId}:${i}=${JSON.stringify(v)}`);
+					return 'set' as const;
+				},
+			});
 		w.setInstanceInput(ref, 'nope', 'x');
-		const late = {
-			...handle,
-			setInput: (i: string) => (i === 'amount' ? ('set' as const) : ('wrong-kind' as const)),
-		};
-		G.registerFlowInstance(late)();
-		offDrop();
-		eq('6b. a stash lands on the next mount on its screen; a refused one says why', dropped, [
-			'c_banner.nope="x" wrong-kind',
-		]);
+		mountOn('hud')();
+		mountOn('basegame', 'nope')();
+		eq(
+			'6b. each stash lands on its own screen’s mount; a refused one is traced with its reason',
+			[landed, trace.slice(-2)],
+			[
+				['hud:amount=7', 'basegame:amount=8'],
+				[
+					'instance c_banner.nope = "x" (stashed)',
+					'instance c_banner.nope = "x" · dropped on mount (not its kind)',
+				],
+			],
+		);
+		w.dispose();
 		G.clearFlowInstances();
 	}
 	{
@@ -1086,21 +1108,24 @@ const DEFS = [BANNER_V3, BANNER_V2, BUILTIN_COMPONENTS[0]];
 			'fireInstanceTrigger: async (ref, trigger) => {',
 			'\t\tsetInstanceInput,\n\t\treadInstanceValue,\n\t\tawaitInstanceState,',
 			'ownsInstanceEvent: (instanceId, event) =>',
-			'const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } =',
+			'const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } = waits;',
 			'skip: roundSkip,',
 			'sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,',
 			'stashFlowInstanceInput,',
-			'const stopDropTrace = onFlowInstanceDrop((instanceId, input, value, outcome) =>',
-			'dispose: () => stopDropTrace(),',
+			'onFlowInstanceDrop,',
+			'dispose: waits.dispose,',
 		].map((line) => runtime.includes(line)),
 		[true, true, true, true, true, true, true, true, true],
 	);
 	eq(
-		'8. the game releases the flow handle on destroy (the drop-trace listener is not re-added per mount)',
-		['onDestroy(() => disposeFlowV2?.());', 'disposeFlowV2 = flowV2?.dispose;'].map((line) =>
-			source('apps/lines/src/components/Game.svelte').includes(line),
-		),
-		[true, true],
+		'8. the game releases the flow handle on destroy, even one built after the destroy',
+		[
+			'destroyed = true;',
+			'disposeFlowV2?.();',
+			'if (destroyed) flowV2?.dispose();',
+			'else disposeFlowV2 = flowV2?.dispose;',
+		].map((line) => source('apps/lines/src/components/Game.svelte').includes(line)),
+		[true, true, true, true],
 	);
 	eq(
 		'8. a raised event plays no press sound',

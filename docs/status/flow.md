@@ -63,19 +63,31 @@
   state pickers (`setWaitForStateFields`), the `?instance=` deep link, a re-read of the
   projection on tab return (`GET /api/flow-v2/instances`), double-click → *Edit component*; the
   Preview's **Drive the editor stage** tick posts the run's instance ops on
-  `$lib/flowStageBridge.ts`. `/editor`: **↗ Show in Flow** in Properties and in a new right-click
-  menu on a placed instance (rendered only while open), `EditorStateMachinePanel` plays the
-  bridge through its own `fire` / `setPreviewInput`. Every jump keeps `?project=`. Gate
-  `check:flow-instance-nodes-editor` (22). Guides: [flow.md](../tools/flow.md) "Components",
-  [invisible-editor.md](../tools/invisible-editor.md) "The Components side". **⏳ Owner browser
-  check:** (a) `/editor`: name a placed component, Properties → **↗ Show in Flow** → `/flow-v2`
+  `$lib/flowStageBridge.ts`, each post at its timeline time (a text key is sent but not played:
+  the stage has nothing to show it on yet). `/editor`: **↗ Show in Flow** in Properties and in a
+  new right-click menu on a placed instance (rendered only while open; any key closes it),
+  `EditorStateMachinePanel` plays the bridge through its own `fire` / `setPreviewInput`. Every
+  jump keeps `?project=`; a hop refuses, visibly, while a save is in flight or the doc is dirty
+  (a save landing over a later edit clears the dirty flag without it — `SaveState`, fixed in its
+  own PR). A flow naming no instance loads the latest defs only: a placement pinned below latest
+  is `unpinned` (the latest interface stands in, nothing on its nodes reads stale, the node says
+  "loading pins…") until the first instance node re-reads the exact pins; a failed re-read shows
+  an error with Retry. Review fixes on the runtime side, in `apps/lines` `flowInstanceWaits.ts`
+  (Svelte-free, driven in `check:flow-instance-nodes`): a set, a read, a fire and a wait all check
+  the handle's screen — a same-id placement mounted on another screen never takes a set, which is
+  kept for the addressed screen's own mount (the stash is keyed by screen and input); a set
+  refused by the handle, live or on mount, is traced with its reason (`InstanceSetOutcome`); a
+  slam during the mount grace releases a wait; the handle's `dispose` (Game destroy) releases the
+  drop-trace listener. Gate `check:flow-instance-nodes-editor` (24). Guides:
+  [flow.md](../tools/flow.md) "Components", [invisible-editor.md](../tools/invisible-editor.md)
+  "The Components side". **⏳ Owner browser check:** (a) `/editor`: name a placed component, Properties → **↗ Show in Flow** → `/flow-v2`
   opens with the project pinned and the placement lit under **Components**; drag it out, wire
   `on‹Event›` to an action, `▸ trigger` from an event; (b) remove that event on the component,
   Save, return to the Flow tab: the wire turns red and dashed to a ⚠ pin and Validation lists
   `instance-pin-missing`; restore it: the wire heals; (c) double-click the node → *Edit
   component* lands on the component in place, `?project=` kept; back in Flow, **↗ Show in Flow**
   from the editor now selects the node; (d) right-click a placement on the stage: the menu shows,
-  Escape closes it, a right-drag still pans; (e) with the component's State machine ▶ Run in one
+  any key or a click elsewhere closes it, a right-drag still pans; (e) with the component's State machine ▶ Run in one
   tab and Flow's Preview with **Drive the editor stage** ticked in another, **Run** on an event
   that fires the trigger: the stage plays the state; (f) a **wait** node: pick layer + state in the
   inspector; Validation errors on a state that does not exist; (g) Publish of a flow with a red

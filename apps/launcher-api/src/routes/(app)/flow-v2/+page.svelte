@@ -22,6 +22,7 @@
 		type FlowComment,
 		type FlowDoc,
 		type FlowInstanceDecl,
+		type FlowIssue,
 		type FunctionDef,
 		type FunctionLibraryDoc,
 		type Graph,
@@ -31,7 +32,7 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
-	import { askConfirm } from '$lib/dialogs.svelte';
+	import { askConfirm, askMessage } from '$lib/dialogs.svelte';
 	import {
 		editorHrefForComponent,
 		flowDeepLink,
@@ -151,12 +152,17 @@
 	// a component edited in `/editor` meanwhile updates the pins here (a wire to a pin that is gone
 	// turns red) without a reload.
 	let instances = $state<Record<string, FlowInstanceDecl>>(data.instances ?? {});
+	// A failed re-read is said out loud (with a retry), or a node would read "loading pins…" for ever.
+	let instancesError = $state('');
 	async function refreshInstances(): Promise<void> {
 		try {
 			const res = await fetch(
 				`/api/flow-v2/instances?project=${encodeURIComponent(data.projectKey)}`,
 			);
-			if (!res.ok) return;
+			if (!res.ok) {
+				instancesError = `Could not load the component pins (HTTP ${res.status}).`;
+				return;
+			}
 			const body = (await res.json()) as {
 				projectKey?: string;
 				instances?: Record<string, FlowInstanceDecl>;
@@ -164,11 +170,31 @@
 			// Another tab may have moved the session to another project: never take its instances.
 			if (body.projectKey !== data.projectKey || !body.instances) return;
 			instances = body.instances;
+			instancesError = '';
 			syncCanvas();
 		} catch {
-			// Offline or a transient error: the pins stay as loaded.
+			instancesError = 'Could not load the component pins (offline?).';
 		}
 	}
+	// The nodes whose placement is still `unpinned` (its exact interface not read yet): nothing on
+	// them is judged stale until it is — no red pins, no red wires, no issue in the list.
+	const unpinnedNodeIds = $derived(
+		new Set(
+			flowGraphs(doc).flatMap(({ graph }) =>
+				graph.nodes
+					.filter(
+						(n) =>
+							(n.kind === 'componentInstance' || n.kind === 'waitForState') &&
+							instances[n.instance]?.unpinned,
+					)
+					.map((n) => n.id),
+			),
+		),
+	);
+	const touchesUnpinned = (issue: FlowIssue): boolean =>
+		issue.at.on === 'node' || issue.at.on === 'pin'
+			? unpinnedNodeIds.has(issue.at.node)
+			: unpinnedNodeIds.has(issue.at.from.node) || unpinnedNodeIds.has(issue.at.to.node);
 
 	// The project's Scene-Editor screen ids (the keys of `sceneNames`), so Validation can flag a Show /
 	// Hide of a screen the layout no longer has (`container-scene-missing`). An unsaved project has
@@ -454,7 +480,7 @@
 						containerTaps,
 						sceneIds,
 						instances,
-					),
+					).filter((issue) => !touchesUnpinned(issue)),
 					...respinTabIssues(doc, data.addOns),
 					...spinsTabIssues(doc, data.addOns, sceneIds),
 				],
@@ -517,7 +543,7 @@
 				// A placed instance's wires to pins its component no longer has: drawn as red pins so
 				// the wire stays visible and reads as broken (the validator lists it too).
 				stalePins:
-					n.kind === 'componentInstance'
+					n.kind === 'componentInstance' && !instances[n.instance]?.unpinned
 						? stalePinsOf(activeGraph, n.id, graphPins.pins.get(n.id) ?? [])
 						: undefined,
 			},
@@ -937,14 +963,17 @@
 	// §6.2 step 4), keeping the project pin.
 	let lastClickId: string | null = null;
 	let lastClickAt = 0;
-	// Leave for another tool page: a dirty doc is saved first, and a save that does not land (a
-	// conflict, a tab without the lease) keeps the author here with the status pill saying why —
-	// the same rule as the Scene Editor's hop into its Component Editor.
+	// Leave for another tool page. Never with an edit in flight or unsaved: a save that lands while
+	// a later edit is pending clears the dirty flag without it (`SaveState`, fixed separately), so
+	// the only safe hop is from a clean, idle doc — otherwise say so and stay.
 	async function hopTo(href: string): Promise<void> {
-		// A save in flight: the hop waits for it (bounded), then flushes what is still dirty.
-		for (let waited = 0; saveState.busy && waited < 10_000; waited += 100)
-			await new Promise((r) => setTimeout(r, 100));
-		if (saveState.dirty && !(await saveState.save())) return;
+		if (saveState.busy || saveState.dirty) {
+			await askMessage({
+				title: 'Saving…',
+				message: 'Your flow is still saving — try again in a moment.',
+			});
+			return;
+		}
 		window.location.assign(href);
 	}
 	async function editComponentOf(instanceId: string): Promise<void> {
@@ -952,7 +981,7 @@
 		if (!decl) return;
 		const ok = await askConfirm({
 			title: `Edit component '${decl.componentId}'?`,
-			message: `Opens ${decl.name}'s component in the Scene Editor, in place. Unsaved flow edits are saved first.`,
+			message: `Opens ${decl.name}'s component in the Scene Editor, in place.`,
 			confirmLabel: 'Edit component',
 		});
 		if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));
@@ -1935,6 +1964,14 @@
 				title="Browse and restore earlier saved versions of this flow">History…</button
 			>
 		{/if}
+		{#if instancesError}
+			<span class="save-pill dirty" role="alert"
+				>{instancesError}
+				<button class="collapse-btn" type="button" onclick={() => void refreshInstances()}
+					>Retry</button
+				></span
+			>
+		{/if}
 		{#if hasProject}
 			{#if lease.readOnly}
 				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
@@ -2018,9 +2055,8 @@
 					modes={knownModes}
 					cinematics={data.cinematicOptions}
 					timelineIssues={data.timelineIssues}
-					projectKey={data.projectKey}
 					onchange={applyDocEdit}
-					onjump={hopTo}
+					oneditcomponent={(instanceId) => void editComponentOf(instanceId)}
 				/>
 			{:else if view.kind === 'function' && activeFn}
 				<h3>Function body</h3>

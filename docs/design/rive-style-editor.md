@@ -463,9 +463,9 @@ payload?: ParamDecl[]; note? }` with Flow's own `ParamDecl` (engine-layout impor
   `stateOf`, `onChange` (the machine started or changed state, the instance shown or hidden) and
   the screen id (`sceneIdContext`), which the env checks against the node's container on a fire, a
   set, a read and a wait alike (`flowInstanceWaits.ts`, every path gated): a handle on another
-  screen is not the addressed placement — a fire, a read or a wait finds nothing, a set is DROPPED
-  (never set, never stashed), and a stash is addressed to its screen and lands only on a mount
-  there. The game env's rule for one that is NOT
+  screen is not the addressed placement — a fire, a read or a wait finds nothing there, and a set
+  is kept for the addressed screen's own mount (the stash is keyed by screen and input), never set
+  on that other handle. The game env's rule for one that is NOT
   registered lives in `apps/lines` `flowInstanceWaits.ts` (Svelte-free, every case gated): its
   screen shown per the mount model ⇒ it is mounting, a fire or a wait defers to the registration
   (250 ms grace, paid on EACH fire or wait against a placement that never registers, say a def the

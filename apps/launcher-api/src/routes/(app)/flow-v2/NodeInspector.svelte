@@ -38,7 +38,6 @@
 		setWaitForStateFields,
 		type ModeNodePatch,
 	} from './graphOps';
-	import { editorHrefForComponent } from '$lib/flowInstanceUi';
 	import { typeLabel } from './palette';
 	import EnumLiteral from './EnumLiteral.svelte';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
@@ -52,9 +51,8 @@
 		modes = [],
 		cinematics = [],
 		timelineIssues = {},
-		projectKey = '',
 		onchange,
-		onjump,
+		oneditcomponent,
 	}: {
 		doc: FlowDoc;
 		node: V2Node;
@@ -69,10 +67,10 @@
 		/** Screen-timeline id → its node-actor problems (`validateNodeActors`, from the server). */
 		timelineIssues?: Record<string, string[]>;
 		/** The project pin every jump to `/editor` carries. */
-		projectKey?: string;
 		onchange: (next: FlowDoc) => void;
 		/** Leave for another tool at `href` — the page flushes its autosave first. */
-		onjump?: (href: string) => void;
+		/** Open the placement's component in the Scene Editor (the page confirms first). */
+		oneditcomponent?: (instanceId: string) => void;
 	} = $props();
 
 	// --- placed component instances (Rive plan §6.2, Phase 7) --------------------------------
@@ -581,7 +579,7 @@
 				<button
 					type="button"
 					class="jump"
-					onclick={() => onjump?.(editorHrefForComponent(projectKey, instanceDecl.componentId))}
+					onclick={() => oneditcomponent?.(node.instance)}
 					title="Open this component in the Scene Editor, in place (or double-click the node)"
 				>
 					◇ Edit component

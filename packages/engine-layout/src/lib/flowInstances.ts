@@ -57,9 +57,12 @@ export interface FlowInstanceHandle {
 
 /** Mounted handles per id, oldest first; the last is live. */
 const live = new Map<string, FlowInstanceHandle[]>();
-/** Per id, per input: the value kept for the next mount, and the screen it was addressed to (an
- *  undefined screen matches any mount). */
-const stashed = new Map<string, Map<string, { value: unknown; sceneId?: string }>>();
+/** Per id: the values kept for the next mount, keyed by the screen they were addressed to and the
+ *  input (`stashKey`) — a value for screen X and one for screen Y of the same id both wait; an
+ *  undefined screen matches any mount. */
+const stashed = new Map<string, Map<string, { input: string; value: unknown; sceneId?: string }>>();
+const stashKey = (sceneId: string | undefined, input: string): string =>
+	`${sceneId ?? ''}\u0000${input}`;
 const watchers = new Map<string, Set<(handle: FlowInstanceHandle | undefined) => void>>();
 type DropListener = (
 	instanceId: string,
@@ -90,12 +93,12 @@ export function registerFlowInstance(handle: FlowInstanceHandle): () => void {
 	stack.push(handle);
 	const pending = stashed.get(id);
 	if (pending) {
-		for (const [input, kept] of [...pending]) {
+		for (const [key, kept] of [...pending]) {
 			if (!onScreen(handle, kept.sceneId)) continue; // kept for a mount on its own screen
-			pending.delete(input);
-			const outcome = handle.setInput(input, kept.value);
+			pending.delete(key);
+			const outcome = handle.setInput(kept.input, kept.value);
 			if (outcome !== 'set')
-				for (const listener of [...dropListeners]) listener(id, input, kept.value, outcome);
+				for (const listener of [...dropListeners]) listener(id, kept.input, kept.value, outcome);
 		}
 		if (pending.size === 0) stashed.delete(id);
 	}
@@ -116,9 +119,10 @@ export function getFlowInstance(instanceId: string): FlowInstanceHandle | undefi
 	return live.get(instanceId)?.at(-1);
 }
 
-/** Keep an input value for an instance that is not mounted on `sceneId` (any screen when
- *  undefined); applied when it next registers there (last write wins). A mounted instance on that
- *  screen takes the value at once and the outcome is returned; `'stashed'` otherwise. */
+/** Set an input on the instance mounted on `sceneId` (any screen when undefined) and return the
+ *  outcome — or, when no placement is mounted THERE (none at all, or only one on another screen,
+ *  which never takes it), keep the value for the next mount on that screen (last write per screen
+ *  and input wins) and return `'stashed'`. */
 export function stashFlowInstanceInput(
 	instanceId: string,
 	input: string,
@@ -129,7 +133,7 @@ export function stashFlowInstanceInput(
 	if (handle && onScreen(handle, sceneId)) return handle.setInput(input, value);
 	let pending = stashed.get(instanceId);
 	if (!pending) stashed.set(instanceId, (pending = new Map()));
-	pending.set(input, { value, sceneId });
+	pending.set(stashKey(sceneId, input), { input, value, sceneId });
 	return 'stashed';
 }
 

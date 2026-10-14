@@ -1053,7 +1053,7 @@ const carriesInstanceEvent = (
 		(p) => p?.id === pin && p.dir === 'out' && p.kind === 'exec',
 	);
 	if (!b?.inner) return false;
-	const inner = (node.body?.nodes ?? []).find((n) => n.id === b.inner.node);
+	const inner = (node.body?.nodes ?? []).find((n) => !!n && n.id === b.inner.node);
 	return carriesInstanceEvent(inner, b.inner.pin, instanceId, eventPin);
 };
 
@@ -1074,7 +1074,7 @@ const instanceEventEdge = (
 ): { to: PinPath } | undefined => {
 	// Read defensively, like `carriesInstanceEvent`: a stored group body may be malformed.
 	const pin = instanceEventPin(event);
-	const nodes = graph.nodes ?? [];
+	const nodes = (graph.nodes ?? []).filter((n): n is Node => !!n && typeof n === 'object');
 	const nodeById = new Map(nodes.map((n) => [n.id, n] as const));
 	const edge = (graph.exec ?? []).find(
 		(e) =>

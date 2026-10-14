@@ -88,7 +88,7 @@ import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
 import { getActiveGameConfig } from './gameConfig';
 import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
-import { createInstanceWaits, DROP_REASON } from './flowInstanceWaits';
+import { createInstanceWaits } from './flowInstanceWaits';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { stateModes } from './stateModes.svelte';
 import type { ModeTransition } from 'engine-game';
@@ -597,25 +597,17 @@ export const createLinesFlowV2 = (
 	// node reaches the live placement through `engine-layout`'s registry (`flowInstances.ts`). The
 	// outcomes for one that is not registered, and how a wait on one is released, live in
 	// `flowInstanceWaits.ts` (gated in Node); a handle on another screen is never the node's.
-	const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } =
-		createInstanceWaits({
-			isShown: (container) => mount.isShown(container),
-			sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
-			getFlowInstance,
-			stashFlowInstanceInput,
-			watchFlowInstance,
-			skip: roundSkip,
-			trace,
-		});
-	// A stashed set the instance refuses when it mounts (an input gone from the def, not its kind
-	// any more, no machine) is traced as the live drop is. Released by `dispose`.
-	const stopDropTrace = onFlowInstanceDrop((instanceId, input, value, outcome) =>
-		trace(
-			'instance',
-			`${instanceId}.${input} = ${JSON.stringify(value)}`,
-			`· dropped on mount (${DROP_REASON[outcome]})`,
-		),
-	);
+	const waits = createInstanceWaits({
+		isShown: (container) => mount.isShown(container),
+		sceneIdOf: (container) => doc.containers.find((c) => c.id === container)?.sceneId,
+		getFlowInstance,
+		stashFlowInstanceInput,
+		watchFlowInstance,
+		onFlowInstanceDrop,
+		skip: roundSkip,
+		trace,
+	});
+	const { instanceWhenMounted, awaitInstanceState, setInstanceInput, readInstanceValue } = waits;
 
 	const env = createFlowV2Env({
 		mount,
@@ -787,7 +779,7 @@ export const createLinesFlowV2 = (
 			trace('instanceEvent ▶', `${instanceId} on${event}`);
 			return runFlowInstanceEvent(doc, ctx, instanceId, event, payload);
 		},
-		dispose: () => stopDropTrace(),
+		dispose: waits.dispose,
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
 		presentModeTransition: flowHandlesModeTransitions(doc)

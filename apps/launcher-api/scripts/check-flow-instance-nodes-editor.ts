@@ -19,6 +19,7 @@
  */
 import { readFileSync } from 'node:fs';
 import type { FlowDoc, FlowInstanceDecl, Graph, Pin } from 'engine-flow-v2';
+import type { ComponentDef } from 'engine-layout';
 
 const U = await import('../src/lib/flowInstanceUi.ts');
 const P = await import('../src/lib/flowV2Projection.ts');
@@ -356,7 +357,7 @@ const at = { x: 0, y: 0 };
 		has(inspector, [
 			"setWaitForStateFields(doc, node.id, { layer: e.currentTarget.value, state: '' })",
 			'setWaitForStateFields(doc, node.id, { state: e.currentTarget.value })',
-			'onclick={() => onjump?.(editorHrefForComponent(projectKey, instanceDecl.componentId))}',
+			'onclick={() => oneditcomponent?.(node.instance)}',
 		]),
 		[true, true, true],
 	);
@@ -369,10 +370,13 @@ const at = { x: 0, y: 0 };
 			'`/api/flow-v2/instances?project=${encodeURIComponent(data.projectKey)}`',
 			'if (body.projectKey !== data.projectKey || !body.instances) return;',
 			'void editComponentOf(model.instance);',
-			'for (let waited = 0; saveState.busy && waited < 10_000; waited += 100)',
-			'if (saveState.dirty && !(await saveState.save())) return;',
+			'if (saveState.busy || saveState.dirty) {',
 			'if (ok) await hopTo(editorHrefForComponent(data.projectKey, decl.componentId));',
-			'onjump={hopTo}',
+			'oneditcomponent={(instanceId) => void editComponentOf(instanceId)}',
+			'.filter((issue) => !touchesUnpinned(issue)),',
+			"n.kind === 'componentInstance' && !instances[n.instance]?.unpinned",
+			'instancesError = `Could not load the component pins (HTTP ${res.status}).`;',
+			'onclick={() => void refreshInstances()}',
 			'parseInstanceNodeRef(ref).instance === highlightInstance',
 			'if (names && !namedInstance) void refreshInstances();',
 			"class: broken ? 'v2-exec v2-bad' : 'v2-exec',",
@@ -380,7 +384,26 @@ const at = { x: 0, y: 0 };
 			'{instanceGroups}',
 			'<PreviewPanelV2 {doc} {library} {vocab} {instances} projectKey={data.projectKey} />',
 		]),
-		[true, true, true, true, true, true, true, true, true, true, true, true, true, true, true],
+		[
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+			true,
+		],
 	);
 	const preview = source('src/routes/(app)/flow-v2/PreviewPanelV2.svelte');
 	eq(
@@ -397,34 +420,44 @@ const at = { x: 0, y: 0 };
 	);
 	const iface = { inputs: [], events: [], values: [] };
 	eq(
-		'6. a projection read without the pinned snapshots marks a placement pinned below latest as unpinned, never lost',
-		P.unpinnedProjection({
-			a: {
-				container: 'c',
-				instance: 'a',
-				name: 'A',
-				componentId: 'x',
-				version: 1,
-				missing: 'version',
-				interface: iface,
+		'6. a projection read without the pinned snapshots marks a placement pinned below latest as unpinned, with the latest interface standing in, never lost',
+		P.unpinnedProjection(
+			{
+				a: {
+					container: 'c',
+					instance: 'a',
+					name: 'A',
+					componentId: 'x',
+					version: 1,
+					missing: 'version',
+					interface: iface,
+				},
+				b: {
+					container: 'c',
+					instance: 'b',
+					name: 'B',
+					componentId: 'y',
+					missing: 'def',
+					interface: iface,
+				},
+				c: {
+					container: 'c',
+					instance: 'c',
+					name: 'C',
+					componentId: 'z',
+					version: 2,
+					interface: iface,
+				},
 			},
-			b: {
-				container: 'c',
-				instance: 'b',
-				name: 'B',
-				componentId: 'y',
-				missing: 'def',
-				interface: iface,
-			},
-			c: {
-				container: 'c',
-				instance: 'c',
-				name: 'C',
-				componentId: 'z',
-				version: 2,
-				interface: iface,
-			},
-		}),
+			(id) =>
+				id === 'x'
+					? ({
+							id: 'x',
+							name: 'X',
+							inputs: [{ id: 'lit', kind: 'bool' }],
+						} as unknown as ComponentDef)
+					: undefined,
+		),
 		{
 			a: {
 				container: 'c',
@@ -432,7 +465,7 @@ const at = { x: 0, y: 0 };
 				name: 'A',
 				componentId: 'x',
 				version: 1,
-				interface: iface,
+				interface: { inputs: [{ id: 'lit', kind: 'bool' }], events: [], values: [] },
 				unpinned: true,
 			},
 			b: {
@@ -456,7 +489,7 @@ const at = { x: 0, y: 0 };
 	eq(
 		'6. the loader takes the unpinned projection for a flow naming no instance; the node and inspector say the pins are loading',
 		has(source('src/routes/(app)/flow-v2/+page.server.ts'), [
-			'const instances = docNamesInstance(doc) ? projected : unpinnedProjection(projected);',
+			'const instances = docNamesInstance(doc)\n\t\t? projected\n\t\t: unpinnedProjection(projected, (id) => components.find((def) => def.id === id));',
 		]).concat(
 			has(source('src/routes/(app)/flow-v2/FlowV2Node.svelte'), [
 				'if (decl.unpinned) return `${decl.name} · ${at} · loading pins…`;',
@@ -480,12 +513,13 @@ const at = { x: 0, y: 0 };
 				'const onKey = (): void => closeInstanceMenu();',
 			]),
 			has(editor, [
-				'if (saveState.dirty && !(await save())) return;\n\t\twindow.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));',
+				"lastError = 'Saving — try again in a moment.';",
+				'window.location.assign(flowHrefForInstance(loadedProjectKey, nodeId));',
 				'onShowInFlow={animating ? undefined : (node) => showInFlow(node.id)}',
 				'onShowInFlow={showInFlow}',
 			]),
 		),
-		[true, true, true, true, true, true, true, true, true, true, true],
+		[true, true, true, true, true, true, true, true, true, true, true, true],
 	);
 	const panel = source('src/routes/(app)/editor/EditorStateMachinePanel.svelte');
 	eq(

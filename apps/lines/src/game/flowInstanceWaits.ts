@@ -14,8 +14,9 @@
  *    (never a hang), and an input set is STASHED and applied when the instance next mounts — so
  *    "set the amount, then show the screen" works in that order.
  * A handle whose screen is not the node's (`sceneId` against the container's scene) is not the
- * addressed placement: Flow names a screen and a node id, and two screens could place one id.
- * Every outcome is traced.
+ * addressed placement: Flow names a screen and a node id, and two screens could place one id — a
+ * fire, a read or a wait finds nothing there, and a set is kept for the addressed screen's own
+ * mount. Every outcome is traced.
  */
 import type { FlowInstanceHandle, InstanceSetOutcome } from 'engine-layout';
 import type { InstanceRef } from 'engine-flow-v2';
@@ -41,6 +42,16 @@ export interface InstanceWaitDeps {
 	): () => void;
 	/** The round's slam token: a wait never outlives a skipped round. */
 	skip: Pick<SkipToken, 'isSkipped' | 'onSkip'>;
+	/** The registry's drop feed (a stashed value refused on mount), traced here; released by
+	 *  `dispose`. */
+	onFlowInstanceDrop?(
+		listener: (
+			instanceId: string,
+			input: string,
+			value: unknown,
+			outcome: Exclude<InstanceSetOutcome, 'set'>,
+		) => void,
+	): () => void;
 	trace(op: string, ...rest: unknown[]): void;
 	graceMs?: number;
 }
@@ -49,9 +60,9 @@ export interface InstanceWaits {
 	/** The addressed placement's live handle right now, `undefined` when it is not mounted or the
 	 *  mounted one is on another screen. */
 	liveInstance(ref: InstanceRef): FlowInstanceHandle | undefined;
-	/** A `componentInstance` node's fed data-in: set on the addressed placement when mounted;
-	 *  stashed for its next mount on that screen when not; DROPPED (never set, never stashed) when
-	 *  the id's mounted placement is on another screen. Every outcome is traced. */
+	/** A `componentInstance` node's fed data-in: set on the addressed placement when it is mounted;
+	 *  otherwise kept for its next mount on THAT screen — a same-id placement mounted on another
+	 *  screen never takes it. Every outcome is traced. */
 	setInstanceInput(ref: InstanceRef, input: string, value: unknown): void;
 	/** A `componentInstance` node's `value:` data-out: the addressed placement's value, `undefined`
 	 *  when it is not on screen. */
@@ -64,6 +75,8 @@ export interface InstanceWaits {
 	 *  hiding or leaving the screen, or by a slam; resolved at once when the instance is not on
 	 *  screen, has no such layer, or the round is already slammed. */
 	awaitInstanceState(ref: InstanceRef, layer: string, state: string): Promise<void>;
+	/** Release the drop-trace listener. */
+	dispose(): void;
 }
 
 /** The trace wording for each way a set can be refused (`InstanceSetOutcome`). */
@@ -95,21 +108,35 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 		addressed(ref, deps.getFlowInstance(ref.instance));
 	const setInstanceInput = (ref: InstanceRef, input: string, value: unknown): void => {
 		const line = `${ref.instance}.${input} = ${JSON.stringify(value)}`;
-		const mounted = deps.getFlowInstance(ref.instance);
 		const scene = deps.sceneIdOf(ref.container);
-		if (mounted && !addressed(ref, mounted)) {
+		const mounted = deps.getFlowInstance(ref.instance);
+		const elsewhere =
+			!!mounted &&
+			scene !== undefined &&
+			mounted.sceneId !== undefined &&
+			mounted.sceneId !== scene;
+		const outcome = deps.stashFlowInstanceInput(ref.instance, input, value, scene);
+		if (outcome === 'set') deps.trace('instance', line);
+		else if (outcome === 'stashed')
 			deps.trace(
 				'instance',
 				line,
-				`· dropped (the mounted '${ref.instance}' is on another screen)`,
+				elsewhere
+					? `(stashed for screen '${ref.container}'; the mounted '${ref.instance}' is on another screen)`
+					: '(stashed)',
 			);
-			return;
-		}
-		const outcome = deps.stashFlowInstanceInput(ref.instance, input, value, scene);
-		if (outcome === 'set') deps.trace('instance', line);
-		else if (outcome === 'stashed') deps.trace('instance', line, '(stashed)');
 		else deps.trace('instance', line, `· dropped (${DROP_REASON[outcome]})`);
 	};
+	// A stashed set the instance refuses when it mounts (an input gone from the def, not its kind
+	// any more, no machine) is traced as a live drop is.
+	const stopDropTrace =
+		deps.onFlowInstanceDrop?.((instanceId, input, value, outcome) =>
+			deps.trace(
+				'instance',
+				`${instanceId}.${input} = ${JSON.stringify(value)}`,
+				`· dropped on mount (${DROP_REASON[outcome]})`,
+			),
+		) ?? ((): void => undefined);
 	const readInstanceValue = (ref: InstanceRef, value: string): unknown =>
 		liveInstance(ref)?.values()[value];
 	const instanceWhenMounted = (ref: InstanceRef): Promise<FlowInstanceHandle | undefined> => {
@@ -218,5 +245,6 @@ export function createInstanceWaits(deps: InstanceWaitDeps): InstanceWaits {
 		readInstanceValue,
 		instanceWhenMounted,
 		awaitInstanceState,
+		dispose: () => stopDropTrace(),
 	};
 }

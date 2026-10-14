@@ -138,24 +138,6 @@ export function instanceDefResolver(defs: readonly ComponentDef[]): ComponentDef
  * placed too). An instance with no name is not offered — a Flow wire needs something to call it.
  * The ONE projection the `/flow-v2` editor, the publish gate and the localization harvest share.
  */
-/**
- * The projection a flow naming no instance loads with: the LATEST defs only (no pinned snapshot is
- * read). A placement pinned below latest then has no exact interface yet — it is marked `unpinned`
- * rather than `missing: 'version'`, so the palette and a freshly dropped node show no warning; the
- * page re-reads the exact pins the moment a node names a placement.
- */
-export function unpinnedProjection(
-	instances: Record<string, FlowInstanceDecl>,
-): Record<string, FlowInstanceDecl> {
-	return Object.fromEntries(
-		Object.entries(instances).map(([id, decl]) => {
-			if (decl.missing !== 'version') return [id, decl];
-			const { missing: _missing, ...rest } = decl;
-			return [id, { ...rest, unpinned: true }];
-		}),
-	);
-}
-
 export function projectFlowInstances(
 	containers: FlowDoc['containers'],
 	scenes: readonly Scene[],
@@ -192,4 +174,32 @@ export function projectFlowInstances(
 		(scene.nodes ?? []).forEach(walk);
 	}
 	return instances;
+}
+
+/**
+ * The projection a flow naming no instance loads with: the LATEST defs only (no pinned snapshot is
+ * read). A placement pinned below latest then has no exact interface yet — it is marked `unpinned`
+ * with the latest def's interface standing in, rather than `missing: 'version'`, so the palette and
+ * a freshly dropped node show no warning and the page marks nothing stale; it re-reads the exact
+ * pins the moment a node names a placement. `latestOf` resolves a component id to its latest def.
+ */
+export function unpinnedProjection(
+	instances: Record<string, FlowInstanceDecl>,
+	latestOf: (componentId: string) => ComponentDef | undefined,
+): Record<string, FlowInstanceDecl> {
+	return Object.fromEntries(
+		Object.entries(instances).map(([id, decl]) => {
+			if (decl.missing !== 'version') return [id, decl];
+			const { missing: _missing, ...rest } = decl;
+			const latest = latestOf(decl.componentId);
+			return [
+				id,
+				{
+					...rest,
+					interface: latest ? flowInstanceInterface(latest) : rest.interface,
+					unpinned: true,
+				},
+			];
+		}),
+	);
 }

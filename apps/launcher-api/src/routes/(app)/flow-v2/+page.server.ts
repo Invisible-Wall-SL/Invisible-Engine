@@ -141,7 +141,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	);
 	// A flow naming no instance read no pinned snapshot: a placement pinned below latest is
 	// `unpinned`, not lost (`unpinnedProjection`); the page re-reads the exact pins on the first node.
-	const instances = docNamesInstance(doc) ? projected : unpinnedProjection(projected);
+	const instances = docNamesInstance(doc)
+		? projected
+		: unpinnedProjection(projected, (id) => components.find((def) => def.id === id));
 
 	// GAME MODES (`docs/design/hold-and-win.md` §4.5) — the project's mode registry (the built-ins plus
 	// its Game Config `modes`), offered by the "+ Mode" tab picker and the mode nodes' inspector. An
