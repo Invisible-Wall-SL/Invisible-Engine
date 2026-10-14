@@ -652,7 +652,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
-| 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) built 2026-10-14**, owner browser check pending, live games still coded | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
+| 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) built 2026-10-14**, owner browser check pending, live games still coded; **8b (Win) designed in §13.6**, not built | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
 
@@ -719,7 +719,7 @@ Phase 8 migrates the coded overlays to authored components one at a time, each b
 the order **Transition → Win → free-spin intro/outro → buttons**, and retires each coded mount only
 once its authored version matches on screen (`invisible-editor.md` §8.7 "defang, don't gut"). 8a
 is the Transition only. The other three are inventoried here so 8b–8d start from the same map;
-nothing about them changes in 8a.
+nothing about them changes in 8a. §13.6 is the 8b (Win) design, written after 8a merged.
 
 ### 13.1 Inventory of the coded overlays (2026-10-14, `main` 038bcd9)
 
@@ -936,3 +936,299 @@ own.
    no wipe at all — the gate reports that case as a warning in the publish chip.
 9. **Risk: a per-boot dev hook.** Resolved by not having one: the flag is read from the doc only,
    so no player URL can flip a live game, and the gate feeds the game a flagged doc instead.
+
+### 13.6 Phase 8b: Win (design — plan only, nothing built)
+
+> Written 2026-10-14 against `main` 35c5d94 (8a merged). Same pattern as 8a: a new built-in def
+> beside the hybrid twin, built-in timelines, one sparse flag row, one shared status rule, one
+> retire call, two gates. The coded Win is ten times the Transition, so the line between what 8b
+> authors and what it leaves coded is the first decision below, and it is drawn along a seam the
+> code already has.
+
+**13.6.1 Inventory of the coded Win.** Every piece, with the file that owns it:
+
+- **The split.** `Win.svelte` (`apps/lines/src/components/Win.svelte:45-46`) is a composer: it
+  mounts `WinGate` and `WinVisual boundToInstance={false}` — the OFF shape every live game runs.
+  The reference layouts bind it as a canvas-space `bind: { component: 'Win' }` at (0,0) in
+  `basegameOverlays` (`referenceLayouts/lines.ts:178-199`); with `WIN_INSTANCE` (`editorFlags.ts:50`,
+  off) the node is `bind:WinGate` and a `game`-space `winVisual` scene carries a
+  `componentInstance(win)` at board centre (`lines.ts:205-226`). `Game.svelte` already performs that
+  degrade at runtime for any doc that places a `win` instance itself (`docPlacesWinVisual`,
+  `Game.svelte:1072-1097`: `bind:Win` → `bind:WinGate`), and mounts the `winVisual` scene
+  (`winVisualScene`, `:1116`) at `LAYER_BAND_WIN_PRESENTATION` (`:2598-2602`, `layerOrder.ts:54`).
+- **`WinGate`** (`WinGate.svelte`) owns everything that is not drawn: the `winShow` / `winHide` /
+  `winUpdate` subscription (`:307-358`), the **round hold** (`winUpdate` awaits
+  `waitForResolve(oncomplete)`, `:356`, concluded by `concludePresentation`, `:253-262`), the
+  **count-up driver** (`WinCountUpProvider`, `:365-371`, a linear `Tween` from
+  `winState.cueHandoffAmount` to the amount over the tier's `presentDuration`), the **dim**
+  (`CanvasSizeRectangle` black 0.5 on a `big` tier unless `headless`, `:373-375`), the press
+  surfaces (`PressToContinue` on the coded path, `CountUpInteraction` hold / tap-to-skip and the
+  post-count dismiss press on the flow path, `:411-457`), the three runaway caps
+  (`ESCALATION_OUTRO_CAP_MS` 4 s, `DISMISS_HOLD_CAP_MS` 10 s, `PARK_HOLD_CAP_MS` 5 min, `:51-81`),
+  the `winCountUpComplete` broadcast (`:388-389`) and the `winState` publish (`WinStatePublisher`,
+  per-frame `countUpAmount` + `coinsEmit`). It is the gate the engine mounts headless under a flow
+  that owns `setWin` (`Game.svelte:2565-2567`).
+- **`resolveWinMount`** (`engine-game/src/game/winOwnership.ts:35-43`): the one decision that keeps
+  **exactly one `winUpdate` subscriber** — `null` when a coded `Win` / `WinGate` binds the overlays
+  scene (`basegameOverlaysHasCodedWinGate`, `Game.svelte:1106-1110`), else `driver` (headless) or
+  `gate`. Asserted headlessly by `tools/flow-spike/fs7Win.ts` (A).
+- **`WinVisual`** (`WinVisual.svelte`) owns everything drawn: per-tier presentation resolution
+  (`resolveTierPresentation`, `:79-96`: `<alias>Spine/Slot/Intro/Idle/Outro` instance params ??
+  the shared `winSpine` / `introAnimation` / `idleAnimation` / `exitAnimation` ?? the tier's own
+  `spineKey` / `animation`), the **escalation chain** (`escalationTiers`, `:117-146`, from
+  `activeWinLevelChain`, publishing `escalationActive` + `escalationBoundaries` to `winState`,
+  `:170-175`), the **coins** (`WinCoins`, `:187-189`), the **tier rig** (`WinAnimation`, `:195-236`),
+  the **caption** (`levelCaption`, `:158-164`: `formatWinText(boardWinText().winLevels[alias],
+  { amount })`, font `gold` × 1.8, `y = -SYMBOL_SIZE × 2.6`, drawn only when authored), the
+  **count** (font `gold` × 3.6 inside the rig's `slot_win_count`, `:224-235`) and the small /
+  medium **plain number** (font `gold` × 1, canvas-wide, `:238-250`). OFF it self-centres on the
+  board and fits the rig to the board width (`width={boardLayout().width}`, `:206`, `:262-269`);
+  bound to the `win` instance it renders at natural size at the node.
+- **`WinAnimation`** (`engine-game/src/components/WinAnimation.svelte`): the tier **walk** —
+  `intro` → `idle` on `complete`; a non-final idle plays ONE cycle then the next tier's intro; the
+  final idle loops; `countUpComplete` flips the final tier to `outro` (or collapses a mid-walk
+  chain to it, `:153-167`); `holdOutro` keeps the idle for the land-then-dismiss hold; `forceStep`
+  jumps the walk on a tap (`:188-195`); `speedScale` is the rig `timeScale` ramp while the player
+  holds (`:130`); `onOutroComplete` releases the gate (`:255`). Single tier (every un-authored
+  game): intro → looping idle, no outro, hidden by `winHide`. Rules extracted to
+  `winEscalation.ts` (`tierHasExit`, `resolveWinTap`).
+- **Tiers and ladder.** `winLevelMap.ts:7-108`: big tiers `big` / `superwin` / `mega` / `epic` /
+  `max` at thresholds **10 / 20 / 40 / 70 / 120** × bet, `presentDuration` 6 / 18 / 20 / 26 / 32 s,
+  clips `<x>_win_intro` / `_idle` / `_exit` on the engine's static `bigwin` bundle
+  (`apps/lines/src/game/assets.ts:153`). An authored config replaces the table
+  (`activeWinLevelData`, `engine-game/gameConfig.ts:937-951`), and `escalateTiers` /
+  `escalateFrom` (`game-config/types.ts:571-573`, `resolveWinLevelChain`, `winLevels.ts:129`) turn
+  the chain on; no reference game authors either. Measured on the reference rig: intros 1667 ms,
+  idles 12 000 ms, exits 467 ms (`WinGate.svelte:42-45`, `winEscalation.ts:29-30`).
+- **Coins.** `WinCoins.svelte`: a `ParticleEmitter key="coins"` (`assets.ts:277`) on
+  `constants-shared/particleConfig` `fountain` merged with `LEVEL_PARTICLE_COIN_MAP[alias]`
+  (`particleCoin.ts`), emitting while `winState.coinsEmit` (= the count is running); param
+  `showCoins`.
+- **Driven by** the v2 `setWin` choreography (`bookOfChoreo.ts:339-350`): cue `winShow` → action
+  `winShow` → `winLevelSoundsPlay` (`flowEffects.ts:131-147`: tier sfx / bgm, the
+  `sfx_bigwin_coinloop` loop, `uiHide` on `max`) → the awaited action **`winUpdate`**
+  (`flowEffects.ts:1538-1549`: `awaitPresentation` → `awaitCue('winUpdate', broadcastAsync)`,
+  `:177-178`) carrying `holdToSpeedUp` / `tapToSkip` / `waitForPress` → `winLevelSoundsStop` → cue
+  `winHide` → action `winHide`. Before `winShow`, `cueBigWinCountUp` (`flowEffects.ts:647-688`) may
+  run the win-line run-up and hand its number over as `cueHandoffAmount`. **Slam rules:** a `big`
+  `setWin` re-arms the slam token (`startsCelebration`, `unskippablePresentation.ts:149-151`), so
+  the celebration plays in full; small / medium wins stay slammable; the spin button is locked by
+  `celebrationLock.ts:88-101` (`bigWin` mounted, or a flow-held `winAwaitTargets` container).
+- **Signals and values** the authored world already has: `win` (on `winShow`), `bigWin`,
+  `winCountUpComplete` (`Game.svelte:1660-1677`, seeded off `winState.countUpComplete`); the
+  value source `winCountUpAmount` (`Game.svelte:888-895`, currency-formatted, `selfAnimated`).
+- **Gates today:** `check:engine-game` (every `packages/engine-game/fixtures/*.fixture.ts`:
+  `winTapLand`, `winLadder`, `winEscalationOutro`, `pressAfterArm`), `check:big-win-cue`,
+  `check:win-x`, `fs7Win`, the launcher's `check:win-cycle`; the current-games harness captures
+  `bigwin-x10 … x120` on `lines` (`screens/lines.json:253-409`: wait for `winLevel: big`, step 120
+  frames, capture) with the book mock's `WIN_X` (`mock-rgs-server-book.mjs:32`).
+
+**13.6.2 The scope line (the first decision).** 8b authors **what `WinVisual` draws** — the tier
+rig and its per-tier clips, the count, the caption, the plain number — and leaves **`WinGate`
+coded**: the count-up tween, the round hold, the press surfaces and their caps, the dim, the
+`winState` publish, `winCountUpComplete`, `resolveWinMount`. The seam is the one the 2026-06 split
+cut (`winState` is the whole contract between the two halves, `winState.svelte.ts:3-13`), and it is
+also where the risk is: the gate holds the round, so a bug in it hangs a live game, while a bug in
+the visual is a wrong frame. The escalation **walk** moves out of `WinAnimation` into the gate as
+a pure conductor (13.6.5), because the walk IS timing and the gate already owns every other clock.
+What 8b does not do: it does not author the dim (it is canvas-space and lives with the gate; see
+13.6.9 #7), the coins (13.6.9 #6) or the press surfaces; none of those is a timeline.
+
+**13.6.3 The component.** A new built-in `ComponentDef`, id **`winPresentation`** ("Win
+presentation", `scope: 'shared'`, `category: 'overlay'`, `internal` during the pilot), beside —
+not instead of — the `win` twin (`WIN_DEF`, `builtinComponents.ts:1193`; a bumped `win` would
+re-render Borut's placed instance and every baked copy). Generated by `winPresentationDef(tiers)`
+from the same big-tier list `winComponentDef(tiers)` uses, with the same params
+(`WIN_BASE_PARAMS` + `winTierPresentationParams`, `builtinComponents.ts:1096-1190`), so a `win`
+instance's params map one-to-one. Root, in order (back to front, as `WinVisual` stacks them):
+1. `coins` — a container `bind: { component: 'WinCoins' }` (the §8.7 hatch, kept in 8b: a
+   particle emitter is an `EffectDoc` layer, and no built-in effect exists yet — 13.6.9 #6).
+2. `tier` — one rig node, `assetKey: 'bigwin'`, no resting clip. Not `hiddenUntilSignal` (the
+   small / medium path shows no rig at all): visibility is owned by the timelines — hidden until a
+   tier timeline shows it, hidden again at its end (the 8a visibility-track pattern,
+   `builtinTimelines.ts:53-61`).
+3. `caption` — a text node, font `gold`, `SYMBOL_SIZE × 1.8`, at `(0, -SYMBOL_SIZE × 2.6)`,
+   `text: ''` (nothing drawn unless a tier timeline switches it to a Win Text key — 13.6.8).
+4. `count` — a text node, font `gold`, `SYMBOL_SIZE × 3.6`, `paramBindings: { text: 'value' }`, the
+   live feed through the def's `source` param defaulted to **`winCountUpAmount`** (the HudReadout
+   road, `registerComponentValues.ts:19-26`; the instance overrides `text` with the formatted live
+   number, and `selfAnimated` makes it snap, `ComponentInstance.svelte:1075-1090`).
+5. `countPlain` — the same binding at `SYMBOL_SIZE × 1`, shown only by the small / medium timeline.
+
+The count's position: the coded count rides the rig's `slot_win_count` (`RigSlot`), so it follows
+the slot's animated transform. No layout node can attach to a rig slot today (`types.ts` knows
+template slots only). 8b adds **`rigSlot?: string` on a node inside a component** ("ride this
+sibling rig's slot"): the node's transform composes onto the slot's world transform each frame,
+the way `EffectNode.hostSpineId` rides a rig (`types.ts:988-998`). Fallback, if the gate shows the
+reference slot is static: a fixed offset read off the skeleton once. The free-spin intro / outro
+counts (8c) ride slots too, so it is built once here — the 8b twin of 8a's rig-node strips.
+
+**13.6.4 The timelines (built-in, generated per tier).** `builtinTimelines.ts` gains
+`winTierTimelines(tiers)`, run at boot by `registerGameTimelines` (`componentTimelines.ts:62`)
+after `publishWinPresentation` (`gameConfig.ts:839`) so the strips name the SAME clips
+`resolveTierPresentation` would — the per-tier param ?? the shared param ?? the tier's own
+`animation` — and the same rig (`<alias>Spine` ?? `spineKey` ?? `winSpine`). Code, not baked
+(rule 8): the list changes with the active config's tiers exactly as `WIN_DEF` is rebuilt from
+them. Per big tier `<alias>` (lower-case ids, so a project timeline can shadow each):
+- `c_winpresentation_<alias>_walk` — `playOn: 'winTier.<alias>'`, **`holdsCue`**: strip `intro`
+  (0 → 1.667 s), then ONE `idle` strip (→ 13.667 s), visibility on at 0; the hold's end is the
+  coded "idle `complete` ⇒ next tier" clock (`WinAnimation.svelte:243-250`).
+- `c_winpresentation_<alias>_loop` — `playOn: 'winTierLoop.<alias>'`: the `idle` strip looping;
+  never holds (the 8a rule).
+- `c_winpresentation_<alias>_outro` — `playOn: 'winTierOutro.<alias>'`, `holdsCue`: the `outro`
+  strip (0.467 s), visibility off at its end. Not generated when `tierHasExit` is false
+  (`winEscalation.ts:38-39`: no outro, or the outro is the idle).
+- `c_winpresentation_plain` — `playOn: 'winPlain'`: `countPlain` visible, `tier` / `count` hidden;
+  its twin `c_winpresentation_hide` on `winHide` hides everything.
+Clip lengths are read off the loaded skeleton at generation (`rigClipMs`, the measure
+`boundComponentMs` uses, `flowV2Runtime.svelte.ts:527-528`), never typed in.
+
+**13.6.5 The conductor (coded, in the gate).** The walk leaves `WinAnimation` for a pure
+`winWalk.ts` in `engine-game` (beside `winEscalation.ts`: `nextStep(walk, event)` over `{ tiers,
+index, phase, countUpComplete, holdOutro, forceStep }` — the state `WinAnimation.svelte:112-199`
+keeps in runes, with `winEscalationOutro.fixture.ts` and `winTapLand.fixture.ts` extended to drive
+it) and `WinGate` runs it: on `winUpdate` it fires `winTier.<first>` (or `winPlain`) through the
+game-registered signals (`registerComponentSignals`, one `eventSignal` per active big tier
+generated from `activeBigTiers()` beside `win` / `bigWin`, `Game.svelte:1660`), then reads
+`cueHolds('winTier.<alias>')` (the holds are registered synchronously in the bus callback,
+`ComponentInstance.svelte:798-813`, so a read right after the broadcast sees them) and awaits the
+hold to advance; a single-tier win fires `winTierLoop.<alias>` straight after the intro hold, an
+escalating one the next tier's `walk`; `countUpComplete` fires `winTierOutro.<final>` and the gate
+awaits that hold instead of `escalationOutroComplete`; a tap bumps the walk and fires the next
+tier's signal early (a later `playOn` start wins the node, `componentTimelines.ts:126`, and the
+stale hold is ignored by step token); `holdOutro` keeps the loop running. The caps stay exactly
+where they are. **What this proves for 8c:** the "awaited count-up" pattern of §13.1's closing
+paragraph — a coded driver whose clocks are timeline holds — which the free-spin outro reuses.
+What it does not reproduce in 8b: the hold-to-speed-up **ramp** on the tier rigs
+(`rampTimeScale`, `WinAnimation.svelte:130`; the number still accelerates, the art plays at 1×
+while the player holds — 13.6.9 #8).
+
+**13.6.6 The flag, the status rule, the swap, the retire.** The flag row is
+`settings.authoredOverlays.win?: true` (`types.ts:1311-1313`), sparse and ON-only through
+`normalizeGameSettings` (`editorStorage.ts:258-259` gains the row) and the unknown-fields gate's
+case; the Game Settings block gains the row *Win*, under the same capability guard
+(`authoredOverlayGuard`), and the chips gain *Authored Win (pilot)* and its warning
+(`gameProfile.ts:546-565`); `AUTHORED_WIN = false` joins `editorFlags.ts`; no URL opt-in.
+`authoredOverlays.ts` gains `authoredWinStatus(doc)` with the SAME tri-state shape, but the
+meanings move: `off`; `ready`; **`nothing-to-replace`** = no scene binds a coded `Win` / `WinGate`
+and none places a `win` instance, and the doc has an overlays scene of its own (the reference
+fallback would bind one); there is **no `non-canvas-scene` case** — the gate stays where the doc
+put it and the visual is placed `game`-space by construction. `withAuthoredWinDoc(doc)`, pure:
+(1) every `bind: Win` becomes `bind: WinGate` (the degrade `Game.svelte:1089-1096` already does
+for a doc with its own visual — the swap subsumes it); (2) every `componentInstance(win)` (Borut)
+becomes `componentInstance(winPresentation)` carrying its transform, overrides and params (same
+keys); (3) a doc with no instance gets the `winVisual` scene the split emits
+(`lines.ts:205-226`: `game` space, the instance at board centre) — rendered by the existing
+`winVisualScene` mount (`Game.svelte:1116`, `:2598`), so nothing new mounts.
+`retireCodedOverlay('win')` (`codedOverlays.ts:9` widens the union) silences **`WinVisual`** only:
+it renders nothing and publishes nothing (`escalationActive` / `escalationBoundaries` now come
+from the conductor), so the `win` twin's bound child and the composer's visual both go dark and
+one presentation plays. `WinGate`, `resolveWinMount` and `basegameOverlaysHasCodedWinGate` are
+untouched — the subscriber count is the same on both paths, which is why `fs7Win` must still pass
+unchanged.
+
+**Sizing.** OFF, the coded rig is fitted to the board width (`WinVisual.svelte:206`); the `win`
+instance renders at natural size (`WinAnimation.svelte:218-230`), which is why the split is not
+pixel-identical to the composer today. 8b's rig node gets **`boardFit: true`** — fit the rig's
+width to the game's board width, the game-space twin of 8a's `coverFit` — so the synthesized
+instance reproduces the composer on every layout type; Borut's placed instance (natural size by
+design) keeps its own scale. If `boardFit` misses the tolerance, the fallback is 8a #6's: per-layout
+`overrides.scale` written by the swap from the board width; the gate decides.
+
+**Removal, later (not in 8b).** When the owner switches the live games: `win` v2 replaces its bound
+child with the 8b nodes and timelines; the reference layouts emit `bind:WinGate` + the visual
+scene; `WinVisual.svelte`, `WinAnimation.svelte`, `Win.svelte`, `WIN_INSTANCE` and the degrade go;
+the gate stays until 8c has proven the outro on the same conductor, then the two drivers merge.
+
+**13.6.7 The parity proof.**
+- **Flag off: byte-identical.** 0 changed screens in the current-games harness (every live doc
+  lacks the row); `check:authored-win` (launcher, the 8a gate's shape, `check-authored-transition.ts:1-29`):
+  the normalizer keeps `{ win: true }` and `{ transition: true, win: true }` and drops an OFF row;
+  `withAuthoredWinDoc` returns the same object for every reference layout with the flag off, and
+  with it on degrades every `bind: Win`, swaps a placed `win` instance (nested, moved, per-layout),
+  adds the visual scene only when none is placed; `authoredWinStatus` agrees with the chips in
+  every case; the generated def's nodes are what every generated timeline binds (`cinematicNodes`
+  issues empty), the strips name exactly the clips the shipped `bigwin` skeleton carries for the
+  default tiers and the clips a per-tier param names when one is published; under a stepped clock
+  a `winTier.big` fire holds for 13.667 s through `InstanceCueHolds`, `winTierOutro.big` for
+  0.467 s, a `winTierLoop.*` fire holds nothing, an unmount releases; `winWalk` replays the three
+  escalation fixtures step for step; the harvest is unchanged by the flag; `fs7Win` unchanged.
+- **Flag on: authored vs coded frames.** A root gate, **`check:win-parity`**
+  (`scripts/win-parity/run.mjs`, a copy of `transition-parity/run.mjs` with the cue and the mock
+  changed; its workflow file is its own follow-up PR, advisory, as 8a's): the built `apps/lines` on
+  the `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`, one seed, **`WIN_X=10,20,40,70,120`**
+  so five consecutive base spins land one tier each; per tier the frame the **`winShow`** cue fires
+  (`state().cues`, `determinism.ts:93-95`) is the reference, and frames **12, 24, 48, 96** (the
+  intro) and **120, 240** (the idle, the harness's own capture offset) after it are compared under
+  `tolerance.json`; each coded frame must differ from the reference by > 0.5 % (the rig is on
+  screen); the **`winHide`** cue frame must be equal ± 1 (the flow continued at the same point —
+  on the single-tier path that is the gate's own clock on both sides, so it is the negative
+  control); the count text is the same glyphs on the same frame (it is in the pixels). **The hold
+  positive control** is an escalation variant: the same snapshot with `escalateTiers: true` baked
+  into its config (the `cg-lines` config is un-authored; the gate writes the variant as it writes
+  the flagged doc) — the authored side reports `pendingCueHolds()` non-empty between `winShow` and
+  the outro while the coded side reports none, and the two `winHide` frames are still equal ± 1
+  (the tier holds end where the idle `complete` did). **The placed-twin variant**: a doc that places
+  `componentInstance(win)` at a moved position (Borut's shape) — one presentation at that position,
+  the degrade applied, no second rig board-centred.
+- **Browser check only:** the tap grammar (step / land / dismiss / park) on the authored path, the
+  hold-to-speed-up ramp (deliberately 1× on the rig), the dim under the moved instance. All three
+  are Svelte seams with no headless gate; they are owner steps in the PR.
+- **Template gates.** `test-hold-and-win-template.mjs` and `test-engine-owned-only.mjs:92` pin the
+  new internal def and keep the `bound-win` anchor; `check:component-timelines` gains the generated
+  list and the shadowing of a generated id by a project timeline.
+
+**13.6.8 Text and localization.** The count is a number through a registered formatter, never a
+key. The caption keeps its Win Text key: the `caption` node declares `switchKeys` for every active
+tier's `winLevels.<alias>` key (`TextNode.switchKeys`, `types.ts:673-679`), and each tier's `walk`
+timeline carries a `text` track in `switchKey` mode to that tier's key (`cinematicNodes.ts:257`),
+so the harvest row set is identical to today's (`winText.ts:804-805` already harvests them) and
+the flag adds no key. No reference game authors a caption (`WinVisual.svelte:152-157`), so the
+parity gate never draws one; the `{amount}` token `formatWinText` interpolates
+(`WinVisual.svelte:160-162`) has no road through a text track — 13.6.9 #5.
+
+**13.6.9 Risks and open questions (owner).**
+1. **Scope line.** Author the visual + walk timing, keep the gate coded (recommended: the seam
+   exists, the round hold never moves in 8b) vs author the gate too (dim, press, hold through
+   `holdsCue` on `winUpdate`). Default: visual + walk; the gate is 8c's question once the outro
+   runs on the same conductor.
+2. **`winUpdate` is an action, not a cue.** Its await is `awaitPresentation`
+   (`flowEffects.ts:177-178`), which does not read `cueHolds`. Recommended: leave it — the gate's
+   `waitForResolve` IS the hold, and the conductor reads the tier holds itself. Rejected: teaching
+   `awaitPresentation` to append `cueHolds(type)`, which would extend the seam to every awaited
+   action in the game for no 8b need.
+3. **Per-tier timelines generated at boot from the active tiers and the published params**
+   (recommended: the clips are what the coded path resolves, byte for byte) vs one timeline per
+   phase with the tier chosen by a number input and a state machine (the §5 machine fits the walk
+   well, but the chain is data: how many tiers and which is final changes per win). Default:
+   generated; the state machine is the retirement-time shape, not the pilot's.
+4. **`rigSlot` on a child node** (recommended: the count must ride the slot for parity, and 8c's
+   counts ride slots too) vs a fixed offset. Risk: a slot-following child is new in the node
+   driver; the gate measures the reference slot first — if it is static, the fixed offset is 8b
+   and `rigSlot` waits for 8c.
+5. **The caption's `{amount}`.** Recommended: unsupported on the authored path in 8b (no live game
+   authors a caption; a template that uses the token is reported by the publish chip), with a
+   resolver variable in 8c when the outro's "You won {amount}" needs the same thing.
+6. **Coins.** Keep `WinCoins` as a bound child (recommended for 8b) vs a first built-in `EffectDoc`
+   (`fountain` + the per-tier map as layers, registered in code like a built-in timeline). Default:
+   bound child; the built-in effect is its own small change, useful to 8c too.
+7. **The dim stays in the gate** (recommended: canvas-space, and the `tapToContinue` dim params
+   already exist for an authored container that wants its own) vs a `rect` node in the overlays
+   scene. Default: the gate.
+8. **The hold-to-speed-up ramp.** Recommended: accept 1× art while held in 8b and document it (no
+   gate captures a held pointer; the number still accelerates and the slam still snaps) vs a
+   per-instance `playRate` on the timeline player. Default: defer; `playRate` is a general field
+   worth its own change.
+9. **Sizing.** `boardFit` on the rig node (recommended) vs per-layout scales written by the swap.
+   The gate decides, as 8a #6.
+10. **Signal names.** `winTier.<alias>` / `winTierLoop.<alias>` / `winTierOutro.<alias>` as
+    game-registered signals generated from the active tiers (recommended: the 4b road, per instance)
+    vs one `winTier` signal with the alias as a number input. Default: per-tier names; a project
+    timeline that shadows a tier's id keeps the same trigger.
+11. **Harness.** The `bigwin-x*` screens already exist, so a coded regression in Win IS caught —
+    but at one frame (120 after the big level). Whether the intro frames join `screens/lines.json`
+    is the same pipeline change as 8a #7.
+12. **Risk: two drivers on one `winState`.** The conductor writes what `WinVisual` wrote
+    (`escalationActive`, `escalationBoundaries`); a retired `WinVisual` must write nothing, or the
+    two fight. The retire is read once at mount, as `Transition.svelte:19-23` reads it; the gate
+    asserts the retired visual's effects are inert.
