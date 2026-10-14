@@ -156,6 +156,8 @@
 	import { Container } from 'pixi-svelte';
 	import { BoardContainer, respinCellKey } from 'engine-game';
 
+	import CoinBoardLineOverlay from './CoinBoardLineOverlay.svelte';
+	import CoinBoardLockedCells from './CoinBoardLockedCells.svelte';
 	import HoldAndWinLetters from './HoldAndWinLetters.svelte';
 	import HoldAndWinPots from './HoldAndWinPots.svelte';
 	import RespinCell from './RespinCell.svelte';
@@ -163,6 +165,7 @@
 	import RespinCounter from './RespinCounter.svelte';
 	import RespinHeldSymbol from './RespinHeldSymbol.svelte';
 	import RespinLockedCell from './RespinLockedCell.svelte';
+	import { isCoinBoard } from '../game/coinBoard.svelte';
 	import { getContext } from '../game/context';
 	import {
 		currentRespinBoard,
@@ -190,6 +193,8 @@
 	 */
 
 	const context = getContext();
+	/** A coin board's base game is this board: its locked cells and its Line Overlay draw on it. */
+	const coinBoard = isCoinBoard();
 
 	const board = $derived(stateRespinBoard.shown ? currentRespinBoard() : null);
 	const look = $derived(respinCellLook());
@@ -238,6 +243,12 @@
 				{#each lockedCells as cell (cell)}
 					<RespinLockedCell reel={cell.reel} row={cell.row} />
 				{/each}
+			</Container>
+			<Container>
+				{#if coinBoard}
+					<CoinBoardLockedCells />
+					<CoinBoardLineOverlay />
+				{/if}
 			</Container>
 			<Container>
 				{#each stateRespinBoard.held as cell (respinCellKey(cell.reel, cell.row))}

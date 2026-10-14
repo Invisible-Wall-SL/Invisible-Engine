@@ -77,7 +77,9 @@
 
 	const modes = $derived(resolveGameModes(doc));
 	/** The modes a trigger or a meter can start: the respin modes (scatters start free spins). */
-	const respinModes = $derived(modes.filter((m) => m.board === 'respinBoard'));
+	const respinModes = $derived(
+		modes.filter((m) => m.board === 'respinBoard' && m.id !== BASE_GAME_MODE),
+	);
 	const defaultMode = $derived(primaryRespinMode(doc.modes)?.id ?? respinModes[0]?.id ?? '');
 	/** The spins games (`GameModeDecl.spins`, bonus-games Phase 8): a buy, Lucky Spin or a random
 	 *  metre may start one too; the coin count, a pattern and a meter count coins, so they may not. */

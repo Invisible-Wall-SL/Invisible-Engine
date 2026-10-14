@@ -793,6 +793,12 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-10-14 — **The `coinBoard` block and `/config`'s Coin board section** (Hold and Win Phase 13a
+  of [hold-and-win-coin-board.md](../design/hold-and-win-coin-board.md), PR #1200): a Hold and Win
+  with no line game, its base game on the respin board. Detail and gates:
+  [status/hold-and-win.md](hold-and-win.md). Guide: [tools/game-config.md](../tools/game-config.md)
+  (_Coin board_).
+
 - 2026-10-08 — **`/config` gets Bonus modes and Coin overlay sections and writes the split form**
   (Phase 5a of [bonus-games.md](../design/bonus-games.md), PR #1136). Detail and gates:
   [status/bonus-games.md](bonus-games.md). Guide: [tools/game-config.md](../tools/game-config.md).

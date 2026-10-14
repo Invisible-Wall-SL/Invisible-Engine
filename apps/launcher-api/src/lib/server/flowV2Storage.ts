@@ -83,6 +83,7 @@ export async function loadFlowV2DocWithEtag(
  * project must not open on the Book-of flow (it would author expanding-symbol beats its runtime never
  * fires, against a palette that no longer declares them). An unregistered/absent type falls back to
  * the book-of seed, exactly as before, so `lines` and a standalone project are unchanged.
+ * `seedOpts.coinBoard` (a Hold and Win coin board) picks that template's coin-board starter.
  *
  * `seeded` tells the client the doc it holds is not yet stored (drives the "new · unsaved" pill),
  * while `etag` preserves the correct first-save precondition:
@@ -97,10 +98,11 @@ export async function loadFlowV2DocForEditor(
 	clientKey: string,
 	projectKey: string,
 	gameType?: string,
+	seedOpts: { coinBoard?: boolean } = {},
 ): Promise<{ doc: FlowDocV2; etag: string | null; seeded: boolean }> {
 	const { doc, etag } = await loadFlowV2DocWithEtag(clientKey, projectKey);
 	if (doc) return { doc, etag, seeded: false };
-	return { doc: freshDrivenSeedDoc(gameType), etag, seeded: true };
+	return { doc: freshDrivenSeedDoc(gameType, seedOpts), etag, seeded: true };
 }
 
 /**

@@ -5,12 +5,17 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc, type FlowDoc, type Graph } from 'engine-flow-v2';
-import type { HoldAndWinPresetId, HoldAndWinTemplateJackpots } from 'game-config';
+import type {
+	HoldAndWinPresetId,
+	HoldAndWinTemplateBase,
+	HoldAndWinTemplateJackpots,
+} from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
 import { engineOwnedOnly, getFullSceneSet, POTS_SCREEN } from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
 import {
 	gameConfigSeedFor,
+	holdAndWinCoinBoardSeed,
 	holdAndWinTemplateSeed,
 	type LinesPresetId,
 } from './gameConfigDefaults';
@@ -114,6 +119,7 @@ function buildSeeds(
 	gameType: string,
 	reference: LayoutDoc | undefined,
 	dropped: readonly string[],
+	flow: FlowDoc,
 ): Seed[] {
 	const atlasConfig = { version: 1, output_prefix: project };
 	const sheetConfig = { version: 1 };
@@ -152,12 +158,13 @@ function buildSeeds(
 			body: JSON.stringify(scenes, null, 2),
 			contentType: 'application/json',
 		},
-		// The game type's starter flow — the SAME doc `/flow-v2` opens an unsaved project on. It has to
-		// be STORED, not just offered by the editor: the free-spin intro/outro are the flow's screens
-		// now, so a project nobody opened in Invisible Flow would publish without them.
+		// The game type's starter flow (a coin board's own) — the SAME doc `/flow-v2` opens an unsaved
+		// project on. It has to be STORED, not just offered by the editor: the free-spin intro/outro
+		// are the flow's screens now, so a project nobody opened in Invisible Flow would publish
+		// without them.
 		{
 			key: flowV2DocKey(client, project),
-			body: JSON.stringify(flowWithoutScreens(freshDrivenSeedDoc(gameType), dropped), null, 2),
+			body: JSON.stringify(flowWithoutScreens(flow, dropped), null, 2),
 			contentType: 'application/json',
 		},
 	];
@@ -172,7 +179,8 @@ const LINES_PRESET_SCENE_SET: Record<LinesPresetId, string> = { bookOfThermopyla
 
 /**
  * Write any missing seed files for `(client, project)` into R2. A `holdAndWin` project's Game Config
- * is seeded from `holdAndWinJackpots`, the plain template (bonus-games §0) with jackpots on or off;
+ * is seeded from `holdAndWinJackpots`, the plain template (bonus-games §0) with jackpots on or off,
+ * or with `holdAndWinBase: 'coinBoard'` the template with no line game (hold-and-win-coin-board);
  * else from `holdAndWinPreset`, one of the three reference games (the samples and the gates); else
  * from the kind's default, the config an un-authored project already plays. `linesPreset` seeds a
  * `lines` project from a lines preset (the Book of Thermopylae) and its scenes from the preset's own
@@ -183,6 +191,7 @@ export async function scaffoldProject(
 	project: string,
 	opts: {
 		holdAndWinJackpots?: HoldAndWinTemplateJackpots;
+		holdAndWinBase?: HoldAndWinTemplateBase;
 		holdAndWinPreset?: HoldAndWinPresetId;
 		linesPreset?: LinesPresetId;
 	} = {},
@@ -196,19 +205,32 @@ export async function scaffoldProject(
 	// The STORED Game Config shapes the set (a re-scaffold, or a config written before the layout): a
 	// respin board that expands reserves the grown area, and an add-on merges in its screens.
 	const { doc: stored } = await loadGameConfigDocWithEtag(client, project);
-	const reference =
-		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, stored)) ??
-		(await loadKind(gameType))?.doc;
 	const plain = gameType === 'holdAndWin' ? opts.holdAndWinJackpots : undefined;
-	const config = plain
-		? holdAndWinTemplateSeed(plain)
-		: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
+	const coinBoard = plain !== undefined && opts.holdAndWinBase === 'coinBoard';
+	const config = coinBoard
+		? holdAndWinCoinBoardSeed()
+		: plain
+			? holdAndWinTemplateSeed(plain)
+			: gameConfigSeedFor(gameType, linesPreset ?? opts.holdAndWinPreset);
+	// A coin board's screens and Flow are its own template's, so a new one (nothing stored yet) is
+	// shaped by the config about to be seeded.
+	const shapedBy = stored ?? (coinBoard ? config : null);
+	const reference =
+		getFullSceneSet(sceneSet, sceneSetOptionsFor(gameType, shapedBy)) ??
+		(await loadKind(gameType))?.doc;
 	// The plain game's screens and Flow are never written without its config.
-	if (plain && !config) throw new Error(`No Hold and Win template default for jackpots ${plain}.`);
+	if (plain && !config) {
+		throw new Error(
+			coinBoard
+				? 'No Hold and Win coin board template default.'
+				: `No Hold and Win template default for jackpots ${plain}.`,
+		);
+	}
 	const dropped = plain ? plainHoldAndWinDropped(plain) : [];
+	const flow = freshDrivenSeedDoc(gameType, { coinBoard: Boolean(shapedBy?.coinBoard) });
 	// The HEAD skips the PUT in the common case; `If-None-Match: *` closes the window between the two,
 	// so an author's first save that lands in it (a re-scaffold of a live project) is never replaced.
-	for (const seed of buildSeeds(client, project, gameType, reference, dropped)) {
+	for (const seed of buildSeeds(client, project, gameType, reference, dropped, flow)) {
 		if (await objectExists(seed.key)) continue;
 		try {
 			await putObjectText(seed.key, seed.body, seed.contentType, { ifNoneMatch: '*' });

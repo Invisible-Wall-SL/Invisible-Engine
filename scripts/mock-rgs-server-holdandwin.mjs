@@ -11,8 +11,10 @@
  * The game is decided ONLY by the project's Game Config, as the launcher hands it over
  * (`holdAndWinMockInputs` in packages/game-config): the `holdAndWin` block, the symbol dictionary's
  * roles and line pays, the paylines and the bet modes. The base game pays lines through the lines
- * mock's own evaluator. Draw RATES (how often a coin lands) are this mock's pacing, not math — the
- * config's weights pick WHICH value lands, never how often something does.
+ * mock's own evaluator — except on a COIN BOARD (the inputs' `coinBoard`), which has no line game:
+ * `bet[0]` is the player's line count there, and the bet echo lists only the lines it plays. Draw
+ * RATES (how often a coin lands) are this mock's pacing, not math — the config's weights pick WHICH
+ * value lands, never how often something does.
  *
  * Symbols travel under the config's own names (`H1`, `BONUS`, `BOOST` …), and a cell that carries a
  * value carries it after a colon: `BONUS:1.5` (× the base total stake), `JACKPOT:MINI`,
@@ -26,9 +28,11 @@
  * CLI (the presets are TypeScript, so through the repo's loader):
  *   node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/mock-rgs-server-holdandwin.mjs
  *   PORT=7799 · PRESET=pots|classic|collector|pots-progressive|pots-extra (the last two are test
- *   fixtures) · SEED=… · START_BALANCE=10000 · FORCE=<spec>
+ *   fixtures)|coinBoard (Game Maker's coin board template) · CONFIG=<raw Game Config .json> (dealt
+ *   instead of a preset) · SEED=… · START_BALANCE=10000 · FORCE=<spec>
  */
 
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
@@ -201,7 +205,7 @@ export function createMockRgs(opts = {}) {
 	const seed = opts.seed ?? process.env.SEED;
 
 	const { engine, engines, wire } = createRespinEngines({ ...opts, label, seed });
-	const { list, trigger, meters, paylines, betTable, parseForce, playBase } = engine;
+	const { list, trigger, meters, paylines, betTable, parseForce, playBase, coinBoard } = engine;
 	/** The engine playing a round's feature — the respin mode that started it. */
 	const engineOf = (round) => engines.find((e) => e.mode === round.feature?.mode) ?? engine;
 	const playRespin = (events, round) => engineOf(round).playRespin(events, round);
@@ -569,17 +573,18 @@ export function createMockRgs(opts = {}) {
 							return fail('this session never asked for the game config — reload the game');
 						}
 						const table = tableFor(session);
-						const ctx = Array.isArray(a.context)
-							? a.context
-							: table
-								? [0, 1]
-								: [paylines.length, 1];
+						const lineCount = coinBoard ? coinBoard.defaultCount : paylines.length;
+						const ctx = Array.isArray(a.context) ? a.context : table ? [0, 1] : [lineCount, 1];
 						const option = table ? Number(ctx[0] ?? 0) : 0;
 						const multiplier = Number(ctx[1] ?? 1);
-						const lines = table ? 1 : Number(ctx[0] ?? paylines.length);
+						// A coin board's line set: the player's count from `bet[0]` (none with a table, which
+						// sends an option there), else its fixed lines.
+						const coinLines = coinBoard?.linesFor(table ? lineCount : Number(ctx[0] ?? lineCount));
+						const lines = coinLines ? coinLines.count : table ? 1 : Number(ctx[0] ?? lineCount);
 						if (
 							!(multiplier > 0) ||
 							!(lines > 0) ||
+							(coinBoard && !coinLines) ||
 							(table && (!Number.isInteger(option) || option < 0 || option >= table.options.length))
 						) {
 							return fail(`invalid bet [${ctx[0]}, ${ctx[1]}]`, 101);
@@ -611,8 +616,19 @@ export function createMockRgs(opts = {}) {
 							feature: null,
 							closed: false,
 							stored: [],
+							...(coinLines ? { coinBoard: coinLines } : {}),
 						};
-						events.push({ event: 'bet', context: { total, betPerLine, paylines, maxWinCap: 0 } });
+						// A coin board echoes only the lines this bet plays: how the client learns them.
+						events.push({
+							event: 'bet',
+							context: {
+								total,
+								betPerLine,
+								paylines: coinLines ? coinLines.rows : paylines,
+								...(coinLines ? { paylineIds: coinLines.ids } : {}),
+								maxWinCap: 0,
+							},
+						});
 						events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
 						break;
 					}
@@ -772,6 +788,7 @@ export function createMockRgs(opts = {}) {
 				round: round && {
 					id: round.id,
 					stored: round.stored.length,
+					...(round.coinBoard ? { lineCount: round.coinBoard.count } : {}),
 					feature: round.feature && featureState(round.feature),
 				},
 			});
@@ -799,15 +816,20 @@ const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? '').hr
 
 if (isMainModule) {
 	const gameConfig = await import('../packages/game-config/index.ts');
-	const preset = process.env.PRESET ?? gameConfig.DEFAULT_HOLD_AND_WIN_PRESET;
-	const raw =
-		gameConfig.HOLD_AND_WIN_PRESETS[preset] ?? gameConfig.HOLD_AND_WIN_TEST_FIXTURES[preset];
+	// CONFIG=<file.json> deals a Game Config of your own (a coin board variant, a project's export);
+	// PRESET=coinBoard is Game Maker's coin board template.
+	const preset = process.env.CONFIG ?? process.env.PRESET ?? gameConfig.DEFAULT_HOLD_AND_WIN_PRESET;
+	const raw = process.env.CONFIG
+		? JSON.parse(readFileSync(process.env.CONFIG, 'utf8'))
+		: preset === 'coinBoard'
+			? gameConfig.HOLD_AND_WIN_COIN_BOARD_TEMPLATE
+			: (gameConfig.HOLD_AND_WIN_PRESETS[preset] ?? gameConfig.HOLD_AND_WIN_TEST_FIXTURES[preset]);
 	if (!raw) {
 		const ids = [
 			...gameConfig.HOLD_AND_WIN_PRESET_IDS,
 			...Object.keys(gameConfig.HOLD_AND_WIN_TEST_FIXTURES),
 		];
-		console.error(`[mock-hnw] PRESET="${preset}" — use ${ids.join(' | ')}`);
+		console.error(`[mock-hnw] PRESET="${preset}" — use ${[...ids, 'coinBoard'].join(' | ')}`);
 		process.exit(1);
 	}
 	const doc = gameConfig.normalizeGameConfigDoc(raw);

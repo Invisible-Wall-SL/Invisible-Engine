@@ -12,20 +12,30 @@ the [pots overlay](add-pots-overlay.md)).
 
 ## 1. The piece — one firecracker with three stages
 
-**Do:** in `/editor` → **Components**, make a component `Firecracker`:
+Your firecracker rig has three animations, say `off`, `lit` and `fired`. One rig node plays them:
+each state of the piece's state machine plays a timeline, and each timeline plays one of the rig's
+animations.
 
-- **Art:** three nodes, one per stage: `Off`, `Lit`, `Fired`. Each can be a rig, a sprite or a
-  flipbook.
-- **Param:** add a number param **`lightAt`**, default `1`. This is the pot's fill share (0–1) at which
-  this firecracker lights.
-- **Inputs** (Properties → Inputs):
-  - number `share`, **source** `meter.{meter}.share` — the pot's level over its maximum, 0..1. The
-    `{meter}` is read from the pot the firecracker sits in, so the piece needs no meter of its own;
-  - trigger `potActivate` — the pot is consumed by its bonus.
-- **Timelines** (Animate): `Off`, `Lit`, `Fired`. Each shows its stage's node and hides the other two,
-  and plays that node's animation. Make `Lit` loop; give `Fired` the length of its burst.
+**Do:** in `/editor` → **Components**, make a component `Firecracker`.
 
-**Do:** Animate → **State machine**, one layer:
+1. **One rig node** on your firecracker rig, at 0,0. Give it a **Name** (Properties), say `Cracker`,
+   because timelines find nodes by name. Leave its default animation alone: the timelines decide what
+   it plays.
+2. **One param:** add a number param **`lightAt`**, default `1`. It is the pot's fill share (0–1) at
+   which this firecracker lights.
+3. **Two inputs** (Properties → Component variables → Inputs):
+   - a number `share`, **from** `meter.{meter}.share` — type it. It is the pot's level over its
+     maximum, 0..1. `{meter}` is read from the pot the firecracker sits in, so the piece needs no meter
+     of its own;
+   - a trigger `potActivate` (**+ Add trigger**) — the pot is consumed by its bonus.
+4. **Three timelines** (Animate → ＋ New): `Off`, `Lit`, `Fired`. In each, put the playhead at 0,
+   select `Cracker` on the canvas, and pick the animation in the **animation** row of the Timeline
+   panel (**＋ play from 0.00s…**): `off`, `lit` and `fired` respectively. A strip appears on the
+   rig's row and the timeline grows to the animation's length. Scrub to check it on the canvas.
+   Leave **Plays on** empty: the state machine plays them.
+
+**Do:** Animate → **State machine**. **＋ State** for each timeline (tick **loop** on `Lit`), then
+wire one layer:
 
 | From | To | Condition | Exit time |
 |---|---|---|---|
@@ -38,14 +48,14 @@ For `{lightAt}`, pick **{lightAt}** in the condition's value dropdown instead of
 condition then compares against each placement's own param. The exit time of 1 lets **Fired** finish
 before the drained pot turns the piece dark.
 
-**Done when:** in the State machine's preview, setting `share` to 1 moves Off → Lit (preview reads
-`lightAt` at its default), and firing `potActivate` moves Lit → Fired.
+**Done when:** in the State machine's preview, setting `share` to 1 moves Off → Lit (the preview
+reads `lightAt` at its default), and firing `potActivate` moves Lit → Fired.
 
 ## 2. The coin head
 
-The coin head is just another piece that lights last. Either make it its own component with the same
-inputs, param and state machine (its art is the roof and coin), or place a `Firecracker` whose art you
-swap. Its `lightAt` ends up at `1`, so it lights only when the pot is full.
+The coin head is just another piece that lights last. Make it a second component, `CoinHead`, exactly
+as in step 1 (the same param, inputs, timelines and state machine) with the roof-and-coin rig on its
+rig node. Its `lightAt` ends up at `1`, so it lights only when the pot is full.
 
 ## 3. The pot
 
@@ -62,13 +72,12 @@ Each piece's `lightAt` is set from its height: with N heights the lowest lights 
 
 ## 4. More FX on the full pot
 
-Three hooks, pick what fits:
+Two hooks, pick what fits:
 
 - **The pot's signals.** `potFull` (the pot just filled) and `potActivate` (it is consumed) are scoped
-  to the pot, so an FX layer `on: event` for one of them, placed inside the pot, plays only on that
-  pot.
-- **A cue in the piece's `Fired` timeline.** A cue `fx:<name>` broadcasts `<name>`, which any FX layer
-  can listen for — a spark on every firecracker as it fires.
+  to the pot. Make the effect in `/fx` with its layer's **Trigger** set to **On event** and **Event**
+  `potFull` or `potActivate`, then place it inside the Pot Meter's `Pot` part: it takes the pot's
+  scope and plays only on that pot.
 - **An event to Flow.** Give the `Fired` state an **on enter → raise event** to hand the moment to
   Invisible Flow.
 

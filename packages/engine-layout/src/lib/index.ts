@@ -50,6 +50,7 @@ export * from './freeSpinScenes';
 export * from './genericMountScenes';
 export * from './layerOrder';
 export * from './resolveTransform';
+export * from './coinBoardLines';
 export * from './sceneDuration';
 export * from './cueDuration';
 export * from './textBoxLayout';

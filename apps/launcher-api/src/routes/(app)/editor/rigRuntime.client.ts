@@ -41,6 +41,8 @@ export interface RigMeta {
 	skins: string[];
 	slots: string[];
 	bones: string[];
+	/** Each animation's length in seconds, when the skeleton is loaded (a timeline strip's length). */
+	durations?: Record<string, number>;
 }
 
 let runtimePromise: Promise<RigRuntime> | null = null;

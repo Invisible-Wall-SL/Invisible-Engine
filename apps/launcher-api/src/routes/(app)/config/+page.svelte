@@ -67,6 +67,7 @@
 	// of a raw-key text box. Not forked; the editor owns it.
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import BonusModesSection from './BonusModesSection.svelte';
+	import CoinBoardSection from './CoinBoardSection.svelte';
 	import CoinOverlaySection from './CoinOverlaySection.svelte';
 	import GameModesSection from './GameModesSection.svelte';
 	import {
@@ -1993,6 +1994,10 @@
 				</p>
 			{/if}
 		</section>
+
+		{#if data.gameType === 'holdAndWin' || doc.coinBoard}
+			<CoinBoardSection bind:doc {issuesFor} readOnly={lease.readOnly} />
+		{/if}
 
 		<CoinOverlaySection bind:doc view={snapshot} {issuesFor} readOnly={lease.readOnly} />
 

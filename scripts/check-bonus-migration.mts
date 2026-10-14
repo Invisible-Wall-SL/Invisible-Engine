@@ -321,10 +321,13 @@ if (MEASURE) {
 	process.exit(0);
 }
 
+/** Corpus docs main never had, so there is nothing of main's to lose: the Hold and Win coin board
+ *  template (hold-and-win-coin-board Phase 13a) is checked for 1, 3 and 4 only. */
+const afterMain = (name: string): boolean => name === 'template:holdAndWin.coinBoard';
 for (const [name, doc] of Object.entries(docs)) {
 	check(`1 ${name}: no legacy key`, !carriesLegacy(doc));
 	const main = MAIN[name];
-	check(`2 ${name}: measured on main`, Boolean(main));
+	if (!afterMain(name)) check(`2 ${name}: measured on main`, Boolean(main));
 	if (main) {
 		const [split, holdAndWin, pots] = measured[name];
 		check(`2 ${name}: the split form is main's`, split === main[0], `${split} ≠ ${main[0]}`);

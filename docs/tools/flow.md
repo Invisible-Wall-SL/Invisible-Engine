@@ -777,6 +777,20 @@ steps aside, so nothing draws twice. `featureIntro` and `featureOutro` are not w
 engine's feature has no tap at its start or end. Show them around `holdAndWinTrigger` /
 `holdAndWinEnd` with a held Show, as the free-spin intro and outro are.
 
+**A coin board's starter flow.** A Hold and Win project created with **Base game: Coin board
+only** ([plan](../design/hold-and-win-coin-board.md)) starts on the same template and the same
+beats, with the coin board's screens: the Global graph shows `basegame`, `jackpotBar` and
+`respinBoard` with the game (the board IS the base game; `basegame` holds no reels, but the game
+draws the board only while it is up, so keep it shown). The **Hold and Win** tab's enter and exit
+show and hide only `respinBackground`, `respinCounter`, `totalWinBar` and `letters`, so the board
+never swaps out. `holdAndWinTrigger` (`showRespinBoard`) keeps the board and its coins, and
+`holdAndWinEnd` (`hideRespinBoard`) flies the tally and then clears the board to blanks instead of
+returning to reels. Every base spin's `reveal` spins the board's paying cells. There is no `pots`
+screen and no `winInfo` chain (a coin board pays no line in its base game; one that arrived would
+play its coded beat). The palette is the Hold and Win one. A project switched to the coin board
+later in Game Config keeps its stored flow: it plays, with `respinBoard` shown only during the
+feature.
+
 ### Pots overlay and Hold and Win on any kind — add-ons
 
 A project of any kind (a Book-of game, say) can carry a **Pots overlay** block and/or a **Hold and

@@ -80,11 +80,16 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		listComponents({ projectKey }),
 		projectGameType(projectKey),
 	]);
+	// The stored Game Config, read before the flow: a coin board opens on its own starter. It also
+	// feeds the add-ons and the symbol pickers below.
+	const storedConfig = await loadGameConfigDocWithEtag(clientKey, projectKey);
 	const {
 		doc,
 		etag: docEtag,
 		seeded,
-	} = await loadFlowV2DocForEditor(clientKey, projectKey, layout.gameType);
+	} = await loadFlowV2DocForEditor(clientKey, projectKey, layout.gameType, {
+		coinBoard: Boolean(storedConfig.doc?.coinBoard),
+	});
 	const { lib: library, etag: libraryEtag } = await loadFlowV2LibraryWithEtag();
 	const sceneNames: Record<string, string> = Object.fromEntries(
 		(layout.scenes ?? []).map((s) => [s.id, s.name ?? s.id]),
@@ -102,7 +107,6 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 	// Inside COMPONENTS too: a cue authored in a placed component, or a placement's signal override.
 	// The Game Config's add-ons count too: a pot signal the game drives on an overlay host is not the
 	// author's to fire.
-	const storedConfig = await loadGameConfigDocWithEtag(clientKey, projectKey);
 	const configDoc = storedConfig.doc;
 	const addOns = flowAddOnsOf(configDoc);
 	// SYMBOLS — what every symbol picker lists: the config `/config` opens with (saved, else the

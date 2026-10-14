@@ -7,6 +7,11 @@
  * (`mock-pots-overlay.mjs`) starts its feature as another kind's BONUS: `base: false` lifts the base
  * game's requirements (paylines, line symbols) and `rand` makes it draw from the caller's stream.
  *
+ * A COIN BOARD (the inputs' `coinBoard`, docs/design/hold-and-win-coin-board.md) has no line
+ * game: its base game deals coins and blanks on the respin board, and only the cells an active
+ * payline crosses deal, trigger, hold and pay. A round carries its lines (`round.coinBoard`,
+ * {@link coinBoardLines}), so a different line count per bet never needs another engine.
+ *
  * One engine plays ONE respin mode (docs/design/bonus-games.md §2.2): `mode` is its id and `bonus`
  * its strip key, the bonus key its feature is played under. With `wire: true` every Hold and Win
  * context it answers carries `mode`; without it (the lone default mode) the answer is what it was.
@@ -33,6 +38,9 @@ const RESPIN_LAND_RATE = 0.06;
 /** Of what lands on a respin, a special (when one is active on that reel) this share of the time;
  *  doubled for a bought tier with `boostedSpecials`. */
 const RESPIN_SPECIAL_SHARE = 0.2;
+/** A coin board triggers about one base spin in this many, whatever its lines: its coin rate is
+ *  solved per line count from the paying cells and the trigger minimum ({@link paceRate}). */
+const COIN_BOARD_TRIGGER_PACE = 50;
 export const LUCKY_SPIN_RATE = 0.01;
 export const RANDOM_METRE_RATE = 0.005;
 /** A board that clears (a streak, or letters that sweep their column) never fills, so a forced
@@ -68,6 +76,111 @@ export function hashStr(s) {
 export const tidy = (n) => Number(n.toFixed(4));
 
 const payCents = (amount) => (amount > 0 ? Math.max(1, Math.round(amount)) : 0);
+
+const COIN_BOARD_PAY_RULES = ['coinsOnLines', 'lineFill', 'perLine'];
+const DEFAULT_LINE_FILL_MIN = 3;
+const DEFAULT_INACTIVE_OVERLAY = { color: '#000000', alpha: 0.6 };
+
+/** The coin rate at which `min` or more of `cells` coins land about once in
+ *  {@link COIN_BOARD_TRIGGER_PACE} spins; {@link BASE_COIN_RATE} for a minimum no board can
+ *  reach. */
+const paceRate = (cells, min) => {
+	if (!(min >= 1 && min <= cells)) return BASE_COIN_RATE;
+	const atLeast = (p) => {
+		let sum = 0;
+		let ways = 1;
+		for (let k = 0; k <= cells; k++) {
+			if (k >= min) sum += ways * p ** k * (1 - p) ** (cells - k);
+			ways = (ways * (cells - k)) / (k + 1);
+		}
+		return sum;
+	};
+	let lo = 0;
+	let hi = 1;
+	for (let i = 0; i < 40; i++) {
+		const mid = (lo + hi) / 2;
+		if (atLeast(mid) < 1 / COIN_BOARD_TRIGGER_PACE) lo = mid;
+		else hi = mid;
+	}
+	return tidy(hi);
+};
+
+/**
+ * The coin board read for the deal, or null for a lines base game. It names its lines by payline
+ * id; `paylineIds` maps them onto the contract's `paylines` rows. The active lines and paying cells
+ * mirror game-config's `activePaylineIds` / `payingCells`, and the trigger minimum its
+ * `coinBoardTriggerMin`.
+ *
+ * `linesFor(count)` is a round's line set (`round.coinBoard`): its line count, the active ids and
+ * rows, the paying cells (`[reel][row]`), the trigger minimum, the coin rate and the pay rule. A
+ * `player` board has one per choice (else undefined); a `fixed` board one, whatever is asked.
+ */
+function coinBoardLines(inputs, paylines, rowHeights, label) {
+	const raw = inputs.coinBoard;
+	if (!raw || typeof raw !== 'object') return null;
+	const ids = Array.isArray(inputs.paylineIds) ? inputs.paylineIds.map(String) : [];
+	if (ids.length !== paylines.length) {
+		throw new Error(
+			`[${label}] a coin board needs the id of each of its ${paylines.length} paylines`,
+		);
+	}
+	const strings = (v) => (Array.isArray(v) ? v.filter((id) => typeof id === 'string') : []);
+	const lines = raw.lines ?? {};
+	const player = lines.selection === 'player';
+	const order = strings(player ? lines.order : lines.active);
+	const choices = player
+		? (Array.isArray(lines.choices) ? lines.choices : []).filter(Number.isInteger)
+		: [new Set(order).size];
+	const defaultCount = player ? Number(lines.default) : choices[0];
+	const payRule = COIN_BOARD_PAY_RULES.includes(raw.payRule) ? raw.payRule : 'coinsOnLines';
+	const fillMin = Number.isInteger(raw.lineFill?.min) ? raw.lineFill.min : DEFAULT_LINE_FILL_MIN;
+	const triggerMin = Object.fromEntries(
+		Object.entries(raw.triggerMin ?? {}).filter(([, min]) => Number.isInteger(min)),
+	);
+	const overlay = raw.inactiveOverlay;
+	const inactiveOverlay =
+		typeof overlay?.color === 'string' && typeof overlay.alpha === 'number'
+			? { color: overlay.color, alpha: overlay.alpha }
+			: DEFAULT_INACTIVE_OVERLAY;
+	const lineSet = (count) => {
+		const listed = player ? order.slice(0, Math.max(0, count)) : order;
+		const active = [...new Set(listed)].filter((id) => ids.includes(id));
+		const rows = active.map((id) => paylines[ids.indexOf(id)]);
+		const paying = rowHeights.map((height) => Array.from({ length: height }, () => false));
+		for (const line of rows) {
+			line.forEach((row, reel) => {
+				if (paying[reel] && row < paying[reel].length) paying[reel][row] = true;
+			});
+		}
+		const cells = paying.flat().filter(Boolean).length;
+		const min = triggerMin[String(count)];
+		return {
+			count,
+			ids: active,
+			rows,
+			paying,
+			min: min >= 1 ? min : cells,
+			coinRate: paceRate(cells, min),
+			payRule,
+			fillMin,
+		};
+	};
+	const sets = new Map(choices.map((count) => [count, lineSet(count)]));
+	return {
+		defaultCount,
+		linesFor: (count) => sets.get(player ? count : defaultCount),
+		/** The boot config's `holdAndWin.coinBoard`. */
+		config: {
+			payRule,
+			...(payRule === 'lineFill' ? { lineFill: { min: fillMin } } : {}),
+			selection: player ? 'player' : 'fixed',
+			...(player ? { choices, default: defaultCount, order } : { active: order }),
+			triggerMin,
+			inactiveOverlay,
+			paylineIds: ids,
+		},
+	};
+}
 
 /** The default respin mode, and its strip key — the partner core's `spinTrigger.bonus`. */
 export const DEFAULT_RESPIN_MODE = { mode: 'holdAndWin', bonus: 'respin' };
@@ -204,6 +317,12 @@ export function createHoldAndWinEngine(opts = {}) {
 	const paylines = list(opts.paylines);
 	if (opts.base !== false && !paylines.length)
 		throw new Error(`[${label}] a Hold and Win base game pays lines — no paylines`);
+	const coinBoard = coinBoardLines(inputs, paylines, rowHeights, label);
+	if (coinBoard && expansion)
+		throw new Error(`[${label}] board expansion is not built for a coin board`);
+	// A coin board always triggers by its count: the authored roles, else every coin and special.
+	if (coinBoard && !trigger.count)
+		trigger.count = { min: 1, roles: ['coin', 'jackpot', ...Object.values(SPECIAL_ROLE)] };
 
 	// ---- symbols by role ----
 	const names = Object.keys(symbols).sort();
@@ -220,7 +339,7 @@ export function createHoldAndWinEngine(opts = {}) {
 		return undefined;
 	};
 	const lineSymbols = list(inputs.lineSymbols).filter((n) => symbols[n]);
-	if (opts.base !== false && !lineSymbols.length)
+	if (opts.base !== false && !coinBoard && !lineSymbols.length)
 		throw new Error(`[${label}] no base-game line symbols`);
 	if (!coinSymbol) throw new Error(`[${label}] no symbol is tagged coin or jackpot`);
 	const wildName = names.find((n) => symbols[n].wild);
@@ -233,7 +352,7 @@ export function createHoldAndWinEngine(opts = {}) {
 	const betTable = (() => {
 		const modes = Array.isArray(opts.betModes) && opts.betModes.length > 1 ? opts.betModes : null;
 		if (!modes) return null;
-		const unit = paylines.length;
+		const unit = coinBoard ? coinBoard.defaultCount : paylines.length;
 		return {
 			options: modes.map((mode, i) => (i === 0 ? unit : (unit * mode.cost) / modes[0].cost)),
 			names: modes.map((mode, i) => `${i}:${i === 0 ? 'base' : mode.mode.toLowerCase()}`),
@@ -264,6 +383,10 @@ export function createHoldAndWinEngine(opts = {}) {
 	// ---- cells ----
 	/** A cell: `null` (empty/blank) or `{ symbol, kind, value?, jackpot?, factor? }`. */
 	const lineCell = () => ({ symbol: pick(lineSymbols), kind: 'line' });
+	/** A base cell that deals nothing: a line symbol, or the blank on a coin board. */
+	const plainCell = (lines) => (lines ? null : lineCell());
+	/** Whether a cell is in play: every cell, or a paying one of a coin board's lines. */
+	const onLines = (lines, reel, row) => !lines || lines.paying[reel][row];
 	const coinEntriesOn = (reel, table = block.coins) => list(table).filter((c) => onReel(c, reel));
 	/** The base game's coin values (`coinOverlay.coins`), else the respin table: what lands on the
 	 *  base reels and what an overlay drops. Absent ⇒ the respin table, so every draw is as before. */
@@ -364,10 +487,12 @@ export function createHoldAndWinEngine(opts = {}) {
 	const meterOnlySymbols = meters
 		.map((m) => m.symbol)
 		.filter((s) => symbols[s] && !kindOfSymbol(s));
-	const dealBase = () =>
+	/** The base board; a coin board's non-paying cells are locked blank and draw nothing. */
+	const dealBase = (lines) =>
 		rowHeights.map((rows, reel) =>
-			Array.from({ length: rows }, () => {
-				if (rand() < BASE_COIN_RATE && coinEntriesOn(reel, baseCoins).length)
+			Array.from({ length: rows }, (_u, row) => {
+				if (!onLines(lines, reel, row)) return null;
+				if (rand() < (lines?.coinRate ?? BASE_COIN_RATE) && coinEntriesOn(reel, baseCoins).length)
 					return drawBaseCoin(reel);
 				const kinds = baseSpecialKinds.filter((k) => specialLandsOn(k, reel));
 				const extras = [...kinds, ...meterOnlySymbols];
@@ -377,7 +502,7 @@ export function createHoldAndWinEngine(opts = {}) {
 						? specialCell(choice)
 						: { symbol: choice, kind: 'meter' };
 				}
-				return lineCell();
+				return plainCell(lines);
 			}),
 		);
 
@@ -401,20 +526,25 @@ export function createHoldAndWinEngine(opts = {}) {
 		}));
 	};
 
-	// ---- triggers ----
-	const countMatches = (board) =>
+	// ---- triggers (on a coin board, `lines`: its paying cells only, and its own minimum) ----
+	const countMatches = (board, lines) =>
 		trigger.count
-			? cellsWhere(board, (cell) => rolesOf(cell).some((r) => trigger.count.roles.includes(r)))
-					.length
+			? cellsWhere(
+					board,
+					(cell, reel, row) =>
+						onLines(lines, reel, row) && rolesOf(cell).some((r) => trigger.count.roles.includes(r)),
+				).length
 			: 0;
-	const countTriggered = (board) =>
-		Boolean(trigger.count) && countMatches(board) >= trigger.count.min;
-	const patternTriggered = (board) =>
+	const countTriggered = (board, lines) =>
+		Boolean(trigger.count) && countMatches(board, lines) >= (lines?.min ?? trigger.count.min);
+	const patternTriggered = (board, lines) =>
 		Boolean(trigger.pattern?.length) &&
 		trigger.pattern.every(
 			(req) =>
-				(board[req.reel] ?? []).filter((cell) => rolesOf(cell).some((r) => req.roles.includes(r)))
-					.length >= req.min,
+				(board[req.reel] ?? []).filter(
+					(cell, row) =>
+						onLines(lines, req.reel, row) && rolesOf(cell).some((r) => req.roles.includes(r)),
+				).length >= req.min,
 		);
 	/** A cell of `role` that can sit on `reel`, or null; its coins from `table`. */
 	const cellForRole = (role, reel, table = block.coins) => {
@@ -430,7 +560,7 @@ export function createHoldAndWinEngine(opts = {}) {
 		return kind && specialLandsOn(kind, reel) ? specialCell(kind) : null;
 	};
 	/** Place what the primary trigger (count, else pattern) still lacks. Returns the cells added. */
-	const satisfyTrigger = (board, keep = () => false) => {
+	const satisfyTrigger = (board, keep = () => false, lines) => {
 		const added = [];
 		const put = (reel, row, cell) => {
 			board[reel][row] = cell;
@@ -438,11 +568,13 @@ export function createHoldAndWinEngine(opts = {}) {
 		};
 		if (trigger.count) {
 			let guard = 0;
-			while (!countTriggered(board) && guard++ < 500) {
+			while (!countTriggered(board, lines) && guard++ < 500) {
 				const free = cellsWhere(
 					board,
 					(cell, reel, row) =>
-						!rolesOf(cell).some((r) => trigger.count.roles.includes(r)) && !keep(reel, row),
+						onLines(lines, reel, row) &&
+						!rolesOf(cell).some((r) => trigger.count.roles.includes(r)) &&
+						!keep(reel, row),
 				);
 				if (!free.length) break;
 				const { reel, row } = pick(free);
@@ -463,8 +595,11 @@ export function createHoldAndWinEngine(opts = {}) {
 					.map((cell, row) => row)
 					.filter(
 						(row) =>
-							!rolesOf(column[row]).some((r) => req.roles.includes(r)) && !keep(req.reel, row),
+							onLines(lines, req.reel, row) &&
+							!rolesOf(column[row]).some((r) => req.roles.includes(r)) &&
+							!keep(req.reel, row),
 					);
+
 				if (!rows.length) break;
 				const role = req.roles.find((r) => cellForRole(r, req.reel, baseCoins));
 				const cell = role ? cellForRole(role, req.reel, baseCoins) : null;
@@ -733,6 +868,7 @@ export function createHoldAndWinEngine(opts = {}) {
 					},
 				}
 			: {}),
+		...(coinBoard ? { coinBoard: coinBoard.config } : {}),
 	});
 
 	const configContext = (session) => ({
@@ -777,11 +913,12 @@ export function createHoldAndWinEngine(opts = {}) {
 		coinBoost: f.coinBoost,
 		...(boardEnd.type === 'columnLetters' ? { lettersLit: [...f.lettersLit] } : {}),
 		...(expansion ? { rows: f.rows } : {}),
+		...(f.coinBoard ? { paylineIds: f.coinBoard.ids } : {}),
 	});
 	const bonusSnapshot = (round) => {
 		const f = round.feature;
 		const spinTrigger = {
-			occurs: [trigger.count?.min ?? 1],
+			occurs: [f.coinBoard?.min ?? trigger.count?.min ?? 1],
 			of: coinSymbol,
 			mode,
 			from: '',
@@ -805,8 +942,9 @@ export function createHoldAndWinEngine(opts = {}) {
 		};
 	};
 
-	const jackpotWin = (events, round, tier, source, banked, cell, factor = 1) => {
-		const amount = credits(tierMultiplier(tier) * factor, round);
+	/** A jackpot won: its prize × `factor`, paid `times` over (the lines a coin board pays it on). */
+	const jackpotWin = (events, round, tier, source, banked, cell, factor = 1, times = 1) => {
+		const amount = credits(tierMultiplier(tier) * factor, round) * times;
 		if (progressiveTiers.some((t) => t.name === tier)) wonProgressive.add(poolKey(tier));
 		events.push({
 			event: 'jackpotWin',
@@ -884,13 +1022,15 @@ export function createHoldAndWinEngine(opts = {}) {
 		}
 	};
 
-	/** Column letters and the full board. Returns true when the board has ENDED the feature. */
+	/** Column letters and the full board — on a coin board, its paying cells. Returns true when the
+	 *  board has ENDED the feature. */
 	const checkBoardEnd = (events, round) => {
 		const f = round.feature;
+		const held = (cell, reel, row) => cell !== null || !onLines(f.coinBoard, reel, row);
 		if (boardEnd.type === 'columnLetters') {
 			const letters = [...boardEnd.letters];
 			f.board.forEach((column, reel) => {
-				if (!column.every((cell) => cell !== null)) return;
+				if (!column.every((cell, row) => held(cell, reel, row))) return;
 				const already = f.lettersLit[reel];
 				if (already && !boardEnd.clearOnComplete) return;
 				const value = tidy(column.reduce((sum, cell) => sum + worth(cell), 0));
@@ -907,15 +1047,14 @@ export function createHoldAndWinEngine(opts = {}) {
 						cleared: boardEnd.clearOnComplete,
 						value,
 						amount,
-						cells: column.map((cell, row) => ({
-							...cellInfo(reel, row, cell),
-							amount: credits(worth(cell), round),
-						})),
+						cells: column.flatMap((cell, row) =>
+							cell ? [{ ...cellInfo(reel, row, cell), amount: credits(worth(cell), round) }] : [],
+						),
 					},
 				});
 				if (boardEnd.clearOnComplete) {
 					column.forEach((cell, row) => {
-						if (cell.kind === 'jackpot') {
+						if (cell?.kind === 'jackpot') {
 							jackpotWin(
 								events,
 								round,
@@ -937,12 +1076,18 @@ export function createHoldAndWinEngine(opts = {}) {
 				return true;
 			}
 		}
-		const full = f.board.every((column) => column.every((cell) => cell !== null));
+		const full = f.board.every((column, reel) =>
+			column.every((cell, row) => held(cell, reel, row)),
+		);
 		// An expanding board is full only once every row of `maxRows` is open and held.
 		const fullAtMax = full && (!expansion || f.rows === expansion.maxRows);
 		if (boardEnd.type === 'fullBoardJackpot' && fullAtMax) {
-			const counts = f.board.every((column) =>
-				column.every((cell) => rolesOf(cell).some((r) => list(boardEnd.roles).includes(r))),
+			const counts = f.board.every((column, reel) =>
+				column.every(
+					(cell, row) =>
+						!onLines(f.coinBoard, reel, row) ||
+						rolesOf(cell).some((r) => list(boardEnd.roles).includes(r)),
+				),
 			);
 			if (counts) {
 				bank(round, jackpotWin(events, round, boardEnd.jackpot, 'fullBoard', true));
@@ -954,9 +1099,36 @@ export function createHoldAndWinEngine(opts = {}) {
 	};
 
 	/**
+	 * How often each held cell of a coin board pays under its rule (`[reel][row]`), and the
+	 * `lineFill` runs that pay: `coinsOnLines` once; `perLine` once per active line through the
+	 * cell; `lineFill` once per active line whose cells, from reel 0, hold `fillMin` or more paying
+	 * cells in a row.
+	 */
+	const coinBoardPays = (lines, board) => {
+		const times = board.map((column) => column.map(() => (lines.payRule === 'lineFill' ? 0 : 1)));
+		const runs = [];
+		if (lines.payRule === 'perLine') {
+			eachCell(board, (_cell, reel, row) => {
+				times[reel][row] = lines.rows.filter((line) => line[reel] === row).length;
+			});
+		} else if (lines.payRule === 'lineFill') {
+			lines.rows.forEach((line, i) => {
+				const cells = [];
+				for (let reel = 0; reel < line.length && worth(board[reel]?.[line[reel]]) > 0; reel++)
+					cells.push({ reel, row: line[reel] });
+				if (cells.length < lines.fillMin) return;
+				for (const { reel, row } of cells) times[reel][row] += 1;
+				runs.push({ id: lines.ids[i], cells });
+			});
+		}
+		return { times, runs };
+	};
+
+	/**
 	 * End the feature: `atEnd` collectors gather, then every held cell with a worth is tallied into
-	 * the total alongside what was banked on the way. Closes the round's feature, not the round —
-	 * the `collect` does that.
+	 * the total alongside what was banked on the way — on a coin board, by its pay rule, each cell's
+	 * `lines` saying how often it paid. Closes the round's feature, not the round — the `collect`
+	 * does that.
 	 */
 	const finishFeature = (events, round) => {
 		const f = round.feature;
@@ -965,13 +1137,26 @@ export function createHoldAndWinEngine(opts = {}) {
 			if (collectors.length) collect(events, round, collectors);
 		}
 		const held = cellsWhere(f.board, (cell) => worth(cell) > 0);
+		const pays = f.coinBoard ? coinBoardPays(f.coinBoard, f.board) : null;
+		const counted = pays && f.coinBoard.payRule !== 'coinsOnLines';
 		const tally = held.map(({ reel, row, cell }) => ({
 			...cellInfo(reel, row, cell),
-			amount: credits(worth(cell), round),
+			amount: credits(worth(cell), round) * (pays ? pays.times[reel][row] : 1),
+			...(counted ? { lines: pays.times[reel][row] } : {}),
 		}));
 		for (const { reel, row, cell } of held) {
-			if (cell.kind === 'jackpot') {
-				jackpotWin(events, round, cell.jackpot, 'coin', false, { reel, row }, cell.factor ?? 1);
+			const times = pays ? pays.times[reel][row] : 1;
+			if (cell.kind === 'jackpot' && times > 0) {
+				jackpotWin(
+					events,
+					round,
+					cell.jackpot,
+					'coin',
+					false,
+					{ reel, row },
+					cell.factor ?? 1,
+					times,
+				);
 			}
 		}
 		const total = f.banked + tally.reduce((sum, t) => sum + t.amount, 0);
@@ -981,9 +1166,22 @@ export function createHoldAndWinEngine(opts = {}) {
 				cells: tally,
 				banked: f.banked,
 				total,
+				...(pays ? { payRule: f.coinBoard.payRule } : {}),
+				...(pays && f.coinBoard.payRule === 'lineFill'
+					? {
+							runs: pays.runs.map((run) => ({
+								...run,
+								total: run.cells.reduce(
+									(sum, { reel, row }) => sum + credits(worth(f.board[reel][row]), round),
+									0,
+								),
+							})),
+						}
+					: {}),
 				...tagged,
 			},
 		});
+
 		// The queued mode has nothing of its own to play, so it closes as soon as it starts. `total` is
 		// in credits, like every amount on this wire.
 		if (round.force?.queuedMode) {
@@ -1022,11 +1220,12 @@ export function createHoldAndWinEngine(opts = {}) {
 			...(expansion
 				? { rows: rowHeights[0], unlocksLeft: force.unlockRows ?? 0, fillAll: force.expandFull }
 				: {}),
+			...(round.coinBoard ? { coinBoard: round.coinBoard } : {}),
 		};
 		round.feature = f;
 		const streak = stickiness === 'collectorsOnly';
 		eachCell(board, (cell, reel, row) => {
-			if (!cell) return;
+			if (!cell || !onLines(f.coinBoard, reel, row)) return;
 			const hold = streak
 				? cell.kind === 'collector' || cell.kind === 'coin' || cell.kind === 'jackpot'
 				: cell.kind === 'coin' || cell.kind === 'jackpot';
@@ -1058,10 +1257,10 @@ export function createHoldAndWinEngine(opts = {}) {
 			event: 'spinTrigger',
 			context: {
 				spins: [{ prob: 1, spins: respinRules.start }],
-				occurs: countMatches(board) || held.length,
+				occurs: countMatches(board, f.coinBoard) || held.length,
 				bonus: bonusKey,
 				trigger: {
-					occurs: [trigger.count?.min ?? 1],
+					occurs: [f.coinBoard?.min ?? trigger.count?.min ?? 1],
 					of: coinSymbol,
 					mode,
 					from: '',
@@ -1272,7 +1471,9 @@ export function createHoldAndWinEngine(opts = {}) {
 		const f = round.feature;
 		const force = round.force ?? {};
 		const first = f.played === 1;
-		const empties = () => cellsWhere(f.board, (cell) => cell === null);
+		/** An empty cell a respin can land on: a coin board's non-paying cells never land. */
+		const open = (cell, reel, row) => cell === null && onLines(f.coinBoard, reel, row);
+		const empties = () => cellsWhere(f.board, open);
 		const landed = [];
 		const place = (reel, row, cell) => {
 			if (!cell) return;
@@ -1331,7 +1532,8 @@ export function createHoldAndWinEngine(opts = {}) {
 				cellsWhere(f.board, (cell, r, w) => cell?.kind === 'coin' && besides(reel, row)(r, w))
 					.length > 0;
 			const emptyBeside = (reel, row) =>
-				cellsWhere(f.board, (cell, r, w) => cell === null && besides(reel, row)(r, w)).length > 0;
+				cellsWhere(f.board, (cell, r, w) => open(cell, r, w) && besides(reel, row)(r, w)).length >
+				0;
 			if (!empties().some(({ reel, row }) => cashBeside(reel, row))) {
 				const spot = empties().find(({ reel, row }) => emptyBeside(reel, row));
 				if (spot) place(spot.reel, spot.row, drawCash(spot.reel, f.coinBoost));
@@ -1359,10 +1561,12 @@ export function createHoldAndWinEngine(opts = {}) {
 				);
 			}
 			if (force.letter) {
-				const reel = f.lettersLit.findIndex((lit, r) => !lit && f.board[r].some((c) => c === null));
+				const reel = f.lettersLit.findIndex(
+					(lit, r) => !lit && f.board[r].some((c, row) => open(c, r, row)),
+				);
 				if (reel >= 0) {
 					f.board[reel].forEach((cell, row) => {
-						if (cell === null) place(reel, row, drawCash(reel, f.coinBoost));
+						if (open(cell, reel, row)) place(reel, row, drawCash(reel, f.coinBoost));
 					});
 				}
 			}
@@ -1636,6 +1840,7 @@ export function createHoldAndWinEngine(opts = {}) {
 
 	const playBase = (events, round, session, context) => {
 		const force = round.force ?? {};
+		const lines = round.coinBoard;
 		const lucky =
 			trigger.luckySpin === true &&
 			(force.trigger === 'luckySpin' ||
@@ -1645,30 +1850,31 @@ export function createHoldAndWinEngine(opts = {}) {
 			!lucky &&
 			(force.trigger === 'randomMetre' ||
 				(!force.trigger && !force.instant && !round.isBuy && rand() < RANDOM_METRE_RATE));
-		const board = dealBase();
+		const board = dealBase(lines);
 
 		// A forced full meter: one short, and its symbol on the board to fill it.
 		let forcedMeter = null;
 		if (force.trigger === 'meter') {
 			forcedMeter = meters.find((m) => m.id === force.meter) ?? meters[0];
 			session.meters[forcedMeter.id] = forcedMeter.maxLevel - 1;
-			const reel = Math.floor(rand() * reelCount);
-			const row = Math.floor(rand() * rowHeights[reel]);
+			const spot = lines ? pick(cellsWhere(board, (_c, r, w) => onLines(lines, r, w))) : null;
+			const reel = spot ? spot.reel : Math.floor(rand() * reelCount);
+			const row = spot ? spot.row : Math.floor(rand() * rowHeights[reel]);
 			const kind = kindOfSymbol(forcedMeter.symbol);
 			board[reel][row] = kind ? specialCell(kind) : { symbol: forcedMeter.symbol, kind: 'meter' };
 		}
 		// An unlock needs the special NOT active: keep it off the triggering board.
 		if (force.unlock && block.activeModifiers?.fromTriggeringSpecials) {
 			eachCell(board, (cell, reel, row) => {
-				if (cell?.kind === force.unlock) board[reel][row] = lineCell();
+				if (cell?.kind === force.unlock) board[reel][row] = plainCell(lines);
 			});
 		}
 		const keepMeter = (reel, row) => forcedMeter && board[reel][row]?.symbol === forcedMeter.symbol;
 		let metreCells = [];
 		if (round.isBuy || lucky || ['any', 'count', 'pattern'].includes(force.trigger)) {
-			satisfyTrigger(board, keepMeter);
+			satisfyTrigger(board, keepMeter, lines);
 		} else if (metre) {
-			metreCells = satisfyTrigger(board, keepMeter);
+			metreCells = satisfyTrigger(board, keepMeter, lines);
 		}
 		if (force.instant) {
 			// A clean instant collect: one instant special and up to two coins, none of which may
@@ -1677,18 +1883,21 @@ export function createHoldAndWinEngine(opts = {}) {
 				(k) => specialsCfg[k]?.instantCollectInBaseGame && specialSymbol[k],
 			);
 			eachCell(board, (cell, reel, row) => {
-				if (cell && cell.kind !== 'line') board[reel][row] = lineCell();
+				if (cell && cell.kind !== 'line') board[reel][row] = plainCell(lines);
 			});
 			const reelFor = (test) => [...Array(reelCount).keys()].find(test) ?? 0;
+			/** The top row, or a coin board's top paying cell on the reel. */
+			const rowOn = (r) => (lines ? Math.max(0, lines.paying[r].indexOf(true)) : 0);
 			const specialReel = reelFor((r) => specialLandsOn(kind, r));
-			board[specialReel][0] = specialCell(kind);
+			board[specialReel][rowOn(specialReel)] = specialCell(kind);
 			let placed = 0;
 			for (let r = 0; r < reelCount && placed < 2; r++) {
 				if (r === specialReel || !coinEntriesOn(r, baseCoins).some((c) => c.kind === 'cash'))
 					continue;
-				const was = board[r][0];
-				board[r][0] = drawCash(r, 1, baseCoins);
-				if (countTriggered(board) || patternTriggered(board)) board[r][0] = was;
+				const row = rowOn(r);
+				const was = board[r][row];
+				board[r][row] = drawCash(r, 1, baseCoins);
+				if (countTriggered(board, lines) || patternTriggered(board, lines)) board[r][row] = was;
 				else placed++;
 			}
 		}
@@ -1705,7 +1914,7 @@ export function createHoldAndWinEngine(opts = {}) {
 		});
 		if (lucky) events.push({ event: 'luckySpin', context: {} });
 
-		const wins = evaluateLines(board, round);
+		const wins = lines ? [] : evaluateLines(board, round);
 		for (const w of wins) {
 			events.push({ event: 'spinWin', context: w });
 			round.win += w.pay;
@@ -1744,9 +1953,9 @@ export function createHoldAndWinEngine(opts = {}) {
 					? 'meter'
 					: metre
 						? 'randomMetre'
-						: countTriggered(board)
+						: countTriggered(board, lines)
 							? 'count'
-							: patternTriggered(board)
+							: patternTriggered(board, lines)
 								? 'pattern'
 								: force.trigger === 'any'
 									? primaryCause
@@ -1820,6 +2029,8 @@ export function createHoldAndWinEngine(opts = {}) {
 		bonus: bonusKey,
 		rand,
 		setRouter,
+		coinBoard,
+
 		list,
 		trigger,
 		patternTriggered,

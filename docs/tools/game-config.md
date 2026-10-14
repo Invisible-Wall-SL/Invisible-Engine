@@ -61,6 +61,9 @@ before — an un-authored project still runs the compiled template.
   per-mode card: the **math** (cost, feature, buy-bonus, RTP, max win) plus the
   **presentation** (kind, menu order, and the copy the card shows). See _Bet
   modes: math + presentation_ below.
+- **Coin board** — on a Hold and Win project: whether the base game is a **lines game** or the
+  **coin board only**, and, for the coin board, which lines pay, how the coins pay, the trigger
+  per line choice and the overlay over the cells that do not pay. See _Coin board_ below.
 - **Coin overlay** — on every project, whatever its kind: an option the base game switches
   on. Its style, the pots and drops, what lands in the base game, and the **triggers** that
   start a bonus. See _Coin overlay_ below.
@@ -107,6 +110,65 @@ before — an un-authored project still runs the compiled template.
   (see _Server-defined paylines_ below).
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
+
+## Coin board
+
+The **Coin board** section sits after Bet modes, before Coin overlay, on a Hold and Win project
+(and on any project whose config already has a coin board). It decides what the base game is
+([plan](../design/hold-and-win-coin-board.md)):
+
+- **Lines game** — the base game spins the reels, and enough coins start the Hold and Win. This
+  is every Hold and Win game made before the coin board, and choosing it deletes the coin board
+  settings.
+- **Coin board only** — there is no line game. Every spin deals coins and blanks onto the board.
+  A cell **pays** when at least one active line passes through it; only paying cells deal,
+  trigger, stick and pay, and the other cells sit under the overlay. Choosing it starts every
+  payline active, the **Coins on lines** rule and a trigger of 6 (fewer when the lines pay on
+  fewer cells). The base strips should then deal only coins, jackpots and blanks: a line symbol
+  on them is a warning.
+
+With the coin board on, **Game modes** shows `basegame` on the respin board with the chip
+`Coin board`, its Board locked. The coin board's settings:
+
+- **Who picks the lines**
+  - **Designer (fixed)** — a checkbox per payline; the ticked lines are the active ones. The
+    player never sees a line control.
+  - **Player** — **Line choices** (a comma list, e.g. `1, 3, 5`), the **Default** among them,
+    and the **Order** lines switch on in (↑ / ↓ move a line): N lines are the first N. The total
+    bet is lines × bet per line. Switching from Designer starts the order with the ticked lines.
+    In the game, a **Lines** panel beside the Bet steps through the choices (− / +), starting on
+    the Default. The bet steps are per line, and **Bet** shows the total, so changing the lines
+    keeps the bet per line. The board's lines and covered cells change at once, and the panel is
+    greyed while a spin or the feature plays. The choice lasts for the session. A server that
+    sells a bet option (an ante or a buy) plays the Default and shows no panel.
+- **Pay rule** — how the held coins pay when the feature ends:
+  - **Coins on lines** — every held coin pays its value once (a classic Hold and Win).
+  - **Line fill** — a paying line pays the sum of its coins in a run from the left, at least
+    **Run length** long (default 3). A coin in no run pays nothing; one in runs on two lines
+    pays on both.
+  - **Per line** — every held coin pays its value × the number of paying lines through its cell.
+- **Trigger minimum** — one row per line choice: the lines, the cells they pay on, and the
+  fewest coins on paying cells that start the respins. A minimum above the paying cells can
+  never trigger and is an error (the middle line alone pays on 5 cells on a 5×3 board).
+- **Inactive overlay** — the colour and alpha over the cells no active line passes through
+  (default black at 0.6; **Use the default** clears an edited one).
+
+Under the settings, a small board shows the paying cells at the default line count. The checker
+lists the coin board's problems in the section: a line that is not a payline or is listed twice, a
+choice outside 1 to the number of paylines, a default that is not a choice, an order shorter than
+the largest choice, a missing trigger minimum, a run longer than the reels, an alpha outside 0 to 1,
+a coin board with no Hold and Win respin mode, and pots or dropped tokens (not built for a coin
+board: the coin overlay's pots presets are refused on it).
+
+The game plays the coin board against the local Hold and Win mock. The partner's server does not
+deal it yet ([status](../status/hold-and-win.md)).
+
+Switching the base game here changes the game, not the project's screens, Flow or Symbols. A project
+created in Game Maker with **Base game: Coin board only** has the coin board's own screens (the
+board and the Jackpot bar up from the start, a placed **Line Overlay**, a **Lines selector** anchor
+in the HUD) and starter Flow. One switched here keeps what it was created with: it plays, but the
+board's frame and tiles show only during the feature and the lines draw in their coded look. For the
+coin board's own screens, create the game in Game Maker with **Coin board only**.
 
 ## Coin overlay
 
@@ -339,7 +401,8 @@ To replace the whole config with one of these games, pick it in the banner's pre
 **Reset to preset** (it asks first; a lines project's menu offers the **Book of Thermopylae**, see
 _Free spins_). On a Hold and Win project the menu lists **Plain (Jackpots on)** and **Plain
 (Jackpots off)** first, the game Game Maker's template creates (coins only, no pots or specials),
-then the three games above. A new Hold and Win project already has its own config: Game Maker
+then **Coin board only (no line game)** (the template with _Base game: Coin board only_, see
+_Coin board_), then the three games above. A new Hold and Win project already has its own config: Game Maker
 saves the plain Hold and Win with the Jackpots choice picked at **Create**, so the page opens on an
 authored doc, not the template. Pots and Collector are not offered at Create: add a coin overlay
 from the project's card, or reset to one of these presets here. To switch a plain game's jackpots
@@ -553,6 +616,8 @@ has, one row each:
   `basegame` and `freeSpins` (game type `freegame`). Their values show greyed as
   placeholders; type into a field to override just that field, clear it to go back. An
   edited row shows `built-in · edited` and a **Reset** button.
+- **The base game of a coin board** (chip `Coin board`) plays on the respin board; its
+  **Board** is locked, and the _Coin board_ section switches it back to the reels.
 - **Respin modes** (chip `Hold and Win · Bonus modes`) are listed here for their
   presentation fields only — label, HUD, music and the rest. They are added, renamed and
   removed in _Bonus modes_, so their **Board** is locked to the respin board and they

@@ -7,6 +7,7 @@
 		SPINS_MODE_ROUTE_KINDS,
 		spinsGamesRefusal,
 		type CoinOverlayStyle,
+		type HoldAndWinTemplateBase,
 		type HoldAndWinTemplateJackpots,
 		type ImportableFeature,
 		type PotsOverlayPresetId,
@@ -60,6 +61,8 @@
 	let gameType = $state(data.createKinds[0]?.id ?? 'lines');
 	/** The Hold and Win template's Jackpots choice: the plain game with or without them. */
 	let holdAndWinJackpots = $state<HoldAndWinTemplateJackpots>('on');
+	/** The Hold and Win template's Base game: a lines game, or the coin board only (jackpots on). */
+	let holdAndWinBase = $state<HoldAndWinTemplateBase>('lines');
 	/** A lines game's starting preset, or '' for the lines template. */
 	let linesPreset = $state('');
 	let creating = $state(false);
@@ -299,7 +302,7 @@
 	const createPresets = $derived(
 		data.createOverlayPresets[
 			gameType === 'holdAndWin'
-				? `holdAndWin:${holdAndWinJackpots}`
+				? `holdAndWin:${holdAndWinBase === 'coinBoard' ? 'coinBoard' : holdAndWinJackpots}`
 				: gameType === 'lines' && linesPreset
 					? `lines:${linesPreset}`
 					: gameType
@@ -731,8 +734,7 @@
 			// Licensing is surfaced ONCE, here — the moment a build goes out is when "who owns this
 			// audio" stops being paperwork, and the only moment everyone is looking.
 			const sounds = out?.sounds as
-				| { bound: number; missingLicence: string[]; nonCommercial: string[] }
-				| undefined;
+				{ bound: number; missingLicence: string[]; nonCommercial: string[] } | undefined;
 			if (sounds?.nonCommercial?.length) {
 				publishNote = {
 					...publishNote,
@@ -757,9 +759,7 @@
 						'Open Invisible Flow and save to give it the starter flow.',
 				};
 			}
-			const rigsMissing = out?.spinesMissing as
-				| { scene: string[]; symbols: string[] }
-				| undefined;
+			const rigsMissing = out?.spinesMissing as { scene: string[]; symbols: string[] } | undefined;
 			const strandedRigs = [
 				...new Set([...(rigsMissing?.scene ?? []), ...(rigsMissing?.symbols ?? [])]),
 			];
@@ -984,15 +984,27 @@
 					{/if}
 					{#if gameType === 'holdAndWin'}
 						<label>
-							Jackpots
+							Base game
 							<select
-								bind:value={holdAndWinJackpots}
-								title="Coins only, with or without the MINI–GRAND jackpots. Pots and Collector are coin overlay styles: add them on the card with ＋ Coin overlay…"
+								bind:value={holdAndWinBase}
+								title="Lines game: a line game whose coins start the Hold and Win. Coin board only: no line game — every spin deals coins on the board, and the coins on the paying lines trigger and pay."
 							>
-								<option value="on">On (MINI · MINOR · MAJOR · GRAND)</option>
-								<option value="off">Off</option>
+								<option value="lines">Lines game</option>
+								<option value="coinBoard">Coin board only</option>
 							</select>
 						</label>
+						{#if holdAndWinBase === 'lines'}
+							<label>
+								Jackpots
+								<select
+									bind:value={holdAndWinJackpots}
+									title="Coins only, with or without the MINI–GRAND jackpots. Pots and Collector are coin overlay styles: add them on the card with ＋ Coin overlay…"
+								>
+									<option value="on">On (MINI · MINOR · MAJOR · GRAND)</option>
+									<option value="off">Off</option>
+								</select>
+							</label>
+						{/if}
 					{/if}
 				</div>
 				<input type="hidden" name="key" value={key} />
@@ -1000,7 +1012,12 @@
 				<input type="hidden" name="clientKey" value={clientKey} />
 				<input type="hidden" name="gameType" value={gameType} />
 				{#if gameType === 'holdAndWin'}
-					<input type="hidden" name="holdAndWinJackpots" value={holdAndWinJackpots} />
+					<input
+						type="hidden"
+						name="holdAndWinJackpots"
+						value={holdAndWinBase === 'coinBoard' ? 'on' : holdAndWinJackpots}
+					/>
+					<input type="hidden" name="holdAndWinBase" value={holdAndWinBase} />
 				{/if}
 				{#if gameType === 'lines' && linesPreset}
 					<input type="hidden" name="linesPreset" value={linesPreset} />
@@ -1322,8 +1339,8 @@
 											<span class="stale-dot"></span>
 											<div class="stale-body">
 												<strong>Engine update available.</strong>
-												The shared engine runtime shipped after this game was last published, so the
-												running game may still be on the old engine. Republish to re-hydrate it.
+												The shared engine runtime shipped after this game was last published, so the running
+												game may still be on the old engine. Republish to re-hydrate it.
 											</div>
 											<button
 												class="stale-cta"

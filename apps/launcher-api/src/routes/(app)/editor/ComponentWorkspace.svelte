@@ -20,6 +20,7 @@
 		JACKPOT_TILE_DEF,
 		LETTER_TILE_DEF,
 		LETTERS_STRIP_DEF,
+		LINE_OVERLAY_DEF,
 		MAX_COMPONENT_DEPTH,
 		componentEvents,
 		componentInputs,
@@ -861,6 +862,7 @@
 		wheel: WHEEL_DEF,
 		respinCells: RESPIN_CELLS_DEF,
 		cellTile: CELL_TILE_DEF,
+		lineOverlay: LINE_OVERLAY_DEF,
 	} satisfies Record<string, ComponentDef>;
 	type CopyType = keyof typeof COPY_TYPES;
 	const isCopyType = (type: string): type is CopyType => type in COPY_TYPES;
@@ -2412,6 +2414,7 @@
 										<option value="wheel">Wheel (Hold and Win)</option>
 										<option value="respinCells">Respin Cell Tiles (Hold and Win)</option>
 										<option value="cellTile">Cell Tile (Hold and Win)</option>
+										<option value="lineOverlay">Line Overlay (Hold and Win coin board)</option>
 									{/if}
 								</select>
 								{#if newType === 'blank'}
@@ -2549,6 +2552,14 @@
 									cell's box; the board fits it to every cell. Show a node only while a coin holds
 									the cell with <strong>Bind to value</strong> on <strong>held</strong>. Pick it as
 									the Respin Cell Tiles' <strong>tile</strong>. Listed under <strong>UI</strong>.
+								</p>
+							{:else if newType === 'lineOverlay'}
+								<p class="muted small">
+									A project copy of the built-in <strong>Line Overlay</strong>: a coin board's
+									paying lines. Restyle them on the placement (<strong>lineWidth</strong>,
+									<strong>lineAlpha</strong>, <strong>lineColor</strong>, the tabs), or delete its
+									<strong>Lines</strong> part and draw them with your own nodes. Place it on the
+									<strong>Coin board</strong> screen. Listed under <strong>UI</strong>.
 								</p>
 							{/if}
 						</div>
@@ -2711,6 +2722,7 @@
 							projectKey={data.projectKey}
 							active={active && animating && animateTab === 'timeline'}
 							openRequest={timelineOpenRequest}
+							{rigMeta}
 						/>
 					</div>
 					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>

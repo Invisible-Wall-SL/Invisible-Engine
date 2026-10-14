@@ -96,6 +96,7 @@ report: [current-games.md](current-games.md). Its screen scripts are per game TY
 | [borut-pots-sample.md](borut-pots-sample.md) | Pots overlay (3 Pots preset) laid over a Book of Borut duplicate |
 | [hw-classic-sample.md](hw-classic-sample.md) | Hold and Win, Classic sticky preset (Grand) |
 | [hw-collector-sample.md](hw-collector-sample.md) | Hold and Win, Collector streak preset (Super Hotfire Diamonds) |
+| [hold-and-win-coin-board.md](hold-and-win-coin-board.md) | Hold and Win coin board (no line game): paying lines, the three pay rules, player-picked lines, local boot |
 | [bonus-games-7c.md](bonus-games-7c.md) | report: the samples and every bonus-games layer played in a browser (Phase 7c) |
 
 A playbook whose game and win model are decided by DIFFERENT sides (the mock's `WIN_MODEL` vs the

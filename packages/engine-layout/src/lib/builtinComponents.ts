@@ -2791,6 +2791,53 @@ export const LETTERS_STRIP_DEF: ComponentDef = {
 	standsFor: 'LettersStrip',
 };
 
+/** What a mounted Line Overlay counts in under, whatever its id, so the coded coin-board line
+ *  markers step aside (`docs/design/hold-and-win-coin-board.md` §1.4). */
+export const LINE_OVERLAY_MOUNT = 'lineOverlay';
+
+/**
+ * A coin board's paying lines (`docs/design/hold-and-win-coin-board.md` §1.4): each active payline
+ * as a path between its cells, and a numbered tab at each end of the board. Placed in the `respinBoard`
+ * scene; like the cell tiles, WHERE it sits does not matter — the coded `LineOverlayPart` counts the
+ * instance in as the Line Overlay and hands its look to the board, which draws the lines on its own
+ * cells, so the coded overlay steps aside for a copy of any id. Not placed ⇒ the coded overlay, the
+ * same look at the defaults below. Draws nothing on a game that is not a coin board.
+ *
+ * SKINNABLE (the Phase 12c pattern): the params restyle the lines (width, opacity, one colour for
+ * all; blank keeps each line's `paylineColors` colour) and the tabs (shown, size, number colour).
+ * It `standsFor` its part, so a copy whose author deleted the part to draw the lines with their own
+ * nodes still steps the coded overlay aside. The locked cells' colour is the Game Config's
+ * `inactiveOverlay`, drawn by the board, not this component.
+ */
+export const LINE_OVERLAY_DEF: ComponentDef = {
+	id: 'lineOverlay',
+	name: 'Line Overlay',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	capability: 'holdAndWin',
+	root: {
+		id: 'lineOverlay-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [codedPart('lineOverlay-lines', 'Lines', 'LineOverlayPart', 600, 360)],
+	},
+	params: [
+		{ key: 'lineWidth', kind: 'number', default: 4.2, label: 'line width (px)' },
+		{ key: 'lineAlpha', kind: 'number', default: 0.8, label: 'line opacity (0–1)' },
+		{
+			key: 'lineColor',
+			kind: 'color',
+			label: 'every line in one colour (blank = payline colours)',
+		},
+		{ key: 'showTabs', kind: 'boolean', default: true, label: 'numbered tab at each end' },
+		{ key: 'tabScale', kind: 'number', default: 1, label: 'tab size (1 = the coded size)' },
+		{ key: 'tabTextFill', kind: 'color', default: 0x111111, label: 'tab number colour' },
+	],
+	standsFor: 'LineOverlayPart',
+};
+
 /** What a mounted Wheel counts in under, whatever its id, so the coded wheel steps aside. */
 export const WHEEL_MOUNT = 'wheel';
 
@@ -2989,6 +3036,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 	RESPIN_CELLS_DEF,
 	CELL_TILE_DEF,
 	LOCKED_ROW_DEF,
+	LINE_OVERLAY_DEF,
 ];
 
 /** Every built-in component def — the launcher's lowest-precedence layer. */

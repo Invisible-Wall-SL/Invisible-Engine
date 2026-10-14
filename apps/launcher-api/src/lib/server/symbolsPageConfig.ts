@@ -76,6 +76,10 @@ export function symbolsPageConfig(
 			clears: reel.clearBoard,
 		},
 		holdAndWinRoles,
+		// A Hold and Win coin board (`docs/design/hold-and-win-coin-board.md`): no reels and no line
+		// wins, so the page hides the sections only those play (each comes back once authored). Absent
+		// on every other project, so their page data is unchanged.
+		...(doc?.coinBoard ? { coinBoard: true as const } : {}),
 		// Each pots overlay token → the pots it fills: a chip on its row head. Empty without the block.
 		tokenPots: overlayTokenPots(doc),
 		// The add-on blocks the config carries — passed with the kind to `kindCapabilities`, so a
