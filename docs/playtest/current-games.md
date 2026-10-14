@@ -132,14 +132,15 @@ and `lib/republish.mjs` (the TypeScript half, run under the TS loader).
 
 `scripts/current-games/screens/<gameType>.json` holds one file per game type: `lines`, `ways`,
 `cluster`, `scatter`, `bookOf` and `holdAndWin`. A custom kind uses its mock protocol's script,
-which is `lines`. Each file has 12–14 screens in scenarios. A scenario is data: the mock env it
-starts with (`SEED`, `FORCE_TRIGGER`, `WIN_X`) and a list of steps. The ops are listed at the top of
+which is `lines`. Each file has 15–17 screens in scenarios. A scenario is data: the mock env it
+starts with (`SEED`, `FORCE_TRIGGER`, `WIN_X`), optional extra page-URL `query` params (added only for a stand-in game, one the fixtures
+write with `standIn: true`, never for a live game), and a list of steps. The ops are listed at the top of
 `scripts/current-games/lib/play.mjs`:
 
 | Op | What it does |
 |---|---|
 | `waitFor` | Waits for a state the page reports: `screen`, `inSet`, `idle`, `loaded`, `playerIn` or `winLevel`. |
-| `until` | The same, checked by the harness, with `winAbove`, `winLevelIn` and `anyOf` as well. |
+| `until` | The same, checked by the harness, with `winAbove`, `winLevelIn`, `cue` (a Flow v2 cue the probe has recorded) and `anyOf` as well. |
 | `step` | Runs N frames. |
 | `space` | Taps Space for two frames. |
 | `tapToStart` | Taps Space only while a tap-to-start screen covers the board. |
@@ -167,6 +168,19 @@ Scenario rules:
 - **Free spins.** The probe's screen list does not change for free spins, so the free-spin screens
   are taken at fixed frame counts after the trigger spin. Those counts are the same frames on both
   sides.
+- **Cue-anchored screens.** `fs-transition` (the free-spin entry wipe) and `big-win-intro` (the Win
+  intro) are in `lines` and `bookOf`. Each steps one frame at a time until the probe records a Flow
+  v2 cue (`transition`, `winShow`), then captures at fixed offsets from it, so both sides capture
+  the same frame of the animation: `fs-transition` 60 frames after the cue (the wipe is on screen
+  12 to 96 frames after it), `bigwin-intro-12` and `bigwin-intro-48` 12 and 48 frames after the
+  `winShow` of the first base spin, which `WIN_X=10` makes pay at least 10x the stake.
+  A game on the coded flow records no cues, and the stand-in games carry no flow doc, so the
+  scenarios' `query` is `flowV2=lines` (the committed reference flow, as
+  `scripts/transition-parity/run.mjs` does). The query is added **only for a stand-in game**
+  (`standIn: true` in the games file `fixtures.mjs` writes): a live game's shipped flow is never
+  overridden, so a live game on Flow v2 fires the cue from its own flow doc and is captured at the
+  same anchor. A game that never fires the cue takes the `until`'s fallback: 900 frames after its
+  spin, the same frame on both sides, with no animation on show.
 
 A screen list is a pipeline-change artifact. Changing one is reviewed like code.
 

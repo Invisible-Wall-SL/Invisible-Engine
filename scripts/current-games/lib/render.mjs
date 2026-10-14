@@ -90,6 +90,7 @@ export async function renderUnit({
 			currency: 'USD',
 			device: 'desktop',
 			ie_determinism: seed,
+			...(game.standIn ? scenario.query : {}),
 		});
 		await page.navigate(`${server.origin}/${game.key}/?${params}`);
 		let ready = false;

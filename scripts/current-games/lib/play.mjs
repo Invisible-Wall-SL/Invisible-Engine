@@ -8,6 +8,7 @@
 //                                   loaded/playerIn/winLevel), stepped in-page with one draw
 //   until    { until, maxFrames, batch = 10, fallback }   step in `batch`-frame slices until a
 //                                   harness-side test holds — adds `winLevelIn: [..]`, `winAbove: n`,
+//                                   `cue: name` (a Flow v2 cue the probe has recorded),
 //                                   `anyOf: [..]`. `fallback: true` carries on at `maxFrames`
 //                                   instead of failing (a project whose win ladder has other
 //                                   aliases): still the same frame on both sides
@@ -35,7 +36,8 @@ const matches = (until, s) =>
 	(until.playerIn === undefined || s.playerIn === until.playerIn) &&
 	(until.winLevel === undefined || (s.winLevel ?? null) === until.winLevel) &&
 	(until.winLevelIn === undefined || until.winLevelIn.includes(s.winLevel)) &&
-	(until.winAbove === undefined || s.win > until.winAbove);
+	(until.winAbove === undefined || s.win > until.winAbove) &&
+	(until.cue === undefined || (s.cues ?? []).some((c) => c.cue === until.cue));
 
 /**
  * `page` is `openPage()`'s handle, `draw` the scenario's draw mode (`last` or the canary's

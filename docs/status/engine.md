@@ -314,8 +314,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   unknown-fields gate's authored-overlays case, the Hold and Win template gate (the new def pinned,
   `internal` defs offered to no kind), and **`pnpm check:transition-parity`**
   (`scripts/transition-parity/run.mjs`; its CI workflow,
-  `.github/workflows/transition-parity.yml`, is a workflow-only follow-up PR — the current-games
-  verdict counts every workflow file as harness — and advisory, not in the `main` ruleset: the built
+  `.github/workflows/transition-parity.yml`, runs it (PR #1193, a workflow-only PR because the
+  current-games verdict counts every workflow file as harness), path-filtered and advisory, not in the `main` ruleset: the built
   runtime on the harness's `cg-lines` snapshot, coded vs flagged doc, `?flowV2=lines`,
   `FORCE_TRIGGER=1`, one seed; two pairs — the reference overlays scene, and a variant with the
   Transition node moved into `hudCorners`, a canvas screen the flow mounts, which proves the swap

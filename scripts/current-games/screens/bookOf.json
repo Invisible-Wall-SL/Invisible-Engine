@@ -1,6 +1,6 @@
 {
 	"gameType": "bookOf",
-	"about": "Book-of games (expanding special in free spins, buy feature), dealt by the book mock (`scripts/mock-rgs-server-book.mjs`), with the pots overlay where the game has one. 12 screens, 14 with the pots overlay.",
+	"about": "Book-of games (expanding special in free spins, buy feature), dealt by the book mock (`scripts/mock-rgs-server-book.mjs`), with the pots overlay where the game has one. 15 screens, 17 with the pots overlay.",
 	"scenarios": [
 		{
 			"id": "base",
@@ -455,6 +455,136 @@
 				{
 					"op": "capture",
 					"screen": "pot-bonus"
+				}
+			]
+		},
+		{
+			"id": "fs-transition",
+			"about": "The free-spin entry wipe, mid-frame: the same forced trigger as free-spins, captured 60 frames after the probe records the `transition` cue (the wipe is on screen 12 to 96 frames after its cue). Anchored on the cue, one frame at a time, so both sides capture the same wipe frame. The scenario's query (flowV2=lines, the committed reference Flow v2 flow) is added only for the stand-in games (`standIn: true` in the games file the fixtures write), which carry no flow doc and so would record no cue; a live game keeps its own shipped flow, fires the cue from it and is captured at the same anchor, and a game on the coded flow, which records no cues, takes the fallback. A game that never fires the cue is captured at the fallback, 900 (plus 60) frames after its spin, the same frame on both sides, with no wipe.",
+			"env": {
+				"FORCE_TRIGGER": "1"
+			},
+			"query": {
+				"flowV2": "lines"
+			},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "until",
+					"until": {
+						"cue": "transition"
+					},
+					"maxFrames": 900,
+					"batch": 1,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 60
+				},
+				{
+					"op": "capture",
+					"screen": "fs-transition"
+				}
+			]
+		},
+		{
+			"id": "big-win-intro",
+			"about": "The Win intro, mid-frame: WIN_X=10 makes the first base spin pay at least 10x the stake; the capture is 12 frames (`bigwin-intro-12`) and 48 frames (`bigwin-intro-48`) after the probe records the `winShow` cue, with the tier rig's intro (1667 ms) on screen in both. Anchored on the cue, one frame at a time. The scenario's query (flowV2=lines, the committed reference Flow v2 flow) is added only for the stand-in games (`standIn: true` in the games file the fixtures write), which carry no flow doc and so would record no cue; a live game keeps its own shipped flow, fires the cue from it and is captured at the same anchor, and a game on the coded flow, which records no cues, takes the fallback. A game that never fires the cue is captured at the fallback, 900 frames after its spin, the same frame on both sides, with no wipe.",
+			"env": {
+				"WIN_X": "10"
+			},
+			"query": {
+				"flowV2": "lines"
+			},
+			"steps": [
+				{
+					"op": "waitFor",
+					"until": {
+						"loaded": true,
+						"idle": true
+					},
+					"maxFrames": 7200
+				},
+				{
+					"op": "tapToStart"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"playerIn": true,
+						"idle": true
+					}
+				},
+				{
+					"op": "step",
+					"frames": 30
+				},
+				{
+					"op": "space"
+				},
+				{
+					"op": "waitFor",
+					"until": {
+						"idle": false
+					},
+					"maxFrames": 600
+				},
+				{
+					"op": "until",
+					"until": {
+						"cue": "winShow"
+					},
+					"maxFrames": 900,
+					"batch": 1,
+					"fallback": true
+				},
+				{
+					"op": "step",
+					"frames": 12
+				},
+				{
+					"op": "capture",
+					"screen": "bigwin-intro-12"
+				},
+				{
+					"op": "step",
+					"frames": 36
+				},
+				{
+					"op": "capture",
+					"screen": "bigwin-intro-48"
 				}
 			]
 		}

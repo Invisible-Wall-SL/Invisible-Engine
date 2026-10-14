@@ -868,9 +868,9 @@ the general mechanism.
   itself is proven by the parity gate's coded side (the real game, headless), not by a mount here.
 - **Flag on: authored vs coded frames.** A root gate, `check:transition-parity`
   (`scripts/transition-parity/run.mjs`; its CI job is its own workflow file,
-  `.github/workflows/transition-parity.yml`, landed as a workflow-only follow-up PR because the
+  `.github/workflows/transition-parity.yml`, landed as PR #1193, a workflow-only PR because the
   current-games verdict counts every `.github/workflows/` file as harness and would refuse to vouch
-  for the runtime change beside it; the job is advisory, not in the `main` ruleset — the owner may
+  for the runtime change beside it; the job is path-filtered and advisory, not in the `main` ruleset — the owner may
   make it required): it
   boots the built `apps/lines` twice in the headless shell (`scripts/playtest/headless-shell.mjs`,
   `?ie_determinism=<seed>`, 1280×720, DPR 1, the book mock with `FORCE_TRIGGER=1`, `?flowV2=lines`),
