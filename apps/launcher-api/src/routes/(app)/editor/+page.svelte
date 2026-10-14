@@ -591,17 +591,6 @@
 		openComponents(node.componentId, activeScene?.name || activeScene?.id || null);
 	}
 
-	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
-	// layout saves (and a hop is allowed) without another edit.
-	let wasReadOnly = untrack(() => lease.readOnly);
-	$effect(() => {
-		const readOnly = lease.readOnly;
-		untrack(() => {
-			if (wasReadOnly && !readOnly && saveState.dirty && !crossTypeLoaded && !projectDrift)
-				saveState.rearmAutosave();
-			wasReadOnly = readOnly;
-		});
-	});
 	/** *Show in Flow* (Rive plan §6.2 step 4): Invisible Flow on the node naming this placement, or
 	 *  on its palette entry — always with this tab's project pinned, so the other tool opens on the
 	 *  project this one was loaded for (the 4a lesson), whatever the session has moved to. A plain
@@ -2156,6 +2145,19 @@
 			}
 			return { ok: true, etag: out.etag ?? null };
 		},
+	});
+
+	// An edit made while read-only armed no autosave; taking the lease over re-arms it, so the
+	// layout saves (and a hop is allowed) without another edit. Declared after `lease` and
+	// `saveState`: the initializer reads `lease` while the component script runs.
+	let wasReadOnly = untrack(() => lease.readOnly);
+	$effect(() => {
+		const readOnly = lease.readOnly;
+		untrack(() => {
+			if (wasReadOnly && !readOnly && saveState.dirty && !crossTypeLoaded && !projectDrift)
+				saveState.rearmAutosave();
+			wasReadOnly = readOnly;
+		});
 	});
 
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
