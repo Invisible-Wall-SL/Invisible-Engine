@@ -115,6 +115,11 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-15 — **Authored Win parity follow-up, launcher side** (#1194 follow-up). The status
+  rule now also holds a project back when a spins mode's tier caption carries a token, and the
+  launcher's tier builder reports each mode's own caption (`authoredWinTiers.ts`); the Win row's
+  hint says so. **The Win row stays locked** (`AUTHORED_WIN_LOCKED`): two escalating fade-outs
+  still differ in `check:win-parity` — see [engine status](engine.md) 2026-10-15.
 - 2026-10-14 — **A rig flipped with `scale.x = -1` inside a group or component previews mirrored,
   not upside down** (shared rig layer). Detail in [component editor status](component-editor.md),
   2026-10-14.
