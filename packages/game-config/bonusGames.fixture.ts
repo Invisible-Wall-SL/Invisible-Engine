@@ -33,6 +33,8 @@
  *  8. Phase 4: `play` (`auto` / `manual`) normalizes, splits and reads back losslessly, and a
  *     second mode's survives the primary's view; `respinModeRules` gives each respin mode its rules,
  *     strip, blank and play, and the lone default reads the primary view and the game-wide blank.
+ *  9. `potsStayFull` is stored only as `true` and only on an overlay with a pot or a meter, and
+ *     survives every rebuild of the overlay.
  */
 
 import { addPotsOverlay } from './src/addOns.ts';
@@ -46,6 +48,8 @@ import {
 	resolveBonusModes,
 	respinModeBlank,
 	respinModeRules,
+	setOverlayPots,
+	setPrimaryHoldAndWin,
 } from './src/bonusGames.ts';
 import { holdAndWinBlankSymbol, normalizeHoldAndWin } from './src/holdAndWin.ts';
 import { holdAndWinMockInputs } from './src/holdAndWinMock.ts';
@@ -890,6 +894,41 @@ console.log('\n8. respin mode rules + play');
 		respinModeRules(normalize(clone(BOOK_HOST))),
 		[],
 	);
+}
+
+console.log('\n9. pots stay full while their bonus plays');
+{
+	const on = clone(overlays.threePots);
+	on.coinOverlay!.potsStayFull = true;
+	check('stored when on, beside the pots', normalize(on).coinOverlay?.potsStayFull, true);
+	check(
+		'only `true` is stored',
+		[false, 'yes', 1, undefined].map((value) => {
+			const doc = clone(overlays.threePots) as GameConfigDoc & {
+				coinOverlay: Record<string, unknown>;
+			};
+			doc.coinOverlay.potsStayFull = value;
+			return 'potsStayFull' in (normalize(doc).coinOverlay ?? {});
+		}),
+		[false, false, false, false],
+	);
+	const coinsOnly = clone(presets.classic);
+	(coinsOnly.coinOverlay as Record<string, unknown>).potsStayFull = true;
+	check(
+		'dropped from an overlay with no pot or meter',
+		'potsStayFull' in (normalize(coinsOnly).coinOverlay ?? {}),
+		false,
+	);
+	const stored = normalize(on);
+	check(
+		'kept when the overlay is rebuilt (its pots re-set, its Hold and Win re-set)',
+		[
+			setOverlayPots(clone(stored), potsOverlayOf(stored)).coinOverlay?.potsStayFull,
+			setPrimaryHoldAndWin(clone(stored), primaryHoldAndWin(stored)!).coinOverlay?.potsStayFull,
+		],
+		[true, true],
+	);
+	check('normalize is a fixed point with it on', normalize(clone(stored)), stored);
 }
 
 console.log(failures === 0 ? '\nAll bonus-games assertions passed.\n' : `\n${failures} FAILED\n`);

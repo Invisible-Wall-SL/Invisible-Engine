@@ -62,9 +62,12 @@ const drainPots = beat('drainPots', 'freeSpinTrigger');
  * - `showTokens` — the dropped tokens land over their cells and settle (`overlayDrop`'s default);
  * - `liftTokens` — a pot's tokens leave their cells at once, without flying, for a fill presented
  *   another way (`fillMeter` flies each off as its own flight leaves);
- * - `drainPots` — the pots that started a free-spin or generic mode drain, as the coded entry does
- *   (Hold and Win's `showRespinBoard` drains its own). An owned entry whose chain has no `drainPots`
- *   still drains: the game plays the coded drain before the flow runs it.
+ * - `drainPots` — the pots that started the mode being entered drain, as the coded entry does: on
+ *   that mode's Mode trigger (enter) chain or on its entry event's chain (`freeSpinTrigger`,
+ *   `modeEnter`, `holdAndWinTrigger`). A pot drains once, so the entry's own beat that follows
+ *   (Hold and Win's `showRespinBoard`, the coded free-spin entry) plays none. An owned free-spin or
+ *   generic entry with no `drainPots` before it still drains: the game plays the coded drain before
+ *   the flow runs its chain.
  */
 const OVERLAY_ACTIONS: TemplateVocabulary['actions'] = [
 	beat('showTokens', 'overlayDrop'),
@@ -74,7 +77,7 @@ const OVERLAY_ACTIONS: TemplateVocabulary['actions'] = [
 		params: drainPots.params.map((param) => ({
 			...param,
 			description:
-				'The `freeSpinTrigger` or `modeEnter` event this beat presents: on either chain, set accessor $trigger with no field. Any other event is refused.',
+				'The mode entry whose pots drain: on a Mode trigger (enter) chain, or on a `freeSpinTrigger`, `modeEnter` or `holdAndWinTrigger` chain, set accessor $trigger with no field. Any other event is refused.',
 		})),
 	},
 ];

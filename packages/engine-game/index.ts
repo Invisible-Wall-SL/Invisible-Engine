@@ -78,6 +78,7 @@ export {
 export {
 	applyOverlayEvent,
 	boardDropCells,
+	consumedMeters,
 	drainedMeters,
 	drainMeters,
 	emptyOverlayState,
