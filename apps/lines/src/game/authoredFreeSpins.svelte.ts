@@ -6,6 +6,8 @@ import {
 	FREE_SPIN_OUTRO_HIDE_SIGNAL,
 	FREE_SPIN_OUTRO_SMALL_SIGNAL,
 	freeSpinPresentationDefs,
+	registerBoardBox,
+	type BoardBox,
 	type ComponentDef,
 	type SignalSource,
 	type ValueSource,
@@ -33,6 +35,14 @@ export function authoredFreeSpinDefs(boardColumns: number, lang: string): Compon
 		lang,
 	});
 	return [intro, outro];
+}
+
+/**
+ * The live board the presentations sit on (`ComponentDef.boardAnchored`) — the same `boardLayout()`
+ * the coded `FreeSpinAnimation` centred on, read live. The authored Win registers the same reader.
+ */
+export function registerAuthoredFreeSpinBoard(read: () => BoardBox | undefined): void {
+	registerBoardBox(read);
 }
 
 /** The intro count source — a text, as the coded `BitmapText` drew the raw number. */

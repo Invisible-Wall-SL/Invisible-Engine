@@ -308,6 +308,7 @@
 	import {
 		authoredFreeSpinDefs,
 		authoredFreeSpinSignals,
+		registerAuthoredFreeSpinBoard,
 		authoredFreeSpinValues,
 	} from '../game/authoredFreeSpins.svelte';
 	import { ContinuePressMask, PressToContinue } from 'engine-game';
@@ -2250,7 +2251,7 @@
 						}),
 					),
 				);
-				registerBoardBox(() => context.stateGameDerived.boardLayout());
+				registerAuthoredFreeSpinBoard(() => context.stateGameDerived.boardLayout());
 				registerComponents(
 					Object.fromEntries(
 						authoredFreeSpinDefs(boardDimensions().x, stateUrlDerived.lang()).map((def) => [
