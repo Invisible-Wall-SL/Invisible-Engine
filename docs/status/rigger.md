@@ -76,6 +76,12 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-15 — **Bound FX draw on their own side of the rig again.** Owner report: FX ignored their
+  draw-at-slot order and always drew under the rig, in the Rigger only. A clip with cues on both
+  sides creates the back and front overlays together, and the canvas lookup that set each one's
+  z-index took the wrong canvas, so both ended up under `#cv`. Each band now mounts into a host
+  element of its own that carries its z-index (`.fxBand`), so there is no lookup left to get wrong.
+  `view.html` only; no bundle rebuild.
 - 2026-10-13 — **The vendored bundles can no longer go stale silently.** The FX forces played
   everywhere but here because `static/rigger/vendor/rigger-fx.js` had not been rebuilt since #1108;
   `rigger-text.js` had drifted the same way (both were still on PixiJS ~8.8). Both are rebuilt, and

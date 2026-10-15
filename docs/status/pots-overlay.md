@@ -1000,6 +1000,15 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     game-config `bonusGames` fixture (new §9) pass; svelte-check at baseline for `apps/lines`,
     `apps/launcher-api` and `engine-game`.
 
+- 2026-10-15 — **A state can start each placement at its own point of its timeline** (branch
+  `claude/admiring-noether-ptegsa`). Firecrackers that light on the same token entered Lit on the
+  same frame, so every one moved in step. `SmState` gains `offsetParam` (seconds, read from the
+  placement's number param; wrapped on a loop, clamped otherwise) and `randomStart` (a random point
+  each entry); the runner starts the state there, on entry and on every re-entry, and the player
+  already starts a timeline at the time it is handed. State inspector: **Start offset** /
+  **Random start**. Saved through the normalizer and `componentFields`. Gate:
+  `check:component-state-machine` §9. Not eyeballed in a game.
+
 - 2026-10-15 — **A continuous rig effect a timeline started stops with its state** (branch
   `claude/admiring-noether-ptegsa`). The firecrackers' sparks are `continuous`, which by design
   ignores later beats and runs until the rig unmounts, so they kept going after a drained pot sent

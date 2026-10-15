@@ -62,6 +62,11 @@
 			"types": "./src/lib/rigBoneOffset.ts",
 			"svelte": "./src/lib/rigBoneOffset.ts",
 			"default": "./src/lib/rigBoneOffset.ts"
+		},
+		"./particleClock": {
+			"types": "./src/lib/particleClock.ts",
+			"svelte": "./src/lib/particleClock.ts",
+			"default": "./src/lib/particleClock.ts"
 		}
 	}
 }

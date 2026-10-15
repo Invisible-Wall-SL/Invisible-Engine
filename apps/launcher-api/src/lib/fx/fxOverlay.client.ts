@@ -34,10 +34,13 @@
 import { Emitter } from '@barvynkoa/particle-emitter';
 import {
 	bindArt,
+	createEffectLevelApplier,
+	bindEffectParams,
 	emitterDeltaSeconds,
 	normalizeEffectDoc,
 	planLayer,
 	type EffectDoc,
+	type EffectParamValues,
 	type EmitterLayer,
 } from 'engine-fx';
 import {
@@ -103,6 +106,11 @@ export interface FxPlayOptions {
 	 * that is a decision rather than a guess.
 	 */
 	continuous?: boolean;
+	/**
+	 * Values for the effect's exposed parameters, applied once when the burst is built. Absent ⇒ the
+	 * defaults, which the stored config already holds (only `effect.*` drives need applying then).
+	 */
+	params?: EffectParamValues;
 }
 
 /**
@@ -166,12 +174,15 @@ interface LiveEffect {
 	 * the parent's matrix is rewritten per frame. Mirrors `<RiggedEffect>`'s `fxLocal`, which nests
 	 * for the same reason — there, rig rewrites the parent instead. */
 	inner: Container;
+	/** Child of `inner` that the effect's `effect.*` drives move, when it has any — else `inner`. */
+	layers: Container;
 	emitters: Emitter[];
 	/** Live flipbook sprites (a clip play builds one; an effect play builds none). Advanced from the
 	 * overlay's own ticker rather than `autoUpdate`, so a clip and a burst are clocked by the SAME
 	 * tick — two clocks is how a preview drifts from what it previews. */
 	sprites: AnimatedSprite[];
-	/** Time-scale multiplier for this effect's emitters (the binding's `speed`). */
+	/** Time-scale multiplier for this effect's emitters (the binding's `speed`, times any
+	 * `effect.timeScale` drive). */
 	speed: number;
 	/** Pending emit-stop timers (the bounded-burst caps) — cleared on dispose. */
 	timers: ReturnType<typeof setTimeout>[];
@@ -393,9 +404,11 @@ export function createFxOverlay(): FxOverlayApi {
 	 * textures is SKIPPED (real art only — no placeholder dots in the preview). */
 	async function buildLayer(
 		effect: LiveEffect,
+		doc: EffectDoc,
 		layer: EmitterLayer,
 		plan: ReturnType<typeof planLayer>,
 		holdMs: number | null,
+		values: EffectParamValues | undefined,
 	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
 		if (effect.disposed || textures.length === 0) return;
@@ -413,8 +426,17 @@ export function createFxOverlay(): FxOverlayApi {
 		// container nested in the zoom-scaled effect container, so the offset tracks stage scale.
 		const layerContainer = new Container();
 		layerContainer.position.set(plan.offset?.x ?? 0, plan.offset?.y ?? 0);
-		effect.inner.addChild(layerContainer);
+		effect.layers.addChild(layerContainer);
 		const emitter = new Emitter(layerContainer, config);
+		if (values) {
+			bindEffectParams({
+				params: doc.params,
+				layer,
+				emitter,
+				setOffset: (x, y) => layerContainer.position.set(x, y),
+				values,
+			});
+		}
 		// Force-emit ALL layers from mount, ignoring layer.trigger — the keyframe IS the trigger, and
 		// `emitterLifetime` bounds the burst (the same `forceEmit` contract the rig-bound runtime uses).
 		emitter.emit = true;
@@ -453,6 +475,7 @@ export function createFxOverlay(): FxOverlayApi {
 		const effect: LiveEffect = {
 			container,
 			inner,
+			layers: inner,
 			emitters: [],
 			sprites: [],
 			timers: [],
@@ -470,12 +493,25 @@ export function createFxOverlay(): FxOverlayApi {
 			world.addChild(container);
 			const doc = await loadEffectDoc(effectId);
 			if (effect.disposed || !doc) return;
+			// `effect.*` drives move a wrapper around the layers — only when the doc has one. Their targets
+			// have no stored leaf, so they are applied even with no values (the defaults).
+			const fx = createEffectLevelApplier(doc.params);
+			if (fx) {
+				fx.apply(opts?.params);
+				const wrapper = new Container();
+				wrapper.alpha = fx.state.alpha;
+				wrapper.scale.set(fx.state.scale);
+				wrapper.tint = fx.state.tint;
+				inner.addChild(wrapper);
+				effect.layers = wrapper;
+				effect.speed *= fx.state.timeScale;
+			}
 			const build = async (): Promise<void> => {
 				for (const layer of doc.layers) {
 					const plan = planLayer(layer);
 					// Skip non-rendering layers + Tier-C rig-particle layers (no pooled rig host here).
 					if (!plan.render || plan.particleKind === 'spine') continue;
-					await buildLayer(effect, layer, plan, holdMs);
+					await buildLayer(effect, doc, layer, plan, holdMs, opts?.params);
 					if (effect.disposed) return;
 				}
 			};
@@ -520,6 +556,7 @@ export function createFxOverlay(): FxOverlayApi {
 		const effect: LiveEffect = {
 			container,
 			inner,
+			layers: inner,
 			emitters: [],
 			sprites: [],
 			timers: [],

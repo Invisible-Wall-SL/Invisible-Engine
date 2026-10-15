@@ -11,13 +11,29 @@
  *     (we deliberately do NOT reshape it), so it round-trips into `@barvynkoa/particle-
  *     emitter` untouched ([[feedback_validate_data_contracts_offline]]).
  *
+ * Exposed `params` are kept fail-closed — a malformed parameter or drive is dropped, a drive whose
+ * path parses but no longer resolves is KEPT (validation reports it; it is inert at runtime) — and
+ * every drive's value at its parameter's default is written into the configs
+ * (`applyEffectParamDefaults`), so the stored config is the effect at its defaults.
+ *
  * It is idempotent: re-normalizing a normalized doc yields an identical doc (the
  * save→reload fixed point the headless round-trip harness asserts).
  */
 
 import {
+	applyEffectParamDefaults,
+	EFFECT_PARAM_KINDS,
+	isHexColor,
+	isLayerTarget,
+	formatEffectParamPath,
+	parseEffectParamPath,
+} from './params';
+import {
 	EFFECT_DOC_VERSION,
 	type EffectDoc,
+	type EffectParam,
+	type EffectParamDrive,
+	type EffectParamKind,
 	type EmitterArt,
 	type EmitterLayer,
 	type EmitterPlacement,
@@ -137,6 +153,96 @@ const normalizeLayer = (raw: unknown): EmitterLayer | undefined => {
 	return layer;
 };
 
+/** A drive's `from` / `to`: a finite number or a `#rrggbb` colour (lower-cased). */
+const driveEnd = (v: unknown): number | string | undefined | null => {
+	if (v === undefined) return undefined;
+	if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+	return isHexColor(v) ? v.toLowerCase() : null;
+};
+
+const normalizeDrive = (raw: unknown, kind: EffectParamKind): EffectParamDrive | undefined => {
+	if (!isObject(raw)) return undefined;
+	const id = str(raw.id)?.trim();
+	const parsed = parseEffectParamPath(str(raw.path) ?? '');
+	if (!id || !parsed.ok) return undefined;
+	if (raw.layer !== undefined && (typeof raw.layer !== 'string' || raw.layer === ''))
+		return undefined;
+	const layer = raw.layer as string | undefined;
+	if (isLayerTarget(parsed.target) !== (layer !== undefined)) return undefined;
+	const from = driveEnd(raw.from);
+	const to = driveEnd(raw.to);
+	if (from === null || to === null) return undefined;
+	// Both or neither, of one type; a colour parameter only ever writes itself.
+	if ((from === undefined) !== (to === undefined)) return undefined;
+	if (from !== undefined && typeof from !== typeof to) return undefined;
+	if (kind === 'color' && from !== undefined) return undefined;
+	return {
+		id,
+		...(layer !== undefined ? { layer } : {}),
+		path: formatEffectParamPath(parsed.target),
+		...(from !== undefined && to !== undefined ? { from, to } : {}),
+	};
+};
+
+const normalizeParam = (raw: unknown): EffectParam | undefined => {
+	if (!isObject(raw)) return undefined;
+	const id = str(raw.id)?.trim();
+	const kind = EFFECT_PARAM_KINDS.find((k) => k === raw.kind);
+	if (!id || !kind) return undefined;
+	let def: EffectParam['default'];
+	let min: number | undefined;
+	let max: number | undefined;
+	if (kind === 'number') {
+		const n = num(raw.default);
+		if (n === undefined || !Number.isFinite(n)) return undefined;
+		min = num(raw.min);
+		max = num(raw.max);
+		if (min !== undefined && !Number.isFinite(min)) min = undefined;
+		if (max !== undefined && !Number.isFinite(max)) max = undefined;
+		if (min !== undefined && max !== undefined && min > max) [min, max] = [max, min];
+		def = Math.min(max ?? n, Math.max(min ?? n, n));
+	} else if (kind === 'bool') {
+		const b = bool(raw.default);
+		if (b === undefined) return undefined;
+		def = b;
+	} else {
+		if (!isHexColor(raw.default)) return undefined;
+		def = raw.default.toLowerCase();
+	}
+	const drives: EffectParamDrive[] = [];
+	const seen = new Set<string>();
+	for (const entry of Array.isArray(raw.drives) ? raw.drives : []) {
+		const drive = normalizeDrive(entry, kind);
+		if (!drive || seen.has(drive.id)) continue;
+		seen.add(drive.id);
+		drives.push(drive);
+	}
+	const note = str(raw.note);
+	return {
+		id,
+		kind,
+		default: def,
+		...(min !== undefined ? { min } : {}),
+		...(max !== undefined ? { max } : {}),
+		...(note ? { note } : {}),
+		drives,
+	};
+};
+
+/** Exposed parameters, fail-closed. An empty list reads as none, so the key is then omitted. */
+const normalizeParams = (raw: unknown): EffectParam[] | undefined => {
+	if (!Array.isArray(raw)) return undefined;
+	const out: EffectParam[] = [];
+	const ids = new Set<string>();
+	for (const entry of raw) {
+		const param = normalizeParam(entry);
+		if (!param || ids.has(param.id)) continue;
+		ids.add(param.id);
+		out.push(param);
+	}
+	return out.length ? out : undefined;
+};
+
 /**
  * Canonicalize an arbitrary value into a valid `EffectDoc`. An absent/garbage doc yields an
  * empty effect (no layers) under the supplied id/name — the parity-safe fall-through.
@@ -148,5 +254,9 @@ export const normalizeEffectDoc = (raw: unknown, fallbackId = 'effect'): EffectD
 	const layers = Array.isArray(obj.layers)
 		? obj.layers.map(normalizeLayer).filter((l): l is EmitterLayer => l !== undefined)
 		: [];
-	return { version: EFFECT_DOC_VERSION, id, name, layers };
+	const doc: EffectDoc = { version: EFFECT_DOC_VERSION, id, name, layers };
+	const params = normalizeParams(obj.params);
+	if (!params) return doc;
+	doc.params = params;
+	return applyEffectParamDefaults(doc);
 };

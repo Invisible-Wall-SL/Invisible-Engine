@@ -574,6 +574,16 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 				trigger: { on: 'event', eventType: 'win', duration: 1 },
 			},
 		],
+		params: [
+			{
+				id: 'heat',
+				kind: 'number',
+				default: 0,
+				min: 0,
+				max: 1,
+				drives: [{ id: 'd1', layer: 'main', path: 'placement.offset.y', from: 10, to: 40 }],
+			},
+		],
 	};
 	const extras = clone(base) as typeof base & Record<string, unknown>;
 	extras.preview = { background: '#000' };
@@ -581,10 +591,14 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 	Object.assign(extras.layers[0].art, { tint: '#fff' });
 	Object.assign(extras.layers[0].placement, { rotation: 45 });
 	Object.assign(extras.layers[0].trigger, { delayMs: 100 });
+	Object.assign(extras.params[0], { ease: 'sine' });
+	Object.assign(extras.params[0].drives[0], { label: 'Rise' });
 	ignores('8. effect doc', normalizeEffectDoc, base, extras, [
 		'"art":{"assetKey":"fx"',
 		'"placement":{"space":"free"',
 		'"trigger":{"on":"event"',
+		'"params":[{"id":"heat"',
+		'"drives":[{"id":"d1"',
 	]);
 
 	const meta = { camera: { x: 10, y: 20, scale: 1.5 }, selectedLayer: 'main' };

@@ -129,6 +129,43 @@ export interface EmitterLayer {
 	trigger?: EmitterTrigger;
 }
 
+/** The kind of value an exposed parameter holds. */
+export type EffectParamKind = 'number' | 'color' | 'bool';
+
+/** A parameter's value: a number, a `#rrggbb` colour or a boolean. */
+export type EffectParamValue = number | string | boolean;
+
+/**
+ * One thing an exposed parameter changes (`invisible-fx.md` §"Direction (2026-10-15)"). The path
+ * grammar, the mapping and the applier live in `params.ts`.
+ */
+export interface EffectParamDrive {
+	/** Unique within its parameter (the editor selects it). */
+	id: string;
+	/** An `EmitterLayer.key`; absent ⇒ an effect-level target (`effect.*`). */
+	layer?: string;
+	/** `emitter.<field>`, `behavior:<type>[#n].<dot.path>`, `placement.offset.x|y` or `effect.<field>`. */
+	path: string;
+	/** The target's value at the parameter's min (or at false). */
+	from?: number | string;
+	/** The target's value at its max (or at true). Both absent ⇒ the value is written as is. */
+	to?: number | string;
+}
+
+/** A named value the outside world sets on a placed effect; it drives one or more leaves. */
+export interface EffectParam {
+	/** The wire name (`intensity`, `heat`), unique in the effect. */
+	id: string;
+	kind: EffectParamKind;
+	/** The value the stored config is written at. A colour is `#rrggbb`. */
+	default: EffectParamValue;
+	/** Number only: the range sliders, bindings and drives use. Absent ⇒ 0..1 for a mapping. */
+	min?: number;
+	max?: number;
+	note?: string;
+	drives: EffectParamDrive[];
+}
+
 /** A named particle effect = a stack of emitter layers. The saved artifact of Invisible FX. */
 export interface EffectDoc {
 	/** Schema version (`EFFECT_DOC_VERSION`). */
@@ -139,4 +176,6 @@ export interface EffectDoc {
 	name: string;
 	/** The emitter stack. */
 	layers: EmitterLayer[];
+	/** Exposed parameters. Absent on an effect that exposes none (byte-identical to before). */
+	params?: EffectParam[];
 }

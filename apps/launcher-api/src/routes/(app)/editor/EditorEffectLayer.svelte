@@ -26,7 +26,18 @@
 	 * live emitter keeps its 2D chip (reported via `onReadyKeysChange`).
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
-	import { bindArt, planLayer, type EffectDoc, type EmitterLayer } from 'engine-fx';
+	import {
+		bindArt,
+		bindEffectParams,
+		createEffectLevelApplier,
+		planLayer,
+		type EffectDoc,
+		type EffectLevelApplier,
+		type EffectLevelState,
+		type EffectParamApplier,
+		type EffectParamValues,
+		type EmitterLayer,
+	} from 'engine-fx';
 	import {
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
@@ -86,6 +97,9 @@
 		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
 		 * NODE id, idempotent (only re-emitted when a box meaningfully grows). */
 		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
+		/** The live values of a placed effect's exposed parameters, by NODE id, read on the ticker.
+		 * Absent ⇒ every effect draws its defaults (already in its stored config). */
+		effectParamValues?: (nodeId: string) => EffectParamValues | undefined;
 	}
 
 	let {
@@ -105,6 +119,7 @@
 		worldTransformOf,
 		onReadyKeysChange,
 		onBoundsChange,
+		effectParamValues,
 	}: Props = $props();
 
 	let host: HTMLDivElement | null = $state(null);
@@ -127,11 +142,17 @@
 	 * per FREE layer, each in a child container at that layer's offset. Rebuilt when the node's
 	 * effectId / doc / transform changes; disposed on removal. */
 	interface LiveNode {
+		/** The placed node's id — what `effectParamValues` is asked for. */
+		nodeId: string;
 		effectId: string;
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
 		placed: EffectTarget['world'];
 		container: Container;
 		emitters: Emitter[];
+		/** The `effect.*` drives and the wrapper they move, when the doc has any. */
+		fx?: { applier: EffectLevelApplier; wrapper: Container };
+		/** One applier per driven layer, only when live values are supplied. */
+		appliers: EffectParamApplier[];
 		/** True once at least one free layer resolved a visible emitter (art OR placeholder) — drives
 		 * the ready report so the 2D chip is only dropped when something actually renders. */
 		live: boolean;
@@ -398,6 +419,16 @@
 			// a node id that no longer renders (its accumulator was reset with the fresh LiveNode).
 			publishBounds();
 		}
+
+		// Outline order IS draw order, as in the game's one scene graph. A node's container is only
+		// ADDED when it is built (on top), and a kept node is only repositioned, so a reorder, a
+		// hide → show or an effect swap left the stack in build order. Re-append in target order
+		// (tree order) every rebuild; `addChild` moves an existing child to the end. Same fix as
+		// `FxStage`'s layer restack.
+		for (const tg of targets) {
+			const live = liveNodes.get(tg.nodeId);
+			if (live && live.container.parent === world) world.addChild(live.container);
+		}
 	}
 
 	/** Build one placed effect node: fetch its doc, then one `Emitter` per FREE layer (bone layers are
@@ -413,10 +444,12 @@
 		world.addChild(container);
 
 		const node: LiveNode = {
+			nodeId: tg.nodeId,
 			effectId: tg.effectId,
 			placed: tg.world,
 			container,
 			emitters: [],
+			appliers: [],
 			live: false,
 			bounds: null,
 		};
@@ -429,11 +462,22 @@
 			return;
 		}
 
+		// `effect.*` drives move a wrapper around the layers — mounted only when the doc has one. Their
+		// targets have no stored leaf, so the defaults are written here even with no live values.
+		const fx = createEffectLevelApplier(doc.params);
+		if (fx) {
+			const wrapper = new Container();
+			container.addChild(wrapper);
+			node.fx = { applier: fx, wrapper };
+			fx.apply(effectParamValues?.(tg.nodeId));
+			writeEffectLevel(wrapper, fx.state);
+		}
+
 		for (const layer of doc.layers) {
 			// v1: skip bone-placed layers — they need a live `<RigProvider>` host the scene overlay
 			// doesn't have (the runtime mounts those on their host rig). A free layer spawns here.
 			if (layer.placement.space === 'bone') continue;
-			await buildLayer(node, layer, gen);
+			await buildLayer(node, layer, gen, doc);
 			if (gen !== rebuildGen) return;
 		}
 
@@ -445,7 +489,12 @@
 	 * inside a child container at the layer's offset — the game's `<EffectLayer>` free-mount shape.
 	 * A layer that resolves 0 textures is SKIPPED (the editor overlay renders real art only — the `/fx`
 	 * tool's placeholder dots are an authoring aid there, not wanted littering the scene preview). */
-	async function buildLayer(node: LiveNode, layer: EmitterLayer, gen: number): Promise<void> {
+	async function buildLayer(
+		node: LiveNode,
+		layer: EmitterLayer,
+		gen: number,
+		doc: EffectDoc,
+	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
 		if (gen !== rebuildGen) return;
 		if (textures.length === 0) return; // no art → skip (no placeholder dots in the scene)
@@ -461,10 +510,27 @@
 		const { offset } = planLayer(layer);
 		const layerContainer = new Container();
 		layerContainer.position.set(offset.x, offset.y);
-		node.container.addChild(layerContainer);
+		(node.fx?.wrapper ?? node.container).addChild(layerContainer);
 		const emitter = new Emitter(layerContainer, config);
+		const applier = effectParamValues
+			? bindEffectParams({
+					params: doc.params,
+					layer,
+					emitter,
+					setOffset: (x, y) => layerContainer.position.set(x, y),
+					values: effectParamValues(node.nodeId),
+				})
+			: undefined;
+		if (applier) node.appliers.push(applier);
 		emitter.emit = playing;
 		node.emitters.push(emitter);
+	}
+
+	/** Write the effect-level state onto its wrapper. */
+	function writeEffectLevel(wrapper: Container, state: Readonly<EffectLevelState>): void {
+		wrapper.alpha = state.alpha;
+		wrapper.scale.set(state.scale);
+		wrapper.tint = state.tint;
 	}
 
 	// ---- ready reporting (chip suppression) -------------------------------------------------------
@@ -603,9 +669,18 @@
 				if (!playing) return;
 				const dt = ticker.deltaMS / 1000;
 				for (const node of liveNodes.values()) {
+					let nodeDt = dt;
+					if (effectParamValues && (node.fx || node.appliers.length)) {
+						const values = effectParamValues(node.nodeId);
+						if (node.fx?.applier.apply(values)) {
+							writeEffectLevel(node.fx.wrapper, node.fx.applier.state);
+						}
+						for (const applier of node.appliers) applier.apply(values);
+					}
+					if (node.fx) nodeDt *= node.fx.applier.state.timeScale;
 					for (const emitter of node.emitters) {
 						try {
-							emitter.update(dt);
+							emitter.update(nodeDt);
 						} catch (err) {
 							// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can make
 							// the library throw mid-update. Isolate it so one bad emitter doesn't throw out of the
