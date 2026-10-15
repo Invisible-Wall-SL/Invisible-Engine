@@ -1,4 +1,8 @@
+import type { EffectParam, EffectParamValues } from 'engine-fx';
 import {
+	bindsFxParam,
+	boundFxParamValues,
+	drivableFxParam,
 	evaluateBinding,
 	foldBoundTransform,
 	resolveTransform,
@@ -27,7 +31,9 @@ import type { TimelineNodeDrive } from '$lib/timeline/screenTimeline';
  * The TIMELINE PREVIEW (Animate mode, Rive plan Phase 3) rides the same seam: the playhead's
  * sampled node-actor channels join a node's own bindings exactly as `<LayoutNodeView>` joins them
  * in game (`withNodeActorOutputs` + `foldBoundTransform`), so the stage shows what the game plays.
- * Null outside Animate mode ⇒ every node draws as before.
+ * Null outside Animate mode ⇒ every node draws as before. A placed effect's parameters (Invisible
+ * FX Step 2) come out of the same fold ({@link previewEffectParamValues}), so a test value or a
+ * scrubbed `fx:` channel moves the live particles on the stage.
  */
 const inputs: Record<string, number> = {};
 let drives: Map<string, TimelineNodeDrive> | null = null;
@@ -97,17 +103,40 @@ export function previewAnimTime(node: LayoutNode): { animation: string; time: nu
 }
 
 /** Each binding's preview output for `node` (`undefined` where nothing is being previewed), in
- *  {@link previewBindings} order. */
-export function previewOutputs(node: LayoutNode, frameCount?: number): (number | undefined)[] {
+ *  {@link previewBindings} order. `fxParams` is a placed effect's parameters, which an `fxParam`
+ *  binding maps onto. */
+export function previewOutputs(
+	node: LayoutNode,
+	frameCount?: number,
+	fxParams?: readonly EffectParam[],
+): (number | undefined)[] {
 	const bindings = node.valueBindings;
 	const own = (bindings ?? []).map((binding, i) => {
 		const input = inputs[keyOf(node.id, i)];
-		return input === undefined ? undefined : evaluateBinding(binding, input, frameCount);
+		if (input === undefined) return undefined;
+		const fxParam =
+			binding.target === 'fxParam' ? drivableFxParam(fxParams, binding.fxParam) : undefined;
+		return evaluateBinding(binding, input, frameCount, fxParam);
 	});
 	const drive = drives?.get(node.id);
 	return drive?.bindings.length
 		? withNodeActorOutputs(bindings, own, drive.bindings, drive.sample)
 		: own;
+}
+
+/**
+ * The parameter values the preview sets on a placed effect (`params`: its declared parameters) —
+ * its own bindings' test values, then the previewed timeline's `fx:` channels, through the game's
+ * fold (`boundFxParamValues`). `undefined` when nothing drives one: the effect draws its defaults.
+ */
+export function previewEffectParamValues(
+	node: LayoutNode,
+	params: readonly EffectParam[] | undefined,
+): EffectParamValues | undefined {
+	if (node.kind !== 'effect' || !params?.length) return undefined;
+	const bindings = previewBindings(node);
+	if (!bindsFxParam(bindings)) return undefined;
+	return boundFxParamValues(bindings, previewOutputs(node, undefined, params), params);
 }
 
 /** `resolveTransform` with the previewed transform targets folded on — for the draw paths. */

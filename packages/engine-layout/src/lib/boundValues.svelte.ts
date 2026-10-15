@@ -1,10 +1,13 @@
 import { untrack } from 'svelte';
+import type { EffectParam } from 'engine-fx';
 
+import { drivableFxParam } from './fxNodeParams';
 import { getComponentValueSource } from './registerComponentValues';
 import type { ValueBinding } from './types';
 import {
 	bindingInput,
 	evaluateBinding,
+	isSwitchBinding,
 	resolveBindingInputs,
 	smoothedValue,
 	type BindingInputRef,
@@ -23,13 +26,21 @@ const NONE: BoundValues = { outputs: [] };
  * A source the game never registered leaves its binding without a value — the node renders as
  * authored. A binding with `smooth` glides to each new output over that many seconds on a frame
  * clock; everything else snaps. No bindings ⇒ one shared empty result, no effect, no subscription.
+ * `fxParams` is a placed effect's declared parameters, which an `fxParam` binding maps onto (its
+ * range, and a bool one switching like `visible`); absent on every other node.
  */
 export function createBoundValues(
 	bindings: readonly ValueBinding[] | undefined,
 	params: () => Record<string, unknown>,
 	frameCount: () => number | undefined,
+	fxParams?: readonly EffectParam[],
 ): BoundValues {
 	if (!bindings?.length) return NONE;
+	const fxShapes = fxParams
+		? bindings.map((binding) =>
+				binding.target === 'fxParam' ? drivableFxParam(fxParams, binding.fxParam) : undefined,
+			)
+		: undefined;
 
 	const inputs = $derived(bindings.map((binding) => resolveBindingInputs(binding, params())));
 	// The engine sources to subscribe, as one string so a re-resolve that names the same sources
@@ -71,12 +82,16 @@ export function createBoundValues(
 				input.of ? read(input.of, current) : undefined,
 				!!input.of,
 			);
-			return value === undefined ? undefined : evaluateBinding(bindings[i], value, frameCount());
+			return value === undefined
+				? undefined
+				: evaluateBinding(bindings[i], value, frameCount(), fxShapes?.[i]);
 		}),
 	);
 
-	const smooths = bindings.map((binding) =>
-		binding.target !== 'visible' && binding.smooth && binding.smooth > 0 ? binding.smooth : 0,
+	const smooths = bindings.map((binding, i) =>
+		!isSwitchBinding(binding, fxShapes?.[i]) && binding.smooth && binding.smooth > 0
+			? binding.smooth
+			: 0,
 	);
 	if (!smooths.some((s) => s > 0)) {
 		return {

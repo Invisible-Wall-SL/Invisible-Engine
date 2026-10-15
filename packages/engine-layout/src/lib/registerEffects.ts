@@ -4,10 +4,12 @@ import type { EffectPlayerProps } from 'pixi-svelte';
  * Invisible FX effect registry — the render-time lookup that resolves an authored effect for a
  * placed `effect` node (`EffectNode.effectId`). Mirrors {@link registerComponents}: the game
  * supplies the baked effects ONCE at boot (from `bakedEffects()`), and `LayoutNodeView` resolves an
- * `effectId` → doc here to mount an `<EffectPlayer>`.
+ * `effectId` → doc here to mount an `<EffectPlayer>`. The parameters a node drives (Invisible FX
+ * Step 2) are read off the same doc; the Scene Editor registers the effects it loads, so its lists
+ * and previews resolve them exactly as the game does.
  *
- * The `EffectDoc` type is taken from `<EffectPlayer>`'s own props (`pixi-svelte`, already a dep) so
- * this package needs no direct `engine-fx` dependency just for a type.
+ * The `EffectDoc` type is taken from `<EffectPlayer>`'s own props, so it is the doc the player
+ * consumes by construction.
  *
  * Module-scoped, exactly like `registerComponents` — in a pnpm workspace each game bundles its own
  * copy of this package, so the top-level `Map` never leaks across games.

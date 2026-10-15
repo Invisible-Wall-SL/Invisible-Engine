@@ -17,7 +17,7 @@ export interface TimelineEvaluator {
 		visibilityTracks: unknown[] | undefined,
 		t: number,
 	): boolean;
-	putKey(keys: unknown[], time: number, value: number): void;
+	putKey(keys: unknown[], time: number, value: number, ease?: string): void;
 }
 
 export interface TimelineClip {
@@ -47,6 +47,9 @@ export interface TimelineHost {
 	setDepth?(inFront: boolean): void;
 	/** The row label for an actor. Default: the actor id. */
 	actorLabel?(cast: CinematicCast): { text: string; title: string };
+	/** Rows an actor has beyond the shared `channels` (the editor: a placed effect's `fx:<id>`
+	 *  parameters). Default: none. */
+	actorChannels?(cast: CinematicCast): TimelineChannel[];
 	/** An actor's clips — the strip inspector's picker; the first is what ＋ strip adds. */
 	clips?(actorId: string): TimelineClip[];
 	/** A bound Scene's display name. */
@@ -138,7 +141,13 @@ export interface Timeline {
 
 	deleteStrip(stripId: string): void;
 	duplicateStrip(stripId: string): void;
-	keyProperty(actorId: string, channel: string, value: number | null): void;
+	/** `ease`: a NEW key's outgoing interpolation (an existing key keeps its own). Default linear. */
+	keyProperty(
+		actorId: string,
+		channel: string,
+		value: number | null,
+		ease?: 'linear' | 'ease' | 'hold',
+	): void;
 	keyVisibility(actorId: string, visible: boolean): void;
 }
 

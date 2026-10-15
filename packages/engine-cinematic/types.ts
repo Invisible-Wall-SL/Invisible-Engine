@@ -89,6 +89,12 @@ export type CinematicNodeChannel =
 	'x' | 'y' | 'scale' | 'scaleX' | 'scaleY' | 'rotation' | 'alpha' | 'tint' | 'frame' | 'fill';
 
 /**
+ * A channel keying one exposed parameter of an EFFECT node (Invisible FX Step 2): `fx:<param id>`.
+ * Absolute, unlike the channels above — the keyed value is the parameter's value (a bool keyed 0 / 1).
+ */
+export type CinematicFxParamChannel = `fx:${string}`;
+
+/**
  * One key of a `text` track (Rive plan §8). `countUp` keys carry a `value` (eased like any
  * channel); `switchKey` keys carry a `key`, stepped, naming one of the text node's own strings
  * (its `text` or one of its `switchKeys`). A timeline never carries free text.
@@ -119,6 +125,8 @@ export interface CinematicNodeSample {
 	 * time to the clip's length, so a strip longer than its clip holds the last frame.
 	 */
 	animTime?: { animation: string; time: number };
+	/** An effect node's keyed parameters, each under its channel name (`fx:intensity`). */
+	[fxParam: CinematicFxParamChannel]: number | undefined;
 }
 
 export interface CinematicTrack {
