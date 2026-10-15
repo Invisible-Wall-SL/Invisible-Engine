@@ -47,6 +47,7 @@ import {
 	TUMBLE_PATTERN_LABELS,
 	type AuthoredTransitionStatus,
 	type AuthoredWinStatus,
+	type AuthoredFreeSpinsStatus,
 } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
@@ -81,7 +82,12 @@ export interface GameProfileSignals {
 	 * `editor/scenes.json` (plus, for the Win, the config's tiers and the Win Text captions);
 	 * `null` when the project has no doc yet.
 	 */
-	layout?: { authoredTransition: AuthoredTransitionStatus; authoredWin: AuthoredWinStatus } | null;
+	layout?: {
+		authoredTransition: AuthoredTransitionStatus;
+		authoredWin: AuthoredWinStatus;
+		/** Rive plan Phase 8c `authoredFreeSpinsStatus`; absent ⇒ off. */
+		authoredFreeSpins?: AuthoredFreeSpinsStatus;
+	} | null;
 }
 
 /** One chip. `text` is self-describing (units baked in); `title` is the hover explanation. */
@@ -602,6 +608,30 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 			ctx.layout?.authoredWin === 'tier-presentation-unsupported'
 				? 'Authored Win on, held back: the tiers use more than one rig or count slot'
 				: null,
+	},
+	{
+		id: 'authoredFreeSpins',
+		title:
+			'The free-spin intro and outro visuals (the frame rig, the count rig and number, the localized captions, the fade) play from the built-in free-spin presentation components and their timelines instead of the coded FreeSpinIntroVisual / FreeSpinOutroVisual; the coded outro driver keeps the count-up and the round hold, the screens keep their taps (Rive plan Phase 8c pilot).',
+		text: (ctx) =>
+			ctx.layout?.authoredFreeSpins === 'ready' ? 'Authored free spins (pilot)' : null,
+	},
+	{
+		id: 'authoredFreeSpinsHeld',
+		title:
+			'The authored free-spin intro / outro is on, but the game keeps the coded visuals for both screens: no screen binds a coded free-spin visual, one sits in a screen that is not canvas space, a screen places a free-spin visual instance, or a visual names a rig, clip or slot other than the coded default. Fix the named case or turn the pilot off.',
+		tone: 'warn',
+		text: (ctx) => {
+			const status = ctx.layout?.authoredFreeSpins;
+			if (!status || status === 'off' || status === 'ready') return null;
+			const why: Record<Exclude<AuthoredFreeSpinsStatus, 'off' | 'ready'>, string> = {
+				'nothing-to-replace': 'nothing to replace',
+				'non-canvas-scene': 'a free-spin visual sits outside canvas space',
+				'placed-visual': 'a screen places a free-spin visual instance',
+				'custom-presentation': 'a free-spin visual names a custom rig, clip or slot',
+			};
+			return `Authored free spins on, held back: ${why[status]}`;
+		},
 	},
 	{
 		id: 'boardGlow',

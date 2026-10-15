@@ -7,6 +7,8 @@ import {
 
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
 import { BUILTIN_TIMELINES } from './builtinTimelines';
+import { fxParamOfChannel, fxParamRest } from './fxNodeParams';
+import { resolveEffect } from './registerEffects';
 import { blendNodeSamples, type LayerPlay, type LeftSegment } from './stateMachine';
 import type { CinematicDoc, ComponentStateMachine, LayoutNode } from './types';
 
@@ -186,6 +188,9 @@ export class ComponentTimelinePlayer {
 	private readonly boundById = new Map<string, Bound>();
 	private readonly running = new Map<string, Running>();
 	private readonly driven = new Map<string, Running>();
+	/** Effect nodes some timeline keys an `fx:` channel on → where each such channel rests (its
+	 *  parameter's default, read from the game's effect registry when a blend asks). */
+	private readonly fxRests = new Map<string, (channel: string) => number | undefined>();
 	private started = 0;
 	/**
 	 * The speed every running `playOn` timeline advances at (Rive plan Phase 8b): `advance(dt)`
@@ -194,8 +199,6 @@ export class ComponentTimelinePlayer {
 	 * game's `componentPlayRate` each tick. 1 ⇒ exactly the step handed in (parity).
 	 */
 	playRate = 1;
-	/** Snap a playhead to its end within a microsecond (a `frameExact` def only, Phase 8b). */
-	snapEnds = false;
 
 	constructor(docs: readonly CinematicDoc[], nodes: LayoutNode[]) {
 		const scene = { id: '', name: '', nodes };
@@ -203,8 +206,12 @@ export class ComponentTimelinePlayer {
 			const actors = new Map<string, CinematicTrack[]>();
 			const channels = new Map<string, Set<NodeActorChannel>>();
 			for (const [nodeId, actor] of resolveNodeActors(doc, scene)) {
+				const keyed = keyedNodeChannels(actor.tracks);
 				actors.set(nodeId, actor.tracks as unknown as CinematicTrack[]);
-				channels.set(nodeId, keyedNodeChannels(actor.tracks));
+				channels.set(nodeId, keyed);
+				const node = actor.node;
+				if (node.kind === 'effect' && [...keyed].some((c) => fxParamOfChannel(c) !== undefined))
+					this.fxRests.set(nodeId, (c) => fxParamRest(resolveEffect(node.effectId)?.params, c));
 			}
 			const cue = doc.tracks.find((t) => t.kind === 'cue') as
 				{ keys?: { time: number; cue: string }[] } | undefined;
@@ -289,13 +296,7 @@ export class ComponentTimelinePlayer {
 			if (r.done) continue;
 			const duration = Math.max(r.bound.doc.duration || 0, 0);
 			const prev = r.time;
-			// Frame deltas accumulate float error: 802 steps of 1/60 fall 1e-15 short of 13.3667, and
-			// a strip that ends on the frame after would hold its awaited cue a frame late (the win
-			// walk's tier boundary). A `frameExact` def snaps to the end within a microsecond, as the
-			// state-machine runner does; every other timeline ends exactly as before.
-			const stepped = prev + dt;
-			const next =
-				this.snapEnds && duration - stepped < 1e-6 ? duration : Math.min(stepped, duration);
+			const next = Math.min(prev + dt, duration);
 			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
 				step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
 			}
@@ -381,7 +382,12 @@ export class ComponentTimelinePlayer {
 		const tracks = r.bound.actors.get(nodeId);
 		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
 		if (!r.from) return to;
-		return blendNodeSamples(r.from.snapshot.get(nodeId), to, r.from.progress);
+		return blendNodeSamples(
+			r.from.snapshot.get(nodeId),
+			to,
+			r.from.progress,
+			this.fxRests.get(nodeId),
+		);
 	}
 
 	sample(nodeId: string): CinematicNodeSample | undefined {

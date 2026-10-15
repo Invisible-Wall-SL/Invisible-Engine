@@ -534,7 +534,7 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 	};
 	const generated = B.winTierTimelines(tiers, clipMs);
 	eq(
-		'the generated list: rest, plain, hide, then walk + loop (+ outro only for a tier with an exit)',
+		'the generated list: rest, plain, hide, then walk + rewind + idle + loop (+ outro only for a tier with an exit)',
 		generated.map((d) => d.id),
 		[
 			'c_winpresentation_rest',
@@ -543,9 +543,13 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 			'c_winpresentation_fade_shown',
 			'c_winpresentation_hide',
 			'c_winpresentation_big_walk',
+			'c_winpresentation_big_rewind',
+			'c_winpresentation_big_idle',
 			'c_winpresentation_big_loop',
 			'c_winpresentation_big_outro',
 			'c_winpresentation_mega_walk',
+			'c_winpresentation_mega_rewind',
+			'c_winpresentation_mega_idle',
 			'c_winpresentation_mega_loop',
 		],
 	);
@@ -567,10 +571,17 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 		[],
 	);
 	const walk = generated.find((d) => d.id === 'c_winpresentation_big_walk')!;
+	const idleCycle = generated.find((d) => d.id === 'c_winpresentation_big_idle')!;
 	eq(
-		'a walk holds its cue for intro + one idle, in seconds off the measured clips',
-		[walk.holdsCue, walk.playOn, Math.round(walk.duration * 1000)],
-		[true, 'winTier.big', 13333],
+		'a walk holds its cue for the intro, an idle cycle for one idle — each off its measured clip',
+		[
+			[walk.holdsCue, walk.playOn, Math.round(walk.duration * 1000)],
+			[idleCycle.holdsCue, idleCycle.playOn, Math.round(idleCycle.duration * 1000)],
+		],
+		[
+			[true, 'winTier.big', 1333],
+			[true, 'winTierIdle.big', 12000],
+		],
 	);
 	eq(
 		'an outro holds for the exit; a loop and the plain number hold nothing',
@@ -601,46 +612,68 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 	const p = new L.ComponentTimelinePlayer([walk], def.root.children);
 	p.trigger('winTier.big');
 	p.playRate = 2;
-	p.advance(1);
-	eq('a play rate of 2 advances twice the step', p.timeOf(walk.id), 2);
+	p.advance(0.25);
+	eq('a play rate of 2 advances twice the step', p.timeOf(walk.id), 0.5);
 	{
-		// A 1.3667 s intro is 82.002 frames: the coded track completes it on frame 83 and starts the
-		// idle at 0 there, so the walk is 83 + 720 = 803 frames; the player must report its end on
-		// frame 803 exactly (803 steps of 1/60 sum a hair under 803/60 — the float snap), as the
-		// coded idle completes there. A 1.3333 s intro (80 frames) walks 800.
+		// ONE CLIP PER TIMELINE ends on the rig's own clock: the coded track completes a clip when the
+		// frame deltas summed since THAT clip started reach its length (no rounding, no snap), and the
+		// next clip starts at 0 from that `complete`. Driven with the deltas the determinism clock
+		// hands the ticker (`now += 1000 / 60`, so a delta is not always exactly 1/60 s): every clip
+		// timeline ends on the frame the same sum crosses its length — the whole-frame 12 s idle
+		// included, whose 720 deltas can sum a hair under 12 s and complete on frame 721.
+		const deltas = (base: number, n: number): number[] => {
+			const out: number[] = [];
+			let now = base;
+			for (let i = 0; i < n; i++) {
+				const next = now + 1000 / 60;
+				out.push((next - now) / 1000);
+				now = next;
+			}
+			return out;
+		};
+		const rigFrame = (ds: number[], length: number): number => {
+			let t = 0;
+			for (let i = 0; i < ds.length; i++)
+				if ((t = Math.min(t + ds[i], length)) >= length) return i + 1;
+			return 0;
+		};
+		const timelineFrame = (doc: CinematicDoc, signal: string, ds: number[]): number => {
+			const q = new L.ComponentTimelinePlayer([doc], def.root.children);
+			q.trigger(signal);
+			for (let i = 0; i < ds.length; i++)
+				if (q.advance(ds[i]).completed.includes(doc.id)) return i + 1;
+			return 0;
+		};
 		const superwin = B.winTierTimelines(
 			[{ alias: 'superwin', intro: 'super_win_intro', idle: 'super_win_idle' }],
 			{ super_win_intro: 1366.7, super_win_idle: 12000 },
-		).find((d) => d.id === 'c_winpresentation_superwin_walk')!;
-		const q = new L.ComponentTimelinePlayer([superwin], def.root.children);
-		q.trigger('winTier.superwin');
-		let completedAt = 0;
-		for (let frame = 1; frame <= 803 && !completedAt; frame++) {
-			if (q.advance(1 / 60).completed.includes(superwin.id)) completedAt = frame;
-		}
+		);
+		const intro = superwin.find((d) => d.id === 'c_winpresentation_superwin_walk')!;
+		const idle = superwin.find((d) => d.id === 'c_winpresentation_superwin_idle')!;
+		const bases = [0, 1234.5, 98_765.4321, 3_600_000.125];
 		eq(
-			'a 1.3667 s intro + 12 s idle walk ends on frame 803 (the coded boundary)',
-			completedAt,
-			803,
+			'the intro and the idle cycle end on the frame the rig completes them, whatever the clock base',
+			bases.map((base) => {
+				const ds = deltas(base, 800);
+				return [
+					timelineFrame(intro, 'winTier.superwin', ds) === rigFrame(ds, 1.3667),
+					timelineFrame(idle, 'winTierIdle.superwin', ds) === rigFrame(ds, 12),
+				];
+			}),
+			bases.map(() => [true, true]),
 		);
 		eq(
-			'...its idle strip starts on frame 83, where the coded track starts the idle at 0',
-			(superwin.tracks.find((t) => t.kind === 'animation') as { strips: { start: number }[] })
-				.strips[1].start,
-			83 / 60,
+			'...the 82.002-frame intro ends on frame 83, and a 12 s idle whose deltas fall short on 721',
+			[
+				timelineFrame(intro, 'winTier.superwin', deltas(0, 100)),
+				timelineFrame(idle, 'winTierIdle.superwin', Array(721).fill(12 / 720 - 1e-15)),
+			],
+			[83, 721],
 		);
-		const big = generated.find((d) => d.id === 'c_winpresentation_big_walk')!;
-		const b = new L.ComponentTimelinePlayer([big], def.root.children);
-		b.trigger('winTier.big');
-		let bigAt = 0;
-		for (let frame = 1; frame <= 801 && !bigAt; frame++) {
-			if (b.advance(1 / 60).completed.includes(big.id)) bigAt = frame;
-		}
-		eq('a 1.3333 s intro (80 frames) + 12 s idle walk ends on frame 800', bigAt, 800);
 	}
 	p.playRate = 1;
-	p.advance(1);
-	eq('...and 1 the plain step', p.timeOf(walk.id), 3);
+	p.advance(0.25);
+	eq('...and 1 the plain step', p.timeOf(walk.id), 0.75);
 	// The coded `FadeContainer`'s tween as the def's state machine: the `fade` node sits at alpha 0
 	// (entry), blends 0 → 1 over 400 ms linear on `winFade` (every win, the first included — the coded
 	// container fades in on its mount too), and on `winHide` blends to 0 FROM THE POSE ON SCREEN
@@ -679,7 +712,7 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 	eq(
 		'no walk, plain, loop, outro, rest or hide timeline keys alpha',
 		generated
-			.filter((d) => /_(walk|loop|outro|plain|rest|hide)$/.test(d.id))
+			.filter((d) => /_(walk|rewind|idle|loop|outro|plain|rest|hide)$/.test(d.id))
 			.flatMap((d) => d.tracks.filter((t) => t.kind === 'property')),
 		[],
 	);
@@ -746,10 +779,16 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 			['c_winpresentation_fade_hidden', 'fade'],
 			['c_winpresentation_fade_shown', 'fade'],
 			['c_winpresentation_hide', 'visual'],
-			['c_winpresentation_big_walk', 'countPlain,tier,visual'],
+			// `mega` has a caption, so every walk keys the caption node (`''` on `big`): a walk never
+			// leaves the previous tier's caption on screen.
+			['c_winpresentation_big_walk', 'caption,countPlain,tier,visual'],
+			['c_winpresentation_big_rewind', 'tier'],
+			['c_winpresentation_big_idle', 'tier'],
 			['c_winpresentation_big_loop', 'tier'],
 			['c_winpresentation_big_outro', 'tier'],
 			['c_winpresentation_mega_walk', 'caption,countPlain,tier,visual'],
+			['c_winpresentation_mega_rewind', 'tier'],
+			['c_winpresentation_mega_idle', 'tier'],
 			['c_winpresentation_mega_loop', 'tier'],
 		],
 	);

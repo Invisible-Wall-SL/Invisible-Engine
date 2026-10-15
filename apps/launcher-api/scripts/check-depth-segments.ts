@@ -5,9 +5,10 @@
  *
  * WHY. The editor draws each kind on its own surface (2D → rig → text → FX), so inside one stack an
  * FX always draws over every sprite, rig and text. The game draws one scene graph in outline order.
- * `depthSegments` starts a new stack at the first node with other art after an FX, which puts that
- * art back above the FX. A wrong split is invisible in a build: too few segments and an FX covers
- * art the game draws over it, too many and a screen spends WebGL contexts it does not need.
+ * `depthSegments` walks the tree in draw order and starts a new stack at the first art drawn after
+ * an FX, which puts that art back above the FX. A wrong split is invisible in a build: too few
+ * segments and an FX covers art the game draws over it, too many and a screen spends WebGL contexts
+ * it does not need.
  *
  * Load-bearing rules:
  *
@@ -15,13 +16,19 @@
  *     surfaces and report keys are exactly what they were before segments existed.
  *  2. **Only OTHER art after an FX splits.** Consecutive FX share a segment, and an FX that ends the
  *     outline adds none.
- *  3. **Nesting counts both ways.** A container or component instance that holds an FX makes the
- *     segment an FX one; one that holds only FX does not split from the FX before it.
- *  4. **A missing component def still draws** (its placeholder), so it splits like art.
+ *  3. **The split reaches inside groups and nested components.** An FX under a piece's art INSIDE
+ *     a placed component (the reported case) splits that component across two segments, and every
+ *     node's segment is recorded by its id path, so the renderers draw each piece on its own.
+ *  4. **A group or resolvable component draws only its children**, so on its own it never splits;
+ *     a bound anchor (preview or part skin) and a missing component's placeholder are art.
  */
 import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
 
-import { depthSegments } from '../src/routes/(app)/editor/editorCanvas.helpers';
+import {
+	depthSegmentOf,
+	depthSegments,
+	inDepthSlice,
+} from '../src/routes/(app)/editor/editorCanvas.helpers';
 
 let fails = 0;
 const check = (name: string, ok: boolean): void => {
@@ -61,8 +68,11 @@ const scene = (nodes: LayoutNode[]): Scene => ({ id: 's', name: 's', nodes });
 const defs = new Map<string, ComponentDef>([
 	['glowOnly', def('glowOnly', [fx('g1'), fx('g2')])],
 	['badge', def('badge', [sprite('b1'), fx('b2')])],
+	// The reported shape: a pot piece whose glow sits UNDER its art.
+	['piece', def('piece', [fx('glow'), sprite('art')])],
+	['loop', def('loop', [fx('lf'), instance('again', 'loop')])],
 ]);
-/** Each segment's node ids, `|` between segments. */
+/** Each segment's top-level node ids, `|` between segments. */
 const split = (nodes: LayoutNode[]): string =>
 	depthSegments(scene(nodes), defs)
 		.map((seg) => seg.nodes.map((n) => n.id).join(','))
@@ -99,12 +109,51 @@ check(
 	'every segment names its scene',
 	two.every((seg) => seg.sceneId === 's'),
 );
+check(
+	'segments are indexed in order',
+	two.every((seg, i) => seg.index === i),
+);
 
-// 3. Nesting: FX inside a group or a component, and groups/components of FX only.
+// 3. The split reaches inside: an FX under art in a nested component or a group.
+const pot = depthSegments(scene([sprite('bg'), instance('pot', 'piece'), sprite('frame')]), defs);
+check(
+	'an FX under art inside a component splits the component',
+	split([sprite('bg'), instance('pot', 'piece'), sprite('frame')]) === 'bg,pot|pot,frame',
+);
+check(
+	"the component's FX is in the first segment",
+	depthSegmentOf(pot[0].segmentOf, ['pot', 'glow']) === 0,
+);
+check(
+	"the component's art after it is in the next",
+	depthSegmentOf(pot[0].segmentOf, ['pot', 'art']) === 1,
+);
+check('art after the component follows it', depthSegmentOf(pot[0].segmentOf, ['frame']) === 1);
+check(
+	'a path the split never visited draws with its nearest ancestor',
+	depthSegmentOf(pot[0].segmentOf, ['pot', 'art', 'card0']) === 1,
+);
+check(
+	'a slice keeps only its own segment',
+	inDepthSlice({ segmentOf: pot[0].segmentOf, index: 1 }, ['pot', 'art']) &&
+		!inDepthSlice({ segmentOf: pot[0].segmentOf, index: 1 }, ['pot', 'glow']),
+);
+check('no slice keeps everything', inDepthSlice(null, ['pot', 'glow']));
+check(
+	'an FX under art inside a group splits the group',
+	split([group('g', [fx('a'), sprite('b')]), sprite('c')]) === 'g|g,c',
+);
+check(
+	'an FX under art inside a part splits the part',
+	split([{ ...group('part', [fx('a'), sprite('b')]), bind: { component: 'potMeter' } }]) ===
+		'part|part',
+);
 check(
 	'a group holding an FX makes its segment an FX one',
 	split([group('g', [sprite('in'), fx('inFx')]), sprite('after')]) === 'g|after',
 );
+
+// 4. Groups and components draw only their children; anchors and missing defs are art.
 check(
 	'a group of FX only does not split from the FX before it',
 	split([fx('f'), group('g', [fx('x'), fx('y')]), sprite('after')]) === 'f,g|after',
@@ -114,8 +163,8 @@ check(
 	split([fx('f'), instance('i', 'glowOnly'), sprite('after')]) === 'f,i|after',
 );
 check(
-	'a component with art and an FX splits after an FX and carries one',
-	split([fx('f'), instance('i', 'badge'), sprite('after')]) === 'f|i|after',
+	'a component with art after an FX splits at its art',
+	split([fx('f'), instance('i', 'badge'), sprite('after')]) === 'f,i|i|after',
 );
 check(
 	'a bound anchor draws its own preview, so it splits like art',
@@ -125,11 +174,13 @@ check(
 	'an empty group after an FX draws nothing, so it does not split',
 	split([fx('f'), group('g', []), sprite('after')]) === 'f,g|after',
 );
-
-// 4. A missing def still draws its placeholder.
 check(
 	'a missing component def splits like art',
 	split([fx('f'), instance('i', 'missing')]) === 'f|i',
+);
+check(
+	'a component that contains itself stops, and its placeholder splits like art',
+	split([instance('l', 'loop')]) === 'l|l',
 );
 
 if (fails > 0) {

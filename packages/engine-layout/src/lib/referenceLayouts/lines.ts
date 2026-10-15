@@ -118,6 +118,13 @@ export interface DefaultLayoutOptions {
 	 * `apps/lines` forwards its `AUTHORED_WIN` dev-pilot flag.
 	 */
 	authoredWin?: boolean;
+	/**
+	 * Set `settings.authoredOverlays.freeSpins` on the doc (Rive plan Phase 8c): the game then
+	 * renders the free-spin intro / outro visuals from the built-in presentations instead of the
+	 * coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual`. Default-OFF = no row (parity);
+	 * `apps/lines` forwards its `AUTHORED_FREE_SPINS` dev-pilot flag.
+	 */
+	authoredFreeSpins?: boolean;
 }
 
 /**
@@ -239,12 +246,13 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 		projectKey: gameType,
 		gameType,
 		mainSizesMap: MAIN_SIZES_MAP,
-		...(options.authoredTransition || options.authoredWin
+		...(options.authoredTransition || options.authoredWin || options.authoredFreeSpins
 			? {
 					settings: {
 						authoredOverlays: {
 							...(options.authoredTransition ? { transition: true } : {}),
 							...(options.authoredWin ? { win: true } : {}),
+							...(options.authoredFreeSpins ? { freeSpins: true } : {}),
 						},
 					},
 				}

@@ -342,11 +342,24 @@ numeric and it stays a number box. So `isFreeGame eq on`, `gameType eq freegame`
 re-typed like that — an accessor on the other side is left alone, because that is a choice
 you made.)
 
+A **`$trigger` field** follows the event the Branch's chain starts on — the **Event** node or
+**Game Signals** pin its exec wires lead back to, through any groups. On a `meterUpdate` chain
+`$trigger.full` gives **on / off**, `$trigger.meter` a text box and `$trigger.level` a number,
+so `meterUpdate → fillMeter → Branch($trigger.full eq on)` takes **then** on the spin that fills
+the pot. Where the event can't be told, the literal stays a number box: a Branch on a chain no
+Event node or Game Signals pin starts (a Mode trigger's, a screen button's, a component event's,
+one nothing starts, a function body), on a `complete:` event or any other the template doesn't
+declare, or one several events reach that don't all declare the field with the same type.
+
 Two runtime rules decide which operator you want:
 
 - **`eq` / `ne` are exact; `lt` / `lte` / `gt` / `gte` read both sides as numbers.** The
   exactness is why the typing above matters: a true/false value compared against a number
-  is never equal to it, and nothing warns you.
+  is never equal to it. A row that does it — one saved before its side was typed, like
+  `$trigger.full eq 1` — gets an amber `guard-type-mismatch` in Validation, and in the
+  guard's **all of** list a **Use on / off** button under the row, which turns `1` into **on**
+  (and `0` into **off**). The same goes for a text or dropdown value compared with `eq` / `ne`
+  against a number.
 - **An unbounded value is not a finite number.** Autoplay set to `∞` makes
   `autoSpinsRemaining` infinite, which no `gt` / `lt` test matches — `ne 0` catches it,
   `gt 0` silently doesn't.
@@ -931,6 +944,10 @@ container either way). In the game it draws nothing, and any step waiting on it 
 so a start-up chain that shows a lost `loading` screen leaves the game on its background forever.
 Restore the screen from the Scene Editor's **History…**, or remove the step. It is a warning, so
 Publish still ships (and lists the screens in a note); the game logs it to the console at boot.
+
+`guard-type-mismatch` (amber) is a Branch row that compares an on/off or text value with `eq` /
+`ne` to a literal of another kind, so it is always false (`eq`) or always true (`ne`) — see
+[Comparing in a guard](#edit-a-node-the-inspector). It never blocks Publish.
 
 `symbol-not-in-play` (amber) is a symbol the flow names that the project's Game Config no longer
 has in play (taken off the reels in Invisible Game Config). The flow keeps it as authored, so it

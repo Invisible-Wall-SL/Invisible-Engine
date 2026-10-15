@@ -7,8 +7,9 @@
  */
 
 /** `transition` (8a) silences `Transition.svelte`; `win` (8b) silences `WinVisual` — the drawn half only,
- *  the gate keeps conducting. */
-export type CodedOverlay = 'transition' | 'win';
+ *  the gate keeps conducting; `freeSpins` (8c) silences `FreeSpinIntroVisual` / `FreeSpinOutroVisual` —
+ *  the outro driver keeps counting and holding. */
+export type CodedOverlay = 'transition' | 'win' | 'freeSpins';
 
 const retired = new Set<CodedOverlay>();
 

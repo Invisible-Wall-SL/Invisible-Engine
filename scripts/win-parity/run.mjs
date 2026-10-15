@@ -13,16 +13,20 @@
 // VARIANTS, each a coded/authored pair on the same inputs (`--variant` picks one; default all):
 //   base         WIN_X=10,20,40,70,120 — five consecutive base spins land one big tier each; the
 //                intro (+12 +24 +48 +96) and the idle (+120 +240) of every tier.
-//   slam-small   the seed's first non-big win, Space 6 frames after `winShow`: raced, as today.
-//                NOT RUNNABLE on the stand-in yet: no `winShow` fired in 12 spins on either side,
-//                unforced or with WIN_X=1 / 4 (cause not traced) — the follow-up PR's to fix.
+//   slam-plain   the PLAIN-NUMBER presentation (no tier rig: the `winPlain` walk), Space 6 frames
+//                after `winShow`. The Play4Fun facade every shipped game runs announces a win with
+//                `setWin` only at a `big`-typed tier (`engineFacade.ts`, `isBigWinLevel`), so a
+//                small / medium win never shows the overlay at all; the plain number is what a big
+//                tier with no animation anywhere draws. The variant config strips the `big` row's
+//                animation (`plainTier`) and WIN_X=10 deals it.
 //   slam-big     WIN_X=10, Space 6 frames after `winShow`: ends on the same frame on both sides.
 //   escalation   the snapshot's config with `escalateTiers: true` (the gate writes the variant as it
 //                writes the flagged doc), WIN_X=120: the walk climbs the tiers; the authored side
 //                reports PENDING cue holds while it climbs (the positive control), the coded none.
 //   held         the escalation config and the reference flow with `holdToSpeedUp: true` authored on
-//                its `winUpdate` (`flow-variant.ts`; no reference game authors it), Space HELD from
-//                30 frames after `winShow` until `winHide`: the coded ramp vs the authored play rate.
+//                its `winUpdate` (`flow-variant.ts`; no reference game authors it), the POINTER held
+//                on the board from 30 frames after `winShow` until `winHide` (Space is the round's
+//                slam key, which ends the win at the press): the coded ramp vs the authored play rate.
 //   turbo        WIN_X=10 with turbo on at boot (`ie_turbo=1`, honoured with `ie_determinism` only).
 //   placed       a `componentInstance(win)` placed at a moved position in a game-space scene (the
 //                live Borut shape): the degrade applies, ONE presentation, where the author put it.
@@ -76,6 +80,8 @@ const MAX_FRAMES_TO_SHOW = 3600;
 const MAX_FRAMES_TO_HIDE = 9000;
 const TAP_EVERY = 600;
 const SLAM_AT = 6;
+// The coded `FadeContainer`'s 400 ms fade-out: frames past `winHide` still on screen.
+const FADE_FRAMES = 24;
 // A hold starts once the count-up runs (`winUpdate` follows `winShow` by a beat), so the press is
 // a hold on the count, not a tap on the cue.
 const HOLD_AT = 30;
@@ -89,18 +95,22 @@ const log = (line) => console.log(`[win-parity] ${line}`);
 
 // ---- the variants ------------------------------------------------------------------------------------------
 
-// `env` goes to the mock; `query` to the page URL; `config` patches the snapshot's game config;
-// `place` moves the Win into a placed instance; `spins` is the list of wins to measure, each with
-// the offsets (frames after `winShow`) to capture and an optional press (`slam` taps Space at
-// `SLAM_AT`, `hold` presses it there and releases after `winHide`). `smallWin` spins until the seed
-// deals a win below the big tiers instead of forcing one.
+// `env` goes to the mock; `query` to the page URL; `config` patches the snapshot's game config
+// (`plainTier` retypes that ladder row `big` with no animation); `place` moves the Win into a placed
+// instance; `spins` is the list of wins to measure, each with the offsets (frames after `winShow`) to
+// capture and an optional press (`slam` taps Space at `SLAM_AT`, `hold` presses the pointer at
+// `HOLD_AT` and releases it after `winHide`).
 const INTRO_AND_IDLE = [12, 24, 48, 96, 120, 240];
 const VARIANTS = {
 	base: {
 		env: { WIN_X: '10,20,40,70,120' },
 		spins: BIG_TIERS.map((tier) => ({ tier, offsets: INTRO_AND_IDLE })),
 	},
-	'slam-small': { env: {}, spins: [{ smallWin: true, offsets: [12, 24, 48], press: 'slam' }] },
+	'slam-plain': {
+		env: { WIN_X: '10' },
+		config: { plainTier: 'big' },
+		spins: [{ tier: 'big', offsets: [12, 24, 48], press: 'slam' }],
+	},
 	'slam-big': {
 		env: { WIN_X: '10' },
 		spins: [{ tier: 'big', offsets: [12, 24, 48, 96], press: 'slam' }],
@@ -108,13 +118,24 @@ const VARIANTS = {
 	escalation: {
 		env: { WIN_X: '120' },
 		config: { escalateTiers: true },
-		spins: [{ tier: 'max', offsets: [12, 48, 120, 240, 840, 1680], expectHolds: true }],
+		// +1956 / +1966: the hide's fade-out, where the coded walk rewinds to the first tier's intro.
+		spins: [{ tier: 'max', offsets: [12, 48, 120, 240, 840, 1680, 1956, 1966], expectHolds: true }],
 	},
 	held: {
 		env: { WIN_X: '120' },
 		config: { escalateTiers: true },
 		flow: 'holdToSpeedUp',
-		spins: [{ tier: 'max', offsets: [60, 120, 240, 480], press: 'hold' }],
+		// The hold ends the chain early (the count lands at the held speed, then the outro): the
+		// presentation spans 375 frames, and +380 / +390 are inside the hide's fade-out, with the
+		// pointer still held. `maxSpan` proves the hold engaged: unheld, the same win spans 1951.
+		spins: [
+			{
+				tier: 'max',
+				offsets: [60, 120, 240, 360, 374, 380, 390],
+				press: 'hold',
+				maxSpan: 900,
+			},
+		],
 	},
 	turbo: {
 		env: { WIN_X: '10' },
@@ -208,8 +229,23 @@ const flagged = (bundle) => ({
 });
 // A config variant (escalation): the snapshot's own config with the row set, as a project that
 // authored it would publish.
-const withConfig = (bundle, patch) =>
-	patch ? { ...bundle, config: { ...bundle.config, ...patch } } : bundle;
+const withConfig = (bundle, patch) => {
+	if (!patch) return bundle;
+	const { plainTier, ...rows } = patch;
+	const config = { ...bundle.config, ...rows };
+	if (plainTier) {
+		if (!config.winLevels?.some((level) => level.alias === plainTier))
+			throw new Error(`the ${GAME} ladder has no ${plainTier} row`);
+		config.winLevels = config.winLevels.map((level) => {
+			if (level.alias !== plainTier) return level;
+			const plain = { ...level, type: 'big' };
+			delete plain.animation;
+			delete plain.spineKey;
+			return plain;
+		});
+	}
+	return { ...bundle, config };
+};
 // The placed-twin variant: the overlays scene keeps its coded node (the game degrades it to the
 // gate) and a `win` instance sits at a moved position in a game-space scene, as the live Borut
 // project places it. Natural size, where the author put it, on both sides.
@@ -323,6 +359,16 @@ async function play(name, variant, side, bundle) {
 			await step(2);
 			await page.key('keyUp');
 		};
+		// The board centre of the 1280×720 viewport: the gate's canvas-wide hold surface.
+		const pointer = (type) =>
+			page.page('Input.dispatchMouseEvent', {
+				type,
+				x: 640,
+				y: 360,
+				button: 'left',
+				buttons: type === 'mousePressed' ? 1 : 0,
+				clickCount: 1,
+			});
 		const count = (s, cue) => s.cues.filter((c) => c.cue === cue).length;
 		// Step until the n-th `cue` has fired; the probe's record says which frame, so a capture is
 		// anchored on it exactly. The screenshot taken BEFORE the batch the cue fired in is the
@@ -376,37 +422,9 @@ async function play(name, variant, side, bundle) {
 				winLevel: undefined,
 			};
 			result.spins.push(rec);
-			let s;
-			let before;
-			if (spin.smallWin) {
-				// The seed's first win below the big tiers: spin until one shows, settling the misses.
-				let found = false;
-				for (let n = 0; n < 12 && !found; n++) {
-					await space();
-					await waitFor({ idle: false }, 600);
-					s = await state();
-					for (
-						let i = 0;
-						!found && count(s, SHOW) === shows && !s.idle && i < MAX_FRAMES_TO_SHOW;
-						i += CUE_BATCH
-					) {
-						before = await page.screenshot();
-						await step(CUE_BATCH);
-						s = await state();
-					}
-					if (count(s, SHOW) > shows && !BIG_TIERS.includes(s.winLevel)) found = true;
-					else {
-						shows = count(s, SHOW);
-						hides = Math.max(hides, count(s, HIDE));
-						s = await settle();
-					}
-				}
-				if (!found) throw new Error('the seed dealt no small win in 12 spins');
-			} else {
-				await space();
-				await waitFor({ idle: false }, 600);
-				({ s, before } = await stepToCue(SHOW, shows + 1, MAX_FRAMES_TO_SHOW));
-			}
+			await space();
+			await waitFor({ idle: false }, 600);
+			let { s, before } = await stepToCue(SHOW, shows + 1, MAX_FRAMES_TO_SHOW);
 			shows = count(s, SHOW);
 			rec.showFrame = s.cues.filter((c) => c.cue === SHOW).at(-1).frame;
 			const pre = join(dir, `spin${index}-pre.png`);
@@ -425,7 +443,7 @@ async function play(name, variant, side, bundle) {
 				if (spin.press && !held && target > pressAt) {
 					if (s.frame < pressAt) await step(pressAt - s.frame);
 					if (spin.press === 'slam') await space();
-					else await page.key('keyDown');
+					else await pointer('mousePressed');
 					held = true;
 					s = await state();
 				}
@@ -438,7 +456,7 @@ async function play(name, variant, side, bundle) {
 			// Read after the captures: `winLevel` follows `winUpdate`, a beat after the cue.
 			rec.winLevel = s.winLevel ?? null;
 			// To the hide: tap past any press-to-continue every TAP_EVERY frames, the same frames on
-			// both sides (a held Space is released after the hide).
+			// both sides (a held pointer is released after the hide).
 			for (let ran = 0; count(s, HIDE) <= hides && ran < MAX_FRAMES_TO_HIDE; ran += HIDE_BATCH) {
 				await step(HIDE_BATCH);
 				s = await state();
@@ -449,7 +467,7 @@ async function play(name, variant, side, bundle) {
 				throw new Error(`${HIDE} never fired within ${MAX_FRAMES_TO_HIDE} frames of ${SHOW}`);
 			hides = count(s, HIDE);
 			rec.hideFrame = s.cues.filter((c) => c.cue === HIDE).at(-1).frame;
-			if (spin.press === 'hold') await page.key('keyUp');
+			if (spin.press === 'hold') await pointer('mouseReleased');
 			s = await settle();
 		}
 		const final = await page.evaluate(
@@ -508,11 +526,16 @@ for (const name of chosen) {
 			fail(`${label}: win levels differ (${a.winLevel} vs ${b.winLevel})`);
 		const codedSpan = a.hideFrame - a.showFrame;
 		const authoredSpan = b.hideFrame - b.showFrame;
-		// A capture after the hide compares two empty frames: the presentation must outlast every
-		// capture — except a slam, which ends it early by design; its proof is the hide on the same
+		// A press that never engaged passes every capture on both sides: the span says it did.
+		if (spin.maxSpan !== undefined && Math.max(codedSpan, authoredSpan) > spin.maxSpan)
+			fail(
+				`${label}: the presentation spanned ${codedSpan} / ${authoredSpan} frames, over ${spin.maxSpan} — the hold never engaged`,
+			);
+		// A capture after the hide's fade-out compares two empty frames: the presentation must
+		// outlast every capture (its 400 ms fade included) — except a slam, which ends it early by design; its proof is the hide on the same
 		// frame (checked above) and every capture, before or after the hide, matching.
 		const compared = spin.offsets;
-		if (spin.press !== 'slam' && Math.max(...compared) >= codedSpan)
+		if (spin.press !== 'slam' && Math.max(...compared) >= codedSpan + FADE_FRAMES)
 			fail(
 				`${label}: the presentation ended ${codedSpan} frames after ${SHOW}, before the capture at t+${Math.max(...spin.offsets)}`,
 			);

@@ -387,7 +387,8 @@ export const EVENT_CUE_PREFIX = 'event:';
  * its threshold. `fill` reveals a sprite, flipbook or rect from one edge (0 = hidden, 1 = whole).
  * `frame` holds a flipbook on one frame. `animTime` holds a rig animation at a point (0 = first
  * frame, 1 = last), over whatever the rig is playing, firing none of its events. `bone` offsets one
- * bone of a rig on top of whatever it is playing.
+ * bone of a rig on top of whatever it is playing. `fxParam` sets one exposed parameter of a placed
+ * effect (Invisible FX Step 2, `fxNodeParams.ts`): absolute, not relative to anything.
  */
 export const VALUE_BINDING_TARGETS = [
 	'x',
@@ -402,6 +403,7 @@ export const VALUE_BINDING_TARGETS = [
 	'frame',
 	'animTime',
 	'bone',
+	'fxParam',
 ] as const;
 export type ValueBindingTarget = (typeof VALUE_BINDING_TARGETS)[number];
 
@@ -450,11 +452,13 @@ export interface ValueBinding {
 	clamp?: boolean;
 	/** Absent ⇒ linear. */
 	ease?: ValueBindingEase;
-	/** Seconds the output takes to reach a new value. Absent / 0 ⇒ snaps. Ignored by `visible`. */
+	/** Seconds the output takes to reach a new value. Absent / 0 ⇒ snaps. Ignored by `visible` and
+	 *  a bool `fxParam`. */
 	smooth?: number;
-	/** `visible`: shown while the (normalised) value is ≥ this. Absent ⇒ 1 (a true / full source). */
+	/** `visible` (and a bool `fxParam`): shown / on while the (normalised) value is ≥ this. Absent ⇒
+	 *  1 (a true / full source). */
 	threshold?: number;
-	/** `visible`: invert — shown while the value is BELOW the threshold. */
+	/** `visible` (and a bool `fxParam`): invert — shown / on while the value is BELOW the threshold. */
 	below?: boolean;
 	/** `fill`: the edge the reveal grows from. Absent ⇒ `right` (a bar filling left to right). */
 	direction?: ValueBindingFillDirection;
@@ -464,6 +468,13 @@ export interface ValueBinding {
 	bone?: string;
 	/** `bone`: the channel offset. Absent ⇒ `scale`. */
 	boneProperty?: ValueBindingBoneProperty;
+	/**
+	 * `fxParam`: the id of the placed effect's exposed parameter (`EffectDoc.params`). A number
+	 * parameter takes the mapped output (the out range defaults to the parameter's own `min..max`);
+	 * a bool one is on while the value passes `threshold` / `below`, as `visible` is. An id the
+	 * effect does not declare as a number or bool parameter leaves the binding inert.
+	 */
+	fxParam?: string;
 }
 
 export interface ContainerNode extends BaseNode {
@@ -1002,6 +1013,9 @@ export interface AnticipationProfile {
  *
  * The editor can't run a WebGL emitter in its 2D canvas (same as `reelGrid`/`bind`), so it draws a
  * labelled placeholder chip; the game ALWAYS mounts the real `<EffectPlayer>`.
+ *
+ * The effect's exposed parameters (`EffectDoc.params`) are driven from the node (Invisible FX Step
+ * 2): an `fxParam` value binding, or an `fx:<id>` channel a timeline keys on it (`fxNodeParams.ts`).
  */
 export interface EffectNode extends BaseNode {
 	kind: 'effect';
@@ -1338,6 +1352,13 @@ export interface GameSettings {
 		 * (count-up, round hold, presses, dim, `winState`) stays and conducts them.
 		 */
 		win?: boolean;
+		/**
+		 * 8c: the free-spin INTRO and OUTRO visuals (the frame rig, the count rig and text, the
+		 * localized sprites, the fade — what the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual`
+		 * draw) render from the built-in `freeSpinIntroPresentation` / `freeSpinOutroPresentation`
+		 * components; the coded outro driver, the screens' taps and the flow's holds stay.
+		 */
+		freeSpins?: boolean;
 	};
 }
 
@@ -1530,6 +1551,14 @@ export interface ComponentDef {
 	 * `winPresentation` def sets it; never stored, so no project def has it. Absent ⇒ neither (parity).
 	 */
 	frameExact?: true;
+	/**
+	 * BOARD-ANCHORED (built-in only, Rive plan Phase 8c): the instance is framed against the main
+	 * box on any screen (as a `game`-space hosted overlay is) AND offset by the game's live board
+	 * position (`boardBox()`), so it lands where a coded overlay that self-centred on
+	 * `boardLayout()` drew — a reel-grid override included. Only the free-spin presentations set it;
+	 * never stored. Absent ⇒ placed as before (parity).
+	 */
+	boardAnchored?: true;
 	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A

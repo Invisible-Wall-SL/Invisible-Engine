@@ -620,10 +620,19 @@ cue name typed here, or on a node inside a placed component, is offered in Invis
 
 **Bind to value**, at the bottom of Properties, makes an item follow a live game number. It can
 move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from one edge, hold
-a flipbook frame, scrub a rig animation, or offset a rig bone. On a screen the number is an
+a flipbook frame, scrub a rig animation, offset a rig bone, or set one of a placed effect's
+**exposed parameters** (**⚡ intensity** in **drives** — see below). On a screen the number is an
 engine value: respins left (÷ the cap), cells held, rows open, collector level, letters lit, the
 jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
 it is never saved. Selection handles and dragging keep the authored position.
+
+On an **effect**, **drives** lists the effect's number and on/off parameters (the ones made with
+⚡ in [Invisible FX](fx.md#exposed-parameters)) as **⚡ <name>**. A number parameter's **out**
+range is left blank, so it follows the parameter's own min and max (shown greyed), even after
+they change in /fx; type ends to map elsewhere. An on/off one is on while the number passes a
+**threshold**, like **Show / hide**. Dragging the test value moves the live particles on the
+stage, with no restart. A colour parameter cannot be bound yet. A binding naming a parameter the
+effect no longer has says *Does nothing* and is ignored in the game.
 
 The same section in the Component Editor can also read the component's own params and the pot
 of the instance it sits in. The full reference is in the Component Editor guide under
@@ -840,9 +849,10 @@ travel the export → deploy → bake → pull chain to ship inside the game bun
 
 ### Game Settings → Authored overlays (pilot)
 
-Above the boot splash, **Authored overlays (pilot)** has two rows, **Transition** and **Win**.
-Both are pilots: off — the default, and the state of every live game — nothing changes. Only a
-holder of the component-publish capability (admin by default) can switch either; others see a row
+Above the boot splash, **Authored overlays (pilot)** has three rows, **Transition**, **Win** and
+**Free spins**. All are pilots: off — the default, and the state of every live game — nothing
+changes. Only a holder of the component-publish capability (admin by default) can switch one;
+others see a row
 read-only while it is on, and a save that flips one from anyone else is refused (a stale tab still
 gets the ordinary "someone else saved" conflict first). **Leave both off for live games until the
 owner's browser check.** The Game Maker card names each when on.
@@ -863,8 +873,21 @@ owner's browser check.** The Game Maker card names each when on.
   overlay gets the presentation at the board centre; a doc that places the hybrid **Win overlay**
   instance keeps its position, overrides and params. The card says _Authored Win (pilot)_, and the
   game keeps the coded path (the card warns) when no scene binds a coded Win or places a win
-  instance, when a big-win tier's caption in Invisible Win Text uses a token such as `{amount}`,
+  instance, when a big-win tier's caption in Invisible Win Text (in the base game or any spins
+  mode) uses a token such as `{amount}`,
   or when the tiers resolve to more than one rig or count slot.
+- **Free spins** — **locked off for now** (the row reads _pilot pending_): nobody, publishers
+  included, can switch it on until the owner pilots it, and the save refuses it too; a doc that
+  already has it on can still be switched off. When unlocked: the game renders the free-spin
+  intro and outro visuals (the frame, the count rig and number, the localized captions, the fade)
+  from the built-in **Free-spin intro / outro presentation** components and their timelines,
+  instead of the coded intro and outro visuals. What holds the round does not change: the outro's
+  count-up, its tap to skip, the screens' "press anywhere to continue" and the flow's holds stay
+  as they are. Nothing to place: each screen's coded visual is swapped where it sits. The card says
+  _Authored free spins (pilot)_, and the game keeps the coded visuals for both screens (the card
+  warns) when no screen binds a coded free-spin visual, when one sits in a screen that is not
+  canvas space, when a screen places a free-spin visual instance, or when a visual names a rig,
+  clip or slot other than the default.
 
 ### Game Settings → Boot splash
 
@@ -906,8 +929,9 @@ plays the result in the game. A component has its own Animate mode on the Compon
    handles, dropping from the Library, Delete and the item toolbar are all off, so you can't move
    the Design pose by accident.
 3. **Key it.** The left of the panel lists what that node can take: **x**, **y**, **scale**,
-   **rotation**, **alpha**, plus **tint** on sprites and flipbooks. Typing a value keys it at the
-   playhead, and **◆** keys the current value. A keyed channel turns yellow, and its keys appear as
+   **rotation**, **alpha**, plus **tint** on sprites and flipbooks, and on an **effect** one
+   **⚡ <name>** row per number or on/off parameter it exposes. Typing a value keys it at the
+   playhead, and **◆** keys the current value (an on/off row keys when you tick it). A keyed channel turns yellow, and its keys appear as
    diamonds on the timeline. Drag a diamond to retime it, or click it to edit its time, value and
    easing on the right (**hold** = stepped). The first key on a node adds that node to the timeline.
 4. **Preview.** Drag the ruler, or press **▶**. The canvas draws each frame through the game's own
@@ -928,6 +952,13 @@ How keys behave:
   multiply, rotation adds degrees, and tint replaces the colour. A key of 0 on y means "where you
   laid it out". End an intro on the unchanged pose (x/y 0, scale 1, alpha 1, white tint), so that
   when the timeline ends the screen sits exactly as designed.
+- **An effect parameter key is the value itself**, not an offset: ⚡ intensity 0.8 means the
+  parameter is 0.8. A number interpolates between keys; an on/off key is stepped (**hold**), so it
+  switches on its key. Where nothing keys a parameter it keeps its default, or what a **Bind to
+  value** on the node sets. When both set it, the timeline wins while it has a value. A colour
+  parameter has no row yet. Keys on a parameter the effect no longer has (renamed or removed in
+  /fx) stay on the timeline as a grey **⚠ fx:<name>** row, so you can select and delete them; the
+  ⚠ issues pill of a component timeline lists them too.
 - **A timeline finds a node by its name.** That is what lets the same timeline play on another
   screen that has a node with the same name. So a node needs a **Name** (Properties) that no other
   node on the screen shares before you can key it. The panel says so when it doesn't, and never
@@ -1117,7 +1148,9 @@ are Inspecting an old version.
      `!=` / `<` / `>` a value. With none, the transition fires as soon as its exit time does.
    - **Exit time** — how far through the leaving state's timeline (0–1) before it may fire; on a
      looping state, the point is checked each lap. Leave it empty for "at once".
-   - **Blend (ms)** — mixes the new timeline in from the pose being left.
+   - **Blend (ms)** — mixes the new timeline in from the pose being left. An effect's **⚡**
+     parameters mix too. If only one of the two states keys a parameter, it mixes from (or
+     towards) the parameter's default.
 3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **Open timeline**
    (double-clicking the card does the same: it opens the Timeline tab on that timeline) and
    **Delete**. Delete / Backspace removes the selected card or arrow. **Start offset** and

@@ -23,6 +23,7 @@
 		hasContinuePress,
 		releaseSpinHold,
 		UI_FEATURES_UK,
+		stateUrlDerived,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import {
@@ -96,6 +97,8 @@
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
 		authoredTransitionStatus,
+		authoredFreeSpinsStatus,
+		withAuthoredFreeSpinsDoc,
 		registerBoardBox,
 		withAuthoredWin,
 		withAuthoredWinDoc,
@@ -160,6 +163,7 @@
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
 		warnOnServerPaytableMismatch,
+		boardDimensions,
 	} from '../game/gameConfig';
 	import { paytable } from '../game/paytable';
 	import {
@@ -299,8 +303,15 @@
 		authoredWinRuntime,
 		authoredWinSignals,
 		registerAuthoredWinTimelines,
+		authoredWinPresentation,
 		resolveAuthoredWinStatus,
 	} from '../game/authoredWin.svelte';
+	import {
+		authoredFreeSpinDefs,
+		authoredFreeSpinSignals,
+		registerAuthoredFreeSpinBoard,
+		authoredFreeSpinValues,
+	} from '../game/authoredFreeSpins.svelte';
 	import { ContinuePressMask, PressToContinue } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -2196,7 +2207,15 @@
 			// built-in `winPresentation`, the `winVisual` scene synthesized when none is placed; both
 			// flows are built from this doc too. Off, or held back ⇒ the same doc object (parity).
 			const authoredWin = resolveAuthoredWinStatus(transitioned) === 'ready';
-			const doc = authoredWin ? withAuthoredWinDoc(transitioned) : transitioned;
+			const won = authoredWin
+				? withAuthoredWinDoc(transitioned, authoredWinPresentation())
+				: transitioned;
+			// Rive plan Phase 8c: the AUTHORED free-spin intro / outro, under its own flag and the shared
+			// status rule — every coded `bind: FreeSpinIntroVisual / FreeSpinOutroVisual` swapped for its
+			// built-in presentation; the outro driver, the taps and the holds stay coded. Off, or held
+			// back ⇒ the same doc object (parity).
+			const authoredFreeSpins = authoredFreeSpinsStatus(won) === 'ready';
+			const doc = authoredFreeSpins ? withAuthoredFreeSpinsDoc(won) : won;
 			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
 			// placed the hybrid `transition` twin plays one wipe (the authored one).
 			retireCodedOverlay('transition', authored);
@@ -2218,6 +2237,40 @@
 				// here and nowhere else: an unregistered id expands to nothing — the swapped instance
 				// would mount, subscribe nothing and draw nothing.
 				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
+			}
+			// The coded free-spin visuals go dark for this boot; everything the authored path reads is
+			// registered here and nowhere else (a boot without the flag registers nothing new): the show /
+			// hide signals, the intro count, the live board box the instances sit on, and the two defs
+			// generated for this board and language.
+			retireCodedOverlay('freeSpins', authoredFreeSpins);
+			if (authoredFreeSpins) {
+				registerComponentSignals(
+					authoredFreeSpinSignals({
+						introShow: (run) => context.eventEmitter.subscribe({ freeSpinIntroShow: () => run() }),
+						introHide: (run) => context.eventEmitter.subscribe({ freeSpinIntroHide: () => run() }),
+						outroCountUp: (run) =>
+							context.eventEmitter.subscribe({
+								freeSpinOutroCountUp: (e) => run(e.winLevelData?.type === 'big'),
+							}),
+						outroHide: (run) => context.eventEmitter.subscribe({ freeSpinOutroHide: () => run() }),
+					}),
+				);
+				registerComponentValues(
+					authoredFreeSpinValues((set) =>
+						context.eventEmitter.subscribe({
+							freeSpinIntroUpdate: (e) => set(e.totalFreeSpins),
+						}),
+					),
+				);
+				registerAuthoredFreeSpinBoard(() => context.stateGameDerived.boardLayout());
+				registerComponents(
+					Object.fromEntries(
+						authoredFreeSpinDefs(boardDimensions().x, stateUrlDerived.lang()).map((def) => [
+							def.id,
+							def,
+						]),
+					),
+				);
 			}
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);

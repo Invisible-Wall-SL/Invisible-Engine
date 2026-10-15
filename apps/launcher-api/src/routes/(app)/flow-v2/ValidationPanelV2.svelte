@@ -33,6 +33,7 @@
 		'entry-has-exec-in': '⤳',
 		'edge-endpoint': '⊘',
 		'type-mismatch': '≠',
+		'guard-type-mismatch': '≠',
 		'unfilled-data-in': '○',
 		'data-in-shadowed': '⊗',
 		'signal-cross-event': '⤫',

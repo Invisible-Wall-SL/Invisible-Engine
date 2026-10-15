@@ -227,7 +227,11 @@ async function cinematicChoices(
 				continue;
 			}
 			const { doc } = await loadCinematic(clientKey, projectKey, row.id);
-			const issues = doc ? validateNodeActors(doc, scene).map((i) => i.message) : [];
+			// No effect docs are read here, so an effect's `fx:` channels go unchecked on this page;
+			// the editor checks them against the project's own effects.
+			const issues = doc
+				? validateNodeActors(doc, scene, () => undefined).map((i) => i.message)
+				: [];
 			if (issues.length) timelineIssues[row.id] = issues;
 		}
 		return { cinematicOptions: cinematicPickerOptions(rows, sceneNames), timelineIssues };

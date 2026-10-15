@@ -45,6 +45,7 @@ import { defaultLayout } from './game/defaultLayout';
 import {
 	AUTHORED_TRANSITION,
 	AUTHORED_WIN,
+	AUTHORED_FREE_SPINS,
 	HUD_BUTTON_INSTANCES,
 	TRANSITION_INSTANCE,
 	WIN_INSTANCE,
@@ -1259,6 +1260,11 @@ export function bakedWinText(): ResolvedWinText {
 	return resolveWinText(bakedBundle.winText);
 }
 
+/** The baked Win Text doc as authored (sparse, modes included), runtime bundle first. */
+export function bakedWinTextDoc(): WinTextDoc | undefined {
+	return hasRuntimeBundle() ? runtimeBundle!.winText : bakedBundle.winText;
+}
+
 /** {@link bakedWinText} as respin mode `mode` speaks it: its own lines over the primary's
  *  (`resolveWinTextForMode`). `undefined` is the primary. */
 export function bakedWinTextFor(mode: string | undefined): ResolvedWinText {
@@ -1572,6 +1578,7 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	winInstance: WIN_INSTANCE,
 	authoredTransition: AUTHORED_TRANSITION,
 	authoredWin: AUTHORED_WIN,
+	authoredFreeSpins: AUTHORED_FREE_SPINS,
 });
 
 /**

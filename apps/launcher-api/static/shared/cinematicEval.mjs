@@ -411,10 +411,19 @@ export function putKey(keys, time, value, ease = 'linear') {
 // A rig actor (kind absent or 'rig') never reaches this code, so existing documents evaluate
 // exactly as before.
 
-/** The `property` channels a node actor honours; any other channel name is skipped. */
+/** The `property` channels a node actor honours; any other channel name is skipped, except the
+ *  `fx:` family below. */
 export const NODE_CHANNELS = Object.freeze([
 	'x', 'y', 'scale', 'scaleX', 'scaleY', 'rotation', 'alpha', 'tint', 'frame', 'fill',
 ]);
+
+/**
+ * The prefix of a channel that keys one exposed parameter of an effect node (Invisible FX Step 2):
+ * `fx:intensity`. ABSOLUTE, unlike the channels above: the keyed value is the parameter's value. A
+ * number channel interpolates like any other; a bool parameter is keyed 0 / 1 on `hold` keys, and
+ * the node reads it as on from 0.5. Colours are not keyed here.
+ */
+export const FX_PARAM_CHANNEL_PREFIX = 'fx:';
 
 /** Whether a cast entry is a node actor. Absent `kind` reads as a rig. */
 export const isNodeActor = (cast) => !!cast && cast.kind === 'node';
@@ -487,8 +496,9 @@ export function sampleText(track, t) {
 
 /**
  * Every channel of ONE node actor at `t`, from its tracks (any order, any kind). Only keyed values
- * are present; `scale` folds into `scaleX`/`scaleY` (multiplied). Visibility is present only when a
- * visibility track has keys, so an un-keyed node keeps its own visibility.
+ * are present; `scale` folds into `scaleX`/`scaleY` (multiplied); an `fx:<id>` channel is present
+ * under its own name. Visibility is present only when a visibility track has keys, so an un-keyed
+ * node keeps its own visibility.
  */
 export function sampleNodeActor(tracks, t) {
 	const out = {};
@@ -523,6 +533,11 @@ export function sampleNodeActor(tracks, t) {
 				else if (name === 'scaleX') sx = v;
 				else if (name === 'scaleY') sy = v;
 				else out[name] = v;
+			}
+			for (const name in track.channels) {
+				if (!name.startsWith(FX_PARAM_CHANNEL_PREFIX)) continue;
+				const v = sampleChannel(track.channels[name], t);
+				if (v !== undefined) out[name] = v;
 			}
 		} else if (track.kind === 'visibility') {
 			visibility.push(track);

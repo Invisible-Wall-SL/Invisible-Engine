@@ -8,6 +8,10 @@
 	// setters. Each edit calls `onchange(nextDoc)`; the page re-seeds + revalidates + autosaves.
 	import {
 		derivePins,
+		flattenGroups,
+		guardLiteralMismatch,
+		guardOperandType,
+		triggerOwners,
 		type Accessor,
 		type CompareOp,
 		type ComputeOp,
@@ -359,20 +363,31 @@
 		const guard: Guard = { ...node.guard, all };
 		onchange(setBranchGuard(doc, node.id, guard));
 	}
+	// The dispatch(es) whose exec chain reaches this Branch — the event whose payload `$trigger` is.
+	const branchOwners = $derived(
+		node.kind === 'branch' ? triggerOwners(flattenGroups(doc.graph)).get(node.id) : undefined,
+	);
+
 	/**
 	 * The TYPE the other side of a comparison establishes, so picking `literal` beside it seeds the
 	 * matching editor. Without this a guard operand is always typed `int` (`defaultLiteral(undefined)`),
 	 * which makes a non-numeric read untestable: `eq`/`ne` are strict `===` at runtime, so comparing
-	 * `$engine.isAutoSpinning` to the number box's `1` is `true === 1` — silently always false. A
-	 * declared engine value carries its type; a stored literal states its own. Undefined ⇒ the old
-	 * `int` default, so a number-vs-number guard is unchanged.
+	 * `$engine.isAutoSpinning` or `meterUpdate`'s `$trigger.full` to the number box's `1` is
+	 * `true === 1` — silently always false. A declared engine value carries its type, a `$trigger`
+	 * field the one its chain's event declares, a stored literal its own. Undefined ⇒ the old `int`
+	 * default, so a number-vs-number guard is unchanged.
 	 */
 	function guardSideType(other: DataSource): TypeRef | undefined {
-		if (other.kind === 'literal') return other.type;
-		if (other.kind === 'accessor' && other.path.on === 'engine') {
-			return vocab.values.find((v) => v.name === other.path.key)?.type;
+		return guardOperandType(vocab, other, branchOwners);
+	}
+
+	/** The literal a mismatched guard row is fixed to: a number's truth carries over to a bool (`eq 1`
+	 *  ⇒ `eq on`, what the author meant); anything else starts from the type's default. */
+	function retypedLiteral(lit: DataSource, type: TypeRef): DataSource {
+		if (type.t === 'bool' && lit.kind === 'literal' && typeof lit.value === 'number') {
+			return { kind: 'literal', type, value: lit.value !== 0 };
 		}
-		return undefined;
+		return defaultLiteral(type);
 	}
 
 	/** Whether two `TypeRef`s name the same literal editor — `int` vs `float` differ, and two enums
@@ -1016,6 +1031,9 @@
 					<p class="empty">No comparisons — the branch always takes <code>then</code>.</p>
 				{/if}
 				{#each guardRows as row, i (i)}
+					<!-- A row saved before its read's type was known keeps its number literal, and re-picking
+					     "literal" fires no change — so the `guard-type-mismatch` warning carries its fix here. -->
+					{@const bad = guardLiteralMismatch(vocab, row, branchOwners)}
 					<div class="grow">
 						<div class="side">
 							{@render dataSourceEditor(
@@ -1042,6 +1060,18 @@
 								false,
 							)}
 						</div>
+						{#if bad}
+							<p class="hint warn">
+								⚠ {row.op} is exact, so a {typeLabel(bad.type)} never equals this literal.
+								<button
+									class="mini"
+									type="button"
+									onclick={() =>
+										setGuardSide(i, bad.literal, retypedLiteral(row[bad.literal], bad.type))}
+									>Use {bad.type.t === 'bool' ? 'on / off' : typeLabel(bad.type)}</button
+								>
+							</p>
+						{/if}
 						<button class="mini rm" type="button" onclick={() => removeGuardRow(i)} title="remove"
 							>✕</button
 						>
