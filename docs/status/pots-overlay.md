@@ -987,7 +987,9 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     held, no bonus screen up) → tap → RELEASE → bonus screens → `showRespinBoard` → … → exit.
     Pots stay full off: red 0/12 under the intro and through the bonus. On: 12/12 under the intro
     and through the bonus, 3/12 mid-drain just after the exit, 0/12 at idle. Balance 100 → 119.50
-    = −1 + 20.50.
+    = −1 + 20.50. STOP pressed mid-spin on the trigger spin (90 frames in): without the re-arm the
+    intro flashed past and the round never stopped on it; with it, the round sped up (intro at frame
+    1009, not 1119) and the intro still waited 600 idle frames for the tap.
     `check:pots-overlay`, `check:engine-game`, `check:holdandwin`, `check:freespins` and the
     game-config `bonusGames` fixture (new §9) pass; svelte-check at baseline for `apps/lines`,
     `apps/launcher-api` and `engine-game`.
