@@ -36,7 +36,8 @@ animations.
    rig's row and the timeline grows to the animation's length. Scrub to check it on the canvas.
    Leave **Plays on** empty: the state machine plays them.
 
-**Do:** Animate → **State machine**. **＋ State** for each timeline (tick **loop** on `Lit`), then
+**Do:** Animate → **State machine**. **＋ State** for each timeline (tick **loop** on `Lit`, and
+**Random start** so firecrackers that light together do not move in step), then
 wire one layer:
 
 | From | To | Condition | Exit time |
