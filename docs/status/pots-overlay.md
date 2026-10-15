@@ -955,6 +955,16 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-15 — **A continuous rig effect a timeline started stops with its state** (branch
+  `claude/admiring-noether-ptegsa`). The firecrackers' sparks are `continuous`, which by design
+  ignores later beats and runs until the rig unmounts, so they kept going after a drained pot sent
+  the pieces back to Off. `<RigPose>` now also reports which clips its strips play when that changes
+  (`rigPoseEvents.ts` `onRigPoseClips`); a continuous `<RiggedEffect>` armed by a strip stops
+  emitting (its `emitFor` drops to 0, live particles finish) once its animation is no longer played,
+  and re-arms on the next beat. One armed by the rig's own `AnimationState` keeps running across a
+  change, as before. Verified headless on `commonoverlayproject` (Lit → Off after 0.5 s: sparks
+  still going at 12 s before, gone after); `check:all` 398/398.
+
 - 2026-10-14 — **Rig FX play when a timeline strip plays their animation** (branch
   `claude/admiring-noether-ptegsa`). Found on `commonoverlayproject`: the firecrackers lit, but the
   sparks the Rigger bound to `ON` never showed. A strip poses the rig through `<RigPose>`

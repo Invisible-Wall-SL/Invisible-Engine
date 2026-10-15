@@ -83,7 +83,7 @@
 	import EffectPlayer from './EffectPlayer.svelte';
 	import RigBoneAttach from './RigBoneAttach.svelte';
 	import { riggedBeatMatches } from '../riggedBeat';
-	import { onRigPoseEvent } from '../rigPoseEvents';
+	import { onRigPoseClips, onRigPoseEvent } from '../rigPoseEvents';
 	import { attachToSlot } from '../rigSlotHost';
 
 	const props: Props = $props();
@@ -138,20 +138,30 @@
 	// does appear, and re-mounting is already how a beat plays one from the top. Each fire schedules
 	// its own timer, so two beats inside one delay window still produce two bursts.
 	let pending: ReturnType<typeof setTimeout>[] = [];
-	const fire = (): void => {
+	// A continuous binding a timeline STRIP armed stops emitting once no strip plays its clip any
+	// more (the state that played it was left), its particles living out their lifetime, and the
+	// next beat starts it afresh. One the rig's own animation armed keeps running across a change.
+	let stripArmed = false;
+	let released = $state(false);
+	const fire = (fromStrip = false): void => {
 		// A continuous binding is armed by its FIRST beat and then deaf: re-mounting is how a one-shot
 		// replays from t=0, so ignoring the later fires is exactly what keeps the emitter unbroken.
 		// `runId > 0` means it is already mounted; a pending delay counts too, or a beat landing inside
 		// the delay window would queue a second start.
-		if (props.continuous && (runId > 0 || pending.length > 0)) return;
+		if (props.continuous && !released && (runId > 0 || pending.length > 0)) return;
+		if (props.continuous) stripArmed = fromStrip;
+		const start = (): void => {
+			released = false;
+			runId += 1;
+		};
 		const delay = props.delay;
 		if (typeof delay !== 'number' || !Number.isFinite(delay) || delay <= 0) {
-			runId += 1;
+			start();
 			return;
 		}
 		const timer = setTimeout(() => {
 			pending = pending.filter((t) => t !== timer);
-			runId += 1;
+			start();
 		}, delay);
 		pending.push(timer);
 	};
@@ -194,8 +204,15 @@
 						{ name: ev?.data?.name, animation, time: ev?.time },
 					)
 				) {
-					fire();
+					fire(true);
 				}
+			}),
+		);
+		onDestroy(
+			onRigPoseClips(rig, (animations) => {
+				// A binding keyed on no particular animation is played while any strip plays.
+				const played = props.animation ? animations.has(props.animation) : animations.size > 0;
+				if (props.continuous && stripArmed && runId > 0 && !played) released = true;
 			}),
 		);
 	}
@@ -205,12 +222,22 @@
 	{#key runId}
 		{#if props.bone}
 			<RigBoneAttach boneName={props.bone} followRotation followScale rigUnits>
-				<EffectPlayer doc={props.doc} forceEmit emitSpeed={props.speed} emitFor={props.duration} />
+				<EffectPlayer
+					doc={props.doc}
+					forceEmit
+					emitSpeed={props.speed}
+					emitFor={released ? 0 : props.duration}
+				/>
 			</RigBoneAttach>
 		{:else}
 			<!-- No bone: the rig origin normally, or the SLOT's own bone when this is a slot binding
 			     (rig drives `fxParent` there, and this mounts inside it). -->
-			<EffectPlayer doc={props.doc} forceEmit emitSpeed={props.speed} emitFor={props.duration} />
+			<EffectPlayer
+				doc={props.doc}
+				forceEmit
+				emitSpeed={props.speed}
+				emitFor={released ? 0 : props.duration}
+			/>
 		{/if}
 	{/key}
 {/if}
