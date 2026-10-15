@@ -7,8 +7,12 @@
 		VALUE_SOURCE_CATALOG,
 		bindingTargetsForKind,
 		defaultBindingOutRange,
+		drivableFxParam,
+		drivableFxParams,
 		evaluateBinding,
+		fxParamBindingIssue,
 		isLiveBinding,
+		isSwitchBinding,
 		type ComponentParam,
 		type LayoutNode,
 		type ValueBinding,
@@ -19,6 +23,7 @@
 	} from 'engine-layout';
 
 	import type { RigMeta } from './rigRuntime.client';
+	import { placedEffect } from './placedEffects.client.svelte';
 	import {
 		clearNodePreview,
 		previewInput,
@@ -65,6 +70,7 @@
 		frame: 'Clip frame',
 		animTime: 'Scrub animation',
 		bone: 'Rig bone',
+		fxParam: 'Effect parameter',
 	};
 	/** What the OUT range means for a target — the unit the author types. */
 	const OUT_UNITS: Record<ValueBindingTarget, string> = {
@@ -80,6 +86,7 @@
 		frame: 'frame number (blank top = last)',
 		animTime: 'share of the animation, 0–1',
 		bone: '',
+		fxParam: 'the parameter’s value (blank = its own range)',
 	};
 	const BONE_UNITS: Record<ValueBindingBoneProperty, string> = {
 		x: 'px added',
@@ -114,6 +121,19 @@
 
 	const targets = $derived(bindingTargetsForKind(node.kind));
 	const bindings = $derived(node.valueBindings ?? []);
+
+	// ---- Effect parameters (Invisible FX Step 2) ---------------------------------------------------
+	/** The placed effect, resolved as the game resolves it (loaded on first ask). */
+	const placedFx = $derived(node.kind === 'effect' ? placedEffect(node.effectId) : undefined);
+	/** Its parameters a binding can drive: number and on/off ones (a colour is not bindable). */
+	const fxParams = $derived(drivableFxParams(placedFx?.params));
+	const fxParamOf = (b: ValueBinding) =>
+		b.target === 'fxParam' ? drivableFxParam(placedFx?.params, b.fxParam) : undefined;
+	/** A `drives` choice: a target, or `fxParam:<id>` for one effect parameter. */
+	const FX_CHOICE = 'fxParam:';
+	const targetChoice = (b: ValueBinding): string =>
+		b.target === 'fxParam' ? `${FX_CHOICE}${b.fxParam ?? ''}` : b.target;
+	const plainTargets = $derived(targets.filter((t) => t !== 'fxParam'));
 
 	// ---- Source options --------------------------------------------------------------------------
 	type SourceOption = { value: string; label: string; note?: string };
@@ -175,12 +195,15 @@
 		onChange();
 	}
 
-	function addBinding(target: ValueBindingTarget): void {
+	function addBinding(choice: string): void {
+		const target = (choice.startsWith(FX_CHOICE) ? 'fxParam' : choice) as ValueBindingTarget;
 		const binding: ValueBinding = { target };
-		if (target === 'visible') {
+		if (target === 'fxParam') binding.fxParam = choice.slice(FX_CHOICE.length);
+		const fxParam = fxParamOf(binding);
+		if (isSwitchBinding(binding, fxParam)) {
 			binding.threshold = 1;
 		} else {
-			const [outMin, outMax] = defaultBindingOutRange({ target });
+			const [outMin, outMax] = defaultBindingOutRange({ target }, fxParam);
 			binding.inMin = 0;
 			binding.inMax = 1;
 			binding.outMin = outMin;
@@ -209,7 +232,8 @@
 	/** Change what a binding drives: its source and input range stay, the output resets to the new
 	 *  target's default (a 0..100 px move means nothing as a scale), and the old target's own
 	 *  fields go. */
-	function setTarget(b: ValueBinding, target: ValueBindingTarget): void {
+	function setTarget(b: ValueBinding, choice: string): void {
+		const target = (choice.startsWith(FX_CHOICE) ? 'fxParam' : choice) as ValueBindingTarget;
 		b.target = target;
 		for (const key of [
 			'threshold',
@@ -218,14 +242,17 @@
 			'animation',
 			'bone',
 			'boneProperty',
+			'fxParam',
 		] as const)
 			delete b[key];
-		if (target === 'visible') {
+		if (target === 'fxParam') b.fxParam = choice.slice(FX_CHOICE.length);
+		const fxParam = fxParamOf(b);
+		if (isSwitchBinding(b, fxParam)) {
 			b.threshold = 1;
 			delete b.outMin;
 			delete b.outMax;
 		} else {
-			const [outMin, outMax] = defaultBindingOutRange({ target });
+			const [outMin, outMax] = defaultBindingOutRange({ target }, fxParam);
 			b.outMin = outMin;
 			if (outMax !== undefined) b.outMax = outMax;
 			else delete b.outMax;
@@ -286,7 +313,7 @@
 	// ---- Test value (preview) ------------------------------------------------------------------
 	/** The scrub's range: the binding's input range, or around the threshold for show / hide. */
 	function testRange(b: ValueBinding): { min: number; max: number } {
-		if (b.target === 'visible') {
+		if (isSwitchBinding(b, fxParamOf(b))) {
 			const threshold = b.threshold ?? 1;
 			return { min: Math.min(0, threshold), max: Math.max(1, threshold * 2) };
 		}
@@ -315,15 +342,36 @@
 		frame: '(frame)',
 		animTime: 'of the animation',
 		bone: '',
+		fxParam: '',
 	};
 
 	function formatOutput(b: ValueBinding, input: number): string {
-		const out = evaluateBinding(b, input);
+		const fxParam = fxParamOf(b);
+		const out = evaluateBinding(b, input, undefined, fxParam);
 		if (b.target === 'visible') return out >= 0.5 ? 'shown' : 'hidden';
+		if (isSwitchBinding(b, fxParam)) return out >= 0.5 ? 'on' : 'off';
+		if (b.target === 'fxParam') return `${b.fxParam ?? '?'} = ${Math.round(out * 100) / 100}`;
 		const unit = SHORT_UNITS[b.target === 'bone' ? (b.boneProperty ?? 'scale') : b.target];
 		return `${Math.round(out * 100) / 100} ${unit}`;
 	}
 </script>
+
+{#snippet fxOptions(b?: ValueBinding)}
+	{#if fxParams.length || b?.target === 'fxParam'}
+		<optgroup label="Effect parameters">
+			{#each fxParams as param (param.id)}
+				<option value={`${FX_CHOICE}${param.id}`}
+					>⚡ {param.id} ({param.kind === 'bool' ? 'on/off' : 'number'})</option
+				>
+			{/each}
+			{#if b?.target === 'fxParam' && !fxParamOf(b)}
+				<option value={targetChoice(b)}
+					>⚡ {b.fxParam || '(pick one)'} ({placedFx ? 'not in this effect' : 'loading…'})</option
+				>
+			{/if}
+		</optgroup>
+	{/if}
+{/snippet}
 
 <section class="value-bindings">
 	<h3>Bind to value</h3>
@@ -341,13 +389,13 @@
 			<div class="row">
 				<label class="field">
 					<span>drives</span>
-					<select
-						value={b.target}
-						onchange={(e) => setTarget(b, e.currentTarget.value as ValueBindingTarget)}
-					>
-						{#each targets as target (target)}
+					<select value={targetChoice(b)} onchange={(e) => setTarget(b, e.currentTarget.value)}>
+						{#each plainTargets as target (target)}
 							<option value={target}>{TARGET_LABELS[target]}</option>
 						{/each}
+						{#if targets.includes('fxParam')}
+							{@render fxOptions(b)}
+						{/if}
 					</select>
 				</label>
 				<button class="ghost-sm danger" title="Remove this binding" onclick={() => removeBinding(i)}
@@ -401,7 +449,7 @@
 				</div>
 			{/if}
 
-			{#if b.target === 'visible'}
+			{#if isSwitchBinding(b, fxParamOf(b))}
 				<div class="row">
 					<label class="field">
 						<span>threshold</span>
@@ -422,13 +470,19 @@
 								changed();
 							}}
 						/>
-						<span>show below instead</span>
+						<span>{b.target === 'visible' ? 'show' : 'on'} below instead</span>
 					</label>
 				</div>
-				<p class="bind-hint">
-					Shown while the number is {b.below ? 'below' : 'at or above'} the threshold — e.g. pot size
-					stage ≥ 2, or pot full ≥ 1.
-				</p>
+				{#if b.target === 'visible'}
+					<p class="bind-hint">
+						Shown while the number is {b.below ? 'below' : 'at or above'} the threshold — e.g. pot size
+						stage ≥ 2, or pot full ≥ 1.
+					</p>
+				{:else}
+					<p class="bind-hint">
+						“{b.fxParam}” is on while the number is {b.below ? 'below' : 'at or above'} the threshold.
+					</p>
+				{/if}
 			{:else}
 				{#if b.target === 'fill'}
 					<div class="row">
@@ -543,7 +597,7 @@
 							type="number"
 							step="any"
 							value={b.outMin ?? ''}
-							placeholder={String(defaultBindingOutRange(b)[0])}
+							placeholder={String(defaultBindingOutRange(b, fxParamOf(b))[0])}
 							oninput={(e) => setNumber(b, 'outMin', e.currentTarget.valueAsNumber)}
 						/>
 					</label>
@@ -553,7 +607,7 @@
 							type="number"
 							step="any"
 							value={b.outMax ?? ''}
-							placeholder={String(defaultBindingOutRange(b)[1] ?? 'last')}
+							placeholder={String(defaultBindingOutRange(b, fxParamOf(b))[1] ?? 'last')}
 							oninput={(e) => setNumber(b, 'outMax', e.currentTarget.valueAsNumber)}
 						/>
 					</label>
@@ -609,9 +663,13 @@
 					Does nothing yet: {b.param || b.source
 						? b.target === 'animTime'
 							? 'pick an animation.'
-							: 'pick a bone.'
+							: b.target === 'fxParam'
+								? 'pick the effect parameter.'
+								: 'pick a bone.'
 						: 'choose a number in “from”.'}
 				</p>
+			{:else if fxParamBindingIssue(b, placedFx)}
+				<p class="bind-hint warn">Does nothing: {fxParamBindingIssue(b, placedFx)?.message}</p>
 			{/if}
 
 			<div class="test">
@@ -645,18 +703,27 @@
 			<select
 				value=""
 				onchange={(e) => {
-					const target = e.currentTarget.value as ValueBindingTarget;
+					const choice = e.currentTarget.value;
 					e.currentTarget.value = '';
-					if (target) addBinding(target);
+					if (choice) addBinding(choice);
 				}}
 			>
 				<option value="">+ drive…</option>
-				{#each targets as target (target)}
+				{#each plainTargets as target (target)}
 					<option value={target}>{TARGET_LABELS[target]}</option>
 				{/each}
+				{#if targets.includes('fxParam')}
+					{@render fxOptions()}
+				{/if}
 			</select>
 		</label>
 	</div>
+	{#if targets.includes('fxParam') && placedFx && !fxParams.length}
+		<p class="bind-hint">
+			This effect exposes no number or on/off parameter. Expose one in /fx (⚡ on a row) to drive it
+			from here.
+		</p>
+	{/if}
 	{#if !componentMode}
 		<p class="bind-hint">
 			On a screen a binding reads engine values. Inside a component (Component Editor) it can also

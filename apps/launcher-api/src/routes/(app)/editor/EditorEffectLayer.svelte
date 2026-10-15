@@ -41,6 +41,7 @@
 	import {
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
+		type EffectNode,
 		type LayoutNode,
 		type LayoutType,
 		type ResolvedTransform,
@@ -50,6 +51,7 @@
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
 	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
+	import { notePlacedEffect } from './placedEffects.client.svelte';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
@@ -97,9 +99,10 @@
 		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
 		 * NODE id, idempotent (only re-emitted when a box meaningfully grows). */
 		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
-		/** The live values of a placed effect's exposed parameters, by NODE id, read on the ticker.
-		 * Absent ⇒ every effect draws its defaults (already in its stored config). */
-		effectParamValues?: (nodeId: string) => EffectParamValues | undefined;
+		/** The live values of a placed effect's exposed parameters — for the placed node and the doc
+		 * it plays — read on the ticker. Absent ⇒ every effect draws its defaults (already in its
+		 * stored config). */
+		effectParamValues?: (node: EffectNode, doc: EffectDoc) => EffectParamValues | undefined;
 	}
 
 	let {
@@ -135,6 +138,8 @@
 	interface EffectTarget {
 		nodeId: string;
 		effectId: string;
+		/** The placed node, as the current scenes hold it (its bindings drive the parameters). */
+		node: EffectNode;
 		world: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
 	}
 
@@ -142,9 +147,12 @@
 	 * per FREE layer, each in a child container at that layer's offset. Rebuilt when the node's
 	 * effectId / doc / transform changes; disposed on removal. */
 	interface LiveNode {
-		/** The placed node's id — what `effectParamValues` is asked for. */
 		nodeId: string;
 		effectId: string;
+		/** The placed node, refreshed on every rebuild — what `effectParamValues` is asked for. */
+		node: EffectNode;
+		/** The doc it plays, once loaded. */
+		doc: EffectDoc | null;
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
 		placed: EffectTarget['world'];
 		container: Container;
@@ -239,6 +247,7 @@
 					out.push({
 						nodeId: n.id,
 						effectId: n.effectId,
+						node: n,
 						world: {
 							x: wt.x,
 							y: wt.y,
@@ -317,6 +326,7 @@
 		return {
 			nodeId: node.id,
 			effectId: node.effectId,
+			node,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy, rotation },
 		};
 	}
@@ -389,6 +399,7 @@
 			seen.add(tg.nodeId);
 			const existing = liveNodes.get(tg.nodeId);
 			if (existing && existing.effectId === tg.effectId) {
+				existing.node = tg.node;
 				if (!sameTransform(existing.placed, tg.world)) {
 					applyContainerTransform(existing.container, tg.world);
 					existing.placed = tg.world;
@@ -446,6 +457,8 @@
 		const node: LiveNode = {
 			nodeId: tg.nodeId,
 			effectId: tg.effectId,
+			node: tg.node,
+			doc,
 			placed: tg.world,
 			container,
 			emitters: [],
@@ -461,6 +474,7 @@
 			publishReady();
 			return;
 		}
+		notePlacedEffect(doc);
 
 		// `effect.*` drives move a wrapper around the layers — mounted only when the doc has one. Their
 		// targets have no stored leaf, so the defaults are written here even with no live values.
@@ -469,7 +483,7 @@
 			const wrapper = new Container();
 			container.addChild(wrapper);
 			node.fx = { applier: fx, wrapper };
-			fx.apply(effectParamValues?.(tg.nodeId));
+			fx.apply(effectParamValues?.(tg.node, doc));
 			writeEffectLevel(wrapper, fx.state);
 		}
 
@@ -518,7 +532,7 @@
 					layer,
 					emitter,
 					setOffset: (x, y) => layerContainer.position.set(x, y),
-					values: effectParamValues(node.nodeId),
+					values: effectParamValues(node.node, doc),
 				})
 			: undefined;
 		if (applier) node.appliers.push(applier);
@@ -670,8 +684,8 @@
 				const dt = ticker.deltaMS / 1000;
 				for (const node of liveNodes.values()) {
 					let nodeDt = dt;
-					if (effectParamValues && (node.fx || node.appliers.length)) {
-						const values = effectParamValues(node.nodeId);
+					if (effectParamValues && node.doc && (node.fx || node.appliers.length)) {
+						const values = effectParamValues(node.node, node.doc);
 						if (node.fx?.applier.apply(values)) {
 							writeEffectLevel(node.fx.wrapper, node.fx.applier.state);
 						}

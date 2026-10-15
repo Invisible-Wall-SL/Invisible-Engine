@@ -39,6 +39,8 @@
 		type BlendMode,
 		type ComponentDef,
 		type ComponentInstanceNode,
+		type EffectDoc,
+		type EffectNode,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -48,6 +50,7 @@
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
+	import type { EffectParamValues } from 'engine-fx';
 	import { onMount, type Snippet } from 'svelte';
 	import {
 		childLocalTransform,
@@ -93,6 +96,7 @@
 	} from './editorArtBounds.client.svelte';
 	import {
 		previewBindings,
+		previewEffectParamValues,
 		previewOutputs,
 		previewResolveTransform,
 		previewTint,
@@ -1070,6 +1074,10 @@
 	 * ABOVE every art/rig/FX layer — so the screen bounds stay visible once stacked art buries
 	 * the base-canvas guides (which sit at the bottom of the z-stack). Off by default. */
 	let showScreenBorder = $state(false);
+	/** What the live particle overlay applies to a placed effect's exposed parameters: the binding
+	 * test values and the previewed timeline, through the game's fold (Invisible FX Step 2). */
+	const effectPreviewValues = (node: EffectNode, doc: EffectDoc): EffectParamValues | undefined =>
+		previewEffectParamValues(node, doc.params);
 	/** Effect NODE ids the live particle overlay (`EditorEffectLayer`) now renders — the 2D canvas
 	 * skips their placeholder chip so only the live emitters show. UNION across the per-scene effect
 	 * sublayers (each reports only its own scene's node ids). */
@@ -5193,6 +5201,7 @@
 						sceneFilter={sceneFilterFor(s.id)}
 						nodeFilter={normalOverlayFilter(seg)}
 						playing={playingEffects}
+						effectParamValues={effectPreviewValues}
 						onReadyKeysChange={(ids) => {
 							mergeEffectReady(seg.key, ids);
 							schedule();
@@ -5230,6 +5239,7 @@
 							nodeFilter={g.ids}
 							blend={g.css}
 							playing={playingEffects}
+							effectParamValues={effectPreviewValues}
 							onReadyKeysChange={(ids) => {
 								mergeEffectReady(g.key, ids);
 								schedule();
@@ -5348,6 +5358,7 @@
 				{hiddenSceneIds}
 				sceneFilter={hudEffectSceneFilter()}
 				playing={playingEffects}
+				effectParamValues={effectPreviewValues}
 				onReadyKeysChange={(ids) => {
 					mergeEffectReady(HUD_EFFECT_KEY, ids);
 					schedule();

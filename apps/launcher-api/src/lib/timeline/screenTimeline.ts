@@ -2,13 +2,19 @@ import {
 	sampleChannel,
 	sampleNodeActor,
 	sampleTint,
+	type CinematicFxParamChannel,
 	type CinematicNodeSample,
 	type CinematicStrip,
 	type CinematicTrack,
 } from 'engine-cinematic';
+import type { EffectParam } from 'engine-fx';
 import {
 	componentTriggers,
+	drivableFxParams,
 	findNodeByName,
+	fxParamChannel,
+	fxParamOfChannel,
+	fxParamRest,
 	keyedNodeChannels,
 	nodeActorBindings,
 	nodeActorChannelsForKind,
@@ -316,11 +322,70 @@ export function nodeChannelValue(
 	return value ?? NODE_IDENTITY[channel];
 }
 
-/** Does `actorId` key `channel`? */
-export function isChannelKeyed(doc: CinematicDoc, actorId: string, channel: KeyedChannel): boolean {
+/** Does `actorId` key `channel` (a {@link KeyedChannel}, or an effect's `fx:<id>`)? */
+export function isChannelKeyed(doc: CinematicDoc, actorId: string, channel: string): boolean {
 	return tracksOf(doc, actorId).some(
 		(t) => t.kind === 'property' && !!t.channels?.[channel]?.length,
 	);
+}
+
+/** One exposed parameter of a placed effect, as Animate mode keys it: its `fx:<id>` channel. */
+export interface FxChannelRow {
+	channel: CinematicFxParamChannel;
+	param: EffectParam;
+}
+
+/**
+ * The effect parameters Animate mode offers on a node (Invisible FX Step 2): on an effect node, one
+ * `fx:<id>` channel per number or on/off parameter of the placed effect (`params`, its
+ * `EffectDoc.params`), in the effect's order. A colour parameter is not keyed. Empty on any other
+ * node, or while the effect is not loaded.
+ */
+export function keyableFxChannels(
+	node: LayoutNode,
+	params: readonly EffectParam[] | undefined,
+): FxChannelRow[] {
+	if (node.kind !== 'effect') return [];
+	return drivableFxParams(params).map((param) => ({ channel: fxParamChannel(param.id), param }));
+}
+
+/** The `fx:` channels `actorId` keys whose parameter `params` does not declare as drivable — rows
+ *  the Timeline still lists so their keys can be found and removed. */
+export function staleFxChannels(
+	doc: CinematicDoc,
+	actorId: string,
+	params: readonly EffectParam[] | undefined,
+): CinematicFxParamChannel[] {
+	const offered = new Set(drivableFxParams(params).map((p) => fxParamChannel(p.id)));
+	const out: CinematicFxParamChannel[] = [];
+	for (const track of tracksOf(doc, actorId)) {
+		if (track.kind !== 'property' || !track.channels) continue;
+		for (const [name, keys] of Object.entries(track.channels)) {
+			if (fxParamOfChannel(name) === undefined || !keys?.length) continue;
+			const channel = name as CinematicFxParamChannel;
+			if (!offered.has(channel) && !out.includes(channel)) out.push(channel);
+		}
+	}
+	return out;
+}
+
+/**
+ * An `fx:` channel of a node actor at `t`: the keyed value, or where the channel rests while it has
+ * no keys — the parameter's default (a bool reads 1 / 0). What the Animate field shows and ◆ keys.
+ */
+export function fxChannelValue(
+	doc: CinematicDoc,
+	actorId: string,
+	row: FxChannelRow,
+	t: number,
+): number {
+	let value: number | undefined;
+	for (const track of tracksOf(doc, actorId)) {
+		if (track.kind !== 'property' || !track.channels) continue;
+		const v = sampleChannel(track.channels[row.channel], t);
+		if (v !== undefined) value = v;
+	}
+	return value ?? fxParamRest([row.param], row.channel) ?? 0;
 }
 
 /** How a timeline drives one node of the screen at time `t` — the player's own inputs. */

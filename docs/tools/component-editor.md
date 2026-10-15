@@ -248,6 +248,12 @@ binding; a node can carry several. Each binding has these parts:
     events.
   - **Rig bone** — rig only. Offsets one **bone**'s scale, rotation or position on top of
     whatever the rig is playing.
+  - **⚡ <parameter>** — effect only, one entry per number or on/off parameter the placed effect
+    exposes (made with ⚡ in [Invisible FX](fx.md#exposed-parameters)). It sets the parameter
+    itself: a number's **out** range starts at the parameter's own min and max, and an on/off one
+    is on while the number passes a **threshold** (or is below it), like **Show / hide**. The test
+    value moves the live particles on the stage. A colour parameter is not offered yet; a
+    binding whose parameter the effect no longer has says *Does nothing* and is ignored.
 - **from** — where the number comes from:
   - **This component's params** — a number or boolean param of the component.
   - **Pot (this instance's meter)** — offered when the component has a `meter` param (the Pot

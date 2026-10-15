@@ -42,7 +42,14 @@ const dir = mkdtempSync(join(tmpdir(), 'cine-screen-'));
 const layoutShim = join(dir, 'engine-layout.ts');
 writeFileSync(
 	layoutShim,
-	['cinematicNodes', 'componentInterface', 'valueBindings', 'resolveTransform', 'soundLibrary']
+	[
+		'cinematicNodes',
+		'componentInterface',
+		'fxNodeParams',
+		'valueBindings',
+		'resolveTransform',
+		'soundLibrary',
+	]
 		.map((f) => `export * from ${JSON.stringify(join(LAYOUT_LIB, `${f}.ts`))};`)
 		.join('\n'),
 );
