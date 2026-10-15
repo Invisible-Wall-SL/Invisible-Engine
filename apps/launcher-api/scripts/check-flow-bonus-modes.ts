@@ -311,7 +311,16 @@ check(
 // ── 5. every current doc is byte-identical to main ─────────────────────────────────────────────
 /** The two `mode` field descriptions' new wording, and `main`'s (Phase 5c rewords those only). */
 const MODE_WORDING = 'absent ⇒ the primary respin mode';
-const asMain = (text: string): string => text.replaceAll(MODE_WORDING, 'absent ⇒ `holdAndWin`');
+/** `drainPots`'s input description since it drains on a Mode trigger and a Hold and Win entry too
+ *  (2026-10-15), and `main`'s before. */
+const DRAIN_WORDING =
+	'The mode entry whose pots drain: on a Mode trigger (enter) chain, or on a `freeSpinTrigger`, `modeEnter` or `holdAndWinTrigger` chain, set accessor $trigger with no field. Any other event is refused.';
+const DRAIN_WORDING_MAIN =
+	'The `freeSpinTrigger` or `modeEnter` event this beat presents: on either chain, set accessor $trigger with no field. Any other event is refused.';
+const asMain = (text: string): string =>
+	text
+		.replaceAll(MODE_WORDING, 'absent ⇒ `holdAndWin`')
+		.replaceAll(DRAIN_WORDING, DRAIN_WORDING_MAIN);
 const digest = (value: unknown): string =>
 	createHash('sha256')
 		.update(asMain(json(value)))
@@ -405,6 +414,14 @@ const rewordedAt = (vocab: TemplateVocabulary): string[] =>
 		),
 	);
 
+/** Where a vocabulary carries `drainPots`'s new wording: `action.param` per description that has it. */
+const drainRewordedAt = (vocab: TemplateVocabulary): string[] =>
+	vocab.actions.flatMap((action) =>
+		action.params.flatMap((param) =>
+			param.description === DRAIN_WORDING ? [`${action.name}.${param.name}`] : [],
+		),
+	);
+
 for (const [name, kind, doc] of currentDocs()) {
 	const addOns = flowAddOnsOf(doc);
 	const docVocab = withAddOns(templateVocabulary(kind), addOns);
@@ -413,6 +430,13 @@ for (const [name, kind, doc] of currentDocs()) {
 			'respinReveal.mode',
 			'holdAndWinState.mode',
 		]);
+	}
+	if (docVocab.actions.some((action) => action.name === 'drainPots')) {
+		same(
+			`5. ${name} · drainPots' new wording is on its bookEvent alone`,
+			drainRewordedAt(docVocab),
+			['drainPots.bookEvent'],
+		);
 	}
 	const seed = graftAddOnSteps(freshDrivenSeedDoc(kind), addOns).doc;
 	const facts = {
