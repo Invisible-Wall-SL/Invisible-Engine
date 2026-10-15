@@ -779,7 +779,9 @@ const stripTimeline = (id: string, extra: Partial<CinematicDoc> = {}): Cinematic
 			['c_winpresentation_fade_hidden', 'fade'],
 			['c_winpresentation_fade_shown', 'fade'],
 			['c_winpresentation_hide', 'visual'],
-			['c_winpresentation_big_walk', 'countPlain,tier,visual'],
+			// `mega` has a caption, so every walk keys the caption node (`''` on `big`): a walk never
+			// leaves the previous tier's caption on screen.
+			['c_winpresentation_big_walk', 'caption,countPlain,tier,visual'],
 			['c_winpresentation_big_rewind', 'tier'],
 			['c_winpresentation_big_idle', 'tier'],
 			['c_winpresentation_big_loop', 'tier'],

@@ -1748,7 +1748,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 			?.keys?.[0]?.key;
 	const modeDef = C.winPresentationDef([{ alias: 'big', name: 'Big', ...modeTier }]);
 	eq(
-		"(d) each mode with its own caption walks the tier under the mode's signal, keyed to its caption",
+		"(d) each mode with its own caption walks the tier under the mode's signal, keyed to its caption ('' clears it)",
 		[
 			[walkOf()?.playOn, captionKey(walkOf())],
 			[walkOf('bonus')?.playOn, captionKey(walkOf('bonus'))],
@@ -1764,7 +1764,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[
 			['winTier.big', 'BIG WIN'],
 			['winTier.big@bonus', 'BONUS BIG'],
-			['winTier.big@quiet', undefined],
+			['winTier.big@quiet', ''],
 			true,
 			[],
 			['BIG WIN', 'BONUS BIG'],
@@ -1774,6 +1774,25 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		'(d) no mode caption ⇒ the generated timelines are exactly the base set',
 		B.winTierTimelines(TIERS, CLIP_MS).map((d) => d.id),
 		generated.map((d) => d.id),
+	);
+	const textKeys = (docs: CinematicDoc[]) =>
+		docs.filter((d) => d.id.endsWith('_walk')).map((d) => [d.id, captionKey(d) ?? null]);
+	eq(
+		"(d) no caption anywhere ⇒ no walk keys the caption; any caption ⇒ a captionless walk keys '' (clears it)",
+		[
+			textKeys(B.winTierTimelines(TIERS.slice(0, 2), CLIP_MS)),
+			textKeys(B.winTierTimelines([TIERS[0], { ...TIERS[1], caption: 'SUPER WIN' }], CLIP_MS)),
+		],
+		[
+			[
+				[B.winTierWalkTimelineId('big'), null],
+				[B.winTierWalkTimelineId('superwin'), null],
+			],
+			[
+				[B.winTierWalkTimelineId('big'), ''],
+				[B.winTierWalkTimelineId('superwin'), 'SUPER WIN'],
+			],
+		],
 	);
 	const authoredWinSrc = src('../../lines/src/game/authoredWin.svelte.ts');
 	const gate = src('../../lines/src/components/WinGate.svelte');
@@ -1792,8 +1811,8 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 {
 	// Engine-wide effects stay off the default path (Phase 8b review): `frameExact` is the win
 	// presentation's alone; a strip poses from the setup pose only on a trackless rig; timelines
-	// end exactly as on main for every def, the win's included (a held clip ends on the rig's clock,
-	// so the snap-to-end #1194 gave a `frameExact` def is gone).
+	// end by the pre-#1194 rule for every def, the win's included (a held clip ends on the rig's
+	// clock, so the snap-to-end #1194 gave a `frameExact` def is gone).
 	const instance = src('../../../packages/engine-layout/src/lib/ComponentInstance.svelte');
 	const nodeView = src('../../../packages/engine-layout/src/lib/LayoutNodeView.svelte');
 	eq(

@@ -13,7 +13,7 @@
 // VARIANTS, each a coded/authored pair on the same inputs (`--variant` picks one; default all):
 //   base         WIN_X=10,20,40,70,120 — five consecutive base spins land one big tier each; the
 //                intro (+12 +24 +48 +96) and the idle (+120 +240) of every tier.
-//   slam-small   the PLAIN-NUMBER presentation (no tier rig: the `winPlain` walk), Space 6 frames
+//   slam-plain   the PLAIN-NUMBER presentation (no tier rig: the `winPlain` walk), Space 6 frames
 //                after `winShow`. The Play4Fun facade every shipped game runs announces a win with
 //                `setWin` only at a `big`-typed tier (`engineFacade.ts`, `isBigWinLevel`), so a
 //                small / medium win never shows the overlay at all; the plain number is what a big
@@ -106,7 +106,7 @@ const VARIANTS = {
 		env: { WIN_X: '10,20,40,70,120' },
 		spins: BIG_TIERS.map((tier) => ({ tier, offsets: INTRO_AND_IDLE })),
 	},
-	'slam-small': {
+	'slam-plain': {
 		env: { WIN_X: '10' },
 		config: { plainTier: 'big' },
 		spins: [{ tier: 'big', offsets: [12, 24, 48], press: 'slam' }],
@@ -127,8 +127,15 @@ const VARIANTS = {
 		flow: 'holdToSpeedUp',
 		// The hold ends the chain early (the count lands at the held speed, then the outro): the
 		// presentation spans 375 frames, and +380 / +390 are inside the hide's fade-out, with the
-		// pointer still held.
-		spins: [{ tier: 'max', offsets: [60, 120, 240, 360, 374, 380, 390], press: 'hold' }],
+		// pointer still held. `maxSpan` proves the hold engaged: unheld, the same win spans 1951.
+		spins: [
+			{
+				tier: 'max',
+				offsets: [60, 120, 240, 360, 374, 380, 390],
+				press: 'hold',
+				maxSpan: 900,
+			},
+		],
 	},
 	turbo: {
 		env: { WIN_X: '10' },
@@ -449,7 +456,7 @@ async function play(name, variant, side, bundle) {
 			// Read after the captures: `winLevel` follows `winUpdate`, a beat after the cue.
 			rec.winLevel = s.winLevel ?? null;
 			// To the hide: tap past any press-to-continue every TAP_EVERY frames, the same frames on
-			// both sides (a held Space is released after the hide).
+			// both sides (a held pointer is released after the hide).
 			for (let ran = 0; count(s, HIDE) <= hides && ran < MAX_FRAMES_TO_HIDE; ran += HIDE_BATCH) {
 				await step(HIDE_BATCH);
 				s = await state();
@@ -519,6 +526,11 @@ for (const name of chosen) {
 			fail(`${label}: win levels differ (${a.winLevel} vs ${b.winLevel})`);
 		const codedSpan = a.hideFrame - a.showFrame;
 		const authoredSpan = b.hideFrame - b.showFrame;
+		// A press that never engaged passes every capture on both sides: the span says it did.
+		if (spin.maxSpan !== undefined && Math.max(codedSpan, authoredSpan) > spin.maxSpan)
+			fail(
+				`${label}: the presentation spanned ${codedSpan} / ${authoredSpan} frames, over ${spin.maxSpan} — the hold never engaged`,
+			);
 		// A capture after the hide's fade-out compares two empty frames: the presentation must
 		// outlast every capture (its 400 ms fade included) — except a slam, which ends it early by design; its proof is the hide on the same
 		// frame (checked above) and every capture, before or after the hide, matching.

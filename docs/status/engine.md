@@ -273,7 +273,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   ran a frame ahead. Each clip is now its own held timeline — `…_walk` (intro, `winTier.<alias>`)
   and `…_idle` (one cycle, `winTierIdle.<alias>`, non-final tiers) — and `winWalk.ts` gained a
   `cycle` phase; the final tier loops straight after its intro. `toFrame` and the player's
-  `snapEnds` are gone (the player's end rule is `main`'s for every def). **Flag-on fixes:**
+  `snapEnds` are gone (the player ends a timeline by the pre-#1194 rule for every def). **Flag-on fixes:**
   (a) a cascade `winUpdate` (no tier data) starts no walk / fade; (b) `start` is taken once, from
   `idle`, and a count / tap / landing hold that arrives first is folded into it; (c) the swap writes
   the tiers' resolved rig and count slot into the instance params (`withAuthoredWinDoc(doc,
@@ -284,15 +284,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   while a held pointer keeps its speed, which cut the hide's 400 ms fade to a few frames; (g) the
   coded rewind under the fade-out (an escalating chain restarts its first tier's intro when
   `winHide` clears the count latch) is mirrored by `winTierRewind.<first>`. **Parity
-  (`check:win-parity`, local, no masks):** base, slam-small, slam-big, escalation (t+12…t+1680),
+  (`check:win-parity`, local, no masks):** base, slam-plain, slam-big, escalation (t+12…t+1680),
   held (t+60…t+374), turbo and placed are 0 px at every capture, `winHide` on the same frame. The
   captures past the hide (the 400 ms fade) still differ in two escalating cases — `escalation`
   +1956 / +1966 0.19 % / 0.21 % (the winning symbols' pulse; not traced) and `held` +380 / +390
   1.7 % / 10 % (the coded rewind runs at the frozen hold speed; one component play rate cannot
   also keep the hide's cut) — so `AUTHORED_WIN_LOCKED` stays for the coordinator's call.
-  **Harness:** `slam-small` measures the plain-number presentation (a big tier with no animation —
+  **Harness:** `slam-small` is renamed `slam-plain` and measures the plain-number presentation (a big tier with no animation —
   the Play4Fun facade emits `setWin` at big tiers only, so a small / medium win never shows the
-  overlay); `held` holds the POINTER (Space is the slam key) and captures into the fade-out;
+  overlay); `held` holds the POINTER (Space is the slam key), captures into the fade-out and fails when its span shows the hold never engaged (`maxSpan`: 375 held vs 1951 unheld); a captionless walk keys the caption `''` whenever any tier or mode has one, so the previous tier's caption never lingers;
   `transition-parity` has its turbo pair back (0 px, flow continues on the same frame). Gates:
   `check:authored-win` 131, `check:component-timelines` 80, engine-game fixtures 13/13.
 - 2026-10-15 — **The authored free-spin intro / outro behind a per-project flag (Rive plan Phase 8c,

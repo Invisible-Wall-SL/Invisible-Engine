@@ -246,10 +246,16 @@ export function winTierTimelines(
 			]),
 		]),
 	];
+	// Once any tier or mode authors a caption, EVERY walk keys it — `''` (the node's own text) where it
+	// has none — so a walk never leaves the previous walk's caption on screen; the coded caption is
+	// drawn only while the tier on show has one. No caption anywhere ⇒ no text track at all.
+	const keysCaption = tiers.some(
+		(tier) => !!tier.caption || Object.values(tier.modeCaptions ?? {}).some((c) => c.length > 0),
+	);
 	for (const tier of tiers) {
 		const intro = seconds(tier.intro);
 		const idle = seconds(tier.idle);
-		const walkDoc = (mode: string | undefined, caption: string | undefined): CinematicDoc =>
+		const walkDoc = (mode: string | undefined, caption: string): CinematicDoc =>
 			winDoc(
 				winTierWalkTimelineId(tier.alias, mode),
 				mode === undefined ? `Win: ${tier.alias} walk` : `Win: ${tier.alias} walk (${mode})`,
@@ -267,7 +273,7 @@ export function winTierTimelines(
 								},
 							]
 						: []),
-					...(caption
+					...(keysCaption
 						? [
 								{
 									id: 'caption-text',
@@ -281,12 +287,12 @@ export function winTierTimelines(
 				],
 				intro > 0,
 			);
-		docs.push(walkDoc(undefined, tier.caption));
+		docs.push(walkDoc(undefined, tier.caption ?? ''));
 		// A spins mode that speaks its own caption for the tier walks it (the coded caption reads
 		// `boardWinText()`, the mode on top); the conductor fires the mode's signal.
 		const modeCaptions = tier.modeCaptions ?? {};
 		for (const mode of Object.keys(modeCaptions).sort())
-			docs.push(walkDoc(mode, modeCaptions[mode] || undefined));
+			docs.push(walkDoc(mode, modeCaptions[mode]));
 		docs.push(
 			winDoc(
 				winTierRewindTimelineId(tier.alias),
