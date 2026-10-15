@@ -995,7 +995,11 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     and through the bonus, 3/12 mid-drain just after the exit, 0/12 at idle. Balance 100 → 119.50
     = −1 + 20.50. STOP pressed mid-spin on the trigger spin (90 frames in): without the re-arm the
     intro flashed past and the round never stopped on it; with it, the round sped up (intro at frame
-    1009, not 1119) and the intro still waited 600 idle frames for the tap.
+    1009, not 1119) and the intro still waited 600 idle frames for the tap. After the review fixes,
+    STOP pressed during the fill and drain (230/270/310 frames in): the old build showed the bonus
+    two frames later with no intro, the fixed one held the intro for the tap. A flow with no held
+    entry plays frame-identically on both builds, with a STOP (bonus at 924, idle at 2132) and
+    without (1037, 2547).
     `check:pots-overlay`, `check:engine-game`, `check:holdandwin`, `check:freespins` and the
     game-config `bonusGames` fixture (new §9) pass; svelte-check at baseline for `apps/lines`,
     `apps/launcher-api` and `engine-game`.
