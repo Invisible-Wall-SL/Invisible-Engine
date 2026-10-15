@@ -250,8 +250,9 @@ binding; a node can carry several. Each binding has these parts:
     whatever the rig is playing.
   - **⚡ <parameter>** — effect only, one entry per number or on/off parameter the placed effect
     exposes (made with ⚡ in [Invisible FX](fx.md#exposed-parameters)). It sets the parameter
-    itself: a number's **out** range starts at the parameter's own min and max, and an on/off one
-    is on while the number passes a **threshold** (or is below it), like **Show / hide**. The test
+    itself: a number's **out** range is left blank so it follows the parameter's own min and max
+    (shown greyed, even after they change in /fx), and an on/off one is on while the number passes
+    a **threshold** (or is below it), like **Show / hide**. The test
     value moves the live particles on the stage. A colour parameter is not offered yet; a
     binding whose parameter the effect no longer has says *Does nothing* and is ignored.
 - **from** — where the number comes from:

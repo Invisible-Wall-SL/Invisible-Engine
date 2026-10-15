@@ -1,7 +1,6 @@
-import type { EffectParam } from 'engine-fx';
 import { clearEffects, registerEffects, resolveEffect, type EffectDoc } from 'engine-layout';
 
-import { editorProjectKey } from './editorProject.client';
+import { editorProjectKey, withEditorProject } from './editorProject.client';
 
 /**
  * The PLACED effects' docs for the editor family (Scene Editor + Component Editor), held in the
@@ -12,10 +11,15 @@ import { editorProjectKey } from './editorProject.client';
  *
  * The live particle overlay registers each doc it loads ({@link notePlacedEffect}), so the registry
  * holds what the stage plays; a panel asking for an effect the overlay has not loaded fetches it
- * once. Reactive through {@link placedEffectsVersion}. A different bound project drops them all.
+ * once, pinned to the tab's project (a session another tab moved is refused, never answered with
+ * that project's effect). A failed read is asked again after {@link RETRY_MS}. Reactive through
+ * {@link placedEffectsVersion}. A different bound project drops them all.
  */
 const version = $state({ n: 0 });
-/** Ids already fetched or in flight — bookkeeping only, never rendered. */
+/** How long a failed read waits before the next ask fetches it again — so a dangling id is not
+ *  re-fetched on every render. */
+const RETRY_MS = 5000;
+/** Ids fetched, in flight or waiting to retry — bookkeeping only, never rendered. */
 // eslint-disable-next-line svelte/prefer-svelte-reactivity
 const pending = new Set<string>();
 let loadedFor: string | null = null;
@@ -42,14 +46,19 @@ export function notePlacedEffect(doc: EffectDoc): void {
 }
 
 async function load(effectId: string): Promise<void> {
+	const project = loadedFor;
+	let doc: EffectDoc | null | undefined;
 	try {
-		const res = await fetch(`/api/editor/effect?id=${encodeURIComponent(effectId)}`);
-		if (!res.ok) return;
-		const body = (await res.json()) as { doc?: EffectDoc | null };
-		if (body.doc && loadedFor === editorProjectKey()) notePlacedEffect(body.doc);
+		const res = await fetch(
+			withEditorProject(`/api/editor/effect?id=${encodeURIComponent(effectId)}`),
+		);
+		if (res.ok) doc = ((await res.json()) as { doc?: EffectDoc | null }).doc;
 	} catch {
 		// An unreadable effect lists no parameters; its node keeps every other binding and channel.
 	}
+	if (project !== loadedFor) return;
+	if (doc) notePlacedEffect(doc);
+	else setTimeout(() => pending.delete(effectId), RETRY_MS);
 }
 
 /**
@@ -66,11 +75,4 @@ export function placedEffect(effectId: string | undefined): EffectDoc | undefine
 		void load(effectId);
 	}
 	return doc;
-}
-
-/** The placed effect's exposed parameters (`undefined` while it is not loaded). Reactive. */
-export function placedEffectParams(
-	effectId: string | undefined,
-): readonly EffectParam[] | undefined {
-	return placedEffect(effectId)?.params;
 }

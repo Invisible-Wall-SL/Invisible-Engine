@@ -78,43 +78,66 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   - **Timeline channel.** `fx:<id>`, one per number or bool parameter, from
     `nodeActorChannelsForKind('effect', params)`.
     - `NodeActorChannel` is now ``(typeof NODE_ACTOR_CHANNELS)[number] | `fx:${string}` ``: the fixed
-      list is one exported value, and `FX_PARAM_CHANNEL_PREFIX` is exported once by the evaluator
-      (re-exported by `engine-layout`).
+      list is one exported value, and `FX_PARAM_CHANNEL_PREFIX` is exported once, by the evaluator;
+      `engine-layout` builds every channel name from it (`fxParamChannel`).
     - The evaluator (`sampleNodeActor`) samples every `fx:` channel of a property track under its
       own name: a number interpolates, a bool is keyed 0 / 1 on `hold` keys (Animate keys it that
       way). The node reads a bool as on from 0.5, so a blend steps it at half way.
     - Colours are left out: the evaluator interpolates colour only on a channel named `tint`.
     - `static/shared/cinematicEval.mjs` is regenerated.
   - **One fold.** `nodeActorBindings` turns each `fx:<id>` channel into an `fxParam` binding, so a
-    timeline joins the node's own bindings in `<LayoutNodeView>`'s existing `allBindings` /
-    `allOutputs`. `boundFxParamValues` (`fxNodeParams.ts`) reads them in order, the last value
-    winning. That is the rule `withNodeActorOutputs` already gives `fill` and `frame`: a timeline
-    after the node's own bindings, a later binding over an earlier one.
-    - `<EffectPlayer params>` gets a getter over a `$derived` of that, recomputed when the outputs
-      change, not once per layer per frame (`createFxParamValues`).
-    - A **bone-hosted** effect (`hostSpineId`) has no view of its own, so `DrivenEffectPlayer.svelte`
-      runs the same fold for it, mounted only when something drives it.
+    timeline joins the node's own bindings in `allBindings` / `allOutputs`. `boundFxParamValues`
+    (`fxNodeParams.ts`) reads them in order, the last value winning. That is the rule
+    `withNodeActorOutputs` already gives `fill` and `frame`: a timeline after the node's own
+    bindings, a later binding over an earlier one.
+    - The fold is ONE function, `createNodeFold` (`nodeFold.svelte.ts`): `<LayoutNodeView>` runs it
+      for every node (it replaced the view's inline `createBoundValues` → `withNodeActorOutputs`
+      code, same deriveds) and `DrivenEffectPlayer.svelte` for a bone-hosted effect. It hands the
+      effect's parameter shapes to `createBoundValues`, and gives `<EffectPlayer params>` a getter
+      over a `$derived` of the values, recomputed when the outputs change, not once per layer per
+      frame.
+    - A **bone-hosted** effect (`hostSpineId`) has no view of its own, so `DrivenEffectPlayer` runs
+      the fold for it, mounted only when something drives it. Whether something does is asked
+      once per effect, untracked (`attachedEffectDrives`), so a re-render never swaps its player.
   - **State machine blend.** `blendNodeSamples` mixes `fx:` channels on an effect node. The player
     hands it each channel's rest, the parameter's default read from `resolveEffect`, so a blend
     where only one state keys the parameter mixes from or towards the default. With no rest known
     it steps at half way.
   - **Unknown or stale ids are inert and reported.** Inert at runtime: `boundFxParamValues` skips
     them, and the applier ignores a value no parameter declares.
-    - `validateNodeActors` reports `fx-param-unknown`. Its new `effects` argument defaults to the
-      game registry; an effect it does not know is left unchecked.
+    - `validateNodeActors` reports `fx-param-unknown`. Its new `effects` argument resolves the
+      caller's own effects and defaults to resolving none, so validation never reads a
+      process-wide registry: the editor passes the effects it loaded (`placedEffect`), and
+      `/flow-v2`'s server load passes a resolver that knows none (it reads no effect docs, so
+      `fx:` channels go unchecked on that page). An effect it does not know is left unchecked.
     - **Bind to value** shows `fxParamBindingIssue` (missing, unknown, colour) on the row.
   - **Editor.**
     - `placedEffects.client.svelte.ts` keeps the placed effects in the engine's own registry
       (`registerEffects`; the live overlay notes each doc it loads, a panel fetches one it lacks),
       so lists, validation and blends read them as the game does.
-    - **Bind to value** lists `⚡ <param>` in **drives** (number or on/off; out range defaults to the
-      parameter's range; an on/off one gets threshold / below).
+      - Both reads (the loader's and the overlay's `loadEffectDoc`) are pinned to the tab's
+        project (`withEditorProject`), and `/api/editor/effect` now refuses a pin the session no
+        longer holds (409 `scope-mismatch`). So a second tab on another project can't make this one
+        list that project's parameters. The Rigger and Symbols, which send no pin, read as before.
+      - A failed read is asked again after 5 s.
+      - A doc is not refreshed when the tab regains focus. No effect reload signal exists to hang
+        it on, and refreshing the lists alone would let them disagree with the stage. A canvas
+        remount (or a page reload) reads the docs again.
+    - **Bind to value** lists `⚡ <param>` in **drives** (number or on/off; an on/off one gets
+      threshold / below). A number binding is created with its out range blank, so it follows the
+      parameter's range, shown as the placeholder, even after the range changes in `/fx`.
     - **Animate** lists a `⚡ <param>` row per parameter (a number field, or a tick box that keys a
       stepped key).
-    - The shared Timeline module gains a `host.actorChannels(cast)` hook (the editor adds the
-      effect's rows; a keyed `fx:` channel the effect no longer declares shows as `⚠`, so its keys
-      can be removed) and a `keyProperty(…, ease)` argument. `/rigger` passes neither and is
-      unchanged; `timeline.mjs` is regenerated.
+    - The shared Timeline module gains a `host.actorChannels(cast)` hook and a
+      `keyProperty(…, ease)` argument. `/rigger` passes neither and is unchanged; `timeline.mjs`
+      is regenerated.
+      - The editor adds the effect's rows through the hook (`fxTimelineRows` in
+        `screenTimeline.ts`).
+      - A keyed `fx:` channel the effect does not declare shows as `⚠`, so its keys can be removed.
+        That includes an effect whose last parameter was removed.
+      - While the effect is not loaded, every keyed `fx:` channel is listed as it is.
+    - The panel's issues re-run when an effect doc lands, and check every host (the component and
+      each in **Also on**) against the loaded effects, loading the ones they place.
     - `EditorEffectLayer`'s `effectParamValues(node, doc)` is now passed by all three overlay
       mounts, from `previewEffectParamValues` (the binding test values and the previewed timeline
       or state machine, through the same fold).
@@ -128,26 +151,41 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     - A player whose timelines key no `fx:` channel holds no rest, and a blend without one leaves
       `fx:` keys alone.
     - The one per-frame addition everywhere: `sampleNodeActor` scans a property track's channel
-      names for the `fx:` prefix (a few string checks per driven node actor).
+      names for the `fx:` prefix (a few string checks per driven node actor). At init every view
+      also makes one small `attachedEffectDrives` closure, whose cache is created only by a rig
+      with attached effects.
     - `engine-layout` now depends on `engine-fx` (pure, PixiJS-free) for `effectParamValue`.
   - **Verified.** New gate `pnpm --filter launcher-api check:fx-node-params`
-    (`scripts/check-fx-node-params.ts`, discovered by `check:all`, 63 checks).
+    (`scripts/check-fx-node-params.ts`, discovered by `check:all`, 76 checks).
     - It covers the lists, the range mapping, bool thresholds, precedence, unknown ids (inert,
       reported, ignored by a real applier), the evaluator and its static copy, and a state machine
       whose states key `fx:intensity` / `fx:burst`, with blends both-sided, towards and from the
       default, and with no rest.
-    - Those values move a REAL `Emitter` through `bindEffectParams` with no reset.
-    - The real `createBoundValues` + `createFxParamValues`, compiled with Svelte's compiler, drive a
-      parameter from a component param and from a registered engine source (a switch never
-      glides).
+    - Those values move a REAL `Emitter` through `bindEffectParams` with no reset (every particle
+      in flight is still flying, aged by every frame).
+    - The real `createNodeFold`, compiled with Svelte's compiler, maps a component param and a
+      registered engine source onto the parameters (a switch never glides) and merges a moving
+      timeline. An undriven effect gets no getter. A bone-hosted effect's drive is asked once and
+      holds.
+    - The Timeline's rows: loaded with parameters, with none, and not loaded.
     - Save → normalize (layout doc, component def, cinematic store) → export → bundle JSON → the
       game's registries → a player built from the baked docs.
-    - Parity source checks.
-    - Mutation-checked: 21 single mutations (each list, the default range, the switch, last-wins,
-      the colour exclusion, the clamp, the evaluator and its copy, the blend rests both sides, the
-      player's rests, validation, channel → binding and its output, the glide exclusion, the
-      parameter shape in `createBoundValues`, the getter and its gating, `fxParamsDriven`, the
-      overlay wiring, a blend with no rest blending `fx:` anyway) each turn it red.
+    - Source checks that the two components run the fold (with their drive), that the editor
+      pins its effect reads and refreshes its issues, that the route refuses a mismatch, and
+      that the server passes its own resolver. `check:component-links` lists `editor/effect`
+      among the routes that refuse a mismatched project.
+    - Mutation-checked: each of 37 single mutations turns it red.
+      - Engine: each list, the default range, the switch, last-wins, the colour exclusion, the
+        clamp, the prefix, the evaluator and its copy, the blend rests (both sides), the player's
+        rests, a blend with no rest blending `fx:` anyway.
+      - Bindings and channels: validation (and its default reading the registry), channel →
+        binding and its output, the glide exclusion, the parameter shape (in `createBoundValues`,
+        and as the fold's 4th argument), the timeline merge, the getter and its gating,
+        `fxParamsDriven`.
+      - Bone-hosted effects: the asked-once cache; a per-render drive or a fold without its drive,
+        in either component.
+      - Editor and server: the no-parameters rows, the issues' refresh and resolver, both pinned
+        reads, the retry, the route's refusal, the server resolver, the overlay wiring.
     - `check:doc-readers-unknown-fields` now carries an `fxParam` binding in its layout and
       component docs.
     - `cinematic-screen-timeline.mjs`'s pure-file shim lists `fxNodeParams`.

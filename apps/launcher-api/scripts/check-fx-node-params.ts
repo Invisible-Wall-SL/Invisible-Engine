@@ -17,8 +17,10 @@
  *  7. a component state machine: a state's timeline keys `fx:intensity`, the runner + player drive
  *     it, a transition blend mixes it (both sides keyed, and one side from the default), a bool
  *     steps, and the values move a REAL emitter through the shared applier with no reset;
- *  8. bindings from a component param and from an engine source, through the real reactive
- *     `createBoundValues` + `createFxParamValues` (compiled with Svelte's own compiler);
+ *  8. the game's fold for real: `createNodeFold` (what `<LayoutNodeView>` and
+ *     `<DrivenEffectPlayer>` both run), compiled with Svelte's own compiler, maps a component param
+ *     and an engine source onto the parameters and merges a moving timeline; a bone-hosted effect's
+ *     drive is asked once and holds;
  *  9. ship: save → normalize (layout doc, component def, cinematic) → export → the runtime
  *     bundle's JSON → the game's registries keep the binding and the channel;
  * 10. parity: an undriven effect node mounts `<EffectPlayer>` with no getter and runs no fold;
@@ -90,7 +92,7 @@ const lib = (file: string): string => new URL(file, LIB).href;
 const V = await import('../../../packages/engine-layout/src/lib/valueBindings.ts');
 const N = await import('../../../packages/engine-layout/src/lib/cinematicNodes.ts');
 const F = await import('../../../packages/engine-layout/src/lib/fxNodeParams.ts');
-const FV = await import('../../../packages/engine-layout/src/lib/fxParamValues.svelte.ts');
+const FV = await import('../../../packages/engine-layout/src/lib/nodeFold.svelte.ts');
 const M = await import('../../../packages/engine-layout/src/lib/stateMachine.ts');
 const L = await import('../../../packages/engine-layout/src/lib/componentTimelines.ts');
 const R = await import('../../../packages/engine-layout/src/lib/registerEffects.ts');
@@ -251,9 +253,9 @@ eq(
 );
 eq('…and offer nothing on a sprite', S.keyableFxChannels(coinNode, params), []);
 eq(
-	'one prefix: the evaluator, engine-layout and the drivable kinds',
-	[EV.FX_PARAM_CHANNEL_PREFIX, F.FX_PARAM_CHANNEL_PREFIX, [...F.FX_NODE_PARAM_KINDS]],
-	['fx:', 'fx:', ['number', 'bool']],
+	'one prefix (the evaluator’s) builds every channel name; the drivable kinds',
+	[EV.FX_PARAM_CHANNEL_PREFIX, F.fxParamChannel('heat'), [...F.FX_NODE_PARAM_KINDS]],
+	['fx:', 'fx:heat', ['number', 'bool']],
 );
 ok(
 	'the fixed channels stay one exported list (no `fx:` in it)',
@@ -411,10 +413,13 @@ eq(
 	);
 	R.clearEffects();
 	R.registerEffects([effect]);
-	eq('…checked against the game registry by default', codes(), [
-		'fx-param-unknown',
-		'fx-param-unknown',
-	]);
+	eq('…and unchecked by default: validation never reads the process-wide registry', codes(), []);
+	const bare = { ...effect, params: undefined };
+	eq(
+		'an effect that declares no parameters: every keyed `fx:` channel is reported',
+		codes(() => bare),
+		['fx-param-unknown', 'fx-param-unknown', 'fx-param-unknown'],
+	);
 	const onSprite = timeline('t_sprite', 'Coin', { 'fx:intensity': [{ time: 0, value: 1 }] });
 	eq(
 		'an `fx:` channel on any other kind is a channel it cannot take',
@@ -423,10 +428,24 @@ eq(
 		),
 		['channel-unsupported'],
 	);
+	const rows = (doc: EffectDoc | undefined) =>
+		S.fxTimelineRows(keyed, 'a', glowNode(), doc).map(
+			(r: { channel: string; stale: boolean }) => `${r.stale ? '⚠' : '⚡'}${r.channel}`,
+		);
 	eq(
-		'the Timeline still lists a stale `fx:` channel, so its keys can be removed',
-		S.staleFxChannels(keyed, 'a', params),
-		['fx:gone', 'fx:hue'],
+		'the Timeline lists the parameters, then each stale `fx:` channel, so its keys can be removed',
+		rows(effect),
+		['⚡fx:intensity', '⚡fx:heat', '⚡fx:burst', '⚠fx:gone', '⚠fx:hue'],
+	);
+	eq('…an effect whose last parameter was removed still shows its keys (all stale)', rows(bare), [
+		'⚠fx:intensity',
+		'⚠fx:gone',
+		'⚠fx:hue',
+	]);
+	eq(
+		'…while the effect is not loaded every keyed channel is listed as it is; never on a sprite',
+		[rows(undefined), S.fxTimelineRows(keyed, 'a', coinNode, effect)],
+		[['⚡fx:intensity', '⚡fx:gone', '⚡fx:hue'], []],
 	);
 	const em = new Emitter(new Container(), clone(effect.layers[0].config));
 	const before = [em.frequency, em.maxParticles, em.particlesPerWave];
@@ -639,11 +658,24 @@ R.registerEffects([effect]);
 	em.emit = true;
 	const applier = bindEffectParams({ params, layer, emitter: em, values: game.values() });
 	for (let i = 0; i < 60; i++) em.update(1 / 60);
-	const alive = em.particleCount;
+	// Every particle in flight, and its age: a reset would recycle them (`init` → `cleanup`), and a
+	// recycled object respawned from the pool starts its age again.
+	type Particle = { age: number; next: Particle | null };
+	const flying = (): Particle[] => {
+		const out: Particle[] = [];
+		const first = (em as unknown as { _activeParticlesFirst: Particle | null })
+			._activeParticlesFirst;
+		for (let p = first; p; p = p.next) out.push(p);
+		return out;
+	};
+	const before = flying();
+	const ages = before.map((p) => p.age);
+	let elapsed = 0;
 	const frame = (dt: number) => {
 		game.step(dt);
 		applier?.apply(game.values());
 		em.update(dt);
+		elapsed += dt;
 	};
 	eq('idle: intensity 0.2 sets the rate', r3(em.frequency), r3(0.2 * 0.8 + 0.02 * 0.2));
 	game.runner.fire('win');
@@ -656,7 +688,12 @@ R.registerEffects([effect]);
 		[r3(em.frequency), em.particlesPerWave, em.maxParticles],
 		[0.02, 6, 210],
 	);
-	ok('no reset: the particles in flight carried on', alive > 0 && em.particleCount >= alive);
+	const after = new Set(flying());
+	ok(
+		'no reset: every particle in flight before the drive is still flying, aged by every frame',
+		before.length >= 5 &&
+			before.every((p, i) => after.has(p) && Math.abs(p.age - (ages[i] + elapsed)) < 1e-6),
+	);
 }
 {
 	// With no rest known (the effect is not registered), a one-sided channel steps at half way.
@@ -677,7 +714,7 @@ R.registerEffects([effect]);
 	R.registerEffects([effect]);
 }
 
-// ---- 8. bindings from a param and from an engine source (the real reactive modules) ------------
+// ---- 8. the game's fold, run for real: bindings from a param and a source, and a timeline ------
 
 {
 	const svelteManifest = import.meta.resolve('svelte/package.json');
@@ -690,6 +727,7 @@ R.registerEffects([effect]);
 	const internalClient = import.meta.resolve('svelte/internal/client');
 	const dir = mkdtempSync(join(tmpdir(), 'fx-node-params-'));
 	process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
+	// The rune modules compiled as SvelteKit compiles them; their plain imports stay the real files.
 	const write = (name: string, source: string, typescript: boolean): string => {
 		const js = typescript
 			? ts.transpileModule(source, {
@@ -708,32 +746,42 @@ R.registerEffects([effect]);
 	};
 	const source = (file: string): string => readFileSync(new URL(file, LIB), 'utf8');
 	write('boundValues.svelte', source('boundValues.svelte.ts'), true);
-	write('fxParamValues.svelte', source('fxParamValues.svelte.ts'), true);
+	write('nodeFold.svelte', source('nodeFold.svelte.ts'), true);
+	// `createNodeFold` is what `<LayoutNodeView>` (every node) and `<DrivenEffectPlayer>` (a
+	// bone-hosted effect) run; the drive stands in for a timeline whose playhead moves.
 	const entry = write(
 		'entry',
-		`import { createBoundValues } from './boundValues.svelte';
-import { createFxParamValues } from './fxParamValues.svelte';
-export function mount(bindings, params, fxParams) {
-	let read;
+		`import { createNodeFold } from './nodeFold.svelte';
+export function mount(node, params, channels) {
+	const playhead = $state({ sample: {} });
+	const drive = channels
+		? { channels: new Set(channels), sample: () => playhead.sample }
+		: undefined;
+	let fold;
 	const stop = $effect.root(() => {
-		const bound = createBoundValues(bindings, () => params, () => undefined, fxParams);
-		read = createFxParamValues(bindings, () => bound.outputs, fxParams);
+		fold = createNodeFold(node, () => params, () => undefined, drive);
 	});
-	return { read: () => read(), stop };
+	return { fold, seek: (sample) => (playhead.sample = sample), stop };
 }`,
 		false,
 	);
+	type Fold = {
+		allOutputs: readonly (number | undefined)[];
+		fxParamValues: (() => Record<string, unknown> | undefined) | undefined;
+	};
 	const { mount } = (await import(entry)) as {
 		mount: (
-			b: ValueBinding[],
+			node: LayoutNode,
 			p: Record<string, unknown>,
-			f: readonly EffectParam[],
-		) => { read: () => Record<string, unknown> | undefined; stop: () => void };
+			channels?: string[],
+		) => { fold: Fold; seek: (s: Record<string, number>) => void; stop: () => void };
 	};
 	const { flushSync } = (await import(svelteClient)) as { flushSync: () => void };
 	// A smoothed output glides on a frame clock Node does not have: a frame that never comes keeps a
 	// glide where it started, so a bool that wrongly glided would still read its old value below.
 	(globalThis as { requestAnimationFrame?: () => number }).requestAnimationFrame = () => 1;
+	R.clearEffects();
+	R.registerEffects([effect]);
 	let win = 12;
 	const listeners = new Set<(v: number) => void>();
 	CV.registerComponentValues({
@@ -746,18 +794,15 @@ export function mount(bindings, params, fxParams) {
 		},
 	});
 	const instanceParams = { level: 50 };
-	const live = mount(
-		[
-			{ target: 'fxParam', fxParam: 'heat', param: 'level', inMax: 100 },
-			{ target: 'fxParam', fxParam: 'burst', source: 'winAmount', threshold: 10, smooth: 1 },
-		],
-		instanceParams,
-		params,
-	);
+	const own: ValueBinding[] = [
+		{ target: 'fxParam', fxParam: 'heat', param: 'level', inMax: 100 },
+		{ target: 'fxParam', fxParam: 'burst', source: 'winAmount', threshold: 10, smooth: 1 },
+	];
+	const live = mount(glowNode(own), instanceParams, ['x', 'fx:heat']);
 	flushSync();
 	eq(
-		'a component param (level 50 of 100) drives heat 5; an engine source (win 12 ≥ 10) the burst',
-		live.read(),
+		'the fold maps onto the parameters: a param (level 50 of 100) is heat 5 on 0..10, a source (win 12 ≥ 10) switches the burst on',
+		live.fold.fxParamValues?.(),
 		{ heat: 5, burst: true },
 	);
 	win = 5;
@@ -765,11 +810,58 @@ export function mount(bindings, params, fxParams) {
 	flushSync();
 	eq(
 		'the source drops below the threshold: the burst switches off at once (a switch never glides)',
-		live.read(),
+		live.fold.fxParamValues?.(),
 		{ heat: 5, burst: false },
 	);
+	live.seek({ x: 3, 'fx:heat': 7 });
+	eq(
+		'the playhead keys heat: the timeline (after the bindings) wins it, the transform channel rides along',
+		[live.fold.fxParamValues?.(), live.fold.allOutputs],
+		[{ heat: 7, burst: false }, [5, 0, 3, 7]],
+	);
+	live.seek({});
+	eq('…and gives it back when it no longer keys it', live.fold.fxParamValues?.(), {
+		heat: 5,
+		burst: false,
+	});
 	live.stop();
+	const quiet = mount(glowNode([{ target: 'alpha', param: 'level', inMax: 100 }]), instanceParams);
+	const sprite = mount({ ...coinNode, valueBindings: own } as LayoutNode, instanceParams);
+	flushSync();
+	eq(
+		'an effect nothing drives, or another kind, gets no getter; its outputs are its bindings’',
+		[typeof quiet.fold.fxParamValues, quiet.fold.allOutputs, typeof sprite.fold.fxParamValues],
+		['undefined', [0.5], 'undefined'],
+	);
+	quiet.stop();
+	sprite.stop();
 	CV.clearComponentValues();
+
+	// A bone-hosted effect's drive is asked once per effect and never flips while the rig lives.
+	let asked = 0;
+	let answer: { channels: Set<string>; sample: () => object } | undefined = {
+		channels: new Set(['fx:heat']),
+		sample: () => ({}),
+	};
+	const driver = (id: string) => {
+		asked++;
+		return id === 'n_glow' ? answer : undefined;
+	};
+	const attached = FV.attachedEffectDrives(driver as never);
+	const first = attached(glowNode() as never);
+	answer = undefined;
+	const again = attached(glowNode() as never);
+	const other = { ...glowNode(), id: 'n_other' } as never;
+	eq(
+		'a bone-hosted effect: driven by its timeline, asked once, and the answer holds',
+		[!!first?.drive, again === first, attached(other), attached(other), asked],
+		[true, true, null, null, 2],
+	);
+	eq(
+		'…its own binding drives it with no timeline at all',
+		!!FV.attachedEffectDrives(undefined)(glowNode([heat]) as never),
+		true,
+	);
 }
 
 // ---- 9. ship: save → normalize → export → bake --------------------------------------------------
@@ -879,21 +971,34 @@ export function mount(bindings, params, fxParams) {
 		(plain as unknown as { fxRests: Map<string, unknown> }).fxRests.size,
 		0,
 	);
+	// The two components cannot run here; what they run can (§8). These pin that they run it.
 	const view = readFileSync(new URL('LayoutNodeView.svelte', LIB), 'utf8');
+	const driven = readFileSync(new URL('DrivenEffectPlayer.svelte', LIB), 'utf8');
 	ok(
-		'LayoutNodeView: the placed effect takes the getter, which exists only for a driven effect',
-		view.includes('<EffectPlayer doc={effectDoc} scope={signalScope} params={fxParamValues} />') &&
-			/const fxParamValues = fxParams\s*\?\s*createFxParamValues\(allBindings, \(\) => allOutputs, fxParams\)\s*:\s*undefined;/.test(
-				view,
+		'LayoutNodeView runs the shared fold with its node and its timeline drive, and hands the placed effect its getter',
+		/const fold = createNodeFold\(\s*node,\s*\(\) => bindingParams,[\s\S]{0,120}?timelineDrive,\s*\);/.test(
+			view,
+		) &&
+			view.includes('const { bound, allBindings, fxParamValues } = fold;') &&
+			view.includes(
+				'<EffectPlayer doc={effectDoc} scope={signalScope} params={fxParamValues} />',
 			) &&
-			view.includes('const fxParams = fxParamsDriven(node, bindings, timelineBindings);'),
+			!/createBoundValues|withNodeActorOutputs/.test(view),
 	);
 	ok(
-		'…a bone-hosted effect nothing drives mounts the bare player, as before',
-		/\{:else if fxDoc\}\s*<EffectPlayer doc=\{fxDoc\} scope=\{signalScope\} \/>/.test(view) &&
-			view.includes(
-				'<DrivenEffectPlayer node={fx} doc={fxDoc} drive={fxDrive} scope={signalScope} />',
-			),
+		'…DrivenEffectPlayer runs the same fold for a bone-hosted effect',
+		/const fold = createNodeFold\(\s*node,\s*\(\) => bindingParams,\s*\(\) => undefined,\s*drive,\s*\);/.test(
+			driven,
+		) && driven.includes('<EffectPlayer {doc} {scope} params={fold.fxParamValues} />'),
+	);
+	ok(
+		'…a bone-hosted effect is asked once (no per-render drive), and one nothing drives mounts the bare player',
+		view.includes('const attachedDrive = attachedEffectDrives(nodeDriver);') &&
+			/\{#if fxDoc && attachedDrive\(fx\)\}\s*<DrivenEffectPlayer[\s\S]{0,120}?drive=\{attachedDrive\(fx\)\?\.drive\}/.test(
+				view,
+			) &&
+			/\{:else if fxDoc\}\s*<EffectPlayer doc=\{fxDoc\} scope=\{signalScope\} \/>/.test(view) &&
+			!/\{@const fxDrive/.test(view),
 	);
 	const editor = (file: string): string =>
 		readFileSync(new URL(`../src/routes/(app)/editor/${file}`, import.meta.url), 'utf8');
@@ -907,6 +1012,45 @@ export function mount(bindings, params, fxParams) {
 				'boundFxParamValues(bindings, previewOutputs(node, undefined, params), params)',
 			) &&
 			editor('EditorEffectLayer.svelte').includes('notePlacedEffect(doc);'),
+	);
+	const panel = editor('EditorTimelinePanel.svelte');
+	const issuesFn = panel.slice(
+		panel.indexOf('function issues()'),
+		panel.indexOf('async function leaveHost'),
+	);
+	ok(
+		'the Timeline’s issues re-run when an effect loads, and check every host (Also on included) against the loaded effects',
+		issuesFn.includes('void placedEffectsVersion();') &&
+			issuesFn.includes('validateNodeActors(doc, scene, placedEffect)') &&
+			issuesFn.includes('validateNodeActors(doc, host, placedEffect)'),
+	);
+	const loader = editor('placedEffects.client.svelte.ts');
+	ok(
+		'every editor read of an effect doc names the tab’s project; a failed read is retried later',
+		/fetch\(\s*withEditorProject\(`\/api\/editor\/effect\?id=/.test(loader) &&
+			/fetch\(\s*withEditorProject\(`\/api\/editor\/effect\?id=/.test(
+				editor('EditorEffectLayer.svelte'),
+			) &&
+			loader.includes('setTimeout(() => pending.delete(effectId), RETRY_MS)'),
+	);
+	const route = readFileSync(
+		new URL('../src/routes/api/editor/effect/+server.ts', import.meta.url),
+		'utf8',
+	);
+	ok(
+		'…and the effect route refuses a pinned project the session no longer holds',
+		/const mismatch = scopeMismatch\(url\.searchParams\.get\('projectKey'\), projectKey\);\s*if \(mismatch\) return mismatch;/.test(
+			route,
+		),
+	);
+	const flowServer = readFileSync(
+		new URL('../src/routes/(app)/flow-v2/+page.server.ts', import.meta.url),
+		'utf8',
+	);
+	ok(
+		'the server validates with an explicit resolver that knows no effect (no module registry)',
+		flowServer.includes('validateNodeActors(doc, scene, () => undefined)') &&
+			!readFileSync(new URL('cinematicNodes.ts', LIB), 'utf8').includes('resolveEffect'),
 	);
 }
 

@@ -51,6 +51,7 @@
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
 	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
+	import { withEditorProject } from './editorProject.client';
 	import { notePlacedEffect } from './placedEffects.client.svelte';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
@@ -216,7 +217,9 @@
 		if (hit) return hit;
 		const p = (async (): Promise<EffectDoc | null> => {
 			try {
-				const res = await fetch(`/api/editor/effect?id=${encodeURIComponent(effectId)}`);
+				const res = await fetch(
+					withEditorProject(`/api/editor/effect?id=${encodeURIComponent(effectId)}`),
+				);
 				if (!res.ok) return null;
 				const body = (await res.json()) as { doc: EffectDoc };
 				return body.doc ?? null;

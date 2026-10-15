@@ -423,6 +423,7 @@ for (const route of [
 	'editor/rigs/upload',
 	'editor/rigs/reindex',
 	'editor/art-bounds',
+	'editor/effect',
 ]) {
 	check(
 		`the session-bound /api/${route} refuses a mismatched project (scopeMismatch)`,

@@ -42,6 +42,7 @@
 		fxChannelValue,
 		isChannelKeyed,
 		keyableChannels,
+		fxTimelineRows,
 		keyableFxChannels,
 		newComponentTimeline,
 		newScreenTimeline,
@@ -50,14 +51,13 @@
 		nodeChannelValue,
 		screenTimelineId,
 		screenTimelinesOf,
-		staleFxChannels,
 		timelineDrives,
 		type FxChannelRow,
 		type KeyedChannel,
 		type RigClip,
 	} from '$lib/timeline/screenTimeline';
 	import type { TimelineChannel } from '$lib/timeline/timeline';
-	import { placedEffectParams, placedEffectsVersion } from './placedEffects.client.svelte';
+	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
 	import type { RigMeta } from './rigRuntime.client';
 	import { setTimelinePreview } from './valuePreview.client.svelte';
 
@@ -212,7 +212,7 @@
 					title: `Node "${cast.target ?? ''}" on this ${where}`,
 				}),
 				sceneName: (id: string) => (id === scene?.id ? (scene?.name ?? id) : id),
-				actorChannels: (cast: CinematicCast) => fxTimelineRows(cast),
+				actorChannels: (cast: CinematicCast) => actorFxRows(cast),
 				clips: (actorId: string) => {
 					const open = tl?.doc() ?? doc;
 					const cast = open.stage.cast.find((c) => c.actorId === actorId);
@@ -508,10 +508,9 @@
 
 	/** The selected effect node's parameters Animate keys, one `fx:<id>` channel each. */
 	const fxRows = $derived.by((): FxChannelRow[] => {
-		void placedEffectsVersion();
 		const node = target?.ok ? target.node : undefined;
 		return node?.kind === 'effect'
-			? keyableFxChannels(node, placedEffectParams(node.effectId))
+			? keyableFxChannels(node, placedEffect(node.effectId)?.params)
 			: [];
 	});
 
@@ -535,28 +534,17 @@
 		preview();
 	}
 
-	const FX_ROW_COLOR = '#c98bff';
-	/** The Timeline rows a node actor gets beyond the shared channels: on a placed effect, each of
-	 *  its parameters, then any `fx:` channel it keys that the effect no longer declares (⚠). */
-	function fxTimelineRows(cast: CinematicCast): TimelineChannel[] {
+	/** The Timeline rows a node actor gets beyond the shared channels (`fxTimelineRows`): on a
+	 *  placed effect, its parameters, then any `fx:` channel it keys that is not one (⚠). */
+	function actorFxRows(cast: CinematicCast): TimelineChannel[] {
 		const doc = tl?.doc();
 		const node = doc && scene && cast.target ? findActorNode(doc, scene.nodes, cast.target) : null;
-		if (node?.kind !== 'effect') return [];
-		const params = placedEffectParams(node.effectId);
-		return [
-			...keyableFxChannels(node, params).map((row) => ({
-				key: row.channel,
-				label: `⚡ ${row.param.id}`,
-				color: FX_ROW_COLOR,
-			})),
-			...(params && doc
-				? staleFxChannels(doc, cast.actorId, params).map((channel) => ({
-						key: channel,
-						label: `⚠ ${channel}`,
-						color: '#8b93a1',
-					}))
-				: []),
-		];
+		if (!doc || node?.kind !== 'effect') return [];
+		return fxTimelineRows(doc, cast.actorId, node, placedEffect(node.effectId)).map((row) => ({
+			key: row.channel,
+			label: row.label,
+			color: row.stale ? '#8b93a1' : '#c98bff',
+		}));
 	}
 
 	// A placed effect's doc can land after the Timeline drew its rows: redraw them when it does.
@@ -626,9 +614,12 @@
 	/** What would silently do nothing in game: on this component, and on each it is reused on. */
 	function issues(): string[] {
 		void docVersion;
+		// The placed effects' docs load on demand (`placedEffect` asks for each one a node actor
+		// targets, here and on every component in Also on) and re-run this when they land.
+		void placedEffectsVersion();
 		const doc = tl?.doc();
 		if (!doc || !scene) return [];
-		const out = validateNodeActors(doc, scene).map((i) => i.message);
+		const out = validateNodeActors(doc, scene, placedEffect).map((i) => i.message);
 		for (const id of doc.playOnComponents ?? []) {
 			const other = component?.others.find((o) => o.id === id);
 			if (!other) {
@@ -636,7 +627,7 @@
 				continue;
 			}
 			const host = { id: other.id, name: other.name, nodes: other.nodes };
-			for (const issue of validateNodeActors(doc, host)) {
+			for (const issue of validateNodeActors(doc, host, placedEffect)) {
 				out.push(`On ${other.name}: ${issue.message}`);
 			}
 		}

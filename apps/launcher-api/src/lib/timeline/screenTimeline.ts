@@ -369,6 +369,50 @@ export function staleFxChannels(
 	return out;
 }
 
+/** One Timeline row a node actor gets beyond the shared channels, on a placed effect. */
+export interface FxTimelineRow {
+	channel: CinematicFxParamChannel;
+	label: string;
+	/** Keyed, but not a number or on/off parameter the effect declares: its keys do nothing. */
+	stale: boolean;
+}
+
+/**
+ * The Timeline rows of a node actor targeting `node`, beyond the shared channels. On a placed
+ * effect (`effect`: its doc, `undefined` while it is not loaded): one per number or on/off
+ * parameter, then every `fx:` channel the actor keys that is not one of them — also when the effect
+ * declares no parameters at all — so stale keys can always be found and removed. While the effect
+ * is not loaded, every keyed `fx:` channel is listed as it is. Nothing on any other node.
+ */
+export function fxTimelineRows(
+	doc: CinematicDoc,
+	actorId: string,
+	node: LayoutNode,
+	effect: { params?: readonly EffectParam[] } | undefined,
+): FxTimelineRow[] {
+	if (node.kind !== 'effect') return [];
+	if (!effect) {
+		return staleFxChannels(doc, actorId, []).map((channel) => ({
+			channel,
+			label: `⚡ ${fxParamOfChannel(channel)}`,
+			stale: false,
+		}));
+	}
+	const params = effect.params ?? [];
+	return [
+		...keyableFxChannels(node, params).map((row) => ({
+			channel: row.channel,
+			label: `⚡ ${row.param.id}`,
+			stale: false,
+		})),
+		...staleFxChannels(doc, actorId, params).map((channel) => ({
+			channel,
+			label: `⚠ ${channel}`,
+			stale: true,
+		})),
+	];
+}
+
 /**
  * An `fx:` channel of a node actor at `t`: the keyed value, or where the channel rests while it has
  * no keys — the parameter's default (a bool reads 1 / 0). What the Animate field shows and ◆ keys.

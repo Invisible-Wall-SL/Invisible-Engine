@@ -494,9 +494,10 @@ mere save.
   (`tools/fx-spike/exposedParams.ts`). Driven from the node (Step 2):
   `packages/engine-layout/src/lib/fxNodeParams.ts` (`boundFxParamValues`, the fold's last-value
   rule; `fxParamBindingIssue`), the `fxParam` binding target in `valueBindings.ts`, the `fx:<id>`
-  channels in `cinematicNodes.ts` and `engine-cinematic`'s `sampleNodeActor`, the getter in
-  `fxParamValues.svelte.ts` (`<LayoutNodeView>`; `DrivenEffectPlayer.svelte` for a bone-hosted
-  effect), and in the editor `placedEffects.client.svelte.ts` + `previewEffectParamValues`. Gate:
+  channels in `cinematicNodes.ts` and `engine-cinematic`'s `sampleNodeActor`, the node's one fold
+  `createNodeFold` in `nodeFold.svelte.ts` (run by `<LayoutNodeView>` and, for a bone-hosted
+  effect, `DrivenEffectPlayer.svelte`), and in the editor `placedEffects.client.svelte.ts` +
+  `previewEffectParamValues`. Gate:
   `pnpm --filter launcher-api check:fx-node-params`.
 - **Sprite transform:** `packages/engine-fx/src/sprite.ts` — the `fxSprite` behavior
   (`{ rotation, anchorX, anchorY }`, read through the `readFxSprite` clamp). The pivot is the

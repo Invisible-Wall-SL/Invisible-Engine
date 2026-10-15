@@ -22,8 +22,6 @@ import type { ValueBinding } from './types';
  * (`check:fx-node-params`) go through the same functions.
  */
 
-export { FX_PARAM_CHANNEL_PREFIX };
-
 /** The parameter kinds a node drives: a binding or a channel produces a number. A colour parameter
  *  is neither bound nor keyed. */
 export const FX_NODE_PARAM_KINDS = ['number', 'bool'] as const;
@@ -31,7 +29,8 @@ export const FX_NODE_PARAM_KINDS = ['number', 'bool'] as const;
 const DRIVABLE: ReadonlySet<string> = new Set(FX_NODE_PARAM_KINDS);
 
 /** The timeline channel that keys parameter `id`. */
-export const fxParamChannel = (id: string): CinematicFxParamChannel => `fx:${id}`;
+export const fxParamChannel = (id: string): CinematicFxParamChannel =>
+	`${FX_PARAM_CHANNEL_PREFIX}${id}`;
 
 /** The parameter id an `fx:<id>` channel keys, or `undefined` for any other channel name. */
 export function fxParamOfChannel(channel: string): string | undefined {

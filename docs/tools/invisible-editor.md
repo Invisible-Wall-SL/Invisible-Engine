@@ -628,7 +628,8 @@ it is never saved. Selection handles and dragging keep the authored position.
 
 On an **effect**, **drives** lists the effect's number and on/off parameters (the ones made with
 ⚡ in [Invisible FX](fx.md#exposed-parameters)) as **⚡ <name>**. A number parameter's **out**
-range starts at the parameter's own min and max; an on/off one is on while the number passes a
+range is left blank, so it follows the parameter's own min and max (shown greyed), even after
+they change in /fx; type ends to map elsewhere. An on/off one is on while the number passes a
 **threshold**, like **Show / hide**. Dragging the test value moves the live particles on the
 stage, with no restart. A colour parameter cannot be bound yet. A binding naming a parameter the
 effect no longer has says *Does nothing* and is ignored in the game.
@@ -941,7 +942,9 @@ How keys behave:
   parameter is 0.8. A number interpolates between keys; an on/off key is stepped (**hold**), so it
   switches on its key. Where nothing keys a parameter it keeps its default, or what a **Bind to
   value** on the node sets. When both set it, the timeline wins while it has a value. A colour
-  parameter has no row yet.
+  parameter has no row yet. Keys on a parameter the effect no longer has (renamed or removed in
+  /fx) stay on the timeline as a grey **⚠ fx:<name>** row, so you can select and delete them; the
+  ⚠ issues pill of a component timeline lists them too.
 - **A timeline finds a node by its name.** That is what lets the same timeline play on another
   screen that has a node with the same name. So a node needs a **Name** (Properties) that no other
   node on the screen shares before you can key it. The panel says so when it doesn't, and never

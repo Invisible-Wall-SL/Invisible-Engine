@@ -203,11 +203,15 @@
 		if (isSwitchBinding(binding, fxParam)) {
 			binding.threshold = 1;
 		} else {
-			const [outMin, outMax] = defaultBindingOutRange({ target }, fxParam);
 			binding.inMin = 0;
 			binding.inMax = 1;
-			binding.outMin = outMin;
-			if (outMax !== undefined) binding.outMax = outMax;
+			// An effect parameter's out range is left blank: it follows the parameter's own range,
+			// shown as the placeholder, even after the range changes in /fx.
+			if (target !== 'fxParam') {
+				const [outMin, outMax] = defaultBindingOutRange({ target });
+				binding.outMin = outMin;
+				if (outMax !== undefined) binding.outMax = outMax;
+			}
 		}
 		if (target === 'fill') binding.direction = 'right';
 		if (target === 'animTime') {
@@ -251,8 +255,11 @@
 			b.threshold = 1;
 			delete b.outMin;
 			delete b.outMax;
+		} else if (target === 'fxParam') {
+			delete b.outMin;
+			delete b.outMax;
 		} else {
-			const [outMin, outMax] = defaultBindingOutRange({ target }, fxParam);
+			const [outMin, outMax] = defaultBindingOutRange({ target });
 			b.outMin = outMin;
 			if (outMax !== undefined) b.outMax = outMax;
 			else delete b.outMax;

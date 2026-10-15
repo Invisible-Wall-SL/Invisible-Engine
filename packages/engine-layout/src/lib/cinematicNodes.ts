@@ -2,7 +2,6 @@ import type { CinematicFxParamChannel } from 'engine-cinematic';
 import type { EffectParam } from 'engine-fx';
 
 import { drivableFxParams, fxParamChannel, fxParamOfChannel } from './fxNodeParams';
-import { resolveEffect } from './registerEffects';
 import type { CinematicCast, CinematicDoc, LayoutNode, Scene, ValueBinding } from './types';
 
 /**
@@ -184,6 +183,9 @@ export function textNodeStrings(node: LayoutNode): string[] {
 	return [node.text, ...(node.switchKeys ?? [])].filter((s) => typeof s === 'string');
 }
 
+/** Resolves a placed effect's doc by id — enough of it to read its exposed parameters. */
+export type EffectResolver = (effectId: string) => { params?: readonly EffectParam[] } | undefined;
+
 export interface NodeActorIssue {
 	actorId: string;
 	code:
@@ -202,13 +204,14 @@ export interface NodeActorIssue {
  * carries, a channel the node's kind cannot take, a switch-key naming a string the text node does
  * not declare, and an `fx:<id>` channel naming a parameter the placed effect does not declare as a
  * number or bool. The player skips all of these rather than failing, so this is where they show.
- * `effects` resolves a placed effect (the game's registry by default); an effect it does not know
- * leaves its `fx:` channels unchecked.
+ * `effects` resolves a placed effect, for the caller's own project (the editor passes the effects
+ * it loaded); an effect it does not know leaves its `fx:` channels unchecked. The default knows
+ * none: validation never reads a process-wide registry, which on a server holds no one project.
  */
 export function validateNodeActors(
 	doc: CinematicDoc,
 	scene: Scene | undefined,
-	effects: (effectId: string) => { params?: readonly EffectParam[] } | undefined = resolveEffect,
+	effects: EffectResolver = () => undefined,
 ): NodeActorIssue[] {
 	const issues: NodeActorIssue[] = [];
 	const driven = new Map<string, string>();
