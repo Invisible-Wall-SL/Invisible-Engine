@@ -1,8 +1,8 @@
 /**
  * Invisible Engine — THE WIN WALK, as a pure conductor (Rive plan Phase 8b, §13.6.5).
  *
- * The tier walk `WinAnimation.svelte` keeps in runes — intro → one idle → next tier … → the final
- * tier's looping idle; `countUpComplete` flips the final tier to its outro (or collapses a mid-walk
+ * The tier walk `WinAnimation.svelte` keeps in runes — intro → one idle cycle → next tier … → the
+ * final tier's looping idle; `countUpComplete` flips the final tier to its outro (or collapses a mid-walk
  * chain to it); `holdOutro` keeps the idle for the land-then-dismiss hold; a tap jumps the walk
  * forward — as `nextStep(walk, event)` over plain data. On the authored path the GATE runs it: each
  * step FIRES a per-tier signal the placed `winPresentation` instance plays a timeline on, and the
@@ -10,7 +10,7 @@
  * light, so `packages/engine-game/fixtures/*.fixture.ts` replay it step for step.
  */
 
-export type WinWalkPhase = 'idle' | 'walk' | 'loop' | 'outro' | 'plain' | 'done';
+export type WinWalkPhase = 'idle' | 'walk' | 'cycle' | 'loop' | 'outro' | 'plain' | 'done';
 
 export interface WinWalkTier {
 	alias: string;
@@ -25,6 +25,8 @@ export interface WinWalkTier {
  *  index); the names themselves have one home, beside the timelines they start. */
 export interface WinWalkSignals {
 	tier(alias: string): string;
+	/** One idle cycle of a chain's non-final tier. */
+	cycle(alias: string): string;
 	loop(alias: string): string;
 	outro(alias: string): string;
 	plain: string;
@@ -40,6 +42,8 @@ export interface WinWalk {
 	countUpComplete: boolean;
 	holdOutro: boolean;
 	concluded: boolean;
+	/** The furthest tier a tap asked for before the walk started (0 ⇒ none); `start` walks to it. */
+	queuedTap: number;
 	/** Bumped on every fire; a hold's end counts only when it carries the step it was fired at. */
 	step: number;
 }
@@ -71,6 +75,7 @@ export function createWinWalk(
 		countUpComplete: false,
 		holdOutro: false,
 		concluded: false,
+		queuedTap: 0,
 		step: 0,
 	};
 }
@@ -118,25 +123,32 @@ export function nextStep(
 	const last = walk.tiers.length - 1;
 	switch (event.type) {
 		case 'start': {
+			// Once per presentation: a second start would re-walk from tier 0 over a running chain.
+			if (walk.phase !== 'idle') return none;
 			if (!walk.tiers.length) {
 				const fired = fire({ ...walk, phase: 'plain' }, walk.signals.plain, false);
 				return { walk: fired.walk, effects: [fired.effect] };
 			}
-			return walkTo(walk, 0);
+			// What arrived before the start is FOLDED into it, the way the coded walk read its props at
+			// mount: a count that already landed collapses straight to the final tier's outro (unless the
+			// landing tap holds the idle); an early tap starts the walk on the tier it asked for.
+			if (walk.escalating && walk.countUpComplete && !walk.holdOutro) return conclude(walk);
+			return walkTo(walk, walk.escalating ? Math.min(walk.queuedTap, last) : 0);
 		}
 		case 'holdEnd': {
 			// A stale hold (a tap or the collapse fired past it) is ignored by its step.
 			if (event.step !== walk.step) return none;
 			if (walk.phase === 'walk') {
-				if (walk.index < last) return walkTo(walk, walk.index + 1);
-				// The final tier's idle loops until the overlay hides (the single-tier path exactly).
-				const fired = fire(
-					{ ...walk, phase: 'loop' },
-					walk.signals.loop(walk.tiers[last].alias),
-					false,
-				);
+				// The intro ended. A non-final tier plays ONE idle cycle before the next tier's intro;
+				// the final tier's idle loops until the overlay hides (the single-tier path exactly).
+				const alias = walk.tiers[walk.index].alias;
+				const fired =
+					walk.index < last
+						? fire({ ...walk, phase: 'cycle' }, walk.signals.cycle(alias), true)
+						: fire({ ...walk, phase: 'loop' }, walk.signals.loop(alias), false);
 				return { walk: fired.walk, effects: [fired.effect] };
 			}
+			if (walk.phase === 'cycle') return walkTo(walk, walk.index + 1);
 			if (walk.phase === 'outro') {
 				return { walk: { ...walk, phase: 'done' }, effects: [{ kind: 'outroComplete' }] };
 			}
@@ -144,6 +156,8 @@ export function nextStep(
 		}
 		case 'countUpComplete': {
 			const next = { ...walk, countUpComplete: true };
+			// Before the start: recorded, and folded into it.
+			if (walk.phase === 'idle') return { walk: next, effects: [] };
 			// Un-escalating ⇒ nothing: the idle keeps looping and the gate concludes on its own.
 			if (!walk.escalating || !walk.tiers.length || walk.concluded)
 				return { walk: next, effects: [] };
@@ -153,6 +167,11 @@ export function nextStep(
 			return conclude(next);
 		}
 		case 'tap': {
+			if (walk.phase === 'idle')
+				return {
+					walk: { ...walk, queuedTap: Math.max(walk.queuedTap, event.toTier) },
+					effects: [],
+				};
 			if (!walk.escalating || walk.concluded || walk.phase === 'outro') return none;
 			const target = Math.min(event.toTier, last);
 			if (target <= walk.index) return none;
@@ -160,7 +179,13 @@ export function nextStep(
 		}
 		case 'holdOutro': {
 			const next = { ...walk, holdOutro: event.on };
-			if (!event.on && walk.countUpComplete && walk.escalating && !walk.concluded) {
+			if (
+				!event.on &&
+				walk.phase !== 'idle' &&
+				walk.countUpComplete &&
+				walk.escalating &&
+				!walk.concluded
+			) {
 				return conclude(next);
 			}
 			return { walk: next, effects: [] };

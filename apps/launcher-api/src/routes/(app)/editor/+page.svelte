@@ -4050,7 +4050,7 @@
 									<label
 										class="gs-toggle"
 										class:disabled={!data.canPublishShared || !authoredWin}
-										title="The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses. Held back (the coded path stays, the publish summary warns) when nothing binds a coded Win, when a tier caption uses a &#123;amount&#125; token, or when the tiers resolve to more than one rig or count slot. Switched by a publisher (the component-publish capability)."
+										title="The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses. Held back (the coded path stays, the publish summary warns) when nothing binds a coded Win, when a tier caption (in the base game or any spins mode) uses a &#123;amount&#125; token, or when the tiers resolve to more than one rig or count slot. Switched by a publisher (the component-publish capability)."
 									>
 										<input
 											type="checkbox"

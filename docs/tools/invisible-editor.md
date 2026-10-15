@@ -873,7 +873,8 @@ owner's browser check.** The Game Maker card names each when on.
   overlay gets the presentation at the board centre; a doc that places the hybrid **Win overlay**
   instance keeps its position, overrides and params. The card says _Authored Win (pilot)_, and the
   game keeps the coded path (the card warns) when no scene binds a coded Win or places a win
-  instance, when a big-win tier's caption in Invisible Win Text uses a token such as `{amount}`,
+  instance, when a big-win tier's caption in Invisible Win Text (in the base game or any spins
+  mode) uses a token such as `{amount}`,
   or when the tiers resolve to more than one rig or count slot.
 - **Free spins** — **locked off for now** (the row reads _pilot pending_): nobody, publishers
   included, can switch it on until the owner pilots it, and the save refuses it too; a doc that

@@ -199,8 +199,6 @@ export class ComponentTimelinePlayer {
 	 * game's `componentPlayRate` each tick. 1 ⇒ exactly the step handed in (parity).
 	 */
 	playRate = 1;
-	/** Snap a playhead to its end within a microsecond (a `frameExact` def only, Phase 8b). */
-	snapEnds = false;
 
 	constructor(docs: readonly CinematicDoc[], nodes: LayoutNode[]) {
 		const scene = { id: '', name: '', nodes };
@@ -298,13 +296,7 @@ export class ComponentTimelinePlayer {
 			if (r.done) continue;
 			const duration = Math.max(r.bound.doc.duration || 0, 0);
 			const prev = r.time;
-			// Frame deltas accumulate float error: 802 steps of 1/60 fall 1e-15 short of 13.3667, and
-			// a strip that ends on the frame after would hold its awaited cue a frame late (the win
-			// walk's tier boundary). A `frameExact` def snaps to the end within a microsecond, as the
-			// state-machine runner does; every other timeline ends exactly as before.
-			const stepped = prev + dt;
-			const next =
-				this.snapEnds && duration - stepped < 1e-6 ? duration : Math.min(stepped, duration);
+			const next = Math.min(prev + dt, duration);
 			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
 				step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
 			}

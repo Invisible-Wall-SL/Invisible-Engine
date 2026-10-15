@@ -11,9 +11,10 @@
 //     bar), and requires each coded frame to differ from the reference (the wipe IS on screen);
 //   - reads the frame the NEXT cue (`freeSpinIntroShow`) fires on, on both sides: the point where the
 //     flow continued, which must be the same frame (± 1).
-// Both pairs run: the reference overlays scene as published, and a VARIANT with the Transition node
+// Three pairs run: the reference overlays scene as published, a VARIANT with the Transition node
 // moved into a flow container (`hudCorners`, canvas space, mounted by the flow), which proves the
-// swap reaches the scenes the flow interpreters render, not only the overlays scene.
+// swap reaches the scenes the flow interpreters render, not only the overlays scene, and the same
+// book with turbo on at boot (`ie_turbo=1`), under which measured waits are halved.
 // Deterministic: a fixed seed, stepped frames, no wall clock. No URL flag flips the Transition: the
 // authored side is a DOC with the flag set, served the way a published project is.
 //
@@ -154,10 +155,17 @@ const SIDES = {
 	authored: bundleFile('authored', flagged(published)),
 	'coded-container': bundleFile('coded-container', inContainer(published)),
 	'authored-container': bundleFile('authored-container', flagged(inContainer(published))),
+	'coded-turbo': undefined,
+	'authored-turbo': bundleFile('authored-turbo', flagged(published)),
 };
+// The turbo variant (Rive plan Phase 8b, condition 1): the same book with turbo on at boot
+// (`ie_turbo=1`, honoured with `ie_determinism` only). The runtime divides measured cue waits by
+// `timeScale`; the rigs ride the ticker, so the wipe must track the coded one here too.
+const QUERY = { 'coded-turbo': { ie_turbo: '1' }, 'authored-turbo': { ie_turbo: '1' } };
 const PAIRS = [
 	['coded', 'authored'],
 	['coded-container', 'authored-container'],
+	['coded-turbo', 'authored-turbo'],
 ];
 
 const chrome = headlessShell(opt.chrome);
@@ -210,6 +218,7 @@ async function play(side) {
 			// The flow's trace (`window.__IE_FLOW_V2_TRACE__`): the positive control below reads which
 			// side HELD the cue. Logging only; both sides carry it, so the frames are not affected.
 			flowlog: '1',
+			...(QUERY[side] ?? {}),
 		});
 		await page.navigate(`${server.origin}/${GAME}/?${params}`);
 		let ready = false;

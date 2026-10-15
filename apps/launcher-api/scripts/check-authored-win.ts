@@ -145,7 +145,12 @@ const on = (doc: LayoutDoc): LayoutDoc => ({
 });
 /** The game's composition (`Game.svelte`): the shared rule, then the swap only when `ready`. */
 const asGame = (doc: LayoutDoc, tiers = CODED_TIERS): LayoutDoc =>
-	A.authoredWinStatus({ doc, tiers }) === 'ready' ? A.withAuthoredWinDoc(doc) : doc;
+	A.authoredWinStatus({ doc, tiers }) === 'ready'
+		? A.withAuthoredWinDoc(
+				doc,
+				tiers[0] ? { winSpine: tiers[0].rigKey, slotName: tiers[0].slotName } : undefined,
+			)
+		: doc;
 const winBinds = (nodes: readonly LayoutNode[], component: string): LayoutNode[] =>
 	nodes.flatMap((n) =>
 		n.kind === 'container' && n.bind?.component === component
@@ -724,15 +729,19 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[true, true],
 	);
 	const walks = generated.filter((d) => d.id.endsWith('_walk'));
+	const idles = generated.filter((d) => d.id.endsWith('_idle'));
 	const loops = generated.filter((d) => d.id.endsWith('_loop'));
 	const outros = generated.filter((d) => d.id.endsWith('_outro'));
 	eq(
-		'per tier: a walk that holds, a loop that never holds, an outro that holds; plain / hide / rest hold nothing',
+		'per tier: a walk and an idle cycle that hold, a loop that never holds, an outro that holds; plain / hide / rest hold nothing',
 		[
 			walks.map((d) => [d.playOn, d.holdsCue === true]),
+			idles.map((d) => [d.playOn, d.holdsCue === true]),
 			loops.map((d) => [d.playOn, d.holdsCue === true]),
 			outros.map((d) => [d.playOn, d.holdsCue === true]),
-			generated.filter((d) => !/_(walk|loop|outro)$/.test(d.id)).some((d) => d.holdsCue === true),
+			generated
+				.filter((d) => !/_(walk|idle|loop|outro)$/.test(d.id))
+				.some((d) => d.holdsCue === true),
 			[
 				[B.WIN_REST_TIMELINE_ID, 'enter'],
 				[B.WIN_PLAIN_TIMELINE_ID, B.WIN_PLAIN_SIGNAL],
@@ -741,6 +750,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		],
 		[
 			TIERS.map((t) => [B.winTierSignal(t.alias), true]),
+			TIERS.map((t) => [B.winTierIdleSignal(t.alias), true]),
 			TIERS.map((t) => [B.winTierLoopSignal(t.alias), false]),
 			TIERS.map((t) => [B.winTierOutroSignal(t.alias), true]),
 			false,
@@ -772,17 +782,15 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[true, CLIP_NAMES],
 	);
 	eq(
-		"a walk's hold is the intro, rounded up to its 60 fps frame, plus ONE idle, off the measured clips; the outro the exit",
+		"each hold is its one clip, off the measured clips: a walk's the intro, an idle cycle's one idle, an outro's the exit",
 		[
 			walks.map((d) => Math.round(d.duration * 1000)),
+			idles.map((d) => Math.round(d.duration * 1000)),
 			outros.map((d) => Math.round(d.duration * 1000)),
 		],
 		[
-			// The intro ends on the 60 fps frame the coded track completes it on (the overshoot of a
-			// clip that is not a whole number of frames is dropped there), then ONE idle.
-			TIERS.map((t) =>
-				Math.round(Math.ceil(CLIP_MS[t.intro] * 0.06 - 1e-9) / 0.06 + CLIP_MS[t.idle]),
-			),
+			TIERS.map((t) => Math.round(CLIP_MS[t.intro])),
+			TIERS.map((t) => Math.round(CLIP_MS[t.idle])),
 			TIERS.map((t) => Math.round(CLIP_MS[t.outro!])),
 		],
 	);
@@ -817,15 +825,16 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	const player = new L.ComponentTimelinePlayer(docs, def.root.children);
 	const walkId = B.winTierWalkTimelineId('big');
 	eq(
-		'an instance holds the walk and the outro signals, never the loop, the plain number or the hide',
+		'an instance holds the walk, the idle cycle and the outro signals, never the loop, the plain number or the hide',
 		[
 			player.holdsOn(B.winTierSignal('big')),
+			player.holdsOn(B.winTierIdleSignal('big')),
 			player.holdsOn(B.winTierOutroSignal('big')),
 			player.holdsOn(B.winTierLoopSignal('big')),
 			player.holdsOn(B.WIN_PLAIN_SIGNAL),
 			player.holdsOn(B.WIN_HIDE_SIGNAL),
 		],
-		[[walkId], [B.winTierOutroTimelineId('big')], [], [], []],
+		[[walkId], [B.winTierIdleTimelineId('big')], [B.winTierOutroTimelineId('big')], [], [], []],
 	);
 	const seam = new H.InstanceCueHolds((signal) => player.holdsOn(signal));
 	seam.open(B.winTierLoopSignal('big'));
@@ -848,9 +857,9 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	}
 	await until;
 	await Promise.resolve();
-	const walkFrames = Math.ceil(((CLIP_MS.big_win_intro + CLIP_MS.big_win_idle) / 1000) * 60 - 1e-6);
+	const walkFrames = Math.ceil((CLIP_MS.big_win_intro / 1000) * 60 - 1e-6);
 	eq(
-		'the hold settles on the frame the walk ends (intro + one idle, ±1 frame) and is gone',
+		'the hold settles on the frame the walk ends (the intro, ±1 frame) and is gone',
 		[
 			Math.abs(completedOn - walkFrames) <= 1,
 			settledAt === completedOn,
@@ -870,13 +879,13 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	};
 	const tier = byLabel(def.root.children, C.WIN_PRESENTATION_NODES.tier);
 	eq(
-		"at the walk's end the tier rig (one spine node, boardFit, on the shared bundle) holds the idle at its last time",
+		"at the walk's end the tier rig (one spine node, boardFit, on the shared bundle) holds the intro at its last time",
 		[
 			tier?.kind,
 			(tier as { paramBindings?: Record<string, string> } | undefined)?.paramBindings?.boardFit,
 			player.sample(tier!.id)?.animTime,
 		],
-		['spine', 'fitBoard', { animation: 'big_win_idle', time: CLIP_MS.big_win_idle / 1000 }],
+		['spine', 'fitBoard', { animation: 'big_win_intro', time: CLIP_MS.big_win_intro / 1000 }],
 	);
 	// An unmount releases a pending hold.
 	const gone = new H.InstanceCueHolds((signal) => player.holdsOn(signal));
@@ -953,6 +962,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	// The conductor replays the escalation fixtures step for step.
 	const signals: W.WinWalkSignals = {
 		tier: B.winTierSignal,
+		cycle: B.winTierIdleSignal,
 		loop: B.winTierLoopSignal,
 		outro: B.winTierOutroSignal,
 		plain: B.WIN_PLAIN_SIGNAL,
@@ -1000,19 +1010,19 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	);
 	const chain = drive([t('big'), t('superwin'), t('mega')], true);
 	chain.apply({ type: 'start' });
-	chain.holdEnds();
-	chain.holdEnds();
-	chain.holdEnds();
+	for (let i = 0; i < 5; i++) chain.holdEnds();
 	chain.apply({ type: 'countUpComplete' });
 	chain.holdEnds();
 	eq(
-		'an escalating chain walks each tier once, loops the last, the landing plays its outro',
+		'an escalating chain walks each tier once (intro, one idle cycle), loops the last, the landing plays its outro',
 		chain.log,
 		[
 			'index:0',
 			'winTier.big',
+			'winTierIdle.big',
 			'index:1',
 			'winTier.superwin',
+			'winTierIdle.superwin',
 			'index:2',
 			'winTier.mega',
 			'winTierLoop.mega',
@@ -1026,15 +1036,23 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	tap.apply({ type: 'holdEnd', step: tap.held[0].step });
 	tap.apply({ type: 'tap', toTier: 0 });
 	tap.holdEnds();
+	tap.holdEnds();
 	eq(
 		"a tap bumps the walk forward (never back); the bumped tier's stale hold is ignored",
 		tap.log,
-		['index:0', 'winTier.big', 'index:1', 'winTier.superwin', 'index:2', 'winTier.mega'],
+		[
+			'index:0',
+			'winTier.big',
+			'index:1',
+			'winTier.superwin',
+			'winTierIdle.superwin',
+			'index:2',
+			'winTier.mega',
+		],
 	);
 	const hold = drive([t('big'), t('mega')], true);
 	hold.apply({ type: 'start' });
-	hold.holdEnds();
-	hold.holdEnds();
+	for (let i = 0; i < 3; i++) hold.holdEnds();
 	hold.apply({ type: 'holdOutro', on: true });
 	hold.apply({ type: 'countUpComplete' });
 	const kept = [...hold.log];
@@ -1062,7 +1080,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	// the pure rule read off the gate, and the registry every instance reads.
 	const gate = src('../../lines/src/components/WinGate.svelte');
 	const rule = gate.match(
-		/winState\.escalationActive && !winState\.countUpComplete\s*\?\s*Math\.max\(winState\.escalationSpeedScale, 1\)\s*:\s*1/,
+		/show && winState\.escalationActive && !winState\.countUpComplete\s*\?\s*Math\.max\(winState\.escalationSpeedScale, 1\)\s*:\s*1/,
 	);
 	eq('the gate sets the rate by the coded ramp rule', !!rule, true);
 	eq(
@@ -1070,17 +1088,19 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		/setComponentPlayRate\(WIN_PRESENTATION_COMPONENT_ID, rate\)/.test(gate),
 		true,
 	);
-	const playRate = (active: boolean, complete: boolean, scale: number) =>
-		active && !complete ? Math.max(scale, 1) : 1;
+	const playRate = (active: boolean, complete: boolean, scale: number, shown = true) =>
+		shown && active && !complete ? Math.max(scale, 1) : 1;
 	eq(
-		'the rule: ≥ 1 while escalating and counting, 1 once landed, 1 un-escalating, never below 1',
+		'the rule: ≥ 1 while escalating and counting, 1 once landed, 1 un-escalating, never below 1, 1 once hidden',
 		[
 			playRate(true, false, 2.5),
 			playRate(true, true, 2.5),
 			playRate(false, false, 2.5),
 			playRate(true, false, 0.4),
+			// The hide resets the count latch while a held pointer keeps its speed.
+			playRate(true, false, 2.5, false),
 		],
-		[2.5, 1, 1, 1],
+		[2.5, 1, 1, 1, 1],
 	);
 	P.clearComponentPlayRates();
 	P.setComponentPlayRate(B.WIN_PRESENTATION_COMPONENT_ID, 2);
@@ -1135,7 +1155,9 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		'the gate releases the walk holds on winHide and the play-rate effect resets to 1 on teardown',
 		[
 			/winHide: \(\) => \{\s*show = false;\s*if \(authoredWin\) endWalk\(\);/.test(gate),
-			/const endWalk = \(\): void => \{[^}]*releaseAuthoredWinHolds\(\);\s*\};/.test(gate),
+			/const endWalk = \(\): void => \{[^}]*releaseAuthoredWinHolds\(\);\s*if \(rewind\) fireAuthoredWinRewind\(rewind\);\s*\};/.test(
+				gate,
+			),
 			/setComponentPlayRate\(WIN_PRESENTATION_COMPONENT_ID, rate\);[^}]*return \(\) => setComponentPlayRate\(WIN_PRESENTATION_COMPONENT_ID, 1\);/.test(
 				gate,
 			),
@@ -1251,7 +1273,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 {
 	const game = src('../../lines/src/components/Game.svelte');
 	const load = game.slice(game.indexOf('loadEditorScenes().then((rawDoc)'));
-	const swapAt = load.indexOf('withAuthoredWinDoc(transitioned)');
+	const swapAt = load.indexOf('withAuthoredWinDoc(transitioned, authoredWinPresentation())');
 	const v2At = load.indexOf('createLinesFlowV2(\n\t\t\t\tdoc,');
 	const v1At = load.indexOf('createLinesFlow(\n\t\t\t\t\t\tdoc,');
 	eq(
@@ -1490,23 +1512,320 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	);
 }
 
+// ---- 7. the #1194 review's flag-on fixes -------------------------------------------------------------
+
+{
+	// (a) A cascade's running total (`winLevel: 0`, no `winLevelData`) mounts no coded visual; the
+	// authored side starts no walk and no fade for it.
+	const handlers = src('../../lines/src/game/bookEventHandlerMap.ts');
+	const gate = src('../../lines/src/components/WinGate.svelte');
+	const cascades = handlers.match(/type: 'winUpdate',\s*amount: [^,]+,\s*winLevel: 0,\s*\}/g) ?? [];
+	eq(
+		'(a) the cascade winUpdates carry no tier data; the gate walks only when it has some',
+		[
+			cascades.length >= 3,
+			/if \(authoredWin && emitterEvent\.winLevelData !== undefined\) \{\s*startWalk\(emitterEvent\.winLevelData\);/.test(
+				gate,
+			),
+			/const startWalk = \(data: WinLevelData\): void =>/.test(gate),
+			(gate.match(/startWalk\(/g) ?? []).length,
+			(gate.match(/fireAuthoredWinFade\(\)/g) ?? []).length,
+		],
+		[true, true, true, 1, 2],
+	);
+	// (e) The late-mount re-read waits a FRAME (the next animation frame), not a zero timeout.
+	eq(
+		'(e) the late-mount re-read is the next animation frame',
+		[
+			/awaitFireHolds\(\s*\(\) => cueHolds\(effect\.signal\),\s*\(\) => new Promise<void>\(\(resolve\) => requestAnimationFrame\(\(\) => resolve\(\)\)\),\s*\)/.test(
+				gate,
+			),
+			gate.includes('waitForTimeout(0)'),
+		],
+		[true, false],
+	);
+}
+{
+	// (b) Events before the deferred `start` fire nothing and fold into it; a second start is ignored.
+	const drive = (tiers: Parameters<typeof W.createWinWalk>[0], escalating: boolean) => {
+		let walk = W.createWinWalk(tiers, escalating, {
+			tier: B.winTierSignal,
+			cycle: B.winTierIdleSignal,
+			loop: B.winTierLoopSignal,
+			outro: B.winTierOutroSignal,
+			plain: B.WIN_PLAIN_SIGNAL,
+		});
+		const log: string[] = [];
+		const apply = (event: Parameters<typeof W.nextStep>[1]) => {
+			const next = W.nextStep(walk, event);
+			walk = next.walk;
+			for (const e of next.effects) log.push(e.kind === 'fire' ? e.signal : e.kind);
+		};
+		return { apply, log };
+	};
+	const chain = ['big', 'superwin', 'max'].map((alias, i) => ({
+		alias,
+		hasExit: true,
+		boundaryAmount: i,
+	}));
+	const instant = drive(chain, true);
+	instant.apply({ type: 'countUpComplete' });
+	instant.apply({ type: 'start' });
+	instant.apply({ type: 'start' });
+	const tapped = drive(chain, true);
+	tapped.apply({ type: 'tap', toTier: 1 });
+	tapped.apply({ type: 'start' });
+	eq(
+		'(b) an instant count collapses the start to the final outro once; an early tap starts on its tier',
+		[instant.log, tapped.log],
+		[
+			['stepIndex', 'winTierOutro.max'],
+			['stepIndex', 'winTier.superwin'],
+		],
+	);
+}
+{
+	// The coded walk's REWIND under the fade-out: `winHide` clears the count latch and `WinAnimation`
+	// restarts an escalating chain's first-tier intro while the overlay fades. The authored side fires
+	// `winTierRewind.<first>`, whose timeline replays that intro on the tier rig alone (never the
+	// `visual` node the hide owns), holds nothing, and only for an escalating walk whose count landed.
+	const gate = src('../../lines/src/components/WinGate.svelte');
+	const rewind = generated.find((d) => d.id === B.winTierRewindTimelineId('big'))!;
+	eq(
+		'the rewind replays the intro on the tier alone, unheld, and the gate fires it on the coded rule',
+		[
+			rewind.playOn,
+			rewind.holdsCue === true,
+			rewind.stage!.cast.map((c) => c.actorId),
+			(
+				rewind.tracks.find((t) => t.kind === 'animation') as {
+					strips: { clip: { name: string } }[];
+				}
+			).strips[0].clip.name,
+			/walk\?\.escalating && walk\.tiers\.length && winState\.countUpComplete\s*\?\s*walk\.tiers\[0\]\.alias/.test(
+				gate,
+			),
+			// endWalk runs in the winHide handler before it clears the latch.
+			gate.indexOf('if (authoredWin) endWalk();') <
+				gate.indexOf('winState.countUpComplete = false;\n\t\t},'),
+		],
+		['winTierRewind.big', false, ['tier'], 'big_win_intro', true, true],
+	);
+}
+{
+	// (c) A tier rig other than the def's default is WRITTEN into the swapped instance: the def's tier
+	// node reads `winSpine`, its riders `slotName`, so the presentation draws the rig the tiers name.
+	const lines = layouts.lines;
+	const rigTiers = CODED_TIERS.map((t) => ({ ...t, rigKey: 'hugeRig', slotName: 'slot_h' }));
+	const synthesized = asGame(on(lines), rigTiers).scenes.find(
+		(sc) => sc.id === A.WIN_VISUAL_SCENE_ID,
+	)?.nodes[0] as Inst | undefined;
+	const placedDoc = on(R.defaultLayout('lines', { winInstance: true }));
+	const placedParams = (doc: LayoutDoc) =>
+		instances(allNodes(doc), B.WIN_PRESENTATION_COMPONENT_ID).map((n) => n.params);
+	const withParams = {
+		...placedDoc,
+		scenes: placedDoc.scenes.map((sc) => ({
+			...sc,
+			nodes: sc.nodes.map((n) =>
+				n.kind === 'componentInstance' && (n as Inst).componentId === 'win'
+					? { ...n, params: { ...((n as Inst).params as object), introAnimation: 'in' } }
+					: n,
+			),
+		})),
+	} as LayoutDoc;
+	eq(
+		'(c) the synthesized and the placed instance carry the resolved rig and slot; the defaults write nothing',
+		[
+			synthesized?.params,
+			placedParams(asGame(withParams, rigTiers)),
+			placedParams(asGame(withParams)),
+		],
+		[
+			{ winSpine: 'hugeRig', slotName: 'slot_h', fitBoard: true },
+			[{ winSpine: 'hugeRig', slotName: 'slot_h', introAnimation: 'in' }],
+			[{ winSpine: 'bigwin', slotName: 'slot_win_count', introAnimation: 'in' }],
+		],
+	);
+	const clips = { intro: 'h_in', idle: 'h_idle', outro: 'h_out' };
+	const authoredConfig = {
+		winLevels: [
+			{
+				alias: 'big',
+				name: 'Big',
+				threshold: 10,
+				type: 'big',
+				spineKey: 'hugeRig',
+				animation: clips,
+			},
+			{
+				alias: 'mega',
+				name: 'Mega',
+				threshold: 40,
+				type: 'big',
+				spineKey: 'hugeRig',
+				animation: clips,
+			},
+		],
+	};
+	const { gameConfigDefaultFor } = await import('../src/lib/server/gameConfigDefaults.ts');
+	const config = { ...gameConfigDefaultFor('lines')!, ...authoredConfig } as unknown as Parameters<
+		typeof authoredWinTiersFor
+	>[0]['config'];
+	const tiers = authoredWinTiersFor({ config, layout: { scenes: [] }, winText: undefined });
+	eq(
+		"(c) a config whose every tier names its own rig is ready, and the swap draws that rig, not the def's",
+		[
+			tiers.map((t) => t.rigKey),
+			A.authoredWinStatus({ doc: on(lines), tiers }),
+			(
+				asGame(on(lines), tiers).scenes.find((sc) => sc.id === A.WIN_VISUAL_SCENE_ID)
+					?.nodes[0] as Inst
+			).params,
+		],
+		[
+			['hugeRig', 'hugeRig'],
+			'ready',
+			{ winSpine: 'hugeRig', slotName: 'slot_win_count', fitBoard: true },
+		],
+	);
+	const game = src('../../lines/src/components/Game.svelte');
+	const authoredWinSrc = src('../../lines/src/game/authoredWin.svelte.ts');
+	eq(
+		'(c) the game hands the swap the rig and slot its tiers resolve to',
+		[
+			game.includes('withAuthoredWinDoc(transitioned, authoredWinPresentation())'),
+			/const first = authoredWinTiers\(\)\[0\];\s*return first \? \{ winSpine: first\.rigKey, slotName: first\.slotName \} : undefined;/.test(
+				authoredWinSrc,
+			),
+		],
+		[true, true],
+	);
+}
+{
+	// (d) Every spins mode's captions: scanned by the status rule, generated as the mode's own walk,
+	// and the walk the conductor fires follows the mode on top, as the coded caption does.
+	const winText = {
+		version: 1,
+		winLevels: { big: 'BIG WIN' },
+		modes: {
+			bonus: { winLevels: { big: 'BONUS BIG', mega: 'BONUS MEGA {amount}' } },
+			same: { winLevels: { big: 'BIG WIN' } },
+		},
+	} as unknown as Parameters<typeof authoredWinTiersFor>[0]['winText'];
+	const tiers = authoredWinTiersFor({ config: null, layout: { scenes: [] }, winText });
+	eq(
+		'(d) the builder carries each mode caption that differs from the base game',
+		tiers.map((t) => [t.alias, t.caption, t.modeCaptions]),
+		[
+			['big', 'BIG WIN', { bonus: 'BONUS BIG' }],
+			['superwin', undefined, undefined],
+			['mega', undefined, { bonus: 'BONUS MEGA {amount}' }],
+			['epic', undefined, undefined],
+			['max', undefined, undefined],
+		],
+	);
+	eq(
+		'(d) a token in ANY mode caption holds the project back; a mode caption without one does not',
+		[
+			A.authoredWinStatus({ doc: on(layouts.lines), tiers }),
+			A.authoredWinStatus({
+				doc: on(layouts.lines),
+				tiers: tiers.map((t) => (t.alias === 'mega' ? { ...t, modeCaptions: undefined } : t)),
+			}),
+		],
+		['caption-variable', 'ready'],
+	);
+	const modeTier = {
+		...TIERS[0],
+		caption: 'BIG WIN',
+		modeCaptions: { bonus: 'BONUS BIG', quiet: '' },
+	};
+	const docs = B.winTierTimelines([modeTier], CLIP_MS);
+	const walkOf = (mode?: string) => docs.find((d) => d.id === B.winTierWalkTimelineId('big', mode));
+	const captionKey = (d: CinematicDoc | undefined) =>
+		(d?.tracks.find((t) => (t as { kind: string }).kind === 'text') as { keys?: { key: string }[] })
+			?.keys?.[0]?.key;
+	const modeDef = C.winPresentationDef([{ alias: 'big', name: 'Big', ...modeTier }]);
+	eq(
+		"(d) each mode with its own caption walks the tier under the mode's signal, keyed to its caption ('' clears it)",
+		[
+			[walkOf()?.playOn, captionKey(walkOf())],
+			[walkOf('bonus')?.playOn, captionKey(walkOf('bonus'))],
+			[walkOf('quiet')?.playOn, captionKey(walkOf('quiet'))],
+			walkOf('bonus')?.duration === walkOf()?.duration && walkOf('bonus')?.holdsCue,
+			docs.flatMap((d) =>
+				N.validateNodeActors(d, { id: '', name: '', nodes: modeDef.root.children }).map(
+					(i) => `${d.id}:${i.code}`,
+				),
+			),
+			(byLabelDeep(modeDef.root.children, 'caption') as { switchKeys?: string[] }).switchKeys,
+		],
+		[
+			['winTier.big', 'BIG WIN'],
+			['winTier.big@bonus', 'BONUS BIG'],
+			['winTier.big@quiet', ''],
+			true,
+			[],
+			['BIG WIN', 'BONUS BIG'],
+		],
+	);
+	eq(
+		'(d) no mode caption ⇒ the generated timelines are exactly the base set',
+		B.winTierTimelines(TIERS, CLIP_MS).map((d) => d.id),
+		generated.map((d) => d.id),
+	);
+	const textKeys = (docs: CinematicDoc[]) =>
+		docs.filter((d) => d.id.endsWith('_walk')).map((d) => [d.id, captionKey(d) ?? null]);
+	eq(
+		"(d) no caption anywhere ⇒ no walk keys the caption; any caption ⇒ a captionless walk keys '' (clears it)",
+		[
+			textKeys(B.winTierTimelines(TIERS.slice(0, 2), CLIP_MS)),
+			textKeys(B.winTierTimelines([TIERS[0], { ...TIERS[1], caption: 'SUPER WIN' }], CLIP_MS)),
+		],
+		[
+			[
+				[B.winTierWalkTimelineId('big'), null],
+				[B.winTierWalkTimelineId('superwin'), null],
+			],
+			[
+				[B.winTierWalkTimelineId('big'), ''],
+				[B.winTierWalkTimelineId('superwin'), 'SUPER WIN'],
+			],
+		],
+	);
+	const authoredWinSrc = src('../../lines/src/game/authoredWin.svelte.ts');
+	const gate = src('../../lines/src/components/WinGate.svelte');
+	eq(
+		"(d) the game reads every mode's captions and the conductor fires the mode's own walk",
+		[
+			authoredWinSrc.includes('const modeCaptions = winTierModeCaptions(doc, alias);'),
+			/const mode = activeSpinsGame\(\)\?\.mode;/.test(authoredWinSrc),
+			/tier: authoredWinTierSignal,/.test(gate),
+			authoredWinSrc.includes("from './boardWinText'"),
+		],
+		[true, true, true, false],
+	);
+}
+
 {
 	// Engine-wide effects stay off the default path (Phase 8b review): `frameExact` is the win
 	// presentation's alone; a strip poses from the setup pose only on a trackless rig; timelines
-	// snap to their end only for a `frameExact` def (six 1/60 s steps fall 1.4e-17 short of 0.1 s).
+	// end by the pre-#1194 rule for every def, the win's included (a held clip ends on the rig's
+	// clock, so the snap-to-end #1194 gave a `frameExact` def is gone).
 	const instance = src('../../../packages/engine-layout/src/lib/ComponentInstance.svelte');
 	const nodeView = src('../../../packages/engine-layout/src/lib/LayoutNodeView.svelte');
 	eq(
-		'only the win presentation is frameExact; the instance gates advance-at-fire and the snap on it',
+		'only the win presentation is frameExact; the instance gates advance-at-fire on it, and nothing snaps',
 		[
 			C.winPresentationDef().frameExact,
 			C.WIN_DEF.frameExact,
 			/if \(!def\?\.frameExact\) return;\s*const step = stateMachineRunner\.advance\(0\);/.test(
 				instance,
 			),
-			instance.includes('if (timelinePlayer && def?.frameExact) timelinePlayer.snapEnds = true;'),
+			instance.includes('snapEnds'),
 		],
-		[true, undefined, true, true],
+		[true, undefined, true, false],
 	);
 	const strip = { animation: 'big_win_idle', time: 1 };
 	const V = await import('../../../packages/engine-layout/src/lib/valueBindings.ts');
@@ -1520,18 +1839,14 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[true, false, true],
 	);
 	const snapDoc = { ...generated[0], id: 'c_snap', playOn: 'snapTest', duration: 0.1 };
-	const run = (snap: boolean): boolean => {
-		const p = new L.ComponentTimelinePlayer([snapDoc], def.root.children);
-		p.snapEnds = snap;
-		p.trigger('snapTest');
-		let done = false;
-		for (let i = 0; i < 6; i++) done ||= p.advance(1 / 60).completed.includes('c_snap');
-		return done;
-	};
+	const p = new L.ComponentTimelinePlayer([snapDoc], def.root.children);
+	p.trigger('snapTest');
+	let done = false;
+	for (let i = 0; i < 6; i++) done ||= p.advance(1 / 60).completed.includes('c_snap');
 	eq(
-		'a 0.1 s timeline after six 1/60 s steps: not done by default (main), done when snapping',
-		[run(false), run(true)],
-		[false, true],
+		"a 0.1 s timeline after six 1/60 s steps (1.4e-17 short) is not done: the end rule is main's",
+		[done, 'snapEnds' in p],
+		[false, false],
 	);
 }
 console.log(`\n${failures === 0 ? '✅' : '❌'} authored win: ${passes} passed, ${failures} failed`);

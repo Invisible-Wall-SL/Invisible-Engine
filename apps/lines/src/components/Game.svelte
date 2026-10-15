@@ -303,6 +303,7 @@
 		authoredWinRuntime,
 		authoredWinSignals,
 		registerAuthoredWinTimelines,
+		authoredWinPresentation,
 		resolveAuthoredWinStatus,
 	} from '../game/authoredWin.svelte';
 	import {
@@ -2198,7 +2199,9 @@
 			// built-in `winPresentation`, the `winVisual` scene synthesized when none is placed; both
 			// flows are built from this doc too. Off, or held back ⇒ the same doc object (parity).
 			const authoredWin = resolveAuthoredWinStatus(transitioned) === 'ready';
-			const won = authoredWin ? withAuthoredWinDoc(transitioned) : transitioned;
+			const won = authoredWin
+				? withAuthoredWinDoc(transitioned, authoredWinPresentation())
+				: transitioned;
 			// Rive plan Phase 8c: the AUTHORED free-spin intro / outro, under its own flag and the shared
 			// status rule — every coded `bind: FreeSpinIntroVisual / FreeSpinOutroVisual` swapped for its
 			// built-in presentation; the outro driver, the taps and the holds stay coded. Off, or held

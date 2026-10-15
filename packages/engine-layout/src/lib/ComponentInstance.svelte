@@ -787,7 +787,6 @@
 		def && instanceTimelines.docs.length
 			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children)
 			: undefined;
-	if (timelinePlayer && def?.frameExact) timelinePlayer.snapEnds = true;
 	const stateMachineRunner =
 		stateMachine && def
 			? new ComponentStateMachineRunner(

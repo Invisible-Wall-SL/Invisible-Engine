@@ -1311,6 +1311,57 @@ in order, then the conditions the build carried and the findings it made.
   Known caveat: a reel-grid override moves `boardLayout()` but not the synthesized instance (the
   per-layout-override fallback covers it).
 
+**13.6.11 The parity follow-up (2026-10-15, `claude/rive-p8b-followup`).** The #1194 review's
+flag-on list and the deferred parity variants; the lock stays (last bullet):
+
+- **One clip per held timeline (the escalation hand-off).** The walk was ONE timeline (intro, then
+  one idle) with a snap-to-end within 1e-6. The coded track completes a clip when the frame deltas
+  summed since THAT clip started reach its length — no rounding, no snap — and starts the next at 0
+  from that `complete`. On the stepped clock the 720-frame idle's deltas sum a hair under 12 s, so
+  the coded idle completed on frame 721 while the snapped walk ended on 720: from each tier
+  hand-off on, the authored chain ran one frame ahead (t+801 showed the next tier on one side and
+  the old idle's last frame on the other; the rig's embers drifted after). Each clip is now its own
+  held timeline — `c_winpresentation_<alias>_walk` (the intro, `winTier.<alias>`) and
+  `c_winpresentation_<alias>_idle` (one idle cycle, `winTierIdle.<alias>`, a chain's non-final tier
+  only) — ended by the player's plain rule, and the conductor starts the next from the hold's end
+  (the walk gained a `cycle` phase). The final tier loops straight after its intro, as the coded
+  final idle does. The `toFrame` rounding and the player's `snapEnds` are gone; the player ends a
+  timeline by the pre-#1194 rule for every def. `escalation`: 0 px at every capture.
+- **Flag-on fixes.** (a) a cascade's running-total `winUpdate` (no tier data) starts no walk and no
+  fade; (b) `start` is taken once, from `idle` only — a count, tap or landing hold that arrives
+  first fires nothing and is folded into it (an instant count collapses straight to the final
+  outro, an early tap starts on its tier); (c) the swap writes the tiers' resolved rig and count
+  slot into the swapped and the synthesized instance (`withAuthoredWinDoc(doc, presentation)`), so a
+  tier rig named per tier, by `spineKey` or by a shared param draws that rig; (d) every spins
+  mode's tier captions are scanned by `caption-variable` (`winTierModeCaptions`), and a mode with
+  its own caption walks the tier under `winTier.<alias>@<mode>` with its own key, which the
+  conductor fires while that mode is on top; (e) the late-mount re-read waits for the next
+  animation frame, not a zero timeout; (f, found by `held`) the play-rate ramp is 1 once the
+  overlay hides — `winHide` clears the count latch while a held pointer keeps its speed, which cut
+  the hide timeline's 400 ms visibility cut to a few frames; (g) the coded rewind under the
+  fade-out is mirrored: `winHide` clears the count latch, `WinAnimation` takes that edge as a new
+  presentation and restarts an escalating chain's first-tier intro while the overlay fades, so the
+  gate fires `winTierRewind.<first>` (`…_rewind`: that intro on the tier rig alone, unheld).
+- **`slam-small`, renamed `slam-plain`.** Unreachable as specified: the Play4Fun facade every shipped game runs emits
+  `setWin` only at a `big`-typed tier, so a small / medium win never shows the overlay. The variant
+  now measures the plain-number presentation (`winPlain`) — what a big tier with no animation draws
+  — with the slam press; it remains big-typed (unskippable), so it is not a raced small-win slam.
+- **`held`.** The press is a held POINTER on the board: Space is the round's slam key and ended
+  the win at the press on both sides, so the earlier held run measured a slam. It now fails when
+  its span shows the hold never engaged (`maxSpan` 900: 375 held, 1951 unheld).
+- **Captions clear.** Once any tier or mode authors a caption, every walk keys the caption node —
+  `''` where the tier (or the mode) has none — so a walk never leaves the previous tier's caption
+  on screen, as the coded caption is drawn only while the tier on show has one.
+- **Residue in the fade-out — why the lock stays.** Every capture INSIDE every presentation is
+  0 px and every `winHide` lands on the same frame. The captures now reach 24 frames past the hide
+  (the 400 ms fade), and two escalating cases still differ there: `escalation` +1956 / +1966
+  (0.19 % / 0.21 %: the WINNING SYMBOLS' post-win pulse, not the Win art; not traced) and `held`
+  +380 / +390 (1.7 % / 10 %: the coded rewind intro runs at the frozen hold speed — the coded rig's
+  `timeScale` stays `max(speedScale, 1)` after the hide — while the authored timelines run at 1×,
+  which the hide's visibility cut needs; one play rate per component cannot do both). No reference
+  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stays
+  until the coordinator rules on these two.
+
 ### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
 
 > Written against `main` c773a78 (8b merged). The 8b pattern, one flag row further. Built straight
