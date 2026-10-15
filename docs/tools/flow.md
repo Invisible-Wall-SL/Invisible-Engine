@@ -346,18 +346,20 @@ A **`$trigger` field** follows the event the Branch's chain starts on — the **
 **Game Signals** pin its exec wires lead back to, through any groups. On a `meterUpdate` chain
 `$trigger.full` gives **on / off**, `$trigger.meter` a text box and `$trigger.level` a number,
 so `meterUpdate → fillMeter → Branch($trigger.full eq on)` takes **then** on the spin that fills
-the pot. Where the event can't be told, the literal stays a number box: a Branch no event
-reaches, one on a screen-button or component-event chain, one two events reach that declare
-the field differently, and a function body.
+the pot. Where the event can't be told, the literal stays a number box: a Branch on a chain no
+Event node or Game Signals pin starts (a Mode trigger's, a screen button's, a component event's,
+one nothing starts, a function body), on a `complete:` event or any other the template doesn't
+declare, or one several events reach that don't all declare the field with the same type.
 
 Two runtime rules decide which operator you want:
 
 - **`eq` / `ne` are exact; `lt` / `lte` / `gt` / `gte` read both sides as numbers.** The
   exactness is why the typing above matters: a true/false value compared against a number
   is never equal to it. A row that does it — one saved before its side was typed, like
-  `$trigger.full eq 1` — gets an amber `guard-type-mismatch` in Validation and a **Use on /
-  off** button under the row, which turns `1` into **on** (and `0` into **off**). The same
-  goes for a text or dropdown value compared with `eq` / `ne` against a number.
+  `$trigger.full eq 1` — gets an amber `guard-type-mismatch` in Validation, and in the
+  guard's **all of** list a **Use on / off** button under the row, which turns `1` into **on**
+  (and `0` into **off**). The same goes for a text or dropdown value compared with `eq` / `ne`
+  against a number.
 - **An unbounded value is not a finite number.** Autoplay set to `∞` makes
   `autoSpinsRemaining` infinite, which no `gt` / `lt` test matches — `ne 0` catches it,
   `gt 0` silently doesn't.

@@ -114,11 +114,15 @@ import {
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
-import { guardLiteralMismatch, instanceEventOwner, triggerOwners } from './triggers';
+import {
+	guardLiteralMismatch,
+	instanceEventOwner,
+	triggerOwners,
+	type TypedRead,
+} from './triggers';
 import { SYMBOL_ENUM, symbolsOf } from './symbols';
 import { assignable } from './types-check';
 import type {
-	Accessor,
 	ContainerEventDecl,
 	DataEdge,
 	DataSource,
@@ -1170,12 +1174,8 @@ const guardSymbolIssues = (nodes: Node[], vocab: TemplateVocabulary): FlowIssue[
 		);
 	});
 
-const readLabel = (acc: Accessor): string =>
-	acc.on === 'engine'
-		? `$engine.${acc.key}`
-		: acc.on === 'trigger'
-			? `$trigger.${acc.member ?? ''}`
-			: `$${acc.on}`;
+const readLabel = (read: TypedRead): string =>
+	read.on === 'engine' ? `$engine.${read.key}` : `$trigger.${read.member}`;
 
 /** `guard-type-mismatch` over every branch row — the rule itself is `guardLiteralMismatch`, which the
  *  inspector reads too, so the warning and the inspector's one-click fix never disagree. */
@@ -1191,16 +1191,12 @@ const guardTypeIssues = (
 			rows.flatMap((row, i): FlowIssue[] => {
 				const bad = guardLiteralMismatch(vocab, row, owners.get(node.id));
 				if (!bad) return [];
-				const read = bad.literal === 'right' ? row.left : row.right;
-				const lit = bad.literal === 'right' ? row.right : row.left;
-				const label = read.kind === 'accessor' ? readLabel(read.path) : 'the other side';
-				const value = lit.kind === 'literal' ? JSON.stringify(lit.value) : '';
 				const pick = bad.type.t === 'bool' ? ' (on / off)' : '';
 				return [
 					{
 						code: 'guard-type-mismatch',
 						severity: 'warning',
-						message: `branch ${node.id}: ${label} is ${typeName(bad.type)}, but the guard compares it (${row.op}) to the literal ${value} — ${row.op} is exact, so this comparison is always ${row.op === 'ne'}. Use a ${typeName(bad.type)} literal${pick}.`,
+						message: `branch ${node.id}: ${readLabel(bad.read)} is ${typeName(bad.type)}, but the guard compares it (${row.op}) to the literal ${JSON.stringify(bad.value)} — ${row.op} is exact, so this comparison is always ${row.op === 'ne'}. Use a ${typeName(bad.type)} literal${pick}.`,
 						at: { on: 'pin', node: node.id, pin: `${group}.${i}.${bad.literal}` },
 					},
 				];

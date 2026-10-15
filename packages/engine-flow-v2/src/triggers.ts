@@ -3,8 +3,9 @@
  * per dispatch (the firing entry's payload), so what a `$trigger.<field>` read or a `gameSignals`
  * data-out carries depends on WHICH entry's exec chain the node sits on. That is a property of the
  * GRAPH, not of any single node, so it is resolved here once: the validator (`signal-cross-event`,
- * the `$trigger` field checks, `guard-type-mismatch`) and the editor's guard-literal seeding read
- * the same answer.
+ * the `$trigger` data-in checks, `guard-type-mismatch`) and the editor's guard-literal seeding read
+ * the same owners. A data-in's `$trigger` field is type-checked from a single owner only (an ERROR
+ * there would block Publish); a guard operand is typed whenever every owner agrees.
  */
 
 import { instanceEventOf } from './instanceNodes';
@@ -149,10 +150,17 @@ export const guardOperandType = (
 const exactKind = (t: TypeRef): 'boolean' | 'string' | undefined =>
 	t.t === 'bool' ? 'boolean' : t.t === 'string' || t.t === 'enum' ? 'string' : undefined;
 
+/** A guard operand whose type is knowable: an `$engine` value or a `$trigger` field. */
+export type TypedRead = { on: 'engine'; key: string } | { on: 'trigger'; member: string };
+
 /** A guard row whose literal can never `===` the read it is tested against. */
 export interface GuardLiteralMismatch {
 	/** The side holding the literal. */
 	literal: 'left' | 'right';
+	/** The literal's stored value. */
+	value: unknown;
+	/** The read on the other side. */
+	read: TypedRead;
 	/** The read's known type — what the literal should be. */
 	type: TypeRef;
 }
@@ -174,11 +182,17 @@ export const guardLiteralMismatch = (
 		[row.left, row.right, 'right'],
 		[row.right, row.left, 'left'],
 	] as const;
-	for (const [read, lit, literal] of sides) {
-		if (read.kind !== 'accessor' || lit.kind !== 'literal') continue;
-		const type = guardOperandType(vocab, read, owners);
+	for (const [src, lit, literal] of sides) {
+		if (src.kind !== 'accessor' || lit.kind !== 'literal') continue;
+		const acc = src.path;
+		let read: TypedRead;
+		if (acc.on === 'engine') read = acc;
+		else if (acc.on === 'trigger' && acc.member !== undefined) {
+			read = { on: 'trigger', member: acc.member };
+		} else continue;
+		const type = guardOperandType(vocab, src, owners);
 		const kind = type && exactKind(type);
-		if (type && kind && typeof lit.value !== kind) return { literal, type };
+		if (type && kind && typeof lit.value !== kind) return { literal, value: lit.value, read, type };
 	}
 	return undefined;
 };

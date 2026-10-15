@@ -223,10 +223,14 @@ const fullType = (graph: Graph, nodeId = 'branch', vocab = VOCAB) =>
 	const m = (r: Compare) => F.guardLiteralMismatch(VOCAB, r, owners);
 	eq('full eq 1 is a mismatch at the literal', m(row(trig('full'), INT_ONE)), {
 		literal: 'right',
+		value: 1,
+		read: { on: 'trigger', member: 'full' },
 		type: { t: 'bool' },
 	});
 	eq('1 ne full: the literal on the left', m(row(INT_ONE, trig('full'), 'ne')), {
 		literal: 'left',
+		value: 1,
+		read: { on: 'trigger', member: 'full' },
 		type: { t: 'bool' },
 	});
 	eq('full eq true is clean', m(row(trig('full'), BOOL_TRUE)), undefined);
@@ -268,7 +272,7 @@ const fullType = (graph: Graph, nodeId = 'branch', vocab = VOCAB) =>
 		issues.filter((i) => i.severity === 'error').map((i) => i.code);
 	eq('the warning adds no error (Publish is unchanged)', errors(broken), errors(fixed));
 
-	// `any` rows are judged too, and a mode section's issue carries its mode.
+	// `any` rows are judged too.
 	const anyDoc = meterDoc([]);
 	const branch = anyDoc.graph.nodes.find((n) => n.id === 'branch') as Node & { kind: 'branch' };
 	branch.guard = { any: [row(trig('full'), INT_ONE, 'ne')] };
@@ -276,6 +280,16 @@ const fullType = (graph: Graph, nodeId = 'branch', vocab = VOCAB) =>
 		'an any row is judged, and ne reads always true',
 		guardIssues(validate(anyDoc)).map((i) => [i.at, i.message.includes('always true')]),
 		[[{ on: 'pin', node: 'branch', pin: 'any.0.right' }, true]],
+	);
+
+	const engineKey = VOCAB.values.find((v) => v.type.t === 'bool')!.name;
+	const engineDoc = meterDoc([
+		row({ kind: 'accessor', path: { on: 'engine', key: engineKey } }, INT_ONE),
+	]);
+	eq(
+		'an $engine read is named in its warning',
+		guardIssues(validate(engineDoc)).map((i) => i.message.includes(`$engine.${engineKey} is bool`)),
+		[true],
 	);
 }
 
