@@ -1450,3 +1450,26 @@ the offline bake.
 
 **13.7.8 Removal, later.** As 8b: the twins' next versions replace their bound children, the coded
 visuals and `FreeSpinAnimation` go, the driver stays (it is the outro's conductor).
+
+**13.7.9 The pre-unlock follow-up (2026-10-15, `claude/rive-p8c-followup`, #1235; the CI workflow
+is #1234).** What #1231 left before the lock can lift. The lock stays, and lifting it is the owner's call:
+
+- **Teardown.** `startAuthoredFreeSpins` (game side) registers the path and returns its teardown:
+  - the `freeSpinIntroUpdate` subscription (#1231 dropped its unsubscribe);
+  - the signals, the count source, the board box and the retire. Only the latest boot resets the module-wide retire and count.
+
+  A signal's unsubscribe also cancels the frame it requested and has not run. `Game.svelte` runs the teardown on destroy. `registerComponentSignals` / `registerComponentValues` return an unregister that removes only their own entry.
+- **The shows end.** A new component-timeline field, `CinematicDoc.loopFrom`, works like this:
+  - On reaching `duration`, the playhead wraps to `loopFrom` and carries the overshoot.
+  - A looping timeline never reports an end and holds no cue.
+  - A step longer than a lap crosses each cue once.
+  - Absent or out of `[0, duration)` ⇒ the timeline ends and holds, as before.
+
+  Each show is one intro plus one idle cycle (3.48 s), looped from the intro's end. #1231's hour-long show froze after an hour. Sampled frame by frame over 30 s, the two match phase for phase. At a lap's seam one side may read the idle at 2.8 s and the other at 0 s (the same instant), and the parity run judges the pixels there.
+- **The swap carries the node.** Every `BaseNode` field except `bind` carries over (`BASE_NODE_FIELDS`, `satisfies`-checked against the type and re-read off the source by the gate). #1231 dropped `anchor`, `blendMode`, `hiddenUntilSignal`, `rigSlot`, `on` and the bindings.
+- **One resolution.** `resolveAuthoredOverlays(raw, { status, presentation })` runs Transition → Win → free spins, each status read on the doc the earlier swaps produced. `Game.svelte` and the Game Maker chips (`authoredOverlayChips`) both call it.
+- **The lock on every write.** `saveDoc` refuses switching a locked pilot (Win or free spins) on. A save with no locked row on does no extra read. That covers the editor, backup restore (403), Director (`AdapterError 403 locked_overlay`), bonus import, the Book-of migration and add-ons; the last three merge onto the stored doc's own settings.
+  - The file browser's raw upload or move over `editor/scenes.json` is checked against the stored doc. A move to a new folder carries the source's own state, and a folder move checks every key before the first copy.
+  - A project copy lands in a fresh project and keeps its source's state.
+  - The scaffold's seed carries no `settings`.
+  - Gate: `check:authored-freespins-followup`.

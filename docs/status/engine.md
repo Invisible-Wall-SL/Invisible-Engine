@@ -264,6 +264,22 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-15 — **The authored free-spin intro / outro: the pre-unlock follow-up (Rive plan Phase
+  8c, #1235; plan [§13.7.9](../design/rive-style-editor.md)).** The lock stays on: lifting it is
+  the owner's call. #1234 carries the advisory `freespin-parity.yml` on its own, because the
+  current-games verdict counts workflow files as harness.
+  - **Teardown.** `startAuthoredFreeSpins` returns a teardown that `Game.svelte` runs on destroy. It
+    undoes the leaked `freeSpinIntroUpdate` subscription, the signals, the count source, the board
+    box and the retire, and cancels pending frames.
+  - **The shows end.** The new `CinematicDoc.loopFrom` loops the idle after one intro + one idle
+    cycle; the hour-long timelines are gone.
+  - **The swap.** It carries every `BaseNode` field but `bind` (`BASE_NODE_FIELDS`).
+  - **One resolution.** `resolveAuthoredOverlays` is shared by the game and the Game Maker chips.
+  - **The lock on every layout-doc write.** It covers `saveDoc` and the file browser's upload and
+    move.
+
+  Gate: `check:authored-freespins-followup` (27).
+  **Parity:** pending (`check:freespin-parity` in progress).
 - 2026-10-15 — **Authored Win parity follow-up: every capture inside a presentation at 0 px; the
   Win row stays locked** (branch `claude/rive-p8b-followup`, plan
   [§13.6.11](../design/rive-style-editor.md)). **The escalation hand-off:** the walk was one
