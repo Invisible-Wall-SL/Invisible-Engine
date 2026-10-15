@@ -5,6 +5,7 @@
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text } from 'pixi-svelte';
+	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
 		stateBetDerived,
@@ -782,6 +783,10 @@
 	// AFTER `registerFlipbooks` for readability only — a binding resolves its clip at render, not
 	// here. No-op when un-baked / no rig has a bound clip (parity).
 	registerRigFlipbooks(bakedRigFlipbooks());
+	// Turbo speeds up the particles too: every `<ParticleEmitter>` steps by this clock and the FX
+	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
+	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.
+	setParticleTimeScale(stateBetDerived.timeScale);
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(getMessagesMap());

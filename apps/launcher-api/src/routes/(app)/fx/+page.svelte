@@ -9,7 +9,13 @@
 	import {
 		FX_FORCE_KINDS,
 		FX_FORCE_LIMITS,
+		applyEffectParamDefaults,
+		listEffectLayerLeaves,
 		type EffectDoc,
+		type EffectParam,
+		type EffectParamKind,
+		type EffectParamLeaf,
+		type EffectParamValue,
 		type EmitterConfigV3,
 		type EmitterLayer,
 		type FxForceKind,
@@ -35,6 +41,7 @@
 		gravity,
 		insertLayerCopy,
 		movementModel,
+		layerKeyTaken,
 		moveLayer,
 		newLayer,
 		nextLayerKey,
@@ -91,6 +98,30 @@
 		type SpawnKind,
 		triggerMode,
 	} from './fxModel.client';
+	import {
+		canDrive,
+		driveIssues,
+		driveWithParam,
+		exposeAsNewParam,
+		layerDrives,
+		leafExposure,
+		paramIdFromLabel,
+		removeDrive,
+		removeLayerDrives,
+		removeParam,
+		renameLayerInParams,
+		renameParam,
+		rowDriveState,
+		rowExposure,
+		setDriveEnd,
+		setParamDefault,
+		setParamKind,
+		setParamNote,
+		setParamRange,
+		uniqueParamId,
+		type RowDriveState,
+		type RowExposure,
+	} from './fxParams.client';
 	import { loadFxRig, type FxSkeletonEntry, type LoadedFxRig } from './fxRig.client';
 	import type { PageData } from './$types';
 
@@ -102,6 +133,14 @@
 	// writes it back via `/api/fx/save` (the EffectDoc + the editor-only sidecar split).
 	const initialDoc = data.openedDoc ?? emptyEffectDoc();
 	let doc = $state<EffectDoc>(initialDoc);
+	/**
+	 * The ONE way this page changes the doc. Every change re-writes the drives' defaults into the
+	 * configs, as Save's normalize does, so what the page shows is always what Save stores — whatever
+	 * the edit rewrote (a preset, a section switch, a layer added or removed).
+	 */
+	function setDoc(next: EffectDoc): void {
+		doc = applyEffectParamDefaults(next);
+	}
 	let selectedKey = $state<string>(
 		data.openedMeta?.selectedLayer ?? initialDoc.layers[0]?.key ?? '',
 	);
@@ -220,7 +259,7 @@
 					etag: string | null;
 				};
 				// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
-				doc = { ...doc, id: out.id };
+				setDoc({ ...doc, id: out.id });
 				pickerId = out.id;
 				// The effect now has a persisted key — re-key the lease onto it (a no-op when
 				// re-saving the same effect; the acquire that matters is a NEW / saved-as effect).
@@ -325,10 +364,10 @@
 		// original, with every retry hitting the same 409.
 		const previous = { id: doc.id, name: doc.name };
 		const previousEtag = saveState.etag;
-		doc = { ...doc, id: UNTITLED_EFFECT_ID, name: clean };
+		setDoc({ ...doc, id: UNTITLED_EFFECT_ID, name: clean });
 		saveState.adoptEtag(null);
 		if (!(await saveEffect())) {
-			doc = { ...doc, id: previous.id, name: previous.name };
+			setDoc({ ...doc, id: previous.id, name: previous.name });
 			saveState.adoptEtag(previousEtag);
 		}
 	}
@@ -367,7 +406,7 @@
 			savedNote = `Deleted "${label}".`;
 			if (doc.id === id) {
 				const fresh = emptyEffectDoc();
-				doc = fresh;
+				setDoc(fresh);
 				selectedKey = fresh.layers[0]?.key ?? '';
 				// The open effect is gone → nothing to lease; go inert (freely editable).
 				leaseSwitch(null);
@@ -410,6 +449,9 @@
 		saveError = '';
 		savedNote = '';
 		presetId = '';
+		preview = {};
+		exposeMenu = null;
+		focusParam = '';
 		stage?.resetView();
 	}
 
@@ -427,7 +469,7 @@
 	async function newEffect(): Promise<void> {
 		if (!(await confirmDiscard('Starting a new effect'))) return;
 		const fresh = emptyEffectDoc();
-		doc = fresh;
+		setDoc(fresh);
 		selectedKey = fresh.layers[0]?.key ?? '';
 		pickerId = '';
 		playing = true;
@@ -460,7 +502,7 @@
 				meta: { selectedLayer?: string };
 				etag: string | null;
 			};
-			doc = out.doc;
+			setDoc(out.doc);
 			// Same precedence the loader-seeded path uses: the sidecar's remembered layer, else
 			// the first one — so reopening restores the inspector focus exactly as before.
 			selectedKey = out.meta?.selectedLayer ?? out.doc.layers[0]?.key ?? '';
@@ -665,8 +707,19 @@
 	}
 
 	// --- immutable doc edits ----------------------------------------------------
+	/**
+	 * While set, a layer edit lands HERE instead of on the doc. ⚡ Expose uses it to run a row's own
+	 * setter on a scratch copy and diff the leaves it writes, so no row needs a hand-written path list.
+	 * A plain variable, not state: a dry run must never trigger a render.
+	 */
+	let probing: { layer: EmitterLayer } | null = null;
+
 	function updateSelected(fn: (l: EmitterLayer) => EmitterLayer): void {
-		doc = { ...doc, layers: doc.layers.map((l) => (l.key === selectedKey ? fn(l) : l)) };
+		if (probing) {
+			probing.layer = fn(probing.layer);
+			return;
+		}
+		setDoc({ ...doc, layers: doc.layers.map((l) => (l.key === selectedKey ? fn(l) : l)) });
 	}
 
 	function patchConfig(next: EmitterConfigV3): void {
@@ -675,20 +728,27 @@
 
 	function addLayer(): void {
 		const key = nextLayerKey(doc);
-		doc = { ...doc, layers: [...doc.layers, newLayer(key)] };
+		setDoc({ ...doc, layers: [...doc.layers, newLayer(key)] });
 		selectedKey = key;
 	}
 
 	function removeLayer(key: string): void {
 		const layers = doc.layers.filter((l) => l.key !== key);
-		doc = { ...doc, layers };
+		// The drives that named it go too, so a later layer can never inherit them.
+		setDoc(removeLayerDrives({ ...doc, layers }, key));
 		if (selectedKey === key) selectedKey = layers[0]?.key ?? '';
 	}
 
 	function renameLayer(key: string, name: string): void {
 		const clean = name.trim();
-		if (!clean || doc.layers.some((l) => l.key === clean)) return;
-		doc = { ...doc, layers: doc.layers.map((l) => (l.key === key ? { ...l, key: clean } : l)) };
+		if (!clean || layerKeyTaken(doc, clean)) return;
+		setDoc(
+			renameLayerInParams(
+				{ ...doc, layers: doc.layers.map((l) => (l.key === key ? { ...l, key: clean } : l)) },
+				key,
+				clean,
+			),
+		);
 		if (selectedKey === key) selectedKey = clean;
 	}
 
@@ -726,18 +786,18 @@
 		const layer = readClipboard();
 		if (!layer) return;
 		const next = insertLayerCopy(doc, layer, selectedKey || undefined);
-		doc = next.doc;
+		setDoc(next.doc);
 		selectedKey = next.key;
 	}
 
 	function duplicateSelected(key: string): void {
 		const next = duplicateLayer(doc, key);
-		doc = next.doc;
+		setDoc(next.doc);
 		selectedKey = next.key;
 	}
 
 	function reorderLayer(key: string, delta: number): void {
-		doc = moveLayer(doc, key, delta);
+		setDoc(moveLayer(doc, key, delta));
 	}
 
 	// --- inspector readouts (derived from the config) ---------------------------
@@ -797,6 +857,207 @@
 		presetId = '';
 	}
 
+	// --- exposed parameters -------------------------------------------------------
+	/** The preview values the panel's sliders set — NOT saved. The stage reads them on its ticker, so
+	 * moving one changes the effect live with no reset. */
+	let preview = $state<Record<string, EffectParamValue>>({});
+	const previewValues = (): Readonly<Record<string, EffectParamValue>> => preview;
+	/** The parameter the panel highlights (just made, or followed from a driven row). */
+	let focusParam = $state('');
+	/** The open ⚡ menu: what it exposes, on which layer, and where it sits. */
+	let exposeMenu = $state<{
+		exposure: RowExposure;
+		layerKey: string;
+		x: number;
+		y: number;
+	} | null>(null);
+	/** The "All parameters" tree renders only while it is open. */
+	let leavesOpen = $state(false);
+
+	const params = $derived(doc.params ?? []);
+	const issues = $derived(driveIssues(doc));
+	/** Each driven leaf of the selected layer, by canonical path. */
+	const selectedDrives = $derived(
+		selected ? layerDrives(doc, selected.key) : (new Map() as ReturnType<typeof layerDrives>),
+	);
+	/** The selected layer as plain data — what a dry run starts from. */
+	const selectedPlain = $derived(
+		selected ? ($state.snapshot(selected) as EmitterLayer) : undefined,
+	);
+
+	/** Run `apply` (a row's own setter) on a scratch copy of the selected layer. */
+	function dryRun(
+		apply: (v: EffectParamValue) => void,
+		v: EffectParamValue,
+	): EmitterLayer | undefined {
+		if (!selectedPlain) return undefined;
+		const scratch = { layer: JSON.parse(JSON.stringify(selectedPlain)) as EmitterLayer };
+		probing = scratch;
+		try {
+			apply(v);
+		} finally {
+			probing = null;
+		}
+		return scratch.layer;
+	}
+
+	function exposureOf(
+		label: string,
+		kind: EffectParamKind,
+		value: EffectParamValue,
+		low: EffectParamValue,
+		high: EffectParamValue,
+		apply: (v: EffectParamValue) => void,
+	): RowExposure | undefined {
+		if (!selectedPlain) return undefined;
+		return rowExposure({
+			label,
+			kind,
+			current: selectedPlain,
+			value,
+			low,
+			high,
+			run: (v) => dryRun(apply, v),
+		});
+	}
+
+	/**
+	 * What each row writes, by row key — the cheap half of "is this row driven". Finding it runs the
+	 * row's setter on scratch copies, so it is done once per row and again only when the layer's
+	 * config SHAPE (its set of leaves) changes — not on every render, not on a value edit. The full
+	 * exposure is built only when ⚡ is clicked. A plain record: a cache, not state.
+	 */
+	const rowWrites: Record<string, { shape: string; writes: string[]; ownLeaf?: string }> = {};
+	/** The selected layer's config shape: its leaf paths. Only read while it has drives. */
+	const layerShape = $derived(
+		selectedPlain
+			? listEffectLayerLeaves(selectedPlain)
+					.map((l) => l.path)
+					.join('|')
+			: '',
+	);
+
+	/** How a row reads under a drive — only worked out when the selected layer has any. */
+	function rowDrive(
+		key: string,
+		label: string,
+		kind: EffectParamKind,
+		value: EffectParamValue,
+		low: EffectParamValue,
+		high: EffectParamValue,
+		apply: (v: EffectParamValue) => void,
+	): RowDriveState | undefined {
+		if (selectedDrives.size === 0) return undefined;
+		let hit = rowWrites[key];
+		if (hit?.shape !== layerShape) {
+			const exposure = exposureOf(label, kind, value, low, high, apply);
+			if (!exposure) return undefined;
+			hit = { shape: layerShape, writes: exposure.writes, ownLeaf: exposure.ownLeaf };
+			rowWrites[key] = hit;
+		}
+		return rowDriveState(selectedDrives, hit);
+	}
+
+	/** A row edit: under an as-is drive it edits the parameter's default; under a mapped drive the row
+	 * is read-only; otherwise it is the row's own setter. */
+	function editRow<V extends EffectParamValue>(
+		driven: RowDriveState | undefined,
+		v: V,
+		apply: (v: V) => void,
+	): void {
+		if (driven?.editable) setDoc(setParamDefault(doc, driven.param.id, v));
+		else if (!driven) apply(v);
+	}
+
+	function openExpose(e: MouseEvent, exposure: RowExposure | undefined): void {
+		if (!exposure || !selected) return;
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const width = 260;
+		exposeMenu = {
+			exposure,
+			layerKey: selected.key,
+			x: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+			y: Math.min(rect.bottom + 4, window.innerHeight - 200),
+		};
+	}
+
+	function showParam(id: string): void {
+		focusParam = id;
+		requestAnimationFrame(() =>
+			document.getElementById(`fx-param-${id}`)?.scrollIntoView({ block: 'nearest' }),
+		);
+	}
+
+	async function exposeAsNew(): Promise<void> {
+		const menu = exposeMenu;
+		if (!menu) return;
+		exposeMenu = null;
+		const suggested = uniqueParamId(doc, paramIdFromLabel(menu.exposure.label));
+		const name = await askText({
+			title: 'New parameter',
+			label: 'Its name — the id a binding or Flow sets:',
+			value: suggested,
+			confirmLabel: 'Create',
+		});
+		if (name === null || !name.trim()) return;
+		const made = exposeAsNewParam(doc, menu.layerKey, menu.exposure, name);
+		setDoc(made.doc);
+		savedNote = `Exposed "${menu.exposure.label}" as "${made.id}".`;
+		showParam(made.id);
+	}
+
+	function exposeWith(paramId: string): void {
+		const menu = exposeMenu;
+		if (!menu) return;
+		exposeMenu = null;
+		setDoc(driveWithParam(doc, paramId, menu.layerKey, menu.exposure));
+		savedNote = `"${menu.exposure.label}" is now driven by "${paramId}".`;
+		showParam(paramId);
+	}
+
+	function renameParamTo(id: string, next: string): void {
+		const renamed = renameParam(doc, id, next);
+		if (renamed === doc) return;
+		setDoc(renamed);
+		const clean = next.trim();
+		if (id in preview) {
+			const moved = { ...preview, [clean]: preview[id] };
+			delete moved[id];
+			preview = moved;
+		}
+		if (focusParam === id) focusParam = clean;
+	}
+
+	function deleteParam(id: string): void {
+		setDoc(removeParam(doc, id));
+		const next = { ...preview };
+		delete next[id];
+		preview = next;
+	}
+
+	function previewOf(param: EffectParam): EffectParamValue {
+		return preview[param.id] ?? param.default;
+	}
+
+	/** The "All parameters" tree: the selected layer's leaves, grouped by emitter / behaviour. */
+	type LeafRow = EffectParamLeaf & { sub: string };
+	const leafGroups = $derived.by((): { name: string; leaves: LeafRow[] }[] => {
+		if (!leavesOpen || !selectedPlain) return [];
+		const groups: { name: string; leaves: LeafRow[] }[] = [];
+		for (const leaf of listEffectLayerLeaves(selectedPlain)) {
+			const name = leaf.path.slice(0, leaf.path.indexOf('.'));
+			let group = groups.find((g) => g.name === name);
+			if (!group) groups.push((group = { name, leaves: [] }));
+			group.leaves.push({ ...leaf, sub: leaf.path.slice(name.length + 1) });
+		}
+		return groups;
+	});
+
+	const DRIVE_ENDS = ['from', 'to'] as const;
+
+	const fmtValue = (v: EffectParamValue): string =>
+		typeof v === 'number' ? String(Math.round(v * 1000) / 1000) : String(v);
+
 	function num(e: Event): number {
 		return Number((e.currentTarget as HTMLInputElement).value);
 	}
@@ -810,10 +1071,51 @@
 </script>
 
 <!--
+	⚡ on a row: opens the Expose menu (New parameter… / Drive with …). The exposure is worked out at
+	click time by running the row's own setter on a scratch copy. On a driven row it shows the
+	parameter instead.
+-->
+{#snippet exposeButton(
+	label: string,
+	kind: EffectParamKind,
+	value: EffectParamValue,
+	low: EffectParamValue,
+	high: EffectParamValue,
+	run: (v: EffectParamValue) => void,
+	driven: RowDriveState | undefined,
+	named: boolean,
+)}
+	<button
+		class="expose"
+		class:on={!!driven}
+		title={driven
+			? `Driven by "${driven.param.id}" — show it`
+			: 'Expose — make this a parameter, or drive it with one'}
+		onclick={(e) =>
+			driven
+				? showParam(driven.param.id)
+				: openExpose(e, exposureOf(label, kind, value, low, high, run))}
+		>⚡{#if named && driven}&nbsp;{driven.param.id}{/if}</button
+	>
+{/snippet}
+
+<!-- The line under a driven row: the parameter (a link to it) and whether the row is editable. -->
+{#snippet drivenBy(driven: RowDriveState | undefined)}
+	{#if driven}
+		<div class="drivenby">
+			⚡ <button class="link" onclick={() => showParam(driven.param.id)}>{driven.param.id}</button>
+			{driven.editable ? '— editing this row sets its default' : '— mapped, read-only here'}
+		</div>
+	{/if}
+{/snippet}
+
+<!--
 	A reusable "slider + number box" row. The range slider drives `onLive` on EVERY drag tick
 	(`oninput`) so the preview re-tunes in realtime (the rebuild path is generation-guarded /
 	coalesced in FxStage, so dragging is safe). A paired numeric box shows the live value AND lets
 	you type an exact one (`onchange`, on commit). Both call the SAME mutator, so they stay in sync.
+	Under a parameter's as-is drive the row edits that parameter's default; under a mapped one it is
+	read-only.
 -->
 {#snippet slider(
 	label: string,
@@ -822,8 +1124,19 @@
 	max: number,
 	step: number,
 	apply: (v: number) => void,
+	id: string = '',
 )}
-	<div class="row slider">
+	{@const run = (v: EffectParamValue) => apply(Number(v))}
+	{@const driven = rowDrive(
+		id ? `${id}:${label}` : `n:${label}|${min}|${max}`,
+		label,
+		'number',
+		value,
+		min,
+		max,
+		run,
+	)}
+	<div class="row slider" class:driven={!!driven}>
 		<span>{label}</span>
 		<input
 			type="range"
@@ -831,7 +1144,8 @@
 			{max}
 			{step}
 			{value}
-			oninput={(e) => apply(Number((e.currentTarget as HTMLInputElement).value))}
+			disabled={!!driven && !driven.editable}
+			oninput={(e) => editRow(driven, Number((e.currentTarget as HTMLInputElement).value), apply)}
 		/>
 		<input
 			class="numbox"
@@ -840,9 +1154,90 @@
 			{max}
 			{step}
 			{value}
-			onchange={(e) => apply(Number((e.currentTarget as HTMLInputElement).value))}
+			disabled={!!driven && !driven.editable}
+			onchange={(e) => editRow(driven, Number((e.currentTarget as HTMLInputElement).value), apply)}
 		/>
+		{@render exposeButton(label, 'number', value, min, max, run, driven, false)}
 	</div>
+	{@render drivenBy(driven)}
+{/snippet}
+
+<!-- A colour row (the shared picker) with ⚡. -->
+{#snippet colorRow(label: string, value: string, apply: (hex: string) => void)}
+	{@const run = (v: EffectParamValue) => apply(String(v))}
+	{@const driven = rowDrive(`c:${label}`, label, 'color', value, '#000000', '#ffffff', run)}
+	<div class="row" class:driven={!!driven}>
+		<span>{label}</span>
+		<span class="ctl">
+			<ColorField
+				{value}
+				disabled={!!driven && !driven.editable}
+				oninput={(hex) => editRow(driven, hex, apply)}
+			/>
+			{@render exposeButton(label, 'color', value, '#000000', '#ffffff', run, driven, false)}
+		</span>
+	</div>
+	{@render drivenBy(driven)}
+{/snippet}
+
+<!-- A plain number box with ⚡; `low`..`high` is the range a parameter made from it spans. -->
+{#snippet numberRow(
+	label: string,
+	value: number,
+	low: number,
+	high: number,
+	apply: (v: number) => void,
+)}
+	{@const run = (v: EffectParamValue) => apply(Number(v))}
+	{@const driven = rowDrive(`n:${label}|${low}|${high}`, label, 'number', value, low, high, run)}
+	<div class="row" class:driven={!!driven}>
+		<span>{label}</span>
+		<span class="ctl">
+			<input
+				type="number"
+				step="1"
+				{value}
+				disabled={!!driven && !driven.editable}
+				onchange={(e) => editRow(driven, num(e), apply)}
+			/>
+			{@render exposeButton(label, 'number', value, low, high, run, driven, false)}
+		</span>
+	</div>
+	{@render drivenBy(driven)}
+{/snippet}
+
+<!-- An on/off switch that writes a value (not one that adds or removes a behaviour), with ⚡. -->
+{#snippet toggle(
+	label: string,
+	text: string,
+	checked: boolean,
+	apply: (on: boolean) => void,
+	wide: boolean,
+	id: string = '',
+)}
+	{@const run = (v: EffectParamValue) => apply(v === true)}
+	{@const driven = rowDrive(
+		id ? `${id}:${label}` : `b:${label}`,
+		label,
+		'bool',
+		checked,
+		false,
+		true,
+		run,
+	)}
+	<span class="togglewrap" class:wide>
+		<label class={wide ? 'row check' : 'toggle'}>
+			<input
+				type="checkbox"
+				{checked}
+				disabled={!!driven && !driven.editable}
+				onchange={(e) => editRow(driven, (e.currentTarget as HTMLInputElement).checked, apply)}
+			/>
+			<span>{text}</span>
+		</label>
+		{@render exposeButton(label, 'bool', checked, false, true, run, driven, !wide)}
+	</span>
+	{#if wide}{@render drivenBy(driven)}{/if}
 {/snippet}
 
 <!--
@@ -942,7 +1337,7 @@
 			title="Effect name"
 			placeholder="Effect name"
 			value={doc.name}
-			onchange={(e) => (doc = { ...doc, name: (e.currentTarget as HTMLInputElement).value })}
+			onchange={(e) => setDoc({ ...doc, name: (e.currentTarget as HTMLInputElement).value })}
 		/>
 		<button class="primary" onclick={() => saveEffect()} disabled={busy || lease.readOnly}>
 			{saveState.busy ? 'Saving…' : '⤓ Save'}
@@ -1045,6 +1440,199 @@
 					onclick={pasteLayer}>📋 Paste</button
 				>
 			</div>
+
+			<div class="params">
+				<h3>Exposed parameters</h3>
+				{#each params as param (param.id)}
+					<div class="param" class:focus={focusParam === param.id} id={`fx-param-${param.id}`}>
+						<div class="phead">
+							<input
+								class="pid"
+								title="Its name — the id a binding or Flow sets"
+								value={param.id}
+								onchange={(e) =>
+									renameParamTo(param.id, (e.currentTarget as HTMLInputElement).value)}
+							/>
+							<select
+								title={param.drives.length
+									? 'Remove its drives to change the kind'
+									: 'What kind of value it holds'}
+								value={param.kind}
+								disabled={param.drives.length > 0}
+								onchange={(e) =>
+									setDoc(
+										setParamKind(
+											doc,
+											param.id,
+											(e.currentTarget as HTMLSelectElement).value as EffectParamKind,
+										),
+									)}
+							>
+								<option value="number">Number</option>
+								<option value="color">Colour</option>
+								<option value="bool">On / off</option>
+							</select>
+							<button class="ico del" title="Remove parameter" onclick={() => deleteParam(param.id)}
+								>✕</button
+							>
+						</div>
+						{#if param.kind === 'number'}
+							<div class="pgrid">
+								<label
+									><span>Min</span><input
+										type="number"
+										step="any"
+										value={param.min ?? 0}
+										onchange={(e) => setDoc(setParamRange(doc, param.id, num(e), param.max ?? 1))}
+									/></label
+								>
+								<label
+									><span>Max</span><input
+										type="number"
+										step="any"
+										value={param.max ?? 1}
+										onchange={(e) => setDoc(setParamRange(doc, param.id, param.min ?? 0, num(e)))}
+									/></label
+								>
+								<label
+									><span>Default</span><input
+										type="number"
+										step="any"
+										value={param.default}
+										onchange={(e) => setDoc(setParamDefault(doc, param.id, num(e)))}
+									/></label
+								>
+							</div>
+						{:else if param.kind === 'color'}
+							<div class="row">
+								<span>Default</span>
+								<ColorField
+									value={String(param.default)}
+									onchange={(hex) => setDoc(setParamDefault(doc, param.id, hex))}
+								/>
+							</div>
+						{:else}
+							<label class="row check">
+								<input
+									type="checkbox"
+									checked={param.default === true}
+									onchange={(e) =>
+										setDoc(
+											setParamDefault(doc, param.id, (e.currentTarget as HTMLInputElement).checked),
+										)}
+								/>
+								<span>On by default</span>
+							</label>
+						{/if}
+						<input
+							class="pnote"
+							placeholder="Note (optional)"
+							value={param.note ?? ''}
+							onchange={(e) =>
+								setDoc(setParamNote(doc, param.id, (e.currentTarget as HTMLInputElement).value))}
+						/>
+						<div class="drives">
+							{#each param.drives as drive (drive.id)}
+								{@const issue = issues.get(`${param.id}/${drive.id}`)}
+								<div
+									class="drive"
+									class:bad={issue?.code === 'unresolved'}
+									class:shared={issue?.code === 'param-target-duplicate'}
+								>
+									<div class="dhead">
+										<span class="dpath" title={drive.path}
+											><b>{drive.layer ?? 'effect'}</b> · {drive.path}</span
+										>
+										<button
+											class="ico del"
+											title="Remove this drive"
+											onclick={() => setDoc(removeDrive(doc, param.id, drive.id))}>✕</button
+										>
+									</div>
+									{#if drive.from !== undefined && drive.to !== undefined}
+										<div class="ends">
+											{#each DRIVE_ENDS as end (end)}
+												{#if typeof drive[end] === 'string'}
+													<ColorField
+														value={String(drive[end])}
+														onchange={(hex) =>
+															setDoc(setDriveEnd(doc, param.id, drive.id, end, hex))}
+													/>
+												{:else}
+													<input
+														type="number"
+														step="any"
+														title={end === 'from'
+															? `The value at ${param.kind === 'bool' ? 'off' : 'the minimum'}`
+															: `The value at ${param.kind === 'bool' ? 'on' : 'the maximum'}`}
+														value={drive[end]}
+														onchange={(e) =>
+															setDoc(setDriveEnd(doc, param.id, drive.id, end, num(e)))}
+													/>
+												{/if}
+												{#if end === 'from'}<span class="arrow">→</span>{/if}
+											{/each}
+										</div>
+									{:else}
+										<span class="asis">written as is</span>
+									{/if}
+									{#if issue}<p class="warn" class:soft={issue.code !== 'unresolved'}>
+											⚠ {issue.message}{issue.code === 'unresolved'
+												? ' It does nothing until fixed.'
+												: ''}
+										</p>{/if}
+								</div>
+							{:else}
+								<p class="hint">Drives nothing yet — ⚡ a row and pick "Drive with".</p>
+							{/each}
+						</div>
+						<div class="preview" title="Preview only — not saved. Moves the effect live.">
+							<span>Preview</span>
+							{#if param.kind === 'number'}
+								{@const lo = param.min ?? 0}
+								{@const hi = param.max ?? 1}
+								<input
+									type="range"
+									min={lo}
+									max={hi}
+									step={(hi - lo) / 200 || 0.01}
+									value={Number(previewOf(param))}
+									oninput={(e) =>
+										(preview[param.id] = Number((e.currentTarget as HTMLInputElement).value))}
+								/>
+								<span class="pv">{fmtValue(previewOf(param))}</span>
+							{:else if param.kind === 'color'}
+								<ColorField
+									value={String(previewOf(param))}
+									oninput={(hex) => (preview[param.id] = hex)}
+								/>
+							{:else}
+								<input
+									type="checkbox"
+									checked={previewOf(param) === true}
+									onchange={(e) =>
+										(preview[param.id] = (e.currentTarget as HTMLInputElement).checked)}
+								/>
+							{/if}
+							<button
+								class="ico"
+								title="Back to the default"
+								disabled={!(param.id in preview)}
+								onclick={() => {
+									const next = { ...preview };
+									delete next[param.id];
+									preview = next;
+								}}>↺</button
+							>
+						</div>
+					</div>
+				{:else}
+					<p class="hint">
+						None yet. ⚡ on any inspector row — or in All parameters — makes it a parameter the
+						game, a binding or Flow can set.
+					</p>
+				{/each}
+			</div>
 		</aside>
 
 		<div class="canvas">
@@ -1097,6 +1685,8 @@
 					{rigAnimation}
 					{rigSkin}
 					{onRigMeta}
+					params={doc.params}
+					paramValues={previewValues}
 				/>
 			</div>
 		</div>
@@ -1143,7 +1733,7 @@
 								)}
 						>
 							<option value="sprite">Sprite (atlas art)</option>
-							<option value="rig" disabled={skeletons.length === 0}>Rig clip</option>
+							<option value="spine" disabled={skeletons.length === 0}>Rig clip</option>
 						</select>
 					</label>
 					{#if selected.particleKind === 'spine'}
@@ -1420,24 +2010,12 @@
 							</label>
 						{/if}
 					{/if}
-					<label class="row">
-						<span>Offset X</span>
-						<input
-							type="number"
-							step="1"
-							value={selected.placement.offset?.x ?? 0}
-							onchange={(e) => updateSelected((l) => setPlacementOffset(l, 'x', num(e)))}
-						/>
-					</label>
-					<label class="row">
-						<span>Offset Y</span>
-						<input
-							type="number"
-							step="1"
-							value={selected.placement.offset?.y ?? 0}
-							onchange={(e) => updateSelected((l) => setPlacementOffset(l, 'y', num(e)))}
-						/>
-					</label>
+					{@render numberRow('Offset X', selected.placement.offset?.x ?? 0, -500, 500, (v) =>
+						updateSelected((l) => setPlacementOffset(l, 'x', v)),
+					)}
+					{@render numberRow('Offset Y', selected.placement.offset?.y ?? 0, -500, 500, (v) =>
+						updateSelected((l) => setPlacementOffset(l, 'y', v)),
+					)}
 				</section>
 
 				<section>
@@ -1795,17 +2373,13 @@
 						{@render slider('Max speed', grav.maxSpeed, 0, 4000, 10, (v) =>
 							patchConfig(setGravity(config, 'maxSpeed', v)),
 						)}
-						<label class="row check">
-							<input
-								type="checkbox"
-								checked={grav.rotate}
-								onchange={(e) =>
-									patchConfig(
-										setGravity(config, 'rotate', (e.currentTarget as HTMLInputElement).checked),
-									)}
-							/>
-							<span>Rotate particle to its travel direction</span>
-						</label>
+						{@render toggle(
+							'Rotate to travel',
+							'Rotate particle to its travel direction',
+							grav.rotate,
+							(on) => patchConfig(setGravity(config, 'rotate', on)),
+							true,
+						)}
 						<p class="hint">
 							Particles launch along the Emission direction at the start speed, then accelerate by
 							this constant pull (positive Y pulls down). Up-direction + downward pull = a fountain.
@@ -1820,22 +2394,14 @@
 						<div class="force" class:off={!force.enabled}>
 							<div class="grouphead">
 								<strong>{FORCE_LABELS[force.kind]}</strong>
-								<label class="toggle">
-									<input
-										type="checkbox"
-										checked={force.enabled}
-										onchange={(e) =>
-											patchConfig(
-												setForceField(
-													config,
-													fi,
-													'enabled',
-													(e.currentTarget as HTMLInputElement).checked,
-												),
-											)}
-									/>
-									<span>On</span>
-								</label>
+								{@render toggle(
+									`${FORCE_LABELS[force.kind]} on`,
+									'On',
+									force.enabled,
+									(on) => patchConfig(setForceField(config, fi, 'enabled', on)),
+									false,
+									`f${fi}`,
+								)}
 								<button
 									class="ico del"
 									title="Remove force"
@@ -1843,21 +2409,51 @@
 								>
 							</div>
 							{#if force.kind === 'gravity'}
-								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									0,
+									5000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Angle (°)', force.angle, 0, 359, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'angle', v)),
+								{@render slider(
+									'Angle (°)',
+									force.angle,
+									0,
+									359,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'angle', v)),
+									`f${fi}`,
 								)}
 							{:else if force.kind === 'wind'}
-								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									0,
+									5000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Angle (°)', force.angle, 0, 359, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'angle', v)),
+								{@render slider(
+									'Angle (°)',
+									force.angle,
+									0,
+									359,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'angle', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Gust', force.gust, 0, 1, 0.01, (v) =>
-									patchConfig(setForceField(config, fi, 'gust', v)),
+								{@render slider(
+									'Gust',
+									force.gust,
+									0,
+									1,
+									0.01,
+									(v) => patchConfig(setForceField(config, fi, 'gust', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Gusts / s',
@@ -1866,13 +2462,26 @@
 									FX_FORCE_LIMITS.gustFrequency.max,
 									0.1,
 									(v) => patchConfig(setForceField(config, fi, 'gustFrequency', v)),
+									`f${fi}`,
 								)}
 							{:else if force.kind === 'vortex'}
-								{@render slider('Centre X', force.x, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'x', v)),
+								{@render slider(
+									'Centre X',
+									force.x,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'x', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Centre Y', force.y, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'y', v)),
+								{@render slider(
+									'Centre Y',
+									force.y,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'y', v)),
+									`f${fi}`,
 								)}
 								<label class="row">
 									<span>Direction</span>
@@ -1892,14 +2501,32 @@
 										<option value="ccw">Counter-clockwise</option>
 									</select>
 								</label>
-								{@render slider('Swirl', force.swirl, 0, 10000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'swirl', v)),
+								{@render slider(
+									'Swirl',
+									force.swirl,
+									0,
+									10000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'swirl', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Radial', force.radial, -10000, 10000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'radial', v)),
+								{@render slider(
+									'Radial',
+									force.radial,
+									-10000,
+									10000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'radial', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Radius', force.radius, 0, 2000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'radius', v)),
+								{@render slider(
+									'Radius',
+									force.radius,
+									0,
+									2000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'radius', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Falloff',
@@ -1908,23 +2535,48 @@
 									FX_FORCE_LIMITS.falloff.max,
 									0.1,
 									(v) => patchConfig(setForceField(config, fi, 'falloff', v)),
+									`f${fi}`,
 								)}
 								<p class="hint">
 									Swirl spins particles around the centre. Radial above 0 flings them OUT
 									(centrifugal); below 0 pulls them IN (centripetal) — balance the two for an orbit.
 								</p>
 							{:else if force.kind === 'attractor'}
-								{@render slider('Centre X', force.x, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'x', v)),
+								{@render slider(
+									'Centre X',
+									force.x,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'x', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Centre Y', force.y, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'y', v)),
+								{@render slider(
+									'Centre Y',
+									force.y,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'y', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Strength', force.strength, -10000, 10000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									-10000,
+									10000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Radius', force.radius, 0, 2000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'radius', v)),
+								{@render slider(
+									'Radius',
+									force.radius,
+									0,
+									2000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'radius', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Falloff',
@@ -1933,20 +2585,39 @@
 									FX_FORCE_LIMITS.falloff.max,
 									0.1,
 									(v) => patchConfig(setForceField(config, fi, 'falloff', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Absorb radius', force.absorb, 0, 200, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'absorb', v)),
+								{@render slider(
+									'Absorb radius',
+									force.absorb,
+									0,
+									200,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'absorb', v)),
+									`f${fi}`,
 								)}
 								<p class="hint">
 									Positive strength pulls toward the point, negative pushes away. Particles that
 									reach the Absorb radius disappear (0 = never).
 								</p>
 							{:else if force.kind === 'turbulence'}
-								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									0,
+									5000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Cell size', force.scale, 1, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'scale', v)),
+								{@render slider(
+									'Cell size',
+									force.scale,
+									1,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'scale', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Evolve / s',
@@ -1955,10 +2626,17 @@
 									FX_FORCE_LIMITS.turbulenceSpeed.max,
 									0.05,
 									(v) => patchConfig(setForceField(config, fi, 'speed', v)),
+									`f${fi}`,
 								)}
 							{:else if force.kind === 'drag'}
-								{@render slider('Amount', force.amount, 0, FX_FORCE_LIMITS.drag.max, 0.05, (v) =>
-									patchConfig(setForceField(config, fi, 'amount', v)),
+								{@render slider(
+									'Amount',
+									force.amount,
+									0,
+									FX_FORCE_LIMITS.drag.max,
+									0.05,
+									(v) => patchConfig(setForceField(config, fi, 'amount', v)),
+									`f${fi}`,
 								)}
 								<p class="hint">
 									Air resistance on the forced motion (and on the launch in Acceleration mode). The
@@ -1999,20 +2677,12 @@
 						<span>Tint particles over life</span>
 					</label>
 					{#if tint}
-						<label class="row">
-							<span>Start</span>
-							<ColorField
-								value={tint.start}
-								oninput={(hex) => patchConfig(setParticleColor(config, 'start', hex))}
-							/>
-						</label>
-						<label class="row">
-							<span>End</span>
-							<ColorField
-								value={tint.end}
-								oninput={(hex) => patchConfig(setParticleColor(config, 'end', hex))}
-							/>
-						</label>
+						{@render colorRow('Start', tint.start, (hex) =>
+							patchConfig(setParticleColor(config, 'start', hex)),
+						)}
+						{@render colorRow('End', tint.end, (hex) =>
+							patchConfig(setParticleColor(config, 'end', hex)),
+						)}
 					{/if}
 					<label class="row check">
 						<input
@@ -2026,13 +2696,9 @@
 						<span>Colour overlay (per-particle intensity)</span>
 					</label>
 					{#if overlay}
-						<label class="row">
-							<span>Overlay</span>
-							<ColorField
-								value={overlay.color}
-								oninput={(hex) => patchConfig(setColorOverlayField(config, 'color', hex))}
-							/>
-						</label>
+						{@render colorRow('Overlay', overlay.color, (hex) =>
+							patchConfig(setColorOverlayField(config, 'color', hex)),
+						)}
 						{@render slider('Intensity min', overlay.min, 0, 1, 0.01, (v) =>
 							patchConfig(setColorOverlayField(config, 'min', v)),
 						)}
@@ -2066,12 +2732,76 @@
 					</label>
 					<p class="hint">Add / screen give the additive glow fire, sparks and magic want.</p>
 				</section>
+
+				<section>
+					<details
+						class="alltree"
+						ontoggle={(e) => (leavesOpen = (e.currentTarget as HTMLDetailsElement).open)}
+					>
+						<summary>All parameters</summary>
+						<p class="hint">
+							Every value of this layer a parameter can drive, including the ones with no row above.
+						</p>
+						{#each leafGroups as group (group.name)}
+							<div class="leafgroup">
+								<span class="lghead">{group.name}</span>
+								{#each group.leaves as leaf (leaf.path)}
+									{@const hit = selectedDrives.get(leaf.path)}
+									<div class="leaf" class:driven={!!hit}>
+										<span class="lpath" title={leaf.path}>{leaf.sub}</span>
+										<span class="lval">{fmtValue(leaf.value)}</span>
+										<button
+											class="expose"
+											class:on={!!hit}
+											title={hit ? `Driven by "${hit.param.id}" — show it` : 'Expose this value'}
+											onclick={(e) =>
+												hit ? showParam(hit.param.id) : openExpose(e, leafExposure(leaf))}
+											>⚡{#if hit}&nbsp;{hit.param.id}{/if}</button
+										>
+									</div>
+								{/each}
+							</div>
+						{/each}
+					</details>
+				</section>
 			{:else}
 				<p class="hint">No layer selected.</p>
 			{/if}
 		</aside>
 	</div>
+
+	{#if exposeMenu}
+		{@const menu = exposeMenu}
+		<button class="shade" aria-label="Close" onclick={() => (exposeMenu = null)}></button>
+		<div
+			class="exposemenu"
+			role="dialog"
+			aria-label="Expose"
+			style:left="{menu.x}px"
+			style:top="{menu.y}px"
+		>
+			<div class="mtitle">⚡ {menu.exposure.label}</div>
+			{#if menu.exposure.leaves.length === 0}
+				<p class="hint">This row writes nothing a parameter can drive.</p>
+			{:else if menu.exposure.missing}
+				<p class="hint">
+					This value only exists once the row is off its default — move it first, then expose it.
+				</p>
+			{:else}
+				<button class="mitem" onclick={() => void exposeAsNew()}>New parameter…</button>
+				{#each params.filter((p) => canDrive(p, menu.exposure)) as p (p.id)}
+					<button class="mitem" onclick={() => exposeWith(p.id)}>Drive with "{p.id}"</button>
+				{/each}
+				<p class="mpaths">
+					{menu.exposure.leaves.length === 1 ? 'Drives' : 'Drives all of'}
+					{#each menu.exposure.leaves as leaf (leaf.path)}<code>{leaf.path}</code>{/each}
+				</p>
+			{/if}
+		</div>
+	{/if}
 </div>
+
+<svelte:window onkeydown={(e) => e.key === 'Escape' && (exposeMenu = null)} />
 
 <style>
 	.page {
@@ -2474,5 +3204,289 @@
 	.hint {
 		color: #64748b;
 		font-size: 11px;
+	}
+	/* ⚡ Expose — on every row; amber marks what a parameter drives. */
+	.expose {
+		flex: none;
+		min-width: 20px;
+		height: 20px;
+		padding: 0 4px;
+		border-radius: 5px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #64748b;
+		font-size: 11px;
+		line-height: 1;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+	.expose:hover {
+		border-color: #a16207;
+		color: #fcd34d;
+	}
+	.expose.on {
+		border-color: #a16207;
+		background: #221b0c;
+		color: #fcd34d;
+	}
+	.row.driven > span {
+		color: #fcd34d;
+	}
+	.row input:disabled,
+	.row select:disabled {
+		opacity: 0.5;
+	}
+	.drivenby {
+		margin: -4px 0 8px;
+		font-size: 10px;
+		color: #a3a3a3;
+	}
+	.link {
+		padding: 0;
+		border: none;
+		background: none;
+		color: #fcd34d;
+		font-size: inherit;
+		text-decoration: underline;
+		cursor: pointer;
+	}
+	.ctl {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.row .ctl input {
+		width: 104px;
+	}
+	.togglewrap {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.togglewrap.wide {
+		display: flex;
+		margin-bottom: 8px;
+	}
+	.togglewrap.wide .row.check {
+		margin-bottom: 0;
+	}
+	.params {
+		margin-top: 14px;
+		padding-top: 10px;
+		border-top: 1px solid #1f2937;
+	}
+	.param {
+		border: 1px solid #263041;
+		border-radius: 6px;
+		padding: 6px 8px;
+		margin-bottom: 8px;
+	}
+	.param.focus {
+		border-color: #a16207;
+	}
+	.param input,
+	.param select {
+		padding: 3px 6px;
+		border-radius: 5px;
+		border: 1px solid #2a323d;
+		background: #0e131a;
+		color: #e2e8f0;
+		font-size: 11px;
+	}
+	.phead {
+		display: flex;
+		gap: 4px;
+		margin-bottom: 6px;
+	}
+	.phead .pid {
+		flex: 1;
+		min-width: 0;
+		color: #fcd34d;
+	}
+	.pgrid {
+		display: grid;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 4px;
+		margin-bottom: 6px;
+	}
+	.pgrid label {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		font-size: 10px;
+		color: #64748b;
+	}
+	.pgrid input {
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+	}
+	.param .pnote {
+		width: 100%;
+		box-sizing: border-box;
+		margin-bottom: 6px;
+	}
+	.drive {
+		border-top: 1px dashed #1f2937;
+		padding: 4px 0;
+	}
+	.dhead {
+		display: flex;
+		align-items: flex-start;
+		gap: 4px;
+	}
+	.dpath {
+		flex: 1;
+		min-width: 0;
+		font-size: 10px;
+		color: #cbd5e1;
+		word-break: break-all;
+	}
+	.dpath b {
+		color: #93c5fd;
+		font-weight: 600;
+	}
+	.drive.bad .dpath {
+		color: #fca5a5;
+	}
+	.drive.shared .dpath,
+	.warn.soft {
+		color: #fcd34d;
+	}
+	.ends {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-top: 3px;
+	}
+	.ends input {
+		width: 64px;
+	}
+	.arrow,
+	.asis {
+		font-size: 10px;
+		color: #64748b;
+	}
+	.warn {
+		margin: 3px 0 0;
+		font-size: 10px;
+		color: #fca5a5;
+	}
+	.preview {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		margin-top: 6px;
+		font-size: 11px;
+		color: #94a3b8;
+	}
+	.preview input[type='range'] {
+		flex: 1;
+		min-width: 0;
+		padding: 0;
+		border: none;
+		background: transparent;
+		accent-color: #f59e0b;
+	}
+	.preview .pv {
+		flex: none;
+		width: 40px;
+		text-align: right;
+		color: #fcd34d;
+	}
+	.alltree summary {
+		cursor: pointer;
+		font-size: 12px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #94a3b8;
+	}
+	.leafgroup {
+		margin-top: 6px;
+	}
+	.lghead {
+		display: block;
+		font-size: 10px;
+		color: #93c5fd;
+		margin-bottom: 2px;
+	}
+	.leaf {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-bottom: 2px;
+		font-size: 11px;
+	}
+	.lpath {
+		flex: 1;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		color: #cbd5e1;
+	}
+	.leaf.driven .lpath {
+		color: #fcd34d;
+	}
+	.lval {
+		flex: none;
+		max-width: 64px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 10px;
+		color: #64748b;
+	}
+	.shade {
+		position: fixed;
+		inset: 0;
+		z-index: 40;
+		padding: 0;
+		border: none;
+		background: transparent;
+		cursor: default;
+	}
+	.exposemenu {
+		position: fixed;
+		z-index: 41;
+		width: 260px;
+		box-sizing: border-box;
+		padding: 8px;
+		border-radius: 8px;
+		border: 1px solid #2a323d;
+		background: #11161d;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+		color: #cbd5e1;
+		font-size: 12px;
+	}
+	.mtitle {
+		margin-bottom: 6px;
+		color: #fcd34d;
+	}
+	.mitem {
+		display: block;
+		width: 100%;
+		margin-bottom: 4px;
+		padding: 5px 8px;
+		text-align: left;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #e2e8f0;
+		font-size: 12px;
+		cursor: pointer;
+	}
+	.mitem:hover {
+		border-color: #a16207;
+	}
+	.mpaths {
+		margin: 6px 0 0;
+		font-size: 10px;
+		color: #64748b;
+		word-break: break-all;
+	}
+	.mpaths code {
+		display: block;
+		color: #94a3b8;
 	}
 </style>

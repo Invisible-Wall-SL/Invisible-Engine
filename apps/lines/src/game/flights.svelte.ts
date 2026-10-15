@@ -11,6 +11,7 @@ import {
 	type FlightRect,
 } from 'engine-game';
 import { emitterSecondsToWallMs, type EffectDoc } from 'engine-fx';
+import { particleWallMs } from 'pixi-svelte/particleClock';
 import {
 	FLIGHT_METER_PREFIX,
 	flightEaseOf,
@@ -138,7 +139,8 @@ export type ActiveFlight = {
 	trail: 'coded' | { effectId: string } | null;
 	/** The effect played at the target on impact, if one is authored. */
 	arrivalEffectId?: string;
-	/** WALL ms the flight stays mounted after landing — its trail's last particle. */
+	/** WALL ms the flight stays mounted after landing — its trail's last particle. Set at normal
+	 *  speed, and divided by the particle clock (turbo) when the flight lands. */
 	settleMs: number;
 	/** The arrival effect has played out (true when there is none). */
 	arrivalDone: boolean;
@@ -392,6 +394,8 @@ export const tickFlights = (deltaMs: number) => {
 		}
 		if (t >= 1) {
 			flight.phase = 'trailing';
+			// The trail's particles age by the particle clock (turbo), so its last one dies sooner.
+			flight.settleMs = particleWallMs(flight.settleMs);
 			arrive(flight);
 		}
 	}

@@ -24,7 +24,19 @@
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
 	import type * as RIG from 'engine-rig/pixi';
-	import { bindArt, behaviorsOf, emitterDeltaSeconds, type EmitterLayer } from 'engine-fx';
+	import {
+		bindArt,
+		behaviorsOf,
+		bindEffectParams,
+		createEffectLevelApplier,
+		emitterDeltaSeconds,
+		stepCollapsedValueLists,
+		type EffectLevelApplier,
+		type EffectParam,
+		type EffectParamApplier,
+		type EffectParamValues,
+		type EmitterLayer,
+	} from 'engine-fx';
 	import {
 		boneRotationInParent,
 		createPixiRigBackingFactory,
@@ -36,7 +48,7 @@
 	} from 'pixi-svelte';
 	import { Application, Container, Sprite, Texture, type TextureSource } from 'pixi.js';
 	import { framesToTextures, loadPageSource } from '$lib/fx/effectEmitter.client';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import {
 		emitterOwnerLocal,
 		layerFollowsBone,
@@ -102,6 +114,13 @@
 		emitting?: boolean;
 		/** Draw the faint atlas page behind the particles (default true). */
 		showReference?: boolean;
+		/** The effect's exposed parameters (`doc.params`). */
+		params?: EffectParam[];
+		/**
+		 * The live parameter values — the panel's preview sliders — read on the ticker. A changed value
+		 * rebuilds only the behaviour it drives, so the preview moves with no reset.
+		 */
+		paramValues?: () => EffectParamValues | undefined;
 	}
 
 	export interface ResolvedArt {
@@ -124,6 +143,8 @@
 		ownerRotation,
 		emitting = true,
 		showReference = true,
+		params,
+		paramValues,
 	}: Props = $props();
 
 	const emitOn = $derived(playing && emitting);
@@ -145,9 +166,22 @@
 	let rigGen = 0;
 	/** Reused point for the per-frame bone-follow (avoid per-frame allocation). */
 	const bonePoint = { x: 0, y: 0 };
-	/** Per-key live emitter + the container it draws into + whether it has bound art (a sprite
-	 * layer with textures OR a rig-particle layer with a bound pool — either spawns visibly). */
-	const live = new Map<string, { emitter: Emitter; container: Container; hasArt: boolean }>();
+	/** One live layer: its emitter, the container it draws into, whether it has bound art (a sprite
+	 * layer with textures OR a rig-particle layer with a bound pool — either spawns visibly), the
+	 * layer it was built from, its parameter applier, and the offset a drive moved it to. */
+	interface LiveLayer {
+		emitter: Emitter;
+		container: Container;
+		hasArt: boolean;
+		layer: EmitterLayer;
+		applier?: EffectParamApplier;
+		offset?: { x: number; y: number };
+	}
+	const live = new Map<string, LiveLayer>();
+	/** A plain copy of `params` (read every frame, so not through the page's proxy). */
+	let paramDefs: EffectParam[] | undefined;
+	/** The `effect.*` drives, or `undefined` when there are none. */
+	let effectFx: EffectLevelApplier | undefined;
 	/** Cache of resolved page TextureSources by URL (avoid re-loading the same page). */
 	const sourceCache = new Map<string, TextureSource>();
 
@@ -190,20 +224,23 @@
 			ready = true;
 			app.ticker.add((ticker) => {
 				if (!playing) return;
+				const values = paramValues?.();
+				effectFx?.apply(values);
 				// The backdrop SKELETON advances in real seconds (a rig clip is wall-clock) …
 				const dtSeconds = ticker.deltaMS / 1000;
 				// … but the EMITTERS must advance by the SAME scalar the in-game runtime uses
 				// (`ParticleEmitter.svelte`), or the preview plays FX at a different speed than the
 				// game — the ~2.34× drift that made authored delays never match (see
 				// `engine-fx` `emitterDeltaSeconds` / `DEFAULT_EMIT_SPEED`).
-				const dtEmitter = emitterDeltaSeconds(ticker.deltaMS);
+				const dtEmitter = emitterDeltaSeconds(ticker.deltaMS) * (effectFx?.state.timeScale ?? 1);
 				// Advance the backdrop skeleton (autoUpdate is off so we gate it on play/pause).
 				loadedRig?.view.update(dtSeconds);
 				// Ride bone-placed emitters on the live bone transform, THEN advance them — so a
 				// flame stays welded to the moving torch tip rather than lagging a frame.
 				followBones();
-				for (const { emitter } of live.values()) {
+				for (const { emitter, applier } of live.values()) {
 					try {
+						applier?.apply(values);
 						emitter.update(dtEmitter);
 					} catch (err) {
 						// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can
@@ -249,10 +286,16 @@
 		const worldAffine: Affine = wt
 			? { a: wt.a, b: wt.b, c: wt.c, d: wt.d, tx: wt.tx, ty: wt.ty }
 			: { a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0 };
+		const fx = effectFx?.state;
 		for (const layer of layers) {
 			const entry = live.get(layer.key);
 			if (!entry) continue;
-			const offset = layer.placement.offset ?? { x: 0, y: 0 };
+			const authored = layer.placement.offset ?? { x: 0, y: 0 };
+			const offset = entry.offset ?? authored;
+			if (fx) {
+				entry.container.alpha = fx.alpha;
+				entry.container.tint = fx.tint;
+			}
 
 			let bone: RIG.Bone | null = null;
 			let boneWorld: { x: number; y: number } | null = null;
@@ -290,11 +333,14 @@
 				}
 				entry.emitter.updateOwnerPos(0, 0);
 			} else {
-				// Free layer (or an unresolved bone): identity container, spawn at the authored offset
-				// in container-local (the container origin already IS the scene centre).
-				entry.container.position.set(0, 0);
+				// Free layer (or an unresolved bone): spawn at the authored offset in container-local (the
+				// container origin already IS the scene centre). The container itself carries only what a
+				// parameter adds — an offset drive's delta and `effect.scale` about the effect origin, the
+				// runtime's wrapper — so with neither it is the identity, as before.
+				const s = fx?.scale ?? 1;
+				entry.container.position.set((offset.x - authored.x) * s, (offset.y - authored.y) * s);
 				entry.container.rotation = 0;
-				entry.container.scale.set(1, 1);
+				entry.container.scale.set(s, s);
 				const owner = emitterOwnerLocal(layer, null, worldAffine);
 				const moving = ownerPos?.() ?? { x: 0, y: 0 };
 				if (ownerRotation) entry.emitter.rotate(ownerRotation());
@@ -460,7 +506,7 @@
 			if (!entry) {
 				const container = new Container();
 				world.addChild(container);
-				entry = { emitter: new Emitter(container, config), container, hasArt: true };
+				entry = { emitter: new Emitter(container, config), container, hasArt: true, layer };
 				live.set(layer.key, entry);
 			} else {
 				// A sprite layer that USED to be a rig layer carries a pool — dispose it before
@@ -468,7 +514,9 @@
 				disposeEmitterPool(entry.emitter);
 				entry.emitter.init(config);
 				entry.hasArt = true;
+				entry.layer = layer;
 			}
+			bindParams(entry);
 			entry.emitter.emit = emitOn;
 		}
 
@@ -516,9 +564,15 @@
 			// Half-authored / unloadable: show placeholder dots so the emitter (shape/rate) is still
 			// tunable, exactly like an art-less sprite layer.
 			const config = bindArt(layer.config, [placeholderTexture()], false);
-			const emitter = new Emitter(container, config);
-			emitter.emit = emitOn;
-			live.set(layer.key, { emitter, container, hasArt: false });
+			const entry: LiveLayer = {
+				emitter: new Emitter(container, config),
+				container,
+				hasArt: false,
+				layer,
+			};
+			live.set(layer.key, entry);
+			bindParams(entry);
+			entry.emitter.emit = emitOn;
 			return;
 		}
 
@@ -530,23 +584,68 @@
 			createBacking: createPixiRigBackingFactory(loaded.skeletonData),
 		};
 		const config = bindRigParticleConfig(layer.config, rigParticle);
-		const emitter = new Emitter(container, config);
-		emitter.emit = emitOn;
-		live.set(layer.key, { emitter, container, hasArt: true });
+		const entry: LiveLayer = {
+			emitter: new Emitter(container, config),
+			container,
+			hasArt: true,
+			layer,
+		};
+		live.set(layer.key, entry);
+		bindParams(entry);
+		entry.emitter.emit = emitOn;
+	}
+
+	/**
+	 * A fresh parameter applier for a layer whose emitter was just built or re-initialised from it,
+	 * given the current preview values at once (re-init must not drop the preview). Called BEFORE the
+	 * emit flag is set, so emission starts from a driven `emitterLifetime`.
+	 */
+	function bindParams(entry: LiveLayer): void {
+		entry.offset = undefined;
+		entry.applier = paramValues
+			? bindEffectParams({
+					params: paramDefs,
+					layer: entry.layer,
+					emitter: entry.emitter,
+					setOffset: (x, y) => {
+						entry.offset = { x, y };
+					},
+					values: paramValues(),
+				})
+			: undefined;
+	}
+
+	/** The parameter set changed: put the old drives back on the live emitters, then bind the new. */
+	function refreshParams(): void {
+		paramDefs = params ? ($state.snapshot(params) as EffectParam[]) : undefined;
+		for (const entry of live.values()) {
+			entry.applier?.restore();
+			bindParams(entry);
+		}
+		const hadFx = !!effectFx;
+		effectFx = createEffectLevelApplier(paramDefs);
+		if (hadFx && !effectFx) {
+			for (const entry of live.values()) {
+				entry.container.alpha = 1;
+				entry.container.tint = 0xffffff;
+			}
+		}
 	}
 
 	/**
 	 * Inject the Tier-C `spineParticle` behavior into a V3 config, returning a NEW config — the
-	 * EXACT shape `<ParticleEmitter>`'s `bindRigParticle` builds (clone the textureless config,
-	 * replace any prior `spineParticle` entry, attach the live factory + layer host AFTER cloning so
-	 * the result is NOT re-JSON-cloned). Kept here (not pulled from the Svelte component) because
-	 * the stage drives the emitter imperatively.
+	 * EXACT shape `<ParticleEmitter>`'s `bindRigParticle` builds (clone the textureless config, make
+	 * its value lists safe, replace any prior `spineParticle` entry, attach the live factory + layer
+	 * host AFTER cloning so the result is NOT re-JSON-cloned). Kept here (not pulled from the Svelte
+	 * component) because the stage drives the emitter imperatively.
 	 */
 	function bindRigParticleConfig(
 		config: EmitterLayer['config'],
 		rigParticle: RigParticleBehaviorConfig,
 	): EmitterLayer['config'] {
-		const next = JSON.parse(JSON.stringify(config)) as EmitterLayer['config'];
+		const next = stepCollapsedValueLists(
+			JSON.parse(JSON.stringify(config)) as EmitterLayer['config'],
+		);
 		const behaviors = behaviorsOf(next).filter((b) => b.type !== RIG_PARTICLE_BEHAVIOR_TYPE);
 		behaviors.push({
 			type: RIG_PARTICLE_BEHAVIOR_TYPE,
@@ -590,6 +689,14 @@
 		}
 		reference.texture = new Texture({ source });
 	}
+
+	// Re-bind the parameters whenever their definitions change (declared before the rebuild below so
+	// a rebuild started by the same edit binds against the new set). Untracked: the binding reads the
+	// layers, which must not re-run this.
+	$effect(() => {
+		void JSON.stringify(params);
+		untrack(refreshParams);
+	});
 
 	// Rebuild whenever the doc's layers change — the doc is the source of truth.
 	$effect(() => {
