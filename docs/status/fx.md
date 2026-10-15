@@ -23,6 +23,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 
 ## Open items / next
 - **Owner browser-pass over exposed parameters** (2026-10-15) — ⚡ a few rows (Frequency, an Alpha end, a tint colour, a force's Strength and its On switch), drag each preview slider and check the preview changes with no reset (particles in flight carry on), that a mapped row (Direction) goes read-only with the ⚡ name, that editing an as-is driven row (Frequency) moves the parameter's default, and that Save → reopen shows the same panel. `/fx` is auth + Postgres + R2 gated, so none of this has been clicked yet.
+- **`effect.*` drives cannot be authored in `/fx` yet.** The schema, the normalizer, the applier
+  and the runtime wrapper (`EffectParamGroup`) all handle `effect.alpha | scale | tint | timeScale`,
+  but no inspector row or "All parameters" leaf writes them, so only a hand-written doc reaches
+  that wrapper today. An effect-level section (or effect rows in the panel) is owed.
 - **Next per the design: Steps 2–4** (`invisible-fx.md` §"Direction (2026-10-15)") — `fxParam` value bindings + `fx:<id>` timeline channels on an `effect` node, then `{ input }` binding refs from the component state machine, then the `time.*` clocks and `wave` shaping. Step 1's `<EffectPlayer params>` getter, the Scene Editor's `effectParamValues` and the Rigger overlay's `FxPlayOptions.params` are the seams they plug into.
 - **Owner browser-pass over the Sprite section** (2026-10-14) — rotate a directional sprite (an arrow or a streak) and check it turns by the slider amount without changing its flight, and that Top / Bottom / Left / Right pivots put that edge on the spawn point (easiest with a big sprite and a single slow particle).
 0. **Owner browser-pass over the Forces section** (2026-10-13) — the math and the real-`Emitter` coupling are gated headlessly, but no slider has been dragged in a browser. Worth checking while there: a Fire / Smoke / Fountain / Sparks / Rain preset now goes the way its name says (see the entry), and an existing effect's Direction reads the way its particles actually fly.
@@ -35,6 +39,61 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-15 — **Exposed parameters: review fixes** (on top of the Step 1 entry below).
+  - **A curve with equal ends no longer crashes any renderer.** The library keeps one node of a
+    one-entry list, or of a two-entry list with equal values, and a non-stepped one-node list throws
+    on its first update (`Cannot read properties of null (reading 'time')`). In the game the
+    `ParticleEmitter` tick has no try/catch, so the Pixi ticker stopped for good. Colour start ==
+    end and the stock `moveSpeed` with equal ends (2026-10-13, "Found, not fixed") hit it today; a
+    parameter default equal to a curve's other end saved one too.
+    - The single-point → stepped guard is now ONE `engine-fx` helper, `stepCollapsedValueLists`. It
+      runs on the CLONED config wherever a renderer binds one: `bindArt` (runtime sprite path and
+      all three launcher stages), the Tier-C `bindRigParticle` in `<ParticleEmitter>`, `FxStage`'s
+      `bindRigParticleConfig`, and the applier's rebuild of a behaviour.
+    - The stored doc is never altered.
+    - The applier's working copies come from the layer's own config, not the stepped bound copy, so
+      a value that opens the curve again interpolates instead of sticking as a step.
+  - **A driven `emitterLifetime` now sets the burst length.** `init` → `emit` latched the config's
+    lifetime into the emission countdown before the drive wrote it. New `bindEffectParams` (the
+    applier + its first values) restarts the countdown when a drive changed it. All four renderers
+    bind through it, and `FxStage` sets `emit` after binding on its placeholder and rig-particle
+    paths too.
+  - **⚡ New parameter… on a value outside the row's range** (Offset X 640 on a −500..500 row)
+    widens the parameter's range instead of clamping the default. Mapped leaves are extended along
+    the same line, so exposing never changes the look.
+  - **The page always equals what Save stores.**
+    - Every `doc =` on `/fx` goes through one `setDoc` that re-applies the defaults.
+    - Deleting a layer drops the drives that name it; a parameter left with none stays. A drive on a
+      removed behaviour stays (⚠), so switching the section back on restores it.
+    - A new, pasted, duplicated or renamed layer never takes a key an orphan drive still names
+      (`nextLayerKey`, `uniqueLayerKey`, `layerKeyTaken`).
+  - **Inspector cost.** A row's "is it driven" check no longer runs the row's setter and lists the
+    leaves on every render. What a row writes is cached by row key and recomputed only when the
+    layer's set of leaves changes, and the full exposure is built only when ⚡ is clicked. Measured
+    in Node on the Smoke preset: 70 rows per render, 13.6 ms → 0.05 ms.
+  - **Nits.**
+    - `pos.x / pos.y` are written in the space `init` uses (config space turned by the emitter's
+      `rotation`), and apply / restore at the defaults write nothing. Before, the mount-time
+      `restore()` moved a rotated emitter's spawn point.
+    - `<ParticleEmitter>` skips its params effect's first run, so the mount binds once.
+    - The applier keeps plain arrays (no `Map` iteration per frame), and `EditorEffectLayer`
+      iterates its nodes as before when nothing supplies values.
+    - Two drives on one value are flagged (`param-target-duplicate`) in the panel, amber.
+    - `RIG_PARTICLE_BEHAVIOR_TYPE` is defined once in `engine-fx`; `pixi-svelte`'s
+      `rigParticleBehavior` imports it.
+    - `renameParamTo` no longer shadows its argument.
+    - `rigger-fx.js` rebuilt.
+  - **Verified.** `pnpm check:fx-params` grows the cases below, each mutation-checked: it goes red
+    with the `bindArt` guard removed, the re-latch removed, `pos` ignoring rotation, the working copy
+    taken from the stepped bound copy, and the range widening removed.
+    - Collapsed alpha, colour and `moveSpeed` lists plus a one-point scale render on the real
+      `Emitter` through `bindArt`, with the stored config byte-identical.
+    - The burst lasts the driven 3 s, including when emission starts later.
+    - The out-of-range expose leaves the saved config byte-identical, for an as-is and a mapped leaf.
+    - The layer-delete and key-reservation model.
+    - The rotated `spawnPos` is left alone at the defaults and matches `init` + `rotate` when driven.
+    - Shared targets are flagged.
+  - **NOT browser-verified** (auth + Postgres + R2 gated).
 - 2026-10-15 — **Exposed parameters, Step 1: any value of an effect can be a named parameter
   that moves the effect live with no reset.** Owner ask (2026-10-15): expose parameters of an
   effect and drive them from outside; any parameter, not a fixed list. Plan:
@@ -57,8 +116,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     change. Emitter fields are set with `init`'s own coercion (`spawnPos` through
     `updateSpawnPos`). No values, or values equal to the defaults, do nothing. Two library traps
     surfaced and are handled: a rebuilt behaviour whose value list collapses to one point (a curve
-    end dragged onto the other's value) is built STEPPED in the rebuild copy only, because the
-    library throws on such a list; and `fxForces` now resolves its movement coupling on update as
+    end dragged onto the other's value) is built STEPPED, because the library throws on such a list
+    (now one helper for every renderer — see the review-fixes entry); and `fxForces` now resolves its movement coupling on update as
     well as on init, so a strength swapped in mid-flight keeps folding into
     `moveAcceleration` / `moveSpeedStatic`'s velocity.
   - **Four renderers, one applier.** `<EffectPlayer params>` takes a getter read on the Pixi
@@ -79,10 +138,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     (Layers column) edits id, kind, range, default and note (saved), lists each drive with an
     editable from → to, ✕ and a ⚠ when it no longer resolves, and has a **Preview** slider (not
     saved) that moves the stage live. A driven row shows ⚡ with the parameter's name; an as-is
-    drive keeps it editable (it edits the default), a mapped one makes it read-only. Every layer
-    edit re-applies the defaults, so a preset or a section switch cannot leave a driven value where
-    Save would snap it back. A layer rename follows into the drives. Save / lease / unsaved-guard
-    paths are unchanged.
+    drive keeps it editable (it edits the default), a mapped one makes it read-only. Every change
+    the page makes to the doc goes through one setter that re-applies the defaults (see the
+    review-fixes entry above), so what the page shows is what Save stores. A layer rename follows
+    into the drives. Save / lease / unsaved-guard paths are unchanged.
   - **Verified.** New gate `pnpm check:fx-params` (`tools/fx-spike/exposedParams.ts`, discovered by
     `check:all`): the parser (good / bad paths, `#n`, the excluded behaviours), the mapping,
     defaults-in-config + normalize idempotence + no-params byte identity, the expose model on real
@@ -186,7 +245,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   - **Found, not fixed (library):** a stock `moveSpeed` whose start and end values are EQUAL throws
     inside `@barvynkoa/particle-emitter` (`PropertyList.intValueComplex`: `next` is null) on the
     first update. Typing the same Speed start and end in the inspector can therefore hit it. It was
-    reproduced headlessly and is untouched here.
+    reproduced headlessly and is untouched here. *(Fixed 2026-10-15 for every renderer — see the
+    "Exposed parameters: review fixes" entry.)*
   - **Verified.**
     - New gate `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, 59 assertions, run in CI by
       `check:all` in the Checks workflow like the other fx-spike harnesses). It covers: the clamp; absent forces = no change;

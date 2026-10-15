@@ -30,6 +30,7 @@ import {
 	applyEffectParamDefaults,
 	behaviorsOf,
 	bindArt,
+	bindEffectParams,
 	canonicalEffectParamPath,
 	createEffectLevelApplier,
 	createEffectParamApplier,
@@ -40,6 +41,7 @@ import {
 	normalizeEffectDoc,
 	parseEffectParamPath,
 	registerFxBehaviors,
+	stepCollapsedValueLists,
 	validateEffectParams,
 	type EffectDoc,
 	type EffectParam,
@@ -49,7 +51,10 @@ import {
 import {
 	applyPreset,
 	defaultEmitterConfig,
+	layerKeyTaken,
 	newLayer,
+	nextLayerKey,
+	uniqueLayerKey,
 	setCoreParam,
 	setCurveBound,
 	setCurveVaried,
@@ -64,11 +69,13 @@ import {
 	setColorEnabled,
 } from '../../apps/launcher-api/src/routes/(app)/fx/fxModel.client';
 import {
+	driveIssues,
 	driveWithParam,
 	exposeAsNewParam,
 	layerDrives,
 	leafExposure,
 	removeDrive,
+	removeLayerDrives,
 	removeParam,
 	renameLayerInParams,
 	rowDriveState,
@@ -684,6 +691,78 @@ const probe = (
 		noDrive.params?.[0].drives.length === 0 && !('params' in none) && json(none) === json(doc),
 		'removing the last parameter leaves the doc byte-identical to never having had one',
 	);
+
+	// A value typed past the row's range (Offset X 640 on a −500..500 row) widens the parameter.
+	const far = { ...layer, placement: { space: 'free' as const, offset: { x: 640, y: 0 } } };
+	const farDoc: EffectDoc = { ...doc, layers: [far] };
+	const offsetRow = rowExposure({
+		label: 'Offset X',
+		kind: 'number',
+		current: far,
+		value: 640,
+		low: -500,
+		high: 500,
+		run: (v) => ({ ...far, placement: { ...far.placement, offset: { x: Number(v), y: 0 } } }),
+	});
+	const farMade = exposeAsNewParam(farDoc, 'main', offsetRow);
+	const farSaved = normalizeEffectDoc(clone(farMade.doc));
+	assert(
+		farMade.doc.params?.[0].min === -500 &&
+			farMade.doc.params?.[0].max === 640 &&
+			farMade.doc.params?.[0].default === 640 &&
+			json(farSaved.layers) === json(farDoc.layers),
+		'exposing a value outside the row range widens the range — the look and the saved config are unchanged',
+	);
+	const wide = { ...rect, config: setSpawnRect(rect.config, 900, 64) };
+	const wideRow = probe(wide, 'Width', 'number', 900, 0, 800, (c, v) =>
+		setSpawnRect(c, Number(v), 64),
+	);
+	const wideDoc = exposeAsNewParam({ ...doc, layers: [wide] }, 'main', wideRow).doc;
+	assert(
+		wideDoc.params?.[0].max === 900 &&
+			json(normalizeEffectDoc(clone(wideDoc)).layers[0].config) === json(wide.config),
+		'…a mapped leaf (the rectangle centring) is extended along the same line, so it still matches',
+	);
+}
+
+console.log('');
+console.log('fx params — layer keys and deleted layers');
+{
+	const two: EffectDoc = {
+		version: 1,
+		id: 'k',
+		name: 'k',
+		layers: [baseLayer('layer-1'), baseLayer('layer-2')],
+		params: [
+			num('rate', 0.012, [
+				{ id: 'd1', layer: 'layer-2', path: 'emitter.frequency' },
+				{ id: 'd2', layer: 'layer-1', path: 'emitter.maxParticles', from: 10, to: 200 },
+			]),
+			num('fade', 1, [{ id: 'd1', layer: 'layer-2', path: 'behavior:alpha.alpha.list.0.value' }]),
+			num('glow', 0.5, [
+				{ id: 'd1', layer: 'layer-1', path: 'behavior:fxColorOverlay.minIntensity' },
+			]),
+		],
+	};
+	const without = removeLayerDrives({ ...two, layers: [two.layers[0]] }, 'layer-2');
+	assert(
+		json(without.params?.map((p) => [p.id, p.drives.map((d) => `${d.layer}/${d.id}`)])) ===
+			json([
+				['rate', ['layer-1/d2']],
+				['fade', []],
+				['glow', ['layer-1/d1']],
+			]),
+		'deleting a layer drops the drives naming it; a parameter left with none stays; a drive on a missing behaviour stays (⚠)',
+	);
+	// A doc saved with a drive whose layer is gone: no new key may adopt it.
+	const orphaned: EffectDoc = { ...two, layers: [two.layers[0]] };
+	assert(
+		nextLayerKey(orphaned) === 'layer-3' &&
+			uniqueLayerKey(orphaned, 'layer-2') === 'layer-2-2' &&
+			layerKeyTaken(orphaned, 'layer-2') &&
+			!layerKeyTaken(orphaned, 'layer-9'),
+		'a key an orphan drive still names counts as taken (new layer, paste / duplicate, rename)',
+	);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -844,7 +923,6 @@ const swapParams: EffectParam[] = [
 	const applier = createEffectParamApplier({
 		params: doc.params,
 		layer: doc.layers[0],
-		config: bound,
 		emitter: em,
 	});
 	assert(!!applier, 'a layer with drives gets an applier');
@@ -852,13 +930,11 @@ const swapParams: EffectParam[] = [
 		createEffectParamApplier({
 			params: doc.params,
 			layer: { ...doc.layers[0], key: 'nobody' },
-			config: bound,
 			emitter: em,
 		}) === undefined &&
 			createEffectParamApplier({
 				params: undefined,
 				layer: doc.layers[0],
-				config: bound,
 				emitter: em,
 			}) === undefined,
 		'a layer nothing drives (or a doc with no params) gets none — no per-frame work at all',
@@ -1052,7 +1128,6 @@ const swapParams: EffectParam[] = [
 		const applier = createEffectParamApplier({
 			params: doc.params,
 			layer: doc.layers[0],
-			config: doc.layers[0].config,
 			emitter: em,
 		});
 		applier?.apply({ v: value });
@@ -1103,7 +1178,7 @@ const swapParams: EffectParam[] = [
 	step(em, 0.5);
 	em.emit = false;
 	const ps = live(em);
-	createEffectParamApplier({ params, layer, config, emitter: em })!.apply({ pull: 1000 });
+	createEffectParamApplier({ params, layer, emitter: em })!.apply({ pull: 1000 });
 	em.update(0.1);
 	assert(
 		ps.length > 0 &&
@@ -1129,7 +1204,6 @@ const swapParams: EffectParam[] = [
 	const applier = createEffectParamApplier({
 		params,
 		layer,
-		config: layer.config,
 		emitter: em,
 		setOffset: (x, y) => calls.push([x, y]),
 	});
@@ -1146,12 +1220,342 @@ const swapParams: EffectParam[] = [
 		'a placement.offset drive moves the layer through its sink — once per change, back on restore',
 	);
 	assert(
-		createEffectParamApplier({ params, layer, config: layer.config, emitter: em }) === undefined,
+		createEffectParamApplier({ params, layer, emitter: em }) === undefined,
 		'with no offset sink an offset drive is inert (and builds no applier)',
 	);
 }
 
 // -------------------------------------------------------------------------------------------------
+console.log('');
+console.log("fx params — a curve with equal ends (the library's one-node list)");
+{
+	const collapsed = (): EmitterConfigV3 =>
+		({
+			lifetime: { min: 1, max: 1 },
+			frequency: 0.02,
+			emitterLifetime: -1,
+			maxParticles: 50,
+			pos: { x: 0, y: 0 },
+			addAtBack: false,
+			behaviors: [
+				{
+					type: 'alpha',
+					config: {
+						alpha: {
+							list: [
+								{ time: 0, value: 1 },
+								{ time: 1, value: 1 },
+							],
+						},
+					},
+				},
+				{ type: 'scale', config: { scale: { list: [{ time: 0, value: 0.5 }] } } },
+				{
+					type: 'color',
+					config: {
+						color: {
+							list: [
+								{ time: 0, value: '#ff0000' },
+								{ time: 1, value: '#ff0000' },
+							],
+						},
+					},
+				},
+				{
+					type: 'moveSpeed',
+					config: {
+						speed: {
+							list: [
+								{ time: 0, value: 80 },
+								{ time: 1, value: 80 },
+							],
+						},
+					},
+				},
+				{ type: 'rotationStatic', config: { min: 0, max: 360 } },
+			],
+		}) as unknown as EmitterConfigV3;
+	const stored = collapsed();
+	const before = json(stored);
+	let raw = '';
+	try {
+		const em = new Emitter(new Container(), collapsed());
+		em.emit = true;
+		em.update(0);
+		em.update(1 / 60);
+	} catch (e) {
+		raw = (e as Error).message;
+	}
+	assert(raw.includes("reading 'time'"), `(the library alone throws on it: "${raw}")`);
+	let threw = '';
+	let shown = 0;
+	try {
+		const em = new Emitter(new Container(), bindArt(stored, [Texture.EMPTY], false));
+		em.emit = true;
+		em.update(0);
+		step(em, 0.5);
+		shown = live(em).length;
+		assert(
+			live(em).every((p) => p.alpha === 1 && p.tint === 0xff0000),
+			'…a bound config renders it as the constant it is (alpha 1, red)',
+		);
+	} catch (e) {
+		threw = (e as Error).message;
+	}
+	assert(
+		!threw && shown > 0,
+		`collapsed alpha, colour, speed and a one-point scale render through bindArt without throwing (${shown} live${threw ? `; threw ${threw}` : ''})`,
+	);
+	assert(
+		json(stored) === before,
+		'the stored config is untouched (byte-identical) — only the bound copy is stepped',
+	);
+	const marked = stepCollapsedValueLists(clone(stored));
+	const kept = {
+		list: [
+			{ time: 0, value: 1 },
+			{ time: 1, value: 1 },
+		],
+	};
+	const box = new (class Box {
+		list = kept.list;
+	})();
+	stepCollapsedValueLists({ behaviors: [{ type: 'x', config: { holder: box } }] });
+	assert(
+		(behaviorsOf(marked)[0].config.alpha as { isStepped?: boolean }).isStepped === true &&
+			(behaviorsOf(marked)[4].config as { isStepped?: boolean }).isStepped === undefined &&
+			!('isStepped' in box),
+		'the guard marks only collapsed lists, and never walks into a non-plain object (a texture, a factory)',
+	);
+
+	// A default that collapses a curve is SAVED as is (the doc is never altered), renders safely,
+	// and a live value that opens it again interpolates — the render-time step never sticks. `fxAlpha`
+	// honours `isStepped` on any list (the stock classes ignore it on a 0 → 1 pair), so it is the case
+	// that shows a sticking flag.
+	const fadeConfig = {
+		...swapConfig(),
+		behaviors: [
+			{
+				type: 'fxAlpha',
+				config: {
+					alpha: {
+						list: [
+							{ time: 0, value: 1 },
+							{ time: 1, value: 0 },
+						],
+					},
+				},
+			},
+			{ type: 'rotationStatic', config: { min: 0, max: 360 } },
+		],
+	} as unknown as EmitterConfigV3;
+	const params = [
+		num('fadeEnd', 1, [{ id: 'd', layer: 'main', path: 'behavior:fxAlpha.alpha.list.1.value' }]),
+	];
+	const fadeLayer: EmitterLayer = { ...newLayer('main'), config: fadeConfig };
+	const doc = normalizeEffectDoc({ version: 1, id: 'c', name: 'c', layers: [fadeLayer], params });
+	const list = behaviorsOf(doc.layers[0].config)[0].config.alpha as {
+		list: { value: number }[];
+		isStepped?: boolean;
+	};
+	assert(
+		list.list[0].value === 1 && list.list[1].value === 1 && list.isStepped === undefined,
+		'a default equal to the other end saves the collapsed curve unaltered',
+	);
+	const em = new Emitter(new Container(), bindArt(doc.layers[0].config, [Texture.EMPTY], false));
+	em.emit = true;
+	em.update(0);
+	step(em, 1);
+	const applier = createEffectParamApplier({
+		params: doc.params,
+		layer: doc.layers[0],
+		emitter: em,
+	})!;
+	applier.apply({ fadeEnd: 0 });
+	em.update(1 / 60);
+	const ps = live(em);
+	assert(
+		ps.length > 0 && ps.every((p) => near(p.alpha, 1 - p.agePercent, 1e-6)),
+		'…and a live value that opens it again interpolates (1 → 0), not a stuck step',
+	);
+}
+
+console.log('');
+console.log('fx params — a driven emitter lifetime sets the burst length');
+{
+	const burst = (): EmitterConfigV3 =>
+		({
+			lifetime: { min: 0.2, max: 0.2 },
+			frequency: 0.01,
+			emitterLifetime: 0.5,
+			maxParticles: 100,
+			pos: { x: 0, y: 0 },
+			addAtBack: false,
+			behaviors: [
+				{
+					type: 'alpha',
+					config: {
+						alpha: {
+							list: [
+								{ time: 0, value: 1 },
+								{ time: 1, value: 0 },
+							],
+						},
+					},
+				},
+			],
+		}) as unknown as EmitterConfigV3;
+	const params = [
+		num('life', 0.5, [{ id: 'd', layer: 'main', path: 'emitter.emitterLifetime' }], 0, 5),
+	];
+	const doc = normalizeEffectDoc({
+		version: 1,
+		id: 'b',
+		name: 'b',
+		layers: [{ ...newLayer('main'), config: burst() }],
+		params,
+	});
+	const lasts = (em: Emitter): number => {
+		let t = 0;
+		while (em.emit && t < 10) {
+			em.update(1 / 60);
+			t += 1 / 60;
+		}
+		return t;
+	};
+	// The runtime's order: construct → init (latches the config's 0.5 s) → bind.
+	const fresh = (): Emitter => {
+		const em = new Emitter(new Container(), doc.layers[0].config);
+		em.init(doc.layers[0].config);
+		return em;
+	};
+	const naive = fresh();
+	createEffectParamApplier({ params: doc.params, layer: doc.layers[0], emitter: naive })!.apply({
+		life: 3,
+	});
+	const bound = fresh();
+	bindEffectParams({
+		params: doc.params,
+		layer: doc.layers[0],
+		emitter: bound,
+		values: { life: 3 },
+	});
+	const dormant = fresh();
+	dormant.emit = false;
+	bindEffectParams({
+		params: doc.params,
+		layer: doc.layers[0],
+		emitter: dormant,
+		values: { life: 3 },
+	});
+	dormant.emit = true;
+	const atDefault = fresh();
+	bindEffectParams({ params: doc.params, layer: doc.layers[0], emitter: atDefault });
+	const tNaive = lasts(naive);
+	const tBound = lasts(bound);
+	const tDormant = lasts(dormant);
+	const tDefault = lasts(atDefault);
+	assert(
+		near(tNaive, 0.5, 0.02),
+		`(applying after init alone leaves the burst at the config's ${tNaive.toFixed(2)} s)`,
+	);
+	assert(
+		near(tBound, 3, 0.02) && near(tDormant, 3, 0.02) && near(tDefault, 0.5, 0.02),
+		`bindEffectParams: the burst lasts the driven 3 s (${tBound.toFixed(2)} s; ${tDormant.toFixed(2)} s when emission starts later), the default 0.5 s untouched (${tDefault.toFixed(2)} s)`,
+	);
+}
+
+console.log('');
+console.log("fx params — a rotated emitter's spawn position");
+{
+	const config = {
+		lifetime: { min: 1, max: 1 },
+		frequency: 0.1,
+		emitterLifetime: -1,
+		maxParticles: 10,
+		pos: { x: 10, y: 0 },
+		addAtBack: false,
+		behaviors: [],
+	} as unknown as EmitterConfigV3;
+	const params = [num('px', 10, [{ id: 'd', layer: 'main', path: 'emitter.pos.x' }], 0, 20)];
+	const doc = normalizeEffectDoc({
+		version: 1,
+		id: 'r',
+		name: 'r',
+		layers: [{ ...newLayer('main'), config }],
+		params,
+	});
+	const em = new Emitter(new Container(), doc.layers[0].config);
+	em.rotate(Math.PI / 2);
+	const at = (): string => `(${em.spawnPos.x.toFixed(6)}, ${em.spawnPos.y.toFixed(6)})`;
+	const start = at();
+	let writes = 0;
+	const update = em.updateSpawnPos.bind(em);
+	em.updateSpawnPos = (x: number, y: number) => {
+		writes++;
+		update(x, y);
+	};
+	const applier = createEffectParamApplier({
+		params: doc.params,
+		layer: doc.layers[0],
+		emitter: em,
+	})!;
+	applier.apply(undefined);
+	applier.restore();
+	assert(
+		writes === 0 && at() === start,
+		`apply + restore at the defaults write nothing (spawnPos stays ${start})`,
+	);
+	applier.apply({ px: 20 });
+	const reference = new Emitter(new Container(), {
+		...config,
+		pos: { x: 20, y: 0 },
+	} as EmitterConfigV3);
+	reference.rotate(Math.PI / 2);
+	assert(
+		near(em.spawnPos.x, reference.spawnPos.x) && near(em.spawnPos.y, reference.spawnPos.y),
+		`a driven pos.x lands where init + rotate would put it ${at()}`,
+	);
+}
+
+console.log('');
+console.log('fx params — two drives on one value');
+{
+	const shared: EffectDoc = {
+		version: 1,
+		id: 's',
+		name: 's',
+		layers: [baseLayer()],
+		params: [
+			num('rate', 0.05, [{ id: 'd1', layer: 'main', path: 'emitter.frequency' }], 0.001, 0.5),
+			num(
+				'calm',
+				0.1,
+				[
+					{ id: 'd1', layer: 'main', path: 'emitter.frequency' },
+					{ id: 'd2', layer: 'gone', path: 'emitter.frequency' },
+				],
+				0.001,
+				0.5,
+			),
+		],
+	};
+	const found = validateEffectParams(shared);
+	const dup = found.filter((i) => i.code === 'param-target-duplicate');
+	assert(
+		dup.length === 2 &&
+			dup.some((i) => i.param === 'rate' && i.message.includes('"calm" (d1)')) &&
+			dup.some((i) => i.param === 'calm' && i.message.includes('"rate" (d1)')) &&
+			found.some((i) => i.code === 'unresolved' && i.param === 'calm' && i.drive === 'd2'),
+		'two drives on one value are both flagged (param-target-duplicate), naming each other',
+	);
+	assert(
+		driveIssues(shared).get('calm/d2')?.code === 'unresolved' &&
+			driveIssues(shared).get('rate/d1')?.code === 'param-target-duplicate',
+		'the panel reads one issue per drive, keyed param/drive',
+	);
+}
+
 console.log('');
 console.log('fx params — effect-level targets');
 {
@@ -1255,7 +1659,6 @@ console.log('fx params — save → export → bake');
 	const applier = createEffectParamApplier({
 		params: shipped.params,
 		layer: shipped.layers[0],
-		config: shipped.layers[0].config,
 		emitter: em,
 	});
 	applier!.apply({ intensity: 1 });

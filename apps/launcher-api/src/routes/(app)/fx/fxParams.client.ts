@@ -21,6 +21,7 @@ import {
 	type EffectDoc,
 	type EffectParam,
 	type EffectParamDrive,
+	type EffectParamIssue,
 	type EffectParamKind,
 	type EffectParamLeaf,
 	type EffectParamValue,
@@ -76,7 +77,7 @@ function same(a: EffectParamValue | undefined, b: EffectParamValue | undefined):
 const PROBE = [0.02, 0.37, 0.98] as const;
 
 /** Drop float noise from an extrapolated end so a mapping reads as the number it means. */
-const tidy = (v: number): number => Math.round(v * 1e9) / 1e9;
+const tidyEnd = (v: number): number => Math.round(v * 1e9) / 1e9;
 
 /**
  * Diff the leaves a row writes by running its setter on a scratch copy of `current` (`run`). A colour
@@ -155,8 +156,8 @@ export function rowExposure(options: {
 		const slope = (l3 - l1) / (v3 - v1);
 		if (mid?.kind !== 'number' || !near(Number(mid.value), l1 + slope * (v2 - v1), l3 - l1))
 			continue;
-		const at0 = tidy(l1 + slope * (a - v1));
-		const at1 = tidy(l1 + slope * (b - v1));
+		const at0 = tidyEnd(l1 + slope * (a - v1));
+		const at1 = tidyEnd(l1 + slope * (b - v1));
 		const identity = near(at0, a, span) && near(at1, b, span);
 		leaves.push({
 			path: l.path,
@@ -316,24 +317,39 @@ export function exposeAsNewParam(
 	wanted?: string,
 ): { doc: EffectDoc; id: string } {
 	const id = uniqueParamId(doc, wanted?.trim() || paramIdFromLabel(exposure.label));
+	if (exposure.kind !== 'number') {
+		const drives = exposure.leaves.map((leaf, i) => ({
+			id: `d${i + 1}`,
+			layer: layerKey,
+			path: leaf.path,
+		}));
+		const param: EffectParam = { id, kind: exposure.kind, default: exposure.value, drives };
+		return { doc: withParams(doc, [...(doc.params ?? []), param]), id };
+	}
+	const r = exposure.range ?? {
+		min: Number(exposure.low),
+		max: Number(exposure.high),
+		value: Number(exposure.value),
+	};
+	// A value outside the row's range (typed into a number box) widens the parameter's range rather
+	// than being clamped into it — exposing a row must never change the look. A mapped leaf is
+	// extended along the same line, so it still reproduces the row.
+	const min = Math.min(r.min, r.value);
+	const max = Math.max(r.max, r.value);
+	const along = (a: number, b: number, v: number): number => {
+		if (v === r.min) return a;
+		if (v === r.max || !(r.max > r.min)) return b;
+		return tidyEnd(a + ((b - a) * (v - r.min)) / (r.max - r.min));
+	};
 	const drives = exposure.leaves.map((leaf, i): EffectParamDrive => {
 		const at = { id: `d${i + 1}`, layer: layerKey, path: leaf.path };
 		const { low, high } = leaf;
 		// An on/off leaf is only ever written as is (a bool row exposes it that way).
 		if (leaf.identity || typeof low === 'boolean' || typeof high === 'boolean') return at;
-		return { ...at, from: low, to: high };
+		if (typeof low !== 'number' || typeof high !== 'number') return { ...at, from: low, to: high };
+		return { ...at, from: along(low, high, min), to: along(low, high, max) };
 	});
-	let param: EffectParam;
-	if (exposure.kind === 'number') {
-		const r = exposure.range ?? {
-			min: Number(exposure.low),
-			max: Number(exposure.high),
-			value: Number(exposure.value),
-		};
-		param = { id, kind: 'number', default: r.value, min: r.min, max: r.max, drives };
-	} else {
-		param = { id, kind: exposure.kind, default: exposure.value, drives };
-	}
+	const param: EffectParam = { id, kind: 'number', default: r.value, min, max, drives };
 	return { doc: withParams(doc, [...(doc.params ?? []), param]), id };
 }
 
@@ -429,6 +445,18 @@ export function setDriveEnd(
 	}));
 }
 
+/**
+ * A layer was deleted: drop every drive that names it (a parameter left with none stays). A drive on
+ * a removed BEHAVIOUR is kept on purpose — switching that section back on restores it.
+ */
+export function removeLayerDrives(doc: EffectDoc, layerKey: string): EffectDoc {
+	if (!doc.params?.some((p) => p.drives.some((d) => d.layer === layerKey))) return doc;
+	return withParams(
+		doc,
+		doc.params.map((p) => ({ ...p, drives: p.drives.filter((d) => d.layer !== layerKey) })),
+	);
+}
+
 /** Follow a layer rename in every drive. */
 export function renameLayerInParams(doc: EffectDoc, from: string, to: string): EffectDoc {
 	if (!doc.params?.some((p) => p.drives.some((d) => d.layer === from))) return doc;
@@ -465,7 +493,7 @@ export interface RowDriveState {
 
 export function rowDriveState(
 	drives: Map<string, { param: EffectParam; drive: EffectParamDrive }>,
-	exposure: RowExposure,
+	exposure: Pick<RowExposure, 'writes' | 'ownLeaf'>,
 ): RowDriveState | undefined {
 	const own = exposure.ownLeaf ? drives.get(exposure.ownLeaf) : undefined;
 	if (own && own.drive.from === undefined && own.drive.to === undefined) {
@@ -478,7 +506,12 @@ export function rowDriveState(
 	return undefined;
 }
 
-/** Validation messages keyed by `<paramId>/<driveId>`. */
-export function driveIssues(doc: EffectDoc): Map<string, string> {
-	return new Map(validateEffectParams(doc).map((i) => [`${i.param}/${i.drive}`, i.message]));
+/** Validation issues keyed by `<paramId>/<driveId>` (a drive that does nothing wins over a shared one). */
+export function driveIssues(doc: EffectDoc): Map<string, EffectParamIssue> {
+	const out = new Map<string, EffectParamIssue>();
+	for (const issue of validateEffectParams(doc)) {
+		const key = `${issue.param}/${issue.drive}`;
+		if (!out.has(key) || issue.code === 'unresolved') out.set(key, issue);
+	}
+	return out;
 }

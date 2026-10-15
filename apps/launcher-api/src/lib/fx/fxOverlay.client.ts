@@ -35,7 +35,7 @@ import { Emitter } from '@barvynkoa/particle-emitter';
 import {
 	bindArt,
 	createEffectLevelApplier,
-	createEffectParamApplier,
+	bindEffectParams,
 	emitterDeltaSeconds,
 	normalizeEffectDoc,
 	planLayer,
@@ -427,13 +427,13 @@ export function createFxOverlay(): FxOverlayApi {
 		effect.layers.addChild(layerContainer);
 		const emitter = new Emitter(layerContainer, config);
 		if (values) {
-			createEffectParamApplier({
+			bindEffectParams({
 				params: doc.params,
 				layer,
-				config,
 				emitter,
 				setOffset: (x, y) => layerContainer.position.set(x, y),
-			})?.apply(values);
+				values,
+			});
 		}
 		// Force-emit ALL layers from mount, ignoring layer.trigger — the keyframe IS the trigger, and
 		// `emitterLifetime` bounds the burst (the same `forceEmit` contract the rig-bound runtime uses).

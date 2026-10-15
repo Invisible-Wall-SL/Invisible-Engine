@@ -301,6 +301,8 @@ Any value can be exposed, not just a fixed list.
     launch arc, a rectangle's **Width** its width and its centring.
   - **Lifetime min** drives only the minimum. It drags the maximum along only when it passes it,
     and a parameter does not do that.
+  - A value typed outside the slider's range (an **Offset X** of 640 on a −500..500 row) widens
+    the new parameter's range to include it, so exposing never changes the look.
   - Some values exist only once the row is off its default, e.g. **Spin** at 0, or **Rotation** at
     0° with a centred pivot. The menu then says to move the row first.
 - **All parameters** (bottom of the Inspector, collapsed) lists every value in the layer a
@@ -317,16 +319,19 @@ Any value can be exposed, not just a fixed list.
     **Note**;
   - its **drives**: which layer and value each one writes, and **from → to** (the value at the
     parameter's min or off, and at its max or on) as editable boxes, or *written as is*. **✕**
-    removes a drive. A drive whose layer or behaviour has been removed shows a red **⚠** and does
-    nothing until it is fixed or removed;
+    removes a drive. A drive whose behaviour has been switched off (or, in an older effect, whose
+    layer is gone) shows a red **⚠** and does nothing until the section is back on or the drive is
+    removed. Two drives that write the same
+    value show an amber **⚠**: whichever parameter changes last wins;
   - a **Preview** slider (a colour field or a tick box for the other kinds) that moves the effect
     in the stage **live, with no reset** — particles already in flight carry on. The preview is
     **not saved**; **↺** puts it back to the default.
 - **What is saved.** The parameters are saved with the effect, and the effect's stored settings
   are always its look **at the defaults** — so the game, the Scene Editor and the Rigger draw the
   default look even where nothing sets a value. A driven value stays at its parameter's default
-  even when a preset or a section switch rewrites the layer. Renaming a layer keeps its drives; a
-  duplicated or pasted copy starts undriven.
+  even when a preset or a section switch rewrites the layer. Renaming a layer keeps its drives;
+  deleting one removes the drives on it (the parameter stays); a duplicated or pasted copy starts
+  undriven.
 
 ### Save
 
@@ -389,8 +394,9 @@ mere save.
 - **Exposed parameters are set only by this tool's preview so far.** The game draws each effect
   at its defaults. Setting a value from a component, a timeline, a state machine or the game clock
   is the next part of the plan.
-- **An effect-level Scale sizes free layers only.** A layer pinned to a bone keeps its bone's size
-  and place; opacity and tint still reach it.
+- **Whole-effect opacity, size, tint and speed can't be exposed here yet.** The game supports them
+  (an effect-level size then scales free layers only — a layer pinned to a bone keeps its bone's
+  size), but no row in this tool writes them.
 - **A driven Emitter lifetime applies the next time the layer starts emitting**, not to a burst
   already running.
 
@@ -469,7 +475,10 @@ mere save.
   grammar (`parseEffectParamPath`), the mapping (`effectParamDriveValue`), the defaults-in-config
   writer `normalizeEffectDoc` runs (`applyEffectParamDefaults`), validation, the leaf listing, and
   the live applier (`createEffectParamApplier` — rebuilds only the driven behaviour and swaps it
-  into the emitter's behaviour arrays, never `init`; `createEffectLevelApplier` for `effect.*`).
+  into the emitter's behaviour arrays, never `init`; `bindEffectParams` is what a renderer calls
+  after creating or re-initialising an emitter; `createEffectLevelApplier` for `effect.*`). Every
+  renderer binds a config through `stepCollapsedValueLists` (in `bindArt.ts`), which makes a curve
+  with equal ends render as the constant it is instead of throwing inside the library.
   Runtime: `<EffectPlayer params>` (a getter read on the ticker) → `<EffectLayer>` →
   `<ParticleEmitter fxParams>`, plus `EffectParamGroup.svelte` for `effect.*`. The same applier
   runs in `FxStage.svelte`, the Scene Editor's `EditorEffectLayer.svelte` and `$lib/fx/fxOverlay.client.ts`

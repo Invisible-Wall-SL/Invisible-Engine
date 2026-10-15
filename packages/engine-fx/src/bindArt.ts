@@ -27,6 +27,56 @@ export const ART_BEHAVIOR_TYPES = new Set([
 	'textureOrdered',
 ]);
 
+/**
+ * Tier C's rig-particle behaviour type (`pixi-svelte`'s `RigParticleBehavior` registers under it).
+ * Defined here, below `pixi-svelte`, so the parameter applier can refuse it without restating it.
+ */
+export const RIG_PARTICLE_BEHAVIOR_TYPE = 'spineParticle';
+
+/** How deep the value-list guard walks into a config (behaviour configs are a few levels deep). */
+const MAX_LIST_DEPTH = 8;
+
+const isPlainObject = (v: unknown): v is Record<string, unknown> => {
+	if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+	const proto = Object.getPrototypeOf(v);
+	return proto === Object.prototype || proto === null;
+};
+
+/**
+ * Make a config safe for the library's value lists, IN PLACE — call it on a copy, never on a doc.
+ *
+ * `PropertyNode.createList` keeps only the first node of a one-entry list, or of a two-entry list
+ * whose two values are equal, and a non-stepped list with one node throws on its first update
+ * (`Cannot read properties of null (reading 'time')`). That is an alpha, scale, colour or speed curve
+ * whose ends were set equal — by hand, or by an exposed parameter's default — and in the game it
+ * stops the Pixi ticker. Such a list is marked STEPPED: the same constant, read safely. Only plain
+ * objects and arrays are walked, so live textures and rig-particle factories are left alone.
+ *
+ * Every renderer binds a config through it: {@link bindArt}, the Tier-C rig-particle binding, and
+ * the parameter applier's rebuild of a behaviour.
+ */
+export function stepCollapsedValueLists<T>(config: T): T {
+	const visit = (node: unknown, depth: number): void => {
+		if (depth > MAX_LIST_DEPTH) return;
+		if (Array.isArray(node)) {
+			for (const child of node) visit(child, depth + 1);
+			return;
+		}
+		if (!isPlainObject(node)) return;
+		const list = node.list;
+		if (Array.isArray(list) && !node.isStepped) {
+			const first = list[0] as { value?: unknown } | undefined;
+			const second = list[1] as { value?: unknown } | undefined;
+			if (list.length === 1 || (list.length === 2 && first?.value === second?.value)) {
+				node.isStepped = true;
+			}
+		}
+		for (const key of Object.keys(node)) visit(node[key], depth + 1);
+	};
+	visit(config, 0);
+	return config;
+}
+
 /** A behavior entry's `config` is an opaque record; read it defensively. */
 export type BehaviorConfig = Record<string, unknown>;
 export interface BehaviorEntry {
@@ -85,7 +135,8 @@ export function weightedTextures(textures: unknown[], weights?: number[]): unkno
  * `textures` are real PIXI `Texture` objects (typed opaquely here so this module stays free
  * of a PixiJS import and unit-coverable in `tools/fx-spike`). `bindArt` clones the
  * texture-free config FIRST, THEN attaches the live `Texture` objects, so its result must NOT
- * be JSON-cloned again (that would destroy the live `Texture` instances).
+ * be JSON-cloned again (that would destroy the live `Texture` instances). The clone also goes
+ * through {@link stepCollapsedValueLists}, so a curve with equal ends renders instead of throwing.
  */
 export function bindArt(
 	config: EmitterConfigV3,
@@ -94,7 +145,7 @@ export function bindArt(
 	weights?: number[],
 	anim?: { framerate?: number; loop?: boolean },
 ): EmitterConfigV3 {
-	const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
+	const next: EmitterConfigV3 = stepCollapsedValueLists(JSON.parse(JSON.stringify(config)));
 	const behaviors = behaviorsOf(next).filter((b) => !ART_BEHAVIOR_TYPES.has(b.type));
 	if (textures.length > 0) {
 		const art: BehaviorEntry =

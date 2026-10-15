@@ -27,14 +27,14 @@
 	import {
 		bindArt,
 		behaviorsOf,
+		bindEffectParams,
 		createEffectLevelApplier,
-		createEffectParamApplier,
 		emitterDeltaSeconds,
+		stepCollapsedValueLists,
 		type EffectLevelApplier,
 		type EffectParam,
 		type EffectParamApplier,
 		type EffectParamValues,
-		type EmitterConfigV3,
 		type EmitterLayer,
 	} from 'engine-fx';
 	import {
@@ -168,13 +168,12 @@
 	const DEG_TO_RAD = Math.PI / 180;
 	/** One live layer: its emitter, the container it draws into, whether it has bound art (a sprite
 	 * layer with textures OR a rig-particle layer with a bound pool — either spawns visibly), the
-	 * layer + bound config it was built from, its parameter applier, and the offset a drive moved it to. */
+	 * layer it was built from, its parameter applier, and the offset a drive moved it to. */
 	interface LiveLayer {
 		emitter: Emitter;
 		container: Container;
 		hasArt: boolean;
 		layer: EmitterLayer;
-		config: EmitterConfigV3;
 		applier?: EffectParamApplier;
 		offset?: { x: number; y: number };
 	}
@@ -503,7 +502,7 @@
 			if (!entry) {
 				const container = new Container();
 				world.addChild(container);
-				entry = { emitter: new Emitter(container, config), container, hasArt: true, layer, config };
+				entry = { emitter: new Emitter(container, config), container, hasArt: true, layer };
 				live.set(layer.key, entry);
 			} else {
 				// A sprite layer that USED to be a rig layer carries a pool — dispose it before
@@ -512,7 +511,6 @@
 				entry.emitter.init(config);
 				entry.hasArt = true;
 				entry.layer = layer;
-				entry.config = config;
 			}
 			bindParams(entry);
 			entry.emitter.emit = emitOn;
@@ -562,11 +560,15 @@
 			// Half-authored / unloadable: show placeholder dots so the emitter (shape/rate) is still
 			// tunable, exactly like an art-less sprite layer.
 			const config = bindArt(layer.config, [placeholderTexture()], false);
-			const emitter = new Emitter(container, config);
-			emitter.emit = emitOn;
-			const entry: LiveLayer = { emitter, container, hasArt: false, layer, config };
+			const entry: LiveLayer = {
+				emitter: new Emitter(container, config),
+				container,
+				hasArt: false,
+				layer,
+			};
 			live.set(layer.key, entry);
 			bindParams(entry);
+			entry.emitter.emit = emitOn;
 			return;
 		}
 
@@ -578,32 +580,35 @@
 			createBacking: createPixiRigBackingFactory(loaded.skeletonData),
 		};
 		const config = bindRigParticleConfig(layer.config, rigParticle);
-		const emitter = new Emitter(container, config);
-		emitter.emit = emitOn;
-		const entry: LiveLayer = { emitter, container, hasArt: true, layer, config };
+		const entry: LiveLayer = {
+			emitter: new Emitter(container, config),
+			container,
+			hasArt: true,
+			layer,
+		};
 		live.set(layer.key, entry);
 		bindParams(entry);
+		entry.emitter.emit = emitOn;
 	}
 
 	/**
-	 * A fresh parameter applier for a layer whose emitter was just built or re-initialised from
-	 * `entry.config` — the BOUND config, so a rebuilt behaviour keeps its art — given the current
-	 * preview values at once (re-init must not drop the preview).
+	 * A fresh parameter applier for a layer whose emitter was just built or re-initialised from it,
+	 * given the current preview values at once (re-init must not drop the preview). Called BEFORE the
+	 * emit flag is set, so emission starts from a driven `emitterLifetime`.
 	 */
 	function bindParams(entry: LiveLayer): void {
 		entry.offset = undefined;
 		entry.applier = paramValues
-			? createEffectParamApplier({
+			? bindEffectParams({
 					params: paramDefs,
 					layer: entry.layer,
-					config: entry.config,
 					emitter: entry.emitter,
 					setOffset: (x, y) => {
 						entry.offset = { x, y };
 					},
+					values: paramValues(),
 				})
 			: undefined;
-		entry.applier?.apply(paramValues?.());
 	}
 
 	/** The parameter set changed: put the old drives back on the live emitters, then bind the new. */
@@ -625,16 +630,18 @@
 
 	/**
 	 * Inject the Tier-C `spineParticle` behavior into a V3 config, returning a NEW config — the
-	 * EXACT shape `<ParticleEmitter>`'s `bindRigParticle` builds (clone the textureless config,
-	 * replace any prior `spineParticle` entry, attach the live factory + layer host AFTER cloning so
-	 * the result is NOT re-JSON-cloned). Kept here (not pulled from the Svelte component) because
-	 * the stage drives the emitter imperatively.
+	 * EXACT shape `<ParticleEmitter>`'s `bindRigParticle` builds (clone the textureless config, make
+	 * its value lists safe, replace any prior `spineParticle` entry, attach the live factory + layer
+	 * host AFTER cloning so the result is NOT re-JSON-cloned). Kept here (not pulled from the Svelte
+	 * component) because the stage drives the emitter imperatively.
 	 */
 	function bindRigParticleConfig(
 		config: EmitterLayer['config'],
 		rigParticle: RigParticleBehaviorConfig,
 	): EmitterLayer['config'] {
-		const next = JSON.parse(JSON.stringify(config)) as EmitterLayer['config'];
+		const next = stepCollapsedValueLists(
+			JSON.parse(JSON.stringify(config)) as EmitterLayer['config'],
+		);
 		const behaviors = behaviorsOf(next).filter((b) => b.type !== RIG_PARTICLE_BEHAVIOR_TYPE);
 		behaviors.push({
 			type: RIG_PARTICLE_BEHAVIOR_TYPE,

@@ -9,9 +9,10 @@
 	import {
 		bindArt,
 		behaviorsOf,
-		createEffectParamApplier,
+		bindEffectParams,
 		emitterDeltaSeconds,
 		registerFxBehaviors,
+		stepCollapsedValueLists,
 		type BehaviorEntry,
 		type EffectParam,
 		type EffectParamApplier,
@@ -115,14 +116,15 @@
 	/**
 	 * Inject the Tier-C `spineParticle` behavior into a V3 config, returning a NEW config the
 	 * `Emitter` renders by pooling `RigView` instances. Like `bindArt` it clones the config (no art
-	 * behavior needed — particles are textureless) and attaches the live runtime objects (the
-	 * factory + layer host) AFTER cloning, so the result must NOT be JSON-cloned again.
+	 * behavior needed — particles are textureless), makes its value lists safe
+	 * (`stepCollapsedValueLists`), and attaches the live runtime objects (the factory + layer host)
+	 * AFTER cloning, so the result must NOT be JSON-cloned again.
 	 */
 	function bindRigParticle(
 		config: EmitterConfigV3,
 		rigParticle: RigParticleBehaviorConfig,
 	): EmitterConfigV3 {
-		const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
+		const next: EmitterConfigV3 = stepCollapsedValueLists(JSON.parse(JSON.stringify(config)));
 		const behaviors = behaviorsOf(next).filter((b) => b.type !== RIG_PARTICLE_BEHAVIOR_TYPE);
 		const entry: BehaviorEntry = {
 			type: RIG_PARTICLE_BEHAVIOR_TYPE,
@@ -199,23 +201,23 @@
 	);
 	// svelte-ignore state_referenced_locally
 	const emitter = new Emitter(parentContext.parent, updatedConfig);
-	/** The config the emitter was last initialised from — what a parameter applier rebuilds against. */
-	// svelte-ignore state_referenced_locally
-	let initConfig = updatedConfig;
 	let applier: EffectParamApplier | undefined;
-	/** A fresh applier for the emitter as it stands now, at once given the current values. */
+	/**
+	 * A fresh applier for the emitter as it stands now, given the current values at once. It also
+	 * restarts the emission countdown when a drive changed `emitterLifetime`, which `init` latched
+	 * from the config just before.
+	 */
 	const bindParams = (): void => {
 		const fx = props.fxParams;
 		applier = fx
-			? createEffectParamApplier({
+			? bindEffectParams({
 					params: fx.params,
 					layer: fx.layer,
-					config: initConfig,
 					emitter,
 					setOffset: fx.setOffset ?? ((x, y) => parentContext.parent.position.set(x, y)),
+					values: fx.values(),
 				})
 			: undefined;
-		applier?.apply(fx?.values());
 	};
 
 	propsSyncEffect({
@@ -258,7 +260,6 @@
 		// they take the same `init` branch as before — byte-identical to the prior behaviour.
 		if (props.emit) {
 			emitter.init(updatedConfig);
-			initConfig = updatedConfig;
 			ownerTracked = false;
 			// Untracked: the getter reads live position state, which must not re-run this `init`.
 			untrack(syncOwner);
@@ -267,9 +268,15 @@
 		} else emitter.emit = false;
 	});
 
-	// A new parameter set (rare at runtime) puts the old drives back before the new ones apply.
+	// A new parameter set (rare at runtime) puts the old drives back before the new ones apply. Its
+	// first run is the mount: the emit effect above binds whenever emission (re)starts.
+	let paramsSeen = false;
 	$effect(() => {
 		void props.fxParams;
+		if (!paramsSeen) {
+			paramsSeen = true;
+			return;
+		}
 		untrack(() => {
 			applier?.restore();
 			bindParams();

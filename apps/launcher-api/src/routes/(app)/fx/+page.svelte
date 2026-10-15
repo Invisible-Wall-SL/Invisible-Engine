@@ -41,6 +41,7 @@
 		gravity,
 		insertLayerCopy,
 		movementModel,
+		layerKeyTaken,
 		moveLayer,
 		newLayer,
 		nextLayerKey,
@@ -106,6 +107,7 @@
 		leafExposure,
 		paramIdFromLabel,
 		removeDrive,
+		removeLayerDrives,
 		removeParam,
 		renameLayerInParams,
 		renameParam,
@@ -131,6 +133,14 @@
 	// writes it back via `/api/fx/save` (the EffectDoc + the editor-only sidecar split).
 	const initialDoc = data.openedDoc ?? emptyEffectDoc();
 	let doc = $state<EffectDoc>(initialDoc);
+	/**
+	 * The ONE way this page changes the doc. Every change re-writes the drives' defaults into the
+	 * configs, as Save's normalize does, so what the page shows is always what Save stores — whatever
+	 * the edit rewrote (a preset, a section switch, a layer added or removed).
+	 */
+	function setDoc(next: EffectDoc): void {
+		doc = applyEffectParamDefaults(next);
+	}
 	let selectedKey = $state<string>(
 		data.openedMeta?.selectedLayer ?? initialDoc.layers[0]?.key ?? '',
 	);
@@ -249,7 +259,7 @@
 					etag: string | null;
 				};
 				// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
-				doc = { ...doc, id: out.id };
+				setDoc({ ...doc, id: out.id });
 				pickerId = out.id;
 				// The effect now has a persisted key — re-key the lease onto it (a no-op when
 				// re-saving the same effect; the acquire that matters is a NEW / saved-as effect).
@@ -354,10 +364,10 @@
 		// original, with every retry hitting the same 409.
 		const previous = { id: doc.id, name: doc.name };
 		const previousEtag = saveState.etag;
-		doc = { ...doc, id: UNTITLED_EFFECT_ID, name: clean };
+		setDoc({ ...doc, id: UNTITLED_EFFECT_ID, name: clean });
 		saveState.adoptEtag(null);
 		if (!(await saveEffect())) {
-			doc = { ...doc, id: previous.id, name: previous.name };
+			setDoc({ ...doc, id: previous.id, name: previous.name });
 			saveState.adoptEtag(previousEtag);
 		}
 	}
@@ -396,7 +406,7 @@
 			savedNote = `Deleted "${label}".`;
 			if (doc.id === id) {
 				const fresh = emptyEffectDoc();
-				doc = fresh;
+				setDoc(fresh);
 				selectedKey = fresh.layers[0]?.key ?? '';
 				// The open effect is gone → nothing to lease; go inert (freely editable).
 				leaseSwitch(null);
@@ -459,7 +469,7 @@
 	async function newEffect(): Promise<void> {
 		if (!(await confirmDiscard('Starting a new effect'))) return;
 		const fresh = emptyEffectDoc();
-		doc = fresh;
+		setDoc(fresh);
 		selectedKey = fresh.layers[0]?.key ?? '';
 		pickerId = '';
 		playing = true;
@@ -492,7 +502,7 @@
 				meta: { selectedLayer?: string };
 				etag: string | null;
 			};
-			doc = out.doc;
+			setDoc(out.doc);
 			// Same precedence the loader-seeded path uses: the sidecar's remembered layer, else
 			// the first one — so reopening restores the inspector focus exactly as before.
 			selectedKey = out.meta?.selectedLayer ?? out.doc.layers[0]?.key ?? '';
@@ -709,12 +719,7 @@
 			probing.layer = fn(probing.layer);
 			return;
 		}
-		// A driven value stays at its parameter's default whatever else the edit rewrote (a preset, a
-		// section switch) — exactly what Save stores, so the stage shows what will be saved.
-		doc = applyEffectParamDefaults({
-			...doc,
-			layers: doc.layers.map((l) => (l.key === selectedKey ? fn(l) : l)),
-		});
+		setDoc({ ...doc, layers: doc.layers.map((l) => (l.key === selectedKey ? fn(l) : l)) });
 	}
 
 	function patchConfig(next: EmitterConfigV3): void {
@@ -723,23 +728,26 @@
 
 	function addLayer(): void {
 		const key = nextLayerKey(doc);
-		doc = { ...doc, layers: [...doc.layers, newLayer(key)] };
+		setDoc({ ...doc, layers: [...doc.layers, newLayer(key)] });
 		selectedKey = key;
 	}
 
 	function removeLayer(key: string): void {
 		const layers = doc.layers.filter((l) => l.key !== key);
-		doc = { ...doc, layers };
+		// The drives that named it go too, so a later layer can never inherit them.
+		setDoc(removeLayerDrives({ ...doc, layers }, key));
 		if (selectedKey === key) selectedKey = layers[0]?.key ?? '';
 	}
 
 	function renameLayer(key: string, name: string): void {
 		const clean = name.trim();
-		if (!clean || doc.layers.some((l) => l.key === clean)) return;
-		doc = renameLayerInParams(
-			{ ...doc, layers: doc.layers.map((l) => (l.key === key ? { ...l, key: clean } : l)) },
-			key,
-			clean,
+		if (!clean || layerKeyTaken(doc, clean)) return;
+		setDoc(
+			renameLayerInParams(
+				{ ...doc, layers: doc.layers.map((l) => (l.key === key ? { ...l, key: clean } : l)) },
+				key,
+				clean,
+			),
 		);
 		if (selectedKey === key) selectedKey = clean;
 	}
@@ -778,18 +786,18 @@
 		const layer = readClipboard();
 		if (!layer) return;
 		const next = insertLayerCopy(doc, layer, selectedKey || undefined);
-		doc = next.doc;
+		setDoc(next.doc);
 		selectedKey = next.key;
 	}
 
 	function duplicateSelected(key: string): void {
 		const next = duplicateLayer(doc, key);
-		doc = next.doc;
+		setDoc(next.doc);
 		selectedKey = next.key;
 	}
 
 	function reorderLayer(key: string, delta: number): void {
-		doc = moveLayer(doc, key, delta);
+		setDoc(moveLayer(doc, key, delta));
 	}
 
 	// --- inspector readouts (derived from the config) ---------------------------
@@ -913,8 +921,25 @@
 		});
 	}
 
+	/**
+	 * What each row writes, by row key — the cheap half of "is this row driven". Finding it runs the
+	 * row's setter on scratch copies, so it is done once per row and again only when the layer's
+	 * config SHAPE (its set of leaves) changes — not on every render, not on a value edit. The full
+	 * exposure is built only when ⚡ is clicked. A plain record: a cache, not state.
+	 */
+	const rowWrites: Record<string, { shape: string; writes: string[]; ownLeaf?: string }> = {};
+	/** The selected layer's config shape: its leaf paths. Only read while it has drives. */
+	const layerShape = $derived(
+		selectedPlain
+			? listEffectLayerLeaves(selectedPlain)
+					.map((l) => l.path)
+					.join('|')
+			: '',
+	);
+
 	/** How a row reads under a drive — only worked out when the selected layer has any. */
 	function rowDrive(
+		key: string,
 		label: string,
 		kind: EffectParamKind,
 		value: EffectParamValue,
@@ -923,8 +948,14 @@
 		apply: (v: EffectParamValue) => void,
 	): RowDriveState | undefined {
 		if (selectedDrives.size === 0) return undefined;
-		const exposure = exposureOf(label, kind, value, low, high, apply);
-		return exposure ? rowDriveState(selectedDrives, exposure) : undefined;
+		let hit = rowWrites[key];
+		if (hit?.shape !== layerShape) {
+			const exposure = exposureOf(label, kind, value, low, high, apply);
+			if (!exposure) return undefined;
+			hit = { shape: layerShape, writes: exposure.writes, ownLeaf: exposure.ownLeaf };
+			rowWrites[key] = hit;
+		}
+		return rowDriveState(selectedDrives, hit);
 	}
 
 	/** A row edit: under an as-is drive it edits the parameter's default; under a mapped drive the row
@@ -934,7 +965,7 @@
 		v: V,
 		apply: (v: V) => void,
 	): void {
-		if (driven?.editable) doc = setParamDefault(doc, driven.param.id, v);
+		if (driven?.editable) setDoc(setParamDefault(doc, driven.param.id, v));
 		else if (!driven) apply(v);
 	}
 
@@ -970,7 +1001,7 @@
 		});
 		if (name === null || !name.trim()) return;
 		const made = exposeAsNewParam(doc, menu.layerKey, menu.exposure, name);
-		doc = made.doc;
+		setDoc(made.doc);
 		savedNote = `Exposed "${menu.exposure.label}" as "${made.id}".`;
 		showParam(made.id);
 	}
@@ -979,7 +1010,7 @@
 		const menu = exposeMenu;
 		if (!menu) return;
 		exposeMenu = null;
-		doc = driveWithParam(doc, paramId, menu.layerKey, menu.exposure);
+		setDoc(driveWithParam(doc, paramId, menu.layerKey, menu.exposure));
 		savedNote = `"${menu.exposure.label}" is now driven by "${paramId}".`;
 		showParam(paramId);
 	}
@@ -987,18 +1018,18 @@
 	function renameParamTo(id: string, next: string): void {
 		const renamed = renameParam(doc, id, next);
 		if (renamed === doc) return;
-		doc = renamed;
+		setDoc(renamed);
 		const clean = next.trim();
 		if (id in preview) {
-			const next = { ...preview, [clean]: preview[id] };
-			delete next[id];
-			preview = next;
+			const moved = { ...preview, [clean]: preview[id] };
+			delete moved[id];
+			preview = moved;
 		}
 		if (focusParam === id) focusParam = clean;
 	}
 
 	function deleteParam(id: string): void {
-		doc = removeParam(doc, id);
+		setDoc(removeParam(doc, id));
 		const next = { ...preview };
 		delete next[id];
 		preview = next;
@@ -1093,9 +1124,18 @@
 	max: number,
 	step: number,
 	apply: (v: number) => void,
+	id: string = '',
 )}
 	{@const run = (v: EffectParamValue) => apply(Number(v))}
-	{@const driven = rowDrive(label, 'number', value, min, max, run)}
+	{@const driven = rowDrive(
+		id ? `${id}:${label}` : `n:${label}|${min}|${max}`,
+		label,
+		'number',
+		value,
+		min,
+		max,
+		run,
+	)}
 	<div class="row slider" class:driven={!!driven}>
 		<span>{label}</span>
 		<input
@@ -1125,7 +1165,7 @@
 <!-- A colour row (the shared picker) with ⚡. -->
 {#snippet colorRow(label: string, value: string, apply: (hex: string) => void)}
 	{@const run = (v: EffectParamValue) => apply(String(v))}
-	{@const driven = rowDrive(label, 'color', value, '#000000', '#ffffff', run)}
+	{@const driven = rowDrive(`c:${label}`, label, 'color', value, '#000000', '#ffffff', run)}
 	<div class="row" class:driven={!!driven}>
 		<span>{label}</span>
 		<span class="ctl">
@@ -1149,7 +1189,7 @@
 	apply: (v: number) => void,
 )}
 	{@const run = (v: EffectParamValue) => apply(Number(v))}
-	{@const driven = rowDrive(label, 'number', value, low, high, run)}
+	{@const driven = rowDrive(`n:${label}|${low}|${high}`, label, 'number', value, low, high, run)}
 	<div class="row" class:driven={!!driven}>
 		<span>{label}</span>
 		<span class="ctl">
@@ -1173,9 +1213,18 @@
 	checked: boolean,
 	apply: (on: boolean) => void,
 	wide: boolean,
+	id: string = '',
 )}
 	{@const run = (v: EffectParamValue) => apply(v === true)}
-	{@const driven = rowDrive(label, 'bool', checked, false, true, run)}
+	{@const driven = rowDrive(
+		id ? `${id}:${label}` : `b:${label}`,
+		label,
+		'bool',
+		checked,
+		false,
+		true,
+		run,
+	)}
 	<span class="togglewrap" class:wide>
 		<label class={wide ? 'row check' : 'toggle'}>
 			<input
@@ -1288,7 +1337,7 @@
 			title="Effect name"
 			placeholder="Effect name"
 			value={doc.name}
-			onchange={(e) => (doc = { ...doc, name: (e.currentTarget as HTMLInputElement).value })}
+			onchange={(e) => setDoc({ ...doc, name: (e.currentTarget as HTMLInputElement).value })}
 		/>
 		<button class="primary" onclick={() => saveEffect()} disabled={busy || lease.readOnly}>
 			{saveState.busy ? 'Saving…' : '⤓ Save'}
@@ -1411,11 +1460,13 @@
 								value={param.kind}
 								disabled={param.drives.length > 0}
 								onchange={(e) =>
-									(doc = setParamKind(
-										doc,
-										param.id,
-										(e.currentTarget as HTMLSelectElement).value as EffectParamKind,
-									))}
+									setDoc(
+										setParamKind(
+											doc,
+											param.id,
+											(e.currentTarget as HTMLSelectElement).value as EffectParamKind,
+										),
+									)}
 							>
 								<option value="number">Number</option>
 								<option value="color">Colour</option>
@@ -1432,7 +1483,7 @@
 										type="number"
 										step="any"
 										value={param.min ?? 0}
-										onchange={(e) => (doc = setParamRange(doc, param.id, num(e), param.max ?? 1))}
+										onchange={(e) => setDoc(setParamRange(doc, param.id, num(e), param.max ?? 1))}
 									/></label
 								>
 								<label
@@ -1440,7 +1491,7 @@
 										type="number"
 										step="any"
 										value={param.max ?? 1}
-										onchange={(e) => (doc = setParamRange(doc, param.id, param.min ?? 0, num(e)))}
+										onchange={(e) => setDoc(setParamRange(doc, param.id, param.min ?? 0, num(e)))}
 									/></label
 								>
 								<label
@@ -1448,7 +1499,7 @@
 										type="number"
 										step="any"
 										value={param.default}
-										onchange={(e) => (doc = setParamDefault(doc, param.id, num(e)))}
+										onchange={(e) => setDoc(setParamDefault(doc, param.id, num(e)))}
 									/></label
 								>
 							</div>
@@ -1457,7 +1508,7 @@
 								<span>Default</span>
 								<ColorField
 									value={String(param.default)}
-									onchange={(hex) => (doc = setParamDefault(doc, param.id, hex))}
+									onchange={(hex) => setDoc(setParamDefault(doc, param.id, hex))}
 								/>
 							</div>
 						{:else}
@@ -1466,11 +1517,9 @@
 									type="checkbox"
 									checked={param.default === true}
 									onchange={(e) =>
-										(doc = setParamDefault(
-											doc,
-											param.id,
-											(e.currentTarget as HTMLInputElement).checked,
-										))}
+										setDoc(
+											setParamDefault(doc, param.id, (e.currentTarget as HTMLInputElement).checked),
+										)}
 								/>
 								<span>On by default</span>
 							</label>
@@ -1480,12 +1529,16 @@
 							placeholder="Note (optional)"
 							value={param.note ?? ''}
 							onchange={(e) =>
-								(doc = setParamNote(doc, param.id, (e.currentTarget as HTMLInputElement).value))}
+								setDoc(setParamNote(doc, param.id, (e.currentTarget as HTMLInputElement).value))}
 						/>
 						<div class="drives">
 							{#each param.drives as drive (drive.id)}
 								{@const issue = issues.get(`${param.id}/${drive.id}`)}
-								<div class="drive" class:bad={!!issue}>
+								<div
+									class="drive"
+									class:bad={issue?.code === 'unresolved'}
+									class:shared={issue?.code === 'param-target-duplicate'}
+								>
 									<div class="dhead">
 										<span class="dpath" title={drive.path}
 											><b>{drive.layer ?? 'effect'}</b> · {drive.path}</span
@@ -1493,7 +1546,7 @@
 										<button
 											class="ico del"
 											title="Remove this drive"
-											onclick={() => (doc = removeDrive(doc, param.id, drive.id))}>✕</button
+											onclick={() => setDoc(removeDrive(doc, param.id, drive.id))}>✕</button
 										>
 									</div>
 									{#if drive.from !== undefined && drive.to !== undefined}
@@ -1503,7 +1556,7 @@
 													<ColorField
 														value={String(drive[end])}
 														onchange={(hex) =>
-															(doc = setDriveEnd(doc, param.id, drive.id, end, hex))}
+															setDoc(setDriveEnd(doc, param.id, drive.id, end, hex))}
 													/>
 												{:else}
 													<input
@@ -1514,7 +1567,7 @@
 															: `The value at ${param.kind === 'bool' ? 'on' : 'the maximum'}`}
 														value={drive[end]}
 														onchange={(e) =>
-															(doc = setDriveEnd(doc, param.id, drive.id, end, num(e)))}
+															setDoc(setDriveEnd(doc, param.id, drive.id, end, num(e)))}
 													/>
 												{/if}
 												{#if end === 'from'}<span class="arrow">→</span>{/if}
@@ -1523,7 +1576,11 @@
 									{:else}
 										<span class="asis">written as is</span>
 									{/if}
-									{#if issue}<p class="warn">⚠ {issue} It does nothing until fixed.</p>{/if}
+									{#if issue}<p class="warn" class:soft={issue.code !== 'unresolved'}>
+											⚠ {issue.message}{issue.code === 'unresolved'
+												? ' It does nothing until fixed.'
+												: ''}
+										</p>{/if}
 								</div>
 							{:else}
 								<p class="hint">Drives nothing yet — ⚡ a row and pick "Drive with".</p>
@@ -2343,6 +2400,7 @@
 									force.enabled,
 									(on) => patchConfig(setForceField(config, fi, 'enabled', on)),
 									false,
+									`f${fi}`,
 								)}
 								<button
 									class="ico del"
@@ -2351,21 +2409,51 @@
 								>
 							</div>
 							{#if force.kind === 'gravity'}
-								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									0,
+									5000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Angle (°)', force.angle, 0, 359, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'angle', v)),
+								{@render slider(
+									'Angle (°)',
+									force.angle,
+									0,
+									359,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'angle', v)),
+									`f${fi}`,
 								)}
 							{:else if force.kind === 'wind'}
-								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									0,
+									5000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Angle (°)', force.angle, 0, 359, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'angle', v)),
+								{@render slider(
+									'Angle (°)',
+									force.angle,
+									0,
+									359,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'angle', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Gust', force.gust, 0, 1, 0.01, (v) =>
-									patchConfig(setForceField(config, fi, 'gust', v)),
+								{@render slider(
+									'Gust',
+									force.gust,
+									0,
+									1,
+									0.01,
+									(v) => patchConfig(setForceField(config, fi, 'gust', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Gusts / s',
@@ -2374,13 +2462,26 @@
 									FX_FORCE_LIMITS.gustFrequency.max,
 									0.1,
 									(v) => patchConfig(setForceField(config, fi, 'gustFrequency', v)),
+									`f${fi}`,
 								)}
 							{:else if force.kind === 'vortex'}
-								{@render slider('Centre X', force.x, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'x', v)),
+								{@render slider(
+									'Centre X',
+									force.x,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'x', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Centre Y', force.y, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'y', v)),
+								{@render slider(
+									'Centre Y',
+									force.y,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'y', v)),
+									`f${fi}`,
 								)}
 								<label class="row">
 									<span>Direction</span>
@@ -2400,14 +2501,32 @@
 										<option value="ccw">Counter-clockwise</option>
 									</select>
 								</label>
-								{@render slider('Swirl', force.swirl, 0, 10000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'swirl', v)),
+								{@render slider(
+									'Swirl',
+									force.swirl,
+									0,
+									10000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'swirl', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Radial', force.radial, -10000, 10000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'radial', v)),
+								{@render slider(
+									'Radial',
+									force.radial,
+									-10000,
+									10000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'radial', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Radius', force.radius, 0, 2000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'radius', v)),
+								{@render slider(
+									'Radius',
+									force.radius,
+									0,
+									2000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'radius', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Falloff',
@@ -2416,23 +2535,48 @@
 									FX_FORCE_LIMITS.falloff.max,
 									0.1,
 									(v) => patchConfig(setForceField(config, fi, 'falloff', v)),
+									`f${fi}`,
 								)}
 								<p class="hint">
 									Swirl spins particles around the centre. Radial above 0 flings them OUT
 									(centrifugal); below 0 pulls them IN (centripetal) — balance the two for an orbit.
 								</p>
 							{:else if force.kind === 'attractor'}
-								{@render slider('Centre X', force.x, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'x', v)),
+								{@render slider(
+									'Centre X',
+									force.x,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'x', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Centre Y', force.y, -1000, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'y', v)),
+								{@render slider(
+									'Centre Y',
+									force.y,
+									-1000,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'y', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Strength', force.strength, -10000, 10000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									-10000,
+									10000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Radius', force.radius, 0, 2000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'radius', v)),
+								{@render slider(
+									'Radius',
+									force.radius,
+									0,
+									2000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'radius', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Falloff',
@@ -2441,20 +2585,39 @@
 									FX_FORCE_LIMITS.falloff.max,
 									0.1,
 									(v) => patchConfig(setForceField(config, fi, 'falloff', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Absorb radius', force.absorb, 0, 200, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'absorb', v)),
+								{@render slider(
+									'Absorb radius',
+									force.absorb,
+									0,
+									200,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'absorb', v)),
+									`f${fi}`,
 								)}
 								<p class="hint">
 									Positive strength pulls toward the point, negative pushes away. Particles that
 									reach the Absorb radius disappear (0 = never).
 								</p>
 							{:else if force.kind === 'turbulence'}
-								{@render slider('Strength', force.strength, 0, 5000, 10, (v) =>
-									patchConfig(setForceField(config, fi, 'strength', v)),
+								{@render slider(
+									'Strength',
+									force.strength,
+									0,
+									5000,
+									10,
+									(v) => patchConfig(setForceField(config, fi, 'strength', v)),
+									`f${fi}`,
 								)}
-								{@render slider('Cell size', force.scale, 1, 1000, 1, (v) =>
-									patchConfig(setForceField(config, fi, 'scale', v)),
+								{@render slider(
+									'Cell size',
+									force.scale,
+									1,
+									1000,
+									1,
+									(v) => patchConfig(setForceField(config, fi, 'scale', v)),
+									`f${fi}`,
 								)}
 								{@render slider(
 									'Evolve / s',
@@ -2463,10 +2626,17 @@
 									FX_FORCE_LIMITS.turbulenceSpeed.max,
 									0.05,
 									(v) => patchConfig(setForceField(config, fi, 'speed', v)),
+									`f${fi}`,
 								)}
 							{:else if force.kind === 'drag'}
-								{@render slider('Amount', force.amount, 0, FX_FORCE_LIMITS.drag.max, 0.05, (v) =>
-									patchConfig(setForceField(config, fi, 'amount', v)),
+								{@render slider(
+									'Amount',
+									force.amount,
+									0,
+									FX_FORCE_LIMITS.drag.max,
+									0.05,
+									(v) => patchConfig(setForceField(config, fi, 'amount', v)),
+									`f${fi}`,
 								)}
 								<p class="hint">
 									Air resistance on the forced motion (and on the launch in Acceleration mode). The
@@ -3178,6 +3348,10 @@
 	}
 	.drive.bad .dpath {
 		color: #fca5a5;
+	}
+	.drive.shared .dpath,
+	.warn.soft {
+		color: #fcd34d;
 	}
 	.ends {
 		display: flex;

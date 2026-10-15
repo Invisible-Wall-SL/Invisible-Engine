@@ -26,8 +26,8 @@
 	import { Emitter } from '@barvynkoa/particle-emitter';
 	import {
 		bindArt,
+		bindEffectParams,
 		createEffectLevelApplier,
-		createEffectParamApplier,
 		parseEffectParamPath,
 		type EffectDoc,
 		type EffectLevelApplier,
@@ -139,6 +139,8 @@
 	/** A live per-NODE render: its container (positioned at the node's world transform) + one emitter
 	 * per FREE layer. Rebuilt when the node's effectId / doc / transform changes; disposed on removal. */
 	interface LiveNode {
+		/** The placed node's id — what `effectParamValues` is asked for. */
+		nodeId: string;
 		effectId: string;
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
 		placed: EffectTarget['world'];
@@ -429,6 +431,7 @@
 		world.addChild(container);
 
 		const node: LiveNode = {
+			nodeId: tg.nodeId,
 			effectId: tg.effectId,
 			placed: tg.world,
 			container,
@@ -461,7 +464,7 @@
 			// v1: skip bone-placed layers — they need a live `<RigProvider>` host the scene overlay
 			// doesn't have (the runtime mounts those on their host rig). A free layer spawns here.
 			if (layer.placement.space === 'bone') continue;
-			await buildLayer(node, layer, gen, doc, tg.nodeId);
+			await buildLayer(node, layer, gen, doc);
 			if (gen !== rebuildGen) return;
 		}
 
@@ -477,7 +480,6 @@
 		layer: EmitterLayer,
 		gen: number,
 		doc: EffectDoc,
-		nodeId: string,
 	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
 		if (gen !== rebuildGen) return;
@@ -508,15 +510,14 @@
 		const authored = layer.placement.offset ?? { x: 0, y: 0 };
 		const emitter = new Emitter(host, config);
 		const applier = effectParamValues
-			? createEffectParamApplier({
+			? bindEffectParams({
 					params: doc.params,
 					layer,
-					config,
 					emitter,
 					setOffset: (x, y) => host.position.set(x - authored.x, y - authored.y),
+					values: effectParamValues(node.nodeId),
 				})
 			: undefined;
-		applier?.apply(effectParamValues?.(nodeId));
 		if (applier) node.appliers.push(applier);
 		emitter.emit = playing;
 		node.emitters.push(emitter);
@@ -664,10 +665,10 @@
 			app.ticker.add((ticker) => {
 				if (!playing) return;
 				const dt = ticker.deltaMS / 1000;
-				for (const [nodeId, node] of liveNodes) {
+				for (const node of liveNodes.values()) {
 					let nodeDt = dt;
 					if (effectParamValues && (node.fx || node.appliers.length)) {
-						const values = effectParamValues(nodeId);
+						const values = effectParamValues(node.nodeId);
 						if (node.fx?.applier.apply(values)) {
 							writeEffectLevel(node.fx.wrapper, node.fx.applier.state);
 						}

@@ -21,7 +21,13 @@
  */
 
 import type { EmitterConfigV3 } from '@barvynkoa/particle-emitter';
-import { ART_BEHAVIOR_TYPES, behaviorsOf, type BehaviorEntry } from './bindArt';
+import {
+	ART_BEHAVIOR_TYPES,
+	RIG_PARTICLE_BEHAVIOR_TYPE,
+	behaviorsOf,
+	stepCollapsedValueLists,
+	type BehaviorEntry,
+} from './bindArt';
 import type {
 	EffectDoc,
 	EffectParam,
@@ -56,13 +62,11 @@ export type FxParamEffectField = (typeof FX_PARAM_EFFECT_FIELDS)[number];
 
 /**
  * Behaviour types no path may drive: the art behaviours `bindArt` injects (their textures are not in
- * the doc), and Tier C's `spineParticle`, which owns a `RigView` pool a rebuild would leak. The type
- * string is restated here because `pixi-svelte` (which owns `RIG_PARTICLE_BEHAVIOR_TYPE`) sits above
- * this package.
+ * the doc), and Tier C's rig-particle behaviour, which owns a `RigView` pool a rebuild would leak.
  */
 export const FX_PARAM_UNDRIVABLE_BEHAVIORS: ReadonlySet<string> = new Set([
 	...ART_BEHAVIOR_TYPES,
-	'spineParticle',
+	RIG_PARTICLE_BEHAVIOR_TYPE,
 ]);
 
 /** A parsed path — what a drive targets. */
@@ -428,11 +432,10 @@ interface ResolvedDrive {
 	kind: EffectParamKind;
 }
 
-/** Every drive of `params` aimed at the layer `layerKey` that resolves on `config` and can write. */
+/** Every drive of `params` aimed at the layer that resolves on its config and can write. */
 function layerDrives(
 	params: readonly EffectParam[] | undefined,
 	layer: Pick<EmitterLayer, 'key' | 'config' | 'placement'>,
-	config: EmitterConfigV3,
 ): ResolvedDrive[] {
 	const out: ResolvedDrive[] = [];
 	for (const param of params ?? []) {
@@ -440,7 +443,7 @@ function layerDrives(
 			if (drive.layer !== layer.key) continue;
 			const parsed = parseEffectParamPath(drive.path);
 			if (!parsed.ok || !isLayerTarget(parsed.target)) continue;
-			const leaf = resolveEffectParamLeaf(layer, parsed.target, config);
+			const leaf = resolveEffectParamLeaf(layer, parsed.target);
 			if (!leaf.ok) continue;
 			if (effectParamDriveValue(param, drive, param.default, leaf.kind) === undefined) continue;
 			out.push({ param, drive, target: parsed.target, kind: leaf.kind });
@@ -613,6 +616,9 @@ export function applyEffectParamDefaults(doc: EffectDoc): EffectDoc {
 export interface EffectParamIssue {
 	param: string;
 	drive?: string;
+	/** `unresolved` — the drive does nothing; `param-target-duplicate` — another drive writes the
+	 * same value, so whichever parameter changes last wins (the later one listed, at the defaults). */
+	code: 'unresolved' | 'param-target-duplicate';
 	message: string;
 }
 
@@ -644,13 +650,37 @@ export function effectParamDriveIssue(
 	return undefined;
 }
 
-/** Every drive that does nothing, and why — the editor shows these as warnings. */
+/**
+ * Every drive that does nothing, and why, plus every drive that shares its value with another — the
+ * editor shows these as warnings.
+ */
 export function validateEffectParams(doc: EffectDoc): EffectParamIssue[] {
 	const issues: EffectParamIssue[] = [];
+	const byTarget = new Map<string, { param: string; drive: string }[]>();
 	for (const param of doc.params ?? []) {
 		for (const drive of param.drives) {
 			const message = effectParamDriveIssue(doc, param, drive);
-			if (message) issues.push({ param: param.id, drive: drive.id, message });
+			if (message) {
+				issues.push({ param: param.id, drive: drive.id, code: 'unresolved', message });
+				continue;
+			}
+			const target = `${drive.layer ?? ''}|${canonicalEffectParamPath(drive.path)}`;
+			byTarget.set(target, [...(byTarget.get(target) ?? []), { param: param.id, drive: drive.id }]);
+		}
+	}
+	for (const sharing of byTarget.values()) {
+		if (sharing.length < 2) continue;
+		for (const at of sharing) {
+			const others = sharing
+				.filter((o) => o !== at)
+				.map((o) => `"${o.param}" (${o.drive})`)
+				.join(', ');
+			issues.push({
+				param: at.param,
+				drive: at.drive,
+				code: 'param-target-duplicate',
+				message: `${others} also drive${sharing.length > 2 ? '' : 's'} this value: whichever parameter changes last wins, and the last one listed sets it at the defaults.`,
+			});
 		}
 	}
 	return issues;
@@ -736,21 +766,24 @@ export interface FxParamEmitter {
 	emitterLifetime: number;
 	spawnPos: { x: number; y: number };
 	updateSpawnPos(x: number, y: number): void;
+	/** Whether it is emitting; setting it true restarts the emission countdown. */
+	emit: boolean;
 }
 
-/** The emitter's protected behaviour arrays, read structurally (they are not in its public type). */
-interface BehaviorArrays {
+/** The emitter's protected state, read structurally (it is not in its public type). */
+interface EmitterGuts {
 	initBehaviors: unknown[];
 	updateBehaviors: unknown[];
 	recycleBehaviors: unknown[];
+	rotation?: unknown;
 }
 
-function behaviorArrays(emitter: FxParamEmitter): BehaviorArrays | undefined {
-	const e = emitter as unknown as Partial<BehaviorArrays>;
+function behaviorArrays(emitter: FxParamEmitter): EmitterGuts | undefined {
+	const e = emitter as unknown as Partial<EmitterGuts>;
 	return Array.isArray(e.initBehaviors) &&
 		Array.isArray(e.updateBehaviors) &&
 		Array.isArray(e.recycleBehaviors)
-		? (e as BehaviorArrays)
+		? (e as EmitterGuts)
 		: undefined;
 }
 
@@ -778,13 +811,36 @@ function swapBehavior(
 		if (seen++ !== index) continue;
 		const fresh = new ctor(config);
 		arrays.initBehaviors[at] = fresh;
-		for (const list of [arrays.updateBehaviors, arrays.recycleBehaviors]) {
-			const i = list.indexOf(old);
-			if (i !== -1) list[i] = fresh;
-		}
+		let i = arrays.updateBehaviors.indexOf(old);
+		if (i !== -1) arrays.updateBehaviors[i] = fresh;
+		i = arrays.recycleBehaviors.indexOf(old);
+		if (i !== -1) arrays.recycleBehaviors[i] = fresh;
 		return true;
 	}
 	return false;
+}
+
+/** Equal up to float noise — a rotated spawn position round-trips through sin / cos. */
+const closeTo = (a: number, b: number): boolean =>
+	Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+
+/**
+ * Set one axis of the spawn position. `init` copies `config.pos` into `spawnPos` at rotation 0, and
+ * `Emitter.rotate` then turns `spawnPos` in place, so the axis is set in config space and turned back
+ * by the emitter's rotation. A value the emitter already holds writes nothing.
+ */
+function setSpawnAxis(emitter: FxParamEmitter, axis: 'x' | 'y', v: number): void {
+	const rotation = Number((emitter as unknown as EmitterGuts).rotation) || 0;
+	const c = Math.cos(rotation);
+	const s = Math.sin(rotation);
+	const p = emitter.spawnPos;
+	let x = p.x * c + p.y * s;
+	let y = p.y * c - p.x * s;
+	if (axis === 'x') x = v;
+	else y = v;
+	const nx = x * c - y * s;
+	const ny = x * s + y * c;
+	if (!closeTo(nx, p.x) || !closeTo(ny, p.y)) emitter.updateSpawnPos(nx, ny);
 }
 
 /** Set an emitter field live, with the coercion `Emitter.init` applies to the same config value. */
@@ -810,7 +866,7 @@ function setEmitterField(emitter: FxParamEmitter, field: FxParamEmitterField, ra
 			return;
 		}
 		case 'emitterLifetime': {
-			// Read by the emitter when emission (re)starts, so a change lands on the next start.
+			// Latched into the emission countdown when emission (re)starts — see `bindEffectParams`.
 			const next = v || -1;
 			if (emitter.emitterLifetime !== next) emitter.emitterLifetime = next;
 			return;
@@ -822,10 +878,10 @@ function setEmitterField(emitter: FxParamEmitter, field: FxParamEmitterField, ra
 			if (emitter.maxLifetime !== v) emitter.maxLifetime = v;
 			return;
 		case 'pos.x':
-			if (emitter.spawnPos.x !== v) emitter.updateSpawnPos(v, emitter.spawnPos.y);
+			setSpawnAxis(emitter, 'x', v);
 			return;
 		case 'pos.y':
-			if (emitter.spawnPos.y !== v) emitter.updateSpawnPos(emitter.spawnPos.x, v);
+			setSpawnAxis(emitter, 'y', v);
 			return;
 	}
 }
@@ -834,39 +890,10 @@ function setEmitterField(emitter: FxParamEmitter, field: FxParamEmitterField, ra
 const cloneConfig = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 
 /**
- * The copy a behaviour is rebuilt from, made safe for the library's value lists. Its
- * `PropertyNode.createList` keeps only the first node of a one-entry list, or of a two-entry list
- * whose values are equal, and a non-stepped list with one node throws on the first update. A drive
- * sweeping one end of a curve through the other's value would hit exactly that, so such a list is
- * rebuilt STEPPED — the same constant, read safely. Only this copy is marked; the stored config and
- * the working copy never are, so the flag is gone again as soon as the ends differ.
+ * One driven behaviour: its stored config (the layer's own, never the bound copy, whose value lists
+ * may carry a render-time `isStepped` that must not outlive the values that needed it), the working
+ * copy values land in, and its state.
  */
-function rebuildConfig(working: unknown): unknown {
-	const copy = cloneConfig(working);
-	const visit = (node: unknown, depth: number): void => {
-		if (depth > MAX_LEAF_DEPTH || typeof node !== 'object' || node === null) return;
-		if (Array.isArray(node)) {
-			for (const child of node) visit(child, depth + 1);
-			return;
-		}
-		const holder = node as Record<string, unknown>;
-		const list = holder.list;
-		if (Array.isArray(list) && !holder.isStepped) {
-			const single =
-				list.length === 1 ||
-				(list.length === 2 &&
-					isObject(list[0]) &&
-					isObject(list[1]) &&
-					list[0].value === list[1].value);
-			if (single) holder.isStepped = true;
-		}
-		for (const key of Object.keys(holder)) visit(holder[key], depth + 1);
-	};
-	visit(copy, 0);
-	return copy;
-}
-
-/** One driven behaviour: its stored config, the working copy values land in, and its state. */
 interface BehaviorSlot {
 	type: string;
 	index: number;
@@ -874,6 +901,32 @@ interface BehaviorSlot {
 	working: unknown;
 	dirty: boolean;
 	changed: boolean;
+}
+
+/** A layer drive with where it lands: its behaviour slot, or the emitter field's stored value. */
+interface LayerDrive extends ResolvedDrive {
+	slot?: BehaviorSlot;
+	stored?: number;
+}
+
+/** One driving parameter and the value it last wrote — kept in plain arrays, read every frame. */
+interface ParamGroup<D> {
+	param: EffectParam;
+	drives: D[];
+	last: EffectParamValue;
+}
+
+function groupByParam<D extends ResolvedDrive>(drives: D[]): ParamGroup<D>[] {
+	const groups: ParamGroup<D>[] = [];
+	for (const d of drives) {
+		let group = groups.find((g) => g.param === d.param);
+		if (!group) {
+			group = { param: d.param, drives: [], last: effectParamValue(d.param) };
+			groups.push(group);
+		}
+		group.drives.push(d);
+	}
+	return groups;
 }
 
 export interface EffectParamApplier {
@@ -884,15 +937,15 @@ export interface EffectParamApplier {
 	 */
 	apply(values?: EffectParamValues): void;
 	/** Put every driven leaf back to its stored value — call before discarding the applier while the
-	 * emitter lives on (the parameter set changed). */
+	 * emitter lives on (the parameter set changed). At the defaults it writes nothing. */
 	restore(): void;
 }
 
 export interface EffectParamApplierOptions {
 	params: readonly EffectParam[] | undefined;
+	/** The layer the emitter was initialised from (its `config`, bound by the renderer). Read, never
+	 * written: values land on the applier's own copies. */
 	layer: Pick<EmitterLayer, 'key' | 'config' | 'placement'>;
-	/** The config the emitter was initialised from — the BOUND copy (art attached), never the doc. */
-	config: EmitterConfigV3;
 	emitter: FxParamEmitter;
 	/** Moves the layer's offset container. Absent ⇒ `placement.offset` drives are inert. */
 	setOffset?: (x: number, y: number) => void;
@@ -905,20 +958,21 @@ export interface EffectParamApplierOptions {
 export function createEffectParamApplier(
 	options: EffectParamApplierOptions,
 ): EffectParamApplier | undefined {
-	const { params, layer, config, emitter, setOffset } = options;
-	const drives = layerDrives(params, layer, config).filter(
+	const { params, layer, emitter, setOffset } = options;
+	const config = layer.config;
+	const resolved = layerDrives(params, layer).filter(
 		(d) => d.target.scope !== 'placement' || !!setOffset,
 	);
-	if (drives.length === 0) return undefined;
+	if (resolved.length === 0) return undefined;
 
-	const byParam = new Map<EffectParam, ResolvedDrive[]>();
-	for (const d of drives) byParam.set(d.param, [...(byParam.get(d.param) ?? []), d]);
-	const slots = new Map<string, BehaviorSlot>();
-	const slotOf = (target: Extract<EffectParamTarget, { scope: 'behavior' }>): BehaviorSlot => {
-		const key = `${target.type}#${target.index}`;
-		let slot = slots.get(key);
+	const slots: BehaviorSlot[] = [];
+	const drives: LayerDrive[] = resolved.map((d) => {
+		const target = d.target;
+		if (target.scope === 'emitter') return { ...d, stored: emitterFieldOf(config, target.field) };
+		if (target.scope !== 'behavior') return d;
+		let slot = slots.find((s) => s.type === target.type && s.index === target.index);
 		if (!slot) {
-			const stored = nthBehavior(config, target.type, target.index)?.entry.config;
+			const stored = cloneConfig(nthBehavior(config, target.type, target.index)?.entry.config);
 			slot = {
 				type: target.type,
 				index: target.index,
@@ -927,47 +981,35 @@ export function createEffectParamApplier(
 				dirty: false,
 				changed: false,
 			};
-			slots.set(key, slot);
+			slots.push(slot);
 		}
-		return slot;
-	};
-	for (const d of drives) if (d.target.scope === 'behavior') slotOf(d.target);
+		return { ...d, slot };
+	});
+	const groups = groupByParam(drives);
 
 	const baseOffset = { x: layer.placement.offset?.x ?? 0, y: layer.placement.offset?.y ?? 0 };
 	const offset = { ...baseOffset };
 	const nextOffset = { ...baseOffset };
-	const last = new Map<EffectParam, EffectParamValue>();
-	const seedDefaults = (): void => {
-		for (const param of byParam.keys()) last.set(param, effectParamValue(param));
-	};
-	seedDefaults();
 
-	const write = (d: ResolvedDrive, out: EffectParamValue): void => {
-		switch (d.target.scope) {
-			case 'emitter':
-				setEmitterField(emitter, d.target.field, Number(out));
-				return;
-			case 'placement':
-				nextOffset[d.target.axis] = Number(out);
-				return;
-			case 'behavior': {
-				const slot = slotOf(d.target);
-				const at = leafHolder(slot.working, d.target.path);
-				if (!at || sameValue(at.holder[at.key], out)) return;
-				at.holder[at.key] = out;
-				slot.dirty = true;
-				return;
-			}
+	const write = (d: LayerDrive, out: EffectParamValue): void => {
+		const target = d.target;
+		if (target.scope === 'emitter') setEmitterField(emitter, target.field, Number(out));
+		else if (target.scope === 'placement') nextOffset[target.axis] = Number(out);
+		else if (target.scope === 'behavior' && d.slot) {
+			const at = leafHolder(d.slot.working, target.path);
+			if (!at || sameValue(at.holder[at.key], out)) return;
+			at.holder[at.key] = out;
+			d.slot.dirty = true;
 		}
 	};
 
 	const flush = (): void => {
-		for (const slot of slots.values()) {
+		for (let i = 0; i < slots.length; i++) {
+			const slot = slots[i];
 			if (!slot.dirty) continue;
 			slot.dirty = false;
-			if (swapBehavior(emitter, slot.type, slot.index, rebuildConfig(slot.working))) {
-				slot.changed = true;
-			}
+			const built = stepCollapsedValueLists(cloneConfig(slot.working));
+			if (swapBehavior(emitter, slot.type, slot.index, built)) slot.changed = true;
 		}
 		if (setOffset && (nextOffset.x !== offset.x || nextOffset.y !== offset.y)) {
 			offset.x = nextOffset.x;
@@ -978,36 +1020,65 @@ export function createEffectParamApplier(
 
 	return {
 		apply(values) {
-			for (const [param, list] of byParam) {
-				const v = effectParamValue(param, values?.[param.id]);
-				if (sameValue(last.get(param), v)) continue;
-				last.set(param, v);
-				for (const d of list) {
-					const out = effectParamDriveValue(param, d.drive, v, d.kind);
+			for (let g = 0; g < groups.length; g++) {
+				const group = groups[g];
+				const v = effectParamValue(group.param, values?.[group.param.id]);
+				if (sameValue(group.last, v)) continue;
+				group.last = v;
+				for (let i = 0; i < group.drives.length; i++) {
+					const d = group.drives[i];
+					const out = effectParamDriveValue(group.param, d.drive, v, d.kind);
 					if (out !== undefined) write(d, out);
 				}
 			}
 			flush();
 		},
 		restore() {
-			for (const slot of slots.values()) {
+			for (const slot of slots) {
 				slot.working = cloneConfig(slot.stored);
 				slot.dirty = false;
-				if (slot.changed) swapBehavior(emitter, slot.type, slot.index, rebuildConfig(slot.stored));
+				if (slot.changed) {
+					swapBehavior(
+						emitter,
+						slot.type,
+						slot.index,
+						stepCollapsedValueLists(cloneConfig(slot.stored)),
+					);
+				}
 				slot.changed = false;
 			}
 			for (const d of drives) {
-				if (d.target.scope === 'emitter') {
-					setEmitterField(emitter, d.target.field, emitterFieldOf(config, d.target.field));
+				if (d.target.scope === 'emitter' && d.stored !== undefined) {
+					setEmitterField(emitter, d.target.field, d.stored);
 				}
 			}
 			nextOffset.x = baseOffset.x;
 			nextOffset.y = baseOffset.y;
 			flush();
-			last.clear();
-			seedDefaults();
+			for (const group of groups) group.last = effectParamValue(group.param);
 		},
 	};
+}
+
+export interface BindEffectParamsOptions extends EffectParamApplierOptions {
+	/** The current values (absent ⇒ the defaults). */
+	values?: EffectParamValues;
+}
+
+/**
+ * What a renderer calls right after it creates or re-initialises an emitter: build the layer's
+ * applier and give it the current values. Setting `emit` latches the config's `emitterLifetime` into
+ * the emission countdown, before any drive could write it — so when a drive changed it, the
+ * countdown is restarted from the driven value, and the burst lasts what the parameter says.
+ */
+export function bindEffectParams(options: BindEffectParamsOptions): EffectParamApplier | undefined {
+	const applier = createEffectParamApplier(options);
+	if (!applier) return undefined;
+	const { emitter } = options;
+	const lifetime = emitter.emitterLifetime;
+	applier.apply(options.values);
+	if (emitter.emit && emitter.emitterLifetime !== lifetime) emitter.emit = true;
+	return applier;
 }
 
 /** What the effect-level wrapper draws: alpha, scale, a `0xrrggbb` tint and the emit time scale. */
@@ -1035,39 +1106,40 @@ export function createEffectLevelApplier(
 ): EffectLevelApplier | undefined {
 	const drives = effectDrives(params);
 	if (drives.length === 0) return undefined;
-	const byParam = new Map<EffectParam, ResolvedDrive[]>();
-	for (const d of drives) byParam.set(d.param, [...(byParam.get(d.param) ?? []), d]);
+	const groups = groupByParam(drives);
 	const fields: Record<FxParamEffectField, EffectParamValue> = { ...EFFECT_FIELD_IDENTITY };
 	const state: EffectLevelState = { alpha: 1, scale: 1, tint: 0xffffff, timeScale: 1 };
-	const last = new Map<EffectParam, EffectParamValue>();
 
 	const compute = (values: EffectParamValues | undefined, force: boolean): boolean => {
 		let touched = false;
-		for (const [param, list] of byParam) {
-			const v = effectParamValue(param, values?.[param.id]);
-			if (!force && sameValue(last.get(param), v)) continue;
-			last.set(param, v);
-			for (const d of list) {
+		for (let g = 0; g < groups.length; g++) {
+			const group = groups[g];
+			const v = effectParamValue(group.param, values?.[group.param.id]);
+			if (!force && sameValue(group.last, v)) continue;
+			group.last = v;
+			for (let i = 0; i < group.drives.length; i++) {
+				const d = group.drives[i];
 				if (d.target.scope !== 'effect') continue;
-				const out = effectParamDriveValue(param, d.drive, v, d.kind);
+				const out = effectParamDriveValue(group.param, d.drive, v, d.kind);
 				if (out === undefined) continue;
 				fields[d.target.field] = out;
 				touched = true;
 			}
 		}
 		if (!touched) return false;
-		const next: EffectLevelState = {
-			alpha: Math.min(1, Math.max(0, Number(fields.alpha))),
-			scale: Number(fields.scale),
-			tint: hexColorNumber(String(fields.tint)),
-			timeScale: Math.max(0, Number(fields.timeScale)),
-		};
+		const alpha = Math.min(1, Math.max(0, Number(fields.alpha)));
+		const scale = Number(fields.scale);
+		const tint = hexColorNumber(String(fields.tint));
+		const timeScale = Math.max(0, Number(fields.timeScale));
 		const changed =
-			next.alpha !== state.alpha ||
-			next.scale !== state.scale ||
-			next.tint !== state.tint ||
-			next.timeScale !== state.timeScale;
-		Object.assign(state, next);
+			alpha !== state.alpha ||
+			scale !== state.scale ||
+			tint !== state.tint ||
+			timeScale !== state.timeScale;
+		state.alpha = alpha;
+		state.scale = scale;
+		state.tint = tint;
+		state.timeScale = timeScale;
 		return changed;
 	};
 	compute(undefined, true);
