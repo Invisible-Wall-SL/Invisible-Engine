@@ -126,16 +126,24 @@ was removed) is reported by validation and does nothing at runtime.
 | 1 | **Exposed parameters** | Schema + normalizer + defaults-in-config, the path parser and the applier, `<EffectPlayer params>`, all four renderers, the `/fx` UI above | An effect saves with parameters, reopens identical, and a preview slider changes rate, a curve value, a colour and a force strength live with no reset; a new gate `check:fx-params` covers the parser, the mapping, the swap on the real `Emitter` (live particles survive, the new value applies), defaults-in-config idempotence and the save → export → bake round-trip |
 | 2 | **Drive from the node** | On an `effect` node: a value-binding target `fxParam` (`ValueBinding.fxParam: <id>`) in `bindingTargetsForKind`, and a timeline channel `fx:<id>` in `nodeActorChannelsForKind`; the editor lists the placed effect's parameters | A timeline keys `intensity`; a state-machine state playing it drives the effect, and a transition blend mixes it; a binding drives it from a param or an engine source |
 | 3 | **Drive from state-machine inputs** | `BindingInputRef` gains `{ input: <id> }`: a binding reads the owning instance's bool or number input. Flow sets the input through the instance node's data-in pin. This settles Rive data binding (rive-style-editor §6.2, §12) for bool and number inputs | Flow sets `winBanner.heat`, and the effect follows |
-| 4 | **Clocks + waves** | Engine clocks a binding can read: `time.game` (seconds since boot; advances by the ticker's `deltaMS` × `stateBet`'s `timeScale`, so turbo runs it at 2×; it stops while the tab is hidden), `time.round` (since the round started, the same scaling) and `time.state` (seconds in the instance's current state, per layer). `ValueBinding.wave` `{ kind: 'sine' \| 'triangle' \| 'saw' \| 'square' \| 'noise'; period; phase }` shapes the input before its in/out mapping. A clock-fed binding is pulled on the Pixi ticker, not pushed through `registerComponentValues` | A glow pulses every 2 s and pulses twice as fast in turbo |
+| 4 | **Clocks + waves** | Engine clocks a binding can read: `time.game` (seconds since boot; advances by the ticker's `deltaMS` × `stateBet`'s `timeScale`, so turbo runs it at 2×; it stops while the tab is hidden), `time.round` (since the round started, the same scaling; a slam jumps it to the end of the round: a round has no fixed length, so every binding fed by `time.round` snaps to the end of its input range, `inMax`, and a round-long ramp lands on its final value) and `time.state` (seconds in the instance's current state, per layer). `ValueBinding.wave` `{ kind: 'sine' \| 'triangle' \| 'saw' \| 'square' \| 'noise'; period; phase }` shapes the input before its in/out mapping. A clock-fed binding is pulled on the Pixi ticker, not pushed through `registerComponentValues` | A glow pulses every 2 s and pulses twice as fast in turbo |
 
 **Ship chain (rule 8):** no new asset class. Parameters ride inside the `EffectDoc`, which already
 travels export → `deploy/effects/` → bake → pull → `bakedEffects()`. Step 1 makes the normalizer
 keep them and the round-trip gate assert it. Bindings and timeline channels ride their component and
 cinematic docs, which already ship.
 
-**Open (owner):** whether turbo should also speed up the particles themselves (today the emitter's
-speed ignores turbo; only the Step 4 clocks follow it), and what `time.round` does on a slam (keep
-running, or jump to the end of the round).
+**Decided (owner, 2026-10-15):**
+
+- **Turbo speeds up the particles too**, not only the Step 4 clocks. One particle clock in
+  `pixi-svelte` (default 1) is multiplied into every `<ParticleEmitter>`'s step, so authored FX,
+  rig-bound FX and the coded emitters (win coins, flight trails) all follow it. The game sets it from
+  `stateBetDerived.timeScale` at boot. The emission timers that run on the wall clock (a trigger's
+  `duration`, a rig binding's `delay` and `duration`) are divided by it when they start, so an
+  effect keeps its shape (the same particles, twice as fast) rather than emitting twice as many.
+  The tools have no turbo and stay at 1. Built with Step 1.
+- **On a slam, `time.round` jumps to the end of the round** (Step 4): its bindings snap to the end of
+  their input range.
 
 ## Direction (2026-07-09): rig-timeline **direct FX binding** — "pick the effect on the keyframe"
 
