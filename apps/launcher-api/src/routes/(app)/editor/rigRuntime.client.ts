@@ -15,8 +15,8 @@ export type RigVector2 = RIG.Vector2;
 export type RigCamera = RIG.OrthoCamera;
 /** A posed bone — its world transform AFTER `skeleton.updateWorldTransform`. The Symbols-SM live
  * FX overlay projects `worldX`/`worldY` to screen; the Scene Editor's bone-ridden preview reads
- * `getWorldRotationX()` (degrees, CCW, y-up) and `getWorldScaleX/Y()` exactly as the runtime
- * `<RigBoneAttach>` does. */
+ * `getWorldRotationX()` (degrees, CCW, y-up — negated, the on-screen angle the runtime
+ * `<RigBoneAttach>` takes from its y-down rig) and `getWorldScaleX/Y()`. */
 export type RigBone = RIG.Bone;
 export type RigSkeleton = RIG.Skeleton;
 /** The live track's playhead: `trackTime` grows unbounded for a looping entry, so the wrapped time

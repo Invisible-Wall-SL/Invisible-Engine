@@ -57,9 +57,9 @@ setExpandingSymbol (book event)
 
 1. **`packages/pixi-svelte` · `RigBoneAttach.svelte`** — added opt-in `followRotation` /
    `followScale`. Position path unchanged (existing Invisible FX Tier-B callers unaffected);
-   with the flags on, the ridden child also takes the bone's world rotation/scale. Skeleton
-   space is CCW / y-up, Pixi CW / y-down → world rotation is negated (same inversion
-   `<RigBone>` applies to y).
+   with the flags on, the ridden child also takes the bone's world scale and its on-screen
+   rotation (`boneRotationInParent`: the bone's x-axis in the y-down rig, carried into the
+   child's parent frame; beside a mirrored rig the child stays upright).
 
 2. **`packages/engine-layout` · `builtinComponents.ts`** — new
    `FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF` (`id: freeSpinIntroSymbolReveal`, `game`-space
@@ -107,8 +107,9 @@ mirror wrong. Instead the rig layer resolves the bone where that mapping lives:
    space (identity skeleton placement, so the read is independent of the mirror bake) and maps it
    into world coords: `x = sk0.x + bone.worldX·sk0.scaleX + offsetX·|sk0.scaleX|`, `y` likewise;
    `rotation = -bone.getWorldRotationX()·DEG_TO_RAD` (when `followRotation`); `scaleX/Y =
-   symbolScale · bone.getWorldScaleX()/Y()` (bone scale only when `followScale`) — the SAME math as
-   the runtime `<RigBoneAttach>`. `RigBone` was extended with `getWorldRotationX/ScaleX/ScaleY`.
+   symbolScale · bone.getWorldScaleX()/Y()` (bone scale only when `followScale`) — the same
+   transform the runtime `<RigBoneAttach>` gives for a rig node that is not rotated or flipped
+   (this skeleton is y-up, so its negated angle is the on-screen one). `RigBone` was extended with `getWorldRotationX/ScaleX/ScaleY`.
 3. It publishes `{ x, y, rotation, scaleX, scaleY, region }` (editor WORLD coords) into a SHARED,
    non-reactive `Map<hostNodeId, BoneRiderTransform>` — no per-frame `$state` churn. An empty/
    unresolved bone publishes nothing (parity).
