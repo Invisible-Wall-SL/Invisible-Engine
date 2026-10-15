@@ -122,6 +122,9 @@ Shipped capabilities on `main`:
   refuses switching it on for everyone with `locked-free-spins`, after the ETag check). The whole
   story in [engine status](engine.md); guide:
   [Game Settings → Authored overlays](../tools/invisible-editor.md#game-settings--authored-overlays-pilot).
+- 2026-10-15 — **A placed effect's exposed parameters can be driven** (Invisible FX Step 2): **Bind
+  to value** offers **⚡ <parameter>** on an effect node, Animate lists a **⚡** row per parameter,
+  and the stage previews both live. Detail in [FX status](fx.md), 2026-10-15 "Step 2".
 - 2026-10-14 — **A rig flipped with `scale.x = -1` inside a group or component previews mirrored,
   not upside down** (shared rig layer). Detail in [component editor status](component-editor.md),
   2026-10-14.

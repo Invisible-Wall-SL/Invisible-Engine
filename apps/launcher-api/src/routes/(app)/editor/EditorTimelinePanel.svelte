@@ -23,6 +23,7 @@
 	import { putKey, resolvePlace, resolveVisible } from 'engine-cinematic';
 	import {
 		findActorNode,
+		fxParamRest,
 		validateNodeActors,
 		type CinematicCast,
 		type CinematicDoc,
@@ -38,8 +39,11 @@
 		componentTimelineId,
 		componentTimelinesOf,
 		ensureNodeActor,
+		fxChannelValue,
 		isChannelKeyed,
 		keyableChannels,
+		fxTimelineRows,
+		keyableFxChannels,
 		newComponentTimeline,
 		newScreenTimeline,
 		nodeActorOf,
@@ -48,9 +52,12 @@
 		screenTimelineId,
 		screenTimelinesOf,
 		timelineDrives,
+		type FxChannelRow,
 		type KeyedChannel,
 		type RigClip,
 	} from '$lib/timeline/screenTimeline';
+	import type { TimelineChannel } from '$lib/timeline/timeline';
+	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
 	import type { RigMeta } from './rigRuntime.client';
 	import { setTimelinePreview } from './valuePreview.client.svelte';
 
@@ -205,6 +212,7 @@
 					title: `Node "${cast.target ?? ''}" on this ${where}`,
 				}),
 				sceneName: (id: string) => (id === scene?.id ? (scene?.name ?? id) : id),
+				actorChannels: (cast: CinematicCast) => actorFxRows(cast),
 				clips: (actorId: string) => {
 					const open = tl?.doc() ?? doc;
 					const cast = open.stage.cast.find((c) => c.actorId === actorId);
@@ -464,7 +472,7 @@
 		return doc && id ? nodeChannelValue(doc, id, channel, time) : NODE_IDENTITY[channel];
 	}
 
-	function keyed(channel: KeyedChannel): boolean {
+	function keyed(channel: string): boolean {
 		void docVersion;
 		const doc = tl?.doc();
 		const id = actorId();
@@ -495,6 +503,55 @@
 		tl.renderTimeline();
 		preview();
 	}
+
+	// ---- a placed effect's parameters (Invisible FX Step 2) ------------------------------------
+
+	/** The selected effect node's parameters Animate keys, one `fx:<id>` channel each. */
+	const fxRows = $derived.by((): FxChannelRow[] => {
+		const node = target?.ok ? target.node : undefined;
+		return node?.kind === 'effect'
+			? keyableFxChannels(node, placedEffect(node.effectId)?.params)
+			: [];
+	});
+
+	function fxValue(row: FxChannelRow): number {
+		void docVersion;
+		const doc = tl?.doc();
+		const id = actorId();
+		return doc && id
+			? fxChannelValue(doc, id, row, time)
+			: (fxParamRest([row.param], row.channel) ?? 0);
+	}
+
+	/** Key a parameter at the playhead; an on/off one steps (`hold`), so it switches on the key. */
+	function keyFx(row: FxChannelRow, v?: number): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !target?.ok || !ownsDoc(doc)) return;
+		const id = ensureNodeActor(doc, target.target);
+		const next = v ?? fxValue(row);
+		const bool = row.param.kind === 'bool';
+		tl.keyProperty(id, row.channel, bool ? +(next >= 0.5) : next, bool ? 'hold' : undefined);
+		preview();
+	}
+
+	/** The Timeline rows a node actor gets beyond the shared channels (`fxTimelineRows`): on a
+	 *  placed effect, its parameters, then any `fx:` channel it keys that is not one (⚠). */
+	function actorFxRows(cast: CinematicCast): TimelineChannel[] {
+		const doc = tl?.doc();
+		const node = doc && scene && cast.target ? findActorNode(doc, scene.nodes, cast.target) : null;
+		if (!doc || node?.kind !== 'effect') return [];
+		return fxTimelineRows(doc, cast.actorId, node, placedEffect(node.effectId)).map((row) => ({
+			key: row.channel,
+			label: row.label,
+			color: row.stale ? '#8b93a1' : '#c98bff',
+		}));
+	}
+
+	// A placed effect's doc can land after the Timeline drew its rows: redraw them when it does.
+	$effect(() => {
+		void placedEffectsVersion();
+		untrack(() => tl?.renderTimeline());
+	});
 
 	const hex = (n: number): string => '#' + (Math.round(n) & 0xffffff).toString(16).padStart(6, '0');
 	const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
@@ -557,9 +614,12 @@
 	/** What would silently do nothing in game: on this component, and on each it is reused on. */
 	function issues(): string[] {
 		void docVersion;
+		// The placed effects' docs load on demand (`placedEffect` asks for each one a node actor
+		// targets, here and on every component in Also on) and re-run this when they land.
+		void placedEffectsVersion();
 		const doc = tl?.doc();
 		if (!doc || !scene) return [];
-		const out = validateNodeActors(doc, scene).map((i) => i.message);
+		const out = validateNodeActors(doc, scene, placedEffect).map((i) => i.message);
 		for (const id of doc.playOnComponents ?? []) {
 			const other = component?.others.find((o) => o.id === id);
 			if (!other) {
@@ -567,7 +627,7 @@
 				continue;
 			}
 			const host = { id: other.id, name: other.name, nodes: other.nodes };
-			for (const issue of validateNodeActors(doc, host)) {
+			for (const issue of validateNodeActors(doc, host, placedEffect)) {
 				out.push(`On ${other.name}: ${issue.message}`);
 			}
 		}
@@ -808,6 +868,52 @@
 						{/if}
 					</label>
 				{/if}
+				{#if fxRows.length}
+					<p class="note">
+						⚡ rows key the effect's own parameters: the value itself, not an offset. An on/off one
+						switches on its key.
+					</p>
+				{/if}
+				{#each fxRows as row (row.channel)}
+					{@const v = fxValue(row)}
+					<label
+						class="keyrow"
+						class:keyed={keyed(row.channel)}
+						title={row.param.note ?? `Effect parameter “${row.param.id}”`}
+					>
+						<span>⚡ {row.param.id}</span>
+						{#if row.param.kind === 'bool'}
+							<input
+								type="checkbox"
+								checked={v >= 0.5}
+								onchange={(e) => keyFx(row, e.currentTarget.checked ? 1 : 0)}
+							/>
+						{:else}
+							<input
+								type="number"
+								step="any"
+								min={row.param.min}
+								max={row.param.max}
+								value={fmt(v)}
+								onchange={(e) => {
+									const raw = e.currentTarget.value.trim();
+									const n = Number(raw);
+									if (raw === '' || !Number.isFinite(n)) {
+										e.currentTarget.value = fmt(fxValue(row));
+										return;
+									}
+									keyFx(row, n);
+								}}
+							/>
+						{/if}
+						<button
+							type="button"
+							class="diamond"
+							title={`Key ${row.param.id} at ${time.toFixed(2)}s`}
+							onclick={() => keyFx(row)}>◆</button
+						>
+					</label>
+				{/each}
 				{#each channels as channel (channel)}
 					<label class="keyrow" class:keyed={keyed(channel)}>
 						<span>{CHANNEL_LABEL[channel]}</span>

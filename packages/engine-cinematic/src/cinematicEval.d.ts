@@ -107,6 +107,9 @@ export function resolveVisible(
 /** The `property` channels a node actor honours. */
 export const NODE_CHANNELS: readonly CinematicNodeChannel[];
 
+/** The prefix of a channel keying one exposed parameter of an effect node (`fx:intensity`). */
+export const FX_PARAM_CHANNEL_PREFIX: 'fx:';
+
 /** Whether a cast entry is a node actor (`kind: 'node'`); absent `kind` is a rig. */
 export function isNodeActor(cast: { kind?: string } | null | undefined): boolean;
 
@@ -122,8 +125,9 @@ export function sampleText(
 	t: number,
 ): CinematicNodeSample['text'] | undefined;
 
-/** Every keyed channel of one node actor at `t` (relative to the node's authored pose), and the
- *  clip an `animation` strip holds a rig node at (`animTime`, clip-local seconds). */
+/** Every keyed channel of one node actor at `t` (relative to the node's authored pose), the clip an
+ *  `animation` strip holds a rig node at (`animTime`, clip-local seconds), and each keyed
+ *  `fx:<id>` channel under its own name (absolute). */
 export function sampleNodeActor(
 	tracks: CinematicTrack[] | undefined,
 	t: number,

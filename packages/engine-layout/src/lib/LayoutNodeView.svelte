@@ -74,7 +74,8 @@
 	import { resolveBoundValue } from './componentParams';
 	import { boardBox } from './boardBox';
 	import { groupSlotRiders, splitSlotRiders } from './rigSlotRiders';
-	import { createBoundValues } from './boundValues.svelte';
+	import { attachedEffectDrives, createNodeFold } from './nodeFold.svelte';
+	import DrivenEffectPlayer from './DrivenEffectPlayer.svelte';
 	import {
 		boundBoneOffsets,
 		boundFillShare,
@@ -88,7 +89,7 @@
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { getComponentNestState } from './componentInstanceContext';
 	import { getCinematicNodeDriver } from './cinematicNodeContext';
-	import { nodeActorBindings, textNodeStrings, withNodeActorOutputs } from './cinematicNodes';
+	import { textNodeStrings } from './cinematicNodes';
 	import { getComponentValueSource } from './registerComponentValues';
 	import ParamReadoutText from './ParamReadoutText.svelte';
 	import Repeater from './Repeater.svelte';
@@ -223,30 +224,30 @@
 	const bindingParams = getComponentParams();
 	// svelte-ignore state_referenced_locally
 	const bindings = node.valueBindings;
-	const bound = createBoundValues(
-		bindings,
-		() => bindingParams,
-		() => (node.kind === 'flipbook' ? flipbookClip?.frames?.length : undefined),
-	);
 	// Timeline NODE ACTOR (Rive plan §3.1): a `screen`-hosted cinematic playing this screen, or a
 	// placed instance playing its def's timelines (Phase 4), may drive this node by name. Its keyed
 	// channels join the node's value bindings as extra outputs, so the one fold below moves, fades,
 	// reveals and holds a frame for both. A driver reaches only the nodes at its own nest depth
 	// (`cinematicNodeContext`). Asked once: which channels a node takes must not flip while it
 	// lives (a mask would remount its art). No driver ⇒ no timeline bindings ⇒
-	// `allBindings`/`allOutputs` ARE the node's own (parity).
+	// `allBindings`/`allOutputs` ARE the node's own (parity). The fold is `createNodeFold`, the one
+	// `<DrivenEffectPlayer>` runs too; on an effect node it also yields the exposed parameters'
+	// values (Invisible FX Step 2), only when something drives one.
+	const nodeDriver = getCinematicNodeDriver(getComponentNestState().depth);
 	// svelte-ignore state_referenced_locally
-	const timelineDrive = getCinematicNodeDriver(getComponentNestState().depth)?.(node.id);
-	const timelineBindings = timelineDrive ? nodeActorBindings(timelineDrive.channels) : [];
-	const timelineSample = $derived(timelineDrive?.sample());
-	const allBindings = timelineBindings.length
-		? [...(bindings ?? []), ...timelineBindings]
-		: bindings;
-	const allOutputs = $derived(
-		timelineBindings.length
-			? withNodeActorOutputs(bindings, bound.outputs, timelineBindings, timelineSample)
-			: bound.outputs,
+	const timelineDrive = nodeDriver?.(node.id);
+	// svelte-ignore state_referenced_locally
+	const fold = createNodeFold(
+		node,
+		() => bindingParams,
+		() => (node.kind === 'flipbook' ? flipbookClip?.frames?.length : undefined),
+		timelineDrive,
 	);
+	const { bound, allBindings, fxParamValues } = fold;
+	// A bone-hosted effect (`attachedEffects`) has no view of its own: whether something drives its
+	// parameters is asked once per effect (`attachedEffectDrives`), and a driven one mounts
+	// `<DrivenEffectPlayer>`, which runs the fold in its place.
+	const attachedDrive = attachedEffectDrives(nodeDriver);
 	const bindsTarget = (...targets: string[]): boolean =>
 		allBindings?.some((binding) => targets.includes(binding.target)) ?? false;
 	const frameBound = bindsTarget('frame');
@@ -259,9 +260,9 @@
 		const folded = foldBoundTransform(
 			resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()),
 			allBindings,
-			allOutputs,
+			fold.allOutputs,
 		);
-		const tint = timelineSample?.tint;
+		const tint = fold.timelineSample?.tint;
 		return tint === undefined ? folded : { ...folded, tint };
 	});
 
@@ -645,7 +646,7 @@
 	// Timeline `text` track (Rive plan §8): count up to a number, or switch to one of this node's
 	// own strings. A count-up's keys are SHARES of a value source when the track names one (`to`),
 	// read live, so a timeline counts up to "the win" without knowing it.
-	const timelineText = $derived(timelineSample?.text);
+	const timelineText = $derived(fold.timelineSample?.text);
 	const textTrack = timelineDrive?.textTrack;
 	let countUpTo = $state<number | undefined>(undefined);
 	if (textTrack?.to) {
@@ -866,7 +867,7 @@
 	const spriteFallbackKey = $derived(spriteRef?.fallbackKey);
 	// A timeline's `tint` channel wins over a param-bound tint: it is the animation playing now.
 	const spriteTint = $derived(
-		timelineSample?.tint ?? (typeof boundTint === 'number' ? boundTint : transform.tint),
+		fold.timelineSample?.tint ?? (typeof boundTint === 'number' ? boundTint : transform.tint),
 	);
 	// `keepAspect`: the sized box is a BOUNDING box the frame fits inside (pixi-svelte `contain`),
 	// so a per-instance frame of another shape is not stretched. Unset ⇒ stretch (parity).
@@ -1003,10 +1004,10 @@
 	 * reveal masks a sprite / flipbook / rect, a `frame` holds a flipbook on one frame, an `animTime`
 	 * scrub and a `bone` offset ride a rig. All empty for an unbound node (parity).
 	 */
-	const fill = $derived(boundFillShare(allBindings, allOutputs));
-	const heldFrame = $derived(boundFrameOutput(allBindings, allOutputs));
+	const fill = $derived(boundFillShare(allBindings, fold.allOutputs));
+	const heldFrame = $derived(boundFrameOutput(allBindings, fold.allOutputs));
 	const ownScrubs = $derived(boundScrubs(bindings, bound.outputs));
-	const timelineStrip = $derived(timelineScrubbed ? timelineSample?.animTime : undefined);
+	const timelineStrip = $derived(timelineScrubbed ? fold.timelineSample?.animTime : undefined);
 	const boneOffsets = $derived(boundBoneOffsets(bindings, bound.outputs));
 
 	/** A loaded texture's natural size, by the scoped key then the bare fallback (the sprite rule). */
@@ -1465,7 +1466,14 @@
 				-->
 				{#each attachedEffects ?? [] as fx (fx.id)}
 					{@const fxDoc = resolveEffect(fx.effectId)}
-					{#if fxDoc}
+					{#if fxDoc && attachedDrive(fx)}
+						<DrivenEffectPlayer
+							node={fx}
+							doc={fxDoc}
+							drive={attachedDrive(fx)?.drive}
+							scope={signalScope}
+						/>
+					{:else if fxDoc}
 						<EffectPlayer doc={fxDoc} scope={signalScope} />
 					{/if}
 				{/each}
@@ -1619,7 +1627,7 @@
 					zIndex={transform.zIndex}
 					{blendMode}
 				>
-					<EffectPlayer doc={effectDoc} scope={signalScope} />
+					<EffectPlayer doc={effectDoc} scope={signalScope} params={fxParamValues} />
 				</Container>
 			{/if}
 		{:else if node.kind === 'flipbook'}

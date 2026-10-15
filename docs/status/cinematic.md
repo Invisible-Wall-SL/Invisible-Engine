@@ -345,6 +345,11 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-15 — **`fx:<id>` node channels** (Invisible FX Step 2): `sampleNodeActor` samples a
+  property track's `fx:` channels under their own names (absolute: an effect node's exposed
+  parameter), `blendNodeSamples` mixes them on an effect node, and the shared Timeline module gained
+  `host.actorChannels` and a `keyProperty` ease (both synced to `static/shared/`). Detail in
+  [FX status](fx.md), 2026-10-15 "Step 2".
 - 2026-10-14 — **Generated timelines and a per-component play rate (Rive plan Phase 8b, branch
   `claude/rive-p8b-win-design`).** `registerGameTimelines(baked, generated)` takes timelines the
   game GENERATES at boot (the authored win's per-tier walk / loop / outro docs, `winTierTimelines`,

@@ -7,6 +7,8 @@ import {
 
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
 import { BUILTIN_TIMELINES } from './builtinTimelines';
+import { fxParamOfChannel, fxParamRest } from './fxNodeParams';
+import { resolveEffect } from './registerEffects';
 import { blendNodeSamples, type LayerPlay, type LeftSegment } from './stateMachine';
 import type { CinematicDoc, ComponentStateMachine, LayoutNode } from './types';
 
@@ -186,6 +188,9 @@ export class ComponentTimelinePlayer {
 	private readonly boundById = new Map<string, Bound>();
 	private readonly running = new Map<string, Running>();
 	private readonly driven = new Map<string, Running>();
+	/** Effect nodes some timeline keys an `fx:` channel on → where each such channel rests (its
+	 *  parameter's default, read from the game's effect registry when a blend asks). */
+	private readonly fxRests = new Map<string, (channel: string) => number | undefined>();
 	private started = 0;
 	/**
 	 * The speed every running `playOn` timeline advances at (Rive plan Phase 8b): `advance(dt)`
@@ -203,8 +208,12 @@ export class ComponentTimelinePlayer {
 			const actors = new Map<string, CinematicTrack[]>();
 			const channels = new Map<string, Set<NodeActorChannel>>();
 			for (const [nodeId, actor] of resolveNodeActors(doc, scene)) {
+				const keyed = keyedNodeChannels(actor.tracks);
 				actors.set(nodeId, actor.tracks as unknown as CinematicTrack[]);
-				channels.set(nodeId, keyedNodeChannels(actor.tracks));
+				channels.set(nodeId, keyed);
+				const node = actor.node;
+				if (node.kind === 'effect' && [...keyed].some((c) => fxParamOfChannel(c) !== undefined))
+					this.fxRests.set(nodeId, (c) => fxParamRest(resolveEffect(node.effectId)?.params, c));
 			}
 			const cue = doc.tracks.find((t) => t.kind === 'cue') as
 				{ keys?: { time: number; cue: string }[] } | undefined;
@@ -381,7 +390,12 @@ export class ComponentTimelinePlayer {
 		const tracks = r.bound.actors.get(nodeId);
 		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
 		if (!r.from) return to;
-		return blendNodeSamples(r.from.snapshot.get(nodeId), to, r.from.progress);
+		return blendNodeSamples(
+			r.from.snapshot.get(nodeId),
+			to,
+			r.from.progress,
+			this.fxRests.get(nodeId),
+		);
 	}
 
 	sample(nodeId: string): CinematicNodeSample | undefined {

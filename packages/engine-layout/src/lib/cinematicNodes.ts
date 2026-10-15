@@ -1,3 +1,7 @@
+import type { CinematicFxParamChannel } from 'engine-cinematic';
+import type { EffectParam } from 'engine-fx';
+
+import { drivableFxParams, fxParamChannel, fxParamOfChannel } from './fxNodeParams';
 import type { CinematicCast, CinematicDoc, LayoutNode, Scene, ValueBinding } from './types';
 
 /**
@@ -10,24 +14,10 @@ import type { CinematicCast, CinematicDoc, LayoutNode, Scene, ValueBinding } fro
 /** A track, as loosely as the document stores it. */
 type LooseTrack = Record<string, unknown> & { actorId?: unknown; kind?: unknown };
 
-/** The `property` channels a node actor can key, plus the text track, visibility and — on a rig
- *  node — the clip an `animation` strip holds it at (`animTime`, Rive plan Phase 8a). */
-export type NodeActorChannel =
-	| 'x'
-	| 'y'
-	| 'scale'
-	| 'scaleX'
-	| 'scaleY'
-	| 'rotation'
-	| 'alpha'
-	| 'tint'
-	| 'frame'
-	| 'fill'
-	| 'text'
-	| 'visible'
-	| 'animTime';
-
-const TRANSFORM: NodeActorChannel[] = [
+/** The fixed channels a node actor can key: the `property` channels, the text track, visibility
+ *  and — on a rig node — the clip an `animation` strip holds it at (`animTime`, Rive plan Phase 8a).
+ *  The one list every allowlist below derives from. */
+export const NODE_ACTOR_CHANNELS = [
 	'x',
 	'y',
 	'scale',
@@ -35,21 +25,39 @@ const TRANSFORM: NodeActorChannel[] = [
 	'scaleY',
 	'rotation',
 	'alpha',
+	'tint',
+	'frame',
+	'fill',
+	'text',
 	'visible',
-];
+	'animTime',
+] as const;
+
+/** A node actor channel: a fixed one, or `fx:<param id>` on an effect node (Invisible FX Step 2). */
+export type NodeActorChannel = (typeof NODE_ACTOR_CHANNELS)[number] | CinematicFxParamChannel;
+
+const TRANSFORM = NODE_ACTOR_CHANNELS.filter(
+	(c) => c !== 'tint' && c !== 'frame' && c !== 'fill' && c !== 'text' && c !== 'animTime',
+);
 
 /**
  * The channels a node of `kind` honours — the same reach as its value bindings: `tint` where the
  * node draws a tinted texture, `frame` on a flipbook's own clip, `fill` where a reveal mask exists,
- * `text` on a text node.
+ * `text` on a text node, and on an effect node one `fx:<id>` per number or bool parameter of the
+ * placed effect (`fxParams`, its `EffectDoc.params`).
  */
-export function nodeActorChannelsForKind(kind: LayoutNode['kind']): NodeActorChannel[] {
+export function nodeActorChannelsForKind(
+	kind: LayoutNode['kind'],
+	fxParams?: readonly EffectParam[],
+): NodeActorChannel[] {
 	if (kind === 'sprite') return [...TRANSFORM, 'tint', 'fill'];
 	if (kind === 'flipbook') return [...TRANSFORM, 'tint', 'frame', 'fill'];
 	if (kind === 'rect') return [...TRANSFORM, 'fill'];
 	if (kind === 'text') return [...TRANSFORM, 'text'];
 	if (kind === 'spine') return [...TRANSFORM, 'animTime'];
-	return TRANSFORM;
+	if (kind === 'effect')
+		return [...TRANSFORM, ...drivableFxParams(fxParams).map((p) => fxParamChannel(p.id))];
+	return [...TRANSFORM];
 }
 
 export const isNodeActorCast = (cast: CinematicCast | undefined): boolean => cast?.kind === 'node';
@@ -175,6 +183,9 @@ export function textNodeStrings(node: LayoutNode): string[] {
 	return [node.text, ...(node.switchKeys ?? [])].filter((s) => typeof s === 'string');
 }
 
+/** Resolves a placed effect's doc by id — enough of it to read its exposed parameters. */
+export type EffectResolver = (effectId: string) => { params?: readonly EffectParam[] } | undefined;
+
 export interface NodeActorIssue {
 	actorId: string;
 	code:
@@ -183,16 +194,25 @@ export interface NodeActorIssue {
 		| 'switch-key-undeclared'
 		| 'no-target'
 		| 'target-duplicate'
-		| 'text-track-duplicate';
+		| 'text-track-duplicate'
+		| 'fx-param-unknown';
 	message: string;
 }
 
 /**
  * What would silently do nothing at runtime: an actor with no target, a target no node in the host
- * carries, a channel the node's kind cannot take, and a switch-key naming a string the text node
- * does not declare. The player skips all of these rather than failing, so this is where they show.
+ * carries, a channel the node's kind cannot take, a switch-key naming a string the text node does
+ * not declare, and an `fx:<id>` channel naming a parameter the placed effect does not declare as a
+ * number or bool. The player skips all of these rather than failing, so this is where they show.
+ * `effects` resolves a placed effect, for the caller's own project (the editor passes the effects
+ * it loaded); an effect it does not know leaves its `fx:` channels unchecked. The default knows
+ * none: validation never reads a process-wide registry, which on a server holds no one project.
  */
-export function validateNodeActors(doc: CinematicDoc, scene: Scene | undefined): NodeActorIssue[] {
+export function validateNodeActors(
+	doc: CinematicDoc,
+	scene: Scene | undefined,
+	effects: EffectResolver = () => undefined,
+): NodeActorIssue[] {
 	const issues: NodeActorIssue[] = [];
 	const driven = new Map<string, string>();
 	for (const cast of doc.stage?.cast ?? []) {
@@ -229,9 +249,20 @@ export function validateNodeActors(doc: CinematicDoc, scene: Scene | undefined):
 				message: `"${cast.target}" has more than one text track; only the last one plays.`,
 			});
 		}
-		const allowed = new Set(nodeActorChannelsForKind(node.kind));
+		const effect = node.kind === 'effect' ? effects(node.effectId) : undefined;
+		const allowed = new Set(nodeActorChannelsForKind(node.kind, effect?.params));
 		for (const channel of keyedNodeChannels(tracks)) {
 			if (allowed.has(channel)) continue;
+			const fxParam = fxParamOfChannel(channel);
+			if (node.kind === 'effect' && fxParam !== undefined) {
+				if (!effect) continue;
+				issues.push({
+					actorId,
+					code: 'fx-param-unknown',
+					message: `"${cast.target}" plays effect "${node.effectId}", which has no number or on/off parameter "${fxParam}"; its "${channel}" keys do nothing.`,
+				});
+				continue;
+			}
 			issues.push({
 				actorId,
 				code: 'channel-unsupported',
@@ -292,13 +323,15 @@ export interface NodeActorSample {
 	frame?: number;
 	fill?: number;
 	visible?: boolean;
+	[fxParam: CinematicFxParamChannel]: number | undefined;
 }
 
 /**
  * The value bindings a node actor's keyed channels stand for. The timeline drives a node through
  * the SAME fold its own value bindings use (offsets add, scales and alpha multiply, rotation adds
- * degrees, `visible` hides, `fill` reveals, `frame` holds), so the two can never disagree about
- * what a number does to a node. `tint` and `text` are not bindings; the node reads those directly.
+ * degrees, `visible` hides, `fill` reveals, `frame` holds, an `fx:<id>` channel sets that effect
+ * parameter), so the two can never disagree about what a number does to a node. `tint` and `text`
+ * are not bindings; the node reads those directly.
  */
 export function nodeActorBindings(channels: ReadonlySet<NodeActorChannel>): ValueBinding[] {
 	const out: ValueBinding[] = [];
@@ -307,6 +340,10 @@ export function nodeActorBindings(channels: ReadonlySet<NodeActorChannel>): Valu
 	}
 	if (channels.has('scale') || channels.has('scaleX') || channels.has('scaleY')) {
 		out.push({ target: 'scaleX' }, { target: 'scaleY' });
+	}
+	for (const channel of channels) {
+		const fxParam = fxParamOfChannel(channel);
+		if (fxParam !== undefined) out.push({ target: 'fxParam', fxParam });
 	}
 	return out;
 }
@@ -330,10 +367,15 @@ export function nodeActorOutputs(
 	bindings: readonly ValueBinding[],
 	sample: NodeActorSample | undefined,
 ): (number | undefined)[] {
-	return bindings.map(({ target }) => {
+	return bindings.map(({ target, fxParam }) => {
 		if (!sample) return undefined;
 		if (target === 'visible') return sample.visible === undefined ? undefined : +sample.visible;
-		const value = sample[target as keyof Omit<NodeActorSample, 'visible'>];
+		const value =
+			target === 'fxParam'
+				? fxParam
+					? sample[fxParamChannel(fxParam)]
+					: undefined
+				: sample[target as keyof Omit<NodeActorSample, 'visible' | CinematicFxParamChannel>];
 		return typeof value === 'number' ? value : undefined;
 	});
 }

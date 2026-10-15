@@ -1628,6 +1628,9 @@ importers:
       engine-flow-v2:
         specifier: workspace:*
         version: link:../engine-flow-v2
+      engine-fx:
+        specifier: workspace:*
+        version: link:../engine-fx
       engine-rig:
         specifier: workspace:*
         version: link:../engine-rig

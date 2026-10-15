@@ -1,6 +1,7 @@
 import type { CinematicNodeSample } from 'engine-cinematic';
 
 import { componentInputs } from './componentInterface';
+import { sampledFxChannels } from './fxNodeParams';
 import {
 	SM_ANY_STATE,
 	SM_CONDITION_OPS,
@@ -537,13 +538,18 @@ const lerpTint = (a: number, b: number, t: number): number => {
  * The pose `progress` (0..1) of the way from `from` to `to`, channel by channel: `x`/`y`/
  * `rotation`/`scaleX`/`scaleY`/`alpha`/`fill` interpolate (a side that lacks the channel counts as
  * the authored pose: 0 for an offset, 1 for a factor); `tint` eases per colour channel when both
- * sides have it; `frame`, `visible` and `text` step over at the half-way point. Only channels some
- * side keys are present, so the player's fold applies exactly what the timelines key.
+ * sides have it; `frame`, `visible` and `text` step over at the half-way point. On an effect node
+ * (`rest` given — where each of its `fx:<id>` channels rests: the parameter's default) those
+ * channels interpolate too, a side that lacks one counting as its rest, and one whose rest is not
+ * known (an unregistered effect) steps at half way; without `rest`, `fx:` channels are left out.
+ * Only channels some side keys are present, so the player's fold applies exactly what the
+ * timelines key.
  */
 export function blendNodeSamples(
 	from: CinematicNodeSample | undefined,
 	to: CinematicNodeSample | undefined,
 	progress: number,
+	rest?: (channel: string) => number | undefined,
 ): CinematicNodeSample {
 	const t = Math.min(Math.max(asNumber(progress, 1), 0), 1);
 	const a = (from ?? {}) as Record<string, unknown>;
@@ -560,6 +566,17 @@ export function blendNodeSamples(
 	for (const channel of ['frame', 'visible', 'text'] as const) {
 		const stepped = t < 0.5 ? a[channel] : b[channel];
 		if (stepped !== undefined) out[channel] = stepped;
+	}
+	if (rest) {
+		for (const channel of new Set([...sampledFxChannels(from), ...sampledFxChannels(to)])) {
+			const av = a[channel] ?? rest(channel);
+			const bv = b[channel] ?? rest(channel);
+			if (typeof av === 'number' && typeof bv === 'number') out[channel] = lerp(av, bv, t);
+			else {
+				const stepped = t < 0.5 ? a[channel] : b[channel];
+				if (stepped !== undefined) out[channel] = stepped;
+			}
+		}
 	}
 	return out as CinematicNodeSample;
 }
