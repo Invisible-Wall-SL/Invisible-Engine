@@ -370,7 +370,10 @@ eq(
 	const page = src('../src/routes/(app)/game-maker/+page.server.ts');
 	eq(
 		'the Game Maker page builds the chip from the same rule',
-		page.includes('authoredFreeSpins: authoredFreeSpinsStatus(layout),'),
+		page.includes('authoredOverlayChips(layout, config.doc, winText)') &&
+			src('../src/lib/server/authoredWinTiers.ts').includes(
+				'authoredFreeSpins: resolved.freeSpins,',
+			),
 		true,
 	);
 }
@@ -675,30 +678,34 @@ eq(
 		game.indexOf('if (authoredFreeSpins) {'),
 		game.indexOf('editorDoc = doc;'),
 	);
+	const fsSrc = src('../../lines/src/game/authoredFreeSpins.svelte.ts');
 	eq(
 		'the game swaps under the shared rule before both flows are built, then retires the coded visuals',
 		[
-			/const authoredFreeSpins = authoredFreeSpinsStatus\(won\) === 'ready';\s*const doc = authoredFreeSpins \? withAuthoredFreeSpinsDoc\(won\) : won;/.test(
-				game,
-			),
-			game.indexOf("retireCodedOverlay('freeSpins', authoredFreeSpins)") <
-				game.indexOf('const flowV2 = createLinesFlowV2('),
-			game.indexOf('const doc = authoredFreeSpins') <
-				game.indexOf('const flowV2 = createLinesFlowV2('),
+			/const freeSpins = authoredFreeSpinsStatus\(won\);\s*const doc = freeSpins === 'ready' \? withAuthoredFreeSpinsDoc\(won\) : won;/.test(
+				src('../../../packages/engine-layout/src/lib/authoredOverlays.ts'),
+			) && /const authoredFreeSpins = overlays\.freeSpins === 'ready';/.test(game),
+			game.indexOf('startAuthoredFreeSpins({') < game.indexOf('const flowV2 = createLinesFlowV2('),
+			game.indexOf('const { doc } = overlays;') < game.indexOf('const flowV2 = createLinesFlowV2('),
 		],
 		[true, true, true],
 	);
 	eq(
 		'everything the path registers is registered in its flag block alone',
 		[
-			block.includes('authoredFreeSpinSignals('),
-			block.includes('authoredFreeSpinValues('),
-			block.includes('authoredFreeSpinDefs('),
-			game.split('authoredFreeSpinSignals(').length - 1,
-			game.split('authoredFreeSpinValues(').length - 1,
-			game.split('authoredFreeSpinDefs(').length - 1,
+			block.includes('startAuthoredFreeSpins({'),
+			game.split('startAuthoredFreeSpins(').length - 1,
+			/startAuthoredFreeSpins[\s\S]*registerComponentSignals\(authoredFreeSpinSignals\(/.test(
+				fsSrc,
+			),
+			/startAuthoredFreeSpins[\s\S]*registerComponentValues\(\{\s*\[FREE_SPIN_INTRO_COUNT_SOURCE\]/.test(
+				fsSrc,
+			),
+			/startAuthoredFreeSpins[\s\S]*authoredFreeSpinDefs\(deps\.boardColumns, deps\.lang\)/.test(
+				fsSrc,
+			),
 		],
-		[true, true, true, 1, 1, 1],
+		[true, 1, true, true, true],
 	);
 	for (const file of ['FreeSpinIntroVisual', 'FreeSpinOutroVisual']) {
 		const part = src(`../../lines/src/components/${file}.svelte`);
@@ -727,8 +734,12 @@ eq(
 	const fs = src('../../lines/src/game/authoredFreeSpins.svelte.ts');
 	eq(
 		'every show / hide signal fires one animation frame after its emitter event (the coded tween’s tick)',
-		[(fs.match(/requestAnimationFrame\(/g) ?? []).length, /const nextFrame = /.test(fs)],
-		[3, true],
+		[
+			(fs.match(/requestAnimationFrame\(/g) ?? []).length,
+			/if \(when\(value\)\) frames\.later\(\(\) => run\(\)\);/.test(fs),
+			(fs.match(/: delayed\(on\.\w+/g) ?? []).length,
+		],
+		[1, true, 5],
 	);
 	const flags = src('../../lines/src/game/editorFlags.ts');
 	eq('the dev pilot is off', /export const AUTHORED_FREE_SPINS = false;/.test(flags), true);

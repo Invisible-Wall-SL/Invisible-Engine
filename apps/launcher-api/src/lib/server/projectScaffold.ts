@@ -5,6 +5,7 @@
  * without trampling existing data.
  */
 import { freshDrivenSeedDoc, type FlowDoc, type Graph } from 'engine-flow-v2';
+import { assertNoLockedOverlaySwitchOn } from './authoredOverlayGuard';
 import type {
 	HoldAndWinPresetId,
 	HoldAndWinTemplateBase,
@@ -126,6 +127,8 @@ function buildSeeds(
 	const strings = normalizeDoc({});
 	const scenes = scaffoldLayoutDoc(project, gameType, reference);
 	scenes.scenes = scenes.scenes.filter((scene) => !dropped.includes(scene.id));
+	// A new project never starts with a locked authored-overlay pilot on.
+	assertNoLockedOverlaySwitchOn(null, scenes);
 
 	return [
 		{

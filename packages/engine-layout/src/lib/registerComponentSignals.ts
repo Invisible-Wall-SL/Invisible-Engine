@@ -83,10 +83,16 @@ const openSource = (key: string): SignalSource => ({
 	},
 });
 
-export function registerComponentSignals(sources: Record<string, SignalSource>): void {
+/** Register the game's signal sources; returns the unregister (an entry replaced since stays). */
+export function registerComponentSignals(sources: Record<string, SignalSource>): () => void {
 	for (const [signal, source] of Object.entries(sources)) {
 		registry.set(signal, source);
 	}
+	return () => {
+		for (const [signal, source] of Object.entries(sources)) {
+			if (registry.get(signal) === source) registry.delete(signal);
+		}
+	};
 }
 
 /**

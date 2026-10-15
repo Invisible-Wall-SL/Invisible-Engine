@@ -74,6 +74,8 @@
 		"check:authored-win": "tsx --tsconfig tsconfig.scripts.json scripts/check-authored-win.ts",
 		"precheck:authored-freespins": "node scripts/ensure-svelte-kit.mjs",
 		"check:authored-freespins": "tsx --tsconfig tsconfig.scripts.json scripts/check-authored-freespins.ts",
+		"precheck:authored-freespins-followup": "node scripts/ensure-svelte-kit.mjs",
+		"check:authored-freespins-followup": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-authored-freespins-followup.ts",
 		"precheck:component-state-machine": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-state-machine": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-state-machine.ts",
 		"precheck:component-state-machine-editor": "node scripts/ensure-svelte-kit.mjs",

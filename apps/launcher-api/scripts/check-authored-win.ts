@@ -626,8 +626,13 @@ for (const [name, doc] of Object.entries(layouts)) {
 	eq(
 		'the Game Maker page computes the status from the builder, reading Win Text only with the flag on',
 		[
-			page.includes('authoredWin: authoredWinStatus({'),
-			page.includes('tiers: authoredWinTiersFor({ config: config.doc, layout, winText })'),
+			page.includes('authoredOverlayChips(layout, config.doc, winText)') &&
+				/status: \(doc\) => authoredWinStatus\(\{ doc, tiers \}\)/.test(
+					src('../src/lib/server/authoredWinTiers.ts'),
+				),
+			src('../src/lib/server/authoredWinTiers.ts').includes(
+				'const tiers = authoredWinTiersFor({ config, layout, winText });',
+			),
 			/authoredWinEnabled\(layout\)\s*\?\s*await loadWinTextDoc\(/.test(page),
 		],
 		[true, true, true],
@@ -1273,18 +1278,23 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 {
 	const game = src('../../lines/src/components/Game.svelte');
 	const load = game.slice(game.indexOf('loadEditorScenes().then((rawDoc)'));
-	const swapAt = load.indexOf('withAuthoredWinDoc(transitioned, authoredWinPresentation())');
+	// The swaps run in the shared resolution (`resolveAuthoredOverlays`), the one the launcher's
+	// chips read: Transition first, then the Win's status on the transitioned doc, then its swap.
+	const overlays = src('../../../packages/engine-layout/src/lib/authoredOverlays.ts');
+	const resolver = overlays.slice(overlays.indexOf('export function resolveAuthoredOverlays<'));
+	const swapAt = load.indexOf('resolveAuthoredOverlays(rawDoc, {');
 	const v2At = load.indexOf('createLinesFlowV2(\n\t\t\t\tdoc,');
 	const v1At = load.indexOf('createLinesFlow(\n\t\t\t\t\t\tdoc,');
 	eq(
 		'the game swaps the win (after the transition) and builds both flow interpreters from the swapped doc; no raw doc reaches them',
 		[
 			swapAt > 0,
-			swapAt > load.indexOf('withAuthoredTransitionDoc(rawDoc)'),
+			resolver.indexOf('win.status(transitioned)') >
+				resolver.indexOf('withAuthoredTransitionDoc(raw)'),
 			v2At > swapAt,
 			v1At > swapAt,
 			/createLinesFlow(V2)?\(\s*(rawDoc|transitioned)/.test(load),
-			/resolveAuthoredWinStatus\(transitioned\) === 'ready'/.test(load),
+			/status: resolveAuthoredWinStatus,/.test(load),
 		],
 		[true, true, true, true, false, true],
 	);
@@ -1694,7 +1704,10 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	eq(
 		'(c) the game hands the swap the rig and slot its tiers resolve to',
 		[
-			game.includes('withAuthoredWinDoc(transitioned, authoredWinPresentation())'),
+			game.includes('presentation: authoredWinPresentation,') &&
+				src('../../../packages/engine-layout/src/lib/authoredOverlays.ts').includes(
+					'withAuthoredWinDoc(transitioned, win.presentation?.())',
+				),
 			/const first = authoredWinTiers\(\)\[0\];\s*return first \? \{ winSpine: first\.rigKey, slotName: first\.slotName \} : undefined;/.test(
 				authoredWinSrc,
 			),

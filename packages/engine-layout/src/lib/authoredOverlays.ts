@@ -4,7 +4,13 @@ import {
 	WIN_PRESENTATION_DEFAULTS,
 } from './builtinComponents';
 import { WIN_PRESENTATION_COMPONENT_ID } from './builtinTimelines';
-import type { LayoutDoc, LayoutNode, NodeOverride, Scene } from './types';
+import {
+	BASE_NODE_FIELDS,
+	type LayoutDoc,
+	type LayoutNode,
+	type NodeOverride,
+	type Scene,
+} from './types';
 import {
 	resolveWinText,
 	resolveWinTextForMode,
@@ -463,24 +469,27 @@ export function authoredFreeSpinsStatus(
 	return 'ready';
 }
 
-/** The authored stand-in for a coded free-spin visual bind, carrying the node's own transform. */
-const authoredFreeSpinNode = (coded: LayoutNode, componentId: string): LayoutNode => ({
-	id: coded.id,
-	...(coded.slotId ? { slotId: coded.slotId } : {}),
-	label: `${coded.label ?? 'Free-spin visual'} (authored)`,
-	kind: 'componentInstance',
-	componentId,
-	x: coded.x,
-	y: coded.y,
-	...(coded.scale !== undefined ? { scale: coded.scale } : {}),
-	...(coded.rotation !== undefined ? { rotation: coded.rotation } : {}),
-	...(coded.alpha !== undefined ? { alpha: coded.alpha } : {}),
-	...(coded.zIndex !== undefined ? { zIndex: coded.zIndex } : {}),
-	...(coded.screenAnchor ? { screenAnchor: coded.screenAnchor } : {}),
-	...(coded.visibleFor ? { visibleFor: coded.visibleFor } : {}),
-	...(coded.overrides ? { overrides: coded.overrides } : {}),
-	params: {},
-});
+/**
+ * The authored stand-in for a coded free-spin visual bind: EVERY base-node field the coded node
+ * carries ({@link BASE_NODE_FIELDS} — transform, per-layout overrides, `hiddenUntilSignal`,
+ * listeners, bindings …), only `bind` replaced by the instance, so the swap renders the node the
+ * coded part was placed as. Kind-specific fields (a container's `children`, which a bind never
+ * renders) do not carry.
+ */
+const authoredFreeSpinNode = (coded: LayoutNode, componentId: string): LayoutNode => {
+	const carried: Record<string, unknown> = {};
+	for (const [field, carry] of Object.entries(BASE_NODE_FIELDS)) {
+		const value = (coded as unknown as Record<string, unknown>)[field];
+		if (carry && value !== undefined) carried[field] = value;
+	}
+	return {
+		...(carried as Pick<LayoutNode, 'id' | 'x' | 'y'>),
+		label: `${coded.label ?? 'Free-spin visual'} (authored)`,
+		kind: 'componentInstance',
+		componentId,
+		params: {},
+	};
+};
 
 /** A scene with every coded free-spin visual bind swapped; none ⇒ the SAME scene object. */
 export function withAuthoredFreeSpins(scene: Scene): Scene {
@@ -504,4 +513,42 @@ export function withAuthoredFreeSpins(scene: Scene): Scene {
 export function withAuthoredFreeSpinsDoc<T extends Pick<LayoutDoc, 'scenes'>>(doc: T): T {
 	const scenes = doc.scenes.map(withAuthoredFreeSpins);
 	return scenes.some((scene, i) => scene !== doc.scenes[i]) ? { ...doc, scenes } : doc;
+}
+
+// ---------------------------------------------------------------------------------------------
+// ONE resolution for the game and the launcher (8c follow-up): the swaps run in the game's order —
+// Transition, then Win, then free spins — and each status is read on the doc the swaps before it
+// produced, so a chip reports what the game will boot, never a status read on a different doc.
+// ---------------------------------------------------------------------------------------------
+
+export interface AuthoredOverlayResolution<T> {
+	/** The doc the game renders: every ready overlay swapped; none ⇒ the SAME doc object. */
+	doc: T;
+	transition: AuthoredTransitionStatus;
+	win: AuthoredWinStatus;
+	freeSpins: AuthoredFreeSpinsStatus;
+}
+
+/**
+ * Resolve every authored-overlay row on `raw`. The Win's status needs the active tiers, which only
+ * the caller has (the game's config, the launcher's config + Win Text), so it is passed in; its
+ * `presentation` is read only when the Win is `ready`.
+ */
+export function resolveAuthoredOverlays<
+	T extends Pick<LayoutDoc, 'scenes' | 'settings' | 'mainSizesMap'>,
+>(
+	raw: T,
+	win: {
+		status: (doc: T) => AuthoredWinStatus;
+		presentation?: () => AuthoredWinPresentation | undefined;
+	},
+): AuthoredOverlayResolution<T> {
+	const transition = authoredTransitionStatus(raw);
+	const transitioned = transition === 'ready' ? withAuthoredTransitionDoc(raw) : raw;
+	const winStatus = win.status(transitioned);
+	const won =
+		winStatus === 'ready' ? withAuthoredWinDoc(transitioned, win.presentation?.()) : transitioned;
+	const freeSpins = authoredFreeSpinsStatus(won);
+	const doc = freeSpins === 'ready' ? withAuthoredFreeSpinsDoc(won) : won;
+	return { doc, transition, win: winStatus, freeSpins };
 }

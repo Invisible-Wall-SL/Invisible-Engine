@@ -6,12 +6,7 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import {
-	authoredFreeSpinsStatus,
-	authoredTransitionStatus,
-	authoredWinEnabled,
-	authoredWinStatus,
-} from 'engine-layout';
+import { authoredWinEnabled } from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -37,7 +32,7 @@ import {
 } from '$lib/server/gameConfigDefaults';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
-import { authoredWinTiersFor } from '$lib/server/authoredWinTiers';
+import { authoredOverlayChips } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -238,16 +233,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				symbols,
 				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
-				layout: layout
-					? {
-							authoredTransition: authoredTransitionStatus(layout),
-							authoredWin: authoredWinStatus({
-								doc: layout,
-								tiers: authoredWinTiersFor({ config: config.doc, layout, winText }),
-							}),
-							authoredFreeSpins: authoredFreeSpinsStatus(layout),
-						}
-					: null,
+				layout: layout ? authoredOverlayChips(layout, config.doc, winText) : null,
 			});
 
 			return {

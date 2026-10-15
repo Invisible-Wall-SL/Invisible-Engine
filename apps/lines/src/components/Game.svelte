@@ -97,13 +97,10 @@
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
 		authoredTransitionStatus,
-		authoredFreeSpinsStatus,
-		withAuthoredFreeSpinsDoc,
+		resolveAuthoredOverlays,
 		registerBoardBox,
 		withAuthoredWin,
-		withAuthoredWinDoc,
 		withAuthoredTransition,
-		withAuthoredTransitionDoc,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		WIN_DEF,
@@ -306,12 +303,7 @@
 		authoredWinPresentation,
 		resolveAuthoredWinStatus,
 	} from '../game/authoredWin.svelte';
-	import {
-		authoredFreeSpinDefs,
-		authoredFreeSpinSignals,
-		registerAuthoredFreeSpinBoard,
-		authoredFreeSpinValues,
-	} from '../game/authoredFreeSpins.svelte';
+	import { startAuthoredFreeSpins } from '../game/authoredFreeSpins.svelte';
 	import { ContinuePressMask, PressToContinue } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -440,10 +432,13 @@
 	// The flow handle is built once the scenes load; a Game destroyed before that disposes it on
 	// arrival rather than leaking its listener.
 	let disposeFlowV2: (() => void) | undefined;
+	// Likewise the authored free-spin path's subscriptions and registrations (Rive plan Phase 8c).
+	let stopAuthoredFreeSpins: (() => void) | undefined;
 	let destroyed = false;
 	onDestroy(() => {
 		destroyed = true;
 		disposeFlowV2?.();
+		stopAuthoredFreeSpins?.();
 	});
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
@@ -2187,27 +2182,24 @@
 
 	onMount(() => {
 		void loadEditorScenes().then((rawDoc) => {
-			// Rive plan Phase 8a: ONE swap of every coded `bind: Transition` for the authored instance,
-			// wherever it sits (`withAuthoredTransitionDoc`), applied only when the shared rule says
-			// `ready`; `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
-			// board override — is the swapped doc, so no mount path renders the coded node the retire
-			// below has made inert. Off, or not ready ⇒ the same doc object (parity).
-			const authored = authoredTransitionStatus(rawDoc) === 'ready';
-			const transitioned = authored ? withAuthoredTransitionDoc(rawDoc) : rawDoc;
-			// Rive plan Phase 8b: the AUTHORED Win, under its own flag and the shared status rule —
-			// every `bind: Win` degraded to its gate half, a placed `win` instance swapped for the
-			// built-in `winPresentation`, the `winVisual` scene synthesized when none is placed; both
-			// flows are built from this doc too. Off, or held back ⇒ the same doc object (parity).
-			const authoredWin = resolveAuthoredWinStatus(transitioned) === 'ready';
-			const won = authoredWin
-				? withAuthoredWinDoc(transitioned, authoredWinPresentation())
-				: transitioned;
-			// Rive plan Phase 8c: the AUTHORED free-spin intro / outro, under its own flag and the shared
-			// status rule — every coded `bind: FreeSpinIntroVisual / FreeSpinOutroVisual` swapped for its
-			// built-in presentation; the outro driver, the taps and the holds stay coded. Off, or held
-			// back ⇒ the same doc object (parity).
-			const authoredFreeSpins = authoredFreeSpinsStatus(won) === 'ready';
-			const doc = authoredFreeSpins ? withAuthoredFreeSpinsDoc(won) : won;
+			// Rive plan Phase 8a–8c: the authored overlays, resolved by the ONE rule the launcher's chips
+			// share (`resolveAuthoredOverlays`) — Transition, then the Win, then the free-spin intro /
+			// outro, each status read on the doc the swaps before it produced. 8a swaps every coded
+			// `bind: Transition` for the authored instance; 8b degrades every `bind: Win` to its gate
+			// half, swaps a placed `win` instance for the built-in `winPresentation` and synthesizes the
+			// `winVisual` scene when none is placed; 8c swaps every coded `bind: FreeSpinIntroVisual /
+			// FreeSpinOutroVisual` for its built-in presentation (the outro driver, the taps and the holds
+			// stay coded). `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
+			// board override — is the swapped doc, so no mount path renders a coded node the retires
+			// below have made inert. Off, or held back ⇒ the same doc object (parity).
+			const overlays = resolveAuthoredOverlays(rawDoc, {
+				status: resolveAuthoredWinStatus,
+				presentation: authoredWinPresentation,
+			});
+			const { doc } = overlays;
+			const authored = overlays.transition === 'ready';
+			const authoredWin = overlays.win === 'ready';
+			const authoredFreeSpins = overlays.freeSpins === 'ready';
 			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
 			// placed the hybrid `transition` twin plays one wipe (the authored one).
 			retireCodedOverlay('transition', authored);
@@ -2231,13 +2223,12 @@
 				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
 			}
 			// The coded free-spin visuals go dark for this boot; everything the authored path reads is
-			// registered here and nowhere else (a boot without the flag registers nothing new): the show /
-			// hide signals, the intro count, the live board box the instances sit on, and the two defs
-			// generated for this board and language.
-			retireCodedOverlay('freeSpins', authoredFreeSpins);
+			// registered by `startAuthoredFreeSpins` and nowhere else (a boot without the flag registers
+			// nothing new), and torn down with the game.
+			retireCodedOverlay('freeSpins', false);
 			if (authoredFreeSpins) {
-				registerComponentSignals(
-					authoredFreeSpinSignals({
+				const stop = startAuthoredFreeSpins({
+					signals: {
 						introShow: (run) => context.eventEmitter.subscribe({ freeSpinIntroShow: () => run() }),
 						introHide: (run) => context.eventEmitter.subscribe({ freeSpinIntroHide: () => run() }),
 						outroCountUp: (run) =>
@@ -2245,24 +2236,15 @@
 								freeSpinOutroCountUp: (e) => run(e.winLevelData?.type === 'big'),
 							}),
 						outroHide: (run) => context.eventEmitter.subscribe({ freeSpinOutroHide: () => run() }),
-					}),
-				);
-				registerComponentValues(
-					authoredFreeSpinValues((set) =>
-						context.eventEmitter.subscribe({
-							freeSpinIntroUpdate: (e) => set(e.totalFreeSpins),
-						}),
-					),
-				);
-				registerAuthoredFreeSpinBoard(() => context.stateGameDerived.boardLayout());
-				registerComponents(
-					Object.fromEntries(
-						authoredFreeSpinDefs(boardDimensions().x, stateUrlDerived.lang()).map((def) => [
-							def.id,
-							def,
-						]),
-					),
-				);
+					},
+					onIntroUpdate: (set) =>
+						context.eventEmitter.subscribe({ freeSpinIntroUpdate: (e) => set(e.totalFreeSpins) }),
+					board: () => context.stateGameDerived.boardLayout(),
+					boardColumns: boardDimensions().x,
+					lang: stateUrlDerived.lang(),
+				});
+				if (destroyed) stop();
+				else stopAuthoredFreeSpins = stop;
 			}
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);

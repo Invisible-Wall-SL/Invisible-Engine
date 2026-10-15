@@ -1,6 +1,11 @@
 import {
+	authoredWinStatus,
+	resolveAuthoredOverlays,
 	resolveWinText,
 	winTierModeCaptions,
+	type AuthoredFreeSpinsStatus,
+	type AuthoredTransitionStatus,
+	type AuthoredWinStatus,
 	type AuthoredWinTier,
 	type LayoutDoc,
 	type LayoutNode,
@@ -91,4 +96,29 @@ export function authoredWinTiersFor(input: {
 		});
 	}
 	return out;
+}
+
+/**
+ * The authored-overlay chips' statuses for a project, read by the SAME resolution the game boots
+ * with (`resolveAuthoredOverlays`: Transition, then the Win, then the free spins, each on the doc
+ * the swaps before it produced), so a chip never reports a status read on a different doc.
+ */
+export function authoredOverlayChips(
+	layout: LayoutDoc,
+	config: GameConfigDoc | null,
+	winText: WinTextDoc | undefined,
+): {
+	authoredTransition: AuthoredTransitionStatus;
+	authoredWin: AuthoredWinStatus;
+	authoredFreeSpins: AuthoredFreeSpinsStatus;
+} {
+	const tiers = authoredWinTiersFor({ config, layout, winText });
+	const resolved = resolveAuthoredOverlays(layout, {
+		status: (doc) => authoredWinStatus({ doc, tiers }),
+	});
+	return {
+		authoredTransition: resolved.transition,
+		authoredWin: resolved.win,
+		authoredFreeSpins: resolved.freeSpins,
+	};
 }

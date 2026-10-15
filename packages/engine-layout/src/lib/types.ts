@@ -326,6 +326,42 @@ interface BaseNode {
 	on?: NodeListener[];
 }
 
+/**
+ * Every {@link BaseNode} field as a RUNTIME list (`true` = a rewrite that replaces a node's kind
+ * carries it over). The `satisfies` fails the type-check when `BaseNode` gains a field this list
+ * lacks, so a swap that rebuilds a node from it (the authored free-spin swap) cannot silently drop
+ * a new field. `bind` is `false`: it is the coded part the rewrite removes.
+ */
+export const BASE_NODE_FIELDS = {
+	id: true,
+	label: true,
+	x: true,
+	y: true,
+	anchor: true,
+	scale: true,
+	coverScale: true,
+	rotation: true,
+	alpha: true,
+	blendMode: true,
+	zIndex: true,
+	overrides: true,
+	visibleFor: true,
+	slotId: true,
+	fit: true,
+	coverFit: true,
+	coverBox: true,
+	locked: true,
+	bind: false,
+	screenAnchor: true,
+	preview: true,
+	paramBindings: true,
+	valueBindings: true,
+	pressAction: true,
+	hiddenUntilSignal: true,
+	rigSlot: true,
+	on: true,
+} as const satisfies { [K in keyof Required<BaseNode>]: boolean };
+
 /** The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). */
 export const NODE_LISTENER_EVENTS = ['down', 'up', 'enter', 'leave', 'click'] as const;
 export type NodeListenerEvent = (typeof NODE_LISTENER_EVENTS)[number];
@@ -1890,6 +1926,14 @@ export interface CinematicDoc {
 	 * ⇒ the fire returns as it always has (parity); a zero-length timeline holds nothing.
 	 */
 	holdsCue?: boolean;
+	/**
+	 * A COMPONENT timeline only (Rive plan Phase 8c): seconds the playhead wraps back to when it
+	 * reaches `duration`, carrying the overshoot, so the stretch from here to the end loops for as
+	 * long as the timeline is on screen — a coded rig's looping idle after its intro. A looping
+	 * timeline never reports an end (it holds no cue). Absent, or not inside `[0, duration)` ⇒
+	 * the timeline ends and holds its last frame (parity).
+	 */
+	loopFrom?: number;
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }
