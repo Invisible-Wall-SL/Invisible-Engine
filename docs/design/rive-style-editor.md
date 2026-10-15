@@ -1310,3 +1310,86 @@ in order, then the conditions the build carried and the findings it made.
   while holding, the dim under a moved instance, the first-win instant show vs the later fades.
   Known caveat: a reel-grid override moves `boardLayout()` but not the synthesized instance (the
   per-layout-override fallback covers it).
+
+### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
+
+> Written against `main` c773a78 (8b merged). The 8b pattern, one flag row further. Built straight
+> after the design; the coordinator reviews both together.
+
+**13.7.1 The scope line.** 8c authors **what the two coded visuals draw** — `FreeSpinIntroVisual`
+and `FreeSpinOutroVisual`: the `fsIntro` frame rig (intro → looping idle), the count rig riding the
+frame's `slot_text_placeholder` (`fsIntroNumber` / `fsOutroNumber`, intro → looping idle), the
+count text riding the count rig's `slot_number`, the localized sprites (`freespins_{lang}.png`,
+`winsmall_{lang}.png`, `freespins.png`, `totalwin.png`) and the 400 ms `FadeContainer` fade. It
+leaves **coded** everything that holds or decides: `FreeSpinOutroDriver` (the
+`freeSpinOutroCountUp` subscription, the `WinCountUpProvider` count-up, the round hold and its
+self-resolve raced with `roundSkip`, `CountUpInteraction`, the `countUpComplete` latch and the
+`freeSpinOutroCountUpComplete` broadcast), each screen's `tapToContinue` (the dim, the tap,
+`tapArmAfterSignal`), `withFreeSpinScreenHolds` (`Show` … `Show{awaitComplete}` … `Hide`) and the
+choreography. The seam already exists (FS-7 split the outro into driver + visual; the intro visual
+never held anything), so — unlike 8b — **no timeline holds a cue**: the coded visuals held nothing,
+and a hold would change the round's timing. `holdsCue` / `cueHolds` are not used; the 8b conductor
+has no 8c twin because the driver already is one.
+
+**13.7.2 The components.** Two built-in defs, `freeSpinIntroPresentation` and
+`freeSpinOutroPresentation` (`scope: 'shared'`, `category: 'overlay'`, `internal`, `frameExact`),
+beside the `freeSpinIntroVisual` / `freeSpinOutroVisual` twins (a bumped twin would re-render
+every placed instance). GENERATED at boot (`freeSpinPresentationDefs({ symbolSize, boardColumns,
+lang })`) because the coded sizes are `SYMBOL_SIZE × boardDimensions().x` fractions and the sprite
+keys carry the boot's language — no engine-wide `{lang}` token. Nodes (coded order): `fade`
+(alpha, the fade machine) › `visual` (visibility) › `frame` rig (`fsIntro`, width = board columns ×
+symbol, offset by the coded authoring-box residue) + `content` container riding `frame`'s
+`slot_text_placeholder` › the caption sprite(s), the `number` rig (width × 0.3 intro / × 0.4 outro)
+with the `count` text riding its `slot_number`, the bottom sprite(s). The outro carries both
+big-win and small-win sprites; its timelines pick one. Placement: a new opt-in def field
+**`ComponentDef.boardAnchored?: true`** (built-in only, never stored): the instance is framed
+against the main box AND offset by the game's live board position (`boardBox()` gains `x` / `y`),
+so it lands where `FreeSpinAnimation` self-centred on `boardLayout()` — reel-grid overrides
+included. Absent on every other def ⇒ unchanged (parity).
+
+**13.7.3 The timelines (built-in, code).** The clips are fixed (intro 0.6667 s, idle 2.8 s on all
+three shipped rigs), so the docs are static built-ins in `BUILTIN_TIMELINES`, not generated — a
+project timeline of the same id shadows one. Intro: `…_rest` (`enter`: hidden), `…_show`
+(`freeSpinStart`: visual on, frame + number intro then idle looping), `…_hide`
+(`freeSpinIntroHide`: visual off at 0.4 s). Outro: `…_rest`, `…_show_big` / `…_show_small`
+(`freeSpinOutroBigWin` / `freeSpinOutroSmallWin`, the FS-7 signals off the same
+`freeSpinOutroCountUp` broadcast the coded visual mounted on), `…_hide` (`freeSpinOutroHide`).
+Fades: the 8b fade machine (`hidden` ⇄ `shown`, 400 ms blends) on the same triggers. The count:
+intro = a game text source `freeSpinIntroCount` fed by `freeSpinIntroUpdate` (the coded visual's
+own number, `0` until the update); outro = the existing `freeSpinOutroTotalWin` (self-animated,
+currency-formatted, the driver's live tween).
+
+**13.7.4 Flag, status, swap, retire.** `settings.authoredOverlays.freeSpins?: true` — sparse,
+ON-only, one row for both screens. `authoredFreeSpinsStatus(doc)`: `off`; `ready`;
+`nothing-to-replace` (no scene binds a coded visual); `non-canvas-scene` (a coded bind sits in a
+non-`canvas` scene — the coded part wraps its own `MainContainer`, the authored instance would
+double-frame); `placed-visual` (a doc places a `freeSpinIntroVisual` / `freeSpinOutroVisual`
+instance — natural-size placement is not in 8c); `custom-presentation` (a bind carries non-default
+rig / clip / slot props). Every held-back status keeps the coded path for BOTH screens and the chip
+warns. `withAuthoredFreeSpinsDoc` swaps each `bind: FreeSpinIntroVisual / FreeSpinOutroVisual`
+for the authored instance carrying its transform; nothing to swap ⇒ the same object.
+`retireCodedOverlay('freeSpins')` silences both coded visuals (render nothing, subscribe nothing);
+the driver is untouched. Everything the path registers (defs, the `freeSpinIntroCount` source, the
+`freeSpinIntroHide` / `freeSpinOutroHide` signals, the board box) is registered in the flag block
+and nowhere else. `AUTHORED_FREE_SPINS = false` joins `editorFlags.ts`; no URL opt-in.
+
+**13.7.5 The lock (until the owner pilots it).** `AUTHORED_FREE_SPINS_LOCKED = true`: the Game
+Settings row is disabled with "pilot pending", the save refuses a switch to on (still switchable
+off), pinned by `check:authored-freespins`.
+
+**13.7.6 Parity.** Flag off: current-games 0 changed screens on every live game (`fs-trigger`,
+`fs-board`, `fs-spin`, `fs-settled`, `fs-transition`, `bigwin-*`). Flag on: `check:freespin-parity`
+(`scripts/freespin-parity/run.mjs`, the 8b shape on `cg-lines`, `FORCE_TRIGGER=1`,
+`?flowV2=lines`): **intro** (frames after `freeSpinIntroShow`, the tap, `freeSpinIntroHide` on the
+same frame ± 1), **outro** (frames after `freeSpinOutroShow` through the count-up and after
+`freeSpinOutroCountUpComplete`, the tap, `freeSpinOutroHide` ± 1), **outro-slam** (a tap during the
+count-up: the total lands, same frames), **retrigger** (the mock's additive `FORCE_RETRIGGER=1` on
+the first free spin; the outro after it), **turbo** (`ie_turbo=1`).
+
+**13.7.7 Ship chain (rule 8).** No new asset class: the defs and timelines are code in the runtime
+bundle; the rigs and sprites are the engine's static `fsIntro*` bundles and localization sprites,
+already in every game and delivery. The flag rides `bundle.doc.settings` through live, publish and
+the offline bake.
+
+**13.7.8 Removal, later.** As 8b: the twins' next versions replace their bound children, the coded
+visuals and `FreeSpinAnimation` go, the driver stays (it is the outro's conductor).

@@ -1,4 +1,11 @@
 import {
+	FREE_SPIN_INTRO_HIDE_SIGNAL,
+	FREE_SPIN_INTRO_PRESENTATION_ID,
+	FREE_SPIN_OUTRO_HIDE_SIGNAL,
+	FREE_SPIN_OUTRO_PRESENTATION_ID,
+	FREE_SPIN_PRESENTATION_NODES,
+	FREE_SPIN_PRESENTATION_RIGS,
+	freeSpinFadeTimelineId,
 	WIN_FADE_HIDDEN_TIMELINE_ID,
 	WIN_FADE_MS,
 	WIN_FADE_SHOWN_TIMELINE_ID,
@@ -67,8 +74,6 @@ export const TRANSITION_WIPE_TIMELINE: CinematicDoc = {
 		},
 	],
 };
-
-export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [TRANSITION_WIPE_TIMELINE];
 
 // ---------------------------------------------------------------------------------------------
 // THE AUTHORED WIN (Rive plan Phase 8b, §13.6.4): per-tier timelines GENERATED at boot from the
@@ -310,3 +315,133 @@ export function winTierTimelines(
 	}
 	return docs;
 }
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED FREE-SPIN INTRO / OUTRO (Rive plan Phase 8c, §13.7.3): static, because the clips
+// are fixed — the three shipped rigs (`fsIntro`, `fsIntroNumber`, `fsOutroNumber`) carry `intro`
+// 0.6667 s and `idle` 2.8 s, the lengths `check:authored-freespins` reads off the skeletons. None
+// holds a cue: the coded visuals held nothing (the outro driver and the screens' taps hold the
+// round).
+// ---------------------------------------------------------------------------------------------
+
+export const FREE_SPIN_INTRO_CLIP_SECONDS = 0.6667;
+export const FREE_SPIN_IDLE_CLIP_SECONDS = 2.8;
+/** The coded track loops the idle forever; the timeline runs this long (an hour). */
+const FS_LOOP_SECONDS = 3600;
+const FS_FADE_SECONDS = WIN_FADE_MS / 1000;
+
+const fsTimelineId = (defId: string, suffix: string): string =>
+	`c_${defId.toLowerCase()}_${suffix}`;
+export const freeSpinTimelineId = fsTimelineId;
+
+const FS = FREE_SPIN_PRESENTATION_NODES;
+
+/** A rig's coded walk: `intro` once, then `idle` looping from the frame the coded track switches on. */
+const fsWalk = (actorId: string) => {
+	const intro = toFrame(FREE_SPIN_INTRO_CLIP_SECONDS);
+	return {
+		id: `${actorId}-clip`,
+		kind: 'animation',
+		actorId,
+		strips: [
+			strip('intro', FREE_SPIN_PRESENTATION_RIGS.intro, 0, intro),
+			{
+				id: 'idle',
+				clip: { src: 'rig', name: FREE_SPIN_PRESENTATION_RIGS.idle },
+				start: intro,
+				length: FS_LOOP_SECONDS - intro,
+				clipLength: FREE_SPIN_IDLE_CLIP_SECONDS,
+				loop: { mode: 'fill' },
+			},
+		],
+	};
+};
+
+const fsDoc = (
+	defId: string,
+	suffix: string,
+	name: string,
+	playOn: string | undefined,
+	duration: number,
+	tracks: Record<string, unknown>[],
+): CinematicDoc => ({
+	schemaVersion: 1,
+	id: fsTimelineId(defId, suffix),
+	name,
+	duration,
+	fps: 60,
+	markers: [],
+	host: { kind: 'component', componentId: defId },
+	...(playOn ? { playOn } : {}),
+	stage: { sceneId: null, cast: winCast(tracks) },
+	tracks,
+});
+
+/** One presentation's timelines: rest, the show(s), the hide and the fade machine's two poses. */
+const fsTimelines = (
+	defId: string,
+	label: string,
+	shows: { suffix: string; signal: string; visible: string[]; hidden: string[] }[],
+	hide: string,
+): CinematicDoc[] => [
+	fsDoc(defId, 'rest', `${label}: rest`, 'enter', 0, [
+		visibility(FS.visual, [{ time: 0, visible: false }]),
+	]),
+	...shows.map(({ suffix, signal, visible, hidden }) =>
+		fsDoc(defId, suffix, `${label}: show`, signal, FS_LOOP_SECONDS, [
+			visibility(FS.visual, [{ time: 0, visible: true }]),
+			...visible.map((node) => visibility(node, [{ time: 0, visible: true }])),
+			...hidden.map((node) => visibility(node, [{ time: 0, visible: false }])),
+			fsWalk(FS.frame),
+			fsWalk(FS.number),
+		]),
+	),
+	fsDoc(defId, 'hide', `${label}: hide`, hide, FS_FADE_SECONDS, [
+		visibility(FS.visual, [
+			{ time: 0, visible: true },
+			{ time: FS_FADE_SECONDS, visible: false },
+		]),
+	]),
+	{
+		...fsDoc(defId, 'fade_hidden', `${label}: faded out`, undefined, 1, [alphaPose(FS.fade, 0)]),
+		id: freeSpinFadeTimelineId(defId, 'hidden'),
+	},
+	{
+		...fsDoc(defId, 'fade_shown', `${label}: faded in`, undefined, 1, [alphaPose(FS.fade, 1)]),
+		id: freeSpinFadeTimelineId(defId, 'shown'),
+	},
+];
+
+/** Every timeline the two free-spin presentations play. */
+export const FREE_SPIN_TIMELINES: readonly CinematicDoc[] = [
+	...fsTimelines(
+		FREE_SPIN_INTRO_PRESENTATION_ID,
+		'Free-spin intro',
+		[{ suffix: 'show', signal: 'freeSpinStart', visible: [], hidden: [] }],
+		FREE_SPIN_INTRO_HIDE_SIGNAL,
+	),
+	...fsTimelines(
+		FREE_SPIN_OUTRO_PRESENTATION_ID,
+		'Free-spin outro',
+		[
+			{
+				suffix: 'show_big',
+				signal: 'freeSpinOutroBigWin',
+				visible: [FS.captionBig, FS.footerBig],
+				hidden: [FS.captionSmall, FS.footerSmall],
+			},
+			{
+				suffix: 'show_small',
+				signal: 'freeSpinOutroSmallWin',
+				visible: [FS.captionSmall, FS.footerSmall],
+				hidden: [FS.captionBig, FS.footerBig],
+			},
+		],
+		FREE_SPIN_OUTRO_HIDE_SIGNAL,
+	),
+];
+
+export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [
+	TRANSITION_WIPE_TIMELINE,
+	...FREE_SPIN_TIMELINES,
+];

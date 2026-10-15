@@ -1432,6 +1432,271 @@ export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TI
 
 export const WIN_PRESENTATION_DEF: ComponentDef = winPresentationDef();
 
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED FREE-SPIN INTRO / OUTRO (Rive plan Phase 8c, `docs/design/rive-style-editor.md`
+// §13.7): what the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual` draw, as nodes the built-in
+// free-spin timelines (`builtinTimelines.ts`) drive. The coded outro driver, the screens' taps and
+// the flow's holds stay coded; nothing here holds a cue (the coded visuals held nothing).
+// ---------------------------------------------------------------------------------------------
+
+export const FREE_SPIN_INTRO_PRESENTATION_ID = 'freeSpinIntroPresentation';
+export const FREE_SPIN_OUTRO_PRESENTATION_ID = 'freeSpinOutroPresentation';
+
+/** The node names the free-spin timelines bind (labels, unique within each def). */
+export const FREE_SPIN_PRESENTATION_NODES = {
+	fade: 'fade',
+	visual: 'visual',
+	frame: 'frame',
+	content: 'content',
+	number: 'number',
+	count: 'count',
+	caption: 'caption',
+	footer: 'footer',
+	captionBig: 'captionBig',
+	captionSmall: 'captionSmall',
+	footerBig: 'footerBig',
+	footerSmall: 'footerSmall',
+} as const;
+
+/** The coded rigs, clips and slots `FreeSpinAnimation` / the two visuals hardcoded (their defaults). */
+export const FREE_SPIN_PRESENTATION_RIGS = {
+	frame: 'fsIntro',
+	frameSlot: 'slot_text_placeholder',
+	introNumber: 'fsIntroNumber',
+	outroNumber: 'fsOutroNumber',
+	numberSlot: 'slot_number',
+	intro: 'intro',
+	idle: 'idle',
+} as const;
+
+/** The fade layer's poses, one pair per def (the 8b fade machine, `WIN_FADE_MS`). */
+export const freeSpinFadeTimelineId = (defId: string, pose: 'hidden' | 'shown'): string =>
+	`c_${defId.toLowerCase()}_fade_${pose}`;
+
+/** The game signals the intro / outro hide on — registered by the game only on the authored path. */
+export const FREE_SPIN_INTRO_HIDE_SIGNAL = 'freeSpinIntroHide';
+export const FREE_SPIN_OUTRO_HIDE_SIGNAL = 'freeSpinOutroHide';
+/** The game text source the intro count reads (the coded visual's own `freeSpinIntroUpdate` number). */
+export const FREE_SPIN_INTRO_COUNT_SOURCE = 'freeSpinIntroCount';
+
+export interface FreeSpinPresentationInput {
+	/** The board cell (`engine-game` `SYMBOL_SIZE`). */
+	symbolSize: number;
+	/** The board's columns (`boardDimensions().x`). */
+	boardColumns: number;
+	/** The boot's language — the localized sprites' key suffix (`freespins_{lang}.png`). */
+	lang: string;
+}
+
+const FS_DEFAULT_INPUT: FreeSpinPresentationInput = {
+	symbolSize: 120,
+	boardColumns: 5,
+	lang: 'en',
+};
+
+const fsSprite = (
+	label: string,
+	assetKey: string,
+	anchorY: number,
+	width: number,
+	height: number,
+): LayoutNode => ({
+	id: `fs-${label}`,
+	label,
+	kind: 'sprite',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: anchorY },
+	assetKey,
+	width,
+	height,
+});
+
+const fsFadeMachine = (defId: string, show: string[], hide: string) => ({
+	layers: [
+		{
+			id: 'fade',
+			name: 'Fade',
+			entry: 'hidden',
+			states: [
+				{ id: 'hidden', timeline: freeSpinFadeTimelineId(defId, 'hidden') },
+				{ id: 'shown', timeline: freeSpinFadeTimelineId(defId, 'shown') },
+			],
+			transitions: [
+				...show.map((input) => ({
+					id: `show-${input}`,
+					from: 'any' as const,
+					to: 'shown',
+					conditions: [{ input, op: 'fired' as const }],
+					blend: WIN_FADE_MS,
+				})),
+				{
+					id: 'hide',
+					from: 'any' as const,
+					to: 'hidden',
+					conditions: [{ input: hide, op: 'fired' as const }],
+					blend: WIN_FADE_MS,
+				},
+			],
+		},
+	],
+});
+
+/**
+ * The two AUTHORED free-spin presentations for this boot (§13.7.2), generated because the coded
+ * sizes are fractions of the board width (`SYMBOL_SIZE × boardDimensions().x`) and the sprite keys
+ * carry the boot's language. The coded nesting, node for node: `fade` (the `FadeContainer` alpha,
+ * the def's fade machine) › `visual` (its mount) › the `frame` rig (the coded authoring box's
+ * residue as its y) + `content` riding the frame's `slot_text_placeholder` › the caption sprite(s),
+ * the `number` rig with the `count` text riding its `slot_number`, the footer sprite(s). The outro
+ * carries the big-win and the small-win art; its show timelines pick one.
+ */
+export function freeSpinPresentationDefs(input: FreeSpinPresentationInput = FS_DEFAULT_INPUT): {
+	intro: ComponentDef;
+	outro: ComponentDef;
+} {
+	const N = FREE_SPIN_PRESENTATION_NODES;
+	const R = FREE_SPIN_PRESENTATION_RIGS;
+	const width = input.symbolSize * input.boardColumns;
+	// `FreeSpinAnimation`: the frame at (0.5w, 0.4w) in a w × w panel, the wrapper's pivot at the
+	// centre of a w × w·720/920 box — net (0, 0.4w − 0.5w·720/920).
+	const frameY = width * 0.4 - (width / (920 / 720)) * 0.5;
+	const def = (
+		id: string,
+		name: string,
+		numberRig: string,
+		numberWidth: number,
+		count: LayoutNode,
+		caption: LayoutNode[],
+		footer: LayoutNode[],
+		source: string,
+		show: string[],
+		hide: string,
+	): ComponentDef => ({
+		id,
+		name,
+		version: 1,
+		scope: 'shared',
+		category: 'overlay',
+		internal: true,
+		frameExact: true,
+		boardAnchored: true,
+		root: {
+			id: `${id}-root`,
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [
+				{
+					id: `${id}-fade`,
+					label: N.fade,
+					kind: 'container',
+					x: 0,
+					y: 0,
+					children: [
+						{
+							id: `${id}-visual`,
+							label: N.visual,
+							kind: 'container',
+							x: 0,
+							y: 0,
+							children: [
+								{
+									id: `${id}-frame`,
+									label: N.frame,
+									kind: 'spine',
+									x: 0,
+									y: frameY,
+									width,
+									assetKey: R.frame,
+								},
+								{
+									id: `${id}-content`,
+									label: N.content,
+									kind: 'container',
+									x: 0,
+									y: 0,
+									rigSlot: R.frameSlot,
+									children: [
+										...caption,
+										{
+											id: `${id}-number`,
+											label: N.number,
+											kind: 'spine',
+											x: 0,
+											y: 0,
+											width: numberWidth,
+											assetKey: numberRig,
+										},
+										{ ...count, id: `${id}-count`, rigSlot: R.numberSlot },
+										...footer,
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		inputs: [
+			...show.map((signal) => ({
+				id: signal,
+				kind: 'trigger' as const,
+				note: 'The presentation fades in.',
+			})),
+			{ id: hide, kind: 'trigger', note: 'The presentation fades out.' },
+		],
+		stateMachine: fsFadeMachine(id, show, hide),
+		params: [{ key: 'source', kind: 'string', default: source, options: VALUE_SOURCE_KEYS }],
+	});
+	const countText = (fontSize: number, bold: boolean): LayoutNode => ({
+		id: 'count',
+		label: N.count,
+		kind: 'text',
+		x: 0,
+		y: 0,
+		anchor: { x: 0.5, y: 0.5 },
+		text: '',
+		style: { fontFamily: 'gold', fontSize, ...(bold ? { fontWeight: 'bold' } : {}) },
+		paramBindings: { text: 'value' },
+	});
+	const intro = def(
+		FREE_SPIN_INTRO_PRESENTATION_ID,
+		'Free-spin intro presentation',
+		R.introNumber,
+		width * 0.3,
+		countText(width * 0.1, true),
+		[fsSprite(N.caption, `freespins_${input.lang}.png`, 1.2, 500 * 2.2, 156 * 2.2)],
+		[fsSprite(N.footer, 'freespins.png', -3, 183 * 2.2, 42 * 2.2)],
+		FREE_SPIN_INTRO_COUNT_SOURCE,
+		['freeSpinStart'],
+		FREE_SPIN_INTRO_HIDE_SIGNAL,
+	);
+	const outro = def(
+		FREE_SPIN_OUTRO_PRESENTATION_ID,
+		'Free-spin outro presentation',
+		R.outroNumber,
+		width * 0.4,
+		countText(width * 0.08, false),
+		[
+			fsSprite(N.captionBig, `freespins_${input.lang}.png`, 1.2, 500 * 2.2, 156 * 2.2),
+			fsSprite(N.captionSmall, `winsmall_${input.lang}.png`, 1.2, 500 * 4.5, 80 * 4.5),
+		],
+		[
+			fsSprite(N.footerBig, 'totalwin.png', -3.2, 177 * 2.2, 42 * 2.2),
+			fsSprite(N.footerSmall, 'totalwin.png', -2, 177 * 3, 42 * 3),
+		],
+		'freeSpinOutroTotalWin',
+		['freeSpinOutroBigWin', 'freeSpinOutroSmallWin'],
+		FREE_SPIN_OUTRO_HIDE_SIGNAL,
+	);
+	return { intro, outro };
+}
+
+const FREE_SPIN_PRESENTATIONS = freeSpinPresentationDefs();
+export const FREE_SPIN_INTRO_PRESENTATION_DEF: ComponentDef = FREE_SPIN_PRESENTATIONS.intro;
+export const FREE_SPIN_OUTRO_PRESENTATION_DEF: ComponentDef = FREE_SPIN_PRESENTATIONS.outro;
+
 /**
  * A droppable full-screen TAP-TO-CONTINUE overlay (Invisible Flow §6.2). An author
  * drops this on ANY Flow screen from the Scene Editor palette to get a full-screen
@@ -3053,6 +3318,8 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FREE_SPIN_OUTRO_VISUAL_DEF,
 	WIN_DEF,
 	WIN_PRESENTATION_DEF,
+	FREE_SPIN_INTRO_PRESENTATION_DEF,
+	FREE_SPIN_OUTRO_PRESENTATION_DEF,
 	TAP_TO_CONTINUE_DEF,
 	LOADING_BAR_DEF,
 	EXPANDING_SYMBOL_DEF,

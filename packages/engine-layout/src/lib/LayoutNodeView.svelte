@@ -293,17 +293,33 @@
 	// `mainToWorld`/`mainScale`), so the overlay renders identically in both, in ANY screen
 	// space. Gated to a non-`game`/non-`background` host scene (a `game` scene already frames
 	// it; a `background` scene cover-fits) ⇒ every existing placement is byte-identical (parity).
-	const hostedSpace = $derived(
+	const hostedDef = $derived(
 		node.kind === 'componentInstance'
-			? hostedComponentSpace(resolveComponent(node.componentId, node.componentVersion).def)
+			? resolveComponent(node.componentId, node.componentVersion).def
 			: undefined,
 	);
+	const hostedSpace = $derived(hostedComponentSpace(hostedDef));
+	// A `boardAnchored` def (Rive plan Phase 8c, the free-spin presentations) is a board-relative
+	// overlay too, and also sits on the game's live board position — where the coded overlay that
+	// self-centred on `boardLayout()` drew. Every other def: unchanged (parity).
+	const boardAnchored = $derived(hostedDef?.boardAnchored === true);
 	const gameFrameOverlay = $derived(
-		hostedSpace === 'game' && space !== 'game' && space !== 'background',
+		(hostedSpace === 'game' || boardAnchored) && space !== 'game' && space !== 'background',
 	);
 	const gameFrame = $derived.by(() => {
 		if (!gameFrameOverlay) return undefined;
 		const ml = layoutContext.stateLayoutDerived.mainLayout();
+		if (boardAnchored) {
+			const board = boardBox();
+			return {
+				x: posX + ml.x + ml.scale * ((board?.x ?? ml.width / 2) - ml.width / 2),
+				y: posY + ml.y + ml.scale * ((board?.y ?? ml.height / 2) - ml.height / 2),
+				scale: {
+					x: (transform.scale?.x ?? 1) * ml.scale,
+					y: (transform.scale?.y ?? 1) * ml.scale,
+				},
+			};
+		}
 		return {
 			x: ml.x + ml.scale * (transform.x - ml.width / 2),
 			y: ml.y + ml.scale * (transform.y - ml.height / 2),
