@@ -11,6 +11,132 @@
 > `invisible-rigger.md` (the sibling tool whose `/rig-viewer`-forked WebGL stage + R2 plumbing
 > this reuses).
 
+## Direction (2026-10-15): **exposed parameters** and the things that drive them
+
+> Owner ask: expose parameters of an effect, drive and animate them from outside, drive them from
+> the component state machine, and expose the game time as a value that can drive them. Owner
+> decisions (2026-10-15): **any** FX parameter can be exposed, not a fixed list, and the game clock
+> **follows turbo**. Progress lives in [status/fx](../status/fx.md).
+
+Today a placed effect is closed: from outside you can set its node transform, alpha and blend mode,
+and start or stop it with a cue. Nothing inside it can be driven. This plan opens it in four steps.
+Step 1 is the effect side. Steps 2–4 reuse what the Rive plan already built
+([rive-style-editor.md](rive-style-editor.md) §3, §5): value bindings, timeline channels and the
+component state machine.
+
+### The library constraint, and the way around it
+
+`Emitter.init(config)` calls `cleanup()`, which kills every live particle. Re-initialising to change
+a value is a visible reset, so it is never how a parameter applies. But `init` builds each behaviour
+as its own object from its own config entry (`new constructor(entry.config)`), and every behaviour
+the library and `engine-fx` ship keeps per-particle state on the particle, never on itself. So a
+changed value applies by **rebuilding only the behaviour it lives in** and putting the new instance
+in the old one's place in `initBehaviors` / `updateBehaviors` / `recycleBehaviors`. The constructor
+is the old instance's own `constructor`, so no registry lookup is needed. Particles in flight keep
+running: update behaviours (alpha, scale, colour, forces, speed curves) move them to the new values
+at once, and spawn-time behaviours (spawn shape, start rotation) affect new particles only. Emitter
+fields (`frequency`, `spawnChance`, `particlesPerWave`, `maxParticles`, `minLifetime` /
+`maxLifetime`, `emitterLifetime`, `spawnPos`) are public and are set directly.
+
+### Data model (`engine-fx/types.ts`, all optional)
+
+```ts
+interface EffectDoc { …; params?: EffectParam[] }
+
+interface EffectParam {
+	id: string;                       // the wire name: 'intensity', 'heat'. Unique in the effect.
+	kind: 'number' | 'color' | 'bool';
+	default: number | string | boolean; // a colour is '#rrggbb'
+	min?: number; max?: number;       // number only: the range sliders, bindings and drives use
+	note?: string;
+	drives: EffectParamDrive[];       // what the parameter changes
+}
+
+interface EffectParamDrive {
+	id: string;                       // unique in the parameter (the editor selects it)
+	layer?: string;                   // an EmitterLayer.key; absent ⇒ an effect-level target
+	path: string;                     // see the grammar below
+	from?: number | string;           // the target's value at the parameter's min (or at false)
+	to?: number | string;             // … at its max (or at true); both absent ⇒ written as is
+}
+```
+
+**Path grammar** (one parser in `engine-fx`, used by the runtime, the editor and validation):
+
+| Path | Applies to | How it applies |
+|---|---|---|
+| `emitter.frequency`, `emitter.spawnChance`, `emitter.particlesPerWave`, `emitter.maxParticles`, `emitter.emitterLifetime`, `emitter.lifetime.min`, `emitter.lifetime.max`, `emitter.pos.x`, `emitter.pos.y` | a layer | set on the live `Emitter` |
+| `behavior:<type>.<dot.path>`, `behavior:<type>#<n>.<dot.path>` | a layer | patch that behaviour's config entry (array indices are numbers: `behavior:color.color.list.0.value`, `behavior:fxForces.forces.1.strength`), rebuild it, swap it in |
+| `placement.offset.x`, `placement.offset.y` | a layer | move the layer's offset container |
+| `effect.alpha`, `effect.scale`, `effect.tint`, `effect.timeScale` | the effect (no `layer`) | a wrapper container around the layers, mounted only when the doc has an effect-level drive; `timeScale` multiplies each layer's emit speed |
+
+`#<n>` picks the n-th behaviour of that type (0-based); without it, the first. A path must end on a
+scalar leaf: a number, a `#rrggbb` string or a boolean. Not drivable: the art behaviours
+`bindArt` injects (`textureSingle`, `textureRandom`, `textureOrdered`, `animatedSingle`,
+`animatedRandom`), the Tier-C `spineParticle` behaviour (it owns a `RigView` pool a rebuild would
+leak), adding or removing a behaviour, and a whole list (a curve's points are driven one value at a
+time).
+
+**Mapping.** A number parameter maps linearly from `[min, max]` to `[from, to]`, clamped to the
+range. Curves (ease, waves) belong to whatever drives the parameter (Steps 2 and 4), not to the
+drive. With `from` and `to` both absent the value is written as is. A number parameter can drive a
+colour leaf with two colours (an RGB lerp). A bool parameter writes `from` when false and `to` when
+true, or itself on a bool leaf. A colour parameter writes itself on a colour leaf.
+
+**The stored config is the effect at its defaults.** Saving writes every drive's value at its
+parameter's default into the config (`applyEffectParamDefaults`, pure, run by
+`normalizeEffectDoc` and idempotent). So a renderer that knows nothing of parameters (the committed
+`rigger-fx.js` bundle, an older runtime) still draws the default look, and an effect without
+`params` is byte-identical to today. A drive whose path no longer resolves (its layer or behaviour
+was removed) is reported by validation and does nothing at runtime.
+
+### Runtime
+
+- `engine-fx` exports a pure applier: built once per layer from the layer and its bound config, it
+  takes the current parameter values, works out each driven leaf, and on a change sets the emitter
+  field or rebuilds and swaps that one behaviour, at most once per behaviour per frame. With no
+  values supplied, or values equal to the defaults, it does nothing.
+- `<EffectPlayer>` gains `params?: () => Readonly<Record<string, number | string | boolean>>`, a
+  getter read on the Pixi ticker, not a reactive prop. Steps 2 and 4 drive parameters every frame,
+  and a per-frame value must not go through Svelte reactivity on every bound node.
+- All four renderers use the same applier: the game's `<ParticleEmitter>`, `/fx`'s `FxStage`, the
+  Scene Editor's `EditorEffectLayer` and the Rigger/Symbols `fxOverlay` (whose committed bundle is
+  rebuilt; `check:vendored-bundles` holds it). Defaults are already in the config, so a renderer
+  with no live values is correct.
+
+### Authoring in `/fx`
+
+- **⚡ Expose** on every inspector row: *New parameter…* or *Drive with* an existing one. A row that
+  writes several leaves (direction + spread writes `minStart` and `maxStart`, a Min / Max row two
+  bounds) exposes all of them. The editor gets them by calling the row's own setter at two values
+  and diffing the leaves that changed, so each row needs no hand-written path list. A row whose
+  setter is not linear in its value is exposed through the row's own leaf instead.
+- **All parameters**, a raw tree of every scalar leaf in the layer's config, so a value with no
+  inspector row can still be exposed.
+- An **Exposed parameters** panel: each parameter's id, kind, range and default (saved), its drives
+  (layer, path, from → to; removable), and a **preview** slider (not saved) that moves it live on
+  the stage with no reset. That slider is the proof the swap works.
+- A driven row shows ⚡ with the parameter's name. Editing a row driven as is edits the parameter's
+  default; a row under a mapped drive is read-only, with a link to the parameter.
+
+### The four steps
+
+| # | Step | Delivers | Done when |
+|---|---|---|---|
+| 1 | **Exposed parameters** | Schema + normalizer + defaults-in-config, the path parser and the applier, `<EffectPlayer params>`, all four renderers, the `/fx` UI above | An effect saves with parameters, reopens identical, and a preview slider changes rate, a curve value, a colour and a force strength live with no reset; a new gate `check:fx-params` covers the parser, the mapping, the swap on the real `Emitter` (live particles survive, the new value applies), defaults-in-config idempotence and the save → export → bake round-trip |
+| 2 | **Drive from the node** | On an `effect` node: a value-binding target `fxParam` (`ValueBinding.fxParam: <id>`) in `bindingTargetsForKind`, and a timeline channel `fx:<id>` in `nodeActorChannelsForKind`; the editor lists the placed effect's parameters | A timeline keys `intensity`; a state-machine state playing it drives the effect, and a transition blend mixes it; a binding drives it from a param or an engine source |
+| 3 | **Drive from state-machine inputs** | `BindingInputRef` gains `{ input: <id> }`: a binding reads the owning instance's bool or number input. Flow sets the input through the instance node's data-in pin. This settles Rive data binding (rive-style-editor §6.2, §12) for bool and number inputs | Flow sets `winBanner.heat`, and the effect follows |
+| 4 | **Clocks + waves** | Engine clocks a binding can read: `time.game` (seconds since boot; advances by the ticker's `deltaMS` × `stateBet`'s `timeScale`, so turbo runs it at 2×; it stops while the tab is hidden), `time.round` (since the round started, the same scaling) and `time.state` (seconds in the instance's current state, per layer). `ValueBinding.wave` `{ kind: 'sine' \| 'triangle' \| 'saw' \| 'square' \| 'noise'; period; phase }` shapes the input before its in/out mapping. A clock-fed binding is pulled on the Pixi ticker, not pushed through `registerComponentValues` | A glow pulses every 2 s and pulses twice as fast in turbo |
+
+**Ship chain (rule 8):** no new asset class. Parameters ride inside the `EffectDoc`, which already
+travels export → `deploy/effects/` → bake → pull → `bakedEffects()`. Step 1 makes the normalizer
+keep them and the round-trip gate assert it. Bindings and timeline channels ride their component and
+cinematic docs, which already ship.
+
+**Open (owner):** whether turbo should also speed up the particles themselves (today the emitter's
+speed ignores turbo; only the Step 4 clocks follow it), and what `time.round` does on a slam (keep
+running, or jump to the end of the round).
+
 ## Direction (2026-07-09): rig-timeline **direct FX binding** — "pick the effect on the keyframe"
 
 > **The same seam now carries flipbook clips** (2026-08-31). `event.flipbook = { clipId, bone?, … }`
