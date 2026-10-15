@@ -55,7 +55,9 @@
 	import {
 		childLocalTransform,
 		depthSegments,
+		inDepthSlice,
 		type DepthSegment,
+		type DepthSlice,
 		nodeBox,
 		nodeCornersWorld,
 		repeaterPlaceholderGrid,
@@ -1206,6 +1208,7 @@
 			blendOverlayCache,
 			normalOverlayCache,
 			textOverlayCache,
+			depthSliceCache,
 		] as Record<string, unknown>[]) {
 			for (const k of Object.keys(cache)) if (owned(k)) delete cache[k];
 		}
@@ -2206,6 +2209,17 @@
 		return ids;
 	}
 
+	/** What a surface needs to draw one depth segment, `null` for a whole (unsplit) scene. Memoized
+	 * on the split, so the WebGL overlays see the same object until the split itself changes. */
+	const depthSliceCache: Record<string, { sig: string; slice: DepthSlice | null } | undefined> = {};
+	function depthSliceFor(seg: DepthSegment): DepthSlice | null {
+		const hit = depthSliceCache[seg.key];
+		if (hit && hit.sig === seg.sig) return hit.slice;
+		const slice = seg.whole ? null : { segmentOf: seg.segmentOf, index: seg.index };
+		depthSliceCache[seg.key] = { sig: seg.sig, slice };
+		return slice;
+	}
+
 	/** The text overlay's `nodeFilter` for a depth segment: every node in it (text has no blended
 	 * layer), or `null` when the segment is the whole scene — the path the text layer always took. */
 	const textOverlayCache: Record<string, { sig: string; ids: Set<string> | null } | undefined> = {};
@@ -2334,20 +2348,24 @@
 		// shared surface, which has to blend inline — is unaffected.
 		elementCarriesBlend = true;
 		for (const s of visibleGameScenes()) {
-			for (const run of depthSegments(s, componentMap).flatMap(blendRuns)) {
-				const c = sceneCanvases.get(run.key);
-				if (!c) continue;
-				const sctx = c.getContext('2d');
-				if (!sctx) continue;
-				sctx.setTransform(1, 0, 0, 1, 0, 0);
-				sctx.clearRect(0, 0, c.width, c.height); // transparent — base shows through
-				sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-				sctx.translate(panX, panY);
-				sctx.scale(zoom, zoom);
-				// Iterate the SCENE, not the run's set, so draw order stays doc order.
-				for (const node of s.nodes) if (run.ids.has(node.id)) drawNode(sctx, node, s);
+			for (const seg of depthSegments(s, componentMap)) {
+				drawDepth = depthSliceFor(seg);
+				for (const run of blendRuns(seg)) {
+					const c = sceneCanvases.get(run.key);
+					if (!c) continue;
+					const sctx = c.getContext('2d');
+					if (!sctx) continue;
+					sctx.setTransform(1, 0, 0, 1, 0, 0);
+					sctx.clearRect(0, 0, c.width, c.height); // transparent — base shows through
+					sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+					sctx.translate(panX, panY);
+					sctx.scale(zoom, zoom);
+					// Iterate the SCENE, not the run's set, so draw order stays doc order.
+					for (const node of s.nodes) if (run.ids.has(node.id)) drawNode(sctx, node, s);
+				}
 			}
 		}
+		drawDepth = null;
 		elementCarriesBlend = false;
 	}
 
@@ -2488,7 +2506,25 @@
 		return { offsetX: 0 };
 	}
 
-	function drawNode(
+	/**
+	 * The depth segment the 2D pass is painting (`drawSceneCanvases` sets it per segment; `null` ⇒
+	 * everything) and the id path of the node being drawn. A group or component is walked on every
+	 * segment, since its children can fall in any of them; a node's OWN art is drawn only on its own.
+	 */
+	let drawDepth: DepthSlice | null = null;
+	const drawPath: string[] = [];
+
+	/** Draw a node — {@link drawNodeAt} with its id path tracked for the depth-segment check. */
+	function drawNode(...args: Parameters<typeof drawNodeAt>): void {
+		drawPath.push(args[1].id);
+		try {
+			drawNodeAt(...args);
+		} finally {
+			drawPath.pop();
+		}
+	}
+
+	function drawNodeAt(
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
 		sceneCtx: Scene = scene,
@@ -2550,6 +2586,33 @@
 		if (nested || !elementCarriesBlend) {
 			const op = canvasCompositeOp(t.blendMode);
 			if (op !== 'source-over') ctx.globalCompositeOperation = op;
+		}
+		if (drawDepth && !inDepthSlice(drawDepth, drawPath)) {
+			// This node's own art is on another depth segment; its children may be on this one. A
+			// bound container walks its children only when it is a skinned part, as below.
+			const partSkin = node.bind ? boundComponentSkin(node.bind.component) : undefined;
+			const walks =
+				!node.bind ||
+				(!!partSkin && isPartSkinned(node, partSkin, instanceParams ?? componentParams));
+			if (node.kind === 'container' && walks) {
+				for (const child of node.children)
+					drawNode(
+						ctx,
+						child,
+						sceneCtx,
+						componentDepth,
+						componentStack,
+						instanceParams,
+						true,
+						instanceRigBundle,
+					);
+			} else if (node.kind === 'componentInstance') {
+				const def = componentMap.get(node.componentId);
+				if (def && componentDepth < MAX_COMPONENT_DEPTH && !componentStack.includes(def.id))
+					drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
+			}
+			ctx.restore();
+			return;
 		}
 		// The value-binding preview's other outputs: a `fill` reveal clips the art to its rect in the
 		// node's local box (the runtime's mask), a `frame` holds a clip frame (below).
@@ -5133,6 +5196,7 @@
 						{hiddenSceneIds}
 						sceneFilter={sceneFilterFor(s.id)}
 						nodeFilter={normalOverlayFilter(seg)}
+						depthSlice={depthSliceFor(seg)}
 						activeSceneId={scrimKey === seg.key ? scene.id : null}
 						playing={playingRigs}
 						{boneRiders}
@@ -5164,6 +5228,7 @@
 						{hiddenSceneIds}
 						sceneFilter={sceneFilterFor(s.id)}
 						nodeFilter={textOverlayFilter(seg)}
+						depthSlice={depthSliceFor(seg)}
 						{projectGameName}
 						{componentParams}
 						{componentDefaults}
@@ -5200,6 +5265,7 @@
 						{hiddenSceneIds}
 						sceneFilter={sceneFilterFor(s.id)}
 						nodeFilter={normalOverlayFilter(seg)}
+						depthSlice={depthSliceFor(seg)}
 						playing={playingEffects}
 						effectParamValues={effectPreviewValues}
 						onReadyKeysChange={(ids) => {
@@ -5237,6 +5303,7 @@
 							{hiddenSceneIds}
 							sceneFilter={sceneFilterFor(s.id)}
 							nodeFilter={g.ids}
+							depthSlice={depthSliceFor(seg)}
 							blend={g.css}
 							playing={playingEffects}
 							effectParamValues={effectPreviewValues}

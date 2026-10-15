@@ -190,6 +190,24 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
       component docs.
     - `cinematic-screen-timeline.mjs`'s pure-file shim lists `fxNodeParams`.
   - **NOT browser-verified** (auth + Postgres + R2 gated) — open item above.
+- 2026-10-15 — **The depth split reaches inside nested components and groups.** Owner report after
+  the entry below shipped: an FX inside a nested component still covered the art after it in that
+  component. The split only looked at a screen's top-level nodes, so a placed component whose def
+  is `[glow FX, piece art]` stayed in one segment and its art stayed under the FX surface.
+  `depthSegments` now walks the tree in draw order (into groups, parts and resolvable components)
+  and records each node's segment by its id path (`segmentOf`, keyed by `depthKey`). A group or
+  component that the split crosses is walked on every segment it spans, and each node's own art is
+  drawn only on its own segment: the 2D pass through a `drawNode` wrapper that tracks the path,
+  and the rig, text and FX layers through a new `depthSlice` prop (`inDepthSlice`). A path the
+  split never visited (a repeater's cards) draws with its nearest ancestor. The FX layer now also
+  rebuilds when `nodeFilter` changes. Gate: `check:depth-segments` (now covers the nested case;
+  mutation-verified: not walking into components fails 7 checks, and dropping the ancestor
+  fallback fails 1). Verified: svelte-check at baseline (47), eslint, Prettier,
+  `check:undefined-names`, launcher build, and the real `EditorCanvas` in headless Chromium with
+  `[bg, pot{glow FX, art}, frame]`. On `main` the pot's art is drawn on the 2D canvas under the FX
+  layer; now it is on a canvas above it. Only the FX layer of the glow's segment fetches the
+  effect, and moving the glow after the art merges back to one segment under the frame. Particles
+  were not drawn (no effect server), so a look on a real effect is still owed.
 - 2026-10-15 — **Turbo speeds up the particles: one particle clock** (owner decision, design
   §"Decided (owner, 2026-10-15)"). **This changes how every game looks IN TURBO:** every particle
   effect now plays twice as fast while turbo is on — authored FX, rig-bound FX, Tier-C rig particles,

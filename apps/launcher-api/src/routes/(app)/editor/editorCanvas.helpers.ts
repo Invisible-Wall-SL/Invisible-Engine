@@ -1109,90 +1109,120 @@ export function reelGridGeometry(
 }
 
 /**
- * One DEPTH SEGMENT of a game screen: a run of its top-level nodes that the editor gives its own
+ * One DEPTH SEGMENT of a game screen: a stretch of its draw order that the editor gives its own
  * stack of surfaces (2D → rig → text → FX).
  *
  * The editor draws each kind on a surface of its own, so inside one stack every FX sits above
  * every sprite, rig and text whatever the outline says. The game draws one scene graph in outline
- * order. Starting a new stack at the first node with other art after an FX puts that art back
- * above the FX, which is all the game's order asks for. A screen with no FX ahead of other art
- * stays ONE segment, keyed by the scene id, so its surfaces and report keys are what they always
- * were.
+ * order. Walking the tree in that order — into groups, parts and nested components — and starting
+ * a new stack at the first art drawn after an FX puts that art back above the FX, at any depth. A
+ * screen with no FX ahead of other art stays ONE segment, keyed by the scene id, so its surfaces
+ * and report keys are what they always were.
  */
 export interface DepthSegment {
 	/** The scene id for the first segment, `<sceneId>#seg<i>` after it. */
 	key: string;
 	sceneId: string;
-	/** This segment's top-level nodes, in doc order. */
+	index: number;
+	/** The top-level nodes with anything in this segment, in doc order. A group or component that
+	 * an FX splits appears in every segment it spans. */
 	nodes: LayoutNode[];
 	/** True when this one segment is the whole screen (nothing was split off). */
 	whole: boolean;
+	/** Which segment each node is drawn in, keyed by {@link depthKey} of its id path (a nested
+	 * component's nodes sit under the instance's id). Shared by every segment of the screen. */
+	segmentOf: Map<string, number>;
+	/** Changes exactly when the screen's split does — for memoizing what is derived from it. */
+	sig: string;
 }
 
-/** Does a node draw a placed FX anywhere in its subtree (nested containers and component defs
- * included)? */
-function nodeDrawsFx(
+/** What a renderer needs to draw ONE segment: the screen's split and the segment to keep. */
+export interface DepthSlice {
+	segmentOf: Map<string, number>;
+	index: number;
+}
+
+/** The key of a node's id path from the top of its screen (component def roots are skipped, as
+ * every renderer expands an instance straight into `def.root.children`). */
+export function depthKey(ids: readonly string[]): string {
+	return ids.join('\n');
+}
+
+/** The segment a node at this id path draws in. A path the split never visited (a repeater's cards,
+ * say) draws with its nearest ancestor. */
+export function depthSegmentOf(segmentOf: Map<string, number>, ids: readonly string[]): number {
+	for (let i = ids.length; i > 0; i--) {
+		const seg = segmentOf.get(depthKey(ids.slice(0, i)));
+		if (seg !== undefined) return seg;
+	}
+	return 0;
+}
+
+/** Whether the node at this id path is drawn in `slice`'s segment (`null` ⇒ the whole screen). */
+export function inDepthSlice(slice: DepthSlice | null, ids: readonly string[]): boolean {
+	return !slice || depthSegmentOf(slice.segmentOf, ids) === slice.index;
+}
+
+/** The nodes a renderer expands a node into — a group's children, a component's def children —
+ * with the component depth/stack they recurse at; `null` for a node that is drawn as itself. */
+function depthChildren(
 	n: LayoutNode,
 	componentMap: Map<string, ComponentDef>,
 	depth: number,
 	stack: string[],
-): boolean {
-	if (n.kind === 'effect') return true;
-	if (n.kind === 'container')
-		return n.children.some((c) => nodeDrawsFx(c, componentMap, depth, stack));
+): { nodes: LayoutNode[]; depth: number; stack: string[] } | null {
+	if (n.kind === 'container') return { nodes: n.children, depth, stack };
 	if (n.kind === 'componentInstance') {
 		const def = componentMap.get(n.componentId);
-		if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return false;
-		return def.root.children.some((c) =>
-			nodeDrawsFx(c, componentMap, depth + 1, [...stack, def.id]),
-		);
+		if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
+		return { nodes: def.root.children, depth: depth + 1, stack: [...stack, def.id] };
 	}
-	return false;
+	return null;
 }
 
-/** Does a node draw anything that is NOT a placed FX? A container draws only its children (or its
- * own preview when it is a bound anchor); an instance whose def is missing still draws a
- * placeholder. */
-function nodeDrawsOther(
-	n: LayoutNode,
-	componentMap: Map<string, ComponentDef>,
-	depth: number,
-	stack: string[],
-): boolean {
-	if (n.kind === 'effect') return false;
-	if (n.kind === 'container')
-		return !!n.bind || n.children.some((c) => nodeDrawsOther(c, componentMap, depth, stack));
-	if (n.kind === 'componentInstance') {
-		const def = componentMap.get(n.componentId);
-		if (!def) return true;
-		if (depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return false;
-		return def.root.children.some((c) =>
-			nodeDrawsOther(c, componentMap, depth + 1, [...stack, def.id]),
-		);
-	}
-	return true;
-}
-
-/** Split a screen's top-level nodes into {@link DepthSegment}s: a new segment starts at a node that
- * draws other art once the current one already holds an FX. */
+/** Split a screen into {@link DepthSegment}s: walk its tree in draw order and start a new segment
+ * at the first node that draws art of its own once the current one holds an FX. A group or a
+ * resolvable component draws only its children, unless it is a bound anchor (its preview / part
+ * skin); a missing component still draws its placeholder. */
 export function depthSegments(
 	scene: Scene,
 	componentMap: Map<string, ComponentDef>,
 ): DepthSegment[] {
-	const groups: LayoutNode[][] = [[]];
+	const segmentOf = new Map<string, number>();
+	const touched: Set<string>[] = [new Set()];
+	let index = 0;
 	let hasFx = false;
-	for (const n of scene.nodes) {
-		if (hasFx && nodeDrawsOther(n, componentMap, 0, [])) {
-			groups.push([]);
-			hasFx = false;
+	const walk = (
+		nodes: LayoutNode[],
+		ids: string[],
+		depth: number,
+		stack: string[],
+		top: string | null,
+	): void => {
+		for (const n of nodes) {
+			const path = [...ids, n.id];
+			const children = depthChildren(n, componentMap, depth, stack);
+			const ownArt = n.kind !== 'effect' && (!!n.bind || !children);
+			if (ownArt && hasFx) {
+				index++;
+				touched.push(new Set());
+				hasFx = false;
+			}
+			segmentOf.set(depthKey(path), index);
+			touched[index].add(top ?? n.id);
+			if (n.kind === 'effect') hasFx = true;
+			if (children) walk(children.nodes, path, children.depth, children.stack, top ?? n.id);
 		}
-		groups[groups.length - 1].push(n);
-		if (nodeDrawsFx(n, componentMap, 0, [])) hasFx = true;
-	}
-	return groups.map((nodes, i) => ({
+	};
+	walk(scene.nodes, [], 0, [], null);
+	const sig = [...segmentOf].map(([k, i]) => `${k}=${i}`).join('|');
+	return touched.map((ids, i) => ({
 		key: i === 0 ? scene.id : `${scene.id}#seg${i}`,
 		sceneId: scene.id,
-		nodes,
-		whole: groups.length === 1,
+		index: i,
+		nodes: scene.nodes.filter((n) => ids.has(n.id)),
+		whole: touched.length === 1,
+		segmentOf,
+		sig,
 	}));
 }
