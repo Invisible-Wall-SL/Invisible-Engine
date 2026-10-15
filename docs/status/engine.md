@@ -279,7 +279,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     move.
 
   Gate: `check:authored-freespins-followup` (27).
-  **Parity:** pending (`check:freespin-parity` in progress).
+  **Parity** (`check:freespin-parity`, base / slam / retrigger / turbo):
+  - 51 of 51 captures at 0 px.
+  - All 8 hide cues land on the same frame on both sides.
+  - The positive control holds in all four variants.
+  - The outro captures at t+240 and t+480 fall after the first idle lap's seam (frame 209), so the
+    `loopFrom` wrap is measured.
 - 2026-10-15 — **Authored Win parity follow-up: every capture inside a presentation at 0 px; the
   Win row stays locked** (branch `claude/rive-p8b-followup`, plan
   [§13.6.11](../design/rive-style-editor.md)). **The escalation hand-off:** the walk was one
