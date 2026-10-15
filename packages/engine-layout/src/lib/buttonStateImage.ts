@@ -40,13 +40,7 @@ export interface ButtonStateFlags {
 /** The non-resting button states the cascade resolves, in priority order. The
  * resting state (`image` / `defaultAnimation`) is the caller's fallback, not a key. */
 export type ButtonVisualState =
-	| 'spinning'
-	| 'spinningHover'
-	| 'spinningPressed'
-	| 'disabled'
-	| 'pressed'
-	| 'hover'
-	| 'selected';
+	'spinning' | 'spinningHover' | 'spinningPressed' | 'disabled' | 'pressed' | 'hover' | 'selected';
 
 /**
  * The shared button-state cascade, parameterised over the looked-up value type so
@@ -188,4 +182,47 @@ export function mergeButtonStateAnimations(
 	if (!override) return base;
 	const merged: ButtonStateAnimations = { ...(base ?? {}), ...override };
 	return Object.keys(merged).length ? merged : undefined;
+}
+
+/**
+ * What the parametric button's FRAME draws right now (Rive plan Phase 8d): one of six looks — the
+ * coded `ButtonFrame`'s variant tile, its painted disabled grey, its painted active border, both,
+ * or a state frame (the cascade's image, else the resting `image`) and that frame greyed. The
+ * authored `buttonPresentation` machine has one state per look, in this order (its `look` input is
+ * the index). Painted states apply only where no image covers them, exactly as the coded frame:
+ * no `imageDisabled` ⇒ grey, no `imageSelected` ⇒ the active border (tile only).
+ */
+export const BUTTON_LOOKS = [
+	'tile',
+	'tileDisabled',
+	'tileActive',
+	'tileDisabledActive',
+	'image',
+	'imageDisabled',
+] as const;
+export type ButtonLook = (typeof BUTTON_LOOKS)[number];
+
+/**
+ * The frame's look and whether it rotates, from the params and the live flags — `ButtonFrame`'s
+ * own derivation (`frameImage`, `paintDisabled`, `paintActive`, `hasSpinningImage`) through the
+ * SAME cascade, so the coded and the authored frame cannot disagree. `frame` is the image the look
+ * draws (absent on a tile look).
+ */
+export function resolveButtonLook(
+	params: Record<string, unknown>,
+	state: ButtonStateFlags,
+): { look: ButtonLook; frame?: string; rotating: boolean } {
+	const frame = resolveButtonStateImage(params, state) ?? imageParam(params, 'image');
+	const paintDisabled = state.disabled && imageParam(params, 'imageDisabled') === undefined;
+	const rotating = state.spinning && imageParam(params, 'imageSpinning') !== undefined;
+	if (frame) return { look: paintDisabled ? 'imageDisabled' : 'image', frame, rotating };
+	const paintActive = state.active && imageParam(params, 'imageSelected') === undefined;
+	const look: ButtonLook = paintDisabled
+		? paintActive
+			? 'tileDisabledActive'
+			: 'tileDisabled'
+		: paintActive
+			? 'tileActive'
+			: 'tile';
+	return { look, rotating };
 }

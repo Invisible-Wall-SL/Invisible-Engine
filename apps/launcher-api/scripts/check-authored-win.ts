@@ -1272,7 +1272,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 
 {
 	const game = src('../../lines/src/components/Game.svelte');
-	const load = game.slice(game.indexOf('loadEditorScenes().then((rawDoc)'));
+	const load = game.slice(game.indexOf('void loadEditorScenes().then('));
 	const swapAt = load.indexOf('withAuthoredWinDoc(transitioned, authoredWinPresentation())');
 	const v2At = load.indexOf('createLinesFlowV2(\n\t\t\t\tdoc,');
 	const v1At = load.indexOf('createLinesFlow(\n\t\t\t\t\t\tdoc,');
@@ -1461,7 +1461,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[
 			save.indexOf('const baseEtag = writeBaseEtagForm(form)') < decisionAt,
 			decisionAt < save.indexOf('await saveDoc('),
-			/if \(\s*!canPublishShared \|\|\s*submitsWinOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submitsFreeSpinsOn\(parsed as Partial<LayoutDoc>\))?\s*\) \{\s*const stored = await loadDocWithEtag\(/.test(
+			/if \(\s*!canPublishShared \|\|\s*submitsWinOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submits\w+On\(parsed as Partial<LayoutDoc>\))*\s*\) \{\s*const stored = await loadDocWithEtag\(/.test(
 				save,
 			),
 			(save.match(/await loadDocWithEtag\(/g) ?? []).length,

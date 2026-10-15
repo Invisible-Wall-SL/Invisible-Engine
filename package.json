@@ -60,6 +60,7 @@
 		"check:transition-parity": "node scripts/transition-parity/run.mjs",
 		"check:win-parity": "node scripts/win-parity/run.mjs",
 		"check:freespin-parity": "node scripts/freespin-parity/run.mjs",
+		"check:button-parity": "node scripts/button-parity/run.mjs",
 		"check:all": "node scripts/check-all.mjs",
 		"check:svelte": "node scripts/svelte-check-ratchet.mjs",
 		"check:python": "python scripts/check-python.py"

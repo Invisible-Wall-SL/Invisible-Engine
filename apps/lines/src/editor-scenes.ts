@@ -46,6 +46,7 @@ import {
 	AUTHORED_TRANSITION,
 	AUTHORED_WIN,
 	AUTHORED_FREE_SPINS,
+	AUTHORED_BUTTONS,
 	HUD_BUTTON_INSTANCES,
 	TRANSITION_INSTANCE,
 	WIN_INSTANCE,
@@ -1579,6 +1580,7 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	authoredTransition: AUTHORED_TRANSITION,
 	authoredWin: AUTHORED_WIN,
 	authoredFreeSpins: AUTHORED_FREE_SPINS,
+	authoredButtons: AUTHORED_BUTTONS,
 });
 
 /**
