@@ -1350,11 +1350,15 @@ included. Absent on every other def ⇒ unchanged (parity).
 **13.7.3 The timelines (built-in, code).** The clips are fixed (intro 0.6667 s, idle 2.8 s on all
 three shipped rigs), so the docs are static built-ins in `BUILTIN_TIMELINES`, not generated — a
 project timeline of the same id shadows one. Intro: `…_rest` (`enter`: hidden), `…_show`
-(`freeSpinStart`: visual on, frame + number intro then idle looping), `…_hide`
-(`freeSpinIntroHide`: visual off at 0.4 s). Outro: `…_rest`, `…_show_big` / `…_show_small`
-(`freeSpinOutroBigWin` / `freeSpinOutroSmallWin`, the FS-7 signals off the same
-`freeSpinOutroCountUp` broadcast the coded visual mounted on), `…_hide` (`freeSpinOutroHide`).
-Fades: the 8b fade machine (`hidden` ⇄ `shown`, 400 ms blends) on the same triggers. The count:
+(`freeSpinIntroShown`: visual on, frame + number intro then idle looping), `…_hide`
+(`freeSpinIntroHidden`: visual off at 0.4 s). Outro: `…_rest`, `…_show_big` / `…_show_small`
+(`freeSpinOutroShownBig` / `…Small`, off the `freeSpinOutroCountUp` broadcast the coded visual
+mounted on, by its win level), `…_hide` (`freeSpinOutroHidden`). Fades: the 8b fade machine
+(`hidden` ⇄ `shown`, 400 ms blends) on the same triggers. **Found at build time:** the game fires
+each of these signals ONE ANIMATION FRAME after its emitter event — the coded `FadeContainer`
+starts its tween and mounts its rigs on the tick after the event, and a fire on the event ran the
+whole presentation a frame ahead (the parity probe matched authored frame t to coded frame t+1 at
+0 px; with the delay, frames 1–30 are 0 px). The 8b gate does the same for its first tier. The count:
 intro = a game text source `freeSpinIntroCount` fed by `freeSpinIntroUpdate` (the coded visual's
 own number, `0` until the update); outro = the existing `freeSpinOutroTotalWin` (self-animated,
 currency-formatted, the driver's live tween).
@@ -1371,7 +1375,9 @@ for the authored instance carrying its transform; nothing to swap ⇒ the same o
 `retireCodedOverlay('freeSpins')` silences both coded visuals (render nothing, subscribe nothing);
 the driver is untouched. Everything the path registers (defs, the `freeSpinIntroCount` source, the
 `freeSpinIntroHide` / `freeSpinOutroHide` signals, the board box) is registered in the flag block
-and nowhere else. `AUTHORED_FREE_SPINS = false` joins `editorFlags.ts`; no URL opt-in.
+and nowhere else. `AUTHORED_FREE_SPINS = false` joins `editorFlags.ts`; no URL opt-in. The
+determinism probe gains an additive `presentations` list (which of the two defs has an instance
+mounted), the parity gate's positive control.
 
 **13.7.5 The lock (until the owner pilots it).** `AUTHORED_FREE_SPINS_LOCKED = true`: the Game
 Settings row is disabled with "pilot pending", the save refuses a switch to on (still switchable

@@ -485,16 +485,16 @@ eq(
 			true,
 			[
 				['c_freespinintropresentation_rest', 'enter'],
-				['c_freespinintropresentation_show', 'freeSpinStart'],
-				['c_freespinintropresentation_hide', 'freeSpinIntroHide'],
+				['c_freespinintropresentation_show', 'freeSpinIntroShown'],
+				['c_freespinintropresentation_hide', 'freeSpinIntroHidden'],
 				['c_freespinintropresentation_fade_hidden', null],
 				['c_freespinintropresentation_fade_shown', null],
 			],
 			[
 				['c_freespinoutropresentation_rest', 'enter'],
-				['c_freespinoutropresentation_show_big', 'freeSpinOutroBigWin'],
-				['c_freespinoutropresentation_show_small', 'freeSpinOutroSmallWin'],
-				['c_freespinoutropresentation_hide', 'freeSpinOutroHide'],
+				['c_freespinoutropresentation_show_big', 'freeSpinOutroShownBig'],
+				['c_freespinoutropresentation_show_small', 'freeSpinOutroShownSmall'],
+				['c_freespinoutropresentation_hide', 'freeSpinOutroHidden'],
 				['c_freespinoutropresentation_fade_hidden', null],
 				['c_freespinoutropresentation_fade_shown', null],
 			],
@@ -590,7 +590,7 @@ eq(
 	);
 	eq(
 		'a free-spin signal opens no hold',
-		[player.holdsOn('freeSpinStart'), player.holdsOn('freeSpinIntroHide')],
+		[player.holdsOn('freeSpinIntroShown'), player.holdsOn('freeSpinIntroHidden')],
 		[[], []],
 	);
 }
@@ -723,6 +723,12 @@ eq(
 			sha('../../../packages/engine-flow-v2/src/reference/bookOfChoreo.ts'),
 		],
 		PINNED,
+	);
+	const fs = src('../../lines/src/game/authoredFreeSpins.svelte.ts');
+	eq(
+		'every show / hide signal fires one animation frame after its emitter event (the coded tween’s tick)',
+		[(fs.match(/requestAnimationFrame\(/g) ?? []).length, /const nextFrame = /.test(fs)],
+		[3, true],
 	);
 	const flags = src('../../lines/src/game/editorFlags.ts');
 	eq('the dev pilot is off', /export const AUTHORED_FREE_SPINS = false;/.test(flags), true);

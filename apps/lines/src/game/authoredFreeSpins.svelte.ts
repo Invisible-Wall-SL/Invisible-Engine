@@ -1,7 +1,10 @@
 import {
 	FREE_SPIN_INTRO_COUNT_SOURCE,
 	FREE_SPIN_INTRO_HIDE_SIGNAL,
+	FREE_SPIN_INTRO_SHOW_SIGNAL,
+	FREE_SPIN_OUTRO_BIG_SIGNAL,
 	FREE_SPIN_OUTRO_HIDE_SIGNAL,
+	FREE_SPIN_OUTRO_SMALL_SIGNAL,
 	freeSpinPresentationDefs,
 	type ComponentDef,
 	type SignalSource,
@@ -13,7 +16,7 @@ import { SYMBOL_SIZE, eventSignal, textSource } from 'engine-game';
  * THE AUTHORED FREE-SPIN INTRO / OUTRO, game side (Rive plan Phase 8c,
  * `docs/design/rive-style-editor.md` §13.7): what `apps/lines` feeds the built-in presentations —
  * the two defs generated for this boot's board and language, the intro count (the number the coded
- * visual took off `freeSpinIntroUpdate`, `0` until it arrives) and the two hide signals. Everything
+ * visual took off `freeSpinIntroUpdate`, `0` until it arrives) and the show / hide signals. Everything
  * here is registered by `Game.svelte` only when the doc's flag resolves `ready`.
  */
 
@@ -41,13 +44,32 @@ export function authoredFreeSpinValues(onIntroUpdate: On<number>): Record<string
 	return { [FREE_SPIN_INTRO_COUNT_SOURCE]: textSource(() => String(introCount.value)) };
 }
 
-/** The presentations' hide signals, off the emitter events the coded visuals hid on. */
-export function authoredFreeSpinSignals(
-	onIntroHide: On,
-	onOutroHide: On,
-): Record<string, SignalSource> {
+/**
+ * The presentations' show / hide signals, each fired one animation frame after the emitter event the
+ * coded visual reacted to: its `FadeContainer` starts the tween (and mounts the rigs) on the tick
+ * after, and so do these. The outro shows by the win level the driver's `freeSpinOutroCountUp`
+ * carries — the event the coded visual mounted on.
+ */
+export function authoredFreeSpinSignals(on: {
+	introShow: On;
+	introHide: On;
+	outroCountUp: On<boolean>;
+	outroHide: On;
+}): Record<string, SignalSource> {
+	const nextFrame = (run: () => void) => () => requestAnimationFrame(() => run());
 	return {
-		[FREE_SPIN_INTRO_HIDE_SIGNAL]: eventSignal((run) => onIntroHide(() => run())),
-		[FREE_SPIN_OUTRO_HIDE_SIGNAL]: eventSignal((run) => onOutroHide(() => run())),
+		[FREE_SPIN_INTRO_SHOW_SIGNAL]: eventSignal((run) => on.introShow(nextFrame(() => run()))),
+		[FREE_SPIN_INTRO_HIDE_SIGNAL]: eventSignal((run) => on.introHide(nextFrame(() => run()))),
+		[FREE_SPIN_OUTRO_BIG_SIGNAL]: eventSignal((run) =>
+			on.outroCountUp((big) => {
+				if (big) requestAnimationFrame(() => run());
+			}),
+		),
+		[FREE_SPIN_OUTRO_SMALL_SIGNAL]: eventSignal((run) =>
+			on.outroCountUp((big) => {
+				if (!big) requestAnimationFrame(() => run());
+			}),
+		),
+		[FREE_SPIN_OUTRO_HIDE_SIGNAL]: eventSignal((run) => on.outroHide(nextFrame(() => run()))),
 	};
 }

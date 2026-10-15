@@ -2227,16 +2227,21 @@
 				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
 			}
 			// The coded free-spin visuals go dark for this boot; everything the authored path reads is
-			// registered here and nowhere else (a boot without the flag registers nothing new): the hide
-			// signals, the intro count, the live board box the instances sit on, and the two defs
+			// registered here and nowhere else (a boot without the flag registers nothing new): the show /
+			// hide signals, the intro count, the live board box the instances sit on, and the two defs
 			// generated for this board and language.
 			retireCodedOverlay('freeSpins', authoredFreeSpins);
 			if (authoredFreeSpins) {
 				registerComponentSignals(
-					authoredFreeSpinSignals(
-						(run) => context.eventEmitter.subscribe({ freeSpinIntroHide: () => run() }),
-						(run) => context.eventEmitter.subscribe({ freeSpinOutroHide: () => run() }),
-					),
+					authoredFreeSpinSignals({
+						introShow: (run) => context.eventEmitter.subscribe({ freeSpinIntroShow: () => run() }),
+						introHide: (run) => context.eventEmitter.subscribe({ freeSpinIntroHide: () => run() }),
+						outroCountUp: (run) =>
+							context.eventEmitter.subscribe({
+								freeSpinOutroCountUp: (e) => run(e.winLevelData?.type === 'big'),
+							}),
+						outroHide: (run) => context.eventEmitter.subscribe({ freeSpinOutroHide: () => run() }),
+					}),
 				);
 				registerComponentValues(
 					authoredFreeSpinValues((set) =>

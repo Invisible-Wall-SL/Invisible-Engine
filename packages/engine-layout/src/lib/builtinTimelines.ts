@@ -1,7 +1,10 @@
 import {
 	FREE_SPIN_INTRO_HIDE_SIGNAL,
 	FREE_SPIN_INTRO_PRESENTATION_ID,
+	FREE_SPIN_INTRO_SHOW_SIGNAL,
+	FREE_SPIN_OUTRO_BIG_SIGNAL,
 	FREE_SPIN_OUTRO_HIDE_SIGNAL,
+	FREE_SPIN_OUTRO_SMALL_SIGNAL,
 	FREE_SPIN_OUTRO_PRESENTATION_ID,
 	FREE_SPIN_PRESENTATION_NODES,
 	FREE_SPIN_PRESENTATION_RIGS,
@@ -417,7 +420,7 @@ export const FREE_SPIN_TIMELINES: readonly CinematicDoc[] = [
 	...fsTimelines(
 		FREE_SPIN_INTRO_PRESENTATION_ID,
 		'Free-spin intro',
-		[{ suffix: 'show', signal: 'freeSpinStart', visible: [], hidden: [] }],
+		[{ suffix: 'show', signal: FREE_SPIN_INTRO_SHOW_SIGNAL, visible: [], hidden: [] }],
 		FREE_SPIN_INTRO_HIDE_SIGNAL,
 	),
 	...fsTimelines(
@@ -426,13 +429,13 @@ export const FREE_SPIN_TIMELINES: readonly CinematicDoc[] = [
 		[
 			{
 				suffix: 'show_big',
-				signal: 'freeSpinOutroBigWin',
+				signal: FREE_SPIN_OUTRO_BIG_SIGNAL,
 				visible: [FS.captionBig, FS.footerBig],
 				hidden: [FS.captionSmall, FS.footerSmall],
 			},
 			{
 				suffix: 'show_small',
-				signal: 'freeSpinOutroSmallWin',
+				signal: FREE_SPIN_OUTRO_SMALL_SIGNAL,
 				visible: [FS.captionSmall, FS.footerSmall],
 				hidden: [FS.captionBig, FS.footerBig],
 			},

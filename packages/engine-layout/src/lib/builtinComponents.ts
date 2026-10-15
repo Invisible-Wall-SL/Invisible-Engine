@@ -1473,9 +1473,18 @@ export const FREE_SPIN_PRESENTATION_RIGS = {
 export const freeSpinFadeTimelineId = (defId: string, pose: 'hidden' | 'shown'): string =>
 	`c_${defId.toLowerCase()}_fade_${pose}`;
 
-/** The game signals the intro / outro hide on — registered by the game only on the authored path. */
-export const FREE_SPIN_INTRO_HIDE_SIGNAL = 'freeSpinIntroHide';
-export const FREE_SPIN_OUTRO_HIDE_SIGNAL = 'freeSpinOutroHide';
+/**
+ * The game signals the presentations show and hide on — registered by the game only on the authored
+ * path, each fired one animation frame after its emitter event (`freeSpinIntroShow`, the outro's
+ * `freeSpinOutroCountUp` by win level, `freeSpinIntroHide` / `freeSpinOutroHide`): the coded
+ * `FadeContainer` starts its tween, and mounts its rigs, on the tick after the event, so a fire on
+ * the event ran the whole presentation a frame ahead (measured by `check:freespin-parity`).
+ */
+export const FREE_SPIN_INTRO_SHOW_SIGNAL = 'freeSpinIntroShown';
+export const FREE_SPIN_INTRO_HIDE_SIGNAL = 'freeSpinIntroHidden';
+export const FREE_SPIN_OUTRO_BIG_SIGNAL = 'freeSpinOutroShownBig';
+export const FREE_SPIN_OUTRO_SMALL_SIGNAL = 'freeSpinOutroShownSmall';
+export const FREE_SPIN_OUTRO_HIDE_SIGNAL = 'freeSpinOutroHidden';
 /** The game text source the intro count reads (the coded visual's own `freeSpinIntroUpdate` number). */
 export const FREE_SPIN_INTRO_COUNT_SOURCE = 'freeSpinIntroCount';
 
@@ -1669,7 +1678,7 @@ export function freeSpinPresentationDefs(input: FreeSpinPresentationInput = FS_D
 		[fsSprite(N.caption, `freespins_${input.lang}.png`, 1.2, 500 * 2.2, 156 * 2.2)],
 		[fsSprite(N.footer, 'freespins.png', -3, 183 * 2.2, 42 * 2.2)],
 		FREE_SPIN_INTRO_COUNT_SOURCE,
-		['freeSpinStart'],
+		[FREE_SPIN_INTRO_SHOW_SIGNAL],
 		FREE_SPIN_INTRO_HIDE_SIGNAL,
 	);
 	const outro = def(
@@ -1687,7 +1696,7 @@ export function freeSpinPresentationDefs(input: FreeSpinPresentationInput = FS_D
 			fsSprite(N.footerSmall, 'totalwin.png', -2, 177 * 3, 42 * 3),
 		],
 		'freeSpinOutroTotalWin',
-		['freeSpinOutroBigWin', 'freeSpinOutroSmallWin'],
+		[FREE_SPIN_OUTRO_BIG_SIGNAL, FREE_SPIN_OUTRO_SMALL_SIGNAL],
 		FREE_SPIN_OUTRO_HIDE_SIGNAL,
 	);
 	return { intro, outro };
