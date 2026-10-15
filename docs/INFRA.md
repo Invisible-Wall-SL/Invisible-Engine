@@ -1021,7 +1021,7 @@ owner only; agents never change repository settings.
 | Block force pushes | **on** |
 | Require a pull request before merging | **on** — required approvals **0**, no code-owner review, allowed methods merge/squash/rebase (the repo itself only enables squash) |
 | Require status checks to pass | **on** — "Require branches to be up to date" **off**; source **GitHub Actions** for each check |
-| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` — `transition parity` (`.github/workflows/transition-parity.yml`, the authored-vs-coded Transition frames, Rive plan Phase 8a) is **advisory**: it runs on PRs touching the runtime, `packages/`, the harness libraries, the mock RGS, the lockfile or its own file, and adding it here is the owner's call; `win parity` (`check:win-parity`, Rive plan Phase 8b) gets the same kind of workflow in a follow-up PR |
+| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` — `transition parity` (`.github/workflows/transition-parity.yml`, the authored-vs-coded Transition frames, Rive plan Phase 8a) is **advisory**: it runs on PRs touching the runtime, `packages/`, the harness libraries, the mock RGS, the lockfile or its own file, and adding it here is the owner's call; `win parity` (`.github/workflows/win-parity.yml`, `check:win-parity`, the authored-vs-coded Win frames, Rive plan Phase 8b) is advisory on the same terms |
 
 Approvals stay at 0 because the owner and agents open and merge their own PRs; the checks are the
 gate. "Up to date" stays off because it would re-run ~15 CPU-minutes of `check-all` on every PR each
