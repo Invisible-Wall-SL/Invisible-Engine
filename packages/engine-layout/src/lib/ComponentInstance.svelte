@@ -67,7 +67,11 @@
 	import { setComponentPress } from './componentActionsContext';
 	import { getInstanceBinding } from './instanceBindingContext';
 	import { setComponentSignalAnims, type ComponentSignalAnim } from './componentSignalContext';
-	import { resolveComponentParams } from './componentParams';
+	import {
+		defineForwardedParams,
+		forwardInstanceParams,
+		resolveComponentParams,
+	} from './componentParams';
 	import {
 		resolveButtonStateImage,
 		resolveButtonStateAnimation,
@@ -221,14 +225,22 @@
 	// registers at boot via `registerComponentDefaults`, §14.2 B4.5) ◁ instance
 	// overrides. As in B1 the static set is read at init. No registered defaults ⇒
 	// `getComponentDefaults` is `undefined` ⇒ def's own defaults apply (parity).
+	// The enclosing instance's params, read before this instance provides its own (`{}` on a screen).
+	const enclosingParams = getComponentParams();
+	const projectDefaults = getComponentDefaults(node.componentId);
+	const ownParams = allowed && def ? resolveComponentParams(def, node.params, projectDefaults) : {};
+	// A nested instance's `params.<key>` bindings take those keys from the enclosing instance, so
+	// every init read below (source, action, scope, the state machine's `{param}`s) sees them. No
+	// such binding ⇒ the same map (parity).
+	const forwardedInstanceParams = forwardInstanceParams(node, node.params, enclosingParams);
 	const staticParams =
-		allowed && def
-			? resolveComponentParams(def, node.params, getComponentDefaults(node.componentId))
-			: {};
+		allowed && def && forwardedInstanceParams !== node.params
+			? resolveComponentParams(def, forwardedInstanceParams, projectDefaults)
+			: ownParams;
 	// What a `{key}` in a state-machine input's `source` reads: this instance's params, else the
 	// enclosing instance's — a firecracker placed inside a pot reads `meter.{meter}.share` through
-	// the pot's `meter`. Read before this instance provides its own.
-	const sourceParams: Record<string, unknown> = { ...getComponentParams(), ...staticParams };
+	// the pot's `meter`.
+	const sourceParams: Record<string, unknown> = { ...enclosingParams, ...staticParams };
 
 	// Signal scope (Phase 12a, `docs/design/hold-and-win.md` §8): the part this instance stands for —
 	// the value of the param the def names (`signalScope`: the pot's `meter`, a jackpot tile's
@@ -1083,16 +1095,21 @@
 	// still redefines + wins for its key (a count-up `value` is never a per-ratio constant). The
 	// init-stable STRUCTURAL reads above (`source`/`action`/`tapEnabled`/cues) read `staticParams`
 	// directly, NOT `providedParams`, so they are untouched — structure never varies by ratio.
+	const ownLayoutParam = (key: string): unknown => {
+		const override = node.overrides?.[currentLayoutType()]?.params;
+		return override && key in override ? override[key] : ownParams[key];
+	};
 	for (const key of layoutOverrideParamKeys) {
 		Object.defineProperty(providedParams, key, {
 			enumerable: true,
 			configurable: true,
-			get: () => {
-				const override = node.overrides?.[currentLayoutType()]?.params;
-				return override && key in override ? override[key] : staticParams[key];
-			},
+			get: () => ownLayoutParam(key),
 		});
 	}
+	// A forwarded param reads the enclosing instance's at read time, so a parent's per-ratio
+	// override reaches it; it wins over this instance's own per-ratio value, and a live feed below
+	// still wins over it. No forward ⇒ no getter (parity).
+	defineForwardedParams(providedParams, node, enclosingParams, ownLayoutParam);
 	if (valueSource) {
 		Object.defineProperty(providedParams, 'value', {
 			enumerable: true,

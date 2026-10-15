@@ -31,6 +31,7 @@
 		POT_PREVIEW_FILL_SHARE,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
+		forwardInstanceParams,
 		resolveComponentParams,
 		resolveLayoutInstanceParams,
 		anchoredPosition,
@@ -1898,7 +1899,7 @@
 	 * resolved preview art is a rig, or a reel BOARD whose symbols bind rig art)? Only
 	 * such scenes mount a (WebGL) rig sublayer in their group, so contexts stay bounded. */
 	function sceneHasRig(s: { nodes: LayoutNode[] }): boolean {
-		return nodesHaveRig(s.nodes, 0, [], undefined);
+		return nodesHaveRig(s.nodes, 0, [], undefined, componentParams);
 	}
 	/** Any symbol whose STATIC binding is a rig — the reel board then needs the WebGL
 	 * layer to draw its cells (the 2D canvas can only marker them). */
@@ -1915,6 +1916,9 @@
 		 * placeholder — even though the renderer WOULD have drawn it. Mirrors the renderer so the
 		 * layer mounts exactly when there is real rig work. */
 		instanceRigBundle: string | undefined,
+		/** The enclosing instance's resolved params (the open component's for a top-level node), the
+		 * ones a nested instance's forwarded params read — as `drawComponentInstance` resolves them. */
+		outerParams: Record<string, unknown>,
 	): boolean {
 		for (const n of nodes) {
 			if (n.kind === 'spine') return true;
@@ -1922,18 +1926,22 @@
 			if (n.kind === 'reelGrid' && hasRigSymbol) return true;
 			const art = anchorArt(n, instanceRigBundle);
 			if (art?.kind === 'spine' && art.assetKey) return true;
-			if (n.kind === 'container' && nodesHaveRig(n.children, depth, stack, instanceRigBundle))
+			if (
+				n.kind === 'container' &&
+				nodesHaveRig(n.children, depth, stack, instanceRigBundle, outerParams)
+			)
 				return true;
 			if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				const params = resolveComponentParams(
 					def,
-					resolveLayoutInstanceParams(n, layoutType),
+					forwardInstanceParams(n, resolveLayoutInstanceParams(n, layoutType), outerParams),
 					componentDefaults[def.id],
 				);
 				const rigBundle = instancePreviewRigBundle(def, params);
-				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle)) return true;
+				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle, params))
+					return true;
 			}
 		}
 		return false;
@@ -2609,7 +2617,14 @@
 			} else if (node.kind === 'componentInstance') {
 				const def = componentMap.get(node.componentId);
 				if (def && componentDepth < MAX_COMPONENT_DEPTH && !componentStack.includes(def.id))
-					drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
+					drawComponentInstance(
+						ctx,
+						node,
+						sceneCtx,
+						componentDepth,
+						componentStack,
+						instanceParams ?? componentParams,
+					);
 			}
 			ctx.restore();
 			return;
@@ -2906,7 +2921,14 @@
 					instanceRigBundle,
 				);
 		} else if (node.kind === 'componentInstance') {
-			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
+			drawComponentInstance(
+				ctx,
+				node,
+				sceneCtx,
+				componentDepth,
+				componentStack,
+				instanceParams ?? componentParams,
+			);
 		} else if (node.kind === 'reelGrid') {
 			drawReelGrid(ctx, node, t);
 		} else if (node.kind === 'effect') {
@@ -3407,6 +3429,9 @@
 		sceneCtx: Scene,
 		componentDepth: number,
 		componentStack: string[],
+		/** The enclosing instance's resolved params (the open component's for a top-level node, `{}`
+		 * on a screen): what the instance's forwarded params (`params.<key>` bindings) read. */
+		outerParams: Record<string, unknown>,
 	): void {
 		const def = componentMap.get(node.componentId);
 		if (!def) {
@@ -3429,9 +3454,10 @@
 		// Per-ratio param overrides (`node.overrides[layoutType].params`) merged onto the base
 		// instance params for the active device layout, so the canvas previews e.g. a smaller
 		// portrait font exactly as the game will resolve it. No override ⇒ `node.params` verbatim.
+		// Params the instance forwards from the enclosing one win over its own, as in the game.
 		const params = resolveComponentParams(
 			def,
-			resolveLayoutInstanceParams(node, layoutType),
+			forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outerParams),
 			componentDefaults[def.id],
 		);
 		// A nested bound-component that previews a RIG (the win / free-spin VISUAL) renders the
@@ -5187,6 +5213,7 @@
 						{assets}
 						{componentMap}
 						{componentDefaults}
+						{componentParams}
 						{rigPreview}
 						{rigPreviewNodeId}
 						{symbolStatics}
@@ -5347,6 +5374,7 @@
 				{assets}
 				{componentMap}
 				{componentDefaults}
+				{componentParams}
 				{rigPreview}
 				{rigPreviewNodeId}
 				worldTransformOf={drawTransform}

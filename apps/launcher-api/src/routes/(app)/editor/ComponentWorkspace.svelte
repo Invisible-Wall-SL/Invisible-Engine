@@ -97,6 +97,12 @@
 		placeableComponents,
 		type ComponentOpenRequest,
 	} from './componentWorkspace';
+	import {
+		exposeInstanceParam,
+		linkInstanceParam,
+		unlinkInstanceParam,
+		writeInstanceParam,
+	} from './instanceParamForwarding';
 	import type { PageData } from './$types';
 
 	/**
@@ -571,11 +577,14 @@
 				!!components.find((c) => c.id === id)?.params?.some((p) => p.key === POT_PIECE_LIGHT_PARAM),
 		);
 	});
-	/** Number every piece's `lightAt` from its height: the lowest lights first, the top at a full pot. */
+	/** Number every piece's `lightAt` from its height: the lowest lights first, the top at a full pot.
+	 * A piece that takes its `lightAt` from this component gets it as that param's default. */
 	function setLightOrder(): void {
+		if (!componentDraft) return;
+		const draft = componentDraft;
 		const thresholds = lightOrderThresholds(lightPieces.map((p) => p.y));
 		lightPieces.forEach(({ node }, i) => {
-			node.params = { ...node.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
+			writeInstanceParam(draft, node, POT_PIECE_LIGHT_PARAM, thresholds[i]);
 		});
 		editNonce += 1;
 	}
@@ -1460,6 +1469,32 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 		if (componentDraft.signalScope === key) setComponentSignalScope(undefined);
 		pruneOrphanParamBindings(componentDraft);
+	}
+
+	/** The selected nested instance and its def, when the open component may edit its forwards. */
+	function forwardTarget(): { node: ComponentInstanceNode; def: ComponentDef } | null {
+		if (!componentDraft || isInspecting || selectedNode?.kind !== 'componentInstance') return null;
+		const def = componentMap.get(selectedNode.componentId);
+		return def ? { node: selectedNode, def } : null;
+	}
+	/** "⇡ Expose on ‹this component›": the nested instance's `key` param becomes a new param here. */
+	function exposeNestedParam(key: string): void {
+		const target = forwardTarget();
+		if (!target || !componentDraft) return;
+		const projectDefaults = seededDefaults[target.def.id];
+		if (exposeInstanceParam(componentDraft, target.node, target.def, key, projectDefaults))
+			editNonce += 1;
+	}
+	/** Take the nested instance's `key` param from this component's `parentKey` param. */
+	function linkNestedParam(key: string, parentKey: string): void {
+		const target = forwardTarget();
+		if (!target || !componentDraft) return;
+		if (linkInstanceParam(componentDraft, target.node, target.def, key, parentKey)) editNonce += 1;
+	}
+	/** Stop taking the nested instance's `key` param from this component (the param stays). */
+	function unlinkNestedParam(key: string): void {
+		const target = forwardTarget();
+		if (target && unlinkInstanceParam(target.node, key)) editNonce += 1;
 	}
 
 	/** Set (or clear) a param's DEFAULT — the value the preview + every placed instance
@@ -2861,6 +2896,9 @@
 							selectedNode.params = Object.keys(params).length ? params : undefined;
 							editNonce += 1;
 						}}
+						onExposeInstanceParam={exposeNestedParam}
+						onLinkInstanceParam={linkNestedParam}
+						onUnlinkInstanceParam={unlinkNestedParam}
 					>
 						<!-- Save control + status for the per-project defaults SIDECAR (its own R2 key +
 						     ETag, hence its own SaveState), rendered by the panel that edits it. Declared

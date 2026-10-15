@@ -71,6 +71,12 @@
 	import { DEFAULT_CLIP_FPS, fetchClips, type EditorClip } from './editorFlipbooks.client';
 	import RegionPicker from './RegionPicker.svelte';
 	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
+	import {
+		forwardedFrom,
+		linkableParentParams,
+		uniqueParentKey,
+		writeInstanceParam,
+	} from './instanceParamForwarding';
 	import type { RigMeta } from './rigRuntime.client';
 
 	/** Minimal structural view of a project rig bundle (mirrors the server-only
@@ -255,6 +261,15 @@
 		projectDefaultsActions?: Snippet;
 		/** Set / clear an author param override on the selected instance (scene mode). */
 		onSetInstanceParam?: (key: string, value: unknown) => void;
+		/** Component mode, a nested instance selected: forward its `key` param from a NEW param of
+		 * the open component ("⇡ Expose on ‹parent›"), so each placement of the open one sets it. */
+		onExposeInstanceParam?: (key: string) => void;
+		/** Component mode: forward the nested instance's `key` param from the open component's
+		 * existing `parentKey` param. */
+		onLinkInstanceParam?: (key: string, parentKey: string) => void;
+		/** Component mode: stop forwarding the nested instance's `key` param; the open component's
+		 * param stays declared. */
+		onUnlinkInstanceParam?: (key: string) => void;
 		/** EDITOR-PREVIEW ONLY: the author focused (or changed) a rig / spineAnimation param on the
 		 * selected instance — drive the canvas's live rig preview to that bundle + animation so the
 		 * pick is WYSIWYG (a `spine` param previews its bundle's idle/first animation; a `spineAnimation`
@@ -349,6 +364,9 @@
 		projectLabel = null,
 		projectDefaultsActions,
 		onSetInstanceParam,
+		onExposeInstanceParam,
+		onLinkInstanceParam,
+		onUnlinkInstanceParam,
 		onPreviewRig,
 		onSetInstanceStateAnim,
 		onSetInstanceStateAnimLoop,
@@ -393,6 +411,8 @@
 			(p) => !p.engineProvided && !instanceUnusedParams.has(p.key),
 		),
 	);
+	/** The forward picker's "expose as a new param" choice (`instanceParamRow`). */
+	const FORWARD_EXPOSE = '+expose';
 
 	/** True when the SELECTED INSTANCE's def is an interactive button (declares an
 	 * `action` param) — only then do its rig nodes' button-state animations apply,
@@ -1188,8 +1208,11 @@
 	);
 	function setLightOrder(): void {
 		const thresholds = lightOrderThresholds(lightPieces.map((p) => p.y));
+		// Inside a component, a piece that takes its `lightAt` from it gets it as that param's default.
+		const parent = componentMode ? componentDraft : null;
 		lightPieces.forEach(({ node: piece }, i) => {
-			piece.params = { ...piece.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
+			if (parent) writeInstanceParam(parent, piece, POT_PIECE_LIGHT_PARAM, thresholds[i]);
+			else piece.params = { ...piece.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
 		});
 		onDirty?.();
 	}
@@ -3076,8 +3099,74 @@
 						{/if}
 					</label>
 				{/snippet}
+				<!-- Component mode: a param of a nested instance can come from the open component
+				     instead (`params.<key>` binding), so every placement of the open one sets it. -->
+				{#snippet instanceParamRow(p: ComponentParam)}
+					{@const parent = componentMode ? componentDraft : null}
+					{@const fromParent = parent ? forwardedFrom(node, p.key) : undefined}
+					{#if parent && fromParent}
+						<div class="row">
+							<div class="field wide">
+								<span>{p.label ?? `${p.key} (${p.kind})`}</span>
+								<span
+									class="forwarded-from"
+									title="Each placement of {parent.name} sets this through its {fromParent} param — under Component instance on a screen, or in This game's defaults."
+									>⇡ from {parent.name} · {fromParent}</span
+								>
+								<button
+									type="button"
+									class="reset"
+									disabled={componentReadOnly}
+									title="Stop taking this from {parent.name}: this placement uses its own value again. The {fromParent} param stays on {parent.name} — remove it under Component variables if nothing else reads it."
+									onclick={() => onUnlinkInstanceParam?.(p.key)}>×</button
+								>
+							</div>
+						</div>
+					{:else}
+						<div class="row">
+							{@render paramField(p)}
+							{#if parent && onExposeInstanceParam}
+								{@const linkable = linkableParentParams(parent, p)}
+								<select
+									class="forward-pick"
+									value=""
+									disabled={componentReadOnly}
+									aria-label="Expose on {parent.name}, or take from one of its params"
+									title="Expose on {parent.name}: each placement of {parent.name} then sets this. Or take it from one of {parent.name}'s params of the same kind."
+									onchange={(e) => {
+										const pick = e.currentTarget.value;
+										e.currentTarget.value = '';
+										if (pick === FORWARD_EXPOSE) onExposeInstanceParam?.(p.key);
+										else if (pick) onLinkInstanceParam?.(p.key, pick);
+									}}
+								>
+									<option value="">⇡</option>
+									<option value={FORWARD_EXPOSE}
+										>Expose on {parent.name} (new param {uniqueParentKey(parent, p.key)})</option
+									>
+									{#if linkable.length > 0}
+										<optgroup label="Take from {parent.name}'s">
+											{#each linkable as pp (pp.key)}
+												<option value={pp.key}
+													>{pp.label ? `${pp.label} · ${pp.key}` : pp.key}</option
+												>
+											{/each}
+										</optgroup>
+									{/if}
+								</select>
+							{/if}
+						</div>
+					{/if}
+				{/snippet}
 				{#if authorParams.length > 0}
 					<h4 class="sub-h">Params</h4>
+					{#if componentMode && componentDraft && onExposeInstanceParam}
+						<p class="muted small">
+							<strong>⇡</strong> beside a param exposes it on
+							<strong>{componentDraft.name}</strong>: each placement of {componentDraft.name} then sets
+							it, or several pieces share one of its params.
+						</p>
+					{/if}
 					{#if isOverrideMode}
 						<p class="muted small override-hint">
 							Editing the <strong>{layoutType}</strong> ratio — values here are saved as a per-ratio
@@ -3086,7 +3175,7 @@
 						</p>
 					{/if}
 					{#each ungroupedAuthorParams as p (p.key)}
-						<div class="row">{@render paramField(p)}</div>
+						{@render instanceParamRow(p)}
 					{/each}
 					{#each authorParamGroups as [groupName, groupParams] (groupName)}
 						{@const groupKey = `${instanceComponent?.id ?? ''}:${groupName}`}
@@ -3097,7 +3186,7 @@
 						>
 							<summary>{groupName}</summary>
 							{#each groupParams as p (p.key)}
-								<div class="row">{@render paramField(p)}</div>
+								{@render instanceParamRow(p)}
 							{/each}
 						</details>
 					{/each}
@@ -5827,6 +5916,27 @@
 	}
 	.field.check .reset {
 		position: static;
+	}
+	.field span.forwarded-from {
+		padding: 6px 8px;
+		border: 1px dashed #4a3f7a;
+		border-radius: 6px;
+		color: #c8a3ff;
+		text-transform: none;
+		letter-spacing: 0;
+		font-size: 12px;
+	}
+	.forward-pick {
+		flex: 0 0 auto;
+		align-self: flex-end;
+		width: 2.6em;
+		background: #0b0b10;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		padding: 6px 2px;
+		color: #c8a3ff;
+		font-size: 12px;
+		cursor: pointer;
 	}
 	.muted {
 		color: #666;

@@ -4,6 +4,7 @@ import {
 	aspectBox,
 	boundComponentRidesBone,
 	boundComponentTileImage,
+	forwardInstanceParams,
 	instancePreviewRigBundle,
 	resolveBoundValue,
 	resolveComponentParams,
@@ -388,6 +389,7 @@ export function nodeBox(
 			0,
 			[],
 			componentDefaults,
+			instanceParams ?? {},
 		);
 		if (content) return content;
 	}
@@ -548,7 +550,9 @@ function componentInstanceContentBox(
 	layoutType: LayoutType,
 	depth: number,
 	stack: string[],
-	componentDefaults?: Record<string, Record<string, unknown>>,
+	componentDefaults: Record<string, Record<string, unknown>> | undefined,
+	/** The enclosing instance's resolved params — what the instance's forwarded params read. */
+	outerParams: Record<string, unknown>,
 ): NodeBox | null {
 	const def = componentMap.get(node.componentId);
 	if (!def) return null;
@@ -559,13 +563,17 @@ function componentInstanceContentBox(
 	// authored rig's natural bounds (matching what the rig layer renders). Undefined ⇒ parity.
 	const rigBundle = instancePreviewRigBundle(
 		def,
-		resolveComponentParams(def, node.params, componentDefaults?.[def.id]),
+		resolveComponentParams(
+			def,
+			forwardInstanceParams(node, node.params, outerParams),
+			componentDefaults?.[def.id],
+		),
 	);
-	// The params the children DRAW with — per-ratio overrides included, as `drawComponentInstance`
-	// resolves them — so a part sized by them frames what the canvas draws.
+	// The params the children DRAW with — per-ratio overrides and forwarded params included, as
+	// `drawComponentInstance` resolves them — so a part sized by them frames what the canvas draws.
 	const params = resolveComponentParams(
 		def,
-		resolveLayoutInstanceParams(node, layoutType),
+		forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outerParams),
 		componentDefaults?.[def.id],
 	);
 
@@ -594,6 +602,7 @@ function componentInstanceContentBox(
 						depth + 1,
 						childStack,
 						componentDefaults,
+						params,
 					) ??
 					nodeBox(
 						child,
