@@ -6,7 +6,12 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import { authoredTransitionStatus, authoredWinEnabled, authoredWinStatus } from 'engine-layout';
+import {
+	authoredFreeSpinsStatus,
+	authoredTransitionStatus,
+	authoredWinEnabled,
+	authoredWinStatus,
+} from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -240,6 +245,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 								doc: layout,
 								tiers: authoredWinTiersFor({ config: config.doc, layout, winText }),
 							}),
+							authoredFreeSpins: authoredFreeSpinsStatus(layout),
 						}
 					: null,
 			});

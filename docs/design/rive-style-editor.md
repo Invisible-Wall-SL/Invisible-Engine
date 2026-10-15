@@ -1310,3 +1310,143 @@ in order, then the conditions the build carried and the findings it made.
   while holding, the dim under a moved instance, the first-win instant show vs the later fades.
   Known caveat: a reel-grid override moves `boardLayout()` but not the synthesized instance (the
   per-layout-override fallback covers it).
+
+**13.6.11 The parity follow-up (2026-10-15, `claude/rive-p8b-followup`).** The #1194 review's
+flag-on list and the deferred parity variants; the lock stays (last bullet):
+
+- **One clip per held timeline (the escalation hand-off).** The walk was ONE timeline (intro, then
+  one idle) with a snap-to-end within 1e-6. The coded track completes a clip when the frame deltas
+  summed since THAT clip started reach its length — no rounding, no snap — and starts the next at 0
+  from that `complete`. On the stepped clock the 720-frame idle's deltas sum a hair under 12 s, so
+  the coded idle completed on frame 721 while the snapped walk ended on 720: from each tier
+  hand-off on, the authored chain ran one frame ahead (t+801 showed the next tier on one side and
+  the old idle's last frame on the other; the rig's embers drifted after). Each clip is now its own
+  held timeline — `c_winpresentation_<alias>_walk` (the intro, `winTier.<alias>`) and
+  `c_winpresentation_<alias>_idle` (one idle cycle, `winTierIdle.<alias>`, a chain's non-final tier
+  only) — ended by the player's plain rule, and the conductor starts the next from the hold's end
+  (the walk gained a `cycle` phase). The final tier loops straight after its intro, as the coded
+  final idle does. The `toFrame` rounding and the player's `snapEnds` are gone; the player ends a
+  timeline by the pre-#1194 rule for every def. `escalation`: 0 px at every capture.
+- **Flag-on fixes.** (a) a cascade's running-total `winUpdate` (no tier data) starts no walk and no
+  fade; (b) `start` is taken once, from `idle` only — a count, tap or landing hold that arrives
+  first fires nothing and is folded into it (an instant count collapses straight to the final
+  outro, an early tap starts on its tier); (c) the swap writes the tiers' resolved rig and count
+  slot into the swapped and the synthesized instance (`withAuthoredWinDoc(doc, presentation)`), so a
+  tier rig named per tier, by `spineKey` or by a shared param draws that rig; (d) every spins
+  mode's tier captions are scanned by `caption-variable` (`winTierModeCaptions`), and a mode with
+  its own caption walks the tier under `winTier.<alias>@<mode>` with its own key, which the
+  conductor fires while that mode is on top; (e) the late-mount re-read waits for the next
+  animation frame, not a zero timeout; (f, found by `held`) the play-rate ramp is 1 once the
+  overlay hides — `winHide` clears the count latch while a held pointer keeps its speed, which cut
+  the hide timeline's 400 ms visibility cut to a few frames; (g) the coded rewind under the
+  fade-out is mirrored: `winHide` clears the count latch, `WinAnimation` takes that edge as a new
+  presentation and restarts an escalating chain's first-tier intro while the overlay fades, so the
+  gate fires `winTierRewind.<first>` (`…_rewind`: that intro on the tier rig alone, unheld).
+- **`slam-small`, renamed `slam-plain`.** Unreachable as specified: the Play4Fun facade every shipped game runs emits
+  `setWin` only at a `big`-typed tier, so a small / medium win never shows the overlay. The variant
+  now measures the plain-number presentation (`winPlain`) — what a big tier with no animation draws
+  — with the slam press; it remains big-typed (unskippable), so it is not a raced small-win slam.
+- **`held`.** The press is a held POINTER on the board: Space is the round's slam key and ended
+  the win at the press on both sides, so the earlier held run measured a slam. It now fails when
+  its span shows the hold never engaged (`maxSpan` 900: 375 held, 1951 unheld).
+- **Captions clear.** Once any tier or mode authors a caption, every walk keys the caption node —
+  `''` where the tier (or the mode) has none — so a walk never leaves the previous tier's caption
+  on screen, as the coded caption is drawn only while the tier on show has one.
+- **Residue in the fade-out — why the lock stays.** Every capture INSIDE every presentation is
+  0 px and every `winHide` lands on the same frame. The captures now reach 24 frames past the hide
+  (the 400 ms fade), and two escalating cases still differ there: `escalation` +1956 / +1966
+  (0.19 % / 0.21 %: the WINNING SYMBOLS' post-win pulse, not the Win art; not traced) and `held`
+  +380 / +390 (1.7 % / 10 %: the coded rewind intro runs at the frozen hold speed — the coded rig's
+  `timeScale` stays `max(speedScale, 1)` after the hide — while the authored timelines run at 1×,
+  which the hide's visibility cut needs; one play rate per component cannot do both). No reference
+  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stays
+  until the coordinator rules on these two.
+
+### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
+
+> Written against `main` c773a78 (8b merged). The 8b pattern, one flag row further. Built straight
+> after the design; the coordinator reviews both together.
+
+**13.7.1 The scope line.** 8c authors **what the two coded visuals draw** — `FreeSpinIntroVisual`
+and `FreeSpinOutroVisual`: the `fsIntro` frame rig (intro → looping idle), the count rig riding the
+frame's `slot_text_placeholder` (`fsIntroNumber` / `fsOutroNumber`, intro → looping idle), the
+count text riding the count rig's `slot_number`, the localized sprites (`freespins_{lang}.png`,
+`winsmall_{lang}.png`, `freespins.png`, `totalwin.png`) and the 400 ms `FadeContainer` fade. It
+leaves **coded** everything that holds or decides: `FreeSpinOutroDriver` (the
+`freeSpinOutroCountUp` subscription, the `WinCountUpProvider` count-up, the round hold and its
+self-resolve raced with `roundSkip`, `CountUpInteraction`, the `countUpComplete` latch and the
+`freeSpinOutroCountUpComplete` broadcast), each screen's `tapToContinue` (the dim, the tap,
+`tapArmAfterSignal`), `withFreeSpinScreenHolds` (`Show` … `Show{awaitComplete}` … `Hide`) and the
+choreography. The seam already exists (FS-7 split the outro into driver + visual; the intro visual
+never held anything), so — unlike 8b — **no timeline holds a cue**: the coded visuals held nothing,
+and a hold would change the round's timing. `holdsCue` / `cueHolds` are not used; the 8b conductor
+has no 8c twin because the driver already is one.
+
+**13.7.2 The components.** Two built-in defs, `freeSpinIntroPresentation` and
+`freeSpinOutroPresentation` (`scope: 'shared'`, `category: 'overlay'`, `internal`, `frameExact`),
+beside the `freeSpinIntroVisual` / `freeSpinOutroVisual` twins (a bumped twin would re-render
+every placed instance). GENERATED at boot (`freeSpinPresentationDefs({ symbolSize, boardColumns,
+lang })`) because the coded sizes are `SYMBOL_SIZE × boardDimensions().x` fractions and the sprite
+keys carry the boot's language — no engine-wide `{lang}` token. Nodes (coded order): `fade`
+(alpha, the fade machine) › `visual` (visibility) › `frame` rig (`fsIntro`, width = board columns ×
+symbol, offset by the coded authoring-box residue) + `content` container riding `frame`'s
+`slot_text_placeholder` › the caption sprite(s), the `number` rig (width × 0.3 intro / × 0.4 outro)
+with the `count` text riding its `slot_number`, the bottom sprite(s). The outro carries both
+big-win and small-win sprites; its timelines pick one. Placement: a new opt-in def field
+**`ComponentDef.boardAnchored?: true`** (built-in only, never stored): the instance is framed
+against the main box AND offset by the game's live board position (`boardBox()` gains `x` / `y`),
+so it lands where `FreeSpinAnimation` self-centred on `boardLayout()` — reel-grid overrides
+included. Absent on every other def ⇒ unchanged (parity).
+
+**13.7.3 The timelines (built-in, code).** The clips are fixed (intro 0.6667 s, idle 2.8 s on all
+three shipped rigs), so the docs are static built-ins in `BUILTIN_TIMELINES`, not generated — a
+project timeline of the same id shadows one. Intro: `…_rest` (`enter`: hidden), `…_show`
+(`freeSpinIntroShown`: visual on, frame + number intro then idle looping), `…_hide`
+(`freeSpinIntroHidden`: visual off at 0.4 s). Outro: `…_rest`, `…_show_big` / `…_show_small`
+(`freeSpinOutroShownBig` / `…Small`, off the `freeSpinOutroCountUp` broadcast the coded visual
+mounted on, by its win level), `…_hide` (`freeSpinOutroHidden`). Fades: the 8b fade machine
+(`hidden` ⇄ `shown`, 400 ms blends) on the same triggers. **Found at build time:** the game fires
+each of these signals ONE ANIMATION FRAME after its emitter event — the coded `FadeContainer`
+starts its tween and mounts its rigs on the tick after the event, and a fire on the event ran the
+whole presentation a frame ahead (the parity probe matched authored frame t to coded frame t+1 at
+0 px; with the delay, frames 1–30 are 0 px). The 8b gate does the same for its first tier. The count:
+intro = a game text source `freeSpinIntroCount` fed by `freeSpinIntroUpdate` (the coded visual's
+own number, `0` until the update); outro = the existing `freeSpinOutroTotalWin` (self-animated,
+currency-formatted, the driver's live tween).
+
+**13.7.4 Flag, status, swap, retire.** `settings.authoredOverlays.freeSpins?: true` — sparse,
+ON-only, one row for both screens. `authoredFreeSpinsStatus(doc)`: `off`; `ready`;
+`nothing-to-replace` (no scene binds a coded visual); `non-canvas-scene` (a coded bind sits in a
+non-`canvas` scene — the coded part wraps its own `MainContainer`, the authored instance would
+double-frame); `placed-visual` (a doc places a `freeSpinIntroVisual` / `freeSpinOutroVisual`
+instance — natural-size placement is not in 8c); `custom-presentation` (a bind carries non-default
+rig / clip / slot props). Every held-back status keeps the coded path for BOTH screens and the chip
+warns. `withAuthoredFreeSpinsDoc` swaps each `bind: FreeSpinIntroVisual / FreeSpinOutroVisual`
+for the authored instance carrying its transform; nothing to swap ⇒ the same object.
+`retireCodedOverlay('freeSpins')` silences both coded visuals (render nothing, subscribe nothing);
+the driver is untouched. Everything the path registers (defs, the `freeSpinIntroCount` source, the
+`freeSpinIntroHide` / `freeSpinOutroHide` signals, the board box) is registered in the flag block
+and nowhere else. `AUTHORED_FREE_SPINS = false` joins `editorFlags.ts`; no URL opt-in. The
+determinism probe gains an additive `presentations` list (which of the two defs has an instance
+mounted), the parity gate's positive control.
+
+**13.7.5 The lock (until the owner pilots it).** `AUTHORED_FREE_SPINS_LOCKED = true`: the Game
+Settings row is disabled with "pilot pending", the save refuses a switch to on (still switchable
+off), pinned by `check:authored-freespins`.
+
+**13.7.6 Parity.** Flag off: current-games 0 changed screens on every live game (`fs-trigger`,
+`fs-board`, `fs-spin`, `fs-settled`, `fs-transition`, `bigwin-*`). Flag on: `check:freespin-parity`
+(`scripts/freespin-parity/run.mjs`, the 8b shape on `cg-lines`, `FORCE_TRIGGER=1`,
+`?flowV2=lines`): **intro** (frames after `freeSpinIntroShow`, the tap, `freeSpinIntroHide` on the
+same frame ± 1), **outro** (frames after `freeSpinOutroShow` through the count-up and after
+`freeSpinOutroCountUpComplete`, the tap, `freeSpinOutroHide` ± 1), **outro-slam** (a tap during the
+count-up: the total lands, same frames), **retrigger** (the mock's additive `FORCE_RETRIGGER=1` on
+the first free spin; the outro after it), **turbo** (`ie_turbo=1`).
+
+**13.7.7 Ship chain (rule 8).** No new asset class: the defs and timelines are code in the runtime
+bundle; the rigs and sprites are the engine's static `fsIntro*` bundles and localization sprites,
+already in every game and delivery. The flag rides `bundle.doc.settings` through live, publish and
+the offline bake.
+
+**13.7.8 Removal, later.** As 8b: the twins' next versions replace their bound children, the coded
+visuals and `FreeSpinAnimation` go, the driver stays (it is the outro's conductor).

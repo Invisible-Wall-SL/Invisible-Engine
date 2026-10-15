@@ -7,10 +7,14 @@ import {
 	authoredWinStatus,
 	registerGameTimelines,
 	releaseCueHolds,
+	winTierIdleSignal,
 	winTierLoopSignal,
 	winTierOutroSignal,
+	winTierRewindSignal,
 	winTierSignal,
+	winTierModeCaptions,
 	winTierTimelines,
+	type AuthoredWinPresentation,
 	type AuthoredWinStatus,
 	type AuthoredWinTier,
 	type LayoutDoc,
@@ -29,10 +33,10 @@ import {
 	type WinWalkTier,
 } from 'engine-game';
 
-import { bakedCinematics } from '../editor-scenes';
-import { boardWinText } from './boardWinText';
+import { bakedCinematics, bakedWinText, bakedWinTextDoc } from '../editor-scenes';
 import {
 	activeBigTiers,
+	activeSpinsGame,
 	activeWinLevelByAlias,
 	activeWinLevelChain,
 	activeWinLevelData,
@@ -57,22 +61,49 @@ export const authoredWinRuntime = $state({
 });
 
 const captionFor = (alias: string): string | undefined => {
-	const caption = boardWinText().winLevels[alias];
+	const caption = bakedWinText().winLevels[alias];
 	return typeof caption === 'string' && caption.length > 0 ? caption : undefined;
 };
 
-/** Every active big tier that resolves to an animated presentation, with its clips and caption. */
-export function authoredWinClips(): (AuthoredWinTierClips & { caption?: string })[] {
+type AuthoredWinClips = AuthoredWinTierClips & {
+	caption?: string;
+	modeCaptions?: Record<string, string>;
+};
+
+/**
+ * Every active big tier that resolves to an animated presentation, with its clips and captions:
+ * the base game's, and each spins mode's own where it differs (the coded caption reads the mode on
+ * top through `boardWinText()`).
+ */
+export function authoredWinClips(): AuthoredWinClips[] {
 	const params = winPresentationParams();
-	const out: (AuthoredWinTierClips & { caption?: string })[] = [];
+	const doc = bakedWinTextDoc();
+	const out: AuthoredWinClips[] = [];
 	for (const { alias } of activeBigTiers()) {
 		const data = activeWinLevelByAlias(alias);
 		const clips = data ? authoredWinTierClips(params, data) : undefined;
 		if (!clips) continue;
 		const caption = captionFor(alias);
-		out.push(caption ? { ...clips, caption } : clips);
+		const modeCaptions = winTierModeCaptions(doc, alias);
+		out.push({
+			...clips,
+			...(caption ? { caption } : {}),
+			...(modeCaptions ? { modeCaptions } : {}),
+		});
 	}
 	return out;
+}
+
+/** The walk signal for tier `alias` under the spins mode on top: the mode's own when it speaks
+ *  its own caption for the tier, else the base game's. */
+export function authoredWinTierSignal(alias: string): string {
+	const mode = activeSpinsGame()?.mode;
+	const own =
+		mode !== undefined &&
+		authoredWinClips().some(
+			(tier) => tier.alias === alias && tier.modeCaptions?.[mode] !== undefined,
+		);
+	return own ? winTierSignal(alias, mode) : winTierSignal(alias);
 }
 
 /**
@@ -85,22 +116,30 @@ export function authoredWinDef(): ComponentDef {
 		activeBigTiers().map((tier) => [tier.alias, tier.name]),
 	);
 	return winPresentationDef(
-		authoredWinClips().map(({ alias, caption }) => ({
+		authoredWinClips().map(({ alias, caption, modeCaptions }) => ({
 			alias,
 			name: names[alias] ?? alias,
 			...(caption ? { caption } : {}),
+			...(modeCaptions ? { modeCaptions } : {}),
 		})),
 	);
 }
 
 /** The status rule's plain-data input: the tiers' rig, slot and caption. */
 export function authoredWinTiers(): AuthoredWinTier[] {
-	return authoredWinClips().map(({ alias, rigKey, slotName, caption }) => ({
+	return authoredWinClips().map(({ alias, rigKey, slotName, caption, modeCaptions }) => ({
 		alias,
 		rigKey,
 		slotName,
 		...(caption ? { caption } : {}),
+		...(modeCaptions ? { modeCaptions } : {}),
 	}));
+}
+
+/** The rig and slot the tiers resolve to, for the swap to write into the instance's params. */
+export function authoredWinPresentation(): AuthoredWinPresentation | undefined {
+	const first = authoredWinTiers()[0];
+	return first ? { winSpine: first.rigKey, slotName: first.slotName } : undefined;
 }
 
 /** What the flag does to this boot's doc — the ONE rule shared with the launcher. */
@@ -117,7 +156,8 @@ export function resolveAuthoredWinStatus(
 let signals: Record<string, ManualSignal> = {};
 
 /**
- * The game-registered signals the conductor fires: `winTier.<alias>` / `winTierLoop.<alias>` /
+ * The game-registered signals the conductor fires: `winTier.<alias>` (and `winTier.<alias>@<mode>`
+ * for a spins mode's own caption) / `winTierIdle.<alias>` / `winTierLoop.<alias>` /
  * `winTierOutro.<alias>` per active big tier, `winPlain`, `winFade` (the def's fade machine's show
  * trigger, fired by the gate where the coded container started its tween) and `winHide` off the
  * emitter event (the machine's hide trigger). The
@@ -140,8 +180,14 @@ export function authoredWinSignals(
 		[WIN_HIDE_SIGNAL]: eventSignal((run) => subscribeWinHide(() => run())),
 	};
 	signals[WIN_FADE_SIGNAL] = out[WIN_FADE_SIGNAL] as ManualSignal;
-	for (const { alias } of authoredWinClips()) {
+	for (const { alias, modeCaptions } of authoredWinClips()) {
 		out[winTierSignal(alias)] = manual(winTierSignal(alias));
+		for (const mode of Object.keys(modeCaptions ?? {}))
+			out[winTierSignal(alias, mode)] = manual(winTierSignal(alias, mode));
+		out[winTierIdleSignal(alias)] = manual(winTierIdleSignal(alias));
+		// Never seeded: a late subscriber after the hide plays no rewind.
+		out[winTierRewindSignal(alias)] = manualSignal();
+		signals[winTierRewindSignal(alias)] = out[winTierRewindSignal(alias)] as ManualSignal;
 		out[winTierLoopSignal(alias)] = manual(winTierLoopSignal(alias));
 		out[winTierOutroSignal(alias)] = manual(winTierOutroSignal(alias));
 	}
@@ -157,6 +203,11 @@ export function fireAuthoredWinSignal(signal: string): void {
 /** The fade layer's show trigger (the def's `winFade` input); not a phase, never seeded. */
 export function fireAuthoredWinFade(): void {
 	signals[WIN_FADE_SIGNAL]?.fire();
+}
+
+/** The coded walk's rewind under the fade-out (`…_rewind`); not a phase, never seeded. */
+export function fireAuthoredWinRewind(alias: string): void {
+	signals[winTierRewindSignal(alias)]?.fire();
 }
 
 /** The presentation is over (`winHide`): no phase is current. */
@@ -191,12 +242,13 @@ export function loadedRigClipMs(
 
 /** The tiers as the generator takes them (alias, clips, caption). */
 export function authoredWinTimelineTiers(): WinTierTimelineTier[] {
-	return authoredWinClips().map(({ alias, intro, idle, outro, caption }) => ({
+	return authoredWinClips().map(({ alias, intro, idle, outro, caption, modeCaptions }) => ({
 		alias,
 		intro,
 		idle,
 		...(outro ? { outro } : {}),
 		...(caption ? { caption } : {}),
+		...(modeCaptions ? { modeCaptions } : {}),
 	}));
 }
 
@@ -231,8 +283,10 @@ export function registerAuthoredWinTimelines(loaded: Record<string, unknown>): v
  */
 export function releaseAuthoredWinHolds(): void {
 	releaseCueHolds(WIN_PLAIN_SIGNAL);
-	for (const { alias } of authoredWinClips()) {
+	for (const { alias, modeCaptions } of authoredWinClips()) {
 		releaseCueHolds(winTierSignal(alias));
+		for (const mode of Object.keys(modeCaptions ?? {})) releaseCueHolds(winTierSignal(alias, mode));
+		releaseCueHolds(winTierIdleSignal(alias));
 		releaseCueHolds(winTierLoopSignal(alias));
 		releaseCueHolds(winTierOutroSignal(alias));
 	}
