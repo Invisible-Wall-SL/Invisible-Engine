@@ -23,6 +23,7 @@
 		instancePreviewRigBundle,
 		isCoverFitKind,
 		isHudScene,
+		tapOverlayDim,
 		MAX_COMPONENT_DEPTH,
 		parseScopedFrameRef,
 		aspectBox,
@@ -50,6 +51,8 @@
 	import { onMount, type Snippet } from 'svelte';
 	import {
 		childLocalTransform,
+		depthSegments,
+		type DepthSegment,
 		nodeBox,
 		nodeCornersWorld,
 		repeaterPlaceholderGrid,
@@ -1164,31 +1167,39 @@
 	/** Drop a scene's report buffers (when its group unmounts — hidden/removed) and
 	 * recompute the merged unions/sums so stale ready keys + load tallies don't linger. */
 	function forgetScene(id: string): void {
-		rigReadyByScene.delete(id);
-		rigNaturalByScene.delete(id);
-		rigMetaByScene.delete(id);
-		textReadyByScene.delete(id);
-		textMeasuredByScene.delete(id);
-		effectReadyByScene.delete(id);
-		effectBoundsByScene.delete(id);
-		rigLoadByScene.delete(id);
-		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
-		delete blendRunCache[id];
-		delete blendOverlayCache[id];
-		delete normalOverlayCache[id];
-		// The scene's blend overlays report under synthetic `<sceneId>#blend:<mode>` keys — purge
-		// them too, else a removed scene's rigs stay "ready" forever and keep their placeholders off.
-		const blendPrefix = `${id}#blend:`;
+		forgetReportKey(id);
+	}
+
+	/**
+	 * Drop every report buffer and run cache filed under `key` or a key built on it, then recompute
+	 * the merged unions/sums. A scene's surfaces report under its id, its later depth segments under
+	 * `<sceneId>#seg<i>` and its blended overlays under `<key>#blend:<mode>`, so the `#` prefix
+	 * reaches all of them. A leftover buffer would keep a removed rig "ready" and its placeholder off.
+	 */
+	function forgetReportKey(key: string): void {
+		const prefix = `${key}#`;
+		const owned = (k: string): boolean => k === key || k.startsWith(prefix);
 		for (const map of [
 			rigReadyByScene,
 			rigNaturalByScene,
 			rigMetaByScene,
+			textReadyByScene,
+			textMeasuredByScene,
 			effectReadyByScene,
 			effectBoundsByScene,
 			rigLoadByScene,
+			fontLoadByScene,
 		] as Map<string, unknown>[]) {
-			for (const key of [...map.keys()]) if (key.startsWith(blendPrefix)) map.delete(key);
+			for (const k of [...map.keys()]) if (owned(k)) map.delete(k);
+		}
+		for (const cache of [
+			blendRunCache,
+			blendOverlayCache,
+			normalOverlayCache,
+			textOverlayCache,
+		] as Record<string, unknown>[]) {
+			for (const k of Object.keys(cache)) if (owned(k)) delete cache[k];
 		}
 		const meta = new Map<string, RigMeta>();
 		for (const m of rigMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
@@ -1231,7 +1242,8 @@
 
 	/** Svelte action: register one {@link BlendRun}'s 2D canvas + size/draw it once it mounts.
 	 * The scene's per-scene buffers are only forgotten when its LAST run canvas goes — a scene
-	 * that merely re-splits its runs (an author flips one node to `add`) must keep them. */
+	 * that merely re-splits its runs (an author flips one node to `add`) must keep them. A later
+	 * depth segment's buffers go with its own last canvas, when a reorder merges it away. */
 	function registerSceneCanvasAction(el: HTMLCanvasElement, run: BlendRun) {
 		registerSceneCanvas(run.key, el);
 		resizeCanvas();
@@ -1239,9 +1251,11 @@
 		return {
 			destroy() {
 				registerSceneCanvas(run.key, null);
-				const prefix = `${run.sceneId}#`;
-				for (const key of sceneCanvases.keys()) if (key.startsWith(prefix)) return;
-				forgetScene(run.sceneId);
+				const mounted = (prefix: string): boolean =>
+					[...sceneCanvases.keys()].some((key) => key.startsWith(prefix));
+				if (!mounted(`${run.sceneId}#`)) forgetScene(run.sceneId);
+				else if (run.segKey !== run.sceneId && !mounted(`${run.segKey}#`))
+					forgetReportKey(run.segKey);
 			},
 		};
 	}
@@ -1872,7 +1886,7 @@
 	/** Does a scene carry a rig render target (a real rig node, a `bind` anchor whose
 	 * resolved preview art is a rig, or a reel BOARD whose symbols bind rig art)? Only
 	 * such scenes mount a (WebGL) rig sublayer in their group, so contexts stay bounded. */
-	function sceneHasRig(s: Scene): boolean {
+	function sceneHasRig(s: { nodes: LayoutNode[] }): boolean {
 		return nodesHaveRig(s.nodes, 0, [], undefined);
 	}
 	/** Any symbol whose STATIC binding is a rig — the reel board then needs the WebGL
@@ -1919,7 +1933,7 @@
 	 * instances, which the overlay now also owns? Only such scenes mount the pixi text
 	 * sublayer. Walks the same tree (+ `componentInstance` expansion) as the overlay's
 	 * `collectTextTargets`, so the layer mounts exactly when the overlay has work. */
-	function sceneHasText(s: Scene): boolean {
+	function sceneHasText(s: { nodes: LayoutNode[] }): boolean {
 		return nodesHaveText(s.nodes, 0, []);
 	}
 	function nodesHaveText(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
@@ -1946,7 +1960,7 @@
 	/** Does a scene carry a placed `kind:'effect'` node ANYWHERE in its tree (incl. nested in a
 	 * container / component instance)? Only such scenes mount the (WebGL) effect sublayer, so Pixi
 	 * contexts stay bounded — mirroring `sceneHasRig`. */
-	function sceneHasEffect(s: Scene): boolean {
+	function sceneHasEffect(s: { nodes: LayoutNode[] }): boolean {
 		return nodesHaveEffect(s.nodes, 0, []);
 	}
 	function nodesHaveEffect(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
@@ -2070,9 +2084,11 @@
 	 * — the single canvas the editor has always had (parity, no extra surfaces).
 	 */
 	interface BlendRun {
-		/** `<sceneId>#<runIndex>` — the canvas-registry key and the `{#each}` key. */
+		/** `<segmentKey>#<runIndex>` — the canvas-registry key and the `{#each}` key. */
 		key: string;
 		sceneId: string;
+		/** The {@link DepthSegment} the run belongs to (the scene id for the first one). */
+		segKey: string;
 		mode: BlendMode;
 		/** CSS `mix-blend-mode` for the run's canvas element. */
 		css: string;
@@ -2091,34 +2107,33 @@
 		return resolveTransform(n, layoutType).blendMode ?? 'normal';
 	}
 
-	/** Memoized runs per scene — the Sets are handed to the WebGL overlays as props, so a fresh
-	 * reference on every re-render would rebuild their skeletons/emitters each frame. Recomputed
-	 * only when the scene's id→mode sequence (or the layoutType) actually changes. */
+	/** Memoized runs per depth segment — the Sets are handed to the WebGL overlays as props, so a
+	 * fresh reference on every re-render would rebuild their skeletons/emitters each frame.
+	 * Recomputed only when the segment's id→mode sequence (or the layoutType) actually changes. */
 	const blendRunCache: Record<string, { sig: string; runs: BlendRun[] } | undefined> = {};
-	function blendRuns(s: Scene): BlendRun[] {
-		const modes = s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`);
+	function blendRuns(seg: DepthSegment): BlendRun[] {
+		const modes = seg.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`);
 		const sig = `${layoutType}|${modes.join(',')}`;
-		const hit = blendRunCache[s.id];
+		const hit = blendRunCache[seg.key];
 		if (hit && hit.sig === sig) return hit.runs;
 		const runs: BlendRun[] = [];
-		for (const n of s.nodes) {
+		const run = (mode: BlendMode, ids: Set<string>): BlendRun => ({
+			key: `${seg.key}#${runs.length}`,
+			sceneId: seg.sceneId,
+			segKey: seg.key,
+			mode,
+			css: cssBlendMode(mode),
+			ids,
+		});
+		for (const n of seg.nodes) {
 			const mode = nodeBlendMode(n);
 			const last = runs[runs.length - 1];
 			if (last && last.mode === mode) last.ids.add(n.id);
-			else
-				runs.push({
-					key: `${s.id}#${runs.length}`,
-					sceneId: s.id,
-					mode,
-					css: cssBlendMode(mode),
-					ids: new Set([n.id]),
-				});
+			else runs.push(run(mode, new Set([n.id])));
 		}
 		// An empty scene still needs its canvas — the group's other sublayers stack on it.
-		if (runs.length === 0) {
-			runs.push({ key: `${s.id}#0`, sceneId: s.id, mode: 'normal', css: 'normal', ids: new Set() });
-		}
-		blendRunCache[s.id] = { sig, runs };
+		if (runs.length === 0) runs.push(run('normal', new Set()));
+		blendRunCache[seg.key] = { sig, runs };
 		return runs;
 	}
 
@@ -2126,10 +2141,11 @@
 	 * The blend GROUPS a scene's WebGL overlay (rig / FX) splits into: the un-blended nodes stay
 	 * on the layer the editor already mounted (`nodeFilter: null` — byte-identical parity), and
 	 * each non-normal mode gets ONE extra layer. Unlike the 2D runs this collapses to one layer per
-	 * MODE rather than per run, because the overlays already sit in a fixed stack above the 2D art
-	 * (2D → rig → text → FX) and so make no intra-scene z-order promise to keep. That also keeps
-	 * the WebGL context count bounded: a scene adds a context per distinct blend mode it uses, and
-	 * blending is opt-in, so the common scene adds none.
+	 * MODE rather than per run, because inside one depth segment the overlays sit in a fixed stack
+	 * above the 2D art (2D → rig → text → FX); the order BETWEEN segments is what keeps an FX under
+	 * later art (see {@link depthSegments}). That also keeps the WebGL context count bounded: a
+	 * segment adds a context per distinct blend mode it uses, and blending is opt-in, so the common
+	 * scene adds none.
 	 */
 	interface BlendOverlayGroup {
 		/** Synthetic merge/report key — `forgetScene` purges these alongside the scene. */
@@ -2142,41 +2158,67 @@
 		string,
 		{ sig: string; groups: BlendOverlayGroup[] } | undefined
 	> = {};
-	function blendOverlayGroups(s: Scene): BlendOverlayGroup[] {
-		const sig = `${layoutType}|${s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
-		const hit = blendOverlayCache[s.id];
+	function blendOverlayGroups(seg: DepthSegment): BlendOverlayGroup[] {
+		const sig = `${layoutType}|${seg.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
+		const hit = blendOverlayCache[seg.key];
 		if (hit && hit.sig === sig) return hit.groups;
 		const byMode: Partial<Record<BlendMode, string[]>> = {};
-		for (const n of s.nodes) {
+		for (const n of seg.nodes) {
 			const mode = nodeBlendMode(n);
 			if (mode === 'normal') continue;
 			(byMode[mode] ??= []).push(n.id);
 		}
 		const groups: BlendOverlayGroup[] = Object.entries(byMode).map(([mode, ids]) => ({
-			key: `${s.id}#blend:${mode}`,
+			key: `${seg.key}#blend:${mode}`,
 			mode: mode as BlendMode,
 			css: cssBlendMode(mode as BlendMode),
 			ids: new Set(ids),
 		}));
-		blendOverlayCache[s.id] = { sig, groups };
+		blendOverlayCache[seg.key] = { sig, groups };
 		return groups;
 	}
 
-	/** The un-blended top-level node ids of a scene — the `nodeFilter` for its BASE overlay layer,
-	 * so a blended rig renders on its own blended layer instead of twice. `null` when the scene
-	 * blends nothing, which is the untouched path the overlays take today. */
+	/** The un-blended top-level node ids of a depth segment — the `nodeFilter` for its BASE overlay
+	 * layer, so a blended rig renders on its own blended layer instead of twice and a node in another
+	 * segment is not drawn again here. `null` (every node) only when the segment is the whole scene
+	 * and blends nothing, which is the untouched path the overlays take today. */
 	const normalOverlayCache: Record<string, { sig: string; ids: Set<string> | null } | undefined> =
 		{};
-	function normalOverlayFilter(s: Scene): Set<string> | null {
-		const sig = `${layoutType}|${s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
-		const hit = normalOverlayCache[s.id];
+	function normalOverlayFilter(seg: DepthSegment): Set<string> | null {
+		const modes = seg.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',');
+		const sig = `${layoutType}|${seg.whole}|${modes}`;
+		const hit = normalOverlayCache[seg.key];
 		if (hit && hit.sig === sig) return hit.ids;
-		const blended = s.nodes.some((n) => nodeBlendMode(n) !== 'normal');
-		const ids = blended
-			? new Set(s.nodes.filter((n) => nodeBlendMode(n) === 'normal').map((n) => n.id))
-			: null;
-		normalOverlayCache[s.id] = { sig, ids };
+		const blended = seg.nodes.some((n) => nodeBlendMode(n) !== 'normal');
+		const ids =
+			blended || !seg.whole
+				? new Set(seg.nodes.filter((n) => nodeBlendMode(n) === 'normal').map((n) => n.id))
+				: null;
+		normalOverlayCache[seg.key] = { sig, ids };
 		return ids;
+	}
+
+	/** The text overlay's `nodeFilter` for a depth segment: every node in it (text has no blended
+	 * layer), or `null` when the segment is the whole scene — the path the text layer always took. */
+	const textOverlayCache: Record<string, { sig: string; ids: Set<string> | null } | undefined> = {};
+	function textOverlayFilter(seg: DepthSegment): Set<string> | null {
+		const sig = `${seg.whole}|${seg.nodes.map((n) => n.id).join(',')}`;
+		const hit = textOverlayCache[seg.key];
+		if (hit && hit.sig === sig) return hit.ids;
+		const ids = seg.whole ? null : new Set(seg.nodes.map((n) => n.id));
+		textOverlayCache[seg.key] = { sig, ids };
+		return ids;
+	}
+
+	/** Which depth segment's rig layer draws the full-screen dim (`activeSceneId`). Each rig layer
+	 * paints the scrim into its own canvas, so handing it to every segment would stack the dim. The
+	 * segment holding the dim anchor gets it, so the anchor's frame rig draws bright over it; failing
+	 * that (no rig there), the first segment with a rig. */
+	function scrimSegmentKey(segs: DepthSegment[]): string | undefined {
+		if (segs.length === 1) return segs[0].key;
+		const withRig = segs.filter((seg) => sceneHasRig(seg));
+		const anchor = withRig.find((seg) => seg.nodes.some((n) => (tapOverlayDim(n) ?? 0) > 0));
+		return (anchor ?? withRig[0])?.key;
 	}
 
 	/**
@@ -2284,7 +2326,7 @@
 		// shared surface, which has to blend inline — is unaffected.
 		elementCarriesBlend = true;
 		for (const s of visibleGameScenes()) {
-			for (const run of blendRuns(s)) {
+			for (const run of depthSegments(s, componentMap).flatMap(blendRuns)) {
 				const c = sceneCanvases.get(run.key);
 				if (!c) continue;
 				const sctx = c.getContext('2d');
@@ -5043,126 +5085,100 @@
 	     rig/text sublayers are filtered to the one scene + mounted only when present
 	     (keeps WebGL/pixi contexts bounded). -->
 	{#each visibleGameScenes() as s (s.id)}
+		{@const segs = depthSegments(s, componentMap)}
+		{@const scrimKey = scrimSegmentKey(segs)}
 		<div class="scene-group">
-			<!-- One canvas per BLEND RUN (usually exactly one): consecutive top-level nodes that
-			     share a blend mode, with the mode on the element so the browser composites the run
-			     against everything painted beneath it — earlier scene groups included. See
-			     `blendRuns`. -->
-			{#each blendRuns(s) as run (run.key)}
-				<canvas class="scene-2d" style:mix-blend-mode={run.css} use:registerSceneCanvasAction={run}
-				></canvas>
-			{/each}
-			{#if sceneHasRig(s)}
-				<EditorRigLayer
-					{scenes}
-					{mainSizesMap}
-					{layoutType}
-					{frameWidth}
-					{frameHeight}
-					{panX}
-					{panY}
-					{zoom}
-					{assets}
-					{componentMap}
-					{componentDefaults}
-					{rigPreview}
-					{rigPreviewNodeId}
-					{symbolStatics}
-					{gridDimensions}
-					worldTransformOf={drawTransform}
-					reloadToken={rigReload}
-					{hiddenSceneIds}
-					sceneFilter={sceneFilterFor(s.id)}
-					nodeFilter={normalOverlayFilter(s)}
-					activeSceneId={scene.id}
-					playing={playingRigs}
-					{boneRiders}
-					onReadyKeysChange={(keys) => {
-						mergeRigReady(s.id, keys);
-						schedule();
-					}}
-					onNaturalSizesChange={(sizes) => {
-						mergeRigNatural(s.id, sizes);
-						schedule();
-					}}
-					onRigMetaChange={(meta) => {
-						mergeRigMeta(s.id, meta);
-						schedule();
-					}}
-					onLoadingChange={(c) => {
-						mergeRigLoading(s.id, c);
-					}}
-				/>
-			{/if}
-			{#if sceneHasText(s)}
-				<EditorTextLayer
-					{scenes}
-					{layoutType}
-					{panX}
-					{panY}
-					{zoom}
-					worldTransformOf={drawTransform}
-					{hiddenSceneIds}
-					sceneFilter={sceneFilterFor(s.id)}
-					{projectGameName}
-					{componentParams}
-					{componentDefaults}
-					{componentMap}
-					{repeaterSources}
-					{frameWidth}
-					{frameHeight}
-					reloadToken={fontReload}
-					{redrawNonce}
-					onLoadingChange={(c) => {
-						mergeFontLoading(s.id, c);
-					}}
-					onReadyIdsChange={(ids) => {
-						mergeTextReady(s.id, ids);
-						schedule();
-					}}
-					onMeasuredChange={(sizes) => {
-						mergeTextMeasured(s.id, sizes);
-						schedule();
-					}}
-				/>
-			{/if}
-			{#if sceneHasEffect(s)}
-				<EditorEffectLayer
-					{scenes}
-					{layoutType}
-					{frameWidth}
-					{frameHeight}
-					{panX}
-					{panY}
-					{zoom}
-					{componentMap}
-					worldTransformOf={drawTransform}
-					{hiddenSceneIds}
-					sceneFilter={sceneFilterFor(s.id)}
-					nodeFilter={normalOverlayFilter(s)}
-					playing={playingEffects}
-					onReadyKeysChange={(ids) => {
-						mergeEffectReady(s.id, ids);
-						schedule();
-					}}
-					onBoundsChange={(bounds) => {
-						mergeEffectBounds(s.id, bounds);
-						schedule();
-					}}
-				/>
-			{/if}
-			<!-- BLENDED effects: one extra FX overlay per blend mode the scene uses, carrying the
-			     mode as CSS `mix-blend-mode` on its own element. Renders nothing when the scene
-			     blends nothing (`blendOverlayGroups` is empty), so the common scene mounts exactly
-			     the surfaces it always has. Reports go under the group's synthetic key, which
-			     `forgetScene` purges with the scene.
-
-			     No blended RIG layer: a Pixi blend cannot reach skeleton geometry (see
-			     `canBlendKind`), so `nodeBlendMode` resolves every rig to `normal` and such a
-			     layer could only ever be empty — while still costing a WebGL context, which the
-			     shared-canvas budget cannot spare. -->
-			{#each blendOverlayGroups(s) as g (g.key)}
-				{#if sceneHasEffect(s)}
+			<!-- One stack per DEPTH SEGMENT (usually exactly one — see `depthSegments`): a
+			     segment that starts after an FX draws above that FX, as later art does in the
+			     game. Every surface below reports under the segment's key. -->
+			{#each segs as seg (seg.key)}
+				<!-- One canvas per BLEND RUN (usually exactly one): consecutive top-level nodes that
+				     share a blend mode, with the mode on the element so the browser composites the run
+				     against everything painted beneath it — earlier scene groups included. See
+				     `blendRuns`. -->
+				{#each blendRuns(seg) as run (run.key)}
+					<canvas
+						class="scene-2d"
+						style:mix-blend-mode={run.css}
+						use:registerSceneCanvasAction={run}
+					></canvas>
+				{/each}
+				{#if sceneHasRig(seg)}
+					<EditorRigLayer
+						{scenes}
+						{mainSizesMap}
+						{layoutType}
+						{frameWidth}
+						{frameHeight}
+						{panX}
+						{panY}
+						{zoom}
+						{assets}
+						{componentMap}
+						{componentDefaults}
+						{rigPreview}
+						{rigPreviewNodeId}
+						{symbolStatics}
+						{gridDimensions}
+						worldTransformOf={drawTransform}
+						reloadToken={rigReload}
+						{hiddenSceneIds}
+						sceneFilter={sceneFilterFor(s.id)}
+						nodeFilter={normalOverlayFilter(seg)}
+						activeSceneId={scrimKey === seg.key ? scene.id : null}
+						playing={playingRigs}
+						{boneRiders}
+						onReadyKeysChange={(keys) => {
+							mergeRigReady(seg.key, keys);
+							schedule();
+						}}
+						onNaturalSizesChange={(sizes) => {
+							mergeRigNatural(seg.key, sizes);
+							schedule();
+						}}
+						onRigMetaChange={(meta) => {
+							mergeRigMeta(seg.key, meta);
+							schedule();
+						}}
+						onLoadingChange={(c) => {
+							mergeRigLoading(seg.key, c);
+						}}
+					/>
+				{/if}
+				{#if sceneHasText(seg)}
+					<EditorTextLayer
+						{scenes}
+						{layoutType}
+						{panX}
+						{panY}
+						{zoom}
+						worldTransformOf={drawTransform}
+						{hiddenSceneIds}
+						sceneFilter={sceneFilterFor(s.id)}
+						nodeFilter={textOverlayFilter(seg)}
+						{projectGameName}
+						{componentParams}
+						{componentDefaults}
+						{componentMap}
+						{repeaterSources}
+						{frameWidth}
+						{frameHeight}
+						reloadToken={fontReload}
+						{redrawNonce}
+						onLoadingChange={(c) => {
+							mergeFontLoading(seg.key, c);
+						}}
+						onReadyIdsChange={(ids) => {
+							mergeTextReady(seg.key, ids);
+							schedule();
+						}}
+						onMeasuredChange={(sizes) => {
+							mergeTextMeasured(seg.key, sizes);
+							schedule();
+						}}
+					/>
+				{/if}
+				{#if sceneHasEffect(seg)}
 					<EditorEffectLayer
 						{scenes}
 						{layoutType}
@@ -5175,19 +5191,56 @@
 						worldTransformOf={drawTransform}
 						{hiddenSceneIds}
 						sceneFilter={sceneFilterFor(s.id)}
-						nodeFilter={g.ids}
-						blend={g.css}
+						nodeFilter={normalOverlayFilter(seg)}
 						playing={playingEffects}
 						onReadyKeysChange={(ids) => {
-							mergeEffectReady(g.key, ids);
+							mergeEffectReady(seg.key, ids);
 							schedule();
 						}}
 						onBoundsChange={(bounds) => {
-							mergeEffectBounds(g.key, bounds);
+							mergeEffectBounds(seg.key, bounds);
 							schedule();
 						}}
 					/>
 				{/if}
+				<!-- BLENDED effects: one extra FX overlay per blend mode the scene uses, carrying the
+				     mode as CSS `mix-blend-mode` on its own element. Renders nothing when the scene
+				     blends nothing (`blendOverlayGroups` is empty), so the common scene mounts exactly
+				     the surfaces it always has. Reports go under the group's synthetic key, which
+				     `forgetScene` purges with the scene.
+
+				     No blended RIG layer: a Pixi blend cannot reach skeleton geometry (see
+				     `canBlendKind`), so `nodeBlendMode` resolves every rig to `normal` and such a
+				     layer could only ever be empty — while still costing a WebGL context, which the
+				     shared-canvas budget cannot spare. -->
+				{#each blendOverlayGroups(seg) as g (g.key)}
+					{#if sceneHasEffect(seg)}
+						<EditorEffectLayer
+							{scenes}
+							{layoutType}
+							{frameWidth}
+							{frameHeight}
+							{panX}
+							{panY}
+							{zoom}
+							{componentMap}
+							worldTransformOf={drawTransform}
+							{hiddenSceneIds}
+							sceneFilter={sceneFilterFor(s.id)}
+							nodeFilter={g.ids}
+							blend={g.css}
+							playing={playingEffects}
+							onReadyKeysChange={(ids) => {
+								mergeEffectReady(g.key, ids);
+								schedule();
+							}}
+							onBoundsChange={(bounds) => {
+								mergeEffectBounds(g.key, bounds);
+								schedule();
+							}}
+						/>
+					{/if}
+				{/each}
 			{/each}
 		</div>
 	{/each}

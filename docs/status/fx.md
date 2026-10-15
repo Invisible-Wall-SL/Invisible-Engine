@@ -32,6 +32,35 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-15 — **An FX previews under the art that follows it in the outline.** Owner-approved
+  follow-up to the restack entry below. The Scene and Component Editors stack one surface per
+  kind for each screen (2D, then rigs, then text, then FX), so every FX drew over every sprite,
+  rig and text on its screen; the game draws them in outline order. `EditorCanvas.svelte` now
+  splits a screen into **depth segments** (`depthSegments` in `editorCanvas.helpers.ts`): a new
+  segment starts at the first node with other art after an FX, and each segment gets its own
+  2D / rig / text / FX surfaces, so later art draws over the FX. A screen with no FX ahead of
+  other art stays one segment with the same surfaces and report keys as before. The cost is WebGL
+  contexts: each later segment adds a rig, text or FX layer only when it holds that kind. Report
+  buffers are keyed per segment (`<sceneId>#seg<i>`) and dropped when a reorder merges a segment
+  away (`forgetReportKey`). A full-screen dim is drawn by one segment's rig layer only (the one
+  holding the dim anchor, else the first with a rig), so it never doubles. `EditorTextLayer` gained the `nodeFilter` the rig and FX layers already had.
+  Inside one segment the fixed 2D → rig → text → FX order still applies, and a node's own `zIndex`
+  is still not read by the editor. Gate: `check:depth-segments` (mutation-verified: never
+  splitting, and ignoring a bound anchor, each fail it). Verified: svelte-check at baseline (47),
+  eslint, Prettier, `check:undefined-names`, launcher build, and the real `EditorCanvas` mounted in
+  headless Chromium. With `[bg, FX, frame]` the stack is now 2D(bg) → FX → 2D(frame), where before
+  it was one 2D canvas (bg and frame) under the FX. Reordering the FX to the end merges it back to
+  one segment with no errors. Particles were not drawn in that harness (no effect server), so the
+  pixels on a real effect are owed a look.
+- 2026-10-15 — **Placed FX restack when the outline order changes.** Owner report: in the
+  Component Editor the FX ignored their order. `EditorEffectLayer.svelte` (the Scene and
+  Component Editors' live particle overlay) only added a node's container when it was built, and
+  a rebuild only repositioned kept nodes. So reordering FX in the outline, hiding and showing
+  one, or swapping its effect left them stacked in the order they were built. Each rebuild now
+  re-appends the containers in tree order, as `FxStage` already does for layers. This fixes the
+  order among FX only; FX against other art is the entry above. Verified: the restack loop against
+  `pixi.js` 8.22.0 (`addChild` moves a kept child to the top, so a reorder and an insert both
+  land in outline order). Not driven in a browser.
 - 2026-10-15 — **The Scene Editor previews a free layer at its offset.** `/editor`'s live particle
   overlay (`EditorEffectLayer.svelte`) built every emitter at the node origin and never read
   `placement.offset`, while the game's `<EffectLayer>` mounts a free layer in a container at that

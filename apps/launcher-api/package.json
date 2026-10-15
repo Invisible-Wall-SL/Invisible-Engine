@@ -175,6 +175,8 @@
 		"check:signal-scope": "tsx --tsconfig tsconfig.scripts.json scripts/check-signal-scope.ts",
 		"precheck:container-taps": "node scripts/ensure-svelte-kit.mjs",
 		"check:container-taps": "tsx --tsconfig tsconfig.scripts.json scripts/check-container-taps.ts",
+		"precheck:depth-segments": "node scripts/ensure-svelte-kit.mjs",
+		"check:depth-segments": "tsx --tsconfig tsconfig.scripts.json scripts/check-depth-segments.ts",
 		"precheck:flow-publish-gate": "node scripts/ensure-svelte-kit.mjs",
 		"check:flow-publish-gate": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-publish-gate.ts",
 		"precheck:undo-history": "node scripts/ensure-svelte-kit.mjs",

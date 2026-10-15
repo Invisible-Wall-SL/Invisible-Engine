@@ -5,6 +5,30 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-10-15 — **The two FX bands could swap or both sink under the rig.**
+  - **Report.** _"The order of my FX layer is not taken into consideration in the rigger anymore,
+    and the FX always render at the bottom… in the games it looks correct."_ The game was right
+    (`<RiggedEffect>` uses the real slot depth). Only the Rigger's two-band preview was wrong.
+  - **Cause.** Both overlays mounted straight into `#stage`, and `ensureFxOverlay` found its canvas
+    afterwards as "the canvas that was not there before init". `updateFxPreview` creates every
+    band a clip needs in one pass, so on a clip with cues on both sides the two `before` snapshots
+    were both taken before either canvas existed. The second lookup then took the first band's
+    canvas (first in DOM order). One canvas got the wrong z-index and the other got none. A
+    positioned canvas with `z-index: auto` paints below `#cv`'s `z-index: 1`, so it ended up under
+    the rig. If the front cue came first in the clip, both canvases ended up under the rig. If the
+    back cue came first, the two bands swapped. Bands created one at a time (picking cues in the
+    inspector) were fine, which is why it showed up when a rig was reopened and played.
+  - **Fix.** Each band mounts into its own `div.fxBand` (`position:absolute; inset:0;
+    pointer-events:none`), which carries the band's z-index. The overlay's canvas is a child of that
+    host, so it no longer has to be found by searching.
+  - **Verified** in headless Chromium against the committed `rigger-fx.js`, with the band code
+    pulled verbatim from `view.html`. Each overlay's own canvas was painted a solid colour and the
+    composited pixels were sampled over opaque rig art and over transparent stage. Before the fix:
+    front→back left both bands under the rig, and back→front put the back band in front with the
+    front band underneath. After the fix, all orders (both concurrent, sequential, front-only,
+    back-only) show front above the art and back hidden by it but visible where the rig is
+    transparent. Clicks still reach `#cv`. Not yet eyeballed on a live rig.
+
 - 2026-10-01 — **Rig undo / redo** (was open item 1).
   - **Model.** Snapshots, not commands, as in cinematic.js and Flow's `undoHistory.ts`: each entry
     is `rawDoc` as JSON text plus the selection (bone, slot, constraint), the skin on stage and the
