@@ -52,6 +52,7 @@
 		"check:fx-forces": "pnpm --filter fx-spike run forces",
 		"check:fx-sprite": "pnpm --filter fx-spike run sprite",
 		"check:fx-params": "pnpm --filter fx-spike run exposed-params",
+		"check:fx-particle-clock": "pnpm --filter fx-spike run particle-clock",
 		"check:page-store": "node scripts/check-page-store-shared.mjs",
 		"check:build-provenance": "node scripts/check-build-provenance.mjs",
 		"check:svelte-pins": "node packages/config-vite/svelteVersions.fixture.mjs",

@@ -114,7 +114,8 @@ The center is a live WebGL stage. Each layer runs its own particle emitter; the 
 atlas page is drawn faintly behind them as a **placement reference** so you can see
 where your particles sit relative to the art. **Drag** to pan, **scroll** to zoom, and
 use **▶ Play / ❚❚ Pause** (sub-bar) to start/stop the simulation. **Reset view**
-re-fits.
+re-fits. The preview plays at normal speed; in a game, effects play twice as fast while **turbo**
+is on — the same particles, in half the time.
 
 **Placeholder dots (a layer with no art).** Particles in this tool are sprites cut from
 your atlas — there is no abstract default shape. So a layer that has **no region bound

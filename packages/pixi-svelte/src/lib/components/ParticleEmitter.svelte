@@ -10,7 +10,6 @@
 		bindArt,
 		behaviorsOf,
 		bindEffectParams,
-		emitterDeltaSeconds,
 		registerFxBehaviors,
 		stepCollapsedValueLists,
 		type BehaviorEntry,
@@ -166,6 +165,7 @@
 	import { getContextApp, getContextParent } from '../context.svelte';
 	import { propsSyncEffect } from '../utils.svelte';
 	import { registerRigParticleBehavior, RigParticleBehavior } from '../rigParticleBehavior';
+	import { particleStepSeconds } from '../particleClock';
 
 	const props: Props = $props();
 	const context = getContextApp();
@@ -287,9 +287,12 @@
 		if (context.stateApp.pixiApplication) {
 			syncOwner();
 			applier?.apply(props.fxParams?.values());
-			const deltaUpdate =
-				emitterDeltaSeconds(context.stateApp.pixiApplication.ticker.deltaMS, props.emitSpeed) *
-				(props.timeScale?.() ?? 1);
+			// The emit-speed step × `effect.timeScale` × the particle clock (turbo) — see `particleClock`.
+			const deltaUpdate = particleStepSeconds(
+				context.stateApp.pixiApplication.ticker.deltaMS,
+				props.emitSpeed,
+				props.timeScale?.() ?? 1,
+			);
 			emitter.update(deltaUpdate);
 		}
 	};

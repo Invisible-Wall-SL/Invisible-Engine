@@ -15,6 +15,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Preset library** — per-layer "Apply preset…" (Fountain, Fire, Smoke, Sparks, Explosion-burst, Rain, Snow, Confetti, Magic glow) preserving art/placement/trigger.
 - **Rig-timeline direct binding** — on a Rigger event keyframe you pick the effect, its host bone, the SLOT it draws at, and per-binding opacity / size / delay / duration / speed, and a **Continuous** flag that stops a looping clip restarting an ambient burst every lap (`evtObj.fx`), baked to a `rigFx` manifest and played by `RiggedEffect` on the beat (`forceEmit`); the cue-broadcast path stays as the advanced mode. A *persistent* rig FX slot (an always-on, keyable emitter — the other half of invisible-cinematic §12.4a) is still NOT built.
 - **…and it plays on ANY rig, mounted by anything** (2026-09-04). `<RigProvider>` resolves and mounts a rig's bound effects + clips itself, through the `pixi-svelte` `rigBoundContent` seam `engine-layout` fills in — so a binding works on a rig reached by a coded component (the big-win `WinAnimation`, backdrops, transitions, cinematic actors) exactly as on a placed `spine` node. Authoring is unchanged; the binding was always baked, it just had two readers. See the 2026-09-04 entry.
+- **Turbo speeds up the particles** (2026-10-15) — one particle clock in `pixi-svelte`, set by the
+  game from its turbo scalar, multiplies every `<ParticleEmitter>`'s step, and the FX emission timers
+  divide by it, so an effect plays twice as fast in turbo with the same particles. The tools preview
+  at normal speed. See the 2026-10-15 "particle clock" entry.
 - **Live particle previews everywhere** — the effect plays not just in `/fx` (`FxStage`) but in the **Rigger** and **Symbols state machine** via the shared `fxOverlay` on their raw-WebGL stages, all now riding the bone's **full transform** (position + rotation + per-axis scale) to match the game.
 - **Effect atlases auto-ship** — `exportEditorArt` walks the project's effects and ships every layer's `art.assetKey`, so a placed/bound effect's particles have textures with no extra step.
 - **Exposed parameters (Step 1, 2026-10-15)** — any value of an effect can be a named parameter (`EffectDoc.params`): ⚡ on every inspector row or in the raw **All parameters** tree, an **Exposed parameters** panel with a live preview slider, and one shared applier in all four renderers that changes a value with no reset. The stored config is the effect at its defaults, so every existing renderer draws it unchanged. Nothing supplies live values outside `/fx` yet: that is Steps 2–4 (node bindings + timeline channels, state-machine inputs, clocks + waves) in the design doc. See the 2026-10-15 entry.
@@ -39,6 +43,61 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-15 — **Turbo speeds up the particles: one particle clock** (owner decision, design
+  §"Decided (owner, 2026-10-15)"). **This changes how every game looks IN TURBO:** every particle
+  effect now plays twice as fast while turbo is on — authored FX, rig-bound FX, Tier-C rig particles,
+  win coins and flight trails. Until now turbo sped up the rest of the presentation (the symbol
+  and anticipation rigs, Flow's delays) and the particles ran at normal speed beside it. With turbo
+  off nothing changes. **Engine change** (`pixi-svelte`,
+  `apps/lines`): it reaches online games only through a runtime-bundle republish.
+  - **The clock.** `packages/pixi-svelte/src/lib/particleClock.ts`, also a subpath export
+    (`pixi-svelte/particleClock`) so a plain `.ts` module can use it without the barrel (the
+    `webfontloader` SSR trap of the 2026-09-04 entry).
+    - `setParticleTimeScale(read)` and `particleTimeScale()`, default 1.
+    - A read that is not a finite number above 0, or that throws, counts as 1. 0 would be a pause,
+      and pausing is not this clock's job.
+    - The read is always untracked, so a timer started inside an effect never makes that effect
+      re-run, and restart its burst, on a turbo toggle.
+  - **Who follows it.**
+    - `<ParticleEmitter>` now steps through `particleStepSeconds`: the emit-speed step ×
+      `effect.timeScale` × the clock. Every coded emitter (`engine-game` `WinCoins`, `FlightView`'s
+      trail, the per-app `WinCoins`) and every authored layer goes through that component.
+    - Tier-C rig particles advance their clip by the emitter's step, so they follow with no change.
+    - These wall-clock timers divide by the clock at the moment they start, via `particleWallMs`:
+      `<EffectLayer>`'s trigger `duration` and `emitFor`, `<RiggedEffect>`'s `delay` (its
+      `duration` rides `emitFor`), `SymbolLayer`'s one-shot FX completion, and a flight's
+      trail-settle wait. A burst therefore keeps its shape: the same particles, in half the time.
+    - A turbo toggle mid-burst doesn't re-time a running timer.
+  - **Who sets it.**
+    - `apps/lines`' `Game.svelte`, at boot beside the effect registrations:
+      `setParticleTimeScale(stateBetDerived.timeScale)`, which is `isTurbo ? 2 : 1`, read live.
+    - The other reference apps (`cluster`, `scatter`, `ways`, `price`, `number-picker`) each have
+      their own `Game.svelte` and share no boot module, so their coins stay at normal speed in turbo.
+      They are dev / reference games, not the shipped runtime.
+    - No tool sets the clock: `/fx`, the Scene Editor and the Rigger / Symbols overlay drive their
+      own emitters and preview at normal speed. The launcher imports no game boot code.
+  - **Left alone on purpose:**
+    - Flow's `showContainer.durationMs` pin stays a normal-speed measurement, because Flow already
+      divides its delays by the same turbo scalar.
+    - Flipbook clips don't follow this clock.
+    - The flight head's own flight time is still unscaled by turbo (only a slam speeds it up). In
+      turbo the trail behind it is therefore shorter.
+  - **Verified.**
+    - New gate `pnpm check:fx-particle-clock` (`tools/fx-spike/particleClock.ts`, discovered by
+      `check:all`).
+    - Parity at 1: the step is bit-identical to `emitterDeltaSeconds × effect.timeScale` across
+      frame lengths and emit speeds, and timer lengths are unchanged.
+    - At 2, on the real `Emitter`: the step doubles, a burst spawns the same 49 particles in 7
+      frames instead of 13, the particles age twice as fast, and a Tier-C clip advances by the
+      doubled step.
+    - Bad reads are 1, and a timer started in turbo keeps its halved length through a toggle.
+    - Source checks: every `<EffectLayer>` / `<RiggedEffect>` timer divides, `<ParticleEmitter>`
+      steps only through the clock, the game sets it, and no launcher file does.
+    - Mutation-checked: an unscaled step, an undivided timer, a missing ≤ 0 guard, a raw
+      `duration` or `delay`, or the boot call removed each turns it red.
+  - **NOT browser-verified:** no turbo spin has been watched yet. Owner pass: toggle turbo during a
+    big win and check the coins, the authored win FX and a flight trail run faster without growing
+    denser.
 - 2026-10-15 — **Exposed parameters: review fixes** (on top of the Step 1 entry below).
   - **A curve with equal ends no longer crashes any renderer.** The library keeps one node of a
     one-entry list, or of a two-entry list with equal values, and a non-stepped one-node list throws

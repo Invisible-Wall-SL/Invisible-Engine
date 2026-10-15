@@ -66,6 +66,7 @@
 	import * as RIG from 'engine-rig/pixi';
 	import type { Texture } from 'pixi.js';
 	import { layerHasParamDrives, planLayer } from 'engine-fx';
+	import { particleWallMs } from '../particleClock';
 	import {
 		eventScope,
 		getContextEventEmitter,
@@ -208,10 +209,11 @@
 			const emitFor = props.emitFor;
 			if (typeof emitFor === 'number' && Number.isFinite(emitFor) && emitFor >= 0) {
 				clearStop();
+				// Wall ms ÷ the particle clock, read now: under turbo the burst keeps its shape.
 				stopTimer = setTimeout(() => {
 					emitting = false;
 					stopTimer = undefined;
-				}, emitFor);
+				}, particleWallMs(emitFor));
 				return clearStop;
 			}
 			return;
@@ -241,7 +243,7 @@
 					stopTimer = setTimeout(() => {
 						emitting = false;
 						stopTimer = undefined;
-					}, duration);
+					}, particleWallMs(duration));
 				}
 			},
 		};
