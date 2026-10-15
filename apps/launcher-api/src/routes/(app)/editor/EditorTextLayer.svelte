@@ -68,6 +68,10 @@
 		/** Editor-only: when set, render ONLY these scene ids (per-scene composite, so a
 		 * scene's text z-orders with its own scene group instead of always on top). */
 		sceneFilter?: Set<string> | null;
+		/** Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested text
+		 * follows its top-level ancestor) — one depth segment of the scene, see `EditorCanvas`'s
+		 * `depthSegments`. `null` ⇒ every node, the path a scene with no split always takes. */
+		nodeFilter?: Set<string> | null;
 		/** Bumped by "Reload art" — re-fetches the catalog + reloads fonts. */
 		reloadToken?: number;
 		/** Bumped on ANY property-panel edit (the page's `canvasRedrawNonce`). The
@@ -118,6 +122,7 @@
 		worldTransformOf,
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
+		nodeFilter = null,
 		reloadToken = 0,
 		redrawNonce = 0,
 		onLoadingChange,
@@ -462,9 +467,10 @@
 		for (const sc of scenes) {
 			if (hiddenSceneIds.has(sc.id)) continue;
 			if (sceneFilter && !sceneFilter.has(sc.id)) continue;
+			const nodes = nodeFilter ? sc.nodes.filter((n) => nodeFilter.has(n.id)) : sc.nodes;
 			// Top-level params source: the Component Editor's open-component params (so a
 			// HUD `preview.textParam` resolves there); empty in the scene editor — parity.
-			collectTextTargets(sc.nodes, sc, out, [], componentParams ?? {}, 0, []);
+			collectTextTargets(nodes, sc, out, [], componentParams ?? {}, 0, []);
 		}
 		return out;
 	}
@@ -742,6 +748,7 @@
 		void scenes;
 		void hiddenSceneIds;
 		void sceneFilter;
+		void nodeFilter;
 		void layoutType;
 		void panX;
 		void panY;
