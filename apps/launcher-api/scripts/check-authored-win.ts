@@ -1154,10 +1154,10 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	eq(
 		'the gate releases the walk holds on winHide and the play-rate effect resets to 1 on teardown',
 		[
-			/winHide: \(\) => \{\s*show = false;\s*if \(authoredWin\) \{[^}]*endWalk\(\);\s*if \(rewind\) fireAuthoredWinRewind\(rewind\);/.test(
+			/winHide: \(\) => \{\s*show = false;\s*if \(authoredWin\) endWalk\(\);/.test(gate),
+			/const endWalk = \(\): void => \{[^}]*releaseAuthoredWinHolds\(\);\s*if \(rewind\) fireAuthoredWinRewind\(rewind\);\s*\};/.test(
 				gate,
 			),
-			/const endWalk = \(\): void => \{[^}]*releaseAuthoredWinHolds\(\);\s*\};/.test(gate),
 			/setComponentPlayRate\(WIN_PRESENTATION_COMPONENT_ID, rate\);[^}]*return \(\) => setComponentPlayRate\(WIN_PRESENTATION_COMPONENT_ID, 1\);/.test(
 				gate,
 			),
@@ -1605,7 +1605,8 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 			/walk\?\.escalating && walk\.tiers\.length && winState\.countUpComplete\s*\?\s*walk\.tiers\[0\]\.alias/.test(
 				gate,
 			),
-			gate.indexOf('if (rewind) fireAuthoredWinRewind(rewind)') <
+			// endWalk runs in the winHide handler before it clears the latch.
+			gate.indexOf('if (authoredWin) endWalk();') <
 				gate.indexOf('winState.countUpComplete = false;\n\t\t},'),
 		],
 		['winTierRewind.big', false, ['tier'], 'big_win_intro', true, true],

@@ -237,12 +237,20 @@
 		});
 	};
 	const endWalk = (): void => {
+		// The coded walk REWINDS at the hide: the gate clears the count latch, and `WinAnimation` takes
+		// that edge as a new presentation and restarts an escalating chain's first-tier intro under
+		// the fade-out. The authored rig plays the same intro (`…_rewind`, the tier rig only).
+		const rewind =
+			walk?.escalating && walk.tiers.length && winState.countUpComplete
+				? walk.tiers[0].alias
+				: undefined;
 		walkGeneration += 1;
 		walk = undefined;
 		clearAuthoredWinSignal();
 		// A hide mid-walk leaves the walk's hold pending until its idle ends; the next win's first
 		// read must see only its own hold.
 		releaseAuthoredWinHolds();
+		if (rewind) fireAuthoredWinRewind(rewind);
 	};
 	if (authoredWin) {
 		// The walk's inputs, as `WinAnimation` took them in props: the count landing, a tap's forward
@@ -460,17 +468,7 @@
 		},
 		winHide: () => {
 			show = false;
-			if (authoredWin) {
-				// The coded walk REWINDS here: the count latch clears below, and `WinAnimation` takes that
-				// edge as a new presentation and restarts an escalating chain's first-tier intro under
-				// the fade-out. The authored rig plays the same intro (`…_rewind`, the tier rig only).
-				const rewind =
-					walk?.escalating && walk.tiers.length && winState.countUpComplete
-						? walk.tiers[0].alias
-						: undefined;
-				endWalk();
-				if (rewind) fireAuthoredWinRewind(rewind);
-			}
+			if (authoredWin) endWalk();
 			// The run-up belongs to the win that just ended. Cleared HERE and never on `winShow` —
 			// the cue runs BEFORE the overlay shows, so clearing it there would throw away the very
 			// number this win was handed.
