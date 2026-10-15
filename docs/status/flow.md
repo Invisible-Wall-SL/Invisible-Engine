@@ -55,6 +55,24 @@
 
 ## Recent changes
 
+- 2026-10-15 — **A Branch guard on a `$trigger` field is typed by its chain's event** (branch
+  `claude/laughing-thompson-pl84ju`). `meterUpdate → fillMeter → Branch($trigger.full eq 1)` never
+  took `then`: the inspector seeded the literal beside a `$trigger` read as `int`, and `eq` is
+  strict `===` at runtime, so it read `true === 1`. The validator's private chain-owner walk moved
+  to `packages/engine-flow-v2/src/triggers.ts` as `triggerOwners` (same rules, now shared), beside
+  `triggerFieldType` (the field's type when every owning event declares it alike; else unknown),
+  `guardOperandType` (literal / `$engine` value / `$trigger` field) and `guardLiteralMismatch`.
+  The inspector's `guardSideType` reads `guardOperandType` with the Branch's owners (over the
+  flattened active graph), so a `$trigger.full` side seeds **on / off**; an unresolvable chain keeps
+  the `int` seed. A new **`guard-type-mismatch` WARNING** flags an `eq`/`ne` row testing a known
+  bool/string/enum read against a literal of another kind, and the inspector shows the same rule
+  under the row with a one-click fix (a number's truth carries over: `eq 1` ⇒ `eq on`). Editor and
+  validator only — the runtime is unchanged, so no runtime-bundle republish is owed; no seed flow has
+  a Branch, so no fresh project gains the warning. Gate: `check:flow-guard-types` (owner walk through
+  `event` / `gameSignals` / a group, the unknown cases, the warning and its pin, no added error, the
+  runtime taking **then** on `full: true`, the inspector wiring source-scanned). ⏳ Not
+  browser-verified (auth-gated editor). Guide: [Comparing in a guard](../tools/flow.md#edit-a-node-the-inspector).
+
 - 2026-10-14 — **`instanceHoldMs` exempts the authored win presentation** (Rive plan Phase 8b,
   PR #1194): `flowV2Runtime`'s `instanceHoldMs` still measures every `holdsCue` timeline of a def
   (a project's own entrance included); `winPresentation` alone measures `undefined` — its holds
