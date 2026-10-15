@@ -166,12 +166,12 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
   (`1 / (1 − depth·½·sin πt)`: 2× at mid-flight for 1, ⅔ for −1, 1 at both ends), with a following
   head foreshortened along its travel by the rise's slope (camera as far away as the route is long,
   so the lean does not depend on the route's length). The game keeps the pose on each flight
-  (`flights.svelte.ts`) and `FlightLayer` draws the art head and a carried pots token through it
-  (outer container: heading + scale × stretch / flip; inner: the art's turn); the glow and the "+N"
-  label take only the perspective scale. The `/symbols` preview applies the same pose to its art
-  head (a CSS transform), glow and label. Fields under Head in `/symbols` → Flights ("Head follows
-  the curve" and "Head rotation" show for a turnable head — art or a token — or once authored; "3D
-  depth" always). Schema, normalize, resolve, `check:flights`, `check:doc-readers-unknown-fields`
+  (`flights.svelte.ts`, updated in place) and `FlightLayer` draws the art head through it (outer
+  container: heading + scale × stretch / flip; inner: the art's turn); the glow, the "+N" label and
+  a carried pots token take only the perspective scale (a token's value text must not turn or
+  mirror). The `/symbols` preview applies the same pose to its art head (a CSS transform), token,
+  glow and label. Fields under Head in `/symbols` → Flights ("Head follows the curve" and "Head
+  rotation" show for an art head no token replaces, or once authored; "3D depth" always). Schema, normalize, resolve, `check:flights`, `check:doc-readers-unknown-fields`
   (a newer `headAlign` value is dropped on read) and the `flightStyle` fixture (+ the pose).
 
 - 2026-10-14 — **Flights: the trail can follow the arc and be rotated.** `flights.<kind>.trailAlign`

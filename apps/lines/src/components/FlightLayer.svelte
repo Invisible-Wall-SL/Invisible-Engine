@@ -32,13 +32,14 @@
 	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
 	 * instead, in its `flyToMeter` state, at the board's scale. The kind's `size` multiplies all of
 	 * it — the glow, the art, the carried symbol and a "+N" label. The head's POSE (`engine-layout`
-	 * `flightHeadPose`, kept on the flight each frame) turns the art or the carried symbol to the
-	 * heading when the kind follows the curve (`headAlign`; an upright head is mirrored while it
-	 * heads left), turns it by the kind's `headRotation`, and scales everything at the head by the
-	 * perspective of the kind's `depth` — the glow and the label take only that scale. The trail is
-	 * `FlightView`'s; its particles spawn turned to the flight's heading when the kind aligns them
-	 * (`trailAlign`), plus the kind's `trailRotation`. The arrival effect plays ONCE at the target
-	 * when the head lands, and the flight stays mounted until it has played out.
+	 * `flightHeadPose`, kept on the flight each frame) turns the art to the heading when the kind
+	 * follows the curve (`headAlign`; an upright head is mirrored while it heads left), turns it by
+	 * the kind's `headRotation`, and scales everything at the head by the perspective of the kind's
+	 * `depth`. The glow, the label and a carried symbol take only that scale — a symbol carries its
+	 * value text, which must not turn or mirror. The trail is `FlightView`'s; its particles spawn
+	 * turned to the flight's heading when the kind aligns them (`trailAlign`), plus the kind's
+	 * `trailRotation`. The arrival effect plays ONCE at the target when the head lands, and the
+	 * flight stays mounted until it has played out.
 	 */
 
 	const app = getContextApp();
@@ -65,8 +66,8 @@
 		stroke: { color: 0x000000, width: 6 },
 	} as const;
 
-	/** A turned head's scale: `size` × the pose's perspective, its lean along the travel axis and
-	 *  the upright mirror. */
+	/** A turned art head's scale: `size` × the pose's perspective, its lean along the travel axis
+	 *  and the upright mirror. */
 	const poseScale = (flight: ActiveFlight, size: number) => ({
 		x: size * flight.pose.scale * flight.pose.stretch,
 		y: size * flight.pose.scale * flight.pose.flip,
@@ -140,12 +141,9 @@
 			<Container
 				x={flight.head.x}
 				y={flight.head.y}
-				rotation={flight.pose.rotation}
-				scale={poseScale(flight, flight.scale * (flight.symbolScale ?? 1) * flight.size)}
+				scale={flight.scale * (flight.symbolScale ?? 1) * flight.size * flight.pose.scale}
 			>
-				<Container rotation={flight.pose.artRotation}>
-					<Symbol state="flyToMeter" rawSymbol={flight.symbol} />
-				</Container>
+				<Symbol state="flyToMeter" rawSymbol={flight.symbol} />
 			</Container>
 		{/if}
 		{#if flight.phase === 'flying' && flight.label}

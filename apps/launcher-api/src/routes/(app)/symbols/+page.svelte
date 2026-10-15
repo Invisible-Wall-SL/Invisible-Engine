@@ -1325,16 +1325,17 @@
 			: undefined,
 	);
 
-	/** The head can turn: art, or a pots token (a glow is round, `none` draws nothing) — or this
-	 *  kind authors a turn, which must stay visible to be cleared. */
-	const flightHeadTurns = $derived(
-		!!flightToken ||
-			flightResolved.head?.kind === 'sprite' ||
-			flightResolved.head?.kind === 'spine' ||
-			flightResolved.head?.kind === 'flipbook' ||
+	/** The head can turn: authored art (a draft too) that no pots token replaces — a glow is round,
+	 *  `none` draws nothing, a token carries its value text — or this kind authors a turn, which
+	 *  must stay visible to be cleared. */
+	const flightHeadTurns = $derived.by(() => {
+		const kind = (flightHeadDraft ?? flightResolved.head)?.kind;
+		return (
+			(!flightToken && (kind === 'sprite' || kind === 'spine' || kind === 'flipbook')) ||
 			flightOwn.headAlign !== undefined ||
-			flightOwn.headRotation !== undefined,
-	);
+			flightOwn.headRotation !== undefined
+		);
+	});
 
 	function selectFlight(key: string): void {
 		flightPick = key;
@@ -3414,7 +3415,7 @@
 										<div class="field">
 											<span
 												class="label"
-												title="Turns the head to the direction it is flying, so a comet, an arrow or a fish points along the arc — draw the art pointing right, or turn it with Head rotation. “Stay upright” mirrors it instead of turning it upside down while it flies left. A pots overlay’s token turns with it."
+												title="Turns the head to the direction it is flying, so a comet, an arrow or a fish points along the arc — draw the art pointing right, or turn it with Head rotation. “Stay upright” mirrors it instead of turning it upside down while it flies left. A pots overlay’s token never turns: it carries its value."
 												>Head follows the curve</span
 											>
 											<select

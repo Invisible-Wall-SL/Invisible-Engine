@@ -132,7 +132,7 @@ export type ActiveFlight = {
 	/** How the head turns and the perspective it flies with (the kind's `headAlign`,
 	 *  `headRotation` and `depth`). */
 	headMotion: Pick<ResolvedFlightStyle, 'headAlign' | 'headRotation' | 'depth'>;
-	/** How the head is drawn this frame — the art, a carried symbol, the glow and the label. */
+	/** How the head is drawn this frame — updated in place, like {@link head}. */
 	pose: FlightHeadPose;
 	/** Text riding on the head ({@link FlyToOptions.label}). */
 	label?: string;
@@ -403,7 +403,7 @@ export const tickFlights = (deltaMs: number) => {
 		flight.head.x = point.x;
 		flight.head.y = point.y;
 		flight.heading = headingOnCurve(flight.curve, eased);
-		flight.pose = flightHeadPose(flight.headMotion, flight.heading, eased);
+		Object.assign(flight.pose, flightHeadPose(flight.headMotion, flight.heading, eased));
 		if (flight.phase === 'waiting') {
 			flight.phase = 'flying';
 			start(flight.id);
