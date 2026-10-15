@@ -68,11 +68,7 @@ export const writeIsStale = (
 ): boolean => baseEtag !== undefined && baseEtag !== storedEtag;
 
 export type AuthoredOverlaySaveDecision =
-	| 'write'
-	| 'conflict'
-	| 'forbidden'
-	| 'locked'
-	| 'locked-free-spins';
+	'write' | 'conflict' | 'forbidden' | 'locked' | 'locked-free-spins';
 
 /**
  * The editor save action's decision for a doc that may flip a pilot switch, in the order the

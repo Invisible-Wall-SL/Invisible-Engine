@@ -2484,9 +2484,7 @@
 		data.doc.settings?.authoredOverlays?.transition === true,
 	);
 	let authoredWin = $state<boolean>(data.doc.settings?.authoredOverlays?.win === true);
-	let authoredFreeSpins = $state<boolean>(
-		data.doc.settings?.authoredOverlays?.freeSpins === true,
-	);
+	let authoredFreeSpins = $state<boolean>(data.doc.settings?.authoredOverlays?.freeSpins === true);
 
 	// The project's own BOOT SPLASH — the second pre-game screen, after the admin-owned engine
 	// mark. A blank bundle means "no game splash", so the panel needs no separate clear button.
