@@ -75,6 +75,7 @@ assert(coded.showLevel && coded.showActivates, 'both coded labels show');
 assert(coded.labelScale === 1 && coded.labelFill === undefined, 'coded label size and colour');
 assert(coded.labelFontFamily === undefined, 'coded label font (Arial)');
 assert(coded.stageGrowth === 0.1 && coded.pulseScale === 1.3, 'coded growth 0.1, pulse 1.3');
+assert(coded.pulseOnCollect === false, 'the coded pot pulses on a fill only');
 assert(
 	mod.POT_STAGE_GROWTH === 0.1 && mod.POT_PULSE_SCALE === 1.3,
 	'the shared motion constants are the coded pot’s',
@@ -99,6 +100,7 @@ const dressed = skinOf({
 	labelScale: 1.5,
 	stageGrowth: 0,
 	pulseScale: 1,
+	pulseOnCollect: true,
 });
 assert(mod.potHasArt(dressed), 'a background ⇒ art');
 assert(dressed.fill === 'pots::red_liquid' && dressed.frame === 'pots::red_frame', 'fill + frame');
@@ -108,6 +110,7 @@ assert(!dressed.showLevel && dressed.showActivates, 'labels toggle one by one');
 assert(dressed.labelFontFamily === 'gold-bitmap' && dressed.labelFill === 0xffcc00, 'label style');
 assert(dressed.labelScale === 1.5, 'label size');
 assert(dressed.stageGrowth === 0 && dressed.pulseScale === 1, 'motion off');
+assert(dressed.pulseOnCollect, 'pulses on every coin collected');
 assert(mod.potHasArt(skinOf({ frameImage: 'f' })), 'a frame alone ⇒ art');
 assert(mod.potHasArt(skinOf({ stageImage2: 's2' })), 'a stage image alone ⇒ art');
 
@@ -120,12 +123,14 @@ const cleared = skinOf({
 	labelScale: 0,
 	pulseScale: 'big',
 	stageGrowth: -0.5,
+	pulseOnCollect: 'yes',
 });
 assert(!mod.potHasArt(cleared), 'a cleared image is unset, not "draw nothing"');
 assert(cleared.fillDirection === 'right', 'an unknown direction grows right');
 assert(cleared.width === undefined && cleared.height === undefined, 'a non-positive box is blank');
 assert(cleared.labelScale === 1 && cleared.pulseScale === 1.3, 'bad numbers keep the coded value');
 assert(cleared.stageGrowth === 0, 'a negative growth is none, never a flipped pot');
+assert(!cleared.pulseOnCollect, 'only a true switches the per-coin pulse on');
 
 // --- the pot body follows the size stages ------------------------------------
 console.info('stage images');

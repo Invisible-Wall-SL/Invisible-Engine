@@ -82,6 +82,13 @@ export const POT_SKIN_PARAMS: ComponentParam[] = [
 		group: 'Motion',
 		label: 'pulse on a fill (1 = none)',
 	},
+	{
+		key: 'pulseOnCollect',
+		kind: 'boolean',
+		default: false,
+		group: 'Motion',
+		label: 'pulse on every coin collected too',
+	},
 ];
 
 export interface PotSkin {
@@ -100,6 +107,8 @@ export interface PotSkin {
 	labelScale: number;
 	stageGrowth: number;
 	pulseScale: number;
+	/** Also pulse (at `pulseScale`) as each special lands in the pot, not only on a fill. */
+	pulseOnCollect: boolean;
 }
 
 /**
@@ -132,6 +141,7 @@ export function readPotSkin(param: (key: string) => unknown): PotSkin {
 		labelScale: positive(num('labelScale')) ?? 1,
 		stageGrowth: Math.max(0, num('stageGrowth') ?? POT_STAGE_GROWTH),
 		pulseScale: positive(num('pulseScale')) ?? POT_PULSE_SCALE,
+		pulseOnCollect: param('pulseOnCollect') === true,
 	};
 }
 

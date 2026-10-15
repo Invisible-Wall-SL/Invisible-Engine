@@ -41,9 +41,10 @@
 
 	/**
 	 * ONE CODED POT: a level bar with "<ID> level/max" over it and what a full pot activates under it.
-	 * It grows a step at each of the meter's size stages and pulses when it fills or is consumed. The
-	 * level it draws is {@link meterLevelShown} — the server's, or a beat's pinned value while a
-	 * special is in flight — and the flights aim at its `meter:<id>` anchor, the pot's centre.
+	 * It grows a step at each of the meter's size stages and pulses when it fills or is consumed (and,
+	 * with `pulseOnCollect`, as each special lands in it). The level it draws is
+	 * {@link meterLevelShown} — the server's, or a beat's pinned value while a special is in flight —
+	 * and the flights aim at its `meter:<id>` anchor, the pot's centre.
 	 *
 	 * An authored pot (Phase 12c) swaps the bar for its art — the pot body per size stage, a fill
 	 * image revealed by the level, a frame over it — and its own nodes replace the bar and the labels.
@@ -100,12 +101,17 @@
 			: HEIGHT,
 	);
 
+	// Arrivals are seen even while `pulseOnCollect` is off, so switching it on fires no stale pulse.
 	const pulse = new Tween(1);
 	let seenPulses = stateMeterDisplay.pulses[props.meter.id] ?? 0;
+	let seenArrivals = stateMeterDisplay.arrivals[props.meter.id] ?? 0;
 	$effect(() => {
 		const pulses = stateMeterDisplay.pulses[props.meter.id] ?? 0;
-		if (pulses === seenPulses) return;
+		const arrivals = stateMeterDisplay.arrivals[props.meter.id] ?? 0;
+		const fire = pulses !== seenPulses || (look.pulseOnCollect && arrivals !== seenArrivals);
 		seenPulses = pulses;
+		seenArrivals = arrivals;
+		if (!fire) return;
 		pulse
 			.set(look.pulseScale, { duration: 0 })
 			.then(() => pulse.set(1, { duration: 500, easing: backOut }));
