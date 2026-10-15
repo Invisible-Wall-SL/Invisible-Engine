@@ -1120,7 +1120,11 @@ are Inspecting an old version.
    - **Blend (ms)** — mixes the new timeline in from the pose being left.
 3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **Open timeline**
    (double-clicking the card does the same: it opens the Timeline tab on that timeline) and
-   **Delete**. Delete / Backspace removes the selected card or arrow.
+   **Delete**. Delete / Backspace removes the selected card or arrow. **Start offset** and
+   **Random start** put each placed instance at its own point of the state's timeline on entry:
+   the offset is read, in seconds, from a number param of the placement (wrapped on a looping
+   state), and Random start adds a random point each time the state is entered. Use them when
+   several instances enter a state together and should not move in step.
 4. **Layers** are the tab strip in the panel bar: **＋ Layer** adds one; each runs on its own, and
    where two key the same property of a node, the later layer wins.
 

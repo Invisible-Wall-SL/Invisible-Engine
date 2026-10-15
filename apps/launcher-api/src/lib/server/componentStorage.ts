@@ -957,6 +957,10 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (typeof item.name === 'string' && item.name) state.name = item.name;
 			if (finite(item.speed) && item.speed > 0) state.speed = item.speed;
 			if (item.loop === true) state.loop = true;
+			if (typeof item.offsetParam === 'string' && item.offsetParam) {
+				state.offsetParam = item.offsetParam;
+			}
+			if (item.randomStart === true) state.randomStart = true;
 			const pos = point(item.pos);
 			if (pos) state.pos = pos;
 			const onEnter = normalizeEnterActions(item.onEnter);

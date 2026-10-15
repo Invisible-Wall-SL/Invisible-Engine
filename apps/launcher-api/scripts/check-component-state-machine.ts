@@ -19,7 +19,9 @@
  *     is still exported and embedded, and the runtime registry resolves it by id;
  *  8. a pot built from pieces: a number condition compares against each placement's own param
  *     (`{lightAt}`), so one firecracker def lights bottom → top as the pot's share rises, fires on
- *     `potActivate` and goes dark once drained; `<=` / `>=`; the editor's light order.
+ *     `potActivate` and goes dark once drained; `<=` / `>=`; the editor's light order;
+ *  9. a state's start offset: from the placement's param (wrapped on a loop, clamped otherwise),
+ *     a random start, both on entry and on every re-entry, and what saves.
  *
  * What it cannot prove: the Svelte wiring in `ComponentInstance.svelte` (ticker, bus, context) —
  * that is the owner's browser check.
@@ -1802,6 +1804,89 @@ eq(
 			['b', 40],
 		],
 	);
+}
+
+// ---- 9. a state's start offset -----------------------------------------------------------------
+
+{
+	const pulse = (loop: boolean, extra: Partial<import('engine-layout').SmState> = {}) =>
+		machine({
+			id: 'main',
+			entry: 'lit',
+			states: [{ id: 'lit', timeline: 'c_coin_win', loop, offsetParam: 'phase', ...extra }],
+			transitions: [],
+		});
+	const runner = (m: ComponentStateMachine, phase: unknown, random?: () => number) =>
+		new M.ComponentStateMachineRunner(
+			m,
+			inputs,
+			durations,
+			(k) => (k === 'phase' ? phase : undefined),
+			random,
+		);
+	eq(
+		'the entry state starts at the placement offset',
+		r2(runner(pulse(true), 0.25).plays()[0].time),
+		0.25,
+	);
+	eq(
+		'…entered there, so its cues up to it fire on entry',
+		runner(pulse(true), 0.25).plays()[0].entered,
+		true,
+	);
+	eq(
+		'a looping state wraps an offset past its end',
+		r2(runner(pulse(true), 2.75).plays()[0].time),
+		0.75,
+	);
+	eq('a held state clamps it to its end', r2(runner(pulse(false), 2.75).plays()[0].time), 1);
+	eq('a missing or junk param starts at 0', runner(pulse(true), 'x').plays()[0].time, 0);
+	eq(
+		'random start: a random point of the timeline, on top of the offset',
+		r2(runner(pulse(true, { randomStart: true }), 0.25, () => 0.5).plays()[0].time),
+		0.75,
+	);
+	const reenter = new M.ComponentStateMachineRunner(
+		machine({
+			id: 'main',
+			entry: 'idle',
+			states: [
+				{ id: 'idle', timeline: 'c_coin_idle' },
+				{ id: 'win', timeline: 'c_coin_win', loop: true, offsetParam: 'phase' },
+			],
+			transitions: [
+				{ id: 't', from: 'idle', to: 'win', conditions: [{ input: 'win', op: 'fired' }] },
+			],
+		}),
+		inputs,
+		durations,
+		(k) => (k === 'phase' ? 0.4 : undefined),
+	);
+	reenter.fire('win');
+	reenter.advance(0.1);
+	eq(
+		'a transition into the state starts it at the offset too',
+		[reenter.stateOf('main'), r2(reenter.plays()[0].time), reenter.plays()[0].entered],
+		['win', 0.4, true],
+	);
+	reenter.advance(0.1);
+	eq('…and it plays on from there', r2(reenter.plays()[0].time), 0.5);
+	const saved = normalizeComponent({
+		id: 'pulse',
+		name: 'Pulse',
+		version: 1,
+		scope: 'project',
+		category: 'ui',
+		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+		stateMachine: pulse(true, { randomStart: true }),
+	} as unknown as ComponentDef);
+	eq('what saves: offsetParam and randomStart are kept', saved.stateMachine?.layers[0].states[0], {
+		id: 'lit',
+		timeline: 'c_coin_win',
+		loop: true,
+		offsetParam: 'phase',
+		randomStart: true,
+	});
 }
 
 console.log(

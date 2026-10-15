@@ -1046,6 +1046,33 @@
 					/>
 					<span>Loop</span>
 				</label>
+				<label class="row">
+					<span
+						title="Start this many seconds into the timeline, read from each placed instance's own number param — so placements that enter together play out of step."
+						>Start offset</span
+					>
+					<select
+						value={s.offsetParam ?? ''}
+						onchange={(e) => setStateField(s, 'offsetParam', e.currentTarget.value || undefined)}
+					>
+						<option value="">none</option>
+						{#if s.offsetParam && !numberParams.some((p) => p.key === s.offsetParam)}
+							<option value={s.offsetParam}>{`{${s.offsetParam}}`} (unknown)</option>
+						{/if}
+						{#each numberParams as p (p.key)}<option value={p.key}>{`{${p.key}}`} seconds</option
+							>{/each}
+					</select>
+				</label>
+				<label class="row check">
+					<input
+						type="checkbox"
+						checked={!!s.randomStart}
+						onchange={(e) => setStateField(s, 'randomStart', e.currentTarget.checked || undefined)}
+					/>
+					<span title="Start at a random point of the timeline each time the state is entered"
+						>Random start</span
+					>
+				</label>
 				<h5>On enter</h5>
 				{#each s.onEnter ?? [] as a (a.id)}
 					<div class="enter-row">

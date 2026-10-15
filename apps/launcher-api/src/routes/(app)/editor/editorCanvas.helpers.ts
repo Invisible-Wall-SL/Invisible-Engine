@@ -1107,3 +1107,92 @@ export function reelGridGeometry(
 		clip: { x: clipX, y: clipY, w: Math.max(...xs) - clipX, h: Math.max(...ys) - clipY },
 	};
 }
+
+/**
+ * One DEPTH SEGMENT of a game screen: a run of its top-level nodes that the editor gives its own
+ * stack of surfaces (2D → rig → text → FX).
+ *
+ * The editor draws each kind on a surface of its own, so inside one stack every FX sits above
+ * every sprite, rig and text whatever the outline says. The game draws one scene graph in outline
+ * order. Starting a new stack at the first node with other art after an FX puts that art back
+ * above the FX, which is all the game's order asks for. A screen with no FX ahead of other art
+ * stays ONE segment, keyed by the scene id, so its surfaces and report keys are what they always
+ * were.
+ */
+export interface DepthSegment {
+	/** The scene id for the first segment, `<sceneId>#seg<i>` after it. */
+	key: string;
+	sceneId: string;
+	/** This segment's top-level nodes, in doc order. */
+	nodes: LayoutNode[];
+	/** True when this one segment is the whole screen (nothing was split off). */
+	whole: boolean;
+}
+
+/** Does a node draw a placed FX anywhere in its subtree (nested containers and component defs
+ * included)? */
+function nodeDrawsFx(
+	n: LayoutNode,
+	componentMap: Map<string, ComponentDef>,
+	depth: number,
+	stack: string[],
+): boolean {
+	if (n.kind === 'effect') return true;
+	if (n.kind === 'container')
+		return n.children.some((c) => nodeDrawsFx(c, componentMap, depth, stack));
+	if (n.kind === 'componentInstance') {
+		const def = componentMap.get(n.componentId);
+		if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return false;
+		return def.root.children.some((c) =>
+			nodeDrawsFx(c, componentMap, depth + 1, [...stack, def.id]),
+		);
+	}
+	return false;
+}
+
+/** Does a node draw anything that is NOT a placed FX? A container draws only its children (or its
+ * own preview when it is a bound anchor); an instance whose def is missing still draws a
+ * placeholder. */
+function nodeDrawsOther(
+	n: LayoutNode,
+	componentMap: Map<string, ComponentDef>,
+	depth: number,
+	stack: string[],
+): boolean {
+	if (n.kind === 'effect') return false;
+	if (n.kind === 'container')
+		return !!n.bind || n.children.some((c) => nodeDrawsOther(c, componentMap, depth, stack));
+	if (n.kind === 'componentInstance') {
+		const def = componentMap.get(n.componentId);
+		if (!def) return true;
+		if (depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return false;
+		return def.root.children.some((c) =>
+			nodeDrawsOther(c, componentMap, depth + 1, [...stack, def.id]),
+		);
+	}
+	return true;
+}
+
+/** Split a screen's top-level nodes into {@link DepthSegment}s: a new segment starts at a node that
+ * draws other art once the current one already holds an FX. */
+export function depthSegments(
+	scene: Scene,
+	componentMap: Map<string, ComponentDef>,
+): DepthSegment[] {
+	const groups: LayoutNode[][] = [[]];
+	let hasFx = false;
+	for (const n of scene.nodes) {
+		if (hasFx && nodeDrawsOther(n, componentMap, 0, [])) {
+			groups.push([]);
+			hasFx = false;
+		}
+		groups[groups.length - 1].push(n);
+		if (nodeDrawsFx(n, componentMap, 0, [])) hasFx = true;
+	}
+	return groups.map((nodes, i) => ({
+		key: i === 0 ? scene.id : `${scene.id}#seg${i}`,
+		sceneId: scene.id,
+		nodes,
+		whole: groups.length === 1,
+	}));
+}

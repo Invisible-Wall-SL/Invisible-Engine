@@ -179,6 +179,8 @@ const smStateFields: Record<keyof SmState, true> = {
 	timeline: true,
 	speed: true,
 	loop: true,
+	offsetParam: true,
+	randomStart: true,
 	pos: true,
 	onEnter: true,
 };

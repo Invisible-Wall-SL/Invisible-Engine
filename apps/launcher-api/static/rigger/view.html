@@ -202,6 +202,9 @@
   /* The rig canvas sits at 1 so the FX overlay can go BELOW it (0) or above it (2) — see
      `setFxDepth`. Every stage widget above it is pinned at 4+ so neither canvas can bury it. */
   #cv { position:relative; z-index:1; }
+  /* One host per FX band (`ensureFxOverlay`): the band's z-index lives here, on an element we made,
+     so it can never land on the other band's canvas. Click-through, like the canvas inside it. */
+  .fxBand { position:absolute; inset:0; pointer-events:none; }
   #bonemark { position:absolute; z-index:4; width:10px; height:10px; margin:-5px 0 0 -5px; border-radius:50%;
     border:2px solid var(--accent2); background:rgba(126,224,192,.25); pointer-events:none;
     display:none; box-shadow:0 0 0 1px #000; }
@@ -978,7 +981,7 @@ let fxInFront = true;
  * Each is a separate Pixi Application, so each costs a WebGL context. Both are therefore LAZY: a rig
  * whose cues all sit on one side never creates the other, and a rig with no FX creates neither.
  */
-const fxBands = { front: { api: null, canvas: null, z: "2" }, back: { api: null, canvas: null, z: "0" } };
+const fxBands = { front: { api: null, host: null, z: "2" }, back: { api: null, host: null, z: "0" } };
 /** Which band the CINEMATIC asked for (its set can sit behind the cast). Remembered because the
  * overlay is lazy: a cue can ask before the canvas exists. */
 function setFxOverlayDepth(inFront){
@@ -1014,8 +1017,14 @@ function ensureFxBundle(){
   return fxLoading;
 }
 /**
- * Create (once) the overlay for ONE band and park its canvas at that band’s z-index. Lazy per band:
- * a rig whose cues all sit in front never spends a WebGL context on the back overlay.
+ * Create (once) the overlay for ONE band, inside a host of its own that sits at the band’s z-index.
+ * Lazy per band: a rig whose cues all sit in front never spends a WebGL context on the back overlay.
+ *
+ * The host is what makes the band reliable. Both overlays used to mount straight into `#stage` and
+ * then look for "the canvas that wasn't there before". A clip with cues on both sides of the rig
+ * creates the two overlays together (`updateFxPreview`), so both snapshots predated either canvas
+ * and the second lookup took the FIRST band's canvas. One canvas got the wrong z-index and the
+ * other got none, and with no z-index it paints under `#cv`, so every burst drew behind the rig.
  */
 function ensureFxOverlay(bandKey){
   const band = fxBands[bandKey === "back" ? "back" : "front"];
@@ -1024,13 +1033,14 @@ function ensureFxOverlay(bandKey){
   band.pending = ensureFxBundle().then(() => {
     if (fxLoadFailed || band.api) return;
     const api = window.RiggerFxCreate();
-    // Note WHICH canvas is ours: #stage now holds up to three (the rig + one per band), so the old
-    // `canvas:not(#cv)` lookup would grab whichever came first.
-    const before = new Set([...$("#stage").querySelectorAll("canvas")]);
-    return Promise.resolve(api.init($("#stage"))).then(() => {
+    if (!band.host){
+      band.host = document.createElement("div");
+      band.host.className = "fxBand";
+      band.host.style.zIndex = band.z;
+      $("#stage").appendChild(band.host);
+    }
+    return Promise.resolve(api.init(band.host)).then(() => {
       band.api = api;
-      band.canvas = [...$("#stage").querySelectorAll("canvas")].find((c) => !before.has(c)) || null;
-      if (band.canvas) band.canvas.style.zIndex = band.z;
       fxReady = true;
       console.log("[RiggerFx] " + (bandKey === "back" ? "back" : "front") + " overlay ready");
     });
