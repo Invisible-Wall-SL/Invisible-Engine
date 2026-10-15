@@ -24,7 +24,18 @@
 	 * chip (reported via `onReadyKeysChange`).
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
-	import { bindArt, type EffectDoc, type EmitterLayer } from 'engine-fx';
+	import {
+		bindArt,
+		createEffectLevelApplier,
+		createEffectParamApplier,
+		parseEffectParamPath,
+		type EffectDoc,
+		type EffectLevelApplier,
+		type EffectLevelState,
+		type EffectParamApplier,
+		type EffectParamValues,
+		type EmitterLayer,
+	} from 'engine-fx';
 	import {
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
@@ -84,6 +95,9 @@
 		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
 		 * NODE id, idempotent (only re-emitted when a box meaningfully grows). */
 		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
+		/** The live values of a placed effect's exposed parameters, by NODE id, read on the ticker.
+		 * Absent ⇒ every effect draws its defaults (already in its stored config). */
+		effectParamValues?: (nodeId: string) => EffectParamValues | undefined;
 	}
 
 	let {
@@ -103,6 +117,7 @@
 		worldTransformOf,
 		onReadyKeysChange,
 		onBoundsChange,
+		effectParamValues,
 	}: Props = $props();
 
 	let host: HTMLDivElement | null = $state(null);
@@ -129,6 +144,10 @@
 		placed: EffectTarget['world'];
 		container: Container;
 		emitters: Emitter[];
+		/** The `effect.*` drives and the wrapper they move, when the doc has any. */
+		fx?: { applier: EffectLevelApplier; wrapper: Container };
+		/** One applier per driven layer, only when live values are supplied. */
+		appliers: EffectParamApplier[];
 		/** True once at least one free layer resolved a visible emitter (art OR placeholder) — drives
 		 * the ready report so the 2D chip is only dropped when something actually renders. */
 		live: boolean;
@@ -414,6 +433,7 @@
 			placed: tg.world,
 			container,
 			emitters: [],
+			appliers: [],
 			live: false,
 			bounds: null,
 		};
@@ -426,11 +446,22 @@
 			return;
 		}
 
+		// `effect.*` drives move a wrapper around the layers — mounted only when the doc has one. Their
+		// targets have no stored leaf, so the defaults are written here even with no live values.
+		const fx = createEffectLevelApplier(doc.params);
+		if (fx) {
+			const wrapper = new Container();
+			container.addChild(wrapper);
+			node.fx = { applier: fx, wrapper };
+			fx.apply(effectParamValues?.(tg.nodeId));
+			writeEffectLevel(wrapper, fx.state);
+		}
+
 		for (const layer of doc.layers) {
 			// v1: skip bone-placed layers — they need a live `<RigProvider>` host the scene overlay
 			// doesn't have (the runtime mounts those on their host rig). A free layer spawns here.
 			if (layer.placement.space === 'bone') continue;
-			await buildLayer(node, layer, gen);
+			await buildLayer(node, layer, gen, doc, tg.nodeId);
 			if (gen !== rebuildGen) return;
 		}
 
@@ -441,7 +472,13 @@
 	/** Build one FREE layer's live `Emitter` into a node's container (mirrors FxStage's sprite path).
 	 * A layer that resolves 0 textures is SKIPPED (the editor overlay renders real art only — the `/fx`
 	 * tool's placeholder dots are an authoring aid there, not wanted littering the scene preview). */
-	async function buildLayer(node: LiveNode, layer: EmitterLayer, gen: number): Promise<void> {
+	async function buildLayer(
+		node: LiveNode,
+		layer: EmitterLayer,
+		gen: number,
+		doc: EffectDoc,
+		nodeId: string,
+	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
 		if (gen !== rebuildGen) return;
 		if (textures.length === 0) return; // no art → skip (no placeholder dots in the scene)
@@ -454,9 +491,42 @@
 			framerate: layer.art.framerate,
 			loop: layer.art.loop,
 		});
-		const emitter = new Emitter(node.container, config);
+		const parent = node.fx?.wrapper ?? node.container;
+		// This overlay draws a free layer at the node origin (its authored offset is not applied here),
+		// so an offset drive moves the layer by its CHANGE from the authored offset, in a container of
+		// its own that only an offset-driven layer gets (built up front: re-parenting an emitter resets it).
+		const offsetDriven =
+			!!effectParamValues &&
+			!!doc.params?.some((p) =>
+				p.drives.some((d) => {
+					const parsed = parseEffectParamPath(d.path);
+					return d.layer === layer.key && parsed.ok && parsed.target.scope === 'placement';
+				}),
+			);
+		const host = offsetDriven ? new Container() : parent;
+		if (host !== parent) parent.addChild(host);
+		const authored = layer.placement.offset ?? { x: 0, y: 0 };
+		const emitter = new Emitter(host, config);
+		const applier = effectParamValues
+			? createEffectParamApplier({
+					params: doc.params,
+					layer,
+					config,
+					emitter,
+					setOffset: (x, y) => host.position.set(x - authored.x, y - authored.y),
+				})
+			: undefined;
+		applier?.apply(effectParamValues?.(nodeId));
+		if (applier) node.appliers.push(applier);
 		emitter.emit = playing;
 		node.emitters.push(emitter);
+	}
+
+	/** Write the effect-level state onto its wrapper. */
+	function writeEffectLevel(wrapper: Container, state: Readonly<EffectLevelState>): void {
+		wrapper.alpha = state.alpha;
+		wrapper.scale.set(state.scale);
+		wrapper.tint = state.tint;
 	}
 
 	// ---- ready reporting (chip suppression) -------------------------------------------------------
@@ -594,10 +664,19 @@
 			app.ticker.add((ticker) => {
 				if (!playing) return;
 				const dt = ticker.deltaMS / 1000;
-				for (const node of liveNodes.values()) {
+				for (const [nodeId, node] of liveNodes) {
+					let nodeDt = dt;
+					if (effectParamValues && (node.fx || node.appliers.length)) {
+						const values = effectParamValues(nodeId);
+						if (node.fx?.applier.apply(values)) {
+							writeEffectLevel(node.fx.wrapper, node.fx.applier.state);
+						}
+						for (const applier of node.appliers) applier.apply(values);
+					}
+					if (node.fx) nodeDt *= node.fx.applier.state.timeScale;
 					for (const emitter of node.emitters) {
 						try {
-							emitter.update(dt);
+							emitter.update(nodeDt);
 						} catch (err) {
 							// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can make
 							// the library throw mid-update. Isolate it so one bad emitter doesn't throw out of the

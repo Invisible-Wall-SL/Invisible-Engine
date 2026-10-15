@@ -19,7 +19,8 @@
 		"variation": "tsx variation.ts",
 		"rig-bound": "tsx rigBound.ts",
 		"forces": "tsx forces.ts",
-		"sprite": "tsx sprite.ts"
+		"sprite": "tsx sprite.ts",
+		"exposed-params": "tsx exposedParams.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",

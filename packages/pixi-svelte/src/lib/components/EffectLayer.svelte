@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { EmitterLayer } from 'engine-fx';
+	import type { EffectParam, EffectParamValues, EmitterLayer } from 'engine-fx';
 
 	export type Props = {
 		/** The layer to mount (one emitter of the parent effect). */
@@ -39,6 +39,12 @@
 		 * wins over it (`*` = every part). Absent ⇒ every event, as before scopes existed.
 		 */
 		scope?: string;
+		/** The effect's exposed parameters — passed only when some drive this layer. */
+		params?: readonly EffectParam[];
+		/** The live parameter values, read on the ticker. With `params`, the layer applies them. */
+		paramValues?: () => EffectParamValues | undefined;
+		/** The effect-level time scale, read every tick (see `<EffectPlayer params>`). */
+		timeScale?: () => number;
 	};
 </script>
 
@@ -59,7 +65,7 @@
 	import { onDestroy } from 'svelte';
 	import * as RIG from 'engine-rig/pixi';
 	import type { Texture } from 'pixi.js';
-	import { planLayer } from 'engine-fx';
+	import { layerHasParamDrives, planLayer } from 'engine-fx';
 	import {
 		eventScope,
 		getContextEventEmitter,
@@ -77,6 +83,30 @@
 	const props: Props = $props();
 	const context = getContextApp();
 	const plan = $derived(planLayer(props.layer));
+
+	// Exposed parameters. A driven bone layer's offset is a plain object `<RigBoneAttach>` reads every
+	// frame, so a drive moves it by writing in place; a free layer's `<Container>` is moved by the
+	// emitter itself. Undriven, both mounts get exactly what they always did.
+	const driven = $derived(
+		!!props.paramValues && layerHasParamDrives(props.params, props.layer.key),
+	);
+	const boneOffset = $derived(driven ? { ...plan.offset } : plan.offset);
+	const fxParams = $derived(
+		driven && props.params && props.paramValues
+			? {
+					params: props.params,
+					layer: props.layer,
+					values: props.paramValues,
+					setOffset:
+						plan.mount === 'bone'
+							? (x: number, y: number) => {
+									boneOffset.x = x;
+									boneOffset.y = y;
+								}
+							: undefined,
+				}
+			: undefined,
+	);
 
 	// Tier C: resolve the `spineParticle.skeletonKey` to a loaded `SkeletonData` (a `LoadedRig`
 	// in `loadedAssets`, the SAME lookup `RigProvider` does — the skeleton must have travelled
@@ -238,7 +268,7 @@
 
 {#if plan.render}
 	{#if plan.mount === 'bone' && plan.bone}
-		<RigBoneAttach boneName={plan.bone} offset={plan.offset} followRotation followScale>
+		<RigBoneAttach boneName={plan.bone} offset={boneOffset} followRotation followScale>
 			<ParticleEmitter
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
@@ -249,6 +279,8 @@
 				spineParticle={rigParticle}
 				emit={emitting}
 				emitSpeed={props.emitSpeed}
+				{fxParams}
+				timeScale={props.timeScale}
 			/>
 		</RigBoneAttach>
 	{:else}
@@ -265,6 +297,8 @@
 				emitSpeed={props.emitSpeed}
 				ownerPos={props.ownerPos}
 				ownerRotation={props.ownerRotation}
+				{fxParams}
+				timeScale={props.timeScale}
 			/>
 		</Container>
 	{/if}

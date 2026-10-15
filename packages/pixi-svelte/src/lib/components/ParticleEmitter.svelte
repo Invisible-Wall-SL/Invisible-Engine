@@ -9,9 +9,14 @@
 	import {
 		bindArt,
 		behaviorsOf,
+		createEffectParamApplier,
 		emitterDeltaSeconds,
 		registerFxBehaviors,
 		type BehaviorEntry,
+		type EffectParam,
+		type EffectParamApplier,
+		type EffectParamValues,
+		type EmitterLayer,
 	} from 'engine-fx';
 	import type { Texture } from 'pixi.js';
 
@@ -27,6 +32,18 @@
 		type RigParticleBehaviorConfig,
 		type LayerHostLike,
 	} from '../rigParticleBehavior';
+
+	/** What an emitter needs to apply an effect's exposed parameters live (`engine-fx` `params.ts`). */
+	export interface ParticleEmitterParams {
+		/** The effect's `params`. */
+		params: readonly EffectParam[];
+		/** The layer this emitter draws — its key picks the drives, its offset is the base. */
+		layer: EmitterLayer;
+		/** The live values, read on the ticker — never through Svelte reactivity. */
+		values: () => EffectParamValues | undefined;
+		/** Moves the layer's offset container. Absent ⇒ the emitter's parent container is moved. */
+		setOffset?: (x: number, y: number) => void;
+	}
 
 	export type Props = Partial<Emitter> & {
 		key: string;
@@ -85,6 +102,14 @@
 		 * so it follows the arc. A `noRotation` layer still pins its art. Absent ⇒ unrotated.
 		 */
 		ownerRotation?: () => number;
+		/**
+		 * Apply the effect's exposed parameters live: each frame the values are read and a changed one
+		 * rebuilds only the behaviour it drives (no `init`, so no particle is lost). Absent ⇒ no
+		 * parameter work at all.
+		 */
+		fxParams?: ParticleEmitterParams;
+		/** Multiplies the emit speed, read every tick (an effect-level `effect.timeScale` drive). */
+		timeScale?: () => number;
 	};
 
 	/**
@@ -174,6 +199,24 @@
 	);
 	// svelte-ignore state_referenced_locally
 	const emitter = new Emitter(parentContext.parent, updatedConfig);
+	/** The config the emitter was last initialised from — what a parameter applier rebuilds against. */
+	// svelte-ignore state_referenced_locally
+	let initConfig = updatedConfig;
+	let applier: EffectParamApplier | undefined;
+	/** A fresh applier for the emitter as it stands now, at once given the current values. */
+	const bindParams = (): void => {
+		const fx = props.fxParams;
+		applier = fx
+			? createEffectParamApplier({
+					params: fx.params,
+					layer: fx.layer,
+					config: initConfig,
+					emitter,
+					setOffset: fx.setOffset ?? ((x, y) => parentContext.parent.position.set(x, y)),
+				})
+			: undefined;
+		applier?.apply(fx?.values());
+	};
 
 	propsSyncEffect({
 		props,
@@ -188,6 +231,8 @@
 			'weights',
 			'ownerPos',
 			'ownerRotation',
+			'fxParams',
+			'timeScale',
 		],
 	});
 
@@ -213,19 +258,31 @@
 		// they take the same `init` branch as before — byte-identical to the prior behaviour.
 		if (props.emit) {
 			emitter.init(updatedConfig);
+			initConfig = updatedConfig;
 			ownerTracked = false;
 			// Untracked: the getter reads live position state, which must not re-run this `init`.
 			untrack(syncOwner);
+			// `init` rebuilt every behaviour from the config, so the old applier's view is stale.
+			untrack(bindParams);
 		} else emitter.emit = false;
+	});
+
+	// A new parameter set (rare at runtime) puts the old drives back before the new ones apply.
+	$effect(() => {
+		void props.fxParams;
+		untrack(() => {
+			applier?.restore();
+			bindParams();
+		});
 	});
 
 	const tick = () => {
 		if (context.stateApp.pixiApplication) {
 			syncOwner();
-			const deltaUpdate = emitterDeltaSeconds(
-				context.stateApp.pixiApplication.ticker.deltaMS,
-				props.emitSpeed,
-			);
+			applier?.apply(props.fxParams?.values());
+			const deltaUpdate =
+				emitterDeltaSeconds(context.stateApp.pixiApplication.ticker.deltaMS, props.emitSpeed) *
+				(props.timeScale?.() ?? 1);
 			emitter.update(deltaUpdate);
 		}
 	};

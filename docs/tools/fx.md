@@ -15,8 +15,10 @@ cloud storage.
 > as the particles** (Tier C), author **when** a layer fires (ambient, or on a game event),
 > and save/reopen the effect. A saved effect travels into a game through the export →
 > `deploy/` → bake → pull → register chain, and a layer set to fire **on event** plays
-> in-game when a matching event (e.g. a Flow Broadcast) crosses the runtime event bus. See
-> the design doc for the roadmap and `docs/status/fx.md` for what is still owner-verified.
+> in-game when a matching event (e.g. a Flow Broadcast) crosses the runtime event bus. Since
+> 2026-10-15 any value of an effect can also be made a named **exposed parameter** (⚡), with a
+> live preview slider; nothing outside this tool sets those values yet. See the design doc for the
+> roadmap and `docs/status/fx.md` for what is still owner-verified.
 
 ## What it is
 
@@ -137,7 +139,8 @@ saved effect (only the layer's chosen bone name + offset are).
 
 ### Tune a layer (Inspector)
 
-With a layer selected, the right **Inspector** edits it:
+With a layer selected, the right **Inspector** edits it. Most rows end in a **⚡** button — see
+[Exposed parameters](#exposed-parameters) below.
 
 - **Layer → Name** — rename the layer (its key, shown in the Layers panel).
 - **Particle → Kind** — **Sprite (atlas art)** (the default; the **Art** section below
@@ -281,6 +284,50 @@ With a layer selected, the right **Inspector** edits it:
 - **Blend mode** — Normal / **Add (glow)** / Screen / Multiply. Add and screen give the
   additive glow fire, sparks and magic want.
 
+### Exposed parameters
+
+An **exposed parameter** is a named value (`intensity`, `heat`) the game — later a binding, a
+timeline or Flow — sets on a placed effect, and that changes one or more of the effect's values.
+Any value can be exposed, not just a fixed list.
+
+- **⚡ on a row** opens a small menu: **New parameter…** asks for its name and makes a parameter
+  that drives what the row writes, starting at the row's current value (so nothing changes on
+  screen); **Drive with "…"** adds the row to an existing parameter instead. The ⚡ sits on the
+  sliders, the number boxes (Offset X / Y), the colour fields (Start, End, Overlay) and the
+  switches that set a value (a force's **On**, **Rotate particle to its travel direction**).
+  Switches that add or remove a section, the art, the trigger and the flipbook settings cannot be
+  driven — their ⚡ says so.
+  - A row that writes more than one value is exposed whole: **Direction** drives both ends of the
+    launch arc, a rectangle's **Width** its width and its centring.
+  - **Lifetime min** drives only the minimum. It drags the maximum along only when it passes it,
+    and a parameter does not do that.
+  - Some values exist only once the row is off its default, e.g. **Spin** at 0, or **Rotation** at
+    0° with a centred pivot. The menu then says to move the row first.
+- **All parameters** (bottom of the Inspector, collapsed) lists every value in the layer a
+  parameter can drive — emitter fields, every behaviour's numbers, colours and on/off values,
+  the offset — each with its own ⚡, for the ones with no row.
+- **A driven row** shows the parameter's name under it, ⚡ highlighted (click it to jump to the
+  parameter). If the row writes the parameter **as is** (Frequency, an alpha end, a colour), editing
+  the row edits the parameter's **default**. If the parameter is **mapped** onto it (Direction, or a
+  0–1 intensity driving Frequency), the row is **read-only**: change it through the parameter.
+- **The Exposed parameters panel** (left column, under the layers) holds one card per parameter:
+  - its **name** (the id a binding or Flow sets) and **kind** — Number, Colour or On / off; the
+    kind is locked while the parameter drives something;
+  - a Number's **Min / Max / Default**, a Colour's or On / off's **Default**, and an optional
+    **Note**;
+  - its **drives**: which layer and value each one writes, and **from → to** (the value at the
+    parameter's min or off, and at its max or on) as editable boxes, or *written as is*. **✕**
+    removes a drive. A drive whose layer or behaviour has been removed shows a red **⚠** and does
+    nothing until it is fixed or removed;
+  - a **Preview** slider (a colour field or a tick box for the other kinds) that moves the effect
+    in the stage **live, with no reset** — particles already in flight carry on. The preview is
+    **not saved**; **↺** puts it back to the default.
+- **What is saved.** The parameters are saved with the effect, and the effect's stored settings
+  are always its look **at the defaults** — so the game, the Scene Editor and the Rigger draw the
+  default look even where nothing sets a value. A driven value stays at its parameter's default
+  even when a preset or a section switch rewrites the layer. Renaming a layer keeps its drives; a
+  duplicated or pasted copy starts undriven.
+
 ### Save
 
 Click **⤓ Save** to write the effect to the project's cloud storage. The save splits
@@ -338,6 +385,14 @@ mere save.
   Flow; FX and Flow meet at the shared event vocabulary.
 
 ## Known limitations / TODOs
+
+- **Exposed parameters are set only by this tool's preview so far.** The game draws each effect
+  at its defaults. Setting a value from a component, a timeline, a state machine or the game clock
+  is the next part of the plan.
+- **An effect-level Scale sizes free layers only.** A layer pinned to a bone keeps its bone's size
+  and place; opacity and tint still reach it.
+- **A driven Emitter lifetime applies the next time the layer starts emitting**, not to a burst
+  already running.
 
 - **Live in-game firing needs an owner pixel-verify.** The full author→ship→fire loop is
   wired and headless-tested, but firing a baked effect on an event in a real game (in
@@ -410,6 +465,17 @@ mere save.
   layer it adds into their `config.velocity`; otherwise it integrates its own velocity on top of
   the movement. Gate: `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, run by the Lint
   workflow).
+- **Exposed parameters:** `packages/engine-fx/src/params.ts` — the `EffectDoc.params` path
+  grammar (`parseEffectParamPath`), the mapping (`effectParamDriveValue`), the defaults-in-config
+  writer `normalizeEffectDoc` runs (`applyEffectParamDefaults`), validation, the leaf listing, and
+  the live applier (`createEffectParamApplier` — rebuilds only the driven behaviour and swaps it
+  into the emitter's behaviour arrays, never `init`; `createEffectLevelApplier` for `effect.*`).
+  Runtime: `<EffectPlayer params>` (a getter read on the ticker) → `<EffectLayer>` →
+  `<ParticleEmitter fxParams>`, plus `EffectParamGroup.svelte` for `effect.*`. The same applier
+  runs in `FxStage.svelte`, the Scene Editor's `EditorEffectLayer.svelte` and `$lib/fx/fxOverlay.client.ts`
+  (rebuild `rigger-fx.js` after editing it). The ⚡ model is `fxParams.client.ts` (`rowExposure`
+  diffs a row's own setter run on a scratch copy). Gate: `pnpm check:fx-params`
+  (`tools/fx-spike/exposedParams.ts`).
 - **Sprite transform:** `packages/engine-fx/src/sprite.ts` — the `fxSprite` behavior
   (`{ rotation, anchorX, anchorY }`, read through the `readFxSprite` clamp). The pivot is the
   particle's `anchor`; the rotation offset is carried on `skew = (−θ, θ)`, which PIXI composes
