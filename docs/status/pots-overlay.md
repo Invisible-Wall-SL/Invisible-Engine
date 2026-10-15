@@ -969,17 +969,23 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
     (`consumedMeters`, engine-game). The Hold and Win reducer empties them as the trigger is
     recorded, so before, anything authored ahead of `showRespinBoard` saw them empty, then full, then
     draining.
-  - **A slam no longer cuts a held intro short**: `holdAndWinTrigger` re-arms the slam token
-    (`startsCelebration`), as `freeSpinTrigger` does. The cost: after a STOP on the trigger spin,
-    the coded drain and board swap play at full pace; a fresh press still fast-forwards them.
+  - **A slam no longer cuts a held intro short.** When the flow holds the feature's entry (a held
+    Show on the mode's Mode trigger (enter) chains or on its `holdAndWinTrigger` chain,
+    `modeEntryHolds` in engine-flow-v2), `holdAndWinTrigger` presents like the free-spin intro: the
+    slam token is re-armed (`startsCelebration`, via `utils.ts`) and the dispatch is unskippable
+    (`HOLD_AND_WIN_CELEBRATIONS`), so the button is inert from the drain to the tap. An entry with
+    no held Show is untouched, so every current game still fast-forwards its trigger after a STOP
+    (code review, first push re-armed every Hold and Win game).
   - **`respinsLeft` / `respinsStart` read the recorded feature while the counter is hidden**, so the
     `featureIntro` scaffold's Respins text shows the respins just won rather than 0 or the previous
     feature's.
   - **Game Config → Pots stay full during their bonus** (`coinOverlay.potsStayFull`, presentation
-    only; stored only as `true` and only with pots or meters). The runtime reads a pot whose bonus is
-    on the mode stack as full (`meterLevelShown`; a resume rebuilds the stack, so it holds there too),
-    the entry's drain beat only pulses it, and it drains once the mode's exit has presented
-    (`holdPotsForDrain`, from `stateModes`). Off ⇒ unchanged.
+    only; stored only as `true` and only with pots or meters). A pot that started a mode on the
+    stack or in its queue reads full (`potHeldByBonus` / `meterLevelShown`; a resume rebuilds the
+    stack, so it holds there too). The entry's drain beat only pulses the pots it holds, and drains
+    any other (a merged entry). The pot drains once the mode's exit has presented, even when the
+    exit chain throws (`holdPotsForDrain`, from `stateModes`). One the server fills again inside its
+    own bonus empties first, then fills. Off ⇒ unchanged.
   - **Verified** headless (local snapshot: the lines default + 3 Pots, the lines starter flow +
     "＋ Add overlay steps", the Hold and Win tab's enter chain rewired to `drainPots` → held
     `featureIntro` → hide → its screens; the composed mock with `pot:red`; publish validation 0

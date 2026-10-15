@@ -73,7 +73,7 @@ import {
 	meterFlight,
 	meterMax,
 	meterStage,
-	potsStayFull,
+	potHeldByBonus,
 	pulseMeter,
 	releaseMeterDisplay,
 } from './holdAndWinMeters.svelte';
@@ -334,6 +334,13 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 		event.level,
 		meterLevelBefore(event.meter) ?? Math.max(0, event.level - event.from.length),
 	);
+	// A pot kept full through the bonus it started, filling again inside it, empties first.
+	if (before === 0 && potHeldByBonus(event.meter)) {
+		const kept = holdMeterDisplay(event.meter, meterMax(event.meter));
+		pulseMeter(event.meter);
+		void kept.set(0, { duration: roundSkip.isSkipped() ? 0 : METER_DRAIN_MS, easing: cubicOut });
+		await waitPresentation(METER_DRAIN_MS);
+	}
 	const shown = holdMeterDisplay(event.meter, before);
 	const scope = scopeOf('meter', event.meter);
 	eventEmitter.broadcast({
@@ -398,12 +405,11 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
  * screens and music are up while the pots drain. What each pot activates is the Game Config's
  * (`resolveMeters` — a meter's or a pot's `bonus.activates`); the server already emptied the meters
  * (recorded at the play seam), so the drain runs from each pot's maximum down to the recorded 0.
- * With {@link potsStayFull} the pots only pulse here and keep their level: they drain as the bonus
- * ends (`holdPotsForDrain`).
+ * A pot the bonus keeps full ({@link potHeldByBonus}) only pulses here and keeps its level: it drains
+ * as the bonus ends (`holdPotsForDrain`).
  */
-export const presentMeterConsume = async (ids: readonly string[]) => {
+const presentMeterConsume = async (ids: readonly string[]) => {
 	if (ids.length === 0) return;
-	const stayFull = potsStayFull();
 	const declared = configuredMeters();
 	const activates = ids.flatMap(
 		(id) => declared.find((meter) => meter.id === id)?.bonus.activates ?? [],
@@ -414,7 +420,7 @@ export const presentMeterConsume = async (ids: readonly string[]) => {
 		ids.map(async (id) => {
 			const shown = holdMeterDisplay(id, meterMax(id));
 			pulseMeter(id);
-			if (!stayFull)
+			if (!potHeldByBonus(id))
 				void shown.set(0, {
 					duration: roundSkip.isSkipped() ? 0 : METER_DRAIN_MS,
 					easing: cubicOut,

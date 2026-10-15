@@ -95,10 +95,16 @@ export const UNSKIPPABLE_BOOK_EVENTS: ReadonlySet<string> = new Set([
  * count-up into the HUD), so they also run inside the unskippable window, whose lock keeps the spin
  * button inert for their length. Neither holds on a player press, so THE HANG RULE is met: every wait
  * in them is a timer, a flight or a bounded symbol beat.
+ *
+ * `holdAndWinTrigger` joins them only when the game's opener says it opens a celebration — a flow
+ * that holds the feature's entry for a tap (an authored intro, `utils.ts`), presented like the
+ * free-spin intro: on a fresh token, with the button inert from the pot drain to the tap. Its tap
+ * hold is a flow node, which the slam-aware mount keeps raced, so it cannot hang either.
  */
 const HOLD_AND_WIN_CELEBRATIONS: ReadonlySet<string> = new Set([
 	'jackpotWin',
 	'holdAndWinEnd',
+	'holdAndWinTrigger',
 	// The operator platform jackpot's banner (any kind) — the same kind of celebration.
 	'platformJackpotWin',
 ]);
@@ -153,11 +159,6 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set([
  *    celebration ({@link HOLD_AND_WIN_CELEBRATIONS}). A coin jackpot named in the tally is not one.
  *  - `holdAndWinWheel` — the pre-feature wheel, re-armed like the intro it is; slammable while it
  *    turns (it lands at once), its result never skipped.
- *  - `holdAndWinTrigger` — the feature's entry, re-armed for the free-spin intro's reason: a flow's
- *    held intro screen on its Mode trigger (enter) or trigger chain is released on skip, so a press
- *    that slammed the trigger spin collapsed it. The coded pot drain and board swap that follow
- *    play at full pace after such a press; a fresh press still fast-forwards them.
- *
  * The book reveal (`setExpandingSymbol`) is NOT here — it has no reel-roll ahead of it that a slam
  * would legitimately stop, so the unskippable scope + the window lock already cover it.
  */
@@ -177,9 +178,6 @@ export const startsCelebration = (bookEvent: BookEvent): boolean => {
 		// the trigger's reels must not snap it. It is NOT unskippable: a press while it turns lands it
 		// at once, and its result holds on a bare timer (`presentWheel`), so it is never skipped.
 		case 'holdAndWinWheel':
-			return true;
-		// The feature's entry: a flow's held intro on its enter or trigger chain waits for a real tap.
-		case 'holdAndWinTrigger':
 			return true;
 		case 'jackpotWin':
 			return bookEvent.banked;

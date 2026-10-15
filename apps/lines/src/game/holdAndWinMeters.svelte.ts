@@ -1,4 +1,4 @@
-import type { HoldAndWinMeterLevel } from 'engine-game';
+import type { HoldAndWinMeterLevel, ModeEntry } from 'engine-game';
 import { meterFlightKey } from 'engine-layout';
 import { resolveMeters, type ResolvedMeter } from 'game-config';
 import { cubicOut } from 'svelte/easing';
@@ -7,6 +7,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 
 import { getActiveGameConfig } from './gameConfig';
 import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte';
+import { stateModes } from './stateModes.svelte';
 import { waitPresentation } from './unskippablePresentation';
 
 /**
@@ -55,23 +56,31 @@ export const METER_DRAIN_MS = 500;
 /** Game Config → coin overlay → "Pots stay full during their bonus". */
 export const potsStayFull = (): boolean => getActiveGameConfig().coinOverlay?.potsStayFull === true;
 
-/** The pots that started a mode now on the stack (bound by `stateModes`; unbound ⇒ none). */
-let potsInBonus: () => readonly string[] = () => [];
+const startedBy = (entry: ModeEntry, id: string): boolean =>
+	entry.cause === 'meter' &&
+	Array.isArray(entry.payload.meters) &&
+	entry.payload.meters.includes(id);
 
-export const bindPotsInBonus = (read: () => readonly string[]): void => {
-	potsInBonus = read;
+/**
+ * Whether pot `id` is kept full ({@link potsStayFull}) because a mode it started is playing or
+ * queued. `stateModes` imports this module, so its state is read here only inside a call.
+ */
+export const potHeldByBonus = (id: string): boolean => {
+	if (!potsStayFull()) return false;
+	const { stack, queue } = stateModes.state;
+	return stack.some((entry) => startedBy(entry, id)) || queue.some((entry) => startedBy(entry, id));
 };
 
 /**
- * The level a pot shows now — a beat's pinned value, else the server's. Fractional mid-tween. With
- * {@link potsStayFull}, a pot whose bonus is playing reads full until it ends (the server emptied it
- * as the bonus started), unless the server has filled it again since.
+ * The level a pot shows now — a beat's pinned value, else the server's. Fractional mid-tween. A pot
+ * {@link potHeldByBonus} reads full until its bonus ends (the server emptied it as the bonus
+ * started), unless the server has filled it again since.
  */
 export const meterLevelShown = (id: string): number => {
 	const pinned = stateMeterDisplay.pinned[id];
 	if (pinned) return pinned.current;
 	const level = recorded(id)?.level ?? 0;
-	return level === 0 && potsStayFull() && potsInBonus().includes(id) ? meterMax(id) : level;
+	return level === 0 && potHeldByBonus(id) ? meterMax(id) : level;
 };
 
 /** A meter's maximum — the server's, else the config's. */
@@ -144,11 +153,14 @@ export const pulseMeter = (id: string): void => {
  * A bonus that pots kept full has just ended, and the stack has let them go: pin the ones still
  * drawn full NOW, so no frame draws them empty, and return their drain, to play once the mode's exit
  * has presented — each pot pulses and empties. A pot the server filled again during the bonus already
- * shows its level and is left alone.
+ * shows its level, and one another playing or queued mode keeps full stays so; both are left alone.
  */
 export const holdPotsForDrain = (ids: readonly string[]): (() => Promise<void>) => {
 	const pins = ids
-		.filter((id) => !stateMeterDisplay.pinned[id] && (recorded(id)?.level ?? 0) === 0)
+		.filter(
+			(id) =>
+				!stateMeterDisplay.pinned[id] && (recorded(id)?.level ?? 0) === 0 && !potHeldByBonus(id),
+		)
 		.map((id) => ({ id, tween: holdMeterDisplay(id, meterMax(id)) }));
 	return async () => {
 		for (const { id, tween } of pins) {

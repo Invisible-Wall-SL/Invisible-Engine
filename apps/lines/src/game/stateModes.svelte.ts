@@ -15,7 +15,7 @@ import {
 
 import { eventEmitter } from './eventEmitter';
 import { activeSpinsGame, bindActiveMode, getActiveGameConfig } from './gameConfig';
-import { bindPotsInBonus, holdPotsForDrain, potsStayFull } from './holdAndWinMeters.svelte';
+import { holdPotsForDrain, potsStayFull } from './holdAndWinMeters.svelte';
 import { bindRiderMode } from './overlayRiders';
 import { rebuildBoard, stateGame } from './stateGame.svelte';
 import type { MusicName } from './sound';
@@ -88,15 +88,17 @@ export const stateModes = createModeController({
 			transition.kind === 'exit' && potsStayFull()
 				? holdPotsForDrain(potsThatStarted(transition.mode))
 				: undefined;
-		await flowPresenter?.(transition);
-		presentCoded(transition);
-		await drainKeptPots?.();
+		try {
+			await flowPresenter?.(transition);
+			presentCoded(transition);
+		} finally {
+			await drainKeptPots?.();
+		}
 	},
 	onStack: syncSpinsBoard,
 });
 
 bindActiveMode(() => stateModes.active());
-bindPotsInBonus(() => stateModes.state.stack.flatMap(potsThatStarted));
 bindRiderMode(() => stateModes.active());
 
 /**

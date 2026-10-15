@@ -66,7 +66,11 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	getFlowV2,
 	eventEmitter,
 	runBookEventPresentation,
-	startsCelebration,
+	// A Hold and Win entry whose flow holds it for a tap presents like the free-spin intro.
+	startsCelebration: (bookEvent) =>
+		startsCelebration(bookEvent) ||
+		(bookEvent.type === 'holdAndWinTrigger' &&
+			!!getFlowV2()?.entryHolds(bookEvent.mode ?? HOLD_AND_WIN_MODE, bookEvent.type)),
 	recordWinCycleWins,
 	forgetWinCycleWins,
 	stopWinCycle,

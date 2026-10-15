@@ -303,9 +303,10 @@ sees it. A board that swaps in place instead of rolling always shows its tokens 
 **Pots stay full during their bonus** (off by default) — a full pot stays drawn full while the
 bonus it started plays, and drains when that bonus ends, once its screens are down. Off, it drains
 as the bonus starts. Either way the pot still pulses as its bonus starts, the `potsConsume` cue
-fires and the modifier it activates is announced. A pot the server fills again during its own bonus
-shows that level instead. Like the timing, it changes only what the game shows; the server never
-sees it.
+fires and the modifier it activates is announced. No cue fires for the drain at the end, so a pot
+component that animates its drain on `potsConsume` plays it as the bonus starts. A pot the server
+fills again during its own bonus empties, then shows that level. Like the timing, it changes only
+what the game shows; the server never sees it.
 
 Problems show under the row or field they belong to, and that field gets a red border.
 
