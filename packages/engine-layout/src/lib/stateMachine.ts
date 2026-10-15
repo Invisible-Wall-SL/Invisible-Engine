@@ -138,6 +138,7 @@ export class ComponentStateMachineRunner {
 	private readonly current = new Map<string, number | boolean>();
 	private dirty = true;
 	private readonly param: ((key: string) => unknown) | undefined;
+	private readonly random: () => number;
 	/** Timeline ids some state names that the host could not resolve, each once. */
 	readonly missingTimelines: string[];
 
@@ -145,16 +146,20 @@ export class ComponentStateMachineRunner {
 	 * @param durations the seconds of every timeline the host resolved, by cinematic id; a state
 	 *   naming an id not here holds.
 	 * @param param the placed instance's param by key — what a condition with `param` compares
-	 *   against. Absent ⇒ every such condition fails.
+	 *   against, and a state's `offsetParam` reads. Absent ⇒ every such condition fails and every
+	 *   offset is 0.
+	 * @param random a state's `randomStart` source, 0..1 (injectable for the gates).
 	 */
 	constructor(
 		machine: ComponentStateMachine,
 		inputs: readonly ComponentInput[],
 		durations: ReadonlyMap<string, number>,
 		param?: (key: string) => unknown,
+		random: () => number = Math.random,
 	) {
 		this.durations = durations;
 		this.param = param;
+		this.random = random;
 		for (const input of inputs) {
 			if (!input.id || this.kinds.has(input.id)) continue;
 			this.kinds.set(input.id, input.kind);
@@ -171,15 +176,28 @@ export class ComponentStateMachineRunner {
 		this.layers = (machine.layers ?? []).map((def) => this.enterLayer(def));
 	}
 
+	/** Where a state's timeline starts when it is entered: its `offsetParam` plus, with
+	 *  `randomStart`, a random point of it — wrapped on a looping state, clamped otherwise. */
+	private startTime(state: SmState | undefined, duration: number | undefined): number {
+		if (!state || duration === undefined || !(duration > 0)) return 0;
+		let at = 0;
+		if (state.offsetParam) at = asNumber(this.param?.(state.offsetParam), 0);
+		if (state.randomStart) at += this.random() * duration;
+		if (state.loop) return ((at % duration) + duration) % duration;
+		return Math.min(Math.max(at, 0), duration);
+	}
+
 	private enterLayer(def: SmLayer): LayerRun {
 		const stateDef = (def.states ?? []).find((s) => s.id === def.entry);
+		const duration = stateDef ? this.durations.get(stateDef.timeline) : undefined;
+		const time = this.startTime(stateDef, duration);
 		return {
 			def,
 			state: stateDef ? def.entry : SM_EXIT_STATE,
 			stateDef,
-			time: 0,
-			duration: stateDef ? this.durations.get(stateDef.timeline) : undefined,
-			prevTime: 0,
+			time,
+			duration,
+			prevTime: time,
 			wrapped: false,
 			entered: true,
 			fresh: new Set(),
@@ -450,8 +468,8 @@ export class ComponentStateMachineRunner {
 		layer.state = transition.to;
 		layer.stateDef = stateDef;
 		layer.duration = stateDef ? this.durations.get(stateDef.timeline) : undefined;
-		layer.time = 0;
-		layer.prevTime = 0;
+		layer.time = this.startTime(stateDef, layer.duration);
+		layer.prevTime = layer.time;
 		layer.wrapped = false;
 		layer.entered = true;
 		const blend = asNumber(transition.blend, 0);

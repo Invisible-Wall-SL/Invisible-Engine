@@ -1614,6 +1614,15 @@ export interface SmState {
 	speed?: number;
 	/** Wrap at the end instead of holding the last frame. */
 	loop?: boolean;
+	/**
+	 * Start this many seconds into the timeline, read from the PLACED INSTANCE's number param of
+	 * this key — one def, a different phase per placement. Wrapped on a looping state, clamped
+	 * otherwise; a param that is not a finite number starts at 0.
+	 */
+	offsetParam?: string;
+	/** Start at a random point of the timeline each time the state is entered (added to
+	 *  {@link offsetParam}), so placements entering together do not move in step. */
+	randomStart?: boolean;
 	/** Where the editor draws the state's card; the runtime ignores it. */
 	pos?: SmPoint;
 	/** Raised each time the state is entered — the layer's entry when the machine starts, and every
