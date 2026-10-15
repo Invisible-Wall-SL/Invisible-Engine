@@ -1044,7 +1044,9 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
    swaps the animation). The timeline grows to fit it, and the canvas shows the rig at the
    playhead's frame. A component's state machine uses this to play a different animation per state.
    Effects and flipbook clips the Rigger bound to that animation's events play when the strip
-   crosses them, as they do when the rig plays the animation itself. Game logic listening for rig
+   crosses them, as they do when the rig plays the animation itself. A **continuous** effect a strip started
+   stops emitting once no strip plays its animation any more (the state that played it was left)
+   and starts again the next time one does; its particles live out their lifetime. Game logic listening for rig
    events does not hear a strip. A strip plays its animation once and holds the last frame; for a
    state that should keep moving, tick **loop** on the state and make the strip as long as the
    timeline. The canvas only selects in Animate: no dragging,

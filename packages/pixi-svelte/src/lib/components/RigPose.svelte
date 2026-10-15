@@ -24,7 +24,7 @@
 
 	import { getContextRig } from '../context.svelte';
 	import { applyRigBoneOffset, isIdentityBoneOffset } from '../rigBoneOffset';
-	import { emitRigPoseEvent } from '../rigPoseEvents';
+	import { emitRigPoseClips, emitRigPoseEvent } from '../rigPoseEvents';
 
 	/**
 	 * Pose a playing rig on top of its animation, every frame — the rig half of a layout value
@@ -61,6 +61,8 @@
 	const droppedEvents: RIG.Event[] = [];
 	/** A strip's last applied time per animation: the next apply reports the events between. */
 	const stripTimes: Record<string, number> = {};
+	/** The clips the strips played on the last pose, as a key, reported when it changes. */
+	let stripClips = '';
 	let restores: (() => void)[] = [];
 	const pose = (): void =>
 		untrack(() => {
@@ -72,6 +74,12 @@
 			// `replace` apply alone would keep them (measured: the authored idle drifted from the
 			// coded one from the intro's end on, `check:win-parity` base).
 			if (scrubs.some((scrub) => scrub.fromSetup)) skeleton.setToSetupPose();
+			const clips = scrubs.filter((s) => s.unit === 'seconds').map((s) => s.animation);
+			const clipsKey = [...new Set(clips)].sort().join('\n');
+			if (clipsKey !== stripClips) {
+				stripClips = clipsKey;
+				emitRigPoseClips(rig, new Set(clips));
+			}
 			for (const { animation: name, time, unit } of scrubs) {
 				const animation = skeleton.data.findAnimation(name);
 				if (!animation) {
