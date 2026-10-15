@@ -1002,7 +1002,14 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		},
 		transition: { kind: 'flipbook', clipId: 'emerge', blendMode: 'screen' },
 		tumblePattern: { pattern: 'rowsTop', stepMs: 40 },
-		flights: { toTotal: { head: { kind: 'sprite', assetKey: 'coin' }, ease: 'easeIn', speed: 2 } },
+		flights: {
+			toTotal: {
+				head: { kind: 'sprite', assetKey: 'coin' },
+				ease: 'easeIn',
+				headAlign: 'follow',
+				speed: 2,
+			},
+		},
 		coinLabel: { cash: { format: 'betMultiple', decimals: 2 } },
 	};
 	const win = 'symbols.H1.win';
@@ -1090,6 +1097,12 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 			edit: set('flights.toTotal.ease', 'bounce'),
 			reads: del('flights.toTotal.ease'),
 			warns: drops('flights.toTotal.ease'),
+		},
+		{
+			label: 'a new flight head align falls back to the coded one (the head does not turn)',
+			edit: set('flights.toTotal.headAlign', 'spin'),
+			reads: del('flights.toTotal.headAlign'),
+			warns: drops('flights.toTotal.headAlign'),
 		},
 		{
 			label: 'a new cash format falls back to money',
