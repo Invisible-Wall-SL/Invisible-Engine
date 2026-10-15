@@ -8,7 +8,8 @@
 # ADVISORY: not in the required checks (docs/INFRA.md, "Required checks"); the owner decides whether
 # it joins them. Path-filtered like its twins: it runs only when something it measures can change
 # (the runtime, the shared packages, the harness libraries it borrows, the mock RGS, the lockfile)
-# or this file itself.
+# or this file itself. Four variants of a
+# whole free-spin round on two sides take about 40 minutes, hence the 90-minute ceiling.
 
 name: Free-spin parity
 
@@ -54,7 +55,7 @@ jobs:
   freespin-parity:
     name: free-spin parity
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
