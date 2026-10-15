@@ -10,7 +10,8 @@
  * appearing under multiple rig folders). Deduping to one shared page collapses those copies to
  * 1× and stops the growth.
  *
- * Pages live at `deploy/_pages/<contentHash>.<ext>` (+ a `.ktx2` twin when `ENV.KTX2_ENCODE`).
+ * Pages live at `deploy/_pages/<contentHash>.<ext>` (+ a premultiplied `<contentHash>.pm.ktx2` twin
+ * when `ENV.KTX2_ENCODE` — see `ktx2Alpha.ts`).
  * Every atlas/sheet sits at `deploy/<subtree>/<stem>/…`, so it references a shared page by the
  * base-independent relative path {@link PAGE_REF_PREFIX} (`../../_pages/`) — which resolves the
  * same in baked (`static/assets/`) and runtime (`/api/deploy/…`) modes, and through rig's own
@@ -21,6 +22,7 @@
  */
 import sharp from 'sharp';
 import { ENV } from './env';
+import { PREMULTIPLIED_KTX2_EXT } from './ktx2Alpha';
 import { encodePageToKtx2 } from './ktx2Encode';
 import { KTX2_ENCODER_REVISION } from './ktx2Dimensions';
 import {
@@ -81,7 +83,7 @@ export interface SharedPage {
 	 *  Rig both pick their loader by extension, so a name that disagrees with the bytes only
 	 *  surfaces as a broken texture in the game. */
 	file: string;
-	/** The shared KTX2 twin filename (`<hash>.ktx2`), when it was encoded. */
+	/** The shared KTX2 twin filename (`<hash>.pm.ktx2`), when it was encoded. */
 	ktx2File?: string;
 	/** The KTX2 twin's actual pixel dimensions — EQUAL to the source unless it was auto-downscaled
 	 *  (`encodePageToKtx2` shrinks pages over the encoder/GPU cap). A referencing atlas/sheet
@@ -115,19 +117,26 @@ export class PageStore {
 	/**
 	 * Ensure the page at `sourceKey` (and its KTX2 twin when enabled) exists once in the shared
 	 * store; return its shared filenames, or null when the source is missing. `ext` is the page's
-	 * real extension (`webp`/`png`/`jpg`).
+	 * real extension (`webp`/`png`/`jpg`); `premultiplied` says its bytes already are (a rig atlas
+	 * page declaring `pma: true`), so the twin is not premultiplied a second time.
 	 *
 	 * Safe to call concurrently for the same `sourceKey`: the second caller joins the first.
 	 */
-	async ensure(sourceKey: string, ext: string): Promise<SharedPage | null> {
+	async ensure(sourceKey: string, ext: string, premultiplied = false): Promise<SharedPage | null> {
 		const pending = this.inflight.get(sourceKey);
 		if (pending) return pending;
-		const run = this.ensureOnce(sourceKey, ext).finally(() => this.inflight.delete(sourceKey));
+		const run = this.ensureOnce(sourceKey, ext, premultiplied).finally(() =>
+			this.inflight.delete(sourceKey),
+		);
 		this.inflight.set(sourceKey, run);
 		return run;
 	}
 
-	private async ensureOnce(sourceKey: string, ext: string): Promise<SharedPage | null> {
+	private async ensureOnce(
+		sourceKey: string,
+		ext: string,
+		premultiplied: boolean,
+	): Promise<SharedPage | null> {
 		const head = await headObject(sourceKey);
 		if (!head) return null;
 		const contentKey = `${head.etag ?? ''}:${head.size}`;
@@ -173,7 +182,7 @@ export class PageStore {
 				shared.ktx2Height = m.h ?? 0;
 				this.written.add(`${this.deployPrefix}_pages/${m.ktx2File}`);
 			} else if (ENV.KTX2_ENCODE) {
-				await this.encodeTwin(sourceKey, hash, shared);
+				await this.encodeTwin(sourceKey, hash, premultiplied, shared);
 				await this.writeMeta(metaKey, shared);
 			}
 			this.byContent.set(contentKey, shared);
@@ -197,7 +206,7 @@ export class PageStore {
 		} else if (!(await copyObject(sourceKey, pageKey))) return null;
 		this.written.add(pageKey);
 		const shared: SharedPage = { file, ktx2Width: 0, ktx2Height: 0 };
-		if (ENV.KTX2_ENCODE) await this.encodeTwin(sourceKey, hash, shared);
+		if (ENV.KTX2_ENCODE) await this.encodeTwin(sourceKey, hash, premultiplied, shared);
 		await this.writeMeta(metaKey, shared);
 		this.byContent.set(contentKey, shared);
 		return shared;
@@ -205,11 +214,18 @@ export class PageStore {
 
 	/** Encode the KTX2 twin for `sourceKey` and record it on `shared`. No-op on any failure — a
 	 *  missing twin degrades to the WebP/PNG (parity), never a broken build. */
-	private async encodeTwin(sourceKey: string, hash: string, shared: SharedPage): Promise<void> {
+	private async encodeTwin(
+		sourceKey: string,
+		hash: string,
+		premultiplied: boolean,
+		shared: SharedPage,
+	): Promise<void> {
 		const src = await getObjectBytes(sourceKey);
-		const encoded = src ? await encodePageToKtx2(src.body) : null;
+		const encoded = src
+			? await encodePageToKtx2(src.body, { sourcePremultiplied: premultiplied })
+			: null;
 		if (!encoded) return;
-		const ktx2File = `${hash}.ktx2`;
+		const ktx2File = `${hash}${PREMULTIPLIED_KTX2_EXT}`;
 		await putObjectBytes(`${this.deployPrefix}_pages/${ktx2File}`, encoded.bytes, 'image/ktx2');
 		this.written.add(`${this.deployPrefix}_pages/${ktx2File}`);
 		shared.ktx2File = ktx2File;

@@ -263,6 +263,27 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-15 — **Translucent art no longer draws dimmer on phones (compressed tier).** Owner
+  report: a pink backdrop glow in `commonoverlayproject` was missing on a Pixel and present on a
+  Samsung; `&quality=high` restored it on the Pixel. The Samsung was not "fine", it was loading PNGs:
+  its Chrome was in Desktop-site mode (the fixed-size HUD text drew at half the size), which drops
+  `Android` from the UA that `preferCompressedTextures()` reads. **Cause:** Pixi's KTX2 loader marks
+  every texture `no-premultiply-alpha`, Pixi then uses its `-npm` blends, and those apply a node's
+  alpha on top of the batch shader's — a layer at opacity α drew at α² on every phone (and `pma` rig
+  pages, already premultiplied, were premultiplied again by the blend). **Fix:** twins are encoded
+  premultiplied and named `.pm.ktx2` (`ktx2Alpha.ts`, `ktx2Encode.ts`, `pageStore.ts`, `rig.ts`;
+  a `pma: true` page passes through), and `pixi-svelte` `ktx2AlphaMode.ts` marks such a texture (or
+  any page its atlas declares `pma`) `premultiplied-alpha`, so it blends exactly as its PNG.
+  `KTX2_ENCODER_REVISION` 2 → 3; the per-bundle rig twin cache now checks it too (it never did).
+  New `pnpm check:ktx2-premultiplied` (30 checks). **Verified** in headless Chromium on pixi 8.22
+  with twins from the real encoder: at opacity 0.5 the straight twin added half what the PNG did
+  (`add` centre red 100 vs 150) and the `.pm.ktx2` matched the PNG within 1/255 under `add` and
+  `normal`; old `.ktx2` files render unchanged. Real art encodes ~6% smaller premultiplied (8 pages
+  of `apps/price`: 8.3 → 7.9 MB). Contract: [design/gpu-compressed-textures](../design/gpu-compressed-textures.md)
+  § "Alpha". ⏳ **Rollout:** launcher deploy + **runtime release** (both on merge), then each
+  project's next authoring boot or Publish re-encodes its twins (a one-time cost per page, like the
+  WebP migration's 80 s first assemble), and players see it once the project is **republished**.
+  Not yet seen on a phone.
 - 2026-10-14 — **The authored Win behind a per-project flag (Rive plan Phase 8b, PR #1194, plan
   [§13.6](../design/rive-style-editor.md); the GO decisions and build findings are its 13.6.10;
   the launcher side — normalizer row, Game Settings row, chips, the save guard after the ETag check,

@@ -31,8 +31,9 @@ back into the uncompressed full-res pages.
   `targetSize()` in `ktx2Dimensions.ts`: pages over 4096 px on a side or 11 Mpix are downscaled,
   and every page is floored to whole 4×4 blocks (see "Block alignment" and "Automatic
   downscaling" below) — the encoder reports the size it used and callers rescale their coords to
-  it. Returns null (→ ship WebP) when a page is < 1 Mpix, or on any failure. stdout is silenced
-  (the wasm spams per-slice).
+  it. The pixels are **premultiplied** before encoding and the twin is named `.pm.ktx2` (see
+  "Alpha" below). Returns null (→ ship WebP) when a page is < 1 Mpix, or on any failure. stdout is
+  silenced (the wasm spams per-slice).
 - **Export funnel** — `editorArtExport.ts` `exportManifest()` / images loop: after the
   verbatim page copy, `encodeSheetKtx2(...)` writes a `.ktx2` page + a SECOND spritesheet
   JSON whose `meta.image` points at it (identical frame rects), recorded as
@@ -59,9 +60,12 @@ back into the uncompressed full-res pages.
 ## Adaptive quality tier
 
 ONE build serves every device. `editor-scenes.ts` `preferCompressedTextures()` auto-detects:
-**iOS** (WebKit's per-tab memory cap is the whole reason this exists) **or low `deviceMemory`
-(≤4 GB)** → load the compressed KTX2 variants (4× less VRAM, **same resolution**); everything
-else (Samsung, desktop, **arcade/kiosk**) → the uncompressed full-res originals (best quality).
+**every phone — iOS and Android** (WebKit's per-tab memory cap is why this exists) **or low
+`deviceMemory` (≤4 GB)** → load the compressed KTX2 variants (4× less VRAM, **same resolution**);
+everything else (desktop, **arcade/kiosk**) → the uncompressed full-res originals (best quality).
+The phone test reads the user agent, so a phone browser in "Desktop site" mode (no `Android` in
+its UA) gets the uncompressed pages — which is how one Android phone can look different from
+another (2026-10-15, below in "Alpha").
 `?quality=high` / `?quality=low` force it. So the low/high split is **compressed vs uncompressed
 at full resolution**, not a resolution cut — arcade keeps pristine art, iPhone fits in memory.
 KTX2 is encoded **without mipmaps** (a 2D game draws near 1:1; mips add ~33% VRAM + transcode
@@ -102,6 +106,43 @@ content-addresses a twin by its SOURCE ETag+size, so art that has not changed is
 which would have left every already-baked project serving the broken twin forever. The revision
 rides in the `_pages/<hash>.meta.json` sidecar; a mismatch re-encodes. Bump it for any change that
 alters the bytes produced for an unchanged source.
+
+## Alpha: twins are premultiplied (`.pm.ktx2`)
+
+A PNG/WebP page is premultiplied by the browser on upload; a compressed page cannot be, so Pixi's
+KTX2 loader marks every texture it makes `no-premultiply-alpha` and Pixi switches that node's blend
+to the `-npm` variant (`add` → `SRC_ALPHA, ONE`). Pixi's batch shader has already multiplied the
+colour by the node's alpha, so the `-npm` blend applies it a SECOND time: a layer at opacity α
+drew at α² on the compressed tier, i.e. on every phone. Opaque art at full opacity is unaffected,
+which is why it hid: it is the glows, fades and particles that go dim. Owner-reported 2026-10-15
+(a pink backdrop glow missing on a Pixel, present with `?quality=high` and on a Samsung that was in
+Desktop-site mode, so loading PNGs). Rig pages declaring `pma: true` were worse off: already
+premultiplied bytes, labelled straight.
+
+The contract:
+
+- **Encode** (`ktx2Alpha.ts`, `ktx2Encode.ts`): every twin is premultiplied with the browser's
+  8-bit rule, unless its source already is (a rig atlas page with `pma: true` —
+  `atlasPremultipliedPages`), and is named `<name>.pm.ktx2`. The NAME is the contract because it
+  travels through every reference (a sheet's `meta.image`, a rig atlas page line, an image `src`)
+  and because a twin from before it keeps its `.ktx2` name and its straight treatment, so bytes and
+  label never disagree.
+- **Load** (`pixi-svelte` `ktx2AlphaMode.ts`, installed by `InitialiseApplication`): a `.pm.ktx2`,
+  or any page whose rig atlas declares `pma: true` (the loader's `data.alphaMode`), is marked
+  `premultiplied-alpha`, so it takes exactly the PNG's blend path.
+- **Guard:** `pnpm check:ktx2-premultiplied` pins the writer's suffix to the reader's matcher, the
+  premultiply rounding and the `pma` page parse.
+
+Measured in headless Chromium on pixi 8.22, a soft glow at opacity 0.5 over `#321c31`: the straight
+twin added half of what the PNG added (`add` centre red 100 vs 150), and the `.pm.ktx2` matched the
+PNG to within 1/255 under both `add` and `normal`. Real art (8 pages of `apps/price`) encodes ~6%
+SMALLER premultiplied (8.3 → 7.9 MB), because transparent texels become zero.
+
+`KTX2_ENCODER_REVISION` 3 makes this reach existing projects: their twins re-encode on the next
+assemble (authoring boot or Publish). A published snapshot keeps its old `.ktx2` twins, which the
+new runtime still reads as straight, so a project changes only when it is republished. One
+mismatch to know: a runtime-PINNED game on a pre-fix runtime that loads new `.pm.ktx2` twins reads
+them as straight and its soft edges darken further, until it moves to the current runtime.
 
 ## Automatic downscaling (no manual resize)
 
