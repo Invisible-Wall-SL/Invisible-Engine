@@ -17,8 +17,9 @@ cloud storage.
 > `deploy/` → bake → pull → register chain, and a layer set to fire **on event** plays
 > in-game when a matching event (e.g. a Flow Broadcast) crosses the runtime event bus. Since
 > 2026-10-15 any value of an effect can also be made a named **exposed parameter** (⚡), with a
-> live preview slider; nothing outside this tool sets those values yet. See the design doc for the
-> roadmap and `docs/status/fx.md` for what is still owner-verified.
+> live preview slider, and a placed effect's parameters can be driven from the Scene and Component
+> Editors (a binding, a timeline key, a state). See the design doc for the roadmap and
+> `docs/status/fx.md` for what is still owner-verified.
 
 ## What it is
 
@@ -287,9 +288,13 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
 
 ### Exposed parameters
 
-An **exposed parameter** is a named value (`intensity`, `heat`) the game — later a binding, a
-timeline or Flow — sets on a placed effect, and that changes one or more of the effect's values.
-Any value can be exposed, not just a fixed list.
+An **exposed parameter** is a named value (`intensity`, `heat`) the game sets on a placed effect,
+and that changes one or more of the effect's values. Any value can be exposed, not just a fixed
+list. Where the effect is placed, in the [Scene and Component
+Editors](invisible-editor.md#bind-to-value--a-number-that-moves-fills-or-poses-an-item), a number
+or on/off parameter is set by a **Bind to value** binding (a component param or a game value), by
+a **timeline** key (Animate → the **⚡** rows), and so by a component's **state machine** and its
+blends. A colour parameter is set only by this tool's preview so far.
 
 - **⚡ on a row** opens a small menu: **New parameter…** asks for its name and makes a parameter
   that drives what the row writes, starting at the row's current value (so nothing changes on
@@ -392,9 +397,10 @@ mere save.
 
 ## Known limitations / TODOs
 
-- **Exposed parameters are set only by this tool's preview so far.** The game draws each effect
-  at its defaults. Setting a value from a component, a timeline, a state machine or the game clock
-  is the next part of the plan.
+- **Colour parameters are set only by this tool's preview so far**, and nothing sets a parameter
+  from a state-machine input or the game clock yet (the next steps of the plan). Number and on/off
+  parameters are set by a binding or a timeline on the placed effect (Scene / Component Editor).
+  The Rigger's and Symbols' previews draw every effect at its defaults.
 - **Whole-effect opacity, size, tint and speed can't be exposed here yet.** The game supports them
   (an effect-level size then scales free layers only — a layer pinned to a bone keeps its bone's
   size), but no row in this tool writes them.
@@ -485,7 +491,14 @@ mere save.
   runs in `FxStage.svelte`, the Scene Editor's `EditorEffectLayer.svelte` and `$lib/fx/fxOverlay.client.ts`
   (rebuild `rigger-fx.js` after editing it). The ⚡ model is `fxParams.client.ts` (`rowExposure`
   diffs a row's own setter run on a scratch copy). Gate: `pnpm check:fx-params`
-  (`tools/fx-spike/exposedParams.ts`).
+  (`tools/fx-spike/exposedParams.ts`). Driven from the node (Step 2):
+  `packages/engine-layout/src/lib/fxNodeParams.ts` (`boundFxParamValues`, the fold's last-value
+  rule; `fxParamBindingIssue`), the `fxParam` binding target in `valueBindings.ts`, the `fx:<id>`
+  channels in `cinematicNodes.ts` and `engine-cinematic`'s `sampleNodeActor`, the node's one fold
+  `createNodeFold` in `nodeFold.svelte.ts` (run by `<LayoutNodeView>` and, for a bone-hosted
+  effect, `DrivenEffectPlayer.svelte`), and in the editor `placedEffects.client.svelte.ts` +
+  `previewEffectParamValues`. Gate:
+  `pnpm --filter launcher-api check:fx-node-params`.
 - **Sprite transform:** `packages/engine-fx/src/sprite.ts` — the `fxSprite` behavior
   (`{ rotation, anchorX, anchorY }`, read through the `readFxSprite` clamp). The pivot is the
   particle's `anchor`; the rotation offset is carried on `skew = (−θ, θ)`, which PIXI composes

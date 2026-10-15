@@ -427,13 +427,22 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 // 4. scenes / layout — `editorStorage.normalizeDoc` rebuilds the doc and each scene; nodes pass.
 {
 	const node = { id: 'logo', kind: 'sprite', x: 0, y: 0, assetKey: 'ui::logo' };
+	// An effect node driving an exposed parameter (Invisible FX Step 2) passes like any node.
+	const fxNode = {
+		id: 'glow',
+		kind: 'effect',
+		x: 0,
+		y: 0,
+		effectId: 'glow',
+		valueBindings: [{ target: 'fxParam', fxParam: 'heat', source: 'winAmount', inMax: 100 }],
+	};
 	const base = {
 		version: 2,
 		projectKey: 'demo',
 		gameType: 'lines',
 		mainSizesMap: { desktop: { width: 1920, height: 1080 } },
 		settings: { jurisdiction: 'UK', features: { turbo: true } },
-		scenes: [{ id: 'basegame', name: 'Base game', role: 'basegame', nodes: [node] }],
+		scenes: [{ id: 'basegame', name: 'Base game', role: 'basegame', nodes: [node, fxNode] }],
 		updatedAt: '2026-10-01T00:00:00.000Z',
 	};
 	const extras = clone(base) as typeof base & Record<string, unknown>;
@@ -445,6 +454,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 	ignores('4. layout', (d) => normalizeLayoutDoc(d, 'demo'), base, extras, [
 		'"features":{"turbo":true}',
 		'"id":"basegame"',
+		'"valueBindings":[{"target":"fxParam","fxParam":"heat","source":"winAmount","inMax":100}]',
 	]);
 	// Authored overlays (Rive plan Phase 8a / 8b): the ON rows (`transition`, `win`) round-trip; an
 	// unknown overlay, an OFF row and a non-boolean are dropped, so the block is sparse and never
@@ -738,6 +748,14 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 						},
 					],
 				},
+				{
+					id: 'n_glow',
+					kind: 'effect',
+					x: 0,
+					y: 0,
+					effectId: 'glow',
+					valueBindings: [{ target: 'fxParam', fxParam: 'burst', param: 'label', threshold: 1 }],
+				},
 			],
 		},
 		params: [{ key: 'label', kind: 'string', default: 'SPIN', group: 'Copy' }],
@@ -795,6 +813,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'"events":[{',
 		'"on":[{',
 		'"onEnter":[{',
+		'"valueBindings":[{"target":"fxParam","fxParam":"burst","param":"label","threshold":1}]',
 	]);
 	// The one exception, by design (Rive plan §6.1): a key this build does not know INSIDE an action
 	// (a listener's, or an `onEnter` row, which IS its action) is not ignored — rebuilding the action

@@ -86,6 +86,7 @@ const HOST_DEFAULTS = {
 	save: noop,
 	setDepth: noop,
 	actorLabel: (cast) => ({ text: cast.actorId, title: cast.actorId }),
+	actorChannels: () => [],
 	clips: () => [],
 	sceneName: () => null,
 	effects: () => [],
@@ -106,6 +107,9 @@ export function mount(el, options) {
 	const host = { ...HOST_DEFAULTS, ...(options.host || {}) };
 	const extensions = options.extensions || [];
 	const propChannels = options.channels || PROP_CHANNELS;
+	/** An actor's rows: the shared property channels, then the ones the host adds for that actor. */
+	const channelsOf = (cast) =>
+		cast ? propChannels.concat(host.actorChannels(cast)) : propChannels;
 	const render = () => (host.render ? host.render() : renderInspector());
 
 	let doc = options.doc;
@@ -318,8 +322,9 @@ export function mount(el, options) {
 			for (const track of visTracksOf(cast.actorId)) {
 				if (track.keys.length) out.push({ kind: 'visibility', cast, track });
 			}
+			const chans = channelsOf(cast);
 			for (const track of propertyTracksOf(cast.actorId)) {
-				for (const chan of propChannels) {
+				for (const chan of chans) {
 					if (track.channels[chan.key]) out.push({ kind: 'channel', cast, track, chan });
 				}
 			}
@@ -1158,13 +1163,14 @@ export function mount(el, options) {
 			: resolved[channel];
 	}
 
-	function keyProperty(actorId, channel, value) {
+	function keyProperty(actorId, channel, value, ease) {
 		const track = ensurePropertyTrack(actorId);
 		track.channels[channel] = track.channels[channel] || [];
 		EV.putKey(
 			track.channels[channel],
 			snapT(time),
 			value == null ? effectivePlaceValue(actorId, channel) : value,
+			ease,
 		);
 		commit('key ' + channel);
 		render();
@@ -1335,7 +1341,9 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		if (!k) return '';
 		const ease = k.ease || 'linear';
 		const chan =
-			track.kind === 'camera' ? null : propChannels.find((c) => c.key === selKey.channel);
+			track.kind === 'camera'
+				? null
+				: channelsOf(castOf(track.actorId)).find((c) => c.key === selKey.channel);
 		const valueField =
 			chan && chan.input === 'color'
 				? `<input type="color" data-kact="value" value="${hexColor(k.value)}">`

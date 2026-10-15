@@ -120,6 +120,9 @@ Shipped capabilities on `main`:
   launcher's tier builder reports each mode's own caption (`authoredWinTiers.ts`); the Win row's
   hint says so. **The Win row stays locked** (`AUTHORED_WIN_LOCKED`): two escalating fade-outs
   still differ in `check:win-parity` — see [engine status](engine.md) 2026-10-15.
+- 2026-10-15 — **A placed effect's exposed parameters can be driven** (Invisible FX Step 2): **Bind
+  to value** offers **⚡ <parameter>** on an effect node, Animate lists a **⚡** row per parameter,
+  and the stage previews both live. Detail in [FX status](fx.md), 2026-10-15 "Step 2".
 - 2026-10-14 — **A rig flipped with `scale.x = -1` inside a group or component previews mirrored,
   not upside down** (shared rig layer). Detail in [component editor status](component-editor.md),
   2026-10-14.

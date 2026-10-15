@@ -87,6 +87,10 @@
  *                            the runtime runs the first wire only, so the second is dead (an ERROR).
  *                            Every instance check runs only when the caller projects the instances
  *                            in (`PinContext.instances`); absent ⇒ unknown layout ⇒ never guess.
+ *  - `guard-type-mismatch` — a branch guard row tests a `bool`/`string`/enum read of KNOWN type
+ *                            (an `$engine` value, a `$trigger` field of the chain's event) with
+ *                            `eq`/`ne` against a literal of another kind (`guardLiteralMismatch`).
+ *                            Both are strict `===` at runtime, so the row is constant (a WARNING).
  *
  * GAME MODES (`docs/design/hold-and-win.md` §4.5): `FlowDoc.modes` sections are each validated like
  * the global graph, and an issue found in one carries that section's `mode`. Node ids are unique
@@ -110,6 +114,12 @@ import {
 import { flowGraphs } from './runtime';
 import { dataSourceType, type PinContext } from './pins';
 import { deriveGraphPins } from './scope';
+import {
+	guardLiteralMismatch,
+	instanceEventOwner,
+	triggerOwners,
+	type TypedRead,
+} from './triggers';
 import { SYMBOL_ENUM, symbolsOf } from './symbols';
 import { assignable } from './types-check';
 import type {
@@ -167,7 +177,8 @@ export type FlowIssueCode =
 	| 'instance-state-unknown'
 	| 'instance-text-key'
 	| 'instance-text-wire'
-	| 'instance-event-duplicate';
+	| 'instance-event-duplicate'
+	| 'guard-type-mismatch';
 
 /** `info` is an authoring HINT: the doc runs, nothing is wrong, but an authored surface is idle. */
 export type FlowIssueSeverity = 'error' | 'warning' | 'info';
@@ -268,88 +279,6 @@ const collectIdCounts = (
 		if (n.kind === 'group') collectIdCounts(n.body, counts);
 	}
 	return counts;
-};
-
-/**
- * A `showContainer`'s FUSED container-event exec-out (§6.1, pin id `<componentId>.on<Event>`) — as
- * opposed to its plain `exec` continuation. These are their OWN entry roots, not part of the chain
- * that mounted the container: `runContainerEvent` starts a FRESH run at the edge's target and seeds
- * `trigger` with the COMPONENT EVENT's payload, not the event that led to the `showContainer`.
- */
-const isContainerEventPin = (node: Node | undefined, pin: string): boolean =>
-	node?.kind === 'showContainer' && pin !== 'exec';
-
-/** A `componentInstance`'s `event:<event>` exec-out (§6.3) — like a container-event pin, its own
- *  entry root: `runInstanceEvent` starts a fresh run at the wire's target with the raised event's
- *  payload as `trigger`, never continuing the chain that set the node's inputs. */
-const isInstanceEventPin = (node: Node | undefined, pin: string): boolean =>
-	node?.kind === 'componentInstance' && instanceEventOf(pin) !== undefined;
-
-/** The owner key an instance-event chain runs under: the node and its pin, since two placements
- *  of one component raise the same event ids. */
-const instanceEventOwner = (nodeId: string, pin: string): string => `${nodeId}.${pin}`;
-
-/**
- * Which dispatches can reach each node — its exec-chain owner set.
- *
- * `runEvent` seeds exactly ONE `scope.trigger` per dispatch (the firing event's payload), and the
- * `gameSignals` node surfaces EVERY event's pins at once. So a signal's data-out is only meaningful
- * on the chain of the event it belongs to: `resolveDataOut` reads it as `scope.trigger[<field>]`
- * regardless of which pin it was dragged from. That fact is a property of the GRAPH (which entry
- * reaches this node), not of any single node — hence this pass.
- *
- * Walks the exec edges from every entry, each carrying its own trigger identity:
- *  - an `event` node → its `ref`;
- *  - a wired `gameSignals` exec-out → the pin id (which IS the event name);
- *  - a wired `showContainer` CONTAINER-EVENT pin → that pin's decl id (`<componentId>.on<Event>`),
- *    deliberately NOT a vocab event name: its payload is the component event's, which the template
- *    vocabulary does not declare, so `$trigger.<member>` on such a chain stays unjudged (never
- *    guess) while a cross-event `gameSignals` WIRE into it is still correctly caught.
- *
- * Keyed by (node × trigger) so a cyclic graph is bounded. A node no entry reaches (an orphan chain)
- * is ABSENT from the map — NEVER GUESS: callers leave it unchecked, matching how the scope pass
- * treats an unresolvable scope. KNOWN under-reports, both deliberate and conservative: a node
- * reachable from two chains is accepted if EITHER matches (it still resolves `undefined` on the
- * other), and `runEvent` prefers a dedicated `event` node over a same-named `gameSignals` chain, so
- * a shadowed signal chain is attributed an owner it never actually runs under.
- */
-const eventOwners = (graph: FlowDoc['graph']): Map<string, Set<string>> => {
-	const owners = new Map<string, Set<string>>();
-	const seen = new Set<string>();
-	const nodeById = new Map<string, Node>(graph.nodes.map((n) => [n.id, n]));
-
-	const walk = (nodeId: string, trigger: string): void => {
-		const stackKey = `${nodeId}|${trigger}`;
-		if (seen.has(stackKey)) return;
-		seen.add(stackKey);
-		let set = owners.get(nodeId);
-		if (!set) owners.set(nodeId, (set = new Set<string>()));
-		set.add(trigger);
-		for (const e of graph.exec) {
-			if (e.from.node !== nodeId) continue;
-			// A container-event pin re-roots below under its OWN trigger — it does not continue this one.
-			const from = nodeById.get(nodeId);
-			if (isContainerEventPin(from, e.from.pin) || isInstanceEventPin(from, e.from.pin)) continue;
-			walk(e.to.node, trigger);
-		}
-	};
-
-	for (const node of graph.nodes) {
-		for (const e of graph.exec) {
-			if (e.from.node !== node.id) continue;
-			if (node.kind === 'event') walk(e.to.node, node.ref);
-			else if (node.kind === 'gameSignals') walk(e.to.node, e.from.pin);
-			// A mode entry seeds its own trigger (the transition), which is no vocab event — so a
-			// gameSignals wire into its chain is a cross-event read, caught like any other.
-			else if (node.kind === 'modeTrigger')
-				walk(e.to.node, `mode:${node.modeId}:${node.on ?? 'enter'}`);
-			else if (node.kind === 'allModesFinished') walk(e.to.node, 'mode:allFinished');
-			else if (isContainerEventPin(node, e.from.pin)) walk(e.to.node, e.from.pin);
-			else if (isInstanceEventPin(node, e.from.pin))
-				walk(e.to.node, instanceEventOwner(node.id, e.from.pin));
-		}
-	}
-	return owners;
 };
 
 // ---------------------------------------------------------------------------
@@ -713,7 +642,7 @@ const validateGraph = (
 	const { pins: pinsById, scopeItem } = deriveGraphPins(graph, ctx);
 	// Which event chain(s) reach each node — what makes a `gameSignals` wire / a `$trigger` accessor
 	// judgeable. Empty for a function body (no event/gameSignals entries there) ⇒ both checks skip.
-	const owners = eventOwners(graph);
+	const owners = triggerOwners(graph);
 
 	// --- (a) every node `ref` resolves; container refs resolve against the doc's containers ---
 	for (const node of nodes) {
@@ -980,6 +909,7 @@ const validateGraph = (
 		}
 	}
 	issues.push(...guardSymbolIssues(nodes, vocab));
+	issues.push(...guardTypeIssues(nodes, vocab, owners));
 
 	// --- (f) each functionCall's target `requires` is satisfied by the template vocabulary ---
 	for (const node of nodes) {
@@ -1244,6 +1174,36 @@ const guardSymbolIssues = (nodes: Node[], vocab: TemplateVocabulary): FlowIssue[
 		);
 	});
 
+const readLabel = (read: TypedRead): string =>
+	read.on === 'engine' ? `$engine.${read.key}` : `$trigger.${read.member}`;
+
+/** `guard-type-mismatch` over every branch row — the rule itself is `guardLiteralMismatch`, which the
+ *  inspector reads too, so the warning and the inspector's one-click fix never disagree. */
+const guardTypeIssues = (
+	nodes: Node[],
+	vocab: TemplateVocabulary,
+	owners: Map<string, Set<string>>,
+): FlowIssue[] =>
+	nodes.flatMap((node) => {
+		if (node.kind !== 'branch') return [];
+		const groups = { all: node.guard?.all ?? [], any: node.guard?.any ?? [] };
+		return Object.entries(groups).flatMap(([group, rows]) =>
+			rows.flatMap((row, i): FlowIssue[] => {
+				const bad = guardLiteralMismatch(vocab, row, owners.get(node.id));
+				if (!bad) return [];
+				const pick = bad.type.t === 'bool' ? ' (on / off)' : '';
+				return [
+					{
+						code: 'guard-type-mismatch',
+						severity: 'warning',
+						message: `branch ${node.id}: ${readLabel(bad.read)} is ${typeName(bad.type)}, but the guard compares it (${row.op}) to the literal ${JSON.stringify(bad.value)} — ${row.op} is exact, so this comparison is always ${row.op === 'ne'}. Use a ${typeName(bad.type)} literal${pick}.`,
+						at: { on: 'pin', node: node.id, pin: `${group}.${i}.${bad.literal}` },
+					},
+				];
+			}),
+		);
+	});
+
 // ---------------------------------------------------------------------------
 // Per-data-in DataSource validation (check e's inner half).
 // ---------------------------------------------------------------------------
@@ -1255,7 +1215,7 @@ const validateDataSource = (
 	ctx: PinContext,
 	/** The enclosing forEach's element type (`deriveGraphPins`), when derivable. */
 	scopeItem: TypeRef | undefined,
-	/** The event chain(s) that reach this node (`eventOwners`) — what types `$trigger`. */
+	/** The event chain(s) that reach this node (`triggerOwners`) — what types `$trigger`. */
 	triggerEvents: Set<string> | undefined,
 	issues: FlowIssue[],
 ): void => {

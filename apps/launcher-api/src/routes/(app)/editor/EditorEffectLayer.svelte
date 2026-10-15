@@ -41,6 +41,7 @@
 	import {
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
+		type EffectNode,
 		type LayoutNode,
 		type LayoutType,
 		type ResolvedTransform,
@@ -49,7 +50,14 @@
 	import { Application, Container, type TextureSource } from 'pixi.js';
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
-	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
+	import {
+		childLocalTransform,
+		composeWorldMatrix,
+		inDepthSlice,
+		type DepthSlice,
+	} from './editorCanvas.helpers';
+	import { withEditorProject } from './editorProject.client';
+	import { notePlacedEffect } from './placedEffects.client.svelte';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
@@ -77,6 +85,10 @@
 		 * follow their top-level ancestor) — see `EditorRigLayer.nodeFilter`. `null` ⇒ every node
 		 * (parity). */
 		nodeFilter?: Set<string> | null;
+		/** The depth segment this layer draws: an effect inside a group or component that the split
+		 * crosses is drawn only by the segment it falls in (see `EditorCanvas`'s `depthSegments`).
+		 * `null` ⇒ the whole scene. */
+		depthSlice?: DepthSlice | null;
 		/** CSS `mix-blend-mode` for this layer's canvas — see `EditorRigLayer.blend`. An additive
 		 * emitter blended INSIDE this transparent overlay is a no-op, so the blend rides the element
 		 * and composites against the art beneath, exactly as the game's `<Container blendMode>` does. */
@@ -97,9 +109,10 @@
 		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
 		 * NODE id, idempotent (only re-emitted when a box meaningfully grows). */
 		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
-		/** The live values of a placed effect's exposed parameters, by NODE id, read on the ticker.
-		 * Absent ⇒ every effect draws its defaults (already in its stored config). */
-		effectParamValues?: (nodeId: string) => EffectParamValues | undefined;
+		/** The live values of a placed effect's exposed parameters — for the placed node and the doc
+		 * it plays — read on the ticker. Absent ⇒ every effect draws its defaults (already in its
+		 * stored config). */
+		effectParamValues?: (node: EffectNode, doc: EffectDoc) => EffectParamValues | undefined;
 	}
 
 	let {
@@ -114,6 +127,7 @@
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
 		nodeFilter = null,
+		depthSlice = null,
 		blend = 'normal',
 		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
@@ -135,6 +149,8 @@
 	interface EffectTarget {
 		nodeId: string;
 		effectId: string;
+		/** The placed node, as the current scenes hold it (its bindings drive the parameters). */
+		node: EffectNode;
 		world: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
 	}
 
@@ -142,9 +158,12 @@
 	 * per FREE layer, each in a child container at that layer's offset. Rebuilt when the node's
 	 * effectId / doc / transform changes; disposed on removal. */
 	interface LiveNode {
-		/** The placed node's id — what `effectParamValues` is asked for. */
 		nodeId: string;
 		effectId: string;
+		/** The placed node, refreshed on every rebuild — what `effectParamValues` is asked for. */
+		node: EffectNode;
+		/** The doc it plays, once loaded. */
+		doc: EffectDoc | null;
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
 		placed: EffectTarget['world'];
 		container: Container;
@@ -208,7 +227,9 @@
 		if (hit) return hit;
 		const p = (async (): Promise<EffectDoc | null> => {
 			try {
-				const res = await fetch(`/api/editor/effect?id=${encodeURIComponent(effectId)}`);
+				const res = await fetch(
+					withEditorProject(`/api/editor/effect?id=${encodeURIComponent(effectId)}`),
+				);
 				if (!res.ok) return null;
 				const body = (await res.json()) as { doc: EffectDoc };
 				return body.doc ?? null;
@@ -234,11 +255,12 @@
 			for (const n of sc.nodes) {
 				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 				if (!previewResolveTransform(n, layoutType).visible) continue;
-				if (n.kind === 'effect') {
+				if (n.kind === 'effect' && inDepthSlice(depthSlice, [n.id])) {
 					const wt = worldTransformOf(n, sc);
 					out.push({
 						nodeId: n.id,
 						effectId: n.effectId,
+						node: n,
 						world: {
 							x: wt.x,
 							y: wt.y,
@@ -277,7 +299,13 @@
 			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
 			if (n.kind === 'effect') {
-				out.push(nestedTarget(n, sc, nextChain));
+				if (
+					inDepthSlice(
+						depthSlice,
+						nextChain.map((c) => c.id),
+					)
+				)
+					out.push(nestedTarget(n, sc, nextChain));
 			} else if (n.kind === 'container') {
 				collectNested(n.children, sc, out, nextChain, depth, stack);
 			} else if (n.kind === 'componentInstance') {
@@ -317,6 +345,7 @@
 		return {
 			nodeId: node.id,
 			effectId: node.effectId,
+			node,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy, rotation },
 		};
 	}
@@ -389,6 +418,7 @@
 			seen.add(tg.nodeId);
 			const existing = liveNodes.get(tg.nodeId);
 			if (existing && existing.effectId === tg.effectId) {
+				existing.node = tg.node;
 				if (!sameTransform(existing.placed, tg.world)) {
 					applyContainerTransform(existing.container, tg.world);
 					existing.placed = tg.world;
@@ -446,6 +476,8 @@
 		const node: LiveNode = {
 			nodeId: tg.nodeId,
 			effectId: tg.effectId,
+			node: tg.node,
+			doc,
 			placed: tg.world,
 			container,
 			emitters: [],
@@ -461,6 +493,7 @@
 			publishReady();
 			return;
 		}
+		notePlacedEffect(doc);
 
 		// `effect.*` drives move a wrapper around the layers — mounted only when the doc has one. Their
 		// targets have no stored leaf, so the defaults are written here even with no live values.
@@ -469,7 +502,7 @@
 			const wrapper = new Container();
 			container.addChild(wrapper);
 			node.fx = { applier: fx, wrapper };
-			fx.apply(effectParamValues?.(tg.nodeId));
+			fx.apply(effectParamValues?.(tg.node, doc));
 			writeEffectLevel(wrapper, fx.state);
 		}
 
@@ -518,7 +551,7 @@
 					layer,
 					emitter,
 					setOffset: (x, y) => layerContainer.position.set(x, y),
-					values: effectParamValues(node.nodeId),
+					values: effectParamValues(node.node, doc),
 				})
 			: undefined;
 		if (applier) node.appliers.push(applier);
@@ -670,8 +703,8 @@
 				const dt = ticker.deltaMS / 1000;
 				for (const node of liveNodes.values()) {
 					let nodeDt = dt;
-					if (effectParamValues && (node.fx || node.appliers.length)) {
-						const values = effectParamValues(node.nodeId);
+					if (effectParamValues && node.doc && (node.fx || node.appliers.length)) {
+						const values = effectParamValues(node.node, node.doc);
 						if (node.fx?.applier.apply(values)) {
 							writeEffectLevel(node.fx.wrapper, node.fx.applier.state);
 						}
@@ -722,6 +755,8 @@
 		void frameWidth;
 		void frameHeight;
 		void componentMap;
+		void nodeFilter;
+		void depthSlice;
 		// A scrubbed value-binding test value moves / hides an effect like any other node.
 		void previewVersion();
 		if (ready) void requestRebuild();
