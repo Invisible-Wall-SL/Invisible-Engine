@@ -20,15 +20,17 @@
 	 *
 	 * v1 scope: FREE layers only (`placement.space !== 'bone'`). A bone-placed layer needs a live rig
 	 * host the editor overlay doesn't provide, so it's skipped here (the node keeps its chip); the game
-	 * mounts bone FX on their host rig. A node whose doc/layers resolve NO live emitter keeps its 2D
-	 * chip (reported via `onReadyKeysChange`).
+	 * mounts bone FX on their host rig. Each free layer's emitter sits in its own child container at
+	 * the layer's `placement.offset` (resolved by the same `planLayer` the game's `<EffectLayer>`
+	 * mounts from), so an offset layer previews where it plays. A node whose doc/layers resolve NO
+	 * live emitter keeps its 2D chip (reported via `onReadyKeysChange`).
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
 	import {
 		bindArt,
 		bindEffectParams,
 		createEffectLevelApplier,
-		parseEffectParamPath,
+		planLayer,
 		type EffectDoc,
 		type EffectLevelApplier,
 		type EffectLevelState,
@@ -137,7 +139,8 @@
 	}
 
 	/** A live per-NODE render: its container (positioned at the node's world transform) + one emitter
-	 * per FREE layer. Rebuilt when the node's effectId / doc / transform changes; disposed on removal. */
+	 * per FREE layer, each in a child container at that layer's offset. Rebuilt when the node's
+	 * effectId / doc / transform changes; disposed on removal. */
 	interface LiveNode {
 		/** The placed node's id — what `effectParamValues` is asked for. */
 		nodeId: string;
@@ -472,7 +475,8 @@
 		publishReady();
 	}
 
-	/** Build one FREE layer's live `Emitter` into a node's container (mirrors FxStage's sprite path).
+	/** Build one FREE layer's live `Emitter` into a node's container (mirrors FxStage's sprite path),
+	 * inside a child container at the layer's offset — the game's `<EffectLayer>` free-mount shape.
 	 * A layer that resolves 0 textures is SKIPPED (the editor overlay renders real art only — the `/fx`
 	 * tool's placeholder dots are an authoring aid there, not wanted littering the scene preview). */
 	async function buildLayer(
@@ -493,28 +497,17 @@
 			framerate: layer.art.framerate,
 			loop: layer.art.loop,
 		});
-		const parent = node.fx?.wrapper ?? node.container;
-		// This overlay draws a free layer at the node origin (its authored offset is not applied here),
-		// so an offset drive moves the layer by its CHANGE from the authored offset, in a container of
-		// its own that only an offset-driven layer gets (built up front: re-parenting an emitter resets it).
-		const offsetDriven =
-			!!effectParamValues &&
-			!!doc.params?.some((p) =>
-				p.drives.some((d) => {
-					const parsed = parseEffectParamPath(d.path);
-					return d.layer === layer.key && parsed.ok && parsed.target.scope === 'placement';
-				}),
-			);
-		const host = offsetDriven ? new Container() : parent;
-		if (host !== parent) parent.addChild(host);
-		const authored = layer.placement.offset ?? { x: 0, y: 0 };
-		const emitter = new Emitter(host, config);
+		const { offset } = planLayer(layer);
+		const layerContainer = new Container();
+		layerContainer.position.set(offset.x, offset.y);
+		(node.fx?.wrapper ?? node.container).addChild(layerContainer);
+		const emitter = new Emitter(layerContainer, config);
 		const applier = effectParamValues
 			? bindEffectParams({
 					params: doc.params,
 					layer,
 					emitter,
-					setOffset: (x, y) => host.position.set(x - authored.x, y - authored.y),
+					setOffset: (x, y) => layerContainer.position.set(x, y),
 					values: effectParamValues(node.nodeId),
 				})
 			: undefined;

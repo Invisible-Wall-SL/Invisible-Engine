@@ -19,7 +19,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Effect atlases auto-ship** — `exportEditorArt` walks the project's effects and ships every layer's `art.assetKey`, so a placed/bound effect's particles have textures with no extra step.
 - **Exposed parameters (Step 1, 2026-10-15)** — any value of an effect can be a named parameter (`EffectDoc.params`): ⚡ on every inspector row or in the raw **All parameters** tree, an **Exposed parameters** panel with a live preview slider, and one shared applier in all four renderers that changes a value with no reset. The stored config is the effect at its defaults, so every existing renderer draws it unchanged. Nothing supplies live values outside `/fx` yet: that is Steps 2–4 (node bindings + timeline channels, state-machine inputs, clocks + waves) in the design doc. See the 2026-10-15 entry.
 
-⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game.
+⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
 - **Owner browser-pass over exposed parameters** (2026-10-15) — ⚡ a few rows (Frequency, an Alpha end, a tint colour, a force's Strength and its On switch), drag each preview slider and check the preview changes with no reset (particles in flight carry on), that a mapped row (Direction) goes read-only with the ⚡ name, that editing an as-is driven row (Frequency) moves the parameter's default, and that Save → reopen shows the same panel. `/fx` is auth + Postgres + R2 gated, so none of this has been clicked yet.
@@ -158,12 +158,61 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   - **Fixed alongside:** Particle → Kind's **Rig clip** option carried `value="rig"`, but the
     model's kind is `'spine'`, so choosing it set `particleKind: 'rig'` — the rig picker never
     showed and Save normalized the layer back to a sprite. It now carries `'spine'`.
-  - **Found, not fixed:** the Scene Editor overlay draws a free layer at the node origin and never
-    applies its authored `placement.offset` (the game, `/fx` and the Rigger overlay do), so an
-    offset drive there moves a layer by its change from the authored offset only.
+  - **Found, then fixed on `main`:** the Scene Editor overlay drew a free layer at the node origin
+    and never applied its authored `placement.offset`. #1221 (the entry below) put each free layer
+    in a container at its offset; merging it here made an offset drive in the Scene Editor move
+    that container to the driven offset, as it does in the game and `/fx`.
   - **NOT browser-verified** — `/fx` is auth + Postgres + R2 gated (open item above). **Engine
     change** (`engine-fx`, `pixi-svelte`): it reaches shipped games only through a runtime-bundle
     republish.
+- 2026-10-15 — **The Scene Editor previews a free layer at its offset.** `/editor`'s live particle
+  overlay (`EditorEffectLayer.svelte`) built every emitter at the node origin and never read
+  `placement.offset`, while the game's `<EffectLayer>` mounts a free layer in a container at that
+  offset — so an offset layer previewed in one place and played in another. Each free layer's
+  emitter now sits in a child container at `planLayer(layer).offset`, the same reduction the
+  runtime mounts from, so the two can't drift on this again. The measured particle spread (the
+  selection-box fit) follows, since it is read off the node container. Bone layers are still
+  skipped by the overlay. Not a vendored bundle, so no rebuild. Verified: the fx-spike `placement`
+  and `player` gates, `pnpm check:svelte --only apps/launcher-api` (47, at baseline), lint and
+  `check:undefined-names` pass, and a one-off Node run of the overlay's container shape against
+  the real `Emitter` put the particle and its bounds at the authored offset. **Not driven in a
+  browser** (`/editor` is auth + Postgres + R2 gated).
+- 2026-10-15 — **A bone-bound FX turned the opposite way to its bone in the game.** Owner report:
+  an FX parented to a bone looked right in `/fx` and the Rigger, but in the exported game it had a
+  different orientation.
+  - **Cause.** `<RigBoneAttach followRotation>` set `rotation = -bone.getWorldRotationX()`, a
+    y-up → y-down flip. But RigView poses its skeleton y-down already, so the flip ran twice and the
+    attachment turned by −θ where the bone turned by +θ. Only 0° and 180° agreed. The Rigger and
+    `/symbols` previews read the angle of the bone's projected x-axis (`fxMatrix`), which is right,
+    so the game was the odd one out. A binding with a **draw slot** had a second error: it mounts
+    under the slot host, which RigView already turns to the slot's bone, and the bone's angle was
+    added on top of that.
+  - **Fix.** One rule, `pixi-svelte` `boneRotationInParent` (`src/lib/rigBoneRotation.ts`). It takes
+    the bone's x-axis in the rig's frame, maps it to world, and maps it back into the attachment's
+    parent frame. `<RigBoneAttach>` uses it, so this fixes every bone follower in the game: rig FX
+    (`RiggedEffect`), Rigger flipbook clips (`RiggedFlipbook`), Tier-B bone layers (`EffectLayer`)
+    and the bone-ridden reveal symbol. `/fx`'s `FxStage` had the same formula on the same y-down
+    RigView, so its Tier-B backdrop was mirrored too. It now calls the same helper.
+  - **Mirrored rigs.** A follower INSIDE a flipped rig shares its mirror and lines up with the bone.
+    A follower mounted BESIDE a flipped rig (the reveal rider, a layout node's attached effects) is
+    not mirrored, so it keeps the axis the flip spares: its up-axis under an X flip (the editor's
+    `unrotatedScale` reading), its x-axis under a Y flip. It is upright at rest and turns the way the
+    bone visibly turns. The old formula happened to get this one case right, and it is unchanged.
+  - **Still differs from the Scene Editor preview** on a rig node that is rotated or flipped. The
+    preview's bone rider ignores the node's rotation and doesn't reverse its turn under a flip. That
+    gap predates this change.
+  - **Known lag.** Under a slot host, the parent's world transform is read from the last render, so
+    on a fast-moving slot bone the FX can be a frame off. Position has always had the same lag.
+  - **Verified.** New fixture `packages/pixi-svelte/fixtures/rigBoneRotation.fixture.ts` runs against
+    a real engine-rig skeleton. It checks a plain mount, a fitted rig, a rig flipped on X, a slot on
+    the same bone or another bone, a sibling host, and a sibling of a rig flipped on X or Y. It also
+    checks that the game's angle equals the Rigger preview's for every pose. It fails against the
+    old sign, against ignoring the parent frame, and against an x-axis-only rule (which turns a
+    follower beside an X-flipped rig upside down). Prettier, lint, `check:undefined-names`,
+    `check:svelte` (pixi-svelte + launcher at baseline) and `check:vendored-bundles` all pass. **Not
+    pixel-verified in a browser.** **Engine change:** live games get it with the next runtime
+    release. Any game with a bone follower on a ROTATED bone will look different from today. It
+    will now turn the way the bone does.
 - 2026-10-14 — **Sprite rotation + pivot on sprite layers.** Owner ask: rotate the art the way it
   spawns on the particle, and choose whether it spawns at its centre, top, bottom, left or right.
   - **What shipped.** A **Sprite** section under Art (sprite layers only): **Rotation (°)**
