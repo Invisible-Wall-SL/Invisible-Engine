@@ -1,20 +1,12 @@
 /**
  * How a KTX2 twin stores alpha: PREMULTIPLIED, and named so the game knows it.
  *
- * Pixi's KTX2 loader marks every compressed texture as STRAIGHT alpha (compressed blocks cannot be
- * premultiplied on upload the way a PNG is), and Pixi answers a straight texture by switching its
- * blend to the `-npm` variants (`add` → `SRC_ALPHA, ONE`). Its batch shader has ALREADY multiplied
- * the colour by the node's alpha, so that blend applies the alpha a second time: a glow at 50%
- * opacity, or a fading particle, drew at 25% on the compressed tier only. Owner-reported 2026-10-15:
- * a pink backdrop glow missing on a Pixel and present wherever the PNGs loaded (`?quality=high`).
- *
- * So every twin is encoded premultiplied, and carries {@link PREMULTIPLIED_KTX2_EXT} in its name.
- * The game's KTX2 loader (`pixi-svelte` `ktx2TranscodeTarget.ts`) marks a texture with that name as
- * premultiplied, so it takes exactly the blend path a PNG takes. The NAME is the contract, not a
- * flag beside it, because it travels through every way a page is referenced — a spritesheet's
- * `meta.image`, a rig atlas page line, a standalone image's `src` — and because a twin encoded
- * before this keeps its plain `.ktx2` name and its old (straight) treatment, so a game never reads
- * one convention with the other's bytes.
+ * Pixi marks a compressed texture straight-alpha and blends it with its `-npm` modes, which apply a
+ * node's alpha twice — every translucent layer drew dimmer on the compressed tier. So every twin is
+ * encoded premultiplied and carries {@link PREMULTIPLIED_KTX2_EXT} in its name, and the game
+ * (`pixi-svelte` `ktx2AlphaMode.ts`) marks a texture with that name premultiplied. The NAME is the
+ * contract because it travels through every reference to a page and because an older straight
+ * twin keeps its plain `.ktx2` name. Full story: `docs/design/gpu-compressed-textures.md` § "Alpha".
  *
  * Pure (no `sharp`, no R2) so `scripts/check-ktx2-premultiplied.mjs` can drive it directly.
  */
@@ -40,7 +32,8 @@ export function premultiplyRgba(data: Uint8Array): void {
  * Spine export with "Premultiply alpha" on), so their twin is encoded as-is rather than
  * premultiplied twice. Same structural model as `rig.ts` `atlasPageNames`: a page block starts at
  * the file start or after a blank line, its first non-property line is the page image, and the
- * property lines under it belong to that page.
+ * property lines under it belong to that page. Case-sensitive, as `engine-rig`'s atlas reader is,
+ * so the compressed and uncompressed tiers agree on which pages are premultiplied.
  */
 export function atlasPremultipliedPages(atlasText: string): Set<string> {
 	const out = new Set<string>();
@@ -54,7 +47,7 @@ export function atlasPremultipliedPages(atlasText: string): Set<string> {
 		}
 		if (/^\s/.test(line) || line.includes(':')) {
 			expectPage = false;
-			if (page && /^\s*pma\s*:\s*true\s*$/i.test(line)) out.add(page);
+			if (page && /^\s*pma\s*:\s*true\s*$/.test(line)) out.add(page);
 			continue;
 		}
 		if (expectPage) {

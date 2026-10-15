@@ -38,6 +38,10 @@ import {
 /** Relative path from any atlas/sheet at `deploy/<subtree>/<stem>/` up to `deploy/_pages/`. */
 export const PAGE_REF_PREFIX = '../../_pages/';
 
+/** The twin-identity infix for a source page that is already premultiplied (`<hash>.srcpm.…`); a
+ *  straight source has none, so its names are unchanged. */
+const twinVariant = (premultiplied: boolean) => (premultiplied ? '.srcpm' : '');
+
 /**
  * WebP settings for a re-encoded page: **near-lossless**, not ordinary lossy.
  *
@@ -120,15 +124,21 @@ export class PageStore {
 	 * real extension (`webp`/`png`/`jpg`); `premultiplied` says its bytes already are (a rig atlas
 	 * page declaring `pma: true`), so the twin is not premultiplied a second time.
 	 *
+	 * The twin's bytes depend on `premultiplied`, so it is part of the twin's identity — its own
+	 * in-flight slot, content-cache entry, meta sidecar and filename — while the WebP page stays
+	 * shared. Otherwise the same bytes reached as a sheet page and as a `pma` rig page would get
+	 * whichever twin was encoded first.
+	 *
 	 * Safe to call concurrently for the same `sourceKey`: the second caller joins the first.
 	 */
 	async ensure(sourceKey: string, ext: string, premultiplied = false): Promise<SharedPage | null> {
-		const pending = this.inflight.get(sourceKey);
+		const slot = `${sourceKey}${twinVariant(premultiplied)}`;
+		const pending = this.inflight.get(slot);
 		if (pending) return pending;
 		const run = this.ensureOnce(sourceKey, ext, premultiplied).finally(() =>
-			this.inflight.delete(sourceKey),
+			this.inflight.delete(slot),
 		);
-		this.inflight.set(sourceKey, run);
+		this.inflight.set(slot, run);
 		return run;
 	}
 
@@ -140,7 +150,8 @@ export class PageStore {
 		const head = await headObject(sourceKey);
 		if (!head) return null;
 		const contentKey = `${head.etag ?? ''}:${head.size}`;
-		const cached = this.byContent.get(contentKey);
+		const variant = twinVariant(premultiplied);
+		const cached = this.byContent.get(`${contentKey}${variant}`);
 		if (cached) return cached;
 
 		const hash = contentKey.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32) || 'page';
@@ -156,7 +167,7 @@ export class PageStore {
 		// per-site encoders use, so the export stays fast on the per-boot `/api/editor/runtime`
 		// assemble (`gotcha_ktx2_encode_on_read_path_stalls_runtime`). All reused keys go into
 		// `written` so the `_pages/` prune keeps them.
-		const metaKey = `${this.deployPrefix}_pages/${hash}.meta.json`;
+		const metaKey = `${this.deployPrefix}_pages/${hash}${variant}.meta.json`;
 
 		// Content-cache: the filename IS the content fingerprint, so an existing page is
 		// byte-identical to what a re-copy would produce. Reuse it (+ its KTX2 twin from the meta).
@@ -182,10 +193,10 @@ export class PageStore {
 				shared.ktx2Height = m.h ?? 0;
 				this.written.add(`${this.deployPrefix}_pages/${m.ktx2File}`);
 			} else if (ENV.KTX2_ENCODE) {
-				await this.encodeTwin(sourceKey, hash, premultiplied, shared);
+				await this.encodeTwin(sourceKey, `${hash}${variant}`, premultiplied, shared);
 				await this.writeMeta(metaKey, shared);
 			}
-			this.byContent.set(contentKey, shared);
+			this.byContent.set(`${contentKey}${variant}`, shared);
 			return shared;
 		}
 
@@ -206,17 +217,18 @@ export class PageStore {
 		} else if (!(await copyObject(sourceKey, pageKey))) return null;
 		this.written.add(pageKey);
 		const shared: SharedPage = { file, ktx2Width: 0, ktx2Height: 0 };
-		if (ENV.KTX2_ENCODE) await this.encodeTwin(sourceKey, hash, premultiplied, shared);
+		if (ENV.KTX2_ENCODE)
+			await this.encodeTwin(sourceKey, `${hash}${variant}`, premultiplied, shared);
 		await this.writeMeta(metaKey, shared);
-		this.byContent.set(contentKey, shared);
+		this.byContent.set(`${contentKey}${variant}`, shared);
 		return shared;
 	}
 
-	/** Encode the KTX2 twin for `sourceKey` and record it on `shared`. No-op on any failure — a
-	 *  missing twin degrades to the WebP/PNG (parity), never a broken build. */
+	/** Encode the KTX2 twin for `sourceKey` as `<stem>.pm.ktx2` and record it on `shared`. No-op on
+	 *  any failure — a missing twin degrades to the WebP/PNG (parity), never a broken build. */
 	private async encodeTwin(
 		sourceKey: string,
-		hash: string,
+		stem: string,
 		premultiplied: boolean,
 		shared: SharedPage,
 	): Promise<void> {
@@ -225,7 +237,7 @@ export class PageStore {
 			? await encodePageToKtx2(src.body, { sourcePremultiplied: premultiplied })
 			: null;
 		if (!encoded) return;
-		const ktx2File = `${hash}${PREMULTIPLIED_KTX2_EXT}`;
+		const ktx2File = `${stem}${PREMULTIPLIED_KTX2_EXT}`;
 		await putObjectBytes(`${this.deployPrefix}_pages/${ktx2File}`, encoded.bytes, 'image/ktx2');
 		this.written.add(`${this.deployPrefix}_pages/${ktx2File}`);
 		shared.ktx2File = ktx2File;

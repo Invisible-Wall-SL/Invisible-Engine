@@ -4,18 +4,13 @@ import { isPremultipliedKtx2 } from './ktx2Premultiplied';
 /**
  * Make a premultiplied `.ktx2` page blend exactly as its PNG does.
  *
- * Pixi's KTX2 loader marks every texture it makes `no-premultiply-alpha`, and Pixi answers that by
- * switching the node's blend to its `-npm` variant (`add` → `SRC_ALPHA, ONE`). The batch shader has
- * already multiplied the colour by the node's alpha, so the `-npm` blend applies it twice: a glow at
- * 50% opacity, or a fading particle, drew at 25% — on the compressed tier only, which is every phone.
- * Owner-reported 2026-10-15 as a pink backdrop glow missing on a Pixel and present with
- * `?quality=high`.
- *
- * The launcher now encodes every twin premultiplied and names it `.pm.ktx2`; this marks such a
- * texture `premultiplied-alpha`, which keeps the normal blends and skips any upload premultiply. A
- * page its atlas declares `pma: true` gets the same, whatever its name: its bytes always were
- * premultiplied, and the rig atlas loader passes that as `data.alphaMode`. A plain straight `.ktx2`
- * from an older export is left as Pixi made it.
+ * Pixi's KTX2 loader marks every texture `no-premultiply-alpha`, and Pixi answers that with its
+ * `-npm` blends, which apply a node's alpha on top of the batch shader's — a layer at opacity α drew
+ * at α² on the compressed tier. The launcher now encodes twins premultiplied and names them
+ * `.pm.ktx2`; this marks such a texture `premultiplied-alpha`. A page its rig atlas declares
+ * `pma: true` (the loader's `data.alphaMode`) gets the same whatever its name, since its bytes
+ * always were premultiplied. A plain straight `.ktx2` is left as Pixi made it. See
+ * `docs/design/gpu-compressed-textures.md` § "Alpha".
  */
 let installed = false;
 

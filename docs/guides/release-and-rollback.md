@@ -211,6 +211,15 @@ Republishing does not fix it, because the launcher still bakes without the keys.
 (`promote`), or `unpin` the game, to a 7b-or-later release. A game last published before the launcher
 deploy still carries the keys and plays on either engine.
 
+**Rolling back past the premultiplied-KTX2 change (PR #1224) darkens phone art.** Since then the
+launcher encodes compressed twins premultiplied and names them `.pm.ktx2`, and only an engine from
+that change on marks them premultiplied. An older engine reads them as straight, so on phones (the
+compressed tier) every soft edge, glow and fade of a game re-exported since the launcher deploy draws
+darker than it did before the fix — even at full opacity. The same three cases apply as above: the
+window between the launcher deploy and the engine release, a game pinned to an older release, and a
+rollback past the change. Republishing does not fix it; roll forward or `unpin`. `?quality=high`
+shows the uncompressed art, which is unaffected, if you need to confirm it is this.
+
 ## 5. Try a release on one game first (canary)
 
 An auto-release on merge always makes its release live for everyone. A canary is a manual path.

@@ -34,12 +34,15 @@ back into the uncompressed full-res pages.
   it. The pixels are **premultiplied** before encoding and the twin is named `.pm.ktx2` (see
   "Alpha" below). Returns null (→ ship WebP) when a page is < 1 Mpix, or on any failure. stdout is
   silenced (the wasm spams per-slice).
-- **Export funnel** — `editorArtExport.ts` `exportManifest()` / images loop: after the
-  verbatim page copy, `encodeSheetKtx2(...)` writes a `.ktx2` page + a SECOND spritesheet
-  JSON whose `meta.image` points at it (identical frame rects), recorded as
-  `EditorArtSheet.ktx2Json`. Standalone images get a `.ktx2` twin + `EditorArtImage.ktx2`
-  (single texture — no JSON). Gated by **`ENV.KTX2_ENCODE`** (default OFF — encoding is
-  CPU/memory-heavy and blocks the loop; enable deliberately per bake, verify launcher RAM).
+- **Export funnel** — `PageStore.ensure()` (`pageStore.ts`) gives every sheet, image and rig page
+  its twin, once per content hash: `_pages/<hash>.pm.ktx2` beside the shared WebP (an
+  already-premultiplied rig page gets its own `<hash>.srcpm.pm.ktx2`, see "Alpha"). A sheet then
+  writes a SECOND spritesheet JSON whose `meta.image` points at the twin (frame rects rescaled to
+  its dimensions), recorded as `EditorArtSheet.ktx2Json`; a standalone image records
+  `EditorArtImage.ktx2` (no JSON); a rig writes a `.ktx2.atlas` (see "Rig"). A rig exported
+  without a store (`bootSplashExport`) encodes each page beside its atlas. Gated by
+  **`ENV.KTX2_ENCODE`** (default OFF — encoding is CPU/memory-heavy and blocks the loop; enable
+  deliberately per bake, verify launcher RAM).
 - **Transport** — unchanged: `bake-editor-doc.mjs` embeds the index, `pull-project-assets.mjs`
   mirrors every `deploy/` byte, `runtimeBundle.ts` carries the same `EditorArtIndex`. The new
   `ktx2Json`/`ktx2` fields ride along.
@@ -138,11 +141,26 @@ twin added half of what the PNG added (`add` centre red 100 vs 150), and the `.p
 PNG to within 1/255 under both `add` and `normal`. Real art (8 pages of `apps/price`) encodes ~6%
 SMALLER premultiplied (8.3 → 7.9 MB), because transparent texels become zero.
 
-`KTX2_ENCODER_REVISION` 3 makes this reach existing projects: their twins re-encode on the next
-assemble (authoring boot or Publish). A published snapshot keeps its old `.ktx2` twins, which the
-new runtime still reads as straight, so a project changes only when it is republished. One
-mismatch to know: a runtime-PINNED game on a pre-fix runtime that loads new `.pm.ktx2` twins reads
-them as straight and its soft edges darken further, until it moves to the current runtime.
+**Rollout.** Two things change at different times:
+
+- **On the runtime release, without a republish:** a page whose rig atlas declares `pma: true`. Its
+  old plain `.ktx2` twin already held premultiplied bytes (the old encoder passed them through), and
+  the loader now honours the atlas's `data.alphaMode` for it — so those rigs stop double-darkening
+  on phones in every live game. Intended: it is the same correction, and it needs nothing re-encoded.
+- **On republish:** everything else. `KTX2_ENCODER_REVISION` 3 makes the next assemble (authoring
+  boot or Publish) re-encode every twin as `.pm.ktx2`. A published snapshot keeps its old straight
+  `.ktx2` twins, which the new runtime still reads as straight.
+
+The re-encode is the expensive part: ~9 s of synchronous wasm per page that blocks the launcher's
+event loop, so a project's first assemble after the deploy takes minutes and can outrun the 90 s
+client budget (`gotcha_runtime_assemble_outruns_client_timeout`). Re-bake the active projects right
+after the launcher deploys, before authors or Publish need them — as for the WebP migration.
+
+**Do not roll the runtime back past this change once projects have re-encoded.** A pre-fix engine
+reads `.pm.ktx2` as straight and darkens every soft edge further than before the fix. The same holds
+for a game pinned to a pre-fix release, and briefly for a publish landing between the launcher
+deploy and the runtime release (it corrects itself when the release promotes). See
+`docs/guides/release-and-rollback.md` §4.
 
 ## Automatic downscaling (no manual resize)
 

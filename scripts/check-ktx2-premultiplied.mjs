@@ -4,14 +4,13 @@
  *
  *     node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-premultiplied.mjs
  *
- * WHY THIS GUARD EXISTS. Pixi marks every KTX2 texture straight-alpha and answers it with its `-npm`
- * blends, which apply a node's alpha twice — so on the compressed tier (every phone) a glow at 50%
- * opacity drew at 25%. Owner-reported 2026-10-15: a pink backdrop glow missing on a Pixel and present
- * with `?quality=high`. The fix spans two packages that cannot import each other: the launcher
- * encodes twins premultiplied and names them `.pm.ktx2` (`apps/launcher-api` `ktx2Alpha.ts`), and
- * the game marks a texture with that name premultiplied (`pixi-svelte` `ktx2AlphaMode.ts`). If the
- * name drifts on either side, nothing errors: the game reads premultiplied bytes as straight and
- * every soft edge darkens, or the reverse. This pins the two halves together.
+ * WHY THIS GUARD EXISTS. The fix for translucent art drawing dimmer on the compressed tier spans two
+ * packages that cannot import each other: the launcher encodes twins premultiplied and names them
+ * `.pm.ktx2` (`apps/launcher-api` `ktx2Alpha.ts`), and the game marks a texture with that name
+ * premultiplied (`pixi-svelte` `ktx2AlphaMode.ts`). If the name drifts on either side, nothing
+ * errors: the game reads premultiplied bytes as straight and every soft edge darkens, or the
+ * reverse. This pins the two halves together. Background: `docs/design/gpu-compressed-textures.md`
+ * § "Alpha".
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -64,15 +63,18 @@ console.log('\n3. the exporters name twins through the shared constant, never a 
 	const pageStore = read('apps/launcher-api/src/lib/server/pageStore.ts');
 	const rig = read('apps/launcher-api/src/lib/server/rig.ts');
 	ok(
-		'PageStore names its twin `${hash}${PREMULTIPLIED_KTX2_EXT}`',
-		/`\$\{hash\}\$\{PREMULTIPLIED_KTX2_EXT\}`/.test(pageStore),
+		'PageStore names its twin `${stem}${PREMULTIPLIED_KTX2_EXT}`',
+		/`\$\{stem\}\$\{PREMULTIPLIED_KTX2_EXT\}`/.test(pageStore),
 	);
-	ok('PageStore writes no `${hash}.ktx2` twin', !/`\$\{hash\}\.ktx2`/.test(pageStore));
+	ok('PageStore writes no bare `.ktx2` twin', !/\}\.ktx2`/.test(pageStore));
 	ok(
 		'the per-bundle rig twin is named with PREMULTIPLIED_KTX2_EXT',
-		/const ktx2Name = pageName\.replace\(.*PREMULTIPLIED_KTX2_EXT\)/.test(rig),
+		/const ktx2Name = pageName\.replace\([\s\S]{0,80}?PREMULTIPLIED_KTX2_EXT\s*\)/.test(rig),
 	);
-	ok("rig.ts derives no bare '.ktx2' page twin", !/pageName\.replace\(.*'\.ktx2'\)/.test(rig));
+	ok(
+		"rig.ts derives no bare '.ktx2' page twin",
+		!/pageName\.replace\([\s\S]{0,80}?'\.ktx2'\s*\)/.test(rig),
+	);
 	ok(
 		'the per-bundle rig cache re-encodes a twin from an older encoder',
 		/m\.enc === KTX2_ENCODER_REVISION/.test(rig),
@@ -82,6 +84,35 @@ console.log('\n3. the exporters name twins through the shared constant, never a 
 		KTX2_ENCODER_REVISION >= 3,
 		`KTX2_ENCODER_REVISION = ${KTX2_ENCODER_REVISION}`,
 	);
+}
+
+console.log('\n3b. an already-premultiplied source gets its OWN twin, never the straight one');
+{
+	// Same bytes reached as a sheet page (straight) and as a `pma: true` rig page must not share a
+	// twin: whichever encoded first would decide the other's premultiply. The WebP page stays shared.
+	const pageStore = read('apps/launcher-api/src/lib/server/pageStore.ts');
+	const rig = read('apps/launcher-api/src/lib/server/rig.ts');
+	ok(
+		'the in-flight slot carries the variant',
+		/const slot = `\$\{sourceKey\}\$\{twinVariant\(premultiplied\)\}`/.test(pageStore),
+	);
+	ok(
+		'the content cache is read and written per variant',
+		(pageStore.match(/byContent\.(?:get|set)\(`\$\{contentKey\}\$\{variant\}`/g) ?? []).length ===
+			3,
+	);
+	ok(
+		'the meta sidecar is per variant',
+		/metaKey = `\$\{this\.deployPrefix\}_pages\/\$\{hash\}\$\{variant\}\.meta\.json`/.test(
+			pageStore,
+		),
+	);
+	ok(
+		'both encode sites name the twin per variant',
+		(pageStore.match(/encodeTwin\(\s*sourceKey,\s*`\$\{hash\}\$\{variant\}`/g) ?? []).length === 2,
+	);
+	ok('the WebP page name carries no variant', /let file = `\$\{hash\}\./.test(pageStore));
+	ok('the per-bundle rig cache is keyed on the page `pma` too', /m\.pma === pma/.test(rig));
 }
 
 console.log('\n4. premultiply matches the browser’s 8-bit PNG premultiply');
@@ -144,6 +175,10 @@ console.log('\n5. pages already premultiplied are found, so they are not premult
 	ok(
 		'an atlas with no `pma` line has no premultiplied page',
 		atlasPremultipliedPages(legacy).size === 0,
+	);
+	ok(
+		'`pma: TRUE` is not premultiplied — the runtime atlas reader is case-sensitive',
+		atlasPremultipliedPages('a.png\nsize: 4,4\npma: TRUE\nr\n  xy: 0,0').size === 0,
 	);
 	ok(
 		'`pma: false` is not premultiplied',

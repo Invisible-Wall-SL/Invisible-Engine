@@ -875,8 +875,8 @@ export async function exportRigBundle(opts: {
 		// source page's ETag + the encoded dims beside the twin (the page name here is NOT
 		// content-hashed, so existence alone is not a sound key), so an unchanged page reuses the
 		// existing twin (one HEAD + one small GET, no page bytes, no encode). A changed page (new
-		// ETag) or a twin from an older encoder (`KTX2_ENCODER_REVISION`) re-encodes. The reused
-		// keys MUST go into `written` or the caller's prune deletes them.
+		// ETag), a twin from an older encoder (`KTX2_ENCODER_REVISION`) or a flipped atlas `pma`
+		// re-encodes. The reused keys MUST go into `written` or the caller's prune deletes them.
 		const metaKey = `${ktx2Key}.meta.json`;
 		const head = await headObject(`${prefix}/${pageName}`);
 		const srcEtag = head ? (head.etag ?? `${head.size}:${head.lastModified}`) : null;
@@ -889,10 +889,12 @@ export async function exportRigBundle(opts: {
 						width: number;
 						height: number;
 						enc?: number;
+						pma?: boolean;
 					};
 					if (
 						m.etag === srcEtag &&
 						m.enc === KTX2_ENCODER_REVISION &&
+						m.pma === pma &&
 						(await objectExists(ktx2Key))
 					) {
 						written.push(ktx2Key, metaKey);
@@ -917,6 +919,7 @@ export async function exportRigBundle(opts: {
 					width: ktx2.width,
 					height: ktx2.height,
 					enc: KTX2_ENCODER_REVISION,
+					pma,
 				}),
 				'application/json',
 			);
