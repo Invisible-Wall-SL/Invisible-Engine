@@ -3,9 +3,9 @@ import type { LayoutDoc } from 'engine-layout';
 /**
  * Who may flip an authored-overlay pilot switch (Rive plan Phase 8a / 8b): the Game Settings rows
  * are enabled for holders of the component-publish capability, and the save enforces the same
- * rule — a save that changes `settings.authoredOverlays.transition`, `.win`, `.freeSpins` (8c) or `.buttons` (8d)
- * from a user without it is refused, so the UI gate is not the only one. A save that leaves every
- * switch as stored is anyone's.
+ * rule — a save that changes `settings.authoredOverlays.transition`, `.win`, `.freeSpins` (8c) or
+ * `.buttons` (8d) from a user without it is refused, so the UI gate is not the only one. A save that
+ * leaves every switch as stored is anyone's.
  */
 type Settings = Pick<LayoutDoc, 'settings'> | null | undefined;
 

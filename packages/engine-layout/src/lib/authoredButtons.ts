@@ -1,4 +1,4 @@
-import { BUTTON_PRESENTATION_ID } from './builtinComponents';
+import { BUTTON_DEF, BUTTON_PRESENTATION_ID } from './builtinComponents';
 import type { ComponentDef, ComponentInstanceNode, LayoutDoc, LayoutNode, Scene } from './types';
 
 /**
@@ -21,6 +21,19 @@ const isButtonInstance = (node: LayoutNode): node is ComponentInstanceNode =>
 const some = (nodes: readonly LayoutNode[], test: (node: LayoutNode) => boolean): boolean =>
 	nodes.some((node) => test(node) || (node.kind === 'container' && some(node.children, test)));
 
+/** Every `button` version the doc's instances resolve — `undefined` for an unpinned one (latest). */
+export function docButtonVersions(doc: Pick<LayoutDoc, 'scenes'>): (number | undefined)[] {
+	const versions = new Set<number | undefined>();
+	const walk = (nodes: readonly LayoutNode[]): void => {
+		for (const node of nodes) {
+			if (isButtonInstance(node)) versions.add(node.componentVersion);
+			if (node.kind === 'container') walk(node.children);
+		}
+	};
+	for (const scene of doc.scenes) walk(scene.nodes);
+	return [...versions];
+}
+
 /** Whether any scene of the doc places a `button` instance, at any depth. */
 export const docHasButtonInstance = (doc: Pick<LayoutDoc, 'scenes'>): boolean =>
 	doc.scenes.some((scene) => some(scene.nodes, isButtonInstance));
@@ -41,18 +54,40 @@ const plainPart = (node: LayoutNode | undefined, component: string): boolean =>
 	!node.paramBindings &&
 	!node.on;
 
+const builtinDefaults = new Map((BUTTON_DEF.params ?? []).map((p) => [p.key, p.default]));
+
 /**
  * Whether the `button` def a game resolves draws what the built-in does — its root the bare
- * `ButtonFrame` and `ButtonLabel` parts and nothing else — so `buttonPresentation` reproduces it. A
- * publish bakes the built-in's copy (possibly an older version with fewer params, which draws the
- * same); a project's own `button` (an extra node, bind props on the frame, a moved label) does not
- * pass. No def at all ⇒ the built-in is what renders.
+ * `ButtonFrame` and `ButtonLabel` parts and nothing else, and no param default of its own — so
+ * `buttonPresentation` (whose params are the built-in's) reproduces it. A publish bakes the
+ * built-in's copy (possibly an older version with fewer params, which draws the same); a project's
+ * own `button` (an extra node, bind props on the frame, a moved label, a light default variant) does
+ * not pass. No def at all ⇒ the built-in is what renders.
  */
 export function isBuiltinButtonShape(def: ComponentDef | undefined): boolean {
 	if (!def) return true;
 	const root = def.root;
 	if (root.kind !== 'container' || root.children.length !== 2) return false;
-	if (root.x || root.y || root.scale !== undefined || root.rotation !== undefined) return false;
+	if (
+		root.x ||
+		root.y ||
+		root.scale !== undefined ||
+		root.rotation !== undefined ||
+		root.alpha !== undefined ||
+		root.overrides ||
+		root.paramBindings ||
+		root.on ||
+		Object.keys(def.defaultInstanceParams ?? {}).length
+	)
+		return false;
+	if (
+		(def.params ?? []).some(
+			(p) =>
+				p.default !== undefined &&
+				JSON.stringify(p.default) !== JSON.stringify(builtinDefaults.get(p.key)),
+		)
+	)
+		return false;
 	return plainPart(root.children[0], 'ButtonFrame') && plainPart(root.children[1], 'ButtonLabel');
 }
 

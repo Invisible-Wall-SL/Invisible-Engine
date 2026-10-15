@@ -221,6 +221,11 @@ eq(
 	} as unknown as LayoutDoc);
 	const out = swap(nested);
 	const inner = (out.scenes[0].nodes[0] as { children: LayoutNode[] }).children[0];
+	eq(
+		'every pinned version a doc resolves is listed (each is checked)',
+		AB.docButtonVersions(nested),
+		[1],
+	);
 	eq('a nested, moved, pinned, per-layout button is swapped in place, its pin dropped', inner, {
 		id: 'my-spin',
 		kind: 'componentInstance',
@@ -263,6 +268,16 @@ const withProps = structuredClone(C.BUTTON_DEF);
 	component: 'ButtonFrame',
 	props: { borderWidth: 4 },
 };
+const lightDefault = {
+	...structuredClone(C.BUTTON_DEF),
+	params: (C.BUTTON_DEF.params ?? []).map((p) =>
+		p.key === 'variant' ? { ...p, default: 'light' } : p,
+	),
+};
+const withInstanceDefaults = {
+	...structuredClone(C.BUTTON_DEF),
+	defaultInstanceParams: { tint: 1 },
+};
 const olderCopy = {
 	...structuredClone(C.BUTTON_DEF),
 	version: 1,
@@ -276,8 +291,10 @@ eq(
 		AB.isBuiltinButtonShape(undefined),
 		AB.isBuiltinButtonShape(custom),
 		AB.isBuiltinButtonShape(withProps),
+		AB.isBuiltinButtonShape(lightDefault as ComponentDef),
+		AB.isBuiltinButtonShape(withInstanceDefaults as ComponentDef),
 	],
-	[true, true, true, false, false],
+	[true, true, true, false, false, false, false],
 );
 const statusCases: [string, LayoutDoc, boolean, string][] = [
 	['off', lines, false, 'off'],
@@ -650,6 +667,31 @@ const nodeIdOf = (label: string) =>
 	);
 	const instance = src('../../../packages/engine-layout/src/lib/ComponentInstance.svelte');
 	eq(
+		"a buttonStates def's press sounds stay off the open signal bus (only its own press fires them)",
+		instance.includes(
+			'(s) => !buttonStates || !(BUTTON_PRESS_SOUNDS as readonly string[]).includes(s),',
+		),
+		true,
+	);
+	eq(
+		'the game checks every pinned button version before the swap; so does the chip',
+		[
+			game.includes('shadowed: !docButtonVersions(loadedDoc).every((version) =>'),
+			src('../src/routes/(app)/game-maker/+page.server.ts').includes(
+				'shadowed: !buttonDefs.every(isBuiltinButtonShape)',
+			),
+		],
+		[true, true],
+	);
+	eq(
+		"the authored frame reads the image params per layout, with the coded frame's flags",
+		[
+			instance.includes('resolveButtonLook(buttonImageParams(), buttonFlags())'),
+			instance.includes('get: () => resolveButtonLook(buttonImageParams(), buttonFlags()).frame,'),
+		],
+		[true, true],
+	);
+	eq(
 		'a settling timeline drive (identity rotation / alpha handed to the node) is set for buttonStates only',
 		[
 			instance.includes('...(buttonStates ? { settles: true as const } : {})'),
@@ -683,7 +725,10 @@ eq(
 );
 eq(
 	'NEGATIVE CONTROL: a doc with the flag on is NOT returned as the same object',
-	swap(on(lines)) === on(lines),
+	(() => {
+		const flagged = on(lines);
+		return swap(flagged) === flagged;
+	})(),
 	false,
 );
 eq(

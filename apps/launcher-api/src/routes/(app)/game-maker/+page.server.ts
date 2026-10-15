@@ -9,6 +9,7 @@ import {
 import {
 	authoredButtonsEnabled,
 	authoredButtonsStatus,
+	docButtonVersions,
 	isBuiltinButtonShape,
 	authoredFreeSpinsStatus,
 	authoredTransitionStatus,
@@ -234,12 +235,16 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				layout && authoredWinEnabled(layout)
 					? await loadWinTextDoc(clientKey, p.key).catch(() => undefined)
 					: undefined;
-			// The button pilot is held back by a project `button` def that draws something else — one
-			// more read, paid only with the flag on (Rive plan Phase 8d).
-			const buttonDef =
+			// The button pilot is held back by a project `button` def (any version an instance pins) that
+			// draws something else — reads paid only with the flag on (Rive plan Phase 8d).
+			const buttonDefs =
 				layout && authoredButtonsEnabled(layout)
-					? await loadComponent('button', p.key).catch(() => undefined)
-					: undefined;
+					? await Promise.all(
+							docButtonVersions(layout).map((version) =>
+								loadComponent('button', p.key, version).catch(() => undefined),
+							),
+						)
+					: [];
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
 				gameTypeName: kindNames.get(p.gameType) ?? p.gameType,
@@ -257,7 +262,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 							}),
 							authoredFreeSpins: authoredFreeSpinsStatus(layout),
 							authoredButtons: authoredButtonsStatus(layout, {
-								shadowed: !isBuiltinButtonShape(buttonDef),
+								shadowed: !buttonDefs.every(isBuiltinButtonShape),
 							}),
 						}
 					: null,

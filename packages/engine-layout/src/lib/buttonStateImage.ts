@@ -40,7 +40,13 @@ export interface ButtonStateFlags {
 /** The non-resting button states the cascade resolves, in priority order. The
  * resting state (`image` / `defaultAnimation`) is the caller's fallback, not a key. */
 export type ButtonVisualState =
-	'spinning' | 'spinningHover' | 'spinningPressed' | 'disabled' | 'pressed' | 'hover' | 'selected';
+	| 'spinning'
+	| 'spinningHover'
+	| 'spinningPressed'
+	| 'disabled'
+	| 'pressed'
+	| 'hover'
+	| 'selected';
 
 /**
  * The shared button-state cascade, parameterised over the looked-up value type so

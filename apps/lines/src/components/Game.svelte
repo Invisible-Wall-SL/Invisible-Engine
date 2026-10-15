@@ -102,6 +102,7 @@
 		authoredButtonsStatus,
 		withAuthoredButtonsDoc,
 		isBuiltinButtonShape,
+		docButtonVersions,
 		resolveComponent,
 		getComponentDefaults,
 		registerComponentDefaults,
@@ -727,6 +728,13 @@
 	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
 	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
 	registerFlowValueSource(linesValueResolver);
+	// A press's feedback sound (Rive plan Phase 8d): handed to an authored button that claimed the press
+	// (its state machine plays it, at this same point of the body), else broadcast as always.
+	const pressFeedback = (event: {
+		type: 'soundPressGeneral' | 'soundPressBet' | 'soundPressStop';
+	}) => {
+		if (!handOffPressSound(event.type)) context.eventEmitter.broadcast(event);
+	};
 	// Flow press routing (§Part 2) — wire `<ComponentInstance>`'s press through the v2 flow's authored
 	// container-event ownership. When the flow OWNS a component's event (an authored exec edge from its
 	// fused pin) the press fires the flow's chain ALONE and the coded `onpress` is SUPPRESSED (no
@@ -735,13 +743,6 @@
 	// Flow routing SKIPS the coded `onpress`, which is where the press-feedback SOUND is broadcast — so
 	// replay it here before dispatching (faithful mapping: spin → the shared bet/slam cue, every other
 	// HUD button → `soundPressGeneral`), else a flow-owned button press would be silent.
-	// A press's feedback sound (Rive plan Phase 8d): handed to an authored button that claimed the press
-	// (its state machine plays it, at this same point of the body), else broadcast as always.
-	const pressFeedback = (event: {
-		type: 'soundPressGeneral' | 'soundPressBet' | 'soundPressStop';
-	}) => {
-		if (!handOffPressSound(event.type)) context.eventEmitter.broadcast(event);
-	};
 	registerFlowPress((componentId, action, payload, kind) => {
 		// Thread the press PAYLOAD through: a `<Repeater>` card passes `{ betModeKey: <key> }` so the
 		// fused `onSelect` pin's data-out resolves to WHICH card fired. Dropping it here armed the flow's
@@ -2219,7 +2220,9 @@
 			// the new id. Off, or held back ⇒ the same doc object (parity).
 			const authoredButtons =
 				authoredButtonsStatus(loadedDoc, {
-					shadowed: !isBuiltinButtonShape(resolveComponent('button').def),
+					shadowed: !docButtonVersions(loadedDoc).every((version) =>
+						isBuiltinButtonShape(resolveComponent('button', version).def),
+					),
 				}) === 'ready';
 			const rawDoc = authoredButtons ? withAuthoredButtonsDoc(loadedDoc) : loadedDoc;
 			if (authoredButtons) {

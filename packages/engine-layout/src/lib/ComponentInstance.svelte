@@ -76,7 +76,7 @@
 		BUTTON_LOOKS,
 		BUTTON_STATE_IMAGE_KEYS,
 	} from './buttonStateImage';
-	import { BUTTON_STATE_INPUTS } from './builtinComponents';
+	import { BUTTON_PRESS_SOUNDS, BUTTON_STATE_INPUTS } from './builtinComponents';
 	import { claimPressSound } from './pressSounds';
 	import { setComponentStateAnims } from './componentStateAnimContext';
 	import { setComponentRigRest } from './componentRigRestContext';
@@ -851,7 +851,11 @@
 		untrack(() => {
 			if (!timelinePlayer && !stateMachineRunner) return;
 			const unsubs: (() => void)[] = [];
-			const busSignals = [...(timelinePlayer?.signals() ?? []), ...stateMachineTriggers];
+			// A `buttonStates` def's press sounds are fired by its own press only (the claim), never by
+			// a same-named signal or Flow cue reaching every mounted button.
+			const busSignals = [...(timelinePlayer?.signals() ?? []), ...stateMachineTriggers].filter(
+				(s) => !buttonStates || !(BUTTON_PRESS_SOUNDS as readonly string[]).includes(s),
+			);
 			for (const signal of busSignals.filter((s, i) => busSignals.indexOf(s) === i)) {
 				if (signal === ENTER_SIGNAL || signalToTargets.has(signal) || gateSignals.has(signal))
 					continue;
@@ -1073,6 +1077,22 @@
 			pressed = false;
 		}
 	});
+	/** The `image*` params as the coded frame reads them: this layout's override, else the base. */
+	const buttonImageParams = (): Record<string, unknown> =>
+		Object.fromEntries(
+			BUTTON_STATE_IMAGE_KEYS.map((key) => {
+				const override = node.overrides?.[currentLayoutType()]?.params;
+				return [key, override && key in override ? override[key] : staticParams[key]];
+			}),
+		);
+	/** The flags as the coded frame reads them (its `active` is the action's flag alone). */
+	const buttonFlags = () => ({
+		hovered,
+		pressed,
+		disabled: providedParams['disabled'] === true,
+		active: providedParams['active'] === true,
+		spinning: providedParams['spinning'] === true,
+	});
 	// BUTTON STATES (Rive plan Phase 8d): the machine's reserved inputs follow the live flags — the
 	// frame's look through the SHARED cascade (`resolveButtonLook`, the coded `ButtonFrame`'s own
 	// derivation), whether the spin frame turns, and the placement's `fadeWithUi`. A change is taken
@@ -1080,13 +1100,7 @@
 	// frame's would and a turn that starts shows `dt` of rotation on the next tick, as its ticker does.
 	$effect(() => {
 		if (!buttonStates || !stateMachineRunner) return;
-		const { look, rotating } = resolveButtonLook(staticParams, {
-			hovered,
-			pressed,
-			disabled: providedParams['disabled'] === true,
-			active: providedParams['active'] === true,
-			spinning: providedParams['spinning'] === true,
-		});
+		const { look, rotating } = resolveButtonLook(buttonImageParams(), buttonFlags());
 		untrack(() => {
 			const changed = [
 				stateMachineRunner.setInput(BUTTON_STATE_INPUTS.look, BUTTON_LOOKS.indexOf(look)),
@@ -1246,7 +1260,14 @@
 		def?.params?.some(
 			(p) => p.key !== 'image' && (BUTTON_STATE_IMAGE_KEYS as readonly string[]).includes(p.key),
 		) ?? false;
-	if (interactive && hasStateImages) {
+	if (buttonStates) {
+		// The coded frame reads every `image*` param through the instance's provided params, the
+		// per-layout overrides included, and its `active` is the action's flag alone.
+		Object.defineProperty(providedParams, 'image', {
+			enumerable: true,
+			get: () => resolveButtonLook(buttonImageParams(), buttonFlags()).frame,
+		});
+	} else if (interactive && hasStateImages) {
 		const restingImage = staticParams['image'];
 		Object.defineProperty(providedParams, 'image', {
 			enumerable: true,

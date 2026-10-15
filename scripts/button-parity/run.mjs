@@ -401,6 +401,12 @@ for (const name of chosen) {
 		fail(
 			`${name}: the hit surfaces differ — coded ${JSON.stringify(coded.buttons)}, authored ${JSON.stringify(authored.buttons)}`,
 		);
+	// The interaction script presses turbo twice and spin once, the fade script spins: a recorder that
+	// heard nothing must not pass as two empty lists that agree.
+	const expected =
+		variant.script === 'interact' ? ['soundPressGeneral', 'soundPressBet'] : ['soundPressBet'];
+	const missingSound = expected.filter((e) => !coded.sounds.some((s) => s.event === e));
+	if (missingSound.length) fail(`${name}: the coded side recorded no ${missingSound.join(', ')}`);
 	const soundLine = (s) => s.map((e) => `${e.event}@${e.frame}`).join(', ') || 'none';
 	if (soundLine(coded.sounds) !== soundLine(authored.sounds))
 		fail(
