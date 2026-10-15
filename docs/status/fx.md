@@ -32,6 +32,18 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-15 — **The Scene Editor previews a free layer at its offset.** `/editor`'s live particle
+  overlay (`EditorEffectLayer.svelte`) built every emitter at the node origin and never read
+  `placement.offset`, while the game's `<EffectLayer>` mounts a free layer in a container at that
+  offset — so an offset layer previewed in one place and played in another. Each free layer's
+  emitter now sits in a child container at `planLayer(layer).offset`, the same reduction the
+  runtime mounts from, so the two can't drift on this again. The measured particle spread (the
+  selection-box fit) follows, since it is read off the node container. Bone layers are still
+  skipped by the overlay. Not a vendored bundle, so no rebuild. Verified: the fx-spike `placement`
+  and `player` gates, `pnpm check:svelte --only apps/launcher-api` (47, at baseline), lint and
+  `check:undefined-names` pass, and a one-off Node run of the overlay's container shape against
+  the real `Emitter` put the particle and its bounds at the authored offset. **Not driven in a
+  browser** (`/editor` is auth + Postgres + R2 gated).
 - 2026-10-14 — **Sprite rotation + pivot on sprite layers.** Owner ask: rotate the art the way it
   spawns on the particle, and choose whether it spawns at its centre, top, bottom, left or right.
   - **What shipped.** A **Sprite** section under Art (sprite layers only): **Rotation (°)**

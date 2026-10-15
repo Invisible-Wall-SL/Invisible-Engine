@@ -20,11 +20,13 @@
 	 *
 	 * v1 scope: FREE layers only (`placement.space !== 'bone'`). A bone-placed layer needs a live rig
 	 * host the editor overlay doesn't provide, so it's skipped here (the node keeps its chip); the game
-	 * mounts bone FX on their host rig. A node whose doc/layers resolve NO live emitter keeps its 2D
-	 * chip (reported via `onReadyKeysChange`).
+	 * mounts bone FX on their host rig. Each free layer's emitter sits in its own child container at
+	 * the layer's `placement.offset` (resolved by the same `planLayer` the game's `<EffectLayer>`
+	 * mounts from), so an offset layer previews where it plays. A node whose doc/layers resolve NO
+	 * live emitter keeps its 2D chip (reported via `onReadyKeysChange`).
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
-	import { bindArt, type EffectDoc, type EmitterLayer } from 'engine-fx';
+	import { bindArt, planLayer, type EffectDoc, type EmitterLayer } from 'engine-fx';
 	import {
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
@@ -122,7 +124,8 @@
 	}
 
 	/** A live per-NODE render: its container (positioned at the node's world transform) + one emitter
-	 * per FREE layer. Rebuilt when the node's effectId / doc / transform changes; disposed on removal. */
+	 * per FREE layer, each in a child container at that layer's offset. Rebuilt when the node's
+	 * effectId / doc / transform changes; disposed on removal. */
 	interface LiveNode {
 		effectId: string;
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
@@ -438,7 +441,8 @@
 		publishReady();
 	}
 
-	/** Build one FREE layer's live `Emitter` into a node's container (mirrors FxStage's sprite path).
+	/** Build one FREE layer's live `Emitter` into a node's container (mirrors FxStage's sprite path),
+	 * inside a child container at the layer's offset — the game's `<EffectLayer>` free-mount shape.
 	 * A layer that resolves 0 textures is SKIPPED (the editor overlay renders real art only — the `/fx`
 	 * tool's placeholder dots are an authoring aid there, not wanted littering the scene preview). */
 	async function buildLayer(node: LiveNode, layer: EmitterLayer, gen: number): Promise<void> {
@@ -454,7 +458,11 @@
 			framerate: layer.art.framerate,
 			loop: layer.art.loop,
 		});
-		const emitter = new Emitter(node.container, config);
+		const { offset } = planLayer(layer);
+		const layerContainer = new Container();
+		layerContainer.position.set(offset.x, offset.y);
+		node.container.addChild(layerContainer);
+		const emitter = new Emitter(layerContainer, config);
 		emitter.emit = playing;
 		node.emitters.push(emitter);
 	}
