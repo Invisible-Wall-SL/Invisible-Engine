@@ -1295,11 +1295,12 @@
 			// Bone-ridden stand-in symbol (Scene Editor preview): now that the rig is posed +
 			// drawn, read the followed bone and publish the stand-in symbol's WORLD transform so
 			// the 2D canvas draws it tracking the bone — mirroring the runtime `<RigBoneAttach>`
-			// (`getBonePosition` → pixi world; rotation `-getWorldRotationX()*DEG_TO_RAD`; scale
-			// `getWorldScaleX()/Y()`). We read the bone in RAW skeleton space (identity skeleton
-			// placement, so the read is independent of the pan/zoom/mirror bake), then apply the
-			// captured rig world transform `riderSk0` to land it in the SAME world space the 2D
-			// canvas draws in. An unresolved/empty bone publishes nothing (parity — no rider).
+			// (`getBonePosition` → pixi world; rotation = the bone's on-screen angle, which this
+			// y-up skeleton gives as `-getWorldRotationX()`; scale `getWorldScaleX()/Y()`). We
+			// read the bone in RAW skeleton space (identity skeleton placement, so the read is
+			// independent of the pan/zoom/mirror bake), then apply the captured rig world
+			// transform `riderSk0` to land it in the SAME world space the 2D canvas draws in. An
+			// unresolved/empty bone publishes nothing (parity — no rider).
 			if (target.rider && riderSk0 && boneRiders) {
 				const spec = target.rider;
 				if (spec.boneName) {

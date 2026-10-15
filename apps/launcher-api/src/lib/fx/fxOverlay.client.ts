@@ -203,12 +203,14 @@ const DEFAULT_FLIPBOOK_FPS = 24;
  * and a down.
  *
  * The game is the arbiter and it does NOT mirror: `<RigBoneAttach followRotation followScale>`
- * takes `rotation = -bone.getWorldRotationX()` and sizes by `Math.hypot` MAGNITUDES, precisely so a
- * negative axis (a y-flip, a mirrored skin) sizes the attachment instead of flipping it. Same rule
- * here, so a preview and the shipped frame cannot disagree on which way up a clip plays.
+ * turns by the angle of the bone's x-axis (`boneRotationInParent`) and sizes by `Math.hypot`
+ * MAGNITUDES, precisely so a negative axis (a y-flip, a mirrored skin) sizes the attachment instead
+ * of flipping it. Same rule here, so a preview and the shipped frame cannot disagree on which way
+ * up a clip plays.
  *
  * `atan2(b, a)` survives the flip untouched: a bone at rig rotation θ projects to `(z·cosθ,
- * −z·sinθ)`, so the angle reads back as `−θ` — the number `<RigBoneAttach>` assigns directly.
+ * −z·sinθ)`, so the angle reads back as `−θ` — the angle `<RigBoneAttach>` gives it too
+ * (`pixi-svelte/fixtures/rigBoneRotation.fixture.ts` checks the game against this reading).
  */
 function fxMatrix(t: FxTransform): Matrix {
 	const rotation = Math.atan2(t.b, t.a);

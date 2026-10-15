@@ -52,6 +52,7 @@
 		getContextRigLoadScale,
 		createContextParent,
 	} from '../context.svelte';
+	import { boneRotationInParent } from '../rigBoneRotation';
 
 	const props: Props = $props();
 	const context = getContextApp();
@@ -65,7 +66,6 @@
 
 	// Reusable scratch point so the per-frame follow allocates nothing.
 	const bonePoint = new PIXI.Point();
-	const DEG_TO_RAD = Math.PI / 180;
 
 	// Cache the resolved bone (findBone is a linear scan). `resolvedFor` lets a boneName change
 	// re-resolve, and leaves us retrying each frame until the skeleton is ready.
@@ -126,12 +126,15 @@
 		}
 
 		// Opt-in rotation/scale follow so an attached symbol banks/scales with the bone (a
-		// flipping page, a rising glow). Skeleton space is CCW / y-up, Pixi is CW / y-down, so
-		// world rotation is negated — same inversion `<RigBone>` applies to y.
+		// flipping page, a rising glow).
 		if (props.followRotation || props.followScale) {
 			if (b) {
 				if (props.followRotation) {
-					container.rotation = -b.getWorldRotationX() * DEG_TO_RAD;
+					container.rotation = boneRotationInParent(
+						b,
+						rig.worldTransform,
+						container.parent?.worldTransform ?? null,
+					);
 				}
 				if (props.followScale) {
 					// The bone's scale is SKELETON-space (~1), so it excludes whatever scale the rig

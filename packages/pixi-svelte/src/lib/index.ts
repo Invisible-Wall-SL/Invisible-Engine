@@ -21,3 +21,5 @@ export * from './cameraEffects';
 export * from './anchors';
 // Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).
 export * from './pressHold';
+// The rotation `<RigBoneAttach followRotation>` gives a bone-bound child (and the `/fx` stage copies).
+export * from './rigBoneRotation';
