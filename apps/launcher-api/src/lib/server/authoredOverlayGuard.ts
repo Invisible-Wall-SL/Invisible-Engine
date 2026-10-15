@@ -3,13 +3,13 @@ import type { LayoutDoc } from 'engine-layout';
 /**
  * Who may flip an authored-overlay pilot switch (Rive plan Phase 8a / 8b): the Game Settings rows
  * are enabled for holders of the component-publish capability, and the save enforces the same
- * rule — a save that changes `settings.authoredOverlays.transition` or `.win` from a user without
- * it is refused, so the UI gate is not the only one. A save that leaves both switches as stored
- * is anyone's.
+ * rule — a save that changes `settings.authoredOverlays.transition`, `.win` or `.freeSpins` (8c)
+ * from a user without it is refused, so the UI gate is not the only one. A save that leaves every
+ * switch as stored is anyone's.
  */
 type Settings = Pick<LayoutDoc, 'settings'> | null | undefined;
 
-const AUTHORED_OVERLAY_ROWS = ['transition', 'win'] as const;
+const AUTHORED_OVERLAY_ROWS = ['transition', 'win', 'freeSpins'] as const;
 
 const overlayOn = (doc: Settings, row: (typeof AUTHORED_OVERLAY_ROWS)[number]): boolean =>
 	doc?.settings?.authoredOverlays?.[row] === true;
@@ -33,6 +33,21 @@ export const winSwitchedOn = (before: Settings, after: Settings): boolean =>
 export const submitsWinOn = (after: Settings): boolean =>
 	AUTHORED_WIN_LOCKED && overlayOn(after, 'win');
 
+/**
+ * The free-spin pilot (Rive plan Phase 8c) is locked OFF until the owner pilots it: no save, a
+ * publisher's included, may switch it ON; switching it off stays allowed. Lifted together with the
+ * Game Settings row's lock.
+ */
+export const AUTHORED_FREE_SPINS_LOCKED = true;
+
+/** Whether `after` switches the free-spin pilot on where `before` had it off. */
+export const freeSpinsSwitchedOn = (before: Settings, after: Settings): boolean =>
+	!overlayOn(before, 'freeSpins') && overlayOn(after, 'freeSpins');
+
+/** Whether a submitted doc has the free-spin pilot on — a publisher's save then reads the store. */
+export const submitsFreeSpinsOn = (after: Settings): boolean =>
+	AUTHORED_FREE_SPINS_LOCKED && overlayOn(after, 'freeSpins');
+
 export function authoredOverlayChangeAllowed(args: {
 	before: Settings;
 	after: Settings;
@@ -52,7 +67,8 @@ export const writeIsStale = (
 	storedEtag: string | null,
 ): boolean => baseEtag !== undefined && baseEtag !== storedEtag;
 
-export type AuthoredOverlaySaveDecision = 'write' | 'conflict' | 'forbidden' | 'locked';
+export type AuthoredOverlaySaveDecision =
+	'write' | 'conflict' | 'forbidden' | 'locked' | 'locked-free-spins';
 
 /**
  * The editor save action's decision for a doc that may flip a pilot switch, in the order the
@@ -71,5 +87,7 @@ export function authoredOverlaySaveDecision(args: {
 }): AuthoredOverlaySaveDecision {
 	if (writeIsStale(args.baseEtag, args.storedEtag)) return 'conflict';
 	if (AUTHORED_WIN_LOCKED && winSwitchedOn(args.before, args.after)) return 'locked';
+	if (AUTHORED_FREE_SPINS_LOCKED && freeSpinsSwitchedOn(args.before, args.after))
+		return 'locked-free-spins';
 	return authoredOverlayChangeAllowed(args) ? 'write' : 'forbidden';
 }

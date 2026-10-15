@@ -1352,6 +1352,13 @@ export interface GameSettings {
 		 * (count-up, round hold, presses, dim, `winState`) stays and conducts them.
 		 */
 		win?: boolean;
+		/**
+		 * 8c: the free-spin INTRO and OUTRO visuals (the frame rig, the count rig and text, the
+		 * localized sprites, the fade — what the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual`
+		 * draw) render from the built-in `freeSpinIntroPresentation` / `freeSpinOutroPresentation`
+		 * components; the coded outro driver, the screens' taps and the flow's holds stay.
+		 */
+		freeSpins?: boolean;
 	};
 }
 
@@ -1544,6 +1551,14 @@ export interface ComponentDef {
 	 * `winPresentation` def sets it; never stored, so no project def has it. Absent ⇒ neither (parity).
 	 */
 	frameExact?: true;
+	/**
+	 * BOARD-ANCHORED (built-in only, Rive plan Phase 8c): the instance is framed against the main
+	 * box on any screen (as a `game`-space hosted overlay is) AND offset by the game's live board
+	 * position (`boardBox()`), so it lands where a coded overlay that self-centred on
+	 * `boardLayout()` drew — a reel-grid override included. Only the free-spin presentations set it;
+	 * never stored. Absent ⇒ placed as before (parity).
+	 */
+	boardAnchored?: true;
 	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A

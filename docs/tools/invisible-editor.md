@@ -849,9 +849,10 @@ travel the export → deploy → bake → pull chain to ship inside the game bun
 
 ### Game Settings → Authored overlays (pilot)
 
-Above the boot splash, **Authored overlays (pilot)** has two rows, **Transition** and **Win**.
-Both are pilots: off — the default, and the state of every live game — nothing changes. Only a
-holder of the component-publish capability (admin by default) can switch either; others see a row
+Above the boot splash, **Authored overlays (pilot)** has three rows, **Transition**, **Win** and
+**Free spins**. All are pilots: off — the default, and the state of every live game — nothing
+changes. Only a holder of the component-publish capability (admin by default) can switch one;
+others see a row
 read-only while it is on, and a save that flips one from anyone else is refused (a stale tab still
 gets the ordinary "someone else saved" conflict first). **Leave both off for live games until the
 owner's browser check.** The Game Maker card names each when on.
@@ -875,6 +876,18 @@ owner's browser check.** The Game Maker card names each when on.
   instance, when a big-win tier's caption in Invisible Win Text (in the base game or any spins
   mode) uses a token such as `{amount}`,
   or when the tiers resolve to more than one rig or count slot.
+- **Free spins** — **locked off for now** (the row reads _pilot pending_): nobody, publishers
+  included, can switch it on until the owner pilots it, and the save refuses it too; a doc that
+  already has it on can still be switched off. When unlocked: the game renders the free-spin
+  intro and outro visuals (the frame, the count rig and number, the localized captions, the fade)
+  from the built-in **Free-spin intro / outro presentation** components and their timelines,
+  instead of the coded intro and outro visuals. What holds the round does not change: the outro's
+  count-up, its tap to skip, the screens' "press anywhere to continue" and the flow's holds stay
+  as they are. Nothing to place: each screen's coded visual is swapped where it sits. The card says
+  _Authored free spins (pilot)_, and the game keeps the coded visuals for both screens (the card
+  warns) when no screen binds a coded free-spin visual, when one sits in a screen that is not
+  canvas space, when a screen places a free-spin visual instance, or when a visual names a rig,
+  clip or slot other than the default.
 
 ### Game Settings → Boot splash
 

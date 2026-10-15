@@ -487,6 +487,21 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'4. layout: an ON win row survives beside an OFF transition row (sparse, ON-only)',
 		JSON.stringify(normalizeLayoutDoc(winOnly, 'demo')).includes('"authoredOverlays":{"win":true}'),
 	);
+	// Rive plan Phase 8c: the `freeSpins` row, ON-only and sparse like the other two.
+	const freeSpinsOnly = clone(base) as typeof base & { settings: Record<string, unknown> };
+	freeSpinsOnly.settings.authoredOverlays = { win: false, freeSpins: true };
+	check(
+		'4. layout: an ON freeSpins row survives beside an OFF win row (sparse, ON-only)',
+		JSON.stringify(normalizeLayoutDoc(freeSpinsOnly, 'demo')).includes(
+			'"authoredOverlays":{"freeSpins":true}',
+		),
+	);
+	const freeSpinsOff = clone(base) as typeof base & { settings: Record<string, unknown> };
+	freeSpinsOff.settings.authoredOverlays = { freeSpins: 'yes' };
+	check(
+		'4. layout: a non-boolean freeSpins row is dropped',
+		!JSON.stringify(normalizeLayoutDoc(freeSpinsOff, 'demo')).includes('authoredOverlays'),
+	);
 
 	const withNodeField = clone(base);
 	Object.assign(withNodeField.scenes[0].nodes[0], { glow: 0.2 });

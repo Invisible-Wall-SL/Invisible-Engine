@@ -31,6 +31,7 @@
  *   MIN_CLUSTER=5 · ADJACENCY=orthogonal   cluster shape (WIN_MODEL=cluster)
  *   MIN_COUNT=8               scatter-pays floor (WIN_MODEL=scatter)
  *   FORCE_TRIGGER=1 · STACKED=1 · CASCADE=1 · MULTIPLIER=1   outcome/presentation forcing
+ *   FORCE_RETRIGGER=1   the first free spin of a feature lands the trigger again (a retrigger)
  *   WIN_X=10,20,40            the n-th base spin pays ≥ WIN_X[n] × the stake (`parseWinX`)
  *   BUY=1                     a TABLE game selling the default template's buy (`bonus`, 100×)
  *
@@ -891,6 +892,10 @@ export function createMockRgs(opts = {}) {
 	/** FORCE_TRIGGER=1 → every base spin enters the free-spin feature. Testing aid. Inert on a game
 	 *  with no free spins: there is no feature to force, so its rounds deal (and `WIN_X`) as usual. */
 	const forceTrigger = freeSpinsOn && (opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1');
+	/** FORCE_RETRIGGER=1 → the first free spin of every feature lands the trigger symbols again
+	 *  (the free-spin parity gate's retrigger, Rive plan Phase 8c). Inert outside a feature. */
+	const forceRetrigger =
+		freeSpinsOn && (opts.forceRetrigger ?? process.env.FORCE_RETRIGGER === '1');
 	const label = opts.label ?? 'mock';
 	/** Silence the per-request line. For gates, which spin hundreds of rounds and bury their own
 	 *  output under it — never for the CLI or the test server, where it is the only trace there is. */
@@ -2120,6 +2125,8 @@ export function createMockRgs(opts = {}) {
 								: stackedDeal
 									? spinReelsStacked()
 									: spinReels();
+						if (forceRetrigger && !game && !strips && pendingRound.bonus.played === 0)
+							forceTriggerSymbols(fsReels);
 						pendingRound.reels = fsReels;
 						const special = pendingRound.bonus.special;
 						// During the feature the special pays scatter-style too, as the book mock declares it.

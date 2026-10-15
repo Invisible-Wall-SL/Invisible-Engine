@@ -45,6 +45,7 @@ import { defaultLayout } from './game/defaultLayout';
 import {
 	AUTHORED_TRANSITION,
 	AUTHORED_WIN,
+	AUTHORED_FREE_SPINS,
 	HUD_BUTTON_INSTANCES,
 	TRANSITION_INSTANCE,
 	WIN_INSTANCE,
@@ -1577,6 +1578,7 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	winInstance: WIN_INSTANCE,
 	authoredTransition: AUTHORED_TRANSITION,
 	authoredWin: AUTHORED_WIN,
+	authoredFreeSpins: AUTHORED_FREE_SPINS,
 });
 
 /**
