@@ -1,4 +1,8 @@
-import { WIN_PRESENTATION_DEFAULTS } from './builtinComponents';
+import {
+	FREE_SPIN_INTRO_PRESENTATION_ID,
+	FREE_SPIN_OUTRO_PRESENTATION_ID,
+	WIN_PRESENTATION_DEFAULTS,
+} from './builtinComponents';
 import { WIN_PRESENTATION_COMPONENT_ID } from './builtinTimelines';
 import type { LayoutDoc, LayoutNode, NodeOverride, Scene } from './types';
 import { winTextHasVariable } from './winText';
@@ -310,4 +314,126 @@ export function withAuthoredWinDoc<T extends Pick<LayoutDoc, 'scenes' | 'mainSiz
 			? scenes.map((scene) => (scene.id === WIN_VISUAL_SCENE_ID ? visual : scene))
 			: [...scenes, visual],
 	};
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED FREE-SPIN INTRO / OUTRO (Rive plan Phase 8c, §13.7.4): one flag row for both
+// screens. What the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual` draw becomes the built-in
+// presentation instances; the outro driver, the screens' taps and the flow's holds stay coded.
+// ---------------------------------------------------------------------------------------------
+
+/** Whether the doc renders the free-spin intro / outro visuals from their authored components. */
+export const authoredFreeSpinsEnabled = (doc: Pick<LayoutDoc, 'settings'>): boolean =>
+	doc.settings?.authoredOverlays?.freeSpins === true;
+
+const FREE_SPIN_VISUALS: Record<string, { id: string; props: Record<string, unknown> }> = {
+	FreeSpinIntroVisual: {
+		id: FREE_SPIN_INTRO_PRESENTATION_ID,
+		props: {
+			introSpine: 'fsIntroNumber',
+			introAnimation: 'intro',
+			idleAnimation: 'idle',
+			slotName: 'slot_number',
+		},
+	},
+	FreeSpinOutroVisual: {
+		id: FREE_SPIN_OUTRO_PRESENTATION_ID,
+		props: {
+			outroSpine: 'fsOutroNumber',
+			outroAnimation: 'intro',
+			idleAnimation: 'idle',
+			slotName: 'slot_number',
+		},
+	},
+};
+const isCodedFreeSpinVisual = (node: LayoutNode): boolean =>
+	!!node.bind && node.bind.component in FREE_SPIN_VISUALS;
+const isPlacedFreeSpinVisual = (node: LayoutNode): boolean =>
+	node.kind === 'componentInstance' &&
+	(node.componentId === 'freeSpinIntroVisual' || node.componentId === 'freeSpinOutroVisual');
+
+/** Whether a coded visual bind carries rig / clip / slot props other than the coded defaults. */
+const hasCustomPresentation = (node: LayoutNode): boolean => {
+	const coded = node.bind ? FREE_SPIN_VISUALS[node.bind.component] : undefined;
+	if (!coded || !node.bind) return false;
+	return Object.entries(node.bind.props ?? {}).some(
+		([key, value]) => key !== 'boundToInstance' && key in coded.props && value !== coded.props[key],
+	);
+};
+
+/**
+ * What the flag does to `doc`, the ONE rule the game and the launcher share. Every held-back
+ * status keeps the coded path for BOTH screens; the chip names why:
+ * - `off` — the flag is not on.
+ * - `ready` — the authored presentations replace every coded visual bind.
+ * - `nothing-to-replace` — no scene binds a coded free-spin visual.
+ * - `non-canvas-scene` — a coded visual bind sits in a scene that is not `canvas` space: the coded
+ *   part wraps its own main-box frame there, which the authored instance would not reproduce.
+ * - `placed-visual` — a scene places a `freeSpinIntroVisual` / `freeSpinOutroVisual` instance
+ *   (natural-size placement is not in 8c).
+ * - `custom-presentation` — a coded visual bind names a rig, clip or slot other than the coded
+ *   default; the built-in timelines play the default clips only.
+ */
+export type AuthoredFreeSpinsStatus =
+	| 'off'
+	| 'ready'
+	| 'nothing-to-replace'
+	| 'non-canvas-scene'
+	| 'placed-visual'
+	| 'custom-presentation';
+
+export function authoredFreeSpinsStatus(
+	doc: Pick<LayoutDoc, 'scenes' | 'settings'>,
+): AuthoredFreeSpinsStatus {
+	if (!authoredFreeSpinsEnabled(doc)) return 'off';
+	const nodes = doc.scenes.flatMap((scene) => scene.nodes);
+	if (some(nodes, isPlacedFreeSpinVisual)) return 'placed-visual';
+	const holding = doc.scenes.filter((scene) => some(scene.nodes, isCodedFreeSpinVisual));
+	if (!holding.length) return 'nothing-to-replace';
+	if (holding.some((scene) => (scene.space ?? 'game') !== 'canvas')) return 'non-canvas-scene';
+	if (some(nodes, hasCustomPresentation)) return 'custom-presentation';
+	return 'ready';
+}
+
+/** The authored stand-in for a coded free-spin visual bind, carrying the node's own transform. */
+const authoredFreeSpinNode = (coded: LayoutNode, componentId: string): LayoutNode => ({
+	id: coded.id,
+	...(coded.slotId ? { slotId: coded.slotId } : {}),
+	label: `${coded.label ?? 'Free-spin visual'} (authored)`,
+	kind: 'componentInstance',
+	componentId,
+	x: coded.x,
+	y: coded.y,
+	...(coded.scale !== undefined ? { scale: coded.scale } : {}),
+	...(coded.rotation !== undefined ? { rotation: coded.rotation } : {}),
+	...(coded.alpha !== undefined ? { alpha: coded.alpha } : {}),
+	...(coded.zIndex !== undefined ? { zIndex: coded.zIndex } : {}),
+	...(coded.screenAnchor ? { screenAnchor: coded.screenAnchor } : {}),
+	...(coded.visibleFor ? { visibleFor: coded.visibleFor } : {}),
+	...(coded.overrides ? { overrides: coded.overrides } : {}),
+	params: {},
+});
+
+/** A scene with every coded free-spin visual bind swapped; none ⇒ the SAME scene object. */
+export function withAuthoredFreeSpins(scene: Scene): Scene {
+	let swapped = false;
+	const rewrite = (node: LayoutNode): LayoutNode => {
+		if (isCodedFreeSpinVisual(node) && node.bind) {
+			swapped = true;
+			return authoredFreeSpinNode(node, FREE_SPIN_VISUALS[node.bind.component].id);
+		}
+		if (node.kind === 'container') {
+			const children = node.children.map(rewrite);
+			return children.some((child, i) => child !== node.children[i]) ? { ...node, children } : node;
+		}
+		return node;
+	};
+	const nodes = scene.nodes.map(rewrite);
+	return swapped ? { ...scene, nodes } : scene;
+}
+
+/** The doc with the free-spin swap applied to EVERY scene; nothing to swap ⇒ the SAME doc object. */
+export function withAuthoredFreeSpinsDoc<T extends Pick<LayoutDoc, 'scenes'>>(doc: T): T {
+	const scenes = doc.scenes.map(withAuthoredFreeSpins);
+	return scenes.some((scene, i) => scene !== doc.scenes[i]) ? { ...doc, scenes } : doc;
 }

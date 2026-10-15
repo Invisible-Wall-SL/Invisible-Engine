@@ -1439,7 +1439,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[
 			save.indexOf('const baseEtag = writeBaseEtagForm(form)') < decisionAt,
 			decisionAt < save.indexOf('await saveDoc('),
-			/if \(!canPublishShared \|\| submitsWinOn\(parsed as Partial<LayoutDoc>\)\) \{\s*const stored = await loadDocWithEtag\(/.test(
+			/if \(\s*!canPublishShared \|\|\s*submitsWinOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submitsFreeSpinsOn\(parsed as Partial<LayoutDoc>\))?\s*\) \{\s*const stored = await loadDocWithEtag\(/.test(
 				save,
 			),
 			(save.match(/await loadDocWithEtag\(/g) ?? []).length,

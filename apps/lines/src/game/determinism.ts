@@ -32,7 +32,12 @@
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
  */
 
-import { pendingCueHolds } from 'engine-layout';
+import {
+	FREE_SPIN_INTRO_PRESENTATION_ID,
+	FREE_SPIN_OUTRO_PRESENTATION_ID,
+	pendingCueHolds,
+} from 'engine-layout';
+import { isComponentMounted } from 'engine-layout/svelte';
 
 const FLAG = 'ie_determinism';
 export const DETERMINISM_FRAME_MS = 1000 / 60;
@@ -99,6 +104,9 @@ export type DeterminismState = DeterminismProbeState & {
 	 *  8a/8b) — the positive control of a parity gate: the authored side holds, the coded side does not,
 	 *  including holds opened by a game-fired signal the cue trace never shows. */
 	holds: readonly string[];
+	/** The authored free-spin presentations with an instance MOUNTED right now (Rive plan Phase 8c) —
+	 *  the free-spin parity gate's positive control: the authored side mounts them, the coded none. */
+	presentations: readonly string[];
 };
 
 export type DeterminismApi = {
@@ -629,6 +637,9 @@ export function installDeterminism(): void {
 		errors,
 		cues: [...cueLog],
 		holds: pendingCueHolds(),
+		presentations: [FREE_SPIN_INTRO_PRESENTATION_ID, FREE_SPIN_OUTRO_PRESENTATION_ID].filter(
+			isComponentMounted,
+		),
 		...readProbe(),
 	});
 	const holds = (c: DeterminismCondition, s: DeterminismState): boolean =>

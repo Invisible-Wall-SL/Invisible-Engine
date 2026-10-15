@@ -9,6 +9,7 @@
 	import { stateUrlDerived } from 'state-shared';
 	import { FadeContainer } from 'components-pixi';
 	import { getComponentParams } from 'engine-layout/svelte';
+	import { isCodedOverlayRetired } from 'engine-game';
 	import { BitmapText, RigProvider, RigSlot, RigTrack, Sprite } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
@@ -56,16 +57,21 @@
 	});
 	let freeSpinsFromEvent = $state(0);
 
-	context.eventEmitter.subscribeOnMount({
-		freeSpinIntroShow: () => (show = true),
-		freeSpinIntroHide: () => (show = false),
-		freeSpinIntroUpdate: (emitterEvent) => {
-			freeSpinsFromEvent = emitterEvent.totalFreeSpins;
-		},
-	});
+	// Rive plan Phase 8c: retired for this boot when the doc renders the authored presentation —
+	// read once at mount, then nothing is subscribed and nothing is drawn.
+	const retired = isCodedOverlayRetired('freeSpins');
+	if (!retired) {
+		context.eventEmitter.subscribeOnMount({
+			freeSpinIntroShow: () => (show = true),
+			freeSpinIntroHide: () => (show = false),
+			freeSpinIntroUpdate: (emitterEvent) => {
+				freeSpinsFromEvent = emitterEvent.totalFreeSpins;
+			},
+		});
+	}
 </script>
 
-{#if introRig}
+{#if introRig && !retired}
 	<FadeContainer {show}>
 		<FreeSpinAnimation {boundToInstance}>
 			{#snippet children({ sizes })}
