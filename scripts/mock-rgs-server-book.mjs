@@ -28,7 +28,6 @@
  *
  * Env (CLI): PORT=7788, START_BALANCE=500000 (cents = $5000), SEED=anything,
  *      FORCE_TRIGGER=1 (every base play triggers the bonus — handy for testing),
- *      FORCE_RETRIGGER=1 (the first free spin of every feature deals the books that retrigger it),
  *      BIG_WIN=1 (force a top-tier base win to verify the win presentation),
  *      WIN_X=10,20,40 (the n-th base spin pays ≥ WIN_X[n] × the base stake — `parseWinX`),
  *      AUTO_COLLECT=0 (the partner's rule: a winning base round stays open until `collect`,
@@ -483,7 +482,7 @@ const pathEndsWith = (pathname, route) => {
  * Create a Book-of Play4Fun RGS mock instance. Each instance owns its own
  * session store + RNG.
  *
- * @param {{ startBalance?: number, seed?: string, forceTrigger?: boolean, forceRetrigger?: boolean,
+ * @param {{ startBalance?: number, seed?: string, forceTrigger?: boolean,
  *           bigWin?: boolean, autoCollect?: boolean, label?: string,
  *           symbolPaytable?: Record<string, Record<string, number>>,
  *           symbols?: string[],
@@ -523,8 +522,6 @@ export function createMockRgs(opts = {}) {
 	// big/mega/max WIN presentation can be verified on demand. Ignored when a
 	// bonus is triggered.
 	const bigWin = opts.bigWin ?? process.env.BIG_WIN === '1';
-	// The free-spin parity gate's retrigger: the first free spin deals the books (Rive plan Phase 8c).
-	const forceRetrigger = opts.forceRetrigger ?? process.env.FORCE_RETRIGGER === '1';
 	const winX = parseWinX(opts.winX ?? process.env.WIN_X);
 	let baseSpinsDealt = 0;
 	const autoCollectAllowed = opts.autoCollect ?? process.env.AUTO_COLLECT !== '0';
@@ -869,11 +866,7 @@ export function createMockRgs(opts = {}) {
 
 					// ----- FREE SPIN (round already in bonus) -----
 					if (round.bonus?.active) {
-						const reels = round.bonus.strips
-							? spinStrips(round.bonus.strips)
-							: forceRetrigger && round.bonus.played === 0
-								? spinReelsWithScatters(Math.max(3, triggerMin))
-								: spinReels();
+						const reels = round.bonus.strips ? spinStrips(round.bonus.strips) : spinReels();
 						const roundPays = round.bonus.payTable ?? payTable;
 						events.push(spinStartEvent(round, pool, betOptions));
 						// Book mechanic: the chosen special is an expanding symbol. If it

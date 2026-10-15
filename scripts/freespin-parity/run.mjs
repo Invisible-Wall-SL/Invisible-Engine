@@ -91,7 +91,11 @@ const VARIANTS = {
 		env: { FORCE_TRIGGER: '1' },
 		screens: [INTRO, { ...OUTRO, offsets: [6, 24, 36, 48, 96, 240], slamAt: 30 }],
 	},
-	retrigger: { env: { FORCE_TRIGGER: '1', FORCE_RETRIGGER: '1' }, screens: [INTRO, OUTRO] },
+	retrigger: {
+		env: { FORCE_TRIGGER: '1', FORCE_RETRIGGER: '1' },
+		screens: [INTRO, OUTRO],
+		expectRetrigger: true,
+	},
 	turbo: { env: { FORCE_TRIGGER: '1' }, query: { ie_turbo: '1' }, screens: [INTRO, OUTRO] },
 };
 const chosen = opt.variant.length ? opt.variant : Object.keys(VARIANTS);
@@ -303,6 +307,9 @@ async function play(name, variant, side) {
 			rec.hideFrame = fired(s, screen.hide).at(-1).frame;
 			sinceTap = 0;
 		}
+		// The retrigger variant's own control: the flow handled a `retrigger` book event.
+		const trace = (await page.evaluate('window.__IE_FLOW_V2_TRACE__ ?? []')) ?? [];
+		result.retriggered = trace.some((line) => /\bretrigger\b/.test(line));
 		const final = await page.evaluate(
 			'window.__IE_DETERMINISM__ && { ...window.__IE_DETERMINISM__.state(), renderer: window.__PIXI_APP__?.renderer?.name }',
 		);
@@ -338,6 +345,11 @@ for (const name of chosen) {
 	if (coded.error) fail(`${name}/coded: ${coded.error}`);
 	if (authored.error) fail(`${name}/authored: ${authored.error}`);
 	if (coded.error || authored.error) continue;
+	if (variant.expectRetrigger && !(coded.retriggered && authored.retriggered))
+		fail(
+			`${name}: the feature never retriggered (coded ${coded.retriggered}, authored ${authored.retriggered})`,
+		);
+	else if (variant.expectRetrigger) log(`✓ ${name}: the feature retriggered on both sides`);
 	if (coded.mounted.length) fail(`${name}: the coded side mounted ${coded.mounted.join(', ')}`);
 	const missing = PRESENTATIONS.filter((id) => !authored.mounted.includes(id));
 	if (missing.length) fail(`${name}: the authored side never mounted ${missing.join(', ')}`);
