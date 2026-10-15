@@ -62,6 +62,8 @@ const MAX_FRAMES_TO_HIDE = 6000;
 const TAP_EVERY = 600;
 const CUE_BATCH = 6;
 const HIDE_BATCH = 10;
+/** The free spins the stand-in's forced trigger awards (the mock's default award table). */
+const FORCED_AWARD = 10;
 const PRESENTATIONS = ['freeSpinIntroPresentation', 'freeSpinOutroPresentation'];
 
 const log = (line) => console.log(`[freespin-parity] ${line}`);
@@ -307,9 +309,9 @@ async function play(name, variant, side) {
 			rec.hideFrame = fired(s, screen.hide).at(-1).frame;
 			sinceTap = 0;
 		}
-		// The retrigger variant's own control: the flow handled a `retrigger` book event.
-		const trace = (await page.evaluate('window.__IE_FLOW_V2_TRACE__ ?? []')) ?? [];
-		result.retriggered = trace.some((line) => /\bretrigger\b/.test(line));
+		// The retrigger variant's own control: one `freeSpinCounterShow` cue per free spin played (the
+		// `updateFreeSpin` choreography), so a retriggered feature shows more than its award.
+		result.freeSpins = fired(s, 'freeSpinCounterShow').length;
 		const final = await page.evaluate(
 			'window.__IE_DETERMINISM__ && { ...window.__IE_DETERMINISM__.state(), renderer: window.__PIXI_APP__?.renderer?.name }',
 		);
@@ -345,11 +347,13 @@ for (const name of chosen) {
 	if (coded.error) fail(`${name}/coded: ${coded.error}`);
 	if (authored.error) fail(`${name}/authored: ${authored.error}`);
 	if (coded.error || authored.error) continue;
-	if (variant.expectRetrigger && !(coded.retriggered && authored.retriggered))
-		fail(
-			`${name}: the feature never retriggered (coded ${coded.retriggered}, authored ${authored.retriggered})`,
-		);
-	else if (variant.expectRetrigger) log(`✓ ${name}: the feature retriggered on both sides`);
+	// The stand-in's forced feature awards FORCED_AWARD spins; a retrigger adds to them.
+	if (variant.expectRetrigger) {
+		const spins = [coded.freeSpins, authored.freeSpins];
+		if (spins.some((n) => !(n > FORCED_AWARD)))
+			fail(`${name}: the feature never retriggered (free spins played: ${spins.join(' / ')})`);
+		else log(`✓ ${name}: the feature retriggered on both sides (${spins.join(' / ')} free spins)`);
+	}
 	if (coded.mounted.length) fail(`${name}: the coded side mounted ${coded.mounted.join(', ')}`);
 	const missing = PRESENTATIONS.filter((id) => !authored.mounted.includes(id));
 	if (missing.length) fail(`${name}: the authored side never mounted ${missing.join(', ')}`);

@@ -283,7 +283,7 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   the show / hide signals), registered only in Game.svelte's flag block. **Found at build time:** the
   signals fire one animation frame after their emitter events (the coded `FadeContainer` starts its
   tween a tick later; fired on the event, authored frame t equalled coded frame t+1). The probe's
-  `state()` gains `presentations`; the book mock gains `FORCE_RETRIGGER=1`. Launcher: normalizer
+  `state()` gains `presentations`; the lines mock (`mock-rgs-server.mjs`, which deals `cg-lines`) gains `FORCE_RETRIGGER=1`. Launcher: normalizer
   row, Game Settings row (locked, "pilot pending"), the save's `locked-free-spins` refusal, chips
   `authoredFreeSpins` / `authoredFreeSpinsHeld`. Gates: `check:authored-freespins` (launcher, with a
   negative control), `check:freespin-parity` (root). **Left:** a CI workflow for the parity script
