@@ -43,7 +43,9 @@
 		matMul,
 		repeaterPlaceholderGrid,
 		repeaterBoxes,
+		inDepthSlice,
 		type Affine,
+		type DepthSlice,
 		type RepeaterSourceMap,
 	} from './editorCanvas.helpers';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
@@ -68,10 +70,13 @@
 		/** Editor-only: when set, render ONLY these scene ids (per-scene composite, so a
 		 * scene's text z-orders with its own scene group instead of always on top). */
 		sceneFilter?: Set<string> | null;
-		/** Restrict this layer to a SUBSET of each filtered scene's top-level nodes (nested text
-		 * follows its top-level ancestor) — one depth segment of the scene, see `EditorCanvas`'s
-		 * `depthSegments`. `null` ⇒ every node, the path a scene with no split always takes. */
+		/** Restrict this layer to a SUBSET of each filtered scene's top-level nodes — the ones a
+		 * depth segment touches (see `depthSegments`). `null` ⇒ every node, the path a scene with no
+		 * split always takes. */
 		nodeFilter?: Set<string> | null;
+		/** The depth segment this layer draws: a text inside a group or component that the split
+		 * crosses is drawn only by the segment it falls in. `null` ⇒ the whole scene. */
+		depthSlice?: DepthSlice | null;
 		/** Bumped by "Reload art" — re-fetches the catalog + reloads fonts. */
 		reloadToken?: number;
 		/** Bumped on ANY property-panel edit (the page's `canvasRedrawNonce`). The
@@ -123,6 +128,7 @@
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
 		nodeFilter = null,
+		depthSlice = null,
 		reloadToken = 0,
 		redrawNonce = 0,
 		onLoadingChange,
@@ -386,7 +392,12 @@
 		for (const n of nodes) {
 			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
+			const here = inDepthSlice(
+				depthSlice,
+				nextChain.map((c) => c.id),
+			);
 			if (n.kind === 'text') {
+				if (!here) continue;
 				out.push({
 					key: chainKey(nextChain),
 					id: n.id,
@@ -398,6 +409,7 @@
 					...textBoxOf(n, params),
 				});
 			} else if (n.kind === 'container' && n.bind && n.preview?.style === 'text') {
+				if (!here) continue;
 				out.push(
 					hudAnchorTarget(
 						n as Extract<LayoutNode, { kind: 'container' }> & {
@@ -749,6 +761,7 @@
 		void hiddenSceneIds;
 		void sceneFilter;
 		void nodeFilter;
+		void depthSlice;
 		void layoutType;
 		void panX;
 		void panY;

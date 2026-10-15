@@ -49,7 +49,12 @@
 	import { Application, Container, type TextureSource } from 'pixi.js';
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
-	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
+	import {
+		childLocalTransform,
+		composeWorldMatrix,
+		inDepthSlice,
+		type DepthSlice,
+	} from './editorCanvas.helpers';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
@@ -77,6 +82,10 @@
 		 * follow their top-level ancestor) — see `EditorRigLayer.nodeFilter`. `null` ⇒ every node
 		 * (parity). */
 		nodeFilter?: Set<string> | null;
+		/** The depth segment this layer draws: an effect inside a group or component that the split
+		 * crosses is drawn only by the segment it falls in (see `EditorCanvas`'s `depthSegments`).
+		 * `null` ⇒ the whole scene. */
+		depthSlice?: DepthSlice | null;
 		/** CSS `mix-blend-mode` for this layer's canvas — see `EditorRigLayer.blend`. An additive
 		 * emitter blended INSIDE this transparent overlay is a no-op, so the blend rides the element
 		 * and composites against the art beneath, exactly as the game's `<Container blendMode>` does. */
@@ -114,6 +123,7 @@
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
 		nodeFilter = null,
+		depthSlice = null,
 		blend = 'normal',
 		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
@@ -234,7 +244,7 @@
 			for (const n of sc.nodes) {
 				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 				if (!previewResolveTransform(n, layoutType).visible) continue;
-				if (n.kind === 'effect') {
+				if (n.kind === 'effect' && inDepthSlice(depthSlice, [n.id])) {
 					const wt = worldTransformOf(n, sc);
 					out.push({
 						nodeId: n.id,
@@ -277,7 +287,13 @@
 			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
 			if (n.kind === 'effect') {
-				out.push(nestedTarget(n, sc, nextChain));
+				if (
+					inDepthSlice(
+						depthSlice,
+						nextChain.map((c) => c.id),
+					)
+				)
+					out.push(nestedTarget(n, sc, nextChain));
 			} else if (n.kind === 'container') {
 				collectNested(n.children, sc, out, nextChain, depth, stack);
 			} else if (n.kind === 'componentInstance') {
@@ -722,6 +738,8 @@
 		void frameWidth;
 		void frameHeight;
 		void componentMap;
+		void nodeFilter;
+		void depthSlice;
 		// A scrubbed value-binding test value moves / hides an effect like any other node.
 		void previewVersion();
 		if (ready) void requestRebuild();
