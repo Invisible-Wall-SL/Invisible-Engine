@@ -1238,6 +1238,8 @@ export const WIN_PRESENTATION_DEFAULTS = {
 export interface WinPresentationTier extends WinTierMeta {
 	/** The tier's Win Text caption (`winLevels.<alias>`, a key or source text); empty ⇒ none drawn. */
 	caption?: string;
+	/** The spins modes' own captions for the tier (mode id → caption), when they differ. */
+	modeCaptions?: Record<string, string>;
 }
 
 /** The node names the generated win timelines bind (`findActorNode` matches a component's nodes by label). */
@@ -1291,7 +1293,11 @@ const winGoldText = (fontSize: number) => ({
  */
 export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TIERS): ComponentDef {
 	const captions = [
-		...new Set(tiers.map((tier) => tier.caption ?? '').filter((caption) => caption.length > 0)),
+		...new Set(
+			tiers
+				.flatMap((tier) => [tier.caption ?? '', ...Object.values(tier.modeCaptions ?? {})])
+				.filter((caption) => caption.length > 0),
+		),
 	];
 	return {
 		id: 'winPresentation',

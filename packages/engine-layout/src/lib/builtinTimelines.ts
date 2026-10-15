@@ -78,8 +78,11 @@ export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [TRANSITION_WIPE_TIMEL
 
 export const WIN_PRESENTATION_COMPONENT_ID = 'winPresentation';
 /** The signal the conductor fires per tier phase (`winTier.<alias>` …), and the two tier-less ones. */
-export const winTierSignal = (alias: string): string => `winTier.${alias}`;
+export const winTierSignal = (alias: string, mode?: string): string =>
+	mode === undefined ? `winTier.${alias}` : `winTier.${alias}@${mode}`;
+export const winTierIdleSignal = (alias: string): string => `winTierIdle.${alias}`;
 export const winTierLoopSignal = (alias: string): string => `winTierLoop.${alias}`;
+export const winTierRewindSignal = (alias: string): string => `winTierRewind.${alias}`;
 export const winTierOutroSignal = (alias: string): string => `winTierOutro.${alias}`;
 export const WIN_PLAIN_SIGNAL = 'winPlain';
 export const WIN_HIDE_SIGNAL = 'winHide';
@@ -99,16 +102,19 @@ export interface WinTierTimelineTier {
 	outro?: string;
 	/** The tier's Win Text caption (a key or source text); absent ⇒ no text track. */
 	caption?: string;
+	/** The spins modes whose own Win Text caption for this tier differs from `caption` (mode id →
+	 *  caption, `''` ⇒ none): each gets its own walk, fired by `winTierSignal(alias, mode)`. */
+	modeCaptions?: Record<string, string>;
 }
-
-/** A clip end rounded UP to the 60 fps frame the coded track completes it on (`fps: 60`). */
-const toFrame = (seconds: number): number => Math.ceil(seconds * 60 - 1e-9) / 60;
 
 /** Lower-case, as a project's cinematic ids are stored, so a project timeline CAN shadow one. */
 const winTimelineId = (suffix: string): string =>
 	`c_winpresentation_${suffix.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`;
-export const winTierWalkTimelineId = (alias: string): string => winTimelineId(`${alias}_walk`);
+export const winTierWalkTimelineId = (alias: string, mode?: string): string =>
+	winTimelineId(mode === undefined ? `${alias}_walk` : `${alias}_walk_mode_${mode}`);
+export const winTierIdleTimelineId = (alias: string): string => winTimelineId(`${alias}_idle`);
 export const winTierLoopTimelineId = (alias: string): string => winTimelineId(`${alias}_loop`);
+export const winTierRewindTimelineId = (alias: string): string => winTimelineId(`${alias}_rewind`);
 export const winTierOutroTimelineId = (alias: string): string => winTimelineId(`${alias}_outro`);
 export const WIN_PLAIN_TIMELINE_ID = winTimelineId('plain');
 export const WIN_HIDE_TIMELINE_ID = winTimelineId('hide');
@@ -176,10 +182,22 @@ const showVisual = (plain: boolean) => [
  * Every timeline the authored win presentation plays, for `tiers` (the active big tiers, each with
  * the clips the coded `resolveTierPresentation` would pick) and `clipMs` (clip name → length in
  * ms, read off the loaded skeleton; a clip it lacks measures 0 and gets no strip). Per tier:
- * - `…_walk` (`winTier.<alias>`, HOLDS): the intro strip, then ONE idle strip; the hold's end is the
- *   coded "idle `complete` ⇒ next tier" clock. The visual shows and fades in at 0 (the coded
- *   `FadeContainer`), the caption switches to the tier's Win Text key when it has one.
+ * - `…_walk` (`winTier.<alias>`, HOLDS): the intro strip; the hold's end is the coded intro
+ *   `complete`. The visual shows at 0, the caption switches to the tier's Win Text key when it has
+ *   one (a spins mode with its own caption gets its own walk, `winTier.<alias>@<mode>`).
+ * - `…_idle` (`winTierIdle.<alias>`, HOLDS): ONE idle cycle — a chain's non-final tier; the hold's
+ *   end is the coded "idle `complete` ⇒ next tier" clock.
+ * ONE CLIP PER TIMELINE, because a timeline ends on the rig's own clock that way: the coded track
+ * completes a clip when the frame deltas summed SINCE THAT CLIP STARTED reach its length — no
+ * rounding, no snap — and the next clip starts at 0 from that `complete`. A held timeline is the
+ * same sum and the same compare, and the conductor starts the next one from its hold's end, so a
+ * whole-frame clip (the 12 s idle is 720 frames, whose 720 deltas may sum a hair under 12 s) ends
+ * on the frame the rig's does (measured by `check:win-parity` escalation).
  * - `…_loop` (`winTierLoop.<alias>`): the idle looping; never holds.
+ * - `…_rewind` (`winTierRewind.<alias>`): the intro again on the tier rig alone, never holding —
+ *   the coded walk's rewind under the fade-out: `winHide` clears the count latch, and
+ *   `WinAnimation` rewinds an escalating chain to its first tier's intro while the overlay fades.
+ *   It keys only `tier`, so the hide keeps `visual`.
  * - `…_outro` (`winTierOutro.<alias>`, HOLDS): the exit strip; only for a tier with an exit.
  * Plus `…_plain` (`winPlain`: the plain number alone, tier hidden), `…_hide` (`winHide`: the visual
  * hidden once the coded `FadeContainer`'s 400 ms tween would have reached 0), `…_rest` (`enter`:
@@ -218,42 +236,87 @@ export function winTierTimelines(
 		]),
 	];
 	for (const tier of tiers) {
-		// The coded track completes a clip on the first FRAME at or past its end and starts the next
-		// clip at 0 there, dropping the overshoot (a 1.3667 s intro is 82.002 frames: its idle starts
-		// on frame 83, not at 1.3667 s); the idle strip starts on that frame too, or the authored
-		// idle would run a frame ahead at every tier boundary (measured by `check:win-parity`
-		// escalation). A clip that is a whole number of frames (1.3333 s = 80) is unchanged.
-		const intro = toFrame(seconds(tier.intro));
+		const intro = seconds(tier.intro);
 		const idle = seconds(tier.idle);
-		const walk = Math.max(intro + idle, WIN_FADE_SECONDS);
-		const walkStrips = [
-			...(intro > 0 ? [strip('intro', tier.intro, 0, intro)] : []),
-			...(idle > 0 ? [strip('idle', tier.idle, intro, idle)] : []),
-		];
-		docs.push(
+		const walkDoc = (mode: string | undefined, caption: string | undefined): CinematicDoc =>
 			winDoc(
-				winTierWalkTimelineId(tier.alias),
-				`Win: ${tier.alias} walk`,
-				winTierSignal(tier.alias),
-				walk,
+				winTierWalkTimelineId(tier.alias, mode),
+				mode === undefined ? `Win: ${tier.alias} walk` : `Win: ${tier.alias} walk (${mode})`,
+				winTierSignal(tier.alias, mode),
+				intro > 0 ? intro : WIN_FADE_SECONDS,
 				[
 					...showVisual(false),
-					...(walkStrips.length
-						? [{ id: 'tier-clip', kind: 'animation', actorId: N.tier, strips: walkStrips }]
+					...(intro > 0
+						? [
+								{
+									id: 'tier-clip',
+									kind: 'animation',
+									actorId: N.tier,
+									strips: [strip('intro', tier.intro, 0, intro)],
+								},
+							]
 						: []),
-					...(tier.caption
+					...(caption
 						? [
 								{
 									id: 'caption-text',
 									kind: 'text',
 									actorId: N.caption,
 									mode: 'switchKey',
-									keys: [{ time: 0, key: tier.caption }],
+									keys: [{ time: 0, key: caption }],
 								},
 							]
 						: []),
 				],
-				intro + idle > 0,
+				intro > 0,
+			);
+		docs.push(walkDoc(undefined, tier.caption));
+		// A spins mode that speaks its own caption for the tier walks it (the coded caption reads
+		// `boardWinText()`, the mode on top); the conductor fires the mode's signal.
+		const modeCaptions = tier.modeCaptions ?? {};
+		for (const mode of Object.keys(modeCaptions).sort())
+			docs.push(walkDoc(mode, modeCaptions[mode] || undefined));
+		docs.push(
+			winDoc(
+				winTierRewindTimelineId(tier.alias),
+				`Win: ${tier.alias} rewind`,
+				winTierRewindSignal(tier.alias),
+				intro > 0 ? intro : WIN_FADE_SECONDS,
+				[
+					visibility(N.tier, [{ time: 0, visible: true }]),
+					...(intro > 0
+						? [
+								{
+									id: 'tier-clip',
+									kind: 'animation',
+									actorId: N.tier,
+									strips: [strip('intro', tier.intro, 0, intro)],
+								},
+							]
+						: []),
+				],
+			),
+		);
+		docs.push(
+			winDoc(
+				winTierIdleTimelineId(tier.alias),
+				`Win: ${tier.alias} idle`,
+				winTierIdleSignal(tier.alias),
+				idle > 0 ? idle : WIN_FADE_SECONDS,
+				[
+					visibility(N.tier, [{ time: 0, visible: true }]),
+					...(idle > 0
+						? [
+								{
+									id: 'tier-clip',
+									kind: 'animation',
+									actorId: N.tier,
+									strips: [strip('idle', tier.idle, 0, idle)],
+								},
+							]
+						: []),
+				],
+				idle > 0,
 			),
 		);
 		docs.push(

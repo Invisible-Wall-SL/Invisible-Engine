@@ -1,5 +1,6 @@
 import {
 	resolveWinText,
+	winTierModeCaptions,
 	type AuthoredWinTier,
 	type LayoutDoc,
 	type LayoutNode,
@@ -23,8 +24,9 @@ import { resolveWinLevels, type GameConfigDoc } from 'game-config';
  *  - the rig and count slot each tier resolves to: the placed `win` instance's params — the first
  *    `componentInstance(win)` of the layout doc, scenes then container children, as
  *    `bakedWinPresentationParams` finds it — through `resolveTierPresentation`'s precedence;
- *  - the caption: the base game's Win Text `winLevels.<alias>` through `resolveWinText` (the game
- *    resolves the status at boot, before any spins mode is on top).
+ *  - the caption: the base game's Win Text `winLevels.<alias>` through `resolveWinText`, and every
+ *    spins mode's own where it differs (`winTierModeCaptions`), as the coded caption follows the
+ *    mode on top.
  */
 
 /** The published `win` instance params: the first placed instance's, `{}` when none is placed. */
@@ -79,11 +81,13 @@ export function authoredWinTiersFor(input: {
 		const clips = authoredWinTierClips(params, data);
 		if (!clips) continue;
 		const caption = captions[clips.alias];
+		const modeCaptions = winTierModeCaptions(input.winText, clips.alias);
 		out.push({
 			alias: clips.alias,
 			rigKey: clips.rigKey,
 			slotName: clips.slotName,
 			...(typeof caption === 'string' && caption.length > 0 ? { caption } : {}),
+			...(modeCaptions ? { modeCaptions } : {}),
 		});
 	}
 	return out;

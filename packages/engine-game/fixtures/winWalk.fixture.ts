@@ -5,7 +5,8 @@
  * the placed `winPresentation` instance plays a timeline on, and the hold that timeline registers
  * is the clock the coded rig `complete` was (`WinAnimation.svelte`). This replays the walk step for
  * step against that coded behaviour, imported from source:
- *  - the chain walks intro → one idle → next tier, lands on the final tier's loop;
+ *  - the chain walks intro → one idle cycle → next tier (each its own held fire), and lands on the
+ *    final tier's loop straight after its intro;
  *  - `countUpComplete` flips the final tier to its outro, or collapses a mid-walk chain to it;
  *  - a tier whose outro is its idle has NO exit (`tierHasExit`) and concludes at once;
  *  - a tap steps the walk forward one tier, never back; the stale hold is ignored by its step;
@@ -56,6 +57,7 @@ const assert = {
 /** The names `engine-layout`'s `winTierSignal` & co. produce, handed in as the gate hands them. */
 const SIGNALS: WinWalkSignals = {
 	tier: (alias) => `winTier.${alias}`,
+	cycle: (alias) => `winTierIdle.${alias}`,
 	loop: (alias) => `winTierLoop.${alias}`,
 	outro: (alias) => `winTierOutro.${alias}`,
 	plain: 'winPlain',
@@ -140,15 +142,31 @@ const gate = (tiers: WinWalkTier[], escalating: boolean) => {
 	assert.deepEqual(g.log, ['index:0', 'winTier.big'], 'expected the first tier to walk at once');
 	assert.equal(g.held[0].holds, true, 'expected the walk to be a held fire');
 	g.holdEnds();
+	assert.equal(g.log.at(-1), 'winTierIdle.big', "expected the intro's end to play one idle cycle");
+	g.holdEnds();
+	g.holdEnds();
 	g.holdEnds();
 	assert.deepEqual(
 		g.log,
-		['index:0', 'winTier.big', 'index:1', 'winTier.superwin', 'index:2', 'winTier.mega'],
-		'expected each idle end to walk to the next tier',
+		[
+			'index:0',
+			'winTier.big',
+			'winTierIdle.big',
+			'index:1',
+			'winTier.superwin',
+			'winTierIdle.superwin',
+			'index:2',
+			'winTier.mega',
+		],
+		'expected each idle cycle end to walk to the next tier',
 	);
 	g.holdEnds();
-	assert.equal(g.log.at(-1), 'winTierLoop.mega', 'expected the final idle end to start the loop');
-	assert.equal(g.held.length, 3, 'expected the loop not to be a held fire');
+	assert.equal(
+		g.log.at(-1),
+		'winTierLoop.mega',
+		"expected the final intro's end to start the loop",
+	);
+	assert.equal(g.held.length, 5, 'expected the loop not to be a held fire');
 	g.apply({ type: 'countUpComplete' });
 	assert.equal(
 		g.log.at(-1),
@@ -182,9 +200,7 @@ const gate = (tiers: WinWalkTier[], escalating: boolean) => {
 {
 	const g = gate(REMAKE, true);
 	g.apply({ type: 'start' });
-	g.holdEnds();
-	g.holdEnds();
-	g.holdEnds();
+	for (let i = 0; i < 5; i++) g.holdEnds();
 	assert.equal(g.log.at(-1), 'winTierLoop.mega');
 	g.apply({ type: 'countUpComplete' });
 	assert.equal(g.outroComplete, true, 'expected no exit ⇒ done at once');
@@ -208,6 +224,7 @@ const gate = (tiers: WinWalkTier[], escalating: boolean) => {
 	assert.equal(g.walk.index, 1, "expected the first tier's stale hold to be ignored");
 	g.apply({ type: 'tap', toTier: 0 });
 	assert.equal(g.walk.index, 1, 'expected a tap never to pull the walk back');
+	g.holdEnds();
 	g.holdEnds();
 	assert.equal(g.log.at(-1), 'winTier.mega', "expected the tapped tier's idle end to walk on");
 	g.apply({ type: 'tap', toTier: 7 });
@@ -257,6 +274,56 @@ const gate = (tiers: WinWalkTier[], escalating: boolean) => {
 	assert.equal(g.held.length, 0, 'expected the plain number to hold nothing');
 	g.apply({ type: 'countUpComplete' });
 	assert.deepEqual(g.log, ['winPlain']);
+}
+
+// ---------------------------------------------------------------------------------------------
+// BEFORE THE START — the gate defers `start` a frame, and the count, a tap or the landing hold can
+// arrive first. They fire nothing then and are folded into the start, as the coded walk read its
+// props at mount; a second `start` is ignored.
+// ---------------------------------------------------------------------------------------------
+{
+	// An instant count: the chain collapses straight to the final tier's outro — no tier-0 walk, no
+	// second walk over it, and the outro's hold is the only pending one.
+	const g = gate(REFERENCE, true);
+	g.apply({ type: 'countUpComplete' });
+	assert.deepEqual(g.log, [], 'expected an early count to fire nothing');
+	g.apply({ type: 'start' });
+	assert.deepEqual(
+		g.log,
+		['index:2', 'winTierOutro.mega'],
+		'expected the start to collapse to the final outro',
+	);
+	g.apply({ type: 'start' });
+	assert.equal(g.log.length, 2, 'expected a second start to be ignored');
+	g.holdEnds();
+	assert.equal(g.outroComplete, true, 'expected the outro hold to conclude');
+}
+{
+	// The landing hold arrived with the count: walk from tier 0; the collapse waits for the lapse.
+	const g = gate(REFERENCE, true);
+	g.apply({ type: 'holdOutro', on: true });
+	g.apply({ type: 'countUpComplete' });
+	g.apply({ type: 'start' });
+	assert.deepEqual(g.log, ['index:0', 'winTier.big'], 'expected the held start to walk tier 0');
+	g.apply({ type: 'holdOutro', on: false });
+	assert.equal(g.log.at(-1), 'winTierOutro.mega', 'expected the lapse to run the collapse');
+}
+{
+	// An early tap: the walk starts on the tier it asked for.
+	const g = gate(REFERENCE, true);
+	g.apply({ type: 'tap', toTier: 1 });
+	g.apply({ type: 'holdOutro', on: false });
+	assert.deepEqual(g.log, [], 'expected an early tap to fire nothing');
+	g.apply({ type: 'start' });
+	assert.deepEqual(g.log, ['index:1', 'winTier.superwin'], 'expected the start at the tapped tier');
+}
+{
+	// Un-escalating: an early count changes nothing — the single tier walks as always.
+	const g = gate([REFERENCE[0]], false);
+	g.apply({ type: 'countUpComplete' });
+	g.apply({ type: 'tap', toTier: 1 });
+	g.apply({ type: 'start' });
+	assert.deepEqual(g.log, ['index:0', 'winTier.big']);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -354,7 +421,7 @@ void (async () => {
 		const g = gate(REFERENCE, true);
 		g.apply({ type: 'start' });
 		for (const fire of [...g.held]) g.apply({ type: 'holdEnd', step: fire.step });
-		while (g.walk.phase === 'walk') g.holdEnds();
+		while (g.walk.phase === 'walk' || g.walk.phase === 'cycle') g.holdEnds();
 		assert.equal(g.walk.phase, 'loop', 'expected empty holds to fall through to the loop');
 		g.apply({ type: 'countUpComplete' });
 		g.holdEnds();

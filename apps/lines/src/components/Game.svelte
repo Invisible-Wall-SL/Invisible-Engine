@@ -299,6 +299,7 @@
 		authoredWinRuntime,
 		authoredWinSignals,
 		registerAuthoredWinTimelines,
+		authoredWinPresentation,
 		resolveAuthoredWinStatus,
 	} from '../game/authoredWin.svelte';
 	import { ContinuePressMask, PressToContinue } from 'engine-game';
@@ -2188,7 +2189,9 @@
 			// built-in `winPresentation`, the `winVisual` scene synthesized when none is placed; both
 			// flows are built from this doc too. Off, or held back ⇒ the same doc object (parity).
 			const authoredWin = resolveAuthoredWinStatus(transitioned) === 'ready';
-			const doc = authoredWin ? withAuthoredWinDoc(transitioned) : transitioned;
+			const doc = authoredWin
+				? withAuthoredWinDoc(transitioned, authoredWinPresentation())
+				: transitioned;
 			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
 			// placed the hybrid `transition` twin plays one wipe (the authored one).
 			retireCodedOverlay('transition', authored);
