@@ -142,8 +142,13 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
     and every route are the real thing (a bone-placed trail layer is mounted FREE by `FlightView`,
     as the preview draws it). `boostBeam` is listed and flown since Hold and Win Polish 2
     (booster → each coin it multiplies).
-11. **Flights are not yet verified on a real board** — the authored head / trail / arrival in a
-    running Hold and Win round (Storybook `MODE_HOLD_AND_WIN/flights` with a baked block) is owed.
+11. **Flights are not yet verified on a real board** — the authored head (its turn and 3D depth
+    included) / trail / arrival in a running Hold and Win round (Storybook
+    `MODE_HOLD_AND_WIN/flights` with a baked block) is owed.
+12. **Flights: 3D depth scales the head only** — the trail's particles keep their size and the route
+    on screen is the planned 2D one (it is not pulled toward a vanishing point). Growing the trail
+    with the head needs a per-spawn scale on the emitter, which `@barvynkoa/particle-emitter` has no
+    hook for (`ownerRotation` exists, an owner scale does not).
 
 ## Blocked (owner / external)
 
@@ -151,6 +156,23 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
   tints, the win dim, layers' blend, the pop, the arrival release, the transition, book VFX).
 
 ## Recent changes
+
+- 2026-10-15 — **Flights: the head can follow the curve, and fly with 3D depth.**
+  `flights.<kind>.headAlign` (`off` / `follow` / `upright`), `headRotation` (degrees, −180…180) and
+  `depth` (−1…1), resolved exact → `toMeter` family → off / 0 / 0. One pure rule, `engine-layout`
+  `flightHeadPose(style, heading, t)`, gives the head's pose at each eased t: turned to the heading
+  when it follows (an `upright` head is mirrored instead of turned upside down while it heads left),
+  the art turned by `headRotation` first, and the perspective of a rise out of the screen and back
+  (`1 / (1 − depth·½·sin πt)`: 2× at mid-flight for 1, ⅔ for −1, 1 at both ends), with a following
+  head foreshortened along its travel by the rise's slope (camera as far away as the route is long,
+  so the lean does not depend on the route's length). The game keeps the pose on each flight
+  (`flights.svelte.ts`) and `FlightLayer` draws the art head and a carried pots token through it
+  (outer container: heading + scale × stretch / flip; inner: the art's turn); the glow and the "+N"
+  label take only the perspective scale. The `/symbols` preview applies the same pose to its art
+  head (a CSS transform), glow and label. Fields under Head in `/symbols` → Flights ("Head follows
+  the curve" and "Head rotation" show for a turnable head — art or a token — or once authored; "3D
+  depth" always). Schema, normalize, resolve, `check:flights`, `check:doc-readers-unknown-fields`
+  (a newer `headAlign` value is dropped on read) and the `flightStyle` fixture (+ the pose).
 
 - 2026-10-14 — **Flights: the trail can follow the arc and be rotated.** `flights.<kind>.trailAlign`
   (boolean) and `trailRotation` (degrees, −180…180), resolved exact → `toMeter` family → off / 0.

@@ -15,12 +15,14 @@ import { particleWallMs } from 'pixi-svelte/particleClock';
 import {
 	FLIGHT_METER_PREFIX,
 	flightEaseOf,
+	flightHeadPose,
 	flightPlanOptions,
 	headingOnCurve,
 	resolveFlightStyle,
 	TOTAL_WIN_BAR_ANCHOR,
 	type FlightEase,
 	type FlightHead,
+	type FlightHeadPose,
 	type ResolvedFlightStyle,
 } from 'engine-layout';
 import { resolveAnchor, resolveAnchorPoint } from 'pixi-svelte';
@@ -116,7 +118,7 @@ export type ActiveFlight = {
 	trailMs: number;
 	phase: FlightPhase;
 	head: FlightPoint;
-	/** The direction the head travels, radians — what an aligned trail turns its particles to. */
+	/** The direction the head travels, radians — what an aligned head and trail turn to. */
 	heading: number;
 	ease: FlightEase;
 	/** The authored head; absent ⇒ the coded glow. */
@@ -127,6 +129,11 @@ export type ActiveFlight = {
 	trailAlign: boolean;
 	/** Radians added to every trail particle's rotation (the kind's `trailRotation`). */
 	trailRotation: number;
+	/** How the head turns and the perspective it flies with (the kind's `headAlign`,
+	 *  `headRotation` and `depth`). */
+	headMotion: Pick<ResolvedFlightStyle, 'headAlign' | 'headRotation' | 'depth'>;
+	/** How the head is drawn this frame — the art, a carried symbol, the glow and the label. */
+	pose: FlightHeadPose;
 	/** Text riding on the head ({@link FlyToOptions.label}). */
 	label?: string;
 	/** The symbol that is the head ({@link FlyToOptions.symbol}). */
@@ -335,6 +342,12 @@ export const flyTo = (
 		if (options.padding !== undefined) plan.padding = options.padding * scale;
 		const route = planFlight(current.toLocal(origin), current.toLocal(end), plan);
 		const durationMs = flightDuration(curveLength(route.curve) / scale, style);
+		const heading = headingOnCurve(route.curve, 0);
+		const headMotion = {
+			headAlign: style.headAlign,
+			headRotation: style.headRotation,
+			depth: style.depth,
+		};
 		stateFlights.list.push({
 			...record,
 			curve: route.curve,
@@ -345,12 +358,14 @@ export const flyTo = (
 			trailMs: 0,
 			phase: 'waiting',
 			head: { ...route.curve.p0 },
-			heading: headingOnCurve(route.curve, 0),
+			heading,
 			ease: style.ease,
 			...(style.head ? { headStyle: style.head } : {}),
 			size: style.size,
 			trailAlign: style.trailAlign,
 			trailRotation: (style.trailRotation * Math.PI) / 180,
+			headMotion,
+			pose: flightHeadPose(headMotion, heading, 0),
 			...(options.label ? { label: options.label } : {}),
 			...(options.symbol ? { symbol: { ...options.symbol } } : {}),
 			...(options.symbolScale !== undefined ? { symbolScale: options.symbolScale } : {}),
@@ -388,6 +403,7 @@ export const tickFlights = (deltaMs: number) => {
 		flight.head.x = point.x;
 		flight.head.y = point.y;
 		flight.heading = headingOnCurve(flight.curve, eased);
+		flight.pose = flightHeadPose(flight.headMotion, flight.heading, eased);
 		if (flight.phase === 'waiting') {
 			flight.phase = 'flying';
 			start(flight.id);

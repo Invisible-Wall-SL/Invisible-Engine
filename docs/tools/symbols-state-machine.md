@@ -987,7 +987,21 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   pots overlay's token, the "+N" of an add-respins — and an authored head on top of its own **Head
   size** (× the glow for a glow, × one cell for art). **Tint** colours an authored head. A sprite /
   rig / flipbook head applies once its frame, bundle + animation, or clip is picked. A meter that a
-  pots overlay fills flies the token itself in place of any head, so there only **Size** matters.
+  pots overlay fills flies the token itself in place of any head, so there only **Size**, the
+  head's turn and **3D depth** (below) matter.
+- **Head follows the curve** — **Follow the curve** turns the head to the direction it is flying,
+  so a comet, an arrow or a fish points along the arc (draw the art pointing right, or turn it with
+  **Head rotation**). **Follow, stay upright** does the same but mirrors the art instead of turning
+  it upside down while it flies left — for art with a top and a bottom. **Head rotation (°)** turns
+  the art by a fixed angle on top (−180…180), whether it follows or not. Both show for a sprite,
+  rig or flipbook head and for a pots overlay's token; a glow is round, so turning it shows nothing.
+- **3D depth** (−1…1) — makes the flight read as a trip through 3D space. Positive lifts the head
+  toward the player at mid-flight, so it grows (twice its size at 1); negative sends it away into
+  the screen, so it shrinks (to two thirds at −1); it is its normal size as it leaves and as it
+  lands. A head that follows the curve also leans into and out of the screen: it is drawn shorter
+  along its travel as it takes off and comes down, and full length at the top. Depth scales
+  everything at the head — the glow, the art, a token, the "+N"; the route on screen and the trail
+  keep their size. Blank or 0 flies flat.
 - **Trail** — an Invisible FX effect left behind the head, or **No trail**. The effect is emitted from
   the moving head, so its particles stay where they were born and form a streak; once the head lands
   the trail stops spawning and dies out on its own. Author trails in Invisible FX as continuous,
@@ -1016,13 +1030,14 @@ Blank fields show what they will use in grey. **↺ Reset** clears the selected 
 **The flight preview** under the editor is a mock 5 × 3 board. Drag **A** (where the coin starts)
 and **B** (the target), and click a cell to mark or unmark it as showing a win (red). The dashed line
 is the route the game would take — planned by the same code the game flies with — and the head flies
-it over and over with your timing, head, size, tint and trail — the pots token for a meter a pots
-overlay fills, the "+2" label for the respin counter — and plays the arrival effect at **B** as the
-head lands. The line under the board names the route (straight, a bend, or over), the flight time
-and the head. The built-in gold trail is drawn as an approximation.
+it over and over with your timing, head, size, tint, turn, 3D depth and trail — the pots token for
+a meter a pots overlay fills, the "+2" label for the respin counter — and plays the arrival effect
+at **B** as the head lands. The line under the board names the route (straight, a bend, or over),
+the flight time and the head, and says when the head follows the curve or flies with 3D depth. The
+built-in gold trail is drawn as an approximation.
 
-Stored as `flights: Record<kind, { head?, size?, trail?, trailAlign?, trailRotation?, arrival?,
-path?, speed?, minMs?, maxMs?, ease?, stagger? }>`; ships to the game like every other section (a head's art and the trail / arrival
+Stored as `flights: Record<kind, { head?, size?, headAlign?, headRotation?, depth?, trail?,
+trailAlign?, trailRotation?, arrival?, path?, speed?, minMs?, maxMs?, ease?, stagger? }>`; ships to the game like every other section (a head's art and the trail / arrival
 effects ship with it). The plan is in
 [the Hold and Win design §4.4](../design/hold-and-win.md#44-flights--things-that-travel-from-a-cell-to-a-target).
 
