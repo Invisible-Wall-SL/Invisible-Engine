@@ -26,6 +26,7 @@
 	import type * as RIG from 'engine-rig/pixi';
 	import { bindArt, behaviorsOf, emitterDeltaSeconds, type EmitterLayer } from 'engine-fx';
 	import {
+		boneRotationInParent,
 		createPixiRigBackingFactory,
 		registerRigParticleBehavior,
 		RigParticleBehavior,
@@ -144,7 +145,6 @@
 	let rigGen = 0;
 	/** Reused point for the per-frame bone-follow (avoid per-frame allocation). */
 	const bonePoint = { x: 0, y: 0 };
-	const DEG_TO_RAD = Math.PI / 180;
 	/** Per-key live emitter + the container it draws into + whether it has bound art (a sprite
 	 * layer with textures OR a rig-particle layer with a bound pool — either spawns visibly). */
 	const live = new Map<string, { emitter: Emitter; container: Container; hasArt: boolean }>();
@@ -272,16 +272,20 @@
 				// bone (world → the pan/zoom `world`'s local frame), orient + scale it by the bone's
 				// world transform, and spawn from the container origin — so EXISTING particles ride
 				// the bone too, not just new spawns. Offset is applied in world coords then mapped
-				// (parity with the runtime). The backdrop rig is unscaled/unrotated under `world`,
-				// so the bone's world rotation/scale map straight onto the container; skeleton space
-				// is CCW / y-up vs Pixi y-down, so rotation is negated (same inversion `<RigBone>`).
+				// (parity with the runtime). The backdrop rig is unscaled under `world`, so the
+				// bone's world scale maps straight onto the container; the rotation goes through the
+				// runtime's own `boneRotationInParent`.
 				const p = worldToContainerLocal(worldAffine, {
 					x: boneWorld.x + offset.x,
 					y: boneWorld.y + offset.y,
 				});
 				entry.container.position.set(p.x, p.y);
-				if (bone) {
-					entry.container.rotation = -bone.getWorldRotationX() * DEG_TO_RAD;
+				if (bone && rig) {
+					entry.container.rotation = boneRotationInParent(
+						bone,
+						rig.worldTransform,
+						entry.container.parent?.worldTransform ?? null,
+					);
 					entry.container.scale.set(bone.getWorldScaleX(), bone.getWorldScaleY());
 				}
 				entry.emitter.updateOwnerPos(0, 0);

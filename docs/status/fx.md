@@ -18,7 +18,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Live particle previews everywhere** — the effect plays not just in `/fx` (`FxStage`) but in the **Rigger** and **Symbols state machine** via the shared `fxOverlay` on their raw-WebGL stages, all now riding the bone's **full transform** (position + rotation + per-axis scale) to match the game.
 - **Effect atlases auto-ship** — `exportEditorArt` walks the project's effects and ships every layer's `art.assetKey`, so a placed/bound effect's particles have textures with no extra step.
 
-⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game.
+⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
 - **Owner browser-pass over the Sprite section** (2026-10-14) — rotate a directional sprite (an arrow or a streak) and check it turns by the slider amount without changing its flight, and that Top / Bottom / Left / Right pivots put that edge on the spawn point (easiest with a big sprite and a single slow particle).
@@ -32,6 +32,32 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-15 — **A bone-bound FX turned the opposite way to its bone in the game.** Owner report:
+  an FX parented to a bone looked right in `/fx` and the Rigger, but in the exported game it had a
+  different orientation.
+  - **Cause.** `<RigBoneAttach followRotation>` set `rotation = -bone.getWorldRotationX()`, a
+    y-up → y-down flip. But RigView poses its skeleton y-down already, so the flip ran twice and the
+    attachment turned by −θ where the bone turned by +θ. Only 0° and 180° agreed. The Rigger and
+    `/symbols` previews read the angle of the bone's projected x-axis (`fxMatrix`), which is right,
+    so the game was the odd one out. A binding with a **draw slot** had a second error: it mounts
+    under the slot host, which RigView already turns to the slot's bone, and the bone's angle was
+    added on top of that.
+  - **Fix.** One rule, `pixi-svelte` `boneRotationInParent` (`src/lib/rigBoneRotation.ts`). It takes
+    the bone's x-axis in the rig's frame, maps it to world, and maps it back into the attachment's
+    parent frame. `<RigBoneAttach>` uses it, so this fixes every bone follower in the game: rig FX
+    (`RiggedEffect`), Rigger flipbook clips (`RiggedFlipbook`), Tier-B bone layers (`EffectLayer`)
+    and the bone-ridden reveal symbol. All of them now match their editor previews. `/fx`'s
+    `FxStage` had the same formula on the same y-down RigView, so its Tier-B backdrop was mirrored
+    too. It now calls the same helper.
+  - **Verified.** New fixture `packages/pixi-svelte/fixtures/rigBoneRotation.fixture.ts` runs against
+    a real engine-rig skeleton. It checks a plain mount, a fitted rig, a rig flipped on X, a slot on
+    the same bone or another bone, and a sibling host. It also checks that the game's angle equals
+    the Rigger preview's for every pose. I ran two mutations: the old sign fails it, and so does
+    ignoring the parent frame. Prettier, lint, `check:undefined-names`, `check:svelte`
+    (pixi-svelte + launcher at baseline) and `check:vendored-bundles` all pass. **Not
+    pixel-verified in a browser.** **Engine change:** live games get it with the next runtime
+    release. Any game with a bone follower on a ROTATED bone will look different from today, and
+    it will now match what the editor showed.
 - 2026-10-14 — **Sprite rotation + pivot on sprite layers.** Owner ask: rotate the art the way it
   spawns on the particle, and choose whether it spawns at its centre, top, bottom, left or right.
   - **What shipped.** A **Sprite** section under Art (sprite layers only): **Rotation (°)**
