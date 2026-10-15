@@ -398,6 +398,16 @@
 			// a node id that no longer renders (its accumulator was reset with the fresh LiveNode).
 			publishBounds();
 		}
+
+		// Outline order IS draw order, as in the game's one scene graph. A node's container is only
+		// ADDED when it is built (on top), and a kept node is only repositioned, so a reorder, a
+		// hide → show or an effect swap left the stack in build order. Re-append in target order
+		// (tree order) every rebuild; `addChild` moves an existing child to the end. Same fix as
+		// `FxStage`'s layer restack.
+		for (const tg of targets) {
+			const live = liveNodes.get(tg.nodeId);
+			if (live && live.container.parent === world) world.addChild(live.container);
+		}
 	}
 
 	/** Build one placed effect node: fetch its doc, then one `Emitter` per FREE layer (bone layers are
