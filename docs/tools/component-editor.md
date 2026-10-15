@@ -479,8 +479,9 @@ The Pot takes two ways, which you can use together.
 
 Any pot image replaces the coded bar as a whole. The **Label** group shows or hides the level
 (`RED 3/12`) and what a full pot activates, and sets their font, colour and size. The **Motion**
-group sets the growth per size stage (0 = none) and the pulse when the pot fills (1 = none). With
-nothing set, the pot draws exactly the coded bar. The canvas shows the art, with the fill drawn
+group sets the growth per size stage (0 = none) and the pulse when the pot fills (1 = none). Tick
+**pulse on every coin collected too** to play the same pulse as each coin lands in the pot. It is
+off by default. With nothing set, the pot draws exactly the coded bar. The canvas shows the art, with the fill drawn
 part-full so you can see which way it grows. The labels and the size stages show only in the game.
 
 **2. Put your own nodes inside the part.** Create a component of type **Pot Meter (Hold and Win)**,
@@ -490,7 +491,7 @@ another component (Library → **Components**) there, at positions relative to t
 both labels. Any art picked on the instance still draws under them. The part keeps its behaviour:
 
 - It follows its meter's level.
-- It grows at each size stage and pulses when the pot fills.
+- It grows at each size stage and pulses when the pot fills (and on every coin, if ticked).
 - The specials still fly into it.
 - It still counts as that meter's pot, so the game does not draw its own pot for that meter.
 

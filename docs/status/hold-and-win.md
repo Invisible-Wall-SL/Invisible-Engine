@@ -95,8 +95,8 @@ Existing kinds resolve exactly as before Phase 1. `holdAndWin` followed `lines` 
   - **Art params, not def nodes.** The Pot's art lives in per-instance `image` params
     (`POT_SKIN_PARAMS`): `backgroundImage`, `fillImage` + `fillDirection`, `frameImage`,
     `stageImage1..3`, `artWidth` / `artHeight`. A label group (`showLevel`, `showActivates`,
-    `labelFontFamily`, `labelFill`, `labelScale`) and a motion group (`stageGrowth`, `pulseScale`)
-    complete it. The coded part draws them. They are not sprite nodes in the def, so a Pot Meter saved
+    `labelFontFamily`, `labelFill`, `labelScale`) and a motion group (`stageGrowth`, `pulseScale`,
+    `pulseOnCollect`) complete it. The coded part draws them. They are not sprite nodes in the def, so a Pot Meter saved
     before 12c gains them through `mergeBuiltinCodedParams`. A def node would never reach a saved
     copy. Any pot image swaps the whole coded bar. Unset, the pot draws the coded bar exactly. The
     art ships through the existing image-param export.
@@ -1094,6 +1094,16 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-15 — **The Pot Meter can pulse on every coin collected** (branch
+  `claude/keen-noether-ttzxju`). New `pulseOnCollect` boolean in `POT_SKIN_PARAMS` (Motion group,
+  "pulse on every coin collected too", default off, so every pot is unchanged). The base-game fill
+  beat (`presentMeterUpdate`) now bumps `stateMeterDisplay.arrivals[id]` (`countMeterArrival`) as
+  each special or token lands. `HoldAndWinPot` plays its fill pulse (`pulseScale`) on each arrival
+  when the switch is on. It still tracks arrivals while the switch is off, so ticking it never fires
+  a stale pulse. A filling coin pulses on its arrival and again on the fill, as before. Saved Pot
+  Meter copies gain the param through `mergeBuiltinCodedParams`. Covered by `test-pot-skin.mjs`. The
+  skinned-pot story's BLUE pot has it on. Not yet played live.
 
 - 2026-10-14 — **Phase 13e: a coin board is authorable end to end** (built on branch
   `claude/practical-ptolemy-kes8j2`, PR #1200; a scaffolded project played locally in Chromium

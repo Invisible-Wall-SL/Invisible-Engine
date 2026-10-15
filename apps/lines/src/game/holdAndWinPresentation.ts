@@ -66,6 +66,7 @@ import {
 import { lightLetter, syncLetters } from './holdAndWinLetters.svelte';
 import {
 	configuredMeters,
+	countMeterArrival,
 	holdMeterDisplay,
 	meterAnchor,
 	meterFlight,
@@ -319,8 +320,9 @@ const announceMeterRise = (event: Beat<'meterUpdate'>, from: number, to: number)
  * `meterUpdate` — a special landed in the BASE game and fills its pot (3 Pots). Each special in
  * `from` lights where it landed and flies into its pot (`flyTo(cell, 'meter:<id>', 'toMeter:<id>')`);
  * the pot's level ticks up by one on each arrival, from the level before (`level − from.length`) to
- * the server's `level`, and a meter the update FILLED pulses. The level is the server's: the beat
- * only shows it arriving, never computes it (the play seam recorded it before the beat started).
+ * the server's `level`, and a meter the update FILLED pulses (a pot set to `pulseOnCollect` also
+ * pulses on each arrival). The level is the server's: the beat only shows it arriving, never
+ * computes it (the play seam recorded it before the beat started).
  * Every cue it sends is scoped by the meter (Phase 12a), arrivals included. A pots overlay's token
  * is its own flight's head: it waits in its cell, lifts as its flight leaves, and the cell under it
  * (the host's symbol) is not lit.
@@ -369,6 +371,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 			const from = reached;
 			reached = Math.min(event.level, reached + 1);
 			void shown.set(reached, { duration: roundSkip.isSkipped() ? 0 : METER_TICK_MS });
+			countMeterArrival(event.meter);
 			announceMeterRise(event, from, reached);
 		}),
 	);

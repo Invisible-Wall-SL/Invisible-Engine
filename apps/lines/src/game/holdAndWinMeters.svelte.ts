@@ -41,6 +41,8 @@ export const stateMeterDisplay = $state({
 	pinned: {} as Record<string, Tween<number>>,
 	/** Bumped when a meter fills, so its pot pulses. */
 	pulses: {} as Record<string, number>,
+	/** Bumped as each special lands in a meter's pot, so a pot set to `pulseOnCollect` pulses. */
+	arrivals: {} as Record<string, number>,
 });
 
 const recorded = (id: string): HoldAndWinMeterLevel | undefined =>
@@ -99,6 +101,10 @@ export const releaseDrainedMeters = (): void => {
 
 export const pulseMeter = (id: string): void => {
 	stateMeterDisplay.pulses[id] = (stateMeterDisplay.pulses[id] ?? 0) + 1;
+};
+
+export const countMeterArrival = (id: string): void => {
+	stateMeterDisplay.arrivals[id] = (stateMeterDisplay.arrivals[id] ?? 0) + 1;
 };
 
 /**
