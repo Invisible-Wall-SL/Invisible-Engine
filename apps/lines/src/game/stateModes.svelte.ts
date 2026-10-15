@@ -1,4 +1,10 @@
-import { createModeController, createModeGameTypeResolver, type ModeTransition } from 'engine-game';
+import {
+	createModeController,
+	createModeGameTypeResolver,
+	modeEntryMeters,
+	type ModeEntry,
+	type ModeTransition,
+} from 'engine-game';
 import {
 	builtinGameModes,
 	gameModeById,
@@ -9,6 +15,7 @@ import {
 
 import { eventEmitter } from './eventEmitter';
 import { activeSpinsGame, bindActiveMode, getActiveGameConfig } from './gameConfig';
+import { bindPotsInBonus, holdPotsForDrain, potsStayFull } from './holdAndWinMeters.svelte';
 import { bindRiderMode } from './overlayRiders';
 import { rebuildBoard, stateGame } from './stateGame.svelte';
 import type { MusicName } from './sound';
@@ -37,6 +44,10 @@ const presentCoded = (transition: ModeTransition): void => {
 	// declines an unknown sprite key silently.
 	if (music) eventEmitter.broadcast({ type: 'soundMusic', name: music as MusicName });
 };
+
+/** The full pots that started `entry` — none unless a pot did. */
+const potsThatStarted = (entry: ModeEntry): string[] =>
+	entry.cause === 'meter' ? modeEntryMeters(entry) : [];
 
 /** The spins bonus mode the reels were last built for (`undefined`: the base game's grid). */
 let boardBuiltFor: string | undefined;
@@ -71,13 +82,21 @@ export const stateModes = createModeController({
 		stateGame.gameType = gameType as GameType;
 	},
 	present: async (transition) => {
+		// Pots kept full through the bonus they started drain once it has ended and its exit (the
+		// flow's, which takes the bonus screens down) has presented.
+		const drainKeptPots =
+			transition.kind === 'exit' && potsStayFull()
+				? holdPotsForDrain(potsThatStarted(transition.mode))
+				: undefined;
 		await flowPresenter?.(transition);
 		presentCoded(transition);
+		await drainKeptPots?.();
 	},
 	onStack: syncSpinsBoard,
 });
 
 bindActiveMode(() => stateModes.active());
+bindPotsInBonus(() => stateModes.state.stack.flatMap(potsThatStarted));
 bindRiderMode(() => stateModes.active());
 
 /**

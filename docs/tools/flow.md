@@ -774,8 +774,14 @@ starts the music too; on every other snapshot that changes nothing. `luckySpin`,
 `jackpotWin` are shown
 for the length of their beat only: while one of them is up, the engine's own banner or wheel
 steps aside, so nothing draws twice. `featureIntro` and `featureOutro` are not wired, because the
-engine's feature has no tap at its start or end. Show them around `holdAndWinTrigger` /
-`holdAndWinEnd` with a held Show, as the free-spin intro and outro are.
+engine's feature has no tap at its start or end. To add a tap before the feature, show
+`featureIntro` with a held Show at the top of the tab's **Mode trigger (enter)** chain, before the
+Show `respinBackground` the starter flow puts there, so nothing of the feature is on screen under
+it. On the `holdAndWinTrigger` chain the feature's screens are already up. Its **Respins** text
+reads the respins just won, from the moment the feature is recorded. The outro goes around
+`holdAndWinEnd` with a held Show, as the free-spin outro does. A STOP press that slammed the
+trigger spin does not cut either short: the feature's entry re-arms it, as the free-spin intro's
+does.
 
 **A coin board's starter flow.** A Hold and Win project created with **Base game: Coin board
 only** ([plan](../design/hold-and-win-coin-board.md)) starts on the same template and the same
@@ -803,17 +809,45 @@ change.
   `potFull`, `potsConsume` and `flightArrive`; the actions `flyTo`, `fillMeter` (each token flies
   into its pot as its own flight's head), `showTokens` (the dropped tokens land and settle — the
   coded `overlayDrop` beat), `liftTokens` (a fill's tokens leave their cells without flying, for a
-  fill you present another way) and `drainPots` (on a `freeSpinTrigger` or `modeEnter` chain: the
-  pots that started the mode drain); and, per pot, the values `meter.<id>.level`,
+  fill you present another way) and `drainPots` (the pots that started the mode drain — see below);
+  and, per pot, the values `meter.<id>.level`,
   `meter.<id>.max`, `meter.<id>.stage` and `meter.<id>.full`. Each beat takes its event as
   `bookEvent` = `$trigger`.
 - **Hold and Win** adds the whole Hold and Win vocabulary described in the section above.
 
 Nothing here has to be authored. An overlay event you leave unwired plays with the game's coded
-default, so the game runs without a flow edit. A pot always drains as the mode it started begins:
-when your flow owns `freeSpinTrigger` or `modeEnter` and that chain has no `drainPots`, the game
-plays the drain before your chain runs. Put `drainPots` on the chain only to place the drain
-yourself, for example after an intro.
+default, so the game runs without a flow edit.
+
+**Where the pot drains.** A pot drains once, as the mode it started begins. Left alone, the drain
+plays at the start of the mode's entry event: inside `showRespinBoard` for Hold and Win, and before
+your `freeSpinTrigger` or `modeEnter` chain when your flow owns that event (an owned
+`holdAndWinTrigger` chain without `showRespinBoard` shows no drain). To place it yourself, put
+`drainPots` (`bookEvent` = `$trigger`) on the mode's **Mode trigger (enter)** chain or on its entry
+event's chain (`freeSpinTrigger`, `modeEnter` or `holdAndWinTrigger`). The drain then plays there
+and nowhere else: the entry's own beat that follows plays none. Mode trigger (enter) runs first, so
+it is the place for anything that must come before the mode's screens. On any other chain,
+`drainPots` drains nothing and logs a console error.
+
+A project can keep the pots full through their bonus instead: Game Config → **Pots stay full
+during their bonus** ([Game Config](./game-config.md)). Then the drain beat (`drainPots`, or the
+coded one) only pulses the pot, fires `potsConsume` and announces what it activates. The pot keeps
+its level until the bonus ends, then drains once the mode's exit chain has run.
+
+**A tap between the pot and its bonus.** Celebration, then the drain, then a screen that waits for
+the player, then the bonus. In the bonus mode's tab (`holdAndWin`, or the mode's own id), rewire
+**Mode trigger (enter)**:
+
+1. Delete the wire from the Mode trigger to its first Show (`respinBackground` in the starter
+   flow).
+2. Wire Mode trigger → **drainPots** (`bookEvent` = `$trigger`) → **Show `featureIntro`** with
+   **Hold until this screen completes (tap)** ticked → **Hide `featureIntro`** → that first Show,
+   and on through the rest of the chain.
+
+The pot fills and celebrates on `meterUpdate`, drains, and the intro waits for a tap; only then do
+the feature's screens and board appear. The Scene Editor's **＋ Add missing screens** gives a
+project with a Hold and Win the `featureIntro` screen, with its Tap to Continue. Leave out
+`drainPots` to drain after the tap instead. The intro is not replayed on a resume: a resumed
+feature starts without an enter.
 
 **＋ Add overlay steps.** This toolbar button shows only when the Game Config has one of these
 blocks or a spins mode. It adds the steps your flow does not have yet:

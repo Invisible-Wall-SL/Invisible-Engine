@@ -379,6 +379,12 @@
 		if (timing) overlay.timing = timing;
 		else delete overlay.timing;
 	}
+
+	/** Draining as the bonus starts is the default, which a doc never stores. */
+	function setPotsStayFull(overlay: CoinOverlay, on: boolean) {
+		if (on) overlay.potsStayFull = true;
+		else delete overlay.potsStayFull;
+	}
 	// ── the overlay itself ─────────────────────────────────────────────────────────────────────
 	/** An overlay with no drops: coins land on the reels and its triggers start the bonus. It is kept
 	 *  once it holds something — normalization drops an overlay that holds nothing. */
@@ -878,7 +884,26 @@
 				>
 			{/if}
 		</div>
+		{#if pots.length}
+			{@render potsStayFullCheck(overlay)}
+		{/if}
 	</fieldset>
+{/snippet}
+
+{#snippet potsStayFullCheck(overlay: CoinOverlay)}
+	<div class="row">
+		<label class="check"
+			><input
+				type="checkbox"
+				checked={overlay.potsStayFull === true}
+				onchange={(e) => setPotsStayFull(overlay, e.currentTarget.checked)}
+			/><span>Pots stay full during their bonus</span></label
+		>
+		<span class="hint"
+			>A full pot stays drawn full while the bonus it started plays, and drains when that bonus
+			ends. Off: it drains as the bonus starts.</span
+		>
+	</div>
 {/snippet}
 
 {#snippet modePick(value: string, set: (mode: string) => void, spins = false)}
@@ -1296,6 +1321,9 @@
 						{/each}
 					</tbody>
 				</table>
+				{#if !overlay.pots?.length}
+					{@render potsStayFullCheck(overlay)}
+				{/if}
 			{/if}
 			<button class="small" onclick={() => addMeter(overlay)}>+ meter</button>
 		</div>

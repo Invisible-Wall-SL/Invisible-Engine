@@ -11,6 +11,7 @@
  *     over the base board with the coins still on it.
  *  4. A mode entry a pot started drains that pot — free spins and a generic mode alike; Hold and
  *     Win's own reducer drains its pots, so it is not drained twice; nothing else drains anything.
+ *     Every pot-started entry, Hold and Win's included, names the pots it consumed for the drain beat.
  *  5. A resume after free spins that gave way to a pot's bonus does not reopen them; a plain
  *     free-spin round resumes as before.
  *  6. A board's reveal finds its own drop ahead of it (for per-reel timing), never the next board's.
@@ -19,6 +20,7 @@
 import {
 	applyOverlayEvent,
 	boardDropCells,
+	consumedMeters,
 	drainedMeters,
 	drainMeters,
 	emptyOverlayState,
@@ -127,6 +129,28 @@ check(
 		}),
 	),
 	[],
+);
+check(
+	'…but its pots are still the ones it consumed, for the drain beat',
+	consumedMeters(
+		ev({
+			type: 'holdAndWinTrigger',
+			mode: 'holdAndWin',
+			cause: 'meter',
+			payload: { meters: ['red'] },
+		}),
+	),
+	['red'],
+);
+check(
+	'a coin-started Hold and Win consumed no pot',
+	consumedMeters(ev({ type: 'holdAndWinTrigger', cause: 'count', payload: { respins: 3 } })),
+	[],
+);
+check(
+	'every other pot-started entry consumed what it drains',
+	consumedMeters(ev({ type: 'freeSpinTrigger', totalFs: 10, cause: 'meter', meters: ['green'] })),
+	['green'],
 );
 check(
 	'scatter-started free spins drain nothing',

@@ -955,6 +955,43 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-15 — **A tap between a full pot and its bonus; pots can stay full through it** (branch
+  `claude/amazing-archimedes-rzuz77`). Asked for on a lines + pots overlay → Hold and Win game: a
+  held intro screen between the pot's celebration and the bonus, with nothing of the bonus on
+  screen until the tap, and, as an option, the pot kept full while the bonus plays.
+  - **`drainPots` works on Hold and Win and on a Mode trigger (enter) chain** (`flowEffects.ts`).
+    Before, it accepted only `freeSpinTrigger` / `modeEnter`, so the drain could not be split from
+    `showRespinBoard`'s board swap. A pot now drains ONCE per entry, wherever the first ask comes
+    from (`claimDrainedMeters` / `presentEntryDrain`): `drainPots`, the auto-drain before an owned
+    free-spin / `modeEnter` chain, the coded entries, or `showRespinBoard`. Every later ask plays
+    nothing. With no `drainPots` authored, every game drains exactly where it did.
+  - **The consumed pots keep their level until their drain plays, Hold and Win's included**
+    (`consumedMeters`, engine-game). The Hold and Win reducer empties them as the trigger is
+    recorded, so before, anything authored ahead of `showRespinBoard` saw them empty, then full, then
+    draining.
+  - **A slam no longer cuts a held intro short**: `holdAndWinTrigger` re-arms the slam token
+    (`startsCelebration`), as `freeSpinTrigger` does. The cost: after a STOP on the trigger spin,
+    the coded drain and board swap play at full pace; a fresh press still fast-forwards them.
+  - **`respinsLeft` / `respinsStart` read the recorded feature while the counter is hidden**, so the
+    `featureIntro` scaffold's Respins text shows the respins just won rather than 0 or the previous
+    feature's.
+  - **Game Config → Pots stay full during their bonus** (`coinOverlay.potsStayFull`, presentation
+    only; stored only as `true` and only with pots or meters). The runtime reads a pot whose bonus is
+    on the mode stack as full (`meterLevelShown`; a resume rebuilds the stack, so it holds there too),
+    the entry's drain beat only pulses it, and it drains once the mode's exit has presented
+    (`holdPotsForDrain`, from `stateModes`). Off ⇒ unchanged.
+  - **Verified** headless (local snapshot: the lines default + 3 Pots, the lines starter flow +
+    "＋ Add overlay steps", the Hold and Win tab's enter chain rewired to `drainPots` → held
+    `featureIntro` → hide → its screens; the composed mock with `pot:red`; publish validation 0
+    issues). Flow trace: `fillMeter` → `drainPots` → HOLD `featureIntro` → (600 idle frames, still
+    held, no bonus screen up) → tap → RELEASE → bonus screens → `showRespinBoard` → … → exit.
+    Pots stay full off: red 0/12 under the intro and through the bonus. On: 12/12 under the intro
+    and through the bonus, 3/12 mid-drain just after the exit, 0/12 at idle. Balance 100 → 119.50
+    = −1 + 20.50.
+    `check:pots-overlay`, `check:engine-game`, `check:holdandwin`, `check:freespins` and the
+    game-config `bonusGames` fixture (new §9) pass; svelte-check at baseline for `apps/lines`,
+    `apps/launcher-api` and `engine-game`.
+
 - 2026-10-15 — **A continuous rig effect a timeline started stops with its state** (branch
   `claude/admiring-noether-ptegsa`). The firecrackers' sparks are `continuous`, which by design
   ignores later beats and runs until the rig unmounts, so they kept going after a drained pot sent

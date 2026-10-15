@@ -111,15 +111,21 @@ export const boardDropCells = (
 };
 
 /**
- * The full pots a mode entry DRAINS: any entry with `cause: 'meter'` (a pot started it) names them,
- * and the server emptied them as it started the mode. `holdAndWinTrigger` is left out: the Hold and
- * Win reducer already empties its pots (`applyHoldAndWinEvent`). `[]` for every other event.
+ * The full pots a mode entry CONSUMES: any entry with `cause: 'meter'` (a pot started it), Hold and
+ * Win's included, names them, and the server emptied them as it started the mode. `[]` for every
+ * other event. What the pots' drain beat plays from.
  */
-export const drainedMeters = (bookEvent: { type: string }): string[] => {
-	if (bookEvent.type === 'holdAndWinTrigger') return [];
+export const consumedMeters = (bookEvent: { type: string }): string[] => {
 	const op = modeOpOf(bookEvent);
 	return op?.op === 'enter' && op.cause === 'meter' ? modeEntryMeters(op) : [];
 };
+
+/**
+ * The full pots a mode entry DRAINS from the recorded meters — {@link consumedMeters}, except for
+ * `holdAndWinTrigger`, whose reducer already empties its pots (`applyHoldAndWinEvent`).
+ */
+export const drainedMeters = (bookEvent: { type: string }): string[] =>
+	bookEvent.type === 'holdAndWinTrigger' ? [] : consumedMeters(bookEvent);
 
 /** The meters with `ids` emptied — what the pots read once their bonus has started. */
 export const drainMeters = (

@@ -153,6 +153,10 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set([
  *    celebration ({@link HOLD_AND_WIN_CELEBRATIONS}). A coin jackpot named in the tally is not one.
  *  - `holdAndWinWheel` — the pre-feature wheel, re-armed like the intro it is; slammable while it
  *    turns (it lands at once), its result never skipped.
+ *  - `holdAndWinTrigger` — the feature's entry, re-armed for the free-spin intro's reason: a flow's
+ *    held intro screen on its Mode trigger (enter) or trigger chain is released on skip, so a press
+ *    that slammed the trigger spin collapsed it. The coded pot drain and board swap that follow
+ *    play at full pace after such a press; a fresh press still fast-forwards them.
  *
  * The book reveal (`setExpandingSymbol`) is NOT here — it has no reel-roll ahead of it that a slam
  * would legitimately stop, so the unskippable scope + the window lock already cover it.
@@ -173,6 +177,9 @@ export const startsCelebration = (bookEvent: BookEvent): boolean => {
 		// the trigger's reels must not snap it. It is NOT unskippable: a press while it turns lands it
 		// at once, and its result holds on a bare timer (`presentWheel`), so it is never skipped.
 		case 'holdAndWinWheel':
+			return true;
+		// The feature's entry: a flow's held intro on its enter or trigger chain waits for a real tap.
+		case 'holdAndWinTrigger':
 			return true;
 		case 'jackpotWin':
 			return bookEvent.banked;

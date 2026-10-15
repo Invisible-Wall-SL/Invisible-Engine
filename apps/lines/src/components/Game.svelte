@@ -811,11 +811,16 @@
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
 		// Hold and Win: the respins left on the counter (`respinUpdate`, restated by every snapshot) — what
-		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field.
-		respinsLeft: valueSource(() => stateRespinBoard.counter.left),
+		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field. Before
+		// the board shows them (a held intro ahead of `showRespinBoard`), the recorded feature's.
+		respinsLeft: valueSource(() =>
+			stateRespinBoard.counter.show ? stateRespinBoard.counter.left : stateHoldAndWin.left,
+		),
 		// …and what the counter resets to — the feature's current cap (an add-respins can raise it),
 		// what a value binding divides `respinsLeft` by to drive a draining bar.
-		respinsStart: valueSource(() => stateRespinBoard.counter.start),
+		respinsStart: valueSource(() =>
+			stateRespinBoard.counter.show ? stateRespinBoard.counter.start : stateHoldAndWin.start,
+		),
 		// The respin board's held cells and its open cells (reels × open rows) — a "board filling"
 		// bar binds the first, normalised by the second. 0 outside the feature.
 		cellsHeld: valueSource(() => (stateRespinBoard.shown ? stateRespinBoard.held.length : 0)),

@@ -1,10 +1,13 @@
 import type { HoldAndWinMeterLevel } from 'engine-game';
 import { meterFlightKey } from 'engine-layout';
 import { resolveMeters, type ResolvedMeter } from 'game-config';
+import { cubicOut } from 'svelte/easing';
 import { Tween } from 'svelte/motion';
+import { roundSkip } from 'utils-shared/skipToken';
 
 import { getActiveGameConfig } from './gameConfig';
 import { recordHoldAndWinEvent, stateHoldAndWin } from './stateHoldAndWin.svelte';
+import { waitPresentation } from './unskippablePresentation';
 
 /**
  * THE PERSISTENT METERS (pots) as this game shows them — design §1.3 "Persistent meters".
@@ -46,9 +49,30 @@ export const stateMeterDisplay = $state({
 const recorded = (id: string): HoldAndWinMeterLevel | undefined =>
 	stateHoldAndWin.meters.find((meter) => meter.id === id);
 
-/** The level a pot shows now — a beat's pinned value, else the server's. Fractional mid-tween. */
-export const meterLevelShown = (id: string): number =>
-	stateMeterDisplay.pinned[id]?.current ?? recorded(id)?.level ?? 0;
+/** A consumed pot draining to empty: as the bonus it bought starts, or as it ends when it stays full. */
+export const METER_DRAIN_MS = 500;
+
+/** Game Config → coin overlay → "Pots stay full during their bonus". */
+export const potsStayFull = (): boolean => getActiveGameConfig().coinOverlay?.potsStayFull === true;
+
+/** The pots that started a mode now on the stack (bound by `stateModes`; unbound ⇒ none). */
+let potsInBonus: () => readonly string[] = () => [];
+
+export const bindPotsInBonus = (read: () => readonly string[]): void => {
+	potsInBonus = read;
+};
+
+/**
+ * The level a pot shows now — a beat's pinned value, else the server's. Fractional mid-tween. With
+ * {@link potsStayFull}, a pot whose bonus is playing reads full until it ends (the server emptied it
+ * as the bonus started), unless the server has filled it again since.
+ */
+export const meterLevelShown = (id: string): number => {
+	const pinned = stateMeterDisplay.pinned[id];
+	if (pinned) return pinned.current;
+	const level = recorded(id)?.level ?? 0;
+	return level === 0 && potsStayFull() && potsInBonus().includes(id) ? meterMax(id) : level;
+};
 
 /** A meter's maximum — the server's, else the config's. */
 export const meterMax = (id: string): number =>
@@ -79,13 +103,16 @@ export const releaseMeterDisplay = (id: string, tween: Tween<number>): void => {
 
 /** The pots a mode entry just drained, pinned at the level they showed. */
 let drainPins: { id: string; tween: Tween<number> }[] = [];
+/** Whether the drain beat of the pots in {@link drainPins} has been claimed. */
+let drainClaimed = false;
 
 /**
  * A mode a pot started is recorded — and the pot emptied — BEFORE the mode layer enters it and runs
- * any authored transition; the drain beat itself plays later, inside the entry's handler. Pin each
- * drained pot at the level it showed until then, so it does not read empty, then full again, then
- * drain. Call before the drain is recorded. The beat pins its own and lets these go; a flow that owns
- * the entry (no drain beat) has them released when the next event is recorded.
+ * any authored transition; the drain beat itself plays later (the entry's handler, or `drainPots`
+ * wherever the flow put it). Pin each drained pot at the level it showed until then, so it does not
+ * read empty, then full again, then drain. Call before the drain is recorded. The beat pins its own
+ * and lets these go; a flow that owns the entry (no drain beat) has them released when the next event
+ * is recorded.
  */
 export const pinDrainedMeters = (ids: readonly string[]): void => {
 	releaseDrainedMeters();
@@ -95,10 +122,45 @@ export const pinDrainedMeters = (ids: readonly string[]): void => {
 export const releaseDrainedMeters = (): void => {
 	for (const { id, tween } of drainPins) releaseMeterDisplay(id, tween);
 	drainPins = [];
+	drainClaimed = false;
+};
+
+/**
+ * The pinned pots, for the ONE drain beat they get: the first claim takes them, every later one gets
+ * `[]`. So a drain an authored chain already played (a `drainPots` on the mode's enter chain) is not
+ * played again by the entry's own beat that follows.
+ */
+export const claimDrainedMeters = (): string[] => {
+	if (drainClaimed) return [];
+	drainClaimed = true;
+	return drainPins.map((pin) => pin.id);
 };
 
 export const pulseMeter = (id: string): void => {
 	stateMeterDisplay.pulses[id] = (stateMeterDisplay.pulses[id] ?? 0) + 1;
+};
+
+/**
+ * A bonus that pots kept full has just ended, and the stack has let them go: pin the ones still
+ * drawn full NOW, so no frame draws them empty, and return their drain, to play once the mode's exit
+ * has presented — each pot pulses and empties. A pot the server filled again during the bonus already
+ * shows its level and is left alone.
+ */
+export const holdPotsForDrain = (ids: readonly string[]): (() => Promise<void>) => {
+	const pins = ids
+		.filter((id) => !stateMeterDisplay.pinned[id] && (recorded(id)?.level ?? 0) === 0)
+		.map((id) => ({ id, tween: holdMeterDisplay(id, meterMax(id)) }));
+	return async () => {
+		for (const { id, tween } of pins) {
+			pulseMeter(id);
+			void tween.set(0, {
+				duration: roundSkip.isSkipped() ? 0 : METER_DRAIN_MS,
+				easing: cubicOut,
+			});
+		}
+		if (pins.length) await waitPresentation(METER_DRAIN_MS);
+		for (const { id, tween } of pins) releaseMeterDisplay(id, tween);
+	};
 };
 
 /**

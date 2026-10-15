@@ -1,4 +1,10 @@
-import { createPlayBook, createSymbolInfo, drainedMeters, isHoldAndWinEvent } from 'engine-game';
+import {
+	consumedMeters,
+	createPlayBook,
+	createSymbolInfo,
+	drainedMeters,
+	isHoldAndWinEvent,
+} from 'engine-game';
 import { HOLD_AND_WIN_MODE } from 'game-config';
 
 import { activeWinLevelData, getActiveGameConfig } from './gameConfig';
@@ -32,7 +38,7 @@ import { stateModes } from './stateModes.svelte';
 import { drainHoldAndWinMeters, recordHoldAndWinEvent } from './stateHoldAndWin.svelte';
 import { recordOverlayEvent } from './stateOverlay.svelte';
 import { pinDrainedMeters, releaseDrainedMeters } from './holdAndWinMeters.svelte';
-import { presentMeterConsume } from './holdAndWinPresentation';
+import { presentEntryDrain } from './holdAndWinPresentation';
 import { releaseHeldPlatformJackpotWin } from './platformJackpot.svelte';
 
 /**
@@ -88,12 +94,12 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 		) {
 			bookEvent.mode = activeRespinMode()?.mode ?? HOLD_AND_WIN_MODE;
 		}
+		// Pinned before Hold and Win's reducer empties its pots, so they read the level they showed.
+		const consumed = consumedMeters(bookEvent);
+		if (consumed.length) pinDrainedMeters(consumed);
+		else releaseDrainedMeters();
 		if (isHoldAndWinEvent(bookEvent)) recordHoldAndWinEvent(bookEvent);
-		const drained = drainedMeters(bookEvent);
-		if (drained.length) {
-			pinDrainedMeters(drained);
-			drainHoldAndWinMeters(drained);
-		} else releaseDrainedMeters();
+		drainHoldAndWinMeters(drainedMeters(bookEvent));
 		recordOverlayEvent(bookEvent);
 		// A platform jackpot win a flow presented itself (owning `platformJackpotWin`) is let into
 		// the balance at the latest as the round closes; the coded celebration already did.
@@ -101,10 +107,13 @@ export const { playBookEvent, playBookEvents, playBet, convertTorResumableBet } 
 	},
 	modes: stateModes,
 	// A pot drains as the mode it started begins, whoever presents the entry: a flow that owns
-	// `freeSpinTrigger` / `modeEnter` without `drainPots` on that chain gets the coded drain first.
+	// `freeSpinTrigger` / `modeEnter` without `drainPots` on that chain gets the coded drain first,
+	// unless the mode's enter chain already played it.
 	beforeFlowOwnedEvent: async (bookEvent) => {
-		const drained = drainedMeters(bookEvent);
-		if (drained.length && !getFlowV2()?.chainCallsAction(bookEvent.type, 'drainPots'))
-			await presentMeterConsume(drained);
+		if (
+			drainedMeters(bookEvent).length &&
+			!getFlowV2()?.chainCallsAction(bookEvent.type, 'drainPots')
+		)
+			await presentEntryDrain();
 	},
 });
