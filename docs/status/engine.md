@@ -265,6 +265,40 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-15 — **The authored buttons behind a per-project flag (Rive plan Phase 8d, branch
+  `claude/rive-p8d-buttons`, plan [§13.8](../design/rive-style-editor.md)).** Scope: the parametric
+  `button`'s look per state, its spin rotation, the `uiShow` / `uiHide` fade and the press sound move
+  to the built-in `buttonPresentation` (`internal`, `frameExact`, `buttonStates`) and its seeded
+  machine — four layers: **look** (six static poses: the four coded tile looks as rounded
+  `Rectangle`s, the state frame and its grey; the look input is `resolveButtonLook`, `ButtonFrame`'s
+  derivation through the shared `resolveButtonState` cascade, checked against a transcription of the
+  coded frame in all 8 192 param × flag cases), **spin** (360°/s looping on `frame`), **fade**
+  (400 ms blends on `uiHide` / `uiShow`, only with the placement's `fadeWithUi` — off: the coded
+  buttons never faded on their own, the HUD's one `UiFadeContainer` fades them and owns the await) and
+  **sound** (a press sound enters its state, whose cue the bus broadcasts). The press road, the
+  gates and `ButtonLabel` stay coded, pinned by sha256. Pieces: `ComponentDef.buttonStates`
+  (ComponentInstance owns the hit surface, feeds the reserved inputs, provides `tileColor` /
+  `tileBorderColor`, starts the machine at mount); `RectNode.borderRadius` / `borderWidth` /
+  `borderColor`, a param-bound rect `color` and container `tint` (LayoutNodeView; absent ⇒ the same
+  props); `pressSounds.ts` (`claimPressSound` / `handOffPressSound`: the game's press bodies broadcast
+  through `pressFeedback`, so a claimed press's sound is fired by the machine at the same point of
+  the body); `authoredButtons.ts` (`authoredButtonsStatus`: `off` · `ready` · `nothing-to-replace` ·
+  `custom-button` via `isBuiltinButtonShape`; `withAuthoredButtonsDoc`, which keeps every node field
+  and drops a `button` pin); `BUTTON_TIMELINES` in `BUILTIN_TIMELINES`. **Found at build time:**
+  `foldBoundTransform` leaves an output that lands exactly on identity (rotation 0, alpha 1) out of
+  the transform and pixi-svelte skips the absent prop, so a stopped turn stayed turned (0.12 % at the
+  spin button after the round). Fixed opt-in with a settling drive (`CinematicNodeDrive.settles`,
+  buttons only); the 8b / 8c fade machines may meet the same edge when a fade-in ends on alpha 1 —
+  not changed here. The probe's `state()` gains `uiEvents` (press sounds, `uiHide` / `uiShow`) and
+  `buttonPresentation`. Launcher: normalizer row, `componentFields` (`buttonStates`, the rect border
+  fields), the locked Game Settings row, the save's `locked-buttons` refusal, chips
+  `authoredButtons` / `authoredButtonsHeld` (the Game Maker card reads the project's `button` def
+  when the flag is on). **Parity (`check:button-parity`, local):** tile, images, flow, ui-fade and
+  turbo — 68 captures, every one 0 px; press sounds equal event and frame; `uiHide` / `uiShow` on the
+  same frame. Gates: `check:authored-buttons` (58, with negative controls); the 8a–8c gates' source
+  checks now accept the extra pilot row. **Left:** a CI workflow for the parity script; nested
+  `button` instances inside another component's def are not swapped; the authored hit surface
+  includes the label; the owner's browser check and lifting the lock.
 - 2026-10-15 — **Authored Win parity follow-up: every capture inside a presentation at 0 px; the
   Win row stays locked** (branch `claude/rive-p8b-followup`, plan
   [§13.6.11](../design/rive-style-editor.md)). **The escalation hand-off:** the walk was one
