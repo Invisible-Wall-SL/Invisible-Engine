@@ -46,18 +46,28 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     the bone's x-axis in the rig's frame, maps it to world, and maps it back into the attachment's
     parent frame. `<RigBoneAttach>` uses it, so this fixes every bone follower in the game: rig FX
     (`RiggedEffect`), Rigger flipbook clips (`RiggedFlipbook`), Tier-B bone layers (`EffectLayer`)
-    and the bone-ridden reveal symbol. All of them now match their editor previews. `/fx`'s
-    `FxStage` had the same formula on the same y-down RigView, so its Tier-B backdrop was mirrored
-    too. It now calls the same helper.
+    and the bone-ridden reveal symbol. `/fx`'s `FxStage` had the same formula on the same y-down
+    RigView, so its Tier-B backdrop was mirrored too. It now calls the same helper.
+  - **Mirrored rigs.** A follower INSIDE a flipped rig shares its mirror and lines up with the bone.
+    A follower mounted BESIDE a flipped rig (the reveal rider, a layout node's attached effects) is
+    not mirrored, so it keeps the axis the flip spares: its up-axis under an X flip (the editor's
+    `unrotatedScale` reading), its x-axis under a Y flip. It is upright at rest and turns the way the
+    bone visibly turns. The old formula happened to get this one case right, and it is unchanged.
+  - **Still differs from the Scene Editor preview** on a rig node that is rotated or flipped. The
+    preview's bone rider ignores the node's rotation and doesn't reverse its turn under a flip. That
+    gap predates this change.
+  - **Known lag.** Under a slot host, the parent's world transform is read from the last render, so
+    on a fast-moving slot bone the FX can be a frame off. Position has always had the same lag.
   - **Verified.** New fixture `packages/pixi-svelte/fixtures/rigBoneRotation.fixture.ts` runs against
     a real engine-rig skeleton. It checks a plain mount, a fitted rig, a rig flipped on X, a slot on
-    the same bone or another bone, and a sibling host. It also checks that the game's angle equals
-    the Rigger preview's for every pose. I ran two mutations: the old sign fails it, and so does
-    ignoring the parent frame. Prettier, lint, `check:undefined-names`, `check:svelte`
-    (pixi-svelte + launcher at baseline) and `check:vendored-bundles` all pass. **Not
+    the same bone or another bone, a sibling host, and a sibling of a rig flipped on X or Y. It also
+    checks that the game's angle equals the Rigger preview's for every pose. It fails against the
+    old sign, against ignoring the parent frame, and against an x-axis-only rule (which turns a
+    follower beside an X-flipped rig upside down). Prettier, lint, `check:undefined-names`,
+    `check:svelte` (pixi-svelte + launcher at baseline) and `check:vendored-bundles` all pass. **Not
     pixel-verified in a browser.** **Engine change:** live games get it with the next runtime
-    release. Any game with a bone follower on a ROTATED bone will look different from today, and
-    it will now match what the editor showed.
+    release. Any game with a bone follower on a ROTATED bone will look different from today. It
+    will now turn the way the bone does.
 - 2026-10-14 — **Sprite rotation + pivot on sprite layers.** Owner ask: rotate the art the way it
   spawns on the particle, and choose whether it spawns at its centre, top, bottom, left or right.
   - **What shipped.** A **Sprite** section under Art (sprite layers only): **Rotation (°)**

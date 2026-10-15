@@ -8,7 +8,10 @@
  *
  * Asserts, against a REAL engine-rig skeleton posed y-down the way RigView poses it:
  * - the attachment's world x-axis points along the bone's on-screen x-axis — unslotted, in a
- *   fitted rig, in a rig flipped on X, and under a slot host on the same or another bone;
+ *   fitted rig, inside a rig flipped on X, and under a slot host on the same or another bone;
+ * - beside a MIRRORED rig, where the attachment does not share the mirror, it keeps the axis the
+ *   flip spares (the up-axis under an X flip, the x-axis under a Y flip), so a rest pose is upright
+ *   — the case the old formula already got right, and still does;
  * - the angle equals the Rigger preview's (a y-up skeleton projected into a y-down canvas, read as
  *   the angle of the projected x-axis, as `fxMatrix` reads it);
  * - the old formula disagrees with both at 90°.
@@ -98,6 +101,27 @@ function assertRides(bone: Bone, rigWorld: Affine, parentWorld: Affine, label: s
 	return rotation;
 }
 
+/**
+ * Beside a mirrored rig the attachment is not mirrored with the bone, so one of its axes must part
+ * from the bone's: it keeps the one the flip spares. Its up-axis is read off the bone's own `b`/`d`,
+ * not derived from the x-axis the helper uses.
+ */
+function assertUpright(
+	bone: Bone,
+	rigWorld: Affine,
+	parentWorld: Affine,
+	keep: 'x' | 'up',
+	label: string,
+): number {
+	const rotation = boneRotationInParent(bone, rigWorld, parentWorld);
+	const child = mul(parentWorld, trs(0, 0, rotation, 1, 1));
+	const [bx, by] = keep === 'x' ? [bone.a, bone.c] : [-bone.b, -bone.d];
+	const want = Math.atan2(rigWorld.b * bx + rigWorld.d * by, rigWorld.a * bx + rigWorld.c * by);
+	const got = keep === 'x' ? Math.atan2(child.b, child.a) : Math.atan2(child.d, child.c);
+	check(angleDiff(got, want) < 1e-6, `${label}: kept ${keep} ${got / RAD}° vs bone ${want / RAD}°`);
+	return rotation;
+}
+
 const ANGLES = [0, 30, 90, 135, -60, 180, 270];
 
 for (const root of [0, 45]) {
@@ -143,6 +167,14 @@ for (const root of [0, 45]) {
 
 		// A sibling host (the parent is the rig's parent, not the rig).
 		assertRides(bone, fitted, identity, `${label}, sibling`);
+
+		// …beside a mirrored rig: not mirrored with it, so upright at rest, turning as the bone shows.
+		const besideX = assertUpright(bone, flipped, identity, 'up', `${label}, beside flipped X`);
+		const old = -bone.getWorldRotationX() * RAD;
+		check(angleDiff(besideX, old) < 1e-6, `${label}: beside flipped X keeps the old angle`);
+		const turnedFlip = trs(320, 180, 20 * RAD, -0.4, 0.4);
+		assertUpright(bone, turnedFlip, identity, 'up', `${label}, beside turned + flipped X`);
+		assertUpright(bone, trs(320, 180, 0, 0.4, -0.4), identity, 'x', `${label}, beside flipped Y`);
 	}
 }
 
@@ -155,5 +187,14 @@ check(
 	angleDiff(fixed, -90 * RAD) < 1e-6,
 	'a bone turned 90° CCW turns the attachment -90° in Pixi',
 );
+
+const rest = pose(0, 0, true);
+for (const [sx, sy] of [
+	[-0.4, 0.4],
+	[0.4, -0.4],
+]) {
+	const r = boneRotationInParent(rest, trs(0, 0, 0, sx, sy), identity);
+	check(angleDiff(r, 0) < 1e-6, `a rest pose beside a rig scaled (${sx}, ${sy}) is upright`);
+}
 
 console.log('rigBoneRotation fixture: all assertions passed');

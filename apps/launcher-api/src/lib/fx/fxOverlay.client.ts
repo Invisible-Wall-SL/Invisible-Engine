@@ -210,7 +210,7 @@ const DEFAULT_FLIPBOOK_FPS = 24;
  *
  * `atan2(b, a)` survives the flip untouched: a bone at rig rotation θ projects to `(z·cosθ,
  * −z·sinθ)`, so the angle reads back as `−θ` — the angle `<RigBoneAttach>` gives it too
- * (`pixi-svelte/fixtures/rigBoneRotation.fixture.ts` holds the two together).
+ * (`pixi-svelte/fixtures/rigBoneRotation.fixture.ts` checks the game against this reading).
  */
 function fxMatrix(t: FxTransform): Matrix {
 	const rotation = Math.atan2(t.b, t.a);
