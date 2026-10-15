@@ -29,6 +29,8 @@ import { SYMBOL_SIZE, eventSignal, retireCodedOverlay, textSource } from 'engine
 type On<T = void> = (run: (value: T) => void) => () => void;
 
 const introCount = $state({ value: 0 });
+/** The boot that started the path last: an older boot's teardown leaves the module state alone. */
+let latestBoot = 0;
 
 /** The two presentation defs for this boot: the coded sizes off the board, the sprites in `lang`. */
 export function authoredFreeSpinDefs(boardColumns: number, lang: string): ComponentDef[] {
@@ -110,6 +112,7 @@ export function startAuthoredFreeSpins(deps: {
 	boardColumns: number;
 	lang: string;
 }): () => void {
+	const boot = ++latestBoot;
 	retireCodedOverlay('freeSpins');
 	introCount.value = 0;
 	const unsubscribeCount = deps.onIntroUpdate((total) => {
@@ -130,6 +133,7 @@ export function startAuthoredFreeSpins(deps: {
 		unregisterSignals();
 		unregisterValues();
 		unregisterBoard();
+		if (boot !== latestBoot) return;
 		retireCodedOverlay('freeSpins', false);
 		introCount.value = 0;
 	};

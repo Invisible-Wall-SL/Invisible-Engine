@@ -2,8 +2,7 @@ import { json } from '@sveltejs/kit';
 import { ConflictError, getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
 export type LibraryWriteResult =
-	| { ok: true; etag: string | null }
-	| { ok: false; response: Response };
+	{ ok: true; etag: string | null } | { ok: false; response: Response };
 
 /**
  * Write one entry of a STUDIO-WIDE Rigger library (`_shared/rigs/`, `_shared/animations/`) under

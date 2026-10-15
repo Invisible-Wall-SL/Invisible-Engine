@@ -1,5 +1,4 @@
 import { clientExists, mayCreateUnderClient } from './clients';
-import { AuthoredOverlayLockedError } from './authoredOverlayGuard';
 import {
 	DuplicateTooLargeError,
 	duplicateProjectData,
@@ -101,8 +100,6 @@ export async function duplicateProject(
 	} catch (e) {
 		await deleteProject(key);
 		if (e instanceof DuplicateTooLargeError) return { ok: false, status: 413, error: e.message };
-		if (e instanceof AuthoredOverlayLockedError)
-			return { ok: false, status: 403, error: e.message };
 		console.error('duplicateProject failed:', e);
 		const detail = e instanceof Error ? e.message : String(e);
 		return { ok: false, status: 502, error: `Duplicate failed: ${detail}` };

@@ -42,6 +42,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			const dest = to + key.slice(from.length);
 			assertWritable(dest, scope);
 			await lockedOverlayMoveRefusal(key, dest);
+		}
+		for (const key of keys) {
+			const dest = to + key.slice(from.length);
 			await copyObject(key, dest);
 			toDelete.push(key);
 		}

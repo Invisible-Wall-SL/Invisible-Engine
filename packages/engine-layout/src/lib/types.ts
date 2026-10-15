@@ -1930,7 +1930,8 @@ export interface CinematicDoc {
 	 * A COMPONENT timeline only (Rive plan Phase 8c): seconds the playhead wraps back to when it
 	 * reaches `duration`, carrying the overshoot, so the stretch from here to the end loops for as
 	 * long as the timeline is on screen — a coded rig's looping idle after its intro. A looping
-	 * timeline never reports an end (it holds no cue). Absent, or not inside `[0, duration)` ⇒
+	 * timeline never reports an end (it holds no cue); a step longer than a whole lap crosses each
+	 * cue once. Absent, or not inside `[0, duration)` ⇒
 	 * the timeline ends and holds its last frame (parity).
 	 */
 	loopFrom?: number;

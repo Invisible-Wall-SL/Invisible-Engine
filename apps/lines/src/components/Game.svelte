@@ -2224,7 +2224,7 @@
 			}
 			// The coded free-spin visuals go dark for this boot; everything the authored path reads is
 			// registered by `startAuthoredFreeSpins` and nowhere else (a boot without the flag registers
-			// nothing new), and torn down with the game.
+			// nothing new), and torn down with the game. Reset first, so no earlier boot's retire lingers.
 			retireCodedOverlay('freeSpins', false);
 			if (authoredFreeSpins) {
 				const stop = startAuthoredFreeSpins({

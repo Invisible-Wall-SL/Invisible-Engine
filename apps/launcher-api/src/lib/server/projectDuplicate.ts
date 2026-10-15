@@ -56,7 +56,6 @@ import {
 	r2Slug,
 	symbolsDocBackupTarget,
 } from './projectPaths';
-import { assertRawEditorDocWriteUnlocked } from './editorStorage';
 import { copyObject, getObjectText, listAllKeys, putObjectText } from './r2';
 
 /** How much of the source project travels. See the file header. */
@@ -245,9 +244,6 @@ async function copyOne(
 	const text = await getObjectText(entry.from);
 	if (text === null) return 'skipped';
 	const rebased = rebaseJsonText(text, source, target);
-	// A copy is a new project: one that would start with a locked authored-overlay pilot on is
-	// refused (the caller rolls the copy back), as every other layout-doc write is.
-	await assertRawEditorDocWriteUnlocked(entry.to, rebased);
 	if (rebased === text) {
 		// Nothing referenced the source project — a server-side copy preserves the original metadata.
 		return (await copyObject(entry.from, entry.to)) ? 'copied' : 'skipped';

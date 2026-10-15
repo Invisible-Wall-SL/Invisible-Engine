@@ -169,15 +169,21 @@ export const isEditorDocKey = (key: string): boolean => key.endsWith('/editor/sc
 /**
  * The authored-overlay lock for a RAW write of `text` to `key` (the file browser's upload and
  * move, which bypass {@link saveDoc}): a no-op for any other key, and for a layout doc it throws
- * {@link AuthoredOverlayLockedError} when the bytes switch a locked pilot on over what is stored.
- * Unparseable bytes switch nothing on.
+ * {@link AuthoredOverlayLockedError} when the bytes switch a locked pilot on over what is stored
+ * there — or, with nothing stored, over `unstored` (a move's own source: renaming a project carries
+ * its state, it switches nothing on). Unparseable bytes switch nothing on.
  */
-export async function assertRawEditorDocWriteUnlocked(key: string, text: string): Promise<void> {
+export async function assertRawEditorDocWriteUnlocked(
+	key: string,
+	text: string,
+	unstored: string | null = null,
+): Promise<void> {
 	if (!isEditorDocKey(key)) return;
 	const parsed = parseSettings(text);
 	if (!submitsLockedOverlayOn(parsed)) return;
 	const stored = await getObjectTextWithEtag(key);
-	assertNoLockedOverlaySwitchOn(stored ? parseSettings(stored.text) : null, parsed);
+	const before = stored ? stored.text : unstored;
+	assertNoLockedOverlaySwitchOn(before === null ? null : parseSettings(before), parsed);
 }
 
 const parseSettings = (text: string): Pick<LayoutDoc, 'settings'> | null => {

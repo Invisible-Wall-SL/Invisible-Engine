@@ -233,7 +233,12 @@ export function normalizeRigTextDoc(input: unknown): RigTextDoc {
 		});
 	}
 
-	return { version: 1, page, elements, updatedAt: typeof obj.updatedAt === 'string' ? obj.updatedAt : '' };
+	return {
+		version: 1,
+		page,
+		elements,
+		updatedAt: typeof obj.updatedAt === 'string' ? obj.updatedAt : '',
+	};
 }
 
 const COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -264,7 +269,12 @@ function normalizeStyle(input: unknown): RigTextStyleData {
  */
 export function textAtlasBlock(doc: RigTextDoc): string {
 	if (!doc.page || !doc.elements.length) return '';
-	const lines: string[] = ['', doc.page.file, `size:${doc.page.width},${doc.page.height}`, 'filter:Linear,Linear'];
+	const lines: string[] = [
+		'',
+		doc.page.file,
+		`size:${doc.page.width},${doc.page.height}`,
+		'filter:Linear,Linear',
+	];
 	let regions = 0;
 	for (const el of doc.elements) {
 		for (const v of el.variants) {

@@ -184,8 +184,7 @@ async function runpodRest(
 			signal: controller.signal,
 		});
 		const body = (await res.json().catch(() => null)) as
-			| (RunpodRestPod & { error?: string; message?: string })
-			| null;
+			(RunpodRestPod & { error?: string; message?: string }) | null;
 		if (!res.ok) {
 			return { error: `RunPod ${res.status}: ${body?.error ?? body?.message ?? res.statusText}` };
 		}

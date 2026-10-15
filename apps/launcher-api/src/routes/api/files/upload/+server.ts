@@ -44,7 +44,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const destKey = prefix + name;
 		assertWritable(destKey, scope);
 		const bytes = new Uint8Array(await file.arrayBuffer());
-		await lockedOverlayRefusal(destKey, new TextDecoder().decode(bytes));
+		await lockedOverlayRefusal(destKey, bytes);
 		// The type comes from the extension, never the browser's `File.type`.
 		await putObjectBytes(destKey, bytes, userContentHeaders(destKey)['content-type']);
 		uploaded.push(destKey);
