@@ -90,6 +90,14 @@ const HOLD_AT = 30;
 // smaller than the first capture offset (12) never overshoots one. The hide is only a frame.
 const CUE_BATCH = 6;
 const HIDE_BATCH = 20;
+// Every spin is pressed on the same ABSOLUTE frame on both sides: the coded side presses on the next
+// multiple of this, the authored side on the frame the coded side pressed. The
+// virtual clock adds 1000/60 ms a frame, so a frame's delta differs from the next in its last bits
+// with the clock's magnitude, and whether a clip's summed deltas reach its length on its last frame
+// or one later depends on the frame it started on. Two sides that boot a few frames apart (a CI
+// runner's boot is not this machine's) would run the same walk on different deltas and hand off a
+// frame apart — under a hold's play rate, within 30 frames of the press.
+const PRESS_EVERY = 600;
 
 const log = (line) => console.log(`[win-parity] ${line}`);
 
@@ -315,7 +323,7 @@ const tolerance = toleranceFor(
 
 // ---- one side of one variant ---------------------------------------------------------------------------
 
-async function play(name, variant, side, bundle) {
+async function play(name, variant, side, bundle, pressFrames) {
 	const dir = join(out, name, side);
 	mkdirSync(dir, { recursive: true });
 	const tree = testServerTree(
@@ -430,6 +438,7 @@ async function play(name, variant, side, bundle) {
 			const rec = {
 				index,
 				tier: spin.tier,
+				pressFrame: undefined,
 				showFrame: undefined,
 				hideFrame: undefined,
 				pre: undefined,
@@ -438,6 +447,13 @@ async function play(name, variant, side, bundle) {
 				winLevel: undefined,
 			};
 			result.spins.push(rec);
+			const frame = (await state()).frame;
+			rec.pressFrame = pressFrames?.[index] ?? (Math.floor(frame / PRESS_EVERY) + 1) * PRESS_EVERY;
+			if (frame > rec.pressFrame)
+				throw new Error(
+					`spin ${index}: already on frame ${frame}, past the coded side's press on ${rec.pressFrame}`,
+				);
+			await step(rec.pressFrame - frame);
 			await space();
 			await waitFor({ idle: false }, 600);
 			let { s, before } = await stepToCue(SHOW, shows + 1, MAX_FRAMES_TO_SHOW);
@@ -516,7 +532,13 @@ for (const name of chosen) {
 	const sides = sidesOf(name, variant);
 	log(`— ${name} —`);
 	const coded = await play(name, variant, 'coded', sides.coded);
-	const authored = await play(name, variant, 'authored', sides.authored);
+	const authored = await play(
+		name,
+		variant,
+		'authored',
+		sides.authored,
+		coded.spins.map((spin) => spin.pressFrame),
+	);
 	const entry = { coded, authored, spins: [] };
 	report.variants[name] = entry;
 	if (coded.error) fail(`${name}/coded: ${coded.error}`);
@@ -540,6 +562,11 @@ for (const name of chosen) {
 			fail(`${label}: the coded side showed ${a.winLevel}, not ${spin.tier}`);
 		if (a.winLevel !== b.winLevel)
 			fail(`${label}: win levels differ (${a.winLevel} vs ${b.winLevel})`);
+		// Equal inputs: both sides pressed the spin and saw the cue on the same absolute frame.
+		if (a.pressFrame !== b.pressFrame || a.showFrame !== b.showFrame)
+			fail(
+				`${label}: the sides ran on different frames — pressed ${a.pressFrame} / ${b.pressFrame}, ${SHOW} ${a.showFrame} / ${b.showFrame} (coded / authored)`,
+			);
 		const codedSpan = a.hideFrame - a.showFrame;
 		const authoredSpan = b.hideFrame - b.showFrame;
 		// A press that never engaged passes every capture on both sides: the span says it did.

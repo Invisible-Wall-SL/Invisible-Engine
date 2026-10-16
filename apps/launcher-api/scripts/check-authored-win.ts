@@ -1299,6 +1299,27 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[true, true, true, true, false, true],
 	);
 	eq(
+		'the Win and free-spin presentations settle on identity, so a fade-in that ends on alpha 1 lands on 1 (ComponentDef.settles)',
+		[
+			C.winPresentationDef().settles,
+			C.FREE_SPIN_INTRO_PRESENTATION_DEF.settles,
+			C.FREE_SPIN_OUTRO_PRESENTATION_DEF.settles,
+		],
+		[true, true, true],
+	);
+	eq(
+		'the game tears the Win’s signals and board box down on destroy, and at once when it was destroyed before the doc loaded',
+		[
+			/const unregisterSignals = registerComponentSignals\(\s*authoredWinSignals\(/.test(load),
+			/const unregisterBoard = registerBoardBox\(/.test(load),
+			/const stop = \(\) => \{\s*unregisterSignals\(\);\s*unregisterBoard\(\);\s*\};\s*if \(destroyed\) stop\(\);\s*else stopAuthoredWin = stop;/.test(
+				load,
+			),
+			/onDestroy\(\(\) => \{[^}]*stopAuthoredWin\?\.\(\);/.test(game),
+		],
+		[true, true, true, true],
+	);
+	eq(
 		'the game retires the coded visual only when ready, and still routes the gate through resolveWinMount with basegameOverlaysHasCodedWinGate',
 		[
 			/retireCodedOverlay\('win', authoredWin\)/.test(load),

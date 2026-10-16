@@ -447,12 +447,14 @@
 	// The flow handle is built once the scenes load; a Game destroyed before that disposes it on
 	// arrival rather than leaking its listener.
 	let disposeFlowV2: (() => void) | undefined;
-	// Likewise the authored free-spin path's subscriptions and registrations (Rive plan Phase 8c).
+	// Likewise the authored Win's and free-spin path's registrations (Rive plan Phase 8b / 8c).
+	let stopAuthoredWin: (() => void) | undefined;
 	let stopAuthoredFreeSpins: (() => void) | undefined;
 	let destroyed = false;
 	onDestroy(() => {
 		destroyed = true;
 		disposeFlowV2?.();
+		stopAuthoredWin?.();
 		stopAuthoredFreeSpins?.();
 	});
 
@@ -2229,14 +2231,22 @@
 				// (`winTier.<alias>` …), `winFadeIn`, `winPlain` and `winHide`, before any instance of the
 				// swapped doc subscribes; and the board box the `boardFit` rig sizes to — the same
 				// `boardLayout()` the coded big-win rig was fitted to, read live.
-				registerComponentSignals(
+				const unregisterSignals = registerComponentSignals(
 					authoredWinSignals((run) => context.eventEmitter.subscribe({ winHide: run })),
 				);
-				registerBoardBox(() => context.stateGameDerived.boardLayout());
+				const unregisterBoard = registerBoardBox(() => context.stateGameDerived.boardLayout());
 				// The def itself, generated from the active tiers (its caption `switchKeys`), registered
 				// here and nowhere else: an unregistered id expands to nothing — the swapped instance
 				// would mount, subscribe nothing and draw nothing.
 				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
+				// The signals and the board box are torn down with the game, so a later boot (a project
+				// switch) does not read this one's; the def stays registered, inert unless placed.
+				const stop = () => {
+					unregisterSignals();
+					unregisterBoard();
+				};
+				if (destroyed) stop();
+				else stopAuthoredWin = stop;
 			}
 			// The coded free-spin visuals go dark for this boot; everything the authored path reads is
 			// registered by `startAuthoredFreeSpins` and nowhere else (a boot without the flag registers

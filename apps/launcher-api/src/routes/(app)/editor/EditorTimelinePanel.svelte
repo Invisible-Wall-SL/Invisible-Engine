@@ -24,6 +24,7 @@
 	import {
 		findActorNode,
 		fxParamRest,
+		placedFxParamValues,
 		validateNodeActors,
 		type CinematicCast,
 		type CinematicDoc,
@@ -90,6 +91,9 @@
 		/** The canvas's loaded rigs (animation names and lengths), by asset key: a rig node's clips
 		 *  for an `animation` strip. */
 		rigMeta?: Map<string, RigMeta>;
+		/** The open component's resolved preview params (empty on a screen): what a placed effect
+		 *  takes a `params.<id>` value from, so an unkeyed parameter shows the value it rests on. */
+		componentParams?: Record<string, unknown>;
 	}
 
 	let {
@@ -100,6 +104,7 @@
 		active,
 		openRequest,
 		rigMeta = new Map(),
+		componentParams = {},
 	}: Props = $props();
 
 	/** The animations a rig node can play on a strip; empty for any other node, or a rig the canvas
@@ -518,9 +523,11 @@
 		void docVersion;
 		const doc = tl?.doc();
 		const id = actorId();
+		const node = target?.ok ? target.node : undefined;
+		const placed = node && placedFxParamValues(node, componentParams, [row.param]);
 		return doc && id
-			? fxChannelValue(doc, id, row, time)
-			: (fxParamRest([row.param], row.channel) ?? 0);
+			? fxChannelValue(doc, id, row, time, placed)
+			: (fxParamRest([row.param], row.channel, placed) ?? 0);
 	}
 
 	/** Key a parameter at the playhead; an on/off one steps (`hold`), so it switches on the key. */

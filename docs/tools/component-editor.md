@@ -444,6 +444,21 @@ variables if nothing else uses it. On a screen, each placement of this component
 params in its Params, and **This game's defaults** sets them per game. **🔥 Light order** sets an
 exposed `lightAt` through its param's default. The pickers are disabled while you Inspect a version.
 
+**Expose a placed effect's parameters on this one.** Select a placed effect (an Invisible FX
+effect, inside a part too): Properties → **Effect → Parameters** lists every parameter the effect
+exposes, with a value for each. That value is the same in every placement of this component. The
+**⇡** picker beside each one works as it does for a placed component's params:
+
+- **Expose on ‹this component›** adds a param of the matching kind (a number, an on/off as a
+  boolean, a colour as a colour) at the value the effect shows now, keyed by the parameter's id
+  (`BeamAlpha`, then `BeamAlpha_2`…).
+- **Take from ‹this component›'s** lists this component's params of the matching kind.
+
+The row then shows `⇡ from ‹this component› · ‹key›`; **×** stops it and the effect uses its own
+value again. On a screen, each placement of this component sets the param under its Params (so a
+red pot and a blue pot can tint the same beam differently), and **This game's defaults** sets it
+per game.
+
 **State machine — a threshold per placement.** In Animate → **State machine**, a condition on a
 number input can compare with a fixed **value** or with one of the component's number params, shown
 as `{lightAt}`. Each placed instance then uses its own param, so one component lights at a different

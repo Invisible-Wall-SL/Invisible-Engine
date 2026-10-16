@@ -97,6 +97,9 @@
 		/** Bumped by every edit of the draft elsewhere (Properties: listeners, events): the preview's
 		 *  event dispatcher is rebuilt from the def as it now is. */
 		editVersion?: number;
+		/** The component's resolved preview params — where a blend rests a placed effect's
+		 *  parameter that it takes from the component. */
+		componentParams?: Record<string, unknown>;
 	}
 	let {
 		def,
@@ -107,6 +110,7 @@
 		onChanged,
 		onOpenTimeline,
 		editVersion = 0,
+		componentParams = {},
 	}: Props = $props();
 
 	const previewOwner = Symbol('state-machine-panel');
@@ -536,7 +540,7 @@
 			durations(),
 			(key) => params.find((p) => p.key === key)?.default,
 		);
-		player = previewPlayer(docs.values(), scene.nodes);
+		player = previewPlayer(docs.values(), scene.nodes, () => componentParams);
 		entered = false;
 		for (const [id, value] of Object.entries(previewValues)) runner.setInput(id, value);
 		apply();
@@ -608,7 +612,7 @@
 			logStart = performance.now();
 			// The entry pose was placed while stopped, its cues at 0 routed nowhere: a fresh player
 			// crosses 0 again, now with the dispatcher, then the machine starts — as in game.
-			if (scene) player = previewPlayer(docs.values(), scene.nodes);
+			if (scene) player = previewPlayer(docs.values(), scene.nodes, () => componentParams);
 			apply(true);
 			runner.fire('enter');
 		}

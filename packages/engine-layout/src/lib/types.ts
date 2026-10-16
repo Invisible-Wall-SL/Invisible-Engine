@@ -7,6 +7,7 @@
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
 import type { BootSplashRef } from 'constants-shared/bootSplash';
 import type { ParamDecl } from 'engine-flow-v2';
+import type { EffectParamValue } from 'engine-fx';
 
 import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
@@ -1056,8 +1057,10 @@ export interface AnticipationProfile {
  * The editor can't run a WebGL emitter in its 2D canvas (same as `reelGrid`/`bind`), so it draws a
  * labelled placeholder chip; the game ALWAYS mounts the real `<EffectPlayer>`.
  *
- * The effect's exposed parameters (`EffectDoc.params`) are driven from the node (Invisible FX Step
- * 2): an `fxParam` value binding, or an `fx:<id>` channel a timeline keys on it (`fxNodeParams.ts`).
+ * The effect's exposed parameters (`EffectDoc.params`) take this placement's own value
+ * ({@link EffectNode.params}, or the enclosing component's param a `params.<id>` binding names), and
+ * are driven from the node on top of it (Invisible FX Step 2): an `fxParam` value binding, or an
+ * `fx:<id>` channel a timeline keys on it (`fxNodeParams.ts`).
  */
 export interface EffectNode extends BaseNode {
 	kind: 'effect';
@@ -1073,6 +1076,14 @@ export interface EffectNode extends BaseNode {
 	 * transform. `LayoutScene` does the pairing; only top-level scene nodes participate.
 	 */
 	hostSpineId?: string;
+	/**
+	 * This placement's values for the effect's exposed parameters, by parameter id: a number, an
+	 * on/off, or a `#rrggbb` colour. A value replaces the parameter's default for this node only; an
+	 * id the effect does not declare is inert. Inside a component, `paramBindings['params.<id>']`
+	 * takes the value from a param of the enclosing component instead, so each placement of that
+	 * component sets it. A binding or a timeline driving the parameter wins over both.
+	 */
+	params?: Record<string, EffectParamValue>;
 }
 
 /**
@@ -1616,6 +1627,13 @@ export interface ComponentDef {
 	 * `buttonPresentation` sets it; never stored. Absent ⇒ none of this (parity).
 	 */
 	buttonStates?: true;
+	/**
+	 * SETTLES (built-in only): its timelines hand a keyed `rotation` that returns to 0 or `alpha`
+	 * that returns to 1 to the node as that value (`CinematicNodeDrive.settles`) — a fade-in that ends
+	 * on alpha 1 lands on 1, not on the last blended value. The authored button, Win and free-spin
+	 * presentations set it; never stored. Absent ⇒ the fold's transform as before (parity).
+	 */
+	settles?: true;
 	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A

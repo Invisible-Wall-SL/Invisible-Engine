@@ -1,10 +1,11 @@
 <script lang="ts">
 	/**
-	 * A BONE-HOSTED effect whose parameters something drives (Invisible FX Step 2). An effect node
-	 * with a `hostSpineId` rides its rig and has no `<LayoutNodeView>` of its own, so the fold that
-	 * view runs for a placed effect (`createNodeFold`) runs here instead: the node's own value
-	 * bindings, then the channels a timeline keys on it, into `<EffectPlayer params>`. Mounted only
-	 * for a driven effect; every other bone-hosted effect mounts a bare `<EffectPlayer>` as before.
+	 * A BONE-HOSTED effect whose parameters the node sets or something drives (Invisible FX Step 2).
+	 * An effect node with a `hostSpineId` rides its rig and has no `<LayoutNodeView>` of its own, so
+	 * the fold that view runs for a placed effect (`createNodeFold`) runs here instead: the node's
+	 * own values, its value bindings, then the channels a timeline keys on it, into `<EffectPlayer
+	 * params>`. Mounted only for such an effect; every other bone-hosted effect mounts a bare
+	 * `<EffectPlayer>` as before.
 	 */
 	import { EffectPlayer } from 'pixi-svelte';
 

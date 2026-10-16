@@ -144,6 +144,7 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	frameExact: true,
 	boardAnchored: true,
 	buttonStates: true,
+	settles: true,
 	events: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
