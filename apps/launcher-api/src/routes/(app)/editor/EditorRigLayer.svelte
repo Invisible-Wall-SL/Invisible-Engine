@@ -55,6 +55,13 @@
 		type RigSceneRenderer,
 		type RigSkeleton,
 	} from './rigRuntime.client';
+	import {
+		acquireRigGl,
+		beginRigFrame,
+		presentRigFrame,
+		releaseRigGl,
+		type SharedRigGl,
+	} from './sharedGl.client';
 	import { applyRigBoneOffset } from 'pixi-svelte/rigBoneOffset';
 	import {
 		previewAnimTime,
@@ -319,7 +326,10 @@
 		return null;
 	}
 
+	/** This layer's own 2D canvas: each frame is drawn through the editor's shared rig context and
+	 * copied in here (see `sharedGl.client.ts` — one context per layer blanked the editor white). */
 	let canvas: HTMLCanvasElement | null = $state(null);
+	let shared: SharedRigGl | null = null;
 	let gl: WebGLRenderingContext | null = null;
 	let renderer: RigSceneRenderer | null = null;
 	let raf = 0;
@@ -360,12 +370,22 @@
 	});
 
 	function ensureGl(): boolean {
-		if (gl && renderer) return true;
-		if (!canvas) return false;
-		const ctx = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true });
-		if (!ctx) return false;
-		gl = ctx;
+		if (gl) return true;
+		shared = acquireRigGl();
+		if (!shared) return false;
+		gl = shared.gl;
 		return true;
+	}
+
+	/** The shared context was lost (a GPU reset): forget everything made on it, so the next frame
+	 * reloads every rig onto a fresh one. */
+	function dropGl(): void {
+		entries.clear();
+		renderer = null;
+		if (shared) releaseRigGl(shared);
+		shared = null;
+		gl = null;
+		publishReady();
 	}
 
 	/** Build the shared SceneRenderer lazily once a runtime is loaded (the first
@@ -387,13 +407,20 @@
 			settle();
 			return;
 		}
+		const loadGl = gl;
 		try {
-			const instance = await loadRigInstance(assetKey, gl, reloadToken);
+			const instance = await loadRigInstance(assetKey, loadGl, reloadToken);
+			if (gl !== loadGl) {
+				// Unmounted or the context was lost mid-load. The context is shared, so textures left
+				// on it would outlive this layer.
+				if (instance) disposeRigInstance(instance);
+				return;
+			}
 			if (!instance) {
 				entries.set(assetKey, { state: 'error' });
 				return;
 			}
-			if (!renderer && canvas && gl) renderer = createSceneRenderer(canvas, gl);
+			if (!renderer && shared) renderer = createSceneRenderer(shared.canvas, loadGl);
 			entries.set(assetKey, {
 				state: 'ready',
 				instance,
@@ -402,7 +429,7 @@
 				bounds: measureRigBounds(instance),
 			});
 		} catch {
-			entries.set(assetKey, { state: 'error' });
+			if (gl === loadGl) entries.set(assetKey, { state: 'error' });
 		} finally {
 			settle();
 			publishReady();
@@ -1135,14 +1162,19 @@
 		const delta = lastTime ? (now - lastTime) / 1000 : 0;
 		lastTime = now;
 
+		if (gl?.isContextLost()) dropGl();
 		const targets = rigTargets();
 		// Kick off loads for any newly-referenced bundles.
 		for (const tg of targets) if (!entries.has(tg.assetKey)) void ensureInstance(tg.assetKey);
 
-		if (!gl) {
-			// No nodes have triggered GL yet — nothing to clear.
-			return;
-		}
+		const width = canvas.width;
+		const height = canvas.height;
+		const sharedGl = shared;
+		// No nodes have triggered GL yet, or this side of the editor is hidden — nothing to draw.
+		if (!gl || !sharedGl || width === 0 || height === 0) return;
+		const target2d = canvas.getContext('2d');
+		if (!target2d) return;
+		beginRigFrame(sharedGl, width, height);
 		// A full-screen-dim overlay (free-spin intro/outro) clears this canvas to
 		// translucent black instead of fully transparent: that scrim composites over every
 		// earlier scene group beneath this layer (board + rig background), while the
@@ -1151,7 +1183,10 @@
 		const scrim = scrimAlpha();
 		gl.clearColor(0, 0, 0, scrim);
 		gl.clear(gl.COLOR_BUFFER_BIT);
-		if (!renderer) return;
+		if (!renderer) {
+			presentRigFrame(sharedGl, target2d, width, height);
+			return;
+		}
 
 		const dpr = window.devicePixelRatio || 1;
 		const cam = renderer.camera;
@@ -1172,7 +1207,6 @@
 		cam.position.y = (canvas.height / 2) * camZoom;
 		cam.position.z = 0;
 		cam.update();
-		gl.viewport(0, 0, canvas.width, canvas.height);
 
 		// Bone-ridden stand-in symbols published THIS frame — reconciled against `myRiderKeys`
 		// after the loop so a removed/hidden reveal (or a cleared bone) drops from the shared map.
@@ -1372,6 +1406,7 @@
 			}
 			for (const restore of poseRestores) restore();
 		}
+		presentRigFrame(sharedGl, target2d, width, height);
 
 		// Reconcile the shared rider map: drop entries THIS layer published before but no longer
 		// does (reveal removed/hidden, bone cleared, or rig not ready), leaving other layers' keys.
@@ -1567,11 +1602,10 @@
 				/* context teardown */
 			}
 			renderer = null;
-			// Force-free the GPU context: with one context per rig-bearing scene and
-			// groups churning on every eye-toggle/screen reorder, browsers cap live WebGL
-			// contexts (~8–16) and silently drop the oldest → blank previews. Only here
-			// (real unmount), NOT the reload-token path (that keeps the same context).
-			gl?.getExtension('WEBGL_lose_context')?.loseContext();
+			// The context is shared: what this layer made on it is freed above, the context only
+			// with its last user. Clearing `gl` also tells a load still in flight to dispose its own.
+			if (shared) releaseRigGl(shared);
+			shared = null;
 			gl = null;
 		};
 	});

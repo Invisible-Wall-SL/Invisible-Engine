@@ -203,6 +203,7 @@
 		"check:deployed-page": "node --experimental-strip-types scripts/check-deployed-page.mjs",
 		"check:builtin-rigs": "tsx scripts/check-builtin-rigs.mjs",
 		"check:event-bound-flags": "node scripts/check-event-bound-flags.mjs",
+		"check:editor-gl-contexts": "node scripts/check-editor-gl-contexts.mjs",
 		"r2:sync-rigs": "node scripts/r2-sync-rigs.mjs",
 		"pull:assets": "node scripts/pull-project-assets.mjs"
 	},

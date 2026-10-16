@@ -1893,7 +1893,7 @@
 
 	/** Does a scene carry a rig render target (a real rig node, a `bind` anchor whose
 	 * resolved preview art is a rig, or a reel BOARD whose symbols bind rig art)? Only
-	 * such scenes mount a (WebGL) rig sublayer in their group, so contexts stay bounded. */
+	 * such scenes mount a rig sublayer in their group, so no group draws an empty one. */
 	function sceneHasRig(s: { nodes: LayoutNode[] }): boolean {
 		return nodesHaveRig(s.nodes, 0, [], undefined, componentParams);
 	}
@@ -1973,8 +1973,8 @@
 	}
 
 	/** Does a scene carry a placed `kind:'effect'` node ANYWHERE in its tree (incl. nested in a
-	 * container / component instance)? Only such scenes mount the (WebGL) effect sublayer, so Pixi
-	 * contexts stay bounded — mirroring `sceneHasRig`. */
+	 * container / component instance)? Only such scenes mount the effect sublayer — mirroring
+	 * `sceneHasRig`. */
 	function sceneHasEffect(s: { nodes: LayoutNode[] }): boolean {
 		return nodesHaveEffect(s.nodes, 0, []);
 	}
@@ -2158,9 +2158,9 @@
 	 * each non-normal mode gets ONE extra layer. Unlike the 2D runs this collapses to one layer per
 	 * MODE rather than per run, because inside one depth segment the overlays sit in a fixed stack
 	 * above the 2D art (2D → rig → text → FX); the order BETWEEN segments is what keeps an FX under
-	 * later art (see {@link depthSegments}). That also keeps the WebGL context count bounded: a
-	 * segment adds a context per distinct blend mode it uses, and blending is opt-in, so the common
-	 * scene adds none.
+	 * later art (see {@link depthSegments}). A segment adds a layer per distinct blend mode it uses,
+	 * and blending is opt-in, so the common scene adds none. (Every overlay draws through the
+	 * editor's shared contexts — `sharedGl.client.ts` — so layers cost canvases, not contexts.)
 	 */
 	interface BlendOverlayGroup {
 		/** Synthetic merge/report key — `forgetScene` purges these alongside the scene. */
@@ -5175,8 +5175,9 @@
 	     (bottom→top) its own 2D canvas, then its rig sublayer, then its text sublayer.
 	     `z-index = scene index` makes a LATER scene's whole group sit above an EARLIER
 	     scene's whole group — so a Background rig renders below the base-game 2D. The
-	     rig/text sublayers are filtered to the one scene + mounted only when present
-	     (keeps WebGL/pixi contexts bounded). -->
+	     rig/text sublayers are filtered to the one scene + mounted only when present. They
+	     draw through two shared WebGL contexts (`sharedGl.client.ts`), never one each: past
+	     the browser's ~16 live contexts the oldest is dropped and paints white. -->
 	{#each visibleGameScenes() as s (s.id)}
 		{@const segs = depthSegments(s, componentMap)}
 		{@const scrimKey = scrimSegmentKey(segs)}
@@ -5311,8 +5312,8 @@
 
 				     No blended RIG layer: a Pixi blend cannot reach skeleton geometry (see
 				     `canBlendKind`), so `nodeBlendMode` resolves every rig to `normal` and such a
-				     layer could only ever be empty — while still costing a WebGL context, which the
-				     shared-canvas budget cannot spare. -->
+				     layer could only ever be empty — while still costing a canvas and a draw every
+				     frame. -->
 				{#each blendOverlayGroups(seg) as g (g.key)}
 					{#if sceneHasEffect(seg)}
 						<EditorEffectLayer
