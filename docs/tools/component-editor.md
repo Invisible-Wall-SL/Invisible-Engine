@@ -426,6 +426,24 @@ project; drag one onto the canvas to place an instance of it (at the component's
 part you are editing). A component that holds the open one, directly or through another, is left
 out, since that would loop. The game draws nesting two components deep.
 
+**Expose a placed component's params on this one.** Select a placed component: Properties →
+**Component instance → Params** lists its params, and the values you set there belong to this
+component, the same in every placement of it. To set one per placement instead, use the **⇡**
+picker beside the param:
+
+- **Expose on ‹this component› (new param ‹key›)** adds a param of the same kind to this component
+  (it shows under Component variables). Its default is the value the piece shows now. The key is
+  the piece's own (`lightAt`), or `lightAt_2`, `lightAt_3`… when that is taken, so five pieces get
+  five params.
+- **Take from ‹this component›'s** lists this component's params of the same kind: pick one to
+  make several pieces share it, such as one `pieceArt` for every firecracker.
+
+The row then shows `⇡ from ‹this component› · ‹key›` in place of its value. **×** stops it, and the
+piece uses its own value again. The param stays on this component; remove it under Component
+variables if nothing else uses it. On a screen, each placement of this component lists the exposed
+params in its Params, and **This game's defaults** sets them per game. **🔥 Light order** sets an
+exposed `lightAt` through its param's default. The pickers are disabled while you Inspect a version.
+
 **State machine — a threshold per placement.** In Animate → **State machine**, a condition on a
 number input can compare with a fixed **value** or with one of the component's number params, shown
 as `{lightAt}`. Each placed instance then uses its own param, so one component lights at a different

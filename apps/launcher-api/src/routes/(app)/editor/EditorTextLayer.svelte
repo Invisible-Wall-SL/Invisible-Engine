@@ -3,6 +3,7 @@
 		defaultHudText,
 		findFont,
 		getHudTextOverride,
+		forwardInstanceParams,
 		resolveBoundValue,
 		resolveComponentParams,
 		resolveLayoutInstanceParams,
@@ -429,10 +430,11 @@
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				// Resolve THIS instance's params (def defaults ◁ per-project defaults ◁ instance
 				// overrides, with the active layoutType's per-ratio param override merged onto the
-				// base) — the same three layers `drawComponentInstance` + the runtime resolve.
+				// base, and the params it forwards from the enclosing instance on top) — the same
+				// layers `drawComponentInstance` + the runtime resolve.
 				const instanceParams = resolveComponentParams(
 					def,
-					resolveLayoutInstanceParams(n, layoutType),
+					forwardInstanceParams(n, resolveLayoutInstanceParams(n, layoutType), params),
 					componentDefaults[def.id],
 				);
 				collectTextTargets(def.root.children, sc, out, nextChain, instanceParams, depth + 1, [

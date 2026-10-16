@@ -77,10 +77,19 @@ is set from its height: with N heights the lowest lights at 1/N, the next at 2/N
 coin head) at 1. Pieces at the same height light together. Edit any single `lightAt` afterwards to
 tune it. **Save**.
 
+**Do (optional), to tune each pot on its own screen:** select a piece and, in Properties →
+Component instance → Params, pick **⇡ → Expose on ‹your pot›** beside `lightAt`. Do it for every
+piece: the pot gains `lightAt`, `lightAt_2`, … (Component variables), each defaulting to that piece's
+threshold, and the piece rows read `⇡ from ‹your pot›`. **🔥 Light order** now numbers those params'
+defaults. To give several pieces one shared value (one art param for every firecracker, say), expose
+it on the first piece and pick it under **Take from ‹your pot›'s** on the others. **Save**.
+
 **Do:** in the Scene Editor, on the **Pots** screen, select each pot and switch its **component** to
 yours. It keeps its position and its **meter**.
 
-**Done when:** each placed piece shows its own `lightAt` in Properties.
+**Done when:** each placed piece shows its own `lightAt` in Properties. If you exposed them, each pot
+on the Pots screen lists `lightAt`, `lightAt_2`, … in its Params, and changing one there moves only
+that pot's piece.
 
 ## 4. More FX on the full pot
 
@@ -100,3 +109,6 @@ Two hooks, pick what fits:
 - A number condition may name a **param** (`SmCondition.param`) instead of a value. One def, one state
   machine, a different threshold per placement.
 - A `{key}` in an input's source reads the placed piece's own params first, then the pot's.
+- An exposed param is a forward: the piece's `paramBindings['params.lightAt'] = 'lightAt_2'` gives
+  its `lightAt` the pot placement's `lightAt_2`, so the threshold the state machine compares against
+  comes from the pot.

@@ -10,6 +10,7 @@
 		withTimelineScrub,
 		computeOverlayPlacement,
 		coverTransform,
+		forwardInstanceParams,
 		instancePreviewRigBundle,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
@@ -148,6 +149,9 @@
 		 * from this project's defaults renders the right bundle. Empty (the default) ⇒ every
 		 * resolve passes `undefined` — parity. */
 		componentDefaults?: Record<string, Record<string, unknown>>;
+		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
+		 * what an instance placed at the top level of that component forwards params from. */
+		componentParams?: Record<string, unknown>;
 		/** Frames a TOP-LEVEL node into canvas-world coords (the 2D canvas's `nodeTransform`),
 		 * so a nested rig's world transform composes from its ancestor chain identically to
 		 * the 2D canvas + text overlay + game runtime. */
@@ -211,6 +215,7 @@
 		activeSceneId = null,
 		componentMap = new Map<string, ComponentDef>(),
 		componentDefaults = {},
+		componentParams = {},
 		nodeFilter = null,
 		depthSlice = null,
 		blend = 'normal',
@@ -615,7 +620,11 @@
 				} else if (n.kind === 'componentInstance') {
 					const def = componentMap.get(n.componentId);
 					if (def) {
-						const params = resolveComponentParams(def, n.params, componentDefaults[def.id]);
+						const params = resolveComponentParams(
+							def,
+							forwardInstanceParams(n, n.params, componentParams),
+							componentDefaults[def.id],
+						);
 						// EDITOR-PREVIEW ONLY: when the author is focusing a rig param on THIS instance,
 						// show the focused tier's bundle + animation instead of the default preview bundle
 						// (see `rigPreview`). Only this instance is affected; every other renders normally.
@@ -720,7 +729,11 @@
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				const params = resolveComponentParams(def, n.params, componentDefaults[def.id]);
+				const params = resolveComponentParams(
+					def,
+					forwardInstanceParams(n, n.params, instanceParams ?? componentParams),
+					componentDefaults[def.id],
+				);
 				const rigBundle = instancePreviewRigBundle(def, params);
 				collectNestedRigs(
 					def.root.children,
