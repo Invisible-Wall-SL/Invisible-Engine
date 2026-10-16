@@ -862,8 +862,7 @@ owner's browser check.** The Game Maker card names each when on.
   wipe ends) instead of the coded Transition mount it replaces. The card says _Authored Transition
   (pilot)_, and warns when it is on but no scene binds the coded Transition it would replace (the
   reference overlays scene has that node).
-- **Win** — the game renders
-  the big-win presentation (the tier rig and its per-tier clips, the
+- **Win** — the game renders the big-win presentation (the tier rig and its per-tier clips, the
   count riding the rig's count slot, the caption, the plain small/medium number, the fade) from
   the built-in **Win presentation** component and per-tier timelines generated at boot from the
   game's active big tiers, instead of the coded `WinVisual`; the coded gate keeps the count-up,

@@ -570,7 +570,7 @@ for (const name of chosen) {
 			const ceiling = spin.accepted?.[offset];
 			if (!cmp.pass && ceiling !== undefined && cmp.diffRatio <= ceiling) {
 				cmp.pass = true;
-				cmp.reason = `accepted fade-out residue (≤ ${(ceiling * 100).toFixed(2)}%, owner 2026-10-15)`;
+				cmp.reason = `accepted fade-out residue (≤ ${(ceiling * 100).toFixed(2)}%, owner 2026-10-15)${cmp.reason ? `; ${cmp.reason}` : ''}`;
 			}
 			if (cmp.diffPng) writeFileSync(join(out, name, `diff-spin${i}-t+${offset}.png`), cmp.diffPng);
 			row.frames.push({
