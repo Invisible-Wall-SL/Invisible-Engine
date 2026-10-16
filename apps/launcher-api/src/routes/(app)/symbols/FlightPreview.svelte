@@ -13,9 +13,9 @@
 	 * glow; the head is the coded glow (re-tinted) or the authored art — or, for a pots token, the
 	 * token itself, which replaces any head in the game too — at the kind's `size`, moved along the
 	 * route with the "+N" label it carries. The head's pose is the game's (`flightHeadPose`): the art
-	 * turns to the heading when the kind follows the curve, and everything at the head — the token
-	 * too, which never turns — takes the perspective of its `depth`. The arrival effect plays at B as
-	 * the head lands, on a second `FxStage` that stays mounted and is re-armed each loop.
+	 * or the token turns to the heading when the kind follows the curve, and everything at the head
+	 * takes the perspective of its `depth`. The arrival effect plays at B as the head lands, on a
+	 * second `FxStage` that stays mounted and is re-armed each loop.
 	 */
 	import { emitterSecondsToWallMs, type EffectDoc } from 'engine-fx';
 	import {
@@ -291,12 +291,11 @@
 			if (flying !== inFlight) flying = inFlight;
 			if (artEl) {
 				artEl.style.opacity = inFlight ? '1' : '0';
-				const at = `translate(${W / 2 + p.x - headSize / 2}px, ${H / 2 + p.y - headSize / 2}px)`;
-				artEl.style.transform = token
-					? `${at} scale(${pose.scale})`
-					: `${at} rotate(${pose.rotation}rad) ` +
-						`scale(${pose.scale * pose.stretch}, ${pose.scale * pose.flip}) ` +
-						`rotate(${pose.artRotation}rad)`;
+				artEl.style.transform =
+					`translate(${W / 2 + p.x - headSize / 2}px, ${H / 2 + p.y - headSize / 2}px) ` +
+					`rotate(${pose.rotation}rad) ` +
+					`scale(${pose.scale * pose.stretch}, ${pose.scale * pose.flip}) ` +
+					`rotate(${pose.artRotation}rad)`;
 			}
 			draw(now, inFlight);
 			frame = requestAnimationFrame(loop);
@@ -415,7 +414,7 @@
 			· no trail{:else if !style.trail}
 			· coded trail (approximation){:else if !trailDoc}
 			· loading the trail effect…{/if} · head: {headLabel}{#if style.size !== 1}
-			× {style.size}{/if}{#if artHead && !token && style.headAlign !== 'off'}
+			× {style.size}{/if}{#if artHead && style.headAlign !== 'off'}
 			· follows the curve{/if}{#if style.depth}
 			· 3D depth {style.depth}{/if}{#if arrivalEffectId && !arrivalDoc}
 			· loading the arrival effect…{/if}
