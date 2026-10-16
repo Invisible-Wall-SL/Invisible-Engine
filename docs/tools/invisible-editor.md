@@ -962,6 +962,15 @@ plays the result in the game. A component has its own Animate mode on the Compon
    **Wait for it to finish** to hold the flow until the intro ends. If the timeline names a node the
    screen no longer has, the node shows a ⚠ warning under the picker. Publish as usual: timelines
    ship with the game like cinematics.
+   - **Show the screen first, then play its timeline**: Show `<screen>` → playCinematic. The
+     timeline then moves the screen the Show put up, which holds the last frame until it is hidden.
+     For an intro that waits for a tap, follow it with a Show of the same screen with **Hold until
+     this screen completes (tap)** ticked. A timeline played while its screen is not shown draws
+     its own copy of the screen instead, and that copy is not framed like the screen. Starting the
+     timeline re-opens the shown screen, so set a component's inputs on it after the play, not
+     between the Show and the play.
+   - **A timeline reaches the game only once it keys a node and is saved.** One that never did
+     (or was deleted) is skipped: the flow carries on, and the browser console says which.
 
 How keys behave:
 

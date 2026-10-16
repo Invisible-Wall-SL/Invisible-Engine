@@ -2875,6 +2875,7 @@
 		<FlowV2Mount
 			containers={flowV2Containers.filter((c) => c.id !== basegameScreenId)}
 			resolveScene={flowV2ResolveScene}
+			screenDrive={flowV2Handle?.screenDrive}
 		/>
 	{/if}
 
@@ -2893,7 +2894,11 @@
 		Above the board (a cinematic is a takeover) but below the debug stage. Renders nothing when
 		no v2 flow, no cinematic node, or no shipped cinematic (parity).
 	-->
-	<FlowV2Cinematics flow={flowV2Handle} />
+	<FlowV2Cinematics
+		flow={flowV2Handle}
+		onStage={(sceneId) =>
+			!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle?.sceneShown(sceneId)}
+	/>
 
 	<DebugStage />
 
