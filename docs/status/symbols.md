@@ -157,14 +157,17 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
-- 2026-10-16 — **Flights: a fast-slow-fast ease.** `flights.<kind>.ease` takes `easeOutIn` (label
-  "Fast-slow-fast"): cubic ease out-in, halfway at mid-flight with zero speed there and as fast at
-  the end as at the start. One entry in `engine-layout` `FLIGHT_EASES` + its curve in `flightPath.ts`
-  `EASES`, so the `/symbols` dropdown, the save schema (`z.enum(FLIGHT_EASES)`), the preview and the
-  game (`flightEaseOf`) all take it. Made for 3D depth: the head's pose runs on the eased t, so it
-  hangs where the depth peaks. An older runtime drops the unknown value on read and flies the coded
-  ease (`check:doc-readers-unknown-fields`). `flightStyle` fixture (+ the curve's shape) and
-  `check:flights` (round-trips it). Runtime release on merge.
+- 2026-10-16 — **Flights: a fast-slow-fast ease with a Slowdown.** `flights.<kind>.ease` takes
+  `easeOutIn` (label "Fast-slow-fast"), and `flights.<kind>.slowdown` (0…1, resolved exact →
+  `toMeter` family → 0.6) sets how much it slows: the curve is `(1 − s)·t + s·cubicOutIn(t)`, so
+  its speed is `1 − s` of the average at mid-flight and `1 + 2s` as it leaves and lands (1 = the
+  full cubic, a stop at mid-flight; 0 = linear). Other eases ignore it. `flightEaseOf` now takes
+  `{ ease, slowdown }` (the resolved style, or the game's `ActiveFlight`, which carries both). The
+  Slowdown input sits beside Ease in `/symbols` → Flights, shown while the kind flies
+  Fast-slow-fast or once authored. Made for 3D depth: the head's pose runs on the eased t, so it
+  lingers where the depth peaks. An older runtime drops the unknown ease on read and flies the coded
+  one (`check:doc-readers-unknown-fields`). `flightStyle` fixture (the curve's speeds, clamp,
+  family fallback) and `check:flights` (round-trips both). Runtime release on merge.
 
 - 2026-10-15 — **Flights: the head can follow the curve, and fly with 3D depth.**
   `flights.<kind>.headAlign` (`off` / `follow` / `upright`), `headRotation` (degrees, −180…180) and

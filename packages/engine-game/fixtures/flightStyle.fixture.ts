@@ -23,6 +23,7 @@ import {
 	isFlightKey,
 	normalizeFlights,
 	resolveFlightStyle,
+	type FlightEase,
 	type FlightsConfig,
 } from '../../engine-layout/src/lib/flightStyle.ts';
 
@@ -49,6 +50,7 @@ const CODED = {
 	minMs: 350,
 	maxMs: 900,
 	ease: 'easeInOut',
+	slowdown: 0.6,
 	stagger: 70,
 	size: 1,
 	trailAlign: false,
@@ -66,6 +68,7 @@ it('the coded numbers are the ones flyTo used before the block existed', FLIGHT_
 	maxMs: 900,
 	stagger: 70,
 	ease: 'easeInOut',
+	slowdown: 0.6,
 	size: 1,
 	trailAlign: false,
 	trailRotation: 0,
@@ -102,6 +105,7 @@ it(
 		minMs: 350,
 		maxMs: 900,
 		ease: 'linear',
+		slowdown: 0.6,
 		stagger: 70,
 		size: 1,
 		trailAlign: false,
@@ -417,14 +421,16 @@ it(
 		[16, false],
 	);
 }
-it('the coded ease is the coded curve', flightEaseOf('easeInOut'), flightEase);
+const easeOf = (ease: FlightEase, slowdown: number = FLIGHT_DEFAULTS.slowdown) =>
+	flightEaseOf({ ease, slowdown });
+it('the coded ease is the coded curve', easeOf('easeInOut') === flightEase, true);
 it(
 	'every ease runs 0 → 1 and clamps',
 	(['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutIn'] as const).map((ease) => [
-		flightEaseOf(ease)(-1),
-		flightEaseOf(ease)(0),
-		flightEaseOf(ease)(1),
-		flightEaseOf(ease)(2),
+		easeOf(ease)(-1),
+		easeOf(ease)(0),
+		easeOf(ease)(1),
+		easeOf(ease)(2),
 	]),
 	[
 		[0, 0, 1, 1],
@@ -436,18 +442,55 @@ it(
 );
 it(
 	'ease in starts slow, ease out starts fast',
-	[flightEaseOf('easeIn')(0.25) < 0.25, flightEaseOf('easeOut')(0.25) > 0.25],
+	[easeOf('easeIn')(0.25) < 0.25, easeOf('easeOut')(0.25) > 0.25],
 	[true, true],
 );
 {
-	const outIn = flightEaseOf('easeOutIn');
-	const speed = (t: number): number => (outIn(t + 0.001) - outIn(t - 0.001)) / 0.002;
+	const round = (n: number): number => Math.round(n * 1000) / 1000;
+	const speedAt = (ease: (t: number) => number, t: number): number =>
+		t === 0 ? ease(1e-6) / 1e-6 : (ease(t + 1e-3) - ease(t - 1e-3)) / 2e-3;
+	const outIn = easeOf('easeOutIn');
 	it(
-		'ease out-in is fast, slow, fast — halfway at mid-flight, slowest there',
-		[outIn(0.25) > 0.25, outIn(0.5), outIn(0.75) < 0.75, speed(0.1) > speed(0.5) * 10],
-		[true, 0.5, true, true],
+		'ease out-in is fast, slow, fast — halfway at mid-flight',
+		[outIn(0.25) > 0.25, outIn(0.5), outIn(0.75) < 0.75],
+		[true, 0.5, true],
 	);
-	it('…and as fast at the end as at the start', Math.abs(speed(0.1) - speed(0.9)) < 1e-6, true);
+	it(
+		'…and as fast at the end as at the start',
+		Math.abs(speedAt(outIn, 0.1) - speedAt(outIn, 0.9)) < 1e-6,
+		true,
+	);
+	it(
+		'slowdown sets its speed at mid-flight — 1 − slowdown of the average (1 stops it)',
+		[1, FLIGHT_DEFAULTS.slowdown, 0].map((s) => round(speedAt(easeOf('easeOutIn', s), 0.5))),
+		[0, 0.4, 1],
+	);
+	it(
+		'…and 1 + 2·slowdown of the average as it leaves',
+		[1, FLIGHT_DEFAULTS.slowdown, 0].map((s) => round(speedAt(easeOf('easeOutIn', s), 0))),
+		[3, 2.2, 1],
+	);
+	it(
+		'slowdown 0 flies at a steady speed',
+		[0.1, 0.3, 0.7].map(easeOf('easeOutIn', 0)),
+		[0.1, 0.3, 0.7],
+	);
+	it(
+		'the other eases ignore slowdown',
+		(['linear', 'easeIn', 'easeOut', 'easeInOut'] as const).every(
+			(ease) => easeOf(ease, 0)(0.3) === easeOf(ease, 1)(0.3),
+		),
+		true,
+	);
+	it(
+		'slowdown is clamped to 0…1 and falls back through the meter family',
+		[
+			resolveFlightStyle({ toTotal: { slowdown: 3 } }, 'toTotal').slowdown,
+			resolveFlightStyle({ toTotal: { slowdown: -1 } }, 'toTotal').slowdown,
+			resolveFlightStyle({ toMeter: { slowdown: 0.2 } }, 'toMeter:gold').slowdown,
+		],
+		[1, 0, 0.2],
+	);
 }
 
 it('no authored bend ⇒ the coded ladder', flightBendStrengths(undefined), FLIGHT_BEND_STRENGTHS);

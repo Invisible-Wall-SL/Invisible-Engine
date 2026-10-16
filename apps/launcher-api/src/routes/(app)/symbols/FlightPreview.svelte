@@ -89,7 +89,7 @@
 	);
 	const route = $derived(planFlight(start, end, flightPlanOptions(style, CELL, winRects)));
 	const durationMs = $derived(flightDuration(route.length, style));
-	const ease = $derived(flightEaseOf(style.ease));
+	const ease = $derived(flightEaseOf(style));
 
 	const trailEffectId = $derived(
 		style.trail && 'effectId' in style.trail ? style.trail.effectId : undefined,

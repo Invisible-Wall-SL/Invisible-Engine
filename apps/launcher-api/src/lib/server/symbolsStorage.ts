@@ -757,6 +757,7 @@ const flightStyleSchema = z
 		minMs: z.number().optional(),
 		maxMs: z.number().optional(),
 		ease: z.enum(FLIGHT_EASES).optional(),
+		slowdown: z.number().optional(),
 		stagger: z.number().optional(),
 	})
 	.strict();

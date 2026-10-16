@@ -154,6 +154,9 @@ export type FlightStyle = {
 	minMs?: number;
 	maxMs?: number;
 	ease?: FlightEase;
+	/** How far an `easeOutIn` flight slows at mid-flight (0…1): 0 keeps a steady speed, 1 stops it
+	 *  for an instant. Other eases ignore it. */
+	slowdown?: number;
 	/** Ms between two flights of a volley. */
 	stagger?: number;
 };
@@ -168,6 +171,7 @@ export const FLIGHT_DEFAULTS = {
 	maxMs: 900,
 	stagger: 70,
 	ease: 'easeInOut' as FlightEase,
+	slowdown: 0.6,
 	size: 1,
 	trailAlign: false,
 	trailRotation: 0,
@@ -194,6 +198,7 @@ export const FLIGHT_LIMITS = {
 	trailRotation: { min: -180, max: 180 },
 	headRotation: { min: -180, max: 180 },
 	depth: { min: -1, max: 1 },
+	slowdown: { min: 0, max: 1 },
 } as const;
 
 /** What a flight flies with once the authored block and the coded default are merged. */
@@ -222,6 +227,7 @@ export type ResolvedFlightStyle = {
 	minMs: number;
 	maxMs: number;
 	ease: FlightEase;
+	slowdown: number;
 	stagger: number;
 };
 
@@ -306,6 +312,7 @@ export function normalizeFlightStyle(raw: unknown): FlightStyle | undefined {
 	if (finite(raw.minMs)) style.minMs = Math.round(clamp(raw.minMs, FLIGHT_LIMITS.ms));
 	if (finite(raw.maxMs)) style.maxMs = Math.round(clamp(raw.maxMs, FLIGHT_LIMITS.ms));
 	if ((FLIGHT_EASES as readonly unknown[]).includes(raw.ease)) style.ease = raw.ease as FlightEase;
+	if (finite(raw.slowdown)) style.slowdown = clamp(raw.slowdown, FLIGHT_LIMITS.slowdown);
 	if (finite(raw.stagger)) style.stagger = Math.round(clamp(raw.stagger, FLIGHT_LIMITS.stagger));
 	return Object.keys(style).length ? style : undefined;
 }
@@ -355,6 +362,7 @@ export function resolveFlightStyle(
 		minMs: pick((s) => s.minMs) ?? FLIGHT_DEFAULTS.minMs,
 		maxMs: pick((s) => s.maxMs) ?? FLIGHT_DEFAULTS.maxMs,
 		ease: pick((s) => s.ease) ?? FLIGHT_DEFAULTS.ease,
+		slowdown: pick((s) => s.slowdown) ?? FLIGHT_DEFAULTS.slowdown,
 		stagger: pick((s) => s.stagger) ?? FLIGHT_DEFAULTS.stagger,
 		size: pick((s) => s.size) ?? FLIGHT_DEFAULTS.size,
 		trailAlign: pick((s) => s.trailAlign) ?? FLIGHT_DEFAULTS.trailAlign,
