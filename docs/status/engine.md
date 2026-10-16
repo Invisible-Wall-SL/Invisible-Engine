@@ -265,6 +265,26 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-16 — **Rig regions read clockwise packing (`rotate:270`).** Why a build had grown: the
+  owner measured the Book of Borut remake's optimized build at 72.3 MB against "below 40 MB" before.
+  Measured live (headless Chromium over CDP, Web Worker fetches included — DevTools counts them as
+  _transferred_ but not as _resources_, the 72 / 18 MB split): 49.3 MB of texture pages, 14.8 MB of the
+  stock sample game's assets, 3.6 MB of music. The art did not grow: desktop launcher v1.0.56 stopped
+  🗜 Optimize re-encoding server pages as lossy q80 (it banded the art), which alone accounts for the
+  jump (today's pages at q80: 48.4 → 13.4 MB). The waste underneath is rig pages: 36.9 MB of the
+  48.4 MB, each a LOSSLESS copy of the lossy sheet page it was made from with the rotated regions turned
+  180° (`reorientRotatedRegionsForRig`), downloaded beside that sheet page as a second texture; pixel
+  check on R_Board and R_Cinematic2: visible pixels identical outside the turned regions. The turn
+  existed because the reference runtime read a quarter turn on a plain region only as counter-clockwise
+  while our packers rotate clockwise. `engine-rig` now reads `rotate:270` on a region attachment
+  (`attachments.ts`; meshes already did) and swaps the packed size for it (`atlas.ts`). Existing atlases
+  say 90 or nothing, so nothing that loads today changes. The launcher half (the export ships the sheet
+  page with `rotate:270`, ~−33 MB on the remake) is a separate PR that must merge after this release is
+  live, so a runtime rollback can never meet a 270 atlas. `clockwiseRegions.fixture.ts` proves both
+  representations sample the same texels for every region corner and mesh vertex, trimmed and not
+  (worst offset 0.0002 px, float32), and fails without the change; the Rig Viewer bundle is rebuilt;
+  the 90 rig checks in `check:all` pass; `tools/rig-parity/parity.mjs` passes 80,565 checks, its 2
+  failures (the `hash`/`version` header of two storybook rigs) identical on `main`.
 - 2026-10-15 — **The authored free-spin intro / outro: the pre-unlock follow-up (Rive plan Phase
   8c, #1235; plan [§13.7.9](../design/rive-style-editor.md)).** The lock stays on: lifting it is
   the owner's call. #1234 carries the advisory `freespin-parity.yml` on its own, because the

@@ -77,7 +77,7 @@ const pagePoints = (uvs: ArrayLike<number>): [number, number][] => {
 	return out;
 };
 
-const regionUvs = (atlas: TextureAtlas, name: string): Float32Array => {
+const regionUvs = (atlas: TextureAtlas, name: string): ArrayLike<number> => {
 	const region = atlas.findRegion(name);
 	if (!region) throw new Error(`no region ${name}`);
 	const a = new RegionAttachment(name, name);
@@ -99,7 +99,7 @@ const MESH_UVS = (() => {
 	return new Float32Array(pts);
 })();
 
-const meshUvs = (atlas: TextureAtlas, name: string): Float32Array => {
+const meshUvs = (atlas: TextureAtlas, name: string): ArrayLike<number> => {
 	const region = atlas.findRegion(name);
 	if (!region) throw new Error(`no region ${name}`);
 	const m = new MeshAttachment(name, name);
@@ -147,10 +147,40 @@ prove('untrimmed regions (the live R_Cinematic2 page)', [
 // Trimmed regions: transparent margins cut on every side, unequal, so a swapped or mirrored trim
 // lands somewhere else and fails.
 prove('trimmed regions', [
-	{ name: 'trim_all', x: 100, y: 200, w: 300, h: 140, offsetX: 7, offsetY: 19, origW: 330, origH: 171 },
-	{ name: 'trim_left_bottom', x: 900, y: 50, w: 64, h: 512, offsetX: 31, offsetY: 3, origW: 95, origH: 515 },
-	{ name: 'trim_right_top', x: 1500, y: 3000, w: 777, h: 333, offsetX: 0, offsetY: 0, origW: 801, origH: 360 },
+	{
+		name: 'trim_all',
+		x: 100,
+		y: 200,
+		w: 300,
+		h: 140,
+		offsetX: 7,
+		offsetY: 19,
+		origW: 330,
+		origH: 171,
+	},
+	{
+		name: 'trim_left_bottom',
+		x: 900,
+		y: 50,
+		w: 64,
+		h: 512,
+		offsetX: 31,
+		offsetY: 3,
+		origW: 95,
+		origH: 515,
+	},
+	{
+		name: 'trim_right_top',
+		x: 1500,
+		y: 3000,
+		w: 777,
+		h: 333,
+		offsetX: 0,
+		offsetY: 0,
+		origW: 801,
+		origH: 360,
+	},
 ]);
 
 console.log(`\n${checks} checks, ${failures} failed, worst offset ${worst.toFixed(5)} px`);
-if (failures > 0) process.exit(1);
+if (failures > 0) throw new Error(`${failures} of ${checks} checks failed`);
