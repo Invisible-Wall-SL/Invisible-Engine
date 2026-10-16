@@ -2286,7 +2286,8 @@
 				// here and nowhere else: an unregistered id expands to nothing — the swapped instance
 				// would mount, subscribe nothing and draw nothing.
 				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
-				// Torn down with the game, so a later boot (a project switch) starts from nothing.
+				// The signals and the board box are torn down with the game, so a later boot (a project
+				// switch) does not read this one's; the def stays registered, inert unless placed.
 				const stop = () => {
 					unregisterSignals();
 					unregisterBoard();

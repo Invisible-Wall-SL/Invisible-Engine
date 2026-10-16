@@ -90,7 +90,8 @@ const HOLD_AT = 30;
 // smaller than the first capture offset (12) never overshoots one. The hide is only a frame.
 const CUE_BATCH = 6;
 const HIDE_BATCH = 20;
-// Every spin is pressed on the same ABSOLUTE frame on both sides: the next multiple of this. The
+// Every spin is pressed on the same ABSOLUTE frame on both sides: the coded side presses on the next
+// multiple of this, the authored side on the frame the coded side pressed. The
 // virtual clock adds 1000/60 ms a frame, so a frame's delta differs from the next in its last bits
 // with the clock's magnitude, and whether a clip's summed deltas reach its length on its last frame
 // or one later depends on the frame it started on. Two sides that boot a few frames apart (a CI
@@ -322,7 +323,7 @@ const tolerance = toleranceFor(
 
 // ---- one side of one variant ---------------------------------------------------------------------------
 
-async function play(name, variant, side, bundle) {
+async function play(name, variant, side, bundle, pressFrames) {
 	const dir = join(out, name, side);
 	mkdirSync(dir, { recursive: true });
 	const tree = testServerTree(
@@ -447,7 +448,11 @@ async function play(name, variant, side, bundle) {
 			};
 			result.spins.push(rec);
 			const frame = (await state()).frame;
-			rec.pressFrame = (Math.floor(frame / PRESS_EVERY) + 1) * PRESS_EVERY;
+			rec.pressFrame = pressFrames?.[index] ?? (Math.floor(frame / PRESS_EVERY) + 1) * PRESS_EVERY;
+			if (frame > rec.pressFrame)
+				throw new Error(
+					`spin ${index}: already on frame ${frame}, past the coded side's press on ${rec.pressFrame}`,
+				);
 			await step(rec.pressFrame - frame);
 			await space();
 			await waitFor({ idle: false }, 600);
@@ -527,7 +532,13 @@ for (const name of chosen) {
 	const sides = sidesOf(name, variant);
 	log(`— ${name} —`);
 	const coded = await play(name, variant, 'coded', sides.coded);
-	const authored = await play(name, variant, 'authored', sides.authored);
+	const authored = await play(
+		name,
+		variant,
+		'authored',
+		sides.authored,
+		coded.spins.map((spin) => spin.pressFrame),
+	);
 	const entry = { coded, authored, spins: [] };
 	report.variants[name] = entry;
 	if (coded.error) fail(`${name}/coded: ${coded.error}`);

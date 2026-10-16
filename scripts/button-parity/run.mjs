@@ -202,6 +202,9 @@ const FIND_CLOCK = `(() => {
 	walk(app.stage);
 	return rect;
 })()`.replaceAll('CLOCK_PAD', '8');
+// The clock and the game name at the coded HUD's size are well inside this; a larger rectangle means
+// the walk took some other text for the name.
+const CLOCK_MAX = { w: 480, h: 80 };
 
 // ---- one side of one variant ---------------------------------------------------------------------------
 
@@ -308,6 +311,8 @@ async function play(name, variant, side, aim) {
 		await step(30);
 		result.buttons = await page.evaluate(FIND_BUTTONS);
 		result.clock = (await page.evaluate(FIND_CLOCK)) ?? undefined;
+		if (result.clock && (result.clock.w > CLOCK_MAX.w || result.clock.h > CLOCK_MAX.h))
+			throw new Error(`the HUD clock's mask is too large: ${JSON.stringify(result.clock)}`);
 		const at = aim ?? result.buttons;
 		const named = Object.fromEntries(
 			(at.length === BAR.length ? BAR : BAR.filter((b) => b !== 'buyBonus')).map((b, i) => [

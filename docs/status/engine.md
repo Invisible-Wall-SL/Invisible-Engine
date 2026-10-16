@@ -265,6 +265,39 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-16 — **Rive plan Phase 8 follow-ups** (branch `claude/rive-p8-followups`; the advisory
+  `button-parity.yml` ships on its own PR, `claude/rive-p8-followups-ci`).
+  - **Win teardown.** The authored Win's signals and board box are torn down with the game
+    (`stopAuthoredWin`), as the free-spin path's are (#1235). The def stays registered, inert unless
+    placed.
+  - **The save's buttons term is pinned.** `check:authored-buttons` asserts the editor save reads the
+    store on `|| submitsButtonsOn(parsed)`, with a negative control.
+  - **Fades settle on alpha 1 (`ComponentDef.settles`).** `foldBoundTransform` leaves an identity
+    output out and pixi-svelte skips an absent prop, so the Win and free-spin fade machines, whose
+    fade-in ends on the `shown` pose (alpha 1), left the `fade` node on the last blended value. On the
+    stepped clock that was 0.99999… (the `held` captures inside the presentation had 28 077–81 814 px
+    off by one level, under the pixelmatch threshold); on a real clock it can stop as low as
+    1 − dt / 400 ms (≈ 0.96 at 60 fps). #1236's settling drive (buttons only) is now a def flag set on
+    `buttonPresentation`, `winPresentation` and both free-spin presentations. With it the `held`
+    captures t+60…t+374 are byte-identical to the coded side (0 px at threshold 0). Flag-off games
+    mount none of these defs.
+  - **The CI-only `held` drift was the harness.** The determinism clock adds 1000/60 ms a frame, so a
+    frame's delta differs in its last bits with the clock's magnitude, and whether a clip's summed
+    deltas reach its length on its last frame or one later depends on the frame it started on (for a
+    720-frame clip, 2 468 of 6 000 start frames end a frame late). The two sides of a variant ran on
+    different absolute frames whenever their boots took different frame counts, as on the CI runner,
+    so their walks handed off a frame apart; a hold's play rate shows it within 30 frames (CI: t+60 /
+    120 / 240 at 547 / 893 / 1 506 px, t+374 at 55 917 px, `winHide` 375 / 374, and `escalation`'s
+    `winHide` 1951 / 1950). Reproduced locally by booting the authored side late: 1 frame → 3–8 px,
+    7 frames → 12–38 px at every `held` capture. Fix (`scripts/win-parity/run.mjs`): the coded side
+    presses each spin on the next multiple of 600 frames, the authored side on the coded side's frame,
+    and the gate fails when the press or `winShow` frames differ. With the authored side booted 7 frames
+    late, `held` is 0 px at t+60…t+374, `winHide` 375 / 375, the accepted +380 / +390 at 1.70 % /
+    9.97 %. No engine change: both implementations compute the same thing on the same clock.
+  - **Button parity masks the HUD clock.** `UiGameName`'s 1 s interval is armed at mount, on a
+    different frame per side, so near a minute's turn one side read a minute ahead.
+    `scripts/button-parity/run.mjs` masks the clock and the name beside it (found on the stage, capped
+    at 480×80); the runtime is unchanged.
 - 2026-10-15 — **The authored free-spin intro / outro: the pre-unlock follow-up (Rive plan Phase
   8c, #1235; plan [§13.7.9](../design/rive-style-editor.md)).** The lock stays on: lifting it is
   the owner's call. #1234 carries the advisory `freespin-parity.yml` on its own, because the
@@ -318,8 +351,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `foldBoundTransform` leaves an output that lands exactly on identity (rotation 0, alpha 1) out of
   the transform and pixi-svelte skips the absent prop, so a stopped turn stayed turned (0.12 % at the
   spin button after the round). Fixed opt-in with a settling drive (`CinematicNodeDrive.settles`,
-  buttons only); the 8b / 8c fade machines may meet the same edge when a fade-in ends on alpha 1 —
-  not changed here. The probe's `state()` gains `uiEvents` (press sounds, `uiHide` / `uiShow`) and
+  buttons only); the 8b / 8c fade machines met the same edge — fixed 2026-10-16 (`ComponentDef.settles`,
+  above). The probe's `state()` gains `uiEvents` (press sounds, `uiHide` / `uiShow`) and
   `buttonPresentation`. Launcher: normalizer row, `componentFields` (`buttonStates`, the rect border
   fields), the locked Game Settings row, the save's `locked-buttons` refusal, chips
   `authoredButtons` / `authoredButtonsHeld` (the Game Maker card reads the project's `button` def

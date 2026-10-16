@@ -629,7 +629,7 @@ const nodeIdOf = (label: string) =>
 	const readsStore = (action: string): boolean => {
 		const at = action.indexOf('const stored = await loadDocWithEtag(');
 		const condition = action.slice(action.lastIndexOf('if (', at), at);
-		return /submitsButtonsOn\(parsed as Partial<LayoutDoc>\)/.test(condition);
+		return /\|\|\s*submitsButtonsOn\(parsed as Partial<LayoutDoc>\)/.test(condition);
 	};
 	eq(
 		'the save reads the store for a save with the buttons pilot on, a publisher’s included (negative control: the term removed)',
