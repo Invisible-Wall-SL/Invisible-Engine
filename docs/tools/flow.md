@@ -860,6 +860,10 @@ the player, then the bonus. In the bonus mode's tab (`holdAndWin`, or the mode's
    **Hold until this screen completes (tap)** ticked → **Hide `featureIntro`** → that first Show,
    and on through the rest of the chain.
 
+To animate the intro, key it in the Scene Editor's Animate mode (see the
+[editor guide](invisible-editor.md#animate-mode--the-timeline)) and wire **Show `featureIntro`**
+(not held) → **playCinematic** (its timeline, **Wait for it to finish**) before the held Show.
+
 The pot fills and celebrates on `meterUpdate`, drains, and the intro waits for a tap; only then do
 the feature's screens and board appear. The Scene Editor's **＋ Add missing screens** gives a
 project with a Hold and Win the `featureIntro` screen, with its Tap to Continue. Leave out

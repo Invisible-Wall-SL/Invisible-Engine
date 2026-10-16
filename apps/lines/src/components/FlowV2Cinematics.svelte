@@ -13,6 +13,10 @@
 	 * project shipped no cinematics — `bakedCinematic()` returns undefined and nothing renders
 	 * (parity). A named-but-missing cinematic is deliberately silent rather than fatal: the flow
 	 * still runs, and the validator already warns about an empty `ref` at authoring time.
+	 *
+	 * A SCREEN timeline whose screen `<FlowV2Mount>` has up (`onStage`) moves that screen: its
+	 * `<Cinematic>` draws no copy and hands its node driver to the flow, which remounts the screen
+	 * with it. Off stage, it draws its own copy of the screen as before.
 	 */
 	import { MainContainer } from 'components-layout';
 	import { cinematicSetSceneId } from 'engine-layout';
@@ -23,7 +27,14 @@
 	import { sound, type SoundName } from '../game/sound';
 	import type { LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 
-	const { flow }: { flow: LinesFlowV2 | undefined } = $props();
+	const {
+		flow,
+		onStage,
+	}: {
+		flow: LinesFlowV2 | undefined;
+		/** Is this screen drawn by `<FlowV2Mount>` right now? Reactive. */
+		onStage?: (sceneId: string) => boolean;
+	} = $props();
 
 	const eventEmitter = getContextEventEmitter<{ type: string }>()?.eventEmitter;
 
@@ -69,7 +80,8 @@
 				// set is its host screen, whose nodes its node actors drive.
 				const sceneId = doc ? cinematicSetSceneId(doc) : null;
 				const scene = sceneId ? flow?.resolveScene(sceneId) : undefined;
-				return { id, opts, doc, scene };
+				const screen = doc?.host?.kind === 'screen' && scene ? scene.id : undefined;
+				return { id, opts, doc, scene, screen, setMounted: !!screen && !!onStage?.(screen) };
 			})
 			.filter((entry) => !!entry.doc),
 	);
@@ -90,6 +102,10 @@
 			<Cinematic
 				doc={entry.doc!}
 				scene={entry.scene}
+				setMounted={entry.setMounted}
+				ondriver={entry.screen
+					? (driver) => flow?.driveScreen(entry.screen!, entry.id, driver)
+					: undefined}
 				playing
 				loop={entry.opts.loop}
 				speed={entry.opts.speed}

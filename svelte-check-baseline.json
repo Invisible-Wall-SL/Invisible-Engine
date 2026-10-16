@@ -221,11 +221,8 @@
 		}
 	},
 	"apps/lines": {
-		"errors": 163,
+		"errors": 156,
 		"byFile": {
-			"apps/lines/src/components/FlowV2Cinematics.svelte": {
-				"ts:2339": 2
-			},
 			"apps/lines/src/components/Game.svelte": {
 				"ts:2322": 4,
 				"ts:2352": 2,
@@ -272,10 +269,6 @@
 			},
 			"apps/lines/src/game/flowRuntime.svelte.ts": {
 				"ts:2322": 2
-			},
-			"apps/lines/src/game/flowV2Runtime.svelte.ts": {
-				"ts:2353": 2,
-				"ts:7006": 3
 			},
 			"apps/lines/src/i18n/messagesMap/index.ts": {
 				"ts:2740": 3

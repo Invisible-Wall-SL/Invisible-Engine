@@ -55,6 +55,13 @@
 
 ## Recent changes
 
+- 2026-10-16 — **`createFlowV2Env` forwards every capability the interpreter calls.** It had left
+  out `playCinematic` / `stopCinematic` and `containerAnimationMs`, so in every game a
+  `playCinematic` node did nothing (an awaited one did not wait) and a Show node's `durationMs` pin
+  read 0, though the game implemented all three. New gate `packages/engine-flow-v2/envFactory.fixture.ts`
+  reads the `env.*` calls off `runtime.ts` and fails when the factory's env lacks one. The screen
+  timeline half of the fix is in [cinematic status](cinematic.md), 2026-10-16.
+
 - 2026-10-15 — **A Branch guard on a `$trigger` field is typed by its chain's event** (branch
   `claude/laughing-thompson-pl84ju`). `meterUpdate → fillMeter → Branch($trigger.full eq 1)` never
   took `then`: the inspector seeded the literal beside a `$trigger` read as `int`, and `eq` is

@@ -86,8 +86,15 @@ through the same player; headless-proven, no editor yet (5b).
     under the picker.
   - **Not in Phase 3:** `text` tracks (count-up / switch-key — the format and player have them;
     the panel does not expose them yet), visibility keys and cues in the panel, keying by dragging
-    on the canvas, component hosts (Phase 4b, below). The in-game set still mounts as its own copy of the
-    screen inside `<MainContainer>` (Phase 1 behaviour), so an intro should end on the identity pose.
+    on the canvas, component hosts (Phase 4b, below).
+  - **In game (2026-10-16).** A screen timeline moves the screen the flow SHOWS: `<FlowV2Cinematics>`
+    hands the playing `<Cinematic>`'s node driver to the flow handle (`driveScreen`), and
+    `<FlowV2Mount>` remounts that screen with it (`LayoutScene.nodeDriver`, keyed per play); the
+    screen holds the last frame until it hides. Only a timeline whose screen is NOT up still draws
+    its own copy inside `<MainContainer>` (Phase 1), mis-framed for a canvas screen (open item 9).
+    A `playCinematic` naming a timeline the bundle lacks is skipped with a console warning rather
+    than awaited forever. Until this date no Flow `playCinematic` ever reached a game:
+    `createFlowV2Env` dropped `playCinematic` / `stopCinematic` (see Recent changes).
 
 - **Component timelines (Rive plan Phase 4b, 2026-10-13 — in review, headless-proven, ⏳ not
   browser-verified).** Authored on `/editor`'s Components side (Animate; UI in [the
@@ -313,9 +320,10 @@ through the same player; headless-proven, no editor yet (5b).
    (h) `/flow-v2` → playCinematic lists "Timeline · <screen> · <name>" and shows a ⚠ for a renamed
    node; (i) publish and watch the intro play in game (Live ↗), with **Wait for it to finish**.
 1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
-   but only with a probe doc injected into the runtime bundle and started from the flow handle. No
-   authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
-   export chain yet; the remake's one doc (`suca_cine`) has no cast and is not exported.
+   but only with a probe doc injected into the runtime bundle and started from the flow handle. A
+   `playCinematic` node reaches the player only since 2026-10-16 (the env factory dropped it), proven
+   headless with a screen timeline (Recent changes); no browser has watched one yet. The remake's one
+   doc (`suca_cine`) has no cast and is not exported.
 2. **⏳ Live-verify the server chain against real R2 + Postgres** — save, reload, open, publish,
    and confirm `deploy/cinematics/` fills and the bundle carries `cinematics`.
 3. **⏳ Owner eyeball** — two rigs staged together (premultiply halos, relative scale between rigs
@@ -339,11 +347,34 @@ through the same player; headless-proven, no editor yet (5b).
    same time in the new doc opens pre-selected; and leaving 🎬 before the mode's first load finishes
    writes a `{doc:null}` draft over the saved local draft.
 
+9. **A screen timeline played while its screen is not shown** draws its own copy inside
+   `<MainContainer>` (Phase 1): a `canvas` screen comes out mis-framed (game-box scaled), with no
+   tap dim and the HUD live. The guide says to Show the screen first; decide whether such a play
+   should instead show nothing, or mount the screen at its own band.
+
 ## Blocked (owner / external)
 
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-16 — **Flow's `playCinematic` plays in game; a screen timeline moves the shown screen**
+  (branch `claude/amazing-archimedes-rzuz77`). Reported on a live game: a Feature intro keyed in
+  Animate mode never moved. Two causes. (1) `createFlowV2Env` (`engine-flow-v2/src/env.ts`) never
+  forwarded `playCinematic` / `stopCinematic` (nor `containerAnimationMs`), so every play was a
+  no-op and an awaited one continued at once; `svelte-check-baseline.json` had absorbed the
+  excess-property errors that said so (baseline lowered by 7). (2) The in-game player drew its own
+  copy of the host screen, never the one the Show node put up. Now the playing `<Cinematic>` hands
+  its node driver to the flow (`driveScreen`), `<FlowV2Mount>` remounts the shown screen with it
+  (`screenDrive`, `LayoutScene.nodeDriver`), and `setMounted` stops the copy; a drive lasts while
+  the timeline plays or its screen is up. A timeline the bundle lacks is skipped with a warning
+  (`[flow-v2] playCinematic: … did not ship`). Gate: `packages/engine-flow-v2/envFactory.fixture.ts`
+  (every `env.*` the interpreter calls exists on the factory's env; each optional capability
+  reaches the game; an awaited play holds; `durationMs` feeds a Delay), run by `check:all`; it fails
+  on the old `env.ts`, naming the three. Headless (local Pots → Hold and Win game, real time and
+  determinism): Show → playCinematic → held Show animates the shown intro, holds, and the bonus
+  follows the tap; play → held Show and a missing timeline in the chain both still hold and settle;
+  a flow with no timeline is unchanged. Owner browser check pending.
 
 - 2026-10-15 — **`fx:<id>` node channels** (Invisible FX Step 2): `sampleNodeActor` samples a
   property track's `fx:` channels under their own names (absolute: an effect node's exposed

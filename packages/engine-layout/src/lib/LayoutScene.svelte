@@ -1,7 +1,13 @@
 <script lang="ts" module>
+	import type { CinematicNodeDriver } from './cinematicNodeContext';
 	import type { Scene } from './types';
 
-	export type Props = { scene: Scene };
+	export type Props = {
+		scene: Scene;
+		/** A screen timeline driving this screen's nodes (`<FlowV2Mount>`). Read once, at mount, as
+		 *  each node reads it — a new one needs a remount. Absent ⇒ any driver above applies. */
+		nodeDriver?: CinematicNodeDriver;
+	};
 </script>
 
 <script lang="ts">
@@ -14,17 +20,20 @@
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getSceneCameraTransform } from './registerSceneCameraTransform';
+	import { setCinematicNodeDriver } from './cinematicNodeContext';
 	import { setSceneIdContext } from './sceneIdContext';
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
 	import { setTapPortal, type TapPortalEntry } from './tapPortalContext';
 	import { tapDimBehind } from './tapToContinue';
 	import { sceneMountKey, trackComponentMount } from './mountedComponents';
 
-	const { scene }: Props = $props();
+	const { scene, nodeDriver }: Props = $props();
 
 	// The screen a placed component instance registers its Flow handle under (`flowInstances.ts`).
 	// A keyed scene never changes id, so it is read once.
 	setSceneIdContext(untrack(() => scene.id));
+	const driver = untrack(() => nodeDriver);
+	if (driver) setCinematicNodeDriver(driver);
 
 	// Count this screen in while it is mounted (`isComponentMounted(sceneMountKey(id))`), so a coded
 	// default can step aside for an authored screen the flow is showing — the Hold and Win banner for
