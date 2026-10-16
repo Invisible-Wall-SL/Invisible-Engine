@@ -103,10 +103,11 @@ export class SkeletonJson {
 
 		const skeletonMap = root.skeleton;
 		if (skeletonMap) {
-			data.hash = skeletonMap.hash ?? null;
-			data.version = skeletonMap.spine ?? null;
-			// Copied as written: a header with no x/y leaves them undefined, which consumers read as
-			// "box centred on the origin" (see `authoredRigBox`).
+			// hash, version, x, y, width, height and fps are copied as written, as the reference does:
+			// one the header lacks is undefined (hash/version too, not their `null` defaults), and
+			// consumers read a missing x/y as "box centred on the origin" (see `authoredRigBox`).
+			data.hash = skeletonMap.hash;
+			data.version = skeletonMap.spine;
 			data.x = skeletonMap.x;
 			data.y = skeletonMap.y;
 			data.width = skeletonMap.width;

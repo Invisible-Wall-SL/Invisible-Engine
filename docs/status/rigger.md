@@ -34,7 +34,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 
 The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against the reference runtime's; now against `engine-rig`). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against `engine-rig`, bundled by `tools/rigger-spike/rig.mjs`).
 
-**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` the 4.2.120 reference runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus the reference runtime's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change.
+**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` the 4.2.120 reference runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus the reference runtime's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change and on any new rig: no CI job runs them yet (open item 15).
 
 ## Open items / next
 
@@ -65,6 +65,11 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than rig's).
     Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
 14. ~~Seven spikes hard-code `.pnpm/esbuild@0.25.5/…`~~ — fixed 2026-10-01 (Recent changes).
+15. **The parity gates run only by hand.** `parity.mjs` was red on `main` for nine days before
+    anyone noticed (2026-10-16, Recent changes). Next: an advisory, path-filtered workflow
+    (`packages/engine-rig`, `tools/rig-parity`, rig and atlas files), in its own PR. A
+    `.github/workflows/` edit counts as a harness edit and fails the current-games verdict, so the
+    workflow cannot ride along with a runtime change.
 
 ## Blocked (owner / external)
 
@@ -76,6 +81,14 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-16 — **The rig parity gate is green again.** `node tools/rig-parity/parity.mjs` had
+  failed on `main` since #1107 (2026-10-07) on the two demo rigs in
+  `packages/pixi-svelte-storybook/static/rigs/`. They are the first repo rigs whose `skeleton`
+  header has no `hash` or `spine` field. The reference reader copies both fields as written, so
+  they come out `undefined`, but `engine-rig` turned a missing one into `null`. It now copies them
+  as written too, like the x/y/width/height/fps next to them. Results: 155 repo skeletons, 80,582
+  checks, 0 failures; the reference runtime's examples and 400 fuzz seeds are also clean.
+  `invisible-rig.js` rebuilt. The gates still have no CI job (open item 15).
 - 2026-10-15 — **Bound FX draw on their own side of the rig again.** Owner report: FX ignored their
   draw-at-slot order and always drew under the rig, in the Rigger only. A clip with cues on both
   sides creates the back and front overlays together, and the canvas lookup that set each one's
