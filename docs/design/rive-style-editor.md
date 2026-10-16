@@ -1303,7 +1303,7 @@ in order, then the conditions the build carried and the findings it made.
   workflow-only follow-up PR, which also carries `held`, `turbo`, the escalation hand-off,
   `slam-small` and the flag-on items the #1194 review listed, and must merge before the Win flag
   is switched on for any project — until then the Game Settings Win row and the save lock it off
-  (`AUTHORED_WIN_LOCKED`). **Known gap:** `check:authored-transition`,
+  (`AUTHORED_WIN_LOCKED`; lifted 2026-10-16, see 13.6.11). **Known gap:** `check:authored-transition`,
   `check:authored-win` and `check:component-timelines` are package scripts the Lint workflow's
   launcher list does not run yet — the same follow-up PR adds them.
 - **Left for the owner's browser check:** the tap grammar (step / land / dismiss / park), the ramp
@@ -1312,7 +1312,7 @@ in order, then the conditions the build carried and the findings it made.
   per-layout-override fallback covers it).
 
 **13.6.11 The parity follow-up (2026-10-15, `claude/rive-p8b-followup`).** The #1194 review's
-flag-on list and the deferred parity variants; the lock stays (last bullet):
+flag-on list and the deferred parity variants; the lock stayed until the owner accepted the residue (last bullet):
 
 - **One clip per held timeline (the escalation hand-off).** The walk was ONE timeline (intro, then
   one idle) with a snap-to-end within 1e-6. The coded track completes a clip when the frame deltas
@@ -1352,15 +1352,18 @@ flag-on list and the deferred parity variants; the lock stays (last bullet):
 - **Captions clear.** Once any tier or mode authors a caption, every walk keys the caption node —
   `''` where the tier (or the mode) has none — so a walk never leaves the previous tier's caption
   on screen, as the coded caption is drawn only while the tier on show has one.
-- **Residue in the fade-out — why the lock stays.** Every capture INSIDE every presentation is
+- **Residue in the fade-out — accepted, the lock lifted.** Every capture INSIDE every presentation is
   0 px and every `winHide` lands on the same frame. The captures now reach 24 frames past the hide
   (the 400 ms fade), and two escalating cases still differ there: `escalation` +1956 / +1966
   (0.19 % / 0.21 %: the WINNING SYMBOLS' post-win pulse, not the Win art; not traced) and `held`
   +380 / +390 (1.7 % / 10 %: the coded rewind intro runs at the frozen hold speed — the coded rig's
   `timeScale` stays `max(speedScale, 1)` after the hide — while the authored timelines run at 1×,
   which the hide's visibility cut needs; one play rate per component cannot do both). No reference
-  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stays
-  until the coordinator rules on these two.
+  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stayed
+  until a ruling on these two. **Decision (owner, 2026-10-15): both accepted, the lock lifted**
+  (2026-10-16): `check:win-parity` allows exactly those four captures up to a ceiling just above
+  each measured value (`ACCEPTED_FADE_OUT`); the flag stays off for live games until the browser
+  check.
 
 ### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
 
