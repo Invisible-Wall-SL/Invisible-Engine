@@ -40,7 +40,11 @@
 	} from 'engine-fx';
 	import {
 		MAX_COMPONENT_DEPTH,
+		forwardInstanceParams,
+		resolveComponentParams,
+		resolveLayoutInstanceParams,
 		type ComponentDef,
+		type ComponentInstanceNode,
 		type EffectNode,
 		type LayoutNode,
 		type LayoutType,
@@ -109,10 +113,20 @@
 		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
 		 * NODE id, idempotent (only re-emitted when a box meaningfully grows). */
 		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
-		/** The live values of a placed effect's exposed parameters — for the placed node and the doc
-		 * it plays — read on the ticker. Absent ⇒ every effect draws its defaults (already in its
-		 * stored config). */
-		effectParamValues?: (node: EffectNode, doc: EffectDoc) => EffectParamValues | undefined;
+		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
+		 * what an effect placed at the top level of that component reads a `params.<id>` value from. */
+		componentParams?: Record<string, unknown>;
+		/** Per-component-id project param defaults, so a nested effect reads the params its instance
+		 * resolves (`resolveComponentParams`), as the rig layer does. */
+		componentDefaults?: Record<string, Record<string, unknown>>;
+		/** The live values of a placed effect's exposed parameters — for the placed node, the doc it
+		 * plays and the params of the instance it sits in — read on the ticker. Absent ⇒ every effect
+		 * draws its defaults (already in its stored config). */
+		effectParamValues?: (
+			node: EffectNode,
+			doc: EffectDoc,
+			params: Readonly<Record<string, unknown>>,
+		) => EffectParamValues | undefined;
 	}
 
 	let {
@@ -133,6 +147,8 @@
 		worldTransformOf,
 		onReadyKeysChange,
 		onBoundsChange,
+		componentParams = {},
+		componentDefaults = {},
 		effectParamValues,
 	}: Props = $props();
 
@@ -151,6 +167,8 @@
 		effectId: string;
 		/** The placed node, as the current scenes hold it (its bindings drive the parameters). */
 		node: EffectNode;
+		/** The resolved params of the instance it sits in (the open component's at the top level). */
+		params: Record<string, unknown>;
 		world: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
 	}
 
@@ -160,8 +178,10 @@
 	interface LiveNode {
 		nodeId: string;
 		effectId: string;
-		/** The placed node, refreshed on every rebuild — what `effectParamValues` is asked for. */
+		/** The placed node and its instance's params, refreshed on every rebuild — what
+		 * `effectParamValues` is asked for. */
 		node: EffectNode;
+		params: Record<string, unknown>;
 		/** The doc it plays, once loaded. */
 		doc: EffectDoc | null;
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
@@ -261,6 +281,7 @@
 						nodeId: n.id,
 						effectId: n.effectId,
 						node: n,
+						params: componentParams,
 						world: {
 							x: wt.x,
 							y: wt.y,
@@ -274,19 +295,37 @@
 				// so the overlay must too — each nested effect's world transform composes from its
 				// ancestor chain (top link framed, descendants pure-local).
 				if (n.kind === 'container') {
-					collectNested(n.children, sc, out, [n], 0, []);
+					collectNested(n.children, sc, out, [n], 0, [], componentParams);
 				} else if (n.kind === 'componentInstance') {
 					const def = componentMap.get(n.componentId);
-					if (def) collectNested(def.root.children, sc, out, [n], 1, [def.id]);
+					if (def) {
+						const params = instanceParams(def, n, componentParams);
+						collectNested(def.root.children, sc, out, [n], 1, [def.id], params);
+					}
 				}
 			}
 		}
 		return out;
 	}
 
+	/** The params `node` (an instance of `def`) resolves, with the ones it takes from the instance
+	 * it sits in (`outer`) forwarded — what the effects inside it read. */
+	function instanceParams(
+		def: ComponentDef,
+		node: ComponentInstanceNode,
+		outer: Record<string, unknown>,
+	): Record<string, unknown> {
+		return resolveComponentParams(
+			def,
+			forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outer),
+			componentDefaults[def.id],
+		);
+	}
+
 	/** Recursively collect effect targets NESTED inside containers / component instances — mirroring
 	 * `EditorRigLayer.collectNestedRigs`. `chain` is the ancestor path (root-first); each nested
-	 * effect's world transform is composed from it via {@link composeWorldMatrix}. */
+	 * effect's world transform is composed from it via {@link composeWorldMatrix}. `params` are the
+	 * resolved params of the instance `nodes` sit in. */
 	function collectNested(
 		nodes: LayoutNode[],
 		sc: Scene,
@@ -294,6 +333,7 @@
 		chain: LayoutNode[],
 		depth: number,
 		stack: string[],
+		params: Record<string, unknown>,
 	): void {
 		for (const n of nodes) {
 			if (!previewResolveTransform(n, layoutType).visible) continue;
@@ -305,13 +345,21 @@
 						nextChain.map((c) => c.id),
 					)
 				)
-					out.push(nestedTarget(n, sc, nextChain));
+					out.push(nestedTarget(n, sc, nextChain, params));
 			} else if (n.kind === 'container') {
-				collectNested(n.children, sc, out, nextChain, depth, stack);
+				collectNested(n.children, sc, out, nextChain, depth, stack, params);
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				collectNested(def.root.children, sc, out, nextChain, depth + 1, [...stack, def.id]);
+				collectNested(
+					def.root.children,
+					sc,
+					out,
+					nextChain,
+					depth + 1,
+					[...stack, def.id],
+					instanceParams(def, n, params),
+				);
 			}
 		}
 	}
@@ -324,6 +372,7 @@
 		node: Extract<LayoutNode, { kind: 'effect' }>,
 		sc: Scene,
 		chain: LayoutNode[],
+		params: Record<string, unknown>,
 	): EffectTarget {
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
@@ -346,6 +395,7 @@
 			nodeId: node.id,
 			effectId: node.effectId,
 			node,
+			params,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy, rotation },
 		};
 	}
@@ -419,6 +469,7 @@
 			const existing = liveNodes.get(tg.nodeId);
 			if (existing && existing.effectId === tg.effectId) {
 				existing.node = tg.node;
+				existing.params = tg.params;
 				if (!sameTransform(existing.placed, tg.world)) {
 					applyContainerTransform(existing.container, tg.world);
 					existing.placed = tg.world;
@@ -477,6 +528,7 @@
 			nodeId: tg.nodeId,
 			effectId: tg.effectId,
 			node: tg.node,
+			params: tg.params,
 			doc,
 			placed: tg.world,
 			container,
@@ -502,7 +554,7 @@
 			const wrapper = new Container();
 			container.addChild(wrapper);
 			node.fx = { applier: fx, wrapper };
-			fx.apply(effectParamValues?.(tg.node, doc));
+			fx.apply(effectParamValues?.(tg.node, doc, tg.params));
 			writeEffectLevel(wrapper, fx.state);
 		}
 
@@ -551,7 +603,7 @@
 					layer,
 					emitter,
 					setOffset: (x, y) => layerContainer.position.set(x, y),
-					values: effectParamValues(node.node, doc),
+					values: effectParamValues(node.node, doc, node.params),
 				})
 			: undefined;
 		if (applier) node.appliers.push(applier);
@@ -704,7 +756,7 @@
 				for (const node of liveNodes.values()) {
 					let nodeDt = dt;
 					if (effectParamValues && node.doc && (node.fx || node.appliers.length)) {
-						const values = effectParamValues(node.node, node.doc);
+						const values = effectParamValues(node.node, node.doc, node.params);
 						if (node.fx?.applier.apply(values)) {
 							writeEffectLevel(node.fx.wrapper, node.fx.applier.state);
 						}
@@ -755,6 +807,9 @@
 		void frameWidth;
 		void frameHeight;
 		void componentMap;
+		// A param a placed effect reads (`params.<id>`) re-reads with the open component's params.
+		void JSON.stringify(componentParams);
+		void JSON.stringify(componentDefaults);
 		void nodeFilter;
 		void depthSlice;
 		// A scrubbed value-binding test value moves / hides an effect like any other node.

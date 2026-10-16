@@ -67,6 +67,10 @@
 		labelOverride?: Pick<RawSymbol, 'value' | 'factor' | 'jackpot'>;
 		/** A pop for the coin label (`RespinHeldSymbol`, from the authored `coinLabel.animation`). */
 		labelPop?: CoinLabelPopCue;
+		/** This symbol is a flight's head (`FlightLayer`): it draws no coin label — the flight draws
+		 *  the value upright while the symbol turns — and no win frame, which marks a win on the
+		 *  board, not a symbol in the air. */
+		inFlight?: boolean;
 	};
 
 	const props: Props = $props();
@@ -126,10 +130,13 @@
 	 * frame around empty space reads as a rendering fault rather than as the missing binding it is.
 	 *
 	 * Drawn on every WIN HIGHLIGHT state, not only `win`: the Hold and Win beats that played `win`
-	 * before they had names of their own (`WIN_HIGHLIGHT_SYMBOL_STATES`) keep the frame they had.
+	 * before they had names of their own (`WIN_HIGHLIGHT_SYMBOL_STATES`) keep the frame they had —
+	 * except on a flight's head (`inFlight`): `flyToMeter` frames the cell a special leaves from, not
+	 * the token flying out of it.
 	 */
 	const showWinFrame = $derived(
 		hasArt &&
+			!props.inFlight &&
 			(WIN_HIGHLIGHT_SYMBOL_STATES as readonly string[]).includes(props.state) &&
 			props.rawSymbol.name !== 'M',
 	);
@@ -280,7 +287,7 @@
 </Container>
 
 <Container tint={props.tint}>
-	{#if coinLabel}
+	{#if coinLabel && !props.inFlight}
 		<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
 	{/if}
 </Container>

@@ -1,0 +1,69 @@
+# The rig runtime vs the reference it replaced (`tools/rig-parity/parity.mjs`): every repo rig is
+# read, posed and played on both `packages/engine-rig` and the 4.2.120 reference runtime, and the
+# loaded data, bone matrices, slots, vertices, events and listener calls must match. It is not in
+# `check:all`, which is offline: the reference is `npm pack`ed at run time and is never a
+# dependency (`scripts/check-rig-runtime-free.mjs`). Run by hand only, it was red on main for nine
+# days: #1107 added two rigs whose header the runtimes read differently, fixed in #1247. Its own
+# workflow, as the other parity workflows are: the current-games verdict treats every workflow file
+# as harness, so it lands apart from any runtime change.
+#
+# ADVISORY: not in the required checks (docs/INFRA.md, "Required checks"); the owner decides whether
+# it joins them. Path-filtered: the runtime, the gate and the loader it borrows, every place a rig
+# lives (a new `.json` rig next to an existing atlas is caught by its folder), the lockfile and this
+# file. The run takes about 30 s after install.
+
+name: Rig parity
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/rig-parity.yml'
+      - 'packages/engine-rig/**'
+      - 'tools/rig-parity/**'
+      - 'tools/rigger-spike/esbuild.mjs'
+      - 'tools/rigger-spike/resolve.mjs'
+      - '**/spines/**'
+      - '**/rigs/**'
+      - '**/*.atlas'
+      - '**/*.skel'
+      - 'pnpm-lock.yaml'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/rig-parity.yml'
+      - 'packages/engine-rig/**'
+      - 'tools/rig-parity/**'
+      - 'tools/rigger-spike/esbuild.mjs'
+      - 'tools/rigger-spike/resolve.mjs'
+      - '**/spines/**'
+      - '**/rigs/**'
+      - '**/*.atlas'
+      - '**/*.skel'
+      - 'pnpm-lock.yaml'
+
+concurrency:
+  group: rig-parity-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rig-parity:
+    name: rig parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: rig parity
+        run: node tools/rig-parity/parity.mjs

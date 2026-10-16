@@ -121,6 +121,8 @@ export type ActiveFlight = {
 	/** The direction the head travels, radians — what an aligned head and trail turn to. */
 	heading: number;
 	ease: FlightEase;
+	/** How far an `easeOutIn` flight slows at mid-flight (the kind's `slowdown`). */
+	slowdown: number;
 	/** The authored head; absent ⇒ the coded glow. */
 	headStyle?: FlightHead;
 	/** × everything drawn at the head — glow, art, carried symbol, label (the kind's `size`). */
@@ -360,6 +362,7 @@ export const flyTo = (
 			head: { ...route.curve.p0 },
 			heading,
 			ease: style.ease,
+			slowdown: style.slowdown,
 			...(style.head ? { headStyle: style.head } : {}),
 			size: style.size,
 			trailAlign: style.trailAlign,
@@ -398,7 +401,7 @@ export const tickFlights = (deltaMs: number) => {
 		flight.elapsedMs += step;
 		if (flight.elapsedMs < flight.delayMs) continue;
 		const t = Math.min(1, (flight.elapsedMs - flight.delayMs) / flight.durationMs);
-		const eased = flightEaseOf(flight.ease)(t);
+		const eased = flightEaseOf(flight)(t);
 		const point = pointOnCurve(flight.curve, eased);
 		flight.head.x = point.x;
 		flight.head.y = point.y;
