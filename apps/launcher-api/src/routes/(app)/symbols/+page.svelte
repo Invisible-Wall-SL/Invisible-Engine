@@ -1325,16 +1325,19 @@
 			: undefined,
 	);
 
-	/** The head can turn: authored art (a draft too) that no pots token replaces — a glow is round,
-	 *  `none` draws nothing, a token carries its value text — or this kind authors a turn, which
-	 *  must stay visible to be cleared. */
-	const flightHeadTurns = $derived.by(() => {
+	/** Why the turn this kind asks for shows nothing on its current head (a draft one too), if it
+	 *  does not: the fields stay offered, so the author is told what would make them visible. */
+	const flightTurnNote = $derived.by(() => {
+		if (flightResolved.headAlign === 'off' && flightResolved.headRotation === 0) return undefined;
+		if (flightToken) return undefined;
 		const kind = (flightHeadDraft ?? flightResolved.head)?.kind;
-		return (
-			(!flightToken && (kind === 'sprite' || kind === 'spine' || kind === 'flipbook')) ||
-			flightOwn.headAlign !== undefined ||
-			flightOwn.headRotation !== undefined
-		);
+		if (kind === 'none') {
+			return 'This head is None — only the trail flies. Use “Trail follows the arc” below, or pick a Sprite, Rig or Flipbook head.';
+		}
+		if (kind === undefined || kind === 'glow') {
+			return 'The glow is round, so turning it shows nothing. Pick a Sprite, Rig or Flipbook head to see it follow the curve.';
+		}
+		return undefined;
 	});
 
 	function selectFlight(key: string): void {
@@ -3411,46 +3414,44 @@
 								</div>
 
 								<div class="bv-fit">
-									{#if flightHeadTurns}
-										<div class="field">
-											<span
-												class="label"
-												title="Turns the head to the direction it is flying, so a comet, an arrow or a fish points along the arc — draw the art pointing right, or turn it with Head rotation. “Stay upright” mirrors it instead of turning it upside down while it flies left. A pots overlay’s token never turns: it carries its value."
-												>Head follows the curve</span
+									<div class="field">
+										<span
+											class="label"
+											title="Turns the head to the direction it is flying, so a comet, an arrow or a fish points along the arc — draw the art pointing right, or turn it with Head rotation. “Stay upright” mirrors it instead of turning it upside down while it flies left. A pots overlay’s token turns too; its value stays upright."
+											>Head follows the curve</span
+										>
+										<select
+											value={flightOwn.headAlign ?? ''}
+											onchange={(e) => setFlightHeadAlign(e.currentTarget.value)}
+										>
+											<option value=""
+												>Inherit ({FLIGHT_HEAD_ALIGN_LABELS[
+													flightInherited.headAlign
+												].toLowerCase()})</option
 											>
-											<select
-												value={flightOwn.headAlign ?? ''}
-												onchange={(e) => setFlightHeadAlign(e.currentTarget.value)}
-											>
-												<option value=""
-													>Inherit ({FLIGHT_HEAD_ALIGN_LABELS[
-														flightInherited.headAlign
-													].toLowerCase()})</option
-												>
-												{#each FLIGHT_HEAD_ALIGNS as align (align)}
-													<option value={align}>{FLIGHT_HEAD_ALIGN_LABELS[align]}</option>
-												{/each}
-											</select>
-										</div>
-										<div class="field">
-											<span
-												class="label"
-												title="Turns the head art by this many degrees — on top of the curve when it follows it. Use it when the art points another way than right."
-												>Head rotation (°)</span
-											>
-											<input
-												class="fl-num"
-												type="number"
-												step="15"
-												min={FLIGHT_LIMITS.headRotation.min}
-												max={FLIGHT_LIMITS.headRotation.max}
-												placeholder={String(flightInherited.headRotation)}
-												value={flightOwn.headRotation ?? ''}
-												onchange={(e) =>
-													setFlightNumber('headRotation', numberOrUndefined(e.currentTarget.value))}
-											/>
-										</div>
-									{/if}
+											{#each FLIGHT_HEAD_ALIGNS as align (align)}
+												<option value={align}>{FLIGHT_HEAD_ALIGN_LABELS[align]}</option>
+											{/each}
+										</select>
+									</div>
+									<div class="field">
+										<span
+											class="label"
+											title="Turns the head art by this many degrees — on top of the curve when it follows it. Use it when the art points another way than right."
+											>Head rotation (°)</span
+										>
+										<input
+											class="fl-num"
+											type="number"
+											step="15"
+											min={FLIGHT_LIMITS.headRotation.min}
+											max={FLIGHT_LIMITS.headRotation.max}
+											placeholder={String(flightInherited.headRotation)}
+											value={flightOwn.headRotation ?? ''}
+											onchange={(e) =>
+												setFlightNumber('headRotation', numberOrUndefined(e.currentTarget.value))}
+										/>
+									</div>
 									<div class="field">
 										<span
 											class="label"
@@ -3470,6 +3471,9 @@
 										/>
 									</div>
 								</div>
+								{#if flightTurnNote}
+									<p class="hint">{flightTurnNote}</p>
+								{/if}
 
 								<div class="bv-fit">
 									<div class="field fl-grow">
