@@ -24,8 +24,9 @@
  *
  * Folded into other beats rather than declared on their own: the design's `clearColumn` is part of
  * `lightLetter` (a cleared column's coins fly into the Total Win bar), `activateMeter` of
- * `showRespinBoard` (pots drain at a meter entry), `countUpTotal` of `hideRespinBoard` (the Total
- * Win bar counts up per coin) and `awardJackpot` of `showJackpotWin`. The per-meter
+ * `showRespinBoard` (pots drain at a meter entry, unless a `drainPots` already drained them),
+ * `countUpTotal` of `hideRespinBoard` (the Total Win bar counts up per coin) and `awardJackpot` of
+ * `showJackpotWin`. The per-meter
  * `meter.<id>.*` values are not declared here, because a kind's vocabulary cannot name a project's
  * meters; the pots overlay add-on declares them from the config (`withAddOns`, `addOns.ts`).
  *

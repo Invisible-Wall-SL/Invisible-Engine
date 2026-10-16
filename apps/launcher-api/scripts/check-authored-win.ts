@@ -626,7 +626,7 @@ for (const [name, doc] of Object.entries(layouts)) {
 	eq(
 		'the Game Maker page computes the status from the builder, reading Win Text only with the flag on',
 		[
-			page.includes('authoredOverlayChips(layout, config.doc, winText)') &&
+			page.includes('authoredOverlayChips(buttoned, config.doc, winText)') &&
 				/status: \(doc\) => authoredWinStatus\(\{ doc, tiers \}\)/.test(
 					src('../src/lib/server/authoredWinTiers.ts'),
 				),
@@ -1277,7 +1277,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 
 {
 	const game = src('../../lines/src/components/Game.svelte');
-	const load = game.slice(game.indexOf('loadEditorScenes().then((rawDoc)'));
+	const load = game.slice(game.indexOf('void loadEditorScenes().then('));
 	// The swaps run in the shared resolution (`resolveAuthoredOverlays`), the one the launcher's
 	// chips read: Transition first, then the Win's status on the transitioned doc, then its swap.
 	const overlays = src('../../../packages/engine-layout/src/lib/authoredOverlays.ts');
@@ -1471,7 +1471,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 		[
 			save.indexOf('const baseEtag = writeBaseEtagForm(form)') < decisionAt,
 			decisionAt < save.indexOf('await saveDoc('),
-			/if \(\s*!canPublishShared \|\|\s*submitsWinOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submitsFreeSpinsOn\(parsed as Partial<LayoutDoc>\))?\s*\) \{\s*const stored = await loadDocWithEtag\(/.test(
+			/if \(\s*!canPublishShared \|\|\s*submitsWinOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submits\w+On\(parsed as Partial<LayoutDoc>\))*\s*\) \{\s*const stored = await loadDocWithEtag\(/.test(
 				save,
 			),
 			(save.match(/await loadDocWithEtag\(/g) ?? []).length,

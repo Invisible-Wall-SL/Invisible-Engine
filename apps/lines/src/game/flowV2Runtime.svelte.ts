@@ -62,6 +62,7 @@ import {
 	flowOwnsSignal,
 	flowScreenDrivingStatus,
 	hideContainerIds,
+	modeEntryHolds,
 	runFlowContainerEvent,
 	runFlowEvent,
 	runFlowInstanceEvent,
@@ -226,6 +227,9 @@ export type LinesFlowV2 = {
 	ownsEvent: (eventType: string) => boolean;
 	/** Does the chain the flow runs for this event (in the active mode) call `action`? */
 	chainCallsAction: (eventType: string, action: string) => boolean;
+	/** Does entering mode `modeId` by `eventType` hold for a tap (a held Show on the mode's enter
+	 *  chains or on the event's chain)? */
+	entryHolds: (modeId: string, eventType: string) => boolean;
 	/** Run the authored v2 handler for `eventName` with `payload` + dispatch `context` (e.g. the
 	 *  surrounding `bookEvents` list a mechanic effect reads); a no-op if un-authored. */
 	dispatch: (
@@ -789,6 +793,7 @@ export const createLinesFlowV2 = (
 		},
 		chainCallsAction: (eventType, action) =>
 			signalChainCallsAction(doc, stateModes.active(), eventType, action),
+		entryHolds: (modeId, eventType) => modeEntryHolds(doc, modeId, eventType),
 		dispatch: (eventName, payload, context) => {
 			trace('event ▶', eventName);
 			return runFlowEvent(doc, ctx, eventName, payload, context);

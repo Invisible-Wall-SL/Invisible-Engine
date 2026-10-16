@@ -6,7 +6,14 @@ import {
 	POTS_OVERLAY_PRESET_IDS,
 	type PotsOverlayPresetId,
 } from 'game-config';
-import { authoredWinEnabled } from 'engine-layout';
+import {
+	authoredButtonsEnabled,
+	authoredButtonsStatus,
+	docButtonVersions,
+	isBuiltinButtonShape,
+	authoredWinEnabled,
+	withAuthoredButtonsDoc,
+} from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { mayTargetClient } from '$lib/accessRules';
@@ -32,6 +39,7 @@ import {
 } from '$lib/server/gameConfigDefaults';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
+import { loadComponent } from '$lib/server/componentStorage';
 import { authoredOverlayChips } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
@@ -225,6 +233,25 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				layout && authoredWinEnabled(layout)
 					? await loadWinTextDoc(clientKey, p.key).catch(() => undefined)
 					: undefined;
+			// The button pilot is held back by a project `button` def (any version an instance pins) that
+			// draws something else — reads paid only with the flag on (Rive plan Phase 8d).
+			const buttonDefs =
+				layout && authoredButtonsEnabled(layout)
+					? await Promise.all(
+							docButtonVersions(layout).map((version) =>
+								loadComponent('button', p.key, version).catch(() => undefined),
+							),
+						)
+					: [];
+			// The chips read the doc the game boots, in its order: the button swap first (8d), then the
+			// shared resolution of the Transition, Win and free-spin rows on its output.
+			const layoutChips = (doc: NonNullable<typeof layout>) => {
+				const authoredButtons = authoredButtonsStatus(doc, {
+					shadowed: !buttonDefs.every(isBuiltinButtonShape),
+				});
+				const buttoned = authoredButtons === 'ready' ? withAuthoredButtonsDoc(doc) : doc;
+				return { ...authoredOverlayChips(buttoned, config.doc, winText), authoredButtons };
+			};
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
 				gameTypeName: kindNames.get(p.gameType) ?? p.gameType,
@@ -233,7 +260,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				symbols,
 				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
-				layout: layout ? authoredOverlayChips(layout, config.doc, winText) : null,
+				layout: layout ? layoutChips(layout) : null,
 			});
 
 			return {

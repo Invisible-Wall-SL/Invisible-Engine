@@ -370,7 +370,7 @@ eq(
 	const page = src('../src/routes/(app)/game-maker/+page.server.ts');
 	eq(
 		'the Game Maker page builds the chip from the same rule',
-		page.includes('authoredOverlayChips(layout, config.doc, winText)') &&
+		page.includes('authoredOverlayChips(buttoned, config.doc, winText)') &&
 			src('../src/lib/server/authoredWinTiers.ts').includes(
 				'authoredFreeSpins: resolved.freeSpins,',
 			),
@@ -399,7 +399,12 @@ eq(
 		[true, true, true],
 		[true, true, true],
 		[C.FREE_SPIN_INTRO_PRESENTATION_ID, C.FREE_SPIN_OUTRO_PRESENTATION_ID],
-		['winPresentation', C.FREE_SPIN_INTRO_PRESENTATION_ID, C.FREE_SPIN_OUTRO_PRESENTATION_ID],
+		[
+			'buttonPresentation',
+			'winPresentation',
+			C.FREE_SPIN_INTRO_PRESENTATION_ID,
+			C.FREE_SPIN_OUTRO_PRESENTATION_ID,
+		],
 	],
 );
 {
@@ -646,7 +651,7 @@ eq(
 	eq(
 		'the save action reads the store for a doc with the pilot on and refuses the switch',
 		[
-			/submitsFreeSpinsOn\(parsed as Partial<LayoutDoc>\)\s*\)\s*\{\s*const stored = await loadDocWithEtag\(/.test(
+			/submitsFreeSpinsOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submits\w+On\(parsed as Partial<LayoutDoc>\))*\s*\)\s*\{\s*const stored = await loadDocWithEtag\(/.test(
 				save,
 			),
 			/if \(decision === 'locked-free-spins'\) \{\s*return fail\(403/.test(save),

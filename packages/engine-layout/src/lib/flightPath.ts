@@ -273,6 +273,55 @@ const EASES: Record<FlightEase, (t: number) => number> = {
 export const flightEaseOf = (ease: FlightEase): ((t: number) => number) =>
 	EASES[ease] ?? flightEase;
 
+/**
+ * How far toward the camera a depth of 1 lifts the head at mid-flight, as a share of the camera's
+ * distance: half the way, so it is drawn twice its size there (and ⅔ of it for a depth of −1).
+ */
+const DEPTH_RISE = 0.5;
+
+/** How the head is drawn at one moment of its flight ({@link flightHeadPose}). */
+export type FlightHeadPose = {
+	/** × the head's size: the perspective, 1 when the flight is flat. */
+	scale: number;
+	/** The head's turn, radians: the heading when it follows the curve, else 0. */
+	rotation: number;
+	/** × the head's length along its travel (it leans into the screen), 1 unless it follows. */
+	stretch: number;
+	/** −1 while an upright head heads left (it is mirrored, not turned upside down), else 1. */
+	flip: 1 | -1;
+	/** The authored turn of the art itself, radians, applied before everything above. */
+	artRotation: number;
+};
+
+/**
+ * THE HEAD'S POSE at eased progress `t` with direction of travel `heading` — the one rule the game
+ * and the `/symbols` preview both draw with. Applied as: turn the art by `artRotation`, scale it by
+ * `scale × stretch` along x (its travel) and `scale × flip` along y, then turn it by `rotation`.
+ *
+ * Perspective (`depth`): the head flies the planned route on screen while it rises out of the
+ * screen and back, `depth × DEPTH_RISE × sin(πt)` of the camera's distance at `t`, so it is drawn
+ * `1 / (1 − that)` times its size — its own size as it leaves and as it lands. The camera is taken to
+ * stand as far from the board as the route is long, which makes the rise's slope against the route
+ * `depth × DEPTH_RISE × π × cos(πt)` whatever the route's length; a head that follows the curve is
+ * foreshortened by it (`cos` of that angle), shortest at both ends and full length at the top.
+ */
+export const flightHeadPose = (
+	style: Pick<ResolvedFlightStyle, 'headAlign' | 'headRotation' | 'depth'>,
+	heading: number,
+	t: number,
+): FlightHeadPose => {
+	const rise = style.depth * DEPTH_RISE;
+	const angle = Math.PI * unit(t);
+	const follows = style.headAlign === 'follow' || style.headAlign === 'upright';
+	return {
+		scale: 1 / (1 - rise * Math.sin(angle)),
+		rotation: follows ? heading : 0,
+		stretch: follows ? 1 / Math.hypot(1, rise * Math.PI * Math.cos(angle)) : 1,
+		flip: style.headAlign === 'upright' && Math.cos(heading) < 0 ? -1 : 1,
+		artRotation: (style.headRotation * Math.PI) / 180,
+	};
+};
+
 /** How far above the highest obstacle the over-route rides, in cells. */
 export const FLIGHT_OVER_MARGIN_CELLS = 0.35;
 

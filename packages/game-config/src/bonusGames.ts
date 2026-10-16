@@ -133,6 +133,7 @@ function applyLegacy(
 		pots,
 		drops,
 		timing,
+		potsStayFull: overlay?.potsStayFull,
 		coins: overlay?.coins,
 		baseGame: {
 			...Object.fromEntries(

@@ -33,7 +33,12 @@
 	import { eventEmitter } from '../game/eventEmitter';
 	import { featureComponentSignals } from '../game/featureSignals';
 	import { getActiveGameConfig } from '../game/gameConfig';
-	import { meterAnchor, potMeterMountKey, pulseMeter } from '../game/holdAndWinMeters.svelte';
+	import {
+		countMeterArrival,
+		meterAnchor,
+		potMeterMountKey,
+		pulseMeter,
+	} from '../game/holdAndWinMeters.svelte';
 	import { recordHoldAndWinEvent } from '../game/stateHoldAndWin.svelte';
 
 	setContext();
@@ -41,9 +46,10 @@
 	/**
 	 * Phase 12c — the builtin Pot Meter three ways, on the pots preset's meters: RED as coded (the
 	 * parity reference), BLUE skinned by its art params alone (the progress bar's background, bar
-	 * and frame as the pot, its fill and its frame; a gold label), and GREEN as a project copy of
-	 * the Pot Meter with the author's own nodes inside its `Pot` part (a glass, the H1 rig and a
-	 * caption) — the coded drawing gives way, while the part still grows with its stages and pulses.
+	 * and frame as the pot, its fill and its frame; a gold label; a pulse on every coin collected,
+	 * so it pulses on each step up), and GREEN as a project copy of the Pot Meter with the author's
+	 * own nodes inside its `Pot` part (a glass, the H1 rig and a caption) — the coded drawing gives
+	 * way, while the part still grows with its stages and pulses.
 	 * A second frog pot sits on RED: each frog pot's ACTIVE badge waits for **Pot — activate**, and the
 	 * copy keeps the Pot Meter's scope, so `window.__activatePot('green')` reveals green's badge only.
 	 * RED therefore has two pots, and `__potAnchor('red')` returns whichever registered last.
@@ -73,8 +79,10 @@
 		});
 	publish();
 	const setLevel = (id: string, level: number) => {
+		const rose = level > levels[id];
 		levels[id] = level;
 		publish();
+		if (rose) countMeterArrival(id);
 		if (level >= MAX) pulseMeter(id);
 	};
 
@@ -185,6 +193,7 @@
 					artHeight: 44,
 					labelFill: 0xffd54a,
 					labelScale: 1.3,
+					pulseOnCollect: true,
 				},
 			},
 			{

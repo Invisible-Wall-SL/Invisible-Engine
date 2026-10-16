@@ -2485,6 +2485,7 @@
 	);
 	let authoredWin = $state<boolean>(data.doc.settings?.authoredOverlays?.win === true);
 	let authoredFreeSpins = $state<boolean>(data.doc.settings?.authoredOverlays?.freeSpins === true);
+	let authoredButtons = $state<boolean>(data.doc.settings?.authoredOverlays?.buttons === true);
 
 	// The project's own BOOT SPLASH — the second pre-game screen, after the admin-owned engine
 	// mark. A blank bundle means "no game splash", so the panel needs no separate clear button.
@@ -2508,7 +2509,8 @@
 			background: bootLoaderBackground,
 			size: bootLoaderSize,
 		});
-		const authoredOverlays = authoredTransition || authoredWin || authoredFreeSpins;
+		const authoredOverlays =
+			authoredTransition || authoredWin || authoredFreeSpins || authoredButtons;
 		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredOverlays) return undefined;
 		const settings: GameSettings = {};
 		if (jurisdiction !== 'default') settings.jurisdiction = jurisdiction;
@@ -2526,6 +2528,7 @@
 				...(authoredTransition ? { transition: true } : {}),
 				...(authoredWin ? { win: true } : {}),
 				...(authoredFreeSpins ? { freeSpins: true } : {}),
+				...(authoredButtons ? { buttons: true } : {}),
 			};
 		}
 		return settings;
@@ -4022,7 +4025,7 @@
 									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
 								{/if}
 
-								{#if data.canPublishShared || authoredTransition || authoredWin || authoredFreeSpins}
+								{#if data.canPublishShared || authoredTransition || authoredWin || authoredFreeSpins || authoredButtons}
 									<hr class="gs-rule" />
 									<p class="gs-note">
 										<strong>Authored overlays (pilot)</strong> — render an overlay from its authored component
@@ -4080,6 +4083,24 @@
 											}}
 										/>
 										<span>Free spins <em class="gs-pending">pilot pending</em></span>
+									</label>
+									<!-- Locked off until the owner pilots it (the save refuses it too,
+										`AUTHORED_BUTTONS_LOCKED`); still switchable OFF if a doc has it on. -->
+									<label
+										class="gs-toggle"
+										class:disabled={!data.canPublishShared || !authoredButtons}
+										title="Every parametric HUD button draws its per-state frame (the tile, its downstate grey and selected border, or the state images), turns its spin frame and plays its press sound from the built-in “Button presentation” component and its state machine instead of the coded ButtonFrame; the press itself, what it does and when the button is disabled, selected or spinning stay coded. Held back (the coded frame stays, the publish summary warns) when no screen places a parametric button, or when the project's own Button component draws something else. Switched by a publisher (the component-publish capability)."
+									>
+										<input
+											type="checkbox"
+											checked={authoredButtons}
+											disabled={!data.canPublishShared || !authoredButtons}
+											onchange={(e) => {
+												authoredButtons = e.currentTarget.checked;
+												onGameSettingChange();
+											}}
+										/>
+										<span>Buttons <em class="gs-pending">pilot pending</em></span>
 									</label>
 								{/if}
 

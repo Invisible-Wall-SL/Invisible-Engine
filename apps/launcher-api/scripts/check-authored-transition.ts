@@ -700,7 +700,7 @@ eq(
 		new URL('../../lines/src/components/Game.svelte', import.meta.url),
 		'utf8',
 	);
-	const load = game.slice(game.indexOf('loadEditorScenes().then((rawDoc)'));
+	const load = game.slice(game.indexOf('void loadEditorScenes().then('));
 	const swapAt = load.indexOf('resolveAuthoredOverlays(rawDoc, {');
 	const v2At = load.indexOf('createLinesFlowV2(\n\t\t\t\tdoc,');
 	const v1At = load.indexOf('createLinesFlow(\n\t\t\t\t\t\tdoc,');

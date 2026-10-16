@@ -88,3 +88,16 @@ export const AUTHORED_WIN = false;
  * opt-in exists.
  */
 export const AUTHORED_FREE_SPINS = false;
+
+/**
+ * Rive plan Phase 8d — the `apps/lines` DEV PILOT of the authored button: with this on, the fallback
+ * doc carries `settings.authoredOverlays.buttons: true`. The game then swaps every parametric
+ * `componentInstance(button)` (`HUD_BUTTON_INSTANCES`) for the built-in `buttonPresentation`
+ * (`authoredButtons.ts`): its seeded state machine draws the frame per state, turns the spin frame and
+ * plays the press sound; the press road and its gates stay coded.
+ *
+ * DEFAULT OFF (parity gate): the dev build renders the coded `ButtonFrame`, byte-identical to today.
+ * The parity gate serves the game a doc with the flag set, as a published project would. No URL
+ * opt-in exists.
+ */
+export const AUTHORED_BUTTONS = false;

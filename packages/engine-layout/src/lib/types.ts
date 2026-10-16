@@ -759,6 +759,12 @@ export interface RectNode extends BaseNode {
 	height: number;
 	/** Fill colour (hex int). Absent ⇒ white (`0xffffff`). */
 	color?: number;
+	/** Corner radius (local px) — the coded HUD tile's rounded rect. Absent ⇒ square (parity). */
+	borderRadius?: number;
+	/** Border stroke width (local px), drawn on the same shape. Absent ⇒ no border (parity). */
+	borderWidth?: number;
+	/** Border colour (hex int). Absent ⇒ black. */
+	borderColor?: number;
 }
 
 /**
@@ -1395,6 +1401,12 @@ export interface GameSettings {
 		 * components; the coded outro driver, the screens' taps and the flow's holds stay.
 		 */
 		freeSpins?: boolean;
+		/**
+		 * 8d: every parametric `button` instance draws its per-state frame, spin rotation and press
+		 * sound from the built-in `buttonPresentation` component and its state machine; the press road
+		 * and the gates that feed `disabled` / `active` / `spinning` stay coded.
+		 */
+		buttons?: boolean;
 	};
 }
 
@@ -1595,6 +1607,15 @@ export interface ComponentDef {
 	 * never stored. Absent ⇒ placed as before (parity).
 	 */
 	boardAnchored?: true;
+	/**
+	 * BUTTON STATES (built-in only, Rive plan Phase 8d): the instance owns the press although the def
+	 * binds a coded part (its label only draws), feeds the state machine's reserved inputs from its
+	 * live flags — `look` (the shared cascade's resolved look, {@link BUTTON_LOOKS}), `rotating`,
+	 * `fadeWithUi` — provides `tileColor` / `tileBorderColor` from `variant`, starts the machine at
+	 * mount, and plays the press sound the press hands it (`pressSounds.ts`). Only
+	 * `buttonPresentation` sets it; never stored. Absent ⇒ none of this (parity).
+	 */
+	buttonStates?: true;
 	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A
