@@ -96,7 +96,6 @@
 		LOADING_INTRO_DEF,
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
-		authoredTransitionStatus,
 		resolveAuthoredOverlays,
 		authoredButtonsStatus,
 		withAuthoredButtonsDoc,
@@ -109,8 +108,6 @@
 		BUTTON_PRESENTATION_DEF,
 		BUTTON_STATE_INPUTS,
 		registerBoardBox,
-		withAuthoredWin,
-		withAuthoredTransition,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		WIN_DEF,
@@ -143,10 +140,8 @@
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
 		LAYER_BAND_WIN_PRESENTATION,
-		sceneByRole,
 		loadingSceneId,
 		basegameSceneId,
-		collectComponentIds,
 		buyFeatureSceneId,
 		buyConfirmSceneId,
 		betMenuSceneId,
@@ -256,6 +251,16 @@
 	import { stateRespinPark } from '../game/respinHold.svelte';
 	import { publishRespinScreens } from '../game/respinScreens.svelte';
 	import { modeScreenFor, reservedModeCopies } from '../game/respinModes';
+	import {
+		basegameOverlaysSceneOf,
+		basegameSceneOf,
+		buyConfirmSceneOf,
+		buyFeatureSceneOf,
+		freeSpinCounterSceneOf,
+		specialBookSceneOf,
+		winVisualSceneOf,
+	} from '../game/sceneSelection';
+	import { skipUnusedStockAssets } from '../game/stockAssetBoot';
 	import {
 		PLATFORM_JACKPOT_TIERS,
 		platformJackpotValue,
@@ -788,6 +793,10 @@
 	// author-added background node) shadows the coded one. No-op when not baked
 	// (`apps/lines` dev) → parity. See docs/design/live-assets.md → "Layout-doc bake".
 	registerBakedComponents();
+	// Drop the stock assets (`game/assets.ts`) this project can never draw from the asset table,
+	// before `<App>` mounts the loader. After the defs above, so the project's own resolve; a boot
+	// that has no doc yet (dev, live-doc) keeps every one (`game/stockAssets.ts`).
+	stateApp.assets = skipUnusedStockAssets(stateApp.assets);
 	// Register the project's baked Invisible FX effects so PLACED `effect` nodes resolve their
 	// `effectId` → doc at render (`registerEffects`/`resolveEffect`). No-op when un-baked / no
 	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.
@@ -1087,11 +1096,6 @@
 	// an anticipation fires; a screen without the tick adds no wrapper at all (parity).
 	registerSceneCameraTransform(anticipationCameraTransform);
 
-	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
-	const fallbackOverlays = fallbackEditorScenes.scenes.find(
-		(scene) => scene.id === 'basegameOverlays',
-	)!;
-
 	/** Fetched at boot from the launcher; seeded with the bundled fallback so the
 	 * game renders immediately and degrades gracefully when offline. */
 	let editorDoc = $state(fallbackEditorScenes);
@@ -1104,7 +1108,7 @@
 	const basegameScreenId = $derived(basegameSceneId(editorDoc.scenes));
 	// Which screen draws a respin mode's beat is found among these (`respinScreens.svelte.ts`).
 	$effect.pre(() => publishRespinScreens(editorDoc.scenes));
-	const basegameScene = $derived(sceneByRole(editorDoc.scenes, 'basegame') ?? fallbackBasegame);
+	const basegameScene = $derived(basegameSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// Reel z-order: the editor lets you order the `reelGrid` placeholder among the
 	// basegame layers, but the real <Board/> mounts in its OWN trailing MainContainer
 	// (a separate Pixi container), so it always paints over the whole scene — no editor
@@ -1124,45 +1128,11 @@
 			? undefined
 			: { ...basegameScene, nodes: basegameScene.nodes.slice(reelGridIndex + 1) },
 	);
-	// Whether the doc places its OWN win VISUAL — a `win` componentInstance in ANY scene (the Win
-	// Overlay component dropped on a flow screen, or the split's `winVisual` scene). When it does,
-	// the coded `bind:Win` COMPOSER must not ALSO draw a visual: `Win` is the gate PLUS a param-less
-	// `WinVisual`, so a second, unauthored big-win presentation renders board-centred over the
-	// authored one — and, having no `componentInstance` params, at the component's DEFAULTS, which is
-	// how a `showCoins: false` instance still rained coins. Degrading the node to its GATE half
-	// (`bind:WinGate`) below keeps the load-bearing part (count-up + `winState` + round-block, which
-	// the authored visual READS) and drops the duplicate art. Recurses into container children, so a
-	// win overlay nested inside an authored screen counts.
-	const docPlacesWinVisual = $derived(
-		collectComponentIds(editorDoc.scenes.flatMap((scene) => scene.nodes)).includes('win'),
+	// The overlays scene, with the coded `bind:Win` composer degraded to its gate half when the doc
+	// places its own win visual (see `basegameOverlaysSceneOf`).
+	const basegameOverlaysScene = $derived(
+		basegameOverlaysSceneOf(editorDoc, fallbackEditorScenes, authoredWinRuntime.on),
 	);
-	// The overlays scene, with that degrade applied. This is exactly the `WIN_INSTANCE`-ON shape the
-	// gate/visual split was designed for — it was simply never reached by a doc that authors the
-	// visual while leaving `basegameOverlays` at the reference default, or omitting the scene
-	// entirely (then `fallbackOverlays` supplies `bind:Win`, and the game gets both halves twice).
-	// No `Win` bind, or no authored win visual ⇒ the SAME scene object back ⇒ byte-identical (parity).
-	const basegameOverlaysScene = $derived.by(() => {
-		// The AUTHORED Transition (Rive plan Phase 8a): the loaded doc's scenes were swapped once at
-		// load (`withAuthoredTransitionDoc`); the reference overlays a doc without its own gets are
-		// swapped here under the same flag. Off ⇒ the same scene object (parity).
-		const swappedFallback =
-			authoredTransitionStatus(editorDoc) === 'ready'
-				? withAuthoredTransition(fallbackOverlays)
-				: fallbackOverlays;
-		const scene =
-			editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ??
-			// The AUTHORED Win (Phase 8b) degrades the reference composer to its gate half the same
-			// way; the loaded doc's own scenes were swapped at load (`withAuthoredWinDoc`).
-			(authoredWinRuntime.on ? withAuthoredWin(swappedFallback) : swappedFallback);
-		if (!docPlacesWinVisual) return scene;
-		let degraded = false;
-		const nodes = scene.nodes.map((node) => {
-			if (node.bind?.component !== 'Win') return node;
-			degraded = true;
-			return { ...node, bind: { ...node.bind, component: 'WinGate' } };
-		});
-		return degraded ? { ...scene, nodes } : scene;
-	});
 	// Whether the (unconditionally-mounted) `basegameOverlays` scene STILL carries a coded WIN gate
 	// bind — the reference layout's `WIN_INSTANCE` shapes: `bind:Win` (the OFF composer, gate +
 	// visual) or `bind:WinGate` (the ON full-screen gate). When it does, THAT gate is the sole
@@ -1181,20 +1151,16 @@
 	// (the `WIN_INSTANCE` fallback emits it, or the owner authored a `win` component in the editor);
 	// `undefined` otherwise ⇒ the mount renders nothing (the OFF composer `Win` draws the visual
 	// itself). Parity-safe.
-	const winVisualScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'winVisual') ??
-			fallbackEditorScenes.scenes.find((s) => s.id === 'winVisual'),
-	);
-	// The free-spin counter as an editor scene (the fallback layout ships it, so the `!` is safe + a
-	// no-doc boot is parity) — the coded path's counter; a v2 flow mounts it as a container instead.
-	const fallbackFsCounter = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinCounter')!;
+	const winVisualScene = $derived(winVisualSceneOf(editorDoc.scenes, fallbackEditorScenes));
+	// The free-spin counter as an editor scene (the fallback layout ships it, so a no-doc boot is
+	// parity) — the coded path's counter; a v2 flow mounts it as a container instead.
 	// While a spins mode is on top its own counter copy (`freeSpinCounter-<modeId>`) draws, if the
 	// doc has one; otherwise, and on every doc without a spins mode, the base game's.
 	const fsCounterId = $derived(
 		modeScreenFor(editorDoc.scenes, activeSpinsGame()?.mode, 'freeSpinCounter'),
 	);
 	const fsCounterScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === fsCounterId) ?? fallbackFsCounter,
+		freeSpinCounterSceneOf(editorDoc.scenes, fallbackEditorScenes, fsCounterId),
 	);
 	// Authored BOOK REVEAL (book-reveal authoring). The `specialBook` scene normally carries only
 	// the coded `SpecialBook` bind anchor (the shuffle-through-symbols reference reveal). When an
@@ -1204,10 +1170,7 @@
 	// anchor, so the flag is false ⇒ the coded shuffle still plays (parity). Mirrors
 	// `suppressCodedBackground` / `suppressCodedHud`.
 	const suppressCodedBookReveal = $derived(hasAuthoredBookReveal(editorDoc.scenes));
-	const fallbackSpecialBook = fallbackEditorScenes.scenes.find((s) => s.id === 'specialBook')!;
-	const rawSpecialBookScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'specialBook') ?? fallbackSpecialBook,
-	);
+	const rawSpecialBookScene = $derived(specialBookSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// Book-reveal authoring — when the author supplies their OWN reveal content the coded
 	// `SpecialBook` shuffle is suppressed: strip its bind anchor from the scene so only the
 	// authored nodes mount. Un-authored (`apps/lines` dev) ⇒ the anchor stays ⇒ the coded shuffle
@@ -1228,23 +1191,13 @@
 	// Resolution is by ROLE first (`sceneByRole`), so an owner can tag ANY authored scene as the buy
 	// screen without matching the magic `buyFeature` id — then the legacy `buyFeature` id, then the
 	// seeded fallback. PARITY: a doc with no role-tagged scene resolves exactly as before (id → fallback).
-	const fallbackBuyFeature = fallbackEditorScenes.scenes.find((s) => s.id === 'buyFeature')!;
-	const buyFeatureScene = $derived(
-		sceneByRole(editorDoc.scenes, 'buyFeature') ??
-			editorDoc.scenes.find((scene) => scene.id === 'buyFeature') ??
-			fallbackBuyFeature,
-	);
+	const buyFeatureScene = $derived(buyFeatureSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// Buy-bonus CONFIRM step — the authored buy-confirm scene (a dimmed backdrop + a `confirmDialog`
 	// instance), else the engine default seeded by `defaultLayout`. Passed to the shared
 	// `<BuyBonusConfirm>` (→ `<ConfirmDialog>`) below, which keys visibility on `stateModal`
 	// (`buyBonusConfirm`) and injects the dialog's title/message/labels + confirm/cancel callbacks.
 	// ROLE-first resolution, mirroring the SELECT scene above (role → legacy `buyConfirm` id → fallback).
-	const fallbackBuyConfirm = fallbackEditorScenes.scenes.find((s) => s.id === 'buyConfirm')!;
-	const buyConfirmScene = $derived(
-		sceneByRole(editorDoc.scenes, 'buyConfirm') ??
-			editorDoc.scenes.find((scene) => scene.id === 'buyConfirm') ??
-			fallbackBuyConfirm,
-	);
+	const buyConfirmScene = $derived(buyConfirmSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// The operator's round-start CONFIRM (`confirmGameRoundStart`) — an authored `roundConfirm`
 	// scene if the doc has one, else `undefined` ⇒ `<ConfirmDialog>` renders the engine default.
 	// There is no `roundConfirm` ROLE and no seeded fallback: a doc that never authored it gets the

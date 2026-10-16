@@ -265,6 +265,27 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-16 — **The runtime stops downloading stock assets a project never draws.** The shared
+  runtime registers the upstream sample game's 40 assets (`apps/lines/src/game/assets.ts`) for every
+  game, and the loader fetched all of them: 14.8 MB of the Borut remake's boot. `game/stockAssets.ts`
+  now decides, from the data a boot holds before the loader mounts, which stock keys are reachable,
+  and `Game.svelte` takes the rest off the asset table right after `registerBakedComponents()`
+  (`game/stockAssetBoot.ts`, one `[stock-assets] skipped …` console line). It is a reachability walk
+  that keeps on any doubt: the mounted scenes (doc + the fallback scenes the game picks, now one shared
+  implementation in `game/sceneSelection.ts`) and every def they expand with each instance's EFFECTIVE
+  params; the coded parts each bind falls back to (`PART_NEEDS`); the coded mounts (background, board
+  glow, win frame, anticipation, bone-effect host); the symbol rigs through the renderer's own merge
+  and state inheritance over the in-play set; the authored-overlay flags; and every name in the
+  symbols/effects/flow/config docs. Always kept: `sound` (its names are only known from the file
+  itself), `goldFont`, `pressToContinueText`, `progressBar`. No doc at boot (dev, live-doc) ⇒ all 40,
+  so `apps/lines` dev is unchanged; a registered part with no rule, an unreadable def or any throw ⇒
+  all 40. Over the 10 published payloads: the remake drops 35 keys (9.27 MB of the 14.85 MB stock wire
+  bytes), test6 27 (7.58 MB), borut_pots_sample 31 (7.22 MB), the art-less test games 10–18. Gates:
+  `stockAssets.fixture.ts` (mutation cases: each un-authored fallback brings back exactly its key) and
+  `scripts/check-stock-asset-coverage.mjs` (every stock name a runtime source writes is listed in
+  `STOCK_CONSUMERS` under a rule, the name tables match the asset files, and every bound part
+  `Game.svelte` registers has a rule). `fallbackEditorScenes` moved to `game/fallbackLayout.ts`
+  (re-exported from `editor-scenes.ts`) so the fixture reads the real one.
 - 2026-10-16 — **Rig regions read clockwise packing (`rotate:270`).** Why a build had grown: the
   owner measured the Book of Borut remake's optimized build at 72.3 MB against "below 40 MB" before.
   Measured live (headless Chromium over CDP, Web Worker fetches included — DevTools counts them as
