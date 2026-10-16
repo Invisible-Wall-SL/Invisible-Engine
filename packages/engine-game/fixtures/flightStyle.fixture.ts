@@ -420,13 +420,14 @@ it(
 it('the coded ease is the coded curve', flightEaseOf('easeInOut'), flightEase);
 it(
 	'every ease runs 0 → 1 and clamps',
-	(['linear', 'easeIn', 'easeOut', 'easeInOut'] as const).map((ease) => [
+	(['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutIn'] as const).map((ease) => [
 		flightEaseOf(ease)(-1),
 		flightEaseOf(ease)(0),
 		flightEaseOf(ease)(1),
 		flightEaseOf(ease)(2),
 	]),
 	[
+		[0, 0, 1, 1],
 		[0, 0, 1, 1],
 		[0, 0, 1, 1],
 		[0, 0, 1, 1],
@@ -438,6 +439,16 @@ it(
 	[flightEaseOf('easeIn')(0.25) < 0.25, flightEaseOf('easeOut')(0.25) > 0.25],
 	[true, true],
 );
+{
+	const outIn = flightEaseOf('easeOutIn');
+	const speed = (t: number): number => (outIn(t + 0.001) - outIn(t - 0.001)) / 0.002;
+	it(
+		'ease out-in is fast, slow, fast — halfway at mid-flight, slowest there',
+		[outIn(0.25) > 0.25, outIn(0.5), outIn(0.75) < 0.75, speed(0.1) > speed(0.5) * 10],
+		[true, 0.5, true, true],
+	);
+	it('…and as fast at the end as at the start', Math.abs(speed(0.1) - speed(0.9)) < 1e-6, true);
+}
 
 it('no authored bend ⇒ the coded ladder', flightBendStrengths(undefined), FLIGHT_BEND_STRENGTHS);
 it('bend 0 ⇒ no bends', flightBendStrengths(0), []);

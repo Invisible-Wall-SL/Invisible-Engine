@@ -157,6 +157,15 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
 
 ## Recent changes
 
+- 2026-10-16 — **Flights: a fast-slow-fast ease.** `flights.<kind>.ease` takes `easeOutIn` (label
+  "Fast-slow-fast"): cubic ease out-in, halfway at mid-flight with zero speed there and as fast at
+  the end as at the start. One entry in `engine-layout` `FLIGHT_EASES` + its curve in `flightPath.ts`
+  `EASES`, so the `/symbols` dropdown, the save schema (`z.enum(FLIGHT_EASES)`), the preview and the
+  game (`flightEaseOf`) all take it. Made for 3D depth: the head's pose runs on the eased t, so it
+  hangs where the depth peaks. An older runtime drops the unknown value on read and flies the coded
+  ease (`check:doc-readers-unknown-fields`). `flightStyle` fixture (+ the curve's shape) and
+  `check:flights` (round-trips it). Runtime release on merge.
+
 - 2026-10-15 — **Flights: the head can follow the curve, and fly with 3D depth.**
   `flights.<kind>.headAlign` (`off` / `follow` / `upright`), `headRotation` (degrees, −180…180) and
   `depth` (−1…1), resolved exact → `toMeter` family → off / 0 / 0. One pure rule, `engine-layout`

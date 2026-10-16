@@ -1025,7 +1025,10 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   straight through them.
 - **Speed** (cells per second), **Min ms** / **Max ms** (the flight time is the distance over the
   speed, kept between the two), **Stagger ms** (the gap between two flights that leave together) and
-  **Ease**.
+  **Ease** — the speed over the flight time: **Linear**, **Ease in** (slow start), **Ease out** (slow
+  arrival), **Ease in-out** (slow at both ends, the built-in) or **Fast-slow-fast** (fast out of the
+  cell, a hang at mid-flight, fast into the target). Fast-slow-fast pairs well with **3D depth**: the
+  head hangs at its biggest (or smallest), right where the depth peaks.
 
 Blank fields show what they will use in grey. **↺ Reset** clears the selected kind.
 

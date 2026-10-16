@@ -267,6 +267,10 @@ const EASES: Record<FlightEase, (t: number) => number> = {
 	easeIn: (t) => unit(t) ** 3,
 	easeOut: (t) => 1 - (1 - unit(t)) ** 3,
 	easeInOut: flightEase,
+	easeOutIn: (t) => {
+		const c = unit(t);
+		return c < 0.5 ? (1 - (1 - 2 * c) ** 3) / 2 : (1 + (2 * c - 1) ** 3) / 2;
+	},
 };
 
 /** The progress curve an authored `ease` names (all cubic); the coded one is {@link flightEase}. */

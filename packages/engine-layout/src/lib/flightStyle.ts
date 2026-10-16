@@ -114,7 +114,7 @@ export const FLIGHT_HEAD_ALIGN_LABELS: Record<FlightHeadAlign, string> = {
 	upright: 'Follow, stay upright',
 };
 
-export const FLIGHT_EASES = ['linear', 'easeIn', 'easeOut', 'easeInOut'] as const;
+export const FLIGHT_EASES = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutIn'] as const;
 export type FlightEase = (typeof FLIGHT_EASES)[number];
 
 export const FLIGHT_EASE_LABELS: Record<FlightEase, string> = {
@@ -122,6 +122,7 @@ export const FLIGHT_EASE_LABELS: Record<FlightEase, string> = {
 	easeIn: 'Ease in',
 	easeOut: 'Ease out',
 	easeInOut: 'Ease in-out',
+	easeOutIn: 'Fast-slow-fast',
 };
 
 /** One flight kind's authored style. Sparse: every absent field falls through. */

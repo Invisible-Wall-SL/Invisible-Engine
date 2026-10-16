@@ -93,6 +93,7 @@ const AUTHORED = {
 	'toMeter:gold': {
 		head: { kind: 'flipbook', clipId: 'clip-gold' },
 		trail: { off: true },
+		ease: 'easeOutIn',
 		stagger: 40,
 	},
 	toCollector: { head: { kind: 'glow', tint: '#88ccff' }, arrival: { effectId: 'fx-pop' } },
