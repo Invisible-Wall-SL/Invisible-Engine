@@ -83,9 +83,9 @@ jobs:
           f=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
           if [ -e "$f" ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
 
-      # `held` stays local-only (`pnpm check:win-parity --variant held`): on the CI runner its held
-      # pointer lands the authored walk one frame ahead (deterministic, 0 px locally) — under
-      # investigation, docs/status/engine.md.
+      # `held` stays local-only (`pnpm check:win-parity --variant held`): on the CI runner the
+      # authored walk hides a frame early under a held pointer (deterministic; 0 px locally, the
+      # runner's own Chrome build included) — the cause is open, docs/status/engine.md.
       - name: win parity
         run: >-
           pnpm check:win-parity --variant base --variant slam-plain --variant slam-big
