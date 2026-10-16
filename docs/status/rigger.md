@@ -34,7 +34,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 
 The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against the reference runtime's; now against `engine-rig`). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against `engine-rig`, bundled by `tools/rigger-spike/rig.mjs`).
 
-**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` the 4.2.120 reference runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus the reference runtime's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change and on any new rig: no CI job runs them yet (open item 15).
+**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` the 4.2.120 reference runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus the reference runtime's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change and on any new rig. CI runs `parity.mjs` alone, as the advisory `rig parity` workflow (`.github/workflows/rig-parity.yml`, path-filtered to the runtime, the gate and rig files); the other three still run only by hand.
 
 ## Open items / next
 
@@ -65,11 +65,9 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than rig's).
     Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
 14. ~~Seven spikes hard-code `.pnpm/esbuild@0.25.5/…`~~ — fixed 2026-10-01 (Recent changes).
-15. **The parity gates run only by hand.** `parity.mjs` was red on `main` for nine days before
-    anyone noticed (2026-10-16, Recent changes). Next: an advisory, path-filtered workflow
-    (`packages/engine-rig`, `tools/rig-parity`, rig and atlas files), in its own PR. A
-    `.github/workflows/` edit counts as a harness edit and fails the current-games verdict, so the
-    workflow cannot ride along with a runtime change.
+15. ~~The parity gates run only by hand~~ — `parity.mjs` runs in CI as the advisory `rig parity`
+    workflow, 2026-10-16 (Recent changes). `fuzz.mjs` (~30 s, pure Node) could join it;
+    `render.mjs` / `render-webgl.mjs` need Chromium and stay manual.
 
 ## Blocked (owner / external)
 
@@ -81,6 +79,14 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-16 — **The rig parity gate runs in CI.** `.github/workflows/rig-parity.yml` runs
+  `node tools/rig-parity/parity.mjs` on every PR and push to `main` that touches
+  `packages/engine-rig`, `tools/rig-parity` (or the esbuild loader it borrows), any `spines/` or
+  `rigs/` folder, any `.atlas` / `.skel`, or the lockfile. It is advisory, like the other parity
+  workflows, and making it required is the owner's call (`docs/INFRA.md`, "Required checks"). It
+  landed in its own PR, after the fix it checks. The current-games verdict fails a PR that both
+  reaches a game and edits a workflow file (a harness edit). A workflow-only PR passes it as
+  untouched.
 - 2026-10-16 — **The rig parity gate is green again.** `node tools/rig-parity/parity.mjs` had
   failed on `main` since #1107 (2026-10-07) on the two demo rigs in
   `packages/pixi-svelte-storybook/static/rigs/`. They are the first repo rigs whose `skeleton`
