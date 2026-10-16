@@ -803,7 +803,7 @@
 			: { docs: [], durations: new Map() };
 	const timelinePlayer =
 		def && instanceTimelines.docs.length
-			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children)
+			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children, () => providedParams)
 			: undefined;
 	const stateMachineRunner =
 		stateMachine && def

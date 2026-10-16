@@ -587,8 +587,17 @@ const durations = new Map([
  * nodes and places each layer (`drive`); `LayoutNodeView` folds the node's own bindings, then the
  * channels the player samples, and hands the values to `<EffectPlayer params>`.
  */
-function instance(docs: CinematicDoc[], nodes: LayoutNode[], machineDef = machine) {
-	const player = new L.ComponentTimelinePlayer(docs, nodes);
+function instance(
+	docs: CinematicDoc[],
+	nodes: LayoutNode[],
+	machineDef = machine,
+	instanceParams?: Record<string, unknown>,
+) {
+	const player = new L.ComponentTimelinePlayer(
+		docs,
+		nodes,
+		instanceParams && (() => instanceParams),
+	);
 	const runner = new M.ComponentStateMachineRunner(machineDef, smInputs, durations);
 	const place = (): void => void runner.plays().forEach((p, i) => player.drive(p.layer, i, p));
 	place();
@@ -1150,6 +1159,22 @@ export function mountLive(node, initial) {
 			overlay.includes('if (node.live) next.add(node.nodeId);') &&
 			overlay.includes('next.set(node.nodeId, prev ? unionBox(prev, node.bounds) : node.bounds);'),
 	);
+	const component = readFileSync(new URL('ComponentInstance.svelte', LIB), 'utf8');
+	const smPanel = editor('EditorStateMachinePanel.svelte');
+	ok(
+		'a placed instance’s player rests a blend on its own params; the editor’s Animate field and stage preview do as well',
+		/new ComponentTimelinePlayer\([^)]*def\.root\.children,\s*\(\) => providedParams\)/.test(
+			component,
+		) &&
+			editor('EditorTimelinePanel.svelte').includes('fxChannelValue(doc, id, row, time, placed)') &&
+			(
+				smPanel.match(
+					/previewPlayer\(docs\.values\(\), scene\.nodes, \(\) => componentParams\)/g,
+				) ?? []
+			).length === 2 &&
+			(editor('ComponentWorkspace.svelte').match(/componentParams=\{resolvedParams\}/g) ?? [])
+				.length >= 3,
+	);
 	const props = editor('EditorProperties.svelte');
 	ok(
 		'the Effect panel lists the placed effect’s parameters with a value each, and in a component a ⇡ picker',
@@ -1158,7 +1183,8 @@ export function mountLive(node, initial) {
 			props.includes('setEffectParamValue(n, param.id') &&
 			props.includes('exposeEffectParam(parent, n, param)') &&
 			props.includes('linkEffectParam(parent, n, param, pick)') &&
-			props.includes('unlinkInstanceParam(n, param.id)'),
+			props.includes('unlinkInstanceParam(n, param.id)') &&
+			/node\.effectId = e\.currentTarget\.value;\s*dropEffectParamValues\(node\);/.test(props),
 	);
 	const panel = editor('EditorTimelinePanel.svelte');
 	const issuesFn = panel.slice(
@@ -1318,6 +1344,42 @@ export function mountLive(node, initial) {
 		'…so a state machine leaving a keyed state mixes towards the placement’s value (1 → 0.1 at a quarter: 0.775)',
 		r3(game.values()?.intensity),
 		0.775,
+	);
+	const pot = { potIntensity: 0.3 };
+	const fromPot = instance(
+		[tWin, tCalm],
+		[placedNode({ intensity: 0.9 }, { 'params.intensity': 'potIntensity' }), coinNode],
+		{ layers: [{ ...machine.layers[0], entry: 'win' }] },
+		pot,
+	);
+	fromPot.runner.fire('calm');
+	fromPot.step(0.1);
+	fromPot.step(0.05);
+	const quarter = r3(fromPot.values()?.intensity);
+	pot.potIntensity = 0.5;
+	eq(
+		'…towards the value it takes from the instance’s params over its own (1 → 0.3: 0.825), read when the blend asks (now 0.5)',
+		[quarter, r3(fromPot.values()?.intensity)],
+		[0.825, 0.875],
+	);
+	const keyless = timeline('t_none', 'Glow', { x: [{ time: 0, value: 1 }] });
+	const row = { channel: 'fx:heat', param: param('heat') } as Parameters<
+		typeof S.fxChannelValue
+	>[2];
+	eq(
+		'the editor’s Animate field shows an unkeyed parameter at the value the node sets, else the default; a key wins',
+		[
+			S.fxChannelValue(keyless, 'a', row, 0, { heat: 4 }),
+			S.fxChannelValue(keyless, 'a', row, 0),
+			S.fxChannelValue(
+				timeline('t_heat', 'Glow', { 'fx:heat': [{ time: 0, value: 7 }] }),
+				'a',
+				row,
+				0,
+				{ heat: 4 },
+			),
+		],
+		[4, 2, 7],
 	);
 	{
 		// The real applier takes the placement's values like any other: the colour reaches the tint.

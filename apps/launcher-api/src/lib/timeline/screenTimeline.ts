@@ -7,7 +7,7 @@ import {
 	type CinematicStrip,
 	type CinematicTrack,
 } from 'engine-cinematic';
-import type { EffectParam } from 'engine-fx';
+import type { EffectParam, EffectParamValues } from 'engine-fx';
 import {
 	componentTriggers,
 	drivableFxParams,
@@ -415,13 +415,15 @@ export function fxTimelineRows(
 
 /**
  * An `fx:` channel of a node actor at `t`: the keyed value, or where the channel rests while it has
- * no keys — the parameter's default (a bool reads 1 / 0). What the Animate field shows and ◆ keys.
+ * no keys — the value the node sets itself (`placed`), else the parameter's default (a bool reads
+ * 1 / 0), as the game's blend rests it. What the Animate field shows and ◆ keys.
  */
 export function fxChannelValue(
 	doc: CinematicDoc,
 	actorId: string,
 	row: FxChannelRow,
 	t: number,
+	placed?: EffectParamValues,
 ): number {
 	let value: number | undefined;
 	for (const track of tracksOf(doc, actorId)) {
@@ -429,7 +431,7 @@ export function fxChannelValue(
 		const v = sampleChannel(track.channels[row.channel], t);
 		if (v !== undefined) value = v;
 	}
-	return value ?? fxParamRest([row.param], row.channel) ?? 0;
+	return value ?? fxParamRest([row.param], row.channel, placed) ?? 0;
 }
 
 /** How a timeline drives one node of the screen at time `t` — the player's own inputs. */

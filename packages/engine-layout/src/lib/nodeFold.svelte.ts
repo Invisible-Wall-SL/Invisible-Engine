@@ -68,11 +68,9 @@ function createFxParamValues(
 	outputs: () => readonly (number | undefined)[],
 	params: readonly EffectParam[],
 ): () => EffectParamValues | undefined {
+	const placed = $derived(placedFxParamValues(node, componentParams(), params));
 	const values = $derived(
-		nodeFxParamValues(
-			placedFxParamValues(node, componentParams(), params),
-			boundFxParamValues(bindings, outputs(), params),
-		),
+		nodeFxParamValues(placed, boundFxParamValues(bindings, outputs(), params)),
 	);
 	return () => values;
 }
@@ -125,9 +123,9 @@ export type AttachedEffectDrive = { drive: CinematicNodeDrive | undefined } | nu
 
 /**
  * For a rig's bone-hosted effects (`attachedEffects`, which have no view of their own): whether
- * something drives each one's parameters, and the timeline drive it then folds — asked ONCE per
- * effect, untracked, as every node's timeline drive is, so a re-render never swaps the effect's
- * player (which would reset its particles). `driver` is the host view's node driver.
+ * something sets or drives each one's parameters, and the timeline drive it then folds — asked
+ * ONCE per effect, untracked, as every node's timeline drive is, so a re-render never swaps the
+ * effect's player (which would reset its particles). `driver` is the host view's node driver.
  */
 export function attachedEffectDrives(
 	driver: CinematicNodeDriver | undefined,

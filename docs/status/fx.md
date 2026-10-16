@@ -120,10 +120,15 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     counts a node that sets a parameter (any kind, so a colour-only node gets a getter);
     `attachedEffectDrives` follows, so a bone-hosted effect gets `<DrivenEffectPlayer>` too. An
     effect node that sets nothing still mounts the bare `<EffectPlayer>` (parity).
-  - **Blends rest on the placement.** `fxParamRest(params, channel, own)`: a state-machine blend
-    where only one side keys a parameter mixes from or towards the node's own value, else the
-    default. A value taken from the component is not a rest yet (the player has no instance
-    params); such a blend still mixes towards the default.
+  - **Blends rest on the placement.** `fxParamRest(params, channel, own)` with `own` =
+    `placedFxParamValues`: a state-machine blend where only one side keys a parameter mixes from
+    or towards the value the node sets (the component's param, else its own), else the default.
+    `ComponentTimelinePlayer` takes the instance's params lazily (`() => providedParams`), so the
+    rest follows a live param. The editor does the same: the Animate field shows (and ◆ keys) an
+    unkeyed parameter at that value (`fxChannelValue(…, placed)`), and the State machine stage
+    preview's player reads the component's preview params.
+  - **Swapping the effect** on a node drops its values and forwards, since the new effect declares
+    its own parameters.
   - **Editor.** Properties → **Effect → Parameters**: a slider + number box (number, the slider
     only with a usable `min..max`), a tick box (on/off) or a swatch (colour), **×** back to the
     default, a note when a **Bind to value** binding drives the same parameter, and the
@@ -135,9 +140,11 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     instance's params on the way down (`forwardInstanceParams` → `resolveComponentParams`, as the
     rig layer does), and `previewEffectParamValues` folds the placement's values under the test
     values and the timeline.
-  - **Gate:** `pnpm --filter launcher-api check:fx-node-params` 76 → 101 (a new §11, plus the
+  - **Gate:** `pnpm --filter launcher-api check:fx-node-params` 76 → 104 (a new §11, plus the
     compiled fold in §8 following a component param live, and the save round-trip in §9). Also
-    green: `check:component-param-forwarding` (106), `check:doc-readers-unknown-fields` (271),
+    green: `check:component-param-forwarding` (106), `check:component-state-machine` (151),
+    `check:component-state-machine-editor` (42), `check:component-timelines` (80), the
+    `check:authored-*` gates, `check:doc-readers-unknown-fields` (271),
     `check:save-keeps-unknown-blocks` (154), `check:component-links` (75), `check:depth-segments`,
     `check:vendored-bundles`, `check:undefined-names`, `check:svelte-init-order`, and
     `check:svelte` for `engine-layout` and `launcher-api` (at baseline). ⏳ Not clicked in a

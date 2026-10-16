@@ -62,6 +62,7 @@
 		type RigNode,
 		type RigRestOverride,
 		type TextStyle,
+		forwardedParams,
 		lightOrderThresholds,
 		potPieces,
 		POT_PIECE_LIGHT_PARAM,
@@ -1200,6 +1201,11 @@
 				? exposeEffectParam(parent, n, param) !== null
 				: linkEffectParam(parent, n, param, pick);
 		if (done) markDirty();
+	}
+	/** Another effect declares other parameters: drop the old one's values and forwards. */
+	function dropEffectParamValues(n: EffectNode): void {
+		delete n.params;
+		for (const [id] of forwardedParams(n)) unlinkInstanceParam(n, id);
 	}
 	function unlinkFxParam(n: EffectNode, param: EffectParam): void {
 		if (componentReadOnly) return;
@@ -5395,6 +5401,7 @@
 						value={node.effectId}
 						onchange={(e) => {
 							node.effectId = e.currentTarget.value;
+							dropEffectParamValues(node);
 							markDirty();
 						}}
 					>
@@ -5485,7 +5492,7 @@
 									{#if own !== undefined}
 										<button
 											type="button"
-											class="fx-param-reset"
+											class="reset"
 											disabled={componentReadOnly}
 											title="Use the effect's default ({String(p.default)})"
 											onclick={() => setFxParam(node, p, undefined)}>×</button
@@ -6113,17 +6120,8 @@
 	.fx-param-value input[type='number'] {
 		flex: 0 0 5.5em;
 	}
-	.fx-param-reset {
-		background: transparent;
-		border: none;
-		color: #c8a3ff;
-		cursor: pointer;
-		font-size: 14px;
-		line-height: 1;
-		padding: 2px 4px;
-	}
-	.fx-param-reset:hover {
-		color: #fff;
+	.fx-param-value .reset {
+		position: static;
 	}
 	.forward-pick {
 		flex: 0 0 auto;
