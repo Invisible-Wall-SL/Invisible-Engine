@@ -10,7 +10,8 @@
  *
  * Mirrors `atlasPageNames`' line model: the first line of a block is its page, a line with a colon
  * or leading whitespace is a property, any other line is a region name (so a region NAMED
- * `rotate_icon` is never touched).
+ * `rotate_icon` is never touched). Case-sensitive like the runtime's parser, which reads
+ * `ROTATE: TRUE` as no rotation, so that line must not become a quarter turn here.
  */
 export function clockwiseOnPage(atlasText: string, pageName: string): string {
 	let expectPage = true;
@@ -29,7 +30,7 @@ export function clockwiseOnPage(atlasText: string, pageName: string): string {
 				return line;
 			}
 			expectPage = false;
-			const quarterTurn = /^(\s*)rotate\s*:\s*(?:90|true)\s*$/i.exec(line);
+			const quarterTurn = /^(\s*)rotate\s*:\s*(?:90|true)\s*$/.exec(line);
 			return onPage && quarterTurn ? `${quarterTurn[1]}rotate:270` : line;
 		})
 		.join('\n');

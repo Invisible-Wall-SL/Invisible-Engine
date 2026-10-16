@@ -59,6 +59,13 @@ check(
 	atlas.replace('bounds:2,2,219,64\nrotate:90', 'bounds:2,2,219,64\nrotate:270'),
 );
 check('a page the atlas does not have', clockwiseOnPage(atlas, 'other.webp'), atlas);
+// The runtime's parser is case-sensitive and reads this as no rotation, so it stays that way.
+const shouting = 'S_Sheet.webp\nsize:64,48\nT_Upper\nbounds:0,0,8,4\nROTATE: TRUE\n';
+check(
+	'an upper-case rotate line is not a quarter turn',
+	clockwiseOnPage(shouting, 'S_Sheet.webp'),
+	shouting,
+);
 
 console.log('\nCRLF line endings survive as LF, the way the runtime reads them');
 check(

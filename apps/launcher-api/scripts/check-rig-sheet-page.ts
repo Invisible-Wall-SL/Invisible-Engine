@@ -16,7 +16,12 @@
  *   2. the shipped page is the sheet page byte for byte;
  *   3. a bundle that drifted and could not re-sync ships its own page with `rotate:90`, as before;
  *   4. a rig with no source (an upload) ships its own page, unchanged;
- *   5. without a page store nothing changes: a per-bundle copy and `rotate:90`.
+ *   5. without a page store nothing changes: a per-bundle copy and `rotate:90`;
+ *   6. an `.atlas` uploaded into a sheet-made bundle (the editor's rig-folder sync writes one without
+ *      touching `source.json`) ships with the page it was uploaded beside;
+ *   7. so does a page uploaded after the sync;
+ *   8. a sheet page that vanishes between the sync and the copy ships the bundle's own, with its atlas;
+ *   9. a rig with no rotated region is left alone, and still lands on the sheet's shared page.
  */
 import { createHash } from 'node:crypto';
 import { mock } from 'node:test';
@@ -32,11 +37,15 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 /** Keys whose writes fail — how a re-sync is made to fail without touching the code under test. */
 const failingPrefixes = new Set<string>();
+/** Run once, on the next read of this key — how a page is made to vanish mid-export. */
+const onNextRead = new Map<string, () => void>();
+/** Strictly increasing, so "written after" never ties within a millisecond. */
+let clock = 0;
 
 function put(key: string, body: Uint8Array): string {
 	if ([...failingPrefixes].some((p) => key.startsWith(p))) throw new Error(`write refused: ${key}`);
 	const etag = `"${createHash('md5').update(body).digest('hex')}"`;
-	bucket.set(key, { body, etag, modified: Date.now() });
+	bucket.set(key, { body, etag, modified: ++clock });
 	return etag;
 }
 
@@ -50,6 +59,8 @@ mock.module(server('r2.ts'), {
 			return o ? { body: o.body, contentType: 'image/webp', etag: o.etag } : null;
 		},
 		getObjectText: async (key: string) => {
+			onNextRead.get(key)?.();
+			onNextRead.delete(key);
 			const o = bucket.get(key);
 			return o ? dec.decode(o.body) : null;
 		},
@@ -77,6 +88,8 @@ const PROJECT = 'p1';
 const ROOT = `${CLIENT}/${PROJECT}`;
 const MANIFEST = `${ROOT}/manifests/atlas_manifest_S_Sheet.json`;
 const SHEET_PAGE = `${ROOT}/atlas/S_Sheet/S_Sheet.webp`;
+const FLAT_MANIFEST = `${ROOT}/manifests/atlas_manifest_S_Flat.json`;
+const FLAT_PAGE = `${ROOT}/atlas/S_Flat/S_Flat.webp`;
 const PAGE_W = 64;
 const PAGE_H = 48;
 // `w`/`h` are the UNROTATED size, as the manifest records them; `turned`'s footprint is 12×24.
@@ -86,16 +99,13 @@ const REGIONS = [
 ];
 mock.module(server('editorRegions.ts'), {
 	namedExports: {
-		loadRegionSet: async (key: string) =>
-			key === MANIFEST && bucket.has(SHEET_PAGE)
-				? {
-						assetKey: key,
-						pageKey: SHEET_PAGE,
-						pageWidth: PAGE_W,
-						pageHeight: PAGE_H,
-						regions: REGIONS,
-					}
-				: { assetKey: key, pageKey: '', pageWidth: 0, pageHeight: 0, regions: [] },
+		loadRegionSet: async (key: string) => {
+			const [pageKey, regions] =
+				key === MANIFEST ? [SHEET_PAGE, REGIONS] : [FLAT_PAGE, REGIONS.slice(0, 1)];
+			return bucket.has(pageKey)
+				? { assetKey: key, pageKey, pageWidth: PAGE_W, pageHeight: PAGE_H, regions }
+				: { assetKey: key, pageKey: '', pageWidth: 0, pageHeight: 0, regions: [] };
+		},
 	},
 });
 
@@ -142,15 +152,10 @@ const skeletonIndex = (folder: string) => [
 ];
 
 /** A bundle as `api/rigger/new` leaves it: skeleton + `source.json`, then synthesised by a sync. */
-async function sheetRig(folder: string): Promise<string> {
+async function sheetRig(folder: string, manifestKey = MANIFEST): Promise<string> {
 	const prefix = `${ROOT}/spines/${folder}`;
 	put(`${prefix}/${folder}.json`, enc.encode('{}'));
-	put(
-		`${prefix}/source.json`,
-		enc.encode(
-			JSON.stringify({ manifestKey: MANIFEST, pageName: 'S_Sheet.webp', geometryRevision: '' }),
-		),
-	);
+	put(`${prefix}/source.json`, enc.encode(JSON.stringify({ manifestKey, geometryRevision: '' })));
 	const synced = await ensureBundleAtlasFresh(CLIENT, PROJECT, prefix, `${folder}.atlas`);
 	ok(`${folder}: the sync synthesised the bundle`, synced?.changed === true);
 	return prefix;
@@ -245,5 +250,55 @@ ok(
 		Buffer.from(bucket.get(`${plain}/S_Sheet.webp`)!.body),
 	) === 0,
 );
+
+/** Exports `folder` through a fresh store; whether it shipped the bundle's own page under `rotate:90`. */
+async function shipsOwnPage(folder: string): Promise<boolean> {
+	const own = new PageStore(DEPLOY);
+	if (!(await exportRig(folder, own))) return false;
+	const shared = await own.ensure(`${ROOT}/spines/${folder}/S_Sheet.webp`, 'webp');
+	const atlasOut = deployedAtlas(folder);
+	return (
+		atlasOut.split('\n')[0] === `${PAGE_REF_PREFIX}${shared!.file}` &&
+		/rotate:90/.test(atlasOut) &&
+		!/rotate:270/.test(atlasOut)
+	);
+}
+
+console.log('6. an atlas uploaded into a sheet-made bundle ships with the page beside it');
+const uploaded = await sheetRig('R_Uploaded');
+// The editor's rig-folder sync: a new layout over the same page name, `source.json` untouched.
+const uploadedAtlas =
+	'S_Sheet.webp\nsize:64,48\nfilter:Linear,Linear\nturned\nbounds:30,10,24,12\nrotate:90\n';
+put(`${uploaded}/R_Uploaded.atlas`, enc.encode(uploadedAtlas));
+ok('it ships its own page, rotate:90', await shipsOwnPage('R_Uploaded'));
+ok('…with the uploaded layout', deployedAtlas('R_Uploaded').includes('bounds:30,10,24,12'));
+
+console.log('7. a page uploaded after the sync ships as uploaded');
+const touched = await sheetRig('R_Touched');
+put(
+	`${touched}/S_Sheet.webp`,
+	new Uint8Array(await sharp(sheetBytes).webp({ quality: 40 }).toBuffer()),
+);
+ok('it ships its own page, rotate:90', await shipsOwnPage('R_Touched'));
+
+console.log('8. a sheet page that vanishes mid-export: the bundle ships its own page and atlas');
+const vanish = await sheetRig('R_Vanish');
+onNextRead.set(`${vanish}/R_Vanish.atlas`, () => bucket.delete(SHEET_PAGE));
+ok('it ships its own page, rotate:90', await shipsOwnPage('R_Vanish'));
+put(SHEET_PAGE, sheetBytes);
+
+console.log('9. a rig with no rotated region is left alone, on the sheet’s shared page');
+put(FLAT_PAGE, new Uint8Array(await sharp(sheetBytes).webp({ quality: 60 }).toBuffer()));
+await sheetRig('R_Flat', FLAT_MANIFEST);
+const flatStore = new PageStore(DEPLOY);
+const flatShared = await flatStore.ensure(FLAT_PAGE, 'webp');
+ok('the rig exports', (await exportRig('R_Flat', flatStore)) !== null);
+const flatAtlas = deployedAtlas('R_Flat');
+ok(
+	'its atlas names the sheet’s shared page (an identical copy dedups)',
+	flatAtlas.split('\n')[0] === `${PAGE_REF_PREFIX}${flatShared!.file}`,
+	flatAtlas,
+);
+ok('…and has no rotation', !/rotate/.test(flatAtlas), flatAtlas);
 
 console.log(`\nrig sheet page: ${checks} checks passed`);

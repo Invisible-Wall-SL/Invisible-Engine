@@ -83,18 +83,24 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   11.35 MB against S_Cinematic2's 3.24 MB, pixel-identical outside the turned regions) — and each
   downloaded beside that sheet page as a second texture. The turn existed because the reference
   runtime read a quarter turn on a region only as counter-clockwise; ours reads clockwise as
-  `rotate:270`. `bundleSheetPage` (`rigBundleSync.ts`) names the sheet page a bundle was made from
-  while its recorded revision is the live one; `exportRigBundle` then ships that page through the
-  `PageStore` (the SAME `_pages/` file the sheet's export writes) and rewrites that page's rotations to
-  `rotate:270` (`clockwiseOnPage`, `rigAtlasRotation.ts`). Anything else ships as before: no store
-  (boot splash), an uploaded rig with no source, a bundle that drifted and did not re-sync, a sheet page
-  that vanished mid-export. The Rigger and the editor still read the bundle's own atlas and page, so
-  neither changes. Estimated on the remake: rig pages 36.9 MB → ~4.2 MB (only the four rigs whose sheet
+  `rotate:270`. For a rig with a rotated region, `exportRigBundle` takes its own sync's result
+  (`ensureBundleAtlasFresh` now returns the sheet page and the `.atlas` it writes, so nothing is read
+  twice) and `bundleSheetPage` (`rigBundleSync.ts`) proves nothing else wrote the bundle since: the
+  `.atlas` is exactly the synced one, and the page is no newer than `source.json`, which every sync and
+  `rigger/new` write last. Then it ships the sheet page through the `PageStore` (the SAME `_pages/` file
+  the sheet's export writes) and rewrites that page's rotations to `rotate:270` (`clockwiseOnPage`,
+  `rigAtlasRotation.ts`). Anything else ships as before: no store (boot splash), an uploaded rig, an
+  `.atlas` or page uploaded into a sheet-made bundle (the editor's rig-folder sync writes them without
+  `source.json`), a bundle that drifted and did not re-sync, a sheet page that vanished mid-export. A
+  rig with no rotated region already dedups (its copy is byte-identical) and is left alone. The Rigger
+  and the editor still read the bundle's own atlas and page, so neither changes. **This sets a
+  runtime rollback floor** — see "Rollback" in [games-deploy.md](../design/games-deploy.md). Estimated on the remake: rig pages 36.9 MB → ~4.2 MB (only the four rigs whose sheet
   the game does not also load add a page), so the WebP tier drops by ~33 MB; the KTX2 tier shares the
   sheet's twin the same way. Reaches a game at its next publish; the orphaned lossless pages fall out
-  of `_pages/` at that assemble's prune. Gates: `check:rig-sheet-page` (the real export over an
-  in-memory R2: shared page, byte-identical, `rotate:270`, and the four unchanged cases; fails on the
-  old export) and `check:rig-atlas-rotation`. ⏳ Re-measure the remake after its republish.
+  of `_pages/` at that assemble's prune. Gates: `check:rig-sheet-page` (the real export, sync and
+  page store over an in-memory R2: shared page, byte-identical, `rotate:270`, and every unchanged case
+  above; fails on the old export, and with either guard removed) and `check:rig-atlas-rotation`.
+  ⏳ Re-measure the remake after its republish.
 - 2026-10-15 — **Bound FX draw on their own side of the rig again.** Owner report: FX ignored their
   draw-at-slot order and always drew under the rig, in the Rigger only. A clip with cues on both
   sides creates the back and front overlays together, and the canvas lookup that set each one's

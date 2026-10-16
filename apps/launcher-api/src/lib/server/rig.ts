@@ -220,9 +220,10 @@ export function regionsToRigAtlas(
  * rotating that block 180° converts our CW packing into the CCW orientation rig
  * expects. 180° preserves the bounding box, so it's an in-place pixel reversal that
  * never disturbs neighbouring regions or any geometry — the `.atlas` (bounds/offsets/
- * `rotate:90`) is unchanged. The Rigger and the editor read this copy. The game does not: the
- * runtime now reads `rotate:270` as clockwise, so `exportRigBundle` ships the sheet's own page
- * instead (`clockwiseOnPage`), which is what keeps this lossless copy out of every download.
+ * `rotate:90`) is unchanged. The Rigger and the editor read this copy. A game reads it only when
+ * `exportRigBundle` cannot prove the bundle is still its sheet turned (`bundleSheetPage`) or has no
+ * page store: otherwise it ships the sheet's own page with the rotations read clockwise
+ * (`rotate:270`, `clockwiseOnPage`), which keeps this lossless copy out of the download.
  *
  * Atlas Maker pages are WebP, Sheet Maker pages are PNG, so we decode via `sharp`
  * (multi-format), flip on the raw RGBA buffer, and re-encode LOSSLESSLY to the SAME
@@ -651,9 +652,10 @@ export async function resolveEditorRig(
 	// A ROTATED-region atlas must serve the bundle's OWN page, which `ensureBundleAtlasFresh`
 	// (called above) reorients 180° from the CW-packed source into rig's CCW `rotate:90`
 	// convention. The DEPLOYED sheet page (deploy/sprites/…) is still CW-packed — serving it
-	// would render every rotated region upside-down in the editor's rig runtime, unlike
-	// in-game (which loads the reoriented deploy/editor-art bundle copy). Non-rotated atlases
-	// keep preferring the latest deploy page (reorientation is a no-op there, so it's byte-safe).
+	// under this `rotate:90` atlas would render every rotated region upside-down in the editor's
+	// rig runtime (the game reads the sheet page only under a `rotate:270` atlas the export
+	// rewrites, see `exportRigBundle`). Non-rotated atlases keep preferring the latest deploy
+	// page (reorientation is a no-op there, so it's byte-safe).
 	const pageKeys = atlasHasRotatedRegion(atlas.body)
 		? pageNames.map((n) => `${prefix}/${n}`)
 		: await resolveRigPageKeys(pageNames, clientKey, projectKey, prefix);
@@ -810,7 +812,9 @@ export async function exportRigBundle(opts: {
 	// bundle `.atlas` + page from the live manifest before copying it into `deploy/`. Without
 	// this a re-packed sheet would ship stale rects to the game even though Symbols/Editor
 	// (which self-heal on read) show it correctly — the "shows in editor ≠ ships" trap.
-	await ensureBundleAtlasFresh(clientKey, projectKey, prefix, entry.atlas_file).catch(() => null);
+	const sync = await ensureBundleAtlasFresh(clientKey, projectKey, prefix, entry.atlas_file).catch(
+		() => null,
+	);
 
 	const bundleAtlas = await getObjectText(`${prefix}/${entry.atlas_file}`);
 	if (bundleAtlas === null) return null;
@@ -818,8 +822,12 @@ export async function exportRigBundle(opts: {
 	// 180°, saved lossless (`reorientRotatedRegionsForRig`): 3–4× the lossy page it came from, and a
 	// second texture beside the sheet's own. While the copy is still that page turned, ship the sheet
 	// page itself with its rotations read clockwise — through the store, so it is the same `_pages/`
-	// file, and the same texture, the sheet loads. Without a store there is nothing to share.
-	const sheet = pageStore ? await bundleSheetPage(prefix).catch(() => null) : null;
+	// file, and the same texture, the sheet loads. Without a store there is nothing to share, and
+	// without a rotated region the copy is already byte-identical, so the store dedups it as is.
+	const sheet =
+		pageStore && sync && atlasHasRotatedRegion(bundleAtlas)
+			? await bundleSheetPage(prefix, bundleAtlas, sync).catch(() => null)
+			: null;
 	let atlasText = sheet ? clockwiseOnPage(bundleAtlas, sheet.pageName) : bundleAtlas;
 
 	// Confirm the skeleton exists before writing anything (no orphaned atlas on a

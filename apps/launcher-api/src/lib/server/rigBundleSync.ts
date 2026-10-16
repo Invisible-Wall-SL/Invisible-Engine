@@ -112,59 +112,6 @@ export async function loadBundleTextDoc(bundlePrefix: string): Promise<RigTextDo
 	}
 }
 
-/** The revision a bundle synthesised from `rs` records, and the rig-text block its `.atlas` ends
- *  with (design §12.4a). The text hash joins the revision so a text-only edit still reads as drift
- *  (same sheet, same page ETag would otherwise short-circuit and keep serving the pre-text atlas);
- *  a rig with no text contributes an EMPTY suffix. */
-async function liveRevision(
-	bundlePrefix: string,
-	rs: EditorRegionSet,
-): Promise<{ revision: string; textBlock: string }> {
-	const textDoc = await loadBundleTextDoc(bundlePrefix);
-	const textRev = rigTextRevision(textDoc);
-	const sheetRev = await bundleRevision(rs);
-	return {
-		revision: textRev ? `${sheetRev}:t${textRev}` : sheetRev,
-		textBlock: textAtlasBlock(textDoc),
-	};
-}
-
-/** A bundle page that is still its source sheet's page, turned: see {@link bundleSheetPage}. */
-export interface BundleSheetPage {
-	/** The page name the bundle `.atlas` uses (the sheet page's basename). */
-	pageName: string;
-	/** The sheet page itself in R2 — the same key the sheet's own export reads. */
-	pageKey: string;
-}
-
-/**
- * The sheet page a bundle's page was synthesised from, while that still holds — or null.
- *
- * A bundle made from a sheet (`api/rigger/new`, `ensureBundleAtlasFresh`) is that sheet's geometry
- * over a copy of its page with each rotated region turned 180°. When the revision it recorded is
- * the live one (same rects, same page bytes, same rig text) its `.atlas` describes the sheet page
- * exactly, so the export can ship the sheet page with the rotations read clockwise instead of the
- * copy. Anything else — an uploaded rig with no source, a source manifest or page that is gone, a
- * bundle that drifted and did not re-sync — is null, and the bundle ships its own page as before.
- */
-export async function bundleSheetPage(bundlePrefix: string): Promise<BundleSheetPage | null> {
-	const sidecarText = await getObjectText(`${bundlePrefix}/source.json`);
-	if (!sidecarText) return null;
-	let sidecar: { manifestKey?: unknown; pageName?: unknown; geometryRevision?: unknown };
-	try {
-		sidecar = JSON.parse(sidecarText);
-	} catch {
-		return null;
-	}
-	const { manifestKey, pageName, geometryRevision: recorded } = sidecar;
-	if (typeof manifestKey !== 'string' || typeof pageName !== 'string') return null;
-	if (typeof recorded !== 'string' || !recorded) return null;
-	const rs = await loadRegionSet(manifestKey);
-	if (!rs.regions.length || !rs.pageKey || basename(rs.pageKey) !== pageName) return null;
-	const { revision } = await liveRevision(bundlePrefix, rs);
-	return revision === recorded ? { pageName, pageKey: rs.pageKey } : null;
-}
-
 export interface BundleSyncResult {
 	/** Whether the bundle `.atlas` + page were (re)written this call. */
 	changed: boolean;
@@ -172,6 +119,36 @@ export interface BundleSyncResult {
 	revision: string;
 	/** Region count in the live source manifest. */
 	regions: number;
+	/** The source sheet's page in R2 — the key the sheet's own export reads. */
+	pageKey: string;
+	/** The `.atlas` a sync writes for the live sheet: what an in-sync bundle holds, byte for byte. */
+	atlasText: string;
+}
+
+/**
+ * The sheet page a bundle's page is a turned copy of, while that still holds — or null.
+ *
+ * A bundle made from a sheet (`api/rigger/new`, a sync) is that sheet's geometry over a copy of its
+ * page with each rotated region turned 180°, so the export can ship the sheet page with the
+ * rotations read clockwise instead. That needs `sync` — this export's own `ensureBundleAtlasFresh`
+ * result, so nothing is read twice — and two proofs that nothing else has written the bundle since:
+ * its `.atlas` is exactly what the sync writes (an atlas uploaded into the folder, or a sync racing
+ * this export, is not), and its page is no newer than `source.json`, which every sync and
+ * `api/rigger/new` write LAST (a page uploaded afterwards is). Otherwise null: ship the bundle's own.
+ */
+export async function bundleSheetPage(
+	bundlePrefix: string,
+	bundleAtlas: string,
+	sync: BundleSyncResult,
+): Promise<{ pageName: string; pageKey: string } | null> {
+	if (bundleAtlas !== sync.atlasText) return null;
+	const pageName = basename(sync.pageKey);
+	const [page, sidecar] = await Promise.all([
+		headObject(`${bundlePrefix}/${pageName}`),
+		headObject(`${bundlePrefix}/source.json`),
+	]);
+	if (!page || !sidecar || page.lastModified > sidecar.lastModified) return null;
+	return { pageName, pageKey: sync.pageKey };
 }
 
 /**
@@ -221,18 +198,24 @@ export async function ensureBundleAtlasFresh(
 
 	// Rig TEXT (design §12.4a) is localized art packed onto a SECOND page of this bundle's
 	// atlas. It is DERIVED here rather than appended to the file, because this function rewrites
-	// the `.atlas` wholesale — an appended block would be silently dropped on the next sync.
-	const { revision, textBlock } = await liveRevision(bundlePrefix, rs);
-	if (!opts.force && revision === baseline) {
-		return { changed: false, revision, regions: rs.regions.length };
-	}
+	// the `.atlas` wholesale — an appended block would be silently dropped on the next sync. Its
+	// hash joins the revision so a text-only edit still reads as drift (same sheet, same page
+	// ETag would otherwise short-circuit and keep serving the pre-text atlas). A rig with no text
+	// contributes an EMPTY suffix, so its revision is byte-identical to before this existed.
+	const textDoc = await loadBundleTextDoc(bundlePrefix);
+	const textBlock = textAtlasBlock(textDoc);
+	const textRev = rigTextRevision(textDoc);
+	const sheetRev = await bundleRevision(rs);
+	const revision = textRev ? `${sheetRev}:t${textRev}` : sheetRev;
+	const pageName = basename(rs.pageKey);
+	const atlasText =
+		regionsToRigAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions) + textBlock;
+	const synced = { revision, regions: rs.regions.length, pageKey: rs.pageKey, atlasText };
+	if (!opts.force && revision === baseline) return { changed: false, ...synced };
 
 	// Drifted (or forced) → re-synthesise the bundle `.atlas` + page from the live manifest.
 	const page = await getObjectBytes(rs.pageKey);
 	if (!page) return null; // page vanished — can't refresh; leave the bundle untouched
-	const pageName = basename(rs.pageKey);
-	const atlasText =
-		regionsToRigAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions) + textBlock;
 	// Re-orient CW-packed rotated regions to rig's CCW `rotate:90` convention (no-op when
 	// nothing is rotated) so the bundle stays self-consistent — its own page + its own atlas.
 	const pageBody = await reorientRotatedRegionsForRig(page.body, rs.regions);
@@ -253,5 +236,5 @@ export async function ensureBundleAtlasFresh(
 		await deleteObject(`${bundlePrefix}/${oldPageName}`);
 	}
 
-	return { changed: true, revision, regions: rs.regions.length };
+	return { changed: true, ...synced };
 }

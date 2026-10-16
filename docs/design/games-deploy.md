@@ -173,6 +173,13 @@ runs the same served-bundle check as a release, so the run is green only once a 
 chosen release. `main` still holds the bad commit afterwards — revert it, or the next engine merge
 releases it again.
 
+**A rollback has a floor: the first release with #1241.** Since the rig export ships a rig on its
+sheet's own page (`exportRigBundle`, 2026-10-16), every game published or re-assembled after that
+reads its rotated rig regions as `rotate:270`. A runtime from before #1241 does not know 270 and draws
+every such region distorted, in every game at once. So never `rollback` or `pin` below the first
+release whose commit includes #1241 (`list` shows each release's commit); to undo a newer release,
+roll back to one at or above it.
+
 **Races.** Rollback is deliberately NOT in the release's concurrency group: GitHub cancels a
 *pending* run when a newer one joins the group, so a rollback queued behind a bad release's 15-minute
 served check could be silently replaced by the next merge's release. Instead every pointer write is
