@@ -1235,3 +1235,35 @@ export function depthSegments(
 		sig,
 	}));
 }
+
+/** A placed effect's measured particle spread, in the node's own local space: `x`/`y` are the
+ * top-left offset from the node origin (`EditorEffectLayer` → the selection box). */
+export interface SpreadBox {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+/** The smallest box enclosing both. */
+export function unionBox(a: SpreadBox, b: SpreadBox): SpreadBox {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+
+/** Fold the effect overlays' spread reports into one box per node id. Each scene, depth segment
+ * and blend group reports from its own overlay, and the placements of one component part can land
+ * in different ones, so a node reports the union of all its boxes. */
+export function mergeSpreadBoxes(
+	reports: Iterable<Map<string, SpreadBox>>,
+): Map<string, SpreadBox> {
+	const merged = new Map<string, SpreadBox>();
+	for (const report of reports) {
+		for (const [id, box] of report) {
+			const prev = merged.get(id);
+			merged.set(id, prev ? unionBox(prev, box) : box);
+		}
+	}
+	return merged;
+}

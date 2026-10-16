@@ -44,13 +44,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   Meter copy → **Edit inside Pot ›**, select `BackgroundBeam2`, and under **Effect → Parameters**
   drag `BeamAlpha` and pick a `Color`: the beam on the stage follows with no reset, and **×** puts
   each back. **⇡ → Expose on Pot Meter** on `Color`: it shows under Component variables; on the
-  Pots screen give two pots different colours and check both the canvas and a published game. Also
-  worth a look: a screen-placed effect (no ⇡ there), Inspect (controls disabled), and Save → reopen.
-  `/editor` is auth + Postgres + R2 gated, so none of this has been clicked.
-- **The editor previews only one copy of a nested effect.** `EditorEffectLayer` keys its live
-  emitters by the effect node's id, which every placement of the same component shares, so a
-  screen with three Pot Meters previews one beam (pre-existing; the game draws all three). With
-  per-placement values this now hides a real difference between the pots.
+  Pots screen give two pots different colours and check both the canvas (each pot now previews its
+  own beam, see the 2026-10-16 "every placement" entry) and a published game. Also worth a look: a
+  screen-placed effect (no ⇡ there), Inspect (controls disabled), and Save → reopen. `/editor` is
+  auth + Postgres + R2 gated, so none of this has been clicked.
 - **Owner browser-pass over exposed parameters** (2026-10-15) — ⚡ a few rows (Frequency, an Alpha end, a tint colour, a force's Strength and its On switch), drag each preview slider and check the preview changes with no reset (particles in flight carry on), that a mapped row (Direction) goes read-only with the ⚡ name, that editing an as-is driven row (Frequency) moves the parameter's default, and that Save → reopen shows the same panel. `/fx` is auth + Postgres + R2 gated, so none of this has been clicked yet.
 - **`effect.*` drives cannot be authored in `/fx` yet.** The schema, the normalizer, the applier
   and the runtime wrapper (`EffectParamGroup`) all handle `effect.alpha | scale | tint | timeScale`,
@@ -81,6 +78,34 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-16 — **The editor previews every placement of a nested effect, not one copy.**
+  `EditorEffectLayer` keyed its live emitters by the effect node's id, which every placement of one
+  component shares. On a screen with three Pot Meters it built the first pot's beam, then moved
+  that one emitter to each later pot, so one beam showed, at the last pot. The game draws all three.
+  Per-placement values (the entry below) made this worse: two pots with different colours previewed
+  as one. Editor-only, so no runtime republish.
+  - **Key.** A placement is keyed by its id path from the top of the screen, `depthKey(ids)` (the
+    key the depth split already records each node under). A top-level effect's key is its own id,
+    as before. Each placement builds its own emitters and reads the params of the instance it sits
+    in, so each pot plays its own beam in its own colour.
+  - **Reports stay by node id**, which is what `EditorCanvas` (`mergeEffectReady` /
+    `mergeEffectBounds`) and its chip and selection-box code read. A node is ready while any of its
+    placements renders, the same union the canvas takes across its sublayers. Its box is the union
+    of its placements' particle spreads, all in the node's own local space.
+    - The union also holds across overlays. Each scene, depth segment and blend group reports from
+      its own overlay, and three pots whose glow sits under their art land in three segments.
+      `mergeEffectBounds` kept only the last report, so it now unions them (`mergeSpreadBoxes`,
+      `editorCanvas.helpers.ts`).
+  - The rig overlay had nothing to copy: it shares one instance per asset key and draws it at every
+    target. The text overlay keys its objects by chain the same way (`chainKey`).
+  - **Trade-off:** moving a top-level effect into a group (or out of one) changes its key, so its
+    particles restart instead of carrying on.
+  - **Gate:** `check:fx-node-params` 104 → 105. The new check scans the overlay and canvas wiring:
+    placements keyed by path, reports by node id, the canvas's union. It fails on the old overlay.
+    `check:depth-segments` gains §5: a one-id path keys as the id, three pots' glows get three keys
+    in three segments, and `mergeSpreadBoxes` folds their reports into one enclosing box (it fails
+    on a last-wins merge). Also green: `check:svelte --only apps/launcher-api` (at baseline),
+    `pnpm lint`, `check:undefined-names`. ⏳ Not clicked in a browser.
 - 2026-10-16 — **A placed effect's exposed parameters can be set where it is placed.** Owner
   report: an effect exposing `BeamAlpha` (number) and `Color` (colour), placed inside the Pot
   Meter's `Pot` part, showed neither parameter on the node: they were reachable only as a **Bind to
