@@ -987,16 +987,18 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   pots overlay's token, the "+N" of an add-respins — and an authored head on top of its own **Head
   size** (× the glow for a glow, × one cell for art). **Tint** colours an authored head. A sprite /
   rig / flipbook head applies once its frame, bundle + animation, or clip is picked. A meter that a
-  pots overlay fills flies the token itself in place of any head, so there only **Size** and **3D
-  depth** (below) matter — a token never turns, because it carries its value.
+  pots overlay fills flies the token itself in place of any head, so there only **Size**, the
+  head's turn and **3D depth** (below) matter.
 - **Head follows the curve** — **Follow the curve** turns the head to the direction it is flying,
   so a comet, an arrow or a fish points along the arc (draw the art pointing right, or turn it with
   **Head rotation**). **Follow, stay upright** does the same but mirrors the art instead of turning
   it upside down while it flies left — for art with a top and a bottom. **Head rotation (°)** turns
-  the art by a fixed angle on top (−180…180), whether it follows or not. Both show for a sprite,
-  rig or flipbook head; a glow is round and a token carries its value, so neither turns. An upright
-  head mirrors the moment its route passes straight up or down, so a near-vertical route may flip
-  it once mid-flight.
+  the art by a fixed angle on top (−180…180), whether it follows or not. Both show for every head.
+  A sprite, rig or flipbook head turns, and so does a pots overlay's token — its value stays
+  upright and readable over it. The built-in glow is round and **None** draws no head, so on those
+  a turn shows nothing; the page says so under the fields when you set one. An upright head mirrors
+  the moment its route passes straight up or down, so a near-vertical route may flip it once
+  mid-flight.
 - **3D depth** (−1…1) — makes the flight read as a trip through 3D space. Positive lifts the head
   toward the player at mid-flight, so it grows (twice its size at 1); negative sends it away into
   the screen, so it shrinks (to two thirds at −1); it is its normal size as it leaves and as it

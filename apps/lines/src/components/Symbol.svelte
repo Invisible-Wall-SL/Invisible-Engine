@@ -67,6 +67,9 @@
 		labelOverride?: Pick<RawSymbol, 'value' | 'factor' | 'jackpot'>;
 		/** A pop for the coin label (`RespinHeldSymbol`, from the authored `coinLabel.animation`). */
 		labelPop?: CoinLabelPopCue;
+		/** Draw no coin label — the caller draws it, as a flying token does (`FlightLayer`), so the
+		 *  value stays upright while the token turns with its flight. */
+		labelHidden?: boolean;
 	};
 
 	const props: Props = $props();
@@ -280,7 +283,7 @@
 </Container>
 
 <Container tint={props.tint}>
-	{#if coinLabel}
+	{#if coinLabel && !props.labelHidden}
 		<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
 	{/if}
 </Container>

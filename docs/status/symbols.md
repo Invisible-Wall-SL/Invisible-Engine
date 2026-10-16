@@ -169,6 +169,16 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
   one (`check:doc-readers-unknown-fields`). `flightStyle` fixture (the curve's speeds, clamp,
   family fallback) and `check:flights` (round-trips both). Runtime release on merge.
 
+- 2026-10-16 — **Flights: the head-turn fields show for every head, and a pots token turns too.**
+  "Head follows the curve" and "Head rotation" were shown only for a sprite / rig / flipbook head no
+  pots token replaced, so an author on the built-in glow or a pots meter saw "3D depth" alone and
+  no way to turn anything. Both now show for every head, like "3D depth", with a hint under them
+  when a set turn cannot show (`flightTurnNote`: the round glow, a `none` head). A carried pots
+  token now takes the whole pose like an art head: `FlightLayer` turns the `Symbol` with its label
+  switched off (`labelHidden`, new on `Symbol.svelte`) and draws the value itself, upright over it
+  at the perspective scale, so the number never turns or mirrors. The `/symbols` preview turns the
+  token art the same way.
+
 - 2026-10-15 — **Flights: the head can follow the curve, and fly with 3D depth.**
   `flights.<kind>.headAlign` (`off` / `follow` / `upright`), `headRotation` (degrees, −180…180) and
   `depth` (−1…1), resolved exact → `toMeter` family → off / 0 / 0. One pure rule, `engine-layout`

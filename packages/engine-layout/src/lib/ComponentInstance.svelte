@@ -797,6 +797,7 @@
 	const stateMachine = allowed && def?.stateMachine?.layers?.length ? def.stateMachine : undefined;
 	/** BUTTON STATES (Rive plan Phase 8d, `ComponentDef.buttonStates`): see the feed below. */
 	const buttonStates = allowed && def?.buttonStates === true;
+	const settles = allowed && def?.settles === true;
 	const instanceTimelines =
 		allowed && def
 			? instanceTimelineDocs(def.id, stateMachine)
@@ -853,7 +854,7 @@
 					void timelineClock;
 					return timelinePlayer.sample(nodeId) ?? {};
 				},
-				...(buttonStates ? { settles: true as const } : {}),
+				...(settles ? { settles: true as const } : {}),
 			};
 		}, parentNest.depth + 1);
 	}

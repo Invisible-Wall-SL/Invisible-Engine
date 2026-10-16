@@ -1617,6 +1617,13 @@ export interface ComponentDef {
 	 */
 	buttonStates?: true;
 	/**
+	 * SETTLES (built-in only): its timelines hand a keyed `rotation` that returns to 0 or `alpha`
+	 * that returns to 1 to the node as that value (`CinematicNodeDrive.settles`) — a fade-in that ends
+	 * on alpha 1 lands on 1, not on the last blended value. The authored button, Win and free-spin
+	 * presentations set it; never stored. Absent ⇒ the fold's transform as before (parity).
+	 */
+	settles?: true;
+	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A
 	 * raise leaves the instance on the same road a button's `action` press takes

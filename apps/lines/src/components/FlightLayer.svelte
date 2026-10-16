@@ -5,6 +5,7 @@
 	import { onDestroy } from 'svelte';
 
 	import { bakedEffects, type BookVfxLayer } from '../editor-scenes';
+	import { coinLabelFor, coinLabelLookFor } from '../game/coinLabel';
 	import {
 		arrivalPlayed,
 		attachFlightLayer,
@@ -13,6 +14,7 @@
 		tickFlights,
 		type ActiveFlight,
 	} from '../game/flights.svelte';
+	import CoinLabel from './CoinLabel.svelte';
 	import Symbol from './Symbol.svelte';
 	import SymbolLayer from './SymbolLayer.svelte';
 
@@ -32,11 +34,12 @@
 	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
 	 * instead, in its `flyToMeter` state, at the board's scale. The kind's `size` multiplies all of
 	 * it — the glow, the art, the carried symbol and a "+N" label. The head's POSE (`engine-layout`
-	 * `flightHeadPose`, kept on the flight each frame) turns the art to the heading when the kind
-	 * follows the curve (`headAlign`; an upright head is mirrored while it heads left), turns it by
-	 * the kind's `headRotation`, and scales everything at the head by the perspective of the kind's
-	 * `depth`. The glow, the label and a carried symbol take only that scale — a symbol carries its
-	 * value text, which must not turn or mirror. The trail is `FlightView`'s; its particles spawn
+	 * `flightHeadPose`, kept on the flight each frame) turns the art or the carried symbol to the
+	 * heading when the kind follows the curve (`headAlign`; an upright head is mirrored while it
+	 * heads left), turns it by the kind's `headRotation`, and scales everything at the head by the
+	 * perspective of the kind's `depth`. The glow and the labels take only that scale: a carried
+	 * symbol's value is drawn here, upright over the turned symbol, rather than by the symbol
+	 * (`labelHidden`), so it never turns or mirrors. The trail is `FlightView`'s; its particles spawn
 	 * turned to the flight's heading when the kind aligns them (`trailAlign`), plus the kind's
 	 * `trailRotation`. The arrival effect plays ONCE at the target when the head lands, and the
 	 * flight stays mounted until it has played out.
@@ -66,8 +69,8 @@
 		stroke: { color: 0x000000, width: 6 },
 	} as const;
 
-	/** A turned art head's scale: `size` × the pose's perspective, its lean along the travel axis
-	 *  and the upright mirror. */
+	/** A turned head's scale: `size` × the pose's perspective, its lean along the travel axis and
+	 *  the upright mirror. */
 	const poseScale = (flight: ActiveFlight, size: number) => ({
 		x: size * flight.pose.scale * flight.pose.stretch,
 		y: size * flight.pose.scale * flight.pose.flip,
@@ -138,13 +141,23 @@
 			</Container>
 		{/if}
 		{#if flight.phase === 'flying' && flight.symbol}
+			{@const symbolSize = flight.scale * (flight.symbolScale ?? 1) * flight.size}
+			{@const tokenLabel = coinLabelFor(flight.symbol)}
 			<Container
 				x={flight.head.x}
 				y={flight.head.y}
-				scale={flight.scale * (flight.symbolScale ?? 1) * flight.size * flight.pose.scale}
+				rotation={flight.pose.rotation}
+				scale={poseScale(flight, symbolSize)}
 			>
-				<Symbol state="flyToMeter" rawSymbol={flight.symbol} />
+				<Container rotation={flight.pose.artRotation}>
+					<Symbol state="flyToMeter" rawSymbol={flight.symbol} labelHidden />
+				</Container>
 			</Container>
+			{#if tokenLabel}
+				<Container x={flight.head.x} y={flight.head.y} scale={symbolSize * flight.pose.scale}>
+					<CoinLabel text={tokenLabel} look={coinLabelLookFor(flight.symbol)} />
+				</Container>
+			{/if}
 		{/if}
 		{#if flight.phase === 'flying' && flight.label}
 			<Text
