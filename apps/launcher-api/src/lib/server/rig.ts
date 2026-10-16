@@ -19,7 +19,8 @@ import { ENV } from './env';
 import { encodePageToKtx2 } from './ktx2Encode';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 import { getRoleOverrides } from './roleToolAccess';
-import { ensureBundleAtlasFresh, firstAtlasPageName } from './rigBundleSync';
+import { clockwiseOnPage } from './rigAtlasRotation';
+import { bundleSheetPage, ensureBundleAtlasFresh, firstAtlasPageName } from './rigBundleSync';
 import { getToolOverrides } from './userToolAccess';
 
 export async function requireRigAccess(locals: App.Locals): Promise<void> {
@@ -213,15 +214,15 @@ export function regionsToRigAtlas(
  * un-rotate correctly. The rig atlas parser uses the OPPOSITE convention: a
  * `rotate:90` region must be packed COUNTER-clockwise to render upright (the `degrees == 90`
  * UV math in the rig runtime, `RegionAttachment.updateRegion` in `packages/engine-rig`). So a
- * CW-packed region renders 180° off — upside down — in the Rigger, and a region only honours
- * `degrees` 0/90 (270 falls through to the unrotated branch), so it can't be expressed
- * in the `.atlas`.
+ * CW-packed region renders 180° off — upside down — in the Rigger.
  *
- * The fix is purely in the pixels: a rotated region's on-page footprint is `(h×w)`, and
+ * The bundle's fix is in the pixels: a rotated region's on-page footprint is `(h×w)`, and
  * rotating that block 180° converts our CW packing into the CCW orientation rig
  * expects. 180° preserves the bounding box, so it's an in-place pixel reversal that
  * never disturbs neighbouring regions or any geometry — the `.atlas` (bounds/offsets/
- * `rotate:90`) is unchanged.
+ * `rotate:90`) is unchanged. The Rigger and the editor read this copy. The game does not: the
+ * runtime now reads `rotate:270` as clockwise, so `exportRigBundle` ships the sheet's own page
+ * instead (`clockwiseOnPage`), which is what keeps this lossless copy out of every download.
  *
  * Atlas Maker pages are WebP, Sheet Maker pages are PNG, so we decode via `sharp`
  * (multi-format), flip on the raw RGBA buffer, and re-encode LOSSLESSLY to the SAME
@@ -811,8 +812,15 @@ export async function exportRigBundle(opts: {
 	// (which self-heal on read) show it correctly — the "shows in editor ≠ ships" trap.
 	await ensureBundleAtlasFresh(clientKey, projectKey, prefix, entry.atlas_file).catch(() => null);
 
-	const atlasText = await getObjectText(`${prefix}/${entry.atlas_file}`);
-	if (atlasText === null) return null;
+	const bundleAtlas = await getObjectText(`${prefix}/${entry.atlas_file}`);
+	if (bundleAtlas === null) return null;
+	// A bundle made from a sheet keeps a copy of the sheet page with every rotated region turned
+	// 180°, saved lossless (`reorientRotatedRegionsForRig`): 3–4× the lossy page it came from, and a
+	// second texture beside the sheet's own. While the copy is still that page turned, ship the sheet
+	// page itself with its rotations read clockwise — through the store, so it is the same `_pages/`
+	// file, and the same texture, the sheet loads. Without a store there is nothing to share.
+	const sheet = pageStore ? await bundleSheetPage(prefix).catch(() => null) : null;
+	let atlasText = sheet ? clockwiseOnPage(bundleAtlas, sheet.pageName) : bundleAtlas;
 
 	// Confirm the skeleton exists before writing anything (no orphaned atlas on a
 	// half-resolved bundle); the bytes themselves never load into this process —
@@ -847,7 +855,11 @@ export async function exportRigBundle(opts: {
 	for (const pageName of atlasPageNames(atlasText)) {
 		if (pageStore) {
 			const ext = /\.(png|webp|jpe?g)$/i.exec(pageName)?.[1].toLowerCase() ?? 'png';
-			const shared = await pageStore.ensure(`${prefix}/${pageName}`, ext);
+			const fromSheet = sheet !== null && pageName === sheet.pageName;
+			let shared = fromSheet ? await pageStore.ensure(sheet.pageKey, ext) : null;
+			// The sheet page vanished since `bundleSheetPage` read it: ship the copy, as before.
+			if (fromSheet && !shared) atlasText = bundleAtlas;
+			shared ??= await pageStore.ensure(`${prefix}/${pageName}`, ext);
 			if (!shared) continue;
 			webpByPage.set(pageName, `${PAGE_REF_PREFIX}${shared.file}`);
 			if (shared.ktx2File) {
