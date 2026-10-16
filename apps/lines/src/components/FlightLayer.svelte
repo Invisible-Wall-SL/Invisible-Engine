@@ -38,8 +38,9 @@
 	 * heading when the kind follows the curve (`headAlign`; an upright head is mirrored while it
 	 * heads left), turns it by the kind's `headRotation`, and scales everything at the head by the
 	 * perspective of the kind's `depth`. The glow and the labels take only that scale: a carried
-	 * symbol's value is drawn here, upright over the turned symbol, rather than by the symbol
-	 * (`labelHidden`), so it never turns or mirrors. The trail is `FlightView`'s; its particles spawn
+	 * symbol is mounted `inFlight`, so it draws no win frame (its `flyToMeter` state frames a cell on
+	 * the board, not a head in the air) and no value — the value is drawn here, upright over the
+	 * turned symbol, so it never turns or mirrors. The trail is `FlightView`'s; its particles spawn
 	 * turned to the flight's heading when the kind aligns them (`trailAlign`), plus the kind's
 	 * `trailRotation`. The arrival effect plays ONCE at the target when the head lands, and the
 	 * flight stays mounted until it has played out.
@@ -150,7 +151,7 @@
 				scale={poseScale(flight, symbolSize)}
 			>
 				<Container rotation={flight.pose.artRotation}>
-					<Symbol state="flyToMeter" rawSymbol={flight.symbol} labelHidden />
+					<Symbol state="flyToMeter" rawSymbol={flight.symbol} inFlight />
 				</Container>
 			</Container>
 			{#if tokenLabel}
