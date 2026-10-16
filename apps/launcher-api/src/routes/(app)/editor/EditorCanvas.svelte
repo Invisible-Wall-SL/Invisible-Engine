@@ -1079,8 +1079,11 @@
 	let showScreenBorder = $state(false);
 	/** What the live particle overlay applies to a placed effect's exposed parameters: the binding
 	 * test values and the previewed timeline, through the game's fold (Invisible FX Step 2). */
-	const effectPreviewValues = (node: EffectNode, doc: EffectDoc): EffectParamValues | undefined =>
-		previewEffectParamValues(node, doc.params);
+	const effectPreviewValues = (
+		node: EffectNode,
+		doc: EffectDoc,
+		params: Readonly<Record<string, unknown>>,
+	): EffectParamValues | undefined => previewEffectParamValues(node, doc.params, params);
 	/** Effect NODE ids the live particle overlay (`EditorEffectLayer`) now renders — the 2D canvas
 	 * skips their placeholder chip so only the live emitters show. UNION across the per-scene effect
 	 * sublayers (each reports only its own scene's node ids). */
@@ -5288,6 +5291,8 @@
 						{panY}
 						{zoom}
 						{componentMap}
+						{componentParams}
+						{componentDefaults}
 						worldTransformOf={drawTransform}
 						{hiddenSceneIds}
 						sceneFilter={sceneFilterFor(s.id)}
@@ -5326,6 +5331,8 @@
 							{panY}
 							{zoom}
 							{componentMap}
+							{componentParams}
+							{componentDefaults}
 							worldTransformOf={drawTransform}
 							{hiddenSceneIds}
 							sceneFilter={sceneFilterFor(s.id)}
@@ -5449,6 +5456,8 @@
 				{panY}
 				{zoom}
 				{componentMap}
+				{componentParams}
+				{componentDefaults}
 				worldTransformOf={drawTransform}
 				{hiddenSceneIds}
 				sceneFilter={hudEffectSceneFilter()}

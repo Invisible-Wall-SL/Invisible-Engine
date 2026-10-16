@@ -7,7 +7,7 @@ import {
 
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
 import { BUILTIN_TIMELINES } from './builtinTimelines';
-import { fxParamOfChannel, fxParamRest } from './fxNodeParams';
+import { fxParamOfChannel, fxParamRest, placedFxParamValues } from './fxNodeParams';
 import { resolveEffect } from './registerEffects';
 import { blendNodeSamples, type LayerPlay, type LeftSegment } from './stateMachine';
 import type { CinematicDoc, ComponentStateMachine, LayoutNode } from './types';
@@ -195,7 +195,8 @@ export class ComponentTimelinePlayer {
 	private readonly boundById = new Map<string, Bound>();
 	private readonly running = new Map<string, Running>();
 	private readonly driven = new Map<string, Running>();
-	/** Effect nodes some timeline keys an `fx:` channel on → where each such channel rests (its
+	/** Effect nodes some timeline keys an `fx:` channel on → where each such channel rests (the
+	 *  value the node sets itself, from its own `params` or the instance's params, else its
 	 *  parameter's default, read from the game's effect registry when a blend asks). */
 	private readonly fxRests = new Map<string, (channel: string) => number | undefined>();
 	private started = 0;
@@ -207,7 +208,13 @@ export class ComponentTimelinePlayer {
 	 */
 	playRate = 1;
 
-	constructor(docs: readonly CinematicDoc[], nodes: LayoutNode[]) {
+	/** `params`: the owning instance's params, read when a blend asks for a rest (a `params.<id>`
+	 *  forward on an effect node reads them). */
+	constructor(
+		docs: readonly CinematicDoc[],
+		nodes: LayoutNode[],
+		params?: () => Readonly<Record<string, unknown>>,
+	) {
 		const scene = { id: '', name: '', nodes };
 		this.bound = docs.map((doc) => {
 			const actors = new Map<string, CinematicTrack[]>();
@@ -218,7 +225,10 @@ export class ComponentTimelinePlayer {
 				channels.set(nodeId, keyed);
 				const node = actor.node;
 				if (node.kind === 'effect' && [...keyed].some((c) => fxParamOfChannel(c) !== undefined))
-					this.fxRests.set(nodeId, (c) => fxParamRest(resolveEffect(node.effectId)?.params, c));
+					this.fxRests.set(nodeId, (c) => {
+						const declared = resolveEffect(node.effectId)?.params;
+						return fxParamRest(declared, c, placedFxParamValues(node, params?.() ?? {}, declared));
+					});
 			}
 			const cue = doc.tracks.find((t) => t.kind === 'cue') as
 				{ keys?: { time: number; cue: string }[] } | undefined;

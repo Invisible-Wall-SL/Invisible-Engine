@@ -42,6 +42,7 @@
 		type ComponentParam,
 		type ComponentSignal,
 		type ContainerNode,
+		type EffectNode,
 		type KindCapabilityConfig,
 		type CoverFit,
 		type AnticipationProfile,
@@ -61,6 +62,7 @@
 		type RigNode,
 		type RigRestOverride,
 		type TextStyle,
+		forwardedParams,
 		lightOrderThresholds,
 		potPieces,
 		POT_PIECE_LIGHT_PARAM,
@@ -72,11 +74,18 @@
 	import RegionPicker from './RegionPicker.svelte';
 	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
 	import {
+		exposeEffectParam,
 		forwardedFrom,
+		linkEffectParam,
+		linkableEffectParentParams,
 		linkableParentParams,
+		setEffectParamValue,
 		uniqueParentKey,
+		unlinkInstanceParam,
 		writeInstanceParam,
 	} from './instanceParamForwarding';
+	import { placedEffect } from './placedEffects.client.svelte';
+	import { effectParamValue, type EffectParam, type EffectParamKind } from 'engine-fx';
 	import type { RigMeta } from './rigRuntime.client';
 
 	/** Minimal structural view of a project rig bundle (mirrors the server-only
@@ -1164,6 +1173,43 @@
 	/** Display name for an effect id (falls back to the raw id when the list is missing it). */
 	function effectName(id: string): string {
 		return effectList.find((e) => e.id === id)?.name ?? id;
+	}
+
+	const FX_PARAM_KIND_LABELS: Record<EffectParamKind, string> = {
+		number: 'number',
+		bool: 'on/off',
+		color: 'colour',
+	};
+	/** A slider for a number parameter, when it declares a usable range. */
+	function fxParamRange(param: EffectParam): { min: number; max: number } | undefined {
+		const { min, max } = param;
+		return min !== undefined && max !== undefined && max > min ? { min, max } : undefined;
+	}
+	/** Set this placement's value for an exposed effect parameter (`undefined` = the effect's own). */
+	function setFxParam(n: EffectNode, param: EffectParam, raw: unknown): void {
+		if (componentReadOnly) return;
+		if (raw !== undefined && param.kind === 'number' && !Number.isFinite(raw)) return;
+		setEffectParamValue(n, param.id, raw === undefined ? undefined : effectParamValue(param, raw));
+		markDirty();
+	}
+	/** The open component's ⇡ picker on an effect parameter: expose it, or take it from a param. */
+	function forwardFxParam(n: EffectNode, param: EffectParam, pick: string): void {
+		const parent = componentMode ? componentDraft : null;
+		if (!parent || componentReadOnly || !pick) return;
+		const done =
+			pick === FORWARD_EXPOSE
+				? exposeEffectParam(parent, n, param) !== null
+				: linkEffectParam(parent, n, param, pick);
+		if (done) markDirty();
+	}
+	/** Another effect declares other parameters: drop the old one's values and forwards. */
+	function dropEffectParamValues(n: EffectNode): void {
+		delete n.params;
+		for (const [id] of forwardedParams(n)) unlinkInstanceParam(n, id);
+	}
+	function unlinkFxParam(n: EffectNode, param: EffectParam): void {
+		if (componentReadOnly) return;
+		if (unlinkInstanceParam(n, param.id)) markDirty();
 	}
 
 	/** The selected clip, or `undefined` for a dangling id (a clip deleted in `/flipbook` after it
@@ -5340,6 +5386,8 @@
 			</p>
 		</section>
 	{:else if node.kind === 'effect'}
+		{@const fxDoc = placedEffect(node.effectId)}
+		{@const fxParent = componentMode ? componentDraft : null}
 		<section>
 			<h3>Effect</h3>
 			<p class="muted small">
@@ -5353,6 +5401,7 @@
 						value={node.effectId}
 						onchange={(e) => {
 							node.effectId = e.currentTarget.value;
+							dropEffectParamValues(node);
 							markDirty();
 						}}
 					>
@@ -5365,6 +5414,139 @@
 					</select>
 				</label>
 			</div>
+			{#if fxDoc?.params?.length}
+				<h4 class="sub-h">Parameters</h4>
+				<p class="muted small">
+					What this effect exposes (⚡ in Invisible FX). A value set here is this placement's own;
+					<strong>×</strong> puts it back on the effect's default.
+					{#if fxParent}
+						<strong>⇡</strong> exposes it on <strong>{fxParent.name}</strong> instead: each
+						placement of {fxParent.name} then sets it.
+					{/if}
+				</p>
+				{#each fxDoc.params as p (p.id)}
+					{@const fromParent = fxParent ? forwardedFrom(node, p.id) : undefined}
+					{@const own = node.params?.[p.id]}
+					{@const value = effectParamValue(p, own)}
+					{@const range = p.kind === 'number' ? fxParamRange(p) : undefined}
+					<div class="row">
+						{#if fxParent && fromParent}
+							<div class="field wide">
+								<span>{p.id} ({FX_PARAM_KIND_LABELS[p.kind]})</span>
+								<span
+									class="forwarded-from"
+									title="Each placement of {fxParent.name} sets this through its {fromParent} param — under Component instance on a screen, or in This game's defaults."
+									>⇡ from {fxParent.name} · {fromParent}</span
+								>
+								<button
+									type="button"
+									class="reset"
+									disabled={componentReadOnly}
+									title="Stop taking this from {fxParent.name}: this placement uses its own value again. The {fromParent} param stays on {fxParent.name} — remove it under Component variables if nothing else reads it."
+									onclick={() => unlinkFxParam(node, p)}>×</button
+								>
+							</div>
+						{:else}
+							<div class="field wide">
+								<span>{p.id} ({FX_PARAM_KIND_LABELS[p.kind]})</span>
+								<div class="fx-param-value">
+									{#if p.kind === 'number'}
+										{#if range}
+											<input
+												type="range"
+												min={range.min}
+												max={range.max}
+												step={(range.max - range.min) / 100}
+												value={value as number}
+												disabled={componentReadOnly}
+												aria-label={p.id}
+												oninput={(e) => setFxParam(node, p, e.currentTarget.valueAsNumber)}
+											/>
+										{/if}
+										<input
+											type="number"
+											step="any"
+											min={p.min}
+											max={p.max}
+											value={value as number}
+											disabled={componentReadOnly}
+											aria-label={p.id}
+											oninput={(e) => setFxParam(node, p, e.currentTarget.valueAsNumber)}
+										/>
+									{:else if p.kind === 'bool'}
+										<input
+											type="checkbox"
+											checked={value === true}
+											disabled={componentReadOnly}
+											aria-label={p.id}
+											onchange={(e) => setFxParam(node, p, e.currentTarget.checked)}
+										/>
+									{:else}
+										<ColorField
+											value={value as string}
+											disabled={componentReadOnly}
+											title={p.id}
+											oninput={(hex) => setFxParam(node, p, hex)}
+										/>
+									{/if}
+									{#if own !== undefined}
+										<button
+											type="button"
+											class="reset"
+											disabled={componentReadOnly}
+											title="Use the effect's default ({String(p.default)})"
+											onclick={() => setFxParam(node, p, undefined)}>×</button
+										>
+									{/if}
+								</div>
+							</div>
+							{#if fxParent}
+								{@const linkable = linkableEffectParentParams(fxParent, p)}
+								<select
+									class="forward-pick"
+									value=""
+									disabled={componentReadOnly}
+									aria-label="Expose on {fxParent.name}, or take from one of its params"
+									title="Expose on {fxParent.name}: each placement of {fxParent.name} then sets this. Or take it from one of {fxParent.name}'s params of the same kind."
+									onchange={(e) => {
+										const pick = e.currentTarget.value;
+										e.currentTarget.value = '';
+										forwardFxParam(node, p, pick);
+									}}
+								>
+									<option value="">⇡</option>
+									<option value={FORWARD_EXPOSE}
+										>Expose on {fxParent.name} (new param {uniqueParentKey(fxParent, p.id)})</option
+									>
+									{#if linkable.length > 0}
+										<optgroup label="Take from {fxParent.name}'s">
+											{#each linkable as pp (pp.key)}
+												<option value={pp.key}
+													>{pp.label ? `${pp.label} · ${pp.key}` : pp.key}</option
+												>
+											{/each}
+										</optgroup>
+									{/if}
+								</select>
+							{/if}
+						{/if}
+					</div>
+					{#if node.valueBindings?.some((b) => b.target === 'fxParam' && b.fxParam === p.id)}
+						<p class="muted small">
+							⚡ A binding under <strong>Bind to value</strong> drives {p.id}: it wins while it has
+							a value.
+						</p>
+					{/if}
+					{#if p.note}
+						<p class="muted small">{p.note}</p>
+					{/if}
+				{/each}
+			{:else if fxDoc}
+				<p class="muted small">
+					This effect exposes no parameters. ⚡ a row in Invisible FX to expose one, then set it
+					here.
+				</p>
+			{/if}
 			<div class="row">
 				<label class="field wide">
 					<span>attach to rig</span>
@@ -5925,6 +6107,21 @@
 		text-transform: none;
 		letter-spacing: 0;
 		font-size: 12px;
+	}
+	.fx-param-value {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.fx-param-value input[type='range'] {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+	.fx-param-value input[type='number'] {
+		flex: 0 0 5.5em;
+	}
+	.fx-param-value .reset {
+		position: static;
 	}
 	.forward-pick {
 		flex: 0 0 auto;
