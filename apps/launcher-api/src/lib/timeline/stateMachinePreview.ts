@@ -19,14 +19,17 @@ import type { TimelineNodeDrive } from './screenTimeline';
 
 /** The player a preview binds: the states' timelines on the component's nodes, every `playOn`
  *  stripped — the stage previews the machine alone (in game, `instanceTimelineDocs` keeps the
- *  component's own `playOn` timelines playing beside it). */
+ *  component's own `playOn` timelines playing beside it). `params`: the component's preview params,
+ *  which a blend's rest reads as an instance's. */
 export function previewPlayer(
 	docs: Iterable<CinematicDoc>,
 	nodes: LayoutNode[],
+	params?: () => Readonly<Record<string, unknown>>,
 ): ComponentTimelinePlayer {
 	return new ComponentTimelinePlayer(
 		[...docs].map((doc) => (doc.playOn ? { ...doc, playOn: undefined } : doc)),
 		nodes,
+		params,
 	);
 }
 

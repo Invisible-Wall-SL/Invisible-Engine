@@ -146,10 +146,11 @@ export function boundFxParamValues(
 }
 
 /**
- * Where a channel rests when a timeline does not key it: the node's own value for its parameter
- * (`own`, the node's `params`), else the parameter's default, as the number a channel holds (a bool
- * reads 1 or 0). What a state-machine blend mixes from or towards when only one side keys the
- * parameter. `undefined` for a channel that keys no drivable parameter.
+ * Where a channel rests when a timeline does not key it: the value the node sets itself for its
+ * parameter (`own`: {@link placedFxParamValues}), else the parameter's default, as the number a
+ * channel holds (a bool reads 1 or 0). What a state-machine blend mixes from or towards when only
+ * one side keys the parameter, and what the editor's Animate field shows unkeyed. `undefined` for
+ * a channel that keys no drivable parameter.
  */
 export function fxParamRest(
 	params: readonly EffectParam[] | undefined,

@@ -2806,6 +2806,7 @@
 							active={active && animating && animateTab === 'timeline'}
 							openRequest={timelineOpenRequest}
 							{rigMeta}
+							componentParams={resolvedParams}
 						/>
 					</div>
 					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
@@ -2819,6 +2820,7 @@
 							active={active && animating && animateTab === 'stateMachine'}
 							onChanged={() => (editNonce += 1)}
 							onOpenTimeline={openTimelineFromStateMachine}
+							componentParams={resolvedParams}
 						/>
 					</div>
 				</div>

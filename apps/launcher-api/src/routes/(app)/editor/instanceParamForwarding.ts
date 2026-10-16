@@ -1,4 +1,9 @@
-import { effectParamValue, type EffectParam, type EffectParamKind } from 'engine-fx';
+import {
+	effectParamValue,
+	type EffectParam,
+	type EffectParamKind,
+	type EffectParamValue,
+} from 'engine-fx';
 import {
 	ACTION_PARAM,
 	BUTTON_STATE_PARAMS,
@@ -247,7 +252,7 @@ export function linkEffectParam(
 export function setEffectParamValue(
 	node: EffectNode,
 	id: string,
-	value: number | string | boolean | undefined,
+	value: EffectParamValue | undefined,
 ): void {
 	const params = { ...node.params };
 	if (value === undefined) delete params[id];

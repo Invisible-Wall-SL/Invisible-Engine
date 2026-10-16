@@ -136,7 +136,7 @@ export function previewOutputs(
 export function previewEffectParamValues(
 	node: LayoutNode,
 	params: readonly EffectParam[] | undefined,
-	componentParams: Readonly<Record<string, unknown>> = {},
+	componentParams: Readonly<Record<string, unknown>>,
 ): EffectParamValues | undefined {
 	if (node.kind !== 'effect' || !params?.length) return undefined;
 	const placed = placedFxParamValues(node, componentParams, params);

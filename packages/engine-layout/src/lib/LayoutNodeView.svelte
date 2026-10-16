@@ -232,7 +232,7 @@
 	// lives (a mask would remount its art). No driver ⇒ no timeline bindings ⇒
 	// `allBindings`/`allOutputs` ARE the node's own (parity). The fold is `createNodeFold`, the one
 	// `<DrivenEffectPlayer>` runs too; on an effect node it also yields the exposed parameters'
-	// values (Invisible FX Step 2), only when something drives one.
+	// values (Invisible FX Step 2), only when the node sets or something drives one.
 	const nodeDriver = getCinematicNodeDriver(getComponentNestState().depth);
 	// svelte-ignore state_referenced_locally
 	const timelineDrive = nodeDriver?.(node.id);
@@ -244,9 +244,9 @@
 		timelineDrive,
 	);
 	const { bound, allBindings, fxParamValues } = fold;
-	// A bone-hosted effect (`attachedEffects`) has no view of its own: whether something drives its
-	// parameters is asked once per effect (`attachedEffectDrives`), and a driven one mounts
-	// `<DrivenEffectPlayer>`, which runs the fold in its place.
+	// A bone-hosted effect (`attachedEffects`) has no view of its own: whether something sets or
+	// drives its parameters is asked once per effect (`attachedEffectDrives`), and such an effect
+	// mounts `<DrivenEffectPlayer>`, which runs the fold in its place.
 	const attachedDrive = attachedEffectDrives(nodeDriver);
 	const bindsTarget = (...targets: string[]): boolean =>
 		allBindings?.some((binding) => targets.includes(binding.target)) ?? false;
