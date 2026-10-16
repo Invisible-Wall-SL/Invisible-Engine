@@ -22,15 +22,7 @@
 		type TextStyle as LayoutTextStyle,
 	} from 'engine-layout';
 	import { onMount } from 'svelte';
-	import {
-		Application,
-		BitmapText,
-		Container,
-		Matrix,
-		Text,
-		TextStyle,
-		type ColorSource,
-	} from 'pixi.js';
+	import { BitmapText, Container, Matrix, Text, TextStyle, type ColorSource } from 'pixi.js';
 	import { normalizeBitmapFontMetrics, resolveBitmapFont } from 'pixi-svelte';
 	import {
 		ensureBitmapFont,
@@ -38,6 +30,7 @@
 		fetchFontCatalog,
 		type EditorFont,
 	} from './fonts.client';
+	import { createPixiSurface, type PixiSurface } from './sharedGl.client';
 	import {
 		childLocalTransform,
 		composeWorldMatrix,
@@ -148,7 +141,8 @@
 	const numberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
 	let host: HTMLDivElement | null = $state(null);
-	let app: Application | null = null;
+	/** Drawn through the editor's shared Pixi renderer, on demand (see `sharedGl.client.ts`). */
+	let surface: PixiSurface | null = null;
 	/** The world container — every text node is parented here at its screen position. */
 	let world: Container | null = null;
 	let ready = false;
@@ -592,7 +586,7 @@
 	 * so the canvas's HUD chip / any 2D stand-in steps aside (no double-draw).
 	 */
 	function rebuild(): void {
-		if (!ready || !app || !world) return;
+		if (!ready || !surface || !world) return;
 		const targets = textTargets();
 		const seen = new Set<string>();
 		const owned = new Set<string>();
@@ -754,6 +748,7 @@
 			objects.delete(key);
 		}
 		publishReady(owned);
+		surface.requestRender();
 	}
 
 	// Rebuild whenever the inputs that affect layout/content change. Svelte tracks
@@ -797,61 +792,29 @@
 	});
 
 	onMount(() => {
+		if (!host) return;
 		let disposed = false;
-		// Pixi's `resizeTo` only re-measures on WINDOW resize, so a side-panel drag (which
-		// resizes our host element without a window resize) leaves the renderer at its old
-		// logical size. Combined with the `width/height:100%` canvas below, the canvas then
-		// stretches while the stage still maps to the stale size — text drifts/scales off the
-		// 2D canvas. A ResizeObserver on the host re-syncs the renderer on every element resize.
-		let ro: ResizeObserver | null = null;
-		const a = new Application();
-		void a
-			.init({
-				backgroundAlpha: 0,
-				antialias: true,
-				resizeTo: host ?? undefined,
-				resolution: window.devicePixelRatio || 1,
-				autoDensity: true,
-			})
-			.then(() => {
-				if (disposed) {
-					a.destroy(true);
-					return;
-				}
-				app = a;
-				world = new Container();
-				a.stage.addChild(world);
-				if (host) host.appendChild(a.canvas);
-				a.canvas.style.position = 'absolute';
-				a.canvas.style.inset = '0';
-				a.canvas.style.width = '100%';
-				a.canvas.style.height = '100%';
-				a.canvas.style.pointerEvents = 'none';
-				ready = true;
-				if (host) {
-					ro = new ResizeObserver(() => {
-						if (app) app.resize();
-					});
-					ro.observe(host);
-				}
-				void fetchFontCatalog().then((cat) => {
-					fontsById = cat.byId;
-					rebuild();
-				});
+		// The surface re-sizes itself on every host resize (a side-panel drag resizes the host
+		// without a window resize), so text never drifts off the 2D canvas.
+		const s = createPixiSurface(host, window.devicePixelRatio || 1);
+		void s.ready.then((ok) => {
+			if (!ok || disposed) return;
+			surface = s;
+			world = new Container();
+			s.stage.addChild(world);
+			ready = true;
+			void fetchFontCatalog().then((cat) => {
+				fontsById = cat.byId;
+				rebuild();
 			});
+		});
 		return () => {
 			disposed = true;
 			ready = false;
-			ro?.disconnect();
-			ro = null;
 			for (const obj of objects.values()) obj.destroy();
 			objects.clear();
-			try {
-				app?.destroy(true);
-			} catch {
-				/* context teardown */
-			}
-			app = null;
+			s.destroy();
+			surface = null;
 			world = null;
 		};
 	});

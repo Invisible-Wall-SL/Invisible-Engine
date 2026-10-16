@@ -2,7 +2,8 @@
 	/**
 	 * Scene Editor — the LIVE particle overlay. The 2D canvas can't run a WebGL particle emitter, so a
 	 * placed `kind:'effect'` node otherwise shows only a static ✨ placeholder chip. This overlay mounts
-	 * ONE `PIXI.Application` (transparent, `pointer-events:none`) over the 2D canvas and plays each
+	 * ONE Pixi stage, drawn through the editor's shared renderer into its own transparent,
+	 * `pointer-events:none` canvas (`sharedGl.client.ts`), over the 2D canvas and plays each
 	 * placed effect's authored `EffectDoc` verbatim — mirroring `EditorRigLayer` (the live rig
 	 * overlay) but driving `@barvynkoa/particle-emitter` `Emitter`s (the SAME runtime contract the `/fx`
 	 * tool's `FxStage` and the game's `<EffectPlayer>` reduce to: `bindArt` the layer's art textures →
@@ -54,7 +55,7 @@
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
-	import { Application, Container, type TextureSource } from 'pixi.js';
+	import { Container, Ticker, type TextureSource } from 'pixi.js';
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
 	import {
@@ -68,6 +69,7 @@
 	} from './editorCanvas.helpers';
 	import { withEditorProject } from './editorProject.client';
 	import { notePlacedEffect } from './placedEffects.client.svelte';
+	import { createPixiSurface, type PixiSurface } from './sharedGl.client';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
@@ -160,9 +162,11 @@
 	}: Props = $props();
 
 	let host: HTMLDivElement | null = $state(null);
-	let app: Application | null = null;
-	/** Flips true once the `Application` has initialised — the props can be set before the canvas
-	 * exists, so the rebuild effect gates on this. */
+	/** Drawn through the editor's shared Pixi renderer (see `sharedGl.client.ts`): every frame while
+	 * particles play, otherwise only when something changed. */
+	let surface: PixiSurface | null = null;
+	/** Flips true once the shared renderer is up — the props can be set before it exists, so the
+	 * rebuild effect gates on this. */
 	let ready = $state(false);
 	/** The pan/zoom world the per-node effect containers live in. */
 	let world: Container | null = null;
@@ -465,11 +469,12 @@
 			} while (rebuildPending);
 		} finally {
 			rebuilding = false;
+			surface?.requestRender();
 		}
 	}
 
 	async function rebuild(): Promise<void> {
-		if (!app || !world) return;
+		if (!surface || !world) return;
 		const gen = ++rebuildGen;
 
 		const targets = effectTargets();
@@ -741,32 +746,24 @@
 		if (!world) return;
 		world.position.set(panX, panY);
 		world.scale.set(zoom);
-	}
-
-	function resizeRenderer(): void {
-		if (!app || !host) return;
-		app.renderer.resize(host.clientWidth, host.clientHeight);
+		surface?.requestRender();
 	}
 
 	onMount(() => {
+		if (!host) return;
 		let disposed = false;
-		const created = new Application();
+		// One backing pixel per CSS pixel, as the overlay always drew; the surface tracks the host.
+		const s = createPixiSurface(host, 1);
+		const frameTicker = new Ticker();
 		(async () => {
-			// Transparent bg so this overlays the 2D canvas + earlier scene groups; antialias for
-			// crisp particle art at zoom. `resizeTo` keeps the backing store matched to the host.
-			await created.init({ backgroundAlpha: 0, antialias: true, resizeTo: host ?? undefined });
-			if (disposed) {
-				created.destroy(true);
-				return;
-			}
-			app = created;
-			host?.appendChild(app.canvas);
+			if (!(await s.ready) || disposed) return;
+			surface = s;
 			world = new Container();
-			app.stage.addChild(world);
+			s.stage.addChild(world);
 			applyView();
 			ready = true;
-			app.ticker.add((ticker) => {
-				if (!playing) return;
+			frameTicker.add((ticker) => {
+				if (!playing || liveNodes.size === 0) return;
 				const dt = ticker.deltaMS / 1000;
 				for (const node of liveNodes.values()) {
 					let nodeDt = dt;
@@ -797,19 +794,22 @@
 					boundsTick = 0;
 					if (accumulateBounds()) publishBounds();
 				}
+				s.render();
 			});
+			frameTicker.start();
 			await requestRebuild();
 		})();
 
 		return () => {
 			disposed = true;
+			frameTicker.destroy();
 			for (const node of liveNodes.values()) disposeNode(node);
 			liveNodes.clear();
-			// Force-free the GPU context on real unmount: one context per effect-bearing scene group +
-			// groups churning on eye-toggle / reorder can hit the browser's live-context cap (~8–16) and
-			// silently drop the oldest → blank previews. `destroy(true)` releases the WebGL context.
-			app?.destroy(true);
-			app = null;
+			// The renderer outlives this overlay, so its uploaded atlas pages must go with it.
+			for (const source of sourceCache.values()) source.destroy();
+			sourceCache.clear();
+			s.destroy();
+			surface = null;
 			world = null;
 		};
 	});
@@ -838,14 +838,6 @@
 		void panY;
 		void zoom;
 		if (ready) applyView();
-	});
-
-	// Keep the renderer's backing store matched to the host on frame resize (resizeTo handles the
-	// canvas, but an explicit resize guards a host that changes before the observer fires).
-	$effect(() => {
-		void frameWidth;
-		void frameHeight;
-		if (ready) resizeRenderer();
 	});
 
 	// Honour global play/pause without a full rebuild — just gate each emitter's emission + the

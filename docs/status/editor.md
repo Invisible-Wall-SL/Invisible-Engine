@@ -18,7 +18,7 @@ Shipped capabilities on `main`:
 
 - **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels** and **Zoom with anticipation** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", "＋ New bet menu / auto spin screen".
 - **Every authored screen ships.** `extraMountScenes` / `fullReplaceHudScenes` (`engine-layout/genericMountScenes.ts`) mount author screens the game doesn't reserve, and `sceneLayerZIndex` gives every mount path the Screens-list z; under a screen-driving v2 flow every screen mounts through `<FlowV2Mount>`. Flow owns visibility (no "Shows during" gates).
-- **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate, **⌖ Any screen** click-to-select across every drawn screen (⏳ not browser-verified). Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws.
+- **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate, **⌖ Any screen** click-to-select across every drawn screen (⏳ not browser-verified). Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws. Every rig, text and FX overlay (both sides, HUD included) draws through TWO shared WebGL contexts and copies into a 2D canvas of its own (`sharedGl.client.ts`); nothing else in the editor route may open a context (`check:editor-gl-contexts`).
 - **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
 - **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on rig nodes) / text box (width/height, align, auto-fit) / rig anim + slot fill / **Plays on signal** cues on rig and flipbook nodes (free-text signal here, declared signals on the Components side) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
 - **Device layouts** — per-layoutType overrides of transform, blend, visibility, cover fit/scale, text style and component params; per-layoutType **Canvas Size** (the MAIN box the runtime adopts). The bucket set is an authorable **layout profile** (Game Settings → Layout; pipeline default in Admin → Settings); `DEFAULT_LAYOUT_PROFILE` reproduces the legacy four exactly.
@@ -115,6 +115,23 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-16 — **The canvas no longer turns white.** Each rig, text and FX overlay opened its own
+  WebGL context, and the editor mounts one per screen, per depth segment and per blend group on
+  both sides. The depth split (#1229) multiplied that: a screen whose nested component has an FX
+  ahead of other art mounts a full set per segment, so an ordinary project passed the browser's 16
+  live contexts. Chrome then drops the OLDEST context and paints its canvas
+  opaque white, so the earliest screens (Background, Base game) vanished under a white sheet while
+  later ones drew on top. Reproduced with the real layer components in Chromium: 24 screens gave 33
+  "Too many active WebGL contexts" warnings and a fully white canvas. Now every rig overlay draws
+  through ONE shared raw WebGL context and every text / FX overlay through ONE shared multi-view
+  Pixi renderer, each copying its frame into a 2D canvas of its own, which keeps its place in the
+  stack and its `mix-blend-mode` (`sharedGl.client.ts`). 72 overlays (24 rig + 24 text + 24 FX)
+  drew with no warning, and 6 screens rendered pixel-identical to the old code, before and after a
+  pan and with a larger overlay growing the shared canvas. Side effects: text overlays draw on
+  demand instead of every frame, FX overlays only while particles play, rig overlays on the hidden
+  side pause (no draw, no animation advance, no bone-rider update) until it is shown again, and a
+  rig overlay whose shared context is lost reloads its rigs onto a fresh one. Gate: `check:editor-gl-contexts` fails on any other editor file that opens a WebGL context
+  or Pixi renderer. ⏳ Owner to confirm in the live editor on the project that went white.
 - 2026-10-16 — **Game Settings → Authored overlays → Win is switchable.** The owner accepted the
   Win's two fade-out residues, so the row is enabled for publishers like Transition's and the save
   no longer refuses switching it on (`AUTHORED_WIN_LOCKED` deleted; a non-publisher's flip is
