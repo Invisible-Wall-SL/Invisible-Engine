@@ -173,6 +173,39 @@ const FIND_BUTTONS = `(() => {
 	return found.sort((a, b) => a.x - b.x);
 })()`;
 
+/** The HUD corner clock (`UiGameName`: an `H:MM` text, the game name beside it), as one rectangle in
+ *  CSS px, or `undefined` when the layout shows none. Its 1 s interval is armed at mount, which lands
+ *  on a different frame per side, so near a minute's turn one side can read a minute ahead: the
+ *  rectangle is masked from every comparison (the name is included, since it sits at the clock's
+ *  measured width). */
+const FIND_CLOCK = `(() => {
+	const app = window.__PIXI_APP__;
+	let rect;
+	const walk = (c) => {
+		if (!c.visible) return;
+		if (!rect && typeof c.text === 'string' && /^\\d{1,2}:\\d{2}$/.test(c.text)) {
+			const siblings = c.parent?.children ?? [];
+			const name = siblings[siblings.indexOf(c) + 1];
+			const a = c.getBounds();
+			const b = name && typeof name.text === 'string' ? name.getBounds() : a;
+			const x = Math.min(a.x, b.x);
+			const y = Math.min(a.y, b.y);
+			rect = {
+				x: Math.floor(x) - CLOCK_PAD,
+				y: Math.floor(y) - CLOCK_PAD,
+				w: Math.ceil(Math.max(a.x + a.width, b.x + b.width) - x) + 2 * CLOCK_PAD,
+				h: Math.ceil(Math.max(a.y + a.height, b.y + b.height) - y) + 2 * CLOCK_PAD,
+			};
+		}
+		for (const child of c.children ?? []) walk(child);
+	};
+	walk(app.stage);
+	return rect;
+})()`.replaceAll('CLOCK_PAD', '8');
+// The clock and the game name at the coded HUD's size are well inside this; a larger rectangle means
+// the walk took some other text for the name.
+const CLOCK_MAX = { w: 480, h: 80 };
+
 // ---- one side of one variant ---------------------------------------------------------------------------
 
 async function play(name, variant, side, aim) {
@@ -277,6 +310,9 @@ async function play(name, variant, side, aim) {
 		await mouse('mouseMoved', AWAY);
 		await step(30);
 		result.buttons = await page.evaluate(FIND_BUTTONS);
+		result.clock = (await page.evaluate(FIND_CLOCK)) ?? undefined;
+		if (result.clock && (result.clock.w > CLOCK_MAX.w || result.clock.h > CLOCK_MAX.h))
+			throw new Error(`the HUD clock's mask is too large: ${JSON.stringify(result.clock)}`);
 		const at = aim ?? result.buttons;
 		const named = Object.fromEntries(
 			(at.length === BAR.length ? BAR : BAR.filter((b) => b !== 'buyBonus')).map((b, i) => [
@@ -420,6 +456,14 @@ for (const name of chosen) {
 			);
 		else log(`✓ ${name}: ${event} on frame ${coded.fades[event]} on both sides`);
 	}
+	const clockMasks = [coded.clock, authored.clock].filter(Boolean);
+	const masked = { ...tolerance, masks: [...(tolerance.masks ?? []), ...clockMasks] };
+	entry.clockMasks = clockMasks;
+	log(
+		clockMasks.length
+			? `${name}: the HUD clock is masked (${clockMasks.map((m) => `${m.w}×${m.h} at ${m.x},${m.y}`).join(' · ')})`
+			: `${name}: no HUD clock on screen, nothing masked`,
+	);
 	const idle = coded.captures.idle ? readFileSync(coded.captures.idle.file) : undefined;
 	for (const label of Object.keys(coded.captures)) {
 		const a = coded.captures[label];
@@ -435,12 +479,12 @@ for (const name of chosen) {
 		const same = identical(ca, cb);
 		const cmp = same
 			? { pass: true, diffPixels: 0, diffRatio: 0, maxBlockRatio: 0 }
-			: compareScreens(ca, cb, tolerance);
+			: compareScreens(ca, cb, masked);
 		if (cmp.diffPng) writeFileSync(join(out, name, `diff-${label}.png`), cmp.diffPng);
 		// What the state changed against idle (the state is ON screen): reported, and required for
 		// the image doc's interaction states.
 		const vsIdle =
-			idle && label !== 'idle' ? compareScreens(idle, ca, tolerance).diffRatio : undefined;
+			idle && label !== 'idle' ? compareScreens(idle, ca, masked).diffRatio : undefined;
 		entry.frames.push({
 			label,
 			frame: a.frame,
