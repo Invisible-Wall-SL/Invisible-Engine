@@ -318,10 +318,13 @@ game does:
 
 so a placement in a scene can still override anything you set here.
 
-**Saving is separate from the component.** The panel has its own **Saved / Unsaved**
-badge and its own **Save for this game** button — the defaults are a different file
-with its own version, so *Save component* does not write them and this does not write
-the component. If someone else changed this game's defaults for the same component
+**Saving.** The defaults are a different file from the component, with their own version,
+so the panel has its own **Saved / Unsaved** badge and its own **Save for this game**
+button, which writes only the defaults. **Save component** in the editor bar writes both:
+the component, and these defaults when they are unsaved. The pill then reads *Component and
+this game's defaults saved*. When only the defaults changed, it saves just them (*This game's
+defaults saved*) and leaves the component alone. A value saved here shows on the instances placed on your
+screens straight away, without a reload. If someone else changed this game's defaults for the same component
 while you had the panel open, the badge turns into a conflict with **Reload theirs**
 and **Overwrite with mine** rather than quietly clobbering their values. Leaving the
 tool (closing the component, or navigating away) warns while either store is unsaved.
@@ -336,8 +339,10 @@ The panel then shows the restored values; the component you are editing is left 
 
 ### 5. Save
 
-Click **Save component** in the editor bar. It saves the draft to the active project; the
-pill beside it shows *Saving… → Component saved* (or a *Save failed* pill with the error).
+Click **Save component** in the editor bar. It saves the draft to the active project, and
+this game's defaults (§4) too when they have unsaved edits; the pill beside it shows
+*Saving… → Component saved* (or a *Save failed* pill with the error — including a component
+that saved while its defaults did not, whose badge then says why).
 On success the component lists update without a reload, and instances placed on your screens
 redraw. Use **← All components** (or Esc) to return to the components home; it confirms first if
 the component or this game's defaults have unsaved edits.
@@ -700,8 +705,9 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   that, expansion stops rather than recursing. Editing in place follows the same cap: a
   component nested deeper than the game draws is not opened from its parent.
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
-  open draft; leaving it discards it (you are warned first). There is no autosave — and **This game's defaults** (§4) is a second,
-  separate manual save, warned about the same way.
+  open draft; leaving it discards it (you are warned first). There is no autosave. **This game's
+  defaults** (§4) are a second file: **Save component** writes them too, *Save for this game*
+  writes them alone, and leaving with them unsaved warns the same way.
 - **A shipped game only picks up new defaults on its next publish.** Both editor
   canvases resolve the sidecar live, but a built game reads the defaults baked into
   its bundle — so re-publish (or re-bake) the game after changing them.
