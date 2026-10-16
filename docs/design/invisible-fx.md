@@ -128,6 +128,13 @@ was removed) is reported by validation and does nothing at runtime.
 | 3 | **Drive from state-machine inputs** | `BindingInputRef` gains `{ input: <id> }`: a binding reads the owning instance's bool or number input. Flow sets the input through the instance node's data-in pin. This settles Rive data binding (rive-style-editor §6.2, §12) for bool and number inputs | Flow sets `winBanner.heat`, and the effect follows |
 | 4 | **Clocks + waves** | Engine clocks a binding can read: `time.game` (seconds since boot; advances by the ticker's `deltaMS` × `stateBet`'s `timeScale`, so turbo runs it at 2×; it stops while the tab is hidden), `time.round` (since the round started, the same scaling; a slam jumps it to the end of the round: a round has no fixed length, so every binding fed by `time.round` snaps to the end of its input range, `inMax`, and a round-long ramp lands on its final value) and `time.state` (seconds in the instance's current state, per layer). `ValueBinding.wave` `{ kind: 'sine' \| 'triangle' \| 'saw' \| 'square' \| 'noise'; period; phase }` shapes the input before its in/out mapping. A clock-fed binding is pulled on the Pixi ticker, not pushed through `registerComponentValues` | A glow pulses every 2 s and pulses twice as fast in turbo |
 
+**Placement values (owner report, 2026-10-16).** Before anything drives a parameter, the placed
+node sets it: `EffectNode.params` holds that placement's value per parameter id (any kind, a colour
+included), and inside a component `paramBindings['params.<id>']` takes it from a param of the
+enclosing component (the nested-instance forward, so each placement of the component sets it). The
+fold's order is: the parameter's default ◁ the node's own value ◁ the component's param ◁ a binding
+◁ a timeline. A blend that keys a parameter on one side only rests on the node's own value.
+
 **Ship chain (rule 8):** no new asset class. Parameters ride inside the `EffectDoc`, which already
 travels export → `deploy/effects/` → bake → pull → `bakedEffects()`. Step 1 makes the normalizer
 keep them and the round-trip gate assert it. Bindings and timeline channels ride their component and

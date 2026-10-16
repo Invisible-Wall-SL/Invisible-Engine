@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** Shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are built on this branch — gated headlessly, not yet driven in a browser:** an effect node's value bindings and timeline channels set them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** Shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
@@ -30,10 +30,27 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   parameter is neither bound nor keyed yet. The Scene / Component Editor lists the placed effect's
   parameters in **Bind to value** and in Animate, and previews them live on the stage. See the
   2026-10-15 "Step 2" entry.
+- **Set per placement** (2026-10-16) — the placed effect's Properties list every exposed parameter
+  under **Effect → Parameters** with a value for that node (`EffectNode.params`: a number, an
+  on/off or a `#rrggbb` colour). Inside a component, **⇡** takes one from a param of the component
+  (`paramBindings['params.<id>']`, the nested-instance forward), so each placement of the component
+  sets it. Precedence: the parameter's default ◁ the node's own value ◁ the component's param ◁ a
+  binding ◁ a timeline. See the 2026-10-16 entry.
 
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Owner browser-pass over per-placement values** (2026-10-16) — the reported case: open the Pot
+  Meter copy → **Edit inside Pot ›**, select `BackgroundBeam2`, and under **Effect → Parameters**
+  drag `BeamAlpha` and pick a `Color`: the beam on the stage follows with no reset, and **×** puts
+  each back. **⇡ → Expose on Pot Meter** on `Color`: it shows under Component variables; on the
+  Pots screen give two pots different colours and check both the canvas and a published game. Also
+  worth a look: a screen-placed effect (no ⇡ there), Inspect (controls disabled), and Save → reopen.
+  `/editor` is auth + Postgres + R2 gated, so none of this has been clicked.
+- **The editor previews only one copy of a nested effect.** `EditorEffectLayer` keys its live
+  emitters by the effect node's id, which every placement of the same component shares, so a
+  screen with three Pot Meters previews one beam (pre-existing; the game draws all three). With
+  per-placement values this now hides a real difference between the pots.
 - **Owner browser-pass over exposed parameters** (2026-10-15) — ⚡ a few rows (Frequency, an Alpha end, a tint colour, a force's Strength and its On switch), drag each preview slider and check the preview changes with no reset (particles in flight carry on), that a mapped row (Direction) goes read-only with the ⚡ name, that editing an as-is driven row (Frequency) moves the parameter's default, and that Save → reopen shows the same panel. `/fx` is auth + Postgres + R2 gated, so none of this has been clicked yet.
 - **`effect.*` drives cannot be authored in `/fx` yet.** The schema, the normalizer, the applier
   and the runtime wrapper (`EffectParamGroup`) all handle `effect.alpha | scale | tint | timeScale`,
@@ -64,6 +81,47 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-16 — **A placed effect's exposed parameters can be set where it is placed.** Owner
+  report: an effect exposing `BeamAlpha` (number) and `Color` (colour), placed inside the Pot
+  Meter's `Pot` part, showed neither parameter on the node: they were reachable only as a **Bind to
+  value** target or an Animate channel (both need a source), and a colour one nowhere. **Engine
+  change** (`engine-layout`): it reaches online games only through a runtime-bundle republish.
+  - **Format.** `EffectNode.params?: Record<id, number | boolean | '#rrggbb'>`, this placement's
+    values. Inside a component, `paramBindings['params.<id>'] = '<key>'` takes one from a param
+    of the enclosing component, the format a nested instance already forwards with (#1237), so
+    `pruneOrphanParamBindings` drops it when that param is deleted. Nodes are stored verbatim, so
+    no normalizer change (gated: layout doc and component def keep both).
+  - **One fold.** `placedFxParamValues` (`fxNodeParams.ts`) reads, per declared parameter, the
+    component's param while it holds a value of the parameter's kind (a colour param's `0xrrggbb`
+    reads as `#rrggbb`), else the node's own value, clamped by `effectParamValue`; an undeclared
+    id or a mistyped value is skipped. `createNodeFold` puts the bound and keyed values on top
+    (`nodeFxParamValues`), in one `$derived` that also tracks the component's params, so a
+    per-placement or live param change reaches the emitter with no reset. `fxParamsDriven` now
+    counts a node that sets a parameter (any kind, so a colour-only node gets a getter);
+    `attachedEffectDrives` follows, so a bone-hosted effect gets `<DrivenEffectPlayer>` too. An
+    effect node that sets nothing still mounts the bare `<EffectPlayer>` (parity).
+  - **Blends rest on the placement.** `fxParamRest(params, channel, own)`: a state-machine blend
+    where only one side keys a parameter mixes from or towards the node's own value, else the
+    default. A value taken from the component is not a rest yet (the player has no instance
+    params); such a blend still mixes towards the default.
+  - **Editor.** Properties → **Effect → Parameters**: a slider + number box (number, the slider
+    only with a usable `min..max`), a tick box (on/off) or a swatch (colour), **×** back to the
+    default, a note when a **Bind to value** binding drives the same parameter, and the
+    parameter's own note. In component mode each row has the **⇡** picker:
+    `exposeEffectParam` (a `number` / `boolean` / `color` param at the value shown now),
+    `linkEffectParam` (an existing param of the matching kind), × = `unlinkInstanceParam`
+    (`instanceParamForwarding.ts`). The live overlay (`EditorEffectLayer`) now gets the open
+    component's `componentParams` and the project's `componentDefaults` and resolves each nested
+    instance's params on the way down (`forwardInstanceParams` → `resolveComponentParams`, as the
+    rig layer does), and `previewEffectParamValues` folds the placement's values under the test
+    values and the timeline.
+  - **Gate:** `pnpm --filter launcher-api check:fx-node-params` 76 → 101 (a new §11, plus the
+    compiled fold in §8 following a component param live, and the save round-trip in §9). Also
+    green: `check:component-param-forwarding` (106), `check:doc-readers-unknown-fields` (271),
+    `check:save-keeps-unknown-blocks` (154), `check:component-links` (75), `check:depth-segments`,
+    `check:vendored-bundles`, `check:undefined-names`, `check:svelte-init-order`, and
+    `check:svelte` for `engine-layout` and `launcher-api` (at baseline). ⏳ Not clicked in a
+    browser.
 - 2026-10-15 — **Exposed parameters, Step 2: drive them from the node.** Plan: design §"Direction
   (2026-10-15)", the four steps, row 2. **Engine change** (`engine-cinematic`, `engine-layout`): it
   reaches online games only through a runtime-bundle republish.

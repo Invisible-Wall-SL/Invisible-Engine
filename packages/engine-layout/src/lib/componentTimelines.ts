@@ -195,8 +195,9 @@ export class ComponentTimelinePlayer {
 	private readonly boundById = new Map<string, Bound>();
 	private readonly running = new Map<string, Running>();
 	private readonly driven = new Map<string, Running>();
-	/** Effect nodes some timeline keys an `fx:` channel on → where each such channel rests (its
-	 *  parameter's default, read from the game's effect registry when a blend asks). */
+	/** Effect nodes some timeline keys an `fx:` channel on → where each such channel rests (the
+	 *  node's own value, else its parameter's default, read from the game's effect registry when a
+	 *  blend asks). */
 	private readonly fxRests = new Map<string, (channel: string) => number | undefined>();
 	private started = 0;
 	/**
@@ -218,7 +219,9 @@ export class ComponentTimelinePlayer {
 				channels.set(nodeId, keyed);
 				const node = actor.node;
 				if (node.kind === 'effect' && [...keyed].some((c) => fxParamOfChannel(c) !== undefined))
-					this.fxRests.set(nodeId, (c) => fxParamRest(resolveEffect(node.effectId)?.params, c));
+					this.fxRests.set(nodeId, (c) =>
+						fxParamRest(resolveEffect(node.effectId)?.params, c, node.params),
+					);
 			}
 			const cue = doc.tracks.find((t) => t.kind === 'cue') as
 				{ keys?: { time: number; cue: string }[] } | undefined;

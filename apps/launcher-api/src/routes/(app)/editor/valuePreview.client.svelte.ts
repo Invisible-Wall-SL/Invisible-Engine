@@ -5,6 +5,8 @@ import {
 	drivableFxParam,
 	evaluateBinding,
 	foldBoundTransform,
+	nodeFxParamValues,
+	placedFxParamValues,
 	resolveTransform,
 	withNodeActorOutputs,
 	type LayoutNode,
@@ -126,17 +128,24 @@ export function previewOutputs(
 
 /**
  * The parameter values the preview sets on a placed effect (`params`: its declared parameters) —
- * its own bindings' test values, then the previewed timeline's `fx:` channels, through the game's
- * fold (`boundFxParamValues`). `undefined` when nothing drives one: the effect draws its defaults.
+ * the node's own values (`componentParams`: the enclosing instance's params, which a `params.<id>`
+ * binding reads), then its bindings' test values and the previewed timeline's `fx:` channels,
+ * through the game's fold (`placedFxParamValues`, `boundFxParamValues`). `undefined` when nothing
+ * sets one: the effect draws its defaults.
  */
 export function previewEffectParamValues(
 	node: LayoutNode,
 	params: readonly EffectParam[] | undefined,
+	componentParams: Readonly<Record<string, unknown>> = {},
 ): EffectParamValues | undefined {
 	if (node.kind !== 'effect' || !params?.length) return undefined;
+	const placed = placedFxParamValues(node, componentParams, params);
 	const bindings = previewBindings(node);
-	if (!bindsFxParam(bindings)) return undefined;
-	return boundFxParamValues(bindings, previewOutputs(node, undefined, params), params);
+	if (!bindsFxParam(bindings)) return placed;
+	return nodeFxParamValues(
+		placed,
+		boundFxParamValues(bindings, previewOutputs(node, undefined, params), params),
+	);
 }
 
 /** `resolveTransform` with the previewed transform targets folded on — for the draw paths. */

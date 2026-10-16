@@ -25,7 +25,12 @@
  *     bundle's JSON → the game's registries keep the binding and the channel;
  * 10. parity: an undriven effect node mounts `<EffectPlayer>` with no getter and runs no fold;
  *     a blend with no rest leaves `fx:` alone; a player whose timelines key no `fx:` channel holds
- *     no rest; the editor's wiring (source-scanned).
+ *     no rest; the editor's wiring (source-scanned);
+ * 11. a placement's own values (`EffectNode.params`) and the ones it takes from its component
+ *     (`params.<id>`): every kind (a colour too), clamped, unknown and mistyped values skipped, a
+ *     forward over the node's own, a binding over both, a blend resting on them; the editor's
+ *     ⇡ expose / take / × edits, the orphan prune, and the save keeping them (§8 runs the fold,
+ *     a forward following its param live).
  *
  * What it cannot prove: the Svelte wiring in `LayoutNodeView.svelte` and the editor panels in a
  * browser — that is the owner's pass (`docs/status/fx.md`).
@@ -104,6 +109,8 @@ const { normalizeComponent } = await import('../src/lib/server/componentStorage.
 const { loadCinematic, saveCinematic } = await import('../src/lib/server/cinematicStorage.ts');
 const { exportCinematics, loadAuthoredCinematics } =
 	await import('../src/lib/server/cinematicExport.ts');
+const P = await import('../../../packages/engine-layout/src/lib/componentParams.ts');
+const W = await import('../src/routes/(app)/editor/instanceParamForwarding.ts');
 
 let failures = 0;
 let passes = 0;
@@ -762,6 +769,14 @@ export function mount(node, params, channels) {
 		fold = createNodeFold(node, () => params, () => undefined, drive);
 	});
 	return { fold, seek: (sample) => (playhead.sample = sample), stop };
+}
+export function mountLive(node, initial) {
+	const params = $state(initial);
+	let fold;
+	const stop = $effect.root(() => {
+		fold = createNodeFold(node, () => params, () => undefined, undefined);
+	});
+	return { fold, params, stop };
 }`,
 		false,
 	);
@@ -769,12 +784,16 @@ export function mount(node, params, channels) {
 		allOutputs: readonly (number | undefined)[];
 		fxParamValues: (() => Record<string, unknown> | undefined) | undefined;
 	};
-	const { mount } = (await import(entry)) as {
+	const { mount, mountLive } = (await import(entry)) as {
 		mount: (
 			node: LayoutNode,
 			p: Record<string, unknown>,
 			channels?: string[],
 		) => { fold: Fold; seek: (s: Record<string, number>) => void; stop: () => void };
+		mountLive: (
+			node: LayoutNode,
+			p: Record<string, unknown>,
+		) => { fold: Fold; params: Record<string, unknown>; stop: () => void };
 	};
 	const { flushSync } = (await import(svelteClient)) as { flushSync: () => void };
 	// A smoothed output glides on a frame clock Node does not have: a frame that never comes keeps a
@@ -835,6 +854,56 @@ export function mount(node, params, channels) {
 	);
 	quiet.stop();
 	sprite.stop();
+
+	// A placement's own values are the base the fold drives over, and a colour one rides along.
+	const set = mount(
+		{
+			...glowNode([{ target: 'fxParam', fxParam: 'heat', param: 'level', inMax: 100 }]),
+			params: { heat: 9, intensity: 0.8, hue: '#00FF00' },
+		} as LayoutNode,
+		instanceParams,
+	);
+	flushSync();
+	eq(
+		'the node’s own values (a colour too) under its binding: the binding wins heat, the rest stand',
+		set.fold.fxParamValues?.(),
+		{ intensity: 0.8, heat: 5, hue: '#00ff00' },
+	);
+	set.stop();
+	const colourOnly = mount({ ...glowNode(), params: { hue: '#123456' } } as LayoutNode, {});
+	flushSync();
+	eq('an effect only its own colour sets still gets a getter', colourOnly.fold.fxParamValues?.(), {
+		hue: '#123456',
+	});
+	colourOnly.stop();
+	const taken = mountLive(
+		{
+			...glowNode(),
+			params: { heat: 1 },
+			paramBindings: { 'params.heat': 'potHeat', 'params.hue': 'potColour' },
+		} as LayoutNode,
+		{ potHeat: 3, potColour: 0x0000ff },
+	);
+	flushSync();
+	eq(
+		'a value taken from the component: its params, read as the parameters',
+		taken.fold.fxParamValues?.(),
+		{ heat: 3, hue: '#0000ff' },
+	);
+	taken.params.potHeat = 8;
+	taken.params.potColour = 0xff8800;
+	flushSync();
+	eq('…and followed live when the component’s param changes', taken.fold.fxParamValues?.(), {
+		heat: 8,
+		hue: '#ff8800',
+	});
+	delete taken.params.potHeat;
+	flushSync();
+	eq('…the component’s param gone, the node’s own value stands', taken.fold.fxParamValues?.(), {
+		heat: 1,
+		hue: '#ff8800',
+	});
+	taken.stop();
 	CV.clearComponentValues();
 
 	// A bone-hosted effect's drive is asked once per effect and never flips while the rig lives.
@@ -862,6 +931,11 @@ export function mount(node, params, channels) {
 		!!FV.attachedEffectDrives(undefined)(glowNode([heat]) as never),
 		true,
 	);
+	eq(
+		'…and so does a value of its own',
+		FV.attachedEffectDrives(undefined)({ ...glowNode(), params: { heat: 4 } } as never),
+		{},
+	);
 }
 
 // ---- 9. ship: save → normalize → export → bake --------------------------------------------------
@@ -882,22 +956,58 @@ export function mount(node, params, channels) {
 		layout.scenes[0].nodes[0].valueBindings,
 		[binding],
 	);
+	const ownValues = { heat: 4, burst: true, hue: '#00ff00' };
+	const forwards = { 'params.intensity': 'level' };
+	const valued = normalizeLayoutDoc(
+		{
+			version: 2,
+			projectKey: 'demo',
+			scenes: [
+				{
+					id: 'basegame',
+					name: 'Base game',
+					nodes: [{ ...clone(placed), params: ownValues, paramBindings: forwards }],
+				},
+			],
+		},
+		'demo',
+	) as { scenes: { nodes: { params?: unknown; paramBindings?: unknown }[] }[] };
+	eq(
+		'…and its own parameter values and forwards',
+		[valued.scenes[0].nodes[0].params, valued.scenes[0].nodes[0].paramBindings],
+		[ownValues, forwards],
+	);
 	const def = {
 		id: 'banner',
 		name: 'Banner',
 		version: 1,
 		scope: 'project',
 		category: 'overlay',
-		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [clone(placed), coinNode] },
+		root: {
+			id: 'root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [{ ...clone(placed), params: ownValues, paramBindings: forwards }, coinNode],
+		},
 		params: [{ key: 'level', kind: 'number', default: 50 }],
 		inputs: smInputs,
 		stateMachine: machine,
 	} as unknown as ComponentDef;
 	const savedDef = normalizeComponent(clone(def));
+	const savedEffect = savedDef.root.children[0] as LayoutNode & {
+		params?: unknown;
+		paramBindings?: unknown;
+	};
 	eq(
-		'the component def keeps it (its root children pass through) and its state machine',
-		[savedDef.root.children[0].valueBindings, savedDef.stateMachine],
-		[[binding], machine],
+		'the component def keeps it (its root children pass through), its values, its forward and its state machine',
+		[
+			savedEffect.valueBindings,
+			savedEffect.params,
+			savedEffect.paramBindings,
+			savedDef.stateMachine,
+		],
+		[[binding], ownValues, forwards, machine],
 	);
 	const C = 'acme';
 	const P = 'demo';
@@ -1007,11 +1117,37 @@ export function mount(node, params, channels) {
 		'the editor: every live particle overlay previews the parameters through the same fold',
 		(canvas.match(/effectParamValues=\{effectPreviewValues\}/g) ?? []).length ===
 			(canvas.match(/<EditorEffectLayer/g) ?? []).length &&
-			canvas.includes('previewEffectParamValues(node, doc.params)') &&
+			canvas.includes('previewEffectParamValues(node, doc.params, params)') &&
 			editor('valuePreview.client.svelte.ts').includes(
 				'boundFxParamValues(bindings, previewOutputs(node, undefined, params), params)',
 			) &&
+			editor('valuePreview.client.svelte.ts').includes(
+				'placedFxParamValues(node, componentParams, params)',
+			) &&
 			editor('EditorEffectLayer.svelte').includes('notePlacedEffect(doc);'),
+	);
+	const overlay = editor('EditorEffectLayer.svelte');
+	ok(
+		'…each live overlay knows the open component’s params, and every effect is asked with the params of the instance it sits in',
+		(canvas.match(/\{componentParams\}\s*\{componentDefaults\}/g) ?? []).length >=
+			(canvas.match(/<EditorEffectLayer/g) ?? []).length &&
+			overlay.includes(
+				'forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outer)',
+			) &&
+			overlay.includes('effectParamValues?.(tg.node, doc, tg.params)') &&
+			overlay.includes('effectParamValues(node.node, doc, node.params)') &&
+			overlay.includes('effectParamValues(node.node, node.doc, node.params)') &&
+			overlay.includes('void JSON.stringify(componentParams);'),
+	);
+	const props = editor('EditorProperties.svelte');
+	ok(
+		'the Effect panel lists the placed effect’s parameters with a value each, and in a component a ⇡ picker',
+		props.includes('{@const fxDoc = placedEffect(node.effectId)}') &&
+			props.includes('{#each fxDoc.params as p (p.id)}') &&
+			props.includes('setEffectParamValue(n, param.id') &&
+			props.includes('exposeEffectParam(parent, n, param)') &&
+			props.includes('linkEffectParam(parent, n, param, pick)') &&
+			props.includes('unlinkInstanceParam(n, param.id)'),
 	);
 	const panel = editor('EditorTimelinePanel.svelte');
 	const issuesFn = panel.slice(
@@ -1052,6 +1188,216 @@ export function mount(node, params, channels) {
 		flowServer.includes('validateNodeActors(doc, scene, () => undefined)') &&
 			!readFileSync(new URL('cinematicNodes.ts', LIB), 'utf8').includes('resolveEffect'),
 	);
+}
+
+// ---- 11. a placement's own values, and the ones it takes from its component ---------------------
+
+{
+	R.clearEffects();
+	const bare = normalizeEffectDoc(clone({ ...authoredEffect, id: 'bare', params: undefined }));
+	R.registerEffects([effect, bare]);
+	const placedNode = (
+		values?: Record<string, unknown>,
+		forwards?: Record<string, string>,
+	): LayoutNode =>
+		({
+			...glowNode(),
+			...(values ? { params: values } : {}),
+			...(forwards ? { paramBindings: forwards } : {}),
+		}) as LayoutNode;
+	eq(
+		'a node sets a parameter with a value of its own or a forward; nothing else counts',
+		[
+			F.setsFxParams(glowNode()),
+			F.setsFxParams(placedNode({})),
+			F.setsFxParams(placedNode({ heat: 4 })),
+			F.setsFxParams(placedNode(undefined, { 'params.hue': 'potColour' })),
+			F.setsFxParams(placedNode(undefined, { region: 'art' })),
+			F.setsFxParams({ ...coinNode, params: { heat: 4 } } as unknown as LayoutNode),
+		],
+		[false, false, true, true, false, false],
+	);
+	eq(
+		'its own values: every kind, a number clamped to its range, a colour lower-cased',
+		F.placedFxParamValues(
+			placedNode({ hue: '#00FF00', burst: true, heat: 20, intensity: 0.25 }),
+			{},
+			params,
+		),
+		{ intensity: 0.25, heat: 10, burst: true, hue: '#00ff00' },
+	);
+	eq(
+		'an id the effect does not declare, a value of the wrong kind, nothing set, no parameters, another kind: no values',
+		[
+			F.placedFxParamValues(placedNode({ glow: 1, heat: 'hot', burst: 1, hue: 'red' }), {}, params),
+			F.placedFxParamValues(glowNode(), {}, params),
+			F.placedFxParamValues(placedNode({ heat: 4 }), {}, undefined),
+			F.placedFxParamValues(
+				{ ...coinNode, params: { heat: 4 } } as unknown as LayoutNode,
+				{},
+				params,
+			),
+		],
+		[undefined, undefined, undefined, undefined],
+	);
+	const forwarded = placedNode(
+		{ heat: 4, hue: '#0000ff' },
+		{ 'params.heat': 'potHeat', 'params.hue': 'potColour' },
+	);
+	eq(
+		'a forward reads the component’s param (a colour param’s 0xrrggbb as #rrggbb) over the node’s own',
+		F.placedFxParamValues(forwarded, { potHeat: 7, potColour: 0x00ff00 }, params),
+		{ heat: 7, hue: '#00ff00' },
+	);
+	eq(
+		'…while the component holds no value of the parameter’s kind, the node’s own stands',
+		F.placedFxParamValues(forwarded, { potHeat: 'x' }, params),
+		{ heat: 4, hue: '#0000ff' },
+	);
+	eq(
+		'what the bindings and the timeline drive goes over the node’s values; either alone stands',
+		[
+			F.nodeFxParamValues({ heat: 4, hue: '#00ff00' }, { heat: 6 }),
+			F.nodeFxParamValues({ heat: 4 }, undefined),
+			F.nodeFxParamValues(undefined, { heat: 6 }),
+			F.nodeFxParamValues(undefined, undefined),
+		],
+		[{ heat: 6, hue: '#00ff00' }, { heat: 4 }, { heat: 6 }, undefined],
+	);
+	ok(
+		'a node that sets a parameter runs the fold, a colour-only one included',
+		FV.fxParamsDriven(placedNode({ hue: '#00ff00' }), undefined, []) === effect.params &&
+			FV.fxParamsDriven(placedNode(undefined, { 'params.heat': 'k' }), undefined, []) ===
+				effect.params,
+	);
+	eq(
+		'…an effect that declares none, or that the game never registered, runs none',
+		[
+			FV.fxParamsDriven(
+				{ ...placedNode({ heat: 4 }), effectId: 'bare' } as LayoutNode,
+				undefined,
+				[],
+			),
+			FV.fxParamsDriven(
+				{ ...placedNode({ heat: 4 }), effectId: 'gone' } as LayoutNode,
+				undefined,
+				[],
+			),
+		],
+		[undefined, undefined],
+	);
+	eq(
+		'a blend rests on the node’s own value (clamped; a bool as 1 / 0), else the default',
+		[
+			F.fxParamRest(params, 'fx:heat', { heat: 4 }),
+			F.fxParamRest(params, 'fx:heat', { heat: 40 }),
+			F.fxParamRest(params, 'fx:burst', { burst: true }),
+			F.fxParamRest(params, 'fx:heat', { heat: 'hot' }),
+			F.fxParamRest(params, 'fx:heat'),
+		],
+		[4, 10, 1, 2, 2],
+	);
+	const game = instance([tWin, tCalm], [placedNode({ intensity: 0.1 }), coinNode], {
+		layers: [{ ...machine.layers[0], entry: 'win' }],
+	});
+	game.runner.fire('calm');
+	game.step(0.1);
+	game.step(0.05);
+	eq(
+		'…so a state machine leaving a keyed state mixes towards the placement’s value (1 → 0.1 at a quarter: 0.775)',
+		r3(game.values()?.intensity),
+		0.775,
+	);
+	{
+		// The real applier takes the placement's values like any other: the colour reaches the tint.
+		const layer = effect.layers[0];
+		const em = new Emitter(new Container(), clone(layer.config));
+		const values = F.placedFxParamValues(placedNode({ intensity: 1, heat: 10 }), {}, params);
+		const applier = bindEffectParams({ params, layer, emitter: em, values });
+		applier?.apply(values);
+		eq('…and moves a real emitter', [r3(em.frequency), em.maxParticles], [0.02, 1010]);
+	}
+
+	// The editor's edits (pure, over the draft): ⇡ expose, take from, × and a value of its own.
+	const parent = (): ComponentDef =>
+		({
+			id: 'pot',
+			name: 'Pot',
+			version: 1,
+			scope: 'project',
+			category: 'overlay',
+			root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+			params: [
+				{ key: 'heat', kind: 'number', default: 1 },
+				{ key: 'tint', kind: 'color', default: 0xffffff },
+				{ key: 'on', kind: 'boolean', default: false },
+			],
+		}) as unknown as ComponentDef;
+	const fxNode = (values?: Record<string, unknown>) =>
+		placedNode(values) as Extract<LayoutNode, { kind: 'effect' }>;
+	{
+		const def = parent();
+		const n = fxNode({ heat: 6 });
+		const keys = [
+			W.exposeEffectParam(def, n, param('heat')),
+			W.exposeEffectParam(def, n, param('hue')),
+			W.exposeEffectParam(def, n, param('burst')),
+			W.exposeEffectParam(def, n, param('heat')),
+		];
+		eq(
+			'⇡ expose: a param of the matching kind at the value shown now (a colour as 0xrrggbb), a free key, taken from',
+			[keys, def.params?.slice(3), n.paramBindings],
+			[
+				['heat_2', 'hue', 'burst', null],
+				[
+					{ key: 'heat_2', kind: 'number', author: true, default: 6 },
+					{ key: 'hue', kind: 'color', author: true, default: 0xff0000 },
+					{ key: 'burst', kind: 'boolean', author: true, default: false },
+				],
+				{ 'params.heat': 'heat_2', 'params.hue': 'hue', 'params.burst': 'burst' },
+			],
+		);
+		eq(
+			'…and the placement then reads it from the component',
+			F.placedFxParamValues(n, P.resolveComponentParams(def, { heat_2: 3 }), params),
+			{ heat: 3, burst: false, hue: '#ff0000' },
+		);
+		def.params = def.params?.filter((p) => p.key !== 'hue');
+		P.pruneOrphanParamBindings({ ...def, root: { ...def.root, children: [n] } } as ComponentDef);
+		eq(
+			'deleting the component’s param drops the forward; the node keeps its own value',
+			[n.paramBindings, n.params],
+			[{ 'params.heat': 'heat_2', 'params.burst': 'burst' }, { heat: 6 }],
+		);
+	}
+	{
+		const def = parent();
+		const n = fxNode();
+		eq(
+			'take from: only a param of the matching kind; × stops taking it',
+			[
+				W.linkableEffectParentParams(def, param('heat')).map((p) => p.key),
+				W.linkableEffectParentParams(def, param('hue')).map((p) => p.key),
+				W.linkableEffectParentParams(def, param('burst')).map((p) => p.key),
+				W.linkEffectParam(def, n, param('hue'), 'heat'),
+				W.linkEffectParam(def, n, param('hue'), 'tint'),
+				n.paramBindings,
+				W.unlinkInstanceParam(n, 'hue'),
+				n.paramBindings,
+			],
+			[['heat'], ['tint'], ['on'], false, true, { 'params.hue': 'tint' }, true, undefined],
+		);
+		W.setEffectParamValue(n, 'heat', 4);
+		W.setEffectParamValue(n, 'hue', '#00ff00');
+		const both = clone(n.params);
+		W.setEffectParamValue(n, 'heat', undefined);
+		W.setEffectParamValue(n, 'hue', undefined);
+		eq(
+			'a value of its own: set, then cleared back to none',
+			[both, n.params],
+			[{ heat: 4, hue: '#00ff00' }, undefined],
+		);
+	}
 }
 
 console.log(

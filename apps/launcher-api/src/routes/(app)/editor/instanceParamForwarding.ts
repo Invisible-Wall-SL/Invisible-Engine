@@ -1,3 +1,4 @@
+import { effectParamValue, type EffectParam, type EffectParamKind } from 'engine-fx';
 import {
 	ACTION_PARAM,
 	BUTTON_STATE_PARAMS,
@@ -12,6 +13,7 @@ import {
 	type ComponentDef,
 	type ComponentInstanceNode,
 	type ComponentParam,
+	type EffectNode,
 	type LayoutNode,
 } from 'engine-layout';
 
@@ -19,7 +21,9 @@ import {
  * Forwarding a nested instance's param from the component it sits in (the Components side's
  * "⇡ Expose on ‹parent›"): the instance's `paramBindings['params.<key>']` names a param of the
  * open def, which the game resolves into the instance (`forwardInstanceParams`, engine-layout).
- * Pure edits over the draft, so `check:component-param-forwarding` runs them.
+ * A placed effect's exposed parameter forwards the same way (`params.<id>`, read by
+ * `placedFxParamValues`). Pure edits over the draft, so `check:component-param-forwarding` and
+ * `check:fx-node-params` run them.
  */
 
 /**
@@ -184,4 +188,69 @@ export function writeInstanceParam(
 		return;
 	}
 	node.params = { ...node.params, [key]: value };
+}
+
+/** The component param kind an effect parameter is exposed as. */
+const EFFECT_PARAM_COMPONENT_KIND = {
+	number: 'number',
+	bool: 'boolean',
+	color: 'color',
+} as const satisfies Record<EffectParamKind, ComponentParam['kind']>;
+
+/** The open def's params a placed effect's `param` can be taken from: the matching kind. */
+export function linkableEffectParentParams(
+	parent: ComponentDef,
+	param: EffectParam,
+): ComponentParam[] {
+	const kind = EFFECT_PARAM_COMPONENT_KIND[param.kind];
+	return (parent.params ?? []).filter((p) => p.kind === kind);
+}
+
+/**
+ * "⇡ Expose on ‹parent›" for a placed effect's exposed parameter: declare a param on `parent` of the
+ * matching kind (a colour one holds `0xrrggbb`, as every colour param does), defaulting to the
+ * value the node shows now (its own value, else the parameter's default), and take the parameter
+ * from it. Returns the new key, or `null` when it is already taken from the parent.
+ */
+export function exposeEffectParam(
+	parent: ComponentDef,
+	node: EffectNode,
+	param: EffectParam,
+): string | null {
+	if (forwardedFrom(node, param.id)) return null;
+	const key = uniqueParentKey(parent, param.id);
+	const current = effectParamValue(param, node.params?.[param.id]);
+	const decl: ComponentParam = {
+		key,
+		kind: EFFECT_PARAM_COMPONENT_KIND[param.kind],
+		author: true,
+		default: typeof current === 'string' ? parseInt(current.slice(1), 16) : current,
+	};
+	parent.params = [...(parent.params ?? []), decl];
+	setForward(node, param.id, key);
+	return key;
+}
+
+/** Take a placed effect's `param` from the open def's existing `parentKey` of the matching kind. */
+export function linkEffectParam(
+	parent: ComponentDef,
+	node: EffectNode,
+	param: EffectParam,
+	parentKey: string,
+): boolean {
+	if (!linkableEffectParentParams(parent, param).some((p) => p.key === parentKey)) return false;
+	setForward(node, param.id, parentKey);
+	return true;
+}
+
+/** Set (or, with `undefined`, clear) a placed effect's own value for parameter `id`. */
+export function setEffectParamValue(
+	node: EffectNode,
+	id: string,
+	value: number | string | boolean | undefined,
+): void {
+	const params = { ...node.params };
+	if (value === undefined) delete params[id];
+	else params[id] = value;
+	node.params = Object.keys(params).length ? params : undefined;
 }
