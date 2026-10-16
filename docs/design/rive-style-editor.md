@@ -653,7 +653,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
 | 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) and 8b (Win) built 2026-10-14** (§13.2, §13.6), owner browser checks pending, live games still coded | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
-| 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
+| 9 | **Shared library + UX pass**, re-scoped 2026-10-16 into 9a–9d ([rive-reference.md §5](rive-reference.md#5-phase-9-re-scoped-proposal)) | 9a hierarchy and stage basics (lock / isolate / hide, shortcuts); 9b keying and easing (Inspector key buttons, cubic Interpolation panel, multi-key edit); 9c Animations list, state-machine transition options and Console; 9d `_shared/cinematics/` promotion and starter timelines, Data tab. Onion skin goes in 9b | editor, storage, timeline format (`ease`) | M each |
 | 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
 
 **Ship chain (rule 8):** no new asset class. Timelines already travel export → deploy → bake →
@@ -701,8 +701,9 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
    whose results come from the RGS (the player's moves are presentation, as in a cascade slot), or
    skill / free-play games where the client's own rules decide? This decides how much logic Flow
    must own, and it is the biggest single fork in §7. Not needed before Phase 10.
-7. **Rive references.** Screenshots or a short recording of the Rive screens you want copied
-   would sharpen Phases 4 and 9.
+7. **Rive references.** **PROVIDED (owner 2026-10-16):** five screenshots plus the Rive interface
+   docs. The surface-by-surface map, the deliberate non-copies and the re-scoped Phase 9 (9a–9d) live
+   in [rive-reference.md](rive-reference.md).
 
 ## 13. Phase 8: overlay migration (plan — 8a Transition first)
 
