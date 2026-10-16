@@ -92,15 +92,20 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
     `mergeEffectBounds`) and its chip and selection-box code read. A node is ready while any of its
     placements renders, the same union the canvas takes across its sublayers. Its box is the union
     of its placements' particle spreads, all in the node's own local space.
+    - The union also holds across overlays. Each scene, depth segment and blend group reports from
+      its own overlay, and three pots whose glow sits under their art land in three segments.
+      `mergeEffectBounds` kept only the last report, so it now unions them (`mergeSpreadBoxes`,
+      `editorCanvas.helpers.ts`).
   - The rig overlay had nothing to copy: it shares one instance per asset key and draws it at every
     target. The text overlay keys its objects by chain the same way (`chainKey`).
   - **Trade-off:** moving a top-level effect into a group (or out of one) changes its key, so its
     particles restart instead of carrying on.
-  - **Gate:** `check:fx-node-params` 101 → 102 (the overlay wiring, source-scanned: placements keyed
-    by path, reports by node id; it fails on the old overlay). `check:depth-segments` gains §5 (a
-    one-id path keys as the id, and three placements of one part get three keys). Also green:
-    `check:svelte --only apps/launcher-api` (46, at baseline) and `pnpm lint`. ⏳ Not clicked in a
-    browser.
+  - **Gate:** `check:fx-node-params` 104 → 105. The new check scans the overlay and canvas wiring:
+    placements keyed by path, reports by node id, the canvas's union. It fails on the old overlay.
+    `check:depth-segments` gains §5: a one-id path keys as the id, three pots' glows get three keys
+    in three segments, and `mergeSpreadBoxes` folds their reports into one enclosing box (it fails
+    on a last-wins merge). Also green: `check:svelte --only apps/launcher-api` (at baseline),
+    `pnpm lint`, `check:undefined-names`. ⏳ Not clicked in a browser.
 - 2026-10-16 — **A placed effect's exposed parameters can be set where it is placed.** Owner
   report: an effect exposing `BeamAlpha` (number) and `Color` (colour), placed inside the Pot
   Meter's `Pot` part, showed neither parameter on the node: they were reachable only as a **Bind to

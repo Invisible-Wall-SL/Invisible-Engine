@@ -62,7 +62,9 @@
 		composeWorldMatrix,
 		depthKey,
 		inDepthSlice,
+		unionBox,
 		type DepthSlice,
+		type SpreadBox,
 	} from './editorCanvas.helpers';
 	import { withEditorProject } from './editorProject.client';
 	import { notePlacedEffect } from './placedEffects.client.svelte';
@@ -117,7 +119,7 @@
 		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
 		 * NODE id — a node placed several times (inside a component) reports the union of its
 		 * placements' spreads — idempotent (only re-emitted when a box meaningfully grows). */
-		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
+		onBoundsChange?: (bounds: Map<string, SpreadBox>) => void;
 		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
 		 * what an effect placed at the top level of that component reads a `params.<id>` value from. */
 		componentParams?: Record<string, unknown>;
@@ -170,7 +172,7 @@
 	interface EffectTarget {
 		/** Unique per drawn placement: the `depthKey` of the node's id path from the top of its
 		 * screen. Every placement of one component shares its nodes' ids, so a nested effect needs
-		 * the path; a top-level effect's key is its own id. */
+		 * the path, and a top-level effect's is its own id. */
 		key: string;
 		/** The bare node id — what the chip + selection-box reports are keyed by. */
 		nodeId: string;
@@ -184,9 +186,8 @@
 
 	/** A live per-PLACEMENT render: its container (positioned at the placement's world transform) +
 	 * one emitter per FREE layer, each in a child container at that layer's offset. Rebuilt when the
-	 * node's effectId / doc changes; repositioned when its transform does; disposed on removal. */
+	 * node's effectId changes; repositioned when its transform does; disposed on removal. */
 	interface LiveNode {
-		key: string;
 		nodeId: string;
 		effectId: string;
 		/** The placed node and its instance's params, refreshed on every rebuild — what
@@ -211,10 +212,8 @@
 		 * what `nodeBox` wants). `null` until the first non-degenerate frame. Grows only (never
 		 * shrinks), so a burst that fans out then dies still keeps a stable enclosing box. Reset (a
 		 * fresh `LiveNode`) whenever the node's effectId/doc rebuilds. */
-		bounds: { x: number; y: number; w: number; h: number } | null;
+		bounds: SpreadBox | null;
 	}
-
-	type SpreadBox = NonNullable<LiveNode['bounds']>;
 
 	/** Live renders keyed by placement (`EffectTarget.key`), so each placed copy of a component plays
 	 * its own emitters with its own params. */
@@ -292,7 +291,7 @@
 				if (n.kind === 'effect' && inDepthSlice(depthSlice, [n.id])) {
 					const wt = worldTransformOf(n, sc);
 					out.push({
-						key: n.id,
+						key: depthKey([n.id]),
 						nodeId: n.id,
 						effectId: n.effectId,
 						node: n,
@@ -538,7 +537,6 @@
 		world.addChild(container);
 
 		const node: LiveNode = {
-			key: tg.key,
 			nodeId: tg.nodeId,
 			effectId: tg.effectId,
 			node: tg.node,
@@ -658,7 +656,7 @@
 	const BOUNDS_SAMPLE_EVERY = 6;
 	let boundsTick = 0;
 	/** The bounds set last handed to the parent, so `publishBounds` only re-emits on real change. */
-	let publishedBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
+	let publishedBounds = new Map<string, SpreadBox>();
 
 	/** Accumulate each live node's particle spread into its running-MAX box (in node-LOCAL /
 	 * scene-world units via `container.getLocalBounds()` — before the container's own transform +
@@ -691,13 +689,6 @@
 			}
 		}
 		return grew;
-	}
-
-	/** The smallest box enclosing both. */
-	function unionBox(a: SpreadBox, b: SpreadBox): SpreadBox {
-		const x = Math.min(a.x, b.x);
-		const y = Math.min(a.y, b.y);
-		return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
 	}
 
 	/** Publish the per-node max-bounds to the 2D canvas — a node placed several times reports the

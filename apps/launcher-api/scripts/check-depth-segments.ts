@@ -21,9 +21,10 @@
  *     node's segment is recorded by its id path, so the renderers draw each piece on its own.
  *  4. **A group or resolvable component draws only its children**, so on its own it never splits;
  *     a bound anchor (preview or part skin) and a missing component's placeholder are art.
- *  5. **The id-path key tells placements apart.** The live FX overlay keys each placed copy of a
- *     component by it, so a top-level node's key is its own id and every placement of one part has
- *     its own.
+ *  5. **The id-path key tells placements apart, and the canvas unions what they report.** The live
+ *     FX overlay keys each placed copy of a component by it (a top-level node's key is its own id),
+ *     and the placements of one part can land in different segments, each its own overlay, so the
+ *     canvas folds their spread reports into one box per node id.
  */
 import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
 
@@ -32,6 +33,7 @@ import {
 	depthSegmentOf,
 	depthSegments,
 	inDepthSlice,
+	mergeSpreadBoxes,
 } from '../src/routes/(app)/editor/editorCanvas.helpers';
 
 let fails = 0;
@@ -187,14 +189,26 @@ check(
 	split([instance('l', 'loop')]) === 'l|l',
 );
 
-// 5. The id-path key tells placements apart.
+// 5. The id-path key tells placements apart, and the canvas unions what they report.
 check("a top-level node's id-path key is its own id", depthKey(['f']) === 'f');
 const pots = ['p1', 'p2', 'p3'];
 const potSplit = depthSegments(scene(pots.map((id) => instance(id, 'piece'))), defs)[0].segmentOf;
 check(
-	'each placement of one component part has its own id-path key, and the split records each',
-	new Set(pots.map((id) => depthKey([id, 'glow']))).size === pots.length &&
-		pots.every((id) => potSplit.has(depthKey([id, 'glow']))),
+	'three placements of one part get three keys, each in its own segment',
+	pots.map((id) => potSplit.get(depthKey([id, 'glow']))).join(',') === '0,1,2',
+);
+const merged = mergeSpreadBoxes([
+	new Map([['glow', { x: -10, y: -20, w: 20, h: 20 }]]),
+	new Map([
+		['glow', { x: -30, y: -5, w: 20, h: 40 }],
+		['other', { x: 0, y: 0, w: 1, h: 1 }],
+	]),
+	new Map([['glow', { x: 0, y: -10, w: 25, h: 10 }]]),
+]);
+check(
+	"…so the canvas folds each segment's report for that part into one box enclosing all three",
+	JSON.stringify(merged.get('glow')) === JSON.stringify({ x: -30, y: -20, w: 55, h: 55 }) &&
+		JSON.stringify(merged.get('other')) === JSON.stringify({ x: 0, y: 0, w: 1, h: 1 }),
 );
 
 if (fails > 0) {

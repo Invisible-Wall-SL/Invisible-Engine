@@ -57,8 +57,10 @@
 		childLocalTransform,
 		depthSegments,
 		inDepthSlice,
+		mergeSpreadBoxes,
 		type DepthSegment,
 		type DepthSlice,
+		type SpreadBox,
 		nodeBox,
 		nodeCornersWorld,
 		repeaterPlaceholderGrid,
@@ -1090,9 +1092,10 @@
 	let liveEffectIds = $state<Set<string>>(new Set());
 	/** Measured particle SPREAD per effect NODE id (running-MAX rect in node-local / scene-world
 	 * units — `x`/`y` are the top-left offset from the node origin), reported by the live overlay so
-	 * the selection box + hit-test fit the real particles instead of the fixed placeholder. MERGED
-	 * across the per-scene effect sublayers. */
-	let effectBounds = $state<Map<string, { x: number; y: number; w: number; h: number }>>(new Map());
+	 * the selection box + hit-test fit the real particles instead of the fixed placeholder. UNION
+	 * across the per-scene effect sublayers (`mergeSpreadBoxes`), so a part placed in several gets
+	 * one box enclosing every placement. */
+	let effectBounds = $state<Map<string, SpreadBox>>(new Map());
 
 	// Per-scene report buffers: each sublayer is filtered to one scene, so the 2D
 	// canvas folds their reports together (union of ready keys/ids + merged natural
@@ -1103,10 +1106,7 @@
 	const textReadyByScene = new Map<string, Set<string>>();
 	const textMeasuredByScene = new Map<string, Map<string, { w: number; h: number }>>();
 	const effectReadyByScene = new Map<string, Set<string>>();
-	const effectBoundsByScene = new Map<
-		string,
-		Map<string, { x: number; y: number; w: number; h: number }>
-	>();
+	const effectBoundsByScene = new Map<string, Map<string, SpreadBox>>();
 	const rigLoadByScene = new Map<string, { started: number; settled: number }>();
 	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
 
@@ -1146,14 +1146,9 @@
 		for (const set of effectReadyByScene.values()) for (const id of set) union.add(id);
 		liveEffectIds = union;
 	}
-	function mergeEffectBounds(
-		sceneId: string,
-		bounds: Map<string, { x: number; y: number; w: number; h: number }>,
-	): void {
+	function mergeEffectBounds(sceneId: string, bounds: Map<string, SpreadBox>): void {
 		effectBoundsByScene.set(sceneId, bounds);
-		const merged = new Map<string, { x: number; y: number; w: number; h: number }>();
-		for (const m of effectBoundsByScene.values()) for (const [k, v] of m) merged.set(k, v);
-		effectBounds = merged;
+		effectBounds = mergeSpreadBoxes(effectBoundsByScene.values());
 	}
 	function mergeRigLoading(sceneId: string, c: { started: number; settled: number }): void {
 		rigLoadByScene.set(sceneId, c);
@@ -1234,9 +1229,7 @@
 		const effIds = new Set<string>();
 		for (const set of effectReadyByScene.values()) for (const eid of set) effIds.add(eid);
 		liveEffectIds = effIds;
-		const effBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
-		for (const m of effectBoundsByScene.values()) for (const [k, v] of m) effBounds.set(k, v);
-		effectBounds = effBounds;
+		effectBounds = mergeSpreadBoxes(effectBoundsByScene.values());
 		let ss = 0;
 		let sd = 0;
 		for (const v of rigLoadByScene.values()) {
