@@ -78,6 +78,16 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-16 — **A tile named only in "This game's defaults" ships again** (branch
+  `claude/gallant-rubin-6f066u`). `componentDefaultsFor` looked a def up by `r2Slug(id)` only, but
+  `listComponentDefaults` keys every sidecar saved since the id stamp by its REAL id
+  (`lettersStrip`), so a camelCase def's project defaults were missed. `resolveComponentClosure`
+  reads a `component`-kind param's project default through it (runtime bundle, doc bake, art
+  export), so a Letters Strip or Respin Cell Tiles `tile` set only in the project's defaults left
+  that tile def out of the published bundle and the baked doc. It now tries the real id, then the
+  slug (a sidecar from before the stamp). Gate: `pnpm --filter launcher-api
+  check:component-defaults-lookup` (7: a stamped camelCase sidecar by its id, a legacy one by its
+  slug, and the real closure shipping both tiles; it failed 2 before the fix).
 - 2026-10-15 — **A nested component's params can be exposed on its parent** (branch
   `claude/gifted-hawking-uv5utk`). Owner report: a component placed inside another (the
   firecrackers inside the Pot Meter's `Pot`) showed its params only inside the parent's editor,
