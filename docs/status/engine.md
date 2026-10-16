@@ -298,8 +298,9 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   check on R_Board and R_Cinematic2: visible pixels identical outside the turned regions. The turn
   existed because the reference runtime read a quarter turn on a plain region only as counter-clockwise
   while our packers rotate clockwise. `engine-rig` now reads `rotate:270` on a region attachment
-  (`attachments.ts`; meshes already did) and swaps the packed size for it (`atlas.ts`). Existing atlases
-  say 90 or nothing, so nothing that loads today changes. The launcher half (the export ships the sheet
+  (`attachments.ts`; meshes already did) and swaps the packed size for it (`atlas.ts`). Nothing that
+  loads today changes: the repo's only 270 packs (9 in `apps/price`'s `symbolsSpecial`) are drawn by
+  meshes, which read neither the region path nor the swapped size. The launcher half (the export ships the sheet
   page with `rotate:270`, ~−33 MB on the remake) is a separate PR that must merge after this release is
   live, so a runtime rollback can never meet a 270 atlas. `clockwiseRegions.fixture.ts` proves both
   representations sample the same texels for every region corner and mesh vertex, trimmed and not
