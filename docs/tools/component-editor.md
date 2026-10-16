@@ -322,7 +322,8 @@ so a placement in a scene can still override anything you set here.
 so the panel has its own **Saved / Unsaved** badge and its own **Save for this game**
 button, which writes only the defaults. **Save component** in the editor bar writes both:
 the component, and these defaults when they are unsaved. The pill then reads *Component and
-this game's defaults saved*. A value saved here shows on the instances placed on your
+this game's defaults saved*. When only the defaults changed, it saves just them (*This game's
+defaults saved*) and leaves the component alone. A value saved here shows on the instances placed on your
 screens straight away, without a reload. If someone else changed this game's defaults for the same component
 while you had the panel open, the badge turns into a conflict with **Reload theirs**
 and **Overwrite with mine** rather than quietly clobbering their values. Leaving the

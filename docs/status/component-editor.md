@@ -90,7 +90,9 @@ Shipped capabilities on `main`:
     (separate `SaveState`s, so a conflict in one never blocks the other). The pill reads
     *Component and this game's defaults saved*, or reports the defaults failure while their badge
     offers *Reload theirs / Overwrite with mine*. *Save for this game* still writes the defaults
-    alone.
+    alone. With only the defaults dirty, the bar's Save writes just them (no def write, so a stale
+    ETag can't offer to stack an untouched draft on someone else's version). A defaults save already
+    in flight is left to its own badge rather than reported as done.
   - **The Screens side kept the page-load defaults.** The editor page passed `data.componentDefaults`
     to the canvas and the instance panel and never refreshed it, so a default saved on the
     Components side still read as off on the placed pot until a reload. The page now keeps its own

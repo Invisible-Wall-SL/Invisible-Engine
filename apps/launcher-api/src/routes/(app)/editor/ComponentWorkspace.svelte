@@ -295,8 +295,10 @@
 	/** Keep the seed, and the page's copy the Screens side draws placed instances with, on the
 	 * values this tab just saved or read. */
 	function rememberDefaults(id: string, params: Record<string, unknown>): void {
+		const seeded = seededDefaults[id];
+		const unchanged = !!seeded && defaultsSignature(seeded) === defaultsSignature(params);
 		seededDefaults[id] = { ...params };
-		onDefaultsChange(id, { ...params });
+		if (!unchanged) onDefaultsChange(id, { ...params });
 	}
 	/** Signature of the defaults as last loaded/saved — the dirty baseline. */
 	let projectDefaultsBaseline = $state('[]');
@@ -1295,8 +1297,12 @@
 		const id = componentDraft.id;
 		// This game's defaults are a separate file with their own Save, but this is the button people
 		// press: it writes them too, so "Component saved" never leaves a value set there unsaved.
-		const defaults = defaultsDirty ? defaultsSave.save() : null;
-		const ok = await saveState.save({ force });
+		// A defaults save already in flight reports through its own badge, not this pill.
+		const defaults = defaultsDirty && !defaultsSave.busy ? defaultsSave.save() : null;
+		// With only the defaults changed the component itself is left alone, so a stale ETag can't
+		// offer to stack an untouched draft on top of someone else's version.
+		const savesDraft = draftDirty || defaults === null;
+		const ok = savesDraft ? await saveState.save({ force }) : true;
 		const defaultsFailed =
 			defaults !== null &&
 			!(await defaults) &&
@@ -1304,14 +1310,21 @@
 		// Another component was opened mid-save: this outcome is not about the one on screen.
 		if (componentDraft?.id !== id) return;
 		if (ok) {
+			const reason = defaultsSave.message || 'the save failed.';
 			saveStatus = defaultsFailed
 				? {
 						kind: 'error',
-						message: `Component saved, but this game’s defaults were not: ${defaultsSave.message || 'the save failed.'}`,
+						message: savesDraft
+							? `Component saved, but this game’s defaults were not: ${reason}`
+							: `This game’s defaults were not saved: ${reason}`,
 					}
 				: {
 						kind: 'ok',
-						message: defaults ? 'Component and this game’s defaults saved' : 'Component saved',
+						message: !defaults
+							? 'Component saved'
+							: savesDraft
+								? 'Component and this game’s defaults saved'
+								: 'This game’s defaults saved',
 					};
 			return;
 		}
