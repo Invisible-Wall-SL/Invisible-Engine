@@ -138,6 +138,9 @@
 		/** The component list (and the ETags known for it) after a save, create or delete, so
 		 *  placed instances redraw and a later remount starts from the same list. */
 		onComponentsChange: (components: ComponentDef[], etags: Record<string, string | null>) => void;
+		/** This game's defaults for component `id` as just saved or read, so placed instances on the
+		 *  Screens side show them without a reload. */
+		onDefaultsChange: (id: string, params: Record<string, unknown>) => void;
 		/** The page's data drifted to another project: no write may run. */
 		writesBlocked: boolean;
 		/** The open component changed (`null` = the components home), for the page URL. */
@@ -152,6 +155,7 @@
 		onExit,
 		onOpenScreen,
 		onComponentsChange,
+		onDefaultsChange,
 		onOpenedChange,
 		writesBlocked,
 	}: Props = $props();
@@ -288,6 +292,12 @@
 	 * The ETag, never this map, is what a save CASes against.
 	 */
 	const seededDefaults: Record<string, Record<string, unknown>> = { ...data.componentDefaults };
+	/** Keep the seed, and the page's copy the Screens side draws placed instances with, on the
+	 * values this tab just saved or read. */
+	function rememberDefaults(id: string, params: Record<string, unknown>): void {
+		seededDefaults[id] = { ...params };
+		onDefaultsChange(id, { ...params });
+	}
 	/** Signature of the defaults as last loaded/saved — the dirty baseline. */
 	let projectDefaultsBaseline = $state('[]');
 	/** Order-independent signature, so clearing a key then re-setting it doesn't read as dirty. */
@@ -345,7 +355,7 @@
 			if (componentDraft?.id === id) projectDefaultsBaseline = defaultsSignature(params);
 			// Keep the paint-only seed in step, so re-opening this component in the same tab shows
 			// what we just saved rather than the (never-refetched) page-load values.
-			seededDefaults[id] = { ...params };
+			rememberDefaults(id, params);
 			return { ok: true, etag: out.etag ?? null };
 		},
 	});
@@ -390,7 +400,7 @@
 			defaultsSave.adoptEtag(body.etag ?? null);
 			projectDefaults = { ...(body.params ?? {}) };
 			projectDefaultsBaseline = defaultsSignature(projectDefaults);
-			seededDefaults[id] = { ...projectDefaults };
+			rememberDefaults(id, projectDefaults);
 		} catch {
 			saveStatus = { kind: 'error', message: 'Could not read this game’s defaults.' };
 		}
@@ -443,7 +453,7 @@
 		defaultsSave.adoptEtag(out.etag ?? null);
 		projectDefaults = { ...out.params };
 		projectDefaultsBaseline = defaultsSignature(projectDefaults);
-		seededDefaults[id] = { ...projectDefaults };
+		rememberDefaults(id, projectDefaults);
 		editNonce += 1;
 		defaultsHistoryOpen = false;
 		return null;
@@ -1283,11 +1293,26 @@
 		if (!componentDraft || busy || isInspecting) return;
 		saveStatus = null;
 		const id = componentDraft.id;
+		// This game's defaults are a separate file with their own Save, but this is the button people
+		// press: it writes them too, so "Component saved" never leaves a value set there unsaved.
+		const defaults = defaultsDirty ? defaultsSave.save() : null;
 		const ok = await saveState.save({ force });
+		const defaultsFailed =
+			defaults !== null &&
+			!(await defaults) &&
+			(defaultsSave.status === 'error' || defaultsSave.blocked);
 		// Another component was opened mid-save: this outcome is not about the one on screen.
 		if (componentDraft?.id !== id) return;
 		if (ok) {
-			saveStatus = { kind: 'ok', message: 'Component saved' };
+			saveStatus = defaultsFailed
+				? {
+						kind: 'error',
+						message: `Component saved, but this game’s defaults were not: ${defaultsSave.message || 'the save failed.'}`,
+					}
+				: {
+						kind: 'ok',
+						message: defaults ? 'Component and this game’s defaults saved' : 'Component saved',
+					};
 			return;
 		}
 		if (!force && saveState.status === 'conflict') {
@@ -2396,7 +2421,7 @@
 						? 'Read-only — return to latest to edit and save.'
 						: lease.readOnly
 							? 'Another author holds this component — take over to edit.'
-							: 'Save this component'}
+							: 'Save this component, and this game’s defaults for it'}
 					onclick={() => void saveComponent()}
 				>
 					Save component

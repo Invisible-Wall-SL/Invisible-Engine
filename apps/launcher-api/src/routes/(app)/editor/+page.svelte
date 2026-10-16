@@ -719,6 +719,12 @@
 	 * knows one for. A def refreshed from the listing has none here: the Components side reads it
 	 * when it opens that def. */
 	let storedEtags = $state<Record<string, string | null>>({ ...data.componentEtags });
+	/** componentId → this game's defaults, which placed instances draw and the instance panel reads.
+	 * Seeded from the load, then kept on what the Components side saves or reads, so a default set
+	 * there shows on the screen without a reload. */
+	let componentDefaults = $state<Record<string, Record<string, unknown>>>({
+		...data.componentDefaults,
+	});
 	/** The same list with the `win` tier groups rebuilt — drives the picker + the canvas's
 	 * `componentInstance` resolution. */
 	const components = $derived(withConfigWinTiers(storedComponents));
@@ -3490,7 +3496,7 @@
 						symbolsDoc={data.symbolsDoc}
 						gridDimensions={shownGridDimensions}
 						repeaterSources={data.repeaterSources}
-						componentDefaults={data.componentDefaults}
+						{componentDefaults}
 						{componentMap}
 						{rigPreview}
 						{rigPreviewNodeId}
@@ -3768,7 +3774,7 @@
 						node={selectedNode}
 						gameType={projectGameType}
 						addOns={data.addOns}
-						componentDefaults={data.componentDefaults}
+						{componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}
 						layoutTypeIds={layoutTypes}
@@ -4187,7 +4193,7 @@
 					components: $state.snapshot(storedComponents) as ComponentDef[],
 					componentEtags: $state.snapshot(storedEtags),
 					assets: data.assets,
-					componentDefaults: data.componentDefaults,
+					componentDefaults: $state.snapshot(componentDefaults),
 					gameName: data.gameName,
 					addOns: data.addOns,
 					canPublishShared: data.canPublishShared,
@@ -4202,6 +4208,9 @@
 				onComponentsChange={(list, etags) => {
 					storedComponents = list;
 					storedEtags = etags;
+				}}
+				onDefaultsChange={(id, params) => {
+					componentDefaults = { ...componentDefaults, [id]: params };
 				}}
 				writesBlocked={projectDrift}
 				onOpenedChange={(id) => {
