@@ -16,7 +16,7 @@
 	 * already on stage (`setMounted`) the set is not drawn here: the caller mounts that screen with
 	 * the driver `ondriver` hands it, so the timeline moves the screen the player already sees.
 	 */
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { getContextApp, RigProvider } from 'pixi-svelte';
 	import {
 		cuesCrossed,
@@ -133,7 +133,7 @@
 		};
 	};
 	setCinematicNodeDriver(driver);
-	props.ondriver?.(driver);
+	untrack(() => props.ondriver)?.(driver);
 
 	// Game content mounts after the Pixi app has initialised, so the application is already here.
 	const ticker = appContext.stateApp.pixiApplication?.ticker;

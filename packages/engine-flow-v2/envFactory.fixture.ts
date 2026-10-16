@@ -156,7 +156,8 @@ async function main(): Promise<void> {
 				? {
 						playCinematic: (id: string, opts: { loop?: boolean }) => {
 							log.push(`play ${id}`);
-							if (opts.loop) return;
+							// A loop's play never settles: only the interpreter's own guard keeps it from holding.
+							if (opts.loop) return new Promise<void>(() => undefined);
 							return new Promise<void>((resolve) => (settle = resolve));
 						},
 					}

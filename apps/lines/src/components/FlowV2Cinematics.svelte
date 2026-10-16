@@ -11,8 +11,7 @@
 	 *
 	 * Inert when no v2 flow is authored, when the flow authors no `playCinematic` node, or when the
 	 * project shipped no cinematics — `bakedCinematic()` returns undefined and nothing renders
-	 * (parity). A named-but-missing cinematic is deliberately silent rather than fatal: the flow
-	 * still runs, and the validator already warns about an empty `ref` at authoring time.
+	 * (parity). The flow runtime skips a play naming a cinematic the game lacks, with a warning.
 	 *
 	 * A SCREEN timeline whose screen `<FlowV2Mount>` has up (`onStage`) moves that screen: its
 	 * `<Cinematic>` draws no copy and hands its node driver to the flow, which remounts the screen

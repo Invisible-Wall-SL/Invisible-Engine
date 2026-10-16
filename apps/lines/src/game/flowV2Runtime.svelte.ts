@@ -774,7 +774,7 @@ export const createLinesFlowV2 = (
 		playCinematic: (cinematicId, opts) => {
 			// One the game never received plays nothing, so an awaited play must not wait for it. A
 			// screen timeline ships only once a node is keyed and saved; a deleted one leaves its ref.
-			if (!bakedCinematic(cinematicId)) {
+			if (!((bakedCinematic(cinematicId)?.duration ?? 0) > 0)) {
 				console.warn(
 					`[flow-v2] playCinematic: "${cinematicId}" did not ship with this game (a timeline ` +
 						'ships once it keys a node and is saved), so it was skipped.',
@@ -785,12 +785,23 @@ export const createLinesFlowV2 = (
 			trace('cinematic', cinematicId, '▶ play');
 			const loop = opts.loop === true;
 			const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
+			// A replay while it still plays releases the earlier play's wait, which nothing else would.
+			playingCinematics.get(cinematicId)?.done?.();
 			if (loop) {
 				playingCinematics.set(cinematicId, { loop, speed });
 				return;
 			}
+			// A slam releases the wait (the timeline plays on to its end), like a held Show's hold.
 			return new Promise<void>((resolve) => {
-				playingCinematics.set(cinematicId, { loop, speed, done: resolve });
+				const unsubscribe = roundSkip.onSkip(() => resolve());
+				playingCinematics.set(cinematicId, {
+					loop,
+					speed,
+					done: () => {
+						unsubscribe();
+						resolve();
+					},
+				});
 			});
 		},
 		stopCinematic: (cinematicId) => {
