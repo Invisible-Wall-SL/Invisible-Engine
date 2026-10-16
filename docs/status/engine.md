@@ -279,8 +279,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     off by one level, under the pixelmatch threshold); on a real clock it can stop as low as
     1 − dt / 400 ms (≈ 0.96 at 60 fps). #1236's settling drive (buttons only) is now a def flag set on
     `buttonPresentation`, `winPresentation` and both free-spin presentations. With it the `held`
-    captures t+60…t+374 are byte-identical to the coded side (0 px at threshold 0). Flag-off games
-    mount none of these defs.
+    captures t+60…t+374 are byte-identical to the coded side (0 px at threshold 0), and
+    `check:freespin-parity --variant base` (13 / 13 at 0 px) is byte-identical from t+48 on. Inside
+    the free-spin fade itself (t+6 / 12 / 24) up to 346 456 px still differ by ≤ 12 levels, under
+    the pixelmatch threshold — not touched by the settle (mid-fade the alpha is never identity), not
+    traced. Flag-off games mount none of these defs.
   - **The CI-only `held` drift was the harness.** The determinism clock adds 1000/60 ms a frame, so a
     frame's delta differs in its last bits with the clock's magnitude, and whether a clip's summed
     deltas reach its length on its last frame or one later depends on the frame it started on (for a
