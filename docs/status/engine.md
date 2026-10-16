@@ -63,6 +63,12 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **`win parity` `held` drifts on the CI runner** (2026-10-16, #1233). Under a held pointer the
+  authored walk runs one frame ahead in CI: t+60 / t+120 / t+240 differ 0.06–0.16 %, t+374 6 %
+  (`winHide` 374 authored vs 375 coded), identically on a re-run; locally the variant is 0 px.
+  The CI workflow runs the other six variants; `held` stays a local run
+  (`pnpm check:win-parity --variant held`) until the drift is traced. No reference game authors
+  `holdToSpeedUp`.
 - **Lines-family table games: gaps left by the 2026-09-29 buy fix** (from its `code-reviewer` pass).
   - **Engine-side, need a runtime release:**
     - **Card and charge differ at some bet levels.** On a table game, `multiplierForAmount` rounds M to a whole number of units, so a level the line count does not divide is charged more than the card says. Measured on the 20-line default template: BONUS reads $10 but charges $20 at $0.10, and reads $50 but charges $60 at $0.50. The old line path at least warned; the table path does not. Fix the placeholder ladder to multiples of `betOptions[0]`, or warn.
