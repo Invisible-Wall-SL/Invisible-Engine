@@ -194,6 +194,9 @@ function codedMountNeeds(data: StockAssetData): string[] {
  * Fields whose string values are never asset keys (ids, labels, text, value feeds, signals,
  * animation names, param names). Skipping them is what stops an animation set called
  * `anticipation` or a feed called `freeSpins` from reading as a reference; anything else counts.
+ * Only their STRINGS are skipped: an object under one is walked, because it can hold a real
+ * reference — `symbols.winLine.text.font: 'purple'` is the win amount's bitmap font, and skipping
+ * the whole `text` object dropped that font from the games that draw with it.
  */
 const NON_ASSET_FIELDS = new Set([
 	'id',
@@ -221,15 +224,21 @@ const MAX_DATA_DEPTH = 64;
 /** More nodes than any layout expands to (defs inside defs included); past it, keep everything. */
 const MAX_WALKED_NODES = 100_000;
 
-function collectNames(value: unknown, into: Names, origin: string, depth = 0): void {
+function collectNames(
+	value: unknown,
+	into: Names,
+	origin: string,
+	depth = 0,
+	stringsAreNames = true,
+): void {
 	if (depth > MAX_DATA_DEPTH) throw new KeepAll('authored data nests deeper than any doc does');
 	if (typeof value === 'string') {
-		addName(into, value, origin);
+		if (stringsAreNames) addName(into, value, origin);
 	} else if (Array.isArray(value)) {
-		for (const item of value) collectNames(item, into, origin, depth + 1);
+		for (const item of value) collectNames(item, into, origin, depth + 1, stringsAreNames);
 	} else if (isRecord(value)) {
 		for (const [key, item] of Object.entries(value)) {
-			if (!NON_ASSET_FIELDS.has(key)) collectNames(item, into, origin, depth + 1);
+			collectNames(item, into, origin, depth + 1, !NON_ASSET_FIELDS.has(key));
 		}
 	}
 }

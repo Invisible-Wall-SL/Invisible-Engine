@@ -291,6 +291,39 @@ check(
 	),
 	['silverFont'],
 );
+// test2 and test1 on the live harness: the win amount drawn on a line win is styled under
+// `symbols.winLine.text`, and skipping every `text` field skipped the font inside it.
+check(
+	'the win amount’s font, under symbols.winLine.text ⇒ that font',
+	added(input(mutate((d) => (d.symbols!.winLine = { text: { font: 'purple', size: 0.3 } })))),
+	['purpleFont'],
+);
+check(
+	'a label styled in a stock font ⇒ that font, though the label text is not a name',
+	added(
+		input(
+			mutate((d) =>
+				d.doc.scenes[2].nodes.push(
+					node({
+						id: 'l',
+						kind: 'text',
+						label: { text: 'payFrame', style: { fontFamily: 'goldblur' } },
+					}),
+				),
+			),
+		),
+	),
+	['goldBlur'],
+);
+check(
+	'a text that reads like a stock key is still only text',
+	added(
+		input(
+			mutate((d) => d.doc.scenes[2].nodes.push(node({ id: 'x', kind: 'text', text: 'payFrame' }))),
+		),
+	),
+	[],
+);
 check(
 	'a stock rig named by an R2-style prefix is a reference too',
 	added(
