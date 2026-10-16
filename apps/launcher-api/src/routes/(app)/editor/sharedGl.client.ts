@@ -19,10 +19,14 @@ import { autoDetectRenderer, CanvasSource, Container, type Renderer } from 'pixi
 export interface SharedRigGl {
 	readonly canvas: HTMLCanvasElement;
 	readonly gl: WebGLRenderingContext;
+}
+
+interface CountedRigGl extends SharedRigGl {
 	users: number;
 }
 
-let rigGl: SharedRigGl | null = null;
+let rigGl: CountedRigGl | null = null;
+const rigGlUsers = new WeakMap<SharedRigGl, CountedRigGl>();
 
 /**
  * Take a reference to the shared rig context, creating it on first use (or after the last one was
@@ -34,13 +38,16 @@ export function acquireRigGl(): SharedRigGl | null {
 		const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true });
 		if (!gl) return null;
 		rigGl = { canvas, gl, users: 0 };
+		rigGlUsers.set(rigGl, rigGl);
 	}
 	rigGl.users++;
 	return rigGl;
 }
 
 /** Drop a reference; the last one frees the GPU context. */
-export function releaseRigGl(shared: SharedRigGl): void {
+export function releaseRigGl(handle: SharedRigGl): void {
+	const shared = rigGlUsers.get(handle);
+	if (!shared) return;
 	shared.users--;
 	if (shared.users > 0) return;
 	if (rigGl === shared) rigGl = null;
@@ -139,8 +146,6 @@ function releasePixiRenderer(): void {
 
 /** A Pixi overlay drawn through the shared renderer into a 2D canvas of its own. */
 export interface PixiSurface {
-	/** The overlay's element: absolutely fills the host, input passes through. */
-	readonly canvas: HTMLCanvasElement;
 	/** What the overlay draws. */
 	readonly stage: Container;
 	/** Settles `true` once the shared renderer is up, `false` if it never comes (no WebGL, or the
@@ -204,7 +209,6 @@ export function createPixiSurface(host: HTMLElement, resolution: number): PixiSu
 	const ready = obtainPixiRenderer().then((renderer) => !destroyed && !!renderer);
 
 	return {
-		canvas,
 		stage,
 		ready,
 		render,

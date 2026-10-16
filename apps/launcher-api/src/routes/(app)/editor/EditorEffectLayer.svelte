@@ -805,6 +805,9 @@
 			frameTicker.destroy();
 			for (const node of liveNodes.values()) disposeNode(node);
 			liveNodes.clear();
+			// The renderer outlives this overlay, so its uploaded atlas pages must go with it.
+			for (const source of sourceCache.values()) source.destroy();
+			sourceCache.clear();
 			s.destroy();
 			surface = null;
 			world = null;

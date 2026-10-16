@@ -128,9 +128,9 @@ Shipped capabilities on `main`:
   stack and its `mix-blend-mode` (`sharedGl.client.ts`). 72 overlays (24 rig + 24 text + 24 FX)
   drew with no warning, and 6 screens rendered pixel-identical to the old code, before and after a
   pan and with a larger overlay growing the shared canvas. Side effects: text overlays draw on
-  demand instead of every frame, FX overlays only while particles play, an overlay on the hidden
-  side skips drawing, and a rig overlay whose shared context is lost reloads its rigs onto a fresh
-  one. Gate: `check:editor-gl-contexts` fails on any other editor file that opens a WebGL context
+  demand instead of every frame, FX overlays only while particles play, rig overlays on the hidden
+  side pause (no draw, no animation advance, no bone-rider update) until it is shown again, and a
+  rig overlay whose shared context is lost reloads its rigs onto a fresh one. Gate: `check:editor-gl-contexts` fails on any other editor file that opens a WebGL context
   or Pixi renderer. ⏳ Owner to confirm in the live editor on the project that went white.
 - 2026-10-16 — **Game Settings → Authored overlays → Win is switchable.** The owner accepted the
   Win's two fade-out residues, so the row is enabled for publishers like Transition's and the save

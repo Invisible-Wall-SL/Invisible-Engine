@@ -392,7 +392,8 @@
 	 * `loadRigInstance` pulls in the global; only then is `SceneRenderer` known). */
 	async function ensureInstance(assetKey: string): Promise<void> {
 		if (entries.has(assetKey)) return;
-		entries.set(assetKey, { state: 'loading' });
+		const pending: Entry = { state: 'loading' };
+		entries.set(assetKey, pending);
 		loadStarted++;
 		reportLoading();
 		let settled = false;
@@ -410,9 +411,9 @@
 		const loadGl = gl;
 		try {
 			const instance = await loadRigInstance(assetKey, loadGl, reloadToken);
-			if (gl !== loadGl) {
-				// Unmounted or the context was lost mid-load. The context is shared, so textures left
-				// on it would outlive this layer.
+			if (entries.get(assetKey) !== pending) {
+				// Unmounted, reloaded, removed or the context was lost mid-load. The context is shared,
+				// so textures left on it would outlive this layer.
 				if (instance) disposeRigInstance(instance);
 				return;
 			}
@@ -429,7 +430,7 @@
 				bounds: measureRigBounds(instance),
 			});
 		} catch {
-			if (gl === loadGl) entries.set(assetKey, { state: 'error' });
+			if (entries.get(assetKey) === pending) entries.set(assetKey, { state: 'error' });
 		} finally {
 			settle();
 			publishReady();
