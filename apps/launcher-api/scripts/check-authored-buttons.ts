@@ -623,6 +623,22 @@ const nodeIdOf = (label: string) =>
 		src('../src/routes/(app)/editor/+page.server.ts').includes("decision === 'locked-buttons'"),
 		true,
 	);
+	// A publisher's save reads the store only when the condition names the pilot: without the
+	// buttons term, a publisher switching the pilot on would write without a decision.
+	const save = src('../src/routes/(app)/editor/+page.server.ts');
+	const readsStore = (action: string): boolean => {
+		const at = action.indexOf('const stored = await loadDocWithEtag(');
+		const condition = action.slice(action.lastIndexOf('if (', at), at);
+		return /\|\|\s*submitsButtonsOn\(parsed as Partial<LayoutDoc>\)/.test(condition);
+	};
+	eq(
+		'the save reads the store for a save with the buttons pilot on, a publisher’s included (negative control: the term removed)',
+		[
+			readsStore(save),
+			readsStore(save.replace(/\s*\|\|\s*submitsButtonsOn\(parsed as Partial<LayoutDoc>\)/, '')),
+		],
+		[true, false],
+	);
 }
 
 // ---- 8. the wiring, by source --------------------------------------------------------------------
@@ -692,12 +708,13 @@ const nodeIdOf = (label: string) =>
 		[true, true],
 	);
 	eq(
-		'a settling timeline drive (identity rotation / alpha handed to the node) is set for buttonStates only',
+		'a settling timeline drive (identity rotation / alpha handed to the node) is set by the def (ComponentDef.settles), which the button sets',
 		[
-			instance.includes('...(buttonStates ? { settles: true as const } : {})'),
-			(instance.match(/settles/g) ?? []).length,
+			instance.includes('const settles = allowed && def?.settles === true;'),
+			instance.includes('...(settles ? { settles: true as const } : {})'),
+			C.BUTTON_PRESENTATION_DEF.settles,
 		],
-		[true, 1],
+		[true, true, true],
 	);
 	eq(
 		'buttonStates is read by ComponentInstance alone',

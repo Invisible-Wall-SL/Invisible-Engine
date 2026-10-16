@@ -342,8 +342,8 @@ export class SkeletonData {
 	width = 0;
 	height = 0;
 	referenceScale = 100;
-	version: string | null = null;
-	hash: string | null = null;
+	version: string | null | undefined = null;
+	hash: string | null | undefined = null;
 	fps = 0;
 	imagesPath: string | null = null;
 	audioPath: string | null = null;

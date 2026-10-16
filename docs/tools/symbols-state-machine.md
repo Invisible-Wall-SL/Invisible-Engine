@@ -987,16 +987,19 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   pots overlay's token, the "+N" of an add-respins — and an authored head on top of its own **Head
   size** (× the glow for a glow, × one cell for art). **Tint** colours an authored head. A sprite /
   rig / flipbook head applies once its frame, bundle + animation, or clip is picked. A meter that a
-  pots overlay fills flies the token itself in place of any head, so there only **Size** and **3D
-  depth** (below) matter — a token never turns, because it carries its value.
+  pots overlay fills flies the token itself in place of any head, so there only **Size**, the
+  head's turn and **3D depth** (below) matter. Nothing in flight shows the **Highlight** win frame:
+  that marks winning cells on the board.
 - **Head follows the curve** — **Follow the curve** turns the head to the direction it is flying,
   so a comet, an arrow or a fish points along the arc (draw the art pointing right, or turn it with
   **Head rotation**). **Follow, stay upright** does the same but mirrors the art instead of turning
   it upside down while it flies left — for art with a top and a bottom. **Head rotation (°)** turns
-  the art by a fixed angle on top (−180…180), whether it follows or not. Both show for a sprite,
-  rig or flipbook head; a glow is round and a token carries its value, so neither turns. An upright
-  head mirrors the moment its route passes straight up or down, so a near-vertical route may flip
-  it once mid-flight.
+  the art by a fixed angle on top (−180…180), whether it follows or not. Both show for every head.
+  A sprite, rig or flipbook head turns, and so does a pots overlay's token — its value stays
+  upright and readable over it. The built-in glow is round and **None** draws no head, so on those
+  a turn shows nothing; the page says so under the fields when you set one. An upright head mirrors
+  the moment its route passes straight up or down, so a near-vertical route may flip it once
+  mid-flight.
 - **3D depth** (−1…1) — makes the flight read as a trip through 3D space. Positive lifts the head
   toward the player at mid-flight, so it grows (twice its size at 1); negative sends it away into
   the screen, so it shrinks (to two thirds at −1); it is its normal size as it leaves and as it
@@ -1025,7 +1028,12 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   straight through them.
 - **Speed** (cells per second), **Min ms** / **Max ms** (the flight time is the distance over the
   speed, kept between the two), **Stagger ms** (the gap between two flights that leave together) and
-  **Ease**.
+  **Ease** — the speed over the flight time: **Linear**, **Ease in** (slow start), **Ease out** (slow
+  arrival), **Ease in-out** (slow at both ends, the built-in) or **Fast-slow-fast** (fast out of the
+  cell, slow at mid-flight, fast into the target). Fast-slow-fast shows a **Slowdown** (0–1) beside
+  it: how much the head slows at mid-flight — 0 keeps a steady speed, 1 stops it for an instant, and
+  the built-in 0.6 slows it to 0.4× its average speed without stopping. It pairs well with **3D
+  depth**: the head lingers at its biggest (or smallest), right where the depth peaks.
 
 Blank fields show what they will use in grey. **↺ Reset** clears the selected kind.
 
@@ -1039,7 +1047,7 @@ the flight time and the head, and says when the head follows the curve or flies 
 built-in gold trail is drawn as an approximation.
 
 Stored as `flights: Record<kind, { head?, size?, headAlign?, headRotation?, depth?, trail?,
-trailAlign?, trailRotation?, arrival?, path?, speed?, minMs?, maxMs?, ease?, stagger? }>`; ships to
+trailAlign?, trailRotation?, arrival?, path?, speed?, minMs?, maxMs?, ease?, slowdown?, stagger? }>`; ships to
 the game like every other section (a head's art and the trail / arrival effects ship with it). The
 plan is in
 [the Hold and Win design §4.4](../design/hold-and-win.md#44-flights--things-that-travel-from-a-cell-to-a-target).
