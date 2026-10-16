@@ -1027,7 +1027,12 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   straight through them.
 - **Speed** (cells per second), **Min ms** / **Max ms** (the flight time is the distance over the
   speed, kept between the two), **Stagger ms** (the gap between two flights that leave together) and
-  **Ease**.
+  **Ease** — the speed over the flight time: **Linear**, **Ease in** (slow start), **Ease out** (slow
+  arrival), **Ease in-out** (slow at both ends, the built-in) or **Fast-slow-fast** (fast out of the
+  cell, slow at mid-flight, fast into the target). Fast-slow-fast shows a **Slowdown** (0–1) beside
+  it: how much the head slows at mid-flight — 0 keeps a steady speed, 1 stops it for an instant, and
+  the built-in 0.6 slows it to 0.4× its average speed without stopping. It pairs well with **3D
+  depth**: the head lingers at its biggest (or smallest), right where the depth peaks.
 
 Blank fields show what they will use in grey. **↺ Reset** clears the selected kind.
 
@@ -1041,7 +1046,7 @@ the flight time and the head, and says when the head follows the curve or flies 
 built-in gold trail is drawn as an approximation.
 
 Stored as `flights: Record<kind, { head?, size?, headAlign?, headRotation?, depth?, trail?,
-trailAlign?, trailRotation?, arrival?, path?, speed?, minMs?, maxMs?, ease?, stagger? }>`; ships to
+trailAlign?, trailRotation?, arrival?, path?, speed?, minMs?, maxMs?, ease?, slowdown?, stagger? }>`; ships to
 the game like every other section (a head's art and the trail / arrival effects ship with it). The
 plan is in
 [the Hold and Win design §4.4](../design/hold-and-win.md#44-flights--things-that-travel-from-a-cell-to-a-target).

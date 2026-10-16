@@ -1395,7 +1395,15 @@
 
 	function setFlightNumber(
 		field:
-			'speed' | 'minMs' | 'maxMs' | 'stagger' | 'size' | 'trailRotation' | 'headRotation' | 'depth',
+			| 'speed'
+			| 'minMs'
+			| 'maxMs'
+			| 'stagger'
+			| 'size'
+			| 'trailRotation'
+			| 'headRotation'
+			| 'depth'
+			| 'slowdown',
 		value: number | undefined,
 	): void {
 		patchFlight((style) => {
@@ -3701,6 +3709,26 @@
 											{/each}
 										</select>
 									</div>
+									{#if flightResolved.ease === 'easeOutIn' || flightOwn.slowdown !== undefined}
+										<div class="field">
+											<span
+												class="label"
+												title="How much a fast-slow-fast flight slows at mid-flight. 0 keeps a steady speed; 1 stops the head for an instant before it rushes on. In between it still slows, but never stops."
+												>Slowdown (0–1)</span
+											>
+											<input
+												class="fl-num"
+												type="number"
+												step="0.05"
+												min={FLIGHT_LIMITS.slowdown.min}
+												max={FLIGHT_LIMITS.slowdown.max}
+												placeholder={String(flightInherited.slowdown)}
+												value={flightOwn.slowdown ?? ''}
+												onchange={(e) =>
+													setFlightNumber('slowdown', numberOrUndefined(e.currentTarget.value))}
+											/>
+										</div>
+									{/if}
 								</div>
 							</div>
 

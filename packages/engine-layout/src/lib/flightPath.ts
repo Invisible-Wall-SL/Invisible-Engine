@@ -262,16 +262,32 @@ export const flightEase = (t: number): number => {
 
 const unit = (t: number): number => Math.min(1, Math.max(0, t));
 
-const EASES: Record<FlightEase, (t: number) => number> = {
+const cubicOutIn = (c: number): number =>
+	c < 0.5 ? (1 - (1 - 2 * c) ** 3) / 2 : (1 + (2 * c - 1) ** 3) / 2;
+
+const EASES: Record<Exclude<FlightEase, 'easeOutIn'>, (t: number) => number> = {
 	linear: unit,
 	easeIn: (t) => unit(t) ** 3,
 	easeOut: (t) => 1 - (1 - unit(t)) ** 3,
 	easeInOut: flightEase,
 };
 
-/** The progress curve an authored `ease` names (all cubic); the coded one is {@link flightEase}. */
-export const flightEaseOf = (ease: FlightEase): ((t: number) => number) =>
-	EASES[ease] ?? flightEase;
+/**
+ * The progress curve an authored `ease` names (all cubic); the coded one is {@link flightEase}.
+ * `easeOutIn` blends a steady speed with the cubic out-in by `slowdown`: its speed at mid-flight is
+ * `1 − slowdown` of the average, and `1 + 2·slowdown` of it as it leaves and lands.
+ */
+export const flightEaseOf = ({
+	ease,
+	slowdown,
+}: Pick<ResolvedFlightStyle, 'ease' | 'slowdown'>): ((t: number) => number) => {
+	if (ease !== 'easeOutIn') return EASES[ease] ?? flightEase;
+	const s = Math.min(1, Math.max(0, slowdown));
+	return (t) => {
+		const c = unit(t);
+		return (1 - s) * c + s * cubicOutIn(c);
+	};
+};
 
 /**
  * How far toward the camera a depth of 1 lifts the head at mid-flight, as a share of the camera's
