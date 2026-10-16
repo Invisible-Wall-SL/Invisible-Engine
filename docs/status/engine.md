@@ -63,6 +63,15 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
+- **`win parity` `held` drifts on the CI runner — cause open** (#1233, re-checked 2026-10-16 on
+  #1240 after the equal-frame press merged in #1239). Identical on every CI run: t+60 / 120 / 240
+  at 548 / 893 / 1 507 px, t+374 at 55 917 px, `winHide` 375 coded / 374 authored; `escalation`'s
+  `winHide` is 1951 / 1950 there too (inside the ±1 gate). Both sides now press and show on the
+  same absolute frame, so it is not the clock-magnitude effect. Locally `held` is 0 px with the
+  runner's own Chrome-for-Testing 153.0.8010.12 shell and under a 6× CPU throttle. Not yet ruled
+  out: the build environment, system fonts, audio (the `AudioContext` clock is real time). Next: a
+  per-frame trace of the walk's signals and play rate printed by the harness in CI. `held` stays
+  out of `win-parity.yml` until then.
 - **Lines-family table games: gaps left by the 2026-09-29 buy fix** (from its `code-reviewer` pass).
   - **Engine-side, need a runtime release:**
     - **Card and charge differ at some bet levels.** On a table game, `multiplierForAmount` rounds M to a whole number of units, so a level the line count does not divide is charged more than the card says. Measured on the 20-line default template: BONUS reads $10 but charges $20 at $0.10, and reads $50 but charges $60 at $0.50. The old line path at least warned; the table path does not. Fix the placeholder ladder to multiples of `betOptions[0]`, or warn.
@@ -284,20 +293,14 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     the free-spin fade itself (t+6 / 12 / 24) up to 346 456 px still differ by ≤ 12 levels, under
     the pixelmatch threshold — not touched by the settle (mid-fade the alpha is never identity), not
     traced. Flag-off games mount none of these defs.
-  - **The CI-only `held` drift was the harness** (the open item #1233 left; `held` runs in CI again
-    from `claude/rive-p8-followups-ci`). The determinism clock adds 1000/60 ms a frame, so a
+  - **Win parity presses on equal frames.** The determinism clock adds 1000/60 ms a frame, so a
     frame's delta differs in its last bits with the clock's magnitude, and whether a clip's summed
     deltas reach its length on its last frame or one later depends on the frame it started on (for a
-    720-frame clip, 2 468 of 6 000 start frames end a frame late). The two sides of a variant ran on
-    different absolute frames whenever their boots took different frame counts, as on the CI runner,
-    so their walks handed off a frame apart; a hold's play rate shows it within 30 frames (CI: t+60 /
-    120 / 240 at 547 / 893 / 1 506 px, t+374 at 55 917 px, `winHide` 375 / 374, and `escalation`'s
-    `winHide` 1951 / 1950). Reproduced locally by booting the authored side late: 1 frame → 3–8 px,
-    7 frames → 12–38 px at every `held` capture. Fix (`scripts/win-parity/run.mjs`): the coded side
-    presses each spin on the next multiple of 600 frames, the authored side on the coded side's frame,
-    and the gate fails when the press or `winShow` frames differ. With the authored side booted 7 frames
-    late, `held` is 0 px at t+60…t+374, `winHide` 375 / 375, the accepted +380 / +390 at 1.70 % /
-    9.97 %. No engine change: both implementations compute the same thing on the same clock.
+    720-frame clip, 2 468 of 6 000 start frames end a frame late). Two sides that boot a different
+    number of frames apart therefore hand off clips a frame apart (booting the authored side late:
+    1 frame → 3–8 px, 7 frames → 12–38 px at every `held` capture). `scripts/win-parity/run.mjs` now
+    presses each spin on the next multiple of 600 frames (the authored side on the coded side's frame)
+    and fails when the press or `winShow` frames differ; with a 7-frame boot skew `held` is 0 px.
   - **Button parity masks the HUD clock.** `UiGameName`'s 1 s interval is armed at mount, on a
     different frame per side, so near a minute's turn one side read a minute ahead.
     `scripts/button-parity/run.mjs` masks the clock and the name beside it (found on the stage, capped
