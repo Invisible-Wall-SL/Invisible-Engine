@@ -988,7 +988,8 @@ A row marked **set** has something authored. Pick a row to edit it on the right:
   size** (× the glow for a glow, × one cell for art). **Tint** colours an authored head. A sprite /
   rig / flipbook head applies once its frame, bundle + animation, or clip is picked. A meter that a
   pots overlay fills flies the token itself in place of any head, so there only **Size**, the
-  head's turn and **3D depth** (below) matter.
+  head's turn and **3D depth** (below) matter. Nothing in flight shows the **Highlight** win frame:
+  that marks winning cells on the board.
 - **Head follows the curve** — **Follow the curve** turns the head to the direction it is flying,
   so a comet, an arrow or a fish points along the arc (draw the art pointing right, or turn it with
   **Head rotation**). **Follow, stay upright** does the same but mirrors the art instead of turning
