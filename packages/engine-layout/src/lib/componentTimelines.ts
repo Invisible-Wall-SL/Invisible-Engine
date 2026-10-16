@@ -154,6 +154,13 @@ const EPSILON = 1e-9;
 /** A zero-length timeline never "ends" in a step the player can report; it holds nothing. */
 const isZeroLength = (doc: CinematicDoc): boolean => !(Math.max(doc.duration || 0, 0) > 0);
 
+/** Where a looping timeline wraps to (`loopFrom` inside `[0, duration)`), else `undefined`. */
+const loopStart = (doc: CinematicDoc): number | undefined => {
+	const from = doc.loopFrom;
+	const duration = Math.max(doc.duration || 0, 0);
+	return typeof from === 'number' && from >= 0 && from < duration ? from : undefined;
+};
+
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
 	/** Cues the playheads crossed, in order, each with the id of the timeline that crossed it. */
@@ -233,7 +240,13 @@ export class ComponentTimelinePlayer {
 	 */
 	holdsOn(signal: string): string[] {
 		return this.bound
-			.filter((b) => b.doc.playOn === signal && b.doc.holdsCue === true && !isZeroLength(b.doc))
+			.filter(
+				(b) =>
+					b.doc.playOn === signal &&
+					b.doc.holdsCue === true &&
+					!isZeroLength(b.doc) &&
+					loopStart(b.doc) === undefined,
+			)
 			.map((b) => b.doc.id);
 	}
 
@@ -295,6 +308,11 @@ export class ComponentTimelinePlayer {
 		for (const r of this.running.values()) {
 			if (r.done) continue;
 			const duration = Math.max(r.bound.doc.duration || 0, 0);
+			const loopFrom = loopStart(r.bound.doc);
+			if (loopFrom !== undefined) {
+				r.time = this.loop(r, loopFrom, duration, dt, step);
+				continue;
+			}
 			const prev = r.time;
 			const next = Math.min(prev + dt, duration);
 			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
@@ -307,6 +325,30 @@ export class ComponentTimelinePlayer {
 			}
 		}
 		return step;
+	}
+
+	/** A looping timeline's step: past `duration` it wraps to `loopFrom`, carrying the overshoot. */
+	private loop(
+		r: Running,
+		loopFrom: number,
+		duration: number,
+		dt: number,
+		step: TimelineStep,
+	): number {
+		const id = r.bound.doc.id;
+		const crossed = (prev: number, next: number): void => {
+			for (const k of cuesCrossed(r.bound.cueKeys, prev, next))
+				step.cues.push({ cue: k.cue, timeline: id });
+		};
+		const next = r.time + dt;
+		if (next < duration) {
+			crossed(r.time, next);
+			return next;
+		}
+		crossed(r.time, duration);
+		const wrapped = loopFrom + ((next - duration) % (duration - loopFrom));
+		crossed(loopFrom - EPSILON, wrapped);
+		return wrapped;
 	}
 
 	/**

@@ -48,6 +48,48 @@ export const buttonsSwitchedOn = (before: Settings, after: Settings): boolean =>
 export const submitsButtonsOn = (after: Settings): boolean =>
 	AUTHORED_BUTTONS_LOCKED && overlayOn(after, 'buttons');
 
+/** A pilot locked OFF: no write may switch it on. */
+export type LockedOverlay = 'freeSpins' | 'buttons';
+
+/** The locked pilot `after` switches on where `before` had it off, if any (an absent doc: all off). */
+export function lockedOverlaySwitchedOn(
+	before: Settings,
+	after: Settings,
+): LockedOverlay | undefined {
+	if (AUTHORED_FREE_SPINS_LOCKED && freeSpinsSwitchedOn(before, after)) return 'freeSpins';
+	if (AUTHORED_BUTTONS_LOCKED && buttonsSwitchedOn(before, after)) return 'buttons';
+	return undefined;
+}
+
+/** Whether a write has any locked pilot on — the only case a writer must read the stored doc. */
+export const submitsLockedOverlayOn = (after: Settings): boolean =>
+	submitsFreeSpinsOn(after) || submitsButtonsOn(after);
+
+const LOCKED_MESSAGES: Record<LockedOverlay, string> = {
+	freeSpins:
+		'The authored free-spin intro / outro pilot is locked off until the owner pilots it — it cannot be switched on yet.',
+	buttons:
+		'The authored button pilot is locked off until the owner pilots it — it cannot be switched on yet.',
+};
+
+/**
+ * Thrown by every layout-doc write (`editorStorage.saveDoc`, the scaffold, the file browser) that
+ * would switch a locked pilot on: the editor save, a backup restore, Director, an import, a
+ * migration or a raw upload all meet the same lock, not just the Game Settings row.
+ */
+export class AuthoredOverlayLockedError extends Error {
+	constructor(readonly overlay: LockedOverlay) {
+		super(LOCKED_MESSAGES[overlay]);
+		this.name = 'AuthoredOverlayLockedError';
+	}
+}
+
+/** Throw {@link AuthoredOverlayLockedError} when `after` switches a locked pilot on over `before`. */
+export function assertNoLockedOverlaySwitchOn(before: Settings, after: Settings): void {
+	const locked = lockedOverlaySwitchedOn(before, after);
+	if (locked) throw new AuthoredOverlayLockedError(locked);
+}
+
 export function authoredOverlayChangeAllowed(args: {
 	before: Settings;
 	after: Settings;
@@ -78,6 +120,11 @@ export type AuthoredOverlaySaveDecision =
  * {@link AUTHORED_FREE_SPINS_LOCKED} / {@link AUTHORED_BUTTONS_LOCKED}, for switching that pilot on
  * (anyone). Pure, so the gate drives (stale, flip) × (publisher, non-publisher).
  */
+const LOCKED_DECISIONS: Record<LockedOverlay, AuthoredOverlaySaveDecision> = {
+	freeSpins: 'locked-free-spins',
+	buttons: 'locked-buttons',
+};
+
 export function authoredOverlaySaveDecision(args: {
 	before: Settings;
 	after: Settings;
@@ -86,9 +133,7 @@ export function authoredOverlaySaveDecision(args: {
 	storedEtag: string | null;
 }): AuthoredOverlaySaveDecision {
 	if (writeIsStale(args.baseEtag, args.storedEtag)) return 'conflict';
-	if (AUTHORED_FREE_SPINS_LOCKED && freeSpinsSwitchedOn(args.before, args.after))
-		return 'locked-free-spins';
-	if (AUTHORED_BUTTONS_LOCKED && buttonsSwitchedOn(args.before, args.after))
-		return 'locked-buttons';
+	const locked = lockedOverlaySwitchedOn(args.before, args.after);
+	if (locked) return LOCKED_DECISIONS[locked];
 	return authoredOverlayChangeAllowed(args) ? 'write' : 'forbidden';
 }

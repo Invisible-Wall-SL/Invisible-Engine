@@ -40,7 +40,10 @@ export interface PurgeFootprint {
 
 /** Raised when purging would destroy, or orphan, data the roots don't account for. */
 export class PurgeUnsafeError extends Error {
-	constructor(readonly projectKey: string, readonly reason: string) {
+	constructor(
+		readonly projectKey: string,
+		readonly reason: string,
+	) {
 		super(reason);
 		this.name = 'PurgeUnsafeError';
 	}

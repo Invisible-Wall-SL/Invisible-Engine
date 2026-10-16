@@ -507,8 +507,9 @@ export function winTierTimelines(
 
 export const FREE_SPIN_INTRO_CLIP_SECONDS = 0.6667;
 export const FREE_SPIN_IDLE_CLIP_SECONDS = 2.8;
-/** The coded track loops the idle forever; the timeline runs this long (an hour). */
-const FS_LOOP_SECONDS = 3600;
+/** One intro then one idle cycle: a show timeline's length; it loops the idle from the intro's end. */
+const FS_INTRO_END = toFrame(FREE_SPIN_INTRO_CLIP_SECONDS);
+const FS_SHOW_SECONDS = FS_INTRO_END + FREE_SPIN_IDLE_CLIP_SECONDS;
 const FS_FADE_SECONDS = WIN_FADE_MS / 1000;
 
 const fsTimelineId = (defId: string, suffix: string): string =>
@@ -517,26 +518,27 @@ export const freeSpinTimelineId = fsTimelineId;
 
 const FS = FREE_SPIN_PRESENTATION_NODES;
 
-/** A rig's coded walk: `intro` once, then `idle` looping from the frame the coded track switches on. */
-const fsWalk = (actorId: string) => {
-	const intro = toFrame(FREE_SPIN_INTRO_CLIP_SECONDS);
-	return {
-		id: `${actorId}-clip`,
-		kind: 'animation',
-		actorId,
-		strips: [
-			strip('intro', FREE_SPIN_PRESENTATION_RIGS.intro, 0, intro),
-			{
-				id: 'idle',
-				clip: { src: 'rig', name: FREE_SPIN_PRESENTATION_RIGS.idle },
-				start: intro,
-				length: FS_LOOP_SECONDS - intro,
-				clipLength: FREE_SPIN_IDLE_CLIP_SECONDS,
-				loop: { mode: 'fill' },
-			},
-		],
-	};
-};
+/**
+ * A rig's coded walk: `intro` once, then ONE `idle` cycle from the frame the coded track switches
+ * on; the show timeline's `loopFrom` repeats that cycle for as long as the screen is up, as the
+ * coded track loops it.
+ */
+const fsWalk = (actorId: string) => ({
+	id: `${actorId}-clip`,
+	kind: 'animation',
+	actorId,
+	strips: [
+		strip('intro', FREE_SPIN_PRESENTATION_RIGS.intro, 0, FS_INTRO_END),
+		{
+			id: 'idle',
+			clip: { src: 'rig', name: FREE_SPIN_PRESENTATION_RIGS.idle },
+			start: FS_INTRO_END,
+			length: FREE_SPIN_IDLE_CLIP_SECONDS,
+			clipLength: FREE_SPIN_IDLE_CLIP_SECONDS,
+			loop: { mode: 'fill' },
+		},
+	],
+});
 
 const fsDoc = (
 	defId: string,
@@ -568,15 +570,16 @@ const fsTimelines = (
 	fsDoc(defId, 'rest', `${label}: rest`, 'enter', 0, [
 		visibility(FS.visual, [{ time: 0, visible: false }]),
 	]),
-	...shows.map(({ suffix, signal, visible, hidden }) =>
-		fsDoc(defId, suffix, `${label}: show`, signal, FS_LOOP_SECONDS, [
+	...shows.map(({ suffix, signal, visible, hidden }) => ({
+		...fsDoc(defId, suffix, `${label}: show`, signal, FS_SHOW_SECONDS, [
 			visibility(FS.visual, [{ time: 0, visible: true }]),
 			...visible.map((node) => visibility(node, [{ time: 0, visible: true }])),
 			...hidden.map((node) => visibility(node, [{ time: 0, visible: false }])),
 			fsWalk(FS.frame),
 			fsWalk(FS.number),
 		]),
-	),
+		loopFrom: FS_INTRO_END,
+	})),
 	fsDoc(defId, 'hide', `${label}: hide`, hide, FS_FADE_SECONDS, [
 		visibility(FS.visual, [
 			{ time: 0, visible: true },

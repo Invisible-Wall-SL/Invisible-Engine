@@ -11,10 +11,8 @@ import {
 	authoredButtonsStatus,
 	docButtonVersions,
 	isBuiltinButtonShape,
-	authoredFreeSpinsStatus,
-	authoredTransitionStatus,
 	authoredWinEnabled,
-	authoredWinStatus,
+	withAuthoredButtonsDoc,
 } from 'engine-layout';
 import { PROJECT_KEY_WORDS } from '$lib/projectKey';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
@@ -42,7 +40,7 @@ import {
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
 import { loadComponent } from '$lib/server/componentStorage';
-import { authoredWinTiersFor } from '$lib/server/authoredWinTiers';
+import { authoredOverlayChips } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { currentPointer } from '$lib/server/publishedRuntime';
@@ -245,6 +243,15 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 							),
 						)
 					: [];
+			// The chips read the doc the game boots, in its order: the button swap first (8d), then the
+			// shared resolution of the Transition, Win and free-spin rows on its output.
+			const layoutChips = (doc: NonNullable<typeof layout>) => {
+				const authoredButtons = authoredButtonsStatus(doc, {
+					shadowed: !buttonDefs.every(isBuiltinButtonShape),
+				});
+				const buttoned = authoredButtons === 'ready' ? withAuthoredButtonsDoc(doc) : doc;
+				return { ...authoredOverlayChips(buttoned, config.doc, winText), authoredButtons };
+			};
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
 				gameTypeName: kindNames.get(p.gameType) ?? p.gameType,
@@ -253,19 +260,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				symbols,
 				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
-				layout: layout
-					? {
-							authoredTransition: authoredTransitionStatus(layout),
-							authoredWin: authoredWinStatus({
-								doc: layout,
-								tiers: authoredWinTiersFor({ config: config.doc, layout, winText }),
-							}),
-							authoredFreeSpins: authoredFreeSpinsStatus(layout),
-							authoredButtons: authoredButtonsStatus(layout, {
-								shadowed: !buttonDefs.every(isBuiltinButtonShape),
-							}),
-						}
-					: null,
+				layout: layout ? layoutChips(layout) : null,
 			});
 
 			return {

@@ -66,10 +66,16 @@ export interface ValueSource {
 
 const registry = new Map<string, ValueSource>();
 
-export function registerComponentValues(sources: Record<string, ValueSource>): void {
+/** Register the game's value sources; returns the unregister (an entry replaced since stays). */
+export function registerComponentValues(sources: Record<string, ValueSource>): () => void {
 	for (const [source, store] of Object.entries(sources)) {
 		registry.set(source, store);
 	}
+	return () => {
+		for (const [source, store] of Object.entries(sources)) {
+			if (registry.get(source) === store) registry.delete(source);
+		}
+	};
 }
 
 export function getComponentValueSource(source: string): ValueSource | undefined {

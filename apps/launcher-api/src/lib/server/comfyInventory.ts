@@ -240,8 +240,7 @@ function parsePacks(payload: unknown): NodePack[] | null {
 		if (typeof name !== 'string') continue;
 		const nodes = typeof r.nodes === 'number' ? r.nodes : 0;
 		const version = [r.version, r.active_version].find((v) => typeof v === 'string' && v.trim()) as
-			| string
-			| undefined;
+			string | undefined;
 		const onVolume = typeof r.onVolume === 'boolean' ? r.onVolume : undefined;
 		out.push({ name, nodes, version, onVolume });
 	}

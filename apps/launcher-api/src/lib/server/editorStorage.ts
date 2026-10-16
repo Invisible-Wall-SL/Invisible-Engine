@@ -13,6 +13,7 @@ import {
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
 import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
+import { assertNoLockedOverlaySwitchOn, submitsLockedOverlayOn } from './authoredOverlayGuard';
 import { putDocWithBackup, type BackupMode } from './docBackups';
 import { editorDocBackupTarget, editorDocKey } from './projectPaths';
 import { getObjectTextWithEtag } from './r2';
@@ -146,6 +147,12 @@ export async function saveDoc(
 	savedBy?: SavedByStamp,
 ): Promise<{ doc: LayoutDoc; etag: string | null }> {
 	const next = normalizeDoc(doc, projectKey);
+	// The authored-overlay locks hold for EVERY writer, not only the editor's save action: a write
+	// with a locked pilot on reads the store, and one that would switch it on is refused.
+	if (submitsLockedOverlayOn(next)) {
+		const stored = await loadDocWithEtag(clientKey, projectKey);
+		assertNoLockedOverlaySwitchOn(stored.etag === null ? null : stored.doc, next);
+	}
 	next.updatedAt = new Date().toISOString();
 	const etag = await putDocWithBackup(
 		editorDocBackupTarget(clientKey, projectKey),
@@ -155,6 +162,40 @@ export async function saveDoc(
 	);
 	return { doc: next, etag };
 }
+
+/** Whether an R2 key is a project's layout doc (`…/editor/scenes.json`, `editorDocKey`). */
+export const isEditorDocKey = (key: string): boolean => key.endsWith('/editor/scenes.json');
+
+/**
+ * The authored-overlay lock for a RAW write of `text` to `key` (the file browser's upload and
+ * move, which bypass {@link saveDoc}): a no-op for any other key, and for a layout doc it throws
+ * {@link AuthoredOverlayLockedError} when the bytes switch a locked pilot on over what is stored
+ * there — or, with nothing stored, over `unstored` (a move's own source: renaming a project carries
+ * its state, it switches nothing on). Unparseable bytes switch nothing on.
+ */
+export async function assertRawEditorDocWriteUnlocked(
+	key: string,
+	text: string,
+	unstored: string | null = null,
+): Promise<void> {
+	if (!isEditorDocKey(key)) return;
+	const parsed = parseSettings(text);
+	if (!submitsLockedOverlayOn(parsed)) return;
+	const stored = await getObjectTextWithEtag(key);
+	const before = stored ? stored.text : unstored;
+	assertNoLockedOverlaySwitchOn(before === null ? null : parseSettings(before), parsed);
+}
+
+const parseSettings = (text: string): Pick<LayoutDoc, 'settings'> | null => {
+	try {
+		const value: unknown = JSON.parse(text);
+		return typeof value === 'object' && value !== null && !Array.isArray(value)
+			? (value as Pick<LayoutDoc, 'settings'>)
+			: null;
+	} catch {
+		return null;
+	}
+};
 
 /**
  * Current `LayoutDoc.version`.
