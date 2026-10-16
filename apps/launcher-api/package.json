@@ -104,6 +104,8 @@
 		"check:component-links": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-links.ts",
 		"check:cinematic-access": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-cinematic-access.ts",
 		"check:rigger-writes": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-rigger-writes.ts",
+		"precheck:component-defaults-lookup": "node scripts/ensure-svelte-kit.mjs",
+		"check:component-defaults-lookup": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-defaults-lookup.ts",
 		"precheck:doc-backups": "node scripts/ensure-svelte-kit.mjs",
 		"check:doc-backups": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-doc-backups.ts",
 		"check:rig-bundle-key": "node rigBundleKey.fixture.ts",
