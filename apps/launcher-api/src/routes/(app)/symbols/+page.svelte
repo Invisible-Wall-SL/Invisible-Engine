@@ -7,6 +7,8 @@
 		builtinRigMeta,
 		FLIGHT_EASE_LABELS,
 		FLIGHT_EASES,
+		FLIGHT_HEAD_ALIGN_LABELS,
+		FLIGHT_HEAD_ALIGNS,
 		FLIGHT_KIND_LABELS,
 		FLIGHT_KINDS,
 		FLIGHT_LIMITS,
@@ -20,6 +22,7 @@
 		scopedFrameRef,
 		type FlightEase,
 		type FlightHead,
+		type FlightHeadAlign,
 		type FlightHeadKind,
 		type FlightStyle,
 	} from 'engine-layout';
@@ -1322,6 +1325,18 @@
 			: undefined,
 	);
 
+	/** The head can turn: authored art (a draft too) that no pots token replaces — a glow is round,
+	 *  `none` draws nothing, a token carries its value text — or this kind authors a turn, which
+	 *  must stay visible to be cleared. */
+	const flightHeadTurns = $derived.by(() => {
+		const kind = (flightHeadDraft ?? flightResolved.head)?.kind;
+		return (
+			(!flightToken && (kind === 'sprite' || kind === 'spine' || kind === 'flipbook')) ||
+			flightOwn.headAlign !== undefined ||
+			flightOwn.headRotation !== undefined
+		);
+	});
+
 	function selectFlight(key: string): void {
 		flightPick = key;
 		flightHeadDraft = null;
@@ -1376,7 +1391,8 @@
 	};
 
 	function setFlightNumber(
-		field: 'speed' | 'minMs' | 'maxMs' | 'stagger' | 'size' | 'trailRotation',
+		field:
+			'speed' | 'minMs' | 'maxMs' | 'stagger' | 'size' | 'trailRotation' | 'headRotation' | 'depth',
 		value: number | undefined,
 	): void {
 		patchFlight((style) => {
@@ -1416,6 +1432,14 @@
 			if (value === 'on') style.trailAlign = true;
 			else if (value === 'off') style.trailAlign = false;
 			else delete style.trailAlign;
+		});
+	}
+
+	function setFlightHeadAlign(value: string): void {
+		patchFlight((style) => {
+			if ((FLIGHT_HEAD_ALIGNS as readonly string[]).includes(value)) {
+				style.headAlign = value as FlightHeadAlign;
+			} else delete style.headAlign;
 		});
 	}
 
@@ -3384,6 +3408,67 @@
 											</div>
 										</div>
 									{/if}
+								</div>
+
+								<div class="bv-fit">
+									{#if flightHeadTurns}
+										<div class="field">
+											<span
+												class="label"
+												title="Turns the head to the direction it is flying, so a comet, an arrow or a fish points along the arc — draw the art pointing right, or turn it with Head rotation. “Stay upright” mirrors it instead of turning it upside down while it flies left. A pots overlay’s token never turns: it carries its value."
+												>Head follows the curve</span
+											>
+											<select
+												value={flightOwn.headAlign ?? ''}
+												onchange={(e) => setFlightHeadAlign(e.currentTarget.value)}
+											>
+												<option value=""
+													>Inherit ({FLIGHT_HEAD_ALIGN_LABELS[
+														flightInherited.headAlign
+													].toLowerCase()})</option
+												>
+												{#each FLIGHT_HEAD_ALIGNS as align (align)}
+													<option value={align}>{FLIGHT_HEAD_ALIGN_LABELS[align]}</option>
+												{/each}
+											</select>
+										</div>
+										<div class="field">
+											<span
+												class="label"
+												title="Turns the head art by this many degrees — on top of the curve when it follows it. Use it when the art points another way than right."
+												>Head rotation (°)</span
+											>
+											<input
+												class="fl-num"
+												type="number"
+												step="15"
+												min={FLIGHT_LIMITS.headRotation.min}
+												max={FLIGHT_LIMITS.headRotation.max}
+												placeholder={String(flightInherited.headRotation)}
+												value={flightOwn.headRotation ?? ''}
+												onchange={(e) =>
+													setFlightNumber('headRotation', numberOrUndefined(e.currentTarget.value))}
+											/>
+										</div>
+									{/if}
+									<div class="field">
+										<span
+											class="label"
+											title="Makes the flight look like it travels through 3D space. Positive lifts the head toward the player at mid-flight (it grows — twice its size at 1); negative sends it away into the screen (it shrinks — to two thirds at −1). It is its own size as it leaves and as it lands. A head that follows the curve also leans into and out of the screen. The route on screen and the trail stay as they are; 0 flies flat."
+											>3D depth (−1–1)</span
+										>
+										<input
+											class="fl-num"
+											type="number"
+											step="0.05"
+											min={FLIGHT_LIMITS.depth.min}
+											max={FLIGHT_LIMITS.depth.max}
+											placeholder={String(flightInherited.depth)}
+											value={flightOwn.depth ?? ''}
+											onchange={(e) =>
+												setFlightNumber('depth', numberOrUndefined(e.currentTarget.value))}
+										/>
+									</div>
 								</div>
 
 								<div class="bv-fit">

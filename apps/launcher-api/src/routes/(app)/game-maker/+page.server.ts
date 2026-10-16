@@ -7,6 +7,10 @@ import {
 	type PotsOverlayPresetId,
 } from 'game-config';
 import {
+	authoredButtonsEnabled,
+	authoredButtonsStatus,
+	docButtonVersions,
+	isBuiltinButtonShape,
 	authoredFreeSpinsStatus,
 	authoredTransitionStatus,
 	authoredWinEnabled,
@@ -37,6 +41,7 @@ import {
 } from '$lib/server/gameConfigDefaults';
 import { offeredGameKinds, RETIRED_GAME_KINDS, selectableGameKinds } from '$lib/server/gameKinds';
 import { loadDocWithEtag } from '$lib/server/editorStorage';
+import { loadComponent } from '$lib/server/componentStorage';
 import { authoredWinTiersFor } from '$lib/server/authoredWinTiers';
 import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
@@ -230,6 +235,16 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				layout && authoredWinEnabled(layout)
 					? await loadWinTextDoc(clientKey, p.key).catch(() => undefined)
 					: undefined;
+			// The button pilot is held back by a project `button` def (any version an instance pins) that
+			// draws something else — reads paid only with the flag on (Rive plan Phase 8d).
+			const buttonDefs =
+				layout && authoredButtonsEnabled(layout)
+					? await Promise.all(
+							docButtonVersions(layout).map((version) =>
+								loadComponent('button', p.key, version).catch(() => undefined),
+							),
+						)
+					: [];
 			const profile = buildGameProfile({
 				gameTypeId: p.gameType,
 				gameTypeName: kindNames.get(p.gameType) ?? p.gameType,
@@ -246,6 +261,9 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 								tiers: authoredWinTiersFor({ config: config.doc, layout, winText }),
 							}),
 							authoredFreeSpins: authoredFreeSpinsStatus(layout),
+							authoredButtons: authoredButtonsStatus(layout, {
+								shadowed: !buttonDefs.every(isBuiltinButtonShape),
+							}),
 						}
 					: null,
 			});

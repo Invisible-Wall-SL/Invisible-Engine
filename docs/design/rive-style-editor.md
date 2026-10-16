@@ -1303,7 +1303,7 @@ in order, then the conditions the build carried and the findings it made.
   workflow-only follow-up PR, which also carries `held`, `turbo`, the escalation hand-off,
   `slam-small` and the flag-on items the #1194 review listed, and must merge before the Win flag
   is switched on for any project — until then the Game Settings Win row and the save lock it off
-  (`AUTHORED_WIN_LOCKED`). **Known gap:** `check:authored-transition`,
+  (`AUTHORED_WIN_LOCKED`; lifted 2026-10-16, see 13.6.11). **Known gap:** `check:authored-transition`,
   `check:authored-win` and `check:component-timelines` are package scripts the Lint workflow's
   launcher list does not run yet — the same follow-up PR adds them.
 - **Left for the owner's browser check:** the tap grammar (step / land / dismiss / park), the ramp
@@ -1312,7 +1312,7 @@ in order, then the conditions the build carried and the findings it made.
   per-layout-override fallback covers it).
 
 **13.6.11 The parity follow-up (2026-10-15, `claude/rive-p8b-followup`).** The #1194 review's
-flag-on list and the deferred parity variants; the lock stays (last bullet):
+flag-on list and the deferred parity variants; the lock stayed until the owner accepted the residue (last bullet):
 
 - **One clip per held timeline (the escalation hand-off).** The walk was ONE timeline (intro, then
   one idle) with a snap-to-end within 1e-6. The coded track completes a clip when the frame deltas
@@ -1352,15 +1352,18 @@ flag-on list and the deferred parity variants; the lock stays (last bullet):
 - **Captions clear.** Once any tier or mode authors a caption, every walk keys the caption node —
   `''` where the tier (or the mode) has none — so a walk never leaves the previous tier's caption
   on screen, as the coded caption is drawn only while the tier on show has one.
-- **Residue in the fade-out — why the lock stays.** Every capture INSIDE every presentation is
+- **Residue in the fade-out — accepted, the lock lifted.** Every capture INSIDE every presentation is
   0 px and every `winHide` lands on the same frame. The captures now reach 24 frames past the hide
   (the 400 ms fade), and two escalating cases still differ there: `escalation` +1956 / +1966
   (0.19 % / 0.21 %: the WINNING SYMBOLS' post-win pulse, not the Win art; not traced) and `held`
   +380 / +390 (1.7 % / 10 %: the coded rewind intro runs at the frozen hold speed — the coded rig's
   `timeScale` stays `max(speedScale, 1)` after the hide — while the authored timelines run at 1×,
   which the hide's visibility cut needs; one play rate per component cannot do both). No reference
-  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stays
-  until the coordinator rules on these two.
+  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stayed
+  until a ruling on these two. **Decision (owner, 2026-10-15): both accepted, the lock lifted**
+  (2026-10-16): `check:win-parity` allows exactly those four captures up to a ceiling just above
+  each measured value (`ACCEPTED_FADE_OUT`); the flag stays off for live games until the browser
+  check.
 
 ### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
 
@@ -1450,3 +1453,119 @@ the offline bake.
 
 **13.7.8 Removal, later.** As 8b: the twins' next versions replace their bound children, the coded
 visuals and `FreeSpinAnimation` go, the driver stays (it is the outro's conductor).
+
+### 13.8 Phase 8d: buttons (design 2026-10-15; built the same day)
+
+> Written against `main` 7bd9131 (8c merged). The last overlay, one flag row further. Built straight
+> after the design; the coordinator reviews both together.
+
+**13.8.1 The scope line.** 8d authors **how the parametric `button` looks per state**: the frame the
+coded `ButtonFrame` draws (the variant tile, its disabled grey and active border, or an `image*`
+frame and its disabled grey), the frame's rotation while a spin rolls, the `uiShow` / `uiHide` fade
+and the press-feedback sound. It leaves **coded** everything that decides: the press road (`action`
+→ `firePress` → the flow press → the coded `registerComponentActions` body), the XState /
+`stateBet` gates that feed `disabled` / `active` / `spinning`, `createPressHold`, the Space hotkey,
+and the **cascade rule** itself (`resolveButtonState`, `buttonStateImage.ts`), which stays the one
+resolution the coded frame, the authored art button and now the authored machine share — it is
+pinned by its own fixture so the three cannot drift. The label stays the coded `ButtonLabel` as a
+bound child (as 8b kept `WinCoins`): it is localized glyph text, not a state. `RigNode.stateAnimations`
+stays on the art-button path (custom defs with a rig); the built-in `button` has no rig node.
+
+**13.8.2 The component.** One built-in def, `buttonPresentation` (`scope: 'shared'`, `category:
+'ui'`, `internal`, `frameExact`), beside `button` (a bumped `button` would re-render every placed
+HUD button and every baked copy). Same params as `button`, so a swapped instance keeps its own.
+Nodes: `fade` (alpha) › `frame` (rotation; `tint` bound to the param — the coded frame tints its
+container) › six frame nodes, exactly one shown per look: `tile`, `tileDisabled`, `tileActive`,
+`tileDisabledActive` (rects drawing `UiSprite`'s 150 px `borderRadius: 50` rounded rect — the
+variant fill, the `0xaaaaaa` grey, the 10 px contrast border — each ONE `Rectangle` call as the
+coded tile makes) and `image` / `imageDisabled` (sprites, 150 × 150, `region` bound to the resolved
+state frame; the second tinted `0xaaaaaa`); then `label` (`bind: ButtonLabel`, outside `frame`, as
+coded). Two opt-in engine additions, absent on every other def ⇒ unchanged:
+- **`ComponentDef.buttonStates?: true`** (built-in only, never stored): the instance owns the press
+  even though the def binds a coded part (the label draws only), feeds the machine's reserved
+  inputs from its live flags — `look` (the cascade's resolved look, 0–5), `rotating` (`spinning`
+  and an `imageSpinning` frame authored), `fadeWithUi` (the param) — taking each change at once on
+  a `frameExact` def, provides `tileColor` / `tileBorderColor` from `variant`, starts its machine at
+  mount (static poses, so a button shown later never flashes its unkeyed nodes), and hands the
+  press sound to the machine (13.8.4).
+- **`RectNode.borderRadius` / `borderWidth` / `borderColor`**, and a param-bound `color` on a rect
+  and `tint` on a container (absent ⇒ the same `Rectangle` / `Container` props as before).
+- **A settling timeline drive** (`CinematicNodeDrive.settles`, set for a `buttonStates` instance
+  only). *Found at build time:* the shared fold (`foldBoundTransform`) leaves an output that lands
+  exactly on identity — rotation 0, alpha 1 — out of the transform, and pixi-svelte skips an absent
+  prop, so the node keeps its last non-identity value: a turn that stopped stayed turned (the parity
+  `images` run, 0.12 % at the spin button after the round). Settling hands the identity value to the
+  node. Every other timeline keeps the fold as it is; the same edge may touch the 8b / 8c fade
+  machines when a fade-in ends on alpha 1, recorded for them and not changed here.
+
+**13.8.3 The machine (seeded, built-in timelines).** Four layers on four node sets (a node is
+handed whole to one timeline): **look** — six states, one per look, from-any transitions on `look
+== k`, each a static pose keying the six frame nodes' visibility; **spin** — `still` ⇄ `rotating`
+on the `rotating` bool, `rotating` a looping 1 s timeline keying `frame` rotation 0 → 360° linear
+(the coded `2π rad/s` ticker; entered on the input change, so frame t+1 shows `dt × 2π` as the
+coded first tick does); **fade** — `shown` ⇄ `hidden`, 400 ms blends on the `uiHide` / `uiShow`
+triggers (the coded `FadeContainer` tween, from the pose on screen) while `fadeWithUi` is on;
+**sound** — `quiet`, `general`, `bet`, `stop`: a press-sound trigger enters (or re-enters) its
+state, whose timeline crosses the bare cue `soundPressGeneral` / `soundPressBet` / `soundPressStop`
+at 0, which the component bus broadcasts to the game's `Sound` exactly as the coded body did.
+
+**13.8.4 The press sound (why a hand-off, not a table).** Which sound a press makes is press-road
+knowledge (`getSpinPressSound`: idle or a spin hold ⇒ bet, else stop) and its ORDER matters (the
+coded body broadcasts before the action, so the sound toggle plays before it mutes). So the game's
+bodies broadcast through one helper, `pressFeedback(event)`, and an authored instance runs its
+press inside `claimPressSound(onSound, press)` (`engine-layout/pressSounds.ts`): while a press is
+claimed, `pressFeedback` hands the event type to the instance, which fires the machine's trigger
+of that name synchronously (fire, advance 0, drive) — the cue broadcasts at the same point of the
+body. A def with no trigger of that name declines and the body broadcasts as before. Nothing
+claims with the flag off, so every body broadcasts exactly as today. The Space hotkey is not a
+button press and keeps its own broadcast.
+
+**13.8.5 The fade (why off by default).** The coded buttons never faded on their own: `uiShow` /
+`uiHide` fade the whole coded `<UI>` (`UIDefault`'s one `UiFadeContainer`: buttons, readouts,
+corners), and the awaited `uiHide` waits on that container's tween. Under a v2-driven HUD nothing
+subscribes to `uiHide` at all. A per-button fade inside the coded `<UI>` would square the alpha,
+and one under a v2 HUD would add a fade the coded game never showed. So the fade layer exists and
+is gated by the instance param `fadeWithUi` (off; the swap never sets it): the HUD's own fade keeps
+fading the authored buttons exactly as it faded the coded ones (the parity gate's `ui-fade`
+variant), and a button an author places outside any coded fade can switch it on. The await stays
+the HUD container's.
+
+**13.8.6 Flag, status, swap.** `settings.authoredOverlays.buttons?: true` — sparse, ON-only.
+`authoredButtonsStatus(doc, { shadowed })`: `off`; `ready`; `nothing-to-replace` (no scene places
+a `button` instance — the coded `UiButton*` binds of the editor default and Borut are not this
+path); `custom-button` (the project's baked defs shadow `button`: a custom frame / bind props the
+authored def does not draw). Held back ⇒ the coded path for every button and the chip warns.
+`withAuthoredButtonsDoc` swaps every `componentInstance(button)` in every scene (nested containers
+included) for `buttonPresentation` with its transform, overrides, params, pins and slot kept; nothing
+to swap ⇒ the same object. No coded part retires: `ButtonFrame` is reached only through the `button`
+def, so the swapped instance simply never mounts it. Registered in the flag block and nowhere else:
+the `uiHide` / `uiShow` component signals and the project's `button` defaults under the new id.
+`AUTHORED_BUTTONS = false` joins `editorFlags.ts`; no URL opt-in.
+
+**13.8.7 The lock.** `AUTHORED_BUTTONS_LOCKED = true` (the guard after the ETag check, the Game
+Settings row disabled "pilot pending", still switchable off), pinned by `check:authored-buttons`.
+
+**13.8.8 Parity.** Flag off: current-games 0 changed screens. Flag on: `check:button-parity`
+(`scripts/button-parity/run.mjs`, the 8c shape on a `cg-lines` snapshot whose doc is the
+`apps/lines` fallback with `HUD_BUTTON_INSTANCES` buttons, coded vs flagged, one seed, stepped
+frames, REAL pointer events at the coded buttons' centres). The interaction script: **idle**,
+**hover**, **pressed** (held), a press **released away**, **selected** (turbo on) and **deselected**,
+then the spin press and the round it starts at +1 … +30 frames (the stop label, every other button
+disabled grey; the pointer still on the spin button, then away) and idle again. Variants: **tile**,
+**images** (every button carries `image*` frames, the spin button an asymmetric `imageSpinning`, so
+hover / pressed / selected / the greyed frame and the **rotation over several frames** are in the
+pixels — the gate also requires the coded spinning frame to differ between +4, +8 and +16),
+**flow** (`?flowV2=lines`: the HUD mounted by the flow), **turbo** (`ie_turbo=1`) and **ui-fade**
+(`WIN_X=120`: the `max` tier fires `uiHide` / `uiShow` on the coded `<UI>` path; six captures
+through each fade, anchored on the event's frame). The probe gains an additive `uiEvents` list (the
+press sounds and the UI events, with their frames): the sounds must match on both sides, event and
+frame. Autoplay's selected state is the same `active` look as turbo's and is not scripted (its
+press opens the autoplay menu). Known, not in the pixels: the authored hit surface is the frame AND
+the label (the coded one the frame alone) — every reference label sits inside its tile.
+
+**13.8.9 Ship chain (rule 8).** No new asset class: the def and timelines are code; the art is the
+coded tile's geometry or the instance's own `image*` frames, which already ship.
+
+**13.8.10 Removal, later.** `button` v2 replaces its bound `ButtonFrame` with the 8d nodes and
+machine; `ButtonFrame`, the art-button `image` getter and `buttonStates`' tile-colour getters go;
+`pressFeedback` stays the one place a press sound leaves the game.

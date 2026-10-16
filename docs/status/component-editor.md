@@ -57,6 +57,14 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-15 — **The fourth authored overlay: `buttonPresentation` (Rive plan Phase 8d, branch
+  `claude/rive-p8d-buttons`).** A new `internal` built-in def beside `button` (unchanged, same
+  params plus `fadeWithUi`): six frame nodes (four rounded tiles, the state frame and its grey) under
+  a tinted `frame`, the coded `ButtonLabel` as a bound child, and the engine's first seeded state
+  machine on a built-in (look / spin / fade / press sound). Rect nodes gain `borderRadius` /
+  `borderWidth` / `borderColor` (the launcher's component field list keeps them). No palette entry
+  during the pilot; nothing changes in the Components side itself. The flag, the runtime and the
+  gates: [engine status](engine.md), 2026-10-15.
 - 2026-10-14 — **A flipped rig previews on the right axis.** A rig inside a group or a placed
   component that was flipped with `scale.x = -1` showed upside down on the stage instead of
   mirrored left-right. The rig preview draws without rotation, and it worked the flip out from the

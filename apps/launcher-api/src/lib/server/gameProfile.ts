@@ -48,6 +48,7 @@ import {
 	type AuthoredTransitionStatus,
 	type AuthoredWinStatus,
 	type AuthoredFreeSpinsStatus,
+	type AuthoredButtonsStatus,
 } from 'engine-layout';
 import { projectAddOns } from '../addOns';
 import type { GameConfigSource } from './gameConfigDefaults';
@@ -87,6 +88,8 @@ export interface GameProfileSignals {
 		authoredWin: AuthoredWinStatus;
 		/** Rive plan Phase 8c `authoredFreeSpinsStatus`; absent ⇒ off. */
 		authoredFreeSpins?: AuthoredFreeSpinsStatus;
+		/** Rive plan Phase 8d `authoredButtonsStatus`; absent ⇒ off. */
+		authoredButtons?: AuthoredButtonsStatus;
 	} | null;
 }
 
@@ -631,6 +634,27 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 				'custom-presentation': 'a free-spin visual names a custom rig, clip or slot',
 			};
 			return `Authored free spins on, held back: ${why[status]}`;
+		},
+	},
+	{
+		id: 'authoredButtons',
+		title:
+			'Every parametric HUD button draws its per-state frame, turns its spin frame and plays its press sound from the built-in Button presentation component and its state machine instead of the coded ButtonFrame; the press road and the gates that disable, select or spin a button stay coded (Rive plan Phase 8d pilot).',
+		text: (ctx) => (ctx.layout?.authoredButtons === 'ready' ? 'Authored buttons (pilot)' : null),
+	},
+	{
+		id: 'authoredButtonsHeld',
+		title:
+			"The authored buttons are on, but the game keeps the coded ButtonFrame for every button: no screen places a parametric button, or the project's own Button component draws something the built-in does not. Fix the named case or turn the pilot off.",
+		tone: 'warn',
+		text: (ctx) => {
+			const status = ctx.layout?.authoredButtons;
+			if (!status || status === 'off' || status === 'ready') return null;
+			const why: Record<Exclude<AuthoredButtonsStatus, 'off' | 'ready'>, string> = {
+				'nothing-to-replace': 'nothing to replace',
+				'custom-button': "the project's own Button component draws something else",
+			};
+			return `Authored buttons on, held back: ${why[status]}`;
 		},
 	},
 	{

@@ -849,12 +849,12 @@ travel the export → deploy → bake → pull chain to ship inside the game bun
 
 ### Game Settings → Authored overlays (pilot)
 
-Above the boot splash, **Authored overlays (pilot)** has three rows, **Transition**, **Win** and
-**Free spins**. All are pilots: off — the default, and the state of every live game — nothing
+Above the boot splash, **Authored overlays (pilot)** has four rows, **Transition**, **Win**,
+**Free spins** and **Buttons**. All are pilots: off — the default, and the state of every live game — nothing
 changes. Only a holder of the component-publish capability (admin by default) can switch one;
 others see a row
 read-only while it is on, and a save that flips one from anyone else is refused (a stale tab still
-gets the ordinary "someone else saved" conflict first). **Leave both off for live games until the
+gets the ordinary "someone else saved" conflict first). **Leave them off for live games until the
 owner's browser check.** The Game Maker card names each when on.
 
 - **Transition** — the game renders the free-spin transition wipe from the built-in **Transition
@@ -862,10 +862,7 @@ owner's browser check.** The Game Maker card names each when on.
   wipe ends) instead of the coded Transition mount it replaces. The card says _Authored Transition
   (pilot)_, and warns when it is on but no scene binds the coded Transition it would replace (the
   reference overlays scene has that node).
-- **Win** — **locked off for now** (the row reads _pilot pending — parity follow-up_): nobody,
-  publishers included, can switch it on until its parity follow-up merges, and the save refuses
-  it too; a doc that already has it on can still be switched off. When unlocked: the game renders
-  the big-win presentation (the tier rig and its per-tier clips, the
+- **Win** — the game renders the big-win presentation (the tier rig and its per-tier clips, the
   count riding the rig's count slot, the caption, the plain small/medium number, the fade) from
   the built-in **Win presentation** component and per-tier timelines generated at boot from the
   game's active big tiers, instead of the coded `WinVisual`; the coded gate keeps the count-up,
@@ -888,6 +885,17 @@ owner's browser check.** The Game Maker card names each when on.
   warns) when no screen binds a coded free-spin visual, when one sits in a screen that is not
   canvas space, when a screen places a free-spin visual instance, or when a visual names a rig,
   clip or slot other than the default.
+- **Buttons** — **locked off for now** (the row reads _pilot pending_), on the same terms as Free
+  spins. When unlocked: every parametric HUD button (a placed **Button** component) draws its
+  look per state — the tile, its greyed downstate and selected border, or its state images — turns
+  its spin image while a spin rolls, and plays its press sound from the built-in **Button
+  presentation** component and its state machine, instead of the coded button frame. What a press
+  does, and when a button is disabled, selected or spinning, does not change. The buttons still
+  fade with the rest of the HUD when the game hides it. Nothing to place: each Button is swapped
+  where it sits, with its own settings. The card says _Authored buttons (pilot)_, and the game
+  keeps the coded buttons (the card warns) when no screen places a Button component (the coded
+  buttons of the default HUD are not affected) or when the project's own Button component draws
+  something else.
 
 ### Game Settings → Boot splash
 

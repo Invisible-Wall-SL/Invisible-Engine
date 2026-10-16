@@ -79,6 +79,10 @@ export type CoinOverlay = {
 	drops?: OverlayDrops;
 	/** Absent ⇒ `afterStop`. Only with `drops`. */
 	timing?: OverlayTiming;
+	/** A pot (or meter) that starts a bonus reads full while that bonus plays and drains as it ends.
+	 *  Absent ⇒ it drains as the bonus starts. Only with `pots` or `meters`. Presentation only: the
+	 *  server never sees it. */
+	potsStayFull?: true;
 	/** The base game's coin values. Absent ⇒ the coin table of the respin mode the coins start. */
 	coins?: CoinValueEntry[];
 	/** What each special does in the base game. Absent ⇒ none lands there. */
@@ -199,11 +203,13 @@ export function normalizeCoinOverlay(raw: unknown): CoinOverlay | undefined {
 	const trigger = routes(raw.trigger);
 	const meters = list(raw.meters, coinMeter);
 	const timing = drops ? storedOverlayTiming(raw.timing) : undefined;
+	const potsStayFull = raw.potsStayFull === true && (pots.length > 0 || meters.length > 0);
 
 	const body: Omit<CoinOverlay, 'style'> = {
 		...(pots.length ? { pots } : {}),
 		...(drops ? { drops } : {}),
 		...(timing ? { timing } : {}),
+		...(potsStayFull ? { potsStayFull: true as const } : {}),
 		...(coins ? { coins } : {}),
 		...(baseGame ? { baseGame } : {}),
 		...(trigger ? { trigger } : {}),

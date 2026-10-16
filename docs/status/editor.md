@@ -82,7 +82,7 @@ Shipped capabilities on `main`:
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
   redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not
   paused.
-- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a), *Win* (8b), 2026-10-14, and *Free spins* (8c, 2026-10-15, locked off — pilot pending); each switched by a holder of the component-publish capability, both off for every live game until the owner's browser check — the whole story in [engine status](engine.md).
+- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a), *Win* (8b), 2026-10-14, unlocked 2026-10-16, and *Free spins* (8c, 2026-10-15, locked off — pilot pending); each switched by a holder of the component-publish capability, both off for every live game until the owner's browser check — the whole story in [engine status](engine.md).
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
@@ -115,6 +115,10 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-16 — **Game Settings → Authored overlays → Win is switchable.** The owner accepted the
+  Win's two fade-out residues, so the row is enabled for publishers like Transition's and the save
+  no longer refuses switching it on (`AUTHORED_WIN_LOCKED` deleted; a non-publisher's flip is
+  still `forbidden`). Detail in [engine status](engine.md) 2026-10-16.
 - 2026-10-15 — **Authored Win parity follow-up, launcher side** (#1194 follow-up). The status
   rule now also holds a project back when a spins mode's tier caption carries a token, and the
   launcher's tier builder reports each mode's own caption (`authoredWinTiers.ts`); the Win row's

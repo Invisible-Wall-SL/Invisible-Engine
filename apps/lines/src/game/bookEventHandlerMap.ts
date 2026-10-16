@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { drainedMeters, freeSpinsGaveWay } from 'engine-game';
+import { freeSpinsGaveWay } from 'engine-game';
 
 import { type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi, showMessage } from 'state-shared';
@@ -25,12 +25,12 @@ import {
 	presentCoinsLand,
 	presentCoinUpgrade,
 	presentColumnComplete,
+	presentEntryDrain,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
 	presentHoldAndWinTrigger,
 	presentInstantCollect,
 	presentJackpotWin,
-	presentMeterConsume,
 	presentLuckySpin,
 	presentMeterUpdate,
 	presentMysteryReveal,
@@ -206,9 +206,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	},
 	freeSpinTrigger: async (bookEvent: BookEventOfType<'freeSpinTrigger'>) => {
 		// A full pot started them (pots overlay): it drains before this handler's own beats, as for any
-		// mode a pot starts. The mode layer has already switched to free spins (`modes.before`).
-		const drained = drainedMeters(bookEvent);
-		if (drained.length) await presentMeterConsume(drained);
+		// mode a pot starts — unless the flow's enter chain already drained it. The mode layer has
+		// already switched to free spins (`modes.before`).
+		await presentEntryDrain();
 		// STATE-ONLY. The free-spin intro is a flow screen (the flow's `freeSpinIntro` container, its
 		// tap-to-continue and a `showContainer{awaitComplete}` hold); the engine has no coded intro to
 		// fall back to. A flow that owns `freeSpinTrigger` never reaches this handler (`playBook.ts`);
@@ -453,9 +453,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	// The mode stack moves at the play seam (`stateModes`), on every dispatch path; the coded path has
 	// nothing to add — a mode's presentation is its flow graph and its mode-tagged screens — beyond
 	// the drain of the full pots that started it (pots overlay), which plays once the mode is up.
-	modeEnter: async (bookEvent: BookEventOfType<'modeEnter'>) => {
-		const drained = drainedMeters(bookEvent);
-		if (drained.length) await presentMeterConsume(drained);
+	modeEnter: async () => {
+		await presentEntryDrain();
 	},
 	modeExit: async () => {},
 	// customised

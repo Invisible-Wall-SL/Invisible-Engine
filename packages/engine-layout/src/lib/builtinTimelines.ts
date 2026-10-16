@@ -1,4 +1,14 @@
 import {
+	BUTTON_FADE_HIDDEN_TIMELINE_ID,
+	BUTTON_FADE_SHOWN_TIMELINE_ID,
+	BUTTON_PRESENTATION_ID,
+	BUTTON_PRESENTATION_NODES,
+	BUTTON_PRESS_SOUNDS,
+	BUTTON_SOUND_QUIET_TIMELINE_ID,
+	BUTTON_SPIN_ROTATING_TIMELINE_ID,
+	BUTTON_SPIN_STILL_TIMELINE_ID,
+	buttonLookTimelineId,
+	buttonSoundTimelineId,
 	FREE_SPIN_INTRO_HIDE_SIGNAL,
 	FREE_SPIN_INTRO_PRESENTATION_ID,
 	FREE_SPIN_INTRO_SHOW_SIGNAL,
@@ -14,6 +24,7 @@ import {
 	WIN_FADE_SHOWN_TIMELINE_ID,
 	WIN_PRESENTATION_NODES,
 } from './builtinComponents';
+import { BUTTON_LOOKS } from './buttonStateImage';
 import type { CinematicDoc } from './types';
 
 /**
@@ -77,6 +88,101 @@ export const TRANSITION_WIPE_TIMELINE: CinematicDoc = {
 		},
 	],
 };
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED BUTTON (Rive plan Phase 8d, §13.8.3): the states of `buttonPresentation`'s seeded
+// machine. Static poses (the machine picks one), one looping rotation and four press-sound cues.
+// None has a `playOn`: only the machine plays them.
+// ---------------------------------------------------------------------------------------------
+
+/** The coded frame turns `2π` rad a second: one turn per looping second. */
+const BUTTON_TURN_SECONDS = 1;
+
+const buttonDoc = (
+	id: string,
+	name: string,
+	duration: number,
+	tracks: Record<string, unknown>[],
+): CinematicDoc => ({
+	schemaVersion: 1,
+	id,
+	name,
+	duration,
+	fps: 60,
+	markers: [],
+	host: { kind: 'component', componentId: BUTTON_PRESENTATION_ID },
+	stage: {
+		sceneId: null,
+		cast: [...new Set(tracks.map((t) => t.actorId as string).filter(Boolean))].map((name) => ({
+			actorId: name,
+			kind: 'node' as const,
+			target: name,
+			place: {},
+		})),
+	},
+	tracks,
+});
+
+/** The button machine's timelines: each look's pose, the spin's still and turning frame, the fade's
+ *  two alphas (blended by the machine) and the press sounds (a cue the bus broadcasts at 0). */
+export const BUTTON_TIMELINES: readonly CinematicDoc[] = [
+	...BUTTON_LOOKS.map((look) =>
+		buttonDoc(
+			buttonLookTimelineId(look),
+			`Button: ${look}`,
+			1,
+			BUTTON_LOOKS.map((node) => ({
+				id: `${node}-visible`,
+				kind: 'visibility',
+				actorId: node,
+				keys: [{ time: 0, visible: node === look }],
+			})),
+		),
+	),
+	buttonDoc(BUTTON_SPIN_STILL_TIMELINE_ID, 'Button: still', 1, [
+		{
+			id: 'frame-rotation',
+			kind: 'property',
+			actorId: BUTTON_PRESENTATION_NODES.frame,
+			channels: { rotation: [{ time: 0, value: 0 }] },
+		},
+	]),
+	buttonDoc(BUTTON_SPIN_ROTATING_TIMELINE_ID, 'Button: rotating', BUTTON_TURN_SECONDS, [
+		{
+			id: 'frame-rotation',
+			kind: 'property',
+			actorId: BUTTON_PRESENTATION_NODES.frame,
+			channels: {
+				rotation: [
+					{ time: 0, value: 0, ease: 'linear' },
+					{ time: BUTTON_TURN_SECONDS, value: 360, ease: 'linear' },
+				],
+			},
+		},
+	]),
+	buttonDoc(BUTTON_FADE_SHOWN_TIMELINE_ID, 'Button: shown', 1, [
+		{
+			id: 'fade-alpha',
+			kind: 'property',
+			actorId: BUTTON_PRESENTATION_NODES.fade,
+			channels: { alpha: [{ time: 0, value: 1 }] },
+		},
+	]),
+	buttonDoc(BUTTON_FADE_HIDDEN_TIMELINE_ID, 'Button: hidden', 1, [
+		{
+			id: 'fade-alpha',
+			kind: 'property',
+			actorId: BUTTON_PRESENTATION_NODES.fade,
+			channels: { alpha: [{ time: 0, value: 0 }] },
+		},
+	]),
+	buttonDoc(BUTTON_SOUND_QUIET_TIMELINE_ID, 'Button: quiet', 0, []),
+	...BUTTON_PRESS_SOUNDS.map((sound) =>
+		buttonDoc(buttonSoundTimelineId(sound), `Button: ${sound}`, 0, [
+			{ id: 'press-sound', kind: 'cue', keys: [{ time: 0, cue: sound }] },
+		]),
+	),
+];
 
 // ---------------------------------------------------------------------------------------------
 // THE AUTHORED WIN (Rive plan Phase 8b, §13.6.4): per-tier timelines GENERATED at boot from the
@@ -518,5 +624,6 @@ export const FREE_SPIN_TIMELINES: readonly CinematicDoc[] = [
 
 export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [
 	TRANSITION_WIPE_TIMELINE,
+	...BUTTON_TIMELINES,
 	...FREE_SPIN_TIMELINES,
 ];

@@ -12,13 +12,16 @@
 	 * where they were born. The coded trail is drawn on the canvas as an approximation of the gold
 	 * glow; the head is the coded glow (re-tinted) or the authored art — or, for a pots token, the
 	 * token itself, which replaces any head in the game too — at the kind's `size`, moved along the
-	 * route with the "+N" label it carries. The arrival effect plays at B as the head lands, on a
-	 * second `FxStage` that stays mounted and is re-armed each loop.
+	 * route with the "+N" label it carries. The head's pose is the game's (`flightHeadPose`): the art
+	 * turns to the heading when the kind follows the curve, and everything at the head — the token
+	 * too, which never turns — takes the perspective of its `depth`. The arrival effect plays at B as
+	 * the head lands, on a second `FxStage` that stays mounted and is re-armed each loop.
 	 */
 	import { emitterSecondsToWallMs, type EffectDoc } from 'engine-fx';
 	import {
 		flightDuration,
 		flightEaseOf,
+		flightHeadPose,
 		flightPlanOptions,
 		headingOnCurve,
 		planFlight,
@@ -148,7 +151,8 @@
 	let flying = $state(false);
 	/** The arrival is emitting — true from the landing for {@link arrivalEmitMs}. */
 	let arriving = $state(false);
-	const head = { x: 0, y: 0, heading: 0 };
+	/** The head this frame; `scale` is its perspective (`flightHeadPose`). */
+	const head = { x: 0, y: 0, heading: 0, scale: 1 };
 	const ownerPos = () => head;
 	/** The game's trail rotation (`FlightLayer`): the heading when aligned, plus the offset. */
 	const trailRotation = $derived(
@@ -224,7 +228,7 @@
 			}
 		}
 		if (showHead && glowHead) {
-			const radius = (GLOW_CELLS * headSize) / 2;
+			const radius = (GLOW_CELLS * headSize * head.scale) / 2;
 			const gradient = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, radius);
 			const tint = style.head?.tint ?? CODED_HEAD_TINT;
 			gradient.addColorStop(0, '#ffffff');
@@ -237,11 +241,12 @@
 		}
 		ctx.globalCompositeOperation = 'source-over';
 		if (inFlight && label) {
-			ctx.font = `bold ${LABEL_CELLS * CELL * style.size}px Arial, sans-serif`;
+			const labelScale = style.size * head.scale;
+			ctx.font = `bold ${LABEL_CELLS * CELL * labelScale}px Arial, sans-serif`;
 			ctx.textAlign = 'center';
 			ctx.textBaseline = 'middle';
 			ctx.lineJoin = 'round';
-			ctx.lineWidth = LABEL_STROKE * style.size;
+			ctx.lineWidth = LABEL_STROKE * labelScale;
 			ctx.strokeStyle = '#000000';
 			ctx.strokeText(label, head.x, head.y);
 			ctx.fillStyle = '#ffffff';
@@ -280,11 +285,18 @@
 			head.x = p.x;
 			head.y = p.y;
 			head.heading = headingOnCurve(route.curve, eased);
+			const pose = flightHeadPose(style, head.heading, eased);
+			head.scale = pose.scale;
 			if (inFlight && !style.trail) streak.push({ x: p.x, y: p.y, at: now });
 			if (flying !== inFlight) flying = inFlight;
 			if (artEl) {
 				artEl.style.opacity = inFlight ? '1' : '0';
-				artEl.style.transform = `translate(${W / 2 + p.x - headSize / 2}px, ${H / 2 + p.y - headSize / 2}px)`;
+				const at = `translate(${W / 2 + p.x - headSize / 2}px, ${H / 2 + p.y - headSize / 2}px)`;
+				artEl.style.transform = token
+					? `${at} scale(${pose.scale})`
+					: `${at} rotate(${pose.rotation}rad) ` +
+						`scale(${pose.scale * pose.stretch}, ${pose.scale * pose.flip}) ` +
+						`rotate(${pose.artRotation}rad)`;
 			}
 			draw(now, inFlight);
 			frame = requestAnimationFrame(loop);
@@ -403,7 +415,9 @@
 			· no trail{:else if !style.trail}
 			· coded trail (approximation){:else if !trailDoc}
 			· loading the trail effect…{/if} · head: {headLabel}{#if style.size !== 1}
-			× {style.size}{/if}{#if arrivalEffectId && !arrivalDoc}
+			× {style.size}{/if}{#if artHead && !token && style.headAlign !== 'off'}
+			· follows the curve{/if}{#if style.depth}
+			· 3D depth {style.depth}{/if}{#if arrivalEffectId && !arrivalDoc}
 			· loading the arrival effect…{/if}
 	</p>
 </div>

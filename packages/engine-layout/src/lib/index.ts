@@ -84,6 +84,8 @@ export * from './componentPlayRate';
 export * from './boardBox';
 export * from './rigSlotRiders';
 export * from './authoredOverlays';
+export * from './authoredButtons';
+export * from './pressSounds';
 export * from './componentInterface';
 export * from './stateMachine';
 export * from './componentEvents';

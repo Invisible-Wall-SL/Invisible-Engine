@@ -923,13 +923,46 @@ const scopeForSignal = (doc: FlowDoc, modeId: string | undefined, eventName: str
 	return graph && graphHandlesSignal(graph, eventName) ? withGraph(doc, graph) : doc;
 };
 
-/** Does `graph` (or a group body inside it) hold an action node calling `action`? */
-const graphCallsAction = (graph: Graph, action: string): boolean =>
-	graph.nodes.some(
-		(n) =>
-			(n.kind === 'action' && n.ref === action) ||
-			(n.kind === 'group' && graphCallsAction(n.body, action)),
-	);
+/** Does `graph` (or a group body inside it) hold a node `hit` accepts? */
+const graphHas = (graph: Graph, hit: (node: Node) => boolean): boolean =>
+	graph.nodes.some((n) => hit(n) || (n.kind === 'group' && graphHas(n.body, hit)));
+
+/**
+ * Does an exec chain of `graph` from the nodes `starts` reach a node `hit` accepts? A group on the
+ * chain counts as a whole. A call into the function library is not followed.
+ */
+const chainReaches = (
+	graph: Graph,
+	starts: readonly string[],
+	hit: (node: Node) => boolean,
+): boolean => {
+	const byId = new Map(graph.nodes.map((n) => [n.id, n] as const));
+	const seen = new Set<string>();
+	const queue = [...starts];
+	for (let id = queue.pop(); id !== undefined; id = queue.pop()) {
+		if (seen.has(id)) continue;
+		seen.add(id);
+		const node = byId.get(id);
+		if (node && (hit(node) || (node.kind === 'group' && graphHas(node.body, hit)))) return true;
+		for (const e of graph.exec) if (e.from.node === id) queue.push(e.to.node);
+	}
+	return false;
+};
+
+/** The nodes the chain for `eventName` starts at in `graph`: its `event` nodes and the targets of
+ *  its `gameSignals` pin. */
+const signalChainStarts = (graph: Graph, eventName: string): string[] => {
+	const signals = new Set(graph.nodes.filter((n) => n.kind === 'gameSignals').map((n) => n.id));
+	return [
+		...graph.exec
+			.filter((e) => e.from.pin === eventName && signals.has(e.from.node))
+			.map((e) => e.to.node),
+		...graph.nodes.filter((n) => n.kind === 'event' && n.ref === eventName).map((n) => n.id),
+	];
+};
+
+const holdsForTap = (node: Node): boolean =>
+	node.kind === 'showContainer' && node.awaitComplete === true;
 
 /**
  * Does the chain a flow runs for `eventName` reach an action calling `action`? The chain is the
@@ -944,21 +977,34 @@ export const signalChainCallsAction = (
 	action: string,
 ): boolean => {
 	const { graph } = scopeForSignal(doc, modeId, eventName);
-	const byId = new Map(graph.nodes.map((n) => [n.id, n] as const));
-	const seen = new Set<string>();
-	const queue = graph.exec
-		.filter((e) => e.from.pin === eventName && byId.get(e.from.node)?.kind === 'gameSignals')
-		.map((e) => e.to.node);
-	for (const n of graph.nodes) if (n.kind === 'event' && n.ref === eventName) queue.push(n.id);
-	for (let id = queue.pop(); id !== undefined; id = queue.pop()) {
-		if (seen.has(id)) continue;
-		seen.add(id);
-		const node = byId.get(id);
-		if (node?.kind === 'action' && node.ref === action) return true;
-		if (node?.kind === 'group' && graphCallsAction(node.body, action)) return true;
-		for (const e of graph.exec) if (e.from.node === id) queue.push(e.to.node);
-	}
-	return false;
+	return chainReaches(
+		graph,
+		signalChainStarts(graph, eventName),
+		(n) => n.kind === 'action' && n.ref === action,
+	);
+};
+
+/**
+ * Does entering mode `modeId` by the book event `eventName` hold for the player — a held Show
+ * (`showContainer{awaitComplete}`) on one of the mode's Mode trigger (enter) chains (its own graph's
+ * or the global one's), or on the chain the flow runs for `eventName` with the mode on screen?
+ */
+export const modeEntryHolds = (doc: FlowDoc, modeId: string, eventName: string): boolean => {
+	const { graph } = scopeForSignal(doc, modeId, eventName);
+	if (chainReaches(graph, signalChainStarts(graph, eventName), holdsForTap)) return true;
+	return [flowModeGraph(doc, modeId), doc.graph].some(
+		(g) =>
+			!!g &&
+			chainReaches(
+				g,
+				g.nodes
+					.filter(
+						(n) => n.kind === 'modeTrigger' && n.modeId === modeId && (n.on ?? 'enter') === 'enter',
+					)
+					.map((n) => n.id),
+				holdsForTap,
+			),
+	);
 };
 
 /**

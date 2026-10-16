@@ -32,8 +32,8 @@ import {
 import { listComponentsWithEtags } from '$lib/server/componentStorage';
 import {
 	authoredOverlaySaveDecision,
+	submitsButtonsOn,
 	submitsFreeSpinsOn,
-	submitsWinOn,
 } from '$lib/server/authoredOverlayGuard';
 import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
@@ -395,13 +395,13 @@ export const actions: Actions = {
 		// ordinary conflict path above everything else, and only a write that would land can be
 		// refused for the flip. One read, for a non-publisher only, so a publisher's autosave pays
 		// no extra read; the write below is still conditional, so a save landing between this read
-		// and the PUT is the same 409. While the Win pilot is locked off (its parity follow-up has not
-		// merged), a save that has it on reads the store too, a publisher's included, and switching
-		// it on is refused for everyone; so is the free-spin pilot (8c) until the owner pilots it.
+		// and the PUT is the same 409. While the free-spin (8c) and button (8d) pilots are locked off
+		// (until the owner pilots them), a save that has one on reads the store too, a publisher's
+		// included, and switching it on is refused for everyone.
 		if (
 			!canPublishShared ||
-			submitsWinOn(parsed as Partial<LayoutDoc>) ||
-			submitsFreeSpinsOn(parsed as Partial<LayoutDoc>)
+			submitsFreeSpinsOn(parsed as Partial<LayoutDoc>) ||
+			submitsButtonsOn(parsed as Partial<LayoutDoc>)
 		) {
 			const stored = await loadDocWithEtag(clientKey, projectKey);
 			const decision = authoredOverlaySaveDecision({
@@ -412,13 +412,6 @@ export const actions: Actions = {
 				storedEtag: stored.etag,
 			});
 			if (decision === 'conflict') return conflict();
-			if (decision === 'locked') {
-				return fail(403, {
-					action: 'save' as const,
-					error:
-						'The authored Win pilot is locked off until its parity follow-up merges — it cannot be switched on yet.',
-				});
-			}
 			if (decision === 'locked-free-spins') {
 				return fail(403, {
 					action: 'save' as const,
@@ -426,11 +419,18 @@ export const actions: Actions = {
 						'The authored free-spin intro / outro pilot is locked off until the owner pilots it — it cannot be switched on yet.',
 				});
 			}
+			if (decision === 'locked-buttons') {
+				return fail(403, {
+					action: 'save' as const,
+					error:
+						'The authored button pilot is locked off until the owner pilots it — it cannot be switched on yet.',
+				});
+			}
 			if (decision === 'forbidden') {
 				return fail(403, {
 					action: 'save' as const,
 					error:
-						'Switching an authored-overlay pilot (Transition, Win, Free spins) needs the component-publish capability.',
+						'Switching an authored-overlay pilot (Transition, Win, Free spins, Buttons) needs the component-publish capability.',
 				});
 			}
 		}

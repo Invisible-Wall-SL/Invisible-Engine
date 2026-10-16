@@ -300,6 +300,14 @@ landing (about as often as the drop chance, never more than one cell in four). S
 either other choice to turn it off. It changes only how the game shows a drop; the server never
 sees it. A board that swaps in place instead of rolling always shows its tokens together.
 
+**Pots stay full during their bonus** (off by default) — a full pot stays drawn full while the
+bonus it started plays, and drains when that bonus ends, once its screens are down. Off, it drains
+as the bonus starts. Either way the pot still pulses as its bonus starts, the `potsConsume` cue
+fires and the modifier it activates is announced. No cue fires for the drain at the end, so a pot
+component that animates its drain on `potsConsume` plays it as the bonus starts. A pot the server
+fills again during its own bonus empties, then shows that level. Like the timing, it changes only
+what the game shows; the server never sees it.
+
 Problems show under the row or field they belong to, and that field gets a red border.
 
 **Remove pots and drops** asks first, then takes out the pots, the drop table and their token
@@ -343,7 +351,9 @@ metre and Lucky Spin start the mode over the game's own spin.
   is not a Hold and Win game (the coin overlay's own pots and drops start the bonus), a meter is
   refused: make it a pot instead. **+ meter** adds
   a row: **Id**, **Filled by** (a symbol; one not tagged `meterSpecial` says so), **Max level**,
-  **Size stages**, the special it **Activates**, and the mode it **Starts**.
+  **Size stages**, the special it **Activates**, and the mode it **Starts**. With meters and no
+  pots, **Pots stay full during their bonus** sits under the table and works on the meters as it
+  does on pots.
 
 **Symbols get their role in the Symbols panel**, through their special properties: `coin`,
 `jackpot`, `collector`, `coinMultiplier`, `payer`, `mystery`, `addRespins`, `upgrade`,

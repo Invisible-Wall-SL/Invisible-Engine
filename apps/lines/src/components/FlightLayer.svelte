@@ -31,11 +31,15 @@
 	 * container at the board's scale; a glow head is `FlightView`'s coded glow re-tinted; `none` draws
 	 * no head. A flight that carries a symbol (a pots overlay's token) draws that symbol as its head
 	 * instead, in its `flyToMeter` state, at the board's scale. The kind's `size` multiplies all of
-	 * it — the glow, the art, the carried symbol and a "+N" label. The trail is `FlightView`'s; its
-	 * particles spawn turned to the flight's heading when the kind aligns them (`trailAlign`), plus
-	 * the kind's `trailRotation`. The
-	 * arrival effect plays ONCE at the target when the head lands, and the flight stays mounted until
-	 * it has played out.
+	 * it — the glow, the art, the carried symbol and a "+N" label. The head's POSE (`engine-layout`
+	 * `flightHeadPose`, kept on the flight each frame) turns the art to the heading when the kind
+	 * follows the curve (`headAlign`; an upright head is mirrored while it heads left), turns it by
+	 * the kind's `headRotation`, and scales everything at the head by the perspective of the kind's
+	 * `depth`. The glow, the label and a carried symbol take only that scale — a symbol carries its
+	 * value text, which must not turn or mirror. The trail is `FlightView`'s; its particles spawn
+	 * turned to the flight's heading when the kind aligns them (`trailAlign`), plus the kind's
+	 * `trailRotation`. The arrival effect plays ONCE at the target when the head lands, and the
+	 * flight stays mounted until it has played out.
 	 */
 
 	const app = getContextApp();
@@ -61,6 +65,13 @@
 		fill: 0xffffff,
 		stroke: { color: 0x000000, width: 6 },
 	} as const;
+
+	/** A turned art head's scale: `size` × the pose's perspective, its lean along the travel axis
+	 *  and the upright mirror. */
+	const poseScale = (flight: ActiveFlight, size: number) => ({
+		x: size * flight.pose.scale * flight.pose.stretch,
+		y: size * flight.pose.scale * flight.pose.flip,
+	});
 
 	const hexTint = (hex: string | undefined): number | undefined =>
 		hex ? parseInt(hex.slice(1), 16) : undefined;
@@ -109,7 +120,7 @@
 					!flight.symbol &&
 					(!flight.headStyle || flight.headStyle.kind === 'glow')}
 				headTint={hexTint(flight.headStyle?.tint)}
-				headScale={(flight.headStyle?.scale ?? 1) * flight.size}
+				headScale={(flight.headStyle?.scale ?? 1) * flight.size * flight.pose.scale}
 				trailDoc={trailDoc(flight)}
 				trailRotation={trailRotation(flight)}
 			/>
@@ -118,16 +129,19 @@
 			<Container
 				x={flight.head.x}
 				y={flight.head.y}
-				scale={flight.scale * (flight.headStyle?.scale ?? 1) * flight.size}
+				rotation={flight.pose.rotation}
+				scale={poseScale(flight, flight.scale * (flight.headStyle?.scale ?? 1) * flight.size)}
 			>
-				<SymbolLayer layer={art} x={0} y={0} tint={hexTint(flight.headStyle?.tint)} />
+				<Container rotation={flight.pose.artRotation}>
+					<SymbolLayer layer={art} x={0} y={0} tint={hexTint(flight.headStyle?.tint)} />
+				</Container>
 			</Container>
 		{/if}
 		{#if flight.phase === 'flying' && flight.symbol}
 			<Container
 				x={flight.head.x}
 				y={flight.head.y}
-				scale={flight.scale * (flight.symbolScale ?? 1) * flight.size}
+				scale={flight.scale * (flight.symbolScale ?? 1) * flight.size * flight.pose.scale}
 			>
 				<Symbol state="flyToMeter" rawSymbol={flight.symbol} />
 			</Container>
@@ -137,7 +151,7 @@
 				x={flight.head.x}
 				y={flight.head.y}
 				anchor={0.5}
-				scale={flight.scale * flight.size}
+				scale={flight.scale * flight.size * flight.pose.scale}
 				text={flight.label}
 				style={LABEL_STYLE}
 			/>

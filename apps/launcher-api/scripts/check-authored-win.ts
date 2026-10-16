@@ -1272,7 +1272,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 
 {
 	const game = src('../../lines/src/components/Game.svelte');
-	const load = game.slice(game.indexOf('loadEditorScenes().then((rawDoc)'));
+	const load = game.slice(game.indexOf('void loadEditorScenes().then('));
 	const swapAt = load.indexOf('withAuthoredWinDoc(transitioned, authoredWinPresentation())');
 	const v2At = load.indexOf('createLinesFlowV2(\n\t\t\t\tdoc,');
 	const v1At = load.indexOf('createLinesFlow(\n\t\t\t\t\t\tdoc,');
@@ -1399,7 +1399,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 			storedEtag: '"current"',
 		});
 	eq(
-		'stale ⇒ conflict whoever saves and whatever flips; fresh ⇒ switching Win on is locked for everyone',
+		'stale ⇒ conflict whoever saves and whatever flips; fresh ⇒ a publisher may switch Win on, a non-publisher may not',
 		[
 			decide(true, true, true),
 			decide(true, true, false),
@@ -1410,10 +1410,10 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 			decide(false, false, true),
 			decide(false, false, false),
 		],
-		['conflict', 'conflict', 'conflict', 'conflict', 'locked', 'locked', 'write', 'write'],
+		['conflict', 'conflict', 'conflict', 'conflict', 'write', 'forbidden', 'write', 'write'],
 	);
 	eq(
-		'force is never stale (switching Win on is still refused); the create path compares null to null',
+		'force is never stale (a non-publisher switching Win on is still refused); the create path compares null to null',
 		[
 			G.authoredOverlaySaveDecision({
 				before: off,
@@ -1451,34 +1451,40 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 				storedEtag: null,
 			}),
 		],
-		['locked', 'write', 'write', 'conflict', 'conflict'],
+		['forbidden', 'write', 'write', 'conflict', 'conflict'],
 	);
 	const action = src('../src/routes/(app)/editor/+page.server.ts');
 	const save = action.slice(action.indexOf('save: async ('));
 	const decisionAt = save.indexOf('authoredOverlaySaveDecision(');
 	eq(
-		'the save action reads the base ETag, decides, and only then writes — a publisher reads only to switch Win on',
+		'the save action reads the base ETag, decides, and only then writes — a publisher reads only for a locked pilot',
 		[
 			save.indexOf('const baseEtag = writeBaseEtagForm(form)') < decisionAt,
 			decisionAt < save.indexOf('await saveDoc('),
-			/if \(\s*!canPublishShared \|\|\s*submitsWinOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submitsFreeSpinsOn\(parsed as Partial<LayoutDoc>\))?\s*\) \{\s*const stored = await loadDocWithEtag\(/.test(
+			/if \(\s*!canPublishShared(?:\s*\|\|\s*submits\w+On\(parsed as Partial<LayoutDoc>\))*\s*\) \{\s*const stored = await loadDocWithEtag\(/.test(
 				save,
 			),
 			(save.match(/await loadDocWithEtag\(/g) ?? []).length,
 			/if \(decision === 'conflict'\) return conflict\(\);/.test(save),
 			/if \(decision === 'forbidden'\) \{\s*return fail\(403/.test(save),
-			/if \(decision === 'locked'\) \{\s*return fail\(403/.test(save),
+			!/submitsWinOn|decision === 'locked'\)/.test(save),
 			/canPublish: canPublishShared,/.test(save),
 			/if \(e instanceof ConflictError\) return conflict\(\);/.test(save),
 		],
 		[true, true, true, 1, true, true, true, true, true],
 	);
 	eq(
-		'the Win pilot is locked OFF until its follow-up merges: on is refused for a publisher, off is allowed',
+		'the Win pilot is unlocked (owner accepted the fade-out residues, 2026-10-15): a publisher may switch it on and off',
 		[
-			G.AUTHORED_WIN_LOCKED,
-			G.submitsWinOn(win),
-			G.submitsWinOn(off),
+			'AUTHORED_WIN_LOCKED' in G,
+			'submitsWinOn' in G,
+			G.authoredOverlaySaveDecision({
+				before: off,
+				after: win,
+				canPublish: true,
+				baseEtag: '"c"',
+				storedEtag: '"c"',
+			}),
 			G.authoredOverlaySaveDecision({
 				before: win,
 				after: off,
@@ -1494,17 +1500,17 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 				storedEtag: '"c"',
 			}),
 		],
-		[true, true, false, 'write', 'write'],
+		[false, false, 'write', 'write', 'write'],
 	);
 	const page = src('../src/routes/(app)/editor/+page.svelte');
 	eq(
-		'the Game Settings Win row sits beside Transition, locked off (pilot pending), written sparse',
+		'the Game Settings Win row sits beside Transition, switchable by a publisher, written sparse',
 		[
 			/let authoredWin = \$state<boolean>\(data\.doc\.settings\?\.authoredOverlays\?\.win === true\);/.test(
 				page,
 			),
-			/checked=\{authoredWin\}\s*disabled=\{!data\.canPublishShared \|\| !authoredWin\}/.test(page),
-			page.includes('pilot pending — parity follow-up'),
+			/checked=\{authoredWin\}\s*disabled=\{!data\.canPublishShared\}/.test(page),
+			!page.includes('pilot pending — parity follow-up'),
 			/\.\.\.\(authoredWin \? \{ win: true \} : \{\}\)/.test(page),
 			/!bootLoader && !authoredOverlays\) return undefined/.test(page),
 		],
