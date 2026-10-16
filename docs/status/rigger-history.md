@@ -7,19 +7,23 @@
 
 - 2026-10-16 — **A header with no `hash` / `spine` read differently from the reference.**
   - **Symptom.** `node tools/rig-parity/parity.mjs`: 2 failures out of 80,567 checks, both in the
-    header comparison, on `static/rigs/physics-swing.json` and `two-pages.json`. The reference had
-    no `hash` or `version` key, and `engine-rig` had both set to `null`.
+    header comparison, on `static/rigs/physics-swing.json` and `two-pages.json`. In the gate's
+    header JSON the reference had no `hash` or `version` (they are `undefined`, and
+    `JSON.stringify` drops them), while `engine-rig` had both as `null`.
   - **Cause.** The reference's `SkeletonJson` assigns `skeletonMap.hash` and `skeletonMap.spine`
     as written, which overwrites `SkeletonData`'s `null` defaults with `undefined` when the header
     lacks them. `engine-rig` used `?? null`. Every rig exported by the desktop editor carries both
     fields, so the gate first hit the difference when #1107 added hand-written demo rigs. Nothing
-    noticed because no CI job runs the gate.
+    noticed because no CI job runs the gate. The difference reaches real rigs too: a blank Rigger
+    rig is seeded with `spine: '4.2'` and no `hash` (`riggerNewRig.ts`), so its `hash` is now
+    `undefined` rather than `null`, which is harmless because nothing reads it.
   - **Why the runtime changed, not the gate.** The gate's job is to hold `engine-rig` to the
     reference as a black box. The x/y/width/height/fps beside these two fields are already copied
     as written for the same reason. Nothing reads the difference: the only reader of
     `SkeletonData.version` is `tools/rigger-spike/inspectModel.mjs` (`version || null`), nothing
-    reads `SkeletonData.hash`, and the save path reads the raw JSON header. The binary reader is
-    unchanged (the reference returns `null` there as well).
+    reads `SkeletonData.hash`, and the save path reads the raw JSON header. Both fields are now
+    typed `string | null | undefined` to say so. The binary reader is unchanged (the reference
+    returns `null` there as well).
   - **Verified.** `parity.mjs`: 155 skeletons, 80,582 checks, 0 failures. On the reference's
     examples (`--dir` from `fetch-examples.mjs`): 40 skeletons, 0 failures. `fuzz.mjs`: 400
     seeds, 0 failures. `pnpm check:all --only rig`: 89/89. `check:vendored-bundles` is green after
