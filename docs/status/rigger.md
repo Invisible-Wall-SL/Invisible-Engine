@@ -59,11 +59,11 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     the numbers after it stay put.
 12. ~~A mesh made from a trimmed image is mapped wrong~~ — fixed 2026-09-30 (Recent changes), with a
     🩹 Repair for meshes saved before; kept so the numbers stay put.
-13. **An image packed at 180° or 270° draws wrong as a region** — upside down, or transposed with
-    atlas pixels beside it — in the 4.2-format runtime semantics `engine-rig` reproduces (so in the game too): its
-    `RegionAttachment.updateRegion` undoes a 90° pack only; a mesh undoes all four. Only
-    `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than rig's).
-    Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
+13. **An image packed at 180° draws wrong as a region** — upside down — in `engine-rig` (so in the
+    game too): `RegionAttachment.updateRegion` undoes a quarter-turn pack, 90 counter-clockwise and
+    (since 2026-10-16) 270 clockwise, but not a half turn; a mesh undoes all four. The repo's only
+    180 / 270° packs are 18 regions in `apps/price/…/symbolsSpecial` (from a packer other than rig's),
+    all drawn by meshes. Re-packing without 180° rotation is the fix; the Rigger could warn on open.
 14. ~~Seven spikes hard-code `.pnpm/esbuild@0.25.5/…`~~ — fixed 2026-10-01 (Recent changes).
 15. ~~The parity gates run only by hand~~ — `parity.mjs` runs in CI as the advisory `rig parity`
     workflow, 2026-10-16 (Recent changes). `fuzz.mjs` (~30 s, pure Node) could join it;

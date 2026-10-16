@@ -274,6 +274,48 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-16 — **The runtime stops downloading stock assets a project never draws.** The shared
+  runtime registers the upstream sample game's 40 assets (`apps/lines/src/game/assets.ts`) for every
+  game, and the loader fetched all of them: 14.8 MB of the Borut remake's boot. `game/stockAssets.ts`
+  now decides, from the data a boot holds before the loader mounts, which stock keys are reachable,
+  and `Game.svelte` takes the rest off the asset table right after `registerBakedComponents()`
+  (`game/stockAssetBoot.ts`, one `[stock-assets] skipped …` console line). It is a reachability walk
+  that keeps on any doubt: the mounted scenes (doc + the fallback scenes the game picks, now one shared
+  implementation in `game/sceneSelection.ts`) and every def they expand with each instance's EFFECTIVE
+  params; the coded parts each bind falls back to (`PART_NEEDS`); the coded mounts (background, board
+  glow, win frame, anticipation, bone-effect host); the symbol rigs through the renderer's own merge
+  and state inheritance over the in-play set; the authored-overlay flags; and every name in the
+  symbols/effects/flow/config docs. Always kept: `sound` (its names are only known from the file
+  itself), `goldFont`, `pressToContinueText`, `progressBar`. No doc at boot (dev, live-doc) ⇒ all 40,
+  so `apps/lines` dev is unchanged; a registered part with no rule, an unreadable def or any throw ⇒
+  all 40. Over the 10 published payloads: the remake drops 35 keys (9.27 MB of the 14.85 MB stock wire
+  bytes), test6 27 (7.58 MB), borut_pots_sample 31 (7.22 MB), the art-less test games 10–18. Gates:
+  `stockAssets.fixture.ts` (mutation cases: each un-authored fallback brings back exactly its key) and
+  `scripts/check-stock-asset-coverage.mjs` (every stock name a runtime source writes is listed in
+  `STOCK_CONSUMERS` under a rule, the name tables match the asset files, and every bound part
+  `Game.svelte` registers has a rule). `fallbackEditorScenes` moved to `game/fallbackLayout.ts`
+  (re-exported from `editor-scenes.ts`) so the fixture reads the real one.
+- 2026-10-16 — **Rig regions read clockwise packing (`rotate:270`).** Why a build had grown: the
+  owner measured the Book of Borut remake's optimized build at 72.3 MB against "below 40 MB" before.
+  Measured live (headless Chromium over CDP, Web Worker fetches included — DevTools counts them as
+  _transferred_ but not as _resources_, the 72 / 18 MB split): 49.3 MB of texture pages, 14.8 MB of the
+  stock sample game's assets, 3.6 MB of music. The art did not grow: desktop launcher v1.0.56 stopped
+  🗜 Optimize re-encoding server pages as lossy q80 (it banded the art), which alone accounts for the
+  jump (today's pages at q80: 48.4 → 13.4 MB). The waste underneath is rig pages: 36.9 MB of the
+  48.4 MB, each a LOSSLESS copy of the lossy sheet page it was made from with the rotated regions turned
+  180° (`reorientRotatedRegionsForRig`), downloaded beside that sheet page as a second texture; pixel
+  check on R_Board and R_Cinematic2: visible pixels identical outside the turned regions. The turn
+  existed because the reference runtime read a quarter turn on a plain region only as counter-clockwise
+  while our packers rotate clockwise. `engine-rig` now reads `rotate:270` on a region attachment
+  (`attachments.ts`; meshes already did) and swaps the packed size for it (`atlas.ts`). Nothing that
+  loads today changes: the repo's only 270 packs (9 in `apps/price`'s `symbolsSpecial`) are drawn by
+  meshes, which read neither the region path nor the swapped size. The launcher half (the export ships the sheet
+  page with `rotate:270`, ~−33 MB on the remake) is a separate PR that must merge after this release is
+  live, so a runtime rollback can never meet a 270 atlas. `clockwiseRegions.fixture.ts` proves both
+  representations sample the same texels for every region corner and mesh vertex, trimmed and not
+  (worst offset 0.0002 px, float32), and fails without the change; the Rig Viewer bundle is rebuilt;
+  the 90 rig checks in `check:all` pass; `tools/rig-parity/parity.mjs` passes (204,354 checks, 0
+  failures).
 - 2026-10-16 — **Rive plan Phase 8 follow-ups** (branch `claude/rive-p8-followups`; the advisory
   `button-parity.yml` ships on its own PR, `claude/rive-p8-followups-ci`).
   - **Win teardown.** The authored Win's signals and board box are torn down with the game

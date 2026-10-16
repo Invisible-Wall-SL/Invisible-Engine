@@ -1374,7 +1374,7 @@ const generated = B.winTierTimelines(TIERS, CLIP_MS);
 	);
 	eq(
 		'the flag reaches the dev doc only from AUTHORED_WIN',
-		/authoredWin: AUTHORED_WIN,/.test(src('../../lines/src/editor-scenes.ts')),
+		/authoredWin: AUTHORED_WIN,/.test(src('../../lines/src/game/fallbackLayout.ts')),
 		true,
 	);
 }

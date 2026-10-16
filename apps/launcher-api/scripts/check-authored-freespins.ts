@@ -751,7 +751,7 @@ eq(
 	eq(
 		'the flag reaches the dev doc only from AUTHORED_FREE_SPINS; no URL opt-in',
 		[
-			/authoredFreeSpins: AUTHORED_FREE_SPINS,/.test(src('../../lines/src/editor-scenes.ts')),
+			/authoredFreeSpins: AUTHORED_FREE_SPINS,/.test(src('../../lines/src/game/fallbackLayout.ts')),
 			/searchParams|URLSearchParams|location\./.test(
 				src('../../lines/src/game/authoredFreeSpins.svelte.ts'),
 			),
