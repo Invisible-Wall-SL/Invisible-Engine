@@ -63,12 +63,6 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Open items / next
 
-- **`win parity` `held` drifts on the CI runner** (2026-10-16, #1233). Under a held pointer the
-  authored walk runs one frame ahead in CI: t+60 / t+120 / t+240 differ 0.06–0.16 %, t+374 6 %
-  (`winHide` 374 authored vs 375 coded), identically on a re-run; locally the variant is 0 px.
-  The CI workflow runs the other six variants; `held` stays a local run
-  (`pnpm check:win-parity --variant held`) until the drift is traced. No reference game authors
-  `holdToSpeedUp`.
 - **Lines-family table games: gaps left by the 2026-09-29 buy fix** (from its `code-reviewer` pass).
   - **Engine-side, need a runtime release:**
     - **Card and charge differ at some bet levels.** On a table game, `multiplierForAmount` rounds M to a whole number of units, so a level the line count does not divide is charged more than the card says. Measured on the 20-line default template: BONUS reads $10 but charges $20 at $0.10, and reads $50 but charges $60 at $0.50. The old line path at least warned; the table path does not. Fix the placeholder ladder to multiples of `betOptions[0]`, or warn.
@@ -290,7 +284,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
     the free-spin fade itself (t+6 / 12 / 24) up to 346 456 px still differ by ≤ 12 levels, under
     the pixelmatch threshold — not touched by the settle (mid-fade the alpha is never identity), not
     traced. Flag-off games mount none of these defs.
-  - **The CI-only `held` drift was the harness.** The determinism clock adds 1000/60 ms a frame, so a
+  - **The CI-only `held` drift was the harness** (the open item #1233 left; `held` runs in CI again
+    from `claude/rive-p8-followups-ci`). The determinism clock adds 1000/60 ms a frame, so a
     frame's delta differs in its last bits with the clock's magnitude, and whether a clip's summed
     deltas reach its length on its last frame or one later depends on the frame it started on (for a
     720-frame clip, 2 468 of 6 000 start frames end a frame late). The two sides of a variant ran on
