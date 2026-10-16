@@ -88,6 +88,31 @@ Shipped capabilities on `main`:
   slug (a sidecar from before the stamp). Gate: `pnpm --filter launcher-api
   check:component-defaults-lookup` (7: a stamped camelCase sidecar by its id, a legacy one by its
   slug, and the real closure shipping both tiles; it failed 2 before the fix).
+- 2026-10-16 — **Save component also saves this game's defaults, and the Screens side sees them
+  at once** (branch `claude/exciting-gates-phk1e6`). Owner report: the Pot Meter's new **pulse on
+  every coin collected too** tick in *This game's defaults* "is not getting saved, it turns off
+  every time". Reproduced headlessly by mounting the real `ComponentWorkspace` over a faked
+  sidecar API. The panel and its own save were fine. Two traps made a ticked value look lost:
+  - **Save component didn't write the defaults.** The bar's button showed *Component saved* while
+    the sidecar stayed untouched. The only sign was the small *Unsaved* badge at the top of the
+    defaults block, far above the Motion group. Closing the component then offered to discard it.
+    Now `saveComponent` also runs `defaultsSave.save()` when `defaultsDirty`, alongside the def save
+    (separate `SaveState`s, so a conflict in one never blocks the other). The pill reads
+    *Component and this game's defaults saved*, or reports the defaults failure while their badge
+    offers *Reload theirs / Overwrite with mine*. *Save for this game* still writes the defaults
+    alone. With only the defaults dirty, the bar's Save writes just them (no def write, so a stale
+    ETag can't offer to stack an untouched draft on someone else's version). A defaults save already
+    in flight is left to its own badge rather than reported as done.
+  - **The Screens side kept the page-load defaults.** The editor page passed `data.componentDefaults`
+    to the canvas and the instance panel and never refreshed it, so a default saved on the
+    Components side still read as off on the placed pot until a reload. The page now keeps its own
+    `componentDefaults` state. `ComponentWorkspace` reports every sidecar save, read and restore
+    through `onDefaultsChange` (`rememberDefaults`, which also keeps the paint-only seed).
+  - Verified in headless Chromium over the real components: tick → *Save component* writes
+    `{ pulseOnCollect: true }` and reports both saved; close and reopen shows it ticked; a
+    conflicting sidecar keeps the tick on screen and shows the conflict. `check:component-links`
+    75, `check:svelte` at baseline (46), `check:undefined-names`, ESLint and the launcher build are
+    green. ⏳ Not clicked through on the live auth-gated `/editor`.
 - 2026-10-15 — **A nested component's params can be exposed on its parent** (branch
   `claude/gifted-hawking-uv5utk`). Owner report: a component placed inside another (the
   firecrackers inside the Pot Meter's `Pot`) showed its params only inside the parent's editor,
