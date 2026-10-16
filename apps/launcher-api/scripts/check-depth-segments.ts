@@ -21,10 +21,14 @@
  *     node's segment is recorded by its id path, so the renderers draw each piece on its own.
  *  4. **A group or resolvable component draws only its children**, so on its own it never splits;
  *     a bound anchor (preview or part skin) and a missing component's placeholder are art.
+ *  5. **The id-path key tells placements apart.** The live FX overlay keys each placed copy of a
+ *     component by it, so a top-level node's key is its own id and every placement of one part has
+ *     its own.
  */
 import type { ComponentDef, LayoutNode, Scene } from 'engine-layout';
 
 import {
+	depthKey,
 	depthSegmentOf,
 	depthSegments,
 	inDepthSlice,
@@ -181,6 +185,16 @@ check(
 check(
 	'a component that contains itself stops, and its placeholder splits like art',
 	split([instance('l', 'loop')]) === 'l|l',
+);
+
+// 5. The id-path key tells placements apart.
+check("a top-level node's id-path key is its own id", depthKey(['f']) === 'f');
+const pots = ['p1', 'p2', 'p3'];
+const potSplit = depthSegments(scene(pots.map((id) => instance(id, 'piece'))), defs)[0].segmentOf;
+check(
+	'each placement of one component part has its own id-path key, and the split records each',
+	new Set(pots.map((id) => depthKey([id, 'glow']))).size === pots.length &&
+		pots.every((id) => potSplit.has(depthKey([id, 'glow']))),
 );
 
 if (fails > 0) {

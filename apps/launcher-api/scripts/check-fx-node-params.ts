@@ -30,7 +30,8 @@
  *     (`params.<id>`): every kind (a colour too), clamped, unknown and mistyped values skipped, a
  *     forward over the node's own, a binding over both, a blend resting on them; the editor's
  *     ⇡ expose / take / × edits, the orphan prune, and the save keeping them (§8 runs the fold,
- *     a forward following its param live).
+ *     a forward following its param live); the editor's live overlay renders each placement of a
+ *     nested effect on its own (keyed by its id path) and reports chips and boxes by node id.
  *
  * What it cannot prove: the Svelte wiring in `LayoutNodeView.svelte` and the editor panels in a
  * browser — that is the owner's pass (`docs/status/fx.md`).
@@ -1138,6 +1139,16 @@ export function mountLive(node, initial) {
 			overlay.includes('effectParamValues(node.node, doc, node.params)') &&
 			overlay.includes('effectParamValues(node.node, node.doc, node.params)') &&
 			overlay.includes('void JSON.stringify(componentParams);'),
+	);
+	ok(
+		'…each placement of a nested effect is its own live render, keyed by its id path (a top-level one by its id), while chips and selection boxes stay keyed by node id',
+		overlay.includes('out.push(nestedTarget(n, sc, nextChain, depthKey(ids), params));') &&
+			/out\.push\(\{\s*key: n\.id,\s*nodeId: n\.id,/.test(overlay) &&
+			overlay.includes('seen.add(tg.key);') &&
+			overlay.includes('liveNodes.set(tg.key, node);') &&
+			!/liveNodes\.\w+\(tg\.nodeId/.test(overlay) &&
+			overlay.includes('if (node.live) next.add(node.nodeId);') &&
+			overlay.includes('next.set(node.nodeId, prev ? unionBox(prev, node.bounds) : node.bounds);'),
 	);
 	const props = editor('EditorProperties.svelte');
 	ok(
