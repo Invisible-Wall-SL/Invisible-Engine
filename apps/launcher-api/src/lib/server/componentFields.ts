@@ -84,6 +84,9 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	padding: true,
 	switchKeys: true,
 	color: true,
+	borderRadius: true,
+	borderWidth: true,
+	borderColor: true,
 	componentId: true,
 	componentVersion: true,
 	params: true,
@@ -139,6 +142,8 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	inputs: true,
 	stateMachine: true,
 	frameExact: true,
+	boardAnchored: true,
+	buttonStates: true,
 	events: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {

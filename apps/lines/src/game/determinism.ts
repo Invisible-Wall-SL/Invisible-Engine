@@ -32,7 +32,13 @@
  * - **Time zone and locale** are the browser's; a harness pins them (CDP `setTimezoneOverride`).
  */
 
-import { pendingCueHolds } from 'engine-layout';
+import {
+	BUTTON_PRESENTATION_ID,
+	FREE_SPIN_INTRO_PRESENTATION_ID,
+	FREE_SPIN_OUTRO_PRESENTATION_ID,
+	pendingCueHolds,
+} from 'engine-layout';
+import { isComponentMounted } from 'engine-layout/svelte';
 
 const FLAG = 'ie_determinism';
 export const DETERMINISM_FRAME_MS = 1000 / 60;
@@ -99,6 +105,16 @@ export type DeterminismState = DeterminismProbeState & {
 	 *  8a/8b) — the positive control of a parity gate: the authored side holds, the coded side does not,
 	 *  including holds opened by a game-fired signal the cue trace never shows. */
 	holds: readonly string[];
+	/** The authored free-spin presentations with an instance MOUNTED right now (Rive plan Phase 8c) —
+	 *  the free-spin parity gate's positive control: the authored side mounts them, the coded none. */
+	presentations: readonly string[];
+	/** The press-feedback sounds and the `uiHide` / `uiShow` events broadcast so far, each with its
+	 *  frame (Rive plan Phase 8d) — the button parity gate compares the sounds (the authored button
+	 *  plays what the coded press body did) and steps to the UI fades by them. */
+	uiEvents: readonly { event: string; frame: number }[];
+	/** Whether a `buttonPresentation` instance is MOUNTED (Rive plan Phase 8d) — the button parity
+	 *  gate's positive control: the authored side mounts it, the coded side never does. */
+	buttonPresentation: boolean;
 };
 
 export type DeterminismApi = {
@@ -166,6 +182,7 @@ const flagTurbo = (): boolean | undefined => {
 
 const CUE_LOG_MAX = 256;
 const cueLog: { cue: string; frame: number }[] = [];
+const uiEventLog: { event: string; frame: number }[] = [];
 /** The current frame while the mode is on; bound by `installDeterminism`. */
 let frameNow: (() => number) | undefined;
 
@@ -177,6 +194,14 @@ export function recordDeterminismCue(cue: string): void {
 	if (!frameNow) return;
 	cueLog.push({ cue, frame: frameNow() });
 	if (cueLog.length > CUE_LOG_MAX) cueLog.shift();
+}
+
+/** `Game.svelte` reports every press sound and UI fade event it hears broadcast; a no-op when the
+ *  mode is off. */
+export function recordDeterminismUiEvent(event: string): void {
+	if (!frameNow) return;
+	uiEventLog.push({ event, frame: frameNow() });
+	if (uiEventLog.length > CUE_LOG_MAX) uiEventLog.shift();
 }
 
 /**
@@ -629,6 +654,11 @@ export function installDeterminism(): void {
 		errors,
 		cues: [...cueLog],
 		holds: pendingCueHolds(),
+		presentations: [FREE_SPIN_INTRO_PRESENTATION_ID, FREE_SPIN_OUTRO_PRESENTATION_ID].filter(
+			isComponentMounted,
+		),
+		uiEvents: [...uiEventLog],
+		buttonPresentation: isComponentMounted(BUTTON_PRESENTATION_ID),
 		...readProbe(),
 	});
 	const holds = (c: DeterminismCondition, s: DeterminismState): boolean =>

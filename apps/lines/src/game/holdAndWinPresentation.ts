@@ -65,12 +65,16 @@ import {
 } from './holdAndWinFlights';
 import { lightLetter, syncLetters } from './holdAndWinLetters.svelte';
 import {
+	claimDrainedMeters,
 	configuredMeters,
+	countMeterArrival,
 	holdMeterDisplay,
+	METER_DRAIN_MS,
 	meterAnchor,
 	meterFlight,
 	meterMax,
 	meterStage,
+	potHeldByBonus,
 	pulseMeter,
 	releaseMeterDisplay,
 } from './holdAndWinMeters.svelte';
@@ -164,8 +168,6 @@ const TOAST_HOLD_MS = 900;
 const METER_TICK_MS = 180;
 /** A full pot's pulse, held before the round moves on. */
 const METER_FULL_MS = 700;
-/** A consumed pot draining to empty as the feature it bought starts. */
-const METER_DRAIN_MS = 500;
 /** The Lucky Spin intro banner, before its reveal rolls. */
 const LUCKY_INTRO_MS = 1_600;
 /** A banked jackpot's celebration (full board, letters, the wheel). */
@@ -319,8 +321,9 @@ const announceMeterRise = (event: Beat<'meterUpdate'>, from: number, to: number)
  * `meterUpdate` — a special landed in the BASE game and fills its pot (3 Pots). Each special in
  * `from` lights where it landed and flies into its pot (`flyTo(cell, 'meter:<id>', 'toMeter:<id>')`);
  * the pot's level ticks up by one on each arrival, from the level before (`level − from.length`) to
- * the server's `level`, and a meter the update FILLED pulses. The level is the server's: the beat
- * only shows it arriving, never computes it (the play seam recorded it before the beat started).
+ * the server's `level`, and a meter the update FILLED pulses (a pot set to `pulseOnCollect` also
+ * pulses on each arrival). The level is the server's: the beat only shows it arriving, never
+ * computes it (the play seam recorded it before the beat started).
  * Every cue it sends is scoped by the meter (Phase 12a), arrivals included. A pots overlay's token
  * is its own flight's head: it waits in its cell, lifts as its flight leaves, and the cell under it
  * (the host's symbol) is not lit.
@@ -333,6 +336,13 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 		event.level,
 		meterLevelBefore(event.meter) ?? Math.max(0, event.level - event.from.length),
 	);
+	// A pot kept full through the bonus it started, filling again inside it, empties first.
+	if (before === 0 && potHeldByBonus(event.meter)) {
+		const kept = holdMeterDisplay(event.meter, meterMax(event.meter));
+		pulseMeter(event.meter);
+		void kept.set(0, { duration: roundSkip.isSkipped() ? 0 : METER_DRAIN_MS, easing: cubicOut });
+		await waitPresentation(METER_DRAIN_MS);
+	}
 	const shown = holdMeterDisplay(event.meter, before);
 	const scope = scopeOf('meter', event.meter);
 	eventEmitter.broadcast({
@@ -369,6 +379,7 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
 			const from = reached;
 			reached = Math.min(event.level, reached + 1);
 			void shown.set(reached, { duration: roundSkip.isSkipped() ? 0 : METER_TICK_MS });
+			countMeterArrival(event.meter);
 			announceMeterRise(event, from, reached);
 		}),
 	);
@@ -394,11 +405,13 @@ export const presentMeterUpdate = async (event: Beat<'meterUpdate'>) => {
  * announced ("PAYER ACTIVE"). Any mode a pot starts plays it (`docs/design/pots-overlay.md` §3.4):
  * Hold and Win before its board swaps; free spins and another mode at the start of their coded
  * entry beat. The mode layer has already entered the mode by then (`modes.before`), so its tagged
- * screens and music are up while the pots drain. What each pot activates is the Game Config's (`resolveMeters` — a meter's or a pot's
- * `bonus.activates`); the server already emptied the meters (recorded at the play seam), so the
- * drain runs from each pot's maximum down to the recorded 0.
+ * screens and music are up while the pots drain. What each pot activates is the Game Config's
+ * (`resolveMeters` — a meter's or a pot's `bonus.activates`); the server already emptied the meters
+ * (recorded at the play seam), so the drain runs from each pot's maximum down to the recorded 0.
+ * A pot the bonus keeps full ({@link potHeldByBonus}) only pulses here and keeps its level: it drains
+ * as the bonus ends (`holdPotsForDrain`).
  */
-export const presentMeterConsume = async (ids: readonly string[]) => {
+const presentMeterConsume = async (ids: readonly string[]) => {
 	if (ids.length === 0) return;
 	const declared = configuredMeters();
 	const activates = ids.flatMap(
@@ -410,10 +423,11 @@ export const presentMeterConsume = async (ids: readonly string[]) => {
 		ids.map(async (id) => {
 			const shown = holdMeterDisplay(id, meterMax(id));
 			pulseMeter(id);
-			void shown.set(0, {
-				duration: roundSkip.isSkipped() ? 0 : METER_DRAIN_MS,
-				easing: cubicOut,
-			});
+			if (!potHeldByBonus(id))
+				void shown.set(0, {
+					duration: roundSkip.isSkipped() ? 0 : METER_DRAIN_MS,
+					easing: cubicOut,
+				});
 			await waitPresentation(METER_DRAIN_MS);
 			releaseMeterDisplay(id, shown);
 		}),
@@ -422,6 +436,14 @@ export const presentMeterConsume = async (ids: readonly string[]) => {
 	showMessage(modifiersActiveText(activates), { kind: 'info' });
 	await waitPresentation(TOAST_HOLD_MS);
 };
+
+/**
+ * The drain of the pots that started the mode entry being presented — played ONCE, by whichever asks
+ * first: a `drainPots` the flow put on the mode's enter chain or on the entry event's chain, the
+ * auto-drain before a flow-owned entry, or the entry's own beat (Hold and Win's `showRespinBoard`,
+ * the coded free-spin and mode entries). Every later ask plays nothing.
+ */
+export const presentEntryDrain = () => presentMeterConsume(claimDrainedMeters());
 
 /**
  * `luckySpin` — this base spin is a guaranteed trigger. A "LUCKY SPIN" banner holds over the rolling
@@ -440,10 +462,10 @@ export const presentLuckySpin = async () => {
 /**
  * `holdAndWinTrigger` — the board swaps to the respin board with the triggering coins held exactly
  * where they landed, and the counter shows the respins awarded. A `meter` cause first drains the
- * meters it consumed and announces what they activated.
+ * meters it consumed and announces what they activated, unless a `drainPots` already did.
  */
 export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>) => {
-	if (event.cause === 'meter') await presentMeterConsume(event.payload.meters ?? []);
+	await presentEntryDrain();
 	featureCountedIntoBar = 0;
 	showRespinBoard();
 	syncLetters();

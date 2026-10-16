@@ -302,6 +302,7 @@ assert.deepEqual(
 	}));
 	let walk = createWinWalk(tiers, true, {
 		tier: (a) => `winTier.${a}`,
+		cycle: (a) => `winTierIdle.${a}`,
 		loop: (a) => `winTierLoop.${a}`,
 		outro: (a) => `winTierOutro.${a}`,
 		plain: 'winPlain',

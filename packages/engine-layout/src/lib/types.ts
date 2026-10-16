@@ -326,6 +326,42 @@ interface BaseNode {
 	on?: NodeListener[];
 }
 
+/**
+ * Every {@link BaseNode} field as a RUNTIME list (`true` = a rewrite that replaces a node's kind
+ * carries it over). The `satisfies` fails the type-check when `BaseNode` gains a field this list
+ * lacks, so a swap that rebuilds a node from it (the authored free-spin swap) cannot silently drop
+ * a new field. `bind` is `false`: it is the coded part the rewrite removes.
+ */
+export const BASE_NODE_FIELDS = {
+	id: true,
+	label: true,
+	x: true,
+	y: true,
+	anchor: true,
+	scale: true,
+	coverScale: true,
+	rotation: true,
+	alpha: true,
+	blendMode: true,
+	zIndex: true,
+	overrides: true,
+	visibleFor: true,
+	slotId: true,
+	fit: true,
+	coverFit: true,
+	coverBox: true,
+	locked: true,
+	bind: false,
+	screenAnchor: true,
+	preview: true,
+	paramBindings: true,
+	valueBindings: true,
+	pressAction: true,
+	hiddenUntilSignal: true,
+	rigSlot: true,
+	on: true,
+} as const satisfies { [K in keyof Required<BaseNode>]: boolean };
+
 /** The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). */
 export const NODE_LISTENER_EVENTS = ['down', 'up', 'enter', 'leave', 'click'] as const;
 export type NodeListenerEvent = (typeof NODE_LISTENER_EVENTS)[number];
@@ -723,6 +759,12 @@ export interface RectNode extends BaseNode {
 	height: number;
 	/** Fill colour (hex int). Absent ⇒ white (`0xffffff`). */
 	color?: number;
+	/** Corner radius (local px) — the coded HUD tile's rounded rect. Absent ⇒ square (parity). */
+	borderRadius?: number;
+	/** Border stroke width (local px), drawn on the same shape. Absent ⇒ no border (parity). */
+	borderWidth?: number;
+	/** Border colour (hex int). Absent ⇒ black. */
+	borderColor?: number;
 }
 
 /**
@@ -1352,6 +1394,19 @@ export interface GameSettings {
 		 * (count-up, round hold, presses, dim, `winState`) stays and conducts them.
 		 */
 		win?: boolean;
+		/**
+		 * 8c: the free-spin INTRO and OUTRO visuals (the frame rig, the count rig and text, the
+		 * localized sprites, the fade — what the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual`
+		 * draw) render from the built-in `freeSpinIntroPresentation` / `freeSpinOutroPresentation`
+		 * components; the coded outro driver, the screens' taps and the flow's holds stay.
+		 */
+		freeSpins?: boolean;
+		/**
+		 * 8d: every parametric `button` instance draws its per-state frame, spin rotation and press
+		 * sound from the built-in `buttonPresentation` component and its state machine; the press road
+		 * and the gates that feed `disabled` / `active` / `spinning` stay coded.
+		 */
+		buttons?: boolean;
 	};
 }
 
@@ -1544,6 +1599,23 @@ export interface ComponentDef {
 	 * `winPresentation` def sets it; never stored, so no project def has it. Absent ⇒ neither (parity).
 	 */
 	frameExact?: true;
+	/**
+	 * BOARD-ANCHORED (built-in only, Rive plan Phase 8c): the instance is framed against the main
+	 * box on any screen (as a `game`-space hosted overlay is) AND offset by the game's live board
+	 * position (`boardBox()`), so it lands where a coded overlay that self-centred on
+	 * `boardLayout()` drew — a reel-grid override included. Only the free-spin presentations set it;
+	 * never stored. Absent ⇒ placed as before (parity).
+	 */
+	boardAnchored?: true;
+	/**
+	 * BUTTON STATES (built-in only, Rive plan Phase 8d): the instance owns the press although the def
+	 * binds a coded part (its label only draws), feeds the state machine's reserved inputs from its
+	 * live flags — `look` (the shared cascade's resolved look, {@link BUTTON_LOOKS}), `rotating`,
+	 * `fadeWithUi` — provides `tileColor` / `tileBorderColor` from `variant`, starts the machine at
+	 * mount, and plays the press sound the press hands it (`pressSounds.ts`). Only
+	 * `buttonPresentation` sets it; never stored. Absent ⇒ none of this (parity).
+	 */
+	buttonStates?: true;
 	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A
@@ -1875,6 +1947,15 @@ export interface CinematicDoc {
 	 * ⇒ the fire returns as it always has (parity); a zero-length timeline holds nothing.
 	 */
 	holdsCue?: boolean;
+	/**
+	 * A COMPONENT timeline only (Rive plan Phase 8c): seconds the playhead wraps back to when it
+	 * reaches `duration`, carrying the overshoot, so the stretch from here to the end loops for as
+	 * long as the timeline is on screen — a coded rig's looping idle after its intro. A looping
+	 * timeline never reports an end (it holds no cue); a step longer than a whole lap crosses each
+	 * cue once. Absent, or not inside `[0, duration)` ⇒
+	 * the timeline ends and holds its last frame (parity).
+	 */
+	loopFrom?: number;
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

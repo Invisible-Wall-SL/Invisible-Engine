@@ -100,6 +100,20 @@ export type FlightPathStyle = {
 	padding?: number;
 };
 
+/**
+ * How the head turns as it flies. `off` keeps it as drawn; `follow` turns it to the direction of
+ * travel (art drawn pointing right); `upright` follows too, but mirrors the art instead of turning
+ * it upside down while it heads left.
+ */
+export const FLIGHT_HEAD_ALIGNS = ['off', 'follow', 'upright'] as const;
+export type FlightHeadAlign = (typeof FLIGHT_HEAD_ALIGNS)[number];
+
+export const FLIGHT_HEAD_ALIGN_LABELS: Record<FlightHeadAlign, string> = {
+	off: 'Off',
+	follow: 'Follow the curve',
+	upright: 'Follow, stay upright',
+};
+
 export const FLIGHT_EASES = ['linear', 'easeIn', 'easeOut', 'easeInOut'] as const;
 export type FlightEase = (typeof FLIGHT_EASES)[number];
 
@@ -121,6 +135,17 @@ export type FlightStyle = {
 	trailAlign?: boolean;
 	/** Degrees added to every trail particle's rotation (−180…180), aligned or not. */
 	trailRotation?: number;
+	/** Turn the head to the direction of travel as it flies — the art, or a pots overlay's token. */
+	headAlign?: FlightHeadAlign;
+	/** Degrees added to the head's rotation (−180…180), aligned or not — for art that does not
+	 *  point right. */
+	headRotation?: number;
+	/**
+	 * Perspective (−1…1): the head travels an arc out of the screen, coming toward the player at
+	 * mid-flight (positive, it grows) or diving away (negative, it shrinks), its own size at both
+	 * ends. A head that follows the curve also leans into and out of the screen. 0 flies flat.
+	 */
+	depth?: number;
 	arrival?: FlightArrival;
 	path?: FlightPathStyle;
 	/** Board units per millisecond. */
@@ -145,6 +170,9 @@ export const FLIGHT_DEFAULTS = {
 	size: 1,
 	trailAlign: false,
 	trailRotation: 0,
+	headAlign: 'off' as FlightHeadAlign,
+	headRotation: 0,
+	depth: 0,
 	/** Cells. */
 	padding: 0.1,
 	overRoute: true,
@@ -163,6 +191,8 @@ export const FLIGHT_LIMITS = {
 	headScale: { min: 0.05, max: 5 },
 	size: { min: 0.05, max: 5 },
 	trailRotation: { min: -180, max: 180 },
+	headRotation: { min: -180, max: 180 },
+	depth: { min: -1, max: 1 },
 } as const;
 
 /** What a flight flies with once the authored block and the coded default are merged. */
@@ -174,6 +204,10 @@ export type ResolvedFlightStyle = {
 	trailAlign: boolean;
 	/** Degrees. */
 	trailRotation: number;
+	headAlign: FlightHeadAlign;
+	/** Degrees. */
+	headRotation: number;
+	depth: number;
 	arrival?: FlightArrival;
 	/** Absent ⇒ the coded bend ladder. */
 	bend?: number;
@@ -258,6 +292,13 @@ export function normalizeFlightStyle(raw: unknown): FlightStyle | undefined {
 	if (finite(raw.trailRotation)) {
 		style.trailRotation = clamp(raw.trailRotation, FLIGHT_LIMITS.trailRotation);
 	}
+	if ((FLIGHT_HEAD_ALIGNS as readonly unknown[]).includes(raw.headAlign)) {
+		style.headAlign = raw.headAlign as FlightHeadAlign;
+	}
+	if (finite(raw.headRotation)) {
+		style.headRotation = clamp(raw.headRotation, FLIGHT_LIMITS.headRotation);
+	}
+	if (finite(raw.depth)) style.depth = clamp(raw.depth, FLIGHT_LIMITS.depth);
 	const path = normalizePath(raw.path);
 	if (path) style.path = path;
 	if (finite(raw.speed) && raw.speed > 0) style.speed = clamp(raw.speed, FLIGHT_LIMITS.speed);
@@ -317,6 +358,9 @@ export function resolveFlightStyle(
 		size: pick((s) => s.size) ?? FLIGHT_DEFAULTS.size,
 		trailAlign: pick((s) => s.trailAlign) ?? FLIGHT_DEFAULTS.trailAlign,
 		trailRotation: pick((s) => s.trailRotation) ?? FLIGHT_DEFAULTS.trailRotation,
+		headAlign: pick((s) => s.headAlign) ?? FLIGHT_DEFAULTS.headAlign,
+		headRotation: pick((s) => s.headRotation) ?? FLIGHT_DEFAULTS.headRotation,
+		depth: pick((s) => s.depth) ?? FLIGHT_DEFAULTS.depth,
 	};
 	const head = pick((s) => s.head);
 	if (head) resolved.head = head;

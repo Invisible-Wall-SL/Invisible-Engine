@@ -31,8 +31,7 @@ interface RgsEngineResponse {
 }
 
 export type ServerBootConfig =
-	| { ok: true; config: Record<string, unknown> }
-	| { ok: false; reason: string };
+	{ ok: true; config: Record<string, unknown> } | { ok: false; reason: string };
 
 /**
  * The boot `config` context `gameKey`'s RGS declares. Sends an empty-body heartbeat with a FRESH

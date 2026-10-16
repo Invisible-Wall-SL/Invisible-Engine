@@ -95,10 +95,16 @@ export const UNSKIPPABLE_BOOK_EVENTS: ReadonlySet<string> = new Set([
  * count-up into the HUD), so they also run inside the unskippable window, whose lock keeps the spin
  * button inert for their length. Neither holds on a player press, so THE HANG RULE is met: every wait
  * in them is a timer, a flight or a bounded symbol beat.
+ *
+ * `holdAndWinTrigger` joins them only when the game's opener says it opens a celebration — a flow
+ * that holds the feature's entry for a tap (an authored intro, `utils.ts`), presented like the
+ * free-spin intro: on a fresh token, with the button inert from the pot drain to the tap. Its tap
+ * hold is a flow node, which the slam-aware mount keeps raced, so it cannot hang either.
  */
 const HOLD_AND_WIN_CELEBRATIONS: ReadonlySet<string> = new Set([
 	'jackpotWin',
 	'holdAndWinEnd',
+	'holdAndWinTrigger',
 	// The operator platform jackpot's banner (any kind) — the same kind of celebration.
 	'platformJackpotWin',
 ]);
@@ -153,7 +159,6 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set([
  *    celebration ({@link HOLD_AND_WIN_CELEBRATIONS}). A coin jackpot named in the tally is not one.
  *  - `holdAndWinWheel` — the pre-feature wheel, re-armed like the intro it is; slammable while it
  *    turns (it lands at once), its result never skipped.
- *
  * The book reveal (`setExpandingSymbol`) is NOT here — it has no reel-roll ahead of it that a slam
  * would legitimately stop, so the unskippable scope + the window lock already cover it.
  */

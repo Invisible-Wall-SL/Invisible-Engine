@@ -12,6 +12,7 @@ import { loadDocWithEtag, saveDoc } from '../../editorStorage';
 import { editorDocBackupTarget, editorDocKey } from '../../projectPaths';
 import { projectGameType } from '../../projects';
 import { AdapterError, defineOp } from '../adapter';
+import { AuthoredOverlayLockedError } from '../../authoredOverlayGuard';
 import { baseEtagProp, baseOf, preconditionOf, projectOf } from './docs';
 
 /**
@@ -398,7 +399,11 @@ export const updateNodes = defineOp<
 			preconditionOf(baseEtag),
 			'auto',
 			ctx.savedBy,
-		);
+		).catch((e: unknown) => {
+			if (e instanceof AuthoredOverlayLockedError)
+				throw new AdapterError(403, 'locked_overlay', e.message);
+			throw e;
+		});
 		return { applied, refused, baseEtag: baseOf(saved.etag) };
 	},
 });

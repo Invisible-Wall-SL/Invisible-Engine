@@ -23,6 +23,7 @@
 		hasContinuePress,
 		releaseSpinHold,
 		UI_FEATURES_UK,
+		stateUrlDerived,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import {
@@ -96,11 +97,20 @@
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
 		authoredTransitionStatus,
+		resolveAuthoredOverlays,
+		authoredButtonsStatus,
+		withAuthoredButtonsDoc,
+		isBuiltinButtonShape,
+		docButtonVersions,
+		resolveComponent,
+		getComponentDefaults,
+		registerComponentDefaults,
+		handOffPressSound,
+		BUTTON_PRESENTATION_DEF,
+		BUTTON_STATE_INPUTS,
 		registerBoardBox,
 		withAuthoredWin,
-		withAuthoredWinDoc,
 		withAuthoredTransition,
-		withAuthoredTransitionDoc,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		WIN_DEF,
@@ -160,6 +170,7 @@
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
 		warnOnServerPaytableMismatch,
+		boardDimensions,
 	} from '../game/gameConfig';
 	import { paytable } from '../game/paytable';
 	import {
@@ -203,7 +214,7 @@
 	} from 'engine-game';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 	import { winState } from '../game/winState.svelte';
-	import { registerDeterminismProbe } from '../game/determinism';
+	import { recordDeterminismUiEvent, registerDeterminismProbe } from '../game/determinism';
 	import {
 		rebuildBoard,
 		setBoardOverride,
@@ -299,8 +310,10 @@
 		authoredWinRuntime,
 		authoredWinSignals,
 		registerAuthoredWinTimelines,
+		authoredWinPresentation,
 		resolveAuthoredWinStatus,
 	} from '../game/authoredWin.svelte';
+	import { startAuthoredFreeSpins } from '../game/authoredFreeSpins.svelte';
 	import { ContinuePressMask, PressToContinue } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -429,10 +442,13 @@
 	// The flow handle is built once the scenes load; a Game destroyed before that disposes it on
 	// arrival rather than leaking its listener.
 	let disposeFlowV2: (() => void) | undefined;
+	// Likewise the authored free-spin path's subscriptions and registrations (Rive plan Phase 8c).
+	let stopAuthoredFreeSpins: (() => void) | undefined;
 	let destroyed = false;
 	onDestroy(() => {
 		destroyed = true;
 		disposeFlowV2?.();
+		stopAuthoredFreeSpins?.();
 	});
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
@@ -707,6 +723,13 @@
 	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
 	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
 	registerFlowValueSource(linesValueResolver);
+	// A press's feedback sound (Rive plan Phase 8d): handed to an authored button that claimed the press
+	// (its state machine plays it, at this same point of the body), else broadcast as always.
+	const pressFeedback = (event: {
+		type: 'soundPressGeneral' | 'soundPressBet' | 'soundPressStop';
+	}) => {
+		if (!handOffPressSound(event.type)) context.eventEmitter.broadcast(event);
+	};
 	// Flow press routing (§Part 2) — wire `<ComponentInstance>`'s press through the v2 flow's authored
 	// container-event ownership. When the flow OWNS a component's event (an authored exec edge from its
 	// fused pin) the press fires the flow's chain ALONE and the coded `onpress` is SUPPRESSED (no
@@ -725,7 +748,7 @@
 		// A RAISED EVENT (Rive plan Phase 6–7) is not a press: no press-feedback sound for it.
 		if (kind === 'event') return routed;
 		return () => {
-			context.eventEmitter.broadcast(
+			pressFeedback(
 				action === 'spin'
 					? getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() })
 					: { type: 'soundPressGeneral' },
@@ -801,6 +824,8 @@
 	registerInlineImageResolver((symbol) =>
 		getActiveSymbolInfoMap()[symbol]?.static ? symbol : undefined,
 	);
+	/** The feature is recorded but its board has not shown it yet — a held intro before the board. */
+	const respinsBeforeBoard = () => stateHoldAndWin.active && !stateRespinBoard.counter.show;
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
@@ -816,11 +841,17 @@
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
 		// Hold and Win: the respins left on the counter (`respinUpdate`, restated by every snapshot) — what
-		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field.
-		respinsLeft: valueSource(() => stateRespinBoard.counter.left),
+		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field. Between
+		// the feature's entry and the board showing it (a held intro ahead of `showRespinBoard`), the
+		// recorded feature's.
+		respinsLeft: valueSource(() =>
+			respinsBeforeBoard() ? stateHoldAndWin.left : stateRespinBoard.counter.left,
+		),
 		// …and what the counter resets to — the feature's current cap (an add-respins can raise it),
 		// what a value binding divides `respinsLeft` by to drive a draining bar.
-		respinsStart: valueSource(() => stateRespinBoard.counter.start),
+		respinsStart: valueSource(() =>
+			respinsBeforeBoard() ? stateHoldAndWin.start : stateRespinBoard.counter.start,
+		),
 		// The respin board's held cells and its open cells (reels × open rows) — a "board filling"
 		// bar binds the first, normalised by the second. 0 outside the feature.
 		cellsHeld: valueSource(() => (stateRespinBoard.shown ? stateRespinBoard.held.length : 0)),
@@ -1309,6 +1340,15 @@
 	);
 
 	const context = getContext();
+	// The determinism probe's `uiEvents` (Rive plan Phase 8d): every press-feedback sound, whichever
+	// path broadcast it, and the UI fades. A no-op outside determinism mode.
+	context.eventEmitter.subscribeOnMount({
+		soundPressGeneral: () => recordDeterminismUiEvent('soundPressGeneral'),
+		soundPressBet: () => recordDeterminismUiEvent('soundPressBet'),
+		soundPressStop: () => recordDeterminismUiEvent('soundPressStop'),
+		uiHide: () => recordDeterminismUiEvent('uiHide'),
+		uiShow: () => recordDeterminismUiEvent('uiShow'),
+	});
 
 	// Invisible Flow (Phase 4) — the runtime interpreter, built once the live editor doc
 	// loads (it resolves authored screen ids to their scenes). ABSENT by default (no FlowDoc
@@ -1982,7 +2022,7 @@
 		// ButtonMenu — open the menu overlay. No disabled/active.
 		menu: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('menu', doOpenMenu);
 			},
 		},
@@ -1992,7 +2032,7 @@
 		// (iPhone Safari has no Fullscreen API; iPad does) or the jurisdiction forbids it.
 		fullscreen: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('fullscreen', doToggleFullscreen);
 			},
 			active: boolSource(() => stateFullscreen.active),
@@ -2006,7 +2046,7 @@
 		// `stateUi.menuOpen` body never runs; unwired it closes the coded drawer.
 		menuClose: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('menuClose', doCloseMenu);
 			},
 		},
@@ -2017,19 +2057,19 @@
 		// they behave identically whether reached via the popup or as a direct button.
 		payTable: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doOpenPayTable();
 			},
 		},
 		gameRules: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doOpenGameRules();
 			},
 		},
 		settings: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doOpenSettings();
 			},
 		},
@@ -2037,7 +2077,7 @@
 		// authored button can show its selected-state image while unmuted.
 		soundToggle: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doToggleSound();
 			},
 			active: boolSource(() => stateSound.volumeValueMaster !== 0),
@@ -2046,7 +2086,7 @@
 		// when one is armed. Disabled while not idle; active while a buy mode is on.
 		buyBonus: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('buyBonus', codedOpenBuyModal);
 			},
 			disabled: boolSource(
@@ -2058,7 +2098,7 @@
 		// Active while an auto-bet counter is live; disabled per its compound derived.
 		autoSpin: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doAutoSpin();
 			},
 			disabled: boolSource(() => {
@@ -2078,7 +2118,7 @@
 		// concern of the coded button, not part of the press/flag contract here.)
 		turbo: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('turbo', doToggleTurbo);
 			},
 			disabled: boolSource(() => stateBet.isSpaceHold || isCelebrationLocked()),
@@ -2088,7 +2128,7 @@
 		// idle or already at the biggest option.
 		increase: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('increase', doIncreaseBet);
 			},
 			disabled: boolSource(
@@ -2102,7 +2142,7 @@
 		// idle or already at the smallest option.
 		decrease: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('decrease', doDecreaseBet);
 			},
 			disabled: boolSource(
@@ -2122,9 +2162,7 @@
 		// markup below, gated on the same flag.
 		spin: {
 			onpress: () => {
-				context.eventEmitter.broadcast(
-					getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),
-				);
+				pressFeedback(getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }));
 				// Functional action pin (design doc §8.5): an authored `spin` action → intent edge
 				// routes the press THROUGH the flow; unwired / inert ⇒ the coded bet/stop runs
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
@@ -2175,20 +2213,56 @@
 	});
 
 	onMount(() => {
-		void loadEditorScenes().then((rawDoc) => {
-			// Rive plan Phase 8a: ONE swap of every coded `bind: Transition` for the authored instance,
-			// wherever it sits (`withAuthoredTransitionDoc`), applied only when the shared rule says
-			// `ready`; `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
-			// board override — is the swapped doc, so no mount path renders the coded node the retire
-			// below has made inert. Off, or not ready ⇒ the same doc object (parity).
-			const authored = authoredTransitionStatus(rawDoc) === 'ready';
-			const transitioned = authored ? withAuthoredTransitionDoc(rawDoc) : rawDoc;
-			// Rive plan Phase 8b: the AUTHORED Win, under its own flag and the shared status rule —
-			// every `bind: Win` degraded to its gate half, a placed `win` instance swapped for the
-			// built-in `winPresentation`, the `winVisual` scene synthesized when none is placed; both
-			// flows are built from this doc too. Off, or held back ⇒ the same doc object (parity).
-			const authoredWin = resolveAuthoredWinStatus(transitioned) === 'ready';
-			const doc = authoredWin ? withAuthoredWinDoc(transitioned) : transitioned;
+		void loadEditorScenes().then((loadedDoc) => {
+			// Rive plan Phase 8d: the AUTHORED button, under its own flag and the shared status rule —
+			// every parametric `componentInstance(button)` swapped for the built-in `buttonPresentation`
+			// (its machine draws the frame per state, turns the spin frame, plays the press sound); the
+			// press road and its gates stay coded. A project whose own `button` def draws something else
+			// is held back. Everything the path reads is registered here and nowhere else: the def, the
+			// `uiHide` / `uiShow` signals its fade layer hears, and the project's `button` defaults under
+			// the new id. Off, or held back ⇒ the same doc object (parity).
+			const authoredButtons =
+				authoredButtonsStatus(loadedDoc, {
+					shadowed: !docButtonVersions(loadedDoc).every((version) =>
+						isBuiltinButtonShape(resolveComponent('button', version).def),
+					),
+				}) === 'ready';
+			const rawDoc = authoredButtons ? withAuthoredButtonsDoc(loadedDoc) : loadedDoc;
+			if (authoredButtons) {
+				registerComponents(
+					{ [BUTTON_PRESENTATION_DEF.id]: BUTTON_PRESENTATION_DEF },
+					{ builtin: true },
+				);
+				registerComponentSignals({
+					[BUTTON_STATE_INPUTS.uiHide]: eventSignal((run) =>
+						context.eventEmitter.subscribe({ uiHide: () => run() }),
+					),
+					[BUTTON_STATE_INPUTS.uiShow]: eventSignal((run) =>
+						context.eventEmitter.subscribe({ uiShow: () => run() }),
+					),
+				});
+				const buttonDefaults = getComponentDefaults('button');
+				if (buttonDefaults)
+					registerComponentDefaults({ [BUTTON_PRESENTATION_DEF.id]: buttonDefaults });
+			}
+			// Rive plan Phase 8a–8c: the authored overlays, resolved by the ONE rule the launcher's chips
+			// share (`resolveAuthoredOverlays`) — Transition, then the Win, then the free-spin intro /
+			// outro, each status read on the doc the swaps before it produced. 8a swaps every coded
+			// `bind: Transition` for the authored instance; 8b degrades every `bind: Win` to its gate
+			// half, swaps a placed `win` instance for the built-in `winPresentation` and synthesizes the
+			// `winVisual` scene when none is placed; 8c swaps every coded `bind: FreeSpinIntroVisual /
+			// FreeSpinOutroVisual` for its built-in presentation (the outro driver, the taps and the holds
+			// stay coded). `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
+			// board override — is the swapped doc, so no mount path renders a coded node the retires
+			// below have made inert. Off, or held back ⇒ the same doc object (parity).
+			const overlays = resolveAuthoredOverlays(rawDoc, {
+				status: resolveAuthoredWinStatus,
+				presentation: authoredWinPresentation,
+			});
+			const { doc } = overlays;
+			const authored = overlays.transition === 'ready';
+			const authoredWin = overlays.win === 'ready';
+			const authoredFreeSpins = overlays.freeSpins === 'ready';
 			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
 			// placed the hybrid `transition` twin plays one wipe (the authored one).
 			retireCodedOverlay('transition', authored);
@@ -2210,6 +2284,30 @@
 				// here and nowhere else: an unregistered id expands to nothing — the swapped instance
 				// would mount, subscribe nothing and draw nothing.
 				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
+			}
+			// The coded free-spin visuals go dark for this boot; everything the authored path reads is
+			// registered by `startAuthoredFreeSpins` and nowhere else (a boot without the flag registers
+			// nothing new), and torn down with the game. Reset first, so no earlier boot's retire lingers.
+			retireCodedOverlay('freeSpins', false);
+			if (authoredFreeSpins) {
+				const stop = startAuthoredFreeSpins({
+					signals: {
+						introShow: (run) => context.eventEmitter.subscribe({ freeSpinIntroShow: () => run() }),
+						introHide: (run) => context.eventEmitter.subscribe({ freeSpinIntroHide: () => run() }),
+						outroCountUp: (run) =>
+							context.eventEmitter.subscribe({
+								freeSpinOutroCountUp: (e) => run(e.winLevelData?.type === 'big'),
+							}),
+						outroHide: (run) => context.eventEmitter.subscribe({ freeSpinOutroHide: () => run() }),
+					},
+					onIntroUpdate: (set) =>
+						context.eventEmitter.subscribe({ freeSpinIntroUpdate: (e) => set(e.totalFreeSpins) }),
+					board: () => context.stateGameDerived.boardLayout(),
+					boardColumns: boardDimensions().x,
+					lang: stateUrlDerived.lang(),
+				});
+				if (destroyed) stop();
+				else stopAuthoredFreeSpins = stop;
 			}
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);

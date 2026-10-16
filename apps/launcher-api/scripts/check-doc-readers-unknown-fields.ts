@@ -487,6 +487,36 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		'4. layout: an ON win row survives beside an OFF transition row (sparse, ON-only)',
 		JSON.stringify(normalizeLayoutDoc(winOnly, 'demo')).includes('"authoredOverlays":{"win":true}'),
 	);
+	// Rive plan Phase 8c: the `freeSpins` row, ON-only and sparse like the other two.
+	const freeSpinsOnly = clone(base) as typeof base & { settings: Record<string, unknown> };
+	freeSpinsOnly.settings.authoredOverlays = { win: false, freeSpins: true };
+	check(
+		'4. layout: an ON freeSpins row survives beside an OFF win row (sparse, ON-only)',
+		JSON.stringify(normalizeLayoutDoc(freeSpinsOnly, 'demo')).includes(
+			'"authoredOverlays":{"freeSpins":true}',
+		),
+	);
+	const freeSpinsOff = clone(base) as typeof base & { settings: Record<string, unknown> };
+	freeSpinsOff.settings.authoredOverlays = { freeSpins: 'yes' };
+	check(
+		'4. layout: a non-boolean freeSpins row is dropped',
+		!JSON.stringify(normalizeLayoutDoc(freeSpinsOff, 'demo')).includes('authoredOverlays'),
+	);
+	// Rive plan Phase 8d: the `buttons` row, ON-only and sparse like the others.
+	const buttonsOnly = clone(base) as typeof base & { settings: Record<string, unknown> };
+	buttonsOnly.settings.authoredOverlays = { freeSpins: false, buttons: true };
+	check(
+		'4. layout: an ON buttons row survives beside an OFF freeSpins row (sparse, ON-only)',
+		JSON.stringify(normalizeLayoutDoc(buttonsOnly, 'demo')).includes(
+			'"authoredOverlays":{"buttons":true}',
+		),
+	);
+	const buttonsOff = clone(base) as typeof base & { settings: Record<string, unknown> };
+	buttonsOff.settings.authoredOverlays = { buttons: 1 };
+	check(
+		'4. layout: a non-boolean buttons row is dropped',
+		!JSON.stringify(normalizeLayoutDoc(buttonsOff, 'demo')).includes('authoredOverlays'),
+	);
 
 	const withNodeField = clone(base);
 	Object.assign(withNodeField.scenes[0].nodes[0], { glow: 0.2 });
@@ -987,7 +1017,14 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		},
 		transition: { kind: 'flipbook', clipId: 'emerge', blendMode: 'screen' },
 		tumblePattern: { pattern: 'rowsTop', stepMs: 40 },
-		flights: { toTotal: { head: { kind: 'sprite', assetKey: 'coin' }, ease: 'easeIn', speed: 2 } },
+		flights: {
+			toTotal: {
+				head: { kind: 'sprite', assetKey: 'coin' },
+				ease: 'easeIn',
+				headAlign: 'follow',
+				speed: 2,
+			},
+		},
 		coinLabel: { cash: { format: 'betMultiple', decimals: 2 } },
 	};
 	const win = 'symbols.H1.win';
@@ -1075,6 +1112,12 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 			edit: set('flights.toTotal.ease', 'bounce'),
 			reads: del('flights.toTotal.ease'),
 			warns: drops('flights.toTotal.ease'),
+		},
+		{
+			label: 'a new flight head align falls back to the coded one (the head does not turn)',
+			edit: set('flights.toTotal.headAlign', 'spin'),
+			reads: del('flights.toTotal.headAlign'),
+			warns: drops('flights.toTotal.headAlign'),
 		},
 		{
 			label: 'a new cash format falls back to money',

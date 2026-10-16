@@ -263,7 +263,17 @@
 			fold.allOutputs,
 		);
 		const tint = fold.timelineSample?.tint;
-		return tint === undefined ? folded : { ...folded, tint };
+		const settled =
+			timelineDrive?.settles &&
+			((timelineDrive.channels.has('rotation') && folded.rotation === undefined) ||
+				(timelineDrive.channels.has('alpha') && folded.alpha === undefined))
+				? {
+						...folded,
+						rotation: folded.rotation ?? (timelineDrive.channels.has('rotation') ? 0 : undefined),
+						alpha: folded.alpha ?? (timelineDrive.channels.has('alpha') ? 1 : undefined),
+					}
+				: folded;
+		return tint === undefined ? settled : { ...settled, tint };
 	});
 
 	const Bound = $derived(node.bind ? getBoundComponent(node.bind.component) : undefined);
@@ -294,17 +304,33 @@
 	// `mainToWorld`/`mainScale`), so the overlay renders identically in both, in ANY screen
 	// space. Gated to a non-`game`/non-`background` host scene (a `game` scene already frames
 	// it; a `background` scene cover-fits) ⇒ every existing placement is byte-identical (parity).
-	const hostedSpace = $derived(
+	const hostedDef = $derived(
 		node.kind === 'componentInstance'
-			? hostedComponentSpace(resolveComponent(node.componentId, node.componentVersion).def)
+			? resolveComponent(node.componentId, node.componentVersion).def
 			: undefined,
 	);
+	const hostedSpace = $derived(hostedComponentSpace(hostedDef));
+	// A `boardAnchored` def (Rive plan Phase 8c, the free-spin presentations) is a board-relative
+	// overlay too, and also sits on the game's live board position — where the coded overlay that
+	// self-centred on `boardLayout()` drew. Every other def: unchanged (parity).
+	const boardAnchored = $derived(hostedDef?.boardAnchored === true);
 	const gameFrameOverlay = $derived(
-		hostedSpace === 'game' && space !== 'game' && space !== 'background',
+		(hostedSpace === 'game' || boardAnchored) && space !== 'game' && space !== 'background',
 	);
 	const gameFrame = $derived.by(() => {
 		if (!gameFrameOverlay) return undefined;
 		const ml = layoutContext.stateLayoutDerived.mainLayout();
+		if (boardAnchored) {
+			const board = boardBox();
+			return {
+				x: posX + ml.x + ml.scale * ((board?.x ?? ml.width / 2) - ml.width / 2),
+				y: posY + ml.y + ml.scale * ((board?.y ?? ml.height / 2) - ml.height / 2),
+				scale: {
+					x: (transform.scale?.x ?? 1) * ml.scale,
+					y: (transform.scale?.y ?? 1) * ml.scale,
+				},
+			};
+		}
 		return {
 			x: ml.x + ml.scale * (transform.x - ml.width / 2),
 			y: ml.y + ml.scale * (transform.y - ml.height / 2),
@@ -872,7 +898,45 @@
 	const rectHeight = $derived(
 		node.kind === 'rect' ? (transform.height ?? node.height) * sizeScaleY : 0,
 	);
-	const rectColor = $derived(node.kind === 'rect' ? (node.color ?? 0xffffff) : 0xffffff);
+	// A param-bound fill / border colour (Rive plan Phase 8d: the authored button's tile takes its
+	// variant colour from the instance). Unbound ⇒ the node's own `color` (parity).
+	const boundRectColor = $derived(
+		node.kind === 'rect'
+			? resolveBoundValue(node.paramBindings, 'color', componentParams)
+			: undefined,
+	);
+	const rectColor = $derived(
+		node.kind === 'rect'
+			? typeof boundRectColor === 'number'
+				? boundRectColor
+				: (node.color ?? 0xffffff)
+			: 0xffffff,
+	);
+	const boundRectBorderColor = $derived(
+		node.kind === 'rect'
+			? resolveBoundValue(node.paramBindings, 'borderColor', componentParams)
+			: undefined,
+	);
+	// The rounded / bordered rect (Rive plan Phase 8d) — only on a rect that sets them, so every other
+	// rect hands `<Rectangle>` exactly the props it did (its defaults draw a square, borderless fill).
+	const rectShape = $derived.by(() => {
+		if (node.kind !== 'rect') return {};
+		const shape: { borderRadius?: number; borderWidth?: number; borderColor?: number } = {};
+		if (node.borderRadius !== undefined) shape.borderRadius = node.borderRadius;
+		if (node.borderWidth !== undefined) {
+			shape.borderWidth = node.borderWidth;
+			shape.borderColor =
+				typeof boundRectBorderColor === 'number' ? boundRectBorderColor : (node.borderColor ?? 0);
+		}
+		return shape;
+	});
+	// A container's param-bound `tint` (Rive plan Phase 8d: the authored button frame, tinted as the
+	// coded frame tints its container). Unbound ⇒ `undefined`, which the container never receives.
+	const containerTint = $derived.by(() => {
+		if (node.kind !== 'container') return undefined;
+		const bound = resolveBoundValue(node.paramBindings, 'tint', componentParams);
+		return typeof bound === 'number' ? bound : undefined;
+	});
 
 	/**
 	 * The node's PixiJS blend mode (`undefined` for `normal`, so `propsSyncEffect` skips the prop
@@ -1129,6 +1193,7 @@
 				eventMode={isPressTarget ? 'static' : undefined}
 				cursor={isPressTarget ? 'pointer' : undefined}
 				onpointerup={isPressTarget ? onNodePress : undefined}
+				tint={containerTint}
 			>
 				<Anchor name={node.id} />
 				<!--
@@ -1274,6 +1339,7 @@
 						width={rectWidth}
 						height={rectHeight}
 						backgroundColor={rectColor}
+						{...rectShape}
 					/>
 					<Rectangle isMask={fillRect !== undefined} {...fillRect ?? NO_MASK} />
 				</Container>
@@ -1285,6 +1351,7 @@
 					width={rectWidth}
 					height={rectHeight}
 					backgroundColor={rectColor}
+					{...rectShape}
 					rotation={transform.rotation}
 					alpha={transform.alpha}
 					zIndex={transform.zIndex}

@@ -1,7 +1,22 @@
-import { WIN_PRESENTATION_DEFAULTS } from './builtinComponents';
+import {
+	FREE_SPIN_INTRO_PRESENTATION_ID,
+	FREE_SPIN_OUTRO_PRESENTATION_ID,
+	WIN_PRESENTATION_DEFAULTS,
+} from './builtinComponents';
 import { WIN_PRESENTATION_COMPONENT_ID } from './builtinTimelines';
-import type { LayoutDoc, LayoutNode, NodeOverride, Scene } from './types';
-import { winTextHasVariable } from './winText';
+import {
+	BASE_NODE_FIELDS,
+	type LayoutDoc,
+	type LayoutNode,
+	type NodeOverride,
+	type Scene,
+} from './types';
+import {
+	resolveWinText,
+	resolveWinTextForMode,
+	winTextHasVariable,
+	type WinTextDoc,
+} from './winText';
 
 /**
  * AUTHORED OVERLAYS (Rive plan Phase 8a, `docs/design/rive-style-editor.md` §13.2): the per-project
@@ -183,9 +198,9 @@ export function docHasCodedWin(doc: Pick<LayoutDoc, 'scenes'>): boolean {
  * - `nothing-to-replace` — the flag is on, but no scene binds a coded `Win` / `WinGate`, none
  *   places a `win` instance, and the doc has an overlays scene of its own: no presentation would
  *   play at all. The coded path stays; the chip warns.
- * - `caption-variable` — an active tier's Win Text caption interpolates a resolver variable
- *   (`{amount}` …), which the authored text track cannot render. The coded path stays; the chip
- *   warns (the resolver variable is 8c's).
+ * - `caption-variable` — an active tier's Win Text caption, in the base game or any spins mode,
+ *   interpolates a resolver variable (`{amount}` …), which the authored text track cannot render.
+ *   The coded path stays; the chip warns (the resolver variable is 8c's).
  * - `tier-presentation-unsupported` — the active tiers resolve to more than one rig bundle or
  *   count slot: the authored presentation has ONE rig node, so it cannot play them. The coded path
  *   stays; the chip warns.
@@ -198,10 +213,32 @@ export interface AuthoredWinTier {
 	alias: string;
 	/** The tier's Win Text caption (`winLevels.<alias>`), when authored. */
 	caption?: string;
+	/** The spins modes whose own caption for the tier differs (mode id → caption, `''` ⇒ none). */
+	modeCaptions?: Record<string, string>;
 	/** The rig bundle the tier resolves to (`<alias>Spine` ?? the tier's `spineKey` ?? `winSpine`). */
 	rigKey: string;
 	/** The count slot the tier resolves to (`<alias>Slot` ?? `slotName`). */
 	slotName: string;
+}
+
+/**
+ * The spins modes that speak their own Win Text caption for tier `alias` — mode id → that mode's
+ * caption (`''` ⇒ none), only where it differs from the base game's. What the coded caption reads
+ * while a mode is on top (`boardWinText()` → `resolveWinTextForMode`); `undefined` when no mode
+ * differs (every live doc).
+ */
+export function winTierModeCaptions(
+	doc: WinTextDoc | undefined,
+	alias: string,
+): Record<string, string> | undefined {
+	if (!doc?.modes) return undefined;
+	const base = resolveWinText(doc).winLevels[alias] ?? '';
+	const out: Record<string, string> = {};
+	for (const mode of Object.keys(doc.modes)) {
+		const caption = resolveWinTextForMode(doc, mode).winLevels[alias] ?? '';
+		if (caption !== base) out[mode] = caption;
+	}
+	return Object.keys(out).length ? out : undefined;
 }
 
 export function authoredWinStatus(input: {
@@ -210,7 +247,11 @@ export function authoredWinStatus(input: {
 }): AuthoredWinStatus {
 	if (!authoredWinEnabled(input.doc)) return 'off';
 	if (!docHasCodedWin(input.doc)) return 'nothing-to-replace';
-	if (input.tiers.some((tier) => winTextHasVariable(tier.caption))) return 'caption-variable';
+	const captions = input.tiers.flatMap((tier) => [
+		tier.caption,
+		...Object.values(tier.modeCaptions ?? {}),
+	]);
+	if (captions.some((caption) => winTextHasVariable(caption))) return 'caption-variable';
 	const rigs = new Set(input.tiers.map((tier) => tier.rigKey));
 	const slots = new Set(input.tiers.map((tier) => tier.slotName));
 	if (rigs.size > 1 || slots.size > 1) return 'tier-presentation-unsupported';
@@ -218,12 +259,40 @@ export function authoredWinStatus(input: {
 }
 
 /**
+ * The rig bundle and count slot every active tier resolves to (`authoredWinStatus` is `ready` only
+ * when they all agree). The def's one `tier` node takes its rig from `winSpine` and the riders
+ * their slot from `slotName`, so the swap writes these there: a tier rig named per tier
+ * (`<alias>Spine`), by the config (`spineKey`) or a shared param all draw the rig the coded part did.
+ */
+export interface AuthoredWinPresentation {
+	winSpine: string;
+	slotName: string;
+}
+
+/** `params` with the resolved rig and slot written where they differ from what the def reads. */
+const withPresentation = (
+	params: Record<string, unknown> | undefined,
+	presentation: AuthoredWinPresentation | undefined,
+): Record<string, unknown> | undefined => {
+	if (!presentation) return params;
+	const patch: Record<string, unknown> = {};
+	for (const key of ['winSpine', 'slotName'] as const) {
+		const value = params?.[key];
+		const reads =
+			typeof value === 'string' && value.length > 0 ? value : WIN_PRESENTATION_DEFAULTS[key];
+		if (reads !== presentation[key]) patch[key] = presentation[key];
+	}
+	return Object.keys(patch).length ? { ...(params ?? {}), ...patch } : params;
+};
+
+/**
  * A scene with the win swap applied, wherever it sits: every coded `bind: Win` composer becomes its
  * GATE half (`bind: WinGate` — the degrade the game already applied for a doc that placed its own
  * visual), and every placed `win` instance becomes a `winPresentation` instance carrying its
- * transform, overrides and params (the same keys). Nothing to swap ⇒ the SAME scene object.
+ * transform, overrides and params (the same keys), with the tiers' resolved rig and slot written in
+ * (`presentation`). Nothing to swap ⇒ the SAME scene object.
  */
-export function withAuthoredWin(scene: Scene): Scene {
+export function withAuthoredWin(scene: Scene, presentation?: AuthoredWinPresentation): Scene {
 	let swapped = false;
 	const rewrite = (node: LayoutNode): LayoutNode => {
 		if (isCodedWinComposer(node) && node.bind) {
@@ -233,7 +302,12 @@ export function withAuthoredWin(scene: Scene): Scene {
 		if (node.kind === 'componentInstance' && node.componentId === 'win') {
 			swapped = true;
 			const { componentVersion: _pinned, ...rest } = node;
-			return { ...rest, componentId: WIN_PRESENTATION_COMPONENT_ID };
+			const params = withPresentation(node.params, presentation);
+			return {
+				...rest,
+				componentId: WIN_PRESENTATION_COMPONENT_ID,
+				...(params ? { params } : {}),
+			};
 		}
 		if (node.kind === 'container') {
 			const children = node.children.map(rewrite);
@@ -255,7 +329,10 @@ type MainSizes = Record<string, { width: number; height: number } | undefined>;
  * `fitBoard` — the coded composer fitted its rig to the board width; a PLACED instance (swapped
  * above) never gets it, so it keeps the natural size the coded `win` instance rendered at.
  */
-export function authoredWinVisualScene(mainSizesMap: MainSizes): Scene {
+export function authoredWinVisualScene(
+	mainSizesMap: MainSizes,
+	presentation?: AuthoredWinPresentation,
+): Scene {
 	const centre = (size: { width: number; height: number } | undefined) =>
 		size ? { x: size.width * 0.5, y: size.height * 0.5 } : undefined;
 	const base = centre(mainSizesMap.desktop) ?? { x: 0, y: 0 };
@@ -279,7 +356,7 @@ export function authoredWinVisualScene(mainSizesMap: MainSizes): Scene {
 				x: base.x,
 				y: base.y,
 				...(Object.keys(overrides).length ? { overrides } : {}),
-				params: { ...WIN_PRESENTATION_DEFAULTS, fitBoard: true },
+				params: { ...WIN_PRESENTATION_DEFAULTS, ...presentation, fitBoard: true },
 			},
 		],
 	};
@@ -296,13 +373,14 @@ export function authoredWinVisualScene(mainSizesMap: MainSizes): Scene {
  */
 export function withAuthoredWinDoc<T extends Pick<LayoutDoc, 'scenes' | 'mainSizesMap'>>(
 	doc: T,
+	presentation?: AuthoredWinPresentation,
 ): T {
-	const scenes = doc.scenes.map(withAuthoredWin);
+	const scenes = doc.scenes.map((scene) => withAuthoredWin(scene, presentation));
 	const changed = scenes.some((scene, i) => scene !== doc.scenes[i]);
 	const nodes = doc.scenes.flatMap((scene) => scene.nodes);
 	const placed = hasWinInstance(nodes) || hasWinPresentationInstance(nodes);
 	if (placed) return changed ? { ...doc, scenes } : doc;
-	const visual = authoredWinVisualScene((doc.mainSizesMap ?? {}) as MainSizes);
+	const visual = authoredWinVisualScene((doc.mainSizesMap ?? {}) as MainSizes, presentation);
 	const hasEmptyVisualScene = scenes.some((scene) => scene.id === WIN_VISUAL_SCENE_ID);
 	return {
 		...doc,
@@ -310,4 +388,167 @@ export function withAuthoredWinDoc<T extends Pick<LayoutDoc, 'scenes' | 'mainSiz
 			? scenes.map((scene) => (scene.id === WIN_VISUAL_SCENE_ID ? visual : scene))
 			: [...scenes, visual],
 	};
+}
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED FREE-SPIN INTRO / OUTRO (Rive plan Phase 8c, §13.7.4): one flag row for both
+// screens. What the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual` draw becomes the built-in
+// presentation instances; the outro driver, the screens' taps and the flow's holds stay coded.
+// ---------------------------------------------------------------------------------------------
+
+/** Whether the doc renders the free-spin intro / outro visuals from their authored components. */
+export const authoredFreeSpinsEnabled = (doc: Pick<LayoutDoc, 'settings'>): boolean =>
+	doc.settings?.authoredOverlays?.freeSpins === true;
+
+const FREE_SPIN_VISUALS: Record<string, { id: string; props: Record<string, unknown> }> = {
+	FreeSpinIntroVisual: {
+		id: FREE_SPIN_INTRO_PRESENTATION_ID,
+		props: {
+			introSpine: 'fsIntroNumber',
+			introAnimation: 'intro',
+			idleAnimation: 'idle',
+			slotName: 'slot_number',
+		},
+	},
+	FreeSpinOutroVisual: {
+		id: FREE_SPIN_OUTRO_PRESENTATION_ID,
+		props: {
+			outroSpine: 'fsOutroNumber',
+			outroAnimation: 'intro',
+			idleAnimation: 'idle',
+			slotName: 'slot_number',
+		},
+	},
+};
+const isCodedFreeSpinVisual = (node: LayoutNode): boolean =>
+	!!node.bind && node.bind.component in FREE_SPIN_VISUALS;
+const isPlacedFreeSpinVisual = (node: LayoutNode): boolean =>
+	node.kind === 'componentInstance' &&
+	(node.componentId === 'freeSpinIntroVisual' || node.componentId === 'freeSpinOutroVisual');
+
+/** Whether a coded visual bind carries rig / clip / slot props other than the coded defaults. */
+const hasCustomPresentation = (node: LayoutNode): boolean => {
+	const coded = node.bind ? FREE_SPIN_VISUALS[node.bind.component] : undefined;
+	if (!coded || !node.bind) return false;
+	return Object.entries(node.bind.props ?? {}).some(
+		([key, value]) => key !== 'boundToInstance' && key in coded.props && value !== coded.props[key],
+	);
+};
+
+/**
+ * What the flag does to `doc`, the ONE rule the game and the launcher share. Every held-back
+ * status keeps the coded path for BOTH screens; the chip names why:
+ * - `off` — the flag is not on.
+ * - `ready` — the authored presentations replace every coded visual bind.
+ * - `nothing-to-replace` — no scene binds a coded free-spin visual.
+ * - `non-canvas-scene` — a coded visual bind sits in a scene that is not `canvas` space: the coded
+ *   part wraps its own main-box frame there, which the authored instance would not reproduce.
+ * - `placed-visual` — a scene places a `freeSpinIntroVisual` / `freeSpinOutroVisual` instance
+ *   (natural-size placement is not in 8c).
+ * - `custom-presentation` — a coded visual bind names a rig, clip or slot other than the coded
+ *   default; the built-in timelines play the default clips only.
+ */
+export type AuthoredFreeSpinsStatus =
+	| 'off'
+	| 'ready'
+	| 'nothing-to-replace'
+	| 'non-canvas-scene'
+	| 'placed-visual'
+	| 'custom-presentation';
+
+export function authoredFreeSpinsStatus(
+	doc: Pick<LayoutDoc, 'scenes' | 'settings'>,
+): AuthoredFreeSpinsStatus {
+	if (!authoredFreeSpinsEnabled(doc)) return 'off';
+	const nodes = doc.scenes.flatMap((scene) => scene.nodes);
+	if (some(nodes, isPlacedFreeSpinVisual)) return 'placed-visual';
+	const holding = doc.scenes.filter((scene) => some(scene.nodes, isCodedFreeSpinVisual));
+	if (!holding.length) return 'nothing-to-replace';
+	if (holding.some((scene) => (scene.space ?? 'game') !== 'canvas')) return 'non-canvas-scene';
+	if (some(nodes, hasCustomPresentation)) return 'custom-presentation';
+	return 'ready';
+}
+
+/**
+ * The authored stand-in for a coded free-spin visual bind: EVERY base-node field the coded node
+ * carries ({@link BASE_NODE_FIELDS} — transform, per-layout overrides, `hiddenUntilSignal`,
+ * listeners, bindings …), only `bind` replaced by the instance, so the swap renders the node the
+ * coded part was placed as. Kind-specific fields (a container's `children`, which a bind never
+ * renders) do not carry.
+ */
+const authoredFreeSpinNode = (coded: LayoutNode, componentId: string): LayoutNode => {
+	const carried: Record<string, unknown> = {};
+	for (const [field, carry] of Object.entries(BASE_NODE_FIELDS)) {
+		const value = (coded as unknown as Record<string, unknown>)[field];
+		if (carry && value !== undefined) carried[field] = value;
+	}
+	return {
+		...(carried as Pick<LayoutNode, 'id' | 'x' | 'y'>),
+		label: `${coded.label ?? 'Free-spin visual'} (authored)`,
+		kind: 'componentInstance',
+		componentId,
+		params: {},
+	};
+};
+
+/** A scene with every coded free-spin visual bind swapped; none ⇒ the SAME scene object. */
+export function withAuthoredFreeSpins(scene: Scene): Scene {
+	let swapped = false;
+	const rewrite = (node: LayoutNode): LayoutNode => {
+		if (isCodedFreeSpinVisual(node) && node.bind) {
+			swapped = true;
+			return authoredFreeSpinNode(node, FREE_SPIN_VISUALS[node.bind.component].id);
+		}
+		if (node.kind === 'container') {
+			const children = node.children.map(rewrite);
+			return children.some((child, i) => child !== node.children[i]) ? { ...node, children } : node;
+		}
+		return node;
+	};
+	const nodes = scene.nodes.map(rewrite);
+	return swapped ? { ...scene, nodes } : scene;
+}
+
+/** The doc with the free-spin swap applied to EVERY scene; nothing to swap ⇒ the SAME doc object. */
+export function withAuthoredFreeSpinsDoc<T extends Pick<LayoutDoc, 'scenes'>>(doc: T): T {
+	const scenes = doc.scenes.map(withAuthoredFreeSpins);
+	return scenes.some((scene, i) => scene !== doc.scenes[i]) ? { ...doc, scenes } : doc;
+}
+
+// ---------------------------------------------------------------------------------------------
+// ONE resolution for the game and the launcher (8c follow-up): the swaps run in the game's order —
+// Transition, then Win, then free spins — and each status is read on the doc the swaps before it
+// produced, so a chip reports what the game will boot, never a status read on a different doc.
+// ---------------------------------------------------------------------------------------------
+
+export interface AuthoredOverlayResolution<T> {
+	/** The doc the game renders: every ready overlay swapped; none ⇒ the SAME doc object. */
+	doc: T;
+	transition: AuthoredTransitionStatus;
+	win: AuthoredWinStatus;
+	freeSpins: AuthoredFreeSpinsStatus;
+}
+
+/**
+ * Resolve every authored-overlay row on `raw`. The Win's status needs the active tiers, which only
+ * the caller has (the game's config, the launcher's config + Win Text), so it is passed in; its
+ * `presentation` is read only when the Win is `ready`.
+ */
+export function resolveAuthoredOverlays<
+	T extends Pick<LayoutDoc, 'scenes' | 'settings' | 'mainSizesMap'>,
+>(
+	raw: T,
+	win: {
+		status: (doc: T) => AuthoredWinStatus;
+		presentation?: () => AuthoredWinPresentation | undefined;
+	},
+): AuthoredOverlayResolution<T> {
+	const transition = authoredTransitionStatus(raw);
+	const transitioned = transition === 'ready' ? withAuthoredTransitionDoc(raw) : raw;
+	const winStatus = win.status(transitioned);
+	const won =
+		winStatus === 'ready' ? withAuthoredWinDoc(transitioned, win.presentation?.()) : transitioned;
+	const freeSpins = authoredFreeSpinsStatus(won);
+	const doc = freeSpins === 'ready' ? withAuthoredFreeSpinsDoc(won) : won;
+	return { doc, transition, win: winStatus, freeSpins };
 }

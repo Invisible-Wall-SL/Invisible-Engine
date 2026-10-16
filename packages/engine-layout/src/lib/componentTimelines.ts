@@ -154,6 +154,13 @@ const EPSILON = 1e-9;
 /** A zero-length timeline never "ends" in a step the player can report; it holds nothing. */
 const isZeroLength = (doc: CinematicDoc): boolean => !(Math.max(doc.duration || 0, 0) > 0);
 
+/** Where a looping timeline wraps to (`loopFrom` inside `[0, duration)`), else `undefined`. */
+const loopStart = (doc: CinematicDoc): number | undefined => {
+	const from = doc.loopFrom;
+	const duration = Math.max(doc.duration || 0, 0);
+	return typeof from === 'number' && from >= 0 && from < duration ? from : undefined;
+};
+
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
 	/** Cues the playheads crossed, in order, each with the id of the timeline that crossed it. */
@@ -199,8 +206,6 @@ export class ComponentTimelinePlayer {
 	 * game's `componentPlayRate` each tick. 1 ⇒ exactly the step handed in (parity).
 	 */
 	playRate = 1;
-	/** Snap a playhead to its end within a microsecond (a `frameExact` def only, Phase 8b). */
-	snapEnds = false;
 
 	constructor(docs: readonly CinematicDoc[], nodes: LayoutNode[]) {
 		const scene = { id: '', name: '', nodes };
@@ -235,7 +240,13 @@ export class ComponentTimelinePlayer {
 	 */
 	holdsOn(signal: string): string[] {
 		return this.bound
-			.filter((b) => b.doc.playOn === signal && b.doc.holdsCue === true && !isZeroLength(b.doc))
+			.filter(
+				(b) =>
+					b.doc.playOn === signal &&
+					b.doc.holdsCue === true &&
+					!isZeroLength(b.doc) &&
+					loopStart(b.doc) === undefined,
+			)
 			.map((b) => b.doc.id);
 	}
 
@@ -297,14 +308,13 @@ export class ComponentTimelinePlayer {
 		for (const r of this.running.values()) {
 			if (r.done) continue;
 			const duration = Math.max(r.bound.doc.duration || 0, 0);
+			const loopFrom = loopStart(r.bound.doc);
+			if (loopFrom !== undefined) {
+				r.time = this.loop(r, loopFrom, duration, dt, step);
+				continue;
+			}
 			const prev = r.time;
-			// Frame deltas accumulate float error: 802 steps of 1/60 fall 1e-15 short of 13.3667, and
-			// a strip that ends on the frame after would hold its awaited cue a frame late (the win
-			// walk's tier boundary). A `frameExact` def snaps to the end within a microsecond, as the
-			// state-machine runner does; every other timeline ends exactly as before.
-			const stepped = prev + dt;
-			const next =
-				this.snapEnds && duration - stepped < 1e-6 ? duration : Math.min(stepped, duration);
+			const next = Math.min(prev + dt, duration);
 			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
 				step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
 			}
@@ -315,6 +325,30 @@ export class ComponentTimelinePlayer {
 			}
 		}
 		return step;
+	}
+
+	/** A looping timeline's step: past `duration` it wraps to `loopFrom`, carrying the overshoot. */
+	private loop(
+		r: Running,
+		loopFrom: number,
+		duration: number,
+		dt: number,
+		step: TimelineStep,
+	): number {
+		const id = r.bound.doc.id;
+		const crossed = (prev: number, next: number): void => {
+			for (const k of cuesCrossed(r.bound.cueKeys, prev, next))
+				step.cues.push({ cue: k.cue, timeline: id });
+		};
+		const next = r.time + dt;
+		if (next < duration) {
+			crossed(r.time, next);
+			return next;
+		}
+		crossed(r.time, duration);
+		const wrapped = loopFrom + ((next - duration) % (duration - loopFrom));
+		crossed(loopFrom - EPSILON, wrapped);
+		return wrapped;
 	}
 
 	/**
