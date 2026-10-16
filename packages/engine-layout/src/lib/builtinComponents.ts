@@ -1,5 +1,5 @@
 import { BUILTIN_REGION } from './builtinRegions';
-import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
+import { BUTTON_LOOKS, BUTTON_STATE_IMAGE_PARAMS, type ButtonLook } from './buttonStateImage';
 import {
 	HOLD_AND_WIN_VALUE_SOURCE_KEYS,
 	HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS,
@@ -298,6 +298,270 @@ export const BUTTON_DEF: ComponentDef = {
 		{ key: 'disabled', kind: 'boolean', engineProvided: true },
 		{ key: 'active', kind: 'boolean', engineProvided: true },
 		{ key: 'spinning', kind: 'boolean', engineProvided: true },
+	],
+};
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED BUTTON (Rive plan Phase 8d, `docs/design/rive-style-editor.md` §13.8): how the
+// parametric `button` looks per state — the coded `ButtonFrame`'s frame, its spin rotation, the
+// `uiShow` / `uiHide` fade and the press sound — as nodes a seeded state machine drives. The press
+// road and the gates that feed the flags stay coded; the label stays the coded `ButtonLabel`.
+// ---------------------------------------------------------------------------------------------
+
+export const BUTTON_PRESENTATION_ID = 'buttonPresentation';
+
+/** The node names the button machine's timelines bind (labels, unique within the def). */
+export const BUTTON_PRESENTATION_NODES = {
+	fade: 'fade',
+	frame: 'frame',
+	label: 'label',
+} as const;
+
+/** `UiSprite`'s corner radius (`<Rectangle borderRadius={50}>`). */
+const BUTTON_TILE_RADIUS = 50;
+/** The coded frame's painted downstate: the tile fill, or the frame sprite's tint. */
+export const BUTTON_DISABLED_GREY = 0xaaaaaa;
+/** The coded frame's active border on the tile. */
+const BUTTON_ACTIVE_BORDER = 10;
+/** The press sounds a press can hand the machine — the game's `Sound` events, by name. */
+export const BUTTON_PRESS_SOUNDS = [
+	'soundPressGeneral',
+	'soundPressBet',
+	'soundPressStop',
+] as const;
+/** The machine's reserved inputs, fed by the instance (`ComponentDef.buttonStates`). */
+export const BUTTON_STATE_INPUTS = {
+	look: 'look',
+	rotating: 'rotating',
+	fadeWithUi: 'fadeWithUi',
+	uiHide: 'uiHide',
+	uiShow: 'uiShow',
+} as const;
+/** The coded `FadeContainer`'s default tween — the HUD's `uiShow` / `uiHide` fade. */
+export const BUTTON_FADE_MS = 400;
+
+const buttonTimelineId = (suffix: string): string => `c_buttonpresentation_${suffix.toLowerCase()}`;
+export const buttonLookTimelineId = (look: ButtonLook): string => buttonTimelineId(`look_${look}`);
+export const BUTTON_SPIN_STILL_TIMELINE_ID = buttonTimelineId('spin_still');
+export const BUTTON_SPIN_ROTATING_TIMELINE_ID = buttonTimelineId('spin_rotating');
+export const BUTTON_FADE_SHOWN_TIMELINE_ID = buttonTimelineId('fade_shown');
+export const BUTTON_FADE_HIDDEN_TIMELINE_ID = buttonTimelineId('fade_hidden');
+export const BUTTON_SOUND_QUIET_TIMELINE_ID = buttonTimelineId('sound_quiet');
+export const buttonSoundTimelineId = (sound: string): string => buttonTimelineId(`sound_${sound}`);
+
+const tileNode = (look: ButtonLook, disabled: boolean, active: boolean): LayoutNode => ({
+	id: `buttonPresentation-${look}`,
+	label: look,
+	kind: 'rect',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	width: BUTTON_BASE_SIZE,
+	height: BUTTON_BASE_SIZE,
+	borderRadius: BUTTON_TILE_RADIUS,
+	...(disabled ? { color: BUTTON_DISABLED_GREY } : {}),
+	...(active ? { borderWidth: BUTTON_ACTIVE_BORDER } : {}),
+	paramBindings: {
+		...(disabled ? {} : { color: 'tileColor' }),
+		...(active ? { borderColor: 'tileBorderColor' } : {}),
+	},
+});
+
+const imageNode = (look: ButtonLook, grey: boolean): LayoutNode => ({
+	id: `buttonPresentation-${look}`,
+	label: look,
+	kind: 'sprite',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	// No static texture: the frame is the bound `image` (a look with none never shows this node).
+	assetKey: '',
+	width: BUTTON_BASE_SIZE,
+	height: BUTTON_BASE_SIZE,
+	...(grey ? { tint: BUTTON_DISABLED_GREY } : {}),
+	paramBindings: { region: 'image' },
+});
+
+/** One look's state: the look's frame node shown, the other five hidden. */
+const lookState = (look: ButtonLook) => ({ id: look, timeline: buttonLookTimelineId(look) });
+
+/**
+ * The AUTHORED parametric button (Rive plan Phase 8d, §13.8.2): beside, not instead of, `button`
+ * (whose bound `ButtonFrame` stays the coded path). Same params as `button`, so a swapped instance
+ * keeps its own. `internal`: nothing references it until a project turns on
+ * `settings.authoredOverlays.buttons`, and no palette offers it during the pilot.
+ *
+ * `fade` (the fade layer's alpha) › `frame` (the spin layer's rotation, the `tint` param — the coded
+ * frame tints its container) › the six frame nodes, one shown per look (`BUTTON_LOOKS`): four
+ * rounded-rect tiles, each the ONE `Rectangle` the coded `UiSprite` draws for that look (variant
+ * fill or the grey, with or without the active border), and the state frame sprite plain or greyed,
+ * its `region` the cascade-resolved frame the instance provides as `image`; then `label`, the coded
+ * `ButtonLabel`, outside `frame` as it is coded. The machine's four layers each key their own nodes.
+ */
+export const BUTTON_PRESENTATION_DEF: ComponentDef = {
+	id: BUTTON_PRESENTATION_ID,
+	name: 'Button presentation',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	internal: true,
+	frameExact: true,
+	buttonStates: true,
+	root: {
+		id: 'buttonPresentation-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'buttonPresentation-fade',
+				label: BUTTON_PRESENTATION_NODES.fade,
+				kind: 'container',
+				x: 0,
+				y: 0,
+				children: [
+					{
+						id: 'buttonPresentation-frame',
+						label: BUTTON_PRESENTATION_NODES.frame,
+						kind: 'container',
+						x: 0,
+						y: 0,
+						paramBindings: { tint: 'tint' },
+						children: [
+							tileNode('tile', false, false),
+							tileNode('tileDisabled', true, false),
+							tileNode('tileActive', false, true),
+							tileNode('tileDisabledActive', true, true),
+							imageNode('image', false),
+							imageNode('imageDisabled', true),
+						],
+					},
+					{
+						id: 'buttonPresentation-label',
+						label: BUTTON_PRESENTATION_NODES.label,
+						kind: 'container',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						bind: { component: 'ButtonLabel' },
+						children: [],
+					},
+				],
+			},
+		],
+	},
+	inputs: [
+		{ id: BUTTON_STATE_INPUTS.look, kind: 'number', note: 'The frame look (fed by the instance).' },
+		{ id: BUTTON_STATE_INPUTS.rotating, kind: 'bool', note: 'The spin frame rotates.' },
+		{ id: BUTTON_STATE_INPUTS.fadeWithUi, kind: 'bool', note: 'The button fades on its own.' },
+		{ id: BUTTON_STATE_INPUTS.uiHide, kind: 'trigger', note: 'The game hides its UI.' },
+		{ id: BUTTON_STATE_INPUTS.uiShow, kind: 'trigger', note: 'The game shows its UI.' },
+		...BUTTON_PRESS_SOUNDS.map((sound) => ({
+			id: sound,
+			kind: 'trigger' as const,
+			note: 'A press makes this sound.',
+		})),
+	],
+	stateMachine: {
+		layers: [
+			{
+				id: 'look',
+				name: 'Look',
+				entry: 'tile',
+				states: BUTTON_LOOKS.map(lookState),
+				transitions: BUTTON_LOOKS.map((look, index) => ({
+					id: `to-${look}`,
+					from: 'any',
+					to: look,
+					conditions: [{ input: BUTTON_STATE_INPUTS.look, op: '==' as const, value: index }],
+				})),
+			},
+			{
+				id: 'spin',
+				name: 'Spin',
+				entry: 'still',
+				states: [
+					{ id: 'still', timeline: BUTTON_SPIN_STILL_TIMELINE_ID },
+					{ id: 'rotating', timeline: BUTTON_SPIN_ROTATING_TIMELINE_ID, loop: true },
+				],
+				transitions: [
+					{
+						id: 'start',
+						from: 'still',
+						to: 'rotating',
+						conditions: [{ input: BUTTON_STATE_INPUTS.rotating, op: '==', value: true }],
+					},
+					{
+						id: 'stop',
+						from: 'rotating',
+						to: 'still',
+						conditions: [{ input: BUTTON_STATE_INPUTS.rotating, op: '==', value: false }],
+					},
+				],
+			},
+			{
+				id: 'fade',
+				name: 'Fade',
+				entry: 'shown',
+				states: [
+					{ id: 'shown', timeline: BUTTON_FADE_SHOWN_TIMELINE_ID },
+					{ id: 'hidden', timeline: BUTTON_FADE_HIDDEN_TIMELINE_ID },
+				],
+				transitions: [
+					{
+						id: 'hide',
+						from: 'shown',
+						to: 'hidden',
+						conditions: [
+							{ input: BUTTON_STATE_INPUTS.uiHide, op: 'fired' },
+							{ input: BUTTON_STATE_INPUTS.fadeWithUi, op: '==', value: true },
+						],
+						blend: BUTTON_FADE_MS,
+					},
+					{
+						id: 'show',
+						from: 'hidden',
+						to: 'shown',
+						conditions: [
+							{ input: BUTTON_STATE_INPUTS.uiShow, op: 'fired' },
+							{ input: BUTTON_STATE_INPUTS.fadeWithUi, op: '==', value: true },
+						],
+						blend: BUTTON_FADE_MS,
+					},
+				],
+			},
+			{
+				id: 'sound',
+				name: 'Press sound',
+				entry: 'quiet',
+				states: [
+					{ id: 'quiet', timeline: BUTTON_SOUND_QUIET_TIMELINE_ID },
+					...BUTTON_PRESS_SOUNDS.map((sound) => ({
+						id: sound,
+						timeline: buttonSoundTimelineId(sound),
+					})),
+				],
+				// From any other state, and again from its own (a second press of the same sound).
+				transitions: BUTTON_PRESS_SOUNDS.flatMap((sound) => [
+					{
+						id: `play-${sound}`,
+						from: 'any',
+						to: sound,
+						conditions: [{ input: sound, op: 'fired' as const }],
+					},
+					{
+						id: `replay-${sound}`,
+						from: sound,
+						to: sound,
+						conditions: [{ input: sound, op: 'fired' as const }],
+					},
+				]),
+			},
+		],
+	},
+	params: [
+		...(BUTTON_DEF.params ?? []),
+		{ key: 'fadeWithUi', kind: 'boolean', default: false, label: 'fade on UI show / hide' },
 	],
 };
 
@@ -3323,6 +3587,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
 	BUTTON_DEF,
+	BUTTON_PRESENTATION_DEF,
 	TEXT_BOX_DEF,
 	FREE_SPIN_COUNTER_DEF,
 	INFO_BAR_DEF,

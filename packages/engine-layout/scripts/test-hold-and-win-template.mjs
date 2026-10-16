@@ -104,6 +104,9 @@ const PINNED = {
 		// renders them only behind `settings.authoredOverlays.freeSpins`.
 		freeSpinIntroPresentation: '34b0adc73c116798',
 		freeSpinOutroPresentation: 'd5d822c857502633',
+		// Rive plan Phase 8d: the authored button, internal; a project renders it only behind
+		// `settings.authoredOverlays.buttons`.
+		buttonPresentation: '1549af59c387dd85',
 		tapToContinue: '39cf7fc4059e2116',
 		loadingBar: '3166440d4ac35911',
 		expandingSymbol: '5cf3a24b056c210d',
