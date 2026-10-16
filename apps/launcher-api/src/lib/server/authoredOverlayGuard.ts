@@ -19,21 +19,6 @@ export const authoredOverlayFlipped = (before: Settings, after: Settings): boole
 	AUTHORED_OVERLAY_ROWS.some((row) => overlayOn(before, row) !== overlayOn(after, row));
 
 /**
- * The Win pilot is locked OFF until its parity follow-up (held / turbo / escalation hand-off /
- * slam-small / the CI workflow) merges: no save, a publisher's included, may switch it ON. Switching
- * it off stays allowed. The follow-up deletes this and the Game Settings row's lock together.
- */
-export const AUTHORED_WIN_LOCKED = true;
-
-/** Whether `after` switches the Win pilot on where `before` had it off. */
-export const winSwitchedOn = (before: Settings, after: Settings): boolean =>
-	!overlayOn(before, 'win') && overlayOn(after, 'win');
-
-/** Whether a submitted doc has the Win pilot on — the one case a publisher's save reads the store. */
-export const submitsWinOn = (after: Settings): boolean =>
-	AUTHORED_WIN_LOCKED && overlayOn(after, 'win');
-
-/**
  * The free-spin pilot (Rive plan Phase 8c) is locked OFF until the owner pilots it: no save, a
  * publisher's included, may switch it ON; switching it off stays allowed. Lifted together with the
  * Game Settings row's lock.
@@ -64,14 +49,13 @@ export const submitsButtonsOn = (after: Settings): boolean =>
 	AUTHORED_BUTTONS_LOCKED && overlayOn(after, 'buttons');
 
 /** A pilot locked OFF: no write may switch it on. */
-export type LockedOverlay = 'win' | 'freeSpins' | 'buttons';
+export type LockedOverlay = 'freeSpins' | 'buttons';
 
 /** The locked pilot `after` switches on where `before` had it off, if any (an absent doc: all off). */
 export function lockedOverlaySwitchedOn(
 	before: Settings,
 	after: Settings,
 ): LockedOverlay | undefined {
-	if (AUTHORED_WIN_LOCKED && winSwitchedOn(before, after)) return 'win';
 	if (AUTHORED_FREE_SPINS_LOCKED && freeSpinsSwitchedOn(before, after)) return 'freeSpins';
 	if (AUTHORED_BUTTONS_LOCKED && buttonsSwitchedOn(before, after)) return 'buttons';
 	return undefined;
@@ -79,10 +63,9 @@ export function lockedOverlaySwitchedOn(
 
 /** Whether a write has any locked pilot on — the only case a writer must read the stored doc. */
 export const submitsLockedOverlayOn = (after: Settings): boolean =>
-	submitsWinOn(after) || submitsFreeSpinsOn(after) || submitsButtonsOn(after);
+	submitsFreeSpinsOn(after) || submitsButtonsOn(after);
 
 const LOCKED_MESSAGES: Record<LockedOverlay, string> = {
-	win: 'The authored Win pilot is locked off until its parity follow-up merges — it cannot be switched on yet.',
 	freeSpins:
 		'The authored free-spin intro / outro pilot is locked off until the owner pilots it — it cannot be switched on yet.',
 	buttons:
@@ -127,18 +110,17 @@ export const writeIsStale = (
 ): boolean => baseEtag !== undefined && baseEtag !== storedEtag;
 
 export type AuthoredOverlaySaveDecision =
-	'write' | 'conflict' | 'forbidden' | 'locked' | 'locked-free-spins' | 'locked-buttons';
+	'write' | 'conflict' | 'forbidden' | 'locked-free-spins' | 'locked-buttons';
 
 /**
  * The editor save action's decision for a doc that may flip a pilot switch, in the order the
  * owner set: the ETag check FIRST — a stale tab gets the ordinary 409 conflict path whoever it is
  * and whatever it flips — and only a write that would NOT conflict (`force`, or the submitted base
  * ETag equals the stored one) can be refused for the flip (403, a non-publisher) — or, while
- * {@link AUTHORED_WIN_LOCKED}, for switching the Win pilot on (`locked`, anyone). Pure, so the gate
- * drives (stale, flip) × (publisher, non-publisher).
+ * {@link AUTHORED_FREE_SPINS_LOCKED} / {@link AUTHORED_BUTTONS_LOCKED}, for switching that pilot on
+ * (anyone). Pure, so the gate drives (stale, flip) × (publisher, non-publisher).
  */
 const LOCKED_DECISIONS: Record<LockedOverlay, AuthoredOverlaySaveDecision> = {
-	win: 'locked',
 	freeSpins: 'locked-free-spins',
 	buttons: 'locked-buttons',
 };

@@ -1303,7 +1303,7 @@ in order, then the conditions the build carried and the findings it made.
   workflow-only follow-up PR, which also carries `held`, `turbo`, the escalation hand-off,
   `slam-small` and the flag-on items the #1194 review listed, and must merge before the Win flag
   is switched on for any project — until then the Game Settings Win row and the save lock it off
-  (`AUTHORED_WIN_LOCKED`). **Known gap:** `check:authored-transition`,
+  (`AUTHORED_WIN_LOCKED`; lifted 2026-10-16, see 13.6.11). **Known gap:** `check:authored-transition`,
   `check:authored-win` and `check:component-timelines` are package scripts the Lint workflow's
   launcher list does not run yet — the same follow-up PR adds them.
 - **Left for the owner's browser check:** the tap grammar (step / land / dismiss / park), the ramp
@@ -1312,7 +1312,7 @@ in order, then the conditions the build carried and the findings it made.
   per-layout-override fallback covers it).
 
 **13.6.11 The parity follow-up (2026-10-15, `claude/rive-p8b-followup`).** The #1194 review's
-flag-on list and the deferred parity variants; the lock stays (last bullet):
+flag-on list and the deferred parity variants; the lock stayed until the owner accepted the residue (last bullet):
 
 - **One clip per held timeline (the escalation hand-off).** The walk was ONE timeline (intro, then
   one idle) with a snap-to-end within 1e-6. The coded track completes a clip when the frame deltas
@@ -1352,15 +1352,18 @@ flag-on list and the deferred parity variants; the lock stays (last bullet):
 - **Captions clear.** Once any tier or mode authors a caption, every walk keys the caption node —
   `''` where the tier (or the mode) has none — so a walk never leaves the previous tier's caption
   on screen, as the coded caption is drawn only while the tier on show has one.
-- **Residue in the fade-out — why the lock stays.** Every capture INSIDE every presentation is
+- **Residue in the fade-out — accepted, the lock lifted.** Every capture INSIDE every presentation is
   0 px and every `winHide` lands on the same frame. The captures now reach 24 frames past the hide
   (the 400 ms fade), and two escalating cases still differ there: `escalation` +1956 / +1966
   (0.19 % / 0.21 %: the WINNING SYMBOLS' post-win pulse, not the Win art; not traced) and `held`
   +380 / +390 (1.7 % / 10 %: the coded rewind intro runs at the frozen hold speed — the coded rig's
   `timeScale` stays `max(speedScale, 1)` after the hide — while the authored timelines run at 1×,
   which the hide's visibility cut needs; one play rate per component cannot do both). No reference
-  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stays
-  until the coordinator rules on these two.
+  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stayed
+  until a ruling on these two. **Decision (owner, 2026-10-15): both accepted, the lock lifted**
+  (2026-10-16): `check:win-parity` allows exactly those four captures up to a ceiling just above
+  each measured value (`ACCEPTED_FADE_OUT`); the flag stays off for live games until the browser
+  check.
 
 ### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
 
@@ -1468,7 +1471,7 @@ is #1234).** What #1231 left before the lock can lift. The lock stays, and lifti
   Each show is one intro plus one idle cycle (3.48 s), looped from the intro's end. #1231's hour-long show froze after an hour. Sampled frame by frame over 30 s, the two match phase for phase. At a lap's seam one side may read the idle at 2.8 s and the other at 0 s (the same instant), and the parity run judges the pixels there.
 - **The swap carries the node.** Every `BaseNode` field except `bind` carries over (`BASE_NODE_FIELDS`, `satisfies`-checked against the type and re-read off the source by the gate). #1231 dropped `anchor`, `blendMode`, `hiddenUntilSignal`, `rigSlot`, `on` and the bindings.
 - **One resolution.** `resolveAuthoredOverlays(raw, { status, presentation })` runs Transition → Win → free spins, each status read on the doc the earlier swaps produced. `Game.svelte` and the Game Maker chips (`authoredOverlayChips`) both call it.
-- **The lock on every write.** `saveDoc` refuses switching a locked pilot (Win or free spins) on. A save with no locked row on does no extra read. That covers the editor, backup restore (403), Director (`AdapterError 403 locked_overlay`), bonus import, the Book-of migration and add-ons; the last three merge onto the stored doc's own settings.
+- **The lock on every write.** `saveDoc` refuses switching a locked pilot (free spins, buttons; the Win lock was lifted by #1238) on. A save with no locked row on does no extra read. That covers the editor, backup restore (403), Director (`AdapterError 403 locked_overlay`), bonus import, the Book-of migration and add-ons; the last three merge onto the stored doc's own settings.
   - The file browser's raw upload or move over `editor/scenes.json` is checked against the stored doc. A move to a new folder carries the source's own state, and a folder move checks every key before the first copy.
   - A project copy lands in a fresh project and keeps its source's state.
   - The scaffold's seed carries no `settings`.

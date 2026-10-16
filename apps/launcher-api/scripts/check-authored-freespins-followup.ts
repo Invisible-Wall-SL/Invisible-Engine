@@ -416,16 +416,17 @@ const withRows = (doc: LayoutDoc, rows: Record<string, boolean>): LayoutDoc => (
 	const on = { settings: { authoredOverlays: { freeSpins: true } } };
 	const off = { settings: {} };
 	eq(
-		'the pure rule: switching a locked pilot on is named, keeping it on or off is not',
+		'the pure rule: switching a locked pilot (free spins, buttons) on is named; the unlocked Win and Transition, and keeping a pilot on or off, are not',
 		[
 			G.lockedOverlaySwitchedOn(null, on),
 			G.lockedOverlaySwitchedOn(off, on),
 			G.lockedOverlaySwitchedOn(on, on),
 			G.lockedOverlaySwitchedOn(on, off),
+			G.lockedOverlaySwitchedOn(null, { settings: { authoredOverlays: { buttons: true } } }),
 			G.lockedOverlaySwitchedOn(null, { settings: { authoredOverlays: { win: true } } }),
 			G.lockedOverlaySwitchedOn(null, { settings: { authoredOverlays: { transition: true } } }),
 		],
-		['freeSpins', 'freeSpins', null, null, 'win', null].map((v) => v ?? undefined),
+		['freeSpins', 'freeSpins', null, null, 'buttons', null, null].map((v) => v ?? undefined),
 	);
 
 	const client = 'c';

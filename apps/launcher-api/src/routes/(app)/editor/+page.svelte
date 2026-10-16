@@ -4048,23 +4048,21 @@
 										/>
 										<span>Transition</span>
 									</label>
-									<!-- Locked off until the Win parity follow-up merges (the save refuses it too,
-										`AUTHORED_WIN_LOCKED`); still switchable OFF if a doc has it on. -->
 									<label
 										class="gs-toggle"
-										class:disabled={!data.canPublishShared || !authoredWin}
+										class:disabled={!data.canPublishShared}
 										title="The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses. Held back (the coded path stays, the publish summary warns) when nothing binds a coded Win, when a tier caption (in the base game or any spins mode) uses a &#123;amount&#125; token, or when the tiers resolve to more than one rig or count slot. Switched by a publisher (the component-publish capability)."
 									>
 										<input
 											type="checkbox"
 											checked={authoredWin}
-											disabled={!data.canPublishShared || !authoredWin}
+											disabled={!data.canPublishShared}
 											onchange={(e) => {
 												authoredWin = e.currentTarget.checked;
 												onGameSettingChange();
 											}}
 										/>
-										<span>Win <em class="gs-pending">pilot pending — parity follow-up</em></span>
+										<span>Win</span>
 									</label>
 									<!-- Locked off until the owner pilots it (the save refuses it too,
 										`AUTHORED_FREE_SPINS_LOCKED`); still switchable OFF if a doc has it on. -->
