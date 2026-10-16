@@ -862,9 +862,7 @@ owner's browser check.** The Game Maker card names each when on.
   wipe ends) instead of the coded Transition mount it replaces. The card says _Authored Transition
   (pilot)_, and warns when it is on but no scene binds the coded Transition it would replace (the
   reference overlays scene has that node).
-- **Win** — **locked off for now** (the row reads _pilot pending — parity follow-up_): nobody,
-  publishers included, can switch it on until its parity follow-up merges, and the save refuses
-  it too; a doc that already has it on can still be switched off. When unlocked: the game renders
+- **Win** — the game renders
   the big-win presentation (the tier rig and its per-tier clips, the
   count riding the rig's count slot, the caption, the plain small/medium number, the fade) from
   the built-in **Win presentation** component and per-tier timelines generated at boot from the

@@ -101,6 +101,14 @@ const log = (line) => console.log(`[win-parity] ${line}`);
 // capture and an optional press (`slam` taps Space at `SLAM_AT`, `hold` presses the pointer at
 // `HOLD_AT` and releases it after `winHide`).
 const INTRO_AND_IDLE = [12, 24, 48, 96, 120, 240];
+// The two fade-out residues the owner accepted on 2026-10-15 (design §13.6.11): per capture offset,
+// the diff ratio a capture may reach when it fails the shared tolerance. escalation is the winning
+// symbols' post-win pulse; held is the coded rewind running at the frozen hold speed. Any other
+// capture, or a larger diff, still fails.
+const ACCEPTED_FADE_OUT = {
+	escalation: { 1956: 0.0025, 1966: 0.0025 },
+	held: { 380: 0.02, 390: 0.11 },
+};
 const VARIANTS = {
 	base: {
 		env: { WIN_X: '10,20,40,70,120' },
@@ -119,7 +127,14 @@ const VARIANTS = {
 		env: { WIN_X: '120' },
 		config: { escalateTiers: true },
 		// +1956 / +1966: the hide's fade-out, where the coded walk rewinds to the first tier's intro.
-		spins: [{ tier: 'max', offsets: [12, 48, 120, 240, 840, 1680, 1956, 1966], expectHolds: true }],
+		spins: [
+			{
+				tier: 'max',
+				offsets: [12, 48, 120, 240, 840, 1680, 1956, 1966],
+				expectHolds: true,
+				accepted: ACCEPTED_FADE_OUT.escalation,
+			},
+		],
 	},
 	held: {
 		env: { WIN_X: '120' },
@@ -134,6 +149,7 @@ const VARIANTS = {
 				offsets: [60, 120, 240, 360, 374, 380, 390],
 				press: 'hold',
 				maxSpan: 900,
+				accepted: ACCEPTED_FADE_OUT.held,
 			},
 		],
 	},
@@ -551,6 +567,11 @@ for (const name of chosen) {
 			const cmp = same
 				? { pass: true, diffPixels: 0, diffRatio: 0, maxBlockRatio: 0 }
 				: compareScreens(ca, cb, tolerance);
+			const ceiling = spin.accepted?.[offset];
+			if (!cmp.pass && ceiling !== undefined && cmp.diffRatio <= ceiling) {
+				cmp.pass = true;
+				cmp.reason = `accepted fade-out residue (≤ ${(ceiling * 100).toFixed(2)}%, owner 2026-10-15)`;
+			}
 			if (cmp.diffPng) writeFileSync(join(out, name, `diff-spin${i}-t+${offset}.png`), cmp.diffPng);
 			row.frames.push({
 				offset,

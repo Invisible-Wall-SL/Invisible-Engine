@@ -1359,8 +1359,11 @@ flag-on list and the deferred parity variants; the lock stays (last bullet):
   +380 / +390 (1.7 % / 10 %: the coded rewind intro runs at the frozen hold speed — the coded rig's
   `timeScale` stays `max(speedScale, 1)` after the hide — while the authored timelines run at 1×,
   which the hide's visibility cut needs; one play rate per component cannot do both). No reference
-  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stays
-  until the coordinator rules on these two.
+  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stayed
+  until a ruling on these two. **Decision (owner, 2026-10-15): both accepted, the lock lifted**
+  (2026-10-16): `check:win-parity` allows exactly those four captures up to a ceiling just above
+  each measured value (`ACCEPTED_FADE_OUT`); the flag stays off for live games until the browser
+  check.
 
 ### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
 
