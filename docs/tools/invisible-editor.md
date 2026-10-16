@@ -354,6 +354,15 @@ Open the **Library** tab. It is grouped into:
   effect on the beat. Left as **free**, the effect just plays at its placed
   position. The effect's particle atlas ships automatically (the export bakes it
   in) — no need to place the atlas separately.
+  Under the effect picker, **Parameters** lists what the effect exposes (⚡ in
+  Invisible FX): a slider and number box for a number, a tick box for an on/off,
+  a swatch for a colour. A value you set is this placement's own, and the canvas
+  shows it live; **×** puts it back on the effect's default. Inside a component,
+  each row also has the **⇡** picker, which hands the value to every placement
+  of that component (the Component Editor guide, _Expose a placed effect's
+  parameters_ under [Animate it](component-editor.md#7-animate-it-timelines)). A
+  **Bind to value** binding or an Animate key on the same parameter wins over the
+  value set here.
 - **Flipbooks** — the project's authored **Invisible Flipbook** clips (frame
   animations packed off an atlas sheet), each row showing its first frame and its
   frame count. Drag one in to place it. The canvas **plays it in place**, at its

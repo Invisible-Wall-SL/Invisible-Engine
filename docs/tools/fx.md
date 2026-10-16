@@ -290,11 +290,13 @@ With a layer selected, the right **Inspector** edits it. Most rows end in a **�
 
 An **exposed parameter** is a named value (`intensity`, `heat`) the game sets on a placed effect,
 and that changes one or more of the effect's values. Any value can be exposed, not just a fixed
-list. Where the effect is placed, in the [Scene and Component
-Editors](invisible-editor.md#bind-to-value--a-number-that-moves-fills-or-poses-an-item), a number
-or on/off parameter is set by a **Bind to value** binding (a component param or a game value), by
-a **timeline** key (Animate → the **⚡** rows), and so by a component's **state machine** and its
-blends. A colour parameter is set only by this tool's preview so far.
+list. Where the effect is placed, in the [Scene and Component Editors](invisible-editor.md), the
+effect's Properties list every parameter under **Parameters** with a value for that placement, a
+colour one included; inside a component, **⇡** hands it to the component's own params, so each
+placement of the component sets it. A number or on/off parameter can also be driven by a
+[**Bind to value**](invisible-editor.md#bind-to-value--a-number-that-moves-fills-or-poses-an-item)
+binding (a component param or a game value), by a **timeline** key (Animate → the **⚡** rows), and
+so by a component's **state machine** and its blends; those win over the placement's value.
 
 - **⚡ on a row** opens a small menu: **New parameter…** asks for its name and makes a parameter
   that drives what the row writes, starting at the row's current value (so nothing changes on

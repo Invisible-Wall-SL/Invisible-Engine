@@ -5122,8 +5122,8 @@ var invisibleRig = function(exports) {
       const root = typeof json === "string" ? JSON.parse(json) : json;
       const skeletonMap = root.skeleton;
       if (skeletonMap) {
-        data.hash = skeletonMap.hash ?? null;
-        data.version = skeletonMap.spine ?? null;
+        data.hash = skeletonMap.hash;
+        data.version = skeletonMap.spine;
         data.x = skeletonMap.x;
         data.y = skeletonMap.y;
         data.width = skeletonMap.width;

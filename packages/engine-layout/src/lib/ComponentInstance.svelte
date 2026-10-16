@@ -797,13 +797,14 @@
 	const stateMachine = allowed && def?.stateMachine?.layers?.length ? def.stateMachine : undefined;
 	/** BUTTON STATES (Rive plan Phase 8d, `ComponentDef.buttonStates`): see the feed below. */
 	const buttonStates = allowed && def?.buttonStates === true;
+	const settles = allowed && def?.settles === true;
 	const instanceTimelines =
 		allowed && def
 			? instanceTimelineDocs(def.id, stateMachine)
 			: { docs: [], durations: new Map() };
 	const timelinePlayer =
 		def && instanceTimelines.docs.length
-			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children)
+			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children, () => providedParams)
 			: undefined;
 	const stateMachineRunner =
 		stateMachine && def
@@ -853,7 +854,7 @@
 					void timelineClock;
 					return timelinePlayer.sample(nodeId) ?? {};
 				},
-				...(buttonStates ? { settles: true as const } : {}),
+				...(settles ? { settles: true as const } : {}),
 			};
 		}, parentNest.depth + 1);
 	}

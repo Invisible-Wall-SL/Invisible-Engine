@@ -407,6 +407,7 @@ export const BUTTON_PRESENTATION_DEF: ComponentDef = {
 	internal: true,
 	frameExact: true,
 	buttonStates: true,
+	settles: true,
 	root: {
 		id: 'buttonPresentation-root',
 		kind: 'container',
@@ -1571,6 +1572,7 @@ export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TI
 		category: 'overlay',
 		internal: true,
 		frameExact: true,
+		settles: true,
 		root: {
 			id: 'winPresentation-root',
 			kind: 'container',
@@ -1860,6 +1862,7 @@ export function freeSpinPresentationDefs(input: FreeSpinPresentationInput = FS_D
 		internal: true,
 		frameExact: true,
 		boardAnchored: true,
+		settles: true,
 		root: {
 			id: `${id}-root`,
 			kind: 'container',

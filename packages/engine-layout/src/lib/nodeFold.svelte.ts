@@ -5,7 +5,14 @@ import type { EffectParam, EffectParamValues } from 'engine-fx';
 import { createBoundValues, type BoundValues } from './boundValues.svelte';
 import type { CinematicNodeDrive, CinematicNodeDriver } from './cinematicNodeContext';
 import { nodeActorBindings, withNodeActorOutputs } from './cinematicNodes';
-import { boundFxParamValues, bindsFxParam, drivableFxParams } from './fxNodeParams';
+import {
+	boundFxParamValues,
+	bindsFxParam,
+	drivableFxParams,
+	nodeFxParamValues,
+	placedFxParamValues,
+	setsFxParams,
+} from './fxNodeParams';
 import { resolveEffect } from './registerEffects';
 import type { EffectNode, LayoutNode, ValueBinding } from './types';
 
@@ -28,33 +35,43 @@ export interface NodeFold {
 	/** The timeline's channels at its current time, when one drives the node. Reactive. */
 	readonly timelineSample: CinematicNodeSample | undefined;
 	/**
-	 * What `<EffectPlayer params>` reads on the ticker: the effect's parameter values from this fold,
-	 * derived once per change of the outputs. Only for an effect something drives (parity).
+	 * What `<EffectPlayer params>` reads on the ticker: the effect's parameter values — the node's
+	 * own, then this fold's — derived once per change. Only for an effect something sets or drives
+	 * (parity).
 	 */
 	readonly fxParamValues: (() => EffectParamValues | undefined) | undefined;
 }
 
 /**
- * The placed effect's parameters, when `node` is an effect that one of its own bindings or a
- * timeline channel (`timeline`, the node actor's bindings) drives and that declares a parameter a
- * node can drive; `undefined` otherwise, and then nothing extra runs for the node (parity).
+ * The placed effect's parameters, when `node` is an effect that sets one itself (`setsFxParams`)
+ * and declares parameters, or that one of its own bindings or a timeline channel (`timeline`, the
+ * node actor's bindings) drives and that declares a parameter a node can drive; `undefined`
+ * otherwise, and then nothing extra runs for the node (parity).
  */
 export function fxParamsDriven(
 	node: LayoutNode,
 	own: readonly ValueBinding[] | undefined,
 	timeline: readonly ValueBinding[],
 ): readonly EffectParam[] | undefined {
-	if (node.kind !== 'effect' || (!bindsFxParam(own) && !bindsFxParam(timeline))) return undefined;
+	if (node.kind !== 'effect') return undefined;
+	const placed = setsFxParams(node);
+	if (!placed && !bindsFxParam(own) && !bindsFxParam(timeline)) return undefined;
 	const params = resolveEffect(node.effectId)?.params;
-	return drivableFxParams(params).length ? params : undefined;
+	if (!params?.length) return undefined;
+	return placed || drivableFxParams(params).length ? params : undefined;
 }
 
 function createFxParamValues(
+	node: LayoutNode,
+	componentParams: () => Record<string, unknown>,
 	bindings: readonly ValueBinding[] | undefined,
 	outputs: () => readonly (number | undefined)[],
 	params: readonly EffectParam[],
 ): () => EffectParamValues | undefined {
-	const values = $derived(boundFxParamValues(bindings, outputs(), params));
+	const placed = $derived(placedFxParamValues(node, componentParams(), params));
+	const values = $derived(
+		nodeFxParamValues(placed, boundFxParamValues(bindings, outputs(), params)),
+	);
 	return () => values;
 }
 
@@ -63,7 +80,7 @@ function createFxParamValues(
  * inputs), `frameCount` a flipbook's frame count (a `frame` binding's default top), and `drive` the
  * timeline driving the node, asked once by the caller (`cinematicNodeContext`). An effect's
  * `fxParam` bindings map onto its declared parameters (their range, a bool one switching at its
- * threshold) — the parameters `fxParamsDriven` reads.
+ * threshold), over the values the node sets itself — the parameters `fxParamsDriven` reads.
  */
 export function createNodeFold(
 	node: LayoutNode,
@@ -95,20 +112,20 @@ export function createNodeFold(
 			return timelineSample;
 		},
 		fxParamValues: fxParams
-			? createFxParamValues(allBindings, () => allOutputs, fxParams)
+			? createFxParamValues(node, params, allBindings, () => allOutputs, fxParams)
 			: undefined,
 	};
 }
 
-/** A bone-hosted effect something drives, with the timeline driving it (if one does); `null` when
- *  nothing drives its parameters. */
+/** A bone-hosted effect something sets or drives, with the timeline driving it (if one does);
+ *  `null` when nothing sets its parameters. */
 export type AttachedEffectDrive = { drive: CinematicNodeDrive | undefined } | null;
 
 /**
  * For a rig's bone-hosted effects (`attachedEffects`, which have no view of their own): whether
- * something drives each one's parameters, and the timeline drive it then folds — asked ONCE per
- * effect, untracked, as every node's timeline drive is, so a re-render never swaps the effect's
- * player (which would reset its particles). `driver` is the host view's node driver.
+ * something sets or drives each one's parameters, and the timeline drive it then folds — asked
+ * ONCE per effect, untracked, as every node's timeline drive is, so a re-render never swaps the
+ * effect's player (which would reset its particles). `driver` is the host view's node driver.
  */
 export function attachedEffectDrives(
 	driver: CinematicNodeDriver | undefined,
