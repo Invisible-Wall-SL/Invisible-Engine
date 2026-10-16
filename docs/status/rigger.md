@@ -84,8 +84,9 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   `packages/engine-rig`, `tools/rig-parity` (or the esbuild loader it borrows), any `spines/` or
   `rigs/` folder, any `.atlas` / `.skel`, or the lockfile. It is advisory, like the other parity
   workflows, and making it required is the owner's call (`docs/INFRA.md`, "Required checks"). It
-  landed in its own PR, after the fix it checks, because a workflow edit fails the current-games
-  verdict as a harness edit.
+  landed in its own PR, after the fix it checks. The current-games verdict fails a PR that both
+  reaches a game and edits a workflow file (a harness edit). A workflow-only PR passes it as
+  untouched.
 - 2026-10-16 — **The rig parity gate is green again.** `node tools/rig-parity/parity.mjs` had
   failed on `main` since #1107 (2026-10-07) on the two demo rigs in
   `packages/pixi-svelte-storybook/static/rigs/`. They are the first repo rigs whose `skeleton`
