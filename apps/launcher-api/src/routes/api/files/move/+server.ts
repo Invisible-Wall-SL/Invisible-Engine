@@ -1,6 +1,5 @@
 import { error, json } from '@sveltejs/kit';
 import { assertAllowed, assertWritable, gate } from '$lib/server/ftpScope';
-import { lockedOverlayMoveRefusal } from '$lib/server/ftpDocGuard';
 import { copyObject, deleteObjects, listAllKeys } from '$lib/server/r2';
 import type { RequestHandler } from './$types';
 
@@ -41,7 +40,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		for (const key of keys) {
 			const dest = to + key.slice(from.length);
 			assertWritable(dest, scope);
-			await lockedOverlayMoveRefusal(key, dest);
 		}
 		for (const key of keys) {
 			const dest = to + key.slice(from.length);
@@ -53,7 +51,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 
 	if (to.endsWith('/')) throw error(400, 'file destination must not end with /');
-	await lockedOverlayMoveRefusal(from, to);
 	await copyObject(from, to);
 	await deleteObjects([from]);
 	return json({ moved: 1 });

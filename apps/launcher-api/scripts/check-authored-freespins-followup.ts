@@ -11,19 +11,16 @@
  *     `loopFrom` — frame for frame what the hour-long timeline drew, and still moving past an hour;
  *  3. the swap carries every base-node field but `bind`, and that list cannot drift from the type;
  *  4. the chips read the doc the game boots: one shared resolution, called by both;
- *  5. the lock holds on every layout-doc write: `saveDoc` (so the editor, a backup restore,
- *     Director, an import, a migration, an add-on) and the file browser's raw upload / move; a
- *     move or a project copy carries its source's own state, and the scaffold seeds no settings.
+ *  5. the lock is lifted (owner browser check, 2026-10-17): no write path refuses switching a pilot
+ *     on, and the scaffold seeds no settings.
  */
 import { mock } from 'node:test';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import type { CinematicDoc, LayoutDoc, LayoutNode } from 'engine-layout';
 
 type Obj = { body: string; etag: string };
 const R2 = new Map<string, Obj>();
 let etagSeq = 0;
-let reads = 0;
 
 class ConflictError extends Error {
 	constructor(readonly key: string) {
@@ -43,7 +40,6 @@ mock.module(srcUrl('lib/server/r2.ts'), {
 		headObject: async (key: string) => (R2.has(key) ? { etag: R2.get(key)!.etag } : null),
 		getObjectText: async (key: string) => R2.get(key)?.body ?? null,
 		getObjectTextWithEtag: async (key: string) => {
-			reads++;
 			const o = R2.get(key);
 			return o ? { text: o.body, etag: o.etag } : null;
 		},
@@ -98,7 +94,6 @@ const G = await import('../src/lib/server/authoredOverlayGuard.ts');
 const E = await import('../src/lib/server/editorStorage.ts');
 const W = await import('../src/lib/server/authoredWinTiers.ts');
 const P = await import('../src/lib/server/projectPaths.ts');
-const D = await import('../src/lib/server/projectDuplicate.ts');
 const Sc = await import('../src/lib/server/projectScaffold.ts');
 
 let failures = 0;
@@ -118,7 +113,7 @@ async function rejects(fn: () => Promise<unknown>): Promise<string> {
 		await fn();
 		return 'resolved';
 	} catch (e) {
-		return e instanceof G.AuthoredOverlayLockedError ? `locked:${e.overlay}` : `other:${e}`;
+		return `other:${e}`;
 	}
 }
 const src = (rel: string): string => readFileSync(new URL(rel, import.meta.url), 'utf8');
@@ -410,155 +405,46 @@ const withRows = (doc: LayoutDoc, rows: Record<string, boolean>): LayoutDoc => (
 	);
 }
 
-// ---- 5. the lock holds on every write ---------------------------------------------------------------
+// ---- 5. the lock is lifted (owner browser check passed, 2026-10-17) ------------------------------
 
 {
-	const on = { settings: { authoredOverlays: { freeSpins: true } } };
-	const off = { settings: {} };
 	eq(
-		'the pure rule: switching a locked pilot (free spins, buttons) on is named; the unlocked Win and Transition, and keeping a pilot on or off, are not',
+		'the lock symbols are gone',
 		[
-			G.lockedOverlaySwitchedOn(null, on),
-			G.lockedOverlaySwitchedOn(off, on),
-			G.lockedOverlaySwitchedOn(on, on),
-			G.lockedOverlaySwitchedOn(on, off),
-			G.lockedOverlaySwitchedOn(null, { settings: { authoredOverlays: { buttons: true } } }),
-			G.lockedOverlaySwitchedOn(null, { settings: { authoredOverlays: { win: true } } }),
-			G.lockedOverlaySwitchedOn(null, { settings: { authoredOverlays: { transition: true } } }),
+			'lockedOverlaySwitchedOn' in G,
+			'submitsLockedOverlayOn' in G,
+			'AuthoredOverlayLockedError' in G,
+			'assertRawEditorDocWriteUnlocked' in E,
 		],
-		['freeSpins', 'freeSpins', null, null, 'buttons', null, null].map((v) => v ?? undefined),
+		[false, false, false, false],
 	);
-
 	const client = 'c';
 	const project = 'p';
 	const key = P.editorDocKey(client, project);
 	R2.clear();
-	reads = 0;
 	await E.saveDoc(client, project, withRows(lines, {}), null);
-	const offReads = reads;
-	const stored = R2.get(key)!.body;
+	const on = withRows(lines, { freeSpins: true, buttons: true });
 	eq(
-		'saveDoc refuses switching the free-spin pilot on, for any writer, and writes nothing',
+		'saveDoc writes a doc that switches free spins and buttons on',
 		[
-			offReads,
-			await rejects(() =>
-				E.saveDoc(client, project, withRows(lines, { freeSpins: true }), R2.get(key)!.etag),
-			),
-			await rejects(() =>
-				E.saveDoc(client, project, withRows(lines, { freeSpins: true }), undefined, 'always'),
-			),
-			R2.get(key)!.body === stored,
+			await rejects(() => E.saveDoc(client, project, on, R2.get(key)!.etag)),
+			JSON.parse(R2.get(key)!.body).settings.authoredOverlays,
 		],
-		[0, 'locked:freeSpins', 'locked:freeSpins', true],
+		['resolved', { freeSpins: true, buttons: true }],
 	);
-	// A doc already on (written before the lock, or by hand) may still be saved, and switched off.
-	put(key, JSON.stringify(withRows(lines, { freeSpins: true })));
-	eq(
-		'saveDoc keeps a pilot that is already on, and switches it off',
-		[
-			await rejects(() =>
-				E.saveDoc(client, project, withRows(lines, { freeSpins: true }), R2.get(key)!.etag),
-			),
-			await rejects(() => E.saveDoc(client, project, withRows(lines, {}), R2.get(key)!.etag)),
-		],
-		['resolved', 'resolved'],
-	);
-	R2.delete(key);
-	eq(
-		'saveDoc refuses a first write with the pilot on',
-		await rejects(() => E.saveDoc(client, project, withRows(lines, { freeSpins: true }), null)),
-		'locked:freeSpins',
-	);
-
-	R2.clear();
-	const onText = JSON.stringify(withRows(lines, { freeSpins: true }));
-	eq(
-		'a raw write (the file browser) meets the lock on a layout doc only',
-		[
-			await rejects(() => E.assertRawEditorDocWriteUnlocked(key, onText)),
-			await rejects(() => E.assertRawEditorDocWriteUnlocked(`${key}.bak`, onText)),
-			await rejects(() => E.assertRawEditorDocWriteUnlocked(key, '{not json')),
-			await rejects(() => E.assertRawEditorDocWriteUnlocked(key, JSON.stringify(lines))),
-		],
-		['locked:freeSpins', 'resolved', 'resolved', 'resolved'],
-	);
-
-	// A move carries its source's state: a rename to a new folder keeps an already-on pilot, a move
-	// over another project's doc that has it off is refused. A project copy always lands in a fresh
-	// project, so it copies the source's state as is (no check: it switches nothing on).
-	R2.clear();
-	const dst = P.editorDocKey('c', 'dst');
-	eq(
-		'a move keeps its own state, and is refused over a doc that has the pilot off',
-		[
-			await rejects(() => E.assertRawEditorDocWriteUnlocked(dst, onText, onText)),
-			(put(dst, JSON.stringify(lines)),
-			await rejects(() => E.assertRawEditorDocWriteUnlocked(dst, onText, onText))),
-		],
-		['resolved', 'locked:freeSpins'],
-	);
-	R2.clear();
-	put(P.editorDocKey('c', 'src'), onText);
-	eq(
-		'a project copy of a doc with the pilot already on copies it as is',
-		[
-			await rejects(() =>
-				D.duplicateProjectData(
-					{ clientKey: 'c', projectKey: 'src' },
-					{ clientKey: 'c', projectKey: 'dst' },
-					'setup',
-				),
-			),
-			R2.get(dst)?.body === onText,
-		],
-		['resolved', true],
-	);
-
-	// Every other write path, by source: each meets the lock or maps its refusal.
 	const read = (rel: string) => src(`../src/${rel}`);
-	const move = read('routes/api/files/move/+server.ts');
 	eq(
-		'the restore and Director map the refusal; the file browser checks before it writes; the scaffold seeds no settings',
+		'no write path maps a lock refusal any more',
 		[
-			/catch \(e\) \{\s*if \(e instanceof AuthoredOverlayLockedError\) \{\s*return json\([^)]*status: 403/.test(
-				read('routes/api/editor/backups/+server.ts'),
-			),
-			/e instanceof AuthoredOverlayLockedError\)\s*throw new AdapterError\(403, 'locked_overlay'/.test(
-				read('lib/server/director/ops/scene.ts'),
+			/AuthoredOverlayLocked|locked_overlay|lockedOverlay/.test(
+				read('routes/api/editor/backups/+server.ts') +
+					read('lib/server/director/ops/scene.ts') +
+					read('routes/api/files/upload/+server.ts') +
+					read('routes/api/files/move/+server.ts'),
 			),
 			Object.keys(Sc.scaffoldLayoutDoc('p', 'lines', withRows(lines, { freeSpins: true }))),
-			/await lockedOverlayRefusal\(destKey, bytes\);\s*\/\/[^\n]*\n\s*await putObjectBytes|await lockedOverlayRefusal\(destKey, bytes\);[\s\S]*?await putObjectBytes/.test(
-				read('routes/api/files/upload/+server.ts'),
-			),
-			move.lastIndexOf('lockedOverlayMoveRefusal(key, dest)') <
-				move.indexOf('copyObject(key, dest)'),
-			(move.match(/await lockedOverlayMoveRefusal\(/g) ?? []).length,
 		],
-		[true, true, ['version', 'projectKey', 'gameType', 'scenes'], true, true, 2],
-	);
-	// No writer reaches the layout doc around `saveDoc` except the ones above: every source file
-	// naming `editorDocKey(` is listed with why it is safe; a new one fails here until it is looked at.
-	const KNOWN: Record<string, string> = {
-		'lib/server/editorStorage.ts': 'the store itself (saveDoc checks the lock)',
-		'lib/server/projectScaffold.ts': 'seeds a doc with no settings (pinned above)',
-		'lib/server/projectPaths.ts': 'defines the key',
-		'lib/server/director/ops/scene.ts': 'reads only; writes through saveDoc',
-		'routes/(app)/game-maker/+page.server.ts': 'reads the doc’s last-modified time',
-	};
-	const files: string[] = [];
-	const walk = (dir: string): void => {
-		for (const name of readdirSync(dir)) {
-			const path = join(dir, name);
-			if (statSync(path).isDirectory()) walk(path);
-			else if (/\.(ts|svelte)$/.test(name) && readFileSync(path, 'utf8').includes('editorDocKey('))
-				files.push(path.slice(path.indexOf('/src/') + 5));
-		}
-	};
-	walk(new URL('../src', import.meta.url).pathname);
-	eq(
-		'every source file naming the layout-doc key is a known reader or guarded writer',
-		files.filter((f) => !KNOWN[f]),
-		[],
+		[false, ['version', 'projectKey', 'gameType', 'scenes']],
 	);
 }
 

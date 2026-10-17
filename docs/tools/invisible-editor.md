@@ -882,9 +882,7 @@ owner's browser check.** The Game Maker card names each when on.
   instance, when a big-win tier's caption in Invisible Win Text (in the base game or any spins
   mode) uses a token such as `{amount}`,
   or when the tiers resolve to more than one rig or count slot.
-- **Free spins** — **locked off for now** (the row reads _pilot pending_): nobody, publishers
-  included, can switch it on until the owner pilots it, and the save refuses it too; a doc that
-  already has it on can still be switched off. When unlocked: the game renders the free-spin
+- **Free spins** — the game renders the free-spin
   intro and outro visuals (the frame, the count rig and number, the localized captions, the fade)
   from the built-in **Free-spin intro / outro presentation** components and their timelines,
   instead of the coded intro and outro visuals. What holds the round does not change: the outro's
@@ -894,8 +892,7 @@ owner's browser check.** The Game Maker card names each when on.
   warns) when no screen binds a coded free-spin visual, when one sits in a screen that is not
   canvas space, when a screen places a free-spin visual instance, or when a visual names a rig,
   clip or slot other than the default.
-- **Buttons** — **locked off for now** (the row reads _pilot pending_), on the same terms as Free
-  spins. When unlocked: every parametric HUD button (a placed **Button** component) draws its
+- **Buttons** — every parametric HUD button (a placed **Button** component) draws its
   look per state — the tile, its greyed downstate and selected border, or its state images — turns
   its spin image while a spin rolls, and plays its press sound from the built-in **Button
   presentation** component and its state machine, instead of the coded button frame. What a press

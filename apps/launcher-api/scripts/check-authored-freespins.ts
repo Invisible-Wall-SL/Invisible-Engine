@@ -16,8 +16,8 @@
  *     board as the coded `FreeSpinAnimation` is, the sprites in the boot's language; every timeline
  *     binds only its def's nodes; none holds a cue; the strips name the clips the shipped `fsIntro*`
  *     skeletons carry, at their lengths; ids lower-case, so a project doc shadows one;
- *  5. the lock: switching the pilot on is refused for everyone (a publisher included), off is
- *     allowed, an already-on save writes; the Game Settings row is disabled, "pilot pending";
+ *  5. the lock is lifted: a publisher may switch the pilot on, a non-publisher may not, a stale tab
+ *     conflicts first; the Game Settings row is enabled for publishers;
  *  6. the wiring, by source: the game swaps before both flows are built and registers everything
  *     the path needs only in its flag block; the retired coded visuals subscribe and draw nothing;
  *     the outro driver, the screens' taps and the free-spin holds are byte-identical to `main`
@@ -603,7 +603,7 @@ eq(
 	);
 }
 
-// ---- 5. the lock ---------------------------------------------------------------------------------
+// ---- 5. the lock is lifted (owner browser check passed, 2026-10-17) ------------------------------
 
 {
 	const off = baseDoc();
@@ -617,15 +617,14 @@ eq(
 			storedEtag: '"c"',
 		});
 	eq(
-		'locked OFF until the owner pilots it: on is refused for a publisher, off and already-on write',
+		'unlocked: a publisher may switch it on, a non-publisher may not, stale conflicts first',
 		[
-			G.AUTHORED_FREE_SPINS_LOCKED,
-			G.submitsFreeSpinsOn(fsOn),
-			G.submitsFreeSpinsOn(off),
+			'AUTHORED_FREE_SPINS_LOCKED' in G,
+			'submitsFreeSpinsOn' in G,
 			decide(off, fsOn, true),
 			decide(off, fsOn, false),
 			decide(fsOn, off, true),
-			decide(fsOn, fsOn, true),
+			decide(fsOn, fsOn, false),
 			decide(fsOn, off, false),
 			G.authoredOverlaySaveDecision({
 				before: off,
@@ -635,40 +634,26 @@ eq(
 				storedEtag: '"b"',
 			}),
 		],
-		[
-			true,
-			true,
-			false,
-			'locked-free-spins',
-			'locked-free-spins',
-			'write',
-			'write',
-			'forbidden',
-			'conflict',
-		],
+		[false, false, 'write', 'forbidden', 'write', 'write', 'forbidden', 'conflict'],
 	);
 	const save = src('../src/routes/(app)/editor/+page.server.ts');
 	eq(
-		'the save action reads the store for a doc with the pilot on and refuses the switch',
+		'the save action reads the store only for a non-publisher, and has no locked decision',
 		[
-			/submitsFreeSpinsOn\(parsed as Partial<LayoutDoc>\)(?:\s*\|\|\s*submits\w+On\(parsed as Partial<LayoutDoc>\))*\s*\)\s*\{\s*const stored = await loadDocWithEtag\(/.test(
-				save,
-			),
-			/if \(decision === 'locked-free-spins'\) \{\s*return fail\(403/.test(save),
+			/if \(!canPublishShared\) \{\s*const stored = await loadDocWithEtag\(/.test(save),
+			/locked-|submits\w+On/.test(save),
 		],
-		[true, true],
+		[true, false],
 	);
 	const page = src('../src/routes/(app)/editor/+page.svelte');
 	eq(
-		'the Game Settings row is locked off (pilot pending), written sparse',
+		'the Game Settings row is enabled for publishers, written sparse',
 		[
 			/let authoredFreeSpins = \$state<boolean>\(\s*data\.doc\.settings\?\.authoredOverlays\?\.freeSpins === true,?\s*\);/.test(
 				page,
 			),
-			/checked=\{authoredFreeSpins\}\s*disabled=\{!data\.canPublishShared \|\| !authoredFreeSpins\}/.test(
-				page,
-			),
-			page.includes('Free spins <em class="gs-pending">pilot pending</em>'),
+			/checked=\{authoredFreeSpins\}\s*disabled=\{!data\.canPublishShared\}/.test(page),
+			page.includes('<span>Free spins</span>'),
 			/\.\.\.\(authoredFreeSpins \? \{ freeSpins: true \} : \{\}\)/.test(page),
 		],
 		[true, true, true, true],

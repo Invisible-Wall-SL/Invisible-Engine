@@ -78,6 +78,8 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-17 — Owner browser check passed for the Rive plan's component work (Phases 4–8); the
+  authored free-spin and button pilots are unlocked ([engine status](engine.md) 2026-10-17).
 - 2026-10-16 — **A tile named only in "This game's defaults" ships again** (branch
   `claude/gallant-rubin-6f066u`). `componentDefaultsFor` looked a def up by `r2Slug(id)` only, but
   `listComponentDefaults` keys every sidecar saved since the id stamp by its REAL id
