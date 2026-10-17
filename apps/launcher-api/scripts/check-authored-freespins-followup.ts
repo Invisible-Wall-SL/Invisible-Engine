@@ -405,7 +405,7 @@ const withRows = (doc: LayoutDoc, rows: Record<string, boolean>): LayoutDoc => (
 	);
 }
 
-// ---- 5. the lock is lifted (owner browser check passed, 2026-10-17) ------------------------------
+// ---- 5. the lock is lifted -----------------------------------------------------------------------
 
 {
 	eq(

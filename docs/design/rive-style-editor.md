@@ -1473,11 +1473,7 @@ is #1234).** What #1231 left before the lock can lift. The lock stays, and lifti
   Each show is one intro plus one idle cycle (3.48 s), looped from the intro's end. #1231's hour-long show froze after an hour. Sampled frame by frame over 30 s, the two match phase for phase. At a lap's seam one side may read the idle at 2.8 s and the other at 0 s (the same instant), and the parity run judges the pixels there.
 - **The swap carries the node.** Every `BaseNode` field except `bind` carries over (`BASE_NODE_FIELDS`, `satisfies`-checked against the type and re-read off the source by the gate). #1231 dropped `anchor`, `blendMode`, `hiddenUntilSignal`, `rigSlot`, `on` and the bindings.
 - **One resolution.** `resolveAuthoredOverlays(raw, { status, presentation })` runs Transition → Win → free spins, each status read on the doc the earlier swaps produced. `Game.svelte` and the Game Maker chips (`authoredOverlayChips`) both call it.
-- **The lock on every write.** `saveDoc` refuses switching a locked pilot (free spins, buttons; the Win lock was lifted by #1238) on. A save with no locked row on does no extra read. That covers the editor, backup restore (403), Director (`AdapterError 403 locked_overlay`), bonus import, the Book-of migration and add-ons; the last three merge onto the stored doc's own settings.
-  - The file browser's raw upload or move over `editor/scenes.json` is checked against the stored doc. A move to a new folder carries the source's own state, and a folder move checks every key before the first copy.
-  - A project copy lands in a fresh project and keeps its source's state.
-  - The scaffold's seed carries no `settings`.
-  - Gate: `check:authored-freespins-followup`.
+- **The lock on every write** (built here, **removed 2026-10-17** when the owner's browser check passed and the free-spin and button locks were lifted). What still holds: a project copy lands in a fresh project and keeps its source's state, and the scaffold's seed carries no `settings` (gate: `check:authored-freespins-followup`).
 
 ### 13.8 Phase 8d: buttons (design 2026-10-15; built the same day)
 

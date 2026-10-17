@@ -46,7 +46,6 @@ export type AuthoredOverlaySaveDecision = 'write' | 'conflict' | 'forbidden';
  * ETag equals the stored one) can be refused for the flip (403, a non-publisher). Pure, so the
  * gate drives (stale, flip) × (publisher, non-publisher).
  */
-
 export function authoredOverlaySaveDecision(args: {
 	before: Settings;
 	after: Settings;

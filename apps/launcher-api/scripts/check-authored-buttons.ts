@@ -583,7 +583,7 @@ const nodeIdOf = (label: string) =>
 	);
 }
 
-// ---- 7. the lock is lifted (owner browser check passed, 2026-10-17) ------------------------------
+// ---- 7. the lock is lifted -----------------------------------------------------------------------
 
 {
 	const off = { settings: {} };
