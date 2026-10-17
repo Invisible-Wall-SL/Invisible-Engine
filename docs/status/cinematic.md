@@ -374,7 +374,7 @@ through the same player; headless-proven, no editor yet (5b).
   on the old `env.ts`, naming the three. Headless (local Pots → Hold and Win game, real time and
   determinism): Show → playCinematic → held Show animates the shown intro, holds, and the bonus
   follows the tap; play → held Show and a missing timeline in the chain both still hold and settle;
-  a flow with no timeline is unchanged. Owner browser check pending.
+  a flow with no timeline is unchanged. Owner browser check passed 2026-10-17.
 
 - 2026-10-15 — **`fx:<id>` node channels** (Invisible FX Step 2): `sampleNodeActor` samples a
   property track's `fx:` channels under their own names (absolute: an effect node's exposed

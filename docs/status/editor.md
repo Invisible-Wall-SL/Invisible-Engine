@@ -82,7 +82,7 @@ Shipped capabilities on `main`:
   **Known cost:** the hidden Screens canvas keeps running while the Components side is shown — its
   redraw loop only ticks when a visible screen plays a flipbook, effect or rig, but it is not
   paused.
-- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a), *Win* (8b), 2026-10-14, unlocked 2026-10-16, and *Free spins* (8c, 2026-10-15, locked off — pilot pending); each switched by a holder of the component-publish capability, both off for every live game until the owner's browser check — the whole story in [engine status](engine.md).
+- **Game Settings** — per-project boot splash (`bootLoader`), layout profile, and **Authored overlays (pilot)** → *Transition* (Rive plan Phase 8a), *Win* (8b), 2026-10-14, *Free spins* (8c) and *Buttons* (8d), 2026-10-15; all four unlocked (owner browser check passed 2026-10-17), each switched by a holder of the component-publish capability and off by default for every project — the whole story in [engine status](engine.md).
 - **Version history** — each save backs up the `scenes.json` it replaces (throttled, newest 20 kept; reference load, Overwrite-with-mine and restore always back up). **History…** opens the shared `$lib/DocHistoryModal.svelte` over `/api/editor/backups`; a restore is ETag-conditional and itself undoable.
 - **Concurrency** — conditional autosave (stale ETag ⇒ 409 ⇒ **Reload theirs / Overwrite with mine**, autosave paused); custom kinds and templates are create-only / ETag-guarded.
 - **Templates** — template-authoring mode (tag `slotId`s, save `editor/templates/<gameType>.json`) + slot/asset-issue warnings on save.
@@ -115,6 +115,10 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-17 — **Game Settings → Authored overlays → Free spins and Buttons are switchable.** The
+  owner's browser check passed, so both rows are enabled for publishers like Transition and Win,
+  and no save path refuses switching them on (the locks are removed). Detail in
+  [engine status](engine.md) 2026-10-17.
 - 2026-10-16 — **The canvas no longer turns white.** Each rig, text and FX overlay opened its own
   WebGL context, and the editor mounts one per screen, per depth segment and per blend group on
   both sides. The depth split (#1229) multiplied that: a screen whose nested component has an FX

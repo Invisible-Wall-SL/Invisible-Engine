@@ -8,7 +8,6 @@ import {
 import { listBackups } from '$lib/server/docBackups';
 import { normalizeDoc, saveDoc } from '$lib/server/editorStorage';
 import { editorDocBackupTarget } from '$lib/server/projectPaths';
-import { AuthoredOverlayLockedError } from '$lib/server/authoredOverlayGuard';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -63,9 +62,6 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		const { doc, etag } = await saveDoc(clientKey, projectKey, restored, baseEtag, 'always');
 		return json({ ok: true, id, etag, updatedAt: doc.updatedAt });
 	} catch (e) {
-		if (e instanceof AuthoredOverlayLockedError) {
-			return json({ ok: false, error: 'locked', message: e.message }, { status: 403 });
-		}
 		return restoreWriteFailed(e, 'this project');
 	}
 };

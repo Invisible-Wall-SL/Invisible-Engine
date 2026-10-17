@@ -4070,41 +4070,37 @@
 										/>
 										<span>Win</span>
 									</label>
-									<!-- Locked off until the owner pilots it (the save refuses it too,
-										`AUTHORED_FREE_SPINS_LOCKED`); still switchable OFF if a doc has it on. -->
 									<label
 										class="gs-toggle"
-										class:disabled={!data.canPublishShared || !authoredFreeSpins}
+										class:disabled={!data.canPublishShared}
 										title="The free-spin intro and outro visuals (the frame rig, the count rig and number, the localized captions, the fade) play from the built-in “Free-spin intro / outro presentation” components and their timelines instead of the coded FreeSpinIntroVisual / FreeSpinOutroVisual; the coded outro driver keeps the count-up and the round hold, the screens keep their taps. Held back (the coded path stays, the publish summary warns) when nothing binds a coded visual, when one sits in a non-canvas screen, when a screen places a free-spin visual instance, or when a visual names a custom rig, clip or slot. Switched by a publisher (the component-publish capability)."
 									>
 										<input
 											type="checkbox"
 											checked={authoredFreeSpins}
-											disabled={!data.canPublishShared || !authoredFreeSpins}
+											disabled={!data.canPublishShared}
 											onchange={(e) => {
 												authoredFreeSpins = e.currentTarget.checked;
 												onGameSettingChange();
 											}}
 										/>
-										<span>Free spins <em class="gs-pending">pilot pending</em></span>
+										<span>Free spins</span>
 									</label>
-									<!-- Locked off until the owner pilots it (the save refuses it too,
-										`AUTHORED_BUTTONS_LOCKED`); still switchable OFF if a doc has it on. -->
 									<label
 										class="gs-toggle"
-										class:disabled={!data.canPublishShared || !authoredButtons}
+										class:disabled={!data.canPublishShared}
 										title="Every parametric HUD button draws its per-state frame (the tile, its downstate grey and selected border, or the state images), turns its spin frame and plays its press sound from the built-in “Button presentation” component and its state machine instead of the coded ButtonFrame; the press itself, what it does and when the button is disabled, selected or spinning stay coded. Held back (the coded frame stays, the publish summary warns) when no screen places a parametric button, or when the project's own Button component draws something else. Switched by a publisher (the component-publish capability)."
 									>
 										<input
 											type="checkbox"
 											checked={authoredButtons}
-											disabled={!data.canPublishShared || !authoredButtons}
+											disabled={!data.canPublishShared}
 											onchange={(e) => {
 												authoredButtons = e.currentTarget.checked;
 												onGameSettingChange();
 											}}
 										/>
-										<span>Buttons <em class="gs-pending">pilot pending</em></span>
+										<span>Buttons</span>
 									</label>
 								{/if}
 
@@ -5236,12 +5232,6 @@
 	.gs-toggle input {
 		accent-color: #7ee0c0;
 		cursor: inherit;
-	}
-	.gs-pending {
-		margin-left: 4px;
-		font-size: 11px;
-		font-style: normal;
-		color: #8a8a94;
 	}
 	.gs-locked {
 		margin: 0;

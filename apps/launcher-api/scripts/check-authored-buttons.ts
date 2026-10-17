@@ -21,8 +21,8 @@
  *     cue crosses at 0 — the bare event the coded body broadcast;
  *  6. the hand-off (`pressSounds.ts`): unclaimed ⇒ the body broadcasts; claimed ⇒ handed over, or
  *     declined back; a throwing press releases its claim;
- *  7. the lock: switching the pilot on is refused for everyone, off is allowed, an already-on save
- *     writes, a stale tab conflicts first; the Game Settings row is disabled, "pilot pending";
+ *  7. the lock is lifted: a publisher may switch the pilot on, a non-publisher may not, a stale tab
+ *     conflicts first; the Game Settings row is enabled for publishers;
  *  8. the wiring, by source: every coded press body broadcasts through `pressFeedback`; the game
  *     swaps before the other overlays and registers the def, the fade signals and the defaults only
  *     in its flag block; the dev pilot is off and there is no URL opt-in; `buttonStates` is read by
@@ -583,7 +583,7 @@ const nodeIdOf = (label: string) =>
 	);
 }
 
-// ---- 7. the lock ---------------------------------------------------------------------------------
+// ---- 7. the lock is lifted -----------------------------------------------------------------------
 
 {
 	const off = { settings: {} };
@@ -596,48 +596,36 @@ const nodeIdOf = (label: string) =>
 			baseEtag: stale ? 'old' : 'e1',
 			storedEtag: 'e1',
 		} as Parameters<typeof G.authoredOverlaySaveDecision>[0]);
-	eq('the lock is on', G.AUTHORED_BUTTONS_LOCKED, true);
 	eq(
-		'switching on is refused for everyone; off is allowed; an on save writes; stale conflicts first',
+		'the lock symbols are gone',
+		['AUTHORED_BUTTONS_LOCKED' in G, 'submitsButtonsOn' in G, 'lockedOverlaySwitchedOn' in G],
+		[false, false, false],
+	);
+	eq(
+		'a publisher may switch it on; a non-publisher may not; off is allowed; stale conflicts first',
 		[
 			decide(off, onDoc, true),
 			decide(off, onDoc, false),
 			decide(onDoc, off, true),
-			decide(onDoc, onDoc, true),
+			decide(onDoc, onDoc, false),
 			decide(off, onDoc, true, true),
 		],
-		['locked-buttons', 'locked-buttons', 'write', 'write', 'conflict'],
+		['write', 'forbidden', 'write', 'write', 'conflict'],
 	);
-	eq('a save that has the pilot on reads the store', G.submitsButtonsOn(onDoc), true);
 	const page = src('../src/routes/(app)/editor/+page.svelte');
 	eq(
-		'the Game Settings row is disabled unless already on, "pilot pending"',
+		'the Game Settings row is enabled for publishers, no "pilot pending"',
 		[
-			page.includes('disabled={!data.canPublishShared || !authoredButtons}'),
-			page.includes('<span>Buttons <em class="gs-pending">pilot pending</em></span>'),
+			/checked=\{authoredButtons\}\s*disabled=\{!data\.canPublishShared\}/.test(page),
+			page.includes('<span>Buttons</span>'),
+			page.includes('pilot pending'),
 		],
-		[true, true],
+		[true, true, false],
 	);
 	eq(
-		'the save action refuses the locked decision',
-		src('../src/routes/(app)/editor/+page.server.ts').includes("decision === 'locked-buttons'"),
-		true,
-	);
-	// A publisher's save reads the store only when the condition names the pilot: without the
-	// buttons term, a publisher switching the pilot on would write without a decision.
-	const save = src('../src/routes/(app)/editor/+page.server.ts');
-	const readsStore = (action: string): boolean => {
-		const at = action.indexOf('const stored = await loadDocWithEtag(');
-		const condition = action.slice(action.lastIndexOf('if (', at), at);
-		return /\|\|\s*submitsButtonsOn\(parsed as Partial<LayoutDoc>\)/.test(condition);
-	};
-	eq(
-		'the save reads the store for a save with the buttons pilot on, a publisher’s included (negative control: the term removed)',
-		[
-			readsStore(save),
-			readsStore(save.replace(/\s*\|\|\s*submitsButtonsOn\(parsed as Partial<LayoutDoc>\)/, '')),
-		],
-		[true, false],
+		'the save action has no locked decision',
+		/locked-|submits\w+On/.test(src('../src/routes/(app)/editor/+page.server.ts')),
+		false,
 	);
 }
 

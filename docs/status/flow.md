@@ -124,7 +124,7 @@
   slam during the mount grace releases a wait; the handle's `dispose` (Game destroy) releases the
   drop-trace listener. Gate `check:flow-instance-nodes-editor` (25). Guides:
   [flow.md](../tools/flow.md) "Components", [invisible-editor.md](../tools/invisible-editor.md)
-  "The Components side". **⏳ Owner browser check:** (a) `/editor`: name a placed component, Properties → **↗ Show in Flow** → `/flow-v2`
+  "The Components side". **✅ Owner browser check passed (2026-10-17):** (a) `/editor`: name a placed component, Properties → **↗ Show in Flow** → `/flow-v2`
   opens with the project pinned and the placement lit under **Components**; drag it out, wire
   `on‹Event›` to an action, `▸ trigger` from an event; (b) remove that event on the component,
   Save, return to the Flow tab: the wire turns red and dashed to a ⚠ pin and Validation lists
