@@ -59,6 +59,11 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-19 — **`on=partner` loads the version we just delivered.** The partner's create-session
+  takes `config.versionPath`, which overrides the game's server setting for that one session, so
+  `/api/partner-session?…&on=partner` now sends the latest sealed delivery for the card's alias
+  (`&alias=` overrides it; `&version=vN` picks one exactly). Nobody has to repoint the game on
+  their server per test build; the partner does that once we name a candidate.
 - 2026-10-19 — **`/api/partner-session?…&on=partner`** opens the partner's OWN launch page for a
   freshly minted session: `mintPartnerSession` now also returns the `game_url` their create-session
   answers with (kept only when https), and `on=partner` redirects there instead of to our card, so

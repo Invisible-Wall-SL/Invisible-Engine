@@ -2,6 +2,7 @@ import { json, redirect } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
 import { getGame } from '$lib/server/games';
 import { canAccessProject } from '$lib/server/projects';
+import { assertAlias, assertVersionPath, listSealedVersions } from '$lib/server/partnerDelivery';
 import {
 	PartnerRgsError,
 	mintPartnerSession,
@@ -21,6 +22,10 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *   → 302 …&on=partner to the partner's OWN launch URL for that session (the `game_url` their
  *     create-session answers with): their page loading our DELIVERED build from their CDN — the
  *     real test of a delivery. `key` still gates who may mint; the card URL is not used.
+ *     It loads the LATEST version we delivered for `&alias=` (default: the card's name with the
+ *     spaces removed, the partner's alias convention), or exactly `&version=vN`, through the
+ *     partner's per-session `config.versionPath` — so a new delivery needs nobody to repoint the
+ *     game on their server. No delivered version found and none given ⇒ their server's own setting.
  *
  * This exists so a game card can point at a partner without any credential reaching a browser. The
  * partner's session endpoint is an admin one (user + password, and it will mint for ANY player id),
@@ -65,7 +70,24 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
 	// Minting is the only fallible step, so it is the only thing inside the catch. `redirect()`
 	// signals by THROWING, so calling it in here would be caught by our own handler.
-	let minted: { url: string; token: string; gameName: string };
+	let versionPath: string | undefined;
+	if (onPartner) {
+		const asked = url.searchParams.get('version')?.trim();
+		if (asked) {
+			assertVersionPath(asked);
+			versionPath = asked;
+		} else {
+			const given = url.searchParams.get('alias')?.trim();
+			if (given) assertAlias(given);
+			const alias = given || game.name.replace(/\s+/g, '');
+			// A derived alias that is not a plain segment simply has no deliveries to find.
+			if (given || /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(alias)) {
+				versionPath = (await listSealedVersions(alias)).at(-1);
+			}
+		}
+	}
+
+	let minted: { url: string; token: string; gameName: string; versionPath?: string };
 	try {
 		const config = partnerRgsConfig(ENV.PARTNER_RGS, profileId);
 		const { token, gameName, gameUrl } = await mintPartnerSession({
@@ -73,6 +95,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			profileId,
 			userId: locals.user.id,
 			gameId,
+			versionPath,
 		});
 		if (onPartner && !gameUrl) {
 			throw new PartnerRgsError(
@@ -94,6 +117,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 					}),
 			token,
 			gameName,
+			versionPath,
 		};
 	} catch (error) {
 		if (error instanceof PartnerRgsError) {

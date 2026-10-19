@@ -74,6 +74,21 @@ check(
 	seen[0].searchParams.get('game_id'),
 	'7',
 );
+check('no versionPath asked → none sent', seen[0].searchParams.has('config.versionPath'), false);
+
+const seenV: URL[] = [];
+await mintPartnerSession({
+	config,
+	profileId: 'p',
+	userId: 'user-1',
+	versionPath: 'v3',
+	fetchImpl: answering({ response: { token: 'S3' } }, seenV),
+});
+check(
+	'versionPath rides as config.versionPath',
+	seenV[0].searchParams.get('config.versionPath'),
+	'v3',
+);
 
 const noUrl = await mintPartnerSession({
 	config,
