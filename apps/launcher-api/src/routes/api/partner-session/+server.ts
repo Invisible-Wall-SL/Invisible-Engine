@@ -18,6 +18,9 @@ const NO_STORE = { 'cache-control': 'no-store' };
  *   GET /api/partner-session?key=<gameKey>&profile=<profileId>[&game=<partnerGameId>]
  *   → 302 to the game, carrying `?rgs_profile=…&<sessionParam>=<freshly minted token>`
  *   → 302 …&json=1 returns `{ url, token, gameName }` instead, for scripting
+ *   → 302 …&on=partner to the partner's OWN launch URL for that session (the `game_url` their
+ *     create-session answers with): their page loading our DELIVERED build from their CDN — the
+ *     real test of a delivery. `key` still gates who may mint; the card URL is not used.
  *
  * This exists so a game card can point at a partner without any credential reaching a browser. The
  * partner's session endpoint is an admin one (user + password, and it will mint for ANY player id),
@@ -40,6 +43,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	const profileId = url.searchParams.get('profile')?.trim() ?? '';
 	const gameId = url.searchParams.get('game')?.trim() || undefined;
 	const wantsJson = url.searchParams.get('json') === '1';
+	const onPartner = url.searchParams.get('on') === 'partner';
 
 	if (!key || !profileId) {
 		return json(
@@ -64,22 +68,30 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	let minted: { url: string; token: string; gameName: string };
 	try {
 		const config = partnerRgsConfig(ENV.PARTNER_RGS, profileId);
-		const { token, gameName } = await mintPartnerSession({
+		const { token, gameName, gameUrl } = await mintPartnerSession({
 			config,
 			profileId,
 			userId: locals.user.id,
 			gameId,
 		});
+		if (onPartner && !gameUrl) {
+			throw new PartnerRgsError(
+				'The partner created a session but sent no https game_url to open it with',
+				502,
+			);
+		}
 		minted = {
-			url: partnerLaunchUrl({
-				cardUrl: game.url,
-				profileId,
-				token,
-				sessionParam: config.sessionParam ?? 'sid',
-				// The launcher's click-time params (`ie_authoring`, locale, …) arrive on THIS request
-				// rather than on the game, so carry them across or a partner card silently loses them.
-				from: url.searchParams,
-			}),
+			url: onPartner
+				? gameUrl
+				: partnerLaunchUrl({
+						cardUrl: game.url,
+						profileId,
+						token,
+						sessionParam: config.sessionParam ?? 'sid',
+						// The launcher's click-time params (`ie_authoring`, locale, …) arrive on THIS request
+						// rather than on the game, so carry them across or a partner card silently loses them.
+						from: url.searchParams,
+					}),
 			token,
 			gameName,
 		};
