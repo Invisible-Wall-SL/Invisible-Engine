@@ -155,7 +155,8 @@ interface CreateSessionResponse {
 const MINT_TIMEOUT_MS = 10_000;
 
 /**
- * Create a session and return its token.
+ * Create a session and return its token, plus the partner's own launch URL for it when they sent
+ * one (`gameUrl`, '' otherwise).
  *
  * The credentials travel in the query string because that is the interface the partner exposes;
  * they never leave this process, and neither the token request nor its failures are logged with the
@@ -169,7 +170,7 @@ export async function mintPartnerSession(options: {
 	/** Force a specific partner player id, bypassing the pool assignment. */
 	player?: string;
 	fetchImpl?: typeof fetch;
-}): Promise<{ token: string; gameName: string }> {
+}): Promise<{ token: string; gameName: string; gameUrl: string }> {
 	const { config } = options;
 	const gameId = options.gameId ?? config.gameId;
 	if (!gameId) {
@@ -223,7 +224,22 @@ export async function mintPartnerSession(options: {
 		throw new PartnerRgsError('Partner RGS returned no session token', 502);
 	}
 	const gameName = typeof inner?.gameName === 'string' ? inner.gameName : '';
-	return { token, gameName };
+	return { token, gameName, gameUrl: partnerGameUrl(inner?.game_url) };
+}
+
+/**
+ * The partner's OWN launch URL for the session it just created: their page, which loads our
+ * delivered build from their CDN. Kept only when it is an https URL — it becomes a redirect target,
+ * so anything else is dropped rather than followed.
+ */
+export function partnerGameUrl(raw: unknown): string {
+	if (typeof raw !== 'string' || !raw) return '';
+	try {
+		const url = new URL(raw);
+		return url.protocol === 'https:' ? url.toString() : '';
+	} catch {
+		return '';
+	}
 }
 
 /**
