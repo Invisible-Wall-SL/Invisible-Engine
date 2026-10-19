@@ -169,6 +169,9 @@ export async function mintPartnerSession(options: {
 	gameId?: string;
 	/** Force a specific partner player id, bypassing the pool assignment. */
 	player?: string;
+	/** The CDN `versionPath` this ONE session loads (`config.versionPath`), overriding the game's
+	 *  server setting, so a fresh delivery is testable before anyone repoints the game. */
+	versionPath?: string;
 	fetchImpl?: typeof fetch;
 }): Promise<{ token: string; gameName: string; gameUrl: string }> {
 	const { config } = options;
@@ -187,6 +190,7 @@ export async function mintPartnerSession(options: {
 		options.player ?? partnerRemoteId(options.userId, config.players),
 	);
 	url.searchParams.set('game_id', gameId);
+	if (options.versionPath) url.searchParams.set('config.versionPath', options.versionPath);
 	url.searchParams.set('usr', config.user);
 	url.searchParams.set('passw', config.pass);
 

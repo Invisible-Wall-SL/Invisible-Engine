@@ -621,7 +621,11 @@ Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and
 > - **Testing a DELIVERY on the partner's own page:** add `&on=partner` (and `&game=<their game id>`
 >   when it differs from `gameId`) to the launch link. It mints a session the same way and then
 >   redirects to the `game_url` the partner's create-session answers with, which is their page
->   loading our delivered build from their CDN. `key` still decides who may mint.
+>   loading our delivered build from their CDN. `key` still decides who may mint. It loads the
+>   LATEST version we delivered (alias = the card's name without spaces, or `&alias=`), or exactly
+>   `&version=vN`, through the partner's per-session `config.versionPath`, which overrides their
+>   server setting for that one session only. So a new delivery is testable at once; the partner
+>   repoints game 7 itself only once we name a release candidate.
 >   **Engine "release pending" pill (C2):** the launcher home pill can also flag when engine `main` has un-released ENGINE changes (`apps/lines/`, `packages/`) ahead of the live runtime bundle's stamped commit. To activate, set on the **launcher-api** Railway service: `GITHUB_ENGINE_READ_TOKEN` = a **fine-grained PAT** with **read-only "Contents"** on `Invisible-Wall-SL/Invisible-Engine` (optionally `GITHUB_ENGINE_REPO` = `owner/repo` to override the default). The launcher calls the GitHub compare API (`{deployed}...main`) best-effort, cached ~60s. **If `GITHUB_ENGINE_READ_TOKEN` is unset (or any GitHub error/timeout), the pill simply never shows "release pending"** — it behaves exactly as before (green/deployed). `GIT_CLONE_TOKEN` is used only as a best-effort fallback and is scoped to game repos, so a dedicated read token is preferred. After setting → **Apply changes / Deploy**.
 
 > **Partner CDN uploads (`DELIVERY_R2_*`):** where `scripts/upload-delivery.mjs` puts a delivery
