@@ -1,9 +1,10 @@
-// Graph editor spike — prove every curve the Rigger's GRAPH view draws is the curve engine-rig
+// Graph editor spike — prove each channel the Rigger's GRAPH view draws is the curve engine-rig
 // plays, including the SECOND value of a two-value channel (translate y, scale y).
 //   node tools/rigger-spike/graphcurve.mjs <skeleton.json> <skeleton.atlas>
 //
 // Runs the SHIPPED sampler out of view.html (`GRAPH_CHANS`, `graphValueAt`, `sampleChannel`,
-// `bezierValue`), not a re-implementation.
+// `bezierValue`), not a re-implementation. Its keys write every field; a key that leaves a field
+// to the format's default is not covered here.
 //
 // The regression it guards: a translate/scale key's bezier `curve` holds four numbers PER VALUE
 // INDEX (x at 0..3, y at 4..7), and `sampleChannel` takes a field's index from its position in the
@@ -137,10 +138,13 @@ for (const ch of GRAPH_CHANS) {
 	const tol = 0.02 * (Math.max(...vals) - Math.min(...vals));
 	let worst = 0;
 	let worstT = 0;
+	let notANumber = 0;
 	let fieldOnly = 0;
 	times.forEach((t, i) => {
 		const d = Math.abs(graphValueAt(c, t) - played[i][c.label]);
-		if (d > worst) {
+		// A curve read past the end of `curve` samples NaN, and SVG drops the line without a word.
+		if (!Number.isFinite(d)) notANumber++;
+		else if (d > worst) {
 			worst = d;
 			worstT = t;
 		}
@@ -150,8 +154,8 @@ for (const ch of GRAPH_CHANS) {
 		);
 	});
 	log(
-		worst <= tol,
-		`${c.label}: graph follows the played curve (worst Δ ${worst.toFixed(3)} @${worstT.toFixed(2)}s, tol ${tol.toFixed(3)})`,
+		notANumber === 0 && worst <= tol,
+		`${c.label}: graph follows the played curve (worst Δ ${worst.toFixed(3)} @${worstT.toFixed(2)}s, tol ${tol.toFixed(3)}, ${notANumber} non-finite)`,
 	);
 	// Keep the fixture sharp: a second value sampled on its own must visibly miss, or a regression
 	// to `sampleChannel(keys, t, [c.field])` would pass unnoticed.

@@ -12532,8 +12532,7 @@ function applyCurveToDopeSel(preset){
 function closeCurveMenu(){ const m = $("#curveMenu"); if (m) m.remove(); }
 // The value one graphed curve `c` (a GRAPH_CHANS entry + its keys) shows at t. A bezier `curve`
 // holds four numbers per value index, and `sampleChannel` takes a field's index from its place in
-// `fields`, so it gets the channel's whole field list: sampling `[c.field]` alone drew y and scaleY
-// with x's tangents, a curve the runtime never plays. Checked against engine-rig in graphcurve.mjs.
+// `fields`, so it gets the channel's whole field list. Checked against engine-rig in graphcurve.mjs.
 function graphValueAt(c, t){
   return sampleChannel(c.keys, t, c.ch === "rotate" ? ["value"] : ["x", "y"])[c.field] ?? 0;
 }

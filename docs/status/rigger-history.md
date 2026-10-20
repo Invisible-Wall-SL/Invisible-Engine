@@ -14,8 +14,8 @@
     passes `["x", "y"]`, so it reads both halves correctly. `renderGraphBody` passed `[c.field]`, so y
     took index 0 and was drawn from x's control times AND values (x's 25 / 5 standing in for y's
     25 / −380). The handle drawing and handle drag already used `vi * 4`, so the handles were right
-    and the line was not. The line is unchanged as far back as 2026-09-22 (`5aac68a`, as deep
-    as the history was fetched), so no recent change caused it. It shows only once x and y are eased
+    and the line was not. The sampling line predates 2026-09-22, so no recent change caused
+    it. It shows only once x and y are eased
     differently.
   - **Fix.** `graphValueAt(c, t)` gives `sampleChannel` the channel's whole field list (`["value"]`
     for rotate, `["x", "y"]` otherwise) and picks the graphed field. No other caller samples a subset
