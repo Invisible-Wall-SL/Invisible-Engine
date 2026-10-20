@@ -5,6 +5,7 @@
 	import Symbol from './Symbol.svelte';
 	import { coinLabelPops, type CoinLabelPopCue } from '../game/coinLabel';
 	import { boardDimensions } from '../game/gameConfig';
+	import { respinHeldState } from '../game/respinLanding';
 	import { getSymbolSeat } from '../game/stateGame.svelte';
 	import { completeHeldBeat, HELD_REST, stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
@@ -37,6 +38,11 @@
 			: undefined,
 	);
 	const cellState = $derived(stateRespinBoard.heldState[key] ?? HELD_REST);
+	/** What the beat DRAWS: a stick whose `land` already played as the cell stopped draws the rest
+	 *  (`respinHeldState`); `cellState` still drives everything keyed on the beat. */
+	const drawnState = $derived(
+		respinHeldState(cellState, props.cell.symbol.name, stateRespinBoard.landed.includes(key)),
+	);
 	/** A coin board's tally: a coin that pays nothing dims, and a `perLine` coin shows its ×N. */
 	const DIMMED_ALPHA = 0.35;
 	const alpha = $derived(stateRespinBoard.dimmed.includes(key) ? DIMMED_ALPHA : 1);
@@ -62,7 +68,7 @@
 
 <Container x={seat.x} y={seat.y} {scale} {zIndex} {alpha}>
 	<Symbol
-		state={cellState}
+		state={drawnState}
 		rawSymbol={props.cell.symbol}
 		{labelOverride}
 		{labelPop}

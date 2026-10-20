@@ -85,6 +85,9 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
     style, cash format, per-tier jackpot text + style, placement, land / count pops, count length.
     Shape, defaults and prune live once in `engine-layout/coinLabel.ts`; the bake's rebuild is
     `scripts/lib/bakeCoinLabel.mjs`.
+  - `respinLandOnStop` (Hold and Win, or once authored) — **Play Land as each cell stops**: a coin
+    plays `land` (and its landing cue) as its own respin cell stops, and an unbound `coinStick` no
+    longer replays it. Rule: `engine-game` `respinStopState` / `respinHeldDrawState`.
   - `flights` (Hold and Win only, or once authored) — per flight kind (`toTotal`, `toCollector`,
     `boostBeam`, `toMeter`, `toMeter:<id>` for each Game Config meter): the head (built-in glow,
     re-tinted glow, sprite / rig / flipbook, none), the trail (an Invisible FX effect played as a
@@ -108,11 +111,11 @@ rebuild in `normalizeSymbolsDoc`, the client type / setter / **`docSignature`** 
 enables), the `/api/editor/export-symbols` response, and the **`bake-editor-doc.mjs` whitelist**
 (else only the runtime-bundle path carries it). `check:win-cycle` derives its field list from the
 schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers`,
-`check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings` and `check:coin-label`.
-`check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings` and `check:flights`
-(which also RUNS the bake's `scripts/lib/bakeFlights.mjs` rather than grepping for it). A global
-that names an Invisible FX effect must also join the reachable-effects set in `runtimeBundle.ts`
-AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
+`check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings`, `check:coin-label`,
+`check:respin-land` and `check:flights` (which also RUNS the bake's `scripts/lib/bakeFlights.mjs`
+rather than grepping for it). A global that names an Invisible FX effect must also join the
+reachable-effects set in `runtimeBundle.ts` AND `bake-editor-doc.mjs`, or the effect is pruned as an
+orphan.
 
 ## Open items / next
 
@@ -156,6 +159,28 @@ AND `bake-editor-doc.mjs`, or the effect is pruned as an orphan.
   tints, the win dim, layers' blend, the pop, the arrival release, the transition, book VFX).
 
 ## Recent changes
+
+- 2026-10-20 — **Hold and Win: a coin can play Land as its own cell stops.** Reported as "the land
+  animation I set only plays after all the reels have landed". That was the respin board's design,
+  not a fault: a stopping respin cell draws `coinLand` (unbound ⇒ `static`), and `land` reached the
+  coin only through `coinStick`, in the `coinsLand` beat, which runs after `spinRespinCells` resolves
+  on the LAST cell. (The base reels already play `land` per reel, after that reel's bounce.) New
+  sparse doc global `respinLandOnStop: { enabled: true }`, the switch **Play Land as each cell
+  stops** in a new **Coins landing on the respin board** section (Hold and Win projects, or once
+  on). On: the stop draws `land` unless `coinLand` is bound (`respinStopState`), the landing cue
+  plays at the stop, the `coinsLand` beat waits for the stops' bound `land` to finish (capped at
+  `INTRO_BEAT_CAP_MS`, slammable) so the held layer does not cut the last coin short, skips the cue
+  it already played, and an unbound `coinStick` on those cells draws `coinIdle` instead of replaying
+  `land` (`respinHeldDrawState`; the beat state is still `coinStick`, so the label's stick pop
+  fires). A stick with no stop before it (mystery reveal, special becoming a coin) borrows `land` as
+  before. New `createRespinBoard` dep `onCellLand(reel, row, symbol)`, called as each cell's spin
+  resolves. Off ⇒ byte-parity (no new await, no new write). Gates: the rules in
+  `engine-game/fixtures/respinBoard.fixture.ts`; the chain (schema, setter, `docSignature`, export,
+  endpoint, bake whitelist, reader, the three game call sites) in `check:respin-land`
+  (mutation-tested). Real clock (headless shell, 4 fps): `createRespinBoard` fired `onCellLand` per
+  cell at 2.9 / 3.2 / 3.5 / 4.2 / 4.5 s with the window symbol already in `land`, and the respin
+  resolved only after the last. ⏳ Owner check on a real Hold and Win board (the switch is not
+  reachable in a container dev build). Runtime release on merge.
 
 - 2026-10-16 — **Flights: a flying pots token no longer shows the win frame.** The token flies as
   `<Symbol state="flyToMeter">`, and `flyToMeter` is a `WIN_HIGHLIGHT_SYMBOL_STATES` member (it

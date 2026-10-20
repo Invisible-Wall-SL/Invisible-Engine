@@ -86,6 +86,7 @@
 		setWinExplodeEnabled,
 		setWinBeatMaxMs,
 		setArrivalReleaseEnabled,
+		setRespinLandOnStop,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
 		setWinCycleShowText,
@@ -112,6 +113,7 @@
 		winExplodeEnabled,
 		winBeatMaxMs,
 		arrivalReleaseEnabled,
+		respinLandOnStopEnabled,
 		WIN_BEAT_MAX_MS_MIN,
 		WIN_BEAT_MAX_MS_MAX,
 		winCycleShowLine,
@@ -1928,6 +1930,10 @@
 	// round. Sibling of the ceiling above, not the same knob: that one SHORTENS a beat, this one
 	// leaves the beat alone and stops waiting on it.
 	const arOn = $derived(arrivalReleaseEnabled(doc));
+	// "Play Land as each cell stops" — offered wherever there is a respin board, or once authored so
+	// a project that lost its Hold and Win mode can still turn it off.
+	const rlOn = $derived(respinLandOnStopEnabled(doc));
+	const respinLandShown = $derived(caps.holdAndWin || rlOn);
 
 	/** The win-beat ceiling (ms). A blank box clears it. Committed on CHANGE rather than on every
 	 *  keystroke, because the setter clamps into the range the server accepts and a mid-typing clamp
@@ -4371,6 +4377,48 @@
 						</div>
 					{/if}
 				</section>
+
+				{#if respinLandShown}
+					<section class="winline" class:expanded={rlOn}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Coins landing on the respin board</h2>
+								<p class="wl-sub">
+									By default a coin plays its <strong>Land</strong> animation as it sticks, and the
+									coins stick together once the <em>last</em> cell of the respin has stopped. Turn
+									this on and each coin plays <strong>Land</strong> the moment its own cell stops, with
+									its landing sound.
+								</p>
+							</div>
+							<label class="switch" class:on={rlOn}>
+								<input
+									type="checkbox"
+									checked={rlOn}
+									onchange={(e) => (doc = setRespinLandOnStop(doc, e.currentTarget.checked))}
+								/>
+								<span class="track"><span class="knob"></span></span>
+								<span class="switch-label">Play Land as each cell stops</span>
+							</label>
+						</div>
+
+						{#if rlOn}
+							<div class="wl-config">
+								<div class="wl-group">
+									<p class="wl-note">
+										Sticking then does not play <strong>Land</strong> again: a coin with
+										<strong>Coin stick</strong> left empty just settles into its resting art (the
+										coin label's "Pop as the coin sticks" still pops then). Bind
+										<strong>Coin stick</strong>
+										and it still plays as the coins stick; bind <strong>Coin land</strong> and that
+										plays at the stop instead of <strong>Land</strong>. A mystery or a multiplier
+										turning into a coin has no cell stop, so it still lands as it sticks. The coins
+										stick once the last coin's <strong>Land</strong> has finished.
+									</p>
+								</div>
+							</div>
+						{/if}
+					</section>
+				{/if}
 
 				{#if coinLabelShown}
 					<section class="winline" class:expanded={true}>

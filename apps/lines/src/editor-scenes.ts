@@ -420,6 +420,11 @@ type BakedBundle = {
 		 * awaited exactly as before (byte-parity). Only meaningful under the `emerge` swap style,
 		 * which is the only one that has an arrival to wait on. */
 		arrivalRelease?: { enabled?: boolean };
+		/** "Play Land as each cell stops" (Invisible Symbols State Machine output, consumed by the
+		 * Hold and Win respin board — `RespinCell`, `RespinHeldSymbol`, `presentCoinsLand`): a coin
+		 * plays its `land` as its own respin cell stops instead of when the coins stick after every
+		 * cell has stopped. Absent ⇒ off (byte-parity). See `engine-game`'s `respinStopState`. */
+		respinLandOnStop?: { enabled?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -1277,6 +1282,22 @@ export function bakedArrivalReleaseEnabled(): boolean {
 		? runtimeBundle!.symbols?.arrivalRelease
 		: hasBakedDoc()
 			? bakedBundle.symbols?.arrivalRelease
+			: undefined;
+	return c?.enabled ?? false;
+}
+
+/**
+ * "Play Land as each cell stops" — whether a Hold and Win coin plays its `land` as its own respin
+ * cell stops rather than when the `coinsLand` beat sticks it after every cell has stopped
+ * (`engine-game`'s `respinStopState` / `respinHeldDrawState`). Default FALSE, i.e. Land plays at
+ * the stick exactly as it always has. Mirrors `bakedArrivalReleaseEnabled`'s runtime→baked→undefined
+ * resolution.
+ */
+export function bakedRespinLandOnStop(): boolean {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.respinLandOnStop
+		: hasBakedDoc()
+			? bakedBundle.symbols?.respinLandOnStop
 			: undefined;
 	return c?.enabled ?? false;
 }

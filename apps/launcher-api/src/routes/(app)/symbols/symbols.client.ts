@@ -655,6 +655,10 @@ export interface SymbolsDoc {
 	 *  as before this existed. It shortens no animation — the intro still plays and still settles its
 	 *  cell — it only stops being awaited. Only meaningful under the `emerge` swap style. */
 	arrivalRelease?: { enabled?: boolean };
+	/** "Play Land as each cell stops" — on the Hold and Win respin board a coin plays its Land as its
+	 *  own cell stops, not when every landed coin sticks after the last cell has stopped. Sparse and
+	 *  default OFF: absent ⇒ Land plays at the stick, exactly as before this existed. */
+	respinLandOnStop?: { enabled?: boolean };
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
@@ -1239,6 +1243,21 @@ export function setArrivalReleaseEnabled(doc: SymbolsDoc, enabled: boolean): Sym
 	return next;
 }
 
+/** The effective "a coin plays Land as its own respin cell stops" flag. Defaults to `false`
+ *  (byte-parity — Land has always played as the coins stick). */
+export function respinLandOnStopEnabled(doc: SymbolsDoc): boolean {
+	return doc.respinLandOnStop?.enabled ?? false;
+}
+
+/** Turn "Play Land as each cell stops" on/off. Sparse like `setArrivalReleaseEnabled`: OFF deletes
+ *  the key so an untouched/reset project persists nothing. */
+export function setRespinLandOnStop(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const next = { ...doc };
+	if (enabled) next.respinLandOnStop = { enabled: true };
+	else delete next.respinLandOnStop;
+	return next;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -1788,6 +1807,8 @@ export function docSignature(doc: SymbolsDoc): string {
 		// Same trap a third time: without this line the arrival-release switch flips on screen, the
 		// page never goes dirty, and Save stays disabled on a change that looks made.
 		arrivalRelease: doc.arrivalRelease?.enabled === true ? true : null,
+		// And again for the respin board's land timing.
+		respinLandOnStop: doc.respinLandOnStop?.enabled === true ? true : null,
 		bookVfx,
 		transition,
 		tumblePattern,
