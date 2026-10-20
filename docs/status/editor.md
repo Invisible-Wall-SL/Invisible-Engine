@@ -152,7 +152,9 @@ Shipped capabilities on `main`:
     uniform (one `scale` key); a text node's or Text Box's resize handles do nothing.
   - **Panel.** The module mounts with `interpolation` and `summaryRows`; the header gains the loop
     type, fps, **Onion** (±N, 1–10) and **Only selected**; ▶ plays through `playbackTime`, so it
-    loops or ping-pongs like the game; Space toggles it.
+    loops or ping-pongs like the game; Space toggles it. The Timeline's keys are listed in 9a's
+    **Shift+/** sheet (a *Timeline (Animate)* group in `stageShortcuts.ts`) but handled by the
+    shared module, which `/rigger` mounts too.
   - **Onion skin.** `onionFrames` (±N frames, nearest first, clipped to the timeline) through
     `setOnionPreview` in `valuePreview.client.svelte.ts`; the canvas outlines each driven top-level
     node per ghost (red before, green after, fading) in `drawOnion`. Editor-only, never saved.
