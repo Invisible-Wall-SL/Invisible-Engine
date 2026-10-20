@@ -5,6 +5,72 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-10-20 — **Values a key leaves at their default read as 0, or as the setup's.**
+  - **Symptom.** `anticipation.json`, `anticipation1_intro`, bone `glow`: scale keys
+    `[{"x":0.6},{"time":0.6667}]`. The Rigger previewed x 0.6 → 0 and y at 0, so the bone sat
+    at scaleY 0 for the whole clip. The game (engine-rig) plays x 0.6 → 1 and y 1.
+  - **Cause.** Rig JSON omits a key's value when it equals the format's default, the way it omits
+    `time` at 0, and the desktop editor's rigs do. 556 of the anticipation rig's 1,483 scale keys
+    leave out x or y. Across the repo, 10,509 scale keys omit x and 11,088 omit y. 70 transform
+    keys in `mm_bg*` omit mixScaleY, and path mix keys omit mixRotate (20) and mixY (11).
+    `sampleChannel` read an omitted field as 0 (`a[f] ?? 0`), and so did the graph (curve, key
+    dots, value range) and the easing presets that bake handle values. That is wrong for every
+    default that isn't 0: scale x / y are 1; IK mix is 1; transform mixRotate, mixX, mixScaleX
+    and mixShearY are 1, with mixY ← mixX and mixScaleY ← mixScaleX; path mixRotate and mixX are 1,
+    with mixY ← mixX. At an end key, the constraint posing fell back to the constraint's setup
+    value (`k.mix ?? ic.data.mix`), which is wrong for a zero default too: 753 path `position`
+    keys omit their 0. The runtime takes an IK key's softness, bend, compress and stretch from the
+    key (0 / true / false / false), never from the setup. The poser kept the setup's softness and
+    bend whenever a key omitted them, and never set compress or stretch. A physics key's value
+    defaults to 0 on every channel, not to `PC_SIM_DEFAULT`. Nothing caught this because the
+    Rigger's own keys carry every field, and no spike ran the shipped `poseAtTime`.
+  - **Not quite "the Rigger writes every field".** ◆ Key IK wrote `{time, mix}` only, and
+    `upsertKey` replaces a key outright, so re-keying an imported key also dropped its softness and
+    bend. The game has always played such a key as softness 0, bend +, no compress, no stretch.
+  - **Fix.** The cure `normalizeKeyTimes` already applies to `time`: write each default into the
+    keys once, so every reader (sampler, graph, dopesheet, key drag, easing presets) is right at once.
+    `KEY_DEFAULTS` is engine-rig's table (`readTimeline1` / `readTimeline2` and the IK / transform /
+    path / physics readers in `skeletonJson.ts`), including the split bone channels and slot alpha
+    that the Rigger doesn't pose. `fillKeyDefaults` walks it and treats a field as omitted exactly
+    when `get()` does (`=== undefined`). A string default copies an earlier field of the same key,
+    which gives the mixY / mixScaleY fallbacks. `normalizeKeys` (times, then values) runs at open,
+    at clip import (clipboard and animation library) and, new, at rig-library merge, which skipped
+    even the time fill. ◆ Key IK fills the four other IK fields with the format defaults after its
+    upsert, so its keys mean exactly what they did. The IK poser's `"softness" in` /
+    `"bendPositive" in` guards are gone, since every key now carries both, and it steps compress
+    and stretch as the runtime does.
+  - **What a save writes now.** A rig from the desktop editor saved from the Rigger carries the
+    filled values, so the file is larger and plays identically. Opening one does not mark it
+    dirty: `rawDocOriginal` is taken after the fill. `irigDocProblem`, `roundtrip.mjs`
+    (`rigModel.mjs`, not this path), `irig-save.mjs` and the golden files are untouched. The
+    server never fills.
+  - **Verified.** `tools/rigger-spike/keydefaults.mjs` (in `check:all`, on the anticipation rig)
+    runs the shipped `normalizeKeys`, `poseAtTime` and `keyIk` against engine-rig:
+    1. The filled document loads into the same timelines as the file (frames, curve types and
+       sampled beziers). Filling again changes nothing, and nothing outside `animations` changes.
+    2. Every clip poses as engine-rig plays it: 132,179 readings, 0 misses. Without the fill,
+       332 channels miss, worst first `glow` scaleY (0 against 1).
+    3. A fixture on the same rig has an IK, a transform and a physics constraint, plus the rig's
+       first path constraint, each set up away from the defaults. Its keys leave out every
+       defaulted field except mass (a mass of 0 is degenerate). It poses right, and without the
+       fill all 22 targeted fields read wrong.
+    4. ◆ Key IK writes all five fields, and the clip it leaves poses right.
+
+    Restoring the old IK lines fails (3) and (4) on compress / stretch.
+
+    `graphcurve.mjs` gains a second bone with `glow`'s keys plus omitted rotate / translate
+    values: the graph and every key dot follow the played curve, and unfilled, scale misses by 1.0.
+    The new spike passes on all 155 repo rigs (about 4.3 M readings). Before the fix, 10,752
+    channels on 134 of them read wrong. `pnpm check:all --only rigger-spike`: 72/72. `pnpm lint`
+    is clean.
+  - **Found on the way, not fixed** (open items 16 and 17). Before a channel's first key, the
+    preview holds that key while the runtime holds the setup pose: 340 channels on the anticipation
+    rig. And ◆ Key IK keys format defaults rather than the setup's softness and bend, which flips a
+    bend-negative IK while its mix is keyed.
+  - **Spike note.** engine-rig stores key times in single precision, so at a key's exact instant
+    the runtime can still be on the segment before it (0.8 → 0.800000012). The spike reads the
+    runtime 10 µs later.
+
 - 2026-10-20 — **The graph editor drew y and scaleY with x's tangents.**
   - **Symptom.** In the Graph view, a bone's y curve with flat tangent handles on a middle key drew as
     a sharp V through that key, its handles visibly not touching the line. Playback and the saved rig
