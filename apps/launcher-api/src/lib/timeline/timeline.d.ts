@@ -114,6 +114,8 @@ export interface TimelineOptions {
 	summaryRows?: boolean;
 	/** A drag over an empty channel lane box-selects keys (a click there clears the selection). */
 	boxSelect?: boolean;
+	/** A node actor's `text` track draws as a row (drag to retime, double-click to delete). */
+	textRows?: boolean;
 }
 
 export interface Timeline {
@@ -181,6 +183,9 @@ export interface Timeline {
 	 *  doc's `defaultEase`, else linear. */
 	keyProperty(actorId: string, channel: string, value: number | null, ease?: TimelineEase): void;
 	keyVisibility(actorId: string, visible: boolean): void;
+	/** A cue at the playhead, selected; `cue` seeds its name (default `fx:`). */
+	addCue(cue?: string): void;
+	deleteTextKey(trackId: string, time: number): void;
 }
 
 export interface TimelineChannel {

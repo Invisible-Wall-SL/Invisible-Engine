@@ -15,6 +15,7 @@ import {
 	type ValueBinding,
 } from 'engine-layout';
 import type { OnionFrame, TimelineNodeDrive } from '$lib/timeline/screenTimeline';
+import { previewTextShown } from '$lib/timeline/timelineRows';
 
 /**
  * The editor's VALUE-BINDING PREVIEW (Hold and Win Phase 12b): a test input per binding, set by
@@ -97,6 +98,12 @@ export function previewBindings(node: LayoutNode): ValueBinding[] | undefined {
 /** The previewed timeline's tint for `node` — it wins over a param-bound tint, as in game. */
 export function previewTint(node: LayoutNode): number | undefined {
 	return drives?.get(node.id)?.sample.tint;
+}
+
+/** What the previewed timeline's `text` track makes `node` show; undefined ⇒ its own text. */
+export function previewText(node: LayoutNode): string | undefined {
+	const drive = drives?.get(node.id);
+	return drive ? previewTextShown(node, drive.sample.text, drive.textTo) : undefined;
 }
 
 /** The clip and clip-local seconds the previewed timeline's `animation` strip holds `node` at. */

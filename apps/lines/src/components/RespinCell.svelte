@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { Container, Rectangle } from 'pixi-svelte';
-	import { SYMBOL_SIZE, type RespinBoardCell, type SymbolState } from 'engine-game';
+	import { respinCellKey, SYMBOL_SIZE, type RespinBoardCell, type SymbolState } from 'engine-game';
 
 	import Symbol from './Symbol.svelte';
+	import { respinCellStopState } from '../game/respinLanding';
 	import { cellWindow, getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
-	import { respinCellLook } from '../game/stateRespinBoard.svelte';
+	import { completeCellLanding, respinCellLook } from '../game/stateRespinBoard.svelte';
 
 	type Props = {
 		cell: RespinBoardCell;
@@ -60,12 +61,16 @@
 	);
 
 	/**
-	 * The cell's reel lands on `land`, but a respin cell does not play it: a landed coin plays its land
-	 * as it STICKS, in the held layer (`coinStick`), and an empty cell has nothing to celebrate. It
-	 * plays `coinLand` instead — the stop, which unauthored inherits `static`. While it rolls it plays
-	 * the reel's own `spin` (the blur), as a reel cell does.
+	 * The cell's reel lands on `land`, but by default a respin cell does not play it: a landed coin
+	 * plays its land as it STICKS, in the held layer (`coinStick`), and an empty cell has nothing to
+	 * celebrate. It plays `coinLand` instead — the stop, which unauthored inherits `static`. Under
+	 * Invisible Symbols → "Play Land as each cell stops" the stop plays `land` itself
+	 * (`respinCellStopState`). While it rolls it plays the reel's own `spin` (the blur), as a reel
+	 * cell does.
 	 */
-	const shownState = (state: SymbolState): SymbolState => (state === 'land' ? 'coinLand' : state);
+	const shownState = (symbol: { symbolState: SymbolState; rawSymbol: { name: string } }) =>
+		symbol.symbolState === 'land' ? respinCellStopState(symbol.rawSymbol.name) : symbol.symbolState;
+	const key = $derived(respinCellKey(props.cell.reel, props.cell.row));
 </script>
 
 <Container visible={!props.held}>
@@ -79,10 +84,12 @@
 	{#each shown as reelSymbol (reelSymbol)}
 		<Container x={seat.x} y={yOf(reelSymbol)} {scale}>
 			<Symbol
-				state={shownState(reelSymbol.symbolState)}
+				state={shownState(reelSymbol)}
 				rawSymbol={reelSymbol.rawSymbol}
 				oncomplete={() => {
-					if (reelSymbol.symbolState === 'land') reelSymbol.symbolState = 'static';
+					if (reelSymbol.symbolState !== 'land') return;
+					reelSymbol.symbolState = 'static';
+					completeCellLanding(key);
 				}}
 			/>
 		</Container>

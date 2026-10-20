@@ -13,6 +13,16 @@
 		fetchClips,
 		type EditorClip,
 	} from './editorFlipbooks.client';
+	import {
+		LIBRARY_TYPES,
+		filterRows,
+		libraryMatches,
+		queryTerms,
+		showsType,
+		type LibraryType,
+	} from '$lib/editor/librarySearch';
+	import { editorProjectKey } from './editorProject.client';
+	import { fetchFontCatalog, type EditorFont } from './fonts.client';
 	import PanelSection from './PanelSection.svelte';
 	import RegionThumb from './RegionThumb.svelte';
 
@@ -47,7 +57,32 @@
 	 * list the Properties picker and the canvas read, so they can't disagree). Each is a draggable
 	 * row that spawns a `flipbook` node. `null` = still loading. */
 	let clips = $state<EditorClip[] | null>(null);
+	/** The project's fonts and audio, listed read-only (they ship through their own chains).
+	 *  `null` while loading; audio is `undefined` when this role cannot read the sound library. */
+	let fonts = $state<EditorFont[] | null>(null);
+	let sounds = $state<
+		{ id: string; name: string; kind: string; durationMs: number }[] | null | undefined
+	>(null);
+	let query = $state('');
+	let typeFilter = $state<LibraryType>('all');
+	const terms = $derived(queryTerms(query));
 	onMount(() => {
+		void fetchFontCatalog()
+			.then((cat) => {
+				fonts = cat.fonts;
+			})
+			.catch(() => {
+				fonts = [];
+			});
+		const project = editorProjectKey();
+		void fetch(project ? `/api/sounds?project=${encodeURIComponent(project)}` : '/api/sounds')
+			.then((r) => (r.ok ? r.json() : null))
+			.then((data: { doc?: { entries?: typeof sounds } } | null) => {
+				sounds = data ? (data.doc?.entries ?? []) : undefined;
+			})
+			.catch(() => {
+				sounds = undefined;
+			});
 		void fetch('/api/editor/effects')
 			.then((r) => (r.ok ? r.json() : { effects: [] }))
 			.then((data: { effects?: { id: string; name: string }[] }) => {
@@ -61,11 +96,35 @@
 		});
 	});
 
-	const atlasCount = $derived(assets.atlases.length);
-	const rigCount = $derived(assets.spines.length);
-	const sheetCount = $derived(assets.sheets.length);
-	const effectCount = $derived(effects?.length ?? 0);
-	const clipCount = $derived(clips?.length ?? 0);
+	/** A loaded region set's region names, so a query finds an atlas by what is inside it. */
+	const regionNames = (key: string): string[] | undefined =>
+		regionSets[key]?.regions.map((r) => r.name);
+	const atlases = $derived(
+		filterRows(
+			assets.atlases,
+			terms,
+			(a) => [a.name, a.key],
+			(a) => regionNames(a.key),
+		),
+	);
+	const rigs = $derived(filterRows(assets.spines, terms, (r) => [r.name, r.key]));
+	const sheets = $derived(
+		filterRows(
+			assets.sheets,
+			terms,
+			(s) => [s.name, s.key],
+			(s) => regionNames(s.key),
+		),
+	);
+	const shownEffects = $derived(effects && filterRows(effects, terms, (e) => [e.name, e.id]));
+	const shownClips = $derived(clips && filterRows(clips, terms, (c) => [c.name, c.id]));
+	const shownFonts = $derived(fonts && filterRows(fonts, terms, (f) => [f.name, f.kind]));
+	const shownSounds = $derived(sounds && filterRows(sounds, terms, (a) => [a.name, a.kind]));
+	const atlasCount = $derived(atlases.length);
+	const rigCount = $derived(rigs.length);
+	const sheetCount = $derived(sheets.length);
+	const effectCount = $derived(shownEffects?.length ?? 0);
+	const clipCount = $derived(shownClips?.length ?? 0);
 
 	async function toggleExpand(key: string): Promise<void> {
 		const open = !expanded[key];
@@ -184,7 +243,7 @@
 				<p class="region-note">No regions found in this {tag}.</p>
 			{:else}
 				<div class="region-grid">
-					{#each set.regions as r (r.name)}
+					{#each set.regions.filter((r) => libraryMatches(terms, r.name, name)) as r (r.name)}
 						{@const ns = regionNaturalSize(r)}
 						<div
 							class="region"
@@ -205,112 +264,215 @@
 	</li>
 {/snippet}
 
-<PanelSection id="lib-atlases" title="Atlases" count={atlasCount}>
-	<ul>
-		{#each assets.atlases as a (a.key)}
-			{#if a.kind === 'atlas-manifest'}
-				{@render expandable(a.key, a.name, 'manifest')}
+<div class="lib-filter">
+	<input
+		type="search"
+		placeholder="Search the library…"
+		aria-label="Search the library"
+		bind:value={query}
+	/>
+	<select aria-label="Show only this type" bind:value={typeFilter}>
+		{#each LIBRARY_TYPES as t (t.id)}
+			<option value={t.id}>{t.label}</option>
+		{/each}
+	</select>
+</div>
+
+{#if showsType(typeFilter, 'atlas')}
+	<PanelSection id="lib-atlases" title="Atlases" count={atlasCount}>
+		<ul>
+			{#each atlases as a (a.key)}
+				{#if a.kind === 'atlas-manifest'}
+					{@render expandable(a.key, a.name, 'manifest')}
+				{:else}
+					<li
+						draggable="true"
+						data-asset-kind={a.kind}
+						data-asset-key={a.key}
+						data-asset-name={a.name}
+						ondragstart={(e) => onAssetDragStart(e, a)}
+					>
+						<span class="name">{a.name}</span>
+						<span class="tag">page</span>
+					</li>
+				{/if}
 			{:else}
+				<li class="muted">{terms.length ? 'No match.' : 'No atlases yet.'}</li>
+			{/each}
+		</ul>
+	</PanelSection>
+{/if}
+
+{#if showsType(typeFilter, 'rig')}
+	<PanelSection id="lib-rigs" title="Rigs" count={rigCount} actions={rigActions}>
+		<ul>
+			{#each rigs as s (s.key)}
 				<li
 					draggable="true"
-					data-asset-kind={a.kind}
-					data-asset-key={a.key}
-					data-asset-name={a.name}
-					ondragstart={(e) => onAssetDragStart(e, a)}
+					data-asset-kind={s.kind}
+					data-asset-key={s.key}
+					data-asset-name={s.name}
+					ondragstart={(e) => onAssetDragStart(e, s)}
 				>
-					<span class="name">{a.name}</span>
-					<span class="tag">page</span>
+					<span class="name">{s.name}</span>
+					<span class="tag">rig</span>
+					{#if s.shared}<span class="badge">shared</span>{/if}
 				</li>
+			{:else}
+				<li class="muted">{terms.length ? 'No match.' : 'No rigs yet.'}</li>
+			{/each}
+		</ul>
+	</PanelSection>
+{/if}
+
+{#if showsType(typeFilter, 'sheet')}
+	<PanelSection id="lib-sheets" title="Sheets" count={sheetCount}>
+		<ul>
+			{#each sheets as sh (sh.key)}
+				{@render expandable(sh.key, sh.name, 'sheet')}
+			{:else}
+				<li class="muted">{terms.length ? 'No match.' : 'No sheets yet.'}</li>
+			{/each}
+		</ul>
+	</PanelSection>
+{/if}
+
+{#if showsType(typeFilter, 'effect')}
+	<PanelSection id="lib-effects" title="Effects" count={effectCount}>
+		<ul>
+			{#if shownEffects === null}
+				<li class="muted">Loading effects…</li>
+			{:else}
+				{#each shownEffects as fx (fx.id)}
+					<li
+						draggable="true"
+						data-effect-id={fx.id}
+						data-effect-name={fx.name}
+						ondragstart={(e) => onEffectDragStart(e, fx)}
+					>
+						<span class="glyph">✨</span>
+						<span class="name">{fx.name}</span>
+						<span class="tag">effect</span>
+					</li>
+				{:else}
+					<li class="muted">
+						{terms.length ? 'No match.' : 'No effects yet — make one in Invisible FX.'}
+					</li>
+				{/each}
 			{/if}
-		{:else}
-			<li class="muted">No atlases yet.</li>
-		{/each}
-	</ul>
-</PanelSection>
+		</ul>
+	</PanelSection>
+{/if}
 
-<PanelSection id="lib-rigs" title="Rigs" count={rigCount} actions={rigActions}>
-	<ul>
-		{#each assets.spines as s (s.key)}
-			<li
-				draggable="true"
-				data-asset-kind={s.kind}
-				data-asset-key={s.key}
-				data-asset-name={s.name}
-				ondragstart={(e) => onAssetDragStart(e, s)}
-			>
-				<span class="name">{s.name}</span>
-				<span class="tag">rig</span>
-				{#if s.shared}<span class="badge">shared</span>{/if}
-			</li>
-		{:else}
-			<li class="muted">No rigs yet.</li>
-		{/each}
-	</ul>
-</PanelSection>
-
-<PanelSection id="lib-sheets" title="Sheets" count={sheetCount}>
-	<ul>
-		{#each assets.sheets as sh (sh.key)}
-			{@render expandable(sh.key, sh.name, 'sheet')}
-		{:else}
-			<li class="muted">No sheets yet.</li>
-		{/each}
-	</ul>
-</PanelSection>
-
-<PanelSection id="lib-effects" title="Effects" count={effectCount}>
-	<ul>
-		{#if effects === null}
-			<li class="muted">Loading effects…</li>
-		{:else}
-			{#each effects as fx (fx.id)}
-				<li
-					draggable="true"
-					data-effect-id={fx.id}
-					data-effect-name={fx.name}
-					ondragstart={(e) => onEffectDragStart(e, fx)}
-				>
-					<span class="glyph">✨</span>
-					<span class="name">{fx.name}</span>
-					<span class="tag">effect</span>
-				</li>
+{#if showsType(typeFilter, 'flipbook')}
+	<PanelSection id="lib-flipbooks" title="Flipbooks" count={clipCount}>
+		<ul>
+			{#if shownClips === null}
+				<li class="muted">Loading flipbooks…</li>
 			{:else}
-				<li class="muted">No effects yet — make one in Invisible FX.</li>
-			{/each}
-		{/if}
-	</ul>
-</PanelSection>
+				{#each shownClips as clip (clip.id)}
+					{@const thumb = clipThumb(clip)}
+					<li
+						draggable="true"
+						data-clip-id={clip.id}
+						data-clip-name={clip.name}
+						title={`${clip.name} · ${clip.frames.length} frame${clip.frames.length === 1 ? '' : 's'} · ${clip.fps ?? DEFAULT_CLIP_FPS}fps${clip.loop === false ? ' · once' : ' · loop'}`}
+						ondragstart={(e) => onClipDragStart(e, clip)}
+					>
+						{#if thumb}
+							<RegionThumb set={thumb.set} region={thumb.region} size={22} />
+						{:else}
+							<span class="glyph">🎞</span>
+						{/if}
+						<span class="name">{clip.name}</span>
+						<span class="tag">{clip.frames.length}f</span>
+					</li>
+				{:else}
+					<li class="muted">
+						{terms.length ? 'No match.' : 'No flipbooks yet — make one in Invisible Flipbook.'}
+					</li>
+				{/each}
+			{/if}
+		</ul>
+	</PanelSection>
+{/if}
 
-<PanelSection id="lib-flipbooks" title="Flipbooks" count={clipCount}>
-	<ul>
-		{#if clips === null}
-			<li class="muted">Loading flipbooks…</li>
-		{:else}
-			{#each clips as clip (clip.id)}
-				{@const thumb = clipThumb(clip)}
-				<li
-					draggable="true"
-					data-clip-id={clip.id}
-					data-clip-name={clip.name}
-					title={`${clip.name} · ${clip.frames.length} frame${clip.frames.length === 1 ? '' : 's'} · ${clip.fps ?? DEFAULT_CLIP_FPS}fps${clip.loop === false ? ' · once' : ' · loop'}`}
-					ondragstart={(e) => onClipDragStart(e, clip)}
-				>
-					{#if thumb}
-						<RegionThumb set={thumb.set} region={thumb.region} size={22} />
-					{:else}
-						<span class="glyph">🎞</span>
-					{/if}
-					<span class="name">{clip.name}</span>
-					<span class="tag">{clip.frames.length}f</span>
-				</li>
+{#if showsType(typeFilter, 'font')}
+	<PanelSection id="lib-fonts" title="Fonts" count={shownFonts?.length ?? 0}>
+		<ul>
+			{#if shownFonts === null}
+				<li class="muted">Loading fonts…</li>
 			{:else}
-				<li class="muted">No flipbooks yet — make one in Invisible Flipbook.</li>
-			{/each}
-		{/if}
-	</ul>
-</PanelSection>
+				{#each shownFonts as font (font.id)}
+					<li
+						class="readonly"
+						title="Read-only here: pick a font in a text node's Properties. Fonts ship through the font export."
+					>
+						<span class="glyph">🔤</span>
+						<span class="name">{font.name}</span>
+						<span class="tag">{font.kind}</span>
+					</li>
+				{:else}
+					<li class="muted">
+						{terms.length ? 'No match.' : 'No fonts yet — make one in Invisible Font Maker.'}
+					</li>
+				{/each}
+			{/if}
+		</ul>
+	</PanelSection>
+{/if}
+
+{#if showsType(typeFilter, 'audio')}
+	<PanelSection id="lib-audio" title="Audio" count={shownSounds?.length ?? 0}>
+		<ul>
+			{#if shownSounds === null}
+				<li class="muted">Loading audio…</li>
+			{:else if shownSounds === undefined}
+				<li class="muted">The sound library needs Invisible Sound access.</li>
+			{:else}
+				{#each shownSounds as sound (sound.id)}
+					<li
+						class="readonly"
+						title="Read-only here: sounds are bound in Invisible Sound and ship through the sound export. A sfx: cue on a Timeline plays one by name."
+					>
+						<span class="glyph">🔊</span>
+						<span class="name">{sound.name}</span>
+						<span class="tag">{sound.kind} · {(sound.durationMs / 1000).toFixed(1)}s</span>
+					</li>
+				{:else}
+					<li class="muted">
+						{terms.length ? 'No match.' : 'No sounds yet — add them in Invisible Sound.'}
+					</li>
+				{/each}
+			{/if}
+		</ul>
+	</PanelSection>
+{/if}
 
 <style>
+	.lib-filter {
+		display: flex;
+		gap: 6px;
+		padding: 6px 0 8px;
+	}
+	.lib-filter input,
+	.lib-filter select {
+		min-width: 0;
+		background: #16161c;
+		color: #e8e8ee;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		padding: 4px 8px;
+		font-size: 12px;
+		font-family: inherit;
+	}
+	.lib-filter input {
+		flex: 1;
+	}
+	li.readonly {
+		opacity: 0.8;
+		cursor: default;
+	}
 	ul {
 		list-style: none;
 		padding: 0;

@@ -16,12 +16,13 @@ import { TERMINAL_SYMBOL_STATES, type ReelGridTileArt } from 'engine-layout';
 import { holdAndWinBlankSymbol } from 'game-config';
 import { stateBet } from 'state-shared';
 
+import { bakedRespinLandOnStop } from '../editor-scenes';
 import { activeRespinMode } from './activeRespinMode.svelte';
 import { coinBoardLockedCells, isCoinBoard } from './coinBoard.svelte';
 import { respinBoardShape, sameRespinBoard } from './respinModes';
 import { eventEmitter } from './eventEmitter';
 import { activeGrid, boardDimensions, getActiveGameConfig, getPaddingReels } from './gameConfig';
-import { playReelStopSound } from './soundBindings';
+import { playReelStopSound, playSymbolLandSound } from './soundBindings';
 import { cellSymbolLead, stateGameDerived } from './stateGame.svelte';
 import { stateHoldAndWin } from './stateHoldAndWin.svelte';
 
@@ -89,6 +90,13 @@ export const stateRespinBoard = $state({
 	/** The rows an unlock beat is opening (exclusive): the locked cells above it fade with
 	 *  {@link respinUnlockFade}. 0 ⇒ none. */
 	unlockingTo: 0,
+	/**
+	 * Cells that played their `land` as their own reel stopped on this respin, by `respinCellKey`
+	 * (Invisible Symbols → "Play Land as each cell stops"), so the stick that follows does not play it
+	 * again. Empty while the switch is off. Cleared when the stick beat has played, and at the next
+	 * spin.
+	 */
+	landed: [] as string[],
 });
 
 /** The fade of the locked cells an unlock beat is opening. */
@@ -193,6 +201,46 @@ const onCellStopping = (reel: number) => {
 	playReelStopSound(reel, stateBet.isTurbo);
 };
 
+/**
+ * One cell came to rest: under "Play Land as each cell stops" a coin lands HERE — its `land` art is
+ * the cell's to draw (`respinCellStopState`), and its landing cue plays now rather than when the
+ * coins stick. An empty cell has nothing to land.
+ */
+const onCellLand = (reel: number, row: number, symbol: RawSymbol) => {
+	if (!bakedRespinLandOnStop() || symbol.name === respinBlank()) return;
+	stateRespinBoard.landed.push(respinCellKey(reel, row));
+	playSymbolLandSound(symbol.name, 1);
+};
+
+/** Cells still playing the `land` their own stop started, by key — resolved by the cell's
+ *  completion (`RespinCell`). Never read reactively. */
+const cellLandings: Record<string, () => void> = {};
+
+/**
+ * The symbol cell `(reel, row)` is still playing the `land` it started as its reel stopped, or
+ * `undefined` once that has finished — or when it never landed on its stop (the switch off, the
+ * blank).
+ */
+export const landingSymbol = (reel: number, row: number): RawSymbol | undefined => {
+	if (!stateRespinBoard.landed.includes(respinCellKey(reel, row))) return undefined;
+	const window = board
+		?.cellAt(reel, row)
+		?.cellReel.reelState.symbols.find((symbol) => symbol.symbolIndex === 1);
+	return window?.symbolState === 'land' ? window.rawSymbol : undefined;
+};
+
+/** Arm a cell's landing: its next completion resolves `resolve`. */
+export const armCellLanding = (key: string, resolve: () => void) => {
+	cellLandings[key] = resolve;
+};
+
+/** A cell's `land` reported complete. */
+export const completeCellLanding = (key: string) => {
+	const resolve = cellLandings[key];
+	delete cellLandings[key];
+	resolve?.();
+};
+
 /** The rows the feature opens with — the recorded picture's on an expanding board, else every row. */
 const enteringRows = (respinBoard: RespinBoard): number =>
 	Math.min(respinBoard.rows, stateHoldAndWin.rows ?? respinBoard.rows);
@@ -218,6 +266,7 @@ const ensureBoard = (): RespinBoard => {
 		initial: respinSeedBoard({ reels, rows, blank: respinBlank() }),
 		blank: respinBlank,
 		onCellStopping: (reel) => onCellStopping(reel),
+		onCellLand,
 		spinProfile: stateGameDerived.reelSpinProfile,
 	});
 	return board;
@@ -255,6 +304,7 @@ export const showRespinBoard = () => {
 	stateRespinBoard.heldDisplay = {};
 	stateRespinBoard.dimmed = [];
 	stateRespinBoard.marks = {};
+	if (stateRespinBoard.landed.length > 0) stateRespinBoard.landed = [];
 	respinBoard.settle(
 		respinSeedBoard({ reels: respinBoard.reels, rows: respinBoard.rows, blank: respinBlank() }),
 	);
@@ -305,6 +355,7 @@ export const hideRespinBoard = () => {
 	stateRespinBoard.heldDisplay = {};
 	stateRespinBoard.dimmed = [];
 	stateRespinBoard.marks = {};
+	if (stateRespinBoard.landed.length > 0) stateRespinBoard.landed = [];
 	stateRespinBoard.counter.show = false;
 	stateRespinBoard.counter.note = null;
 	eventEmitter.broadcast({ type: 'respinBoardHide' });
@@ -315,6 +366,7 @@ export const hideRespinBoard = () => {
 export const spinRespinCells = async (cells: HoldAndWinCell[]) => {
 	if (!board || !stateRespinBoard.shown) return;
 	soundedColumns = [];
+	if (stateRespinBoard.landed.length > 0) stateRespinBoard.landed = [];
 	await board.spin({
 		spins: respinSpins({
 			reels: board.reels,

@@ -915,6 +915,7 @@ const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
 			'respinSeedBoard',
 			'respinBlank',
 			'onCellStopping',
+			'onCellLand',
 		],
 		body: `let board = null;\nlet boardMode;\n${stripSliceTypes(
 			'stateRespinBoard',
@@ -934,6 +935,7 @@ const buildSeam = (doc: GameConfigDoc, flow: boolean): Seam => {
 		() => 0,
 		() => [],
 		() => 'BLANK',
+		() => {},
 		() => {},
 	);
 	const showBoard = (type: string) => {

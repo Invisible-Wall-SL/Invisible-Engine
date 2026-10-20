@@ -1,5 +1,5 @@
 import type { HoldAndWinCell } from './holdAndWin';
-import type { Position, RawSymbol } from './types';
+import type { Position, RawSymbol, SymbolState } from './types';
 
 /**
  * THE RESPIN BOARD'S RULES, without a renderer — design §4.2 of `docs/design/hold-and-win.md`.
@@ -84,3 +84,37 @@ export const respinSeedBoard = ({
 	blank: string;
 }): RawSymbol[][] =>
 	Array.from({ length: reels }, () => Array.from({ length: rows }, () => ({ name: blank })));
+
+/**
+ * WHERE A COIN PLAYS ITS `land` ON THE RESPIN BOARD — the two halves of Invisible Symbols →
+ * "Play Land as each cell stops" (`respinLandOnStop`).
+ *
+ * Off, which is every project that never touched it: a respin cell that stops draws `coinLand`
+ * (unbound, the resting `static`), and the coin's `land` plays only when the `coinsLand` beat sticks
+ * it — `coinStick` borrows `land`, and that beat comes after EVERY cell of the respin has stopped.
+ * On: the stop draws `land` instead, so each coin lands as its own cell stops, and the stick that
+ * follows does not play it a second time. A bound cell wins at its own moment either way: an
+ * authored `coinLand` still draws at the stop, an authored `coinStick` still plays at the stick.
+ *
+ * `authored(state)` answers whether the symbol binds art for that state itself rather than
+ * borrowing it (`hasAuthoredSymbolState`).
+ */
+export const respinStopState = (
+	landOnStop: boolean,
+	authored: (state: SymbolState) => boolean,
+): SymbolState => (landOnStop && !authored('coinLand') ? 'land' : 'coinLand');
+
+/**
+ * What a HELD cell draws for its beat `state`: the beat itself, except a `coinStick` on a cell whose
+ * `land` already played as its cell stopped (`landedOnStop`) — unbound, that stick would borrow
+ * `land` and play it again, so it draws the resting `rest` instead. The beat state is unchanged, so
+ * everything keyed on the stick (its label pop) still fires.
+ */
+export const respinHeldDrawState = (
+	state: SymbolState,
+	{
+		landedOnStop,
+		authored,
+		rest,
+	}: { landedOnStop: boolean; authored: (state: SymbolState) => boolean; rest: SymbolState },
+): SymbolState => (state === 'coinStick' && landedOnStop && !authored('coinStick') ? rest : state);
