@@ -80,6 +80,73 @@ export function instanceParamMaps(node: ComponentInstanceNode): Record<string, u
 	return maps.filter((params): params is Record<string, unknown> => !!params);
 }
 
+/**
+ * The field-path prefix through which a nested `componentInstance` takes a param from the instance
+ * it sits in: `paramBindings['params.lightAt'] = 'lightAt_3'` gives this instance's `lightAt` the
+ * ENCLOSING instance's `lightAt_3`. That key is a param the enclosing def declares, so each
+ * placement of the enclosing component sets it like any other of its params.
+ */
+export const FORWARDED_PARAM_PREFIX = 'params.';
+
+/** `[childKey, parentKey]` for every param `node` takes from its enclosing instance; empty when none. */
+export function forwardedParams(node: LayoutNode): [string, string][] {
+	const out: [string, string][] = [];
+	for (const [field, parentKey] of Object.entries(node.paramBindings ?? {})) {
+		if (!field.startsWith(FORWARDED_PARAM_PREFIX) || !parentKey) continue;
+		const childKey = field.slice(FORWARDED_PARAM_PREFIX.length);
+		if (childKey) out.push([childKey, parentKey]);
+	}
+	return out;
+}
+
+/**
+ * A nested instance's own params with every forwarded one ({@link forwardedParams}) overlaid from
+ * `outerParams`, the enclosing instance's resolved params. The forwarded value wins over the
+ * instance's own (base or per-ratio) value, as any other param binding does; an `undefined` outer
+ * value is skipped, so the instance's own value or its def default stands. Chains compose: each
+ * level reads its own enclosing params. Returns `instanceParams` itself (same reference) when
+ * nothing is forwarded, so an instance with no `params.*` binding resolves exactly as before.
+ */
+export function forwardInstanceParams(
+	node: LayoutNode,
+	instanceParams: Record<string, unknown> | undefined,
+	outerParams: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+	let out: Record<string, unknown> | undefined;
+	for (const [childKey, parentKey] of forwardedParams(node)) {
+		const value = outerParams[parentKey];
+		if (value === undefined) continue;
+		out ??= { ...instanceParams };
+		out[childKey] = value;
+	}
+	return out ?? instanceParams;
+}
+
+/**
+ * The runtime twin of {@link forwardInstanceParams}: on the params an instance provides to its
+ * nodes, make each forwarded key a getter that reads the enclosing instance's param at READ time,
+ * so a parent value that changes after mount (a per-ratio override, a live feed) reaches the
+ * nested nodes. `own` is the instance's own value for a key, used while the parent's is
+ * `undefined`. Configurable, so a live engine feed defined after it still takes its key.
+ */
+export function defineForwardedParams(
+	provided: Record<string, unknown>,
+	node: LayoutNode,
+	outerParams: Record<string, unknown>,
+	own: (key: string) => unknown,
+): void {
+	for (const [childKey, parentKey] of forwardedParams(node)) {
+		Object.defineProperty(provided, childKey, {
+			enumerable: true,
+			configurable: true,
+			get: () => {
+				const value = outerParams[parentKey];
+				return value !== undefined ? value : own(childKey);
+			},
+		});
+	}
+}
+
 function mergeDefined(target: Record<string, unknown>, source?: Record<string, unknown>): void {
 	if (!source) return;
 	for (const [key, value] of Object.entries(source)) {
@@ -145,7 +212,9 @@ export function fontParamKeysOf(def: ComponentDef | null | undefined): Set<strin
  * missing param is inert at runtime (`resolveBoundValue` finds nothing and the field
  * keeps its static value), so pruning it is loss-free and restores a clean,
  * self-consistent def. Pure + Svelte-free — shared by the editors + the save/load
- * normalizer so the invariant "no binding without its param" holds everywhere.
+ * normalizer so the invariant "no binding without its param" holds everywhere. A nested instance's
+ * forwarding binding (`params.<key>`) names a param of this def too, so deleting that param drops
+ * the forward and the instance falls back to its own value.
  */
 export function pruneOrphanParamBindings(def: ComponentDef): boolean {
 	const valid = new Set((def.params ?? []).map((p) => p.key));

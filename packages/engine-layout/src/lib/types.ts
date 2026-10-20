@@ -7,6 +7,7 @@
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
 import type { BootSplashRef } from 'constants-shared/bootSplash';
 import type { ParamDecl } from 'engine-flow-v2';
+import type { EffectParamValue } from 'engine-fx';
 
 import type { BlendMode } from './blendMode';
 import type { CoverFit } from './coverTransform';
@@ -326,6 +327,42 @@ interface BaseNode {
 	on?: NodeListener[];
 }
 
+/**
+ * Every {@link BaseNode} field as a RUNTIME list (`true` = a rewrite that replaces a node's kind
+ * carries it over). The `satisfies` fails the type-check when `BaseNode` gains a field this list
+ * lacks, so a swap that rebuilds a node from it (the authored free-spin swap) cannot silently drop
+ * a new field. `bind` is `false`: it is the coded part the rewrite removes.
+ */
+export const BASE_NODE_FIELDS = {
+	id: true,
+	label: true,
+	x: true,
+	y: true,
+	anchor: true,
+	scale: true,
+	coverScale: true,
+	rotation: true,
+	alpha: true,
+	blendMode: true,
+	zIndex: true,
+	overrides: true,
+	visibleFor: true,
+	slotId: true,
+	fit: true,
+	coverFit: true,
+	coverBox: true,
+	locked: true,
+	bind: false,
+	screenAnchor: true,
+	preview: true,
+	paramBindings: true,
+	valueBindings: true,
+	pressAction: true,
+	hiddenUntilSignal: true,
+	rigSlot: true,
+	on: true,
+} as const satisfies { [K in keyof Required<BaseNode>]: boolean };
+
 /** The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). */
 export const NODE_LISTENER_EVENTS = ['down', 'up', 'enter', 'leave', 'click'] as const;
 export type NodeListenerEvent = (typeof NODE_LISTENER_EVENTS)[number];
@@ -387,7 +424,8 @@ export const EVENT_CUE_PREFIX = 'event:';
  * its threshold. `fill` reveals a sprite, flipbook or rect from one edge (0 = hidden, 1 = whole).
  * `frame` holds a flipbook on one frame. `animTime` holds a rig animation at a point (0 = first
  * frame, 1 = last), over whatever the rig is playing, firing none of its events. `bone` offsets one
- * bone of a rig on top of whatever it is playing.
+ * bone of a rig on top of whatever it is playing. `fxParam` sets one exposed parameter of a placed
+ * effect (Invisible FX Step 2, `fxNodeParams.ts`): absolute, not relative to anything.
  */
 export const VALUE_BINDING_TARGETS = [
 	'x',
@@ -402,6 +440,7 @@ export const VALUE_BINDING_TARGETS = [
 	'frame',
 	'animTime',
 	'bone',
+	'fxParam',
 ] as const;
 export type ValueBindingTarget = (typeof VALUE_BINDING_TARGETS)[number];
 
@@ -450,11 +489,13 @@ export interface ValueBinding {
 	clamp?: boolean;
 	/** Absent ⇒ linear. */
 	ease?: ValueBindingEase;
-	/** Seconds the output takes to reach a new value. Absent / 0 ⇒ snaps. Ignored by `visible`. */
+	/** Seconds the output takes to reach a new value. Absent / 0 ⇒ snaps. Ignored by `visible` and
+	 *  a bool `fxParam`. */
 	smooth?: number;
-	/** `visible`: shown while the (normalised) value is ≥ this. Absent ⇒ 1 (a true / full source). */
+	/** `visible` (and a bool `fxParam`): shown / on while the (normalised) value is ≥ this. Absent ⇒
+	 *  1 (a true / full source). */
 	threshold?: number;
-	/** `visible`: invert — shown while the value is BELOW the threshold. */
+	/** `visible` (and a bool `fxParam`): invert — shown / on while the value is BELOW the threshold. */
 	below?: boolean;
 	/** `fill`: the edge the reveal grows from. Absent ⇒ `right` (a bar filling left to right). */
 	direction?: ValueBindingFillDirection;
@@ -464,6 +505,13 @@ export interface ValueBinding {
 	bone?: string;
 	/** `bone`: the channel offset. Absent ⇒ `scale`. */
 	boneProperty?: ValueBindingBoneProperty;
+	/**
+	 * `fxParam`: the id of the placed effect's exposed parameter (`EffectDoc.params`). A number
+	 * parameter takes the mapped output (the out range defaults to the parameter's own `min..max`);
+	 * a bool one is on while the value passes `threshold` / `below`, as `visible` is. An id the
+	 * effect does not declare as a number or bool parameter leaves the binding inert.
+	 */
+	fxParam?: string;
 }
 
 export interface ContainerNode extends BaseNode {
@@ -712,6 +760,12 @@ export interface RectNode extends BaseNode {
 	height: number;
 	/** Fill colour (hex int). Absent ⇒ white (`0xffffff`). */
 	color?: number;
+	/** Corner radius (local px) — the coded HUD tile's rounded rect. Absent ⇒ square (parity). */
+	borderRadius?: number;
+	/** Border stroke width (local px), drawn on the same shape. Absent ⇒ no border (parity). */
+	borderWidth?: number;
+	/** Border colour (hex int). Absent ⇒ black. */
+	borderColor?: number;
 }
 
 /**
@@ -1002,6 +1056,11 @@ export interface AnticipationProfile {
  *
  * The editor can't run a WebGL emitter in its 2D canvas (same as `reelGrid`/`bind`), so it draws a
  * labelled placeholder chip; the game ALWAYS mounts the real `<EffectPlayer>`.
+ *
+ * The effect's exposed parameters (`EffectDoc.params`) take this placement's own value
+ * ({@link EffectNode.params}, or the enclosing component's param a `params.<id>` binding names), and
+ * are driven from the node on top of it (Invisible FX Step 2): an `fxParam` value binding, or an
+ * `fx:<id>` channel a timeline keys on it (`fxNodeParams.ts`).
  */
 export interface EffectNode extends BaseNode {
 	kind: 'effect';
@@ -1017,6 +1076,14 @@ export interface EffectNode extends BaseNode {
 	 * transform. `LayoutScene` does the pairing; only top-level scene nodes participate.
 	 */
 	hostSpineId?: string;
+	/**
+	 * This placement's values for the effect's exposed parameters, by parameter id: a number, an
+	 * on/off, or a `#rrggbb` colour. A value replaces the parameter's default for this node only; an
+	 * id the effect does not declare is inert. Inside a component, `paramBindings['params.<id>']`
+	 * takes the value from a param of the enclosing component instead, so each placement of that
+	 * component sets it. A binding or a timeline driving the parameter wins over both.
+	 */
+	params?: Record<string, EffectParamValue>;
 }
 
 /**
@@ -1338,6 +1405,19 @@ export interface GameSettings {
 		 * (count-up, round hold, presses, dim, `winState`) stays and conducts them.
 		 */
 		win?: boolean;
+		/**
+		 * 8c: the free-spin INTRO and OUTRO visuals (the frame rig, the count rig and text, the
+		 * localized sprites, the fade — what the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual`
+		 * draw) render from the built-in `freeSpinIntroPresentation` / `freeSpinOutroPresentation`
+		 * components; the coded outro driver, the screens' taps and the flow's holds stay.
+		 */
+		freeSpins?: boolean;
+		/**
+		 * 8d: every parametric `button` instance draws its per-state frame, spin rotation and press
+		 * sound from the built-in `buttonPresentation` component and its state machine; the press road
+		 * and the gates that feed `disabled` / `active` / `spinning` stay coded.
+		 */
+		buttons?: boolean;
 	};
 }
 
@@ -1531,6 +1611,30 @@ export interface ComponentDef {
 	 */
 	frameExact?: true;
 	/**
+	 * BOARD-ANCHORED (built-in only, Rive plan Phase 8c): the instance is framed against the main
+	 * box on any screen (as a `game`-space hosted overlay is) AND offset by the game's live board
+	 * position (`boardBox()`), so it lands where a coded overlay that self-centred on
+	 * `boardLayout()` drew — a reel-grid override included. Only the free-spin presentations set it;
+	 * never stored. Absent ⇒ placed as before (parity).
+	 */
+	boardAnchored?: true;
+	/**
+	 * BUTTON STATES (built-in only, Rive plan Phase 8d): the instance owns the press although the def
+	 * binds a coded part (its label only draws), feeds the state machine's reserved inputs from its
+	 * live flags — `look` (the shared cascade's resolved look, {@link BUTTON_LOOKS}), `rotating`,
+	 * `fadeWithUi` — provides `tileColor` / `tileBorderColor` from `variant`, starts the machine at
+	 * mount, and plays the press sound the press hands it (`pressSounds.ts`). Only
+	 * `buttonPresentation` sets it; never stored. Absent ⇒ none of this (parity).
+	 */
+	buttonStates?: true;
+	/**
+	 * SETTLES (built-in only): its timelines hand a keyed `rotation` that returns to 0 or `alpha`
+	 * that returns to 1 to the node as that value (`CinematicNodeDrive.settles`) — a fade-in that ends
+	 * on alpha 1 lands on 1, not on the last blended value. The authored button, Win and free-spin
+	 * presentations set it; never stored. Absent ⇒ the fold's transform as before (parity).
+	 */
+	settles?: true;
+	/**
 	 * The component's EVENTS (Rive plan §6.1, Phase 6): what it TELLS Flow — raised by a node
 	 * listener, a state being entered ({@link SmState.onEnter}) or a timeline cue `event:<id>`. A
 	 * raise leaves the instance on the same road a button's `action` press takes
@@ -1614,11 +1718,23 @@ export interface SmState {
 	speed?: number;
 	/** Wrap at the end instead of holding the last frame. */
 	loop?: boolean;
+	/**
+	 * Start this many seconds into the timeline, read from the PLACED INSTANCE's number param of
+	 * this key — one def, a different phase per placement. Wrapped on a looping state, clamped
+	 * otherwise; a param that is not a finite number starts at 0.
+	 */
+	offsetParam?: string;
+	/** Start at a random point of the timeline each time the state is entered (added to
+	 *  {@link offsetParam}), so placements entering together do not move in step. */
+	randomStart?: boolean;
 	/** Where the editor draws the state's card; the runtime ignores it. */
 	pos?: SmPoint;
 	/** Raised each time the state is entered — the layer's entry when the machine starts, and every
 	 *  transition into it (Phase 6). */
 	onEnter?: SmEnterAction[];
+	/** Raised each time a transition leaves the state (Phase 9c), before the next state's
+	 *  `onEnter`. Not raised when the instance goes away or the machine is reset. */
+	onExit?: SmEnterAction[];
 }
 
 export interface SmPoint {
@@ -1640,6 +1756,17 @@ export interface SmTransition {
 	exitTime?: number;
 	/** Milliseconds over which the target timeline is mixed in from the pose being left. */
 	blend?: number;
+	/** The blend's interpolation (Phase 9c): a cubic `[x1, y1, x2, y2]`, as a timeline key's `ease`.
+	 *  Absent ⇒ linear. */
+	ease?: [number, number, number, number];
+	/** `false` ⇒ the state being left keeps playing under the blend. Absent ⇒ it is paused (frozen at
+	 *  the moment of leaving), as before Phase 9c. */
+	pauseSource?: boolean;
+	/** `false` ⇒ no transition leaves the target state until this one's blend has finished. Absent
+	 *  ⇒ one may (a transition taken mid-blend leaves from the pose on screen). */
+	allowExit?: boolean;
+	/** The transition never fires (the editor keeps it, greyed). */
+	disabled?: boolean;
 }
 
 export interface SmLayer {
@@ -1651,6 +1778,8 @@ export interface SmLayer {
 	transitions: SmTransition[];
 	/** Where the editor draws the Entry, Any and Exit nodes; the runtime ignores them. */
 	pseudoPos?: { entry?: SmPoint; any?: SmPoint; exit?: SmPoint };
+	/** The layer does not run: it sits in `exit` from the start, drives nothing and enters nothing. */
+	disabled?: boolean;
 }
 
 /** Layers run in order; a later layer wins a node property both key. */
@@ -1852,6 +1981,27 @@ export interface CinematicDoc {
 	 * ⇒ the fire returns as it always has (parity); a zero-length timeline holds nothing.
 	 */
 	holdsCue?: boolean;
+	/**
+	 * A COMPONENT timeline only (Rive plan Phase 8c): seconds the playhead wraps back to when it
+	 * reaches `duration`, carrying the overshoot, so the stretch from here to the end loops for as
+	 * long as the timeline is on screen — a coded rig's looping idle after its intro. A looping
+	 * timeline never reports an end (it holds no cue); a step longer than a whole lap crosses each
+	 * cue once. Absent, or not inside `[0, duration)` ⇒
+	 * the timeline ends and holds its last frame (parity).
+	 */
+	loopFrom?: number;
+	/**
+	 * The loop type (Rive plan Phase 9b, the Timeline header): `loop` wraps to 0, `pingPong` plays
+	 * to the end and back, and neither ever ends (so it holds no cue). Absent or `oneShot` ⇒ it
+	 * plays once and holds its last frame (parity). `loopFrom`, where set, wins over `loop`.
+	 */
+	loop?: 'oneShot' | 'loop' | 'pingPong';
+	/**
+	 * The interpolation a NEW key gets in the editor (*Set as default* in the Interpolation panel):
+	 * a named ease or a cubic `[x1, y1, x2, y2]`. Authoring-only: every key carries its own `ease`,
+	 * so no player reads this. Absent ⇒ linear.
+	 */
+	defaultEase?: 'linear' | 'ease' | 'hold' | [number, number, number, number];
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

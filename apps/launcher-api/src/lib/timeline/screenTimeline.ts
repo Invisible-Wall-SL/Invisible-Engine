@@ -2,13 +2,19 @@ import {
 	sampleChannel,
 	sampleNodeActor,
 	sampleTint,
+	type CinematicFxParamChannel,
 	type CinematicNodeSample,
 	type CinematicStrip,
 	type CinematicTrack,
 } from 'engine-cinematic';
+import type { EffectParam, EffectParamValues } from 'engine-fx';
 import {
 	componentTriggers,
+	drivableFxParams,
 	findNodeByName,
+	fxParamChannel,
+	fxParamOfChannel,
+	fxParamRest,
 	keyedNodeChannels,
 	nodeActorBindings,
 	nodeActorChannelsForKind,
@@ -167,6 +173,28 @@ export function screenTimelinesOf<T extends { host?: CinematicDoc['host'] }>(
 	return rows.filter((row) => row.host?.kind === 'screen' && row.host.sceneId === sceneId);
 }
 
+/**
+ * A copy of a screen or component timeline (the Animations list's *Duplicate*, Phase 9c): every
+ * track, key and setting, under a fresh id on the same host and the name "<name> copy" (" copy 2",
+ * … when taken by another timeline of `names`).
+ */
+export function duplicateTimeline(
+	doc: CinematicDoc,
+	taken: Iterable<string>,
+	names: Iterable<string> = [],
+): CinematicDoc {
+	const usedNames = new Set(names);
+	let name = `${doc.name || doc.id} copy`;
+	for (let i = 2; usedNames.has(name); i++) name = `${doc.name || doc.id} copy ${i}`;
+	const host = doc.host;
+	const id =
+		host?.kind === 'component'
+			? componentTimelineId(host.componentId, name, taken)
+			: screenTimelineId(host?.kind === 'screen' ? host.sceneId : doc.id, name, taken);
+	const copy = JSON.parse(JSON.stringify(doc)) as CinematicDoc;
+	return { ...copy, id, name };
+}
+
 function findById(nodes: LayoutNode[], id: string): LayoutNode | undefined {
 	for (const node of nodes) {
 		if (node.id === id) return node;
@@ -316,11 +344,245 @@ export function nodeChannelValue(
 	return value ?? NODE_IDENTITY[channel];
 }
 
-/** Does `actorId` key `channel`? */
-export function isChannelKeyed(doc: CinematicDoc, actorId: string, channel: KeyedChannel): boolean {
+/** Does `actorId` key `channel` (a {@link KeyedChannel}, or an effect's `fx:<id>`)? */
+export function isChannelKeyed(doc: CinematicDoc, actorId: string, channel: string): boolean {
 	return tracksOf(doc, actorId).some(
 		(t) => t.kind === 'property' && !!t.channels?.[channel]?.length,
 	);
+}
+
+/**
+ * A key button's state (Rive plan Phase 9b): `none` — the channel is not animated (grey); `animated`
+ * — it has keys, none at the playhead (blue outline); `key` — a key sits on the playhead's frame
+ * (blue fill), so typing a value there edits that key.
+ */
+export type KeyState = 'none' | 'animated' | 'key';
+
+/** `channel`'s key-button state on `actorId` at `t` (a key within half a frame of `t` is "at" it). */
+export function channelKeyState(
+	doc: CinematicDoc,
+	actorId: string | null,
+	channel: string,
+	t: number,
+): KeyState {
+	if (!actorId) return 'none';
+	const near = 0.5 / (doc.fps || 30);
+	let keyed = false;
+	for (const track of tracksOf(doc, actorId)) {
+		if (track.kind !== 'property' || !track.channels) continue;
+		const keys = track.channels[channel];
+		if (!keys?.length) continue;
+		keyed = true;
+		if (keys.some((k) => Math.abs(k.time - t) < near)) return 'key';
+	}
+	return keyed ? 'animated' : 'none';
+}
+
+/** A node's Design pose, in the units Properties shows (rotation in degrees). */
+export interface DesignPose {
+	x: number;
+	y: number;
+	rotation: number;
+	alpha: number;
+	tint: number;
+}
+
+/**
+ * What Properties shows for a node channel in Animate: the ANIMATED value — the Design pose with
+ * the timeline's relative channel folded on, as the game draws it. `scale` stays the multiplier
+ * (a node's own scale may differ per axis), and `tint` is the keyed colour, else the node's own.
+ */
+export function shownChannelValue(
+	channel: KeyedChannel,
+	relative: number,
+	pose: DesignPose,
+	keyed: boolean,
+): number {
+	switch (channel) {
+		case 'x':
+			return pose.x + relative;
+		case 'y':
+			return pose.y + relative;
+		case 'rotation':
+			return pose.rotation + relative;
+		case 'alpha':
+			return pose.alpha * relative;
+		case 'tint':
+			return keyed ? relative : pose.tint;
+		default:
+			return relative;
+	}
+}
+
+/** The relative channel value a value typed into Properties keys — {@link shownChannelValue}'s inverse. */
+export function relativeChannelValue(
+	channel: KeyedChannel,
+	shown: number,
+	pose: DesignPose,
+): number {
+	switch (channel) {
+		case 'x':
+			return shown - pose.x;
+		case 'y':
+			return shown - pose.y;
+		case 'rotation':
+			return shown - pose.rotation;
+		case 'alpha':
+			// A node authored invisible has no multiplier that shows it; key the value itself.
+			return pose.alpha !== 0 ? shown / pose.alpha : shown;
+		default:
+			return shown;
+	}
+}
+
+/** A stage drag in Animate, as the canvas measured it on the Design pose: what to key. */
+export interface StageTransformDelta {
+	nodeId: string;
+	/** Design px moved. */
+	dx?: number;
+	dy?: number;
+	/** The scale ratio (new ÷ start). */
+	scale?: number;
+	/** Degrees turned. */
+	rotation?: number;
+}
+
+/**
+ * The relative values a stage drag keys on a node actor at `t`: each channel the drag changed, on
+ * top of what the timeline already sets there — so dragging a node that is mid-move keys where it
+ * now draws.
+ */
+export function stageDragKeys(
+	doc: CinematicDoc,
+	actorId: string | null,
+	delta: StageTransformDelta,
+	t: number,
+	channels: readonly KeyedChannel[],
+): Partial<Record<KeyedChannel, number>> {
+	const at = (c: KeyedChannel): number =>
+		actorId ? nodeChannelValue(doc, actorId, c, t) : NODE_IDENTITY[c];
+	const out: Partial<Record<KeyedChannel, number>> = {};
+	const allowed = new Set(channels);
+	const tiny = 1e-6;
+	if (delta.dx !== undefined && Math.abs(delta.dx) > tiny && allowed.has('x'))
+		out.x = at('x') + delta.dx;
+	if (delta.dy !== undefined && Math.abs(delta.dy) > tiny && allowed.has('y'))
+		out.y = at('y') + delta.dy;
+	if (
+		delta.scale !== undefined &&
+		Number.isFinite(delta.scale) &&
+		Math.abs(delta.scale - 1) > tiny &&
+		allowed.has('scale')
+	)
+		out.scale = at('scale') * delta.scale;
+	if (delta.rotation !== undefined && Math.abs(delta.rotation) > tiny && allowed.has('rotation'))
+		out.rotation = at('rotation') + delta.rotation;
+	return out;
+}
+
+/** One exposed parameter of a placed effect, as Animate mode keys it: its `fx:<id>` channel. */
+export interface FxChannelRow {
+	channel: CinematicFxParamChannel;
+	param: EffectParam;
+}
+
+/**
+ * The effect parameters Animate mode offers on a node (Invisible FX Step 2): on an effect node, one
+ * `fx:<id>` channel per number or on/off parameter of the placed effect (`params`, its
+ * `EffectDoc.params`), in the effect's order. A colour parameter is not keyed. Empty on any other
+ * node, or while the effect is not loaded.
+ */
+export function keyableFxChannels(
+	node: LayoutNode,
+	params: readonly EffectParam[] | undefined,
+): FxChannelRow[] {
+	if (node.kind !== 'effect') return [];
+	return drivableFxParams(params).map((param) => ({ channel: fxParamChannel(param.id), param }));
+}
+
+/** The `fx:` channels `actorId` keys whose parameter `params` does not declare as drivable — rows
+ *  the Timeline still lists so their keys can be found and removed. */
+export function staleFxChannels(
+	doc: CinematicDoc,
+	actorId: string,
+	params: readonly EffectParam[] | undefined,
+): CinematicFxParamChannel[] {
+	const offered = new Set(drivableFxParams(params).map((p) => fxParamChannel(p.id)));
+	const out: CinematicFxParamChannel[] = [];
+	for (const track of tracksOf(doc, actorId)) {
+		if (track.kind !== 'property' || !track.channels) continue;
+		for (const [name, keys] of Object.entries(track.channels)) {
+			if (fxParamOfChannel(name) === undefined || !keys?.length) continue;
+			const channel = name as CinematicFxParamChannel;
+			if (!offered.has(channel) && !out.includes(channel)) out.push(channel);
+		}
+	}
+	return out;
+}
+
+/** One Timeline row a node actor gets beyond the shared channels, on a placed effect. */
+export interface FxTimelineRow {
+	channel: CinematicFxParamChannel;
+	label: string;
+	/** Keyed, but not a number or on/off parameter the effect declares: its keys do nothing. */
+	stale: boolean;
+}
+
+/**
+ * The Timeline rows of a node actor targeting `node`, beyond the shared channels. On a placed
+ * effect (`effect`: its doc, `undefined` while it is not loaded): one per number or on/off
+ * parameter, then every `fx:` channel the actor keys that is not one of them — also when the effect
+ * declares no parameters at all — so stale keys can always be found and removed. While the effect
+ * is not loaded, every keyed `fx:` channel is listed as it is. Nothing on any other node.
+ */
+export function fxTimelineRows(
+	doc: CinematicDoc,
+	actorId: string,
+	node: LayoutNode,
+	effect: { params?: readonly EffectParam[] } | undefined,
+): FxTimelineRow[] {
+	if (node.kind !== 'effect') return [];
+	if (!effect) {
+		return staleFxChannels(doc, actorId, []).map((channel) => ({
+			channel,
+			label: `⚡ ${fxParamOfChannel(channel)}`,
+			stale: false,
+		}));
+	}
+	const params = effect.params ?? [];
+	return [
+		...keyableFxChannels(node, params).map((row) => ({
+			channel: row.channel,
+			label: `⚡ ${row.param.id}`,
+			stale: false,
+		})),
+		...staleFxChannels(doc, actorId, params).map((channel) => ({
+			channel,
+			label: `⚠ ${channel}`,
+			stale: true,
+		})),
+	];
+}
+
+/**
+ * An `fx:` channel of a node actor at `t`: the keyed value, or where the channel rests while it has
+ * no keys — the value the node sets itself (`placed`), else the parameter's default (a bool reads
+ * 1 / 0), as the game's blend rests it. What the Animate field shows and ◆ keys.
+ */
+export function fxChannelValue(
+	doc: CinematicDoc,
+	actorId: string,
+	row: FxChannelRow,
+	t: number,
+	placed?: EffectParamValues,
+): number {
+	let value: number | undefined;
+	for (const track of tracksOf(doc, actorId)) {
+		if (track.kind !== 'property' || !track.channels) continue;
+		const v = sampleChannel(track.channels[row.channel], t);
+		if (v !== undefined) value = v;
+	}
+	return value ?? fxParamRest([row.param], row.channel, placed) ?? 0;
 }
 
 /** How a timeline drives one node of the screen at time `t` — the player's own inputs. */
@@ -385,4 +647,37 @@ export function cinematicPickerOptions(
 	const byLabel = (a: CinematicPickerOption, b: CinematicPickerOption) =>
 		a.label.localeCompare(b.label);
 	return [...timelines.sort(byLabel), ...cinematics.sort(byLabel)];
+}
+
+/** One onion-skin ghost: `offset` frames from the playhead, and what the timeline drives there. */
+export interface OnionFrame {
+	offset: number;
+	time: number;
+	drives: Map<string, TimelineNodeDrive>;
+}
+
+/**
+ * The onion skin's ghosts (Rive plan Phase 9b, editor-only): `count` frames before and after `t`,
+ * each `step` frames apart, inside the timeline and never at `t` itself. Nearest first, so a
+ * renderer can fade them by distance.
+ */
+export function onionFrames(
+	doc: CinematicDoc,
+	scene: Scene | undefined,
+	t: number,
+	count: number,
+	step = 1,
+): OnionFrame[] {
+	const out: OnionFrame[] = [];
+	const frame = 1 / (doc.fps || 30);
+	const n = Math.max(0, Math.min(Math.floor(count), 10));
+	for (let i = 1; i <= n; i++) {
+		for (const sign of [-1, 1]) {
+			const offset = sign * i * Math.max(1, Math.floor(step));
+			const time = t + offset * frame;
+			if (time < -1e-9 || time > doc.duration + 1e-9) continue;
+			out.push({ offset, time, drives: timelineDrives(doc, scene, time) });
+		}
+	}
+	return out;
 }

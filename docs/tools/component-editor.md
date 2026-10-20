@@ -248,6 +248,13 @@ binding; a node can carry several. Each binding has these parts:
     events.
   - **Rig bone** — rig only. Offsets one **bone**'s scale, rotation or position on top of
     whatever the rig is playing.
+  - **⚡ <parameter>** — effect only, one entry per number or on/off parameter the placed effect
+    exposes (made with ⚡ in [Invisible FX](fx.md#exposed-parameters)). It sets the parameter
+    itself: a number's **out** range is left blank so it follows the parameter's own min and max
+    (shown greyed, even after they change in /fx), and an on/off one is on while the number passes
+    a **threshold** (or is below it), like **Show / hide**. The test
+    value moves the live particles on the stage. A colour parameter is not offered yet; a
+    binding whose parameter the effect no longer has says *Does nothing* and is ignored.
 - **from** — where the number comes from:
   - **This component's params** — a number or boolean param of the component.
   - **Pot (this instance's meter)** — offered when the component has a `meter` param (the Pot
@@ -311,10 +318,13 @@ game does:
 
 so a placement in a scene can still override anything you set here.
 
-**Saving is separate from the component.** The panel has its own **Saved / Unsaved**
-badge and its own **Save for this game** button — the defaults are a different file
-with its own version, so *Save component* does not write them and this does not write
-the component. If someone else changed this game's defaults for the same component
+**Saving.** The defaults are a different file from the component, with their own version,
+so the panel has its own **Saved / Unsaved** badge and its own **Save for this game**
+button, which writes only the defaults. **Save component** in the editor bar writes both:
+the component, and these defaults when they are unsaved. The pill then reads *Component and
+this game's defaults saved*. When only the defaults changed, it saves just them (*This game's
+defaults saved*) and leaves the component alone. A value saved here shows on the instances placed on your
+screens straight away, without a reload. If someone else changed this game's defaults for the same component
 while you had the panel open, the badge turns into a conflict with **Reload theirs**
 and **Overwrite with mine** rather than quietly clobbering their values. Leaving the
 tool (closing the component, or navigating away) warns while either store is unsaved.
@@ -329,8 +339,10 @@ The panel then shows the restored values; the component you are editing is left 
 
 ### 5. Save
 
-Click **Save component** in the editor bar. It saves the draft to the active project; the
-pill beside it shows *Saving… → Component saved* (or a *Save failed* pill with the error).
+Click **Save component** in the editor bar. It saves the draft to the active project, and
+this game's defaults (§4) too when they have unsaved edits; the pill beside it shows
+*Saving… → Component saved* (or a *Save failed* pill with the error — including a component
+that saved while its defaults did not, whose badge then says why).
 On success the component lists update without a reload, and instances placed on your screens
 redraw. Use **← All components** (or Esc) to return to the components home; it confirms first if
 the component or this game's defaults have unsaved edits.
@@ -419,6 +431,39 @@ project; drag one onto the canvas to place an instance of it (at the component's
 part you are editing). A component that holds the open one, directly or through another, is left
 out, since that would loop. The game draws nesting two components deep.
 
+**Expose a placed component's params on this one.** Select a placed component: Properties →
+**Component instance → Params** lists its params, and the values you set there belong to this
+component, the same in every placement of it. To set one per placement instead, use the **⇡**
+picker beside the param:
+
+- **Expose on ‹this component› (new param ‹key›)** adds a param of the same kind to this component
+  (it shows under Component variables). Its default is the value the piece shows now. The key is
+  the piece's own (`lightAt`), or `lightAt_2`, `lightAt_3`… when that is taken, so five pieces get
+  five params.
+- **Take from ‹this component›'s** lists this component's params of the same kind: pick one to
+  make several pieces share it, such as one `pieceArt` for every firecracker.
+
+The row then shows `⇡ from ‹this component› · ‹key›` in place of its value. **×** stops it, and the
+piece uses its own value again. The param stays on this component; remove it under Component
+variables if nothing else uses it. On a screen, each placement of this component lists the exposed
+params in its Params, and **This game's defaults** sets them per game. **🔥 Light order** sets an
+exposed `lightAt` through its param's default. The pickers are disabled while you Inspect a version.
+
+**Expose a placed effect's parameters on this one.** Select a placed effect (an Invisible FX
+effect, inside a part too): Properties → **Effect → Parameters** lists every parameter the effect
+exposes, with a value for each. That value is the same in every placement of this component. The
+**⇡** picker beside each one works as it does for a placed component's params:
+
+- **Expose on ‹this component›** adds a param of the matching kind (a number, an on/off as a
+  boolean, a colour as a colour) at the value the effect shows now, keyed by the parameter's id
+  (`BeamAlpha`, then `BeamAlpha_2`…).
+- **Take from ‹this component›'s** lists this component's params of the matching kind.
+
+The row then shows `⇡ from ‹this component› · ‹key›`; **×** stops it and the effect uses its own
+value again. On a screen, each placement of this component sets the param under its Params (so a
+red pot and a blue pot can tint the same beam differently), and **This game's defaults** sets it
+per game.
+
 **State machine — a threshold per placement.** In Animate → **State machine**, a condition on a
 number input can compare with a fixed **value** or with one of the component's number params, shown
 as `{lightAt}`. Each placed instance then uses its own param, so one component lights at a different
@@ -479,8 +524,9 @@ The Pot takes two ways, which you can use together.
 
 Any pot image replaces the coded bar as a whole. The **Label** group shows or hides the level
 (`RED 3/12`) and what a full pot activates, and sets their font, colour and size. The **Motion**
-group sets the growth per size stage (0 = none) and the pulse when the pot fills (1 = none). With
-nothing set, the pot draws exactly the coded bar. The canvas shows the art, with the fill drawn
+group sets the growth per size stage (0 = none) and the pulse when the pot fills (1 = none). Tick
+**pulse on every coin collected too** to play the same pulse as each coin lands in the pot. It is
+off by default. With nothing set, the pot draws exactly the coded bar. The canvas shows the art, with the fill drawn
 part-full so you can see which way it grows. The labels and the size stages show only in the game.
 
 **2. Put your own nodes inside the part.** Create a component of type **Pot Meter (Hold and Win)**,
@@ -490,7 +536,7 @@ another component (Library → **Components**) there, at positions relative to t
 both labels. Any art picked on the instance still draws under them. The part keeps its behaviour:
 
 - It follows its meter's level.
-- It grows at each size stage and pulses when the pot fills.
+- It grows at each size stage and pulses when the pot fills (and on every coin, if ticked).
 - The specials still fly into it.
 - It still counts as that meter's pot, so the game does not draw its own pot for that meter.
 
@@ -659,8 +705,9 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
   that, expansion stops rather than recursing. Editing in place follows the same cap: a
   component nested deeper than the game draws is not opened from its parent.
 - **Unsaved drafts are in-memory only.** A never-saved component exists only as the
-  open draft; leaving it discards it (you are warned first). There is no autosave — and **This game's defaults** (§4) is a second,
-  separate manual save, warned about the same way.
+  open draft; leaving it discards it (you are warned first). There is no autosave. **This game's
+  defaults** (§4) are a second file: **Save component** writes them too, *Save for this game*
+  writes them alone, and leaving with them unsaved warns the same way.
 - **A shipped game only picks up new defaults on its next publish.** Both editor
   canvases resolve the sidecar live, but a built game reads the defaults baked into
   its bundle — so re-publish (or re-bake) the game after changing them.

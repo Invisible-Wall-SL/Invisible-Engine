@@ -308,6 +308,7 @@ var invisibleRig = function(exports) {
       const { u, v, u2, v2 } = region;
       const uvs = this.uvs;
       if (region.degrees === 90) uvs.set([u2, v2, u, v2, u, v, u2, v]);
+      else if (region.degrees === 270) uvs.set([u, v, u2, v, u2, v2, u, v2]);
       else uvs.set([u, v2, u, v, u2, v, u2, v2]);
     }
     computeWorldVertices(slot, worldVertices, offset, stride) {
@@ -1020,8 +1021,9 @@ var invisibleRig = function(exports) {
         }
         region.u = region.x / page.width;
         region.v = region.y / page.height;
-        const packedW = region.degrees === 90 ? region.height : region.width;
-        const packedH = region.degrees === 90 ? region.width : region.height;
+        const quarterTurn = region.degrees === 90 || region.degrees === 270;
+        const packedW = quarterTurn ? region.height : region.width;
+        const packedH = quarterTurn ? region.width : region.height;
         region.u2 = (region.x + packedW) / page.width;
         region.v2 = (region.y + packedH) / page.height;
         page.regions.push(region);
@@ -5122,8 +5124,8 @@ var invisibleRig = function(exports) {
       const root = typeof json === "string" ? JSON.parse(json) : json;
       const skeletonMap = root.skeleton;
       if (skeletonMap) {
-        data.hash = skeletonMap.hash ?? null;
-        data.version = skeletonMap.spine ?? null;
+        data.hash = skeletonMap.hash;
+        data.version = skeletonMap.spine;
         data.x = skeletonMap.x;
         data.y = skeletonMap.y;
         data.width = skeletonMap.width;

@@ -161,8 +161,9 @@ export class TextureAtlas {
 			}
 			region.u = region.x / page.width;
 			region.v = region.y / page.height;
-			const packedW = region.degrees === 90 ? region.height : region.width;
-			const packedH = region.degrees === 90 ? region.width : region.height;
+			const quarterTurn = region.degrees === 90 || region.degrees === 270;
+			const packedW = quarterTurn ? region.height : region.width;
+			const packedH = quarterTurn ? region.width : region.height;
 			region.u2 = (region.x + packedW) / page.width;
 			region.v2 = (region.y + packedH) / page.height;
 			page.regions.push(region);

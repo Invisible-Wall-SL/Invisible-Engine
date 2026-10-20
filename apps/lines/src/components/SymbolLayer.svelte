@@ -32,6 +32,7 @@
 		resolveFlipbook,
 	} from 'engine-layout';
 	import { emitterSecondsToWallMs } from 'engine-fx';
+	import { particleWallMs } from 'pixi-svelte/particleClock';
 
 	import { getContext } from '../game/context';
 	import { TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
@@ -182,7 +183,9 @@
 		const { kind, assetKey } = props.layer;
 		let ms: number | undefined;
 		if (kind === 'flipbook') ms = clipCycleMs;
-		else if (kind === 'fx') ms = effectDoc ? fxEmitMs + fxSettleMs : 0;
+		// An effect plays by the particle clock (turbo), read when the timer starts: its `emitFor` is
+		// divided the same way by `<EffectLayer>`, so the completion lands as the particles end.
+		else if (kind === 'fx') ms = effectDoc ? particleWallMs(fxEmitMs + fxSettleMs) : 0;
 		else if (kind === 'spine') ms = assetKey ? undefined : 0;
 		else ms = 0;
 		if (ms === undefined) return;

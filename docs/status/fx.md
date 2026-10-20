@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** Shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** Shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
@@ -15,12 +15,58 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Preset library** — per-layer "Apply preset…" (Fountain, Fire, Smoke, Sparks, Explosion-burst, Rain, Snow, Confetti, Magic glow) preserving art/placement/trigger.
 - **Rig-timeline direct binding** — on a Rigger event keyframe you pick the effect, its host bone, the SLOT it draws at, and per-binding opacity / size / delay / duration / speed, and a **Continuous** flag that stops a looping clip restarting an ambient burst every lap (`evtObj.fx`), baked to a `rigFx` manifest and played by `RiggedEffect` on the beat (`forceEmit`); the cue-broadcast path stays as the advanced mode. A *persistent* rig FX slot (an always-on, keyable emitter — the other half of invisible-cinematic §12.4a) is still NOT built.
 - **…and it plays on ANY rig, mounted by anything** (2026-09-04). `<RigProvider>` resolves and mounts a rig's bound effects + clips itself, through the `pixi-svelte` `rigBoundContent` seam `engine-layout` fills in — so a binding works on a rig reached by a coded component (the big-win `WinAnimation`, backdrops, transitions, cinematic actors) exactly as on a placed `spine` node. Authoring is unchanged; the binding was always baked, it just had two readers. See the 2026-09-04 entry.
+- **Turbo speeds up the particles** (2026-10-15) — one particle clock in `pixi-svelte`, set by the
+  game from its turbo scalar, multiplies every `<ParticleEmitter>`'s step, and the FX emission timers
+  divide by it, so an effect plays twice as fast in turbo with the same particles. The tools preview
+  at normal speed. See the 2026-10-15 "particle clock" entry.
 - **Live particle previews everywhere** — the effect plays not just in `/fx` (`FxStage`) but in the **Rigger** and **Symbols state machine** via the shared `fxOverlay` on their raw-WebGL stages, all now riding the bone's **full transform** (position + rotation + per-axis scale) to match the game.
 - **Effect atlases auto-ship** — `exportEditorArt` walks the project's effects and ships every layer's `art.assetKey`, so a placed/bound effect's particles have textures with no extra step.
+- **Exposed parameters (Step 1, 2026-10-15)** — any value of an effect can be a named parameter (`EffectDoc.params`): ⚡ on every inspector row or in the raw **All parameters** tree, an **Exposed parameters** panel with a live preview slider, and one shared applier in all four renderers that changes a value with no reset. The stored config is the effect at its defaults, so every existing renderer draws it unchanged. See the 2026-10-15 entry.
+- **Driven from the node (Step 2, 2026-10-15)** — on a placed `effect` node, a **value binding**
+  (`target: 'fxParam'`, `fxParam: <id>`) and a **timeline channel** (`fx:<id>`) set the effect's
+  number and on/off parameters, through the node's one fold (its own bindings, then the timeline's,
+  the last value winning). So a component state machine's state drives the effect, a transition
+  blend mixes it, and a binding drives it from a component param or an engine source. A colour
+  parameter is neither bound nor keyed yet. The Scene / Component Editor lists the placed effect's
+  parameters in **Bind to value** and in Animate, and previews them live on the stage. See the
+  2026-10-15 "Step 2" entry.
+- **Set per placement** (2026-10-16) — the placed effect's Properties list every exposed parameter
+  under **Effect → Parameters** with a value for that node (`EffectNode.params`: a number, an
+  on/off or a `#rrggbb` colour). Inside a component, **⇡** takes one from a param of the component
+  (`paramBindings['params.<id>']`, the nested-instance forward), so each placement of the component
+  sets it. Precedence: the parameter's default ◁ the node's own value ◁ the component's param ◁ a
+  binding ◁ a timeline. See the 2026-10-16 entry.
 
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Owner browser-pass over per-placement values** (2026-10-16) — the reported case: open the Pot
+  Meter copy → **Edit inside Pot ›**, select `BackgroundBeam2`, and under **Effect → Parameters**
+  drag `BeamAlpha` and pick a `Color`: the beam on the stage follows with no reset, and **×** puts
+  each back. **⇡ → Expose on Pot Meter** on `Color`: it shows under Component variables; on the
+  Pots screen give two pots different colours and check both the canvas (each pot now previews its
+  own beam, see the 2026-10-16 "every placement" entry) and a published game. Also worth a look: a
+  screen-placed effect (no ⇡ there), Inspect (controls disabled), and Save → reopen. `/editor` is
+  auth + Postgres + R2 gated, so none of this has been clicked.
+- **Owner browser-pass over exposed parameters** (2026-10-15) — ⚡ a few rows (Frequency, an Alpha end, a tint colour, a force's Strength and its On switch), drag each preview slider and check the preview changes with no reset (particles in flight carry on), that a mapped row (Direction) goes read-only with the ⚡ name, that editing an as-is driven row (Frequency) moves the parameter's default, and that Save → reopen shows the same panel. `/fx` is auth + Postgres + R2 gated, so none of this has been clicked yet.
+- **`effect.*` drives cannot be authored in `/fx` yet.** The schema, the normalizer, the applier
+  and the runtime wrapper (`EffectParamGroup`) all handle `effect.alpha | scale | tint | timeScale`,
+  but no inspector row or "All parameters" leaf writes them, so only a hand-written doc reaches
+  that wrapper today. An effect-level section (or effect rows in the panel) is owed.
+- **Owner browser-pass over Step 2** (2026-10-15) — on a component with a placed effect that exposes
+  `intensity` (number) and an on/off parameter: **Bind to value → + drive… → ⚡ intensity** from a
+  param and drag the test value (the stage's particles should follow with no reset); in Animate key
+  `⚡ intensity` at two times and scrub; tick the on/off row (it keys stepped); build a state machine
+  whose two states key different intensities with a 300 ms blend and ▶ Run it; then place the
+  component in a game and check the same. `/editor` is auth + Postgres + R2 gated, so none of
+  this has been clicked.
+- **Next per the design: Steps 3–4** (`invisible-fx.md` §"Direction (2026-10-15)") — `{ input }`
+  binding refs from the component state machine, then the `time.*` clocks and `wave` shaping. Both
+  plug into Step 2's fold: a new `BindingInputRef` kind and a clock-fed binding reach
+  `boundFxParamValues` unchanged. A colour parameter as a binding or channel target is not planned
+  in any step yet.
+- **The Rigger / Symbols overlay** (`fxOverlay`, `FxPlayOptions.params`) still draws every effect at
+  its defaults: a rig timeline has no node actors, so nothing there sets a value.
 - **Owner browser-pass over the Sprite section** (2026-10-14) — rotate a directional sprite (an arrow or a streak) and check it turns by the slider amount without changing its flight, and that Top / Bottom / Left / Right pivots put that edge on the spawn point (easiest with a big sprite and a single slow particle).
 0. **Owner browser-pass over the Forces section** (2026-10-13) — the math and the real-`Emitter` coupling are gated headlessly, but no slider has been dragged in a browser. Worth checking while there: a Fire / Smoke / Fountain / Sparks / Rain preset now goes the way its name says (see the entry), and an existing effect's Direction reads the way its particles actually fly.
 1. **Owner browser-pass over the Min / Max rows.** Two passes have now happened and each found a real defect (see the two 2026-08-28 fix entries) — the model is heavily covered headlessly, but every symptom so far has been a CLICK, and `/fx` is auth + Postgres + R2 gated so those sliders still cannot be driven from a session. A third pass on the corrected rows is owed.
@@ -32,6 +78,436 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-16 — **The editor previews every placement of a nested effect, not one copy.**
+  `EditorEffectLayer` keyed its live emitters by the effect node's id, which every placement of one
+  component shares. On a screen with three Pot Meters it built the first pot's beam, then moved
+  that one emitter to each later pot, so one beam showed, at the last pot. The game draws all three.
+  Per-placement values (the entry below) made this worse: two pots with different colours previewed
+  as one. Editor-only, so no runtime republish.
+  - **Key.** A placement is keyed by its id path from the top of the screen, `depthKey(ids)` (the
+    key the depth split already records each node under). A top-level effect's key is its own id,
+    as before. Each placement builds its own emitters and reads the params of the instance it sits
+    in, so each pot plays its own beam in its own colour.
+  - **Reports stay by node id**, which is what `EditorCanvas` (`mergeEffectReady` /
+    `mergeEffectBounds`) and its chip and selection-box code read. A node is ready while any of its
+    placements renders, the same union the canvas takes across its sublayers. Its box is the union
+    of its placements' particle spreads, all in the node's own local space.
+    - The union also holds across overlays. Each scene, depth segment and blend group reports from
+      its own overlay, and three pots whose glow sits under their art land in three segments.
+      `mergeEffectBounds` kept only the last report, so it now unions them (`mergeSpreadBoxes`,
+      `editorCanvas.helpers.ts`).
+  - The rig overlay had nothing to copy: it shares one instance per asset key and draws it at every
+    target. The text overlay keys its objects by chain the same way (`chainKey`).
+  - **Trade-off:** moving a top-level effect into a group (or out of one) changes its key, so its
+    particles restart instead of carrying on.
+  - **Gate:** `check:fx-node-params` 104 → 105. The new check scans the overlay and canvas wiring:
+    placements keyed by path, reports by node id, the canvas's union. It fails on the old overlay.
+    `check:depth-segments` gains §5: a one-id path keys as the id, three pots' glows get three keys
+    in three segments, and `mergeSpreadBoxes` folds their reports into one enclosing box (it fails
+    on a last-wins merge). Also green: `check:svelte --only apps/launcher-api` (at baseline),
+    `pnpm lint`, `check:undefined-names`. ⏳ Not clicked in a browser.
+- 2026-10-16 — **A placed effect's exposed parameters can be set where it is placed.** Owner
+  report: an effect exposing `BeamAlpha` (number) and `Color` (colour), placed inside the Pot
+  Meter's `Pot` part, showed neither parameter on the node: they were reachable only as a **Bind to
+  value** target or an Animate channel (both need a source), and a colour one nowhere. **Engine
+  change** (`engine-layout`): it reaches online games only through a runtime-bundle republish.
+  - **Format.** `EffectNode.params?: Record<id, number | boolean | '#rrggbb'>`, this placement's
+    values. Inside a component, `paramBindings['params.<id>'] = '<key>'` takes one from a param
+    of the enclosing component, the format a nested instance already forwards with (#1237), so
+    `pruneOrphanParamBindings` drops it when that param is deleted. Nodes are stored verbatim, so
+    no normalizer change (gated: layout doc and component def keep both).
+  - **One fold.** `placedFxParamValues` (`fxNodeParams.ts`) reads, per declared parameter, the
+    component's param while it holds a value of the parameter's kind (a colour param's `0xrrggbb`
+    reads as `#rrggbb`), else the node's own value, clamped by `effectParamValue`; an undeclared
+    id or a mistyped value is skipped. `createNodeFold` puts the bound and keyed values on top
+    (`nodeFxParamValues`), in one `$derived` that also tracks the component's params, so a
+    per-placement or live param change reaches the emitter with no reset. `fxParamsDriven` now
+    counts a node that sets a parameter (any kind, so a colour-only node gets a getter);
+    `attachedEffectDrives` follows, so a bone-hosted effect gets `<DrivenEffectPlayer>` too. An
+    effect node that sets nothing still mounts the bare `<EffectPlayer>` (parity).
+  - **Blends rest on the placement.** `fxParamRest(params, channel, own)` with `own` =
+    `placedFxParamValues`: a state-machine blend where only one side keys a parameter mixes from
+    or towards the value the node sets (the component's param, else its own), else the default.
+    `ComponentTimelinePlayer` takes the instance's params lazily (`() => providedParams`), so the
+    rest follows a live param. The editor does the same: the Animate field shows (and ◆ keys) an
+    unkeyed parameter at that value (`fxChannelValue(…, placed)`), and the State machine stage
+    preview's player reads the component's preview params.
+  - **Swapping the effect** on a node drops its values and forwards, since the new effect declares
+    its own parameters.
+  - **Editor.** Properties → **Effect → Parameters**: a slider + number box (number, the slider
+    only with a usable `min..max`), a tick box (on/off) or a swatch (colour), **×** back to the
+    default, a note when a **Bind to value** binding drives the same parameter, and the
+    parameter's own note. In component mode each row has the **⇡** picker:
+    `exposeEffectParam` (a `number` / `boolean` / `color` param at the value shown now),
+    `linkEffectParam` (an existing param of the matching kind), × = `unlinkInstanceParam`
+    (`instanceParamForwarding.ts`). The live overlay (`EditorEffectLayer`) now gets the open
+    component's `componentParams` and the project's `componentDefaults` and resolves each nested
+    instance's params on the way down (`forwardInstanceParams` → `resolveComponentParams`, as the
+    rig layer does), and `previewEffectParamValues` folds the placement's values under the test
+    values and the timeline.
+  - **Gate:** `pnpm --filter launcher-api check:fx-node-params` 76 → 104 (a new §11, plus the
+    compiled fold in §8 following a component param live, and the save round-trip in §9). Also
+    green: `check:component-param-forwarding` (106), `check:component-state-machine` (151),
+    `check:component-state-machine-editor` (42), `check:component-timelines` (80), the
+    `check:authored-*` gates, `check:doc-readers-unknown-fields` (271),
+    `check:save-keeps-unknown-blocks` (154), `check:component-links` (75), `check:depth-segments`,
+    `check:vendored-bundles`, `check:undefined-names`, `check:svelte-init-order`, and
+    `check:svelte` for `engine-layout` and `launcher-api` (at baseline). ⏳ Not clicked in a
+    browser.
+- 2026-10-15 — **Exposed parameters, Step 2: drive them from the node.** Plan: design §"Direction
+  (2026-10-15)", the four steps, row 2. **Engine change** (`engine-cinematic`, `engine-layout`): it
+  reaches online games only through a runtime-bundle republish.
+  - **Binding target.** `VALUE_BINDING_TARGETS` gains `fxParam`, with `ValueBinding.fxParam` naming
+    the parameter. `bindingTargetsForKind('effect')` offers it.
+    - A **number** parameter takes the mapped output. With no authored out range it maps onto the
+      parameter's own `min..max` (`defaultBindingOutRange(binding, param)`), and the value goes
+      through `effectParamValue` (clamped).
+    - A **bool** one switches by `threshold` / `below`, as `visible` does (`isSwitchBinding`), and
+      never glides.
+    - A **colour** parameter is not a target.
+  - **Timeline channel.** `fx:<id>`, one per number or bool parameter, from
+    `nodeActorChannelsForKind('effect', params)`.
+    - `NodeActorChannel` is now ``(typeof NODE_ACTOR_CHANNELS)[number] | `fx:${string}` ``: the fixed
+      list is one exported value, and `FX_PARAM_CHANNEL_PREFIX` is exported once, by the evaluator;
+      `engine-layout` builds every channel name from it (`fxParamChannel`).
+    - The evaluator (`sampleNodeActor`) samples every `fx:` channel of a property track under its
+      own name: a number interpolates, a bool is keyed 0 / 1 on `hold` keys (Animate keys it that
+      way). The node reads a bool as on from 0.5, so a blend steps it at half way.
+    - Colours are left out: the evaluator interpolates colour only on a channel named `tint`.
+    - `static/shared/cinematicEval.mjs` is regenerated.
+  - **One fold.** `nodeActorBindings` turns each `fx:<id>` channel into an `fxParam` binding, so a
+    timeline joins the node's own bindings in `allBindings` / `allOutputs`. `boundFxParamValues`
+    (`fxNodeParams.ts`) reads them in order, the last value winning. That is the rule
+    `withNodeActorOutputs` already gives `fill` and `frame`: a timeline after the node's own
+    bindings, a later binding over an earlier one.
+    - The fold is ONE function, `createNodeFold` (`nodeFold.svelte.ts`): `<LayoutNodeView>` runs it
+      for every node (it replaced the view's inline `createBoundValues` → `withNodeActorOutputs`
+      code, same deriveds) and `DrivenEffectPlayer.svelte` for a bone-hosted effect. It hands the
+      effect's parameter shapes to `createBoundValues`, and gives `<EffectPlayer params>` a getter
+      over a `$derived` of the values, recomputed when the outputs change, not once per layer per
+      frame.
+    - A **bone-hosted** effect (`hostSpineId`) has no view of its own, so `DrivenEffectPlayer` runs
+      the fold for it, mounted only when something drives it. Whether something does is asked
+      once per effect, untracked (`attachedEffectDrives`), so a re-render never swaps its player.
+  - **State machine blend.** `blendNodeSamples` mixes `fx:` channels on an effect node. The player
+    hands it each channel's rest, the parameter's default read from `resolveEffect`, so a blend
+    where only one state keys the parameter mixes from or towards the default. With no rest known
+    it steps at half way.
+  - **Unknown or stale ids are inert and reported.** Inert at runtime: `boundFxParamValues` skips
+    them, and the applier ignores a value no parameter declares.
+    - `validateNodeActors` reports `fx-param-unknown`. Its new `effects` argument resolves the
+      caller's own effects and defaults to resolving none, so validation never reads a
+      process-wide registry: the editor passes the effects it loaded (`placedEffect`), and
+      `/flow-v2`'s server load passes a resolver that knows none (it reads no effect docs, so
+      `fx:` channels go unchecked on that page). An effect it does not know is left unchecked.
+    - **Bind to value** shows `fxParamBindingIssue` (missing, unknown, colour) on the row.
+  - **Editor.**
+    - `placedEffects.client.svelte.ts` keeps the placed effects in the engine's own registry
+      (`registerEffects`; the live overlay notes each doc it loads, a panel fetches one it lacks),
+      so lists, validation and blends read them as the game does.
+      - Both reads (the loader's and the overlay's `loadEffectDoc`) are pinned to the tab's
+        project (`withEditorProject`), and `/api/editor/effect` now refuses a pin the session no
+        longer holds (409 `scope-mismatch`). So a second tab on another project can't make this one
+        list that project's parameters. The Rigger and Symbols, which send no pin, read as before.
+      - A failed read is asked again after 5 s.
+      - A doc is not refreshed when the tab regains focus. No effect reload signal exists to hang
+        it on, and refreshing the lists alone would let them disagree with the stage. A canvas
+        remount (or a page reload) reads the docs again.
+    - **Bind to value** lists `⚡ <param>` in **drives** (number or on/off; an on/off one gets
+      threshold / below). A number binding is created with its out range blank, so it follows the
+      parameter's range, shown as the placeholder, even after the range changes in `/fx`.
+    - **Animate** lists a `⚡ <param>` row per parameter (a number field, or a tick box that keys a
+      stepped key).
+    - The shared Timeline module gains a `host.actorChannels(cast)` hook and a
+      `keyProperty(…, ease)` argument. `/rigger` passes neither and is unchanged; `timeline.mjs`
+      is regenerated.
+      - The editor adds the effect's rows through the hook (`fxTimelineRows` in
+        `screenTimeline.ts`).
+      - A keyed `fx:` channel the effect does not declare shows as `⚠`, so its keys can be removed.
+        That includes an effect whose last parameter was removed.
+      - While the effect is not loaded, every keyed `fx:` channel is listed as it is.
+    - The panel's issues re-run when an effect doc lands, and check every host (the component and
+      each in **Also on**) against the loaded effects, loading the ones they place.
+    - `EditorEffectLayer`'s `effectParamValues(node, doc)` is now passed by all three overlay
+      mounts, from `previewEffectParamValues` (the binding test values and the previewed timeline
+      or state machine, through the same fold).
+  - **Ship chain.** Nothing new travels. Bindings ride the node (layout and component readers pass
+    nodes through), channels ride the cinematic doc (stored and exported verbatim), parameters ride
+    the `EffectDoc`.
+  - **Parity.**
+    - An effect node with no `fxParam` binding and no `fx:` channel mounts `<EffectPlayer>` with no
+      `params` getter and creates no fold (`fxParamsDriven` is `undefined`); a bone-hosted one mounts
+      the bare player as before.
+    - A player whose timelines key no `fx:` channel holds no rest, and a blend without one leaves
+      `fx:` keys alone.
+    - The one per-frame addition everywhere: `sampleNodeActor` scans a property track's channel
+      names for the `fx:` prefix (a few string checks per driven node actor). At init every view
+      also makes one small `attachedEffectDrives` closure, whose cache is created only by a rig
+      with attached effects.
+    - `engine-layout` now depends on `engine-fx` (pure, PixiJS-free) for `effectParamValue`.
+  - **Verified.** New gate `pnpm --filter launcher-api check:fx-node-params`
+    (`scripts/check-fx-node-params.ts`, discovered by `check:all`, 76 checks).
+    - It covers the lists, the range mapping, bool thresholds, precedence, unknown ids (inert,
+      reported, ignored by a real applier), the evaluator and its static copy, and a state machine
+      whose states key `fx:intensity` / `fx:burst`, with blends both-sided, towards and from the
+      default, and with no rest.
+    - Those values move a REAL `Emitter` through `bindEffectParams` with no reset (every particle
+      in flight is still flying, aged by every frame).
+    - The real `createNodeFold`, compiled with Svelte's compiler, maps a component param and a
+      registered engine source onto the parameters (a switch never glides) and merges a moving
+      timeline. An undriven effect gets no getter. A bone-hosted effect's drive is asked once and
+      holds.
+    - The Timeline's rows: loaded with parameters, with none, and not loaded.
+    - Save → normalize (layout doc, component def, cinematic store) → export → bundle JSON → the
+      game's registries → a player built from the baked docs.
+    - Source checks that the two components run the fold (with their drive), that the editor
+      pins its effect reads and refreshes its issues, that the route refuses a mismatch, and
+      that the server passes its own resolver. `check:component-links` lists `editor/effect`
+      among the routes that refuse a mismatched project.
+    - Mutation-checked: each of 37 single mutations turns it red.
+      - Engine: each list, the default range, the switch, last-wins, the colour exclusion, the
+        clamp, the prefix, the evaluator and its copy, the blend rests (both sides), the player's
+        rests, a blend with no rest blending `fx:` anyway.
+      - Bindings and channels: validation (and its default reading the registry), channel →
+        binding and its output, the glide exclusion, the parameter shape (in `createBoundValues`,
+        and as the fold's 4th argument), the timeline merge, the getter and its gating,
+        `fxParamsDriven`.
+      - Bone-hosted effects: the asked-once cache; a per-render drive or a fold without its drive,
+        in either component.
+      - Editor and server: the no-parameters rows, the issues' refresh and resolver, both pinned
+        reads, the retry, the route's refusal, the server resolver, the overlay wiring.
+    - `check:doc-readers-unknown-fields` now carries an `fxParam` binding in its layout and
+      component docs.
+    - `cinematic-screen-timeline.mjs`'s pure-file shim lists `fxNodeParams`.
+  - **NOT browser-verified** (auth + Postgres + R2 gated) — open item above.
+- 2026-10-15 — **The depth split reaches inside nested components and groups.** Owner report after
+  the entry below shipped: an FX inside a nested component still covered the art after it in that
+  component. The split only looked at a screen's top-level nodes, so a placed component whose def
+  is `[glow FX, piece art]` stayed in one segment and its art stayed under the FX surface.
+  `depthSegments` now walks the tree in draw order (into groups, parts and resolvable components)
+  and records each node's segment by its id path (`segmentOf`, keyed by `depthKey`). A group or
+  component that the split crosses is walked on every segment it spans, and each node's own art is
+  drawn only on its own segment: the 2D pass through a `drawNode` wrapper that tracks the path,
+  and the rig, text and FX layers through a new `depthSlice` prop (`inDepthSlice`). A path the
+  split never visited (a repeater's cards) draws with its nearest ancestor. The FX layer now also
+  rebuilds when `nodeFilter` changes. Gate: `check:depth-segments` (now covers the nested case;
+  mutation-verified: not walking into components fails 7 checks, and dropping the ancestor
+  fallback fails 1). Verified: svelte-check at baseline (47), eslint, Prettier,
+  `check:undefined-names`, launcher build, and the real `EditorCanvas` in headless Chromium with
+  `[bg, pot{glow FX, art}, frame]`. On `main` the pot's art is drawn on the 2D canvas under the FX
+  layer; now it is on a canvas above it. Only the FX layer of the glow's segment fetches the
+  effect, and moving the glow after the art merges back to one segment under the frame. Particles
+  were not drawn (no effect server), so a look on a real effect is still owed.
+- 2026-10-15 — **Turbo speeds up the particles: one particle clock** (owner decision, design
+  §"Decided (owner, 2026-10-15)"). **This changes how every game looks IN TURBO:** every particle
+  effect now plays twice as fast while turbo is on — authored FX, rig-bound FX, Tier-C rig particles,
+  win coins and flight trails. Until now turbo sped up the rest of the presentation (the symbol
+  and anticipation rigs, Flow's delays) and the particles ran at normal speed beside it. With turbo
+  off nothing changes. **Engine change** (`pixi-svelte`,
+  `apps/lines`): it reaches online games only through a runtime-bundle republish.
+  - **The clock.** `packages/pixi-svelte/src/lib/particleClock.ts`, also a subpath export
+    (`pixi-svelte/particleClock`) so a plain `.ts` module can use it without the barrel (the
+    `webfontloader` SSR trap of the 2026-09-04 entry).
+    - `setParticleTimeScale(read)` and `particleTimeScale()`, default 1.
+    - A read that is not a finite number above 0, or that throws, counts as 1. 0 would be a pause,
+      and pausing is not this clock's job.
+    - The read is always untracked, so a timer started inside an effect never makes that effect
+      re-run, and restart its burst, on a turbo toggle.
+  - **Who follows it.**
+    - `<ParticleEmitter>` now steps through `particleStepSeconds`: the emit-speed step ×
+      `effect.timeScale` × the clock. Every coded emitter (`engine-game` `WinCoins`, `FlightView`'s
+      trail, the per-app `WinCoins`) and every authored layer goes through that component.
+    - Tier-C rig particles advance their clip by the emitter's step, so they follow with no change.
+    - These wall-clock timers divide by the clock at the moment they start, via `particleWallMs`:
+      `<EffectLayer>`'s trigger `duration` and `emitFor`, `<RiggedEffect>`'s `delay` (its
+      `duration` rides `emitFor`), `SymbolLayer`'s one-shot FX completion, and a flight's
+      trail-settle wait. A burst therefore keeps its shape: the same particles, in half the time.
+    - A turbo toggle mid-burst doesn't re-time a running timer.
+  - **Who sets it.**
+    - `apps/lines`' `Game.svelte`, at boot beside the effect registrations:
+      `setParticleTimeScale(stateBetDerived.timeScale)`, which is `isTurbo ? 2 : 1`, read live.
+    - The other reference apps (`cluster`, `scatter`, `ways`, `price`, `number-picker`) each have
+      their own `Game.svelte` and share no boot module, so their coins stay at normal speed in turbo.
+      They are dev / reference games, not the shipped runtime.
+    - No tool sets the clock: `/fx`, the Scene Editor and the Rigger / Symbols overlay drive their
+      own emitters and preview at normal speed. The launcher imports no game boot code.
+  - **Left alone on purpose:**
+    - Flow's `showContainer.durationMs` pin stays a normal-speed measurement, because Flow already
+      divides its delays by the same turbo scalar.
+    - Flipbook clips don't follow this clock.
+    - The flight head's own flight time is still unscaled by turbo (only a slam speeds it up). In
+      turbo the trail behind it is therefore shorter.
+  - **Verified.**
+    - New gate `pnpm check:fx-particle-clock` (`tools/fx-spike/particleClock.ts`, discovered by
+      `check:all`).
+    - Parity at 1: the step is bit-identical to `emitterDeltaSeconds × effect.timeScale` across
+      frame lengths and emit speeds, and timer lengths are unchanged.
+    - At 2, on the real `Emitter`: the step doubles, a burst spawns the same 49 particles in 7
+      frames instead of 13, the particles age twice as fast, and a Tier-C clip advances by the
+      doubled step.
+    - Bad reads are 1, and a timer started in turbo keeps its halved length through a toggle.
+    - Source checks: every `<EffectLayer>` / `<RiggedEffect>` timer divides, `<ParticleEmitter>`
+      steps only through the clock, the game sets it, and no launcher file does.
+    - Mutation-checked: an unscaled step, an undivided timer, a missing ≤ 0 guard, a raw
+      `duration` or `delay`, or the boot call removed each turns it red.
+  - **NOT browser-verified:** no turbo spin has been watched yet. Owner pass: toggle turbo during a
+    big win and check the coins, the authored win FX and a flight trail run faster without growing
+    denser.
+- 2026-10-15 — **Exposed parameters: review fixes** (on top of the Step 1 entry below).
+  - **A curve with equal ends no longer crashes any renderer.** The library keeps one node of a
+    one-entry list, or of a two-entry list with equal values, and a non-stepped one-node list throws
+    on its first update (`Cannot read properties of null (reading 'time')`). In the game the
+    `ParticleEmitter` tick has no try/catch, so the Pixi ticker stopped for good. Colour start ==
+    end and the stock `moveSpeed` with equal ends (2026-10-13, "Found, not fixed") hit it today; a
+    parameter default equal to a curve's other end saved one too.
+    - The single-point → stepped guard is now ONE `engine-fx` helper, `stepCollapsedValueLists`. It
+      runs on the CLONED config wherever a renderer binds one: `bindArt` (runtime sprite path and
+      all three launcher stages), the Tier-C `bindRigParticle` in `<ParticleEmitter>`, `FxStage`'s
+      `bindRigParticleConfig`, and the applier's rebuild of a behaviour.
+    - The stored doc is never altered.
+    - The applier's working copies come from the layer's own config, not the stepped bound copy, so
+      a value that opens the curve again interpolates instead of sticking as a step.
+  - **A driven `emitterLifetime` now sets the burst length.** `init` → `emit` latched the config's
+    lifetime into the emission countdown before the drive wrote it. New `bindEffectParams` (the
+    applier + its first values) restarts the countdown when a drive changed it. All four renderers
+    bind through it, and `FxStage` sets `emit` after binding on its placeholder and rig-particle
+    paths too.
+  - **⚡ New parameter… on a value outside the row's range** (Offset X 640 on a −500..500 row)
+    widens the parameter's range instead of clamping the default. Mapped leaves are extended along
+    the same line, so exposing never changes the look.
+  - **The page always equals what Save stores.**
+    - Every `doc =` on `/fx` goes through one `setDoc` that re-applies the defaults.
+    - Deleting a layer drops the drives that name it; a parameter left with none stays. A drive on a
+      removed behaviour stays (⚠), so switching the section back on restores it.
+    - A new, pasted, duplicated or renamed layer never takes a key an orphan drive still names
+      (`nextLayerKey`, `uniqueLayerKey`, `layerKeyTaken`).
+  - **Inspector cost.** A row's "is it driven" check no longer runs the row's setter and lists the
+    leaves on every render. What a row writes is cached by row key and recomputed only when the
+    layer's set of leaves changes, and the full exposure is built only when ⚡ is clicked. Measured
+    in Node on the Smoke preset: 70 rows per render, 13.6 ms → 0.05 ms.
+  - **Nits.**
+    - `pos.x / pos.y` are written in the space `init` uses (config space turned by the emitter's
+      `rotation`), and apply / restore at the defaults write nothing. Before, the mount-time
+      `restore()` moved a rotated emitter's spawn point.
+    - `<ParticleEmitter>` skips its params effect's first run, so the mount binds once.
+    - The applier keeps plain arrays (no `Map` iteration per frame), and `EditorEffectLayer`
+      iterates its nodes as before when nothing supplies values.
+    - Two drives on one value are flagged (`param-target-duplicate`) in the panel, amber.
+    - `RIG_PARTICLE_BEHAVIOR_TYPE` is defined once in `engine-fx`; `pixi-svelte`'s
+      `rigParticleBehavior` imports it.
+    - `renameParamTo` no longer shadows its argument.
+    - `rigger-fx.js` rebuilt.
+  - **Verified.** `pnpm check:fx-params` grows the cases below, each mutation-checked: it goes red
+    with the `bindArt` guard removed, the re-latch removed, `pos` ignoring rotation, the working copy
+    taken from the stepped bound copy, and the range widening removed.
+    - Collapsed alpha, colour and `moveSpeed` lists plus a one-point scale render on the real
+      `Emitter` through `bindArt`, with the stored config byte-identical.
+    - The burst lasts the driven 3 s, including when emission starts later.
+    - The out-of-range expose leaves the saved config byte-identical, for an as-is and a mapped leaf.
+    - The layer-delete and key-reservation model.
+    - The rotated `spawnPos` is left alone at the defaults and matches `init` + `rotate` when driven.
+    - Shared targets are flagged.
+  - **NOT browser-verified** (auth + Postgres + R2 gated).
+- 2026-10-15 — **Exposed parameters, Step 1: any value of an effect can be a named parameter
+  that moves the effect live with no reset.** Owner ask (2026-10-15): expose parameters of an
+  effect and drive them from outside; any parameter, not a fixed list. Plan:
+  [design §"Direction (2026-10-15)"](../design/invisible-fx.md).
+  - **Schema.** `EffectDoc.params?: EffectParam[]` — `{ id, kind: number | color | bool, default,
+    min?, max?, note?, drives }`, each drive `{ id, layer?, path, from?, to? }`. Paths:
+    `emitter.<field>`, `behavior:<type>[#n].<dot.path>`, `placement.offset.x|y`, `effect.alpha |
+    scale | tint | timeScale`. The art behaviours and Tier C's `spineParticle` are refused.
+  - **One module: `packages/engine-fx/src/params.ts`** (exported from the package, PixiJS-free):
+    the parser, the mapping (number → number linear + clamped; number → colour RGB lerp; bool picks
+    from / to; colour writes itself), `applyEffectParamDefaults`, validation, the leaf listing, and
+    the live applier. `normalizeEffectDoc` keeps `params` fail-closed (a malformed parameter or
+    drive is dropped; one whose layer or behaviour is gone is KEPT, reported by validation and
+    inert) and writes every drive's default into the configs, idempotently. An effect without
+    `params` is byte-identical: same object, same JSON, no new key.
+  - **How a value applies.** `Emitter.init` kills every live particle, so the applier never calls
+    it: it rebuilds only the driven behaviour from a copy of the BOUND config (art kept) with the
+    old instance's own constructor and swaps it into the same slot of `initBehaviors` /
+    `updateBehaviors` / `recycleBehaviors` — at most once per behaviour per frame, only on a
+    change. Emitter fields are set with `init`'s own coercion (`spawnPos` through
+    `updateSpawnPos`). No values, or values equal to the defaults, do nothing. Two library traps
+    surfaced and are handled: a rebuilt behaviour whose value list collapses to one point (a curve
+    end dragged onto the other's value) is built STEPPED, because the library throws on such a list
+    (now one helper for every renderer — see the review-fixes entry); and `fxForces` now resolves its movement coupling on update as
+    well as on init, so a strength swapped in mid-flight keeps folding into
+    `moveAcceleration` / `moveSpeedStatic`'s velocity.
+  - **Four renderers, one applier.** `<EffectPlayer params>` takes a getter read on the Pixi
+    ticker (not a reactive prop) → `<EffectLayer>` → `<ParticleEmitter fxParams timeScale>`; a new
+    `EffectParamGroup.svelte` wrapper is mounted only when the doc has an `effect.*` drive. `/fx`'s
+    `FxStage`, the Scene Editor's `EditorEffectLayer` (`effectParamValues` prop) and the
+    Rigger/Symbols `fxOverlay` (`FxPlayOptions.params`) use the same applier; the latter two apply
+    the `effect.*` defaults (no stored leaf) and get live values from Steps 2–4. `rigger-fx.js`
+    rebuilt. `effect.scale` sizes free layers only: `<RigBoneAttach>` divides its parent's scale
+    out, so a bone layer keeps its bone's size (alpha and tint reach every layer).
+  - **`/fx` UI.** ⚡ on every inspector row (sliders, number boxes, colour fields, the force
+    On and rotate-to-travel switches): **New parameter…** or **Drive with** an existing one. The
+    leaves are found by running the row's own setter on a scratch copy and diffing — so a row that
+    writes two leaves (direction ± spread, a rectangle's width) exposes both, a non-linear side
+    effect (Lifetime min dragging max) is dropped, a clamped row is exposed through its own leaf,
+    and a row whose behaviour exists only off its default (spin at 0) says to move it first. An
+    **All parameters** tree lists every scalar leaf of the layer. The **Exposed parameters** panel
+    (Layers column) edits id, kind, range, default and note (saved), lists each drive with an
+    editable from → to, ✕ and a ⚠ when it no longer resolves, and has a **Preview** slider (not
+    saved) that moves the stage live. A driven row shows ⚡ with the parameter's name; an as-is
+    drive keeps it editable (it edits the default), a mapped one makes it read-only. Every change
+    the page makes to the doc goes through one setter that re-applies the defaults (see the
+    review-fixes entry above), so what the page shows is what Save stores. A layer rename follows
+    into the drives. Save / lease / unsaved-guard paths are unchanged.
+  - **Verified.** New gate `pnpm check:fx-params` (`tools/fx-spike/exposedParams.ts`, discovered by
+    `check:all`): the parser (good / bad paths, `#n`, the excluded behaviours), the mapping,
+    defaults-in-config + normalize idempotence + no-params byte identity, the expose model on real
+    inspector setters, and the real `Emitter` — the same live particle objects survive, the count
+    does not drop, live and new particles show the new alpha / scale / colour / force, the three
+    behaviour arrays keep their order and length, one rebuild per behaviour per call, every emitter
+    field equals what `init` makes of the same value, `restore()`, the collapsed-list guard, and the
+    save → export → bake round-trip carrying `params` verbatim. Mutation-checked: dropping the
+    `updateBehaviors` swap, reverting the `fxForces` fix or removing the list guard each turns it
+    red. The 16 other fx-spike gates, `check:rig-fx-overrides`, `check:rig-flipbook-overrides`,
+    `check:doc-readers-unknown-fields` (now covering a parameter and a drive), `engine-fx`
+    typecheck + lint, `check:vendored-bundles`, and `check:svelte` for `apps/launcher-api` (47) and
+    `packages/pixi-svelte` (14) at their baselines are green; `launcher-api` and `apps/lines` build.
+  - **Fixed alongside:** Particle → Kind's **Rig clip** option carried `value="rig"`, but the
+    model's kind is `'spine'`, so choosing it set `particleKind: 'rig'` — the rig picker never
+    showed and Save normalized the layer back to a sprite. It now carries `'spine'`.
+  - **Found, then fixed on `main`:** the Scene Editor overlay drew a free layer at the node origin
+    and never applied its authored `placement.offset`. #1221 (the entry below) put each free layer
+    in a container at its offset; merging it here made an offset drive in the Scene Editor move
+    that container to the driven offset, as it does in the game and `/fx`.
+  - **NOT browser-verified** — `/fx` is auth + Postgres + R2 gated (open item above). **Engine
+    change** (`engine-fx`, `pixi-svelte`): it reaches shipped games only through a runtime-bundle
+    republish.
+- 2026-10-15 — **An FX previews under the art that follows it in the outline.** Owner-approved
+  follow-up to the restack entry below. The Scene and Component Editors stack one surface per
+  kind for each screen (2D, then rigs, then text, then FX), so every FX drew over every sprite,
+  rig and text on its screen; the game draws them in outline order. `EditorCanvas.svelte` now
+  splits a screen into **depth segments** (`depthSegments` in `editorCanvas.helpers.ts`): a new
+  segment starts at the first node with other art after an FX, and each segment gets its own
+  2D / rig / text / FX surfaces, so later art draws over the FX. A screen with no FX ahead of
+  other art stays one segment with the same surfaces and report keys as before. The cost is WebGL
+  contexts: each later segment adds a rig, text or FX layer only when it holds that kind. Report
+  buffers are keyed per segment (`<sceneId>#seg<i>`) and dropped when a reorder merges a segment
+  away (`forgetReportKey`). A full-screen dim is drawn by one segment's rig layer only (the one
+  holding the dim anchor, else the first with a rig), so it never doubles. `EditorTextLayer` gained the `nodeFilter` the rig and FX layers already had.
+  Inside one segment the fixed 2D → rig → text → FX order still applies, and a node's own `zIndex`
+  is still not read by the editor. Gate: `check:depth-segments` (mutation-verified: never
+  splitting, and ignoring a bound anchor, each fail it). Verified: svelte-check at baseline (47),
+  eslint, Prettier, `check:undefined-names`, launcher build, and the real `EditorCanvas` mounted in
+  headless Chromium. With `[bg, FX, frame]` the stack is now 2D(bg) → FX → 2D(frame), where before
+  it was one 2D canvas (bg and frame) under the FX. Reordering the FX to the end merges it back to
+  one segment with no errors. Particles were not drawn in that harness (no effect server), so the
+  pixels on a real effect are owed a look.
+- 2026-10-15 — **Placed FX restack when the outline order changes.** Owner report: in the
+  Component Editor the FX ignored their order. `EditorEffectLayer.svelte` (the Scene and
+  Component Editors' live particle overlay) only added a node's container when it was built, and
+  a rebuild only repositioned kept nodes. So reordering FX in the outline, hiding and showing
+  one, or swapping its effect left them stacked in the order they were built. Each rebuild now
+  re-appends the containers in tree order, as `FxStage` already does for layers. This fixes the
+  order among FX only; FX against other art is the entry above. Verified: the restack loop against
+  `pixi.js` 8.22.0 (`addChild` moves a kept child to the top, so a reorder and an insert both
+  land in outline order). Not driven in a browser.
 - 2026-10-15 — **The Scene Editor previews a free layer at its offset.** `/editor`'s live particle
   overlay (`EditorEffectLayer.svelte`) built every emitter at the node origin and never read
   `placement.offset`, while the game's `<EffectLayer>` mounts a free layer in a container at that
@@ -161,7 +637,8 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   - **Found, not fixed (library):** a stock `moveSpeed` whose start and end values are EQUAL throws
     inside `@barvynkoa/particle-emitter` (`PropertyList.intValueComplex`: `next` is null) on the
     first update. Typing the same Speed start and end in the inspector can therefore hit it. It was
-    reproduced headlessly and is untouched here.
+    reproduced headlessly and is untouched here. *(Fixed 2026-10-15 for every renderer — see the
+    "Exposed parameters: review fixes" entry.)*
   - **Verified.**
     - New gate `pnpm check:fx-forces` (`tools/fx-spike/forces.ts`, 59 assertions, run in CI by
       `check:all` in the Checks workflow like the other fx-spike harnesses). It covers: the clamp; absent forces = no change;

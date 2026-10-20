@@ -5,6 +5,76 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-10-20 — **The graph editor drew y and scaleY with x's tangents.**
+  - **Symptom.** In the Graph view, a bone's y curve with flat tangent handles on a middle key drew as
+    a sharp V through that key, its handles visibly not touching the line. Playback and the saved rig
+    were right; only the drawn line was wrong.
+  - **Cause.** A two-value key's `curve` holds four numbers per value index (x at 0–3, y at 4–7), and
+    `sampleChannel(keys, t, fields)` reads a field's numbers at `fields.indexOf(field) * 4`. Posing
+    passes `["x", "y"]`, so it reads both halves correctly. `renderGraphBody` passed `[c.field]`, so y
+    took index 0 and was drawn from x's control times AND values (x's 25 / 5 standing in for y's
+    25 / −380). The handle drawing and handle drag already used `vi * 4`, so the handles were right
+    and the line was not. The sampling line predates 2026-09-22, so no recent change caused
+    it. It shows only once x and y are eased
+    differently.
+  - **Fix.** `graphValueAt(c, t)` gives `sampleChannel` the channel's whole field list (`["value"]`
+    for rotate, `["x", "y"]` otherwise) and picks the graphed field. No other caller samples a subset
+    of a multi-value channel.
+  - **Verified.** `tools/rigger-spike/graphcurve.mjs` pulls `GRAPH_CHANS`, `graphValueAt`,
+    `sampleChannel` and `bezierValue` out of `view.html` and compares every graphed curve with the
+    bone values `engine-rig` plays (41 samples, tolerance 2% of the keys' span, for the runtime's
+    10-piece bezier). The fixture is the reported case: a deep y dip with flat handles beside a
+    shallow x dip, plus scale keys eased differently per axis. Worst Δ with the fix: y 3.1 of 8.1
+    allowed. With the old sampling: y off by 223, scaleY by 0.13, so it fails. The spike also checks
+    that its own fixture would still catch the old bug.
+
+- 2026-10-16 — **A header with no `hash` / `spine` read differently from the reference.**
+  - **Symptom.** `node tools/rig-parity/parity.mjs`: 2 failures out of 80,567 checks, both in the
+    header comparison, on `static/rigs/physics-swing.json` and `two-pages.json`. In the gate's
+    header JSON the reference had no `hash` or `version` (they are `undefined`, and
+    `JSON.stringify` drops them), while `engine-rig` had both as `null`.
+  - **Cause.** The reference's `SkeletonJson` assigns `skeletonMap.hash` and `skeletonMap.spine`
+    as written, which overwrites `SkeletonData`'s `null` defaults with `undefined` when the header
+    lacks them. `engine-rig` used `?? null`. Every rig exported by the desktop editor carries both
+    fields, so the gate first hit the difference when #1107 added hand-written demo rigs. Nothing
+    noticed because no CI job runs the gate. The difference reaches real rigs too: a blank Rigger
+    rig is seeded with `spine: '4.2'` and no `hash` (`riggerNewRig.ts`), so its `hash` is now
+    `undefined` rather than `null`, which is harmless because nothing reads it.
+  - **Why the runtime changed, not the gate.** The gate's job is to hold `engine-rig` to the
+    reference as a black box. The x/y/width/height/fps beside these two fields are already copied
+    as written for the same reason. Nothing reads the difference: the only reader of
+    `SkeletonData.version` is `tools/rigger-spike/inspectModel.mjs` (`version || null`), nothing
+    reads `SkeletonData.hash`, and the save path reads the raw JSON header. Both fields are now
+    typed `string | null | undefined` to say so. The binary reader is unchanged (the reference
+    returns `null` there as well).
+  - **Verified.** `parity.mjs`: 155 skeletons, 80,582 checks, 0 failures. On the reference's
+    examples (`--dir` from `fetch-examples.mjs`): 40 skeletons, 0 failures. `fuzz.mjs`: 400
+    seeds, 0 failures. `pnpm check:all --only rig`: 89/89. `check:vendored-bundles` is green after
+    rebuilding `invisible-rig.js`.
+- 2026-10-15 — **The two FX bands could swap or both sink under the rig.**
+  - **Report.** _"The order of my FX layer is not taken into consideration in the rigger anymore,
+    and the FX always render at the bottom… in the games it looks correct."_ The game was right
+    (`<RiggedEffect>` uses the real slot depth). Only the Rigger's two-band preview was wrong.
+  - **Cause.** Both overlays mounted straight into `#stage`, and `ensureFxOverlay` found its canvas
+    afterwards as "the canvas that was not there before init". `updateFxPreview` creates every
+    band a clip needs in one pass, so on a clip with cues on both sides the two `before` snapshots
+    were both taken before either canvas existed. The second lookup then took the first band's
+    canvas (first in DOM order). One canvas got the wrong z-index and the other got none. A
+    positioned canvas with `z-index: auto` paints below `#cv`'s `z-index: 1`, so it ended up under
+    the rig. If the front cue came first in the clip, both canvases ended up under the rig. If the
+    back cue came first, the two bands swapped. Bands created one at a time (picking cues in the
+    inspector) were fine, which is why it showed up when a rig was reopened and played.
+  - **Fix.** Each band mounts into its own `div.fxBand` (`position:absolute; inset:0;
+    pointer-events:none`), which carries the band's z-index. The overlay's canvas is a child of that
+    host, so it no longer has to be found by searching.
+  - **Verified** in headless Chromium against the committed `rigger-fx.js`, with the band code
+    pulled verbatim from `view.html`. Each overlay's own canvas was painted a solid colour and the
+    composited pixels were sampled over opaque rig art and over transparent stage. Before the fix:
+    front→back left both bands under the rig, and back→front put the back band in front with the
+    front band underneath. After the fix, all orders (both concurrent, sequential, front-only,
+    back-only) show front above the art and back hidden by it but visible where the rig is
+    transparent. Clicks still reach `#cv`. Not yet eyeballed on a live rig.
+
 - 2026-10-01 — **Rig undo / redo** (was open item 1).
   - **Model.** Snapshots, not commands, as in cinematic.js and Flow's `undoHistory.ts`: each entry
     is `rawDoc` as JSON text plus the selection (bone, slot, constraint), the skin on stage and the

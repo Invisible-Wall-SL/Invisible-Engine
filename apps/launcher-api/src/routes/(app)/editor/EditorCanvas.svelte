@@ -23,6 +23,7 @@
 		instancePreviewRigBundle,
 		isCoverFitKind,
 		isHudScene,
+		tapOverlayDim,
 		MAX_COMPONENT_DEPTH,
 		parseScopedFrameRef,
 		aspectBox,
@@ -30,6 +31,7 @@
 		POT_PREVIEW_FILL_SHARE,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
+		forwardInstanceParams,
 		resolveComponentParams,
 		resolveLayoutInstanceParams,
 		anchoredPosition,
@@ -38,6 +40,8 @@
 		type BlendMode,
 		type ComponentDef,
 		type ComponentInstanceNode,
+		type EffectDoc,
+		type EffectNode,
 		type LayoutNode,
 		type LayoutType,
 		type OverlayPlacement,
@@ -47,9 +51,16 @@
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
-	import { onMount, type Snippet } from 'svelte';
+	import type { EffectParamValues } from 'engine-fx';
+	import { onDestroy, onMount, type Snippet } from 'svelte';
 	import {
 		childLocalTransform,
+		depthSegments,
+		inDepthSlice,
+		mergeSpreadBoxes,
+		type DepthSegment,
+		type DepthSlice,
+		type SpreadBox,
 		nodeBox,
 		nodeCornersWorld,
 		repeaterPlaceholderGrid,
@@ -89,12 +100,28 @@
 		loadArtBounds,
 	} from './editorArtBounds.client.svelte';
 	import {
+		onionPreview,
+		onionResolveTransform,
 		previewBindings,
+		previewEffectParamValues,
 		previewOutputs,
 		previewResolveTransform,
 		previewTint,
 		previewVersion,
+		isViewHidden,
 	} from './valuePreview.client.svelte';
+	import type { StageTransformDelta } from '$lib/timeline/screenTimeline';
+	import { setAnimateDragging } from './animateKeying.client.svelte';
+	import { dialogQueue } from '$lib/dialogs.svelte';
+	import { firstChildIdOf, lockedInTree, parentIdOf } from '$lib/editor/hierarchy';
+	import {
+		isTypingTarget,
+		ownsFocusKeys,
+		SHORTCUT_SHEET,
+		stageShortcut,
+		ZOOM_STEP,
+		type StageAction,
+	} from '$lib/editor/stageShortcuts';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import { deepHit } from '$lib/timeline/listenerPreview';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
@@ -297,10 +324,14 @@
 		 * wrap instead) and both sit above the canvas art. The Scene Editor passes its
 		 * `<CanvasModeBar inline>`; omit for a bare canvas. */
 		modeBar?: Snippet;
-		/** Animate mode (Rive plan Phase 3): the canvas SELECTS but never edits — no drag, handle,
-		 * drop, delete or item toolbar, because geometry edits there would change the authored
-		 * pose under the timeline. Keys are set in the Timeline panel. Absent ⇒ Design mode. */
+		/** Animate mode (Rive plan Phase 3): the canvas never edits the authored pose — no drop,
+		 * delete or item toolbar, and a drag only keys (`onAnimateTransform`). Absent ⇒ Design. */
 		animate?: boolean;
+		/** Animate (Rive plan Phase 9b): a drag, scale or rotate on the stage keys the timeline. The
+		 *  gesture runs on the Design pose as in Design, then the pose is put back and what changed is
+		 *  handed here (per node: design px moved, the scale ratio, degrees turned). Absent ⇒ the
+		 *  Animate stage is select-only. */
+		onAnimateTransform?: (deltas: StageTransformDelta[]) => void;
 		/** Double-click on a placed component instance: edit its def in place (Rive plan Phase 4).
 		 * Absent ⇒ a double-click does nothing beyond the two clicks. */
 		onEditInstance?: (node: ComponentInstanceNode) => void;
@@ -319,6 +350,10 @@
 		/** Edit screen `sceneId` with `nodeId` selected: the page makes it the edited screen. Absent
 		 *  (the Components side, Animate) ⇒ no "Any screen" toggle; clicks stay on the edited screen. */
 		onPickInScene?: (sceneId: string, nodeId: string) => void;
+		/** `Tab` (Rive plan Phase 9a): flip Design / Animate. Absent ⇒ `Tab` keeps its native focus move. */
+		onToggleMode?: () => void;
+		/** `X`: scroll the Outline to the selected node, expanding its containers. */
+		onRevealSelection?: (id: string) => void;
 	}
 
 	let {
@@ -359,11 +394,14 @@
 		onRedo,
 		modeBar,
 		animate = false,
+		onAnimateTransform,
 		onEditInstance,
 		onStagePointer,
 		onShowInFlow,
 		pickAnyScreen = $bindable(false),
 		onPickInScene,
+		onToggleMode,
+		onRevealSelection,
 	}: Props = $props();
 
 	/** Clicks reach every drawn screen (see {@link pickAnyScreen}). */
@@ -1025,6 +1063,9 @@
 				resizeAxis?: 'x' | 'y';
 				startWorld: Vec2;
 				startScale: Vec2;
+				/** The scale the node DRAWS at — {@link startScale} in Design, the animated scale in an
+				 *  Animate drag, so the handle tracks the art the author grabbed. */
+				startDrawScale: Vec2;
 				startBox: NodeBox;
 				startTx: number;
 				startTy: number;
@@ -1067,15 +1108,23 @@
 	 * ABOVE every art/rig/FX layer — so the screen bounds stay visible once stacked art buries
 	 * the base-canvas guides (which sit at the bottom of the z-stack). Off by default. */
 	let showScreenBorder = $state(false);
+	/** What the live particle overlay applies to a placed effect's exposed parameters: the binding
+	 * test values and the previewed timeline, through the game's fold (Invisible FX Step 2). */
+	const effectPreviewValues = (
+		node: EffectNode,
+		doc: EffectDoc,
+		params: Readonly<Record<string, unknown>>,
+	): EffectParamValues | undefined => previewEffectParamValues(node, doc.params, params);
 	/** Effect NODE ids the live particle overlay (`EditorEffectLayer`) now renders — the 2D canvas
 	 * skips their placeholder chip so only the live emitters show. UNION across the per-scene effect
 	 * sublayers (each reports only its own scene's node ids). */
 	let liveEffectIds = $state<Set<string>>(new Set());
 	/** Measured particle SPREAD per effect NODE id (running-MAX rect in node-local / scene-world
 	 * units — `x`/`y` are the top-left offset from the node origin), reported by the live overlay so
-	 * the selection box + hit-test fit the real particles instead of the fixed placeholder. MERGED
-	 * across the per-scene effect sublayers. */
-	let effectBounds = $state<Map<string, { x: number; y: number; w: number; h: number }>>(new Map());
+	 * the selection box + hit-test fit the real particles instead of the fixed placeholder. UNION
+	 * across the per-scene effect sublayers (`mergeSpreadBoxes`), so a part placed in several gets
+	 * one box enclosing every placement. */
+	let effectBounds = $state<Map<string, SpreadBox>>(new Map());
 
 	// Per-scene report buffers: each sublayer is filtered to one scene, so the 2D
 	// canvas folds their reports together (union of ready keys/ids + merged natural
@@ -1086,10 +1135,7 @@
 	const textReadyByScene = new Map<string, Set<string>>();
 	const textMeasuredByScene = new Map<string, Map<string, { w: number; h: number }>>();
 	const effectReadyByScene = new Map<string, Set<string>>();
-	const effectBoundsByScene = new Map<
-		string,
-		Map<string, { x: number; y: number; w: number; h: number }>
-	>();
+	const effectBoundsByScene = new Map<string, Map<string, SpreadBox>>();
 	const rigLoadByScene = new Map<string, { started: number; settled: number }>();
 	const fontLoadByScene = new Map<string, { started: number; settled: number }>();
 
@@ -1129,14 +1175,9 @@
 		for (const set of effectReadyByScene.values()) for (const id of set) union.add(id);
 		liveEffectIds = union;
 	}
-	function mergeEffectBounds(
-		sceneId: string,
-		bounds: Map<string, { x: number; y: number; w: number; h: number }>,
-	): void {
+	function mergeEffectBounds(sceneId: string, bounds: Map<string, SpreadBox>): void {
 		effectBoundsByScene.set(sceneId, bounds);
-		const merged = new Map<string, { x: number; y: number; w: number; h: number }>();
-		for (const m of effectBoundsByScene.values()) for (const [k, v] of m) merged.set(k, v);
-		effectBounds = merged;
+		effectBounds = mergeSpreadBoxes(effectBoundsByScene.values());
 	}
 	function mergeRigLoading(sceneId: string, c: { started: number; settled: number }): void {
 		rigLoadByScene.set(sceneId, c);
@@ -1164,31 +1205,40 @@
 	/** Drop a scene's report buffers (when its group unmounts — hidden/removed) and
 	 * recompute the merged unions/sums so stale ready keys + load tallies don't linger. */
 	function forgetScene(id: string): void {
-		rigReadyByScene.delete(id);
-		rigNaturalByScene.delete(id);
-		rigMetaByScene.delete(id);
-		textReadyByScene.delete(id);
-		textMeasuredByScene.delete(id);
-		effectReadyByScene.delete(id);
-		effectBoundsByScene.delete(id);
-		rigLoadByScene.delete(id);
-		fontLoadByScene.delete(id);
 		sceneFilters.delete(id);
-		delete blendRunCache[id];
-		delete blendOverlayCache[id];
-		delete normalOverlayCache[id];
-		// The scene's blend overlays report under synthetic `<sceneId>#blend:<mode>` keys — purge
-		// them too, else a removed scene's rigs stay "ready" forever and keep their placeholders off.
-		const blendPrefix = `${id}#blend:`;
+		forgetReportKey(id);
+	}
+
+	/**
+	 * Drop every report buffer and run cache filed under `key` or a key built on it, then recompute
+	 * the merged unions/sums. A scene's surfaces report under its id, its later depth segments under
+	 * `<sceneId>#seg<i>` and its blended overlays under `<key>#blend:<mode>`, so the `#` prefix
+	 * reaches all of them. A leftover buffer would keep a removed rig "ready" and its placeholder off.
+	 */
+	function forgetReportKey(key: string): void {
+		const prefix = `${key}#`;
+		const owned = (k: string): boolean => k === key || k.startsWith(prefix);
 		for (const map of [
 			rigReadyByScene,
 			rigNaturalByScene,
 			rigMetaByScene,
+			textReadyByScene,
+			textMeasuredByScene,
 			effectReadyByScene,
 			effectBoundsByScene,
 			rigLoadByScene,
+			fontLoadByScene,
 		] as Map<string, unknown>[]) {
-			for (const key of [...map.keys()]) if (key.startsWith(blendPrefix)) map.delete(key);
+			for (const k of [...map.keys()]) if (owned(k)) map.delete(k);
+		}
+		for (const cache of [
+			blendRunCache,
+			blendOverlayCache,
+			normalOverlayCache,
+			textOverlayCache,
+			depthSliceCache,
+		] as Record<string, unknown>[]) {
+			for (const k of Object.keys(cache)) if (owned(k)) delete cache[k];
 		}
 		const meta = new Map<string, RigMeta>();
 		for (const m of rigMetaByScene.values()) for (const [k, v] of m) meta.set(k, v);
@@ -1208,9 +1258,7 @@
 		const effIds = new Set<string>();
 		for (const set of effectReadyByScene.values()) for (const eid of set) effIds.add(eid);
 		liveEffectIds = effIds;
-		const effBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
-		for (const m of effectBoundsByScene.values()) for (const [k, v] of m) effBounds.set(k, v);
-		effectBounds = effBounds;
+		effectBounds = mergeSpreadBoxes(effectBoundsByScene.values());
 		let ss = 0;
 		let sd = 0;
 		for (const v of rigLoadByScene.values()) {
@@ -1231,7 +1279,8 @@
 
 	/** Svelte action: register one {@link BlendRun}'s 2D canvas + size/draw it once it mounts.
 	 * The scene's per-scene buffers are only forgotten when its LAST run canvas goes — a scene
-	 * that merely re-splits its runs (an author flips one node to `add`) must keep them. */
+	 * that merely re-splits its runs (an author flips one node to `add`) must keep them. A later
+	 * depth segment's buffers go with its own last canvas, when a reorder merges it away. */
 	function registerSceneCanvasAction(el: HTMLCanvasElement, run: BlendRun) {
 		registerSceneCanvas(run.key, el);
 		resizeCanvas();
@@ -1239,9 +1288,11 @@
 		return {
 			destroy() {
 				registerSceneCanvas(run.key, null);
-				const prefix = `${run.sceneId}#`;
-				for (const key of sceneCanvases.keys()) if (key.startsWith(prefix)) return;
-				forgetScene(run.sceneId);
+				const mounted = (prefix: string): boolean =>
+					[...sceneCanvases.keys()].some((key) => key.startsWith(prefix));
+				if (!mounted(`${run.sceneId}#`)) forgetScene(run.sceneId);
+				else if (run.segKey !== run.sceneId && !mounted(`${run.segKey}#`))
+					forgetReportKey(run.segKey);
 			},
 		};
 	}
@@ -1843,7 +1894,9 @@
 	}
 
 	function visibleSceneNodes(sceneCtx: Scene = scene): LayoutNode[] {
-		return sceneCtx.nodes.filter((n) => resolveTransform(n, layoutType).visible);
+		return sceneCtx.nodes.filter(
+			(n) => !isViewHidden(n.id) && resolveTransform(n, layoutType).visible,
+		);
 	}
 
 	/** Every screen the canvas draws, TOP first: the HUD screens (on the top-most `hudCanvas`) over
@@ -1871,9 +1924,9 @@
 
 	/** Does a scene carry a rig render target (a real rig node, a `bind` anchor whose
 	 * resolved preview art is a rig, or a reel BOARD whose symbols bind rig art)? Only
-	 * such scenes mount a (WebGL) rig sublayer in their group, so contexts stay bounded. */
-	function sceneHasRig(s: Scene): boolean {
-		return nodesHaveRig(s.nodes, 0, [], undefined);
+	 * such scenes mount a rig sublayer in their group, so no group draws an empty one. */
+	function sceneHasRig(s: { nodes: LayoutNode[] }): boolean {
+		return nodesHaveRig(s.nodes, 0, [], undefined, componentParams);
 	}
 	/** Any symbol whose STATIC binding is a rig — the reel board then needs the WebGL
 	 * layer to draw its cells (the 2D canvas can only marker them). */
@@ -1890,6 +1943,9 @@
 		 * placeholder — even though the renderer WOULD have drawn it. Mirrors the renderer so the
 		 * layer mounts exactly when there is real rig work. */
 		instanceRigBundle: string | undefined,
+		/** The enclosing instance's resolved params (the open component's for a top-level node), the
+		 * ones a nested instance's forwarded params read — as `drawComponentInstance` resolves them. */
+		outerParams: Record<string, unknown>,
 	): boolean {
 		for (const n of nodes) {
 			if (n.kind === 'spine') return true;
@@ -1897,18 +1953,22 @@
 			if (n.kind === 'reelGrid' && hasRigSymbol) return true;
 			const art = anchorArt(n, instanceRigBundle);
 			if (art?.kind === 'spine' && art.assetKey) return true;
-			if (n.kind === 'container' && nodesHaveRig(n.children, depth, stack, instanceRigBundle))
+			if (
+				n.kind === 'container' &&
+				nodesHaveRig(n.children, depth, stack, instanceRigBundle, outerParams)
+			)
 				return true;
 			if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				const params = resolveComponentParams(
 					def,
-					resolveLayoutInstanceParams(n, layoutType),
+					forwardInstanceParams(n, resolveLayoutInstanceParams(n, layoutType), outerParams),
 					componentDefaults[def.id],
 				);
 				const rigBundle = instancePreviewRigBundle(def, params);
-				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle)) return true;
+				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle, params))
+					return true;
 			}
 		}
 		return false;
@@ -1919,7 +1979,7 @@
 	 * instances, which the overlay now also owns? Only such scenes mount the pixi text
 	 * sublayer. Walks the same tree (+ `componentInstance` expansion) as the overlay's
 	 * `collectTextTargets`, so the layer mounts exactly when the overlay has work. */
-	function sceneHasText(s: Scene): boolean {
+	function sceneHasText(s: { nodes: LayoutNode[] }): boolean {
 		return nodesHaveText(s.nodes, 0, []);
 	}
 	function nodesHaveText(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
@@ -1944,9 +2004,9 @@
 	}
 
 	/** Does a scene carry a placed `kind:'effect'` node ANYWHERE in its tree (incl. nested in a
-	 * container / component instance)? Only such scenes mount the (WebGL) effect sublayer, so Pixi
-	 * contexts stay bounded — mirroring `sceneHasRig`. */
-	function sceneHasEffect(s: Scene): boolean {
+	 * container / component instance)? Only such scenes mount the effect sublayer — mirroring
+	 * `sceneHasRig`. */
+	function sceneHasEffect(s: { nodes: LayoutNode[] }): boolean {
 		return nodesHaveEffect(s.nodes, 0, []);
 	}
 	function nodesHaveEffect(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
@@ -2070,9 +2130,11 @@
 	 * — the single canvas the editor has always had (parity, no extra surfaces).
 	 */
 	interface BlendRun {
-		/** `<sceneId>#<runIndex>` — the canvas-registry key and the `{#each}` key. */
+		/** `<segmentKey>#<runIndex>` — the canvas-registry key and the `{#each}` key. */
 		key: string;
 		sceneId: string;
+		/** The {@link DepthSegment} the run belongs to (the scene id for the first one). */
+		segKey: string;
 		mode: BlendMode;
 		/** CSS `mix-blend-mode` for the run's canvas element. */
 		css: string;
@@ -2091,34 +2153,33 @@
 		return resolveTransform(n, layoutType).blendMode ?? 'normal';
 	}
 
-	/** Memoized runs per scene — the Sets are handed to the WebGL overlays as props, so a fresh
-	 * reference on every re-render would rebuild their skeletons/emitters each frame. Recomputed
-	 * only when the scene's id→mode sequence (or the layoutType) actually changes. */
+	/** Memoized runs per depth segment — the Sets are handed to the WebGL overlays as props, so a
+	 * fresh reference on every re-render would rebuild their skeletons/emitters each frame.
+	 * Recomputed only when the segment's id→mode sequence (or the layoutType) actually changes. */
 	const blendRunCache: Record<string, { sig: string; runs: BlendRun[] } | undefined> = {};
-	function blendRuns(s: Scene): BlendRun[] {
-		const modes = s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`);
+	function blendRuns(seg: DepthSegment): BlendRun[] {
+		const modes = seg.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`);
 		const sig = `${layoutType}|${modes.join(',')}`;
-		const hit = blendRunCache[s.id];
+		const hit = blendRunCache[seg.key];
 		if (hit && hit.sig === sig) return hit.runs;
 		const runs: BlendRun[] = [];
-		for (const n of s.nodes) {
+		const run = (mode: BlendMode, ids: Set<string>): BlendRun => ({
+			key: `${seg.key}#${runs.length}`,
+			sceneId: seg.sceneId,
+			segKey: seg.key,
+			mode,
+			css: cssBlendMode(mode),
+			ids,
+		});
+		for (const n of seg.nodes) {
 			const mode = nodeBlendMode(n);
 			const last = runs[runs.length - 1];
 			if (last && last.mode === mode) last.ids.add(n.id);
-			else
-				runs.push({
-					key: `${s.id}#${runs.length}`,
-					sceneId: s.id,
-					mode,
-					css: cssBlendMode(mode),
-					ids: new Set([n.id]),
-				});
+			else runs.push(run(mode, new Set([n.id])));
 		}
 		// An empty scene still needs its canvas — the group's other sublayers stack on it.
-		if (runs.length === 0) {
-			runs.push({ key: `${s.id}#0`, sceneId: s.id, mode: 'normal', css: 'normal', ids: new Set() });
-		}
-		blendRunCache[s.id] = { sig, runs };
+		if (runs.length === 0) runs.push(run('normal', new Set()));
+		blendRunCache[seg.key] = { sig, runs };
 		return runs;
 	}
 
@@ -2126,10 +2187,11 @@
 	 * The blend GROUPS a scene's WebGL overlay (rig / FX) splits into: the un-blended nodes stay
 	 * on the layer the editor already mounted (`nodeFilter: null` — byte-identical parity), and
 	 * each non-normal mode gets ONE extra layer. Unlike the 2D runs this collapses to one layer per
-	 * MODE rather than per run, because the overlays already sit in a fixed stack above the 2D art
-	 * (2D → rig → text → FX) and so make no intra-scene z-order promise to keep. That also keeps
-	 * the WebGL context count bounded: a scene adds a context per distinct blend mode it uses, and
-	 * blending is opt-in, so the common scene adds none.
+	 * MODE rather than per run, because inside one depth segment the overlays sit in a fixed stack
+	 * above the 2D art (2D → rig → text → FX); the order BETWEEN segments is what keeps an FX under
+	 * later art (see {@link depthSegments}). A segment adds a layer per distinct blend mode it uses,
+	 * and blending is opt-in, so the common scene adds none. (Every overlay draws through the
+	 * editor's shared contexts — `sharedGl.client.ts` — so layers cost canvases, not contexts.)
 	 */
 	interface BlendOverlayGroup {
 		/** Synthetic merge/report key — `forgetScene` purges these alongside the scene. */
@@ -2142,41 +2204,78 @@
 		string,
 		{ sig: string; groups: BlendOverlayGroup[] } | undefined
 	> = {};
-	function blendOverlayGroups(s: Scene): BlendOverlayGroup[] {
-		const sig = `${layoutType}|${s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
-		const hit = blendOverlayCache[s.id];
+	function blendOverlayGroups(seg: DepthSegment): BlendOverlayGroup[] {
+		const sig = `${layoutType}|${seg.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
+		const hit = blendOverlayCache[seg.key];
 		if (hit && hit.sig === sig) return hit.groups;
 		const byMode: Partial<Record<BlendMode, string[]>> = {};
-		for (const n of s.nodes) {
+		for (const n of seg.nodes) {
 			const mode = nodeBlendMode(n);
 			if (mode === 'normal') continue;
 			(byMode[mode] ??= []).push(n.id);
 		}
 		const groups: BlendOverlayGroup[] = Object.entries(byMode).map(([mode, ids]) => ({
-			key: `${s.id}#blend:${mode}`,
+			key: `${seg.key}#blend:${mode}`,
 			mode: mode as BlendMode,
 			css: cssBlendMode(mode as BlendMode),
 			ids: new Set(ids),
 		}));
-		blendOverlayCache[s.id] = { sig, groups };
+		blendOverlayCache[seg.key] = { sig, groups };
 		return groups;
 	}
 
-	/** The un-blended top-level node ids of a scene — the `nodeFilter` for its BASE overlay layer,
-	 * so a blended rig renders on its own blended layer instead of twice. `null` when the scene
-	 * blends nothing, which is the untouched path the overlays take today. */
+	/** The un-blended top-level node ids of a depth segment — the `nodeFilter` for its BASE overlay
+	 * layer, so a blended rig renders on its own blended layer instead of twice and a node in another
+	 * segment is not drawn again here. `null` (every node) only when the segment is the whole scene
+	 * and blends nothing, which is the untouched path the overlays take today. */
 	const normalOverlayCache: Record<string, { sig: string; ids: Set<string> | null } | undefined> =
 		{};
-	function normalOverlayFilter(s: Scene): Set<string> | null {
-		const sig = `${layoutType}|${s.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',')}`;
-		const hit = normalOverlayCache[s.id];
+	function normalOverlayFilter(seg: DepthSegment): Set<string> | null {
+		const modes = seg.nodes.map((n) => `${n.id}:${nodeBlendMode(n)}`).join(',');
+		const sig = `${layoutType}|${seg.whole}|${modes}`;
+		const hit = normalOverlayCache[seg.key];
 		if (hit && hit.sig === sig) return hit.ids;
-		const blended = s.nodes.some((n) => nodeBlendMode(n) !== 'normal');
-		const ids = blended
-			? new Set(s.nodes.filter((n) => nodeBlendMode(n) === 'normal').map((n) => n.id))
-			: null;
-		normalOverlayCache[s.id] = { sig, ids };
+		const blended = seg.nodes.some((n) => nodeBlendMode(n) !== 'normal');
+		const ids =
+			blended || !seg.whole
+				? new Set(seg.nodes.filter((n) => nodeBlendMode(n) === 'normal').map((n) => n.id))
+				: null;
+		normalOverlayCache[seg.key] = { sig, ids };
 		return ids;
+	}
+
+	/** What a surface needs to draw one depth segment, `null` for a whole (unsplit) scene. Memoized
+	 * on the split, so the WebGL overlays see the same object until the split itself changes. */
+	const depthSliceCache: Record<string, { sig: string; slice: DepthSlice | null } | undefined> = {};
+	function depthSliceFor(seg: DepthSegment): DepthSlice | null {
+		const hit = depthSliceCache[seg.key];
+		if (hit && hit.sig === seg.sig) return hit.slice;
+		const slice = seg.whole ? null : { segmentOf: seg.segmentOf, index: seg.index };
+		depthSliceCache[seg.key] = { sig: seg.sig, slice };
+		return slice;
+	}
+
+	/** The text overlay's `nodeFilter` for a depth segment: every node in it (text has no blended
+	 * layer), or `null` when the segment is the whole scene — the path the text layer always took. */
+	const textOverlayCache: Record<string, { sig: string; ids: Set<string> | null } | undefined> = {};
+	function textOverlayFilter(seg: DepthSegment): Set<string> | null {
+		const sig = `${seg.whole}|${seg.nodes.map((n) => n.id).join(',')}`;
+		const hit = textOverlayCache[seg.key];
+		if (hit && hit.sig === sig) return hit.ids;
+		const ids = seg.whole ? null : new Set(seg.nodes.map((n) => n.id));
+		textOverlayCache[seg.key] = { sig, ids };
+		return ids;
+	}
+
+	/** Which depth segment's rig layer draws the full-screen dim (`activeSceneId`). Each rig layer
+	 * paints the scrim into its own canvas, so handing it to every segment would stack the dim. The
+	 * segment holding the dim anchor gets it, so the anchor's frame rig draws bright over it; failing
+	 * that (no rig there), the first segment with a rig. */
+	function scrimSegmentKey(segs: DepthSegment[]): string | undefined {
+		if (segs.length === 1) return segs[0].key;
+		const withRig = segs.filter((seg) => sceneHasRig(seg));
+		const anchor = withRig.find((seg) => seg.nodes.some((n) => (tapOverlayDim(n) ?? 0) > 0));
+		return (anchor ?? withRig[0])?.key;
 	}
 
 	/**
@@ -2195,6 +2294,9 @@
 
 	// ---------- draw ----------
 
+	/** Each mode's stage colour, so Animate never reads as Design (Rive plan Phase 9a). */
+	const STAGE_TINT = { design: '#0b0b10', animate: '#0a1424' } as const;
+
 	function draw(): void {
 		if (!canvas) return;
 		// Size-sync every 2D surface first, so a per-scene canvas that mounted this same
@@ -2206,7 +2308,7 @@
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
-		ctx.fillStyle = '#0b0b10';
+		ctx.fillStyle = animate ? STAGE_TINT.animate : STAGE_TINT.design;
 		ctx.fillRect(0, 0, canvas.width, canvas.height);
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -2284,20 +2386,24 @@
 		// shared surface, which has to blend inline — is unaffected.
 		elementCarriesBlend = true;
 		for (const s of visibleGameScenes()) {
-			for (const run of blendRuns(s)) {
-				const c = sceneCanvases.get(run.key);
-				if (!c) continue;
-				const sctx = c.getContext('2d');
-				if (!sctx) continue;
-				sctx.setTransform(1, 0, 0, 1, 0, 0);
-				sctx.clearRect(0, 0, c.width, c.height); // transparent — base shows through
-				sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-				sctx.translate(panX, panY);
-				sctx.scale(zoom, zoom);
-				// Iterate the SCENE, not the run's set, so draw order stays doc order.
-				for (const node of s.nodes) if (run.ids.has(node.id)) drawNode(sctx, node, s);
+			for (const seg of depthSegments(s, componentMap)) {
+				drawDepth = depthSliceFor(seg);
+				for (const run of blendRuns(seg)) {
+					const c = sceneCanvases.get(run.key);
+					if (!c) continue;
+					const sctx = c.getContext('2d');
+					if (!sctx) continue;
+					sctx.setTransform(1, 0, 0, 1, 0, 0);
+					sctx.clearRect(0, 0, c.width, c.height); // transparent — base shows through
+					sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+					sctx.translate(panX, panY);
+					sctx.scale(zoom, zoom);
+					// Iterate the SCENE, not the run's set, so draw order stays doc order.
+					for (const node of s.nodes) if (run.ids.has(node.id)) drawNode(sctx, node, s);
+				}
 			}
 		}
+		drawDepth = null;
 		elementCarriesBlend = false;
 	}
 
@@ -2347,6 +2453,7 @@
 		}
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		if (animate) drawOnion(ctx);
 		drawSelectionOverlay(ctx);
 		drawHoverPick(ctx);
 
@@ -2438,7 +2545,25 @@
 		return { offsetX: 0 };
 	}
 
-	function drawNode(
+	/**
+	 * The depth segment the 2D pass is painting (`drawSceneCanvases` sets it per segment; `null` ⇒
+	 * everything) and the id path of the node being drawn. A group or component is walked on every
+	 * segment, since its children can fall in any of them; a node's OWN art is drawn only on its own.
+	 */
+	let drawDepth: DepthSlice | null = null;
+	const drawPath: string[] = [];
+
+	/** Draw a node — {@link drawNodeAt} with its id path tracked for the depth-segment check. */
+	function drawNode(...args: Parameters<typeof drawNodeAt>): void {
+		drawPath.push(args[1].id);
+		try {
+			drawNodeAt(...args);
+		} finally {
+			drawPath.pop();
+		}
+	}
+
+	function drawNodeAt(
 		ctx: CanvasRenderingContext2D,
 		node: LayoutNode,
 		sceneCtx: Scene = scene,
@@ -2500,6 +2625,40 @@
 		if (nested || !elementCarriesBlend) {
 			const op = canvasCompositeOp(t.blendMode);
 			if (op !== 'source-over') ctx.globalCompositeOperation = op;
+		}
+		if (drawDepth && !inDepthSlice(drawDepth, drawPath)) {
+			// This node's own art is on another depth segment; its children may be on this one. A
+			// bound container walks its children only when it is a skinned part, as below.
+			const partSkin = node.bind ? boundComponentSkin(node.bind.component) : undefined;
+			const walks =
+				!node.bind ||
+				(!!partSkin && isPartSkinned(node, partSkin, instanceParams ?? componentParams));
+			if (node.kind === 'container' && walks) {
+				for (const child of node.children)
+					drawNode(
+						ctx,
+						child,
+						sceneCtx,
+						componentDepth,
+						componentStack,
+						instanceParams,
+						true,
+						instanceRigBundle,
+					);
+			} else if (node.kind === 'componentInstance') {
+				const def = componentMap.get(node.componentId);
+				if (def && componentDepth < MAX_COMPONENT_DEPTH && !componentStack.includes(def.id))
+					drawComponentInstance(
+						ctx,
+						node,
+						sceneCtx,
+						componentDepth,
+						componentStack,
+						instanceParams ?? componentParams,
+					);
+			}
+			ctx.restore();
+			return;
 		}
 		// The value-binding preview's other outputs: a `fill` reveal clips the art to its rect in the
 		// node's local box (the runtime's mask), a `frame` holds a clip frame (below).
@@ -2793,7 +2952,14 @@
 					instanceRigBundle,
 				);
 		} else if (node.kind === 'componentInstance') {
-			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
+			drawComponentInstance(
+				ctx,
+				node,
+				sceneCtx,
+				componentDepth,
+				componentStack,
+				instanceParams ?? componentParams,
+			);
 		} else if (node.kind === 'reelGrid') {
 			drawReelGrid(ctx, node, t);
 		} else if (node.kind === 'effect') {
@@ -3294,6 +3460,9 @@
 		sceneCtx: Scene,
 		componentDepth: number,
 		componentStack: string[],
+		/** The enclosing instance's resolved params (the open component's for a top-level node, `{}`
+		 * on a screen): what the instance's forwarded params (`params.<key>` bindings) read. */
+		outerParams: Record<string, unknown>,
 	): void {
 		const def = componentMap.get(node.componentId);
 		if (!def) {
@@ -3316,9 +3485,10 @@
 		// Per-ratio param overrides (`node.overrides[layoutType].params`) merged onto the base
 		// instance params for the active device layout, so the canvas previews e.g. a smaller
 		// portrait font exactly as the game will resolve it. No override ⇒ `node.params` verbatim.
+		// Params the instance forwards from the enclosing one win over its own, as in the game.
 		const params = resolveComponentParams(
 			def,
-			resolveLayoutInstanceParams(node, layoutType),
+			forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outerParams),
 			componentDefaults[def.id],
 		);
 		// A nested bound-component that previews a RIG (the win / free-spin VISUAL) renders the
@@ -3837,6 +4007,41 @@
 		if (!riderRaf) riderRaf = requestAnimationFrame(drawRiders);
 	});
 
+	/**
+	 * Animate's ONION SKIN (Rive plan Phase 9b, editor-only): each ghost frame outlines the nodes the
+	 * timeline drives there, earlier frames red and later ones green, fading with distance, with a
+	 * dot at each pivot so the path reads. Top-level nodes of the edited screen only: a nested node's
+	 * frame would need its parents' sampled too.
+	 */
+	function drawOnion(ctx: CanvasRenderingContext2D): void {
+		const frames = onionPreview();
+		if (!frames.length) return;
+		const far = Math.max(...frames.map((f) => Math.abs(f.offset)));
+		ctx.save();
+		ctx.lineWidth = 1.25;
+		for (const f of frames) {
+			ctx.globalAlpha = 0.75 * (1 - (Math.abs(f.offset) - 1) / (far + 1));
+			ctx.strokeStyle = ctx.fillStyle = f.offset < 0 ? '#ff6b6b' : '#7ee0c0';
+			for (const node of visibleSceneNodes()) {
+				const drive = f.drives.get(node.id);
+				if (!drive) continue;
+				const t = nodeTransform(node, scene, (n, lt) => onionResolveTransform(n, lt, drive));
+				if (!t.visible) continue;
+				const corners = nodeCornersWorld(t, boxOf(node, t)).map(worldToScreen);
+				ctx.beginPath();
+				ctx.moveTo(corners[0].x, corners[0].y);
+				for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+				ctx.closePath();
+				ctx.stroke();
+				const pivot = worldToScreen({ x: t.x, y: t.y });
+				ctx.beginPath();
+				ctx.arc(pivot.x, pivot.y, 2.5, 0, Math.PI * 2);
+				ctx.fill();
+			}
+		}
+		ctx.restore();
+	}
+
 	function drawSelectionOverlay(ctx: CanvasRenderingContext2D): void {
 		if (selectedIds.length === 0) return;
 		// Handles (scale/rotate) only make sense for a single node; a multi-selection
@@ -3887,7 +4092,7 @@
 		node: LayoutNode,
 		withHandles: boolean,
 	): void {
-		const t = nodeTransform(node);
+		const t = handleTransform(node);
 		if (!t.visible) return;
 		const box = boxOf(node, t);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -3992,7 +4197,7 @@
 		if (selectedIds.length !== 1 || !selectedId) return null;
 		const node = findNodeById(selectedId);
 		if (!node || node.locked || isBackgroundCover(node)) return null;
-		const t = nodeTransform(node);
+		const t = handleTransform(node);
 		if (!t.visible) return null;
 		const box = boxOf(node, t);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -4064,7 +4269,9 @@
 		const list = visibleSceneNodes(sceneCtx);
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
-			const t = nodeTransform(node, sceneCtx);
+			// Locked (Rive plan Phase 9a): the stage clicks through it; the Outline still selects it.
+			if (node.locked) continue;
+			const t = animate ? drawTransform(node, sceneCtx) : nodeTransform(node, sceneCtx);
 			const box = boxOf(node, t);
 			const corners = nodeCornersWorld(t, box);
 			if (pointInQuad(world, corners)) return node;
@@ -4099,6 +4306,95 @@
 
 	// ---------- drag handlers ----------
 
+	/** Where the selection frame and handles sit: on the drawn (animated) pose in Animate. */
+	function handleTransform(node: LayoutNode): ResolvedTransform {
+		return animate ? drawTransform(node) : nodeTransform(node);
+	}
+
+	/** Animate with a keying panel: a stage gesture keys the timeline instead of editing. */
+	const animateKeys = $derived(animate && !!onAnimateTransform);
+
+	/** The fields a gesture can write on a node, put back when an Animate drag ends. */
+	const GESTURE_FIELDS = ['x', 'y', 'scale', 'rotation', 'width', 'height', 'params', 'overrides'];
+	/**
+	 * An Animate drag in flight: each node's fields as they were and its resolved Design pose at the
+	 * start. The gesture runs on the Design pose exactly as in Design (so the stage follows the
+	 * pointer), and on release the pose is put back and the change is keyed instead.
+	 */
+	let animDrag: {
+		nodes: { id: string; saved: string; start: ResolvedTransform }[];
+		ratio?: number;
+	} | null = null;
+
+	function beginAnimateDrag(): void {
+		if (!dragMode) return;
+		const ids = dragMode.kind === 'translate' ? dragMode.group.map((g) => g.id) : [dragMode.nodeId];
+		const nodes: { id: string; saved: string; start: ResolvedTransform }[] = [];
+		for (const id of ids) {
+			const n = findNodeById(id) as unknown as Record<string, unknown> | null;
+			if (!n) continue;
+			const saved: Record<string, unknown> = {};
+			for (const f of GESTURE_FIELDS) if (f in n && n[f] !== undefined) saved[f] = n[f];
+			nodes.push({
+				id,
+				saved: JSON.stringify(saved),
+				start: resolveTransform(n as unknown as LayoutNode, layoutType),
+			});
+		}
+		animDrag = { nodes };
+		setAnimateDragging(true);
+	}
+
+	// Unmounted mid-drag (a mode or route switch): the Design pose goes back, nothing is keyed.
+	onDestroy(() => {
+		if (!animDrag) return;
+		restoreAnimateDrag(animDrag);
+		animDrag = null;
+		setAnimateDragging(false);
+	});
+
+	/** Put each node's gesture fields back as they were, only where the gesture changed one. */
+	function restoreAnimateDrag(drag: NonNullable<typeof animDrag>): void {
+		for (const { id, saved } of drag.nodes) {
+			const n = findNodeById(id) as unknown as Record<string, unknown> | null;
+			if (!n) continue;
+			const was = JSON.parse(saved) as Record<string, unknown>;
+			for (const f of GESTURE_FIELDS) {
+				if (JSON.stringify(n[f]) === JSON.stringify(was[f])) continue;
+				if (f in was) n[f] = was[f];
+				else delete n[f];
+			}
+		}
+	}
+
+	/** Put every dragged node's Design pose back and key what the gesture changed. */
+	function finishAnimateDrag(): void {
+		const drag = animDrag;
+		const kind = dragMode?.kind;
+		animDrag = null;
+		if (!drag) return;
+		const deltas: StageTransformDelta[] = [];
+		const ends = drag.nodes.map(({ id }) => {
+			const n = findNodeById(id);
+			return n ? resolveTransform(n, layoutType) : null;
+		});
+		restoreAnimateDrag(drag);
+		setAnimateDragging(false);
+		for (const [i, { id, start }] of drag.nodes.entries()) {
+			const end = ends[i];
+			if (!end) continue;
+			const delta: StageTransformDelta = { nodeId: id };
+			if (kind === 'translate') {
+				delta.dx = end.x - start.x;
+				delta.dy = end.y - start.y;
+			} else if (kind === 'scale' && drag.ratio !== undefined) delta.scale = drag.ratio;
+			else if (kind === 'rotate')
+				delta.rotation = (((end.rotation ?? 0) - (start.rotation ?? 0)) * 180) / Math.PI;
+			deltas.push(delta);
+		}
+		if (deltas.length) onAnimateTransform?.(deltas);
+	}
+
 	function startTranslate(node: LayoutNode, world: Vec2): void {
 		const start = effectiveXY(node);
 		// The group is every selected node that can actually move (locked + background-
@@ -4131,7 +4427,8 @@
 		resizeAxis?: 'x' | 'y',
 	): void {
 		const t = nodeTransform(node);
-		const box = boxOf(node, t);
+		const drawn = handleTransform(node);
+		const box = boxOf(node, drawn);
 		dragMode = {
 			kind: 'scale',
 			nodeId: node.id,
@@ -4139,15 +4436,17 @@
 			resizeAxis,
 			startWorld: world,
 			startScale: { x: t.scale?.x ?? 1, y: t.scale?.y ?? 1 },
+			startDrawScale: { x: drawn.scale?.x ?? 1, y: drawn.scale?.y ?? 1 },
 			startBox: box,
-			startTx: t.x,
-			startTy: t.y,
-			startRot: t.rotation ?? 0,
+			startTx: drawn.x,
+			startTy: drawn.y,
+			startRot: drawn.rotation ?? 0,
 		};
 	}
 	function startRotate(node: LayoutNode, world: Vec2): void {
 		const t = nodeTransform(node);
-		const center = { x: t.x, y: t.y };
+		const drawn = handleTransform(node);
+		const center = { x: drawn.x, y: drawn.y };
 		const startAngle = Math.atan2(world.y - center.y, world.x - center.x);
 		dragMode = {
 			kind: 'rotate',
@@ -4168,7 +4467,10 @@
 		}
 		// Snap the grabbed (primary) node, then move the whole group by the SAME snapped
 		// delta so their relative layout is preserved.
-		const snapped = snapTranslate(node, dragMode.startNode.x + dx, dragMode.startNode.y + dy);
+		// Snapping reads the authored layout, which an animated stage no longer shows: off in Animate.
+		const snapped = animDrag
+			? { x: dragMode.startNode.x + dx, y: dragMode.startNode.y + dy }
+			: snapTranslate(node, dragMode.startNode.x + dx, dragMode.startNode.y + dy);
 		const ddx = snapped.x - dragMode.startNode.x;
 		const ddy = snapped.y - dragMode.startNode.y;
 		for (const g of dragMode.group) {
@@ -4200,8 +4502,8 @@
 		];
 		const ref = cornerLocal[d.cornerIdx];
 		// Base (start) signed magnitudes; avoid div-by-zero.
-		const baseX = ref.x * d.startScale.x;
-		const baseY = ref.y * d.startScale.y;
+		const baseX = ref.x * d.startDrawScale.x;
+		const baseY = ref.y * d.startDrawScale.y;
 		const newRefX = baseX + dxl;
 		const newRefY = baseY + dyl;
 		let sxRatio = baseX === 0 ? 1 : newRefX / baseX;
@@ -4209,7 +4511,17 @@
 		// An EDGE handle resizes ONE axis — lock the other to its start size (ratio 1). A CORNER
 		// handle defaults to uniform scale (average of the two abs ratios, signed); Shift makes it
 		// non-uniform (free per-axis).
-		if (d.resizeAxis === 'x') {
+		// Animate keys ONE scale channel, so its drag is always uniform: what it shows is what keys.
+		if (animDrag) {
+			const avg =
+				d.resizeAxis === 'x'
+					? Math.abs(sxRatio)
+					: d.resizeAxis === 'y'
+						? Math.abs(syRatio)
+						: (Math.abs(sxRatio) + Math.abs(syRatio)) / 2;
+			sxRatio = Math.sign(sxRatio || 1) * avg;
+			syRatio = Math.sign(syRatio || 1) * avg;
+		} else if (d.resizeAxis === 'x') {
 			syRatio = 1;
 		} else if (d.resizeAxis === 'y') {
 			sxRatio = 1;
@@ -4243,6 +4555,7 @@
 			writeScale(node, 1, 1);
 			return;
 		}
+		if (animDrag) animDrag.ratio = Math.abs(sxRatio);
 		const MIN = 0.05;
 		let newSx = d.startScale.x * sxRatio;
 		let newSy = d.startScale.y * syRatio;
@@ -4393,16 +4706,29 @@
 
 	function onWheel(e: WheelEvent): void {
 		e.preventDefault();
-		const factor = e.deltaY > 0 ? 0.9 : 1.1;
-		const newZoom = Math.max(0.05, Math.min(8, zoom * factor));
 		const rect = canvas?.getBoundingClientRect();
-		if (rect) {
-			const cx = e.clientX - rect.left;
-			const cy = e.clientY - rect.top;
-			panX = cx - ((cx - panX) * newZoom) / zoom;
-			panY = cy - ((cy - panY) * newZoom) / zoom;
-		}
-		zoom = newZoom;
+		zoomAround(
+			zoom * (e.deltaY > 0 ? 0.9 : 1.1),
+			rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : undefined,
+		);
+	}
+
+	/** Zoom to `next` (clamped) keeping the stage point under `at` — the view centre by default — still. */
+	function zoomAround(next: number, at?: Vec2): void {
+		const z = Math.max(0.05, Math.min(8, next));
+		const p = at ?? { x: (wrap?.clientWidth ?? 0) / 2, y: (wrap?.clientHeight ?? 0) / 2 };
+		panX = p.x - ((p.x - panX) * z) / zoom;
+		panY = p.y - ((p.y - panY) * z) / zoom;
+		zoom = z;
+		schedule();
+	}
+
+	/** ⌘0: 100%, the frame centred in the view. */
+	function zoomTo100(): void {
+		if (!wrap) return;
+		zoom = 1;
+		panX = (wrap.clientWidth - frameWidth) / 2;
+		panY = (wrap.clientHeight - frameHeight) / 2;
 		schedule();
 	}
 
@@ -4424,19 +4750,20 @@
 
 		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
-		if (!e.shiftKey && !animate) {
+		if (!e.shiftKey && (!animate || animateKeys)) {
 			const hh = hitTestHandle(screen);
-			if (hh && selectedId) {
-				const node = findNodeById(selectedId);
-				if (node) {
-					if (hh.kind === 'corner') startScale(node, hh.idx, world);
-					else if (hh.kind === 'edge')
-						startScale(node, EDGE_TO_CORNER[hh.idx], world, EDGE_TO_AXIS[hh.idx]);
-					else if (hh.kind === 'rotate') startRotate(node, world);
-					else startTranslate(node, world);
-					e.preventDefault();
-					return;
-				}
+			const node = hh && selectedId ? findNodeById(selectedId) : null;
+			// A text box resizes its box, never its scale, so in Animate there is nothing to key.
+			const boxOnly = !!node && animate && (node.kind === 'text' || isTextBoxInstance(node));
+			if (hh && node && !(boxOnly && hh.kind !== 'rotate')) {
+				if (hh.kind === 'corner') startScale(node, hh.idx, world);
+				else if (hh.kind === 'edge')
+					startScale(node, EDGE_TO_CORNER[hh.idx], world, EDGE_TO_AXIS[hh.idx]);
+				else if (hh.kind === 'rotate') startRotate(node, world);
+				else startTranslate(node, world);
+				if (animateKeys) beginAnimateDrag();
+				e.preventDefault();
+				return;
 			}
 		}
 		// 2) body hit on any node (on any drawn screen with "Any screen" on, Shift aside)
@@ -4452,9 +4779,12 @@
 			// Plain click: keep an existing multi-selection if you grabbed a member
 			// (so you can group-drag it); otherwise select just this node.
 			if (!selectedIds.includes(node.id)) selectOnly(node.id);
-			// Locked nodes select but never move; background-cover nodes select but
-			// never drag (transform is synthesised). Only movement is locked, not selection.
-			if (!animate && !node.locked && !isBackgroundCover(node)) startTranslate(node, world);
+			// Background-cover nodes select but never drag (transform is synthesised). Locked
+			// nodes never get here: `hitTestNode` clicks through them.
+			if ((!animate || animateKeys) && !isBackgroundCover(node)) {
+				startTranslate(node, world);
+				if (animateKeys) beginAnimateDrag();
+			}
 			schedule();
 			e.preventDefault();
 			return;
@@ -4540,29 +4870,29 @@
 		panning = false;
 		lastXY = null;
 		if (dragMode) {
+			const keying = !!animDrag;
+			if (keying) finishAnimateDrag();
 			dragMode = null;
 			snapLines = [];
 			schedule();
-			onDirty?.();
+			if (!keying) onDirty?.();
 		}
 	}
 
+	/** The `Shift+/` shortcut sheet is open over the stage. */
+	let cheatSheetOpen = $state(false);
+
 	function onKeyDown(e: KeyboardEvent): void {
 		// Don't hijack typing in form fields (properties panel inputs etc.).
-		const tgt = e.target as HTMLElement | null;
-		const typing =
-			tgt &&
-			(tgt.tagName === 'INPUT' ||
-				tgt.tagName === 'TEXTAREA' ||
-				tgt.tagName === 'SELECT' ||
-				tgt.isContentEditable);
-		if (typing) return;
-
-		if (e.key === 'Escape' && selectedIds.length > 0) {
-			selectedIds = [];
-			schedule();
+		if (isTypingTarget(e.target) || dialogQueue.current) return;
+		// Both sides' canvases listen on `window`; only the one on screen answers.
+		if (!wrap || wrap.getClientRects().length === 0) return;
+		if (cheatSheetOpen && (e.key === 'Escape' || e.key === '?')) {
+			cheatSheetOpen = false;
+			e.preventDefault();
 			return;
 		}
+
 		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0 && !animate) {
 			// Delete every selected node that isn't locked, in one transaction.
 			const ids = selectedIds.filter((id) => {
@@ -4573,7 +4903,80 @@
 			e.preventDefault();
 			if (ids.length === 1 || !onDeleteMany) ids.forEach((id) => onDelete?.(id));
 			else onDeleteMany(ids);
+			return;
 		}
+		const action = stageShortcut(e);
+		if (!action) return;
+		// `Enter` / `Tab` are the stage's only from the stage itself (focus on the page body or inside
+		// the canvas); on any focused widget they keep their meaning (press it, move focus on).
+		if (
+			(action.kind === 'selectFirstChild' || action.kind === 'toggleMode') &&
+			!ownsFocusKeys(e.target, document.body, wrap)
+		)
+			return;
+		if (applyStageAction(action)) e.preventDefault();
+	}
+
+	/** Run a {@link stageShortcut} action; `false` when it does nothing here (the key stays native). */
+	function applyStageAction(action: StageAction): boolean {
+		switch (action.kind) {
+			case 'selectParent': {
+				if (!selectedId) return false;
+				selectOnly(parentIdOf(scene.nodes, selectedId));
+				schedule();
+				return true;
+			}
+			case 'selectFirstChild': {
+				const child = selectedId ? firstChildIdOf(scene.nodes, selectedId) : null;
+				if (!child) return false;
+				selectOnly(child);
+				schedule();
+				return true;
+			}
+			case 'reveal':
+				if (!selectedId || !onRevealSelection) return false;
+				onRevealSelection(selectedId);
+				return true;
+			case 'fit':
+				fitView();
+				return true;
+			case 'zoomTo100':
+				zoomTo100();
+				return true;
+			case 'zoomBy':
+				zoomAround(zoom * action.factor);
+				return true;
+			case 'nudge':
+				return nudgeSelection(action.dx, action.dy);
+			case 'toggleMode':
+				if (!onToggleMode) return false;
+				onToggleMode();
+				return true;
+			case 'cheatSheet':
+				cheatSheetOpen = !cheatSheetOpen;
+				return true;
+		}
+	}
+
+	/** Arrow nudge (Design): every selected top-level node that the stage could drag moves by
+	 *  `dx`/`dy` in its own stored units. */
+	function nudgeSelection(dx: number, dy: number): boolean {
+		if (animate) return false;
+		const nodes = selectedIds
+			.map((id) => findNodeById(id))
+			.filter(
+				(n): n is LayoutNode => !!n && !lockedInTree(scene.nodes, n.id) && !isBackgroundCover(n),
+			);
+		if (nodes.length === 0) return false;
+		for (const n of nodes) {
+			const k = isGameSpaceNode(n) ? mainScale() : 1;
+			const xy = effectiveXY(n);
+			writeXY(n, xy.x + dx * k, xy.y + dy * k);
+		}
+		bumpFrame();
+		schedule();
+		onDirty?.();
+		return true;
 	}
 
 	function onDoubleClick(e: MouseEvent): void {
@@ -4974,6 +5377,7 @@
 		void selectedIds;
 		void snapLines.length;
 		void layoutType;
+		void animate;
 		// Re-draw the param-aware text preview when a default changes (§13.4, B3).
 		void componentParams;
 		schedule();
@@ -4983,6 +5387,7 @@
 <div
 	bind:this={wrap}
 	class="wrap {cursorClass}"
+	class:animate
 	class:dragover={dragOver}
 	ondragover={onDragOver}
 	ondragleave={onDragLeave}
@@ -5040,129 +5445,107 @@
 	     (bottom→top) its own 2D canvas, then its rig sublayer, then its text sublayer.
 	     `z-index = scene index` makes a LATER scene's whole group sit above an EARLIER
 	     scene's whole group — so a Background rig renders below the base-game 2D. The
-	     rig/text sublayers are filtered to the one scene + mounted only when present
-	     (keeps WebGL/pixi contexts bounded). -->
+	     rig/text sublayers are filtered to the one scene + mounted only when present. They
+	     draw through two shared WebGL contexts (`sharedGl.client.ts`), never one each: past
+	     the browser's ~16 live contexts the oldest is dropped and paints white. -->
 	{#each visibleGameScenes() as s (s.id)}
+		{@const segs = depthSegments(s, componentMap)}
+		{@const scrimKey = scrimSegmentKey(segs)}
 		<div class="scene-group">
-			<!-- One canvas per BLEND RUN (usually exactly one): consecutive top-level nodes that
-			     share a blend mode, with the mode on the element so the browser composites the run
-			     against everything painted beneath it — earlier scene groups included. See
-			     `blendRuns`. -->
-			{#each blendRuns(s) as run (run.key)}
-				<canvas class="scene-2d" style:mix-blend-mode={run.css} use:registerSceneCanvasAction={run}
-				></canvas>
-			{/each}
-			{#if sceneHasRig(s)}
-				<EditorRigLayer
-					{scenes}
-					{mainSizesMap}
-					{layoutType}
-					{frameWidth}
-					{frameHeight}
-					{panX}
-					{panY}
-					{zoom}
-					{assets}
-					{componentMap}
-					{componentDefaults}
-					{rigPreview}
-					{rigPreviewNodeId}
-					{symbolStatics}
-					{gridDimensions}
-					worldTransformOf={drawTransform}
-					reloadToken={rigReload}
-					{hiddenSceneIds}
-					sceneFilter={sceneFilterFor(s.id)}
-					nodeFilter={normalOverlayFilter(s)}
-					activeSceneId={scene.id}
-					playing={playingRigs}
-					{boneRiders}
-					onReadyKeysChange={(keys) => {
-						mergeRigReady(s.id, keys);
-						schedule();
-					}}
-					onNaturalSizesChange={(sizes) => {
-						mergeRigNatural(s.id, sizes);
-						schedule();
-					}}
-					onRigMetaChange={(meta) => {
-						mergeRigMeta(s.id, meta);
-						schedule();
-					}}
-					onLoadingChange={(c) => {
-						mergeRigLoading(s.id, c);
-					}}
-				/>
-			{/if}
-			{#if sceneHasText(s)}
-				<EditorTextLayer
-					{scenes}
-					{layoutType}
-					{panX}
-					{panY}
-					{zoom}
-					worldTransformOf={drawTransform}
-					{hiddenSceneIds}
-					sceneFilter={sceneFilterFor(s.id)}
-					{projectGameName}
-					{componentParams}
-					{componentDefaults}
-					{componentMap}
-					{repeaterSources}
-					{frameWidth}
-					{frameHeight}
-					reloadToken={fontReload}
-					{redrawNonce}
-					onLoadingChange={(c) => {
-						mergeFontLoading(s.id, c);
-					}}
-					onReadyIdsChange={(ids) => {
-						mergeTextReady(s.id, ids);
-						schedule();
-					}}
-					onMeasuredChange={(sizes) => {
-						mergeTextMeasured(s.id, sizes);
-						schedule();
-					}}
-				/>
-			{/if}
-			{#if sceneHasEffect(s)}
-				<EditorEffectLayer
-					{scenes}
-					{layoutType}
-					{frameWidth}
-					{frameHeight}
-					{panX}
-					{panY}
-					{zoom}
-					{componentMap}
-					worldTransformOf={drawTransform}
-					{hiddenSceneIds}
-					sceneFilter={sceneFilterFor(s.id)}
-					nodeFilter={normalOverlayFilter(s)}
-					playing={playingEffects}
-					onReadyKeysChange={(ids) => {
-						mergeEffectReady(s.id, ids);
-						schedule();
-					}}
-					onBoundsChange={(bounds) => {
-						mergeEffectBounds(s.id, bounds);
-						schedule();
-					}}
-				/>
-			{/if}
-			<!-- BLENDED effects: one extra FX overlay per blend mode the scene uses, carrying the
-			     mode as CSS `mix-blend-mode` on its own element. Renders nothing when the scene
-			     blends nothing (`blendOverlayGroups` is empty), so the common scene mounts exactly
-			     the surfaces it always has. Reports go under the group's synthetic key, which
-			     `forgetScene` purges with the scene.
-
-			     No blended RIG layer: a Pixi blend cannot reach skeleton geometry (see
-			     `canBlendKind`), so `nodeBlendMode` resolves every rig to `normal` and such a
-			     layer could only ever be empty — while still costing a WebGL context, which the
-			     shared-canvas budget cannot spare. -->
-			{#each blendOverlayGroups(s) as g (g.key)}
-				{#if sceneHasEffect(s)}
+			<!-- One stack per DEPTH SEGMENT (usually exactly one — see `depthSegments`): a
+			     segment that starts after an FX draws above that FX, as later art does in the
+			     game. Every surface below reports under the segment's key. -->
+			{#each segs as seg (seg.key)}
+				<!-- One canvas per BLEND RUN (usually exactly one): consecutive top-level nodes that
+				     share a blend mode, with the mode on the element so the browser composites the run
+				     against everything painted beneath it — earlier scene groups included. See
+				     `blendRuns`. -->
+				{#each blendRuns(seg) as run (run.key)}
+					<canvas
+						class="scene-2d"
+						style:mix-blend-mode={run.css}
+						use:registerSceneCanvasAction={run}
+					></canvas>
+				{/each}
+				{#if sceneHasRig(seg)}
+					<EditorRigLayer
+						{scenes}
+						{mainSizesMap}
+						{layoutType}
+						{frameWidth}
+						{frameHeight}
+						{panX}
+						{panY}
+						{zoom}
+						{assets}
+						{componentMap}
+						{componentDefaults}
+						{componentParams}
+						{rigPreview}
+						{rigPreviewNodeId}
+						{symbolStatics}
+						{gridDimensions}
+						worldTransformOf={drawTransform}
+						reloadToken={rigReload}
+						{hiddenSceneIds}
+						sceneFilter={sceneFilterFor(s.id)}
+						nodeFilter={normalOverlayFilter(seg)}
+						depthSlice={depthSliceFor(seg)}
+						activeSceneId={scrimKey === seg.key ? scene.id : null}
+						playing={playingRigs}
+						{boneRiders}
+						onReadyKeysChange={(keys) => {
+							mergeRigReady(seg.key, keys);
+							schedule();
+						}}
+						onNaturalSizesChange={(sizes) => {
+							mergeRigNatural(seg.key, sizes);
+							schedule();
+						}}
+						onRigMetaChange={(meta) => {
+							mergeRigMeta(seg.key, meta);
+							schedule();
+						}}
+						onLoadingChange={(c) => {
+							mergeRigLoading(seg.key, c);
+						}}
+					/>
+				{/if}
+				{#if sceneHasText(seg)}
+					<EditorTextLayer
+						{scenes}
+						{layoutType}
+						{panX}
+						{panY}
+						{zoom}
+						worldTransformOf={drawTransform}
+						{hiddenSceneIds}
+						sceneFilter={sceneFilterFor(s.id)}
+						nodeFilter={textOverlayFilter(seg)}
+						depthSlice={depthSliceFor(seg)}
+						{projectGameName}
+						{componentParams}
+						{componentDefaults}
+						{componentMap}
+						{repeaterSources}
+						{frameWidth}
+						{frameHeight}
+						reloadToken={fontReload}
+						{redrawNonce}
+						onLoadingChange={(c) => {
+							mergeFontLoading(seg.key, c);
+						}}
+						onReadyIdsChange={(ids) => {
+							mergeTextReady(seg.key, ids);
+							schedule();
+						}}
+						onMeasuredChange={(sizes) => {
+							mergeTextMeasured(seg.key, sizes);
+							schedule();
+						}}
+					/>
+				{/if}
+				{#if sceneHasEffect(seg)}
 					<EditorEffectLayer
 						{scenes}
 						{layoutType}
@@ -5172,22 +5555,67 @@
 						{panY}
 						{zoom}
 						{componentMap}
+						{componentParams}
+						{componentDefaults}
 						worldTransformOf={drawTransform}
 						{hiddenSceneIds}
 						sceneFilter={sceneFilterFor(s.id)}
-						nodeFilter={g.ids}
-						blend={g.css}
+						nodeFilter={normalOverlayFilter(seg)}
+						depthSlice={depthSliceFor(seg)}
 						playing={playingEffects}
+						effectParamValues={effectPreviewValues}
 						onReadyKeysChange={(ids) => {
-							mergeEffectReady(g.key, ids);
+							mergeEffectReady(seg.key, ids);
 							schedule();
 						}}
 						onBoundsChange={(bounds) => {
-							mergeEffectBounds(g.key, bounds);
+							mergeEffectBounds(seg.key, bounds);
 							schedule();
 						}}
 					/>
 				{/if}
+				<!-- BLENDED effects: one extra FX overlay per blend mode the scene uses, carrying the
+				     mode as CSS `mix-blend-mode` on its own element. Renders nothing when the scene
+				     blends nothing (`blendOverlayGroups` is empty), so the common scene mounts exactly
+				     the surfaces it always has. Reports go under the group's synthetic key, which
+				     `forgetScene` purges with the scene.
+
+				     No blended RIG layer: a Pixi blend cannot reach skeleton geometry (see
+				     `canBlendKind`), so `nodeBlendMode` resolves every rig to `normal` and such a
+				     layer could only ever be empty — while still costing a canvas and a draw every
+				     frame. -->
+				{#each blendOverlayGroups(seg) as g (g.key)}
+					{#if sceneHasEffect(seg)}
+						<EditorEffectLayer
+							{scenes}
+							{layoutType}
+							{frameWidth}
+							{frameHeight}
+							{panX}
+							{panY}
+							{zoom}
+							{componentMap}
+							{componentParams}
+							{componentDefaults}
+							worldTransformOf={drawTransform}
+							{hiddenSceneIds}
+							sceneFilter={sceneFilterFor(s.id)}
+							nodeFilter={g.ids}
+							depthSlice={depthSliceFor(seg)}
+							blend={g.css}
+							playing={playingEffects}
+							effectParamValues={effectPreviewValues}
+							onReadyKeysChange={(ids) => {
+								mergeEffectReady(g.key, ids);
+								schedule();
+							}}
+							onBoundsChange={(bounds) => {
+								mergeEffectBounds(g.key, bounds);
+								schedule();
+							}}
+						/>
+					{/if}
+				{/each}
 			{/each}
 		</div>
 	{/each}
@@ -5217,6 +5645,7 @@
 				{assets}
 				{componentMap}
 				{componentDefaults}
+				{componentParams}
 				{rigPreview}
 				{rigPreviewNodeId}
 				worldTransformOf={drawTransform}
@@ -5291,10 +5720,13 @@
 				{panY}
 				{zoom}
 				{componentMap}
+				{componentParams}
+				{componentDefaults}
 				worldTransformOf={drawTransform}
 				{hiddenSceneIds}
 				sceneFilter={hudEffectSceneFilter()}
 				playing={playingEffects}
+				effectParamValues={effectPreviewValues}
 				onReadyKeysChange={(ids) => {
 					mergeEffectReady(HUD_EFFECT_KEY, ids);
 					schedule();
@@ -5322,13 +5754,45 @@
 			onToggleRigPlay={toggleRigPlay}
 		/>
 	{/if}
+	{#if cheatSheetOpen}
+		<div class="cheat-sheet" role="dialog" aria-label="Keyboard shortcuts">
+			<div class="cheat-head">
+				<span>Keyboard shortcuts</span>
+				<button type="button" aria-label="Close" onclick={() => (cheatSheetOpen = false)}>
+					×
+				</button>
+			</div>
+			<div class="cheat-groups">
+				{#each SHORTCUT_SHEET as group (group.group)}
+					<section>
+						<h5>{group.group}</h5>
+						<dl>
+							{#each group.rows as row (row.does)}
+								<dt>
+									{#each row.keys as key, i (i)}{#if i > 0}<span class="plus">+</span>{/if}<kbd
+											>{key}</kbd
+										>{/each}
+								</dt>
+								<dd>{row.does}</dd>
+							{/each}
+						</dl>
+					</section>
+				{/each}
+			</div>
+			<p class="cheat-foot">Keys never fire while you type in a field.</p>
+		</div>
+	{/if}
 	<div class="hint">
-		{#if animate}
+		{#if animateKeys}
+			Animate: drag / corners / top circle = key the move, scale or turn at the playhead · scroll =
+			zoom · shift/middle/right-drag = pan · Esc = deselect
+		{:else if animate}
 			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan · Esc
-			= deselect
+			= parent / deselect · Shift+/ = shortcuts
 		{:else}
 			click = select{pickAcross ? ' (any screen)' : ''} · drag = move · corners = scale (Shift = non-uniform)
-			· top circle = rotate (Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
+			· top circle = rotate (Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = parent
+			/ deselect · Shift+/ = shortcuts
 		{/if}
 	</div>
 	<div class="canvas-top">
@@ -5358,6 +5822,46 @@
 					</button>
 				</div>
 			{/if}
+			<div class="hist-grp" role="group" aria-label="Zoom">
+				<button
+					class="fit hist"
+					type="button"
+					title="Zoom out (-)"
+					aria-label="Zoom out"
+					onclick={() => zoomAround(zoom / ZOOM_STEP)}
+				>
+					−
+				</button>
+				<button
+					class="fit zoom-pct"
+					type="button"
+					title="Zoom to 100% (Ctrl/⌘+0)"
+					onclick={zoomTo100}
+				>
+					{Math.round(zoom * 100)}%
+				</button>
+				<button
+					class="fit hist"
+					type="button"
+					title="Zoom in (+)"
+					aria-label="Zoom in"
+					onclick={() => zoomAround(zoom * ZOOM_STEP)}
+				>
+					+
+				</button>
+				<button class="fit" type="button" title="Fit the frame (F)" onclick={fitView}> Fit </button>
+			</div>
+			<button
+				class="fit"
+				type="button"
+				class:on={cheatSheetOpen}
+				aria-pressed={cheatSheetOpen}
+				title="Keyboard shortcuts (Shift+/)"
+				aria-label="Keyboard shortcuts"
+				onclick={() => (cheatSheetOpen = !cheatSheetOpen)}
+			>
+				?
+			</button>
 			<button
 				class="fit"
 				onclick={refreshAssets}
@@ -5488,6 +5992,10 @@
 		   game does. `isolate` stops it reaching the launcher chrome outside; `overflow:hidden`
 		   already clipped everything here, so nothing that used to escape this box now can't. */
 		isolation: isolate;
+	}
+	.wrap.animate {
+		background: #0a1424;
+		box-shadow: inset 0 0 0 2px #1d3a5c;
 	}
 	.wrap.dragover {
 		outline: 2px dashed #7ee0c0;
@@ -5649,6 +6157,86 @@
 	.fit.on {
 		color: #7ee0c0;
 		border-color: #3a5a4a;
+	}
+	.zoom-pct {
+		min-width: 52px;
+		font-variant-numeric: tabular-nums;
+	}
+	.cheat-sheet {
+		position: absolute;
+		top: 48px;
+		right: 12px;
+		z-index: 2100;
+		max-width: min(720px, calc(100% - 24px));
+		max-height: calc(100% - 72px);
+		overflow: auto;
+		background: #121218;
+		border: 1px solid #2a2a36;
+		border-radius: 8px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+		padding: 10px 14px 12px;
+		color: #c8c8d0;
+		font-size: 12px;
+	}
+	.cheat-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-weight: 600;
+		color: #e8e8ee;
+		margin-bottom: 8px;
+	}
+	.cheat-head button {
+		background: none;
+		border: none;
+		color: #888;
+		font-size: 16px;
+		cursor: pointer;
+	}
+	.cheat-groups {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 12px 20px;
+	}
+	.cheat-sheet h5 {
+		margin: 0 0 6px;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #888;
+	}
+	.cheat-sheet dl {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 4px 10px;
+		margin: 0;
+	}
+	.cheat-sheet dt {
+		white-space: nowrap;
+	}
+	.cheat-sheet dd {
+		margin: 0;
+		color: #aaa;
+	}
+	.cheat-sheet kbd {
+		display: inline-block;
+		padding: 1px 5px;
+		border: 1px solid #333344;
+		border-bottom-width: 2px;
+		border-radius: 4px;
+		background: #1a1a22;
+		color: #e8e8ee;
+		font-family: inherit;
+		font-size: 11px;
+	}
+	.cheat-sheet .plus {
+		color: #666;
+		margin: 0 2px;
+	}
+	.cheat-foot {
+		margin: 10px 0 0;
+		color: #666;
+		font-size: 11px;
 	}
 	.hist-grp {
 		display: inline-flex;

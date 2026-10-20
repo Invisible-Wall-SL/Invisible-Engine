@@ -19,7 +19,13 @@
  *     is still exported and embedded, and the runtime registry resolves it by id;
  *  8. a pot built from pieces: a number condition compares against each placement's own param
  *     (`{lightAt}`), so one firecracker def lights bottom → top as the pot's share rises, fires on
- *     `potActivate` and goes dark once drained; `<=` / `>=`; the editor's light order.
+ *     `potActivate` and goes dark once drained; `<=` / `>=`; the editor's light order;
+ *  9. a state's start offset: from the placement's param (wrapped on a loop, clamped otherwise),
+ *     a random start, both on entry and on every re-entry, and what saves;
+ * 10. Phase 9c's options: a disabled transition and a disabled layer, the blend's cubic `ease`,
+ *     `pauseSource: false` (the state left plays on under the blend, in the runner and the player),
+ *     `allowExit: false`, a state's `onExit` raises (before the next `onEnter`), validation, what
+ *     saves — and that a machine without them, or with them at their defaults, runs identically.
  *
  * What it cannot prove: the Svelte wiring in `ComponentInstance.svelte` (ticker, bus, context) —
  * that is the owner's browser check.
@@ -32,6 +38,7 @@ import type {
 	ComponentStateMachine,
 	LayoutNode,
 	SmLayer,
+	SmTransition,
 } from 'engine-layout';
 import { scopeMatches, scopeOf } from '../../../packages/utils-event-emitter/src/scope.ts';
 
@@ -85,6 +92,8 @@ const { exportCinematics, loadAuthoredCinematics } =
 const { normalizeComponent } = await import('../src/lib/server/componentStorage.ts');
 const S = await import('../src/lib/timeline/screenTimeline.ts');
 const PP = await import('../../../packages/engine-layout/src/lib/potPieces.ts');
+const E = await import('../../../packages/engine-layout/src/lib/componentEvents.ts');
+const { easeShape } = await import('engine-cinematic');
 
 let failures = 0;
 let passes = 0;
@@ -1802,6 +1811,492 @@ eq(
 			['b', 40],
 		],
 	);
+}
+
+// ---- 9. a state's start offset -----------------------------------------------------------------
+
+{
+	const pulse = (loop: boolean, extra: Partial<import('engine-layout').SmState> = {}) =>
+		machine({
+			id: 'main',
+			entry: 'lit',
+			states: [{ id: 'lit', timeline: 'c_coin_win', loop, offsetParam: 'phase', ...extra }],
+			transitions: [],
+		});
+	const runner = (m: ComponentStateMachine, phase: unknown, random?: () => number) =>
+		new M.ComponentStateMachineRunner(
+			m,
+			inputs,
+			durations,
+			(k) => (k === 'phase' ? phase : undefined),
+			random,
+		);
+	eq(
+		'the entry state starts at the placement offset',
+		r2(runner(pulse(true), 0.25).plays()[0].time),
+		0.25,
+	);
+	eq(
+		'…entered there, so its cues up to it fire on entry',
+		runner(pulse(true), 0.25).plays()[0].entered,
+		true,
+	);
+	eq(
+		'a looping state wraps an offset past its end',
+		r2(runner(pulse(true), 2.75).plays()[0].time),
+		0.75,
+	);
+	eq('a held state clamps it to its end', r2(runner(pulse(false), 2.75).plays()[0].time), 1);
+	eq('a missing or junk param starts at 0', runner(pulse(true), 'x').plays()[0].time, 0);
+	eq(
+		'random start: a random point of the timeline, on top of the offset',
+		r2(runner(pulse(true, { randomStart: true }), 0.25, () => 0.5).plays()[0].time),
+		0.75,
+	);
+	const reenter = new M.ComponentStateMachineRunner(
+		machine({
+			id: 'main',
+			entry: 'idle',
+			states: [
+				{ id: 'idle', timeline: 'c_coin_idle' },
+				{ id: 'win', timeline: 'c_coin_win', loop: true, offsetParam: 'phase' },
+			],
+			transitions: [
+				{ id: 't', from: 'idle', to: 'win', conditions: [{ input: 'win', op: 'fired' }] },
+			],
+		}),
+		inputs,
+		durations,
+		(k) => (k === 'phase' ? 0.4 : undefined),
+	);
+	reenter.fire('win');
+	reenter.advance(0.1);
+	eq(
+		'a transition into the state starts it at the offset too',
+		[reenter.stateOf('main'), r2(reenter.plays()[0].time), reenter.plays()[0].entered],
+		['win', 0.4, true],
+	);
+	reenter.advance(0.1);
+	eq('…and it plays on from there', r2(reenter.plays()[0].time), 0.5);
+	const saved = normalizeComponent({
+		id: 'pulse',
+		name: 'Pulse',
+		version: 1,
+		scope: 'project',
+		category: 'ui',
+		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+		stateMachine: pulse(true, { randomStart: true }),
+	} as unknown as ComponentDef);
+	eq('what saves: offsetParam and randomStart are kept', saved.stateMachine?.layers[0].states[0], {
+		id: 'lit',
+		timeline: 'c_coin_win',
+		loop: true,
+		offsetParam: 'phase',
+		randomStart: true,
+	});
+}
+
+// ---- 10. Phase 9c: transition options, disabled layers, on-exit raises ------------------------
+
+{
+	const r4 = (n: number | undefined): number | undefined =>
+		n === undefined ? undefined : Math.round(n * 10000) / 10000;
+	const winOn = { input: 'win', op: 'fired' } as const;
+	const blended = (over: Partial<SmTransition> = {}): ComponentStateMachine =>
+		machine(
+			layer({
+				transitions: [
+					{ id: 't_win', from: 'idle', to: 'win', blend: 300, conditions: [winOn], ...over },
+					{ id: 't_back', from: 'win', to: 'idle', exitTime: 1, blend: 200 },
+				],
+			}),
+		);
+	/** Every step and pose of a scripted run: win fired, a blend, a re-fire mid-blend, back. */
+	const script = (m: ComponentStateMachine): string => {
+		const r = new M.ComponentStateMachineRunner(m, inputs, durations);
+		const out: unknown[] = [r.plays()];
+		r.fire('win');
+		for (let i = 0; i < 16; i++) {
+			out.push(r.advance(0.1), r.plays(), r.values());
+			if (i === 1) r.setInput('big', true);
+			if (i === 3) r.fire('win');
+		}
+		return JSON.stringify(out);
+	};
+	eq(
+		'parity: the options at their defaults run exactly as a machine without them',
+		script(blended({ pauseSource: true, allowExit: true, disabled: false })),
+		script(blended()),
+	);
+	eq(
+		'parity: a machine without them never reports a playing source',
+		script(blended()).includes('playing'),
+		false,
+	);
+	eq(
+		'parity: a layer with `disabled: false` runs as one without it',
+		script(machine({ ...layer(), disabled: false })),
+		script(machine(layer())),
+	);
+
+	// Disable.
+	const off = new M.ComponentStateMachineRunner(
+		machine(
+			layer({
+				transitions: [
+					{ id: 't_win', from: 'idle', to: 'win', conditions: [winOn], disabled: true },
+					{ id: 't_any', from: 'any', to: 'win', conditions: [winOn], disabled: true },
+				],
+			}),
+		),
+		inputs,
+		durations,
+	);
+	off.fire('win');
+	eq('a disabled transition (from a state or from any) never fires', off.advance(0.1).fired, []);
+	eq('…and the layer stays put', off.stateOf('main'), 'idle');
+	const second: SmLayer = {
+		id: 'second',
+		entry: 'g',
+		states: [{ id: 'g', timeline: 'c_not_registered' }],
+		transitions: [],
+		disabled: true,
+	};
+	const two = new M.ComponentStateMachineRunner(machine(layer(), second), inputs, durations);
+	eq(
+		'a disabled layer sits in exit and plays nothing',
+		[two.plays()[1].state, two.plays()[1].timeline],
+		['exit', undefined],
+	);
+	eq('…its timelines are not reported missing', two.missingTimelines, []);
+	eq('…its state value reads exit', two.values()['second.state'], 'exit');
+	two.fire('win');
+	two.advance(0.1);
+	two.reset();
+	eq(
+		'…the other layers run, and a reset keeps it in exit',
+		[two.stateOf('main'), two.stateOf('second')],
+		['idle', 'exit'],
+	);
+	eq(
+		'validation: a state reached only through a disabled transition is unreachable',
+		M.validateStateMachine(
+			{
+				inputs,
+				stateMachine: machine(
+					layer({
+						transitions: [{ id: 't', from: 'idle', to: 'win', disabled: true }],
+					}),
+				),
+			},
+			durations.keys(),
+		).map((i) => `${i.code}:${i.state}`),
+		['state-unreachable:win'],
+	);
+
+	// Interpolation.
+	const ease: [number, number, number, number] = [0.42, 0, 1, 1];
+	const eased = new M.ComponentStateMachineRunner(blended({ ease }), inputs, durations);
+	const linear = new M.ComponentStateMachineRunner(blended(), inputs, durations);
+	for (const r of [eased, linear]) {
+		r.fire('win');
+		r.advance(0.1);
+		r.advance(0.15);
+	}
+	eq(
+		'a cubic ease shapes the blend’s progress (the evaluator’s curve at half way)',
+		r4(eased.plays()[0].from?.progress),
+		r4(easeShape(ease)(0.5)),
+	);
+	eq('…which is not the linear progress', r4(linear.plays()[0].from?.progress), 0.5);
+	eased.advance(0.2);
+	eq('…and the blend still ends', eased.plays()[0].from, undefined);
+
+	// Pause source when exiting.
+	const playOn = new M.ComponentStateMachineRunner(
+		blended({ pauseSource: false }),
+		inputs,
+		durations,
+	);
+	const frozen = new M.ComponentStateMachineRunner(blended(), inputs, durations);
+	for (const r of [playOn, frozen]) {
+		r.advance(0.85);
+		r.fire('win');
+		r.advance(0.1);
+	}
+	eq(
+		'pauseSource false: the blend starts from where the state was left, marked playing',
+		playOn.plays()[0].from && { ...playOn.plays()[0].from, time: r2(playOn.plays()[0].from?.time) },
+		{ time: 0.95, progress: 0, timeline: 'c_coin_idle', playing: true },
+	);
+	playOn.advance(0.1);
+	frozen.advance(0.1);
+	eq(
+		'…and the state left plays on under it, wrapping as it loops',
+		r2(playOn.plays()[0].from?.time),
+		0.05,
+	);
+	eq('…where a paused one stays frozen', r2(frozen.plays()[0].from?.time), 0.95);
+	{
+		// The player samples the state left at its live playhead. `win` (y -100 → 0 over 1 s) is
+		// left half way for `idle`, which keys no y, over a 1 s blend: a quarter in, the live source
+		// is at 0.75 (y -25) where a frozen one is still at 0.5 (y -50).
+		const away = (over: Partial<SmTransition>): ComponentStateMachine =>
+			machine({
+				id: 'main',
+				entry: 'win',
+				states: [
+					{ id: 'win', timeline: 'c_coin_win' },
+					{ id: 'idle', timeline: 'c_coin_idle', loop: true },
+				],
+				transitions: [
+					{ id: 't', from: 'win', to: 'idle', blend: 1000, conditions: [winOn], ...over },
+				],
+			});
+		const yAt = (m: ComponentStateMachine): number | undefined => {
+			const player = new L.ComponentTimelinePlayer([idle, win], nodes);
+			const r = new M.ComponentStateMachineRunner(m, inputs, durations);
+			const apply = (): void => {
+				r.plays().forEach((play, i) => player.drive(play.layer, i, play));
+			};
+			apply();
+			r.advance(0.5);
+			apply();
+			r.fire('win');
+			r.advance(0);
+			apply();
+			r.advance(0.25);
+			apply();
+			return r2((player.sample('n_coin') as { y?: number } | undefined)?.y);
+		};
+		eq('the player blends from the live source', yAt(away({ pauseSource: false })), -18.75);
+		eq('…and from the frozen pose without the option (as before)', yAt(away({})), -37.5);
+	}
+
+	// Allow exit during transition.
+	const guarded = (allowExit?: boolean): M.ComponentStateMachineRunner => {
+		const r = new M.ComponentStateMachineRunner(
+			machine(
+				layer({
+					transitions: [
+						{
+							id: 't_win',
+							from: 'idle',
+							to: 'win',
+							blend: 500,
+							conditions: [winOn],
+							...(allowExit === undefined ? {} : { allowExit }),
+						},
+						{
+							id: 't_back',
+							from: 'win',
+							to: 'idle',
+							conditions: [{ input: 'big', op: '==', value: true }],
+						},
+					],
+				}),
+			),
+			inputs,
+			durations,
+		);
+		r.fire('win');
+		r.advance(0.1);
+		r.setInput('big', true);
+		r.advance(0.1);
+		return r;
+	};
+	eq(
+		'without allowExit a transition may leave mid-blend (as before)',
+		guarded().stateOf('main'),
+		'idle',
+	);
+	const locked = guarded(false);
+	eq('allowExit false: no transition leaves until the blend ends', locked.stateOf('main'), 'win');
+	locked.advance(0.45);
+	eq('…then it may', locked.stateOf('main'), 'idle');
+	{
+		// A trigger fired during the locked blend waits for it, as one waits on an exit time.
+		const r = new M.ComponentStateMachineRunner(
+			machine(
+				layer({
+					transitions: [
+						{
+							id: 't_win',
+							from: 'idle',
+							to: 'win',
+							blend: 500,
+							allowExit: false,
+							conditions: [winOn],
+						},
+						{ id: 't_back', from: 'win', to: 'idle', conditions: [winOn] },
+					],
+				}),
+			),
+			inputs,
+			durations,
+		);
+		r.fire('win');
+		r.advance(0.1);
+		r.fire('win');
+		r.advance(0.1);
+		eq('a trigger fired during a locked blend does not leave yet', r.stateOf('main'), 'win');
+		r.advance(0.2);
+		eq('…it is held while the blend runs', r.stateOf('main'), 'win');
+		r.advance(0.25);
+		eq('…and taken when the blend ends', r.stateOf('main'), 'idle');
+	}
+
+	// On exit.
+	const raised: string[] = [];
+	const exitDef = {
+		id: 'coin',
+		root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] } as unknown as LayoutNode,
+		inputs,
+		events: [{ id: 'left' }, { id: 'arrived' }, { id: 'gone' }],
+		stateMachine: machine(
+			layer({
+				states: [
+					{
+						id: 'idle',
+						timeline: 'c_coin_idle',
+						loop: true,
+						onExit: [{ id: 'x1', kind: 'raise', event: 'left' }],
+					},
+					{
+						id: 'win',
+						timeline: 'c_coin_win',
+						onEnter: [{ id: 'e1', kind: 'raise', event: 'arrived' }],
+						onExit: [{ id: 'x2', kind: 'raise', event: 'gone' }],
+					},
+				],
+				transitions: [
+					{ id: 't_win', from: 'idle', to: 'win', conditions: [winOn] },
+					{ id: 't_out', from: 'win', to: 'exit', exitTime: 1 },
+				],
+			}),
+		),
+	} as unknown as ComponentDef;
+	const dispatcher = new E.ComponentEventDispatcher(exitDef, {
+		instanceId: 'i',
+		fireTrigger: () => undefined,
+		raise: (e) => raised.push(e.event),
+	});
+	const exitRunner = new M.ComponentStateMachineRunner(exitDef.stateMachine!, inputs, durations);
+	dispatcher.started(exitRunner.plays());
+	eq('starting raises no on-exit', raised, []);
+	exitRunner.fire('win');
+	dispatcher.transitions(exitRunner.advance(0.1).fired);
+	eq('a transition raises the state left’s onExit, then the target’s onEnter', raised, [
+		'left',
+		'arrived',
+	]);
+	dispatcher.transitions(exitRunner.advance(1).fired);
+	eq('…and leaving for exit raises onExit too', raised, ['left', 'arrived', 'gone']);
+	eq(
+		'validation: an onExit raise of an undeclared event is flagged on its state',
+		E.validateComponentEvents({
+			...exitDef,
+			events: [{ id: 'left' }, { id: 'arrived' }],
+		}).map((i) => `${i.code}:${i.state}:${i.event}:${i.on}:${i.message.split(' raises')[0]}`),
+		['raise-event-unknown:win:gone:exit:On exit of state "win" (layer "main")'],
+	);
+	eq(
+		'the localization harvest reads onExit payloads',
+		E.raisedPayloadKeys({
+			root: exitDef.root,
+			stateMachine: machine(
+				layer({
+					states: [
+						{
+							id: 'idle',
+							timeline: 'c_coin_idle',
+							onExit: [
+								{ id: 'x', kind: 'raise', event: 'left', payload: { label: { key: 'Bye now' } } },
+							],
+						},
+					],
+				}),
+			),
+		}),
+		[{ key: 'Bye now', event: 'left' }],
+	);
+
+	// What saves.
+	const save = (stateMachine: unknown): ComponentStateMachine | undefined =>
+		normalizeComponent({
+			id: 'coin',
+			name: 'Coin',
+			version: 1,
+			scope: 'project',
+			category: 'ui',
+			root: { id: 'root', kind: 'container', x: 0, y: 0, children: [] },
+			stateMachine,
+		} as unknown as ComponentDef).stateMachine;
+	const plain = machine(layer());
+	eq(
+		'parity: a machine without the options saves byte-identically',
+		JSON.stringify(save(plain)),
+		JSON.stringify(plain),
+	);
+	const savedOptions = save({
+		layers: [
+			{
+				...layer({
+					states: [
+						{
+							id: 'idle',
+							timeline: 'c_coin_idle',
+							onExit: [{ id: 'x1', kind: 'raise', event: 'left' }],
+						},
+					],
+					transitions: [
+						{
+							id: 'a',
+							from: 'idle',
+							to: 'idle',
+							blend: 200,
+							ease: [0.42, 0, 0.58, 1],
+							pauseSource: false,
+							allowExit: false,
+							disabled: true,
+						},
+						{ id: 'b', from: 'idle', to: 'idle', blend: 200, ease: [1, 2, 3], pauseSource: true },
+						{
+							id: 'c',
+							from: 'idle',
+							to: 'idle',
+							ease: [0, 0, 1, 1],
+							allowExit: false,
+							disabled: true,
+						},
+					],
+				}),
+				disabled: true,
+			},
+		],
+	})?.layers[0];
+	eq('what saves: a state’s onExit', savedOptions?.states[0].onExit, [
+		{ id: 'x1', kind: 'raise', event: 'left' },
+	]);
+	eq(
+		'what saves: the blend’s options with a blend; a malformed ease and a default pauseSource are dropped; disabled stands alone',
+		savedOptions?.transitions,
+		[
+			{
+				id: 'a',
+				from: 'idle',
+				to: 'idle',
+				blend: 200,
+				ease: [0.42, 0, 0.58, 1],
+				pauseSource: false,
+				allowExit: false,
+				disabled: true,
+			},
+			{ id: 'b', from: 'idle', to: 'idle', blend: 200 },
+			{ id: 'c', from: 'idle', to: 'idle', disabled: true },
+		],
+	);
+	eq('what saves: a disabled layer', savedOptions?.disabled, true);
 }
 
 console.log(

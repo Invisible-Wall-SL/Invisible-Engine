@@ -12,6 +12,7 @@ import {
 	flightEase,
 	flightDuration,
 	flightEaseOf,
+	flightHeadPose,
 	flightPlanOptions,
 	headingOnCurve,
 	planFlight,
@@ -22,6 +23,7 @@ import {
 	isFlightKey,
 	normalizeFlights,
 	resolveFlightStyle,
+	type FlightEase,
 	type FlightsConfig,
 } from '../../engine-layout/src/lib/flightStyle.ts';
 
@@ -48,10 +50,14 @@ const CODED = {
 	minMs: 350,
 	maxMs: 900,
 	ease: 'easeInOut',
+	slowdown: 0.6,
 	stagger: 70,
 	size: 1,
 	trailAlign: false,
 	trailRotation: 0,
+	headAlign: 'off',
+	headRotation: 0,
+	depth: 0,
 };
 
 it('no block ⇒ the coded flight', resolveFlightStyle(undefined, 'toTotal'), CODED);
@@ -62,9 +68,13 @@ it('the coded numbers are the ones flyTo used before the block existed', FLIGHT_
 	maxMs: 900,
 	stagger: 70,
 	ease: 'easeInOut',
+	slowdown: 0.6,
 	size: 1,
 	trailAlign: false,
 	trailRotation: 0,
+	headAlign: 'off',
+	headRotation: 0,
+	depth: 0,
 	padding: 0.1,
 	overRoute: true,
 	avoid: true,
@@ -95,10 +105,14 @@ it(
 		minMs: 350,
 		maxMs: 900,
 		ease: 'linear',
+		slowdown: 0.6,
 		stagger: 70,
 		size: 1,
 		trailAlign: false,
 		trailRotation: 0,
+		headAlign: 'off',
+		headRotation: 0,
+		depth: 0,
 		head: { kind: 'none' },
 		trail: { effectId: 'fx-meter' },
 		bend: 0.3,
@@ -233,6 +247,116 @@ it(
 	[[true, 90], false],
 );
 it(
+	'normalize: head align is one of the three, rotation −180…180, depth −1…1; off / 0 are kept',
+	[
+		normalizeFlights({ toTotal: { headAlign: 'spin', headRotation: -400, depth: 3 } })?.toTotal,
+		normalizeFlights({ toTotal: { headAlign: 'upright', depth: -0.25 } })?.toTotal,
+		normalizeFlights({ toTotal: { headAlign: 'off', headRotation: 0, depth: 0 } })?.toTotal,
+	],
+	[
+		{ headRotation: -180, depth: 1 },
+		{ headAlign: 'upright', depth: -0.25 },
+		{ headAlign: 'off', headRotation: 0, depth: 0 },
+	],
+);
+it(
+	'resolve: head align / rotation / depth follow the toMeter family, an own off / 0 beats it',
+	[
+		resolveFlightStyle(
+			{ toMeter: { headAlign: 'follow', headRotation: 90, depth: 0.5 } },
+			'toMeter:red',
+		),
+		resolveFlightStyle(
+			{
+				toMeter: { headAlign: 'follow', depth: 0.5 },
+				'toMeter:red': { headAlign: 'off', depth: 0 },
+			},
+			'toMeter:red',
+		),
+	].map((v) => [v.headAlign, v.headRotation, v.depth]),
+	[
+		['follow', 90, 0.5],
+		['off', 0, 0],
+	],
+);
+{
+	const round = (n: number) => Math.round(n * 1000) / 1000;
+	const pose = (
+		headAlign: 'off' | 'follow' | 'upright',
+		depth: number,
+		heading: number,
+		t: number,
+		headRotation = 0,
+	) => {
+		const p = flightHeadPose({ headAlign, headRotation, depth }, heading, t);
+		return [round(p.scale), round(p.rotation), round(p.stretch), p.flip, round(p.artRotation)];
+	};
+	const leaned = round(1 / Math.hypot(1, Math.PI / 2));
+	it(
+		'pose: the coded flight draws the head as it always did, whatever the heading',
+		[pose('off', 0, 2, 0), pose('off', 0, -2, 0.5), pose('off', 0, 3, 1)],
+		[
+			[1, 0, 1, 1, 0],
+			[1, 0, 1, 1, 0],
+			[1, 0, 1, 1, 0],
+		],
+	);
+	it(
+		'pose: following turns the head to the heading; upright mirrors it while it heads left',
+		[
+			pose('follow', 0, Math.PI, 0.5),
+			pose('upright', 0, Math.PI, 0.5),
+			pose('upright', 0, -0.5, 0.5),
+			pose('upright', 0, Math.PI / 2, 0.5),
+		],
+		[
+			[1, round(Math.PI), 1, 1, 0],
+			[1, round(Math.PI), 1, -1, 0],
+			[1, -0.5, 1, 1, 0],
+			[1, round(Math.PI / 2), 1, 1, 0],
+		],
+	);
+	it(
+		'pose: the head rotation turns the art, aligned or not',
+		[pose('off', 0, 1, 0.5, 90)[4], pose('follow', 0, 1, 0.5, -45)[4]],
+		[round(Math.PI / 2), round(-Math.PI / 4)],
+	);
+	it(
+		'pose: depth 1 doubles the head at mid-flight, −1 takes it to ⅔, both land at their size',
+		[
+			pose('off', 1, 0, 0.5)[0],
+			pose('off', -1, 0, 0.5)[0],
+			pose('off', 1, 0, 0)[0],
+			pose('off', 1, 0, 1)[0],
+			pose('off', -1, 0, 1)[0],
+		],
+		[2, 0.667, 1, 1, 1],
+	);
+	it(
+		'pose: it grows on the way up and shrinks back on the way down, symmetrically',
+		[
+			pose('off', 0.6, 0, 0.25)[0] > 1,
+			pose('off', 0.6, 0, 0.25)[0] === pose('off', 0.6, 0, 0.75)[0],
+		],
+		[true, true],
+	);
+	it(
+		'pose: a following head leans into the screen at both ends, full length at the top',
+		[
+			pose('follow', 1, 0, 0)[2],
+			pose('follow', 1, 0, 1)[2],
+			pose('follow', 1, 0, 0.5)[2],
+			pose('upright', -1, 0, 0)[2],
+		],
+		[leaned, leaned, 1, leaned],
+	);
+	it(
+		'pose: a head that does not follow never leans (it faces the player)',
+		pose('off', 1, 0, 0)[2],
+		1,
+	);
+}
+it(
 	'heading: along a straight route, and the curve tangent at its ends',
 	[
 		headingOnCurve(
@@ -297,16 +421,19 @@ it(
 		[16, false],
 	);
 }
-it('the coded ease is the coded curve', flightEaseOf('easeInOut'), flightEase);
+const easeOf = (ease: FlightEase, slowdown: number = FLIGHT_DEFAULTS.slowdown) =>
+	flightEaseOf({ ease, slowdown });
+it('the coded ease is the coded curve', easeOf('easeInOut') === flightEase, true);
 it(
 	'every ease runs 0 → 1 and clamps',
-	(['linear', 'easeIn', 'easeOut', 'easeInOut'] as const).map((ease) => [
-		flightEaseOf(ease)(-1),
-		flightEaseOf(ease)(0),
-		flightEaseOf(ease)(1),
-		flightEaseOf(ease)(2),
+	(['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutIn'] as const).map((ease) => [
+		easeOf(ease)(-1),
+		easeOf(ease)(0),
+		easeOf(ease)(1),
+		easeOf(ease)(2),
 	]),
 	[
+		[0, 0, 1, 1],
 		[0, 0, 1, 1],
 		[0, 0, 1, 1],
 		[0, 0, 1, 1],
@@ -315,9 +442,56 @@ it(
 );
 it(
 	'ease in starts slow, ease out starts fast',
-	[flightEaseOf('easeIn')(0.25) < 0.25, flightEaseOf('easeOut')(0.25) > 0.25],
+	[easeOf('easeIn')(0.25) < 0.25, easeOf('easeOut')(0.25) > 0.25],
 	[true, true],
 );
+{
+	const round = (n: number): number => Math.round(n * 1000) / 1000;
+	const speedAt = (ease: (t: number) => number, t: number): number =>
+		t === 0 ? ease(1e-6) / 1e-6 : (ease(t + 1e-3) - ease(t - 1e-3)) / 2e-3;
+	const outIn = easeOf('easeOutIn');
+	it(
+		'ease out-in is fast, slow, fast — halfway at mid-flight',
+		[outIn(0.25) > 0.25, outIn(0.5), outIn(0.75) < 0.75],
+		[true, 0.5, true],
+	);
+	it(
+		'…and as fast at the end as at the start',
+		Math.abs(speedAt(outIn, 0.1) - speedAt(outIn, 0.9)) < 1e-6,
+		true,
+	);
+	it(
+		'slowdown sets its speed at mid-flight — 1 − slowdown of the average (1 stops it)',
+		[1, FLIGHT_DEFAULTS.slowdown, 0].map((s) => round(speedAt(easeOf('easeOutIn', s), 0.5))),
+		[0, 0.4, 1],
+	);
+	it(
+		'…and 1 + 2·slowdown of the average as it leaves',
+		[1, FLIGHT_DEFAULTS.slowdown, 0].map((s) => round(speedAt(easeOf('easeOutIn', s), 0))),
+		[3, 2.2, 1],
+	);
+	it(
+		'slowdown 0 flies at a steady speed',
+		[0.1, 0.3, 0.7].map(easeOf('easeOutIn', 0)),
+		[0.1, 0.3, 0.7],
+	);
+	it(
+		'the other eases ignore slowdown',
+		(['linear', 'easeIn', 'easeOut', 'easeInOut'] as const).every(
+			(ease) => easeOf(ease, 0)(0.3) === easeOf(ease, 1)(0.3),
+		),
+		true,
+	);
+	it(
+		'slowdown is clamped to 0…1 and falls back through the meter family',
+		[
+			resolveFlightStyle({ toTotal: { slowdown: 3 } }, 'toTotal').slowdown,
+			resolveFlightStyle({ toTotal: { slowdown: -1 } }, 'toTotal').slowdown,
+			resolveFlightStyle({ toMeter: { slowdown: 0.2 } }, 'toMeter:gold').slowdown,
+		],
+		[1, 0, 0.2],
+	);
+}
 
 it('no authored bend ⇒ the coded ladder', flightBendStrengths(undefined), FLIGHT_BEND_STRENGTHS);
 it('bend 0 ⇒ no bends', flightBendStrengths(0), []);

@@ -1,5 +1,5 @@
 import { BUILTIN_REGION } from './builtinRegions';
-import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
+import { BUTTON_LOOKS, BUTTON_STATE_IMAGE_PARAMS, type ButtonLook } from './buttonStateImage';
 import {
 	HOLD_AND_WIN_VALUE_SOURCE_KEYS,
 	HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS,
@@ -298,6 +298,271 @@ export const BUTTON_DEF: ComponentDef = {
 		{ key: 'disabled', kind: 'boolean', engineProvided: true },
 		{ key: 'active', kind: 'boolean', engineProvided: true },
 		{ key: 'spinning', kind: 'boolean', engineProvided: true },
+	],
+};
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED BUTTON (Rive plan Phase 8d, `docs/design/rive-style-editor.md` §13.8): how the
+// parametric `button` looks per state — the coded `ButtonFrame`'s frame, its spin rotation, the
+// `uiShow` / `uiHide` fade and the press sound — as nodes a seeded state machine drives. The press
+// road and the gates that feed the flags stay coded; the label stays the coded `ButtonLabel`.
+// ---------------------------------------------------------------------------------------------
+
+export const BUTTON_PRESENTATION_ID = 'buttonPresentation';
+
+/** The node names the button machine's timelines bind (labels, unique within the def). */
+export const BUTTON_PRESENTATION_NODES = {
+	fade: 'fade',
+	frame: 'frame',
+	label: 'label',
+} as const;
+
+/** `UiSprite`'s corner radius (`<Rectangle borderRadius={50}>`). */
+const BUTTON_TILE_RADIUS = 50;
+/** The coded frame's painted downstate: the tile fill, or the frame sprite's tint. */
+export const BUTTON_DISABLED_GREY = 0xaaaaaa;
+/** The coded frame's active border on the tile. */
+const BUTTON_ACTIVE_BORDER = 10;
+/** The press sounds a press can hand the machine — the game's `Sound` events, by name. */
+export const BUTTON_PRESS_SOUNDS = [
+	'soundPressGeneral',
+	'soundPressBet',
+	'soundPressStop',
+] as const;
+/** The machine's reserved inputs, fed by the instance (`ComponentDef.buttonStates`). */
+export const BUTTON_STATE_INPUTS = {
+	look: 'look',
+	rotating: 'rotating',
+	fadeWithUi: 'fadeWithUi',
+	uiHide: 'uiHide',
+	uiShow: 'uiShow',
+} as const;
+/** The coded `FadeContainer`'s default tween — the HUD's `uiShow` / `uiHide` fade. */
+export const BUTTON_FADE_MS = 400;
+
+const buttonTimelineId = (suffix: string): string => `c_buttonpresentation_${suffix.toLowerCase()}`;
+export const buttonLookTimelineId = (look: ButtonLook): string => buttonTimelineId(`look_${look}`);
+export const BUTTON_SPIN_STILL_TIMELINE_ID = buttonTimelineId('spin_still');
+export const BUTTON_SPIN_ROTATING_TIMELINE_ID = buttonTimelineId('spin_rotating');
+export const BUTTON_FADE_SHOWN_TIMELINE_ID = buttonTimelineId('fade_shown');
+export const BUTTON_FADE_HIDDEN_TIMELINE_ID = buttonTimelineId('fade_hidden');
+export const BUTTON_SOUND_QUIET_TIMELINE_ID = buttonTimelineId('sound_quiet');
+export const buttonSoundTimelineId = (sound: string): string => buttonTimelineId(`sound_${sound}`);
+
+const tileNode = (look: ButtonLook, disabled: boolean, active: boolean): LayoutNode => ({
+	id: `buttonPresentation-${look}`,
+	label: look,
+	kind: 'rect',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	width: BUTTON_BASE_SIZE,
+	height: BUTTON_BASE_SIZE,
+	borderRadius: BUTTON_TILE_RADIUS,
+	...(disabled ? { color: BUTTON_DISABLED_GREY } : {}),
+	...(active ? { borderWidth: BUTTON_ACTIVE_BORDER } : {}),
+	paramBindings: {
+		...(disabled ? {} : { color: 'tileColor' }),
+		...(active ? { borderColor: 'tileBorderColor' } : {}),
+	},
+});
+
+const imageNode = (look: ButtonLook, grey: boolean): LayoutNode => ({
+	id: `buttonPresentation-${look}`,
+	label: look,
+	kind: 'sprite',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: 0.5 },
+	// No static texture: the frame is the bound `image` (a look with none never shows this node).
+	assetKey: '',
+	width: BUTTON_BASE_SIZE,
+	height: BUTTON_BASE_SIZE,
+	...(grey ? { tint: BUTTON_DISABLED_GREY } : {}),
+	paramBindings: { region: 'image' },
+});
+
+/** One look's state: the look's frame node shown, the other five hidden. */
+const lookState = (look: ButtonLook) => ({ id: look, timeline: buttonLookTimelineId(look) });
+
+/**
+ * The AUTHORED parametric button (Rive plan Phase 8d, §13.8.2): beside, not instead of, `button`
+ * (whose bound `ButtonFrame` stays the coded path). Same params as `button`, so a swapped instance
+ * keeps its own. `internal`: nothing references it until a project turns on
+ * `settings.authoredOverlays.buttons`, and no palette offers it during the pilot.
+ *
+ * `fade` (the fade layer's alpha) › `frame` (the spin layer's rotation, the `tint` param — the coded
+ * frame tints its container) › the six frame nodes, one shown per look (`BUTTON_LOOKS`): four
+ * rounded-rect tiles, each the ONE `Rectangle` the coded `UiSprite` draws for that look (variant
+ * fill or the grey, with or without the active border), and the state frame sprite plain or greyed,
+ * its `region` the cascade-resolved frame the instance provides as `image`; then `label`, the coded
+ * `ButtonLabel`, outside `frame` as it is coded. The machine's four layers each key their own nodes.
+ */
+export const BUTTON_PRESENTATION_DEF: ComponentDef = {
+	id: BUTTON_PRESENTATION_ID,
+	name: 'Button presentation',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	internal: true,
+	frameExact: true,
+	buttonStates: true,
+	settles: true,
+	root: {
+		id: 'buttonPresentation-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'buttonPresentation-fade',
+				label: BUTTON_PRESENTATION_NODES.fade,
+				kind: 'container',
+				x: 0,
+				y: 0,
+				children: [
+					{
+						id: 'buttonPresentation-frame',
+						label: BUTTON_PRESENTATION_NODES.frame,
+						kind: 'container',
+						x: 0,
+						y: 0,
+						paramBindings: { tint: 'tint' },
+						children: [
+							tileNode('tile', false, false),
+							tileNode('tileDisabled', true, false),
+							tileNode('tileActive', false, true),
+							tileNode('tileDisabledActive', true, true),
+							imageNode('image', false),
+							imageNode('imageDisabled', true),
+						],
+					},
+					{
+						id: 'buttonPresentation-label',
+						label: BUTTON_PRESENTATION_NODES.label,
+						kind: 'container',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						bind: { component: 'ButtonLabel' },
+						children: [],
+					},
+				],
+			},
+		],
+	},
+	inputs: [
+		{ id: BUTTON_STATE_INPUTS.look, kind: 'number', note: 'The frame look (fed by the instance).' },
+		{ id: BUTTON_STATE_INPUTS.rotating, kind: 'bool', note: 'The spin frame rotates.' },
+		{ id: BUTTON_STATE_INPUTS.fadeWithUi, kind: 'bool', note: 'The button fades on its own.' },
+		{ id: BUTTON_STATE_INPUTS.uiHide, kind: 'trigger', note: 'The game hides its UI.' },
+		{ id: BUTTON_STATE_INPUTS.uiShow, kind: 'trigger', note: 'The game shows its UI.' },
+		...BUTTON_PRESS_SOUNDS.map((sound) => ({
+			id: sound,
+			kind: 'trigger' as const,
+			note: 'A press makes this sound.',
+		})),
+	],
+	stateMachine: {
+		layers: [
+			{
+				id: 'look',
+				name: 'Look',
+				entry: 'tile',
+				states: BUTTON_LOOKS.map(lookState),
+				transitions: BUTTON_LOOKS.map((look, index) => ({
+					id: `to-${look}`,
+					from: 'any',
+					to: look,
+					conditions: [{ input: BUTTON_STATE_INPUTS.look, op: '==' as const, value: index }],
+				})),
+			},
+			{
+				id: 'spin',
+				name: 'Spin',
+				entry: 'still',
+				states: [
+					{ id: 'still', timeline: BUTTON_SPIN_STILL_TIMELINE_ID },
+					{ id: 'rotating', timeline: BUTTON_SPIN_ROTATING_TIMELINE_ID, loop: true },
+				],
+				transitions: [
+					{
+						id: 'start',
+						from: 'still',
+						to: 'rotating',
+						conditions: [{ input: BUTTON_STATE_INPUTS.rotating, op: '==', value: true }],
+					},
+					{
+						id: 'stop',
+						from: 'rotating',
+						to: 'still',
+						conditions: [{ input: BUTTON_STATE_INPUTS.rotating, op: '==', value: false }],
+					},
+				],
+			},
+			{
+				id: 'fade',
+				name: 'Fade',
+				entry: 'shown',
+				states: [
+					{ id: 'shown', timeline: BUTTON_FADE_SHOWN_TIMELINE_ID },
+					{ id: 'hidden', timeline: BUTTON_FADE_HIDDEN_TIMELINE_ID },
+				],
+				transitions: [
+					{
+						id: 'hide',
+						from: 'shown',
+						to: 'hidden',
+						conditions: [
+							{ input: BUTTON_STATE_INPUTS.uiHide, op: 'fired' },
+							{ input: BUTTON_STATE_INPUTS.fadeWithUi, op: '==', value: true },
+						],
+						blend: BUTTON_FADE_MS,
+					},
+					{
+						id: 'show',
+						from: 'hidden',
+						to: 'shown',
+						conditions: [
+							{ input: BUTTON_STATE_INPUTS.uiShow, op: 'fired' },
+							{ input: BUTTON_STATE_INPUTS.fadeWithUi, op: '==', value: true },
+						],
+						blend: BUTTON_FADE_MS,
+					},
+				],
+			},
+			{
+				id: 'sound',
+				name: 'Press sound',
+				entry: 'quiet',
+				states: [
+					{ id: 'quiet', timeline: BUTTON_SOUND_QUIET_TIMELINE_ID },
+					...BUTTON_PRESS_SOUNDS.map((sound) => ({
+						id: sound,
+						timeline: buttonSoundTimelineId(sound),
+					})),
+				],
+				// From any other state, and again from its own (a second press of the same sound).
+				transitions: BUTTON_PRESS_SOUNDS.flatMap((sound) => [
+					{
+						id: `play-${sound}`,
+						from: 'any',
+						to: sound,
+						conditions: [{ input: sound, op: 'fired' as const }],
+					},
+					{
+						id: `replay-${sound}`,
+						from: sound,
+						to: sound,
+						conditions: [{ input: sound, op: 'fired' as const }],
+					},
+				]),
+			},
+		],
+	},
+	params: [
+		...(BUTTON_DEF.params ?? []),
+		{ key: 'fadeWithUi', kind: 'boolean', default: false, label: 'fade on UI show / hide' },
 	],
 };
 
@@ -1238,6 +1503,8 @@ export const WIN_PRESENTATION_DEFAULTS = {
 export interface WinPresentationTier extends WinTierMeta {
 	/** The tier's Win Text caption (`winLevels.<alias>`, a key or source text); empty ⇒ none drawn. */
 	caption?: string;
+	/** The spins modes' own captions for the tier (mode id → caption), when they differ. */
+	modeCaptions?: Record<string, string>;
 }
 
 /** The node names the generated win timelines bind (`findActorNode` matches a component's nodes by label). */
@@ -1291,7 +1558,11 @@ const winGoldText = (fontSize: number) => ({
  */
 export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TIERS): ComponentDef {
 	const captions = [
-		...new Set(tiers.map((tier) => tier.caption ?? '').filter((caption) => caption.length > 0)),
+		...new Set(
+			tiers
+				.flatMap((tier) => [tier.caption ?? '', ...Object.values(tier.modeCaptions ?? {})])
+				.filter((caption) => caption.length > 0),
+		),
 	];
 	return {
 		id: 'winPresentation',
@@ -1301,6 +1572,7 @@ export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TI
 		category: 'overlay',
 		internal: true,
 		frameExact: true,
+		settles: true,
 		root: {
 			id: 'winPresentation-root',
 			kind: 'container',
@@ -1431,6 +1703,281 @@ export function winPresentationDef(tiers: WinPresentationTier[] = DEFAULT_WIN_TI
 }
 
 export const WIN_PRESENTATION_DEF: ComponentDef = winPresentationDef();
+
+// ---------------------------------------------------------------------------------------------
+// THE AUTHORED FREE-SPIN INTRO / OUTRO (Rive plan Phase 8c, `docs/design/rive-style-editor.md`
+// §13.7): what the coded `FreeSpinIntroVisual` / `FreeSpinOutroVisual` draw, as nodes the built-in
+// free-spin timelines (`builtinTimelines.ts`) drive. The coded outro driver, the screens' taps and
+// the flow's holds stay coded; nothing here holds a cue (the coded visuals held nothing).
+// ---------------------------------------------------------------------------------------------
+
+export const FREE_SPIN_INTRO_PRESENTATION_ID = 'freeSpinIntroPresentation';
+export const FREE_SPIN_OUTRO_PRESENTATION_ID = 'freeSpinOutroPresentation';
+
+/** The node names the free-spin timelines bind (labels, unique within each def). */
+export const FREE_SPIN_PRESENTATION_NODES = {
+	fade: 'fade',
+	visual: 'visual',
+	frame: 'frame',
+	content: 'content',
+	number: 'number',
+	count: 'count',
+	caption: 'caption',
+	footer: 'footer',
+	captionBig: 'captionBig',
+	captionSmall: 'captionSmall',
+	footerBig: 'footerBig',
+	footerSmall: 'footerSmall',
+} as const;
+
+/** The coded rigs, clips and slots `FreeSpinAnimation` / the two visuals hardcoded (their defaults). */
+export const FREE_SPIN_PRESENTATION_RIGS = {
+	frame: 'fsIntro',
+	frameSlot: 'slot_text_placeholder',
+	introNumber: 'fsIntroNumber',
+	outroNumber: 'fsOutroNumber',
+	numberSlot: 'slot_number',
+	intro: 'intro',
+	idle: 'idle',
+} as const;
+
+/** The fade layer's poses, one pair per def (the 8b fade machine, `WIN_FADE_MS`). */
+export const freeSpinFadeTimelineId = (defId: string, pose: 'hidden' | 'shown'): string =>
+	`c_${defId.toLowerCase()}_fade_${pose}`;
+
+/**
+ * The game signals the presentations show and hide on — registered by the game only on the authored
+ * path, each fired one animation frame after its emitter event (`freeSpinIntroShow`, the outro's
+ * `freeSpinOutroCountUp` by win level, `freeSpinIntroHide` / `freeSpinOutroHide`): the coded
+ * `FadeContainer` starts its tween, and mounts its rigs, on the tick after the event, so a fire on
+ * the event ran the whole presentation a frame ahead (measured by `check:freespin-parity`).
+ */
+export const FREE_SPIN_INTRO_SHOW_SIGNAL = 'freeSpinIntroShown';
+export const FREE_SPIN_INTRO_HIDE_SIGNAL = 'freeSpinIntroHidden';
+export const FREE_SPIN_OUTRO_BIG_SIGNAL = 'freeSpinOutroShownBig';
+export const FREE_SPIN_OUTRO_SMALL_SIGNAL = 'freeSpinOutroShownSmall';
+export const FREE_SPIN_OUTRO_HIDE_SIGNAL = 'freeSpinOutroHidden';
+/** The game text source the intro count reads (the coded visual's own `freeSpinIntroUpdate` number). */
+export const FREE_SPIN_INTRO_COUNT_SOURCE = 'freeSpinIntroCount';
+
+export interface FreeSpinPresentationInput {
+	/** The board cell (`engine-game` `SYMBOL_SIZE`). */
+	symbolSize: number;
+	/** The board's columns (`boardDimensions().x`). */
+	boardColumns: number;
+	/** The boot's language — the localized sprites' key suffix (`freespins_{lang}.png`). */
+	lang: string;
+}
+
+const FS_DEFAULT_INPUT: FreeSpinPresentationInput = {
+	symbolSize: 120,
+	boardColumns: 5,
+	lang: 'en',
+};
+
+const fsSprite = (
+	label: string,
+	assetKey: string,
+	anchorY: number,
+	width: number,
+	height: number,
+): LayoutNode => ({
+	id: `fs-${label}`,
+	label,
+	kind: 'sprite',
+	x: 0,
+	y: 0,
+	anchor: { x: 0.5, y: anchorY },
+	assetKey,
+	width,
+	height,
+});
+
+const fsFadeMachine = (defId: string, show: string[], hide: string) => ({
+	layers: [
+		{
+			id: 'fade',
+			name: 'Fade',
+			entry: 'hidden',
+			states: [
+				{ id: 'hidden', timeline: freeSpinFadeTimelineId(defId, 'hidden') },
+				{ id: 'shown', timeline: freeSpinFadeTimelineId(defId, 'shown') },
+			],
+			transitions: [
+				...show.map((input) => ({
+					id: `show-${input}`,
+					from: 'any' as const,
+					to: 'shown',
+					conditions: [{ input, op: 'fired' as const }],
+					blend: WIN_FADE_MS,
+				})),
+				{
+					id: 'hide',
+					from: 'any' as const,
+					to: 'hidden',
+					conditions: [{ input: hide, op: 'fired' as const }],
+					blend: WIN_FADE_MS,
+				},
+			],
+		},
+	],
+});
+
+/**
+ * The two AUTHORED free-spin presentations for this boot (§13.7.2), generated because the coded
+ * sizes are fractions of the board width (`SYMBOL_SIZE × boardDimensions().x`) and the sprite keys
+ * carry the boot's language. The coded nesting, node for node: `fade` (the `FadeContainer` alpha,
+ * the def's fade machine) › `visual` (its mount) › the `frame` rig (the coded authoring box's
+ * residue as its y) + `content` riding the frame's `slot_text_placeholder` › the caption sprite(s),
+ * the `number` rig with the `count` text riding its `slot_number`, the footer sprite(s). The outro
+ * carries the big-win and the small-win art; its show timelines pick one.
+ */
+export function freeSpinPresentationDefs(input: FreeSpinPresentationInput = FS_DEFAULT_INPUT): {
+	intro: ComponentDef;
+	outro: ComponentDef;
+} {
+	const N = FREE_SPIN_PRESENTATION_NODES;
+	const R = FREE_SPIN_PRESENTATION_RIGS;
+	const width = input.symbolSize * input.boardColumns;
+	// `FreeSpinAnimation`: the frame at (0.5w, 0.4w) in a w × w panel, the wrapper's pivot at the
+	// centre of a w × w·720/920 box — net (0, 0.4w − 0.5w·720/920).
+	const frameY = width * 0.4 - (width / (920 / 720)) * 0.5;
+	const def = (
+		id: string,
+		name: string,
+		numberRig: string,
+		numberWidth: number,
+		count: LayoutNode,
+		caption: LayoutNode[],
+		footer: LayoutNode[],
+		source: string,
+		show: string[],
+		hide: string,
+	): ComponentDef => ({
+		id,
+		name,
+		version: 1,
+		scope: 'shared',
+		category: 'overlay',
+		internal: true,
+		frameExact: true,
+		boardAnchored: true,
+		settles: true,
+		root: {
+			id: `${id}-root`,
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [
+				{
+					id: `${id}-fade`,
+					label: N.fade,
+					kind: 'container',
+					x: 0,
+					y: 0,
+					children: [
+						{
+							id: `${id}-visual`,
+							label: N.visual,
+							kind: 'container',
+							x: 0,
+							y: 0,
+							children: [
+								{
+									id: `${id}-frame`,
+									label: N.frame,
+									kind: 'spine',
+									x: 0,
+									y: frameY,
+									width,
+									assetKey: R.frame,
+								},
+								{
+									id: `${id}-content`,
+									label: N.content,
+									kind: 'container',
+									x: 0,
+									y: 0,
+									rigSlot: R.frameSlot,
+									children: [
+										...caption,
+										{
+											id: `${id}-number`,
+											label: N.number,
+											kind: 'spine',
+											x: 0,
+											y: 0,
+											width: numberWidth,
+											assetKey: numberRig,
+										},
+										{ ...count, id: `${id}-count`, rigSlot: R.numberSlot },
+										...footer,
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+		inputs: [
+			...show.map((signal) => ({
+				id: signal,
+				kind: 'trigger' as const,
+				note: 'The presentation fades in.',
+			})),
+			{ id: hide, kind: 'trigger', note: 'The presentation fades out.' },
+		],
+		stateMachine: fsFadeMachine(id, show, hide),
+		params: [{ key: 'source', kind: 'string', default: source, options: VALUE_SOURCE_KEYS }],
+	});
+	const countText = (fontSize: number, bold: boolean): LayoutNode => ({
+		id: 'count',
+		label: N.count,
+		kind: 'text',
+		x: 0,
+		y: 0,
+		anchor: { x: 0.5, y: 0.5 },
+		text: '',
+		style: { fontFamily: 'gold', fontSize, ...(bold ? { fontWeight: 'bold' } : {}) },
+		paramBindings: { text: 'value' },
+	});
+	const intro = def(
+		FREE_SPIN_INTRO_PRESENTATION_ID,
+		'Free-spin intro presentation',
+		R.introNumber,
+		width * 0.3,
+		countText(width * 0.1, true),
+		[fsSprite(N.caption, `freespins_${input.lang}.png`, 1.2, 500 * 2.2, 156 * 2.2)],
+		[fsSprite(N.footer, 'freespins.png', -3, 183 * 2.2, 42 * 2.2)],
+		FREE_SPIN_INTRO_COUNT_SOURCE,
+		[FREE_SPIN_INTRO_SHOW_SIGNAL],
+		FREE_SPIN_INTRO_HIDE_SIGNAL,
+	);
+	const outro = def(
+		FREE_SPIN_OUTRO_PRESENTATION_ID,
+		'Free-spin outro presentation',
+		R.outroNumber,
+		width * 0.4,
+		countText(width * 0.08, false),
+		[
+			fsSprite(N.captionBig, `freespins_${input.lang}.png`, 1.2, 500 * 2.2, 156 * 2.2),
+			fsSprite(N.captionSmall, `winsmall_${input.lang}.png`, 1.2, 500 * 4.5, 80 * 4.5),
+		],
+		[
+			fsSprite(N.footerBig, 'totalwin.png', -3.2, 177 * 2.2, 42 * 2.2),
+			fsSprite(N.footerSmall, 'totalwin.png', -2, 177 * 3, 42 * 3),
+		],
+		'freeSpinOutroTotalWin',
+		[FREE_SPIN_OUTRO_BIG_SIGNAL, FREE_SPIN_OUTRO_SMALL_SIGNAL],
+		FREE_SPIN_OUTRO_HIDE_SIGNAL,
+	);
+	return { intro, outro };
+}
+
+const FREE_SPIN_PRESENTATIONS = freeSpinPresentationDefs();
+export const FREE_SPIN_INTRO_PRESENTATION_DEF: ComponentDef = FREE_SPIN_PRESENTATIONS.intro;
+export const FREE_SPIN_OUTRO_PRESENTATION_DEF: ComponentDef = FREE_SPIN_PRESENTATIONS.outro;
 
 /**
  * A droppable full-screen TAP-TO-CONTINUE overlay (Invisible Flow §6.2). An author
@@ -3043,6 +3590,7 @@ export const HOLD_AND_WIN_COMPONENTS: ComponentDef[] = [
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
 	BUTTON_DEF,
+	BUTTON_PRESENTATION_DEF,
 	TEXT_BOX_DEF,
 	FREE_SPIN_COUNTER_DEF,
 	INFO_BAR_DEF,
@@ -3053,6 +3601,8 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	FREE_SPIN_OUTRO_VISUAL_DEF,
 	WIN_DEF,
 	WIN_PRESENTATION_DEF,
+	FREE_SPIN_INTRO_PRESENTATION_DEF,
+	FREE_SPIN_OUTRO_PRESENTATION_DEF,
 	TAP_TO_CONTINUE_DEF,
 	LOADING_BAR_DEF,
 	EXPANDING_SYMBOL_DEF,

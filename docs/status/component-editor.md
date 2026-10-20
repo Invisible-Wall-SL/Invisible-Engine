@@ -23,6 +23,13 @@ Shipped capabilities on `main`:
   **Edit inside ‹part› ›** edits the part's children, and the canvas previews the art and the
   children. A **(Hold and Win)** create type per part makes a project copy.
   Contract: [hold-and-win](hold-and-win.md) Decisions.
+- **Expose a nested component's params on its parent** (2026-10-15, branch
+  `claude/gifted-hawking-uv5utk`, in review, ⏳ not browser-verified). Inside a component, a
+  nested instance's param can come from the open component: **⇡ Expose on ‹parent›** declares a
+  copy on the parent, or the same picker takes it from an existing parent param of the same kind
+  (`paramBindings['params.<key>']`). Each placement of the parent then sets it like any other param.
+  Contract: design §13.2 item 4. Detail under Recent changes, 2026-10-15. The same **⇡** sits on a
+  placed effect's exposed parameters (2026-10-16): see [status/fx](fx.md).
 - **Bind to value** (2026-10-02, Hold and Win Phase 12b) — a node's `valueBindings`: a number (a component param, an engine source, or the instance's own pot via `meter.{meter}.*`) mapped in → out onto a transform offset, a show/hide threshold, a fill reveal (sprite / flipbook / rect), a held clip frame, a rig animation scrub or a rig bone. Authored in the shared Properties section (`EditorValueBindings.svelte`) with a test-value scrub previewed on the canvas and overlays (`valuePreview.client.svelte.ts`). Guide §3b; contract in [hold-and-win](hold-and-win.md).
 - **Listeners + events in the editor** (Rive plan Phase 6b, 2026-10-13, in review, ⏳ not browser-verified). Properties → **Listeners** for a selected node of the component (`EditorListeners.svelte`: rows "On [down/up/hover in/hover out/click] → [fire trigger | set input | toggle bool | raise event]", pickers fed by the def's inputs and events, ⚠ per node from `validateComponentEvents`), **Component variables → Events** below Inputs (`EditorEvents.svelte`: add; ✎ rename-as-replace — the page's dialog lists the listeners, states and timeline `event:` cues that raise it, the listeners and states follow, a cue does not; × remove — asks when something raises it, the raises stay and are flagged; payload fields typed int / number / ms / bool / text key, optional), the shared payload editor (`EditorRaisePayload.svelte`: a value, an input's current value, or a localization key), and in the **State machine** inspector **On enter → ＋ raise event**. The stage preview answers the pointer while the State machine tab is shown: `EditorCanvas` reports moves / presses / releases with the DEEPEST node under the pointer (a hit-test into containers) through `onStagePointer`, `$lib/timeline/listenerPreview.ts` (`StagePointer`, `listeningChain`) turns them into enter / leave / down / up / click deepest-first, and the game's own `ComponentEventDispatcher` runs them against the preview runner; `placeLayers` routes a timeline's `event:` cue to it while running; the inspector's **Events** log lists every raise (time, event, origin, payload). Pure edits in `$lib/timeline/listenerEdit.ts`: listener and on-enter ids are MINTED (`l_` / `e_` + 6 random chars) against the draft's and the last-saved def's ids, so a row this build cannot read (kept by the save, never seen by the client) is never shadowed; event ids are author names. Everything is the draft — the existing component save (`check:component-links` still 71) — and read-only while Inspecting. Gate: `pnpm --filter launcher-api check:component-listeners-events-editor` (64). UI: [guide](../tools/invisible-editor.md#listeners-and-events).
 - **Listeners + events in the format and the runtime** (Rive plan Phase 6a, 2026-10-13, on `main` as #1186). `ComponentDef.events` (`{id, payload?: ParamDecl[], note?}` — Flow's own `ParamDecl`), a node's `on: NodeListener[]` (`{id, event: down|up|enter|leave|click, action: fire|set|toggle|raise}`) and a state's `onEnter: SmEnterAction[]` (a raise with an `id`). Per placed instance, `ComponentEventDispatcher` (`engine-layout/componentEvents.ts`, pure): a listening node is wrapped in a hit surface (`LayoutNodeView`, only when it has listeners), its listeners fire the instance's triggers on its own bus and set its runner's inputs; an event raised by a listener, a state being entered or an `event:<id>` timeline cue leaves on the Flow press road (`getFlowPress()(instanceNodeId, eventId, payload, 'event')`), so Phase 7 only adds the pins; the game plays no press sound for it. A press target with listeners keeps its press (both fire). Raises go through one ordered queue per instance, drained after the current work (never mid-mount, nothing after destroy); a raised event has its own namespace on the road (it never runs a press or `action` pin of the same name — event pins are Phase 7's). Payload `{ key }`s are localization keys (source-as-key) and the harvest collects them. An older build's save keeps newer listener / `onEnter` / payload rows (#1185's rule). The interface (`componentInterface`) lists `events`; `validateComponentEvents` gives the editor its issues; the normalizer keeps the three blocks and drops malformed listeners whole. No listener and no event ⇒ no dispatcher, no context, no wrapper (parity). Format, semantics and the event-id/input-id decision: plan §5 and §6.1. Gate: `pnpm --filter launcher-api check:component-listeners-events` (100 checks, incl. real headless Pixi hit-testing, the raise queue's order and destroy guard, and the game's real resolver keeping events apart from presses); `check:save-keeps-unknown-blocks` has a 6a section; `check:doc-readers-unknown-fields` §13 covers the new blocks.
@@ -38,6 +45,20 @@ Shipped capabilities on `main`:
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
 ## Blocked (owner / external)
+- **⏳ Browser-verify param forwarding** (auth-gated, owner): (a) open your Pot Meter copy →
+  **Edit inside Pot ›**, select a firecracker: Properties → Component instance → Params shows a
+  **⇡** picker beside each param. Pick **Expose on ‹Pot›** for `lightAt`: the row now reads
+  `⇡ from ‹Pot› · lightAt`, and Component variables lists `lightAt` with the piece's value as its
+  default. Do it on a second piece: it gets `lightAt_2`. (b) **🔥 Light order**: the exposed
+  params' defaults are renumbered under Component variables, and the pieces' own values stay as
+  they were. (c) On a third piece pick an existing param under **Take from
+  ‹Pot›'s** (`pieceArt` shared by several pieces, say), then × it: the row gets its own value
+  back and the parent param stays. (d) Expose an image or rig param: the canvas, and the rig
+  layer, show the parent's default. (e) **Save**, then on the Pots screen select a pot: its
+  Params list `lightAt`, `lightAt_2`, …; change one and the canvas and the game follow, while the
+  other pots stay as they were. (f) **Inspect** an older version: the **⇡** pickers and × are
+  disabled. (g) Publish and play: each pot lights its pieces at its own thresholds, and a
+  project with no forwards looks and plays as before.
 - **⏳ Browser-verify Phase 6b** (auth-gated, owner): (a) open a component with a trigger input
   (say `win`) → Properties → **Component variables → Events**: add `pressed`, open it, add a payload
   field `amount` (int); ✎ rename it to `tapped` and back (the dialog lists what raises it). (b)
@@ -57,6 +78,127 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-20 — **Rive plan Phase 9c: the state machine's options, Inputs dock and Console** (branch
+  `claude/rive-p9c-animations-sm`, in review, ⏳ not browser-verified; checklist in
+  [editor status](editor.md) Open item 0c, which also has the Animations list).
+  - **Format and runtime** (`engine-layout`, all additive and optional; semantics in the plan's §5):
+    `SmState.onExit`; on `SmTransition`, `disabled`, and with a blend `ease` (cubic),
+    `pauseSource: false` and `allowExit: false`; `SmLayer.disabled`. `ComponentStateMachineRunner`
+    skips a disabled transition (and holds no trigger for it), shapes the blend's progress with
+    `easeShape`, keeps the left state playing under the blend (`LayerPlay.from.playing`), and
+    blocks every transition while a locked blend runs (a trigger one reads is held until it ends,
+    as for an exit time). A disabled layer sits in `exit`.
+    `ComponentTimelinePlayer` samples a playing source live (`Mix.live`). The
+    `ComponentEventDispatcher` raises the left state's `onExit` before the target's `onEnter`; the
+    localization harvest and `validateComponentEvents` read `onExit`. Validation's reachability
+    ignores a disabled transition. The normalizer keeps the new fields (the blend's three only
+    with a blend, and only their non-default values); `componentFields.ts` knows them; the
+    keep-unknown save grafts `onExit` rows like `onEnter` rows.
+  - **Parity:** a doc without the fields (or with them at their defaults) runs and saves
+    byte-identically. The gate proves defaults-vs-absent on scripted runs and the byte-identical
+    save; separately, a one-off local differential (not in the gate) over 400 random machines
+    matched `main`'s runner exactly.
+  - **The panel** (`EditorStateMachinePanel.svelte`): the **Inputs** list docks left of the graph
+    with its preview controls (Preview inputs left the inspector), plus add (bool / number: a
+    trigger is a declared signal, added in Properties), ✎ and ×, through `ComponentWorkspace`'s
+    own handlers, the ones Properties uses. The transition
+    inspector gains **Interpolation** (`EaseCurveEditor.svelte`: Linear / Cubic, 9b's curve and
+    typed field; value helpers in `$lib/timeline/easeCurve.ts`), *Pause source when exiting*,
+    *Allow exit during transition* and **Disable** (dashed arrow, "off ·" label). States gain
+    **On exit** (`addExitAction` / `removeExitAction`, `x_` ids; an issue on one reads "On exit
+    of state …"). A duplicated layer's action rows get fresh ids. Layers gain ⧉ duplicate, ◀ ▶
+    reorder (the runtime defines the winner by order) and ⏻ disable. The **Console** strip under
+    the graph logs entered states, taken transitions and raised events (the Events log moved here).
+    Its **Problems** tab gathers `validateStateMachine` and `validateComponentEvents`, and a click
+    jumps to the layer, card, arrow or input (`problemTarget`). Pure edits in `stateMachineEdit.ts`:
+    `duplicateLayer`, `moveLayer`, `setLayerDisabled`, `setBlend` (clearing the blend clears its
+    options), `setBlendEase`, `setBlendFlag`, `setTransitionDisabled`, `problemTarget`.
+  - Gates: `check:component-state-machine` §10 (184) and `check:component-state-machine-editor` §6
+    (79).
+- 2026-10-17 — Owner browser check passed for the Rive plan's component work (Phases 4–8); the
+  authored free-spin and button pilots are unlocked ([engine status](engine.md) 2026-10-17).
+- 2026-10-16 — **A tile named only in "This game's defaults" ships again** (branch
+  `claude/gallant-rubin-6f066u`). `componentDefaultsFor` looked a def up by `r2Slug(id)` only, but
+  `listComponentDefaults` keys every sidecar saved since the id stamp by its REAL id
+  (`lettersStrip`), so a camelCase def's project defaults were missed. `resolveComponentClosure`
+  reads a `component`-kind param's project default through it (runtime bundle, doc bake, art
+  export), so a Letters Strip or Respin Cell Tiles `tile` set only in the project's defaults left
+  that tile def out of the published bundle and the baked doc. It now tries the real id, then the
+  slug (a sidecar from before the stamp). Gate: `pnpm --filter launcher-api
+  check:component-defaults-lookup` (7: a stamped camelCase sidecar by its id, a legacy one by its
+  slug, and the real closure shipping both tiles; it failed 2 before the fix).
+- 2026-10-16 — **Save component also saves this game's defaults, and the Screens side sees them
+  at once** (branch `claude/exciting-gates-phk1e6`). Owner report: the Pot Meter's new **pulse on
+  every coin collected too** tick in *This game's defaults* "is not getting saved, it turns off
+  every time". Reproduced headlessly by mounting the real `ComponentWorkspace` over a faked
+  sidecar API. The panel and its own save were fine. Two traps made a ticked value look lost:
+  - **Save component didn't write the defaults.** The bar's button showed *Component saved* while
+    the sidecar stayed untouched. The only sign was the small *Unsaved* badge at the top of the
+    defaults block, far above the Motion group. Closing the component then offered to discard it.
+    Now `saveComponent` also runs `defaultsSave.save()` when `defaultsDirty`, alongside the def save
+    (separate `SaveState`s, so a conflict in one never blocks the other). The pill reads
+    *Component and this game's defaults saved*, or reports the defaults failure while their badge
+    offers *Reload theirs / Overwrite with mine*. *Save for this game* still writes the defaults
+    alone. With only the defaults dirty, the bar's Save writes just them (no def write, so a stale
+    ETag can't offer to stack an untouched draft on someone else's version). A defaults save already
+    in flight is left to its own badge rather than reported as done.
+  - **The Screens side kept the page-load defaults.** The editor page passed `data.componentDefaults`
+    to the canvas and the instance panel and never refreshed it, so a default saved on the
+    Components side still read as off on the placed pot until a reload. The page now keeps its own
+    `componentDefaults` state. `ComponentWorkspace` reports every sidecar save, read and restore
+    through `onDefaultsChange` (`rememberDefaults`, which also keeps the paint-only seed).
+  - Verified in headless Chromium over the real components: tick → *Save component* writes
+    `{ pulseOnCollect: true }` and reports both saved; close and reopen shows it ticked; a
+    conflicting sidecar keeps the tick on screen and shows the conflict. `check:component-links`
+    75, `check:svelte` at baseline (46), `check:undefined-names`, ESLint and the launcher build are
+    green. ⏳ Not clicked through on the live auth-gated `/editor`.
+- 2026-10-15 — **A nested component's params can be exposed on its parent** (branch
+  `claude/gifted-hawking-uv5utk`). Owner report: a component placed inside another (the
+  firecrackers inside the Pot Meter's `Pot`) showed its params only inside the parent's editor,
+  fixed into the parent def, so nothing about a piece could be set per placement of the pot. Now:
+  - **Format**: a nested instance's `paramBindings['params.<key>'] = '<parentKey>'` gives its
+    `<key>` the enclosing instance's `<parentKey>`, a param the parent declares (design §13.2 item
+    4). No new field: the normalizer keeps `paramBindings` and `pruneOrphanParamBindings` drops a
+    forward whose parent param was deleted, inside a part too.
+  - **Engine** (`componentParams.ts`): `forwardedParams`, `forwardInstanceParams` (the same map
+    back when nothing is forwarded; the forward wins over the instance's own base or per-ratio
+    value; an `undefined` parent value is skipped; chains compose) and `defineForwardedParams`.
+    `<ComponentInstance>` applies the forward before it resolves its static params, so `source`,
+    `action`, the signal scope and the state machine's `{param}`s see it, and adds a getter per
+    forwarded key after the per-ratio getters and before the live feeds. A parent's per-ratio
+    value therefore reaches the child, and a live feed still wins.
+  - **Editor preview**: every walker that expands a nested instance forwards from the enclosing
+    params: `drawComponentInstance` and `nodesHaveRig` (`EditorCanvas`), the content box
+    (`editorCanvas.helpers.ts`), the rig layer (top level, through a new `componentParams` prop,
+    and nested), the text layer. On the Components side the enclosing params are the open
+    component's preview params. The effect layer and the value preview read no component params.
+  - **Editor UI** (`EditorProperties.svelte`, component mode, a nested instance selected): a **⇡**
+    picker beside each author param: **Expose on ‹parent› (new param ‹key›)**, or **Take from
+    ‹parent›'s** an existing param of the same kind. A forwarded row shows `⇡ from ‹parent› ·
+    ‹key›` in place of its value, with × to stop forwarding (the parent param stays). The edits
+    are in `editor/instanceParamForwarding.ts`. An exposed param copies the kind, label, group
+    (kept together per placement, made unique across placements), options and `fedParams`; its
+    default is the value the piece shows now; its key is the child's, else `_2`, `_3`…, never an
+    engine-catalog or behaviour key (`source`, `action`, `text`, `label`, …). A rig-name param's
+    `spineParam` follows the parent's copy of that rig param. Disabled while Inspecting.
+    **🔥 Light order** writes a forwarded piece's threshold into the parent param's default.
+  - **Ship**: a forwarded value lives in the parent's instance params under a param of the same
+    kind, so the art export, the atlas-ref repair and the component closure ship it unchanged.
+    The localization harvest now also walks nested instances, as deep as the game draws (two
+    levels), with their forwards resolved. Before this, text inside a nested component was never
+    harvested.
+  - Gate: `check:component-param-forwarding` (106 checks: the helper, the runtime getters, the
+    state machine reading a forwarded `{lightAt}`, the expose / link / unlink edits, pruning, the
+    save, the unused-param filter, `nodeBox`, the harvest and the real `exportEditorArt`). The
+    Svelte wiring is source-scanned, not mounted.
+- 2026-10-15 — **The fourth authored overlay: `buttonPresentation` (Rive plan Phase 8d, branch
+  `claude/rive-p8d-buttons`).** A new `internal` built-in def beside `button` (unchanged, same
+  params plus `fadeWithUi`): six frame nodes (four rounded tiles, the state frame and its grey) under
+  a tinted `frame`, the coded `ButtonLabel` as a bound child, and the engine's first seeded state
+  machine on a built-in (look / spin / fade / press sound). Rect nodes gain `borderRadius` /
+  `borderWidth` / `borderColor` (the launcher's component field list keeps them). No palette entry
+  during the pilot; nothing changes in the Components side itself. The flag, the runtime and the
+  gates: [engine status](engine.md), 2026-10-15.
 - 2026-10-14 — **A flipped rig previews on the right axis.** A rig inside a group or a placed
   component that was flipped with `scale.x = -1` showed upside down on the stage instead of
   mirrored left-right. The rig preview draws without rotation, and it worked the flip out from the

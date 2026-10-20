@@ -259,6 +259,8 @@ function normalizeGameSettings(input: unknown): GameSettings | undefined {
 		const overlays: NonNullable<GameSettings['authoredOverlays']> = {};
 		if (input.authoredOverlays.transition === true) overlays.transition = true;
 		if (input.authoredOverlays.win === true) overlays.win = true;
+		if (input.authoredOverlays.freeSpins === true) overlays.freeSpins = true;
+		if (input.authoredOverlays.buttons === true) overlays.buttons = true;
 		if (Object.keys(overlays).length > 0) out.authoredOverlays = overlays;
 	}
 	return Object.keys(out).length > 0 ? out : undefined;

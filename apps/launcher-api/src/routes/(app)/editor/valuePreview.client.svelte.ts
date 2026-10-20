@@ -1,6 +1,12 @@
+import type { EffectParam, EffectParamValues } from 'engine-fx';
 import {
+	bindsFxParam,
+	boundFxParamValues,
+	drivableFxParam,
 	evaluateBinding,
 	foldBoundTransform,
+	nodeFxParamValues,
+	placedFxParamValues,
 	resolveTransform,
 	withNodeActorOutputs,
 	type LayoutNode,
@@ -8,7 +14,7 @@ import {
 	type ResolvedTransform,
 	type ValueBinding,
 } from 'engine-layout';
-import type { TimelineNodeDrive } from '$lib/timeline/screenTimeline';
+import type { OnionFrame, TimelineNodeDrive } from '$lib/timeline/screenTimeline';
 
 /**
  * The editor's VALUE-BINDING PREVIEW (Hold and Win Phase 12b): a test input per binding, set by
@@ -27,7 +33,9 @@ import type { TimelineNodeDrive } from '$lib/timeline/screenTimeline';
  * The TIMELINE PREVIEW (Animate mode, Rive plan Phase 3) rides the same seam: the playhead's
  * sampled node-actor channels join a node's own bindings exactly as `<LayoutNodeView>` joins them
  * in game (`withNodeActorOutputs` + `foldBoundTransform`), so the stage shows what the game plays.
- * Null outside Animate mode ⇒ every node draws as before.
+ * Null outside Animate mode ⇒ every node draws as before. A placed effect's parameters (Invisible
+ * FX Step 2) come out of the same fold ({@link previewEffectParamValues}), so a test value or a
+ * scrubbed `fx:` channel moves the live particles on the stage.
  */
 const inputs: Record<string, number> = {};
 let drives: Map<string, TimelineNodeDrive> | null = null;
@@ -97,12 +105,20 @@ export function previewAnimTime(node: LayoutNode): { animation: string; time: nu
 }
 
 /** Each binding's preview output for `node` (`undefined` where nothing is being previewed), in
- *  {@link previewBindings} order. */
-export function previewOutputs(node: LayoutNode, frameCount?: number): (number | undefined)[] {
+ *  {@link previewBindings} order. `fxParams` is a placed effect's parameters, which an `fxParam`
+ *  binding maps onto. */
+export function previewOutputs(
+	node: LayoutNode,
+	frameCount?: number,
+	fxParams?: readonly EffectParam[],
+): (number | undefined)[] {
 	const bindings = node.valueBindings;
 	const own = (bindings ?? []).map((binding, i) => {
 		const input = inputs[keyOf(node.id, i)];
-		return input === undefined ? undefined : evaluateBinding(binding, input, frameCount);
+		if (input === undefined) return undefined;
+		const fxParam =
+			binding.target === 'fxParam' ? drivableFxParam(fxParams, binding.fxParam) : undefined;
+		return evaluateBinding(binding, input, frameCount, fxParam);
 	});
 	const drive = drives?.get(node.id);
 	return drive?.bindings.length
@@ -110,11 +126,53 @@ export function previewOutputs(node: LayoutNode, frameCount?: number): (number |
 		: own;
 }
 
+/**
+ * The parameter values the preview sets on a placed effect (`params`: its declared parameters) —
+ * the node's own values (`componentParams`: the enclosing instance's params, which a `params.<id>`
+ * binding reads), then its bindings' test values and the previewed timeline's `fx:` channels,
+ * through the game's fold (`placedFxParamValues`, `boundFxParamValues`). `undefined` when nothing
+ * sets one: the effect draws its defaults.
+ */
+export function previewEffectParamValues(
+	node: LayoutNode,
+	params: readonly EffectParam[] | undefined,
+	componentParams: Readonly<Record<string, unknown>>,
+): EffectParamValues | undefined {
+	if (node.kind !== 'effect' || !params?.length) return undefined;
+	const placed = placedFxParamValues(node, componentParams, params);
+	const bindings = previewBindings(node);
+	if (!bindsFxParam(bindings)) return placed;
+	return nodeFxParamValues(
+		placed,
+		boundFxParamValues(bindings, previewOutputs(node, undefined, params), params),
+	);
+}
+
+let viewHidden: ReadonlySet<string> = new Set();
+
+/**
+ * The Outline's Hide / Isolate (Rive plan Phase 9a): the ids the stage skips, from
+ * `effectiveHiddenIds`. Editor view state on the same never-saved seam: the draw paths read it
+ * through {@link previewResolveTransform}, the doc's own `visible` is never touched. The Screens and
+ * Components sides each set theirs while they are on the stage.
+ */
+export function setViewHidden(ids: ReadonlySet<string>): void {
+	if (ids.size === viewHidden.size && [...ids].every((id) => viewHidden.has(id))) return;
+	viewHidden = ids;
+	version.n += 1;
+}
+
+/** The Outline hides (or isolates away) `nodeId` on the stage. */
+export function isViewHidden(nodeId: string): boolean {
+	return viewHidden.has(nodeId);
+}
+
 /** `resolveTransform` with the previewed transform targets folded on — for the draw paths. */
 export function previewResolveTransform(
 	node: LayoutNode,
 	layoutType: LayoutType,
 ): ResolvedTransform {
+	if (viewHidden.has(node.id)) return { ...resolveTransform(node, layoutType), visible: false };
 	const folded = foldBoundTransform(
 		resolveTransform(node, layoutType),
 		previewBindings(node),
@@ -122,4 +180,45 @@ export function previewResolveTransform(
 	);
 	const tint = previewTint(node);
 	return tint === undefined ? folded : { ...folded, tint };
+}
+
+/**
+ * The ONION SKIN (Rive plan Phase 9b, editor-only): the timeline sampled a few frames either side
+ * of the playhead, which the canvas outlines on the stage. Null ⇒ no ghosts. Owned per panel, as
+ * the timeline preview is.
+ */
+let onion: OnionFrame[] | null = null;
+let onionOwner: symbol | null = null;
+
+export function setOnionPreview(next: OnionFrame[] | null, owner: symbol | null = null): void {
+	if (!next && onionOwner !== owner) return;
+	if (!onion && !next) return;
+	onion = next;
+	onionOwner = next ? owner : null;
+	version.n += 1;
+}
+
+/** The ghost frames to outline, nearest first; empty when the onion skin is off. */
+export function onionPreview(): readonly OnionFrame[] {
+	return onion ?? [];
+}
+
+/** `resolveTransform` with ONE ghost frame's drive folded on (only that timeline, no test inputs). */
+export function onionResolveTransform(
+	node: LayoutNode,
+	layoutType: LayoutType,
+	drive: TimelineNodeDrive | undefined,
+): ResolvedTransform {
+	const own = node.valueBindings ?? [];
+	if (!drive?.bindings.length) return resolveTransform(node, layoutType);
+	return foldBoundTransform(
+		resolveTransform(node, layoutType),
+		[...own, ...drive.bindings],
+		withNodeActorOutputs(
+			node.valueBindings,
+			own.map(() => undefined),
+			drive.bindings,
+			drive.sample,
+		),
+	);
 }

@@ -23,3 +23,5 @@ export * from './anchors';
 export * from './pressHold';
 // The rotation `<RigBoneAttach followRotation>` gives a bone-bound child (and the `/fx` stage copies).
 export * from './rigBoneRotation';
+// One particle time scale (turbo): every `<ParticleEmitter>` steps by it, emission timers divide by it.
+export * from './particleClock';

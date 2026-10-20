@@ -61,6 +61,8 @@
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import EditorAnimationsList from './EditorAnimationsList.svelte';
+	import { keyingActive, keyStageTransform } from './animateKeying.client.svelte';
 	import EditorStateMachinePanel from './EditorStateMachinePanel.svelte';
 	import {
 		addInput,
@@ -90,6 +92,10 @@
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
+	import { setViewHidden } from './valuePreview.client.svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import { isTypingTarget } from '$lib/editor/stageShortcuts';
+	import { effectiveHiddenIds, lockedInTree, moveNode, type DropZone } from '$lib/editor/hierarchy';
 	import {
 		canEnterNested,
 		etagAdoption,
@@ -97,6 +103,12 @@
 		placeableComponents,
 		type ComponentOpenRequest,
 	} from './componentWorkspace';
+	import {
+		exposeInstanceParam,
+		linkInstanceParam,
+		unlinkInstanceParam,
+		writeInstanceParam,
+	} from './instanceParamForwarding';
 	import type { PageData } from './$types';
 
 	/**
@@ -132,6 +144,9 @@
 		/** The component list (and the ETags known for it) after a save, create or delete, so
 		 *  placed instances redraw and a later remount starts from the same list. */
 		onComponentsChange: (components: ComponentDef[], etags: Record<string, string | null>) => void;
+		/** This game's defaults for component `id` as just saved or read, so placed instances on the
+		 *  Screens side show them without a reload. */
+		onDefaultsChange: (id: string, params: Record<string, unknown>) => void;
 		/** The page's data drifted to another project: no write may run. */
 		writesBlocked: boolean;
 		/** The open component changed (`null` = the components home), for the page URL. */
@@ -146,6 +161,7 @@
 		onExit,
 		onOpenScreen,
 		onComponentsChange,
+		onDefaultsChange,
 		onOpenedChange,
 		writesBlocked,
 	}: Props = $props();
@@ -282,6 +298,14 @@
 	 * The ETag, never this map, is what a save CASes against.
 	 */
 	const seededDefaults: Record<string, Record<string, unknown>> = { ...data.componentDefaults };
+	/** Keep the seed, and the page's copy the Screens side draws placed instances with, on the
+	 * values this tab just saved or read. */
+	function rememberDefaults(id: string, params: Record<string, unknown>): void {
+		const seeded = seededDefaults[id];
+		const unchanged = !!seeded && defaultsSignature(seeded) === defaultsSignature(params);
+		seededDefaults[id] = { ...params };
+		if (!unchanged) onDefaultsChange(id, { ...params });
+	}
 	/** Signature of the defaults as last loaded/saved — the dirty baseline. */
 	let projectDefaultsBaseline = $state('[]');
 	/** Order-independent signature, so clearing a key then re-setting it doesn't read as dirty. */
@@ -339,7 +363,7 @@
 			if (componentDraft?.id === id) projectDefaultsBaseline = defaultsSignature(params);
 			// Keep the paint-only seed in step, so re-opening this component in the same tab shows
 			// what we just saved rather than the (never-refetched) page-load values.
-			seededDefaults[id] = { ...params };
+			rememberDefaults(id, params);
 			return { ok: true, etag: out.etag ?? null };
 		},
 	});
@@ -384,7 +408,7 @@
 			defaultsSave.adoptEtag(body.etag ?? null);
 			projectDefaults = { ...(body.params ?? {}) };
 			projectDefaultsBaseline = defaultsSignature(projectDefaults);
-			seededDefaults[id] = { ...projectDefaults };
+			rememberDefaults(id, projectDefaults);
 		} catch {
 			saveStatus = { kind: 'error', message: 'Could not read this game’s defaults.' };
 		}
@@ -437,7 +461,7 @@
 		defaultsSave.adoptEtag(out.etag ?? null);
 		projectDefaults = { ...out.params };
 		projectDefaultsBaseline = defaultsSignature(projectDefaults);
-		seededDefaults[id] = { ...projectDefaults };
+		rememberDefaults(id, projectDefaults);
 		editNonce += 1;
 		defaultsHistoryOpen = false;
 		return null;
@@ -571,11 +595,14 @@
 				!!components.find((c) => c.id === id)?.params?.some((p) => p.key === POT_PIECE_LIGHT_PARAM),
 		);
 	});
-	/** Number every piece's `lightAt` from its height: the lowest lights first, the top at a full pot. */
+	/** Number every piece's `lightAt` from its height: the lowest lights first, the top at a full pot.
+	 * A piece that takes its `lightAt` from this component gets it as that param's default. */
 	function setLightOrder(): void {
+		if (!componentDraft) return;
+		const draft = componentDraft;
 		const thresholds = lightOrderThresholds(lightPieces.map((p) => p.y));
 		lightPieces.forEach(({ node }, i) => {
-			node.params = { ...node.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
+			writeInstanceParam(draft, node, POT_PIECE_LIGHT_PARAM, thresholds[i]);
 		});
 		editNonce += 1;
 	}
@@ -596,6 +623,51 @@
 				}
 			: undefined,
 	);
+
+	// ---- Outline: Lock / Isolate / Hide, drag, menu (Rive plan Phase 9a) ----
+	// Hide and Isolate are editor view state (as on the Screens side): never written into a node.
+	const outlineHidden = new SvelteSet<string>();
+	let isolatedId = $state<string | null>(null);
+	const stageHidden = $derived(effectiveHiddenIds(editedNodes, outlineHidden, isolatedId));
+	$effect(() => {
+		if (active) setViewHidden(stageHidden);
+	});
+	let revealRequest = $state<{ id: string; seq: number } | null>(null);
+	let revealSeq = 0;
+
+	function toggleOutlineHidden(id: string): void {
+		if (outlineHidden.has(id)) outlineHidden.delete(id);
+		else outlineHidden.add(id);
+	}
+	function toggleIsolate(id: string): void {
+		isolatedId = isolatedId === id ? null : id;
+	}
+	function toggleNodeLock(id: string): void {
+		const node = findById(editedNodes, id);
+		if (!node) return;
+		if (node.locked) delete node.locked;
+		else node.locked = true;
+		editNonce += 1;
+	}
+	function moveOutlineNode(dragId: string, overId: string, zone: DropZone): void {
+		if (moveNode(editedNodes, dragId, overId, zone)) editNonce += 1;
+	}
+	function deleteFromOutline(id: string): void {
+		const ids = selectedIds.includes(id) ? selectedIds : [id];
+		for (const x of ids.filter((x) => !lockedInTree(editedNodes, x))) onDeleteNode(x);
+	}
+	/** `Tab` on the stage — the Design / Animate toggle; a historical snapshot stays in Design. */
+	function toggleEditorMode(): void {
+		if (animating) editorMode = 'design';
+		else if (componentDraft && !isInspecting) {
+			editorMode = 'animate';
+			animateVisited = true;
+		}
+	}
+	function revealInOutline(id: string): void {
+		leftTab = 'outline';
+		revealRequest = { id, seq: ++revealSeq };
+	}
 
 	/** The preview FRAME is the standard window (its aspect comfortably contains the
 	 * project's main box at `mainScale`) — same choice the Scene Editor makes. The
@@ -1028,6 +1100,8 @@
 	let editorMode = $state<'design' | 'animate'>('design');
 	/** A historical snapshot is read-only, and so is everything keyed against it. */
 	const animating = $derived(editorMode === 'animate' && !!componentDraft && !isInspecting);
+	/** The Outline may change the def: not a historical snapshot, and not Animate (the stage keys there). */
+	const treeEditable = $derived(!!componentDraft && !isInspecting && !animating);
 	/** The Timeline panel mounts on the first visit to Animate and then stays (hidden in Design, and
 	 *  across components), so leaving Animate or the component never drops an unsaved timeline — the
 	 *  panel saves it when the host changes, as on a screen. */
@@ -1138,17 +1212,6 @@
 		else if (trail.length > 0) await goToCrumb(trail.length - 1);
 		else if (componentDraft && rootLabel === null) await closeComponent();
 		else await exitToScreens();
-	}
-
-	function isTypingTarget(t: EventTarget | null): boolean {
-		const el = t as HTMLElement | null;
-		return (
-			!!el &&
-			(el.tagName === 'INPUT' ||
-				el.tagName === 'TEXTAREA' ||
-				el.tagName === 'SELECT' ||
-				el.isContentEditable)
-		);
 	}
 
 	/** Esc goes up a level. Runs in the capture phase, before the canvas's own Escape (which
@@ -1274,11 +1337,37 @@
 		if (!componentDraft || busy || isInspecting) return;
 		saveStatus = null;
 		const id = componentDraft.id;
-		const ok = await saveState.save({ force });
+		// This game's defaults are a separate file with their own Save, but this is the button people
+		// press: it writes them too, so "Component saved" never leaves a value set there unsaved.
+		// A defaults save already in flight reports through its own badge, not this pill.
+		const defaults = defaultsDirty && !defaultsSave.busy ? defaultsSave.save() : null;
+		// With only the defaults changed the component itself is left alone, so a stale ETag can't
+		// offer to stack an untouched draft on top of someone else's version.
+		const savesDraft = draftDirty || defaults === null;
+		const ok = savesDraft ? await saveState.save({ force }) : true;
+		const defaultsFailed =
+			defaults !== null &&
+			!(await defaults) &&
+			(defaultsSave.status === 'error' || defaultsSave.blocked);
 		// Another component was opened mid-save: this outcome is not about the one on screen.
 		if (componentDraft?.id !== id) return;
 		if (ok) {
-			saveStatus = { kind: 'ok', message: 'Component saved' };
+			const reason = defaultsSave.message || 'the save failed.';
+			saveStatus = defaultsFailed
+				? {
+						kind: 'error',
+						message: savesDraft
+							? `Component saved, but this game’s defaults were not: ${reason}`
+							: `This game’s defaults were not saved: ${reason}`,
+					}
+				: {
+						kind: 'ok',
+						message: !defaults
+							? 'Component saved'
+							: savesDraft
+								? 'Component and this game’s defaults saved'
+								: 'This game’s defaults saved',
+					};
 			return;
 		}
 		if (!force && saveState.status === 'conflict') {
@@ -1460,6 +1549,32 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 		if (componentDraft.signalScope === key) setComponentSignalScope(undefined);
 		pruneOrphanParamBindings(componentDraft);
+	}
+
+	/** The selected nested instance and its def, when the open component may edit its forwards. */
+	function forwardTarget(): { node: ComponentInstanceNode; def: ComponentDef } | null {
+		if (!componentDraft || isInspecting || selectedNode?.kind !== 'componentInstance') return null;
+		const def = componentMap.get(selectedNode.componentId);
+		return def ? { node: selectedNode, def } : null;
+	}
+	/** "⇡ Expose on ‹this component›": the nested instance's `key` param becomes a new param here. */
+	function exposeNestedParam(key: string): void {
+		const target = forwardTarget();
+		if (!target || !componentDraft) return;
+		const projectDefaults = seededDefaults[target.def.id];
+		if (exposeInstanceParam(componentDraft, target.node, target.def, key, projectDefaults))
+			editNonce += 1;
+	}
+	/** Take the nested instance's `key` param from this component's `parentKey` param. */
+	function linkNestedParam(key: string, parentKey: string): void {
+		const target = forwardTarget();
+		if (!target || !componentDraft) return;
+		if (linkInstanceParam(componentDraft, target.node, target.def, key, parentKey)) editNonce += 1;
+	}
+	/** Stop taking the nested instance's `key` param from this component (the param stays). */
+	function unlinkNestedParam(key: string): void {
+		const target = forwardTarget();
+		if (target && unlinkInstanceParam(target.node, key)) editNonce += 1;
 	}
 
 	/** Set (or clear) a param's DEFAULT — the value the preview + every placed instance
@@ -2361,7 +2476,7 @@
 						? 'Read-only — return to latest to edit and save.'
 						: lease.readOnly
 							? 'Another author holds this component — take over to edit.'
-							: 'Save this component'}
+							: 'Save this component, and this game’s defaults for it'}
 					onclick={() => void saveComponent()}
 				>
 					Save component
@@ -2625,6 +2740,18 @@
 					</PanelSection>
 				</div>
 			{:else}
+				{#if animating}
+					<PanelSection id="cmp-animations" title="Animations">
+						<EditorAnimationsList
+							stateMachine={{
+								shown: animateTab === 'stateMachine',
+								layers: componentDraft?.stateMachine?.layers.length ?? 0,
+								onOpen: () => (animateTab = 'stateMachine'),
+							}}
+							onShowTimeline={() => (animateTab = 'timeline')}
+						/>
+					</PanelSection>
+				{/if}
 				<div class="tabs" role="tablist" aria-label="Left panel">
 					<button
 						role="tab"
@@ -2692,6 +2819,15 @@
 											: [...selectedIds, id])
 									: (selectedIds = [id])}
 							onRename={renameNode}
+							onToggleLock={treeEditable ? toggleNodeLock : undefined}
+							hiddenIds={outlineHidden}
+							onToggleHide={toggleOutlineHidden}
+							{isolatedId}
+							onToggleIsolate={toggleIsolate}
+							{stageHidden}
+							onMove={treeEditable ? moveOutlineNode : undefined}
+							{revealRequest}
+							onDelete={treeEditable ? deleteFromOutline : undefined}
 						/>
 					{/if}
 				</div>
@@ -2723,6 +2859,9 @@
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}
 						animate={animating}
+						onAnimateTransform={animating && keyingActive() ? keyStageTransform : undefined}
+						onToggleMode={toggleEditorMode}
+						onRevealSelection={revealInOutline}
 						onStagePointer={animating && animateTab === 'stateMachine'
 							? (kind, id) => stateMachinePanel?.stagePointer(kind, id)
 							: undefined}
@@ -2769,8 +2908,10 @@
 							selectedId={selectedIds.at(-1) ?? null}
 							projectKey={data.projectKey}
 							active={active && animating && animateTab === 'timeline'}
+							listed={active && animating}
 							openRequest={timelineOpenRequest}
 							{rigMeta}
+							componentParams={resolvedParams}
 						/>
 					</div>
 					<div class="animate-pane" class:hidden={animateTab !== 'stateMachine'}>
@@ -2784,6 +2925,10 @@
 							active={active && animating && animateTab === 'stateMachine'}
 							onChanged={() => (editNonce += 1)}
 							onOpenTimeline={openTimelineFromStateMachine}
+							componentParams={resolvedParams}
+							onAddInput={isInspecting ? undefined : addComponentInput}
+							onRenameInput={isInspecting ? undefined : (id) => void renameComponentInput(id)}
+							onRemoveInput={isInspecting ? undefined : (id) => void removeComponentInput(id)}
 						/>
 					</div>
 				</div>
@@ -2861,6 +3006,9 @@
 							selectedNode.params = Object.keys(params).length ? params : undefined;
 							editNonce += 1;
 						}}
+						onExposeInstanceParam={exposeNestedParam}
+						onLinkInstanceParam={linkNestedParam}
+						onUnlinkInstanceParam={unlinkNestedParam}
 					>
 						<!-- Save control + status for the per-project defaults SIDECAR (its own R2 key +
 						     ETag, hence its own SaveState), rendered by the panel that edits it. Declared

@@ -2,7 +2,8 @@
 	/**
 	 * Scene Editor — the LIVE particle overlay. The 2D canvas can't run a WebGL particle emitter, so a
 	 * placed `kind:'effect'` node otherwise shows only a static ✨ placeholder chip. This overlay mounts
-	 * ONE `PIXI.Application` (transparent, `pointer-events:none`) over the 2D canvas and plays each
+	 * ONE Pixi stage, drawn through the editor's shared renderer into its own transparent,
+	 * `pointer-events:none` canvas (`sharedGl.client.ts`), over the 2D canvas and plays each
 	 * placed effect's authored `EffectDoc` verbatim — mirroring `EditorRigLayer` (the live rig
 	 * overlay) but driving `@barvynkoa/particle-emitter` `Emitter`s (the SAME runtime contract the `/fx`
 	 * tool's `FxStage` and the game's `<EffectPlayer>` reduce to: `bindArt` the layer's art textures →
@@ -13,6 +14,9 @@
 	 * `nodeTransform`) result — a `ResolvedTransform` in canvas WORLD coords (pre pan/zoom). A nested
 	 * effect (inside a container / component instance) composes its ancestor chain via the SAME
 	 * `composeWorldMatrix` the rig + text overlays use, so the three layers agree by construction.
+	 * Every placement of one component shares its nodes' ids, so each nested effect renders under
+	 * its id PATH (as the text overlay keys its objects): three placed copies preview three emitters,
+	 * each with its own params, as the game draws them.
 	 * Unlike the rig overlay (whose vendored WebGL camera forces an x-mirror compensation), Pixi is
 	 * natively y-down like the 2D canvas, so we place each node's Container at the raw world transform
 	 * and bake the editor PAN/ZOOM once on the parent `world` Container (`world.position = pan`,
@@ -26,19 +30,46 @@
 	 * live emitter keeps its 2D chip (reported via `onReadyKeysChange`).
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
-	import { bindArt, planLayer, type EffectDoc, type EmitterLayer } from 'engine-fx';
+	import {
+		bindArt,
+		bindEffectParams,
+		createEffectLevelApplier,
+		planLayer,
+		type EffectDoc,
+		type EffectLevelApplier,
+		type EffectLevelState,
+		type EffectParamApplier,
+		type EffectParamValues,
+		type EmitterLayer,
+	} from 'engine-fx';
 	import {
 		MAX_COMPONENT_DEPTH,
+		forwardInstanceParams,
+		resolveComponentParams,
+		resolveLayoutInstanceParams,
 		type ComponentDef,
+		type ComponentInstanceNode,
+		type EffectNode,
 		type LayoutNode,
 		type LayoutType,
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
-	import { Application, Container, type TextureSource } from 'pixi.js';
+	import { Container, Ticker, type TextureSource } from 'pixi.js';
 	import { framesToTextures, type ResolvedArt } from '$lib/fx/effectEmitter.client';
 	import { onMount } from 'svelte';
-	import { childLocalTransform, composeWorldMatrix } from './editorCanvas.helpers';
+	import {
+		childLocalTransform,
+		composeWorldMatrix,
+		depthKey,
+		inDepthSlice,
+		unionBox,
+		type DepthSlice,
+		type SpreadBox,
+	} from './editorCanvas.helpers';
+	import { withEditorProject } from './editorProject.client';
+	import { notePlacedEffect } from './placedEffects.client.svelte';
+	import { createPixiSurface, type PixiSurface } from './sharedGl.client';
 	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
 
 	interface Props {
@@ -66,6 +97,10 @@
 		 * follow their top-level ancestor) — see `EditorRigLayer.nodeFilter`. `null` ⇒ every node
 		 * (parity). */
 		nodeFilter?: Set<string> | null;
+		/** The depth segment this layer draws: an effect inside a group or component that the split
+		 * crosses is drawn only by the segment it falls in (see `EditorCanvas`'s `depthSegments`).
+		 * `null` ⇒ the whole scene. */
+		depthSlice?: DepthSlice | null;
 		/** CSS `mix-blend-mode` for this layer's canvas — see `EditorRigLayer.blend`. An additive
 		 * emitter blended INSIDE this transparent overlay is a no-op, so the blend rides the element
 		 * and composites against the art beneath, exactly as the game's `<Container blendMode>` does. */
@@ -77,15 +112,30 @@
 		 * nested effect's world transform composes from its ancestor chain identically to the 2D
 		 * canvas + rig overlay + game runtime. */
 		worldTransformOf: (node: LayoutNode, scene: Scene) => ResolvedTransform;
-		/** Reports which effect NODE ids now render a live emitter, so the 2D canvas can drop their
-		 * placeholder chip. Loading / bone-only / empty nodes stay chipped. */
+		/** Reports which effect NODE ids now render a live emitter in any placement, so the 2D canvas
+		 * can drop their placeholder chip. Loading / bone-only / empty nodes stay chipped. */
 		onReadyKeysChange?: (nodeIds: Set<string>) => void;
 		/** Reports each live effect's measured particle SPREAD in the node's LOCAL (scene-world)
 		 * space — a running-MAX rect `{ x, y, w, h }` where `x`/`y` are the top-left offset from the
 		 * node origin (particles above/left of the origin give negative `x`/`y`), so the 2D canvas
 		 * can fit the selection box to the real spread instead of the fixed placeholder. Keyed by
-		 * NODE id, idempotent (only re-emitted when a box meaningfully grows). */
-		onBoundsChange?: (bounds: Map<string, { x: number; y: number; w: number; h: number }>) => void;
+		 * NODE id — a node placed several times (inside a component) reports the union of its
+		 * placements' spreads — idempotent (only re-emitted when a box meaningfully grows). */
+		onBoundsChange?: (bounds: Map<string, SpreadBox>) => void;
+		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
+		 * what an effect placed at the top level of that component reads a `params.<id>` value from. */
+		componentParams?: Record<string, unknown>;
+		/** Per-component-id project param defaults, so a nested effect reads the params its instance
+		 * resolves (`resolveComponentParams`), as the rig layer does. */
+		componentDefaults?: Record<string, Record<string, unknown>>;
+		/** The live values of a placed effect's exposed parameters — for the placed node, the doc it
+		 * plays and the params of the instance it sits in — read on the ticker. Absent ⇒ every effect
+		 * draws its defaults (already in its stored config). */
+		effectParamValues?: (
+			node: EffectNode,
+			doc: EffectDoc,
+			params: Readonly<Record<string, unknown>>,
+		) => EffectParamValues | undefined;
 	}
 
 	let {
@@ -100,17 +150,23 @@
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
 		nodeFilter = null,
+		depthSlice = null,
 		blend = 'normal',
 		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
 		onReadyKeysChange,
 		onBoundsChange,
+		componentParams = {},
+		componentDefaults = {},
+		effectParamValues,
 	}: Props = $props();
 
 	let host: HTMLDivElement | null = $state(null);
-	let app: Application | null = null;
-	/** Flips true once the `Application` has initialised — the props can be set before the canvas
-	 * exists, so the rebuild effect gates on this. */
+	/** Drawn through the editor's shared Pixi renderer (see `sharedGl.client.ts`): every frame while
+	 * particles play, otherwise only when something changed. */
+	let surface: PixiSurface | null = null;
+	/** Flips true once the shared renderer is up — the props can be set before it exists, so the
+	 * rebuild effect gates on this. */
 	let ready = $state(false);
 	/** The pan/zoom world the per-node effect containers live in. */
 	let world: Container | null = null;
@@ -118,20 +174,40 @@
 	/** One placed effect target the overlay must render: a `kind:'effect'` node + its resolved
 	 * canvas-WORLD transform (pre pan/zoom — pan/zoom is baked on the parent `world`). */
 	interface EffectTarget {
+		/** Unique per drawn placement: the `depthKey` of the node's id path from the top of its
+		 * screen. Every placement of one component shares its nodes' ids, so a nested effect needs
+		 * the path, and a top-level effect's is its own id. */
+		key: string;
+		/** The bare node id — what the chip + selection-box reports are keyed by. */
 		nodeId: string;
 		effectId: string;
+		/** The placed node, as the current scenes hold it (its bindings drive the parameters). */
+		node: EffectNode;
+		/** The resolved params of the instance it sits in (the open component's at the top level). */
+		params: Record<string, unknown>;
 		world: { x: number; y: number; scaleX: number; scaleY: number; rotation: number };
 	}
 
-	/** A live per-NODE render: its container (positioned at the node's world transform) + one emitter
-	 * per FREE layer, each in a child container at that layer's offset. Rebuilt when the node's
-	 * effectId / doc / transform changes; disposed on removal. */
+	/** A live per-PLACEMENT render: its container (positioned at the placement's world transform) +
+	 * one emitter per FREE layer, each in a child container at that layer's offset. Rebuilt when the
+	 * node's effectId changes; repositioned when its transform does; disposed on removal. */
 	interface LiveNode {
+		nodeId: string;
 		effectId: string;
+		/** The placed node and its instance's params, refreshed on every rebuild — what
+		 * `effectParamValues` is asked for. */
+		node: EffectNode;
+		params: Record<string, unknown>;
+		/** The doc it plays, once loaded. */
+		doc: EffectDoc | null;
 		/** The world transform this node's container is currently placed at (change ⇒ reposition). */
 		placed: EffectTarget['world'];
 		container: Container;
 		emitters: Emitter[];
+		/** The `effect.*` drives and the wrapper they move, when the doc has any. */
+		fx?: { applier: EffectLevelApplier; wrapper: Container };
+		/** One applier per driven layer, only when live values are supplied. */
+		appliers: EffectParamApplier[];
 		/** True once at least one free layer resolved a visible emitter (art OR placeholder) — drives
 		 * the ready report so the 2D chip is only dropped when something actually renders. */
 		live: boolean;
@@ -140,10 +216,11 @@
 		 * what `nodeBox` wants). `null` until the first non-degenerate frame. Grows only (never
 		 * shrinks), so a burst that fans out then dies still keeps a stable enclosing box. Reset (a
 		 * fresh `LiveNode`) whenever the node's effectId/doc rebuilds. */
-		bounds: { x: number; y: number; w: number; h: number } | null;
+		bounds: SpreadBox | null;
 	}
 
-	/** Per-node live renders, keyed by node id (a doc may back several placed nodes). */
+	/** Live renders keyed by placement (`EffectTarget.key`), so each placed copy of a component plays
+	 * its own emitters with its own params. */
 	const liveNodes = new Map<string, LiveNode>();
 	/** Cache of fetched `EffectDoc`s by effectId (one doc can back many nodes). */
 	const docCache = new Map<string, Promise<EffectDoc | null>>();
@@ -187,7 +264,9 @@
 		if (hit) return hit;
 		const p = (async (): Promise<EffectDoc | null> => {
 			try {
-				const res = await fetch(`/api/editor/effect?id=${encodeURIComponent(effectId)}`);
+				const res = await fetch(
+					withEditorProject(`/api/editor/effect?id=${encodeURIComponent(effectId)}`),
+				);
 				if (!res.ok) return null;
 				const body = (await res.json()) as { doc: EffectDoc };
 				return body.doc ?? null;
@@ -213,11 +292,14 @@
 			for (const n of sc.nodes) {
 				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 				if (!previewResolveTransform(n, layoutType).visible) continue;
-				if (n.kind === 'effect') {
+				if (n.kind === 'effect' && inDepthSlice(depthSlice, [n.id])) {
 					const wt = worldTransformOf(n, sc);
 					out.push({
+						key: depthKey([n.id]),
 						nodeId: n.id,
 						effectId: n.effectId,
+						node: n,
+						params: componentParams,
 						world: {
 							x: wt.x,
 							y: wt.y,
@@ -231,19 +313,37 @@
 				// so the overlay must too — each nested effect's world transform composes from its
 				// ancestor chain (top link framed, descendants pure-local).
 				if (n.kind === 'container') {
-					collectNested(n.children, sc, out, [n], 0, []);
+					collectNested(n.children, sc, out, [n], 0, [], componentParams);
 				} else if (n.kind === 'componentInstance') {
 					const def = componentMap.get(n.componentId);
-					if (def) collectNested(def.root.children, sc, out, [n], 1, [def.id]);
+					if (def) {
+						const params = instanceParams(def, n, componentParams);
+						collectNested(def.root.children, sc, out, [n], 1, [def.id], params);
+					}
 				}
 			}
 		}
 		return out;
 	}
 
+	/** The params `node` (an instance of `def`) resolves, with the ones it takes from the instance
+	 * it sits in (`outer`) forwarded — what the effects inside it read. */
+	function instanceParams(
+		def: ComponentDef,
+		node: ComponentInstanceNode,
+		outer: Record<string, unknown>,
+	): Record<string, unknown> {
+		return resolveComponentParams(
+			def,
+			forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outer),
+			componentDefaults[def.id],
+		);
+	}
+
 	/** Recursively collect effect targets NESTED inside containers / component instances — mirroring
 	 * `EditorRigLayer.collectNestedRigs`. `chain` is the ancestor path (root-first); each nested
-	 * effect's world transform is composed from it via {@link composeWorldMatrix}. */
+	 * effect's world transform is composed from it via {@link composeWorldMatrix}. `params` are the
+	 * resolved params of the instance `nodes` sit in. */
 	function collectNested(
 		nodes: LayoutNode[],
 		sc: Scene,
@@ -251,18 +351,29 @@
 		chain: LayoutNode[],
 		depth: number,
 		stack: string[],
+		params: Record<string, unknown>,
 	): void {
 		for (const n of nodes) {
 			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
 			if (n.kind === 'effect') {
-				out.push(nestedTarget(n, sc, nextChain));
+				const ids = nextChain.map((c) => c.id);
+				if (inDepthSlice(depthSlice, ids))
+					out.push(nestedTarget(n, sc, nextChain, depthKey(ids), params));
 			} else if (n.kind === 'container') {
-				collectNested(n.children, sc, out, nextChain, depth, stack);
+				collectNested(n.children, sc, out, nextChain, depth, stack, params);
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				collectNested(def.root.children, sc, out, nextChain, depth + 1, [...stack, def.id]);
+				collectNested(
+					def.root.children,
+					sc,
+					out,
+					nextChain,
+					depth + 1,
+					[...stack, def.id],
+					instanceParams(def, n, params),
+				);
 			}
 		}
 	}
@@ -275,6 +386,8 @@
 		node: Extract<LayoutNode, { kind: 'effect' }>,
 		sc: Scene,
 		chain: LayoutNode[],
+		key: string,
+		params: Record<string, unknown>,
 	): EffectTarget {
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
@@ -294,8 +407,11 @@
 		const det = a * d - b * c;
 		const rotation = Math.atan2(b, a);
 		return {
+			key,
 			nodeId: node.id,
 			effectId: node.effectId,
+			node,
+			params,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy, rotation },
 		};
 	}
@@ -353,42 +469,45 @@
 			} while (rebuildPending);
 		} finally {
 			rebuilding = false;
+			surface?.requestRender();
 		}
 	}
 
 	async function rebuild(): Promise<void> {
-		if (!app || !world) return;
+		if (!surface || !world) return;
 		const gen = ++rebuildGen;
 
 		const targets = effectTargets();
 		const seen = new Set<string>();
 
-		// Reposition unchanged nodes; drop nodes whose effect changed (rebuild below).
+		// Reposition unchanged placements; drop ones whose effect changed (rebuild below).
 		for (const tg of targets) {
-			seen.add(tg.nodeId);
-			const existing = liveNodes.get(tg.nodeId);
+			seen.add(tg.key);
+			const existing = liveNodes.get(tg.key);
 			if (existing && existing.effectId === tg.effectId) {
+				existing.node = tg.node;
+				existing.params = tg.params;
 				if (!sameTransform(existing.placed, tg.world)) {
 					applyContainerTransform(existing.container, tg.world);
 					existing.placed = tg.world;
 				}
 				continue;
 			}
-			// New node, or its effectId changed → tear down the stale render, then build fresh.
+			// New placement, or its effectId changed → tear down the stale render, then build fresh.
 			if (existing) {
 				disposeNode(existing);
-				liveNodes.delete(tg.nodeId);
+				liveNodes.delete(tg.key);
 			}
 			await buildNode(tg, gen);
 			if (gen !== rebuildGen) return; // superseded by a newer rebuild
 		}
 
-		// Remove nodes no longer placed anywhere in this filter's scenes.
+		// Remove placements no longer in this filter's scenes.
 		let removed = false;
-		for (const [id, node] of liveNodes) {
-			if (!seen.has(id)) {
+		for (const [key, node] of liveNodes) {
+			if (!seen.has(key)) {
 				disposeNode(node);
-				liveNodes.delete(id);
+				liveNodes.delete(key);
 				removed = true;
 			}
 		}
@@ -397,6 +516,16 @@
 			// A removed / rebuilt node must drop its reported box too, else a stale spread lingers on
 			// a node id that no longer renders (its accumulator was reset with the fresh LiveNode).
 			publishBounds();
+		}
+
+		// Outline order IS draw order, as in the game's one scene graph. A node's container is only
+		// ADDED when it is built (on top), and a kept node is only repositioned, so a reorder, a
+		// hide → show or an effect swap left the stack in build order. Re-append in target order
+		// (tree order) every rebuild; `addChild` moves an existing child to the end. Same fix as
+		// `FxStage`'s layer restack.
+		for (const tg of targets) {
+			const live = liveNodes.get(tg.key);
+			if (live && live.container.parent === world) world.addChild(live.container);
 		}
 	}
 
@@ -413,14 +542,19 @@
 		world.addChild(container);
 
 		const node: LiveNode = {
+			nodeId: tg.nodeId,
 			effectId: tg.effectId,
+			node: tg.node,
+			params: tg.params,
+			doc,
 			placed: tg.world,
 			container,
 			emitters: [],
+			appliers: [],
 			live: false,
 			bounds: null,
 		};
-		liveNodes.set(tg.nodeId, node);
+		liveNodes.set(tg.key, node);
 
 		if (!doc) {
 			// Unresolvable doc → keep the container (empty) so a later fix repositions cleanly, but
@@ -428,12 +562,24 @@
 			publishReady();
 			return;
 		}
+		notePlacedEffect(doc);
+
+		// `effect.*` drives move a wrapper around the layers — mounted only when the doc has one. Their
+		// targets have no stored leaf, so the defaults are written here even with no live values.
+		const fx = createEffectLevelApplier(doc.params);
+		if (fx) {
+			const wrapper = new Container();
+			container.addChild(wrapper);
+			node.fx = { applier: fx, wrapper };
+			fx.apply(effectParamValues?.(tg.node, doc, tg.params));
+			writeEffectLevel(wrapper, fx.state);
+		}
 
 		for (const layer of doc.layers) {
 			// v1: skip bone-placed layers — they need a live `<RigProvider>` host the scene overlay
 			// doesn't have (the runtime mounts those on their host rig). A free layer spawns here.
 			if (layer.placement.space === 'bone') continue;
-			await buildLayer(node, layer, gen);
+			await buildLayer(node, layer, gen, doc);
 			if (gen !== rebuildGen) return;
 		}
 
@@ -445,7 +591,12 @@
 	 * inside a child container at the layer's offset — the game's `<EffectLayer>` free-mount shape.
 	 * A layer that resolves 0 textures is SKIPPED (the editor overlay renders real art only — the `/fx`
 	 * tool's placeholder dots are an authoring aid there, not wanted littering the scene preview). */
-	async function buildLayer(node: LiveNode, layer: EmitterLayer, gen: number): Promise<void> {
+	async function buildLayer(
+		node: LiveNode,
+		layer: EmitterLayer,
+		gen: number,
+		doc: EffectDoc,
+	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
 		if (gen !== rebuildGen) return;
 		if (textures.length === 0) return; // no art → skip (no placeholder dots in the scene)
@@ -461,20 +612,38 @@
 		const { offset } = planLayer(layer);
 		const layerContainer = new Container();
 		layerContainer.position.set(offset.x, offset.y);
-		node.container.addChild(layerContainer);
+		(node.fx?.wrapper ?? node.container).addChild(layerContainer);
 		const emitter = new Emitter(layerContainer, config);
+		const applier = effectParamValues
+			? bindEffectParams({
+					params: doc.params,
+					layer,
+					emitter,
+					setOffset: (x, y) => layerContainer.position.set(x, y),
+					values: effectParamValues(node.node, doc, node.params),
+				})
+			: undefined;
+		if (applier) node.appliers.push(applier);
 		emitter.emit = playing;
 		node.emitters.push(emitter);
+	}
+
+	/** Write the effect-level state onto its wrapper. */
+	function writeEffectLevel(wrapper: Container, state: Readonly<EffectLevelState>): void {
+		wrapper.alpha = state.alpha;
+		wrapper.scale.set(state.scale);
+		wrapper.tint = state.tint;
 	}
 
 	// ---- ready reporting (chip suppression) -------------------------------------------------------
 
 	let readyKeys = new Set<string>();
-	/** Publish the set of effect NODE ids that render a live emitter, idempotent (only re-emit when the
-	 * set changes) so the parent's `$state` doesn't loop — mirroring `EditorRigLayer.publishReady`. */
+	/** Publish the set of effect NODE ids that render a live emitter in any placement, idempotent (only
+	 * re-emit when the set changes) so the parent's `$state` doesn't loop — mirroring
+	 * `EditorRigLayer.publishReady`. */
 	function publishReady(): void {
 		const next = new Set<string>();
-		for (const [id, node] of liveNodes) if (node.live) next.add(id);
+		for (const node of liveNodes.values()) if (node.live) next.add(node.nodeId);
 		if (next.size !== readyKeys.size || [...next].some((k) => !readyKeys.has(k))) {
 			readyKeys = next;
 			onReadyKeysChange?.(next);
@@ -492,7 +661,7 @@
 	const BOUNDS_SAMPLE_EVERY = 6;
 	let boundsTick = 0;
 	/** The bounds set last handed to the parent, so `publishBounds` only re-emits on real change. */
-	let publishedBounds = new Map<string, { x: number; y: number; w: number; h: number }>();
+	let publishedBounds = new Map<string, SpreadBox>();
 
 	/** Accumulate each live node's particle spread into its running-MAX box (in node-LOCAL /
 	 * scene-world units via `container.getLocalBounds()` — before the container's own transform +
@@ -511,11 +680,8 @@
 			const prev = node.bounds;
 			// Running MAX rect: union the new frame's extent with the accumulated one so a burst that
 			// fans out then dies keeps a stable enclosing box (best-effort framing for dynamic art).
-			const minX = prev ? Math.min(prev.x, b.x) : b.x;
-			const minY = prev ? Math.min(prev.y, b.y) : b.y;
-			const maxX = prev ? Math.max(prev.x + prev.w, b.x + b.width) : b.x + b.width;
-			const maxY = prev ? Math.max(prev.y + prev.h, b.y + b.height) : b.y + b.height;
-			const next = { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+			const frame = { x: b.x, y: b.y, w: b.width, h: b.height };
+			const next = prev ? unionBox(prev, frame) : frame;
 			node.bounds = next;
 			if (
 				!prev ||
@@ -530,18 +696,23 @@
 		return grew;
 	}
 
-	/** Publish the per-node max-bounds to the 2D canvas, idempotent: only re-emit when the set of
-	 * nodes changed or a box grew past {@link BOUNDS_GROW_EPS} (values rounded so a sub-px jitter
-	 * doesn't churn the parent's `$state`). */
+	/** Publish the per-node max-bounds to the 2D canvas — a node placed several times reports the
+	 * union of its placements' boxes (all in the node's own local space) — idempotent: only re-emit
+	 * when the set of nodes changed or a box grew past {@link BOUNDS_GROW_EPS} (values rounded so a
+	 * sub-px jitter doesn't churn the parent's `$state`). */
 	function publishBounds(): void {
-		const next = new Map<string, { x: number; y: number; w: number; h: number }>();
-		for (const [id, node] of liveNodes) {
+		const next = new Map<string, SpreadBox>();
+		for (const node of liveNodes.values()) {
 			if (!node.bounds) continue;
+			const prev = next.get(node.nodeId);
+			next.set(node.nodeId, prev ? unionBox(prev, node.bounds) : node.bounds);
+		}
+		for (const [id, b] of next) {
 			next.set(id, {
-				x: Math.round(node.bounds.x),
-				y: Math.round(node.bounds.y),
-				w: Math.round(node.bounds.w),
-				h: Math.round(node.bounds.h),
+				x: Math.round(b.x),
+				y: Math.round(b.y),
+				w: Math.round(b.w),
+				h: Math.round(b.h),
 			});
 		}
 		let changed = next.size !== publishedBounds.size;
@@ -575,37 +746,38 @@
 		if (!world) return;
 		world.position.set(panX, panY);
 		world.scale.set(zoom);
-	}
-
-	function resizeRenderer(): void {
-		if (!app || !host) return;
-		app.renderer.resize(host.clientWidth, host.clientHeight);
+		surface?.requestRender();
 	}
 
 	onMount(() => {
+		if (!host) return;
 		let disposed = false;
-		const created = new Application();
+		// One backing pixel per CSS pixel, as the overlay always drew; the surface tracks the host.
+		const s = createPixiSurface(host, 1);
+		const frameTicker = new Ticker();
 		(async () => {
-			// Transparent bg so this overlays the 2D canvas + earlier scene groups; antialias for
-			// crisp particle art at zoom. `resizeTo` keeps the backing store matched to the host.
-			await created.init({ backgroundAlpha: 0, antialias: true, resizeTo: host ?? undefined });
-			if (disposed) {
-				created.destroy(true);
-				return;
-			}
-			app = created;
-			host?.appendChild(app.canvas);
+			if (!(await s.ready) || disposed) return;
+			surface = s;
 			world = new Container();
-			app.stage.addChild(world);
+			s.stage.addChild(world);
 			applyView();
 			ready = true;
-			app.ticker.add((ticker) => {
-				if (!playing) return;
+			frameTicker.add((ticker) => {
+				if (!playing || liveNodes.size === 0) return;
 				const dt = ticker.deltaMS / 1000;
 				for (const node of liveNodes.values()) {
+					let nodeDt = dt;
+					if (effectParamValues && node.doc && (node.fx || node.appliers.length)) {
+						const values = effectParamValues(node.node, node.doc, node.params);
+						if (node.fx?.applier.apply(values)) {
+							writeEffectLevel(node.fx.wrapper, node.fx.applier.state);
+						}
+						for (const applier of node.appliers) applier.apply(values);
+					}
+					if (node.fx) nodeDt *= node.fx.applier.state.timeScale;
 					for (const emitter of node.emitters) {
 						try {
-							emitter.update(dt);
+							emitter.update(nodeDt);
 						} catch (err) {
 							// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can make
 							// the library throw mid-update. Isolate it so one bad emitter doesn't throw out of the
@@ -622,19 +794,22 @@
 					boundsTick = 0;
 					if (accumulateBounds()) publishBounds();
 				}
+				s.render();
 			});
+			frameTicker.start();
 			await requestRebuild();
 		})();
 
 		return () => {
 			disposed = true;
+			frameTicker.destroy();
 			for (const node of liveNodes.values()) disposeNode(node);
 			liveNodes.clear();
-			// Force-free the GPU context on real unmount: one context per effect-bearing scene group +
-			// groups churning on eye-toggle / reorder can hit the browser's live-context cap (~8–16) and
-			// silently drop the oldest → blank previews. `destroy(true)` releases the WebGL context.
-			app?.destroy(true);
-			app = null;
+			// The renderer outlives this overlay, so its uploaded atlas pages must go with it.
+			for (const source of sourceCache.values()) source.destroy();
+			sourceCache.clear();
+			s.destroy();
+			surface = null;
 			world = null;
 		};
 	});
@@ -647,6 +822,11 @@
 		void frameWidth;
 		void frameHeight;
 		void componentMap;
+		// A param a placed effect reads (`params.<id>`) re-reads with the open component's params.
+		void JSON.stringify(componentParams);
+		void JSON.stringify(componentDefaults);
+		void nodeFilter;
+		void depthSlice;
 		// A scrubbed value-binding test value moves / hides an effect like any other node.
 		void previewVersion();
 		if (ready) void requestRebuild();
@@ -658,14 +838,6 @@
 		void panY;
 		void zoom;
 		if (ready) applyView();
-	});
-
-	// Keep the renderer's backing store matched to the host on frame resize (resizeTo handles the
-	// canvas, but an explicit resize guards a host that changes before the observer fires).
-	$effect(() => {
-		void frameWidth;
-		void frameHeight;
-		if (ready) resizeRenderer();
 	});
 
 	// Honour global play/pause without a full rebuild — just gate each emitter's emission + the

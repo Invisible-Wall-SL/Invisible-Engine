@@ -21,6 +21,7 @@
  */
 
 import { Emitter, type Particle } from '@barvynkoa/particle-emitter';
+import { RIG_PARTICLE_BEHAVIOR_TYPE } from 'engine-fx';
 
 import type { LayerHostLike } from './rigBacking';
 import type { RigBacking, RigBackingFactory } from './rigBacking';
@@ -40,8 +41,9 @@ export interface IEmitterBehavior {
 	recycleParticle?(particle: Particle, natural: boolean): void;
 }
 
-/** Behavior type string registered with `@barvynkoa/particle-emitter`. */
-export const RIG_PARTICLE_BEHAVIOR_TYPE = 'spineParticle';
+/** Behavior type string registered with `@barvynkoa/particle-emitter` — defined in `engine-fx`, so the
+ * exposed-parameter applier's exclusion of it cannot drift. */
+export { RIG_PARTICLE_BEHAVIOR_TYPE };
 
 /**
  * The behavior's config — what `<EffectLayer>` injects into the emitter's `behaviors` entry. It

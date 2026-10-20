@@ -11,15 +11,18 @@ import {
 	type FlightRect,
 } from 'engine-game';
 import { emitterSecondsToWallMs, type EffectDoc } from 'engine-fx';
+import { particleWallMs } from 'pixi-svelte/particleClock';
 import {
 	FLIGHT_METER_PREFIX,
 	flightEaseOf,
+	flightHeadPose,
 	flightPlanOptions,
 	headingOnCurve,
 	resolveFlightStyle,
 	TOTAL_WIN_BAR_ANCHOR,
 	type FlightEase,
 	type FlightHead,
+	type FlightHeadPose,
 	type ResolvedFlightStyle,
 } from 'engine-layout';
 import { resolveAnchor, resolveAnchorPoint } from 'pixi-svelte';
@@ -115,9 +118,11 @@ export type ActiveFlight = {
 	trailMs: number;
 	phase: FlightPhase;
 	head: FlightPoint;
-	/** The direction the head travels, radians — what an aligned trail turns its particles to. */
+	/** The direction the head travels, radians — what an aligned head and trail turn to. */
 	heading: number;
 	ease: FlightEase;
+	/** How far an `easeOutIn` flight slows at mid-flight (the kind's `slowdown`). */
+	slowdown: number;
 	/** The authored head; absent ⇒ the coded glow. */
 	headStyle?: FlightHead;
 	/** × everything drawn at the head — glow, art, carried symbol, label (the kind's `size`). */
@@ -126,6 +131,11 @@ export type ActiveFlight = {
 	trailAlign: boolean;
 	/** Radians added to every trail particle's rotation (the kind's `trailRotation`). */
 	trailRotation: number;
+	/** How the head turns and the perspective it flies with (the kind's `headAlign`,
+	 *  `headRotation` and `depth`). */
+	headMotion: Pick<ResolvedFlightStyle, 'headAlign' | 'headRotation' | 'depth'>;
+	/** How the head is drawn this frame — updated in place, like {@link head}. */
+	pose: FlightHeadPose;
 	/** Text riding on the head ({@link FlyToOptions.label}). */
 	label?: string;
 	/** The symbol that is the head ({@link FlyToOptions.symbol}). */
@@ -138,7 +148,8 @@ export type ActiveFlight = {
 	trail: 'coded' | { effectId: string } | null;
 	/** The effect played at the target on impact, if one is authored. */
 	arrivalEffectId?: string;
-	/** WALL ms the flight stays mounted after landing — its trail's last particle. */
+	/** WALL ms the flight stays mounted after landing — its trail's last particle. Set at normal
+	 *  speed, and divided by the particle clock (turbo) when the flight lands. */
 	settleMs: number;
 	/** The arrival effect has played out (true when there is none). */
 	arrivalDone: boolean;
@@ -333,6 +344,12 @@ export const flyTo = (
 		if (options.padding !== undefined) plan.padding = options.padding * scale;
 		const route = planFlight(current.toLocal(origin), current.toLocal(end), plan);
 		const durationMs = flightDuration(curveLength(route.curve) / scale, style);
+		const heading = headingOnCurve(route.curve, 0);
+		const headMotion = {
+			headAlign: style.headAlign,
+			headRotation: style.headRotation,
+			depth: style.depth,
+		};
 		stateFlights.list.push({
 			...record,
 			curve: route.curve,
@@ -343,12 +360,15 @@ export const flyTo = (
 			trailMs: 0,
 			phase: 'waiting',
 			head: { ...route.curve.p0 },
-			heading: headingOnCurve(route.curve, 0),
+			heading,
 			ease: style.ease,
+			slowdown: style.slowdown,
 			...(style.head ? { headStyle: style.head } : {}),
 			size: style.size,
 			trailAlign: style.trailAlign,
 			trailRotation: (style.trailRotation * Math.PI) / 180,
+			headMotion,
+			pose: flightHeadPose(headMotion, heading, 0),
 			...(options.label ? { label: options.label } : {}),
 			...(options.symbol ? { symbol: { ...options.symbol } } : {}),
 			...(options.symbolScale !== undefined ? { symbolScale: options.symbolScale } : {}),
@@ -381,17 +401,20 @@ export const tickFlights = (deltaMs: number) => {
 		flight.elapsedMs += step;
 		if (flight.elapsedMs < flight.delayMs) continue;
 		const t = Math.min(1, (flight.elapsedMs - flight.delayMs) / flight.durationMs);
-		const eased = flightEaseOf(flight.ease)(t);
+		const eased = flightEaseOf(flight)(t);
 		const point = pointOnCurve(flight.curve, eased);
 		flight.head.x = point.x;
 		flight.head.y = point.y;
 		flight.heading = headingOnCurve(flight.curve, eased);
+		Object.assign(flight.pose, flightHeadPose(flight.headMotion, flight.heading, eased));
 		if (flight.phase === 'waiting') {
 			flight.phase = 'flying';
 			start(flight.id);
 		}
 		if (t >= 1) {
 			flight.phase = 'trailing';
+			// The trail's particles age by the particle clock (turbo), so its last one dies sooner.
+			flight.settleMs = particleWallMs(flight.settleMs);
 			arrive(flight);
 		}
 	}

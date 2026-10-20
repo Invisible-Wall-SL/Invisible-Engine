@@ -1,5 +1,7 @@
 import {
 	cuesCrossed,
+	pingPongCuesCrossed,
+	playbackTime,
 	sampleNodeActor,
 	type CinematicNodeSample,
 	type CinematicTrack,
@@ -7,6 +9,8 @@ import {
 
 import { keyedNodeChannels, resolveNodeActors, type NodeActorChannel } from './cinematicNodes';
 import { BUILTIN_TIMELINES } from './builtinTimelines';
+import { fxParamOfChannel, fxParamRest, placedFxParamValues } from './fxNodeParams';
+import { resolveEffect } from './registerEffects';
 import { blendNodeSamples, type LayerPlay, type LeftSegment } from './stateMachine';
 import type { CinematicDoc, ComponentStateMachine, LayoutNode } from './types';
 
@@ -135,6 +139,8 @@ interface Running {
 	layer?: number;
 	/** The pose a layer is still mixing in from (`blendNodeSamples`). */
 	from?: Mix;
+	/** A `pingPong` timeline's seconds into its there-and-back lap (`time` is where it samples). */
+	lap?: number;
 }
 
 /**
@@ -145,12 +151,30 @@ interface Running {
 interface Mix {
 	snapshot: Map<string, CinematicNodeSample>;
 	progress: number;
+	/** The state being left still plays under the blend (`pauseSource: false`): its nodes are
+	 *  sampled here at `time` instead of read from the snapshot. */
+	live?: { bound: Bound; time: number };
 }
 
 const EPSILON = 1e-9;
 
 /** A zero-length timeline never "ends" in a step the player can report; it holds nothing. */
 const isZeroLength = (doc: CinematicDoc): boolean => !(Math.max(doc.duration || 0, 0) > 0);
+
+/**
+ * Where a looping timeline wraps to (`loopFrom` inside `[0, duration)`, else 0 for a `loop` type),
+ * else `undefined`.
+ */
+const loopStart = (doc: CinematicDoc): number | undefined => {
+	const from = doc.loopFrom;
+	const duration = Math.max(doc.duration || 0, 0);
+	if (typeof from === 'number' && from >= 0 && from < duration) return from;
+	return doc.loop === 'loop' && duration > 0 ? 0 : undefined;
+};
+
+/** A `pingPong` timeline (Rive plan Phase 9b) with no `loopFrom`: it plays there and back forever. */
+const pingPongs = (doc: CinematicDoc): boolean =>
+	doc.loop === 'pingPong' && !isZeroLength(doc) && loopStart(doc) === undefined;
 
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
@@ -186,6 +210,10 @@ export class ComponentTimelinePlayer {
 	private readonly boundById = new Map<string, Bound>();
 	private readonly running = new Map<string, Running>();
 	private readonly driven = new Map<string, Running>();
+	/** Effect nodes some timeline keys an `fx:` channel on → where each such channel rests (the
+	 *  value the node sets itself, from its own `params` or the instance's params, else its
+	 *  parameter's default, read from the game's effect registry when a blend asks). */
+	private readonly fxRests = new Map<string, (channel: string) => number | undefined>();
 	private started = 0;
 	/**
 	 * The speed every running `playOn` timeline advances at (Rive plan Phase 8b): `advance(dt)`
@@ -194,17 +222,28 @@ export class ComponentTimelinePlayer {
 	 * game's `componentPlayRate` each tick. 1 ⇒ exactly the step handed in (parity).
 	 */
 	playRate = 1;
-	/** Snap a playhead to its end within a microsecond (a `frameExact` def only, Phase 8b). */
-	snapEnds = false;
 
-	constructor(docs: readonly CinematicDoc[], nodes: LayoutNode[]) {
+	/** `params`: the owning instance's params, read when a blend asks for a rest (a `params.<id>`
+	 *  forward on an effect node reads them). */
+	constructor(
+		docs: readonly CinematicDoc[],
+		nodes: LayoutNode[],
+		params?: () => Readonly<Record<string, unknown>>,
+	) {
 		const scene = { id: '', name: '', nodes };
 		this.bound = docs.map((doc) => {
 			const actors = new Map<string, CinematicTrack[]>();
 			const channels = new Map<string, Set<NodeActorChannel>>();
 			for (const [nodeId, actor] of resolveNodeActors(doc, scene)) {
+				const keyed = keyedNodeChannels(actor.tracks);
 				actors.set(nodeId, actor.tracks as unknown as CinematicTrack[]);
-				channels.set(nodeId, keyedNodeChannels(actor.tracks));
+				channels.set(nodeId, keyed);
+				const node = actor.node;
+				if (node.kind === 'effect' && [...keyed].some((c) => fxParamOfChannel(c) !== undefined))
+					this.fxRests.set(nodeId, (c) => {
+						const declared = resolveEffect(node.effectId)?.params;
+						return fxParamRest(declared, c, placedFxParamValues(node, params?.() ?? {}, declared));
+					});
 			}
 			const cue = doc.tracks.find((t) => t.kind === 'cue') as
 				{ keys?: { time: number; cue: string }[] } | undefined;
@@ -226,7 +265,14 @@ export class ComponentTimelinePlayer {
 	 */
 	holdsOn(signal: string): string[] {
 		return this.bound
-			.filter((b) => b.doc.playOn === signal && b.doc.holdsCue === true && !isZeroLength(b.doc))
+			.filter(
+				(b) =>
+					b.doc.playOn === signal &&
+					b.doc.holdsCue === true &&
+					!isZeroLength(b.doc) &&
+					loopStart(b.doc) === undefined &&
+					!pingPongs(b.doc),
+			)
 			.map((b) => b.doc.id);
 	}
 
@@ -288,14 +334,23 @@ export class ComponentTimelinePlayer {
 		for (const r of this.running.values()) {
 			if (r.done) continue;
 			const duration = Math.max(r.bound.doc.duration || 0, 0);
+			const loopFrom = loopStart(r.bound.doc);
+			if (loopFrom !== undefined) {
+				r.time = this.loop(r, loopFrom, duration, dt, step);
+				continue;
+			}
+			if (pingPongs(r.bound.doc)) {
+				// Cues fire on the way out only, a step over the turnaround included.
+				const from = r.lap ?? r.time;
+				for (const k of pingPongCuesCrossed(r.bound.cueKeys, from, from + dt, duration)) {
+					step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
+				}
+				r.lap = (from + dt) % (2 * duration);
+				r.time = playbackTime('pingPong', r.lap, duration);
+				continue;
+			}
 			const prev = r.time;
-			// Frame deltas accumulate float error: 802 steps of 1/60 fall 1e-15 short of 13.3667, and
-			// a strip that ends on the frame after would hold its awaited cue a frame late (the win
-			// walk's tier boundary). A `frameExact` def snaps to the end within a microsecond, as the
-			// state-machine runner does; every other timeline ends exactly as before.
-			const stepped = prev + dt;
-			const next =
-				this.snapEnds && duration - stepped < 1e-6 ? duration : Math.min(stepped, duration);
+			const next = Math.min(prev + dt, duration);
 			for (const k of cuesCrossed(r.bound.cueKeys, prev, next)) {
 				step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
 			}
@@ -306,6 +361,30 @@ export class ComponentTimelinePlayer {
 			}
 		}
 		return step;
+	}
+
+	/** A looping timeline's step: past `duration` it wraps to `loopFrom`, carrying the overshoot. */
+	private loop(
+		r: Running,
+		loopFrom: number,
+		duration: number,
+		dt: number,
+		step: TimelineStep,
+	): number {
+		const id = r.bound.doc.id;
+		const crossed = (prev: number, next: number): void => {
+			for (const k of cuesCrossed(r.bound.cueKeys, prev, next))
+				step.cues.push({ cue: k.cue, timeline: id });
+		};
+		const next = r.time + dt;
+		if (next < duration) {
+			crossed(r.time, next);
+			return next;
+		}
+		crossed(r.time, duration);
+		const wrapped = loopFrom + ((next - duration) % (duration - loopFrom));
+		crossed(loopFrom - EPSILON, wrapped);
+		return wrapped;
 	}
 
 	/**
@@ -360,14 +439,20 @@ export class ComponentTimelinePlayer {
 					}
 				}
 				r.from = { snapshot, progress: 0 };
+				// Only a slot that was not itself mid-blend plays on: a half-mixed pose has no one
+				// timeline to continue, so it stays frozen.
+				if (play.from.playing && previous && !previous.from)
+					r.from.live = { bound: previous.bound, time: play.from.time };
 			}
 		} else {
 			segment(bound, play);
 			r.time = play.time;
 			r.layer = layer;
 		}
-		if (r.from && play.from) r.from.progress = play.from.progress;
-		else if (!play.from) r.from = undefined;
+		if (r.from && play.from) {
+			r.from.progress = play.from.progress;
+			if (r.from.live) r.from.live.time = play.from.time;
+		} else if (!play.from) r.from = undefined;
 		return cues;
 	}
 
@@ -381,7 +466,14 @@ export class ComponentTimelinePlayer {
 		const tracks = r.bound.actors.get(nodeId);
 		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
 		if (!r.from) return to;
-		return blendNodeSamples(r.from.snapshot.get(nodeId), to, r.from.progress);
+		const live = r.from.live;
+		const liveTracks = live?.bound.actors.get(nodeId);
+		return blendNodeSamples(
+			live && liveTracks ? sampleNodeActor(liveTracks, live.time) : r.from.snapshot.get(nodeId),
+			to,
+			r.from.progress,
+			this.fxRests.get(nodeId),
+		);
 	}
 
 	sample(nodeId: string): CinematicNodeSample | undefined {

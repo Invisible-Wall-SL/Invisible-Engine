@@ -12,20 +12,24 @@
 	 * NODE ACTORS (Rive plan §3.1): a `screen`-hosted timeline also drives nodes of its set by
 	 * name. They render nothing here — the set's own `<LayoutNodeView>`s read their channels through
 	 * the `cinematicNodeContext` driver this component provides. A doc with no node actor provides
-	 * a driver that matches nothing, so every node renders as before.
+	 * a driver that matches nothing, so every node renders as before. When its host screen is
+	 * already on stage (`setMounted`) the set is not drawn here: the caller mounts that screen with
+	 * the driver `ondriver` hands it, so the timeline moves the screen the player already sees.
 	 */
-	import { onDestroy } from 'svelte';
+	import { onDestroy, untrack } from 'svelte';
 	import { getContextApp, RigProvider } from 'pixi-svelte';
 	import {
 		cuesCrossed,
 		isNodeActor,
+		pingPongCuesCrossed,
+		playbackTime,
 		resolveVisible,
 		sampleNodeActor,
 		type CinematicTrack,
 	} from 'engine-cinematic';
 	import type { CinematicDoc, Scene } from './types';
 	import { keyedNodeChannels, resolveNodeActors } from './cinematicNodes';
-	import { setCinematicNodeDriver } from './cinematicNodeContext';
+	import { setCinematicNodeDriver, type CinematicNodeDriver } from './cinematicNodeContext';
 	import CinematicActor from './CinematicActor.svelte';
 	import LayoutScene from './LayoutScene.svelte';
 
@@ -38,10 +42,15 @@
 		 * node, so this is what makes a cue layerable against the rigs at all.
 		 */
 		scene?: Scene;
+		/** The set is already on stage (a flow-shown host screen): draw no copy of it here. */
+		setMounted?: boolean;
+		/** Handed this player's node driver once, at mount, for a set drawn elsewhere. */
+		ondriver?: (driver: CinematicNodeDriver) => void;
 		/** Start playing on mount. Off ⇒ the cinematic holds at `startTime` until `playing` flips. */
 		playing?: boolean;
 		/** Where the playhead starts (and where a `loop`ing cinematic returns to). */
 		startTime?: number;
+		/** Loop it (as a Flow node asks); a ping-pong doc still plays there and back. */
 		loop?: boolean;
 		/** Playback rate; 1 = authored speed. */
 		speed?: number;
@@ -56,6 +65,8 @@
 
 	let time = $state(props.startTime ?? 0);
 	let done = false;
+	/** A `pingPong` doc's seconds into its there-and-back lap; `time` is where the lap samples. */
+	let lap = 0;
 
 	const duration = $derived(Math.max(props.doc.duration || 0, 0));
 	/** Cast RIGS in draw order — the same z the author saw on the /rigger stage. Node actors draw
@@ -76,7 +87,7 @@
 	const layers = $derived.by(() => {
 		const setZ = props.doc.stage?.setZ ?? -1;
 		const out: Array<{ set: true } | { set: false; member: (typeof cast)[number] }> = [];
-		let placed = !props.scene;
+		let placed = !props.scene || !!props.setMounted;
 		for (const member of cast) {
 			if (!placed && (member.z ?? 0) > setZ) {
 				out.push({ set: true });
@@ -115,7 +126,7 @@
 	// The set's nodes that node actors drive, keyed by node id. Read by each top-level
 	// `<LayoutNodeView>` once, at init; `sample()` reads `time`, so a driven node follows the playhead.
 	const nodeActors = $derived(resolveNodeActors(props.doc, props.scene));
-	setCinematicNodeDriver((nodeId) => {
+	const driver: CinematicNodeDriver = (nodeId) => {
 		const actor = nodeActors.get(nodeId);
 		if (!actor) return undefined;
 		const tracks = actor.tracks as unknown as CinematicTrack[];
@@ -125,7 +136,9 @@
 			textTrack: tracks.filter((t) => t.kind === 'text').pop(),
 			sample: () => sampleNodeActor(tracks, time),
 		};
-	});
+	};
+	setCinematicNodeDriver(driver);
+	untrack(() => props.ondriver)?.(driver);
 
 	// Game content mounts after the Pixi app has initialised, so the application is already here.
 	const ticker = appContext.stateApp.pixiApplication?.ticker;
@@ -133,14 +146,25 @@
 	function tick() {
 		if (!ticker || !props.playing || duration <= 0 || done) return;
 		const prev = time;
-		time += (ticker.deltaMS / 1000) * (props.speed ?? 1);
+		const dt = (ticker.deltaMS / 1000) * (props.speed ?? 1);
+		// The doc's own loop type (Rive plan Phase 9b): a ping-pong samples its lap reflected and fires
+		// cues on the way out only. Absent ⇒ the one-shot path below, as before.
+		if (props.doc.loop === 'pingPong') {
+			if (props.oncue && cueKeys.length) {
+				for (const k of pingPongCuesCrossed(cueKeys, lap, lap + dt, duration)) props.oncue(k.cue);
+			}
+			lap = (lap + dt) % (2 * duration);
+			time = playbackTime('pingPong', lap, duration);
+			return;
+		}
+		time += dt;
 		// `cuesCrossed` owns the "did we cross it" rule (and refuses on a backwards or over-large
 		// step, i.e. a seek), so the game and the editor preview share ONE definition of "fired".
 		if (props.oncue && cueKeys.length) {
 			for (const k of cuesCrossed(cueKeys, prev, time)) props.oncue(k.cue);
 		}
 		if (time < duration) return;
-		if (props.loop) {
+		if (props.loop || props.doc.loop === 'loop') {
 			time = duration > 0 ? time % duration : 0;
 			return;
 		}
@@ -154,11 +178,14 @@
 	ticker?.add(tick);
 	onDestroy(() => ticker?.remove(tick));
 
-	// Re-arm when the caller restarts it (a screen replayed, or a different cinematic mounted).
+	// Re-arm when the caller restarts it (a screen replayed, or a different cinematic mounted). It
+	// must never READ `time`: the ticker writes it every frame, which would re-run this and pin the
+	// playhead at the start.
 	$effect(() => {
 		void props.doc.id;
-		void props.startTime;
-		time = props.startTime ?? 0;
+		const start = props.startTime ?? 0;
+		time = start;
+		lap = start;
 		done = false;
 	});
 </script>

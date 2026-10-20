@@ -5,6 +5,7 @@
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
 	import { App, Container, Text } from 'pixi-svelte';
+	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
 		stateBetDerived,
@@ -22,6 +23,7 @@
 		hasContinuePress,
 		releaseSpinHold,
 		UI_FEATURES_UK,
+		stateUrlDerived,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import {
@@ -94,12 +96,18 @@
 		LOADING_INTRO_DEF,
 		TRANSITION_DEF,
 		TRANSITION_WIPE_DEF,
-		authoredTransitionStatus,
+		resolveAuthoredOverlays,
+		authoredButtonsStatus,
+		withAuthoredButtonsDoc,
+		isBuiltinButtonShape,
+		docButtonVersions,
+		resolveComponent,
+		getComponentDefaults,
+		registerComponentDefaults,
+		handOffPressSound,
+		BUTTON_PRESENTATION_DEF,
+		BUTTON_STATE_INPUTS,
 		registerBoardBox,
-		withAuthoredWin,
-		withAuthoredWinDoc,
-		withAuthoredTransition,
-		withAuthoredTransitionDoc,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
 		WIN_DEF,
@@ -132,10 +140,8 @@
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
 		LAYER_BAND_WIN_PRESENTATION,
-		sceneByRole,
 		loadingSceneId,
 		basegameSceneId,
-		collectComponentIds,
 		buyFeatureSceneId,
 		buyConfirmSceneId,
 		betMenuSceneId,
@@ -159,6 +165,7 @@
 		warnOnGameConfigIssues,
 		warnOnServerGridMismatch,
 		warnOnServerPaytableMismatch,
+		boardDimensions,
 	} from '../game/gameConfig';
 	import { paytable } from '../game/paytable';
 	import {
@@ -202,7 +209,7 @@
 	} from 'engine-game';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 	import { winState } from '../game/winState.svelte';
-	import { registerDeterminismProbe } from '../game/determinism';
+	import { recordDeterminismUiEvent, registerDeterminismProbe } from '../game/determinism';
 	import {
 		rebuildBoard,
 		setBoardOverride,
@@ -244,6 +251,16 @@
 	import { stateRespinPark } from '../game/respinHold.svelte';
 	import { publishRespinScreens } from '../game/respinScreens.svelte';
 	import { modeScreenFor, reservedModeCopies } from '../game/respinModes';
+	import {
+		basegameOverlaysSceneOf,
+		basegameSceneOf,
+		buyConfirmSceneOf,
+		buyFeatureSceneOf,
+		freeSpinCounterSceneOf,
+		specialBookSceneOf,
+		winVisualSceneOf,
+	} from '../game/sceneSelection';
+	import { skipUnusedStockAssets } from '../game/stockAssetBoot';
 	import {
 		PLATFORM_JACKPOT_TIERS,
 		platformJackpotValue,
@@ -298,8 +315,10 @@
 		authoredWinRuntime,
 		authoredWinSignals,
 		registerAuthoredWinTimelines,
+		authoredWinPresentation,
 		resolveAuthoredWinStatus,
 	} from '../game/authoredWin.svelte';
+	import { startAuthoredFreeSpins } from '../game/authoredFreeSpins.svelte';
 	import { ContinuePressMask, PressToContinue } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -428,10 +447,15 @@
 	// The flow handle is built once the scenes load; a Game destroyed before that disposes it on
 	// arrival rather than leaking its listener.
 	let disposeFlowV2: (() => void) | undefined;
+	// Likewise the authored Win's and free-spin path's registrations (Rive plan Phase 8b / 8c).
+	let stopAuthoredWin: (() => void) | undefined;
+	let stopAuthoredFreeSpins: (() => void) | undefined;
 	let destroyed = false;
 	onDestroy(() => {
 		destroyed = true;
 		disposeFlowV2?.();
+		stopAuthoredWin?.();
+		stopAuthoredFreeSpins?.();
 	});
 
 	// And say out loud when the RGS is dealing a DIFFERENT board than the one the project authored.
@@ -706,6 +730,13 @@
 	// FlowDoc / inert interpreter / no override ⇒ `linesValueResolver` returns each display's own
 	// `source` verbatim ⇒ subscriptions byte-identical to today (parity §11.6).
 	registerFlowValueSource(linesValueResolver);
+	// A press's feedback sound (Rive plan Phase 8d): handed to an authored button that claimed the press
+	// (its state machine plays it, at this same point of the body), else broadcast as always.
+	const pressFeedback = (event: {
+		type: 'soundPressGeneral' | 'soundPressBet' | 'soundPressStop';
+	}) => {
+		if (!handOffPressSound(event.type)) context.eventEmitter.broadcast(event);
+	};
 	// Flow press routing (§Part 2) — wire `<ComponentInstance>`'s press through the v2 flow's authored
 	// container-event ownership. When the flow OWNS a component's event (an authored exec edge from its
 	// fused pin) the press fires the flow's chain ALONE and the coded `onpress` is SUPPRESSED (no
@@ -724,7 +755,7 @@
 		// A RAISED EVENT (Rive plan Phase 6–7) is not a press: no press-feedback sound for it.
 		if (kind === 'event') return routed;
 		return () => {
-			context.eventEmitter.broadcast(
+			pressFeedback(
 				action === 'spin'
 					? getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() })
 					: { type: 'soundPressGeneral' },
@@ -764,6 +795,10 @@
 	// author-added background node) shadows the coded one. No-op when not baked
 	// (`apps/lines` dev) → parity. See docs/design/live-assets.md → "Layout-doc bake".
 	registerBakedComponents();
+	// Drop the stock assets (`game/assets.ts`) this project can never draw from the asset table,
+	// before `<App>` mounts the loader. After the defs above, so the project's own resolve; a boot
+	// that has no doc yet (dev, live-doc) keeps every one (`game/stockAssets.ts`).
+	stateApp.assets = skipUnusedStockAssets(stateApp.assets);
 	// Register the project's baked Invisible FX effects so PLACED `effect` nodes resolve their
 	// `effectId` → doc at render (`registerEffects`/`resolveEffect`). No-op when un-baked / no
 	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.
@@ -782,6 +817,10 @@
 	// AFTER `registerFlipbooks` for readability only — a binding resolves its clip at render, not
 	// here. No-op when un-baked / no rig has a bound clip (parity).
 	registerRigFlipbooks(bakedRigFlipbooks());
+	// Turbo speeds up the particles too: every `<ParticleEmitter>` steps by this clock and the FX
+	// emission timers divide by it when they start (`pixi-svelte` `particleClock`). Read live, so a
+	// turbo toggle lands on the next frame. The tools never set it and preview at normal speed.
+	setParticleTimeScale(stateBetDerived.timeScale);
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(getMessagesMap());
@@ -796,6 +835,8 @@
 	registerInlineImageResolver((symbol) =>
 		getActiveSymbolInfoMap()[symbol]?.static ? symbol : undefined,
 	);
+	/** The feature is recorded but its board has not shown it yet — a held intro before the board. */
+	const respinsBeforeBoard = () => stateHoldAndWin.active && !stateRespinBoard.counter.show;
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
@@ -811,11 +852,17 @@
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
 		// Hold and Win: the respins left on the counter (`respinUpdate`, restated by every snapshot) — what
-		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field.
-		respinsLeft: valueSource(() => stateRespinBoard.counter.left),
+		// an authored respin counter binds; the coded one in `RespinCounter` reads the same field. Between
+		// the feature's entry and the board showing it (a held intro ahead of `showRespinBoard`), the
+		// recorded feature's.
+		respinsLeft: valueSource(() =>
+			respinsBeforeBoard() ? stateHoldAndWin.left : stateRespinBoard.counter.left,
+		),
 		// …and what the counter resets to — the feature's current cap (an add-respins can raise it),
 		// what a value binding divides `respinsLeft` by to drive a draining bar.
-		respinsStart: valueSource(() => stateRespinBoard.counter.start),
+		respinsStart: valueSource(() =>
+			respinsBeforeBoard() ? stateHoldAndWin.start : stateRespinBoard.counter.start,
+		),
 		// The respin board's held cells and its open cells (reels × open rows) — a "board filling"
 		// bar binds the first, normalised by the second. 0 outside the feature.
 		cellsHeld: valueSource(() => (stateRespinBoard.shown ? stateRespinBoard.held.length : 0)),
@@ -1051,11 +1098,6 @@
 	// an anticipation fires; a screen without the tick adds no wrapper at all (parity).
 	registerSceneCameraTransform(anticipationCameraTransform);
 
-	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
-	const fallbackOverlays = fallbackEditorScenes.scenes.find(
-		(scene) => scene.id === 'basegameOverlays',
-	)!;
-
 	/** Fetched at boot from the launcher; seeded with the bundled fallback so the
 	 * game renders immediately and degrades gracefully when offline. */
 	let editorDoc = $state(fallbackEditorScenes);
@@ -1068,7 +1110,7 @@
 	const basegameScreenId = $derived(basegameSceneId(editorDoc.scenes));
 	// Which screen draws a respin mode's beat is found among these (`respinScreens.svelte.ts`).
 	$effect.pre(() => publishRespinScreens(editorDoc.scenes));
-	const basegameScene = $derived(sceneByRole(editorDoc.scenes, 'basegame') ?? fallbackBasegame);
+	const basegameScene = $derived(basegameSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// Reel z-order: the editor lets you order the `reelGrid` placeholder among the
 	// basegame layers, but the real <Board/> mounts in its OWN trailing MainContainer
 	// (a separate Pixi container), so it always paints over the whole scene — no editor
@@ -1088,45 +1130,11 @@
 			? undefined
 			: { ...basegameScene, nodes: basegameScene.nodes.slice(reelGridIndex + 1) },
 	);
-	// Whether the doc places its OWN win VISUAL — a `win` componentInstance in ANY scene (the Win
-	// Overlay component dropped on a flow screen, or the split's `winVisual` scene). When it does,
-	// the coded `bind:Win` COMPOSER must not ALSO draw a visual: `Win` is the gate PLUS a param-less
-	// `WinVisual`, so a second, unauthored big-win presentation renders board-centred over the
-	// authored one — and, having no `componentInstance` params, at the component's DEFAULTS, which is
-	// how a `showCoins: false` instance still rained coins. Degrading the node to its GATE half
-	// (`bind:WinGate`) below keeps the load-bearing part (count-up + `winState` + round-block, which
-	// the authored visual READS) and drops the duplicate art. Recurses into container children, so a
-	// win overlay nested inside an authored screen counts.
-	const docPlacesWinVisual = $derived(
-		collectComponentIds(editorDoc.scenes.flatMap((scene) => scene.nodes)).includes('win'),
+	// The overlays scene, with the coded `bind:Win` composer degraded to its gate half when the doc
+	// places its own win visual (see `basegameOverlaysSceneOf`).
+	const basegameOverlaysScene = $derived(
+		basegameOverlaysSceneOf(editorDoc, fallbackEditorScenes, authoredWinRuntime.on),
 	);
-	// The overlays scene, with that degrade applied. This is exactly the `WIN_INSTANCE`-ON shape the
-	// gate/visual split was designed for — it was simply never reached by a doc that authors the
-	// visual while leaving `basegameOverlays` at the reference default, or omitting the scene
-	// entirely (then `fallbackOverlays` supplies `bind:Win`, and the game gets both halves twice).
-	// No `Win` bind, or no authored win visual ⇒ the SAME scene object back ⇒ byte-identical (parity).
-	const basegameOverlaysScene = $derived.by(() => {
-		// The AUTHORED Transition (Rive plan Phase 8a): the loaded doc's scenes were swapped once at
-		// load (`withAuthoredTransitionDoc`); the reference overlays a doc without its own gets are
-		// swapped here under the same flag. Off ⇒ the same scene object (parity).
-		const swappedFallback =
-			authoredTransitionStatus(editorDoc) === 'ready'
-				? withAuthoredTransition(fallbackOverlays)
-				: fallbackOverlays;
-		const scene =
-			editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ??
-			// The AUTHORED Win (Phase 8b) degrades the reference composer to its gate half the same
-			// way; the loaded doc's own scenes were swapped at load (`withAuthoredWinDoc`).
-			(authoredWinRuntime.on ? withAuthoredWin(swappedFallback) : swappedFallback);
-		if (!docPlacesWinVisual) return scene;
-		let degraded = false;
-		const nodes = scene.nodes.map((node) => {
-			if (node.bind?.component !== 'Win') return node;
-			degraded = true;
-			return { ...node, bind: { ...node.bind, component: 'WinGate' } };
-		});
-		return degraded ? { ...scene, nodes } : scene;
-	});
 	// Whether the (unconditionally-mounted) `basegameOverlays` scene STILL carries a coded WIN gate
 	// bind — the reference layout's `WIN_INSTANCE` shapes: `bind:Win` (the OFF composer, gate +
 	// visual) or `bind:WinGate` (the ON full-screen gate). When it does, THAT gate is the sole
@@ -1145,20 +1153,16 @@
 	// (the `WIN_INSTANCE` fallback emits it, or the owner authored a `win` component in the editor);
 	// `undefined` otherwise ⇒ the mount renders nothing (the OFF composer `Win` draws the visual
 	// itself). Parity-safe.
-	const winVisualScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'winVisual') ??
-			fallbackEditorScenes.scenes.find((s) => s.id === 'winVisual'),
-	);
-	// The free-spin counter as an editor scene (the fallback layout ships it, so the `!` is safe + a
-	// no-doc boot is parity) — the coded path's counter; a v2 flow mounts it as a container instead.
-	const fallbackFsCounter = fallbackEditorScenes.scenes.find((s) => s.id === 'freeSpinCounter')!;
+	const winVisualScene = $derived(winVisualSceneOf(editorDoc.scenes, fallbackEditorScenes));
+	// The free-spin counter as an editor scene (the fallback layout ships it, so a no-doc boot is
+	// parity) — the coded path's counter; a v2 flow mounts it as a container instead.
 	// While a spins mode is on top its own counter copy (`freeSpinCounter-<modeId>`) draws, if the
 	// doc has one; otherwise, and on every doc without a spins mode, the base game's.
 	const fsCounterId = $derived(
 		modeScreenFor(editorDoc.scenes, activeSpinsGame()?.mode, 'freeSpinCounter'),
 	);
 	const fsCounterScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === fsCounterId) ?? fallbackFsCounter,
+		freeSpinCounterSceneOf(editorDoc.scenes, fallbackEditorScenes, fsCounterId),
 	);
 	// Authored BOOK REVEAL (book-reveal authoring). The `specialBook` scene normally carries only
 	// the coded `SpecialBook` bind anchor (the shuffle-through-symbols reference reveal). When an
@@ -1168,10 +1172,7 @@
 	// anchor, so the flag is false ⇒ the coded shuffle still plays (parity). Mirrors
 	// `suppressCodedBackground` / `suppressCodedHud`.
 	const suppressCodedBookReveal = $derived(hasAuthoredBookReveal(editorDoc.scenes));
-	const fallbackSpecialBook = fallbackEditorScenes.scenes.find((s) => s.id === 'specialBook')!;
-	const rawSpecialBookScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'specialBook') ?? fallbackSpecialBook,
-	);
+	const rawSpecialBookScene = $derived(specialBookSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// Book-reveal authoring — when the author supplies their OWN reveal content the coded
 	// `SpecialBook` shuffle is suppressed: strip its bind anchor from the scene so only the
 	// authored nodes mount. Un-authored (`apps/lines` dev) ⇒ the anchor stays ⇒ the coded shuffle
@@ -1192,23 +1193,13 @@
 	// Resolution is by ROLE first (`sceneByRole`), so an owner can tag ANY authored scene as the buy
 	// screen without matching the magic `buyFeature` id — then the legacy `buyFeature` id, then the
 	// seeded fallback. PARITY: a doc with no role-tagged scene resolves exactly as before (id → fallback).
-	const fallbackBuyFeature = fallbackEditorScenes.scenes.find((s) => s.id === 'buyFeature')!;
-	const buyFeatureScene = $derived(
-		sceneByRole(editorDoc.scenes, 'buyFeature') ??
-			editorDoc.scenes.find((scene) => scene.id === 'buyFeature') ??
-			fallbackBuyFeature,
-	);
+	const buyFeatureScene = $derived(buyFeatureSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// Buy-bonus CONFIRM step — the authored buy-confirm scene (a dimmed backdrop + a `confirmDialog`
 	// instance), else the engine default seeded by `defaultLayout`. Passed to the shared
 	// `<BuyBonusConfirm>` (→ `<ConfirmDialog>`) below, which keys visibility on `stateModal`
 	// (`buyBonusConfirm`) and injects the dialog's title/message/labels + confirm/cancel callbacks.
 	// ROLE-first resolution, mirroring the SELECT scene above (role → legacy `buyConfirm` id → fallback).
-	const fallbackBuyConfirm = fallbackEditorScenes.scenes.find((s) => s.id === 'buyConfirm')!;
-	const buyConfirmScene = $derived(
-		sceneByRole(editorDoc.scenes, 'buyConfirm') ??
-			editorDoc.scenes.find((scene) => scene.id === 'buyConfirm') ??
-			fallbackBuyConfirm,
-	);
+	const buyConfirmScene = $derived(buyConfirmSceneOf(editorDoc.scenes, fallbackEditorScenes));
 	// The operator's round-start CONFIRM (`confirmGameRoundStart`) — an authored `roundConfirm`
 	// scene if the doc has one, else `undefined` ⇒ `<ConfirmDialog>` renders the engine default.
 	// There is no `roundConfirm` ROLE and no seeded fallback: a doc that never authored it gets the
@@ -1304,6 +1295,15 @@
 	);
 
 	const context = getContext();
+	// The determinism probe's `uiEvents` (Rive plan Phase 8d): every press-feedback sound, whichever
+	// path broadcast it, and the UI fades. A no-op outside determinism mode.
+	context.eventEmitter.subscribeOnMount({
+		soundPressGeneral: () => recordDeterminismUiEvent('soundPressGeneral'),
+		soundPressBet: () => recordDeterminismUiEvent('soundPressBet'),
+		soundPressStop: () => recordDeterminismUiEvent('soundPressStop'),
+		uiHide: () => recordDeterminismUiEvent('uiHide'),
+		uiShow: () => recordDeterminismUiEvent('uiShow'),
+	});
 
 	// Invisible Flow (Phase 4) — the runtime interpreter, built once the live editor doc
 	// loads (it resolves authored screen ids to their scenes). ABSENT by default (no FlowDoc
@@ -1977,7 +1977,7 @@
 		// ButtonMenu — open the menu overlay. No disabled/active.
 		menu: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('menu', doOpenMenu);
 			},
 		},
@@ -1987,7 +1987,7 @@
 		// (iPhone Safari has no Fullscreen API; iPad does) or the jurisdiction forbids it.
 		fullscreen: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('fullscreen', doToggleFullscreen);
 			},
 			active: boolSource(() => stateFullscreen.active),
@@ -2001,7 +2001,7 @@
 		// `stateUi.menuOpen` body never runs; unwired it closes the coded drawer.
 		menuClose: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('menuClose', doCloseMenu);
 			},
 		},
@@ -2012,19 +2012,19 @@
 		// they behave identically whether reached via the popup or as a direct button.
 		payTable: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doOpenPayTable();
 			},
 		},
 		gameRules: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doOpenGameRules();
 			},
 		},
 		settings: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doOpenSettings();
 			},
 		},
@@ -2032,7 +2032,7 @@
 		// authored button can show its selected-state image while unmuted.
 		soundToggle: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doToggleSound();
 			},
 			active: boolSource(() => stateSound.volumeValueMaster !== 0),
@@ -2041,7 +2041,7 @@
 		// when one is armed. Disabled while not idle; active while a buy mode is on.
 		buyBonus: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('buyBonus', codedOpenBuyModal);
 			},
 			disabled: boolSource(
@@ -2053,7 +2053,7 @@
 		// Active while an auto-bet counter is live; disabled per its compound derived.
 		autoSpin: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				doAutoSpin();
 			},
 			disabled: boolSource(() => {
@@ -2073,7 +2073,7 @@
 		// concern of the coded button, not part of the press/flag contract here.)
 		turbo: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('turbo', doToggleTurbo);
 			},
 			disabled: boolSource(() => stateBet.isSpaceHold || isCelebrationLocked()),
@@ -2083,7 +2083,7 @@
 		// idle or already at the biggest option.
 		increase: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('increase', doIncreaseBet);
 			},
 			disabled: boolSource(
@@ -2097,7 +2097,7 @@
 		// idle or already at the smallest option.
 		decrease: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
+				pressFeedback({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('decrease', doDecreaseBet);
 			},
 			disabled: boolSource(
@@ -2117,9 +2117,7 @@
 		// markup below, gated on the same flag.
 		spin: {
 			onpress: () => {
-				context.eventEmitter.broadcast(
-					getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),
-				);
+				pressFeedback(getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }));
 				// Functional action pin (design doc §8.5): an authored `spin` action → intent edge
 				// routes the press THROUGH the flow; unwired / inert ⇒ the coded bet/stop runs
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
@@ -2170,20 +2168,56 @@
 	});
 
 	onMount(() => {
-		void loadEditorScenes().then((rawDoc) => {
-			// Rive plan Phase 8a: ONE swap of every coded `bind: Transition` for the authored instance,
-			// wherever it sits (`withAuthoredTransitionDoc`), applied only when the shared rule says
-			// `ready`; `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
-			// board override — is the swapped doc, so no mount path renders the coded node the retire
-			// below has made inert. Off, or not ready ⇒ the same doc object (parity).
-			const authored = authoredTransitionStatus(rawDoc) === 'ready';
-			const transitioned = authored ? withAuthoredTransitionDoc(rawDoc) : rawDoc;
-			// Rive plan Phase 8b: the AUTHORED Win, under its own flag and the shared status rule —
-			// every `bind: Win` degraded to its gate half, a placed `win` instance swapped for the
-			// built-in `winPresentation`, the `winVisual` scene synthesized when none is placed; both
-			// flows are built from this doc too. Off, or held back ⇒ the same doc object (parity).
-			const authoredWin = resolveAuthoredWinStatus(transitioned) === 'ready';
-			const doc = authoredWin ? withAuthoredWinDoc(transitioned) : transitioned;
+		void loadEditorScenes().then((loadedDoc) => {
+			// Rive plan Phase 8d: the AUTHORED button, under its own flag and the shared status rule —
+			// every parametric `componentInstance(button)` swapped for the built-in `buttonPresentation`
+			// (its machine draws the frame per state, turns the spin frame, plays the press sound); the
+			// press road and its gates stay coded. A project whose own `button` def draws something else
+			// is held back. Everything the path reads is registered here and nowhere else: the def, the
+			// `uiHide` / `uiShow` signals its fade layer hears, and the project's `button` defaults under
+			// the new id. Off, or held back ⇒ the same doc object (parity).
+			const authoredButtons =
+				authoredButtonsStatus(loadedDoc, {
+					shadowed: !docButtonVersions(loadedDoc).every((version) =>
+						isBuiltinButtonShape(resolveComponent('button', version).def),
+					),
+				}) === 'ready';
+			const rawDoc = authoredButtons ? withAuthoredButtonsDoc(loadedDoc) : loadedDoc;
+			if (authoredButtons) {
+				registerComponents(
+					{ [BUTTON_PRESENTATION_DEF.id]: BUTTON_PRESENTATION_DEF },
+					{ builtin: true },
+				);
+				registerComponentSignals({
+					[BUTTON_STATE_INPUTS.uiHide]: eventSignal((run) =>
+						context.eventEmitter.subscribe({ uiHide: () => run() }),
+					),
+					[BUTTON_STATE_INPUTS.uiShow]: eventSignal((run) =>
+						context.eventEmitter.subscribe({ uiShow: () => run() }),
+					),
+				});
+				const buttonDefaults = getComponentDefaults('button');
+				if (buttonDefaults)
+					registerComponentDefaults({ [BUTTON_PRESENTATION_DEF.id]: buttonDefaults });
+			}
+			// Rive plan Phase 8a–8c: the authored overlays, resolved by the ONE rule the launcher's chips
+			// share (`resolveAuthoredOverlays`) — Transition, then the Win, then the free-spin intro /
+			// outro, each status read on the doc the swaps before it produced. 8a swaps every coded
+			// `bind: Transition` for the authored instance; 8b degrades every `bind: Win` to its gate
+			// half, swaps a placed `win` instance for the built-in `winPresentation` and synthesizes the
+			// `winVisual` scene when none is placed; 8c swaps every coded `bind: FreeSpinIntroVisual /
+			// FreeSpinOutroVisual` for its built-in presentation (the outro driver, the taps and the holds
+			// stay coded). `doc` below — the scenes rendered, both flow interpreters' `resolveScene`, the
+			// board override — is the swapped doc, so no mount path renders a coded node the retires
+			// below have made inert. Off, or held back ⇒ the same doc object (parity).
+			const overlays = resolveAuthoredOverlays(rawDoc, {
+				status: resolveAuthoredWinStatus,
+				presentation: authoredWinPresentation,
+			});
+			const { doc } = overlays;
+			const authored = overlays.transition === 'ready';
+			const authoredWin = overlays.win === 'ready';
+			const authoredFreeSpins = overlays.freeSpins === 'ready';
 			// Retire the coded Transition part BEFORE the doc's instances mount, so a project that also
 			// placed the hybrid `transition` twin plays one wipe (the authored one).
 			retireCodedOverlay('transition', authored);
@@ -2197,14 +2231,46 @@
 				// (`winTier.<alias>` …), `winFadeIn`, `winPlain` and `winHide`, before any instance of the
 				// swapped doc subscribes; and the board box the `boardFit` rig sizes to — the same
 				// `boardLayout()` the coded big-win rig was fitted to, read live.
-				registerComponentSignals(
+				const unregisterSignals = registerComponentSignals(
 					authoredWinSignals((run) => context.eventEmitter.subscribe({ winHide: run })),
 				);
-				registerBoardBox(() => context.stateGameDerived.boardLayout());
+				const unregisterBoard = registerBoardBox(() => context.stateGameDerived.boardLayout());
 				// The def itself, generated from the active tiers (its caption `switchKeys`), registered
 				// here and nowhere else: an unregistered id expands to nothing — the swapped instance
 				// would mount, subscribe nothing and draw nothing.
 				registerComponents({ [authoredWinDef().id]: authoredWinDef() });
+				// The signals and the board box are torn down with the game, so a later boot (a project
+				// switch) does not read this one's; the def stays registered, inert unless placed.
+				const stop = () => {
+					unregisterSignals();
+					unregisterBoard();
+				};
+				if (destroyed) stop();
+				else stopAuthoredWin = stop;
+			}
+			// The coded free-spin visuals go dark for this boot; everything the authored path reads is
+			// registered by `startAuthoredFreeSpins` and nowhere else (a boot without the flag registers
+			// nothing new), and torn down with the game. Reset first, so no earlier boot's retire lingers.
+			retireCodedOverlay('freeSpins', false);
+			if (authoredFreeSpins) {
+				const stop = startAuthoredFreeSpins({
+					signals: {
+						introShow: (run) => context.eventEmitter.subscribe({ freeSpinIntroShow: () => run() }),
+						introHide: (run) => context.eventEmitter.subscribe({ freeSpinIntroHide: () => run() }),
+						outroCountUp: (run) =>
+							context.eventEmitter.subscribe({
+								freeSpinOutroCountUp: (e) => run(e.winLevelData?.type === 'big'),
+							}),
+						outroHide: (run) => context.eventEmitter.subscribe({ freeSpinOutroHide: () => run() }),
+					},
+					onIntroUpdate: (set) =>
+						context.eventEmitter.subscribe({ freeSpinIntroUpdate: (e) => set(e.totalFreeSpins) }),
+					board: () => context.stateGameDerived.boardLayout(),
+					boardColumns: boardDimensions().x,
+					lang: stateUrlDerived.lang(),
+				});
+				if (destroyed) stop();
+				else stopAuthoredFreeSpins = stop;
 			}
 			editorDoc = doc;
 			setBoardOverride(findReelGridNode(doc) ?? null);
@@ -2809,6 +2875,7 @@
 		<FlowV2Mount
 			containers={flowV2Containers.filter((c) => c.id !== basegameScreenId)}
 			resolveScene={flowV2ResolveScene}
+			screenDrive={flowV2Handle?.screenDrive}
 		/>
 	{/if}
 
@@ -2827,7 +2894,11 @@
 		Above the board (a cinematic is a takeover) but below the debug stage. Renders nothing when
 		no v2 flow, no cinematic node, or no shipped cinematic (parity).
 	-->
-	<FlowV2Cinematics flow={flowV2Handle} />
+	<FlowV2Cinematics
+		flow={flowV2Handle}
+		onStage={(sceneId) =>
+			!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle?.sceneShown(sceneId)}
+	/>
 
 	<DebugStage />
 

@@ -82,6 +82,7 @@
 	import { getContextRig, getContextRigLoadScale, createContextParent } from '../context.svelte';
 	import EffectPlayer from './EffectPlayer.svelte';
 	import RigBoneAttach from './RigBoneAttach.svelte';
+	import { particleWallMs } from '../particleClock';
 	import { riggedBeatMatches } from '../riggedBeat';
 	import { onRigPoseClips, onRigPoseEvent } from '../rigPoseEvents';
 	import { attachToSlot } from '../rigSlotHost';
@@ -159,10 +160,12 @@
 			start();
 			return;
 		}
+		// Wall ms ÷ the particle clock, read now (`duration` rides `emitFor`, which `<EffectLayer>`
+		// divides the same way).
 		const timer = setTimeout(() => {
 			pending = pending.filter((t) => t !== timer);
 			start();
-		}, delay);
+		}, particleWallMs(delay));
 		pending.push(timer);
 	};
 	onDestroy(() => {

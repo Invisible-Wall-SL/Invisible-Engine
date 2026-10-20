@@ -42,6 +42,7 @@
 		type ComponentParam,
 		type ComponentSignal,
 		type ContainerNode,
+		type EffectNode,
 		type KindCapabilityConfig,
 		type CoverFit,
 		type AnticipationProfile,
@@ -61,6 +62,7 @@
 		type RigNode,
 		type RigRestOverride,
 		type TextStyle,
+		forwardedParams,
 		lightOrderThresholds,
 		potPieces,
 		POT_PIECE_LIGHT_PARAM,
@@ -71,6 +73,26 @@
 	import { DEFAULT_CLIP_FPS, fetchClips, type EditorClip } from './editorFlipbooks.client';
 	import RegionPicker from './RegionPicker.svelte';
 	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
+	import {
+		exposeEffectParam,
+		forwardedFrom,
+		linkEffectParam,
+		linkableEffectParentParams,
+		linkableParentParams,
+		setEffectParamValue,
+		uniqueParentKey,
+		unlinkInstanceParam,
+		writeInstanceParam,
+	} from './instanceParamForwarding';
+	import { placedEffect } from './placedEffects.client.svelte';
+	import { keyingFor, type KeyField, type KeyingPanel } from './animateKeying.client.svelte';
+	import {
+		relativeChannelValue,
+		shownChannelValue,
+		type DesignPose,
+		type KeyedChannel,
+	} from '$lib/timeline/screenTimeline';
+	import { effectParamValue, type EffectParam, type EffectParamKind } from 'engine-fx';
 	import type { RigMeta } from './rigRuntime.client';
 
 	/** Minimal structural view of a project rig bundle (mirrors the server-only
@@ -255,6 +277,15 @@
 		projectDefaultsActions?: Snippet;
 		/** Set / clear an author param override on the selected instance (scene mode). */
 		onSetInstanceParam?: (key: string, value: unknown) => void;
+		/** Component mode, a nested instance selected: forward its `key` param from a NEW param of
+		 * the open component ("⇡ Expose on ‹parent›"), so each placement of the open one sets it. */
+		onExposeInstanceParam?: (key: string) => void;
+		/** Component mode: forward the nested instance's `key` param from the open component's
+		 * existing `parentKey` param. */
+		onLinkInstanceParam?: (key: string, parentKey: string) => void;
+		/** Component mode: stop forwarding the nested instance's `key` param; the open component's
+		 * param stays declared. */
+		onUnlinkInstanceParam?: (key: string) => void;
 		/** EDITOR-PREVIEW ONLY: the author focused (or changed) a rig / spineAnimation param on the
 		 * selected instance — drive the canvas's live rig preview to that bundle + animation so the
 		 * pick is WYSIWYG (a `spine` param previews its bundle's idle/first animation; a `spineAnimation`
@@ -349,6 +380,9 @@
 		projectLabel = null,
 		projectDefaultsActions,
 		onSetInstanceParam,
+		onExposeInstanceParam,
+		onLinkInstanceParam,
+		onUnlinkInstanceParam,
 		onPreviewRig,
 		onSetInstanceStateAnim,
 		onSetInstanceStateAnimLoop,
@@ -393,6 +427,8 @@
 			(p) => !p.engineProvided && !instanceUnusedParams.has(p.key),
 		),
 	);
+	/** The forward picker's "expose as a new param" choice (`instanceParamRow`). */
+	const FORWARD_EXPOSE = '+expose';
 
 	/** True when the SELECTED INSTANCE's def is an interactive button (declares an
 	 * `action` param) — only then do its rig nodes' button-state animations apply,
@@ -1146,6 +1182,43 @@
 		return effectList.find((e) => e.id === id)?.name ?? id;
 	}
 
+	const FX_PARAM_KIND_LABELS: Record<EffectParamKind, string> = {
+		number: 'number',
+		bool: 'on/off',
+		color: 'colour',
+	};
+	/** A slider for a number parameter, when it declares a usable range. */
+	function fxParamRange(param: EffectParam): { min: number; max: number } | undefined {
+		const { min, max } = param;
+		return min !== undefined && max !== undefined && max > min ? { min, max } : undefined;
+	}
+	/** Set this placement's value for an exposed effect parameter (`undefined` = the effect's own). */
+	function setFxParam(n: EffectNode, param: EffectParam, raw: unknown): void {
+		if (componentReadOnly) return;
+		if (raw !== undefined && param.kind === 'number' && !Number.isFinite(raw)) return;
+		setEffectParamValue(n, param.id, raw === undefined ? undefined : effectParamValue(param, raw));
+		markDirty();
+	}
+	/** The open component's ⇡ picker on an effect parameter: expose it, or take it from a param. */
+	function forwardFxParam(n: EffectNode, param: EffectParam, pick: string): void {
+		const parent = componentMode ? componentDraft : null;
+		if (!parent || componentReadOnly || !pick) return;
+		const done =
+			pick === FORWARD_EXPOSE
+				? exposeEffectParam(parent, n, param) !== null
+				: linkEffectParam(parent, n, param, pick);
+		if (done) markDirty();
+	}
+	/** Another effect declares other parameters: drop the old one's values and forwards. */
+	function dropEffectParamValues(n: EffectNode): void {
+		delete n.params;
+		for (const [id] of forwardedParams(n)) unlinkInstanceParam(n, id);
+	}
+	function unlinkFxParam(n: EffectNode, param: EffectParam): void {
+		if (componentReadOnly) return;
+		if (unlinkInstanceParam(n, param.id)) markDirty();
+	}
+
 	/** The selected clip, or `undefined` for a dangling id (a clip deleted in `/flipbook` after it
 	 * was placed) — which the panel says out loud rather than showing an empty picker. */
 	function clipOf(id: string): EditorClip | undefined {
@@ -1188,8 +1261,11 @@
 	);
 	function setLightOrder(): void {
 		const thresholds = lightOrderThresholds(lightPieces.map((p) => p.y));
+		// Inside a component, a piece that takes its `lightAt` from it gets it as that param's default.
+		const parent = componentMode ? componentDraft : null;
 		lightPieces.forEach(({ node: piece }, i) => {
-			piece.params = { ...piece.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
+			if (parent) writeInstanceParam(parent, piece, POT_PIECE_LIGHT_PARAM, thresholds[i]);
+			else piece.params = { ...piece.params, [POT_PIECE_LIGHT_PARAM]: thresholds[i] };
 		});
 		onDirty?.();
 	}
@@ -1583,6 +1659,50 @@
 		if (value === undefined) return '#ffffff';
 		return '#' + value.toString(16).padStart(6, '0');
 	}
+
+	// ---- Animate: key buttons (Rive plan Phase 9b) ----------------------------------------------
+
+	/** The node's Design pose in the units its Animate fields show. */
+	function designPose(t: ReturnType<typeof resolveTransform>): DesignPose {
+		return {
+			x: t.x,
+			y: t.y,
+			rotation: ((t.rotation ?? 0) * 180) / Math.PI,
+			alpha: t.alpha ?? 1,
+			tint: t.tint ?? 0xffffff,
+		};
+	}
+	/** A key field as Properties shows it: a node channel composited on the Design pose. */
+	function shownKeyValue(f: KeyField, pose: DesignPose): number {
+		return f.kind === 'node'
+			? shownChannelValue(f.channel as KeyedChannel, f.value, pose, f.state !== 'none')
+			: f.value;
+	}
+	const fmtKey = (n: number): string => String(Math.round(n * 1000) / 1000);
+	/** A value typed into a key field keys it — converted back to the channel's relative value. */
+	function keyTyped(
+		keying: KeyingPanel,
+		f: KeyField,
+		pose: DesignPose,
+		input: HTMLInputElement,
+	): void {
+		const raw = input.value.trim();
+		const n = Number(raw);
+		// An emptied or junk field keys nothing (`Number('')` is 0, which would collapse a scale).
+		if (raw === '' || !Number.isFinite(n)) {
+			input.value = fmtKey(shownKeyValue(f, pose));
+			return;
+		}
+		keying.key(
+			f.channel,
+			f.kind === 'node' ? relativeChannelValue(f.channel as KeyedChannel, n, pose) : n,
+		);
+	}
+	const KEY_STATE_TITLE: Record<KeyField['state'], string> = {
+		none: 'not animated — click to key it at the playhead',
+		animated: 'animated — click to key it at the playhead',
+		key: 'a key at the playhead — click to key the current value',
+	};
 
 	function rad2deg(r: number | undefined): number {
 		return Math.round((((r ?? 0) * 180) / Math.PI) * 100) / 100;
@@ -2686,6 +2806,7 @@
 {:else}
 	{@const t = resolveTransform(node, layoutType)}
 	{@const o = node.overrides?.[layoutType]}
+	{@const keying = keyingFor(node.id)}
 	<div class="head">
 		<div class="title">
 			{#if node.kind === 'componentInstance'}
@@ -3076,8 +3197,74 @@
 						{/if}
 					</label>
 				{/snippet}
+				<!-- Component mode: a param of a nested instance can come from the open component
+				     instead (`params.<key>` binding), so every placement of the open one sets it. -->
+				{#snippet instanceParamRow(p: ComponentParam)}
+					{@const parent = componentMode ? componentDraft : null}
+					{@const fromParent = parent ? forwardedFrom(node, p.key) : undefined}
+					{#if parent && fromParent}
+						<div class="row">
+							<div class="field wide">
+								<span>{p.label ?? `${p.key} (${p.kind})`}</span>
+								<span
+									class="forwarded-from"
+									title="Each placement of {parent.name} sets this through its {fromParent} param — under Component instance on a screen, or in This game's defaults."
+									>⇡ from {parent.name} · {fromParent}</span
+								>
+								<button
+									type="button"
+									class="reset"
+									disabled={componentReadOnly}
+									title="Stop taking this from {parent.name}: this placement uses its own value again. The {fromParent} param stays on {parent.name} — remove it under Component variables if nothing else reads it."
+									onclick={() => onUnlinkInstanceParam?.(p.key)}>×</button
+								>
+							</div>
+						</div>
+					{:else}
+						<div class="row">
+							{@render paramField(p)}
+							{#if parent && onExposeInstanceParam}
+								{@const linkable = linkableParentParams(parent, p)}
+								<select
+									class="forward-pick"
+									value=""
+									disabled={componentReadOnly}
+									aria-label="Expose on {parent.name}, or take from one of its params"
+									title="Expose on {parent.name}: each placement of {parent.name} then sets this. Or take it from one of {parent.name}'s params of the same kind."
+									onchange={(e) => {
+										const pick = e.currentTarget.value;
+										e.currentTarget.value = '';
+										if (pick === FORWARD_EXPOSE) onExposeInstanceParam?.(p.key);
+										else if (pick) onLinkInstanceParam?.(p.key, pick);
+									}}
+								>
+									<option value="">⇡</option>
+									<option value={FORWARD_EXPOSE}
+										>Expose on {parent.name} (new param {uniqueParentKey(parent, p.key)})</option
+									>
+									{#if linkable.length > 0}
+										<optgroup label="Take from {parent.name}'s">
+											{#each linkable as pp (pp.key)}
+												<option value={pp.key}
+													>{pp.label ? `${pp.label} · ${pp.key}` : pp.key}</option
+												>
+											{/each}
+										</optgroup>
+									{/if}
+								</select>
+							{/if}
+						</div>
+					{/if}
+				{/snippet}
 				{#if authorParams.length > 0}
 					<h4 class="sub-h">Params</h4>
+					{#if componentMode && componentDraft && onExposeInstanceParam}
+						<p class="muted small">
+							<strong>⇡</strong> beside a param exposes it on
+							<strong>{componentDraft.name}</strong>: each placement of {componentDraft.name} then sets
+							it, or several pieces share one of its params.
+						</p>
+					{/if}
 					{#if isOverrideMode}
 						<p class="muted small override-hint">
 							Editing the <strong>{layoutType}</strong> ratio — values here are saved as a per-ratio
@@ -3086,7 +3273,7 @@
 						</p>
 					{/if}
 					{#each ungroupedAuthorParams as p (p.key)}
-						<div class="row">{@render paramField(p)}</div>
+						{@render instanceParamRow(p)}
 					{/each}
 					{#each authorParamGroups as [groupName, groupParams] (groupName)}
 						{@const groupKey = `${instanceComponent?.id ?? ''}:${groupName}`}
@@ -3097,7 +3284,7 @@
 						>
 							<summary>{groupName}</summary>
 							{#each groupParams as p (p.key)}
-								<div class="row">{@render paramField(p)}</div>
+								{@render instanceParamRow(p)}
 							{/each}
 						</details>
 					{/each}
@@ -3401,8 +3588,70 @@
 		</p>
 	</section>
 
+	{#if keying}
+		<section class="animate-keys">
+			<h3>Animate <small>keys at {keying.time.toFixed(2)}s</small></h3>
+			{#if keying.message}
+				<p class="muted small">{keying.message}</p>
+			{:else}
+				{@const pose = designPose(t)}
+				{#each keying.fields as f (f.channel)}
+					{@const shown = shownKeyValue(f, pose)}
+					<div class="row">
+						<label class="field wide keyfield" title={f.note}>
+							<span>{f.label}</span>
+							{#if f.kind === 'node' && f.channel === 'tint'}
+								<ColorField
+									value={hexFrom(shown)}
+									onchange={(hex) => keying.key('tint', parseInt(hex.slice(1), 16) || 0)}
+								/>
+							{:else if f.bool}
+								<input
+									type="checkbox"
+									checked={f.value >= 0.5}
+									onchange={(e) => keying.key(f.channel, e.currentTarget.checked ? 1 : 0)}
+								/>
+							{:else}
+								<input
+									type="number"
+									step={f.channel === 'x' || f.channel === 'y' || f.channel === 'rotation'
+										? 1
+										: f.kind === 'fx'
+											? 'any'
+											: 0.05}
+									min={f.min}
+									max={f.max}
+									value={fmtKey(shown)}
+									onchange={(e) => keyTyped(keying, f, pose, e.currentTarget)}
+								/>
+							{/if}
+							<button
+								type="button"
+								class="keybtn"
+								class:animated={f.state === 'animated'}
+								class:at={f.state === 'key'}
+								title={`${f.label}: ${KEY_STATE_TITLE[f.state]} (${keying.time.toFixed(2)}s)`}
+								aria-label={`Key ${f.label}`}
+								onclick={(e) => {
+									e.preventDefault();
+									keying.key(f.channel);
+								}}
+							></button>
+						</label>
+					</div>
+				{/each}
+				<p class="muted small">
+					Shows the animated value; typing one keys it. Keys are relative to the Design pose
+					(Transform below), so x / y / rotation offset it and scale / alpha multiply it.
+				</p>
+			{/if}
+		</section>
+	{/if}
+
 	<section>
-		<h3>Transform</h3>
+		<h3>
+			Transform{#if keying}<small> · Design pose</small>{/if}
+		</h3>
 
 		<div class="row">
 			<label class="field">
@@ -5251,6 +5500,8 @@
 			</p>
 		</section>
 	{:else if node.kind === 'effect'}
+		{@const fxDoc = placedEffect(node.effectId)}
+		{@const fxParent = componentMode ? componentDraft : null}
 		<section>
 			<h3>Effect</h3>
 			<p class="muted small">
@@ -5264,6 +5515,7 @@
 						value={node.effectId}
 						onchange={(e) => {
 							node.effectId = e.currentTarget.value;
+							dropEffectParamValues(node);
 							markDirty();
 						}}
 					>
@@ -5276,6 +5528,139 @@
 					</select>
 				</label>
 			</div>
+			{#if fxDoc?.params?.length}
+				<h4 class="sub-h">Parameters</h4>
+				<p class="muted small">
+					What this effect exposes (⚡ in Invisible FX). A value set here is this placement's own;
+					<strong>×</strong> puts it back on the effect's default.
+					{#if fxParent}
+						<strong>⇡</strong> exposes it on <strong>{fxParent.name}</strong> instead: each
+						placement of {fxParent.name} then sets it.
+					{/if}
+				</p>
+				{#each fxDoc.params as p (p.id)}
+					{@const fromParent = fxParent ? forwardedFrom(node, p.id) : undefined}
+					{@const own = node.params?.[p.id]}
+					{@const value = effectParamValue(p, own)}
+					{@const range = p.kind === 'number' ? fxParamRange(p) : undefined}
+					<div class="row">
+						{#if fxParent && fromParent}
+							<div class="field wide">
+								<span>{p.id} ({FX_PARAM_KIND_LABELS[p.kind]})</span>
+								<span
+									class="forwarded-from"
+									title="Each placement of {fxParent.name} sets this through its {fromParent} param — under Component instance on a screen, or in This game's defaults."
+									>⇡ from {fxParent.name} · {fromParent}</span
+								>
+								<button
+									type="button"
+									class="reset"
+									disabled={componentReadOnly}
+									title="Stop taking this from {fxParent.name}: this placement uses its own value again. The {fromParent} param stays on {fxParent.name} — remove it under Component variables if nothing else reads it."
+									onclick={() => unlinkFxParam(node, p)}>×</button
+								>
+							</div>
+						{:else}
+							<div class="field wide">
+								<span>{p.id} ({FX_PARAM_KIND_LABELS[p.kind]})</span>
+								<div class="fx-param-value">
+									{#if p.kind === 'number'}
+										{#if range}
+											<input
+												type="range"
+												min={range.min}
+												max={range.max}
+												step={(range.max - range.min) / 100}
+												value={value as number}
+												disabled={componentReadOnly}
+												aria-label={p.id}
+												oninput={(e) => setFxParam(node, p, e.currentTarget.valueAsNumber)}
+											/>
+										{/if}
+										<input
+											type="number"
+											step="any"
+											min={p.min}
+											max={p.max}
+											value={value as number}
+											disabled={componentReadOnly}
+											aria-label={p.id}
+											oninput={(e) => setFxParam(node, p, e.currentTarget.valueAsNumber)}
+										/>
+									{:else if p.kind === 'bool'}
+										<input
+											type="checkbox"
+											checked={value === true}
+											disabled={componentReadOnly}
+											aria-label={p.id}
+											onchange={(e) => setFxParam(node, p, e.currentTarget.checked)}
+										/>
+									{:else}
+										<ColorField
+											value={value as string}
+											disabled={componentReadOnly}
+											title={p.id}
+											oninput={(hex) => setFxParam(node, p, hex)}
+										/>
+									{/if}
+									{#if own !== undefined}
+										<button
+											type="button"
+											class="reset"
+											disabled={componentReadOnly}
+											title="Use the effect's default ({String(p.default)})"
+											onclick={() => setFxParam(node, p, undefined)}>×</button
+										>
+									{/if}
+								</div>
+							</div>
+							{#if fxParent}
+								{@const linkable = linkableEffectParentParams(fxParent, p)}
+								<select
+									class="forward-pick"
+									value=""
+									disabled={componentReadOnly}
+									aria-label="Expose on {fxParent.name}, or take from one of its params"
+									title="Expose on {fxParent.name}: each placement of {fxParent.name} then sets this. Or take it from one of {fxParent.name}'s params of the same kind."
+									onchange={(e) => {
+										const pick = e.currentTarget.value;
+										e.currentTarget.value = '';
+										forwardFxParam(node, p, pick);
+									}}
+								>
+									<option value="">⇡</option>
+									<option value={FORWARD_EXPOSE}
+										>Expose on {fxParent.name} (new param {uniqueParentKey(fxParent, p.id)})</option
+									>
+									{#if linkable.length > 0}
+										<optgroup label="Take from {fxParent.name}'s">
+											{#each linkable as pp (pp.key)}
+												<option value={pp.key}
+													>{pp.label ? `${pp.label} · ${pp.key}` : pp.key}</option
+												>
+											{/each}
+										</optgroup>
+									{/if}
+								</select>
+							{/if}
+						{/if}
+					</div>
+					{#if node.valueBindings?.some((b) => b.target === 'fxParam' && b.fxParam === p.id)}
+						<p class="muted small">
+							⚡ A binding under <strong>Bind to value</strong> drives {p.id}: it wins while it has
+							a value.
+						</p>
+					{/if}
+					{#if p.note}
+						<p class="muted small">{p.note}</p>
+					{/if}
+				{/each}
+			{:else if fxDoc}
+				<p class="muted small">
+					This effect exposes no parameters. ⚡ a row in Invisible FX to expose one, then set it
+					here.
+				</p>
+			{/if}
 			<div class="row">
 				<label class="field wide">
 					<span>attach to rig</span>
@@ -5733,6 +6118,36 @@
 		color: #888;
 		margin: 0 0 8px;
 	}
+	.animate-keys h3 small,
+	h3 small {
+		font-weight: normal;
+		text-transform: none;
+		letter-spacing: 0;
+		opacity: 0.7;
+	}
+	/* Rive's key button: grey outline = not animated, blue outline = animated, blue = a key here. */
+	.keybtn {
+		flex: 0 0 auto;
+		width: 10px;
+		height: 10px;
+		margin: 0 4px 0 6px;
+		padding: 0;
+		transform: rotate(45deg);
+		background: transparent;
+		border: 1.5px solid #6b7280;
+		border-radius: 1px;
+		cursor: pointer;
+	}
+	.keybtn:hover {
+		border-color: #a3acba;
+	}
+	.keybtn.animated {
+		border-color: #5db0ff;
+	}
+	.keybtn.at {
+		background: #5db0ff;
+		border-color: #5db0ff;
+	}
 	.row {
 		display: flex;
 		gap: 6px;
@@ -5827,6 +6242,42 @@
 	}
 	.field.check .reset {
 		position: static;
+	}
+	.field span.forwarded-from {
+		padding: 6px 8px;
+		border: 1px dashed #4a3f7a;
+		border-radius: 6px;
+		color: #c8a3ff;
+		text-transform: none;
+		letter-spacing: 0;
+		font-size: 12px;
+	}
+	.fx-param-value {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.fx-param-value input[type='range'] {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+	.fx-param-value input[type='number'] {
+		flex: 0 0 5.5em;
+	}
+	.fx-param-value .reset {
+		position: static;
+	}
+	.forward-pick {
+		flex: 0 0 auto;
+		align-self: flex-end;
+		width: 2.6em;
+		background: #0b0b10;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		padding: 6px 2px;
+		color: #c8a3ff;
+		font-size: 12px;
+		cursor: pointer;
 	}
 	.muted {
 		color: #666;

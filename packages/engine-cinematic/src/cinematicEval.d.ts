@@ -5,6 +5,7 @@
  * `tools/rigger-spike/cinematic.mjs`, which is the real specification.
  */
 import type {
+	CinematicEase,
 	CinematicHost,
 	CinematicKey,
 	CinematicNodeChannel,
@@ -107,6 +108,9 @@ export function resolveVisible(
 /** The `property` channels a node actor honours. */
 export const NODE_CHANNELS: readonly CinematicNodeChannel[];
 
+/** The prefix of a channel keying one exposed parameter of an effect node (`fx:intensity`). */
+export const FX_PARAM_CHANNEL_PREFIX: 'fx:';
+
 /** Whether a cast entry is a node actor (`kind: 'node'`); absent `kind` is a rig. */
 export function isNodeActor(cast: { kind?: string } | null | undefined): boolean;
 
@@ -122,9 +126,26 @@ export function sampleText(
 	t: number,
 ): CinematicNodeSample['text'] | undefined;
 
-/** Every keyed channel of one node actor at `t` (relative to the node's authored pose), and the
- *  clip an `animation` strip holds a rig node at (`animTime`, clip-local seconds). */
+/** Every keyed channel of one node actor at `t` (relative to the node's authored pose), the clip an
+ *  `animation` strip holds a rig node at (`animTime`, clip-local seconds), and each keyed
+ *  `fx:<id>` channel under its own name (absolute). */
 export function sampleNodeActor(
 	tracks: CinematicTrack[] | undefined,
 	t: number,
 ): CinematicNodeSample;
+
+/** Whether `ease` is a cubic `[x1, y1, x2, y2]` of four finite numbers. */
+export function isCubicEase(ease: unknown): ease is [number, number, number, number];
+/** The shape `u → eased u` (0..1 in, eased out) of a key's `ease`; unknown ⇒ linear. */
+export function easeShape(ease: CinematicEase | unknown): (u: number) => number;
+/** Whether a timeline's `loop` keeps it playing forever (`loop` / `pingPong`). */
+export function loopsForever(loop: unknown): boolean;
+/** The time to sample after `elapsed` seconds of playing a `duration`-long timeline of `loop` type. */
+export function playbackTime(loop: unknown, elapsed: number, duration: number): number;
+/** The cue keys a ping-pong timeline crosses between two unwrapped lap times (out legs only). */
+export function pingPongCuesCrossed<T extends { time: number }>(
+	keys: T[],
+	fromLap: number,
+	toLap: number,
+	duration: number,
+): T[];

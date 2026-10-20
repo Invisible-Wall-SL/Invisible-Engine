@@ -41,15 +41,11 @@ import type { MessagesMap } from 'utils-shared/i18n';
 
 import bakedBundleJson from './baked-editor-bundle.json';
 import { gameAssetsBase } from './game/assets';
-import { defaultLayout } from './game/defaultLayout';
-import {
-	AUTHORED_TRANSITION,
-	AUTHORED_WIN,
-	HUD_BUTTON_INSTANCES,
-	TRANSITION_INSTANCE,
-	WIN_INSTANCE,
-} from './game/editorFlags';
+import { fallbackEditorScenes } from './game/fallbackLayout';
+import type { StockAssetData } from './game/stockAssets';
 import type { SymbolInfoMap, SymbolLayerSpec } from './game/types';
+
+export { fallbackEditorScenes };
 
 /**
  * One authored free-spin BOOK VFX layer (Invisible Symbols State Machine output). A decorative
@@ -834,6 +830,47 @@ export function rigFxEffectIds(): Set<string> {
 	return ids;
 }
 
+/** Bundle sections the stock-asset walk reads in their own right (the doc, the defs through the
+ *  component registry, the config through `getActiveGameConfig`, the symbols), or that only index
+ *  the project's own files and text (art, fonts, sounds, localization). Every OTHER section is read
+ *  for names, so one added later counts without anyone remembering this list. */
+const STOCK_DATA_READ_ELSEWHERE = new Set([
+	'doc',
+	'componentDefs',
+	'componentVersions',
+	'componentDefaults',
+	'config',
+	'symbols',
+	'effects',
+	'rigFx',
+	'editorArt',
+	'fonts',
+	'sounds',
+	'localization',
+	'assetBase',
+	'name',
+]);
+
+/**
+ * What the stock-asset filter (`game/stockAssets.ts`) reads before the loader starts: the layout
+ * this boot mounts — as `loadEditorScenes` resolves it — and every authored doc it renders from.
+ * `undefined` when the boot has no doc yet: a dev or live-doc boot fetches its layout after the
+ * loader has its list, so it keeps every stock asset.
+ */
+export function bootStockAssetData(): StockAssetData | undefined {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source?.doc) return undefined;
+	return {
+		doc: normalizeHudScenes(source.doc),
+		symbols: source.symbols as StockAssetData['symbols'],
+		effects: source.effects ?? [],
+		rigFx: source.rigFx ?? {},
+		other: Object.entries(source)
+			.filter(([section]) => !STOCK_DATA_READ_ELSEWHERE.has(section))
+			.map(([, value]) => value),
+	};
+}
+
 /**
  * The baked symbol→state binding overrides (Invisible Symbols State Machine). Merged over
  * the coded `SYMBOL_INFO_MAP` in `game/symbolMap.ts`. Undefined when un-baked → the game
@@ -1259,6 +1296,11 @@ export function bakedWinText(): ResolvedWinText {
 	return resolveWinText(bakedBundle.winText);
 }
 
+/** The baked Win Text doc as authored (sparse, modes included), runtime bundle first. */
+export function bakedWinTextDoc(): WinTextDoc | undefined {
+	return hasRuntimeBundle() ? runtimeBundle!.winText : bakedBundle.winText;
+}
+
 /** {@link bakedWinText} as respin mode `mode` speaks it: its own lines over the primary's
  *  (`resolveWinTextForMode`). `undefined` is the primary. */
 export function bakedWinTextFor(mode: string | undefined): ResolvedWinText {
@@ -1547,32 +1589,6 @@ export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
 		return typeof message === 'string' ? message : stateI18nDerived.translate(key);
 	});
 }
-
-/**
- * Offline fallback / checked-in stand-in for the editor document the Invisible
- * Editor would write to R2 at `editor/lines/<project>/scenes.json` (see
- * `apps/launcher-api/src/lib/server/projectPaths.ts#editorDocKey`). It is now
- * produced by the template-shaped generator `defaultLayout('lines')` rather
- * than a hand-written literal — the engine-truth "import" of the current
- * basegame (`docs/design/invisible-editor.md` §7.2) — so it round-trips cleanly
- * through `normalizeDoc` and stays in lock-step with `BoardFrame.svelte`.
- *
- * The animated reelhouse glow rig stays coded in `BoardFrame.svelte` by DEFAULT — the
- * `boardGlow` scene ships only its bind anchor, so an un-authored game keeps the coded
- * start→idle→exit chain. Put real art in that scene and the coded rig steps aside
- * (`hasAuthoredBoardGlow`); its enter/exit then rides the `boardGlowShow`/`boardGlowHide`
- * component signals. The `basegame` scene draws
- * INSIDE `<MainContainer>`; `basegameOverlays` (the coded `Win` / `Transition`
- * `mount` slots) draws OUTSIDE it, since those components self-position in
- * canvas coords.
- */
-export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
-	buttons: HUD_BUTTON_INSTANCES,
-	transition: TRANSITION_INSTANCE,
-	winInstance: WIN_INSTANCE,
-	authoredTransition: AUTHORED_TRANSITION,
-	authoredWin: AUTHORED_WIN,
-});
 
 /**
  * Default launcher origin that serves the public layout-doc endpoint

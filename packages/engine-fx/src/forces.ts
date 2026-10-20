@@ -412,7 +412,7 @@ export class FxForcesBehavior {
 	readonly forces: FxForce[];
 	private drag: number;
 	private active: boolean;
-	/** Whether this emitter's movement owns a velocity the forces add into; resolved at first init. */
+	/** Whether this emitter's movement owns a velocity the forces add into ({@link resolveShared}). */
 	private shared: boolean | undefined;
 	private scratch: FxVec = { x: 0, y: 0 };
 	private sample: FxForceSample = { x: 0, y: 0, originX: 0, originY: 0, age: 0, seed: 0 };
@@ -423,11 +423,17 @@ export class FxForcesBehavior {
 		this.active = this.forces.some((f) => f.enabled);
 	}
 
-	initParticles(first: FxForceParticle): void {
+	/** Resolved from the emitter the first time a particle is seen, at init OR update: an instance an
+	 * exposed parameter rebuilt mid-flight sees live particles before it sees a new one. */
+	private resolveShared(em: FxForceParticle['emitter']): boolean {
 		if (this.shared === undefined) {
-			const em = first?.emitter;
 			this.shared = VELOCITY_OWNERS.some((t) => !!em?.getBehavior?.(t));
 		}
+		return this.shared;
+	}
+
+	initParticles(first: FxForceParticle): void {
+		this.resolveShared(first?.emitter);
 		for (let p: FxForceParticle | null = first; p; p = p.next) {
 			p.config.fxForceSeed = Math.random();
 			const own = p.config.fxForceVel as FxVec | undefined;
@@ -448,7 +454,9 @@ export class FxForcesBehavior {
 		s.originY = (em?.ownerPos.y ?? 0) + (em?.spawnPos.y ?? 0);
 		s.age = particle.age;
 		s.seed = Number(particle.config.fxForceSeed ?? 0);
-		const movementVel = this.shared ? (particle.config.velocity as FxVec | undefined) : undefined;
+		const movementVel = this.resolveShared(em)
+			? (particle.config.velocity as FxVec | undefined)
+			: undefined;
 		if (movementVel) {
 			return stepFxForces(this.forces, s, movementVel, deltaSec, this.drag, this.scratch);
 		}

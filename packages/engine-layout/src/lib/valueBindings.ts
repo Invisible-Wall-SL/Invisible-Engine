@@ -1,3 +1,4 @@
+import type { EffectParam } from 'engine-fx';
 import type { RigBoneOffset } from 'pixi-svelte/rigBoneOffset';
 
 import type {
@@ -48,18 +49,24 @@ export function bindingTargetsForKind(kind: LayoutNode['kind']): ValueBindingTar
 	if (kind === 'sprite' || kind === 'rect') return [...transform, 'fill'];
 	if (kind === 'flipbook') return [...transform, 'fill', 'frame'];
 	if (kind === 'spine') return [...transform, 'animTime', 'bone'];
+	if (kind === 'effect') return [...transform, 'fxParam'];
 	return transform;
 }
 
 /**
  * The output range a target maps to when the binding does not author one — the range an author
  * most often wants, and what the editor seeds a new binding with. `frame` has no fixed top (the
- * clip decides), so its `outMax` is `undefined` ⇒ the last frame ({@link bindingFrameIndex}).
+ * clip decides), so its `outMax` is `undefined` ⇒ the last frame ({@link bindingFrameIndex}). An
+ * `fxParam` binding maps onto its parameter's own range (`fxParam`, the placed effect's declared
+ * parameter; no range reads as 0..1).
  */
 export function defaultBindingOutRange(
 	binding: Pick<ValueBinding, 'target' | 'boneProperty'>,
+	fxParam?: Pick<EffectParam, 'min' | 'max'>,
 ): [number, number | undefined] {
 	switch (binding.target) {
+		case 'fxParam':
+			return [fxParam?.min ?? 0, fxParam?.max ?? 1];
 		case 'x':
 		case 'y':
 			return [0, 100];
@@ -189,17 +196,30 @@ function progress(binding: ValueBinding, input: number): number {
 	return binding.clamp === false ? t : Math.min(1, Math.max(0, t));
 }
 
+/** Does the binding switch something on and off (1 / 0 by `threshold` / `below`) rather than map? */
+export const isSwitchBinding = (
+	binding: Pick<ValueBinding, 'target'>,
+	fxParam?: Pick<EffectParam, 'kind'>,
+): boolean =>
+	binding.target === 'visible' || (binding.target === 'fxParam' && fxParam?.kind === 'bool');
+
 /**
  * A binding's output for an input number. Numeric targets map `inMin..inMax → outMin..outMax` along
- * the ease. `visible` returns 1 (shown) or 0 against its threshold — no mapping, no ease.
- * `frameCount` supplies a `frame` binding's default top (the last frame).
+ * the ease. `visible` returns 1 (shown) or 0 against its threshold — no mapping, no ease — and so
+ * does an `fxParam` binding on a bool parameter. `frameCount` supplies a `frame` binding's default
+ * top (the last frame); `fxParam` is the parameter an `fxParam` binding drives (its kind and range).
  */
-export function evaluateBinding(binding: ValueBinding, input: number, frameCount?: number): number {
-	if (binding.target === 'visible') {
+export function evaluateBinding(
+	binding: ValueBinding,
+	input: number,
+	frameCount?: number,
+	fxParam?: Pick<EffectParam, 'kind' | 'min' | 'max'>,
+): number {
+	if (isSwitchBinding(binding, fxParam)) {
 		const above = input >= (binding.threshold ?? 1);
 		return (binding.below ? !above : above) ? 1 : 0;
 	}
-	const [defMin, defMax] = defaultBindingOutRange(binding);
+	const [defMin, defMax] = defaultBindingOutRange(binding, fxParam);
 	const outMin = binding.outMin ?? defMin;
 	const outMax =
 		binding.outMax ?? defMax ?? (frameCount && frameCount > 0 ? frameCount - 1 : outMin);
@@ -427,11 +447,13 @@ export function boundBoneOffsets(
 	return [...map].map(([bone, offset]) => ({ bone, offset }));
 }
 
-/** Does a binding have everything it needs to act — an input, and the animation / bone its target
- * names? The runtime skips one that does not (it never resolves); the editor flags it. */
+/** Does a binding have everything it needs to act — an input, and the animation / bone / effect
+ * parameter its target names? The runtime skips one that does not (it never resolves); the editor
+ * flags it. */
 export function isLiveBinding(binding: ValueBinding): boolean {
 	if (!binding.param && !binding.source) return false;
 	if (binding.target === 'animTime' && !binding.animation) return false;
 	if (binding.target === 'bone' && !binding.bone) return false;
+	if (binding.target === 'fxParam' && !binding.fxParam) return false;
 	return true;
 }

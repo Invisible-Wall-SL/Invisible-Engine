@@ -20,7 +20,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 - **Animation** — keyframing, dopesheet (multi-select, marquee, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**), graph editor, slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredRigBox`) by `/symbols`, the Scene Editor and the game (`<RigProvider centreBox>`). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
-- **Atlas snapshot** — a bundle carries a frozen copy of its source sheet's geometry; `ensureBundleAtlasFresh` re-derives it on the read and bake paths when the source revision drifts, and **⟳ Re-sync atlas** forces it. Manifest geometry is reconciled against the TexturePacker JSON on read (never the trim).
+- **Atlas snapshot** — a bundle carries a frozen copy of its source sheet's geometry; `ensureBundleAtlasFresh` re-derives it on the read and bake paths when the source revision drifts, and **⟳ Re-sync atlas** forces it. Manifest geometry is reconciled against the TexturePacker JSON on read (never the trim). The bundle's page is the sheet page with each rotated region turned 180° (the Rigger and the editor read it); the game never downloads it: while the bundle is in sync with its sheet, `exportRigBundle` ships the sheet's own page through the page store with those regions read clockwise (`rotate:270`), so a rig and its sheet share one file and one texture.
 - **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits, and opening another rig over unsaved edits asks first. A rig that fails to open leaves no rig open — the document, the selection and the save precondition change together — so nothing can be saved under its name, while 🕘 can still restore an earlier save of it. The rig and animation library saves create only (a taken name shows who saved it and when; the confirmed overwrite is `If-Match` on that entry), and the rig library refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too. `＋ New rig` / upload refuse a name that differs from an existing bundle only by case, even when both are created at once, and a create that died after its claim does not keep the name: its lone `.irig` (unlisted, no atlas, untouched for 10 minutes) is backed up to 🕘 and reclaimed. Every `skeletons.json` rebuild (save, new, upload, delete, the editor's reindex) goes through `reindexProjectSkeletons`, so an atlas-less rig is never dropped from the index.
 - **Undo / redo** — ↶ ↷ and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y over a bounded snapshot history of
   `rawDoc` plus the selection, skin on stage and open clip (`historyNote` / `historyFlush` /
@@ -34,7 +34,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 
 The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against the reference runtime's; now against `engine-rig`). `.skel` binary is view-only. Offline suites live in `tools/rigger-spike/` (they extract the shipped functions from `view.html` and run them against `engine-rig`, bundled by `tools/rigger-spike/rig.mjs`).
 
-**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` the 4.2.120 reference runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus the reference runtime's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change.
+**Runtime parity gates** (`tools/rig-parity/`, not in check:all — they `npm pack` the 4.2.120 reference runtime into a temp dir as a black-box oracle, never a repo dependency): `parity.mjs` (loaded data, poses, AnimationState, events — every repo rig plus the reference runtime's 20 examples as `.json` and `.skel`), `fuzz.mjs` (generated rigs), `render.mjs` (Pixi pixels in Chromium; `--slot-objects` also attaches a marker to every other slot) and `render-webgl.mjs` (the static tools' renderer). Run them on any `engine-rig` change and on any new rig. CI runs `parity.mjs` alone, as the advisory `rig parity` workflow (`.github/workflows/rig-parity.yml`, path-filtered to the runtime, the gate and rig files); the other three still run only by hand.
 
 ## Open items / next
 
@@ -59,12 +59,15 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
     the numbers after it stay put.
 12. ~~A mesh made from a trimmed image is mapped wrong~~ — fixed 2026-09-30 (Recent changes), with a
     🩹 Repair for meshes saved before; kept so the numbers stay put.
-13. **An image packed at 180° or 270° draws wrong as a region** — upside down, or transposed with
-    atlas pixels beside it — in the 4.2-format runtime semantics `engine-rig` reproduces (so in the game too): its
-    `RegionAttachment.updateRegion` undoes a 90° pack only; a mesh undoes all four. Only
-    `apps/price/…/symbolsSpecial` has such packs (18 regions, from a packer other than rig's).
-    Re-packing without 180 / 270° rotation is the fix; the Rigger could warn on open.
+13. **An image packed at 180° draws wrong as a region** — upside down — in `engine-rig` (so in the
+    game too): `RegionAttachment.updateRegion` undoes a quarter-turn pack, 90 counter-clockwise and
+    (since 2026-10-16) 270 clockwise, but not a half turn; a mesh undoes all four. The repo's only
+    180 / 270° packs are 18 regions in `apps/price/…/symbolsSpecial` (from a packer other than rig's),
+    all drawn by meshes. Re-packing without 180° rotation is the fix; the Rigger could warn on open.
 14. ~~Seven spikes hard-code `.pnpm/esbuild@0.25.5/…`~~ — fixed 2026-10-01 (Recent changes).
+15. ~~The parity gates run only by hand~~ — `parity.mjs` runs in CI as the advisory `rig parity`
+    workflow, 2026-10-16 (Recent changes). `fuzz.mjs` (~30 s, pure Node) could join it;
+    `render.mjs` / `render-webgl.mjs` need Chromium and stay manual.
 
 ## Blocked (owner / external)
 
@@ -76,6 +79,59 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-20 — **The graph editor draws y and scaleY with their own tangents.** It sampled each
+  curve by its field alone, so a translate or scale key's y read x's half of the bezier: a y key with
+  flat handles drew as a sharp V while the bone (and the game) eased smoothly through it. The graph's
+  drawing was wrong, not the saved data or the playback. `graphValueAt` samples the channel's whole
+  field list. Gate: `tools/rigger-spike/graphcurve.mjs` (in `check:all`) compares every graphed
+  curve with what `engine-rig` plays, and fails on the old sampling.
+- 2026-10-16 — **A rig ships its sheet's page, not a lossless copy of it** (needs the engine release
+  that reads `rotate:270`, PR A of this pair; merge after it). Measured on the Book of Borut remake's
+  live build: 36.9 MB of its 48.4 MB of texture pages were rig pages, each the sheet page it came from
+  with the rotated regions turned 180° and saved lossless — 3–4× the lossy sheet page (R_Cinematic2:
+  11.35 MB against S_Cinematic2's 3.24 MB, pixel-identical outside the turned regions) — and each
+  downloaded beside that sheet page as a second texture. The turn existed because the reference
+  runtime read a quarter turn on a region only as counter-clockwise; ours reads clockwise as
+  `rotate:270`. For a rig with a rotated region, `exportRigBundle` takes its own sync's result
+  (`ensureBundleAtlasFresh` now returns the sheet page and the `.atlas` it writes, so nothing is read
+  twice) and `bundleSheetPage` (`rigBundleSync.ts`) proves nothing else wrote the bundle since: the
+  `.atlas` is exactly the synced one, and the page is no newer than `source.json`, which every sync and
+  `rigger/new` write last. Then it ships the sheet page through the `PageStore` (the SAME `_pages/` file
+  the sheet's export writes) and rewrites that page's rotations to `rotate:270` (`clockwiseOnPage`,
+  `rigAtlasRotation.ts`). Anything else ships as before: no store (boot splash), an uploaded rig, an
+  `.atlas` or page uploaded into a sheet-made bundle (the editor's rig-folder sync writes them without
+  `source.json`), a bundle that drifted and did not re-sync, a sheet page that vanished mid-export. A
+  rig with no rotated region already dedups (its copy is byte-identical) and is left alone. The Rigger
+  and the editor still read the bundle's own atlas and page, so neither changes. **This sets a
+  runtime rollback floor** — see "Rollback" in [games-deploy.md](../design/games-deploy.md). Estimated on the remake: rig pages 36.9 MB → ~4.2 MB (only the four rigs whose sheet
+  the game does not also load add a page), so the WebP tier drops by ~33 MB; the KTX2 tier shares the
+  sheet's twin the same way. Reaches a game at its next publish; the orphaned lossless pages fall out
+  of `_pages/` at that assemble's prune. Gates: `check:rig-sheet-page` (the real export, sync and
+  page store over an in-memory R2: shared page, byte-identical, `rotate:270`, and every unchanged case
+  above; fails on the old export, and with either guard removed) and `check:rig-atlas-rotation`.
+  ⏳ Re-measure the remake after its republish.
+- 2026-10-16 — **The rig parity gate runs in CI.** `.github/workflows/rig-parity.yml` runs
+  `node tools/rig-parity/parity.mjs` on every PR and push to `main` that touches
+  `packages/engine-rig`, `tools/rig-parity` (or the esbuild loader it borrows), any `spines/` or
+  `rigs/` folder, any `.atlas` / `.skel`, or the lockfile. It is advisory, like the other parity
+  workflows, and making it required is the owner's call (`docs/INFRA.md`, "Required checks"). It
+  landed in its own PR, after the fix it checks. The current-games verdict fails a PR that both
+  reaches a game and edits a workflow file (a harness edit). A workflow-only PR passes it as
+  untouched.
+- 2026-10-16 — **The rig parity gate is green again.** `node tools/rig-parity/parity.mjs` had
+  failed on `main` since #1107 (2026-10-07) on the two demo rigs in
+  `packages/pixi-svelte-storybook/static/rigs/`. They are the first repo rigs whose `skeleton`
+  header has no `hash` or `spine` field. The reference reader copies both fields as written, so
+  they come out `undefined`, but `engine-rig` turned a missing one into `null`. It now copies them
+  as written too, like the x/y/width/height/fps next to them. Results: 155 repo skeletons, 80,582
+  checks, 0 failures; the reference runtime's examples and 400 fuzz seeds are also clean.
+  `invisible-rig.js` rebuilt. The gates still have no CI job (open item 15).
+- 2026-10-15 — **Bound FX draw on their own side of the rig again.** Owner report: FX ignored their
+  draw-at-slot order and always drew under the rig, in the Rigger only. A clip with cues on both
+  sides creates the back and front overlays together, and the canvas lookup that set each one's
+  z-index took the wrong canvas, so both ended up under `#cv`. Each band now mounts into a host
+  element of its own that carries its z-index (`.fxBand`), so there is no lookup left to get wrong.
+  `view.html` only; no bundle rebuild.
 - 2026-10-13 — **The vendored bundles can no longer go stale silently.** The FX forces played
   everywhere but here because `static/rigger/vendor/rigger-fx.js` had not been rebuilt since #1108;
   `rigger-text.js` had drifted the same way (both were still on PixiJS ~8.8). Both are rebuilt, and

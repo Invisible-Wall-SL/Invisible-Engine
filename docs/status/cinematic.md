@@ -19,6 +19,46 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Current state
 
+- **Per-key cubic ease, loop type, default interpolation (Rive plan Phase 9b, 2026-10-20, in review
+  — headless-proven, ⏳ not browser-verified).** All additive; a doc without them evaluates
+  byte-identically (gate below).
+  - **Format.** A key's `ease` may be a cubic `[x1, y1, x2, y2]` (CSS cubic-bezier through (0,0)
+    and (1,1); x clamped to [0, 1], y may overshoot) besides `'linear' | 'ease' | 'hold'`; anything
+    else still reads as linear. `doc.loop`: `'loop' | 'pingPong'` (absent or `'oneShot'` = plays
+    once and holds, as before; `loopFrom` wins where set). `doc.defaultEase`: the ease a NEW key gets
+    in the editor, authoring-only (every key carries its own `ease`, no player reads it).
+  - **Evaluator** (`engine-cinematic`, synced to `static/shared/cinematicEval.mjs`, so `/rigger`
+    reads cubic keys too): `isCubicEase`, `easeShape` (Newton then bisection on x(s), as a browser
+    does), used by `sampleChannel`, `sampleTint` and countUp text; `playbackTime(loop, elapsed,
+    duration)` and `loopsForever`. String eases take the exact code path they always did.
+  - **Players.** `ComponentTimelinePlayer`: `loop` wraps to 0 like a `loopFrom: 0`, `pingPong`
+    samples its there-and-back lap reflected; neither ends or holds a cue (`holdsOn` skips them).
+    Cues fire on the way out only, through `pingPongCuesCrossed` (every out leg a step overlaps,
+    so a step over the turnaround still fires a cue at or near the end). `<Cinematic>`:
+    `doc.loop === 'loop'` loops like its `loop` prop; `pingPong` plays there and back either way.
+    The game's Flow runtime treats a doc's Loop / Ping-pong like the node's own `loop`, so an
+    awaited `playCinematic` of one resolves at once instead of hanging the round (the validator
+    sees only the node, so this is runtime-only).
+  - **The Timeline module** (`$lib/timeline/timeline.js`): multi-key selection (Shift/Ctrl-click,
+    box drag over empty channel lanes, `selectKeys`), a drag moves every selected key (the grabbed
+    one lands exactly on the snapped time), Ctrl+C / Ctrl+V to the playhead, Delete on the
+    selection, `,` / `.` frame steps (Shift ×10) and Space through `host.togglePlay` (left alone on
+    a focused button). These keys are live in `/rigger` too (its own keys never used them).
+    Opt-in for `/editor` only: `boxSelect` (a drag over an empty channel lane box-selects; a click
+    there clears), `interpolation` (the Interpolation panel: Linear / Cubic with an SVG two-handle
+    curve and the typed `x1, y1, x2, y2` / Hold, *Set as default*, and the doc default with nothing
+    selected) and `summaryRows` (a foldable row per animated actor, with *Show only selected*
+    through `host.selectedActor`). `/rigger` sets neither: its golden changed in one step only,
+    "drag the key", because the old key drag looked its key up by its ORIGINAL time and so lost
+    it on the first move that crossed a frame (the golden had recorded a half-length drag). The
+    golden was re-recorded for that step; the other 103 are identical.
+  - **Gates.** `check:cinematic-ease`: 41 timelines (every built-in plus a doc using each legacy
+    ease and junk) sample byte-identically to a golden captured BEFORE the change; seven cubics match
+    an independent dense-table cubic-bezier within 1e-4 (worst 9e-9) on number, tint and countUp
+    channels; malformed arrays read linear; the loop types through `playbackTime` and the component
+    player. `check:timeline-keying`: default ease, the panel write, copy / paste / delete, frame
+    keys and Space (never while typing), and the editor helpers below. Both run in `check:all`.
+
 - **Node actors + hosts (Rive plan Phase 1, 2026-10-13, format + evaluator + player — not
   browser-verified).** A timeline can now drive layout NODES, not only rigs
   ([rive-style-editor.md](../design/rive-style-editor.md) §3.1–3.2):
@@ -86,8 +126,15 @@ through the same player; headless-proven, no editor yet (5b).
     under the picker.
   - **Not in Phase 3:** `text` tracks (count-up / switch-key — the format and player have them;
     the panel does not expose them yet), visibility keys and cues in the panel, keying by dragging
-    on the canvas, component hosts (Phase 4b, below). The in-game set still mounts as its own copy of the
-    screen inside `<MainContainer>` (Phase 1 behaviour), so an intro should end on the identity pose.
+    on the canvas, component hosts (Phase 4b, below).
+  - **In game (2026-10-16).** A screen timeline moves the screen the flow SHOWS: `<FlowV2Cinematics>`
+    hands the playing `<Cinematic>`'s node driver to the flow handle (`driveScreen`), and
+    `<FlowV2Mount>` remounts that screen with it (`LayoutScene.nodeDriver`, keyed per play); the
+    screen holds the last frame until it hides. Only a timeline whose screen is NOT up still draws
+    its own copy inside `<MainContainer>` (Phase 1), mis-framed for a canvas screen (open item 9).
+    A `playCinematic` naming a timeline the bundle lacks is skipped with a console warning rather
+    than awaited forever. Until this date no Flow `playCinematic` ever reached a game:
+    `createFlowV2Env` dropped `playCinematic` / `stopCinematic` (see Recent changes).
 
 - **Component timelines (Rive plan Phase 4b, 2026-10-13 — in review, headless-proven, ⏳ not
   browser-verified).** Authored on `/editor`'s Components side (Animate; UI in [the
@@ -313,9 +360,10 @@ through the same player; headless-proven, no editor yet (5b).
    (h) `/flow-v2` → playCinematic lists "Timeline · <screen> · <name>" and shows a ⚠ for a renamed
    node; (i) publish and watch the intro play in game (Live ↗), with **Wait for it to finish**.
 1. **⏳ Watch a full AUTHORED cinematic in a game.** The player itself is proved (2026-10-01 below),
-   but only with a probe doc injected into the runtime bundle and started from the flow handle. No
-   authored cinematic (cues + set + a `playCinematic` with `awaitComplete`) has run through the
-   export chain yet; the remake's one doc (`suca_cine`) has no cast and is not exported.
+   but only with a probe doc injected into the runtime bundle and started from the flow handle. A
+   `playCinematic` node reaches the player only since 2026-10-16 (the env factory dropped it), proven
+   headless with a screen timeline (Recent changes); no browser has watched one yet. The remake's one
+   doc (`suca_cine`) has no cast and is not exported.
 2. **⏳ Live-verify the server chain against real R2 + Postgres** — save, reload, open, publish,
    and confirm `deploy/cinematics/` fills and the bundle carries `cinematics`.
 3. **⏳ Owner eyeball** — two rigs staged together (premultiply halos, relative scale between rigs
@@ -339,12 +387,54 @@ through the same player; headless-proven, no editor yet (5b).
    same time in the new doc opens pre-selected; and leaving 🎬 before the mode's first load finishes
    writes a `{doc:null}` draft over the saved local draft.
 
+9. **A screen timeline played while its screen is not shown** draws its own copy inside
+   `<MainContainer>` (Phase 1): a `canvas` screen comes out mis-framed (game-box scaled), with no
+   tap dim and the HUD live. The guide says to Show the screen first; decide whether such a play
+   should instead show nothing, or mount the screen at its own band.
+
 ## Blocked (owner / external)
 
 - Nothing external.
 
 ## Recent changes
 
+- 2026-10-20 — **Hotfix: in-game timelines stuck on frame 0 since Phase 9b** (branch
+  `claude/fix-cinematic-rearm`). Reported on `commonoverlayproject`: the bonus's pot and curtain
+  timelines never played, and the awaited Flow chain after them never ran. 9b's re-arm `$effect` in
+  `<Cinematic>` gained `lap = time`, a READ of `time`, so every ticker write re-ran the effect and
+  reset the playhead to the start; a Flow `playCinematic` never completed. The effect now reads only
+  `doc.id` and `startTime`. Verified on the live project's data (forced `pot:red`): both timelines
+  finish and the feature intro holds for its tap. No gate mounts `<Cinematic>` on a ticker, which is
+  why CI stayed green.
+
+- 2026-10-20 — **Phase 9b: cubic ease, loop type, default interpolation, multi-key editing**
+  (branch `claude/rive-p9b-keying`, in review). Format + evaluator + players + the module's keying
+  surfaces, detailed in Current state above; the editor side is in
+  [editor status](editor.md) 2026-10-20.
+
+- 2026-10-16 — **Flow's `playCinematic` plays in game; a screen timeline moves the shown screen**
+  (branch `claude/amazing-archimedes-rzuz77`). Reported on a live game: a Feature intro keyed in
+  Animate mode never moved. Two causes. (1) `createFlowV2Env` (`engine-flow-v2/src/env.ts`) never
+  forwarded `playCinematic` / `stopCinematic` (nor `containerAnimationMs`), so every play was a
+  no-op and an awaited one continued at once; `svelte-check-baseline.json` had absorbed the
+  excess-property errors that said so (baseline lowered by 7). (2) The in-game player drew its own
+  copy of the host screen, never the one the Show node put up. Now the playing `<Cinematic>` hands
+  its node driver to the flow (`driveScreen`), `<FlowV2Mount>` remounts the shown screen with it
+  (`screenDrive`, `LayoutScene.nodeDriver`), and `setMounted` stops the copy; a drive lasts while
+  the timeline plays or its screen is up. A timeline the bundle lacks is skipped with a warning
+  (`[flow-v2] playCinematic: … did not ship`). Gate: `packages/engine-flow-v2/envFactory.fixture.ts`
+  (every `env.*` the interpreter calls exists on the factory's env; each optional capability
+  reaches the game; an awaited play holds; `durationMs` feeds a Delay), run by `check:all`; it fails
+  on the old `env.ts`, naming the three. Headless (local Pots → Hold and Win game, real time and
+  determinism): Show → playCinematic → held Show animates the shown intro, holds, and the bonus
+  follows the tap; play → held Show and a missing timeline in the chain both still hold and settle;
+  a flow with no timeline is unchanged. Owner browser check passed 2026-10-17.
+
+- 2026-10-15 — **`fx:<id>` node channels** (Invisible FX Step 2): `sampleNodeActor` samples a
+  property track's `fx:` channels under their own names (absolute: an effect node's exposed
+  parameter), `blendNodeSamples` mixes them on an effect node, and the shared Timeline module gained
+  `host.actorChannels` and a `keyProperty` ease (both synced to `static/shared/`). Detail in
+  [FX status](fx.md), 2026-10-15 "Step 2".
 - 2026-10-14 — **Generated timelines and a per-component play rate (Rive plan Phase 8b, branch
   `claude/rive-p8b-win-design`).** `registerGameTimelines(baked, generated)` takes timelines the
   game GENERATES at boot (the authored win's per-tier walk / loop / outro docs, `winTierTimelines`,

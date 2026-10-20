@@ -23,6 +23,13 @@
  *
  * ROWS ARE DATA: `orderedRows` lists what to draw and `ROW_KINDS` says how to draw and wire each
  * kind, so a new track or actor kind is one more entry, not a restructure.
+ *
+ * OPT-IN SURFACES (Rive plan Phase 9b): `options.interpolation` swaps the key inspector's ease
+ * `<select>` for the Interpolation panel (Linear / Cubic with a two-handle curve / Hold, and the
+ * doc's default), `options.summaryRows` gives every animated actor a collapsible summary row, and
+ * `options.boxSelect` lets a drag over an empty channel lane box-select keys. `/rigger` sets none
+ * of them, so its markup and lane clicks are unchanged; Shift/Ctrl-click selection, multi-key
+ * drag, Ctrl+C / Ctrl+V and `,` / `.` frame stepping work in both.
  */
 
 const TL_GUTTER = 132;
@@ -77,6 +84,32 @@ const hexColor = (n) => '#' + (Math.round(n) & 0xffffff).toString(16).padStart(6
 
 const uid = (p) => p + '_' + Math.random().toString(36).slice(2, 9);
 
+/** A cubic ease's four numbers, or null. Mirrors the evaluator's `isCubicEase`. */
+const cubicOf = (ease) =>
+	Array.isArray(ease) && ease.length === 4 && ease.every((n) => Number.isFinite(n)) ? ease : null;
+/** The `ease: 'ease'` smoothstep is exactly this cubic (x(s) = s, y(s) = 3s² − 2s³). */
+const SMOOTH_CUBIC = [1 / 3, 0, 2 / 3, 1];
+/** Where the Cubic button starts a key that is not cubic yet: CSS `ease-in-out`. */
+const DEFAULT_CUBIC = [0.42, 0, 0.58, 1];
+/** Linear / Cubic / Hold — how the Interpolation panel names a key's `ease`. */
+const easeKind = (ease) =>
+	ease === 'hold' ? 'hold' : cubicOf(ease) || ease === 'ease' ? 'cubic' : 'linear';
+const cubicValues = (ease) => cubicOf(ease) || (ease === 'ease' ? SMOOTH_CUBIC : DEFAULT_CUBIC);
+const n3 = (n) => +(+n).toFixed(3);
+const cubicText = (c) => c.map(n3).join(', ');
+/** `x1, y1, x2, y2` typed by an author, x clamped to [0, 1]; null when it is not four numbers. */
+function parseCubic(text) {
+	const parts = String(text || '')
+		.split(/[\s,]+/)
+		.filter(Boolean)
+		.map(Number);
+	if (parts.length !== 4 || !parts.every(Number.isFinite)) return null;
+	const clamp01 = (n) => Math.min(Math.max(n, 0), 1);
+	return [clamp01(parts[0]), parts[1], clamp01(parts[2]), parts[3]];
+}
+const cloneEase = (ease) => (Array.isArray(ease) ? ease.slice() : ease);
+const easeLabel = (ease) => (cubicOf(ease) ? 'cubic ' + cubicText(ease) : ease || 'linear');
+
 const noop = () => {};
 const HOST_DEFAULTS = {
 	evaluate: noop,
@@ -88,10 +121,13 @@ const HOST_DEFAULTS = {
 	save: noop,
 	setDepth: noop,
 	actorLabel: (cast) => ({ text: cast.actorId, title: cast.actorId }),
+	actorChannels: () => [],
 	clips: () => [],
 	sceneName: () => null,
 	effects: () => [],
 	cameraView: () => null,
+	selectedActor: () => null,
+	togglePlay: null, // Space; a host without a transport leaves it to the page
 };
 
 /**
@@ -108,13 +144,23 @@ export function mount(el, options) {
 	const host = { ...HOST_DEFAULTS, ...(options.host || {}) };
 	const extensions = options.extensions || [];
 	const propChannels = options.channels || PROP_CHANNELS;
+	/** An actor's rows: the shared property channels, then the ones the host adds for that actor. */
+	const channelsOf = (cast) =>
+		cast ? propChannels.concat(host.actorChannels(cast)) : propChannels;
 	const render = () => (host.render ? host.render() : renderInspector());
 
 	let doc = options.doc;
 	let time = 0;
 	let active = false;
 	let selStripId = null;
-	let selKey = null; // { trackId, channel, time }
+	let selKey = null; // { trackId, channel, time } — the PRIMARY key (the inspector edits it)
+	let selKeys = []; // every selected property / camera key, the primary included
+	let keyClipboard = null; // [{ trackId, channel, dt, value, ease }] — Ctrl+C, pasted at the playhead
+	const collapsed = new Set(); // actor ids whose summary row is folded
+	let onlySelected = false;
+	const interpolation = !!options.interpolation;
+	const summaryRows = !!options.summaryRows;
+	const boxSelect = !!options.boxSelect;
 	let selCueTime = null; // the selected cue key, by time (cues are global, so time identifies one)
 	let cinePps = null; // px per second; null = fit the whole cinematic to the panel width
 	let tlDrag = null;
@@ -138,6 +184,81 @@ export function mount(el, options) {
 		}
 		return null;
 	};
+
+	// ---- key selection ------------------------------------------------------
+	//
+	// Several keys can be selected (Shift/Ctrl-click, a box drag over the lanes, a summary key): a
+	// drag moves them together, the Interpolation panel sets all of their eases, Delete removes them
+	// and Ctrl+C / Ctrl+V copies them to the playhead. `selKey` is the one the inspector shows.
+
+	const sameKey = (a, b) =>
+		a.trackId === b.trackId && a.channel === b.channel && Math.abs(a.time - b.time) < 1e-6;
+	const isKeySelected = (trackId, channel, t) =>
+		selKeys.some((k) => sameKey(k, { trackId, channel, time: t }));
+	function selectKeys(list, primary) {
+		selKeys = list;
+		selKey = primary || list[list.length - 1] || null;
+	}
+	/** The key objects the selection names, with the arrays that hold them. */
+	function selectedKeyRefs() {
+		const out = [];
+		for (const sel of selKeys) {
+			const track = doc.tracks.find((t) => t.id === sel.trackId);
+			const keys = track && track.channels && track.channels[sel.channel];
+			const key = keys && keys.find((k) => Math.abs(k.time - sel.time) < 1e-6);
+			if (key) out.push({ trackId: sel.trackId, channel: sel.channel, keys, key, orig: key.time });
+		}
+		return out;
+	}
+	/** Restyle the drawn keys to the selection without rebuilding the rows (mid-gesture safe). */
+	function markSelectedKeys() {
+		if (!el) return;
+		el.querySelectorAll('.cineChanRow .cineKey').forEach((dot) => {
+			const row = dot.closest('.cineChanRow');
+			const on = isKeySelected(
+				row.dataset.track,
+				row.dataset.channel,
+				parseFloat(dot.dataset.time),
+			);
+			dot.classList.toggle('sel', on);
+			dot.style.background = on ? '#ffd24a' : chanColor(row.dataset.track, row.dataset.channel);
+		});
+	}
+	function chanColor(trackId, channel) {
+		const track = doc.tracks.find((t) => t.id === trackId);
+		const list = !track
+			? []
+			: track.kind === 'camera'
+				? CAM_CHANNELS
+				: channelsOf(castOf(track.actorId));
+		return (list.find((c) => c.key === channel) || {}).color || '#8b93a1';
+	}
+
+	/** Every time an actor has a property or visibility key at — its summary row's keys. */
+	function actorKeyTimes(actorId) {
+		const times = [];
+		const add = (t) => {
+			if (!times.some((x) => Math.abs(x - t) < 1e-6)) times.push(t);
+		};
+		for (const track of propertyTracksOf(actorId))
+			for (const keys of Object.values(track.channels)) for (const k of keys) add(k.time);
+		for (const track of visTracksOf(actorId)) for (const k of track.keys) add(k.time);
+		return times.sort((a, b) => a - b);
+	}
+	/** An actor's property and visibility key objects, optionally only those at `at`. */
+	function actorKeyRefs(actorId, at) {
+		const out = [];
+		const near = (k) => at == null || Math.abs(k.time - at) < 1e-6;
+		for (const track of propertyTracksOf(actorId))
+			for (const [channel, keys] of Object.entries(track.channels))
+				for (const key of keys)
+					if (near(key)) out.push({ trackId: track.id, channel, keys, key, orig: key.time });
+		for (const track of visTracksOf(actorId))
+			for (const key of track.keys)
+				if (near(key))
+					out.push({ trackId: track.id, channel: null, keys: track.keys, key, orig: key.time });
+		return out;
+	}
 
 	// ---- history (undo / redo) --------------------------------------------
 	//
@@ -309,19 +430,26 @@ export function mount(el, options) {
 				setDone = true;
 			}
 		};
+		const focus = onlySelected ? host.selectedActor() : undefined;
 		for (const cast of doc.stage.cast.slice().sort((a, b) => (a.z || 0) - (b.z || 0))) {
 			emitSetBefore(cast.z || 0);
+			if (onlySelected && cast.actorId !== focus) continue;
+			const keyed = summaryRows && actorKeyTimes(cast.actorId).length > 0;
+			if (keyed) out.push({ kind: 'summary', cast, track: null });
+			const folded = keyed && collapsed.has(cast.actorId);
 			const anim = doc.tracks
 				.filter((t) => t.actorId === cast.actorId && t.kind === 'animation')
 				.sort((a, b) => (a.layer || 0) - (b.layer || 0));
 			anim.forEach((track, i) =>
 				out.push({ kind: 'animation', cast, track, first: i === 0, count: anim.length }),
 			);
+			if (folded) continue;
 			for (const track of visTracksOf(cast.actorId)) {
 				if (track.keys.length) out.push({ kind: 'visibility', cast, track });
 			}
+			const chans = channelsOf(cast);
 			for (const track of propertyTracksOf(cast.actorId)) {
-				for (const chan of propChannels) {
+				for (const chan of chans) {
 					if (track.channels[chan.key]) out.push({ kind: 'channel', cast, track, chan });
 				}
 			}
@@ -573,11 +701,7 @@ export function mount(el, options) {
 				const l = lane(contentW);
 				for (const k of track.channels[entry.chan.key]) {
 					const dot = document.createElement('span');
-					const isSel =
-						selKey &&
-						selKey.trackId === track.id &&
-						selKey.channel === entry.chan.key &&
-						Math.abs(selKey.time - k.time) < 1e-6;
+					const isSel = isKeySelected(track.id, entry.chan.key, k.time);
 					dot.className = 'cineKey' + (isSel ? ' sel' : '') + (k.ease === 'hold' ? ' hold' : '');
 					dot.style.left = (k.time * pps).toFixed(1) + 'px';
 					dot.style.background = isSel ? '#ffd24a' : entry.chan.color;
@@ -589,13 +713,14 @@ export function mount(el, options) {
 						' @ ' +
 						+k.time.toFixed(3) +
 						's (' +
-						(k.ease || 'linear') +
+						easeLabel(k.ease) +
 						')';
 					l.appendChild(dot);
 				}
 				row.appendChild(l);
 			},
-			// Channel keys: click to select, drag to retime.
+			// Channel keys: click to select (Shift / Ctrl adds or removes), drag to retime — every
+			// selected key moves by the same snapped amount.
 			wire(root, pps) {
 				root.querySelectorAll('.cineChanRow .cineKey').forEach((dot) => {
 					const row = dot.closest('.cineChanRow');
@@ -605,12 +730,22 @@ export function mount(el, options) {
 						e.preventDefault();
 						e.stopPropagation();
 						const keyTime = parseFloat(dot.dataset.time);
-						selKey = { trackId, channel, time: keyTime };
+						const me = { trackId, channel, time: keyTime };
+						if (e.shiftKey || e.ctrlKey || e.metaKey) {
+							if (isKeySelected(trackId, channel, keyTime)) {
+								selectKeys(selKeys.filter((k) => !sameKey(k, me)));
+								markSelectedKeys();
+								render();
+								return;
+							}
+							selectKeys([...selKeys, me], me);
+						} else if (isKeySelected(trackId, channel, keyTime)) selKey = me;
+						else selectKeys([me], me);
+						const refs = selectedKeyRefs();
 						tlDrag = {
 							kind: 'key',
-							trackId,
-							channel,
-							time: keyTime,
+							refs,
+							primary: refs.find((r) => sameKey(r, me)) || refs[0],
 							startX: e.clientX,
 							pps,
 							el: dot,
@@ -621,41 +756,188 @@ export function mount(el, options) {
 						} catch {
 							/* uncaptured drag still works */
 						}
-						row.querySelectorAll('.cineKey.sel').forEach((n) => n.classList.remove('sel'));
-						dot.classList.add('sel');
+						if (refs.length > 1) markSelectedKeys();
+						else {
+							row.querySelectorAll('.cineKey.sel').forEach((n) => n.classList.remove('sel'));
+							dot.classList.add('sel');
+						}
 						render();
 					};
 					dot.onpointermove = (e) => {
-						if (!tlDrag || tlDrag.kind !== 'key' || tlDrag.el !== dot) return;
-						const track = doc.tracks.find((t) => t.id === trackId);
-						const keys = track && track.channels[channel];
-						if (!keys) return;
-						const k = keys.find((x) => Math.abs(x.time - tlDrag.time) < 1e-6);
-						if (!k) return;
+						if (!tlDrag || tlDrag.kind !== 'key' || tlDrag.el !== dot || !tlDrag.primary) return;
 						if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
-						k.time = snapT(tlDrag.time + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
-						dot.style.left = (k.time * tlDrag.pps).toFixed(1) + 'px';
+						const p = tlDrag.primary;
+						const earliest = Math.min(...tlDrag.refs.map((r) => r.orig));
+						const to = snapT(p.orig + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
+						const delta = Math.max(to - p.orig, -earliest);
+						// The grabbed key lands exactly on the snapped time (`orig + delta` can be an ulp
+						// off it); the others keep their distance from it.
+						for (const r of tlDrag.refs)
+							r.key.time = r === p && delta === to - p.orig ? to : r.orig + delta;
+						if (tlDrag.refs.length === 1)
+							dot.style.left = (p.key.time * tlDrag.pps).toFixed(1) + 'px';
+						else moveDrawnKeys(tlDrag.refs, tlDrag.pps);
 						host.evaluate(time);
 					};
 					const endKey = () => {
 						if (!tlDrag || tlDrag.kind !== 'key' || tlDrag.el !== dot) return;
-						const moved = tlDrag.moved;
-						const track = doc.tracks.find((t) => t.id === trackId);
-						const keys = track && track.channels[channel];
-						if (keys) keys.sort((a, b) => a.time - b.time);
+						const { moved, refs, primary } = tlDrag;
+						for (const r of refs) r.keys.sort((a, b) => a.time - b.time);
 						if (moved) {
-							const k =
-								keys &&
-								keys.find((x) => Math.abs(x.time - parseFloat(dot.style.left) / tlDrag.pps) < 0.01);
-							selKey = { trackId, channel, time: k ? k.time : tlDrag.time };
+							selectKeys(
+								refs.map((r) => ({ trackId: r.trackId, channel: r.channel, time: r.key.time })),
+								primary && {
+									trackId: primary.trackId,
+									channel: primary.channel,
+									time: primary.key.time,
+								},
+							);
 						}
 						tlDrag = null;
-						if (moved) commit('move key', 'key:' + trackId + ':' + channel);
+						if (moved)
+							commit(
+								refs.length > 1 ? 'move keys' : 'move key',
+								refs.length > 1 ? 'keys' : 'key:' + trackId + ':' + channel,
+							);
 						renderTimeline();
 						render();
 					};
 					dot.onpointerup = endKey;
 					dot.onpointercancel = endKey;
+				});
+			},
+		},
+
+		// An actor's SUMMARY row (`options.summaryRows`): one grey key per time any of its channels
+		// (or its visibility) is keyed. ▸/▾ folds its rows. Drag a summary key to move every key at
+		// that time; drag the row's empty lane to move ALL of this actor's keys; click a summary
+		// key to select its keys (the Interpolation panel then sets all of them).
+		summary: {
+			render(row, entry, pps, contentW) {
+				const id = entry.cast.actorId;
+				const label = host.actorLabel(entry.cast);
+				row.classList.add('cineSumRow');
+				row.dataset.actor = id;
+				row.appendChild(
+					gutter(
+						'<button data-fold="' +
+							esc(id) +
+							'" title="' +
+							(collapsed.has(id) ? 'Show its rows' : 'Fold its rows') +
+							'">' +
+							(collapsed.has(id) ? '▸' : '▾') +
+							'</button><span class="cineTrackName" title="' +
+							esc(label.title) +
+							'">' +
+							esc(label.text) +
+							'</span>',
+					),
+				);
+				const l = lane(contentW);
+				for (const t of actorKeyTimes(id)) {
+					const dot = document.createElement('span');
+					const keys = actorKeyRefs(id, t).filter((r) => r.channel);
+					const allSel =
+						keys.length > 0 && keys.every((r) => isKeySelected(r.trackId, r.channel, r.key.time));
+					dot.className = 'cineSumKey' + (allSel ? ' sel' : '');
+					dot.style.left = (t * pps).toFixed(1) + 'px';
+					dot.dataset.time = t;
+					dot.title = 'Every key of ' + label.text + ' at ' + +t.toFixed(3) + 's';
+					l.appendChild(dot);
+				}
+				row.appendChild(l);
+			},
+			wire(root, pps) {
+				root.querySelectorAll('.cineSumRow [data-fold]').forEach((btn) => {
+					btn.onclick = (e) => {
+						e.stopPropagation();
+						const id = btn.dataset.fold;
+						if (collapsed.has(id)) collapsed.delete(id);
+						else collapsed.add(id);
+						renderTimeline();
+					};
+				});
+				root.querySelectorAll('.cineSumRow').forEach((row) => {
+					const id = row.dataset.actor;
+					const laneEl = row.querySelector('.cineLane');
+					const begin = (e, at, handle) => {
+						e.preventDefault();
+						e.stopPropagation();
+						const refs = actorKeyRefs(id, at);
+						if (!refs.length) return;
+						const channelKeys = refs
+							.filter((r) => r.channel)
+							.map((r) => ({ trackId: r.trackId, channel: r.channel, time: r.key.time }));
+						if (at != null) selectKeys(channelKeys);
+						tlDrag = {
+							kind: 'summary',
+							refs,
+							at,
+							startX: e.clientX,
+							pps,
+							el: handle,
+							moved: false,
+						};
+						try {
+							handle.setPointerCapture(e.pointerId);
+						} catch {
+							/* uncaptured drag still works */
+						}
+						render();
+					};
+					const move = (e) => {
+						if (!tlDrag || tlDrag.kind !== 'summary' || tlDrag.el !== e.currentTarget) return;
+						if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
+						const earliest = Math.min(...tlDrag.refs.map((r) => r.orig));
+						const first = tlDrag.refs[0];
+						const to = snapT(first.orig + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
+						const delta = Math.max(to - first.orig, -earliest);
+						for (const r of tlDrag.refs)
+							r.key.time = r === first && delta === to - first.orig ? to : r.orig + delta;
+						moveDrawnKeys(tlDrag.refs, tlDrag.pps);
+						row.querySelectorAll('.cineSumKey').forEach((dot) => {
+							const t = parseFloat(dot.dataset.time);
+							if (tlDrag.at == null || Math.abs(t - tlDrag.at) < 1e-6)
+								dot.style.left = ((t + delta) * tlDrag.pps).toFixed(1) + 'px';
+						});
+						host.evaluate(time);
+					};
+					const end = (e) => {
+						if (!tlDrag || tlDrag.kind !== 'summary' || tlDrag.el !== e.currentTarget) return;
+						const { moved, refs } = tlDrag;
+						for (const r of refs) r.keys.sort((a, b) => a.time - b.time);
+						tlDrag = null;
+						if (moved) {
+							selectKeys(
+								selKeys.length
+									? refs
+											.filter((r) => r.channel)
+											.map((r) => ({ trackId: r.trackId, channel: r.channel, time: r.key.time }))
+									: [],
+							);
+							commit(
+								'move ' + host.actorLabel(castOf(id) || { actorId: id }).text + ' keys',
+								'sum:' + id,
+							);
+						}
+						renderTimeline();
+						render();
+					};
+					row.querySelectorAll('.cineSumKey').forEach((dot) => {
+						dot.onpointerdown = (e) => begin(e, parseFloat(dot.dataset.time), dot);
+						dot.onpointermove = move;
+						dot.onpointerup = end;
+						dot.onpointercancel = end;
+					});
+					if (laneEl) {
+						laneEl.onpointerdown = (e) => {
+							if (e.target !== laneEl || e.button !== 0) return;
+							begin(e, null, laneEl);
+						};
+						laneEl.onpointermove = move;
+						laneEl.onpointerup = end;
+						laneEl.onpointercancel = end;
+					}
 				});
 			},
 		},
@@ -798,6 +1080,101 @@ export function mount(el, options) {
 		d.onpointercancel = end;
 	}
 
+	/** Mid-drag: put every drawn key the drag holds where its key now is (the rows stay built). */
+	function moveDrawnKeys(refs, pps) {
+		if (!el) return;
+		const place = (dot, trackId, channel, t) => {
+			const r = refs.find(
+				(x) => x.trackId === trackId && x.channel === channel && Math.abs(x.orig - t) < 1e-6,
+			);
+			if (r) dot.style.left = (r.key.time * pps).toFixed(1) + 'px';
+		};
+		el.querySelectorAll('.cineChanRow .cineKey').forEach((dot) => {
+			const row = dot.closest('.cineTrack');
+			place(dot, row.dataset.track, row.dataset.channel, parseFloat(dot.dataset.time));
+		});
+		el.querySelectorAll('.cineVisRow .cineVisKey').forEach((dot) => {
+			place(dot, dot.closest('.cineTrack').dataset.track, null, parseFloat(dot.dataset.visTime));
+		});
+	}
+
+	/**
+	 * BOX SELECT: a drag that starts on an empty channel lane draws a marquee and selects every key
+	 * under it (Shift adds to the selection). A click there without a drag clears the selection.
+	 */
+	function wireMarquee() {
+		el.onpointerdown = (e) => {
+			if (e.button !== 0 || tlDrag) return;
+			const laneEl = e.target.closest && e.target.closest('.cineChanRow .cineLane');
+			if (!laneEl || e.target !== laneEl) return;
+			e.preventDefault();
+			const box = el.getBoundingClientRect();
+			const at = (ev) => ({
+				x: ev.clientX - box.left + el.scrollLeft,
+				y: ev.clientY - box.top + el.scrollTop,
+			});
+			const start = at(e);
+			const mark = document.createElement('div');
+			mark.className = 'cineMarquee';
+			mark.style.cssText =
+				'position:absolute;z-index:7;pointer-events:none;border:1px dashed #5db0ff;background:rgba(93,176,255,.12);';
+			el.appendChild(mark);
+			const base = e.shiftKey ? selKeys.slice() : [];
+			let moved = false;
+			const draw = (ev) => {
+				const p = at(ev);
+				if (Math.abs(p.x - start.x) + Math.abs(p.y - start.y) > 3) moved = true;
+				mark.style.left = Math.min(p.x, start.x) + 'px';
+				mark.style.top = Math.min(p.y, start.y) + 'px';
+				mark.style.width = Math.abs(p.x - start.x) + 'px';
+				mark.style.height = Math.abs(p.y - start.y) + 'px';
+			};
+			const pick = () => {
+				const r = mark.getBoundingClientRect();
+				const hits = [];
+				el.querySelectorAll('.cineChanRow .cineKey').forEach((dot) => {
+					const d = dot.getBoundingClientRect();
+					const cx = d.left + d.width / 2;
+					const cy = d.top + d.height / 2;
+					if (cx < r.left || cx > r.right || cy < r.top || cy > r.bottom) return;
+					const row = dot.closest('.cineTrack');
+					const k = {
+						trackId: row.dataset.track,
+						channel: row.dataset.channel,
+						time: parseFloat(dot.dataset.time),
+					};
+					if (!base.some((b) => sameKey(b, k))) hits.push(k);
+				});
+				return base.concat(hits);
+			};
+			draw(e);
+			try {
+				el.setPointerCapture(e.pointerId);
+			} catch {
+				/* uncaptured drag still works */
+			}
+			el.onpointermove = (ev) => {
+				draw(ev);
+				if (moved) {
+					selectKeys(pick());
+					markSelectedKeys();
+				}
+			};
+			const end = () => {
+				el.onpointermove = null;
+				el.onpointerup = null;
+				el.onpointercancel = null;
+				const next = moved ? pick() : base;
+				mark.remove();
+				selectKeys(next);
+				renderTimeline();
+				render();
+			};
+			el.onpointerup = end;
+			el.onpointercancel = end;
+		};
+	}
+
 	const suspended = () => extensions.some((x) => x.timelineSuspended && x.timelineSuspended());
 
 	function renderTimeline() {
@@ -929,6 +1306,7 @@ export function mount(el, options) {
 		};
 
 		for (const kind of Object.values(ROW_KINDS)) kind.wire(el, pps);
+		if (boxSelect) wireMarquee();
 	}
 
 	// ---- strip + layer operations -----------------------------------------
@@ -1160,13 +1538,14 @@ export function mount(el, options) {
 			: resolved[channel];
 	}
 
-	function keyProperty(actorId, channel, value) {
+	function keyProperty(actorId, channel, value, ease) {
 		const track = ensurePropertyTrack(actorId);
 		track.channels[channel] = track.channels[channel] || [];
 		EV.putKey(
 			track.channels[channel],
 			snapT(time),
 			value == null ? effectivePlaceValue(actorId, channel) : value,
+			ease == null && doc.defaultEase != null ? cloneEase(doc.defaultEase) : ease,
 		);
 		commit('key ' + channel);
 		render();
@@ -1196,10 +1575,95 @@ export function mount(el, options) {
 		// animated and then un-animated is indistinguishable from one that never was.
 		if (!Object.keys(track.channels).length)
 			doc.tracks = doc.tracks.filter((t) => t.id !== trackId);
-		selKey = null;
+		selectKeys([]);
 		commit('delete key');
 		render();
 		renderTimeline();
+	}
+
+	/** Delete every selected key (one undo step), pruning channels and tracks left empty. */
+	function deleteSelectedKeys() {
+		if (selKeys.length <= 1) {
+			if (selKey) deleteKey(selKey.trackId, selKey.channel, selKey.time);
+			return;
+		}
+		for (const r of selectedKeyRefs()) {
+			const track = doc.tracks.find((t) => t.id === r.trackId);
+			if (!track || !track.channels[r.channel]) continue;
+			track.channels[r.channel] = track.channels[r.channel].filter((k) => k !== r.key);
+			if (!track.channels[r.channel].length) delete track.channels[r.channel];
+			if (!Object.keys(track.channels).length) doc.tracks = doc.tracks.filter((t) => t !== track);
+		}
+		selectKeys([]);
+		commit('delete keys');
+		render();
+		renderTimeline();
+	}
+
+	/** Ctrl+C: the selected keys, timed from the earliest. False when nothing is selected. */
+	function copyKeys() {
+		const refs = selectedKeyRefs();
+		if (!refs.length) return false;
+		const t0 = Math.min(...refs.map((r) => r.key.time));
+		keyClipboard = refs.map((r) => ({
+			trackId: r.trackId,
+			channel: r.channel,
+			dt: r.key.time - t0,
+			value: r.key.value,
+			ease: cloneEase(r.key.ease),
+		}));
+		return true;
+	}
+
+	/**
+	 * Ctrl+V: the copied keys onto the SAME channels, the earliest at the playhead. A key already at
+	 * a pasted time is replaced; a channel whose track is gone is skipped. The pasted keys end up
+	 * selected.
+	 */
+	function pasteKeys() {
+		if (!keyClipboard || !keyClipboard.length) return false;
+		const at = snapT(time);
+		const pasted = [];
+		for (const c of keyClipboard) {
+			const track = doc.tracks.find((t) => t.id === c.trackId);
+			if (!track || !track.channels) continue;
+			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
+			const t = at + c.dt;
+			if (t > doc.duration + 1e-6) continue;
+			const i = keys.findIndex((k) => Math.abs(k.time - t) < 1e-6);
+			const key = { time: t, value: c.value, ease: cloneEase(c.ease) };
+			if (key.ease === undefined) delete key.ease;
+			if (i >= 0) keys[i] = key;
+			else keys.push(key);
+			keys.sort((a, b) => a.time - b.time);
+			pasted.push({ trackId: c.trackId, channel: c.channel, time: t });
+		}
+		if (!pasted.length) return false;
+		selectKeys(pasted);
+		commit(pasted.length > 1 ? 'paste keys' : 'paste key');
+		render();
+		renderTimeline();
+		return true;
+	}
+
+	/** Set the outgoing `ease` of every selected key. `live` = mid-drag: no undo step yet. */
+	function setSelectedEase(ease, live) {
+		const refs = selectedKeyRefs();
+		if (!refs.length) return;
+		for (const r of refs) r.key.ease = cloneEase(ease);
+		host.evaluate(time);
+		if (live) return;
+		commit('interpolation', 'ease:' + selKeys.length);
+		render();
+		renderTimeline();
+	}
+
+	/** *Set as default*: what a NEW key's ease is in this doc. Linear is the absent default. */
+	function setDefaultEase(ease) {
+		if (ease == null || ease === 'linear') delete doc.defaultEase;
+		else doc.defaultEase = cloneEase(ease);
+		commit('default interpolation');
+		render();
 	}
 
 	function setKeyField(field, value) {
@@ -1210,9 +1674,11 @@ export function mount(el, options) {
 		const k = keys.find((x) => Math.abs(x.time - selKey.time) < 1e-6);
 		if (!k) return;
 		if (field === 'time') {
+			const was = selKey;
 			k.time = Math.max(0, value);
 			keys.sort((a, b) => a.time - b.time);
 			selKey = Object.assign({}, selKey, { time: k.time });
+			selKeys = selKeys.map((x) => (sameKey(x, was) ? selKey : x));
 		} else k[field] = value;
 		commit('edit key', 'key:' + selKey.trackId + ':' + selKey.channel + ':' + field);
 		render();
@@ -1335,25 +1801,190 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const keys = track && track.channels[selKey.channel];
 		const k = keys && keys.find((x) => Math.abs(x.time - selKey.time) < 1e-6);
 		if (!k) return '';
+		if (interpolation) return interpolationMarkup(track, k);
 		const ease = k.ease || 'linear';
 		const chan =
-			track.kind === 'camera' ? null : propChannels.find((c) => c.key === selKey.channel);
+			track.kind === 'camera'
+				? null
+				: channelsOf(castOf(track.actorId)).find((c) => c.key === selKey.channel);
 		const valueField =
 			chan && chan.input === 'color'
 				? `<input type="color" data-kact="value" value="${hexColor(k.value)}">`
 				: `<input type="number" step="0.1" data-kact="value" value="${+k.value.toFixed(3)}">`;
 		const opt = (v, label) =>
 			`<option value="${v}"${ease === v ? ' selected' : ''}>${label}</option>`;
+		// A cubic (authored in /editor's Interpolation panel) shows as itself; picking a named ease
+		// replaces it.
+		const cubicOpt = cubicOf(k.ease)
+			? `<option value="" selected disabled>cubic ${esc(cubicText(k.ease))}</option>`
+			: '';
 		return `
 <div class="cineHead" style="border-top:1px solid var(--line);"><b>Key</b><small>${esc(selKey.channel)}${track.kind === 'camera' ? ' (camera)' : ''}</small></div>
 <div class="cineStripInsp">
 	<label>time<input type="number" step="0.05" min="0" data-kact="time" value="${+k.time.toFixed(3)}"></label>
 	<label>value${valueField}</label>
 	<label class="wide">out<select data-kact="ease">
-		${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}
+		${cubicOpt}${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}
 	</select></label>
 </div>
 <div class="cineRow"><button id="cineDelKey" title="Delete this key">🗑 Delete key</button></div>`;
+	}
+
+	// ---- the Interpolation panel (`options.interpolation`) ---------------------
+	//
+	// Linear / Cubic / Hold for the segment LEAVING the selected keys (all of them, when several are
+	// selected), a curve editor with two draggable handles plus the typed `x1, y1, x2, y2`, and *Set
+	// as default* (the ease a new key gets in this doc). The curve is drawn as an SVG cubic, which is
+	// the very curve the evaluator samples.
+
+	/** Curve-editor geometry: x 0..1 → 20..140, y 0..1 → 160..40 (room to overshoot both ways). */
+	const CURVE = { x0: 20, w: 120, y0: 160, h: 120, vw: 160, vh: 200 };
+	const cx = (x) => CURVE.x0 + CURVE.w * x;
+	const cy = (y) => CURVE.y0 - CURVE.h * y;
+
+	function curveMarkup(c) {
+		const [x1, y1, x2, y2] = c;
+		const p = (x, y) => `${cx(x).toFixed(1)},${cy(y).toFixed(1)}`;
+		return `<svg class="cineCurve" viewBox="0 0 ${CURVE.vw} ${CURVE.vh}" width="${CURVE.vw}" height="${CURVE.vh}" role="img" aria-label="Cubic curve ${esc(cubicText(c))}">
+	<rect x="${CURVE.x0}" y="${cy(1)}" width="${CURVE.w}" height="${CURVE.h}" class="cineCurveBox"/>
+	<line class="cineCurveArm" data-arm="1" x1="${cx(0)}" y1="${cy(0)}" x2="${cx(x1).toFixed(1)}" y2="${cy(y1).toFixed(1)}"/>
+	<line class="cineCurveArm" data-arm="2" x1="${cx(1)}" y1="${cy(1)}" x2="${cx(x2).toFixed(1)}" y2="${cy(y2).toFixed(1)}"/>
+	<path class="cineCurvePath" d="M${p(0, 0)} C${p(x1, y1)} ${p(x2, y2)} ${p(1, 1)}"/>
+	<circle class="cineCurveHandle" data-handle="1" cx="${cx(x1).toFixed(1)}" cy="${cy(y1).toFixed(1)}" r="6"/>
+	<circle class="cineCurveHandle" data-handle="2" cx="${cx(x2).toFixed(1)}" cy="${cy(y2).toFixed(1)}" r="6"/>
+</svg>`;
+	}
+
+	/** Redraw the curve editor's arms, path and handles in place (a handle keeps its capture). */
+	function moveCurve(svg, c) {
+		const [x1, y1, x2, y2] = c;
+		const set = (node, attrs) => {
+			if (node) for (const [a, v] of Object.entries(attrs)) node.setAttribute(a, v.toFixed(1));
+		};
+		set(svg.querySelector('[data-arm="1"]'), { x2: cx(x1), y2: cy(y1) });
+		set(svg.querySelector('[data-arm="2"]'), { x2: cx(x2), y2: cy(y2) });
+		set(svg.querySelector('[data-handle="1"]'), { cx: cx(x1), cy: cy(y1) });
+		set(svg.querySelector('[data-handle="2"]'), { cx: cx(x2), cy: cy(y2) });
+		const p = (x, y) => `${cx(x).toFixed(1)},${cy(y).toFixed(1)}`;
+		const path = svg.querySelector('.cineCurvePath');
+		if (path) path.setAttribute('d', `M${p(0, 0)} C${p(x1, y1)} ${p(x2, y2)} ${p(1, 1)}`);
+		svg.setAttribute('aria-label', 'Cubic curve ' + cubicText(c));
+	}
+
+	/** The Linear / Cubic / Hold picker + the cubic editor for `ease`; `scope` names what it sets. */
+	function easeEditorMarkup(ease, scope) {
+		const kind = easeKind(ease);
+		const c = cubicValues(ease);
+		const btn = (v, label, title) =>
+			`<button data-ekind${scope}="${v}" class="${kind === v ? 'on' : ''}" title="${title}">${label}</button>`;
+		return `
+<div class="cineRow cineEaseKinds">
+	${btn('linear', 'Linear', 'A straight line to the next key')}${btn('cubic', 'Cubic', 'A curve with two handles')}${btn('hold', 'Hold', 'Hold this value until the next key (stepped)')}
+</div>
+${
+	kind === 'cubic'
+		? `<div class="cineCurveWrap" data-curve${scope}>${curveMarkup(c)}</div>
+<div class="cineStripInsp"><label class="wide">x1, y1, x2, y2<input type="text" data-ecubic${scope} value="${esc(cubicText(c))}" spellcheck="false" title="The cubic-bezier's two handles: x in 0..1, y may overshoot"></label></div>`
+		: ''
+}`;
+	}
+
+	function interpolationMarkup(track, k) {
+		const many = selKeys.length > 1;
+		const chan =
+			track.kind === 'camera'
+				? null
+				: channelsOf(castOf(track.actorId)).find((c) => c.key === selKey.channel);
+		const valueField =
+			chan && chan.input === 'color'
+				? `<input type="color" data-kact="value" value="${hexColor(k.value)}">`
+				: `<input type="number" step="0.1" data-kact="value" value="${+k.value.toFixed(3)}">`;
+		const isDefault =
+			JSON.stringify(k.ease == null ? 'linear' : k.ease) ===
+			JSON.stringify(doc.defaultEase == null ? 'linear' : doc.defaultEase);
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>${many ? selKeys.length + ' keys' : 'Key'}</b><small>${many ? 'the panel sets all of them' : esc(selKey.channel) + (track.kind === 'camera' ? ' (camera)' : '')}</small></div>
+${
+	many
+		? ''
+		: `<div class="cineStripInsp">
+	<label>time<input type="number" step="0.05" min="0" data-kact="time" value="${+k.time.toFixed(3)}"></label>
+	<label>value${valueField}</label>
+</div>`
+}
+<div class="cineHead"><b>Interpolation</b><small>out of ${many ? 'each key' : 'this key'}</small></div>
+${easeEditorMarkup(k.ease, '')}
+<div class="cineRow">
+	<button id="cineEaseDefault" title="New keys in this timeline get this interpolation"${isDefault ? ' disabled' : ''}>${isDefault ? '✓ Default' : 'Set as default'}</button>
+	<button id="cineDelKey" title="Delete ${many ? 'the selected keys' : 'this key'} (Delete)">🗑 Delete</button>
+</div>`;
+	}
+
+	/** Nothing selected, with the Interpolation panel on: the doc's default interpolation. */
+	function defaultEaseMarkup() {
+		if (!interpolation) return '';
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>Default interpolation</b><small>what a new key gets</small></div>
+${easeEditorMarkup(doc.defaultEase, '-default')}`;
+	}
+
+	/** Wire one ease editor; `apply(ease, live)` writes it (live = a handle mid-drag). */
+	function wireEaseEditor(root, scope, current, apply) {
+		root.querySelectorAll(`[data-ekind${scope}]`).forEach((b) => {
+			b.onclick = () => {
+				const v = b.getAttribute(`data-ekind${scope}`);
+				if (v === easeKind(current())) return;
+				apply(v === 'cubic' ? cubicValues(current()).slice() : v, false);
+			};
+		});
+		const field = root.querySelector(`[data-ecubic${scope}]`);
+		if (field)
+			field.onchange = () => {
+				const c = parseCubic(field.value);
+				if (c) apply(c, false);
+				else field.value = cubicText(cubicValues(current()));
+			};
+		const wrap = root.querySelector(`[data-curve${scope}]`);
+		const svg = wrap && wrap.querySelector('svg');
+		if (!svg) return;
+		svg.querySelectorAll('.cineCurveHandle').forEach((h) => {
+			h.onpointerdown = (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				const which = h.dataset.handle === '1' ? 0 : 2;
+				const c = cubicValues(current()).slice();
+				try {
+					h.setPointerCapture(e.pointerId);
+				} catch {
+					/* uncaptured drag still works */
+				}
+				let moved = false;
+				h.onpointermove = (ev) => {
+					const r = svg.getBoundingClientRect();
+					const sx = ((ev.clientX - r.left) / r.width) * CURVE.vw;
+					const sy = ((ev.clientY - r.top) / r.height) * CURVE.vh;
+					c[which] = n3(Math.min(Math.max((sx - CURVE.x0) / CURVE.w, 0), 1));
+					c[which + 1] = n3(
+						Math.min(
+							Math.max((CURVE.y0 - sy) / CURVE.h, -(CURVE.vh - CURVE.y0) / CURVE.h),
+							CURVE.y0 / CURVE.h,
+						),
+					);
+					moved = true;
+					moveCurve(svg, c);
+					if (field) field.value = cubicText(c);
+					apply(c.slice(), true);
+				};
+				const up = () => {
+					h.onpointermove = null;
+					h.onpointerup = null;
+					h.onpointercancel = null;
+					if (moved) apply(c.slice(), false);
+				};
+				h.onpointerup = up;
+				h.onpointercancel = up;
+			};
+		});
 	}
 
 	/**
@@ -1429,7 +2060,8 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		const markup = stripInspectorMarkup() + keyInspectorMarkup() + cueInspectorMarkup();
 		inspectorEl.innerHTML =
 			markup ||
-			'<div class="cineNote">Nothing selected. Click a strip, a keyframe diamond or a cue marker on the timeline.</div>';
+			'<div class="cineNote">Nothing selected. Click a strip, a keyframe diamond or a cue marker on the timeline.</div>' +
+				defaultEaseMarkup();
 		wireInspector(inspectorEl);
 		return !!markup;
 	}
@@ -1478,8 +2110,28 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 			};
 		});
 		const delKey = q('#cineDelKey');
-		if (delKey)
-			delKey.onclick = () => selKey && deleteKey(selKey.trackId, selKey.channel, selKey.time);
+		if (delKey) delKey.onclick = () => selKey && deleteSelectedKeys();
+		if (interpolation) {
+			const primaryEase = () => {
+				const r = selectedKeyRefs().find(
+					(x) =>
+						selKey && sameKey({ trackId: x.trackId, channel: x.channel, time: x.key.time }, selKey),
+				);
+				return r ? r.key.ease : undefined;
+			};
+			if (selKey) wireEaseEditor(root, '', primaryEase, setSelectedEase);
+			else
+				wireEaseEditor(
+					root,
+					'-default',
+					() => doc.defaultEase,
+					(ease, live) => {
+						if (!live) setDefaultEase(ease);
+					},
+				);
+			const def = q('#cineEaseDefault');
+			if (def) def.onclick = () => setDefaultEase(primaryEase());
+		}
 		root.querySelectorAll('[data-kact]').forEach((node) => {
 			node.onchange = (e) => {
 				const f = node.dataset.kact;
@@ -1508,11 +2160,15 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 	function onKeyDown(e) {
 		if (!active) return;
 		const ae = document.activeElement;
-		if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+		if (ae && (/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName) || ae.isContentEditable)) return;
 		for (const x of extensions) if (x.keydown && x.keydown(e)) return;
 		if (e.ctrlKey || e.metaKey) {
 			const key = e.key.toLowerCase();
-			if (key === 'z' && !e.shiftKey) {
+			if (key === 'c' && !e.shiftKey && !e.altKey) {
+				if (copyKeys()) e.preventDefault();
+			} else if (key === 'v' && !e.shiftKey && !e.altKey) {
+				if (pasteKeys()) e.preventDefault();
+			} else if (key === 'z' && !e.shiftKey) {
 				e.preventDefault();
 				undo();
 			} else if ((key === 'z' && e.shiftKey) || key === 'y') {
@@ -1527,11 +2183,25 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 			}
 			return;
 		}
-		// Delete the selected key, else the selected strip.
+		// `,` / `.` step a frame (Shift: ten); Space plays / pauses where the host has a transport.
+		const step = e.key === ',' || e.key === '<' ? -1 : e.key === '.' || e.key === '>' ? 1 : 0;
+		if (step && doc && !e.altKey) {
+			e.preventDefault();
+			setTime(snapT(time) + (step * (e.shiftKey ? 10 : 1)) / (doc.fps || 30));
+			positionPlayhead();
+			return;
+		}
+		// A focused button keeps Space (it presses the button).
+		if (e.key === ' ' && host.togglePlay && !e.altKey && !(ae && ae.tagName === 'BUTTON')) {
+			e.preventDefault();
+			host.togglePlay();
+			return;
+		}
+		// Delete the selected keys, else the selected strip.
 		if (e.key === 'Delete' || e.key === 'Backspace') {
 			if (selKey) {
 				e.preventDefault();
-				deleteKey(selKey.trackId, selKey.channel, selKey.time);
+				deleteSelectedKeys();
 			} else if (selStripId) {
 				e.preventDefault();
 				deleteStrip(selStripId);
@@ -1566,8 +2236,22 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		},
 		clearSelection() {
 			selStripId = null;
-			selKey = null;
+			selectKeys([]);
 		},
+		selectedKeys: () => selKeys.slice(),
+		selectKeys(list) {
+			selectKeys(list.slice());
+		},
+		setOnlySelected(on) {
+			onlySelected = !!on;
+			renderTimeline();
+		},
+		onlySelected: () => onlySelected,
+		copyKeys,
+		pasteKeys,
+		deleteSelectedKeys,
+		setSelectedEase,
+		setDefaultEase,
 
 		commit,
 		historyReset,

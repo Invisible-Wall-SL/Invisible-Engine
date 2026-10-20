@@ -67,13 +67,21 @@
 	import { setComponentPress } from './componentActionsContext';
 	import { getInstanceBinding } from './instanceBindingContext';
 	import { setComponentSignalAnims, type ComponentSignalAnim } from './componentSignalContext';
-	import { resolveComponentParams } from './componentParams';
+	import {
+		defineForwardedParams,
+		forwardInstanceParams,
+		resolveComponentParams,
+	} from './componentParams';
 	import {
 		resolveButtonStateImage,
 		resolveButtonStateAnimation,
 		mergeButtonStateAnimations,
+		resolveButtonLook,
+		BUTTON_LOOKS,
 		BUTTON_STATE_IMAGE_KEYS,
 	} from './buttonStateImage';
+	import { BUTTON_PRESS_SOUNDS, BUTTON_STATE_INPUTS } from './builtinComponents';
+	import { claimPressSound } from './pressSounds';
 	import { setComponentStateAnims } from './componentStateAnimContext';
 	import { setComponentRigRest } from './componentRigRestContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
@@ -221,14 +229,22 @@
 	// registers at boot via `registerComponentDefaults`, §14.2 B4.5) ◁ instance
 	// overrides. As in B1 the static set is read at init. No registered defaults ⇒
 	// `getComponentDefaults` is `undefined` ⇒ def's own defaults apply (parity).
+	// The enclosing instance's params, read before this instance provides its own (`{}` on a screen).
+	const enclosingParams = getComponentParams();
+	const projectDefaults = getComponentDefaults(node.componentId);
+	const ownParams = allowed && def ? resolveComponentParams(def, node.params, projectDefaults) : {};
+	// A nested instance's `params.<key>` bindings take those keys from the enclosing instance, so
+	// every init read below (source, action, scope, the state machine's `{param}`s) sees them. No
+	// such binding ⇒ the same map (parity).
+	const forwardedInstanceParams = forwardInstanceParams(node, node.params, enclosingParams);
 	const staticParams =
-		allowed && def
-			? resolveComponentParams(def, node.params, getComponentDefaults(node.componentId))
-			: {};
+		allowed && def && forwardedInstanceParams !== node.params
+			? resolveComponentParams(def, forwardedInstanceParams, projectDefaults)
+			: ownParams;
 	// What a `{key}` in a state-machine input's `source` reads: this instance's params, else the
 	// enclosing instance's — a firecracker placed inside a pot reads `meter.{meter}.share` through
-	// the pot's `meter`. Read before this instance provides its own.
-	const sourceParams: Record<string, unknown> = { ...getComponentParams(), ...staticParams };
+	// the pot's `meter`.
+	const sourceParams: Record<string, unknown> = { ...enclosingParams, ...staticParams };
 
 	// Signal scope (Phase 12a, `docs/design/hold-and-win.md` §8): the part this instance stands for —
 	// the value of the param the def names (`signalScope`: the pot's `meter`, a jackpot tile's
@@ -779,15 +795,17 @@
 	// engine value source each names, advanced on the same ticker, each layer placed on its
 	// timeline through `drive`. No state machine ⇒ no interpreter (parity).
 	const stateMachine = allowed && def?.stateMachine?.layers?.length ? def.stateMachine : undefined;
+	/** BUTTON STATES (Rive plan Phase 8d, `ComponentDef.buttonStates`): see the feed below. */
+	const buttonStates = allowed && def?.buttonStates === true;
+	const settles = allowed && def?.settles === true;
 	const instanceTimelines =
 		allowed && def
 			? instanceTimelineDocs(def.id, stateMachine)
 			: { docs: [], durations: new Map() };
 	const timelinePlayer =
 		def && instanceTimelines.docs.length
-			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children)
+			? new ComponentTimelinePlayer(instanceTimelines.docs, def.root.children, () => providedParams)
 			: undefined;
-	if (timelinePlayer && def?.frameExact) timelinePlayer.snapEnds = true;
 	const stateMachineRunner =
 		stateMachine && def
 			? new ComponentStateMachineRunner(
@@ -836,6 +854,7 @@
 					void timelineClock;
 					return timelinePlayer.sample(nodeId) ?? {};
 				},
+				...(settles ? { settles: true as const } : {}),
 			};
 		}, parentNest.depth + 1);
 	}
@@ -845,7 +864,11 @@
 		untrack(() => {
 			if (!timelinePlayer && !stateMachineRunner) return;
 			const unsubs: (() => void)[] = [];
-			const busSignals = [...(timelinePlayer?.signals() ?? []), ...stateMachineTriggers];
+			// A `buttonStates` def's press sounds are fired by its own press only (the claim), never by
+			// a same-named signal or Flow cue reaching every mounted button.
+			const busSignals = [...(timelinePlayer?.signals() ?? []), ...stateMachineTriggers].filter(
+				(s) => !buttonStates || !(BUTTON_PRESS_SOUNDS as readonly string[]).includes(s),
+			);
 			for (const signal of busSignals.filter((s, i) => busSignals.indexOf(s) === i)) {
 				if (signal === ENTER_SIGNAL || signalToTargets.has(signal) || gateSignals.has(signal))
 					continue;
@@ -1002,7 +1025,9 @@
 		if (stateMachineRunner) eventDispatcher?.started(stateMachineRunner.plays());
 		notifyFlowInstance();
 	};
-	if (stateMachineRunner && untrack(() => selfVisible)) startStateMachine();
+	// A `buttonStates` def (Rive plan Phase 8d) starts at mount: its states are static poses, and a
+	// button its visibility source shows later must not draw its unkeyed frame nodes for a frame.
+	if (stateMachineRunner && (buttonStates || untrack(() => selfVisible))) startStateMachine();
 	const timelineTicker =
 		timelinePlayer || stateMachineRunner
 			? getContextApp().stateApp.pixiApplication?.ticker
@@ -1049,7 +1074,9 @@
 			!!n.bind || (n.kind === 'container' && n.children.some(walk));
 		return def ? walk(def.root) : false;
 	})();
-	const interactive = (!!actionSource || !!onSelect) && !hasBindPart;
+	// A `buttonStates` def's bound part only draws (the label), so the instance owns the hit surface —
+	// always, as the coded `ButtonFrame` it stands for does (Rive plan Phase 8d).
+	const interactive = buttonStates || ((!!actionSource || !!onSelect) && !hasBindPart);
 
 	// Interaction state for the AUTHORED art-button path (the def has no coded part,
 	// so no `ButtonFrame` tracks hover/press) — same tracking + disabled-reset as the
@@ -1063,6 +1090,60 @@
 			pressed = false;
 		}
 	});
+	/** The `image*` params as the coded frame reads them: this layout's override, else the base. */
+	const buttonImageParams = (): Record<string, unknown> =>
+		Object.fromEntries(
+			BUTTON_STATE_IMAGE_KEYS.map((key) => {
+				const override = node.overrides?.[currentLayoutType()]?.params;
+				return [key, override && key in override ? override[key] : staticParams[key]];
+			}),
+		);
+	/** The flags as the coded frame reads them (its `active` is the action's flag alone). */
+	const buttonFlags = () => ({
+		hovered,
+		pressed,
+		disabled: providedParams['disabled'] === true,
+		active: providedParams['active'] === true,
+		spinning: providedParams['spinning'] === true,
+	});
+	// BUTTON STATES (Rive plan Phase 8d): the machine's reserved inputs follow the live flags — the
+	// frame's look through the SHARED cascade (`resolveButtonLook`, the coded `ButtonFrame`'s own
+	// derivation), whether the spin frame turns, and the placement's `fadeWithUi`. A change is taken
+	// at once on a `frameExact` def (a zero-length step), so the new look draws on the frame the coded
+	// frame's would and a turn that starts shows `dt` of rotation on the next tick, as its ticker does.
+	$effect(() => {
+		if (!buttonStates || !stateMachineRunner) return;
+		const { look, rotating } = resolveButtonLook(buttonImageParams(), buttonFlags());
+		untrack(() => {
+			const changed = [
+				stateMachineRunner.setInput(BUTTON_STATE_INPUTS.look, BUTTON_LOOKS.indexOf(look)),
+				stateMachineRunner.setInput(BUTTON_STATE_INPUTS.rotating, rotating),
+				stateMachineRunner.setInput(
+					BUTTON_STATE_INPUTS.fadeWithUi,
+					staticParams['fadeWithUi'] === true,
+				),
+			].some(Boolean);
+			if (!changed || !stateMachineStarted || !def?.frameExact) return;
+			const step = stateMachineRunner.advance(0);
+			applyStateMachine();
+			eventDispatcher?.transitions(step.fired);
+		});
+	});
+	/**
+	 * A claimed press's sound (`pressSounds.ts`): the machine's trigger of that name, fired and taken
+	 * now, so its state's cue broadcasts at the point of the press body the coded broadcast stood.
+	 * Declined (the body broadcasts it) when the def has no such trigger or there is no bus.
+	 */
+	const playPressSound = (sound: string): boolean => {
+		if (!stateMachineRunner || !timelineEvents || !stateMachineTriggers.includes(sound))
+			return false;
+		if (!stateMachineStarted) startStateMachine();
+		stateMachineRunner.fire(sound);
+		const step = stateMachineRunner.advance(0);
+		applyStateMachine();
+		eventDispatcher?.transitions(step.fired);
+		return true;
+	};
 
 	// Provide the params to the rendered sub-tree (§13.2). `setContext` captures the
 	// reference once at init, so the provided object stays STABLE while exposing a
@@ -1083,16 +1164,21 @@
 	// still redefines + wins for its key (a count-up `value` is never a per-ratio constant). The
 	// init-stable STRUCTURAL reads above (`source`/`action`/`tapEnabled`/cues) read `staticParams`
 	// directly, NOT `providedParams`, so they are untouched — structure never varies by ratio.
+	const ownLayoutParam = (key: string): unknown => {
+		const override = node.overrides?.[currentLayoutType()]?.params;
+		return override && key in override ? override[key] : ownParams[key];
+	};
 	for (const key of layoutOverrideParamKeys) {
 		Object.defineProperty(providedParams, key, {
 			enumerable: true,
 			configurable: true,
-			get: () => {
-				const override = node.overrides?.[currentLayoutType()]?.params;
-				return override && key in override ? override[key] : staticParams[key];
-			},
+			get: () => ownLayoutParam(key),
 		});
 	}
+	// A forwarded param reads the enclosing instance's at read time, so a parent's per-ratio
+	// override reaches it; it wins over this instance's own per-ratio value, and a live feed below
+	// still wins over it. No forward ⇒ no getter (parity).
+	defineForwardedParams(providedParams, node, enclosingParams, ownLayoutParam);
 	if (valueSource) {
 		Object.defineProperty(providedParams, 'value', {
 			enumerable: true,
@@ -1192,7 +1278,14 @@
 		def?.params?.some(
 			(p) => p.key !== 'image' && (BUTTON_STATE_IMAGE_KEYS as readonly string[]).includes(p.key),
 		) ?? false;
-	if (interactive && hasStateImages) {
+	if (buttonStates) {
+		// The coded frame reads every `image*` param through the instance's provided params, the
+		// per-layout overrides included, and its `active` is the action's flag alone.
+		Object.defineProperty(providedParams, 'image', {
+			enumerable: true,
+			get: () => resolveButtonLook(buttonImageParams(), buttonFlags()).frame,
+		});
+	} else if (interactive && hasStateImages) {
 		const restingImage = staticParams['image'];
 		Object.defineProperty(providedParams, 'image', {
 			enumerable: true,
@@ -1252,6 +1345,22 @@
 				get: () => instanceValues?.[key] ?? staticParams[key],
 			});
 		}
+	}
+	// The authored button's tile colours (Rive plan Phase 8d), from `variant` exactly as the coded
+	// frame picks them: the dark fill under a light border, any other variant the reverse.
+	if (buttonStates) {
+		const dark = (): boolean => {
+			const variant = providedParams['variant'];
+			return typeof variant !== 'string' || variant === '' || variant === 'dark';
+		};
+		Object.defineProperty(providedParams, 'tileColor', {
+			enumerable: true,
+			get: () => (dark() ? 0x000000 : 0xffffff),
+		});
+		Object.defineProperty(providedParams, 'tileBorderColor', {
+			enumerable: true,
+			get: () => (dark() ? 0xffffff : 0x000000),
+		});
 	}
 	setComponentParams(allowed && def ? providedParams : {});
 	// Provide the per-node press router to the rendered sub-tree (`componentActionsContext`): a node
@@ -1333,7 +1442,8 @@
 	const cursor = $derived(liveDisabled ? 'not-allowed' : 'pointer');
 	const onpress = () => {
 		if (liveDisabled) return;
-		firePress();
+		if (buttonStates) claimPressSound(playPressSound, firePress);
+		else firePress();
 	};
 	// Only the art-button path presses here (`ButtonFrame` owns a bound part's press).
 	const pressHold = interactive

@@ -303,6 +303,7 @@ const STALE_TAB_GUARDS = [
 	'cinematics/save',
 	'editor/art-bounds',
 	'editor/backups',
+	'editor/effect',
 	'editor/flipbooks',
 	'editor/import',
 	'editor/rigs/reindex',

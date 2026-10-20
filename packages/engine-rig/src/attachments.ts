@@ -224,8 +224,10 @@ export class RegionAttachment extends Attachment implements HasTextureRegion {
 		corner(6, right, bottom);
 		const { u, v, u2, v2 } = region;
 		const uvs = this.uvs;
-		// A 90° atlas pack is the only rotation a region undoes (meshes undo all four).
+		// A region undoes a quarter-turn pack either way: 90 is counter-clockwise (the reference
+		// packer), 270 clockwise (our Atlas and Sheet Makers). Meshes undo all four.
 		if (region.degrees === 90) uvs.set([u2, v2, u, v2, u, v, u2, v]);
+		else if (region.degrees === 270) uvs.set([u, v, u2, v, u2, v2, u, v2]);
 		else uvs.set([u, v2, u, v, u2, v, u2, v2]);
 	}
 

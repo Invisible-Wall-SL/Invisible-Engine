@@ -10,9 +10,9 @@
 		WIN_PRESENTATION_COMPONENT_ID,
 		cueHolds,
 		setComponentPlayRate,
+		winTierIdleSignal,
 		winTierLoopSignal,
 		winTierOutroSignal,
-		winTierSignal,
 	} from 'engine-layout';
 	import type { WinLevelData, WinWalk, WinWalkEffect, WinWalkEvent } from 'engine-game';
 
@@ -24,9 +24,11 @@
 	import WinStatePublisher from './WinStatePublisher.svelte';
 	import { winState } from '../game/winState.svelte';
 	import {
+		authoredWinTierSignal,
 		authoredWinWalkTiers,
 		clearAuthoredWinSignal,
 		fireAuthoredWinFade,
+		fireAuthoredWinRewind,
 		fireAuthoredWinSignal,
 		releaseAuthoredWinHolds,
 	} from '../game/authoredWin.svelte';
@@ -192,11 +194,12 @@
 		if (!effect.holds) return;
 		const generation = walkGeneration;
 		// The hold was registered in the fire above; an instance that mounts a frame late is given
-		// one deferred re-read (its subscription is seeded); none at all ⇒ the step falls through
-		// at once, as the coded gate concludes without a mounted visual. Never hangs.
+		// one re-read on the NEXT FRAME (its subscription is seeded; a zero timeout is one task, which
+		// a live frame is not); none at all ⇒ the step falls through at once, as the coded gate
+		// concludes without a mounted visual. Never hangs.
 		void awaitFireHolds(
 			() => cueHolds(effect.signal),
-			() => waitForTimeout(0),
+			() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
 		).then(() => {
 			if (generation !== walkGeneration) return;
 			applyWalk({ type: 'holdEnd', step: effect.step });
@@ -209,14 +212,14 @@
 		for (const effect of next.effects) runWalkEffect(effect);
 	};
 	/** Begin the walk for the win on show: the chain, the single tier, or the plain number. */
-	const startWalk = (data: WinLevelData | undefined): void => {
+	const startWalk = (data: WinLevelData): void => {
 		walkGeneration += 1;
-		const { tiers, escalating } =
-			data === undefined ? { tiers: [], escalating: false } : authoredWinWalkTiers(data.level);
+		const { tiers, escalating } = authoredWinWalkTiers(data.level);
 		winState.escalationActive = escalating;
 		winState.escalationBoundaries = escalating ? tiers.map((tier) => tier.boundaryAmount) : [];
 		walk = createWinWalk(tiers, escalating, {
-			tier: winTierSignal,
+			tier: authoredWinTierSignal,
+			cycle: winTierIdleSignal,
 			loop: winTierLoopSignal,
 			outro: winTierOutroSignal,
 			plain: WIN_PLAIN_SIGNAL,
@@ -234,12 +237,20 @@
 		});
 	};
 	const endWalk = (): void => {
+		// The coded walk REWINDS at the hide: the gate clears the count latch, and `WinAnimation` takes
+		// that edge as a new presentation and restarts an escalating chain's first-tier intro under
+		// the fade-out. The authored rig plays the same intro (`…_rewind`, the tier rig only).
+		const rewind =
+			walk?.escalating && walk.tiers.length && winState.countUpComplete
+				? walk.tiers[0].alias
+				: undefined;
 		walkGeneration += 1;
 		walk = undefined;
 		clearAuthoredWinSignal();
 		// A hide mid-walk leaves the walk's hold pending until its idle ends; the next win's first
 		// read must see only its own hold.
 		releaseAuthoredWinHolds();
+		if (rewind) fireAuthoredWinRewind(rewind);
 	};
 	if (authoredWin) {
 		// The walk's inputs, as `WinAnimation` took them in props: the count landing, a tap's forward
@@ -263,10 +274,12 @@
 		// The hold-to-speed-up RAMP on the tier art: the coded walk ran the escalating intro / idle
 		// rigs at `max(speedScale, 1)` while the count was running (`WinAnimation.rampTimeScale`); the
 		// authored presentation's timelines advance at the same rate. 1 otherwise (the outro, a
-		// single tier, a release) and on every other component.
+		// single tier, a release) and on every other component — and once the overlay hides: the
+		// hide resets the count latch while a held pointer keeps the speed, and the hide timeline's
+		// cut must keep the coded fade's 400 ms.
 		$effect(() => {
 			const rate =
-				winState.escalationActive && !winState.countUpComplete
+				show && winState.escalationActive && !winState.countUpComplete
 					? Math.max(winState.escalationSpeedScale, 1)
 					: 1;
 			setComponentPlayRate(WIN_PRESENTATION_COMPONENT_ID, rate);
@@ -488,7 +501,9 @@
 			winState.winLevelData = emitterEvent.winLevelData;
 			// The authored presentation starts here, before the count-up mounts below, so
 			// `escalationActive` and the boundaries are published for the first tap and the first frame.
-			if (authoredWin) {
+			// A cascade's running total (`winLevel: 0`, no tier data) mounts no coded visual, so the
+			// authored side starts no walk and no fade for it.
+			if (authoredWin && emitterEvent.winLevelData !== undefined) {
 				startWalk(emitterEvent.winLevelData);
 				// The coded visual's FIRST mount (`{#if winLevelData}` on this update) fades in from its
 				// `onMount` — synchronously with this flush (its zero-length tween settles at once) — so

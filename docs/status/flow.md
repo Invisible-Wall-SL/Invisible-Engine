@@ -55,6 +55,31 @@
 
 ## Recent changes
 
+- 2026-10-16 — **`createFlowV2Env` forwards every capability the interpreter calls.** It had left
+  out `playCinematic` / `stopCinematic` and `containerAnimationMs`, so in every game a
+  `playCinematic` node did nothing (an awaited one did not wait) and a Show node's `durationMs` pin
+  read 0, though the game implemented all three. New gate `packages/engine-flow-v2/envFactory.fixture.ts`
+  reads the `env.*` calls off `runtime.ts` and fails when the factory's env lacks one. The screen
+  timeline half of the fix is in [cinematic status](cinematic.md), 2026-10-16.
+
+- 2026-10-15 — **A Branch guard on a `$trigger` field is typed by its chain's event** (branch
+  `claude/laughing-thompson-pl84ju`). `meterUpdate → fillMeter → Branch($trigger.full eq 1)` never
+  took `then`: the inspector seeded the literal beside a `$trigger` read as `int`, and `eq` is
+  strict `===` at runtime, so it read `true === 1`. The validator's private chain-owner walk moved
+  to `packages/engine-flow-v2/src/triggers.ts` as `triggerOwners` (same rules, now shared), beside
+  `triggerFieldType` (the field's type when every owning event declares it alike; else unknown),
+  `guardOperandType` (literal / `$engine` value / `$trigger` field) and `guardLiteralMismatch`.
+  The inspector's `guardSideType` reads `guardOperandType` with the Branch's owners (over the
+  flattened active graph), so a `$trigger.full` side seeds **on / off**; an unresolvable chain keeps
+  the `int` seed. A new **`guard-type-mismatch` WARNING** flags an `eq`/`ne` row testing a known
+  bool/string/enum read against a literal of another kind, and the inspector shows the same rule
+  under the row with a one-click fix (a number's truth carries over: `eq 1` ⇒ `eq on`). Editor and
+  validator only — the runtime is unchanged, so no runtime-bundle republish is owed; no seed flow has
+  a Branch, so no fresh project gains the warning. Gate: `check:flow-guard-types` (owner walk through
+  `event` / `gameSignals` / a group, the unknown cases, the warning and its pin, no added error, the
+  runtime taking **then** on `full: true`, the inspector wiring source-scanned). ⏳ Not
+  browser-verified (auth-gated editor). Guide: [Comparing in a guard](../tools/flow.md#edit-a-node-the-inspector).
+
 - 2026-10-14 — **`instanceHoldMs` exempts the authored win presentation** (Rive plan Phase 8b,
   PR #1194): `flowV2Runtime`'s `instanceHoldMs` still measures every `holdsCue` timeline of a def
   (a project's own entrance included); `winPresentation` alone measures `undefined` — its holds
@@ -99,7 +124,7 @@
   slam during the mount grace releases a wait; the handle's `dispose` (Game destroy) releases the
   drop-trace listener. Gate `check:flow-instance-nodes-editor` (25). Guides:
   [flow.md](../tools/flow.md) "Components", [invisible-editor.md](../tools/invisible-editor.md)
-  "The Components side". **⏳ Owner browser check:** (a) `/editor`: name a placed component, Properties → **↗ Show in Flow** → `/flow-v2`
+  "The Components side". **✅ Owner browser check passed (2026-10-17):** (a) `/editor`: name a placed component, Properties → **↗ Show in Flow** → `/flow-v2`
   opens with the project pinned and the placement lit under **Components**; drag it out, wire
   `on‹Event›` to an action, `▸ trigger` from an event; (b) remove that event on the component,
   Save, return to the Flow tab: the wire turns red and dashed to a ⚠ pin and Validation lists

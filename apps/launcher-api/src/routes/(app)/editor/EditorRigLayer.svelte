@@ -10,6 +10,7 @@
 		withTimelineScrub,
 		computeOverlayPlacement,
 		coverTransform,
+		forwardInstanceParams,
 		instancePreviewRigBundle,
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
@@ -31,11 +32,13 @@
 	import {
 		childLocalTransform,
 		composeWorldMatrix,
+		inDepthSlice,
 		reelGridGeometry,
 		resolveBoneRider,
 		resolveBoneRiderRigKey,
 		unrotatedScale,
 		type BoneRiderTransform,
+		type DepthSlice,
 	} from './editorCanvas.helpers';
 	import { onMount } from 'svelte';
 	import {
@@ -52,6 +55,13 @@
 		type RigSceneRenderer,
 		type RigSkeleton,
 	} from './rigRuntime.client';
+	import {
+		acquireRigGl,
+		beginRigFrame,
+		presentRigFrame,
+		releaseRigGl,
+		type SharedRigGl,
+	} from './sharedGl.client';
 	import { applyRigBoneOffset } from 'pixi-svelte/rigBoneOffset';
 	import {
 		previewAnimTime,
@@ -127,6 +137,10 @@
 		 * against the art beneath it, which is what the game actually does.
 		 */
 		nodeFilter?: Set<string> | null;
+		/** The depth segment this layer draws: a rig inside a group or component that the split
+		 * crosses is drawn only by the segment it falls in (see `EditorCanvas`'s `depthSegments`).
+		 * `null` ⇒ the whole scene. */
+		depthSlice?: DepthSlice | null;
 		/**
 		 * CSS `mix-blend-mode` for this layer's canvas — how the whole element composites onto the
 		 * art beneath it. Absent / `'normal'` ⇒ ordinary source-over (parity). Paired with
@@ -142,6 +156,9 @@
 		 * from this project's defaults renders the right bundle. Empty (the default) ⇒ every
 		 * resolve passes `undefined` — parity. */
 		componentDefaults?: Record<string, Record<string, unknown>>;
+		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
+		 * what an instance placed at the top level of that component forwards params from. */
+		componentParams?: Record<string, unknown>;
 		/** Frames a TOP-LEVEL node into canvas-world coords (the 2D canvas's `nodeTransform`),
 		 * so a nested rig's world transform composes from its ancestor chain identically to
 		 * the 2D canvas + text overlay + game runtime. */
@@ -205,7 +222,9 @@
 		activeSceneId = null,
 		componentMap = new Map<string, ComponentDef>(),
 		componentDefaults = {},
+		componentParams = {},
 		nodeFilter = null,
+		depthSlice = null,
 		blend = 'normal',
 		worldTransformOf,
 		boneRiders,
@@ -307,7 +326,10 @@
 		return null;
 	}
 
+	/** This layer's own 2D canvas: each frame is drawn through the editor's shared rig context and
+	 * copied in here (see `sharedGl.client.ts` — one context per layer blanked the editor white). */
 	let canvas: HTMLCanvasElement | null = $state(null);
+	let shared: SharedRigGl | null = null;
 	let gl: WebGLRenderingContext | null = null;
 	let renderer: RigSceneRenderer | null = null;
 	let raf = 0;
@@ -348,19 +370,30 @@
 	});
 
 	function ensureGl(): boolean {
-		if (gl && renderer) return true;
-		if (!canvas) return false;
-		const ctx = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: true });
-		if (!ctx) return false;
-		gl = ctx;
+		if (gl) return true;
+		shared = acquireRigGl();
+		if (!shared) return false;
+		gl = shared.gl;
 		return true;
+	}
+
+	/** The shared context was lost (a GPU reset): forget everything made on it, so the next frame
+	 * reloads every rig onto a fresh one. */
+	function dropGl(): void {
+		entries.clear();
+		renderer = null;
+		if (shared) releaseRigGl(shared);
+		shared = null;
+		gl = null;
+		publishReady();
 	}
 
 	/** Build the shared SceneRenderer lazily once a runtime is loaded (the first
 	 * `loadRigInstance` pulls in the global; only then is `SceneRenderer` known). */
 	async function ensureInstance(assetKey: string): Promise<void> {
 		if (entries.has(assetKey)) return;
-		entries.set(assetKey, { state: 'loading' });
+		const pending: Entry = { state: 'loading' };
+		entries.set(assetKey, pending);
 		loadStarted++;
 		reportLoading();
 		let settled = false;
@@ -375,13 +408,20 @@
 			settle();
 			return;
 		}
+		const loadGl = gl;
 		try {
-			const instance = await loadRigInstance(assetKey, gl, reloadToken);
+			const instance = await loadRigInstance(assetKey, loadGl, reloadToken);
+			if (entries.get(assetKey) !== pending) {
+				// Unmounted, reloaded, removed or the context was lost mid-load. The context is shared,
+				// so textures left on it would outlive this layer.
+				if (instance) disposeRigInstance(instance);
+				return;
+			}
 			if (!instance) {
 				entries.set(assetKey, { state: 'error' });
 				return;
 			}
-			if (!renderer && canvas && gl) renderer = createSceneRenderer(canvas, gl);
+			if (!renderer && shared) renderer = createSceneRenderer(shared.canvas, loadGl);
 			entries.set(assetKey, {
 				state: 'ready',
 				instance,
@@ -390,7 +430,7 @@
 				bounds: measureRigBounds(instance),
 			});
 		} catch {
-			entries.set(assetKey, { state: 'error' });
+			if (entries.get(assetKey) === pending) entries.set(assetKey, { state: 'error' });
 		} finally {
 			settle();
 			publishReady();
@@ -549,7 +589,10 @@
 				if (nodeFilter && !nodeFilter.has(n.id)) continue;
 				const t = previewResolveTransform(n, layoutType);
 				if (!t.visible) continue;
-				if (n.kind === 'spine') {
+				// Its own rig on its own depth segment only; a group or component it holds is
+				// walked below on every segment, as its children may be in any of them.
+				const here = inDepthSlice(depthSlice, [n.id]);
+				if (here && n.kind === 'spine') {
 					out.push({
 						nodeId: n.id,
 						assetKey: n.assetKey,
@@ -570,7 +613,7 @@
 						coverAnchor: backgroundCoverAnchor(n, layoutType),
 						coverFit: sc.space === 'canvas' && n.coverFit === true,
 					});
-				} else {
+				} else if (here) {
 					// Resolve the anchor's stand-in art the SAME way the 2D canvas does
 					// (explicit override → shared catalog default), so both layers agree.
 					const art = resolveAnchorPreviewArt(n, assets, undefined, undefined, layoutType);
@@ -595,7 +638,7 @@
 				}
 				// A reel BOARD: its cells whose symbol binds rig art (the 2D canvas can only
 				// marker those) render here, seated on the shared grid geometry.
-				if (n.kind === 'reelGrid') collectReelCells(n, sc, [n], out);
+				if (here && n.kind === 'reelGrid') collectReelCells(n, sc, [n], out);
 				// Rigs nested inside a container or a component instance: the 2D canvas
 				// expands these (drawComponentInstance), so the rig overlay must too — else
 				// a placed component's rig only ever shows its 2D placeholder box. Each
@@ -605,7 +648,11 @@
 				} else if (n.kind === 'componentInstance') {
 					const def = componentMap.get(n.componentId);
 					if (def) {
-						const params = resolveComponentParams(def, n.params, componentDefaults[def.id]);
+						const params = resolveComponentParams(
+							def,
+							forwardInstanceParams(n, n.params, componentParams),
+							componentDefaults[def.id],
+						);
 						// EDITOR-PREVIEW ONLY: when the author is focusing a rig param on THIS instance,
 						// show the focused tier's bundle + animation instead of the default preview bundle
 						// (see `rigPreview`). Only this instance is affected; every other renders normally.
@@ -663,13 +710,17 @@
 		for (const n of nodes) {
 			if (!previewResolveTransform(n, layoutType).visible) continue;
 			const nextChain = [...chain, n];
+			const here = inDepthSlice(
+				depthSlice,
+				nextChain.map((c) => c.id),
+			);
 			// A `bind` child whose coded component RIDES a bone (data-driven via the catalog):
 			// render its rig from the instance's rig param + attach a rider spec, instead of
 			// treating it as a plain (rig-less) container. Scoped to components that OPT IN via
 			// `ridesBone`, so every other nested bind is byte-identical to before (parity).
 			const rider = n.bind ? boundComponentRidesBone(n.bind.component) : undefined;
 			if (rider && instanceParams) {
-				const target = riderRigTarget(n, sc, nextChain, rider, instanceParams);
+				const target = here ? riderRigTarget(n, sc, nextChain, rider, instanceParams) : null;
 				if (target) out.push(target);
 				continue;
 			}
@@ -680,14 +731,14 @@
 			if (n.bind && instanceRigBundle !== undefined) {
 				const art = resolveAnchorPreviewArt(n, assets, undefined, instanceRigBundle, layoutType);
 				if (art?.kind === 'spine' && art.assetKey) {
-					out.push(bindRigTarget(n, sc, nextChain, art.assetKey, previewAnimation));
+					if (here) out.push(bindRigTarget(n, sc, nextChain, art.assetKey, previewAnimation));
 					continue;
 				}
 			}
 			if (n.kind === 'spine') {
-				out.push(nestedRigTarget(n, sc, nextChain, instanceParams));
+				if (here) out.push(nestedRigTarget(n, sc, nextChain, instanceParams));
 			} else if (n.kind === 'reelGrid') {
-				collectReelCells(n, sc, nextChain, out);
+				if (here) collectReelCells(n, sc, nextChain, out);
 			} else if (n.kind === 'container') {
 				collectNestedRigs(
 					n.children,
@@ -706,7 +757,11 @@
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				const params = resolveComponentParams(def, n.params, componentDefaults[def.id]);
+				const params = resolveComponentParams(
+					def,
+					forwardInstanceParams(n, n.params, instanceParams ?? componentParams),
+					componentDefaults[def.id],
+				);
 				const rigBundle = instancePreviewRigBundle(def, params);
 				collectNestedRigs(
 					def.root.children,
@@ -1108,14 +1163,19 @@
 		const delta = lastTime ? (now - lastTime) / 1000 : 0;
 		lastTime = now;
 
+		if (gl?.isContextLost()) dropGl();
 		const targets = rigTargets();
 		// Kick off loads for any newly-referenced bundles.
 		for (const tg of targets) if (!entries.has(tg.assetKey)) void ensureInstance(tg.assetKey);
 
-		if (!gl) {
-			// No nodes have triggered GL yet — nothing to clear.
-			return;
-		}
+		const width = canvas.width;
+		const height = canvas.height;
+		const sharedGl = shared;
+		// No nodes have triggered GL yet, or this side of the editor is hidden — nothing to draw.
+		if (!gl || !sharedGl || width === 0 || height === 0) return;
+		const target2d = canvas.getContext('2d');
+		if (!target2d) return;
+		beginRigFrame(sharedGl, width, height);
 		// A full-screen-dim overlay (free-spin intro/outro) clears this canvas to
 		// translucent black instead of fully transparent: that scrim composites over every
 		// earlier scene group beneath this layer (board + rig background), while the
@@ -1124,7 +1184,10 @@
 		const scrim = scrimAlpha();
 		gl.clearColor(0, 0, 0, scrim);
 		gl.clear(gl.COLOR_BUFFER_BIT);
-		if (!renderer) return;
+		if (!renderer) {
+			presentRigFrame(sharedGl, target2d, width, height);
+			return;
+		}
 
 		const dpr = window.devicePixelRatio || 1;
 		const cam = renderer.camera;
@@ -1145,7 +1208,6 @@
 		cam.position.y = (canvas.height / 2) * camZoom;
 		cam.position.z = 0;
 		cam.update();
-		gl.viewport(0, 0, canvas.width, canvas.height);
 
 		// Bone-ridden stand-in symbols published THIS frame — reconciled against `myRiderKeys`
 		// after the loop so a removed/hidden reveal (or a cleared bone) drops from the shared map.
@@ -1345,6 +1407,7 @@
 			}
 			for (const restore of poseRestores) restore();
 		}
+		presentRigFrame(sharedGl, target2d, width, height);
 
 		// Reconcile the shared rider map: drop entries THIS layer published before but no longer
 		// does (reveal removed/hidden, bone cleared, or rig not ready), leaving other layers' keys.
@@ -1540,11 +1603,10 @@
 				/* context teardown */
 			}
 			renderer = null;
-			// Force-free the GPU context: with one context per rig-bearing scene and
-			// groups churning on every eye-toggle/screen reorder, browsers cap live WebGL
-			// contexts (~8–16) and silently drop the oldest → blank previews. Only here
-			// (real unmount), NOT the reload-token path (that keeps the same context).
-			gl?.getExtension('WEBGL_lose_context')?.loseContext();
+			// The context is shared: what this layer made on it is freed above, the context only
+			// with its last user. Clearing `gl` also tells a load still in flight to dispose its own.
+			if (shared) releaseRigGl(shared);
+			shared = null;
 			gl = null;
 		};
 	});

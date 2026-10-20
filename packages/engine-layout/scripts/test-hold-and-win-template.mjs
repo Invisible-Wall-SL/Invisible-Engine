@@ -99,7 +99,14 @@ const PINNED = {
 		win: '71a38a1aec1b23fe',
 		// Rive plan Phase 8b: the authored Win presentation, internal (no palette offers it); a project
 		// renders it only behind `settings.authoredOverlays.win`.
-		winPresentation: 'f656a1d5729f2528',
+		winPresentation: 'e880037135245785',
+		// Rive plan Phase 8c: the authored free-spin intro / outro presentations, internal; a project
+		// renders them only behind `settings.authoredOverlays.freeSpins`.
+		freeSpinIntroPresentation: 'd90ad9fc2b26d27e',
+		freeSpinOutroPresentation: '0520f47dc9b14a21',
+		// Rive plan Phase 8d: the authored button, internal; a project renders it only behind
+		// `settings.authoredOverlays.buttons`.
+		buttonPresentation: '25c123ea72ca6964',
 		tapToContinue: '39cf7fc4059e2116',
 		loadingBar: '3166440d4ac35911',
 		expandingSymbol: '5cf3a24b056c210d',

@@ -22,6 +22,15 @@ export interface CinematicNodeDrive {
 	textTrack?: CinematicTrack;
 	/** The node's channels at the cinematic's current time (reactive: reads the playhead). */
 	sample(): CinematicNodeSample;
+	/**
+	 * SETTLE on identity (`ComponentDef.settles`: the authored button, Win and free-spin
+	 * presentations): a keyed `rotation` that returns to 0 or `alpha` that returns to 1 is handed to
+	 * the node as that value. The shared fold leaves an identity output out of the transform, and the
+	 * renderer skips an absent prop, so the node would keep the last non-identity value (a turn that
+	 * stops would stay turned, a fade-in would stop a blend step short of 1). Absent ⇒ the fold's
+	 * transform as before.
+	 */
+	settles?: true;
 }
 
 export type CinematicNodeDriver = (nodeId: string) => CinematicNodeDrive | undefined;

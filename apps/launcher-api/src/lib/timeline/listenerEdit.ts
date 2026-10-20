@@ -55,17 +55,24 @@ export function defNodes(def: Pick<ComponentDef, 'root'> | null | undefined): La
 	return out;
 }
 
-/** Every listener and on-enter id a def uses — with the saved def's, what a new row must avoid. */
+/** Every listener, on-enter and on-exit id a def uses — with the saved def's, what a new row must
+ *  avoid. */
 export function rowIds(
 	def: Pick<ComponentDef, 'root' | 'stateMachine'> | null | undefined,
 ): Set<string> {
 	const out = new Set<string>();
 	for (const n of defNodes(def)) for (const l of n.on ?? []) out.add(l.id);
 	for (const layer of def?.stateMachine?.layers ?? []) {
-		for (const state of layer.states) for (const a of state.onEnter ?? []) out.add(a.id);
+		for (const state of layer.states) for (const a of stateActions(state)) out.add(a.id);
 	}
 	return out;
 }
+
+/** A state's on-enter and on-exit rows. */
+const stateActions = (state: SmState): SmEnterAction[] => [
+	...(state.onEnter ?? []),
+	...(state.onExit ?? []),
+];
 
 /** Every listener and raise payload of the def that reads input `id` — what a rename must follow
  *  and a removal must warn about, beside the state machine's conditions. */
@@ -86,6 +93,8 @@ export function inputReads(def: ComponentDef, id: string): string[] {
 		for (const state of layer.states) {
 			if ((state.onEnter ?? []).some((a) => readsPayload(a.payload)))
 				out.push(`On enter of "${state.name || state.id}"`);
+			if ((state.onExit ?? []).some((a) => readsPayload(a.payload)))
+				out.push(`On exit of "${state.name || state.id}"`);
 		}
 	}
 	return out;
@@ -105,7 +114,7 @@ export function renameInputReads(def: ComponentDef, from: string, to: string): v
 		}
 	}
 	for (const layer of def.stateMachine?.layers ?? []) {
-		for (const state of layer.states) for (const a of state.onEnter ?? []) follow(a.payload);
+		for (const state of layer.states) for (const a of stateActions(state)) follow(a.payload);
 	}
 }
 
@@ -249,6 +258,28 @@ export function removeEnterAction(state: SmState, id: string): void {
 	else delete state.onEnter;
 }
 
+/** Add an "on exit → raise" row to a state (Phase 9c), raising the def's first event. Its id is
+ *  minted against every row of the def, on-enter rows included. */
+export function addExitAction(
+	state: SmState,
+	def: ComponentDef,
+	reserved: Iterable<string> = [],
+): SmEnterAction {
+	const row: SmEnterAction = {
+		id: mintId('x', [...rowIds(def), ...reserved]),
+		kind: 'raise',
+		event: componentEvents(def)[0]?.id ?? '',
+	};
+	state.onExit = [...(state.onExit ?? []), row];
+	return row;
+}
+
+export function removeExitAction(state: SmState, id: string): void {
+	const next = (state.onExit ?? []).filter((a) => a.id !== id);
+	if (next.length) state.onExit = next;
+	else delete state.onExit;
+}
+
 // ---- events -------------------------------------------------------------------------------------
 
 /** The payload types an event field may have — what Flow can carry and a value can fill. */
@@ -312,7 +343,7 @@ export function eventUsage(def: ComponentDef, id: string): EventUsage {
 	}
 	for (const layer of def.stateMachine?.layers ?? []) {
 		for (const state of layer.states) {
-			if ((state.onEnter ?? []).some((a) => a.event === id))
+			if (stateActions(state).some((a) => a.event === id))
 				out.states.push({ layer: layer.name || layer.id, state: state.name || state.id });
 		}
 	}
@@ -414,7 +445,7 @@ export function renameEvent(def: ComponentDef, from: string, to: string): boolea
 	}
 	for (const layer of def.stateMachine?.layers ?? []) {
 		for (const state of layer.states) {
-			for (const a of state.onEnter ?? []) if (a.event === from) a.event = next;
+			for (const a of stateActions(state)) if (a.event === from) a.event = next;
 		}
 	}
 	return true;
@@ -510,6 +541,8 @@ export function unsavableRows(def: ComponentDef): string[] {
 		for (const state of layer.states) {
 			if ((state.onEnter ?? []).some((a) => !readEnterAction(plain(a)) || fractional(a)))
 				out.push(`On enter of "${state.name || state.id}"`);
+			if ((state.onExit ?? []).some((a) => !readEnterAction(plain(a)) || fractional(a)))
+				out.push(`On exit of "${state.name || state.id}"`);
 		}
 	}
 	for (const event of def.events ?? []) {

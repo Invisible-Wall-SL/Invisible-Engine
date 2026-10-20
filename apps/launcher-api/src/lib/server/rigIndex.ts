@@ -358,10 +358,7 @@ export function mergePreservingDroppedFolders(
 
 	// Re-merge on the SAME key + sort + contiguous-id rule the scan uses, so the combined
 	// index is indistinguishable from one the scan would have produced with the atlases present.
-	const combined = [
-		...freshIndex.skeletons.map(({ id: _id, ...rest }) => rest),
-		...preserved,
-	];
+	const combined = [...freshIndex.skeletons.map(({ id: _id, ...rest }) => rest), ...preserved];
 	combined.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
 	const skeletons = combined.map((e, id) => ({ ...e, id }));
 	return { index: { prefix: freshIndex.prefix, skeletons }, preservedFolders };
@@ -380,7 +377,12 @@ export function mergePreservingDroppedFolders(
 export async function reindexSkeletonsPreserving(deps: ReindexDeps): Promise<ReindexOutcome> {
 	const first = await deps.scan();
 	if (!first.atlasMissingFolders.length) {
-		return { index: first.index, rederivedFolders: [], preservedFolders: [], atlasMissingFolders: [] };
+		return {
+			index: first.index,
+			rederivedFolders: [],
+			preservedFolders: [],
+			atlasMissingFolders: [],
+		};
 	}
 
 	const prior = await deps.readPriorIndex();
@@ -399,7 +401,12 @@ export async function reindexSkeletonsPreserving(deps: ReindexDeps): Promise<Rei
 	const rebuilt = rederivedFolders.length ? await deps.scan() : first;
 	const stillMissing = rebuilt.atlasMissingFolders;
 	if (!stillMissing.length) {
-		return { index: rebuilt.index, rederivedFolders, preservedFolders: [], atlasMissingFolders: [] };
+		return {
+			index: rebuilt.index,
+			rederivedFolders,
+			preservedFolders: [],
+			atlasMissingFolders: [],
+		};
 	}
 
 	const { index, preservedFolders } = mergePreservingDroppedFolders(

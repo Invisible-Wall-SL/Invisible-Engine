@@ -16,13 +16,28 @@
 	 * - Preview: every seek pushes `timelineDrives()` — the inputs `<LayoutNodeView>` folds in
 	 *   game — into the canvas's value-binding preview (`setTimelinePreview`).
 	 * - Keys: the module owns Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (timeline undo), Ctrl+S (save the
-	 *   timeline), Ctrl+D (duplicate a strip) and Delete / Backspace (the selected key) while this
-	 *   panel is mounted; the page and the canvas stand down on those (see `+page.svelte`).
+	 *   timeline), Ctrl+D (duplicate a strip), Ctrl+C / Ctrl+V (the selected keys), Delete /
+	 *   Backspace (the selected keys), `,` / `.` (a frame; Shift ten) and Space (play / pause) while
+	 *   this panel is active; the page and the canvas stand down on those (see `+page.svelte`).
+	 * - Keying UI (Rive plan Phase 9b): the fields live in PROPERTIES, which reads what this panel
+	 *   publishes (`setKeyingPanel`): one key button per keyable field, and a typed value keys it.
+	 *   A drag on the stage keys through the same publication (`keyStage`).
+	 * - The list (Rive plan Phase 9c): the host's timelines are listed, opened, created,
+	 *   duplicated, renamed and deleted in the left column's ANIMATIONS list, which reads what this
+	 *   panel publishes while `listed` (`setAnimationsPanel`) and calls back into it.
 	 */
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import { putKey, resolvePlace, resolveVisible } from 'engine-cinematic';
+	import {
+		playbackTime,
+		putKey,
+		resolvePlace,
+		resolveVisible,
+		type CinematicKey,
+	} from 'engine-cinematic';
 	import {
 		findActorNode,
+		fxParamRest,
+		placedFxParamValues,
 		validateNodeActors,
 		type CinematicCast,
 		type CinematicDoc,
@@ -35,24 +50,36 @@
 		NODE_IDENTITY,
 		SCREEN_CHANNELS,
 		addRigClipStrip,
+		channelKeyState,
 		componentTimelineId,
 		componentTimelinesOf,
+		duplicateTimeline,
 		ensureNodeActor,
-		isChannelKeyed,
+		fxChannelValue,
 		keyableChannels,
+		fxTimelineRows,
+		keyableFxChannels,
 		newComponentTimeline,
 		newScreenTimeline,
 		nodeActorOf,
 		nodeActorTarget,
 		nodeChannelValue,
+		onionFrames,
 		screenTimelineId,
 		screenTimelinesOf,
+		stageDragKeys,
 		timelineDrives,
+		type FxChannelRow,
 		type KeyedChannel,
 		type RigClip,
+		type StageTransformDelta,
 	} from '$lib/timeline/screenTimeline';
+	import type { TimelineChannel } from '$lib/timeline/timeline';
+	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
 	import type { RigMeta } from './rigRuntime.client';
-	import { setTimelinePreview } from './valuePreview.client.svelte';
+	import { setOnionPreview, setTimelinePreview } from './valuePreview.client.svelte';
+	import { setKeyingPanel, type KeyField } from './animateKeying.client.svelte';
+	import { setAnimationsPanel, type AnimationsPanel } from './animationsList.client.svelte';
 
 	/** The open component, when the panel animates a component instead of a screen. */
 	interface ComponentHost {
@@ -80,9 +107,15 @@
 		/** Open this timeline (the State Machine panel asked: a state card was double-clicked). The
 		 *  nonce makes the same id openable again. */
 		openRequest?: { id: string; nonce: number };
+		/** The Animations list shows this panel's timelines (Animate on this side of the editor, the
+		 *  State machine tab included). Defaults to `active`. */
+		listed?: boolean;
 		/** The canvas's loaded rigs (animation names and lengths), by asset key: a rig node's clips
 		 *  for an `animation` strip. */
 		rigMeta?: Map<string, RigMeta>;
+		/** The open component's resolved preview params (empty on a screen): what a placed effect
+		 *  takes a `params.<id>` value from, so an unkeyed parameter shows the value it rests on. */
+		componentParams?: Record<string, unknown>;
 	}
 
 	let {
@@ -92,7 +125,9 @@
 		projectKey,
 		active,
 		openRequest,
+		listed,
 		rigMeta = new Map(),
+		componentParams = {},
 	}: Props = $props();
 
 	/** The animations a rig node can play on a strip; empty for any other node, or a rig the canvas
@@ -110,7 +145,7 @@
 	 *  be mounted). */
 	const previewOwner = Symbol('timeline-panel');
 	/** What the open host is called in messages. */
-	const where = $derived(component ? 'component' : 'screen');
+	const where = $derived<'component' | 'screen'>(component ? 'component' : 'screen');
 
 	interface Row {
 		id: string;
@@ -167,6 +202,10 @@
 			active && doc && scene ? timelineDrives(doc, scene, time) : null,
 			previewOwner,
 		);
+		setOnionPreview(
+			active && onion && doc && scene ? onionFrames(doc, scene, time, onionCount) : null,
+			previewOwner,
+		);
 	}
 
 	function mountTimeline(doc: CinematicDoc): void {
@@ -176,7 +215,12 @@
 			ev: EV,
 			inspector: inspEl ?? null,
 			channels: SCREEN_CHANNELS,
+			interpolation: true,
+			summaryRows: true,
+			boxSelect: true,
 			host: {
+				selectedActor: () => actorId(),
+				togglePlay: () => (playing ? stop() : play()),
 				evaluate(t) {
 					time = t;
 					preview();
@@ -205,6 +249,7 @@
 					title: `Node "${cast.target ?? ''}" on this ${where}`,
 				}),
 				sceneName: (id: string) => (id === scene?.id ? (scene?.name ?? id) : id),
+				actorChannels: (cast: CinematicCast) => actorFxRows(cast),
 				clips: (actorId: string) => {
 					const open = tl?.doc() ?? doc;
 					const cast = open.stage.cast.find((c) => c.actorId === actorId);
@@ -237,6 +282,7 @@
 		if (inspEl) inspEl.innerHTML = '';
 		/* eslint-enable svelte/no-dom-manipulating */
 		setTimelinePreview(null, previewOwner);
+		setOnionPreview(null, previewOwner);
 	}
 
 	async function readError(res: Response): Promise<string> {
@@ -329,7 +375,49 @@
 		}
 	}
 
-	async function rename(): Promise<void> {
+	/** The list acts on a row: open it first (the unsaved-edit guard runs), then act on it. False
+	 *  when it did not open. */
+	async function openForList(id: string): Promise<boolean> {
+		if (id !== openId) await open(id);
+		return id === openId;
+	}
+
+	/** A copy of timeline `id` (any of this host's), saved create-only and opened. */
+	async function duplicate(id: string): Promise<void> {
+		if (busy || !(await guardUnsaved())) return;
+		error = '';
+		const res = await fetch(
+			`/api/cinematics/get?id=${encodeURIComponent(id)}&projectKey=${encodeURIComponent(projectKey)}`,
+		);
+		const body = res.ok
+			? ((await res.json()) as { doc: CinematicDoc | null })
+			: { doc: null as CinematicDoc | null };
+		if (!body.doc || !ownsDoc(body.doc)) {
+			error = res.ok
+				? `"${id}" is not a timeline of this ${where}.`
+				: `Could not read "${id}": ${await readError(res)}`;
+			return;
+		}
+		const copy = duplicateTimeline(
+			body.doc,
+			rows.map((r) => r.id),
+			screenRows.map((r) => r.name),
+		);
+		closeTimeline();
+		openId = copy.id;
+		etag = null;
+		mountTimeline(copy);
+		dirty = true;
+		await save();
+		if (etag === null) {
+			const reason = error || 'The copy could not be saved.';
+			closeTimeline();
+			error = reason;
+		}
+	}
+
+	async function rename(id?: string): Promise<void> {
+		if (id && !(await openForList(id))) return;
 		const doc = tl?.doc();
 		if (!doc) return;
 		const name = await askText({ title: 'Rename timeline', label: 'Name', value: doc.name });
@@ -339,7 +427,8 @@
 		await save();
 	}
 
-	async function remove(): Promise<void> {
+	async function remove(id?: string): Promise<void> {
+		if (id && !(await openForList(id))) return;
 		const doc = tl?.doc();
 		if (!doc) return;
 		const ok = await askConfirm({
@@ -417,24 +506,71 @@
 		raf = 0;
 	}
 
+	/** Plays as the game will (the header's loop type): one-shot stops at the end, `loop` wraps
+	 *  and `pingPong` comes back, until paused. */
 	function play(): void {
 		const doc = tl?.doc();
 		if (!doc || !tl) return;
-		if (time >= doc.duration) tl.setTime(0);
+		const once = !doc.loop || doc.loop === 'oneShot';
+		if (once && time >= doc.duration) tl.setTime(0);
 		playing = true;
+		let elapsed = time;
 		let last = performance.now();
 		const tick = (now: number): void => {
 			if (!playing || !tl) return;
-			const next = time + (now - last) / 1000;
+			elapsed += (now - last) / 1000;
 			last = now;
-			const end = tl.doc().duration;
-			tl.setTime(Math.min(next, end));
+			const open = tl.doc();
+			const end = open.duration;
+			tl.setTime(playbackTime(open.loop, elapsed, end));
 			tl.positionPlayhead();
-			if (next >= end) stop();
+			if ((!open.loop || open.loop === 'oneShot') && elapsed >= end) stop();
 			else raf = requestAnimationFrame(tick);
 		};
 		raf = requestAnimationFrame(tick);
 	}
+
+	/** The header's loop type; One-shot is the absent default. */
+	function setLoop(value: string): void {
+		const doc = tl?.doc();
+		if (!doc || !tl) return;
+		if (value === 'loop' || value === 'pingPong') doc.loop = value;
+		else delete doc.loop;
+		tl.commit('loop type');
+		docVersion++;
+	}
+
+	/** The snap grid (frame stepping and key placement); evaluation stays continuous. */
+	function setFps(value: number): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !Number.isFinite(value) || value < 1 || value > 240) return;
+		doc.fps = Math.round(value);
+		tl.commit('fps', 'fps');
+		tl.renderTimeline();
+		docVersion++;
+	}
+
+	// ---- onion skin + row filter (editor-only, never saved) ---------------------------------
+
+	let onion = $state(false);
+	let onionCount = $state(2);
+	let onlySelected = $state(false);
+	$effect(() => {
+		void onion;
+		void onionCount;
+		untrack(preview);
+	});
+	$effect(() => {
+		const on = onlySelected;
+		untrack(() => tl?.setOnlySelected(on));
+	});
+	// The filtered rows follow the canvas selection.
+	$effect(() => {
+		void selectedId;
+		untrack(() => {
+			if (onlySelected) tl?.renderTimeline();
+		});
+	});
 
 	function setDuration(value: number): void {
 		const doc = tl?.doc();
@@ -464,13 +600,6 @@
 		return doc && id ? nodeChannelValue(doc, id, channel, time) : NODE_IDENTITY[channel];
 	}
 
-	function keyed(channel: KeyedChannel): boolean {
-		void docVersion;
-		const doc = tl?.doc();
-		const id = actorId();
-		return !!doc && !!id && isChannelKeyed(doc, id, channel);
-	}
-
 	/** Key `channel` at the playhead to `v` (default: its current value), creating the actor. */
 	function key(channel: KeyedChannel, v?: number): void {
 		const doc = tl?.doc();
@@ -480,6 +609,50 @@
 		const next = v ?? value(channel);
 		tl.keyProperty(id, channel, Number.isFinite(next) ? next : 0);
 		preview();
+	}
+
+	/** Key what a stage drag changed (`EditorCanvas` measured it on the Design pose), one undo step. */
+	function keyStage(deltas: StageTransformDelta[]): number {
+		const doc = tl?.doc();
+		if (!doc || !tl || !scene || !ownsDoc(doc)) return 0;
+		const at = Math.round(time * (doc.fps || 30)) / (doc.fps || 30);
+		let keyedNodes = 0;
+		for (const delta of deltas) {
+			const t = nodeActorTarget(scene, delta.nodeId, where);
+			if (!t.ok) continue;
+			const values = stageDragKeys(
+				doc,
+				nodeActorOf(doc, t.target),
+				delta,
+				at,
+				keyableChannels(t.node.kind),
+			);
+			const entries = Object.entries(values);
+			if (!entries.length) continue;
+			const id = ensureNodeActor(doc, t.target);
+			let track = doc.tracks.find((tr) => tr.actorId === id && tr.kind === 'property');
+			if (!track) {
+				track = {
+					id: 'prop_' + Math.random().toString(36).slice(2, 9),
+					actorId: id,
+					kind: 'property',
+					channels: {},
+				};
+				doc.tracks.push(track);
+			}
+			const keyed = track.channels as Record<string, CinematicKey[]>;
+			for (const [channel, value] of entries) {
+				const ease = Array.isArray(doc.defaultEase) ? [...doc.defaultEase] : doc.defaultEase;
+				putKey((keyed[channel] = keyed[channel] ?? []), at, value, ease as CinematicKey['ease']);
+			}
+			keyedNodes++;
+		}
+		if (!keyedNodes) return 0;
+		tl.commit(keyedNodes > 1 ? 'key drag (' + keyedNodes + ' nodes)' : 'key drag');
+		tl.renderTimeline();
+		tl.renderInspector();
+		preview();
+		return keyedNodes;
 	}
 
 	/** The selected rig node's animations, offered as a strip at the playhead. */
@@ -496,16 +669,144 @@
 		preview();
 	}
 
-	const hex = (n: number): string => '#' + (Math.round(n) & 0xffffff).toString(16).padStart(6, '0');
-	const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
+	// ---- a placed effect's parameters (Invisible FX Step 2) ------------------------------------
+
+	/** The selected effect node's parameters Animate keys, one `fx:<id>` channel each. */
+	const fxRows = $derived.by((): FxChannelRow[] => {
+		const node = target?.ok ? target.node : undefined;
+		return node?.kind === 'effect'
+			? keyableFxChannels(node, placedEffect(node.effectId)?.params)
+			: [];
+	});
+
+	function fxValue(row: FxChannelRow): number {
+		void docVersion;
+		const doc = tl?.doc();
+		const id = actorId();
+		const node = target?.ok ? target.node : undefined;
+		const placed = node && placedFxParamValues(node, componentParams, [row.param]);
+		return doc && id
+			? fxChannelValue(doc, id, row, time, placed)
+			: (fxParamRest([row.param], row.channel, placed) ?? 0);
+	}
+
+	/** Key a parameter at the playhead; an on/off one steps (`hold`), so it switches on the key. */
+	function keyFx(row: FxChannelRow, v?: number): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !target?.ok || !ownsDoc(doc)) return;
+		const id = ensureNodeActor(doc, target.target);
+		const next = v ?? fxValue(row);
+		const bool = row.param.kind === 'bool';
+		tl.keyProperty(id, row.channel, bool ? +(next >= 0.5) : next, bool ? 'hold' : undefined);
+		preview();
+	}
+
+	/** The Timeline rows a node actor gets beyond the shared channels (`fxTimelineRows`): on a
+	 *  placed effect, its parameters, then any `fx:` channel it keys that is not one (⚠). */
+	function actorFxRows(cast: CinematicCast): TimelineChannel[] {
+		const doc = tl?.doc();
+		const node = doc && scene && cast.target ? findActorNode(doc, scene.nodes, cast.target) : null;
+		if (!doc || node?.kind !== 'effect') return [];
+		return fxTimelineRows(doc, cast.actorId, node, placedEffect(node.effectId)).map((row) => ({
+			key: row.channel,
+			label: row.label,
+			color: row.stale ? '#8b93a1' : '#c98bff',
+		}));
+	}
+
+	// A placed effect's doc can land after the Timeline drew its rows: redraw them when it does.
+	$effect(() => {
+		void placedEffectsVersion();
+		untrack(() => tl?.renderTimeline());
+	});
+
 	const CHANNEL_LABEL: Record<KeyedChannel, string> = {
-		x: 'x (offset)',
-		y: 'y (offset)',
-		scale: 'scale (×)',
+		x: 'x',
+		y: 'y',
+		scale: 'scale ×',
 		rotation: 'rotation (°)',
-		alpha: 'alpha (×)',
+		alpha: 'alpha',
 		tint: 'tint',
 	};
+
+	/** What Properties offers to key on the selected node (`setKeyingPanel`). */
+	const keying = $derived.by(() => {
+		void docVersion;
+		// Published with no selection too: the canvas asks it whether a stage drag can key.
+		if (!active) return null;
+		const doc = tl?.doc();
+		const base = {
+			nodeId: selectedId ?? '',
+			time,
+			timelineOpen: !!doc && !!openId,
+			fields: [] as KeyField[],
+			key: keyField,
+			keyStage,
+		};
+		if (!doc || !openId)
+			return {
+				...base,
+				message: `Open or create a timeline in the panel below to key this ${where}.`,
+			};
+		if (!target) return base;
+		if (!target.ok) return { ...base, message: target.message };
+		const id = actorId();
+		const fields: KeyField[] = [
+			...channels.map((channel): KeyField => ({
+				channel,
+				label: CHANNEL_LABEL[channel],
+				kind: 'node',
+				value: value(channel),
+				state: channelKeyState(doc, id, channel, time),
+			})),
+			...fxRows.map((row): KeyField => ({
+				channel: row.channel,
+				label: `⚡ ${row.param.id}`,
+				kind: 'fx',
+				value: fxValue(row),
+				state: channelKeyState(doc, id, row.channel, time),
+				bool: row.param.kind === 'bool',
+				min: row.param.kind === 'number' ? row.param.min : undefined,
+				max: row.param.kind === 'number' ? row.param.max : undefined,
+				note: row.param.note,
+			})),
+		];
+		return { ...base, target: target.target, fields };
+	});
+	$effect(() => {
+		const next = keying;
+		untrack(() => setKeyingPanel(next, previewOwner));
+	});
+
+	/** What the left column's Animations list shows and does (`setAnimationsPanel`). */
+	const listing = $derived<AnimationsPanel | null>(
+		(listed ?? active)
+			? {
+					where,
+					hostLabel,
+					rows: screenRows.map((r) => ({ id: r.id, name: r.name, duration: r.duration })),
+					openId,
+					dirty,
+					canCreate: !!scene,
+					open,
+					create,
+					duplicate,
+					rename,
+					remove,
+				}
+			: null,
+	);
+	$effect(() => {
+		const next = listing;
+		untrack(() => setAnimationsPanel(next, previewOwner));
+	});
+
+	/** Properties' key button / typed value: route a field to its channel's keyer. */
+	function keyField(channel: string, v?: number): void {
+		const row = fxRows.find((r) => r.channel === channel);
+		if (row) keyFx(row, v);
+		else if ((channels as string[]).includes(channel)) key(channel as KeyedChannel, v);
+	}
 
 	// ---- component trigger + reuse -------------------------------------------------------------
 
@@ -557,9 +858,12 @@
 	/** What would silently do nothing in game: on this component, and on each it is reused on. */
 	function issues(): string[] {
 		void docVersion;
+		// The placed effects' docs load on demand (`placedEffect` asks for each one a node actor
+		// targets, here and on every component in Also on) and re-run this when they land.
+		void placedEffectsVersion();
 		const doc = tl?.doc();
 		if (!doc || !scene) return [];
-		const out = validateNodeActors(doc, scene).map((i) => i.message);
+		const out = validateNodeActors(doc, scene, placedEffect).map((i) => i.message);
 		for (const id of doc.playOnComponents ?? []) {
 			const other = component?.others.find((o) => o.id === id);
 			if (!other) {
@@ -567,7 +871,7 @@
 				continue;
 			}
 			const host = { id: other.id, name: other.name, nodes: other.nodes };
-			for (const issue of validateNodeActors(doc, host)) {
+			for (const issue of validateNodeActors(doc, host, placedEffect)) {
 				out.push(`On ${other.name}: ${issue.message}`);
 			}
 		}
@@ -631,6 +935,9 @@
 		tl?.destroy();
 		tl = null;
 		setTimelinePreview(null, previewOwner);
+		setOnionPreview(null, previewOwner);
+		setKeyingPanel(null, previewOwner);
+		setAnimationsPanel(null, previewOwner);
 	});
 </script>
 
@@ -661,9 +968,9 @@
 			<span class="sep"></span>
 			<button type="button" title="Back to the start" onclick={() => tl?.setTime(0)}>⏮</button>
 			{#if playing}
-				<button type="button" title="Pause" onclick={stop}>⏸</button>
+				<button type="button" title="Pause (Space)" onclick={stop}>⏸</button>
 			{:else}
-				<button type="button" title="Play" onclick={play}>▶</button>
+				<button type="button" title="Play (Space)" onclick={play}>▶</button>
 			{/if}
 			{#if component}
 				{@const current = playOn()}
@@ -749,7 +1056,54 @@
 					title="Duration (seconds)"
 					onchange={(e) => setDuration(Number(e.currentTarget.value))}
 				/>
+				<select
+					class="tl-loop"
+					value={tl?.doc().loop ?? 'oneShot'}
+					title="Loop type — how the game plays it: once and hold the last frame, wrap to the start, or play there and back. A looping timeline never ends, so it holds no cue."
+					onchange={(e) => setLoop(e.currentTarget.value)}
+				>
+					<option value="oneShot">One-shot</option>
+					<option value="loop">Loop</option>
+					<option value="pingPong">Ping-pong</option>
+				</select>
+				<label
+					class="tl-fps"
+					title="Frames per second: the snap grid keys land on and , / . step by"
+				>
+					<input
+						type="number"
+						min="1"
+						max="240"
+						step="1"
+						value={tl?.doc().fps ?? 30}
+						onchange={(e) => setFps(Number(e.currentTarget.value))}
+					/>
+					fps
+				</label>
 			{/key}
+			<span class="sep"></span>
+			<label
+				class="tl-playon"
+				title="Onion skin: outline the keyed nodes a few frames before (red) and after (green) the playhead on the stage. Editor-only."
+			>
+				<input type="checkbox" bind:checked={onion} />
+				Onion
+			</label>
+			{#if onion}
+				<input
+					class="tl-onion"
+					type="number"
+					min="1"
+					max="10"
+					step="1"
+					bind:value={onionCount}
+					title="Ghost frames on each side of the playhead"
+				/>
+			{/if}
+			<label class="tl-playon" title="Show only the rows of the node selected on the canvas">
+				<input type="checkbox" bind:checked={onlySelected} />
+				Only selected
+			</label>
 			<span class="sep"></span>
 			{#if conflict}
 				<span class="pill error" title={error}>⚠ Someone else saved this</span>
@@ -773,10 +1127,10 @@
 		<div class="tl-keys">
 			{#if !openId}
 				<p class="note">
-					Open or create a timeline for this {where}, select a node on the canvas, then key it here.
-					Keys are relative to the node's Design pose: x/y add, scale and alpha multiply, rotation
-					adds degrees. End an intro on the unchanged pose so the screen settles where you laid it
-					out.
+					Open or create a timeline for this {where} (the picker above, or the Animations list on the
+					left), select a node on the canvas, then key it in Properties. Keys are relative to the node's
+					Design pose: x/y add, scale and alpha multiply, rotation adds degrees. End an intro on the unchanged
+					pose so the screen settles where you laid it out.
 				</p>
 			{:else if !selectedId}
 				<p class="note">Select a node on the canvas to key it.</p>
@@ -808,41 +1162,11 @@
 						{/if}
 					</label>
 				{/if}
-				{#each channels as channel (channel)}
-					<label class="keyrow" class:keyed={keyed(channel)}>
-						<span>{CHANNEL_LABEL[channel]}</span>
-						{#if channel === 'tint'}
-							<input
-								type="color"
-								value={hex(value(channel))}
-								onchange={(e) => key(channel, parseInt(e.currentTarget.value.slice(1), 16))}
-							/>
-						{:else}
-							<input
-								type="number"
-								step={channel === 'x' || channel === 'y' || channel === 'rotation' ? 1 : 0.05}
-								value={fmt(value(channel))}
-								onchange={(e) => {
-									const raw = e.currentTarget.value.trim();
-									const v = Number(raw);
-									// An emptied or junk field keys nothing — `Number('')` is 0, which would
-									// collapse a scale or hide an alpha.
-									if (raw === '' || !Number.isFinite(v)) {
-										e.currentTarget.value = fmt(value(channel));
-										return;
-									}
-									key(channel, v);
-								}}
-							/>
-						{/if}
-						<button
-							type="button"
-							class="diamond"
-							title={`Key ${channel} at ${time.toFixed(2)}s`}
-							onclick={() => key(channel)}>◆</button
-						>
-					</label>
-				{/each}
+				<p class="note">
+					Key it in <b>Properties</b> →: each field has a key button — grey: not animated; blue outline:
+					animated; blue: a key at the playhead. Typing a value keys it, and so does dragging, scaling
+					or rotating the node on the stage. Keys stay relative to the Design pose.
+				</p>
 			{/if}
 		</div>
 		<div class="tl-lanes" bind:this={tlEl}></div>
@@ -916,6 +1240,16 @@
 	}
 	.tl-dur {
 		width: 60px;
+	}
+	.tl-fps {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		color: var(--dim);
+	}
+	.tl-fps input,
+	.tl-onion {
+		width: 46px;
 	}
 	.tl-playon {
 		display: flex;
@@ -1016,28 +1350,6 @@
 	}
 	.keyrow span {
 		flex: 1;
-	}
-	.keyrow.keyed span {
-		color: #ffd24a;
-	}
-	.keyrow input[type='number'] {
-		width: 70px;
-	}
-	.keyrow input[type='color'] {
-		width: 70px;
-		height: 22px;
-		padding: 0 2px;
-	}
-	.diamond {
-		background: none;
-		border: none;
-		color: var(--dim);
-		cursor: pointer;
-		font-size: 11px;
-	}
-	.keyrow.keyed .diamond,
-	.diamond:hover {
-		color: #ffd24a;
 	}
 
 	/* The shared Timeline module's markup (the same classes `/rigger`'s view.html styles). */

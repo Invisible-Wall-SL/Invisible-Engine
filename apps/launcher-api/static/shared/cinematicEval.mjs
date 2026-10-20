@@ -303,7 +303,9 @@ export function evaluateActor(rig, actor, t, resolveClip) {
 //
 // A CHANNEL is a sorted list of `{ time, value, ease }` keys. `ease` belongs to the key on the
 // LEFT of a segment (its outgoing interpolation) — the same convention rig and every dope
-// sheet uses, so "make this key stepped" affects the segment that leaves it.
+// sheet uses, so "make this key stepped" affects the segment that leaves it. `ease` is one of the
+// names below, or a CUBIC `[x1, y1, x2, y2]` (a CSS cubic-bezier: x clamped to [0, 1], y free to
+// overshoot). Anything else reads as linear, exactly as an unknown name always has.
 //
 // Outside the keyed range a channel HOLDS its first/last value rather than falling back to the
 // actor's static placement. A channel with keys owns that property outright for the whole
@@ -315,6 +317,62 @@ const EASE = {
 	linear: (u) => u,
 	ease: (u) => u * u * (3 - 2 * u), // smoothstep — ease in AND out
 };
+
+/** Whether `ease` is a cubic `[x1, y1, x2, y2]` of four finite numbers. */
+export function isCubicEase(ease) {
+	return (
+		Array.isArray(ease) &&
+		ease.length === 4 &&
+		ease.every((n) => typeof n === 'number' && Number.isFinite(n))
+	);
+}
+
+/**
+ * The cubic-bezier through (0,0), (x1,y1), (x2,y2), (1,1) as `u → y`: solve x(s) = u for the curve
+ * parameter (Newton, then bisection where the slope is flat), then read y(s).
+ */
+function cubicBezier(x1, y1, x2, y2) {
+	const ax = Math.min(Math.max(x1, 0), 1);
+	const bx = Math.min(Math.max(x2, 0), 1);
+	const cx = 3 * ax;
+	const bxx = 3 * (bx - ax) - cx;
+	const axx = 1 - cx - bxx;
+	const cy = 3 * y1;
+	const byy = 3 * (y2 - y1) - cy;
+	const ayy = 1 - cy - byy;
+	const xOf = (s) => ((axx * s + bxx) * s + cx) * s;
+	const yOf = (s) => ((ayy * s + byy) * s + cy) * s;
+	const dxOf = (s) => (3 * axx * s + 2 * bxx) * s + cx;
+	return (u) => {
+		if (u <= 0) return 0;
+		if (u >= 1) return 1;
+		let s = u;
+		for (let i = 0; i < 8; i++) {
+			const err = xOf(s) - u;
+			if (Math.abs(err) < 1e-10) return yOf(s);
+			const d = dxOf(s);
+			if (Math.abs(d) < 1e-6) break;
+			s -= err / d;
+		}
+		let lo = 0;
+		let hi = 1;
+		s = u;
+		for (let i = 0; i < 60; i++) {
+			const x = xOf(s);
+			if (Math.abs(x - u) < 1e-10) break;
+			if (x < u) lo = s;
+			else hi = s;
+			s = (lo + hi) / 2;
+		}
+		return yOf(s);
+	};
+}
+
+/** The shape `u → eased u` of a key's `ease` (a name or a cubic); unknown ⇒ linear. */
+export function easeShape(ease) {
+	if (isCubicEase(ease)) return cubicBezier(ease[0], ease[1], ease[2], ease[3]);
+	return EASE[ease] || EASE.linear;
+}
 
 /**
  * Value of one channel at `t`, or `undefined` when the channel has no keys (the caller then
@@ -333,7 +391,7 @@ export function sampleChannel(keys, t) {
 	const span = b.time - a.time;
 	if (span <= 0) return b.value;
 	const u = (t - a.time) / span;
-	const shape = EASE[a.ease] || EASE.linear;
+	const shape = isCubicEase(a.ease) ? easeShape(a.ease) : EASE[a.ease] || EASE.linear;
 	return a.value + (b.value - a.value) * shape(u);
 }
 
@@ -411,10 +469,19 @@ export function putKey(keys, time, value, ease = 'linear') {
 // A rig actor (kind absent or 'rig') never reaches this code, so existing documents evaluate
 // exactly as before.
 
-/** The `property` channels a node actor honours; any other channel name is skipped. */
+/** The `property` channels a node actor honours; any other channel name is skipped, except the
+ *  `fx:` family below. */
 export const NODE_CHANNELS = Object.freeze([
 	'x', 'y', 'scale', 'scaleX', 'scaleY', 'rotation', 'alpha', 'tint', 'frame', 'fill',
 ]);
+
+/**
+ * The prefix of a channel that keys one exposed parameter of an effect node (Invisible FX Step 2):
+ * `fx:intensity`. ABSOLUTE, unlike the channels above: the keyed value is the parameter's value. A
+ * number channel interpolates like any other; a bool parameter is keyed 0 / 1 on `hold` keys, and
+ * the node reads it as on from 0.5. Colours are not keyed here.
+ */
+export const FX_PARAM_CHANNEL_PREFIX = 'fx:';
 
 /** Whether a cast entry is a node actor. Absent `kind` reads as a rig. */
 export const isNodeActor = (cast) => !!cast && cast.kind === 'node';
@@ -451,7 +518,7 @@ export function sampleTint(keys, t) {
 	const b = keys[i + 1];
 	const span = b.time - a.time;
 	if (span <= 0) return b.value;
-	const u = (EASE[a.ease] || EASE.linear)((t - a.time) / span);
+	const u = easeShape(a.ease)((t - a.time) / span);
 	const [ar, ag, ab] = rgb(a.value);
 	const [br, bg, bb] = rgb(b.value);
 	const mix = (p, q) => Math.round(p + (q - p) * u);
@@ -487,8 +554,9 @@ export function sampleText(track, t) {
 
 /**
  * Every channel of ONE node actor at `t`, from its tracks (any order, any kind). Only keyed values
- * are present; `scale` folds into `scaleX`/`scaleY` (multiplied). Visibility is present only when a
- * visibility track has keys, so an un-keyed node keeps its own visibility.
+ * are present; `scale` folds into `scaleX`/`scaleY` (multiplied); an `fx:<id>` channel is present
+ * under its own name. Visibility is present only when a visibility track has keys, so an un-keyed
+ * node keeps its own visibility.
  */
 export function sampleNodeActor(tracks, t) {
 	const out = {};
@@ -524,6 +592,11 @@ export function sampleNodeActor(tracks, t) {
 				else if (name === 'scaleY') sy = v;
 				else out[name] = v;
 			}
+			for (const name in track.channels) {
+				if (!name.startsWith(FX_PARAM_CHANNEL_PREFIX)) continue;
+				const v = sampleChannel(track.channels[name], t);
+				if (v !== undefined) out[name] = v;
+			}
 		} else if (track.kind === 'visibility') {
 			visibility.push(track);
 		} else if (track.kind === 'text') {
@@ -539,6 +612,50 @@ export function sampleNodeActor(tracks, t) {
 	}
 	if (visibility.some((tr) => tr.keys && tr.keys.length)) {
 		out.visible = resolveVisible(true, visibility, t);
+	}
+	return out;
+}
+
+// ---- loop type (Rive plan Phase 9b) ---------------------------------------
+//
+// A timeline's `loop`: absent (or anything unknown) is ONE-SHOT — it plays once and holds its last
+// frame, which is every document before the field existed. `loop` wraps to 0; `pingPong` plays to
+// the end and back. A player keeps its own monotonic elapsed clock and samples `playbackTime`.
+
+/** Whether a timeline's `loop` keeps it playing (it never reaches an end). */
+export const loopsForever = (loop) => loop === 'loop' || loop === 'pingPong';
+
+/** The time to sample after `elapsed` seconds of playback of a `duration`-long timeline. */
+export function playbackTime(loop, elapsed, duration) {
+	if (!(duration > 0)) return 0;
+	const e = Math.max(0, elapsed);
+	if (loop === 'loop') return e % duration;
+	if (loop === 'pingPong') {
+		const lap = e % (2 * duration);
+		return lap <= duration ? lap : 2 * duration - lap;
+	}
+	return Math.min(e, duration);
+}
+
+/**
+ * The cue keys a PING-PONG timeline crosses as its lap clock moves from `fromLap` to `toLap` (both
+ * unwrapped seconds since it started). Cues fire on the way OUT only: every out leg `[2kd, 2kd + d]`
+ * the step overlaps crosses the keys inside it, so a step over the turnaround still crosses a cue
+ * near (or at) the end, and a leg the step enters from its start crosses a cue at 0.
+ */
+export function pingPongCuesCrossed(keys, fromLap, toLap, duration) {
+	if (!(duration > 0) || !(toLap > fromLap)) return [];
+	const out = [];
+	const period = 2 * duration;
+	for (let k = Math.floor(fromLap / period); k * period <= toLap; k++) {
+		const start = k * period;
+		const lo = Math.max(fromLap, start) - start;
+		const hi = Math.min(toLap, start + duration) - start;
+		if (hi < lo) continue;
+		const entered = fromLap < start;
+		for (const key of keys) {
+			if ((entered ? key.time >= 0 : key.time > lo) && key.time <= hi) out.push(key);
+		}
 	}
 	return out;
 }

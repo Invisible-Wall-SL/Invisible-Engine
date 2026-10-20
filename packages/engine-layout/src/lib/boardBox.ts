@@ -9,6 +9,9 @@
 export interface BoardBox {
 	width: number;
 	height: number;
+	/** The board's position in the main box (`boardLayout()`), read by a `boardAnchored` instance. */
+	x?: number;
+	y?: number;
 }
 
 let read: (() => BoardBox | undefined) | undefined;

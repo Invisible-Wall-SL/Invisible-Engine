@@ -1,12 +1,14 @@
 import type {
 	CinematicDoc,
 	ComponentDef,
+	ComponentInstanceNode,
 	ComponentParam,
 	LayoutDoc,
 	LayoutNode,
 	WinTextDoc,
 } from 'engine-layout';
 import {
+	MAX_COMPONENT_DEPTH,
 	collectTimelineSwitchKeys,
 	collectUiTextStrings,
 	findNodeByName,
@@ -14,8 +16,10 @@ import {
 	collectWinTextModeTemplates,
 	collectWinTextSpinsModeTemplates,
 	collectWinTextTemplates,
+	forwardInstanceParams,
 	kindCapabilities,
 	raisedPayloadKeys,
+	resolveComponentParams,
 	resolveLayoutInstanceParams,
 } from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
@@ -120,22 +124,67 @@ function boundToFeed(params: Record<string, unknown>): boolean {
 }
 
 /**
+ * Every param set a placed instance renders with: its base params, then the base with each
+ * layoutType's patch merged on top — so a caption set only for portrait is harvested.
+ */
+function instanceParamSets(node: ComponentInstanceNode): Record<string, unknown>[] {
+	const ratios = Object.keys(node.overrides ?? {}).filter(
+		(layoutType) => node.overrides?.[layoutType]?.params,
+	);
+	return [
+		node.params ?? {},
+		...ratios.map((layoutType) => resolveLayoutInstanceParams(node, layoutType) ?? {}),
+	];
+}
+
+/**
+ * Harvest one placed instance of `def` rendering with `params`: its own `label` / `text` params
+ * and the text authored inside the def. The game binds a `source` feed from the BASE params only
+ * (`ComponentInstance`'s static params), so `feed` is one answer for every ratio.
+ */
+async function collectInstanceText(
+	def: ComponentDef | undefined,
+	params: Record<string, unknown>,
+	feed: boolean,
+	label: string,
+	add: (source: string, label: string) => void,
+	nesting: NestedDefs,
+): Promise<void> {
+	// `label` is a static caption (the readout's "BALANCE" above the live value) — a `source`
+	// feeds the value, never the label, so always take it.
+	if (typeof params.label === 'string') add(params.label, label);
+	if (!feed && typeof params.text === 'string') add(params.text, label);
+	if (def) await collectDefText(def, params, feed, label, add, nesting);
+}
+
+/** How {@link collectDefText} reaches the components a def nests: the def resolver, and the ids of
+ *  the defs enclosing this one (it included) — the game draws `MAX_COMPONENT_DEPTH` levels. */
+interface NestedDefs {
+	getDef: ComponentDefResolver;
+	stack: string[];
+}
+
+/**
  * Harvest the localizable text AUTHORED INSIDE a component def, resolving each text
  * node's displayed string against the instance's param overrides (then the def's
  * param defaults). Skips text whose bound param is `engineProvided` (a live value
  * like "0 OF 0", not prose) or — for the `text` param — overridden by a `source`
  * feed (§18), and the generic placeholder. Static (non-bound) text nodes are taken
- * verbatim. Nested component instances inside a def aren't recursed (rare; v1).
+ * verbatim. A component instance nested in the def is harvested too, as deep as the game
+ * draws, with the params it forwards from this one (`params.<key>` bindings) resolved.
  */
-function collectDefText(
+async function collectDefText(
 	def: ComponentDef,
 	instanceParams: Record<string, unknown>,
 	feed: boolean,
 	label: string,
 	add: (source: string, label: string) => void,
-): void {
+	nesting: NestedDefs,
+): Promise<void> {
 	const params = paramIndex(def);
+	const nested: ComponentInstanceNode[] = [];
 	const walk = (node: LayoutNode): void => {
+		if (node.kind === 'componentInstance') nested.push(node);
 		if (node.kind === 'text') {
 			const binding = node.paramBindings?.text;
 			if (binding) {
@@ -155,6 +204,22 @@ function collectDefText(
 	walk(def.root);
 	// The localization keys the def's events carry (Rive plan Phase 6): source-as-key, like its text.
 	for (const { key, event } of raisedPayloadKeys(def)) add(key, `${label} — event ${event}`);
+	if (nesting.stack.length >= MAX_COMPONENT_DEPTH) return;
+	const outer = resolveComponentParams(def, instanceParams);
+	for (const child of nested) {
+		const childDef = await nesting.getDef(child.componentId, child.componentVersion);
+		if (childDef && nesting.stack.includes(childDef.id)) continue;
+		const childLabel = `${label} › ${nodeLabel(child)}`;
+		const childNesting = {
+			getDef: nesting.getDef,
+			stack: childDef ? [...nesting.stack, childDef.id] : nesting.stack,
+		};
+		const childFeed = boundToFeed(forwardInstanceParams(child, child.params ?? {}, outer) ?? {});
+		for (const own of instanceParamSets(child)) {
+			const childParams = forwardInstanceParams(child, own, outer) ?? {};
+			await collectInstanceText(childDef, childParams, childFeed, childLabel, add, childNesting);
+		}
+	}
 }
 
 /**
@@ -197,24 +262,10 @@ export async function harvestSceneText(
 			if (node.kind === 'text') add(node.text, label);
 			if (node.kind === 'componentInstance') {
 				const def = await getDef(node.componentId, node.componentVersion);
-				// The game binds a `source` feed from the BASE params only (`ComponentInstance`'s
-				// static params), so whether `text` is fed is one answer for every ratio.
 				const feed = boundToFeed(node.params ?? {});
-				// Every ratio's EFFECTIVE params — the base, then the base with each layoutType's
-				// patch merged on top — so a caption set only for portrait is harvested.
-				const ratios = Object.keys(node.overrides ?? {}).filter(
-					(layoutType) => node.overrides?.[layoutType]?.params,
-				);
-				const paramSets = [
-					node.params ?? {},
-					...ratios.map((layoutType) => resolveLayoutInstanceParams(node, layoutType) ?? {}),
-				];
-				for (const params of paramSets) {
-					// `label` is a static caption (the readout's "BALANCE" above the live
-					// value) — a `source` feeds the value, never the label, so always take it.
-					if (typeof params.label === 'string') add(params.label, label);
-					if (!feed && typeof params.text === 'string') add(params.text, label);
-					if (def) collectDefText(def, params, feed, label, add);
+				const nesting = { getDef, stack: def ? [def.id] : [] };
+				for (const params of instanceParamSets(node)) {
+					await collectInstanceText(def, params, feed, label, add, nesting);
 				}
 			}
 			for (const child of childrenOf(node)) await visit(child);

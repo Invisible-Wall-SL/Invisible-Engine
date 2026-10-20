@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { EffectDoc } from 'engine-fx';
+	import type { EffectDoc, EffectParamValues } from 'engine-fx';
 
 	export type Props = {
 		/** The effect to play — its layers each mount a `<ParticleEmitter>`. */
@@ -24,6 +24,14 @@
 		ownerRotation?: () => number;
 		/** The scope of the component the effect sits in — see `<EffectLayer>`'s `scope`. */
 		scope?: string;
+		/**
+		 * The live values of the effect's exposed parameters (`doc.params`), keyed by id. A GETTER read
+		 * on the Pixi ticker, not a reactive prop: a driver may change them every frame, and that must
+		 * not run Svelte reactivity through every bound node. A missing value is the parameter's
+		 * default, which the stored config already holds — so without this the effect draws its
+		 * default look and does no per-frame parameter work.
+		 */
+		params?: () => EffectParamValues | undefined;
 	};
 </script>
 
@@ -47,19 +55,40 @@
 	 * ms (or the config's `emitterLifetime`). The pure `planLayer`/`layerTrigger` seam in
 	 * `engine-fx` is the single source of truth for that classification.
 	 */
+	import { hasEffectLevelDrives, paramDrivenLayerKeys } from 'engine-fx';
 	import EffectLayer from './EffectLayer.svelte';
+	import EffectParamGroup from './EffectParamGroup.svelte';
 
 	const props: Props = $props();
+
+	// Exposed parameters: a layer applies them only when it is driven AND values are supplied; the
+	// effect-level wrapper mounts only when some drive targets `effect.*` (its defaults have no stored
+	// leaf). An effect without parameters renders exactly as before — no wrapper, no ticker work.
+	const drivenLayers = $derived(
+		props.params ? paramDrivenLayerKeys(props.doc.params) : new Set<string>(),
+	);
+	const effectLevel = $derived(hasEffectLevelDrives(props.doc.params));
 </script>
 
-{#each props.doc.layers as layer (layer.key)}
-	<EffectLayer
-		{layer}
-		emitSpeed={props.emitSpeed}
-		forceEmit={props.forceEmit}
-		emitFor={props.emitFor}
-		ownerPos={props.ownerPos}
-		ownerRotation={props.ownerRotation}
-		scope={props.scope}
-	/>
-{/each}
+{#snippet layers(timeScale?: () => number)}
+	{#each props.doc.layers as layer (layer.key)}
+		<EffectLayer
+			{layer}
+			emitSpeed={props.emitSpeed}
+			forceEmit={props.forceEmit}
+			emitFor={props.emitFor}
+			ownerPos={props.ownerPos}
+			ownerRotation={props.ownerRotation}
+			scope={props.scope}
+			params={drivenLayers.has(layer.key) ? props.doc.params : undefined}
+			paramValues={drivenLayers.has(layer.key) ? props.params : undefined}
+			{timeScale}
+		/>
+	{/each}
+{/snippet}
+
+{#if effectLevel}
+	<EffectParamGroup params={props.doc.params} values={props.params} children={layers} />
+{:else}
+	{@render layers()}
+{/if}

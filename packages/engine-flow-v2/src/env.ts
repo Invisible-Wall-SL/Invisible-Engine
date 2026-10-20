@@ -46,6 +46,9 @@ export interface FlowV2EnvDeps {
 	timeScale: () => number;
 	/** A bounded `$engine.<key>` reader — the same closed key→live-value map a guard/readout uses. */
 	engineRead: (key: string) => unknown;
+	/** The `showContainer.durationMs` pin: the shown scene's longest animation in ms. Optional —
+	 *  omit for a headless/recorder env: the pin reads 0. */
+	containerAnimationMs?: FlowV2Env['containerAnimationMs'];
 	/** Raise/clear a `textMessage` node's FLOW-SHOWN flag (the game OR-s it with the node's
 	 *  `visibleWhile` state-gate). Optional — omit for a headless/recorder env that renders nothing. */
 	setMessageShown?: (nodeId: string, shown: boolean) => void;
@@ -53,6 +56,10 @@ export interface FlowV2EnvDeps {
 	 *  Optional — omit for a headless/recorder env, which makes both nodes no-ops. */
 	enterMode?: FlowV2Env['enterMode'];
 	exitMode?: FlowV2Env['exitMode'];
+	/** Play / stop a cinematic or screen timeline (the `playCinematic` node). Optional — omit for a
+	 *  headless/recorder env: play then mounts nothing and an awaited play continues at once. */
+	playCinematic?: FlowV2Env['playCinematic'];
+	stopCinematic?: FlowV2Env['stopCinematic'];
 	/** The placed component instances a `componentInstance` / `waitForState` node reaches (§6.3).
 	 *  Optional — omit for a headless/recorder env: the nodes then set and fire nothing, a value
 	 *  reads `undefined` and a wait resolves at once. */
@@ -83,9 +90,12 @@ export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
 	hideContainer: (containerId) => deps.mount.hide(containerId),
 	awaitContainerComplete: (containerId) => deps.mount.awaitComplete(containerId),
 	engineRead: (key) => deps.engineRead(key),
+	containerAnimationMs: (containerId) => deps.containerAnimationMs?.(containerId) ?? 0,
 	setMessageShown: (nodeId, shown) => deps.setMessageShown?.(nodeId, shown),
 	enterMode: (modeId, opts) => deps.enterMode?.(modeId, opts),
 	exitMode: (modeId, total) => deps.exitMode?.(modeId, total),
+	playCinematic: (cinematicId, opts) => deps.playCinematic?.(cinematicId, opts),
+	stopCinematic: (cinematicId) => deps.stopCinematic?.(cinematicId),
 	fireInstanceTrigger: (ref, trigger) => deps.fireInstanceTrigger?.(ref, trigger),
 	setInstanceInput: (ref, input, value) => deps.setInstanceInput?.(ref, input, value),
 	readInstanceValue: (ref, value) => deps.readInstanceValue?.(ref, value),

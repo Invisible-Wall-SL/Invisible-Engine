@@ -15,7 +15,9 @@ import FlowFade, {
 import FlowV2Mount, {
 	type Props as FlowV2MountProps,
 	type MountedContainerRef,
+	type ScreenNodeDrive,
 } from './FlowV2Mount.svelte';
+import type { CinematicNodeDriver } from './cinematicNodeContext';
 import CatalogText, { type Props as CatalogTextProps } from './CatalogText.svelte';
 import Repeater, { type Props as RepeaterProps } from './Repeater.svelte';
 import BuyFeatureScreen, { type Props as BuyFeatureScreenProps } from './BuyFeatureScreen.svelte';
@@ -46,6 +48,8 @@ export type {
 	FlowEntranceTransition,
 	FlowV2MountProps,
 	MountedContainerRef,
+	ScreenNodeDrive,
+	CinematicNodeDriver,
 	CatalogTextProps,
 	RepeaterProps,
 	BuyFeatureScreenProps,

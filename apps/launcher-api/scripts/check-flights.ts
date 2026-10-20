@@ -93,6 +93,8 @@ const AUTHORED = {
 	'toMeter:gold': {
 		head: { kind: 'flipbook', clipId: 'clip-gold' },
 		trail: { off: true },
+		ease: 'easeOutIn',
+		slowdown: 0.3,
 		stagger: 40,
 	},
 	toCollector: { head: { kind: 'glow', tint: '#88ccff' }, arrival: { effectId: 'fx-pop' } },
@@ -156,6 +158,19 @@ const AUTHORED = {
 		},
 	);
 	check(
+		'the head turn and the perspective round-trip, clamped like the trail rotation',
+		normalizeSymbolsDoc({
+			flights: {
+				toTotal: { headAlign: 'upright', headRotation: 270, depth: -4 },
+				toMeter: { headAlign: 'off', headRotation: 0, depth: 0 },
+			},
+		}).flights,
+		{
+			toTotal: { headAlign: 'upright', headRotation: 180, depth: -1 },
+			toMeter: { headAlign: 'off', headRotation: 0, depth: 0 },
+		},
+	);
+	check(
 		'a head missing the asset its kind needs is dropped, the rest of the style kept',
 		normalizeSymbolsDoc({
 			flights: { toTotal: { head: { kind: 'sprite' }, stagger: 10 } },
@@ -177,6 +192,7 @@ ignores(
 );
 rejects('an unknown head kind', { flights: { toTotal: { head: { kind: 'laser' } } } });
 rejects('an unknown ease', { flights: { toTotal: { ease: 'bounce' } } });
+rejects('an unknown head align', { flights: { toTotal: { headAlign: 'spin' } } });
 ignores(
 	'an unknown path field',
 	{ flights: { toTotal: { speed: 2, path: { wobble: 2 } } } },

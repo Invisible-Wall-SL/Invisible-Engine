@@ -354,6 +354,15 @@ Open the **Library** tab. It is grouped into:
   effect on the beat. Left as **free**, the effect just plays at its placed
   position. The effect's particle atlas ships automatically (the export bakes it
   in) — no need to place the atlas separately.
+  Under the effect picker, **Parameters** lists what the effect exposes (⚡ in
+  Invisible FX): a slider and number box for a number, a tick box for an on/off,
+  a swatch for a colour. A value you set is this placement's own, and the canvas
+  shows it live; **×** puts it back on the effect's default. Inside a component,
+  each row also has the **⇡** picker, which hands the value to every placement
+  of that component (the Component Editor guide, _Expose a placed effect's
+  parameters_ under [Animate it](component-editor.md#7-animate-it-timelines)). A
+  **Bind to value** binding or an Animate key on the same parameter wins over the
+  value set here.
 - **Flipbooks** — the project's authored **Invisible Flipbook** clips (frame
   animations packed off an atlas sheet), each row showing its first frame and its
   frame count. Drag one in to place it. The canvas **plays it in place**, at its
@@ -472,6 +481,59 @@ Other editing affordances:
   the active screen, so it also moves nodes between screens. Clones get fresh
   ids and a small nudge.
 - **Delete** removes the whole selection in one step.
+
+### The Outline: lock, isolate, hide, drag, menu
+
+Each row in the Outline (under the active screen in the Screens list, and the **Outline** tab on the
+Components side) has hover controls on its right:
+
+- **🔒 Lock.** The stage clicks straight through a locked node to whatever is under it, and it can't
+  be dragged (on the stage or in the Outline), nudged or deleted, and nothing can be dropped into
+  a locked container. You can still select it from its row (to unlock it, or edit it in
+  Properties). Lock applies to children: rows under a locked container show a faint lock. Lock is
+  saved with the screen, as the floating toolbar's lock always was. The game ignores it.
+- **◎ Isolate.** Shows only this node (its children, and the containers it sits in) on the stage.
+  On a screen, the other screens hide too. A banner above the tree has **Exit**, or click ◎ again.
+- **👁 Hide.** Hides the node and its children on the stage.
+
+Isolate and Hide are **editor-only**. They are never saved, never exported, and never change what
+the game draws. To hide something in the game, use Properties (`visible`, or per-layout
+visibility). They reset when you reload the page.
+
+Click **▸ / ▾** to fold a container. **Drag a row** to change the layer order: drop on the top or
+bottom edge of a row to land before or after it, or on the middle of a container to move into it
+(it becomes the container's last child, drawn on top). A node keeps its own x/y when it changes
+container, so it moves with its new container. You can't drop a container into itself, and a node
+that fills a template slot or binds an engine component reorders at the top level only (that is
+where the editor and the game look it up). Dragging is off in Animate.
+
+**Right-click a row** for: Copy, Paste, Delete (on the selection when the row is in it), Lock,
+Hide, Isolate, **◇ Create component** (containers; the same as Properties' *Edit as component*) and
+**↗ Show in Flow** (named component instances). The Components side offers Delete, Lock, Hide
+and Isolate. Animate leaves out the editing items.
+
+### Keyboard shortcuts
+
+Press **Shift+/** (or **?** in the canvas bar) for this sheet over the stage. No stage key fires
+while you type in a field. **Enter** and **Tab** belong to the stage only when nothing else has
+focus (click the stage first); on a focused button, tile or tab they press it or move focus on.
+
+| Keys | Does |
+|---|---|
+| `Esc` | Select the parent; on a top-level node, deselect |
+| `Enter` | Select the first child |
+| `X` | Reveal the selection in the Outline (opens its containers, scrolls to the row) |
+| `F` | Fit the frame |
+| `Ctrl/⌘+0` | Zoom to 100% |
+| `+` / `-` | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%) |
+| Arrows | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only) |
+| `Tab` | Toggle Design / Animate |
+| `Shift+/` | The shortcut sheet |
+| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design) |
+| `Ctrl/⌘+C / X / V / D` | Copy, cut, paste, duplicate (Screens, Design) |
+| `Delete` | Delete the selection (locked nodes stay) |
+
+The stage is tinted blue with a blue edge in **Animate**, so the two modes never look alike.
 
 ### 4. Edit properties
 
@@ -620,10 +682,19 @@ cue name typed here, or on a node inside a placed component, is offered in Invis
 
 **Bind to value**, at the bottom of Properties, makes an item follow a live game number. It can
 move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from one edge, hold
-a flipbook frame, scrub a rig animation, or offset a rig bone. On a screen the number is an
+a flipbook frame, scrub a rig animation, offset a rig bone, or set one of a placed effect's
+**exposed parameters** (**⚡ intensity** in **drives** — see below). On a screen the number is an
 engine value: respins left (÷ the cap), cells held, rows open, collector level, letters lit, the
 jackpots, bet, win and the rest. Drag the binding's **test value** to preview it on the canvas;
 it is never saved. Selection handles and dragging keep the authored position.
+
+On an **effect**, **drives** lists the effect's number and on/off parameters (the ones made with
+⚡ in [Invisible FX](fx.md#exposed-parameters)) as **⚡ <name>**. A number parameter's **out**
+range is left blank, so it follows the parameter's own min and max (shown greyed), even after
+they change in /fx; type ends to map elsewhere. An on/off one is on while the number passes a
+**threshold**, like **Show / hide**. Dragging the test value moves the live particles on the
+stage, with no restart. A colour parameter cannot be bound yet. A binding naming a parameter the
+effect no longer has says *Does nothing* and is ignored in the game.
 
 The same section in the Component Editor can also read the component's own params and the pot
 of the instance it sits in. The full reference is in the Component Editor guide under
@@ -840,22 +911,20 @@ travel the export → deploy → bake → pull chain to ship inside the game bun
 
 ### Game Settings → Authored overlays (pilot)
 
-Above the boot splash, **Authored overlays (pilot)** has two rows, **Transition** and **Win**.
-Both are pilots: off — the default, and the state of every live game — nothing changes. Only a
-holder of the component-publish capability (admin by default) can switch either; others see a row
+Above the boot splash, **Authored overlays (pilot)** has four rows, **Transition**, **Win**,
+**Free spins** and **Buttons**. All are pilots: off — the default, and the state of every live game — nothing
+changes. Only a holder of the component-publish capability (admin by default) can switch one;
+others see a row
 read-only while it is on, and a save that flips one from anyone else is refused (a stale tab still
-gets the ordinary "someone else saved" conflict first). **Leave both off for live games until the
-owner's browser check.** The Game Maker card names each when on.
+gets the ordinary "someone else saved" conflict first). Every row is **off by default**: switch
+one on for a test project first, then live games one at a time. The Game Maker card names each when on.
 
 - **Transition** — the game renders the free-spin transition wipe from the built-in **Transition
   wipe** component and its timeline (the same rig, the same timing; the flow continues when the
   wipe ends) instead of the coded Transition mount it replaces. The card says _Authored Transition
   (pilot)_, and warns when it is on but no scene binds the coded Transition it would replace (the
   reference overlays scene has that node).
-- **Win** — **locked off for now** (the row reads _pilot pending — parity follow-up_): nobody,
-  publishers included, can switch it on until its parity follow-up merges, and the save refuses
-  it too; a doc that already has it on can still be switched off. When unlocked: the game renders
-  the big-win presentation (the tier rig and its per-tier clips, the
+- **Win** — the game renders the big-win presentation (the tier rig and its per-tier clips, the
   count riding the rig's count slot, the caption, the plain small/medium number, the fade) from
   the built-in **Win presentation** component and per-tier timelines generated at boot from the
   game's active big tiers, instead of the coded `WinVisual`; the coded gate keeps the count-up,
@@ -863,8 +932,28 @@ owner's browser check.** The Game Maker card names each when on.
   overlay gets the presentation at the board centre; a doc that places the hybrid **Win overlay**
   instance keeps its position, overrides and params. The card says _Authored Win (pilot)_, and the
   game keeps the coded path (the card warns) when no scene binds a coded Win or places a win
-  instance, when a big-win tier's caption in Invisible Win Text uses a token such as `{amount}`,
+  instance, when a big-win tier's caption in Invisible Win Text (in the base game or any spins
+  mode) uses a token such as `{amount}`,
   or when the tiers resolve to more than one rig or count slot.
+- **Free spins** — the game renders the free-spin intro and outro visuals (the frame, the count rig and number, the localized captions, the fade)
+  from the built-in **Free-spin intro / outro presentation** components and their timelines,
+  instead of the coded intro and outro visuals. What holds the round does not change: the outro's
+  count-up, its tap to skip, the screens' "press anywhere to continue" and the flow's holds stay
+  as they are. Nothing to place: each screen's coded visual is swapped where it sits. The card says
+  _Authored free spins (pilot)_, and the game keeps the coded visuals for both screens (the card
+  warns) when no screen binds a coded free-spin visual, when one sits in a screen that is not
+  canvas space, when a screen places a free-spin visual instance, or when a visual names a rig,
+  clip or slot other than the default.
+- **Buttons** — every parametric HUD button (a placed **Button** component) draws its
+  look per state — the tile, its greyed downstate and selected border, or its state images — turns
+  its spin image while a spin rolls, and plays its press sound from the built-in **Button
+  presentation** component and its state machine, instead of the coded button frame. What a press
+  does, and when a button is disabled, selected or spinning, does not change. The buttons still
+  fade with the rest of the HUD when the game hides it. Nothing to place: each Button is swapped
+  where it sits, with its own settings. The card says _Authored buttons (pilot)_, and the game
+  keeps the coded buttons (the card warns) when no screen places a Button component (the coded
+  buttons of the default HUD are not affected) or when the project's own Button component draws
+  something else.
 
 ### Game Settings → Boot splash
 
@@ -897,19 +986,35 @@ active in the Screens list. It animates that screen's nodes, for example a scree
 plays the result in the game. A component has its own Animate mode on the Components side: see
 [Animate a component](#animate-a-component).
 
-1. **Open or create a timeline.** The panel's picker lists this screen's timelines. **＋ New** asks
-   for a name and saves an empty one. **Rename** and **🗑** act on the open timeline. Switching to
+1. **Open or create a timeline.** In Animate the left column shows an **Animations** list with
+   this screen's timelines (each with its length); click one to open it. The Timeline panel's
+   header does the same: its picker opens a timeline and **＋ New** creates one (with **Rename** and
+   **🗑** for the open one). **＋** asks for a name and saves an empty one. Hover a row for **⧉ Duplicate**
+   (a copy named "<name> copy", saved and opened), **✎ Rename** and **🗑 Delete**. Rename and
+   Delete open that timeline first, and every one of the three asks about unsaved changes on the
+   open timeline first. Switching to
    another screen saves it and closes it, because a timeline belongs to one screen. Switching back
    to Design keeps it open with any unsaved changes, and closing the tab with unsaved timeline
    changes asks first.
-2. **Select a node on the canvas.** In Animate mode the canvas only selects. Dragging, the
-   handles, dropping from the Library, Delete and the item toolbar are all off, so you can't move
-   the Design pose by accident.
-3. **Key it.** The left of the panel lists what that node can take: **x**, **y**, **scale**,
-   **rotation**, **alpha**, plus **tint** on sprites and flipbooks. Typing a value keys it at the
-   playhead, and **◆** keys the current value. A keyed channel turns yellow, and its keys appear as
-   diamonds on the timeline. Drag a diamond to retime it, or click it to edit its time, value and
-   easing on the right (**hold** = stepped). The first key on a node adds that node to the timeline.
+2. **Select a node on the canvas.** Dropping from the Library, Delete and the item toolbar are
+   off in Animate, so you can't change the layout by accident. Dragging, the corner handles and
+   the rotate circle **key** instead (step 3).
+3. **Key it.** In Animate, **Properties** shows an **Animate** section above Transform with what
+   the node can take: **x**, **y**, **scale ×**, **rotation**, **alpha**, plus **tint** on sprites
+   and flipbooks, and on an **effect** one **⚡ <name>** field per number or on/off parameter it
+   exposes. Each field has a **key button** (◆), as in Rive:
+   - **grey outline**: not animated;
+   - **blue outline**: animated, no key at the playhead;
+   - **blue**: a key at the playhead.
+
+   Click it to key the current value at the playhead, or type a value to key it. The fields show
+   the **animated** value (the Design pose with the timeline on top), and a typed value is turned
+   back into the relative key for you. Transform underneath still edits the Design pose.
+   **On the stage**, dragging a node keys its x/y at the playhead, a corner keys its scale and the
+   circle keys its rotation, each on top of what the timeline already does there; the handles sit
+   on the animated pose, and snapping is off. A scale drag is always uniform in Animate (one
+   **scale ×** key), even from an edge handle or with Shift. A text box resizes its box in Design
+   only, so in Animate its corners and edges do nothing (it still moves and turns). The first key on a node adds it to the timeline.
 4. **Preview.** Drag the ruler, or press **▶**. The canvas draws each frame through the game's own
    maths, so what you see is what plays. The number next to the time readout is the timeline's
    length in seconds.
@@ -921,6 +1026,15 @@ plays the result in the game. A component has its own Animate mode on the Compon
    **Wait for it to finish** to hold the flow until the intro ends. If the timeline names a node the
    screen no longer has, the node shows a ⚠ warning under the picker. Publish as usual: timelines
    ship with the game like cinematics.
+   - **Show the screen first, then play its timeline**: Show `<screen>` → playCinematic. The
+     timeline then moves the screen the Show put up, which holds the last frame until it is hidden.
+     For an intro that waits for a tap, follow it with a Show of the same screen with **Hold until
+     this screen completes (tap)** ticked. A timeline played while its screen is not shown draws
+     its own copy of the screen instead, and that copy is not framed like the screen. Starting the
+     timeline re-opens the shown screen, so set a component's inputs on it after the play, not
+     between the Show and the play.
+   - **A timeline reaches the game only once it keys a node and is saved.** One that never did
+     (or was deleted) is skipped: the flow carries on, and the browser console says which.
 
 How keys behave:
 
@@ -928,18 +1042,61 @@ How keys behave:
   multiply, rotation adds degrees, and tint replaces the colour. A key of 0 on y means "where you
   laid it out". End an intro on the unchanged pose (x/y 0, scale 1, alpha 1, white tint), so that
   when the timeline ends the screen sits exactly as designed.
+- **An effect parameter key is the value itself**, not an offset: ⚡ intensity 0.8 means the
+  parameter is 0.8. A number interpolates between keys; an on/off key is stepped (**hold**), so it
+  switches on its key. Where nothing keys a parameter it keeps its default, or what a **Bind to
+  value** on the node sets. When both set it, the timeline wins while it has a value. A colour
+  parameter has no row yet. Keys on a parameter the effect no longer has (renamed or removed in
+  /fx) stay on the timeline as a grey **⚠ fx:<name>** row, so you can select and delete them; the
+  ⚠ issues pill of a component timeline lists them too.
 - **A timeline finds a node by its name.** That is what lets the same timeline play on another
   screen that has a node with the same name. So a node needs a **Name** (Properties) that no other
   node on the screen shares before you can key it. The panel says so when it doesn't, and never
   falls back to the hidden id.
-- **Properties still edits the Design pose.** Fields like x or alpha in the Properties panel change
-  the layout, not the timeline. Key motion in the Timeline panel.
+- **Properties' Transform still edits the Design pose.** Only the **Animate** section above it
+  keys.
+
+**The timeline.** Each keyed node has a **summary row** (its name) with a grey diamond at every
+time any of its fields is keyed, and **▾ / ▸** folds its field rows away. Drag a summary diamond
+to move every key of that node at that time; drag the summary row's empty lane to move all of
+that node's keys. **Only selected** in the panel header shows just the node selected on the
+canvas.
+
+**Several keys at once.** Shift- or Ctrl-click diamonds to add them to the selection, or drag a
+box over an empty part of the field rows (Shift adds to what is selected; a click there clears
+it). A selected key's drag moves all of them by the same amount. **Ctrl+C** copies the selected
+keys and **Ctrl+V** pastes them onto the same fields with the earliest at the playhead (a key
+already at a pasted time is replaced). **Delete** removes them all.
+
+**Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
+the value travels from each selected key to the next one.
+- **Linear**: a straight line.
+- **Cubic**: a curve. Drag its two handles, or type the four numbers `x1, y1, x2, y2` (a CSS
+  cubic-bezier: x stays between 0 and 1; y may go past to overshoot).
+- **Hold**: the value holds until the next key (stepped).
+
+**Set as default** makes the selected key's interpolation the one every new key in this timeline
+gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*
+keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
+
+**Loop type and fps.** Next to the length in the header: **One-shot** (plays once and holds its last
+frame, the default), **Loop** (back to the start) or **Ping-pong** (to the end and back). ▶ plays it
+the same way; Loop and Ping-pong play until you pause. In the game, a looping timeline never ends,
+so it never holds a cue, a Flow **playCinematic** that waits for it carries on at once (as it does
+for the node's own loop), and a ping-pong fires its cues on the way out only. **fps** is the grid
+keys snap to and `,` / `.` step by.
+
+**Onion skin.** Tick **Onion** in the header and the stage outlines each keyed node a few frames
+before (red) and after (green) the playhead, with a dot at its pivot, fading with distance. The
+number next to it is how many frames on each side (1 to 10). Editor-only, never saved; it outlines
+the screen's top-level nodes.
 
 Keyboard in Animate mode: the Timeline owns **Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y** (undo and redo the
-timeline), **Ctrl+S** (save the timeline), **Ctrl+D** (duplicate the selected strip) and
-**Delete / Backspace** (delete the selected key). The layout's own undo, copy/cut/paste/duplicate
-and delete are off until you switch back to Design. Esc still clears the selection, and typing in
-a field is never intercepted.
+timeline), **Ctrl+S** (save the timeline), **Ctrl+D** (duplicate the selected strip), **Ctrl+C /
+Ctrl+V** (the selected keys), **Delete / Backspace** (delete the selected keys), **, / .** (a frame
+back / forward; with Shift, ten) and **Space** (play / pause). The layout's own undo,
+copy/cut/paste/duplicate and delete are off until you switch back to Design. Esc still clears the
+selection, and typing in a field is never intercepted.
 
 Who can do this: anyone with the Scene Editor can open, save and delete **screen** and
 **component** timelines. The Rigger's cinematics stay with the Rigger.
@@ -1020,7 +1177,9 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
 
 1. **Open the component and click Animate.** The panel's host label shows `◇ <component name>`.
    Animate is off while you are **Inspecting** an old version; go back to latest first.
-2. **＋ New** asks for a name (it suggests "Pop in") and saves an empty timeline.
+2. **＋** in the left column's **Animations** list asks for a name (it suggests "Pop in") and saves
+   an empty timeline. The list shows the component's timelines and, last, the **State machine**
+   row, which opens the State machine tab; a timeline row opens the Timeline tab on it.
 3. **Pick what plays it: Plays on.** This is the signal, heard on each placed instance, that starts
    the timeline from the beginning. The list offers:
    - **enter** — the instance appears. A new timeline starts on this.
@@ -1049,8 +1208,9 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
    and starts again the next time one does; its particles live out their lifetime. Game logic listening for rig
    events does not hear a strip. A strip plays its animation once and holds the last frame; for a
    state that should keep moving, tick **loop** on the state and make the strip as long as the
-   timeline. The canvas only selects in Animate: no dragging,
-   no Delete, and double-click does not open a nested component. Keys find nodes by **name**, so
+   timeline. In Animate a drag on the canvas keys (as on a screen) rather than moving the part:
+   no Delete, and double-click does not open a nested component. The **State machine** tab's
+   stage does not key. Keys find nodes by **name**, so
    each node you key needs a name no other node in the component shares.
 5. **Save** (or Ctrl+S). Publish as usual: the timeline ships with the game. You don't add a Flow
    node; component timelines are not in `/flow-v2`'s playCinematic picker, because the instances
@@ -1087,7 +1247,10 @@ so it needs no Flow node and no extra publish step; it is read-only while you ar
 version, like the rest of Animate.
 
 **Inputs** are declared in the Properties panel under **Component variables → Inputs** (the block
-that used to be _Signals_). Three kinds:
+that used to be _Signals_), or — bools and numbers — in the **Inputs** list docked left of the
+graph in the State machine tab: type a name, pick **bool / number** and **＋** (a trigger is added
+with Properties' **+ Add trigger**); **✎** and **×** there do what they do in Properties. The docked list is also where you **drive the preview**: click a trigger to fire
+it, tick a bool, type a number. Three kinds:
 
 - a **trigger** ⚡ — a signal: **+ Add trigger** picks an engine moment (`win`, `bigWin`…), a
   Flow **Fire Cue** name, or any name. Every signal the component already declared shows here as
@@ -1106,9 +1269,10 @@ are Inspecting an old version.
 
 **Building the graph** (the **State machine** tab):
 
-1. **＋ State** picks one of the component's timelines and adds a card named after it. The first
-   state of a layer is its **entry** (the ● dot); **Set as entry** in the inspector moves it, or
-   drag a wire from **Entry** onto another card.
+1. **＋ State** picks one of the component's timelines and adds a card named after it — or drag a
+   timeline row from the **Animations** list onto the graph and the card lands where you drop it.
+   The first state of a layer is its **entry** (the ● dot); **Set as entry** in the inspector
+   moves it, or drag a wire from **Entry** onto another card.
 2. **Transitions** are arrows: drag from a card's right handle onto another card. Drag from
    **Any** for a transition that fires from every state; drop onto **Exit** to end the layer (its
    nodes go back to how they are drawn until the machine resets). Click an arrow to open its
@@ -1117,22 +1281,49 @@ are Inspecting an old version.
      `!=` / `<` / `>` a value. With none, the transition fires as soon as its exit time does.
    - **Exit time** — how far through the leaving state's timeline (0–1) before it may fire; on a
      looping state, the point is checked each lap. Leave it empty for "at once".
-   - **Blend (ms)** — mixes the new timeline in from the pose being left.
-3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **Open timeline**
+   - **Blend (ms)** — mixes the new timeline in from the pose being left. An effect's **⚡**
+     parameters mix too. If only one of the two states keys a parameter, it mixes from (or
+     towards) the parameter's default. With a blend set, three more options show:
+     - **Interpolation** — **Linear** (an even mix) or **Cubic**: the same curve editor as the
+       Timeline's Interpolation panel, two handles plus the typed `x1, y1, x2, y2`.
+     - **Pause source when exiting** (on by default) — the state being left freezes where it was.
+       Untick it and that state keeps playing underneath while the new one mixes in (its cues do
+       not fire while it plays out).
+     - **Allow exit during transition** (on by default) — another transition may leave the new
+       state before the blend has finished. Untick it and none can until the blend ends; a trigger
+       fired meanwhile waits for the end, as one waits for an exit time.
+     The curve cannot overshoot a blend: a handle past 0..1 holds the mix at its end.
+   - **Disable** — the transition never fires (in the preview or in game). It stays on the graph,
+     dashed and greyed, with "off" on its label, so you can switch it back on.
+3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **On enter** and
+   **On exit** (each **＋ raise event** row raises one of the component's events; On exit fires
+   each time a transition leaves the state, before the next state's On enter), **Open timeline**
    (double-clicking the card does the same: it opens the Timeline tab on that timeline) and
-   **Delete**. Delete / Backspace removes the selected card or arrow.
+   **Delete**. Delete / Backspace removes the selected card or arrow. **Start offset** and
+   **Random start** put each placed instance at its own point of the state's timeline on entry:
+   the offset is read, in seconds, from a number param of the placement (wrapped on a looping
+   state), and Random start adds a random point each time the state is entered. Use them when
+   several instances enter a state together and should not move in step.
 4. **Layers** are the tab strip in the panel bar: **＋ Layer** adds one; each runs on its own, and
-   where two key the same property of a node, the later layer wins.
+   where two key the same property of a node, the later layer wins. Next to **Rename**: **⧉**
+   duplicates the layer (states, arrows and positions, named "<name> copy"), **◀ / ▶** move it
+   earlier or later (which changes who wins a shared property), and **⏻ Disable** switches it off:
+   a disabled layer does not run, in the preview or in game, and its tab is struck through.
 
 **Preview**: **▶ Run** plays the machine on the stage — the live state is shown on each layer's
-tab and the active card lights up; a transition that fires flashes its arrow. **Preview inputs** in
-the inspector fire the triggers and set the bools and numbers, so you can walk the graph by hand.
+tab and the active card lights up; a transition that fires flashes its arrow. The docked **Inputs**
+list fires the triggers and sets the bools and numbers, so you can walk the graph by hand.
 **↺ Reset** returns every layer to its entry. The preview uses the same interpreter the game runs.
 
-**The ⚠ pill** lists what would not work in game: a state whose timeline is missing (the state
-holds in game), a layer with no entry, an arrow to or from a state that no longer exists, a
-condition on an input that is not declared or with an operator its kind cannot take, and —
-as warnings — states or an Exit nothing reaches.
+**The Console** is the strip under the graph. Its **Console** tab logs, newest first, each state a
+layer enters (the entry states when ▶ Run starts), each transition taken and each event raised
+(with where it came from and its payload), and shows each layer's current state; **Clear** empties
+it. Its **Problems** tab lists what would not work in game: a state whose timeline is missing (the
+state holds in game), a layer with no entry, an arrow to or from a state that no longer exists, a
+condition on an input that is not declared or with an operator its kind cannot take, an event
+raise that does not fit its event, and — as warnings — states or an Exit nothing reaches. Click a
+problem to jump to it: its layer's tab opens and its card or arrow is selected, or its input is
+outlined in the Inputs list. The **⚠** count in the panel bar opens the Problems tab.
 
 How it plays in the game: each placed instance runs its own machine from the entry state, hears
 its triggers through the same per-instance signal bus as **Plays on** (so a component **scoped by**
@@ -1161,8 +1352,8 @@ and no `:` (a timeline cue names it as `event:<name>`).
   added or renamed to (taking it would quietly reconnect them) — repoint those rows first. A name
   only a timeline cue uses is free: declaring it is how you fix a cue's typo.
 - **×** removes it, asking first when something raises it. Those raises stay and do nothing in
-  game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter in its
-  inspector, and a timeline cue under **Events** in the State machine tab.
+  game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter or On exit in
+  its inspector, and every one of them in the State machine tab's **Problems** list.
 - The **last** event cannot be removed while any of this project's timelines for the component
   (as last saved) has an `event:` cue: a component with no events plays such a cue the old way, as
   a message to the whole screen. Remove or change those cues first. A **shared** component always
@@ -1184,7 +1375,7 @@ and no `:` (a timeline cue names it as `event:<name>`).
   a value, an input's current value, or a text key (it needs at least one letter — it is the text
   as the game shows it). An `int` or `ms` value is rounded to a whole number.
 
-**Save** refuses while a listener or an On enter row would be lost by it — no trigger, input or
+**Save** refuses while a listener or an On enter / On exit row would be lost by it — no trigger, input or
 event picked, say — and names the rows to fix.
 
 A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
@@ -1192,14 +1383,17 @@ still works as before if it also presses a button or a dialog action: both fire.
 on its own placed instance only. Listeners need an input or an event to act on, so **+ Listener**
 is off until the component declares one.
 
-**On enter**: in the **State machine** tab, a state's inspector has **On enter → ＋ raise event**:
-the event is raised every time that state is entered (and when the machine starts, for an entry
-state). A timeline can raise one too with a cue named `event:<name>`.
+**On enter** and **On exit**: in the **State machine** tab, a state's inspector has **On enter →
+＋ raise event**: the event is raised every time that state is entered (and when the machine
+starts, for an entry state). **On exit → ＋ raise event** is raised each time a transition leaves
+the state, before the next state's On enter (not when the instance goes away or the machine is
+reset). A timeline can raise one too with a cue named `event:<name>`.
 
 **Preview**: in the **State machine** tab, the stage answers the pointer — hover, press and click
-the component's nodes and their listeners run, on the same preview as **▶ Run**. The **Events**
-list in the inspector logs every raised event with its time, what raised it (`listener`, `state`,
-`cue`) and its payload; **Clear** empties it, **↺ Reset** starts it over. In the preview a
+the component's nodes and their listeners run, on the same preview as **▶ Run**. The **Console**
+under the graph logs every raised event with its time, what raised it (`listener`, `state`,
+`cue`) and its payload, between the states and transitions; **Clear** empties it, **↺ Reset**
+starts it over. In the preview a
 **fire trigger** listener moves the state machine; it does not start **Plays on** timelines (the
 game does).
 

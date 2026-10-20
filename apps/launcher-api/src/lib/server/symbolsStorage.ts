@@ -3,6 +3,7 @@ import {
 	BLEND_MODES,
 	COIN_LABEL_CASH_FORMATS,
 	FLIGHT_EASES,
+	FLIGHT_HEAD_ALIGNS,
 	FLIGHT_HEAD_KINDS,
 	isManifestAssetKey,
 	normalizeFlights,
@@ -734,6 +735,9 @@ const flightStyleSchema = z
 		size: z.number().optional(),
 		trailAlign: z.boolean().optional(),
 		trailRotation: z.number().optional(),
+		headAlign: z.enum(FLIGHT_HEAD_ALIGNS).optional(),
+		headRotation: z.number().optional(),
+		depth: z.number().optional(),
 		trail: z
 			.object({ effectId: z.string().optional(), off: z.boolean().optional() })
 			.strict()
@@ -753,6 +757,7 @@ const flightStyleSchema = z
 		minMs: z.number().optional(),
 		maxMs: z.number().optional(),
 		ease: z.enum(FLIGHT_EASES).optional(),
+		slowdown: z.number().optional(),
 		stagger: z.number().optional(),
 	})
 	.strict();
@@ -937,9 +942,9 @@ function pruneEmptyCellLayers(
  * `unknownValues` (`docs/conventions/doc-readers.md`): a READ drops what holds an enum value a
  * newer launcher wrote — the cell over its `type`, the layer over its `kind`, the `transition`,
  * `highlight` or `boardGlow` over theirs — and ignores an unknown optional value (`blendMode`,
- * `direction`, `placement`, `tintMode`, a tumble `pattern`, a flight `ease`, a cash `format`), so
- * its default applies. A SAVE (`'reject'`) still refuses them all: the tool only writes values it
- * offers, so there one is a typo.
+ * `direction`, `placement`, `tintMode`, a tumble `pattern`, a flight `ease` or `headAlign`, a cash
+ * `format`), so its default applies. A SAVE (`'reject'`) still refuses them all: the tool only
+ * writes values it offers, so there one is a typo.
  */
 export function normalizeSymbolsDoc(
 	input: unknown,

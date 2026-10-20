@@ -64,7 +64,7 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
 import { boardWinText } from './boardWinText';
 import { stateApp } from './stateApp';
 import { winState } from './winState.svelte';
-import { boardDropCells, drainedMeters, type WinLevelData } from 'engine-game';
+import { boardDropCells, type WinLevelData } from 'engine-game';
 import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
 import { freeSpinsGameType, isFreeGameType, stateModes } from './stateModes.svelte';
@@ -81,13 +81,13 @@ import {
 	presentCoinsLand,
 	presentCoinUpgrade,
 	presentColumnComplete,
+	presentEntryDrain,
 	presentHoldAndWinEnd,
 	presentHoldAndWinState,
 	presentHoldAndWinTrigger,
 	presentInstantCollect,
 	presentJackpotWin,
 	presentLuckySpin,
-	presentMeterConsume,
 	presentMeterUpdate,
 	presentMysteryReveal,
 	presentRandomMetreTrigger,
@@ -741,6 +741,13 @@ const beat =
 		);
 	};
 
+/** The book events that enter a mode a pot can start — what `drainPots` drains on. */
+const DRAIN_ENTRY_EVENTS: ReadonlySet<string> = new Set([
+	'freeSpinTrigger',
+	'modeEnter',
+	'holdAndWinTrigger',
+]);
+
 /** A Flow payload boolean, or `fallback` when the pin is unwired/junk (only a real boolean counts). */
 const boolOr = (value: unknown, fallback: boolean): boolean =>
 	typeof value === 'boolean' ? value : fallback;
@@ -1343,18 +1350,23 @@ const effects: Record<string, FlowEffect> = {
 	 * - `liftTokens` (`meterUpdate`) — the pot's tokens leave their cells at once, without flying.
 	 *   For a flow that presents the fill its own way; `fillMeter` already flies each token off as
 	 *   its flight leaves, the token as the head.
-	 * - `drainPots` (`freeSpinTrigger` / `modeEnter`) — the pots that started the mode drain (the
-	 *   coded drain, toast and banner); an entry no pot started drains nothing. Hold and Win's
-	 *   `showRespinBoard` drains its own pots.
+	 * - `drainPots` (`freeSpinTrigger` / `modeEnter` / `holdAndWinTrigger`, or a Mode trigger's
+	 *   `$trigger`) — the pots that started the mode drain (the coded drain, toast and banner); an
+	 *   entry no pot started drains nothing. A pot drains once: the entry's own beat that follows
+	 *   (`showRespinBoard`, the coded free-spin entry, the auto-drain) then plays none.
 	 */
 	showTokens: beat('overlayDrop', presentOverlayDrop),
 	liftTokens: beat('meterUpdate', presentTokenLift),
 	drainPots: (payload) => {
-		const event = payload.bookEvent as BookEvent | undefined;
-		if (event?.type === 'freeSpinTrigger' || event?.type === 'modeEnter')
-			return presentMeterConsume(drainedMeters(event));
+		const trigger = payload.bookEvent as Record<string, unknown> | undefined;
+		if (
+			typeof trigger?.type === 'string'
+				? DRAIN_ENTRY_EVENTS.has(trigger.type)
+				: typeof trigger?.mode === 'string'
+		)
+			return presentEntryDrain();
 		console.error(
-			`[flow] drainPots was fed ${event?.type ?? 'no event'}: put it on a freeSpinTrigger or modeEnter chain, bookEvent = $trigger`,
+			`[flow] drainPots was fed ${trigger?.type ?? 'no event'}: put it on a Mode trigger (enter) chain or a freeSpinTrigger, modeEnter or holdAndWinTrigger chain, bookEvent = $trigger`,
 		);
 	},
 

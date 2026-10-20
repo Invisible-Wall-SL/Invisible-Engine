@@ -81,6 +81,8 @@
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import EditorAnimationsList from './EditorAnimationsList.svelte';
+	import { animateDragging, keyingActive, keyStageTransform } from './animateKeying.client.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
 	import ComponentList from './ComponentList.svelte';
 	import ComponentWorkspace from './ComponentWorkspace.svelte';
@@ -95,6 +97,10 @@
 	import { fetchClips } from './editorFlipbooks.client';
 	import { bindEditorProject } from './editorProject.client';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
+	import { setViewHidden } from './valuePreview.client.svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import { isTypingTarget } from '$lib/editor/stageShortcuts';
+	import { effectiveHiddenIds, lockedInTree, moveNode, type DropZone } from '$lib/editor/hierarchy';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -719,6 +725,12 @@
 	 * knows one for. A def refreshed from the listing has none here: the Components side reads it
 	 * when it opens that def. */
 	let storedEtags = $state<Record<string, string | null>>({ ...data.componentEtags });
+	/** componentId → this game's defaults, which placed instances draw and the instance panel reads.
+	 * Seeded from the load, then kept on what the Components side saves or reads, so a default set
+	 * there shows on the screen without a reload. */
+	let componentDefaults = $state<Record<string, Record<string, unknown>>>({
+		...data.componentDefaults,
+	});
 	/** The same list with the `win` tier groups rebuilt — drives the picker + the canvas's
 	 * `componentInstance` resolution. */
 	const components = $derived(withConfigWinTiers(storedComponents));
@@ -1115,12 +1127,72 @@
 		(gameView && shownViewMode ? data.modeGridDimensions[shownViewMode] : undefined) ??
 			data.gridDimensions,
 	);
-	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off. */
+
+	// ---------- Outline: Lock / Isolate / Hide, drag, menu (Rive plan Phase 9a) ----------
+	// Hide and Isolate are editor view state: kept here, handed to the stage via `setViewHidden`,
+	// never written into a node, so the saved doc (and the game) keeps every authored `visible`.
+	const outlineHidden = new SvelteSet<string>();
+	let isolatedId = $state<string | null>(null);
+	const stageHidden = $derived(
+		activeScene
+			? effectiveHiddenIds(activeScene.nodes, outlineHidden, isolatedId)
+			: new Set<string>(),
+	);
+	const isolating = $derived(
+		isolatedId !== null && !!activeScene && !!findById(activeScene.nodes, isolatedId),
+	);
+	$effect(() => {
+		if (!componentsView) setViewHidden(stageHidden);
+	});
+	let revealRequest = $state<{ id: string; seq: number } | null>(null);
+	let revealSeq = 0;
+
+	function toggleOutlineHidden(id: string): void {
+		if (outlineHidden.has(id)) outlineHidden.delete(id);
+		else outlineHidden.add(id);
+	}
+	function toggleIsolate(id: string): void {
+		isolatedId = isolatedId === id ? null : id;
+	}
+	function toggleNodeLock(id: string): void {
+		const node = activeScene ? findById(activeScene.nodes, id) : null;
+		if (!node) return;
+		if (node.locked) delete node.locked;
+		else node.locked = true;
+		scenes = scenes.slice();
+		markDirty();
+	}
+	function moveOutlineNode(dragId: string, overId: string, zone: DropZone): void {
+		if (!activeScene || !moveNode(activeScene.nodes, dragId, overId, zone)) return;
+		scenes = scenes.slice();
+		markDirty();
+	}
+	/** The row menu acts on the selection when the row is in it, else on that row alone. */
+	function menuTargets(id: string): string[] {
+		if (!selectedIds.includes(id)) selectOnly(id);
+		return selectedIds;
+	}
+	function toggleEditorMode(): void {
+		if (animating) {
+			editorMode = 'design';
+			return;
+		}
+		editorMode = 'animate';
+		animateVisited = true;
+	}
+
+	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off — and, while
+	 *  the Outline isolates a node, every other screen. */
 	const canvasHiddenScenes = $derived(
-		offInGameView.size === 0 ? hiddenScenes : new Set([...hiddenScenes, ...offInGameView]),
+		isolating
+			? new Set(scenes.filter((s) => s.id !== activeScene?.id).map((s) => s.id))
+			: offInGameView.size === 0
+				? hiddenScenes
+				: new Set([...hiddenScenes, ...offInGameView]),
 	);
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
+
 	/** All scenes the canvas may composite. */
 	const editScenes = $derived<Scene[]>(scenes);
 	/** Template slots of the active scene — offered as the Properties slot dropdown. */
@@ -2128,7 +2200,7 @@
 		resetDebounceOnEveryEdit: false,
 		initialEtag: data.docEtag,
 		conflictMessage: 'Someone else saved this project while you were editing.',
-		canAutosave: () => !crossTypeLoaded,
+		canAutosave: () => !crossTypeLoaded && !animateDragging(),
 		blockWhen: () => lease.readOnly || projectDrift,
 		save: async ({ baseEtag, force }) => {
 			const fields: Record<string, string> = { doc: JSON.stringify(buildDocPayload()) };
@@ -2231,6 +2303,11 @@
 			burstTimer = null;
 		}
 		if (!burstActive) return;
+		// An Animate stage drag has the Design pose moved until it lets go: settle after it.
+		if (animateDragging()) {
+			burstTimer = setTimeout(settleBurst, HISTORY_COALESCE_MS);
+			return;
+		}
 		historyBaseline = snapshotDoc();
 		burstActive = false;
 	}
@@ -2287,6 +2364,16 @@
 		const kept = selectedIds.filter((id) => scenes.some((sc) => findById(sc.nodes, id) !== null));
 		if (kept.length !== selectedIds.length) selectedIds = kept;
 	}
+
+	// An Animate stage drag holds the autosave (`canAutosave`), cancelling a pending one; once it
+	// lets go, a layout that is still dirty re-arms it.
+	$effect(() => {
+		const dragging = animateDragging();
+		untrack(() => {
+			if (dragging) saveState.cancelAutosave();
+			else if (saveState.dirty) saveState.rearmAutosave();
+		});
+	});
 
 	function markDirty(): void {
 		recordEdit();
@@ -2484,6 +2571,8 @@
 		data.doc.settings?.authoredOverlays?.transition === true,
 	);
 	let authoredWin = $state<boolean>(data.doc.settings?.authoredOverlays?.win === true);
+	let authoredFreeSpins = $state<boolean>(data.doc.settings?.authoredOverlays?.freeSpins === true);
+	let authoredButtons = $state<boolean>(data.doc.settings?.authoredOverlays?.buttons === true);
 
 	// The project's own BOOT SPLASH — the second pre-game screen, after the admin-owned engine
 	// mark. A blank bundle means "no game splash", so the panel needs no separate clear button.
@@ -2507,7 +2596,8 @@
 			background: bootLoaderBackground,
 			size: bootLoaderSize,
 		});
-		const authoredOverlays = authoredTransition || authoredWin;
+		const authoredOverlays =
+			authoredTransition || authoredWin || authoredFreeSpins || authoredButtons;
 		if (jurisdiction === 'default' && allOn && !bootLoader && !authoredOverlays) return undefined;
 		const settings: GameSettings = {};
 		if (jurisdiction !== 'default') settings.jurisdiction = jurisdiction;
@@ -2524,6 +2614,8 @@
 			settings.authoredOverlays = {
 				...(authoredTransition ? { transition: true } : {}),
 				...(authoredWin ? { win: true } : {}),
+				...(authoredFreeSpins ? { freeSpins: true } : {}),
+				...(authoredButtons ? { buttons: true } : {}),
 			};
 		}
 		return settings;
@@ -2814,19 +2906,6 @@
 		} finally {
 			refreshingComponents = false;
 		}
-	}
-
-	/** True when a keystroke is destined for a text field — so editor shortcuts
-	 * (undo, copy/paste, duplicate) don't hijack typing in the panels. */
-	function isTypingTarget(t: EventTarget | null): boolean {
-		const el = t as HTMLElement | null;
-		return (
-			!!el &&
-			(el.tagName === 'INPUT' ||
-				el.tagName === 'TEXTAREA' ||
-				el.tagName === 'SELECT' ||
-				el.isContentEditable)
-		);
 	}
 
 	/** Page-level editor shortcuts (the canvas owns Delete/Escape on its own listener).
@@ -3303,10 +3382,43 @@
 								{onFillSlot}
 								onAddAnchor={onAddMountAnchor}
 								onRename={onRenameNode}
+								onToggleLock={animating ? undefined : toggleNodeLock}
+								hiddenIds={outlineHidden}
+								onToggleHide={toggleOutlineHidden}
+								{isolatedId}
+								onToggleIsolate={toggleIsolate}
+								{stageHidden}
+								onMove={animating ? undefined : moveOutlineNode}
+								{revealRequest}
+								onCopy={animating
+									? undefined
+									: (id) => {
+											menuTargets(id);
+											copySelection();
+										}}
+								onPaste={animating ? undefined : () => void pasteClipboard()}
+								onDelete={animating
+									? undefined
+									: (id) => {
+											const ids = menuTargets(id).filter((x) => !lockedInTree(s.nodes, x));
+											if (ids.length > 0) onDeleteNodes(ids);
+										}}
+								onCreateComponent={animating
+									? undefined
+									: (id) => {
+											const node = findById(s.nodes, id);
+											if (node?.kind === 'container') void editContainerAsComponent(node);
+										}}
+								onShowInFlow={animating ? undefined : (id) => void showInFlow(id)}
 							/>
 						</li>
 					{/if}
 				{/snippet}
+				{#if animating && !componentsView}
+					<PanelSection id="animations" title="Animations">
+						<EditorAnimationsList />
+					</PanelSection>
+				{/if}
 				<PanelSection id="screens" title="Screens" count={sceneCount}>
 					<ul class="screens">
 						{#if sceneCount === 0}
@@ -3485,7 +3597,7 @@
 						symbolsDoc={data.symbolsDoc}
 						gridDimensions={shownGridDimensions}
 						repeaterSources={data.repeaterSources}
-						componentDefaults={data.componentDefaults}
+						{componentDefaults}
 						{componentMap}
 						{rigPreview}
 						{rigPreviewNodeId}
@@ -3511,6 +3623,9 @@
 						onUndo={undo}
 						onRedo={redo}
 						animate={animating}
+						onAnimateTransform={animating && keyingActive() ? keyStageTransform : undefined}
+						onToggleMode={toggleEditorMode}
+						onRevealSelection={(id) => (revealRequest = { id, seq: ++revealSeq })}
 					>
 						{#snippet modeBar()}
 							<CanvasModeBar
@@ -3763,7 +3878,7 @@
 						node={selectedNode}
 						gameType={projectGameType}
 						addOns={data.addOns}
-						componentDefaults={data.componentDefaults}
+						{componentDefaults}
 						layoutType={currentLayoutType}
 						{baseLayoutType}
 						layoutTypeIds={layoutTypes}
@@ -4020,7 +4135,7 @@
 									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
 								{/if}
 
-								{#if data.canPublishShared || authoredTransition || authoredWin}
+								{#if data.canPublishShared || authoredTransition || authoredWin || authoredFreeSpins || authoredButtons}
 									<hr class="gs-rule" />
 									<p class="gs-note">
 										<strong>Authored overlays (pilot)</strong> — render an overlay from its authored component
@@ -4043,23 +4158,53 @@
 										/>
 										<span>Transition</span>
 									</label>
-									<!-- Locked off until the Win parity follow-up merges (the save refuses it too,
-										`AUTHORED_WIN_LOCKED`); still switchable OFF if a doc has it on. -->
 									<label
 										class="gs-toggle"
-										class:disabled={!data.canPublishShared || !authoredWin}
-										title="The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses. Held back (the coded path stays, the publish summary warns) when nothing binds a coded Win, when a tier caption uses a &#123;amount&#125; token, or when the tiers resolve to more than one rig or count slot. Switched by a publisher (the component-publish capability)."
+										class:disabled={!data.canPublishShared}
+										title="The big-win presentation (the tier rig and its clips, the count, the caption, the plain number) plays from the built-in “Win presentation” component and per-tier timelines generated at boot instead of the coded WinVisual; the coded gate keeps the count-up, the round hold and the presses. Held back (the coded path stays, the publish summary warns) when nothing binds a coded Win, when a tier caption (in the base game or any spins mode) uses a &#123;amount&#125; token, or when the tiers resolve to more than one rig or count slot. Switched by a publisher (the component-publish capability)."
 									>
 										<input
 											type="checkbox"
 											checked={authoredWin}
-											disabled={!data.canPublishShared || !authoredWin}
+											disabled={!data.canPublishShared}
 											onchange={(e) => {
 												authoredWin = e.currentTarget.checked;
 												onGameSettingChange();
 											}}
 										/>
-										<span>Win <em class="gs-pending">pilot pending — parity follow-up</em></span>
+										<span>Win</span>
+									</label>
+									<label
+										class="gs-toggle"
+										class:disabled={!data.canPublishShared}
+										title="The free-spin intro and outro visuals (the frame rig, the count rig and number, the localized captions, the fade) play from the built-in “Free-spin intro / outro presentation” components and their timelines instead of the coded FreeSpinIntroVisual / FreeSpinOutroVisual; the coded outro driver keeps the count-up and the round hold, the screens keep their taps. Held back (the coded path stays, the publish summary warns) when nothing binds a coded visual, when one sits in a non-canvas screen, when a screen places a free-spin visual instance, or when a visual names a custom rig, clip or slot. Switched by a publisher (the component-publish capability)."
+									>
+										<input
+											type="checkbox"
+											checked={authoredFreeSpins}
+											disabled={!data.canPublishShared}
+											onchange={(e) => {
+												authoredFreeSpins = e.currentTarget.checked;
+												onGameSettingChange();
+											}}
+										/>
+										<span>Free spins</span>
+									</label>
+									<label
+										class="gs-toggle"
+										class:disabled={!data.canPublishShared}
+										title="Every parametric HUD button draws its per-state frame (the tile, its downstate grey and selected border, or the state images), turns its spin frame and plays its press sound from the built-in “Button presentation” component and its state machine instead of the coded ButtonFrame; the press itself, what it does and when the button is disabled, selected or spinning stay coded. Held back (the coded frame stays, the publish summary warns) when no screen places a parametric button, or when the project's own Button component draws something else. Switched by a publisher (the component-publish capability)."
+									>
+										<input
+											type="checkbox"
+											checked={authoredButtons}
+											disabled={!data.canPublishShared}
+											onchange={(e) => {
+												authoredButtons = e.currentTarget.checked;
+												onGameSettingChange();
+											}}
+										/>
+										<span>Buttons</span>
 									</label>
 								{/if}
 
@@ -4148,7 +4293,7 @@
 					components: $state.snapshot(storedComponents) as ComponentDef[],
 					componentEtags: $state.snapshot(storedEtags),
 					assets: data.assets,
-					componentDefaults: data.componentDefaults,
+					componentDefaults: $state.snapshot(componentDefaults),
 					gameName: data.gameName,
 					addOns: data.addOns,
 					canPublishShared: data.canPublishShared,
@@ -4163,6 +4308,9 @@
 				onComponentsChange={(list, etags) => {
 					storedComponents = list;
 					storedEtags = etags;
+				}}
+				onDefaultsChange={(id, params) => {
+					componentDefaults = { ...componentDefaults, [id]: params };
 				}}
 				writesBlocked={projectDrift}
 				onOpenedChange={(id) => {
@@ -5188,12 +5336,6 @@
 	.gs-toggle input {
 		accent-color: #7ee0c0;
 		cursor: inherit;
-	}
-	.gs-pending {
-		margin-left: 4px;
-		font-size: 11px;
-		font-style: normal;
-		color: #8a8a94;
 	}
 	.gs-locked {
 		margin: 0;

@@ -235,6 +235,7 @@ const conduct = (tiers: Tier[]) => {
 		true,
 		{
 			tier: (a) => `walk:${a}`,
+			cycle: (a) => `cycle:${a}`,
 			loop: (a) => `loop:${a}`,
 			outro: (a) => `outro:${a}`,
 			plain: 'plain',
@@ -255,8 +256,8 @@ const conduct = (tiers: Tier[]) => {
 		run(next.effects);
 	};
 	step({ type: 'start' });
-	// Each walk hold ends at its idle's end; the final tier's loop takes over.
-	for (let i = 0; i < tiers.length; i++) step({ type: 'holdEnd', step: walk.step });
+	// Each intro hold ends, then a non-final tier's one idle cycle; the final tier's loop takes over.
+	for (let i = 0; i < tiers.length * 2 - 1; i++) step({ type: 'holdEnd', step: walk.step });
 	// The count lands: an exit is a held fire the round waits out; no exit ⇒ done at once.
 	step({ type: 'countUpComplete' });
 	const last = fired.at(-1) ?? '';

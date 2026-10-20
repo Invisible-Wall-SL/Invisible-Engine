@@ -114,8 +114,8 @@ export { ConflictError };
 /**
  * List every component-defaults sidecar under the project prefix as a
  * `componentId → params` map. Skips malformed entries (never throws), so one read
- * hydrates the Component Editor page. The componentId is the R2 key's basename
- * (already `r2Slug`-normalized when written).
+ * hydrates the Component Editor page. The componentId is the id stamped in the
+ * sidecar, or the R2 key's basename (`r2Slug`-normalized) for one written before the stamp.
  */
 export async function listComponentDefaults(
 	projectKey: string,
@@ -167,12 +167,16 @@ export function keyComponentDefaultsById(
 	return out;
 }
 
-/** One component's defaults from the listed map, by its real id (the map is keyed `r2Slug(id)`). */
+/**
+ * One component's defaults from the {@link listComponentDefaults} map, by its real id. The map keys
+ * a sidecar by the id stamped in it, or by `r2Slug(id)` (its filename) for one written before the
+ * stamp, so try both.
+ */
 export function componentDefaultsFor(
 	defaults: Record<string, Record<string, unknown>>,
 	id: string,
 ): Record<string, unknown> | undefined {
-	return defaults[r2Slug(id)];
+	return defaults[id] ?? defaults[r2Slug(id)];
 }
 
 /** Read + unwrap one defaults key's `params` plus the `id` stamped beside them (absent on a

@@ -119,6 +119,36 @@ export interface BundleSyncResult {
 	revision: string;
 	/** Region count in the live source manifest. */
 	regions: number;
+	/** The source sheet's page in R2 — the key the sheet's own export reads. */
+	pageKey: string;
+	/** The `.atlas` a sync writes for the live sheet: what an in-sync bundle holds, byte for byte. */
+	atlasText: string;
+}
+
+/**
+ * The sheet page a bundle's page is a turned copy of, while that still holds — or null.
+ *
+ * A bundle made from a sheet (`api/rigger/new`, a sync) is that sheet's geometry over a copy of its
+ * page with each rotated region turned 180°, so the export can ship the sheet page with the
+ * rotations read clockwise instead. That needs `sync` — this export's own `ensureBundleAtlasFresh`
+ * result, so nothing is read twice — and two proofs that nothing else has written the bundle since:
+ * its `.atlas` is exactly what the sync writes (an atlas uploaded into the folder, or a sync racing
+ * this export, is not), and its page is no newer than `source.json`, which every sync and
+ * `api/rigger/new` write LAST (a page uploaded afterwards is). Otherwise null: ship the bundle's own.
+ */
+export async function bundleSheetPage(
+	bundlePrefix: string,
+	bundleAtlas: string,
+	sync: BundleSyncResult,
+): Promise<{ pageName: string; pageKey: string } | null> {
+	if (bundleAtlas !== sync.atlasText) return null;
+	const pageName = basename(sync.pageKey);
+	const [page, sidecar] = await Promise.all([
+		headObject(`${bundlePrefix}/${pageName}`),
+		headObject(`${bundlePrefix}/source.json`),
+	]);
+	if (!page || !sidecar || page.lastModified > sidecar.lastModified) return null;
+	return { pageName, pageKey: sync.pageKey };
 }
 
 /**
@@ -177,16 +207,15 @@ export async function ensureBundleAtlasFresh(
 	const textRev = rigTextRevision(textDoc);
 	const sheetRev = await bundleRevision(rs);
 	const revision = textRev ? `${sheetRev}:t${textRev}` : sheetRev;
-	if (!opts.force && revision === baseline) {
-		return { changed: false, revision, regions: rs.regions.length };
-	}
+	const pageName = basename(rs.pageKey);
+	const atlasText =
+		regionsToRigAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions) + textBlock;
+	const synced = { revision, regions: rs.regions.length, pageKey: rs.pageKey, atlasText };
+	if (!opts.force && revision === baseline) return { changed: false, ...synced };
 
 	// Drifted (or forced) → re-synthesise the bundle `.atlas` + page from the live manifest.
 	const page = await getObjectBytes(rs.pageKey);
 	if (!page) return null; // page vanished — can't refresh; leave the bundle untouched
-	const pageName = basename(rs.pageKey);
-	const atlasText =
-		regionsToRigAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions) + textBlock;
 	// Re-orient CW-packed rotated regions to rig's CCW `rotate:90` convention (no-op when
 	// nothing is rotated) so the bundle stays self-consistent — its own page + its own atlas.
 	const pageBody = await reorientRotatedRegionsForRig(page.body, rs.regions);
@@ -207,5 +236,5 @@ export async function ensureBundleAtlasFresh(
 		await deleteObject(`${bundlePrefix}/${oldPageName}`);
 	}
 
-	return { changed: true, revision, regions: rs.regions.length };
+	return { changed: true, ...synced };
 }

@@ -84,6 +84,9 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	padding: true,
 	switchKeys: true,
 	color: true,
+	borderRadius: true,
+	borderWidth: true,
+	borderColor: true,
 	componentId: true,
 	componentVersion: true,
 	params: true,
@@ -139,6 +142,9 @@ const componentDefFields: Record<keyof ComponentDef, true> = {
 	inputs: true,
 	stateMachine: true,
 	frameExact: true,
+	boardAnchored: true,
+	buttonStates: true,
+	settles: true,
 	events: true,
 };
 const componentParamFields: Record<keyof ComponentParam, true> = {
@@ -172,6 +178,7 @@ const smLayerFields: Record<keyof SmLayer, true> = {
 	states: true,
 	transitions: true,
 	pseudoPos: true,
+	disabled: true,
 };
 const smStateFields: Record<keyof SmState, true> = {
 	id: true,
@@ -179,8 +186,11 @@ const smStateFields: Record<keyof SmState, true> = {
 	timeline: true,
 	speed: true,
 	loop: true,
+	offsetParam: true,
+	randomStart: true,
 	pos: true,
 	onEnter: true,
+	onExit: true,
 };
 const componentEventFields: Record<keyof ComponentEvent, true> = {
 	id: true,
@@ -211,6 +221,10 @@ const smTransitionFields: Record<keyof SmTransition, true> = {
 	conditions: true,
 	exitTime: true,
 	blend: true,
+	ease: true,
+	pauseSource: true,
+	allowExit: true,
+	disabled: true,
 };
 const templateSlotFields: Record<keyof TemplateSlot, true> = {
 	slotId: true,

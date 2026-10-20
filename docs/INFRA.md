@@ -618,6 +618,14 @@ Railway. With `DATABASE_URL` unset the worker still boots but claims nothing and
 >   to boot. Defaults to `sid`.
 > - The game must be launched with a runtime bundle that carries the matching profile
 >   (`PUBLIC_DELIVERY_PROFILES`, see `docs/design/delivery-builds.md`).
+> - **Testing a DELIVERY on the partner's own page:** add `&on=partner` (and `&game=<their game id>`
+>   when it differs from `gameId`) to the launch link. It mints a session the same way and then
+>   redirects to the `game_url` the partner's create-session answers with, which is their page
+>   loading our delivered build from their CDN. `key` still decides who may mint. It loads the
+>   LATEST version we delivered (alias = the card's name without spaces, or `&alias=`), or exactly
+>   `&version=vN`, through the partner's per-session `config.versionPath`, which overrides their
+>   server setting for that one session only. So a new delivery is testable at once; the partner
+>   repoints game 7 itself only once we name a release candidate.
 >   **Engine "release pending" pill (C2):** the launcher home pill can also flag when engine `main` has un-released ENGINE changes (`apps/lines/`, `packages/`) ahead of the live runtime bundle's stamped commit. To activate, set on the **launcher-api** Railway service: `GITHUB_ENGINE_READ_TOKEN` = a **fine-grained PAT** with **read-only "Contents"** on `Invisible-Wall-SL/Invisible-Engine` (optionally `GITHUB_ENGINE_REPO` = `owner/repo` to override the default). The launcher calls the GitHub compare API (`{deployed}...main`) best-effort, cached ~60s. **If `GITHUB_ENGINE_READ_TOKEN` is unset (or any GitHub error/timeout), the pill simply never shows "release pending"** — it behaves exactly as before (green/deployed). `GIT_CLONE_TOKEN` is used only as a best-effort fallback and is scoped to game repos, so a dedicated read token is preferred. After setting → **Apply changes / Deploy**.
 
 > **Partner CDN uploads (`DELIVERY_R2_*`):** where `scripts/upload-delivery.mjs` puts a delivery
@@ -1021,7 +1029,7 @@ owner only; agents never change repository settings.
 | Block force pushes | **on** |
 | Require a pull request before merging | **on** — required approvals **0**, no code-owner review, allowed methods merge/squash/rebase (the repo itself only enables squash) |
 | Require status checks to pass | **on** — "Require branches to be up to date" **off**; source **GitHub Actions** for each check |
-| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` — `transition parity` (`.github/workflows/transition-parity.yml`, the authored-vs-coded Transition frames, Rive plan Phase 8a) is **advisory**: it runs on PRs touching the runtime, `packages/`, the harness libraries, the mock RGS, the lockfile or its own file, and adding it here is the owner's call; `win parity` (`check:win-parity`, Rive plan Phase 8b) gets the same kind of workflow in a follow-up PR |
+| Required checks (exact names) | `check-all (1/3)` · `check-all (2/3)` · `check-all (3/3)` · `python tests` · `eslint` · `check-secrets` — `transition parity` (`.github/workflows/transition-parity.yml`, the authored-vs-coded Transition frames, Rive plan Phase 8a) is **advisory**: it runs on PRs touching the runtime, `packages/`, the harness libraries, the mock RGS, the lockfile or its own file, and adding it here is the owner's call; `win parity` (`.github/workflows/win-parity.yml`, `check:win-parity`, the authored-vs-coded Win frames, Rive plan Phase 8b), `free-spin parity` (`.github/workflows/freespin-parity.yml`, `check:freespin-parity`, Rive plan Phase 8c) and `button parity` (`.github/workflows/button-parity.yml`, `check:button-parity`, Rive plan Phase 8d) are advisory on the same terms; so is `rig parity` (`.github/workflows/rig-parity.yml`, `node tools/rig-parity/parity.mjs`, `engine-rig` vs the 4.2.120 reference runtime on every repo rig), which runs on PRs touching `packages/engine-rig`, `tools/rig-parity`, any `spines/` or `rigs/` folder, any `.atlas` / `.skel`, the lockfile or its own file |
 
 Approvals stay at 0 because the owner and agents open and merge their own PRs; the checks are the
 gate. "Up to date" stays off because it would re-run ~15 CPU-minutes of `check-all` on every PR each

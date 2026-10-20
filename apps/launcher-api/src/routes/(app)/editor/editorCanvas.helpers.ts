@@ -4,6 +4,7 @@ import {
 	aspectBox,
 	boundComponentRidesBone,
 	boundComponentTileImage,
+	forwardInstanceParams,
 	instancePreviewRigBundle,
 	resolveBoundValue,
 	resolveComponentParams,
@@ -388,6 +389,7 @@ export function nodeBox(
 			0,
 			[],
 			componentDefaults,
+			instanceParams ?? {},
 		);
 		if (content) return content;
 	}
@@ -548,7 +550,9 @@ function componentInstanceContentBox(
 	layoutType: LayoutType,
 	depth: number,
 	stack: string[],
-	componentDefaults?: Record<string, Record<string, unknown>>,
+	componentDefaults: Record<string, Record<string, unknown>> | undefined,
+	/** The enclosing instance's resolved params — what the instance's forwarded params read. */
+	outerParams: Record<string, unknown>,
 ): NodeBox | null {
 	const def = componentMap.get(node.componentId);
 	if (!def) return null;
@@ -559,13 +563,17 @@ function componentInstanceContentBox(
 	// authored rig's natural bounds (matching what the rig layer renders). Undefined ⇒ parity.
 	const rigBundle = instancePreviewRigBundle(
 		def,
-		resolveComponentParams(def, node.params, componentDefaults?.[def.id]),
+		resolveComponentParams(
+			def,
+			forwardInstanceParams(node, node.params, outerParams),
+			componentDefaults?.[def.id],
+		),
 	);
-	// The params the children DRAW with — per-ratio overrides included, as `drawComponentInstance`
-	// resolves them — so a part sized by them frames what the canvas draws.
+	// The params the children DRAW with — per-ratio overrides and forwarded params included, as
+	// `drawComponentInstance` resolves them — so a part sized by them frames what the canvas draws.
 	const params = resolveComponentParams(
 		def,
-		resolveLayoutInstanceParams(node, layoutType),
+		forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outerParams),
 		componentDefaults?.[def.id],
 	);
 
@@ -594,6 +602,7 @@ function componentInstanceContentBox(
 						depth + 1,
 						childStack,
 						componentDefaults,
+						params,
 					) ??
 					nodeBox(
 						child,
@@ -1106,4 +1115,155 @@ export function reelGridGeometry(
 		outline,
 		clip: { x: clipX, y: clipY, w: Math.max(...xs) - clipX, h: Math.max(...ys) - clipY },
 	};
+}
+
+/**
+ * One DEPTH SEGMENT of a game screen: a stretch of its draw order that the editor gives its own
+ * stack of surfaces (2D → rig → text → FX).
+ *
+ * The editor draws each kind on a surface of its own, so inside one stack every FX sits above
+ * every sprite, rig and text whatever the outline says. The game draws one scene graph in outline
+ * order. Walking the tree in that order — into groups, parts and nested components — and starting
+ * a new stack at the first art drawn after an FX puts that art back above the FX, at any depth. A
+ * screen with no FX ahead of other art stays ONE segment, keyed by the scene id, so its surfaces
+ * and report keys are what they always were.
+ */
+export interface DepthSegment {
+	/** The scene id for the first segment, `<sceneId>#seg<i>` after it. */
+	key: string;
+	sceneId: string;
+	index: number;
+	/** The top-level nodes with anything in this segment, in doc order. A group or component that
+	 * an FX splits appears in every segment it spans. */
+	nodes: LayoutNode[];
+	/** True when this one segment is the whole screen (nothing was split off). */
+	whole: boolean;
+	/** Which segment each node is drawn in, keyed by {@link depthKey} of its id path (a nested
+	 * component's nodes sit under the instance's id). Shared by every segment of the screen. */
+	segmentOf: Map<string, number>;
+	/** Changes exactly when the screen's split does — for memoizing what is derived from it. */
+	sig: string;
+}
+
+/** What a renderer needs to draw ONE segment: the screen's split and the segment to keep. */
+export interface DepthSlice {
+	segmentOf: Map<string, number>;
+	index: number;
+}
+
+/** The key of a node's id path from the top of its screen (component def roots are skipped, as
+ * every renderer expands an instance straight into `def.root.children`). */
+export function depthKey(ids: readonly string[]): string {
+	return ids.join('\n');
+}
+
+/** The segment a node at this id path draws in. A path the split never visited (a repeater's cards,
+ * say) draws with its nearest ancestor. */
+export function depthSegmentOf(segmentOf: Map<string, number>, ids: readonly string[]): number {
+	for (let i = ids.length; i > 0; i--) {
+		const seg = segmentOf.get(depthKey(ids.slice(0, i)));
+		if (seg !== undefined) return seg;
+	}
+	return 0;
+}
+
+/** Whether the node at this id path is drawn in `slice`'s segment (`null` ⇒ the whole screen). */
+export function inDepthSlice(slice: DepthSlice | null, ids: readonly string[]): boolean {
+	return !slice || depthSegmentOf(slice.segmentOf, ids) === slice.index;
+}
+
+/** The nodes a renderer expands a node into — a group's children, a component's def children —
+ * with the component depth/stack they recurse at; `null` for a node that is drawn as itself. */
+function depthChildren(
+	n: LayoutNode,
+	componentMap: Map<string, ComponentDef>,
+	depth: number,
+	stack: string[],
+): { nodes: LayoutNode[]; depth: number; stack: string[] } | null {
+	if (n.kind === 'container') return { nodes: n.children, depth, stack };
+	if (n.kind === 'componentInstance') {
+		const def = componentMap.get(n.componentId);
+		if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
+		return { nodes: def.root.children, depth: depth + 1, stack: [...stack, def.id] };
+	}
+	return null;
+}
+
+/** Split a screen into {@link DepthSegment}s: walk its tree in draw order and start a new segment
+ * at the first node that draws art of its own once the current one holds an FX. A group or a
+ * resolvable component draws only its children, unless it is a bound anchor (its preview / part
+ * skin); a missing component still draws its placeholder. */
+export function depthSegments(
+	scene: Scene,
+	componentMap: Map<string, ComponentDef>,
+): DepthSegment[] {
+	const segmentOf = new Map<string, number>();
+	const touched: Set<string>[] = [new Set()];
+	let index = 0;
+	let hasFx = false;
+	const walk = (
+		nodes: LayoutNode[],
+		ids: string[],
+		depth: number,
+		stack: string[],
+		top: string | null,
+	): void => {
+		for (const n of nodes) {
+			const path = [...ids, n.id];
+			const children = depthChildren(n, componentMap, depth, stack);
+			const ownArt = n.kind !== 'effect' && (!!n.bind || !children);
+			if (ownArt && hasFx) {
+				index++;
+				touched.push(new Set());
+				hasFx = false;
+			}
+			segmentOf.set(depthKey(path), index);
+			touched[index].add(top ?? n.id);
+			if (n.kind === 'effect') hasFx = true;
+			if (children) walk(children.nodes, path, children.depth, children.stack, top ?? n.id);
+		}
+	};
+	walk(scene.nodes, [], 0, [], null);
+	const sig = [...segmentOf].map(([k, i]) => `${k}=${i}`).join('|');
+	return touched.map((ids, i) => ({
+		key: i === 0 ? scene.id : `${scene.id}#seg${i}`,
+		sceneId: scene.id,
+		index: i,
+		nodes: scene.nodes.filter((n) => ids.has(n.id)),
+		whole: touched.length === 1,
+		segmentOf,
+		sig,
+	}));
+}
+
+/** A placed effect's measured particle spread, in the node's own local space: `x`/`y` are the
+ * top-left offset from the node origin (`EditorEffectLayer` → the selection box). */
+export interface SpreadBox {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+}
+
+/** The smallest box enclosing both. */
+export function unionBox(a: SpreadBox, b: SpreadBox): SpreadBox {
+	const x = Math.min(a.x, b.x);
+	const y = Math.min(a.y, b.y);
+	return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
+
+/** Fold the effect overlays' spread reports into one box per node id. Each scene, depth segment
+ * and blend group reports from its own overlay, and the placements of one component part can land
+ * in different ones, so a node reports the union of all its boxes. */
+export function mergeSpreadBoxes(
+	reports: Iterable<Map<string, SpreadBox>>,
+): Map<string, SpreadBox> {
+	const merged = new Map<string, SpreadBox>();
+	for (const report of reports) {
+		for (const [id, box] of report) {
+			const prev = merged.get(id);
+			merged.set(id, prev ? unionBox(prev, box) : box);
+		}
+	}
+	return merged;
 }

@@ -194,8 +194,7 @@ export function validateManifestAgainstGame(
 	const deployPathMissing =
 		typeof manifest.deploy_path !== 'string' || manifest.deploy_path.trim().length === 0;
 	const deployBasenameMissing =
-		typeof manifest.deploy_basename !== 'string' ||
-		manifest.deploy_basename.trim().length === 0;
+		typeof manifest.deploy_basename !== 'string' || manifest.deploy_basename.trim().length === 0;
 
 	const notes: string[] = [];
 	if (deployPathMissing) {
@@ -212,8 +211,7 @@ export function validateManifestAgainstGame(
 		);
 	}
 
-	const ok =
-		missing.length === 0 && geometryMismatch.length === 0 && rotationMismatch.length === 0;
+	const ok = missing.length === 0 && geometryMismatch.length === 0 && rotationMismatch.length === 0;
 
 	return {
 		missing,

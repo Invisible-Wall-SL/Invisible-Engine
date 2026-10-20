@@ -1,8 +1,4 @@
-import {
-	DEFAULT_LAYOUT_PROFILE,
-	normalizeLayoutProfile,
-	type LayoutProfile,
-} from 'engine-layout';
+import { DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile, type LayoutProfile } from 'engine-layout';
 import { getAppSetting, setAppSetting } from './appSettings';
 import { loadDocWithEtag } from './editorStorage';
 
@@ -38,7 +34,10 @@ export async function getGlobalLayoutProfile(): Promise<LayoutProfile | undefine
 }
 
 /** Persist the admin-authored global default (validated), recording the admin. */
-export async function setGlobalLayoutProfile(input: unknown, userId: string): Promise<LayoutProfile> {
+export async function setGlobalLayoutProfile(
+	input: unknown,
+	userId: string,
+): Promise<LayoutProfile> {
 	const profile = normalizeLayoutProfile(input);
 	if (!profile) throw new Error('Invalid layout profile: no usable bucket');
 	await setAppSetting(LAYOUT_PROFILE_DEFAULT_KEY, JSON.stringify(profile), userId);

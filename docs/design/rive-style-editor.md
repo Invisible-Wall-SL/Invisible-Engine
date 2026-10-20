@@ -164,10 +164,12 @@ interface ComponentInput { id; kind: 'bool' | 'number' | 'trigger'; default?; so
 // `source` (number only): a registered engine value source (`winAmount`) that feeds the input.
 
 interface ComponentStateMachine { layers: SmLayer[] }
-interface SmLayer      { id; name?; entry: string /* a state id */; states: SmState[]; transitions: SmTransition[] }
-interface SmState      { id; name?; timeline: string /* cinematic id */; speed?; loop? }
+interface SmLayer      { id; name?; entry: string /* a state id */; states: SmState[]; transitions: SmTransition[];
+                         disabled? /* 9c */ }
+interface SmState      { id; name?; timeline: string /* cinematic id */; speed?; loop?; onEnter?; onExit? /* 9c */ }
 interface SmTransition { id; from /* state id | 'any' */; to /* state id | 'exit' */;
-                         conditions?: SmCondition[]; exitTime?; blend? /* ms */ }
+                         conditions?: SmCondition[]; exitTime?; blend? /* ms */;
+                         ease?; pauseSource?; allowExit?; disabled? /* 9c */ }
 interface SmCondition  { input; op: 'fired' | '==' | '!=' | '<' | '>'; value? }
 ```
 
@@ -286,6 +288,18 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   unique within the state, that the editor selects and the keep-unknown save grafts on) — raised
   when the layer's entry state is entered as the machine starts, and for every state a transition
   enters (a same-tick chain raises each state it passes, in order).
+- **Phase 9c options, each absent ⇒ the behaviour above** (so a saved def without them runs
+  byte-identically): `SmState.onExit?` (rows like `onEnter`) is raised each time a transition
+  leaves the state, before the target's `onEnter` (never on reset or unmount). On a transition:
+  `disabled: true` never fires and holds no trigger (reachability ignores it); with a `blend`,
+  `ease: [x1, y1, x2, y2]` shapes the blend's progress with the timeline evaluator's cubic
+  (overshoot clamps to 0..1), `pauseSource: false` keeps the state being left playing under the
+  blend at its own speed (wrapping or clamping; its cues do not fire; a transition taken mid-blend
+  still leaves from the frozen mix), and `allowExit: false` lets no transition leave the target
+  state until the blend ends (a trigger such a transition reads is held until then, as for an
+  exit time). The normalizer keeps those three only with a blend, and only the
+  non-default values. `SmLayer.disabled: true` sits in `exit` from the start and after a reset,
+  enters nothing and reports `exit` as its state value; its timelines are not reported missing.
 - **One ordered raise queue per instance** (`ComponentEventDispatcher`): a state's `onEnter` and an
   `event:` cue are raised from inside a tick, or from the mount when the machine starts there, so
   they are queued and drained after the current work (a microtask in game) — a Flow chain never
@@ -524,7 +538,7 @@ This is the same rule [game-type-templates.md](game-type-templates.md) set for s
 | **Screens** | Where things live | Base game, HUD, menus | Board screen, HUD | Play field, HUD |
 | **Flow** | What things mean: logic, game state | Book events → presentation | Swap → match → cascade → refill | Input → move → collide → score |
 | **Mechanic** (code, small) | The bit that must run fast or exactly | Reels, win lines, tumble | Grid model: swap, match find, gravity | Tick loop, movement, collision |
-| **Outcome source** | Who decides results | RGS books | RGS books *or* local rules | Local rules (or RGS for prize games) |
+| **Outcome source** | Who decides results (a per-game option, §12 #6) | RGS books | RGS books *or* local rules | Local rules *or* RGS books |
 
 Components, screens, timelines and the Flow ↔ component contract (§6) are **game-agnostic by
 construction**. Nothing in §3–§6 mentions reels, symbols or books. That is what lets a match-3 or
@@ -647,14 +661,14 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 0 | **Decisions + ADR** — ✅ done 2026-10-13 | Owner signed off §12 (4, 6, 7 stay open); `invisible-editor.md` §8.7/§17 point here | docs | S |
 | 1 | **Node actors + hosts** | §3.1–3.2 in the format, evaluator and `<Cinematic>` player; existing cinematics byte-identical; localization harvest reads timelines (§8) | `engine-cinematic`, `engine-layout`, rigger-spike gates | M |
 | 2 | **Extract the sequencer** | §3.4: `/rigger` runs on the shared module with every cinematic gate still green | `static/rigger/cinematic.js` → shared module | L |
-| 3 | **Animate a screen** — built 2026-10-13, owner browser check pending | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
-| 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check pending | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
-| 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check pending | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
-| 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check pending | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
-| 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check pending | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
-| 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) and 8b (Win) built 2026-10-14** (§13.2, §13.6), owner browser checks pending, live games still coded | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
-| 9 | **Shared library + UX pass** | `_shared/cinematics/` promotion and starter timelines; hierarchy lock/hide/solo, shortcuts, onion skin | editor, storage | M |
-| 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
+| 3 | **Animate a screen** — built 2026-10-13, owner browser check passed 2026-10-17 | Animate mode in `/editor` for a screen; Flow `playCinematic` plays it in game. **First end-to-end proof**, no state machine needed | `routes/(app)/editor`, Svelte wrapper | M |
+| 4 | **Components in place** — 4a + 4b built 2026-10-13 (4a: components in place, `/components` folded in; 4b: component timelines played per instance), owner browser check passed 2026-10-17 | Components listed in `/editor`, edit in place with a breadcrumb, `/components` folds in; component timelines | `routes/(app)/editor` (`ComponentWorkspace.svelte`, was `components/+page.svelte`) | L |
+| 5 | **Interface + state machine** — 5a (format, interpreter, per-instance runtime, gate `check:component-state-machine`) and 5b (the State Machine panel, the Inputs block, the stage preview; gate `check:component-state-machine-editor`) built 2026-10-13, owner browser check passed 2026-10-17 | The §6.1 interface (inputs, values) on `ComponentDef`; state machine graph, transition conditions, stage preview with input toggles; runtime interpreter | `engine-layout` (`stateMachine.ts`, `componentInterface.ts`), new editor panel | L |
+| 6 | **Listeners + events** — 6a (format, runtime, validation, normalizer; gate `check:component-listeners-events`) on `main` (#1186); 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log; gate `check:component-listeners-events-editor`) built 2026-10-13, owner browser check passed 2026-10-17 | Pointer events on nodes → inputs; the interface's **events** (from listeners, state entry, timeline cues) | `engine-layout`, `EditorProperties` | M |
+| 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check passed 2026-10-17 | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
+| 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) and 8b (Win) built 2026-10-14** (§13.2, §13.6), owner browser checks passed 2026-10-17; 8c and 8d built 2026-10-15; all four unlocked, off by default | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
+| 9 | **Shared library + UX pass**, re-scoped 2026-10-16 into 9a–9d ([rive-reference.md §5](rive-reference.md#5-phase-9-re-scoped-proposal)) | 9a hierarchy and stage basics (lock / isolate / hide, shortcuts); 9b keying and easing (Inspector key buttons, cubic Interpolation panel, multi-key edit); 9c Animations list, state-machine transition options and Console; 9d `_shared/cinematics/` promotion and starter timelines, Data tab. Onion skin goes in 9b | editor, storage, timeline format (`ease`) | M each |
+| 10 | **Game families plan** — plan approved 2026-10-20 in [game-families.md](game-families.md) (all §9 decisions accepted); build on hold until the owner says go | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic) and §12 #6 (both outcome sources, per game); match-3 first, because it reuses the cascade work. Its own build plan is P10.1–P10.10 (game-families.md §8) | docs → its own phases | — |
 
 **Ship chain (rule 8):** no new asset class. Timelines already travel export → deploy → bake →
 pull → register as cinematics. What a node-actor timeline references must also ship: art it swaps
@@ -697,12 +711,15 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
    trigger inputs) — Phase 5b.
 5. **Which proof first** for Phase 3 — **DECIDED (owner 2026-10-13): a screen intro.** Animate a
    screen's intro in the Scene Editor and have Flow's `playCinematic` play it in game.
-6. **Outcome source for the new families.** Are the arcade and match-3 games real-money games
-   whose results come from the RGS (the player's moves are presentation, as in a cascade slot), or
-   skill / free-play games where the client's own rules decide? This decides how much logic Flow
-   must own, and it is the biggest single fork in §7. Not needed before Phase 10.
-7. **Rive references.** Screenshots or a short recording of the Rive screens you want copied
-   would sharpen Phases 4 and 9.
+6. **Outcome source for the new families.** — **DECIDED (owner 2026-10-20): both, chosen per
+   game.** A match-3 or arcade game can be a real-money game whose results come from the RGS (the
+   player's moves are presentation, as in a cascade slot) or a skill / free-play game whose own
+   rules decide. The outcome source is an option each game sets, not a property of the family, so
+   Phase 10 must support both. Flow owns the rules logic only in a game whose rules decide; an
+   RGS-decided game keeps the books driving the result.
+7. **Rive references.** **PROVIDED (owner 2026-10-16):** five screenshots plus the Rive interface
+   docs. The surface-by-surface map, the deliberate non-copies and the re-scoped Phase 9 (9a–9d) live
+   in [rive-reference.md](rive-reference.md).
 
 ## 13. Phase 8: overlay migration (plan — 8a Transition first)
 
@@ -1303,10 +1320,290 @@ in order, then the conditions the build carried and the findings it made.
   workflow-only follow-up PR, which also carries `held`, `turbo`, the escalation hand-off,
   `slam-small` and the flag-on items the #1194 review listed, and must merge before the Win flag
   is switched on for any project — until then the Game Settings Win row and the save lock it off
-  (`AUTHORED_WIN_LOCKED`). **Known gap:** `check:authored-transition`,
+  (`AUTHORED_WIN_LOCKED`; lifted 2026-10-16, see 13.6.11). **Known gap:** `check:authored-transition`,
   `check:authored-win` and `check:component-timelines` are package scripts the Lint workflow's
   launcher list does not run yet — the same follow-up PR adds them.
 - **Left for the owner's browser check:** the tap grammar (step / land / dismiss / park), the ramp
   while holding, the dim under a moved instance, the first-win instant show vs the later fades.
   Known caveat: a reel-grid override moves `boardLayout()` but not the synthesized instance (the
   per-layout-override fallback covers it).
+
+**13.6.11 The parity follow-up (2026-10-15, `claude/rive-p8b-followup`).** The #1194 review's
+flag-on list and the deferred parity variants; the lock stayed until the owner accepted the residue (last bullet):
+
+- **One clip per held timeline (the escalation hand-off).** The walk was ONE timeline (intro, then
+  one idle) with a snap-to-end within 1e-6. The coded track completes a clip when the frame deltas
+  summed since THAT clip started reach its length — no rounding, no snap — and starts the next at 0
+  from that `complete`. On the stepped clock the 720-frame idle's deltas sum a hair under 12 s, so
+  the coded idle completed on frame 721 while the snapped walk ended on 720: from each tier
+  hand-off on, the authored chain ran one frame ahead (t+801 showed the next tier on one side and
+  the old idle's last frame on the other; the rig's embers drifted after). Each clip is now its own
+  held timeline — `c_winpresentation_<alias>_walk` (the intro, `winTier.<alias>`) and
+  `c_winpresentation_<alias>_idle` (one idle cycle, `winTierIdle.<alias>`, a chain's non-final tier
+  only) — ended by the player's plain rule, and the conductor starts the next from the hold's end
+  (the walk gained a `cycle` phase). The final tier loops straight after its intro, as the coded
+  final idle does. The `toFrame` rounding and the player's `snapEnds` are gone; the player ends a
+  timeline by the pre-#1194 rule for every def. `escalation`: 0 px at every capture.
+- **Flag-on fixes.** (a) a cascade's running-total `winUpdate` (no tier data) starts no walk and no
+  fade; (b) `start` is taken once, from `idle` only — a count, tap or landing hold that arrives
+  first fires nothing and is folded into it (an instant count collapses straight to the final
+  outro, an early tap starts on its tier); (c) the swap writes the tiers' resolved rig and count
+  slot into the swapped and the synthesized instance (`withAuthoredWinDoc(doc, presentation)`), so a
+  tier rig named per tier, by `spineKey` or by a shared param draws that rig; (d) every spins
+  mode's tier captions are scanned by `caption-variable` (`winTierModeCaptions`), and a mode with
+  its own caption walks the tier under `winTier.<alias>@<mode>` with its own key, which the
+  conductor fires while that mode is on top; (e) the late-mount re-read waits for the next
+  animation frame, not a zero timeout; (f, found by `held`) the play-rate ramp is 1 once the
+  overlay hides — `winHide` clears the count latch while a held pointer keeps its speed, which cut
+  the hide timeline's 400 ms visibility cut to a few frames; (g) the coded rewind under the
+  fade-out is mirrored: `winHide` clears the count latch, `WinAnimation` takes that edge as a new
+  presentation and restarts an escalating chain's first-tier intro while the overlay fades, so the
+  gate fires `winTierRewind.<first>` (`…_rewind`: that intro on the tier rig alone, unheld).
+- **`slam-small`, renamed `slam-plain`.** Unreachable as specified: the Play4Fun facade every shipped game runs emits
+  `setWin` only at a `big`-typed tier, so a small / medium win never shows the overlay. The variant
+  now measures the plain-number presentation (`winPlain`) — what a big tier with no animation draws
+  — with the slam press; it remains big-typed (unskippable), so it is not a raced small-win slam.
+- **`held`.** The press is a held POINTER on the board: Space is the round's slam key and ended
+  the win at the press on both sides, so the earlier held run measured a slam. It now fails when
+  its span shows the hold never engaged (`maxSpan` 900: 375 held, 1951 unheld).
+- **Captions clear.** Once any tier or mode authors a caption, every walk keys the caption node —
+  `''` where the tier (or the mode) has none — so a walk never leaves the previous tier's caption
+  on screen, as the coded caption is drawn only while the tier on show has one.
+- **Residue in the fade-out — accepted, the lock lifted.** Every capture INSIDE every presentation is
+  0 px and every `winHide` lands on the same frame. The captures now reach 24 frames past the hide
+  (the 400 ms fade), and two escalating cases still differ there: `escalation` +1956 / +1966
+  (0.19 % / 0.21 %: the WINNING SYMBOLS' post-win pulse, not the Win art; not traced) and `held`
+  +380 / +390 (1.7 % / 10 %: the coded rewind intro runs at the frozen hold speed — the coded rig's
+  `timeScale` stays `max(speedScale, 1)` after the hide — while the authored timelines run at 1×,
+  which the hide's visibility cut needs; one play rate per component cannot do both). No reference
+  game escalates. The brief made the unlock conditional on green, so `AUTHORED_WIN_LOCKED` stayed
+  until a ruling on these two. **Decision (owner, 2026-10-15): both accepted, the lock lifted**
+  (2026-10-16): `check:win-parity` allows exactly those four captures up to a ceiling just above
+  each measured value (`ACCEPTED_FADE_OUT`); the flag stays off for live games until the browser
+  check.
+
+### 13.7 Phase 8c: free-spin intro / outro (design 2026-10-15; built the same day)
+
+> Written against `main` c773a78 (8b merged). The 8b pattern, one flag row further. Built straight
+> after the design; the coordinator reviews both together.
+
+**13.7.1 The scope line.** 8c authors **what the two coded visuals draw** — `FreeSpinIntroVisual`
+and `FreeSpinOutroVisual`: the `fsIntro` frame rig (intro → looping idle), the count rig riding the
+frame's `slot_text_placeholder` (`fsIntroNumber` / `fsOutroNumber`, intro → looping idle), the
+count text riding the count rig's `slot_number`, the localized sprites (`freespins_{lang}.png`,
+`winsmall_{lang}.png`, `freespins.png`, `totalwin.png`) and the 400 ms `FadeContainer` fade. It
+leaves **coded** everything that holds or decides: `FreeSpinOutroDriver` (the
+`freeSpinOutroCountUp` subscription, the `WinCountUpProvider` count-up, the round hold and its
+self-resolve raced with `roundSkip`, `CountUpInteraction`, the `countUpComplete` latch and the
+`freeSpinOutroCountUpComplete` broadcast), each screen's `tapToContinue` (the dim, the tap,
+`tapArmAfterSignal`), `withFreeSpinScreenHolds` (`Show` … `Show{awaitComplete}` … `Hide`) and the
+choreography. The seam already exists (FS-7 split the outro into driver + visual; the intro visual
+never held anything), so — unlike 8b — **no timeline holds a cue**: the coded visuals held nothing,
+and a hold would change the round's timing. `holdsCue` / `cueHolds` are not used; the 8b conductor
+has no 8c twin because the driver already is one.
+
+**13.7.2 The components.** Two built-in defs, `freeSpinIntroPresentation` and
+`freeSpinOutroPresentation` (`scope: 'shared'`, `category: 'overlay'`, `internal`, `frameExact`),
+beside the `freeSpinIntroVisual` / `freeSpinOutroVisual` twins (a bumped twin would re-render
+every placed instance). GENERATED at boot (`freeSpinPresentationDefs({ symbolSize, boardColumns,
+lang })`) because the coded sizes are `SYMBOL_SIZE × boardDimensions().x` fractions and the sprite
+keys carry the boot's language — no engine-wide `{lang}` token. Nodes (coded order): `fade`
+(alpha, the fade machine) › `visual` (visibility) › `frame` rig (`fsIntro`, width = board columns ×
+symbol, offset by the coded authoring-box residue) + `content` container riding `frame`'s
+`slot_text_placeholder` › the caption sprite(s), the `number` rig (width × 0.3 intro / × 0.4 outro)
+with the `count` text riding its `slot_number`, the bottom sprite(s). The outro carries both
+big-win and small-win sprites; its timelines pick one. Placement: a new opt-in def field
+**`ComponentDef.boardAnchored?: true`** (built-in only, never stored): the instance is framed
+against the main box AND offset by the game's live board position (`boardBox()` gains `x` / `y`),
+so it lands where `FreeSpinAnimation` self-centred on `boardLayout()` — reel-grid overrides
+included. Absent on every other def ⇒ unchanged (parity).
+
+**13.7.3 The timelines (built-in, code).** The clips are fixed (intro 0.6667 s, idle 2.8 s on all
+three shipped rigs), so the docs are static built-ins in `BUILTIN_TIMELINES`, not generated — a
+project timeline of the same id shadows one. Intro: `…_rest` (`enter`: hidden), `…_show`
+(`freeSpinIntroShown`: visual on, frame + number intro then idle looping), `…_hide`
+(`freeSpinIntroHidden`: visual off at 0.4 s). Outro: `…_rest`, `…_show_big` / `…_show_small`
+(`freeSpinOutroShownBig` / `…Small`, off the `freeSpinOutroCountUp` broadcast the coded visual
+mounted on, by its win level), `…_hide` (`freeSpinOutroHidden`). Fades: the 8b fade machine
+(`hidden` ⇄ `shown`, 400 ms blends) on the same triggers. **Found at build time:** the game fires
+each of these signals ONE ANIMATION FRAME after its emitter event — the coded `FadeContainer`
+starts its tween and mounts its rigs on the tick after the event, and a fire on the event ran the
+whole presentation a frame ahead (the parity probe matched authored frame t to coded frame t+1 at
+0 px; with the delay, frames 1–30 are 0 px). The 8b gate does the same for its first tier. The count:
+intro = a game text source `freeSpinIntroCount` fed by `freeSpinIntroUpdate` (the coded visual's
+own number, `0` until the update); outro = the existing `freeSpinOutroTotalWin` (self-animated,
+currency-formatted, the driver's live tween).
+
+**13.7.4 Flag, status, swap, retire.** `settings.authoredOverlays.freeSpins?: true` — sparse,
+ON-only, one row for both screens. `authoredFreeSpinsStatus(doc)`: `off`; `ready`;
+`nothing-to-replace` (no scene binds a coded visual); `non-canvas-scene` (a coded bind sits in a
+non-`canvas` scene — the coded part wraps its own `MainContainer`, the authored instance would
+double-frame); `placed-visual` (a doc places a `freeSpinIntroVisual` / `freeSpinOutroVisual`
+instance — natural-size placement is not in 8c); `custom-presentation` (a bind carries non-default
+rig / clip / slot props). Every held-back status keeps the coded path for BOTH screens and the chip
+warns. `withAuthoredFreeSpinsDoc` swaps each `bind: FreeSpinIntroVisual / FreeSpinOutroVisual`
+for the authored instance carrying its transform; nothing to swap ⇒ the same object.
+`retireCodedOverlay('freeSpins')` silences both coded visuals (render nothing, subscribe nothing);
+the driver is untouched. Everything the path registers (defs, the `freeSpinIntroCount` source, the
+`freeSpinIntroHide` / `freeSpinOutroHide` signals, the board box) is registered in the flag block
+and nowhere else. `AUTHORED_FREE_SPINS = false` joins `editorFlags.ts`; no URL opt-in. The
+determinism probe gains an additive `presentations` list (which of the two defs has an instance
+mounted), the parity gate's positive control.
+
+**13.7.5 The lock (until the owner pilots it).** `AUTHORED_FREE_SPINS_LOCKED = true`: the Game
+Settings row is disabled with "pilot pending", the save refuses a switch to on (still switchable
+off), pinned by `check:authored-freespins`. **Lifted 2026-10-17** after the owner's browser check
+passed; the flag stays off by default.
+
+**13.7.6 Parity.** Flag off: current-games 0 changed screens on every live game (`fs-trigger`,
+`fs-board`, `fs-spin`, `fs-settled`, `fs-transition`, `bigwin-*`). Flag on: `check:freespin-parity`
+(`scripts/freespin-parity/run.mjs`, the 8b shape on `cg-lines`, `FORCE_TRIGGER=1`,
+`?flowV2=lines`): **intro** (frames after `freeSpinIntroShow`, the tap, `freeSpinIntroHide` on the
+same frame ± 1), **outro** (frames after `freeSpinOutroShow` through the count-up and after
+`freeSpinOutroCountUpComplete`, the tap, `freeSpinOutroHide` ± 1), **outro-slam** (a tap during the
+count-up: the total lands, same frames), **retrigger** (the mock's additive `FORCE_RETRIGGER=1` on
+the first free spin; the outro after it), **turbo** (`ie_turbo=1`).
+
+**13.7.7 Ship chain (rule 8).** No new asset class: the defs and timelines are code in the runtime
+bundle; the rigs and sprites are the engine's static `fsIntro*` bundles and localization sprites,
+already in every game and delivery. The flag rides `bundle.doc.settings` through live, publish and
+the offline bake.
+
+**13.7.8 Removal, later.** As 8b: the twins' next versions replace their bound children, the coded
+visuals and `FreeSpinAnimation` go, the driver stays (it is the outro's conductor).
+
+**13.7.9 The pre-unlock follow-up (2026-10-15, `claude/rive-p8c-followup`, #1235; the CI workflow
+is #1234).** What #1231 left before the lock can lift. The lock stays, and lifting it is the owner's call:
+
+- **Teardown.** `startAuthoredFreeSpins` (game side) registers the path and returns its teardown:
+  - the `freeSpinIntroUpdate` subscription (#1231 dropped its unsubscribe);
+  - the signals, the count source, the board box and the retire. Only the latest boot resets the module-wide retire and count.
+
+  A signal's unsubscribe also cancels the frame it requested and has not run. `Game.svelte` runs the teardown on destroy. `registerComponentSignals` / `registerComponentValues` return an unregister that removes only their own entry.
+- **The shows end.** A new component-timeline field, `CinematicDoc.loopFrom`, works like this:
+  - On reaching `duration`, the playhead wraps to `loopFrom` and carries the overshoot.
+  - A looping timeline never reports an end and holds no cue.
+  - A step longer than a lap crosses each cue once.
+  - Absent or out of `[0, duration)` ⇒ the timeline ends and holds, as before.
+
+  Each show is one intro plus one idle cycle (3.48 s), looped from the intro's end. #1231's hour-long show froze after an hour. Sampled frame by frame over 30 s, the two match phase for phase. At a lap's seam one side may read the idle at 2.8 s and the other at 0 s (the same instant), and the parity run judges the pixels there.
+- **The swap carries the node.** Every `BaseNode` field except `bind` carries over (`BASE_NODE_FIELDS`, `satisfies`-checked against the type and re-read off the source by the gate). #1231 dropped `anchor`, `blendMode`, `hiddenUntilSignal`, `rigSlot`, `on` and the bindings.
+- **One resolution.** `resolveAuthoredOverlays(raw, { status, presentation })` runs Transition → Win → free spins, each status read on the doc the earlier swaps produced. `Game.svelte` and the Game Maker chips (`authoredOverlayChips`) both call it.
+- **The lock on every write** (built here, **removed 2026-10-17** when the owner's browser check passed and the free-spin and button locks were lifted). What still holds: a project copy lands in a fresh project and keeps its source's state, and the scaffold's seed carries no `settings` (gate: `check:authored-freespins-followup`).
+
+### 13.8 Phase 8d: buttons (design 2026-10-15; built the same day)
+
+> Written against `main` 7bd9131 (8c merged). The last overlay, one flag row further. Built straight
+> after the design; the coordinator reviews both together.
+
+**13.8.1 The scope line.** 8d authors **how the parametric `button` looks per state**: the frame the
+coded `ButtonFrame` draws (the variant tile, its disabled grey and active border, or an `image*`
+frame and its disabled grey), the frame's rotation while a spin rolls, the `uiShow` / `uiHide` fade
+and the press-feedback sound. It leaves **coded** everything that decides: the press road (`action`
+→ `firePress` → the flow press → the coded `registerComponentActions` body), the XState /
+`stateBet` gates that feed `disabled` / `active` / `spinning`, `createPressHold`, the Space hotkey,
+and the **cascade rule** itself (`resolveButtonState`, `buttonStateImage.ts`), which stays the one
+resolution the coded frame, the authored art button and now the authored machine share — it is
+pinned by its own fixture so the three cannot drift. The label stays the coded `ButtonLabel` as a
+bound child (as 8b kept `WinCoins`): it is localized glyph text, not a state. `RigNode.stateAnimations`
+stays on the art-button path (custom defs with a rig); the built-in `button` has no rig node.
+
+**13.8.2 The component.** One built-in def, `buttonPresentation` (`scope: 'shared'`, `category:
+'ui'`, `internal`, `frameExact`), beside `button` (a bumped `button` would re-render every placed
+HUD button and every baked copy). Same params as `button`, so a swapped instance keeps its own.
+Nodes: `fade` (alpha) › `frame` (rotation; `tint` bound to the param — the coded frame tints its
+container) › six frame nodes, exactly one shown per look: `tile`, `tileDisabled`, `tileActive`,
+`tileDisabledActive` (rects drawing `UiSprite`'s 150 px `borderRadius: 50` rounded rect — the
+variant fill, the `0xaaaaaa` grey, the 10 px contrast border — each ONE `Rectangle` call as the
+coded tile makes) and `image` / `imageDisabled` (sprites, 150 × 150, `region` bound to the resolved
+state frame; the second tinted `0xaaaaaa`); then `label` (`bind: ButtonLabel`, outside `frame`, as
+coded). Two opt-in engine additions, absent on every other def ⇒ unchanged:
+- **`ComponentDef.buttonStates?: true`** (built-in only, never stored): the instance owns the press
+  even though the def binds a coded part (the label draws only), feeds the machine's reserved
+  inputs from its live flags — `look` (the cascade's resolved look, 0–5), `rotating` (`spinning`
+  and an `imageSpinning` frame authored), `fadeWithUi` (the param) — taking each change at once on
+  a `frameExact` def, provides `tileColor` / `tileBorderColor` from `variant`, starts its machine at
+  mount (static poses, so a button shown later never flashes its unkeyed nodes), and hands the
+  press sound to the machine (13.8.4).
+- **`RectNode.borderRadius` / `borderWidth` / `borderColor`**, and a param-bound `color` on a rect
+  and `tint` on a container (absent ⇒ the same `Rectangle` / `Container` props as before).
+- **A settling timeline drive** (`CinematicNodeDrive.settles`, set for a `buttonStates` instance
+  only). *Found at build time:* the shared fold (`foldBoundTransform`) leaves an output that lands
+  exactly on identity — rotation 0, alpha 1 — out of the transform, and pixi-svelte skips an absent
+  prop, so the node keeps its last non-identity value: a turn that stopped stayed turned (the parity
+  `images` run, 0.12 % at the spin button after the round). Settling hands the identity value to the
+  node. Every other timeline keeps the fold as it is; the same edge may touch the 8b / 8c fade
+  machines when a fade-in ends on alpha 1, recorded for them and not changed here.
+
+**13.8.3 The machine (seeded, built-in timelines).** Four layers on four node sets (a node is
+handed whole to one timeline): **look** — six states, one per look, from-any transitions on `look
+== k`, each a static pose keying the six frame nodes' visibility; **spin** — `still` ⇄ `rotating`
+on the `rotating` bool, `rotating` a looping 1 s timeline keying `frame` rotation 0 → 360° linear
+(the coded `2π rad/s` ticker; entered on the input change, so frame t+1 shows `dt × 2π` as the
+coded first tick does); **fade** — `shown` ⇄ `hidden`, 400 ms blends on the `uiHide` / `uiShow`
+triggers (the coded `FadeContainer` tween, from the pose on screen) while `fadeWithUi` is on;
+**sound** — `quiet`, `general`, `bet`, `stop`: a press-sound trigger enters (or re-enters) its
+state, whose timeline crosses the bare cue `soundPressGeneral` / `soundPressBet` / `soundPressStop`
+at 0, which the component bus broadcasts to the game's `Sound` exactly as the coded body did.
+
+**13.8.4 The press sound (why a hand-off, not a table).** Which sound a press makes is press-road
+knowledge (`getSpinPressSound`: idle or a spin hold ⇒ bet, else stop) and its ORDER matters (the
+coded body broadcasts before the action, so the sound toggle plays before it mutes). So the game's
+bodies broadcast through one helper, `pressFeedback(event)`, and an authored instance runs its
+press inside `claimPressSound(onSound, press)` (`engine-layout/pressSounds.ts`): while a press is
+claimed, `pressFeedback` hands the event type to the instance, which fires the machine's trigger
+of that name synchronously (fire, advance 0, drive) — the cue broadcasts at the same point of the
+body. A def with no trigger of that name declines and the body broadcasts as before. Nothing
+claims with the flag off, so every body broadcasts exactly as today. The Space hotkey is not a
+button press and keeps its own broadcast.
+
+**13.8.5 The fade (why off by default).** The coded buttons never faded on their own: `uiShow` /
+`uiHide` fade the whole coded `<UI>` (`UIDefault`'s one `UiFadeContainer`: buttons, readouts,
+corners), and the awaited `uiHide` waits on that container's tween. Under a v2-driven HUD nothing
+subscribes to `uiHide` at all. A per-button fade inside the coded `<UI>` would square the alpha,
+and one under a v2 HUD would add a fade the coded game never showed. So the fade layer exists and
+is gated by the instance param `fadeWithUi` (off; the swap never sets it): the HUD's own fade keeps
+fading the authored buttons exactly as it faded the coded ones (the parity gate's `ui-fade`
+variant), and a button an author places outside any coded fade can switch it on. The await stays
+the HUD container's.
+
+**13.8.6 Flag, status, swap.** `settings.authoredOverlays.buttons?: true` — sparse, ON-only.
+`authoredButtonsStatus(doc, { shadowed })`: `off`; `ready`; `nothing-to-replace` (no scene places
+a `button` instance — the coded `UiButton*` binds of the editor default and Borut are not this
+path); `custom-button` (the project's baked defs shadow `button`: a custom frame / bind props the
+authored def does not draw). Held back ⇒ the coded path for every button and the chip warns.
+`withAuthoredButtonsDoc` swaps every `componentInstance(button)` in every scene (nested containers
+included) for `buttonPresentation` with its transform, overrides, params, pins and slot kept; nothing
+to swap ⇒ the same object. No coded part retires: `ButtonFrame` is reached only through the `button`
+def, so the swapped instance simply never mounts it. Registered in the flag block and nowhere else:
+the `uiHide` / `uiShow` component signals and the project's `button` defaults under the new id.
+`AUTHORED_BUTTONS = false` joins `editorFlags.ts`; no URL opt-in.
+
+**13.8.7 The lock.** `AUTHORED_BUTTONS_LOCKED = true` (the guard after the ETag check, the Game
+Settings row disabled "pilot pending", still switchable off), pinned by `check:authored-buttons`.
+**Lifted 2026-10-17** after the owner's browser check passed; the flag stays off by default.
+
+**13.8.8 Parity.** Flag off: current-games 0 changed screens. Flag on: `check:button-parity`
+(`scripts/button-parity/run.mjs`, the 8c shape on a `cg-lines` snapshot whose doc is the
+`apps/lines` fallback with `HUD_BUTTON_INSTANCES` buttons, coded vs flagged, one seed, stepped
+frames, REAL pointer events at the coded buttons' centres). The interaction script: **idle**,
+**hover**, **pressed** (held), a press **released away**, **selected** (turbo on) and **deselected**,
+then the spin press and the round it starts at +1 … +30 frames (the stop label, every other button
+disabled grey; the pointer still on the spin button, then away) and idle again. Variants: **tile**,
+**images** (every button carries `image*` frames, the spin button an asymmetric `imageSpinning`, so
+hover / pressed / selected / the greyed frame and the **rotation over several frames** are in the
+pixels — the gate also requires the coded spinning frame to differ between +4, +8 and +16),
+**flow** (`?flowV2=lines`: the HUD mounted by the flow), **turbo** (`ie_turbo=1`) and **ui-fade**
+(`WIN_X=120`: the `max` tier fires `uiHide` / `uiShow` on the coded `<UI>` path; six captures
+through each fade, anchored on the event's frame). The probe gains an additive `uiEvents` list (the
+press sounds and the UI events, with their frames): the sounds must match on both sides, event and
+frame. Autoplay's selected state is the same `active` look as turbo's and is not scripted (its
+press opens the autoplay menu). Known, not in the pixels: the authored hit surface is the frame AND
+the label (the coded one the frame alone) — every reference label sits inside its tile.
+
+**13.8.9 Ship chain (rule 8).** No new asset class: the def and timelines are code; the art is the
+coded tile's geometry or the instance's own `image*` frames, which already ship.
+
+**13.8.10 Removal, later.** `button` v2 replaces its bound `ButtonFrame` with the 8d nodes and
+machine; `ButtonFrame`, the art-button `image` getter and `buttonStates`' tile-colour getters go;
+`pressFeedback` stays the one place a press sound leaves the game.

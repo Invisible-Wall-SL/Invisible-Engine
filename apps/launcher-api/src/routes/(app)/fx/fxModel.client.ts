@@ -24,6 +24,7 @@ import {
 	readFxForces,
 	readFxSprite,
 	isDefaultFxSprite,
+	paramDrivenLayerKeys,
 	type BehaviorEntry,
 	type EffectDoc,
 	type EmitterConfigV3,
@@ -203,10 +204,26 @@ export function toggleArtFrame(layer: EmitterLayer, frame: string): EmitterLayer
 	return { ...layer, art };
 }
 
+/**
+ * Every key a new layer must not take: the layers', and any an exposed parameter's drive still names.
+ * A drive left behind by a removed layer (in a doc saved that way) would otherwise re-attach to a
+ * new layer that happened to get the same key, and quietly drive it.
+ */
+function usedLayerKeys(doc: EffectDoc): Set<string> {
+	const used = paramDrivenLayerKeys(doc.params);
+	for (const layer of doc.layers) used.add(layer.key);
+	return used;
+}
+
+/** Whether `key` is taken — by a layer, or by a parameter drive that still names it. */
+export function layerKeyTaken(doc: EffectDoc, key: string): boolean {
+	return usedLayerKeys(doc).has(key);
+}
+
 /** Allocate a layer key unique within the doc (`layer-N`). */
 export function nextLayerKey(doc: EffectDoc): string {
 	let n = doc.layers.length + 1;
-	const used = new Set(doc.layers.map((l) => l.key));
+	const used = usedLayerKeys(doc);
 	while (used.has(`layer-${n}`)) n++;
 	return `layer-${n}`;
 }
@@ -2083,7 +2100,7 @@ export function setFlipbookLoop(layer: EmitterLayer, loop: boolean): EmitterLaye
 
 /** A layer key unique within the doc, derived from `desired` (`x`, `x-2`, `x-3`, …). */
 export function uniqueLayerKey(doc: EffectDoc, desired: string): string {
-	const used = new Set(doc.layers.map((l) => l.key));
+	const used = usedLayerKeys(doc);
 	const base = desired.trim() || 'layer';
 	if (!used.has(base)) return base;
 	let n = 2;
