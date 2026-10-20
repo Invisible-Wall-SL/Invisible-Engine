@@ -35,6 +35,7 @@
 		findActorNode,
 		fxParamRest,
 		placedFxParamValues,
+		textNodeStrings,
 		validateNodeActors,
 		type CinematicCast,
 		type CinematicDoc,
@@ -71,6 +72,14 @@
 		type StageTransformDelta,
 	} from '$lib/timeline/screenTimeline';
 	import type { TimelineChannel } from '$lib/timeline/timeline';
+	import {
+		REPORT_EVENT_PREFIX,
+		keyText,
+		setTextMode,
+		textKeyAt,
+		textModeOf,
+		type TextMode,
+	} from '$lib/timeline/timelineRows';
 	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
 	import type { RigMeta } from './rigRuntime.client';
 	import { setOnionPreview, setTimelinePreview } from './valuePreview.client.svelte';
@@ -209,6 +218,7 @@
 			interpolation: true,
 			summaryRows: true,
 			boxSelect: true,
+			textRows: true,
 			host: {
 				selectedActor: () => actorId(),
 				togglePlay: () => (playing ? stop() : play()),
@@ -613,6 +623,72 @@
 		if (!doc || !tl || !clip || !target?.ok || !ownsDoc(doc)) return;
 		addRigClipStrip(doc, ensureNodeActor(doc, target.target), clip, time);
 		tl.commit('add animation');
+		tl.renderTimeline();
+		preview();
+	}
+
+	// ---- cue, visibility and text rows (Rive plan Phase 9d) ---------------------------------
+
+	/** Rive's Report Event: a `signal:` cue at the playhead, selected so its name can be typed. */
+	function reportEvent(): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !ownsDoc(doc)) return;
+		tl.addCue(REPORT_EVENT_PREFIX);
+		docVersion++;
+	}
+
+	/** Key the selected node shown or hidden from the playhead (a stepped visibility key). */
+	function keyVisible(visible: boolean): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !target?.ok || !ownsDoc(doc)) return;
+		tl.keyVisibility(ensureNodeActor(doc, target.target), visible);
+		preview();
+	}
+
+	/** The selected text node's strings, offered by a switch key. */
+	const textStrings = $derived(target?.ok ? textNodeStrings(target.node) : []);
+
+	function textMode(): TextMode {
+		void docVersion;
+		const doc = tl?.doc();
+		const id = actorId();
+		return doc && id ? textModeOf(doc, id) : 'countUp';
+	}
+
+	/** The text key at the playhead, if any (what the field shows). */
+	function textKeyHere(): { value?: number; key?: string } | null {
+		void docVersion;
+		const doc = tl?.doc();
+		const id = actorId();
+		return doc && id ? textKeyAt(doc, id, time, 0.5 / (doc.fps || 30)) : null;
+	}
+
+	/** Key the selected text node at the playhead: a count-up number or one of its strings. */
+	function keyTextAt(mode: TextMode, payload: number | string): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !target?.ok || !ownsDoc(doc)) return;
+		const id = ensureNodeActor(doc, target.target);
+		const at = Math.round(time * (doc.fps || 30)) / (doc.fps || 30);
+		keyText(doc, id, at, mode, payload, () => 'text_' + Math.random().toString(36).slice(2, 9));
+		tl.commit('key text');
+		tl.renderTimeline();
+		preview();
+	}
+
+	async function changeTextMode(mode: TextMode): Promise<void> {
+		const doc = tl?.doc();
+		const id = actorId();
+		if (!doc || !tl || !id || !ownsDoc(doc) || textMode() === mode) return;
+		const ok = await askConfirm({
+			title: 'Switch the text track?',
+			message:
+				mode === 'switchKey'
+					? 'Its count-up keys are removed: a switch key names one of the node’s own strings.'
+					: 'Its switch keys are removed: a count-up key is a number.',
+			confirmLabel: 'Switch',
+		});
+		if (!ok || !setTextMode(doc, id, mode)) return;
+		tl.commit('text mode');
 		tl.renderTimeline();
 		preview();
 	}
@@ -1086,6 +1162,55 @@
 						{/if}
 					</label>
 				{/if}
+				<div
+					class="keyrow"
+					title="Show or hide the node from the playhead (stepped, like Rive's visibility key)"
+				>
+					<span>visible</span>
+					<button type="button" onclick={() => keyVisible(true)}>👁 Show</button>
+					<button type="button" onclick={() => keyVisible(false)}>Hide</button>
+				</div>
+				{#if target.node.kind === 'text'}
+					{@const mode = textMode()}
+					{@const here = textKeyHere()}
+					<div class="keyrow" title="Count up to a number, or switch among this node's own strings">
+						<span>text</span>
+						<select
+							value={mode}
+							onchange={(e) => void changeTextMode(e.currentTarget.value as TextMode)}
+						>
+							<option value="countUp">Count up</option>
+							<option value="switchKey">Switch</option>
+						</select>
+					</div>
+					<div class="keyrow">
+						<span>◆ at {time.toFixed(2)}s</span>
+						{#if mode === 'switchKey'}
+							<select
+								value={here?.key ?? ''}
+								onchange={(e) => {
+									if (e.currentTarget.value) keyTextAt('switchKey', e.currentTarget.value);
+								}}
+							>
+								<option value="" disabled>pick a string…</option>
+								{#each textStrings as str (str)}
+									<option value={str}>{str}</option>
+								{/each}
+							</select>
+						{:else}
+							<input
+								type="number"
+								step="1"
+								value={here?.value ?? ''}
+								placeholder="number"
+								onchange={(e) => {
+									const v = Number(e.currentTarget.value);
+									if (e.currentTarget.value !== '' && Number.isFinite(v)) keyTextAt('countUp', v);
+								}}
+							/>
+						{/if}
+					</div>
+				{/if}
 				<p class="note">
 					Key it in <b>Properties</b> →: each field has a key button — grey: not animated; blue outline:
 					animated; blue: a key at the playhead. Typing a value keys it, and so does dragging, scaling
@@ -1093,7 +1218,22 @@
 				</p>
 			{/if}
 		</div>
-		<div class="tl-lanes" bind:this={tlEl}></div>
+		<div class="tl-track">
+			{#if openId}
+				<div class="tl-rowbar">
+					<button
+						type="button"
+						title="Report event: a signal: cue at the playhead. A component's instances hear it as a signal; Flow reacts to it. Name it in the inspector →"
+						onclick={reportEvent}>⚡ Report event</button
+					>
+					<small
+						>Cue, visible and text rows: drag a marker to retime it, double-click a visible or text
+						marker to delete it.</small
+					>
+				</div>
+			{/if}
+			<div class="tl-lanes" bind:this={tlEl}></div>
+		</div>
 		<div class="tl-insp" bind:this={inspEl}></div>
 	</div>
 </section>
@@ -1239,7 +1379,34 @@
 		border-right: none;
 		border-left: 1px solid var(--line);
 	}
+	.tl-track {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		min-height: 0;
+	}
+	.tl-rowbar {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 3px 8px;
+		border-bottom: 1px solid var(--line);
+		color: var(--dim);
+		font-size: 10px;
+	}
+	.tl-rowbar button,
+	.keyrow button,
+	.keyrow select {
+		background: var(--panel2);
+		color: var(--txt);
+		border: 1px solid var(--line);
+		border-radius: 5px;
+		padding: 1px 6px;
+		font-size: 11px;
+		cursor: pointer;
+	}
 	.tl-lanes {
+		flex: 1;
 		position: relative;
 		overflow: auto;
 		min-width: 0;
@@ -1407,6 +1574,25 @@
 	.tl-panel :global(.cineVisKey.off) {
 		background: transparent;
 		border-color: #7ee0c0;
+	}
+	.tl-panel :global(.cineTextRow) {
+		background: rgba(255, 210, 74, 0.06);
+	}
+	.tl-panel :global(.cineTextKey) {
+		position: absolute;
+		top: 3px;
+		max-width: 90px;
+		padding: 0 4px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 9px;
+		line-height: 13px;
+		color: #0c0f14;
+		background: #ffd24a;
+		border-radius: 3px;
+		cursor: ew-resize;
+		z-index: 1;
 	}
 	.tl-panel :global(.cineCueRow) {
 		background: rgba(201, 139, 255, 0.07);
