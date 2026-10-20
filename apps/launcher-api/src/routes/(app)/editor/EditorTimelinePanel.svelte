@@ -195,6 +195,7 @@
 	let docVersion = $state(0);
 
 	let tlEl: HTMLDivElement | undefined = $state();
+	let pickerEl: HTMLSelectElement | undefined = $state();
 	let inspEl: HTMLDivElement | undefined = $state();
 	let tl: Timeline | null = null;
 	let raf = 0;
@@ -340,7 +341,11 @@
 
 	async function open(id: string): Promise<void> {
 		if (id === openId) return;
-		if (!(await guardUnsaved())) return;
+		if (!(await guardUnsaved())) {
+			// The <select> already shows `id`; put it back on the timeline that is still open.
+			if (pickerEl) pickerEl.value = openId ?? '';
+			return;
+		}
 		error = '';
 		const res = await fetch(
 			`/api/cinematics/get?id=${encodeURIComponent(id)}&projectKey=${encodeURIComponent(projectKey)}`,
@@ -1301,12 +1306,26 @@
 	<div class="tl-bar">
 		<b class="tl-title">Timeline</b>
 		<span class="tl-host">{hostLabel}</span>
+		<select
+			bind:this={pickerEl}
+			value={openId ?? ''}
+			onchange={(e) => {
+				const id = e.currentTarget.value;
+				if (id) void open(id);
+			}}
+			aria-label={`Timelines of this ${where}`}
+		>
+			<option value="" disabled>
+				{screenRows.length ? 'Open a timeline…' : `No timelines on this ${where}`}
+			</option>
+			{#each screenRows as row (row.id)}
+				<option value={row.id}>{row.name}</option>
+			{/each}
+		</select>
+		<button type="button" onclick={() => void create()} disabled={!scene}>＋ New</button>
 		{#if openId}
-			<span
-				class="tl-open"
-				title="Pick, add, duplicate, rename or delete timelines in the Animations list (left)"
-				>⏱ {screenRows.find((r) => r.id === openId)?.name ?? tl?.doc().name ?? openId}</span
-			>
+			<button type="button" onclick={() => void rename()}>Rename</button>
+			<button type="button" class="danger" onclick={() => void remove()}>🗑</button>
 			<span class="sep"></span>
 			<button type="button" title="Back to the start" onclick={() => tl?.setTime(0)}>⏮</button>
 			{#if playing}
@@ -1469,10 +1488,10 @@
 		<div class="tl-keys">
 			{#if !openId}
 				<p class="note">
-					Open or create a timeline for this {where} in the Animations list (left), select a node on the
-					canvas, then key it in Properties. Keys are relative to the node's Design pose: x/y add, scale
-					and alpha multiply, rotation adds degrees. End an intro on the unchanged pose so the screen
-					settles where you laid it out.
+					Open or create a timeline for this {where} (the picker above, or the Animations list on the
+					left), select a node on the canvas, then key it in Properties. Keys are relative to the node's
+					Design pose: x/y add, scale and alpha multiply, rotation adds degrees. End an intro on the unchanged
+					pose so the screen settles where you laid it out.
 				</p>
 			{:else if !selectedId}
 				<p class="note">Select a node on the canvas to key it.</p>
@@ -1673,13 +1692,6 @@
 	}
 	.tl-host {
 		color: var(--dim);
-	}
-	.tl-open {
-		font-weight: 600;
-		max-width: 220px;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 	.tl-bar select,
 	.tl-bar input,
