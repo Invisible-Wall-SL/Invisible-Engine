@@ -523,11 +523,12 @@
 			anchorY: bgAnchor.y,
 		});
 	});
-	// A `coverFit` (canvas) rig CENTERS on the canvas — `RigProvider` places the art
-	// centre at (x, y), so the cover must sit at the canvas centre (the same point the
-	// sprite cover's `coverTransform` returns), NOT the node's authored x/y. Without this a
-	// rig placed anywhere in a flow screen would render its full-canvas fill offset by
-	// that position (editor centres it via `backgroundTransform`, so the two would disagree).
+	// A `coverFit` (canvas) rig CENTERS on the canvas — `RigProvider` places the skeleton
+	// origin (the art is authored around it) at (x, y), so the cover must sit at the canvas
+	// centre (the same point the sprite cover's `coverTransform` returns), NOT the node's
+	// authored x/y. Without this a rig placed anywhere in a flow screen would render its
+	// full-canvas fill offset by that position (editor centres it via `backgroundTransform`,
+	// so the two would disagree).
 	// Background rigs are LEFT on `posX`/`posY` (their authored-at-centre convention) —
 	// `isCanvasCoverFit` is false for them, so this is undefined and the path is byte-identical.
 	const rigCoverCenter = $derived.by(() => {
@@ -1401,22 +1402,18 @@
 				Object.keys(node.stateAnimations).length > 0}
 			{@const rigVisible = !isStateOverlay || !!override}
 			<!--
-				Anchor / placement parity with the editor: the editor preview places a rig's
-				SKELETON ORIGIN at the node position (the rig overlay's `skeleton.x = world.x`) and
-				frames its selection box around that origin as the rig's own box sits
-				(`rigOriginAnchor`); the node's anchor moves nothing. `RigProvider`'s `anchorToPivot`
-				instead pivots the art by `anchor·size` (assuming top-left-origin art), which offsets an
-				origin-centred skeleton in-game vs the editor. So for a NON-background rig we pass
-				NO anchor → pivot 0 → origin at the node position, matching the editor exactly.
-				Background rigs keep `transform.anchor` (their cover path centres via `coverTransform`
-				and is untouched). Default-anchor (0) rigs already resolved to pivot 0, so they're
-				byte-identical; only the previously-offset non-zero-anchor case moves into parity.
+				Placement parity with the editor: the editor preview places a rig's SKELETON ORIGIN
+				at the node position (the rig overlay's `skeleton.x = world.x`) and frames its
+				selection box around that origin as the rig's own box sits (`rigOriginAnchor`); the
+				node's anchor moves nothing. So NO anchor is passed and `RigProvider` keeps the
+				origin on (x, y). A cover rig as well: its node anchor is the cover ALIGNMENT, already
+				added to (x, y) by `bgRigOffset`, and the editor's cover branch draws the origin at
+				that aligned spot with no pivot — passing the anchor too applied the alignment twice.
 			-->
 			<RigProvider
 				key={rigAssetKey ?? node.assetKey}
 				x={bg ? bg.x : (rigCoverCenter?.x ?? posX) + (bgRigOffset?.dx ?? 0)}
 				y={bg ? bg.y : (rigCoverCenter?.y ?? posY) + (bgRigOffset?.dy ?? 0)}
-				anchor={isCover ? transform.anchor : undefined}
 				scale={bgRigBox ? bgRigScale : sizedScale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}

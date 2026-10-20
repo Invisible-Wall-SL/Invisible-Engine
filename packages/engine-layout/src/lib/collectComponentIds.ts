@@ -1,3 +1,4 @@
+import { repeaterComponentIds } from './repeaterCount';
 import type { ComponentDef, LayoutNode } from './types';
 
 /**
@@ -22,8 +23,9 @@ export function collectComponentIds(nodes: LayoutNode[]): string[] {
 		// (distinct, authorable cards), but that id is assigned from CONFIG at runtime — it does
 		// NOT appear on any doc node, so this static walk cannot see it. Those config-assigned card
 		// components must be collected onto the bake chain SEPARATELY (like editor-art keys), by the
-		// config side that owns them. This walk still ships the repeater's shared `componentId`.
-		if (node.kind === 'repeater') ids.add(node.componentId);
+		// config side that owns them. This walk still ships the repeater's shared `componentId`, and a
+		// count-mode repeater's first / middle / last segment variants.
+		if (node.kind === 'repeater') for (const id of repeaterComponentIds(node)) ids.add(id);
 		const children = (node as { children?: LayoutNode[] }).children;
 		if (Array.isArray(children)) children.forEach(walk);
 	};

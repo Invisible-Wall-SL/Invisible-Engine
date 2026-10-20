@@ -9,6 +9,7 @@ import {
 	hasAuthoredBackground,
 	hasAuthoredBoardGlow,
 	partStandIn,
+	repeaterComponentIds,
 	resolveComponentParams,
 	resolveLayoutInstanceParams,
 	type ComponentDef,
@@ -16,6 +17,7 @@ import {
 	type LayoutDoc,
 	type LayoutNode,
 	type LayoutType,
+	type RepeaterNode,
 	type Scene,
 } from 'engine-layout';
 import { createSymbolMap } from 'engine-game/src/game/symbolMap';
@@ -433,6 +435,12 @@ function reachable(input: StockAssetsInput, data: StockAssetData): StockAssetsAn
 			}
 			if (node.kind === 'componentInstance' || node.kind === 'repeater') {
 				expandInstance(node as unknown as LayoutNode, params, stack, node.kind === 'repeater');
+			}
+			// A count-mode repeater's segment variants draw as its items do.
+			if (node.kind === 'repeater') {
+				for (const componentId of repeaterComponentIds(node as unknown as RepeaterNode).slice(1)) {
+					expandInstance({ kind: 'repeater', componentId } as LayoutNode, params, stack, true);
+				}
 			}
 			if (children !== undefined) walkNodes(children, params, stack, origin);
 		}

@@ -5,9 +5,13 @@
 		node: RepeaterNode;
 		space?: Scene['space'];
 	};
+
+	/** Count sources named but not registered: warned once per name, not per placement. */
+	const warnedCountSources: Record<string, true> = {};
 </script>
 
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { Container } from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
 	import {
@@ -19,6 +23,17 @@
 
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { componentDesignSize } from './componentDesignSize';
+	import { getComponentParams } from './componentParamsContext';
+	import { getComponentValueSource } from './registerComponentValues';
+	import {
+		isCountRepeater,
+		repeaterCount,
+		repeaterCountOffsets,
+		repeaterSegmentComponent,
+		repeaterSegmentValues,
+		type RepeaterItemSize,
+	} from './repeaterCount';
+	import { expandSourceTemplate } from './valueBindings';
 	import { getFlowPress } from './registerFlowPress';
 	import { resolveComponent } from './registerComponents';
 	import { resolveTransform } from './resolveTransform';
@@ -63,8 +78,84 @@
 				y: row * (itemHeight + node.layout.gap),
 			};
 		}
+		if (node.layout.direction === 'column') {
+			return { x: 0, y: index * (itemHeight + node.layout.gap) };
+		}
 		return { x: index * (itemWidth + node.layout.gap), y: 0 };
 	};
+
+	// COUNT MODE (segmented counters, `node.count`): N instances, N following a live engine number
+	// (`count.source`, `{param}`-templated against the enclosing instance's params) or, with no
+	// source, `count.preview`. A source named but not registered draws none. Each segment is keyed by
+	// its index, N and component, so a change of N remounts them: a segment reads its `index` /
+	// `count` once, at init, as every instance reads its params. The geometry is `repeaterCount.ts`,
+	// shared with the editor canvas. Absent `count` ⇒ the source list below, unchanged (parity).
+	const countNode = isCountRepeater(node) ? node : undefined;
+	const enclosingParams = getComponentParams();
+	const countTemplate = countNode?.count.source;
+	const countSourceName = countTemplate
+		? expandSourceTemplate(countTemplate, enclosingParams)
+		: undefined;
+	const countSource = countSourceName ? getComponentValueSource(countSourceName) : undefined;
+	if (countTemplate && !countSource && !warnedCountSources[countSourceName ?? countTemplate]) {
+		warnedCountSources[countSourceName ?? countTemplate] = true;
+		console.warn(
+			`[engine-layout] repeater '${node.id}': its count source '${countSourceName ?? countTemplate}' is not registered — it draws no segments.`,
+		);
+	}
+	let countValue = $state<unknown>(countTemplate ? undefined : countNode?.count.preview);
+	// Untracked: a source emits synchronously on subscribe, and its getter's reads must not become
+	// this effect's dependencies (each change would resubscribe).
+	$effect(() =>
+		untrack(() =>
+			countSource?.subscribe((value) => {
+				countValue = value;
+			}),
+		),
+	);
+	// What each segment's number inputs follow, resolved here against the ENCLOSING instance's params
+	// (the counter's), so a segment param of the same key cannot shadow it.
+	const passedSources = countNode?.passInputs
+		? Object.fromEntries(
+				Object.entries(countNode.passInputs).flatMap(([input, template]) => {
+					const name =
+						typeof template === 'string' ? expandSourceTemplate(template, enclosingParams) : '';
+					return name ? [[input, name]] : [];
+				}),
+			)
+		: undefined;
+	const segmentCount = $derived(countNode ? repeaterCount(countNode, countValue) : 0);
+	const countLayout = $derived.by(() => {
+		if (!countNode) return undefined;
+		const layoutType = layoutContext.stateLayoutDerived.layoutType();
+		const sizes: Record<string, RepeaterItemSize | null> = {};
+		const sizeOf = (componentId: string): RepeaterItemSize | null => {
+			if (!(componentId in sizes)) {
+				const segmentDef = resolveComponent(componentId).def;
+				sizes[componentId] = segmentDef
+					? componentDesignSize(segmentDef, () => null, layoutType)
+					: null;
+			}
+			return sizes[componentId];
+		};
+		return repeaterCountOffsets(countNode, segmentCount, sizeOf);
+	});
+	const segments = $derived.by(() => {
+		if (!countNode || !countLayout) return [];
+		return countLayout.offsets.map((offset, index) => {
+			const componentId = repeaterSegmentComponent(countNode, index, segmentCount);
+			const values = repeaterSegmentValues(index, segmentCount);
+			const instance: ComponentInstanceNode = {
+				kind: 'componentInstance',
+				id: `${node.id}:${index}`,
+				componentId,
+				x: 0,
+				y: 0,
+				params: values,
+			};
+			return { key: `${index}/${segmentCount}/${componentId}`, instance, values, offset };
+		});
+	});
 
 	// Anchor the WHOLE laid-out group against the node position (§ repeater centering). The node's
 	// `anchor` is read against the TOTAL group footprint (item size × count + gaps, per direction),
@@ -76,6 +167,7 @@
 		resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()).anchor ?? { x: 0, y: 0 },
 	);
 	const groupSize = $derived.by(() => {
+		if (countLayout) return { width: countLayout.width, height: countLayout.height };
 		const count = items.length;
 		if (count === 0) return { width: 0, height: 0 };
 		const gap = node.layout.gap;
@@ -86,6 +178,9 @@
 				width: cols * itemWidth + (cols - 1) * gap,
 				height: rows * itemHeight + (rows - 1) * gap,
 			};
+		}
+		if (node.layout.direction === 'column') {
+			return { width: itemWidth, height: count * itemHeight + (count - 1) * gap };
 		}
 		return { width: count * itemWidth + (count - 1) * gap, height: itemHeight };
 	});
@@ -134,15 +229,28 @@
 </script>
 
 <Container x={groupOffset.x} y={groupOffset.y}>
-	{#each items as item, index (item.key ?? index)}
-		{@const off = offsetOf(index)}
-		<Container x={off.x} y={off.y}>
-			<ComponentInstance
-				node={itemNode(item, index)}
-				{space}
-				engineValues={item.values}
-				onSelect={selectHandler(item)}
-			/>
-		</Container>
-	{/each}
+	{#if countNode}
+		{#each segments as segment (segment.key)}
+			<Container x={segment.offset.x} y={segment.offset.y}>
+				<ComponentInstance
+					node={segment.instance}
+					{space}
+					inputSources={passedSources}
+					inputValues={segment.values}
+				/>
+			</Container>
+		{/each}
+	{:else}
+		{#each items as item, index (item.key ?? index)}
+			{@const off = offsetOf(index)}
+			<Container x={off.x} y={off.y}>
+				<ComponentInstance
+					node={itemNode(item, index)}
+					{space}
+					engineValues={item.values}
+					onSelect={selectHandler(item)}
+				/>
+			</Container>
+		{/each}
+	{/if}
 </Container>

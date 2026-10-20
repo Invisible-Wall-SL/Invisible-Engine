@@ -118,6 +118,10 @@ const PINNED = {
 		// Phase 11c: the operator platform jackpot belongs to every kind, so its bar is offered to all
 		// of them on purpose — a new library entry, not a change to any existing screen or component.
 		platformJackpotBar: '76fce9d675bc4c8f',
+		// The segmented counter (a count-mode repeater of its segment) counts respins or free spins, so
+		// it is offered to every kind — a new library entry no existing screen places.
+		segmentedCounter: '01bdca67dc4830f3',
+		segmentedCounterSegment: 'efba786993eed387',
 	},
 };
 

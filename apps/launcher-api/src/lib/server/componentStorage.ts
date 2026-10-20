@@ -21,6 +21,7 @@ import {
 	COMPONENT_PARAM_KINDS,
 	isLocalizationKey,
 	mergeBuiltinCodedParams,
+	normalizeRepeaterCountFields,
 	pruneOrphanParamBindings,
 	SM_CONDITION_OPS,
 } from 'engine-layout';
@@ -831,7 +832,7 @@ export function normalizeComponent(raw: ComponentDef): ComponentDef {
 		version: raw.version,
 		scope: raw.scope,
 		category: raw.category,
-		root: normalizeRootListeners(identityComponentRoot(raw.root)),
+		root: normalizeRootRepeaters(normalizeRootListeners(identityComponentRoot(raw.root))),
 	};
 	// Authoring/preview space (default 'game' = omitted). Only persist a non-default
 	// value the editor understands; an unknown/absent value falls back to game space.
@@ -1083,6 +1084,22 @@ function isComponentShape(input: unknown): input is ComponentDef {
 	if (input.scope !== 'shared' && input.scope !== 'project') return false;
 	if (!CATEGORIES.has(input.category as ComponentCategory)) return false;
 	return isContainerNode(input.root);
+}
+
+/**
+ * A count-mode repeater's fields are the other node fields this normalizer reads
+ * (`normalizeRepeaterCountFields`: a malformed `count` drops, so the node reads as a source-list
+ * repeater; malformed variant / input entries drop). A tree without them is the same object.
+ */
+function normalizeRootRepeaters(root: ContainerNode): ContainerNode {
+	const walk = (node: LayoutNode): LayoutNode => {
+		if (!isRecord(node)) return node;
+		if (node.kind === 'repeater') return normalizeRepeaterCountFields(node);
+		if (node.kind !== 'container' || !Array.isArray(node.children)) return node;
+		const children = node.children.map(walk);
+		return children.some((c, i) => c !== node.children[i]) ? { ...node, children } : node;
+	};
+	return walk(root) as ContainerNode;
 }
 
 function isContainerNode(input: unknown): input is ContainerNode {

@@ -36,7 +36,7 @@
 	so we contain-fit the rig's bounds to `cell × SYMBOL_RIG_FILL` (< 1) to bring them down to
 	match the sprites. Rig-only knob — sprites are full contain. Tune SYMBOL_RIG_FILL.
 
-	`centreBox`: the rect being fitted is the rig's authored box (the Rigger's Bounds frame), so
+	`anchor={0.5}`: the rect being fitted is the rig's authored box (the Rigger's Bounds frame), so
 	its CENTRE — not the skeleton origin — sits at the cell centre. Same rule the Scene Editor's
 	reel cells and the /symbols grid draw by, so the frame an author sizes in the Rigger is the
 	frame that fills the cell here.
@@ -45,10 +45,10 @@
 	x={props.x}
 	y={props.y}
 	key={props.symbolInfo.assetKey}
+	anchor={0.5}
 	width={geometry.cellWidthLocal * SYMBOL_RIG_FILL}
 	height={geometry.cellHeightLocal * SYMBOL_RIG_FILL}
 	fit="contain"
-	centreBox
 	rebroadcastEvents
 >
 	<RigTrack

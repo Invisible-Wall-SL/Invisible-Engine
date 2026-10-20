@@ -1,10 +1,7 @@
 <script lang="ts">
 	import {
-		HOLD_AND_WIN_PARAM_CATALOG,
-		PLATFORM_JACKPOT_PARAM_CATALOG,
 		VALUE_BINDING_EASES,
 		VALUE_BINDING_SOURCE_CATALOG,
-		VALUE_SOURCE_CATALOG,
 		bindingTargetsForKind,
 		defaultBindingOutRange,
 		drivableFxParam,
@@ -24,6 +21,7 @@
 
 	import type { RigMeta } from './rigRuntime.client';
 	import { placedEffect } from './placedEffects.client.svelte';
+	import { engineSourceGroups, type SourceGroup } from './valueSourceOptions';
 	import {
 		clearNodePreview,
 		previewInput,
@@ -136,9 +134,6 @@
 	const plainTargets = $derived(targets.filter((t) => t !== 'fxParam'));
 
 	// ---- Source options --------------------------------------------------------------------------
-	type SourceOption = { value: string; label: string; note?: string };
-	type SourceGroup = { label: string; options: SourceOption[] };
-
 	const paramKeys = $derived(componentParams.map((p) => p.key));
 	const sourceGroups = $derived.by((): SourceGroup[] => {
 		const groups: SourceGroup[] = [];
@@ -151,27 +146,7 @@
 				});
 			}
 		}
-		const seen: string[] = [];
-		for (const entry of VALUE_BINDING_SOURCE_CATALOG) {
-			if (entry.needsParam && !(componentMode && paramKeys.includes(entry.needsParam))) continue;
-			let group = groups.find((g) => g.label === entry.group);
-			if (!group) {
-				group = { label: entry.group, options: [] };
-				groups.push(group);
-			}
-			group.options.push({ value: `source:${entry.key}`, label: entry.label, note: entry.note });
-			seen.push(entry.key);
-		}
-		const game = [
-			...VALUE_SOURCE_CATALOG,
-			...HOLD_AND_WIN_PARAM_CATALOG,
-			...PLATFORM_JACKPOT_PARAM_CATALOG,
-		].filter((p) => p.kind === 'number' && !seen.includes(p.key));
-		groups.push({
-			label: 'Game values',
-			options: game.map((p) => ({ value: `source:${p.key}`, label: p.label, note: p.note })),
-		});
-		return groups;
+		return [...groups, ...engineSourceGroups(componentMode, paramKeys)];
 	});
 	const knownSources = $derived(
 		sourceGroups

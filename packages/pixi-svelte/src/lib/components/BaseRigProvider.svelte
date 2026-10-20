@@ -3,13 +3,15 @@
 	import * as RIG from 'engine-rig/pixi';
 
 	import type { OverwriteCursor } from '../types';
+	import type { RigAnchor } from '../rigBox';
 
 	export type Props = OverwriteCursor<Omit<RIG.RigViewOptions, 'children'>> & {
 		rigData: RIG.SkeletonData;
 		children: Snippet;
-		/** Node anchor, used ONLY to pivot a rig exported without skeleton bounds (its
-		 * pivot can't be computed statically). Ignored when the skeleton has authored bounds. */
-		anchorFallback?: number | { x?: number; y?: number };
+		/** `<RigProvider>`'s anchor, used ONLY to pivot a rig exported without skeleton bounds (its
+		 * frame can't be read from the header, so the live bounds stand in for it). Ignored when the
+		 * skeleton has authored bounds. */
+		anchorFallback?: RigAnchor;
 		// When set AND both `width`/`height` are given, the rig sizes by a UNIFORM
 		// cover/contain scale instead of per-axis stretch (true cover, no distortion) —
 		// `'width'`/`'height'` pin that uniform scale to the named axis instead of picking
@@ -44,6 +46,7 @@
 	import { getContextEventEmitter, type EmitterEventBase } from 'utils-event-emitter';
 
 	import { propsSyncEffect, rigSizeScale } from '../utils.svelte';
+	import { rigAnchorPoint } from '../rigBox';
 	import { setContextRig, getContextParent } from '../context.svelte';
 	import { applyLocaleAttachments, currentRigLocale, onRigLocaleChange } from '../rigLocale';
 
@@ -160,21 +163,18 @@
 	parentContext.addToParent(rig);
 	setContextRig(rig);
 
-	// Pivot fallback for a rig exported WITHOUT skeleton bounds: RigProvider can't
-	// compute a static pivot (no size) and defers here. Such a rig otherwise pins its
-	// pivot to the origin → the art renders at (0,0) top-left instead of the node's anchor.
-	// Once the animation reveals art, the LIVE `rig.bounds` are valid, so anchor the art
-	// by them (offset-aware, so the anchor lands on the art's centre wherever the skeleton
-	// origin sits). Authored-bounds rigs never enter this (RigProvider gives them a
-	// real pivot). Applied ONCE the bounds are available; the proper fix is re-exporting
-	// the rig with bounds — this just stops a bounds-less one rendering in the corner.
+	// Pivot fallback for an ANCHORED rig exported WITHOUT skeleton bounds: RigProvider has no
+	// frame to read the anchor point from and defers here. Once the animation reveals art, the
+	// LIVE `rig.bounds` (local, y-down) stand in for that frame, so the anchor picks the same
+	// point of them it would of an authored box — `0` the top-left, `0.5` the centre, wherever
+	// the skeleton origin sits. No anchor ⇒ the origin pivot stays, as for any rig. Authored-
+	// bounds rigs never enter this (RigProvider gives them a real pivot). Applied ONCE the
+	// bounds are available; the proper fix is re-exporting the rig with bounds.
 	$effect(() => {
 		const data = rig.skeleton?.data;
 		if (data && data.width > 0 && data.height > 0) return; // authored bounds → handled upstream
-		const af = props.anchorFallback;
-		const ax = typeof af === 'number' ? af : (af?.x ?? 0);
-		const ay = typeof af === 'number' ? af : (af?.y ?? 0);
-		if (!ax && !ay) return; // top-left anchor → origin pivot is already correct
+		if (props.anchorFallback === undefined) return;
+		const { x: ax, y: ay } = rigAnchorPoint(props.anchorFallback);
 		let applied = false;
 		const apply = (): boolean => {
 			const b = rig.bounds;
