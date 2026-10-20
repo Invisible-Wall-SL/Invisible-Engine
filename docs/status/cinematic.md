@@ -19,6 +19,36 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Current state
 
+- **Shared timeline library + cue / text / visibility rows (Rive plan Phase 9d, 2026-10-20, in
+  review — headless-proven, ⏳ not browser-verified).** The editor side is in
+  [editor status](editor.md) 2026-10-20 (9d); the format and ship chain are here.
+  - **Storage.** `_shared/cinematics/<id>.json` is a shared timeline's LATEST version (a portable
+    doc: no host, no trigger, a `version`), `<id>.v<N>.json` each version (`sharedCinematics.ts`).
+    Promote (`POST /api/cinematics/shared/promote`, `componentPublish`-gated like shared components)
+    is POINTER-FIRST: the pointer's `If-Match` write is the only race and its loser writes
+    nothing; a snapshot only ever copies the pointer's bytes for its version (a stray one is
+    repaired from the pointer before the pointer moves on); an unreadable pointer is refused; a
+    deleted pointer continues after the highest snapshot. Built-in **starters**
+    (`STARTER_TIMELINES` in `$lib/timeline/sharedTimelines.ts`: Fade in / out, Pop in, Slide up
+    in, Pulse; one node actor "Target") answer for `starter_*` at v1; a promote id never takes
+    that prefix. No index blob: the list is a prefix listing.
+  - **Format (additive, authoring-only).** `CinematicDoc.shared?: { id, version, targets? }` makes
+    a project timeline a LINK: its stored doc is a content-less stub (`linkStub`: id, name, host,
+    `playOn`, `playOnComponents`, `holdsCue`, the link); `/api/cinematics/save` strips any content
+    a client sends with one and refuses a non-link save over a stored link unless it says
+    `detach: true` (409 `linked`, so `/rigger` can't silently fork one). `/api/cinematics/get`
+    returns it resolved (`resolveLinked`: the pinned version's content under the placement, each
+    actor retargeted through `targets`) plus `link` (`latest`, `missing`). Absent ⇒ unchanged.
+  - **Ship chain (rule 8).** `loadAuthoredCinematics` resolves every link against its pinned
+    version, so `deploy/cinematics/<id>.json` and the bundle's `cinematics` hold a NORMAL timeline
+    (no `shared` field) that the game registers and plays like any other; the art seed sees its
+    rigs. A link whose version is gone ships nothing; a version that can't be READ (an R2 error)
+    ships the last exported copy rather than being pruned. Gate: `check:shared-timeline-ship`.
+  - **Rows.** No format change: `cue`, `visibility` and `text` tracks already existed and the game
+    already plays them on node actors. The Timeline module gained `options.textRows` (a node
+    actor's text track as a row) and `addCue(cue)`; `/rigger` sets neither (golden unchanged).
+    Gate: `check:timeline-rows`.
+
 - **Per-key cubic ease, loop type, default interpolation (Rive plan Phase 9b, 2026-10-20, in review
   — headless-proven, ⏳ not browser-verified).** All additive; a doc without them evaluates
   byte-identically (gate below).
@@ -315,6 +345,8 @@ through the same player; headless-proven, no editor yet (5b).
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | `tools/rigger-spike/cinematic-screen-timeline.mjs` — Phase 3 end to end: author (headless Timeline + name targeting) → save (in-memory R2) → picker labels → `validateNodeActors` → `exportCinematics` / bundle → `playCinematic` on the REAL interpreter → game fold vs the editor's compiled preview module at six times; parity with no preview | **41/41** |
 | `apps/launcher-api/scripts/check-cinematic-access.ts` — the REAL `/api/cinematics/*` handlers per entitlement (rigger / editor / both / neither), incl. the same-id hijack, force, the mid-request race, and a component-host section (Phase 4b) | **36/36** |
+| `apps/launcher-api/scripts/check-shared-timeline-ship.ts` (`check:shared-timeline-ship`, Phase 9d) — the REAL promote / list / get / save / desktop-bake handlers on an in-memory R2: the capability gate, versions and snapshots, a stale `baseEtag`, a link in another project storing only its placement, `get` resolving and retargeting it with the update, the bake writing the resolved timeline (no link field) that the game's own `ComponentTimelinePlayer` plays (alpha + its Report event cue), Update / Detach / a missing version / a starter, a `/rigger`-style save refused, and the promote race (two promoters, a stray snapshot, a corrupt or deleted pointer) | **39/39** |
+| `apps/launcher-api/scripts/check-timeline-rows.ts` (`check:timeline-rows`, Phase 9d) — Report event (`signal:` cue, one undo step, fired once by the game), visibility keys (game + preview), text count-up / switch keys (game sample, editor preview, mode switch, a modeless track, prune), and a doc mounted with `textRows` staying byte-identical | **27/27** |
 | `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name only (never an id) + validation, no self-restart from a timeline's own cue, export of a component timeline no Flow node names | **39/39** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
@@ -397,6 +429,10 @@ through the same player; headless-proven, no editor yet (5b).
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-20 — **Phase 9d: the shared timeline library and the cue / text / visibility rows**
+  (branch `claude/rive-p9d-shared-library`, in review). Storage, link format and ship chain in
+  Current state above; the editor side in [editor status](editor.md) 2026-10-20 (9d).
 
 - 2026-10-20 — **Phase 9b: cubic ease, loop type, default interpolation, multi-key editing**
   (branch `claude/rive-p9b-keying`, in review). Format + evaluator + players + the module's keying
