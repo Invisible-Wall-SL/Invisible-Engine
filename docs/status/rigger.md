@@ -96,7 +96,12 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   with no x/y; a save's re-fit is simulated; four planted mutants all caught).
   The Scene Editor half (the box now frames the art around the origin) is in
   [editor status](editor.md).
-
+- 2026-10-20 — **The graph editor draws y and scaleY with their own tangents.** It sampled each
+  curve by its field alone, so a translate or scale key's y read x's half of the bezier: a y key with
+  flat handles drew as a sharp V while the bone (and the game) eased smoothly through it. The graph's
+  drawing was wrong, not the saved data or the playback. `graphValueAt` samples the channel's whole
+  field list. Gate: `tools/rigger-spike/graphcurve.mjs` (in `check:all`) compares every graphed
+  curve with what `engine-rig` plays, and fails on the old sampling.
 - 2026-10-16 — **A rig ships its sheet's page, not a lossless copy of it** (needs the engine release
   that reads `rotate:270`, PR A of this pair; merge after it). Measured on the Book of Borut remake's
   live build: 36.9 MB of its 48.4 MB of texture pages were rig pages, each the sheet page it came from
