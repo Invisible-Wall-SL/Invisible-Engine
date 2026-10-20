@@ -1,6 +1,6 @@
-// Offline gate: an in-game `<Cinematic>` PLAYS. Mounted on a ticking clock, its playhead runs to the
-// end and stops there, loops when the doc loops, re-arms when the caller restarts it, and fires each
-// cue once.
+// Offline gate: an in-game `<Cinematic>` PLAYS. Mounted on a ticking clock, its playhead runs to
+// the end and stops there, loops when the doc loops, re-arms when the caller restarts it, and fires
+// each cue once.
 //
 //   pnpm check:cinematic-ticker
 //
@@ -8,14 +8,15 @@
 // Svelte 5 that is a READ of `time`, so every ticker write re-ran the effect and put the playhead
 // back at the start. Every Flow `playCinematic` in a live game stalled on frame 0 and an awaited
 // Flow chain never continued, while CI stayed green: `check:cinematic-ease` tests the pure
-// evaluator, the parity runs never play a Flow cinematic, and nothing mounted the player on a clock.
+// evaluator, the parity runs never play a Flow cinematic, and nothing mounted the player on a
+// clock.
 //
-// HOW: the REAL `Cinematic.svelte` is compiled by Svelte's own compiler and mounted through Svelte's
-// CLIENT runtime and scheduler on a DOM shim, as `verify-pot-meter-mount.mjs` does. The evaluator,
-// the node-actor resolution and the driver context are real. What draws is a stand-in: the app
-// context is a fake whose ticker this file steps by hand, and the rig actor keeps the props it was
-// handed, so its `time` is exactly the pose a rig would be sampled at. Svelte flushes between frames,
-// as a browser's microtask checkpoint does after each animation frame.
+// HOW: the REAL `Cinematic.svelte` is compiled by Svelte's own compiler and mounted through
+// Svelte's CLIENT runtime and scheduler on a DOM shim, as `verify-pot-meter-mount.mjs` does. The
+// evaluator, the node-actor resolution and the driver context are real. What draws is a stand-in:
+// the app context is a fake whose ticker this file steps by hand, and the rig actor keeps the props
+// it was handed, so its `time` is exactly the pose a rig would be sampled at. Svelte flushes
+// between frames, as a browser's microtask checkpoint does after each animation frame.
 
 import { realpathSync } from 'node:fs';
 import { createRequire, register } from 'node:module';
@@ -38,7 +39,7 @@ const STUBS = {
 	'./CinematicActor.svelte': moduleUrl(
 		`export default (_, props) => { ${harness}.actors.push(props); };`,
 	),
-	'./LayoutScene.svelte': moduleUrl(`export default () => { ${harness}.sets += 1; };`),
+	'./LayoutScene.svelte': moduleUrl('export default () => {};'),
 };
 
 register(
@@ -86,7 +87,7 @@ const { flushSync, mount, unmount } = await import('svelte');
 const { SvelteMap } = await import('svelte/reactivity');
 const { default: Cinematic } = await import(CINEMATIC);
 
-/** The fields `<Cinematic>` reads of Pixi's ticker: `add`, `remove` and the last frame's `deltaMS`. */
+/** What `<Cinematic>` reads of Pixi's ticker: `add`, `remove` and the last frame's `deltaMS`. */
 const ticker = {
 	deltaMS: 0,
 	listeners: new Set(),
@@ -99,7 +100,7 @@ const ticker = {
 		return this;
 	},
 };
-const state = { app: { stateApp: { pixiApplication: { ticker } } }, actors: [], sets: 0 };
+const state = { app: { stateApp: { pixiApplication: { ticker } } }, actors: [] };
 globalThis.__cinematicHarness = state;
 
 let failures = 0;
@@ -164,9 +165,10 @@ const SCREEN = {
 const REACTIVE_PROPS = { doc: undefined, playing: true, startTime: undefined, loop: undefined, speed: undefined }; // prettier-ignore
 
 /**
- * Mount a `<Cinematic>` whose props live in a `SvelteMap`, so setting one is a reactive prop change.
- * Every prop is seeded, absent ones as `undefined`: a `SvelteMap` read of a MISSING key tracks the
- * whole map, so setting any new key would look like a change to every absent prop.
+ * Mount a `<Cinematic>` whose props live in a `SvelteMap`, so setting one is a reactive change of
+ * that prop alone. Every prop is seeded, absent ones as `undefined`: a `SvelteMap` read of a
+ * MISSING key tracks the whole map, so setting any new key would look like a change to every
+ * absent prop.
  */
 function play(initial) {
 	const values = new SvelteMap(Object.entries({ ...REACTIVE_PROPS, ...initial }));
@@ -252,9 +254,12 @@ const counts = (cues) => Object.fromEntries(CUE_KEYS.map((k) => [k.cue, cues.fil
 }
 
 // --- 2. looping docs never complete and keep advancing ------------------------------------------
-const SECONDS = 3.5;
-const FRAMES = Math.round(SECONDS * 60);
-const elapsed = FRAMES * DT;
+// 17 ms frames do not divide the 1 s doc, so every wrap and turnaround carries an overshoot past
+// the end: a loop that restarted at 0 instead of carrying it would step short here.
+const LOOP_MS = 17;
+const LOOP_DT = LOOP_MS / 1000;
+const FRAMES = Math.round(3.5 / LOOP_DT);
+const elapsed = FRAMES * LOOP_DT;
 const stepsOf = (times) => times.map((t, i) => t - (i === 0 ? 0 : times[i - 1]));
 
 for (const [label, initial] of [
@@ -262,13 +267,13 @@ for (const [label, initial] of [
 	['the loop prop (a Flow node that loops)', { doc: timeline(), loop: true }],
 ]) {
 	const run = play(initial);
-	const times = run.frames(FRAMES);
+	const times = run.frames(FRAMES, LOOP_MS);
 	const steps = stepsOf(times);
 	const wraps = steps.filter((s) => s < 0).length;
 	check(`${label}: never completes`, run.completes === 0, `${run.completes}×`);
 	check(
 		`${label}: keeps advancing, wrapping at the end`,
-		steps.every((s) => near(s, DT) || near(s, DT - 1)) && wraps === Math.floor(elapsed),
+		steps.every((s) => near(s, LOOP_DT) || near(s, LOOP_DT - 1)) && wraps === Math.floor(elapsed),
 		`${wraps} wraps, t=${run.time()?.toFixed(4)}`,
 	);
 	const expected = Object.fromEntries(CUE_KEYS.map((k) => [k.cue, firesIn(k.time, elapsed, 1)]));
@@ -279,15 +284,18 @@ for (const [label, initial] of [
 {
 	const label = "loop: 'pingPong'";
 	const run = play({ doc: timeline({ loop: 'pingPong' }) });
-	const times = run.frames(FRAMES);
+	const times = run.frames(FRAMES, LOOP_MS);
 	const steps = stepsOf(times);
 	const turns = steps.filter((s, i) => i > 0 && Math.sign(s) !== Math.sign(steps[i - 1])).length;
+	// Each frame moves it one frame along its there-and-back path, a turnaround at either end folded.
+	const travels = times.every((t, i) => {
+		const prev = i === 0 ? 0 : times[i - 1];
+		return [Math.abs(t - prev), 2 - prev - t, prev + t].some((d) => near(d, LOOP_DT));
+	});
 	check(`${label}: never completes`, run.completes === 0, `${run.completes}×`);
 	check(
 		`${label}: keeps advancing, there and back`,
-		times.every((t) => t >= 0 && t <= 1) &&
-			steps.every((s) => Math.abs(s) > 0 && Math.abs(s) <= DT + EPS) &&
-			turns === Math.floor(elapsed),
+		times.every((t) => t >= 0 && t <= 1) && travels && turns === Math.floor(elapsed),
 		`${turns} turnarounds, t=${run.time()?.toFixed(4)}`,
 	);
 	check(
@@ -301,7 +309,10 @@ for (const [label, initial] of [
 	run.unmount();
 }
 
-// --- 3. the caller re-arms it; nothing else does --------------------------------------------------
+// --- 3. a new doc.id or startTime re-arms it; a new speed or playing does not --------------------
+// Each case changes one prop alone. The game's `FlowV2Cinematics` hands every prop off one entry
+// object it rebuilds whenever the flow's playing set changes, which re-arms a playing cinematic
+// today; a replay of a still-playing id relies on that to restart it.
 {
 	const run = play({ doc: timeline() });
 	run.untilComplete();
@@ -327,6 +338,16 @@ for (const [label, initial] of [
 	check('a new startTime mid-play: jumps there', run.time() === 0.5, `t=${run.time()}`);
 	const times = run.untilComplete();
 	check('a new startTime mid-play: plays on from there', run.completes === 1 && rises(times, 0.5) && times.length <= 31, `${times.length} frames`); // prettier-ignore
+	run.unmount();
+}
+{
+	// Mid back-leg: a re-arm that left the lap clock where it was would carry on coming back.
+	const run = play({ doc: timeline({ loop: 'pingPong' }) });
+	run.frames(90);
+	run.set('doc', timeline({ id: 'outro', loop: 'pingPong' }));
+	check('a new doc.id on a ping-pong: back to the start', run.time() === 0, `t=${run.time()}`);
+	const [next] = run.frames(1);
+	check('a new doc.id on a ping-pong: plays out again', near(next, DT), `t=${next}`);
 	run.unmount();
 }
 {
