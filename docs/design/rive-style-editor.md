@@ -524,6 +524,25 @@ Preview → stage bridge are described once, for authors, in [the Flow guide](..
 - Today's slot Flow vocabularies, `fireCue`, `playCinematic` and the container events are not
   changed. The instance node is a new node kind alongside them.
 
+### 6.4 Count-mode repeater (segmented counters)
+
+Owner request 2026-10-20: a counter of N segments (respins / free spins) lit by a game value, built
+in the editor with no code per game. As built (engine-layout `types.ts` `RepeaterNode`,
+`repeaterCount.ts`, `Repeater.svelte`):
+
+- A `repeater` with `count: {source?, preview, max?}` repeats its `componentId` N times instead of
+  one instance per item of a registered list. N = the engine value `count.source` (`{param}`
+  templates read the enclosing instance's params), rounded and clamped to `max` (default 20, hard
+  cap 50); no `source` ⇒ `preview`, in game too. `variants.first/middle/last` pick the end caps.
+  Layout `row` / `column` lay segments end to end by their own sizes; `grid` keeps a uniform pitch.
+- Each segment gets params `index` (1-based) and `count`, and the same as constant number inputs
+  when it declares them (read-only: `passInputs` cannot override them). `passInputs` feeds the
+  segment's number inputs from engine values (`value ← respinsLeft`).
+- The segment's own state machine decides its look with existing conditions:
+  `value >= {index}` → Lit, `value < {index}` → Unlit (a `{param}` condition, §5). No new SM op.
+- It is component data: variants join `collectComponentIds`, so it rides export → bake → pull →
+  register. `previewInputs` is editor-only. Absent fields ⇒ today's repeater (parity).
+
 ## 7. Beyond slots: arcade and match-3 (the bigger plan)
 
 ### 7.1 The layers

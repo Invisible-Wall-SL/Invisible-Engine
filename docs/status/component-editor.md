@@ -30,6 +30,12 @@ Shipped capabilities on `main`:
   (`paramBindings['params.<key>']`). Each placement of the parent then sets it like any other param.
   Contract: design §13.2 item 4. Detail under Recent changes, 2026-10-15. The same **⇡** sits on a
   placed effect's exposed parameters (2026-10-16): see [status/fx](fx.md).
+- **Segmented counters — Repeat (count)** (2026-10-20, branch `claude/component-repeat-segments`,
+  in review, ⏳ not browser-verified). A repeater in count mode repeats a segment component N times,
+  N bound to a game value (`respinsStart`, `freeSpinsTotal`); each segment gets `index` / `count` and
+  the values the bar passes down, and its own state machine lights it. Built-in starter **Segmented
+  Counter**. Detail under Recent changes, 2026-10-20; guide
+  [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count).
 - **Bind to value** (2026-10-02, Hold and Win Phase 12b) — a node's `valueBindings`: a number (a component param, an engine source, or the instance's own pot via `meter.{meter}.*`) mapped in → out onto a transform offset, a show/hide threshold, a fill reveal (sprite / flipbook / rect), a held clip frame, a rig animation scrub or a rig bone. Authored in the shared Properties section (`EditorValueBindings.svelte`) with a test-value scrub previewed on the canvas and overlays (`valuePreview.client.svelte.ts`). Guide §3b; contract in [hold-and-win](hold-and-win.md).
 - **Listeners + events in the editor** (Rive plan Phase 6b, 2026-10-13, in review, ⏳ not browser-verified). Properties → **Listeners** for a selected node of the component (`EditorListeners.svelte`: rows "On [down/up/hover in/hover out/click] → [fire trigger | set input | toggle bool | raise event]", pickers fed by the def's inputs and events, ⚠ per node from `validateComponentEvents`), **Component variables → Events** below Inputs (`EditorEvents.svelte`: add; ✎ rename-as-replace — the page's dialog lists the listeners, states and timeline `event:` cues that raise it, the listeners and states follow, a cue does not; × remove — asks when something raises it, the raises stay and are flagged; payload fields typed int / number / ms / bool / text key, optional), the shared payload editor (`EditorRaisePayload.svelte`: a value, an input's current value, or a localization key), and in the **State machine** inspector **On enter → ＋ raise event**. The stage preview answers the pointer while the State machine tab is shown: `EditorCanvas` reports moves / presses / releases with the DEEPEST node under the pointer (a hit-test into containers) through `onStagePointer`, `$lib/timeline/listenerPreview.ts` (`StagePointer`, `listeningChain`) turns them into enter / leave / down / up / click deepest-first, and the game's own `ComponentEventDispatcher` runs them against the preview runner; `placeLayers` routes a timeline's `event:` cue to it while running; the inspector's **Events** log lists every raise (time, event, origin, payload). Pure edits in `$lib/timeline/listenerEdit.ts`: listener and on-enter ids are MINTED (`l_` / `e_` + 6 random chars) against the draft's and the last-saved def's ids, so a row this build cannot read (kept by the save, never seen by the client) is never shadowed; event ids are author names. Everything is the draft — the existing component save (`check:component-links` still 71) — and read-only while Inspecting. Gate: `pnpm --filter launcher-api check:component-listeners-events-editor` (64). UI: [guide](../tools/invisible-editor.md#listeners-and-events).
 - **Listeners + events in the format and the runtime** (Rive plan Phase 6a, 2026-10-13, on `main` as #1186). `ComponentDef.events` (`{id, payload?: ParamDecl[], note?}` — Flow's own `ParamDecl`), a node's `on: NodeListener[]` (`{id, event: down|up|enter|leave|click, action: fire|set|toggle|raise}`) and a state's `onEnter: SmEnterAction[]` (a raise with an `id`). Per placed instance, `ComponentEventDispatcher` (`engine-layout/componentEvents.ts`, pure): a listening node is wrapped in a hit surface (`LayoutNodeView`, only when it has listeners), its listeners fire the instance's triggers on its own bus and set its runner's inputs; an event raised by a listener, a state being entered or an `event:<id>` timeline cue leaves on the Flow press road (`getFlowPress()(instanceNodeId, eventId, payload, 'event')`), so Phase 7 only adds the pins; the game plays no press sound for it. A press target with listeners keeps its press (both fire). Raises go through one ordered queue per instance, drained after the current work (never mid-mount, nothing after destroy); a raised event has its own namespace on the road (it never runs a press or `action` pin of the same name — event pins are Phase 7's). Payload `{ key }`s are localization keys (source-as-key) and the harvest collects them. An older build's save keeps newer listener / `onEnter` / payload rows (#1185's rule). The interface (`componentInterface`) lists `events`; `validateComponentEvents` gives the editor its issues; the normalizer keeps the three blocks and drops malformed listeners whole. No listener and no event ⇒ no dispatcher, no context, no wrapper (parity). Format, semantics and the event-id/input-id decision: plan §5 and §6.1. Gate: `pnpm --filter launcher-api check:component-listeners-events` (100 checks, incl. real headless Pixi hit-testing, the raise queue's order and destroy guard, and the game's real resolver keeping events apart from presses); `check:save-keeps-unknown-blocks` has a 6a section; `check:doc-readers-unknown-fields` §13 covers the new blocks.
@@ -45,6 +51,16 @@ Shipped capabilities on `main`:
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
 ## Blocked (owner / external)
+- **⏳ Browser-verify segmented counters** (auth-gated, owner): (a) Components side → Library →
+  create from **Segmented Counter**: the stage shows three segments 1 2 3; Properties → **Repeat
+  (count)** → **Pass to each segment** → `value` test slider at 1 lights only segment 1, at 3 all
+  three; **preview count** 5 draws five. (b) Open **Counter Segment** → Animate → State machine: ▶ Run,
+  set `value` under the inputs: Lit / Unlit follow `value >= {index}`. (c) Re-skin: set `litImage` /
+  `unlitImage` (or the colours) on your copy; set first / last variants to end-cap segments; the stage
+  follows. (d) Place the bar on the Hold and Win screen (respins) and a copy with `countSource =
+  freeSpinsTotal`, `valueSource = freeSpinsLeft` on the free-spin screen; publish and play: the
+  segment count follows the award (a retrigger adds segments), and segments go dark as spins are
+  used. (e) Every other screen and game looks and plays as before.
 - **⏳ Browser-verify param forwarding** (auth-gated, owner): (a) open your Pot Meter copy →
   **Edit inside Pot ›**, select a firecracker: Properties → Component instance → Params shows a
   **⇡** picker beside each param. Pick **Expose on ‹Pot›** for `lightAt`: the row now reads
@@ -78,6 +94,45 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-20 — **Segmented counters, engine side** (branch `claude/component-repeat-segments`,
+  ⏳ not browser-verified; design [rive plan §6.4](../design/rive-style-editor.md#64-count-mode-repeater-segmented-counters)).
+  `RepeaterNode` gains optional `count` (`{source?, preview, max?}`), `variants`
+  (`first`/`middle`/`last`), `passInputs` and editor-only `previewInputs`, and `layout.direction`
+  gains `column`. `<Repeater>` in count mode repeats its component N times: N follows the engine
+  value `count.source` (`{param}`-templated against the enclosing instance), clamped to `max`
+  (default 20, never above 50); each instance gets params `index` (1-based) / `count`, and the same as
+  constant number inputs when its def declares them; `passInputs` feeds each instance's number inputs
+  from engine values (`ComponentInstance` props `inputSources` / `inputValues`). Pure geometry in
+  `engine-layout/repeaterCount.ts`, shared with the editor. The ship chain: `collectComponentIds`
+  collects the variants (bake, runtime bundle, art export), `stockAssets` too; the normalizer
+  (`normalizeRepeaterCountFields`) keeps the fields and drops malformed ones. Free-spin number feeds
+  `freeSpinsLeft` / `freeSpinsPlayed` / `freeSpinsTotal` (from `freeSpinCounterValues.ts`) beside
+  `respinsLeft` / `respinsStart`, in the Bind-to-value catalog under *Free spins*. Built-in starter
+  **Segmented Counter** (`segmentedCounter`, params `countSource` / `valueSource`, `backgroundImage`)
+  repeating **Counter Segment** (`segmentedCounterSegment`: `unlit` / `lit` looks with colour + image
+  params, an `index` label, input `value`, SM `Unlit ⇄ Lit` on `value >= {index}`; timelines
+  `c_segmentedcountersegment_lit` / `_unlit`). Absent fields ⇒ today's repeater byte for byte; no
+  current game places the new built-ins. Gate: `check:component-repeat-segments` (62, incl. a mount on
+  the real Svelte runtime + pixi ticker). Known: a timeline keying `alpha` back to 1 on a node with no
+  authored `alpha` leaves the old value on screen (the starter's looks carry `alpha: 1`); a counter
+  nested inside another component hits `MAX_COMPONENT_DEPTH` and its segments don't render.
+- 2026-10-20 — **Segmented counters, editor side: Repeat (count)** (branch
+  `claude/component-repeat-segments`, ⏳ not browser-verified; guide
+  [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count)).
+  Library → Elements on the Components side offers **Repeat (count)** (`newCountRepeater`: a
+  count-mode repeater, `source: ''`, preview 3, a row 8 px apart, of the first component declaring
+  `index`). Properties' `EditorRepeaterCount.svelte`: segment + first / middle / last variants, preview
+  count, **count from** (the Bind-to-value source picker, now shared as `EditorValueSourcePicker` /
+  `valueSourceOptions.ts`), max, row / column / grid layout, and **Pass to each segment** (a source
+  per number input — `index` / `count` read-only — with a test value written to `previewInputs`).
+  The canvas, text overlay and selection box share `repeaterCountBoxes` / `repeaterPreviewLayout`
+  (`editorCanvas.helpers.ts`, over engine-layout's `repeaterCount` / `repeaterCountOffsets` /
+  `repeaterSegmentComponent` and `componentDesignSize`, so they frame what the game lays out), and
+  each segment draws at its state machine's settled pose (`$lib/timeline/segmentPreview.ts`: the
+  game's runner + player, sampled at the settled state's end frame and folded into a copy of the
+  def's nodes), from the built-in + project component timelines (`segmentTimelines.client.svelte.ts`,
+  re-read when another component opens). A source-list repeater draws exactly as before. Gate:
+  `check:component-repeat-segments-editor`.
 - 2026-10-20 — **Rive plan Phase 9c: the state machine's options, Inputs dock and Console** (branch
   `claude/rive-p9c-animations-sm`, in review, ⏳ not browser-verified; checklist in
   [editor status](editor.md) Open item 0c, which also has the Animations list).
