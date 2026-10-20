@@ -112,6 +112,8 @@ export interface TimelineOptions {
 	interpolation?: boolean;
 	/** Every animated actor gets a collapsible summary row of its key times. */
 	summaryRows?: boolean;
+	/** A drag over an empty channel lane box-selects keys (a click there clears the selection). */
+	boxSelect?: boolean;
 }
 
 export interface Timeline {

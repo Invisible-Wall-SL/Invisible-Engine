@@ -635,6 +635,29 @@ export function playbackTime(loop, elapsed, duration) {
 	return Math.min(e, duration);
 }
 
+/**
+ * The cue keys a PING-PONG timeline crosses as its lap clock moves from `fromLap` to `toLap` (both
+ * unwrapped seconds since it started). Cues fire on the way OUT only: every out leg `[2kd, 2kd + d]`
+ * the step overlaps crosses the keys inside it, so a step over the turnaround still crosses a cue
+ * near (or at) the end, and a leg the step enters from its start crosses a cue at 0.
+ */
+export function pingPongCuesCrossed(keys, fromLap, toLap, duration) {
+	if (!(duration > 0) || !(toLap > fromLap)) return [];
+	const out = [];
+	const period = 2 * duration;
+	for (let k = Math.floor(fromLap / period); k * period <= toLap; k++) {
+		const start = k * period;
+		const lo = Math.max(fromLap, start) - start;
+		const hi = Math.min(toLap, start + duration) - start;
+		if (hi < lo) continue;
+		const entered = fromLap < start;
+		for (const key of keys) {
+			if ((entered ? key.time >= 0 : key.time > lo) && key.time <= hi) out.push(key);
+		}
+	}
+	return out;
+}
+
 // ---- cues -----------------------------------------------------------------
 
 /**

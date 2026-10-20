@@ -208,6 +208,7 @@
 			channels: SCREEN_CHANNELS,
 			interpolation: true,
 			summaryRows: true,
+			boxSelect: true,
 			host: {
 				selectedActor: () => actorId(),
 				togglePlay: () => (playing ? stop() : play()),
@@ -571,7 +572,7 @@
 				doc,
 				nodeActorOf(doc, t.target),
 				delta,
-				time,
+				at,
 				keyableChannels(t.node.kind),
 			);
 			const entries = Object.entries(values);
@@ -589,7 +590,8 @@
 			}
 			const keyed = track.channels as Record<string, CinematicKey[]>;
 			for (const [channel, value] of entries) {
-				putKey((keyed[channel] = keyed[channel] ?? []), at, value, doc.defaultEase);
+				const ease = Array.isArray(doc.defaultEase) ? [...doc.defaultEase] : doc.defaultEase;
+				putKey((keyed[channel] = keyed[channel] ?? []), at, value, ease as CinematicKey['ease']);
 			}
 			keyedNodes++;
 		}

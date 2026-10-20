@@ -142,3 +142,10 @@ export function easeShape(ease: CinematicEase | unknown): (u: number) => number;
 export function loopsForever(loop: unknown): boolean;
 /** The time to sample after `elapsed` seconds of playing a `duration`-long timeline of `loop` type. */
 export function playbackTime(loop: unknown, elapsed: number, duration: number): number;
+/** The cue keys a ping-pong timeline crosses between two unwrapped lap times (out legs only). */
+export function pingPongCuesCrossed<T extends { time: number }>(
+	keys: T[],
+	fromLap: number,
+	toLap: number,
+	duration: number,
+): T[];

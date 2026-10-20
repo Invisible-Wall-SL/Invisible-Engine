@@ -52,7 +52,7 @@
 		type Scene,
 	} from 'engine-layout';
 	import type { EffectParamValues } from 'engine-fx';
-	import { onMount, type Snippet } from 'svelte';
+	import { onDestroy, onMount, type Snippet } from 'svelte';
 	import {
 		childLocalTransform,
 		depthSegments,
@@ -110,6 +110,7 @@
 		previewVersion,
 	} from './valuePreview.client.svelte';
 	import type { StageTransformDelta } from '$lib/timeline/screenTimeline';
+	import { setAnimateDragging } from './animateKeying.client.svelte';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import { deepHit } from '$lib/timeline/listenerPreview';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
@@ -4317,6 +4318,29 @@
 			});
 		}
 		animDrag = { nodes };
+		setAnimateDragging(true);
+	}
+
+	// Unmounted mid-drag (a mode or route switch): the Design pose goes back, nothing is keyed.
+	onDestroy(() => {
+		if (!animDrag) return;
+		restoreAnimateDrag(animDrag);
+		animDrag = null;
+		setAnimateDragging(false);
+	});
+
+	/** Put each node's gesture fields back as they were, only where the gesture changed one. */
+	function restoreAnimateDrag(drag: NonNullable<typeof animDrag>): void {
+		for (const { id, saved } of drag.nodes) {
+			const n = findNodeById(id) as unknown as Record<string, unknown> | null;
+			if (!n) continue;
+			const was = JSON.parse(saved) as Record<string, unknown>;
+			for (const f of GESTURE_FIELDS) {
+				if (JSON.stringify(n[f]) === JSON.stringify(was[f])) continue;
+				if (f in was) n[f] = was[f];
+				else delete n[f];
+			}
+		}
 	}
 
 	/** Put every dragged node's Design pose back and key what the gesture changed. */
@@ -4326,15 +4350,15 @@
 		animDrag = null;
 		if (!drag) return;
 		const deltas: StageTransformDelta[] = [];
-		for (const { id, saved, start } of drag.nodes) {
-			const n = findNodeById(id) as unknown as Record<string, unknown> | null;
-			if (!n) continue;
-			const end = resolveTransform(n as unknown as LayoutNode, layoutType);
-			const was = JSON.parse(saved) as Record<string, unknown>;
-			for (const f of GESTURE_FIELDS) {
-				if (f in was) n[f] = was[f];
-				else delete n[f];
-			}
+		const ends = drag.nodes.map(({ id }) => {
+			const n = findNodeById(id);
+			return n ? resolveTransform(n, layoutType) : null;
+		});
+		restoreAnimateDrag(drag);
+		setAnimateDragging(false);
+		for (const [i, { id, start }] of drag.nodes.entries()) {
+			const end = ends[i];
+			if (!end) continue;
 			const delta: StageTransformDelta = { nodeId: id };
 			if (kind === 'translate') {
 				delta.dx = end.x - start.x;
@@ -4463,7 +4487,17 @@
 		// An EDGE handle resizes ONE axis — lock the other to its start size (ratio 1). A CORNER
 		// handle defaults to uniform scale (average of the two abs ratios, signed); Shift makes it
 		// non-uniform (free per-axis).
-		if (d.resizeAxis === 'x') {
+		// Animate keys ONE scale channel, so its drag is always uniform: what it shows is what keys.
+		if (animDrag) {
+			const avg =
+				d.resizeAxis === 'x'
+					? Math.abs(sxRatio)
+					: d.resizeAxis === 'y'
+						? Math.abs(syRatio)
+						: (Math.abs(sxRatio) + Math.abs(syRatio)) / 2;
+			sxRatio = Math.sign(sxRatio || 1) * avg;
+			syRatio = Math.sign(syRatio || 1) * avg;
+		} else if (d.resizeAxis === 'x') {
 			syRatio = 1;
 		} else if (d.resizeAxis === 'y') {
 			sxRatio = 1;
@@ -4497,7 +4531,7 @@
 			writeScale(node, 1, 1);
 			return;
 		}
-		if (animDrag) animDrag.ratio = Math.abs(d.resizeAxis === 'y' ? syRatio : sxRatio);
+		if (animDrag) animDrag.ratio = Math.abs(sxRatio);
 		const MIN = 0.05;
 		let newSx = d.startScale.x * sxRatio;
 		let newSy = d.startScale.y * syRatio;
@@ -4681,18 +4715,18 @@
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
 		if (!e.shiftKey && (!animate || animateKeys)) {
 			const hh = hitTestHandle(screen);
-			if (hh && selectedId) {
-				const node = findNodeById(selectedId);
-				if (node) {
-					if (hh.kind === 'corner') startScale(node, hh.idx, world);
-					else if (hh.kind === 'edge')
-						startScale(node, EDGE_TO_CORNER[hh.idx], world, EDGE_TO_AXIS[hh.idx]);
-					else if (hh.kind === 'rotate') startRotate(node, world);
-					else startTranslate(node, world);
-					if (animateKeys) beginAnimateDrag();
-					e.preventDefault();
-					return;
-				}
+			const node = hh && selectedId ? findNodeById(selectedId) : null;
+			// A text box resizes its box, never its scale, so in Animate there is nothing to key.
+			const boxOnly = !!node && animate && (node.kind === 'text' || isTextBoxInstance(node));
+			if (hh && node && !(boxOnly && hh.kind !== 'rotate')) {
+				if (hh.kind === 'corner') startScale(node, hh.idx, world);
+				else if (hh.kind === 'edge')
+					startScale(node, EDGE_TO_CORNER[hh.idx], world, EDGE_TO_AXIS[hh.idx]);
+				else if (hh.kind === 'rotate') startRotate(node, world);
+				else startTranslate(node, world);
+				if (animateKeys) beginAnimateDrag();
+				e.preventDefault();
+				return;
 			}
 		}
 		// 2) body hit on any node (on any drawn screen with "Any screen" on, Shift aside)

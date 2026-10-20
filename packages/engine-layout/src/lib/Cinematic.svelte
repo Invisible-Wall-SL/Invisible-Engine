@@ -21,6 +21,7 @@
 	import {
 		cuesCrossed,
 		isNodeActor,
+		pingPongCuesCrossed,
 		playbackTime,
 		resolveVisible,
 		sampleNodeActor,
@@ -49,7 +50,7 @@
 		playing?: boolean;
 		/** Where the playhead starts (and where a `loop`ing cinematic returns to). */
 		startTime?: number;
-		/** Loop it (as a Flow node asks), whatever the doc's own loop type says. */
+		/** Loop it (as a Flow node asks); a ping-pong doc still plays there and back. */
 		loop?: boolean;
 		/** Playback rate; 1 = authored speed. */
 		speed?: number;
@@ -146,14 +147,14 @@
 		if (!ticker || !props.playing || duration <= 0 || done) return;
 		const prev = time;
 		const dt = (ticker.deltaMS / 1000) * (props.speed ?? 1);
-		// The doc's own loop type (Rive plan Phase 9b): a ping-pong samples its lap reflected, so the
-		// way back crosses no cue. Absent ⇒ the one-shot path below, as before.
-		if (props.doc.loop === 'pingPong' && !props.loop) {
+		// The doc's own loop type (Rive plan Phase 9b): a ping-pong samples its lap reflected and fires
+		// cues on the way out only. Absent ⇒ the one-shot path below, as before.
+		if (props.doc.loop === 'pingPong') {
+			if (props.oncue && cueKeys.length) {
+				for (const k of pingPongCuesCrossed(cueKeys, lap, lap + dt, duration)) props.oncue(k.cue);
+			}
 			lap = (lap + dt) % (2 * duration);
 			time = playbackTime('pingPong', lap, duration);
-			if (props.oncue && cueKeys.length) {
-				for (const k of cuesCrossed(cueKeys, prev, time)) props.oncue(k.cue);
-			}
 			return;
 		}
 		time += dt;

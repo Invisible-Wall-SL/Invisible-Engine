@@ -81,7 +81,7 @@
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
-	import { keyingActive, keyStageTransform } from './animateKeying.client.svelte';
+	import { animateDragging, keyingActive, keyStageTransform } from './animateKeying.client.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
 	import ComponentList from './ComponentList.svelte';
 	import ComponentWorkspace from './ComponentWorkspace.svelte';
@@ -2135,7 +2135,7 @@
 		resetDebounceOnEveryEdit: false,
 		initialEtag: data.docEtag,
 		conflictMessage: 'Someone else saved this project while you were editing.',
-		canAutosave: () => !crossTypeLoaded,
+		canAutosave: () => !crossTypeLoaded && !animateDragging(),
 		blockWhen: () => lease.readOnly || projectDrift,
 		save: async ({ baseEtag, force }) => {
 			const fields: Record<string, string> = { doc: JSON.stringify(buildDocPayload()) };
@@ -2238,6 +2238,11 @@
 			burstTimer = null;
 		}
 		if (!burstActive) return;
+		// An Animate stage drag has the Design pose moved until it lets go: settle after it.
+		if (animateDragging()) {
+			burstTimer = setTimeout(settleBurst, HISTORY_COALESCE_MS);
+			return;
+		}
 		historyBaseline = snapshotDoc();
 		burstActive = false;
 	}
@@ -2294,6 +2299,16 @@
 		const kept = selectedIds.filter((id) => scenes.some((sc) => findById(sc.nodes, id) !== null));
 		if (kept.length !== selectedIds.length) selectedIds = kept;
 	}
+
+	// An Animate stage drag holds the autosave (`canAutosave`), cancelling a pending one; once it
+	// lets go, a layout that is still dirty re-arms it.
+	$effect(() => {
+		const dragging = animateDragging();
+		untrack(() => {
+			if (dragging) saveState.cancelAutosave();
+			else if (saveState.dirty) saveState.rearmAutosave();
+		});
+	});
 
 	function markDirty(): void {
 		recordEdit();

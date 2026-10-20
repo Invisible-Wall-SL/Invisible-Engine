@@ -138,9 +138,12 @@ Shipped capabilities on `main`:
     (`onAnimateTransform`), a drag, corner or rotate runs on the Design pose exactly as in Design so
     the stage follows the pointer; on release every dragged node's gesture fields are put back from
     a snapshot and the change (design px, the scale ratio, degrees) is keyed through
-    `stageDragKeys` on top of the current offset, one undo step per drag. Hit-testing and the
-    handles read the drawn (animated) pose in Animate; snapping is off there; a text box's resize
-    keys nothing.
+    `stageDragKeys` on top of the current offset, sampled at the snapped key time, one undo step
+    per drag. Only fields the gesture changed are put back. While a drag is in flight
+    (`setAnimateDragging`) the page holds its autosave and its undo baseline, so neither captures
+    the mid-drag pose; an unmount mid-drag puts the pose back and keys nothing. Hit-testing and the
+    handles read the drawn (animated) pose in Animate; snapping is off there; a scale drag is
+    uniform (one `scale` key); a text node's or Text Box's resize handles do nothing.
   - **Panel.** The module mounts with `interpolation` and `summaryRows`; the header gains the loop
     type, fps, **Onion** (±N, 1–10) and **Only selected**; ▶ plays through `playbackTime`, so it
     loops or ping-pongs like the game; Space toggles it.

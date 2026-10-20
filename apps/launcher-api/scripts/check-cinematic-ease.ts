@@ -412,6 +412,60 @@ const L = await import('../../../packages/engine-layout/src/lib/componentTimelin
 	);
 }
 
+console.log('6. a ping-pong crosses its cues on the way out, a step over the turnaround included');
+{
+	const keys = [{ time: 0 }, { time: 0.5 }, { time: 1 }];
+	const at = (from: number, to: number): number[] =>
+		EV.pingPongCuesCrossed(keys, from, to, 1).map((k: { time: number }) => k.time);
+	ok('a step inside the out leg', JSON.stringify(at(0.4, 0.6)) === '[0.5]');
+	ok(
+		'a step over the turnaround crosses the cue AT the end',
+		JSON.stringify(at(0.98, 1.03)) === '[1]',
+	);
+	ok('the way back crosses nothing', JSON.stringify(at(1.2, 1.9)) === '[]');
+	ok('entering the next out leg crosses the cue at 0', JSON.stringify(at(1.95, 2.1)) === '[0]');
+	ok(
+		'a backwards or empty step crosses nothing',
+		at(0.6, 0.4).length === 0 && at(0.5, 0.5).length === 0,
+	);
+	const nodes = [{ id: 'n1', kind: 'sprite', label: 'Coin', x: 0, y: 0 }] as LayoutNode[];
+	const doc = {
+		schemaVersion: 1,
+		id: 'pp',
+		name: 'pp',
+		duration: 1,
+		fps: 30,
+		host: { kind: 'component', componentId: 'coin' },
+		playOn: 'go',
+		loop: 'pingPong',
+		stage: { sceneId: null, cast: [{ actorId: 'a', kind: 'node', target: 'Coin', place: {} }] },
+		tracks: [
+			{
+				id: 'p',
+				kind: 'property',
+				actorId: 'a',
+				channels: {
+					x: [
+						{ time: 0, value: 0 },
+						{ time: 1, value: 1 },
+					],
+				},
+			},
+			{ id: 'c', kind: 'cue', actorId: '', keys: [{ time: 1, cue: 'signal:end' }] },
+		],
+		markers: [],
+	} as unknown as CinematicDoc;
+	const p = new L.ComponentTimelinePlayer([doc], nodes);
+	p.trigger('go');
+	let ends = 0;
+	// 0.3 s steps never land exactly on the end: the old check missed every one of these.
+	for (let i = 0; i < 20; i++) ends += p.advance(0.3).cues.length;
+	ok(
+		`a cue at the very end fires once per lap in the component player (${ends} in 3 laps)`,
+		ends === 3,
+	);
+}
+
 if (failures) {
 	console.error(`\n${failures} failure(s)`);
 	process.exit(1);

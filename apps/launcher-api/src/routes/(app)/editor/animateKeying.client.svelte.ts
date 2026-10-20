@@ -42,10 +42,23 @@ export interface KeyingPanel {
 	keyStage(deltas: StageTransformDelta[]): number;
 }
 
-const state = $state<{ panel: KeyingPanel | null; owner: symbol | null }>({
+const state = $state<{ panel: KeyingPanel | null; owner: symbol | null; dragging: boolean }>({
 	panel: null,
 	owner: null,
+	dragging: false,
 });
+
+/**
+ * An Animate stage drag is moving the real node's Design pose (it is put back on release). The
+ * page holds its autosave and its undo baseline while this is true, so neither can capture the
+ * mid-drag pose.
+ */
+export function setAnimateDragging(on: boolean): void {
+	state.dragging = on;
+}
+export function animateDragging(): boolean {
+	return state.dragging;
+}
 
 /** Publish (or with `null`, withdraw) `owner`'s keying. One panel withdrawing never clears another's. */
 export function setKeyingPanel(panel: KeyingPanel | null, owner: symbol): void {

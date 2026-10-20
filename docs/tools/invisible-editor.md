@@ -954,8 +954,9 @@ plays the result in the game. A component has its own Animate mode on the Compon
    back into the relative key for you. Transform underneath still edits the Design pose.
    **On the stage**, dragging a node keys its x/y at the playhead, a corner keys its scale and the
    circle keys its rotation, each on top of what the timeline already does there; the handles sit
-   on the animated pose, and snapping is off. Text boxes resize their box in Design only, so a
-   corner on a text node keys nothing. The first key on a node adds it to the timeline.
+   on the animated pose, and snapping is off. A scale drag is always uniform in Animate (one
+   **scale ×** key), even from an edge handle or with Shift. A text box resizes its box in Design
+   only, so in Animate its corners and edges do nothing (it still moves and turns). The first key on a node adds it to the timeline.
 4. **Preview.** Drag the ruler, or press **▶**. The canvas draws each frame through the game's own
    maths, so what you see is what plays. The number next to the time readout is the timeline's
    length in seconds.
@@ -1023,7 +1024,8 @@ keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
 **Loop type and fps.** Next to the length in the header: **One-shot** (plays once and holds its last
 frame, the default), **Loop** (back to the start) or **Ping-pong** (to the end and back). ▶ plays it
 the same way; Loop and Ping-pong play until you pause. In the game, a looping timeline never ends,
-so it never holds a cue, and a ping-pong fires its cues on the way out only. **fps** is the grid
+so it never holds a cue, a Flow **playCinematic** that waits for it carries on at once (as it does
+for the node's own loop), and a ping-pong fires its cues on the way out only. **fps** is the grid
 keys snap to and `,` / `.` step by.
 
 **Onion skin.** Tick **Onion** in the header and the stage outlines each keyed node a few frames

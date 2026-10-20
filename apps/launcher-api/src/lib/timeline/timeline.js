@@ -24,9 +24,10 @@
  *
  * OPT-IN SURFACES (Rive plan Phase 9b): `options.interpolation` swaps the key inspector's ease
  * `<select>` for the Interpolation panel (Linear / Cubic with a two-handle curve / Hold, and the
- * doc's default), and `options.summaryRows` gives every animated actor a collapsible summary row.
- * `/rigger` sets neither, so its markup is unchanged; multi-key selection, copy / paste and frame
- * stepping work in both.
+ * doc's default), `options.summaryRows` gives every animated actor a collapsible summary row, and
+ * `options.boxSelect` lets a drag over an empty channel lane box-select keys. `/rigger` sets none
+ * of them, so its markup and lane clicks are unchanged; Shift/Ctrl-click selection, multi-key
+ * drag, Ctrl+C / Ctrl+V and `,` / `.` frame stepping work in both.
  */
 
 const TL_GUTTER = 132;
@@ -157,6 +158,7 @@ export function mount(el, options) {
 	let onlySelected = false;
 	const interpolation = !!options.interpolation;
 	const summaryRows = !!options.summaryRows;
+	const boxSelect = !!options.boxSelect;
 	let selCueTime = null; // the selected cue key, by time (cues are global, so time identifies one)
 	let cinePps = null; // px per second; null = fit the whole cinematic to the panel width
 	let tlDrag = null;
@@ -1302,7 +1304,7 @@ export function mount(el, options) {
 		};
 
 		for (const kind of Object.values(ROW_KINDS)) kind.wire(el, pps);
-		wireMarquee();
+		if (boxSelect) wireMarquee();
 	}
 
 	// ---- strip + layer operations -----------------------------------------
@@ -1625,6 +1627,7 @@ export function mount(el, options) {
 			if (!track || !track.channels) continue;
 			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
 			const t = at + c.dt;
+			if (t > doc.duration + 1e-6) continue;
 			const i = keys.findIndex((k) => Math.abs(k.time - t) < 1e-6);
 			const key = { time: t, value: c.value, ease: cloneEase(c.ease) };
 			if (key.ease === undefined) delete key.ease;
@@ -2186,7 +2189,8 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 			positionPlayhead();
 			return;
 		}
-		if (e.key === ' ' && host.togglePlay && !e.altKey) {
+		// A focused button keeps Space (it presses the button).
+		if (e.key === ' ' && host.togglePlay && !e.altKey && !(ae && ae.tagName === 'BUTTON')) {
 			e.preventDefault();
 			host.togglePlay();
 			return;

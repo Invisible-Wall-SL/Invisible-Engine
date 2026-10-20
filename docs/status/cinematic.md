@@ -32,14 +32,20 @@ through the same player; headless-proven, no editor yet (5b).
     does), used by `sampleChannel`, `sampleTint` and countUp text; `playbackTime(loop, elapsed,
     duration)` and `loopsForever`. String eases take the exact code path they always did.
   - **Players.** `ComponentTimelinePlayer`: `loop` wraps to 0 like a `loopFrom: 0`, `pingPong`
-    samples its there-and-back lap reflected; neither ends or holds a cue (`holdsOn` skips them),
-    and the way back crosses no cue. `<Cinematic>`: `doc.loop === 'loop'` loops like its `loop`
-    prop; `pingPong` reflects (the prop's loop still wins).
+    samples its there-and-back lap reflected; neither ends or holds a cue (`holdsOn` skips them).
+    Cues fire on the way out only, through `pingPongCuesCrossed` (every out leg a step overlaps,
+    so a step over the turnaround still fires a cue at or near the end). `<Cinematic>`:
+    `doc.loop === 'loop'` loops like its `loop` prop; `pingPong` plays there and back either way.
+    The game's Flow runtime treats a doc's Loop / Ping-pong like the node's own `loop`, so an
+    awaited `playCinematic` of one resolves at once instead of hanging the round (the validator
+    sees only the node, so this is runtime-only).
   - **The Timeline module** (`$lib/timeline/timeline.js`): multi-key selection (Shift/Ctrl-click,
     box drag over empty channel lanes, `selectKeys`), a drag moves every selected key (the grabbed
     one lands exactly on the snapped time), Ctrl+C / Ctrl+V to the playhead, Delete on the
-    selection, `,` / `.` frame steps (Shift ×10) and Space through `host.togglePlay`. Opt-in for
-    `/editor` only: `interpolation` (the Interpolation panel: Linear / Cubic with an SVG two-handle
+    selection, `,` / `.` frame steps (Shift ×10) and Space through `host.togglePlay` (left alone on
+    a focused button). These keys are live in `/rigger` too (its own keys never used them).
+    Opt-in for `/editor` only: `boxSelect` (a drag over an empty channel lane box-selects; a click
+    there clears), `interpolation` (the Interpolation panel: Linear / Cubic with an SVG two-handle
     curve and the typed `x1, y1, x2, y2` / Hold, *Set as default*, and the doc default with nothing
     selected) and `summaryRows` (a foldable row per animated actor, with *Show only selected*
     through `host.selectedActor`). `/rigger` sets neither: its golden changed in one step only,

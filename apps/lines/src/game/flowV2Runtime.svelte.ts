@@ -783,7 +783,10 @@ export const createLinesFlowV2 = (
 				return;
 			}
 			trace('cinematic', cinematicId, '▶ play');
-			const loop = opts.loop === true;
+			// The timeline's own loop type (its header's Loop / Ping-pong) loops it as surely as the
+			// node's: an awaited play of it resolves now, or the round would hang on it.
+			const docLoop = bakedCinematic(cinematicId)?.loop;
+			const loop = opts.loop === true || docLoop === 'loop' || docLoop === 'pingPong';
 			const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
 			// A replay while it still plays releases the earlier play's wait, which nothing else would.
 			playingCinematics.get(cinematicId)?.done?.();

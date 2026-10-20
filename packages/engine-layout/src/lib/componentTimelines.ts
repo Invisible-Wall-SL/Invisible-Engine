@@ -1,5 +1,6 @@
 import {
 	cuesCrossed,
+	pingPongCuesCrossed,
 	playbackTime,
 	sampleNodeActor,
 	type CinematicNodeSample,
@@ -336,13 +337,13 @@ export class ComponentTimelinePlayer {
 				continue;
 			}
 			if (pingPongs(r.bound.doc)) {
-				// The way back crosses no cue: `cuesCrossed` refuses a step that goes backwards.
-				const prev = r.time;
-				r.lap = ((r.lap ?? r.time) + dt) % (2 * duration);
-				r.time = playbackTime('pingPong', r.lap, duration);
-				for (const k of cuesCrossed(r.bound.cueKeys, prev, r.time)) {
+				// Cues fire on the way out only, a step over the turnaround included.
+				const from = r.lap ?? r.time;
+				for (const k of pingPongCuesCrossed(r.bound.cueKeys, from, from + dt, duration)) {
 					step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
 				}
+				r.lap = (from + dt) % (2 * duration);
+				r.time = playbackTime('pingPong', r.lap, duration);
 				continue;
 			}
 			const prev = r.time;
