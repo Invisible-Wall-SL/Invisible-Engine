@@ -34,6 +34,7 @@ mock.module(server('r2.ts'), {
 			const text = bucket.get(key);
 			return text === undefined ? null : { text, etag: '"e"' };
 		},
+		getObjectText: async (key: string) => bucket.get(key) ?? null,
 		putObjectText: async (key: string, text: string) => {
 			bucket.set(key, text);
 			return '"e"';

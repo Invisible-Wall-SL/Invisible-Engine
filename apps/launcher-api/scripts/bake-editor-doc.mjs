@@ -430,6 +430,7 @@ async function main() {
 		winExplode: undefined,
 		winBeat: undefined,
 		arrivalRelease: undefined,
+		respinLandOnStop: undefined,
 		bookVfx: undefined,
 		transition: undefined,
 		tumblePattern: undefined,
@@ -557,6 +558,11 @@ async function main() {
 			// paths for the third time in a row: omit it here and a project that asked for the shorter
 			// wait would keep sitting out the intro through the bake path while the live one did not.
 			const arrivalRelease = s?.arrivalRelease?.enabled === true ? { enabled: true } : undefined;
+			// "Play Land as each cell stops" on the Hold and Win respin board — one switch that defaults
+			// OFF, and it has to reach BOTH bundle paths like the release above: omit it here and a baked
+			// game would land its coins at the stick while the live one landed them at each stop.
+			const respinLandOnStop =
+				s?.respinLandOnStop?.enabled === true ? { enabled: true } : undefined;
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
 			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
 			const bookVfx = (() => {
@@ -715,6 +721,7 @@ async function main() {
 				winExplode,
 				winBeat,
 				arrivalRelease,
+				respinLandOnStop,
 				bookVfx,
 				transition,
 				tumblePattern,

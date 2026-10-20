@@ -8,9 +8,9 @@
 // launcher API, and works the sequencer the way an author does — through the page's own DOM
 // handlers: cast two rigs, drag / trim / retime strips, the strip inspector, layers, ＋ strip,
 // Ctrl+D / Delete, bone masks, property / camera / visibility keys and their inspector, cues and
-// the cue picker, the set + its depth row, the frame picker, ruler scrub, zoom, undo / redo by
-// button and by key (with the 600 ms coalescing on a virtual clock), Tweak Mode (double-click,
-// Esc), ＋ New clip, inline posing (✎), save, rename, new, open, remove.
+// the cue picker, the set + its depth row, the frame picker, ruler scrub (also scrolled), zoom,
+// undo / redo by button and by key (with the 600 ms coalescing on a virtual clock), Tweak Mode
+// (double-click, Esc), ＋ New clip, inline posing (✎), save, rename, new, open, remove.
 //
 // After every action it records the cinematic document, the undo history, the playhead and the
 // rendered HTML of the timeline, the left panel and the right-hand inspector, and compares them
@@ -409,6 +409,16 @@ try {
 		`const r = S.row('.cineRuler .cineLane'); const b = r.getBoundingClientRect(); r.parentElement.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: b.left + 200, clientY: b.top + 5, pointerId: 1 })); r.parentElement.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: b.left + 260, clientY: b.top + 5, pointerId: 1 })); r.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: b.left + 260, clientY: b.top + 5, pointerId: 1 }))`,
 	);
 	await act('zoom in', `RiggerCinematic.zoom(1.15)`);
+	// The playhead scrolls with the lanes: its `left` is a content coordinate, never minus scrollLeft.
+	await act(
+		'scrub the ruler scrolled right',
+		`window.__t0 = RiggerCinematic.getTime(); const tl = S.$('#timeline'); tl.scrollLeft = 120; const r = S.row('.cineRuler .cineLane'); const b = r.getBoundingClientRect(); r.parentElement.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: b.left + 700, clientY: b.top + 5, pointerId: 1 })); r.parentElement.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: b.left + 760, clientY: b.top + 5, pointerId: 1 })); r.parentElement.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: b.left + 760, clientY: b.top + 5, pointerId: 1 }))`,
+	);
+	// Undo the detour so every later step runs exactly as before it was added.
+	await act(
+		'scroll back, playhead back',
+		`RiggerCinematic.setTime(window.__t0); S.$('#timeline').scrollLeft = 0; RiggerCinematic.renderTimeline()`,
+	);
 	await act('zoom out', `RiggerCinematic.zoom(1 / 1.15)`);
 
 	// Coalescing: two edits to one field inside 600 ms are ONE step; past it they are two.

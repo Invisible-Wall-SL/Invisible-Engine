@@ -678,6 +678,29 @@ coin's tier. There is no on/off switch: every field you leave alone keeps the ga
 Assetless: it travels to the game as `bundle.symbols.coinLabel`, and a Font Maker font it names
 ships with the project's font catalog.
 
+### Coins landing on the respin board
+
+Shown only on a project with **Hold and Win** (see [Hold and Win projects](#hold-and-win-projects)),
+or wherever it is already on so it can be switched off. One switch, **Play Land as each cell
+stops**, off by default.
+
+- **Off** — what every Hold and Win game has always done. A respin cell that stops draws **Coin
+  land** (empty ⇒ the resting art). Once the **last** cell of the respin has stopped, the coins that
+  landed stick together and play **Coin stick**, which, left empty, borrows **Land**. So a coin's
+  **Land** plays only after every cell has stopped.
+- **On** — each coin plays **Land**, and its landing sound, the moment its own cell stops. When the
+  coins stick, a coin with **Coin stick** left empty settles into its resting art instead of playing
+  **Land** a second time. The coin label's **Pop as the coin sticks** still pops then. The stick
+  waits until the last coin's **Land** has finished, so no landing is cut short.
+
+Either way, a bound cell wins at its own moment: a bound **Coin land** draws at the stop instead of
+**Land**, and a bound **Coin stick** still plays as the coins stick. A mystery or a multiplier
+turning into a coin has no cell stop, so it still plays **Land** through **Coin stick** with the
+switch on. An empty cell never plays **Land**, even if the blank symbol binds one. On a **coin
+board** the base game spins on this same board, so with the switch on every base spin's coins play
+**Land** as their cells stop as well. Assetless: it travels to the game as
+`bundle.symbols.respinLandOnStop`.
+
 ### Winning symbols after the spin
 
 A separate section with its own on/off toggle (**on by default**) plus a **Gap between
@@ -1228,7 +1251,9 @@ exactly as it did:
 | **Row unlock**     | an unlock symbol applying — opening a locked row of an expanding board before it leaves              | Win       |
 
 Coin land and Coin idle borrow `Static`, which is the game's last resort rather than an advertised
-inheritance, so those two read `unset` when empty (the tooltip says what plays). The win frame
+inheritance, so those two read `unset` when empty (the tooltip says what plays). With
+[Play Land as each cell stops](#coins-landing-on-the-respin-board) on, a stopping cell plays `Land`
+instead of an empty Coin land, and an empty Coin stick no longer replays it. The win frame
 draws on Coin collect, Coin boost, Respins add, Coin upgrade, Jackpot reveal and Fly to meter, as it
 did when they played `Win`. A rolling respin cell plays the symbol's own `Spin`.
 
