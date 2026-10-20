@@ -151,6 +151,9 @@ interface Running {
 interface Mix {
 	snapshot: Map<string, CinematicNodeSample>;
 	progress: number;
+	/** The state being left still plays under the blend (`pauseSource: false`): its nodes are
+	 *  sampled here at `time` instead of read from the snapshot. */
+	live?: { bound: Bound; time: number };
 }
 
 const EPSILON = 1e-9;
@@ -436,14 +439,20 @@ export class ComponentTimelinePlayer {
 					}
 				}
 				r.from = { snapshot, progress: 0 };
+				// Only a slot that was not itself mid-blend plays on: a half-mixed pose has no one
+				// timeline to continue, so it stays frozen.
+				if (play.from.playing && previous && !previous.from)
+					r.from.live = { bound: previous.bound, time: play.from.time };
 			}
 		} else {
 			segment(bound, play);
 			r.time = play.time;
 			r.layer = layer;
 		}
-		if (r.from && play.from) r.from.progress = play.from.progress;
-		else if (!play.from) r.from = undefined;
+		if (r.from && play.from) {
+			r.from.progress = play.from.progress;
+			if (r.from.live) r.from.live.time = play.from.time;
+		} else if (!play.from) r.from = undefined;
 		return cues;
 	}
 
@@ -457,8 +466,10 @@ export class ComponentTimelinePlayer {
 		const tracks = r.bound.actors.get(nodeId);
 		const to = tracks ? sampleNodeActor(tracks, r.time) : undefined;
 		if (!r.from) return to;
+		const live = r.from.live;
+		const liveTracks = live?.bound.actors.get(nodeId);
 		return blendNodeSamples(
-			r.from.snapshot.get(nodeId),
+			live && liveTracks ? sampleNodeActor(liveTracks, live.time) : r.from.snapshot.get(nodeId),
 			to,
 			r.from.progress,
 			this.fxRests.get(nodeId),

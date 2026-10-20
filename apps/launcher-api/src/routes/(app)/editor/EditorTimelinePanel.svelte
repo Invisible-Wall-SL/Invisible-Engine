@@ -22,6 +22,9 @@
 	 * - Keying UI (Rive plan Phase 9b): the fields live in PROPERTIES, which reads what this panel
 	 *   publishes (`setKeyingPanel`): one key button per keyable field, and a typed value keys it.
 	 *   A drag on the stage keys through the same publication (`keyStage`).
+	 * - The list (Rive plan Phase 9c): the host's timelines are listed, opened, created,
+	 *   duplicated, renamed and deleted in the left column's ANIMATIONS list, which reads what this
+	 *   panel publishes while `listed` (`setAnimationsPanel`) and calls back into it.
 	 */
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import {
@@ -50,6 +53,7 @@
 		channelKeyState,
 		componentTimelineId,
 		componentTimelinesOf,
+		duplicateTimeline,
 		ensureNodeActor,
 		fxChannelValue,
 		keyableChannels,
@@ -75,6 +79,7 @@
 	import type { RigMeta } from './rigRuntime.client';
 	import { setOnionPreview, setTimelinePreview } from './valuePreview.client.svelte';
 	import { setKeyingPanel, type KeyField } from './animateKeying.client.svelte';
+	import { setAnimationsPanel, type AnimationsPanel } from './animationsList.client.svelte';
 
 	/** The open component, when the panel animates a component instead of a screen. */
 	interface ComponentHost {
@@ -102,6 +107,9 @@
 		/** Open this timeline (the State Machine panel asked: a state card was double-clicked). The
 		 *  nonce makes the same id openable again. */
 		openRequest?: { id: string; nonce: number };
+		/** The Animations list shows this panel's timelines (Animate on this side of the editor, the
+		 *  State machine tab included). Defaults to `active`. */
+		listed?: boolean;
 		/** The canvas's loaded rigs (animation names and lengths), by asset key: a rig node's clips
 		 *  for an `animation` strip. */
 		rigMeta?: Map<string, RigMeta>;
@@ -117,6 +125,7 @@
 		projectKey,
 		active,
 		openRequest,
+		listed,
 		rigMeta = new Map(),
 		componentParams = {},
 	}: Props = $props();
@@ -136,7 +145,7 @@
 	 *  be mounted). */
 	const previewOwner = Symbol('timeline-panel');
 	/** What the open host is called in messages. */
-	const where = $derived(component ? 'component' : 'screen');
+	const where = $derived<'component' | 'screen'>(component ? 'component' : 'screen');
 
 	interface Row {
 		id: string;
@@ -166,7 +175,6 @@
 	let docVersion = $state(0);
 
 	let tlEl: HTMLDivElement | undefined = $state();
-	let pickerEl: HTMLSelectElement | undefined = $state();
 	let inspEl: HTMLDivElement | undefined = $state();
 	let tl: Timeline | null = null;
 	let raf = 0;
@@ -303,11 +311,7 @@
 
 	async function open(id: string): Promise<void> {
 		if (id === openId) return;
-		if (!(await guardUnsaved())) {
-			// The <select> already shows `id`; put it back on the timeline that is still open.
-			if (pickerEl) pickerEl.value = openId ?? '';
-			return;
-		}
+		if (!(await guardUnsaved())) return;
 		error = '';
 		const res = await fetch(
 			`/api/cinematics/get?id=${encodeURIComponent(id)}&projectKey=${encodeURIComponent(projectKey)}`,
@@ -366,7 +370,49 @@
 		}
 	}
 
-	async function rename(): Promise<void> {
+	/** The list acts on a row: open it first (the unsaved-edit guard runs), then act on it. False
+	 *  when it did not open. */
+	async function openForList(id: string): Promise<boolean> {
+		if (id !== openId) await open(id);
+		return id === openId;
+	}
+
+	/** A copy of timeline `id` (any of this host's), saved create-only and opened. */
+	async function duplicate(id: string): Promise<void> {
+		if (!(await guardUnsaved())) return;
+		error = '';
+		const res = await fetch(
+			`/api/cinematics/get?id=${encodeURIComponent(id)}&projectKey=${encodeURIComponent(projectKey)}`,
+		);
+		const body = res.ok
+			? ((await res.json()) as { doc: CinematicDoc | null })
+			: { doc: null as CinematicDoc | null };
+		if (!body.doc || !ownsDoc(body.doc)) {
+			error = res.ok
+				? `"${id}" is not a timeline of this ${where}.`
+				: `Could not read "${id}": ${await readError(res)}`;
+			return;
+		}
+		const copy = duplicateTimeline(
+			body.doc,
+			rows.map((r) => r.id),
+			screenRows.map((r) => r.name),
+		);
+		closeTimeline();
+		openId = copy.id;
+		etag = null;
+		mountTimeline(copy);
+		dirty = true;
+		await save();
+		if (etag === null) {
+			const reason = error || 'The copy could not be saved.';
+			closeTimeline();
+			error = reason;
+		}
+	}
+
+	async function rename(id?: string): Promise<void> {
+		if (id && !(await openForList(id))) return;
 		const doc = tl?.doc();
 		if (!doc) return;
 		const name = await askText({ title: 'Rename timeline', label: 'Name', value: doc.name });
@@ -376,7 +422,8 @@
 		await save();
 	}
 
-	async function remove(): Promise<void> {
+	async function remove(id?: string): Promise<void> {
+		if (id && !(await openForList(id))) return;
 		const doc = tl?.doc();
 		if (!doc) return;
 		const ok = await askConfirm({
@@ -726,6 +773,29 @@
 		untrack(() => setKeyingPanel(next, previewOwner));
 	});
 
+	/** What the left column's Animations list shows and does (`setAnimationsPanel`). */
+	const listing = $derived<AnimationsPanel | null>(
+		(listed ?? active)
+			? {
+					where,
+					hostLabel,
+					rows: screenRows.map((r) => ({ id: r.id, name: r.name, duration: r.duration })),
+					openId,
+					dirty,
+					canCreate: !!scene,
+					open,
+					create,
+					duplicate,
+					rename,
+					remove,
+				}
+			: null,
+	);
+	$effect(() => {
+		const next = listing;
+		untrack(() => setAnimationsPanel(next, previewOwner));
+	});
+
 	/** Properties' key button / typed value: route a field to its channel's keyer. */
 	function keyField(channel: string, v?: number): void {
 		const row = fxRows.find((r) => r.channel === channel);
@@ -862,6 +932,7 @@
 		setTimelinePreview(null, previewOwner);
 		setOnionPreview(null, previewOwner);
 		setKeyingPanel(null, previewOwner);
+		setAnimationsPanel(null, previewOwner);
 	});
 </script>
 
@@ -869,26 +940,12 @@
 	<div class="tl-bar">
 		<b class="tl-title">Timeline</b>
 		<span class="tl-host">{hostLabel}</span>
-		<select
-			bind:this={pickerEl}
-			value={openId ?? ''}
-			onchange={(e) => {
-				const id = e.currentTarget.value;
-				if (id) void open(id);
-			}}
-			aria-label={`Timelines of this ${where}`}
-		>
-			<option value="" disabled>
-				{screenRows.length ? 'Open a timeline…' : `No timelines on this ${where}`}
-			</option>
-			{#each screenRows as row (row.id)}
-				<option value={row.id}>{row.name}</option>
-			{/each}
-		</select>
-		<button type="button" onclick={() => void create()} disabled={!scene}>＋ New</button>
 		{#if openId}
-			<button type="button" onclick={() => void rename()}>Rename</button>
-			<button type="button" class="danger" onclick={() => void remove()}>🗑</button>
+			<span
+				class="tl-open"
+				title="Pick, add, duplicate, rename or delete timelines in the Animations list (left)"
+				>⏱ {screenRows.find((r) => r.id === openId)?.name ?? tl?.doc().name ?? openId}</span
+			>
 			<span class="sep"></span>
 			<button type="button" title="Back to the start" onclick={() => tl?.setTime(0)}>⏮</button>
 			{#if playing}
@@ -1051,10 +1108,10 @@
 		<div class="tl-keys">
 			{#if !openId}
 				<p class="note">
-					Open or create a timeline for this {where}, select a node on the canvas, then key it in
-					Properties. Keys are relative to the node's Design pose: x/y add, scale and alpha
-					multiply, rotation adds degrees. End an intro on the unchanged pose so the screen settles
-					where you laid it out.
+					Open or create a timeline for this {where} in the Animations list (left), select a node on the
+					canvas, then key it in Properties. Keys are relative to the node's Design pose: x/y add, scale
+					and alpha multiply, rotation adds degrees. End an intro on the unchanged pose so the screen
+					settles where you laid it out.
 				</p>
 			{:else if !selectedId}
 				<p class="note">Select a node on the canvas to key it.</p>
@@ -1131,6 +1188,13 @@
 	}
 	.tl-host {
 		color: var(--dim);
+	}
+	.tl-open {
+		font-weight: 600;
+		max-width: 220px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.tl-bar select,
 	.tl-bar input,

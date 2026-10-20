@@ -98,6 +98,44 @@ export function removeLayer(def: ComponentDef, layerId: string): void {
 	if (!machine.layers.length) delete def.stateMachine;
 }
 
+/**
+ * Copy a layer next to it (Phase 9c): the same states, transitions and positions under a new layer
+ * id and the name "<name> copy". State and transition ids are per layer, so they are kept, and the
+ * copy's conditions, entry and actions read exactly as the original's.
+ */
+export function duplicateLayer(
+	def: ComponentDef,
+	layerId: string,
+	reserved: Iterable<string> = [],
+): SmLayer | undefined {
+	const machine = def.stateMachine;
+	const at = machine?.layers.findIndex((l) => l.id === layerId) ?? -1;
+	if (!machine || at < 0) return undefined;
+	// JSON, not structuredClone: the draft is a Svelte state proxy, which cannot be cloned.
+	const copy = JSON.parse(JSON.stringify(machine.layers[at])) as SmLayer;
+	copy.name = `${machine.layers[at].name || machine.layers[at].id} copy`;
+	copy.id = uniqueId(copy.name, [...machine.layers.map((l) => l.id), ...reserved]);
+	machine.layers.splice(at + 1, 0, copy);
+	return copy;
+}
+
+/** Move a layer one place earlier (`-1`) or later (`1`). Layers run in order and a later one wins
+ *  a node property both key, so order is meaningful. False when it cannot move. */
+export function moveLayer(def: ComponentDef, layerId: string, delta: -1 | 1): boolean {
+	const layers = def.stateMachine?.layers;
+	const at = layers?.findIndex((l) => l.id === layerId) ?? -1;
+	if (!layers || at < 0 || at + delta < 0 || at + delta >= layers.length) return false;
+	const [layer] = layers.splice(at, 1);
+	layers.splice(at + delta, 0, layer);
+	return true;
+}
+
+/** Switch a layer off (it sits in `exit` and drives nothing) or back on. */
+export function setLayerDisabled(layer: SmLayer, disabled: boolean): void {
+	if (disabled) layer.disabled = true;
+	else delete layer.disabled;
+}
+
 /** The default card position for the n-th state of a layer. */
 export function defaultStatePos(index: number): SmPoint {
 	return { x: 260 + (index % 4) * 220, y: 40 + Math.floor(index / 4) * 120 };
@@ -149,6 +187,48 @@ export function addTransition(
 	};
 	layer.transitions.push(transition);
 	return transition;
+}
+
+/**
+ * Set a transition's blend in ms (0 or less clears it). Its interpolation, *Pause source* and
+ * *Allow exit* mean nothing without a blend, so clearing the blend clears them too (the save would
+ * drop them anyway).
+ */
+export function setBlend(transition: SmTransition, ms: number): void {
+	if (Number.isFinite(ms) && ms > 0) {
+		transition.blend = ms;
+		return;
+	}
+	delete transition.blend;
+	delete transition.ease;
+	delete transition.pauseSource;
+	delete transition.allowExit;
+}
+
+/** The blend's interpolation: a cubic, or `null` for linear (the default, so nothing is stored). */
+export function setBlendEase(
+	transition: SmTransition,
+	ease: [number, number, number, number] | null,
+): void {
+	if (ease) transition.ease = [ease[0], ease[1], ease[2], ease[3]];
+	else delete transition.ease;
+}
+
+/** *Pause source when exiting* (on by default) and *Allow exit during transition* (on by default):
+ *  only the non-default `false` is stored. */
+export function setBlendFlag(
+	transition: SmTransition,
+	flag: 'pauseSource' | 'allowExit',
+	on: boolean,
+): void {
+	if (on) delete transition[flag];
+	else transition[flag] = false;
+}
+
+/** Switch a transition off (it never fires; the graph keeps it, greyed) or back on. */
+export function setTransitionDisabled(transition: SmTransition, disabled: boolean): void {
+	if (disabled) transition.disabled = true;
+	else delete transition.disabled;
 }
 
 export function removeTransition(layer: SmLayer, transitionId: string): void {
@@ -282,11 +362,53 @@ const conditionLabel = (c: SmCondition): string =>
 		? `${c.input} ▸`
 		: `${c.input} ${c.op} ${c.param ? `{${c.param}}` : String(c.value ?? '')}`;
 
-/** What a transition's arrow says: its conditions, else its exit time, else "always". */
+/** What a transition's arrow says: its conditions, else its exit time, else "always" — after
+ *  "off ·" when it is disabled. */
 export function transitionLabel(t: SmTransition): string {
 	const parts = (t.conditions ?? []).map(conditionLabel);
 	if (t.exitTime !== undefined) parts.push(`@ ${Math.round(t.exitTime * 100)}%`);
-	return parts.length ? parts.join(' · ') : 'always';
+	const label = parts.length ? parts.join(' · ') : 'always';
+	return t.disabled ? `off · ${label}` : label;
+}
+
+// ---- problems -----------------------------------------------------------------------------------
+
+/** Where a Problems row jumps to: a layer, and in it a state or a transition, or an input. */
+export interface ProblemTarget {
+	layer?: string;
+	state?: string;
+	transition?: string;
+	input?: string;
+}
+
+/**
+ * The ids a problem names, for the Console's click-to-jump. A state-machine issue already carries
+ * ids; an event issue names its layer and state by their DISPLAY names (`name || id`), which are
+ * mapped back here (first match). A listener or cue issue lives outside the machine: it jumps to
+ * nothing here (its node or timeline says where), unless it names an input.
+ */
+export function problemTarget(
+	def: Pick<ComponentDef, 'stateMachine'>,
+	issue: { layer?: string; state?: string; transition?: string; input?: string; node?: string },
+): ProblemTarget {
+	const layers = def.stateMachine?.layers ?? [];
+	const out: ProblemTarget = {};
+	if (issue.input) out.input = issue.input;
+	if (!issue.layer || issue.node) return out;
+	const layer =
+		layers.find((l) => l.id === issue.layer) ??
+		layers.find((l) => (l.name || l.id) === issue.layer);
+	if (!layer) return out;
+	out.layer = layer.id;
+	if (issue.transition && layer.transitions.some((t) => t.id === issue.transition))
+		out.transition = issue.transition;
+	else if (issue.state) {
+		const state =
+			layer.states.find((s) => s.id === issue.state) ??
+			layer.states.find((s) => (s.name || s.id) === issue.state);
+		if (state) out.state = state.id;
+	}
+	return out;
 }
 
 /** A state card's title: its name, else its timeline's name, else the timeline id. */

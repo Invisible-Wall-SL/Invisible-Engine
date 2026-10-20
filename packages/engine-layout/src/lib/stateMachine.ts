@@ -1,4 +1,4 @@
-import type { CinematicNodeSample } from 'engine-cinematic';
+import { easeShape, isCubicEase, type CinematicNodeSample } from 'engine-cinematic';
 
 import { componentInputs } from './componentInterface';
 import { sampledFxChannels } from './fxNodeParams';
@@ -58,6 +58,12 @@ import {
  * - **A missing timeline never throws**: the state is entered and holds (drives nothing; its exit
  *   gate is open); the ids are listed in {@link ComponentStateMachineRunner.missingTimelines} for
  *   the host to warn once.
+ * - **Phase 9c's transition options**, each absent ⇒ the behaviour above: `disabled` never fires
+ *   (nor holds a trigger); `ease` shapes the blend's progress (a cubic, as a timeline key's);
+ *   `pauseSource: false` keeps the state being left playing under the blend (at its own speed,
+ *   wrapping or clamping as it would; its cues do not fire); `allowExit: false` lets no transition
+ *   leave the target state until the blend has finished. A `disabled` layer sits in `exit` from the
+ *   start (and after {@link ComponentStateMachineRunner.reset}).
  */
 
 export const SM_MAX_TRANSITIONS_PER_TICK = 8;
@@ -89,8 +95,9 @@ export interface LayerPlay {
 	 *  the layer's playback from 0 and fires the cues at 0. */
 	entered: boolean;
 	/** Mixing in from the pose left behind: its timeline (absent = the authored pose) frozen at
-	 *  `time`, `progress` 0..1 through the blend. */
-	from?: { timeline?: string; time: number; progress: number };
+	 *  `time` — or, with `playing`, still playing and now at `time` — `progress` 0..1 through the
+	 *  blend (eased by the transition's `ease`). */
+	from?: { timeline?: string; time: number; progress: number; playing?: true };
 	/** What the layer played on this step before each transition it took, in order — the player
 	 *  fires those cues before restarting on the new state. */
 	left?: LeftSegment[];
@@ -120,7 +127,18 @@ interface LayerRun {
 	prevTime: number;
 	wrapped: boolean;
 	entered: boolean;
-	blend?: { timeline?: string; time: number; elapsed: number; total: number };
+	blend?: {
+		timeline?: string;
+		time: number;
+		elapsed: number;
+		total: number;
+		/** The transition's `ease`, as a shape. */
+		shape?: (u: number) => number;
+		/** `pauseSource: false`: how the state being left plays on under the blend. */
+		run?: { speed: number; loop: boolean; duration: number };
+		/** `allowExit: false`: no transition leaves until the blend ends. */
+		locked?: true;
+	};
 	/** Triggers fired since the last advance, for this layer. */
 	fresh: Set<string>;
 	/** Triggers kept from an earlier advance, each for the transition ids waiting only on their
@@ -169,6 +187,7 @@ export class ComponentStateMachineRunner {
 		}
 		const missing = new Set<string>();
 		for (const layer of machine.layers ?? []) {
+			if (layer.disabled === true) continue;
 			for (const state of layer.states ?? []) {
 				if (state.timeline && !durations.has(state.timeline)) missing.add(state.timeline);
 			}
@@ -189,7 +208,8 @@ export class ComponentStateMachineRunner {
 	}
 
 	private enterLayer(def: SmLayer): LayerRun {
-		const stateDef = (def.states ?? []).find((s) => s.id === def.entry);
+		const stateDef =
+			def.disabled === true ? undefined : (def.states ?? []).find((s) => s.id === def.entry);
 		const duration = stateDef ? this.durations.get(stateDef.timeline) : undefined;
 		const time = this.startTime(stateDef, duration);
 		return {
@@ -314,6 +334,7 @@ export class ComponentStateMachineRunner {
 		if ((!fresh.size && !held.size) || layer.state === SM_EXIT_STATE) return;
 		if (!this.layerPlaying(layer)) return;
 		for (const t of layer.def.transitions ?? []) {
+			if (t.disabled === true) continue;
 			const leaves = t.from === layer.state || (t.from === SM_ANY_STATE && t.to !== layer.state);
 			if (!leaves || t.exitTime === undefined || this.exitReached(layer, t.exitTime)) continue;
 			const conditions = t.conditions ?? [];
@@ -341,6 +362,13 @@ export class ComponentStateMachineRunner {
 		layer.left = [];
 		if (layer.blend) {
 			layer.blend.elapsed += dt * 1000;
+			const run = layer.blend.run;
+			if (run) {
+				const next = layer.blend.time + dt * run.speed;
+				layer.blend.time = run.loop
+					? ((next % run.duration) + run.duration) % run.duration
+					: Math.min(Math.max(next, 0), run.duration);
+			}
 			if (layer.blend.elapsed >= layer.blend.total) layer.blend = undefined;
 		}
 		const { stateDef, duration } = layer;
@@ -426,13 +454,14 @@ export class ComponentStateMachineRunner {
 
 	/** `used`: the triggers this layer's transitions already took this tick. */
 	private pickTransition(layer: LayerRun, used: ReadonlySet<string>): SmTransition | undefined {
+		if (layer.blend?.locked) return undefined;
 		const transitions = layer.def.transitions ?? [];
 		for (const t of transitions) {
-			if (t.from !== SM_ANY_STATE || t.to === layer.state) continue;
+			if (t.from !== SM_ANY_STATE || t.to === layer.state || t.disabled === true) continue;
 			if (this.fires(layer, t, used)) return t;
 		}
 		for (const t of transitions) {
-			if (t.from !== layer.state) continue;
+			if (t.from !== layer.state || t.disabled === true) continue;
 			if (this.fires(layer, t, used)) return t;
 		}
 		return undefined;
@@ -443,6 +472,18 @@ export class ComponentStateMachineRunner {
 			layer.stateDef && layer.duration !== undefined
 				? { timeline: layer.stateDef.timeline, time: layer.time }
 				: { time: 0 };
+		// What keeps playing under the blend (`pauseSource: false`): the state being left, at its own
+		// speed — never a blend's frozen pose (a transition taken mid-blend leaves from that).
+		const leftSpeed = asNumber(layer.stateDef?.speed, 1);
+		const run =
+			transition.pauseSource === false &&
+			!layer.blend &&
+			layer.stateDef &&
+			layer.duration !== undefined &&
+			layer.duration > 0 &&
+			leftSpeed > 0
+				? { speed: leftSpeed, loop: !!layer.stateDef.loop, duration: layer.duration }
+				: undefined;
 		// A state change drops what was held: a trigger waited for a transition out of the old state.
 		layer.held = new Map();
 		if (left.timeline) {
@@ -475,6 +516,10 @@ export class ComponentStateMachineRunner {
 		layer.entered = true;
 		const blend = asNumber(transition.blend, 0);
 		layer.blend = blend > 0 ? { ...left, elapsed: 0, total: blend } : undefined;
+		if (!layer.blend) return;
+		if (isCubicEase(transition.ease)) layer.blend.shape = easeShape(transition.ease);
+		if (run) layer.blend.run = run;
+		if (transition.allowExit === false) layer.blend.locked = true;
 	}
 
 	/** What every layer plays now, in layer order. */
@@ -490,11 +535,13 @@ export class ComponentStateMachineRunner {
 			};
 			if (layer.stateDef && layer.duration !== undefined) play.timeline = layer.stateDef.timeline;
 			if (layer.blend) {
+				const linear = Math.min(layer.blend.elapsed / layer.blend.total, 1);
 				play.from = {
 					time: layer.blend.time,
-					progress: Math.min(layer.blend.elapsed / layer.blend.total, 1),
+					progress: layer.blend.shape ? layer.blend.shape(linear) : linear,
 				};
 				if (layer.blend.timeline) play.from.timeline = layer.blend.timeline;
+				if (layer.blend.run) play.from.playing = true;
 			}
 			if (layer.left.length) play.left = layer.left.map((seg) => ({ ...seg }));
 			return play;
@@ -824,9 +871,8 @@ export function validateStateMachine(
 		if (layer.entry && stateIds.has(layer.entry)) {
 			const reached = new Set<string>([layer.entry]);
 			const queue = [layer.entry];
-			const anyTargets = (layer.transitions ?? [])
-				.filter((t) => t.from === SM_ANY_STATE)
-				.map((t) => t.to);
+			const live = (layer.transitions ?? []).filter((t) => t.disabled !== true);
+			const anyTargets = live.filter((t) => t.from === SM_ANY_STATE).map((t) => t.to);
 			for (const to of anyTargets) {
 				if (reached.has(to)) continue;
 				reached.add(to);
@@ -834,13 +880,13 @@ export function validateStateMachine(
 			}
 			while (queue.length) {
 				const from = queue.shift()!;
-				for (const t of layer.transitions ?? []) {
+				for (const t of live) {
 					if (t.from !== from || reached.has(t.to)) continue;
 					reached.add(t.to);
 					queue.push(t.to);
 				}
 			}
-			const exitTargeted = (layer.transitions ?? []).some((t) => t.to === SM_EXIT_STATE);
+			const exitTargeted = live.some((t) => t.to === SM_EXIT_STATE);
 			for (const id of [...stateIds, ...(exitTargeted ? [SM_EXIT_STATE] : [])]) {
 				if (reached.has(id)) continue;
 				issues.push({

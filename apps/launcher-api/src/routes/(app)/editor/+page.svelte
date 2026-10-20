@@ -81,6 +81,7 @@
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import EditorAnimationsList from './EditorAnimationsList.svelte';
 	import { animateDragging, keyingActive, keyStageTransform } from './animateKeying.client.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
 	import ComponentList from './ComponentList.svelte';
@@ -3413,6 +3414,11 @@
 						</li>
 					{/if}
 				{/snippet}
+				{#if animating && !componentsView}
+					<PanelSection id="animations" title="Animations">
+						<EditorAnimationsList />
+					</PanelSection>
+				{/if}
 				<PanelSection id="screens" title="Screens" count={sceneCount}>
 					<ul class="screens">
 						{#if sceneCount === 0}
