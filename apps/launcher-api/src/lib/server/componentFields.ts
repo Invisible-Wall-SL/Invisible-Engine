@@ -121,6 +121,10 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	flipY: true,
 	source: true,
 	layout: true,
+	count: true,
+	variants: true,
+	passInputs: true,
+	previewInputs: true,
 };
 const componentDefFields: Record<keyof ComponentDef, true> = {
 	id: true,

@@ -393,7 +393,9 @@ It is grouped into:
   **Repeater** to insert a data-driven list that stamps one component per item of a
   live source (the option grids on the
   [bet menu / auto spin screens](#the-bet-menu-and-the-auto-spin-screens), the
-  buy-feature cards). A layout may carry as many repeaters as you like.
+  buy-feature cards). A layout may carry as many repeaters as you like. On the Components side,
+  **Repeat (count)** draws one component N times instead — a
+  [segmented counter](#segmented-counters--repeat-count) of free spins or respins.
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Rigs** — the project's rig bundles (plus shared `_shared/` bundles,
@@ -1459,6 +1461,67 @@ is held until that transition fires. A **Plays on** timeline that is still playi
 the machine; once it ends, the machine's layers take the node back — a pop-in, then idle, needs no
 transition.
 
+#### Segmented counters — Repeat (count)
+
+A **segmented counter** draws one segment per spin of a count the game feeds and lights the
+segments as it changes: 5 free spins ⇒ 5 segments; on a Hold and Win respin bar of 3, all three
+are lit with 3 respins left and only the first with 1 left. It is built from two components and
+needs no code per game: a **segment** (its looks and a state machine that lights it) and a **bar**
+holding a **Repeat (count)** element that repeats the segment.
+
+**The built-in starter.** The component list carries **Segmented Counter** (`segmentedCounter`)
+and its **Counter Segment** (`segmentedCounterSegment`). Place the counter on a screen and it
+counts respins; set its **countSource** param to `freeSpinsTotal` and **valueSource** to
+`freeSpinsLeft` for free spins. Re-skin it without touching the machine: the segment's
+**litImage** / **unlitImage** (art over the fills), **litColor** / **unlitColor**, **labelColor**,
+and the counter's **backgroundImage**. To change more, copy it and edit the copy as below.
+
+**Worked example — a respin / free-spin segmented counter.**
+
+1. **Build the segment.** Create a component (say _Respin segment_) and give it two looks, one
+   over the other: a container named **Lit** (the orange art) and one named **Unlit** (the dark
+   red art). Add a text for the segment's number.
+   - Under **Component variables → + Add variable**, add a custom number param **`index`**
+     (default 1). The bar sets it on every copy: 1 for the first, 2 for the second… Add `count`
+     too if a segment needs to know how many there are.
+   - Select the text and, under **Bind to param**, set **Text ← param** to `index`: the copies read
+     1, 2, 3.
+   - Declare a **number** input **`value`** (the Inputs list in the State machine tab, or
+     **Component variables → Inputs**).
+2. **Light it with its state machine.** In **Animate**, make two timelines: _Lit_ (keys the
+   **Unlit** look's opacity to 0) and _Unlit_ (keys the **Lit** look's opacity to 0). In the
+   **State machine** tab add a state for each — Unlit as the entry — and two arrows:
+   **Unlit → Lit** with the condition `value` **>=** `{index}` and **Lit → Unlit** with `value`
+   **<** `{index}` (the third box of a number condition offers each number param as `{index}`).
+   Each copy compares the value with its own position. Save.
+3. **Build the bar.** Create a second component (say _Respin bar_). In **Library → Elements**,
+   drag **Repeat (count)** onto the stage. It repeats the first component that declares `index`;
+   select it, and in Properties (**Repeat (count)**):
+   - **segment** — the component each copy is (_Respin segment_).
+   - **first** / **middle** / **last** — optional end caps with their own art; left on **same as
+     middle**, the end ones draw the middle one (and **middle** on **same as segment**). A single
+     segment is the first.
+   - **Count**: **count from** — the game value that says how many segments: **Respins cap**
+     (`respinsStart`) or **Free spins awarded** (`freeSpinsTotal`). Left on **— fixed: the preview
+     count —**, the bar always draws the **preview count**. The editor always draws the preview
+     count. **max** caps it (20 when empty, never more than 50).
+   - **Layout**: **direction** **row** / **column** / **grid** (with **columns**) and the **gap**
+     between segments. A row or column steps by each segment's own size, so wider end caps fit.
+   - **Pass to each segment**: one row per number input of the segment. `index` and `count` show
+     as _given by the repeater_. For **`value`**, set **from value** to **Respins left**
+     (`respinsLeft`) or **Free spins left** (`freeSpinsLeft`) — every copy's `value` follows it in
+     game. Drag its **test value** slider: the stage relights the segments at once, each at the
+     pose its state machine settles on (test value 1 of 3 ⇒ only the first lit).
+   A name that is not in the lists (a `{param}` template such as `{countSource}`, filled from the
+   bar's own params) goes in **Custom source…**.
+4. **Place it and publish.** Save the bar, place it on the free-spins or Hold and Win screen like
+   any component, and publish as usual — the bar, its segment and the variants travel with the
+   game.
+
+The canvas draws each segment from the segment's saved timelines (and the built-in ones), read
+again when you open another component — so after editing the segment, come back to the bar to see
+the change.
+
 #### Listeners and events
 
 A component can react to the pointer and tell the game what happened — the Rive idea of
@@ -1636,6 +1699,11 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   can't run a game's registered sources, so the bet ladder it draws is a
   representative set of amounts of the right length — the real one arrives from
   the RGS at runtime. Size the grid here; check the amounts in the running game.
+- **A segmented counter's segments preview their state machine's settled pose only.** The stage
+  shows each segment at the end of the state its machine settles in for the test value — not the
+  blend into it — and the 2D canvas folds in position, scale, rotation, opacity, show / hide and
+  tint, not a fill reveal or a clip frame. Rigs and effects inside a segment are not drawn on the
+  stage. Check the motion in the running game.
 - **Interactive feel is partly unverified.** Several recent editor capabilities
   (undo/redo, copy/paste, multi-select, and the two new menu-screen buttons)
   build clean and type-check, but the auth-gated canvas makes automated

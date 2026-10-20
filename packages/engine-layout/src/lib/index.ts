@@ -100,6 +100,7 @@ export * from './rigBoundContentInstall';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
 export * from './registerRepeaterSources';
+export * from './repeaterCount';
 export * from './registerInstanceValues';
 export * from './registerComponentVisibility';
 export * from './registerSceneCameraTransform';

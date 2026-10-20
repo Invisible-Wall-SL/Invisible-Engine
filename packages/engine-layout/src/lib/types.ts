@@ -1162,11 +1162,12 @@ export interface FlipbookNode extends BaseNode {
 
 /** How a {@link RepeaterNode} arranges its per-item instances. */
 export interface RepeaterLayout {
-	/** `row` lays every item out along +x; `grid` wraps to a new row every `columns` items. */
-	direction: 'row' | 'grid';
+	/** `row` lays every item out along +x; `column` along +y; `grid` wraps to a new row every
+	 *  `columns` items. */
+	direction: 'row' | 'column' | 'grid';
 	/** Pixel gap ADDED between adjacent items (both axes for a grid). */
 	gap: number;
-	/** Grid only — items per row before wrapping to the next row. Ignored for `row`. */
+	/** Grid only — items per row before wrapping to the next row. Ignored for `row` / `column`. */
 	columns?: number;
 }
 
@@ -1191,6 +1192,64 @@ export interface RepeaterNode extends BaseNode {
 	componentId: string;
 	/** How the per-item instances are arranged. */
 	layout: RepeaterLayout;
+	/**
+	 * COUNT MODE (segmented counters): repeat `componentId` N times, N read from a number, instead of
+	 * one instance per item of the registered `source` list (which is then ignored — the editor writes
+	 * `''`). Each repeated instance gets its {@link REPEATER_INDEX_PARAM} (1-based) and
+	 * {@link REPEATER_COUNT_PARAM} as params, and as number inputs when its def declares them. Absent ⇒
+	 * the source-list repeater, byte-identical to before (parity).
+	 */
+	count?: RepeaterCount;
+	/**
+	 * Count mode only — the first, middle and last segment variants: the {@link ComponentDef} the
+	 * first / last instance uses (end caps with their own art) and the one every other instance uses.
+	 * A variant left unset ⇒ `componentId`. With N = 1 the single instance is the `first`. Each one
+	 * is collected onto the bake/pull chain like `componentId`.
+	 */
+	variants?: RepeaterVariants;
+	/**
+	 * Count mode only — what the repeater passes down to EVERY repeated instance: its number input
+	 * of that id follows the engine value source named here (a registered `registerComponentValues`
+	 * name, `{param}`-templated against the enclosing instance's params, as an input's own `source`
+	 * is). It wins over the child input's own `source`. A segment's state machine then compares
+	 * `value` with its `index` (`value >= {index}` → Lit).
+	 */
+	passInputs?: Record<string, string>;
+	/**
+	 * EDITOR-ONLY test values for {@link passInputs} (by child input id): what the canvas previews
+	 * each segment at. The runtime ignores them.
+	 */
+	previewInputs?: Record<string, number>;
+}
+
+/** The param (and number input) a count-mode repeater hands each instance: its 1-based position. */
+export const REPEATER_INDEX_PARAM = 'index';
+/** The param (and number input) a count-mode repeater hands each instance: how many there are. */
+export const REPEATER_COUNT_PARAM = 'count';
+/** A count-mode repeater's default cap, when its `count.max` is unset. */
+export const REPEATER_COUNT_DEFAULT_MAX = 20;
+/** No count-mode repeater draws more than this, whatever its `count.max` says. */
+export const REPEATER_COUNT_HARD_MAX = 50;
+
+/** N for a count-mode {@link RepeaterNode}. */
+export interface RepeaterCount {
+	/**
+	 * An engine value source (`respinsStart`, `freeSpinsTotal`; `{param}`-templated against the
+	 * enclosing instance's params) N follows live. Absent ⇒ N is `preview`, in the game too.
+	 */
+	source?: string;
+	/** The design-time count the editor draws — and N when there is no `source`. */
+	preview: number;
+	/** The most instances drawn; absent ⇒ {@link REPEATER_COUNT_DEFAULT_MAX}, never above
+	 *  {@link REPEATER_COUNT_HARD_MAX}. */
+	max?: number;
+}
+
+/** A count-mode repeater's per-position segment components (each absent ⇒ the node's `componentId`). */
+export interface RepeaterVariants {
+	first?: string;
+	middle?: string;
+	last?: string;
 }
 
 export type LayoutNode =

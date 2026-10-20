@@ -13,6 +13,7 @@
 		textBoxContentHeight,
 		textBoxPlacement,
 		autoFitFontSize,
+		isCountRepeater,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
 		type FontCatalog,
@@ -37,6 +38,7 @@
 		matMul,
 		repeaterPlaceholderGrid,
 		repeaterBoxes,
+		repeaterCountBoxes,
 		inDepthSlice,
 		type Affine,
 		type DepthSlice,
@@ -47,6 +49,8 @@
 		previewText,
 		previewVersion,
 	} from './valuePreview.client.svelte';
+	import { segmentPoseNodes } from '$lib/timeline/segmentPreview';
+	import { segmentTimelines, segmentTimelinesVersion } from './segmentTimelines.client.svelte';
 
 	interface Props {
 		/** All doc scenes — the composite the 2D canvas + rig layer also draw. */
@@ -441,6 +445,30 @@
 					...stack,
 					def.id,
 				]);
+			} else if (n.kind === 'repeater' && isCountRepeater(n)) {
+				// A count-mode repeater's segments: the SAME boxes (and settled poses) the canvas draws.
+				const rt = resolveTransform(n, layoutType);
+				const { boxes } = repeaterCountBoxes(
+					n,
+					componentMap,
+					layoutType,
+					rt.anchor?.x ?? 0,
+					rt.anchor?.y ?? 0,
+					componentDefaults,
+					(def, inputs, p) => segmentPoseNodes(def, segmentTimelines(def.id), inputs, p),
+				);
+				for (const box of boxes) {
+					if (depth >= MAX_COMPONENT_DEPTH || stack.includes(box.def.id)) continue;
+					collectTextTargets(
+						box.container.children,
+						sc,
+						out,
+						[...nextChain, box.container],
+						box.params,
+						depth + 1,
+						[...stack, box.def.id],
+					);
+				}
 			} else if (n.kind === 'repeater') {
 				// A repeater's per-box cards carry text (title/price/…). Expand the SAME synthetic boxes
 				// the 2D canvas draws (`repeaterBoxes`) so the overlay renders each card's text at the
@@ -780,6 +808,7 @@
 		void redrawNonce;
 		// A scrubbed value-binding test value moves / fades / hides text like any other node.
 		void previewVersion();
+		void segmentTimelinesVersion();
 		rebuild();
 	});
 

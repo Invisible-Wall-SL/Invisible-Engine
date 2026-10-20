@@ -104,6 +104,8 @@
 		placeableComponents,
 		type ComponentOpenRequest,
 	} from './componentWorkspace';
+	import { defaultSegmentComponent } from './editorCanvas.helpers';
+	import { invalidateSegmentTimelines } from './segmentTimelines.client.svelte';
 	import {
 		exposeInstanceParam,
 		linkInstanceParam,
@@ -184,6 +186,12 @@
 	 * deep node mutation — so without it a transform/anchor/param edit here would mutate
 	 * the draft but never redraw (the Scene Editor bumps its own nonce the same way). */
 	let editNonce = $state(0);
+	// A count-mode repeater previews its segments with their saved timelines: opening another
+	// component (returning from editing a segment) reads them again.
+	$effect(() => {
+		void componentDraft?.id;
+		untrack(invalidateSegmentTimelines);
+	});
 	/** Save state for the component POST (header pill). */
 	let saveStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
 	/** Promote-to-shared spinner (a DIFFERENT global key than the draft's), unioned into `busy`. */
@@ -2805,7 +2813,16 @@
 					{:else if leftTab === 'library'}
 						<PanelSection id="cmp-lib-elements" title="Elements">
 							<ul>
-								<EditorElementsPalette {onElementDragStart} />
+								<EditorElementsPalette
+									{onElementDragStart}
+									segments={componentDraft
+										? {
+												componentId: defaultSegmentComponent(
+													placeableComponents(components, componentDraft.id),
+												),
+											}
+										: undefined}
+								/>
 							</ul>
 						</PanelSection>
 
@@ -2989,6 +3006,9 @@
 							}))}
 						addOns={data.addOns}
 						instanceComponent={selectedNode?.kind === 'componentInstance'
+							? (componentMap.get(selectedNode.componentId) ?? null)
+							: null}
+						repeaterSegmentDef={selectedNode?.kind === 'repeater'
 							? (componentMap.get(selectedNode.componentId) ?? null)
 							: null}
 						onToggleParam={toggleComponentParam}

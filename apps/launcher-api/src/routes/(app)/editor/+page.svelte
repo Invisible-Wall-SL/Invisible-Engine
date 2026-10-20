@@ -3897,6 +3897,9 @@
 						instanceComponent={selectedNode?.kind === 'componentInstance'
 							? (componentMap.get(selectedNode.componentId) ?? null)
 							: null}
+						repeaterSegmentDef={selectedNode?.kind === 'repeater'
+							? (componentMap.get(selectedNode.componentId) ?? null)
+							: null}
 						{pickSheets}
 						onEditAsComponent={(c) => void editContainerAsComponent(c)}
 						{onConvertToReelGrid}

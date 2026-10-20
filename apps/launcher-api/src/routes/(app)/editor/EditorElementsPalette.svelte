@@ -18,11 +18,14 @@
 		onElementDragStart,
 		reel,
 		repeater,
+		segments,
 		components,
 	}: {
 		onElementDragStart: (e: DragEvent, payload: DragPayload) => void;
 		reel?: { active: boolean; onAdd: () => void };
 		repeater?: { onAdd: () => void };
+		/** The Components side's "Repeat (count)" row: a segmented counter of `componentId`. */
+		segments?: { componentId: string };
 		components?: { id: string; name: string; version: number }[];
 	} = $props();
 </script>
@@ -60,6 +63,17 @@
 	>
 		<span class="name">Rect</span>
 		<span class="tag">fill</span>
+	</li>
+{/if}
+{#if segments}
+	<li
+		draggable="true"
+		title="Drag onto the canvas: a segmented counter — one segment component repeated N times (free spins, respins), lit by its state machine. Pick the segment and the count in Properties."
+		ondragstart={(e) =>
+			onElementDragStart(e, { kind: 'segments', key: segments.componentId, name: 'Segments' })}
+	>
+		<span class="name">Repeat (count)</span>
+		<span class="tag">segments</span>
 	</li>
 {/if}
 {#if reel}

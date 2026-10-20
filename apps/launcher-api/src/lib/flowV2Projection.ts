@@ -4,6 +4,7 @@ import {
 	BUILTIN_COMPONENTS,
 	componentTriggers,
 	flowInstanceInterface,
+	isCountRepeater,
 } from 'engine-layout';
 import {
 	deriveContainerEvents,
@@ -63,6 +64,8 @@ export function projectContainerEvents(
 			// pin), carrying the selected item's `betModeKey` — it has no per-item `action` param, so it is
 			// recognised by kind (`repeaterSelectConfiguredEvent`, the deriver's single source of that shape).
 			if ((node as { kind?: string }).kind === 'repeater') {
+				// A count-mode repeater (a segmented counter) draws N copies of a display: nothing to select.
+				if (isCountRepeater(node)) return [];
 				const canonical = repeaterSelectConfiguredEvent(node.id);
 				const repeaterEvents: ConfiguredComponentEvent[] = [canonical];
 				// The repeater's ITEM component may declare OTHER signals worth surfacing (a richer,
