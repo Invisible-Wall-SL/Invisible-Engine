@@ -283,7 +283,7 @@ const potsOf = (doc: LayoutDoc) =>
 	(doc.scenes.find((s) => s.id === 'pots')?.nodes ?? []).map((n) => n.id);
 
 await check(
-	'3 Pots: the pots, jackpot bar, banners and Hold and Win mode screens, nothing else touched',
+	'3 Pots: the pots, jackpot bar and Hold and Win mode screens, nothing else touched',
 	() => {
 		const { doc: config } = withOverlay(lines, 'threePots');
 		const before = bookLayout();
@@ -298,18 +298,9 @@ await check(
 				'respinCounter',
 				'totalWinBar',
 				'letters',
-				'instantWinBanner',
-				'randomMetreBanner',
-				'potFullBanner',
-				'platformJackpotBanner',
 				'wheel',
 				'featureIntro',
 				'jackpotWin',
-				'coinJackpotBanner',
-				'jackpotUpgradeBanner',
-				'wheelPrizeBanner',
-				'rowUnlockedBanner',
-				'featureTotalBanner',
 				'featureOutro',
 			],
 			'added screens',
@@ -334,10 +325,10 @@ await check(
 	},
 );
 
-await check('pots to free spins: the Pots screen and its banner, with its gold pot', () => {
+await check('pots to free spins: the Pots screen alone, with its gold pot', () => {
 	const { doc: config } = withOverlay(lines, 'potsToFreeSpins');
 	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN);
-	same(merged.added, ['pots', 'potFullBanner'], 'added screens');
+	same(merged.added, ['pots'], 'added screens');
 	same(potsOf(merged.doc), ['pot-gold'], 'the gold pot');
 });
 
@@ -351,11 +342,7 @@ await check('a hand-authored layout keeps every screen; only the add-on screens 
 		],
 	};
 	const merged = mergeAddOnScreens(authored, 'bookOf', config, FIRST_RUN);
-	same(
-		merged.added,
-		['potFullBanner', 'pot-gold'],
-		'only the pot-full banner, and a meter for the pot that has none',
-	);
+	same(merged.added, ['pot-gold'], 'only a meter for the pot that has none');
 	same(merged.doc.scenes[0], authored.scenes[0], 'the other screen');
 	same(merged.doc.scenes[1].name, 'My pots', 'the existing Pots screen is kept');
 	same(potsOf(merged.doc), ['pot-gold'], 'its meter');
@@ -423,37 +410,26 @@ await check('no tokens bound, the Hold and Win bonus symbols still are', () => {
 	);
 });
 
-await check(
-	'no Pots screen; the jackpot bar, base banners and Hold and Win mode screens join',
-	() => {
-		const merged = mergeAddOnScreens(bookLayout(), 'bookOf', coinsOnly(), FIRST_RUN);
-		assert(!merged.added.includes('pots'), 'a Pots screen was merged');
-		same(
-			merged.added,
-			[
-				'jackpotBar',
-				'respinBackground',
-				'respinBoard',
-				'respinCounter',
-				'totalWinBar',
-				'letters',
-				'instantWinBanner',
-				'randomMetreBanner',
-				'platformJackpotBanner',
-				'wheel',
-				'featureIntro',
-				'jackpotWin',
-				'coinJackpotBanner',
-				'jackpotUpgradeBanner',
-				'wheelPrizeBanner',
-				'rowUnlockedBanner',
-				'featureTotalBanner',
-				'featureOutro',
-			],
-			'added screens',
-		);
-	},
-);
+await check('no Pots screen; the jackpot bar and Hold and Win mode screens join', () => {
+	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', coinsOnly(), FIRST_RUN);
+	assert(!merged.added.includes('pots'), 'a Pots screen was merged');
+	same(
+		merged.added,
+		[
+			'jackpotBar',
+			'respinBackground',
+			'respinBoard',
+			'respinCounter',
+			'totalWinBar',
+			'letters',
+			'wheel',
+			'featureIntro',
+			'jackpotWin',
+			'featureOutro',
+		],
+		'added screens',
+	);
+});
 
 console.log('\n3. scaffold scene set');
 
@@ -687,17 +663,17 @@ await check(
 );
 
 await check(
-	'a coin overlay on the plain Hold and Win template brings the pots and their banner',
+	'a coin overlay on the plain Hold and Win template brings the Pots screen, no banner screen',
 	() => {
 		const plain = holdAndWinTemplateSeed('on');
 		assert(plain, 'no plain template');
 		const reference = getFullSceneSet('holdAndWin', sceneSetOptionsFor('holdAndWin', plain));
 		assert(reference, 'no scene set');
-		// What the plain template's scaffold stores: no pots, so no pot-full banner either.
+		// What the plain template's scaffold stores: no pots and, as any scaffold, no banner screen.
 		const current: LayoutDoc = {
 			...reference,
 			scenes: scaffoldLayoutDoc('hwPlain', 'holdAndWin', reference).scenes.filter(
-				(s) => s.id !== 'pots' && s.id !== 'potFullBanner',
+				(s) => s.id !== 'pots',
 			),
 		};
 		const [preset] = cleanOverlayPresets(plain);
@@ -710,7 +686,7 @@ await check(
 		);
 		same(
 			merged.added.filter((id) => !id.startsWith('pot-')),
-			['pots', 'potFullBanner'],
+			['pots'],
 			'added screens',
 		);
 	},

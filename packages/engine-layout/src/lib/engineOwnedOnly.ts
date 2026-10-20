@@ -1,4 +1,4 @@
-import { SELF_MOUNTED_BANNER_SCREENS } from './holdAndWinBanners';
+import { isSelfMountedBannerScreen } from './holdAndWinBanners';
 import { isHudScene } from './referenceLayouts/hud';
 import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
 
@@ -13,13 +13,15 @@ import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
  * empty-`GameTemplate` seeding).
  *
  * Pure: never mutates the input. Returns a fresh `LayoutDoc` preserving the
- * doc-level header verbatim; every input scene is still emitted (the screen
- * exists even when it ends up unfurnished).
+ * doc-level header verbatim; every input scene but a Hold and Win banner screen
+ * is still emitted (the screen exists even when it ends up unfurnished).
  */
 export function engineOwnedOnly(doc: LayoutDoc): LayoutDoc {
 	return {
 		...doc,
-		scenes: doc.scenes.map(filterScene),
+		// A new game carries no Hold and Win banner screen: every popup draws the built-in banner
+		// until an author adds the screen for it.
+		scenes: doc.scenes.filter((scene) => !isSelfMountedBannerScreen(scene)).map(filterScene),
 		mainSizesMap: { ...doc.mainSizesMap },
 	};
 }
@@ -29,23 +31,8 @@ function filterScene(scene: Scene): Scene {
 	if (isHudScene(scene)) {
 		return { ...scene, nodes: scene.nodes.map(cloneNode) };
 	}
-	// A Hold and Win banner screen (or a respin mode's copy) also keeps its top-level plate: the coded
-	// banner's, not artist art, and without it the banner would scaffold as bare text.
-	if (isBannerScreen(scene)) {
-		return {
-			...scene,
-			nodes: scene.nodes.flatMap((node) =>
-				node.kind === 'rect' ? [cloneNode(node)] : filterNodes([node]),
-			),
-		};
-	}
 	return { ...scene, nodes: filterNodes(scene.nodes) };
 }
-
-const isBannerScreen = (scene: Scene): boolean =>
-	SELF_MOUNTED_BANNER_SCREENS.some(
-		(id) => scene.id === id || (scene.modeId !== undefined && scene.id === `${id}-${scene.modeId}`),
-	);
 
 function filterNodes(nodes: LayoutNode[]): LayoutNode[] {
 	const kept: LayoutNode[] = [];

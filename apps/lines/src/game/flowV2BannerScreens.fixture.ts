@@ -16,13 +16,16 @@
  *     the banner as it does under the coded one.
  *  4. SHOWING IS OWNING. A flow that shows a banner screen anywhere owns it: the game leaves it alone.
  *  5. PARITY: no driven flow (the coded path mounts it with the other author screens), or a layout
- *     without the banner screens (every project scaffolded before them) ⇒ nothing.
+ *     without the banner screens ⇒ nothing. That is every project scaffolded before them, and every
+ *     new one too: the scaffold carries none, so a game keeps the built-in banner until an author
+ *     adds a popup's screen.
  *  6. AN OVERLAY HOST'S BONUS (Book-of + the Hold and Win add-on, on the Book-of seed) gets its pot,
  *     base and feature banners mounted, and no Lucky Spin.
  */
 
 import { freshDrivenSeedDoc, flowScreenDrivingStatus, type FlowDoc } from 'engine-flow-v2';
 import {
+	engineOwnedOnly,
 	getFullSceneSet,
 	LAYER_BAND_FLIGHTS,
 	sceneLayerZIndex,
@@ -166,6 +169,13 @@ check(
 check('…mounts nothing itself (the coded path does)', decide(NOT_DRIVEN, HW_SCENES), []);
 const BEFORE_BANNERS = HW_SCENES.filter((s) => !bannersIn(HW_SCENES).includes(s.id));
 check('a layout scaffolded before the banner screens', decide(HW_SEED, BEFORE_BANNERS), []);
+const HW_DOC = getFullSceneSet('holdAndWin');
+if (!HW_DOC) throw new Error('no scene set for holdAndWin');
+check(
+	'a new game’s scaffold (it carries no banner screen)',
+	decide(HW_SEED, engineOwnedOnly(HW_DOC).scenes),
+	[],
+);
 check('a Book-of layout on its seed', decide(freshDrivenSeedDoc('bookOf'), scenesOf('bookOf')), []);
 
 console.log('6. an overlay host’s bonus');

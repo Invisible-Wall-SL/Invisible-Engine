@@ -29,7 +29,7 @@ const bundled = await esbuild.build({
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
 			`export { reserveExpandingBoard, expandingBoardReserved } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
-			`export { HOLD_AND_WIN_BANNER_SCREENS, HOLD_AND_WIN_BANNER_SHOW_SOURCES, SELF_MOUNTED_BANNER_SCREENS, bannerScreenFor, bannerScreenShows } from '../src/lib/holdAndWinBanners.ts';`,
+			`export { HOLD_AND_WIN_BANNER_SCREENS, HOLD_AND_WIN_BANNER_SHOW_SOURCES, SELF_MOUNTED_BANNER_SCREENS, bannerScreenFor, bannerScreenShows, isSelfMountedBannerScreen } from '../src/lib/holdAndWinBanners.ts';`,
 			`export { engineOwnedOnly } from '../src/lib/engineOwnedOnly.ts';`,
 		].join('\n'),
 		resolveDir: HERE,
@@ -199,8 +199,15 @@ assert(hosts.length === 1 && hosts[0] === 'basegame', `one infoBar, in basegame 
 // Every instance resolves to a built-in and survives the scaffold projection.
 const builtinIds = new Set(mod.BUILTIN_COMPONENTS.map((def) => def.id));
 const scaffold = mod.engineOwnedOnly(doc);
-assert(scaffold.scenes.length === doc.scenes.length, 'the scaffold keeps every screen');
-for (const scene of doc.scenes) {
+assert(
+	scaffold.scenes.length === doc.scenes.length - mod.SELF_MOUNTED_BANNER_SCREENS.length,
+	'the scaffold keeps every screen but the banner screens',
+);
+assert(
+	!scaffold.scenes.some((s) => mod.SELF_MOUNTED_BANNER_SCREENS.includes(s.id)),
+	'a new game carries a banner screen',
+);
+for (const scene of doc.scenes.filter((s) => !mod.SELF_MOUNTED_BANNER_SCREENS.includes(s.id))) {
 	const kept = scaffold.scenes.find((s) => s.id === scene.id);
 	for (const node of instancesIn(scene)) {
 		assert(builtinIds.has(node.componentId), `${scene.id}/${node.id}: unknown ${node.componentId}`);
@@ -468,11 +475,6 @@ for (const id of mod.SELF_MOUNTED_BANNER_SCREENS) {
 		plate?.kind === 'rect' && plate.anchor?.x === 0.5 && plate.borderColor === 0xffd24a,
 		`${id}: its first node is not the coded banner's plate`,
 	);
-	assert(
-		JSON.stringify(mod.engineOwnedOnly(doc).scenes.find((s) => s.id === id)) ===
-			JSON.stringify(scene),
-		`${id}: the scaffold projection strips it`,
-	);
 	const sources = instancesIn(scene).map((n) => n.params?.source);
 	assert(sources[0] === 'holdAndWinBanner', `${id}: its first line is not the banner title`);
 	assert(
@@ -489,18 +491,16 @@ assert(
 	'a set without pots has a pot-full banner',
 );
 {
-	// A banner screen saved with art (a custom kind made from a project) scaffolds without the art.
-	const art = { id: 'banner-art', kind: 'sprite', x: 0, y: 0, assetKey: 'my_banner' };
-	const withArt = {
+	// A new game keeps the built-in banner: no scaffold carries a banner screen, not even one made
+	// from a custom kind saved off a project that authored one (or a respin mode's copy of it).
+	const coin = doc.scenes.find((s) => s.id === 'coinJackpotBanner');
+	const authored = {
 		...doc,
-		scenes: doc.scenes.map((s) =>
-			s.id === 'coinJackpotBanner' ? { ...s, nodes: [...s.nodes, art] } : s,
-		),
+		scenes: [...doc.scenes, { ...coin, id: 'coinJackpotBanner-super', modeId: 'super' }],
 	};
-	const kept = mod.engineOwnedOnly(withArt).scenes.find((s) => s.id === 'coinJackpotBanner');
 	assert(
-		kept.nodes[0].kind === 'rect' && !kept.nodes.some((n) => n.id === art.id),
-		'the scaffold keeps a banner screen’s plate and drops its art',
+		!mod.engineOwnedOnly(authored).scenes.some((s) => s.id.startsWith('coinJackpotBanner')),
+		'a scaffold carries a banner screen',
 	);
 }
 // Which screen draws a banner, and which sources show it. Nothing mounted ⇒ the coded banner. The
@@ -652,9 +652,18 @@ assert(
 				const at = merged.scenes.findIndex((sc) => sc.id === id);
 				assert(at > 0, `${kind}: add-on ${id} found a preceding screen`);
 			}
+			// The full set also offers the banner screens; the add-on merges none of them.
 			assert(
-				json(ids(merged).filter((id) => !added.includes(id))) === json(plainIds),
+				json(
+					merged.scenes
+						.filter((sc) => !added.includes(sc.id) && !mod.isSelfMountedBannerScreen(sc))
+						.map((sc) => sc.id),
+				) === json(plainIds),
 				`${kind}: the kind's own screens keep their order`,
+			);
+			assert(
+				!merged.scenes.some((sc) => mod.isSelfMountedBannerScreen(sc) && added.includes(sc.id)),
+				`${kind}: the add-on merges a banner screen`,
 			);
 		}
 	}
@@ -670,10 +679,13 @@ assert(
 	const potsOnly = { potsOverlay: true, potIds: ['gold', 'jade'] };
 	const withPots = mod.getFullSceneSet('bookOf', potsOnly);
 	assert(
-		json(mod.addOnSceneIds('bookOf', potsOnly)) === json(['pots', 'potFullBanner']),
-		'pots overlay adds pots and their banner',
+		json(mod.addOnSceneIds('bookOf', potsOnly)) === json(['pots']),
+		'pots overlay adds pots (its pot-full banner is offered, not added)',
 	);
-	assert(withPots.scenes.length === bookOf.scenes.length + 2, 'pots overlay adds two screens');
+	assert(
+		withPots.scenes.length === bookOf.scenes.length + 2,
+		'the full set has the pots and their banner',
+	);
 	const potsAt = ids(withPots).indexOf('pots');
 	assert(ids(withPots)[potsAt - 1] === 'basegame', 'the pots screen sits right after basegame');
 	const pots = withPots.scenes[potsAt];
@@ -701,8 +713,9 @@ assert(
 		`a Hold and Win bonus adds pots, the jackpot bar, the base banners and the mode screens (got ${addedIds})`,
 	);
 	assert(
-		json([...mod.addOnSceneIds('bookOf', bonus)].sort()) === json([...expected].sort()),
-		'addOnSceneIds names the same screens',
+		json([...mod.addOnSceneIds('bookOf', bonus)].sort()) ===
+			json(expected.filter((id) => !mod.SELF_MOUNTED_BANNER_SCREENS.includes(id)).sort()),
+		'addOnSceneIds names the same screens, but the banner screens',
 	);
 	assert(!ids(withBonus).includes('luckySpin'), 'Lucky Spin is never an add-on');
 	for (const id of ['freeSpinIntro', 'freeSpinCounter', 'freeSpinOutro'])

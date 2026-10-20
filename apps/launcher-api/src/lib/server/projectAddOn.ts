@@ -29,7 +29,6 @@ import {
 	addOnSceneIds,
 	getFullSceneSet,
 	mergeMissingScreens,
-	POT_FULL_BANNER_SCREEN,
 	POTS_SCREEN,
 	type LayoutDoc,
 	type LayoutNode,
@@ -148,8 +147,8 @@ export type AddOnLayoutMerge = { doc: LayoutDoc; added: string[]; note?: string 
  *
  * - **`screens`** (the run that adds the config): the Scene Editor's "＋ Add overlay screens" — the
  *   add-on screens the layout lacks; on a Hold and Win game, which has them, only a missing Pots
- *   screen and its pot-full banner. The Pots screen is skipped when every pot already has a meter
- *   somewhere, and a merged one carries only the pots that have none.
+ *   screen. The Pots screen is skipped when every pot already has a meter somewhere, and a merged
+ *   one carries only the pots that have none.
  * - **Always:** a Pot Meter for each pot with no meter on ANY screen, appended to the Pots screen as
  *   the reference places it. Without a Pots screen, nothing, and `note` says so.
  *
@@ -176,7 +175,7 @@ export function mergeAddOnScreens(
 		const ids = (
 			gameType === 'holdAndWin'
 				? refPots && !hasPots
-					? [POTS_SCREEN, POT_FULL_BANNER_SCREEN]
+					? [POTS_SCREEN]
 					: []
 				: addOnSceneIds(gameType, options)
 		).filter((id) => id !== POTS_SCREEN || unmetered.length > 0);

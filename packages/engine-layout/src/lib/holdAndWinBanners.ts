@@ -92,3 +92,13 @@ export const bannerScreenShows = (
 	const at = screens.indexOf(screen);
 	return at >= 0 && !screens.slice(0, at).some(mounted);
 };
+
+/**
+ * Is `scene` a self-mounted banner screen, or a respin mode's copy of one? A layout gets one only
+ * when an author adds it for its popup: a new game's scaffold and the bulk "add screens" actions
+ * leave them out, so every popup keeps the built-in banner until then.
+ */
+export const isSelfMountedBannerScreen = (scene: { id: string; modeId?: string }): boolean =>
+	SELF_MOUNTED_BANNER_SCREENS.some(
+		(id) => scene.id === id || (scene.modeId !== undefined && scene.id === `${id}-${scene.modeId}`),
+	);

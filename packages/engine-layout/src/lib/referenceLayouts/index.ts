@@ -1,3 +1,4 @@
+import { isSelfMountedBannerScreen } from '../holdAndWinBanners';
 import type { LayoutDoc, LayoutNode, Scene } from '../types';
 import { bookofReferenceLayout } from './bookof';
 import { clusterReferenceLayout } from './cluster';
@@ -24,7 +25,6 @@ export {
 	HOLD_AND_WIN_HOTFIRE_BOARD,
 	HOLD_AND_WIN_MODE,
 	POTS_SCREEN,
-	POT_FULL_BANNER_SCREEN,
 	EXPANDING_BLOCK_SHARE,
 	expandingBoardReserve,
 	expandingBoardReserved,
@@ -317,11 +317,22 @@ export function mergeMissingScreens(
 	return next;
 }
 
-/** The ids of the add-on screens `getFullSceneSet(gameType, options)` merges into the kind's set. */
+/** {@link addOnScenes}' ids without the banner screens. */
+function addOnIdsWithoutBanners(gameType: string, options: SceneSetOptions): string[] {
+	const { reference, ids } = addOnScenes(gameType, options);
+	const banners = new Set(reference.filter(isSelfMountedBannerScreen).map((scene) => scene.id));
+	return ids.filter((id) => !banners.has(id));
+}
+
+/**
+ * The ids of the add-on screens `getFullSceneSet(gameType, options)` merges into the kind's set — what
+ * adding the add-on merges into a stored layout. The banner screens are left out: an author adds
+ * each for its own popup.
+ */
 export function addOnSceneIds(gameType: string, options: SceneSetOptions = {}): string[] {
 	const source = FULL_SCENE_SOURCES[gameType];
 	if (!source) return [];
-	const ids = hasAddOn(gameType, options) ? addOnScenes(gameType, options).ids : [];
+	const ids = hasAddOn(gameType, options) ? addOnIdsWithoutBanners(gameType, options) : [];
 	const spins = options.spinsModes ?? [];
 	if (!spins.length) return ids;
 	const copies = withSpinsModes(source.build(options).scenes, spins).filter(

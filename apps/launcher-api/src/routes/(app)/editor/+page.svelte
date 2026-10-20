@@ -23,6 +23,7 @@
 		engineOwnedOnly,
 		findUnfilledRequiredSlots,
 		getFullSceneSet,
+		isSelfMountedBannerScreen,
 		mergeMissingScreens,
 		expandingBoardReserved,
 		reserveExpandingBoard,
@@ -1749,17 +1750,27 @@
 	 * missing, matched by scene id OR engine role — e.g. a `loading`/logo scene added
 	 * after the project was first seeded. A ref counts as present when a scene shares its
 	 * id, OR (when the ref carries a `role`) when a scene fills that same role — so a
-	 * role-tagged, custom-id loading/base scene is NOT falsely flagged as missing. */
+	 * role-tagged, custom-id loading/base scene is NOT falsely flagged as missing. The Hold
+	 * and Win banner screens are left out: each is added for its own popup
+	 * ({@link missingBannerScreens}). */
 	const missingScreens = $derived.by(() => {
 		const full = getFullSceneSet(projectGameType, sceneSetOptions);
 		if (!full) return [] as Scene[];
 		// `mode` is the one role with many screens per doc, so a mode screen is matched by id only.
 		return full.scenes.filter(
 			(ref) =>
+				!isSelfMountedBannerScreen(ref) &&
 				!scenes.some((cur) => cur.id === ref.id) &&
 				!(ref.role && ref.role !== 'mode' && scenes.some((cur) => cur.role === ref.role)),
 		);
 	});
+	/** The Hold and Win banner screens this doc lacks. Adding one gives that one popup its own art;
+	 *  every popup without a screen keeps the built-in banner. */
+	const missingBannerScreens = $derived.by(() =>
+		(getFullSceneSet(projectGameType, sceneSetOptions)?.scenes ?? []).filter(
+			(ref) => isSelfMountedBannerScreen(ref) && !scenes.some((cur) => cur.id === ref.id),
+		),
+	);
 
 	/** The project's Game Config expands a respin board ⇒ the scene set reserves the grown area; its
 	 *  add-ons merge their screens in, one set per respin mode, with the config's pots on the pots
@@ -3511,6 +3522,25 @@
 						>
 							＋ Add missing screens ({missingScreens.length})
 						</button>
+					{/if}
+
+					{#if missingBannerScreens.length > 0}
+						<select
+							class="add-hud-btn"
+							aria-label="Add a banner screen"
+							title="Give one Hold and Win popup its own screen, which then draws that popup instead of the built-in banner. Every other popup keeps the built-in banner."
+							value=""
+							onchange={(event) => {
+								const scene = missingBannerScreens.find((s) => s.id === event.currentTarget.value);
+								event.currentTarget.value = '';
+								if (scene) addMissingScreens([scene]);
+							}}
+						>
+							<option value="">＋ Banner screen… ({missingBannerScreens.length})</option>
+							{#each missingBannerScreens as scene (scene.id)}
+								<option value={scene.id}>{scene.name}</option>
+							{/each}
+						</select>
 					{/if}
 
 					{#if missingOverlayScreens.length > 0}
