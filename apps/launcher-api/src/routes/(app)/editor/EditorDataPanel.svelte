@@ -21,7 +21,8 @@
 {#snippet section(title: string, rows: DataRow[], empty: string)}
 	<section class="data-section">
 		<h4>{title} <small>{rows.length}</small></h4>
-		{#each rows as row (row.name + row.kind)}
+		<!-- Index keys: two nodes may share a label, so `label.field` can repeat. -->
+		{#each rows as row, i (i)}
 			<div class="data-row">
 				{#if row.nodeId && onSelect}
 					<button

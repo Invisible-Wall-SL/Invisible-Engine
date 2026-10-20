@@ -184,7 +184,7 @@ Shipped capabilities on `main`:
     open / close / `changed` hook and new functions; the header's picker is untouched.
     `ComponentWorkspace.svelte` — one Data tab button + its body, `{componentMap}` on the Outline.
     `+page.svelte` — `{componentMap}` on the Outline. `EditorCanvas.svelte` — untouched.
-  - Gates: `check:shared-timeline-ship` (39), `check:timeline-rows` (27),
+  - Gates: `check:shared-timeline-ship` (42), `check:timeline-rows` (27),
     `check:editor-data-library` (16); `check:component-links` lists the promote as an unpinned
     global write. All in `check:all`.
 - 2026-10-20 — **Animate: Rive-style keying (Rive plan Phase 9b, branch `claude/rive-p9b-keying`,

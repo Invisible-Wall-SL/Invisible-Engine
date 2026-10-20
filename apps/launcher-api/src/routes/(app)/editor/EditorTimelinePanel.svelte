@@ -88,6 +88,7 @@
 		setTextMode,
 		textKeyAt,
 		textModeOf,
+		textTrackOf,
 		type TextMode,
 	} from '$lib/timeline/timelineRows';
 	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
@@ -757,7 +758,6 @@
 		}
 		dirty = false;
 		await refresh();
-		closeTimeline();
 		await open(id);
 	}
 
@@ -857,10 +857,18 @@
 			if (!onTop) return;
 		}
 		let res = await post(shared.etag);
-		if (res.status === 409) {
+		const refusal =
+			res.status === 409
+				? ((await res
+						.clone()
+						.json()
+						.catch(() => null)) as { error?: string; message?: string } | null)
+				: null;
+		// Only a lost race is worth retrying on top; an unreadable shared copy fails the same way again.
+		if (refusal?.error === 'conflict') {
 			const again = await askConfirm({
 				title: 'Promote yours as a NEW version on top?',
-				message: await readError(res),
+				message: refusal.message ?? 'Someone else promoted it meanwhile.',
 				confirmLabel: 'Promote on top',
 			});
 			if (!again) return;
@@ -895,14 +903,21 @@
 		preview();
 	}
 
-	/** The selected text node's strings, offered by a switch key. */
-	const textStrings = $derived(target?.ok ? textNodeStrings(target.node) : []);
+	/** The selected text node's strings, offered by a switch key (its text may repeat a key). */
+	const textStrings = $derived(target?.ok ? [...new Set(textNodeStrings(target.node))] : []);
+
+	/** The mode picked for a node with no text track yet: its first key creates the track in it. */
+	let pendingTextMode = $state<TextMode>('countUp');
+	$effect(() => {
+		void selectedId;
+		pendingTextMode = 'countUp';
+	});
 
 	function textMode(): TextMode {
 		void docVersion;
 		const doc = tl?.doc();
 		const id = actorId();
-		return doc && id ? textModeOf(doc, id) : 'countUp';
+		return doc && id && textTrackOf(doc, id) ? textModeOf(doc, id) : pendingTextMode;
 	}
 
 	/** The text key at the playhead, if any (what the field shows). */
@@ -925,19 +940,32 @@
 		preview();
 	}
 
-	async function changeTextMode(mode: TextMode): Promise<void> {
+	/** The text mode select: a node with no track just remembers it; a track with keys asks first,
+	 *  since switching drops them (`picker` is put back on a cancel). */
+	async function changeTextMode(mode: TextMode, picker: HTMLSelectElement): Promise<void> {
 		const doc = tl?.doc();
 		const id = actorId();
-		if (!doc || !tl || !id || !ownsDoc(doc) || textMode() === mode) return;
-		const ok = await askConfirm({
-			title: 'Switch the text track?',
-			message:
-				mode === 'switchKey'
-					? 'Its count-up keys are removed: a switch key names one of the node’s own strings.'
-					: 'Its switch keys are removed: a count-up key is a number.',
-			confirmLabel: 'Switch',
-		});
-		if (!ok || !setTextMode(doc, id, mode)) return;
+		const track = doc && id ? textTrackOf(doc, id) : null;
+		if (!doc || !tl || !id || !track) {
+			pendingTextMode = mode;
+			return;
+		}
+		if (!ownsDoc(doc) || textMode() === mode) return;
+		const keyed = Array.isArray(track.keys) && track.keys.length > 0;
+		const ok =
+			!keyed ||
+			(await askConfirm({
+				title: 'Switch the text track?',
+				message:
+					mode === 'switchKey'
+						? 'Its count-up keys are removed: a switch key names one of the node’s own strings.'
+						: 'Its switch keys are removed: a count-up key is a number.',
+				confirmLabel: 'Switch',
+			}));
+		if (!ok || !setTextMode(doc, id, mode)) {
+			picker.value = textMode();
+			return;
+		}
 		tl.commit('text mode');
 		tl.renderTimeline();
 		preview();
@@ -1419,54 +1447,60 @@
 						{/if}
 					</label>
 				{/if}
-				<div
-					class="keyrow"
-					title="Show or hide the node from the playhead (stepped, like Rive's visibility key)"
-				>
-					<span>visible</span>
-					<button type="button" onclick={() => keyVisible(true)}>👁 Show</button>
-					<button type="button" onclick={() => keyVisible(false)}>Hide</button>
-				</div>
-				{#if target.node.kind === 'text'}
-					{@const mode = textMode()}
-					{@const here = textKeyHere()}
-					<div class="keyrow" title="Count up to a number, or switch among this node's own strings">
-						<span>text</span>
-						<select
-							value={mode}
-							onchange={(e) => void changeTextMode(e.currentTarget.value as TextMode)}
+				{#if !link}
+					<div
+						class="keyrow"
+						title="Show or hide the node from the playhead (stepped, like Rive's visibility key)"
+					>
+						<span>visible</span>
+						<button type="button" onclick={() => keyVisible(true)}>👁 Show</button>
+						<button type="button" onclick={() => keyVisible(false)}>Hide</button>
+					</div>
+					{#if target.node.kind === 'text'}
+						{@const mode = textMode()}
+						{@const here = textKeyHere()}
+						<div
+							class="keyrow"
+							title="Count up to a number, or switch among this node's own strings"
 						>
-							<option value="countUp">Count up</option>
-							<option value="switchKey">Switch</option>
-						</select>
-					</div>
-					<div class="keyrow">
-						<span>◆ at {time.toFixed(2)}s</span>
-						{#if mode === 'switchKey'}
+							<span>text</span>
 							<select
-								value={here?.key ?? ''}
-								onchange={(e) => {
-									if (e.currentTarget.value) keyTextAt('switchKey', e.currentTarget.value);
-								}}
+								value={mode}
+								onchange={(e) =>
+									void changeTextMode(e.currentTarget.value as TextMode, e.currentTarget)}
 							>
-								<option value="" disabled>pick a string…</option>
-								{#each textStrings as str (str)}
-									<option value={str}>{str}</option>
-								{/each}
+								<option value="countUp">Count up</option>
+								<option value="switchKey">Switch</option>
 							</select>
-						{:else}
-							<input
-								type="number"
-								step="1"
-								value={here?.value ?? ''}
-								placeholder="number"
-								onchange={(e) => {
-									const v = Number(e.currentTarget.value);
-									if (e.currentTarget.value !== '' && Number.isFinite(v)) keyTextAt('countUp', v);
-								}}
-							/>
-						{/if}
-					</div>
+						</div>
+						<div class="keyrow">
+							<span>◆ at {time.toFixed(2)}s</span>
+							{#if mode === 'switchKey'}
+								<select
+									value={here?.key ?? ''}
+									onchange={(e) => {
+										if (e.currentTarget.value) keyTextAt('switchKey', e.currentTarget.value);
+									}}
+								>
+									<option value="" disabled>pick a string…</option>
+									{#each textStrings as str (str)}
+										<option value={str}>{str}</option>
+									{/each}
+								</select>
+							{:else}
+								<input
+									type="number"
+									step="1"
+									value={here?.value ?? ''}
+									placeholder="number"
+									onchange={(e) => {
+										const v = Number(e.currentTarget.value);
+										if (e.currentTarget.value !== '' && Number.isFinite(v)) keyTextAt('countUp', v);
+									}}
+								/>
+							{/if}
+						</div>
+					{/if}
 				{/if}
 				<p class="note">
 					Key it in <b>Properties</b> →: each field has a key button — grey: not animated; blue outline:

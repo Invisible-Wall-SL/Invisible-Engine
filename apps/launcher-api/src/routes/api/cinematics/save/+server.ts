@@ -22,7 +22,7 @@ import type { RequestHandler } from './$types';
  *
  * Body: `{ doc: <CinematicDoc>, baseEtag?: string | null, force?: boolean, projectKey?: string,
  * detach?: boolean }`. `detach` is how a link (Phase 9d) is replaced by a timeline of its own;
- * without it a non-link save over a stored link is refused (409 `linked`).
+ * without it a non-link save over a stored link is refused (423 `linked`).
  *
  * A Scene Editor-only caller (`access: 'hosted'`) may write a screen or component timeline over
  * one of those or nothing; see {@link hostedPrecondition}.
@@ -82,7 +82,9 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 					'This timeline is a link to a shared one, so it is not saved here. Detach it in the ' +
 					"Scene Editor's Timeline panel first.",
 			},
-			{ status: 409 },
+			// 423, not 409: a conflict prompt ("overwrite theirs?") cannot help, and `/rigger` treats
+			// every 409 as one; it shows any other status as an error.
+			{ status: 423 },
 		);
 	}
 

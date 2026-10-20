@@ -185,7 +185,6 @@ export interface Timeline {
 	keyVisibility(actorId: string, visible: boolean): void;
 	/** A cue at the playhead, selected; `cue` seeds its name (default `fx:`). */
 	addCue(cue?: string): void;
-	textTracksOf(actorId: string): Track[];
 	deleteTextKey(trackId: string, time: number): void;
 }
 

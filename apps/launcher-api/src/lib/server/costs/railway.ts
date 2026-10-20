@@ -133,7 +133,8 @@ export async function collectRailway(): Promise<ProviderCost> {
 	async function suggestFields(): Promise<string> {
 		const { body } = await post(`query { __schema { queryType { fields { name } } } }`);
 		const data = body?.data as
-			{ __schema?: { queryType?: { fields?: { name?: string }[] } } } | undefined;
+			| { __schema?: { queryType?: { fields?: { name?: string }[] } } }
+			| undefined;
 		const names = (data?.__schema?.queryType?.fields ?? [])
 			.map((f) => f.name ?? '')
 			.filter((n) => /usage|cost|estimate|billing|metric/i.test(n));

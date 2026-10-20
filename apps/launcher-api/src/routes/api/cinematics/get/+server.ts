@@ -16,8 +16,8 @@ import type { RequestHandler } from './$types';
  *
  * A LINK to a shared timeline (Rive plan Phase 9d) comes back resolved against the version it pins
  * — the timeline it plays — with `link` saying what it links to and the shared copy's latest
- * version (`updateAvailable` when that is newer). `stub` is the stored link itself, which is what
- * a save of it writes. A link whose shared version is gone has `link.missing` and its stub as doc.
+ * version (`updateAvailable` when that is newer). A link whose shared version is gone has
+ * `link.missing` and its stored stub as doc.
  */
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey, access } = await cinematicGate(locals, cookies);
@@ -40,7 +40,6 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		ok: true,
 		projectKey,
 		doc: pinned.doc ? resolveLinked(stub, pinned.doc) : stub,
-		stub,
 		etag,
 		malformed: false,
 		link: {

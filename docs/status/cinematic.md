@@ -36,14 +36,17 @@ through the same player; headless-proven, no editor yet (5b).
     a project timeline a LINK: its stored doc is a content-less stub (`linkStub`: id, name, host,
     `playOn`, `playOnComponents`, `holdsCue`, the link); `/api/cinematics/save` strips any content
     a client sends with one and refuses a non-link save over a stored link unless it says
-    `detach: true` (409 `linked`, so `/rigger` can't silently fork one). `/api/cinematics/get`
-    returns it resolved (`resolveLinked`: the pinned version's content under the placement, each
-    actor retargeted through `targets`) plus `link` (`latest`, `missing`). Absent ⇒ unchanged.
+    `detach: true` (423 `linked`, so `/rigger` can't silently fork one; it shows the message as an
+    error). `/api/cinematics/get` returns it resolved (`resolveLinked`: the pinned version's
+    content under the placement, each actor retargeted through `targets`) plus `link` (`latest`,
+    `missing`). `/flow-v2` validates a link as what it plays and flags one whose version is gone.
+    Absent ⇒ unchanged.
   - **Ship chain (rule 8).** `loadAuthoredCinematics` resolves every link against its pinned
     version, so `deploy/cinematics/<id>.json` and the bundle's `cinematics` hold a NORMAL timeline
     (no `shared` field) that the game registers and plays like any other; the art seed sees its
     rigs. A link whose version is gone ships nothing; a version that can't be READ (an R2 error)
-    ships the last exported copy rather than being pruned. Gate: `check:shared-timeline-ship`.
+    ships the last exported copy, and when even that can't be read the load is PARTIAL and the
+    export prunes nothing from `deploy/`. Gate: `check:shared-timeline-ship`.
   - **Rows.** No format change: `cue`, `visibility` and `text` tracks already existed and the game
     already plays them on node actors. The Timeline module gained `options.textRows` (a node
     actor's text track as a row) and `addCue(cue)`; `/rigger` sets neither (golden unchanged).
@@ -345,7 +348,7 @@ through the same player; headless-proven, no editor yet (5b).
 | `tools/rigger-spike/cinematic-flow.mjs` — `playCinematic` against the REAL interpreter + validator | **19/19** |
 | `tools/rigger-spike/cinematic-screen-timeline.mjs` — Phase 3 end to end: author (headless Timeline + name targeting) → save (in-memory R2) → picker labels → `validateNodeActors` → `exportCinematics` / bundle → `playCinematic` on the REAL interpreter → game fold vs the editor's compiled preview module at six times; parity with no preview | **41/41** |
 | `apps/launcher-api/scripts/check-cinematic-access.ts` — the REAL `/api/cinematics/*` handlers per entitlement (rigger / editor / both / neither), incl. the same-id hijack, force, the mid-request race, and a component-host section (Phase 4b) | **36/36** |
-| `apps/launcher-api/scripts/check-shared-timeline-ship.ts` (`check:shared-timeline-ship`, Phase 9d) — the REAL promote / list / get / save / desktop-bake handlers on an in-memory R2: the capability gate, versions and snapshots, a stale `baseEtag`, a link in another project storing only its placement, `get` resolving and retargeting it with the update, the bake writing the resolved timeline (no link field) that the game's own `ComponentTimelinePlayer` plays (alpha + its Report event cue), Update / Detach / a missing version / a starter, a `/rigger`-style save refused, and the promote race (two promoters, a stray snapshot, a corrupt or deleted pointer) | **39/39** |
+| `apps/launcher-api/scripts/check-shared-timeline-ship.ts` (`check:shared-timeline-ship`, Phase 9d) — the REAL promote / list / get / save / desktop-bake handlers on an in-memory R2: the capability gate, versions and snapshots, a stale `baseEtag`, a link in another project storing only its placement, `get` resolving and retargeting it with the update, the bake writing the resolved timeline (no link field) that the game's own `ComponentTimelinePlayer` plays (alpha + its Report event cue), Update / Detach / a missing version / a starter, a `/rigger`-style save refused, a shared read failing at publish (the last exported copy ships; a partial load prunes nothing), and the promote race (two promoters, a stray snapshot, a corrupt or deleted pointer) | **42/42** |
 | `apps/launcher-api/scripts/check-timeline-rows.ts` (`check:timeline-rows`, Phase 9d) — Report event (`signal:` cue, one undo step, fired once by the game), visibility keys (game + preview), text count-up / switch keys (game sample, editor preview, mode switch, a modeless track, prune), and a doc mounted with `textRows` staying byte-identical | **27/27** |
 | `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name only (never an id) + validation, no self-restart from a timeline's own cue, export of a component timeline no Flow node names | **39/39** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |

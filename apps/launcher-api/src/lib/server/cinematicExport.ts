@@ -29,6 +29,9 @@ export interface CinematicExportIndex {
 	cinematics?: CinematicDoc[];
 }
 
+/** The authored cinematics; `partial` when one could not be read (the export then prunes nothing). */
+export type AuthoredCinematics = CinematicDoc[] & { partial?: true };
+
 /** A cinematic is worth shipping once it has at least one actor — an empty shell drives nothing. */
 const isAuthored = (doc: CinematicDoc): boolean =>
 	Array.isArray(doc.stage?.cast) && doc.stage.cast.length > 0;
@@ -61,12 +64,21 @@ export function cinematicRigNames(docs: CinematicDoc[]): Set<string> {
 export async function loadAuthoredCinematics(
 	clientKey: string,
 	projectKey: string,
-): Promise<CinematicDoc[]> {
-	const out: CinematicDoc[] = [];
+): Promise<AuthoredCinematics> {
+	const out: AuthoredCinematics = [];
+	let rows: Awaited<ReturnType<typeof listCinematics>>;
 	try {
-		for (const row of await listCinematics(clientKey, projectKey)) {
+		rows = await listCinematics(clientKey, projectKey);
+	} catch (e) {
+		// Cinematics are additive — a listing failure must never break the whole publish.
+		console.error('[cinematicExport] could not list the cinematics:', e);
+		out.partial = true;
+		return out;
+	}
+	for (const row of rows) {
+		try {
 			const { doc: stored } = await loadCinematic(clientKey, projectKey, row.id);
-			let doc: CinematicDoc | null = null;
+			let doc: CinematicDoc | null;
 			try {
 				doc = stored && (await resolveProjectCinematic(stored));
 			} catch (e) {
@@ -76,14 +88,15 @@ export async function loadAuthoredCinematics(
 				doc = await lastShipped(clientKey, projectKey, row.id);
 			}
 			if (doc && isAuthored(doc)) out.push(doc);
+		} catch (e) {
+			console.error(`[cinematicExport] could not load "${row.id}":`, e);
+			out.partial = true;
 		}
-	} catch {
-		// Cinematics are additive — a listing/parse failure must never break the whole publish.
 	}
 	return out;
 }
 
-/** The copy of `id` the last export shipped, or null. */
+/** The copy of `id` the last export shipped, or null. A read failure throws. */
 async function lastShipped(
 	clientKey: string,
 	projectKey: string,
@@ -105,15 +118,20 @@ async function lastShipped(
 export async function exportCinematics(
 	clientKey: string,
 	projectKey: string,
-	docs: CinematicDoc[],
+	docs: AuthoredCinematics,
 ): Promise<CinematicExportIndex> {
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/cinematics/`;
 
 	// Prune anything previously deployed that is no longer authored, so deleting a cinematic in the
-	// tool actually removes it from the shipped set instead of leaving a stale copy behind.
-	const keep = new Set(docs.map((d) => `${deployPrefix}${d.id}.json`));
-	const stale = (await listAllObjects(deployPrefix)).map((o) => o.key).filter((k) => !keep.has(k));
-	if (stale.length) await deleteObjects(stale);
+	// tool actually removes it from the shipped set instead of leaving a stale copy behind. Never
+	// after a PARTIAL load: a timeline that failed to read is not a deleted one.
+	if (!docs.partial) {
+		const keep = new Set(docs.map((d) => `${deployPrefix}${d.id}.json`));
+		const stale = (await listAllObjects(deployPrefix))
+			.map((o) => o.key)
+			.filter((k) => !keep.has(k));
+		if (stale.length) await deleteObjects(stale);
+	}
 
 	if (!docs.length) return {};
 

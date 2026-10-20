@@ -597,14 +597,21 @@ export function mount(el, options) {
 				root.querySelectorAll('.cineTextRow .cineTextKey').forEach((dot) => {
 					const trackId = dot.closest('.cineTextRow').dataset.track;
 					const keyTime = parseFloat(dot.dataset.textTime);
-					const keyOf = (t) => {
-						const track = doc.tracks.find((x) => x.id === trackId);
-						return track && track.keys.find((x) => Math.abs(x.time - t) < 1e-6);
-					};
 					dot.onpointerdown = (e) => {
 						e.preventDefault();
 						e.stopPropagation();
-						tlDrag = { kind: 'text', time: keyTime, startX: e.clientX, pps, el: dot, moved: false };
+						const track = doc.tracks.find((x) => x.id === trackId);
+						const key = track && track.keys.find((x) => Math.abs(x.time - keyTime) < 1e-6);
+						if (!key) return;
+						tlDrag = {
+							kind: 'text',
+							key,
+							time: keyTime,
+							startX: e.clientX,
+							pps,
+							el: dot,
+							moved: false,
+						};
 						try {
 							dot.setPointerCapture(e.pointerId);
 						} catch {
@@ -613,12 +620,10 @@ export function mount(el, options) {
 					};
 					dot.onpointermove = (e) => {
 						if (!tlDrag || tlDrag.kind !== 'text' || tlDrag.el !== dot) return;
-						const k = keyOf(tlDrag.time);
-						if (!k) return;
-						if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
+						// From where the drag began, so a slow drag adds up instead of snapping back.
+						const k = tlDrag.key;
 						k.time = snapT(tlDrag.time + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
-						tlDrag.time = k.time;
-						tlDrag.startX = e.clientX;
+						if (Math.abs(k.time - tlDrag.time) > 1e-9) tlDrag.moved = true;
 						dot.style.left = (k.time * tlDrag.pps).toFixed(1) + 'px';
 					};
 					const endText = () => {
@@ -2380,7 +2385,6 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		keyProperty,
 		keyVisibility,
 		addCue,
-		textTracksOf,
 		deleteTextKey,
 	};
 }

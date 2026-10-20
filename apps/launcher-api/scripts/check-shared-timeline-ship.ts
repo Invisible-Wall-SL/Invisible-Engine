@@ -39,6 +39,8 @@ interface Cond {
 const bucket = new Map<string, Stored>();
 /** Runs just before the next PUT to `key` is judged: another author's write landing mid-request. */
 const beforePut = new Map<string, () => Promise<void> | void>();
+/** Keys whose next reads fail as a transient R2 error would. */
+const failReads = new Set<string>();
 class ConflictError extends Error {
 	constructor(readonly key: string) {
 		super(`Conditional write failed for ${key}`);
@@ -57,8 +59,14 @@ mock.module(server('r2.ts'), {
 		},
 		jsonBaseEtag: (v: unknown) => (v === null ? null : typeof v === 'string' ? v : undefined),
 		formBaseEtag: (v: unknown) => (typeof v !== 'string' ? undefined : v === '' ? null : v),
-		getObjectTextWithEtag: async (key: string) => bucket.get(key) ?? null,
-		getObjectText: async (key: string) => bucket.get(key)?.text ?? null,
+		getObjectTextWithEtag: async (key: string) => {
+			if (failReads.has(key)) throw new Error(`R2 read failed: ${key}`);
+			return bucket.get(key) ?? null;
+		},
+		getObjectText: async (key: string) => {
+			if (failReads.has(key)) throw new Error(`R2 read failed: ${key}`);
+			return bucket.get(key)?.text ?? null;
+		},
 		putObjectText: async (key: string, text: string, _type: string, cond?: Cond) => {
 			const hook = beforePut.get(key);
 			beforePut.delete(key);
@@ -352,7 +360,7 @@ const silent = await call(save.POST, '/api/cinematics/save', {
 });
 ok(
 	'a resolved link saved back WITHOUT detach (a /rigger save) is refused',
-	silent.status === 409 && silent.body.error === 'linked',
+	silent.status === 423 && silent.body.error === 'linked',
 	silent,
 );
 const detached = await call(save.POST, '/api/cinematics/save', {
@@ -418,6 +426,38 @@ fadePlayer.trigger('enter');
 fadePlayer.advance(0.2);
 const mid = fadePlayer.sample('gem1')?.alpha ?? -1;
 ok('…and fades the node in the game', mid > 0 && mid < 1, mid);
+
+// ---- 4b. a shared read failing at publish -----------------------------------------------------
+console.log('4b. the shared library cannot be read at publish');
+const flaky = linkStub({ ...placement, id: 'c_card_flaky' }, { id: 'flaky', version: 1 });
+await call(promote.POST, '/api/cinematics/shared/promote', {
+	doc: alphaTimeline(1),
+	name: 'Flaky',
+	baseEtag: null,
+});
+await call(save.POST, '/api/cinematics/save', { doc: flaky, baseEtag: null, projectKey: 'beta' });
+await call(bake.POST, '/api/editor/export-cinematics?k=tok&project=beta');
+ok('a link ships once', bucket.has(deployKey('beta', 'c_card_flaky')));
+failReads.add('_shared/cinematics/flaky.json');
+const flakyBake = (await call(bake.POST, '/api/editor/export-cinematics?k=tok&project=beta')).body
+	.cinematics as CinematicDoc[];
+ok(
+	'a failed shared read ships the last exported copy instead of dropping it',
+	flakyBake.some((d) => d.id === 'c_card_flaky') && bucket.has(deployKey('beta', 'c_card_flaky')),
+	flakyBake.map((d) => d.id),
+);
+failReads.add(deployKey('beta', 'c_card_flaky'));
+const before = [...bucket.keys()]
+	.filter((k) => k.startsWith('acme/beta/deploy/cinematics/'))
+	.sort();
+await call(bake.POST, '/api/editor/export-cinematics?k=tok&project=beta');
+const after = [...bucket.keys()].filter((k) => k.startsWith('acme/beta/deploy/cinematics/')).sort();
+ok(
+	'when even that copy cannot be read, the export prunes nothing from deploy/',
+	JSON.stringify(before) === JSON.stringify(after),
+	{ before, after },
+);
+failReads.clear();
 
 // ---- 5. two promoters race ------------------------------------------------------------------------
 console.log('5. two promoters of one id race');
