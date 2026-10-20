@@ -217,6 +217,9 @@ export interface SymbolExportResult {
 	 *  config, a third verbatim pass-through. Absent → the emerge arrival is awaited exactly as it
 	 *  always was, so an un-switched project's bundle stays byte-identical. */
 	arrivalRelease?: SymbolsDoc['arrivalRelease'];
+	/** "Play Land as each cell stops" on the Hold and Win respin board — assetless config, another
+	 *  verbatim pass-through. Absent → a coin plays its Land as it sticks, exactly as before. */
+	respinLandOnStop?: SymbolsDoc['respinLandOnStop'];
 	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
 	 *  asset rides the same channels as the per-cell bindings: a rig layer's bundle + a sprite
 	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
@@ -830,6 +833,10 @@ export async function exportEditorSymbols(
 	// pass-through of the already-pruned field: absent for every project that left it off.
 	const arrivalRelease = doc.arrivalRelease;
 
+	// The respin board's land timing. Assetless (one switch over when an animation the map already
+	// ships plays), so the same verbatim pass-through of the already-pruned field.
+	const respinLandOnStop = doc.respinLandOnStop;
+
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.rigKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
@@ -909,6 +916,7 @@ export async function exportEditorSymbols(
 		...(winExplode ? { winExplode } : {}),
 		...(winBeat ? { winBeat } : {}),
 		...(arrivalRelease ? { arrivalRelease } : {}),
+		...(respinLandOnStop ? { respinLandOnStop } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
 		...(tumblePattern ? { tumblePattern } : {}),

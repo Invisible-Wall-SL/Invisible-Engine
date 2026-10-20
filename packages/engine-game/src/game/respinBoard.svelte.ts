@@ -23,6 +23,9 @@ export type RespinBoardDeps = {
 	blank: () => string;
 	/** One cell's strip settled — the board's per-cell stop cue. */
 	onCellStopping?: (reel: number, row: number) => void;
+	/** One cell of a respin came to rest on `symbol`, its bounce done — the moment its symbols enter
+	 *  `land`. */
+	onCellLand?: (reel: number, row: number, symbol: RawSymbol) => void;
 	/** The authored spin feel merged over the coded options, as the board's reels merge it. */
 	spinProfile?: (which: 'normal' | 'fast') => ReelSpinProfile | undefined;
 };
@@ -116,7 +119,10 @@ export function createRespinBoard(deps: RespinBoardDeps) {
 		}
 		await Promise.all(
 			spins.map(async (target) => {
-				await cellAt(target.reel, target.row)?.cellReel.spin();
+				const cell = cellAt(target.reel, target.row);
+				if (!cell) return;
+				await cell.cellReel.spin();
+				deps.onCellLand?.(target.reel, target.row, target.symbol);
 			}),
 		);
 	};

@@ -1281,7 +1281,7 @@ const effects: Record<string, FlowEffect> = {
 	 *
 	 * - `showRespinBoard` (`holdAndWinTrigger`) — swap to the respin board, triggering coins held.
 	 * - `spinRespin` (`respinReveal`) — spin the free cells onto the revealed symbols.
-	 * - `stickCoins` (`coinsLand`) — the landed cells stick and play `land`.
+	 * - `stickCoins` (`coinsLand`) — the landed cells stick and play `coinStick`.
 	 * - `setRespinCounter` (`respinUpdate`) — move the counter; a reset is its own beat.
 	 * - `restoreRespinBoard` (`holdAndWinState`) — the server's picture; rebuilds the board on resume.
 	 * - `hideRespinBoard` (`holdAndWinEnd`) — hold the final board, fly the tally into the Total Win
