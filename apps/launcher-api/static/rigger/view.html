@@ -569,7 +569,8 @@
         <button id="bonesBtn" class="active" title="Toggle bone overlay">Bones</button>
         <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
-        <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). This frame is what fills a symbol cell, centred, in /symbols and in the game. Drag the handles to set a custom frame; Shift-click to re-fit automatically. A rig with no art of its own (FX / Flipbook bindings only) is measured from its clips' boxes, or gets a placeholder frame to drag.">Bounds</button>
+        <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). This frame is what fills a symbol cell, centred, in /symbols and in the game; a rig placed on a screen sits by its origin instead (⊕ Centre origin). Drag the handles to set a custom frame; Shift-click to re-fit automatically. A rig with no art of its own (FX / Flipbook bindings only) is measured from its clips' boxes, or gets a placeholder frame to drag.">Bounds</button>
+        <button id="originBtn" title="Move the rig so its origin (the amber ⊕) is the centre of its Bounds frame. A rig placed on a screen sits by its origin: that point lands on the node's x/y in the Scene Editor and the game, and the game rotates and scales the rig about it.">⊕ Centre origin</button>
         <button id="fit">Reset view</button>
       </div>
       <div class="grp" id="animTools" style="display:none;">
@@ -9769,7 +9770,7 @@ function setMode(m){
   ["#grpAnim", "#grpSkin", "#grpRigFile", "#rowRigManage"].forEach((sel) => {
     const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
   });
-  ["#bonesBtn", "#meshBtn", "#boundsBtn"].forEach((sel) => {
+  ["#bonesBtn", "#meshBtn", "#boundsBtn", "#originBtn"].forEach((sel) => {
     const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
   });
   if (cineMode){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; } // no bone selection on a multi-actor stage
@@ -13367,6 +13368,86 @@ function drawBoundsOverlay(){
   renderer.circle(false, cx, cy, z * 9, col, 20); // centre = move handle
 }
 
+// ---- origin (the point a placed rig sits by) ------------------------------
+// A rig placed on a screen sits by its skeleton ORIGIN: the Scene Editor and the game put it on the
+// node's x/y, and the node rotates and scales about it. Nothing here showed it, so a rig built away
+// from its origin looked right in this view (which frames the art) and drew offset wherever it was
+// placed. `drawOriginOverlay` shows it; `centreRigOrigin` moves the rig so the centre of its Bounds
+// frame IS the origin.
+function drawOriginOverlay(){
+  if (!skeleton || (!showBones && !showBounds)) return;
+  if (typeof renderer.line !== "function" || typeof renderer.circle !== "function" || !RIG.Color) return;
+  const col = new RIG.Color(1, 0.72, 0.25, 0.95); // amber: never read as a bone
+  const ox = skeleton.x || 0, oy = skeleton.y || 0, z = renderer.camera.zoom;
+  renderer.line(ox - z * 12, oy, ox + z * 12, oy, col);
+  renderer.line(ox, oy - z * 12, ox, oy + z * 12, col);
+  renderer.circle(false, ox, oy, z * 6, col, 20);
+}
+/**
+ * Move the whole rig so the centre of its Bounds frame sits on the origin.
+ *
+ * Only the setup position of each parentless bone moves (one root, unless a bone was detached to
+ * the root level): every other bone, slot and attachment hangs from one, and a translate key is
+ * relative to the setup pose, so the art keeps its shape in every pose and only changes where it
+ * sits around (0, 0). The Bounds frame moves with the art and keeps a hand-set lock.
+ *
+ * The frame centred is the one a save writes: an unlocked frame is re-fitted to the art first (the
+ * same derived write showing the box makes), or a frame gone stale since the last fit would be
+ * centred and the save's re-fit would put the origin back off-centre.
+ *
+ * An FX or clip bound with no bone and no slot is anchored to the first bone in this view but to the
+ * bare origin in the game; the two agreed only while that bone sat on the origin. Moving it would
+ * part them, so such a binding names that bone: the spot this view always showed it at, now in the
+ * game too.
+ */
+function centreRigOrigin(){
+  if (!skeleton || !skeletonData || !rawDoc) return;
+  settleRigBounds();
+  const r = rigBoundsRect();
+  if (!r){
+    showNotice("This rig has nothing to measure yet. Give it art or a Bounds frame first.", 6000);
+    return;
+  }
+  const r2 = (n) => Math.round(n * 100) / 100;
+  const r4 = (n) => Math.round(n * 10000) / 10000;
+  const dx = r2(-(r.x + r.w / 2)), dy = r2(-(r.y + r.h / 2));
+  if (!dx && !dy){
+    showNotice("The origin is already at the centre of the Bounds frame.", 4000);
+    return;
+  }
+  historyStep(() => {
+    for (const bone of skeletonData.bones){
+      if (bone.parent) continue;
+      const raw = rawDoc.bones.find((b) => b.name === bone.name);
+      if (!raw) continue;
+      raw.x = r4((raw.x || 0) + dx);
+      raw.y = r4((raw.y || 0) + dy);
+      bone.x = raw.x;
+      bone.y = raw.y;
+    }
+    rawDoc.skeleton.x = r2(r.x + dx);
+    rawDoc.skeleton.y = r2(r.y + dy);
+    skeletonData.x = rawDoc.skeleton.x;
+    skeletonData.y = rawDoc.skeleton.y;
+    const host = skeletonData.bones[0].name;
+    let rebound = 0;
+    for (const anim of Object.values(rawDoc.animations || {})){
+      for (const e of anim.events || []){
+        for (const b of [e.fx, e.flipbook]){
+          if (b && !b.bone && !b.slot){ b.bone = host; rebound++; }
+        }
+      }
+    }
+    skeleton.setToSetupPose();
+    updateWorld();
+    fitView();
+    markDirty();
+    if (rebound) renderEventDetail();
+    showNotice("Origin centred (the art moved " + dx + ", " + dy + " in rig units). Copies already placed on a screen now sit centred on their position: check where they land."
+      + (rebound ? " " + rebound + " FX / clip binding(s) with no bone now name \"" + host + "\", where they already showed here." : ""), 9000);
+  });
+}
+
 // ---- render loop ----------------------------------------------------------
 function frame(now){
   requestAnimationFrame(frame);
@@ -13455,6 +13536,7 @@ function frame(now){
     if (showBones) drawBonesOverlay();
     drawGizmo();
     drawBoundsOverlay();
+    drawOriginOverlay();
     renderer.end();
     updateBoneMarker();
     if (animMode) syncPlayhead(); else syncScrub();
@@ -13744,6 +13826,7 @@ function wire(){
     }
     $("#boundsBtn").classList.toggle("active", showBounds);
   };
+  $("#originBtn").onclick = () => centreRigOrigin();
   $("#boneSize").oninput = e => { boneScale = parseFloat(e.target.value) || 1; };
   $("#meshBtn").onclick = () => { showMesh = !showMesh; $("#meshBtn").classList.toggle("active", showMesh); };
   $("#fit").onclick = fitView;

@@ -58,3 +58,18 @@ export function authoredRigBox(data: RigBoxHeader): RigBox | null {
 	const y = typeof data.y === 'number' && Number.isFinite(data.y) ? data.y : -height / 2;
 	return { x, y, width, height };
 }
+
+/**
+ * Where a rig's ORIGIN sits in its box, as a box-relative anchor read y-DOWN like a sprite's:
+ * `{ ax: 0.5, ay: 0.5 }` for a box centred on the origin.
+ *
+ * A rig placed at a point (a scene or component node) is positioned by its origin: the game's
+ * `<RigProvider>` puts the skeleton origin at the node's x/y, so the frame drawn around the node
+ * must sit wherever the box sits around that origin. The Scene Editor used to centre its selection
+ * box on the origin instead, so a Rigger rig whose art was far from its root drew in one place and
+ * selected in another. Fitting a rig INTO a box (a symbol cell, `centreBox`) is the other operation,
+ * and centres the box itself. Values outside 0..1 are real: an origin outside the box.
+ */
+export function rigOriginAnchor(box: RigBox): { ax: number; ay: number } {
+	return { ax: -box.x / box.width, ay: (box.y + box.height) / box.height };
+}

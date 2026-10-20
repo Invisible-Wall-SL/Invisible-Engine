@@ -455,6 +455,19 @@ own, place it, then re-author it in the [Rigger](/docs/rigger) under your projec
 The editor renders the real texture (and rig bundles preview as a live
 skeleton), so what you see matches what the game will draw.
 
+**A placed rig sits by its origin.** The node's position is the rig's skeleton
+origin, the point it was built around in the [Rigger](/docs/rigger), and the
+game rotates and scales the rig about it (the canvas preview does not draw a
+rig's rotation; only its box turns). Selecting a rig draws that point as a **⊕**
+and frames the box around the rig's **Bounds** wherever it sits relative to the
+origin. A rig built far from its origin therefore selects with the ⊕ well away
+from the art, or outside the box. Resizing it on the canvas keeps the box's centre
+still and moves the origin. To centre the origin for good, open the rig in the
+Rigger, press **⊕ Centre origin** and save; copies already placed then draw
+centred on their position. A placed rig has no anchor field or anchor presets,
+since it is positioned by its origin (a background cover sets its alignment in
+the cover section instead).
+
 The **reel board** previews the real symbols too: each cell shows a symbol's
 **Static** binding from the Invisible Symbols State Machine, cycled across the
 grid so the board looks populated. Sprite and rig symbols both draw — a rig
@@ -549,7 +562,7 @@ The stage is tinted blue with a blue edge in **Animate**, so the two modes never
 ### 4. Edit properties
 
 The right-hand **Properties** panel edits the selected node — its transform
-(`x/y`, anchor, scale, rotation, alpha, zIndex, tint, blend), text content/style for
+(`x/y`, anchor (not on a rig), scale, rotation, alpha, zIndex, tint, blend), text content/style for
 text nodes, rig animation/skin for rig nodes (driven by dropdowns when the
 canvas can read the bundle's animations), background cover (fit / zoom /
 alignment) for cover nodes, and the slot the node fills (when a template is loaded). It also offers

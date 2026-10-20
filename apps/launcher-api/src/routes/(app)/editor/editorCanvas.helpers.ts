@@ -426,8 +426,10 @@ export function nodeBox(
 		t.width === undefined &&
 		t.height === undefined
 	) {
+		// `bindRigTarget` draws it with its skeleton origin at the node, like a placed rig node.
 		const nat = naturalSize(node, instanceRigBundle);
-		if (nat && nat.w > 0 && nat.h > 0) return { w: nat.w, h: nat.h, ax, ay };
+		if (nat && nat.w > 0 && nat.h > 0)
+			return { w: nat.w, h: nat.h, ax: nat.ax ?? ax, ay: nat.ay ?? ay };
 	}
 	// A preview-art anchor selects at the RENDERED art's box. The art may be an
 	// explicit `node.preview.art` OR a catalog default resolved live (no baked
@@ -458,10 +460,18 @@ export function nodeBox(
 		// Frame the rig at its real setup-pose bounds (reported by the WebGL overlay via
 		// `naturalSize`), like a sprite — not a fixed 160×100, which leaves the transform
 		// box far smaller than the rendered skeleton.
+		//
+		// WHERE the box sits is the rig's, not the node's: the game (`LayoutNodeView` → a
+		// `<RigProvider>` with no anchor) and the rig layer both put the skeleton ORIGIN at the
+		// node's x/y, so the box sits around that origin exactly as the rig's box does
+		// (`rigOriginAnchor`) and the node's anchor moves nothing. One authored dimension scales
+		// the rig uniformly (`rigSizeScale`), so the other follows the art's aspect.
 		const nat = naturalSize(node);
-		const w = t.width ?? nat?.w ?? 160;
-		const h = t.height ?? nat?.h ?? 100;
-		return { w, h, ax, ay };
+		const w =
+			t.width ?? (nat && t.height !== undefined ? (nat.w * t.height) / nat.h : (nat?.w ?? 160));
+		const h =
+			t.height ?? (nat && t.width !== undefined ? (nat.h * t.width) / nat.w : (nat?.h ?? 100));
+		return { w, h, ax: nat?.ax ?? 0.5, ay: nat?.ay ?? 0.5 };
 	}
 	if (node.kind === 'text') {
 		// A text box's selection frame is its explicit box (`width`/`height`); an auto-size
@@ -671,6 +681,35 @@ export function nodeCornersWorld(t: ResolvedTransform, box: NodeBox): [Vec2, Vec
 		x: t.x + p.x * cos - p.y * sin,
 		y: t.y + p.x * sin + p.y * cos,
 	})) as [Vec2, Vec2, Vec2, Vec2];
+}
+
+/**
+ * The local point (pre-scale, relative to the node's origin) a resize handle measures its drag
+ * from. Every node measures from its origin, which scales in place. A rig's origin can sit on an
+ * edge of its box or outside it (`rigOriginAnchor`), where a corner's offset from the origin is
+ * zero or points the wrong way, so a rig measures from its box CENTRE and the origin moves to
+ * hold that centre still ({@link resizeOriginShift}). A box centred on its origin gets (0, 0).
+ */
+export function resizePivot(node: LayoutNode, box: NodeBox): Vec2 {
+	if (node.kind !== 'spine') return { x: 0, y: 0 };
+	return { x: box.w * (0.5 - box.ax), y: box.h * (0.5 - box.ay) };
+}
+
+/**
+ * How far (world px) a node's origin moves so its {@link resizePivot} stays put when its drawn
+ * scale changes by `ratio` per axis, rotated by `rotation`. Zero for a pivot at the origin.
+ */
+export function resizeOriginShift(
+	pivot: Vec2,
+	drawScale: Vec2,
+	ratio: Vec2,
+	rotation: number,
+): Vec2 {
+	const lx = pivot.x * drawScale.x * (1 - ratio.x);
+	const ly = pivot.y * drawScale.y * (1 - ratio.y);
+	const cos = Math.cos(rotation);
+	const sin = Math.sin(rotation);
+	return { x: lx * cos - ly * sin, y: lx * sin + ly * cos };
 }
 
 /** Top-edge midpoint in world space, used to anchor the rotation handle. */

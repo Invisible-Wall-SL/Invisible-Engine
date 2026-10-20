@@ -20,6 +20,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 - **Animation** — keyframing, dopesheet (multi-select, marquee, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**), graph editor, slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredRigBox`) by `/symbols`, the Scene Editor and the game (`<RigProvider centreBox>`). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
+- **Origin** — a rig placed on a screen sits by its skeleton origin (the Scene Editor and the game put it on the node's x/y); fitting into a box (a symbol cell) is what reads the Bounds frame. The origin is the amber ⊕ on the stage with Bones or Bounds on, and **⊕ Centre origin** moves the root bone(s) so the frame's centre is the origin (`centreRigOrigin`), naming the root on an FX / clip binding with no bone or slot so the game keeps drawing it where the Rigger did.
 - **Atlas snapshot** — a bundle carries a frozen copy of its source sheet's geometry; `ensureBundleAtlasFresh` re-derives it on the read and bake paths when the source revision drifts, and **⟳ Re-sync atlas** forces it. Manifest geometry is reconciled against the TexturePacker JSON on read (never the trim). The bundle's page is the sheet page with each rotated region turned 180° (the Rigger and the editor read it); the game never downloads it: while the bundle is in sync with its sheet, `exportRigBundle` ships the sheet's own page through the page store with those regions read clockwise (`rotate:270`), so a rig and its sheet share one file and one texture.
 - **Save** — `.irig` saves are ETag-conditional (a colleague's newer save prompts; the retry is `If-Match` on the version shown), refused with 422 when the rig would not load again (`irigDocProblem`), backed up to `<client>/<project>/rigger-backups/<dir>/<stem>/` (20 kept) and restorable from **🕘**; the tab warns before closing with unsaved rig or cinematic edits, and opening another rig over unsaved edits asks first. A rig that fails to open leaves no rig open — the document, the selection and the save precondition change together — so nothing can be saved under its name, while 🕘 can still restore an earlier save of it. The rig and animation library saves create only (a taken name shows who saved it and when; the confirmed overwrite is `If-Match` on that entry), and the rig library refuses a rig that would not load (the tab's full parse, then `irigDocProblem`); applying or importing a library rig that would not load is refused too. `＋ New rig` / upload refuse a name that differs from an existing bundle only by case, even when both are created at once, and a create that died after its claim does not keep the name: its lone `.irig` (unlisted, no atlas, untouched for 10 minutes) is backed up to 🕘 and reclaimed. Every `skeletons.json` rebuild (save, new, upload, delete, the editor's reindex) goes through `reindexProjectSkeletons`, so an atlas-less rig is never dropped from the index.
 - **Undo / redo** — ↶ ↷ and Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y over a bounded snapshot history of
@@ -79,6 +80,22 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-20 — **⊕ Centre origin, and the origin is drawn** (in review, ⏳ not browser-verified).
+  Reported: a new rig (`R_Widget`) looked right here but drew far up-left of its selection box in
+  the Scene Editor. A placed rig sits by its skeleton origin, and this rig's art sat ~950 px left of
+  and ~580 px above it; the stage frames the art (`fitView`), so nothing here showed the origin.
+  Now an amber ⊕ marks it (`drawOriginOverlay`, with Bones or Bounds on), and **⊕ Centre origin**
+  first re-fits an unlocked frame to the art (`settleRigBounds`, the frame a save writes, so a stale
+  or x/y-less frame cannot leave the origin off-centre after the save), then shifts every parentless
+  bone's setup position by minus the frame's centre (translate keys are relative, so every pose
+  keeps its shape), moves the frame with the art (keeping `iwLockBounds`), and names `bones[0]` on an
+  FX / clip binding with no bone or slot: the Rigger previews such a binding there
+  (`fxBoneTransform`) but the game mounts it at the bare origin, which agreed only while that bone
+  sat on it. One undo step. Spike: `tools/rigger-spike/origin.mjs` (77 checks over 7 shapes: as
+  shipped, far off, a rotated + scaled root, a locked frame, a stale frame, a second root, a frame
+  with no x/y; a save's re-fit is simulated; four planted mutants all caught).
+  The Scene Editor half (the box now frames the art around the origin) is in
+  [editor status](editor.md).
 - 2026-10-20 — **The graph editor draws y and scaleY with their own tangents.** It sampled each
   curve by its field alone, so a translate or scale key's y read x's half of the bezier: a y key with
   flat handles drew as a sharp V while the bone (and the game) eased smoothly through it. The graph's
