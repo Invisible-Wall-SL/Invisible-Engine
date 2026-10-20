@@ -17,7 +17,17 @@ export interface TimelineEvaluator {
 		visibilityTracks: unknown[] | undefined,
 		t: number,
 	): boolean;
-	putKey(keys: unknown[], time: number, value: number, ease?: string): void;
+	putKey(keys: unknown[], time: number, value: number, ease?: TimelineEase): void;
+}
+
+/** A key's outgoing interpolation: a named ease, or a cubic `[x1, y1, x2, y2]`. */
+export type TimelineEase = 'linear' | 'ease' | 'hold' | [number, number, number, number];
+
+/** One selected key: its track, channel and time. */
+export interface TimelineKeyRef {
+	trackId: string;
+	channel: string;
+	time: number;
 }
 
 export interface TimelineClip {
@@ -58,6 +68,10 @@ export interface TimelineHost {
 	effects?(): Array<{ id: string; name?: string }>;
 	/** The stage camera right now — what ◆ camera keys. */
 	cameraView?(): { x: number; y: number; zoom: number } | null;
+	/** The actor the host has selected — *Show only selected* shows only its rows. */
+	selectedActor?(): string | null;
+	/** Space: play / pause. Absent ⇒ the Timeline leaves Space to the page. */
+	togglePlay?(): void;
 }
 
 type Strip = Record<string, unknown> & { id: string };
@@ -93,6 +107,13 @@ export interface TimelineOptions {
 	extensions?: TimelineExtension[];
 	/** The property channels an actor's rows show, in order. Default: {@link PROP_CHANNELS}. */
 	channels?: TimelineChannel[];
+	/** The key inspector is the Interpolation panel (Linear / Cubic / Hold, the curve editor,
+	 *  *Set as default*). Off ⇒ the ease `<select>` `/rigger` shows. */
+	interpolation?: boolean;
+	/** Every animated actor gets a collapsible summary row of its key times. */
+	summaryRows?: boolean;
+	/** A drag over an empty channel lane box-selects keys (a click there clears the selection). */
+	boxSelect?: boolean;
 }
 
 export interface Timeline {
@@ -110,6 +131,21 @@ export interface Timeline {
 	selectedStripId(): string | null;
 	selectStrip(id: string | null): void;
 	clearSelection(): void;
+	/** Every selected property / camera key (Shift-click, a box drag, a summary key). */
+	selectedKeys(): TimelineKeyRef[];
+	/** Select these keys (the last is the one the inspector shows). */
+	selectKeys(keys: TimelineKeyRef[]): void;
+	/** Show only the rows of the host's {@link TimelineHost.selectedActor}. */
+	setOnlySelected(on: boolean): void;
+	onlySelected(): boolean;
+	/** Ctrl+C / Ctrl+V / Delete on the selected keys. Each returns whether it did anything. */
+	copyKeys(): boolean;
+	pasteKeys(): boolean;
+	deleteSelectedKeys(): void;
+	/** Set every selected key's outgoing ease (`live`: mid-drag, no undo step). */
+	setSelectedEase(ease: TimelineEase, live?: boolean): void;
+	/** The ease a new key gets in this doc (`doc.defaultEase`); linear clears it. */
+	setDefaultEase(ease: TimelineEase | undefined): void;
 
 	commit(label: string, coalesceKey?: string): void;
 	historyReset(): void;
@@ -141,13 +177,9 @@ export interface Timeline {
 
 	deleteStrip(stripId: string): void;
 	duplicateStrip(stripId: string): void;
-	/** `ease`: a NEW key's outgoing interpolation (an existing key keeps its own). Default linear. */
-	keyProperty(
-		actorId: string,
-		channel: string,
-		value: number | null,
-		ease?: 'linear' | 'ease' | 'hold',
-	): void;
+	/** `ease`: a NEW key's outgoing interpolation (an existing key keeps its own). Default: the
+	 *  doc's `defaultEase`, else linear. */
+	keyProperty(actorId: string, channel: string, value: number | null, ease?: TimelineEase): void;
 	keyVisibility(actorId: string, visible: boolean): void;
 }
 

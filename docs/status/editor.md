@@ -36,6 +36,8 @@ Shipped capabilities on `main`:
   prop: no drag, handles, drop, delete or item toolbar); the Timeline owns Ctrl+Z/Shift+Z/Y, Ctrl+S,
   Ctrl+D and Delete, and the page's undo/clipboard handler stands down. Design mode is unchanged.
   Pure helpers: `$lib/timeline/screenTimeline.ts`. Detail: [cinematic status](cinematic.md).
+  Since Phase 9b (2026-10-20, in review) keying lives in **Properties** (key buttons) and on the
+  stage (drag keys), and the canvas is no longer select-only in Animate — see Recent changes.
   Since Phase 4b (2026-10-13, in review) the same panel takes an optional `component` host and the
   Components side mounts its own copy, so both can be mounted; each claims the canvas preview with
   its own owner token (`setTimelinePreview(drives, owner)`). Component authoring: [component-editor
@@ -96,8 +98,14 @@ Shipped capabilities on `main`:
 ## Open items / next
 
 0. **⏳ Browser-verify Animate mode** (the list is in [cinematic status](cinematic.md) item 0).
-   Not yet in the panel (screens or components): text tracks, visibility keys and cues, keying by
-   dragging on the canvas. Component timelines (Phase 4b) are built, in review; their browser-verify
+   Not yet in the panel (screens or components): text tracks, visibility keys and cues.
+   Phase 9b's list (2026-10-20): the Properties key buttons (grey / blue outline / blue) and typing
+   a value on x / y / scale / rotation / alpha / tint / ⚡; stage drag, corner and rotate keying on
+   a screen and on a component, including a multi-select drag and a game-space (main-scaled) node;
+   the Interpolation panel (both handles, the typed field, Set as default, the default with nothing
+   selected); box select, Shift/Ctrl-click, multi-drag, Ctrl+C / Ctrl+V, Delete; `,` / `.` / Space
+   (and that none fire while typing); loop type in ▶ playback; summary rows (fold, drag a summary
+   key, drag the lane) and Only selected; the onion skin on both sides. Component timelines (Phase 4b) are built, in review; their browser-verify
    list is in [component-editor status](component-editor.md) Blocked.
 0a. **⏳ Browser-verify Phase 9a** (hierarchy and stage basics): hover Lock / Isolate / Hide on
    both sides (hidden rigs, text and FX vanish too; other screens hide while isolating); fold;
@@ -121,6 +129,37 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-20 — **Animate: Rive-style keying (Rive plan Phase 9b, branch `claude/rive-p9b-keying`,
+  in review, ⏳ not browser-verified).** Plan: [rive-reference.md](../design/rive-reference.md)
+  §3.4–3.5 and §5. UI: [the guide](../tools/invisible-editor.md#animate-mode--the-timeline).
+  - **Properties keys.** In Animate the active Timeline panel publishes what the selected node can
+    key (`animateKeying.client.svelte.ts`: fields, `key`, `keyStage`), and Properties renders an
+    **Animate** section above Transform: each field shows the ANIMATED value (`shownChannelValue`:
+    the Design pose with the relative channel folded on; scale stays the multiplier) with a key
+    button whose state is `channelKeyState` (none / animated / a key within half a frame of the
+    playhead). A typed value keys `relativeChannelValue` of it. The panel's own field column is
+    gone (it keeps the rig animation picker). Transform still edits the Design pose.
+  - **Stage-drag keying** (`EditorCanvas`, only the drag path and the HUD overlay pass were touched
+    — none of 9a's keyboard / zoom / tint code). In Animate with an open timeline
+    (`onAnimateTransform`), a drag, corner or rotate runs on the Design pose exactly as in Design so
+    the stage follows the pointer; on release every dragged node's gesture fields are put back from
+    a snapshot and the change (design px, the scale ratio, degrees) is keyed through
+    `stageDragKeys` on top of the current offset, sampled at the snapped key time, one undo step
+    per drag. Only fields the gesture changed are put back. While a drag is in flight
+    (`setAnimateDragging`) the page holds its autosave and its undo baseline, so neither captures
+    the mid-drag pose; an unmount mid-drag puts the pose back and keys nothing. Hit-testing and the
+    handles read the drawn (animated) pose in Animate; snapping is off there; a scale drag is
+    uniform (one `scale` key); a text node's or Text Box's resize handles do nothing.
+  - **Panel.** The module mounts with `interpolation` and `summaryRows`; the header gains the loop
+    type, fps, **Onion** (±N, 1–10) and **Only selected**; ▶ plays through `playbackTime`, so it
+    loops or ping-pongs like the game; Space toggles it. The Timeline's keys are listed in 9a's
+    **Shift+/** sheet (a *Timeline (Animate)* group in `stageShortcuts.ts`) but handled by the
+    shared module, which `/rigger` mounts too.
+  - **Onion skin.** `onionFrames` (±N frames, nearest first, clipped to the timeline) through
+    `setOnionPreview` in `valuePreview.client.svelte.ts`; the canvas outlines each driven top-level
+    node per ghost (red before, green after, fading) in `drawOnion`. Editor-only, never saved.
+  - Gates: `check:cinematic-ease`, `check:timeline-keying` (in `check:all`); the `/rigger` golden
+    re-recorded for its one key-drag step (a fixed bug, [cinematic status](cinematic.md)).
 - 2026-10-20 — **Rive plan Phase 9a: hierarchy and stage basics** (in review, ⏳ not yet
   browser-verified). Outline rows have hover **Lock / Isolate / Hide** (Rive's word "Isolate", not
   "solo"), a ▸/▾ fold per container, **drag to reorder and re-parent**, and a right-click menu

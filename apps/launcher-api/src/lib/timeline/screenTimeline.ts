@@ -329,6 +329,135 @@ export function isChannelKeyed(doc: CinematicDoc, actorId: string, channel: stri
 	);
 }
 
+/**
+ * A key button's state (Rive plan Phase 9b): `none` — the channel is not animated (grey); `animated`
+ * — it has keys, none at the playhead (blue outline); `key` — a key sits on the playhead's frame
+ * (blue fill), so typing a value there edits that key.
+ */
+export type KeyState = 'none' | 'animated' | 'key';
+
+/** `channel`'s key-button state on `actorId` at `t` (a key within half a frame of `t` is "at" it). */
+export function channelKeyState(
+	doc: CinematicDoc,
+	actorId: string | null,
+	channel: string,
+	t: number,
+): KeyState {
+	if (!actorId) return 'none';
+	const near = 0.5 / (doc.fps || 30);
+	let keyed = false;
+	for (const track of tracksOf(doc, actorId)) {
+		if (track.kind !== 'property' || !track.channels) continue;
+		const keys = track.channels[channel];
+		if (!keys?.length) continue;
+		keyed = true;
+		if (keys.some((k) => Math.abs(k.time - t) < near)) return 'key';
+	}
+	return keyed ? 'animated' : 'none';
+}
+
+/** A node's Design pose, in the units Properties shows (rotation in degrees). */
+export interface DesignPose {
+	x: number;
+	y: number;
+	rotation: number;
+	alpha: number;
+	tint: number;
+}
+
+/**
+ * What Properties shows for a node channel in Animate: the ANIMATED value — the Design pose with
+ * the timeline's relative channel folded on, as the game draws it. `scale` stays the multiplier
+ * (a node's own scale may differ per axis), and `tint` is the keyed colour, else the node's own.
+ */
+export function shownChannelValue(
+	channel: KeyedChannel,
+	relative: number,
+	pose: DesignPose,
+	keyed: boolean,
+): number {
+	switch (channel) {
+		case 'x':
+			return pose.x + relative;
+		case 'y':
+			return pose.y + relative;
+		case 'rotation':
+			return pose.rotation + relative;
+		case 'alpha':
+			return pose.alpha * relative;
+		case 'tint':
+			return keyed ? relative : pose.tint;
+		default:
+			return relative;
+	}
+}
+
+/** The relative channel value a value typed into Properties keys — {@link shownChannelValue}'s inverse. */
+export function relativeChannelValue(
+	channel: KeyedChannel,
+	shown: number,
+	pose: DesignPose,
+): number {
+	switch (channel) {
+		case 'x':
+			return shown - pose.x;
+		case 'y':
+			return shown - pose.y;
+		case 'rotation':
+			return shown - pose.rotation;
+		case 'alpha':
+			// A node authored invisible has no multiplier that shows it; key the value itself.
+			return pose.alpha !== 0 ? shown / pose.alpha : shown;
+		default:
+			return shown;
+	}
+}
+
+/** A stage drag in Animate, as the canvas measured it on the Design pose: what to key. */
+export interface StageTransformDelta {
+	nodeId: string;
+	/** Design px moved. */
+	dx?: number;
+	dy?: number;
+	/** The scale ratio (new ÷ start). */
+	scale?: number;
+	/** Degrees turned. */
+	rotation?: number;
+}
+
+/**
+ * The relative values a stage drag keys on a node actor at `t`: each channel the drag changed, on
+ * top of what the timeline already sets there — so dragging a node that is mid-move keys where it
+ * now draws.
+ */
+export function stageDragKeys(
+	doc: CinematicDoc,
+	actorId: string | null,
+	delta: StageTransformDelta,
+	t: number,
+	channels: readonly KeyedChannel[],
+): Partial<Record<KeyedChannel, number>> {
+	const at = (c: KeyedChannel): number =>
+		actorId ? nodeChannelValue(doc, actorId, c, t) : NODE_IDENTITY[c];
+	const out: Partial<Record<KeyedChannel, number>> = {};
+	const allowed = new Set(channels);
+	const tiny = 1e-6;
+	if (delta.dx !== undefined && Math.abs(delta.dx) > tiny && allowed.has('x'))
+		out.x = at('x') + delta.dx;
+	if (delta.dy !== undefined && Math.abs(delta.dy) > tiny && allowed.has('y'))
+		out.y = at('y') + delta.dy;
+	if (
+		delta.scale !== undefined &&
+		Number.isFinite(delta.scale) &&
+		Math.abs(delta.scale - 1) > tiny &&
+		allowed.has('scale')
+	)
+		out.scale = at('scale') * delta.scale;
+	if (delta.rotation !== undefined && Math.abs(delta.rotation) > tiny && allowed.has('rotation'))
+		out.rotation = at('rotation') + delta.rotation;
+	return out;
+}
+
 /** One exposed parameter of a placed effect, as Animate mode keys it: its `fx:<id>` channel. */
 export interface FxChannelRow {
 	channel: CinematicFxParamChannel;
@@ -496,4 +625,37 @@ export function cinematicPickerOptions(
 	const byLabel = (a: CinematicPickerOption, b: CinematicPickerOption) =>
 		a.label.localeCompare(b.label);
 	return [...timelines.sort(byLabel), ...cinematics.sort(byLabel)];
+}
+
+/** One onion-skin ghost: `offset` frames from the playhead, and what the timeline drives there. */
+export interface OnionFrame {
+	offset: number;
+	time: number;
+	drives: Map<string, TimelineNodeDrive>;
+}
+
+/**
+ * The onion skin's ghosts (Rive plan Phase 9b, editor-only): `count` frames before and after `t`,
+ * each `step` frames apart, inside the timeline and never at `t` itself. Nearest first, so a
+ * renderer can fade them by distance.
+ */
+export function onionFrames(
+	doc: CinematicDoc,
+	scene: Scene | undefined,
+	t: number,
+	count: number,
+	step = 1,
+): OnionFrame[] {
+	const out: OnionFrame[] = [];
+	const frame = 1 / (doc.fps || 30);
+	const n = Math.max(0, Math.min(Math.floor(count), 10));
+	for (let i = 1; i <= n; i++) {
+		for (const sign of [-1, 1]) {
+			const offset = sign * i * Math.max(1, Math.floor(step));
+			const time = t + offset * frame;
+			if (time < -1e-9 || time > doc.duration + 1e-9) continue;
+			out.push({ offset, time, drives: timelineDrives(doc, scene, time) });
+		}
+	}
+	return out;
 }

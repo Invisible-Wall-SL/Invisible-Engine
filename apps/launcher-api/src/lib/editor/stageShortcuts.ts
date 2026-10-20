@@ -146,4 +146,18 @@ export const SHORTCUT_SHEET: { group: string; rows: ShortcutRow[] }[] = [
 			{ keys: ['Delete'], does: 'Delete the selection (locked nodes stay)' },
 		],
 	},
+	{
+		// The shared Timeline module's own keys (`$lib/timeline/timeline.js`, which `/rigger` mounts
+		// too, so they are handled there rather than in this map). Live while Animate's panel is.
+		group: 'Timeline (Animate)',
+		rows: [
+			{ keys: [',', '.'], does: 'Step a frame back / forward' },
+			{ keys: ['Shift', ',', '.'], does: 'Step ten frames' },
+			{ keys: ['Space'], does: 'Play / pause' },
+			{ keys: ['Shift/Ctrl', 'click'], does: 'Add a key to the selection' },
+			{ keys: ['Ctrl/⌘', 'C', 'V'], does: 'Copy the selected keys / paste them at the playhead' },
+			{ keys: ['Delete'], does: 'Delete the selected keys' },
+			{ keys: ['Ctrl/⌘', 'Z'], does: 'Undo in the timeline' },
+		],
+	},
 ];

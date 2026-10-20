@@ -19,6 +19,46 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Current state
 
+- **Per-key cubic ease, loop type, default interpolation (Rive plan Phase 9b, 2026-10-20, in review
+  — headless-proven, ⏳ not browser-verified).** All additive; a doc without them evaluates
+  byte-identically (gate below).
+  - **Format.** A key's `ease` may be a cubic `[x1, y1, x2, y2]` (CSS cubic-bezier through (0,0)
+    and (1,1); x clamped to [0, 1], y may overshoot) besides `'linear' | 'ease' | 'hold'`; anything
+    else still reads as linear. `doc.loop`: `'loop' | 'pingPong'` (absent or `'oneShot'` = plays
+    once and holds, as before; `loopFrom` wins where set). `doc.defaultEase`: the ease a NEW key gets
+    in the editor, authoring-only (every key carries its own `ease`, no player reads it).
+  - **Evaluator** (`engine-cinematic`, synced to `static/shared/cinematicEval.mjs`, so `/rigger`
+    reads cubic keys too): `isCubicEase`, `easeShape` (Newton then bisection on x(s), as a browser
+    does), used by `sampleChannel`, `sampleTint` and countUp text; `playbackTime(loop, elapsed,
+    duration)` and `loopsForever`. String eases take the exact code path they always did.
+  - **Players.** `ComponentTimelinePlayer`: `loop` wraps to 0 like a `loopFrom: 0`, `pingPong`
+    samples its there-and-back lap reflected; neither ends or holds a cue (`holdsOn` skips them).
+    Cues fire on the way out only, through `pingPongCuesCrossed` (every out leg a step overlaps,
+    so a step over the turnaround still fires a cue at or near the end). `<Cinematic>`:
+    `doc.loop === 'loop'` loops like its `loop` prop; `pingPong` plays there and back either way.
+    The game's Flow runtime treats a doc's Loop / Ping-pong like the node's own `loop`, so an
+    awaited `playCinematic` of one resolves at once instead of hanging the round (the validator
+    sees only the node, so this is runtime-only).
+  - **The Timeline module** (`$lib/timeline/timeline.js`): multi-key selection (Shift/Ctrl-click,
+    box drag over empty channel lanes, `selectKeys`), a drag moves every selected key (the grabbed
+    one lands exactly on the snapped time), Ctrl+C / Ctrl+V to the playhead, Delete on the
+    selection, `,` / `.` frame steps (Shift ×10) and Space through `host.togglePlay` (left alone on
+    a focused button). These keys are live in `/rigger` too (its own keys never used them).
+    Opt-in for `/editor` only: `boxSelect` (a drag over an empty channel lane box-selects; a click
+    there clears), `interpolation` (the Interpolation panel: Linear / Cubic with an SVG two-handle
+    curve and the typed `x1, y1, x2, y2` / Hold, *Set as default*, and the doc default with nothing
+    selected) and `summaryRows` (a foldable row per animated actor, with *Show only selected*
+    through `host.selectedActor`). `/rigger` sets neither: its golden changed in one step only,
+    "drag the key", because the old key drag looked its key up by its ORIGINAL time and so lost
+    it on the first move that crossed a frame (the golden had recorded a half-length drag). The
+    golden was re-recorded for that step; the other 103 are identical.
+  - **Gates.** `check:cinematic-ease`: 41 timelines (every built-in plus a doc using each legacy
+    ease and junk) sample byte-identically to a golden captured BEFORE the change; seven cubics match
+    an independent dense-table cubic-bezier within 1e-4 (worst 9e-9) on number, tint and countUp
+    channels; malformed arrays read linear; the loop types through `playbackTime` and the component
+    player. `check:timeline-keying`: default ease, the panel write, copy / paste / delete, frame
+    keys and Space (never while typing), and the editor helpers below. Both run in `check:all`.
+
 - **Node actors + hosts (Rive plan Phase 1, 2026-10-13, format + evaluator + player — not
   browser-verified).** A timeline can now drive layout NODES, not only rigs
   ([rive-style-editor.md](../design/rive-style-editor.md) §3.1–3.2):
@@ -357,6 +397,11 @@ through the same player; headless-proven, no editor yet (5b).
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-20 — **Phase 9b: cubic ease, loop type, default interpolation, multi-key editing**
+  (branch `claude/rive-p9b-keying`, in review). Format + evaluator + players + the module's keying
+  surfaces, detailed in Current state above; the editor side is in
+  [editor status](editor.md) 2026-10-20.
 
 - 2026-10-16 — **Flow's `playCinematic` plays in game; a screen timeline moves the shown screen**
   (branch `claude/amazing-archimedes-rzuz77`). Reported on a live game: a Feature intro keyed in

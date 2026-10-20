@@ -991,15 +991,25 @@ plays the result in the game. A component has its own Animate mode on the Compon
    another screen saves it and closes it, because a timeline belongs to one screen. Switching back
    to Design keeps it open with any unsaved changes, and closing the tab with unsaved timeline
    changes asks first.
-2. **Select a node on the canvas.** In Animate mode the canvas only selects. Dragging, the
-   handles, dropping from the Library, Delete and the item toolbar are all off, so you can't move
-   the Design pose by accident.
-3. **Key it.** The left of the panel lists what that node can take: **x**, **y**, **scale**,
-   **rotation**, **alpha**, plus **tint** on sprites and flipbooks, and on an **effect** one
-   **⚡ <name>** row per number or on/off parameter it exposes. Typing a value keys it at the
-   playhead, and **◆** keys the current value (an on/off row keys when you tick it). A keyed channel turns yellow, and its keys appear as
-   diamonds on the timeline. Drag a diamond to retime it, or click it to edit its time, value and
-   easing on the right (**hold** = stepped). The first key on a node adds that node to the timeline.
+2. **Select a node on the canvas.** Dropping from the Library, Delete and the item toolbar are
+   off in Animate, so you can't change the layout by accident. Dragging, the corner handles and
+   the rotate circle **key** instead (step 3).
+3. **Key it.** In Animate, **Properties** shows an **Animate** section above Transform with what
+   the node can take: **x**, **y**, **scale ×**, **rotation**, **alpha**, plus **tint** on sprites
+   and flipbooks, and on an **effect** one **⚡ <name>** field per number or on/off parameter it
+   exposes. Each field has a **key button** (◆), as in Rive:
+   - **grey outline**: not animated;
+   - **blue outline**: animated, no key at the playhead;
+   - **blue**: a key at the playhead.
+
+   Click it to key the current value at the playhead, or type a value to key it. The fields show
+   the **animated** value (the Design pose with the timeline on top), and a typed value is turned
+   back into the relative key for you. Transform underneath still edits the Design pose.
+   **On the stage**, dragging a node keys its x/y at the playhead, a corner keys its scale and the
+   circle keys its rotation, each on top of what the timeline already does there; the handles sit
+   on the animated pose, and snapping is off. A scale drag is always uniform in Animate (one
+   **scale ×** key), even from an edge handle or with Shift. A text box resizes its box in Design
+   only, so in Animate its corners and edges do nothing (it still moves and turns). The first key on a node adds it to the timeline.
 4. **Preview.** Drag the ruler, or press **▶**. The canvas draws each frame through the game's own
    maths, so what you see is what plays. The number next to the time readout is the timeline's
    length in seconds.
@@ -1038,14 +1048,50 @@ How keys behave:
   screen that has a node with the same name. So a node needs a **Name** (Properties) that no other
   node on the screen shares before you can key it. The panel says so when it doesn't, and never
   falls back to the hidden id.
-- **Properties still edits the Design pose.** Fields like x or alpha in the Properties panel change
-  the layout, not the timeline. Key motion in the Timeline panel.
+- **Properties' Transform still edits the Design pose.** Only the **Animate** section above it
+  keys.
+
+**The timeline.** Each keyed node has a **summary row** (its name) with a grey diamond at every
+time any of its fields is keyed, and **▾ / ▸** folds its field rows away. Drag a summary diamond
+to move every key of that node at that time; drag the summary row's empty lane to move all of
+that node's keys. **Only selected** in the panel header shows just the node selected on the
+canvas.
+
+**Several keys at once.** Shift- or Ctrl-click diamonds to add them to the selection, or drag a
+box over an empty part of the field rows (Shift adds to what is selected; a click there clears
+it). A selected key's drag moves all of them by the same amount. **Ctrl+C** copies the selected
+keys and **Ctrl+V** pastes them onto the same fields with the earliest at the playhead (a key
+already at a pasted time is replaced). **Delete** removes them all.
+
+**Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
+the value travels from each selected key to the next one.
+- **Linear**: a straight line.
+- **Cubic**: a curve. Drag its two handles, or type the four numbers `x1, y1, x2, y2` (a CSS
+  cubic-bezier: x stays between 0 and 1; y may go past to overshoot).
+- **Hold**: the value holds until the next key (stepped).
+
+**Set as default** makes the selected key's interpolation the one every new key in this timeline
+gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*
+keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
+
+**Loop type and fps.** Next to the length in the header: **One-shot** (plays once and holds its last
+frame, the default), **Loop** (back to the start) or **Ping-pong** (to the end and back). ▶ plays it
+the same way; Loop and Ping-pong play until you pause. In the game, a looping timeline never ends,
+so it never holds a cue, a Flow **playCinematic** that waits for it carries on at once (as it does
+for the node's own loop), and a ping-pong fires its cues on the way out only. **fps** is the grid
+keys snap to and `,` / `.` step by.
+
+**Onion skin.** Tick **Onion** in the header and the stage outlines each keyed node a few frames
+before (red) and after (green) the playhead, with a dot at its pivot, fading with distance. The
+number next to it is how many frames on each side (1 to 10). Editor-only, never saved; it outlines
+the screen's top-level nodes.
 
 Keyboard in Animate mode: the Timeline owns **Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y** (undo and redo the
-timeline), **Ctrl+S** (save the timeline), **Ctrl+D** (duplicate the selected strip) and
-**Delete / Backspace** (delete the selected key). The layout's own undo, copy/cut/paste/duplicate
-and delete are off until you switch back to Design. Esc still clears the selection, and typing in
-a field is never intercepted.
+timeline), **Ctrl+S** (save the timeline), **Ctrl+D** (duplicate the selected strip), **Ctrl+C /
+Ctrl+V** (the selected keys), **Delete / Backspace** (delete the selected keys), **, / .** (a frame
+back / forward; with Shift, ten) and **Space** (play / pause). The layout's own undo,
+copy/cut/paste/duplicate and delete are off until you switch back to Design. Esc still clears the
+selection, and typing in a field is never intercepted.
 
 Who can do this: anyone with the Scene Editor can open, save and delete **screen** and
 **component** timelines. The Rigger's cinematics stay with the Rigger.
@@ -1155,8 +1201,9 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
    and starts again the next time one does; its particles live out their lifetime. Game logic listening for rig
    events does not hear a strip. A strip plays its animation once and holds the last frame; for a
    state that should keep moving, tick **loop** on the state and make the strip as long as the
-   timeline. The canvas only selects in Animate: no dragging,
-   no Delete, and double-click does not open a nested component. Keys find nodes by **name**, so
+   timeline. In Animate a drag on the canvas keys (as on a screen) rather than moving the part:
+   no Delete, and double-click does not open a nested component. The **State machine** tab's
+   stage does not key. Keys find nodes by **name**, so
    each node you key needs a name no other node in the component shares.
 5. **Save** (or Ctrl+S). Publish as usual: the timeline ships with the game. You don't add a Flow
    node; component timelines are not in `/flow-v2`'s playCinematic picker, because the instances

@@ -16,11 +16,21 @@
 	 * - Preview: every seek pushes `timelineDrives()` — the inputs `<LayoutNodeView>` folds in
 	 *   game — into the canvas's value-binding preview (`setTimelinePreview`).
 	 * - Keys: the module owns Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y (timeline undo), Ctrl+S (save the
-	 *   timeline), Ctrl+D (duplicate a strip) and Delete / Backspace (the selected key) while this
-	 *   panel is mounted; the page and the canvas stand down on those (see `+page.svelte`).
+	 *   timeline), Ctrl+D (duplicate a strip), Ctrl+C / Ctrl+V (the selected keys), Delete /
+	 *   Backspace (the selected keys), `,` / `.` (a frame; Shift ten) and Space (play / pause) while
+	 *   this panel is active; the page and the canvas stand down on those (see `+page.svelte`).
+	 * - Keying UI (Rive plan Phase 9b): the fields live in PROPERTIES, which reads what this panel
+	 *   publishes (`setKeyingPanel`): one key button per keyable field, and a typed value keys it.
+	 *   A drag on the stage keys through the same publication (`keyStage`).
 	 */
 	import { onDestroy, onMount, untrack } from 'svelte';
-	import { putKey, resolvePlace, resolveVisible } from 'engine-cinematic';
+	import {
+		playbackTime,
+		putKey,
+		resolvePlace,
+		resolveVisible,
+		type CinematicKey,
+	} from 'engine-cinematic';
 	import {
 		findActorNode,
 		fxParamRest,
@@ -37,11 +47,11 @@
 		NODE_IDENTITY,
 		SCREEN_CHANNELS,
 		addRigClipStrip,
+		channelKeyState,
 		componentTimelineId,
 		componentTimelinesOf,
 		ensureNodeActor,
 		fxChannelValue,
-		isChannelKeyed,
 		keyableChannels,
 		fxTimelineRows,
 		keyableFxChannels,
@@ -50,17 +60,21 @@
 		nodeActorOf,
 		nodeActorTarget,
 		nodeChannelValue,
+		onionFrames,
 		screenTimelineId,
 		screenTimelinesOf,
+		stageDragKeys,
 		timelineDrives,
 		type FxChannelRow,
 		type KeyedChannel,
 		type RigClip,
+		type StageTransformDelta,
 	} from '$lib/timeline/screenTimeline';
 	import type { TimelineChannel } from '$lib/timeline/timeline';
 	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
 	import type { RigMeta } from './rigRuntime.client';
-	import { setTimelinePreview } from './valuePreview.client.svelte';
+	import { setOnionPreview, setTimelinePreview } from './valuePreview.client.svelte';
+	import { setKeyingPanel, type KeyField } from './animateKeying.client.svelte';
 
 	/** The open component, when the panel animates a component instead of a screen. */
 	interface ComponentHost {
@@ -179,6 +193,10 @@
 			active && doc && scene ? timelineDrives(doc, scene, time) : null,
 			previewOwner,
 		);
+		setOnionPreview(
+			active && onion && doc && scene ? onionFrames(doc, scene, time, onionCount) : null,
+			previewOwner,
+		);
 	}
 
 	function mountTimeline(doc: CinematicDoc): void {
@@ -188,7 +206,12 @@
 			ev: EV,
 			inspector: inspEl ?? null,
 			channels: SCREEN_CHANNELS,
+			interpolation: true,
+			summaryRows: true,
+			boxSelect: true,
 			host: {
+				selectedActor: () => actorId(),
+				togglePlay: () => (playing ? stop() : play()),
 				evaluate(t) {
 					time = t;
 					preview();
@@ -250,6 +273,7 @@
 		if (inspEl) inspEl.innerHTML = '';
 		/* eslint-enable svelte/no-dom-manipulating */
 		setTimelinePreview(null, previewOwner);
+		setOnionPreview(null, previewOwner);
 	}
 
 	async function readError(res: Response): Promise<string> {
@@ -430,24 +454,71 @@
 		raf = 0;
 	}
 
+	/** Plays as the game will (the header's loop type): one-shot stops at the end, `loop` wraps
+	 *  and `pingPong` comes back, until paused. */
 	function play(): void {
 		const doc = tl?.doc();
 		if (!doc || !tl) return;
-		if (time >= doc.duration) tl.setTime(0);
+		const once = !doc.loop || doc.loop === 'oneShot';
+		if (once && time >= doc.duration) tl.setTime(0);
 		playing = true;
+		let elapsed = time;
 		let last = performance.now();
 		const tick = (now: number): void => {
 			if (!playing || !tl) return;
-			const next = time + (now - last) / 1000;
+			elapsed += (now - last) / 1000;
 			last = now;
-			const end = tl.doc().duration;
-			tl.setTime(Math.min(next, end));
+			const open = tl.doc();
+			const end = open.duration;
+			tl.setTime(playbackTime(open.loop, elapsed, end));
 			tl.positionPlayhead();
-			if (next >= end) stop();
+			if ((!open.loop || open.loop === 'oneShot') && elapsed >= end) stop();
 			else raf = requestAnimationFrame(tick);
 		};
 		raf = requestAnimationFrame(tick);
 	}
+
+	/** The header's loop type; One-shot is the absent default. */
+	function setLoop(value: string): void {
+		const doc = tl?.doc();
+		if (!doc || !tl) return;
+		if (value === 'loop' || value === 'pingPong') doc.loop = value;
+		else delete doc.loop;
+		tl.commit('loop type');
+		docVersion++;
+	}
+
+	/** The snap grid (frame stepping and key placement); evaluation stays continuous. */
+	function setFps(value: number): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !Number.isFinite(value) || value < 1 || value > 240) return;
+		doc.fps = Math.round(value);
+		tl.commit('fps', 'fps');
+		tl.renderTimeline();
+		docVersion++;
+	}
+
+	// ---- onion skin + row filter (editor-only, never saved) ---------------------------------
+
+	let onion = $state(false);
+	let onionCount = $state(2);
+	let onlySelected = $state(false);
+	$effect(() => {
+		void onion;
+		void onionCount;
+		untrack(preview);
+	});
+	$effect(() => {
+		const on = onlySelected;
+		untrack(() => tl?.setOnlySelected(on));
+	});
+	// The filtered rows follow the canvas selection.
+	$effect(() => {
+		void selectedId;
+		untrack(() => {
+			if (onlySelected) tl?.renderTimeline();
+		});
+	});
 
 	function setDuration(value: number): void {
 		const doc = tl?.doc();
@@ -477,13 +548,6 @@
 		return doc && id ? nodeChannelValue(doc, id, channel, time) : NODE_IDENTITY[channel];
 	}
 
-	function keyed(channel: string): boolean {
-		void docVersion;
-		const doc = tl?.doc();
-		const id = actorId();
-		return !!doc && !!id && isChannelKeyed(doc, id, channel);
-	}
-
 	/** Key `channel` at the playhead to `v` (default: its current value), creating the actor. */
 	function key(channel: KeyedChannel, v?: number): void {
 		const doc = tl?.doc();
@@ -493,6 +557,50 @@
 		const next = v ?? value(channel);
 		tl.keyProperty(id, channel, Number.isFinite(next) ? next : 0);
 		preview();
+	}
+
+	/** Key what a stage drag changed (`EditorCanvas` measured it on the Design pose), one undo step. */
+	function keyStage(deltas: StageTransformDelta[]): number {
+		const doc = tl?.doc();
+		if (!doc || !tl || !scene || !ownsDoc(doc)) return 0;
+		const at = Math.round(time * (doc.fps || 30)) / (doc.fps || 30);
+		let keyedNodes = 0;
+		for (const delta of deltas) {
+			const t = nodeActorTarget(scene, delta.nodeId, where);
+			if (!t.ok) continue;
+			const values = stageDragKeys(
+				doc,
+				nodeActorOf(doc, t.target),
+				delta,
+				at,
+				keyableChannels(t.node.kind),
+			);
+			const entries = Object.entries(values);
+			if (!entries.length) continue;
+			const id = ensureNodeActor(doc, t.target);
+			let track = doc.tracks.find((tr) => tr.actorId === id && tr.kind === 'property');
+			if (!track) {
+				track = {
+					id: 'prop_' + Math.random().toString(36).slice(2, 9),
+					actorId: id,
+					kind: 'property',
+					channels: {},
+				};
+				doc.tracks.push(track);
+			}
+			const keyed = track.channels as Record<string, CinematicKey[]>;
+			for (const [channel, value] of entries) {
+				const ease = Array.isArray(doc.defaultEase) ? [...doc.defaultEase] : doc.defaultEase;
+				putKey((keyed[channel] = keyed[channel] ?? []), at, value, ease as CinematicKey['ease']);
+			}
+			keyedNodes++;
+		}
+		if (!keyedNodes) return 0;
+		tl.commit(keyedNodes > 1 ? 'key drag (' + keyedNodes + ' nodes)' : 'key drag');
+		tl.renderTimeline();
+		tl.renderInspector();
+		preview();
+		return keyedNodes;
 	}
 
 	/** The selected rig node's animations, offered as a strip at the playhead. */
@@ -560,16 +668,70 @@
 		untrack(() => tl?.renderTimeline());
 	});
 
-	const hex = (n: number): string => '#' + (Math.round(n) & 0xffffff).toString(16).padStart(6, '0');
-	const fmt = (n: number): string => String(Math.round(n * 1000) / 1000);
 	const CHANNEL_LABEL: Record<KeyedChannel, string> = {
-		x: 'x (offset)',
-		y: 'y (offset)',
-		scale: 'scale (×)',
+		x: 'x',
+		y: 'y',
+		scale: 'scale ×',
 		rotation: 'rotation (°)',
-		alpha: 'alpha (×)',
+		alpha: 'alpha',
 		tint: 'tint',
 	};
+
+	/** What Properties offers to key on the selected node (`setKeyingPanel`). */
+	const keying = $derived.by(() => {
+		void docVersion;
+		// Published with no selection too: the canvas asks it whether a stage drag can key.
+		if (!active) return null;
+		const doc = tl?.doc();
+		const base = {
+			nodeId: selectedId ?? '',
+			time,
+			timelineOpen: !!doc && !!openId,
+			fields: [] as KeyField[],
+			key: keyField,
+			keyStage,
+		};
+		if (!doc || !openId)
+			return {
+				...base,
+				message: `Open or create a timeline in the panel below to key this ${where}.`,
+			};
+		if (!target) return base;
+		if (!target.ok) return { ...base, message: target.message };
+		const id = actorId();
+		const fields: KeyField[] = [
+			...channels.map((channel): KeyField => ({
+				channel,
+				label: CHANNEL_LABEL[channel],
+				kind: 'node',
+				value: value(channel),
+				state: channelKeyState(doc, id, channel, time),
+			})),
+			...fxRows.map((row): KeyField => ({
+				channel: row.channel,
+				label: `⚡ ${row.param.id}`,
+				kind: 'fx',
+				value: fxValue(row),
+				state: channelKeyState(doc, id, row.channel, time),
+				bool: row.param.kind === 'bool',
+				min: row.param.kind === 'number' ? row.param.min : undefined,
+				max: row.param.kind === 'number' ? row.param.max : undefined,
+				note: row.param.note,
+			})),
+		];
+		return { ...base, target: target.target, fields };
+	});
+	$effect(() => {
+		const next = keying;
+		untrack(() => setKeyingPanel(next, previewOwner));
+	});
+
+	/** Properties' key button / typed value: route a field to its channel's keyer. */
+	function keyField(channel: string, v?: number): void {
+		const row = fxRows.find((r) => r.channel === channel);
+		if (row) keyFx(row, v);
+		else if ((channels as string[]).includes(channel)) key(channel as KeyedChannel, v);
+	}
 
 	// ---- component trigger + reuse -------------------------------------------------------------
 
@@ -698,6 +860,8 @@
 		tl?.destroy();
 		tl = null;
 		setTimelinePreview(null, previewOwner);
+		setOnionPreview(null, previewOwner);
+		setKeyingPanel(null, previewOwner);
 	});
 </script>
 
@@ -728,9 +892,9 @@
 			<span class="sep"></span>
 			<button type="button" title="Back to the start" onclick={() => tl?.setTime(0)}>⏮</button>
 			{#if playing}
-				<button type="button" title="Pause" onclick={stop}>⏸</button>
+				<button type="button" title="Pause (Space)" onclick={stop}>⏸</button>
 			{:else}
-				<button type="button" title="Play" onclick={play}>▶</button>
+				<button type="button" title="Play (Space)" onclick={play}>▶</button>
 			{/if}
 			{#if component}
 				{@const current = playOn()}
@@ -816,7 +980,54 @@
 					title="Duration (seconds)"
 					onchange={(e) => setDuration(Number(e.currentTarget.value))}
 				/>
+				<select
+					class="tl-loop"
+					value={tl?.doc().loop ?? 'oneShot'}
+					title="Loop type — how the game plays it: once and hold the last frame, wrap to the start, or play there and back. A looping timeline never ends, so it holds no cue."
+					onchange={(e) => setLoop(e.currentTarget.value)}
+				>
+					<option value="oneShot">One-shot</option>
+					<option value="loop">Loop</option>
+					<option value="pingPong">Ping-pong</option>
+				</select>
+				<label
+					class="tl-fps"
+					title="Frames per second: the snap grid keys land on and , / . step by"
+				>
+					<input
+						type="number"
+						min="1"
+						max="240"
+						step="1"
+						value={tl?.doc().fps ?? 30}
+						onchange={(e) => setFps(Number(e.currentTarget.value))}
+					/>
+					fps
+				</label>
 			{/key}
+			<span class="sep"></span>
+			<label
+				class="tl-playon"
+				title="Onion skin: outline the keyed nodes a few frames before (red) and after (green) the playhead on the stage. Editor-only."
+			>
+				<input type="checkbox" bind:checked={onion} />
+				Onion
+			</label>
+			{#if onion}
+				<input
+					class="tl-onion"
+					type="number"
+					min="1"
+					max="10"
+					step="1"
+					bind:value={onionCount}
+					title="Ghost frames on each side of the playhead"
+				/>
+			{/if}
+			<label class="tl-playon" title="Show only the rows of the node selected on the canvas">
+				<input type="checkbox" bind:checked={onlySelected} />
+				Only selected
+			</label>
 			<span class="sep"></span>
 			{#if conflict}
 				<span class="pill error" title={error}>⚠ Someone else saved this</span>
@@ -840,10 +1051,10 @@
 		<div class="tl-keys">
 			{#if !openId}
 				<p class="note">
-					Open or create a timeline for this {where}, select a node on the canvas, then key it here.
-					Keys are relative to the node's Design pose: x/y add, scale and alpha multiply, rotation
-					adds degrees. End an intro on the unchanged pose so the screen settles where you laid it
-					out.
+					Open or create a timeline for this {where}, select a node on the canvas, then key it in
+					Properties. Keys are relative to the node's Design pose: x/y add, scale and alpha
+					multiply, rotation adds degrees. End an intro on the unchanged pose so the screen settles
+					where you laid it out.
 				</p>
 			{:else if !selectedId}
 				<p class="note">Select a node on the canvas to key it.</p>
@@ -875,87 +1086,11 @@
 						{/if}
 					</label>
 				{/if}
-				{#if fxRows.length}
-					<p class="note">
-						⚡ rows key the effect's own parameters: the value itself, not an offset. An on/off one
-						switches on its key.
-					</p>
-				{/if}
-				{#each fxRows as row (row.channel)}
-					{@const v = fxValue(row)}
-					<label
-						class="keyrow"
-						class:keyed={keyed(row.channel)}
-						title={row.param.note ?? `Effect parameter “${row.param.id}”`}
-					>
-						<span>⚡ {row.param.id}</span>
-						{#if row.param.kind === 'bool'}
-							<input
-								type="checkbox"
-								checked={v >= 0.5}
-								onchange={(e) => keyFx(row, e.currentTarget.checked ? 1 : 0)}
-							/>
-						{:else}
-							<input
-								type="number"
-								step="any"
-								min={row.param.min}
-								max={row.param.max}
-								value={fmt(v)}
-								onchange={(e) => {
-									const raw = e.currentTarget.value.trim();
-									const n = Number(raw);
-									if (raw === '' || !Number.isFinite(n)) {
-										e.currentTarget.value = fmt(fxValue(row));
-										return;
-									}
-									keyFx(row, n);
-								}}
-							/>
-						{/if}
-						<button
-							type="button"
-							class="diamond"
-							title={`Key ${row.param.id} at ${time.toFixed(2)}s`}
-							onclick={() => keyFx(row)}>◆</button
-						>
-					</label>
-				{/each}
-				{#each channels as channel (channel)}
-					<label class="keyrow" class:keyed={keyed(channel)}>
-						<span>{CHANNEL_LABEL[channel]}</span>
-						{#if channel === 'tint'}
-							<input
-								type="color"
-								value={hex(value(channel))}
-								onchange={(e) => key(channel, parseInt(e.currentTarget.value.slice(1), 16))}
-							/>
-						{:else}
-							<input
-								type="number"
-								step={channel === 'x' || channel === 'y' || channel === 'rotation' ? 1 : 0.05}
-								value={fmt(value(channel))}
-								onchange={(e) => {
-									const raw = e.currentTarget.value.trim();
-									const v = Number(raw);
-									// An emptied or junk field keys nothing — `Number('')` is 0, which would
-									// collapse a scale or hide an alpha.
-									if (raw === '' || !Number.isFinite(v)) {
-										e.currentTarget.value = fmt(value(channel));
-										return;
-									}
-									key(channel, v);
-								}}
-							/>
-						{/if}
-						<button
-							type="button"
-							class="diamond"
-							title={`Key ${channel} at ${time.toFixed(2)}s`}
-							onclick={() => key(channel)}>◆</button
-						>
-					</label>
-				{/each}
+				<p class="note">
+					Key it in <b>Properties</b> →: each field has a key button — grey: not animated; blue outline:
+					animated; blue: a key at the playhead. Typing a value keys it, and so does dragging, scaling
+					or rotating the node on the stage. Keys stay relative to the Design pose.
+				</p>
 			{/if}
 		</div>
 		<div class="tl-lanes" bind:this={tlEl}></div>
@@ -1029,6 +1164,16 @@
 	}
 	.tl-dur {
 		width: 60px;
+	}
+	.tl-fps {
+		display: flex;
+		align-items: center;
+		gap: 3px;
+		color: var(--dim);
+	}
+	.tl-fps input,
+	.tl-onion {
+		width: 46px;
 	}
 	.tl-playon {
 		display: flex;
@@ -1129,28 +1274,6 @@
 	}
 	.keyrow span {
 		flex: 1;
-	}
-	.keyrow.keyed span {
-		color: #ffd24a;
-	}
-	.keyrow input[type='number'] {
-		width: 70px;
-	}
-	.keyrow input[type='color'] {
-		width: 70px;
-		height: 22px;
-		padding: 0 2px;
-	}
-	.diamond {
-		background: none;
-		border: none;
-		color: var(--dim);
-		cursor: pointer;
-		font-size: 11px;
-	}
-	.keyrow.keyed .diamond,
-	.diamond:hover {
-		color: #ffd24a;
 	}
 
 	/* The shared Timeline module's markup (the same classes `/rigger`'s view.html styles). */

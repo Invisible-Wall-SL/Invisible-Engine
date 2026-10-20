@@ -1,5 +1,7 @@
 import {
 	cuesCrossed,
+	pingPongCuesCrossed,
+	playbackTime,
 	sampleNodeActor,
 	type CinematicNodeSample,
 	type CinematicTrack,
@@ -137,6 +139,8 @@ interface Running {
 	layer?: number;
 	/** The pose a layer is still mixing in from (`blendNodeSamples`). */
 	from?: Mix;
+	/** A `pingPong` timeline's seconds into its there-and-back lap (`time` is where it samples). */
+	lap?: number;
 }
 
 /**
@@ -154,12 +158,20 @@ const EPSILON = 1e-9;
 /** A zero-length timeline never "ends" in a step the player can report; it holds nothing. */
 const isZeroLength = (doc: CinematicDoc): boolean => !(Math.max(doc.duration || 0, 0) > 0);
 
-/** Where a looping timeline wraps to (`loopFrom` inside `[0, duration)`), else `undefined`. */
+/**
+ * Where a looping timeline wraps to (`loopFrom` inside `[0, duration)`, else 0 for a `loop` type),
+ * else `undefined`.
+ */
 const loopStart = (doc: CinematicDoc): number | undefined => {
 	const from = doc.loopFrom;
 	const duration = Math.max(doc.duration || 0, 0);
-	return typeof from === 'number' && from >= 0 && from < duration ? from : undefined;
+	if (typeof from === 'number' && from >= 0 && from < duration) return from;
+	return doc.loop === 'loop' && duration > 0 ? 0 : undefined;
 };
+
+/** A `pingPong` timeline (Rive plan Phase 9b) with no `loopFrom`: it plays there and back forever. */
+const pingPongs = (doc: CinematicDoc): boolean =>
+	doc.loop === 'pingPong' && !isZeroLength(doc) && loopStart(doc) === undefined;
 
 /** What one {@link ComponentTimelinePlayer.advance} step crossed. */
 export interface TimelineStep {
@@ -255,7 +267,8 @@ export class ComponentTimelinePlayer {
 					b.doc.playOn === signal &&
 					b.doc.holdsCue === true &&
 					!isZeroLength(b.doc) &&
-					loopStart(b.doc) === undefined,
+					loopStart(b.doc) === undefined &&
+					!pingPongs(b.doc),
 			)
 			.map((b) => b.doc.id);
 	}
@@ -321,6 +334,16 @@ export class ComponentTimelinePlayer {
 			const loopFrom = loopStart(r.bound.doc);
 			if (loopFrom !== undefined) {
 				r.time = this.loop(r, loopFrom, duration, dt, step);
+				continue;
+			}
+			if (pingPongs(r.bound.doc)) {
+				// Cues fire on the way out only, a step over the turnaround included.
+				const from = r.lap ?? r.time;
+				for (const k of pingPongCuesCrossed(r.bound.cueKeys, from, from + dt, duration)) {
+					step.cues.push({ cue: k.cue, timeline: r.bound.doc.id });
+				}
+				r.lap = (from + dt) % (2 * duration);
+				r.time = playbackTime('pingPong', r.lap, duration);
 				continue;
 			}
 			const prev = r.time;
