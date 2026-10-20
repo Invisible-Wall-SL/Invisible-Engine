@@ -426,8 +426,10 @@ export function nodeBox(
 		t.width === undefined &&
 		t.height === undefined
 	) {
+		// `bindRigTarget` draws it with its skeleton origin at the node, like a placed rig node.
 		const nat = naturalSize(node, instanceRigBundle);
-		if (nat && nat.w > 0 && nat.h > 0) return { w: nat.w, h: nat.h, ax, ay };
+		if (nat && nat.w > 0 && nat.h > 0)
+			return { w: nat.w, h: nat.h, ax: nat.ax ?? ax, ay: nat.ay ?? ay };
 	}
 	// A preview-art anchor selects at the RENDERED art's box. The art may be an
 	// explicit `node.preview.art` OR a catalog default resolved live (no baked
@@ -458,10 +460,18 @@ export function nodeBox(
 		// Frame the rig at its real setup-pose bounds (reported by the WebGL overlay via
 		// `naturalSize`), like a sprite — not a fixed 160×100, which leaves the transform
 		// box far smaller than the rendered skeleton.
+		//
+		// WHERE the box sits is the rig's, not the node's: the game (`LayoutNodeView` → a
+		// `<RigProvider>` with no anchor) and the rig layer both put the skeleton ORIGIN at the
+		// node's x/y, so the box sits around that origin exactly as the rig's box does
+		// (`rigOriginAnchor`) and the node's anchor moves nothing. One authored dimension scales
+		// the rig uniformly (`rigSizeScale`), so the other follows the art's aspect.
 		const nat = naturalSize(node);
-		const w = t.width ?? nat?.w ?? 160;
-		const h = t.height ?? nat?.h ?? 100;
-		return { w, h, ax, ay };
+		const w =
+			t.width ?? (nat && t.height !== undefined ? (nat.w * t.height) / nat.h : (nat?.w ?? 160));
+		const h =
+			t.height ?? (nat && t.width !== undefined ? (nat.h * t.width) / nat.w : (nat?.h ?? 100));
+		return { w, h, ax: nat?.ax ?? 0.5, ay: nat?.ay ?? 0.5 };
 	}
 	if (node.kind === 'text') {
 		// A text box's selection frame is its explicit box (`width`/`height`); an auto-size

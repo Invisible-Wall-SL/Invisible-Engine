@@ -149,6 +149,19 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-20 — **A placed rig selects where it draws** (in review, ⏳ not browser-verified). The
+  game (`LayoutNodeView` → `<RigProvider>` with no anchor) and the rig overlay put a rig's skeleton
+  ORIGIN on its node's x/y, but `nodeBox` centred the rig's Bounds SIZE on that point. A Rigger rig
+  built away from its origin (the reported `R_Widget`: art ~950 px left of and ~580 px above it)
+  therefore drew in one place and selected in another. Now `EditorRigLayer` reports where the origin
+  sits in the rig's box with its natural size (`rigOriginAnchor`, `constants-shared/rig`, from
+  `measureRigBounds`), and `nodeBox` frames a placed rig node, and a nested rig bind, around the
+  origin by it; the node's anchor no longer moves the box (the game never read it), so Properties
+  drops the anchor field for a rig; one authored dimension keeps the art's aspect, as `rigSizeScale`
+  does; a selected rig draws its origin ⊕. No game change: the art was already where the game draws
+  it. A background component holding an off-centre rig re-bakes its `coverBox` to the real extent on
+  the next open. Fix the rig itself with the Rigger's new **⊕ Centre origin**
+  ([rigger status](rigger.md)). Gate: `check:rig-origin-box` (the old box fails 9 of its checks).
 - 2026-10-20 — **Rive plan Phase 9c: Animations list, state machine options, Console** (branch
   `claude/rive-p9c-animations-sm`, in review, ⏳ not browser-verified; checklist in Open item 0c).
   Plan: [rive-reference.md](../design/rive-reference.md) §3.2, §3.6 and §5. UI:

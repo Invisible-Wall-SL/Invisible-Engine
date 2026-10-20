@@ -3723,30 +3723,38 @@
 			</label>
 		</div>
 
-		<div class="row">
-			<label class="field">
-				<span>anchor.x</span>
-				<input
-					type="number"
-					step="0.1"
-					value={t.anchor?.x ?? 0.5}
-					oninput={(e) => setAnchor(node, 'x', e.currentTarget.valueAsNumber)}
-				/>
-				{#if isOverrideMode && hasOverrideKey(node, 'anchor')}
-					<span class="ovdot" title="Overridden"></span>
-					<button class="reset" onclick={() => clearOverrideKey(node, 'anchor')}>×</button>
-				{/if}
-			</label>
-			<label class="field">
-				<span>anchor.y</span>
-				<input
-					type="number"
-					step="0.1"
-					value={t.anchor?.y ?? 0.5}
-					oninput={(e) => setAnchor(node, 'y', e.currentTarget.valueAsNumber)}
-				/>
-			</label>
-		</div>
+		{#if node.kind === 'spine'}
+			<!-- The game places a rig by its skeleton origin and never reads its anchor. -->
+			<p class="muted small">
+				A rig is placed by its origin (the ⊕ on the canvas). To move the origin, use ⊕ Centre origin
+				in the Rigger.
+			</p>
+		{:else}
+			<div class="row">
+				<label class="field">
+					<span>anchor.x</span>
+					<input
+						type="number"
+						step="0.1"
+						value={t.anchor?.x ?? 0.5}
+						oninput={(e) => setAnchor(node, 'x', e.currentTarget.valueAsNumber)}
+					/>
+					{#if isOverrideMode && hasOverrideKey(node, 'anchor')}
+						<span class="ovdot" title="Overridden"></span>
+						<button class="reset" onclick={() => clearOverrideKey(node, 'anchor')}>×</button>
+					{/if}
+				</label>
+				<label class="field">
+					<span>anchor.y</span>
+					<input
+						type="number"
+						step="0.1"
+						value={t.anchor?.y ?? 0.5}
+						oninput={(e) => setAnchor(node, 'y', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+		{/if}
 
 		<div class="row">
 			<label class="field">

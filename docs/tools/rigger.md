@@ -95,15 +95,16 @@ you create are scoped to the project you have selected.
 
 Stage controls: **scroll = zoom**, **drag = pan**, **Reset view** re-fits. The
 bottom bar toggles the **Bones** overlay (with a size slider), the **Mesh**
-hull/triangle overlay, and the **Bounds** size frame, and has **❚❚ Pause / ▶
-Play**, **↻ Loop**, an **Anim** picker, a **Skin** picker, a **scrub** bar with a
-numeric time field, and a **Speed** control.
+hull/triangle overlay, and the **Bounds** size frame, has **⊕ Centre origin**
+([below](#the-origin-where-a-placed-rig-sits)), and has **❚❚ Pause / ▶ Play**,
+**↻ Loop**, an **Anim** picker, a **Skin** picker, a **scrub** bar with a numeric
+time field, and a **Speed** control.
 
 ### Bounds (the rig's size frame)
 
 Every rig carries a **natural size** — `skeleton.{x,y,width,height}` — which is
-what sizes/anchors the rig in the editor and the game (so a placed rig has a
-predictable size, not a guess). It is written automatically on every save: the
+what sizes the rig in the editor and the game, and what the Scene Editor's
+selection box frames (so a placed rig has a predictable size, not a guess). It is written automatically on every save: the
 **resting (setup) pose** is measured first, falling back to a union across all
 animations only when the setup pose is empty (art shown solely via animation
 keys). Preferring the setup pose means the natural size matches the rig's calm
@@ -138,6 +139,33 @@ find: a binding is a timeline **event**, not an attachment. Two things cover it:
 This matters beyond the canvas: a rig with no natural size cannot be fitted, so
 it draws at its raw authored size wherever it ships — far too big in a symbol
 cell, in `/symbols` and in the game alike.
+
+### The origin (where a placed rig sits)
+
+A rig **placed on a screen** — in the Scene Editor, or as a part of a component — is
+positioned by its **origin**, not by its Bounds frame: the origin lands on the node's
+x/y, and the node rotates and scales about it. The game does the same. (A symbol is the
+other case: it is *fitted into* its cell, so its frame is what counts, as above.)
+
+With **Bones** or **Bounds** showing, the origin is the **amber ⊕** on the canvas.
+**Reset view** frames the art, not the origin, so a rig built away from its origin
+can look right here and still draw far from where it is placed; if the ⊕ is not
+where you expect, or not in view at all, that is why.
+
+**⊕ Centre origin** moves the whole rig so the **centre of its Bounds frame** is the
+origin. Only the root bone's setup position changes: every bone, slot, mesh and
+animation key moves with it, so the art keeps its shape in every pose. The Bounds
+frame moves with the art and stays locked if you locked it. It is one undo step,
+and the rig is unsaved until you **💾 Save**. Afterwards:
+
+- Copies **already placed on a screen** draw centred on their position, so check
+  where they land in the Scene Editor.
+- An FX or Flipbook binding with **no bone and no slot** is bound to the root bone
+  by name. The Rigger always drew such a binding at the root bone while the game drew
+  it at the bare origin; naming the root keeps it exactly where it showed here, in
+  both.
+- A **cinematic** that casts this rig places it by its origin too, so the actor's art
+  moves within its shot.
 
 ### The four modes
 

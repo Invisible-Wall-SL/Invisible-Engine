@@ -1089,9 +1089,10 @@
 	 * per-scene rig sublayers (each reports only its own scene's keys). */
 	let readyRigKeys = $state<Set<string>>(new Set());
 	/** Setup-pose natural size per rig `assetKey`, reported by the WebGL overlay —
-	 * lets the 2D canvas cover-fit `preview.art` rig anchors by the art's aspect.
+	 * lets the 2D canvas cover-fit `preview.art` rig anchors by the art's aspect — with
+	 * where the skeleton origin sits in that box (`ax`/`ay`).
 	 * MERGED across the per-scene rig sublayers. */
-	let rigNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
+	let rigNaturalSizes = $state<Map<string, NaturalSize>>(new Map());
 	/** Node ids the PIXI text overlay (`EditorTextLayer`) now renders as real text — the
 	 * 2D canvas steps its HUD-text CHIP aside for these (the overlay owns the text). Text
 	 * NODES are overlay-only now (no 2D `fillText`), so this only gates HUD bind-anchor
@@ -1130,7 +1131,7 @@
 	// canvas folds their reports together (union of ready keys/ids + merged natural
 	// sizes; summed load tallies) to keep its placeholder/progress logic unchanged.
 	const rigReadyByScene = new Map<string, Set<string>>();
-	const rigNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
+	const rigNaturalByScene = new Map<string, Map<string, NaturalSize>>();
 	const rigMetaByScene = new Map<string, Map<string, RigMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
 	const textMeasuredByScene = new Map<string, Map<string, { w: number; h: number }>>();
@@ -1145,9 +1146,9 @@
 		for (const set of rigReadyByScene.values()) for (const k of set) union.add(k);
 		readyRigKeys = union;
 	}
-	function mergeRigNatural(sceneId: string, sizes: Map<string, { w: number; h: number }>): void {
+	function mergeRigNatural(sceneId: string, sizes: Map<string, NaturalSize>): void {
 		rigNaturalByScene.set(sceneId, sizes);
-		const merged = new Map<string, { w: number; h: number }>();
+		const merged = new Map<string, NaturalSize>();
 		for (const m of rigNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
 		rigNaturalSizes = merged;
 	}
@@ -1246,7 +1247,7 @@
 		const keys = new Set<string>();
 		for (const set of rigReadyByScene.values()) for (const k of set) keys.add(k);
 		readyRigKeys = keys;
-		const nat = new Map<string, { w: number; h: number }>();
+		const nat = new Map<string, NaturalSize>();
 		for (const m of rigNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
 		rigNaturalSizes = nat;
 		const ids = new Set<string>();
@@ -1824,6 +1825,7 @@
 		// A directly-placed rig node's natural size comes from the WebGL overlay's
 		// setup-pose bounds (the 2D canvas can't measure a skeleton), keyed by the bundle
 		// `assetKey` — the same map a `preview.art` rig anchor reads via `artNaturalSize`.
+		// It carries where the skeleton origin sits in that box, which `nodeBox` frames by.
 		// Without this the box/hit-test falls back to a tiny default (the assetKey is a
 		// bundle prefix, never an image key, so the `images` lookup below always misses).
 		if (node.kind === 'spine') {
@@ -4134,6 +4136,10 @@
 		ctx.stroke();
 		ctx.setLineDash([]);
 
+		// A rig sits by its skeleton ORIGIN, which may be anywhere around its art (or outside its
+		// box): mark it, so the point the node's x/y moves is visible.
+		if (node.kind === 'spine') drawOriginMark(ctx, worldToScreen({ x: t.x, y: t.y }), accent);
+
 		// Outline-only for a multi-selection — no transform handles.
 		if (!withHandles) return;
 
@@ -4189,6 +4195,21 @@
 		ctx.arc(stem.x, stem.y, ROTATE_PX, 0, Math.PI * 2);
 		ctx.fill();
 		ctx.stroke();
+	}
+
+	/** A crosshair in a ring at a node's origin (screen px). */
+	function drawOriginMark(ctx: CanvasRenderingContext2D, p: Vec2, color: string): void {
+		ctx.save();
+		ctx.strokeStyle = color;
+		ctx.lineWidth = 1.5;
+		ctx.beginPath();
+		ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+		ctx.moveTo(p.x - 9, p.y);
+		ctx.lineTo(p.x + 9, p.y);
+		ctx.moveTo(p.x, p.y - 9);
+		ctx.lineTo(p.x, p.y + 9);
+		ctx.stroke();
+		ctx.restore();
 	}
 
 	// ---------- hit-test ----------
