@@ -538,7 +538,7 @@ This is the same rule [game-type-templates.md](game-type-templates.md) set for s
 | **Screens** | Where things live | Base game, HUD, menus | Board screen, HUD | Play field, HUD |
 | **Flow** | What things mean: logic, game state | Book events → presentation | Swap → match → cascade → refill | Input → move → collide → score |
 | **Mechanic** (code, small) | The bit that must run fast or exactly | Reels, win lines, tumble | Grid model: swap, match find, gravity | Tick loop, movement, collision |
-| **Outcome source** | Who decides results | RGS books | RGS books *or* local rules | Local rules (or RGS for prize games) |
+| **Outcome source** | Who decides results (a per-game option, §12 #6) | RGS books | RGS books *or* local rules | Local rules *or* RGS books |
 
 Components, screens, timelines and the Flow ↔ component contract (§6) are **game-agnostic by
 construction**. Nothing in §3–§6 mentions reels, symbols or books. That is what lets a match-3 or
@@ -711,10 +711,12 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
    trigger inputs) — Phase 5b.
 5. **Which proof first** for Phase 3 — **DECIDED (owner 2026-10-13): a screen intro.** Animate a
    screen's intro in the Scene Editor and have Flow's `playCinematic` play it in game.
-6. **Outcome source for the new families.** Are the arcade and match-3 games real-money games
-   whose results come from the RGS (the player's moves are presentation, as in a cascade slot), or
-   skill / free-play games where the client's own rules decide? This decides how much logic Flow
-   must own, and it is the biggest single fork in §7. Not needed before Phase 10.
+6. **Outcome source for the new families.** — **DECIDED (owner 2026-10-20): both, chosen per
+   game.** A match-3 or arcade game can be a real-money game whose results come from the RGS (the
+   player's moves are presentation, as in a cascade slot) or a skill / free-play game whose own
+   rules decide. The outcome source is an option each game sets, not a property of the family, so
+   Phase 10 must support both. Flow owns the rules logic only in a game whose rules decide; an
+   RGS-decided game keeps the books driving the result.
 7. **Rive references.** **PROVIDED (owner 2026-10-16):** five screenshots plus the Rive interface
    docs. The surface-by-surface map, the deliberate non-copies and the re-scoped Phase 9 (9a–9d) live
    in [rive-reference.md](rive-reference.md).

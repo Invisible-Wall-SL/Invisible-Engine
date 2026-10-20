@@ -1000,8 +1000,9 @@ plays the result in the game. A component has its own Animate mode on the Compon
 [Animate a component](#animate-a-component).
 
 1. **Open or create a timeline.** In Animate the left column shows an **Animations** list with
-   this screen's timelines (each with its length); click one to open it, and the Timeline panel's
-   header names it. **＋** asks for a name and saves an empty one. Hover a row for **⧉ Duplicate**
+   this screen's timelines (each with its length); click one to open it. The Timeline panel's
+   header does the same: its picker opens a timeline and **＋ New** creates one (with **Rename** and
+   **🗑** for the open one). **＋** asks for a name and saves an empty one. Hover a row for **⧉ Duplicate**
    (a copy named "<name> copy", saved and opened), **✎ Rename** and **🗑 Delete**. Rename and
    Delete open that timeline first, and every one of the three asks about unsaved changes on the
    open timeline first. Switching to
