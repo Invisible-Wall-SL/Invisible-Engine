@@ -76,7 +76,7 @@ and never a second copy of the engine.**
 - **No multiplayer, no server-side leaderboards** and no persistent progression in v1.
 - **No change to any slot game.** Slot projects keep their vocabularies, Flow docs, coded paths and
   pixels (§7).
-- **No second runtime app** unless §6.4's recommendation is overturned.
+- **No second runtime app** unless §6.4's recommendation is overturned (§9 #3).
 
 ---
 
@@ -101,6 +101,7 @@ family?: 'match3' | 'arcade';        // absent ⇒ slot (every doc today)
 outcome?: 'rules';                   // absent ⇒ 'rgs' (every doc today)
 match3?: Match3Block;                // only when family === 'match3' (§4.1)
 arcade?: ArcadeBlock;                // only when family === 'arcade' (§4.2)
+winModel?: … | { type: 'match3'; minRun: number };   // a fifth arm of the existing union (RGS match-3 pricing)
 ```
 
 This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
@@ -108,6 +109,11 @@ This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
 - **Defaults are never stored.** The normalizer drops `family` when it would mean slot, and drops
   `outcome` when it would mean `rgs`. Every config authored before these fields existed therefore
   normalizes **byte-identically**, and no stored doc is rewritten.
+- **The normalizer has to learn the fields first.** `normalizeGameConfigDoc`
+  (`src/normalize.ts:322`) rebuilds the doc from a whitelist, so it would drop `family`, `outcome`,
+  `match3` and `arcade` today. It also returns `undefined` for a doc with no `symbols` or
+  `paddingReels`, which is one reason a match-3 doc keeps both (below). P10.1 teaches it the new
+  fields.
 - **Always read through a resolver,** `resolveFamily(doc)` and `resolveOutcome(doc)` (new, in
   `packages/game-config/src/family.ts`). No code reads the raw field. This is the same rule as
   `resolveWinModel()`.
@@ -115,10 +121,22 @@ This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
   gains `match3` and `arcade`. Game Maker writes `family` from the kind when it seeds the config.
   The runtime reads the config, not the project row, because the config is what reaches the bundle.
 - **Validation follows the family.** A match-3 doc skips the payline checks, as a non-lines
-  `winModel` already does, and gets board checks instead. `paddingReels` keeps its meaning as the
-  **in-play set** (`symbolsInPlay`, `src/inPlay.ts`). In a match-3 doc the strips are the refill pool
-  (rules) or the cosmetic first board (RGS), so the in-play gate, `/symbols` and the export keep
-  working unchanged.
+  `winModel` already does, and gets board checks instead. Three existing rules also need a family
+  arm:
+  - An empty `betModes` is an **error** today (`src/validate.ts:195`). A rules game has no stake, so
+    it is exempt.
+  - The strips must number `numReels` and be at least as long as the visible rows
+    (`validate.ts:67–91`). A match-3 board already satisfies this: one strip per column.
+  - An RGS match-3 doc with no `winModel` would resolve to `lines` and get payline checks and lines
+    pricing (`activeWinModel()`, `engine-game/src/game/gameConfig.ts:589`). So an RGS match-3 states
+    the new `match3` arm: no paylines, priced on the whole bet (divisor 1) like `cluster`, and
+    checked so that `minRun` fits the board.
+- **The strips keep their meaning.** `paddingReels` stays the **in-play set** (`symbolsInPlay`,
+  `src/inPlay.ts`). In a match-3 doc each column's strip is that column's **refill source**. A rules
+  board refills a column by reading its strip from a seeded random stop, exactly as a reel strip is
+  read, so the strips stay ordered strips and are not reinterpreted as weights. In an RGS game the
+  strips only seat the cosmetic first board before `boardInit` lands. Either way the in-play gate,
+  `/symbols` and the export keep working unchanged.
 - **`/config` gets a picker** for family and outcome. Like the `winModel` picker, choosing the
   default deletes the field rather than writing it.
 
@@ -146,8 +164,19 @@ collect                     → closes the round (as today)
   actions, `pickRandomly` and `gamble`: a stored action carrying the player's choice, posted with
   `&gid=`. It is built with the existing `buildSingleAction`
   (`packages/rgs-translator-eagaming/src/translator.ts:86`).
-- It advances the position (`seq`) by one, through `sessionState.advance(1)`. Our facade sends no
-  in-round player action today, so this is the first.
+- It advances the position (`seq`) by one **automatically**. The fetcher already advances by the
+  number of stored actions in each body it posts (`eagamingFetcher.ts:308`,
+  `storedActionCount`; only `config` is non-stored), so `move` needs no hand-written `advance`
+  (one would double-advance). Our facade sends no in-round player action today, so this is the
+  first.
+- **A round that stays open across many player-paced requests is new.** Today the facade closes a
+  round inside one call: `engineFacade.ts:2135–2141` plays any bonus loop, then posts `collect`. The
+  round lifecycle (bet → book → end) is owned by `packages/utils-xstate/src/createPrimaryMachines.ts`.
+  P10.6 adds an **interactive round** path to that machine (bet → board → await move ⇄ resolve →
+  end → collect) and a `move` request. That request is exported from **both** transports, the
+  default `packages/rgs-requests/src/rgs-requests.ts` and `packages/rgs-translator-eagaming/engine-facade.ts`,
+  because the transport is chosen at build time by a Vite alias and the non-play4fun build must
+  still compile.
 - **The wire is ours, not the partner's,** exactly as `tumbleStep` and `multiplierCollect` are. It is
   labelled at both ends as a mock extension, to be replaced by a real provider's shape when one
   exists. The protocol reference already records the risk: our cascade vocabulary was invented, and
@@ -158,7 +187,7 @@ reusing what the cascade already renders:
 
 | Book event (engine) | New? | What it carries | Rendered by |
 |---|---|---|---|
-| `boardInit` | new | the starting board `RawSymbol[][]`, `movesLeft` | board view seats the gems (§4.1) |
+| `boardInit` | new | the starting board `RawSymbol[][]`, `movesLeft` | the existing `boardSettle` cue seats it on the reel board (§4.1) |
 | `swap` | new | `from`, `to`, `accepted` | board view: two gems trade places, or swap and swap back |
 | `tumbleBoard` | **exists** | `explodingSymbols: Position[]`, `newSymbols` (`apps/lines/src/game/typesBookEvent.ts:125`) | the existing `TumbleBoard` overlay (`bookEventHandlerMap.ts:324`) |
 | `updateTumbleWin` | **exists** | the running win | existing handler |
@@ -187,6 +216,7 @@ the two server models below is chosen. The difference is entirely in the math:
    never from a local RNG. In RGS mode the runtime constructs the board with no RNG at all
    (`createBoard({ rng: null })`), so a local refill throws. Gate:
    `check:match3-outcome-guard` (new).
+   - The pre-check of item 4 and the `canSwap` UX check only *read* the server's board.
 2. **No rules-only Flow nodes in an RGS game.** The Flow vocabulary is layered by outcome, the way
    `withAddOns` layers add-ons today (`packages/engine-flow-v2/src/reference/addOns.ts`):
    `withOutcome(vocab, 'rgs')` removes `board.resolve`, `board.refill`, `board.shuffle` and every
@@ -208,14 +238,29 @@ the two server models below is chosen. The difference is entirely in the math:
 there is nothing for a cheat to win.
 
 **Who validates a move.** The board module (§4.1), called from Flow. A swap is legal if it makes a
-run. The board resolves matches, gravity and refills from a **seeded** RNG, so a seed replays a game
-exactly. This is the property that `?ie_determinism=` (`apps/lines/src/game/determinism.ts`) and the
-playtester rely on.
+run. The board resolves matches, gravity and refills from its **own seeded RNG**, passed in by the
+runtime (`createBoard({ rng })`), so a seed replays a game exactly in production as well as in tests.
+It does not rely on `?ie_determinism=` (`apps/lines/src/game/determinism.ts`). That is a test-only
+harness that virtualizes the clock and seeds `Math.random`; the playtester and the current-games
+harness use it on top.
 
-**What the client sends.** Nothing to an RGS. The runtime boots with a **free-play transport**: no
-bet, no play, no collect, no balance. Score, moves, level and lives are Flow game variables (§3.1).
-The HUD's bet and balance parts are hidden by `kindCapabilities` (new flags `wallet: false`,
-`betControls: false`, in `packages/engine-layout/src/lib/kindCapabilities.ts`).
+**What the client sends.** Nothing to an RGS. This is **a runtime branch, not a separate
+transport.** The transport is a build-time Vite alias (`PUBLIC_RGS_TRANSPORT` in
+`apps/lines/vite.config.js`), and the one shared runtime is always built with `play4fun`
+(`.github/workflows/runtime-release.yml:144`).
+
+So the runtime reads `resolveOutcome(config)` at boot. For `rules` it never starts an RGS round:
+- no bet, no play, no collect, no balance heartbeat;
+- the primary machine's round path is not entered, and Flow drives play from `load` and input
+  events instead.
+
+Score, moves, level and lives are Flow game variables (§3.1).
+
+The HUD's bet and balance parts are hidden in the game by the same `resolveOutcome(config)` read.
+The runtime does not know the project's kind, and `kindCapabilities` is authoring-only: nothing in
+`apps/lines` or `engine-game` imports it. The authoring tools get matching flags (`wallet`,
+`betControls`) through `kindCapabilities`' `KindCapabilityConfig` (`kindCapabilities.ts:27`), fed
+from the config, because `engine-layout` does not depend on `game-config`.
 
 **Book shape.** None. The same engine events (`boardInit`, `swap`, `tumbleBoard`, …) are raised
 locally by the board module, so **the presentation code is identical on both paths.** Only the source
@@ -225,10 +270,11 @@ the authored Flow presentation are written once.
 **Guarantees:**
 
 1. **A rules game cannot reach a real-money RGS.** Publish refuses `outcome: 'rules'` with any
-   delivery profile that carries a real RGS. At boot, the runtime refuses a rules config when its
-   transport is a real wallet, with the honest boot-failure screen that exists today
-   (`[runtime] boot stopped —`).
-2. **The reverse holds too:** an RGS-decided config never gets the free-play transport.
+   delivery profile that carries a real RGS. At boot, the runtime refuses a rules config when it was
+   launched with a real-money session (a delivery profile or an operator session id). The refusal
+   uses the honest boot-failure screen that exists today (`[runtime] boot stopped —`,
+   `editor-scenes.ts:2013`).
+2. **The reverse holds too:** an RGS-decided config never takes the free-play branch.
 3. **Score is not money.** Rules-game variables have no currency formatting and are never shown as
    a win amount. High scores, if any, are local to the device in v1 (§9 #8).
 
@@ -239,12 +285,12 @@ the authored Flow presentation are written once.
 | Who owns the board | Server | Board module (client), seeded |
 | Who validates a move | Server (client pre-check is UX only) | Board module |
 | What the client sends | `bet+play`, `move` × N, `collect` | Nothing |
-| Where refills come from | Book (`tumbleBoard.newSymbols`) | Seeded pool (`paddingReels` weights) |
+| Where refills come from | Book (`tumbleBoard.newSymbols`) | Seeded read of each column's strip (`paddingReels`) |
 | Who computes the win | Server (`updateTumbleWin`, `roundEnd`) | Flow (score variable); no money |
 | What Flow owns | Presentation only | Presentation **and** rules (goals, moves, win/lose) |
 | Flow vocabulary | `withOutcome(…, 'rgs')`: no rules-only nodes | Full family vocabulary |
 | HUD | Bet, balance, win (slot HUD) | Score, moves, goals; no wallet |
-| Mock | `mock-rgs-server-match3.mjs` (new) | None; free-play transport |
+| Mock | `mock-rgs-server-match3.mjs` (new) | None; the free-play runtime branch |
 
 ---
 
@@ -284,16 +330,35 @@ can show one without any wiring: a score readout just says "my value is `score`"
   - A new accessor kind, `var`, so any data-in can read `$var.score`.
   - An entry node, `onVariable` (`changed` / `crosses` a threshold, e.g. `lives` reaches 0). This
     is how "game over" is written without polling.
-- **Binding to components.** Component inputs already have a `source`, "a value the engine feeds"
-  (`ComponentDef.inputs`, `packages/engine-layout/src/lib/types.ts:1664`), and
-  `flowInstanceInterface()` already drops inputs that have one. A source of the form `var:<id>`
-  binds an input to a Flow variable, so the readout updates on every change with no wire. This is
-  the part of Rive's view models we need (rive-reference.md §4 deferred "view models" to here). We
-  do **not** build Rive's full view-model system. Variables plus the existing interface cover it,
-  and the 9d read-only **Data tab** becomes the place to see and bind them (§5).
-- **Interpreter:** `FlowInterpreter` (`src/runtime.ts`) gains a variable store keyed by scope.
-  Changes are batched to one notify per frame, so a cascade of ten score changes does not re-render
-  ten times.
+- **Binding to components.** Component inputs already have a `source`: "a `number` input the engine
+  feeds", a registered value-source name such as `winAmount` or `balance`
+  (`packages/engine-layout/src/lib/types.ts:1676–1680`). `flowInstanceInterface()` already drops
+  inputs that have one (`componentInterface.ts:112–118`).
+  - **Numbers come almost free.** Each Flow variable is registered as a value source named
+    `var:<id>` in the existing registry (`registerComponentValues.ts` / `registerFlowValueSource.ts`,
+    resolved through `linesValueResolver`). A number input with `source: 'var:score'` then updates on
+    every change with no wire, and with **no change** to `ComponentInstance`.
+  - **`bool` and `text` bindings are new work.** `source` is number-only today:
+    `ComponentInstance.svelte:941` skips any other kind, and the launcher normalizer keeps `source`
+    only on number inputs (`componentStorage.ts:922`), so a bool or text binding would be dropped on
+    save. P10.3 widens both, behind the keep-unknown gates.
+
+  This is the part of Rive's view models we need (rive-reference.md §4 deferred "view models" to
+  here). We do **not** build Rive's full view-model system; variables plus the existing interface
+  cover it. **Seeing and binding variables:** the Variables panel in `/flow-v2`, plus a source picker
+  in the Component Editor's input row. The 9d read-only **Data tab** is not built yet. When it lands
+  it lists the variables too, but P10.3 does not wait on it (§5).
+- **Where the values live.** Not in `FlowInterpreter`. That class is private to a run and is
+  created fresh for every event (`runFlowEvent`, `src/runtime.ts:875–884`; also `:1023`, `:1052`,
+  `:1155`).
+  - The store lives in the game-side holder, beside the interpreter handle in
+    `apps/lines/src/game/flowV2InterpreterHolder.ts`. It is reached through the env (`FlowV2Env`,
+    `runtime.ts:61`) and the run context, as `$engine` reads are today.
+  - Chains run concurrently, so the ordering rule is explicit: a write applies **synchronously at
+    the node that makes it**. `changeVariable` is one atomic read-modify-write; there is no
+    interleaving inside a node. The last write in execution order wins.
+  - Change notifications are batched to one per frame, so a cascade of ten score changes does not
+    re-render ten times.
 - **Validator:** codes `variable-unknown`, `variable-type`, `variable-scope` (a `mode` variable read
   outside its mode), and `variable-shadows-money` (§2.2).
 
@@ -310,8 +375,17 @@ books.
   - `swipe`, with a direction enum and a threshold.
 
   These are the Rive "pointer move/drag" Later item. They surface on instance nodes as `event:<e>`
-  outputs through the Phase 6/7 path that exists today, with no new Flow plumbing. **Align Target**
-  (Rive's "follow the pointer" listener action) lands with them as a fifth listener action.
+  outputs through the Phase 6/7 path that exists today, so they need no new **Flow** plumbing. They
+  do need **layout schema** work:
+  - Today's listener carries no coordinates (`LayoutNodeView.svelte:1759–1763`).
+  - An event payload value can only be a number, a bool, `{input}` or `{key}`
+    (`EventPayloadValue`, `types.ts:380`). A new `{pointer: 'x'|'y'|'dx'|'dy'}` payload kind is
+    needed, with normalizer and keep-unknown support.
+  - A drag must keep tracking off the node, so it listens on `globalpointermove` and
+    `pointerupoutside`, not on node-local handlers.
+
+  **Align Target** (Rive's "follow the pointer" listener action) lands with them as a fifth
+  listener action.
 - **Board cell input.** A board-level hit-test maps a pointer position to a cell. It is the inverse
   of the resting-seat expressions `getSymbolX` / `getSymbolY`
   (`packages/engine-game/src/game/gameState.svelte.ts:242`), so it follows the authored grid pitch,
@@ -325,11 +399,16 @@ books.
     meteor every 800 ms, speed up every 10 s.
   - The validator therefore forbids awaits in a tick chain (`tick-async`: no `delay`, no awaited
     `fireCue` or `playCinematic`) and warns under `every: 100` ms.
-  - The tick is driven by one ticker callback, the pattern `FlightLayer.svelte:53` already uses for
-    `tickFlights`. It is frozen by determinism mode like everything else.
+  - The tick is driven by one ticker callback, the pattern `FlightLayer.svelte:51–58` already uses
+    for `tickFlights`. Under `?ie_determinism=` it runs on the harness's virtual clock like
+    everything else.
 - **Timers.** Actions `startTimer { id, ms, repeat }`, `stopTimer`, `pauseTimer`; an entry node
-  `onTimer { id }`. Timers live on the interpreter's virtual clock, so the headless preview
-  (`src/preview.ts`) runs them deterministically. They pause when the game pauses.
+  `onTimer { id }`. They pause when the game pauses.
+  - **In game,** timers live in the same game-side holder as the variables, driven by the ticker.
+  - **In the headless preview,** a scheduler is new work. The preview clock (`src/preview.ts:159–175`)
+    only adds up the awaited `delay`s of a single chain; it cannot fire a repeating `onTimer` entry.
+    P10.3 turns it into a small virtual-time event queue that fires timer and tick entries
+    deterministically. The `check:flow-time-events` gate pins it.
 
 ### 3.3 Spawning, despawning and `forEach` over the live set
 
@@ -356,10 +435,13 @@ screen while the game runs, remove it later, and loop over "all enemies alive ri
   - A new `instanceRef` node: the Phase 7 instance node, with its pins derived from the same
     interface (`flowInstanceInterface()`), but fed a handle instead of a placed node id. Set its
     inputs, fire its triggers, wait for its states.
-- **Live sets.** A `spawnLayer` exposes a collection `live:<layerId>` of `list<instance<…>>`.
-  `forEach` already iterates any list (`runForEach`, `runtime.ts:558`), so "for each enemy, if it is
-  below the floor, despawn it" needs no new loop. `forEach` iterates a **snapshot**, so a despawn
-  inside the loop is safe.
+- **Live sets.** A `spawnLayer` exposes its live instances as a `list<instance<…>>` through a new
+  accessor kind, `live` (`$live.<layerId>`). The `Accessor` union (`types.ts:102`) has no such kind
+  today, and the `$engine` keys are a closed set (`LINES_ENGINE_KEYS`).
+  - `forEach` already iterates any list (`runForEach`, `runtime.ts:558`), so "for each enemy, if it
+    is below the floor, despawn it" needs no new loop.
+  - `runForEach` iterates the array it is handed **without copying it**. So the `live` accessor
+    returns a **fresh array** on every read, which makes a despawn inside the loop safe.
 - **Events from spawned instances.** These are the instance's own interface events (`event:<e>`),
   delivered to `instanceRef` chains with the handle in `$trigger`.
 - **Match-3 does not need spawning.** Gems are board cells (§4.1). Spawning arrives with arcade
@@ -371,8 +453,8 @@ screen while the game runs, remove it later, and loop over "all enemies alive ri
 kind has today.
 
 Vocabularies are registered in `packages/engine-flow-v2/src/reference/registry.ts`
-(`TEMPLATE_VOCABULARIES`: `bookOf`, `ways`, `cluster`, `scatter`, `holdAndWin`; an unknown id falls
-back to `bookOf`). The new files are `reference/match3.ts` and `reference/arcade.ts`, each with a
+(`TEMPLATE_VOCABULARIES`: `bookOf`, `ways`, `cluster`, `scatter`, `holdAndWin`; `VOCABULARY_FALLBACKS`
+maps `lines` to `bookOf`, and an unknown id falls back to `bookOf`). The new files are `reference/match3.ts` and `reference/arcade.ts`, each with a
 starter seed in `drivenSeed.ts`. The fallback stays as it is, and the new ids are registered
 explicitly, so a match-3 doc never silently opens on the Book-of palette.
 
@@ -418,9 +500,13 @@ reason: two very different callers must share it.
 
 - **The client.** `apps/lines` and `engine-game`, through the workspace dependency.
 - **The mock RGS.** `scripts/mock-rgs-server-match3.mjs` (new) imports it by relative path, as
-  `services/test-server/makeMock.mjs` already imports `../../scripts/mock-rgs-server.mjs`. Its
-  Dockerfile lists every copied file (`services/test-server/Dockerfile:10`), so P10.6 adds this one
-  there.
+  `services/test-server/makeMock.mjs` already imports `../../scripts/mock-rgs-server.mjs`.
+  - The test-server image copies only the files its Dockerfile lists, and only `scripts/*.mjs`
+    today (`services/test-server/Dockerfile:10`); nothing under `packages/` reaches it. P10.6 adds
+    `packages/engine-mechanics/src/board.js` **and** the package's `package.json`
+    (`"type": "module"`, as `engine-cinematic`'s has). Without the latter, Node falls back to syntax
+    detection.
+  - Any other non-package consumer follows the `scripts/sync-cinematic-eval.mjs` precedent.
 
 One module, two callers, so the mock and a rules-decided game can never disagree about what a match
 is. The cascade work already paid for the alternative: `evaluateClusters` lives only in the mock
@@ -447,7 +533,16 @@ is that moment, so P10.5 declares it.
   - `resolve(board)`, the cascade loop, emitting steps shaped as `tumbleBoard` events
   - `hasMoves(board)`
   - `shuffle(board, rng)`
-- **Reuse.** The board is drawn by the **existing** slot board in a non-spinning mode:
+- **Reuse.** The board is drawn by the **existing** slot board, still mounted, with its spin
+  suppressed:
+  - **The cascade cannot run without that board.** `TumbleBoard.svelte` adopts its cells from
+    `stateGame.board[reel].reelState.symbols` (`:331`) and mints refills with
+    `stateGame.board[reel].createSymbols` (`:279`). The `tumbleBoard` handler broadcasts
+    `boardHide` / `boardSettle` / `boardShow` to that same board, and `Game.svelte:2500–2522` mounts
+    `<TumbleBoard/>` beside `<Board/>`. So a match-3 game still mounts `<Board/>` and its reels.
+    "Non-spinning" means the spin is never started, not that the component is swapped out.
+  - **The handlers accept locally raised events.** They are plain book events through
+    `playBookEvents`, which is what lets the rules path (§2.3) reuse them unchanged.
   - The `reelGrid` layout node gives the authored geometry (cell size, pitch, lead, nudge,
     perspective). `reelGridGeometry` (`apps/launcher-api/src/routes/(app)/editor/editorCanvas.helpers.ts:929`)
     previews it in the editor, pinned to the engine by `scripts/verify-reel-grid-geometry.mjs`.
@@ -456,10 +551,20 @@ is that moment, so P10.5 declares it.
     and the explosion order from `engine-layout/src/lib/tumblePattern.ts`.
   - Gem looks come from **symbol states in `/symbols`**: `explosion` already exists and is not
     book-only.
-
-  New presentation code is only the **swap** (two cells trade seats with a tween, or swap and swap
-  back) and the **select / hint** highlight. These may be new symbol states, `select` and `hint`,
-  offered only to `match3` through `kindCapabilities`.
+- **The swap is the real new presentation work, and it is not just a tween.**
+  - Cells live in per-reel (column) objects, and the cascade seat is y-only
+    (`ReelSymbolCascadeSeat = { y: Tween<number> }`, `packages/utils-slots/src/createReelForSpinning.svelte.ts:27`).
+    A horizontal swap moves a cell **between two reels**, and that model has no x seat for it.
+  - **Recommended:** carry the two gems across on the existing **flight** layer (`FlightLayer.svelte`,
+    `flights.svelte.ts`), then write the swapped symbols into both reels and re-seat them. A
+    vertical swap can tween the y seat directly.
+  - **The alternative to evaluate** in P10.5's first slice is Hold and Win's per-cell board:
+    `packages/engine-game/src/game/respinBoard.ts` (pure cell rules), `respinBoard.svelte.ts`
+    (one-cell reels) and `apps/lines/src/components/RespinBoard.svelte`. Every cell is its own reel
+    there, but that board has no cascade, so it would need the tumble rebuilt on it. The flight
+    route keeps the cascade, which is most of the value.
+  - The **select / hint** highlight may become new symbol states, `select` and `hint`, offered only
+    to `match3` through `kindCapabilities`.
 - **Config, `GameConfigDoc.match3`:**
   - `minRun` (default 3);
   - `diagonal: false` (reserved);
@@ -468,7 +573,8 @@ is that moment, so P10.5 declares it.
   - RGS: moves come from the server; `scoreTable` is ignored, and the paytable prices wins as for a
     cascade slot.
 
-  The grid size reuses `numReels` / `numRows`. The pool weights reuse `paddingReels` (§2.1).
+  The grid size reuses `numReels` / `numRows`. The refill source is each column's `paddingReels`
+  strip (§2.1).
 - **Specials (P10.5b, optional).** A `specials` table, `shape → special symbol`, plus a per-special
   clear pattern (row / column / radius). It is data, read by `findMatches` / `clear`, with no new
   code path per special.
@@ -507,14 +613,14 @@ each one is assigned to the phase that first needs it.
 | **Component Editor** | Pointer move / drag / swipe listeners and Align Target in `EditorListeners.svelte`; the input `source: var:<id>` binding in Properties | P10.4, P10.3 |
 | **`/symbols`** | `select` / `hint` states for gems (match-3 only, via `kindCapabilities`) | P10.5 |
 | **`/flow-v2`** | A **Variables** panel (declare / type / initial / scope); the `setVariable`, `changeVariable`, `onVariable`, `onTick`, `onTimer`, `onInput`, `spawn`, `despawn` and `instanceRef` nodes in `AddNodePalette.svelte`; the match-3 / arcade palettes; Preview runs the board module on its virtual clock with a seed (rules) or forced books (RGS) | P10.3, P10.5, P10.7 |
-| **Data tab** (9d, read-only) | Extended: it lists Flow variables and lets an input be bound to one | P10.3 |
+| **Data tab** (9d, read-only; **not built yet**, Phase 9 has shipped through 9c) | When 9d lands it lists Flow variables too. P10.3 does not depend on it: its Variables panel and the input-row source picker carry the binding | after 9d |
 
 ### 5.2 Scheduling the Rive "Later" items
 
 | Rive Later item (rive-reference.md §5) | Why a family needs it | Lands in | Size |
 |---|---|---|---|
 | **Pointer move / drag listeners + Align Target** | Swipe-to-swap; drag a paddle; a slider | **P10.4** | M |
-| **View models** | Replaced by Flow variables + `source: var:<id>` + the Data tab (§3.1). Not built as Rive's | **P10.3** | (in P10.3) |
+| **View models** | Replaced by Flow variables + `source: var:<id>` (§3.1), later shown in the 9d Data tab. Not built as Rive's | **P10.3** | (in P10.3) |
 | **Tags** | Arcade collision filters (`enemy`, `pickup`); a `spawnable` group | **P10.8** | S |
 | **N-slice** | Goal panels, progress bars and HUD frames that resize per board size and device layout | **P10.9** | M |
 | **Rulers and guides** | Laying out a play field and board precisely | **P10.9** | S |
@@ -533,17 +639,22 @@ games.
 
 ### 6.1 Create (Game Maker)
 
-- `GAME_KINDS` gains `match3` and `arcade` (`packages/constants-shared/gameKinds.ts`). Every
-  consumer already derives from that one list, and an unknown id is treated as a custom kind, so
-  older readers degrade safely.
+- `GAME_KINDS` gains `match3` and `arcade` (`packages/constants-shared/gameKinds.ts`). Its
+  consumers derive from that one list, and an unknown id is treated as a custom kind, so older
+  readers degrade safely.
+- **Game Maker's kind picker is the exception.** `selectableGameKinds()`
+  (`apps/launcher-api/src/lib/server/gameKinds.ts:31`) offers a kind only once `engine-layout` has a
+  **full scene set** for it (`listFullSceneSets()`). So `match3` appears in Game Maker in the same
+  change that adds its layout template (P10.5), not in P10.1.
 - Game Maker asks for the outcome (RGS / Rules) when the kind is `match3` or `arcade`, and seeds:
   - the config (`family`, `outcome`, `match3` block, pool strips);
   - the layout template;
   - the starter Flow from `drivenSeed.ts`;
   - the symbol set (gems).
-- `kindCapabilities()` gains the family flags: `wallet`, `betControls`, `board`, `freeSpins: false`,
-  `winLines: false`, `holdAndWin: false`. The other tools then simply do not offer slot sections to
-  a match-3 project.
+- `kindCapabilities()` gains the family flags for the **authoring tools**: `wallet`, `betControls`
+  and `board`, plus `freeSpins: false`, `winLines: false` and `holdAndWin: false`. The other tools
+  then simply do not offer slot sections to a match-3 project. The game itself never reads
+  `kindCapabilities`; it reads the config (§2.3).
 
 ### 6.2 What Game Config holds
 
@@ -561,38 +672,55 @@ renamed.
   component that does not ship.
 - **Publish** (`apps/launcher-api/src/lib/server/publishGame.ts`) keeps its gates. It gains:
   - the outcome gates of §2.2 and §2.3;
-  - `protocolFor('match3')` → `'match3'` for an RGS game (`mockProtocol.ts:20`, `MOCK_PROTOCOLS` in
-    `testServerManifest.ts:219`), or a `'freePlay'` protocol for a rules game (no mock RGS; the
-    test server serves the runtime only);
+  - `protocolFor('match3')` → `'match3'` for an RGS game, or a `'freePlay'` protocol for a rules
+    game (no mock RGS; the test server serves the runtime only). The new protocols must be added in
+    **every** list of protocols, because a protocol a list does not know falls back to `lines`
+    silently:
+    - `mockProtocol.ts:20`;
+    - `MOCK_PROTOCOLS` in `testServerManifest.ts:219`, which warns about exactly this;
+    - the test server's own `MOCK_PROTOCOLS` / `protocolOf` (`services/test-server/server.mjs:240–245`);
+    - the desktop `PUBLIC_RGS_GAME` mapping (`launcherProfile.ts:88`), which `protocolFor` feeds;
   - `runtimeFor()` unchanged: it still returns `SHARED_RUNTIME_ID`.
 - **Delivery** (`build-delivery.mjs`): an RGS match-3 delivery waits on the partner wire (§9 #2).
   A rules game is refused for any real-money delivery profile.
 
 ### 6.4 Boot: the shared runtime or its own app? (recommendation)
 
-**Recommendation: boot non-slot games in the shared `apps/lines` runtime,** behind a family switch
-at the top-level mount, with each family's code in a lazily loaded chunk.
+**Recommendation: boot non-slot games in the shared `apps/lines` runtime,** behind a family branch
+read from the config.
 
 Today `Game.svelte` always mounts `<Board />` (`apps/lines/src/components/Game.svelte:2500`), and
 the runtime branches on config (`activeWinModel()`, the Hold and Win blocks, the coin board). It
-never branches on a template. The family switch is one more branch of the same kind:
-`resolveFamily(config)` chooses `<Board />` (slot, the default), `<Match3Stage />` or
-`<ArcadeStage />`.
+never branches on a template. The family branch is one more branch of the same kind, driven by
+`resolveFamily(config)`:
+- **Match-3** keeps `<Board />` mounted (the cascade needs it, §4.1), never starts a spin, and adds
+  `<Match3Input />` (cell hit-test, swap flights, select / hint) beside it.
+- **Arcade** mounts `<ArcadeStage />` (the play field and loop) instead of the reel stack.
 
-| | **A. Shared runtime + family chunk (recommended)** | B. A second runtime app (`apps/arcade`) |
+**There are no lazy chunks.** The runtime is built with SvelteKit's `bundleStrategy: 'inline'`, or
+`'single'` for embed builds (`packages/config-svelte/index.js:87`). Both produce **one** bundle with
+dynamic imports inlined. So the family code ships inside every game's runtime bundle, slots
+included. It never *runs* for a slot game, but slot players download it.
+
+P10.5 measures the size cost and reports it in its PR. If the cost is too high, the choices are a
+second runtime (option B) or a split bundle strategy. A split bundle changes how every game loads,
+so it would be a pipeline change of its own.
+
+| | **A. Shared runtime + a family branch (recommended)** | B. A second runtime app (`apps/arcade`) |
 |---|---|---|
 | Reuse | Everything: RGS facade, HUD, Flow interpreter, components, symbols, board, cascade, determinism, boot screen, live assets | Must first extract the symbol renderer and cascade, which are still in `apps/lines` (`stateTumble.svelte.ts:22`), or copy them |
 | Releases | One `runtime-release.yml`, one versioned `_runtime/lines@<v>` | A second release pipeline, a second `current.json`, a second rollback |
 | Harness | The current-games harness already builds one runtime per side | It must learn a second runtime |
 | Drift | None: one copy | The exact failure game-type-templates.md "Why this exists" describes |
 | Risk to slots | Real: every family change touches the slot bundle, so every phase must prove 0 changed (§7) | Low: separate bundle |
-| Bundle size | Slots download the match-3 chunk only if it is imported; it is not, so they don't | Separate |
+| Bundle size | Slots download the family code too (one inlined bundle); measured per phase | Separate |
 | Seam | `runtimeFor()` stays a constant | `runtimeFor()` (`publishGame.ts:137`) is already the seam: it would return `'arcade'` |
 
-Option A wins on reuse and drift. Its one cost, risk to slots, is the one this repo already has the
-tooling to measure. Option B stays available: `runtimeFor()` is the seam if a family ever needs
-bespoke compiled code that cannot be lazy-loaded. Arcade is the most likely candidate, so P10.8
-re-checks the choice before it starts.
+Option A wins on reuse and drift. Its two costs are risk to slots, which this repo already has the
+tooling to measure (§7), and a bigger download, which P10.5 measures. Option B stays available:
+`runtimeFor()` is the seam if a family ever needs bespoke compiled code, or its size becomes a
+problem. Arcade shares the least with slots, so P10.8 re-checks the choice before it starts
+(§9 #3).
 
 ---
 
@@ -612,10 +740,12 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
    `check:family-defaults-identity` that normalizes every committed seed config and fixture and
    diffs the bytes.
 2. **Published snapshots are untouched.** No Phase 10 code rewrites R2.
-3. **The runtime bundle changes only by addition.** `scripts/bundle-modules.mjs` (module set +
-   per-module hashes) shows the slot path's modules unchanged and only new modules / lazy chunks
-   added. Any edited shared module (`Game.svelte`'s mount switch, the interpreter) is named in the
-   PR and covered by item 4.
+3. **The runtime bundle's change is accounted for.** `scripts/bundle-modules.mjs` reads the one
+   bundle's source map (module set + per-module hashes). Because the bundle is one inlined file
+   (§6.4), the family's modules appear in it as **new modules**. The rule is that the diff may list
+   only new modules plus the named shared modules a phase had to edit (e.g. `Game.svelte`'s family
+   branch, the interpreter). Each edited module is named in the PR, with the reason, and covered by
+   item 4. Any other changed hash fails the review.
 4. **The current-games harness reports 0 changed screens** (`scripts/current-games/`, ADR-0004).
    Every live game is rendered on main's and the branch's runtime with a fixed seed and compared by
    pixel diff under `tolerance.json`. The `regression-guardian` agent runs it.
@@ -630,8 +760,8 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
 | P10.2 | `check:board-mechanic` | Match finding (runs, L/T), gravity, refill from book vs seeded pool, cascade chain, `hasMoves`, a seed replays identically |
 | P10.3 | `check:flow-variables`, `check:flow-time-events` | Scopes reset correctly; `onVariable` thresholds; `tick-async` rejected; timers on the virtual clock; `var:` bindings |
 | P10.4 | `check:component-pointer-drag` | The move / drag / swipe events and Align Target; the cell hit-test is the inverse of `getSymbolX/Y` over the perspective lattice |
-| P10.5 | `check:match3-rules`, `check:flow-publish-gate` (extended with the match-3 starter) | A starter rules game plays headless to a goal; the free-play transport sends nothing |
-| P10.6 | `check:match3-outcome-guard`, `check:match3-wire` | RGS mode has no local RNG; `withOutcome('rgs')` strips rules-only nodes; facade translation fixtures (`move` → `swap` + `tumbleBoard`…); `seq` advances by 1 per move; replay at the same seq |
+| P10.5 | `check:match3-rules`, `check:flow-publish-gate` (extended with the match-3 starter) | A starter rules game plays headless to a goal; the free-play branch sends no RGS request |
+| P10.6 | `check:match3-outcome-guard`, `check:match3-wire` | RGS mode has no local RNG; `withOutcome('rgs')` strips rules-only nodes; facade translation fixtures (`move` → `swap` + `tumbleBoard`…); `seq` advances by 1 per move; replay at the same seq; the interactive round opens, takes N moves and collects once; every protocol list knows `match3` |
 | P10.7 | `check:flow-spawn`, `check:art-scope` (extended) | Spawn cap; despawn inside `forEach`; spawnable components ship |
 | P10.8 | `check:arcade-motion` | Fixed-timestep determinism; overlap by tag; bounds |
 
@@ -640,8 +770,8 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
 The playtest playbook is a new file, `docs/playtest/match3-sample.md`, written in P10.5 in the shape
 of `docs/playtest/ways.md`. It drives the `game-playtester` agent. Its outline:
 
-1. **Boot** the rules sample with `?ie_determinism=<seed>`. Expect the board seated on the authored
-   grid, no console errors, and score 0 with N moves.
+1. **Boot** the rules sample with a fixed board seed (and `?ie_determinism=<seed>` for the clock).
+   Expect the board seated on the authored grid, no console errors, and score 0 with N moves.
 2. **An illegal swap** snaps back; moves are unchanged.
 3. **A legal swap** of a known pair (from the seed): the gems explode in the authored pattern,
    fall, and refill. Score rises by `scoreTable[run]`; moves drop by 1.
@@ -653,6 +783,11 @@ of `docs/playtest/ways.md`. It drives the `game-playtester` agent. Its outline:
    balance changes only by `roundEnd`; a refresh mid-round resumes on the same board.
 8. **Screens** for the current-games harness (`scripts/current-games/screens/match3.json`): board
    ready, mid-cascade, round end. They are added the day the first match-3 game goes live.
+   - The harness today plays **forced books** through the mock's authoring channel. An RGS match-3
+     fits that once the mock can force a board and a move.
+   - A rules game has no books, so its screen script must **drive input**: scripted swaps at named
+     cells, with the board seed pinned. P10.5 adds that step type to the harness's screen-script
+     format.
 
 ---
 
@@ -665,13 +800,13 @@ step changes a slot game.
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
 | P10.0 | **Plan + decisions** (this doc) | Owner review of §9; ADR-style sign-off recorded here | docs | S |
-| P10.1 | **Family and outcome in Game Config** | `family`, `outcome`, `match3` / `arcade` blocks (optional, defaults dropped); `resolveFamily` / `resolveOutcome`; family-aware validation; the `/config` picker; `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | S–M |
+| P10.1 | **Family and outcome in Game Config** | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker; `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | S–M |
 | P10.2 | **The board module** | `packages/engine-mechanics/board.js` (+ `.d.ts`) with the full match-3 rule set, fixtures. No caller yet | new package | M |
-| P10.3 | **Flow variables, timers, tick** | §3.1 + §3.2 (tick / timers / keys): format, validator, interpreter, preview, the Variables panel, `source: var:<id>`, the Data tab listing | `engine-flow-v2`, `apps/lines` interpreter, `/flow-v2`, Component Editor Properties | L |
-| P10.4 | **Pointer move / drag / swipe + Align Target** | Rive Later item; the listener events; the board cell hit-test | `engine-layout` (`LayoutNodeView`, `types.ts`), `EditorListeners.svelte` | M |
-| P10.5 | **Match-3, rules-decided, end to end** | `MATCH3_VOCAB` + seed; `<Match3Stage />` lazy chunk in the shared runtime; swap + select / hint presentation; free-play transport; layout template; seed config; Game Maker kind; publish gates; the declared mechanic interface (game-type-templates Phase B); a sample game and its playbook | `engine-flow-v2/reference/match3.ts`, `apps/lines`, `engine-game`, launcher | L |
+| P10.3 | **Flow variables, timers, tick** | §3.1 + §3.2 (tick / timers / keys): format, validator; the variable and timer store in the game-side holder, reached through the env; the preview's virtual-time event queue; the Variables panel; `var:<id>` value sources (numbers), and `source` widened to bool / text | `engine-flow-v2`, `apps/lines` (`flowV2InterpreterHolder.ts`, value sources), `/flow-v2`, `engine-layout` (`ComponentInstance`), `componentStorage.ts` | L |
+| P10.4 | **Pointer move / drag / swipe + Align Target** | Rive Later item; the listener events with the new pointer payload kind (normalizer + keep-unknown); global move / up-outside tracking; the board cell hit-test | `engine-layout` (`LayoutNodeView`, `types.ts`), `EditorListeners.svelte` | M |
+| P10.5 | **Match-3, rules-decided, end to end** | `MATCH3_VOCAB` + seed; the family branch in the shared runtime (`<Board/>` kept, spin never started, `<Match3Input />`); the swap on the flight layer (first slice: flights vs the per-cell respin board, §4.1) and the select / hint states; the free-play runtime branch; the layout template and full scene set, which is what puts `match3` in Game Maker; seed config; publish gates; the declared mechanic interface (game-type-templates Phase B); scripted-input steps in the harness's screen scripts; the bundle-size cost reported; a sample game and its playbook | `engine-flow-v2/reference/match3.ts`, `apps/lines`, `engine-game`, `engine-layout` templates, `scripts/current-games/`, launcher | L |
 | P10.5b | *(optional)* **Match-3 specials** | The `specials` table (§4.1) | `engine-mechanics`, `/config` | M |
-| P10.6 | **Match-3, RGS-decided** | The `move` action and events (ours, labelled); `mock-rgs-server-match3.mjs` (deals from the project's config, fixed-at-bet math, resume mid-round) + Dockerfile; facade translation; `sessionState` per move; `withOutcome('rgs')`; the outcome guards; the RGS sample. **Live real money waits on the partner (§9 #2)** | `rgs-translator-eagaming`, `scripts/`, `services/test-server`, `engine-flow-v2` | L |
+| P10.6 | **Match-3, RGS-decided** | The `move` action and events (ours, labelled); the **interactive round** path in the primary machine (a round open across player-paced requests); the `move` request exported from both transports; `mock-rgs-server-match3.mjs` (deals from the project's config, fixed-at-bet math, resume mid-round), with the Dockerfile copying `board.js` + its `package.json`, and `match3` added to every protocol list; facade translation; `withOutcome('rgs')`; the outcome guards; the RGS sample. **Live real money waits on the partner (§9 #2)** | `rgs-translator-eagaming`, `rgs-requests`, `utils-xstate`, `scripts/`, `services/test-server`, `engine-flow-v2`, launcher | L+ |
 | P10.7 | **Spawning** | `spawnLayer` node, `spawn` / `despawn` / `instanceRef`, `live:<layer>` sets, cap, the ship-chain collection of spawnables | `engine-layout`, `engine-flow-v2`, `apps/lines`, exporters | M–L |
 | P10.8 | **Arcade, rules-decided** | `motion.js`, the fixed-step loop, tags, `ARCADE_VOCAB` + seed, `<ArcadeStage />`, the arcade layout template, a catcher / dodger sample + playbook. Re-checks §6.4 before starting | `engine-mechanics`, `engine-game`, `engine-flow-v2`, `apps/lines`, launcher | L |
 | P10.9 | **Editor polish (Rive Later)** | N-slice; rulers and guides; the Graph Editor; Elastic / Bounce eases | `/editor`, `engine-cinematic` (ease presets), `engine-layout` | M each |
@@ -704,7 +839,9 @@ Each has a recommendation. None blocks P10.1–P10.4.
      their protocol does not cover today.
    - If the math is ours, the wire is ours to define, as game-type-templates.md Phase F already says.
 3. **Shared runtime or a separate runtime app?**
-   - *Recommend:* **shared `apps/lines` with lazy family chunks** (§6.4), re-checked before arcade.
+   - *Recommend:* **the shared `apps/lines` runtime** (§6.4), re-checked before arcade.
+   - The runtime is one inlined bundle, so slot players also download the family code (it never
+     runs for them). P10.5 reports the size, and the owner accepts it or chooses option B.
 4. **Can a rules-decided game ever involve money or prizes?**
    - *Recommend:* **no.** Rules games are free play, demo or promo only, with no wallet. Skill for
      prizes is a separate regulated product and is out of scope.
