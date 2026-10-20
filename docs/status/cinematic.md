@@ -407,7 +407,10 @@ through the same player; headless-proven, no editor yet (5b).
   had none once scrolled down), and hides while its time is scrolled under the sticky name gutter.
   Same shape as the Rigger dopesheet's own `positionPlayhead`. Verified in Chromium against both
   versions of the module with the editor's CSS: scrolled 1500 px, the old bar sat 1500 px left of
-  the cursor while dragging on the ruler, the new one 0 px.
+  the cursor while dragging on the ruler, the new one 0 px. The `/rigger` golden
+  (`tools/rigger-spike/cinematic-timeline.mjs`) is re-recorded: the playhead's new `height` is the
+  only change to the existing steps, and a new step scrubs with the lanes scrolled (it fails on the
+  old `- scrollLeft`), then puts the time and scroll back so the later steps run as before.
 
 - 2026-10-20 — **Hotfix: in-game timelines stuck on frame 0 since Phase 9b** (branch
   `claude/fix-cinematic-rearm`). Reported on `commonoverlayproject`: the bonus's pot and curtain
