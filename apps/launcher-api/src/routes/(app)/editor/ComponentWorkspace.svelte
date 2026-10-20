@@ -92,6 +92,7 @@
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { isTypingTarget } from '$lib/editor/stageShortcuts';
 	import { effectiveHiddenIds, lockedInTree, moveNode, type DropZone } from '$lib/editor/hierarchy';
 	import {
 		canEnterNested,
@@ -1209,17 +1210,6 @@
 		else if (trail.length > 0) await goToCrumb(trail.length - 1);
 		else if (componentDraft && rootLabel === null) await closeComponent();
 		else await exitToScreens();
-	}
-
-	function isTypingTarget(t: EventTarget | null): boolean {
-		const el = t as HTMLElement | null;
-		return (
-			!!el &&
-			(el.tagName === 'INPUT' ||
-				el.tagName === 'TEXTAREA' ||
-				el.tagName === 'SELECT' ||
-				el.isContentEditable)
-		);
 	}
 
 	/** Esc goes up a level. Runs in the capture phase, before the canvas's own Escape (which

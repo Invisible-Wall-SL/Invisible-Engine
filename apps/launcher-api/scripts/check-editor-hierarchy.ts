@@ -132,6 +132,39 @@ function shape(nodes: LayoutNode[]): unknown[] {
 	);
 	check('  → unchanged', JSON.stringify(t), before);
 
+	const locked = (): LayoutNode[] => [
+		leaf('free'),
+		group('hud', [leaf('logo'), group('inner', [leaf('deep')])], { locked: true }),
+		leaf('pinned', { locked: true }),
+		group('box', [leaf('kid')]),
+	];
+	let l = locked();
+	const lockedBefore = JSON.stringify(l);
+	check('Lock: a locked node never moves', moveNode(l, 'pinned', 'free', 'before'), false);
+	check('Lock: nor a child of a locked container', moveNode(l, 'logo', 'free', 'after'), false);
+	check('Lock: nor a deeper one', moveNode(l, 'deep', 'box', 'inside'), false);
+	check(
+		'Lock: nothing drops inside a locked container',
+		moveNode(l, 'free', 'hud', 'inside'),
+		false,
+	);
+	check('Lock: nor beside a node in one', moveNode(l, 'free', 'logo', 'after'), false);
+	check('Lock: the refused tree is unchanged', JSON.stringify(l), lockedBefore);
+	check(
+		'Lock: a locked node is still a drop neighbour at top level',
+		moveNode(l, 'free', 'pinned', 'after'),
+		true,
+	);
+
+	l = [
+		leaf('slot', { slotId: 'boardFrame' }),
+		leaf('bound', { bind: { component: 'Win' } } as Partial<LayoutNode>),
+		group('box', []),
+	];
+	check('a slot node stays at the top level', moveNode(l, 'slot', 'box', 'inside'), false);
+	check('a bound node stays at the top level', moveNode(l, 'bound', 'box', 'inside'), false);
+	check('…but reorders there', moveNode(l, 'slot', 'box', 'after'), true);
+
 	t = tree();
 	const moved = t[2];
 	moveNode(t, 'fg', 'row', 'inside');

@@ -103,7 +103,8 @@ Shipped capabilities on `main`:
    both sides (hidden rigs, text and FX vanish too; other screens hide while isolating); fold;
    drag a row before / after / into a container and out again; the row menu; `Esc` / `Enter` /
    `X` / `F` / `⌘0` / `+` / `-` / arrows / `Tab` / `Shift+/`, and none of them while typing in
-   Properties; the Animate tint; reload keeps Lock but drops Hide / Isolate.
+   Properties; the Animate tint; reload keeps Lock but drops Hide / Isolate; Tab / Enter on a
+   focused Library tile; Esc with the row menu open on the Components side; drag in Firefox.
 0b. **⏳ Browser-verify the Components side** (Phase 4a): the checklist is in
    [component-editor status](component-editor.md) Blocked. Editor-side extras: the left-pane ＋
    places on the active screen; double-click does nothing in Animate; Design/Animate state and the
@@ -132,9 +133,11 @@ Shipped capabilities on `main`:
   text and FX overlays all skip them). Nothing is written into a node, so a saved doc, the bake and
   every game are unchanged. Stage keys (`$lib/editor/stageShortcuts.ts`, one table for the keys and
   the **Shift+/** sheet): `Esc` parent, `Enter` first child, `X` reveal, `F` fit, `⌘0` 100%, `+`/`-`,
-  arrow nudge (Shift ×10, Design, top-level nodes, one undo step per press), `Tab` Design/Animate.
-  None fire while typing, and only the canvas on screen answers (both sides' canvases listen on
-  `window`). The canvas bar gained − / zoom % / + / Fit and **?**; Animate tints the stage blue.
+  arrow nudge (Shift ×10, Design, top-level nodes), `Tab` Design/Animate. None fire while
+  typing, `Enter`/`Tab` only from the page body or the stage (`ownsFocusKeys`, so a focused tile
+  or button keeps them), and only the canvas on screen answers (both sides' canvases listen on
+  `window`). A drag never moves a locked node, drops into a locked container, or takes a slot /
+  bound node off the top level; the open row menu owns Esc (`data-esc-owner`). The canvas bar gained − / zoom % / + / Fit and **?**; Animate tints the stage blue.
   `EditorCanvas.svelte` changes: the canvas bar, `onKeyDown` (+ `applyStageAction`,
   `nudgeSelection`, `zoomAround`, `zoomTo100`), the stage tint, the cheat-sheet overlay, and two
   pick rules (`hitTestNode` skips locked nodes, `visibleSceneNodes` skips view-hidden ones).

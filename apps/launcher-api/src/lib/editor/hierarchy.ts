@@ -80,7 +80,12 @@ export function dropZoneAt(offsetY: number, height: number, isContainer: boolean
 	return f < 0.5 ? 'before' : 'after';
 }
 
-/** A drop is refused onto itself, into its own subtree, or `inside` anything but a container. */
+/**
+ * A drop is refused onto itself, into its own subtree, `inside` anything but a container, and
+ * wherever Lock forbids it: a locked node (or one under a locked container) never moves, and
+ * nothing lands in a locked container. A slot-filling or engine-bound node stays at the top level,
+ * where the editor and the game look it up.
+ */
 export function canDrop(
 	nodes: LayoutNode[],
 	dragId: string,
@@ -91,8 +96,14 @@ export function canDrop(
 	const drag = locate(nodes, dragId);
 	const over = locate(nodes, overId);
 	if (!drag || !over) return false;
-	if (zone === 'inside' && over.siblings[over.index].kind !== 'container') return false;
-	return !(ancestorIds(nodes, overId) ?? []).includes(dragId);
+	const target = over.siblings[over.index];
+	if (zone === 'inside' && target.kind !== 'container') return false;
+	if ((ancestorIds(nodes, overId) ?? []).includes(dragId)) return false;
+	if (lockedInTree(nodes, dragId)) return false;
+	const into = zone === 'inside' ? target : over.parent;
+	if (into && lockedInTree(nodes, into.id)) return false;
+	const node = drag.siblings[drag.index];
+	return !(into && (node.slotId !== undefined || node.bind !== undefined));
 }
 
 /**

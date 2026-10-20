@@ -111,6 +111,10 @@
 
 	function onRowDragStart(e: DragEvent, node: LayoutNode): void {
 		if (!onMove || !e.dataTransfer) return;
+		if (scene && lockedInTree(scene.nodes, node.id)) {
+			e.preventDefault();
+			return;
+		}
 		draggingId = node.id;
 		e.dataTransfer.effectAllowed = 'move';
 		e.dataTransfer.setData(DRAG_TYPE, node.id);
@@ -147,9 +151,16 @@
 	// ---- the row context menu ----
 	let menu = $state<{ x: number; y: number; node: LayoutNode } | null>(null);
 	let menuEl = $state<HTMLDivElement | undefined>();
+	/** The menu's largest size, to keep it on screen near the window's right and bottom edges. */
+	const MENU_W = 200;
+	const MENU_H = 320;
 	function openMenu(e: MouseEvent, node: LayoutNode): void {
 		e.preventDefault();
-		menu = { x: e.clientX, y: e.clientY, node };
+		menu = {
+			x: Math.min(e.clientX, window.innerWidth - MENU_W),
+			y: Math.min(e.clientY, window.innerHeight - MENU_H),
+			node,
+		};
 	}
 	function closeMenu(e?: Event): void {
 		if (e && menuEl && e.target instanceof Node && menuEl.contains(e.target)) return;
@@ -161,14 +172,23 @@
 	}
 	$effect(() => {
 		if (!menu) return;
-		const onKey = (): void => closeMenu();
+		// Any key closes it; Esc is the menu's alone (captured and stopped), so it never also walks
+		// the stage selection or leaves a Components level.
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				e.stopPropagation();
+			}
+			closeMenu();
+		};
+		const onBlur = (): void => closeMenu();
 		window.addEventListener('mousedown', closeMenu);
-		window.addEventListener('keydown', onKey);
-		window.addEventListener('blur', onKey);
+		window.addEventListener('keydown', onKey, true);
+		window.addEventListener('blur', onBlur);
 		return () => {
 			window.removeEventListener('mousedown', closeMenu);
-			window.removeEventListener('keydown', onKey);
-			window.removeEventListener('blur', onKey);
+			window.removeEventListener('keydown', onKey, true);
+			window.removeEventListener('blur', onBlur);
 		};
 	});
 
@@ -441,7 +461,7 @@
 	<p class="hint">
 		Order mirrors the canvas paint order — top row is rendered first (lowest layer).
 	</p>
-	{#if isolatedId && stageHidden.size > 0 && onToggleIsolate}
+	{#if isolatedId && onToggleIsolate && ancestorIds(scene.nodes, isolatedId)}
 		{@const isoId = isolatedId}
 		<div class="isolating">
 			<span>◎ Isolated — the rest is hidden on the stage</span>
@@ -460,6 +480,7 @@
 	{@const mLocked = !!scene && lockedInTree(scene.nodes, m.id)}
 	<div
 		bind:this={menuEl}
+		data-esc-owner
 		class="menu"
 		style="left:{menu.x}px; top:{menu.y}px"
 		role="menu"
@@ -485,7 +506,7 @@
 				Delete
 			</button>
 		{/if}
-		<hr />
+		{#if onCopy || onPaste || onDelete}<hr />{/if}
 		{#if onToggleLock}
 			<button type="button" role="menuitem" onclick={() => runMenu(onToggleLock, m.id)}>
 				{m.locked ? 'Unlock' : 'Lock'}

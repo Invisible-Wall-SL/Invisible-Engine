@@ -111,8 +111,8 @@
 	import { dialogQueue } from '$lib/dialogs.svelte';
 	import { firstChildIdOf, lockedInTree, parentIdOf } from '$lib/editor/hierarchy';
 	import {
-		isControlTarget,
 		isTypingTarget,
+		ownsFocusKeys,
 		SHORTCUT_SHEET,
 		stageShortcut,
 		ZOOM_STEP,
@@ -4624,9 +4624,9 @@
 			// Plain click: keep an existing multi-selection if you grabbed a member
 			// (so you can group-drag it); otherwise select just this node.
 			if (!selectedIds.includes(node.id)) selectOnly(node.id);
-			// Locked nodes select but never move; background-cover nodes select but
-			// never drag (transform is synthesised). Only movement is locked, not selection.
-			if (!animate && !node.locked && !isBackgroundCover(node)) startTranslate(node, world);
+			// Background-cover nodes select but never drag (transform is synthesised). Locked
+			// nodes never get here: `hitTestNode` clicks through them.
+			if (!animate && !isBackgroundCover(node)) startTranslate(node, world);
 			schedule();
 			e.preventDefault();
 			return;
@@ -4747,9 +4747,11 @@
 		}
 		const action = stageShortcut(e);
 		if (!action) return;
+		// `Enter` / `Tab` are the stage's only from the stage itself (focus on the page body or inside
+		// the canvas); on any focused widget they keep their meaning (press it, move focus on).
 		if (
 			(action.kind === 'selectFirstChild' || action.kind === 'toggleMode') &&
-			isControlTarget(e.target)
+			!ownsFocusKeys(e.target, document.body, wrap)
 		)
 			return;
 		if (applyStageAction(action)) e.preventDefault();
@@ -4797,7 +4799,7 @@
 	}
 
 	/** Arrow nudge (Design): every selected top-level node that the stage could drag moves by
-	 *  `dx`/`dy` in its own stored units — one undo step per press. */
+	 *  `dx`/`dy` in its own stored units. */
 	function nudgeSelection(dx: number, dy: number): boolean {
 		if (animate) return false;
 		const nodes = selectedIds

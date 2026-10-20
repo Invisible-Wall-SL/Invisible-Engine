@@ -488,7 +488,8 @@ Each row in the Outline (under the active screen in the Screens list, and the **
 Components side) has hover controls on its right:
 
 - **🔒 Lock.** The stage clicks straight through a locked node to whatever is under it, and it can't
-  be dragged, nudged or deleted. You can still select it from its row (to unlock it, or edit it in
+  be dragged (on the stage or in the Outline), nudged or deleted, and nothing can be dropped into
+  a locked container. You can still select it from its row (to unlock it, or edit it in
   Properties). Lock applies to children: rows under a locked container show a faint lock. Lock is
   saved with the screen, as the floating toolbar's lock always was. The game ignores it.
 - **◎ Isolate.** Shows only this node (its children, and the containers it sits in) on the stage.
@@ -502,8 +503,9 @@ visibility). They reset when you reload the page.
 Click **▸ / ▾** to fold a container. **Drag a row** to change the layer order: drop on the top or
 bottom edge of a row to land before or after it, or on the middle of a container to move into it
 (it becomes the container's last child, drawn on top). A node keeps its own x/y when it changes
-container, so it moves with its new container. You can't drop a container into itself. Dragging
-is off in Animate.
+container, so it moves with its new container. You can't drop a container into itself, and a node
+that fills a template slot or binds an engine component reorders at the top level only (that is
+where the editor and the game look it up). Dragging is off in Animate.
 
 **Right-click a row** for: Copy, Paste, Delete (on the selection when the row is in it), Lock,
 Hide, Isolate, **◇ Create component** (containers; the same as Properties' *Edit as component*) and
@@ -513,7 +515,8 @@ and Isolate. Animate leaves out the editing items.
 ### Keyboard shortcuts
 
 Press **Shift+/** (or **?** in the canvas bar) for this sheet over the stage. No stage key fires
-while you type in a field. **Enter** and **Tab** keep their normal meaning while a button has focus.
+while you type in a field. **Enter** and **Tab** belong to the stage only when nothing else has
+focus (click the stage first); on a focused button, tile or tab they press it or move focus on.
 
 | Keys | Does |
 |---|---|

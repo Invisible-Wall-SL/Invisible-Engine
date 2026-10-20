@@ -11,9 +11,9 @@
  */
 import { readFileSync } from 'node:fs';
 import {
-	isControlTarget,
 	isTypingTarget,
 	NUDGE_PX,
+	ownsFocusKeys,
 	NUDGE_SHIFT_PX,
 	SHORTCUT_SHEET,
 	stageShortcut,
@@ -95,9 +95,21 @@ check('contenteditable', isTypingTarget({ tagName: 'DIV', isContentEditable: tru
 check('a div is not typing', isTypingTarget({ tagName: 'DIV', isContentEditable: false }), false);
 check('the body is not typing', isTypingTarget({ tagName: 'BODY' }), false);
 check('no target', isTypingTarget(null), false);
-check('a focused button keeps Enter/Tab', isControlTarget({ tagName: 'BUTTON' }), true);
-check('a focused link keeps Enter/Tab', isControlTarget({ tagName: 'A' }), true);
-check('the body does not', isControlTarget({ tagName: 'BODY' }), false);
+{
+	const body = { tagName: 'BODY' };
+	const inStage = { tagName: 'CANVAS' };
+	const stage = { contains: (n: never): boolean => n === (inStage as never) };
+	check('Enter/Tab are the stage’s from the page body', ownsFocusKeys(body, body, stage), true);
+	check('…and from inside the stage', ownsFocusKeys(inStage, body, stage), true);
+	check('…and with no target', ownsFocusKeys(null, body, stage), true);
+	check('a focused button keeps them', ownsFocusKeys({ tagName: 'BUTTON' }, body, stage), false);
+	check(
+		'a focused role=button tile keeps them (no Tab trap)',
+		ownsFocusKeys({ tagName: 'DIV' }, body, stage),
+		false,
+	);
+	check('an outline row keeps them', ownsFocusKeys({ tagName: 'DIV' }, body, undefined), false);
+}
 
 // ── 3. the sheet covers the map ────────────────────────────────────────────────
 {
@@ -136,7 +148,11 @@ check('the body does not', isControlTarget({ tagName: 'BODY' }), false);
 		true,
 	);
 	check('only the canvas on screen answers', body.includes('getClientRects().length === 0'), true);
-	check('Enter/Tab defer to a focused control', body.includes('isControlTarget(e.target)'), true);
+	check(
+		'Enter/Tab defer to any focused widget',
+		body.includes('ownsFocusKeys(e.target, document.body, wrap)'),
+		true,
+	);
 }
 
 if (failures > 0) {

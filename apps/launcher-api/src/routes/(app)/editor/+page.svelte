@@ -97,6 +97,7 @@
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
+	import { isTypingTarget } from '$lib/editor/stageShortcuts';
 	import { effectiveHiddenIds, lockedInTree, moveNode, type DropZone } from '$lib/editor/hierarchy';
 	import type { PageData } from './$types';
 
@@ -2888,19 +2889,6 @@
 		} finally {
 			refreshingComponents = false;
 		}
-	}
-
-	/** True when a keystroke is destined for a text field — so editor shortcuts
-	 * (undo, copy/paste, duplicate) don't hijack typing in the panels. */
-	function isTypingTarget(t: EventTarget | null): boolean {
-		const el = t as HTMLElement | null;
-		return (
-			!!el &&
-			(el.tagName === 'INPUT' ||
-				el.tagName === 'TEXTAREA' ||
-				el.tagName === 'SELECT' ||
-				el.isContentEditable)
-		);
 	}
 
 	/** Page-level editor shortcuts (the canvas owns Delete/Escape on its own listener).

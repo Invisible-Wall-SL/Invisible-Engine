@@ -90,10 +90,15 @@ export function isTypingTarget(t: unknown): boolean {
 	);
 }
 
-/** A button or link has focus: `Enter` and `Tab` keep their native meaning (press it, move focus). */
-export function isControlTarget(t: unknown): boolean {
-	const el = t as TargetLike | null;
-	return !!el && typeof el === 'object' && (el.tagName === 'BUTTON' || el.tagName === 'A');
+/** `Enter` and `Tab` belong to the stage only when focus is on the page body or inside the stage;
+ *  on any focused widget (a button, a tile, a tab) they keep their native meaning. */
+export function ownsFocusKeys(
+	target: unknown,
+	body: unknown,
+	stage: { contains(node: never): boolean } | undefined,
+): boolean {
+	if (target === null || target === undefined || target === body) return true;
+	return !!stage && stage.contains(target as never);
 }
 
 export interface ShortcutRow {
