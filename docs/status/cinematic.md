@@ -351,6 +351,7 @@ through the same player; headless-proven, no editor yet (5b).
 | `apps/launcher-api/scripts/check-shared-timeline-ship.ts` (`check:shared-timeline-ship`, Phase 9d) — the REAL promote / list / get / save / desktop-bake handlers on an in-memory R2: the capability gate, versions and snapshots, a stale `baseEtag`, a link in another project storing only its placement, `get` resolving and retargeting it with the update, the bake writing the resolved timeline (no link field) that the game's own `ComponentTimelinePlayer` plays (alpha + its Report event cue), Update / Detach / a missing version / a starter, a `/rigger`-style save refused, a shared read failing at publish (the last exported copy ships; a partial load prunes nothing), and the promote race (two promoters, a stray snapshot, a corrupt or deleted pointer) | **42/42** |
 | `apps/launcher-api/scripts/check-timeline-rows.ts` (`check:timeline-rows`, Phase 9d) — Report event (`signal:` cue, one undo step, fired once by the game), visibility keys (game + preview), text count-up / switch keys (game sample, editor preview, mode switch, a modeless track, prune), and a doc mounted with `textRows` staying byte-identical | **27/27** |
 | `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name only (never an id) + validation, no self-restart from a timeline's own cue, export of a component timeline no Flow node names | **39/39** |
+| `scripts/check-cinematic-ticker.mjs` (`pnpm check:cinematic-ticker`) — the REAL `<Cinematic>` compiled and mounted through Svelte's client runtime on a hand-stepped ticker: a one-shot plays to `oncomplete` with its playhead rising every frame and lands on its last frame; `loop` / `pingPong` docs and the `loop` prop never complete and keep advancing; a new `doc.id` (one-shot and mid ping-pong back leg) or `startTime` re-arms it and a new `speed` or `playing` does not (each changed alone; see open item 10); loops run on frames that do not divide the doc, so a wrap's overshoot is carried; each cue fires once (once a lap, out legs only for a ping-pong); unmount leaves the ticker | **37/37** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
 ### What the gates established
@@ -427,6 +428,21 @@ through the same player; headless-proven, no editor yet (5b).
    tap dim and the HUD live. The guide says to Show the screen first; decide whether such a play
    should instead show nothing, or mount the screen at its own band.
 
+10. **A playing `<Cinematic>` restarts whenever the flow's playing set changes** (found by the
+    ticker gate's review, 2026-10-20; older than Phase 9b). The re-arm `$effect` reads
+    `props.doc.id`, which tracks the `doc` prop's getter, and `FlowV2Cinematics` hands every prop off
+    an entry object it rebuilds when any cinematic starts or ends, or a host screen's `setMounted`
+    flips. So a second cinematic starting (or one completing) sends every other playing one back to
+    its start and fires its cues again. Tracking only the id is not enough: a replay of a
+    still-playing id relies on the same rebuild to restart it, so the fix needs a play generation
+    from the flow runtime (a key, or a prop the effect reads).
+
+11. **A looping `<Cinematic>` skips a cue inside a wrap's overshoot** (same review; older than
+    Phase 9b, on the `loop` prop path). `cuesCrossed` sees only the stretch before the wrap, so a
+    cue key closer to 0 than the frame's overshoot never fires on later laps (at 17 ms frames, a
+    cue at 0.005 s fired 2 times in 3.5 s instead of 4). A ping-pong, which keeps an unwrapped lap
+    clock, is unaffected.
+
 ## Blocked (owner / external)
 
 - Nothing external.
@@ -436,6 +452,17 @@ through the same player; headless-proven, no editor yet (5b).
 - 2026-10-20 — **Phase 9d: the shared timeline library and the cue / text / visibility rows**
   (branch `claude/rive-p9d-shared-library`, in review). Storage, link format and ship chain in
   Current state above; the editor side in [editor status](editor.md) 2026-10-20 (9d).
+- 2026-10-20 — **Gate: `<Cinematic>` plays on a ticking clock** (`check:cinematic-ticker`, run by
+  `check:all`). The hotfix below was invisible to CI because nothing mounted the player on a clock.
+  The gate compiles the REAL `Cinematic.svelte`, mounts it with a fake app context whose ticker it
+  steps frame by frame, and asserts what the Gates table lists. On the pre-fix `lap = time` it
+  fails 21 of 37 (the playhead never leaves 0); with the fix all pass. It also catches a re-arm
+  that keeps `done` or the ping-pong lap, a loop or ping-pong that drops a wrap's overshoot, and a
+  ticker left subscribed after unmount. Its review found two older playback bugs, open items 10
+  and 11. The DOM shim it shares with `verify-pot-meter-mount.mjs` moved to
+  `scripts/lib/svelte-dom-shim.mjs`. Not covered: `ComponentInstance.svelte`'s ticker wiring of
+  the component timeline player; the player itself is stepped by `check:component-timelines` and
+  `check:cinematic-ease`, but nothing mounts the instance on a clock.
 - 2026-10-20 — **Hotfix: in-game timelines stuck on frame 0 since Phase 9b** (branch
   `claude/fix-cinematic-rearm`). Reported on `commonoverlayproject`: the bonus's pot and curtain
   timelines never played, and the awaited Flow chain after them never ran. 9b's re-arm `$effect` in
