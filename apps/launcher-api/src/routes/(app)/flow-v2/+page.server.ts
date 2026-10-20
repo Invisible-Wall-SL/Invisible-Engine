@@ -22,9 +22,10 @@ import {
 } from '$lib/flowV2Projection';
 import { withPlacedComponentVersions } from '$lib/server/flowV2Validation';
 import { listCinematics, loadCinematic } from '$lib/server/cinematicStorage';
+import { resolveProjectCinematic } from '$lib/server/sharedCinematics';
 import { cinematicPickerOptions, type CinematicPickerOption } from '$lib/timeline/screenTimeline';
 import { docNamesInstance } from 'engine-flow-v2';
-import { validateNodeActors, type Scene } from 'engine-layout';
+import { validateNodeActors, type CinematicDoc, type Scene } from 'engine-layout';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -226,7 +227,15 @@ async function cinematicChoices(
 				timelineIssues[row.id] = [`Its screen "${sceneId}" is not in this project's layout.`];
 				continue;
 			}
-			const { doc } = await loadCinematic(clientKey, projectKey, row.id);
+			const { doc: stored } = await loadCinematic(clientKey, projectKey, row.id);
+			// A link to a shared timeline is checked as what it plays (Phase 9d), not as its stub.
+			const doc = (stored && (await resolveProjectCinematic(stored))) as CinematicDoc | null;
+			if (stored && !doc) {
+				timelineIssues[row.id] = [
+					`It links to shared timeline "${stored.shared?.id}" v${stored.shared?.version}, which is gone: it ships nothing.`,
+				];
+				continue;
+			}
 			// No effect docs are read here, so an effect's `fx:` channels go unchecked on this page;
 			// the editor checks them against the project's own effects.
 			const issues = doc

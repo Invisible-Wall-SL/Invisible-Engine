@@ -78,6 +78,7 @@ const stubR2 = {
 				export class ConflictError extends Error {}
 				export const precondition = (e) => e === undefined ? undefined : e === null ? { ifNoneMatch: '*' } : { ifMatch: e };
 				export async function getObjectTextWithEtag(key) { return B.get(key) ?? null; }
+				export async function getObjectText(key) { return B.get(key)?.text ?? null; }
 				export async function putObjectText(key, text, _t, cond) {
 					const cur = B.get(key);
 					if (cond?.ifNoneMatch === '*' && cur) throw new ConflictError(key);

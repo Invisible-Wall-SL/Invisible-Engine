@@ -245,6 +245,13 @@ const UNPINNED_WRITES: { file: string; call: string; context?: RegExp; why: stri
 			'the promote to the shared library has no project (componentPublish-gated); its ' +
 			'`promotedFrom` names the project def it copies, read for its unknown fields only',
 	},
+	{
+		file: 'EditorTimelinePanel.svelte',
+		call: "fetch('/api/cinematics/shared/promote', {",
+		why:
+			'a timeline promote writes the global _shared/cinematics/ library (componentPublish-gated, ' +
+			'Rive plan Phase 9d); the project timeline it copies is sent in the body, not read',
+	},
 ];
 /** Code only: line, block and HTML comments removed, never inside a string (a glob, a URL). */
 function code(text: string): string {

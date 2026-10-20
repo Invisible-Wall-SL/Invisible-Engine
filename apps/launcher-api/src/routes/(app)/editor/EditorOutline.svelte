@@ -7,6 +7,7 @@
 </script>
 
 <script lang="ts">
+	import { componentUpdateAvailable } from '$lib/timeline/sharedTimelines';
 	import type { GameTemplate, LayoutNode, Scene } from 'engine-layout';
 	import { tick } from 'svelte';
 	import {
@@ -56,6 +57,9 @@
 		onDelete?: (id: string) => void;
 		onCreateComponent?: (id: string) => void;
 		onShowInFlow?: (id: string) => void;
+		/** Resolved component defs by id: a placed SHARED component pinned below its latest version
+		 *  shows an "update available" badge on its row (Rive plan Phase 9d). */
+		componentMap?: ReadonlyMap<string, { scope?: string; version?: number }>;
 	}
 	let {
 		scene,
@@ -79,7 +83,15 @@
 		onDelete,
 		onCreateComponent,
 		onShowInFlow,
+		componentMap,
 	}: Props = $props();
+
+	/** The newer shared version a placed component could update to, or null. */
+	function updateOf(node: LayoutNode): number | null {
+		if (node.kind !== 'componentInstance') return null;
+		const def = componentMap?.get(node.componentId);
+		return componentUpdateAvailable(node.componentVersion, def) ? (def?.version ?? null) : null;
+	}
 
 	let treeEl = $state<HTMLUListElement | undefined>();
 
@@ -351,6 +363,14 @@
 				>
 					<span class="glyph">{kindGlyph(node.kind)}</span>
 					<span class="label">{node.label ?? node.id}</span>
+					{#if updateOf(node) !== null}
+						<span
+							class="upd"
+							title="The shared component has a newer version (v{updateOf(
+								node,
+							)}). Select it and use Update to latest in Properties.">↑ v{updateOf(node)}</span
+						>
+					{/if}
 					<span class="kind">{node.kind}</span>
 				</button>
 				<span class="ctl">
@@ -845,5 +865,13 @@
 	}
 	.status.missing {
 		color: #ff9a9a;
+	}
+	.upd {
+		flex: none;
+		padding: 0 4px;
+		border-radius: 3px;
+		font-size: 9px;
+		color: #0c0f14;
+		background: #ffd24a;
 	}
 </style>
