@@ -5,6 +5,29 @@
 > superseded, or whose whole lesson now lives in a spike or gate, were dropped. Before 2026-07-16:
 > [docs/history.md](../history.md).
 
+- 2026-10-20 — **The graph editor drew y and scaleY with x's tangents.**
+  - **Symptom.** In the Graph view, a bone's y curve with flat tangent handles on a middle key drew as
+    a sharp V through that key, its handles visibly not touching the line. Playback and the saved rig
+    were right; only the drawn line was wrong.
+  - **Cause.** A two-value key's `curve` holds four numbers per value index (x at 0–3, y at 4–7), and
+    `sampleChannel(keys, t, fields)` reads a field's numbers at `fields.indexOf(field) * 4`. Posing
+    passes `["x", "y"]`, so it reads both halves correctly. `renderGraphBody` passed `[c.field]`, so y
+    took index 0 and was drawn from x's control times AND values (x's 25 / 5 standing in for y's
+    25 / −380). The handle drawing and handle drag already used `vi * 4`, so the handles were right
+    and the line was not. The sampling line predates 2026-09-22, so no recent change caused
+    it. It shows only once x and y are eased
+    differently.
+  - **Fix.** `graphValueAt(c, t)` gives `sampleChannel` the channel's whole field list (`["value"]`
+    for rotate, `["x", "y"]` otherwise) and picks the graphed field. No other caller samples a subset
+    of a multi-value channel.
+  - **Verified.** `tools/rigger-spike/graphcurve.mjs` pulls `GRAPH_CHANS`, `graphValueAt`,
+    `sampleChannel` and `bezierValue` out of `view.html` and compares every graphed curve with the
+    bone values `engine-rig` plays (41 samples, tolerance 2% of the keys' span, for the runtime's
+    10-piece bezier). The fixture is the reported case: a deep y dip with flat handles beside a
+    shallow x dip, plus scale keys eased differently per axis. Worst Δ with the fix: y 3.1 of 8.1
+    allowed. With the old sampling: y off by 223, scaleY by 0.13, so it fails. The spike also checks
+    that its own fixture would still catch the old bug.
+
 - 2026-10-16 — **A header with no `hash` / `spine` read differently from the reference.**
   - **Symptom.** `node tools/rig-parity/parity.mjs`: 2 failures out of 80,567 checks, both in the
     header comparison, on `static/rigs/physics-swing.json` and `two-pages.json`. In the gate's

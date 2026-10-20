@@ -60,5 +60,8 @@ Railway auto-deploys each service from `main` on push. For the full checklist (b
 ## Working with Claude in this repo
 - Domain subagents exist for focused work: **engine-pixi-svelte**, **atlas-python-tools**, **infra-railway**, plus **code-reviewer**. Use them for tasks in their area.
 - Skills: **`/deploy`** (deploy checklist).
+- MCP: **`playwright`** (`.mcp.json`) gives every session a scriptable browser. Its launcher,
+  `scripts/playwright-mcp.mjs`, runs it on the installed Chrome on a desktop and on Playwright's
+  headless Chromium in a cloud container.
 - When you finish work, update that tool's `docs/status/<tool>.md` — the committed docs are the
   shared memory across people and sessions (see `docs/status/README.md`).
