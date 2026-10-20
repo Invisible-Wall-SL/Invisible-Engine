@@ -17,7 +17,7 @@ Online 4.2-format skeleton editor at `/rigger` (launcher-native, full-page, `rig
 - **Image sequences** — declare a numbered atlas run as a rig `sequence`, key it (mode / start image / hold), shown as a dopesheet track. The editor refuses any declaration that does not fully resolve against the atlas, because rig's loader throws on it and the rig would no longer open.
 - **Mesh** — region→mesh and draw-a-mesh (drawing the image's own pixels on a trimmed or rotated atlas region, keeping a sequence's frames; a banner offers **🩹 Repair** for meshes earlier versions mapped wrong), vertex move/add/remove, constrained-Delaunay re-triangulate, UV panel (3.6a), constraint edges (✎ Edge, 3.6b), hull promote/demote (⬡ Hull, 3.6c), isolated-mesh edit (⛶), linked meshes (a source on the same slot, in any skin). Every index-keyed store, deform timelines included, is permuted through `permuteMeshVertices` / `reorderDeform`.
 - **Weights** — bind-to-bone, per-vertex numeric editing, weight brush + heatmap, and **Auto-weight to chain** (inverse-square distance to the chain's length-bearing bone segments, ≤4 influences).
-- **Animation** — keyframing, dopesheet (multi-select, marquee, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**), graph editor, slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
+- **Animation** — keyframing, dopesheet (multi-select, marquee, alt-drag duplicate, per-key and per-selection easing, **stretch about an anchor key**), graph editor (every key read as the runtime reads it: a time or value the file leaves at its default is filled in when the rig opens, `normalizeKeys`), slot / draw-order / deform / sequence channels, and **timeline events** that can bind an Invisible **FX** effect and/or an Invisible **Flipbook** clip to ONE keyframe (`animation` + `time` baked as a `RigBeat`), with draw-at-slot depth, alpha / scale / delay / duration / speed and a **Continuous** flag. The stage previews FX and clips on an overlay on each side of the rig.
 - **Localized text as art** — a text element is rasterised once per locale onto a second page of the rig's own atlas and placed as `<id>@<locale>` region attachments; the engine swaps attachments at mount. Opening a rig re-bakes and saves drifted text; wide translations are re-rasterised smaller to the source width. Design: [invisible-cinematic §12.4a](../design/invisible-cinematic.md).
 - **Bounds** — the frame that fills a symbol cell, read where the header puts it (`authoredRigBox`) by `/symbols`, the Scene Editor and the game (`<RigProvider centreBox>`). A carrier rig (bindings, no art) is sized from its bound clips' declared boxes, or seeded for hand-drawing.
 - **Origin** — a rig placed on a screen sits by its skeleton origin (the Scene Editor and the game put it on the node's x/y); fitting into a box (a symbol cell) is what reads the Bounds frame. The origin is the amber ⊕ on the stage with Bones or Bounds on, and **⊕ Centre origin** moves the root bone(s) so the frame's centre is the origin (`centreRigOrigin`), naming the root on an FX / clip binding with no bone or slot so the game keeps drawing it where the Rigger did.
@@ -69,6 +69,18 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 15. ~~The parity gates run only by hand~~ — `parity.mjs` runs in CI as the advisory `rig parity`
     workflow, 2026-10-16 (Recent changes). `fuzz.mjs` (~30 s, pure Node) could join it;
     `render.mjs` / `render-webgl.mjs` need Chromium and stay manual.
+16. **Before a bone channel's first key, the preview shows that key; the game shows the setup
+    pose.** `sampleChannel` returns `keys[0]` for any `t` at or before it, while engine-rig holds the
+    setup value until the first key. 340 channels of the anticipation rig differ there (e.g.
+    `anticipation1_intro` / `radial13` scale.x at 0: 0.08 in the Rigger, 1 in the game). Constraint
+    tracks already skip until their first key (2026-10-20); bone channels could do the same.
+    `tools/rigger-spike/keydefaults.mjs` compares bones only from their first key on for this
+    reason (`before: false`); drop that with the fix.
+17. **◆ Key IK keys softness 0, bend +, no compress, no stretch, not the setup's values.** It always
+    has (a mix-only key means exactly that to the runtime); since 2026-10-20 the preview shows it too.
+    So keying an IK whose setup bends negative flips the bend for the clip, in the game and now in
+    the preview. Keying the setup's values, as ◆ Key transform / path / physics already do, would
+    change what newly keyed IK plays. That is the owner's call.
 
 ## Blocked (owner / external)
 
@@ -80,6 +92,25 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 
 Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger-history.md).
 
+- 2026-10-20 — **A key that leaves a value at its default previews as the game plays it.** Rig
+  JSON omits a key's value when it equals the default, and the desktop editor's rigs do (556 of the
+  anticipation rig's 1,483 scale keys). The Rigger read every omitted value as 0, or as the
+  constraint's setup value. Not every default is 0:
+  scale is 1, IK mix is 1, and transform and path mixes are 1, with mixY taken from mixX and
+  mixScaleY from mixScaleX. So `anticipation1_intro`'s `glow` previewed at scaleY 0 for the whole
+  clip while the game played 1. That affected the animate preview, the graph's curves, dots and
+  range, the easing presets and the constraint posing. `fillKeyDefaults` now writes engine-rig's
+  defaults (`KEY_DEFAULTS`) into every key once, at open, clip import and rig-library merge,
+  alongside `normalizeKeyTimes` (`normalizeKeys`). ◆ Key IK writes all five IK fields, and the IK
+  preview now steps compress / stretch too. Before its first key, a constraint track now holds the
+  setup values, as the runtime does; the filled first key would otherwise have shown there. A save
+  of a desktop rig now writes those defaults out (larger file, same playback). Gates:
+  `tools/rigger-spike/keydefaults.mjs` (in `check:all`) and `graphcurve.mjs` (a second bone with
+  omitted values). The new spike checks the table against a hand-written list of the fields
+  engine-rig reads, and checks the three load paths call `normalizeKeys`. Against engine-rig it
+  then checks that: the filled rig loads into the same timelines as the file; every clip poses as
+  engine-rig plays it; a fixture leaving out every defaulted field also poses right; and without
+  the fill it fails. All 155 repo rigs pass; before the fix, 10,754 channels on 134 of them read wrong.
 - 2026-10-20 — **⊕ Centre origin, and the origin is drawn** (in review, ⏳ not browser-verified).
   Reported: a new rig (`R_Widget`) looked right here but drew far up-left of its selection box in
   the Scene Editor. A placed rig sits by its skeleton origin, and this rig's art sat ~950 px left of

@@ -2105,7 +2105,7 @@ function buildSkeleton(entry){
   let parsed = entry.format === "json" ? assetMgr.require(entry.skeleton_file) : null;
   if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
-  normalizeKeyTimes(rawDoc);
+  normalizeKeys(rawDoc);
   // A rig that binds clips needs the project clip list for more than the inspector: it is what
   // `bindingContentBounds` measures a carrier rig's size FROM, and that runs on save. Loading it
   // lazily from the event panel meant a rig opened and saved without opening a key measured
@@ -2647,10 +2647,11 @@ function importAnimation(animation, desiredName){
     const nm = uniqueAnimName(desiredName || "animation");
     rawDoc.animations = rawDoc.animations || {};
     rawDoc.animations[nm] = JSON.parse(JSON.stringify(animation));
-    // Every reader in here treats `k.time` as a number, and rig OMITS it at 0 — the rig load path
-    // normalizes for exactly that reason, but a clip arriving from the library or the clipboard
-    // skipped it, so a key written that way would compare as NaN (never found, never retimed).
-    normalizeKeyTimes({ animations: { [nm]: rawDoc.animations[nm] } });
+    // Every reader in here treats `k.time` and a key's values as numbers, and rig OMITS them at
+    // their defaults — the rig load path normalizes for exactly that reason, but a clip arriving
+    // from the library or the clipboard skipped it, so an omitted time compared as NaN (never
+    // found, never retimed) and an omitted value read as 0 or as the setup's.
+    normalizeKeys({ animations: { [nm]: rawDoc.animations[nm] } });
     animsDirty = true; markDirty();
     if (!animMode) setMode("animate");
     setCurAnim(nm); // setCurAnim re-renders the Animations section
@@ -3869,6 +3870,7 @@ async function importRig(id){
     setRigStatus("that rig entry is empty or invalid"); return;
   }
   const src = JSON.parse(JSON.stringify(entry.skeleton));
+  normalizeKeys(src); // its clips join the open rig's, which every reader here assumes are normalized
 
   // Unique prefix: r2Slug(name)+"_", bumped until NO imported name collides.
   const slug = (entry.name || "rig").toLowerCase().replace(/[^a-z0-9]/g, "_").slice(0, 60) || "rig";
@@ -9917,6 +9919,54 @@ function normalizeKeyTimes(doc){
   };
   walk(doc.animations);
 }
+/**
+ * Rig JSON omits a key's VALUES at their defaults too, and not every default is 0: a scale key's
+ * x / y default to 1, an IK key's mix to 1, a transform or path key's mixes to 1 (mixY falls back
+ * to the key's mixX, mixScaleY to its mixScaleX). The readers here took an omitted value as 0
+ * (`sampleChannel`, the graph) or as the constraint's SETUP value, so the anticipation rig's `glow`
+ * scale keys, `[{"x":0.6},{"time":0.6667}]`, previewed at scaleY 0 for the whole clip while the
+ * game played 1. Keys this tool writes carry every field; rigs from the desktop editor do not.
+ *
+ * Same cure as `normalizeKeyTimes`: write each default once, at load, which is what the file
+ * already means. The table is engine-rig's `skeletonJson.ts` (readTimeline1 / readTimeline2 and
+ * the constraint readers), held to it by tools/rigger-spike/keydefaults.mjs. A physics key's value
+ * defaults to 0 on EVERY channel, not to the constraint's setup defaults (`PC_SIM_DEFAULT`). A
+ * string default names the earlier field of the same key it copies. A group given a list holds
+ * its constraints' key lists directly (`ik.<name>: [keys]`); the rest hold one list per channel.
+ */
+const KEY_DEFAULTS = {
+  bones: {
+    rotate: [["value", 0]], translate: [["x", 0], ["y", 0]], translatex: [["value", 0]], translatey: [["value", 0]],
+    scale: [["x", 1], ["y", 1]], scalex: [["value", 1]], scaley: [["value", 1]],
+    shear: [["x", 0], ["y", 0]], shearx: [["value", 0]], sheary: [["value", 0]],
+  },
+  slots: { alpha: [["value", 0]] },
+  ik: [["mix", 1], ["softness", 0], ["bendPositive", true], ["compress", false], ["stretch", false]],
+  transform: [["mixRotate", 1], ["mixX", 1], ["mixY", "mixX"], ["mixScaleX", 1], ["mixScaleY", "mixScaleX"], ["mixShearY", 1]],
+  path: { position: [["value", 0]], spacing: [["value", 0]], mix: [["mixRotate", 1], ["mixX", 1], ["mixY", "mixX"]] },
+  physics: Object.fromEntries(["inertia", "strength", "damping", "mass", "wind", "gravity", "mix"].map((ch) => [ch, [["value", 0]]])),
+};
+function fillKeyFields(keys, defs){
+  if (!Array.isArray(keys)) return;
+  for (const k of keys){
+    if (!k || typeof k !== "object") continue;
+    for (const [f, d] of defs) if (k[f] === undefined) k[f] = typeof d === "string" ? k[d] : d;
+  }
+}
+function fillKeyDefaults(doc){
+  if (!doc || !doc.animations) return;
+  for (const a of Object.values(doc.animations)){
+    if (!a || typeof a !== "object") continue;
+    for (const [group, defs] of Object.entries(KEY_DEFAULTS)){
+      for (const v of Object.values(a[group] || {})){
+        if (Array.isArray(defs)) fillKeyFields(v, defs);
+        else if (v && typeof v === "object") for (const [ch, chDefs] of Object.entries(defs)) fillKeyFields(v[ch], chDefs);
+      }
+    }
+  }
+}
+// What every animation needs before a reader here sees it: on open, on a clip import, on a rig merge.
+function normalizeKeys(doc){ normalizeKeyTimes(doc); fillKeyDefaults(doc); }
 
 // Sample a keyframe list at t honouring the FROM key's `curve` (linear default, "stepped",
 // or a bezier array — controls[v*4..] per value index). Verified vs engine-rig (curve.mjs).
@@ -9983,26 +10033,29 @@ function poseAtTime(name, t, additive){
       skeleton.drawOrder = order.map((oi) => skeleton.slots[oi]);
     }
   }
-  // ik channel: set the live IkConstraint's mix (+ bend/softness if keyed) so the IK solve
-  // previews in animate mode (updateWorld() runs the solver). Validated in ik.mjs.
+  // Constraint tracks below: before a track's first key the runtime holds the constraint's setup
+  // values, which `setToSetupPose` already left in place, so such a track is skipped (`beforeFirst`).
+  // Every key carries every field it plays (`KEY_DEFAULTS`). Validated in keydefaults.mjs.
+  const beforeFirst = (keys) => !Array.isArray(keys) || !keys.length || t < keys[0].time;
+  // ik channel: set the live IkConstraint's mix, softness, bend, compress and stretch so the IK
+  // solve previews in animate mode (updateWorld() runs the solver). Validated in ik.mjs.
   if (a.ik && skeleton.ikConstraints){
     for (const [name, keys] of Object.entries(a.ik)){
-      const ic = skeleton.ikConstraints.find((c) => c.data.name === name); if (!ic || !Array.isArray(keys) || !keys.length) continue;
-      const k = sampleChannel(keys, t, ["mix", "softness"]); if (!k) continue;
-      ic.mix = k.mix ?? ic.data.mix;
-      if (keys.some((kk) => "softness" in kk)) ic.softness = k.softness ?? ic.data.softness;
-      // bend is stepped (last key ≤ t) when authored
-      let bk = null; for (const kk of keys){ if (kk.time <= t + 1e-6) bk = kk; else break; }
-      if (bk && "bendPositive" in bk) ic.bendDirection = bk.bendPositive ? 1 : -1;
+      const ic = skeleton.ikConstraints.find((c) => c.data.name === name); if (!ic || beforeFirst(keys)) continue;
+      const k = sampleChannel(keys, t, ["mix", "softness"]);
+      ic.mix = k.mix; ic.softness = k.softness;
+      // bend / compress / stretch are stepped: the last key ≤ t
+      let bk = keys[0]; for (const kk of keys){ if (kk.time <= t + 1e-6) bk = kk; else break; }
+      ic.bendDirection = bk.bendPositive ? 1 : -1; ic.compress = bk.compress; ic.stretch = bk.stretch;
     }
   }
   // transform channel: set the live TransformConstraint's six mixes (the shared curve eases
   // all of them) so the constraint preview tracks the playhead. Validated in transform.mjs.
   if (a.transform && skeleton.transformConstraints){
     for (const [name, keys] of Object.entries(a.transform)){
-      const tc = skeleton.transformConstraints.find((c) => c.data.name === name); if (!tc || !Array.isArray(keys) || !keys.length) continue;
-      const k = sampleChannel(keys, t, TC_MIXES); if (!k) continue;
-      for (const f of TC_MIXES) tc[f] = k[f] ?? tc.data[f];
+      const tc = skeleton.transformConstraints.find((c) => c.data.name === name); if (!tc || beforeFirst(keys)) continue;
+      const k = sampleChannel(keys, t, TC_MIXES);
+      for (const f of TC_MIXES) tc[f] = k[f];
     }
   }
   // path channel: set the live PathConstraint's position/spacing/mix so the constraint solve
@@ -10011,12 +10064,9 @@ function poseAtTime(name, t, additive){
   if (a.path && skeleton.pathConstraints){
     for (const [name, chans] of Object.entries(a.path)){
       const pc = skeleton.pathConstraints.find((c) => c.data.name === name); if (!pc || !chans) continue;
-      let k;
-      if (Array.isArray(chans.position) && chans.position.length && (k = sampleChannel(chans.position, t, ["value"]))) pc.position = k.value ?? pc.data.position;
-      if (Array.isArray(chans.spacing) && chans.spacing.length && (k = sampleChannel(chans.spacing, t, ["value"]))) pc.spacing = k.value ?? pc.data.spacing;
-      if (Array.isArray(chans.mix) && chans.mix.length && (k = sampleChannel(chans.mix, t, PC_MIXES))){
-        pc.mixRotate = k.mixRotate ?? pc.data.mixRotate; pc.mixX = k.mixX ?? pc.data.mixX; pc.mixY = k.mixY ?? pc.data.mixY;
-      }
+      if (!beforeFirst(chans.position)) pc.position = sampleChannel(chans.position, t, ["value"]).value;
+      if (!beforeFirst(chans.spacing)) pc.spacing = sampleChannel(chans.spacing, t, ["value"]).value;
+      if (!beforeFirst(chans.mix)){ const k = sampleChannel(chans.mix, t, PC_MIXES); for (const f of PC_MIXES) pc[f] = k[f]; }
     }
   }
   // physics channel: set the live PhysicsConstraint's sim params from the per-channel timelines
@@ -10027,9 +10077,8 @@ function poseAtTime(name, t, additive){
     for (const [name, m] of Object.entries(a.physics)){
       const pc = skeleton.physicsConstraints.find((c) => c.data.name === name); if (!pc || !m) continue;
       for (const ch of PC_VAL_CHANS){
-        if (!Array.isArray(m[ch]) || !m[ch].length) continue;
-        const k = sampleChannel(m[ch], t, ["value"]); if (!k) continue;
-        const v = k.value; if (!Number.isFinite(v)) continue;
+        if (beforeFirst(m[ch])) continue;
+        const v = sampleChannel(m[ch], t, ["value"]).value;
         if (ch === "mass") pc.massInverse = v > 1e-6 ? 1 / v : 1; else pc[ch] = v;
       }
       if (Array.isArray(m.reset) && m.reset.length){
@@ -10859,8 +10908,9 @@ function deleteDeformKeyAt(tr, time){
 }
 
 // ---- IK constraint timeline (§18 item 3) ----------------------------------
-// animations.<a>.ik.<name> = [{ time, mix, softness?, bendPositive?, compress?, stretch?,
-// curve? }]. We key MIX (the FK→IK reveal); curve eases the mix channel (one bezier).
+// animations.<a>.ik.<name> = [{ time, mix, softness, bendPositive, compress, stretch, curve? }]
+// (all five filled at load, `KEY_DEFAULTS`). We key MIX (the FK→IK reveal); curve eases the mix
+// channel (one bezier).
 // Validated against engine-rig@4.2.74 in tools/rigger-spike/ik.mjs.
 const ikChannelArr = (name) => { const a = animOf(curAnim); return a && a.ik && Array.isArray(a.ik[name]) ? a.ik[name] : null; };
 function ikKeyTimes(name){ const arr = ikChannelArr(name); return arr ? arr.map((k) => roundN(k.time, 4)).sort((a, b) => a - b) : []; }
@@ -10874,6 +10924,9 @@ function keyIk(name){
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   a.ik = a.ik || {}; a.ik[name] = a.ik[name] || [];
   upsertKey(a.ik[name], animTime, { mix: roundN(def.mix ?? 1, 4) });
+  // The other four at the format's defaults, which is what a mix-only key has always played: the
+  // runtime takes them from the key, never from the setup.
+  fillKeyFields(a.ik[name], KEY_DEFAULTS.ik);
   markDirty(); animsDirty = true; refreshAnimCounts(); buildInspector(selected);
 }
 function deleteIkKeyAt(name, time){
