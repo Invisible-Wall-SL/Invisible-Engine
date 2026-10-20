@@ -172,9 +172,14 @@ orphan.
   `INTRO_BEAT_CAP_MS`, slammable) so the held layer does not cut the last coin short, skips the cue
   it already played, and an unbound `coinStick` on those cells draws `coinIdle` instead of replaying
   `land` (`respinHeldDrawState`; the beat state is still `coinStick`, so the label's stick pop
-  fires). A stick with no stop before it (mystery reveal, special becoming a coin) borrows `land` as
-  before. New `createRespinBoard` dep `onCellLand(reel, row, symbol)`, called as each cell's spin
-  resolves. Off ⇒ byte-parity (no new await, no new write). Gates: the rules in
+  fires) and is held with `capMs: 0`, so a looping idle adds no wait. A stick with no stop before it
+  (mystery reveal, special becoming a coin) borrows `land` as before. The blank never lands at its
+  stop (`respinCellStopState`), whatever it binds. A coin board's base spin runs on the same board,
+  so the switch applies there too (no `coinsLand` follows it; `landed` clears at the next spin).
+  With `coinLand` bound, the stop draws it and an unbound stick draws the rest, so `land` itself
+  never plays with the switch on — by the "a bound cell wins at its own moment" rule. New
+  `createRespinBoard` dep `onCellLand(reel, row, symbol)`, called as each cell's spin resolves. Off
+  ⇒ byte-parity (no new await, no new write). Gates: the rules in
   `engine-game/fixtures/respinBoard.fixture.ts`; the chain (schema, setter, `docSignature`, export,
   endpoint, bake whitelist, reader, the three game call sites) in `check:respin-land`
   (mutation-tested). Real clock (headless shell, 4 fps): `createRespinBoard` fired `onCellLand` per

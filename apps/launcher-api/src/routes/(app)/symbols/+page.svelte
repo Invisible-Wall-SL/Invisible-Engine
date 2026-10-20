@@ -4412,7 +4412,9 @@
 										and it still plays as the coins stick; bind <strong>Coin land</strong> and that
 										plays at the stop instead of <strong>Land</strong>. A mystery or a multiplier
 										turning into a coin has no cell stop, so it still lands as it sticks. The coins
-										stick once the last coin's <strong>Land</strong> has finished.
+										stick once the last coin's <strong>Land</strong> has finished. On a coin board
+										the base game spins on this board too, so its coins also play
+										<strong>Land</strong> as their cells stop.
 									</p>
 								</div>
 							</div>

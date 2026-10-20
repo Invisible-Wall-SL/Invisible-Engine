@@ -696,7 +696,10 @@ stops**, off by default.
 Either way, a bound cell wins at its own moment: a bound **Coin land** draws at the stop instead of
 **Land**, and a bound **Coin stick** still plays as the coins stick. A mystery or a multiplier
 turning into a coin has no cell stop, so it still plays **Land** through **Coin stick** with the
-switch on. Assetless: it travels to the game as `bundle.symbols.respinLandOnStop`.
+switch on. An empty cell never plays **Land**, even if the blank symbol binds one. On a **coin
+board** the base game spins on this same board, so with the switch on every base spin's coins play
+**Land** as their cells stop as well. Assetless: it travels to the game as
+`bundle.symbols.respinLandOnStop`.
 
 ### Winning symbols after the spin
 

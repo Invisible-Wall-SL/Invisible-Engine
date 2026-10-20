@@ -115,6 +115,10 @@ check(
 check('…and puts it on the bundle', /\n\t{4,}respinLandOnStop,\n/.test(bake), true);
 
 console.log('\n4. the game reads it and acts on it at the stop, the held layer and the stick');
+/** Whitespace-blind containment, so a re-wrap of the source cannot fail a claim about its code. */
+const squash = (text: string): string => text.replace(/\s+/g, ' ').replace(/([([{]) /g, '$1');
+const holds = (source: string, ...snippets: string[]): boolean =>
+	snippets.every((snippet) => squash(source).includes(squash(snippet)));
 const scenes = readLF(`${root}apps/lines/src/editor-scenes.ts`);
 const landing = readLF(`${root}apps/lines/src/game/respinLanding.ts`);
 const board = readLF(`${root}apps/lines/src/game/stateRespinBoard.svelte.ts`);
@@ -123,73 +127,99 @@ const held = readLF(`${root}apps/lines/src/components/RespinHeldSymbol.svelte`);
 const presentation = readLF(`${root}apps/lines/src/game/holdAndWinPresentation.ts`);
 check(
 	'the reader resolves runtime → baked → off',
-	/runtimeBundle!\.symbols\?\.respinLandOnStop[\s\S]*bakedBundle\.symbols\?\.respinLandOnStop[\s\S]*return c\?\.enabled \?\? false;/.test(
+	holds(
 		scenes,
+		'runtimeBundle!.symbols?.respinLandOnStop',
+		'bakedBundle.symbols?.respinLandOnStop',
+		'return c?.enabled ?? false;',
 	),
 	true,
 );
 check(
-	'the game feeds the reader to the stop rule',
-	landing.includes('respinStopState(bakedRespinLandOnStop()'),
+	'the game feeds the reader to the stop rule, and the blank never lands',
+	holds(landing, 'respinStopState(bakedRespinLandOnStop() && name !== respinBlank(),'),
 	true,
 );
 check(
 	'a stopping cell draws the stop state',
-	cell.includes("symbol.symbolState === 'land' ? respinCellStopState(symbol.rawSymbol.name)"),
+	holds(cell, "symbol.symbolState === 'land' ? respinCellStopState(symbol.rawSymbol.name)"),
 	true,
 );
 check(
 	"…and reports its land's end, so the stick can wait for it",
-	/reelSymbol\.symbolState = 'static';\s*completeCellLanding\(key\);/.test(cell),
+	holds(cell, "reelSymbol.symbolState = 'static'; completeCellLanding(key);"),
 	true,
 );
 check(
 	'the board records a landing (and plays its cue) only with the switch on, never for the blank',
-	/if \(!bakedRespinLandOnStop\(\) \|\| symbol\.name === respinBlank\(\)\) return;\s*stateRespinBoard\.landed\.push\(respinCellKey\(reel, row\)\);\s*playSymbolLandSound\(symbol\.name, 1\);/.test(
+	holds(
 		board,
+		'if (!bakedRespinLandOnStop() || symbol.name === respinBlank()) return; ' +
+			'stateRespinBoard.landed.push(respinCellKey(reel, row)); ' +
+			'playSymbolLandSound(symbol.name, 1);',
 	),
 	true,
 );
-check('the board hands its reels the hook', /\n\t\tonCellLand,\n/.test(board), true);
+check(
+	'the board hands its reels the hook',
+	holds(board, 'onCellStopping: (reel) => onCellStopping(reel), onCellLand,'),
+	true,
+);
 check(
 	'a new spin forgets the last one',
-	/soundedColumns = \[\];\s*if \(stateRespinBoard\.landed\.length > 0\) stateRespinBoard\.landed = \[\];/.test(
+	holds(
 		board,
+		'soundedColumns = []; if (stateRespinBoard.landed.length > 0) stateRespinBoard.landed = [];',
 	),
 	true,
 );
 check(
 	'a held cell draws through `respinHeldState`',
-	held.includes('state={drawnState}') &&
-		held.includes(
-			'respinHeldState(cellState, props.cell.symbol.name, stateRespinBoard.landed.includes(key))',
-		),
+	holds(
+		held,
+		'state={drawnState}',
+		'respinHeldState(cellState, props.cell.symbol.name, stateRespinBoard.landed.includes(key))',
+	),
 	true,
 );
 check(
 	'…and the label pop still keys on the BEAT, not on what it draws',
-	held.includes("pops.land && cellState === 'coinStick'"),
+	holds(held, "pops.land && cellState === 'coinStick'"),
 	true,
 );
 const coinsLand = presentation.slice(presentation.indexOf('export const presentCoinsLand'));
 check(
 	'the stick waits for the stops only when one landed (off: no await, as before)',
-	coinsLand.includes(
-		'if (landed.length > 0) await roundSkip.race(awaitStopLandings(event.cells));\n\tsyncHeldCells();',
-	),
+	holds(coinsLand, 'if (landed.length > 0) await awaitStopLandings(event.cells); syncHeldCells();'),
 	true,
 );
 check(
 	'…plays the landing cue only for a coin its stop did not already sound',
-	/if \(!landed\.includes\(respinCellKey\(cell\.reel, cell\.row\)\)\) \{\s*playSymbolLandSound\(cell\.symbol\.name, 1\);/.test(
+	holds(coinsLand, 'if (!stopped(cell)) playSymbolLandSound(cell.symbol.name, 1);'),
+	true,
+);
+check(
+	'…holds a stick that draws the rest for no animation (cap 0), the rest as before',
+	holds(
 		coinsLand,
+		"if (resting.length === 0) await playHeldBeat(event.cells, 'coinStick');",
+		"playHeldBeat(resting, 'coinStick', { capMs: 0 })",
 	),
 	true,
 );
 check(
 	'…and forgets the landings once the stick has played, so a later stick lands as before',
-	/await playHeldBeat\(event\.cells, 'coinStick'\);\s*if \(landed\.length > 0\) stateRespinBoard\.landed = \[\];/.test(
-		coinsLand,
+	holds(coinsLand, ']); if (landed.length > 0) stateRespinBoard.landed = [];'),
+	true,
+);
+const stopLandings = presentation.slice(presentation.indexOf('const awaitStopLandings'));
+check(
+	'the stop wait is slammable, arms each cell once, and drops what a cap or slam left armed',
+	holds(
+		stopLandings,
+		'await roundSkip.race(',
+		'if (armed.includes(key) ||',
+		'armed.forEach(completeCellLanding);',
 	),
 	true,
 );

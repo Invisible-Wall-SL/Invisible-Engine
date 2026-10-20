@@ -146,6 +146,7 @@
 		"check:tumble-pattern": "tsx --tsconfig tsconfig.scripts.json scripts/check-tumble-pattern.ts",
 		"precheck:coin-label": "node scripts/ensure-svelte-kit.mjs",
 		"check:coin-label": "tsx --tsconfig tsconfig.scripts.json scripts/check-coin-label.ts",
+		"precheck:respin-land": "node scripts/ensure-svelte-kit.mjs",
 		"check:respin-land": "tsx --tsconfig tsconfig.scripts.json scripts/check-respin-land.ts",
 		"precheck:shared-rig-promote": "node scripts/ensure-svelte-kit.mjs",
 		"check:shared-rig-promote": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-shared-rig-promote.ts",
