@@ -1732,6 +1732,9 @@ export interface SmState {
 	/** Raised each time the state is entered — the layer's entry when the machine starts, and every
 	 *  transition into it (Phase 6). */
 	onEnter?: SmEnterAction[];
+	/** Raised each time a transition leaves the state (Phase 9c), before the next state's
+	 *  `onEnter`. Not raised when the instance goes away or the machine is reset. */
+	onExit?: SmEnterAction[];
 }
 
 export interface SmPoint {
@@ -1753,6 +1756,17 @@ export interface SmTransition {
 	exitTime?: number;
 	/** Milliseconds over which the target timeline is mixed in from the pose being left. */
 	blend?: number;
+	/** The blend's interpolation (Phase 9c): a cubic `[x1, y1, x2, y2]`, as a timeline key's `ease`.
+	 *  Absent ⇒ linear. */
+	ease?: [number, number, number, number];
+	/** `false` ⇒ the state being left keeps playing under the blend. Absent ⇒ it is paused (frozen at
+	 *  the moment of leaving), as before Phase 9c. */
+	pauseSource?: boolean;
+	/** `false` ⇒ no transition leaves the target state until this one's blend has finished. Absent
+	 *  ⇒ one may (a transition taken mid-blend leaves from the pose on screen). */
+	allowExit?: boolean;
+	/** The transition never fires (the editor keeps it, greyed). */
+	disabled?: boolean;
 }
 
 export interface SmLayer {
@@ -1764,6 +1778,8 @@ export interface SmLayer {
 	transitions: SmTransition[];
 	/** Where the editor draws the Entry, Any and Exit nodes; the runtime ignores them. */
 	pseudoPos?: { entry?: SmPoint; any?: SmPoint; exit?: SmPoint };
+	/** The layer does not run: it sits in `exit` from the start, drives nothing and enters nothing. */
+	disabled?: boolean;
 }
 
 /** Layers run in order; a later layer wins a node property both key. */

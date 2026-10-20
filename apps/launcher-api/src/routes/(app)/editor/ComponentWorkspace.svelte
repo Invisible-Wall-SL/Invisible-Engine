@@ -62,6 +62,7 @@
 	import EditorDataPanel from './EditorDataPanel.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import EditorAnimationsList from './EditorAnimationsList.svelte';
 	import { keyingActive, keyStageTransform } from './animateKeying.client.svelte';
 	import EditorStateMachinePanel from './EditorStateMachinePanel.svelte';
 	import {
@@ -2740,6 +2741,18 @@
 					</PanelSection>
 				</div>
 			{:else}
+				{#if animating}
+					<PanelSection id="cmp-animations" title="Animations">
+						<EditorAnimationsList
+							stateMachine={{
+								shown: animateTab === 'stateMachine',
+								layers: componentDraft?.stateMachine?.layers.length ?? 0,
+								onOpen: () => (animateTab = 'stateMachine'),
+							}}
+							onShowTimeline={() => (animateTab = 'timeline')}
+						/>
+					</PanelSection>
+				{/if}
 				<div class="tabs" role="tablist" aria-label="Left panel">
 					<button
 						role="tab"
@@ -2909,6 +2922,7 @@
 							selectedId={selectedIds.at(-1) ?? null}
 							projectKey={data.projectKey}
 							active={active && animating && animateTab === 'timeline'}
+							listed={active && animating}
 							openRequest={timelineOpenRequest}
 							{rigMeta}
 							componentParams={resolvedParams}
@@ -2926,6 +2940,9 @@
 							onChanged={() => (editNonce += 1)}
 							onOpenTimeline={openTimelineFromStateMachine}
 							componentParams={resolvedParams}
+							onAddInput={isInspecting ? undefined : addComponentInput}
+							onRenameInput={isInspecting ? undefined : (id) => void renameComponentInput(id)}
+							onRemoveInput={isInspecting ? undefined : (id) => void removeComponentInput(id)}
 						/>
 					</div>
 				</div>

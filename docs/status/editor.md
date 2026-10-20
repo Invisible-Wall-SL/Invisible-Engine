@@ -106,7 +106,27 @@ Shipped capabilities on `main`:
    (and that none fire while typing); loop type in ▶ playback; summary rows (fold, drag a summary
    key, drag the lane) and Only selected; the onion skin on both sides. Component timelines (Phase 4b) are built, in review; their browser-verify
    list is in [component-editor status](component-editor.md) Blocked.
-0c. **⏳ Browser-verify Phase 9d** (shared library, Data, Library search, rows), on a screen and on
+0c. **⏳ Browser-verify Phase 9c** (Animations list, state machine options, Console), both sides:
+   - **Animations list:** in Animate the left column lists the screen's (or component's)
+     timelines; click opens one; ＋, ⧉ Duplicate, ✎ Rename and 🗑 Delete each work; an unsaved
+     timeline asks before another row opens; the Timeline header has no picker any more and
+     names the open timeline.
+   - **Component side:** the **State machine** row switches the tab and a timeline row switches
+     back; drag a timeline row onto the graph and the card lands under the pointer (and onto the
+     empty graph it makes the first layer).
+   - **Inputs dock:** add a bool and a number (triggers come from Properties); fire, tick and type to drive ▶ Run; ✎ and ×
+     ask as in Properties; none of it while Inspecting.
+   - **Transition:** with a Blend, Linear / Cubic (drag both handles, type the 4 values); untick
+     *Pause source* and see the left state keep moving under the blend; untick *Allow exit* and a
+     transition out (a trigger fired mid-blend included) waits for the blend; **Disable** greys and dashes the arrow and it never fires.
+   - **State:** On exit raises (Console shows it before the next On enter).
+   - **Layers:** ⧉ duplicate, ◀ ▶ reorder (the later layer wins a shared node), ⏻ Disable (struck
+     tab, the layer's nodes stop moving), Enable.
+   - **Console:** states, transitions and events appear while running; **Problems** lists the ⚠
+     and a click opens the layer and selects the card / arrow, or outlines the input; the bar's
+     ⚠ count opens Problems.
+   - **Save, reload:** every option is still there. A placed instance in game behaves the same.
+0d. **⏳ Browser-verify Phase 9d** (shared library, Data, Library search, rows), on a screen and on
    a component:
    - **Rows.** ⚡ Report event drops a `signal:` cue at the playhead and selects it (type its name
      in the inspector; pick an effect for `fx:`); drag it. 👁 Show / Hide key a node and the
@@ -153,7 +173,7 @@ Shipped capabilities on `main`:
 ## Recent changes
 - 2026-10-20 — **Rive plan Phase 9d: shared library, Data tab, Library search, cue / text /
   visibility rows** (branch `claude/rive-p9d-shared-library`, in review, ⏳ not browser-verified;
-  the checklist is Open item 0c). Plan: [rive-reference.md](../design/rive-reference.md) §3.2,
+  the checklist is Open item 0d). Plan: [rive-reference.md](../design/rive-reference.md) §3.2,
   §3.5, §3.7 and §5. UI: [the guide](../tools/invisible-editor.md#shared-timelines-and-starters).
   - **Shared timelines** (`$lib/timeline/sharedTimelines.ts`, `$lib/server/sharedCinematics.ts`,
     `/api/cinematics/shared{,/get,/promote}`). A bar above the Timeline's tracks has **📚 Shared**
@@ -179,7 +199,7 @@ Shipped capabilities on `main`:
     words, case-insensitive; an atlas or sheet also by a loaded region name, whose grid narrows
     too) and a type filter; **Fonts** (`fetchFontCatalog`) and **Audio** (`/api/sounds`, needs the
     `sound` tool) listed read-only.
-  - Shared-file hunks (Phase 9c runs in parallel): `EditorTimelinePanel.svelte` — the row bar
+  - Shared-file hunks (Phase 9c ran in parallel and merged first): `EditorTimelinePanel.svelte` — the row bar
     above the tracks (`.tl-track` / `.tl-rowbar`), the left column's keying block, the save /
     open / close / `changed` hook and new functions; the header's picker is untouched.
     `ComponentWorkspace.svelte` — one Data tab button + its body, `{componentMap}` on the Outline.
@@ -187,6 +207,25 @@ Shipped capabilities on `main`:
   - Gates: `check:shared-timeline-ship` (42), `check:timeline-rows` (27),
     `check:editor-data-library` (16); `check:component-links` lists the promote as an unpinned
     global write. All in `check:all`.
+- 2026-10-20 — **Rive plan Phase 9c: Animations list, state machine options, Console** (branch
+  `claude/rive-p9c-animations-sm`, in review, ⏳ not browser-verified; checklist in Open item 0c).
+  Plan: [rive-reference.md](../design/rive-reference.md) §3.2, §3.6 and §5. UI:
+  [the guide](../tools/invisible-editor.md#animate-mode--the-timeline).
+  - **Animations list** (`EditorAnimationsList.svelte`, in the left column in Animate on both
+    sides). It replaces the Timeline panel's `<select>`. The panel publishes its host's rows and its
+    open / create / duplicate / rename / delete through `animationsList.client.svelte.ts`
+    (`setAnimationsPanel`, owner-scoped like `setKeyingPanel`), while `listed` (on a component:
+    Animate, either tab). Rename and Delete open the row first, so the unsaved-edit guard runs.
+    Duplicate copies any row of the host (`duplicateTimeline` in `$lib/timeline/screenTimeline.ts`)
+    and saves it create-only. On a component the list ends with a **State machine** row, and timeline
+    rows drag (`TIMELINE_DRAG_TYPE`) onto the graph, where the state lands at the drop point
+    (`SmFlowProjection.svelte` hands the panel xyflow's `screenToFlowPosition`).
+  - The state machine side (format, runtime, panel, Console) is in
+    [component-editor status](component-editor.md) Recent changes.
+  - Shared files: `+page.svelte` got one import and one `{#if animating}` Animations section above
+    Screens. `ComponentWorkspace.svelte` got one import, one Animations section above the left tab
+    bar, `listed` on the Timeline panel, and the input handlers on the State machine panel.
+    `EditorCanvas.svelte` is untouched.
 - 2026-10-20 — **Animate: Rive-style keying (Rive plan Phase 9b, branch `claude/rive-p9b-keying`,
   in review, ⏳ not browser-verified).** Plan: [rive-reference.md](../design/rive-reference.md)
   §3.4–3.5 and §5. UI: [the guide](../tools/invisible-editor.md#animate-mode--the-timeline).

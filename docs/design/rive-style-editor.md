@@ -164,10 +164,12 @@ interface ComponentInput { id; kind: 'bool' | 'number' | 'trigger'; default?; so
 // `source` (number only): a registered engine value source (`winAmount`) that feeds the input.
 
 interface ComponentStateMachine { layers: SmLayer[] }
-interface SmLayer      { id; name?; entry: string /* a state id */; states: SmState[]; transitions: SmTransition[] }
-interface SmState      { id; name?; timeline: string /* cinematic id */; speed?; loop? }
+interface SmLayer      { id; name?; entry: string /* a state id */; states: SmState[]; transitions: SmTransition[];
+                         disabled? /* 9c */ }
+interface SmState      { id; name?; timeline: string /* cinematic id */; speed?; loop?; onEnter?; onExit? /* 9c */ }
 interface SmTransition { id; from /* state id | 'any' */; to /* state id | 'exit' */;
-                         conditions?: SmCondition[]; exitTime?; blend? /* ms */ }
+                         conditions?: SmCondition[]; exitTime?; blend? /* ms */;
+                         ease?; pauseSource?; allowExit?; disabled? /* 9c */ }
 interface SmCondition  { input; op: 'fired' | '==' | '!=' | '<' | '>'; value? }
 ```
 
@@ -286,6 +288,18 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   unique within the state, that the editor selects and the keep-unknown save grafts on) — raised
   when the layer's entry state is entered as the machine starts, and for every state a transition
   enters (a same-tick chain raises each state it passes, in order).
+- **Phase 9c options, each absent ⇒ the behaviour above** (so a saved def without them runs
+  byte-identically): `SmState.onExit?` (rows like `onEnter`) is raised each time a transition
+  leaves the state, before the target's `onEnter` (never on reset or unmount). On a transition:
+  `disabled: true` never fires and holds no trigger (reachability ignores it); with a `blend`,
+  `ease: [x1, y1, x2, y2]` shapes the blend's progress with the timeline evaluator's cubic
+  (overshoot clamps to 0..1), `pauseSource: false` keeps the state being left playing under the
+  blend at its own speed (wrapping or clamping; its cues do not fire; a transition taken mid-blend
+  still leaves from the frozen mix), and `allowExit: false` lets no transition leave the target
+  state until the blend ends (a trigger such a transition reads is held until then, as for an
+  exit time). The normalizer keeps those three only with a blend, and only the
+  non-default values. `SmLayer.disabled: true` sits in `exit` from the start and after a reset,
+  enters nothing and reports `exit` as its state value; its timelines are not reported missing.
 - **One ordered raise queue per instance** (`ComponentEventDispatcher`): a state's `onEnter` and an
   `event:` cue are raised from inside a tick, or from the mount when the machine starts there, so
   they are queued and drained after the current work (a microtask in game) — a Flow chain never

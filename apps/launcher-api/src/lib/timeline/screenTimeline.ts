@@ -173,6 +173,28 @@ export function screenTimelinesOf<T extends { host?: CinematicDoc['host'] }>(
 	return rows.filter((row) => row.host?.kind === 'screen' && row.host.sceneId === sceneId);
 }
 
+/**
+ * A copy of a screen or component timeline (the Animations list's *Duplicate*, Phase 9c): every
+ * track, key and setting, under a fresh id on the same host and the name "<name> copy" (" copy 2",
+ * … when taken by another timeline of `names`).
+ */
+export function duplicateTimeline(
+	doc: CinematicDoc,
+	taken: Iterable<string>,
+	names: Iterable<string> = [],
+): CinematicDoc {
+	const usedNames = new Set(names);
+	let name = `${doc.name || doc.id} copy`;
+	for (let i = 2; usedNames.has(name); i++) name = `${doc.name || doc.id} copy ${i}`;
+	const host = doc.host;
+	const id =
+		host?.kind === 'component'
+			? componentTimelineId(host.componentId, name, taken)
+			: screenTimelineId(host?.kind === 'screen' ? host.sceneId : doc.id, name, taken);
+	const copy = JSON.parse(JSON.stringify(doc)) as CinematicDoc;
+	return { ...copy, id, name };
+}
+
 function findById(nodes: LayoutNode[], id: string): LayoutNode | undefined {
 	for (const node of nodes) {
 		if (node.id === id) return node;

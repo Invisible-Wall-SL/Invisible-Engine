@@ -13,7 +13,12 @@
  *     `placeLayers`, `playerDrives`): a blend, a `signal:` cue reaching the runner, a missing
  *     timeline;
  *  5. what saves: `normalizeComponent` keeps the editor's positions; the state machine still
- *     travels inside the def, so no new write exists for `check:component-links` to enumerate.
+ *     travels inside the def, so no new write exists for `check:component-links` to enumerate;
+ *  6. Phase 9c: layer duplicate / reorder / disable, the blend's options and Disable on a
+ *     transition, On exit rows (minted ids, usage, rename, the unsavable check), where a Problems
+ *     row jumps, the Animations list's timeline duplicate, the curve widget's value helpers, a
+ *     disabled layer in the preview, what saves (and a newer build's on-exit row kept), and the
+ *     panels' wiring (no timeline <select>; the list's drag onto the graph; the Console's log).
  *
  * What it cannot prove: the xyflow canvas, the panel's Svelte wiring — the owner's browser check.
  */
@@ -485,6 +490,383 @@ const names = new Map([
 		'a node list is unchanged by the editing helpers',
 		(d.root as { children: LayoutNode[] }).children.length,
 		2,
+	);
+}
+
+// ---- 6. Phase 9c ---------------------------------------------------------------------------------
+
+{
+	const L = await import('../src/lib/timeline/listenerEdit.ts');
+	const C = await import('../src/lib/timeline/easeCurve.ts');
+	const U = await import('../src/lib/server/componentUnknownFields.ts');
+	const machineDef = (): ComponentDef => {
+		const d = def();
+		d.events = [{ id: 'left' }, { id: 'arrived' }];
+		const main = E.addLayer(d, 'Main');
+		E.addState(main, { id: 'c_coin_idle', name: 'Idle' });
+		E.addState(main, { id: 'c_coin_win', name: 'Win' });
+		E.addTransition(main, 'Idle', 'Win');
+		E.addLayer(d, 'Glow');
+		return d;
+	};
+
+	// Layers: duplicate, reorder, disable.
+	const d = machineDef();
+	const copy = E.duplicateLayer(d, 'Main', ['Main_copy']);
+	eq(
+		'duplicate: a new id (never a reserved one) and "<name> copy", right after the original',
+		[copy?.id, copy?.name, d.stateMachine?.layers.map((l) => l.id)],
+		['Main_copy_2', 'Main copy', ['Main', 'Main_copy_2', 'Glow']],
+	);
+	eq(
+		'…with the same states, transitions and entry',
+		[copy?.states.map((s) => s.id), copy?.transitions.map((t) => t.id), copy?.entry],
+		[['Idle', 'Win'], ['t_Idle_Win'], 'Idle'],
+	);
+	copy!.states[0].name = 'changed';
+	eq(
+		'…as a copy: editing it leaves the original alone',
+		d.stateMachine?.layers[0].states[0].name,
+		undefined,
+	);
+	eq('duplicating an unknown layer adds nothing', E.duplicateLayer(d, 'nope'), undefined);
+	{
+		const rd = machineDef();
+		const src = rd.stateMachine!.layers[0].states[0];
+		const enterRow = L.addEnterAction(src, rd);
+		const exitRow = L.addExitAction(src, rd);
+		const dupe = E.duplicateLayer(rd, 'Main', [], ['x_saved1']);
+		const rows = [...(dupe?.states[0].onEnter ?? []), ...(dupe?.states[0].onExit ?? [])];
+		eq(
+			'duplicate: its on-enter / on-exit rows get fresh ids of the same kind',
+			[
+				rows.map((r) => r.id.split('_')[0]),
+				rows.some((r) => r.id === enterRow.id || r.id === exitRow.id),
+				(() => {
+					const all = rd.stateMachine!.layers.flatMap((l) =>
+						l.states.flatMap((st) =>
+							[...(st.onEnter ?? []), ...(st.onExit ?? [])].map((a) => a.id),
+						),
+					);
+					return new Set(all).size === all.length;
+				})(),
+				rows.map((r) => r.event),
+			],
+			[['e', 'x'], false, true, [enterRow.event, exitRow.event]],
+		);
+	}
+	eq(
+		'reorder: a layer moves one place, never past either end',
+		[
+			E.moveLayer(d, 'Glow', -1),
+			d.stateMachine?.layers.map((l) => l.id),
+			E.moveLayer(d, 'Main', -1),
+			E.moveLayer(d, 'Main_copy_2', 1),
+			d.stateMachine?.layers.map((l) => l.id),
+		],
+		[true, ['Main', 'Glow', 'Main_copy_2'], false, false, ['Main', 'Glow', 'Main_copy_2']],
+	);
+	const glow = d.stateMachine!.layers[1];
+	E.setLayerDisabled(glow, true);
+	const offDisabled = glow.disabled;
+	E.setLayerDisabled(glow, false);
+	eq(
+		'disable a layer, and enable it (nothing stored)',
+		[offDisabled, 'disabled' in glow],
+		[true, false],
+	);
+
+	// Transitions: blend options, disable.
+	const t = d.stateMachine!.layers[0].transitions[0];
+	E.setBlend(t, 250);
+	E.setBlendEase(t, [0.1, 0.2, 0.3, 0.4]);
+	E.setBlendFlag(t, 'pauseSource', false);
+	E.setBlendFlag(t, 'allowExit', false);
+	eq(
+		'the blend’s interpolation and flags store only what differs from the default',
+		{ blend: t.blend, ease: t.ease, pauseSource: t.pauseSource, allowExit: t.allowExit },
+		{ blend: 250, ease: [0.1, 0.2, 0.3, 0.4], pauseSource: false, allowExit: false },
+	);
+	E.setBlendFlag(t, 'pauseSource', true);
+	E.setBlendEase(t, null);
+	eq(
+		'…turning one back on (or Linear) removes it',
+		['pauseSource' in t, 'ease' in t],
+		[false, false],
+	);
+	E.setBlendEase(t, [0.1, 0.2, 0.3, 0.4]);
+	E.setBlend(t, 0);
+	eq(
+		'clearing the blend clears its options with it',
+		Object.keys(t).filter((k) => ['blend', 'ease', 'pauseSource', 'allowExit'].includes(k)),
+		[],
+	);
+	E.setTransitionDisabled(t, true);
+	eq('a disabled transition’s arrow says so', E.transitionLabel(t), 'off · always');
+	eq(
+		'…and the graph hands the panel its transition (the arrow is drawn greyed)',
+		E.layerGraph(d.stateMachine!.layers[0], names).edges.find((e) => e.id === t.id)?.transition
+			?.disabled,
+		true,
+	);
+	E.setTransitionDisabled(t, false);
+	eq('…enabled again, nothing is stored', 'disabled' in t, false);
+
+	// States: on exit.
+	const idle = d.stateMachine!.layers[0].states[0];
+	const enter = L.addEnterAction(idle, d);
+	const exit = L.addExitAction(idle, d, ['x_saved']);
+	eq(
+		'an on-exit row raises the first event, with a minted id no row uses',
+		[exit.kind, exit.event, /^x_[a-z0-9]{6}$/.test(exit.id), exit.id !== enter.id],
+		['raise', 'left', true, true],
+	);
+	eq('rowIds lists on-exit rows (a new row avoids them)', L.rowIds(d).has(exit.id), true);
+	eq(
+		'an event raised on exit is in use (the remove dialog says so)',
+		L.eventUsage(d, 'left').states,
+		[{ layer: 'Main', state: 'Idle' }],
+	);
+	L.renameEvent(d, 'left', 'gone');
+	eq('renaming an event follows the on-exit raise', idle.onExit?.[0].event, 'gone');
+	exit.event = '';
+	eq('an on-exit row with no event cannot save (flagged)', L.unsavableRows(d), [
+		'On exit of "Idle"',
+	]);
+	L.removeExitAction(idle, exit.id);
+	eq('removing the last on-exit row removes the block', 'onExit' in idle, false);
+
+	// Problems: where a click jumps.
+	const pd = machineDef();
+	pd.stateMachine!.layers[0].states[1].name = 'Big win';
+	eq(
+		'a state-machine issue jumps by its ids',
+		E.problemTarget(pd, { layer: 'Main', transition: 't_Idle_Win' }),
+		{ layer: 'Main', transition: 't_Idle_Win' },
+	);
+	eq(
+		'an event issue names its state by display name; it jumps to the state’s id',
+		E.problemTarget(pd, { layer: 'Main', state: 'Big win', event: 'x' } as never),
+		{ layer: 'Main', state: 'Win' },
+	);
+	eq(
+		'an input issue lights the input',
+		E.problemTarget(pd, { input: 'win', layer: 'Main', transition: 'gone' }),
+		{ input: 'win', layer: 'Main' },
+	);
+	eq(
+		'a listener issue jumps to nothing here',
+		E.problemTarget(pd, { node: 'Coin', layer: 'Main' }),
+		{},
+	);
+
+	// The Animations list's duplicate.
+	const src = {
+		...timeline('c_coin_idle', { alpha: [{ time: 0, value: 0.5 }] }),
+		name: 'Idle',
+		playOn: 'enter',
+	} as CinematicDoc;
+	const dup = S.duplicateTimeline(
+		src,
+		['c_coin_idle', 'c_c_coin_Idle_copy'],
+		['Idle', 'Idle copy'],
+	);
+	eq(
+		'a duplicated timeline: same host and settings, a fresh id and "<name> copy N"',
+		[dup.id, dup.name, dup.host, dup.playOn],
+		['c_coin_idle_copy_2', 'Idle copy 2', src.host, 'enter'],
+	);
+	(dup.tracks[0] as { channels: Record<string, { value: number }[]> }).channels.alpha[0].value = 9;
+	eq(
+		'…its keys are a copy',
+		(src.tracks[0] as { channels: Record<string, { value: number }[]> }).channels.alpha[0].value,
+		0.5,
+	);
+	const screenDup = S.duplicateTimeline(
+		S.newScreenTimeline({ id: 'base_intro', name: 'Intro', sceneId: 'base' }),
+		['base_intro'],
+	);
+	eq(
+		'…on a screen too',
+		[screenDup.id, screenDup.host],
+		['base_intro_copy', { kind: 'screen', sceneId: 'base' }],
+	);
+
+	// The curve widget's value helpers match the Timeline module's.
+	eq(
+		'parseCubic: four numbers, x clamped to 0..1, y free',
+		[C.parseCubic('0.2, -0.5 1.4,2'), C.parseCubic('1,2,3'), C.parseCubic('a,b,c,d')],
+		[[0.2, -0.5, 1, 2], null, null],
+	);
+	eq('cubicText: three decimals', C.cubicText([1 / 3, 0, 2 / 3, 1]), '0.333, 0, 0.667, 1');
+	const timelineSrc = readFileSync(
+		new URL('../src/lib/timeline/timeline.js', import.meta.url),
+		'utf8',
+	);
+	eq(
+		'…and the Cubic button starts where the Timeline’s does',
+		timelineSrc.includes(`const DEFAULT_CUBIC = [${C.DEFAULT_CUBIC.join(', ')}];`),
+		true,
+	);
+
+	// The preview: a disabled layer drives nothing on the stage.
+	const docs = new Map([
+		['c_coin_idle', timeline('c_coin_idle', { alpha: [{ time: 0, value: 0.5 }] })],
+		['c_coin_glow', timeline('c_coin_glow', { x: [{ time: 0, value: 7 }] }, 'Glow')],
+	]);
+	const runner = new M.ComponentStateMachineRunner(
+		{
+			layers: [
+				{ id: 'a', entry: 'i', states: [{ id: 'i', timeline: 'c_coin_idle' }], transitions: [] },
+				{
+					id: 'b',
+					entry: 'g',
+					states: [{ id: 'g', timeline: 'c_coin_glow' }],
+					transitions: [],
+					disabled: true,
+				},
+			],
+		},
+		[],
+		new Map([
+			['c_coin_idle', 1],
+			['c_coin_glow', 1],
+		]),
+	);
+	const player = P.previewPlayer(docs.values(), scene(def()).nodes);
+	P.placeLayers(runner, player);
+	eq(
+		'the preview: a disabled layer drives nothing',
+		[...P.playerDrives(player).keys()],
+		['n_coin'],
+	);
+
+	// What saves.
+	const saved = normalizeComponent(
+		JSON.parse(
+			JSON.stringify({
+				...machineDef(),
+				stateMachine: {
+					layers: [
+						{
+							...machineDef().stateMachine!.layers[0],
+							disabled: true,
+							states: [
+								{
+									id: 'Idle',
+									timeline: 'c_coin_idle',
+									onExit: [{ id: 'x_aaaaaa', kind: 'raise', event: 'left' }],
+								},
+							],
+							transitions: [
+								{
+									id: 't',
+									from: 'Idle',
+									to: 'Idle',
+									blend: 100,
+									ease: [0.1, 0.2, 0.3, 0.4],
+									pauseSource: false,
+									allowExit: false,
+									disabled: true,
+								},
+							],
+						},
+					],
+				},
+			}),
+		) as ComponentDef,
+	);
+	eq('what saves: the editor’s new fields round-trip', saved.stateMachine?.layers[0], {
+		id: 'Main',
+		entry: 'Idle',
+		states: [
+			{
+				id: 'Idle',
+				timeline: 'c_coin_idle',
+				onExit: [{ id: 'x_aaaaaa', kind: 'raise', event: 'left' }],
+			},
+		],
+		transitions: [
+			{
+				id: 't',
+				from: 'Idle',
+				to: 'Idle',
+				blend: 100,
+				ease: [0.1, 0.2, 0.3, 0.4],
+				pauseSource: false,
+				allowExit: false,
+				disabled: true,
+			},
+		],
+		name: 'Main',
+		disabled: true,
+	});
+	const newer = {
+		...saved,
+		stateMachine: {
+			layers: [
+				{
+					...saved.stateMachine!.layers[0],
+					states: [
+						{
+							...saved.stateMachine!.layers[0].states[0],
+							onExit: [
+								{ id: 'x_aaaaaa', kind: 'raise', event: 'left' },
+								{ id: 'x_newer1', kind: 'sound', play: 'pop' },
+							],
+						},
+					],
+				},
+			],
+		},
+	};
+	eq(
+		'an on-exit row a newer build wrote (a kind this one cannot read) is put back on save',
+		U.withUnknownComponentFields(saved, newer).stateMachine?.layers[0].states[0].onExit?.map(
+			(a) => a.id,
+		),
+		['x_aaaaaa', 'x_newer1'],
+	);
+
+	// The panels' wiring (source scans; the Svelte wiring itself is the owner's browser check).
+	const read = (f: string): string =>
+		readFileSync(new URL(`../src/routes/(app)/editor/${f}`, import.meta.url), 'utf8');
+	const timelinePanel = read('EditorTimelinePanel.svelte');
+	eq(
+		'the Timeline panel has no timeline <select> any more; it publishes the Animations list',
+		[
+			/aria-label=\{`Timelines of this/.test(timelinePanel),
+			/setAnimationsPanel\(next, previewOwner\)/.test(timelinePanel),
+		],
+		[false, true],
+	);
+	eq(
+		'…and withdraws it on unmount',
+		/onDestroy\([\s\S]*setAnimationsPanel\(null, previewOwner\)/.test(timelinePanel),
+		true,
+	);
+	const smPanel = read('EditorStateMachinePanel.svelte');
+	const list = read('EditorAnimationsList.svelte');
+	eq(
+		'a timeline row drags its id; the graph takes that drag type and adds a state where it lands',
+		[
+			/setData\(TIMELINE_DRAG_TYPE, id\)/.test(list),
+			/getData\(TIMELINE_DRAG_TYPE\)/.test(smPanel),
+			/newState\(id, layer && toFlow \?/.test(smPanel),
+		],
+		[true, true, true],
+	);
+	eq(
+		'the console logs each advance’s transitions before the dispatcher raises their events',
+		/logFired\(step\.fired\);\s*apply\(\);\s*dispatcher\?\.transitions\(step\.fired\);/.test(
+			smPanel,
+		),
+		true,
+	);
+	eq(
+		'the Problems list gathers the machine’s and the events’ issues',
+		/const problems = \$derived<Problem\[\]>\(\[\.\.\.issues, \.\.\.eventIssues\]\)/.test(smPanel),
+		true,
 	);
 }
 

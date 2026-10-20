@@ -69,7 +69,11 @@ const PAYLOAD_ROWS: NestedRows = {
 	isUnreadable: unreadable('name', readPayloadField),
 };
 const graftListeners = nested(LISTENER_ROWS);
+const EXIT_ROWS: NestedRows = { ...ENTER_ROWS, name: 'onExit', field: 'onExit' };
 const graftEnterActions = nested(ENTER_ROWS);
+const graftExitActions = nested(EXIT_ROWS);
+const graftStateActions = (row: Row, stored: Row): Row =>
+	graftExitActions(graftEnterActions(row, stored), stored);
 const graftPayload = nested(PAYLOAD_ROWS);
 
 /**
@@ -93,7 +97,7 @@ const ROW_ARRAYS = [
 ] as const;
 /** The rows of one state-machine layer, matched by id within that layer. */
 const LAYER_ARRAYS = [
-	{ field: 'states', isKnown: known(SM_STATE_FIELDS), inner: graftEnterActions },
+	{ field: 'states', isKnown: known(SM_STATE_FIELDS), inner: graftStateActions },
 	{ field: 'transitions', isKnown: known(SM_TRANSITION_FIELDS), inner: undefined },
 ] as const;
 
@@ -327,7 +331,7 @@ const ALWAYS_COMPARED = new Set([
 	'def',
 	'stateMachine',
 	'unreadableInput',
-	...[LISTENER_ROWS, ENTER_ROWS, PAYLOAD_ROWS].map(({ name }) => `unreadable:${name}`),
+	...[LISTENER_ROWS, ENTER_ROWS, EXIT_ROWS, PAYLOAD_ROWS].map(({ name }) => `unreadable:${name}`),
 ]);
 
 /**
@@ -380,7 +384,9 @@ function unknownComponentFields(doc: unknown): Map<string, Row> {
 			for (const { field, isKnown } of LAYER_ARRAYS) {
 				for (const [rowId, row] of rowsById(layer[field], 'id')) {
 					add([field, layerId, rowId], unknownFields(isKnown, row));
-					if (field === 'states') addNested([layerId, rowId], row, ENTER_ROWS);
+					if (field !== 'states') continue;
+					addNested([layerId, rowId], row, ENTER_ROWS);
+					addNested([layerId, rowId], row, EXIT_ROWS);
 				}
 			}
 		}

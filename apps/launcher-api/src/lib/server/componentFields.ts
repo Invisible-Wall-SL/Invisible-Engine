@@ -178,6 +178,7 @@ const smLayerFields: Record<keyof SmLayer, true> = {
 	states: true,
 	transitions: true,
 	pseudoPos: true,
+	disabled: true,
 };
 const smStateFields: Record<keyof SmState, true> = {
 	id: true,
@@ -189,6 +190,7 @@ const smStateFields: Record<keyof SmState, true> = {
 	randomStart: true,
 	pos: true,
 	onEnter: true,
+	onExit: true,
 };
 const componentEventFields: Record<keyof ComponentEvent, true> = {
 	id: true,
@@ -219,6 +221,10 @@ const smTransitionFields: Record<keyof SmTransition, true> = {
 	conditions: true,
 	exitTime: true,
 	blend: true,
+	ease: true,
+	pauseSource: true,
+	allowExit: true,
+	disabled: true,
 };
 const templateSlotFields: Record<keyof TemplateSlot, true> = {
 	slotId: true,

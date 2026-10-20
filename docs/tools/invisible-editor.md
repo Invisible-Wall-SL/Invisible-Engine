@@ -997,8 +997,12 @@ active in the Screens list. It animates that screen's nodes, for example a scree
 plays the result in the game. A component has its own Animate mode on the Components side: see
 [Animate a component](#animate-a-component).
 
-1. **Open or create a timeline.** The panel's picker lists this screen's timelines. **＋ New** asks
-   for a name and saves an empty one. **Rename** and **🗑** act on the open timeline. Switching to
+1. **Open or create a timeline.** In Animate the left column shows an **Animations** list with
+   this screen's timelines (each with its length); click one to open it, and the Timeline panel's
+   header names it. **＋** asks for a name and saves an empty one. Hover a row for **⧉ Duplicate**
+   (a copy named "<name> copy", saved and opened), **✎ Rename** and **🗑 Delete**. Rename and
+   Delete open that timeline first, and every one of the three asks about unsaved changes on the
+   open timeline first. Switching to
    another screen saves it and closes it, because a timeline belongs to one screen. Switching back
    to Design keeps it open with any unsaved changes, and closing the tab with unsaved timeline
    changes asks first.
@@ -1229,7 +1233,9 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
 
 1. **Open the component and click Animate.** The panel's host label shows `◇ <component name>`.
    Animate is off while you are **Inspecting** an old version; go back to latest first.
-2. **＋ New** asks for a name (it suggests "Pop in") and saves an empty timeline.
+2. **＋** in the left column's **Animations** list asks for a name (it suggests "Pop in") and saves
+   an empty timeline. The list shows the component's timelines and, last, the **State machine**
+   row, which opens the State machine tab; a timeline row opens the Timeline tab on it.
 3. **Pick what plays it: Plays on.** This is the signal, heard on each placed instance, that starts
    the timeline from the beginning. The list offers:
    - **enter** — the instance appears. A new timeline starts on this.
@@ -1297,7 +1303,10 @@ so it needs no Flow node and no extra publish step; it is read-only while you ar
 version, like the rest of Animate.
 
 **Inputs** are declared in the Properties panel under **Component variables → Inputs** (the block
-that used to be _Signals_). Three kinds:
+that used to be _Signals_), or — bools and numbers — in the **Inputs** list docked left of the
+graph in the State machine tab: type a name, pick **bool / number** and **＋** (a trigger is added
+with Properties' **+ Add trigger**); **✎** and **×** there do what they do in Properties. The docked list is also where you **drive the preview**: click a trigger to fire
+it, tick a bool, type a number. Three kinds:
 
 - a **trigger** ⚡ — a signal: **+ Add trigger** picks an engine moment (`win`, `bigWin`…), a
   Flow **Fire Cue** name, or any name. Every signal the component already declared shows here as
@@ -1316,9 +1325,10 @@ are Inspecting an old version.
 
 **Building the graph** (the **State machine** tab):
 
-1. **＋ State** picks one of the component's timelines and adds a card named after it. The first
-   state of a layer is its **entry** (the ● dot); **Set as entry** in the inspector moves it, or
-   drag a wire from **Entry** onto another card.
+1. **＋ State** picks one of the component's timelines and adds a card named after it — or drag a
+   timeline row from the **Animations** list onto the graph and the card lands where you drop it.
+   The first state of a layer is its **entry** (the ● dot); **Set as entry** in the inspector
+   moves it, or drag a wire from **Entry** onto another card.
 2. **Transitions** are arrows: drag from a card's right handle onto another card. Drag from
    **Any** for a transition that fires from every state; drop onto **Exit** to end the layer (its
    nodes go back to how they are drawn until the machine resets). Click an arrow to open its
@@ -1329,8 +1339,21 @@ are Inspecting an old version.
      looping state, the point is checked each lap. Leave it empty for "at once".
    - **Blend (ms)** — mixes the new timeline in from the pose being left. An effect's **⚡**
      parameters mix too. If only one of the two states keys a parameter, it mixes from (or
-     towards) the parameter's default.
-3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **Open timeline**
+     towards) the parameter's default. With a blend set, three more options show:
+     - **Interpolation** — **Linear** (an even mix) or **Cubic**: the same curve editor as the
+       Timeline's Interpolation panel, two handles plus the typed `x1, y1, x2, y2`.
+     - **Pause source when exiting** (on by default) — the state being left freezes where it was.
+       Untick it and that state keeps playing underneath while the new one mixes in (its cues do
+       not fire while it plays out).
+     - **Allow exit during transition** (on by default) — another transition may leave the new
+       state before the blend has finished. Untick it and none can until the blend ends; a trigger
+       fired meanwhile waits for the end, as one waits for an exit time.
+     The curve cannot overshoot a blend: a handle past 0..1 holds the mix at its end.
+   - **Disable** — the transition never fires (in the preview or in game). It stays on the graph,
+     dashed and greyed, with "off" on its label, so you can switch it back on.
+3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **On enter** and
+   **On exit** (each **＋ raise event** row raises one of the component's events; On exit fires
+   each time a transition leaves the state, before the next state's On enter), **Open timeline**
    (double-clicking the card does the same: it opens the Timeline tab on that timeline) and
    **Delete**. Delete / Backspace removes the selected card or arrow. **Start offset** and
    **Random start** put each placed instance at its own point of the state's timeline on entry:
@@ -1338,17 +1361,25 @@ are Inspecting an old version.
    state), and Random start adds a random point each time the state is entered. Use them when
    several instances enter a state together and should not move in step.
 4. **Layers** are the tab strip in the panel bar: **＋ Layer** adds one; each runs on its own, and
-   where two key the same property of a node, the later layer wins.
+   where two key the same property of a node, the later layer wins. Next to **Rename**: **⧉**
+   duplicates the layer (states, arrows and positions, named "<name> copy"), **◀ / ▶** move it
+   earlier or later (which changes who wins a shared property), and **⏻ Disable** switches it off:
+   a disabled layer does not run, in the preview or in game, and its tab is struck through.
 
 **Preview**: **▶ Run** plays the machine on the stage — the live state is shown on each layer's
-tab and the active card lights up; a transition that fires flashes its arrow. **Preview inputs** in
-the inspector fire the triggers and set the bools and numbers, so you can walk the graph by hand.
+tab and the active card lights up; a transition that fires flashes its arrow. The docked **Inputs**
+list fires the triggers and sets the bools and numbers, so you can walk the graph by hand.
 **↺ Reset** returns every layer to its entry. The preview uses the same interpreter the game runs.
 
-**The ⚠ pill** lists what would not work in game: a state whose timeline is missing (the state
-holds in game), a layer with no entry, an arrow to or from a state that no longer exists, a
-condition on an input that is not declared or with an operator its kind cannot take, and —
-as warnings — states or an Exit nothing reaches.
+**The Console** is the strip under the graph. Its **Console** tab logs, newest first, each state a
+layer enters (the entry states when ▶ Run starts), each transition taken and each event raised
+(with where it came from and its payload), and shows each layer's current state; **Clear** empties
+it. Its **Problems** tab lists what would not work in game: a state whose timeline is missing (the
+state holds in game), a layer with no entry, an arrow to or from a state that no longer exists, a
+condition on an input that is not declared or with an operator its kind cannot take, an event
+raise that does not fit its event, and — as warnings — states or an Exit nothing reaches. Click a
+problem to jump to it: its layer's tab opens and its card or arrow is selected, or its input is
+outlined in the Inputs list. The **⚠** count in the panel bar opens the Problems tab.
 
 How it plays in the game: each placed instance runs its own machine from the entry state, hears
 its triggers through the same per-instance signal bus as **Plays on** (so a component **scoped by**
@@ -1377,8 +1408,8 @@ and no `:` (a timeline cue names it as `event:<name>`).
   added or renamed to (taking it would quietly reconnect them) — repoint those rows first. A name
   only a timeline cue uses is free: declaring it is how you fix a cue's typo.
 - **×** removes it, asking first when something raises it. Those raises stay and do nothing in
-  game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter in its
-  inspector, and a timeline cue under **Events** in the State machine tab.
+  game until you fix them: a listener shows ⚠ under **Listeners**, a state's On enter or On exit in
+  its inspector, and every one of them in the State machine tab's **Problems** list.
 - The **last** event cannot be removed while any of this project's timelines for the component
   (as last saved) has an `event:` cue: a component with no events plays such a cue the old way, as
   a message to the whole screen. Remove or change those cues first. A **shared** component always
@@ -1400,7 +1431,7 @@ and no `:` (a timeline cue names it as `event:<name>`).
   a value, an input's current value, or a text key (it needs at least one letter — it is the text
   as the game shows it). An `int` or `ms` value is rounded to a whole number.
 
-**Save** refuses while a listener or an On enter row would be lost by it — no trigger, input or
+**Save** refuses while a listener or an On enter / On exit row would be lost by it — no trigger, input or
 event picked, say — and names the rows to fix.
 
 A node with listeners becomes clickable in game (only such nodes do — nothing else changes). It
@@ -1408,14 +1439,17 @@ still works as before if it also presses a button or a dialog action: both fire.
 on its own placed instance only. Listeners need an input or an event to act on, so **+ Listener**
 is off until the component declares one.
 
-**On enter**: in the **State machine** tab, a state's inspector has **On enter → ＋ raise event**:
-the event is raised every time that state is entered (and when the machine starts, for an entry
-state). A timeline can raise one too with a cue named `event:<name>`.
+**On enter** and **On exit**: in the **State machine** tab, a state's inspector has **On enter →
+＋ raise event**: the event is raised every time that state is entered (and when the machine
+starts, for an entry state). **On exit → ＋ raise event** is raised each time a transition leaves
+the state, before the next state's On enter (not when the instance goes away or the machine is
+reset). A timeline can raise one too with a cue named `event:<name>`.
 
 **Preview**: in the **State machine** tab, the stage answers the pointer — hover, press and click
-the component's nodes and their listeners run, on the same preview as **▶ Run**. The **Events**
-list in the inspector logs every raised event with its time, what raised it (`listener`, `state`,
-`cue`) and its payload; **Clear** empties it, **↺ Reset** starts it over. In the preview a
+the component's nodes and their listeners run, on the same preview as **▶ Run**. The **Console**
+under the graph logs every raised event with its time, what raised it (`listener`, `state`,
+`cue`) and its payload, between the states and transitions; **Clear** empties it, **↺ Reset**
+starts it over. In the preview a
 **fire trigger** listener moves the state machine; it does not start **Plays on** timelines (the
 game does).
 
