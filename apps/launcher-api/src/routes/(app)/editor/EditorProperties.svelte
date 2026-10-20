@@ -2,10 +2,12 @@
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
 	import EditorValueBindings from './EditorValueBindings.svelte';
+	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
 	import EditorEvents from './EditorEvents.svelte';
 	import EditorListeners from './EditorListeners.svelte';
 	import {
 		backgroundCoverAnchor,
+		isCountRepeater,
 		backgroundCoverScale,
 		backgroundFit,
 		builtinRigMeta,
@@ -179,6 +181,9 @@
 		/** When the selected node is a `componentInstance`, its resolved def — drives
 		 * the author-set param override list (scene mode). */
 		instanceComponent?: ComponentDef | null;
+		/** When the selected node is a count-mode `repeater`, its segment component's def — its
+		 * number inputs are what "Pass to each segment" lists. */
+		repeaterSegmentDef?: ComponentDef | null;
 		/** Atlas/sheet manifests (`{ key, name }`) whose frames an `image`-kind param
 		 * can pick from — feeds the per-instance region picker. */
 		pickSheets?: { key: string; name: string }[];
@@ -338,6 +343,7 @@
 		componentRoot,
 		componentSignals = [],
 		instanceComponent = null,
+		repeaterSegmentDef = null,
 		pickSheets = [],
 		rigMeta = new Map(),
 		spines: rigs = [],
@@ -5918,6 +5924,15 @@
 				+ add cue
 			</button>
 		</section>
+	{:else if node.kind === 'repeater' && isCountRepeater(node)}
+		<EditorRepeaterCount
+			{node}
+			{componentDefs}
+			segmentDef={repeaterSegmentDef}
+			{componentMode}
+			paramKeys={componentParams.map((p) => p.key)}
+			onChange={markDirty}
+		/>
 	{:else if node.kind === 'repeater'}
 		<section>
 			<h3>Repeater</h3>

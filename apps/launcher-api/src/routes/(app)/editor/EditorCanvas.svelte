@@ -35,11 +35,14 @@
 		resolveComponentParams,
 		resolveLayoutInstanceParams,
 		anchoredPosition,
+		isCountRepeater,
+		repeaterComponentIds,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
 		type BlendMode,
 		type ComponentDef,
 		type ComponentInstanceNode,
+		type CountRepeaterNode,
 		type EffectDoc,
 		type EffectNode,
 		type LayoutNode,
@@ -65,6 +68,9 @@
 		nodeCornersWorld,
 		repeaterPlaceholderGrid,
 		repeaterBoxes,
+		newCountRepeater,
+		repeaterCountBoxes,
+		REPEATER_SEGMENT_PLACEHOLDER,
 		topMidWorld,
 		pointInQuad,
 		reelGridGeometry,
@@ -111,6 +117,8 @@
 		isViewHidden,
 	} from './valuePreview.client.svelte';
 	import type { StageTransformDelta } from '$lib/timeline/screenTimeline';
+	import { segmentPoseNodes } from '$lib/timeline/segmentPreview';
+	import { segmentTimelines, segmentTimelinesVersion } from './segmentTimelines.client.svelte';
 	import { setAnimateDragging } from './animateKeying.client.svelte';
 	import { dialogQueue } from '$lib/dialogs.svelte';
 	import { firstChildIdOf, lockedInTree, parentIdOf } from '$lib/editor/hierarchy';
@@ -147,7 +155,8 @@
 			| 'rect'
 			| 'effect'
 			| 'flipbook'
-			| 'component';
+			| 'component'
+			| 'segments';
 		key: string;
 		name: string;
 		version?: number;
@@ -1995,9 +2004,11 @@
 			// A repeater expands its component per box in the overlay too (the cards' title/price/…
 			// text), so the layer must mount when the repeated def carries any text.
 			if (n.kind === 'repeater') {
-				const def = componentMap.get(n.componentId);
-				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				if (nodesHaveText(def.root.children, depth + 1, [...stack, def.id])) return true;
+				for (const id of repeaterComponentIds(n)) {
+					const def = componentMap.get(id);
+					if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+					if (nodesHaveText(def.root.children, depth + 1, [...stack, def.id])) return true;
+				}
 			}
 		}
 		return false;
@@ -3074,6 +3085,10 @@
 		componentDepth: number,
 		componentStack: string[],
 	): void {
+		if (isCountRepeater(node)) {
+			drawCountRepeater(ctx, node, t, sceneCtx, componentDepth, componentStack);
+			return;
+		}
 		const def = componentMap.get(node.componentId);
 		const g = repeaterPlaceholderGrid(node, { count: repeaterItemCount(node), def });
 		// Unset repeater anchor = extend-right (0), matching the runtime <Repeater> (parity); the
@@ -3137,6 +3152,59 @@
 			left + 8,
 			top + 20,
 		);
+	}
+
+	/**
+	 * Draw a COUNT-MODE repeater (a segmented counter): N = its preview count of segments, each the
+	 * real segment component (its first / middle / last variant) with `{ index, count }` params,
+	 * at the pose its state machine settles on for its test inputs (`segmentPoseNodes`) — so the
+	 * author sees which segments light. Built by `repeaterCountBoxes`, which the text overlay and the
+	 * selection box (`nodeBox`) share; a segment whose component is missing draws nothing, as in game.
+	 */
+	function drawCountRepeater(
+		ctx: CanvasRenderingContext2D,
+		node: CountRepeaterNode,
+		t: ResolvedTransform,
+		sceneCtx: Scene,
+		componentDepth: number,
+		componentStack: string[],
+	): void {
+		const anchorX = t.anchor?.x ?? 0;
+		const anchorY = t.anchor?.y ?? 0;
+		const { layout, boxes } = repeaterCountBoxes(
+			node,
+			componentMap,
+			layoutType,
+			anchorX,
+			anchorY,
+			componentDefaults,
+			(def, inputs, params) => segmentPoseNodes(def, segmentTimelines(def.id), inputs, params),
+		);
+		if (!(layout.width > 0 && layout.height > 0)) {
+			// Nothing to frame (no segment, or unsized ones): a dashed stand-in keeps it selectable.
+			const { w, h } = REPEATER_SEGMENT_PLACEHOLDER;
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = 'rgba(200, 163, 255, 0.5)';
+			ctx.setLineDash([4, 4]);
+			ctx.strokeRect(-w * anchorX, -h * anchorY, w, h);
+			ctx.setLineDash([]);
+			ctx.fillStyle = '#e8e8ee';
+			ctx.font = '12px sans-serif';
+			ctx.fillText(`⧉ ×${layout.offsets.length}`, -w * anchorX + 6, -h * anchorY + 16);
+		}
+		for (const box of boxes) {
+			if (componentDepth >= MAX_COMPONENT_DEPTH || componentStack.includes(box.def.id)) continue;
+			drawNode(
+				ctx,
+				box.container,
+				sceneCtx,
+				componentDepth + 1,
+				[...componentStack, box.def.id],
+				box.params,
+				true,
+				instancePreviewRigBundle(box.def, box.params),
+			);
+		}
 	}
 
 	/**
@@ -5013,7 +5081,8 @@
 		// carry an empty `key` by design; only ASSET kinds (region/atlas-page/rig)
 		// reference a key. Requiring a key here silently rejected the keyless drops.
 		if (!payload || !payload.kind) return;
-		const keyless = payload.kind === 'text' || payload.kind === 'rect';
+		const keyless =
+			payload.kind === 'text' || payload.kind === 'rect' || payload.kind === 'segments';
 		if (!keyless && !payload.key) return;
 		const pos = clientToWorld(e.clientX, e.clientY);
 		const node = spawnNode(payload, pos);
@@ -5072,6 +5141,9 @@
 			// loading at drop time, so there is no native size to bake in yet.
 			case 'flipbook':
 				return { ...base, kind: 'flipbook', clipId: p.key };
+			// The Components side's "Repeat (count)" element: a segmented counter of `key`.
+			case 'segments':
+				return newCountRepeater(base, p.key);
 			case 'component':
 				return {
 					...base,
@@ -5142,6 +5214,8 @@
 		void redrawNonce;
 		// A scrubbed value-binding test value ("Bind to value") repaints the preview.
 		void previewVersion();
+		// A count-mode repeater's segment timelines arriving re-poses its segments.
+		void segmentTimelinesVersion();
 		// A region's declared BOX lives outside the layout doc (it describes the ART, not a
 		// placement), so no doc field changes when one is dragged — this counter is the signal.
 		// ONE cheap dependency that changes only when a box does; the boxes themselves stay in a

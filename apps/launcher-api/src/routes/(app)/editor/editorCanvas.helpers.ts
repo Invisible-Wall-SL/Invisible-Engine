@@ -1,20 +1,31 @@
 import {
 	MAX_COMPONENT_DEPTH,
+	REPEATER_INDEX_PARAM,
 	anchoredPosition,
 	aspectBox,
 	boundComponentRidesBone,
 	boundComponentTileImage,
+	componentDesignSize,
+	componentInputs,
 	forwardInstanceParams,
+	isCountRepeater,
 	instancePreviewRigBundle,
 	resolveBoundValue,
 	resolveComponentParams,
 	resolveLayoutInstanceParams,
 	resolveReelGridPerspective,
+	repeaterCount,
+	repeaterCountOffsets,
+	repeaterSegmentComponent,
+	repeaterSegmentValues,
 	resolveTransform,
 	type BoneRiderBinding,
+	type CountRepeaterNode,
 	type ComponentDef,
 	type LayoutNode,
 	type LayoutType,
+	type RepeaterCountLayout,
+	type RepeaterItemSize,
 	type ResolvedTransform,
 	type Scene,
 } from 'engine-layout';
@@ -341,6 +352,138 @@ export function repeaterBoxes(
 	return boxes;
 }
 
+/** The selectable frame of a count-mode repeater that draws nothing (no segment, or unsized ones). */
+export const REPEATER_SEGMENT_PLACEHOLDER = { w: 80, h: 80 } as const;
+
+/** N as the editor draws a count-mode repeater: its preview count, clamped as the game clamps. */
+export function repeaterPreviewCount(node: CountRepeaterNode): number {
+	return repeaterCount(node, node.count.preview);
+}
+
+/**
+ * Where a count-mode repeater's segments sit in the editor — the game's own geometry
+ * (`repeaterCountOffsets`) over the game's own measure of each segment component
+ * (`componentDesignSize`, no textures), so the canvas, the overlay and the selection box frame what
+ * the game draws. A missing or unsizable component measures 0 × 0, as in game.
+ */
+export function repeaterPreviewLayout(
+	node: CountRepeaterNode,
+	componentMap: ReadonlyMap<string, ComponentDef> | undefined,
+	layoutType: LayoutType,
+	n = repeaterPreviewCount(node),
+): RepeaterCountLayout {
+	const sizes = new Map<string, RepeaterItemSize | null>();
+	return repeaterCountOffsets(node, n, (id) => {
+		if (!sizes.has(id)) {
+			const def = componentMap?.get(id);
+			sizes.set(id, def ? componentDesignSize(def, () => null, layoutType) : null);
+		}
+		return sizes.get(id) ?? null;
+	});
+}
+
+/** A count-mode segment's box: the shared {@link RepeaterBox} plus what drew it. */
+export interface RepeaterCountBox extends RepeaterBox {
+	def: ComponentDef;
+	/** 1-based, as the segment's `index` param reads it. */
+	index: number;
+}
+
+/** What a count-mode segment's state machine is previewed at: its number inputs — `index` /
+ *  `count` from the repeater, then the author's test values (`previewInputs`); any other input
+ *  keeps its own default. */
+export function repeaterSegmentInputs(
+	node: CountRepeaterNode,
+	def: ComponentDef,
+	values: Record<string, number>,
+): Record<string, number> {
+	const out: Record<string, number> = {};
+	for (const input of componentInputs(def)) {
+		if (input.kind !== 'number') continue;
+		const given = values[input.id];
+		const test = node.previewInputs?.[input.id];
+		if (given !== undefined) out[input.id] = given;
+		else if (typeof test === 'number' && Number.isFinite(test)) out[input.id] = test;
+	}
+	return out;
+}
+
+/**
+ * Build a count-mode repeater's per-segment boxes — the ONE source the 2D canvas draw and the text
+ * overlay share, as {@link repeaterBoxes} is for a source list. Segment i is its variant's def at
+ * its {@link repeaterPreviewLayout} offset (the group anchored against the whole footprint), with
+ * params def defaults ◁ project defaults ◁ `{ index: i + 1, count: N }`. `pose` (the settled
+ * state-machine pose, `segmentPreview.ts`) replaces the def's children for that segment's inputs;
+ * absent or `null` ⇒ the base pose. A segment whose def is missing is left out.
+ */
+export function repeaterCountBoxes(
+	node: CountRepeaterNode,
+	componentMap: ReadonlyMap<string, ComponentDef>,
+	layoutType: LayoutType,
+	anchorX: number,
+	anchorY: number,
+	componentDefaults?: Record<string, Record<string, unknown>>,
+	pose?: (
+		def: ComponentDef,
+		inputs: Record<string, number>,
+		params: Record<string, unknown>,
+	) => LayoutNode[] | null,
+): { layout: RepeaterCountLayout; boxes: RepeaterCountBox[] } {
+	const n = repeaterPreviewCount(node);
+	const layout = repeaterPreviewLayout(node, componentMap, layoutType, n);
+	const left = -layout.width * anchorX;
+	const top = -layout.height * anchorY;
+	const boxes: RepeaterCountBox[] = [];
+	layout.offsets.forEach((offset, i) => {
+		const def = componentMap.get(repeaterSegmentComponent(node, i, n));
+		if (!def) return;
+		const values = repeaterSegmentValues(i, n);
+		const params = resolveComponentParams(def, values, componentDefaults?.[def.id]);
+		const children =
+			pose?.(def, repeaterSegmentInputs(node, def, values), params) ?? def.root.children;
+		boxes.push({
+			def,
+			index: i + 1,
+			params,
+			container: {
+				id: `${node.id}::seg${i}`,
+				kind: 'container',
+				x: left + offset.x,
+				y: top + offset.y,
+				anchor: { x: 0, y: 0 },
+				children,
+			},
+		});
+	});
+	return { layout, boxes };
+}
+
+/** A new count-mode repeater (the Components side's "Repeat (count)" element): three segments of
+ *  `componentId` in a row, 8 px apart. Its source list is unused, so `source` is `''`. */
+export function newCountRepeater(
+	base: Pick<LayoutNode, 'id' | 'x' | 'y'> & Partial<Pick<LayoutNode, 'anchor' | 'scale'>>,
+	componentId: string,
+): CountRepeaterNode {
+	return {
+		...base,
+		kind: 'repeater',
+		label: 'Segments',
+		source: '',
+		componentId,
+		count: { preview: 3 },
+		layout: { direction: 'row', gap: 8 },
+	};
+}
+
+/** The component a new "Repeat (count)" element repeats: the first that declares an `index`
+ *  (param or number input — what lights a segment by position), else the first offered. */
+export function defaultSegmentComponent(defs: readonly ComponentDef[]): string {
+	const lights = (def: ComponentDef) =>
+		(def.params ?? []).some((p) => p.key === REPEATER_INDEX_PARAM) ||
+		componentInputs(def).some((i) => i.id === REPEATER_INDEX_PARAM && i.kind === 'number');
+	return (defs.find(lights) ?? defs[0])?.id ?? '';
+}
+
 /** Resolve a sensible local-space box for any node kind. */
 export function nodeBox(
 	node: LayoutNode,
@@ -496,6 +639,13 @@ export function nodeBox(
 			return { w: nat.w, h: nat.h, ax: nat.ax ?? ax, ay: nat.ay ?? ay };
 		}
 		return { w: 160, h: 100, ax, ay };
+	}
+	// A count-mode repeater selects at its segments' layout (`repeaterPreviewLayout`, as drawn).
+	if (node.kind === 'repeater' && isCountRepeater(node) && layoutType !== undefined) {
+		const layout = repeaterPreviewLayout(node, componentMap, layoutType);
+		return layout.width > 0 && layout.height > 0
+			? { w: layout.width, h: layout.height, ax, ay }
+			: { ...REPEATER_SEGMENT_PLACEHOLDER, ax, ay };
 	}
 	// A repeater selects at the footprint of its editor SAMPLE grid — the config-resolved item
 	// count + the repeated component's own footprint (both via `repeaterPlaceholderGrid`), so the
