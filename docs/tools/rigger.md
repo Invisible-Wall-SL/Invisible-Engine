@@ -144,8 +144,8 @@ cell, in `/symbols` and in the game alike.
 
 A rig **placed on a screen** — in the Scene Editor, or as a part of a component — is
 positioned by its **origin**, not by its Bounds frame: the origin lands on the node's
-x/y, and the node rotates and scales about it. The game does the same. (A symbol is the
-other case: it is *fitted into* its cell, so its frame is what counts, as above.)
+x/y, and the game rotates and scales the rig about it. (A symbol is the other case: it
+is *fitted into* its cell, so its frame is what counts, as above.)
 
 With **Bones** or **Bounds** showing, the origin is the **amber ⊕** on the canvas.
 **Reset view** frames the art, not the origin, so a rig built away from its origin
@@ -153,17 +153,19 @@ can look right here and still draw far from where it is placed; if the ⊕ is no
 where you expect, or not in view at all, that is why.
 
 **⊕ Centre origin** moves the whole rig so the **centre of its Bounds frame** is the
-origin. Only the root bone's setup position changes: every bone, slot, mesh and
-animation key moves with it, so the art keeps its shape in every pose. The Bounds
-frame moves with the art and stays locked if you locked it. It is one undo step,
-and the rig is unsaved until you **💾 Save**. Afterwards:
+origin. First an auto-fitted frame is re-fitted to the art, as a save would do, so
+the origin is still centred after you save. Then only the setup position of the
+root bone (and of any bone you detached to the root level) changes: every other
+bone, slot, mesh and animation key moves with it, so the art keeps its shape in
+every pose. The Bounds frame moves with the art and stays locked if you locked
+it. It is one undo step, and the rig is unsaved until you **💾 Save**. Afterwards:
 
 - Copies **already placed on a screen** draw centred on their position, so check
   where they land in the Scene Editor.
 - An FX or Flipbook binding with **no bone and no slot** is bound to the root bone
   by name. The Rigger always drew such a binding at the root bone while the game drew
   it at the bare origin; naming the root keeps it exactly where it showed here, in
-  both.
+  both. From then on it also follows any animation keyed on the root.
 - A **cinematic** that casts this rig places it by its origin too, so the actor's art
   moves within its shot.
 

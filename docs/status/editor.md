@@ -156,12 +156,17 @@ Shipped capabilities on `main`:
   therefore drew in one place and selected in another. Now `EditorRigLayer` reports where the origin
   sits in the rig's box with its natural size (`rigOriginAnchor`, `constants-shared/rig`, from
   `measureRigBounds`), and `nodeBox` frames a placed rig node, and a nested rig bind, around the
-  origin by it; the node's anchor no longer moves the box (the game never read it), so Properties
-  drops the anchor field for a rig; one authored dimension keeps the art's aspect, as `rigSizeScale`
-  does; a selected rig draws its origin ⊕. No game change: the art was already where the game draws
-  it. A background component holding an off-centre rig re-bakes its `coverBox` to the real extent on
-  the next open. Fix the rig itself with the Rigger's new **⊕ Centre origin**
-  ([rigger status](rigger.md)). Gate: `check:rig-origin-box` (the old box fails 9 of its checks).
+  origin by it; the node's anchor no longer moves the box (the game never read it), so Properties and
+  the item toolbar drop the anchor field and presets for a rig, and the loading placeholder is
+  centred like the unmeasured box; one authored dimension keeps the art's aspect, as `rigSizeScale`
+  does; a selected rig draws its origin ⊕. A resize drag or the toolbar's −/+ measures a rig from
+  its box centre (`resizePivot`) and moves the origin to hold that centre (`resizeOriginShift`):
+  measured from the origin, a handle on an edge the origin sits on did nothing and one past it
+  shrank or mirrored the rig. No change to game code, and placed rigs draw where they did; but a
+  background component holding an off-centre rig re-bakes its `coverBox` (read by the game) to the
+  real extent on the next open, so that cover changes in game once saved. Fix the rig itself with
+  the Rigger's new **⊕ Centre origin** ([rigger status](rigger.md)). Gate: `check:rig-origin-box`
+  (the old box and the old resize both fail it).
 - 2026-10-20 — **Rive plan Phase 9c: Animations list, state machine options, Console** (branch
   `claude/rive-p9c-animations-sm`, in review, ⏳ not browser-verified; checklist in Open item 0c).
   Plan: [rive-reference.md](../design/rive-reference.md) §3.2, §3.6 and §5. UI:

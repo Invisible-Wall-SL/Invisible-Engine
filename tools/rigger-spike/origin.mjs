@@ -8,12 +8,15 @@
 // placed. ⊕ Centre origin moves the rig so the centre of its Bounds frame is the origin.
 //
 // The contract:
-//   (a) afterwards the Bounds frame is centred on the origin, at the same size, keeping its lock;
+//   (a) afterwards the Bounds frame is centred on the origin, at the same size, keeping its lock,
+//       and it STAYS centred through the re-fit a save makes of an unlocked frame: the frame
+//       centred is the one a save writes, even when the stored one has gone stale or has no x/y;
 //   (b) the art keeps its shape: in the setup pose AND mid-animation every attachment moves by
-//       exactly the same (dx, dy), also under a rotated, scaled root;
+//       exactly the same (dx, dy), also under a rotated, scaled root and with a bone detached to the
+//       root level (a second root);
 //   (c) the document and the live skeleton agree: the .irig reloads to the pose on stage;
-//   (d) an FX / clip binding with no bone and no slot is bound to the root (where this view always
-//       drew it, and where the game draws it once named); a bone or slot binding is untouched;
+//   (d) an FX / clip binding with no bone and no slot is bound to the first bone (where this view
+//       always drew it, and where the game draws it once named); a bone or slot binding is untouched;
 //   (e) a second press, or a rig already centred, changes nothing.
 //
 //   node tools/rigger-spike/origin.mjs <skeleton.json> <skeleton.atlas>
@@ -78,11 +81,16 @@ function pullOne(name) {
 	}
 	return html.slice(fn + 1, html.indexOf('\n}', fn) + 2);
 }
-const shippedOutside = ['rigBoundsRect', 'ensureRigBounds', 'computeRigBounds'].map(pullOne).join('\n');
+const shippedOutside = ['rigBoundsRect', 'ensureRigBounds', 'computeRigBounds', 'settleRigBounds']
+	.map(pullOne)
+	.join('\n');
 
 const sandbox = {
 	RIG: { Vector2 },
 	historyStep: (fn) => fn(),
+	historyFlush() {},
+	rigHist: { present: null },
+	renderEventDetail() {},
 	markDirty() { sandbox.dirty = true; },
 	showNotice(msg) { sandbox.notice = msg; },
 	fitView() {},
@@ -158,11 +166,35 @@ function offset(doc, ox, oy, extra = {}) {
 	return d;
 }
 
+/** The root moved after the frame was last fitted: the stored frame is stale until a save. */
+function stale(doc, ox, oy) {
+	const d = clone(doc);
+	d.bones[0] = { ...d.bones[0], x: (d.bones[0].x || 0) + ox, y: (d.bones[0].y || 0) + oy };
+	return d;
+}
+/** A bone detached to the root level, as the bone panel's "(root — no parent)" does. */
+function secondRoot(doc) {
+	const d = clone(doc);
+	const leaf = d.bones.find((b, i) => i > 0 && b.parent && !d.bones.some((c) => c.parent === b.name));
+	if (leaf) delete leaf.parent;
+	return d;
+}
+/** A header with a size but no x/y, which the engine reads as centred on the origin. */
+function noXY(doc) {
+	const d = clone(doc);
+	delete d.skeleton.x;
+	delete d.skeleton.y;
+	return d;
+}
+
 const cases = [
 	['as shipped', raw0],
 	['art far from its origin', offset(raw0, -950, 580)],
 	['… under a rotated, scaled root', offset(raw0, 400, -300, { rotation: 30, scaleX: 1.5, scaleY: 0.8 })],
 	['… with a hand-set (locked) frame', offset({ ...raw0, skeleton: { ...raw0.skeleton, iwLockBounds: true } }, 120, 75)],
+	['… with a stale frame (root moved since the last fit)', stale(raw0, 300, -120)],
+	['… with a bone detached to the root level', secondRoot(offset(raw0, -500, 260))],
+	['… with a frame that has no x/y', noXY(offset(raw0, 200, 90))],
 ];
 console.log(`\n=== ⊕ centre origin (shipped code, official loader): ${jsonPath} ===`);
 
@@ -171,7 +203,11 @@ for (const [label, doc0] of cases) {
 	const doc = clone(doc0);
 	const bound = withBindings(doc);
 	open(doc);
-	const frame0 = { ...sandbox.rigBoundsRect() };
+	// The frame the button must centre: the one a save would write — a locked frame as stored, an
+	// unlocked one re-fitted to the art. Measured without writing, so a press that skips the re-fit
+	// is caught.
+	const fit = sandbox.rawDoc.skeleton.iwLockBounds ? null : sandbox.computeRigBounds();
+	const frame0 = fit ? { x: fit.x, y: fit.y, w: fit.width, h: fit.height } : { ...sandbox.rigBoundsRect() };
 	const centred0 = near(frame0.x + frame0.w / 2, 0, 0.005) && near(frame0.y + frame0.h / 2, 0, 0.005);
 	const dx = Math.round(-(frame0.x + frame0.w / 2) * 100) / 100;
 	const dy = Math.round(-(frame0.y + frame0.h / 2) * 100) / 100;
@@ -196,6 +232,16 @@ for (const [label, doc0] of cases) {
 		`(a) the frame is centred on the origin at its size (centre ${(frame.x + frame.w / 2).toFixed(2)}, ${(frame.y + frame.h / 2).toFixed(2)})`,
 	);
 	log(!!sandbox.rawDoc.skeleton.iwLockBounds === lock0, `(a) the frame's lock is kept (${lock0 ? 'locked' : 'auto'})`);
+	{
+		const saved = clone(sandbox.rawDoc);
+		sandbox.ensureRigBounds(); // what a save does to the frame
+		const f = sandbox.rigBoundsRect();
+		log(
+			near(f.x + f.w / 2, 0) && near(f.y + f.h / 2, 0),
+			`(a) …and stays centred through a save's re-fit (centre ${(f.x + f.w / 2).toFixed(2)}, ${(f.y + f.h / 2).toFixed(2)})`,
+		);
+		sandbox.rawDoc = saved;
+	}
 	// (b)
 	log(movedBy(before.setup, extent(sandbox.skeleton), dx, dy), `(b) the setup pose moved by exactly (${dx}, ${dy})`);
 	if (animName) {
@@ -211,7 +257,7 @@ for (const [label, doc0] of cases) {
 	if (bound) {
 		const evs = sandbox.rawDoc.animations[bound].events.filter((e) => e.name === 'originSpike');
 		const root = sandbox.rawDoc.bones[0].name;
-		log(evs[0].fx.bone === root, `(d) a binding with no bone now names the root "${root}"`);
+		log(evs[0].fx.bone === root, `(d) a binding with no bone now names the first bone "${root}"`);
 		log(evs[0].flipbook.bone !== root && !!evs[0].flipbook.bone, '(d) a bone binding keeps its bone');
 		log(!evs[1].fx.bone && evs[1].fx.slot !== undefined, '(d) a slot binding keeps riding its slot');
 	}

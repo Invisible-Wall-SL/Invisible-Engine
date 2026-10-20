@@ -65,6 +65,8 @@
 		nodeCornersWorld,
 		repeaterPlaceholderGrid,
 		repeaterBoxes,
+		resizeOriginShift,
+		resizePivot,
 		topMidWorld,
 		pointInQuad,
 		reelGridGeometry,
@@ -2918,13 +2920,8 @@
 			if (!rig && nested && gameView) {
 				// nothing bound
 			} else if (!readyRigKeys.has(node.assetKey)) {
-				drawPlaceholder(
-					ctx,
-					t.anchor?.x ?? 0.5,
-					t.anchor?.y ?? 0.5,
-					'#4a3a5a',
-					`rig: ${node.label ?? node.assetKey}`,
-				);
+				// Centred like the box `nodeBox` frames an unmeasured rig with: a rig has no anchor.
+				drawPlaceholder(ctx, 0.5, 0.5, '#4a3a5a', `rig: ${node.label ?? node.assetKey}`);
 			}
 		} else if (node.kind === 'text') {
 			// Text is rendered EXCLUSIVELY by the PIXI overlay (`EditorTextLayer`) now — it
@@ -4522,9 +4519,10 @@
 			{ x: left, y: bottom },
 		];
 		const ref = cornerLocal[d.cornerIdx];
-		// Base (start) signed magnitudes; avoid div-by-zero.
-		const baseX = ref.x * d.startDrawScale.x;
-		const baseY = ref.y * d.startDrawScale.y;
+		const pivot = resizePivot(node, d.startBox);
+		// Base (start) signed magnitudes, measured from the pivot; avoid div-by-zero.
+		const baseX = (ref.x - pivot.x) * d.startDrawScale.x;
+		const baseY = (ref.y - pivot.y) * d.startDrawScale.y;
 		const newRefX = baseX + dxl;
 		const newRefY = baseY + dyl;
 		let sxRatio = baseX === 0 ? 1 : newRefX / baseX;
@@ -4583,6 +4581,16 @@
 		if (Math.abs(newSx) < MIN) newSx = Math.sign(newSx || 1) * MIN;
 		if (Math.abs(newSy) < MIN) newSy = Math.sign(newSy || 1) * MIN;
 		writeScale(node, newSx, newSy);
+		// A pivot off the origin (a rig's box centre) holds still: the origin moves instead. An
+		// Animate drag keys scale alone, so it scales about the origin there.
+		if (animDrag || (pivot.x === 0 && pivot.y === 0)) return;
+		const moved = resizeOriginShift(
+			pivot,
+			d.startDrawScale,
+			{ x: newSx / (d.startScale.x || 1), y: newSy / (d.startScale.y || 1) },
+			d.startRot,
+		);
+		writeXY(node, d.startTx + moved.x, d.startTy + moved.y);
 	}
 
 	/** Write a text node's BOX size (`width`/`height`) — base value when desktop, sparse
@@ -5305,6 +5313,17 @@
 		const sx = (t.scale?.x ?? 1) * factor;
 		const sy = (t.scale?.y ?? 1) * factor;
 		writeScale(node, sx, sy);
+		// Like a resize drag, a rig holds its box centre still, not its origin.
+		const pivot = resizePivot(node, boxOf(node, t));
+		if (pivot.x !== 0 || pivot.y !== 0) {
+			const shift = resizeOriginShift(
+				pivot,
+				{ x: t.scale?.x ?? 1, y: t.scale?.y ?? 1 },
+				{ x: factor, y: factor },
+				t.rotation ?? 0,
+			);
+			writeXY(node, t.x + shift.x, t.y + shift.y);
+		}
 		bumpFrame();
 		schedule();
 		onDirty?.();

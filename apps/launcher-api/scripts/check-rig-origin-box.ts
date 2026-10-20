@@ -22,6 +22,10 @@
  *     dimension scales uniformly, so the other follows the art's aspect.
  *  5. **A nested rig bind (the win / free-spin visual) is drawn by its origin too**, so it frames the
  *     same way.
+ *  6. **A resize handle works wherever the origin sits.** A drag measures from the box centre for a
+ *     rig (`resizePivot`), so an origin on an edge or outside the box still grows the box the way
+ *     the handle is pulled, and the origin moves (`resizeOriginShift`) so the box centre holds
+ *     still. Every other node measures from its origin, as before.
  */
 import type { LayoutNode, ResolvedTransform } from 'engine-layout';
 
@@ -30,7 +34,10 @@ import { rigOriginAnchor, type RigBox } from 'constants-shared/rig';
 import {
 	nodeBox,
 	nodeCornersWorld,
+	resizeOriginShift,
+	resizePivot,
 	type NaturalSize,
+	type NodeBox,
 	type Vec2,
 } from '../src/routes/(app)/editor/editorCanvas.helpers';
 
@@ -200,6 +207,92 @@ framesTheArt(
 		'nested rig bind: frames the art around its origin',
 		near(tl.x, f.l) && near(tl.y, f.t) && near(br.x, f.r) && near(br.y, f.b),
 	);
+}
+
+// Rule 6 — a resize drag, as `applyScale` runs it: the dragged corner's offset from the pivot is
+// the base, the pointer's local delta is added, and the origin then moves by `resizeOriginShift`.
+const centre = (q: Vec2[]): Vec2 => ({
+	x: (q[0].x + q[2].x) / 2,
+	y: (q[0].y + q[2].y) / 2,
+});
+/** Drag corner `idx` of a scale-1 node by `delta` (local px), uniform like a corner handle. */
+function drag(
+	node: LayoutNode,
+	box: NodeBox,
+	t: ResolvedTransform,
+	idx: number,
+	delta: Vec2,
+	axis?: 'x' | 'y',
+): { ratio: Vec2; after: ResolvedTransform } {
+	const left = -box.w * box.ax;
+	const top = -box.h * box.ay;
+	const corners = [
+		{ x: left, y: top },
+		{ x: left + box.w, y: top },
+		{ x: left + box.w, y: top + box.h },
+		{ x: left, y: top + box.h },
+	];
+	const pivot = resizePivot(node, box);
+	const ref = corners[idx];
+	const bx = ref.x - pivot.x;
+	const by = ref.y - pivot.y;
+	let rx = bx === 0 ? 1 : (bx + delta.x) / bx;
+	let ry = by === 0 ? 1 : (by + delta.y) / by;
+	if (axis === 'x') ry = 1;
+	else if (axis === 'y') rx = 1;
+	const scale = { x: t.scale?.x ?? 1, y: t.scale?.y ?? 1 };
+	const shift = resizeOriginShift(pivot, scale, { x: rx, y: ry }, t.rotation ?? 0);
+	return {
+		ratio: { x: rx, y: ry },
+		after: {
+			...t,
+			x: t.x + shift.x,
+			y: t.y + shift.y,
+			scale: { x: scale.x * rx, y: scale.y * ry },
+		},
+	};
+}
+{
+	const box = nodeBox(rig(), at(), () => reported(WIDGET));
+	// Right edge, pulled 100 px outward: the widget's origin is right of its box (ax ≈ 1.48).
+	const r = drag(rig(), box, at(), 1, { x: 100, y: 0 }, 'x');
+	check(`widget: pulling the right edge out grows it (×${r.ratio.x.toFixed(3)})`, r.ratio.x > 1);
+	const c0 = centre(nodeCornersWorld(at(), box));
+	const c1 = centre(nodeCornersWorld(r.after, box));
+	check('widget: the box centre holds still while it grows', near(c0.x, c1.x) && near(c0.y, c1.y));
+	const [, tr] = nodeCornersWorld(r.after, box);
+	check(
+		`widget: the dragged edge moves out (right edge ${tr.x.toFixed(1)} past ${nodeCornersWorld(at(), box)[1].x.toFixed(1)})`,
+		tr.x > nodeCornersWorld(at(), box)[1].x,
+	);
+	// Rotated and scaled, a corner drag still holds the centre.
+	const tr2 = at({ rotation: 0.6, scale: { x: 0.8, y: 1.3 } });
+	const r2 = drag(rig(), box, tr2, 2, { x: 40, y: 25 });
+	const d0 = centre(nodeCornersWorld(tr2, box));
+	const d1 = centre(nodeCornersWorld(r2.after, box));
+	check(
+		'widget, rotated + scaled: a corner drag holds the box centre',
+		near(d0.x, d1.x) && near(d0.y, d1.y),
+	);
+}
+{
+	// A feet-rooted rig: its origin is ON the bottom edge, so measuring from it, the bottom handle
+	// had nothing to scale by.
+	const feet: RigBox = { x: -50, y: 0, width: 100, height: 300 };
+	const box = nodeBox(rig(), at(), () => reported(feet));
+	const r = drag(rig(), box, at(), 2, { x: 0, y: 30 }, 'y');
+	check(`feet-rooted rig: the bottom handle resizes (×${r.ratio.y.toFixed(3)})`, r.ratio.y > 1);
+}
+{
+	// A centred rig and every other kind keep their old drag: measured from the origin, which stays.
+	const box = nodeBox(rig(), at(), () => reported(CENTRED));
+	const p = resizePivot(rig(), box);
+	check('centred rig: the pivot is its origin', p.x === 0 && p.y === 0);
+	const sprite: LayoutNode = { kind: 'sprite', id: 's', x: 0, y: 0, assetKey: 'a' };
+	const sp = resizePivot(sprite, { w: 100, h: 50, ax: 0, ay: 0 });
+	check('a sprite still measures from its origin', sp.x === 0 && sp.y === 0);
+	const shift = resizeOriginShift({ x: 0, y: 0 }, { x: 2, y: 2 }, { x: 1.5, y: 0.5 }, 0.3);
+	check('a pivot at the origin moves nothing', shift.x === 0 && shift.y === 0);
 }
 
 if (fails) {

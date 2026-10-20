@@ -683,6 +683,35 @@ export function nodeCornersWorld(t: ResolvedTransform, box: NodeBox): [Vec2, Vec
 	})) as [Vec2, Vec2, Vec2, Vec2];
 }
 
+/**
+ * The local point (pre-scale, relative to the node's origin) a resize handle measures its drag
+ * from. Every node measures from its origin, which scales in place. A rig's origin can sit on an
+ * edge of its box or outside it (`rigOriginAnchor`), where a corner's offset from the origin is
+ * zero or points the wrong way, so a rig measures from its box CENTRE and the origin moves to
+ * hold that centre still ({@link resizeOriginShift}). A box centred on its origin gets (0, 0).
+ */
+export function resizePivot(node: LayoutNode, box: NodeBox): Vec2 {
+	if (node.kind !== 'spine') return { x: 0, y: 0 };
+	return { x: box.w * (0.5 - box.ax), y: box.h * (0.5 - box.ay) };
+}
+
+/**
+ * How far (world px) a node's origin moves so its {@link resizePivot} stays put when its drawn
+ * scale changes by `ratio` per axis, rotated by `rotation`. Zero for a pivot at the origin.
+ */
+export function resizeOriginShift(
+	pivot: Vec2,
+	drawScale: Vec2,
+	ratio: Vec2,
+	rotation: number,
+): Vec2 {
+	const lx = pivot.x * drawScale.x * (1 - ratio.x);
+	const ly = pivot.y * drawScale.y * (1 - ratio.y);
+	const cos = Math.cos(rotation);
+	const sin = Math.sin(rotation);
+	return { x: lx * cos - ly * sin, y: lx * sin + ly * cos };
+}
+
 /** Top-edge midpoint in world space, used to anchor the rotation handle. */
 export function topMidWorld(t: ResolvedTransform, box: NodeBox): Vec2 {
 	const sx = t.scale?.x ?? 1;
