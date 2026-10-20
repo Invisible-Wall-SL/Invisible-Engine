@@ -32,9 +32,13 @@
  *
  * Any failure (decode error, encoder throw) returns null — a missing KTX2 twin degrades to
  * the existing WebP/PNG, never a broken build.
+ *
+ * The twin is PREMULTIPLIED (a page that already is passes through) — see `ktx2Alpha.ts` for why
+ * a straight twin dimmed every translucent layer, and for the `.pm.ktx2` name callers must give it.
  */
 import sharp from 'sharp';
 import { encodeToKTX2 } from 'ktx2-encoder';
+import { premultiplyRgba } from './ktx2Alpha';
 import { DEFAULT_MAX_DIMENSION, MIN_ENCODE_PIXELS, targetSize } from './ktx2Dimensions';
 
 // The sizing rules live in `ktx2Dimensions.ts` (no `sharp`, no wasm) so a guard can drive them
@@ -50,14 +54,16 @@ export {
 
 /** `sharp` decoder the encoder calls to turn compressed page bytes into raw RGBA (the encoder
  *  requires this in Node for LDR inputs), resizing to `target` when the page is being
- *  downscaled. Mirrors the raw-buffer decode in `rig.ts`. */
-function makeDecoder(target: { width: number; height: number } | null) {
+ *  downscaled, and premultiplying unless the source already is. Mirrors the raw-buffer decode in
+ *  `rig.ts`. */
+function makeDecoder(target: { width: number; height: number } | null, premultiply: boolean) {
 	return async (
 		buffer: Uint8Array,
 	): Promise<{ width: number; height: number; data: Uint8Array }> => {
 		let pipeline = sharp(Buffer.from(buffer)).ensureAlpha();
 		if (target) pipeline = pipeline.resize(target.width, target.height, { fit: 'fill' });
 		const { data, info } = await pipeline.raw().toBuffer({ resolveWithObject: true });
+		if (premultiply) premultiplyRgba(data);
 		return { width: info.width, height: info.height, data };
 	};
 }
@@ -87,11 +93,12 @@ export interface EncodedKtx2 {
  * Encode a page to a KTX2 twin, auto-downscaling it (uniform) so the longest side ≤
  * `maxDimension` and the area ≤ the encoder cap. Returns the bytes + the encoded dimensions
  * (so the caller can rescale the atlas/sheet coords), or null when the page is too small to
- * bother or anything throws (→ the caller ships the WebP/PNG, parity).
+ * bother or anything throws (→ the caller ships the WebP/PNG, parity). `sourcePremultiplied` is
+ * for a page whose bytes already are (a rig atlas page declaring `pma: true`).
  */
 export async function encodePageToKtx2(
 	pageBytes: Uint8Array,
-	opts: { mipmaps?: boolean; maxDimension?: number } = {},
+	opts: { mipmaps?: boolean; maxDimension?: number; sourcePremultiplied?: boolean } = {},
 ): Promise<EncodedKtx2 | null> {
 	try {
 		// Cheap dimension read first, so a sub-threshold page never pays the encode cost and
@@ -122,7 +129,7 @@ export async function encodePageToKtx2(
 				// mostly adds ~33% VRAM + transcode cost for little gain — exactly what the
 				// low-memory (iOS) tier wants to avoid.
 				generateMipmap: opts.mipmaps ?? false,
-				imageDecoder: makeDecoder(resize),
+				imageDecoder: makeDecoder(resize, !opts.sourcePremultiplied),
 			}),
 		);
 		return ktx2.byteLength > 0 ? { bytes: ktx2, width: target.width, height: target.height } : null;

@@ -41,8 +41,10 @@ export const BLOCK = 4;
  *
  * 1 → 2: dimensions are floored to whole 4×4 blocks on BOTH the downscale and the pass-through
  *        path (was: multiple of 2, downscale path only), so unaligned pages stop decoding black.
+ * 2 → 3: twins are premultiplied and named `.pm.ktx2` (`ktx2Alpha.ts`), so a translucent layer
+ *        stops drawing dimmer on the compressed tier than it does from the PNG.
  */
-export const KTX2_ENCODER_REVISION = 2;
+export const KTX2_ENCODER_REVISION = 3;
 
 /** Round DOWN to a whole block. Down rather than up because every referencing atlas/sheet rescales
  *  its coordinates to the dimensions we REPORT (`toTexturePackerJson(sx, sy)` /
