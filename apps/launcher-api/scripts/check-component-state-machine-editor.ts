@@ -833,12 +833,13 @@ const names = new Map([
 		readFileSync(new URL(`../src/routes/(app)/editor/${f}`, import.meta.url), 'utf8');
 	const timelinePanel = read('EditorTimelinePanel.svelte');
 	eq(
-		'the Timeline panel has no timeline <select> any more; it publishes the Animations list',
+		'the Timeline panel keeps its timeline <select> and ＋ New, and publishes the Animations list',
 		[
 			/aria-label=\{`Timelines of this/.test(timelinePanel),
+			/onclick=\{\(\) => void create\(\)\}/.test(timelinePanel),
 			/setAnimationsPanel\(next, previewOwner\)/.test(timelinePanel),
 		],
-		[false, true],
+		[true, true, true],
 	);
 	eq(
 		'…and withdraws it on unmount',

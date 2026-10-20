@@ -149,6 +149,13 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+
+- 2026-10-20 — **The Timeline panel's picker and ＋ New / Rename / 🗑 are back** (branch
+  `claude/timeline-header-picker`). Reported on `commonoverlayproject` right after 9c: the owner
+  could not find how to open or create a screen timeline once 9c moved those actions to the
+  Animations list at the top of the left column (the list works; it was not where they looked). The
+  panel header carries the controls again beside the list, both calling the same panel functions,
+  so the panel itself always offers them.
 - 2026-10-20 — **Rive plan Phase 9c: Animations list, state machine options, Console** (branch
   `claude/rive-p9c-animations-sm`, in review, ⏳ not browser-verified; checklist in Open item 0c).
   Plan: [rive-reference.md](../design/rive-reference.md) §3.2, §3.6 and §5. UI:
