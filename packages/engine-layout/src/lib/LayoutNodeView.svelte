@@ -1402,10 +1402,10 @@
 			{@const rigVisible = !isStateOverlay || !!override}
 			<!--
 				Anchor / placement parity with the editor: the editor preview places a rig's
-				SKELETON ORIGIN at the node position (anchor only frames the selection box, never
-				shifts the art — see `matFromTransform` "Anchor is NOT folded in here" + the rig
-				overlay's `skeleton.x = world.x`). `RigProvider`'s `anchorToPivot` instead pivots
-				the art by `anchor·size` (assuming top-left-origin art), which offsets an
+				SKELETON ORIGIN at the node position (the rig overlay's `skeleton.x = world.x`) and
+				frames its selection box around that origin as the rig's own box sits
+				(`rigOriginAnchor`); the node's anchor moves nothing. `RigProvider`'s `anchorToPivot`
+				instead pivots the art by `anchor·size` (assuming top-left-origin art), which offsets an
 				origin-centred skeleton in-game vs the editor. So for a NON-background rig we pass
 				NO anchor → pivot 0 → origin at the node position, matching the editor exactly.
 				Background rigs keep `transform.anchor` (their cover path centres via `coverTransform`

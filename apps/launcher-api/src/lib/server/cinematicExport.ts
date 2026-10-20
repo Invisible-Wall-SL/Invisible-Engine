@@ -1,6 +1,7 @@
 import { type CinematicDoc, listCinematics, loadCinematic } from './cinematicStorage';
 import { SUB } from './projectPaths';
-import { deleteObjects, listAllObjects, putObjectText } from './r2';
+import { deleteObjects, getObjectText, listAllObjects, putObjectText } from './r2';
+import { resolveProjectCinematic } from './sharedCinematics';
 
 /**
  * Export a project's cinematics into the game-loadable `deploy/` subtree — the rule-8 step that
@@ -8,6 +9,7 @@ import { deleteObjects, listAllObjects, putObjectText } from './r2';
  * no binary assets of its own).
  *
  *   <client>/<project>/cinematics/<id>.json        ← authored (saved by /api/cinematics/save)
+ *   _shared/cinematics/<id>.v<N>.json              ← what a linked one plays (resolved on load)
  *   <client>/<project>/deploy/cinematics/<id>.json ← exported (this writes it)
  *
  * `buildRuntimeBundle` calls this via `ensureDeployExports` and embeds the returned docs in the
@@ -26,6 +28,9 @@ export interface CinematicExportIndex {
 	/** Exported cinematics, or undefined when the project authored none (parity). */
 	cinematics?: CinematicDoc[];
 }
+
+/** The authored cinematics; `partial` when one could not be read (the export then prunes nothing). */
+export type AuthoredCinematics = CinematicDoc[] & { partial?: true };
 
 /** A cinematic is worth shipping once it has at least one actor — an empty shell drives nothing. */
 const isAuthored = (doc: CinematicDoc): boolean =>
@@ -49,21 +54,61 @@ export function cinematicRigNames(docs: CinematicDoc[]): Set<string> {
 	return out;
 }
 
-/** Load every authored cinematic in the project (used by both the export and the art seed). */
+/**
+ * Load every authored cinematic in the project (used by both the export and the art seed). A link
+ * to a SHARED timeline (`_shared/cinematics/`, Rive plan Phase 9d) is resolved here against the
+ * version it pins, so the bundle carries the shared content under the project's id — a normal
+ * timeline the game plays like any other — and the art seed sees its rigs. A link whose shared
+ * version is gone ships nothing (its own stub has no actors), never a half-built doc.
+ */
 export async function loadAuthoredCinematics(
 	clientKey: string,
 	projectKey: string,
-): Promise<CinematicDoc[]> {
-	const out: CinematicDoc[] = [];
+): Promise<AuthoredCinematics> {
+	const out: AuthoredCinematics = [];
+	let rows: Awaited<ReturnType<typeof listCinematics>>;
 	try {
-		for (const row of await listCinematics(clientKey, projectKey)) {
-			const { doc } = await loadCinematic(clientKey, projectKey, row.id);
+		rows = await listCinematics(clientKey, projectKey);
+	} catch (e) {
+		// Cinematics are additive — a listing failure must never break the whole publish.
+		console.error('[cinematicExport] could not list the cinematics:', e);
+		out.partial = true;
+		return out;
+	}
+	for (const row of rows) {
+		try {
+			const { doc: stored } = await loadCinematic(clientKey, projectKey, row.id);
+			let doc: CinematicDoc | null;
+			try {
+				doc = stored && (await resolveProjectCinematic(stored));
+			} catch (e) {
+				// The shared copy could not be READ (not "is gone", which resolves to null): ship what
+				// shipped last rather than let the export prune it from `deploy/`.
+				console.error(`[cinematicExport] could not resolve shared link "${row.id}":`, e);
+				doc = await lastShipped(clientKey, projectKey, row.id);
+			}
 			if (doc && isAuthored(doc)) out.push(doc);
+		} catch (e) {
+			console.error(`[cinematicExport] could not load "${row.id}":`, e);
+			out.partial = true;
 		}
-	} catch {
-		// Cinematics are additive — a listing/parse failure must never break the whole publish.
 	}
 	return out;
+}
+
+/** The copy of `id` the last export shipped, or null. A read failure throws. */
+async function lastShipped(
+	clientKey: string,
+	projectKey: string,
+	id: string,
+): Promise<CinematicDoc | null> {
+	const text = await getObjectText(`${SUB.deploy(clientKey, projectKey)}/cinematics/${id}.json`);
+	if (!text) return null;
+	try {
+		return JSON.parse(text) as CinematicDoc;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -73,15 +118,20 @@ export async function loadAuthoredCinematics(
 export async function exportCinematics(
 	clientKey: string,
 	projectKey: string,
-	docs: CinematicDoc[],
+	docs: AuthoredCinematics,
 ): Promise<CinematicExportIndex> {
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/cinematics/`;
 
 	// Prune anything previously deployed that is no longer authored, so deleting a cinematic in the
-	// tool actually removes it from the shipped set instead of leaving a stale copy behind.
-	const keep = new Set(docs.map((d) => `${deployPrefix}${d.id}.json`));
-	const stale = (await listAllObjects(deployPrefix)).map((o) => o.key).filter((k) => !keep.has(k));
-	if (stale.length) await deleteObjects(stale);
+	// tool actually removes it from the shipped set instead of leaving a stale copy behind. Never
+	// after a PARTIAL load: a timeline that failed to read is not a deleted one.
+	if (!docs.partial) {
+		const keep = new Set(docs.map((d) => `${deployPrefix}${d.id}.json`));
+		const stale = (await listAllObjects(deployPrefix))
+			.map((o) => o.key)
+			.filter((k) => !keep.has(k));
+		if (stale.length) await deleteObjects(stale);
+	}
 
 	if (!docs.length) return {};
 

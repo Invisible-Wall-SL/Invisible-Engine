@@ -545,6 +545,13 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.symbols.arrivalRelease?.enabled === true ? 'Released on arrival' : null),
 	},
 	{
+		id: 'respinLandOnStop',
+		title:
+			'On the Hold and Win respin board a coin plays its Land as its own cell stops, not when the landed coins stick.',
+		text: (ctx) =>
+			ctx.symbols.respinLandOnStop?.enabled === true ? 'Coins land as each cell stops' : null,
+	},
+	{
 		id: 'highlight',
 		title: 'A custom win-frame rig looped over winning symbols.',
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),

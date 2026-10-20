@@ -2002,6 +2002,14 @@ export interface CinematicDoc {
 	 * so no player reads this. Absent ⇒ linear.
 	 */
 	defaultEase?: 'linear' | 'ease' | 'hold' | [number, number, number, number];
+	/**
+	 * Authoring-only (Rive plan Phase 9d): this project timeline is a LINK to a shared one in
+	 * `_shared/cinematics/` — it plays version `version` of shared timeline `id`, its actors
+	 * retargeted through `targets` (shared node name → this host's). The launcher resolves a link
+	 * into a normal timeline wherever it is opened and before the bake, so no player reads this.
+	 * Absent ⇒ the timeline is the project's own (parity).
+	 */
+	shared?: { id: string; version: number; targets?: Record<string, string> };
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

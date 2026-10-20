@@ -325,7 +325,10 @@ shows these text boxes empty, like a balance readout. What each operator field m
 
 ### 2. Place assets from the Library
 
-Open the **Library** tab. It is grouped into:
+Open the **Library** tab. At its top, **Search the library…** narrows every section to the
+items whose name has all the words you type (an atlas or sheet whose regions are open also matches
+by region name, and shows only the matching regions), and the type picker shows one section only.
+It is grouped into:
 
 - **Elements** — drag in a **Text** node or a **Rect** fill, click
   **Reel** to insert the board/reel-grid placeholder (one per game; the item
@@ -398,6 +401,11 @@ Open the **Library** tab. It is grouped into:
   > editor calls it out in two places: the node draws a 🎞 chip, and it is counted
   > in the header's **asset issues** pill.
 
+**Fonts** and **Audio** close the list, **read-only**: they show what the project has, but you
+don't place them from here. Pick a font in a text node's Properties; sounds are bound in Invisible
+Sound, and a timeline cue plays one by name (`sfx:<name>`). Both ship through their own exports.
+Audio needs access to Invisible Sound; without it the section says so.
+
 ### The shared rig library
 
 Bundles badged **shared** come from `_shared/spines/` — a cross-project library any
@@ -446,6 +454,19 @@ own, place it, then re-author it in the [Rigger](/docs/rigger) under your projec
 **Drag any library item onto the canvas** to spawn a node in the active screen.
 The editor renders the real texture (and rig bundles preview as a live
 skeleton), so what you see matches what the game will draw.
+
+**A placed rig sits by its origin.** The node's position is the rig's skeleton
+origin, the point it was built around in the [Rigger](/docs/rigger), and the
+game rotates and scales the rig about it (the canvas preview does not draw a
+rig's rotation; only its box turns). Selecting a rig draws that point as a **⊕**
+and frames the box around the rig's **Bounds** wherever it sits relative to the
+origin. A rig built far from its origin therefore selects with the ⊕ well away
+from the art, or outside the box. Resizing it on the canvas keeps the box's centre
+still and moves the origin. To centre the origin for good, open the rig in the
+Rigger, press **⊕ Centre origin** and save; copies already placed then draw
+centred on their position. A placed rig has no anchor field or anchor presets,
+since it is positioned by its origin (a background cover sets its alignment in
+the cover section instead).
 
 The **reel board** previews the real symbols too: each cell shows a symbol's
 **Static** binding from the Invisible Symbols State Machine, cycled across the
@@ -507,6 +528,9 @@ container, so it moves with its new container. You can't drop a container into i
 that fills a template slot or binds an engine component reorders at the top level only (that is
 where the editor and the game look it up). Dragging is off in Animate.
 
+**↑ vN** on a placed component's row means it is a **shared** component pinned to an older version
+than the library's. Select it and use **Update to latest** in Properties.
+
 **Right-click a row** for: Copy, Paste, Delete (on the selection when the row is in it), Lock,
 Hide, Isolate, **◇ Create component** (containers; the same as Properties' *Edit as component*) and
 **↗ Show in Flow** (named component instances). The Components side offers Delete, Lock, Hide
@@ -538,7 +562,7 @@ The stage is tinted blue with a blue edge in **Animate**, so the two modes never
 ### 4. Edit properties
 
 The right-hand **Properties** panel edits the selected node — its transform
-(`x/y`, anchor, scale, rotation, alpha, zIndex, tint, blend), text content/style for
+(`x/y`, anchor (not on a rig), scale, rotation, alpha, zIndex, tint, blend), text content/style for
 text nodes, rig animation/skin for rig nodes (driven by dropdowns when the
 canvas can read the bundle's animations), background cover (fit / zoom /
 alignment) for cover nodes, and the slot the node fills (when a template is loaded). It also offers
@@ -1101,7 +1125,47 @@ selection, and typing in a field is never intercepted.
 Who can do this: anyone with the Scene Editor can open, save and delete **screen** and
 **component** timelines. The Rigger's cinematics stay with the Rigger.
 
-Not here yet: text tracks (count-up / switch key), visibility keys and cues.
+#### Report events, visibility and text
+
+Three more kinds of row sit in the timeline's track area, under the keyed node's field rows:
+
+- **⚡ Report event.** The button above the tracks drops a **cue** at the playhead, named
+  `signal:…`, and selects it so you can type the rest of the name in the inspector on the right
+  (or pick an effect there for an `fx:` cue, or type `sfx:` / `music:` for a sound). In the game a
+  cue fires when the playhead passes it: on a component, a `signal:` cue is a signal its instance
+  hears (another of its timelines can play on it); Flow can react to it too. Scrubbing never fires
+  cues. All cues share one **⚡ cues** row; drag a marker to move it.
+- **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
+  node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
+  a filled marker means shown from there, a hollow one hidden. Drag to move, double-click to delete.
+- **Text.** On a text node, pick **Count up** (a number, eased between keys) or **Switch** (one of
+  the node's own strings: its text and its *switch keys*), then key a value at the playhead. The
+  keys draw on a **↳ text** row with what they show; drag to move, double-click to delete. The
+  canvas shows the text the game would. Switching between Count up and Switch removes the other
+  kind's keys (it asks first).
+
+#### Shared timelines and starters
+
+**📚 Shared** above the tracks lists the **shared timeline library**: timelines any project can
+use, plus built-in **starters** (✦ Fade in, Fade out, Pop in, Slide up in, Pulse). **Place** puts
+one on this screen or component as a **link**: it asks which node each of its parts animates
+(a starter animates one node, "Target"; type the name of yours), then opens it.
+
+- A **link** is the shared timeline as it is. It shows **🔗 name vN** in the bar and can't be
+  keyed here (an edit is put back, with a message). Its name, **Plays on** and **Also on** are
+  this project's own, so you set them as usual.
+- **Update available (vN)** appears when someone promoted a newer version. **Update** moves the
+  link to it. Until you do, the link keeps playing the version it was placed with.
+- **Detach** copies what the link plays into this project as an ordinary timeline you can edit. It
+  no longer follows the shared one.
+- **Promote to shared** (with the *publish to shared* permission, the same one that promotes
+  components) saves the open timeline to the library under a name. A name already in the library
+  adds a new version of it, and every project that placed it is offered the update, so the panel
+  asks first. The timeline you promoted stays this project's own.
+
+A link ships like any other timeline: the bake writes the version it plays into the game, so the
+game never depends on the shared library at run time. A link whose shared version was deleted
+shows **⚠ shared version missing** and ships nothing until you place it again.
 
 ### The Components side
 
@@ -1158,8 +1222,14 @@ the game draws components two levels deep, so a component deeper than that is no
 message says so. Open it from the list instead.
 
 **The left tabs** while a component is open are **Library** (elements and art to drag in),
-**Outline** (the component's node tree) and **Browse** (the screens and every component, to jump
-to another). Clicking a screen in Browse takes you back to that screen.
+**Outline** (the component's node tree), **Browse** (the screens and every component, to jump
+to another) and **Data**. Clicking a screen in Browse takes you back to that screen.
+
+**Data** is read-only: the component's whole interface in one place. **Inputs** (with the signals
+it declares, which fire as triggers), **Events**, **Params**, and **Bound values** (every node field
+bound to a param or an engine value, nested nodes included). Click a bound value's name to select
+its node. Edit them where they live: inputs, events and params in Properties, a binding in its
+node's Properties.
 
 **Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
 component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
