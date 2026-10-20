@@ -376,6 +376,26 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 	{ key: 'collectorLevel', label: 'Collector level', group: 'Hold and Win' },
 	{ key: 'lettersLit', label: 'Letters lit', group: 'Hold and Win' },
 	{ key: 'featureTotal', label: 'Feature total', group: 'Hold and Win' },
+	{
+		key: 'freeSpinsLeft',
+		label: 'Free spins left',
+		group: 'Free spins',
+		note: 'Free spins still to play — counts down to 0.',
+		of: 'freeSpinsTotal',
+	},
+	{
+		key: 'freeSpinsPlayed',
+		label: 'Free spins played',
+		group: 'Free spins',
+		note: 'The free spin being played — counts up from 1.',
+		of: 'freeSpinsTotal',
+	},
+	{
+		key: 'freeSpinsTotal',
+		label: 'Free spins awarded',
+		group: 'Free spins',
+		note: 'The free spins awarded this session.',
+	},
 ];
 
 /** `platformJackpotShow` — true once the operator's platform reports a jackpot. */

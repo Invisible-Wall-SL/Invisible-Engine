@@ -19,6 +19,10 @@ import {
 	FREE_SPIN_PRESENTATION_NODES,
 	FREE_SPIN_PRESENTATION_RIGS,
 	freeSpinFadeTimelineId,
+	SEGMENTED_COUNTER_LIT_TIMELINE_ID,
+	SEGMENTED_COUNTER_SEGMENT_ID,
+	SEGMENTED_COUNTER_SEGMENT_NODES,
+	SEGMENTED_COUNTER_UNLIT_TIMELINE_ID,
 	WIN_FADE_HIDDEN_TIMELINE_ID,
 	WIN_FADE_MS,
 	WIN_FADE_SHOWN_TIMELINE_ID,
@@ -625,8 +629,45 @@ export const FREE_SPIN_TIMELINES: readonly CinematicDoc[] = [
 	),
 ];
 
+// ---------------------------------------------------------------------------------------------
+// THE SEGMENTED COUNTER: its segment's two static poses, which its machine picks between. No
+// `playOn`: only the machine plays them. They key `alpha`, not visibility: a hidden node unmounts,
+// and a remounted `lit` would paint over the segment's number.
+// ---------------------------------------------------------------------------------------------
+
+const segmentPose = (id: string, name: string, lit: boolean): CinematicDoc => {
+	const nodes = [SEGMENTED_COUNTER_SEGMENT_NODES.lit, SEGMENTED_COUNTER_SEGMENT_NODES.unlit];
+	return {
+		schemaVersion: 1,
+		id,
+		name,
+		duration: 1,
+		fps: 60,
+		markers: [],
+		host: { kind: 'component', componentId: SEGMENTED_COUNTER_SEGMENT_ID },
+		stage: {
+			sceneId: null,
+			cast: nodes.map((node) => ({ actorId: node, kind: 'node', target: node, place: {} })),
+		},
+		tracks: nodes.map((node) => ({
+			id: `${node}-alpha`,
+			kind: 'property',
+			actorId: node,
+			channels: {
+				alpha: [{ time: 0, value: (node === SEGMENTED_COUNTER_SEGMENT_NODES.lit) === lit ? 1 : 0 }],
+			},
+		})),
+	};
+};
+
+export const SEGMENTED_COUNTER_TIMELINES: readonly CinematicDoc[] = [
+	segmentPose(SEGMENTED_COUNTER_LIT_TIMELINE_ID, 'Segment: lit', true),
+	segmentPose(SEGMENTED_COUNTER_UNLIT_TIMELINE_ID, 'Segment: unlit', false),
+];
+
 export const BUILTIN_TIMELINES: readonly CinematicDoc[] = [
 	TRANSITION_WIPE_TIMELINE,
 	...BUTTON_TIMELINES,
 	...FREE_SPIN_TIMELINES,
+	...SEGMENTED_COUNTER_TIMELINES,
 ];

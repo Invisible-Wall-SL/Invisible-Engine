@@ -1,4 +1,5 @@
 import {
+	isCountRepeater,
 	isModeScene,
 	type ComponentDef,
 	type LayoutDoc,
@@ -60,7 +61,12 @@ async function ownMathBinding(
 	depth = 0,
 ): Promise<string | null> {
 	if (node.kind === 'reelGrid') return 'it is the reel grid';
-	if (node.kind === 'repeater') return `it repeats the game's "${node.source}" data`;
+	if (node.kind === 'repeater') {
+		if (!isCountRepeater(node)) return `it repeats the game's "${node.source}" data`;
+		const fed = [node.count.source, ...Object.values(node.passInputs ?? {})].filter(Boolean);
+		if (fed.length) return `it counts the game's ${fed.map((s) => `"${s}"`).join(', ')}`;
+		return null;
+	}
 	const params = node.kind === 'componentInstance' ? (node.params ?? {}) : {};
 	// A layout's override can give the instance another action or source on that layout only.
 	const overrideParams = Object.values(node.overrides ?? {}).map((o) => o?.params ?? {});

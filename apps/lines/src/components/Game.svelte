@@ -863,6 +863,12 @@
 		respinsStart: valueSource(() =>
 			respinsBeforeBoard() ? stateHoldAndWin.start : stateRespinBoard.counter.start,
 		),
+		// The free-spin pair a segmented counter binds as it does `respinsLeft` / `respinsStart`: the
+		// spins still to play, the ones played and the session's award (`freeSpinCounterValues`, the
+		// readers `freeSpinsRemaining` / `freeSpinsCurrent` below already serve).
+		freeSpinsLeft: valueSource(() => freeSpinsRemaining()),
+		freeSpinsPlayed: valueSource(() => freeSpinsCurrent()),
+		freeSpinsTotal: valueSource(() => freeSpinsTotal()),
 		// The respin board's held cells and its open cells (reels × open rows) — a "board filling"
 		// bar binds the first, normalised by the second. 0 outside the feature.
 		cellsHeld: valueSource(() => (stateRespinBoard.shown ? stateRespinBoard.held.length : 0)),

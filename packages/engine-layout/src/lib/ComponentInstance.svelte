@@ -38,6 +38,12 @@
 		// this prop is the direct-render path (mirrors `<Repeater>`'s `onSelect`). Undefined ⇒ the
 		// context binding, else no routing (parity).
 		actions?: Record<string, () => void>;
+		// A count-mode `<Repeater>`'s segment wiring: a number input of an id in `inputSources` follows
+		// that engine value source (`{param}`-templated like the input's own `source`, which it
+		// replaces), and one in `inputValues` holds that constant (the segment's `index` / `count`),
+		// over any source. Undefined for every other instance ⇒ the def's own inputs (parity).
+		inputSources?: Record<string, string>;
+		inputValues?: Record<string, number>;
 	};
 
 	/** Defs whose state machine names unregistered timelines: warned once per def, not per
@@ -124,7 +130,16 @@
 	import { createFlowInstanceHandle } from './flowInstanceHandle';
 	import { getSceneIdContext } from './sceneIdContext';
 
-	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
+	let {
+		node,
+		space,
+		tap = $bindable(),
+		engineValues,
+		onSelect,
+		actions,
+		inputSources,
+		inputValues,
+	}: Props = $props();
 
 	// Instance-binding fallback (`instanceBindingContext`): a canvas-takeover MOUNT (e.g.
 	// `<ConfirmDialog>`) that renders THIS instance inside its `<LayoutScene>` — but can't pass props
@@ -815,6 +830,15 @@
 					(key) => staticParams[key],
 				)
 			: undefined;
+	// A repeater's constants (a segment's `index` / `count`), set before the machine first evaluates.
+	const fixedInputs = untrack(() => inputValues);
+	if (stateMachineRunner && def && fixedInputs) {
+		for (const input of componentInputs(def)) {
+			const value = fixedInputs[input.id];
+			if (input.kind === 'number' && value !== undefined)
+				stateMachineRunner.setInput(input.id, value);
+		}
+	}
 	if (stateMachineRunner?.missingTimelines.length && def && !warnedMissingTimelines[def.id]) {
 		warnedMissingTimelines[def.id] = true;
 		console.warn(
@@ -932,14 +956,18 @@
 		}
 	});
 	// A number input with a `source` follows that engine value (the registry a value binding's
-	// `source` reads). Untracked: a source emits synchronously on subscribe.
+	// `source` reads) — or the one a repeater passes it. Untracked: a source emits synchronously on
+	// subscribe.
 	$effect(() =>
 		untrack(() => {
 			if (!stateMachineRunner || !def) return;
 			const unsubs: (() => void)[] = [];
+			const passed = inputSources;
 			for (const input of componentInputs(def)) {
-				if (input.kind !== 'number' || !input.source) continue;
-				const name = expandSourceTemplate(input.source, sourceParams);
+				if (input.kind !== 'number' || fixedInputs?.[input.id] !== undefined) continue;
+				const template = passed?.[input.id] ?? input.source;
+				if (!template) continue;
+				const name = expandSourceTemplate(template, sourceParams);
 				const source = name ? getComponentValueSource(name) : undefined;
 				if (!source) continue;
 				unsubs.push(

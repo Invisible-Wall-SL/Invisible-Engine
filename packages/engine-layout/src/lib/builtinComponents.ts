@@ -2819,6 +2819,232 @@ export const OPTION_CARD_DEF: ComponentDef = {
 	signals: [{ key: 'select', note: 'Fired when the tile is pressed (pick this option).' }],
 };
 
+// ─── Segmented counter (a count-mode repeater, `RepeaterNode.count`) ─────────────────────────────
+//
+// One segment per spin of a count the engine feeds (respins, free spins), lit while the spins left
+// reach its position — the Hold and Win respin bar's look, drawn from plain nodes and a state
+// machine, so a copy re-skins and re-binds with no code. Offered to every kind; placed only by an
+// author.
+
+export const SEGMENTED_COUNTER_ID = 'segmentedCounter';
+export const SEGMENTED_COUNTER_SEGMENT_ID = 'segmentedCounterSegment';
+/** The node names the segment's timelines bind (labels, unique within the def). */
+export const SEGMENTED_COUNTER_SEGMENT_NODES = { lit: 'lit', unlit: 'unlit' } as const;
+/** The segment's number input the bar passes the live count to. */
+export const SEGMENTED_COUNTER_VALUE_INPUT = 'value';
+const segmentTimelineId = (suffix: string): string =>
+	`c_${SEGMENTED_COUNTER_SEGMENT_ID.toLowerCase()}_${suffix}`;
+export const SEGMENTED_COUNTER_LIT_TIMELINE_ID = segmentTimelineId('lit');
+export const SEGMENTED_COUNTER_UNLIT_TIMELINE_ID = segmentTimelineId('unlit');
+const SEGMENT_WIDTH = 80;
+const SEGMENT_HEIGHT = 56;
+
+/**
+ * A segment's look in one state: a fill (`litColor` / `unlitColor`) under optional art. Its machine
+ * keys the group's `alpha`, so the group carries an explicit `alpha: 1`: the fold hands a keyed 1
+ * back as the node's own alpha, and with none the 0 of the other state would stay on screen.
+ */
+const segmentLook = (lit: boolean): LayoutNode => {
+	const state = lit ? 'lit' : 'unlit';
+	const name = lit ? 'Lit' : 'Unlit';
+	return {
+		id: `${SEGMENTED_COUNTER_SEGMENT_ID}-${state}`,
+		label: SEGMENTED_COUNTER_SEGMENT_NODES[state],
+		kind: 'container',
+		x: 0,
+		y: 0,
+		alpha: 1,
+		children: [
+			{
+				id: `${SEGMENTED_COUNTER_SEGMENT_ID}-${state}Fill`,
+				label: `${name} fill`,
+				kind: 'rect',
+				x: 0,
+				y: 0,
+				anchor: { x: 0, y: 0 },
+				width: SEGMENT_WIDTH,
+				height: SEGMENT_HEIGHT,
+				color: lit ? 0xf5a623 : 0x5a1414,
+				borderRadius: 8,
+				paramBindings: { color: `${state}Color` },
+			},
+			{
+				id: `${SEGMENTED_COUNTER_SEGMENT_ID}-${state}Art`,
+				label: `${name} art`,
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				anchor: { x: 0, y: 0 },
+				assetKey: '',
+				width: SEGMENT_WIDTH,
+				height: SEGMENT_HEIGHT,
+				paramBindings: { region: `${state}Image` },
+				preview: { w: SEGMENT_WIDTH, h: SEGMENT_HEIGHT, style: 'tile' },
+			},
+		],
+	};
+};
+
+/**
+ * One segment of a {@link SEGMENTED_COUNTER_DEF}: the repeater hands it its 1-based `index` and the
+ * `count`, and passes the bar's live value to its `value` input. Its machine shows `lit` while
+ * `value >= index` and `unlit` below — 3 left of 3 lights all three, 1 left lights the first only.
+ * It enters `Unlit` and takes `Lit` on its first evaluation, ahead of the first frame drawn.
+ * Re-skin it with `litImage` / `unlitImage` (over the fills, which `litColor` / `unlitColor`
+ * recolour); its label shows `index`.
+ */
+export const SEGMENTED_COUNTER_SEGMENT_DEF: ComponentDef = {
+	id: SEGMENTED_COUNTER_SEGMENT_ID,
+	name: 'Counter Segment',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: `${SEGMENTED_COUNTER_SEGMENT_ID}-root`,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			segmentLook(false),
+			segmentLook(true),
+			{
+				id: `${SEGMENTED_COUNTER_SEGMENT_ID}-label`,
+				label: 'Number',
+				kind: 'text',
+				x: SEGMENT_WIDTH / 2,
+				y: SEGMENT_HEIGHT / 2,
+				anchor: { x: 0.5, y: 0.5 },
+				text: '1',
+				style: {
+					fontFamily: 'Arial',
+					fontWeight: 'bold',
+					fontSize: 30,
+					fill: 0xffffff,
+					stroke: { color: 0x000000, width: 4 },
+				},
+				paramBindings: { text: 'index', 'style.fill': 'labelColor' },
+				preview: { style: 'text', textParam: 'index' },
+			},
+		],
+	},
+	params: [
+		{
+			key: 'index',
+			kind: 'number',
+			default: 1,
+			label: 'position, 1 = the first (the bar sets it)',
+		},
+		{ key: 'count', kind: 'number', default: 3, label: 'segments in the bar (the bar sets it)' },
+		{ key: 'litColor', kind: 'color', default: 0xf5a623, label: 'fill while lit' },
+		{ key: 'unlitColor', kind: 'color', default: 0x5a1414, label: 'fill while dark' },
+		{ key: 'litImage', kind: 'image', label: 'art while lit' },
+		{ key: 'unlitImage', kind: 'image', label: 'art while dark' },
+		{ key: 'labelColor', kind: 'color', default: 0xffffff, label: 'number colour' },
+	],
+	inputs: [
+		{
+			id: SEGMENTED_COUNTER_VALUE_INPUT,
+			kind: 'number',
+			default: 3,
+			note: 'How many are lit (the bar passes its live count).',
+		},
+	],
+	stateMachine: {
+		layers: [
+			{
+				id: 'light',
+				name: 'Light',
+				entry: 'Unlit',
+				states: [
+					{ id: 'Unlit', timeline: SEGMENTED_COUNTER_UNLIT_TIMELINE_ID },
+					{ id: 'Lit', timeline: SEGMENTED_COUNTER_LIT_TIMELINE_ID },
+				],
+				transitions: [
+					{
+						id: 'light-on',
+						from: 'Unlit',
+						to: 'Lit',
+						conditions: [{ input: SEGMENTED_COUNTER_VALUE_INPUT, op: '>=', param: 'index' }],
+					},
+					{
+						id: 'light-off',
+						from: 'Lit',
+						to: 'Unlit',
+						conditions: [{ input: SEGMENTED_COUNTER_VALUE_INPUT, op: '<', param: 'index' }],
+					},
+				],
+			},
+		],
+	},
+};
+
+/**
+ * A SEGMENTED COUNTER: one {@link SEGMENTED_COUNTER_SEGMENT_DEF} per spin of the engine number
+ * `countSource` names, in a centred row, each lit while `valueSource` reaches it. Respins by
+ * default (`respinsStart` / `respinsLeft`); `freeSpinsTotal` / `freeSpinsLeft` count free spins.
+ * `backgroundImage` draws behind the row (none by default). The count and the lit value are the
+ * repeater's `count.source` and `passInputs`, templated on these two params.
+ */
+export const SEGMENTED_COUNTER_DEF: ComponentDef = {
+	id: SEGMENTED_COUNTER_ID,
+	name: 'Segmented Counter',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: `${SEGMENTED_COUNTER_ID}-root`,
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: `${SEGMENTED_COUNTER_ID}-background`,
+				label: 'Background',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				assetKey: '',
+				width: 300,
+				height: 76,
+				paramBindings: { region: 'backgroundImage' },
+				preview: { w: 300, h: 76, style: 'tile' },
+			},
+			{
+				id: `${SEGMENTED_COUNTER_ID}-segments`,
+				label: 'Segments',
+				kind: 'repeater',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				source: '',
+				componentId: SEGMENTED_COUNTER_SEGMENT_ID,
+				layout: { direction: 'row', gap: 6 },
+				count: { source: '{countSource}', preview: 3 },
+				passInputs: { [SEGMENTED_COUNTER_VALUE_INPUT]: '{valueSource}' },
+				previewInputs: { [SEGMENTED_COUNTER_VALUE_INPUT]: 2 },
+			},
+		],
+	},
+	params: [
+		{
+			key: 'countSource',
+			kind: 'string',
+			default: 'respinsStart',
+			label: 'how many segments (an engine number)',
+			options: ['respinsStart', 'freeSpinsTotal'],
+		},
+		{
+			key: 'valueSource',
+			kind: 'string',
+			default: 'respinsLeft',
+			label: 'how many are lit (an engine number)',
+			options: ['respinsLeft', 'freeSpinsLeft', 'freeSpinsPlayed'],
+		},
+		{ key: 'backgroundImage', kind: 'image', label: 'art behind the segments' },
+	],
+};
+
 // ─── Hold and Win (design `docs/design/hold-and-win.md` §5, Phase 6) ─────────────────────────────
 //
 // Kind-gated (`capability: 'holdAndWin'`): the Scene Editor offers them only to a project with the
@@ -3611,6 +3837,8 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	CONFIRM_DIALOG_DEF,
 	OPTION_CARD_DEF,
 	PLATFORM_JACKPOT_BAR_DEF,
+	SEGMENTED_COUNTER_DEF,
+	SEGMENTED_COUNTER_SEGMENT_DEF,
 	...HOLD_AND_WIN_COMPONENTS,
 ];
 
