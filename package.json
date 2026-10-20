@@ -47,6 +47,7 @@
 		"check:undefined-names": "node scripts/check-undefined-names.mjs",
 		"check:svelte-init-order": "node scripts/check-svelte-init-order.mjs",
 		"check:ktx2-alignment": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-alignment.mjs",
+		"check:ktx2-premultiplied": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-premultiplied.mjs",
 		"check:big-win-cue": "node scripts/check-big-win-cue.mjs",
 		"check:cinematic-ticker": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-cinematic-ticker.mjs",
 		"check:engine-game": "node scripts/check-engine-game-fixtures.mjs",
