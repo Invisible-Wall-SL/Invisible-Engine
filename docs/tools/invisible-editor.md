@@ -482,6 +482,56 @@ Other editing affordances:
   ids and a small nudge.
 - **Delete** removes the whole selection in one step.
 
+### The Outline: lock, isolate, hide, drag, menu
+
+Each row in the Outline (under the active screen in the Screens list, and the **Outline** tab on the
+Components side) has hover controls on its right:
+
+- **🔒 Lock.** The stage clicks straight through a locked node to whatever is under it, and it can't
+  be dragged, nudged or deleted. You can still select it from its row (to unlock it, or edit it in
+  Properties). Lock applies to children: rows under a locked container show a faint lock. Lock is
+  saved with the screen, as the floating toolbar's lock always was. The game ignores it.
+- **◎ Isolate.** Shows only this node (its children, and the containers it sits in) on the stage.
+  On a screen, the other screens hide too. A banner above the tree has **Exit**, or click ◎ again.
+- **👁 Hide.** Hides the node and its children on the stage.
+
+Isolate and Hide are **editor-only**. They are never saved, never exported, and never change what
+the game draws. To hide something in the game, use Properties (`visible`, or per-layout
+visibility). They reset when you reload the page.
+
+Click **▸ / ▾** to fold a container. **Drag a row** to change the layer order: drop on the top or
+bottom edge of a row to land before or after it, or on the middle of a container to move into it
+(it becomes the container's last child, drawn on top). A node keeps its own x/y when it changes
+container, so it moves with its new container. You can't drop a container into itself. Dragging
+is off in Animate.
+
+**Right-click a row** for: Copy, Paste, Delete (on the selection when the row is in it), Lock,
+Hide, Isolate, **◇ Create component** (containers; the same as Properties' *Edit as component*) and
+**↗ Show in Flow** (named component instances). The Components side offers Delete, Lock, Hide
+and Isolate. Animate leaves out the editing items.
+
+### Keyboard shortcuts
+
+Press **Shift+/** (or **?** in the canvas bar) for this sheet over the stage. No stage key fires
+while you type in a field. **Enter** and **Tab** keep their normal meaning while a button has focus.
+
+| Keys | Does |
+|---|---|
+| `Esc` | Select the parent; on a top-level node, deselect |
+| `Enter` | Select the first child |
+| `X` | Reveal the selection in the Outline (opens its containers, scrolls to the row) |
+| `F` | Fit the frame |
+| `Ctrl/⌘+0` | Zoom to 100% |
+| `+` / `-` | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%) |
+| Arrows | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only) |
+| `Tab` | Toggle Design / Animate |
+| `Shift+/` | The shortcut sheet |
+| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design) |
+| `Ctrl/⌘+C / X / V / D` | Copy, cut, paste, duplicate (Screens, Design) |
+| `Delete` | Delete the selection (locked nodes stay) |
+
+The stage is tinted blue with a blue edge in **Animate**, so the two modes never look alike.
+
 ### 4. Edit properties
 
 The right-hand **Properties** panel edits the selected node — its transform

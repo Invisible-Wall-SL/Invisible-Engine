@@ -99,6 +99,11 @@ Shipped capabilities on `main`:
    Not yet in the panel (screens or components): text tracks, visibility keys and cues, keying by
    dragging on the canvas. Component timelines (Phase 4b) are built, in review; their browser-verify
    list is in [component-editor status](component-editor.md) Blocked.
+0a. **⏳ Browser-verify Phase 9a** (hierarchy and stage basics): hover Lock / Isolate / Hide on
+   both sides (hidden rigs, text and FX vanish too; other screens hide while isolating); fold;
+   drag a row before / after / into a container and out again; the row menu; `Esc` / `Enter` /
+   `X` / `F` / `⌘0` / `+` / `-` / arrows / `Tab` / `Shift+/`, and none of them while typing in
+   Properties; the Animate tint; reload keeps Lock but drops Hide / Isolate.
 0b. **⏳ Browser-verify the Components side** (Phase 4a): the checklist is in
    [component-editor status](component-editor.md) Blocked. Editor-side extras: the left-pane ＋
    places on the active screen; double-click does nothing in Animate; Design/Animate state and the
@@ -115,6 +120,29 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-20 — **Rive plan Phase 9a: hierarchy and stage basics** (in review, ⏳ not yet
+  browser-verified). Outline rows have hover **Lock / Isolate / Hide** (Rive's word "Isolate", not
+  "solo"), a ▸/▾ fold per container, **drag to reorder and re-parent**, and a right-click menu
+  (Copy / Paste / Delete, Lock / Hide / Isolate, *Create component*, *Show in Flow*, all reusing the
+  page's own actions). Lock is the node's existing `locked`, and now the stage clicks through it
+  (it still selects from the Outline); Lock applies to children. Hide and Isolate are editor view
+  state: the host turns them into the ids the stage skips (`effectiveHiddenIds` in
+  `$lib/editor/hierarchy.ts`) and hands them to the draw seam (`setViewHidden` in
+  `valuePreview.client.svelte.ts`, read by `previewResolveTransform`, so the 2D canvas and the rig,
+  text and FX overlays all skip them). Nothing is written into a node, so a saved doc, the bake and
+  every game are unchanged. Stage keys (`$lib/editor/stageShortcuts.ts`, one table for the keys and
+  the **Shift+/** sheet): `Esc` parent, `Enter` first child, `X` reveal, `F` fit, `⌘0` 100%, `+`/`-`,
+  arrow nudge (Shift ×10, Design, top-level nodes, one undo step per press), `Tab` Design/Animate.
+  None fire while typing, and only the canvas on screen answers (both sides' canvases listen on
+  `window`). The canvas bar gained − / zoom % / + / Fit and **?**; Animate tints the stage blue.
+  `EditorCanvas.svelte` changes: the canvas bar, `onKeyDown` (+ `applyStageAction`,
+  `nudgeSelection`, `zoomAround`, `zoomTo100`), the stage tint, the cheat-sheet overlay, and two
+  pick rules (`hitTestNode` skips locked nodes, `visibleSceneNodes` skips view-hidden ones).
+  Gates: `check:editor-hierarchy` (walk, reorder/re-parent and refusals, Hide/Isolate ids, the draw
+  seam hides while the authored transform stays visible, a source scan that the view state never
+  reaches a node) and `check:editor-shortcuts` (the map, the typing guard, the sheet covering the
+  map), both in the Lint workflow. Limits: a re-parented node keeps its local x/y; nudge and the
+  stage handles reach top-level nodes only, as before.
 - 2026-10-17 — **Game Settings → Authored overlays → Free spins and Buttons are switchable.** The
   owner's browser check passed, so both rows are enabled for publishers like Transition and Win,
   and no save path refuses switching them on (the locks are removed). Detail in

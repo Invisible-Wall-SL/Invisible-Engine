@@ -95,6 +95,9 @@
 	import { fetchClips } from './editorFlipbooks.client';
 	import { bindEditorProject } from './editorProject.client';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
+	import { setViewHidden } from './valuePreview.client.svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import { effectiveHiddenIds, lockedInTree, moveNode, type DropZone } from '$lib/editor/hierarchy';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -1121,12 +1124,72 @@
 		(gameView && shownViewMode ? data.modeGridDimensions[shownViewMode] : undefined) ??
 			data.gridDimensions,
 	);
-	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off. */
+
+	// ---------- Outline: Lock / Isolate / Hide, drag, menu (Rive plan Phase 9a) ----------
+	// Hide and Isolate are editor view state: kept here, handed to the stage via `setViewHidden`,
+	// never written into a node, so the saved doc (and the game) keeps every authored `visible`.
+	const outlineHidden = new SvelteSet<string>();
+	let isolatedId = $state<string | null>(null);
+	const stageHidden = $derived(
+		activeScene
+			? effectiveHiddenIds(activeScene.nodes, outlineHidden, isolatedId)
+			: new Set<string>(),
+	);
+	const isolating = $derived(
+		isolatedId !== null && !!activeScene && !!findById(activeScene.nodes, isolatedId),
+	);
+	$effect(() => {
+		if (!componentsView) setViewHidden(stageHidden);
+	});
+	let revealRequest = $state<{ id: string; seq: number } | null>(null);
+	let revealSeq = 0;
+
+	function toggleOutlineHidden(id: string): void {
+		if (outlineHidden.has(id)) outlineHidden.delete(id);
+		else outlineHidden.add(id);
+	}
+	function toggleIsolate(id: string): void {
+		isolatedId = isolatedId === id ? null : id;
+	}
+	function toggleNodeLock(id: string): void {
+		const node = activeScene ? findById(activeScene.nodes, id) : null;
+		if (!node) return;
+		if (node.locked) delete node.locked;
+		else node.locked = true;
+		scenes = scenes.slice();
+		markDirty();
+	}
+	function moveOutlineNode(dragId: string, overId: string, zone: DropZone): void {
+		if (!activeScene || !moveNode(activeScene.nodes, dragId, overId, zone)) return;
+		scenes = scenes.slice();
+		markDirty();
+	}
+	/** The row menu acts on the selection when the row is in it, else on that row alone. */
+	function menuTargets(id: string): string[] {
+		if (!selectedIds.includes(id)) selectOnly(id);
+		return selectedIds;
+	}
+	function toggleEditorMode(): void {
+		if (animating) {
+			editorMode = 'design';
+			return;
+		}
+		editorMode = 'animate';
+		animateVisited = true;
+	}
+
+	/** What the canvas hides: the eye toggles plus whatever In-game view leaves off — and, while
+	 *  the Outline isolates a node, every other screen. */
 	const canvasHiddenScenes = $derived(
-		offInGameView.size === 0 ? hiddenScenes : new Set([...hiddenScenes, ...offInGameView]),
+		isolating
+			? new Set(scenes.filter((s) => s.id !== activeScene?.id).map((s) => s.id))
+			: offInGameView.size === 0
+				? hiddenScenes
+				: new Set([...hiddenScenes, ...offInGameView]),
 	);
 	/** The scene the canvas/outline/properties edit (the active doc scene). */
 	const editScene = $derived(activeScene);
+
 	/** All scenes the canvas may composite. */
 	const editScenes = $derived<Scene[]>(scenes);
 	/** Template slots of the active scene — offered as the Properties slot dropdown. */
@@ -3314,6 +3377,34 @@
 								{onFillSlot}
 								onAddAnchor={onAddMountAnchor}
 								onRename={onRenameNode}
+								onToggleLock={animating ? undefined : toggleNodeLock}
+								hiddenIds={outlineHidden}
+								onToggleHide={toggleOutlineHidden}
+								{isolatedId}
+								onToggleIsolate={toggleIsolate}
+								{stageHidden}
+								onMove={animating ? undefined : moveOutlineNode}
+								{revealRequest}
+								onCopy={animating
+									? undefined
+									: (id) => {
+											menuTargets(id);
+											copySelection();
+										}}
+								onPaste={animating ? undefined : () => void pasteClipboard()}
+								onDelete={animating
+									? undefined
+									: (id) => {
+											const ids = menuTargets(id).filter((x) => !lockedInTree(s.nodes, x));
+											if (ids.length > 0) onDeleteNodes(ids);
+										}}
+								onCreateComponent={animating
+									? undefined
+									: (id) => {
+											const node = findById(s.nodes, id);
+											if (node?.kind === 'container') void editContainerAsComponent(node);
+										}}
+								onShowInFlow={animating ? undefined : (id) => void showInFlow(id)}
 							/>
 						</li>
 					{/if}
@@ -3522,6 +3613,8 @@
 						onUndo={undo}
 						onRedo={redo}
 						animate={animating}
+						onToggleMode={toggleEditorMode}
+						onRevealSelection={(id) => (revealRequest = { id, seq: ++revealSeq })}
 					>
 						{#snippet modeBar()}
 							<CanvasModeBar
