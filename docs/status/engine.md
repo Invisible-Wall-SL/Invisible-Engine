@@ -295,14 +295,19 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   node anchor is the cover alignment `bgRigOffset` already applies, and the editor's cover branch
   draws the origin at that aligned spot with no pivot. A cover rig spawned by the Scene Editor
   carries anchor 0.5, so before this it was drawn about half a canvas up-left of the editor's
-  preview. **What does not:** `SymbolRigMain` and `StackedPicture` (the same pivot, measured 0 px on a
-  board of rig symbols including the off-centre `bigwin` box), and every rig mounted with no anchor —
+  preview; a symbol rig with NO header box (`skeleton.width/height` 0) in `SymbolRigMain` /
+  `StackedPicture` now centres on its live bounds instead of its origin — what `/symbols`'
+  `measureRigBounds` fallback already showed. **What does not:** `SymbolRigMain` and `StackedPicture`
+  for every rig with a header box (the same pivot, measured 0 px on a board of rig symbols including
+  the off-centre `bigwin` box), and every rig mounted with no anchor —
   placed scene rigs, cinematic actors, the built-in `transitionWipe`, the coded big-win / transition /
   free-spin / background rigs. The rig storybook stories dropped their `anchor: {x: 0, y: 0}` args,
   which meant "origin" under the old rule. Fixture: `packages/pixi-svelte/fixtures/rigBox.fixture.ts`
   (every frame corner lands on (x, y) at any load and display scale; centred headers stay a no-op;
   explicit 0 is 0). Before/after in the browser: the `cg-lines` stand-in snapshot with rig static
-  states and rig layers bound, rendered by `main`'s runtime and this one.
+  states, rig layers, and a rig placed the way the Scene Editor drops one (anchor 0.5) on a
+  background screen and as a `coverFit` node on a canvas screen, rendered by `main`'s runtime and
+  this one: both cover rigs sat up-left on `main` and are centred on the window here.
 - 2026-10-17 — **The free-spin and button pilots are unlocked; the owner's browser check passed.**
   The owner reported the browser check positive (Rive plan Phases 3–8), so the 8c and 8d locks are
   removed with all their machinery: `AUTHORED_FREE_SPINS_LOCKED`, `AUTHORED_BUTTONS_LOCKED`, the

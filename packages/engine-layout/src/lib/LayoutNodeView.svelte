@@ -526,9 +526,9 @@
 	// A `coverFit` (canvas) rig CENTERS on the canvas — `RigProvider` places the skeleton
 	// origin (the art is authored around it) at (x, y), so the cover must sit at the canvas
 	// centre (the same point the sprite cover's `coverTransform` returns), NOT the node's
-	// authored x/y. Without this a
-	// rig placed anywhere in a flow screen would render its full-canvas fill offset by
-	// that position (editor centres it via `backgroundTransform`, so the two would disagree).
+	// authored x/y. Without this a rig placed anywhere in a flow screen would render its
+	// full-canvas fill offset by that position (editor centres it via `backgroundTransform`,
+	// so the two would disagree).
 	// Background rigs are LEFT on `posX`/`posY` (their authored-at-centre convention) —
 	// `isCanvasCoverFit` is false for them, so this is undefined and the path is byte-identical.
 	const rigCoverCenter = $derived.by(() => {
