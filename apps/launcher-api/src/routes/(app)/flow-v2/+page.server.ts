@@ -229,7 +229,7 @@ async function cinematicChoices(
 			}
 			const { doc: stored } = await loadCinematic(clientKey, projectKey, row.id);
 			// A link to a shared timeline is checked as what it plays (Phase 9d), not as its stub.
-			const doc = stored && (await resolveProjectCinematic(stored));
+			const doc = (stored && (await resolveProjectCinematic(stored))) as CinematicDoc | null;
 			if (stored && !doc) {
 				timelineIssues[row.id] = [
 					`It links to shared timeline "${stored.shared?.id}" v${stored.shared?.version}, which is gone: it ships nothing.`,
@@ -239,9 +239,7 @@ async function cinematicChoices(
 			// No effect docs are read here, so an effect's `fx:` channels go unchecked on this page;
 			// the editor checks them against the project's own effects.
 			const issues = doc
-				? validateNodeActors(doc as unknown as CinematicDoc, scene, () => undefined).map(
-						(i) => i.message,
-					)
+				? validateNodeActors(doc, scene, () => undefined).map((i) => i.message)
 				: [];
 			if (issues.length) timelineIssues[row.id] = issues;
 		}
