@@ -152,12 +152,10 @@ Shipped capabilities on `main`:
 
 - 2026-10-20 — **The Timeline panel's picker and ＋ New / Rename / 🗑 are back** (branch
   `claude/timeline-header-picker`). Reported on `commonoverlayproject` right after 9c: the owner
-  could neither open nor create a screen timeline, because the Animations list (the only place 9c
-  left those actions) took no clicks in their browser. It could not be reproduced locally: the full
-  editor on their layout and timelines takes the clicks. The panel header carries the controls again
-  beside the list, both calling the same panel functions, so a timeline can always be opened and
-  created from the panel itself. Open: why the list takes no clicks there (needs the owner's
-  browser).
+  could not find how to open or create a screen timeline once 9c moved those actions to the
+  Animations list at the top of the left column (the list works; it was not where they looked). The
+  panel header carries the controls again beside the list, both calling the same panel functions,
+  so the panel itself always offers them.
 - 2026-10-20 — **Rive plan Phase 9c: Animations list, state machine options, Console** (branch
   `claude/rive-p9c-animations-sm`, in review, ⏳ not browser-verified; checklist in Open item 0c).
   Plan: [rive-reference.md](../design/rive-reference.md) §3.2, §3.6 and §5. UI:
