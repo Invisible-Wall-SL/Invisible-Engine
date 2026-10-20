@@ -24,6 +24,7 @@ import {
 	pruneOrphanParamBindings,
 	SM_CONDITION_OPS,
 } from 'engine-layout';
+import { isCubicEase } from 'engine-cinematic';
 import {
 	editorComponentKey,
 	editorComponentVersionKey,
@@ -948,6 +949,7 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			transitions: [],
 		};
 		if (typeof raw.name === 'string' && raw.name) layer.name = raw.name;
+		if (raw.disabled === true) layer.disabled = true;
 		for (const item of Array.isArray(raw.states) ? raw.states : []) {
 			if (!isRecord(item) || typeof item.id !== 'string' || !item.id) continue;
 			const state: SmState = {
@@ -965,6 +967,8 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (pos) state.pos = pos;
 			const onEnter = normalizeEnterActions(item.onEnter);
 			if (onEnter.length) state.onEnter = onEnter;
+			const onExit = normalizeEnterActions(item.onExit);
+			if (onExit.length) state.onExit = onExit;
 			layer.states.push(state);
 		}
 		for (const item of Array.isArray(raw.transitions) ? raw.transitions : []) {
@@ -978,7 +982,17 @@ function normalizeStateMachine(input: unknown): ComponentStateMachine | undefine
 			if (conditions.length) transition.conditions = conditions;
 			if (finite(item.exitTime)) transition.exitTime = item.exitTime;
 			// Exit has no pose to mix into, so a blend on a transition to it means nothing.
-			if (finite(item.blend) && item.blend > 0 && item.to !== 'exit') transition.blend = item.blend;
+			if (finite(item.blend) && item.blend > 0 && item.to !== 'exit') {
+				transition.blend = item.blend;
+				// The blend's options mean nothing without one.
+				if (isCubicEase(item.ease)) {
+					const [x1, y1, x2, y2] = item.ease;
+					transition.ease = [x1, y1, x2, y2];
+				}
+				if (item.pauseSource === false) transition.pauseSource = false;
+				if (item.allowExit === false) transition.allowExit = false;
+			}
+			if (item.disabled === true) transition.disabled = true;
 			layer.transitions.push(transition);
 		}
 		if (isRecord(raw.pseudoPos)) {
