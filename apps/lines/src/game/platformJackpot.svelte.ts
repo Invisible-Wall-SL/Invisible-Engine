@@ -74,10 +74,10 @@ export const releaseHeldPlatformJackpotWin = () => {
 
 /**
  * `platformJackpotWin` — the coded default celebration, outside any feature: the large jackpot
- * banner (the same one, and the same authored `jackpotWin` screen, a Hold and Win jackpot uses) with
- * the tier and the amount, then the held win released into the balance. The `platformJackpotCelebration`
- * cue goes out first, for authored sound and FX. The release runs however the beat ends, so a
- * celebration cut short never leaves the balance short.
+ * banner (the same one a Hold and Win jackpot uses; drawn by an authored `platformJackpotBanner`
+ * screen, else a mounted `jackpotWin` one) with the tier and the amount, then the held win released
+ * into the balance. The `platformJackpotCelebration` cue goes out first, for authored sound and FX.
+ * The release runs however the beat ends, so a celebration cut short never leaves the balance short.
  */
 export const presentPlatformJackpotWin = async (event: { tier: string; amount: number }) => {
 	try {
@@ -89,7 +89,7 @@ export const presentPlatformJackpotWin = async (event: { tier: string; amount: n
 		});
 		const resolved = bakedWinText();
 		const banner = showHoldAndWinBanner({
-			kind: 'jackpot',
+			kind: 'platformJackpot',
 			title: formatWinText(resolved.platformJackpot.award, {
 				jackpot: platformJackpotCaption(resolved, event.tier),
 			}),

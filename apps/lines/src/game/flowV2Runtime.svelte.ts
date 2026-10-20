@@ -97,6 +97,7 @@ import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { withMissingScreenReport } from './flowV2MissingScreens';
 import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
+import { engineBannerScreens, type EngineBannerScreen } from './flowV2BannerScreens';
 import { getActiveGameConfig } from './gameConfig';
 import { configuredMeters } from './holdAndWinMeters.svelte';
 import { INTENT_COMMANDS } from './flowIntentCommands';
@@ -300,6 +301,9 @@ export type LinesFlowV2 = {
 	/** The add-on's Pots screen when this flow drives the screens but never shows it, so the game
 	 *  mounts it with the board (`enginePotsScreen`). Not a flow container. `undefined` otherwise. */
 	enginePots?: EnginePotsScreen;
+	/** The banner screens this flow drives but never shows, which the game mounts itself
+	 *  (`engineBannerScreens`). Not flow containers. Empty otherwise. */
+	engineBanners: EngineBannerScreen[];
 	/** The cinematics the flow currently wants on screen (id → play options). */
 	playingCinematics: SvelteMap<string, PlayingCinematic>;
 	/** Called by `<Cinematic>`'s `oncomplete`: settle a pending await and unmount it. */
@@ -904,6 +908,9 @@ export const createLinesFlowV2 = (
 		enginePots: enginePotsScreen(doc, editorDoc.scenes, {
 			drivesScreens: screenStatus.drivesScreens,
 			hasMeters: configuredMeters().length > 0,
+		}),
+		engineBanners: engineBannerScreens(doc, editorDoc.scenes, {
+			drivesScreens: screenStatus.drivesScreens,
 		}),
 		playingCinematics,
 		cinematicComplete: (cinematicId) => {

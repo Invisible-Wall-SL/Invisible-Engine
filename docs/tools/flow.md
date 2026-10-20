@@ -786,7 +786,10 @@ the tab's `holdAndWinState` chain (the snapshot a resume replays first) shows th
 starts the music too; on every other snapshot that changes nothing. `luckySpin`, `wheel` and
 `jackpotWin` are shown
 for the length of their beat only: while one of them is up, the engine's own banner or wheel
-steps aside, so nothing draws twice. `featureIntro` and `featureOutro` are not wired, because the
+steps aside, so nothing draws twice. The other banner screens (`coinJackpotBanner`,
+`featureTotalBanner` and the rest, [Banner screens](invisible-editor.md#banner-screens)) need no
+node: the game shows each itself while its banner is up. A flow that shows one takes it over.
+`featureIntro` and `featureOutro` are not wired, because the
 engine's feature has no tap at its start or end. To add a tap before the feature, show
 `featureIntro` with a held Show at the top of the tab's **Mode trigger (enter)** chain, before the
 Show `respinBackground` the starter flow puts there, so nothing of the feature is on screen under
@@ -907,8 +910,9 @@ reload the Flow editor to see the new entries and the button.
 Some casino platforms run their own jackpot above every game. When the server reports a hit, the
 round's book carries **`platformJackpotWin`** (`tier`, `amount`) after everything the round itself
 presents: after the free spins or the Hold and Win feature, before the round closes. Left unwired,
-the engine celebrates it: the large jackpot banner (the same one, and the same authored
-`jackpotWin` screen, a Hold and Win jackpot uses) with the Win Text **Platform jackpot** copy. Then
+the engine celebrates it: the large jackpot banner a Hold and Win jackpot uses, with the Win Text
+**Platform jackpot** copy. An authored **Platform jackpot banner** screen draws it instead, else a
+**Jackpot win** screen the flow is showing ([Banner screens](invisible-editor.md#banner-screens)). Then
 the win, which the balance held back until now, is added in. The **`platformJackpotCelebration`**
 cue (`tier`, `amount`) fires as it starts, for your sound or FX. A flow that wires the event takes
 the presentation over. The engine then adds the held win as the round closes (its `finalWin`), or

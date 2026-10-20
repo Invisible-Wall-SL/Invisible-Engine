@@ -127,4 +127,5 @@ export * from './validateTemplate';
 export * from './seedScenes';
 export * from './engineOwnedOnly';
 export * from './referenceLayouts';
+export * from './holdAndWinBanners';
 export * from './templates';

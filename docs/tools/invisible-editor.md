@@ -177,11 +177,13 @@ To start from something:
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
 the base game and the feature; the feature's screens (**Respin background**, **Respin board**,
 **Respin counter**, **Total win bar**, **Letters**, **Wheel**, **Feature intro**, **Jackpot win**,
-**Feature outro**) carry the role _game mode_ `holdAndWin`, so they show only while the feature
-runs; **Lucky Spin intro** is a base-game banner. A piece your preset does not use draws nothing in
-the game (a pot whose meter the Game Config lacks, letters without a column-letters board end, a
-wheel without prizes), so leave it or delete its screen. The base game's **Messages** info bar is
-where the game's toasts ("UNLOCKED: PAYER", jackpot amounts) appear — keep one. There are no
+the feature's banner screens, **Feature outro**) carry the role _game mode_ `holdAndWin`, so they
+show only while the feature runs; **Lucky Spin intro** and the base game's banner screens are
+base-game screens (see [Banner screens](#banner-screens) below). A piece your preset does not use
+draws nothing in the game (a pot whose meter the Game Config lacks, letters without a
+column-letters board end, a wheel without prizes), so leave it or delete its screen. The base
+game's **Messages** info bar is where the game's toasts ("UNLOCKED: PAYER", jackpot amounts)
+appear — keep one. There are no
 free-spin screens; the Free-Spin Counter and free-spin intro/outro components stay in the
 Components list, so a hybrid game places them on screens of its own. Each pot is a **Pot
 Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter; the
@@ -208,6 +210,61 @@ Player). It starts where the game drew the panel before (right of **Bet**, or ab
 is no room); hidden in a layout, the panel falls back to that spot. A project switched to the coin
 board later in Game Config keeps the screens it has: the game still plays, with the board's frame
 and tiles only during the feature, and the panel at its default spot.
+
+#### Banner screens
+
+Every popup the Hold and Win feature announces over the board ("MINI" and its amount, "BONUS WIN",
+"PAYER ACTIVATED", …) has a screen of its own. While a popup's screen is in your layout, that
+screen draws the popup, so its art is yours; without it, the game draws its built-in banner, a
+dark rounded plate with a gold border. The words are not authored here: they are the project's
+[Win Text](win-text.md) templates, filled in by the game.
+
+| Screen                      | It shows when                                      | Its lines                    |
+| --------------------------- | -------------------------------------------------- | ---------------------------- |
+| **Coin jackpot banner**     | the feature's end counts a jackpot coin            | the tier · the amount        |
+| **Jackpot upgrade banner**  | an upgrade steps a jackpot coin up a tier          | "MINOR UPGRADE"              |
+| **Wheel prize banner**      | the wheel lands on a prize that is not a jackpot   | the prize · what it does     |
+| **Row unlocked banner**     | an expanding board opens a row                     | "ROW UNLOCKED" · the rows    |
+| **Feature total banner**    | the feature's total, once the coins have landed    | "BONUS WIN $20.00"           |
+| **Instant win banner**      | a base-game instant collect                        | "INSTANT WIN" · the amount   |
+| **Random metre banner**     | a random metre fires                               | the metre's name             |
+| **Pot full banner**         | a pot fills (only where the game has pots)         | "PAYER ACTIVATED"            |
+| **Platform jackpot banner** | the casino platform's own jackpot hits             | "GRAND JACKPOT" · the amount |
+| **Jackpot win**             | a banked jackpot: full board, letters or the wheel | "GRAND JACKPOT" · the amount |
+| **Lucky Spin intro**        | a Lucky Spin starts                                | "LUCKY SPIN"                 |
+
+The first five are feature screens, the next four base-game screens.
+
+**Author one:**
+
+1. Open the screen. It starts as a copy of the built-in banner: a **Plate** (the dark rounded
+   rectangle) under two text boxes, **Title** and **Detail** (title only where the popup has one
+   line). The text boxes read the popup's own lines (live sources `holdAndWinBanner` and
+   `holdAndWinBannerDetail`); the text you see in the editor is only a sample.
+2. Drop your art onto the screen, move it under the text boxes in the outline, and delete the
+   **Plate** (or recolour it). Restyle the text boxes (font, size, fill) or move them.
+3. For an entrance (a pop, a glow), make your banner a component, give it a timeline that **Plays
+   on: enter** ([Animate a component](#animate-a-component)), and place it here. It plays each time
+   the screen appears. A popup that replaces one of its own kind still up (two jackpot upgrades
+   back to back) changes the lines without a new entrance.
+
+The game keeps the screen hidden except while its popup is up, and it is ticked **Always on top**,
+so coins flying to the total pass under it as they pass under the built-in banner. You do not need
+to wire anything in `/flow-v2`: the game shows these screens itself. If you do show one from a
+flow, the flow owns it from then on.
+
+**A new Hold and Win project starts with all of them.** **A project made before these screens
+existed** has none of them and keeps the built-in banner: **＋ Add missing screens** adds them
+(with your other missing screens). Either way each starts as that copy of the built-in banner, so
+the popups look much the same until you change one. Its font is the text box's, not the built-in
+banner's, and it has no pop-in until you give it one (step 3). Delete a screen to bring the
+built-in banner back for that popup.
+
+**Jackpot win** and **Lucky Spin intro** are older: they appear only when the flow shows them
+around their beat. The Hold and Win starter flow does. A flow scaffolded on the Book-of starter
+needs a **Show container** before the beat and a **Hide container** after it. The platform
+jackpot uses its own banner screen when it has one, else the **Jackpot win** screen while the flow
+shows it.
 
 ### The bet menu and the auto spin screens
 

@@ -5,6 +5,7 @@ import {
 	HOLD_AND_WIN_BOARD,
 	HOLD_AND_WIN_MODE,
 	holdAndWinReferenceLayout,
+	POT_FULL_BANNER_SCREEN,
 	POTS_SCREEN,
 	type HoldAndWinTemplateOptions,
 } from './holdAndWin';
@@ -22,8 +23,8 @@ export {
 	HOLD_AND_WIN_BOARD,
 	HOLD_AND_WIN_HOTFIRE_BOARD,
 	HOLD_AND_WIN_MODE,
-	HOLD_AND_WIN_BANNER_SCREENS,
 	POTS_SCREEN,
+	POT_FULL_BANNER_SCREEN,
 	EXPANDING_BLOCK_SHARE,
 	expandingBoardReserve,
 	expandingBoardReserved,
@@ -213,11 +214,20 @@ function referenceWithModes(
 const extraKindModes = (options: SceneSetOptions): readonly RespinModeScreens[] =>
 	(options.respinModes ?? []).filter((mode) => mode.id !== HOLD_AND_WIN_MODE);
 
+/** The base game's banner screens a Hold and Win bonus brings; the pot-full one comes with the Pots
+ *  screen, for either add-on. */
+const HOLD_AND_WIN_BASE_BANNERS: ReadonlySet<string> = new Set([
+	'instantWinBanner',
+	'randomMetreBanner',
+	'platformJackpotBanner',
+]);
+
 /**
- * The add-on screens, in the Hold and Win reference's order: the Pots screen for either add-on;
- * with a Hold and Win bonus also the Jackpot bar and every respin mode's mode screens. Lucky Spin
- * is left out — it is an error on an overlay host's bonus. On the `holdAndWin` kind, which has all
- * of these for its own mode, only the other respin modes' screens.
+ * The add-on screens, in the Hold and Win reference's order: the Pots screen and its pot-full banner
+ * for either add-on; with a Hold and Win bonus also the Jackpot bar, the base game's banners and
+ * every respin mode's mode screens. Lucky Spin is left out — it is an error on an overlay host's
+ * bonus. On the `holdAndWin` kind, which has all of these for its own mode, only the other respin
+ * modes' screens.
  */
 function addOnScenes(
 	gameType: string,
@@ -236,7 +246,10 @@ function addOnScenes(
 			(scene) =>
 				(scene.role === 'mode' && scene.modeId !== undefined && modeIds.has(scene.modeId)) ||
 				(!kindOwn &&
-					(scene.id === POTS_SCREEN || (options.holdAndWin && scene.id === 'jackpotBar'))),
+					(scene.id === POTS_SCREEN ||
+						scene.id === POT_FULL_BANNER_SCREEN ||
+						(options.holdAndWin &&
+							(scene.id === 'jackpotBar' || HOLD_AND_WIN_BASE_BANNERS.has(scene.id))))),
 		)
 		.map((scene) => scene.id);
 	return { reference, ids };

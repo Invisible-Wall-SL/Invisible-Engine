@@ -11,7 +11,12 @@ import type {
 	HoldAndWinTemplateJackpots,
 } from 'game-config';
 import type { LayoutDoc } from 'engine-layout';
-import { engineOwnedOnly, getFullSceneSet, POTS_SCREEN } from 'engine-layout';
+import {
+	engineOwnedOnly,
+	getFullSceneSet,
+	POT_FULL_BANNER_SCREEN,
+	POTS_SCREEN,
+} from 'engine-layout';
 import { sceneSetOptionsFor } from '$lib/addOns';
 import {
 	gameConfigSeedFor,
@@ -105,11 +110,12 @@ function flowWithoutScreens(flow: FlowDoc, screens: readonly string[]): FlowDoc 
 
 /**
  * The screens the plain Hold and Win template leaves out of the kind's set (bonus-games §0): the
- * pots, which only a coin overlay brings ("＋ Coin overlay…" merges them back), and with jackpots
- * off the jackpot bar.
+ * pots and their pot-full banner, which only a coin overlay brings ("＋ Coin overlay…" merges them
+ * back), and with jackpots off the jackpot bar.
  */
 const plainHoldAndWinDropped = (jackpots: HoldAndWinTemplateJackpots): string[] => [
 	POTS_SCREEN,
+	POT_FULL_BANNER_SCREEN,
 	...(jackpots === 'off' ? ['jackpotBar'] : []),
 ];
 

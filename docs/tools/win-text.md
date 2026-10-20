@@ -166,6 +166,9 @@ example a Book-of game with a Hold and Win bonus). They hold the lines the respi
 when the game's config has the pre-feature wheel (with several respin modes, when the mode you're
 editing has one — see below).
 
+This page sets the words only. The look of each banner (its art, font and placement) is its
+banner screen in the Invisible Editor: see [Banner screens](invisible-editor.md#banner-screens).
+
 | Placeholder   | Becomes                                                                                                                                                                              |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `{jackpot}`   | the jackpot tier's caption, e.g. "GRAND" (on an upgrade, the tier it rose to)                                                                                                        |

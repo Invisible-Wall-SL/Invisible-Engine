@@ -115,9 +115,22 @@ export function baseInfoData(doc: GameConfigDoc) {
 	};
 }
 
+/** The scene-set facts of `doc` over only the screens `keep` passes (all of them by default). */
+export function sceneFactsOf(
+	kind: string,
+	doc: GameConfigDoc | null,
+	keep: (sceneId: string) => boolean = () => true,
+): { scenes: string; addOnScreens: string } {
+	const options = sceneSetOptionsFor(kind, doc);
+	const set = getFullSceneSet(kind, options)!;
+	return {
+		scenes: digest({ ...set, scenes: set.scenes.filter((scene) => keep(scene.id)) }),
+		addOnScreens: digest(addOnSceneIds(kind, options).filter(keep)),
+	};
+}
+
 /** Every fact of `doc`, digested. */
 export function factsOf(kind: string, doc: GameConfigDoc | null): Record<string, string> {
-	const options = sceneSetOptionsFor(kind, doc);
 	const addOns = flowAddOnsOf(doc);
 	const seed = graftAddOnSteps(freshDrivenSeedDoc(kind), addOns).doc;
 	// `spinsModes` is Phase 8c's own key (always empty here, pinned by the gate); the rest is main's.
@@ -128,8 +141,7 @@ export function factsOf(kind: string, doc: GameConfigDoc | null): Record<string,
 	}) as ReturnType<typeof symbolsPageConfig> & { spinsModes?: unknown };
 	const respinModes = doc ? respinModeIds(doc) : [];
 	return {
-		scenes: digest(getFullSceneSet(kind, options)),
-		addOnScreens: digest(addOnSceneIds(kind, options)),
+		...sceneFactsOf(kind, doc),
 		flowAddOns: digest(addOns),
 		flowSeed: digest(seed),
 		flowVerdict: digest(

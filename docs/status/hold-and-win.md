@@ -1089,11 +1089,70 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     [hold-and-win-coin-board.md](../playtest/hold-and-win-coin-board.md); then retire or keep
     `holdandwintestsolo`. A session never touched it.
 
+15. **Author a banner on a real project.** Do this after the banner-screens change merges and
+    its runtime release passes. In the project's `/editor`, **＋ Add missing screens**, put art
+    on **Coin jackpot banner**, then publish. Force a feature with a jackpot coin and check that
+    your art replaces the dark plate. Every other popup should still look as it did.
+
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-20 — **Every Hold and Win banner can be authored** (branch
+  `claude/amazing-carson-f4o5v7`). The owner could not find where to author the "MINI €15.00"
+  popup. It is the coded banner's `coinJackpot` beat, and only four beats (Lucky Spin, jackpot win,
+  feature intro / outro) had a screen to replace the coded banner, and only while a flow showed it.
+  - **One map for every kind.** `engine-layout` `holdAndWinBanners.ts` holds
+    `HOLD_AND_WIN_BANNER_SCREENS` (kind → screens, in preference order),
+    `HOLD_AND_WIN_BANNER_SHOW_SOURCES`, `SELF_MOUNTED_BANNER_SCREENS` and the pure
+    `bannerScreenFor` / `bannerScreenShows`. The game types its banner kind from it.
+  - **Nine new template screens.** Base: `instantWinBanner`, `randomMetreBanner`, `potFullBanner`
+    (only with pots) and `platformJackpotBanner`. Mode: `coinJackpotBanner`,
+    `jackpotUpgradeBanner`, `wheelPrizeBanner`, `rowUnlockedBanner` and `featureTotalBanner`.
+    Each is **Always on top** (above the flights, as the coded banner is) and gated on `<id>Show`.
+    Each starts as a copy of the coded banner at its sizes: a `Plate` rect, then Title / Detail text
+    boxes on `holdAndWinBanner(+Detail)`. The scaffold keeps their plate, which a plain rect would
+    otherwise lose as art. Any other art on them still drops, so a custom kind saved from a project
+    carries none. The pot-full banner comes and goes with the Pots screen: the plain template leaves
+    it out, and a coin overlay or pots add-on brings it. A Hold and Win bonus also brings the
+    instant win, random metre and platform jackpot banners.
+  - **The game mounts them itself, with no flow wiring.** On the coded path they are ordinary
+    author screens (not reserved). Under a driven flow that never shows one, `engineBannerScreens`
+    mounts it (`enginePotsScreen`'s pattern; a mode screen only while its mode is up). A flow that
+    shows one owns it. The four older beat screens stay the flow's to show, so a project that has
+    one but never shows it keeps its coded banner.
+  - **The platform jackpot has its own kind** (`platformJackpot`): its own screen draws it first,
+    else `jackpotWin`, which drew it before. `luckySpinShow` / `jackpotWinShow` keep their meaning
+    ("that banner is up", mounted or not), pinned in the template test.
+  - **Parity.** Other kinds' sets and the pre-existing defs are unchanged (pins). The Hold and Win
+    set without the banner screens hashes to the pre-change pins, so every older screen is
+    byte-identical. A project scaffolded before has none of the new ids, so it draws the coded
+    banner exactly as before.
+  - **Checks:** `test-hold-and-win-template` and `check:spins-modes-tools` (both re-pinned; each
+    also checks that the sets without the banner screens still match the old pins),
+    `test-resting-scenes`, `test-engine-owned-only`, `test-coin-board-template`, the new
+    `flowV2BannerScreens.fixture.ts`, `check:pots-overlay-add-on` (its lists updated),
+    `check:flow-publish-gate`, `check:flow-bonus-modes`, `check:add-bonus-mode`,
+    `check:project-scaffold`, flow-spike `v2holdandwin`, `check:svelte` (lines and engine-layout at
+    baseline) and the `lines` build.
+  - **Live (local, 2026-10-20).** I played the coin-board template in headless Chromium against the
+    coin-board mock (`SEED=7`, forced `jackpot:MINI`), recording every painted frame, with the same
+    round under four layouts. Every run drove the same flow events, ended idle, and had a balance
+    of before − stake + win ($139.00, matching the mock). No page errors.
+    - **The screens, with the plates recoloured:** the red plate showed only for the MINI beat
+      and the green only for "BONUS WIN $40.00". The coded plate never showed.
+    - **The plates moved off the board centre:** only the authored text was at the centre, so
+      the coded banner really was not drawn.
+    - **The scaffold untouched:** its plate matched the coded one exactly. The text did not: the
+      text box font, with no bold or stroke.
+    - **Without the screens:** the coded banner drew both beats as before.
+
+    Owner checklist 15 covers a real project.
+  - **Not the coded look in every detail:** a banner screen's text uses the text box's font (no
+    Arial bold, no stroke), and it has no pop-in until the artist gives it one (a component
+    timeline on **enter**). Guide: [Banner screens](../tools/invisible-editor.md#banner-screens).
 
 - 2026-10-15 — **The Pot Meter can pulse on every coin collected** (branch
   `claude/keen-noether-ttzxju`). New `pulseOnCollect` boolean in `POT_SKIN_PARAMS` (Motion group,

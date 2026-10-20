@@ -1,3 +1,4 @@
+import { SELF_MOUNTED_BANNER_SCREENS } from './holdAndWinBanners';
 import { isHudScene } from './referenceLayouts/hud';
 import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
 
@@ -28,8 +29,23 @@ function filterScene(scene: Scene): Scene {
 	if (isHudScene(scene)) {
 		return { ...scene, nodes: scene.nodes.map(cloneNode) };
 	}
+	// A Hold and Win banner screen (or a respin mode's copy) also keeps its top-level plate: the coded
+	// banner's, not artist art, and without it the banner would scaffold as bare text.
+	if (isBannerScreen(scene)) {
+		return {
+			...scene,
+			nodes: scene.nodes.flatMap((node) =>
+				node.kind === 'rect' ? [cloneNode(node)] : filterNodes([node]),
+			),
+		};
+	}
 	return { ...scene, nodes: filterNodes(scene.nodes) };
 }
+
+const isBannerScreen = (scene: Scene): boolean =>
+	SELF_MOUNTED_BANNER_SCREENS.some(
+		(id) => scene.id === id || (scene.modeId !== undefined && scene.id === `${id}-${scene.modeId}`),
+	);
 
 function filterNodes(nodes: LayoutNode[]): LayoutNode[] {
 	const kept: LayoutNode[] = [];
