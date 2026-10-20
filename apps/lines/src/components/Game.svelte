@@ -1341,7 +1341,7 @@
 	// The banner screens a driven v2 flow never shows (`engineBannerScreens`): the game mounts them
 	// itself — a mode's only while it is on screen — each gated on its banner, so the artist's banner
 	// replaces the coded one with no flow wiring. Empty without such a flow or screens (parity).
-	let flowV2EngineBanners = $state<EngineBannerScreen[]>([]);
+	let flowV2EngineBanners = $state.raw<EngineBannerScreen[]>([]);
 	const engineBanners = $derived(flowV2EngineBanners.filter(({ scene }) => inActiveModes(scene)));
 	// Authored background scenes (§ persistent-bg-scene). An author's "New background screen"
 	// gets a fresh-id scene with `space: 'background'` (NOT the coded `background`-id /

@@ -50,9 +50,9 @@ import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton
  * game mounts them itself (`SELF_MOUNTED_BANNER_SCREENS`): each starts as the coded banner's plate
  * and lines, for the artist to replace.
  *
- * Everything is placed AROUND the board, never on it, and the board's rows (3) are the same in
- * every preset — so the 3×3 Hotfire board (narrower) fits the same layout as 5×3; pass its shape as
- * `board`.
+ * Everything is placed AROUND the board, never on it (but the banner screens, centred on it as the
+ * coded banner is), and the board's rows (3) are the same in every preset — so the 3×3 Hotfire
+ * board (narrower) fits the same layout as 5×3; pass its shape as `board`.
  *
  * A COIN BOARD (`coinBoard`, `docs/design/hold-and-win-coin-board.md`) has no line game: the respin
  * board is the base game. Its `respinBoard` screen is a base screen (up in the base game and the
@@ -146,6 +146,9 @@ export const HOLD_AND_WIN_MODE = 'holdAndWin';
 
 /** The Pots screen: one Pot Meter per pot, on screen in the base game and the feature alike. */
 export const POTS_SCREEN = 'pots';
+
+/** The pot-full banner screen, which comes and goes with the Pots screen. */
+export const POT_FULL_BANNER_SCREEN = 'potFullBanner';
 
 /** The meters of the Pots preset (`holdAndWinPresets.ts`) — one pot each. */
 const POT_METERS = ['red', 'blue', 'green'] as const;
@@ -380,9 +383,9 @@ export function holdAndWinReferenceLayout(
 		};
 	};
 	// A pot-full banner only where pots fill.
-	const baseBanners = BASE_BANNERS.filter(({ id }) => id !== 'potFullBanner' || potIds.length).map(
-		bannerScene,
-	);
+	const baseBanners = BASE_BANNERS.filter(
+		({ id }) => id !== POT_FULL_BANNER_SCREEN || potIds.length,
+	).map(bannerScene);
 	const featureBanners = FEATURE_BANNERS.map((banner) => modeScene(bannerScene(banner)));
 
 	const messageHost = instance(

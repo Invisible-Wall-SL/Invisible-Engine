@@ -488,6 +488,21 @@ assert(
 	!mod.getFullSceneSet('holdAndWin', { potIds: [] }).scenes.some((s) => s.id === 'potFullBanner'),
 	'a set without pots has a pot-full banner',
 );
+{
+	// A banner screen saved with art (a custom kind made from a project) scaffolds without the art.
+	const art = { id: 'banner-art', kind: 'sprite', x: 0, y: 0, assetKey: 'my_banner' };
+	const withArt = {
+		...doc,
+		scenes: doc.scenes.map((s) =>
+			s.id === 'coinJackpotBanner' ? { ...s, nodes: [...s.nodes, art] } : s,
+		),
+	};
+	const kept = mod.engineOwnedOnly(withArt).scenes.find((s) => s.id === 'coinJackpotBanner');
+	assert(
+		kept.nodes[0].kind === 'rect' && !kept.nodes.some((n) => n.id === art.id),
+		'the scaffold keeps a banner screen’s plate and drops its art',
+	);
+}
 // Which screen draws a banner, and which sources show it. Nothing mounted ⇒ the coded banner. The
 // two older sources keep their meaning — "that banner is up", mounted or not — and the platform
 // jackpot, which the jackpot-win screen drew before it had a screen of its own, still shows there

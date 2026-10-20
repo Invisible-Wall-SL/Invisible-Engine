@@ -25,7 +25,9 @@
  *     lines / ways / cluster / free spins, the overlay presets): scene set, add-on screens, Flow
  *     add-ons, grafted seed and verdict, Win Text, Localization, `/symbols` and info data are
  *     byte-identical to `main` (`MAIN_DIGESTS`, measured by `scripts/lib/spinsToolsFacts.ts` on main
- *     4067dfb); its `/symbols` lists no spins mode and its Flow add-ons carry no `spinsModes`.
+ *     4067dfb); its `/symbols` lists no spins mode and its Flow add-ons carry no `spinsModes`. The
+ *     one deliberate change since is the Hold and Win banner screens (`BANNER_DIGESTS`): without
+ *     them, every scene set and add-on list is still main's.
  *
  * `--print` prints the current docs' digests instead of checking them.
  */
@@ -55,6 +57,7 @@ import {
 	mergeMissingScreens,
 	resolveWinText,
 	resolveWinTextForMode,
+	SELF_MOUNTED_BANNER_SCREENS,
 	SPINS_MODE_SCREENS,
 	swapWinTextModeLines,
 	type LayoutNode,
@@ -92,6 +95,7 @@ import {
 	EMPTY_LIBRARY,
 	factsOf,
 	normalize,
+	sceneFactsOf,
 	scenesFor,
 	withOverlay,
 } from './lib/spinsToolsFacts.ts';
@@ -875,16 +879,40 @@ const MAIN_DIGESTS: Record<string, string> = {
 	'borut-pots-sample · symbols': '8b90e770972d7dcc',
 	'borut-pots-sample · info': 'ab6c09744b1dcb07',
 };
+/**
+ * The facts the Hold and Win banner screens (2026-10-20) changed, as they are now. Each is also
+ * checked with the banner screens left out, against `MAIN_DIGESTS`.
+ */
+const BANNER_DIGESTS: Record<string, string> = {
+	'hw-pots-sample · scenes': '0e0893e4c367520f',
+	'hw-classic-sample · scenes': '0e0893e4c367520f',
+	'hw-collector-sample · scenes': '0e0893e4c367520f',
+	'holdAndWin template on · scenes': '0e0893e4c367520f',
+	'holdAndWin template off · scenes': 'ee4a08851dd4a314',
+	'lines + threePots · scenes': '50eea9aa10d1632d',
+	'lines + threePots · addOnScreens': '13e3a5c75c917b3a',
+	'lines + potsToFreeSpins · scenes': '038bf8b4a7d4b49e',
+	'lines + potsToFreeSpins · addOnScreens': '68cd55cebc8334e3',
+	'borut-pots-sample · scenes': '1150b7a0f07cc9dd',
+	'borut-pots-sample · addOnScreens': '13e3a5c75c917b3a',
+};
+/** A scene that is not a banner screen, nor a respin mode's copy of one. */
+const notBanner = (sceneId: string): boolean =>
+	!SELF_MOUNTED_BANNER_SCREENS.some((id) => sceneId === id || sceneId.startsWith(`${id}-`));
 const printed: Record<string, string> = {};
 for (const [name, kind, doc] of currentDocs()) {
+	const withoutBanners: Record<string, string> = sceneFactsOf(kind, doc, notBanner);
 	for (const [fact, value] of Object.entries(factsOf(kind, doc))) {
 		const key = `${name} · ${fact}`;
 		printed[key] = value;
+		const asMain = withoutBanners[fact] ?? value;
 		check(
 			`6. ${key} · main's`,
-			MAIN_DIGESTS[key] === value,
-			`main ${MAIN_DIGESTS[key]} · now ${value}`,
+			MAIN_DIGESTS[key] === asMain,
+			`main ${MAIN_DIGESTS[key]} · now ${asMain}`,
 		);
+		const expected = BANNER_DIGESTS[key] ?? MAIN_DIGESTS[key];
+		check(`6. ${key} · as pinned`, expected === value, `pinned ${expected} · now ${value}`);
 	}
 	same(`6. ${name} · /symbols lists no spins mode`, symbolsPage(kind, doc).spinsModes, []);
 	check(`6. ${name} · the Flow add-ons carry no spins modes`, !('spinsModes' in flowAddOnsOf(doc)));

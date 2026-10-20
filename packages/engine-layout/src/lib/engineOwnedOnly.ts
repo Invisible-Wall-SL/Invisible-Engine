@@ -25,11 +25,19 @@ export function engineOwnedOnly(doc: LayoutDoc): LayoutDoc {
 }
 
 function filterScene(scene: Scene): Scene {
-	// The HUD layer is engine-owned wholesale — keep all of its nodes verbatim. So is a Hold and Win
-	// banner screen (or a respin mode's copy): its plate is the coded banner's, not artist art, and
-	// without it the banner would scaffold as bare text.
-	if (isHudScene(scene) || isBannerScreen(scene)) {
+	// The HUD layer is engine-owned wholesale — keep all of its nodes verbatim.
+	if (isHudScene(scene)) {
 		return { ...scene, nodes: scene.nodes.map(cloneNode) };
+	}
+	// A Hold and Win banner screen (or a respin mode's copy) also keeps its top-level plate: the coded
+	// banner's, not artist art, and without it the banner would scaffold as bare text.
+	if (isBannerScreen(scene)) {
+		return {
+			...scene,
+			nodes: scene.nodes.flatMap((node) =>
+				node.kind === 'rect' ? [cloneNode(node)] : filterNodes([node]),
+			),
+		};
 	}
 	return { ...scene, nodes: filterNodes(scene.nodes) };
 }

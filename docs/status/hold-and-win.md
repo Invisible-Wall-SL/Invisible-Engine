@@ -1113,9 +1113,11 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `jackpotUpgradeBanner`, `wheelPrizeBanner`, `rowUnlockedBanner` and `featureTotalBanner`.
     Each is **Always on top** (above the flights, as the coded banner is) and gated on `<id>Show`.
     Each starts as a copy of the coded banner at its sizes: a `Plate` rect, then Title / Detail text
-    boxes on `holdAndWinBanner(+Detail)`. The scaffold keeps them whole (`engineOwnedOnly`); a plain
-    rect would otherwise drop as art. Add-ons: the pot-full banner joins the Pots screen, and a Hold
-    and Win bonus also brings the instant win, random metre and platform jackpot banners.
+    boxes on `holdAndWinBanner(+Detail)`. The scaffold keeps their plate, which a plain rect would
+    otherwise lose as art. Any other art on them still drops, so a custom kind saved from a project
+    carries none. The pot-full banner comes and goes with the Pots screen: the plain template leaves
+    it out, and a coin overlay or pots add-on brings it. A Hold and Win bonus also brings the
+    instant win, random metre and platform jackpot banners.
   - **The game mounts them itself, with no flow wiring.** On the coded path they are ordinary
     author screens (not reserved). Under a driven flow that never shows one, `engineBannerScreens`
     mounts it (`enginePotsScreen`'s pattern; a mode screen only while its mode is up). A flow that
@@ -1128,7 +1130,8 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     set without the banner screens hashes to the pre-change pins, so every older screen is
     byte-identical. A project scaffolded before has none of the new ids, so it draws the coded
     banner exactly as before.
-  - **Checks:** `test-hold-and-win-template` (re-pinned with the before-banners guard),
+  - **Checks:** `test-hold-and-win-template` and `check:spins-modes-tools` (both re-pinned; each
+    also checks that the sets without the banner screens still match the old pins),
     `test-resting-scenes`, `test-engine-owned-only`, `test-coin-board-template`, the new
     `flowV2BannerScreens.fixture.ts`, `check:pots-overlay-add-on` (its lists updated),
     `check:flow-publish-gate`, `check:flow-bonus-modes`, `check:add-bonus-mode`,

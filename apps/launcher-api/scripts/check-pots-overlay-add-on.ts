@@ -139,7 +139,8 @@ const { applyPotsOverlayAddOn, cleanOverlayPresets, leaseBlocker, mergeAddOnScre
 const { scaffoldProject, scaffoldLayoutDoc } = await import('../src/lib/server/projectScaffold.ts');
 const { potsOverlaySymbolsSeed, symbolDefaultsFor } =
 	await import('../src/lib/server/symbolDefaults.ts');
-const { gameConfigDefaultFor } = await import('../src/lib/server/gameConfigDefaults.ts');
+const { gameConfigDefaultFor, holdAndWinTemplateSeed } =
+	await import('../src/lib/server/gameConfigDefaults.ts');
 const { normalizeDoc } = await import('../src/lib/server/editorStorage.ts');
 const { sceneSetOptionsFor } = await import('../src/lib/addOns.ts');
 const { exportEditorSymbols } = await import('../src/lib/server/symbolExport.ts');
@@ -682,6 +683,36 @@ await check(
 		for (const [name, cells] of Object.entries(before.symbols)) {
 			same(symbols.symbols[name], cells, `binding ${name}`);
 		}
+	},
+);
+
+await check(
+	'a coin overlay on the plain Hold and Win template brings the pots and their banner',
+	() => {
+		const plain = holdAndWinTemplateSeed('on');
+		assert(plain, 'no plain template');
+		const reference = getFullSceneSet('holdAndWin', sceneSetOptionsFor('holdAndWin', plain));
+		assert(reference, 'no scene set');
+		// What the plain template's scaffold stores: no pots, so no pot-full banner either.
+		const current: LayoutDoc = {
+			...reference,
+			scenes: scaffoldLayoutDoc('hwPlain', 'holdAndWin', reference).scenes.filter(
+				(s) => s.id !== 'pots' && s.id !== 'potFullBanner',
+			),
+		};
+		const [preset] = cleanOverlayPresets(plain);
+		assert(preset, 'no coin overlay fits the plain template');
+		const merged = mergeAddOnScreens(
+			current,
+			'holdAndWin',
+			withOverlay(plain, preset).doc,
+			FIRST_RUN,
+		);
+		same(
+			merged.added.filter((id) => !id.startsWith('pot-')),
+			['pots', 'potFullBanner'],
+			'added screens',
+		);
 	},
 );
 

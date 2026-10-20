@@ -181,8 +181,9 @@ the feature's banner screens, **Feature outro**) carry the role _game mode_ `hol
 show only while the feature runs; **Lucky Spin intro** and the base game's banner screens are
 base-game screens (see [Banner screens](#banner-screens) below). A piece your preset does not use
 draws nothing in the game (a pot whose meter the Game Config lacks, letters without a
-column-letters board end, a wheel without prizes), so leave it or delete its screen. The base game's **Messages** info bar is
-where the game's toasts ("UNLOCKED: PAYER", jackpot amounts) appear — keep one. There are no
+column-letters board end, a wheel without prizes), so leave it or delete its screen. The base
+game's **Messages** info bar is where the game's toasts ("UNLOCKED: PAYER", jackpot amounts)
+appear — keep one. There are no
 free-spin screens; the Free-Spin Counter and free-spin intro/outro components stay in the
 Components list, so a hybrid game places them on screens of its own. Each pot is a **Pot
 Meter** component on the **Pots** screen, with its `meter` param naming the Game Config meter; the
@@ -243,8 +244,9 @@ The first five are feature screens, the next four base-game screens.
 2. Drop your art onto the screen, move it under the text boxes in the outline, and delete the
    **Plate** (or recolour it). Restyle the text boxes (font, size, fill) or move them.
 3. For an entrance (a pop, a glow), make your banner a component, give it a timeline that **Plays
-   on: enter** ([Animate a component](#animate-a-component)), and place it here. The screen
-   appears each time its popup does, so the timeline plays every time.
+   on: enter** ([Animate a component](#animate-a-component)), and place it here. It plays each time
+   the screen appears. A popup that replaces one of its own kind still up (two jackpot upgrades
+   back to back) changes the lines without a new entrance.
 
 The game keeps the screen hidden except while its popup is up, and it is ticked **Always on top**,
 so coins flying to the total pass under it as they pass under the built-in banner. You do not need
@@ -563,7 +565,7 @@ that fills a template slot or binds an engine component reorders at the top leve
 where the editor and the game look it up). Dragging is off in Animate.
 
 **Right-click a row** for: Copy, Paste, Delete (on the selection when the row is in it), Lock,
-Hide, Isolate, **◇ Create component** (containers; the same as Properties' _Edit as component_) and
+Hide, Isolate, **◇ Create component** (containers; the same as Properties' *Edit as component*) and
 **↗ Show in Flow** (named component instances). The Components side offers Delete, Lock, Hide
 and Isolate. Animate leaves out the editing items.
 
@@ -573,20 +575,20 @@ Press **Shift+/** (or **?** in the canvas bar) for this sheet over the stage. No
 while you type in a field. **Enter** and **Tab** belong to the stage only when nothing else has
 focus (click the stage first); on a focused button, tile or tab they press it or move focus on.
 
-| Keys                         | Does                                                                                |
-| ---------------------------- | ----------------------------------------------------------------------------------- |
-| `Esc`                        | Select the parent; on a top-level node, deselect                                    |
-| `Enter`                      | Select the first child                                                              |
-| `X`                          | Reveal the selection in the Outline (opens its containers, scrolls to the row)      |
-| `F`                          | Fit the frame                                                                       |
-| `Ctrl/⌘+0`                   | Zoom to 100%                                                                        |
-| `+` / `-`                    | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%) |
-| Arrows                       | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only)              |
-| `Tab`                        | Toggle Design / Animate                                                             |
-| `Shift+/`                    | The shortcut sheet                                                                  |
-| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design)                                                        |
-| `Ctrl/⌘+C / X / V / D`       | Copy, cut, paste, duplicate (Screens, Design)                                       |
-| `Delete`                     | Delete the selection (locked nodes stay)                                            |
+| Keys | Does |
+|---|---|
+| `Esc` | Select the parent; on a top-level node, deselect |
+| `Enter` | Select the first child |
+| `X` | Reveal the selection in the Outline (opens its containers, scrolls to the row) |
+| `F` | Fit the frame |
+| `Ctrl/⌘+0` | Zoom to 100% |
+| `+` / `-` | Zoom in / out (the canvas bar also has − / % / + and **Fit**; click the % for 100%) |
+| Arrows | Nudge the selected top-level nodes 1 px; `Shift` = 10 px (Design only) |
+| `Tab` | Toggle Design / Animate |
+| `Shift+/` | The shortcut sheet |
+| `Ctrl/⌘+Z`, `Ctrl/⌘+Shift+Z` | Undo, redo (Screens, Design) |
+| `Ctrl/⌘+C / X / V / D` | Copy, cut, paste, duplicate (Screens, Design) |
+| `Delete` | Delete the selection (locked nodes stay) |
 
 The stage is tinted blue with a blue edge in **Animate**, so the two modes never look alike.
 
@@ -749,7 +751,7 @@ range is left blank, so it follows the parameter's own min and max (shown greyed
 they change in /fx; type ends to map elsewhere. An on/off one is on while the number passes a
 **threshold**, like **Show / hide**. Dragging the test value moves the live particles on the
 stage, with no restart. A colour parameter cannot be bound yet. A binding naming a parameter the
-effect no longer has says _Does nothing_ and is ignored in the game.
+effect no longer has says *Does nothing* and is ignored in the game.
 
 The same section in the Component Editor can also read the component's own params and the pot
 of the instance it sits in. The full reference is in the Component Editor guide under
@@ -1070,7 +1072,6 @@ plays the result in the game. A component has its own Animate mode on the Compon
    on the animated pose, and snapping is off. A scale drag is always uniform in Animate (one
    **scale ×** key), even from an edge handle or with Shift. A text box resizes its box in Design
    only, so in Animate its corners and edges do nothing (it still moves and turns). The first key on a node adds it to the timeline.
-
 4. **Preview.** Drag the ruler, or press **▶**. The canvas draws each frame through the game's own
    maths, so what you see is what plays. The number next to the time readout is the timeline's
    length in seconds.
@@ -1126,14 +1127,13 @@ already at a pasted time is replaced). **Delete** removes them all.
 
 **Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
 the value travels from each selected key to the next one.
-
 - **Linear**: a straight line.
 - **Cubic**: a curve. Drag its two handles, or type the four numbers `x1, y1, x2, y2` (a CSS
   cubic-bezier: x stays between 0 and 1; y may go past to overshoot).
 - **Hold**: the value holds until the next key (stepped).
 
 **Set as default** makes the selected key's interpolation the one every new key in this timeline
-gets; with nothing selected the panel shows and edits that default. An older timeline's _ease in-out_
+gets; with nothing selected the panel shows and edits that default. An older timeline's *ease in-out*
 keys show as Cubic `0.333, 0, 0.667, 1`, which is the same curve.
 
 **Loop type and fps.** Next to the length in the header: **One-shot** (plays once and holds its last
@@ -1247,7 +1247,7 @@ in, a button that pulses when a signal fires, a coin that spins in when it lands
    **✎** next to it lets you type any other name, for example a Flow **fireCue** name. Choose
    **(nothing — not played)** and nothing in the game starts it.
 
-   **Holds the cue** (shown once a signal is picked): tick it and an _awaited_ fire of that signal
+   **Holds the cue** (shown once a signal is picked): tick it and an *awaited* fire of that signal
    — a Flow **fireCue** with "wait" ticked — continues only when this timeline has ended on every
    instance it started on, the way the engine's coded overlays held their cue until their rig
    finished. Off (the default), the fire returns at once, as it always did; clearing **Plays on**
@@ -1349,7 +1349,7 @@ are Inspecting an old version.
      - **Allow exit during transition** (on by default) — another transition may leave the new
        state before the blend has finished. Untick it and none can until the blend ends; a trigger
        fired meanwhile waits for the end, as one waits for an exit time.
-       The curve cannot overshoot a blend: a handle past 0..1 holds the mix at its end.
+     The curve cannot overshoot a blend: a handle past 0..1 holds the mix at its end.
    - **Disable** — the transition never fires (in the preview or in game). It stays on the graph,
      dashed and greyed, with "off" on its label, so you can switch it back on.
 3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **On enter** and
