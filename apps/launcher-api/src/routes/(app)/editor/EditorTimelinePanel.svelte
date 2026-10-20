@@ -435,11 +435,13 @@
 		await refresh();
 	}
 
-	async function save(force = false): Promise<void> {
+	/** `detach`: this save replaces a stored link with the timeline's own copy (Phase 9d). */
+	async function save(force = false, detach = false): Promise<void> {
 		const open = tl?.doc();
 		if (!open || busy) return;
 		// A link saves its placement only (the server drops anything else too).
 		const doc = link ? linkStub(open, link) : open;
+		const extra = detach ? { detach: true } : {};
 		busy = true;
 		error = '';
 		try {
@@ -447,7 +449,9 @@
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(
-					force ? { doc, force: true, projectKey } : { doc, baseEtag: etag, projectKey },
+					force
+						? { doc, force: true, projectKey, ...extra }
+						: { doc, baseEtag: etag, projectKey, ...extra },
 				),
 			});
 			const body = (await res.json().catch(() => null)) as {
@@ -759,15 +763,15 @@
 
 	/** Re-pin the open link to the shared copy's latest version. */
 	async function updateLink(): Promise<void> {
-		if (!link || link.latest === null || !(await guardUnsaved())) return;
+		if (!link || link.latest === null) return;
 		const id = openId;
-		const previous = link;
+		const previous = { link, dirty };
 		link = { ...link, version: link.latest };
 		dirty = true;
 		await save();
 		if (dirty) {
-			link = previous;
-			dirty = false;
+			link = previous.link;
+			dirty = previous.dirty;
 			return;
 		}
 		if (id) {
@@ -788,15 +792,15 @@
 		});
 		if (!ok) return;
 		const id = openId;
-		const previous = link;
+		const previous = { link, linkedContent, dirty };
 		link = null;
 		linkedContent = null;
 		dirty = true;
-		await save();
+		await save(false, true);
 		if (dirty) {
-			link = previous;
-			linkedContent = contentKey(doc);
-			dirty = false;
+			link = previous.link;
+			linkedContent = previous.linkedContent;
+			dirty = previous.dirty;
 			return;
 		}
 		if (id) {
@@ -820,17 +824,39 @@
 		});
 		if (!name?.trim()) return;
 		const sharedId = sharedTimelineId(name);
-		const post = async (): Promise<Response> => {
+		error = '';
+		/** The shared copy this would follow: its version and the ETag a promote over it sends. */
+		const readShared = async (): Promise<{ version: number; etag: string | null } | null> => {
 			const head = await fetch(`/api/cinematics/shared/get?id=${encodeURIComponent(sharedId)}`);
-			const baseEtag = head.ok ? ((await head.json()) as { etag: string | null }).etag : null;
-			return fetch('/api/cinematics/shared/promote', {
+			if (!head.ok) {
+				error = `Could not read the shared library: ${await readError(head)}`;
+				return null;
+			}
+			const body = (await head.json()) as {
+				doc: { version: number } | null;
+				etag: string | null;
+			};
+			return { version: body.doc?.version ?? 0, etag: body.etag };
+		};
+		const post = (baseEtag: string | null): Promise<Response> =>
+			fetch('/api/cinematics/shared/promote', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ doc: tl?.doc(), name: name.trim(), sharedId, baseEtag }),
 			});
-		};
-		error = '';
-		let res = await post();
+		let shared = await readShared();
+		if (!shared) return;
+		// The name is the id: a name already in the library would make this its NEXT version, which
+		// every project placing it is offered as an update. Say so before writing.
+		if (shared.etag !== null) {
+			const onTop = await askConfirm({
+				title: `"${name.trim()}" is already in the shared library (v${shared.version})`,
+				message: `Add yours as v${shared.version + 1}? Every project that placed it is offered the update. Cancel, then pick another name, to add a new shared timeline instead.`,
+				confirmLabel: `Add v${shared.version + 1}`,
+			});
+			if (!onTop) return;
+		}
+		let res = await post(shared.etag);
 		if (res.status === 409) {
 			const again = await askConfirm({
 				title: 'Promote yours as a NEW version on top?',
@@ -838,7 +864,9 @@
 				confirmLabel: 'Promote on top',
 			});
 			if (!again) return;
-			res = await post();
+			shared = await readShared();
+			if (!shared) return;
+			res = await post(shared.etag);
 		}
 		if (!res.ok) {
 			error = `Promote failed: ${await readError(res)}`;

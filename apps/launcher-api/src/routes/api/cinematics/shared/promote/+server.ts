@@ -3,7 +3,7 @@ import type { CinematicDoc } from 'engine-layout';
 import { canPublishSharedTimeline, cinematicGate } from '$lib/server/cinematicAccess';
 import { isCinematicDoc } from '$lib/server/cinematicStorage';
 import { ConflictError } from '$lib/server/r2';
-import { SharedVersionTakenError, promoteSharedCinematic } from '$lib/server/sharedCinematics';
+import { SharedPointerCorruptError, promoteSharedCinematic } from '$lib/server/sharedCinematics';
 import { linkOf, sharedTimelineId, toSharedContent } from '$lib/timeline/sharedTimelines';
 import type { RequestHandler } from './$types';
 
@@ -28,16 +28,21 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	if (!('baseEtag' in body) || (body.baseEtag !== null && typeof body.baseEtag !== 'string'))
 		throw error(400, 'This promote did not send its baseEtag precondition.');
 	const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : body.doc.name;
-	const sharedId =
-		typeof body.sharedId === 'string' && body.sharedId ? body.sharedId : sharedTimelineId(name);
+	// Always through `sharedTimelineId`, so a promote can never land on (and shadow) a starter.
+	const sharedId = sharedTimelineId(
+		typeof body.sharedId === 'string' && body.sharedId ? body.sharedId : name,
+	);
 	const content = toSharedContent(body.doc as unknown as CinematicDoc, sharedId, name, 1);
 	if (!content.stage.cast.length)
 		throw error(400, 'This timeline animates nothing yet — key a node before promoting it.');
 	try {
-		const { version, etag } = await promoteSharedCinematic(content, body.baseEtag);
-		return json({ ok: true, id: content.id, version, etag });
+		const { id, version, etag } = await promoteSharedCinematic(content, body.baseEtag);
+		return json({ ok: true, id, version, etag });
 	} catch (e) {
-		if (e instanceof ConflictError || e instanceof SharedVersionTakenError) {
+		if (e instanceof SharedPointerCorruptError) {
+			return json({ ok: false, error: 'corrupt', message: e.message }, { status: 409 });
+		}
+		if (e instanceof ConflictError) {
 			return json(
 				{
 					ok: false,

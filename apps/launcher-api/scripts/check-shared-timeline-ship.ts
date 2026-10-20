@@ -37,6 +37,8 @@ interface Cond {
 }
 
 const bucket = new Map<string, Stored>();
+/** Runs just before the next PUT to `key` is judged: another author's write landing mid-request. */
+const beforePut = new Map<string, () => Promise<void> | void>();
 class ConflictError extends Error {
 	constructor(readonly key: string) {
 		super(`Conditional write failed for ${key}`);
@@ -56,7 +58,11 @@ mock.module(server('r2.ts'), {
 		jsonBaseEtag: (v: unknown) => (v === null ? null : typeof v === 'string' ? v : undefined),
 		formBaseEtag: (v: unknown) => (typeof v !== 'string' ? undefined : v === '' ? null : v),
 		getObjectTextWithEtag: async (key: string) => bucket.get(key) ?? null,
+		getObjectText: async (key: string) => bucket.get(key)?.text ?? null,
 		putObjectText: async (key: string, text: string, _type: string, cond?: Cond) => {
+			const hook = beforePut.get(key);
+			beforePut.delete(key);
+			await hook?.();
 			const current = bucket.get(key);
 			if (cond?.ifNoneMatch === '*' && current) throw new ConflictError(key);
 			if (cond?.ifMatch !== undefined && current?.etag !== cond.ifMatch)
@@ -108,6 +114,8 @@ const bake = await import('../src/routes/api/editor/export-cinematics/+server.ts
 const { loadAuthoredCinematics, exportCinematics } =
 	await import('../src/lib/server/cinematicExport.ts');
 const { linkStub, STARTER_TARGET } = await import('../src/lib/timeline/sharedTimelines.ts');
+const { promoteSharedCinematic } = await import('../src/lib/server/sharedCinematics.ts');
+const { toSharedContent } = await import('../src/lib/timeline/sharedTimelines.ts');
 const { ComponentTimelinePlayer, componentTimelinesFor, registerGameTimelines } =
 	await import('engine-layout');
 
@@ -337,10 +345,21 @@ const v2Play = play(
 ok('the next bake ships v2 (alpha 0.5)', near(v2Play.alpha, 0.5), v2Play);
 
 const reopened = await call(get.GET, '/api/cinematics/get?id=c_card_pop&projectKey=beta');
+const silent = await call(save.POST, '/api/cinematics/save', {
+	doc: reopened.body.doc,
+	baseEtag: reopened.body.etag,
+	projectKey: 'beta',
+});
+ok(
+	'a resolved link saved back WITHOUT detach (a /rigger save) is refused',
+	silent.status === 409 && silent.body.error === 'linked',
+	silent,
+);
 const detached = await call(save.POST, '/api/cinematics/save', {
 	doc: reopened.body.doc,
 	baseEtag: reopened.body.etag,
 	projectKey: 'beta',
+	detach: true,
 });
 ok(
 	'Detach saves the resolved copy as the project’s own',
@@ -399,6 +418,64 @@ fadePlayer.trigger('enter');
 fadePlayer.advance(0.2);
 const mid = fadePlayer.sample('gem1')?.alpha ?? -1;
 ok('…and fades the node in the game', mid > 0 && mid < 1, mid);
+
+// ---- 5. two promoters race ------------------------------------------------------------------------
+console.log('5. two promoters of one id race');
+const content = (alphaTo: number) =>
+	toSharedContent(alphaTimeline(alphaTo), 'race', 'Race', 1) as Parameters<
+		typeof promoteSharedCinematic
+	>[0];
+await promoteSharedCinematic(content(1), null);
+const raceBase = bucket.get('_shared/cinematics/race.json')!.etag;
+// A and B both read v1's pointer; B's whole promote lands while A is about to write its pointer.
+let bResult: unknown = null;
+beforePut.set('_shared/cinematics/race.json', async () => {
+	bResult = await promoteSharedCinematic(content(0.25), raceBase).catch((e: Error) => e.name);
+});
+const aResult = await promoteSharedCinematic(content(0.75), raceBase).catch((e: Error) => e.name);
+ok(
+	'exactly one wins v2',
+	JSON.stringify([aResult, bResult].filter((r) => typeof r === 'string')) === '["ConflictError"]',
+	{ aResult, bResult },
+);
+const racePointer = bucket.get('_shared/cinematics/race.json')!.text;
+const raceSnap = bucket.get('_shared/cinematics/race.v2.json')?.text;
+ok('the v2 snapshot holds exactly the pointer’s v2 bytes', raceSnap === racePointer, {
+	racePointer,
+	raceSnap,
+});
+ok(
+	'v1’s snapshot is untouched',
+	JSON.parse(bucket.get('_shared/cinematics/race.v1.json')!.text).version === 1,
+);
+
+// A stray snapshot (a crash between a pointer write and its snapshot, an old orphan) is repaired
+// from the pointer before the pointer moves on, so the version a link pins reads the pointer's bytes.
+bucket.set('_shared/cinematics/race.v2.json', { text: '{"stray":true}', etag: '"stray"' });
+await promoteSharedCinematic(content(0.1), bucket.get('_shared/cinematics/race.json')!.etag);
+ok(
+	'a stray snapshot of the current version is rewritten from the pointer',
+	bucket.get('_shared/cinematics/race.v2.json')!.text === racePointer,
+);
+ok(
+	'…before v3 is written',
+	JSON.parse(bucket.get('_shared/cinematics/race.json')!.text).version === 3,
+);
+
+bucket.set('_shared/cinematics/race.json', { text: 'not json', etag: '"bad"' });
+const corrupt = await promoteSharedCinematic(content(1), '"bad"').catch((e: Error) => e.name);
+ok(
+	'an unreadable pointer is refused, not guessed at',
+	corrupt === 'SharedPointerCorruptError',
+	corrupt,
+);
+bucket.delete('_shared/cinematics/race.json');
+const afterDelete2 = await promoteSharedCinematic(content(1), null);
+ok(
+	'a deleted pointer continues after the highest snapshot (v4), never reusing v1',
+	afterDelete2.version === 4,
+	afterDelete2,
+);
 
 console.log(`\n${failures ? '❌' : '✅'} ${passes} passed, ${failures} failed`);
 if (failures) process.exit(1);

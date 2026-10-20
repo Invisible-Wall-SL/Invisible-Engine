@@ -20,7 +20,9 @@ import type { RequestHandler } from './$types';
  * Phase 1): a stale one answers **409** instead of overwriting whoever saved first.
  * `force: true` is the author's explicit "overwrite theirs" from the conflict prompt.
  *
- * Body: `{ doc: <CinematicDoc>, baseEtag?: string | null, force?: boolean, projectKey?: string }`.
+ * Body: `{ doc: <CinematicDoc>, baseEtag?: string | null, force?: boolean, projectKey?: string,
+ * detach?: boolean }`. `detach` is how a link (Phase 9d) is replaced by a timeline of its own;
+ * without it a non-link save over a stored link is refused (409 `linked`).
  *
  * A Scene Editor-only caller (`access: 'hosted'`) may write a screen or component timeline over
  * one of those or nothing; see {@link hostedPrecondition}.
@@ -60,13 +62,28 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 			{ status: 409 },
 		);
 
+	const stored = await loadCinematic(clientKey, projectKey, doc.id);
 	if (access === 'hosted') {
 		assertReach(access, doc);
-		const stored = await loadCinematic(clientKey, projectKey, doc.id);
 		if (stored.etag !== null) assertReach(access, stored.doc);
 		const pinned = hostedPrecondition(baseEtag, stored.etag);
 		if (pinned === 'conflict') return conflict();
 		baseEtag = pinned;
+	}
+
+	// A link is replaced by a timeline of its own only by an explicit Detach: `/rigger` opens a link
+	// resolved (it plays the shared content) and would otherwise save it back as a silent copy.
+	if (!link && linkOf(stored.doc) && body.detach !== true) {
+		return json(
+			{
+				ok: false,
+				error: 'linked',
+				message:
+					'This timeline is a link to a shared one, so it is not saved here. Detach it in the ' +
+					"Scene Editor's Timeline panel first.",
+			},
+			{ status: 409 },
+		);
 	}
 
 	try {

@@ -1,6 +1,6 @@
 import { type CinematicDoc, listCinematics, loadCinematic } from './cinematicStorage';
 import { SUB } from './projectPaths';
-import { deleteObjects, listAllObjects, putObjectText } from './r2';
+import { deleteObjects, getObjectText, listAllObjects, putObjectText } from './r2';
 import { resolveProjectCinematic } from './sharedCinematics';
 
 /**
@@ -66,13 +66,36 @@ export async function loadAuthoredCinematics(
 	try {
 		for (const row of await listCinematics(clientKey, projectKey)) {
 			const { doc: stored } = await loadCinematic(clientKey, projectKey, row.id);
-			const doc = stored && (await resolveProjectCinematic(stored));
+			let doc: CinematicDoc | null = null;
+			try {
+				doc = stored && (await resolveProjectCinematic(stored));
+			} catch (e) {
+				// The shared copy could not be READ (not "is gone", which resolves to null): ship what
+				// shipped last rather than let the export prune it from `deploy/`.
+				console.error(`[cinematicExport] could not resolve shared link "${row.id}":`, e);
+				doc = await lastShipped(clientKey, projectKey, row.id);
+			}
 			if (doc && isAuthored(doc)) out.push(doc);
 		}
 	} catch {
 		// Cinematics are additive — a listing/parse failure must never break the whole publish.
 	}
 	return out;
+}
+
+/** The copy of `id` the last export shipped, or null. */
+async function lastShipped(
+	clientKey: string,
+	projectKey: string,
+	id: string,
+): Promise<CinematicDoc | null> {
+	const text = await getObjectText(`${SUB.deploy(clientKey, projectKey)}/cinematics/${id}.json`);
+	if (!text) return null;
+	try {
+		return JSON.parse(text) as CinematicDoc;
+	} catch {
+		return null;
+	}
 }
 
 /**

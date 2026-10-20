@@ -1,6 +1,5 @@
 import type { CinematicDoc as LayoutCinematicDoc } from 'engine-layout';
 import {
-	STARTER_PREFIX,
 	STARTER_TIMELINES,
 	linkOf,
 	resolveLinked,
@@ -29,8 +28,9 @@ import {
  * NO INDEX BLOB, like the project store (`cinematicStorage.ts`): the list is a prefix listing.
  *
  * Concurrency (`docs/design/multi-user-concurrency.md` Phase 1): the latest pointer is written
- * `If-Match` the ETag the promoter saw (`null` ⇒ create-only), and each snapshot is create-only, so
- * two promoters of the same id never silently replace each other's version.
+ * `If-Match` the ETag the promoter saw (`null` ⇒ create-only) and is the authority for every
+ * version; a snapshot only ever copies the pointer's bytes for its version
+ * ({@link promoteSharedCinematic}), so two promoters never silently replace each other's version.
  */
 
 export const SHARED_CINEMATICS_PREFIX = '_shared/cinematics';
@@ -75,12 +75,6 @@ export async function loadSharedCinematic(
 	return { doc: starterTimeline(id, version), etag };
 }
 
-/** The latest version of a shared id (`null` = there is none), for the update badge. */
-export async function latestSharedVersion(id: string): Promise<number | null> {
-	const { doc } = await loadSharedCinematic(id);
-	return doc?.version ?? null;
-}
-
 /** Every shared timeline: the R2 copies, then the starters no copy shadows. */
 export async function listSharedCinematics(): Promise<SharedTimelineSummary[]> {
 	const listed = (await listAllObjects(`${SHARED_CINEMATICS_PREFIX}/`)).filter(
@@ -102,68 +96,92 @@ export async function listSharedCinematics(): Promise<SharedTimelineSummary[]> {
 	return out;
 }
 
-/** The snapshot a promote wanted to create already holds another author's version. */
-export class SharedVersionTakenError extends Error {
-	constructor(
-		readonly id: string,
-		readonly version: number,
-	) {
-		super(`Version ${version} of shared timeline "${id}" was just written by someone else.`);
-		this.name = 'SharedVersionTakenError';
+/** The latest pointer exists but is not a shared timeline: promoting over it would guess a version. */
+export class SharedPointerCorruptError extends Error {
+	constructor(readonly id: string) {
+		super(`The shared timeline "${id}" is unreadable in storage; repair it before promoting.`);
+		this.name = 'SharedPointerCorruptError';
 	}
+}
+
+/**
+ * Make `<id>.v<version>.json` hold exactly `body`, the bytes the latest POINTER holds (or held)
+ * for that version. The pointer is the authority for every version it has named: a snapshot only
+ * ever copies it, so an existing snapshot with other bytes is a stray (a crash between a pointer
+ * write and its snapshot, an old orphan) and is overwritten under its own ETag. A lost race on that
+ * overwrite is retried once; whoever wins wrote the same bytes.
+ */
+async function ensureSnapshot(id: string, version: number, body: string): Promise<void> {
+	const key = sharedCinematicVersionKey(id, version);
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const existing = await getObjectTextWithEtag(key);
+		if (existing?.text === body) return;
+		try {
+			await putObjectText(key, body, 'application/json', precondition(existing?.etag ?? null));
+			return;
+		} catch (e) {
+			if (!(e instanceof ConflictError)) throw e;
+		}
+	}
+}
+
+/** The highest `<id>.v<N>.json` in storage, for a pointer that was deleted (0 = none). */
+async function highestSnapshot(id: string): Promise<number> {
+	const prefix = `${SHARED_CINEMATICS_PREFIX}/${r2Slug(id)}.v`;
+	let max = 0;
+	for (const o of await listAllObjects(prefix)) {
+		const m = /\.v(\d+)\.json$/.exec(o.key);
+		if (m && o.key === `${prefix}${m[1]}.json`) max = Math.max(max, Number(m[1]));
+	}
+	return max;
 }
 
 /**
  * Promote `content` (already stripped of placement fields, `toSharedContent`) as the next version
  * of shared timeline `content.id`. `baseEtag` is the latest pointer's ETag the promoter saw
- * (`null` ⇒ the id must not exist in R2 yet); a stale one throws `ConflictError` before anything is
- * written. Order: the immutable snapshot first (create-only), then the pointer `If-Match` — so the
- * pointer never names a version that has no snapshot.
+ * (`null` ⇒ no R2 copy yet).
  *
- * A snapshot that already exists at the new version is another author's only if the pointer has
- * reached it; otherwise it is an orphan of a promote whose pointer write lost, which no link can
- * pin (links pin what the pointer names), and it is overwritten under its own ETag.
+ * POINTER FIRST, so the pointer's conditional write is the ONLY race and its loser writes nothing:
+ *  1. read the pointer; a stale `baseEtag` is a `ConflictError` before any write, and an
+ *     unreadable pointer is refused (its version cannot be known);
+ *  2. make the CURRENT version's snapshot hold the pointer's bytes (a crash may have left it
+ *     missing), so moving the pointer on never leaves a pinned version unreadable;
+ *  3. write the pointer at the next version, `If-Match` `baseEtag`;
+ *  4. write that version's snapshot from the same bytes. Until it lands, `loadSharedCinematic`
+ *     serves the version from the pointer, and the next promote's step 2 repairs it if it never
+ *     does.
+ * A snapshot is only ever written with bytes the pointer holds for that version, so a version a
+ * link pins never changes. With no pointer (a new id, or one deleted), the next version follows the
+ * highest snapshot left in storage, so a deleted pointer never reuses a pinned version number.
  */
 export async function promoteSharedCinematic(
 	content: SharedTimelineDoc,
 	baseEtag: string | null,
-): Promise<{ version: number; etag: string | null }> {
+): Promise<{ id: string; version: number; etag: string | null }> {
 	const id = r2Slug(content.id);
 	const current = await getObjectTextWithEtag(sharedCinematicKey(id));
-	const currentEtag = current?.etag ?? null;
-	if (currentEtag !== baseEtag) throw new ConflictError(sharedCinematicKey(id));
-	const latest = current ? parseShared(current.text) : null;
-	const base = latest?.version ?? (id.startsWith(STARTER_PREFIX) ? 1 : 0);
+	if ((current?.etag ?? null) !== baseEtag) throw new ConflictError(sharedCinematicKey(id));
+	let base: number;
+	if (current) {
+		const latest = parseShared(current.text);
+		if (!latest) throw new SharedPointerCorruptError(id);
+		await ensureSnapshot(id, latest.version, current.text);
+		base = latest.version;
+	} else {
+		base = await highestSnapshot(id);
+	}
 	const version = base + 1;
 	const doc: SharedTimelineDoc = { ...content, id, version };
 	delete doc.starter;
 	const body = JSON.stringify(doc, null, '\t');
-
-	const snapKey = sharedCinematicVersionKey(id, version);
-	try {
-		await putObjectText(snapKey, body, 'application/json', { ifNoneMatch: '*' });
-	} catch (e) {
-		if (!(e instanceof ConflictError)) throw e;
-		const existing = await getObjectTextWithEtag(snapKey);
-		const pointer = await getObjectTextWithEtag(sharedCinematicKey(id));
-		const reached = (pointer ? parseShared(pointer.text)?.version : undefined) ?? 0;
-		if (!existing || reached >= version) throw new SharedVersionTakenError(id, version);
-		if (existing.text !== body) {
-			try {
-				await putObjectText(snapKey, body, 'application/json', precondition(existing.etag));
-			} catch (err) {
-				if (err instanceof ConflictError) throw new SharedVersionTakenError(id, version);
-				throw err;
-			}
-		}
-	}
 	const etag = await putObjectText(
 		sharedCinematicKey(id),
 		body,
 		'application/json',
 		precondition(baseEtag),
 	);
-	return { version, etag };
+	await ensureSnapshot(id, version, body);
+	return { id, version, etag };
 }
 
 /**

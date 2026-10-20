@@ -103,7 +103,7 @@ export function toSharedContent(
 	name: string,
 	version: number,
 ): SharedTimelineDoc {
-	const out = structuredClone(doc) as Record<string, unknown>;
+	const out = structuredClone(doc) as unknown as Record<string, unknown>;
 	for (const field of PLACEMENT_FIELDS) delete out[field];
 	delete out.starter;
 	return { ...(out as unknown as CinematicDoc), id: sharedId, name, version };
@@ -156,7 +156,7 @@ export function linkStub(placement: CinematicDoc, link: SharedTimelineLink): Cin
  */
 export function resolveLinked(stub: CinematicDoc, shared: SharedTimelineDoc): CinematicDoc {
 	const link = linkOf(stub);
-	const content = structuredClone(shared) as Record<string, unknown>;
+	const content = structuredClone(shared) as unknown as Record<string, unknown>;
 	for (const field of PLACEMENT_FIELDS) delete content[field];
 	delete content.version;
 	delete content.starter;
