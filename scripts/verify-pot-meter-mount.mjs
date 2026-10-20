@@ -25,6 +25,8 @@ import { realpathSync } from 'node:fs';
 import { createRequire, register } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { Element } from './lib/svelte-dom-shim.mjs';
+
 const repoFile = (path) => new URL(`../${path}`, import.meta.url).href;
 const POT_METER = repoFile('apps/lines/src/components/PotMeter.svelte');
 const MOUNTED_COMPONENTS = repoFile('packages/engine-layout/src/lib/mountedComponents.ts');
@@ -88,89 +90,6 @@ register(
 	`),
 	pathToFileURL('./'),
 );
-
-// --- the DOM Svelte's anchors need: a tree of nodes, nothing rendered ---------------------------
-class Node {
-	parentNode = null;
-	childNodes = [];
-	get firstChild() {
-		return this.childNodes[0] ?? null;
-	}
-	get lastChild() {
-		return this.childNodes.at(-1) ?? null;
-	}
-	get nextSibling() {
-		const siblings = this.parentNode?.childNodes;
-		return siblings ? (siblings[siblings.indexOf(this) + 1] ?? null) : null;
-	}
-	insertBefore(node, ref) {
-		const nodes = node instanceof DocumentFragment ? [...node.childNodes] : [node];
-		for (const child of nodes) {
-			child.remove();
-			const at = ref ? this.childNodes.indexOf(ref) : -1;
-			this.childNodes.splice(at < 0 ? this.childNodes.length : at, 0, child);
-			child.parentNode = this;
-		}
-		return node;
-	}
-	appendChild(node) {
-		return this.insertBefore(node, null);
-	}
-	append(...nodes) {
-		for (const node of nodes) this.insertBefore(node, null);
-	}
-	removeChild(node) {
-		node.remove();
-		return node;
-	}
-	before(...nodes) {
-		for (const node of nodes) this.parentNode?.insertBefore(node, this);
-	}
-	after(...nodes) {
-		const next = this.nextSibling;
-		for (const node of nodes) this.parentNode?.insertBefore(node, next);
-	}
-	remove() {
-		const siblings = this.parentNode?.childNodes;
-		if (siblings) siblings.splice(siblings.indexOf(this), 1);
-		this.parentNode = null;
-	}
-	set textContent(_) {
-		for (const child of [...this.childNodes]) child.remove();
-	}
-	addEventListener() {}
-	removeEventListener() {}
-}
-class Element extends Node {}
-class DocumentFragment extends Node {}
-class CharacterData extends Node {
-	constructor(data = '') {
-		super();
-		this.data = data;
-	}
-	get nodeValue() {
-		return this.data;
-	}
-}
-class Text extends CharacterData {}
-class Comment extends CharacterData {}
-
-Object.assign(globalThis, {
-	window: globalThis,
-	Node,
-	Element,
-	Text,
-	Comment,
-	DocumentFragment,
-	document: {
-		createElement: () => new Element(),
-		createTextNode: (data) => new Text(data),
-		createComment: (data) => new Comment(data),
-		createDocumentFragment: () => new DocumentFragment(),
-		addEventListener() {},
-		removeEventListener() {},
-	},
-});
 
 // The component, the real mount count and this harness must share ONE Svelte runtime: with two, the
 // count's `SvelteMap` is invisible to the component's effect, the loop cannot happen and every

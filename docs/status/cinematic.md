@@ -316,6 +316,7 @@ through the same player; headless-proven, no editor yet (5b).
 | `tools/rigger-spike/cinematic-screen-timeline.mjs` — Phase 3 end to end: author (headless Timeline + name targeting) → save (in-memory R2) → picker labels → `validateNodeActors` → `exportCinematics` / bundle → `playCinematic` on the REAL interpreter → game fold vs the editor's compiled preview module at six times; parity with no preview | **41/41** |
 | `apps/launcher-api/scripts/check-cinematic-access.ts` — the REAL `/api/cinematics/*` handlers per entitlement (rigger / editor / both / neither), incl. the same-id hijack, force, the mid-request race, and a component-host section (Phase 4b) | **36/36** |
 | `apps/launcher-api/scripts/check-component-timelines.ts` (`pnpm --filter launcher-api check:component-timelines`) — Phase 4b: the registry, the per-instance player (start, hold, cues, latest-wins), two instances independent under signal scopes, reuse by name only (never an id) + validation, no self-restart from a timeline's own cue, export of a component timeline no Flow node names | **39/39** |
+| `scripts/check-cinematic-ticker.mjs` (`pnpm check:cinematic-ticker`) — the REAL `<Cinematic>` compiled and mounted through Svelte's client runtime on a hand-stepped ticker: a one-shot plays to `oncomplete` with its playhead rising every frame and lands on its last frame; `loop` / `pingPong` docs and the `loop` prop never complete and keep advancing; a new `doc.id` or `startTime` re-arms it and a new `speed` or `playing` does not; each cue fires once (once a lap, out legs only for a ping-pong); unmount leaves the ticker | **35/35** |
 | Live browser runs of the editor | undo/redo 22, sequencer 35, property/camera 36, R2 client flow 19, masks 31, New clip + tweak-bar masks 35, Tweak Mode ~55, inline posing / underlay / fx row 59 |
 
 ### What the gates established
@@ -397,6 +398,15 @@ through the same player; headless-proven, no editor yet (5b).
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-20 — **Gate: `<Cinematic>` plays on a ticking clock** (`check:cinematic-ticker`, run by
+  `check:all`). The hotfix below was invisible to CI because nothing mounted the player on a clock.
+  The gate compiles the REAL `Cinematic.svelte`, mounts it with a fake app context whose ticker it
+  steps frame by frame, and asserts what the Gates table lists. On the pre-fix `lap = time` it
+  fails 20 of 35 (the playhead never leaves 0); with the fix all pass. The DOM shim it shares with
+  `verify-pot-meter-mount.mjs` moved to `scripts/lib/svelte-dom-shim.mjs`. The component timeline
+  player is already advanced frame by frame by `check:component-timelines` and
+  `check:cinematic-ease`, so it got no second gate.
 
 - 2026-10-20 — **Hotfix: in-game timelines stuck on frame 0 since Phase 9b** (branch
   `claude/fix-cinematic-rearm`). Reported on `commonoverlayproject`: the bonus's pot and curtain
