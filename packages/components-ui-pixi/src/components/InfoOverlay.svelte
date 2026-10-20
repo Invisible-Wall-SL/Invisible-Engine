@@ -154,9 +154,9 @@
 							     it here made symbols render at wildly different sizes. -->
 							<Sprite key={icon.assetKey} anchor={0.5} x={iconX} y={cy} width={iconBox} height={iconBox} contain />
 						{:else}
-							<!-- Contain-fit the rig's bounds to the box (with the rig-only shrink), like the
-							     reel's SymbolRigMain — WITHOUT `fit="contain"` + a width cap the poster rigs
-							     rendered ~3x the sprites and clipped off the left edge. -->
+							<!-- Contain-fit the rig's bounds to the box (with the rig-only shrink), centred on
+							     (iconX, cy) like the reel's SymbolRigMain — WITHOUT `fit="contain"` + a width
+							     cap the poster rigs rendered ~3x the sprites and clipped off the left edge. -->
 							<RigProvider
 								key={icon.assetKey}
 								anchor={0.5}
@@ -165,7 +165,6 @@
 								width={iconBox * RIG_ICON_FILL}
 								height={iconBox * RIG_ICON_FILL}
 								fit="contain"
-								centreBox
 							>
 								<RigTrack trackIndex={0} animationName={icon.animationName ?? ''} loop={true} />
 							</RigProvider>

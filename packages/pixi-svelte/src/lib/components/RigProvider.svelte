@@ -1,11 +1,24 @@
 <script lang="ts" module>
 	import { type Props as BaseProps } from './BaseRigProvider.svelte';
 	import type { PixiPoint } from '../types';
+	import type { RigAnchor } from '../rigBox';
 
-	export type Props = Omit<BaseProps, 'rigData' | 'pivot' | 'scale'> & {
+	export type Props = Omit<BaseProps, 'rigData' | 'pivot' | 'scale' | 'anchorFallback'> & {
 		debug?: boolean;
 		key: string;
-		anchor?: PixiPoint;
+		/**
+		 * The point of the rig's authored box (`skeleton.{x,y,width,height}` — the Rigger's Bounds
+		 * frame) that lands on (x, y), read like a sprite's anchor: y down, `0` the top-left, `0.5`
+		 * the centre — so `anchor={0.5}` with `width`/`height` and `fit="contain"` fits that frame
+		 * into the box centred, wherever the skeleton origin sits inside it. The pivot is in the
+		 * rig's own (load-scaled) units, independent of the size fit. A rig with no header box is
+		 * anchored on its live bounds instead (`BaseRigProvider`).
+		 *
+		 * Absent ⇒ the skeleton ORIGIN lands on (x, y): what a placed scene rig (the Scene Editor's
+		 * convention), a cinematic actor and every stock coded rig authored around its origin rely
+		 * on. Several stock rigs have setup boxes far off their origin, so centring is opt-in.
+		 */
+		anchor?: RigAnchor;
 		scale?: PixiPoint;
 		/**
 		 * Render this rig as if its skeleton had been read at THIS load scale, whatever
@@ -19,16 +32,6 @@
 		 * caring what the game's asset index happens to say. Absent ⇒ factor 1 ⇒ unchanged.
 		 */
 		loadScaleBase?: number;
-		/**
-		 * Place the CENTRE of the rig's authored box (`skeleton.{x,y,width,height}`) at (x, y)
-		 * instead of the skeleton origin. This is what "contain-fit a rig into a cell" means: the
-		 * box the Rigger's Bounds frame shows is the box that fills the cell, wherever the origin
-		 * sits inside it. Off by default — a placed scene rig keeps origin-at-position, which is
-		 * the convention the Scene Editor draws it with. A centred box (every externally authored
-		 * rig) makes this a no-op, so it moves only the rigs whose box the origin was not centred
-		 * in.
-		 */
-		centreBox?: boolean;
 	};
 </script>
 
@@ -40,8 +43,7 @@
 	import BaseRigProvider from './BaseRigProvider.svelte';
 	import RiggedEffect from './RiggedEffect.svelte';
 	import RiggedFlipbook from './RiggedFlipbook.svelte';
-	import { anchorToPivot } from '../utils.svelte';
-	import { rigBoxPivot } from '../rigBox';
+	import { rigAnchorPoint, rigFramePivot } from '../rigBox';
 	import { getContextApp, setContextRigLoadScale } from '../context.svelte';
 	import { getRigLoadScale } from '../rigLoadScale';
 	import { EMPTY_RIG_BOUND_CONTENT, resolveRigBoundContent } from '../rigBoundContent';
@@ -54,7 +56,6 @@
 		children,
 		scale: scaleProp,
 		loadScaleBase,
-		centreBox,
 		...baseRigProps
 	}: Props = $props();
 	const context = getContextApp();
@@ -97,22 +98,15 @@
 	});
 
 	const pivot = $derived.by(() => {
-		if (!rigData) return undefined;
-		// Degenerate export (no skeleton width/height) → return `undefined` and let
-		// BaseRigProvider anchor from the LIVE animated bounds once the art appears. A
-		// static pivot can't be computed (no size), and the synthesized one measured 0, so
-		// the rig pinned to its origin (0,0 top-left). Authored bounds → standard pivot.
-		if (!(rigData.width > 0) || !(rigData.height > 0)) return undefined;
-		const factWidth = baseRigProps.width || rigData.width;
-		const factHeight = baseRigProps.height || rigData.height;
-		const base = anchorToPivot({ anchor, sizes: { width: factWidth, height: factHeight } });
-		if (!centreBox || !resolved) return base;
+		if (!resolved) return undefined;
+		if (anchor === undefined) return { x: 0, y: 0 };
+		// No header box (a degenerate export) → `undefined`, so BaseRigProvider anchors on the LIVE
+		// bounds once the art appears; a pivot set here would overwrite that one on every prop sync.
+		const box = authoredRigBox(resolved.data);
+		if (!box) return undefined;
 		// The box is read from the UNSCALED header while the geometry (and so local space) carries
-		// the bundle's load scale — `rigBoxPivot` scales the centre up and flips its y to match.
-		const box = authoredRigBox(rigData);
-		if (!box) return base;
-		const centre = rigBoxPivot(box, getRigLoadScale(resolved.assetKey));
-		return { x: base.x + centre.x, y: base.y + centre.y };
+		// the bundle's load scale — `rigFramePivot` scales the point up and flips its y to match.
+		return rigFramePivot(box, rigAnchorPoint(anchor), getRigLoadScale(resolved.assetKey));
 	});
 
 	/**

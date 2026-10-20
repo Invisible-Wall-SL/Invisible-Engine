@@ -18,9 +18,9 @@
 	 *
 	 * Coordinate space: the parent mounts this inside the resting board container, so `run.x` /
 	 * `run.topEdgeY` are the SAME board-local coordinates `BoardBase` uses. The container is centred on
-	 * the full picture; the sprite/flipbook branches anchor at 0.5 (texture centre) while the RIG
-	 * branch uses `anchor={0}` + `centreBox` (a rig pivots in its LOCAL skeleton frame — see that
-	 * branch's note); the mask rectangle then reveals only the top `visibleCells` from the box top.
+	 * the full picture; every branch anchors at 0.5 — the texture centre for a sprite/flipbook, the
+	 * centre of its authored box for a rig; the mask rectangle then reveals only the top
+	 * `visibleCells` from the box top.
 	 */
 	const { run }: { run: StackedPictureRun } = $props();
 	const context = getContext();
@@ -101,19 +101,16 @@
 			rig must too: pinned to `EDITOR_RIG_LOAD_SCALE`, the rig fills exactly `boxW × boxH`
 			regardless of the scale its bundle was read at. Mirrors the WinAnimation / FreeSpin surfaces.
 
-			`anchor={0}` (NOT 0.5, unlike the sprite branch): a rig's pivot lives in its LOCAL skeleton
-			frame, not the requested box frame — anchor 0.5 would pivot by `box/2` and mis-centre the art
-			by ≈box/2 (clipping a tall rig at the top, gapping the bottom). `centreBox` then drops the
-			centre of the rig's authored box on the box centre — exactly how `SymbolRigMain` centres
-			every normal symbol, whether or not the skeleton origin happens to sit in that centre.
+			`anchor={0.5}` drops the centre of the rig's authored box on the box centre — exactly how
+			`SymbolRigMain` centres every normal symbol, whether or not the skeleton origin happens to
+			sit in that centre.
 		-->
 		<RigProvider
 			key={info.assetKey}
-			anchor={0}
+			anchor={0.5}
 			width={boxW}
 			height={boxH}
 			loadScaleBase={EDITOR_RIG_LOAD_SCALE}
-			centreBox
 		>
 			<RigTrack trackIndex={0} animationName={info.animationName} loop />
 		</RigProvider>

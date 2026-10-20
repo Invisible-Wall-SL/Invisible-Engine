@@ -90,12 +90,13 @@ is **no** reveal-path `computeArming` hook.
    (a tall picture authored at the box aspect is undistorted; a placeholder icon still fills+crops),
    then a `<Rectangle isMask>` reveals only the top `visibleCells`. `StackedPictures.svelte` maps the
    runs; mounted in `Board.svelte` inside the resting board container (shares `getSymbolX`/`symbolY`
-   coordinates + the board window mask). **A rig tall art is placed with `anchor={0}` + `centreBox`,
-   not the sprite/flipbook `anchor={0.5}`**: a rig pivots in its LOCAL skeleton frame, so anchor 0.5
-   pivots by `box/2` and lifts the art by `boxH²/(2·skeleton.height)` — clipped at the top, gapped at
-   the bottom (see Known issues, #286). `<RigProvider centreBox>` then drops the centre of the rig's
-   AUTHORED box on the box centre, so a rig whose skeleton origin is not its bounds centre lands right
-   too — the same convention `SymbolRigMain` uses ([rigger status](../status/rigger.md), 2026-09-02).
+   coordinates + the board window mask). **A rig tall art is placed with `anchor={0.5}` like the
+   sprite/flipbook branches** — for a rig that is the centre of its AUTHORED box (the Rigger's Bounds
+   frame), so a rig whose skeleton origin is not its bounds centre lands right too — the same
+   convention `SymbolRigMain` uses ([engine status](../status/engine.md), 2026-10-20). Before
+   2026-10-20 a rig's anchor pivoted by `anchor × box` in its local skeleton frame, which lifted the
+   art by `boxH²/(2·skeleton.height)` (see Known issues, #286), so this branch used `anchor={0}` plus
+   the since-removed `centreBox`.
 6. **Two picture slots — resting + winning** (owner ask 2026-08-25). A stacked symbol authors `art`
    (the picture it normally shows — typically a still) and an optional `winArt` (what it becomes while
    that stack is part of a **paying line** — the rig/flipbook it pays out with). Both are ordinary
@@ -167,7 +168,9 @@ per-project hardcode. Test data only — no protocol change; the default (mode-o
   by `anchor={0}` on the rig branch. **Generalised on 2026-09-02** by `<RigProvider centreBox>`,
   which centres the rig's AUTHORED box instead of assuming the skeleton origin sits in it — this fix's
   original reasoning ("symbol rigs are origin-centred") held only for the rigs we ship from an external rig editor. The shared `RigProvider` pivot was deliberately NOT rewritten: that would move every symbol
-  in every game. Detail: [symbols status](../status/symbols.md) + [rigger status](../status/rigger.md).
+  in every game. **Folded into `anchor` on 2026-10-20**: a rig's anchor is now a point of that box,
+  so the branch says `anchor={0.5}` (same pivot). Detail: [symbols status](../status/symbols.md) +
+  [rigger status](../status/rigger.md) + [engine status](../status/engine.md).
 - **Win presentation hung on a covered cell — FIXED (2026-08-10).** A paying line crossing a stacked
   run stalled: `ReelSymbol` mounts no `<Symbol>` for a cell in `stackedCoverage()`, so its
   `oncomplete` never fired, and `Board.svelte`'s `boardWithAnimateSymbols` awaited it forever. The

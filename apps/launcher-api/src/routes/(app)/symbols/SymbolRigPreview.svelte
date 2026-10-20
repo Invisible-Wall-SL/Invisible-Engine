@@ -98,7 +98,7 @@
 	/**
 	 * Contain-fit the rig into the square canvas (centred) against `measureRigBounds` —
 	 * the AUTHORED skeleton box, read where the header puts it, which is the same rect the
-	 * game's `rigSizeScale` + `centreBox` and the Scene Editor's reel cells fit. This
+	 * game's `rigSizeScale` + `anchor={0.5}` and the Scene Editor's reel cells fit. This
 	 * preview used to fit live setup-pose
 	 * bounds instead, which disagrees with what ships whenever a rig's canvas and its
 	 * resting art differ: the scatter's invisible ray burst (bones scaled ×4) made the grid

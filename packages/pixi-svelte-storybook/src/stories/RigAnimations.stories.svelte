@@ -53,7 +53,6 @@
 		x: 500,
 		y: 400,
 		zIndex: 1,
-		anchor: { x: 0, y: 0 },
 	};
 </script>
 

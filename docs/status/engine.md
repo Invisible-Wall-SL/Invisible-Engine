@@ -8,7 +8,8 @@
 
 What runs on `main` today (this is the ENGINE side — the runtime + reference games, not a launcher tool). Online games run the SHARED `_runtime/lines` bundle; `apps/lines` is its source.
 
-- **Symbol sizing** — sprites are plain `contain`-fit to the cell by their native art aspect; RIG symbols contain-fit the rig's authored box (`skeleton.{x,y,width,height}` — the Rigger's Bounds frame), CENTRED on that box via `<RigProvider centreBox>` (2026-09-02), to `SYMBOL_SIZE × SYMBOL_RIG_FILL` (rig-only shrink constant, `apps/lines/src/game/constants.ts`, started 0.5). The old `sizeRatios` param + the Scene Editor "Symbol size (× cell)" control were removed from the render equation (size comes from the ART, not a number; oversize rigs are fixed by tightening the rig bounds in the Rigger). Cross-origin alpha-trim of sprite textures was tried and reverted (tainted `getImageData` — don't retry).
+- **Symbol sizing** — sprites are plain `contain`-fit to the cell by their native art aspect; RIG symbols contain-fit the rig's authored box (`skeleton.{x,y,width,height}` — the Rigger's Bounds frame), CENTRED on that box via `<RigProvider anchor={0.5}>` (2026-09-02, as `centreBox` until 2026-10-20), to `SYMBOL_SIZE × SYMBOL_RIG_FILL` (rig-only shrink constant, `apps/lines/src/game/constants.ts`, started 0.5). The old `sizeRatios` param + the Scene Editor "Symbol size (× cell)" control were removed from the render equation (size comes from the ART, not a number; oversize rigs are fixed by tightening the rig bounds in the Rigger). Cross-origin alpha-trim of sprite textures was tried and reverted (tainted `getImageData` — don't retry).
+- **A rig's `anchor` is a point of its Bounds frame** — `<RigProvider anchor>` lands that point of the authored box (`skeleton.{x,y,width,height}`, the Rigger's Bounds frame) on (x, y), read y-down like a sprite's anchor (`0` the top-left, `0.5` the centre), in the rig's own load-scaled units whatever the size fit (`rigFramePivot` in `pixi-svelte/src/lib/rigBox.ts`). No anchor ⇒ the skeleton ORIGIN on (x, y), which placed scene rigs (the Scene Editor's convention), cinematic actors and the stock coded rigs rely on — several have setup boxes far off their origin (`mm_bigwin` centred at (600, 600), `transition` at (-45, 1428)), so centring is never the default. A rig with no header box anchors on its live bounds (`BaseRigProvider`). A cover rig passes no anchor: its node anchor is the cover ALIGNMENT, applied by `bgRigOffset`. Fixture: `packages/pixi-svelte/fixtures/rigBox.fixture.ts`.
 - **Persistent background scene (coded path only)** — without a screen-driving flow, a `space:'background'` scene renders behind the game for the whole session (`engine-layout/backgroundScenes.ts`), cover-fit as one group so multi-part backgrounds keep their real size + animate (`ComponentInstance` cover path). Under a v2 flow that drives the screens it is an ordinary container the flow shows/hides — the space is only the coordinate frame (2026-09-02, see [flow history](flow-history.md)).
 - **Per-node cover-fit (`node.coverFit`)** — a cover-capable node in a normal `canvas`-space (FLOW-GATED) scene can opt into true cover-fit to the window via a `coverFit` boolean on `BaseNode` (`engine-layout/types.ts`), reusing the exact `background` cover math (`coverTransform` + `backgroundCoverScale`/`backgroundFit`/`scale` stretch) WITHOUT the always-on persistent mounting of `space:'background'` — so a free-spin intro screen can host a full-screen stretched animation the flow still shows/hides. **Which kinds cover is ONE exported list, not a condition repeated at each gate:** `isCoverFitKind` (sprite / rig / flipbook) and its texture-measured subset `isCoverArtKind` (sprite / flipbook) in `coverTransform.ts` — every gate below reads them, because when the list was spelled out per-gate the `flipbook` kind reached none of them. Runtime gate `isCanvasCoverFit`/`isCover` in `LayoutNodeView.svelte` (a `coverFit` rig is force-CENTRED on the canvas via `rigCoverCenter`, matching the sprite cover + the editor — it ignores authored x/y, since a flow screen places it anywhere); editor previews it WYSIWYG (`EditorCanvas.nodeTransform` + `isBackgroundCover`, `EditorRigLayer` `coverFit` target, `+page.svelte` `isBackgroundCoverSelected`); authored via a "Cover / full-screen fill" toggle in `EditorProperties.svelte` (canvas-space cover-capable kinds only) that reveals the existing cover-scale/fit/stretch controls. Additive — `coverFit` unset is byte-identical, `background` scenes unchanged. Verify offline: `node packages/engine-layout/scripts/test-cover-fit.mjs`. Persistence: node fields pass through `editorStorage.normalizeNode` + `identityComponentRoot`'s child-preserving copy untouched (no allowlist), and `markDirty` always bumps the canvas redraw nonce, so no whitelist change was needed. Reaching a live game needs a runtime release + reconcile.
 - **Authored Transition behind a per-project flag (Rive plan Phase 8a, 2026-10-14, ✅ owner browser check passed 2026-10-17)** — `settings.authoredOverlays.transition` on the layout doc (Scene Editor → Game Settings → *Authored overlays (pilot)*) renders the free-spin transition wipe from the built-in `transitionWipe` component and its built-in timeline instead of the coded `bind: Transition`; off for every live game. The general pieces it adds: `animation` strips on rig node actors and `holdsCue` timelines (an awaited `fireCue` waits for the timeline's end). Parity: `check:transition-parity` (0 px at five frames, the flow continues on the same frame) and `check:authored-transition`. Detail in Recent changes; the plan's §13 is the map for 8b–8d.
@@ -274,6 +275,43 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, rig symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+- 2026-10-20 — **A rig's `anchor` means one thing: the point of its Bounds frame that lands on
+  (x, y).** `<RigProvider>` pivoted a rig by the sprite rule, `anchor × requested width/height`: it
+  assumed the art's top-left at local (0, 0) and read a DISPLAY size as a LOCAL offset, while a rig's
+  local space is skeleton space (origin at the skeleton origin, y flipped, load-scaled). So
+  `anchor={0.5}` with a size shifted the art up-left by ≈ scale × size/2, and callers worked around
+  it (`StackedPicture`'s `anchor={0}` + `centreBox`). Now an anchor picks a point of the authored
+  box (`rigFramePivot`, `pixi-svelte/src/lib/rigBox.ts`), no anchor keeps the origin, and the
+  `centreBox` prop is gone — `anchor={0.5}` says it. `BaseRigProvider`'s live-bounds fallback (a rig
+  with no header box) applies the same rule to its live bounds, and now reads an explicit `0` as the
+  top-left rather than as "no anchor". **What moves:** the paytable's rig icons (`InfoOverlay` passed
+  `anchor={0.5}` AND `centreBox`, so it was off by scale × size/2) — including the coded L5 orb
+  (`M` / `low_multiplier_static`) every lines-type game shows, which now sits on its slot's centre
+  like the sprite icons (measured: 3 px left before, 0 after); a Symbols-State-Machine rig LAYER
+  (`SymbolLayer`, `anchor={0.5}` + a size) now centres its frame on the cell, as `/symbols` previews
+  it (`SymbolRigPreview`) — for a stock rig with a centred box that is a 1–2 px correction, for a rig
+  whose box sits off its origin the art moves to put the frame centre there. The current-games
+  harness measured it on live test6 ("Ways on Waves", the only live game that moved): each symbol's
+  shadow rig layer shifts ~28 px down-right and comes out from behind its symbol. No tool composites
+  layers on the cell, so that shadow was only ever judged in the game; re-tune its `offset` in
+  `/symbols` if the old look was the intended one; a placed cover rig
+  (background screen or `coverFit`) no longer ALSO pivots by its node anchor × the canvas box — its
+  node anchor is the cover alignment `bgRigOffset` already applies, and the editor's cover branch
+  draws the origin at that aligned spot with no pivot. A cover rig spawned by the Scene Editor
+  carries anchor 0.5, so before this it was drawn about half a canvas up-left of the editor's
+  preview; a symbol rig with NO header box (`skeleton.width/height` 0) in `SymbolRigMain` /
+  `StackedPicture` now centres on its live bounds instead of its origin — what `/symbols`'
+  `measureRigBounds` fallback already showed. **What does not:** `SymbolRigMain` and `StackedPicture`
+  for every rig with a header box (the same pivot, measured 0 px on a board of rig symbols including
+  the off-centre `bigwin` box), and every rig mounted with no anchor —
+  placed scene rigs, cinematic actors, the built-in `transitionWipe`, the coded big-win / transition /
+  free-spin / background rigs. The rig storybook stories dropped their `anchor: {x: 0, y: 0}` args,
+  which meant "origin" under the old rule. Fixture: `packages/pixi-svelte/fixtures/rigBox.fixture.ts`
+  (every frame corner lands on (x, y) at any load and display scale; centred headers stay a no-op;
+  explicit 0 is 0). Before/after in the browser: the `cg-lines` stand-in snapshot with rig static
+  states, rig layers, and a rig placed the way the Scene Editor drops one (anchor 0.5) on a
+  background screen and as a `coverFit` node on a canvas screen, rendered by `main`'s runtime and
+  this one: both cover rigs sat up-left on `main` and are centred on the window here.
 - 2026-10-17 — **The free-spin and button pilots are unlocked; the owner's browser check passed.**
   The owner reported the browser check positive (Rive plan Phases 3–8), so the 8c and 8d locks are
   removed with all their machinery: `AUTHORED_FREE_SPINS_LOCKED`, `AUTHORED_BUTTONS_LOCKED`, the

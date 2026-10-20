@@ -17,7 +17,6 @@
 			y: 400,
 			zIndex: 1,
 			timeScale: 1,
-			anchor: { x: 0, y: 0 },
 		}
 	});
 
