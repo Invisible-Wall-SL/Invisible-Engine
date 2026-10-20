@@ -121,6 +121,8 @@ const workingR2Plugin = {
 					const v = S.objects.get(key);
 					return v === undefined ? null : { text: v, etag: 'etag-' + key };
 				}
+				export async function getObjectText(key) { return S.objects.get(key) ?? null; }
+				export class ConflictError extends Error {}
 				export async function putObjectText(key, text) { S.objects.set(key, text); return 'etag-' + key; }
 				export async function listAllObjects(prefix) {
 					return [...S.objects.keys()].filter((k) => k.startsWith(prefix))

@@ -16,6 +16,8 @@ import {
 	type ListedObject,
 } from './r2';
 import { ENV } from './env';
+import { atlasPremultipliedPages, PREMULTIPLIED_KTX2_EXT } from './ktx2Alpha';
+import { KTX2_ENCODER_REVISION } from './ktx2Dimensions';
 import { encodePageToKtx2 } from './ktx2Encode';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 import { getRoleOverrides } from './roleToolAccess';
@@ -860,14 +862,16 @@ export async function exportRigBundle(opts: {
 	// and, when KTX2 is on, encode a compressed twin per page (sequential — the launcher OOM guard).
 	const ktx2ByPage = new Map<string, Ktx2Page>(); // pageName -> ktx2 ref + dims (for the .ktx2 atlas)
 	const webpByPage = new Map<string, string>(); // pageName -> shared webp ref (deduped only)
+	const pmaPages = atlasPremultipliedPages(atlasText);
 	for (const pageName of atlasPageNames(atlasText)) {
+		const pma = pmaPages.has(pageName);
 		if (pageStore) {
 			const ext = /\.(png|webp|jpe?g)$/i.exec(pageName)?.[1].toLowerCase() ?? 'png';
 			const fromSheet = sheet !== null && pageName === sheet.pageName;
-			let shared = fromSheet ? await pageStore.ensure(sheet.pageKey, ext) : null;
+			let shared = fromSheet ? await pageStore.ensure(sheet.pageKey, ext, pma) : null;
 			// The sheet page vanished since `bundleSheetPage` read it: ship the copy, as before.
 			if (fromSheet && !shared) atlasText = bundleAtlas;
-			shared ??= await pageStore.ensure(`${prefix}/${pageName}`, ext);
+			shared ??= await pageStore.ensure(`${prefix}/${pageName}`, ext, pma);
 			if (!shared) continue;
 			webpByPage.set(pageName, `${PAGE_REF_PREFIX}${shared.file}`);
 			if (shared.ktx2File) {
@@ -882,7 +886,7 @@ export async function exportRigBundle(opts: {
 		if (!(await copyObject(`${prefix}/${pageName}`, `${deployPrefix}${dir}/${pageName}`))) continue;
 		written.push(`${deployPrefix}${dir}/${pageName}`);
 		if (!ENV.KTX2_ENCODE) continue;
-		const ktx2Name = pageName.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
+		const ktx2Name = pageName.replace(/\.(png|webp|jpe?g)$/i, PREMULTIPLIED_KTX2_EXT);
 		const ktx2Key = `${deployPrefix}${dir}/${ktx2Name}`;
 		// Content-cache the compressed twin. `encodePageToKtx2` is a ~9s SYNCHRONOUS wasm call that
 		// blocks the event loop, and this export re-runs on EVERY live `/api/editor/runtime`
@@ -891,7 +895,8 @@ export async function exportRigBundle(opts: {
 		// source page's ETag + the encoded dims beside the twin (the page name here is NOT
 		// content-hashed, so existence alone is not a sound key), so an unchanged page reuses the
 		// existing twin (one HEAD + one small GET, no page bytes, no encode). A changed page (new
-		// ETag) re-encodes. The reused keys MUST go into `written` or the caller's prune deletes them.
+		// ETag), a twin from an older encoder (`KTX2_ENCODER_REVISION`) or a flipped atlas `pma`
+		// re-encodes. The reused keys MUST go into `written` or the caller's prune deletes them.
 		const metaKey = `${ktx2Key}.meta.json`;
 		const head = await headObject(`${prefix}/${pageName}`);
 		const srcEtag = head ? (head.etag ?? `${head.size}:${head.lastModified}`) : null;
@@ -899,8 +904,19 @@ export async function exportRigBundle(opts: {
 			const cached = await getObjectText(metaKey);
 			if (cached) {
 				try {
-					const m = JSON.parse(cached) as { etag: string; width: number; height: number };
-					if (m.etag === srcEtag && (await objectExists(ktx2Key))) {
+					const m = JSON.parse(cached) as {
+						etag: string;
+						width: number;
+						height: number;
+						enc?: number;
+						pma?: boolean;
+					};
+					if (
+						m.etag === srcEtag &&
+						m.enc === KTX2_ENCODER_REVISION &&
+						m.pma === pma &&
+						(await objectExists(ktx2Key))
+					) {
 						written.push(ktx2Key, metaKey);
 						ktx2ByPage.set(pageName, { name: ktx2Name, width: m.width, height: m.height });
 						continue;
@@ -911,14 +927,20 @@ export async function exportRigBundle(opts: {
 			}
 		}
 		const src = await getObjectBytes(`${prefix}/${pageName}`);
-		const ktx2 = src ? await encodePageToKtx2(src.body) : null;
+		const ktx2 = src ? await encodePageToKtx2(src.body, { sourcePremultiplied: pma }) : null;
 		if (!ktx2) continue; // too small or failed => this page stays webp in the ktx2 atlas
 		await putObjectBytes(ktx2Key, ktx2.bytes, 'image/ktx2');
 		written.push(ktx2Key);
 		if (srcEtag) {
 			await putObjectText(
 				metaKey,
-				JSON.stringify({ etag: srcEtag, width: ktx2.width, height: ktx2.height }),
+				JSON.stringify({
+					etag: srcEtag,
+					width: ktx2.width,
+					height: ktx2.height,
+					enc: KTX2_ENCODER_REVISION,
+					pma,
+				}),
 				'application/json',
 			);
 			written.push(metaKey);

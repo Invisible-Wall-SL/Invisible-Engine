@@ -29,7 +29,9 @@
  * doc's default), `options.summaryRows` gives every animated actor a collapsible summary row, and
  * `options.boxSelect` lets a drag over an empty channel lane box-select keys. `/rigger` sets none
  * of them, so its markup and lane clicks are unchanged; Shift/Ctrl-click selection, multi-key
- * drag, Ctrl+C / Ctrl+V and `,` / `.` frame stepping work in both.
+ * drag, Ctrl+C / Ctrl+V and `,` / `.` frame stepping work in both. `options.textRows` (Rive plan
+ * Phase 9d) draws a node actor's `text` track as a row; `/rigger` has no text tracks and leaves it
+ * off.
  */
 
 const TL_GUTTER = 132;
@@ -161,6 +163,7 @@ export function mount(el, options) {
 	const interpolation = !!options.interpolation;
 	const summaryRows = !!options.summaryRows;
 	const boxSelect = !!options.boxSelect;
+	const textRows = !!options.textRows;
 	let selCueTime = null; // the selected cue key, by time (cues are global, so time identifies one)
 	let cinePps = null; // px per second; null = fit the whole cinematic to the panel width
 	let tlDrag = null;
@@ -175,6 +178,8 @@ export function mount(el, options) {
 		doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'visibility');
 	const cameraTrack = () => doc.tracks.find((t) => t.kind === 'camera') || null;
 	const cueTrack = () => doc.tracks.find((t) => t.kind === 'cue') || null;
+	const textTracksOf = (actorId) =>
+		doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'text');
 
 	const stripById = (id) => {
 		for (const track of doc.tracks) {
@@ -447,6 +452,12 @@ export function mount(el, options) {
 			for (const track of visTracksOf(cast.actorId)) {
 				if (track.keys.length) out.push({ kind: 'visibility', cast, track });
 			}
+			if (textRows) {
+				for (const track of textTracksOf(cast.actorId)) {
+					if (Array.isArray(track.keys) && track.keys.length)
+						out.push({ kind: 'text', cast, track });
+				}
+			}
 			const chans = channelsOf(cast);
 			for (const track of propertyTracksOf(cast.actorId)) {
 				for (const chan of chans) {
@@ -551,6 +562,85 @@ export function mount(el, options) {
 					dot.ondblclick = (e) => {
 						e.stopPropagation();
 						deleteVisKey(actorId, keyTime);
+					};
+				});
+			},
+		},
+
+		// A TEXT row (`options.textRows`): one marker per key of a node actor's `text` track, labelled
+		// with what it shows from there — the count-up number or the switched-to string. Drag to
+		// retime, double-click to delete; the value is edited from the host's panel.
+		text: {
+			render(row, entry, pps, contentW) {
+				row.classList.add('cineChanRow', 'cineTextRow');
+				row.dataset.actor = entry.cast.actorId;
+				row.dataset.track = entry.track.id;
+				const mode = entry.track.mode === 'switchKey' ? 'switch' : 'count';
+				row.appendChild(
+					gutter('<span class="cineTrackName cineChanName">↳ text (' + mode + ')</span>'),
+				);
+				const l = lane(contentW);
+				for (const k of entry.track.keys) {
+					const dot = document.createElement('span');
+					const shown =
+						entry.track.mode === 'switchKey' ? String(k.key ?? '') : String(+(k.value ?? 0));
+					dot.className = 'cineTextKey';
+					dot.style.left = (k.time * pps).toFixed(1) + 'px';
+					dot.dataset.textTime = k.time;
+					dot.textContent = shown;
+					dot.title = '"' + shown + '" from ' + +k.time.toFixed(3) + 's — double-click to delete';
+					l.appendChild(dot);
+				}
+				row.appendChild(l);
+			},
+			wire(root, pps) {
+				root.querySelectorAll('.cineTextRow .cineTextKey').forEach((dot) => {
+					const trackId = dot.closest('.cineTextRow').dataset.track;
+					const keyTime = parseFloat(dot.dataset.textTime);
+					dot.onpointerdown = (e) => {
+						e.preventDefault();
+						e.stopPropagation();
+						const track = doc.tracks.find((x) => x.id === trackId);
+						const key = track && track.keys.find((x) => Math.abs(x.time - keyTime) < 1e-6);
+						if (!key) return;
+						tlDrag = {
+							kind: 'text',
+							key,
+							time: keyTime,
+							startX: e.clientX,
+							pps,
+							el: dot,
+							moved: false,
+						};
+						try {
+							dot.setPointerCapture(e.pointerId);
+						} catch {
+							/* uncaptured drag still works */
+						}
+					};
+					dot.onpointermove = (e) => {
+						if (!tlDrag || tlDrag.kind !== 'text' || tlDrag.el !== dot) return;
+						// From where the drag began, so a slow drag adds up instead of snapping back.
+						const k = tlDrag.key;
+						k.time = snapT(tlDrag.time + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
+						if (Math.abs(k.time - tlDrag.time) > 1e-9) tlDrag.moved = true;
+						dot.style.left = (k.time * tlDrag.pps).toFixed(1) + 'px';
+					};
+					const endText = () => {
+						if (!tlDrag || tlDrag.kind !== 'text' || tlDrag.el !== dot) return;
+						const moved = tlDrag.moved;
+						const track = doc.tracks.find((x) => x.id === trackId);
+						if (track) track.keys.sort((a, b) => a.time - b.time);
+						tlDrag = null;
+						if (moved) commit('move text key', 'text:' + trackId + ':' + keyTime);
+						else setTime(keyTime);
+						renderTimeline();
+					};
+					dot.onpointerup = endText;
+					dot.onpointercancel = endText;
+					dot.ondblclick = (e) => {
+						e.stopPropagation();
+						deleteTextKey(trackId, keyTime);
 					};
 				});
 			},
@@ -1437,10 +1527,11 @@ export function mount(el, options) {
 		return track;
 	}
 
-	function addCue() {
+	/** A cue at the playhead; `cue` seeds its name (default: an empty `fx:`). */
+	function addCue(cue) {
 		const track = ensureCueTrack();
 		const at = snapT(time);
-		track.keys.push({ time: at, cue: 'fx:' });
+		track.keys.push({ time: at, cue: typeof cue === 'string' ? cue : 'fx:' });
 		track.keys.sort((a, b) => a.time - b.time);
 		selCueTime = at;
 		commit('add cue');
@@ -1513,6 +1604,16 @@ export function mount(el, options) {
 			track.keys.sort((a, b) => a.time - b.time);
 		}
 		commit('key visibility');
+		render();
+		renderTimeline();
+	}
+
+	function deleteTextKey(trackId, keyTime) {
+		const track = doc.tracks.find((t) => t.id === trackId);
+		if (!track || !Array.isArray(track.keys)) return;
+		track.keys = track.keys.filter((k) => Math.abs(k.time - keyTime) > 1e-6);
+		if (!track.keys.length) doc.tracks = doc.tracks.filter((t) => t.id !== trackId);
+		commit('delete text key');
 		render();
 		renderTimeline();
 	}
@@ -1743,7 +1844,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const redoBtn = q('#cineRedo');
 		if (redoBtn) redoBtn.onclick = redo;
 		const addCueBtn = q('#cineAddCue');
-		if (addCueBtn) addCueBtn.onclick = addCue;
+		if (addCueBtn) addCueBtn.onclick = () => addCue();
 		root.querySelectorAll('[data-camkey]').forEach((b) => {
 			b.onclick = () => keyCamera(b.dataset.camkey);
 		});
@@ -2294,5 +2395,7 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		duplicateStrip,
 		keyProperty,
 		keyVisibility,
+		addCue,
+		deleteTextKey,
 	};
 }
