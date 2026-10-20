@@ -106,7 +106,18 @@
 		previewResolveTransform,
 		previewTint,
 		previewVersion,
+		isViewHidden,
 	} from './valuePreview.client.svelte';
+	import { dialogQueue } from '$lib/dialogs.svelte';
+	import { firstChildIdOf, lockedInTree, parentIdOf } from '$lib/editor/hierarchy';
+	import {
+		isTypingTarget,
+		ownsFocusKeys,
+		SHORTCUT_SHEET,
+		stageShortcut,
+		ZOOM_STEP,
+		type StageAction,
+	} from '$lib/editor/stageShortcuts';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import { deepHit } from '$lib/timeline/listenerPreview';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
@@ -331,6 +342,10 @@
 		/** Edit screen `sceneId` with `nodeId` selected: the page makes it the edited screen. Absent
 		 *  (the Components side, Animate) ⇒ no "Any screen" toggle; clicks stay on the edited screen. */
 		onPickInScene?: (sceneId: string, nodeId: string) => void;
+		/** `Tab` (Rive plan Phase 9a): flip Design / Animate. Absent ⇒ `Tab` keeps its native focus move. */
+		onToggleMode?: () => void;
+		/** `X`: scroll the Outline to the selected node, expanding its containers. */
+		onRevealSelection?: (id: string) => void;
 	}
 
 	let {
@@ -376,6 +391,8 @@
 		onShowInFlow,
 		pickAnyScreen = $bindable(false),
 		onPickInScene,
+		onToggleMode,
+		onRevealSelection,
 	}: Props = $props();
 
 	/** Clicks reach every drawn screen (see {@link pickAnyScreen}). */
@@ -1865,7 +1882,9 @@
 	}
 
 	function visibleSceneNodes(sceneCtx: Scene = scene): LayoutNode[] {
-		return sceneCtx.nodes.filter((n) => resolveTransform(n, layoutType).visible);
+		return sceneCtx.nodes.filter(
+			(n) => !isViewHidden(n.id) && resolveTransform(n, layoutType).visible,
+		);
 	}
 
 	/** Every screen the canvas draws, TOP first: the HUD screens (on the top-most `hudCanvas`) over
@@ -2263,6 +2282,9 @@
 
 	// ---------- draw ----------
 
+	/** Each mode's stage colour, so Animate never reads as Design (Rive plan Phase 9a). */
+	const STAGE_TINT = { design: '#0b0b10', animate: '#0a1424' } as const;
+
 	function draw(): void {
 		if (!canvas) return;
 		// Size-sync every 2D surface first, so a per-scene canvas that mounted this same
@@ -2274,7 +2296,7 @@
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
-		ctx.fillStyle = '#0b0b10';
+		ctx.fillStyle = animate ? STAGE_TINT.animate : STAGE_TINT.design;
 		ctx.fillRect(0, 0, canvas.width, canvas.height);
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -4199,6 +4221,8 @@
 		const list = visibleSceneNodes(sceneCtx);
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
+			// Locked (Rive plan Phase 9a): the stage clicks through it; the Outline still selects it.
+			if (node.locked) continue;
 			const t = nodeTransform(node, sceneCtx);
 			const box = boxOf(node, t);
 			const corners = nodeCornersWorld(t, box);
@@ -4528,16 +4552,29 @@
 
 	function onWheel(e: WheelEvent): void {
 		e.preventDefault();
-		const factor = e.deltaY > 0 ? 0.9 : 1.1;
-		const newZoom = Math.max(0.05, Math.min(8, zoom * factor));
 		const rect = canvas?.getBoundingClientRect();
-		if (rect) {
-			const cx = e.clientX - rect.left;
-			const cy = e.clientY - rect.top;
-			panX = cx - ((cx - panX) * newZoom) / zoom;
-			panY = cy - ((cy - panY) * newZoom) / zoom;
-		}
-		zoom = newZoom;
+		zoomAround(
+			zoom * (e.deltaY > 0 ? 0.9 : 1.1),
+			rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : undefined,
+		);
+	}
+
+	/** Zoom to `next` (clamped) keeping the stage point under `at` — the view centre by default — still. */
+	function zoomAround(next: number, at?: Vec2): void {
+		const z = Math.max(0.05, Math.min(8, next));
+		const p = at ?? { x: (wrap?.clientWidth ?? 0) / 2, y: (wrap?.clientHeight ?? 0) / 2 };
+		panX = p.x - ((p.x - panX) * z) / zoom;
+		panY = p.y - ((p.y - panY) * z) / zoom;
+		zoom = z;
+		schedule();
+	}
+
+	/** ⌘0: 100%, the frame centred in the view. */
+	function zoomTo100(): void {
+		if (!wrap) return;
+		zoom = 1;
+		panX = (wrap.clientWidth - frameWidth) / 2;
+		panY = (wrap.clientHeight - frameHeight) / 2;
 		schedule();
 	}
 
@@ -4587,9 +4624,9 @@
 			// Plain click: keep an existing multi-selection if you grabbed a member
 			// (so you can group-drag it); otherwise select just this node.
 			if (!selectedIds.includes(node.id)) selectOnly(node.id);
-			// Locked nodes select but never move; background-cover nodes select but
-			// never drag (transform is synthesised). Only movement is locked, not selection.
-			if (!animate && !node.locked && !isBackgroundCover(node)) startTranslate(node, world);
+			// Background-cover nodes select but never drag (transform is synthesised). Locked
+			// nodes never get here: `hitTestNode` clicks through them.
+			if (!animate && !isBackgroundCover(node)) startTranslate(node, world);
 			schedule();
 			e.preventDefault();
 			return;
@@ -4682,22 +4719,20 @@
 		}
 	}
 
+	/** The `Shift+/` shortcut sheet is open over the stage. */
+	let cheatSheetOpen = $state(false);
+
 	function onKeyDown(e: KeyboardEvent): void {
 		// Don't hijack typing in form fields (properties panel inputs etc.).
-		const tgt = e.target as HTMLElement | null;
-		const typing =
-			tgt &&
-			(tgt.tagName === 'INPUT' ||
-				tgt.tagName === 'TEXTAREA' ||
-				tgt.tagName === 'SELECT' ||
-				tgt.isContentEditable);
-		if (typing) return;
-
-		if (e.key === 'Escape' && selectedIds.length > 0) {
-			selectedIds = [];
-			schedule();
+		if (isTypingTarget(e.target) || dialogQueue.current) return;
+		// Both sides' canvases listen on `window`; only the one on screen answers.
+		if (!wrap || wrap.getClientRects().length === 0) return;
+		if (cheatSheetOpen && (e.key === 'Escape' || e.key === '?')) {
+			cheatSheetOpen = false;
+			e.preventDefault();
 			return;
 		}
+
 		if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0 && !animate) {
 			// Delete every selected node that isn't locked, in one transaction.
 			const ids = selectedIds.filter((id) => {
@@ -4708,7 +4743,80 @@
 			e.preventDefault();
 			if (ids.length === 1 || !onDeleteMany) ids.forEach((id) => onDelete?.(id));
 			else onDeleteMany(ids);
+			return;
 		}
+		const action = stageShortcut(e);
+		if (!action) return;
+		// `Enter` / `Tab` are the stage's only from the stage itself (focus on the page body or inside
+		// the canvas); on any focused widget they keep their meaning (press it, move focus on).
+		if (
+			(action.kind === 'selectFirstChild' || action.kind === 'toggleMode') &&
+			!ownsFocusKeys(e.target, document.body, wrap)
+		)
+			return;
+		if (applyStageAction(action)) e.preventDefault();
+	}
+
+	/** Run a {@link stageShortcut} action; `false` when it does nothing here (the key stays native). */
+	function applyStageAction(action: StageAction): boolean {
+		switch (action.kind) {
+			case 'selectParent': {
+				if (!selectedId) return false;
+				selectOnly(parentIdOf(scene.nodes, selectedId));
+				schedule();
+				return true;
+			}
+			case 'selectFirstChild': {
+				const child = selectedId ? firstChildIdOf(scene.nodes, selectedId) : null;
+				if (!child) return false;
+				selectOnly(child);
+				schedule();
+				return true;
+			}
+			case 'reveal':
+				if (!selectedId || !onRevealSelection) return false;
+				onRevealSelection(selectedId);
+				return true;
+			case 'fit':
+				fitView();
+				return true;
+			case 'zoomTo100':
+				zoomTo100();
+				return true;
+			case 'zoomBy':
+				zoomAround(zoom * action.factor);
+				return true;
+			case 'nudge':
+				return nudgeSelection(action.dx, action.dy);
+			case 'toggleMode':
+				if (!onToggleMode) return false;
+				onToggleMode();
+				return true;
+			case 'cheatSheet':
+				cheatSheetOpen = !cheatSheetOpen;
+				return true;
+		}
+	}
+
+	/** Arrow nudge (Design): every selected top-level node that the stage could drag moves by
+	 *  `dx`/`dy` in its own stored units. */
+	function nudgeSelection(dx: number, dy: number): boolean {
+		if (animate) return false;
+		const nodes = selectedIds
+			.map((id) => findNodeById(id))
+			.filter(
+				(n): n is LayoutNode => !!n && !lockedInTree(scene.nodes, n.id) && !isBackgroundCover(n),
+			);
+		if (nodes.length === 0) return false;
+		for (const n of nodes) {
+			const k = isGameSpaceNode(n) ? mainScale() : 1;
+			const xy = effectiveXY(n);
+			writeXY(n, xy.x + dx * k, xy.y + dy * k);
+		}
+		bumpFrame();
+		schedule();
+		onDirty?.();
+		return true;
 	}
 
 	function onDoubleClick(e: MouseEvent): void {
@@ -5109,6 +5217,7 @@
 		void selectedIds;
 		void snapLines.length;
 		void layoutType;
+		void animate;
 		// Re-draw the param-aware text preview when a default changes (§13.4, B3).
 		void componentParams;
 		schedule();
@@ -5118,6 +5227,7 @@
 <div
 	bind:this={wrap}
 	class="wrap {cursorClass}"
+	class:animate
 	class:dragover={dragOver}
 	ondragover={onDragOver}
 	ondragleave={onDragLeave}
@@ -5484,13 +5594,42 @@
 			onToggleRigPlay={toggleRigPlay}
 		/>
 	{/if}
+	{#if cheatSheetOpen}
+		<div class="cheat-sheet" role="dialog" aria-label="Keyboard shortcuts">
+			<div class="cheat-head">
+				<span>Keyboard shortcuts</span>
+				<button type="button" aria-label="Close" onclick={() => (cheatSheetOpen = false)}>
+					×
+				</button>
+			</div>
+			<div class="cheat-groups">
+				{#each SHORTCUT_SHEET as group (group.group)}
+					<section>
+						<h5>{group.group}</h5>
+						<dl>
+							{#each group.rows as row (row.does)}
+								<dt>
+									{#each row.keys as key, i (i)}{#if i > 0}<span class="plus">+</span>{/if}<kbd
+											>{key}</kbd
+										>{/each}
+								</dt>
+								<dd>{row.does}</dd>
+							{/each}
+						</dl>
+					</section>
+				{/each}
+			</div>
+			<p class="cheat-foot">Keys never fire while you type in a field.</p>
+		</div>
+	{/if}
 	<div class="hint">
 		{#if animate}
 			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan · Esc
-			= deselect
+			= parent / deselect · Shift+/ = shortcuts
 		{:else}
 			click = select{pickAcross ? ' (any screen)' : ''} · drag = move · corners = scale (Shift = non-uniform)
-			· top circle = rotate (Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
+			· top circle = rotate (Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = parent
+			/ deselect · Shift+/ = shortcuts
 		{/if}
 	</div>
 	<div class="canvas-top">
@@ -5520,6 +5659,46 @@
 					</button>
 				</div>
 			{/if}
+			<div class="hist-grp" role="group" aria-label="Zoom">
+				<button
+					class="fit hist"
+					type="button"
+					title="Zoom out (-)"
+					aria-label="Zoom out"
+					onclick={() => zoomAround(zoom / ZOOM_STEP)}
+				>
+					−
+				</button>
+				<button
+					class="fit zoom-pct"
+					type="button"
+					title="Zoom to 100% (Ctrl/⌘+0)"
+					onclick={zoomTo100}
+				>
+					{Math.round(zoom * 100)}%
+				</button>
+				<button
+					class="fit hist"
+					type="button"
+					title="Zoom in (+)"
+					aria-label="Zoom in"
+					onclick={() => zoomAround(zoom * ZOOM_STEP)}
+				>
+					+
+				</button>
+				<button class="fit" type="button" title="Fit the frame (F)" onclick={fitView}> Fit </button>
+			</div>
+			<button
+				class="fit"
+				type="button"
+				class:on={cheatSheetOpen}
+				aria-pressed={cheatSheetOpen}
+				title="Keyboard shortcuts (Shift+/)"
+				aria-label="Keyboard shortcuts"
+				onclick={() => (cheatSheetOpen = !cheatSheetOpen)}
+			>
+				?
+			</button>
 			<button
 				class="fit"
 				onclick={refreshAssets}
@@ -5650,6 +5829,10 @@
 		   game does. `isolate` stops it reaching the launcher chrome outside; `overflow:hidden`
 		   already clipped everything here, so nothing that used to escape this box now can't. */
 		isolation: isolate;
+	}
+	.wrap.animate {
+		background: #0a1424;
+		box-shadow: inset 0 0 0 2px #1d3a5c;
 	}
 	.wrap.dragover {
 		outline: 2px dashed #7ee0c0;
@@ -5811,6 +5994,86 @@
 	.fit.on {
 		color: #7ee0c0;
 		border-color: #3a5a4a;
+	}
+	.zoom-pct {
+		min-width: 52px;
+		font-variant-numeric: tabular-nums;
+	}
+	.cheat-sheet {
+		position: absolute;
+		top: 48px;
+		right: 12px;
+		z-index: 2100;
+		max-width: min(720px, calc(100% - 24px));
+		max-height: calc(100% - 72px);
+		overflow: auto;
+		background: #121218;
+		border: 1px solid #2a2a36;
+		border-radius: 8px;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+		padding: 10px 14px 12px;
+		color: #c8c8d0;
+		font-size: 12px;
+	}
+	.cheat-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-weight: 600;
+		color: #e8e8ee;
+		margin-bottom: 8px;
+	}
+	.cheat-head button {
+		background: none;
+		border: none;
+		color: #888;
+		font-size: 16px;
+		cursor: pointer;
+	}
+	.cheat-groups {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+		gap: 12px 20px;
+	}
+	.cheat-sheet h5 {
+		margin: 0 0 6px;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		color: #888;
+	}
+	.cheat-sheet dl {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: 4px 10px;
+		margin: 0;
+	}
+	.cheat-sheet dt {
+		white-space: nowrap;
+	}
+	.cheat-sheet dd {
+		margin: 0;
+		color: #aaa;
+	}
+	.cheat-sheet kbd {
+		display: inline-block;
+		padding: 1px 5px;
+		border: 1px solid #333344;
+		border-bottom-width: 2px;
+		border-radius: 4px;
+		background: #1a1a22;
+		color: #e8e8ee;
+		font-family: inherit;
+		font-size: 11px;
+	}
+	.cheat-sheet .plus {
+		color: #666;
+		margin: 0 2px;
+	}
+	.cheat-foot {
+		margin: 10px 0 0;
+		color: #666;
+		font-size: 11px;
 	}
 	.hist-grp {
 		display: inline-flex;
