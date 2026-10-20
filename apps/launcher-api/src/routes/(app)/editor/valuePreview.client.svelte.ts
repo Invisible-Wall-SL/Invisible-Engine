@@ -14,7 +14,7 @@ import {
 	type ResolvedTransform,
 	type ValueBinding,
 } from 'engine-layout';
-import type { TimelineNodeDrive } from '$lib/timeline/screenTimeline';
+import type { OnionFrame, TimelineNodeDrive } from '$lib/timeline/screenTimeline';
 
 /**
  * The editor's VALUE-BINDING PREVIEW (Hold and Win Phase 12b): a test input per binding, set by
@@ -160,4 +160,45 @@ export function previewResolveTransform(
 	);
 	const tint = previewTint(node);
 	return tint === undefined ? folded : { ...folded, tint };
+}
+
+/**
+ * The ONION SKIN (Rive plan Phase 9b, editor-only): the timeline sampled a few frames either side
+ * of the playhead, which the canvas outlines on the stage. Null ⇒ no ghosts. Owned per panel, as
+ * the timeline preview is.
+ */
+let onion: OnionFrame[] | null = null;
+let onionOwner: symbol | null = null;
+
+export function setOnionPreview(next: OnionFrame[] | null, owner: symbol | null = null): void {
+	if (!next && onionOwner !== owner) return;
+	if (!onion && !next) return;
+	onion = next;
+	onionOwner = next ? owner : null;
+	version.n += 1;
+}
+
+/** The ghost frames to outline, nearest first; empty when the onion skin is off. */
+export function onionPreview(): readonly OnionFrame[] {
+	return onion ?? [];
+}
+
+/** `resolveTransform` with ONE ghost frame's drive folded on (only that timeline, no test inputs). */
+export function onionResolveTransform(
+	node: LayoutNode,
+	layoutType: LayoutType,
+	drive: TimelineNodeDrive | undefined,
+): ResolvedTransform {
+	const own = node.valueBindings ?? [];
+	if (!drive?.bindings.length) return resolveTransform(node, layoutType);
+	return foldBoundTransform(
+		resolveTransform(node, layoutType),
+		[...own, ...drive.bindings],
+		withNodeActorOutputs(
+			node.valueBindings,
+			own.map(() => undefined),
+			drive.bindings,
+			drive.sample,
+		),
+	);
 }

@@ -5,6 +5,7 @@
  * `tools/rigger-spike/cinematic.mjs`, which is the real specification.
  */
 import type {
+	CinematicEase,
 	CinematicHost,
 	CinematicKey,
 	CinematicNodeChannel,
@@ -132,3 +133,12 @@ export function sampleNodeActor(
 	tracks: CinematicTrack[] | undefined,
 	t: number,
 ): CinematicNodeSample;
+
+/** Whether `ease` is a cubic `[x1, y1, x2, y2]` of four finite numbers. */
+export function isCubicEase(ease: unknown): ease is [number, number, number, number];
+/** The shape `u → eased u` (0..1 in, eased out) of a key's `ease`; unknown ⇒ linear. */
+export function easeShape(ease: CinematicEase | unknown): (u: number) => number;
+/** Whether a timeline's `loop` keeps it playing forever (`loop` / `pingPong`). */
+export function loopsForever(loop: unknown): boolean;
+/** The time to sample after `elapsed` seconds of playing a `duration`-long timeline of `loop` type. */
+export function playbackTime(loop: unknown, elapsed: number, duration: number): number;

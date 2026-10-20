@@ -1974,6 +1974,18 @@ export interface CinematicDoc {
 	 * the timeline ends and holds its last frame (parity).
 	 */
 	loopFrom?: number;
+	/**
+	 * The loop type (Rive plan Phase 9b, the Timeline header): `loop` wraps to 0, `pingPong` plays
+	 * to the end and back, and neither ever ends (so it holds no cue). Absent or `oneShot` ⇒ it
+	 * plays once and holds its last frame (parity). `loopFrom`, where set, wins over `loop`.
+	 */
+	loop?: 'oneShot' | 'loop' | 'pingPong';
+	/**
+	 * The interpolation a NEW key gets in the editor (*Set as default* in the Interpolation panel):
+	 * a named ease or a cubic `[x1, y1, x2, y2]`. Authoring-only: every key carries its own `ease`,
+	 * so no player reads this. Absent ⇒ linear.
+	 */
+	defaultEase?: 'linear' | 'ease' | 'hold' | [number, number, number, number];
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

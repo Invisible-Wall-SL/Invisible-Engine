@@ -61,6 +61,7 @@
 	import EditorOutline from './EditorOutline.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import { keyingActive, keyStageTransform } from './animateKeying.client.svelte';
 	import EditorStateMachinePanel from './EditorStateMachinePanel.svelte';
 	import {
 		addInput,
@@ -2796,6 +2797,7 @@
 						onRigMeta={(meta) => (rigMeta = meta)}
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}
 						animate={animating}
+						onAnimateTransform={animating && keyingActive() ? keyStageTransform : undefined}
 						onStagePointer={animating && animateTab === 'stateMachine'
 							? (kind, id) => stateMachinePanel?.stagePointer(kind, id)
 							: undefined}

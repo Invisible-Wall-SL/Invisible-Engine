@@ -100,6 +100,8 @@
 		loadArtBounds,
 	} from './editorArtBounds.client.svelte';
 	import {
+		onionPreview,
+		onionResolveTransform,
 		previewBindings,
 		previewEffectParamValues,
 		previewOutputs,
@@ -107,6 +109,7 @@
 		previewTint,
 		previewVersion,
 	} from './valuePreview.client.svelte';
+	import type { StageTransformDelta } from '$lib/timeline/screenTimeline';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import { deepHit } from '$lib/timeline/listenerPreview';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
@@ -309,10 +312,14 @@
 		 * wrap instead) and both sit above the canvas art. The Scene Editor passes its
 		 * `<CanvasModeBar inline>`; omit for a bare canvas. */
 		modeBar?: Snippet;
-		/** Animate mode (Rive plan Phase 3): the canvas SELECTS but never edits — no drag, handle,
-		 * drop, delete or item toolbar, because geometry edits there would change the authored
-		 * pose under the timeline. Keys are set in the Timeline panel. Absent ⇒ Design mode. */
+		/** Animate mode (Rive plan Phase 3): the canvas never edits the authored pose — no drop,
+		 * delete or item toolbar, and a drag only keys (`onAnimateTransform`). Absent ⇒ Design. */
 		animate?: boolean;
+		/** Animate (Rive plan Phase 9b): a drag, scale or rotate on the stage keys the timeline. The
+		 *  gesture runs on the Design pose as in Design, then the pose is put back and what changed is
+		 *  handed here (per node: design px moved, the scale ratio, degrees turned). Absent ⇒ the
+		 *  Animate stage is select-only. */
+		onAnimateTransform?: (deltas: StageTransformDelta[]) => void;
 		/** Double-click on a placed component instance: edit its def in place (Rive plan Phase 4).
 		 * Absent ⇒ a double-click does nothing beyond the two clicks. */
 		onEditInstance?: (node: ComponentInstanceNode) => void;
@@ -371,6 +378,7 @@
 		onRedo,
 		modeBar,
 		animate = false,
+		onAnimateTransform,
 		onEditInstance,
 		onStagePointer,
 		onShowInFlow,
@@ -1037,6 +1045,9 @@
 				resizeAxis?: 'x' | 'y';
 				startWorld: Vec2;
 				startScale: Vec2;
+				/** The scale the node DRAWS at — {@link startScale} in Design, the animated scale in an
+				 *  Animate drag, so the handle tracks the art the author grabbed. */
+				startDrawScale: Vec2;
 				startBox: NodeBox;
 				startTx: number;
 				startTy: number;
@@ -2419,6 +2430,7 @@
 		}
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		if (animate) drawOnion(ctx);
 		drawSelectionOverlay(ctx);
 		drawHoverPick(ctx);
 
@@ -3972,6 +3984,41 @@
 		if (!riderRaf) riderRaf = requestAnimationFrame(drawRiders);
 	});
 
+	/**
+	 * Animate's ONION SKIN (Rive plan Phase 9b, editor-only): each ghost frame outlines the nodes the
+	 * timeline drives there, earlier frames red and later ones green, fading with distance, with a
+	 * dot at each pivot so the path reads. Top-level nodes of the edited screen only: a nested node's
+	 * frame would need its parents' sampled too.
+	 */
+	function drawOnion(ctx: CanvasRenderingContext2D): void {
+		const frames = onionPreview();
+		if (!frames.length) return;
+		const far = Math.max(...frames.map((f) => Math.abs(f.offset)));
+		ctx.save();
+		ctx.lineWidth = 1.25;
+		for (const f of frames) {
+			ctx.globalAlpha = 0.75 * (1 - (Math.abs(f.offset) - 1) / (far + 1));
+			ctx.strokeStyle = ctx.fillStyle = f.offset < 0 ? '#ff6b6b' : '#7ee0c0';
+			for (const node of visibleSceneNodes()) {
+				const drive = f.drives.get(node.id);
+				if (!drive) continue;
+				const t = nodeTransform(node, scene, (n, lt) => onionResolveTransform(n, lt, drive));
+				if (!t.visible) continue;
+				const corners = nodeCornersWorld(t, boxOf(node, t)).map(worldToScreen);
+				ctx.beginPath();
+				ctx.moveTo(corners[0].x, corners[0].y);
+				for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+				ctx.closePath();
+				ctx.stroke();
+				const pivot = worldToScreen({ x: t.x, y: t.y });
+				ctx.beginPath();
+				ctx.arc(pivot.x, pivot.y, 2.5, 0, Math.PI * 2);
+				ctx.fill();
+			}
+		}
+		ctx.restore();
+	}
+
 	function drawSelectionOverlay(ctx: CanvasRenderingContext2D): void {
 		if (selectedIds.length === 0) return;
 		// Handles (scale/rotate) only make sense for a single node; a multi-selection
@@ -4022,7 +4069,7 @@
 		node: LayoutNode,
 		withHandles: boolean,
 	): void {
-		const t = nodeTransform(node);
+		const t = handleTransform(node);
 		if (!t.visible) return;
 		const box = boxOf(node, t);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -4127,7 +4174,7 @@
 		if (selectedIds.length !== 1 || !selectedId) return null;
 		const node = findNodeById(selectedId);
 		if (!node || node.locked || isBackgroundCover(node)) return null;
-		const t = nodeTransform(node);
+		const t = handleTransform(node);
 		if (!t.visible) return null;
 		const box = boxOf(node, t);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
@@ -4199,7 +4246,7 @@
 		const list = visibleSceneNodes(sceneCtx);
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
-			const t = nodeTransform(node, sceneCtx);
+			const t = animate ? drawTransform(node, sceneCtx) : nodeTransform(node, sceneCtx);
 			const box = boxOf(node, t);
 			const corners = nodeCornersWorld(t, box);
 			if (pointInQuad(world, corners)) return node;
@@ -4234,6 +4281,72 @@
 
 	// ---------- drag handlers ----------
 
+	/** Where the selection frame and handles sit: on the drawn (animated) pose in Animate. */
+	function handleTransform(node: LayoutNode): ResolvedTransform {
+		return animate ? drawTransform(node) : nodeTransform(node);
+	}
+
+	/** Animate with a keying panel: a stage gesture keys the timeline instead of editing. */
+	const animateKeys = $derived(animate && !!onAnimateTransform);
+
+	/** The fields a gesture can write on a node, put back when an Animate drag ends. */
+	const GESTURE_FIELDS = ['x', 'y', 'scale', 'rotation', 'width', 'height', 'params', 'overrides'];
+	/**
+	 * An Animate drag in flight: each node's fields as they were and its resolved Design pose at the
+	 * start. The gesture runs on the Design pose exactly as in Design (so the stage follows the
+	 * pointer), and on release the pose is put back and the change is keyed instead.
+	 */
+	let animDrag: {
+		nodes: { id: string; saved: string; start: ResolvedTransform }[];
+		ratio?: number;
+	} | null = null;
+
+	function beginAnimateDrag(): void {
+		if (!dragMode) return;
+		const ids = dragMode.kind === 'translate' ? dragMode.group.map((g) => g.id) : [dragMode.nodeId];
+		const nodes: { id: string; saved: string; start: ResolvedTransform }[] = [];
+		for (const id of ids) {
+			const n = findNodeById(id) as unknown as Record<string, unknown> | null;
+			if (!n) continue;
+			const saved: Record<string, unknown> = {};
+			for (const f of GESTURE_FIELDS) if (f in n && n[f] !== undefined) saved[f] = n[f];
+			nodes.push({
+				id,
+				saved: JSON.stringify(saved),
+				start: resolveTransform(n as unknown as LayoutNode, layoutType),
+			});
+		}
+		animDrag = { nodes };
+	}
+
+	/** Put every dragged node's Design pose back and key what the gesture changed. */
+	function finishAnimateDrag(): void {
+		const drag = animDrag;
+		const kind = dragMode?.kind;
+		animDrag = null;
+		if (!drag) return;
+		const deltas: StageTransformDelta[] = [];
+		for (const { id, saved, start } of drag.nodes) {
+			const n = findNodeById(id) as unknown as Record<string, unknown> | null;
+			if (!n) continue;
+			const end = resolveTransform(n as unknown as LayoutNode, layoutType);
+			const was = JSON.parse(saved) as Record<string, unknown>;
+			for (const f of GESTURE_FIELDS) {
+				if (f in was) n[f] = was[f];
+				else delete n[f];
+			}
+			const delta: StageTransformDelta = { nodeId: id };
+			if (kind === 'translate') {
+				delta.dx = end.x - start.x;
+				delta.dy = end.y - start.y;
+			} else if (kind === 'scale' && drag.ratio !== undefined) delta.scale = drag.ratio;
+			else if (kind === 'rotate')
+				delta.rotation = (((end.rotation ?? 0) - (start.rotation ?? 0)) * 180) / Math.PI;
+			deltas.push(delta);
+		}
+		if (deltas.length) onAnimateTransform?.(deltas);
+	}
+
 	function startTranslate(node: LayoutNode, world: Vec2): void {
 		const start = effectiveXY(node);
 		// The group is every selected node that can actually move (locked + background-
@@ -4266,7 +4379,8 @@
 		resizeAxis?: 'x' | 'y',
 	): void {
 		const t = nodeTransform(node);
-		const box = boxOf(node, t);
+		const drawn = handleTransform(node);
+		const box = boxOf(node, drawn);
 		dragMode = {
 			kind: 'scale',
 			nodeId: node.id,
@@ -4274,15 +4388,17 @@
 			resizeAxis,
 			startWorld: world,
 			startScale: { x: t.scale?.x ?? 1, y: t.scale?.y ?? 1 },
+			startDrawScale: { x: drawn.scale?.x ?? 1, y: drawn.scale?.y ?? 1 },
 			startBox: box,
-			startTx: t.x,
-			startTy: t.y,
-			startRot: t.rotation ?? 0,
+			startTx: drawn.x,
+			startTy: drawn.y,
+			startRot: drawn.rotation ?? 0,
 		};
 	}
 	function startRotate(node: LayoutNode, world: Vec2): void {
 		const t = nodeTransform(node);
-		const center = { x: t.x, y: t.y };
+		const drawn = handleTransform(node);
+		const center = { x: drawn.x, y: drawn.y };
 		const startAngle = Math.atan2(world.y - center.y, world.x - center.x);
 		dragMode = {
 			kind: 'rotate',
@@ -4303,7 +4419,10 @@
 		}
 		// Snap the grabbed (primary) node, then move the whole group by the SAME snapped
 		// delta so their relative layout is preserved.
-		const snapped = snapTranslate(node, dragMode.startNode.x + dx, dragMode.startNode.y + dy);
+		// Snapping reads the authored layout, which an animated stage no longer shows: off in Animate.
+		const snapped = animDrag
+			? { x: dragMode.startNode.x + dx, y: dragMode.startNode.y + dy }
+			: snapTranslate(node, dragMode.startNode.x + dx, dragMode.startNode.y + dy);
 		const ddx = snapped.x - dragMode.startNode.x;
 		const ddy = snapped.y - dragMode.startNode.y;
 		for (const g of dragMode.group) {
@@ -4335,8 +4454,8 @@
 		];
 		const ref = cornerLocal[d.cornerIdx];
 		// Base (start) signed magnitudes; avoid div-by-zero.
-		const baseX = ref.x * d.startScale.x;
-		const baseY = ref.y * d.startScale.y;
+		const baseX = ref.x * d.startDrawScale.x;
+		const baseY = ref.y * d.startDrawScale.y;
 		const newRefX = baseX + dxl;
 		const newRefY = baseY + dyl;
 		let sxRatio = baseX === 0 ? 1 : newRefX / baseX;
@@ -4378,6 +4497,7 @@
 			writeScale(node, 1, 1);
 			return;
 		}
+		if (animDrag) animDrag.ratio = Math.abs(d.resizeAxis === 'y' ? syRatio : sxRatio);
 		const MIN = 0.05;
 		let newSx = d.startScale.x * sxRatio;
 		let newSy = d.startScale.y * syRatio;
@@ -4559,7 +4679,7 @@
 
 		// 1) handle hit (transform the lone selected node). Skipped while Shift is held —
 		// Shift+click is reserved for multi-select / pan, not scale/rotate.
-		if (!e.shiftKey && !animate) {
+		if (!e.shiftKey && (!animate || animateKeys)) {
 			const hh = hitTestHandle(screen);
 			if (hh && selectedId) {
 				const node = findNodeById(selectedId);
@@ -4569,6 +4689,7 @@
 						startScale(node, EDGE_TO_CORNER[hh.idx], world, EDGE_TO_AXIS[hh.idx]);
 					else if (hh.kind === 'rotate') startRotate(node, world);
 					else startTranslate(node, world);
+					if (animateKeys) beginAnimateDrag();
 					e.preventDefault();
 					return;
 				}
@@ -4589,7 +4710,10 @@
 			if (!selectedIds.includes(node.id)) selectOnly(node.id);
 			// Locked nodes select but never move; background-cover nodes select but
 			// never drag (transform is synthesised). Only movement is locked, not selection.
-			if (!animate && !node.locked && !isBackgroundCover(node)) startTranslate(node, world);
+			if ((!animate || animateKeys) && !node.locked && !isBackgroundCover(node)) {
+				startTranslate(node, world);
+				if (animateKeys) beginAnimateDrag();
+			}
 			schedule();
 			e.preventDefault();
 			return;
@@ -4675,10 +4799,12 @@
 		panning = false;
 		lastXY = null;
 		if (dragMode) {
+			const keying = !!animDrag;
+			if (keying) finishAnimateDrag();
 			dragMode = null;
 			snapLines = [];
 			schedule();
-			onDirty?.();
+			if (!keying) onDirty?.();
 		}
 	}
 
@@ -5485,7 +5611,10 @@
 		/>
 	{/if}
 	<div class="hint">
-		{#if animate}
+		{#if animateKeys}
+			Animate: drag / corners / top circle = key the move, scale or turn at the playhead · scroll =
+			zoom · shift/middle/right-drag = pan · Esc = deselect
+		{:else if animate}
 			Animate: click = select the node to key · scroll = zoom · shift/middle/right-drag = pan · Esc
 			= deselect
 		{:else}

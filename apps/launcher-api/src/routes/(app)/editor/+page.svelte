@@ -81,6 +81,7 @@
 	import EditorAssetLibrary from './EditorAssetLibrary.svelte';
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
+	import { keyingActive, keyStageTransform } from './animateKeying.client.svelte';
 	import EditorComponentPanel from './EditorComponentPanel.svelte';
 	import ComponentList from './ComponentList.svelte';
 	import ComponentWorkspace from './ComponentWorkspace.svelte';
@@ -3522,6 +3523,7 @@
 						onUndo={undo}
 						onRedo={redo}
 						animate={animating}
+						onAnimateTransform={animating && keyingActive() ? keyStageTransform : undefined}
 					>
 						{#snippet modeBar()}
 							<CanvasModeBar

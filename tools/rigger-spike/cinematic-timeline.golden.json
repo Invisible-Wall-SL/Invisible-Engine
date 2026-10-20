@@ -686,7 +686,7 @@
 		},
 		{
 			"name": "drag the key",
-			"doc": "479310214e2c9c9a",
+			"doc": "d1ae34e1f80060f1",
 			"hist": {
 				"index": 30,
 				"size": 31,
@@ -699,9 +699,9 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "1293aee5e9c4846e",
+			"tl": "e556951cb0653455",
 			"panel": "d8e114e4d7c43aca",
-			"props": "f89d1c9f84b05e34"
+			"props": "541652edc4f1a4f6"
 		},
 		{
 			"name": "Delete the selected key",

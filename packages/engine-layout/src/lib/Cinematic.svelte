@@ -21,6 +21,7 @@
 	import {
 		cuesCrossed,
 		isNodeActor,
+		playbackTime,
 		resolveVisible,
 		sampleNodeActor,
 		type CinematicTrack,
@@ -48,6 +49,7 @@
 		playing?: boolean;
 		/** Where the playhead starts (and where a `loop`ing cinematic returns to). */
 		startTime?: number;
+		/** Loop it (as a Flow node asks), whatever the doc's own loop type says. */
 		loop?: boolean;
 		/** Playback rate; 1 = authored speed. */
 		speed?: number;
@@ -62,6 +64,8 @@
 
 	let time = $state(props.startTime ?? 0);
 	let done = false;
+	/** A `pingPong` doc's seconds into its there-and-back lap; `time` is where the lap samples. */
+	let lap = 0;
 
 	const duration = $derived(Math.max(props.doc.duration || 0, 0));
 	/** Cast RIGS in draw order — the same z the author saw on the /rigger stage. Node actors draw
@@ -141,14 +145,25 @@
 	function tick() {
 		if (!ticker || !props.playing || duration <= 0 || done) return;
 		const prev = time;
-		time += (ticker.deltaMS / 1000) * (props.speed ?? 1);
+		const dt = (ticker.deltaMS / 1000) * (props.speed ?? 1);
+		// The doc's own loop type (Rive plan Phase 9b): a ping-pong samples its lap reflected, so the
+		// way back crosses no cue. Absent ⇒ the one-shot path below, as before.
+		if (props.doc.loop === 'pingPong' && !props.loop) {
+			lap = (lap + dt) % (2 * duration);
+			time = playbackTime('pingPong', lap, duration);
+			if (props.oncue && cueKeys.length) {
+				for (const k of cuesCrossed(cueKeys, prev, time)) props.oncue(k.cue);
+			}
+			return;
+		}
+		time += dt;
 		// `cuesCrossed` owns the "did we cross it" rule (and refuses on a backwards or over-large
 		// step, i.e. a seek), so the game and the editor preview share ONE definition of "fired".
 		if (props.oncue && cueKeys.length) {
 			for (const k of cuesCrossed(cueKeys, prev, time)) props.oncue(k.cue);
 		}
 		if (time < duration) return;
-		if (props.loop) {
+		if (props.loop || props.doc.loop === 'loop') {
 			time = duration > 0 ? time % duration : 0;
 			return;
 		}
@@ -167,6 +182,7 @@
 		void props.doc.id;
 		void props.startTime;
 		time = props.startTime ?? 0;
+		lap = time;
 		done = false;
 	});
 </script>

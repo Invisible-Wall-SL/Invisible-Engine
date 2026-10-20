@@ -54,12 +54,27 @@ export interface CinematicStrip {
 	clipLength?: number;
 }
 
+/**
+ * A cubic ease (Rive plan Phase 9b): the CSS cubic-bezier `[x1, y1, x2, y2]` through (0,0) and (1,1).
+ * x is clamped to [0, 1]; y may overshoot.
+ */
+export type CinematicCubicEase = [number, number, number, number];
+
+/** A key's outgoing interpolation: a named one, or a cubic. Absent or unknown ⇒ linear. */
+export type CinematicEase = 'linear' | 'ease' | 'hold' | CinematicCubicEase;
+
 /** One keyframe on a property/camera channel. `ease` is the key's OUTGOING interpolation. */
 export interface CinematicKey {
 	time: number;
 	value: number;
-	ease?: 'linear' | 'ease' | 'hold';
+	ease?: CinematicEase;
 }
+
+/**
+ * A timeline's loop type (Rive plan Phase 9b). Absent ⇒ one-shot: plays once and holds its last
+ * frame, as every timeline did before the field. `oneShot` says the same thing explicitly.
+ */
+export type CinematicLoop = 'oneShot' | 'loop' | 'pingPong';
 
 /**
  * What a timeline animates (Rive plan §3.2). Absent ⇒ `cast`: rigs on the cinematic's own stage,

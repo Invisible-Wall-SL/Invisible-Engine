@@ -85,6 +85,13 @@
 		writeInstanceParam,
 	} from './instanceParamForwarding';
 	import { placedEffect } from './placedEffects.client.svelte';
+	import { keyingFor, type KeyField, type KeyingPanel } from './animateKeying.client.svelte';
+	import {
+		relativeChannelValue,
+		shownChannelValue,
+		type DesignPose,
+		type KeyedChannel,
+	} from '$lib/timeline/screenTimeline';
 	import { effectParamValue, type EffectParam, type EffectParamKind } from 'engine-fx';
 	import type { RigMeta } from './rigRuntime.client';
 
@@ -1653,6 +1660,50 @@
 		return '#' + value.toString(16).padStart(6, '0');
 	}
 
+	// ---- Animate: key buttons (Rive plan Phase 9b) ----------------------------------------------
+
+	/** The node's Design pose in the units its Animate fields show. */
+	function designPose(t: ReturnType<typeof resolveTransform>): DesignPose {
+		return {
+			x: t.x,
+			y: t.y,
+			rotation: ((t.rotation ?? 0) * 180) / Math.PI,
+			alpha: t.alpha ?? 1,
+			tint: t.tint ?? 0xffffff,
+		};
+	}
+	/** A key field as Properties shows it: a node channel composited on the Design pose. */
+	function shownKeyValue(f: KeyField, pose: DesignPose): number {
+		return f.kind === 'node'
+			? shownChannelValue(f.channel as KeyedChannel, f.value, pose, f.state !== 'none')
+			: f.value;
+	}
+	const fmtKey = (n: number): string => String(Math.round(n * 1000) / 1000);
+	/** A value typed into a key field keys it — converted back to the channel's relative value. */
+	function keyTyped(
+		keying: KeyingPanel,
+		f: KeyField,
+		pose: DesignPose,
+		input: HTMLInputElement,
+	): void {
+		const raw = input.value.trim();
+		const n = Number(raw);
+		// An emptied or junk field keys nothing (`Number('')` is 0, which would collapse a scale).
+		if (raw === '' || !Number.isFinite(n)) {
+			input.value = fmtKey(shownKeyValue(f, pose));
+			return;
+		}
+		keying.key(
+			f.channel,
+			f.kind === 'node' ? relativeChannelValue(f.channel as KeyedChannel, n, pose) : n,
+		);
+	}
+	const KEY_STATE_TITLE: Record<KeyField['state'], string> = {
+		none: 'not animated — click to key it at the playhead',
+		animated: 'animated — click to key it at the playhead',
+		key: 'a key at the playhead — click to key the current value',
+	};
+
 	function rad2deg(r: number | undefined): number {
 		return Math.round((((r ?? 0) * 180) / Math.PI) * 100) / 100;
 	}
@@ -2755,6 +2806,7 @@
 {:else}
 	{@const t = resolveTransform(node, layoutType)}
 	{@const o = node.overrides?.[layoutType]}
+	{@const keying = keyingFor(node.id)}
 	<div class="head">
 		<div class="title">
 			{#if node.kind === 'componentInstance'}
@@ -3536,8 +3588,70 @@
 		</p>
 	</section>
 
+	{#if keying}
+		<section class="animate-keys">
+			<h3>Animate <small>keys at {keying.time.toFixed(2)}s</small></h3>
+			{#if keying.message}
+				<p class="muted small">{keying.message}</p>
+			{:else}
+				{@const pose = designPose(t)}
+				{#each keying.fields as f (f.channel)}
+					{@const shown = shownKeyValue(f, pose)}
+					<div class="row">
+						<label class="field wide keyfield" title={f.note}>
+							<span>{f.label}</span>
+							{#if f.kind === 'node' && f.channel === 'tint'}
+								<ColorField
+									value={hexFrom(shown)}
+									onchange={(hex) => keying.key('tint', parseInt(hex.slice(1), 16) || 0)}
+								/>
+							{:else if f.bool}
+								<input
+									type="checkbox"
+									checked={f.value >= 0.5}
+									onchange={(e) => keying.key(f.channel, e.currentTarget.checked ? 1 : 0)}
+								/>
+							{:else}
+								<input
+									type="number"
+									step={f.channel === 'x' || f.channel === 'y' || f.channel === 'rotation'
+										? 1
+										: f.kind === 'fx'
+											? 'any'
+											: 0.05}
+									min={f.min}
+									max={f.max}
+									value={fmtKey(shown)}
+									onchange={(e) => keyTyped(keying, f, pose, e.currentTarget)}
+								/>
+							{/if}
+							<button
+								type="button"
+								class="keybtn"
+								class:animated={f.state === 'animated'}
+								class:at={f.state === 'key'}
+								title={`${f.label}: ${KEY_STATE_TITLE[f.state]} (${keying.time.toFixed(2)}s)`}
+								aria-label={`Key ${f.label}`}
+								onclick={(e) => {
+									e.preventDefault();
+									keying.key(f.channel);
+								}}
+							></button>
+						</label>
+					</div>
+				{/each}
+				<p class="muted small">
+					Shows the animated value; typing one keys it. Keys are relative to the Design pose
+					(Transform below), so x / y / rotation offset it and scale / alpha multiply it.
+				</p>
+			{/if}
+		</section>
+	{/if}
+
 	<section>
-		<h3>Transform</h3>
+		<h3>
+			Transform{#if keying}<small> · Design pose</small>{/if}
+		</h3>
 
 		<div class="row">
 			<label class="field">
@@ -6003,6 +6117,36 @@
 		letter-spacing: 0.05em;
 		color: #888;
 		margin: 0 0 8px;
+	}
+	.animate-keys h3 small,
+	h3 small {
+		font-weight: normal;
+		text-transform: none;
+		letter-spacing: 0;
+		opacity: 0.7;
+	}
+	/* Rive's key button: grey outline = not animated, blue outline = animated, blue = a key here. */
+	.keybtn {
+		flex: 0 0 auto;
+		width: 10px;
+		height: 10px;
+		margin: 0 4px 0 6px;
+		padding: 0;
+		transform: rotate(45deg);
+		background: transparent;
+		border: 1.5px solid #6b7280;
+		border-radius: 1px;
+		cursor: pointer;
+	}
+	.keybtn:hover {
+		border-color: #a3acba;
+	}
+	.keybtn.animated {
+		border-color: #5db0ff;
+	}
+	.keybtn.at {
+		background: #5db0ff;
+		border-color: #5db0ff;
 	}
 	.row {
 		display: flex;
