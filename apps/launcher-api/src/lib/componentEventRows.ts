@@ -145,8 +145,8 @@ export function normalizeEvents(input: unknown): ComponentEvent[] {
 
 /**
  * Node listeners are one of the two node fields the component normalizer reads (a count-mode
- * repeater's fields are the other): every other node field passes through. A node whose `on` reads as nothing loses the key; a node without one is the
- * same object.
+ * repeater's fields are the other): every other node field passes through. A node whose `on` reads
+ * as nothing loses the key; a node without one is the same object.
  */
 export function normalizeRootListeners(root: ContainerNode): ContainerNode {
 	const walk = (node: LayoutNode): LayoutNode => {

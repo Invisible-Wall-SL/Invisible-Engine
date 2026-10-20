@@ -11,6 +11,7 @@
 </script>
 
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { Container } from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
 	import {
@@ -90,9 +91,10 @@
 	// `count` once, at init, as every instance reads its params. The geometry is `repeaterCount.ts`,
 	// shared with the editor canvas. Absent `count` ⇒ the source list below, unchanged (parity).
 	const countNode = isCountRepeater(node) ? node : undefined;
+	const enclosingParams = getComponentParams();
 	const countTemplate = countNode?.count.source;
 	const countSourceName = countTemplate
-		? expandSourceTemplate(countTemplate, getComponentParams())
+		? expandSourceTemplate(countTemplate, enclosingParams)
 		: undefined;
 	const countSource = countSourceName ? getComponentValueSource(countSourceName) : undefined;
 	if (countTemplate && !countSource && !warnedCountSources[countSourceName ?? countTemplate]) {
@@ -102,12 +104,26 @@
 		);
 	}
 	let countValue = $state<unknown>(countTemplate ? undefined : countNode?.count.preview);
-	$effect(() => {
-		if (!countSource) return;
-		return countSource.subscribe((value) => {
-			countValue = value;
-		});
-	});
+	// Untracked: a source emits synchronously on subscribe, and its getter's reads must not become
+	// this effect's dependencies (each change would resubscribe).
+	$effect(() =>
+		untrack(() =>
+			countSource?.subscribe((value) => {
+				countValue = value;
+			}),
+		),
+	);
+	// What each segment's number inputs follow, resolved here against the ENCLOSING instance's params
+	// (the counter's), so a segment param of the same key cannot shadow it.
+	const passedSources = countNode?.passInputs
+		? Object.fromEntries(
+				Object.entries(countNode.passInputs).flatMap(([input, template]) => {
+					const name =
+						typeof template === 'string' ? expandSourceTemplate(template, enclosingParams) : '';
+					return name ? [[input, name]] : [];
+				}),
+			)
+		: undefined;
 	const segmentCount = $derived(countNode ? repeaterCount(countNode, countValue) : 0);
 	const countLayout = $derived.by(() => {
 		if (!countNode) return undefined;
@@ -219,7 +235,7 @@
 				<ComponentInstance
 					node={segment.instance}
 					{space}
-					inputSources={countNode.passInputs}
+					inputSources={passedSources}
 					inputValues={segment.values}
 				/>
 			</Container>

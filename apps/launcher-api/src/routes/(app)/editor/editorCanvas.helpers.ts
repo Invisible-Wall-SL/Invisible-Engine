@@ -279,6 +279,8 @@ export function repeaterPlaceholderGrid(
 		const columns =
 			node.layout.columns && node.layout.columns > 0 ? Math.round(node.layout.columns) : count;
 		cols = Math.min(columns, count);
+	} else if (node.layout?.direction === 'column') {
+		cols = 1;
 	}
 	cols = Math.max(1, cols);
 	const rows = Math.max(1, Math.ceil(count / cols));

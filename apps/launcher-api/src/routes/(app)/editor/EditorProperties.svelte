@@ -5996,13 +5996,15 @@
 					<select
 						value={node.layout.direction}
 						onchange={(e) => {
-							const dir = e.currentTarget.value === 'grid' ? 'grid' : 'row';
+							const v = e.currentTarget.value;
+							const dir = v === 'grid' || v === 'column' ? v : 'row';
 							node.layout.direction = dir;
 							if (dir === 'grid' && (node.layout.columns ?? 0) < 1) node.layout.columns = 3;
 							markDirty();
 						}}
 					>
 						<option value="row">row</option>
+						<option value="column">column</option>
 						<option value="grid">grid</option>
 					</select>
 				</label>

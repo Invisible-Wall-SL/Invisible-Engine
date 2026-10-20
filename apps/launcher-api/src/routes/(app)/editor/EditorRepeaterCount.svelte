@@ -4,6 +4,7 @@
 		REPEATER_COUNT_HARD_MAX,
 		REPEATER_COUNT_PARAM,
 		REPEATER_INDEX_PARAM,
+		repeaterCountCap,
 		componentInputs,
 		type ComponentDef,
 		type CountRepeaterNode,
@@ -38,14 +39,7 @@
 	];
 	const RESERVED = [REPEATER_INDEX_PARAM, REPEATER_COUNT_PARAM];
 
-	const cap = $derived(
-		Math.min(
-			Number.isFinite(node.count.max)
-				? Math.max(0, Math.round(node.count.max as number))
-				: REPEATER_COUNT_DEFAULT_MAX,
-			REPEATER_COUNT_HARD_MAX,
-		),
-	);
+	const cap = $derived(repeaterCountCap(node.count));
 	const shown = $derived(repeaterPreviewCount(node));
 	const numberInputs = $derived(
 		componentInputs(segmentDef).filter((input) => input.kind === 'number'),
@@ -179,14 +173,14 @@
 			<input
 				type="number"
 				step="1"
-				min="0"
+				min="1"
 				max={REPEATER_COUNT_HARD_MAX}
 				placeholder={String(REPEATER_COUNT_DEFAULT_MAX)}
 				value={node.count.max ?? ''}
 				oninput={(e) => {
 					const v = e.currentTarget.valueAsNumber;
 					if (Number.isFinite(v))
-						node.count.max = Math.min(Math.max(0, Math.round(v)), REPEATER_COUNT_HARD_MAX);
+						node.count.max = Math.min(Math.max(1, Math.round(v)), REPEATER_COUNT_HARD_MAX);
 					else delete node.count.max;
 					onChange();
 				}}

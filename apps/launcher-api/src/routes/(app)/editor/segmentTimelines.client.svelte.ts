@@ -57,6 +57,7 @@ async function load(componentId: string): Promise<void> {
 		componentId,
 		docs.filter((d): d is CinematicDoc => !!d),
 	);
+	pending.delete(componentId);
 	merged.delete(componentId);
 	version.n += 1;
 }
@@ -73,6 +74,6 @@ export function segmentTimelines(componentId: string): readonly CinematicDoc[] {
 		(d) => !ids.has(d.id),
 	);
 	const docs = [...builtin, ...project];
-	if (loaded.has(componentId)) merged.set(componentId, docs);
+	merged.set(componentId, docs);
 	return docs;
 }

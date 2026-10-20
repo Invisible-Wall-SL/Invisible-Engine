@@ -39,8 +39,8 @@
 		// context binding, else no routing (parity).
 		actions?: Record<string, () => void>;
 		// A count-mode `<Repeater>`'s segment wiring: a number input of an id in `inputSources` follows
-		// that engine value source (`{param}`-templated like the input's own `source`, which it
-		// replaces), and one in `inputValues` holds that constant (the segment's `index` / `count`),
+		// that engine value source (already resolved by the repeater; it replaces the input's own
+		// `source`), and one in `inputValues` holds that constant (the segment's `index` / `count`),
 		// over any source. Undefined for every other instance ⇒ the def's own inputs (parity).
 		inputSources?: Record<string, string>;
 		inputValues?: Record<string, number>;
@@ -965,9 +965,9 @@
 			const passed = inputSources;
 			for (const input of componentInputs(def)) {
 				if (input.kind !== 'number' || fixedInputs?.[input.id] !== undefined) continue;
-				const template = passed?.[input.id] ?? input.source;
-				if (!template) continue;
-				const name = expandSourceTemplate(template, sourceParams);
+				const name =
+					passed?.[input.id] ??
+					(input.source ? expandSourceTemplate(input.source, sourceParams) : undefined);
 				const source = name ? getComponentValueSource(name) : undefined;
 				if (!source) continue;
 				unsubs.push(

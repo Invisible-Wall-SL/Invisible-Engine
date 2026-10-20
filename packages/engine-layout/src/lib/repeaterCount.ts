@@ -25,7 +25,7 @@ export const isCountRepeater = (node: LayoutNode): node is CountRepeaterNode =>
 export function repeaterCountCap(count: RepeaterCount): number {
 	const max = bindingNumber(count.max);
 	const cap = max === undefined ? REPEATER_COUNT_DEFAULT_MAX : Math.floor(max);
-	return Math.min(Math.max(cap, 0), REPEATER_COUNT_HARD_MAX);
+	return Math.min(Math.max(cap, 1), REPEATER_COUNT_HARD_MAX);
 }
 
 /**
@@ -145,18 +145,22 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 export function normalizeRepeaterCountFields(node: RepeaterNode): RepeaterNode {
 	const raw = node as RepeaterNode & Record<string, unknown>;
 	if (!COUNT_FIELDS.some((field) => field in raw)) return node;
-	const read: Record<(typeof COUNT_FIELDS)[number], unknown> = {
-		count: readCount(raw.count),
-		variants: readEntries(
-			raw.variants,
-			(key, v) => (VARIANT_KEYS as readonly string[]).includes(key) && nonEmpty(v),
-		),
-		passInputs: readEntries(raw.passInputs, (key, v) => key !== '' && nonEmpty(v)),
-		previewInputs: readEntries(
-			raw.previewInputs,
-			(key, v) => key !== '' && typeof v === 'number' && Number.isFinite(v),
-		),
-	};
+	const count = readCount(raw.count);
+	// The other three only mean something in count mode: without a readable `count` they go too.
+	const read: Record<(typeof COUNT_FIELDS)[number], unknown> = count
+		? {
+				count,
+				variants: readEntries(
+					raw.variants,
+					(key, v) => (VARIANT_KEYS as readonly string[]).includes(key) && nonEmpty(v),
+				),
+				passInputs: readEntries(raw.passInputs, (key, v) => key !== '' && nonEmpty(v)),
+				previewInputs: readEntries(
+					raw.previewInputs,
+					(key, v) => key !== '' && typeof v === 'number' && Number.isFinite(v),
+				),
+			}
+		: { count, variants: undefined, passInputs: undefined, previewInputs: undefined };
 	// Rebuilt in the stored key order, so a clean node keeps its bytes.
 	const next: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(raw)) {

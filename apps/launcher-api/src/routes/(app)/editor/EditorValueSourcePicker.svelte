@@ -21,6 +21,11 @@
 	const groups = $derived(engineSourceGroups(componentMode, paramKeys));
 	const known = $derived(groups.flatMap((g) => g.options.map((o) => o.value)));
 	let custom = $state(false);
+	// A new value (another repeater selected, the source changed elsewhere) drops the custom mode.
+	$effect.pre(() => {
+		void value;
+		custom = false;
+	});
 	const choice = $derived(
 		custom || (value && !known.includes(`source:${value}`))
 			? 'custom'

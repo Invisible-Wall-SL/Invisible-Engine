@@ -141,14 +141,14 @@ const repeater = (over: Partial<RepeaterNode> = {}): RepeaterNode => ({
 	);
 	eq('no count ⇒ 0', R.repeaterCount(repeater({ count: undefined }), 3), 0);
 	eq(
-		'the cap: 999 ⇒ the default 20; max 7 ⇒ 7; max 999 ⇒ the hard 50; max 0 ⇒ 0',
+		'the cap: 999 ⇒ the default 20; max 7 ⇒ 7; max 999 ⇒ the hard 50; max 0 ⇒ 1, as the normalizer stores it',
 		[
 			R.repeaterCount(node, 999),
 			R.repeaterCount(repeater({ count: { preview: 0, max: 7 } }), 999),
 			R.repeaterCount(repeater({ count: { preview: 0, max: 999 } }), 999),
 			R.repeaterCount(repeater({ count: { preview: 0, max: 0 } }), 999),
 		],
-		[T.REPEATER_COUNT_DEFAULT_MAX, 7, T.REPEATER_COUNT_HARD_MAX, 0],
+		[T.REPEATER_COUNT_DEFAULT_MAX, 7, T.REPEATER_COUNT_HARD_MAX, 1],
 	);
 	eq('the constants', [T.REPEATER_COUNT_DEFAULT_MAX, T.REPEATER_COUNT_HARD_MAX], [20, 50]);
 	eq(
