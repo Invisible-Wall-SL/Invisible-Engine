@@ -1,6 +1,9 @@
 import { error, isHttpError, type Cookies } from '@sveltejs/kit';
 import type { CinematicHost } from 'engine-layout';
+import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
+import { getRoleOverrides } from './roleToolAccess';
 import { gate } from './toolScope';
+import { getToolOverrides } from './userToolAccess';
 
 /**
  * Who may touch which cinematic (`/api/cinematics/*`). Plan: `docs/design/rive-style-editor.md`
@@ -69,4 +72,15 @@ export function assertReach(
 			'Only screen and component timelines can be opened from the Scene Editor — this one belongs to the Invisible Rigger.',
 		);
 	}
+}
+
+/** May this caller promote a timeline to the shared library (`_shared/cinematics/`)? The `componentPublish` capability. */
+export async function canPublishSharedTimeline(locals: App.Locals): Promise<boolean> {
+	const user = locals.user;
+	if (!user) return false;
+	const [roleOverrides, overrides] = await Promise.all([
+		getRoleOverrides(user.role),
+		getToolOverrides(user.id),
+	]);
+	return roleHasCapability(user.role, COMPONENT_PUBLISH_CAPABILITY, roleOverrides, overrides);
 }

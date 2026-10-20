@@ -48,6 +48,8 @@ export interface CinematicDoc {
 	stage: { sceneId: string | null; setZ?: number; cast: CinematicCast[] };
 	/** What the timeline animates; absent ⇒ its own cast (see engine-layout `CinematicHost`). */
 	host?: CinematicHost;
+	/** A link to a shared timeline (`$lib/timeline/sharedTimelines.ts`); absent ⇒ the project's own. */
+	shared?: { id: string; version: number; targets?: Record<string, string> };
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }
@@ -58,6 +60,8 @@ export interface CinematicSummary {
 	duration: number;
 	actors: number;
 	updatedAt: string | null;
+	/** The shared timeline it links to, when it is a link (Rive plan Phase 9d). */
+	shared?: { id: string; version: number };
 	/** What the timeline animates; absent ⇒ its own cast (a `/rigger` cinematic). */
 	host?: CinematicHost;
 }
@@ -154,6 +158,9 @@ export async function listCinematics(
 				duration: parsed.duration,
 				actors: parsed.stage.cast.length,
 				...(parsed.host ? { host: parsed.host } : {}),
+				...(parsed.shared && typeof parsed.shared.id === 'string'
+					? { shared: { id: parsed.shared.id, version: parsed.shared.version } }
+					: {}),
 				updatedAt: entry.lastModified ? new Date(entry.lastModified).toISOString() : null,
 			});
 		} catch {

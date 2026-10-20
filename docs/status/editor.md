@@ -98,7 +98,6 @@ Shipped capabilities on `main`:
 ## Open items / next
 
 0. **⏳ Browser-verify Animate mode** (the list is in [cinematic status](cinematic.md) item 0).
-   Not yet in the panel (screens or components): text tracks, visibility keys and cues.
    Phase 9b's list (2026-10-20): the Properties key buttons (grey / blue outline / blue) and typing
    a value on x / y / scale / rotation / alpha / tint / ⚡; stage drag, corner and rotate keying on
    a screen and on a component, including a multi-select drag and a game-space (main-scaled) node;
@@ -127,6 +126,29 @@ Shipped capabilities on `main`:
      and a click opens the layer and selects the card / arrow, or outlines the input; the bar's
      ⚠ count opens Problems.
    - **Save, reload:** every option is still there. A placed instance in game behaves the same.
+0d. **⏳ Browser-verify Phase 9d** (shared library, Data, Library search, rows), on a screen and on
+   a component:
+   - **Rows.** ⚡ Report event drops a `signal:` cue at the playhead and selects it (type its name
+     in the inspector; pick an effect for `fx:`); drag it. 👁 Show / Hide key a node and the
+     ↳ visible row draws filled / hollow markers; the stage hides and shows it while scrubbing;
+     drag and double-click-delete a marker. On a text node: Count up keys a number and the canvas
+     counts; Switch offers the node's strings and the canvas switches; switching mode asks, then
+     clears the other kind; the ↳ text row's labels, drag and double-click delete. Ctrl+Z undoes
+     each. None of these fire while typing.
+   - **Shared.** 📚 Shared lists the starters (✦) and promoted timelines; Place asks for the node
+     ("Target" for a starter) and opens a 🔗 link that previews on the stage; dragging a key on a
+     link, typing in Properties or a stage drag is refused with the message; Plays on / Also on /
+     Rename still save. Promote to shared (an admin): a new name, then the same name again (the
+     "already in the library" confirm, v2); the placed link then shows *Update available (v2)*;
+     Update re-opens on v2; Detach turns it into an editable timeline. A non-admin sees no Promote.
+     A link opened in `/rigger` and saved there is refused ("detach it first"). Publish a project
+     with a placed starter and see it play in the game.
+   - **Badge.** A placed shared component pinned below its latest shows **↑ vN** on its Outline row.
+   - **Data tab** (Components side): inputs, signals, events, params and bound values match the
+     component; clicking a bound value selects its node.
+   - **Library.** The search narrows every section (an open atlas also by region name); the type
+     picker shows one section; Fonts and Audio are listed and not draggable; Audio without
+     Invisible Sound access says so.
 0a. **⏳ Browser-verify Phase 9a** (hierarchy and stage basics): hover Lock / Isolate / Hide on
    both sides (hidden rigs, text and FX vanish too; other screens hide while isolating); fold;
    drag a row before / after / into a container and out again; the row menu; `Esc` / `Enter` /
@@ -167,6 +189,42 @@ Shipped capabilities on `main`:
   real extent on the next open, so that cover changes in game once saved. Fix the rig itself with
   the Rigger's new **⊕ Centre origin** ([rigger status](rigger.md)). Gate: `check:rig-origin-box`
   (the old box and the old resize both fail it).
+- 2026-10-20 — **Rive plan Phase 9d: shared library, Data tab, Library search, cue / text /
+  visibility rows** (branch `claude/rive-p9d-shared-library`, in review, ⏳ not browser-verified;
+  the checklist is Open item 0d). Plan: [rive-reference.md](../design/rive-reference.md) §3.2,
+  §3.5, §3.7 and §5. UI: [the guide](../tools/invisible-editor.md#shared-timelines-and-starters).
+  - **Shared timelines** (`$lib/timeline/sharedTimelines.ts`, `$lib/server/sharedCinematics.ts`,
+    `/api/cinematics/shared{,/get,/promote}`). A bar above the Timeline's tracks has **📚 Shared**
+    (the library and the starters; **Place** saves a LINK on this screen or component, asking which
+    node each shared actor drives), and on an open timeline **Promote to shared** (with
+    `componentPublish`; a name already in the library confirms adding the next version), or for a
+    link **🔗 name vN**, **Update available (vN)** + **Update**, and **Detach**. A link is
+    read-only: a commit that changes its content is put back (`keepLinkedContent`, history
+    restarts), and Properties / stage keying is off; its placement (name, Plays on, Also on) stays
+    editable. Storage, format and the ship chain: [cinematic status](cinematic.md) Current state.
+  - **"Update available" on placed shared components**: an Outline row shows **↑ vN** when a
+    shared component instance pins an older version (`componentUpdateAvailable`; Properties'
+    existing *Update to latest* does the update). `EditorOutline` gained a `componentMap` prop.
+  - **Rows** in the Timeline's track area: **⚡ Report event** (a `signal:` cue at the playhead),
+    **👁 Show / Hide** keys (the module's `keyVisibility`), and **text** keys on a text node (Count
+    up / Switch, `$lib/timeline/timelineRows.ts`), drawn by the module's new opt-in `textRows`.
+    The canvas previews text keys (`previewText` in `valuePreview.client.svelte.ts`, read by
+    `EditorTextLayer`; `timelineDrives` now carries a text-only drive).
+  - **Data tab** (Components side, `EditorDataPanel.svelte` over `$lib/editor/componentData.ts`):
+    read-only inputs (+ the signals not declared as inputs, as triggers), events, params and bound
+    values; a bound row selects its node.
+  - **Library** (`EditorAssetLibrary.svelte`, `$lib/editor/librarySearch.ts`): a search box (all
+    words, case-insensitive; an atlas or sheet also by a loaded region name, whose grid narrows
+    too) and a type filter; **Fonts** (`fetchFontCatalog`) and **Audio** (`/api/sounds`, needs the
+    `sound` tool) listed read-only.
+  - Shared-file hunks (Phase 9c ran in parallel and merged first): `EditorTimelinePanel.svelte` — the row bar
+    above the tracks (`.tl-track` / `.tl-rowbar`), the left column's keying block, the save /
+    open / close / `changed` hook and new functions; the header's picker is untouched.
+    `ComponentWorkspace.svelte` — one Data tab button + its body, `{componentMap}` on the Outline.
+    `+page.svelte` — `{componentMap}` on the Outline. `EditorCanvas.svelte` — untouched.
+  - Gates: `check:shared-timeline-ship` (42), `check:timeline-rows` (27),
+    `check:editor-data-library` (16); `check:component-links` lists the promote as an unpinned
+    global write. All in `check:all`.
 - 2026-10-20 — **The Timeline panel's picker and ＋ New / Rename / 🗑 are back** (branch
   `claude/timeline-header-picker`). Reported on `commonoverlayproject` right after 9c: the owner
   could not find how to open or create a screen timeline once 9c moved those actions to the
