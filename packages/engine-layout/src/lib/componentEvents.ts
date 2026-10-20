@@ -95,7 +95,8 @@ export function routeComponentCue(cue: string, declaresEvents: boolean): Compone
 	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
 }
 
-/** Every localization key a def's raises carry — its listeners' and its states' `onEnter` — with
+/** Every localization key a def's raises carry — its listeners' and its states' `onEnter` and
+ *  `onExit` — with
  *  the event that carries it, for the harvest, in tree then layer order, each key once. */
 export function raisedPayloadKeys(
 	def: Pick<ComponentDef, 'root' | 'stateMachine'> | null | undefined,
@@ -114,7 +115,10 @@ export function raisedPayloadKeys(
 	};
 	if (def?.root) walk(def.root);
 	for (const layer of def?.stateMachine?.layers ?? []) {
-		for (const state of layer.states ?? []) state.onEnter?.forEach(collect);
+		for (const state of layer.states ?? []) {
+			state.onEnter?.forEach(collect);
+			state.onExit?.forEach(collect);
+		}
 	}
 	return [...keys].map(([key, event]) => ({ key, event }));
 }
@@ -160,6 +164,7 @@ export class ComponentEventDispatcher {
 	private readonly defaults = new Map<string, number | boolean>();
 	private readonly events = new Map<string, ComponentEvent>();
 	private readonly onEnter = new Map<string, RaiseEventAction[]>();
+	private readonly onExit = new Map<string, RaiseEventAction[]>();
 	private readonly owned = new Set<string>();
 	private queue: RaisedComponentEvent[] = [];
 	private scheduled = false;
@@ -181,6 +186,7 @@ export class ComponentEventDispatcher {
 		for (const layer of def.stateMachine?.layers ?? []) {
 			for (const state of layer.states ?? []) {
 				if (state.onEnter?.length) this.onEnter.set(stateKey(layer.id, state.id), state.onEnter);
+				if (state.onExit?.length) this.onExit.set(stateKey(layer.id, state.id), state.onExit);
 			}
 		}
 		const walk = (n: LayoutNode): void => {
@@ -236,9 +242,13 @@ export class ComponentEventDispatcher {
 		this.later();
 	}
 
-	/** The transitions one advance took: each target state was entered, in order. */
+	/** The transitions one advance took, in order: each left its state, then entered the target. */
 	transitions(fired: readonly FiredTransition[]): void {
-		for (const t of fired) this.entered(t.layer, t.to);
+		for (const t of fired) {
+			for (const action of this.onExit.get(stateKey(t.layer, t.from)) ?? [])
+				this.raise(action, 'state');
+			this.entered(t.layer, t.to);
+		}
 		this.later();
 	}
 
@@ -352,9 +362,11 @@ export interface ComponentEventIssue {
 	/** The node and listener a listener issue is on. */
 	node?: string;
 	listener?: string;
-	/** The state an `onEnter` raise is on. */
+	/** The state an `onEnter` / `onExit` raise is on, and which of the two (`exit` only on an
+	 *  `onExit` row). */
 	layer?: string;
 	state?: string;
+	on?: 'exit';
 	/** The timeline an `event:` cue is on. */
 	timeline?: string;
 }
@@ -465,7 +477,9 @@ export function validateComponentEvents(
 			? `Node "${at.node}"`
 			: at.timeline
 				? `Timeline "${at.timeline}"`
-				: `State "${at.state}" (layer "${at.layer}")`;
+				: at.on === 'exit'
+					? `On exit of state "${at.state}" (layer "${at.layer}")`
+					: `State "${at.state}" (layer "${at.layer}")`;
 	const checkRaise = (action: RaiseEventAction, at: Partial<ComponentEventIssue>): void => {
 		const event = events.get(action.event);
 		if (!event) {
@@ -609,8 +623,9 @@ export function validateComponentEvents(
 
 	for (const layer of def.stateMachine?.layers ?? []) {
 		for (const state of layer.states ?? []) {
-			for (const action of state.onEnter ?? [])
-				checkRaise(action, { layer: layer.name || layer.id, state: state.name || state.id });
+			const at = { layer: layer.name || layer.id, state: state.name || state.id };
+			for (const action of state.onEnter ?? []) checkRaise(action, at);
+			for (const action of state.onExit ?? []) checkRaise(action, { ...at, on: 'exit' });
 		}
 	}
 	for (const doc of timelines) {
