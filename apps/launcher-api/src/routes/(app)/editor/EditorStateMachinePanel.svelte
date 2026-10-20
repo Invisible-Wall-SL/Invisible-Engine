@@ -258,7 +258,7 @@
 	}
 	function duplicateActiveLayer(): void {
 		if (!def || !layer) return;
-		const copy = duplicateLayer(def, layer.id, reserved);
+		const copy = duplicateLayer(def, layer.id, reserved, reservedRows);
 		if (!copy) return;
 		activeLayerId = copy.id;
 		selected = null;
@@ -533,7 +533,8 @@
 	// ---- the docked Inputs list -------------------------------------------------------------------
 
 	let newInputId = $state('');
-	let newInputKind = $state<'trigger' | 'bool' | 'number'>('trigger');
+	/** Bool or number: a trigger is a declared signal, added with Properties' **+ Add trigger**. */
+	let newInputKind = $state<'bool' | 'number'>('bool');
 	function addDockInput(): void {
 		const id = newInputId.trim();
 		if (!id || !onAddInput) return;
@@ -1102,7 +1103,6 @@
 						aria-label="Input name"
 					/>
 					<select bind:value={newInputKind} aria-label="Input kind">
-						<option value="trigger">trigger</option>
 						<option value="bool">bool</option>
 						<option value="number">number</option>
 					</select>
@@ -1541,7 +1541,10 @@
 				role="tab"
 				class:on={consoleTab === 'console'}
 				aria-selected={consoleTab === 'console'}
-				onclick={() => (consoleTab = 'console')}>Console</button
+				onclick={() => {
+					consoleTab = 'console';
+					focusedInput = null;
+				}}>Console</button
 			>
 			<button
 				type="button"

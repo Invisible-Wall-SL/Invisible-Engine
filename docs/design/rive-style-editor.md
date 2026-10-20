@@ -296,7 +296,8 @@ and input changes, it only says "layer L plays timeline X at t, mixing in from Y
   (overshoot clamps to 0..1), `pauseSource: false` keeps the state being left playing under the
   blend at its own speed (wrapping or clamping; its cues do not fire; a transition taken mid-blend
   still leaves from the frozen mix), and `allowExit: false` lets no transition leave the target
-  state until the blend ends. The normalizer keeps those three only with a blend, and only the
+  state until the blend ends (a trigger such a transition reads is held until then, as for an
+  exit time). The normalizer keeps those three only with a blend, and only the
   non-default values. `SmLayer.disabled: true` sits in `exit` from the start and after a reset,
   enters nothing and reports `exit` as its state value; its timelines are not reported missing.
 - **One ordered raise queue per instance** (`ComponentEventDispatcher`): a state's `onEnter` and an

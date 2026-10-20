@@ -28,7 +28,8 @@ export interface AnimationsPanel {
 	remove(id: string): Promise<void>;
 }
 
-const state = $state<{ panel: AnimationsPanel | null; owner: symbol | null }>({
+// Raw: each publish is a new object, and nothing reads into it deeper than its fields.
+let state = $state.raw<{ panel: AnimationsPanel | null; owner: symbol | null }>({
 	panel: null,
 	owner: null,
 });
@@ -36,8 +37,7 @@ const state = $state<{ panel: AnimationsPanel | null; owner: symbol | null }>({
 /** Publish (or with `null`, withdraw) `owner`'s list. One panel withdrawing never clears another's. */
 export function setAnimationsPanel(panel: AnimationsPanel | null, owner: symbol): void {
 	if (!panel && state.owner !== owner) return;
-	state.panel = panel;
-	state.owner = panel ? owner : null;
+	state = { panel, owner: panel ? owner : null };
 }
 
 /** The shown panel's list, if any. */

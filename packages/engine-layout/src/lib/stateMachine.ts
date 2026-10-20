@@ -62,7 +62,8 @@ import {
  *   (nor holds a trigger); `ease` shapes the blend's progress (a cubic, as a timeline key's);
  *   `pauseSource: false` keeps the state being left playing under the blend (at its own speed,
  *   wrapping or clamping as it would; its cues do not fire); `allowExit: false` lets no transition
- *   leave the target state until the blend has finished. A `disabled` layer sits in `exit` from the
+ *   leave the target state until the blend has finished (a trigger such a transition reads is held
+ *   until then, as for an exit time). A `disabled` layer sits in `exit` from the
  *   start (and after {@link ComponentStateMachineRunner.reset}).
  */
 
@@ -336,7 +337,10 @@ export class ComponentStateMachineRunner {
 		for (const t of layer.def.transitions ?? []) {
 			if (t.disabled === true) continue;
 			const leaves = t.from === layer.state || (t.from === SM_ANY_STATE && t.to !== layer.state);
-			if (!leaves || t.exitTime === undefined || this.exitReached(layer, t.exitTime)) continue;
+			if (!leaves) continue;
+			// Waiting on its exit time, or (Phase 9c) on a locked blend: either holds the trigger.
+			const waitsOnExit = t.exitTime !== undefined && !this.exitReached(layer, t.exitTime);
+			if (!waitsOnExit && !layer.blend?.locked) continue;
 			const conditions = t.conditions ?? [];
 			const triggers = conditions.filter((c) => c.op === 'fired').map((c) => c.input);
 			if (!triggers.length) continue;

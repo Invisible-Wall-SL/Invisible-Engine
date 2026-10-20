@@ -10,7 +10,8 @@ export type Cubic = [number, number, number, number];
 /** Where the Cubic button starts: CSS `ease-in-out`. */
 export const DEFAULT_CUBIC: Cubic = [0.42, 0, 0.58, 1];
 
-const n3 = (n: number): number => +n.toFixed(3);
+/** A handle value as the editor rounds it. */
+export const n3 = (n: number): number => +n.toFixed(3);
 
 /** `x1, y1, x2, y2` as the typed field shows it, each to three decimals. */
 export const cubicText = (c: readonly number[]): string => c.map(n3).join(', ');

@@ -86,7 +86,8 @@ Shipped capabilities on `main`:
     `pauseSource: false` and `allowExit: false`; `SmLayer.disabled`. `ComponentStateMachineRunner`
     skips a disabled transition (and holds no trigger for it), shapes the blend's progress with
     `easeShape`, keeps the left state playing under the blend (`LayerPlay.from.playing`), and
-    blocks every transition while a locked blend runs. A disabled layer sits in `exit`.
+    blocks every transition while a locked blend runs (a trigger one reads is held until it ends,
+    as for an exit time). A disabled layer sits in `exit`.
     `ComponentTimelinePlayer` samples a playing source live (`Mix.live`). The
     `ComponentEventDispatcher` raises the left state's `onExit` before the target's `onEnter`; the
     localization harvest and `validateComponentEvents` read `onExit`. Validation's reachability
@@ -94,23 +95,26 @@ Shipped capabilities on `main`:
     with a blend, and only their non-default values); `componentFields.ts` knows them; the
     keep-unknown save grafts `onExit` rows like `onEnter` rows.
   - **Parity:** a doc without the fields (or with them at their defaults) runs and saves
-    byte-identically. The gate proves it on scripted runs, and a one-off differential over 400
-    random machines matched `main`'s runner exactly.
+    byte-identically. The gate proves defaults-vs-absent on scripted runs and the byte-identical
+    save; separately, a one-off local differential (not in the gate) over 400 random machines
+    matched `main`'s runner exactly.
   - **The panel** (`EditorStateMachinePanel.svelte`): the **Inputs** list docks left of the graph
-    with its preview controls (Preview inputs left the inspector), plus add, ✎ and ×. Those three
-    go through `ComponentWorkspace`'s own handlers, the ones Properties uses. The transition
+    with its preview controls (Preview inputs left the inspector), plus add (bool / number: a
+    trigger is a declared signal, added in Properties), ✎ and ×, through `ComponentWorkspace`'s
+    own handlers, the ones Properties uses. The transition
     inspector gains **Interpolation** (`EaseCurveEditor.svelte`: Linear / Cubic, 9b's curve and
     typed field; value helpers in `$lib/timeline/easeCurve.ts`), *Pause source when exiting*,
     *Allow exit during transition* and **Disable** (dashed arrow, "off ·" label). States gain
-    **On exit** (`addExitAction` / `removeExitAction`, `x_` ids). Layers gain ⧉ duplicate, ◀ ▶
+    **On exit** (`addExitAction` / `removeExitAction`, `x_` ids; an issue on one reads "On exit
+    of state …"). A duplicated layer's action rows get fresh ids. Layers gain ⧉ duplicate, ◀ ▶
     reorder (the runtime defines the winner by order) and ⏻ disable. The **Console** strip under
     the graph logs entered states, taken transitions and raised events (the Events log moved here).
     Its **Problems** tab gathers `validateStateMachine` and `validateComponentEvents`, and a click
     jumps to the layer, card, arrow or input (`problemTarget`). Pure edits in `stateMachineEdit.ts`:
     `duplicateLayer`, `moveLayer`, `setLayerDisabled`, `setBlend` (clearing the blend clears its
     options), `setBlendEase`, `setBlendFlag`, `setTransitionDisabled`, `problemTarget`.
-  - Gates: `check:component-state-machine` §10 (181) and `check:component-state-machine-editor` §6
-    (78).
+  - Gates: `check:component-state-machine` §10 (184) and `check:component-state-machine-editor` §6
+    (79).
 - 2026-10-17 — Owner browser check passed for the Rive plan's component work (Phases 4–8); the
   authored free-spin and button pilots are unlocked ([engine status](engine.md) 2026-10-17).
 - 2026-10-16 — **A tile named only in "This game's defaults" ships again** (branch

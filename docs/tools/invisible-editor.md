@@ -989,8 +989,9 @@ plays the result in the game. A component has its own Animate mode on the Compon
 1. **Open or create a timeline.** In Animate the left column shows an **Animations** list with
    this screen's timelines (each with its length); click one to open it, and the Timeline panel's
    header names it. **＋** asks for a name and saves an empty one. Hover a row for **⧉ Duplicate**
-   (a copy named "<name> copy", saved and opened), **✎ Rename** and **🗑 Delete**; each opens that
-   timeline first, so unsaved changes on the open one are asked about. Switching to
+   (a copy named "<name> copy", saved and opened), **✎ Rename** and **🗑 Delete**. Rename and
+   Delete open that timeline first, and every one of the three asks about unsaved changes on the
+   open timeline first. Switching to
    another screen saves it and closes it, because a timeline belongs to one screen. Switching back
    to Design keeps it open with any unsaved changes, and closing the tab with unsaved timeline
    changes asks first.
@@ -1245,9 +1246,9 @@ so it needs no Flow node and no extra publish step; it is read-only while you ar
 version, like the rest of Animate.
 
 **Inputs** are declared in the Properties panel under **Component variables → Inputs** (the block
-that used to be _Signals_), or in the **Inputs** list docked left of the graph in the State machine
-tab: type a name, pick **trigger / bool / number** and **＋**; **✎** and **×** there do what they
-do in Properties. The docked list is also where you **drive the preview**: click a trigger to fire
+that used to be _Signals_), or — bools and numbers — in the **Inputs** list docked left of the
+graph in the State machine tab: type a name, pick **bool / number** and **＋** (a trigger is added
+with Properties' **+ Add trigger**); **✎** and **×** there do what they do in Properties. The docked list is also where you **drive the preview**: click a trigger to fire
 it, tick a bool, type a number. Three kinds:
 
 - a **trigger** ⚡ — a signal: **+ Add trigger** picks an engine moment (`win`, `bigWin`…), a
@@ -1288,7 +1289,9 @@ are Inspecting an old version.
        Untick it and that state keeps playing underneath while the new one mixes in (its cues do
        not fire while it plays out).
      - **Allow exit during transition** (on by default) — another transition may leave the new
-       state before the blend has finished. Untick it and none can until the blend ends.
+       state before the blend has finished. Untick it and none can until the blend ends; a trigger
+       fired meanwhile waits for the end, as one waits for an exit time.
+     The curve cannot overshoot a blend: a handle past 0..1 holds the mix at its end.
    - **Disable** — the transition never fires (in the preview or in game). It stays on the graph,
      dashed and greyed, with "off" on its label, so you can switch it back on.
 3. Click a card for its inspector: **Name**, **Timeline**, **Speed**, **Loop**, **On enter** and

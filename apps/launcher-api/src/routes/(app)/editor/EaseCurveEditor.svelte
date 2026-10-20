@@ -5,9 +5,8 @@
 	 * panel (Rive plan Phase 9b, `$lib/timeline/timeline.js`), for the state machine's transition
 	 * blend (Phase 9c). A blend has no Hold: a stepped mix is a blend of 0.
 	 */
-	import { DEFAULT_CUBIC, cubicText, parseCubic } from '$lib/timeline/easeCurve';
+	import { DEFAULT_CUBIC, cubicText, n3, parseCubic, type Cubic } from '$lib/timeline/easeCurve';
 
-	type Cubic = [number, number, number, number];
 	interface Props {
 		/** The cubic, or `undefined` for linear. */
 		value: Cubic | undefined;
@@ -20,7 +19,6 @@
 	const CURVE = { x0: 20, w: 120, y0: 160, h: 120, vw: 160, vh: 200 };
 	const cx = (x: number): number => CURVE.x0 + CURVE.w * x;
 	const cy = (y: number): number => CURVE.y0 - CURVE.h * y;
-	const n3 = (n: number): number => +n.toFixed(3);
 
 	/** The curve while a handle is dragged (the prop follows on each `onChange`). */
 	let dragging = $state<Cubic | null>(null);
@@ -119,7 +117,7 @@
 		<input
 			type="text"
 			spellcheck="false"
-			title="The cubic-bezier's two handles: x in 0..1, y may overshoot"
+			title="The cubic-bezier's two handles: x in 0..1. A blend never overshoots: y past 0..1 holds at the end"
 			value={cubicText(c)}
 			onchange={(e) => {
 				const parsed = parseCubic(e.currentTarget.value);

@@ -379,7 +379,7 @@
 
 	/** A copy of timeline `id` (any of this host's), saved create-only and opened. */
 	async function duplicate(id: string): Promise<void> {
-		if (!(await guardUnsaved())) return;
+		if (busy || !(await guardUnsaved())) return;
 		error = '';
 		const res = await fetch(
 			`/api/cinematics/get?id=${encodeURIComponent(id)}&projectKey=${encodeURIComponent(projectKey)}`,

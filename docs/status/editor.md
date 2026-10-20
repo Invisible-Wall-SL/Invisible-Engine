@@ -115,11 +115,11 @@ Shipped capabilities on `main`:
    - **Component side:** the **State machine** row switches the tab and a timeline row switches
      back; drag a timeline row onto the graph and the card lands under the pointer (and onto the
      empty graph it makes the first layer).
-   - **Inputs dock:** add a trigger, bool and number; fire, tick and type to drive ▶ Run; ✎ and ×
+   - **Inputs dock:** add a bool and a number (triggers come from Properties); fire, tick and type to drive ▶ Run; ✎ and ×
      ask as in Properties; none of it while Inspecting.
    - **Transition:** with a Blend, Linear / Cubic (drag both handles, type the 4 values); untick
      *Pause source* and see the left state keep moving under the blend; untick *Allow exit* and a
-     transition out waits for the blend; **Disable** greys and dashes the arrow and it never fires.
+     transition out (a trigger fired mid-blend included) waits for the blend; **Disable** greys and dashes the arrow and it never fires.
    - **State:** On exit raises (Console shows it before the next On enter).
    - **Layers:** ⧉ duplicate, ◀ ▶ reorder (the later layer wins a shared node), ⏻ Disable (struck
      tab, the layer's nodes stop moving), Enable.

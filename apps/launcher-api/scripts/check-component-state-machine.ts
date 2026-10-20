@@ -2114,6 +2114,37 @@ eq(
 	eq('allowExit false: no transition leaves until the blend ends', locked.stateOf('main'), 'win');
 	locked.advance(0.45);
 	eq('…then it may', locked.stateOf('main'), 'idle');
+	{
+		// A trigger fired during the locked blend waits for it, as one waits on an exit time.
+		const r = new M.ComponentStateMachineRunner(
+			machine(
+				layer({
+					transitions: [
+						{
+							id: 't_win',
+							from: 'idle',
+							to: 'win',
+							blend: 500,
+							allowExit: false,
+							conditions: [winOn],
+						},
+						{ id: 't_back', from: 'win', to: 'idle', conditions: [winOn] },
+					],
+				}),
+			),
+			inputs,
+			durations,
+		);
+		r.fire('win');
+		r.advance(0.1);
+		r.fire('win');
+		r.advance(0.1);
+		eq('a trigger fired during a locked blend does not leave yet', r.stateOf('main'), 'win');
+		r.advance(0.2);
+		eq('…it is held while the blend runs', r.stateOf('main'), 'win');
+		r.advance(0.25);
+		eq('…and taken when the blend ends', r.stateOf('main'), 'idle');
+	}
 
 	// On exit.
 	const raised: string[] = [];
@@ -2166,8 +2197,8 @@ eq(
 		E.validateComponentEvents({
 			...exitDef,
 			events: [{ id: 'left' }, { id: 'arrived' }],
-		}).map((i) => `${i.code}:${i.state}:${i.event}`),
-		['raise-event-unknown:win:gone'],
+		}).map((i) => `${i.code}:${i.state}:${i.event}:${i.on}:${i.message.split(' raises')[0]}`),
+		['raise-event-unknown:win:gone:exit:On exit of state "win" (layer "main")'],
 	);
 	eq(
 		'the localization harvest reads onExit payloads',

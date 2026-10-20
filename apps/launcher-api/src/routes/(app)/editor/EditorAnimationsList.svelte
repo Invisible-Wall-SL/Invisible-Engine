@@ -33,7 +33,7 @@
 <div class="anim-list" aria-label="Animations">
 	{#if !panel}
 		<p class="muted">
-			Open Animate to list this {stateMachine ? 'component' : 'screen'}'s timelines.
+			Loading this {stateMachine ? 'component' : 'screen'}'s timelines…
 		</p>
 	{:else}
 		<div class="head">

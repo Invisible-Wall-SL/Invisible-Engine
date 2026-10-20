@@ -13,7 +13,8 @@ import {
 	type SmTransition,
 } from 'engine-layout';
 
-import { renameInputReads } from './listenerEdit';
+import type { Cubic } from './easeCurve';
+import { mintId, renameInputReads, rowIds } from './listenerEdit';
 
 /**
  * The State Machine panel's EDITS (Rive plan Phase 5b), as pure functions over the draft
@@ -101,12 +102,14 @@ export function removeLayer(def: ComponentDef, layerId: string): void {
 /**
  * Copy a layer next to it (Phase 9c): the same states, transitions and positions under a new layer
  * id and the name "<name> copy". State and transition ids are per layer, so they are kept, and the
- * copy's conditions, entry and actions read exactly as the original's.
+ * copy's conditions and entry read exactly as the original's. Its on-enter / on-exit rows get new
+ * ids (minted against `reservedRows` too), so no two rows of the def share one.
  */
 export function duplicateLayer(
 	def: ComponentDef,
 	layerId: string,
 	reserved: Iterable<string> = [],
+	reservedRows: Iterable<string> = [],
 ): SmLayer | undefined {
 	const machine = def.stateMachine;
 	const at = machine?.layers.findIndex((l) => l.id === layerId) ?? -1;
@@ -115,6 +118,13 @@ export function duplicateLayer(
 	const copy = JSON.parse(JSON.stringify(machine.layers[at])) as SmLayer;
 	copy.name = `${machine.layers[at].name || machine.layers[at].id} copy`;
 	copy.id = uniqueId(copy.name, [...machine.layers.map((l) => l.id), ...reserved]);
+	const taken = new Set([...rowIds(def), ...reservedRows]);
+	for (const state of copy.states) {
+		for (const row of [...(state.onEnter ?? []), ...(state.onExit ?? [])]) {
+			row.id = mintId(row.id.split('_')[0] || 'e', taken);
+			taken.add(row.id);
+		}
+	}
 	machine.layers.splice(at + 1, 0, copy);
 	return copy;
 }
@@ -206,10 +216,7 @@ export function setBlend(transition: SmTransition, ms: number): void {
 }
 
 /** The blend's interpolation: a cubic, or `null` for linear (the default, so nothing is stored). */
-export function setBlendEase(
-	transition: SmTransition,
-	ease: [number, number, number, number] | null,
-): void {
+export function setBlendEase(transition: SmTransition, ease: Cubic | null): void {
 	if (ease) transition.ease = [ease[0], ease[1], ease[2], ease[3]];
 	else delete transition.ease;
 }

@@ -362,9 +362,11 @@ export interface ComponentEventIssue {
 	/** The node and listener a listener issue is on. */
 	node?: string;
 	listener?: string;
-	/** The state an `onEnter` / `onExit` raise is on. */
+	/** The state an `onEnter` / `onExit` raise is on, and which of the two (`exit` only on an
+	 *  `onExit` row). */
 	layer?: string;
 	state?: string;
+	on?: 'exit';
 	/** The timeline an `event:` cue is on. */
 	timeline?: string;
 }
@@ -475,7 +477,9 @@ export function validateComponentEvents(
 			? `Node "${at.node}"`
 			: at.timeline
 				? `Timeline "${at.timeline}"`
-				: `State "${at.state}" (layer "${at.layer}")`;
+				: at.on === 'exit'
+					? `On exit of state "${at.state}" (layer "${at.layer}")`
+					: `State "${at.state}" (layer "${at.layer}")`;
 	const checkRaise = (action: RaiseEventAction, at: Partial<ComponentEventIssue>): void => {
 		const event = events.get(action.event);
 		if (!event) {
@@ -621,7 +625,7 @@ export function validateComponentEvents(
 		for (const state of layer.states ?? []) {
 			const at = { layer: layer.name || layer.id, state: state.name || state.id };
 			for (const action of state.onEnter ?? []) checkRaise(action, at);
-			for (const action of state.onExit ?? []) checkRaise(action, at);
+			for (const action of state.onExit ?? []) checkRaise(action, { ...at, on: 'exit' });
 		}
 	}
 	for (const doc of timelines) {

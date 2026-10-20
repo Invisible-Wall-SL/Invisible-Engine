@@ -530,6 +530,31 @@ const names = new Map([
 		undefined,
 	);
 	eq('duplicating an unknown layer adds nothing', E.duplicateLayer(d, 'nope'), undefined);
+	{
+		const rd = machineDef();
+		const src = rd.stateMachine!.layers[0].states[0];
+		const enterRow = L.addEnterAction(src, rd);
+		const exitRow = L.addExitAction(src, rd);
+		const dupe = E.duplicateLayer(rd, 'Main', [], ['x_saved1']);
+		const rows = [...(dupe?.states[0].onEnter ?? []), ...(dupe?.states[0].onExit ?? [])];
+		eq(
+			'duplicate: its on-enter / on-exit rows get fresh ids of the same kind',
+			[
+				rows.map((r) => r.id.split('_')[0]),
+				rows.some((r) => r.id === enterRow.id || r.id === exitRow.id),
+				(() => {
+					const all = rd.stateMachine!.layers.flatMap((l) =>
+						l.states.flatMap((st) =>
+							[...(st.onEnter ?? []), ...(st.onExit ?? [])].map((a) => a.id),
+						),
+					);
+					return new Set(all).size === all.length;
+				})(),
+				rows.map((r) => r.event),
+			],
+			[['e', 'x'], false, true, [enterRow.event, exitRow.event]],
+		);
+	}
 	eq(
 		'reorder: a layer moves one place, never past either end',
 		[
