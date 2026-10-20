@@ -27,10 +27,10 @@
 		"config-vite": "workspace:*",
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
-		"prettier": "3.9.9",
+		"prettier": "3.9.10",
 		"prettier-plugin-svelte": "3.3.3",
 		"eventemitter3": "5.0.4",
-		"svelte-check": "4.7.6"
+		"svelte-check": "4.7.7"
 	},
 	"dependencies": {
 		"@barvynkoa/particle-emitter": "0.0.1",
@@ -42,7 +42,7 @@
 		"engine-fx": "workspace:*",
 		"pixi-filters": "6.1.5",
 		"pixi.js": "8.22.0",
-		"svelte": "5.57.1",
+		"svelte": "5.57.2",
 		"utils-event-emitter": "workspace:*",
 		"vite": "6.2.0",
 		"webfontloader": "1.6.28"

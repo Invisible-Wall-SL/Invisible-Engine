@@ -17,8 +17,8 @@
 		"config-vite": "workspace:*"
 	},
 	"dependencies": {
-		"@types/lodash": "4.17.25",
-		"svelte": "5.57.1",
+		"@types/lodash": "4.17.26",
+		"svelte": "5.57.2",
 		"vite": "6.2.0"
 	}
 }
