@@ -1,6 +1,7 @@
 # Game families: match-3 first, arcade next (Phase 10 plan)
 
-> Status: **PLAN, for owner review. No feature code until the owner approves it.** This is Phase 10 of
+> Status: **PLAN APPROVED (owner, 2026-10-20): all nine §9 decisions accepted as recommended.
+> ON HOLD: no build phase (P10.1 onward) starts until the owner says go.** This is Phase 10 of
 > [rive-style-editor.md](rive-style-editor.md) §10. It is the separate design that §7.2 promised for
 > games that are not slots. The owner approved starting it on 2026-10-20. Progress will live in the
 > status files of the tools each phase touches ([flow](../status/flow.md),
@@ -799,7 +800,7 @@ step changes a slot game.
 
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
-| P10.0 | **Plan + decisions** (this doc) | Owner review of §9; ADR-style sign-off recorded here | docs | S |
+| P10.0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-20 | Owner review of §9; sign-off recorded in §9 | docs | S |
 | P10.1 | **Family and outcome in Game Config** | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker; `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | S–M |
 | P10.2 | **The board module** | `packages/engine-mechanics/board.js` (+ `.d.ts`) with the full match-3 rule set, fixtures. No caller yet | new package | M |
 | P10.3 | **Flow variables, timers, tick** | §3.1 + §3.2 (tick / timers / keys): format, validator; the variable and timer store in the game-side holder, reached through the env; the preview's virtual-time event queue; the Variables panel; `var:<id>` value sources (numbers), and `source` widened to bool / text | `engine-flow-v2`, `apps/lines` (`flowV2InterpreterHolder.ts`, value sources), `/flow-v2`, `engine-layout` (`ComponentInstance`), `componentStorage.ts` | L |
@@ -825,9 +826,10 @@ step changes a slot game.
 
 ---
 
-## 9. Open decisions for the owner
+## 9. Decisions (owner)
 
-Each has a recommendation. None blocks P10.1–P10.4.
+**DECIDED (owner 2026-10-20): every recommendation below is accepted as written.** The owner also
+asked that nothing be started yet: P10.1 onward waits for the owner's go.
 
 1. **RGS match-3: outcome fixed at the bet, or resolved per move?**
    - *Recommend:* **fixed at the bet.** The player's moves are presentation (decision #6's wording),
