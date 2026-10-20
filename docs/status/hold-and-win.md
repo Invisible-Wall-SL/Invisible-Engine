@@ -1134,8 +1134,19 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `check:flow-publish-gate`, `check:flow-bonus-modes`, `check:add-bonus-mode`,
     `check:project-scaffold`, flow-spike `v2holdandwin`, `check:svelte` (lines and engine-layout at
     baseline) and the `lines` build.
-  - **Live:** owed. A local play of a forced MINI-coin feature on the coin-board template (new
-    screens vs. none) is in progress; Owner checklist 15 covers a real project.
+  - **Live (local, 2026-10-20).** I played the coin-board template in headless Chromium against the
+    coin-board mock (`SEED=7`, forced `jackpot:MINI`), recording every painted frame, with the same
+    round under four layouts. Every run drove the same flow events, ended idle, and had a balance
+    of before − stake + win ($139.00, matching the mock). No page errors.
+    - **The screens, with the plates recoloured:** the red plate showed only for the MINI beat
+      and the green only for "BONUS WIN $40.00". The coded plate never showed.
+    - **The plates moved off the board centre:** only the authored text was at the centre, so
+      the coded banner really was not drawn.
+    - **The scaffold untouched:** its plate matched the coded one exactly. The text did not: the
+      text box font, with no bold or stroke.
+    - **Without the screens:** the coded banner drew both beats as before.
+
+    Owner checklist 15 covers a real project.
   - **Not the coded look in every detail:** a banner screen's text uses the text box's font (no
     Arial bold, no stroke), and it has no pop-in until the artist gives it one (a component
     timeline on **enter**). Guide: [Banner screens](../tools/invisible-editor.md#banner-screens).
