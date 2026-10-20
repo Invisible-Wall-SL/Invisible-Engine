@@ -449,6 +449,20 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-20 — **Fix: the playhead drifts off the cursor once the timeline is scrolled** (branch
+  `claude/nifty-curie-0eqlx3`). Reported on `/editor`: zoomed in, scrolled right, then scrubbing,
+  the bar sat to the left of the cursor. `positionPlayhead` subtracted `el.scrollLeft`, but the
+  playhead lives inside the scrolling container (`position: relative` on both hosts), so it already
+  scrolls with the lanes — the offset was exactly the scroll distance. It now takes the content
+  coordinate, is sized to the full scroll height (it stopped at the visible box before, so lower rows
+  had none once scrolled down), and hides while its time is scrolled under the sticky name gutter.
+  Same shape as the Rigger dopesheet's own `positionPlayhead`. Verified in Chromium against both
+  versions of the module with the editor's CSS: scrolled 1500 px, the old bar sat 1500 px left of
+  the cursor while dragging on the ruler, the new one 0 px. The `/rigger` golden
+  (`tools/rigger-spike/cinematic-timeline.mjs`) is re-recorded: the playhead's new `height` is the
+  only change to the existing steps, and a new step scrubs with the lanes scrolled (it fails on the
+  old `- scrollLeft`), then puts the time and scroll back so the later steps run as before.
+
 - 2026-10-20 — **Phase 9d: the shared timeline library and the cue / text / visibility rows**
   (branch `claude/rive-p9d-shared-library`, in review). Storage, link format and ship chain in
   Current state above; the editor side in [editor status](editor.md) 2026-10-20 (9d).

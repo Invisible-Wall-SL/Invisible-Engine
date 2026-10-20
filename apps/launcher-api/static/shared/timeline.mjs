@@ -1375,11 +1375,22 @@ export function mount(el, options) {
 		positionPlayhead(pps);
 	}
 
-	/** Cheap: moves one element — call it per frame, never re-render the timeline per frame. */
+	/**
+	 * Cheap: moves one element — call it per frame, never re-render the timeline per frame.
+	 * The playhead sits INSIDE the scrolling `el` (every host makes it `position: relative`), so it
+	 * already scrolls with the lanes: `left` is a content coordinate, never offset by `scrollLeft`.
+	 * `top: 0; bottom: 0` would only span the visible box, so it is sized to the full scroll height.
+	 * Scrolled under the sticky name gutter it is hidden, or it would draw over the track names.
+	 */
 	function positionPlayhead(pps) {
 		const ph = el && el.querySelector('#cinePlayhead');
 		if (!ph) return;
-		ph.style.left = TL_GUTTER + time * (pps || tlPps()) - el.scrollLeft + 'px';
+		const x = time * (pps || tlPps());
+		const h = el.scrollHeight;
+		const underGutter = x < el.scrollLeft;
+		ph.style.left = TL_GUTTER + x + 'px';
+		ph.style.height = h + 'px';
+		ph.style.visibility = underGutter ? 'hidden' : '';
 	}
 
 	function wireTimeline(pps) {
