@@ -398,6 +398,15 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-20 — **Hotfix: in-game timelines stuck on frame 0 since Phase 9b** (branch
+  `claude/fix-cinematic-rearm`). Reported on `commonoverlayproject`: the bonus's pot and curtain
+  timelines never played, and the awaited Flow chain after them never ran. 9b's re-arm `$effect` in
+  `<Cinematic>` gained `lap = time`, a READ of `time`, so every ticker write re-ran the effect and
+  reset the playhead to the start; a Flow `playCinematic` never completed. The effect now reads only
+  `doc.id` and `startTime`. Verified on the live project's data (forced `pot:red`): both timelines
+  finish and the feature intro holds for its tap. No gate mounts `<Cinematic>` on a ticker, which is
+  why CI stayed green.
+
 - 2026-10-20 — **Phase 9b: cubic ease, loop type, default interpolation, multi-key editing**
   (branch `claude/rive-p9b-keying`, in review). Format + evaluator + players + the module's keying
   surfaces, detailed in Current state above; the editor side is in
