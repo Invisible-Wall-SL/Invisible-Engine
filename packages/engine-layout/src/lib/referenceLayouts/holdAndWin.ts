@@ -12,6 +12,7 @@ import type {
 	Scene,
 } from '../types';
 import { linesSelectorAnchor } from '../coinBoardLines';
+import { HOLD_AND_WIN_BANNER_SHOW_SOURCES } from '../holdAndWinBanners';
 import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton';
 
 /**
@@ -36,13 +37,18 @@ import { engineSkeletonLayout, type EngineSkeletonBoard } from './engineSkeleton
  * - the feature (`role: 'mode'`, `modeId: 'holdAndWin'` — mounted while the mode is on the stack):
  *   `respinBoard` (frame art over the coded respin board; its `respinCells` instance authors the
  *   cell tiles and gap), `respinCounter` (+ the active
- *   modifiers), `totalWinBar`, `letters`, `wheel`, `featureIntro`, `featureOutro`, `jackpotWin`.
- * - `luckySpin` — the base-game Lucky Spin banner.
+ *   modifiers), `totalWinBar`, `letters`, `wheel`, `featureIntro`, `featureOutro`, `jackpotWin`,
+ *   and the feature's banner screens (a coin jackpot, a jackpot upgrade, a wheel prize, a row
+ *   unlocked, the feature total).
+ * - `luckySpin` — the base-game Lucky Spin banner — and the base game's banner screens (an instant
+ *   win, a random metre, a pot full, the platform jackpot).
  *
  * The intro, outro and wheel HOLD the round like the free-spin intro/outro: a flow shows them
  * around their beat (`showContainer` … `showContainer{awaitComplete}` … `hideContainer`). The Lucky
  * Spin and jackpot-win screens follow the coded banner instead (`luckySpinShow` / `jackpotWinShow`),
- * which the same beat sets whichever path presents it.
+ * which the same beat sets whichever path presents it. The banner screens follow it too, and the
+ * game mounts them itself (`SELF_MOUNTED_BANNER_SCREENS`): each starts as the coded banner's plate
+ * and lines, for the artist to replace.
  *
  * Everything is placed AROUND the board, never on it, and the board's rows (3) are the same in
  * every preset — so the 3×3 Hotfire board (narrower) fits the same layout as 5×3; pass its shape as
@@ -141,18 +147,6 @@ export const HOLD_AND_WIN_MODE = 'holdAndWin';
 /** The Pots screen: one Pot Meter per pot, on screen in the base game and the feature alike. */
 export const POTS_SCREEN = 'pots';
 
-/**
- * The authored screen that draws each coded banner beat. While the flow shows one (the screen is
- * mounted) the game's coded banner for that beat steps aside, so the two never draw together; with
- * the screen unmounted the coded banner plays exactly as before.
- */
-export const HOLD_AND_WIN_BANNER_SCREENS = {
-	luckySpin: 'luckySpin',
-	jackpot: 'jackpotWin',
-	featureIntro: 'featureIntro',
-	featureOutro: 'featureOutro',
-} as const;
-
 /** The meters of the Pots preset (`holdAndWinPresets.ts`) — one pot each. */
 const POT_METERS = ['red', 'blue', 'green'] as const;
 
@@ -206,6 +200,55 @@ const instance = (
 
 const HEADLINE_FILL = 0xffd35c;
 const HEADLINE = (text: string) => ({ text, fontSize: 72, fill: HEADLINE_FILL });
+
+/**
+ * A banner screen the template seeds: its lines in the editor (the game fills both from the banner,
+ * `holdAndWinBanner` / `holdAndWinBannerDetail`) and whether the coded banner it replaces is the
+ * large one.
+ */
+type BannerScreen = {
+	id: keyof typeof HOLD_AND_WIN_BANNER_SHOW_SOURCES;
+	name: string;
+	title: string;
+	detail?: string;
+	large?: true;
+};
+
+/** The base game's banner screens — up outside the feature too — after the Lucky Spin intro. */
+const BASE_BANNERS: BannerScreen[] = [
+	{
+		id: 'instantWinBanner',
+		name: 'Instant win banner',
+		title: 'INSTANT WIN',
+		detail: '×2  $20.00',
+	},
+	{ id: 'randomMetreBanner', name: 'Random metre banner', title: 'RANDOM METRE' },
+	{ id: 'potFullBanner', name: 'Pot full banner', title: 'PAYER ACTIVATED' },
+	{
+		id: 'platformJackpotBanner',
+		name: 'Platform jackpot banner',
+		title: 'GRAND JACKPOT',
+		detail: '$2,000.00',
+		large: true,
+	},
+];
+
+/** The feature's banner screens, after the jackpot win. */
+const FEATURE_BANNERS: BannerScreen[] = [
+	{ id: 'coinJackpotBanner', name: 'Coin jackpot banner', title: 'MINI', detail: '$15.00' },
+	{ id: 'jackpotUpgradeBanner', name: 'Jackpot upgrade banner', title: 'MINOR UPGRADE' },
+	{
+		id: 'wheelPrizeBanner',
+		name: 'Wheel prize banner',
+		title: 'COIN BOOST ×2',
+		detail: 'EVERY COIN ×2',
+	},
+	{ id: 'rowUnlockedBanner', name: 'Row unlocked banner', title: 'ROW UNLOCKED', detail: '5 ROWS' },
+	{ id: 'featureTotalBanner', name: 'Feature total banner', title: 'BONUS WIN $20.00' },
+];
+
+/** The coded banner's title gold (`apps/lines` `HoldAndWinBanner.svelte`). */
+const BANNER_FILL = 0xffd24a;
 
 const tap = (id: string, armAfterSignal?: string): LayoutNode => ({
 	id,
@@ -283,6 +326,64 @@ export function holdAndWinReferenceLayout(
 	// pinned to the window centre rather than placed in the main box.
 	const centred = (id: string, label: string, dy: number, params: Record<string, unknown>) =>
 		instance(id, label, 'textBox', { screenAnchor: { x: 0.5, y: 0.5 }, x: 0, y: dy }, params);
+
+	/**
+	 * A banner screen: always on top (over the coins in flight, as the coded banner is), shown while
+	 * its banner is up, laid out as the coded banner draws it — the plate, the title in gold, the
+	 * detail under it — at the coded sizes, fractions of the 120 px cell. The artist swaps the plate
+	 * for their art.
+	 */
+	const bannerScene = (banner: BannerScreen): Scene => {
+		const cell = HOLD_AND_WIN_BOARD.cellSize;
+		const titleSize = Math.round(cell * (banner.large ? 0.55 : 0.28));
+		const detailSize = Math.round(cell * (banner.large ? 0.3 : 0.2));
+		const titleDy = banner.detail ? -Math.round(detailSize * 0.6) : 0;
+		const plateHeight = Math.round(banner.detail ? titleSize + detailSize * 1.9 : titleSize * 1.6);
+		return {
+			id: banner.id,
+			name: banner.name,
+			alwaysOnTop: true,
+			visibleSource: HOLD_AND_WIN_BANNER_SHOW_SOURCES[banner.id],
+			nodes: [
+				{
+					id: `${banner.id}-plate`,
+					label: 'Plate',
+					kind: 'rect',
+					...place({ dx: 0, dy: 0 }),
+					anchor: { x: 0.5, y: 0.5 },
+					width: Math.round(cell * (banner.large ? 4.2 : 2.2)),
+					height: plateHeight,
+					color: 0x000000,
+					alpha: 0.72,
+					borderRadius: Math.round(plateHeight / 4),
+					borderWidth: banner.large ? 6 : 3,
+					borderColor: BANNER_FILL,
+				},
+				instance(`${banner.id}-title`, 'Title', 'textBox', place({ dx: 0, dy: titleDy }), {
+					text: banner.title,
+					source: 'holdAndWinBanner',
+					fontSize: titleSize,
+					fill: BANNER_FILL,
+				}),
+				...(banner.detail
+					? [
+							instance(
+								`${banner.id}-detail`,
+								'Detail',
+								'textBox',
+								place({ dx: 0, dy: Math.round(titleSize * 0.55) }),
+								{ text: banner.detail, source: 'holdAndWinBannerDetail', fontSize: detailSize },
+							),
+						]
+					: []),
+			],
+		};
+	};
+	// A pot-full banner only where pots fill.
+	const baseBanners = BASE_BANNERS.filter(({ id }) => id !== 'potFullBanner' || potIds.length).map(
+		bannerScene,
+	);
+	const featureBanners = FEATURE_BANNERS.map((banner) => modeScene(bannerScene(banner)));
 
 	const messageHost = instance(
 		'message-host',
@@ -423,6 +524,7 @@ export function holdAndWinReferenceLayout(
 				}),
 			],
 		},
+		...baseBanners,
 		modeScene({
 			id: 'wheel',
 			name: 'Wheel',
@@ -467,6 +569,7 @@ export function holdAndWinReferenceLayout(
 				}),
 			],
 		}),
+		...featureBanners,
 		modeScene({
 			id: 'featureOutro',
 			name: 'Feature outro',

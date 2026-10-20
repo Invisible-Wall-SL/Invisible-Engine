@@ -4,6 +4,7 @@ import {
 	type KindCapabilities,
 	type KindCapabilityConfig,
 } from './kindCapabilities';
+import { HOLD_AND_WIN_BANNER_SHOW_SOURCES } from './holdAndWinBanners';
 import type { ComponentParam } from './types';
 
 /**
@@ -381,12 +382,11 @@ export const VALUE_BINDING_SOURCE_CATALOG: ValueBindingSourceEntry[] = [
 /** `platformJackpotShow` — true once the operator's platform reports a jackpot. */
 export const PLATFORM_JACKPOT_VISIBILITY_SOURCE_KEYS: string[] = ['platformJackpotShow'];
 
-/** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature; the other two
- *  while the Lucky Spin intro / a banked jackpot's celebration is up. */
+/** The Hold and Win visibility feeds: `respinCounterShow` is true for the whole feature; each banner
+ *  screen's while its banner is up (`HOLD_AND_WIN_BANNER_SHOW_SOURCES`). */
 export const HOLD_AND_WIN_VISIBILITY_SOURCE_KEYS: string[] = [
 	'respinCounterShow',
-	'luckySpinShow',
-	'jackpotWinShow',
+	...Object.values(HOLD_AND_WIN_BANNER_SHOW_SOURCES),
 ];
 
 /**

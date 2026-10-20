@@ -1,3 +1,4 @@
+import { SELF_MOUNTED_BANNER_SCREENS } from './holdAndWinBanners';
 import { isHudScene } from './referenceLayouts/hud';
 import type { ContainerNode, LayoutDoc, LayoutNode, Scene } from './types';
 
@@ -24,12 +25,19 @@ export function engineOwnedOnly(doc: LayoutDoc): LayoutDoc {
 }
 
 function filterScene(scene: Scene): Scene {
-	// The HUD layer is engine-owned wholesale — keep all of its nodes verbatim.
-	if (isHudScene(scene)) {
+	// The HUD layer is engine-owned wholesale — keep all of its nodes verbatim. So is a Hold and Win
+	// banner screen (or a respin mode's copy): its plate is the coded banner's, not artist art, and
+	// without it the banner would scaffold as bare text.
+	if (isHudScene(scene) || isBannerScreen(scene)) {
 		return { ...scene, nodes: scene.nodes.map(cloneNode) };
 	}
 	return { ...scene, nodes: filterNodes(scene.nodes) };
 }
+
+const isBannerScreen = (scene: Scene): boolean =>
+	SELF_MOUNTED_BANNER_SCREENS.some(
+		(id) => scene.id === id || (scene.modeId !== undefined && scene.id === `${id}-${scene.modeId}`),
+	);
 
 function filterNodes(nodes: LayoutNode[]): LayoutNode[] {
 	const kept: LayoutNode[] = [];

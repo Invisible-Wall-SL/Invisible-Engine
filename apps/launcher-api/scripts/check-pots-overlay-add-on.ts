@@ -282,7 +282,7 @@ const potsOf = (doc: LayoutDoc) =>
 	(doc.scenes.find((s) => s.id === 'pots')?.nodes ?? []).map((n) => n.id);
 
 await check(
-	'3 Pots: the pots, jackpot bar and Hold and Win mode screens, nothing else touched',
+	'3 Pots: the pots, jackpot bar, banners and Hold and Win mode screens, nothing else touched',
 	() => {
 		const { doc: config } = withOverlay(lines, 'threePots');
 		const before = bookLayout();
@@ -297,9 +297,18 @@ await check(
 				'respinCounter',
 				'totalWinBar',
 				'letters',
+				'instantWinBanner',
+				'randomMetreBanner',
+				'potFullBanner',
+				'platformJackpotBanner',
 				'wheel',
 				'featureIntro',
 				'jackpotWin',
+				'coinJackpotBanner',
+				'jackpotUpgradeBanner',
+				'wheelPrizeBanner',
+				'rowUnlockedBanner',
+				'featureTotalBanner',
 				'featureOutro',
 			],
 			'added screens',
@@ -324,10 +333,10 @@ await check(
 	},
 );
 
-await check('pots to free spins: the Pots screen alone, with its gold pot', () => {
+await check('pots to free spins: the Pots screen and its banner, with its gold pot', () => {
 	const { doc: config } = withOverlay(lines, 'potsToFreeSpins');
 	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', config, FIRST_RUN);
-	same(merged.added, ['pots'], 'added screens');
+	same(merged.added, ['pots', 'potFullBanner'], 'added screens');
 	same(potsOf(merged.doc), ['pot-gold'], 'the gold pot');
 });
 
@@ -341,7 +350,11 @@ await check('a hand-authored layout keeps every screen; only the add-on screens 
 		],
 	};
 	const merged = mergeAddOnScreens(authored, 'bookOf', config, FIRST_RUN);
-	same(merged.added, ['pot-gold'], 'only a meter for the pot that has none');
+	same(
+		merged.added,
+		['potFullBanner', 'pot-gold'],
+		'only the pot-full banner, and a meter for the pot that has none',
+	);
 	same(merged.doc.scenes[0], authored.scenes[0], 'the other screen');
 	same(merged.doc.scenes[1].name, 'My pots', 'the existing Pots screen is kept');
 	same(potsOf(merged.doc), ['pot-gold'], 'its meter');
@@ -409,26 +422,37 @@ await check('no tokens bound, the Hold and Win bonus symbols still are', () => {
 	);
 });
 
-await check('no Pots screen; the jackpot bar and Hold and Win mode screens join', () => {
-	const merged = mergeAddOnScreens(bookLayout(), 'bookOf', coinsOnly(), FIRST_RUN);
-	assert(!merged.added.includes('pots'), 'a Pots screen was merged');
-	same(
-		merged.added,
-		[
-			'jackpotBar',
-			'respinBackground',
-			'respinBoard',
-			'respinCounter',
-			'totalWinBar',
-			'letters',
-			'wheel',
-			'featureIntro',
-			'jackpotWin',
-			'featureOutro',
-		],
-		'added screens',
-	);
-});
+await check(
+	'no Pots screen; the jackpot bar, base banners and Hold and Win mode screens join',
+	() => {
+		const merged = mergeAddOnScreens(bookLayout(), 'bookOf', coinsOnly(), FIRST_RUN);
+		assert(!merged.added.includes('pots'), 'a Pots screen was merged');
+		same(
+			merged.added,
+			[
+				'jackpotBar',
+				'respinBackground',
+				'respinBoard',
+				'respinCounter',
+				'totalWinBar',
+				'letters',
+				'instantWinBanner',
+				'randomMetreBanner',
+				'platformJackpotBanner',
+				'wheel',
+				'featureIntro',
+				'jackpotWin',
+				'coinJackpotBanner',
+				'jackpotUpgradeBanner',
+				'wheelPrizeBanner',
+				'rowUnlockedBanner',
+				'featureTotalBanner',
+				'featureOutro',
+			],
+			'added screens',
+		);
+	},
+);
 
 console.log('\n3. scaffold scene set');
 

@@ -70,6 +70,15 @@ for (const id of [
 	'featureOutro',
 	'jackpotWin',
 	'luckySpin',
+	'instantWinBanner',
+	'randomMetreBanner',
+	'potFullBanner',
+	'platformJackpotBanner',
+	'coinJackpotBanner',
+	'jackpotUpgradeBanner',
+	'wheelPrizeBanner',
+	'rowUnlockedBanner',
+	'featureTotalBanner',
 	'buyFeature',
 	'buyConfirm',
 ]) {
@@ -96,7 +105,14 @@ assert.ok(editingBuy.has('basegame'), 'editing a takeover keeps the base game un
 assert.ok(!editingBuy.has('respinCounter'), 'editing a takeover shows no feature screen');
 
 const FEATURE = ['respinBoard', 'respinCounter', 'totalWinBar', 'letters'];
-const BEATS = ['wheel', 'featureIntro', 'featureOutro', 'jackpotWin'];
+const BEATS = [
+	'wheel',
+	'featureIntro',
+	'featureOutro',
+	'jackpotWin',
+	'coinJackpotBanner',
+	'featureTotalBanner',
+];
 
 const editingCounter = inGameViewSceneIds(holdAndWin, byId('respinCounter'), MODE);
 for (const id of [...FEATURE, 'basegame', 'jackpotBar', 'pots']) {

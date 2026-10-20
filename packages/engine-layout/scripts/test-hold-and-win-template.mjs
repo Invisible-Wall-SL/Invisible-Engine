@@ -28,7 +28,8 @@ const bundled = await esbuild.build({
 			`export { getTemplate } from '../src/lib/templates/index.ts';`,
 			`export { BUILTIN_COMPONENTS, componentOfferedForKind } from '../src/lib/builtinComponents.ts';`,
 			`export { isComponentMounted, sceneMountKey, trackComponentMount } from '../src/lib/mountedComponents.ts';`,
-			`export { HOLD_AND_WIN_BANNER_SCREENS, reserveExpandingBoard, expandingBoardReserved } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
+			`export { reserveExpandingBoard, expandingBoardReserved } from '../src/lib/referenceLayouts/holdAndWin.ts';`,
+			`export { HOLD_AND_WIN_BANNER_SCREENS, HOLD_AND_WIN_BANNER_SHOW_SOURCES, SELF_MOUNTED_BANNER_SCREENS, bannerScreenFor, bannerScreenShows } from '../src/lib/holdAndWinBanners.ts';`,
 			`export { engineOwnedOnly } from '../src/lib/engineOwnedOnly.ts';`,
 		].join('\n'),
 		resolveDir: HERE,
@@ -433,11 +434,110 @@ assert(
 	'the last unmount releases it — the coded default plays again',
 );
 assert(!mod.isComponentMounted('luckySpin'), 'a screen key never collides with a component id');
-// The banner's authored screens exist, gated on the banner beat they replace; the wheel screen
-// holds the `wheel` component the coded wheel steps aside for.
-const GATE = { luckySpin: 'luckySpinShow', jackpot: 'jackpotWinShow' };
-for (const [kind, id] of Object.entries(mod.HOLD_AND_WIN_BANNER_SCREENS)) {
-	assert(sceneById.get(id)?.visibleSource === GATE[kind], `${id} is not gated on ${GATE[kind]}`);
+// Every banner kind has its authored screens, each gated on its own source (the intro and outro,
+// tap screens, on none); the wheel screen holds the `wheel` component the coded wheel steps aside
+// for.
+const GATE = mod.HOLD_AND_WIN_BANNER_SHOW_SOURCES;
+for (const [kind, ids] of Object.entries(mod.HOLD_AND_WIN_BANNER_SCREENS)) {
+	assert(ids.length > 0, `${kind} has no screen`);
+	for (const id of ids) {
+		assert(sceneById.has(id), `${kind}: the set lacks its screen ${id}`);
+		assert(sceneById.get(id)?.visibleSource === GATE[id], `${id} is not gated on ${GATE[id]}`);
+	}
+}
+// The banner screens the game mounts itself: always on top (over the coins in flight, as the coded
+// banner), the title and detail lines fed by the banner, a feature beat's a feature screen.
+const FEATURE_BANNERS = [
+	'coinJackpotBanner',
+	'jackpotUpgradeBanner',
+	'wheelPrizeBanner',
+	'rowUnlockedBanner',
+	'featureTotalBanner',
+];
+for (const id of mod.SELF_MOUNTED_BANNER_SCREENS) {
+	const scene = sceneById.get(id);
+	assert(scene?.alwaysOnTop === true, `${id} is not always on top`);
+	assert(
+		FEATURE_BANNERS.includes(id)
+			? scene?.role === 'mode' && scene.modeId === 'holdAndWin'
+			: scene?.role === undefined,
+		`${id} is on the wrong side of the feature`,
+	);
+	const plate = scene?.nodes[0];
+	assert(
+		plate?.kind === 'rect' && plate.anchor?.x === 0.5 && plate.borderColor === 0xffd24a,
+		`${id}: its first node is not the coded banner's plate`,
+	);
+	assert(
+		JSON.stringify(mod.engineOwnedOnly(doc).scenes.find((s) => s.id === id)) ===
+			JSON.stringify(scene),
+		`${id}: the scaffold projection strips it`,
+	);
+	const sources = instancesIn(scene).map((n) => n.params?.source);
+	assert(sources[0] === 'holdAndWinBanner', `${id}: its first line is not the banner title`);
+	assert(
+		sources.slice(1).every((source) => source === 'holdAndWinBannerDetail'),
+		`${id}: a line is fed by neither banner source`,
+	);
+	assert(
+		Object.values(mod.HOLD_AND_WIN_BANNER_SCREENS).some((ids) => ids.includes(id)),
+		`${id} draws no banner kind`,
+	);
+}
+assert(
+	!mod.getFullSceneSet('holdAndWin', { potIds: [] }).scenes.some((s) => s.id === 'potFullBanner'),
+	'a set without pots has a pot-full banner',
+);
+// Which screen draws a banner, and which sources show it. Nothing mounted ⇒ the coded banner. The
+// two older sources keep their meaning — "that banner is up", mounted or not — and the platform
+// jackpot, which the jackpot-win screen drew before it had a screen of its own, still shows there
+// until its own screen is mounted.
+{
+	const none = () => false;
+	const only =
+		(...screens) =>
+		(screen) =>
+			screens.includes(screen);
+	const kinds = Object.keys(mod.HOLD_AND_WIN_BANNER_SCREENS);
+	assert(
+		kinds.every((kind) => mod.bannerScreenFor(kind, none) === undefined),
+		'with nothing mounted a screen draws a banner',
+	);
+	for (const kind of kinds)
+		assert(
+			mod.bannerScreenShows(kind, 'luckySpin', none) === (kind === 'luckySpin'),
+			`luckySpinShow moved for a ${kind} banner`,
+		);
+	for (const kind of kinds)
+		assert(
+			mod.bannerScreenShows(kind, 'jackpotWin', none) ===
+				(kind === 'jackpot' || kind === 'platformJackpot'),
+			`jackpotWinShow moved for a ${kind} banner`,
+		);
+	assert(
+		mod.bannerScreenFor('platformJackpot', only('jackpotWin')) === 'jackpotWin',
+		'the platform jackpot draws on a mounted jackpot-win screen',
+	);
+	assert(
+		mod.bannerScreenFor('platformJackpot', only('jackpotWin', 'platformJackpotBanner')) ===
+			'platformJackpotBanner',
+		'…its own screen first',
+	);
+	assert(
+		!mod.bannerScreenShows('platformJackpot', 'jackpotWin', only('platformJackpotBanner')) &&
+			mod.bannerScreenShows('platformJackpot', 'platformJackpotBanner', only('jackpotWin')),
+		'the two never show one platform jackpot together',
+	);
+	assert(
+		mod.bannerScreenFor('coinJackpot', only('coinJackpotBanner')) === 'coinJackpotBanner' &&
+			mod.bannerScreenFor('coinJackpot', only('jackpotWin')) === undefined,
+		'a coin jackpot draws on its own screen only',
+	);
+	for (const [screen, source] of Object.entries(mod.HOLD_AND_WIN_BANNER_SHOW_SOURCES))
+		assert(
+			kinds.filter((kind) => mod.bannerScreenShows(kind, screen, none)).length > 0,
+			`${source} shows for no banner`,
+		);
 }
 assert(
 	instancesIn(sceneById.get('wheel')).some((n) => n.componentId === 'wheel'),
@@ -446,7 +546,9 @@ assert(
 
 // ─── Add-on screens (pots overlay Phase 5b, docs/design/pots-overlay.md §4) ───────────────────
 // The add-on flags merge the overlay's screens into another kind's set; with none set every set is
-// the kind's own. The Hold and Win set itself, before `potIds` existed, hashed as pinned here.
+// the kind's own. The Hold and Win set itself is pinned twice: as it is, and without the banner
+// screens (2026-10-20), which must hash as the set did before they joined — so every older screen
+// is byte-identical and the banners are the only change.
 {
 	const json = (value) => JSON.stringify(value);
 	const ids = (d) => d.scenes.map((sc) => sc.id);
@@ -459,28 +561,39 @@ assert(
 		'wheel',
 		'featureIntro',
 		'jackpotWin',
+		...FEATURE_BANNERS,
 		'featureOutro',
 	];
+	const BASE_BANNERS = ['instantWinBanner', 'randomMetreBanner', 'platformJackpotBanner'];
 	const HW_PINNED = {
+		plain: '0e0893e4c367520f',
+		maxRows6: 'f1d1851de3219f2c',
+		hotfire: '1c65e0d44f24b01f',
+	};
+	const BEFORE_BANNERS = {
 		plain: '3f585158f5da883f',
 		maxRows6: '1e65875ac8b7fa53',
 		hotfire: '1c148ee2579db66a',
 	};
-	assert(
-		hash(mod.getFullSceneSet('holdAndWin')) === HW_PINNED.plain,
-		'the Hold and Win set changed',
-	);
-	assert(
-		hash(mod.getFullSceneSet('holdAndWin', { maxRows: 6 })) === HW_PINNED.maxRows6,
-		'the expanded Hold and Win set changed',
-	);
+	const withoutBanners = (d) => ({
+		...d,
+		scenes: d.scenes.filter((sc) => !mod.SELF_MOUNTED_BANNER_SCREENS.includes(sc.id)),
+	});
+	const sets = {
+		plain: mod.getFullSceneSet('holdAndWin'),
+		maxRows6: mod.getFullSceneSet('holdAndWin', { maxRows: 6 }),
+		hotfire: mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_HOTFIRE_BOARD),
+	};
+	for (const [name, set] of Object.entries(sets)) {
+		assert(hash(set) === HW_PINNED[name], `the Hold and Win set (${name}) changed`);
+		assert(
+			hash(withoutBanners(set)) === BEFORE_BANNERS[name],
+			`the Hold and Win set (${name}) changed beyond its banner screens`,
+		);
+	}
 	assert(
 		hash(mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_BOARD)) === HW_PINNED.plain,
 		'the Hold and Win reference changed',
-	);
-	assert(
-		hash(mod.holdAndWinReferenceLayout(mod.HOLD_AND_WIN_HOTFIRE_BOARD)) === HW_PINNED.hotfire,
-		'the Super Hotfire reference changed',
 	);
 	const hwDefault = json(mod.getFullSceneSet('holdAndWin'));
 	assert(
@@ -541,8 +654,11 @@ assert(
 
 	const potsOnly = { potsOverlay: true, potIds: ['gold', 'jade'] };
 	const withPots = mod.getFullSceneSet('bookOf', potsOnly);
-	assert(json(mod.addOnSceneIds('bookOf', potsOnly)) === json(['pots']), 'pots overlay adds pots');
-	assert(withPots.scenes.length === bookOf.scenes.length + 1, 'pots overlay adds one screen');
+	assert(
+		json(mod.addOnSceneIds('bookOf', potsOnly)) === json(['pots', 'potFullBanner']),
+		'pots overlay adds pots and their banner',
+	);
+	assert(withPots.scenes.length === bookOf.scenes.length + 2, 'pots overlay adds two screens');
 	const potsAt = ids(withPots).indexOf('pots');
 	assert(ids(withPots)[potsAt - 1] === 'basegame', 'the pots screen sits right after basegame');
 	const pots = withPots.scenes[potsAt];
@@ -563,11 +679,11 @@ assert(
 
 	const bonus = { potsOverlay: true, holdAndWin: true, potIds: ['gold', 'jade'] };
 	const withBonus = mod.getFullSceneSet('bookOf', bonus);
-	const expected = ['jackpotBar', 'pots', ...MODE_SCREENS];
+	const expected = ['jackpotBar', 'pots', 'potFullBanner', ...BASE_BANNERS, ...MODE_SCREENS];
 	const addedIds = ids(withBonus).filter((id) => !ids(bookOf).includes(id));
 	assert(
 		json([...addedIds].sort()) === json([...expected].sort()),
-		`a Hold and Win bonus adds pots, the jackpot bar and the mode screens (got ${addedIds})`,
+		`a Hold and Win bonus adds pots, the jackpot bar, the base banners and the mode screens (got ${addedIds})`,
 	);
 	assert(
 		json([...mod.addOnSceneIds('bookOf', bonus)].sort()) === json([...expected].sort()),
@@ -577,9 +693,17 @@ assert(
 	for (const id of ['freeSpinIntro', 'freeSpinCounter', 'freeSpinOutro'])
 		assert(ids(withBonus).includes(id), `the free-spin screen ${id} survives`);
 	keepsOwn(withBonus, 'Hold and Win bonus');
+	const overlaysAt = ids(withBonus).indexOf('basegameOverlays');
 	assert(
-		ids(withBonus)[ids(withBonus).indexOf('wheel') - 1] === 'basegameOverlays',
-		'the beat screens follow basegameOverlays',
+		json(ids(withBonus).slice(overlaysAt + 1, overlaysAt + 6)) ===
+			json([
+				'instantWinBanner',
+				'randomMetreBanner',
+				'potFullBanner',
+				'platformJackpotBanner',
+				'wheel',
+			]),
+		'the base banners, then the beat screens, follow basegameOverlays',
 	);
 
 	// The editor's merge: an authored doc keeps every scene byte-identical; only the missing add-on

@@ -151,6 +151,7 @@
 		sceneInActiveModes,
 		hudScenesForMode,
 		potFillShare,
+		HOLD_AND_WIN_BANNER_SHOW_SOURCES,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -188,6 +189,7 @@
 	} from '../game/flowInterpreterHolder';
 	import { createLinesFlowV2, type LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 	import type { EnginePotsScreen } from '../game/flowV2PotsScreen';
+	import type { EngineBannerScreen } from '../game/flowV2BannerScreens';
 	import {
 		setFlowV2,
 		getFlowV2,
@@ -345,6 +347,7 @@
 	import LineOverlayPart from './LineOverlayPart.svelte';
 	import RespinLockedRows from './RespinLockedRows.svelte';
 	import { stateHoldAndWinBanner } from '../game/holdAndWinBanner.svelte';
+	import { bannerShows } from '../game/holdAndWinBannerScreen.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
 	import MessageSymbol from './MessageSymbol.svelte';
@@ -936,7 +939,7 @@
 			]),
 		),
 		// The coded banner's headline and detail line ("GRAND JACKPOT", the amount), what the authored
-		// `luckySpin` / `jackpotWin` screens show — one beat sets them for both paths.
+		// banner screens show — one beat sets them for both paths.
 		holdAndWinBanner: textSource(() => stateHoldAndWinBanner.current?.title ?? ''),
 		holdAndWinBannerDetail: textSource(() => stateHoldAndWinBanner.current?.detail ?? ''),
 		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
@@ -1041,9 +1044,14 @@
 				boolSource(() => meterFullShown(id)),
 			]),
 		),
-		// …and the two banner beats the authored `luckySpin` / `jackpotWin` screens gate on.
-		luckySpinShow: boolSource(() => stateHoldAndWinBanner.current?.kind === 'luckySpin'),
-		jackpotWinShow: boolSource(() => stateHoldAndWinBanner.current?.kind === 'jackpot'),
+		// …and each banner screen's, true while a banner it draws is up (`bannerShows`): what the
+		// authored `luckySpin`, `jackpotWin` and `…Banner` screens gate on.
+		...Object.fromEntries(
+			Object.entries(HOLD_AND_WIN_BANNER_SHOW_SOURCES).map(([screen, source]) => [
+				source,
+				boolSource(() => bannerShows(screen)),
+			]),
+		),
 		// True once the operator's platform reports a jackpot — the Platform Jackpot Bar's gate.
 		platformJackpotShow: boolSource(platformJackpotsLive),
 		// Gates the `infoBar` componentInstance: true while a transient `showMessage` toast
@@ -1330,6 +1338,11 @@
 	// mounts it with the board, so an authored Pot Meter draws where it was placed. `undefined`
 	// without such a flow, meters or Pots screen ⇒ nothing renders (parity).
 	let flowV2EnginePots = $state<EnginePotsScreen | undefined>(undefined);
+	// The banner screens a driven v2 flow never shows (`engineBannerScreens`): the game mounts them
+	// itself — a mode's only while it is on screen — each gated on its banner, so the artist's banner
+	// replaces the coded one with no flow wiring. Empty without such a flow or screens (parity).
+	let flowV2EngineBanners = $state<EngineBannerScreen[]>([]);
+	const engineBanners = $derived(flowV2EngineBanners.filter(({ scene }) => inActiveModes(scene)));
 	// Authored background scenes (§ persistent-bg-scene). An author's "New background screen"
 	// gets a fresh-id scene with `space: 'background'` (NOT the coded `background`-id /
 	// `space:'canvas'` rig anchor above) carrying full-bleed art. `backgroundScenes` selects
@@ -2313,6 +2326,7 @@
 			// book-events-only flow doesn't, so the coded/v1 screen path stays (no regression).
 			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;
 			flowV2EnginePots = flowV2?.enginePots;
+			flowV2EngineBanners = flowV2?.engineBanners ?? [];
 			flowV2ResolveScene = flowV2?.resolveScene;
 			flowV2Containers = flowV2?.ordered() ?? [];
 			// Mirror the handle for `<FlowV2Messages>` — its `textMessages` (static) + `messageShown`
@@ -2763,6 +2777,14 @@
 		{#each extraScenes as scene (scene.id)}
 			<Container zIndex={sceneLayerZIndex(editorDoc.scenes, scene.id)}>
 				<LayoutScene {scene} />
+			</Container>
+		{/each}
+	{:else}
+		<!-- …except the banner screens that flow never shows, which the game mounts itself
+				 (`engineBannerScreens`) at their own Screens-list z, as the generic mount above would. -->
+		{#each engineBanners as banner (banner.scene.id)}
+			<Container zIndex={banner.z}>
+				<LayoutScene scene={banner.scene} />
 			</Container>
 		{/each}
 	{/if}
