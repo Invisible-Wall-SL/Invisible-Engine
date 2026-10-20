@@ -178,12 +178,14 @@
 	ticker?.add(tick);
 	onDestroy(() => ticker?.remove(tick));
 
-	// Re-arm when the caller restarts it (a screen replayed, or a different cinematic mounted).
+	// Re-arm when the caller restarts it (a screen replayed, or a different cinematic mounted). It
+	// must never READ `time`: the ticker writes it every frame, which would re-run this and pin the
+	// playhead at the start.
 	$effect(() => {
 		void props.doc.id;
-		void props.startTime;
-		time = props.startTime ?? 0;
-		lap = time;
+		const start = props.startTime ?? 0;
+		time = start;
+		lap = start;
 		done = false;
 	});
 </script>
