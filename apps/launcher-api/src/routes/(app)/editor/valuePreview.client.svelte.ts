@@ -148,11 +148,31 @@ export function previewEffectParamValues(
 	);
 }
 
+let viewHidden: ReadonlySet<string> = new Set();
+
+/**
+ * The Outline's Hide / Isolate (Rive plan Phase 9a): the ids the stage skips, from
+ * `effectiveHiddenIds`. Editor view state on the same never-saved seam: the draw paths read it
+ * through {@link previewResolveTransform}, the doc's own `visible` is never touched. The Screens and
+ * Components sides each set theirs while they are on the stage.
+ */
+export function setViewHidden(ids: ReadonlySet<string>): void {
+	if (ids.size === viewHidden.size && [...ids].every((id) => viewHidden.has(id))) return;
+	viewHidden = ids;
+	version.n += 1;
+}
+
+/** The Outline hides (or isolates away) `nodeId` on the stage. */
+export function isViewHidden(nodeId: string): boolean {
+	return viewHidden.has(nodeId);
+}
+
 /** `resolveTransform` with the previewed transform targets folded on — for the draw paths. */
 export function previewResolveTransform(
 	node: LayoutNode,
 	layoutType: LayoutType,
 ): ResolvedTransform {
+	if (viewHidden.has(node.id)) return { ...resolveTransform(node, layoutType), visible: false };
 	const folded = foldBoundTransform(
 		resolveTransform(node, layoutType),
 		previewBindings(node),

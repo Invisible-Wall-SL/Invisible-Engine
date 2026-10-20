@@ -91,6 +91,10 @@
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
+	import { setViewHidden } from './valuePreview.client.svelte';
+	import { SvelteSet } from 'svelte/reactivity';
+	import { isTypingTarget } from '$lib/editor/stageShortcuts';
+	import { effectiveHiddenIds, lockedInTree, moveNode, type DropZone } from '$lib/editor/hierarchy';
 	import {
 		canEnterNested,
 		etagAdoption,
@@ -619,6 +623,51 @@
 			: undefined,
 	);
 
+	// ---- Outline: Lock / Isolate / Hide, drag, menu (Rive plan Phase 9a) ----
+	// Hide and Isolate are editor view state (as on the Screens side): never written into a node.
+	const outlineHidden = new SvelteSet<string>();
+	let isolatedId = $state<string | null>(null);
+	const stageHidden = $derived(effectiveHiddenIds(editedNodes, outlineHidden, isolatedId));
+	$effect(() => {
+		if (active) setViewHidden(stageHidden);
+	});
+	let revealRequest = $state<{ id: string; seq: number } | null>(null);
+	let revealSeq = 0;
+
+	function toggleOutlineHidden(id: string): void {
+		if (outlineHidden.has(id)) outlineHidden.delete(id);
+		else outlineHidden.add(id);
+	}
+	function toggleIsolate(id: string): void {
+		isolatedId = isolatedId === id ? null : id;
+	}
+	function toggleNodeLock(id: string): void {
+		const node = findById(editedNodes, id);
+		if (!node) return;
+		if (node.locked) delete node.locked;
+		else node.locked = true;
+		editNonce += 1;
+	}
+	function moveOutlineNode(dragId: string, overId: string, zone: DropZone): void {
+		if (moveNode(editedNodes, dragId, overId, zone)) editNonce += 1;
+	}
+	function deleteFromOutline(id: string): void {
+		const ids = selectedIds.includes(id) ? selectedIds : [id];
+		for (const x of ids.filter((x) => !lockedInTree(editedNodes, x))) onDeleteNode(x);
+	}
+	/** `Tab` on the stage — the Design / Animate toggle; a historical snapshot stays in Design. */
+	function toggleEditorMode(): void {
+		if (animating) editorMode = 'design';
+		else if (componentDraft && !isInspecting) {
+			editorMode = 'animate';
+			animateVisited = true;
+		}
+	}
+	function revealInOutline(id: string): void {
+		leftTab = 'outline';
+		revealRequest = { id, seq: ++revealSeq };
+	}
+
 	/** The preview FRAME is the standard window (its aspect comfortably contains the
 	 * project's main box at `mainScale`) — same choice the Scene Editor makes. The
 	 * game-space mapping below scales the project's real main box into this window. */
@@ -1050,6 +1099,8 @@
 	let editorMode = $state<'design' | 'animate'>('design');
 	/** A historical snapshot is read-only, and so is everything keyed against it. */
 	const animating = $derived(editorMode === 'animate' && !!componentDraft && !isInspecting);
+	/** The Outline may change the def: not a historical snapshot, and not Animate (the stage keys there). */
+	const treeEditable = $derived(!!componentDraft && !isInspecting && !animating);
 	/** The Timeline panel mounts on the first visit to Animate and then stays (hidden in Design, and
 	 *  across components), so leaving Animate or the component never drops an unsaved timeline — the
 	 *  panel saves it when the host changes, as on a screen. */
@@ -1160,17 +1211,6 @@
 		else if (trail.length > 0) await goToCrumb(trail.length - 1);
 		else if (componentDraft && rootLabel === null) await closeComponent();
 		else await exitToScreens();
-	}
-
-	function isTypingTarget(t: EventTarget | null): boolean {
-		const el = t as HTMLElement | null;
-		return (
-			!!el &&
-			(el.tagName === 'INPUT' ||
-				el.tagName === 'TEXTAREA' ||
-				el.tagName === 'SELECT' ||
-				el.isContentEditable)
-		);
 	}
 
 	/** Esc goes up a level. Runs in the capture phase, before the canvas's own Escape (which
@@ -2766,6 +2806,15 @@
 											: [...selectedIds, id])
 									: (selectedIds = [id])}
 							onRename={renameNode}
+							onToggleLock={treeEditable ? toggleNodeLock : undefined}
+							hiddenIds={outlineHidden}
+							onToggleHide={toggleOutlineHidden}
+							{isolatedId}
+							onToggleIsolate={toggleIsolate}
+							{stageHidden}
+							onMove={treeEditable ? moveOutlineNode : undefined}
+							{revealRequest}
+							onDelete={treeEditable ? deleteFromOutline : undefined}
 						/>
 					{/if}
 				</div>
@@ -2798,6 +2847,8 @@
 						onEditInstance={animating ? undefined : (node) => void enterInstance(node)}
 						animate={animating}
 						onAnimateTransform={animating && keyingActive() ? keyStageTransform : undefined}
+						onToggleMode={toggleEditorMode}
+						onRevealSelection={revealInOutline}
 						onStagePointer={animating && animateTab === 'stateMachine'
 							? (kind, id) => stateMachinePanel?.stagePointer(kind, id)
 							: undefined}
