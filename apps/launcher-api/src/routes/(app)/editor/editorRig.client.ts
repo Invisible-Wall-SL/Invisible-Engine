@@ -284,7 +284,7 @@ export interface RigArtBounds {
  *
  * Prefers the AUTHORED skeleton box (`skeleton.{x,y,width,height}`, via `authoredRigBox`):
  * it's pose-independent, present in every proper export, and it is the exact rect the game's
- * `rigSizeScale` sizes by and `<RigProvider centreBox>` centres on — so a preview fitted
+ * `rigSizeScale` sizes by and `<RigProvider anchor={0.5}>` centres on — so a preview fitted
  * to it matches what ships. The box is read WHERE the header puts it: a Rigger rig's frame is
  * rarely centred on its origin, and reading only the size used to place it as if it were.
  * Falls back to a live setup-pose `getBounds` (with its own centre) for a rig whose export
