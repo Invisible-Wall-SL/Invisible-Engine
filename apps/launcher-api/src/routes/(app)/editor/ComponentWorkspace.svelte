@@ -59,6 +59,7 @@
 	import EditorCanvas from './EditorCanvas.svelte';
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
+	import EditorDataPanel from './EditorDataPanel.svelte';
 	import EditorProperties from './EditorProperties.svelte';
 	import EditorTimelinePanel from './EditorTimelinePanel.svelte';
 	import { keyingActive, keyStageTransform } from './animateKeying.client.svelte';
@@ -528,7 +529,7 @@
 	/** Left sidebar tab (when a component is open): the asset Library to drag from,
 	 * or the Outline of the open component's tree. Properties always show on the
 	 * right, so selecting a node never needs a tab switch. */
-	let leftTab = $state<'library' | 'outline' | 'browse'>('outline');
+	let leftTab = $state<'library' | 'outline' | 'browse' | 'data'>('outline');
 	// Resizable sidebars — shared behaviour via <PanelResizers> (same as the
 	// Scene Editor); widths persist under this tool's own key.
 	let leftWidth = $state(280);
@@ -2768,10 +2769,22 @@
 					>
 						Browse
 					</button>
+					<button
+						role="tab"
+						aria-selected={leftTab === 'data'}
+						class="tab"
+						class:active={leftTab === 'data'}
+						title="Read-only: this component's inputs, events, params and bound values"
+						onclick={() => (leftTab = 'data')}
+					>
+						Data
+					</button>
 				</div>
 
 				<div class="tab-body">
-					{#if leftTab === 'browse'}
+					{#if leftTab === 'data'}
+						<EditorDataPanel def={componentDraft} onSelect={(id) => (selectedIds = [id])} />
+					{:else if leftTab === 'browse'}
 						{@render screensSection()}
 						<PanelSection id="cmp-browse" title="Components" count={components.length}>
 							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)} />
