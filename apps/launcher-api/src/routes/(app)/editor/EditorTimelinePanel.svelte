@@ -73,6 +73,16 @@
 	} from '$lib/timeline/screenTimeline';
 	import type { TimelineChannel } from '$lib/timeline/timeline';
 	import {
+		STARTER_TARGET,
+		contentKey,
+		linkStub,
+		withPlacement,
+		sharedTimelineId,
+		updateAvailable,
+		type SharedTimelineLink,
+		type SharedTimelineSummary,
+	} from '$lib/timeline/sharedTimelines';
+	import {
 		REPORT_EVENT_PREFIX,
 		keyText,
 		setTextMode,
@@ -192,6 +202,8 @@
 
 	/** Does `doc` belong to the host this panel is on? Keys never land on another host's doc. */
 	function ownsDoc(doc: CinematicDoc): boolean {
+		// A link plays the shared content as it is: nothing keys it here (Detach first).
+		if (link) return false;
 		if (component) return doc.host?.kind === 'component' && doc.host.componentId === component.id;
 		return doc.host?.kind === 'screen' && doc.host.sceneId === scene?.id;
 	}
@@ -231,6 +243,10 @@
 					docVersion++;
 				},
 				changed() {
+					if (tl && link && linkedContent !== null && contentKey(tl.doc()) !== linkedContent) {
+						keepLinkedContent();
+						return;
+					}
 					dirty = true;
 					docVersion++;
 					preview();
@@ -273,6 +289,8 @@
 		tl = null;
 		openId = null;
 		etag = null;
+		link = null;
+		linkedContent = null;
 		dirty = false;
 		conflict = false;
 		time = 0;
@@ -326,7 +344,11 @@
 			error = `Could not open "${id}": ${await readError(res)}`;
 			return;
 		}
-		const body = (await res.json()) as { doc: CinematicDoc | null; etag: string | null };
+		const body = (await res.json()) as {
+			doc: CinematicDoc | null;
+			etag: string | null;
+			link?: LinkInfo;
+		};
 		if (!body.doc) {
 			error = `"${id}" is not a readable timeline.`;
 			return;
@@ -334,6 +356,8 @@
 		closeTimeline();
 		openId = id;
 		etag = body.etag;
+		link = body.link ?? null;
+		linkedContent = link ? contentKey(body.doc) : null;
 		mountTimeline(body.doc);
 	}
 
@@ -412,8 +436,10 @@
 	}
 
 	async function save(force = false): Promise<void> {
-		const doc = tl?.doc();
-		if (!doc || busy) return;
+		const open = tl?.doc();
+		if (!open || busy) return;
+		// A link saves its placement only (the server drops anything else too).
+		const doc = link ? linkStub(open, link) : open;
 		busy = true;
 		error = '';
 		try {
@@ -627,6 +653,202 @@
 		preview();
 	}
 
+	// ---- shared timelines (Rive plan Phase 9d) ------------------------------------------------
+
+	/** What `/api/cinematics/get` says about a link. */
+	interface LinkInfo extends SharedTimelineLink {
+		name: string;
+		latest: number | null;
+		missing: boolean;
+	}
+
+	/** The open timeline's link to a shared one; null = it is the project's own. */
+	let link = $state<LinkInfo | null>(null);
+	/** A link's content as opened ({@link contentKey}): a commit that changes it is taken back. */
+	let linkedContent: string | null = null;
+	let sharedRows = $state<SharedTimelineSummary[]>([]);
+	let canPublish = $state(false);
+	let libraryOpen = $state(false);
+
+	/**
+	 * A commit changed a link's content (a key dragged in the lanes, say): put the shared content
+	 * back under the doc's placement fields, which stay editable (name, Plays on, reuse). The
+	 * history restarts there, so no undo can bring the edit back.
+	 */
+	function keepLinkedContent(): void {
+		if (!tl || linkedContent === null) return;
+		tl.setDoc(withPlacement(linkedContent, tl.doc()));
+		tl.historyReset();
+		tl.clearSelection();
+		tl.renderTimeline();
+		tl.renderInspector();
+		docVersion++;
+		preview();
+		error = `"${link?.name}" is a shared timeline: its keys are edited in the shared library. Detach to edit a copy here.`;
+	}
+
+	async function refreshShared(): Promise<void> {
+		const res = await fetch('/api/cinematics/shared');
+		if (!res.ok) return;
+		const body = (await res.json()) as { timelines: SharedTimelineSummary[]; canPublish: boolean };
+		sharedRows = body.timelines;
+		canPublish = body.canPublish;
+	}
+
+	/** Which node of this host each of a shared timeline's actors drives. Null = cancelled. */
+	async function bindTargets(row: SharedTimelineSummary): Promise<Record<string, string> | null> {
+		if (!scene) return null;
+		const names = new Set(scene.nodes.map((n) => n.label ?? n.id));
+		const selected = target?.ok ? target.target : '';
+		const targets: Record<string, string> = {};
+		for (const from of row.targets) {
+			const value = await askText({
+				title: `Place "${row.name}"`,
+				message:
+					from === STARTER_TARGET
+						? 'Which node does it animate? Type the node’s name (its label).'
+						: `It animates a node named "${from}". Which node of this ${where} is that?`,
+				label: 'Node name',
+				value: names.has(from) ? from : selected || from,
+			});
+			if (value === null) return null;
+			if (value.trim() && value.trim() !== from) targets[from] = value.trim();
+		}
+		return targets;
+	}
+
+	/** Place a shared timeline on this host: a LINK (its own id and trigger, the shared content). */
+	async function placeShared(row: SharedTimelineSummary): Promise<void> {
+		if (!scene || !(await guardUnsaved())) return;
+		libraryOpen = false;
+		const targets = await bindTargets(row);
+		if (!targets) return;
+		const taken = rows.map((r) => r.id);
+		const id = component
+			? componentTimelineId(component.id, row.name, taken)
+			: screenTimelineId(scene.id, row.name, taken);
+		const placement = component
+			? newComponentTimeline({
+					id,
+					name: row.name,
+					componentId: component.id,
+					playOn: component.signals[0],
+				})
+			: newScreenTimeline({ id, name: row.name, sceneId: scene.id });
+		placement.duration = row.duration;
+		const stub = linkStub(placement, {
+			id: row.id,
+			version: row.version,
+			...(Object.keys(targets).length ? { targets } : {}),
+		});
+		error = '';
+		const res = await fetch('/api/cinematics/save', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ doc: stub, baseEtag: null, projectKey }),
+		});
+		if (!res.ok) {
+			error = `Could not place "${row.name}": ${await readError(res)}`;
+			return;
+		}
+		dirty = false;
+		await refresh();
+		closeTimeline();
+		await open(id);
+	}
+
+	/** Re-pin the open link to the shared copy's latest version. */
+	async function updateLink(): Promise<void> {
+		if (!link || link.latest === null || !(await guardUnsaved())) return;
+		const id = openId;
+		const previous = link;
+		link = { ...link, version: link.latest };
+		dirty = true;
+		await save();
+		if (dirty) {
+			link = previous;
+			dirty = false;
+			return;
+		}
+		if (id) {
+			closeTimeline();
+			await open(id);
+		}
+	}
+
+	/** Detach: the resolved content becomes the project's own timeline, under the same id. */
+	async function detach(): Promise<void> {
+		const doc = tl?.doc();
+		if (!doc || !link || link.missing) return;
+		const ok = await askConfirm({
+			title: `Detach "${doc.name}" from the shared library?`,
+			message:
+				'A copy of what it plays now is saved in this project, and you can edit it here. It no longer follows the shared timeline, and shows no update.',
+			confirmLabel: 'Detach',
+		});
+		if (!ok) return;
+		const id = openId;
+		const previous = link;
+		link = null;
+		linkedContent = null;
+		dirty = true;
+		await save();
+		if (dirty) {
+			link = previous;
+			linkedContent = contentKey(doc);
+			dirty = false;
+			return;
+		}
+		if (id) {
+			closeTimeline();
+			await open(id);
+		}
+	}
+
+	/** Promote the open (own) timeline to `_shared/cinematics/` as its next version. */
+	async function promote(): Promise<void> {
+		const doc = tl?.doc();
+		if (!doc || link || !canPublish) return;
+		if (dirty) await save();
+		if (dirty) return;
+		const name = await askText({
+			title: 'Promote to the shared library',
+			message:
+				'Every project can place it. Its keys bind by node NAME; the host and Plays on stay here. Promoting an existing name adds a new version: placed copies show an update.',
+			label: 'Shared name',
+			value: doc.name,
+		});
+		if (!name?.trim()) return;
+		const sharedId = sharedTimelineId(name);
+		const post = async (): Promise<Response> => {
+			const head = await fetch(`/api/cinematics/shared/get?id=${encodeURIComponent(sharedId)}`);
+			const baseEtag = head.ok ? ((await head.json()) as { etag: string | null }).etag : null;
+			return fetch('/api/cinematics/shared/promote', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ doc: tl?.doc(), name: name.trim(), sharedId, baseEtag }),
+			});
+		};
+		error = '';
+		let res = await post();
+		if (res.status === 409) {
+			const again = await askConfirm({
+				title: 'Promote yours as a NEW version on top?',
+				message: await readError(res),
+				confirmLabel: 'Promote on top',
+			});
+			if (!again) return;
+			res = await post();
+		}
+		if (!res.ok) {
+			error = `Promote failed: ${await readError(res)}`;
+			return;
+		}
+		const body = (await res.json()) as { version: number };
+		status = `Promoted "${name.trim()}" v${body.version}`;
+		await refreshShared();
+	}
+
 	// ---- cue, visibility and text rows (Rive plan Phase 9d) ---------------------------------
 
 	/** Rive's Report Event: a `signal:` cue at the playhead, selected so its name can be typed. */
@@ -771,6 +993,12 @@
 			return {
 				...base,
 				message: `Open or create a timeline in the panel below to key this ${where}.`,
+			};
+		if (link)
+			return {
+				...base,
+				timelineOpen: false,
+				message: `"${link.name}" is a shared timeline. Detach it (Timeline panel) to key it here.`,
 			};
 		if (!target) return base;
 		if (!target.ok) return { ...base, message: target.message };
@@ -925,6 +1153,7 @@
 
 	onMount(() => {
 		void refresh();
+		void refreshShared();
 		window.addEventListener('beforeunload', onBeforeUnload);
 		return () => window.removeEventListener('beforeunload', onBeforeUnload);
 	});
@@ -1219,19 +1448,73 @@
 			{/if}
 		</div>
 		<div class="tl-track">
-			{#if openId}
-				<div class="tl-rowbar">
+			<div class="tl-rowbar">
+				<div class="tl-library">
+					<button
+						type="button"
+						disabled={!scene}
+						title="Shared timelines and starters: place one on this {where} as a link"
+						onclick={() => {
+							libraryOpen = !libraryOpen;
+							if (libraryOpen) void refreshShared();
+						}}>📚 Shared</button
+					>
+					{#if libraryOpen}
+						<div class="tl-library-list" data-esc-owner>
+							{#each sharedRows as row (row.id)}
+								<div class="tl-library-row">
+									<span title={row.targets.length ? `Animates: ${row.targets.join(', ')}` : ''}>
+										{row.starter ? '✦' : '📚'}
+										{row.name}
+										<small>v{row.version} · {row.duration}s</small>
+									</span>
+									<button type="button" onclick={() => void placeShared(row)}>Place</button>
+								</div>
+							{:else}
+								<small>No shared timelines yet.</small>
+							{/each}
+						</div>
+					{/if}
+				</div>
+				{#if openId && link}
+					<span
+						class="pill link"
+						title="A link to the shared timeline “{link.name}”: it plays version {link.version}. Its keys are edited in the shared library."
+						>🔗 {link.name} v{link.version}</span
+					>
+					{#if link.missing}
+						<span class="pill error">⚠ shared version missing — it ships nothing</span>
+					{:else if updateAvailable(link, link.latest)}
+						<span class="pill dirty" title="The shared copy has a newer version"
+							>Update available (v{link.latest})</span
+						>
+						<button type="button" onclick={() => void updateLink()}>Update</button>
+					{/if}
+					<button
+						type="button"
+						disabled={link.missing}
+						title="Copy what it plays into this project, to edit it here"
+						onclick={() => void detach()}>Detach</button
+					>
+				{:else if openId}
 					<button
 						type="button"
 						title="Report event: a signal: cue at the playhead. A component's instances hear it as a signal; Flow reacts to it. Name it in the inspector →"
 						onclick={reportEvent}>⚡ Report event</button
 					>
+					{#if canPublish}
+						<button
+							type="button"
+							title="Save a copy to the shared library (_shared/cinematics) that every project can place"
+							onclick={() => void promote()}>Promote to shared</button
+						>
+					{/if}
 					<small
 						>Cue, visible and text rows: drag a marker to retime it, double-click a visible or text
 						marker to delete it.</small
 					>
-				</div>
-			{/if}
+				{/if}
+			</div>
 			<div class="tl-lanes" bind:this={tlEl}></div>
 		</div>
 		<div class="tl-insp" bind:this={inspEl}></div>
@@ -1404,6 +1687,39 @@
 		padding: 1px 6px;
 		font-size: 11px;
 		cursor: pointer;
+	}
+	.tl-library {
+		position: relative;
+	}
+	.tl-library-list {
+		position: absolute;
+		z-index: 7;
+		top: 100%;
+		left: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 240px;
+		max-height: 260px;
+		overflow: auto;
+		padding: 6px 8px;
+		background: var(--panel);
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		color: var(--txt);
+		font-size: 11px;
+	}
+	.tl-library-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+	}
+	.tl-library-row small {
+		color: var(--dim);
+	}
+	.pill.link {
+		color: var(--accent);
 	}
 	.tl-lanes {
 		flex: 1;

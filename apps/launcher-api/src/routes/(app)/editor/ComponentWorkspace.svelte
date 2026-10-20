@@ -2797,6 +2797,7 @@
 						<EditorOutline
 							scene={componentScene}
 							template={undefined}
+							{componentMap}
 							{selectedId}
 							{selectedIds}
 							onSelect={(id, e) =>

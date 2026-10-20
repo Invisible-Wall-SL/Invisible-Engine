@@ -76,6 +76,8 @@
 		"check:timeline-keying": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-keying.ts",
 		"precheck:timeline-rows": "node scripts/ensure-svelte-kit.mjs",
 		"check:timeline-rows": "tsx --tsconfig tsconfig.scripts.json scripts/check-timeline-rows.ts",
+		"precheck:shared-timeline-ship": "node scripts/ensure-svelte-kit.mjs",
+		"check:shared-timeline-ship": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-shared-timeline-ship.ts",
 		"precheck:authored-transition": "node scripts/ensure-svelte-kit.mjs",
 		"check:authored-transition": "tsx --tsconfig tsconfig.scripts.json scripts/check-authored-transition.ts",
 		"precheck:authored-win": "node scripts/ensure-svelte-kit.mjs",

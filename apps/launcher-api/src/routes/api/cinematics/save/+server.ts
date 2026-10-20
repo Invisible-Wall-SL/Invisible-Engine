@@ -1,9 +1,16 @@
 import { error, json } from '@sveltejs/kit';
 import { assertReach, cinematicGate } from '$lib/server/cinematicAccess';
-import { isCinematicDoc, loadCinematic, saveCinematic } from '$lib/server/cinematicStorage';
+import {
+	isCinematicDoc,
+	loadCinematic,
+	saveCinematic,
+	type CinematicDoc,
+} from '$lib/server/cinematicStorage';
 import { ConflictError } from '$lib/server/r2';
 import { scopeMismatch } from '$lib/server/scopeGuard';
 import { writeBaseEtagJson } from '$lib/server/writeGuard';
+import { linkOf, linkStub } from '$lib/timeline/sharedTimelines';
+import type { CinematicDoc as LayoutCinematicDoc } from 'engine-layout';
 import type { RequestHandler } from './$types';
 
 /**
@@ -23,6 +30,15 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
 	if (!body || !isCinematicDoc(body.doc)) throw error(400, 'missing or malformed cinematic doc');
+	// A link to a shared timeline stores only its placement (`linkStub`): whatever content a client
+	// sent with it is dropped, so a link can never fork the shared copy by accident (Phase 9d).
+	const link = linkOf(body.doc);
+	const doc: CinematicDoc = link
+		? (linkStub(body.doc as unknown as LayoutCinematicDoc, link) as unknown as CinematicDoc)
+		: body.doc;
+	if (!link && 'shared' in doc) {
+		throw error(400, 'malformed shared-timeline link');
+	}
 
 	// SCOPE GUARD — `force` deliberately does NOT bypass it: overwriting YOUR doc is a choice,
 	// overwriting SOMEONE ELSE'S project never is (`scopeMismatch`).
@@ -45,8 +61,8 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		);
 
 	if (access === 'hosted') {
-		assertReach(access, body.doc);
-		const stored = await loadCinematic(clientKey, projectKey, body.doc.id);
+		assertReach(access, doc);
+		const stored = await loadCinematic(clientKey, projectKey, doc.id);
 		if (stored.etag !== null) assertReach(access, stored.doc);
 		const pinned = hostedPrecondition(baseEtag, stored.etag);
 		if (pinned === 'conflict') return conflict();
@@ -54,7 +70,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	}
 
 	try {
-		const { etag, id } = await saveCinematic(clientKey, projectKey, body.doc, baseEtag);
+		const { etag, id } = await saveCinematic(clientKey, projectKey, doc, baseEtag);
 		return json({ ok: true, id, etag, updatedAt: new Date().toISOString() });
 	} catch (e) {
 		if (e instanceof ConflictError) return conflict();

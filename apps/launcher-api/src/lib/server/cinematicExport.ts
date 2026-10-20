@@ -1,6 +1,7 @@
 import { type CinematicDoc, listCinematics, loadCinematic } from './cinematicStorage';
 import { SUB } from './projectPaths';
 import { deleteObjects, listAllObjects, putObjectText } from './r2';
+import { resolveProjectCinematic } from './sharedCinematics';
 
 /**
  * Export a project's cinematics into the game-loadable `deploy/` subtree — the rule-8 step that
@@ -8,6 +9,7 @@ import { deleteObjects, listAllObjects, putObjectText } from './r2';
  * no binary assets of its own).
  *
  *   <client>/<project>/cinematics/<id>.json        ← authored (saved by /api/cinematics/save)
+ *   _shared/cinematics/<id>.v<N>.json              ← what a linked one plays (resolved on load)
  *   <client>/<project>/deploy/cinematics/<id>.json ← exported (this writes it)
  *
  * `buildRuntimeBundle` calls this via `ensureDeployExports` and embeds the returned docs in the
@@ -49,7 +51,13 @@ export function cinematicRigNames(docs: CinematicDoc[]): Set<string> {
 	return out;
 }
 
-/** Load every authored cinematic in the project (used by both the export and the art seed). */
+/**
+ * Load every authored cinematic in the project (used by both the export and the art seed). A link
+ * to a SHARED timeline (`_shared/cinematics/`, Rive plan Phase 9d) is resolved here against the
+ * version it pins, so the bundle carries the shared content under the project's id — a normal
+ * timeline the game plays like any other — and the art seed sees its rigs. A link whose shared
+ * version is gone ships nothing (its own stub has no actors), never a half-built doc.
+ */
 export async function loadAuthoredCinematics(
 	clientKey: string,
 	projectKey: string,
@@ -57,7 +65,8 @@ export async function loadAuthoredCinematics(
 	const out: CinematicDoc[] = [];
 	try {
 		for (const row of await listCinematics(clientKey, projectKey)) {
-			const { doc } = await loadCinematic(clientKey, projectKey, row.id);
+			const { doc: stored } = await loadCinematic(clientKey, projectKey, row.id);
+			const doc = stored && (await resolveProjectCinematic(stored));
 			if (doc && isAuthored(doc)) out.push(doc);
 		}
 	} catch {

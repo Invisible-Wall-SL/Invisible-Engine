@@ -3379,6 +3379,7 @@
 								{selectedIds}
 								onSelect={selectFromOutline}
 								{onFillSlot}
+								{componentMap}
 								onAddAnchor={onAddMountAnchor}
 								onRename={onRenameNode}
 								onToggleLock={animating ? undefined : toggleNodeLock}
