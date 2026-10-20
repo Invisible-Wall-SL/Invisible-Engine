@@ -11,6 +11,10 @@
 // value, so `anticipation1_intro`'s `glow` (scale keys `[{"x":0.6},{"time":0.6667}]`) previewed
 // at scaleY 0 for the whole clip while the game played it at 1.
 //
+//   0. TABLE        `KEY_DEFAULTS` fills exactly the fields engine-rig reads (`RUNTIME_FIELDS`,
+//                   written out by hand from its readers, so a dropped row cannot pass by being
+//                   read back from the table), and the open / clip-import / rig-merge paths all
+//                   run `normalizeKeys`.
 //   1. MEANING      the filled document loads into the SAME timelines as the file (frames,
 //                   curve types and sampled beziers identical), so saving a filled rig changes
 //                   nothing it plays. Filling twice changes nothing, and nothing outside the
@@ -20,16 +24,18 @@
 //                   constraint's position / spacing / mixes.
 //   3. CONSTRAINTS  a fixture on the same rig (an IK, a transform and a physics constraint, a
 //                   path constraint when the rig has one) whose keys leave out every defaulted
-//                   field `poseAtTime` reads, against setup values that differ from the defaults.
+//                   field, against setup values that differ from the defaults. Its constraint
+//                   tracks start after 0, so the setup they hold before their first key counts too.
 //   4. WRITER       a key ◆ Key IK writes carries all five IK fields and poses as it plays.
 //   5. SHARP        the fixture posed WITHOUT `fillKeyDefaults` misses, so the gate would catch
 //                   the old reading.
 //
-// Compared at t ≥ each channel's first key: before it the runtime holds the setup pose and
-// `sampleChannel` holds the first key, a difference that has nothing to do with defaults. The
-// Rigger does not pose the split bone channels (translatex …) or slot alpha, so (1) alone covers
-// those rows of the table. A mass key of 0 (its default) is degenerate (the runtime sets
-// massInverse = 1/0), so the fixture never leaves mass out.
+// Before a track's first key the runtime holds the setup values. A constraint track does so in the
+// Rigger too, and is compared there; a bone channel still holds its first key (docs/status/rigger.md
+// open item 16), so it is compared only from its first key on. The Rigger does not pose the split
+// bone channels (translatex …) or slot alpha, so (0) and (1) alone cover those rows of the table. A
+// mass key of 0 (its default) is degenerate (the runtime sets massInverse = 1/0), so the fixture
+// never leaves mass out.
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { RIG_CORE } from './rig.mjs';
@@ -152,6 +158,62 @@ const log = (ok, msg) => {
 	if (!ok) pass = false;
 };
 
+console.log(`\n=== Omitted key defaults: the Rigger vs engine-rig: ${jsonPath} ===`);
+
+// ---- 0. TABLE: what engine-rig reads from a key -------------------------------------------
+// Read off packages/engine-rig/src/skeletonJson.ts by hand: readTimeline1 (`value`) and
+// readTimeline2 (`x`, `y`) for bone, slot-alpha, path position / spacing and physics timelines;
+// the IK, transform and path-mix readers name their fields. In reading order, which is the order a
+// fallback (mixY ← mixX, mixScaleY ← mixScaleX) needs. The VALUES are held by (1).
+const V = ['value'];
+const XY = ['x', 'y'];
+const RUNTIME_FIELDS = {
+	bones: {
+		rotate: V,
+		translate: XY,
+		translatex: V,
+		translatey: V,
+		scale: XY,
+		scalex: V,
+		scaley: V,
+		shear: XY,
+		shearx: V,
+		sheary: V,
+	},
+	slots: { alpha: V },
+	ik: ['mix', 'softness', 'bendPositive', 'compress', 'stretch'],
+	transform: ['mixRotate', 'mixX', 'mixY', 'mixScaleX', 'mixScaleY', 'mixShearY'],
+	path: { position: V, spacing: V, mix: ['mixRotate', 'mixX', 'mixY'] },
+	physics: { inertia: V, strength: V, damping: V, mass: V, wind: V, gravity: V, mix: V },
+};
+// group[.channel] → its field names, from either table.
+const fieldLists = (table) => {
+	const out = {};
+	const names = (l) => l.map((x) => (Array.isArray(x) ? x[0] : x));
+	for (const [g, d] of Object.entries(table))
+		if (Array.isArray(d)) out[g] = names(d);
+		else for (const [ch, l] of Object.entries(d)) out[`${g}.${ch}`] = names(l);
+	return out;
+};
+{
+	const want = fieldLists(RUNTIME_FIELDS);
+	const got = fieldLists(KEY_DEFAULTS);
+	const off = [...new Set([...Object.keys(want), ...Object.keys(got)])]
+		.filter((id) => JSON.stringify(want[id]) !== JSON.stringify(got[id]))
+		.map(
+			(id) =>
+				`${id}: fills ${JSON.stringify(got[id] ?? [])}, engine-rig reads ${JSON.stringify(want[id] ?? [])}`,
+		);
+	log(off.length === 0, `table: KEY_DEFAULTS fills exactly the fields engine-rig reads`);
+	for (const o of off) console.log('       ' + o);
+	// Keys reach the open rig on open, clip import (clipboard / library) and rig-library merge.
+	for (const where of ['buildSkeleton', 'importAnimation', 'importRig']) {
+		const i = html.search(new RegExp(`\\n(async )?function ${where}\\(`));
+		const body = i < 0 ? '' : html.slice(i, html.indexOf('\n}', i));
+		log(body.includes('normalizeKeys('), `${where} runs normalizeKeys on the keys it brings in`);
+	}
+}
+
 // ---- 1. MEANING: the filled document is the file ----------------------------------------
 const timelineDump = (data) =>
 	data.animations.map((a) => ({
@@ -175,10 +237,9 @@ function sameMeaning(label, file) {
 	const again = clone(filled);
 	normalizeKeys(again);
 	log(JSON.stringify(again) === JSON.stringify(filled), `${label}: filling again changes nothing`);
-	const { animations: _a, ...restFile } = file;
-	const { animations: _b, ...restFilled } = filled;
 	log(
-		JSON.stringify(restFile) === JSON.stringify(restFilled),
+		JSON.stringify({ ...file, animations: undefined }) ===
+			JSON.stringify({ ...filled, animations: undefined }),
 		`${label}: nothing outside the animations changes`,
 	);
 	return filled;
@@ -213,7 +274,8 @@ const IK_READS = [
 ];
 const PHYS_READ = (ch) => (c) => (ch === 'mass' ? 1 / c.massInverse : c[ch]);
 
-// Every quantity an animation keys: { label, first (time of the first key), span, read(skeleton) }.
+// Every quantity an animation keys: { label, first (time of the first key), span, read(skeleton),
+// before (compared before the first key too: a constraint track) }.
 function quantities(doc, animName) {
 	const a = doc.animations[animName];
 	const out = [];
@@ -225,16 +287,28 @@ function quantities(doc, animName) {
 		}
 		return vals.length ? Math.max(...vals) - Math.min(...vals) : 0;
 	};
-	const add = (label, keys, field, vi, read, exact) =>
+	const add = (label, keys, field, vi, read, exact, before = true) =>
 		keys &&
 		keys.length &&
-		out.push({ label, first: keys[0].time ?? 0, span: exact ? 0 : spanOf(keys, field, vi), read });
+		out.push({
+			label,
+			first: keys[0].time ?? 0,
+			span: exact ? 0 : spanOf(keys, field, vi),
+			read,
+			before,
+		});
 	for (const [bone, chans] of Object.entries(a.bones || {})) {
 		if (SPLIT.some((c) => c in chans)) continue;
 		for (const [ch, reads] of Object.entries(BONE_READS))
 			reads.forEach(([field, read], vi) =>
-				add(`bone ${bone} ${ch}.${field}`, chans[ch], ch === 'rotate' ? 'value' : field, vi, (sk) =>
-					read(sk.findBone(bone)),
+				add(
+					`bone ${bone} ${ch}.${field}`,
+					chans[ch],
+					ch === 'rotate' ? 'value' : field,
+					vi,
+					(sk) => read(sk.findBone(bone)),
+					false,
+					false,
 				),
 			);
 	}
@@ -250,7 +324,7 @@ function quantities(doc, animName) {
 			),
 		);
 	for (const [name, keys] of Object.entries(a.transform || {}))
-		KEY_DEFAULTS.transform.forEach(([field], vi) =>
+		RUNTIME_FIELDS.transform.forEach((field, vi) =>
 			add(
 				`transform ${name}.${field}`,
 				keys,
@@ -263,12 +337,12 @@ function quantities(doc, animName) {
 		const pc = (sk) => sk.pathConstraints.find((c) => c.data.name === name);
 		add(`path ${name}.position`, chans.position, 'value', 0, (sk) => pc(sk).position);
 		add(`path ${name}.spacing`, chans.spacing, 'value', 0, (sk) => pc(sk).spacing);
-		KEY_DEFAULTS.path.mix.forEach(([field], vi) =>
+		RUNTIME_FIELDS.path.mix.forEach((field, vi) =>
 			add(`path ${name}.${field}`, chans.mix, field, vi, (sk) => pc(sk)[field]),
 		);
 	}
 	for (const [name, chans] of Object.entries(a.physics || {}))
-		for (const ch of Object.keys(KEY_DEFAULTS.physics))
+		for (const ch of Object.keys(RUNTIME_FIELDS.physics))
 			add(`physics ${name}.${ch}`, chans[ch], 'value', 0, (sk) =>
 				PHYS_READ(ch)(sk.physicsConstraints.find((c) => c.data.name === name)),
 			);
@@ -314,26 +388,28 @@ function compare(file, filled, animNames, posed = filled) {
 			rigger.setToSetupPose();
 			poseAtTime(name, t);
 			for (const q of qs) {
-				if (t < q.first) continue;
+				if (t < q.first && !q.before) continue;
 				checked++;
 				const want = q.read(runtime);
 				const got = q.read(rigger);
 				const d = Math.abs(got - want);
 				const tol = 0.02 * q.span + 1e-4;
-				if (!(d <= tol) && !(worst.get(q.label)?.over >= d / tol))
-					worst.set(q.label, { anim: name, label: q.label, t, got, want, over: d / tol });
+				// A reading that is not a number (an unfilled key) is the worst miss of all.
+				const over = Number.isFinite(d) ? d / tol : Infinity;
+				if (!(d <= tol) && !(worst.get(q.label)?.over >= over))
+					worst.set(q.label, { anim: name, label: q.label, t, got, want, over });
 			}
 		}
 		misses.push(...worst.values());
 	}
 	return { misses: misses.sort((a, b) => b.over - a.over), checked };
 }
+const num = (v) => (typeof v === 'number' ? v.toFixed(4) : String(v));
 const show = (m) =>
-	`${m.anim} / ${m.label} @${m.t.toFixed(3)}s: Rigger ${m.got.toFixed(4)}, engine-rig ${m.want.toFixed(4)}`;
+	`${m.anim} / ${m.label} @${m.t.toFixed(3)}s: Rigger ${num(m.got)}, engine-rig ${num(m.want)}`;
 
 // ---- run ------------------------------------------------------------------------------------
 const file = JSON.parse(readFileSync(jsonPath, 'utf8'));
-console.log(`\n=== Omitted key defaults: the Rigger vs engine-rig: ${jsonPath} ===`);
 
 // The rig itself.
 const filledRig = sameMeaning('rig', file);
@@ -442,14 +518,14 @@ function buildFixture() {
 		},
 		ik: {
 			kdIk: [
-				{ mix: 0.2 },
+				{ time: 0.15, mix: 0.2 },
 				{ time: 0.4 },
 				{ time: 0.8, mix: 0.6, softness: 30, bendPositive: false, compress: true },
 			],
 		},
 		transform: {
 			kdTc: [
-				{ mixX: 0.5, mixScaleX: 0.25 },
+				{ time: 0.1, mixX: 0.5, mixScaleX: 0.25 },
 				{ time: 0.5, mixRotate: 0.2 },
 				{ time: 1, mixY: 0.1, mixScaleY: 0.9, mixShearY: 0 },
 			],
@@ -457,11 +533,11 @@ function buildFixture() {
 		physics: {
 			kdPhys: {
 				inertia: [{ time: 0.3 }, { time: 1, value: 0.9 }],
-				strength: [{ value: 50 }, { time: 1 }],
+				strength: [{ time: 0.1, value: 50 }, { time: 1 }],
 				damping: [{ time: 0 }, { time: 1, value: 0.5 }],
 				mass: [{ value: 1 }, { time: 1, value: 3 }],
 				wind: [{ time: 0 }, { time: 1, value: 10 }],
-				gravity: [{ value: 6 }, { time: 0.5 }],
+				gravity: [{ time: 0.2, value: 6 }, { time: 0.5 }],
 				mix: [{ time: 0.25 }, { time: 0.75, value: 1 }],
 			},
 		},
@@ -471,8 +547,8 @@ function buildFixture() {
 		kd.path = {
 			[pathName]: {
 				position: [{ time: 0.2 }, { time: 0.9, value: 40 }],
-				spacing: [{ value: 5 }, { time: 1 }],
-				mix: [{ mixX: 0.3 }, { time: 0.5, mixRotate: 0.4, mixX: 0.8 }, { time: 1 }],
+				spacing: [{ time: 0.05, value: 5 }, { time: 1 }],
+				mix: [{ time: 0.1, mixX: 0.3 }, { time: 0.5, mixRotate: 0.4, mixX: 0.8 }, { time: 1 }],
 			},
 		};
 	doc.animations = { ...(file.animations || {}), kdFixture: kd };
@@ -493,9 +569,9 @@ else {
 	// Every defaulted field of every group is left out by at least one fixture key.
 	const left = [];
 	const each = (group, keysOf) => {
-		const defs = KEY_DEFAULTS[group];
-		for (const [ch, chDefs] of Array.isArray(defs) ? [[null, defs]] : Object.entries(defs))
-			for (const [field] of chDefs)
+		const defs = RUNTIME_FIELDS[group];
+		for (const [ch, fields] of Array.isArray(defs) ? [[null, defs]] : Object.entries(defs))
+			for (const field of fields)
 				if (!keysOf(ch).some((k) => k[field] === undefined))
 					left.push(`${group}${ch ? '.' + ch : ''}.${field}`);
 	};
@@ -530,14 +606,12 @@ else {
 		`bone ${tip} scale.x`,
 		`bone ${tip} scale.y`,
 		...['mix', 'softness', 'bendPositive'].map((f) => `ik kdIk.${f}`),
-		...KEY_DEFAULTS.transform.map(([f]) => `transform kdTc.${f}`),
-		...Object.keys(KEY_DEFAULTS.physics)
+		...RUNTIME_FIELDS.transform.map((f) => `transform kdTc.${f}`),
+		...Object.keys(RUNTIME_FIELDS.physics)
 			.filter((ch) => ch !== 'mass')
 			.map((ch) => `physics kdPhys.${ch}`),
 		...(pathName
-			? ['position', 'spacing', ...KEY_DEFAULTS.path.mix.map(([f]) => f)].map(
-					(f) => `path ${pathName}.${f}`,
-				)
+			? ['position', 'spacing', ...RUNTIME_FIELDS.path.mix].map((f) => `path ${pathName}.${f}`)
 			: []),
 	];
 	const uncaught = expected.filter((l) => !old.has(l));
@@ -555,7 +629,7 @@ else {
 	Object.assign(sandbox, { rawDoc: keyed, curAnim: 'kdFixture', animTime: 0.6 });
 	keyIk('kdIk');
 	const k = keyed.animations.kdFixture.ik.kdIk.find((x) => Math.abs(x.time - 0.6) < 1e-6);
-	const fields = KEY_DEFAULTS.ik.map(([f]) => f);
+	const fields = RUNTIME_FIELDS.ik;
 	log(
 		!!k && fields.every((f) => k[f] !== undefined),
 		`◆ Key IK writes ${fields.join(', ')} (${k ? JSON.stringify(k) : 'no key'})`,

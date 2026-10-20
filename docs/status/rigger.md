@@ -68,11 +68,13 @@ The `.irig` round-trips through the loader (Phase 0: 120/120 skeletons, against 
 15. ~~The parity gates run only by hand~~ — `parity.mjs` runs in CI as the advisory `rig parity`
     workflow, 2026-10-16 (Recent changes). `fuzz.mjs` (~30 s, pure Node) could join it;
     `render.mjs` / `render-webgl.mjs` need Chromium and stay manual.
-16. **Before a channel's first key, the preview shows that key; the game shows the setup pose.**
-    `sampleChannel` returns `keys[0]` for any `t` at or before it, while engine-rig holds the setup
-    value until the first key. 340 channels of the anticipation rig differ there (e.g.
-    `anticipation1_intro` / `radial13` scale.x at 0: 0.08 in the Rigger, 1 in the game).
-    `tools/rigger-spike/keydefaults.mjs` skips `t <` first key for this reason; drop the skip with the fix.
+16. **Before a bone channel's first key, the preview shows that key; the game shows the setup
+    pose.** `sampleChannel` returns `keys[0]` for any `t` at or before it, while engine-rig holds the
+    setup value until the first key. 340 channels of the anticipation rig differ there (e.g.
+    `anticipation1_intro` / `radial13` scale.x at 0: 0.08 in the Rigger, 1 in the game). Constraint
+    tracks already skip until their first key (2026-10-20); bone channels could do the same.
+    `tools/rigger-spike/keydefaults.mjs` compares bones only from their first key on for this
+    reason (`before: false`); drop that with the fix.
 17. **◆ Key IK keys softness 0, bend +, no compress, no stretch, not the setup's values.** It always
     has (a mix-only key means exactly that to the runtime); since 2026-10-20 the preview shows it too.
     So keying an IK whose setup bends negative flips the bend for the clip, in the game and now in
@@ -99,12 +101,15 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   range, the easing presets and the constraint posing. `fillKeyDefaults` now writes engine-rig's
   defaults (`KEY_DEFAULTS`) into every key once, at open, clip import and rig-library merge,
   alongside `normalizeKeyTimes` (`normalizeKeys`). ◆ Key IK writes all five IK fields, and the IK
-  preview now steps compress / stretch too. A save of a desktop rig now writes those defaults out
-  (larger file, same playback). Gates: `tools/rigger-spike/keydefaults.mjs` (in `check:all`) and
-  `graphcurve.mjs` (a second bone with omitted values). The new spike checks four things against
-  engine-rig: the filled rig loads into the same timelines as the file; every clip poses as
+  preview now steps compress / stretch too. Before its first key, a constraint track now holds the
+  setup values, as the runtime does; the filled first key would otherwise have shown there. A save
+  of a desktop rig now writes those defaults out (larger file, same playback). Gates:
+  `tools/rigger-spike/keydefaults.mjs` (in `check:all`) and `graphcurve.mjs` (a second bone with
+  omitted values). The new spike checks the table against a hand-written list of the fields
+  engine-rig reads, and checks the three load paths call `normalizeKeys`. Against engine-rig it
+  then checks that: the filled rig loads into the same timelines as the file; every clip poses as
   engine-rig plays it; a fixture leaving out every defaulted field also poses right; and without
-  the fill it fails. All 155 repo rigs pass; before the fix, 10,752 channels on 134 of them read wrong.
+  the fill it fails. All 155 repo rigs pass; before the fix, 10,754 channels on 134 of them read wrong.
 
 - 2026-10-20 — **The graph editor draws y and scaleY with their own tangents.** It sampled each
   curve by its field alone, so a translate or scale key's y read x's half of the bezier: a y key with

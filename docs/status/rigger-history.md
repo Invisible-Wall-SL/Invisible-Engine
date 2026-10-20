@@ -39,31 +39,49 @@
     upsert, so its keys mean exactly what they did. The IK poser's `"softness" in` /
     `"bendPositive" in` guards are gone, since every key now carries both, and it steps compress
     and stretch as the runtime does.
+  - **Before a constraint track's first key.** A filled first key would have changed what shows
+    there: `sampleChannel` returns `keys[0]` for any `t` before it, and the runtime holds the setup
+    values instead. The old reading got some of these right by accident. The `"softness" in` guard
+    kept the setup softness, the `?? setup` fallbacks kept omitted mixes, and the `Number.isFinite`
+    skip kept physics values. Each constraint track (IK, transform, each path and physics channel)
+    is now skipped until its first key (`beforeFirst`), so `setToSetupPose`'s values stay, as with
+    the runtime's `MixBlend.setup`. The `??` fallbacks are gone: every key carries its fields, and
+    a fallback to the setup value was the bug's own shape. Bone channels still hold their first key
+    there (open item 16).
   - **What a save writes now.** A rig from the desktop editor saved from the Rigger carries the
-    filled values, so the file is larger and plays identically. Opening one does not mark it
-    dirty: `rawDocOriginal` is taken after the fill. `irigDocProblem`, `roundtrip.mjs`
+    filled values, so the file is larger and plays identically: about 10% on the anticipation rig and
+    2–3% on the others. Opening one does not mark it dirty: the fill runs before the open sets
+    `dirty = false`, never calls `markDirty`, and the undo base snapshot is taken after it. `irigDocProblem`, `roundtrip.mjs`
     (`rigModel.mjs`, not this path), `irig-save.mjs` and the golden files are untouched. The
     server never fills.
   - **Verified.** `tools/rigger-spike/keydefaults.mjs` (in `check:all`, on the anticipation rig)
     runs the shipped `normalizeKeys`, `poseAtTime` and `keyIk` against engine-rig:
+    0. `KEY_DEFAULTS` fills exactly the fields in `RUNTIME_FIELDS`, which is written out by hand
+       from engine-rig's readers, in reading order. A dropped row can't pass by being read back
+       from the table. `buildSkeleton`, `importAnimation` and `importRig` each call `normalizeKeys`.
     1. The filled document loads into the same timelines as the file (frames, curve types and
        sampled beziers). Filling again changes nothing, and nothing outside `animations` changes.
-    2. Every clip poses as engine-rig plays it: 132,179 readings, 0 misses. Without the fill,
-       332 channels miss, worst first `glow` scaleY (0 against 1).
+    2. Every clip poses as engine-rig plays it: 133,499 readings, 0 misses. Constraint tracks are
+       compared before their first key too; bone channels from their first key on.
     3. A fixture on the same rig has an IK, a transform and a physics constraint, plus the rig's
-       first path constraint, each set up away from the defaults. Its keys leave out every
-       defaulted field except mass (a mass of 0 is degenerate). It poses right, and without the
-       fill all 22 targeted fields read wrong.
+       first path constraint, each set up away from the defaults. Its constraint tracks start after
+       0. Its keys leave out every defaulted field except mass (a mass of 0 is degenerate). It poses
+       right, and without the fill all 22 targeted fields read wrong.
     4. ◆ Key IK writes all five fields, and the clip it leaves poses right.
 
-    Restoring the old IK lines fails (3) and (4) on compress / stretch.
+    Each regression fails the gate, tested by mutating a copy of `view.html` and restoring it:
+    dropping table rows (mixShearY, physics wind) fails (0) and (3); reading constraints before
+    their first key fails (3) with 19 misses; removing the rig-merge `normalizeKeys` fails (0); a
+    mix-only ◆ Key IK fails (4); and the old IK lines fail (3) and (4) on compress / stretch.
+    The original poser (`main`'s `poseAtTime`) on the unfilled anticipation rig misses 332 channels,
+    worst first `glow` scaleY (0 against 1).
 
     `graphcurve.mjs` gains a second bone with `glow`'s keys plus omitted rotate / translate
     values: the graph and every key dot follow the played curve, and unfilled, scale misses by 1.0.
-    The new spike passes on all 155 repo rigs (about 4.3 M readings). Before the fix, 10,752
-    channels on 134 of them read wrong. `pnpm check:all --only rigger-spike`: 72/72. `pnpm lint`
+    The new spike passes on all 155 repo rigs (about 4.3 M readings). Before the fix (`main`'s
+    poser on the unfilled rigs), 10,754 channels on 134 of them read wrong. `pnpm check:all --only rigger-spike`: 72/72. `pnpm lint`
     is clean.
-  - **Found on the way, not fixed** (open items 16 and 17). Before a channel's first key, the
+  - **Found on the way, not fixed** (open items 16 and 17). Before a bone channel's first key, the
     preview holds that key while the runtime holds the setup pose: 340 channels on the anticipation
     rig. And ◆ Key IK keys format defaults rather than the setup's softness and bend, which flips a
     bend-negative IK while its mix is keyed.
