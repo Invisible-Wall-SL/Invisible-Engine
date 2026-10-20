@@ -12530,6 +12530,13 @@ function applyCurveToDopeSel(preset){
   for (const { tr, time } of targets) setTrackKeyCurve(tr, time, preset);
 }
 function closeCurveMenu(){ const m = $("#curveMenu"); if (m) m.remove(); }
+// The value one graphed curve `c` (a GRAPH_CHANS entry + its keys) shows at t. A bezier `curve`
+// holds four numbers per value index, and `sampleChannel` takes a field's index from its place in
+// `fields`, so it gets the channel's whole field list: sampling `[c.field]` alone drew y and scaleY
+// with x's tangents, a curve the runtime never plays. Checked against engine-rig in graphcurve.mjs.
+function graphValueAt(c, t){
+  return sampleChannel(c.keys, t, c.ch === "rotate" ? ["value"] : ["x", "y"])[c.field] ?? 0;
+}
 function renderGraphBody(tl, dur, pps, contentW, gutter){
   const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;width:" + (gutter + contentW) + "px;";
   if (selBone == null){
@@ -12568,7 +12575,7 @@ function renderGraphBody(tl, dur, pps, contentW, gutter){
   for (const c of curves){
     let pts = "";
     const steps = Math.max(40, Math.min(400, Math.round(contentW / 4)));
-    for (let i = 0; i <= steps; i++){ const t = dur * i / steps; const k = sampleChannel(c.keys, t, [c.field]); pts += timeToX(t) + "," + valueToY(k[c.field] ?? 0) + " "; }
+    for (let i = 0; i <= steps; i++){ const t = dur * i / steps; pts += timeToX(t) + "," + valueToY(graphValueAt(c, t)) + " "; }
     svg.appendChild(svgEl("polyline", { points: pts, fill: "none", stroke: c.color, "stroke-width": 1.5, "stroke-opacity": 0.9 }));
     // fat transparent hit-line: click the curve to select ALL its keys (Shift adds the line)
     const hit = svgEl("polyline", { points: pts, fill: "none", stroke: "#000", "stroke-opacity": 0, "stroke-width": 10, style: "cursor:pointer;pointer-events:stroke;" });
