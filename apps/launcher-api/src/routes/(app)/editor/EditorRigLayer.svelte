@@ -29,6 +29,7 @@
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
+	import { rigOriginAnchor } from 'constants-shared/rig';
 	import {
 		childLocalTransform,
 		composeWorldMatrix,
@@ -39,6 +40,7 @@
 		unrotatedScale,
 		type BoneRiderTransform,
 		type DepthSlice,
+		type NaturalSize,
 	} from './editorCanvas.helpers';
 	import { onMount } from 'svelte';
 	import {
@@ -101,8 +103,10 @@
 		 * can drop their placeholder. Loading/errored keys stay placeholdered. */
 		onReadyKeysChange?: (keys: Set<string>) => void;
 		/** Reports each ready rig's setup-pose natural size per `assetKey`, so the
-		 * 2D canvas can cover-fit `preview.art` rig anchors by the art's aspect. */
-		onNaturalSizesChange?: (sizes: Map<string, { w: number; h: number }>) => void;
+		 * 2D canvas can cover-fit `preview.art` rig anchors by the art's aspect, plus where the
+		 * skeleton origin sits in that box (`ax`/`ay`), so a selection box frames the art the
+		 * renderer draws around the origin. */
+		onNaturalSizesChange?: (sizes: Map<string, NaturalSize>) => void;
 		/** Reports each ready rig's animation + skin + slot name lists per `assetKey`, so
 		 * the Properties panel can offer dropdowns instead of free-text. */
 		onRigMetaChange?: (meta: Map<string, RigMeta>) => void;
@@ -248,13 +252,19 @@
 	let metaKeys = new Set<string>();
 	function publishReady(): void {
 		const next = new Set<string>();
-		const sizes = new Map<string, { w: number; h: number }>();
+		const sizes = new Map<string, NaturalSize>();
 		const meta = new Map<string, RigMeta>();
 		for (const [key, entry] of entries) {
 			if (entry.state !== 'ready') continue;
 			next.add(key);
 			const nat = naturalSizeOf(entry.instance);
-			if (nat) sizes.set(key, nat);
+			if (nat) {
+				const b = entry.bounds;
+				sizes.set(key, {
+					...nat,
+					...rigOriginAnchor({ x: b.offX, y: b.offY, width: b.bw, height: b.bh }),
+				});
+			}
 			meta.set(key, {
 				animations: entry.instance.data.animations.map((a) => a.name),
 				skins: entry.instance.data.skins.map((s) => s.name),

@@ -71,6 +71,8 @@
 		newCountRepeater,
 		repeaterCountBoxes,
 		REPEATER_SEGMENT_PLACEHOLDER,
+		resizeOriginShift,
+		resizePivot,
 		topMidWorld,
 		pointInQuad,
 		reelGridGeometry,
@@ -1098,9 +1100,10 @@
 	 * per-scene rig sublayers (each reports only its own scene's keys). */
 	let readyRigKeys = $state<Set<string>>(new Set());
 	/** Setup-pose natural size per rig `assetKey`, reported by the WebGL overlay —
-	 * lets the 2D canvas cover-fit `preview.art` rig anchors by the art's aspect.
+	 * lets the 2D canvas cover-fit `preview.art` rig anchors by the art's aspect — with
+	 * where the skeleton origin sits in that box (`ax`/`ay`).
 	 * MERGED across the per-scene rig sublayers. */
-	let rigNaturalSizes = $state<Map<string, { w: number; h: number }>>(new Map());
+	let rigNaturalSizes = $state<Map<string, NaturalSize>>(new Map());
 	/** Node ids the PIXI text overlay (`EditorTextLayer`) now renders as real text — the
 	 * 2D canvas steps its HUD-text CHIP aside for these (the overlay owns the text). Text
 	 * NODES are overlay-only now (no 2D `fillText`), so this only gates HUD bind-anchor
@@ -1139,7 +1142,7 @@
 	// canvas folds their reports together (union of ready keys/ids + merged natural
 	// sizes; summed load tallies) to keep its placeholder/progress logic unchanged.
 	const rigReadyByScene = new Map<string, Set<string>>();
-	const rigNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
+	const rigNaturalByScene = new Map<string, Map<string, NaturalSize>>();
 	const rigMetaByScene = new Map<string, Map<string, RigMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
 	const textMeasuredByScene = new Map<string, Map<string, { w: number; h: number }>>();
@@ -1154,9 +1157,9 @@
 		for (const set of rigReadyByScene.values()) for (const k of set) union.add(k);
 		readyRigKeys = union;
 	}
-	function mergeRigNatural(sceneId: string, sizes: Map<string, { w: number; h: number }>): void {
+	function mergeRigNatural(sceneId: string, sizes: Map<string, NaturalSize>): void {
 		rigNaturalByScene.set(sceneId, sizes);
-		const merged = new Map<string, { w: number; h: number }>();
+		const merged = new Map<string, NaturalSize>();
 		for (const m of rigNaturalByScene.values()) for (const [k, v] of m) merged.set(k, v);
 		rigNaturalSizes = merged;
 	}
@@ -1255,7 +1258,7 @@
 		const keys = new Set<string>();
 		for (const set of rigReadyByScene.values()) for (const k of set) keys.add(k);
 		readyRigKeys = keys;
-		const nat = new Map<string, { w: number; h: number }>();
+		const nat = new Map<string, NaturalSize>();
 		for (const m of rigNaturalByScene.values()) for (const [k, v] of m) nat.set(k, v);
 		rigNaturalSizes = nat;
 		const ids = new Set<string>();
@@ -1833,6 +1836,7 @@
 		// A directly-placed rig node's natural size comes from the WebGL overlay's
 		// setup-pose bounds (the 2D canvas can't measure a skeleton), keyed by the bundle
 		// `assetKey` — the same map a `preview.art` rig anchor reads via `artNaturalSize`.
+		// It carries where the skeleton origin sits in that box, which `nodeBox` frames by.
 		// Without this the box/hit-test falls back to a tiny default (the assetKey is a
 		// bundle prefix, never an image key, so the `images` lookup below always misses).
 		if (node.kind === 'spine') {
@@ -2927,13 +2931,8 @@
 			if (!rig && nested && gameView) {
 				// nothing bound
 			} else if (!readyRigKeys.has(node.assetKey)) {
-				drawPlaceholder(
-					ctx,
-					t.anchor?.x ?? 0.5,
-					t.anchor?.y ?? 0.5,
-					'#4a3a5a',
-					`rig: ${node.label ?? node.assetKey}`,
-				);
+				// Centred like the box `nodeBox` frames an unmeasured rig with: a rig has no anchor.
+				drawPlaceholder(ctx, 0.5, 0.5, '#4a3a5a', `rig: ${node.label ?? node.assetKey}`);
 			}
 		} else if (node.kind === 'text') {
 			// Text is rendered EXCLUSIVELY by the PIXI overlay (`EditorTextLayer`) now — it
@@ -4202,6 +4201,10 @@
 		ctx.stroke();
 		ctx.setLineDash([]);
 
+		// A rig sits by its skeleton ORIGIN, which may be anywhere around its art (or outside its
+		// box): mark it, so the point the node's x/y moves is visible.
+		if (node.kind === 'spine') drawOriginMark(ctx, worldToScreen({ x: t.x, y: t.y }), accent);
+
 		// Outline-only for a multi-selection — no transform handles.
 		if (!withHandles) return;
 
@@ -4257,6 +4260,21 @@
 		ctx.arc(stem.x, stem.y, ROTATE_PX, 0, Math.PI * 2);
 		ctx.fill();
 		ctx.stroke();
+	}
+
+	/** A crosshair in a ring at a node's origin (screen px). */
+	function drawOriginMark(ctx: CanvasRenderingContext2D, p: Vec2, color: string): void {
+		ctx.save();
+		ctx.strokeStyle = color;
+		ctx.lineWidth = 1.5;
+		ctx.beginPath();
+		ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+		ctx.moveTo(p.x - 9, p.y);
+		ctx.lineTo(p.x + 9, p.y);
+		ctx.moveTo(p.x, p.y - 9);
+		ctx.lineTo(p.x, p.y + 9);
+		ctx.stroke();
+		ctx.restore();
 	}
 
 	// ---------- hit-test ----------
@@ -4569,9 +4587,10 @@
 			{ x: left, y: bottom },
 		];
 		const ref = cornerLocal[d.cornerIdx];
-		// Base (start) signed magnitudes; avoid div-by-zero.
-		const baseX = ref.x * d.startDrawScale.x;
-		const baseY = ref.y * d.startDrawScale.y;
+		const pivot = resizePivot(node, d.startBox);
+		// Base (start) signed magnitudes, measured from the pivot; avoid div-by-zero.
+		const baseX = (ref.x - pivot.x) * d.startDrawScale.x;
+		const baseY = (ref.y - pivot.y) * d.startDrawScale.y;
 		const newRefX = baseX + dxl;
 		const newRefY = baseY + dyl;
 		let sxRatio = baseX === 0 ? 1 : newRefX / baseX;
@@ -4630,6 +4649,16 @@
 		if (Math.abs(newSx) < MIN) newSx = Math.sign(newSx || 1) * MIN;
 		if (Math.abs(newSy) < MIN) newSy = Math.sign(newSy || 1) * MIN;
 		writeScale(node, newSx, newSy);
+		// A pivot off the origin (a rig's box centre) holds still: the origin moves instead. An
+		// Animate drag keys scale alone, so it scales about the origin there.
+		if (animDrag || (pivot.x === 0 && pivot.y === 0)) return;
+		const moved = resizeOriginShift(
+			pivot,
+			d.startDrawScale,
+			{ x: newSx / (d.startScale.x || 1), y: newSy / (d.startScale.y || 1) },
+			d.startRot,
+		);
+		writeXY(node, d.startTx + moved.x, d.startTy + moved.y);
 	}
 
 	/** Write a text node's BOX size (`width`/`height`) — base value when desktop, sparse
@@ -5358,6 +5387,17 @@
 		const sx = (t.scale?.x ?? 1) * factor;
 		const sy = (t.scale?.y ?? 1) * factor;
 		writeScale(node, sx, sy);
+		// Like a resize drag, a rig holds its box centre still, not its origin.
+		const pivot = resizePivot(node, boxOf(node, t));
+		if (pivot.x !== 0 || pivot.y !== 0) {
+			const shift = resizeOriginShift(
+				pivot,
+				{ x: t.scale?.x ?? 1, y: t.scale?.y ?? 1 },
+				{ x: factor, y: factor },
+				t.rotation ?? 0,
+			);
+			writeXY(node, t.x + shift.x, t.y + shift.y);
+		}
 		bumpFrame();
 		schedule();
 		onDirty?.();
