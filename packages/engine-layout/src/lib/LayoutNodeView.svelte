@@ -1403,12 +1403,12 @@
 			{@const rigVisible = !isStateOverlay || !!override}
 			<!--
 				Placement parity with the editor: the editor preview places a rig's SKELETON ORIGIN
-				at the node position (anchor only frames the selection box, never shifts the art —
-				see `matFromTransform` "Anchor is NOT folded in here" + the rig overlay's
-				`skeleton.x = world.x`), so NO anchor is passed and `RigProvider` keeps the origin on
-				(x, y). A cover rig as well: its node anchor is the cover ALIGNMENT, already added to
-				(x, y) by `bgRigOffset`, and the editor's cover branch draws the origin at that aligned
-				spot with no pivot — passing the anchor too applied the alignment twice.
+				at the node position (the rig overlay's `skeleton.x = world.x`) and frames its
+				selection box around that origin as the rig's own box sits (`rigOriginAnchor`); the
+				node's anchor moves nothing. So NO anchor is passed and `RigProvider` keeps the
+				origin on (x, y). A cover rig as well: its node anchor is the cover ALIGNMENT, already
+				added to (x, y) by `bgRigOffset`, and the editor's cover branch draws the origin at
+				that aligned spot with no pivot — passing the anchor too applied the alignment twice.
 			-->
 			<RigProvider
 				key={rigAssetKey ?? node.assetKey}

@@ -290,7 +290,11 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   like the sprite icons (measured: 3 px left before, 0 after); a Symbols-State-Machine rig LAYER
   (`SymbolLayer`, `anchor={0.5}` + a size) now centres its frame on the cell, as `/symbols` previews
   it (`SymbolRigPreview`) — for a stock rig with a centred box that is a 1–2 px correction, for a rig
-  whose box sits off its origin the art moves to put the frame centre there; a placed cover rig
+  whose box sits off its origin the art moves to put the frame centre there. The current-games
+  harness measured it on live test6 ("Ways on Waves", the only live game that moved): each symbol's
+  shadow rig layer shifts ~28 px down-right and comes out from behind its symbol. No tool composites
+  layers on the cell, so that shadow was only ever judged in the game; re-tune its `offset` in
+  `/symbols` if the old look was the intended one; a placed cover rig
   (background screen or `coverFit`) no longer ALSO pivots by its node anchor × the canvas box — its
   node anchor is the cover alignment `bgRigOffset` already applies, and the editor's cover branch
   draws the origin at that aligned spot with no pivot. A cover rig spawned by the Scene Editor
@@ -515,6 +519,32 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
   `ResponsiveBitmapText` `maxWidth`); a second outro in one session opens with the previous level on
   the coded side (stale `freeSpinOutroState`), which the authored side does not copy; the owner's
   browser check and lifting the lock.
+- 2026-10-15 — **Translucent art no longer draws dimmer on phones (compressed tier).** Owner
+  report: a pink backdrop glow in `commonoverlayproject` was missing on a Pixel and present on a
+  Samsung; `&quality=high` restored it on the Pixel. The Samsung was not "fine", it was loading PNGs:
+  its Chrome was in Desktop-site mode (the fixed-size HUD text drew at half the size), which drops
+  `Android` from the UA that `preferCompressedTextures()` reads. **Cause:** Pixi's KTX2 loader marks
+  every texture `no-premultiply-alpha`, Pixi then uses its `-npm` blends, and those apply a node's
+  alpha on top of the batch shader's — a layer at opacity α drew at α² on every phone (and `pma` rig
+  pages, already premultiplied, were premultiplied again by the blend). **Fix:** twins are encoded
+  premultiplied and named `.pm.ktx2` (`ktx2Alpha.ts`, `ktx2Encode.ts`, `pageStore.ts`, `rig.ts`;
+  a `pma: true` page passes through), and `pixi-svelte` `ktx2AlphaMode.ts` marks such a texture (or
+  any page its atlas declares `pma`) `premultiplied-alpha`, so it blends exactly as its PNG.
+  `KTX2_ENCODER_REVISION` 2 → 3; the per-bundle rig twin cache now checks it too (it never did).
+  New `pnpm check:ktx2-premultiplied` (37 checks). **Verified** in headless Chromium on pixi 8.22
+  with twins from the real encoder: at opacity 0.5 the straight twin added half what the PNG did
+  (`add` centre red 100 vs 150) and the `.pm.ktx2` matched the PNG within 1/255 under `add` and
+  `normal`; old `.ktx2` files render unchanged. Real art encodes ~6% smaller premultiplied (8 pages
+  of `apps/price`: 8.3 → 7.9 MB). Contract: [design/gpu-compressed-textures](../design/gpu-compressed-textures.md)
+  § "Alpha". **Review follow-up:** an already-premultiplied source gets its own twin
+  (`<hash>.srcpm.pm.ktx2`, its own cache slot and meta) so byte-identical sheet and `pma` rig pages
+  cannot share one; the per-bundle rig cache is keyed on the page's `pma` too. ⏳ **Rollout:** launcher deploy + **runtime release** (both on merge). `pma` rig pages are
+  corrected in live games by the release alone (their old twins were already premultiplied).
+  Everything else needs a re-encode: **re-bake the active projects right after the deploy** (~9 s
+  of blocking wasm per page, so a cold first assemble can outrun the 90 s budget), and players see
+  it once the project is **republished**. Never roll the runtime back past this once projects have
+  re-encoded (see the runbook §4).
+  Not yet seen on a phone.
 - 2026-10-14 — **The authored Win behind a per-project flag (Rive plan Phase 8b, PR #1194, plan
   [§13.6](../design/rive-style-editor.md); the GO decisions and build findings are its 13.6.10;
   the launcher side — normalizer row, Game Settings row, chips, the save guard after the ETag check,

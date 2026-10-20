@@ -80,18 +80,22 @@ import {
 } from './holdAndWinMeters.svelte';
 import { hideWheel, showWheel, spinWheelTo, wheelSegments } from './holdAndWinWheel.svelte';
 import { armLuckySpinReveal } from './luckySpin';
+import { respinCellStopAuthored, respinHeldState } from './respinLanding';
 import { playSymbolLandSound } from './soundBindings';
 import { getSymbolSeat, stateGame } from './stateGame.svelte';
 import { meterLevelBefore, stateHoldAndWin, stateHoldAndWinShown } from './stateHoldAndWin.svelte';
 import { leavingToken, liftToken, overlayTokenSymbol } from './stateOverlay.svelte';
 import {
+	armCellLanding,
 	armHeldBeat,
+	completeCellLanding,
 	hideRespinBoard,
 	holdHeldDisplay,
 	openRespinRows,
 	openRespinRowsTo,
 	respinUnlockFade,
 	holdHeldJackpot,
+	landingSymbol,
 	releaseHeldDisplay,
 	releaseHeldJackpot,
 	settleHeldBeats,
@@ -102,7 +106,7 @@ import {
 	stateRespinBoard,
 	syncHeldCells,
 } from './stateRespinBoard.svelte';
-import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
+import { awaitSymbolBeat, INTRO_BEAT_CAP_MS, TRANSIT_BEAT_CAP_MS } from './symbolBeat';
 import { SLAM_MESSAGE_HOLD_MS, slamHold, waitPresentation } from './unskippablePresentation';
 
 /**
@@ -534,13 +538,59 @@ export const presentCoinBoardReveal = async (event: {
 	await spinRespinCells(cells);
 };
 
-/** `coinsLand` — the cells that landed stick: they move into the held layer and play
- *  `coinStick`. */
+/**
+ * Wait out the `land` these cells started as their own reels stopped (Invisible Symbols → "Play Land
+ * as each cell stops"): the held layer is about to take them over, and taking a cell mid-land would
+ * cut the last cells' landing short. Only art someone bound is waited on — an unbound stop draws the
+ * resting art, which has nothing to finish — capped like an arrival.
+ */
+const awaitStopLandings = async (cells: Position[]) => {
+	const armed: string[] = [];
+	await roundSkip.race(
+		Promise.all(
+			cells.map(({ reel, row }) => {
+				const key = respinCellKey(reel, row);
+				const symbol = landingSymbol(reel, row);
+				if (armed.includes(key) || !symbol || !respinCellStopAuthored(symbol.name))
+					return undefined;
+				armed.push(key);
+				return awaitSymbolBeat((resolve) => armCellLanding(key, resolve), INTRO_BEAT_CAP_MS);
+			}),
+		),
+	);
+	// A cap or a slam won for these: drop their resolvers.
+	armed.forEach(completeCellLanding);
+};
+
+/**
+ * `coinsLand` — the cells that landed stick: they move into the held layer and play `coinStick`. A
+ * cell that already played its `land` as it stopped (Invisible Symbols → "Play Land as each cell
+ * stops") was heard then, and its unbound stick draws the rest rather than that `land` again
+ * (`respinHeldState`) — a beat with no animation to wait for, so it is held only long enough for
+ * the label's stick pop to see it.
+ */
 export const presentCoinsLand = async (event: Beat<'coinsLand'>) => {
+	const landed = stateRespinBoard.landed;
+	const stopped = (cell: Position) => landed.includes(respinCellKey(cell.reel, cell.row));
+	if (landed.length > 0) await awaitStopLandings(event.cells);
 	syncHeldCells();
-	event.cells.forEach((cell) => playSymbolLandSound(cell.symbol.name, 1));
+	event.cells.forEach((cell) => {
+		if (!stopped(cell)) playSymbolLandSound(cell.symbol.name, 1);
+	});
 	eventEmitter.broadcast({ type: 'respinCoinsLand', cells: event.cells });
-	await playHeldBeat(event.cells, 'coinStick');
+	const resting = event.cells.filter(
+		(cell) => respinHeldState('coinStick', cell.symbol.name, stopped(cell)) !== 'coinStick',
+	);
+	if (resting.length === 0) await playHeldBeat(event.cells, 'coinStick');
+	else
+		await Promise.all([
+			playHeldBeat(
+				event.cells.filter((cell) => !resting.includes(cell)),
+				'coinStick',
+			),
+			playHeldBeat(resting, 'coinStick', { capMs: 0 }),
+		]);
+	if (landed.length > 0) stateRespinBoard.landed = [];
 };
 
 /**

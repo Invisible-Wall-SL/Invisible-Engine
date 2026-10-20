@@ -538,7 +538,7 @@ This is the same rule [game-type-templates.md](game-type-templates.md) set for s
 | **Screens** | Where things live | Base game, HUD, menus | Board screen, HUD | Play field, HUD |
 | **Flow** | What things mean: logic, game state | Book events → presentation | Swap → match → cascade → refill | Input → move → collide → score |
 | **Mechanic** (code, small) | The bit that must run fast or exactly | Reels, win lines, tumble | Grid model: swap, match find, gravity | Tick loop, movement, collision |
-| **Outcome source** | Who decides results | RGS books | RGS books *or* local rules | Local rules (or RGS for prize games) |
+| **Outcome source** | Who decides results (a per-game option, §12 #6) | RGS books | RGS books *or* local rules | Local rules *or* RGS books |
 
 Components, screens, timelines and the Flow ↔ component contract (§6) are **game-agnostic by
 construction**. Nothing in §3–§6 mentions reels, symbols or books. That is what lets a match-3 or
@@ -668,7 +668,7 @@ plan changes *editing*, not the pipeline. The connections it touches and how eac
 | 7 | **Flow instance nodes** — 7a (format, validator, runtime, `text` inputs, gates) and 7b (the `/flow-v2` palette and node, the jumps, Preview drives the stage) built 2026-10-13, owner browser check passed 2026-10-17 | §6.2: placed instances in Flow's palette; instance node with pins derived from the interface; *Wait for state*; *Show in Flow* / *Edit component* jumps; Flow Preview drives the stage; validator + publish gate check every wire | `engine-flow-v2` (new node kind beside `containerEvents.ts`), `/flow-v2`, `apps/lines` interpreter | L |
 | 8 | **Migrate the coded overlays** — plan in §13; **8a (Transition) and 8b (Win) built 2026-10-14** (§13.2, §13.6), owner browser checks passed 2026-10-17; 8c and 8d built 2026-10-15; all four unlocked, off by default | Transition → Win → free-spin intro/outro → buttons, behind a per-project flag (default off), then retire the coded mounts (`invisible-editor.md` §8.7 "defang, don't gut") | `apps/lines`, built-in components | L each |
 | 9 | **Shared library + UX pass**, re-scoped 2026-10-16 into 9a–9d ([rive-reference.md §5](rive-reference.md#5-phase-9-re-scoped-proposal)) | 9a hierarchy and stage basics (lock / isolate / hide, shortcuts); 9b keying and easing (Inspector key buttons, cubic Interpolation panel, multi-key edit); 9c Animations list, state-machine transition options and Console; 9d `_shared/cinematics/` promotion and starter timelines, Data tab. Onion skin goes in 9b | editor, storage, timeline format (`ease`) | M each |
-| 10 | **Game families plan** | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic); match-3 first, because it reuses the cascade work | docs → its own phases | — |
+| 10 | **Game families plan** — plan approved 2026-10-20 in [game-families.md](game-families.md) (all §9 decisions accepted); build on hold until the owner says go | A separate design doc for §7.2 (game variables, input/tick events, spawning, the match-3 `board` mechanic) and §12 #6 (both outcome sources, per game); match-3 first, because it reuses the cascade work. Its own build plan is P10.1–P10.10 (game-families.md §8) | docs → its own phases | — |
 
 **Ship chain (rule 8):** no new asset class. Timelines already travel export → deploy → bake →
 pull → register as cinematics. What a node-actor timeline references must also ship: art it swaps
@@ -711,10 +711,12 @@ the point where a non-slot game becomes possible, so §7's work starts after it.
    trigger inputs) — Phase 5b.
 5. **Which proof first** for Phase 3 — **DECIDED (owner 2026-10-13): a screen intro.** Animate a
    screen's intro in the Scene Editor and have Flow's `playCinematic` play it in game.
-6. **Outcome source for the new families.** Are the arcade and match-3 games real-money games
-   whose results come from the RGS (the player's moves are presentation, as in a cascade slot), or
-   skill / free-play games where the client's own rules decide? This decides how much logic Flow
-   must own, and it is the biggest single fork in §7. Not needed before Phase 10.
+6. **Outcome source for the new families.** — **DECIDED (owner 2026-10-20): both, chosen per
+   game.** A match-3 or arcade game can be a real-money game whose results come from the RGS (the
+   player's moves are presentation, as in a cascade slot) or a skill / free-play game whose own
+   rules decide. The outcome source is an option each game sets, not a property of the family, so
+   Phase 10 must support both. Flow owns the rules logic only in a game whose rules decide; an
+   RGS-decided game keeps the books driving the result.
 7. **Rive references.** **PROVIDED (owner 2026-10-16):** five screenshots plus the Rive interface
    docs. The surface-by-surface map, the deliberate non-copies and the re-scoped Phase 9 (9a–9d) live
    in [rive-reference.md](rive-reference.md).

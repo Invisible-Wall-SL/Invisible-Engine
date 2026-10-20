@@ -648,6 +648,22 @@ const arrivalReleaseSchema = z
 	.strict();
 
 /**
+ * "Play Land as each cell stops" — on the Hold and Win respin board, a coin plays its `land` the
+ * moment its own cell stops instead of when the `coinsLand` beat sticks every landed coin, which
+ * waits for the LAST cell of the respin. The stick then does not play it again (an authored
+ * `coinStick` still plays). The rule is `engine-game`'s `respinStopState` / `respinHeldDrawState`.
+ *
+ * Sparse and default OFF, so an untouched project persists no key and lands exactly as before. Not
+ * gated on the project having a respin board here — the config is a separate document, and a save
+ * that dropped the flag because of it would come back as a switch that will not stay on.
+ */
+const respinLandOnStopSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+
+/**
  * The Hold and Win COIN VALUE LABEL (`engine-layout/coinLabel.ts` owns the shape, defaults and
  * prune). A number outside its
  * range is CLAMPED and a non-hex tint or blank font DROPPED by `pruneCoinLabel` rather than refused,
@@ -778,6 +794,7 @@ export const symbolsDocSchema = z
 		winExplode: winExplodeSchema.optional(),
 		winBeat: winBeatSchema.optional(),
 		arrivalRelease: arrivalReleaseSchema.optional(),
+		respinLandOnStop: respinLandOnStopSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
 		tumblePattern: tumblePatternSchema.optional(),
@@ -1028,6 +1045,8 @@ export function normalizeSymbolsDoc(
 	// Default-OFF again, so ONLY the ON state persists: an untouched project — and one that turned
 	// the release back off — round-trips to no key and keeps awaiting its arrival byte-for-byte.
 	if (doc.arrivalRelease?.enabled === true) next.arrivalRelease = { enabled: true };
+	// Default-OFF like the release above: only the ON state persists.
+	if (doc.respinLandOnStop?.enabled === true) next.respinLandOnStop = { enabled: true };
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
 	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).

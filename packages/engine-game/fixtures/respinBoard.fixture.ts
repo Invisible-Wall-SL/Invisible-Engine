@@ -4,7 +4,14 @@
  *
  * Run: node --experimental-strip-types packages/engine-game/fixtures/respinBoard.fixture.ts
  */
-import { releasedCells, respinSeedBoard, respinSpins } from '../src/game/respinBoard.ts';
+import {
+	releasedCells,
+	respinHeldDrawState,
+	respinSeedBoard,
+	respinSpins,
+	respinStopState,
+} from '../src/game/respinBoard.ts';
+import type { SymbolState } from '../src/game/types.ts';
 
 // No `node:assert` — the package has no Node types, and svelte-check reads this file too.
 const assert = {
@@ -140,6 +147,37 @@ it('the mount shows the blank on every cell, held or free', () => {
 		[{ name: 'BLANK' }, { name: 'BLANK' }],
 		[{ name: 'BLANK' }, { name: 'BLANK' }],
 	]);
+});
+
+/** A symbol that binds art for exactly `states` — `hasAuthoredSymbolState` for one symbol. */
+const binds =
+	(...states: SymbolState[]) =>
+	(state: SymbolState) =>
+		states.includes(state);
+
+it('switch off: a stopping cell draws Coin land whatever the symbol binds', () => {
+	assert.equal(respinStopState(false, binds()), 'coinLand');
+	assert.equal(respinStopState(false, binds('land')), 'coinLand');
+	assert.equal(respinStopState(false, binds('coinLand', 'land')), 'coinLand');
+});
+
+it('switch on: a stopping cell draws Land, unless the symbol binds its own Coin land', () => {
+	assert.equal(respinStopState(true, binds('land')), 'land');
+	assert.equal(respinStopState(true, binds()), 'land');
+	assert.equal(respinStopState(true, binds('coinLand', 'land')), 'coinLand');
+});
+
+it('a stick on a cell that landed on its stop draws the rest, unless Coin stick is bound', () => {
+	const draw = (state: SymbolState, landedOnStop: boolean, authored = binds('land')) =>
+		respinHeldDrawState(state, { landedOnStop, authored, rest: 'coinIdle' });
+	assert.equal(draw('coinStick', true), 'coinIdle');
+	assert.equal(draw('coinStick', true, binds('land', 'coinStick')), 'coinStick');
+	// Off, or a stick no stop preceded (a mystery becoming a coin), still borrows Land as before.
+	assert.equal(draw('coinStick', false), 'coinStick');
+	// Every other beat draws itself.
+	for (const state of ['coinIdle', 'coinBoost', 'coinCollect', 'mysteryReveal'] as SymbolState[]) {
+		assert.equal(draw(state, true), state);
+	}
 });
 
 console.log(`

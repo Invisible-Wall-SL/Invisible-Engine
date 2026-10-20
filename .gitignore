@@ -50,6 +50,7 @@ apps/**/src/game/sounds/
 
 #playwright
 test-results
+.playwright-mcp/
 apps/**/test-videos/
 apps/**/test-report
 apps/**/test-results
@@ -70,6 +71,7 @@ packages/e2e/math-testing/__pycache__/*
 !.claude/agents/
 !.claude/skills/
 !.claude/commands/
+!.claude/settings.json
 
 # EAGaming probe captures (may contain session data)
 probe-output/

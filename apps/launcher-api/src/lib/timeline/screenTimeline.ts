@@ -591,7 +591,9 @@ export interface TimelineNodeDrive {
 	bindings: ValueBinding[];
 	/** The node's channels at `t` (`sampleNodeActor`), and the clip an `animation` strip holds a
 	 *  rig node at. */
-	sample: NodeActorSample & Pick<CinematicNodeSample, 'animTime'>;
+	sample: NodeActorSample & Pick<CinematicNodeSample, 'animTime' | 'text'>;
+	/** The value source a count-up's keys are shares of (its text track's `to`). */
+	textTo?: string;
 }
 
 /**
@@ -608,8 +610,13 @@ export function timelineDrives(
 	for (const [nodeId, actor] of resolveNodeActors(doc, scene)) {
 		const bindings = nodeActorBindings(keyedNodeChannels(actor.tracks));
 		const sample = sampleNodeActor(actor.tracks as unknown as CinematicTrack[], t);
-		if (bindings.length || sample.tint !== undefined || sample.animTime)
-			out.set(nodeId, { bindings, sample });
+		if (bindings.length || sample.tint !== undefined || sample.animTime || sample.text) {
+			const to = actor.tracks.filter((tr) => tr.kind === 'text').pop()?.to;
+			out.set(
+				nodeId,
+				typeof to === 'string' ? { bindings, sample, textTo: to } : { bindings, sample },
+			);
+		}
 	}
 	return out;
 }

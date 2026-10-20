@@ -42,7 +42,11 @@
 		type DepthSlice,
 		type RepeaterSourceMap,
 	} from './editorCanvas.helpers';
-	import { previewResolveTransform, previewVersion } from './valuePreview.client.svelte';
+	import {
+		previewResolveTransform,
+		previewText,
+		previewVersion,
+	} from './valuePreview.client.svelte';
 
 	interface Props {
 		/** All doc scenes — the composite the 2D canvas + rig layer also draw. */
@@ -278,6 +282,8 @@
 		node: Extract<LayoutNode, { kind: 'text' }>,
 		params: Record<string, unknown>,
 	): string {
+		const timeline = previewText(node);
+		if (timeline !== undefined) return timeline;
 		const value = resolveBoundValue(node.paramBindings, 'text', params);
 		if (typeof value === 'number') return numberFormat.format(value);
 		if (typeof value === 'string') return value;

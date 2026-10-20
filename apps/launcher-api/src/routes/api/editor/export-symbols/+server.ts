@@ -40,8 +40,8 @@ export const POST: RequestHandler = async ({ url }) => {
 		// intro the live one no longer waits on. `symbolSounds` (the per-symbol cues) is here as the
 		// FALLBACK carrier `bakedSymbolSounds` reads when the sound catalog ships no `bindings` block —
 		// the runtime path has always passed it verbatim, so without it the two paths disagreed.
-		// `coinLabel` (the Hold and Win coin value label) and `flights` (its flight styles) are here
-		// for the same reach-both reason.
+		// `coinLabel` (the Hold and Win coin value label), `flights` (its flight styles) and
+		// `respinLandOnStop` (when its coins play Land) are here for the same reach-both reason.
 		const {
 			map,
 			index,
@@ -54,6 +54,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winExplode,
 			winBeat,
 			arrivalRelease,
+			respinLandOnStop,
 			bookVfx,
 			transition,
 			tumblePattern,
@@ -87,6 +88,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winExplode,
 			winBeat,
 			arrivalRelease,
+			respinLandOnStop,
 			bookVfx,
 			transition,
 			tumblePattern,

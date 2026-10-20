@@ -107,17 +107,20 @@
 	{/if}
 
 	{#if !locked}
-		<div class="anchorgrid" title="Anchor preset">
-			{#each anchors as a (a.ax + '-' + a.ay)}
-				<button
-					type="button"
-					class="ap"
-					class:on={isActiveAnchor(a.ax, a.ay)}
-					aria-label={`anchor ${a.ax},${a.ay}`}
-					onclick={() => onAnchor(node, a.ax, a.ay)}
-				></button>
-			{/each}
-		</div>
+		<!-- A rig is placed by its skeleton origin; the game never reads its anchor. -->
+		{#if node.kind !== 'spine'}
+			<div class="anchorgrid" title="Anchor preset">
+				{#each anchors as a (a.ax + '-' + a.ay)}
+					<button
+						type="button"
+						class="ap"
+						class:on={isActiveAnchor(a.ax, a.ay)}
+						aria-label={`anchor ${a.ax},${a.ay}`}
+						onclick={() => onAnchor(node, a.ax, a.ay)}
+					></button>
+				{/each}
+			</div>
+		{/if}
 		<button type="button" class="ic" title="Scale down" onclick={() => onScale(node, 0.9)}>−</button
 		>
 		<button type="button" class="ic" title="Scale up" onclick={() => onScale(node, 1.1)}>+</button>

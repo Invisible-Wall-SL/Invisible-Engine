@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 
 import { SkeletonJson, type AttachmentLoader } from 'engine-rig';
 
-import { authoredRigBox, type RigBox } from '../../constants-shared/rig.ts';
+import { authoredRigBox, rigOriginAnchor, type RigBox } from '../../constants-shared/rig.ts';
 import { rigAnchorPoint, rigFramePivot } from '../src/lib/rigBox.ts';
 
 /** No skins in these skeletons, so the attachment loader is never consulted. */
@@ -188,5 +188,20 @@ function drawn(
 //    fallback, which applies the same frame-point rule to the bounds it can measure.
 assert.equal(authoredRigBox(parse({})), null);
 assert.equal(authoredRigBox({ x: 0, y: 0, width: 0, height: 10 }), null);
+
+// 9. One anchor convention with the Scene Editor: `rigOriginAnchor` (where the origin sits in the
+//    box, the anchor its selection box is framed by) names the point an anchor-free mount lands on,
+//    so anchoring a rig at it pivots on the origin exactly — the two rules agree for any box.
+for (const box of [
+	{ x: -100, y: 0, width: 200, height: 300 },
+	{ x: 50, y: -20, width: 200, height: 100 },
+	{ x: -1756.51, y: -374.21, width: 3422.57, height: 3603.95 },
+]) {
+	const { ax, ay } = rigOriginAnchor(box);
+	for (const load of [1, 2]) {
+		const p = rigFramePivot(box, { x: ax, y: ay }, load);
+		assert.ok(Math.abs(p.x) < 1e-9 && Math.abs(p.y) < 1e-9, `origin anchor pivots on the origin`);
+	}
+}
 
 console.log('rigBox fixture: ok');

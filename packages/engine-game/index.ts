@@ -131,8 +131,10 @@ export {
 export {
 	releasedCells,
 	respinCellKey,
+	respinHeldDrawState,
 	respinSeedBoard,
 	respinSpins,
+	respinStopState,
 	type RespinSpin,
 } from './src/game/respinBoard';
 export {
