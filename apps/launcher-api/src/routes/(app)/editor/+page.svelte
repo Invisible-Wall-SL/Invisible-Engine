@@ -3596,6 +3596,7 @@
 						<MenuButton
 							class="screen-more-btn"
 							label="More screen actions"
+							buttonLabel="More screen actions"
 							title="More screen actions"
 							groups={moreScreenGroups}
 						>

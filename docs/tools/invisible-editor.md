@@ -139,7 +139,7 @@ To start from something:
   **lines** project too: loaded there (scaffold or import) it is the project's own lines layout,
   not a cross-type one — a Book-of game is lines plus the expanding symbol.
 - **＋ Add screen ▾** (under the screen list) opens a menu of everything that adds a screen;
-  **⋯** beside it holds the rest. Both open on click, Enter or Space; the arrow keys move through
+  **⋯** beside it holds the rest. Both open on click, Enter, Space or ↓; the arrow keys move through
   them, → or Enter opens a submenu, and Esc or a click elsewhere closes them. A small number on
   **＋ Add screen ▾** counts the screens this game has that the layout is missing (the **Add
   missing screens** and **Add overlay screens** entries below).

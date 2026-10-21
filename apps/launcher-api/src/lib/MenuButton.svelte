@@ -29,6 +29,8 @@
 		children: Snippet;
 		/** The menu's accessible name. */
 		label: string;
+		/** The button's accessible name, when its face is only a symbol. */
+		buttonLabel?: string;
 		title?: string;
 		/** A small count on the button; hidden when 0 or absent. */
 		badge?: number;
@@ -40,6 +42,7 @@
 		groups,
 		children,
 		label,
+		buttonLabel,
 		title,
 		badge,
 		badgeTitle,
@@ -57,6 +60,12 @@
 	let subEl = $state<HTMLDivElement | undefined>();
 	let menuStyle = $state('');
 	let subStyle = $state('');
+	const subParent = $derived.by(() => {
+		if (!subKey) return null;
+		const [gi, ii] = subKey.split(':').map(Number);
+		const entry = shown[gi]?.items[ii];
+		return entry && isSubmenu(entry) ? entry : null;
+	});
 
 	const GAP = 4;
 	const MARGIN = 8;
@@ -124,6 +133,15 @@
 		if (key) menuEl?.querySelector<HTMLElement>(`[data-key="${key}"]`)?.focus();
 	}
 
+	/** Hovering a plain item closes an open submenu; focus inside it follows the pointer, or the
+	 * removed submenu would leave focus on <body> where the stage's arrow keys act again. */
+	function hoverItem(item: HTMLElement): void {
+		if (!subKey) return;
+		const hadFocus = !!subEl && subEl.contains(document.activeElement);
+		subKey = null;
+		if (hadFocus) item.focus();
+	}
+
 	function choose(action: MenuAction): void {
 		closeMenu(true);
 		action.onSelect();
@@ -156,7 +174,8 @@
 		const container = inSub ? subEl : menuEl;
 		const target = e.target as HTMLElement;
 		if (e.key === 'Tab') {
-			closeMenu(false);
+			// Focus the trigger first so Tab's default moves on from it, not from the end of <body>.
+			closeMenu(true);
 			return;
 		}
 		e.stopPropagation();
@@ -211,7 +230,7 @@
 	});
 
 	// A body portal lets position:fixed escape the scrolling panel the button sits in.
-	function portal(node: HTMLElement) {
+	function portal(node: HTMLElement): { destroy: () => void } {
 		document.body.appendChild(node);
 		return { destroy: () => node.remove() };
 	}
@@ -222,6 +241,7 @@
 	type="button"
 	class="mb-button {className}"
 	{title}
+	aria-label={buttonLabel}
 	aria-haspopup="menu"
 	aria-expanded={open}
 	onclick={() => (open ? closeMenu(true) : void openMenu())}
@@ -231,6 +251,8 @@
 	{#if badge}<span class="mb-badge" title={badgeTitle}>{badge}</span>{/if}
 </button>
 
+<!-- Each portalled element is the ONLY node of its {#if} branch: Svelte removes a branch by walking
+     its nodes from first to last, which a portal that moved the first one away would break. -->
 {#if open}
 	<!-- `data-esc-owner`: this menu answers Escape itself, so a page-level Escape stands down. -->
 	<div
@@ -273,7 +295,7 @@
 						class="mb-item"
 						title={entry.title}
 						onclick={() => choose(entry)}
-						onpointerenter={() => (subKey = null)}
+						onpointerenter={(e) => hoverItem(e.currentTarget)}
 					>
 						<span class="mb-label">{entry.label}</span>
 						{#if entry.hint}<span class="mb-hint">{entry.hint}</span>{/if}
@@ -282,36 +304,32 @@
 			{/each}
 		{/each}
 	</div>
-	{#if subKey}
-		{@const [gi, ii] = subKey.split(':').map(Number)}
-		{@const parent = shown[gi]?.items[ii]}
-		{#if parent && isSubmenu(parent)}
-			<div
-				bind:this={subEl}
-				use:portal
-				data-esc-owner
-				class="mb-menu"
-				style={subStyle}
-				role="menu"
-				tabindex="-1"
-				aria-label={parent.label}
-				onkeydown={onMenuKey}
+{/if}
+{#if open && subParent}
+	<div
+		bind:this={subEl}
+		use:portal
+		data-esc-owner
+		class="mb-menu"
+		style={subStyle}
+		role="menu"
+		tabindex="-1"
+		aria-label={subParent.label}
+		onkeydown={onMenuKey}
+	>
+		{#each subParent.items as action, si (si)}
+			<button
+				type="button"
+				role="menuitem"
+				class="mb-item"
+				title={action.title}
+				onclick={() => choose(action)}
 			>
-				{#each parent.items as action, si (si)}
-					<button
-						type="button"
-						role="menuitem"
-						class="mb-item"
-						title={action.title}
-						onclick={() => choose(action)}
-					>
-						<span class="mb-label">{action.label}</span>
-						{#if action.hint}<span class="mb-hint">{action.hint}</span>{/if}
-					</button>
-				{/each}
-			</div>
-		{/if}
-	{/if}
+				<span class="mb-label">{action.label}</span>
+				{#if action.hint}<span class="mb-hint">{action.hint}</span>{/if}
+			</button>
+		{/each}
+	</div>
 {/if}
 
 <style>
