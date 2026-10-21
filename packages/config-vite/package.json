@@ -17,6 +17,6 @@
 		"svelte": "5.57.2",
 		"vite": "6.2.0",
 		"@sveltejs/kit": "2.70.3",
-		"@lingui/vite-plugin": "5.2.0"
+		"@lingui/vite-plugin": "6.10.0"
 	}
 }
