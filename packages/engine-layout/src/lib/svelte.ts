@@ -23,6 +23,7 @@ import Repeater, { type Props as RepeaterProps } from './Repeater.svelte';
 import BuyFeatureScreen, { type Props as BuyFeatureScreenProps } from './BuyFeatureScreen.svelte';
 import ConfirmDialog, { type Props as ConfirmDialogProps } from './ConfirmDialog.svelte';
 import Cinematic from './Cinematic.svelte';
+import ElementFxPlayer, { type Props as ElementFxPlayerProps } from './ElementFxPlayer.svelte';
 
 export {
 	Cinematic,
@@ -37,6 +38,7 @@ export {
 	Repeater,
 	BuyFeatureScreen,
 	ConfirmDialog,
+	ElementFxPlayer,
 };
 export type {
 	LayoutSceneProps,
@@ -54,6 +56,7 @@ export type {
 	RepeaterProps,
 	BuyFeatureScreenProps,
 	ConfirmDialogProps,
+	ElementFxPlayerProps,
 };
 
 // Param context (§13.2) — Svelte-dependent, so it lives on the component entry

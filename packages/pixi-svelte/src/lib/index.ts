@@ -19,6 +19,8 @@ export * from './rigLocale';
 export * from './cameraEffects';
 // Named anchors: where a mounted container is on screen, for code aiming at it (flights).
 export * from './anchors';
+// Element FX: shake / bend / light / break ONE container (a node, a screen, the reels).
+export * from './elementFx';
 // Press-and-hold on a pointer-up press surface (the spin button's hold-to-spin).
 export * from './pressHold';
 // The rotation `<RigBoneAttach followRotation>` gives a bone-bound child (and the `/fx` stage copies).

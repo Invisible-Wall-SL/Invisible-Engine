@@ -1,5 +1,6 @@
 import { soundOptionsFor } from '$lib/soundOptions';
 import { collectSceneCueNames } from '$lib/sceneCues';
+import { collectElementFxTargets } from '$lib/elementFxTargets';
 import { collectContainerTaps } from '$lib/containerTaps';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
@@ -119,6 +120,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		layout.gameType ?? doc.templateId,
 		addOns,
 	);
+	// What an `elementEffect` can aim at: the reels, every screen, and every anchored node.
+	const fxTargets = collectElementFxTargets(layout.scenes ?? [], components);
 
 	// CONTAINER SYNC (`syncFlowContainers`): every Scene-Editor screen is offered as a container.
 	// Returning the merged doc means the palette offers every screen immediately, and a Save persists
@@ -185,6 +188,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url, parent }) => 
 		/** Author-named cues off the project’s rig AND flipbook nodes, so a `fireCue` node can
 		 *  address a placed asset (see the harvest above). Composed client-side by `withSceneCues`. */
 		sceneCues,
+		fxTargets,
 		containerEvents,
 		/** Placed node id → the instance's projected interface (`projectFlowInstances`), the source of
 		 *  a `componentInstance` node's pins and of every `instance-*` validation. */

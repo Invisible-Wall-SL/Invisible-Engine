@@ -1,3 +1,4 @@
+import { elementFxCueNames, readElementFxEntries } from 'constants-shared/elementFx';
 import type { CueDecl, TemplateVocabulary } from 'engine-flow-v2';
 import { engineSignalsForKind } from 'engine-layout';
 import type { ComponentDef, KindCapabilityConfig, LayoutNode, Scene } from 'engine-layout';
@@ -41,7 +42,8 @@ const gameDrivenSignals = (
 
 /**
  * Every author-named cue signal on a scene's CUED nodes — rigs (which swap animation) and
- * flipbooks (which swap clip) — sorted + de-duplicated. Both kinds ride the same bus, so the
+ * flipbooks (which swap clip) — and every Element FX cue (play or stop) on any node or on a screen
+ * itself, sorted + de-duplicated. Both kinds ride the same bus, so the
  * palette must offer both; harvesting only rigs would silently leave a flipbook character
  * un-fireable while the editor happily saved its cue.
  *
@@ -72,8 +74,12 @@ export function collectSceneCueNames(
 		if (name && !gameDriven.has(name)) names.add(name);
 	};
 	const entered = new Set<string>();
+	const addFx = (raw: unknown): void => {
+		for (const cue of elementFxCueNames(readElementFxEntries(raw))) add(cue);
+	};
 	const walk = (nodes: readonly LayoutNode[]): void => {
 		for (const node of nodes) {
+			addFx(node.elementFx);
 			if (node.kind === 'container') {
 				walk(node.children ?? []);
 				continue;
@@ -91,7 +97,10 @@ export function collectSceneCueNames(
 			for (const cue of node.cues ?? []) add(cue.signal);
 		}
 	};
-	for (const scene of scenes) walk(scene.nodes ?? []);
+	for (const scene of scenes) {
+		addFx(scene.elementFx);
+		walk(scene.nodes ?? []);
+	}
 	return [...names].sort();
 }
 

@@ -1,5 +1,10 @@
 <script lang="ts" module>
 	import { untrack, type Snippet } from 'svelte';
+	import {
+		elementFxIntensityChannel,
+		elementFxProgressChannel,
+		readElementFxEntries,
+	} from 'constants-shared/elementFx';
 
 	import type { EffectNode, LayoutNode, Scene, TextStyle } from './types';
 
@@ -76,6 +81,7 @@
 	import { groupSlotRiders, splitSlotRiders } from './rigSlotRiders';
 	import { attachedEffectDrives, createNodeFold } from './nodeFold.svelte';
 	import DrivenEffectPlayer from './DrivenEffectPlayer.svelte';
+	import ElementFxPlayer from './ElementFxPlayer.svelte';
 	import {
 		boundBoneOffsets,
 		boundFillShare,
@@ -125,6 +131,16 @@
 	const listenerCursor = listeners?.some((l) => l.event !== 'enter' && l.event !== 'leave')
 		? 'pointer'
 		: undefined;
+
+	// Element FX (`docs/design/element-fx.md`): a node carrying effects renders inside one extra
+	// container they play on, which takes the node's `zIndex` so it sorts among its siblings as the
+	// node did, and is anchored under the node id so a Flow `elementEffect` can aim at it. Read once:
+	// a node that gains or loses effects would otherwise remount its art. None ⇒ no container
+	// (parity). The reel grid draws nothing here: the game plays its effects on the reel stack.
+	const elementFx =
+		untrack(() => node.kind) === 'reelGrid'
+			? []
+			: readElementFxEntries(untrack(() => node.elementFx)).filter((e) => !e.disabled);
 
 	// The hoisted tap-to-continue surface exposed by a `tapToContinue`-enabled
 	// `componentInstance` child (see the componentInstance branch below). `undefined`
@@ -658,6 +674,17 @@
 	// own strings. A count-up's keys are SHARES of a value source when the track names one (`to`),
 	// read live, so a timeline counts up to "the win" without knowing it.
 	const timelineText = $derived(fold.timelineSample?.text);
+	// A `keyed` Element FX entry sits where the timeline driving this node poses it (its `efx:`
+	// channels, a state-machine blend included). Read by the effect on the ticker, not tracked.
+	const elementFxPose = (
+		entryId: string,
+	): { progress?: number; intensity?: number } | undefined => {
+		const sample = fold.timelineSample as Record<string, unknown> | undefined;
+		const progress = sample?.[elementFxProgressChannel(entryId)];
+		if (typeof progress !== 'number') return undefined;
+		const intensity = sample?.[elementFxIntensityChannel(entryId)];
+		return { progress, intensity: typeof intensity === 'number' ? intensity : undefined };
+	};
 	const textTrack = timelineDrive?.textTrack;
 	let countUpTo = $state<number | undefined>(undefined);
 	if (textTrack?.to) {
@@ -1748,19 +1775,37 @@
 	container) still fires — events bubble to the wrapper too. No listeners, or no instance to
 	route them to, ⇒ the node renders bare, byte-identical (parity).
 -->
-{#if listen}
-	<Container
-		eventMode="static"
-		cursor={listenerCursor}
-		zIndex={transform.zIndex}
-		onpointerdown={() => listen.listen(node, 'down')}
-		onpointerup={() => listen.listen(node, 'up')}
-		onpointerenter={() => listen.listen(node, 'enter')}
-		onpointerleave={() => listen.listen(node, 'leave')}
-		onpointertap={() => listen.listen(node, 'click')}
-	>
+{#snippet listened()}
+	{#if listen}
+		<Container
+			eventMode="static"
+			cursor={listenerCursor}
+			zIndex={transform.zIndex}
+			onpointerdown={() => listen.listen(node, 'down')}
+			onpointerup={() => listen.listen(node, 'up')}
+			onpointerenter={() => listen.listen(node, 'enter')}
+			onpointerleave={() => listen.listen(node, 'leave')}
+			onpointertap={() => listen.listen(node, 'click')}
+		>
+			{@render nodeBody()}
+		</Container>
+	{:else}
 		{@render nodeBody()}
+	{/if}
+{/snippet}
+
+<!--
+	ELEMENT FX: the effects play on this container. The player mounts only while the node is shown,
+	so an `enter` effect plays each time the node appears and a hidden node runs nothing.
+-->
+{#if elementFx.length}
+	<Container zIndex={transform.zIndex}>
+		<Anchor name={node.id} />
+		{#if transform.visible && revealed}
+			<ElementFxPlayer entries={elementFx} scope={signalScope} pose={elementFxPose} />
+		{/if}
+		{@render listened()}
 	</Container>
 {:else}
-	{@render nodeBody()}
+	{@render listened()}
 {/if}

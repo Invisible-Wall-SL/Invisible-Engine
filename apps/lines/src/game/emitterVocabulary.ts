@@ -1170,6 +1170,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Effect',
 		},
 		{
+			name: 'elementEffect',
+			group: 'Effect',
+		},
+		{
+			name: 'stopElementEffect',
+			group: 'Effect',
+		},
+		{
 			name: 'revealBoard',
 			group: 'Effect',
 		},

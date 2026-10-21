@@ -212,6 +212,8 @@
 		"check:flipbook-frames": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-frames.ts",
 		"precheck:scene-cues": "node scripts/ensure-svelte-kit.mjs",
 		"check:scene-cues": "tsx --tsconfig tsconfig.scripts.json scripts/check-scene-cues.ts",
+		"precheck:element-fx-flow": "node scripts/ensure-svelte-kit.mjs",
+		"check:element-fx-flow": "tsx --tsconfig tsconfig.scripts.json scripts/check-element-fx-flow.ts",
 		"precheck:signal-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:signal-scope": "tsx --tsconfig tsconfig.scripts.json scripts/check-signal-scope.ts",
 		"precheck:container-taps": "node scripts/ensure-svelte-kit.mjs",

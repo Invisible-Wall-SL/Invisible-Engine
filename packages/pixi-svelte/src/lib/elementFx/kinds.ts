@@ -1,0 +1,545 @@
+/**
+ * How each Element FX kind plays: a MOTION (the element's own transform), a FILTER (a shader pass
+ * over its pixels), a BREAK (a still of it, cut into pieces), or a motion and a filter together.
+ * Typed `Record<ElementFxKind, …>`, so a kind added to `constants-shared/elementFx` fails the type
+ * check here until it is implemented.
+ *
+ * Every sampler reads its params already resolved (authored over the kind's defaults, clamped) and
+ * returns to rest at the end of a play (`t = 1`), except the `exit` kinds, which end hidden.
+ */
+
+import type { ElementFxKind } from 'constants-shared/elementFx';
+import { BlurFilter, ColorMatrixFilter, type Filter } from 'pixi.js';
+import {
+	GlitchFilter,
+	GlowFilter,
+	OutlineFilter,
+	PixelateFilter,
+	RGBSplitFilter,
+} from 'pixi-filters';
+import {
+	DEG,
+	TAU,
+	bell,
+	clamp01,
+	easeInBack,
+	easeInOutCubic,
+	easeInQuad,
+	easeOutBack,
+	easeOutQuad,
+	flag,
+	lerp,
+	loopEnvelope,
+	num,
+	rgb,
+	smoothstep,
+	str,
+	type FxFrame,
+	type Motion,
+} from './frame';
+import {
+	bulgeFilter,
+	colorMixFilter,
+	curlFilter,
+	dissolveFilter,
+	perspectiveFilter,
+	rippleFilter,
+	shineFilter,
+	twistFilter,
+	waveFilter,
+	type ElementFxFilter,
+} from './shaders';
+
+/** The element's size on screen, for the passes whose padding is in screen pixels. */
+export interface FilterView {
+	screenWidth: number;
+	screenHeight: number;
+}
+
+export interface FilterImpl<F extends Filter> {
+	create(frame: FxFrame): F;
+	update(filter: F, frame: FxFrame, view: FilterView): void;
+	/** Extra room the pass draws outside the element's box, in screen px. */
+	padding?(frame: FxFrame, view: FilterView): number;
+}
+
+export type BreakStyle = 'crash' | 'crumble';
+
+export interface KindImpl {
+	motion?(frame: FxFrame): Partial<Motion>;
+	filter?: FilterImpl<Filter>;
+	breaks?: BreakStyle;
+}
+
+const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>
+	impl as unknown as FilterImpl<Filter>;
+
+/** Rest-to-rest strength curve with zero slope at both ends, so a repeat has no kink. */
+const swell = (t: number): number => 0.5 - 0.5 * Math.cos(TAU * t);
+
+/** Up to 1 over the first `rise` of the play, then eased back to 0. An impact's envelope. */
+const punch = (t: number, rise: number): number =>
+	t < rise ? t / rise : 1 - easeOutQuad((t - rise) / (1 - rise));
+
+/** Turn progress: eased in and out for a single play, steady while it spins forever. */
+const turnProgress = (frame: FxFrame): number =>
+	frame.looping ? frame.t : easeInOutCubic(frame.t);
+
+const hash = (n: number): number => {
+	const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+	return x - Math.floor(x);
+};
+
+/**
+ * Bounce arcs: `count` hops, each lower than the last, over the first 85% of the play, landing at
+ * the end. Returns the height (0…1 of the first hop) and how hard it is pressed into the ground
+ * (0…1, peaking at each landing), from which the samplers draw a lift and a squash.
+ */
+const bounceArcs = (t: number, count: number): { lift: number; squash: number } => {
+	const n = Math.max(1, Math.round(count));
+	const heights = Array.from({ length: n }, (_, k) => Math.pow(0.45, k));
+	const widths = heights.map(Math.sqrt);
+	const total = widths.reduce((a, b) => a + b, 0);
+	if (t >= 0.85) {
+		return { lift: 0, squash: Math.sqrt(heights[n - 1]) * (1 - smoothstep(0.85, 1, t)) };
+	}
+	let at = (t / 0.85) * total;
+	for (let k = 0; k < n; k++) {
+		if (at <= widths[k] || k === n - 1) {
+			const u = clamp01(at / widths[k]);
+			const landing = u > 0.88 ? (u - 0.88) / 0.12 : 0;
+			const takeoff = k > 0 && u < 0.12 ? 1 - u / 0.12 : 0;
+			const squash =
+				landing * Math.sqrt(heights[k]) + takeoff * Math.sqrt(heights[k - 1] ?? heights[k]);
+			return { lift: heights[k] * 4 * u * (1 - u), squash };
+		}
+		at -= widths[k];
+	}
+	return { lift: 0, squash: 0 };
+};
+
+/** Focal length, in element sizes, for a `perspective` param of 0 (flat) … 1 (strong). */
+const focal = (perspective: number): number => lerp(6, 1.4, clamp01(perspective));
+
+/** Padding a perspective pass needs: the near edge grows as it turns and lifts toward the eye. */
+const perspectivePadding = (lift: number) => (_frame: FxFrame, view: FilterView) =>
+	Math.ceil(Math.max(view.screenWidth, view.screenHeight) * (0.3 + 0.8 * lift)) + 2;
+
+const flipImpl = (axis: 'x' | 'y'): KindImpl => ({
+	filter: filterImpl<ElementFxFilter>({
+		create: perspectiveFilter,
+		update(filter, frame) {
+			const angle = TAU * num(frame, 'turns') * turnProgress(frame);
+			const lift = 0.12 * frame.intensity * bell(frame.t);
+			filter.set('uRot', axis === 'y' ? angle : 0, axis === 'x' ? angle : 0, lift);
+			filter.set('uPersp', focal(num(frame, 'perspective')), flag(frame, 'shade') ? 1 : 0);
+		},
+		padding: perspectivePadding(0.25),
+	}),
+});
+
+const waveImpl = (mode: 0 | 1 | 2): KindImpl => ({
+	filter: filterImpl<ElementFxFilter>({
+		create: waveFilter,
+		update(filter, frame) {
+			filter.set(
+				'uWave',
+				num(frame, 'amplitude') * frame.intensity * loopEnvelope(frame),
+				num(frame, 'wavelength'),
+				num(frame, 'speed') * frame.seconds,
+				mode,
+			);
+		},
+		padding: (frame, view) =>
+			Math.ceil(
+				num(frame, 'amplitude') *
+					frame.intensity *
+					(mode === 0 ? view.screenWidth : view.screenHeight),
+			) + 2,
+	}),
+});
+
+const dissolveImpl = (direction: 'out' | 'in'): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = dissolveFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				const progress = direction === 'out' ? frame.t : 1 - frame.t;
+				filter.set(
+					'uDissolve',
+					progress,
+					num(frame, 'edge'),
+					num(frame, 'grain'),
+					seeds.get(filter) ?? 0,
+				);
+				filter.set('uEdgeColor', ...rgb(str(frame, 'color')));
+			},
+		}),
+	};
+};
+
+export const KINDS: Record<ElementFxKind, KindImpl> = {
+	// --- motion ---
+	shake: {
+		motion(frame) {
+			const amp =
+				frame.intensity *
+				Math.min(40, Math.max(3, 0.04 * Math.min(frame.width, frame.height))) *
+				(1 - frame.t);
+			const hz = num(frame, 'frequency');
+			const axis = str(frame, 'axis');
+			const s = frame.seconds;
+			return {
+				x: axis === 'y' ? 0 : amp * Math.sin(TAU * hz * s),
+				y: axis === 'x' ? 0 : amp * Math.sin(TAU * hz * 1.37 * s + 1.1),
+			};
+		},
+	},
+	wobble: {
+		motion: (frame) => ({
+			rotation:
+				num(frame, 'angle') *
+				DEG *
+				frame.intensity *
+				Math.sin(TAU * Math.round(num(frame, 'cycles')) * frame.t) *
+				Math.pow(1 - frame.t, 1.5),
+		}),
+	},
+	pulse: {
+		motion(frame) {
+			const k = 1 + (num(frame, 'scale') - 1) * frame.intensity * swell(frame.t);
+			return { scaleX: k, scaleY: k };
+		},
+	},
+	heartbeat: {
+		motion(frame) {
+			const t = frame.t;
+			const beat = (start: number, length: number): number =>
+				t >= start && t <= start + length ? swell((t - start) / length) : 0;
+			const k =
+				1 + (num(frame, 'scale') - 1) * frame.intensity * (beat(0, 0.3) + 0.7 * beat(0.32, 0.3));
+			return { scaleX: k, scaleY: k };
+		},
+	},
+	jelly: {
+		motion(frame) {
+			const o =
+				num(frame, 'squash') *
+				frame.intensity *
+				Math.sin(TAU * Math.round(num(frame, 'cycles')) * frame.t) *
+				Math.pow(1 - frame.t, 2);
+			return { scaleX: 1 + o, scaleY: 1 - o, pivotY: 1 };
+		},
+	},
+	bounce: {
+		motion(frame) {
+			const { lift, squash } = bounceArcs(frame.t, num(frame, 'bounces'));
+			const q = 0.22 * Math.min(1.5, frame.intensity) * squash;
+			return {
+				y: -lift * num(frame, 'height') * frame.intensity * frame.height,
+				scaleX: 1 + q * 0.8,
+				scaleY: 1 - q,
+				pivotY: 1,
+			};
+		},
+	},
+	spin: {
+		motion: (frame) => ({ rotation: TAU * num(frame, 'turns') * turnProgress(frame) }),
+	},
+	swing: {
+		motion: (frame) => ({
+			rotation:
+				num(frame, 'angle') *
+				DEG *
+				frame.intensity *
+				Math.sin(TAU * Math.round(num(frame, 'cycles')) * frame.t) *
+				(1 - frame.t),
+			pivotY: 0,
+		}),
+	},
+	float: {
+		motion(frame) {
+			const k = frame.intensity * loopEnvelope(frame);
+			return {
+				y: -num(frame, 'distance') * frame.height * k * Math.sin(TAU * frame.t),
+				rotation: num(frame, 'tilt') * DEG * k * Math.cos(TAU * frame.t),
+			};
+		},
+	},
+	popIn: {
+		motion(frame) {
+			const s = Math.max(
+				1e-4,
+				easeOutBack(frame.t, num(frame, 'overshoot') * 17 * frame.intensity),
+			);
+			return { scaleX: s, scaleY: s, alpha: clamp01(frame.t * 5) };
+		},
+	},
+	popOut: {
+		motion(frame) {
+			const swellBy = num(frame, 'overshoot') * frame.intensity;
+			const t = frame.t;
+			const s =
+				t < 0.25
+					? 1 + swellBy * Math.sin((Math.PI / 2) * (t / 0.25))
+					: (1 + swellBy) * (1 - easeInBack((t - 0.25) / 0.75, 1.2));
+			const scale = Math.max(1e-4, s);
+			return { scaleX: scale, scaleY: scale, alpha: 1 - smoothstep(0.7, 1, t) };
+		},
+	},
+	slamIn: {
+		motion(frame) {
+			const t = frame.t;
+			const impact = 0.45;
+			if (t < impact) {
+				const u = t / impact;
+				return {
+					y: -num(frame, 'height') * frame.intensity * frame.height * (1 - easeInQuad(u)),
+					scaleX: 1 + 0.25 * frame.intensity * (1 - u),
+					scaleY: 1 + 0.25 * frame.intensity * (1 - u),
+					alpha: clamp01(u * 4),
+					pivotY: 1,
+				};
+			}
+			const u = (t - impact) / (1 - impact);
+			// Decays to exactly nothing at the end, so the last frame does not snap.
+			const settle = Math.exp(-5 * u) * (1 - u);
+			const q = num(frame, 'squash') * frame.intensity * settle * Math.cos(TAU * 1.5 * u);
+			const rattle = 0.03 * frame.width * frame.intensity * settle * Math.sin(TAU * 9 * u);
+			return { x: rattle, scaleX: 1 + q * 0.8, scaleY: 1 - q, pivotY: 1 };
+		},
+	},
+	fadeIn: { motion: (frame) => ({ alpha: easeOutQuad(frame.t) }) },
+	fadeOut: { motion: (frame) => ({ alpha: 1 - easeInQuad(frame.t) }) },
+
+	// --- 3D ---
+	flipX: flipImpl('x'),
+	flipY: flipImpl('y'),
+	bounce3D: {
+		motion(frame) {
+			const { squash } = bounceArcs(frame.t, num(frame, 'bounces'));
+			const q = 0.12 * Math.min(1.5, frame.intensity) * squash;
+			return { scaleX: 1 + q, scaleY: 1 - q };
+		},
+		filter: filterImpl<ElementFxFilter>({
+			create: perspectiveFilter,
+			update(filter, frame) {
+				const { lift } = bounceArcs(frame.t, num(frame, 'bounces'));
+				const tilt = num(frame, 'tilt') * DEG * frame.intensity * (1 - frame.t);
+				filter.set(
+					'uRot',
+					tilt * Math.sin(TAU * 1.5 * frame.t),
+					0.7 * tilt * Math.sin(TAU * frame.t + 0.6),
+					lift * num(frame, 'height') * frame.intensity,
+				);
+				filter.set('uPersp', focal(0.55), 1);
+			},
+			padding: (frame, view) =>
+				perspectivePadding(num(frame, 'height') * frame.intensity)(frame, view),
+		}),
+	},
+	tilt3D: {
+		filter: filterImpl<ElementFxFilter>({
+			create: perspectiveFilter,
+			update(filter, frame) {
+				const a = num(frame, 'angle') * DEG * frame.intensity * loopEnvelope(frame);
+				filter.set('uRot', 0.5 * a * Math.cos(TAU * frame.t), a * Math.sin(TAU * frame.t), 0);
+				filter.set('uPersp', focal(0.6), 1);
+			},
+			padding: perspectivePadding(0),
+		}),
+	},
+
+	// --- distort ---
+	waveX: waveImpl(0),
+	waveY: waveImpl(1),
+	flag: waveImpl(2),
+	twist: {
+		filter: filterImpl<ElementFxFilter>({
+			create: twistFilter,
+			update(filter, frame) {
+				const k = frame.looping ? Math.sin(TAU * frame.t) : bell(frame.t);
+				filter.set('uTwist', num(frame, 'angle') * DEG * frame.intensity * k, num(frame, 'radius'));
+			},
+		}),
+	},
+	curl: {
+		filter: filterImpl<ElementFxFilter>({
+			create: curlFilter,
+			update(filter, frame) {
+				const t = frame.t;
+				const peel = frame.looping
+					? swell(t)
+					: t < 0.45
+						? easeOutQuad(t / 0.45)
+						: t < 0.55
+							? 1
+							: 1 - easeInOutCubic((t - 0.55) / 0.45);
+				const corner = str(frame, 'corner');
+				const roll = num(frame, 'radius');
+				filter.set(
+					'uCurl',
+					corner.endsWith('Right') ? 1 : 0,
+					corner.startsWith('bottom') ? 1 : 0,
+					peel * Math.min(1, num(frame, 'amount') * frame.intensity) * (1 + Math.PI * roll),
+					roll,
+				);
+			},
+		}),
+	},
+	ripple: {
+		filter: filterImpl<ElementFxFilter>({
+			create: rippleFilter,
+			update(filter, frame) {
+				const fade = 1 - frame.t;
+				filter.set(
+					'uRipple',
+					frame.t * 0.6,
+					num(frame, 'width'),
+					num(frame, 'amplitude') * frame.intensity * fade,
+					0.25 * Math.min(2, frame.intensity) * fade,
+				);
+			},
+		}),
+	},
+	bulge: {
+		filter: filterImpl<ElementFxFilter>({
+			create: bulgeFilter,
+			update(filter, frame) {
+				const s = Math.max(-1, Math.min(1, num(frame, 'strength') * frame.intensity));
+				filter.set('uBulge', s * swell(frame.t), num(frame, 'radius'));
+			},
+		}),
+	},
+
+	// --- light / colour ---
+	glow: {
+		filter: filterImpl<GlowFilter>({
+			create: (frame) =>
+				new GlowFilter({
+					distance: Math.round(num(frame, 'distance')),
+					outerStrength: 0,
+					innerStrength: 0,
+					color: str(frame, 'color'),
+					quality: 0.15,
+				}),
+			update(filter, frame) {
+				const k = frame.looping ? 0.6 + 0.4 * Math.sin(TAU * frame.t) : bell(frame.t);
+				filter.outerStrength = num(frame, 'strength') * frame.intensity * k;
+			},
+		}),
+	},
+	outline: {
+		filter: filterImpl<OutlineFilter>({
+			create: (frame) =>
+				new OutlineFilter({
+					thickness: num(frame, 'thickness'),
+					color: str(frame, 'color'),
+					quality: 0.15,
+					alpha: 0,
+				}),
+			update(filter, frame) {
+				const k = frame.looping ? 0.6 + 0.4 * Math.sin(TAU * frame.t) : bell(frame.t);
+				filter.alpha = Math.min(1, frame.intensity * k);
+			},
+		}),
+	},
+	shine: {
+		filter: filterImpl<ElementFxFilter>({
+			create: shineFilter,
+			update(filter, frame) {
+				filter.set(
+					'uShine',
+					lerp(-0.6, 1.6, frame.t),
+					num(frame, 'width') / 2,
+					num(frame, 'angle') * DEG,
+					num(frame, 'strength') * frame.intensity,
+				);
+				filter.set('uShineColor', ...rgb(str(frame, 'color')));
+			},
+		}),
+	},
+	flash: {
+		filter: filterImpl<ElementFxFilter>({
+			create: colorMixFilter,
+			update(filter, frame) {
+				const amount = Math.min(1, num(frame, 'peak') * frame.intensity) * punch(frame.t, 0.15);
+				filter.set('uMix', ...rgb(str(frame, 'color')), amount);
+			},
+		}),
+	},
+	hueCycle: {
+		filter: filterImpl<ColorMatrixFilter>({
+			create: () => new ColorMatrixFilter(),
+			update(filter, frame) {
+				filter.hue(360 * Math.round(num(frame, 'cycles')) * frame.t, false);
+			},
+		}),
+	},
+	chromatic: {
+		filter: filterImpl<RGBSplitFilter>({
+			create: () =>
+				new RGBSplitFilter({ red: { x: 0, y: 0 }, green: { x: 0, y: 0 }, blue: { x: 0, y: 0 } }),
+			update(filter, frame) {
+				const wave = frame.looping
+					? Math.sin(TAU * 2 * frame.t)
+					: Math.sin(TAU * 3 * frame.t) * (1 - frame.t);
+				const o = num(frame, 'offset') * frame.intensity * wave;
+				filter.redX = o;
+				filter.blueX = -o;
+				filter.greenY = 0.35 * o;
+			},
+			padding: (frame) => Math.ceil(num(frame, 'offset') * frame.intensity) + 1,
+		}),
+	},
+	glitch: {
+		filter: filterImpl<GlitchFilter>({
+			create: () =>
+				new GlitchFilter({ slices: 8, offset: 0, fillMode: 0, seed: 0.5, average: false }),
+			update(filter, frame, view) {
+				const step = Math.floor(frame.seconds * 14);
+				const r = hash(step);
+				const envelope = frame.looping ? 1 : 1 - smoothstep(0.6, 1, frame.t);
+				const on = r < 0.7;
+				const amount = num(frame, 'amount') * frame.intensity * envelope;
+				const offset = on ? amount * 0.15 * view.screenWidth : 0;
+				if (filter.seed !== r) {
+					filter.seed = r;
+					filter.refresh();
+				}
+				filter.offset = offset;
+				filter.red = { x: on ? offset * 0.25 : 0, y: 0 };
+				filter.blue = { x: on ? -offset * 0.25 : 0, y: 0 };
+			},
+			padding: (frame, view) =>
+				Math.ceil(num(frame, 'amount') * frame.intensity * 0.15 * view.screenWidth) + 1,
+		}),
+	},
+	blur: {
+		filter: filterImpl<BlurFilter>({
+			create: () => new BlurFilter({ strength: 0, quality: 3 }),
+			update(filter, frame) {
+				filter.strength = num(frame, 'strength') * frame.intensity * bell(frame.t);
+			},
+		}),
+	},
+	pixelate: {
+		filter: filterImpl<PixelateFilter>({
+			create: () => new PixelateFilter(1),
+			update(filter, frame) {
+				filter.size = Math.max(1, Math.round(num(frame, 'size') * frame.intensity * bell(frame.t)));
+			},
+		}),
+	},
+	dissolveOut: dissolveImpl('out'),
+	dissolveIn: dissolveImpl('in'),
+
+	// --- break ---
+	crash: { breaks: 'crash' },
+	crumble: { breaks: 'crumble' },
+};

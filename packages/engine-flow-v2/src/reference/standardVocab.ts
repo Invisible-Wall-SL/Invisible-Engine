@@ -34,6 +34,7 @@
  */
 
 import { CAMERA_EFFECT_KINDS } from 'constants-shared/camera';
+import { ELEMENT_FX_KINDS, ELEMENT_FX_REELS_TARGET } from 'constants-shared/elementFx';
 
 import { SYMBOL_ENUM } from '../symbols';
 import type { TemplateVocabulary, TypeRef } from '../types';
@@ -52,6 +53,9 @@ const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
 // literal). Their members are codegen'd from `apps/lines/src/game/sound.ts` into `soundEnums.generated`
 // (`node scripts/gen-flow-v2-sound-enums.mjs`), so adding a sound updates the dropdown automatically.
 const CAMERA_EFFECT: TypeRef = { t: 'enum', name: 'CameraEffectKind' };
+const ELEMENT_FX: TypeRef = { t: 'enum', name: 'ElementFxKind' };
+export const ELEMENT_FX_TARGET_ENUM = 'ElementFxTarget';
+const ELEMENT_FX_TARGET: TypeRef = { t: 'enum', name: ELEMENT_FX_TARGET_ENUM };
 const CONFIDENCE: TypeRef = { t: 'enum', name: 'AnticipationConfidence' };
 const BOOL: TypeRef = { t: 'bool' };
 const MS: TypeRef = { t: 'ms' };
@@ -188,6 +192,11 @@ export const standardVocabulary = ({ templateId }: { templateId: string }): Temp
 		// (`constants-shared/camera` → `pixi-svelte`'s `cameraEffects`), so the dropdown can never
 		// offer a kind the game would silently no-op.
 		{ name: 'CameraEffectKind', values: [...CAMERA_EFFECT_KINDS] },
+		// The Element FX catalog (`constants-shared/elementFx`), shared with the runtime the same way.
+		{ name: 'ElementFxKind', values: [...ELEMENT_FX_KINDS] },
+		// What an `elementEffect` can aim at: the reels here; the launcher adds each project's screens
+		// (`screen:<id>`) and anchored nodes (`withElementFxTargets`). The runtime takes any name.
+		{ name: ELEMENT_FX_TARGET_ENUM, values: [ELEMENT_FX_REELS_TARGET] },
 		// Reel-anticipation confidence (docs/design/reel-anticipation.md): `possible` teases on the
 		// reachable-win MAX bound (near-misses), `guaranteed` fires only once the win is locked in (MIN).
 		{ name: 'AnticipationConfidence', values: ['possible', 'guaranteed'] },
@@ -449,6 +458,73 @@ export const standardVocabulary = ({ templateId }: { templateId: string }): Temp
 					optional: true,
 					description:
 						'Whether the flow WAITS for the effect to finish before running the next node. Unset ⇒ false: the effect plays underneath the rest of the chain, which is almost always what a flourish wants. Set it true to hold the beat (e.g. flash, THEN reveal).',
+				},
+			],
+			category: 'effect',
+		},
+		// --- element effects ---
+		// The camera's sibling for ONE element: a screen, the reels, or a placed node (a group, a
+		// component, or any node that carries Element FX of its own). Kinds come from
+		// `constants-shared/elementFx`; `pixi-svelte`'s `elementFx` runtime plays them.
+		{
+			name: 'elementEffect',
+			params: [
+				{
+					name: 'target',
+					type: ELEMENT_FX_TARGET,
+					description:
+						'What to play it on: `reels`, a screen (`screen:<id>`), or a node by id — a group, a component, or any node that has Element FX of its own in the Scene Editor.',
+				},
+				{
+					name: 'kind',
+					type: ELEMENT_FX,
+					description:
+						'Which effect: a motion (shake, bounce, spin, pop…), a 3D turn (flip, bounce 3D), a distortion (wave, twist, curl…), a light (glow, shine, flash…) or a break (crash, crumble).',
+				},
+				{
+					name: 'durationMs',
+					type: MS,
+					optional: true,
+					description: "One play's length. Leave unset for the effect's own.",
+				},
+				{
+					name: 'intensity',
+					type: FLOAT,
+					optional: true,
+					description:
+						"How strong, as a multiplier of the effect's reference strength. Unset ⇒ 1. Capped at 4.",
+				},
+				{
+					name: 'repeat',
+					type: INT,
+					optional: true,
+					description: 'How many times it plays; 0 = until a `stopElementEffect`. Unset ⇒ once.',
+				},
+				{
+					name: 'color',
+					type: STRING,
+					optional: true,
+					description:
+						"A `#rrggbb` colour for the effects that take one (glow, outline, shine, flash, dissolve). Unset ⇒ the effect's own.",
+				},
+				{
+					name: 'blocking',
+					type: BOOL,
+					optional: true,
+					description:
+						'Whether the flow WAITS for it to finish before the next node. Unset ⇒ false. An effect that plays until stopped never finishes, so it never blocks.',
+				},
+			],
+			category: 'effect',
+		},
+		{
+			name: 'stopElementEffect',
+			params: [
+				{
+					name: 'target',
+					type: ELEMENT_FX_TARGET,
+					description:
+						'Stops every Element FX the flow played on this target and puts it back at rest (an exit such as crumble shows it again).',
 				},
 			],
 			category: 'effect',

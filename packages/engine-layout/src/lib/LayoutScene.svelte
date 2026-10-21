@@ -7,16 +7,21 @@
 		/** A screen timeline driving this screen's nodes (`<FlowV2Mount>`). Read once, at mount, as
 		 *  each node reads it — a new one needs a remount. Absent ⇒ any driver above applies. */
 		nodeDriver?: CinematicNodeDriver;
+		/** Register the container this screen is mounted in as this Element FX target
+		 *  (`screen:<id>`). Only a mount that gives the screen a container of its own passes it. */
+		parentTarget?: string;
 	};
 </script>
 
 <script lang="ts">
 	import { MainContainer } from 'components-layout';
-	import { Container } from 'pixi-svelte';
+	import { readElementFxEntries, elementFxScreenTarget } from 'constants-shared/elementFx';
+	import { Anchor, Container, getContextParent, registerAnchor } from 'pixi-svelte';
 
 	import { untrack } from 'svelte';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
+	import ElementFxPlayer from './ElementFxPlayer.svelte';
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { getSceneCameraTransform } from './registerSceneCameraTransform';
@@ -27,7 +32,12 @@
 	import { tapDimBehind } from './tapToContinue';
 	import { sceneMountKey, trackComponentMount } from './mountedComponents';
 
-	const { scene, nodeDriver }: Props = $props();
+	const { scene, nodeDriver, parentTarget }: Props = $props();
+	const parentContext = getContextParent();
+	$effect(() => {
+		const name = parentTarget;
+		return name ? registerAnchor(name, parentContext.parent) : undefined;
+	});
 
 	// The screen a placed component instance registers its Flow handle under (`flowInstances.ts`).
 	// A keyed scene never changes id, so it is read once.
@@ -142,6 +152,11 @@
 	// "Free-spin intro" opening), not just when the instance first mounts. Ungated
 	// screen ⇒ `liveVisible` stays `true` ⇒ a child reads "always visible" = parity.
 	setSceneVisibleContext(() => liveVisible);
+
+	// Element FX on the whole screen (`Scene.elementFx`): one container around everything the screen
+	// draws, the tap surfaces included, anchored as `screen:<id>` for the Flow. Read once, like the
+	// node's. None ⇒ no container (parity).
+	const screenFx = readElementFxEntries(untrack(() => scene.elementFx)).filter((e) => !e.disabled);
 </script>
 
 {#snippet nodes()}
@@ -209,10 +224,24 @@
 	{/each}
 {/snippet}
 
+{#snippet withScreenFx()}
+	{#if screenFx.length}
+		<Container>
+			<Anchor name={elementFxScreenTarget(scene.id)} />
+			{#if liveVisible}
+				<ElementFxPlayer entries={screenFx} />
+			{/if}
+			{@render body()}
+		</Container>
+	{:else}
+		{@render body()}
+	{/if}
+{/snippet}
+
 {#if visibilitySource}
 	<Container visible={liveVisible}>
-		{@render body()}
+		{@render withScreenFx()}
 	</Container>
 {:else}
-	{@render body()}
+	{@render withScreenFx()}
 {/if}

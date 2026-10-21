@@ -29,6 +29,7 @@
 </script>
 
 <script lang="ts">
+	import { elementFxScreenTarget } from 'constants-shared/elementFx';
 	import { Container } from 'pixi-svelte';
 
 	import LayoutScene from './LayoutScene.svelte';
@@ -53,7 +54,12 @@
 	{#if scene}
 		<Container zIndex={container.z}>
 			{#key drive?.key}
-				<LayoutScene {scene} nodeDriver={drive?.driver} />
+				<!-- The container is this screen's own: a Flow `elementEffect` aims at it by name. -->
+				<LayoutScene
+					{scene}
+					nodeDriver={drive?.driver}
+					parentTarget={elementFxScreenTarget(container.sceneId)}
+				/>
 			{/key}
 		</Container>
 	{/if}
