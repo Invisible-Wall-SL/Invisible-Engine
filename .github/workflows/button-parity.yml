@@ -89,7 +89,7 @@ jobs:
       - name: button parity
         run: pnpm check:button-parity
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: button-parity

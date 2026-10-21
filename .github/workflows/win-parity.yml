@@ -91,7 +91,7 @@ jobs:
           pnpm check:win-parity --variant base --variant slam-plain --variant slam-big
           --variant escalation --variant turbo --variant placed
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v6
         if: always()
         with:
           name: win-parity
