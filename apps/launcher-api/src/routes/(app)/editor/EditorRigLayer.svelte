@@ -34,6 +34,7 @@
 		childLocalTransform,
 		composeWorldMatrix,
 		inDepthSlice,
+		placedRigTransform,
 		reelGridGeometry,
 		resolveBoneRider,
 		resolveBoneRiderRigKey,
@@ -1279,26 +1280,16 @@
 				inst.skeleton.y = cover.y;
 				inst.skeleton.scaleX = cover.scaleX;
 				inst.skeleton.scaleY = -cover.scaleY;
-			} else if (target.space === 'standard' || target.space === 'canvas') {
-				// standard == window (identity fit); canvas authors raw window coords.
-				const sx = t.scale?.x ?? 1;
-				const sy = t.scale?.y ?? 1;
-				inst.skeleton.x = t.x;
-				inst.skeleton.y = t.y;
-				inst.skeleton.scaleX = sx;
-				inst.skeleton.scaleY = -sy;
 			} else {
-				// game space: map the main-box origin into the window the way <MainContainer>
-				// does (centre + mainScale), matching the 2D canvas's `nodeTransform`.
-				const s = mainScale();
-				const world = mainToWorld({ x: t.x, y: t.y });
-				const sx = (t.scale?.x ?? 1) * s;
-				const sy = (t.scale?.y ?? 1) * s;
-				inst.skeleton.x = world.x;
-				inst.skeleton.y = world.y;
-				inst.skeleton.scaleX = sx;
+				const placed = placedRigTransform(t, target.space, frameWidth, frameHeight, {
+					scale: mainScale(),
+					toWorld: mainToWorld,
+				});
+				inst.skeleton.x = placed.x;
+				inst.skeleton.y = placed.y;
+				inst.skeleton.scaleX = placed.scaleX;
 				// Flip Y: the runtime art is y-up; the camera is y-down.
-				inst.skeleton.scaleY = -sy;
+				inst.skeleton.scaleY = -placed.scaleY;
 			}
 			// Explicit size box: FIT the skeleton to the node's width/height (per-axis
 			// `boxDim / naturalDim`, multiplied onto whatever scale the branch set), exactly
