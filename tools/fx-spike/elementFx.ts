@@ -261,6 +261,36 @@ console.log('element fx — the motion samplers');
 		'and it stays whole while it runs, then fades out at the end',
 	);
 	pass?.destroy();
+
+	const freeze = KINDS.freeze;
+	const ice = freeze.filter?.create(frame('freeze', 0));
+	const iced = (t: number): { cover: number; glint: number } => {
+		freeze.filter?.update(ice as Filter, frame('freeze', t), {
+			screenWidth: 120,
+			screenHeight: 160,
+		});
+		const u = (ice as unknown as { efx: { uFreeze: Float32Array; uGlint: Float32Array } }).efx;
+		return { cover: u.uFreeze[0], glint: u.uGlint[1] };
+	};
+	const [bare, icing, held, thawed] = [iced(0), iced(0.15), iced(0.5), iced(1)];
+	assert(
+		bare.cover === 0 &&
+			icing.cover > 0 &&
+			icing.cover < 1 &&
+			near(held.cover, 1) &&
+			near(thawed.cover, 0) &&
+			held.glint > -1 &&
+			bare.glint < -1 &&
+			icing.glint < -1 &&
+			thawed.glint < -1,
+		'freeze ices over, holds frozen with a glint sweeping across, and thaws back',
+	);
+	const shiver = (t: number): number => freeze.motion?.(frame('freeze', t)).x ?? 0;
+	assert(
+		Math.abs(shiver(0.32)) > 0 && shiver(0.1) === 0 && shiver(0.5) === 0,
+		'it shivers only as the ice locks in',
+	);
+	ice?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------

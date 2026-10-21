@@ -833,6 +833,36 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'freeze',
+		label: 'Freeze (ice)',
+		category: 'light',
+		phase: 'emphasis',
+		durationMs: 2600,
+		description:
+			'Freezes into ice: frost creeps over it along the crystals, it holds frozen with a glint sweeping across, then thaws back.',
+		params: [
+			COLOR('color', 'Ice colour', '#9fdcff'),
+			{
+				id: 'from',
+				label: 'Frost from',
+				kind: 'choice',
+				default: 'edges',
+				options: ['edges', 'center', 'top', 'bottom'],
+			},
+			{
+				id: 'hold',
+				label: 'Hold',
+				kind: 'number',
+				default: 0.4,
+				min: 0,
+				max: 0.9,
+				step: 0.05,
+				note: 'The share of the play it stays frozen. To keep it frozen, key it and hold its progress at the middle.',
+			},
+			{ id: 'crystals', label: 'Crystals', kind: 'number', default: 12, min: 3, max: 40, step: 1 },
+		],
+	},
+	{
 		kind: 'dissolveOut',
 		label: 'Dissolve out',
 		category: 'light',

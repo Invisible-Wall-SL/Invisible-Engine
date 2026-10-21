@@ -42,6 +42,7 @@ import {
 	colorMixFilter,
 	curlFilter,
 	dissolveFilter,
+	freezeFilter,
 	meltFilter,
 	perspectiveFilter,
 	rippleFilter,
@@ -194,6 +195,58 @@ const meltImpl = (): KindImpl => {
 				Math.ceil(
 					1.45 * num(frame, 'length') * frame.intensity * meltProgress(frame.t) * view.screenHeight,
 				) + 2,
+		}),
+	};
+};
+
+/** Where a freeze's frost creeps in from, as the shader's `from`. */
+const FREEZE_FROM = ['edges', 'center', 'top', 'bottom'];
+
+/** The share of a freeze's play spent icing over, and as long again thawing; between, it holds. */
+const freezeSpan = (frame: FxFrame): number => (1 - num(frame, 'hold')) / 2;
+
+/** How far the frost has covered the element at `t`: in, held, and thawed back out. */
+const freezeCoverage = (frame: FxFrame): number => {
+	const span = freezeSpan(frame);
+	const t = frame.t;
+	if (t < span) return easeOutQuad(t / span);
+	if (t <= 1 - span) return 1;
+	return 1 - easeInOutCubic((t - (1 - span)) / span);
+};
+
+/** Freeze: the frost runs as a shader pass; the element shivers as the ice locks in. */
+const freezeImpl = (): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		motion(frame) {
+			const k = (frame.t - freezeSpan(frame)) / 0.06;
+			if (k < 0 || k > 1) return {};
+			const amp = 0.012 * Math.min(frame.width, frame.height) * frame.intensity * (1 - k);
+			return { x: amp * Math.sin(frame.seconds * 95) };
+		},
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = freezeFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				const span = freezeSpan(frame);
+				const held = 1 - 2 * span;
+				filter.set(
+					'uFreeze',
+					freezeCoverage(frame),
+					num(frame, 'crystals'),
+					seeds.get(filter) ?? 0,
+					Math.max(0, FREEZE_FROM.indexOf(str(frame, 'from'))),
+				);
+				filter.set('uIce', ...rgb(str(frame, 'color')));
+				const glint =
+					held > 0 && frame.t >= span && frame.t <= 1 - span
+						? -0.3 + 1.6 * ((frame.t - span) / held)
+						: -10;
+				filter.set('uGlint', Math.min(1, frame.intensity), glint);
+			},
 		}),
 	};
 };
@@ -602,6 +655,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 			},
 		}),
 	},
+	freeze: freezeImpl(),
 	dissolveOut: dissolveImpl('out'),
 	dissolveIn: dissolveImpl('in'),
 

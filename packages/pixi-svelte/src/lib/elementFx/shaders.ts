@@ -660,3 +660,98 @@ void main(void)
 `,
 		{ uMelt: vec(4), uHeat: vec(4) },
 	);
+
+/**
+ * Freezing into ice: frost creeps over the element's own pixels from where `uFreeze.w` says (0 the
+ * edges, 1 the centre, 2 the top, 3 the bottom), its front following the crystals, and what it
+ * covers turns to ice — `uIce` shaded by the art's brightness with a hint of its own colour, so
+ * it reads underneath; crystal boundaries and facets (cellular noise) lit, the frost thicker where it
+ * started, the element's own edge frosted white, a bright line on the creeping front. `uFreeze` =
+ * (coverage 0…1, crystals across, seed, from); `uGlint` = (how icy, 0…1; where a glint sweeping
+ * across is, off below 0).
+ */
+export const freezeFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'freeze',
+		`
+uniform vec4 uFreeze;
+uniform vec3 uIce;
+uniform vec2 uGlint;
+
+vec2 iceHash(vec2 p)
+{
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
+}
+
+// The distance to the nearest crystal's centre and to the next nearest.
+vec2 iceCells(vec2 p)
+{
+    vec2 cell = floor(p);
+    vec2 f = fract(p);
+    float d1 = 8.0;
+    float d2 = 8.0;
+    for (int j = -1; j <= 1; j++)
+    {
+        for (int i = -1; i <= 1; i++)
+        {
+            vec2 g = vec2(float(i), float(j));
+            float d = length(g + iceHash(cell + g + uFreeze.z) - f);
+            if (d < d1)
+            {
+                d2 = d1;
+                d1 = d;
+            }
+            else if (d < d2)
+            {
+                d2 = d;
+            }
+        }
+    }
+    return vec2(d1, d2);
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    vec4 color = efxSample(px);
+    float amount = uGlint.x;
+    if (uFreeze.x <= 0.0 || amount <= 0.0 || color.a <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec2 size = efxSize();
+    vec2 u = efxToUnit(px);
+    vec2 cells = iceCells(u * size / max(size.x, size.y) * uFreeze.y);
+    float from = uFreeze.w;
+    float away = from < 0.5
+        ? 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y))
+        : from < 1.5 ? length(u - 0.5) * 1.4142 : from < 2.5 ? u.y : 1.0 - u.y;
+    float reach = 0.8 * clamp(away, 0.0, 1.0) + 0.2 * cells.x;
+    float front = uFreeze.x * 1.25;
+    float frozen = 1.0 - smoothstep(front - 0.06, front, reach);
+    if (frozen <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec3 rgb = color.rgb / color.a;
+    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    vec3 ice = mix(uIce * (0.35 + 0.9 * lum), rgb, 0.18);
+    ice += 0.3 * (1.0 - smoothstep(0.0, 0.05, cells.y - cells.x));
+    ice += 0.08 * cells.x;
+    ice += 0.2 * (1.0 - smoothstep(0.0, 0.4, reach));
+    float sweep = u.x + 0.6 * u.y;
+    ice += 0.5 * (1.0 - smoothstep(0.0, 0.08, abs(sweep - uGlint.y * 1.6)));
+    float edge = color.a - min(
+        min(efxSample(px + vec2(1.5, 0.0)).a, efxSample(px - vec2(1.5, 0.0)).a),
+        min(efxSample(px + vec2(0.0, 1.5)).a, efxSample(px - vec2(0.0, 1.5)).a));
+    ice += 0.6 * clamp(edge, 0.0, 1.0);
+    float rim = 1.0 - smoothstep(0.0, 0.05, abs(reach - (front - 0.03)));
+    ice += 0.35 * rim * step(uFreeze.x, 0.999);
+    finalColor = vec4(mix(rgb, min(ice, vec3(1.0)), frozen * amount) * color.a, color.a);
+}
+`,
+		{ uFreeze: vec(4), uIce: vec(3), uGlint: vec(2) },
+	);
