@@ -39,9 +39,20 @@
 		disabled?: boolean;
 		/** The `<datalist>` the cue fields suggest from. */
 		cueListId?: string;
+		/** A timeline can pose this element (a node the game draws itself). False for a screen and the
+		 *  reel grid: nothing poses them in the game, so `keyed` is not offered there. */
+		keyable?: boolean;
 	}
 
-	const { entries, onChange, preview, disabled = false, cueListId }: Props = $props();
+	const {
+		entries,
+		onChange,
+		preview,
+		disabled = false,
+		cueListId,
+		keyable = true,
+	}: Props = $props();
+	const triggers = $derived(ELEMENT_FX_TRIGGERS.filter((t) => keyable || t !== 'keyed'));
 
 	const TRIGGER_LABELS: Record<ElementFxTrigger, string> = {
 		always: 'Always (loops while shown)',
@@ -343,9 +354,12 @@
 									{disabled}
 									onchange={(e) => setTrigger(index, e.currentTarget.value as ElementFxTrigger)}
 								>
-									{#each ELEMENT_FX_TRIGGERS as trigger (trigger)}
+									{#each triggers as trigger (trigger)}
 										<option value={trigger}>{TRIGGER_LABELS[trigger]}</option>
 									{/each}
+									{#if !triggers.includes(entry.trigger)}
+										<option value={entry.trigger}>{TRIGGER_LABELS[entry.trigger]}</option>
+									{/if}
 								</select>
 							</label>
 						</div>
@@ -450,7 +464,12 @@
 								</div>
 							</div>
 						</div>
-						{#if entry.trigger === 'keyed'}
+						{#if entry.trigger === 'keyed' && !keyable}
+							<p class="hint">
+								Nothing poses a screen or the reels in the game: a keyed entry here stays at rest.
+								Use <strong>On cue</strong> instead.
+							</p>
+						{:else if entry.trigger === 'keyed'}
 							<p class="hint">
 								Never plays on its own: a timeline (or a state machine state) poses it. In Animate,
 								key its <strong>✦ {spec.label}</strong> rows —

@@ -660,11 +660,14 @@ export interface ElementFxChannelRow {
 }
 
 /**
- * The Element FX channels Animate mode offers on a node of any kind: the two `elementFxChannels`
- * of each enabled `keyed` entry of its own — how far through the effect it is, then its strength —
- * labelled by the effect's kind. A strength row names its entry when two keyed entries share a kind.
+ * The Element FX channels Animate mode offers on a node the game draws itself (any kind but the
+ * reel grid, whose effects play on the reel stack, which nothing poses): the two
+ * `elementFxChannels` of each enabled `keyed` entry of its own — how far through the effect it is,
+ * then its strength — labelled by the effect's kind. A strength row names its entry when two keyed
+ * entries share a kind.
  */
 export function keyableElementFxChannels(node: LayoutNode): ElementFxChannelRow[] {
+	if (node.kind === 'reelGrid') return [];
 	const keyed = readElementFxEntries(node.elementFx).filter((e) => elementFxChannels([e]).length);
 	return keyed.flatMap((entry) => {
 		const kind = elementFxSpec(entry.kind).label;

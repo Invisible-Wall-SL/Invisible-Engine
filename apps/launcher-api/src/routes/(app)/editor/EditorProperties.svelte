@@ -6082,6 +6082,7 @@
 	<EditorElementFx
 		entries={node.elementFx}
 		disabled={componentReadOnly}
+		keyable={node.kind !== 'reelGrid'}
 		cueListId={SIGNAL_SUGGESTIONS_ID}
 		onChange={(next) => setElementFx(node, next)}
 		preview={(entry) => playElementFxPreview({ kind: 'node', id: node.id }, entry)}
