@@ -104,6 +104,13 @@ export const handle: Handle = async ({ event, resolve }) => {
 			event.url.pathname.replace(LEGACY_RIG_VIEWER, '/rig-viewer') + event.url.search;
 		return new Response(null, { status: 308, headers: { location } });
 	}
+	// The desktop launcher's HTTP client sends no `Accept`, and SvelteKit answers a thrown `error()`
+	// to such a request with its HTML error page — so a refusal (a 409 over an online game's key, a
+	// 503 on an unreadable manifest) reached the publisher as a bare "HTTP 409", its reason lost in
+	// markup the launcher can't parse. These endpoints are a JSON API: no stated preference ⇒ JSON.
+	if (event.url.pathname.startsWith('/api/launcher/') && !event.request.headers.has('accept')) {
+		event.request.headers.set('accept', 'application/json');
+	}
 	const token = event.cookies.get(SESSION_COOKIE);
 	event.locals.user = await validateSession(token);
 	const splash = bootSplashTag(event.url.pathname);

@@ -21,6 +21,7 @@ import { error } from '@sveltejs/kit';
 import { assertSafeRel } from './deployServe';
 import { isValidGameKey } from './games';
 import { ENV } from './env';
+import { desktopBuildKey } from './launcherProfile';
 import { deleteObjects, listAllObjects, putObjectBytes } from './r2';
 import {
 	loadTestServerManifest,
@@ -153,24 +154,18 @@ export function bundleObjectKey(key: string, rel: string): string {
 }
 
 /**
- * Refuse to let a desktop build take over a key the ONLINE Game Maker publishes — the mirror of
- * `publishGame.ts`'s `hasOwnBuiltBundle` guard, and a port of `_assert_not_online_runtime` in
- * `Invisible_Launcher.py`.
- *
- * An online game's entry carries a `runtime` field: it boots the shared prebuilt bundle against
- * live R2 authoring data and has NO per-key bundle, so a merge that replaced its entry would swap
- * the live online game for this compiled build.
+ * The online runtime that serves `key`, or `null` when the key is free for a desktop build. An
+ * online game's manifest entry carries a `runtime` field: it boots the shared prebuilt bundle
+ * against live R2 authoring data and has NO per-key bundle of its own.
  *
  * It FAILS CLOSED, deliberately. An absent or malformed manifest reads as empty (no entry, key
  * free), so anything that throws out of the read is a TRANSIENT failure — a blip, a throttled
- * credential, a 5xx — which leaves the guard unable to prove the key is free. Relaying anyway is
- * the one case this guard exists for. Called before EVERY file, not once per publish: an online
- * publish landing mid-upload then stops the rest of it.
+ * credential, a 5xx — which leaves no way to prove the key is free. Answering "free" anyway would
+ * let a desktop build replace a live online game, the one case the guard below exists for.
  */
-export async function assertNotOnlinePublished(key: string): Promise<void> {
-	let entry: TestServerGameEntry | undefined;
+export async function onlineRuntimeOf(key: string): Promise<string | null> {
 	try {
-		entry = (await loadTestServerManifest()).games[key];
+		return (await loadTestServerManifest()).games[key]?.runtime ?? null;
 	} catch (e) {
 		throw error(
 			503,
@@ -179,12 +174,26 @@ export async function assertNotOnlinePublished(key: string): Promise<void> {
 				`(${e instanceof Error ? e.message : String(e)})`,
 		);
 	}
-	if (entry?.runtime) {
+}
+
+/**
+ * Refuse to let a desktop build take over a key the ONLINE Game Maker publishes — the mirror of
+ * `publishGame.ts`'s `hasOwnBuiltBundle` guard, and a port of `_assert_not_online_runtime` in
+ * `Invisible_Launcher.py`. A merge that replaced an online game's entry would swap the live online
+ * game for this compiled build.
+ *
+ * Called before EVERY file, not once per publish: an online publish landing mid-upload then stops
+ * the rest of it.
+ */
+export async function assertNotOnlinePublished(key: string): Promise<void> {
+	const runtime = await onlineRuntimeOf(key);
+	if (runtime) {
 		throw error(
 			409,
-			`'${key}' is published ONLINE by the Invisible Game Maker (runtime '${entry.runtime}'), ` +
+			`'${key}' is published ONLINE by the Invisible Game Maker (runtime '${runtime}'), ` +
 				`so a desktop build must not overwrite it — that would replace the live online game ` +
-				`with this compiled build. Give this build its own cloud key (e.g. '${key}build').`,
+				`with this compiled build. Give this build its own cloud key ` +
+				`(e.g. '${desktopBuildKey(key)}') in Edit → Cloud publish.`,
 		);
 	}
 }

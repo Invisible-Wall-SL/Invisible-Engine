@@ -13,6 +13,7 @@ import {
 	type GameBuildInfo,
 } from '$lib/server/games';
 import { requireLauncherPublisher } from '$lib/server/launcherAuth';
+import { desktopBuildKey, desktopBuildName } from '$lib/server/launcherProfile';
 import { canAccessProject, getOrMintReadToken } from '$lib/server/projects';
 import { pinTestServerGameToProject, type PinOutcome } from '$lib/server/testServerManifest';
 import { postTestServerRefresh } from '$lib/server/testServerRefresh';
@@ -227,21 +228,24 @@ export const POST: RequestHandler = async ({ request, url: launcherUrl }) => {
 				error:
 					`"${key}" is published online (Invisible Game Maker runtime), so the desktop ` +
 					`launcher won't overwrite its card with a desktop build. Publish the desktop ` +
-					`build under a different key (e.g. keep "${key}" for the online game and use a ` +
-					`separate key for the desktop build).`,
+					`build under its own key (e.g. "${desktopBuildKey(key)}") in Edit → Cloud publish.`,
 			},
 			{ status: 409, headers: NO_STORE },
 		);
 	}
 
+	// The project's own desktop build (`<project>build`) shares its display name with the
+	// project's online card, so its card says which one it is.
+	const cardName = key === desktopBuildKey(projectKey) ? desktopBuildName(name) : name;
+
 	// Upsert: update an existing game's name + url (+ scope), else create it.
 	if (existing) {
 		await setGameUrl(key, url);
-		await renameGame(key, name);
+		await renameGame(key, cardName);
 		await setGameProject(key, projectKey);
 		await setGameBuildInfo(key, build);
 	} else {
-		await createGame(key, name, url, projectKey, build);
+		await createGame(key, cardName, url, projectKey, build);
 	}
 
 	// Re-stamp the manifest's pointer at this project's live Game Config — see `pinToProject`. Runs

@@ -62,7 +62,7 @@ takes seconds; a flow or paytable override rebuilds.
 | --- | --- |
 | *needs "Build & publish games" (gamePublish)* | ask an admin for the capability |
 | *N file(s) are over the portal's … MB per-file limit* | a **PNG**: tick **🗜 Optimize** and publish again (it re-encodes PNG pages as WebP). A **WebP or JPEG**: Optimize leaves it as is, so shrink its sheet (see below) and publish again. Otherwise ask the owner to raise `BODY_SIZE_LIMIT` (the portal never takes a file over 64 MB). |
-| *'…' is published ONLINE by the Invisible Game Maker* | give the desktop build its own cloud key (e.g. `<game>build`) in Edit → Cloud publish |
+| *'…' is published ONLINE by the Invisible Game Maker* | launcher v1.0.57 only (v1.0.58 moves the key itself): set the Cloud key the message names (`<key>build`) in Edit → Cloud publish |
 | *Session expired — sign in again* | sign in from the header and press ☁ Publish again. The unchanged files are skipped, so the retry is quick. |
 | *Uploaded, but the live server hadn't caught up* | wait a minute and reopen the game. The build is already in the cloud. |
 | *Build failed (exit N)* + a log tail | a real build error. The full log is `%TEMP%\iw_build_<key>.log`. |

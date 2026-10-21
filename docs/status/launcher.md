@@ -20,7 +20,7 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 - **Tool pages** — full-page, never iframes: each route runs an auth+role gate then renders in the launcher or `throw redirect(303,…)` (atlas/sheet with a signed launch token; rig/rigger to a static `view.html`). Shared `$lib/ToolTopBar.svelte` (`.iw-toolbar`) owns the chrome (see unified-tool-bar).
 - **Loading screens** — ONE boot experience across stacks: the CRT boot splash (`$lib/BootSplash.svelte` · `static/shared/boot-splash.js` · `iw_common/splash.py`) covers a tool that is still opening; the dimmed overlay + card (`$lib/BusyOverlay.svelte`) covers loading INSIDE an open tool. See `docs/ui-inventory.md` §12.
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`). `/onboarding` walks each role through its tools with a guide link per tool and saves each user's local-tool install paths (`tool_installs`). CLAUDE.md rule 9 keeps a new/renamed tool from shipping doc-less.
-- **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
+- **Desktop launcher support** — the `.exe` (separate `invisible-launcher` repo) is served over open routes `/api/launcher/download` + `/api/launcher/latest`; it self-updates via the manifest. `/api/launcher/projects` (session-scoped project sync, with a **derived** build profile from the project's game kind when none is stored, published under `<project>build` — `launcherProfile.ts`, `mockProtocol.ts`), `/api/launcher/game-upload` (the publish relay), `register-game`, `deploy-token` and `git-credentials` (`gamePublish`-gated).
 - **Saving together** — every authoring tool saves through `$lib/saveState.svelte.ts` with R2 conditional writes, holds a soft lease (`/api/lease`, `doc_leases`) with a presence banner, and keeps rolling backups of its whole-doc saves (`docBackups.ts`).
 - **DB migrations** — applied by the launcher at boot (`init` hook → `runMigrations()`); `0000`–`0028` are live, `0029_director_recipes` ships with Director card 8D, `0030_director_job_steps` with 8E and `0031_director_drop_preset_json` with 8F (it drops data), and `/api/health` reports `schema: current`. **`db:push` is banned on prod** — `db:generate` + the boot migrator.
 - **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference / Pipeline) plus Games and Local tools, Invisible Wall emblem branding. Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent.
@@ -59,6 +59,32 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
 
 ## Recent changes
 
+- 2026-10-21 — **A desktop publish refused by the portal says why, and a desktop build gets its own
+  key.** Reported on `commonoverlayproject`: ☁ Publish (launcher v1.0.57) failed with
+  *"_app/immutable/assets/style….css: the portal returned HTTP 409."* and no reason. The project is
+  published ONLINE under that key, so the relay's guard (`assertNotOnlinePublished`) refused the
+  first file. The guard's message never arrived: the launcher's `http.client` sends no `Accept`,
+  and SvelteKit answers a thrown `error()` to such a request with its HTML error page, which the
+  launcher can't parse.
+  - `hooks.server.ts`: an `/api/launcher/*` request with no `Accept` is answered as JSON
+    (`{message}`, which the launcher already reads). This reaches v1.0.57 with no release.
+    Verified on a production build: before, 409 `text/html`; after, 409 `application/json` with
+    the reason. A browser (`Accept: text/html`) still gets the page.
+  - `launcherProfile.ts` `desktopBuildKey()`: a derived profile publishes under `<project>build`,
+    not the project key the online Game Maker uses. Each side refuses the other's key, so the old
+    default either failed or blocked the project from going online. `project` still scopes the card.
+  - `register-game`: a card registered under its project's `<project>build` is titled
+    `<name> Build` (`desktopBuildName`), so it doesn't read the same as the online card. Only the
+    card title changes: the publish block's `name` stays, because the desktop derives the
+    partner's `gameAlias` from it.
+  - `game-upload` GET `?key=` reports `onlineRuntime` (`onlineRuntimeOf`, fail-closed like the
+    guard). Launcher **v1.0.58** (`invisible-launcher`) asks it before building and moves an
+    online key to `<key>build` itself, then saves it and shares it via ⬆ Setup.
+  - Checks: `verify-launcher-profile.mts` (19), `check:game-bundle-relay` (40); the launcher's
+    `verify_publish_route.py` (66).
+  - **Not covered:** a v1.0.57 launcher that already holds a local copy of an older derived block
+    keeps that key, because Sync prefers a local block to a derived one. It is moved on the first
+    v1.0.58 publish; until then, set the key the 409 names.
 - 2026-10-19 — **`on=partner` loads the version we just delivered.** The partner's create-session
   takes `config.versionPath`, which overrides the game's server setting for that one session, so
   `/api/partner-session?…&on=partner` now sends the latest sealed delivery for the card's alias

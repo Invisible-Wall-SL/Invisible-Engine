@@ -16,8 +16,9 @@
 //      This is the load-bearing one: two copies of this map is how a `ways` project ends up
 //      dealt as `lines` from one path and `ways` from the other.
 //   2. The derived publish block pins the engine submodule BEFORE the frozen install, and
-//      makes the cloud key and the portal project key the same slug (a mismatch registers
-//      the game "global", visible under every project).
+//      publishes under `<project>build` — never the project key, which the online Game Maker
+//      publishes the same project under — while still scoping the card to the project. Its
+//      card is titled `<name> Build`, so it never reads the same as the online card.
 //   3. A STORED profile still wins — the desktop knows its own build best — and is still
 //      normalized to pin the submodule when it predates that contract.
 //   4. The two carve-outs hold: a ComfyUI workspace (`kind: 'comfy'`) and the shared default
@@ -31,7 +32,12 @@
 import assert from 'node:assert/strict';
 import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { GAME_KINDS } from 'constants-shared/gameKinds';
-import { derivePublishBlock, launcherProfileFor } from '../src/lib/server/launcherProfile';
+import {
+	derivePublishBlock,
+	desktopBuildKey,
+	desktopBuildName,
+	launcherProfileFor,
+} from '../src/lib/server/launcherProfile';
 import { protocolFor } from '../src/lib/server/mockProtocol';
 
 type Rec = Record<string, unknown>;
@@ -87,9 +93,29 @@ ok('pins the submodule BEFORE the frozen install', () => {
 		'the pin must precede the install or the lockfile check fails',
 	);
 });
-ok('cloud key == portal project key', () => {
-	assert.equal(derived.key, 'bookofborut');
+ok('cloud key is <project>build, scoped to the project', () => {
+	assert.equal(derived.key, 'bookofborutbuild');
 	assert.equal(derived.project, 'bookofborut');
+});
+ok('the build key never collides with the online key, even at the 64-char limit', () => {
+	const KEY_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+	for (const key of ['commonoverlayproject', 'a', 'x'.repeat(59), 'y'.repeat(64), 'test1build']) {
+		const built = desktopBuildKey(key);
+		assert.notEqual(built, key, key);
+		assert.match(built, KEY_RE, key);
+		assert.ok(built.endsWith('build'), key);
+	}
+	assert.equal(desktopBuildKey('commonoverlayproject'), 'commonoverlayprojectbuild');
+	assert.equal(desktopBuildKey('y'.repeat(64)), `${'y'.repeat(59)}build`);
+});
+ok('the card title says Build once, and the block keeps the game name', () => {
+	assert.equal(desktopBuildName('CommonOverlayProject'), 'CommonOverlayProject Build');
+	assert.equal(desktopBuildName('  Hot Fruits '), 'Hot Fruits Build');
+	assert.equal(desktopBuildName('Ways Build'), 'Ways Build');
+	assert.equal(desktopBuildName('ways build'), 'ways build');
+	assert.equal(desktopBuildName('Rebuild'), 'Rebuild Build');
+	// The partner's gameAlias is the publish name with its spaces removed (`_delivery_alias`).
+	assert.equal(derived.name, 'Book of Borut');
 });
 ok('carries the standalone build layout + the kind-derived protocol', () => {
 	assert.equal(derived.build_cwd, '.');
@@ -177,7 +203,7 @@ const online = launcherProfileFor(null, {
 ok('null stored ⇒ a complete game profile derived from the kind', () => {
 	assert.equal(online.kind, 'game');
 	assert.equal(pubOf(online).protocol, 'ways');
-	assert.equal(pubOf(online).key, 'newslot');
+	assert.equal(pubOf(online).key, 'newslotbuild');
 	assert.equal(pubOf(online).project, 'newslot');
 });
 ok('flags itself `derived` so a local publish block is not clobbered on Sync', () => {
