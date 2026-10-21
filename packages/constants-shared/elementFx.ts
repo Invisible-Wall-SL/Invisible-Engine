@@ -623,6 +623,39 @@ export const ELEMENT_FX = [
 			},
 		],
 	},
+	{
+		kind: 'melt',
+		label: 'Melt',
+		category: 'distort',
+		phase: 'exit',
+		durationMs: 2000,
+		description:
+			'Melts like wax: the top sinks and the rest runs down in uneven drips, then it is gone.',
+		params: [
+			{
+				id: 'length',
+				label: 'Drip length',
+				kind: 'number',
+				default: 0.8,
+				min: 0.2,
+				max: 2,
+				step: 0.05,
+				note: 'In element heights.',
+			},
+			{ id: 'drips', label: 'Drips', kind: 'number', default: 7, min: 2, max: 24, step: 1 },
+			COLOR('color', 'Heat colour', '#ff6a00'),
+			{
+				id: 'heat',
+				label: 'Heat',
+				kind: 'number',
+				default: 0,
+				min: 0,
+				max: 1,
+				step: 0.05,
+				note: 'How much the running part glows in the heat colour.',
+			},
+		],
+	},
 
 	// --- light / colour ---
 	{

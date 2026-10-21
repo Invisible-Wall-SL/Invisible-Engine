@@ -600,3 +600,63 @@ void main(void)
 `,
 		{ uDissolve: vec(4), uEdgeColor: vec(3) },
 	);
+
+/**
+ * Melting, like wax: each column runs down by its own amount (a slow swell, finer streaks and a
+ * few long drips, from noise across the element), and a row runs the further the lower it sits,
+ * so the top sinks while the bottom drips furthest. `uMelt` = (progress 0…1, how far a column runs
+ * at most in element heights, drips across, seed); `uHeat` = (colour, how much the running part
+ * glows with it).
+ */
+export const meltFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'melt',
+		`
+uniform vec4 uMelt;
+uniform vec4 uHeat;
+
+float meltHash(float n)
+{
+    return fract(sin(n * 12.9898 + 78.233) * 43758.5453);
+}
+
+float meltNoise(float x)
+{
+    float i = floor(x);
+    float f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(meltHash(i), meltHash(i + 1.0), f);
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    float m = uMelt.x;
+    if (m <= 0.0)
+    {
+        finalColor = efxSample(px);
+        return;
+    }
+    vec2 u = efxToUnit(px);
+    float drips = uMelt.z;
+    float seed = uMelt.w;
+    float run = 0.3 + 0.35 * meltNoise(u.x * drips + seed)
+        + 0.2 * meltNoise(u.x * drips * 2.7 + seed * 1.7)
+        + 0.6 * pow(meltNoise(u.x * drips * 4.3 + seed * 2.3), 4.0);
+    float d = m * uMelt.y * run;
+    // Row v of the element moves down by d * (0.3 + 0.7 v); this pixel shows the row that lands here.
+    float v = (u.y - 0.3 * d) / (1.0 + 0.7 * d);
+    if (v < 0.0 || v > 1.0)
+    {
+        finalColor = vec4(0.0);
+        return;
+    }
+    float waver = 0.006 * m * sin(u.y * 23.0 + seed);
+    vec4 color = efxSample(efxFromUnit(vec2(u.x + waver, v)));
+    float runny = clamp(d * v * 2.5, 0.0, 1.0);
+    color.rgb = mix(color.rgb, min(uHeat.rgb * 1.4, vec3(1.0)) * color.a, uHeat.a * runny);
+    finalColor = color;
+}
+`,
+		{ uMelt: vec(4), uHeat: vec(4) },
+	);

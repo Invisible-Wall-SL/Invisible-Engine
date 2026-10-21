@@ -29,7 +29,7 @@ Three ways to get one onto an element, all playing through ONE runtime:
 ## 2. The catalog (`constants-shared/elementFx`)
 
 One dependency-free list, read by the editor (kind picker, param rows), the flow vocabulary (the
-`ElementFxKind` dropdown) and the runtime. 42 kinds in five families:
+`ElementFxKind` dropdown) and the runtime. 43 kinds in five families:
 
 - **Motion** (the element's own transform; no GPU pass): shake, wobble, pulse, heartbeat, jelly,
   bounce, spin, swing, float, pop in, pop out, slam in, fade in, fade out.
@@ -38,7 +38,8 @@ One dependency-free list, read by the editor (kind picker, param rows), the flow
   folds into a lit, spinning sphericon wrapped in its own art — two half double-cones joined with a
   quarter turn, ray-cast per pixel — rolls, and unfolds back).
 - **Distort**: wave X, wave Y, flag (pinned at its left edge, lit folds), twist, curl (a page
-  corner peels and lays back), ripple (a shock ring), bulge (lens / pinch).
+  corner peels and lays back), ripple (a shock ring), bulge (lens / pinch), melt (wax: the top
+  sinks and the rest runs down in uneven drips, then fades — an exit).
 - **Light & colour**: glow, outline, shine (a band of light, only where the element is), flash,
   rainbow (hue cycle), chromatic, glitch, blur, pixelate, dissolve out / in (noise burn with a
   glowing edge).
@@ -113,7 +114,7 @@ the way `cameraEffects` composes the stage:
   the end every value is put back exactly.
 - **Filters** stack after the container's own filters, bounded to the element by a `filterArea` (its
   box plus a margin, so an animating rig is not clipped). The custom passes (perspective, wave,
-  twist, curl, ripple, bulge, shine, colour mix, dissolve, sphericon) are GLSL written to compile on
+  twist, curl, ripple, bulge, melt, shine, colour mix, dissolve, sphericon) are GLSL written to compile on
   WebGL1 (GLSL ES 1.00: no `transpose()`, no reserved words such as `flat` as names) and WebGL2; they work in the element's own coordinates through `uElement` /
   `uPad`. Glow, outline, chromatic, glitch, pixelate (`pixi-filters`), blur and hue (`pixi.js`)
   reuse the library. A GL-only pass is skipped on a WebGPU renderer (the game forces WebGL).

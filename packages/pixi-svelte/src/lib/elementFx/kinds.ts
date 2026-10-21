@@ -42,6 +42,7 @@ import {
 	colorMixFilter,
 	curlFilter,
 	dissolveFilter,
+	meltFilter,
 	perspectiveFilter,
 	rippleFilter,
 	shineFilter,
@@ -164,6 +165,38 @@ const waveImpl = (mode: 0 | 1 | 2): KindImpl => ({
 			) + 2,
 	}),
 });
+
+/** How far a melt has run at `t`: slow to start, then running freely. */
+const meltProgress = (t: number): number => t ** 1.6;
+
+/** Melt: the drips run as a shader pass, and the element fades over the last of the play. */
+const meltImpl = (): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		motion: (frame) => ({ alpha: 1 - smoothstep(0.7, 1, frame.t) }),
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = meltFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				filter.set(
+					'uMelt',
+					meltProgress(frame.t),
+					num(frame, 'length') * frame.intensity,
+					num(frame, 'drips'),
+					seeds.get(filter) ?? 0,
+				);
+				filter.set('uHeat', ...rgb(str(frame, 'color')), num(frame, 'heat'));
+			},
+			padding: (frame, view) =>
+				Math.ceil(
+					1.45 * num(frame, 'length') * frame.intensity * meltProgress(frame.t) * view.screenHeight,
+				) + 2,
+		}),
+	};
+};
 
 const dissolveImpl = (direction: 'out' | 'in'): KindImpl => {
 	const seeds = new WeakMap<Filter, number>();
@@ -448,6 +481,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 			},
 		}),
 	},
+	melt: meltImpl(),
 
 	// --- light / colour ---
 	glow: {

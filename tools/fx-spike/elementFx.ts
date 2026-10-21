@@ -240,6 +240,27 @@ console.log('element fx — the motion samplers');
 		!notRest.length,
 		`rest at the end, hidden where it should be${notRest.length ? `: ${notRest.join('; ')}` : ''}`,
 	);
+
+	const melt = KINDS.melt;
+	const pass = melt.filter?.create(frame('melt', 0));
+	const at = (t: number): { run: number; room: number } => {
+		melt.filter?.update(pass as Filter, frame('melt', t), { screenWidth: 120, screenHeight: 160 });
+		return {
+			run: Array.from((pass as unknown as { efx: { uMelt: Float32Array } }).efx.uMelt)[0],
+			room: melt.filter?.padding?.(frame('melt', t), { screenWidth: 120, screenHeight: 160 }) ?? 0,
+		};
+	};
+	const [start, mid, end] = [at(0), at(0.5), at(1)];
+	assert(
+		start.run === 0 && start.room <= 2 && mid.run > 0 && end.run === 1 && end.room > mid.room,
+		'melt starts untouched, runs to its end, and its pass makes more room below as it runs',
+	);
+	assert(
+		near(melt.motion?.(frame('melt', 0.6)).alpha ?? 0, 1) &&
+			near(melt.motion?.(frame('melt', 1)).alpha ?? 1, 0),
+		'and it stays whole while it runs, then fades out at the end',
+	);
+	pass?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------

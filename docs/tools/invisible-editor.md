@@ -814,7 +814,7 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 42 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 43 effects grouped by family (the table below). Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -895,7 +895,7 @@ whole frame. One preview plays at a time, a second ▶ replaces it, and nothing 
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 42 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 43 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -926,6 +926,7 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 |                | **Curl**                   | A corner curls up like a page and lays back down.                                |
 |                | **Ripple**                 | A shock ring spreads out from the centre.                                        |
 |                | **Bulge**                  | Puffs out from the centre like a lens, then flattens (negative pinches in).      |
+|                | **Melt** (exit)            | Melts like wax: the top sinks and the rest runs down in uneven **Drips**, as far as **Drip length** (in element heights), then it fades away. **Heat** makes the running part glow in the **Heat colour**. |
 | Light & colour | **Glow** (loop)            | A coloured glow around the edges that breathes in and out.                       |
 |                | **Outline** (loop)         | A coloured outline that pulses.                                                  |
 |                | **Shine**                  | A bright band sweeps across, only where the element is.                          |
@@ -1895,7 +1896,8 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   [Game Config](game-config.md) are applied only when the game builds its buy menu; the editor
   draws each card with the component's own defaults. Check per-mode art in the game.
 - **An element vanished after its Element FX and never came back.** It has an exit effect (Pop
-  out, Fade out, Dissolve out, Crash, Crumble, Shatter, Dissolve to particles), which ends hidden and keeps the element hidden
+  out, Fade out, Dissolve out, Melt, Crash, Crumble, Shatter, Dissolve to particles), which ends
+  hidden and keeps the element hidden
   until its **Stop cue** fires or an entrance effect plays on it. Give it a stop cue, or an entrance
   on a later cue.
 - **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.
