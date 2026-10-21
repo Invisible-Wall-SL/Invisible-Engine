@@ -103,6 +103,28 @@ export function childLocalTransform(
 }
 
 /**
+ * Where the rig layer draws a rig node placed straight on a screen: its skeleton origin in window
+ * px and its scale, y still up. In a `canvas` screen the node's `screenAnchor` is folded in by the
+ * shared `anchoredPosition`, as the selection box (`nodeTransform`) and the game's `LayoutNodeView`
+ * do; a `game` node is mapped through the main box like `<MainContainer>`. A `standard` node keeps
+ * its raw x/y, which matches the box only while its screen is the active frame (`standardToWorld`).
+ */
+export function placedRigTransform(
+	t: ResolvedTransform,
+	space: Scene['space'] | undefined,
+	frameWidth: number,
+	frameHeight: number,
+	main: { scale: number; toWorld: (p: Vec2) => Vec2 },
+): { x: number; y: number; scaleX: number; scaleY: number } {
+	const sx = t.scale?.x ?? 1;
+	const sy = t.scale?.y ?? 1;
+	if (space === 'standard' || space === 'canvas') {
+		return { ...anchoredPosition(t, space, frameWidth, frameHeight), scaleX: sx, scaleY: sy };
+	}
+	return { ...main.toWorld({ x: t.x, y: t.y }), scaleX: sx * main.scale, scaleY: sy * main.scale };
+}
+
+/**
  * The WORLD matrix of a nested node, composed from its ancestor chain the SAME way
  * the 2D canvas's `ctx` matrix stack does: fold {@link matFromTransform} of each
  * ancestor's resolved transform (top → leaf) via {@link matMul}. The TOP-LEVEL node

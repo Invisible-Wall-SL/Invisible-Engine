@@ -955,6 +955,12 @@ What exists, measured 2026-10-02 against `main` e5f94b1. These are the seams the
 
 ## Recent changes
 
+- 2026-10-21 — **A timeline on the Pots screen moves the pots the player sees** (branch
+  `claude/quirky-clarke-jmc9b3`). Under a driven flow that never shows `pots`, the game's own Pots
+  mount now counts as shown for a screen timeline (`<EngineScreenMount>`), instead of the timeline
+  drawing a second, misplaced set of pots. Detail and gate: [cinematic status](cinematic.md)
+  2026-10-21.
+
 - 2026-10-15 — **A tap between a full pot and its bonus; pots can stay full through it** (branch
   `claude/amazing-archimedes-rzuz77`). Asked for on a lines + pots overlay → Hold and Win game: a
   held intro screen between the pot's celebration and the bonus, with nothing of the bonus on

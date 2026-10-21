@@ -117,6 +117,16 @@ export function isNodeActor(cast: { kind?: string } | null | undefined): boolean
 /** The document's host, normalised: absent or malformed ⇒ `{ kind: 'cast' }`. */
 export function cinematicHost(doc: { host?: unknown } | null | undefined): CinematicHost;
 
+/** The ratio (layout type) a track keys for; undefined for the default keys. */
+export function trackLayout(track: { layout?: unknown } | null | undefined): string | undefined;
+
+/** The keys a timeline's `tracks` play in ratio `layoutType`: that ratio when a property track keys
+ *  for it, else undefined (the default keys). Hand it to `sampleNodeActor`. */
+export function keysLayout(
+	tracks: readonly { kind?: unknown; layout?: unknown }[] | undefined,
+	layoutType: string | undefined,
+): string | undefined;
+
 /** A `tint` channel at `t` (0xRRGGBB, eased per colour channel), or undefined when un-keyed. */
 export function sampleTint(keys: CinematicKey[] | undefined, t: number): number | undefined;
 
@@ -128,10 +138,12 @@ export function sampleText(
 
 /** Every keyed channel of one node actor at `t` (relative to the node's authored pose), the clip an
  *  `animation` strip holds a rig node at (`animTime`, clip-local seconds), and each keyed
- *  `fx:<id>` channel under its own name (absolute). */
+ *  `fx:<id>` channel under its own name (absolute). `layout` picks the property keys
+ *  (`keysLayout`); absent ⇒ the default keys. */
 export function sampleNodeActor(
 	tracks: CinematicTrack[] | undefined,
 	t: number,
+	layout?: string,
 ): CinematicNodeSample;
 
 /** Whether `ease` is a cubic `[x1, y1, x2, y2]` of four finite numbers. */

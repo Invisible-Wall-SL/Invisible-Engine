@@ -90,7 +90,7 @@ jobs:
       - name: free-spin parity
         run: pnpm check:freespin-parity
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: freespin-parity

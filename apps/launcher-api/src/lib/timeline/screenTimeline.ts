@@ -2,6 +2,7 @@ import {
 	sampleChannel,
 	sampleNodeActor,
 	sampleTint,
+	trackLayout,
 	type CinematicFxParamChannel,
 	type CinematicNodeSample,
 	type CinematicStrip,
@@ -324,6 +325,49 @@ const tracksOf = (doc: CinematicDoc, actorId: string): CinematicTrack[] =>
 	doc.tracks.filter((t) => t.actorId === actorId) as unknown as CinematicTrack[];
 
 /**
+ * `actorId`'s property tracks that key ratio `layout` (a screen ratio's own keys, `keysLayout`), or
+ * the default keys when `layout` is absent: what that ratio plays, and what Animate edits there.
+ */
+const propertyTracksOf = (
+	doc: CinematicDoc,
+	actorId: string,
+	layout: string | undefined,
+): CinematicTrack[] =>
+	tracksOf(doc, actorId).filter(
+		(t) => t.kind === 'property' && !!t.channels && trackLayout(t) === layout,
+	);
+
+/** The default keys of `doc`'s node actors: the property tracks a ratio copies to key apart. */
+export function defaultNodeKeyTracks(doc: CinematicDoc): CinematicDoc['tracks'] {
+	const nodeActors = new Set(doc.stage.cast.filter((c) => c.kind === 'node').map((c) => c.actorId));
+	return doc.tracks.filter(
+		(t) =>
+			t.kind === 'property' &&
+			trackLayout(t) === undefined &&
+			typeof t.actorId === 'string' &&
+			nodeActors.has(t.actorId),
+	);
+}
+
+/**
+ * Give screen ratio `layout` keys of its own (per-ratio keys): a copy of every default property
+ * track of a node actor, carrying `layout`, so the ratio starts from the moves it plays now and
+ * every edit after changes that ratio alone. Returns the tracks to add, none when nothing is keyed.
+ */
+export function ratioKeyTracks(doc: CinematicDoc, layout: string): Record<string, unknown>[] {
+	return defaultNodeKeyTracks(doc).map((t) => ({
+		...structuredClone(t),
+		id: `${String(t.id)}_${layout}`,
+		layout,
+	}));
+}
+
+/** `doc` without screen ratio `layout`'s own keys: that ratio plays the default keys again. */
+export function withoutRatioKeys(doc: CinematicDoc, layout: string): CinematicDoc['tracks'] {
+	return doc.tracks.filter((t) => !(t.kind === 'property' && trackLayout(t) === layout));
+}
+
+/**
  * One channel of a node actor at `t`, relative to the authored pose: the keyed value, or the
  * identity (`NODE_IDENTITY`) while the channel has no keys. What the Animate fields show, and what
  * ◆ keys.
@@ -333,22 +377,26 @@ export function nodeChannelValue(
 	actorId: string,
 	channel: KeyedChannel,
 	t: number,
+	layout?: string,
 ): number {
 	let value: number | undefined;
-	for (const track of tracksOf(doc, actorId)) {
-		if (track.kind !== 'property' || !track.channels) continue;
-		const keys = track.channels[channel];
+	for (const track of propertyTracksOf(doc, actorId, layout)) {
+		const keys = track.channels?.[channel];
 		const v = channel === 'tint' ? sampleTint(keys, t) : sampleChannel(keys, t);
 		if (v !== undefined) value = v;
 	}
 	return value ?? NODE_IDENTITY[channel];
 }
 
-/** Does `actorId` key `channel` (a {@link KeyedChannel}, or an effect's `fx:<id>`)? */
-export function isChannelKeyed(doc: CinematicDoc, actorId: string, channel: string): boolean {
-	return tracksOf(doc, actorId).some(
-		(t) => t.kind === 'property' && !!t.channels?.[channel]?.length,
-	);
+/** Does `actorId` key `channel` (a {@link KeyedChannel}, or an effect's `fx:<id>`) in `layout`'s
+ *  keys (absent ⇒ the default keys)? */
+export function isChannelKeyed(
+	doc: CinematicDoc,
+	actorId: string,
+	channel: string,
+	layout?: string,
+): boolean {
+	return propertyTracksOf(doc, actorId, layout).some((t) => !!t.channels?.[channel]?.length);
 }
 
 /**
@@ -364,13 +412,13 @@ export function channelKeyState(
 	actorId: string | null,
 	channel: string,
 	t: number,
+	layout?: string,
 ): KeyState {
 	if (!actorId) return 'none';
 	const near = 0.5 / (doc.fps || 30);
 	let keyed = false;
-	for (const track of tracksOf(doc, actorId)) {
-		if (track.kind !== 'property' || !track.channels) continue;
-		const keys = track.channels[channel];
+	for (const track of propertyTracksOf(doc, actorId, layout)) {
+		const keys = track.channels?.[channel];
 		if (!keys?.length) continue;
 		keyed = true;
 		if (keys.some((k) => Math.abs(k.time - t) < near)) return 'key';
@@ -458,9 +506,10 @@ export function stageDragKeys(
 	delta: StageTransformDelta,
 	t: number,
 	channels: readonly KeyedChannel[],
+	layout?: string,
 ): Partial<Record<KeyedChannel, number>> {
 	const at = (c: KeyedChannel): number =>
-		actorId ? nodeChannelValue(doc, actorId, c, t) : NODE_IDENTITY[c];
+		actorId ? nodeChannelValue(doc, actorId, c, t, layout) : NODE_IDENTITY[c];
 	const out: Partial<Record<KeyedChannel, number>> = {};
 	const allowed = new Set(channels);
 	const tiny = 1e-6;
@@ -506,12 +555,12 @@ export function staleFxChannels(
 	doc: CinematicDoc,
 	actorId: string,
 	params: readonly EffectParam[] | undefined,
+	layout?: string,
 ): CinematicFxParamChannel[] {
 	const offered = new Set(drivableFxParams(params).map((p) => fxParamChannel(p.id)));
 	const out: CinematicFxParamChannel[] = [];
-	for (const track of tracksOf(doc, actorId)) {
-		if (track.kind !== 'property' || !track.channels) continue;
-		for (const [name, keys] of Object.entries(track.channels)) {
+	for (const track of propertyTracksOf(doc, actorId, layout)) {
+		for (const [name, keys] of Object.entries(track.channels ?? {})) {
 			if (fxParamOfChannel(name) === undefined || !keys?.length) continue;
 			const channel = name as CinematicFxParamChannel;
 			if (!offered.has(channel) && !out.includes(channel)) out.push(channel);
@@ -540,10 +589,11 @@ export function fxTimelineRows(
 	actorId: string,
 	node: LayoutNode,
 	effect: { params?: readonly EffectParam[] } | undefined,
+	layout?: string,
 ): FxTimelineRow[] {
 	if (node.kind !== 'effect') return [];
 	if (!effect) {
-		return staleFxChannels(doc, actorId, []).map((channel) => ({
+		return staleFxChannels(doc, actorId, [], layout).map((channel) => ({
 			channel,
 			label: `⚡ ${fxParamOfChannel(channel)}`,
 			stale: false,
@@ -556,7 +606,7 @@ export function fxTimelineRows(
 			label: `⚡ ${row.param.id}`,
 			stale: false,
 		})),
-		...staleFxChannels(doc, actorId, params).map((channel) => ({
+		...staleFxChannels(doc, actorId, params, layout).map((channel) => ({
 			channel,
 			label: `⚠ ${channel}`,
 			stale: true,
@@ -575,11 +625,11 @@ export function fxChannelValue(
 	row: FxChannelRow,
 	t: number,
 	placed?: EffectParamValues,
+	layout?: string,
 ): number {
 	let value: number | undefined;
-	for (const track of tracksOf(doc, actorId)) {
-		if (track.kind !== 'property' || !track.channels) continue;
-		const v = sampleChannel(track.channels[row.channel], t);
+	for (const track of propertyTracksOf(doc, actorId, layout)) {
+		const v = sampleChannel(track.channels?.[row.channel], t);
 		if (v !== undefined) value = v;
 	}
 	return value ?? fxParamRest([row.param], row.channel, placed) ?? 0;
@@ -600,16 +650,18 @@ export interface TimelineNodeDrive {
  * Every node `doc` drives on `scene` at `t`, keyed by node id: exactly the inputs
  * `<LayoutNodeView>` folds in game (`resolveNodeActors` → `keyedNodeChannels` →
  * `nodeActorBindings`, sampled by `sampleNodeActor`), so the editor previews what the game plays.
+ * `layout` picks the property keys as the game does (`keysLayout`); absent ⇒ the default keys.
  */
 export function timelineDrives(
 	doc: CinematicDoc,
 	scene: Scene | undefined,
 	t: number,
+	layout?: string,
 ): Map<string, TimelineNodeDrive> {
 	const out = new Map<string, TimelineNodeDrive>();
 	for (const [nodeId, actor] of resolveNodeActors(doc, scene)) {
 		const bindings = nodeActorBindings(keyedNodeChannels(actor.tracks));
-		const sample = sampleNodeActor(actor.tracks as unknown as CinematicTrack[], t);
+		const sample = sampleNodeActor(actor.tracks as unknown as CinematicTrack[], t, layout);
 		if (bindings.length || sample.tint !== undefined || sample.animTime || sample.text) {
 			const to = actor.tracks.filter((tr) => tr.kind === 'text').pop()?.to;
 			out.set(
@@ -674,6 +726,7 @@ export function onionFrames(
 	t: number,
 	count: number,
 	step = 1,
+	layout?: string,
 ): OnionFrame[] {
 	const out: OnionFrame[] = [];
 	const frame = 1 / (doc.fps || 30);
@@ -683,7 +736,7 @@ export function onionFrames(
 			const offset = sign * i * Math.max(1, Math.floor(step));
 			const time = t + offset * frame;
 			if (time < -1e-9 || time > doc.duration + 1e-9) continue;
-			out.push({ offset, time, drives: timelineDrives(doc, scene, time) });
+			out.push({ offset, time, drives: timelineDrives(doc, scene, time, layout) });
 		}
 	}
 	return out;

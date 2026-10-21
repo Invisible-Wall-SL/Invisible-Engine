@@ -985,31 +985,15 @@
 		}
 	},
 	"packages/components-ui-html": {
-		"errors": 24,
+		"errors": 13,
 		"byFile": {
 			"packages/components-ui-html/operatorChrome.fixture.mts": {
 				"ts:1378": 3,
 				"ts:2307": 2,
 				"ts:2580": 1
 			},
-			"packages/pixi-svelte/src/lib/assetLoad.ts": {
-				"ts:2339": 3,
-				"ts:2694": 1
-			},
 			"packages/pixi-svelte/src/lib/index.ts": {
 				"ts:2308": 1
-			},
-			"packages/pixi-svelte/src/lib/rigBacking.ts": {
-				"ts:2694": 2
-			},
-			"packages/pixi-svelte/src/lib/rigBounds.ts": {
-				"ts:2694": 2
-			},
-			"packages/pixi-svelte/src/lib/rigLocale.ts": {
-				"ts:2694": 1
-			},
-			"packages/pixi-svelte/src/lib/types.ts": {
-				"ts:2694": 2
 			},
 			"packages/rgs-fetcher/src/rgsFetcher.ts": {
 				"ts:2536": 5

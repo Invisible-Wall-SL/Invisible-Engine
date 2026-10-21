@@ -156,6 +156,12 @@ export interface CinematicTrack {
 	keys?: Array<{ time: number; visible?: boolean; cue?: string } & Partial<CinematicTextKey>>;
 	/** Property/camera tracks only. */
 	channels?: Record<string, CinematicKey[]>;
+	/**
+	 * Node-actor property tracks only: the screen ratio (layout type) these keys are for. A ratio
+	 * with any such track plays its own keys instead of the default ones (`keysLayout`); absent ⇒
+	 * the default keys, which every other ratio plays.
+	 */
+	layout?: string;
 	/** Text tracks only: count up to a number, or switch among the node's own strings. */
 	mode?: 'countUp' | 'switchKey';
 	/**

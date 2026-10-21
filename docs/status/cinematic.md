@@ -165,6 +165,28 @@ through the same player; headless-proven, no editor yet (5b).
     `<FlowV2Mount>` remounts that screen with it (`LayoutScene.nodeDriver`, keyed per play); the
     screen holds the last frame until it hides. Only a timeline whose screen is NOT up still draws
     its own copy inside `<MainContainer>` (Phase 1), mis-framed for a canvas screen (open item 9).
+    **The Pots screen the game mounts itself counts as up (2026-10-21):** under a driven flow that
+    never shows `pots`, `<EngineScreenMount>` reports it up while the board is
+    (`engineScreenUp`) and remounts it with the timeline's driver, so the timeline moves the pots
+    the player sees and holds the last frame until the board goes down. While the board is down a
+    timeline on it draws nothing (`onStage` counts the game's own screens up or down), and the
+    board coming back picks it up where it is. The bookkeeping (flow-shown + engine-mounted
+    screens, drives and their lifetime) is `apps/lines/src/game/screenDrives.svelte.ts`. The banner
+    screens the game mounts itself (`engineBannerScreens`) are not counted yet.
+
+- **Per-ratio keys (2026-10-21, headless-proven, ⏳ not browser-verified).** A screen lays its
+  nodes out per ratio, so a node actor's `property` track may carry `layout` (a layout type): the
+  keys for that ratio alone. A ratio with any such track plays its own keys and none of the default
+  ones, the whole timeline at once; every other ratio plays the default keys (tracks without
+  `layout`). Evaluator: `trackLayout`, `keysLayout(tracks, layoutType)`, and
+  `sampleNodeActor(tracks, t, layout)`, which skips every other ratio's property tracks (absent
+  `layout` ⇒ the default keys only, so a caller that names no ratio, such as
+  `componentTimelines.ts`, never plays a ratio's keys everywhere). `keyedNodeChannels` stays the
+  union, so turning the device never remounts a node. `<Cinematic layoutType>` takes a READER
+  (`stateLayoutDerived.layoutType`, from `<FlowV2Cinematics>`) and asks it on every sample: a held
+  last frame outlives the player, and a `$derived` or prop value there goes stale once it unmounts.
+  Component timelines play the default keys in every ratio. Editor side: [editor status](editor.md)
+  2026-10-21. Ship chain: nothing new (a doc ships verbatim).
     A `playCinematic` naming a timeline the bundle lacks is skipped with a console warning rather
     than awaited forever. Until this date no Flow `playCinematic` ever reached a game:
     `createFlowV2Env` dropped `playCinematic` / `stopCinematic` (see Recent changes).
@@ -424,9 +446,11 @@ through the same player; headless-proven, no editor yet (5b).
    writes a `{doc:null}` draft over the saved local draft.
 
 9. **A screen timeline played while its screen is not shown** draws its own copy inside
-   `<MainContainer>` (Phase 1): a `canvas` screen comes out mis-framed (game-box scaled), with no
-   tap dim and the HUD live. The guide says to Show the screen first; decide whether such a play
-   should instead show nothing, or mount the screen at its own band.
+   `<MainContainer>` (Phase 1): a `game` or `canvas` screen comes out framed by the game box twice
+   (misplaced and resized), with no tap dim and the HUD live. The guide says to Show the screen
+   first; decide whether such a play should instead show nothing, or mount the screen at its own
+   band. The Pots screen the game mounts itself no longer hits this (2026-10-21); the banner
+   screens the game mounts itself (`engineBannerScreens`) still do.
 
 10. **A playing `<Cinematic>` restarts whenever the flow's playing set changes** (found by the
     ticker gate's review, 2026-10-20; older than Phase 9b). The re-arm `$effect` reads
@@ -443,11 +467,34 @@ through the same player; headless-proven, no editor yet (5b).
     cue at 0.005 s fired 2 times in 3.5 s instead of 4). A ping-pong, which keeps an unwrapped lap
     clock, is unaffected.
 
+12. **Each play remounts its screen** (`{#key drive.key}` in `<FlowV2Mount>` and
+    `<EngineScreenMount>`, because a node reads its driver once). On the Pots screen, which lasts
+    the whole session, a meter's fill glide or a full pot's rig animation running at that moment
+    restarts. Check on a pots game in the browser; a node that took its driver live would remove it.
+
 ## Blocked (owner / external)
 
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-21 — **The Pots screen's timeline moves the pots the player sees, and keys per screen
+  ratio** (branch `claude/quirky-clarke-jmc9b3`). Reported on a live Pots overlay project
+  (`commonoverlayproject`): a timeline keyed on the Pots screen drew a second, misplaced and
+  resized set of pots that animated and vanished, while the pots on screen never moved. The flow
+  never showed `pots`, so the game mounted it itself (`enginePotsScreen`), and only a flow-shown
+  screen counted as up, so `<Cinematic>` drew its own copy. Now `<EngineScreenMount>` reports the
+  game's Pots mount up while it is mounted and takes the timeline's driver; the screen bookkeeping
+  moved out of `flowV2Runtime.svelte.ts` into `screenDrives.svelte.ts`. The owner then found the
+  moves did not fit the other ratios (one `y` offset, a Portrait layout with smaller pots placed
+  apart): per-ratio keys, above. Gates: `pnpm check:screen-timeline-mounts` (the real
+  `FlowV2Cinematics`, `Cinematic` and `EngineScreenMount` on a ticking clock: first the duplicate
+  as `main` drew it, then one set of pots that moves, holds, and lets go when the board goes down;
+  nothing drawn while the board is down mid-play; a flow-shown screen as before; each ratio's
+  keys, live when the device turns, mid-play and on a held last frame, through a mounted node's own
+  `$derived`; and source checks that `Game.svelte` and the runtime wire it so) and
+  `pnpm --filter launcher-api check:timeline-ratio-keys` (format, the module and its paste, the
+  Animate helpers, editor preview = game sample). Owner browser check pending.
 
 - 2026-10-20 — **Fix: the playhead drifts off the cursor once the timeline is scrolled** (branch
   `claude/nifty-curie-0eqlx3`). Reported on `/editor`: zoomed in, scrolled right, then scrubbing,

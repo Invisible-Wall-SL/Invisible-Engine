@@ -20,10 +20,10 @@
 		"config-svelte": "workspace:*",
 		"config-lingui": "workspace:*",
 		"config-storybook": "workspace:*",
-		"svelte-check": "4.7.6"
+		"svelte-check": "4.7.7"
   },
   "dependencies": {
-    "svelte": "5.57.1",
+    "svelte": "5.57.2",
     "vite": "6.2.0",
     "utils-shared": "workspace:*",
     "pixi-svelte": "workspace:*",
