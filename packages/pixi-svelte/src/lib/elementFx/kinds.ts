@@ -70,6 +70,8 @@ export interface KindImpl {
 	motion?(frame: FxFrame): Partial<Motion>;
 	filter?: FilterImpl<Filter>;
 	breaks?: BreakStyle;
+	/** The break plays backwards: the pieces fly in and become the element (an entrance). */
+	reversed?: boolean;
 }
 
 const filterImpl = <F extends Filter>(impl: FilterImpl<F>): FilterImpl<Filter> =>
@@ -573,4 +575,5 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	crash: { breaks: 'crash' },
 	crumble: { breaks: 'crumble' },
 	disintegrate: { breaks: 'dust' },
+	assemble: { breaks: 'dust', reversed: true },
 };

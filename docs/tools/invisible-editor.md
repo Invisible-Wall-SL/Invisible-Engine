@@ -814,7 +814,7 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 40 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 41 effects grouped by family (the table below). Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -869,8 +869,9 @@ An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Inv
 Several effects on one element play together. A loop effect given a play count (_When shown_ or
 _On cue_) fades in and out. An **exit** effect ends with the element hidden and keeps it hidden
 until its stop cue fires or an entrance effect plays on it; its row says so. **Crash**,
-**Crumble** and **Dissolve to particles** break a still of the element taken as they start, so an
-animating rig stops moving as it breaks.
+**Crumble**, **Dissolve to particles** and **Assemble from particles** work on a still of the
+element taken as they start, so an animating rig holds still while they play (an assemble hands
+back the live element as it ends).
 
 To fire a one-off effect on any element from a flow, with nothing authored here, use the Flow's
 `elementEffect`: see [Element FX in the Flow guide](flow.md#element-fx-effects-on-one-element).
@@ -893,7 +894,7 @@ whole frame. One preview plays at a time, a second ▶ replaces it, and nothing 
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 40 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 41 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -938,6 +939,7 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 | Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |
 |                | **Crumble** (exit)         | Falls apart into chunks that drop away, bottom first.                            |
 |                | **Dissolve to particles** (exit) | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many. |
+|                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first. |
 
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 

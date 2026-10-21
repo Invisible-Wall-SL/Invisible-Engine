@@ -494,6 +494,34 @@ console.log('element fx — dissolve to particles');
 	);
 	run?.destroy();
 	assert(parent.children.length === 1 && !!holder?.destroyed, 'and the pieces leave with the run');
+
+	assert(
+		KINDS.assemble.breaks === 'dust' && KINDS.assemble.reversed === true,
+		'assemble from particles plays the dust backwards',
+	);
+	const { host, advance } = makeHost();
+	const element = makeTarget();
+	const rest = snapshot(element);
+	const assemble = playElementFx(
+		element,
+		{ kind: 'assemble', durationMs: 1000, params: { particles: 200 } },
+		{ ...host, renderer: renderer as never },
+	);
+	advance(16);
+	const layer = element.parent?.children.find((c) => c.label === 'elementFx:break')?.children[0];
+	assert(
+		element.alpha === 0 && !!layer && layer.alpha < 0.05,
+		'it starts hidden, its specks not yet blown in',
+	);
+	advance(500);
+	assert(element.alpha === 0 && layer?.alpha === 1, 'midway the specks are coming together');
+	advance(600);
+	assert(
+		!assemble.active &&
+			!!layer?.destroyed &&
+			JSON.stringify(snapshot(element)) === JSON.stringify(rest),
+		'at the end the element is back exactly and the specks are gone',
+	);
 }
 
 // -------------------------------------------------------------------------------------------------

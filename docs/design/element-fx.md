@@ -29,7 +29,7 @@ Three ways to get one onto an element, all playing through ONE runtime:
 ## 2. The catalog (`constants-shared/elementFx`)
 
 One dependency-free list, read by the editor (kind picker, param rows), the flow vocabulary (the
-`ElementFxKind` dropdown) and the runtime. 40 kinds in five families:
+`ElementFxKind` dropdown) and the runtime. 41 kinds in five families:
 
 - **Motion** (the element's own transform; no GPU pass): shake, wobble, pulse, heartbeat, jelly,
   bounce, spin, swing, float, pop in, pop out, slam in, fade in, fade out.
@@ -45,7 +45,8 @@ One dependency-free list, read by the editor (kind picker, param rows), the flow
 - **Break** (a still of the element cut into pieces): crash (takes a hit, smashes into shards that
   fly and fall), crumble (chunks let go bottom row first and drop), dissolve to particles (turns
   to dust: specks let go in a ragged front, the side the wind blows to first, and blow away on it,
-  swaying and shrinking to nothing).
+  swaying and shrinking to nothing) and assemble from particles (the same dust played backwards,
+  an entrance: the specks blow in and become the element).
 
 Each kind has a **phase**: `emphasis` (plays and returns to rest), `loop` (built to repeat
 seamlessly; fades in and out when played a set number of times), `enter` (starts hidden, ends at
@@ -116,7 +117,9 @@ the way `cameraEffects` composes the stage:
   reuse the library. A GL-only pass is skipped on a WebGPU renderer (the game forces WebGL).
 - **Break** renders the element once (`renderer.generateTexture`), hides it, and flies the still in
   pieces: a few small `MeshSimple`s the batcher draws together, placed beside the element at its
-  depth and rest transform. With no renderer it fades instead (dust drifting on its wind).
+  depth and rest transform. With no renderer it fades instead (dust drifting on its wind). A
+  `reversed` kind runs its break from the end back to the start (assemble), so its pieces fly in;
+  at its end the pieces go and the element shows again.
 - **Time** follows the game's turbo through the particle clock (`particleTimeScale`).
 - **Zero cost at rest**: no runtime, no ticker callback, no filter on a container with nothing
   playing; nothing is filtered before the element has a size (art still loading).

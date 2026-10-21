@@ -889,6 +889,42 @@ export const ELEMENT_FX = [
 			},
 		],
 	},
+	{
+		kind: 'assemble',
+		label: 'Assemble from particles',
+		category: 'break',
+		phase: 'enter',
+		durationMs: 2200,
+		description:
+			'Comes together from dust: specks blow in on the wind, swaying and growing as they arrive, and settle into the element, the far side first.',
+		params: [
+			{
+				id: 'particles',
+				label: 'Particles',
+				kind: 'number',
+				default: 700,
+				min: 100,
+				max: 2000,
+				step: 50,
+			},
+			{
+				id: 'drift',
+				label: 'From',
+				kind: 'choice',
+				default: 'upRight',
+				options: ['upRight', 'up', 'upLeft', 'right', 'left', 'down'],
+			},
+			{
+				id: 'turbulence',
+				label: 'Turbulence',
+				kind: 'number',
+				default: 0.6,
+				min: 0,
+				max: 2,
+				step: 0.05,
+			},
+		],
+	},
 ] as const satisfies readonly ElementFxKindSpec[];
 
 export type ElementFxKind = (typeof ELEMENT_FX)[number]['kind'];

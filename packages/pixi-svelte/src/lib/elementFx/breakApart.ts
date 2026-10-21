@@ -1,6 +1,6 @@
 /**
- * The BREAK kinds (`crash`, `crumble`, `disintegrate`): the element is rendered once to a texture,
- * hidden, and the still is cut into pieces that fly. The pieces live in a few small `MeshSimple`s the batcher draws
+ * The BREAK kinds (`crash`, `crumble`, `disintegrate`, and `assemble`, which plays dust backwards):
+ * the element is rendered once to a texture, hidden, and the still is cut into pieces that fly. The pieces live in a few small `MeshSimple`s the batcher draws
  * together: each frame moves their vertices. The pieces sit in a holder placed beside the
  * element (same parent, same depth, its resting transform), so they draw where it drew.
  *

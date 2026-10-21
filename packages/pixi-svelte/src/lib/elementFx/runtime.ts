@@ -300,16 +300,22 @@ const poseFrame = (runtime: Runtime, effect: Effect): FxFrame | undefined => {
 	};
 };
 
+/** How far through its break `effect` is: a reversed break (an entrance) runs its pieces back from
+ *  the end, so they fly in and become the element. */
+const breakProgress = (effect: Effect, frame: FxFrame): number =>
+	effect.impl.reversed ? 1 - frame.t : frame.t;
+
 /** A break that could not cut the element still leaves: it fades away (a crumble sinking, dust
- *  drifting on its wind). */
+ *  drifting on its wind), or, reversed, drifts back in. */
 const breakFallbackMotion = (effect: Effect, frame: FxFrame): Partial<Motion> => {
-	const fade = 1 - smoothstep(0.15, 1, frame.t);
+	const t = breakProgress(effect, frame);
+	const fade = 1 - smoothstep(0.15, 1, t);
 	if (effect.kind === 'crumble') {
-		return { alpha: fade, y: frame.t * frame.t * 0.3 * frame.height };
+		return { alpha: fade, y: t * t * 0.3 * frame.height };
 	}
-	if (effect.kind === 'disintegrate') {
+	if (effect.impl.breaks === 'dust') {
 		const [wx, wy] = dustWind(effect.params);
-		const drift = frame.t * frame.t * 0.25 * Math.max(frame.width, frame.height);
+		const drift = t * t * 0.25 * Math.max(frame.width, frame.height);
 		return { alpha: fade, x: wx * drift, y: wy * drift };
 	}
 	const shake = (1 - clamp01(frame.t / 0.3)) * 0.03 * Math.max(frame.width, frame.height);
@@ -567,7 +573,7 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 			if (effect.impl.breaks && !effect.breakRun && !effect.breakFallback) {
 				startEffectBreak(runtime, effect);
 			}
-			effect.breakRun?.update(frame.t);
+			effect.breakRun?.update(breakProgress(effect, frame));
 			continue;
 		}
 		if (!effect.held) effect.elapsedMs += deltaMs;
@@ -590,7 +596,7 @@ const step = (runtime: Runtime, deltaMs: number): void => {
 		if (effect.impl.breaks && !effect.held && !effect.breakRun && !effect.breakFallback) {
 			startEffectBreak(runtime, effect);
 		}
-		effect.breakRun?.update(frame.t);
+		effect.breakRun?.update(breakProgress(effect, frame));
 	}
 	if (!runtime.effects.length) return;
 	applyMotion(runtime, frames);

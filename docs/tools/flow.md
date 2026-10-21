@@ -377,7 +377,7 @@ reels — where `cameraEffect` moves the whole game. There are two ways to fire 
   - **target** — a dropdown of what the game can aim at in this project: `reels`, every screen
     (`screen:<id>`), and every node that is a group, a component placement, a coded mount, or
     carries Element FX of its own.
-  - **kind** — the effect (shake, flip, sphericon, wave, glow, crash, crumble, dissolve to particles, … 40 in all).
+  - **kind** — the effect (shake, flip, sphericon, wave, glow, crash, crumble, dissolve to / assemble from particles, … 41 in all).
   - **durationMs**, **intensity** (1 = the effect's reference strength, capped at 4), **repeat**
     (plays; `0` = until stopped) and **color** (`#rrggbb`, for glow / outline / shine / flash /
     dissolve) are optional.
