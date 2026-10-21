@@ -1,4 +1,4 @@
-// Offline fixture for scripts/deploy-drift.mjs — the scheduled "Deploy drift" check.
+// Offline fixture for scripts/deploy-drift.mjs — the deploy drift check.
 //
 //   node scripts/deploy-drift.fixture.mjs
 //

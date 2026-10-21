@@ -126,7 +126,7 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
-- 2026-10-21 — **Deploy drift check: a deploy Railway missed no longer goes unnoticed.** During a
+- 2026-10-21 — **Services report their commit, and `deploy-drift.mjs` finds a deploy Railway missed.** During a
   Railway outage, `b70cb58` merged and never deployed, and nothing would have retried it. Railway
   deploys on the push webhook only; a watch-path service misses such a deploy until a push touches
   its own files.
@@ -134,9 +134,6 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
     `RAILWAY_GIT_COMMIT_SHA`, as the Python tools' `/healthz` already did).
   - `scripts/deploy-drift.mjs` compares each public service's commit with `main`: commits after it
     that touch its watch paths, older than 45 min, are a missed deploy.
-  - `.github/workflows/deploy-drift.yml` runs it at :07 and :37 and keeps one issue open while
-    anything is behind (body edited, not commented, so an outage is one notification), closing it
-    on catch-up.
   - `scripts/deploy-drift.fixture.mjs` (12, in `check:all`) pins the verdict, the pathspecs on a
     real git repo, and the watch paths against `docs/INFRA.md`'s table.
   - Not covered: `director-worker` has no public URL. Down is the uptime monitor's alarm, not this

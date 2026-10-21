@@ -1,5 +1,4 @@
-// Is every Railway service running the code `main` says it should? Run by the scheduled "Deploy
-// drift" workflow (.github/workflows/deploy-drift.yml), or by hand from a full clone:
+// Is every Railway service running the code `main` says it should? Run it from a full clone:
 //
 //   node scripts/deploy-drift.mjs        # probe the live services; exit 3 when one has drifted
 //
@@ -169,6 +168,6 @@ export function report(rows, head, now = Math.floor(Date.now() / 1000)) {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 	const rows = await probe();
 	console.log(report(rows, git('rev-parse', 'HEAD')));
-	// 3, not 1: an uncaught error also exits 1, and the workflow must not file a crash as drift.
+	// 3, not 1: an uncaught error also exits 1, and a crash must never read as drift.
 	process.exit(rows.some((r) => DRIFTED.has(r.status)) ? 3 : 0);
 }
