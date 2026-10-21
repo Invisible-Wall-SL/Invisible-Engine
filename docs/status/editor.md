@@ -16,7 +16,7 @@ Launcher-native, full-page WebGL/canvas layout editor at `/editor` (auth + `edit
 
 Shipped capabilities on `main`:
 
-- **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels** and **Zoom with anticipation** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", "＋ New bet menu / auto spin screen".
+- **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels** and **Zoom with anticipation** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", bet menu / auto spin screens. Everything that adds a screen sits in one **＋ Add screen ▾** menu under the list, and the rest in **⋯**.
 - **Every authored screen ships.** `extraMountScenes` / `fullReplaceHudScenes` (`engine-layout/genericMountScenes.ts`) mount author screens the game doesn't reserve, and `sceneLayerZIndex` gives every mount path the Screens-list z; under a screen-driving v2 flow every screen mounts through `<FlowV2Mount>`. Flow owns visibility (no "Shows during" gates).
 - **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate, **⌖ Any screen** click-to-select across every drawn screen (⏳ not browser-verified). Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws. Every rig, text and FX overlay (both sides, HUD included) draws through TWO shared WebGL contexts and copies into a 2D canvas of its own (`sharedGl.client.ts`); nothing else in the editor route may open a context (`check:editor-gl-contexts`).
 - **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
@@ -171,6 +171,18 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-21 — **Screens panel actions collapse into `＋ Add screen ▾` and `⋯`** (in review). The
+  stack of up to ten full-width buttons under the screen list became one row. **＋ Add screen ▾**
+  has two groups. **New:** Empty, Background, HUD layer (no-HUD case only), HUD, Bet menu and Auto
+  spin screens. **From template:** Add missing screens, Add overlay screens and a **Banner
+  screen ▸** submenu, which replaces the `<select>` from #1281. A badge counts the missing and
+  overlay screens. **⋯** holds ↻ Reset HUD to default (its confirm unchanged), ⇕ Reserve rows for
+  board expansion and ⧉ Save as new game kind…. Every entry keeps its old show/hide condition and
+  calls the same handler: this is a UI regroup only, with no data or storage change. The menu is a
+  new shared `$lib/MenuButton.svelte`, recorded in `docs/ui-inventory.md` §19. It is keyboard
+  driven, `role="menu"`, and portalled with fixed positioning. It was browser-verified (a
+  headless harness route over the component: keyboard, submenu, Esc, click-outside and focus
+  return); the full `/editor` page was not rendered.
 - 2026-10-20 — **A placed rig selects where it draws** (in review, ⏳ not browser-verified). The
   game (`LayoutNodeView` → `<RigProvider>` with no anchor) and the rig overlay put a rig's skeleton
   ORIGIN on its node's x/y, but `nodeBox` centred the rig's Bounds SIZE on that point. A Rigger rig
