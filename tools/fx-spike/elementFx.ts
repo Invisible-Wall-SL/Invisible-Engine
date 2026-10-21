@@ -30,6 +30,7 @@ import {
 	DOMAdapter,
 	Filter,
 	GlProgram,
+	Graphics,
 	Matrix,
 	MeshSimple,
 	Rectangle,
@@ -423,6 +424,93 @@ const snapshot = (c: Container) => [
 	assert(!none.active && elementFxCount(target) === 0, 'no host ⇒ nothing plays');
 	const unknown = playElementFx(target, { kind: 'video' as ElementFxKind }, makeHost().host);
 	assert(!unknown.active, 'an unknown kind ⇒ nothing plays');
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('element fx — shatter (glass)');
+{
+	assert(KINDS.shatter.breaks === 'glass', 'shatter breaks like glass');
+	const parent = new Container();
+	const target = new Container();
+	parent.addChild(target);
+	const box = new Rectangle(-100, -60, 200, 120);
+	const renderer = {
+		generateTexture: ({ frame }: { frame: Rectangle }) =>
+			new Texture({ source: new TextureSource({ width: frame.width, height: frame.height }) }),
+	};
+	const run = startBreak({
+		style: 'glass',
+		target,
+		renderer: renderer as never,
+		box,
+		rest: new Matrix(),
+		intensity: 1,
+		params: { impact: 'center', pieces: 56, crack: 0.3 },
+		playSeconds: 2,
+	});
+	const layer = parent.children.find((c) => c.label === 'elementFx:break')?.children[0];
+	const meshes = (layer?.children ?? []).filter((c): c is MeshSimple => c instanceof MeshSimple);
+	const cracks = layer?.children.find((c) => c instanceof Graphics);
+	/** Every triangle as [centroid x, centroid y, area]. */
+	const triangles = (): number[][] =>
+		meshes.flatMap((mesh) => {
+			const v = mesh.vertices;
+			const ix = mesh.geometry.indices;
+			const out: number[][] = [];
+			for (let i = 0; i < ix.length; i += 3) {
+				const [a, b, c] = [ix[i] * 2, ix[i + 1] * 2, ix[i + 2] * 2];
+				const area =
+					Math.abs((v[b] - v[a]) * (v[c + 1] - v[a + 1]) - (v[c] - v[a]) * (v[b + 1] - v[a + 1])) /
+					2;
+				out.push([(v[a] + v[b] + v[c]) / 3, (v[a + 1] + v[b + 1] + v[c + 1]) / 3, area]);
+			}
+			return out;
+		});
+	assert(
+		!!run && meshes.length > 0 && meshes.every((m) => m.vertices.length / 2 <= 96),
+		'the shards come in small meshes the batcher draws together',
+	);
+	const atRest = triangles();
+	const inside = meshes.every((mesh) => {
+		const v = mesh.vertices;
+		for (let i = 0; i < v.length; i += 2) {
+			if (v[i] < box.x - 1e-6 || v[i] > box.right + 1e-6) return false;
+			if (v[i + 1] < box.y - 1e-6 || v[i + 1] > box.bottom + 1e-6) return false;
+		}
+		return true;
+	});
+	assert(
+		inside &&
+			near(
+				atRest.reduce((sum, [, , a]) => sum + a, 0),
+				box.width * box.height,
+				1,
+			),
+		'at the start the shards tile the element exactly',
+	);
+	run?.update(0.15);
+	const cracking = cracks?.visible === true;
+	const held = triangles().every(([x, y], i) => Math.hypot(x - atRest[i][0], y - atRest[i][1]) < 4);
+	assert(cracking && held, 'while it cracks the lines show and no shard has fallen');
+	run?.update(0.48);
+	const reach = Math.hypot(100, 60);
+	const fell = (from: number, to: number): number => {
+		const now = triangles();
+		const group = atRest
+			.map((tri, i) => i)
+			.filter((i) => {
+				const d = Math.hypot(atRest[i][0], atRest[i][1]) / reach;
+				return d >= from && d < to;
+			});
+		return group.filter((i) => now[i][1] - atRest[i][1] > 3).length / group.length;
+	};
+	assert(
+		cracks?.visible === false && fell(0, 0.3) > fell(0.7, 1.01),
+		'then the cracks go and the shards by the impact fall first',
+	);
+	run?.update(1);
+	assert(layer?.alpha === 0, 'by the end the shards have gone');
+	run?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------

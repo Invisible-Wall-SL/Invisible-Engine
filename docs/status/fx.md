@@ -2,18 +2,18 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** **Element FX** (effects that play ON a node, a screen or the reels — 41 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** **Element FX** (effects that play ON a node, a screen or the reels — 42 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
 
 - **Element FX** (2026-10-21, [design/element-fx](../design/element-fx.md)) — effects that play ON
   an element rather than beside it: any node (image, rig / `.irig`, flipbook, particle effect,
-  text, group, component placement), a whole screen, or the reels. 41 kinds in five families:
+  text, group, component placement), a whole screen, or the reels. 42 kinds in five families:
   motion (shake, wobble, pulse, heartbeat, jelly, bounce, spin, swing, float, pop in / out, slam
   in, fade in / out), 3D (flip sideways / over, bounce 3D, tilt 3D, sphericon), distort (wave X / Y, flag,
   twist, curl, ripple, bulge), light (glow, outline, shine, flash, rainbow, chromatic, glitch,
-  blur, pixelate, dissolve out / in) and break (crash, crumble, dissolve to / assemble from particles). Authored in the Scene Editor's
+  blur, pixelate, dissolve out / in) and break (crash, crumble, shatter, dissolve to / assemble from particles). Authored in the Scene Editor's
   **Element FX** section (node Properties and the Screen panel; ▶ previews on the stage on a still
   of the element) with an *Always* / *When shown* / *On cue* / *Keyed* trigger and a stop cue;
   fired from the Flow by `fireCue` or by `elementEffect` / `stopElementEffect`. A *Keyed* entry
@@ -65,7 +65,7 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   timelines, and a transition between them — scrub in Animate and run the state machine in the
   editor, then watch it in the game. And a Sphericon on a symbol-sized element, and Dissolve to
   particles on a big one (a character rig) with each Wind, then Assemble from particles on its
-  stop cue to bring it back.
+  stop cue to bring it back. And Shatter (glass) on a framed panel, from each Impact point.
   Worth an eye: a crash / crumble on an animating rig (it breaks a still), an exit (pop out, fade
   out, dissolve out, crash, crumble) staying hidden until its stop cue, and the base-game screen,
   whose two parts around the reels each play the screen's FX. In the editor: a posed node can be
@@ -117,6 +117,21 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-21 — **Shatter (glass)** (a 42nd kind, break, exit). Owner ask: a shatter-into-glass
+  effect, apart from Crash. A `glass` break style (`cutGlass` in `breakApart.ts`): a spiderweb
+  fracture — spokes from the impact (`impact`: random in the middle by default; center, top,
+  bottom, left, right) crossed by irregular rings, denser near the hit, each cell clipped to the
+  box (Sutherland–Hodgman) is a shard (`pieces`, 16–160, default 56). Over the first `crack` of the
+  play (default 0.3) the cracks race out from the impact (a `Graphics` overlay, each line dark then
+  light so it reads on any art; spokes bold, a quarter of the ring cracks left out, a flash at the
+  hit) and a hairline gap opens round each shard they reach; then the pane falls in, the shards
+  by the impact first, pushed out a little, coming towards the viewer, tumbling end over end
+  (scaled across by the cosine of their turn) and dropping under `gravity`. The break meshes now
+  pack pieces of any vertex count (a shard is a fan of n − 2 triangles) into ≤ 96-vertex meshes,
+  and a piece can scale differently across and along. The outer ring sits far enough out that
+  its chords clear the corners: a stress run of 1,080 layouts (every impact, 16 / 56 / 160 shards,
+  three box shapes) tiles the box exactly. `check:element-fx` 89 → 95. Rendered on WebGL1 and
+  WebGL2 in the headless harness. ⏳ Not clicked in a browser.
 - 2026-10-21 — **Assemble from particles** (a 41st kind, break, entrance). Owner ask: the reverse
   of dissolve to particles. The same dust break played backwards: `KindImpl.reversed` makes the
   runtime run a break from its end (`breakProgress`), so the specks start blown away and invisible

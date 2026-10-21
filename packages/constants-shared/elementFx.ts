@@ -854,6 +854,36 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'shatter',
+		label: 'Shatter (glass)',
+		category: 'break',
+		phase: 'exit',
+		durationMs: 1800,
+		description:
+			'Breaks like a pane of glass: cracks race out from the impact, then it falls apart in spiderweb shards that tumble and drop, those by the impact first.',
+		params: [
+			{
+				id: 'impact',
+				label: 'Impact',
+				kind: 'choice',
+				default: 'random',
+				options: ['random', 'center', 'top', 'bottom', 'left', 'right'],
+			},
+			{ id: 'pieces', label: 'Shards', kind: 'number', default: 56, min: 16, max: 160, step: 1 },
+			{
+				id: 'crack',
+				label: 'Cracking',
+				kind: 'number',
+				default: 0.3,
+				min: 0.05,
+				max: 0.6,
+				step: 0.05,
+				note: 'The share of the play the cracks spread for before the pane falls.',
+			},
+			{ id: 'gravity', label: 'Gravity', kind: 'number', default: 1, min: 0, max: 4, step: 0.05 },
+		],
+	},
+	{
 		kind: 'disintegrate',
 		label: 'Dissolve to particles',
 		category: 'break',

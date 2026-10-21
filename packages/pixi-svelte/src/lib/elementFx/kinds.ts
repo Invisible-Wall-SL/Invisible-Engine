@@ -64,7 +64,7 @@ export interface FilterImpl<F extends Filter> {
 	padding?(frame: FxFrame, view: FilterView): number;
 }
 
-export type BreakStyle = 'crash' | 'crumble' | 'dust';
+export type BreakStyle = 'crash' | 'crumble' | 'glass' | 'dust';
 
 export interface KindImpl {
 	motion?(frame: FxFrame): Partial<Motion>;
@@ -574,6 +574,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	// --- break ---
 	crash: { breaks: 'crash' },
 	crumble: { breaks: 'crumble' },
+	shatter: { breaks: 'glass' },
 	disintegrate: { breaks: 'dust' },
 	assemble: { breaks: 'dust', reversed: true },
 };

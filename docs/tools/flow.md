@@ -377,7 +377,7 @@ reels — where `cameraEffect` moves the whole game. There are two ways to fire 
   - **target** — a dropdown of what the game can aim at in this project: `reels`, every screen
     (`screen:<id>`), and every node that is a group, a component placement, a coded mount, or
     carries Element FX of its own.
-  - **kind** — the effect (shake, flip, sphericon, wave, glow, crash, crumble, dissolve to / assemble from particles, … 41 in all).
+  - **kind** — the effect (shake, flip, sphericon, wave, glow, crash, crumble, shatter, dissolve to / assemble from particles, … 42 in all).
   - **durationMs**, **intensity** (1 = the effect's reference strength, capped at 4), **repeat**
     (plays; `0` = until stopped) and **color** (`#rrggbb`, for glow / outline / shine / flash /
     dissolve) are optional.
@@ -385,7 +385,7 @@ reels — where `cameraEffect` moves the whole game. There are two ways to fire 
     stopped never blocks.
 
   **`stopElementEffect`** with the same **target** stops what the flow played there and puts the
-  element back at rest. An exit effect (pop out, fade out, dissolve out, crash, crumble, dissolve to particles) leaves the
+  element back at rest. An exit effect (pop out, fade out, dissolve out, crash, crumble, shatter, dissolve to particles) leaves the
   element hidden until then.
 
 An unknown target or kind does nothing, as an unknown `cameraEffect` kind does. A target that is
