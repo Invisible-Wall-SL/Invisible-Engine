@@ -3676,6 +3676,9 @@
 							projectKey={loadedProjectKey}
 							active={animating && !componentsView}
 							{rigMeta}
+							layoutType={currentLayoutType}
+							{baseLayoutType}
+							layoutLabel={activeProfile.buckets.find((b) => b.id === currentLayoutType)?.label}
 						/>
 					</div>
 				{/if}

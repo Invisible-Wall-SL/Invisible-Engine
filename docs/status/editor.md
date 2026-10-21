@@ -171,6 +171,17 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-21 — **Animate: keys per screen ratio** (branch `claude/quirky-clarke-jmc9b3`, ⏳ not
+  browser-verified). On a ratio other than the base one, a screen timeline's header shows
+  **Default keys** + **Key <ratio> separately** (copies the default keys to the ratio:
+  `ratioKeyTracks`), or **<ratio> keys** + **Use default keys** (asks, then `withoutRatioKeys`). The
+  Timeline module takes `propertyLayout` (rows and new keys follow the ratio's tracks; absent, as in
+  `/rigger`, only the default ones), and Properties' value, the key buttons, a stage drag, the
+  preview and the onion skin read the keys that ratio plays (`keysLayout`, the game's own choice).
+  Switching ratio re-renders the rows and clears the key selection. Component timelines show
+  nothing new. Format and game side: [cinematic status](cinematic.md) 2026-10-21. Gate:
+  `check:timeline-ratio-keys`. Guide: [Keys per screen
+  ratio](../tools/invisible-editor.md#animate-mode--the-timeline).
 - 2026-10-20 — **A placed rig selects where it draws** (in review, ⏳ not browser-verified). The
   game (`LayoutNodeView` → `<RigProvider>` with no anchor) and the rig overlay put a rig's skeleton
   ORIGIN on its node's x/y, but `nodeBox` centred the rig's Bounds SIZE on that point. A Rigger rig

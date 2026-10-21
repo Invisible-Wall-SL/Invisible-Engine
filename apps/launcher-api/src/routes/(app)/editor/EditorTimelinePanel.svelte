@@ -28,10 +28,12 @@
 	 */
 	import { onDestroy, onMount, untrack } from 'svelte';
 	import {
+		keysLayout,
 		playbackTime,
 		putKey,
 		resolvePlace,
 		resolveVisible,
+		trackLayout,
 		type CinematicKey,
 	} from 'engine-cinematic';
 	import {
@@ -66,10 +68,12 @@
 		nodeActorTarget,
 		nodeChannelValue,
 		onionFrames,
+		ratioKeyTracks,
 		screenTimelineId,
 		screenTimelinesOf,
 		stageDragKeys,
 		timelineDrives,
+		withoutRatioKeys,
 		type FxChannelRow,
 		type KeyedChannel,
 		type RigClip,
@@ -136,6 +140,13 @@
 		/** The open component's resolved preview params (empty on a screen): what a placed effect
 		 *  takes a `params.<id>` value from, so an unkeyed parameter shows the value it rests on. */
 		componentParams?: Record<string, unknown>;
+		/** The screen ratio (layout type) the canvas shows. A screen timeline can key it apart from
+		 *  the default keys (per-ratio keys), and the preview plays what that ratio plays. */
+		layoutType?: string;
+		/** The base ratio, whose keys are the default keys every other ratio plays. */
+		baseLayoutType?: string;
+		/** `layoutType`'s name, for the per-ratio buttons. */
+		layoutLabel?: string;
 	}
 
 	let {
@@ -148,6 +159,9 @@
 		listed,
 		rigMeta = new Map(),
 		componentParams = {},
+		layoutType,
+		baseLayoutType,
+		layoutLabel,
 	}: Props = $props();
 
 	/** The animations a rig node can play on a strip; empty for any other node, or a rig the canvas
@@ -220,15 +234,86 @@
 
 	function preview(): void {
 		const doc = tl?.doc();
+		const ratio = keysRatio();
 		setTimelinePreview(
-			active && doc && scene ? timelineDrives(doc, scene, time) : null,
+			active && doc && scene ? timelineDrives(doc, scene, time, ratio) : null,
 			previewOwner,
 		);
 		setOnionPreview(
-			active && onion && doc && scene ? onionFrames(doc, scene, time, onionCount) : null,
+			active && onion && doc && scene ? onionFrames(doc, scene, time, onionCount, 1, ratio) : null,
 			previewOwner,
 		);
 	}
+
+	// ---- per-ratio keys --------------------------------------------------------------------------
+
+	/** The shown ratio, when a screen timeline can key it apart from the default keys. */
+	const separableRatio = $derived(
+		!component && layoutType && layoutType !== baseLayoutType ? layoutType : undefined,
+	);
+	const ratioName = $derived(layoutLabel ?? separableRatio ?? '');
+
+	/** The keys the Timeline shows and edits, and the preview plays: the shown ratio's own keys when
+	 *  it has them, else the default keys — the game's own choice (`keysLayout`). */
+	function keysRatio(): string | undefined {
+		void docVersion;
+		const doc = tl?.doc();
+		return doc && separableRatio ? keysLayout(doc.tracks, separableRatio) : undefined;
+	}
+
+	/** Give the shown ratio keys of its own, starting from the default keys it plays now. */
+	function keyRatioSeparately(): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !separableRatio || !ownsDoc(doc)) return;
+		const tracks = ratioKeyTracks(doc, separableRatio);
+		if (!tracks.length) return;
+		doc.tracks.push(...tracks);
+		ratioKeysChanged(`key ${ratioName} separately`);
+	}
+
+	/** Drop the shown ratio's own keys: it plays the default keys again. */
+	async function useDefaultKeys(): Promise<void> {
+		const doc = tl?.doc();
+		if (!doc || !tl || !separableRatio || !ownsDoc(doc)) return;
+		const ok = await askConfirm({
+			title: `Delete ${ratioName}'s own keys?`,
+			message: `${ratioName} then plays the default keys, as every ratio without keys of its own does.`,
+			confirmLabel: 'Use the default keys',
+			danger: true,
+		});
+		if (!ok || tl?.doc() !== doc) return;
+		doc.tracks = withoutRatioKeys(doc, separableRatio);
+		ratioKeysChanged(`${ratioName} plays the default keys`);
+	}
+
+	/** Is there anything to copy (`ratioKeyTracks`): a default key on a node? */
+	function hasDefaultKeys(): boolean {
+		void docVersion;
+		const doc = tl?.doc();
+		return !!doc && !!separableRatio && ratioKeyTracks(doc, separableRatio).length > 0;
+	}
+
+	function ratioKeysChanged(label: string): void {
+		if (!tl) return;
+		tl.clearSelection();
+		tl.commit(label);
+		tl.renderTimeline();
+		tl.renderInspector();
+		preview();
+	}
+
+	// Another ratio on the canvas shows (and previews) the keys that ratio plays.
+	$effect(() => {
+		void separableRatio;
+		untrack(() => {
+			if (!tl) return;
+			tl.clearSelection();
+			tl.renderTimeline();
+			tl.renderInspector();
+			docVersion++;
+			preview();
+		});
+	});
 
 	function mountTimeline(doc: CinematicDoc): void {
 		tl?.destroy();
@@ -241,6 +326,7 @@
 			summaryRows: true,
 			boxSelect: true,
 			textRows: true,
+			propertyLayout: keysRatio,
 			host: {
 				selectedActor: () => actorId(),
 				togglePlay: () => (playing ? stop() : play()),
@@ -638,7 +724,9 @@
 		void docVersion;
 		const doc = tl?.doc();
 		const id = actorId();
-		return doc && id ? nodeChannelValue(doc, id, channel, time) : NODE_IDENTITY[channel];
+		return doc && id
+			? nodeChannelValue(doc, id, channel, time, keysRatio())
+			: NODE_IDENTITY[channel];
 	}
 
 	/** Key `channel` at the playhead to `v` (default: its current value), creating the actor. */
@@ -657,6 +745,7 @@
 		const doc = tl?.doc();
 		if (!doc || !tl || !scene || !ownsDoc(doc)) return 0;
 		const at = Math.round(time * (doc.fps || 30)) / (doc.fps || 30);
+		const ratio = keysRatio();
 		let keyedNodes = 0;
 		for (const delta of deltas) {
 			const t = nodeActorTarget(scene, delta.nodeId, where);
@@ -667,17 +756,21 @@
 				delta,
 				at,
 				keyableChannels(t.node.kind),
+				ratio,
 			);
 			const entries = Object.entries(values);
 			if (!entries.length) continue;
 			const id = ensureNodeActor(doc, t.target);
-			let track = doc.tracks.find((tr) => tr.actorId === id && tr.kind === 'property');
+			let track = doc.tracks.find(
+				(tr) => tr.actorId === id && tr.kind === 'property' && trackLayout(tr) === ratio,
+			);
 			if (!track) {
 				track = {
 					id: 'prop_' + Math.random().toString(36).slice(2, 9),
 					actorId: id,
 					kind: 'property',
 					channels: {},
+					...(ratio && { layout: ratio }),
 				};
 				doc.tracks.push(track);
 			}
@@ -1040,7 +1133,7 @@
 		const node = target?.ok ? target.node : undefined;
 		const placed = node && placedFxParamValues(node, componentParams, [row.param]);
 		return doc && id
-			? fxChannelValue(doc, id, row, time, placed)
+			? fxChannelValue(doc, id, row, time, placed, keysRatio())
 			: (fxParamRest([row.param], row.channel, placed) ?? 0);
 	}
 
@@ -1061,11 +1154,13 @@
 		const doc = tl?.doc();
 		const node = doc && scene && cast.target ? findActorNode(doc, scene.nodes, cast.target) : null;
 		if (!doc || node?.kind !== 'effect') return [];
-		return fxTimelineRows(doc, cast.actorId, node, placedEffect(node.effectId)).map((row) => ({
-			key: row.channel,
-			label: row.label,
-			color: row.stale ? '#8b93a1' : '#c98bff',
-		}));
+		return fxTimelineRows(doc, cast.actorId, node, placedEffect(node.effectId), keysRatio()).map(
+			(row) => ({
+				key: row.channel,
+				label: row.label,
+				color: row.stale ? '#8b93a1' : '#c98bff',
+			}),
+		);
 	}
 
 	// A placed effect's doc can land after the Timeline drew its rows: redraw them when it does.
@@ -1117,14 +1212,14 @@
 				label: CHANNEL_LABEL[channel],
 				kind: 'node',
 				value: value(channel),
-				state: channelKeyState(doc, id, channel, time),
+				state: channelKeyState(doc, id, channel, time, keysRatio()),
 			})),
 			...fxRows.map((row): KeyField => ({
 				channel: row.channel,
 				label: `⚡ ${row.param.id}`,
 				kind: 'fx',
 				value: fxValue(row),
-				state: channelKeyState(doc, id, row.channel, time),
+				state: channelKeyState(doc, id, row.channel, time, keysRatio()),
 				bool: row.param.kind === 'bool',
 				min: row.param.kind === 'number' ? row.param.min : undefined,
 				max: row.param.kind === 'number' ? row.param.max : undefined,
@@ -1465,6 +1560,35 @@
 				<input type="checkbox" bind:checked={onlySelected} />
 				Only selected
 			</label>
+			{#if separableRatio && !link}
+				<span class="sep"></span>
+				{#if keysRatio()}
+					<span
+						class="pill ratio"
+						title="These keys play in {ratioName} only. Every ratio without keys of its own plays the default keys."
+						>{ratioName} keys</span
+					>
+					<button
+						type="button"
+						title="Delete {ratioName}'s own keys, so it plays the default keys again"
+						onclick={() => void useDefaultKeys()}>Use default keys</button
+					>
+				{:else}
+					<span
+						class="pill"
+						title="{ratioName} plays the default keys: an edit here changes every ratio without keys of its own."
+						>Default keys</span
+					>
+					<button
+						type="button"
+						title={hasDefaultKeys()
+							? `Copy the default keys to ${ratioName}, so an edit here changes ${ratioName} alone — its nodes are laid out apart from the other ratios'`
+							: 'Key something first: the copy starts from the default keys'}
+						disabled={!hasDefaultKeys()}
+						onclick={keyRatioSeparately}>Key {ratioName} separately</button
+					>
+				{/if}
+			{/if}
 			<span class="sep"></span>
 			{#if conflict}
 				<span class="pill error" title={error}>⚠ Someone else saved this</span>
@@ -1857,6 +1981,9 @@
 		color: var(--dim);
 	}
 	.pill.link {
+		color: var(--accent);
+	}
+	.pill.ratio {
 		color: var(--accent);
 	}
 	.tl-lanes {

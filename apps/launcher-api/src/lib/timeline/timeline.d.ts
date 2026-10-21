@@ -116,6 +116,9 @@ export interface TimelineOptions {
 	boxSelect?: boolean;
 	/** A node actor's `text` track draws as a row (drag to retime, double-click to delete). */
 	textRows?: boolean;
+	/** The screen ratio whose property keys the rows show and new keys go to (tracks carrying that
+	 *  `layout`), read on every use. Absent, or returning undefined ⇒ the default keys. */
+	propertyLayout?: () => string | undefined;
 }
 
 export interface Timeline {

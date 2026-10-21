@@ -21,6 +21,7 @@
 	import {
 		cuesCrossed,
 		isNodeActor,
+		keysLayout,
 		pingPongCuesCrossed,
 		playbackTime,
 		resolveVisible,
@@ -58,6 +59,9 @@
 		oncomplete?: () => void;
 		/** Fired for each cue key the playhead crosses, with its `ns:name` string. */
 		oncue?: (cue: string) => void;
+		/** Reads the screen ratio (layout type) on screen, which plays its own keys when the
+		 *  timeline has them (`keysLayout`). Absent ⇒ the default keys. */
+		layoutType?: () => string | undefined;
 	};
 	const props: Props = $props();
 
@@ -126,15 +130,21 @@
 	// The set's nodes that node actors drive, keyed by node id. Read by each top-level
 	// `<LayoutNodeView>` once, at init; `sample()` reads `time`, so a driven node follows the playhead.
 	const nodeActors = $derived(resolveNodeActors(props.doc, props.scene));
+	const readLayoutType = untrack(() => props.layoutType);
 	const driver: CinematicNodeDriver = (nodeId) => {
 		const actor = nodeActors.get(nodeId);
 		if (!actor) return undefined;
 		const tracks = actor.tracks as unknown as CinematicTrack[];
+		const docTracks = props.doc.tracks;
 		return {
 			channels: keyedNodeChannels(actor.tracks),
 			// The LAST text track, the one `sampleNodeActor` samples (validation flags a second one).
 			textTrack: tracks.filter((t) => t.kind === 'text').pop(),
-			sample: () => sampleNodeActor(tracks, time),
+			// The keys of the ratio on screen (`keysLayout`), read on every sample through a reader
+			// rather than a prop value or a `$derived`: a screen keeps this driver after the timeline
+			// ends, to hold its last frame, when this component is gone, and turning the device must
+			// still switch keys.
+			sample: () => sampleNodeActor(tracks, time, keysLayout(docTracks, readLayoutType?.())),
 		};
 	};
 	setCinematicNodeDriver(driver);

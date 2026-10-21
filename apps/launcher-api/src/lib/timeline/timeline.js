@@ -170,8 +170,14 @@ export function mount(el, options) {
 
 	const castOf = (id) => doc.stage.cast.find((c) => c.actorId === id) || null;
 	const isNodeActor = (id) => (castOf(id) || {}).kind === 'node';
+	// The ratio whose property keys the rows show and new keys go to (`options.propertyLayout`):
+	// its tracks carry that `layout`; absent ⇒ the default keys, the tracks without one.
+	const propertyLayout = options.propertyLayout || (() => undefined);
+	const layoutOf = (t) => (typeof t.layout === 'string' && t.layout) || undefined;
 	const propertyTracksOf = (actorId) =>
-		doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'property');
+		doc.tracks.filter(
+			(t) => t.actorId === actorId && t.kind === 'property' && layoutOf(t) === propertyLayout(),
+		);
 	const visTracksOf = (actorId) =>
 		doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'visibility');
 	const cameraTrack = () => doc.tracks.find((t) => t.kind === 'camera') || null;
@@ -1569,7 +1575,14 @@ export function mount(el, options) {
 	function ensurePropertyTrack(actorId) {
 		let track = propertyTracksOf(actorId)[0];
 		if (!track) {
-			track = { id: uid('prop'), actorId, kind: 'property', channels: {} };
+			const layout = propertyLayout();
+			track = {
+				id: uid('prop'),
+				actorId,
+				kind: 'property',
+				channels: {},
+				...(layout && { layout }),
+			};
 			doc.tracks.push(track);
 		}
 		return track;

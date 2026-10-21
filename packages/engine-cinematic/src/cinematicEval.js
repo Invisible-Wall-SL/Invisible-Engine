@@ -484,6 +484,30 @@ export const FX_PARAM_CHANNEL_PREFIX = 'fx:';
 /** Whether a cast entry is a node actor. Absent `kind` reads as a rig. */
 export const isNodeActor = (cast) => !!cast && cast.kind === 'node';
 
+// ---- per-ratio keys ---------------------------------------------------------
+//
+// A screen lays its nodes out per screen ratio (`node.overrides[layoutType]`), so one move rarely
+// fits every ratio. A `property` track may therefore carry a `layout`: the ratio (layout type) it
+// keys for. A ratio with at least one such track plays ITS keys and none of the default ones; every
+// other ratio plays the default keys (the tracks without a `layout`). A whole timeline switches at
+// once, so what the editor shows for a ratio is exactly what that ratio plays.
+
+/** The ratio a track keys for, or undefined for the default keys every other ratio plays. */
+export const trackLayout = (track) =>
+	track && typeof track.layout === 'string' && track.layout ? track.layout : undefined;
+
+/**
+ * Which keys `tracks` (a whole timeline's) play in ratio `layoutType`: that ratio, when a `property`
+ * track keys for it, else undefined — the default keys. Hand the result to {@link sampleNodeActor}.
+ */
+export function keysLayout(tracks, layoutType) {
+	if (!layoutType) return undefined;
+	for (const track of tracks || []) {
+		if (track && track.kind === 'property' && trackLayout(track) === layoutType) return layoutType;
+	}
+	return undefined;
+}
+
 /**
  * The timeline's host, normalised. Absent or malformed ⇒ `{ kind: 'cast' }` (today's behaviour), so
  * a document a newer tool wrote with a host we cannot read still plays its rigs.
@@ -554,9 +578,10 @@ export function sampleText(track, t) {
  * Every channel of ONE node actor at `t`, from its tracks (any order, any kind). Only keyed values
  * are present; `scale` folds into `scaleX`/`scaleY` (multiplied); an `fx:<id>` channel is present
  * under its own name. Visibility is present only when a visibility track has keys, so an un-keyed
- * node keeps its own visibility.
+ * node keeps its own visibility. `layout` picks the property keys ({@link keysLayout}): absent ⇒
+ * the default keys, so a caller that knows no ratio never plays one ratio's keys everywhere.
  */
-export function sampleNodeActor(tracks, t) {
+export function sampleNodeActor(tracks, t, layout) {
 	const out = {};
 	let sx;
 	let sy;
@@ -581,6 +606,7 @@ export function sampleNodeActor(tracks, t) {
 			continue;
 		}
 		if (track.kind === 'property' && track.channels) {
+			if (trackLayout(track) !== layout) continue;
 			for (const name of NODE_CHANNELS) {
 				const keys = track.channels[name];
 				const v = name === 'tint' ? sampleTint(keys, t) : sampleChannel(keys, t);

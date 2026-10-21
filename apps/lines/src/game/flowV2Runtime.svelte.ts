@@ -83,7 +83,6 @@ import {
 	type TemplateVocabulary,
 	type TextMessageNode,
 } from 'engine-flow-v2';
-import { untrack } from 'svelte';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { stateBetDerived } from 'state-shared';
 import { eventScope } from 'utils-event-emitter';
@@ -97,6 +96,7 @@ import { stateLayoutDerived } from './stateLayout';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { withMissingScreenReport } from './flowV2MissingScreens';
 import { enginePotsScreen, type EnginePotsScreen } from './flowV2PotsScreen';
+import { createScreenDrives } from './screenDrives.svelte';
 import { engineBannerScreens, type EngineBannerScreen } from './flowV2BannerScreens';
 import { getActiveGameConfig } from './gameConfig';
 import { configuredMeters } from './holdAndWinMeters.svelte';
@@ -308,12 +308,16 @@ export type LinesFlowV2 = {
 	playingCinematics: SvelteMap<string, PlayingCinematic>;
 	/** Called by `<Cinematic>`'s `oncomplete`: settle a pending await and unmount it. */
 	cinematicComplete: (cinematicId: string) => void;
-	/** Is screen `sceneId` up right now (a shown container's scene)? Reactive. */
+	/** Is screen `sceneId` up right now: a shown container's scene, or a screen the game mounts
+	 *  itself (`engineScreenUp`)? Reactive. */
 	sceneShown: (sceneId: string) => boolean;
-	/** The screen timeline moving shown screen `sceneId`, for `<FlowV2Mount>`. Reactive. */
+	/** The screen timeline moving up screen `sceneId`, for the mount that draws it. Reactive. */
 	screenDrive: (sceneId: string) => ScreenNodeDrive | undefined;
 	/** `<FlowV2Cinematics>` hands a playing screen timeline's node driver over, once, at mount. */
 	driveScreen: (sceneId: string, cinematicId: string, driver: CinematicNodeDriver) => void;
+	/** The game mounted (`up`) or unmounted a screen this flow never shows (`enginePots`), so a
+	 *  screen timeline moves that mount instead of drawing a copy, and holds while it is up. */
+	engineScreenUp: (sceneId: string, up: boolean) => void;
 };
 
 type PlayingCinematic = { loop: boolean; speed: number; done?: () => void };
@@ -421,26 +425,8 @@ export const createLinesFlowV2 = (
 	 * while already running gets a fresh entry, so an old promise never settles a new play).
 	 */
 	const playingCinematics = new SvelteMap<string, PlayingCinematic>();
-	/**
-	 * SCREEN TIMELINES on the screens the flow shows (Rive plan Phase 3). A playing screen-hosted
-	 * timeline hands its node driver over (`driveScreen`) and `<FlowV2Mount>` mounts its host screen
-	 * with it, so the timeline moves the screen a Show node put up; `<Cinematic>` draws its own copy
-	 * only while that screen is not up. A drive lasts while its timeline plays or its screen is up,
-	 * so the screen holds the last frame until it hides, and the next show of it is undriven.
-	 */
-	const upScreens = new SvelteSet<string>();
-	const screenDrives = new SvelteMap<string, ScreenNodeDrive & { cinematicId: string }>();
-	let screenPlays = 0;
-	// Untracked: a show/hide can run inside an effect (a dispatch an effect started), which must not
-	// come to depend on these maps.
-	const dropIdleScreenDrives = (): void =>
-		untrack(() => {
-			for (const [sceneId, drive] of screenDrives) {
-				if (!upScreens.has(sceneId) && !playingCinematics.has(drive.cinematicId)) {
-					screenDrives.delete(sceneId);
-				}
-			}
-		});
+	// SCREEN TIMELINES (Rive plan Phase 3): a playing one moves its screen while that screen is up.
+	const screenDrives = createScreenDrives((cinematicId) => playingCinematics.has(cinematicId));
 	// Scope the mount model's order-independent completion latch to the containers a
 	// `showContainer{awaitComplete}` node actually targets — so a tap that lands BEFORE the hold is
 	// registered (e.g. the free-spin outro: the driver arms `freeSpinOutroCountUpComplete` ~300ms
@@ -451,12 +437,7 @@ export const createLinesFlowV2 = (
 	const rawMount = createContainerMountModel(
 		layeredContainers,
 		(containers) => {
-			untrack(() => {
-				const now = containers.map((container) => container.sceneId);
-				for (const sceneId of upScreens) if (!now.includes(sceneId)) upScreens.delete(sceneId);
-				for (const sceneId of now) upScreens.add(sceneId);
-			});
-			dropIdleScreenDrives();
+			screenDrives.setFlowScreens(containers.map((container) => container.sceneId));
 			onContainersChange?.(containers);
 		},
 		awaitCompleteContainerIds(doc),
@@ -816,7 +797,7 @@ export const createLinesFlowV2 = (
 			// awaiting chain forever — the same hang `awaitComplete` + loop is guarded against.
 			playingCinematics.get(cinematicId)?.done?.();
 			playingCinematics.delete(cinematicId);
-			dropIdleScreenDrives();
+			screenDrives.dropIdle();
 		},
 		// Placed component instances (Rive plan §6.2) — see `instanceWhenMounted` above.
 		fireInstanceTrigger: async (ref, trigger) => {
@@ -917,13 +898,11 @@ export const createLinesFlowV2 = (
 			trace('cinematic', cinematicId, '✓ finished');
 			playingCinematics.get(cinematicId)?.done?.();
 			playingCinematics.delete(cinematicId);
-			dropIdleScreenDrives();
+			screenDrives.dropIdle();
 		},
-		sceneShown: (sceneId) => upScreens.has(sceneId),
-		screenDrive: (sceneId) => screenDrives.get(sceneId),
-		driveScreen: (sceneId, cinematicId, driver) =>
-			untrack(() => {
-				screenDrives.set(sceneId, { key: `${cinematicId}#${++screenPlays}`, driver, cinematicId });
-			}),
+		sceneShown: screenDrives.isUp,
+		screenDrive: screenDrives.drive,
+		driveScreen: screenDrives.driveScreen,
+		engineScreenUp: screenDrives.setEngineScreen,
 	};
 };
