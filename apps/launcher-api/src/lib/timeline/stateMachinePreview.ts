@@ -8,7 +8,7 @@ import {
 	type LayoutNode,
 } from 'engine-layout';
 
-import type { TimelineNodeDrive } from './screenTimeline';
+import { posesElementFx, type TimelineNodeDrive } from './screenTimeline';
 
 /**
  * The State Machine panel's STAGE PREVIEW (Rive plan Phase 5b) runs the GAME's own pieces — the
@@ -76,7 +76,9 @@ export function playerDrives(player: ComponentTimelinePlayer): Map<string, Timel
 		const sample = player.sample(nodeId);
 		if (!sample) continue;
 		const bindings = nodeActorBindings(channels);
-		if (bindings.length || sample.tint !== undefined) out.set(nodeId, { bindings, sample });
+		if (bindings.length || sample.tint !== undefined || posesElementFx(sample)) {
+			out.set(nodeId, { bindings, sample });
+		}
 	}
 	return out;
 }

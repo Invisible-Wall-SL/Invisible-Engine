@@ -4,8 +4,8 @@
 > fired from the Flow (`cameraEffect`: shake, flash, zoom punch, chromatic wobble). Make FX
 > placeable on assets (a rig, an `.irig`, a flipbook, a particle effect) and on elements (a screen,
 > the reels), and add new ones: wave on X or Y, flip on itself, twist, curl, glow, shine, crash,
-> crumble, bounce 3D, "and anything else". Follow-up the same day: put them in the component state
-> machine and animate them on the stage (§3 `keyed`, §7). Progress lives in [status/fx](../status/fx.md) (the
+> crumble, bounce 3D, "and anything else". Follow-ups the same day: put them in the component state
+> machine and animate them on the stage (§3 `keyed`, §7), and a Sphericon 3D effect. Progress lives in [status/fx](../status/fx.md) (the
 > "Element FX" part); the authoring UI is in the Scene Editor guide
 > ([tools/invisible-editor](../tools/invisible-editor.md)) and the Flow action in
 > [tools/flow](../tools/flow.md).
@@ -29,12 +29,14 @@ Three ways to get one onto an element, all playing through ONE runtime:
 ## 2. The catalog (`constants-shared/elementFx`)
 
 One dependency-free list, read by the editor (kind picker, param rows), the flow vocabulary (the
-`ElementFxKind` dropdown) and the runtime. 38 kinds in five families:
+`ElementFxKind` dropdown) and the runtime. 39 kinds in five families:
 
 - **Motion** (the element's own transform; no GPU pass): shake, wobble, pulse, heartbeat, jelly,
   bounce, spin, swing, float, pop in, pop out, slam in, fade in, fade out.
 - **3D** (a perspective pass): flip sideways / over (a coin flip "on itself"), bounce 3D (jumps out
-  of the screen at you and settles), tilt 3D (sways in perspective).
+  of the screen at you and settles), tilt 3D (sways in perspective), and sphericon (the element
+  folds into a lit, spinning sphericon wrapped in its own art — two half double-cones joined with a
+  quarter turn, ray-cast per pixel — rolls, and unfolds back).
 - **Distort**: wave X, wave Y, flag (pinned at its left edge, lit folds), twist, curl (a page
   corner peels and lays back), ripple (a shock ring), bulge (lens / pinch).
 - **Light & colour**: glow, outline, shine (a band of light, only where the element is), flash,
@@ -106,8 +108,8 @@ the way `cameraEffects` composes the stage:
   the end every value is put back exactly.
 - **Filters** stack after the container's own filters, bounded to the element by a `filterArea` (its
   box plus a margin, so an animating rig is not clipped). The custom passes (perspective, wave,
-  twist, curl, ripple, bulge, shine, colour mix, dissolve) are GLSL written to compile on WebGL1
-  (GLSL ES 1.00) and WebGL2; they work in the element's own coordinates through `uElement` /
+  twist, curl, ripple, bulge, shine, colour mix, dissolve, sphericon) are GLSL written to compile on
+  WebGL1 (GLSL ES 1.00: no `transpose()`, no reserved words such as `flat` as names) and WebGL2; they work in the element's own coordinates through `uElement` /
   `uPad`. Glow, outline, chromatic, glitch, pixelate (`pixi-filters`), blur and hue (`pixi.js`)
   reuse the library. A GL-only pass is skipped on a WebGPU renderer (the game forces WebGL).
 - **Break** renders the element once (`renderer.generateTexture`), hides it, and flies the still in

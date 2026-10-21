@@ -3,11 +3,21 @@ import {
 	sampleNodeActor,
 	sampleTint,
 	trackLayout,
+	type CinematicElementFxChannel,
 	type CinematicFxParamChannel,
 	type CinematicNodeSample,
 	type CinematicStrip,
 	type CinematicTrack,
 } from 'engine-cinematic';
+import {
+	ELEMENT_FX_CHANNEL_PREFIX,
+	ELEMENT_FX_LIMITS,
+	elementFxChannels,
+	elementFxOfChannel,
+	elementFxSpec,
+	readElementFxEntries,
+	type ElementFxEntry,
+} from 'constants-shared/elementFx';
 import type { EffectParam, EffectParamValues } from 'engine-fx';
 import {
 	componentTriggers,
@@ -635,6 +645,127 @@ export function fxChannelValue(
 	return value ?? fxParamRest([row.param], row.channel, placed) ?? 0;
 }
 
+/** One channel of a node's `keyed` Element FX entry, as Animate mode keys it. */
+export interface ElementFxChannelRow {
+	channel: CinematicElementFxChannel;
+	entry: ElementFxEntry;
+	/** `progress` (`efx:<id>`): 0 = at rest … 1 = the effect's end. `intensity`
+	 *  (`efx:<id>:intensity`): a multiplier of the entry's strength. */
+	value: 'progress' | 'intensity';
+	label: string;
+	min: number;
+	max: number;
+	/** Where the channel rests while it has no keys, as the game's blend rests it. */
+	rest: number;
+}
+
+/**
+ * The Element FX channels Animate mode offers on a node of any kind: the two `elementFxChannels`
+ * of each enabled `keyed` entry of its own — how far through the effect it is, then its strength —
+ * labelled by the effect's kind. A strength row names its entry when two keyed entries share a kind.
+ */
+export function keyableElementFxChannels(node: LayoutNode): ElementFxChannelRow[] {
+	const keyed = readElementFxEntries(node.elementFx).filter((e) => elementFxChannels([e]).length);
+	return keyed.flatMap((entry) => {
+		const kind = elementFxSpec(entry.kind).label;
+		const shared = keyed.some((other) => other !== entry && other.kind === entry.kind);
+		return elementFxChannels([entry]).map((name): ElementFxChannelRow => {
+			const channel = name as CinematicElementFxChannel;
+			return elementFxOfChannel(name)?.value === 'progress'
+				? {
+						channel,
+						entry,
+						value: 'progress',
+						label: `✦ ${kind} (${entry.id})`,
+						min: 0,
+						max: 1,
+						rest: 0,
+					}
+				: {
+						channel,
+						entry,
+						value: 'intensity',
+						label: shared ? `✦ ${kind} strength (${entry.id})` : `✦ ${kind} strength`,
+						min: ELEMENT_FX_LIMITS.intensity.min,
+						max: ELEMENT_FX_LIMITS.intensity.max,
+						rest: 1,
+					};
+		});
+	});
+}
+
+/** The `efx:` channels `actorId` keys that are not one of `node`'s keyed entries' any more (the
+ *  entry was removed, turned off or given another trigger) — rows the Timeline still lists so their
+ *  keys can be found and removed. */
+export function staleElementFxChannels(
+	doc: CinematicDoc,
+	actorId: string,
+	node: LayoutNode,
+	layout?: string,
+): CinematicElementFxChannel[] {
+	const offered = new Set(elementFxChannels(readElementFxEntries(node.elementFx)));
+	const out: CinematicElementFxChannel[] = [];
+	for (const track of propertyTracksOf(doc, actorId, layout)) {
+		for (const [name, keys] of Object.entries(track.channels ?? {})) {
+			if (!name.startsWith(ELEMENT_FX_CHANNEL_PREFIX) || !keys?.length) continue;
+			const channel = name as CinematicElementFxChannel;
+			if (!offered.has(channel) && !out.includes(channel)) out.push(channel);
+		}
+	}
+	return out;
+}
+
+/** One Timeline row a node actor gets for its Element FX. */
+export interface ElementFxTimelineRow {
+	channel: CinematicElementFxChannel;
+	label: string;
+	/** Keyed, but no keyed entry of the node's: its keys do nothing. */
+	stale: boolean;
+}
+
+/** The Timeline rows of a node actor targeting `node` for its Element FX: each keyable channel, then
+ *  every `efx:` channel the actor keys that is not one of them (⚠). */
+export function elementFxTimelineRows(
+	doc: CinematicDoc,
+	actorId: string,
+	node: LayoutNode,
+	layout?: string,
+): ElementFxTimelineRow[] {
+	return [
+		...keyableElementFxChannels(node).map((row) => ({
+			channel: row.channel,
+			label: row.label,
+			stale: false,
+		})),
+		...staleElementFxChannels(doc, actorId, node, layout).map((channel) => ({
+			channel,
+			label: `⚠ ${channel}`,
+			stale: true,
+		})),
+	];
+}
+
+/** An Element FX channel of a node actor at `t`: the keyed value, else where it rests. */
+export function elementFxChannelValue(
+	doc: CinematicDoc,
+	actorId: string,
+	row: ElementFxChannelRow,
+	t: number,
+	layout?: string,
+): number {
+	let value: number | undefined;
+	for (const track of propertyTracksOf(doc, actorId, layout)) {
+		const v = sampleChannel(track.channels?.[row.channel], t);
+		if (v !== undefined) value = v;
+	}
+	return value ?? row.rest;
+}
+
+/** Whether a node sample poses a keyed Element FX (carries an `efx:` channel). */
+export function posesElementFx(sample: object): boolean {
+	return Object.keys(sample).some((key) => key.startsWith(ELEMENT_FX_CHANNEL_PREFIX));
+}
+
 /** How a timeline drives one node of the screen at time `t` — the player's own inputs. */
 export interface TimelineNodeDrive {
 	/** The value bindings the keyed channels stand for (`nodeActorBindings`). */
@@ -662,7 +793,13 @@ export function timelineDrives(
 	for (const [nodeId, actor] of resolveNodeActors(doc, scene)) {
 		const bindings = nodeActorBindings(keyedNodeChannels(actor.tracks));
 		const sample = sampleNodeActor(actor.tracks as unknown as CinematicTrack[], t, layout);
-		if (bindings.length || sample.tint !== undefined || sample.animTime || sample.text) {
+		if (
+			bindings.length ||
+			sample.tint !== undefined ||
+			sample.animTime ||
+			sample.text ||
+			posesElementFx(sample)
+		) {
 			const to = actor.tracks.filter((tr) => tr.kind === 'text').pop()?.to;
 			out.set(
 				nodeId,

@@ -45,6 +45,7 @@ import {
 	perspectiveFilter,
 	rippleFilter,
 	shineFilter,
+	sphericonFilter,
 	twistFilter,
 	waveFilter,
 	type ElementFxFilter,
@@ -341,6 +342,30 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 			},
 			padding: (frame, view) =>
 				perspectivePadding(num(frame, 'height') * frame.intensity)(frame, view),
+		}),
+	},
+	sphericon: {
+		filter: filterImpl<ElementFxFilter>({
+			create: sphericonFilter,
+			update(filter, frame) {
+				const t = frame.t;
+				const folded = smoothstep(0, 0.18, t) * (1 - smoothstep(0.82, 1, t));
+				const turns = num(frame, 'turns');
+				filter.set(
+					'uSpin',
+					TAU * turns * t,
+					Math.PI * turns * easeInOutCubic(t),
+					num(frame, 'tilt') * DEG,
+				);
+				filter.set(
+					'uSphericon',
+					Math.min(1, folded * Math.max(0.25, frame.intensity)),
+					0.55,
+					flag(frame, 'shade') ? 1 : 0,
+				);
+			},
+			padding: (_frame, view) =>
+				Math.ceil(Math.max(view.screenWidth, view.screenHeight) * 0.25) + 2,
 		}),
 	},
 	tilt3D: {

@@ -173,6 +173,126 @@ void main(void)
 	);
 
 /**
+ * A SPHERICON wrapped in the element's art: a double cone (axis X) whose lower half is turned a
+ * quarter about Z, so the halves meet on an S-shaped seam. Each pixel casts an orthographic ray
+ * into the solid (turned by `uSpin` = rotation about X, about Y, tilt) and finds the nearest of the
+ * four half-cone faces; a face shows the whole element wrapped around its axis, lit when
+ * `uSphericon.z` is on. `uSphericon.x` blends from the flat element (0) to the solid (1);
+ * `uSphericon.y` is the solid's half-length as a share of the element's smaller side.
+ */
+export const sphericonFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'sphericon',
+		`
+uniform vec3 uSpin;
+uniform vec3 uSphericon;
+
+mat3 rotX(float a)
+{
+    float c = cos(a);
+    float s = sin(a);
+    return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c);
+}
+
+mat3 rotY(float a)
+{
+    float c = cos(a);
+    float s = sin(a);
+    return mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
+}
+
+mat3 flip(mat3 m)
+{
+    return mat3(m[0][0], m[1][0], m[2][0], m[0][1], m[1][1], m[2][1], m[0][2], m[1][2], m[2][2]);
+}
+
+// The nearer hit of the ray o + t d on the face around axis a (0 <= p.a <= h) inside the half
+// where side * p.z >= 0, or -1.
+float face(vec3 o, vec3 d, vec3 a, float side, float h)
+{
+    float so = dot(o, a);
+    float sd = dot(d, a);
+    float qa = dot(d, d) - 2.0 * sd * sd;
+    float qb = 2.0 * dot(o, d) - 4.0 * so * sd + 2.0 * h * sd;
+    float qc = dot(o, o) - 2.0 * so * so + 2.0 * h * so - h * h;
+    float disc = qb * qb - 4.0 * qa * qc;
+    if (disc < 0.0 || abs(qa) < 1e-6) return -1.0;
+    float root = sqrt(disc);
+    float t0 = (-qb - root) / (2.0 * qa);
+    float t1 = (-qb + root) / (2.0 * qa);
+    float near = min(t0, t1);
+    float far = max(t0, t1);
+    vec3 p = o + near * d;
+    float s = dot(p, a);
+    if (near > 0.0 && s >= 0.0 && s <= h && side * p.z >= 0.0) return near;
+    p = o + far * d;
+    s = dot(p, a);
+    if (far > 0.0 && s >= 0.0 && s <= h && side * p.z >= 0.0) return far;
+    return -1.0;
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    vec4 plain = efxSample(px);
+    float k = clamp(uSphericon.x, 0.0, 1.0);
+    if (k <= 0.0)
+    {
+        finalColor = plain;
+        return;
+    }
+    vec2 size = efxSize();
+    float h = max(uSphericon.y * min(size.x, size.y), 1.0);
+    mat3 r = rotY(uSpin.y) * rotX(uSpin.x + uSpin.z);
+    mat3 inv = flip(r);
+    vec3 o = inv * vec3(px - efxCenter(), -4.0 * h);
+    vec3 d = inv * vec3(0.0, 0.0, 1.0);
+
+    float best = -1.0;
+    vec3 axis = vec3(1.0, 0.0, 0.0);
+    float top = 1.0;
+    vec3 axes[4];
+    axes[0] = vec3(1.0, 0.0, 0.0);
+    axes[1] = vec3(-1.0, 0.0, 0.0);
+    axes[2] = vec3(0.0, 1.0, 0.0);
+    axes[3] = vec3(0.0, -1.0, 0.0);
+    for (int i = 0; i < 4; i++)
+    {
+        float side = i < 2 ? 1.0 : -1.0;
+        float hit = face(o, d, axes[i], side, h);
+        if (hit > 0.0 && (best < 0.0 || hit < best))
+        {
+            best = hit;
+            axis = axes[i];
+            top = side;
+        }
+    }
+
+    vec4 solid = vec4(0.0);
+    if (best > 0.0)
+    {
+        vec3 p = o + best * d;
+        vec2 uv = top > 0.0
+            ? vec2(p.x / h * 0.5 + 0.5, atan(p.z, p.y) / PI)
+            : vec2(p.y / h * 0.5 + 0.5, atan(-p.z, p.x) / PI);
+        solid = efxSample(efxFromUnit(clamp(uv, 0.0, 1.0)));
+        if (uSphericon.z > 0.5)
+        {
+            float s = dot(p, axis);
+            vec3 n = normalize(r * (p - (2.0 * s - h) * axis));
+            vec3 light = normalize(vec3(-0.45, -0.6, -1.0));
+            float diffuse = max(dot(n, light), 0.0);
+            float spec = pow(max(dot(reflect(-light, n), vec3(0.0, 0.0, -1.0)), 0.0), 18.0);
+            solid.rgb = min(solid.rgb * (0.35 + 0.75 * diffuse) + spec * 0.35 * solid.a, vec3(solid.a));
+        }
+    }
+    finalColor = mix(plain, solid, k);
+}
+`,
+		{ uSpin: vec(3), uSphericon: vec(3) },
+	);
+
+/**
  * Travelling waves. `uWave` = (amplitude as a share of the size, wavelength as a share of the
  * size, phase in cycles, mode): mode 0 shifts rows sideways (X), 1 shifts columns up and down (Y),
  * 2 is a flag pinned at its left edge with light on the folds.

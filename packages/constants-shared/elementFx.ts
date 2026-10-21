@@ -352,6 +352,20 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'sphericon',
+		label: 'Sphericon',
+		category: '3d',
+		phase: 'emphasis',
+		durationMs: 2400,
+		description:
+			'Folds into a spinning sphericon wrapped in its own art — two half double-cones joined with a quarter turn — rolls, and unfolds back.',
+		params: [
+			{ id: 'turns', label: 'Rolls', kind: 'number', default: 1, min: 0.5, max: 4, step: 0.5 },
+			{ id: 'tilt', label: 'Tilt', kind: 'number', default: 25, min: 0, max: 70, unit: '°' },
+			{ id: 'shade', label: 'Light it', kind: 'bool', default: true },
+		],
+	},
+	{
 		kind: 'tilt3D',
 		label: 'Tilt 3D',
 		category: '3d',

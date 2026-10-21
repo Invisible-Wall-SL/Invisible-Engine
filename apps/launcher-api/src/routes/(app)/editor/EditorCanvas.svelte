@@ -55,9 +55,14 @@
 		type Scene,
 	} from 'engine-layout';
 	import type { EffectParamValues } from 'engine-fx';
-	import { onDestroy, onMount, type Snippet } from 'svelte';
+	import { onDestroy, onMount, untrack, type Snippet } from 'svelte';
 	import {
 		childLocalTransform,
+		composeWorldMatrix,
+		IDENTITY_AFFINE,
+		invertAffine,
+		matMul,
+		type Affine,
 		depthSegments,
 		inDepthSlice,
 		mergeSpreadBoxes,
@@ -113,17 +118,48 @@
 		previewBindings,
 		previewEffectParamValues,
 		previewOutputs,
+		previewDrawnTransform,
+		previewElementFxNodeIds,
+		previewElementFxPose,
 		previewResolveTransform,
+		previewTimelineActive,
 		previewTint,
 		previewVersion,
 		isViewHidden,
+		setFxPreviewHidden,
 	} from './valuePreview.client.svelte';
 	import type { StageTransformDelta } from '$lib/timeline/screenTimeline';
 	import { segmentPoseNodes } from '$lib/timeline/segmentPreview';
 	import { segmentTimelines, segmentTimelinesVersion } from './segmentTimelines.client.svelte';
 	import { setAnimateDragging } from './animateKeying.client.svelte';
 	import { dialogQueue } from '$lib/dialogs.svelte';
-	import { firstChildIdOf, lockedInTree, parentIdOf } from '$lib/editor/hierarchy';
+	import {
+		ancestorIds,
+		effectiveHiddenIds,
+		firstChildIdOf,
+		lockedInTree,
+		parentIdOf,
+	} from '$lib/editor/hierarchy';
+	import {
+		elementFxChannels,
+		readElementFxEntries,
+		type ElementFxEntry,
+	} from 'constants-shared/elementFx';
+	import {
+		addElementFxPreviewHandler,
+		afterFrames,
+		captureStill,
+		intersectRect,
+		isFxOverlayCanvas,
+		playOnStill,
+		posedPastRest,
+		poseOnStill,
+		stageSource,
+		type ElementFxPreviewTarget,
+		type StageRect,
+		type StillSource,
+	} from './elementFxPreview.client.svelte';
+	import { findById, flattenSceneIds } from './layoutTree.client';
 	import {
 		isTypingTarget,
 		ownsFocusKeys,
@@ -5451,6 +5487,376 @@
 		return 'cursor-cross';
 	});
 
+	// ---------- Element FX preview (the ▶ on an Element FX row) ----------
+
+	/** The preview playing on this stage, as the function that ends it. */
+	let fxPreviewStop: (() => void) | null = null;
+	/** How far a node's still reaches past its box, as a share of its larger side: a glow or a
+	 *  shadow the element draws past its box comes along. */
+	const FX_STILL_MARGIN = 0.12;
+	/** Frames the layers get to redraw a changed hidden set: the 2D canvas and the text and FX
+	 *  overlays draw on the next frame, the rig overlay every frame. */
+	const FX_REDRAW_FRAMES = 3;
+	/** A HUD preview's overlay: above the HUD's own layers (1000–1001), below the controls (2000). */
+	const FX_HUD_OVERLAY_Z = 1002;
+
+	/** Node `id` of `s` and the containers above it, outermost first; null when it is not in `s`. */
+	function fxChain(s: Scene, id: string): LayoutNode[] | null {
+		const above = ancestorIds(s.nodes, id);
+		if (!above) return null;
+		const chain: LayoutNode[] = [];
+		for (const x of [...above, id]) {
+			const n = findById(s.nodes, x);
+			if (!n) return null;
+			chain.push(n);
+		}
+		return chain;
+	}
+
+	/** The stage rect `chain`'s leaf draws in — the selection outline's corners on the DRAWN pose,
+	 *  through every container above it — or null when it or a container above it is hidden. */
+	function fxNodeRect(s: Scene, chain: LayoutNode[]): StageRect | null {
+		const top = (n: LayoutNode): ResolvedTransform => drawTransform(n, s);
+		const child = (n: LayoutNode): ResolvedTransform =>
+			childLocalTransform(n, layoutType, s.space, frameWidth, frameHeight, previewResolveTransform);
+		const own = chain.map((n, i) => (i === 0 ? top(n) : child(n)));
+		if (own.some((t) => !t.visible)) return null;
+		const t = own[own.length - 1];
+		const [a, b, c, d, tx, ty] = composeWorldMatrix(chain.slice(0, -1), top, child);
+		const corners = nodeCornersWorld(t, boxOf(chain[chain.length - 1], t)).map((p) =>
+			worldToScreen({ x: a * p.x + c * p.y + tx, y: b * p.x + d * p.y + ty }),
+		);
+		const xs = corners.map((p) => p.x);
+		const ys = corners.map((p) => p.y);
+		const x = Math.min(...xs);
+		const y = Math.min(...ys);
+		return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+	}
+
+	/** The composite group game screen `s` draws in. */
+	function fxSceneGroup(s: Scene): HTMLElement | null {
+		return (
+			wrap?.querySelector<HTMLElement>(`.scene-group[data-scene-id="${CSS.escape(s.id)}"]`) ?? null
+		);
+	}
+
+	/** The HUD screens' 2D art alone, at the HUD canvas's size: that canvas also draws the
+	 *  selection, the guides and the onion skin, which must stay out of a still. */
+	function paintHudArt(): HTMLCanvasElement | null {
+		if (!hudCanvas) return null;
+		const out = document.createElement('canvas');
+		out.width = hudCanvas.width;
+		out.height = hudCanvas.height;
+		const ctx = out.getContext('2d');
+		if (!ctx) return null;
+		const dpr = window.devicePixelRatio || 1;
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+		ctx.translate(panX, panY);
+		ctx.scale(zoom, zoom);
+		for (const s of scenes) {
+			if (hiddenSceneIds.has(s.id) || !isHudScene(s)) continue;
+			for (const node of s.nodes) drawNode(ctx, node, s);
+		}
+		return out;
+	}
+
+	/** What a still of screen `s` is copied from, bottom first: its scene group's surfaces, or —
+	 *  the HUD screens sharing theirs — the HUD's art and overlays. Never another still's overlay. */
+	function fxStillSources(s: Scene, origin: DOMRect): StillSource[] {
+		const sources: (StillSource | null)[] = [];
+		if (isHudScene(s)) {
+			const art = paintHudArt();
+			const at = hudCanvas ? stageSource(hudCanvas, origin) : null;
+			if (art && at) sources.push({ ...at, canvas: art });
+			const layers = '.hud-rig-layer canvas, .hud-text-layer canvas, .hud-effect-layer canvas';
+			for (const c of wrap?.querySelectorAll<HTMLCanvasElement>(layers) ?? []) {
+				sources.push(stageSource(c, origin));
+			}
+		} else {
+			for (const c of fxSceneGroup(s)?.querySelectorAll('canvas') ?? []) {
+				if (!isFxOverlayCanvas(c)) sources.push(stageSource(c, origin));
+			}
+		}
+		return sources.filter((source): source is StillSource => source !== null);
+	}
+
+	/** Where a still of a target comes from and goes on this stage. */
+	interface FxStillPlan {
+		hud: boolean;
+		/** The overlay's home: the screen's group, or the stage for a HUD screen. */
+		mount: HTMLElement;
+		/** The still on the stage, and the target's own box inside it. */
+		rect: StageRect;
+		element: StageRect;
+		/** Hidden while the still is cut: everything on its surfaces but the target. */
+		isolate: ReadonlySet<string>;
+		/** Hidden while the overlay stands in for it: the target. */
+		hide: ReadonlySet<string>;
+	}
+
+	/** The still of `target` on screen `s`, or null when this stage does not show it. */
+	function fxStillPlan(s: Scene, target: ElementFxPreviewTarget): FxStillPlan | null {
+		if (!wrap || !canvas || hiddenSceneIds.has(s.id)) return null;
+		const hud = isHudScene(s);
+		// The HUD screens share their surfaces, so a HUD still also hides the other HUD screens.
+		const besides = hud
+			? scenes
+					.filter((other) => other !== s && isHudScene(other))
+					.flatMap((other) => flattenSceneIds(other.nodes))
+			: [];
+		let box: StageRect | null;
+		let isolate: ReadonlySet<string>;
+		let hide: ReadonlySet<string>;
+		if (target.kind === 'screen') {
+			const a = worldToScreen({ x: 0, y: 0 });
+			const b = worldToScreen({ x: frameWidth, y: frameHeight });
+			box = { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+			isolate = new Set(besides);
+			hide = new Set(flattenSceneIds(s.nodes));
+		} else {
+			const chain = fxChain(s, target.id);
+			box = chain && fxNodeRect(s, chain);
+			isolate = new Set([...effectiveHiddenIds(s.nodes, new Set(), target.id), ...besides]);
+			hide = effectiveHiddenIds(s.nodes, new Set([target.id]), null);
+		}
+		if (!box) return null;
+		const margin = target.kind === 'node' ? FX_STILL_MARGIN * Math.max(box.w, box.h) : 0;
+		const rect = intersectRect(
+			{ x: box.x - margin, y: box.y - margin, w: box.w + 2 * margin, h: box.h + 2 * margin },
+			{ x: 0, y: 0, w: canvas.clientWidth, h: canvas.clientHeight },
+		);
+		const inside = rect && intersectRect(box, rect);
+		const mount = hud ? wrap : fxSceneGroup(s);
+		if (!rect || !inside || !mount) return null;
+		const element = { ...inside, x: inside.x - rect.x, y: inside.y - rect.y };
+		return { hud, mount, rect, element, isolate, hide };
+	}
+
+	/** Cut `plan`'s still from what the stage's surfaces show now. */
+	function fxCaptureStill(s: Scene, plan: FxStillPlan): HTMLCanvasElement | null {
+		if (!canvas) return null;
+		const sources = fxStillSources(s, canvas.getBoundingClientRect());
+		return captureStill(sources, plan.rect, window.devicePixelRatio || 1);
+	}
+
+	/** The overlays' hidden sets on this stage: ▶'s, the posed effects', and a posed still's cut. */
+	const FX_PLAY_OWNER = Symbol('element fx ▶');
+	const FX_POSED_OWNER = Symbol('element fx posed');
+	const FX_CAPTURE_OWNER = Symbol('element fx posed still');
+
+	/**
+	 * Play `entry` on a still of `target` on this stage (see `elementFxPreview.client.svelte.ts`):
+	 * hide everything else on its screen, wait for the layers to redraw, copy the screen's surfaces,
+	 * then show only the screen around it while the overlay plays. Null when this stage does not show
+	 * the target. Escape, a press or a wheel on the stage ends it.
+	 */
+	function previewElementFx(
+		target: ElementFxPreviewTarget,
+		entry: ElementFxEntry,
+		finished: () => void,
+	): (() => void) | null {
+		const stage = wrap;
+		if (!stage || stage.clientWidth === 0 || stage.clientHeight === 0) return null;
+		const s = scenes.find((x) =>
+			target.kind === 'screen' ? x.id === target.sceneId : ancestorIds(x.nodes, target.id) !== null,
+		);
+		const plan = s && fxStillPlan(s, target);
+		if (!s || !plan) return null;
+
+		const view = { panX, panY, zoom, layoutType };
+		let over = false;
+		let stopOverlay: (() => void) | null = null;
+		const onKey = (e: KeyboardEvent): void => {
+			if (e.key === 'Escape') cancel();
+		};
+		const close = (): void => {
+			window.removeEventListener('keydown', onKey, true);
+			stage.removeEventListener('pointerdown', cancel, true);
+			stage.removeEventListener('wheel', cancel, true);
+			setFxPreviewHidden(new Set(), FX_PLAY_OWNER);
+			if (fxPreviewStop === cancel) fxPreviewStop = null;
+			finished();
+		};
+		const cancel = (): void => {
+			if (over) return;
+			over = true;
+			stopOverlay?.();
+			close();
+		};
+		fxPreviewStop = cancel;
+		window.addEventListener('keydown', onKey, true);
+		stage.addEventListener('pointerdown', cancel, true);
+		stage.addEventListener('wheel', cancel, { capture: true, passive: true });
+		setFxPreviewHidden(plan.isolate, FX_PLAY_OWNER);
+		void afterFrames(FX_REDRAW_FRAMES).then(() => {
+			if (over) return;
+			const still = fxCaptureStill(s, plan);
+			if (!still) return cancel();
+			stopOverlay = playOnStill({
+				...plan,
+				zIndex: plan.hud ? FX_HUD_OVERLAY_Z : undefined,
+				still,
+				entry,
+				onShown: () => setFxPreviewHidden(plan.hide, FX_PLAY_OWNER),
+				onEnd: () => {
+					if (over) return;
+					over = true;
+					close();
+				},
+				stale: () =>
+					panX !== view.panX ||
+					panY !== view.panY ||
+					zoom !== view.zoom ||
+					layoutType !== view.layoutType,
+			});
+		});
+		return cancel;
+	}
+
+	// ---------- Element FX posed by a previewed timeline ----------
+
+	/** A node whose keyed Element FX the previewed timeline poses: an overlay on a still of it. */
+	interface PosedFx {
+		/** The node and the layout its still was cut in: either changing cuts a new one. */
+		signature: string;
+		/** The node's stage matrix when the still was cut, inverted, then the still's offset — so
+		 *  `stage matrix now × from` places the still where the node draws now. */
+		from: Affine;
+		placement: Affine;
+		hide: ReadonlySet<string>;
+		/** Tears the overlay down; null when no still could be cut (not retried until the node or
+		 *  the layout changes). */
+		stop: (() => void) | null;
+	}
+	let posedFx: Record<string, PosedFx> = {};
+	/** The node a still is being cut for: one at a time, as each hides the rest of its screen. */
+	let posedCutting: string | null = null;
+	let posedDisposed = false;
+
+	/** A node's keyed entries that a timeline can pose (`elementFxChannels`' own rule). */
+	const posableEntries = (node: LayoutNode): ElementFxEntry[] =>
+		readElementFxEntries(node.elementFx).filter((e) => elementFxChannels([e]).length > 0);
+
+	/** `chain`'s leaf's local space → stage px, on the pose the preview draws it at, hidden or not. */
+	function fxStageMatrix(s: Scene, chain: LayoutNode[]): Affine {
+		const world = composeWorldMatrix(
+			chain,
+			(n) => nodeTransform(n, s, previewDrawnTransform),
+			(n) =>
+				childLocalTransform(n, layoutType, s.space, frameWidth, frameHeight, previewDrawnTransform),
+		);
+		return matMul([zoom, 0, 0, zoom, panX, panY], world);
+	}
+
+	function dropPosed(id: string): void {
+		posedFx[id]?.stop?.();
+		delete posedFx[id];
+	}
+
+	/**
+	 * Follow the previewed timeline's Element FX poses: a node it poses past rest gets a still (cut
+	 * once, then re-cut only when the node or the layout changes) and an overlay posing its keyed
+	 * entries, which stays up until the preview ends; the real node hides only while an entry is
+	 * past its rest. Runs on every preview change — a sample, a scrub, a state change.
+	 */
+	function syncPosedFx(): void {
+		const live = !posedDisposed && !!wrap && wrap.clientWidth > 0 && previewTimelineActive();
+		const ids = live ? [...new Set([...previewElementFxNodeIds(), ...Object.keys(posedFx)])] : [];
+		for (const id of Object.keys(posedFx)) if (!ids.includes(id)) dropPosed(id);
+		const hidden: string[] = [];
+		let cut: { s: Scene; id: string; signature: string; entries: ElementFxEntry[] } | null = null;
+		for (const id of ids) {
+			const s = scenes.find((x) => ancestorIds(x.nodes, id) !== null);
+			const node = s ? findById(s.nodes, id) : null;
+			const entries = node ? posableEntries(node) : [];
+			if (!s || !node || !entries.length || hiddenSceneIds.has(s.id)) {
+				dropPosed(id);
+				continue;
+			}
+			const signature = JSON.stringify([layoutType, node]);
+			if (posedFx[id] && posedFx[id].signature !== signature) dropPosed(id);
+			const posed = posedFx[id];
+			const past = posedPastRest(entries, (entryId) => previewElementFxPose(id, entryId));
+			if (!posed) {
+				if (past && !cut && posedCutting === null) cut = { s, id, signature, entries };
+				continue;
+			}
+			const chain = posed.stop ? fxChain(s, id) : null;
+			if (!chain) continue;
+			posed.placement = matMul(fxStageMatrix(s, chain), posed.from);
+			if (past) hidden.push(...posed.hide);
+		}
+		setFxPreviewHidden(new Set(hidden), FX_POSED_OWNER);
+		if (cut) void cutPosedStill(cut.s, cut.id, cut.signature, cut.entries);
+	}
+
+	/** Cut a posed node's still (isolated, as ▶ does) and put its overlay up. A still that cannot
+	 *  be cut leaves a record without an overlay, so it is not tried again every sample. */
+	async function cutPosedStill(
+		s: Scene,
+		id: string,
+		signature: string,
+		entries: ElementFxEntry[],
+	): Promise<void> {
+		const target = { kind: 'node', id } as const;
+		const isolate = fxStillPlan(s, target)?.isolate;
+		if (isolate) {
+			posedCutting = id;
+			setFxPreviewHidden(isolate, FX_CAPTURE_OWNER);
+			await afterFrames(FX_REDRAW_FRAMES);
+			posedCutting = null;
+		}
+		const chain = fxChain(s, id);
+		const plan = isolate ? fxStillPlan(s, target) : null;
+		const still = plan && fxCaptureStill(s, plan);
+		const cutAt = chain && invertAffine(fxStageMatrix(s, chain));
+		setFxPreviewHidden(new Set(), FX_CAPTURE_OWNER);
+		if (posedDisposed || !previewTimelineActive()) return;
+		const record: PosedFx = {
+			signature,
+			from: IDENTITY_AFFINE,
+			placement: IDENTITY_AFFINE,
+			hide: new Set(),
+			stop: null,
+		};
+		if (plan && still && cutAt) {
+			record.placement = [1, 0, 0, 1, plan.rect.x, plan.rect.y];
+			record.from = matMul(cutAt, record.placement);
+			record.hide = plan.hide;
+			record.stop = poseOnStill({
+				...plan,
+				zIndex: plan.hud ? FX_HUD_OVERLAY_Z : undefined,
+				still,
+				entries,
+				pose: (entryId) => previewElementFxPose(id, entryId),
+				placement: () => record.placement,
+			});
+		}
+		posedFx[id] = record;
+		syncPosedFx();
+	}
+
+	$effect(() => {
+		void previewVersion();
+		void panX;
+		void panY;
+		void zoom;
+		void layoutType;
+		void hiddenSceneIds;
+		untrack(syncPosedFx);
+	});
+
+	onMount(() => {
+		const withdraw = addElementFxPreviewHandler(previewElementFx);
+		return () => {
+			withdraw();
+			fxPreviewStop?.();
+			posedDisposed = true;
+			for (const id of Object.keys(posedFx)) dropPosed(id);
+			setFxPreviewHidden(new Set(), FX_POSED_OWNER);
+		};
+	});
+
 	onMount(() => {
 		resizeCanvas();
 		fitView();
@@ -5565,7 +5971,7 @@
 	{#each visibleGameScenes() as s (s.id)}
 		{@const segs = depthSegments(s, componentMap)}
 		{@const scrimKey = scrimSegmentKey(segs)}
-		<div class="scene-group">
+		<div class="scene-group" data-scene-id={s.id}>
 			<!-- One stack per DEPTH SEGMENT (usually exactly one — see `depthSegments`): a
 			     segment that starts after an FX draws above that FX, as later art does in the
 			     game. Every surface below reports under the segment's key. -->

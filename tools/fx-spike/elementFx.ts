@@ -538,6 +538,13 @@ console.log('element fx — the shaders run on WebGL1');
 	const shaders = read('packages/pixi-svelte/src/lib/elementFx/shaders.ts');
 	const code = shaders.replace(/\/\/[^\n]*/g, '');
 	const es3Only = ['transpose(', 'inverse(', 'texelFetch(', 'textureSize(', 'determinant('];
+	const reserved = ['flat', 'smooth', 'sample', 'centroid', 'layout', 'patch'].filter((word) =>
+		new RegExp(`\\b(?:float|vec[234]|mat[234]|int|bool)\\s+${word}\\b`).test(code),
+	);
+	assert(
+		!reserved.length,
+		`no GLSL reserved word as a variable${reserved.length ? `: ${reserved.join(', ')}` : ''}`,
+	);
 	const found = es3Only.filter((builtin) => code.includes(builtin));
 	assert(
 		!found.length,

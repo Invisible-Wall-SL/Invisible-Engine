@@ -2,10 +2,26 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** Shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** **Element FX** (effects that play ON a node, a screen or the reels — 39 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
+
+- **Element FX** (2026-10-21, [design/element-fx](../design/element-fx.md)) — effects that play ON
+  an element rather than beside it: any node (image, rig / `.irig`, flipbook, particle effect,
+  text, group, component placement), a whole screen, or the reels. 39 kinds in five families:
+  motion (shake, wobble, pulse, heartbeat, jelly, bounce, spin, swing, float, pop in / out, slam
+  in, fade in / out), 3D (flip sideways / over, bounce 3D, tilt 3D, sphericon), distort (wave X / Y, flag,
+  twist, curl, ripple, bulge), light (glow, outline, shine, flash, rainbow, chromatic, glitch,
+  blur, pixelate, dissolve out / in) and break (crash, crumble). Authored in the Scene Editor's
+  **Element FX** section (node Properties and the Screen panel; ▶ previews on the stage on a still
+  of the element) with an *Always* / *When shown* / *On cue* / *Keyed* trigger and a stop cue;
+  fired from the Flow by `fireCue` or by `elementEffect` / `stopElementEffect`. A *Keyed* entry
+  gets two ✦ rows in Animate (progress, strength): a timeline poses it, so a component
+  state-machine state does too and a transition blends it, and scrubbing poses it on the stage.
+  ⏳ Seen rendering in a headless WebGL1 and WebGL2 browser harness (every kind, mid-play and at
+  the end); the editor's section, preview and posing were exercised in standalone harnesses only;
+  not yet clicked in `/editor` or watched in a published game.
 
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
 - **Event trigger end-to-end.** A `trigger.on:'event'` layer fires when a matching cue crosses the runtime event bus (a Flow v1 Broadcast / v2 `fireCue`), with an optional **Stop event** and **Duration**. The full author→ship→fire chain (export → `deploy/effects/` → bake → pull → `bakedEffects()` register) is wired.
@@ -40,6 +56,20 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Owner browser-pass over Element FX** (2026-10-21) — in `/editor` add a few effects to a rig,
+  a flipbook, a particle effect node, the reel grid and a screen (Screen panel), ▶ preview each,
+  and Save → reopen. Then in a published game: an *Always* float / glow / flag on a node, a *When
+  shown* pop in / slam in on a screen, an *On cue* crash fired by a Flow `fireCue`, and a Flow
+  `elementEffect` on `reels` (shake, wave Y) and on `screen:<id>`; turbo should speed them up.
+  Then the state machine: a *Keyed* entry on a node of a component, ✦ rows keyed in two states'
+  timelines, and a transition between them — scrub in Animate and run the state machine in the
+  editor, then watch it in the game. And a Sphericon on a symbol-sized element.
+  Worth an eye: a crash / crumble on an animating rig (it breaks a still), an exit (pop out, fade
+  out, dissolve out, crash, crumble) staying hidden until its stop cue, and the base-game screen,
+  whose two parts around the reels each play the screen's FX.
+- **Element FX next** (design §9): HUD instances (`LayoutEditable` renders them outside
+  `<LayoutNodeView>`), rotated elements (the passes assume an axis-aligned box), and binding /
+  keying an entry's params.
 - **Owner browser-pass over per-placement values** (2026-10-16) — the reported case: open the Pot
   Meter copy → **Edit inside Pot ›**, select `BackgroundBeam2`, and under **Effect → Parameters**
   drag `BeamAlpha` and pick a `Color`: the beam on the stage follows with no reset, and **×** puts
@@ -78,6 +108,71 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-21 — **Element FX in the editor, the timeline and the state machine; a Sphericon.**
+  Owner follow-ups: put Element FX in the component state machine and animate them on the stage;
+  add a Sphericon 3D effect.
+  - **Editor** (`EditorElementFx.svelte`, `elementFxPreview.client.svelte.ts`, `EditorCanvas.svelte`):
+    the **Element FX** section on every node (the reel grid included) and on the Screen panel, with
+    sparse writes and unreadable entries kept verbatim. **▶** plays the entry on the stage. The
+    canvas hides everything but the element for three frames and copies its screen's surfaces into
+    a still. It then hides the element and plays the real runtime on the still in a
+    `createPixiSurface` overlay. Escape, a press, a wheel, pan or zoom cancel it.
+  - **Keyed** (`screenTimeline.ts`, `EditorTimelinePanel.svelte`, `stateMachinePreview.ts`): two ✦
+    rows per keyed entry (progress 0…1 resting at 0, strength 0…4 resting at 1), stale rows flagged,
+    ◆ keying from Properties. A node keyed only on `efx:` is now in the preview drives, and the
+    state-machine preview carries it. While a timeline or state is previewed, a posed overlay per
+    node (one still, cut the first time it leaves rest) poses the effect on the stage and follows the
+    node's drawn transform; the real node hides only while an entry is past rest.
+  - **Sphericon** (a 39th kind, 3D): the element folds into a lit, spinning sphericon wrapped in
+    its own art, rolls, and unfolds back — one ray-cast pass. A first run on WebGL1 failed on the
+    reserved word `flat`; `check:element-fx` now scans for reserved words used as names.
+  - **Break meshes** are cut into batches of ≤ 96 vertices: one large unbatched mesh kept the still
+    bound after it was destroyed, and Pixi warned as a crumble ended.
+  - **Gates:** `check:element-fx` 76 → 78. The editor gates the change touches are green: `check:svelte --only apps/launcher-api`
+    at baseline (46), `check:editor-gl-contexts`, `check:component-timelines` (80),
+    `check:component-state-machine` (184), `check:component-state-machine-editor` (79),
+    `check:fx-node-params` (105), `check:timeline-rows`, `check:timeline-ratio-keys`,
+    `check:doc-readers-unknown-fields` (271), `check:save-keeps-unknown-blocks` (154), `pnpm lint`,
+    `check:undefined-names`, and the launcher build. Every kind, the sphericon included, renders
+    with no shader error on WebGL1 and WebGL2 in the headless harness. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Element FX: effects that play ON an element.** Owner ask: FX placeable on assets
+  (rig, `.irig`, flipbook, particle effect) and elements (screens, reels), and new ones (wave X /
+  Y, flip on itself, twist, curl, glow, shine, crash, crumble, bounce 3D, more). Plan:
+  [design/element-fx](../design/element-fx.md). **Engine change** (`constants-shared`,
+  `pixi-svelte`, `engine-layout`, `engine-flow-v2`, `apps/lines`): it reaches online games only
+  through a runtime-bundle republish.
+  - **Catalog** (`constants-shared/elementFx`): the 38 kinds (39 with the sphericon above) with phase (emphasis / loop / enter /
+    exit), default length and params; the entry shape and its reader (`readElementFxEntries`).
+  - **Runtime** (`pixi-svelte/src/lib/elementFx`, subpath `pixi-svelte/elementFx`):
+    `playElementFx` / `stopElementFx`. One runtime per container: motions fold into one change of
+    its transform (owner writes mid-play become the new rest, everything restored exactly at the
+    end); passes stack after its own filters, bounded by a `filterArea`; a break snapshots it and
+    flies the still in one mesh (no renderer ⇒ a fade). Custom GLSL (perspective, wave, twist,
+    curl, ripple, bulge, shine, colour mix, dissolve) compiles on WebGL1 and WebGL2: a first run on
+    WebGL1 failed on `transpose()`, now written out and scanned for by the gate. Follows turbo.
+  - **Engine**: `BaseNode.elementFx` and `Scene.elementFx`. `<LayoutNodeView>` wraps a node that
+    carries some in one container (the node's `zIndex`, anchored by node id) with
+    `<ElementFxPlayer>`; `<LayoutScene>` does the same for a screen (`screen:<id>`); flow- and
+    engine-mounted screens register `screen:<id>` on their own container; the reel stack's
+    `MainContainer` is `reels` and plays the reel grid node's entries. No FX ⇒ no container.
+  - **Flow**: `elementEffect` / `stopElementEffect` and the `ElementFxKind` / `ElementFxTarget`
+    enums; the launcher widens the target enum per project (`collectElementFxTargets`, editor and
+    publish gate alike) and harvests Element FX cues into the cue palette. `gen:flow-vocab`
+    regenerated (69 effects). `check:flow-bonus-modes` pins the additions and hashes the rest of
+    every vocabulary as before.
+  - **Save**: nodes keep the field verbatim; `normalizeScene` keeps `Scene.elementFx`;
+    `componentFields.ts` lists it.
+  - **Gates:** new `pnpm check:element-fx` (catalog, reader, samplers, the runtime on real Pixi
+    containers, the WebGL1 GLSL scan, the wiring; mutation-checked: dropping the alpha restore
+    fails 3 checks) and `pnpm --filter launcher-api check:element-fx-flow` (20). Also green:
+    `check:flow-bonus-modes` (113), `check:flow-publish-gate`, `check:scene-cues`,
+    `check:flow-symbols-follow-config`, `check:signal-scope`, the flow-spike `v2vocab` /
+    `v2holdandwin` / `v2optional` / `vocab`, `gen:flow-vocab:check`,
+    `check:doc-readers-unknown-fields` (271), `check:save-keeps-unknown-blocks` (154),
+    `check:authored-freespins-followup`, `check:fx-node-params` (105), `check:depth-segments`,
+    `check:component-links`, and `check:svelte` for `pixi-svelte`, `engine-layout` and
+    `apps/lines` (at baseline). A headless Chromium harness rendered every kind at three moments and
+    at the end on WebGL1 and WebGL2 with no shader error. ⏳ Not clicked in a browser.
 - 2026-10-16 — **The editor previews every placement of a nested effect, not one copy.**
   `EditorEffectLayer` keyed its live emitters by the effect node's id, which every placement of one
   component shares. On a screen with three Pot Meters it built the first pot's beam, then moved

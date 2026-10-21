@@ -91,7 +91,10 @@
 	import type { ComponentOpenRequest } from './componentWorkspace';
 	import EditorElementsPalette from './EditorElementsPalette.svelte';
 	import EditorOutline from './EditorOutline.svelte';
-	import EditorProperties from './EditorProperties.svelte';
+	import EditorProperties, { SIGNAL_SUGGESTIONS_ID } from './EditorProperties.svelte';
+	import EditorElementFx from './EditorElementFx.svelte';
+	import { playElementFxPreview } from './elementFxPreview.client.svelte';
+	import type { ElementFxEntry } from 'constants-shared/elementFx';
 	import EditorTemplatePanel from './EditorTemplatePanel.svelte';
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
@@ -1469,6 +1472,17 @@
 		if (!sc) return;
 		if (value) sc.zoomWithAnticipation = true;
 		else delete sc.zoomWithAnticipation;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** Set the active screen's Element FX (`Scene.elementFx`): effects played on everything it
+	 * draws. `undefined` drops the field, so a screen without any serializes as before. */
+	function setSceneElementFx(next: ElementFxEntry[] | undefined): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (next) sc.elementFx = next;
+		else delete sc.elementFx;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -3934,6 +3948,13 @@
 									</label>
 								</div>
 							{/if}
+							<EditorElementFx
+								entries={activeScene.elementFx}
+								cueListId={SIGNAL_SUGGESTIONS_ID}
+								onChange={setSceneElementFx}
+								preview={(entry) =>
+									playElementFxPreview({ kind: 'screen', sceneId: activeScene.id }, entry)}
+							/>
 						</div>
 					{/if}
 					<EditorProperties

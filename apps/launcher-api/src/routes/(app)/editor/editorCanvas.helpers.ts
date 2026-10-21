@@ -79,6 +79,13 @@ export function matMul(m: Affine, n: Affine): Affine {
 	];
 }
 
+/** The inverse of `m`, or null when it collapses a dimension (a zero scale). */
+export function invertAffine([a, b, c, d, tx, ty]: Affine): Affine | null {
+	const det = a * d - b * c;
+	if (!det || !Number.isFinite(det)) return null;
+	return [d / det, -b / det, -c / det, a / det, (c * ty - d * tx) / det, (b * tx - a * ty) / det];
+}
+
 /**
  * The LOCAL transform of a NESTED node (one with a parent in the doc tree), in its
  * parent's space — i.e. NO scene-space framing (`mainToWorld`/`mainScale`, background
