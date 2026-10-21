@@ -171,6 +171,18 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-21 — **Animate: keys per screen ratio** (branch `claude/quirky-clarke-jmc9b3`, ⏳ not
+  browser-verified). On a ratio other than the base one, a screen timeline's header shows
+  **Default keys** + **Key <ratio> separately** (copies the default keys to the ratio:
+  `ratioKeyTracks`), or **<ratio> keys** + **Use default keys** (asks, then `withoutRatioKeys`). The
+  Timeline module takes `propertyLayout` (rows and new keys follow the ratio's tracks; absent, as in
+  `/rigger`, only the default ones), and Properties' value, the key buttons, a stage drag, the
+  preview and the onion skin read the keys that ratio plays (`keysLayout`, the game's own choice).
+  Switching ratio re-renders the rows and clears the key selection, and a paste of keys copied in
+  another ratio lands on the shown ratio's track. A base ratio that somehow has keys of its own
+  shows them, as the game plays them. Component timelines show nothing new. Format and game side:
+  [cinematic status](cinematic.md) 2026-10-21. Gate: `check:timeline-ratio-keys`. Guide: [Keys per
+  screen ratio](../tools/invisible-editor.md#animate-mode--the-timeline).
 - 2026-10-21 — **A rig on an anchored canvas screen draws where its box is** (in review, ⏳ not
   browser-verified). The reported `R_Widget` (Hold and Win "Feature intro", canvas space, screen
   anchor 0.5/0.5, x 0, y −15) still drew half a window up-left of its selection box after the

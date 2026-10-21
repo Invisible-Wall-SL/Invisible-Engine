@@ -357,6 +357,7 @@
 	import Effects from './Effects.svelte';
 	import FlowV2Messages from './FlowV2Messages.svelte';
 	import FlowV2Cinematics from './FlowV2Cinematics.svelte';
+	import EngineScreenMount from './EngineScreenMount.svelte';
 
 	// Invisible Debug — register this game's debug tools (symbol overlay + win-state
 	// probe). Dynamic-imported only under the build switch so the tools + their
@@ -2584,9 +2585,11 @@
 				 Win). At the screen's own Screens-list z, as a flow container or the coded mount would put
 				 it: above the board, below the HUD and the overlays the add-on merged after it. -->
 		{#if flowV2EnginePots}
-			<Container zIndex={flowV2EnginePots.z}>
-				<LayoutScene scene={flowV2EnginePots.scene} />
-			</Container>
+			<EngineScreenMount
+				scene={flowV2EnginePots.scene}
+				z={flowV2EnginePots.z}
+				flow={flowV2Handle}
+			/>
 		{/if}
 
 		<!-- The win line + the amount it stamps are HUD chrome, not board furniture: they read as
@@ -2925,7 +2928,7 @@
 	<FlowV2Cinematics
 		flow={flowV2Handle}
 		onStage={(sceneId) =>
-			!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle?.sceneShown(sceneId)}
+			!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle?.onStage(sceneId)}
 	/>
 
 	<DebugStage />

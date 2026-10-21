@@ -1171,7 +1171,9 @@ export function mountLive(node, initial) {
 		/new ComponentTimelinePlayer\([^)]*def\.root\.children,\s*\(\) => providedParams\)/.test(
 			component,
 		) &&
-			editor('EditorTimelinePanel.svelte').includes('fxChannelValue(doc, id, row, time, placed)') &&
+			editor('EditorTimelinePanel.svelte').includes(
+				'fxChannelValue(doc, id, row, time, placed, keysRatio())',
+			) &&
 			(
 				smPanel.match(
 					/previewPlayer\(docs\.values\(\), scene\.nodes, \(\) => componentParams\)/g,

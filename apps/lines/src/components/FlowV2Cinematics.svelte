@@ -13,9 +13,9 @@
 	 * project shipped no cinematics — `bakedCinematic()` returns undefined and nothing renders
 	 * (parity). The flow runtime skips a play naming a cinematic the game lacks, with a warning.
 	 *
-	 * A SCREEN timeline whose screen `<FlowV2Mount>` has up (`onStage`) moves that screen: its
-	 * `<Cinematic>` draws no copy and hands its node driver to the flow, which remounts the screen
-	 * with it. Off stage, it draws its own copy of the screen as before.
+	 * A SCREEN timeline whose screen is up (`onStage`: shown by the flow, or the Pots screen the game
+	 * mounts itself) moves that screen: its `<Cinematic>` draws no copy and hands its node driver to
+	 * the flow, whose mount of the screen remounts with it. Off stage, it draws its own copy.
 	 */
 	import { MainContainer } from 'components-layout';
 	import { cinematicSetSceneId } from 'engine-layout';
@@ -24,6 +24,7 @@
 
 	import { bakedCinematic } from '../editor-scenes';
 	import { sound, type SoundName } from '../game/sound';
+	import { stateLayoutDerived } from '../game/stateLayout';
 	import type { LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 
 	const {
@@ -31,7 +32,7 @@
 		onStage,
 	}: {
 		flow: LinesFlowV2 | undefined;
-		/** Is this screen drawn by `<FlowV2Mount>` right now? Reactive. */
+		/** Is this screen up right now — shown by the flow, or mounted by the game? Reactive. */
 		onStage?: (sceneId: string) => boolean;
 	} = $props();
 
@@ -110,6 +111,7 @@
 				speed={entry.opts.speed}
 				oncomplete={() => flow?.cinematicComplete(entry.id)}
 				oncue={routeCue}
+				layoutType={stateLayoutDerived.layoutType}
 			/>
 		{/each}
 	</MainContainer>

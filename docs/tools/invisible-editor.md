@@ -1125,8 +1125,12 @@ plays the result in the game. A component has its own Animate mode on the Compon
    - **Show the screen first, then play its timeline**: Show `<screen>` → playCinematic. The
      timeline then moves the screen the Show put up, which holds the last frame until it is hidden.
      For an intro that waits for a tap, follow it with a Show of the same screen with **Hold until
-     this screen completes (tap)** ticked. A timeline played while its screen is not shown draws
-     its own copy of the screen instead, and that copy is not framed like the screen. Starting the
+     this screen completes (tap)** ticked. The add-on's **Pots** screen counts as shown without a
+     Show node: when the flow never shows it, the game puts it up with the board, and a timeline on
+     it moves those pots and holds its last frame while the board is up (while the board is
+     hidden, the timeline draws nothing). A timeline played while
+     its screen is not shown draws its own copy of the screen instead, and that copy is not framed
+     like the screen. Starting the
      timeline re-opens the shown screen, so set a component's inputs on it after the play, not
      between the Show and the play.
    - **A timeline reaches the game only once it keys a node and is saved.** One that never did
@@ -1151,6 +1155,25 @@ How keys behave:
   falls back to the hidden id.
 - **Properties' Transform still edits the Design pose.** Only the **Animate** section above it
   keys.
+
+**Keys per screen ratio.** Each screen ratio lays the nodes out on its own (see
+[Author across device layouts](#5-author-across-device-layouts)), so a move that fits Desktop can
+overshoot on Portrait. On a ratio other than the base one, the panel header says which keys you
+are editing:
+- **Default keys**: this ratio plays the same keys as every ratio without keys of its own, and
+  an edit here changes all of them. **Key <ratio> separately** copies those keys to this ratio, so
+  from then on an edit here changes this ratio alone. It needs something keyed first.
+- **<ratio> keys**: this ratio plays its own keys, and only those: a node keyed in the default
+  keys but not here does not move in this ratio. **Use default keys** deletes this ratio's keys
+  (after asking), and it plays the default keys again. So does deleting this ratio's last key: the
+  header then says **Default keys** again, and the next edit changes every ratio without keys of
+  its own.
+
+The base ratio's keys are the default keys. The game picks the keys of the ratio on screen, and
+switches if the player turns the device, also while a finished timeline holds its last frame.
+Only the field keys (x, y, scale, rotation, alpha, tint and ⚡ parameters) are per ratio:
+visibility, text and cue keys and rig strips are shared by every ratio. Component timelines play
+their keys in every ratio.
 
 **The timeline.** Each keyed node has a **summary row** (its name) with a grey diamond at every
 time any of its fields is keyed, and **▾ / ▸** folds its field rows away. Drag a summary diamond

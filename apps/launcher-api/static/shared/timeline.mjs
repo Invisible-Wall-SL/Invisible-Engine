@@ -172,8 +172,14 @@ export function mount(el, options) {
 
 	const castOf = (id) => doc.stage.cast.find((c) => c.actorId === id) || null;
 	const isNodeActor = (id) => (castOf(id) || {}).kind === 'node';
+	// The ratio whose property keys the rows show and new keys go to (`options.propertyLayout`):
+	// its tracks carry that `layout`; absent ⇒ the default keys, the tracks without one.
+	const propertyLayout = options.propertyLayout || (() => undefined);
+	const layoutOf = (t) => (typeof t.layout === 'string' && t.layout) || undefined;
 	const propertyTracksOf = (actorId) =>
-		doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'property');
+		doc.tracks.filter(
+			(t) => t.actorId === actorId && t.kind === 'property' && layoutOf(t) === propertyLayout(),
+		);
 	const visTracksOf = (actorId) =>
 		doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'visibility');
 	const cameraTrack = () => doc.tracks.find((t) => t.kind === 'camera') || null;
@@ -1571,7 +1577,14 @@ export function mount(el, options) {
 	function ensurePropertyTrack(actorId) {
 		let track = propertyTracksOf(actorId)[0];
 		if (!track) {
-			track = { id: uid('prop'), actorId, kind: 'property', channels: {} };
+			const layout = propertyLayout();
+			track = {
+				id: uid('prop'),
+				actorId,
+				kind: 'property',
+				channels: {},
+				...(layout && { layout }),
+			};
 			doc.tracks.push(track);
 		}
 		return track;
@@ -1737,7 +1750,11 @@ export function mount(el, options) {
 		const at = snapT(time);
 		const pasted = [];
 		for (const c of keyClipboard) {
-			const track = doc.tracks.find((t) => t.id === c.trackId);
+			let track = doc.tracks.find((t) => t.id === c.trackId);
+			// Copied from another ratio's keys (`propertyLayout` changed since): onto this ratio's track
+			// for the same actor, never into keys the rows do not show.
+			if (track && track.kind === 'property' && layoutOf(track) !== propertyLayout())
+				track = ensurePropertyTrack(track.actorId);
 			if (!track || !track.channels) continue;
 			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
 			const t = at + c.dt;
@@ -1748,7 +1765,7 @@ export function mount(el, options) {
 			if (i >= 0) keys[i] = key;
 			else keys.push(key);
 			keys.sort((a, b) => a.time - b.time);
-			pasted.push({ trackId: c.trackId, channel: c.channel, time: t });
+			pasted.push({ trackId: track.id, channel: c.channel, time: t });
 		}
 		if (!pasted.length) return false;
 		selectKeys(pasted);

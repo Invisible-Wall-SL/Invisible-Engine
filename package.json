@@ -50,6 +50,7 @@
 		"check:ktx2-premultiplied": "node --experimental-strip-types --import ./scripts/ts-loader.mjs scripts/check-ktx2-premultiplied.mjs",
 		"check:big-win-cue": "node scripts/check-big-win-cue.mjs",
 		"check:cinematic-ticker": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-cinematic-ticker.mjs",
+		"check:screen-timeline-mounts": "node --experimental-strip-types --no-warnings --import ./scripts/ts-loader.mjs scripts/check-screen-timeline-mounts.mjs",
 		"check:engine-game": "node scripts/check-engine-game-fixtures.mjs",
 		"check:fx-forces": "pnpm --filter fx-spike run forces",
 		"check:fx-sprite": "pnpm --filter fx-spike run sprite",
