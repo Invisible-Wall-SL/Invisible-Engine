@@ -814,7 +814,7 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 45 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 46 effects grouped by family (the table below). Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -895,7 +895,7 @@ whole frame. One preview plays at a time, a second ▶ replaces it, and nothing 
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 45 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 46 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -938,6 +938,7 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 |                | **Pixelate**               | Breaks into big pixels and resolves back.                                        |
 |                | **Freeze (ice)**           | Freezes into ice: frost creeps over it along the **Crystals** from the **Frost from** side, it turns to ice in the **Ice colour** (the art still reads underneath), holds frozen for **Hold** of the play with a glint sweeping across, then thaws back. To keep it frozen, key it (_Keyed_) and hold its progress at the middle. |
 |                | **Burn to ashes** (exit)   | Catches fire: a ragged front of flame (**Flame colour**, how ragged: **Ragged**) sweeps across from the **Burns from** side, scorching the element brown ahead of it and leaving grey ash (**Ash colour**) with cooling embers that lifts and crumbles away, **Sparks** rising. |
+|                | **Poison** (loop)          | Poisoned: it drains to a sickly green in the **Venom colour**, dark **Veins** creep in from its edges and pulse, **Bubbles** rise through it, and it sways queasily. Loops while _Always_ (or while a symbol is in its state); a counted play seeps in and recovers. |
 |                | **Dissolve out** (exit)    | Burns away in a noisy dissolve with a glowing edge.                              |
 |                | **Dissolve in** (entrance) | Burns into view in a noisy dissolve with a glowing edge.                         |
 | Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |

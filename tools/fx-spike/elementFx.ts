@@ -303,6 +303,28 @@ console.log('element fx — the motion samplers');
 		'burn: the fire starts short of the element, sweeps on, and is past all its ash by the end',
 	);
 	fire?.destroy();
+
+	const poison = KINDS.poison;
+	const venom = poison.filter?.create(frame('poison', 0));
+	const dose = (t: number, looping = false): number => {
+		poison.filter?.update(venom as Filter, frame('poison', t, looping), {
+			screenWidth: 120,
+			screenHeight: 160,
+		});
+		return (venom as unknown as { efx: { uPoison: Float32Array } }).efx.uPoison[0];
+	};
+	const sway = (t: number): number => poison.motion?.(frame('poison', t)).rotation ?? 0;
+	assert(
+		dose(0) === 0 &&
+			near(dose(0.5), 1) &&
+			dose(1) === 0 &&
+			near(dose(0, true), 1) &&
+			near(sway(0), 0) &&
+			near(sway(1), 0) &&
+			Math.abs(sway(0.25)) > 0,
+		'poison seeps in and out of a counted play, stays full while it loops, and sways between',
+	);
+	venom?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------

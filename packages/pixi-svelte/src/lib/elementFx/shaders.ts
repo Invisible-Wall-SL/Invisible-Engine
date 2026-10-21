@@ -852,3 +852,81 @@ void main(void)
 `,
 		{ uBurn: vec(4), uFlame: vec(4), uAsh: vec(4), uGlow: vec(2) },
 	);
+
+/**
+ * Poisoned: the art drains to a sickly version of itself turned towards the venom colour, dark
+ * veins (ridged noise) creep in from the edges as the dose rises and pulse inward, and bubbles
+ * rise through it. `uPoison` = (dose 0…1, vein scale, seed, seconds); `uVenom` = (venom colour,
+ * bubbles on).
+ */
+export const poisonFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'poison',
+		`
+uniform vec4 uPoison;
+uniform vec4 uVenom;
+
+float poisonHash(vec2 p)
+{
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+float poisonNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 w = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(poisonHash(i), poisonHash(i + vec2(1.0, 0.0)), w.x),
+        mix(poisonHash(i + vec2(0.0, 1.0)), poisonHash(i + vec2(1.0, 1.0)), w.x),
+        w.y);
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    vec4 color = efxSample(px);
+    float dose = uPoison.x;
+    if (dose <= 0.0 || color.a <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec2 size = efxSize();
+    vec2 u = efxToUnit(px);
+    vec2 aspect = size / max(size.x, size.y);
+    float time = uPoison.w;
+    vec3 rgb = color.rgb / color.a;
+    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    vec3 sick = mix(rgb, vec3(lum) * (0.35 + 0.85 * uVenom.rgb), 0.8) + 0.15 * uVenom.rgb;
+
+    vec2 q = u * aspect * uPoison.y + uPoison.z;
+    float ridge = 1.0 - abs(2.0 * poisonNoise(q) - 1.0);
+    float twig = 1.0 - abs(2.0 * poisonNoise(q * 2.3 + 5.1) - 1.0);
+    float vein = smoothstep(0.9, 0.98, ridge) + 0.6 * smoothstep(0.93, 0.99, twig);
+    float edge = 1.0 - 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y));
+    float creep = 1.0 - dose * 1.2;
+    float reach = smoothstep(creep - 0.2, creep, edge + 0.2 * poisonNoise(q * 0.5));
+    float pulse = 0.65 + 0.35 * sin(time * 4.0 - edge * 6.0);
+    vec3 veinColor = mix(vec3(0.12, 0.02, 0.16), uVenom.rgb, 0.1 + 0.4 * pulse * pulse);
+    sick = mix(sick, veinColor, clamp(vein * reach, 0.0, 1.0) * 0.85);
+
+    if (uVenom.a > 0.5)
+    {
+        vec2 bq = vec2(u.x * aspect.x, u.y * aspect.y + time * 0.12) * 9.0;
+        vec2 cell = floor(bq);
+        vec2 at = vec2(0.2 + 0.6 * poisonHash(cell + uPoison.z), 0.2 + 0.6 * poisonHash(cell + uPoison.z + 9.0));
+        float r = 0.12 + 0.18 * poisonHash(cell + 3.3);
+        float live = step(0.55, poisonHash(cell + 7.7));
+        vec2 off = fract(bq) - at;
+        float ring = (1.0 - smoothstep(0.0, 0.05, abs(length(off) - r))) * live;
+        float shine = (1.0 - smoothstep(0.0, r * 0.35, length(off + vec2(r * 0.35)))) * live;
+        sick = mix(sick, min(uVenom.rgb * 1.3 + 0.2, vec3(1.0)), clamp(0.8 * ring + 0.6 * shine, 0.0, 1.0));
+    }
+    finalColor = vec4(mix(rgb, sick, dose) * color.a, color.a);
+}
+`,
+		{ uPoison: vec(4), uVenom: vec(4) },
+	);

@@ -885,6 +885,20 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'poison',
+		label: 'Poison',
+		category: 'light',
+		phase: 'loop',
+		durationMs: 2400,
+		description:
+			'Poisoned: it drains to a sickly green, dark veins creep in from its edges and pulse, bubbles rise through it, and it sways queasily.',
+		params: [
+			COLOR('color', 'Venom colour', '#8aff3c'),
+			{ id: 'veins', label: 'Veins', kind: 'number', default: 8, min: 2, max: 24, step: 0.5 },
+			{ id: 'bubbles', label: 'Bubbles', kind: 'bool', default: true },
+		],
+	},
+	{
 		kind: 'dissolveOut',
 		label: 'Dissolve out',
 		category: 'light',

@@ -46,6 +46,7 @@ import {
 	freezeFilter,
 	meltFilter,
 	perspectiveFilter,
+	poisonFilter,
 	rippleFilter,
 	shineFilter,
 	sphericonFilter,
@@ -281,6 +282,40 @@ const burnImpl = (): KindImpl => {
 				filter.set('uFlame', ...rgb(str(frame, 'color')), frame.seconds);
 				filter.set('uAsh', ...rgb(str(frame, 'ash')), flag(frame, 'sparks') ? 1 : 0);
 				filter.set('uGlow', Math.max(0.4, Math.min(1.6, frame.intensity)), 0);
+			},
+		}),
+	};
+};
+
+/** Poison: the venom runs as a shader pass, and the element sways queasily while it plays. Both
+ *  follow the loop envelope: steady while looping, seeping in and out of a counted play. */
+const poisonImpl = (): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		motion(frame) {
+			const k = loopEnvelope(frame) * frame.intensity;
+			const a = TAU * frame.t;
+			return {
+				rotation: 0.035 * k * Math.sin(a),
+				scaleX: 1 + 0.025 * k * Math.sin(2 * a),
+				scaleY: 1 - 0.025 * k * Math.sin(2 * a),
+			};
+		},
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = poisonFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				filter.set(
+					'uPoison',
+					loopEnvelope(frame) * Math.min(1, frame.intensity),
+					num(frame, 'veins'),
+					seeds.get(filter) ?? 0,
+					frame.seconds,
+				);
+				filter.set('uVenom', ...rgb(str(frame, 'color')), flag(frame, 'bubbles') ? 1 : 0);
 			},
 		}),
 	};
@@ -692,6 +727,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	},
 	freeze: freezeImpl(),
 	burn: burnImpl(),
+	poison: poisonImpl(),
 	dissolveOut: dissolveImpl('out'),
 	dissolveIn: dissolveImpl('in'),
 
