@@ -2928,7 +2928,7 @@
 	<FlowV2Cinematics
 		flow={flowV2Handle}
 		onStage={(sceneId) =>
-			!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle?.sceneShown(sceneId)}
+			!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle?.onStage(sceneId)}
 	/>
 
 	<DebugStage />

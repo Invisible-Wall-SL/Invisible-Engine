@@ -26,6 +26,7 @@
 		playbackTime,
 		resolveVisible,
 		sampleNodeActor,
+		trackLayout,
 		type CinematicTrack,
 	} from 'engine-cinematic';
 	import type { CinematicDoc, Scene } from './types';
@@ -136,6 +137,8 @@
 		if (!actor) return undefined;
 		const tracks = actor.tracks as unknown as CinematicTrack[];
 		const docTracks = props.doc.tracks;
+		// Most timelines key no ratio of their own: they never read the ratio, nor re-sample on resize.
+		const ratioKeyed = docTracks.some((t) => t.kind === 'property' && !!trackLayout(t));
 		return {
 			channels: keyedNodeChannels(actor.tracks),
 			// The LAST text track, the one `sampleNodeActor` samples (validation flags a second one).
@@ -144,7 +147,12 @@
 			// rather than a prop value or a `$derived`: a screen keeps this driver after the timeline
 			// ends, to hold its last frame, when this component is gone, and turning the device must
 			// still switch keys.
-			sample: () => sampleNodeActor(tracks, time, keysLayout(docTracks, readLayoutType?.())),
+			sample: () =>
+				sampleNodeActor(
+					tracks,
+					time,
+					ratioKeyed ? keysLayout(docTracks, readLayoutType?.()) : undefined,
+				),
 		};
 	};
 	setCinematicNodeDriver(driver);

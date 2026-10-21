@@ -178,8 +178,9 @@ Shipped capabilities on `main`:
   Timeline module takes `propertyLayout` (rows and new keys follow the ratio's tracks; absent, as in
   `/rigger`, only the default ones), and Properties' value, the key buttons, a stage drag, the
   preview and the onion skin read the keys that ratio plays (`keysLayout`, the game's own choice).
-  Switching ratio re-renders the rows and clears the key selection. Component timelines show
-  nothing new. Format and game side: [cinematic status](cinematic.md) 2026-10-21. Gate:
+  Switching ratio re-renders the rows and clears the key selection, and a paste of keys copied in
+  another ratio lands on the shown ratio's track. A base ratio that somehow has keys of its own
+  shows them, as the game plays them. Component timelines show nothing new. Format and game side: [cinematic status](cinematic.md) 2026-10-21. Gate:
   `check:timeline-ratio-keys`. Guide: [Keys per screen
   ratio](../tools/invisible-editor.md#animate-mode--the-timeline).
 - 2026-10-20 — **A placed rig selects where it draws** (in review, ⏳ not browser-verified). The

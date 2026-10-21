@@ -3,15 +3,21 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import type { CinematicNodeDriver, ScreenNodeDrive } from 'engine-layout/svelte';
 
 /**
- * SCREEN TIMELINES on the screens that are up (Rive plan Phase 3): a screen a flow Show put up, or
- * one the game mounts itself (the add-on's Pots screen a driven flow never shows,
+ * SCREEN TIMELINES on the screens their own mount draws (Rive plan Phase 3): a screen a flow Show
+ * put up, or one the game mounts itself (the add-on's Pots screen a driven flow never shows,
  * `enginePotsScreen`). A playing screen-hosted timeline hands its node driver over (`driveScreen`)
  * and that screen's mount remounts with it (`drive`), so the timeline moves the screen the player
- * sees. `<Cinematic>` draws its own copy only while its screen is not up (`isUp`). A drive lasts
- * while its timeline plays or its screen is up, so the screen holds the last frame until it goes
- * down, and the next mount of it is undriven.
+ * sees. `<Cinematic>` draws its own copy only of a screen no mount draws (`onStage`). A drive lasts
+ * while its timeline plays or its screen is up (`isUp`), so the screen holds the last frame until
+ * it goes down, and the next mount of it is undriven.
  */
 export interface ScreenDrives {
+	/**
+	 * Does a mount of screen `sceneId` take its timeline, so `<Cinematic>` draws no copy? A shown
+	 * flow screen, or a screen the game mounts itself — also while that one is down, when the
+	 * timeline then draws nothing, as the screen does. Reactive.
+	 */
+	onStage: (sceneId: string) => boolean;
 	/** Is screen `sceneId` up right now, shown by the flow or mounted by the game? Reactive. */
 	isUp: (sceneId: string) => boolean;
 	/** The screen timeline moving screen `sceneId`, for its mount. Reactive. */
@@ -26,8 +32,14 @@ export interface ScreenDrives {
 	dropIdle: () => void;
 }
 
-/** `playing`: is this cinematic still playing (the flow's `playingCinematics`)? */
-export function createScreenDrives(playing: (cinematicId: string) => boolean): ScreenDrives {
+/**
+ * `playing`: is this cinematic still playing (the flow's `playingCinematics`)? `engineScreens`: the
+ * screens the game mounts itself under this flow.
+ */
+export function createScreenDrives(
+	playing: (cinematicId: string) => boolean,
+	engineScreens: readonly string[] = [],
+): ScreenDrives {
 	const flowUp = new SvelteSet<string>();
 	const engineUp = new SvelteSet<string>();
 	const drives = new SvelteMap<string, ScreenNodeDrive & { cinematicId: string }>();
@@ -42,6 +54,7 @@ export function createScreenDrives(playing: (cinematicId: string) => boolean): S
 			}
 		});
 	return {
+		onStage: (sceneId) => flowUp.has(sceneId) || engineScreens.includes(sceneId),
 		isUp,
 		drive: (sceneId) => drives.get(sceneId),
 		driveScreen: (sceneId, cinematicId, driver) =>

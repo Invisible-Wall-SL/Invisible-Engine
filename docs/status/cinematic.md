@@ -168,9 +168,11 @@ through the same player; headless-proven, no editor yet (5b).
     **The Pots screen the game mounts itself counts as up (2026-10-21):** under a driven flow that
     never shows `pots`, `<EngineScreenMount>` reports it up while the board is
     (`engineScreenUp`) and remounts it with the timeline's driver, so the timeline moves the pots
-    the player sees and holds the last frame until the board goes down. The bookkeeping (flow-shown
-    + engine-mounted screens, drives and their lifetime) is `apps/lines/src/game/screenDrives.svelte.ts`.
-    The banner screens the game mounts itself (`engineBannerScreens`) do not report yet.
+    the player sees and holds the last frame until the board goes down. While the board is down a
+    timeline on it draws nothing (`onStage` counts the game's own screens up or down), and the
+    board coming back picks it up where it is. The bookkeeping (flow-shown + engine-mounted
+    screens, drives and their lifetime) is `apps/lines/src/game/screenDrives.svelte.ts`. The banner
+    screens the game mounts itself (`engineBannerScreens`) are not counted yet.
 
 - **Per-ratio keys (2026-10-21, headless-proven, ⏳ not browser-verified).** A screen lays its
   nodes out per ratio, so a node actor's `property` track may carry `layout` (a layout type): the
@@ -465,6 +467,11 @@ through the same player; headless-proven, no editor yet (5b).
     cue at 0.005 s fired 2 times in 3.5 s instead of 4). A ping-pong, which keeps an unwrapped lap
     clock, is unaffected.
 
+12. **Each play remounts its screen** (`{#key drive.key}` in `<FlowV2Mount>` and
+    `<EngineScreenMount>`, because a node reads its driver once). On the Pots screen, which lasts
+    the whole session, a meter's fill glide or a full pot's rig animation running at that moment
+    restarts. Check on a pots game in the browser; a node that took its driver live would remove it.
+
 ## Blocked (owner / external)
 
 - Nothing external.
@@ -483,9 +490,11 @@ through the same player; headless-proven, no editor yet (5b).
   apart): per-ratio keys, above. Gates: `pnpm check:screen-timeline-mounts` (the real
   `FlowV2Cinematics`, `Cinematic` and `EngineScreenMount` on a ticking clock: first the duplicate
   as `main` drew it, then one set of pots that moves, holds, and lets go when the board goes down;
-  a flow-shown screen as before; each ratio's keys, live when the device turns, mid-play and on a
-  held last frame) and `pnpm --filter launcher-api check:timeline-ratio-keys` (format, the module,
-  the Animate helpers, editor preview = game sample). Owner browser check pending.
+  nothing drawn while the board is down mid-play; a flow-shown screen as before; each ratio's
+  keys, live when the device turns, mid-play and on a held last frame, through a mounted node's own
+  `$derived`; and source checks that `Game.svelte` and the runtime wire it so) and
+  `pnpm --filter launcher-api check:timeline-ratio-keys` (format, the module and its paste, the
+  Animate helpers, editor preview = game sample). Owner browser check pending.
 
 - 2026-10-20 — **Fix: the playhead drifts off the cursor once the timeline is scrolled** (branch
   `claude/nifty-curie-0eqlx3`). Reported on `/editor`: zoomed in, scrolled right, then scrubbing,

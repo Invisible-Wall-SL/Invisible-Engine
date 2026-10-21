@@ -337,26 +337,29 @@ const propertyTracksOf = (
 		(t) => t.kind === 'property' && !!t.channels && trackLayout(t) === layout,
 	);
 
+/** The default keys of `doc`'s node actors: the property tracks a ratio copies to key apart. */
+export function defaultNodeKeyTracks(doc: CinematicDoc): CinematicDoc['tracks'] {
+	const nodeActors = new Set(doc.stage.cast.filter((c) => c.kind === 'node').map((c) => c.actorId));
+	return doc.tracks.filter(
+		(t) =>
+			t.kind === 'property' &&
+			trackLayout(t) === undefined &&
+			typeof t.actorId === 'string' &&
+			nodeActors.has(t.actorId),
+	);
+}
+
 /**
  * Give screen ratio `layout` keys of its own (per-ratio keys): a copy of every default property
  * track of a node actor, carrying `layout`, so the ratio starts from the moves it plays now and
  * every edit after changes that ratio alone. Returns the tracks to add, none when nothing is keyed.
  */
 export function ratioKeyTracks(doc: CinematicDoc, layout: string): Record<string, unknown>[] {
-	const nodeActors = new Set(doc.stage.cast.filter((c) => c.kind === 'node').map((c) => c.actorId));
-	return doc.tracks
-		.filter(
-			(t) =>
-				t.kind === 'property' &&
-				trackLayout(t) === undefined &&
-				typeof t.actorId === 'string' &&
-				nodeActors.has(t.actorId),
-		)
-		.map((t) => ({
-			...structuredClone(t),
-			id: `${String(t.id)}_${layout}`,
-			layout,
-		}));
+	return defaultNodeKeyTracks(doc).map((t) => ({
+		...structuredClone(t),
+		id: `${String(t.id)}_${layout}`,
+		layout,
+	}));
 }
 
 /** `doc` without screen ratio `layout`'s own keys: that ratio plays the default keys again. */

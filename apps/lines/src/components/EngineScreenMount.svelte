@@ -4,7 +4,8 @@
 	 * screen (`enginePotsScreen`). While mounted it counts as up for screen timelines
 	 * (`engineScreenUp`), so a timeline playing on it moves THIS mount, remounted with the timeline's
 	 * driver as `<FlowV2Mount>` remounts a shown screen, instead of `<Cinematic>` drawing a copy of
-	 * the screen beside it. Without a flow handle it is a plain mount at `z`.
+	 * the screen beside it (the flow's `onStage` counts it even while it is down, when the timeline
+	 * draws nothing). Without a flow handle it is a plain mount at `z`.
 	 */
 	import { Container } from 'pixi-svelte';
 	import type { Scene } from 'engine-layout';
@@ -20,14 +21,17 @@
 	};
 	const { scene, z, flow }: Props = $props();
 
+	// Keyed on the id alone: a new scene object for the same screen is the same mount, so it must
+	// not report the screen down and up, which would drop a held drive.
+	const sceneId = $derived(scene.id);
 	$effect(() => {
-		const sceneId = scene.id;
+		const id = sceneId;
 		const handle = flow;
-		handle?.engineScreenUp(sceneId, true);
-		return () => handle?.engineScreenUp(sceneId, false);
+		handle?.engineScreenUp(id, true);
+		return () => handle?.engineScreenUp(id, false);
 	});
 
-	const drive = $derived(flow?.screenDrive(scene.id));
+	const drive = $derived(flow?.screenDrive(sceneId));
 </script>
 
 <Container zIndex={z}>

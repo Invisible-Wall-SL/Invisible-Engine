@@ -11,8 +11,8 @@
  *     `sampleNodeActor`);
  *  2. *Key <ratio> separately* copies the default keys of every node actor to the ratio, and *Use
  *     default keys* drops them (`ratioKeyTracks`, `withoutRatioKeys`);
- *  3. the Timeline module shows and keys only the ratio's tracks while `propertyLayout` names it,
- *     and without the option (`/rigger`) a ratio's tracks are never shown or keyed;
+ *  3. the Timeline module shows, keys and pastes onto only the ratio's tracks while `propertyLayout`
+ *     names it, and without the option (`/rigger`) a ratio's tracks are never shown or keyed;
  *  4. the Animate helpers read the ratio's keys: Properties' value, the key button, a stage drag;
  *  5. the editor preview plays what the game plays in that ratio (`timelineDrives`).
  */
@@ -115,6 +115,7 @@ console.log('2. Key <ratio> separately / Use default keys');
 	doc.tracks = S.withoutRatioKeys(doc, 'portrait');
 	eq('Use default keys drops only that ratio’s tracks', tracks(doc).map((t) => t.id), ['prop_pot', 'cue']); // prettier-ignore
 	eq('…and the ratio plays the default keys again', yAt(doc, 1, 'portrait'), 400);
+	eq('what a ratio copies is the default keys of node actors', S.defaultNodeKeyTracks(doc).map((t) => t.id), ['prop_pot']); // prettier-ignore
 	const empty = timeline();
 	empty.tracks = [];
 	eq('nothing keyed: nothing to copy', S.ratioKeyTracks(empty, 'portrait'), []);
@@ -139,13 +140,22 @@ console.log('3. the module keys the ratio it is told');
 	eq('portrait rows show only portrait’s track', tl.propertyTracksOf('pot').map((t) => t.layout), ['portrait']); // prettier-ignore
 	ratio = undefined;
 	eq('back on the default keys: only the default track', tl.propertyTracksOf('pot').map((t) => t.layout ?? null), [null]); // prettier-ignore
+	const defaultTrack = tracks(tl.doc())[0].id;
+	tl.selectKeys([{ trackId: defaultTrack, channel: 'y', time: 1 }]);
+	tl.copyKeys();
+	ratio = 'portrait';
+	tl.setTime(0.5);
+	tl.pasteKeys();
+	eq('a key copied from the default keys pastes onto portrait’s track', tracks(tl.doc()).find((t) => t.layout === 'portrait')?.channels?.y, [key(0.5, 380), key(1, 250)]); // prettier-ignore
+	eq('…never into the default keys portrait does not show', tracks(tl.doc())[0].channels?.y, [key(0, 0), key(1, 380)]); // prettier-ignore
+	eq('…and selects the pasted key on portrait’s track', tl.selectedKeys().map((k) => tracks(tl.doc()).find((t) => t.id === k.trackId)?.layout), ['portrait']); // prettier-ignore
 	tl.destroy();
 
 	const rigger = mount(null, { doc: tl.doc(), ev: EV });
 	eq('without the option (/rigger) a ratio’s track is never a row', rigger.propertyTracksOf('pot').map((t) => t.layout ?? null), [null]); // prettier-ignore
 	rigger.setTime(0.5);
 	rigger.keyProperty('pot', 'y', 100);
-	eq('…nor keyed', tracks(rigger.doc()).find((t) => t.layout === 'portrait')?.channels?.y, [key(1, 250)]); // prettier-ignore
+	eq('…nor keyed', tracks(rigger.doc()).find((t) => t.layout === 'portrait')?.channels?.y, [key(0.5, 380), key(1, 250)]); // prettier-ignore
 	rigger.destroy();
 }
 

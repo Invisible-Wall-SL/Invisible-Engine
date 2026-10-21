@@ -1748,7 +1748,11 @@ export function mount(el, options) {
 		const at = snapT(time);
 		const pasted = [];
 		for (const c of keyClipboard) {
-			const track = doc.tracks.find((t) => t.id === c.trackId);
+			let track = doc.tracks.find((t) => t.id === c.trackId);
+			// Copied from another ratio's keys (`propertyLayout` changed since): onto this ratio's track
+			// for the same actor, never into keys the rows do not show.
+			if (track && track.kind === 'property' && layoutOf(track) !== propertyLayout())
+				track = ensurePropertyTrack(track.actorId);
 			if (!track || !track.channels) continue;
 			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
 			const t = at + c.dt;
@@ -1759,7 +1763,7 @@ export function mount(el, options) {
 			if (i >= 0) keys[i] = key;
 			else keys.push(key);
 			keys.sort((a, b) => a.time - b.time);
-			pasted.push({ trackId: c.trackId, channel: c.channel, time: t });
+			pasted.push({ trackId: track.id, channel: c.channel, time: t });
 		}
 		if (!pasted.length) return false;
 		selectKeys(pasted);

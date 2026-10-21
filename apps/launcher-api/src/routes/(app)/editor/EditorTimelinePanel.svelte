@@ -67,6 +67,7 @@
 		nodeActorOf,
 		nodeActorTarget,
 		nodeChannelValue,
+		defaultNodeKeyTracks,
 		onionFrames,
 		ratioKeyTracks,
 		screenTimelineId,
@@ -247,18 +248,19 @@
 
 	// ---- per-ratio keys --------------------------------------------------------------------------
 
-	/** The shown ratio, when a screen timeline can key it apart from the default keys. */
-	const separableRatio = $derived(
-		!component && layoutType && layoutType !== baseLayoutType ? layoutType : undefined,
-	);
-	const ratioName = $derived(layoutLabel ?? separableRatio ?? '');
+	/** The ratio the canvas shows, on a screen timeline (a component's plays one set of keys). */
+	const shownRatio = $derived(component ? undefined : layoutType);
+	/** The shown ratio, when it can be keyed apart from the default keys (the base ratio's keys
+	 *  are the default keys). */
+	const separableRatio = $derived(shownRatio !== baseLayoutType ? shownRatio : undefined);
+	const ratioName = $derived(layoutLabel ?? shownRatio ?? '');
 
 	/** The keys the Timeline shows and edits, and the preview plays: the shown ratio's own keys when
 	 *  it has them, else the default keys — the game's own choice (`keysLayout`). */
 	function keysRatio(): string | undefined {
 		void docVersion;
 		const doc = tl?.doc();
-		return doc && separableRatio ? keysLayout(doc.tracks, separableRatio) : undefined;
+		return doc && shownRatio ? keysLayout(doc.tracks, shownRatio) : undefined;
 	}
 
 	/** Give the shown ratio keys of its own, starting from the default keys it plays now. */
@@ -274,23 +276,25 @@
 	/** Drop the shown ratio's own keys: it plays the default keys again. */
 	async function useDefaultKeys(): Promise<void> {
 		const doc = tl?.doc();
-		if (!doc || !tl || !separableRatio || !ownsDoc(doc)) return;
+		const ratio = keysRatio();
+		const name = ratioName;
+		if (!doc || !tl || !ratio || !ownsDoc(doc)) return;
 		const ok = await askConfirm({
-			title: `Delete ${ratioName}'s own keys?`,
-			message: `${ratioName} then plays the default keys, as every ratio without keys of its own does.`,
+			title: `Delete ${name}'s own keys?`,
+			message: `${name} then plays the default keys, as every ratio without keys of its own does.`,
 			confirmLabel: 'Use the default keys',
 			danger: true,
 		});
 		if (!ok || tl?.doc() !== doc) return;
-		doc.tracks = withoutRatioKeys(doc, separableRatio);
-		ratioKeysChanged(`${ratioName} plays the default keys`);
+		doc.tracks = withoutRatioKeys(doc, ratio);
+		ratioKeysChanged(`${name} plays the default keys`);
 	}
 
 	/** Is there anything to copy (`ratioKeyTracks`): a default key on a node? */
 	function hasDefaultKeys(): boolean {
 		void docVersion;
 		const doc = tl?.doc();
-		return !!doc && !!separableRatio && ratioKeyTracks(doc, separableRatio).length > 0;
+		return !!doc && defaultNodeKeyTracks(doc).length > 0;
 	}
 
 	function ratioKeysChanged(label: string): void {
@@ -304,7 +308,7 @@
 
 	// Another ratio on the canvas shows (and previews) the keys that ratio plays.
 	$effect(() => {
-		void separableRatio;
+		void shownRatio;
 		untrack(() => {
 			if (!tl) return;
 			tl.clearSelection();
@@ -1560,7 +1564,7 @@
 				<input type="checkbox" bind:checked={onlySelected} />
 				Only selected
 			</label>
-			{#if separableRatio && !link}
+			{#if (separableRatio || keysRatio()) && !link}
 				<span class="sep"></span>
 				{#if keysRatio()}
 					<span

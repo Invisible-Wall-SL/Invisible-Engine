@@ -308,9 +308,9 @@ export type LinesFlowV2 = {
 	playingCinematics: SvelteMap<string, PlayingCinematic>;
 	/** Called by `<Cinematic>`'s `oncomplete`: settle a pending await and unmount it. */
 	cinematicComplete: (cinematicId: string) => void;
-	/** Is screen `sceneId` up right now: a shown container's scene, or a screen the game mounts
-	 *  itself (`engineScreenUp`)? Reactive. */
-	sceneShown: (sceneId: string) => boolean;
+	/** Does a mount of screen `sceneId` take its timeline (a shown container's scene, or a screen
+	 *  the game mounts itself), so `<Cinematic>` draws no copy of it? Reactive. */
+	onStage: (sceneId: string) => boolean;
 	/** The screen timeline moving up screen `sceneId`, for the mount that draws it. Reactive. */
 	screenDrive: (sceneId: string) => ScreenNodeDrive | undefined;
 	/** `<FlowV2Cinematics>` hands a playing screen timeline's node driver over, once, at mount. */
@@ -425,8 +425,15 @@ export const createLinesFlowV2 = (
 	 * while already running gets a fresh entry, so an old promise never settles a new play).
 	 */
 	const playingCinematics = new SvelteMap<string, PlayingCinematic>();
-	// SCREEN TIMELINES (Rive plan Phase 3): a playing one moves its screen while that screen is up.
-	const screenDrives = createScreenDrives((cinematicId) => playingCinematics.has(cinematicId));
+	const enginePots = enginePotsScreen(doc, editorDoc.scenes, {
+		drivesScreens: screenStatus.drivesScreens,
+		hasMeters: configuredMeters().length > 0,
+	});
+	// SCREEN TIMELINES (Rive plan Phase 3): a playing one moves its screen's own mount.
+	const screenDrives = createScreenDrives(
+		(cinematicId) => playingCinematics.has(cinematicId),
+		enginePots ? [enginePots.scene.id] : [],
+	);
 	// Scope the mount model's order-independent completion latch to the containers a
 	// `showContainer{awaitComplete}` node actually targets — so a tap that lands BEFORE the hold is
 	// registered (e.g. the free-spin outro: the driver arms `freeSpinOutroCountUpComplete` ~300ms
@@ -886,10 +893,7 @@ export const createLinesFlowV2 = (
 					});
 				}
 			: undefined,
-		enginePots: enginePotsScreen(doc, editorDoc.scenes, {
-			drivesScreens: screenStatus.drivesScreens,
-			hasMeters: configuredMeters().length > 0,
-		}),
+		enginePots,
 		engineBanners: engineBannerScreens(doc, editorDoc.scenes, {
 			drivesScreens: screenStatus.drivesScreens,
 		}),
@@ -900,7 +904,7 @@ export const createLinesFlowV2 = (
 			playingCinematics.delete(cinematicId);
 			screenDrives.dropIdle();
 		},
-		sceneShown: screenDrives.isUp,
+		onStage: screenDrives.onStage,
 		screenDrive: screenDrives.drive,
 		driveScreen: screenDrives.driveScreen,
 		engineScreenUp: screenDrives.setEngineScreen,

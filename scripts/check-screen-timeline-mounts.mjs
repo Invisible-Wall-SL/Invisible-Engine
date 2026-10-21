@@ -21,7 +21,7 @@
 // `createScreenDrives` the flow runtime builds. What draws is a stand-in: each `LayoutScene` records
 // itself while mounted, tagged by who mounted it — the game's own mount, or a `<Cinematic>` copy.
 
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { createRequire, register } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -39,7 +39,9 @@ const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)
 const harness = 'globalThis.__screenTimelineHarness';
 
 // A `LayoutScene` stand-in, compiled here: while mounted it sits in the harness's set, with who
-// mounted it and the node driver it was handed (read once at init, as the real one does).
+// mounted it and the node driver it was handed (read once at init, as the real one does). Like a
+// real `<LayoutNodeView>`, it asks the driver for the red pot once and samples it in a `$derived`
+// (`nodeFold`), so `drawnY` is where that pot draws as the mounted node follows the timeline.
 const { compile } = createRequire(import.meta.url)('svelte/compiler');
 const recordingScene = (who) =>
 	moduleUrl(
@@ -48,6 +50,11 @@ const recordingScene = (who) =>
 				import { onMount } from 'svelte';
 				const props = $props();
 				const entry = { who: '${who}', scene: props.scene?.id, driver: props.nodeDriver };
+				const drive = props.nodeDriver?.('pot-red');
+				const drawnY = $derived(drive?.sample().y);
+				$effect(() => {
+					entry.drawnY = drawnY;
+				});
 				onMount(() => {
 					${harness}.scenes.add(entry);
 					return () => ${harness}.scenes.delete(entry);
@@ -243,11 +250,11 @@ const potsDrop = ({ id = 'pots_drop', portrait = false } = {}) => ({
  * One game, as `Game.svelte` wires it: the flow's playing cinematics and screen bookkeeping (the real
  * `createScreenDrives`), `<FlowV2Cinematics>` with the `onStage` Game passes it, and the game's own
  * Pots mount — `<EngineScreenMount>` with the flow handle, or, as `main` mounted it before the fix,
- * without one (a plain `<LayoutScene>` the flow never hears about).
+ * a plain `<LayoutScene>` the flow never hears about (`reportsMount: false`: no engine screens).
  */
 function game({ reportsMount = true } = {}) {
 	const playing = new SvelteMap();
-	const drives = createScreenDrives((id) => playing.has(id));
+	const drives = createScreenDrives((id) => playing.has(id), reportsMount ? [POTS.id] : []);
 	const flow = {
 		playingCinematics: playing,
 		resolveScene: (id) => (id === POTS.id ? POTS : undefined),
@@ -255,12 +262,12 @@ function game({ reportsMount = true } = {}) {
 			playing.delete(id);
 			drives.dropIdle();
 		},
-		sceneShown: drives.isUp,
+		onStage: drives.onStage,
 		screenDrive: drives.drive,
 		driveScreen: drives.driveScreen,
 		engineScreenUp: drives.setEngineScreen,
 	};
-	const onStage = (sceneId) => sceneId !== 'basegame' && flow.sceneShown(sceneId);
+	const onStage = (sceneId) => sceneId !== 'basegame' && flow.onStage(sceneId);
 	const mountPots = () =>
 		mount(EngineScreenMount, {
 			target: new Element(),
@@ -300,6 +307,8 @@ const potsScenes = (who) => [...state.scenes].filter((s) => s.scene === 'pots' &
 const potY = (node = 'pot-red') => potsScenes('engine')[0]?.driver?.(node)?.sample().y;
 /** The first pot `y` any mounted driver gives, or undefined when none drives a pot. */
 const potsY = () => POTS.nodes.map((node) => potY(node.id)).find((y) => y !== undefined);
+/** Where the mounted red pot draws: its node's own reactive sample, as the game's fold reads it. */
+const drawnY = () => potsScenes('engine')[0]?.drawnY;
 
 // --- 1. before: the game's Pots mount is not up for timelines, so the timeline draws a copy -------
 {
@@ -337,6 +346,23 @@ const potsY = () => POTS.nodes.map((node) => potY(node.id)).find((y) => y !== un
 	run.end();
 }
 
+// --- 2b. the board goes down while a Pots timeline plays: the timeline draws nothing either ----
+{
+	const run = game();
+	run.play(potsDrop({ id: 'pots_down' }));
+	frames(20);
+	run.boardDown();
+	check('board down mid-play: the game’s Pots screen is down', !run.drives.isUp('pots'));
+	check('board down mid-play: no copy — the timeline draws nothing, as the screen does', potsScenes('copy').length === 0 && potsScenes('engine').length === 0); // prettier-ignore
+	check('board down mid-play: the drive is kept while it plays', run.drives.drive('pots') !== undefined); // prettier-ignore
+	run.boardUp();
+	const back = drawnY();
+	check('board up mid-play: the pots pick the timeline up where it is', back > 100 && back < 400, `y=${back}`); // prettier-ignore
+	frames(60);
+	check('board up mid-play: …and hold its last frame', drawnY() === 400, `y=${drawnY()}`);
+	run.end();
+}
+
 // --- 3. a screen the flow shows still behaves as before ------------------------------------------
 {
 	const run = game({ reportsMount: false });
@@ -361,9 +387,10 @@ const potsY = () => POTS.nodes.map((node) => potY(node.id)).find((y) => y !== un
 	layout.set('type', 'portrait');
 	flushSync();
 	check('ratio: portrait plays its own keys (turning the device switches live)', potY() === 250, `y=${potY()}`); // prettier-ignore
+	check('ratio: …and the mounted pot, holding its last frame, redraws there', drawnY() === 250, `y=${drawnY()}`); // prettier-ignore
 	layout.set('type', 'tablet');
 	flushSync();
-	check('ratio: a ratio without keys of its own plays the default keys', potY() === 400, `y=${potY()}`); // prettier-ignore
+	check('ratio: a ratio without keys of its own plays the default keys', potY() === 400 && drawnY() === 400, `y=${potY()}`); // prettier-ignore
 	run.end();
 }
 {
@@ -385,10 +412,26 @@ const potsY = () => POTS.nodes.map((node) => potY(node.id)).find((y) => y !== un
 	check('ratio: mid-play in portrait follows the portrait keys', mid > 100 && mid < 150, `y=${mid}`); // prettier-ignore
 	layout.set('type', 'desktop');
 	flushSync();
-	const turned = potY();
-	check('ratio: turning the device mid-play switches to that ratio\'s keys', turned > 150 && turned < 250, `y=${turned}`); // prettier-ignore
+	const turned = drawnY();
+	check('ratio: turning the device mid-play switches the mounted pot to that ratio\'s keys', turned > 150 && turned < 250, `y=${turned}`); // prettier-ignore
 	run.end();
 	layout.set('type', 'desktop');
+}
+
+// --- 5. the game wires it as this gate does -------------------------------------------------------
+// The gate builds its own flow handle. These pin the real wiring to it, so a `Game.svelte` that
+// mounts the Pots screen without the handle or reverts `onStage`, or a runtime that stops counting
+// its own Pots screen, fails here rather than only in a live game.
+{
+	const source = (path) => readFileSync(fileURLToPath(repoFile(path)), 'utf8');
+	const gameSource = source('apps/lines/src/components/Game.svelte');
+	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
+	check('wiring: Game mounts its own Pots screen through <EngineScreenMount> with the flow handle', /\{#if flowV2EnginePots\}\s*<EngineScreenMount\s+scene=\{flowV2EnginePots\.scene\}\s+z=\{flowV2EnginePots\.z\}\s+flow=\{flowV2Handle\}\s*\/>/.test(gameSource)); // prettier-ignore
+	check('wiring: Game hands <FlowV2Cinematics> the flow handle’s onStage', /<FlowV2Cinematics\s+flow=\{flowV2Handle\}\s+onStage=\{\(sceneId\) =>\s+!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle\?\.onStage\(sceneId\)\}/.test(gameSource)); // prettier-ignore
+	check('wiring: the runtime counts its own Pots screen', /createScreenDrives\([^;]*enginePots \? \[enginePots\.scene\.id\] : \[\]/.test(runtime)); // prettier-ignore
+	check('wiring: the runtime reports the screens the flow shows', runtime.includes('screenDrives.setFlowScreens(containers.map((container) => container.sceneId))')); // prettier-ignore
+	check('wiring: the handle hands out the bookkeeping', ['onStage: screenDrives.onStage', 'screenDrive: screenDrives.drive', 'driveScreen: screenDrives.driveScreen', 'engineScreenUp: screenDrives.setEngineScreen'].every((line) => runtime.includes(line))); // prettier-ignore
+	check('wiring: <FlowV2Cinematics> hands <Cinematic> the ratio reader', source('apps/lines/src/components/FlowV2Cinematics.svelte').includes('layoutType={stateLayoutDerived.layoutType}')); // prettier-ignore
 }
 
 console.log(failures ? `\n${failures} FAILED` : '\nall passed');

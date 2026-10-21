@@ -1116,7 +1116,8 @@ plays the result in the game. A component has its own Animate mode on the Compon
      For an intro that waits for a tap, follow it with a Show of the same screen with **Hold until
      this screen completes (tap)** ticked. The add-on's **Pots** screen counts as shown without a
      Show node: when the flow never shows it, the game puts it up with the board, and a timeline on
-     it moves those pots and holds its last frame while the board is up. A timeline played while
+     it moves those pots and holds its last frame while the board is up (while the board is
+     hidden, the timeline draws nothing). A timeline played while
      its screen is not shown draws its own copy of the screen instead, and that copy is not framed
      like the screen. Starting the
      timeline re-opens the shown screen, so set a component's inputs on it after the play, not
@@ -1153,7 +1154,9 @@ are editing:
   from then on an edit here changes this ratio alone. It needs something keyed first.
 - **<ratio> keys**: this ratio plays its own keys, and only those: a node keyed in the default
   keys but not here does not move in this ratio. **Use default keys** deletes this ratio's keys
-  (after asking), and it plays the default keys again.
+  (after asking), and it plays the default keys again. So does deleting this ratio's last key: the
+  header then says **Default keys** again, and the next edit changes every ratio without keys of
+  its own.
 
 The base ratio's keys are the default keys. The game picks the keys of the ratio on screen, and
 switches if the player turns the device, also while a finished timeline holds its last frame.
