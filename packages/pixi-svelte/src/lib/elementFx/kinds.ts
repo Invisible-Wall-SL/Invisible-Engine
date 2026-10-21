@@ -39,6 +39,7 @@ import {
 } from './frame';
 import {
 	bulgeFilter,
+	burnFilter,
 	colorMixFilter,
 	curlFilter,
 	dissolveFilter,
@@ -246,6 +247,40 @@ const freezeImpl = (): KindImpl => {
 						? -0.3 + 1.6 * ((frame.t - span) / held)
 						: -10;
 				filter.set('uGlint', Math.min(1, frame.intensity), glint);
+			},
+		}),
+	};
+};
+
+/** Where a burn starts, as the shader's `from`. */
+const BURN_FROM = ['bottom', 'top', 'edges', 'center', 'left', 'right'];
+
+/** Where a burn's front is at `t`: just short of the element at the start, past every ash by the
+ *  end (the farthest point is 1 away and its ash is gone 0.65 behind the front). */
+const burnFront = (t: number): number => -0.1 + 1.8 * t;
+
+/** Burn to ashes: the fire runs as a shader pass; the motion only makes sure it ends hidden. */
+const burnImpl = (): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		motion: (frame) => ({ alpha: 1 - smoothstep(0.94, 1, frame.t) }),
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = burnFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				filter.set(
+					'uBurn',
+					burnFront(frame.t),
+					num(frame, 'grain'),
+					seeds.get(filter) ?? 0,
+					Math.max(0, BURN_FROM.indexOf(str(frame, 'from'))),
+				);
+				filter.set('uFlame', ...rgb(str(frame, 'color')), frame.seconds);
+				filter.set('uAsh', ...rgb(str(frame, 'ash')), flag(frame, 'sparks') ? 1 : 0);
+				filter.set('uGlow', Math.max(0.4, Math.min(1.6, frame.intensity)), 0);
 			},
 		}),
 	};
@@ -656,6 +691,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 		}),
 	},
 	freeze: freezeImpl(),
+	burn: burnImpl(),
 	dissolveOut: dissolveImpl('out'),
 	dissolveIn: dissolveImpl('in'),
 

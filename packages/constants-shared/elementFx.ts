@@ -863,6 +863,28 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'burn',
+		label: 'Burn to ashes',
+		category: 'light',
+		phase: 'exit',
+		durationMs: 2600,
+		description:
+			'Catches fire: a ragged front of flame sweeps across, scorching ahead of it and leaving grey ash with cooling embers that crumbles away, sparks rising.',
+		params: [
+			{
+				id: 'from',
+				label: 'Burns from',
+				kind: 'choice',
+				default: 'bottom',
+				options: ['bottom', 'top', 'edges', 'center', 'left', 'right'],
+			},
+			COLOR('color', 'Flame colour', '#ff7a1a'),
+			COLOR('ash', 'Ash colour', '#6b6660'),
+			{ id: 'grain', label: 'Ragged', kind: 'number', default: 6, min: 2, max: 20, step: 0.5 },
+			{ id: 'sparks', label: 'Sparks', kind: 'bool', default: true },
+		],
+	},
+	{
 		kind: 'dissolveOut',
 		label: 'Dissolve out',
 		category: 'light',

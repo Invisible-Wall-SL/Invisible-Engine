@@ -755,3 +755,100 @@ void main(void)
 `,
 		{ uFreeze: vec(4), uIce: vec(3), uGlint: vec(2) },
 	);
+
+/**
+ * Burning to ashes: a fire front sweeps across from `uBurn.w` (0 bottom, 1 top, 2 the edges, 3 the
+ * centre, 4 left, 5 right), ragged with noise. Ahead of it the element scorches brown; on it the
+ * element's own shape burns in flickering flame; behind it lies grey ash in the element's shape,
+ * embers cooling in it, lifting a little and crumbling away. Sparks rise from the flames.
+ * `uBurn` = (front, raggedness, seed, from); `uFlame` = (flame colour, seconds for the flicker
+ * and the sparks); `uAsh` = (ash colour, sparks on); `uGlow` = (how hot the flame burns).
+ */
+export const burnFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'burn',
+		`
+uniform vec4 uBurn;
+uniform vec4 uFlame;
+uniform vec4 uAsh;
+uniform vec2 uGlow;
+
+float burnHash(vec2 p)
+{
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+float burnNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 w = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(burnHash(i), burnHash(i + vec2(1.0, 0.0)), w.x),
+        mix(burnHash(i + vec2(0.0, 1.0)), burnHash(i + vec2(1.0, 1.0)), w.x),
+        w.y);
+}
+
+// How far the fire travels to reach unit point u, 0…1, roughened by the noise n.
+float burnReach(vec2 u, float n)
+{
+    float from = uBurn.w;
+    float away = from < 0.5 ? 1.0 - u.y
+        : from < 1.5 ? u.y
+        : from < 2.5 ? 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y))
+        : from < 3.5 ? length(u - 0.5) * 1.4142
+        : from < 4.5 ? u.x
+        : 1.0 - u.x;
+    return 0.75 * clamp(away, 0.0, 1.0) + 0.25 * n;
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    vec4 color = efxSample(px);
+    vec2 size = efxSize();
+    vec2 u = efxToUnit(px);
+    vec2 aspect = size / max(size.x, size.y);
+    vec2 q = u * aspect * uBurn.y + uBurn.z;
+    float n = 0.6 * burnNoise(q) + 0.3 * burnNoise(q * 2.1 + 3.7) + 0.1 * burnNoise(q * 4.3 + 9.1);
+    float s = uBurn.x - burnReach(clamp(u, 0.0, 1.0), n);
+    float time = uFlame.w;
+    vec4 burnt = vec4(0.0);
+    if (s < 0.0)
+    {
+        float scorch = smoothstep(-0.16, 0.0, s);
+        burnt = vec4(mix(color.rgb, vec3(0.22, 0.1, 0.04) * color.a, 0.75 * scorch), color.a);
+    }
+    else if (s < 0.05)
+    {
+        float flicker = 0.75 + 0.25 * burnNoise(q * 3.0 + vec2(0.0, time * 9.0));
+        vec3 flame = mix(vec3(1.0, 0.95, 0.65), uFlame.rgb, s / 0.05) * flicker * uGlow.x;
+        burnt = vec4(min(flame * 1.3, vec3(1.0)) * color.a, color.a);
+    }
+    else
+    {
+        float lift = (s - 0.05) * 0.12 * size.y;
+        float a = efxSample(px + vec2(0.0, lift)).a;
+        float fine = burnNoise(q * 6.0 + 1.3);
+        a *= 1.0 - smoothstep(0.08, 0.5, s + 0.25 * (fine - 0.5) + 0.2 * (n - 0.5));
+        float ember = step(0.86, fine) * (1.0 - smoothstep(0.05, 0.25, s));
+        vec3 ash = mix(uAsh.rgb * (0.65 + 0.5 * fine), uFlame.rgb * 1.2 * uGlow.x, ember);
+        burnt = vec4(min(ash, vec3(1.0)) * a, a);
+    }
+    if (uAsh.a > 0.5 && u.x >= 0.0 && u.x <= 1.0 && u.y >= -0.25 && u.y <= 1.0)
+    {
+        vec2 sq = vec2(u.x * aspect.x, u.y * aspect.y + time * 0.35) * 14.0;
+        vec2 cell = floor(sq);
+        vec2 at = vec2(burnHash(cell + uBurn.z), burnHash(cell + uBurn.z + 17.0));
+        float live = step(0.6, burnHash(cell + 5.3));
+        float band = smoothstep(-0.25, -0.05, s) * (1.0 - smoothstep(0.05, 0.2, s));
+        float spark = (1.0 - smoothstep(0.0, 0.12, length(fract(sq) - at))) * live * band;
+        burnt += vec4(min(uFlame.rgb * 1.3, vec3(1.0)) * spark, spark);
+    }
+    finalColor = min(burnt, vec4(1.0));
+}
+`,
+		{ uBurn: vec(4), uFlame: vec(4), uAsh: vec(4), uGlow: vec(2) },
+	);

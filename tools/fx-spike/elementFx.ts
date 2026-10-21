@@ -291,6 +291,18 @@ console.log('element fx — the motion samplers');
 		'it shivers only as the ice locks in',
 	);
 	ice?.destroy();
+
+	const burn = KINDS.burn;
+	const fire = burn.filter?.create(frame('burn', 0));
+	const front = (t: number): number => {
+		burn.filter?.update(fire as Filter, frame('burn', t), { screenWidth: 120, screenHeight: 160 });
+		return (fire as unknown as { efx: { uBurn: Float32Array } }).efx.uBurn[0];
+	};
+	assert(
+		front(0) < 0 && front(0.25) < front(0.5) && front(0.5) < front(0.75) && front(1) >= 1.65,
+		'burn: the fire starts short of the element, sweeps on, and is past all its ash by the end',
+	);
+	fire?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------
