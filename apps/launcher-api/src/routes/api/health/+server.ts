@@ -1,4 +1,5 @@
 import { env } from '$env/dynamic/private';
+import { deployedCommit } from '$lib/server/buildId';
 import { getDb } from '$lib/server/db';
 import { getMigrationState, latestJournalEntry } from '$lib/server/db/migrate';
 import { json } from '@sveltejs/kit';
@@ -16,7 +17,8 @@ const UNDEFINED_TABLE = '42P01';
  * or someone is paged — which is why it checks the schema, not merely that Node is up.
  *
  * Unauthenticated and public, so it names STATES only — no error text, no host, no versions a
- * visitor could use.
+ * visitor could use. The one id it carries is `commit`, the deployed commit of this PUBLIC repo
+ * (every page's `?v=` already carries it), for `scripts/deploy-drift.mjs` to compare with `main`.
  */
 export const GET: RequestHandler = async () => {
 	const boot = getMigrationState();
@@ -56,7 +58,7 @@ export const GET: RequestHandler = async () => {
 	// not keep the service red after the DB is back and the schema is in fact current.
 	const ok = db === 'ok' && schema === 'current';
 	return json(
-		{ ok, db, migrations: { boot, schema } },
+		{ ok, commit: deployedCommit(), db, migrations: { boot, schema } },
 		{ status: ok ? 200 : 503, headers: { 'cache-control': 'no-store' } },
 	);
 };

@@ -193,9 +193,10 @@ desktop builds relate to the online path.
   tab's console, or `https://games.invisiblewall.org/<cloud key>/build-info.json`. A delivery
   carries the same `build-info.json` in its folder, and `EMBED.md` §5 names the build for the
   partner.
-- **Keep the keys apart.** An online game and a desktop build of the same game need different keys,
-  for example `<game>remake` online and `<game>` for the desktop build. Each path refuses to
-  overwrite the other's game.
+- **The keys stay apart.** An online game and a desktop build of the same game need different keys,
+  because each path refuses to overwrite the other's game. Online uses the project key; a desktop
+  build uses `<project>build`, which ☁ Publish picks itself from launcher v1.0.58 (its card reads
+  `<name> Build`).
 - **📦 Deliver registers no card** and the test server is not told. **▶ Play it** in the result
   dialog is the only way to open a delivery before the partner does.
 - **📦 Deliver uploads to the partner's CDN** (launcher v1.0.57 or newer; untick the box in its

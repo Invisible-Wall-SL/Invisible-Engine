@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import {
 	commitBundlePublish,
 	listRelayedFiles,
+	onlineRuntimeOf,
 	relayBundleFile,
 	relayFileLimitBytes,
 } from '$lib/server/gameBundleRelay';
@@ -86,11 +87,17 @@ export const POST: RequestHandler = async ({ request, url }) => {
  * so it can refuse an oversized file before uploading anything. With `?key=`, also what that game's
  * prefix already holds (`files: [{path, size, md5}]`), so a republish skips unchanged files. The
  * commit's verify-before-register makes skipping safe: a file wrongly skipped is one it finds absent.
+ *
+ * With `?key=`, also `onlineRuntime`: the runtime that serves the key ONLINE, or null. The launcher
+ * asks this BEFORE it builds and moves an online key to its `<key>build`, rather than spending a
+ * build on an upload the per-file guard would refuse.
  */
 export const GET: RequestHandler = async ({ request, url }) => {
 	const auth = await requireLauncherPublisher(request);
 	if (!auth.ok) return auth.response;
 	const key = url.searchParams.get('key') ?? '';
-	const files = key ? await listRelayedFiles(key) : undefined;
-	return json({ maxFileBytes: relayFileLimitBytes(), files }, { headers: NO_STORE });
+	const [files, onlineRuntime] = key
+		? await Promise.all([listRelayedFiles(key), onlineRuntimeOf(key)])
+		: [undefined, undefined];
+	return json({ maxFileBytes: relayFileLimitBytes(), files, onlineRuntime }, { headers: NO_STORE });
 };

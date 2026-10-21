@@ -124,6 +124,18 @@ refusing the saved key**, which is how a rotated key looks from a machine that k
 old one. Nothing else re-routes. A key the online Game Maker owns still stops the
 publish, and the portal runs the same check itself.
 
+**A desktop build never takes the online game's key** *(from **v1.0.58**)*. The online
+Game Maker publishes a project under the project's own key (`commonoverlayproject`), and
+each path refuses the other's key. So before it builds, ☁ Publish asks the portal whether
+the Cloud key is an online game. If it is, the build moves to `<key>build`
+(`commonoverlayprojectbuild`), saves that in the project's Cloud publish settings, and says
+so in the log and the result dialog. Its portal card is titled `<name> Build`, so it sits
+beside the online card rather than looking like a second copy of it. A project synced down
+without publish settings of its own already arrives with `<project>build`; one synced before that
+still holds the project key, and ☁ Publish moves it the same way. The build number carries on. On v1.0.57 the
+publish stops with *'…' is published ONLINE by the Invisible Game Maker* and names the key
+to use: set it in Edit → Cloud publish.
+
 **A build can be marked as able to sell bet tables.** The Invisible Test Server sells a
 desktop build the project's buy menu as a table only when the build is marked table-capable;
 otherwise it plays its plain line bet. The portal marks it when the registration says so, and
@@ -226,16 +238,16 @@ engine automatically.
 - **Your cloud authoring data is untouched.** The scaffolded build pulls art,
   fonts, scenes and sounds live from R2 at build time — scaffolding adds a repo
   and changes nothing else.
-- If the game was **already published online**, publish the desktop build under a
-  different key: the two publish paths refuse to overwrite each other's card.
+- If the game was **already published online**, the desktop build publishes under
+  `<key>build` beside it — see *A desktop build never takes the online game's key*.
 
 > **🎮 New Project** is the other direction — for a game that does *not* exist in
 > the portal yet. It creates the portal project too. For a repo you already have,
 > point *Game root folder* at the clone and press **⬆ Setup**.
 
 > Online publish and desktop publish are different products and deliberately
-> refuse to overwrite each other's game card. Keep the keys distinct — `<game>`
-> for the desktop build, `<game>remake` for the online one.
+> refuse to overwrite each other's game card. The keys stay distinct on their own:
+> the project key online, `<project>build` for the desktop build.
 
 ### 📦 Deliver — build the folder a partner hosts
 

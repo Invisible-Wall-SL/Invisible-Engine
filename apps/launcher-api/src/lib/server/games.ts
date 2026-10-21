@@ -82,8 +82,8 @@ export async function getGame(key: string): Promise<Game | undefined> {
  * built bundle — and boot the shared `_runtime/*` bundle against live R2 authoring
  * data. The desktop launcher's `register-game` uses this to refuse overwriting an
  * online card with a desktop build (the mirror of the `hasOwnBuiltBundle` guard the
- * online `publishGame` already applies in the other direction). Keep the two keys
- * distinct instead: `<game>` for the desktop build, `<game>remake` for the online one.
+ * online `publishGame` already applies in the other direction). The desktop build of an
+ * online project publishes under `desktopBuildKey` (`<project>build`) instead.
  */
 export function isOnlineRuntimeGameUrl(url: string): boolean {
 	try {

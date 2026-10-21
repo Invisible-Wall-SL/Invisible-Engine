@@ -49,11 +49,40 @@ const BUILD_CMD = `${SUBMODULE_PIN} && ${DEFAULT_GAME_BUILD_CMD}`;
 const BUILD_CWD = '.';
 const BUILD_OUT = 'build';
 
+const DESKTOP_BUILD_SUFFIX = 'build';
+/** Game and project keys share the slug rule `^[a-z0-9][a-z0-9_-]{0,63}$`. */
+const MAX_KEY_LENGTH = 64;
+
+/**
+ * The cloud key a project's DESKTOP build publishes under: `<project>build`, never the project key
+ * itself. The online Game Maker publishes a project under its own key (`publishGame.ts`), and each
+ * side refuses the other's (`assertNotOnlinePublished` for a desktop upload, `hasOwnBuiltBundle`
+ * for an online publish) — so a desktop build on the project key either fails outright or blocks
+ * the project from ever going online. Truncated to keep the result a valid key.
+ */
+export function desktopBuildKey(projectKey: string): string {
+	const base = projectKey.slice(0, MAX_KEY_LENGTH - DESKTOP_BUILD_SUFFIX.length);
+	// A full-length key that already ends in the suffix would truncate back to itself.
+	return (
+		(base + DESKTOP_BUILD_SUFFIX === projectKey ? base.slice(0, -1) : base) + DESKTOP_BUILD_SUFFIX
+	);
+}
+
+/**
+ * The portal Games card title for a desktop build registered under {@link desktopBuildKey}, so it
+ * never reads the same as the project's online card. Only the CARD changes: the publish block's
+ * `name` stays the game's own, because the desktop derives the partner's `gameAlias` from it.
+ */
+export function desktopBuildName(name: string): string {
+	const trimmed = name.trim();
+	return /(^|[\s_-])build$/i.test(trimmed) ? trimmed : `${trimmed} Build`;
+}
+
 /** The `game.publish` block the desktop launcher builds and publishes from. */
 export interface LauncherPublishBlock {
-	/** Cloud/game key on the test server — the portal project key, used verbatim. */
+	/** Cloud/game key on the test server — {@link desktopBuildKey} of the project key. */
 	key: string;
-	/** Display name on the portal Games card. */
+	/** The game's display name — its card title via {@link desktopBuildName}. */
 	name: string;
 	/** Portal project key the game is scoped to (omitting it registers it global). */
 	project: string;
@@ -76,13 +105,12 @@ export interface DerivableProject {
 
 /**
  * The publish block a project's own identity implies. Pure — no IO, no defaults hidden
- * in a dialog. The cloud key IS the portal project key: they are the same slug rule
- * (`^[a-z0-9][a-z0-9_-]{0,63}$`) and keeping them equal is what scopes the registered
- * game to its project instead of landing it global.
+ * in a dialog. The cloud key is {@link desktopBuildKey}, so the build gets its own card
+ * beside the online game's; `project` is what scopes that card to the project.
  */
 export function derivePublishBlock(project: DerivableProject): LauncherPublishBlock {
 	return {
-		key: project.key,
+		key: desktopBuildKey(project.key),
 		name: project.name || project.key,
 		project: project.key,
 		protocol: protocolFor(project.gameType),

@@ -81,7 +81,7 @@ GitHub Releases during install. Two consequences for a deploy:
 | **Invisible-test-Server** | `/services/test-server/**`, `/scripts/mock-rgs-server*.mjs` |
 | **director-worker**       | `/services/director-worker/**`, `/packages/director-costs/**` |
 
-Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
+Each list is exactly what that service's Dockerfile `COPY`s, so **a new build input needs a new watch path** or the service will quietly keep deploying the old code. The same lists live in `scripts/deploy-drift.mjs` (`deploy-drift.fixture.mjs` fails when the two differ), so change both. The **launcher** deliberately has none: it builds from the whole pnpm workspace (`apps/`, `packages/`, the lockfile, turbo config), and a partial list there would strand a real change.
 
 > ### ⚠️ The launcher has no healthcheck, so every push to `main` is a brief launcher outage
 >
@@ -126,7 +126,9 @@ So a push is fully out when **every service you expected to build says `Success 
 
 **Then verify the RUNNING code, not the build:**
 
-- **launcher** — `curl -s https://app.invisiblewall.org/_app/version.json` returns `{"version":"<ms epoch>"}`, SvelteKit's build stamp. Decode it (`new Date(Number(v))`); if it is minutes old, this deploy is live. This works for ANY launcher change, unlike probing a route for a 404 → 401 flip, which only proves a deploy when the change ADDS a route.
+- **Every public service at once** — `node scripts/deploy-drift.mjs` (from a full clone) asks each service which commit it runs and lists the commits on `main` after it that touch its watch paths (every commit, for the launcher). `deploying` means they are under 45 minutes old; `behind` means one is older, a deploy Railway never ran. Why it matters: Railway deploys on GitHub's push webhook and never retries one it missed (an outage, a dropped webhook). The launcher catches up on the next push, but a watch-path service only rebuilds on a push that touches its own files, so its missed deploy stays missing. The fix is to deploy that service's latest commit in Railway; a Redeploy of an old deployment rebuilds the same old commit. It can't see `director-worker` (no public URL); check that one's commit status by hand.
+- **launcher** — `curl -s https://app.invisiblewall.org/api/health` names the running commit (`"commit"`, 12 chars of `RAILWAY_GIT_COMMIT_SHA`, since 2026-10-21). `curl -s https://app.invisiblewall.org/_app/version.json` returns `{"version":"<ms epoch>"}`, SvelteKit's build stamp. Decode it (`new Date(Number(v))`); if it is minutes old, this deploy is live. Both work for ANY launcher change, unlike probing a route for a 404 → 401 flip, which only proves a deploy when the change ADDS a route.
+- **test server** — `GET https://games.invisiblewall.org/healthz` names the running commit the same way (since 2026-10-21).
 - **atlas-tool / sheet-tool** — `GET /healthz` (gate-exempt since 2026-09-29) names the running commit (`"commit"`, 12 chars of `RAILWAY_GIT_COMMIT_SHA`), the direct answer to "did my commit deploy?". Every other path needs a launcher session, so the only proof of BEHAVIOUR is exercising the change through the launcher, signed in. The commit-status read works too and needs no Railway token:
 
   ```bash
