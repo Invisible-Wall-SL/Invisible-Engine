@@ -126,6 +126,11 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-21 — **The deploy drift check runs on a schedule.** `.github/workflows/deploy-drift.yml`
+  runs `scripts/deploy-drift.mjs` at :07 and :37 and keeps one issue, *Deploy drift: a Railway
+  service is behind main*, open while anything is behind. It edits the issue's body rather than
+  commenting, so an outage is one notification, and closes it on catch-up. Its own PR, because a
+  diff under `.github/workflows/**` makes `current-games` ask for a human review.
 - 2026-10-21 — **Services report their commit, and `deploy-drift.mjs` finds a deploy Railway missed.** During a
   Railway outage, `b70cb58` merged and never deployed, and nothing would have retried it. Railway
   deploys on the push webhook only; a watch-path service misses such a deploy until a push touches
