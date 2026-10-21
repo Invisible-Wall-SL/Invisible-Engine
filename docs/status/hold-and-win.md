@@ -1090,15 +1090,33 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
     `holdandwintestsolo`. A session never touched it.
 
 15. **Author a banner on a real project.** Do this after the banner-screens change merges and
-    its runtime release passes. In the project's `/editor`, **＋ Add missing screens**, put art
-    on **Coin jackpot banner**, then publish. Force a feature with a jackpot coin and check that
-    your art replaces the dark plate. Every other popup should still look as it did.
+    its runtime release passes. In the project's `/editor`, pick **Coin jackpot banner** from
+    **＋ Banner screen…**, put art on it, then publish. Force a feature with a jackpot coin and
+    check that your art replaces the dark plate. Every other popup should still look as it did.
 
 ## Blocked (owner / external)
 
 - **Partner Hold and Win wire format.** This blocks production RGS play only. Authoring and mock play are not blocked.
 
 ## Recent changes
+
+- 2026-10-20 — **New games keep the exact built-in banner** (follow-up to #1279, owner's call).
+  #1279 put the nine banner screens in every new Hold and Win game and in **＋ Add missing
+  screens**. Each was a near copy of the coded banner, but not an exact one: text box font, no
+  stroke, no pop-in. Now no layout gets a banner screen unless an author asks for that popup.
+  - **The scaffold carries none** (`engineOwnedOnly` drops `isSelfMountedBannerScreen` scenes),
+    so a new game, or one made from a custom kind saved off a project, draws the coded banner for
+    every popup.
+  - **Bulk adds skip them.** `addOnSceneIds` leaves them out, and so does the editor's
+    **＋ Add missing screens**. The full scene set still lists them, so the editor offers each
+    through a new **＋ Banner screen…** picker that adds one popup's screen.
+  - **What #1279 set up for this is reverted.** The launcher's plain-template and coin-overlay
+    pot-full banner handling is gone, since the rules above now cover it.
+  - **Pins:** the template and `check:spins-modes-tools` scene-set pins are unchanged. The add-on
+    screen digests are main's again. `check:add-bonus-mode` checks the editor's "Add missing
+    screens" rule with the banner exclusion.
+  - **Engine runtime:** unchanged. An added screen still self-mounts and steps the coded banner
+    aside. Guide: [Banner screens](../tools/invisible-editor.md#banner-screens).
 
 - 2026-10-20 — **Every Hold and Win banner can be authored** (branch
   `claude/amazing-carson-f4o5v7`). The owner could not find where to author the "MINI €15.00"

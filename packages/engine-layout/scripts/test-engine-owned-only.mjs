@@ -15,7 +15,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const bundled = await esbuild.build({
 	stdin: {
-		contents: `export { defaultLayout, engineOwnedOnly, getFullSceneSet } from '../src/lib/index.ts';`,
+		contents: `export { defaultLayout, engineOwnedOnly, getFullSceneSet, isSelfMountedBannerScreen } from '../src/lib/index.ts';`,
 		resolveDir: HERE,
 		loader: 'ts',
 		sourcefile: 'test-engine-owned-only.entry.ts',
@@ -125,6 +125,9 @@ const SKELETON_BOARDS = {
 	holdAndWin: { reels: 5, rows: 3, cellSize: 120 },
 };
 
+/** @param {{ id: string, modeId?: string }} scene */
+const notBanner = (scene) => !mod.isSelfMountedBannerScreen(scene);
+
 for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {
 	const full = mod.getFullSceneSet(kind);
 	assert(!!full, `getFullSceneSet('${kind}') returns a doc`);
@@ -133,12 +136,13 @@ for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {
 
 	const scaffold = mod.engineOwnedOnly(full);
 
-	// (a) every scene survives the projection (skeleton = engine-owned only).
-	const fullIds = full.scenes.map((s) => s.id);
+	// (a) every scene survives the projection (skeleton = engine-owned only), but a Hold and Win
+	// banner screen: a new game keeps the built-in banner until an author adds one.
+	const fullIds = full.scenes.filter(notBanner).map((s) => s.id);
 	const scaffoldIds = scaffold.scenes.map((s) => s.id);
 	assert(
 		fullIds.length === scaffoldIds.length && fullIds.every((id, i) => id === scaffoldIds[i]),
-		`${kind} scaffold emits every scene (${scaffoldIds.join(', ')})`,
+		`${kind} scaffold emits every scene but the banner screens (${scaffoldIds.join(', ')})`,
 	);
 
 	// (b) reelGrid retained with the kind's real board shape.
@@ -167,7 +171,9 @@ for (const [kind, board] of Object.entries(SKELETON_BOARDS)) {
 	// `defaultBuyFeatureScene()` seeds into every layout — so those two, and nothing else, go.
 	const nodeIds = (doc) => doc.scenes.flatMap((s) => allNodes(s.nodes).map((n) => n.id));
 	const kept = new Set(nodeIds(scaffold));
-	const dropped = nodeIds(full).filter((id) => !kept.has(id));
+	const dropped = nodeIds({ ...full, scenes: full.scenes.filter(notBanner) }).filter(
+		(id) => !kept.has(id),
+	);
 	assert(
 		dropped.join() === 'buy-feature-dim,confirm-dim',
 		`${kind} scaffold drops only the buy-screen dims (dropped: ${dropped.join(', ')})`,

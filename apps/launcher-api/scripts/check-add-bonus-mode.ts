@@ -149,7 +149,8 @@ const {
 const { cleanOverlayPresets } = await import('../src/lib/server/projectAddOn.ts');
 const { noJackpotTiers, projectAddOns, respinModesOf, sceneSetOptionsFor } =
 	await import('../src/lib/addOns.ts');
-const { getFullSceneSet, kindCapabilities } = await import('engine-layout');
+const { getFullSceneSet, isSelfMountedBannerScreen, kindCapabilities } =
+	await import('engine-layout');
 const { createMockRgs: createHoldAndWinMock } =
 	await import('../../../scripts/mock-rgs-server-holdandwin.mjs');
 const { validateFlowV2Against } = await import('../src/lib/server/flowV2Validation.ts');
@@ -1060,6 +1061,7 @@ await check("the Scene Editor's full set never puts back what the template left 
 		assert(full, 'no scene set');
 		const missing = full.scenes.filter(
 			(ref) =>
+				!isSelfMountedBannerScreen(ref) &&
 				!layout.scenes.some((cur) => cur.id === ref.id) &&
 				!(ref.role && ref.role !== 'mode' && layout.scenes.some((cur) => cur.role === ref.role)),
 		);
@@ -1130,7 +1132,9 @@ await check("the Scene Editor's full set never puts back what the template left 
 		const full = getFullSceneSet('holdAndWin', sceneSetOptionsFor('holdAndWin', config));
 		assert(full, 'no scene set');
 		same(
-			full.scenes.filter((ref) => !scene(ref.id)).map((ref) => ref.id),
+			full.scenes
+				.filter((ref) => !isSelfMountedBannerScreen(ref) && !scene(ref.id))
+				.map((ref) => ref.id),
 			[],
 			'"Add missing screens" offers',
 		);

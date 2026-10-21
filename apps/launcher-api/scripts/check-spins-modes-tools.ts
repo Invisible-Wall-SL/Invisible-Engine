@@ -890,11 +890,8 @@ const BANNER_DIGESTS: Record<string, string> = {
 	'holdAndWin template on · scenes': '0e0893e4c367520f',
 	'holdAndWin template off · scenes': 'ee4a08851dd4a314',
 	'lines + threePots · scenes': '50eea9aa10d1632d',
-	'lines + threePots · addOnScreens': '13e3a5c75c917b3a',
 	'lines + potsToFreeSpins · scenes': '038bf8b4a7d4b49e',
-	'lines + potsToFreeSpins · addOnScreens': '68cd55cebc8334e3',
 	'borut-pots-sample · scenes': '1150b7a0f07cc9dd',
-	'borut-pots-sample · addOnScreens': '13e3a5c75c917b3a',
 };
 /** A scene that is not a banner screen, nor a respin mode's copy of one. */
 const notBanner = (sceneId: string): boolean =>

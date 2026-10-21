@@ -23,6 +23,7 @@
 import {
 	addOnSceneIds,
 	getFullSceneSet,
+	isSelfMountedBannerScreen,
 	kindCapabilities,
 	modeScenes,
 	type LayoutDoc,
@@ -169,9 +170,9 @@ const linesHw = withOverlay(lines, 'threePots');
 	check('1. two modes · no screen id twice', duplicates(ids(set)), []);
 	check('1. two modes · no node id twice', duplicates(nodeIds(set)), []);
 	check(
-		'1. two modes · the add-on ids name both modes',
+		'1. two modes · the add-on ids name both modes (all but the banner screens)',
 		addOnSceneIds('lines', options).filter((id) => second.some((scene) => scene.id === id)).length,
-		second.length,
+		second.filter((scene) => !isSelfMountedBannerScreen(scene)).length,
 	);
 	check(
 		'1. two modes · each mode is laid out for its own maxRows',
@@ -216,9 +217,11 @@ const linesHw = withOverlay(lines, 'threePots');
 		SECOND,
 	]);
 	check(
-		'2. holdAndWin kind · only the second mode is an add-on',
+		'2. holdAndWin kind · only the second mode is an add-on (all but its banner screens)',
 		addOnSceneIds('holdAndWin', sceneSetOptionsFor('holdAndWin', two)),
-		modeScenes(set.scenes, SECOND).map((scene) => scene.id),
+		modeScenes(set.scenes, SECOND)
+			.filter((scene) => !isSelfMountedBannerScreen(scene))
+			.map((scene) => scene.id),
 	);
 	check(
 		'2. holdAndWin kind · its own mode keeps the layout it has alone',

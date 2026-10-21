@@ -177,9 +177,9 @@ To start from something:
 presets (Grand, Super Hotfire Diamonds, 3 Pots of Egypt): the **Jackpot bar** and **Pots** show in
 the base game and the feature; the feature's screens (**Respin background**, **Respin board**,
 **Respin counter**, **Total win bar**, **Letters**, **Wheel**, **Feature intro**, **Jackpot win**,
-the feature's banner screens, **Feature outro**) carry the role _game mode_ `holdAndWin`, so they
-show only while the feature runs; **Lucky Spin intro** and the base game's banner screens are
-base-game screens (see [Banner screens](#banner-screens) below). A piece your preset does not use
+**Feature outro**) carry the role _game mode_ `holdAndWin`, so they show only while the feature
+runs; **Lucky Spin intro** is a base-game banner. Its other popups get a screen only when you add
+one ([Banner screens](#banner-screens) below). A piece your preset does not use
 draws nothing in the game (a pot whose meter the Game Config lacks, letters without a
 column-letters board end, a wheel without prizes), so leave it or delete its screen. The base
 game's **Messages** info bar is where the game's toasts ("UNLOCKED: PAYER", jackpot amounts)
@@ -214,10 +214,14 @@ and tiles only during the feature, and the panel at its default spot.
 #### Banner screens
 
 Every popup the Hold and Win feature announces over the board ("MINI" and its amount, "BONUS WIN",
-"PAYER ACTIVATED", …) has a screen of its own. While a popup's screen is in your layout, that
-screen draws the popup, so its art is yours; without it, the game draws its built-in banner, a
-dark rounded plate with a gold border. The words are not authored here: they are the project's
-[Win Text](win-text.md) templates, filled in by the game.
+"PAYER ACTIVATED", …) can have a screen of its own. Until you add one, the game draws its built-in
+banner for that popup, a dark rounded plate with a gold border. A game starts with none, so every
+popup looks exactly as the built-in banner draws it. Once a popup's screen is in your layout, that
+screen draws the popup, so its art is yours. The words are not authored here: they are the
+project's [Win Text](win-text.md) templates, filled in by the game.
+
+**Add one:** in the Screens panel, pick the popup from **＋ Banner screen…**. It adds that one
+screen, and only that popup changes. **＋ Add missing screens** never adds banner screens.
 
 | Screen                      | It shows when                                      | Its lines                    |
 | --------------------------- | -------------------------------------------------- | ---------------------------- |
@@ -237,10 +241,12 @@ The first five are feature screens, the next four base-game screens.
 
 **Author one:**
 
-1. Open the screen. It starts as a copy of the built-in banner: a **Plate** (the dark rounded
-   rectangle) under two text boxes, **Title** and **Detail** (title only where the popup has one
-   line). The text boxes read the popup's own lines (live sources `holdAndWinBanner` and
-   `holdAndWinBannerDetail`); the text you see in the editor is only a sample.
+1. Open the screen you added. It starts as a copy of the built-in banner: a **Plate** (the dark
+   rounded rectangle) under two text boxes, **Title** and **Detail** (title only where the popup has
+   one line). The text boxes read the popup's own lines (live sources `holdAndWinBanner` and
+   `holdAndWinBannerDetail`); the text you see in the editor is only a sample. The copy is close
+   but not exact: its font is the text box's, not the built-in banner's, and it has no pop-in until
+   you give it one (step 3).
 2. Drop your art onto the screen, move it under the text boxes in the outline, and delete the
    **Plate** (or recolour it). Restyle the text boxes (font, size, fill) or move them.
 3. For an entrance (a pop, a glow), make your banner a component, give it a timeline that **Plays
@@ -253,12 +259,8 @@ so coins flying to the total pass under it as they pass under the built-in banne
 to wire anything in `/flow-v2`: the game shows these screens itself. If you do show one from a
 flow, the flow owns it from then on.
 
-**A new Hold and Win project starts with all of them.** **A project made before these screens
-existed** has none of them and keeps the built-in banner: **＋ Add missing screens** adds them
-(with your other missing screens). Either way each starts as that copy of the built-in banner, so
-the popups look much the same until you change one. Its font is the text box's, not the built-in
-banner's, and it has no pop-in until you give it one (step 3). Delete a screen to bring the
-built-in banner back for that popup.
+Delete a popup's screen to bring the built-in banner back for it. A new game, or a game kind saved
+from a project, starts without banner screens, whatever the project had.
 
 **Jackpot win** and **Lucky Spin intro** are older: they appear only when the flow shows them
 around their beat. The Hold and Win starter flow does. A flow scaffolded on the Book-of starter
