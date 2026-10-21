@@ -548,7 +548,7 @@ The player's two HUD menus — tapping the **bet** readout to change the stake, 
 **auto spin** to set autoplay up — used to be coded dialogs with no authoring surface.
 They are now screens someone builds in the
 [Invisible Scene Editor](invisible-editor.md#the-bet-menu-and-the-auto-spin-screens)
-(**＋ New bet menu screen** / **＋ New auto spin screen**), and this flow decides *when*
+(**＋ Add screen ▾ → Bet menu screen** / **Auto spin screen**), and this flow decides *when*
 each one opens. Every Scene-Editor screen is a container, so both appear in the palette's
 **Containers** section by themselves, as **show Bet Menu** / **show Auto Spin**.
 
@@ -868,7 +868,7 @@ To animate the intro, key it in the Scene Editor's Animate mode (see the
 (not held) → **playCinematic** (its timeline, **Wait for it to finish**) before the held Show.
 
 The pot fills and celebrates on `meterUpdate`, drains, and the intro waits for a tap; only then do
-the feature's screens and board appear. The Scene Editor's **＋ Add missing screens** gives a
+the feature's screens and board appear. The Scene Editor's **＋ Add screen ▾ → Add missing screens** gives a
 project with a Hold and Win the `featureIntro` screen, with its Tap to Continue. Leave out
 `drainPots` to drain after the tap instead. While the feature's entry holds like this, the spin
 button is inert from the drain to the tap, and a STOP pressed on the trigger spin does not cut it
@@ -886,7 +886,7 @@ blocks or a spins mode. It adds the steps your flow does not have yet:
   tab's Mode triggers name its own mode and its node ids get their own prefix (`hw`, `hw2`, …).
   The `holdAndWin` mode shows the starter screens (`respinBoard`, `wheel`, …); any other mode
   shows its own copies, `<screen>-<modeId>` (e.g. `respinBoard-holdAndWin_2`) — the ones the Scene
-  Editor's **＋ Add missing screens** creates, so run that too;
+  Editor's **＋ Add screen ▾ → Add missing screens** creates, so run that too;
 - with a spins mode (a Game Config bonus that plays N spins of its own lines/ways/cluster/scatter
   game), a tab for each spins mode the flow has no tab for. It presents `freeSpinTrigger`,
   `updateFreeSpin` and `freeSpinEnd` on that mode's own intro, counter and outro screens
@@ -894,7 +894,7 @@ blocks or a spins mode. It adds the steps your flow does not have yet:
   drives the screens, its **Mode trigger**s also swap the base game's free-spin counter for the
   mode's own on **enter** and back on **exit**. Every other event of its spins falls back to
   **Global**. The tab is offered the base game's vocabulary, without the respin feature events.
-  Run the Scene Editor's **＋ Add missing screens** first: until the mode's intro and outro exist, the
+  Run the Scene Editor's **＋ Add screen ▾ → Add missing screens** first: until the mode's intro and outro exist, the
   tab's holds on them are an error and the flow does not publish.
 
 It never changes a node you authored and leaves an existing mode tab alone. Hover it to see
