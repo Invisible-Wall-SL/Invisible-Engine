@@ -14,7 +14,7 @@ Railway auto-deploys each service from GitHub `main` on push. There is no manual
    - Python service (`atlas-tool`/`sheet-tool`): `py -m py_compile services/<svc>/*.py`
 2. **Commit** with a concise imperative message. End with the Co-Authored-By line.
 3. **Push** — `git push origin HEAD`. ⚠️ This is the step most often forgotten. A commit that isn't pushed does NOT deploy. After pushing, confirm with `git log origin/main..HEAD --oneline` (should be empty).
-4. **Verify the running service actually picked up the change** — do not assume. Poll the live URL until it reflects the new code (e.g. a new route returns 200/401 instead of 404, or a changed response appears). Service URLs are in `docs/INFRA.md`.
+4. **Verify the running service actually picked up the change** — do not assume. `node scripts/deploy-drift.mjs` (from a full clone) asks every public service which commit it runs and lists what `main` has that it doesn't; each service's own answer is the `commit` in its health response (launcher `/api/health`, test server and Python tools `/healthz`). Then poll the live URL until it reflects the new code (e.g. a new route returns 200/401 instead of 404, or a changed response appears). Service URLs are in `docs/INFRA.md`.
 
 ## Env var changes (the #1 source of "it deployed but didn't work")
 

@@ -99,7 +99,15 @@ ok('cloud key is <project>build, scoped to the project', () => {
 });
 ok('the build key never collides with the online key, even at the 64-char limit', () => {
 	const KEY_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-	for (const key of ['commonoverlayproject', 'a', 'x'.repeat(59), 'y'.repeat(64), 'test1build']) {
+	const fullLengthBuild = `${'z'.repeat(59)}build`;
+	for (const key of [
+		'commonoverlayproject',
+		'a',
+		'x'.repeat(59),
+		'y'.repeat(64),
+		'test1build',
+		fullLengthBuild,
+	]) {
 		const built = desktopBuildKey(key);
 		assert.notEqual(built, key, key);
 		assert.match(built, KEY_RE, key);
@@ -107,6 +115,7 @@ ok('the build key never collides with the online key, even at the 64-char limit'
 	}
 	assert.equal(desktopBuildKey('commonoverlayproject'), 'commonoverlayprojectbuild');
 	assert.equal(desktopBuildKey('y'.repeat(64)), `${'y'.repeat(59)}build`);
+	assert.equal(desktopBuildKey(fullLengthBuild), `${'z'.repeat(58)}build`);
 });
 ok('the card title says Build once, and the block keeps the game name', () => {
 	assert.equal(desktopBuildName('CommonOverlayProject'), 'CommonOverlayProject Build');

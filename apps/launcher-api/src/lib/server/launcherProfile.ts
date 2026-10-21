@@ -61,7 +61,11 @@ const MAX_KEY_LENGTH = 64;
  * the project from ever going online. Truncated to keep the result a valid key.
  */
 export function desktopBuildKey(projectKey: string): string {
-	return projectKey.slice(0, MAX_KEY_LENGTH - DESKTOP_BUILD_SUFFIX.length) + DESKTOP_BUILD_SUFFIX;
+	const base = projectKey.slice(0, MAX_KEY_LENGTH - DESKTOP_BUILD_SUFFIX.length);
+	// A full-length key that already ends in the suffix would truncate back to itself.
+	return (
+		(base + DESKTOP_BUILD_SUFFIX === projectKey ? base.slice(0, -1) : base) + DESKTOP_BUILD_SUFFIX
+	);
 }
 
 /**

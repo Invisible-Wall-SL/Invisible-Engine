@@ -1,0 +1,88 @@
+# Deploy drift — is every Railway service running the code `main` says it should?
+#
+# Railway deploys on GitHub's push webhook, and a push it missed (Railway down, the webhook dropped)
+# is never retried. The launcher catches up on the next push; a service with Watch Paths only
+# rebuilds on a push that touches its own files, so a deploy it missed stays missing. This compares
+# each service's running commit (its health endpoint's `commit`) with `main` — the logic and the
+# service list are scripts/deploy-drift.mjs — and opens ONE issue while any service is behind,
+# closing it once every service has caught up. A service that is down is the uptime monitor's alarm,
+# not this one's.
+
+name: Deploy drift
+
+on:
+  schedule:
+    # Twice an hour, off the top of the hour, where GitHub delays and drops scheduled runs.
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-drift
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    if: github.repository == 'Invisible-Wall-SL/Invisible-Engine'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # `issues: write` is for the alert below and nothing else.
+    permissions:
+      contents: read
+      issues: write
+    env:
+      TITLE: 'Deploy drift: a Railway service is behind main'
+      GH_TOKEN: ${{ github.token }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      # The whole history (a running commit can be weeks old on a watch-path service), but no file
+      # contents: `git log -- <paths>` reads commits and trees only.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      # Exit 3 is drift and 0 is clean; anything else is the script failing, which fails the run.
+      - name: Compare each service's running commit with main
+        id: drift
+        run: |
+          set +e
+          node scripts/deploy-drift.mjs > report.md
+          code=$?
+          set -e
+          cat report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ "$code" = 0 ] || [ "$code" = 3 ]
+
+      # The body is EDITED, not commented on, so an outage that lasts hours is one notification.
+      - name: Alert — open or update the drift issue
+        if: ${{ steps.drift.outputs.code == '3' }}
+        run: |
+          body="$(cat report.md)
+
+          Run: ${RUN_URL}
+
+          In Railway, deploy the service's latest commit (a Redeploy of an old deployment rebuilds that same old commit). This issue closes itself once every service has caught up."
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$body"
+          fi
+
+      - name: Close the drift issue once every service has caught up
+        if: ${{ steps.drift.outputs.code == '0' }}
+        run: |
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue close "$existing" --repo "$GITHUB_REPOSITORY" --comment "Every service is running main's code again. Run: ${RUN_URL}"
+          fi

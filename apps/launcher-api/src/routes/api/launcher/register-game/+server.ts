@@ -218,9 +218,9 @@ export const POST: RequestHandler = async ({ request, url: launcherUrl }) => {
 	// GUARD (mirror of `hasOwnBuiltBundle` in publishGame.ts): never let a desktop
 	// publish overwrite a card that was published ENTIRELY online (the generic runtime,
 	// URL carries `?runtime=1`). Stamping a desktop bundle URL over it would shadow the
-	// live-fetch game with a stale compiled build under the same key. Keep the two keys
-	// distinct instead (`<game>` desktop, `<game>remake` online). 409 so the launcher
-	// explains it rather than silently clobbering.
+	// live-fetch game with a stale compiled build under the same key. The desktop build
+	// belongs under `desktopBuildKey` instead. 409 so the launcher explains it rather than
+	// silently clobbering.
 	const existing = await getGame(key);
 	if (existing && isOnlineRuntimeGameUrl(existing.url)) {
 		return json(

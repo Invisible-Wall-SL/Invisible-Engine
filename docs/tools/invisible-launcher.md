@@ -131,7 +131,8 @@ the Cloud key is an online game. If it is, the build moves to `<key>build`
 (`commonoverlayprojectbuild`), saves that in the project's Cloud publish settings, and says
 so in the log and the result dialog. Its portal card is titled `<name> Build`, so it sits
 beside the online card rather than looking like a second copy of it. A project synced down
-without publish settings of its own already arrives with `<project>build`. On v1.0.57 the
+without publish settings of its own already arrives with `<project>build`; one synced before that
+still holds the project key, and ☁ Publish moves it the same way. The build number carries on. On v1.0.57 the
 publish stops with *'…' is published ONLINE by the Invisible Game Maker* and names the key
 to use: set it in Edit → Cloud publish.
 

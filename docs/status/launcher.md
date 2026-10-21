@@ -70,7 +70,8 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
     (`{message}`, which the launcher already reads). This reaches v1.0.57 with no release.
     Verified on a production build: before, 409 `text/html`; after, 409 `application/json` with
     the reason. A browser (`Accept: text/html`) still gets the page.
-  - `launcherProfile.ts` `desktopBuildKey()`: a derived profile publishes under `<project>build`,
+  - `launcherProfile.ts` `desktopBuildKey()`: a derived profile publishes under `<project>build`
+    (one character shorter before the suffix when a 64-char key already ends in it),
     not the project key the online Game Maker uses. Each side refuses the other's key, so the old
     default either failed or blocked the project from going online. `project` still scopes the card.
   - `register-game`: a card registered under its project's `<project>build` is titled
@@ -80,11 +81,16 @@ The **portal** (`apps/launcher-api`) runs as the `launcher` service on Railway, 
   - `game-upload` GET `?key=` reports `onlineRuntime` (`onlineRuntimeOf`, fail-closed like the
     guard). Launcher **v1.0.58** (`invisible-launcher`) asks it before building and moves an
     online key to `<key>build` itself, then saves it and shares it via ⬆ Setup.
+  - v1.0.58 moves two kinds of key before building: one published online now, and an older
+    derived block's project key. The second matters because Sync prefers a local block to a derived
+    one, so a machine that synced before this change still holds the project key; publishing there
+    would make the online publish refuse the project (`hasOwnBuiltBundle`). The move carries the
+    build number over, so Deliver's version keeps counting. Seed Atlas seeds the portal project,
+    not the cloud key, and `register_game` names a refusal's reason.
   - Checks: `verify-launcher-profile.mts` (19), `check:game-bundle-relay` (40); the launcher's
-    `verify_publish_route.py` (66).
-  - **Not covered:** a v1.0.57 launcher that already holds a local copy of an older derived block
-    keeps that key, because Sync prefers a local block to a derived one. It is moved on the first
-    v1.0.58 publish; until then, set the key the 409 names.
+    `verify_publish_route.py` (73).
+  - Until v1.0.58 ships, a v1.0.57 publish on such a key stops with a 409 that names the key to
+    set.
 - 2026-10-19 — **`on=partner` loads the version we just delivered.** The partner's create-session
   takes `config.versionPath`, which overrides the game's server setting for that one session, so
   `/api/partner-session?…&on=partner` now sends the latest sealed delivery for the card's alias

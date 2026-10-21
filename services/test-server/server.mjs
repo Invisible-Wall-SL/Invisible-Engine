@@ -823,6 +823,8 @@ const handleRequest = async (req, res) => {
 		const ok = lastHydrate.succeeded || Object.keys(registry).length > 0;
 		return sendJson(res, ok ? 200 : 503, {
 			ok,
+			// The deployed commit, for `scripts/deploy-drift.mjs` (12 chars, as the other services).
+			commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? '').slice(0, 12),
 			games: Object.keys(registry),
 			runtimes: runtimePointers,
 			pinned,

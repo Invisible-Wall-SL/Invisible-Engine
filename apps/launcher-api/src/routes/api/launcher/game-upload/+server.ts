@@ -96,7 +96,8 @@ export const GET: RequestHandler = async ({ request, url }) => {
 	const auth = await requireLauncherPublisher(request);
 	if (!auth.ok) return auth.response;
 	const key = url.searchParams.get('key') ?? '';
-	const files = key ? await listRelayedFiles(key) : undefined;
-	const onlineRuntime = key ? await onlineRuntimeOf(key) : undefined;
+	const [files, onlineRuntime] = key
+		? await Promise.all([listRelayedFiles(key), onlineRuntimeOf(key)])
+		: [undefined, undefined];
 	return json({ maxFileBytes: relayFileLimitBytes(), files, onlineRuntime }, { headers: NO_STORE });
 };

@@ -10,5 +10,13 @@
  * injects `RAILWAY_GIT_COMMIT_SHA` and restarts the process on every deploy, so this changes exactly
  * when the assets can change; the module-load timestamp is a fallback for local / non-Railway hosts.
  */
-export const BUILD_ID: string =
-	process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 12) || String(Date.now());
+export const BUILD_ID: string = deployedCommit() || String(Date.now());
+
+/**
+ * The commit this deploy runs: 12 chars of `RAILWAY_GIT_COMMIT_SHA` (the same rule as the Python
+ * tools' `/healthz`), or '' off Railway. `/api/health` reports it, which is how
+ * `scripts/deploy-drift.mjs` tells a deploy Railway never ran from one still in flight.
+ */
+export function deployedCommit(): string {
+	return process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 12) ?? '';
+}
