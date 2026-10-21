@@ -1,5 +1,9 @@
 import type { CinematicElementFxChannel, CinematicFxParamChannel } from 'engine-cinematic';
-import { elementFxChannels, readElementFxEntries } from 'constants-shared/elementFx';
+import {
+	elementFxChannels,
+	readElementFxEntries,
+	type ElementFxEntry,
+} from 'constants-shared/elementFx';
 import type { EffectParam } from 'engine-fx';
 
 import { drivableFxParams, fxParamChannel, fxParamOfChannel } from './fxNodeParams';
@@ -59,6 +63,16 @@ export function nodeActorChannelsForKind(
 	if (kind === 'effect')
 		return [...TRANSFORM, ...drivableFxParams(fxParams).map((p) => fxParamChannel(p.id))];
 	return [...TRANSFORM];
+}
+
+/**
+ * The `keyed` Element FX entries a timeline can pose on `node`: its enabled `keyed` entries, except
+ * on the reel grid, whose effects play on the reel stack, which nothing poses. One rule for the
+ * game, the publish gate and the editor's Animate rows.
+ */
+export function keyableElementFxEntries(node: LayoutNode): ElementFxEntry[] {
+	if (node.kind === 'reelGrid') return [];
+	return readElementFxEntries(node.elementFx).filter((e) => elementFxChannels([e]).length > 0);
 }
 
 export const isNodeActorCast = (cast: CinematicCast | undefined): boolean => cast?.kind === 'node';
@@ -254,7 +268,7 @@ export function validateNodeActors(
 		const effect = node.kind === 'effect' ? effects(node.effectId) : undefined;
 		const allowed = new Set<string>([
 			...nodeActorChannelsForKind(node.kind, effect?.params),
-			...elementFxChannels(readElementFxEntries(node.elementFx)),
+			...elementFxChannels(keyableElementFxEntries(node)),
 		]);
 		for (const channel of keyedNodeChannels(tracks)) {
 			if (allowed.has(channel)) continue;

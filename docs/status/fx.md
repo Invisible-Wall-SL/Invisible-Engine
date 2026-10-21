@@ -66,7 +66,14 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   editor, then watch it in the game. And a Sphericon on a symbol-sized element.
   Worth an eye: a crash / crumble on an animating rig (it breaks a still), an exit (pop out, fade
   out, dissolve out, crash, crumble) staying hidden until its stop cue, and the base-game screen,
-  whose two parts around the reels each play the screen's FX.
+  whose two parts around the reels each play the screen's FX. In the editor: a posed node can be
+  clicked and dragged mid-effect, Esc during ▶ keeps the selection, a cut never blinks the stage,
+  and panning or zooming a posed still cuts it again once you stop.
+- **Element FX preview, known limits** (editor only; the game plays on the live element): a still
+  copies its canvases with plain compositing, so an additive or screen-blended element previews as
+  a normal one (and a rig layer's dimming scrim, when up, is copied with it); each posed node keeps
+  a stage-sized overlay canvas while its timeline previews; a still that cannot be read back (a
+  cross-origin image) ends ▶ without a message.
 - **Element FX next** (design §9): HUD instances (`LayoutEditable` renders them outside
   `<LayoutNodeView>`), rotated elements (the passes assume an axis-aligned box), and binding /
   keying an entry's params.
@@ -108,6 +115,36 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-21 — **Element FX: code-review fixes to the editor preview and the Sphericon.**
+  - **A posed node stays selectable.** The stand-in hiding a node behind its still now applies to
+    the draw layers only (`previewResolveTransform`); the hit tests, the selection frame and the
+    drag read `previewPoseTransform`, which only the Outline's Hide skips. Before, in Animate a
+    node mid-effect could not be clicked or dragged and lost its handles.
+  - **Esc during ▶** stops the preview only; it no longer also ran the stage's Esc (select parent).
+  - **Cuts never blink the stage.** `coverStage` puts a frozen copy of every stage canvas (blend
+    modes and opacity included) over the stage while a still is cut, for ▶ and for posed stills.
+  - **Posed stills stay current.** An edit of a keyed entry re-poses it on the same still
+    (`PosedOverlay.setEntries`); an edit of the node's art (not its Element FX or baked
+    `coverBox`), a pan of a still the canvas's edge cropped, or zooming in past 1.25× of the cut
+    zoom cuts a new still once it has held for 300 ms, the old one showing meanwhile. The posed
+    sync now tracks the posed nodes' doc.
+  - **The reel grid** is never keyable, in one rule: `keyableElementFxEntries` (engine-layout)
+    serves `validateNodeActors`, the Animate rows, the ⚠ stale rows (a reel grid's old keys now
+    show and can be deleted) and the stage posing (it no longer poses the reel grid).
+  - **The Timeline** redraws its rows only when the keyed set changes (`keyedFxKey`), not on every
+    param or strength edit. The FX section resets its open rows per node and per screen.
+  - **Sphericon:** Tilt now tilts the solid towards the viewer (it only shifted the roll's start);
+    its art is upright unturned and rolled half a turn (it was turned 90° as it folded); Rolls is
+    taken in whole half-turns and the side swing returns to 0, so it unfolds upright (one roll
+    used to end mirrored); a ray along a cone's slope is solved instead of dropped.
+  - **Gates:** `check:element-fx` 78 → 79 (the reel grid rule) and its GLSL scan covers every
+    GLSL ES 1.00 / 3.00 reserved word. Green: `check:element-fx-flow` (20), `check:flow-bonus-modes`
+    (113), `check:component-timelines` (80), `check:component-state-machine` (184),
+    `check:component-state-machine-editor` (79), `check:fx-node-params` (105),
+    `check:timeline-rows`, `check:screen-timeline-mounts`, `check:editor-gl-contexts`,
+    `check:vendored-bundles`, `check:svelte` at baseline (launcher-api 46, engine-layout 291,
+    pixi-svelte 14), `pnpm lint`, `check:undefined-names`, the launcher build. The sphericon
+    renders the same on WebGL1 and WebGL2 in the headless harness. ⏳ Not clicked in a browser.
 - 2026-10-21 — **Element FX in the editor, the timeline and the state machine; a Sphericon.**
   Owner follow-ups: put Element FX in the component state machine and animate them on the stage;
   add a Sphericon 3D effect.

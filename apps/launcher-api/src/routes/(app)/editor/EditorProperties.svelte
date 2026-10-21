@@ -6079,14 +6079,17 @@
 			onChange={markDirty}
 		/>
 	{/if}
-	<EditorElementFx
-		entries={node.elementFx}
-		disabled={componentReadOnly}
-		keyable={node.kind !== 'reelGrid'}
-		cueListId={SIGNAL_SUGGESTIONS_ID}
-		onChange={(next) => setElementFx(node, next)}
-		preview={(entry) => playElementFxPreview({ kind: 'node', id: node.id }, entry)}
-	/>
+	<!-- Keyed by node: which rows are open is per element (entry ids repeat across nodes). -->
+	{#key node.id}
+		<EditorElementFx
+			entries={node.elementFx}
+			disabled={componentReadOnly}
+			keyable={node.kind !== 'reelGrid'}
+			cueListId={SIGNAL_SUGGESTIONS_ID}
+			onChange={(next) => setElementFx(node, next)}
+			preview={(entry) => playElementFxPreview({ kind: 'node', id: node.id }, entry)}
+		/>
+	{/key}
 {/if}
 
 <style>

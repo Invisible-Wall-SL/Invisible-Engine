@@ -39,6 +39,7 @@
 	import {
 		findActorNode,
 		fxParamRest,
+		keyableElementFxEntries,
 		placedFxParamValues,
 		textNodeStrings,
 		validateNodeActors,
@@ -1215,12 +1216,18 @@
 		untrack(() => tl?.renderTimeline());
 	});
 
-	/** Every node's Element FX on the host, read deeply: what its keyed rows are made of. */
-	const elementFxOf = (nodes: LayoutNode[]): unknown[] =>
-		nodes.map((n) => [n.elementFx, n.kind === 'container' ? elementFxOf(n.children) : null]);
-	// An entry turned `keyed` (or back, or removed) adds or retires rows: redraw them.
+	/** Every node's keyed Element FX on the host (id and kind): what its keyed rows are made of. */
+	const keyedFxOf = (nodes: LayoutNode[]): unknown[] =>
+		nodes.map((n) => [
+			n.id,
+			keyableElementFxEntries(n).map((e) => [e.id, e.kind]),
+			n.kind === 'container' ? keyedFxOf(n.children) : null,
+		]);
+	/** Changes only when an entry turns `keyed` (or back), is removed or changes kind — never on a
+	 *  param or strength edit, which leaves the rows as they are. */
+	const keyedFxKey = $derived(JSON.stringify(keyedFxOf(scene?.nodes ?? [])));
 	$effect(() => {
-		void JSON.stringify(elementFxOf(scene?.nodes ?? []));
+		void keyedFxKey;
 		untrack(() => tl?.renderTimeline());
 	});
 

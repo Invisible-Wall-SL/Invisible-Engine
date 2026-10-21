@@ -214,16 +214,26 @@ export function setFxPreviewHidden(ids: ReadonlySet<string>, owner: symbol): voi
 	version.n += 1;
 }
 
-/** The Outline (or an Element FX preview) hides `nodeId` on the stage. */
+/** The Outline hides `nodeId`: the stage neither draws it nor hits it. */
 export function isViewHidden(nodeId: string): boolean {
-	return viewHidden.has(nodeId) || fxPreviewHidden.some((h) => h.ids.has(nodeId));
+	return viewHidden.has(nodeId);
 }
 
-/** `resolveTransform` with the previewed transform targets folded on — for the draw paths. */
+/** `resolveTransform` with the previewed transform targets folded on — for the draw paths, which
+ *  also skip a node an Element FX preview stands in for. */
 export function previewResolveTransform(
 	node: LayoutNode,
 	layoutType: LayoutType,
 ): ResolvedTransform {
+	if (fxPreviewHidden.some((h) => h.ids.has(node.id))) {
+		return { ...resolveTransform(node, layoutType), visible: false };
+	}
+	return previewPoseTransform(node, layoutType);
+}
+
+/** Where the author sees `node` — for the hit tests and the selection: only the Outline hides it,
+ *  so a node an Element FX still stands in for is still clicked, dragged and framed. */
+export function previewPoseTransform(node: LayoutNode, layoutType: LayoutType): ResolvedTransform {
 	if (isViewHidden(node.id)) return { ...resolveTransform(node, layoutType), visible: false };
 	return previewDrawnTransform(node, layoutType);
 }

@@ -15,7 +15,6 @@ import {
 	elementFxChannels,
 	elementFxOfChannel,
 	elementFxSpec,
-	readElementFxEntries,
 	type ElementFxEntry,
 } from 'constants-shared/elementFx';
 import type { EffectParam, EffectParamValues } from 'engine-fx';
@@ -26,6 +25,7 @@ import {
 	fxParamChannel,
 	fxParamOfChannel,
 	fxParamRest,
+	keyableElementFxEntries,
 	keyedNodeChannels,
 	nodeActorBindings,
 	nodeActorChannelsForKind,
@@ -667,8 +667,7 @@ export interface ElementFxChannelRow {
  * entries share a kind.
  */
 export function keyableElementFxChannels(node: LayoutNode): ElementFxChannelRow[] {
-	if (node.kind === 'reelGrid') return [];
-	const keyed = readElementFxEntries(node.elementFx).filter((e) => elementFxChannels([e]).length);
+	const keyed = keyableElementFxEntries(node);
 	return keyed.flatMap((entry) => {
 		const kind = elementFxSpec(entry.kind).label;
 		const shared = keyed.some((other) => other !== entry && other.kind === entry.kind);
@@ -706,7 +705,7 @@ export function staleElementFxChannels(
 	node: LayoutNode,
 	layout?: string,
 ): CinematicElementFxChannel[] {
-	const offered = new Set(elementFxChannels(readElementFxEntries(node.elementFx)));
+	const offered = new Set(elementFxChannels(keyableElementFxEntries(node)));
 	const out: CinematicElementFxChannel[] = [];
 	for (const track of propertyTracksOf(doc, actorId, layout)) {
 		for (const [name, keys] of Object.entries(track.channels ?? {})) {

@@ -44,7 +44,10 @@ import {
 	ELEMENT_FX_CHANNEL_PREFIX as CINEMATIC_ELEMENT_FX_PREFIX,
 	sampleNodeActor,
 } from '../../packages/engine-cinematic/src/cinematicEval.js';
-import { validateNodeActors } from '../../packages/engine-layout/src/lib/cinematicNodes';
+import {
+	keyableElementFxEntries,
+	validateNodeActors,
+} from '../../packages/engine-layout/src/lib/cinematicNodes';
 import { blendNodeSamples } from '../../packages/engine-layout/src/lib/stateMachine';
 import { KINDS } from '../../packages/pixi-svelte/src/lib/elementFx/kinds';
 import { REST, type FxFrame } from '../../packages/pixi-svelte/src/lib/elementFx/frame';
@@ -530,6 +533,12 @@ console.log('element fx — keyed: a timeline poses it');
 		issues.length === 1 && issues[0].message.includes('efx:zz'),
 		'validation takes a keyed entry’s channel and reports one naming no keyed entry',
 	);
+	const reels = { ...scene, nodes: [{ ...scene.nodes[0], kind: 'reelGrid' }] };
+	assert(
+		keyableElementFxEntries(reels.nodes[0] as never).length === 0 &&
+			validateNodeActors(doc as never, reels as never).some((i) => i.message.includes('efx:a')),
+		'nothing poses the reel grid’s Element FX: no keyable entry, its keys reported',
+	);
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -538,8 +547,20 @@ console.log('element fx — the shaders run on WebGL1');
 	const shaders = read('packages/pixi-svelte/src/lib/elementFx/shaders.ts');
 	const code = shaders.replace(/\/\/[^\n]*/g, '');
 	const es3Only = ['transpose(', 'inverse(', 'texelFetch(', 'textureSize(', 'determinant('];
-	const reserved = ['flat', 'smooth', 'sample', 'centroid', 'layout', 'patch'].filter((word) =>
-		new RegExp(`\\b(?:float|vec[234]|mat[234]|int|bool)\\s+${word}\\b`).test(code),
+	// GLSL ES 1.00 and 3.00 keywords and words reserved for future use (Pixi compiles a pass as
+	// `#version 300 es` on WebGL2): none may name a variable or a function.
+	const GLSL_RESERVED = [
+		...['attribute', 'varying', 'in', 'out', 'inout', 'uniform', 'precision', 'invariant'],
+		...['flat', 'smooth', 'centroid', 'layout', 'sample', 'patch', 'noperspective', 'switch'],
+		...['case', 'default', 'discard', 'uint', 'filter', 'input', 'output', 'active', 'common'],
+		...['resource', 'partition', 'subroutine', 'coherent', 'volatile', 'restrict', 'readonly'],
+		...['writeonly', 'packed', 'superp', 'half', 'fixed', 'long', 'short', 'double', 'unsigned'],
+		...['interface', 'extern', 'external', 'static', 'public', 'inline', 'noinline', 'goto'],
+		...['this', 'template', 'typedef', 'enum', 'union', 'class', 'asm', 'cast', 'namespace'],
+		...['using', 'sizeof'],
+	];
+	const reserved = GLSL_RESERVED.filter((word) =>
+		new RegExp(`\\b(?:float|vec[234]|mat[234]|int|bool|void)\\s+${word}\\b`).test(code),
 	);
 	assert(
 		!reserved.length,

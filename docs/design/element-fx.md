@@ -160,6 +160,14 @@ A `keyed` entry adds two rows to the node's **Animate** timeline (progress and s
 them and scrubbing or playing the timeline — or previewing a state of the component's state
 machine — poses the effect on the stage through the same capture overlay.
 
+The capture hides the rest of the element's screen for a few frames, so it runs under a frozen copy
+of the whole stage (`coverStage`: every canvas, blend modes included). A posed still is cut once
+per node and kept: an edit of the entries re-poses them on it; an edit of the node's art (not its
+Element FX, not the editor's baked `coverBox`), or a view that cropped the still at the canvas's
+edge or zooms in past its sharpness, cuts it again once that has held for a moment, the old still
+showing meanwhile. A node a still stands in for is skipped by the draw layers only: the hit tests
+and the selection still find it where it draws.
+
 ## 8. Gates
 
 - `pnpm check:element-fx` (`tools/fx-spike/elementFx.ts`): the catalog, the reader, every motion

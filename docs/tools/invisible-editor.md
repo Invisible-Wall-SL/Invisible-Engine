@@ -877,10 +877,10 @@ To fire a one-off effect on any element from a flow, with nothing authored here,
 
 **Preview on the stage (▶).** The canvas does not play Element FX by itself (an _Always_ loop does
 not run on the stage), so ▶ is how you see one. It plays that one effect, with the game's own code,
-on a still of the element: the canvas shows the element alone for a moment, copies it (with a
-margin, so a glow it draws past its box comes along), hides the real element and plays the effect
-on the copy. A screen's ▶ copies the whole frame. One preview plays at a time, a second ▶ replaces
-it, and nothing is saved.
+on a still of the element: the canvas shows the element alone for a moment (the stage holds its
+picture meanwhile, so nothing blinks), copies it (with a margin, so a glow it draws past its box
+comes along), hides the real element and plays the effect on the copy. A screen's ▶ copies the
+whole frame. One preview plays at a time, a second ▶ replaces it, and nothing is saved.
 
 - _Always_ loops twice. _When shown_ and _On cue_ play their **Plays** count, three times at most
   (_until stopped_ plays three). _Keyed_ plays once from rest to its end, with no delay. The last
@@ -888,7 +888,7 @@ it, and nothing is saved.
 - It plays on a **still**, so an animating rig or clip holds still for the preview. In the game the
   effect plays on the live element.
 - **Esc**, a press on the stage, the mouse wheel, a pan, a zoom or a switch of device layout stops
-  it.
+  it. Esc only stops the preview: the selection stays.
 - Only what the visible stage shows is copied. When there is nothing to play on (the element's
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
@@ -1403,9 +1403,13 @@ scrubbing the timeline scrubs the effect.
   so you can select and delete them. The ⚠ issues pill of a component timeline lists them too.
 - **On the stage.** While a timeline is open in Animate (scrubbed or playing), and while the State
   machine tab's **▶ Run** previews a state, the stage poses each keyed effect. The first time the
-  timeline takes a node past rest, the canvas cuts a still of it (as ▶ does) and draws the effect on
-  it at the keyed pose, following the node as the timeline moves, scales or turns it. The real node
-  hides only while an effect is past rest.
+  timeline takes a node past rest, the canvas cuts a still of it (as ▶ does, the stage holding its
+  picture for that moment) and draws the effect on it at the keyed pose, following the node as the
+  timeline moves, scales or turns it. The real node hides only while an effect is past rest, and
+  stays selectable: a click, a drag and the selection frame land where it draws.
+  - Editing the entry (its settings, strength or params) re-poses it on the same still at once.
+  - Changing the node's art, panning a still that was cut at the stage's edge, or zooming in past
+    the still's sharpness cuts a new still once you stop for a moment; the old one shows meanwhile.
 - **In a state machine.** A state plays its timeline, so it poses the node's keyed effects, and a
   transition's **Blend** mixes them from the state being left. A state whose timeline does not key
   an entry counts as at rest (progress 0, strength 1).

@@ -86,6 +86,9 @@ const punch = (t: number, rise: number): number =>
 const turnProgress = (frame: FxFrame): number =>
 	frame.looping ? frame.t : easeInOutCubic(frame.t);
 
+/** How far a sphericon swings side to side as it rolls, radians. */
+const SPHERICON_SWING = Math.PI / 5;
+
 const hash = (n: number): number => {
 	const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
 	return x - Math.floor(x);
@@ -350,12 +353,14 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 			update(filter, frame) {
 				const t = frame.t;
 				const folded = smoothstep(0, 0.18, t) * (1 - smoothstep(0.82, 1, t));
-				const turns = num(frame, 'turns');
+				// Whole half-turns, so it unfolds upright: the solid shows the art upright both unturned
+				// and rolled half a turn. It swings side to side as a rolling sphericon meanders.
+				const turns = Math.max(0.5, Math.round(num(frame, 'turns') * 2) / 2);
 				filter.set(
 					'uSpin',
 					TAU * turns * t,
-					Math.PI * turns * easeInOutCubic(t),
-					num(frame, 'tilt') * DEG,
+					SPHERICON_SWING * Math.sin(TAU * turns * t),
+					num(frame, 'tilt') * DEG * folded,
 				);
 				filter.set(
 					'uSphericon',

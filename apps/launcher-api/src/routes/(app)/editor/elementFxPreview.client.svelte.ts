@@ -7,14 +7,16 @@ import { createPixiSurface, sharedPixiRenderer } from './sharedGl.client';
  * The ELEMENT FX PREVIEW: the ▶ on an Element FX row (Properties, and the Screen block) plays that
  * one effect on the stage. The stage is not a Pixi scene per node — it is 2D canvases plus overlays
  * drawn through the shared contexts (`sharedGl.client.ts`) — so the preview is a capture and an
- * overlay: the canvas shows the element alone for a few frames, copies what its screen's surfaces
- * drew into a still, hides the element, and plays the effect on the still in a Pixi overlay through
- * the runtime the game uses (`pixi-svelte/elementFx`). A playing rig freezes for the preview; the
- * game plays the effect on the live element.
+ * overlay: the canvas shows the element alone for a few frames (under a frozen copy of the stage,
+ * {@link coverStage}), copies what its screen's surfaces drew into a still, hides the element, and
+ * plays the effect on the still in a Pixi overlay through the runtime the game uses
+ * (`pixi-svelte/elementFx`). A playing rig freezes for the preview; the game plays the effect on the
+ * live element.
  *
  * A timeline previewing a `keyed` entry (scrubbed, played, or a state machine's stage preview) POSES
- * it the same way ({@link poseOnStill}): one still per posed node per preview, an overlay that
- * follows the node's drawn pose, and the real node hidden only while the effect is past its rest.
+ * it the same way ({@link poseOnStill}): a still per posed node, cut again only once its art or a
+ * view that cropped or blurred it has settled, an overlay that follows the node's drawn pose, and the
+ * real node hidden only while the effect is past its rest.
  *
  * Every mounted `EditorCanvas` (the Screens side and the Components side) adds a handler; the first
  * whose stage is showing and holds the target plays it. One preview at a time; never saved.
@@ -47,7 +49,7 @@ export function addElementFxPreviewHandler(handler: ElementFxPreviewHandler): ()
 }
 
 /** End the preview playing, if any: the element shows again at once. */
-export function stopElementFxPreview(): void {
+function stopElementFxPreview(): void {
 	const run = current;
 	current = null;
 	run?.cancel();
@@ -175,6 +177,64 @@ const OVERLAY_ATTR = 'data-element-fx-overlay';
 /** Whether `canvas` is an Element FX overlay's, not a stage surface. */
 export function isFxOverlayCanvas(canvas: Element): boolean {
 	return canvas.closest(`[${OVERLAY_ATTR}]`) !== null;
+}
+
+/** CSS `mix-blend-mode`s the 2D context names differently; the rest share their names. */
+const COMPOSITE: Record<string, GlobalCompositeOperation> = {
+	normal: 'source-over',
+	'plus-lighter': 'lighter',
+};
+
+/** Where `el` paints in `stage`: the z-index of the nearest element (itself included) under the
+ *  stage that sets one, else 0. DOM order breaks ties. */
+function stackZ(el: Element, stage: HTMLElement): number {
+	for (let at: Element | null = el; at && at !== stage; at = at.parentElement) {
+		const z = Number.parseInt(getComputedStyle(at).zIndex, 10);
+		if (Number.isFinite(z)) return z;
+	}
+	return 0;
+}
+
+/**
+ * Freeze what `stage` shows: a copy of every canvas on it (the overlays included, each with its
+ * blend mode and opacity), above them at `zIndex`, so the frames a still is cut in — the rest of its
+ * screen hidden — never reach the author. The returned function lifts it.
+ */
+export function coverStage(stage: HTMLElement, zIndex: number): () => void {
+	const box = stage.getBoundingClientRect();
+	const width = stage.clientWidth;
+	const height = stage.clientHeight;
+	if (width === 0 || height === 0) return () => {};
+	const origin = new DOMRect(box.left + stage.clientLeft, box.top + stage.clientTop, width, height);
+	const resolution = window.devicePixelRatio || 1;
+	const cover = document.createElement('canvas');
+	cover.width = Math.round(width * resolution);
+	cover.height = Math.round(height * resolution);
+	const ctx = cover.getContext('2d');
+	if (!ctx) return () => {};
+	const layers = [...stage.querySelectorAll('canvas')]
+		.map((canvas, order) => ({ canvas, order, z: stackZ(canvas, stage) }))
+		.sort((a, b) => a.z - b.z || a.order - b.order);
+	for (const { canvas } of layers) {
+		const style = getComputedStyle(canvas);
+		const alpha = Number.parseFloat(style.opacity);
+		const at = stageSource(canvas, origin);
+		if (!at || style.display === 'none' || style.visibility === 'hidden' || alpha === 0) continue;
+		ctx.globalAlpha = Number.isFinite(alpha) ? alpha : 1;
+		ctx.globalCompositeOperation =
+			COMPOSITE[style.mixBlendMode] ?? (style.mixBlendMode as GlobalCompositeOperation);
+		ctx.drawImage(
+			canvas,
+			at.x * resolution,
+			at.y * resolution,
+			(canvas.width / at.scaleX) * resolution,
+			(canvas.height / at.scaleY) * resolution,
+		);
+	}
+	cover.setAttribute(OVERLAY_ATTR, '');
+	cover.style.cssText = `position:absolute;left:0;top:0;width:${width}px;height:${height}px;pointer-events:none;z-index:${zIndex}`;
+	stage.appendChild(cover);
+	return () => cover.remove();
 }
 
 /** Where a still goes on the stage. */
@@ -334,17 +394,26 @@ export function posedPastRest(
 	return entries.some((entry) => (pose(entry.id)?.progress ?? 0) > 0);
 }
 
+/** A still posing a node's keyed entries. */
+export interface PosedOverlay {
+	/** Pose these entries instead (the node's Element FX were edited), on the same still. */
+	setEntries(entries: readonly ElementFxEntry[]): void;
+	stop(): void;
+}
+
 /**
  * POSE a node's keyed entries on a still while a timeline previews, the way `<LayoutNodeView>` poses
  * them in game (`playElementFx` with `pose`): no clock, each frame where the timeline puts it. At
  * rest the overlay draws nothing (the real node shows); it draws only when what it shows changed.
- * The returned function tears it down.
  */
-export function poseOnStill(options: PosedStill): () => void {
-	const { entries, pose } = options;
+export function poseOnStill(options: PosedStill): PosedOverlay {
+	const { pose } = options;
+	let entries = options.entries;
 	const overlay = openStill(options);
 	let handles: ElementFxHandle[] = [];
 	let over = false;
+	/** (Re)starts the entries' effects on the still, once the overlay is up. */
+	let start: (() => void) | null = null;
 	void overlay.ready.then((parts) => {
 		if (!parts || over) return;
 		const { target, ticker, render } = parts;
@@ -371,19 +440,25 @@ export function poseOnStill(options: PosedStill): () => void {
 			undefined,
 			UPDATE_PRIORITY.HIGH,
 		);
-		handles = entries.map((entry) =>
-			playElementFx(
-				target,
-				{
-					kind: entry.kind,
-					durationMs: entry.durationMs,
-					intensity: entry.intensity,
-					params: entry.params,
-					pose: () => pose(entry.id),
-				},
-				{ ticker, renderer: sharedPixiRenderer() ?? undefined },
-			),
-		);
+		const host = { ticker, renderer: sharedPixiRenderer() ?? undefined };
+		start = (): void => {
+			for (const handle of handles) handle.stop();
+			handles = entries.map((entry) =>
+				playElementFx(
+					target,
+					{
+						kind: entry.kind,
+						durationMs: entry.durationMs,
+						intensity: entry.intensity,
+						params: entry.params,
+						pose: () => pose(entry.id),
+					},
+					host,
+				),
+			);
+			dirty = true;
+		};
+		start();
 		ticker.add(
 			() => {
 				if (!dirty) return;
@@ -395,10 +470,16 @@ export function poseOnStill(options: PosedStill): () => void {
 		);
 		ticker.start();
 	});
-	return () => {
-		if (over) return;
-		over = true;
-		for (const handle of handles) handle.stop();
-		overlay.close();
+	return {
+		setEntries(next): void {
+			entries = next;
+			start?.();
+		},
+		stop(): void {
+			if (over) return;
+			over = true;
+			for (const handle of handles) handle.stop();
+			overlay.close();
+		},
 	};
 }

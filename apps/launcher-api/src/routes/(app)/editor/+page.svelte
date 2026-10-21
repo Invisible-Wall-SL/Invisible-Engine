@@ -3948,14 +3948,16 @@
 									</label>
 								</div>
 							{/if}
-							<EditorElementFx
-								entries={activeScene.elementFx}
-								cueListId={SIGNAL_SUGGESTIONS_ID}
-								keyable={false}
-								onChange={setSceneElementFx}
-								preview={(entry) =>
-									playElementFxPreview({ kind: 'screen', sceneId: activeScene.id }, entry)}
-							/>
+							{#key activeScene.id}
+								<EditorElementFx
+									entries={activeScene.elementFx}
+									cueListId={SIGNAL_SUGGESTIONS_ID}
+									keyable={false}
+									onChange={setSceneElementFx}
+									preview={(entry) =>
+										playElementFxPreview({ kind: 'screen', sceneId: activeScene.id }, entry)}
+								/>
+							{/key}
 						</div>
 					{/if}
 					<EditorProperties
