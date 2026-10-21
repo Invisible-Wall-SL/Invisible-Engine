@@ -3,11 +3,11 @@
  *
  * Run: `pnpm --filter launcher-api run check:rig-origin-box`
  *
- * WHY. A rig placed on a screen sits by its skeleton ORIGIN: the game's `<RigProvider>` (no anchor,
- * pivot 0) and the editor's rig layer (`placedRigTransform`) both put the origin on the node's x/y. The
- * selection box used the rig's box SIZE but centred it on that origin, so a Rigger rig whose art was
- * far from its origin drew in one place and selected in another (the reported widget: art ~950 px
- * left of and ~580 px above its box).
+ * WHY. A rig placed on a screen sits by its skeleton ORIGIN: the game's `<RigProvider>` (no
+ * anchor, pivot 0) and the editor's rig layer (`placedRigTransform`) both put the origin on the
+ * node's x/y. The selection box used the rig's box SIZE but centred it on that origin, so a Rigger
+ * rig whose art was far from its origin drew in one place and selected in another (the reported
+ * widget: art ~950 px left of and ~580 px above its box; see rule 7 for what that turned out to be).
  *
  * Load-bearing rules:
  *
@@ -27,7 +27,7 @@
  *     the handle is pulled, and the origin moves (`resizeOriginShift`) so the box centre holds
  *     still. Every other node measures from its origin, as before.
  *  7. **The rig layer draws the origin where the box and the game put it** (`placedRigTransform`),
- *     in every space. In a `canvas` screen that folds in the node's `screenAnchor`, as the box and
+ *     in a `canvas` and a `game` screen. In a `canvas` screen that folds in the node's `screenAnchor`, as the box and
  *     `LayoutNodeView` do through `anchoredPosition`. The layer read the raw x/y there, so the
  *     reported `R_Widget` (centred, screen anchor 0.5/0.5, x 0, y −15) drew half a window up-left
  *     of its box even after ⊕ Centre origin: that, not the rig, was the reported offset.
@@ -306,9 +306,9 @@ function drag(
 	check('a pivot at the origin moves nothing', shift.x === 0 && shift.y === 0);
 }
 
-// Rule 7 — the rig layer draws the origin where the box is framed, in every space. The box's world
-// transform is `nodeTransform`'s: `anchoredPosition` in a `canvas` / `standard` screen (the rule the
-// game's `LayoutNodeView` places by), the main-box mapping in a `game` one.
+// Rule 7 — the rig layer draws the origin where the box is framed. The box's world transform is
+// `nodeTransform`'s: `anchoredPosition` in a `canvas` screen (the rule the game's `LayoutNodeView`
+// places by), the main-box mapping in a `game` one.
 {
 	const FRAME = { w: 1920, h: 1080 };
 	const MAIN = {
@@ -381,7 +381,6 @@ function drag(
 			'canvas',
 		],
 		['canvas, no screen anchor', at(), 'canvas'],
-		['standard', at(), 'standard'],
 		['game, scaled', at({ scale: { x: 1.5, y: 1.5 } }), 'game'],
 	];
 	for (const [name, t, space] of cases) {

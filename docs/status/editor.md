@@ -177,8 +177,8 @@ Shipped capabilities on `main`:
   owner centred its origin in the Rigger. The rig was never the cause. The rig layer placed a rig
   node on a `canvas` screen at its raw x/y, measured from the window's top-left. The selection box,
   the ⊕ and the game (`LayoutNodeView`) fold the screen anchor in through `anchoredPosition`, so they
-  measure from the window centre. On a 1920×1080 window that is ~960 px left and ~540 px up, which is
-  also the "~950 / ~580" the entry below put down to the rig's origin. The layer now places a rig
+  measure from the window centre. On a 1920×1080 window that is about 960 px left and 540 px up,
+  roughly the "~950 / ~580" the entry below put down to the rig's origin. The layer now places a rig
   node through `placedRigTransform` (`editorCanvas.helpers.ts`): `anchoredPosition` in a `canvas` or
   `standard` screen, the main-box mapping in a `game` one. A `standard` or `game` rig draws where it
   did. No game code changed: the game already drew such a rig at the anchored point. Gate: `check:rig-origin-box`

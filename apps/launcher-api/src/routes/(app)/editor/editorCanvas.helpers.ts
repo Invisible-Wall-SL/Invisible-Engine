@@ -103,12 +103,11 @@ export function childLocalTransform(
 }
 
 /**
- * Where the rig layer draws a rig node placed straight on a `canvas`, `standard` or `game` screen:
- * its skeleton origin in window px and its scale, y still up. The origin is the node's effective
- * position, the point its selection box is framed around (`nodeTransform`) and where the game's
- * `LayoutNodeView` puts the rig: a `canvas` node's `screenAnchor` folded in by the shared
- * `anchoredPosition`, a `game` node mapped through the main box like `<MainContainer>`. The layer
- * read the raw x/y in a `canvas` screen, so an anchored rig drew a window-anchor away from its box.
+ * Where the rig layer draws a rig node placed straight on a screen: its skeleton origin in window
+ * px and its scale, y still up. In a `canvas` screen the node's `screenAnchor` is folded in by the
+ * shared `anchoredPosition`, as the selection box (`nodeTransform`) and the game's `LayoutNodeView`
+ * do; a `game` node is mapped through the main box like `<MainContainer>`. A `standard` node keeps
+ * its raw x/y, which matches the box only while its screen is the active frame (`standardToWorld`).
  */
 export function placedRigTransform(
 	t: ResolvedTransform,
