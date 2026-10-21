@@ -7,17 +7,27 @@
 # service list are scripts/deploy-drift.mjs — and opens ONE issue while any service is behind,
 # closing it once every service has caught up. A service that is down is the uptime monitor's alarm,
 # not this one's.
+#
+# Driven by PUSHES, not the clock. GitHub runs this repo's schedules hours late: the nightly backup
+# set for 02:37 UTC starts around 07:30, and this file's half-hourly cron went three slots without
+# a single run. Only a push can leave a deploy missing anyway, so each push to `main` is checked
+# once its deploy has had time to land, then every 15 minutes while anything is behind: one run
+# follows an outage to its end and closes the issue. A newer push cancels the waiting run and takes
+# over. The schedule stays as a backstop, and a manual run checks once. The waiting is free: this
+# repository is public.
 
 name: Deploy drift
 
 on:
+  push:
+    branches: [main]
   schedule:
-    # Twice an hour, off the top of the hour, where GitHub delays and drops scheduled runs.
     - cron: '7,37 * * * *'
   workflow_dispatch:
 
 concurrency:
-  group: deploy-drift
+  # Per trigger, so a late scheduled run never cancels a push run that is following an outage.
+  group: deploy-drift-${{ github.event_name }}
   cancel-in-progress: true
 
 permissions:
@@ -27,7 +37,8 @@ jobs:
   drift:
     if: github.repository == 'Invisible-Wall-SL/Invisible-Engine'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # 45 min of grace, then 16 checks 15 min apart: about 5 h, under the 6 h a job may run.
+    timeout-minutes: 330
     # `issues: write` is for the alert below and nothing else.
     permissions:
       contents: read
@@ -36,6 +47,7 @@ jobs:
       TITLE: 'Deploy drift: a Railway service is behind main'
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      EVENT: ${{ github.event_name }}
     steps:
       # The whole history (a running commit can be weeks old on a watch-path service), but no file
       # contents: `git log -- <paths>` reads commits and trees only.
@@ -51,38 +63,47 @@ jobs:
           node-version: 22
 
       # Exit 3 is drift and 0 is clean; anything else is the script failing, which fails the run.
+      # The issue body is EDITED, not commented on, so an outage that lasts hours is one notification.
       - name: Compare each service's running commit with main
-        id: drift
         run: |
-          set +e
-          node scripts/deploy-drift.mjs > report.md
-          code=$?
-          set -e
-          cat report.md
-          cat report.md >> "$GITHUB_STEP_SUMMARY"
-          echo "code=$code" >> "$GITHUB_OUTPUT"
-          [ "$code" = 0 ] || [ "$code" = 3 ]
-
-      # The body is EDITED, not commented on, so an outage that lasts hours is one notification.
-      - name: Alert — open or update the drift issue
-        if: ${{ steps.drift.outputs.code == '3' }}
-        run: |
-          body="$(cat report.md)
+          existing() {
+            gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" \
+              --json number --jq '.[0].number // empty'
+          }
+          alert() {
+            body="$(cat report.md)
 
           Run: ${RUN_URL}
 
           In Railway, deploy the service's latest commit (a Redeploy of an old deployment rebuilds that same old commit). This issue closes itself once every service has caught up."
-          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue edit "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
-          else
-            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$body"
-          fi
+            number=$(existing)
+            if [ -n "$number" ]; then
+              gh issue edit "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$body"
+            fi
+          }
+          resolve() {
+            number=$(existing)
+            if [ -n "$number" ]; then
+              gh issue close "$number" --repo "$GITHUB_REPOSITORY" --comment "Every service is running main's code again. Run: ${RUN_URL}"
+            fi
+          }
 
-      - name: Close the drift issue once every service has caught up
-        if: ${{ steps.drift.outputs.code == '0' }}
-        run: |
-          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh issue close "$existing" --repo "$GITHUB_REPOSITORY" --comment "Every service is running main's code again. Run: ${RUN_URL}"
-          fi
+          # Railway's own build queue can take half an hour; checking sooner reads a deploy in flight.
+          if [ "$EVENT" = push ]; then sleep 2700; fi
+          for check in $(seq 1 16); do
+            set +e
+            node scripts/deploy-drift.mjs > report.md
+            code=$?
+            set -e
+            cat report.md
+            case "$code" in
+              0) resolve; break ;;
+              3) alert ;;
+              *) exit "$code" ;;
+            esac
+            [ "$EVENT" = push ] || break
+            if [ "$check" -lt 16 ]; then sleep 900; fi
+          done
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
