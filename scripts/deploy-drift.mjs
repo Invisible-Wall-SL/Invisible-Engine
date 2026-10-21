@@ -1,5 +1,6 @@
-// Is every Railway service running the code `main` says it should? Run by the scheduled "Deploy
-// drift" workflow (.github/workflows/deploy-drift.yml), or by hand from a full clone:
+// Is every Railway service running the code `main` says it should? Run by the "Deploy drift"
+// workflow after every push to main (.github/workflows/deploy-drift.yml), or by hand from a full
+// clone:
 //
 //   node scripts/deploy-drift.mjs        # probe the live services; exit 3 when one has drifted
 //

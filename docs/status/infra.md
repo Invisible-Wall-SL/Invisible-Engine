@@ -126,6 +126,16 @@ being up. See docs/INFRA.md for the diagram and the service/env tables.
   [atlas-maker](atlas-maker.md) open item 7, [comfyui](comfyui.md).
 
 ## Recent changes
+- 2026-10-21 — **The deploy drift check follows pushes, not the clock.** Its first day showed the
+  half-hourly cron is no alarm here: three slots in a row never ran, and the nightly backup set
+  for 02:37 UTC has started between 07:09 and 08:02 every day this week. `deploy-drift.yml` now
+  runs on every push to `main`: it waits 45 min for the deploy, then checks every 15 min while
+  anything is behind (16 checks, about 5 h), so one run follows an outage to its end and closes the
+  issue. A newer push cancels the waiting run; concurrency is per trigger, so a late scheduled run
+  never cancels one. The cron stays as a backstop. The run's script was exercised with `node`,
+  `gh` and `sleep` stubbed: an outage push, a clean push, a crash, a scheduled or manual run, and
+  an outage outlasting the run. Its first real run (manual, 14:22 UTC) opened #1288 with atlas-tool
+  and sheet-tool behind on `8db81ae`.
 - 2026-10-21 — **The deploy drift check runs on a schedule.** `.github/workflows/deploy-drift.yml`
   runs `scripts/deploy-drift.mjs` at :07 and :37 and keeps one issue, *Deploy drift: a Railway
   service is behind main*, open while anything is behind. It edits the issue's body rather than
