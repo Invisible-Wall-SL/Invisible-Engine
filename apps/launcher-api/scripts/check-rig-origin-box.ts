@@ -7,7 +7,7 @@
  * anchor, pivot 0) and the editor's rig layer (`placedRigTransform`) both put the origin on the
  * node's x/y. The selection box used the rig's box SIZE but centred it on that origin, so a Rigger
  * rig whose art was far from its origin drew in one place and selected in another (the reported
- * widget: art ~950 px left of and ~580 px above its box; see rule 7 for what that turned out to be).
+ * widget: art ~950 px left of and ~580 px above its box; rule 7 says what that turned out to be).
  *
  * Load-bearing rules:
  *
@@ -27,10 +27,11 @@
  *     the handle is pulled, and the origin moves (`resizeOriginShift`) so the box centre holds
  *     still. Every other node measures from its origin, as before.
  *  7. **The rig layer draws the origin where the box and the game put it** (`placedRigTransform`),
- *     in a `canvas` and a `game` screen. In a `canvas` screen that folds in the node's `screenAnchor`, as the box and
- *     `LayoutNodeView` do through `anchoredPosition`. The layer read the raw x/y there, so the
- *     reported `R_Widget` (centred, screen anchor 0.5/0.5, x 0, y −15) drew half a window up-left
- *     of its box even after ⊕ Centre origin: that, not the rig, was the reported offset.
+ *     in a `canvas` and a `game` screen. In a `canvas` screen that folds in the node's
+ *     `screenAnchor`, as the box and `LayoutNodeView` do through `anchoredPosition`. The layer read
+ *     the raw x/y there, so the reported `R_Widget` (centred, screen anchor 0.5/0.5, x 0, y −15)
+ *     drew half a window up-left of its box even after ⊕ Centre origin: that, not the rig, was the
+ *     reported offset.
  */
 import {
 	anchoredPosition,
