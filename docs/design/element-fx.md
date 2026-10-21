@@ -24,6 +24,7 @@ Three ways to get one onto an element, all playing through ONE runtime:
 | **A node** (any kind: image, rig/`.irig`, flipbook, particle effect, text, rect, group, component placement) | Its `elementFx` list in the Scene Editor: *Always* (loops while shown), *When shown*, *On cue* (a Flow `fireCue`, a component signal, a cue its component's timeline or state raises), or *Keyed* (a timeline poses it, so a state-machine state does too), with an optional stop cue |
 | **A whole screen** | The screen's own `elementFx` list (Screen panel) |
 | **The reels** | The reel grid node's `elementFx` list, played on the real reel stack |
+| **A symbol's state** | The symbols doc's `symbolFx` (Invisible Symbols State Machine → the state panel's Element FX): *When it enters this state* (`enter`) or *While in this state* (`always`), e.g. Land → shake, Win → glow, Explosion → melt |
 | **Anything anchored, from the Flow** | `elementEffect { target, kind, … }` / `stopElementEffect { target }` |
 
 ## 2. The catalog (`constants-shared/elementFx`)
@@ -143,6 +144,13 @@ the way `cameraEffects` composes the stage:
   base-game screen is drawn in two parts around the reels; each plays the screen's FX on its own.
 - **Reels**: the reel stack's own container (`Game.svelte`'s `MainContainer`) is anchored `reels`
   and plays the reel grid node's `elementFx`. No container is added (parity).
+- **Symbols**: `Symbol.svelte` (every symbol mount site) reads `bakedSymbolFx()` — the symbols doc's
+  `symbolFx`, symbol → state → entries, baked as `bundle.symbols.symbolFx`. A symbol with any
+  draws its bands inside one container and, keyed on its state, plays that state's `enter` entries
+  as it enters and loops its `always` entries while it stays; leaving the state ends them. No
+  inheritance across states; the inline message icon plays none; a symbol with none draws as
+  before (no container). The `/symbols` side (section, pruning, ✦ markers, ▶ preview, both bake
+  paths) is in [invisible-symbols-state-machine](invisible-symbols-state-machine.md).
 - **Cues** come off the component-signal bus (`getComponentSignal`), scoped like every other cue,
   so a Flow `fireCue`, a game signal and a component signal all reach them. Inside a component they
   also come off the instance's own fired signals (`getComponentFiredSignals`), which is where its

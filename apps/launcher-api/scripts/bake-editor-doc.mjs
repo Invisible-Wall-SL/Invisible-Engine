@@ -42,6 +42,7 @@ import { basename, dirname, isAbsolute, resolve, sep } from 'node:path';
 import { appSrcDir, isStandaloneGame } from '../../../packages/config-svelte/appSrc.js';
 import { bakeCoinLabel } from './lib/bakeCoinLabel.mjs';
 import { bakedFlightEffectIds, bakeFlights } from './lib/bakeFlights.mjs';
+import { bakeSymbolFx } from './lib/bakeSymbolFx.mjs';
 
 const args = process.argv.slice(2);
 const getFlag = (name) => {
@@ -423,6 +424,7 @@ async function main() {
 		index: { sheets: [], images: [], spines: [], collisions: [] },
 		names: undefined,
 		symbolSounds: undefined,
+		symbolFx: undefined,
 		highlight: undefined,
 		boardGlow: undefined,
 		winLine: undefined,
@@ -714,6 +716,10 @@ async function main() {
 				},
 				names,
 				symbolSounds,
+				// The per-symbol Element FX (a shake on Land, a glow on Win, …). MUST reach BOTH bundle
+				// paths (this + the runtime `SymbolExportResult`): omit it and a baked game would play no
+				// symbol FX while the live one played them. See `lib/bakeSymbolFx.mjs`.
+				symbolFx: bakeSymbolFx(s?.symbolFx),
 				highlight,
 				boardGlow,
 				winLine,

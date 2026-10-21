@@ -41,6 +41,37 @@
 	let lastTime = 0;
 	let playingAnim: string | null = null;
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
+	/** Waiting for {@link snapshot}: answered by the next frame drawn. */
+	let snapshots: ((copy: HTMLCanvasElement | null) => void)[] = [];
+
+	/** A rig is loaded and drawing. */
+	export function isReady(): boolean {
+		return status === 'ready';
+	}
+
+	/**
+	 * A 2D copy of the next frame drawn (the Element FX ▶ plays on it), or null when none comes: no
+	 * rig, or the rig or the preview went away first. Copied in the frame's own task because the
+	 * context does not preserve its drawing buffer: read from any other task, the canvas is blank.
+	 */
+	export function snapshot(): Promise<HTMLCanvasElement | null> {
+		if (status !== 'ready') return Promise.resolve(null);
+		return new Promise((resolve) => snapshots.push(resolve));
+	}
+
+	function answerSnapshots(drawn: HTMLCanvasElement | null): void {
+		if (!snapshots.length) return;
+		const waiting = snapshots;
+		snapshots = [];
+		let copy: HTMLCanvasElement | null = null;
+		if (drawn) {
+			copy = document.createElement('canvas');
+			copy.width = drawn.width;
+			copy.height = drawn.height;
+			copy.getContext('2d')?.drawImage(drawn, 0, 0);
+		}
+		for (const resolve of waiting) resolve(copy);
+	}
 
 	// Attempt the load ONCE per key. `ensure()` runs every animation frame, so the
 	// guard must short-circuit after the FIRST attempt whether it succeeded or FAILED
@@ -87,6 +118,7 @@
 	}
 
 	function teardownInstance(): void {
+		answerSnapshots(null);
 		if (instance) {
 			disposeRigInstance(instance);
 			instance = null;
@@ -177,6 +209,7 @@
 		renderer.begin();
 		renderer.drawSkeleton(instance.skeleton, instance.premultipliedAlpha);
 		renderer.end();
+		answerSnapshots(canvas);
 	}
 
 	onMount(() => {

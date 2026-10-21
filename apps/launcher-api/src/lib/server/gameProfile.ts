@@ -552,6 +552,15 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 			ctx.symbols.respinLandOnStop?.enabled === true ? 'Coins land as each cell stops' : null,
 	},
 	{
+		id: 'symbolFx',
+		title:
+			'Symbols play Element FX in their states (a shake as they land, a glow while they win, a melt as they explode), authored in the Symbols tool.',
+		text: (ctx) => {
+			const count = Object.keys(ctx.symbols.symbolFx ?? {}).length;
+			return count ? `Symbol Element FX (${plural(count, 'symbol')})` : null;
+		},
+	},
+	{
 		id: 'highlight',
 		title: 'A custom win-frame rig looped over winning symbols.',
 		text: (ctx) => (ctx.symbols.highlight ? 'Win-frame highlight' : null),

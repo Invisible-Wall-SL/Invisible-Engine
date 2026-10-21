@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** **Element FX** (effects that play ON a node, a screen or the reels — 45 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** **Element FX** (effects that play ON a node, a screen, the reels or a symbol's state — 45 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
@@ -78,6 +78,10 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
   a normal one (and a rig layer's dimming scrim, when up, is copied with it); each posed node keeps
   a stage-sized overlay canvas while its timeline previews; a still that cannot be read back (a
   cross-origin image) ends ▶ without a message.
+- **Owner browser-pass over symbol-state Element FX** (2026-10-21) — in `/symbols` add Shake on a
+  symbol's Land, Glow on its Win and Melt on its Explosion; ▶ each over the panel's Preview, check the
+  ✦ badges and the "✦ on <symbol>" row, Save → reopen; then spin a published game and watch a land, a
+  win and an explosion.
 - **Element FX next** (design §9): HUD instances (`LayoutEditable` renders them outside
   `<LayoutNodeView>`), rotated elements (the passes assume an axis-aligned box), and binding /
   keying an entry's params.
@@ -119,6 +123,24 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-21 — **Element FX per symbol state** (Invisible Symbols State Machine). Owner ask: put the
+  effects on the symbols' states — a land that shakes, a win that glows, an explosion that melts.
+  - **Game** (`Symbol.svelte`, `editor-scenes.ts` `bakedSymbolFx()`): a symbol with any authored
+    draws its bands in one container and, keyed on its state, plays the state's `enter` entries as
+    it enters and loops its `always` entries while it stays; leaving ends them. No inheritance; the
+    message icon plays none; a symbol with none draws as before. `check:element-fx` 100 → 102.
+  - **`/symbols`** (the symbols agent): the doc's `symbolFx` section (symbol → state → entries,
+    kept verbatim, pruned by `$lib/symbolFx.ts` for the save, the setter and the dirty signature;
+    ≤ 12 per state), an Element FX block in the state panel under Layers (`EditorElementFx` with two
+    triggers — *When it enters this state* / *While in this state (loops)* — new entries on
+    `enter`, no stop cue), ✦ badges on the grid and a "✦ on <symbol>" row, ▶ over the panel's
+    Preview (a sprite cell gained one; the rig preview copies its frame as it draws it), carried by
+    the exporter, the `export-symbols` endpoint and `bake-editor-doc.mjs` as
+    `bundle.symbols.symbolFx`; a bonus import brings a symbol's effects with its art.
+    `check:symbol-fx` (39) runs the real save, export, endpoint, bake and Director op on an
+    in-memory R2. Detail in [status/symbols](symbols.md).
+  - `EditorElementFx` gained `triggers`, `triggerText`, `newTrigger`, `stopCue`, `intro` and
+    `missedText`. ⏳ Not clicked in a browser.
 - 2026-10-21 — **Burn to ashes** (a 45th kind, light & colour, exit). Owner ask: a burn-into-ashes
   effect, apart from Dissolve out (a plain noise burn). One shader pass (`burnFilter`): a fire
   front sweeps from `from` (bottom by default; top, edges, center, left, right), ragged with

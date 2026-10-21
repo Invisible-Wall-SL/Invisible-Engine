@@ -106,7 +106,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
    - **Sprite:** use the **Frame** picker (the same `RegionPicker` the editor uses) to
      choose a frame from any of the project's atlases/sheets — plus the **shared art
-     library** (see below).
+     library** (see below). A **Preview** of the chosen frame shows under it.
    - **Rig:** pick a **rig bundle** from the project's (and shared) bundles, then pick
      an **Animation**. Once the bundle loads, the animation list is populated from the
      skeleton; if it hasn't loaded yet you can type the animation name. Leaving it on
@@ -166,10 +166,15 @@ tool top bar). Switch projects from the launcher before opening the tool.
      below. Extra art drawn together with this state's own, each piece able to carry its own
      blend mode.
 
+   - **Element FX** — see [Element FX per state](#element-fx-per-state) below. Effects that
+     play on the symbol in this state: a shake as it lands, a glow while it wins, a melt as it
+     explodes. Unlike everything above, they do not wait for **Apply**.
+
 5. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
    an asset to be chosen — and, if you added any layers, art for every one of them). The
    cell updates immediately and is marked **edited**. The panel also has a **Reset to
-   default** action for an overridden cell.
+   default** action for an overridden cell. **Element FX** are the exception: they go into
+   the doc as you edit them, with no Apply.
 6. **Save.** The header **Save** button is enabled whenever the doc differs from what's
    on disk (dirty tracking). Saving `PUT`s the doc to R2 (`PUT /api/editor/symbols`),
    stamps it, and shows **Saved**. Save errors surface inline next to the button.
@@ -259,6 +264,64 @@ Layers ship like any other binding: a layer's rig bundle / sheet travels the
 export → bake → pull chain under the same key, and an FX layer's effect is kept out of the
 orphan sweep on both bundle paths. See
 [Saving is not the last step](#saving-is-not-the-last-step--shipping-a-rebind).
+
+### Element FX per state
+
+An **Element FX** is an effect that plays _on_ the symbol itself — it shakes, bends, lights up or
+breaks the symbol's own pixels. It is a different thing from an **FX layer** (above), which adds an
+Invisible FX particle effect beside the art. The catalog is the one the Scene Editor uses: 45 kinds
+in five families (Motion, 3D, Distort, Light & colour, Break) — see
+[Element FX in the Scene Editor](./invisible-editor.md#element-fx--effects-that-play-on-an-element)
+for what each family does.
+
+**Where it is.** Click a cell. The **Element FX** block sits in the panel under **Layers**, above
+**Apply**. It edits the effects of the symbol and state the panel is open on.
+
+- **+ Add effect…** picks a kind from the grouped list. The new row starts on **When it enters
+  this state**.
+- Each row is collapsed to its kind, its family and when it plays; click it to open it:
+  - **Kind** — switch the effect; the parameters it shares with the old kind are kept.
+  - **Trigger** — only two here:
+    - **When it enters this state** — plays each time the symbol enters the state: a Land
+      shake every time it lands, an Explosion melt as it explodes. **Plays** sets how many
+      times (0 = until it leaves the state).
+    - **While in this state (loops)** — loops for as long as the symbol stays in the state, and
+      stops when it leaves: a Win glow. Pick a looping kind (Glow, Outline, Float, Wave…) for
+      this.
+      On cue and Keyed on a timeline are not offered: nothing poses a symbol from a timeline,
+      and a cue would reach every symbol in that state at once.
+  - **Duration ms**, **Delay ms**, **Intensity** and the kind's own **Parameters** (colour,
+    reach, axis, drip length, …). A value left at its default is not stored.
+- The checkbox turns a row off without deleting it; **▲ / ▼** reorder; **✕** removes.
+- A state can carry up to **12** effects.
+- An effect a newer build wrote (a kind this build does not know) shows as **⚠ &lt;kind&gt;**. It
+  is kept as saved and still ships.
+
+**No Apply.** The effects are not part of the cell. An effect is in the doc as soon as you add
+it, the header **Save** lights up, and **Reset to default** (or the cell's **↺**) leaves the
+effects alone. Closing the panel does not drop them.
+
+**A state plays only its own effects.** A state that borrows another state's art (an
+**inherits** cell) does not borrow its effects: give `Intro` its own if it should shake like
+`Land`.
+
+**▶ preview.** The ▶ on a row plays that effect over the panel's **Preview** of this state — the
+frame thumbnail of a sprite, the first frame of a flipbook, the live rig. The preview is copied
+into a still and the game's own Element FX runtime plays on it, reaching past the preview's
+edges so a glow, a melt's drips or a crash's shards show. A playing rig freezes for the preview.
+A looping effect plays two loops. **Escape** or a click on the preview stops it; changing the
+art stops it too. When there is nothing to play on (no art picked, a sprite frame that is not in
+any sheet, a rig still loading) the row says so instead.
+
+**✦ on the grid.** A cell whose state carries effects shows a gold **✦** badge in its foot
+(**✦ 3** for three); hover it for the list. In the panel, a **✦ on &lt;symbol&gt;:** row lists every
+state of the symbol that carries effects; click one to open it.
+
+**In the game.** The game plays a state's effects on the symbol as drawn in that state: a
+**When it enters** effect each time the symbol enters the state, a **While in this state**
+effect looping until it leaves. They ship with the rest of this doc — no asset of their own
+(every kind is built into the engine) — on both the publish and the baked-build paths. A symbol
+with no effects is drawn exactly as before.
 
 ### Naming a symbol (what the game calls it out loud)
 
@@ -1373,3 +1436,6 @@ Everything else on the page stays as the project's own kind has it.
   grid shows its real symbols;
   otherwise it falls back to the coded `lines` set. New games get this from the scaffolder
   automatically.
+- **Element FX preview plays on a still, alone.** ▶ plays over a copy of the panel's Preview,
+  so a rig freezes for it, the cell's layers are not in it, and the grid never plays effects.
+  A default cell that previews as a placeholder chip has nothing to play on.

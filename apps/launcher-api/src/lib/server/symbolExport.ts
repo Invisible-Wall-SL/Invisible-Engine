@@ -192,6 +192,9 @@ export interface SymbolExportResult {
 	 *  text, no asset (the cue is a region of the game's own audiosprite, which ships with the game).
 	 *  Absent → every symbol falls through to the config's game-wide sound slots. */
 	symbolSounds?: SymbolsDoc['symbolSounds'];
+	/** PER-SYMBOL ELEMENT FX (symbol → state → entries), passed through VERBATIM — assetless: every
+	 *  kind is built into the engine (`pixi-svelte/elementFx`). Absent → no symbol plays any. */
+	symbolFx?: SymbolsDoc['symbolFx'];
 	/** The authored global highlight override (absent → game uses built-in payframe). */
 	highlight?: SymbolExportHighlight;
 	/** The authored free-spin board glow (absent → game uses its coded `reelhouse` rig).
@@ -881,6 +884,10 @@ export async function exportEditorSymbols(
 	const symbolSounds =
 		doc.symbolSounds && Object.keys(doc.symbolSounds).length ? doc.symbolSounds : undefined;
 
+	// Per-symbol Element FX — assetless (the kinds are the engine's own), already pruned by
+	// `normalizeSymbolsDoc`, and omitted when none is authored.
+	const symbolFx = doc.symbolFx && Object.keys(doc.symbolFx).length ? doc.symbolFx : undefined;
+
 	// The stacked-picture config. Each tall `art` asset already shipped via `refs` above (rig bundle →
 	// `index.spines`, sprite sheet → `index.sheets`, both keyed by the art's own `assetKey`), so this is a
 	// verbatim pass-through of `{ name, height, art }` — reduced to the baked contract's art fields (no
@@ -909,6 +916,7 @@ export async function exportEditorSymbols(
 		index,
 		...(names ? { names } : {}),
 		...(symbolSounds ? { symbolSounds } : {}),
+		...(symbolFx ? { symbolFx } : {}),
 		...(highlight ? { highlight } : {}),
 		...(boardGlow ? { boardGlow } : {}),
 		...(winLine ? { winLine } : {}),

@@ -172,6 +172,8 @@
 		"check:win-cycle": "tsx --tsconfig tsconfig.scripts.json scripts/check-win-cycle.ts",
 		"precheck:sound-bindings": "node scripts/ensure-svelte-kit.mjs",
 		"check:sound-bindings": "tsx --tsconfig tsconfig.scripts.json scripts/check-sound-bindings.ts",
+		"precheck:symbol-fx": "node scripts/ensure-svelte-kit.mjs",
+		"check:symbol-fx": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-symbol-fx.ts",
 		"precheck:sounds-doc": "node scripts/ensure-svelte-kit.mjs",
 		"check:sounds-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-sounds-doc.ts",
 		"check:spins-modes-contract": "node scripts/ensure-svelte-kit.mjs && tsx --tsconfig tsconfig.scripts.json scripts/check-spins-modes-contract.ts",

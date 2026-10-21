@@ -169,6 +169,8 @@ const modeScreens = (layout: LayoutDoc) =>
 const RIG_ROOT = SUB.spines(CLIENT, SOURCE);
 const COIN_RIG = `${RIG_ROOT}/coin`;
 const SHARED_COIN = `_shared/spines/${importedRigBundle(HOST, SOURCE, 'coin')}`;
+/** The source coin's Element FX on Land (`symbolFx`), carried with its binding. */
+const BONUS_FX = { id: 'efx1', kind: 'bounce', trigger: 'enter' };
 
 /** `hw-classic-sample` as created in the Game Maker, then authored: a rig on BONUS, a Flow
  *  section for the feature, its own jackpot and feature copy. */
@@ -197,6 +199,7 @@ async function makeSource() {
 		static: { type: 'spine', assetKey: `${COIN_RIG}/`, animationName: 'idle' },
 	};
 	(symbols as Record<string, unknown>).names = { BONUS: { singular: 'Gold coin' } };
+	(symbols as Record<string, unknown>).symbolFx = { BONUS: { land: [BONUS_FX] } };
 	put(symbolsDocKey(CLIENT, SOURCE), symbols);
 	const flow = storedJson<FlowDocV2 | null>(flowV2DocKey(CLIENT, SOURCE));
 	assert(flow, 'the scaffold seeded no flow for the source');
@@ -428,6 +431,7 @@ await check(
 		const symbols = storedJson<{
 			symbols: Record<string, { static?: { assetKey: string } }>;
 			names?: Record<string, unknown>;
+			symbolFx?: Record<string, unknown>;
 		}>(symbolsDocKey(CLIENT, HOST));
 		same(
 			symbols.symbols.BONUS?.static?.assetKey,
@@ -435,6 +439,7 @@ await check(
 			'BONUS names the promoted rig',
 		);
 		same(symbols.names?.BONUS, { singular: 'Gold coin' }, 'its display name came too');
+		same(symbols.symbolFx?.BONUS, { land: [BONUS_FX] }, 'and its Element FX');
 		same(symbols.symbols.POT_RED, hostBefore.symbols.symbols.POT_RED, 'a token binding is kept');
 		assert(
 			R2.has(`${SHARED_COIN}/coin.json`) && R2.has(`${SHARED_COIN}/coin.png`),
