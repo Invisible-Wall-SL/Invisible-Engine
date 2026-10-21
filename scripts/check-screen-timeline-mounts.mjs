@@ -11,11 +11,20 @@
 // timeline ended, while the pots the player saw never moved. The game's own mount now counts as up
 // while it is mounted (`<EngineScreenMount>` → `engineScreenUp`) and takes the timeline's driver.
 //
+// THE BASE GAME (reported on the same project, 2026-10-21): a timeline keyed on the base-game screen
+// (the reel grid zooming in, the reel frame hidden) did nothing in game. `<FlowV2Mount>` skips the
+// `basegame` container — the game draws it itself, split around the engine-drawn reels — and Game
+// kept `basegame` off stage, so `<Cinematic>` drew a copy of the screen (whose `reelGrid` placeholder
+// draws nothing) while the screen the player saw, and the reels, never moved. Game now takes the
+// base game's drive: the reel split's layers remount with the driver, and the board follows the
+// `reelGrid` node's keys through `<BoardDrive>`.
+//
 // PER-RATIO KEYS: a screen lays its nodes out per ratio, so one move rarely fits every ratio. A
 // property track with a `layout` keys that ratio alone; a ratio with such keys plays them, every
 // other ratio the default keys (`keysLayout`), switching live as the device turns.
 //
-// HOW: the REAL `FlowV2Cinematics.svelte`, `Cinematic.svelte` and `EngineScreenMount.svelte` are
+// HOW: the REAL `FlowV2Cinematics.svelte`, `Cinematic.svelte`, `EngineScreenMount.svelte` and
+// `BoardDrive.svelte` are
 // compiled by Svelte's compiler and mounted through its client runtime on a DOM shim, as
 // `check-cinematic-ticker.mjs` does, and the flow handle's screen bookkeeping is the REAL
 // `createScreenDrives` the flow runtime builds. What draws is a stand-in: each `LayoutScene` records
@@ -34,6 +43,10 @@ const ENGINE_MOUNT = repoFile('apps/lines/src/components/EngineScreenMount.svelt
 const CINEMATIC = repoFile('packages/engine-layout/src/lib/Cinematic.svelte');
 const CINEMATIC_NODES = repoFile('packages/engine-layout/src/lib/cinematicNodes.ts');
 const SCREEN_DRIVES = repoFile('apps/lines/src/game/screenDrives.svelte.ts');
+const BOARD_DRIVE = repoFile('apps/lines/src/components/BoardDrive.svelte');
+const BOARD_DRIVE_TRANSFORM = repoFile('apps/lines/src/game/boardDrive.ts');
+const VALUE_BINDINGS = repoFile('packages/engine-layout/src/lib/valueBindings.ts');
+const RESOLVE_TRANSFORM = repoFile('packages/engine-layout/src/lib/resolveTransform.ts');
 
 const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 const harness = 'globalThis.__screenTimelineHarness';
@@ -63,6 +76,42 @@ const recordingScene = (who) =>
 			{ filename: `${who}-scene.svelte`, generate: 'client' },
 		).js.code,
 	);
+
+// The board's wrapping `Container` stand-in: it records the transform `<BoardDrive>` hands it.
+const recordingBoard = moduleUrl(
+	compile(
+		`<script>
+			const props = $props();
+			$effect(() => {
+				${harness}.board = {
+					x: props.x,
+					y: props.y,
+					pivot: props.pivot,
+					scale: props.scale,
+					rotation: props.rotation,
+					alpha: props.alpha,
+					visible: props.visible,
+				};
+			});
+		</script>
+		{@render props.children?.()}`,
+		{ filename: 'board-container.svelte', generate: 'client' },
+	).js.code,
+);
+
+// The base game's below-reel layers, mounted as `Game.svelte` mounts them (pinned in section 6).
+const basegameLayers = moduleUrl(
+	compile(
+		`<script>
+			import LayoutScene from ${JSON.stringify(recordingScene('engine'))};
+			const props = $props();
+		</script>
+		{#key props.drive?.key}
+			<LayoutScene scene={props.scene} nodeDriver={props.drive?.driver} />
+		{/key}`,
+		{ filename: 'basegame-layers.svelte', generate: 'client' },
+	).js.code,
+);
 
 /** Each component's imports that draw, or that the game wires at boot, are stand-ins. */
 const STUBS = {
@@ -94,6 +143,18 @@ const STUBS = {
 		'engine-layout/svelte': moduleUrl(
 			`export { default as LayoutScene } from ${JSON.stringify(recordingScene('engine'))};`,
 		),
+	},
+	[BOARD_DRIVE]: {
+		'pixi-svelte': moduleUrl(
+			`export { default as Container } from ${JSON.stringify(recordingBoard)};`,
+		),
+		'engine-layout': moduleUrl(`export { resolveTransform } from '${RESOLVE_TRANSFORM}';`),
+	},
+	[BOARD_DRIVE_TRANSFORM]: {
+		'engine-layout': moduleUrl(`
+			export { foldBoundTransform } from '${VALUE_BINDINGS}';
+			export { nodeActorBindings, nodeActorOutputs } from '${CINEMATIC_NODES}';
+		`),
 	},
 };
 
@@ -149,6 +210,9 @@ const { SvelteMap } = await import('svelte/reactivity');
 const { createScreenDrives } = await import(SCREEN_DRIVES);
 const { default: FlowV2Cinematics } = await import(FLOW_CINEMATICS);
 const { default: EngineScreenMount } = await import(ENGINE_MOUNT);
+const { default: BoardDrive } = await import(BOARD_DRIVE);
+const { default: BasegameLayers } = await import(basegameLayers);
+const { BOARD_UNDRIVEN } = await import(BOARD_DRIVE_TRANSFORM);
 
 /** What `<Cinematic>` reads of Pixi's ticker: `add`, `remove` and the last frame's `deltaMS`. */
 const ticker = {
@@ -267,7 +331,7 @@ function game({ reportsMount = true } = {}) {
 		driveScreen: drives.driveScreen,
 		engineScreenUp: drives.setEngineScreen,
 	};
-	const onStage = (sceneId) => sceneId !== 'basegame' && flow.onStage(sceneId);
+	const onStage = (sceneId) => flow.onStage(sceneId);
 	const mountPots = () =>
 		mount(EngineScreenMount, {
 			target: new Element(),
@@ -418,6 +482,206 @@ const drawnY = () => potsScenes('engine')[0]?.drawnY;
 	layout.set('type', 'desktop');
 }
 
+// --- 4b. the base game ----------------------------------------------------------------------------
+/** The reported base game: the reel frame art, then the reel grid the engine draws the reels at. */
+const BASEGAME = {
+	id: 'basegame',
+	name: 'Base game',
+	role: 'basegame',
+	nodes: [
+		{ id: 'n_frame', label: 'Reel.png', kind: 'sprite', x: 960, y: 801.5 },
+		{
+			id: 'n_grid',
+			label: 'Reel grid',
+			kind: 'reelGrid',
+			x: 960,
+			y: 801.5,
+			anchor: { x: 0.5, y: 0.5 },
+			reels: 5,
+			rows: 3,
+			cellSize: 120,
+			scale: { x: 1.18, y: 1.18 },
+			overrides: { portrait: { x: 288, y: 648 } },
+		},
+	],
+};
+/**
+ * The reported timeline ("Intro", 2 s): the reel frame hidden, the reel grid zooming in from 0.1
+ * while it rises from +298.5 to −151.5 at 1.27 s and settles on 0. `extra` adds channels to the grid.
+ */
+const basegameIntro = ({ id = 'basegame_intro', extra = {}, gridVisible } = {}) => ({
+	schemaVersion: 1,
+	id,
+	name: 'Intro',
+	duration: 2,
+	fps: 30,
+	host: { kind: 'screen', sceneId: 'basegame' },
+	stage: {
+		sceneId: null,
+		cast: [
+			{ actorId: 'a_frame', kind: 'node', target: 'Reel.png', place: {}, z: 0 },
+			{ actorId: 'a_grid', kind: 'node', target: 'Reel grid', place: {}, z: 1 },
+		],
+	},
+	tracks: [
+		{
+			id: 't_frame',
+			actorId: 'a_frame',
+			kind: 'visibility',
+			keys: [{ time: 1 / 15, visible: false }],
+		},
+		{
+			id: 't_grid',
+			actorId: 'a_grid',
+			kind: 'property',
+			channels: {
+				y: [key(0, 298.5), key(1.2667, -151.5), key(2, 0)],
+				scale: [key(0, 0.1), key(2, 1)],
+				...extra,
+			},
+		},
+		...(gridVisible === undefined
+			? []
+			: [{ id: 't_grid_vis', actorId: 'a_grid', kind: 'visibility', keys: [{ time: 0, visible: gridVisible }] }]), // prettier-ignore
+	],
+	markers: [],
+});
+
+/**
+ * The base game, as `Game.svelte` wires it: the flow SHOWS `basegame`, which `<FlowV2Mount>` skips,
+ * so the game draws it split around the reels — the layers (`basegameLayers`) and the board
+ * (`<BoardDrive>`), each handed the base game's drive. `before` is `main` before the fix: Game kept
+ * `basegame` off stage and handed neither the drive.
+ */
+function basegameGame({ before = false } = {}) {
+	const playing = new SvelteMap();
+	const drives = createScreenDrives((id) => playing.has(id));
+	const flow = {
+		playingCinematics: playing,
+		resolveScene: (id) => (id === BASEGAME.id ? BASEGAME : undefined),
+		cinematicComplete: (id) => {
+			playing.delete(id);
+			drives.dropIdle();
+		},
+		onStage: drives.onStage,
+		screenDrive: drives.drive,
+		driveScreen: drives.driveScreen,
+		engineScreenUp: drives.setEngineScreen,
+	};
+	drives.setFlowScreens([BASEGAME.id]);
+	const onStage = before
+		? (sceneId) => sceneId !== BASEGAME.id && flow.onStage(sceneId)
+		: (sceneId) => flow.onStage(sceneId);
+	const basegameDrive = () =>
+		!before && flow.onStage(BASEGAME.id) ? flow.screenDrive(BASEGAME.id) : undefined;
+	const layers = mount(BasegameLayers, {
+		target: new Element(),
+		props: {
+			scene: BASEGAME,
+			get drive() {
+				return basegameDrive();
+			},
+		},
+	});
+	const board = mount(BoardDrive, {
+		target: new Element(),
+		props: {
+			get drive() {
+				return basegameDrive();
+			},
+			node: BASEGAME.nodes[1],
+			get layoutType() {
+				return layout.get('type');
+			},
+			children: () => {},
+		},
+	});
+	const cinematics = mount(FlowV2Cinematics, { target: new Element(), props: { flow, onStage } });
+	flushSync();
+	return {
+		drives,
+		play(doc) {
+			state.docs[doc.id] = doc;
+			playing.set(doc.id, { loop: false, speed: 1 });
+			flushSync();
+		},
+		playing: (id) => playing.has(id),
+		hide() {
+			drives.setFlowScreens([]);
+			flushSync();
+		},
+		end() {
+			unmount(cinematics);
+			unmount(board);
+			unmount(layers);
+			flushSync();
+			state.scenes.clear();
+			state.board = undefined;
+		},
+	};
+}
+
+/** The base-game screens mounted right now, by who mounted them. */
+const basegameScenes = (who) =>
+	[...state.scenes].filter((s) => s.scene === 'basegame' && s.who === who);
+/** The reel frame's visibility through the base game's mounted driver (undefined: not driven). */
+const frameVisible = () => basegameScenes('engine')[0]?.driver?.('n_frame')?.sample().visible;
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+const boardAt = (x, y, sx) => {
+	const b = state.board;
+	return !!b && near(b.x, x) && near(b.y, y) && near(b.scale.x, sx) && near(b.scale.y, sx);
+};
+const boardText = () => JSON.stringify(state.board);
+
+{
+	const run = basegameGame({ before: true });
+	run.play(basegameIntro());
+	check('basegame before: the timeline draws a copy of the base game', basegameScenes('copy').length === 1, `${basegameScenes('copy').length} copies`); // prettier-ignore
+	check('basegame before: the base game the player sees gets no driver', basegameScenes('engine').length === 1 && frameVisible() === undefined); // prettier-ignore
+	check('basegame before: the board does not move', state.board === BOARD_UNDRIVEN || boardAt(0, 0, 1), boardText()); // prettier-ignore
+	run.end();
+}
+{
+	const run = basegameGame();
+	check('basegame: undriven, the board wrapper is identity (parity)', state.board?.x === 0 && state.board?.y === 0 && state.board?.pivot.x === 0 && state.board?.scale.x === 1 && state.board?.rotation === 0 && state.board?.alpha === 1 && state.board?.visible === true, boardText()); // prettier-ignore
+	run.play(basegameIntro());
+	check('basegame: no copy of the screen is drawn', basegameScenes('copy').length === 0, `${basegameScenes('copy').length} copies`); // prettier-ignore
+	check('basegame: exactly one base game on screen', basegameScenes('engine').length === 1, `${basegameScenes('engine').length} mounts`); // prettier-ignore
+	check('basegame: its layers take the driver (the reel frame is hidden)', frameVisible() === false); // prettier-ignore
+	check('basegame: the board starts zoomed out and lowered, about the grid’s position', boardAt(960, 801.5 + 298.5, 0.1) && near(state.board.pivot.x, 960) && near(state.board.pivot.y, 801.5), boardText()); // prettier-ignore
+	frames(60);
+	const mid = state.board;
+	check('basegame: the board follows the playhead', mid.scale.x > 0.5 && mid.scale.x < 0.6 && mid.y < 801.5 && mid.y > 801.5 - 151.5, boardText()); // prettier-ignore
+	frames(70);
+	check('basegame: the timeline ends', !run.playing('basegame_intro'));
+	check('basegame: the board holds the last frame (back on its authored pose)', boardAt(960, 801.5, 1) && state.board.visible, boardText()); // prettier-ignore
+	check('basegame: the layers hold the last frame too', frameVisible() === false && basegameScenes('engine').length === 1); // prettier-ignore
+	layout.set('type', 'portrait');
+	flushSync();
+	check('basegame: turned to portrait, the board pivots on the grid’s portrait position', boardAt(288, 648, 1) && near(state.board.pivot.x, 288), boardText()); // prettier-ignore
+	layout.set('type', 'desktop');
+	flushSync();
+	run.hide();
+	check('basegame: hidden, the drive is dropped', run.drives.drive('basegame') === undefined);
+	check('basegame: …the board is undriven again', boardAt(0, 0, 1) && state.board.pivot.x === 0, boardText()); // prettier-ignore
+	check('basegame: …and the layers remount undriven', basegameScenes('engine').length === 1 && frameVisible() === undefined); // prettier-ignore
+	run.end();
+}
+{
+	const run = basegameGame();
+	run.play(
+		basegameIntro({
+			id: 'basegame_turn',
+			extra: { rotation: [key(0, 90), key(2, 90)], alpha: [key(0, 0.5), key(2, 0.5)] },
+			gridVisible: false,
+		}),
+	);
+	check('basegame: a turn keyed on the grid turns the board (degrees → radians)', near(state.board.rotation, Math.PI / 2), boardText()); // prettier-ignore
+	check('basegame: a fade keyed on the grid fades the board', near(state.board.alpha, 0.5), boardText()); // prettier-ignore
+	check('basegame: a visibility key on the grid hides the board', state.board.visible === false, boardText()); // prettier-ignore
+	run.end();
+}
+
 // --- 5. the game wires it as this gate does -------------------------------------------------------
 // The gate builds its own flow handle. These pin the real wiring to it, so a `Game.svelte` that
 // mounts the Pots screen without the handle or reverts `onStage`, or a runtime that stops counting
@@ -427,7 +691,11 @@ const drawnY = () => potsScenes('engine')[0]?.drawnY;
 	const gameSource = source('apps/lines/src/components/Game.svelte');
 	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
 	check('wiring: Game mounts its own Pots screen through <EngineScreenMount> with the flow handle', /\{#if flowV2EnginePots\}\s*<EngineScreenMount\s+scene=\{flowV2EnginePots\.scene\}\s+z=\{flowV2EnginePots\.z\}\s+flow=\{flowV2Handle\}\s*\/>/.test(gameSource)); // prettier-ignore
-	check('wiring: Game hands <FlowV2Cinematics> the flow handle’s onStage', /<FlowV2Cinematics\s+flow=\{flowV2Handle\}\s+onStage=\{\(sceneId\) =>\s+!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle\?\.onStage\(sceneId\)\}/.test(gameSource)); // prettier-ignore
+	check('wiring: Game hands <FlowV2Cinematics> the flow handle’s onStage, the base game included', /<FlowV2Cinematics\s+flow=\{flowV2Handle\}\s+onStage=\{\(sceneId\) => !!flowV2ResolveScene && !!flowV2Handle\?\.onStage\(sceneId\)\}/.test(gameSource)); // prettier-ignore
+	check('wiring: Game takes the shown base game’s drive', /const basegameDrive = \$derived\(\s*flowV2ResolveScene && flowV2Handle\?\.onStage\(basegameScreenId\)\s*\? flowV2Handle\.screenDrive\(basegameScreenId\)\s*: undefined,?\s*\);/.test(gameSource)); // prettier-ignore
+	check('wiring: the below-reel layers remount with it', /\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameBelowReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}/.test(gameSource)); // prettier-ignore
+	check('wiring: the above-reel layers remount with it', /\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameAboveReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}/.test(gameSource)); // prettier-ignore
+	check('wiring: the board is drawn inside <BoardDrive> with it and the base game’s reelGrid', /<BoardDrive\s+drive=\{basegameDrive\}\s+node=\{basegameReelGrid\}\s+layoutType=\{context\.stateLayoutDerived\.layoutType\(\)\}\s*>(?:(?!<\/BoardDrive>)[\s\S])*\{@render reelStack\(\)\}/.test(gameSource)); // prettier-ignore
 	check('wiring: the runtime counts its own Pots screen', /createScreenDrives\([^;]*enginePots \? \[enginePots\.scene\.id\] : \[\]/.test(runtime)); // prettier-ignore
 	check('wiring: the runtime reports the screens the flow shows', runtime.includes('screenDrives.setFlowScreens(containers.map((container) => container.sceneId))')); // prettier-ignore
 	check('wiring: the handle hands out the bookkeeping', ['onStage: screenDrives.onStage', 'screenDrive: screenDrives.drive', 'driveScreen: screenDrives.driveScreen', 'engineScreenUp: screenDrives.setEngineScreen'].every((line) => runtime.includes(line))); // prettier-ignore

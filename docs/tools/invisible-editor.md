@@ -1133,6 +1133,13 @@ plays the result in the game. A component has its own Animate mode on the Compon
      like the screen. Starting the
      timeline re-opens the shown screen, so set a component's inputs on it after the play, not
      between the Show and the play.
+   - **The base game** works the same way: Show it, then play its timeline. Keys on the **reel
+     grid** move the reels themselves: x/y, scale ×, rotation, alpha and visibility, about the
+     grid's position, as the canvas previews them (tint does not apply to the reels). Only the
+     drawing moves: the win line and anything else the game places from the board stay where the
+     grid is laid out, so end the intro on the grid's Design pose (x/y 0, scale 1). A node hidden
+     by a visibility key stays hidden while the base game is up, because the screen holds the
+     last frame; key it visible again at the end if it should come back.
    - **A timeline reaches the game only once it keys a node and is saved.** One that never did
      (or was deleted) is skipped: the flow carries on, and the browser console says which.
 

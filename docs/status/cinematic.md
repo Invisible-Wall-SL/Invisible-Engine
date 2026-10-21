@@ -173,6 +173,12 @@ through the same player; headless-proven, no editor yet (5b).
     board coming back picks it up where it is. The bookkeeping (flow-shown + engine-mounted
     screens, drives and their lifetime) is `apps/lines/src/game/screenDrives.svelte.ts`. The banner
     screens the game mounts itself (`engineBannerScreens`) are not counted yet.
+    **The base game (2026-10-21):** `<FlowV2Mount>` skips it, so Game takes its drive itself
+    (`basegameDrive`): the reel split's layers remount with the driver, and the reels follow the
+    `reelGrid` node's keys through `<BoardDrive>` (x/y, scale, rotation, alpha, visibility; no
+    tint), about the node's position. Only the board's drawing moves; `boardLayout()` and what is
+    placed from it outside the wrapper (the win line, flights, board-anchored overlays) stay on the
+    authored pose, so a held non-identity end pose would leave them behind.
 
 - **Per-ratio keys (2026-10-21, headless-proven, ⏳ not browser-verified).** A screen lays its
   nodes out per ratio, so a node actor's `property` track may carry `layout` (a layout type): the
@@ -477,6 +483,24 @@ through the same player; headless-proven, no editor yet (5b).
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-21 — **A base-game timeline moves the base game and its reels** (branch
+  `claude/blissful-bohr-4r7uny`). Reported on the same project: an intro keyed on the base game
+  (the reel grid rising and zooming in from 0.1, the `Reel.png` frame hidden) looked right in the
+  editor and did nothing in game. `<FlowV2Mount>` skips the `basegame` container (Game draws it
+  split around the engine-drawn reels) and Game kept `basegame` off stage for `<FlowV2Cinematics>`,
+  so the driver reached nothing and `<Cinematic>` drew a copy of the screen, whose `reelGrid`
+  placeholder draws nothing. Game now takes the shown base game's drive (`basegameDrive`): the
+  reel split's below- and above-reel layers remount with it (as `<FlowV2Mount>` does a shown
+  screen), and the board stack is drawn inside `<BoardDrive>`, which runs the node fold over the
+  `reelGrid` actor (`boardDriveTransform`, `apps/lines/src/game/boardDrive.ts`) and applies it
+  about the node's position; undriven it is an identity container. Gate: `pnpm
+  check:screen-timeline-mounts` gains the base game (the copy as `main` drew it; then no copy, the
+  layers driven, the board zooming and rising with the playhead about the grid's position, holding
+  its last frame, pivoting on the portrait position when turned, undriven once hidden; rotation,
+  alpha and visibility keys) and pins the `Game.svelte` wiring. Verified in Chromium against the
+  reporting project's live runtime bundle on a local build: the board starts at 0.1 below its
+  place, rises and settles over 2 s, and the frame is hidden as keyed.
 
 - 2026-10-21 — **The Pots screen's timeline moves the pots the player sees, and keys per screen
   ratio** (branch `claude/quirky-clarke-jmc9b3`). Reported on a live Pots overlay project
