@@ -899,6 +899,20 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'electrocute',
+		label: 'Electrocute',
+		category: 'light',
+		phase: 'emphasis',
+		durationMs: 1400,
+		description:
+			'Electrocuted: jagged arcs crackle across it, its outline glows, it flickers to a scorched negative and jitters, then lets go.',
+		params: [
+			COLOR('color', 'Arc colour', '#8fd8ff'),
+			{ id: 'arcs', label: 'Arcs', kind: 'number', default: 3, min: 1, max: 6, step: 1 },
+			{ id: 'flicker', label: 'Flicker', kind: 'bool', default: true },
+		],
+	},
+	{
 		kind: 'dissolveOut',
 		label: 'Dissolve out',
 		category: 'light',

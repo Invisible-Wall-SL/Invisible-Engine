@@ -2,18 +2,18 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** **Element FX** (effects that play ON a node, a screen, the reels or a symbol's state — 46 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** **Element FX** (effects that play ON a node, a screen, the reels or a symbol's state — 47 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
 
 - **Element FX** (2026-10-21, [design/element-fx](../design/element-fx.md)) — effects that play ON
   an element rather than beside it: any node (image, rig / `.irig`, flipbook, particle effect,
-  text, group, component placement), a whole screen, or the reels. 46 kinds in five families:
+  text, group, component placement), a whole screen, or the reels. 47 kinds in five families:
   motion (shake, wobble, pulse, heartbeat, jelly, bounce, spin, swing, float, pop in / out, slam
   in, fade in / out), 3D (flip sideways / over, bounce 3D, tilt 3D, sphericon), distort (wave X / Y, flag,
   twist, curl, ripple, bulge, melt), light (glow, outline, shine, flash, rainbow, chromatic, glitch,
-  blur, pixelate, freeze, burn to ashes, poison, dissolve out / in) and break (crash, crumble, shatter, dissolve to / assemble from particles). Authored in the Scene Editor's
+  blur, pixelate, freeze, burn to ashes, poison, electrocute, dissolve out / in) and break (crash, crumble, shatter, dissolve to / assemble from particles). Authored in the Scene Editor's
   **Element FX** section (node Properties and the Screen panel; ▶ previews on the stage on a still
   of the element) with an *Always* / *When shown* / *On cue* / *Keyed* trigger and a stop cue;
   fired from the Flow by `fireCue` or by `elementEffect` / `stopElementEffect`. A *Keyed* entry
@@ -123,6 +123,16 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-21 — **Electrocute** (a 47th kind, light & colour, emphasis). Owner ask: an electrocute
+  effect. One shader pass (`electrocuteFilter`): up to six jagged arcs (`arcs`, default 3) run
+  between points on the element's edge, re-struck 14 times a second — two octaves of 1-D noise
+  across the line, pinned at its ends — a white-hot core in a halo of `color` (default #8fd8ff);
+  the element's outline glows, and with `flicker` (on by default) it flashes now and then to a
+  scorched negative. The motion jitters it violently (incommensurate sines). Struck at once, held,
+  let go over its last fifth; steady while it loops. The pass reserves room past the box for the
+  arcs only while they bite. `check:element-fx` 103 → 104. Rendered on WebGL1 and WebGL2 (the
+  loop bound is constant, broken early by the arc count — fine on GLSL ES 1.00). ⏳ Not clicked in
+  a browser.
 - 2026-10-21 — **Poison** (a 46th kind, light & colour, loop). Owner ask: a poison effect. One
   shader pass (`poisonFilter`): the art drains to a sickly version of itself turned to `color`
   (default #8aff3c, acid green) with a little venom glow; dark veins (ridged value noise, `veins`

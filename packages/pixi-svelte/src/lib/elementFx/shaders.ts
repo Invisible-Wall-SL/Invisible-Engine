@@ -930,3 +930,96 @@ void main(void)
 `,
 		{ uPoison: vec(4), uVenom: vec(4) },
 	);
+
+/**
+ * Electrocuted: up to six jagged arcs crackle across the element between points on its edge,
+ * re-struck 14 times a second, a white-hot core in a halo of `uArc`; the element's own outline
+ * glows, and it flickers now and then to a scorched negative. `uZap` = (how hard 0…1, arcs, seed,
+ * seconds); `uArc` = (arc colour, flicker on).
+ */
+export const electrocuteFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'electrocute',
+		`
+uniform vec4 uZap;
+uniform vec4 uArc;
+
+float zapHash(float n)
+{
+    return fract(sin(n * 12.9898 + 78.233) * 43758.5453);
+}
+
+float zapNoise(float x)
+{
+    float i = floor(x);
+    float f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(zapHash(i), zapHash(i + 1.0), f);
+}
+
+// A point on the element's edge, 0…4 once round it, in unit coordinates.
+vec2 zapRim(float a)
+{
+    a = mod(a, 4.0);
+    return a < 1.0 ? vec2(a, 0.0)
+        : a < 2.0 ? vec2(1.0, a - 1.0)
+        : a < 3.0 ? vec2(3.0 - a, 1.0)
+        : vec2(0.0, 4.0 - a);
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    vec4 color = efxSample(px);
+    float amount = uZap.x;
+    if (amount <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec2 size = efxSize();
+    float big = max(size.x, size.y);
+    vec2 p = efxToUnit(px) * size;
+    float tick = floor(uZap.w * 14.0);
+    float core = 0.0;
+    float halo = 0.0;
+    for (int i = 0; i < 6; i++)
+    {
+        if (float(i) >= uZap.y) break;
+        float seed = uZap.z + float(i) * 17.31 + tick * 3.7;
+        vec2 a = zapRim(zapHash(seed) * 4.0) * size;
+        vec2 b = zapRim(zapHash(seed + 1.7) * 2.0 + zapHash(seed) * 4.0 + 1.0) * size;
+        vec2 ab = b - a;
+        float len = max(length(ab), 1.0);
+        vec2 dir = ab / len;
+        float along = dot(p - a, dir);
+        if (along < 0.0 || along > len) continue;
+        float s = along / len;
+        float jag = (zapNoise(s * 9.0 + seed) - 0.5) * 0.9 + (zapNoise(s * 23.0 + seed * 2.0) - 0.5) * 0.35;
+        float d = abs(dot(p - a, vec2(-dir.y, dir.x)) - jag * 0.22 * big * sin(PI * s));
+        core += exp(-d / max(1.0, 0.006 * big));
+        halo += exp(-d / (0.03 * big));
+    }
+    vec3 arc = uArc.rgb;
+    vec4 zapped = color;
+    if (color.a > 0.0)
+    {
+        vec3 rgb = color.rgb / color.a;
+        float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+        float flick = uArc.a * step(0.72, zapHash(tick + uZap.z));
+        rgb = mix(rgb, mix(rgb, vec3(1.0 - lum) * (0.4 + 0.8 * arc), 0.85), flick * amount);
+        float edge = color.a - min(
+            min(efxSample(px + vec2(2.0, 0.0)).a, efxSample(px - vec2(2.0, 0.0)).a),
+            min(efxSample(px + vec2(0.0, 2.0)).a, efxSample(px - vec2(0.0, 2.0)).a));
+        rgb += arc * clamp(edge, 0.0, 1.0) * 0.8 * amount;
+        zapped = vec4(min(rgb, vec3(1.0)) * color.a, color.a);
+    }
+    float c = clamp(core, 0.0, 1.0) * amount;
+    float g = clamp(halo * 0.35, 0.0, 1.0) * amount;
+    zapped.rgb = min(zapped.rgb + vec3(c) + arc * g, vec3(1.0));
+    zapped.a = min(1.0, zapped.a + max(c, 0.8 * g) * (1.0 - zapped.a));
+    finalColor = zapped;
+}
+`,
+		{ uZap: vec(4), uArc: vec(4) },
+	);

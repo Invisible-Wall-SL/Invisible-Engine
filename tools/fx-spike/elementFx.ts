@@ -325,6 +325,36 @@ console.log('element fx — the motion samplers');
 		'poison seeps in and out of a counted play, stays full while it loops, and sways between',
 	);
 	venom?.destroy();
+
+	const electrocute = KINDS.electrocute;
+	const arcs = electrocute.filter?.create(frame('electrocute', 0));
+	const view = { screenWidth: 120, screenHeight: 160 };
+	const bite = (t: number, looping = false): { amount: number; room: number } => {
+		const f = frame('electrocute', t, looping);
+		electrocute.filter?.update(arcs as Filter, f, view);
+		return {
+			amount: (arcs as unknown as { efx: { uZap: Float32Array } }).efx.uZap[0],
+			room: electrocute.filter?.padding?.(f, view) ?? 0,
+		};
+	};
+	const jolt = (t: number): number => {
+		const m = electrocute.motion?.(frame('electrocute', t)) ?? {};
+		return Math.abs(m.x ?? 0) + Math.abs(m.y ?? 0) + Math.abs(m.rotation ?? 0);
+	};
+	const [struck, biting, freed] = [bite(0), bite(0.5), bite(1)];
+	assert(
+		struck.amount === 0 &&
+			near(biting.amount, 1) &&
+			freed.amount === 0 &&
+			near(bite(0, true).amount, 1) &&
+			biting.room > 0 &&
+			freed.room === 0 &&
+			jolt(0) === 0 &&
+			jolt(1) === 0 &&
+			jolt(0.43) > 0,
+		'electrocute bites at once, holds while it loops, makes room for its arcs only while they bite, and jitters between',
+	);
+	arcs?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------

@@ -43,6 +43,7 @@ import {
 	colorMixFilter,
 	curlFilter,
 	dissolveFilter,
+	electrocuteFilter,
 	freezeFilter,
 	meltFilter,
 	perspectiveFilter,
@@ -317,6 +318,49 @@ const poisonImpl = (): KindImpl => {
 				);
 				filter.set('uVenom', ...rgb(str(frame, 'color')), flag(frame, 'bubbles') ? 1 : 0);
 			},
+		}),
+	};
+};
+
+/** How hard an electrocution bites at `frame`: struck at once, held, let go over its last fifth. */
+const zapEnvelope = (frame: FxFrame): number =>
+	frame.looping ? 1 : smoothstep(0, 0.06, frame.t) * (1 - smoothstep(0.8, 1, frame.t));
+
+/** Electrocute: the arcs run as a shader pass; the element jitters violently while they bite. */
+const electrocuteImpl = (): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		motion(frame) {
+			const k = zapEnvelope(frame) * frame.intensity;
+			if (k <= 0) return {};
+			const amp = Math.min(12, Math.max(1.5, 0.02 * Math.min(frame.width, frame.height))) * k;
+			const s = frame.seconds;
+			return {
+				x: amp * Math.sin(s * 157) * Math.sin(s * 23),
+				y: amp * Math.sin(s * 131 + 1.3) * Math.sin(s * 17),
+				rotation: 0.02 * k * Math.sin(s * 97),
+			};
+		},
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = electrocuteFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				filter.set(
+					'uZap',
+					zapEnvelope(frame) * Math.min(1, frame.intensity),
+					Math.round(num(frame, 'arcs')),
+					seeds.get(filter) ?? 0,
+					frame.seconds,
+				);
+				filter.set('uArc', ...rgb(str(frame, 'color')), flag(frame, 'flicker') ? 1 : 0);
+			},
+			padding: (frame, view) =>
+				zapEnvelope(frame) > 0
+					? Math.ceil(0.15 * Math.max(view.screenWidth, view.screenHeight)) + 2
+					: 0,
 		}),
 	};
 };
@@ -728,6 +772,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	freeze: freezeImpl(),
 	burn: burnImpl(),
 	poison: poisonImpl(),
+	electrocute: electrocuteImpl(),
 	dissolveOut: dissolveImpl('out'),
 	dissolveIn: dissolveImpl('in'),
 
