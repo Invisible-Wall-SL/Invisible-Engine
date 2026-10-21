@@ -138,11 +138,21 @@ To start from something:
   Save (which converts the project) or Discard. The **Book of** set is a reference for a
   **lines** project too: loaded there (scaffold or import) it is the project's own lines layout,
   not a cross-type one — a Book-of game is lines plus the expanding symbol.
-- **＋ New empty screen**, **＋ New background screen**, **＋ Add / Refresh HUD
-  layer**, and **＋ New HUD screen** create screens directly.
-- **＋ New bet menu screen** and **＋ New auto spin screen** seed the two player
-  menus — see [the section below](#the-bet-menu-and-the-auto-spin-screens).
-- **＋ Add missing screens** appears when the game defines screens the current
+- **＋ Add screen ▾** (under the screen list) opens a menu of everything that adds a screen;
+  **⋯** beside it holds the rest. Both open on click, Enter or Space; the arrow keys move through
+  them, → or Enter opens a submenu, and Esc or a click elsewhere closes them. A small number on
+  **＋ Add screen ▾** counts the screens this game has that the layout is missing (the **Add
+  missing screens** and **Add overlay screens** entries below).
+  - **New:** **Empty screen**, **Background screen**, **HUD layer** (only while the layout has
+    no HUD — it adds the game HUD without replacing anything), **HUD screen**, and **Bet menu
+    screen** / **Auto spin screen**, which seed the two player menus — see
+    [the section below](#the-bet-menu-and-the-auto-spin-screens).
+  - **From template:** **Add missing screens**, **Add overlay screens** and **Banner screen ▸**,
+    each listed only when it has something to add, with the count on the right.
+  - **⋯:** **↻ Reset HUD to default** (once the layout has a HUD; it asks before it replaces
+    the HUD), **⇕ Reserve rows for board expansion** (when it applies, below) and
+    **⧉ Save as new game kind…**.
+- **Add missing screens** appears when the game defines screens the current
   layout lacks. Each added screen goes in at its place in the game's own screen order,
   not at the end of the list. A project created before its kind's template existed (for
   example a Hold and Win project scaffolded before the Jackpot bar and Pots screens) gets
@@ -155,7 +165,7 @@ To start from something:
   states, and the feature's screens. A Hold and Win bonus here means any Game Config mode that
   plays on the respin board with Hold and Win rules, not only the mode `holdAndWin`; one declared
   without rules yet lights nothing.
-- **＋ Add overlay screens (n)** appears on a project of another kind whose add-on screens are
+- **Add overlay screens** appears on a project of another kind whose add-on screens are
   missing. It adds only those: the **Pots** screen (one Pot Meter per pot in the Game Config),
   plus, with a Hold and Win bonus, the **Jackpot bar** and the feature's screens (not Lucky
   Spin). Each goes in after the screen it follows; existing screens are never replaced or edited.
@@ -220,8 +230,9 @@ popup looks exactly as the built-in banner draws it. Once a popup's screen is in
 screen draws the popup, so its art is yours. The words are not authored here: they are the
 project's [Win Text](win-text.md) templates, filled in by the game.
 
-**Add one:** in the Screens panel, pick the popup from **＋ Banner screen…**. It adds that one
-screen, and only that popup changes. **＋ Add missing screens** never adds banner screens.
+**Add one:** in the Screens panel, open **＋ Add screen ▾ → Banner screen ▸** and pick the popup.
+It adds that one screen, and only that popup changes. **Add missing screens** never adds banner
+screens.
 
 | Screen                      | It shows when                                      | Its lines                    |
 | --------------------------- | -------------------------------------------------- | ---------------------------- |
@@ -275,10 +286,10 @@ stake, and the **auto spin** button to set autoplay up — used to be coded dial
 authoring surface at all. Both are now ordinary screens you build here, and
 [Invisible Flow](flow.md) decides **when** each one opens.
 
-**Seed one.** Under the Screens list, **＋ New bet menu screen** creates _Bet Menu_ and
-**＋ New auto spin screen** creates _Auto Spin_. Each lands in `canvas` space (positioned
+**Seed one.** Under the Screens list, **＋ Add screen ▾ → Bet menu screen** creates _Bet Menu_
+and **＋ Add screen ▾ → Auto spin screen** creates _Auto Spin_. Each lands in `canvas` space (positioned
 against the window edges, so it stays centred on any device) and is tagged with the
-matching role. Pressing the button again once the screen exists just selects it, so you
+matching role. Choosing it again once the screen exists just selects it, so you
 cannot end up with two. What you get is deliberately plain — a starting point to restyle,
 not a fixture:
 
@@ -1637,7 +1648,7 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   with **Add missing screens**) gets the template that makes room: the reel grid's cells shrink and
   the whole board lifts (its **board nudge**), so the grown board sits where the base board was, and the pieces
   above and below are pushed clear. A project that turns expansion on **later** shows a
-  **⇕ Reserve rows for board expansion (N)** button in the screen list: it applies the same cell size
+  **⇕ Reserve rows for board expansion (N)** entry in the Screens panel's **⋯** menu: it applies the same cell size
   and board nudge to the reel grid without moving it (undoable). Move any piece that still sits under the
   grown board yourself.
   **Line Overlay** marks a coin board's paying lines: each active line as a path between its cells,
@@ -1655,7 +1666,7 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   a game type's slot schema: tag nodes with a `slotId`, choose the game type,
   and **Save template** to write `editor/templates/<gameType>.json`. Not needed
   to lay out scenes; it defines the slots that scene authors then fill.
-- **Save as new game kind…** — saves the current screens + engine pieces (minus
+- **Save as new game kind…** (the Screens panel's **⋯** menu) — saves the current screens + engine pieces (minus
   artist art) as a new reusable kind that appears under "New game from kind".
 
 ## Traps

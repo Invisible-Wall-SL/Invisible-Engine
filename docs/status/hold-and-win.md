@@ -970,7 +970,7 @@ Hold and Win beats prints copy.
     `ADD` / `UPG` (labels only), an authored `toCounter` / `upgradeBeam` flight.
 
 - **Phase 6 owed (owner actions):** `hw-3pots-sample` lacks the message host — in `/editor` run
-  **＋ Add missing screens** and place an **Info Bar** on its base game (the Phase 6 session could not
+  **＋ Add screen ▾ → Add missing screens** and place an **Info Bar** on its base game (the Phase 6 session could not
   write the live doc), then confirm the "UNLOCKED"/"ACTIVE" toasts on the mock; scaffold a fresh
   `holdAndWin` project, open `/editor`, screenshot the template; check the jackpot bar's portrait fit
   (≈22 px each side at 0.75 scale). **Portrait finding (Phase 4 polish):** on `hw-3pots-sample`'s
@@ -1035,7 +1035,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
    never verified live — collector streak with coin flights, GRAND as a coin); check balances vs the
    server, Win Text, toasts, 0 console errors, Borut parity. Then rerun `hw-3pots-sample` S1–S7 on the
    current runtime.
-5. **`hw-3pots-sample` layout** — `/editor`: **＋ Add missing screens**, place an **Info Bar** on its
+5. **`hw-3pots-sample` layout** — `/editor`: **＋ Add screen ▾ → Add missing screens**, place an **Info Bar** on its
    base game (its toasts "UNLOCKED" / "PAYER ACTIVE" / "Good luck" have no message host today).
    Since the In-game view change (editor status, 2026-10-01) this adds every Hold and Win screen
    (Jackpot bar, Pots, the feature screens) at its place in the list. It offers them only once the
@@ -1091,7 +1091,7 @@ Phase 9b stopped here (2026-10-01). Tick them off here when done.
 
 15. **Author a banner on a real project.** Do this after the banner-screens change merges and
     its runtime release passes. In the project's `/editor`, pick **Coin jackpot banner** from
-    **＋ Banner screen…**, put art on it, then publish. Force a feature with a jackpot coin and
+    **＋ Add screen ▾ → Banner screen ▸**, put art on it, then publish. Force a feature with a jackpot coin and
     check that your art replaces the dark plate. Every other popup should still look as it did.
 
 ## Blocked (owner / external)

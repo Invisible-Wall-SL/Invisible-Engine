@@ -49,6 +49,7 @@
 		type LayoutProfile,
 	} from 'engine-layout';
 	import ColorField from '$lib/ColorField.svelte';
+	import MenuButton, { type MenuGroup } from '$lib/MenuButton.svelte';
 	import { GAME_KINDS } from 'constants-shared/gameKinds';
 	import { BASE_GAME_MODE, builtinGameModes, holdAndWinModeDecl } from 'game-config';
 	import {
@@ -1911,6 +1912,132 @@
 		markDirty();
 	}
 
+	const missingScreenCount = $derived(missingScreens.length + missingOverlayScreens.length);
+
+	/** The Screens panel's `＋ Add screen ▾` menu. */
+	const addScreenGroups = $derived<MenuGroup[]>([
+		{
+			heading: 'New',
+			items: [
+				{
+					label: 'Empty screen',
+					title:
+						'Create a new blank screen (auto-named). Drag atlas regions onto it to build a layer. Reorder it in the list to set its layer order.',
+					onSelect: addEmptyScreen,
+				},
+				{
+					label: 'Background screen',
+					title:
+						'Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge.',
+					onSelect: addBackgroundScreen,
+				},
+				...(hasHud
+					? []
+					: [
+							{
+								label: 'HUD layer',
+								title:
+									'Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything',
+								onSelect: () => void addHudLayer(),
+							},
+						]),
+				{
+					label: 'HUD screen',
+					title:
+						'Create a new blank HUD-layer screen (always on top). Drag atlas regions onto it to build a custom overlay.',
+					onSelect: addHudScreen,
+				},
+				{
+					label: 'Bet menu screen',
+					title:
+						"Create the bet-amount menu as an editable screen — a grid of the game's bet amounts. Show it from the HUD bet readout's onBetMenu pin in /flow-v2.",
+					onSelect: () => addMenuScreen('betMenu'),
+				},
+				{
+					label: 'Auto spin screen',
+					title:
+						"Create the auto-spin menu as an editable screen — round counts, both limits and a START button. Show it from the auto-spin button's onAutoSpin pin in /flow-v2.",
+					onSelect: () => addMenuScreen('autoSpin'),
+				},
+			],
+		},
+		{
+			heading: 'From template',
+			items: [
+				...(missingScreens.length > 0
+					? [
+							{
+								label: 'Add missing screens',
+								hint: String(missingScreens.length),
+								title: `Add ${missingScreens.length} screen(s) this game has but the layout is missing (e.g. the logo/loading screen) — non-destructive, keeps your edits: ${missingScreens
+									.map((s) => s.name || s.id)
+									.join(', ')}`,
+								onSelect: () => addMissingScreens(),
+							},
+						]
+					: []),
+				...(missingOverlayScreens.length > 0
+					? [
+							{
+								label: 'Add overlay screens',
+								hint: String(missingOverlayScreens.length),
+								title: `Add the screens this game's add-ons bring — the overlay's Pots screen (its pots from Game Config), plus the Jackpot bar, each Hold and Win mode's own respin screens and each spins mode's own free-spin intro, counter and outro — each next to the screen it follows. Never touches an existing screen: ${missingOverlayScreens
+									.map((s) => s.name || s.id)
+									.join(', ')}`,
+								onSelect: () => addMissingScreens(missingOverlayScreens),
+							},
+						]
+					: []),
+				...(missingBannerScreens.length > 0
+					? [
+							{
+								label: 'Banner screen',
+								hint: String(missingBannerScreens.length),
+								title:
+									'Give one Hold and Win popup its own screen, which then draws that popup instead of the built-in banner. Every other popup keeps the built-in banner.',
+								items: missingBannerScreens.map((scene) => ({
+									label: scene.name,
+									onSelect: () => addMissingScreens([scene]),
+								})),
+							},
+						]
+					: []),
+			],
+		},
+	]);
+
+	/** The Screens panel's `⋯` overflow menu. */
+	const moreScreenGroups = $derived<MenuGroup[]>([
+		{
+			items: [
+				...(hasHud
+					? [
+							{
+								label: '↻ Reset HUD to default',
+								title: 'Refresh the HUD scenes to the latest version (resets HUD positions)',
+								onSelect: () => void addHudLayer(),
+							},
+						]
+					: []),
+				...(needsExpansionReserve
+					? [
+							{
+								label: `⇕ Reserve rows for board expansion (${data.expansionMaxRows})`,
+								title: `This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts the board (its board nudge) so the grown board fits where the base board was — the grid does not move; move the pieces below it if they still overlap.`,
+								onSelect: reserveExpansionRows,
+							},
+						]
+					: []),
+				{
+					label: '⧉ Save as new game kind…',
+					title:
+						"Save the current screens + engine pieces on this canvas as a NEW reusable game kind. It joins the built-ins in 'New game from kind' (the scaffold drops your artist art — engine pieces only).",
+					onSelect: () => void saveAsNewKind(),
+				},
+			],
+		},
+	]);
+
 	/** Delete a screen (with its nodes) after confirmation, then re-resolve the active
 	 * screen so the canvas keeps a valid selection. */
 	async function deleteScene(idx: number): Promise<void> {
@@ -3455,126 +3582,26 @@
 						{/if}
 					</ul>
 
-					<button
-						class="add-hud-btn"
-						type="button"
-						title="Create a new blank screen (auto-named). Drag atlas regions onto it to build a layer. Reorder it in the list to set its layer order."
-						onclick={addEmptyScreen}
-					>
-						＋ New empty screen
-					</button>
-
-					<button
-						class="add-hud-btn"
-						type="button"
-						title="Create a new full-bleed background screen (cover-fit). Then drag any atlas region onto it — it fills the window edge-to-edge."
-						onclick={addBackgroundScreen}
-					>
-						＋ New background screen
-					</button>
-
-					<button
-						class="add-hud-btn"
-						type="button"
-						title={hasHud
-							? 'Refresh the HUD scenes to the latest version (resets HUD positions)'
-							: 'Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything'}
-						onclick={() => void addHudLayer()}
-					>
-						{hasHud ? '↻ Reset HUD to default' : '＋ Add HUD layer'}
-					</button>
-
-					<button
-						class="add-hud-btn"
-						type="button"
-						title="Create a new blank HUD-layer screen (always on top). Drag atlas regions onto it to build a custom overlay."
-						onclick={addHudScreen}
-					>
-						＋ New HUD screen
-					</button>
-
-					<button
-						class="add-hud-btn"
-						type="button"
-						title="Create the bet-amount menu as an editable screen — a grid of the game's bet amounts. Show it from the HUD bet readout's onBetMenu pin in /flow-v2."
-						onclick={() => addMenuScreen('betMenu')}
-					>
-						＋ New bet menu screen
-					</button>
-
-					<button
-						class="add-hud-btn"
-						type="button"
-						title="Create the auto-spin menu as an editable screen — round counts, both limits and a START button. Show it from the auto-spin button's onAutoSpin pin in /flow-v2."
-						onclick={() => addMenuScreen('autoSpin')}
-					>
-						＋ New auto spin screen
-					</button>
-
-					{#if missingScreens.length > 0}
-						<button
-							class="add-hud-btn"
-							type="button"
-							title={`Add ${missingScreens.length} screen(s) this game has but the layout is missing (e.g. the logo/loading screen) — non-destructive, keeps your edits: ${missingScreens
-								.map((s) => s.name || s.id)
-								.join(', ')}`}
-							onclick={() => addMissingScreens()}
+					<div class="screen-actions">
+						<MenuButton
+							class="add-screen-btn"
+							label="Add screen"
+							title="Add a screen to this layout"
+							groups={addScreenGroups}
+							badge={missingScreenCount}
+							badgeTitle={`${missingScreenCount} screen(s) this game has that the layout is missing`}
 						>
-							＋ Add missing screens ({missingScreens.length})
-						</button>
-					{/if}
-
-					{#if missingBannerScreens.length > 0}
-						<select
-							class="add-hud-btn"
-							aria-label="Add a banner screen"
-							title="Give one Hold and Win popup its own screen, which then draws that popup instead of the built-in banner. Every other popup keeps the built-in banner."
-							value=""
-							onchange={(event) => {
-								const scene = missingBannerScreens.find((s) => s.id === event.currentTarget.value);
-								event.currentTarget.value = '';
-								if (scene) addMissingScreens([scene]);
-							}}
+							＋ Add screen <span aria-hidden="true">▾</span>
+						</MenuButton>
+						<MenuButton
+							class="screen-more-btn"
+							label="More screen actions"
+							title="More screen actions"
+							groups={moreScreenGroups}
 						>
-							<option value="">＋ Banner screen… ({missingBannerScreens.length})</option>
-							{#each missingBannerScreens as scene (scene.id)}
-								<option value={scene.id}>{scene.name}</option>
-							{/each}
-						</select>
-					{/if}
-
-					{#if missingOverlayScreens.length > 0}
-						<button
-							class="add-hud-btn"
-							type="button"
-							title={`Add the screens this game's add-ons bring — the overlay's Pots screen (its pots from Game Config), plus the Jackpot bar, each Hold and Win mode's own respin screens and each spins mode's own free-spin intro, counter and outro — each next to the screen it follows. Never touches an existing screen: ${missingOverlayScreens
-								.map((s) => s.name || s.id)
-								.join(', ')}`}
-							onclick={() => addMissingScreens(missingOverlayScreens)}
-						>
-							＋ Add overlay screens ({missingOverlayScreens.length})
-						</button>
-					{/if}
-
-					{#if needsExpansionReserve}
-						<button
-							class="add-hud-btn"
-							type="button"
-							title={`This game's respin board grows to ${data.expansionMaxRows} rows below the base grid (Game Config → Board expansion). Shrinks the reel grid's cells and lifts the board (its board nudge) so the grown board fits where the base board was — the grid does not move; move the pieces below it if they still overlap.`}
-							onclick={reserveExpansionRows}
-						>
-							⇕ Reserve rows for board expansion ({data.expansionMaxRows})
-						</button>
-					{/if}
-
-					<button
-						class="add-hud-btn"
-						type="button"
-						title="Save the current screens + engine pieces on this canvas as a NEW reusable game kind. It joins the built-ins in 'New game from kind' (the scaffold drops your artist art — engine pieces only)."
-						onclick={() => void saveAsNewKind()}
-					>
-						⧉ Save as new game kind…
-					</button>
+							⋯
+						</MenuButton>
+					</div>
 				</PanelSection>
 
 				<PanelSection id="components" title="Components" count={paletteComponents.length}>
@@ -4805,6 +4832,30 @@
 		font-family: inherit;
 	}
 	.add-hud-btn:hover {
+		border-color: #7ee0c0;
+		background: #16241f;
+	}
+	.screen-actions {
+		display: flex;
+		gap: 6px;
+		margin-top: 8px;
+	}
+	.screen-actions :global(.add-screen-btn),
+	.screen-actions :global(.screen-more-btn) {
+		background: #14201c;
+		border: 1px dashed #2f5d57;
+		color: #7ee0c0;
+		padding: 6px 10px;
+		font-size: 11px;
+		border-radius: 6px;
+	}
+	.screen-actions :global(.add-screen-btn) {
+		flex: 1;
+		min-width: 0;
+	}
+	.screen-actions :global(.add-screen-btn:hover),
+	.screen-actions :global(.screen-more-btn:hover),
+	.screen-actions :global([aria-expanded='true']) {
 		border-color: #7ee0c0;
 		background: #16241f;
 	}

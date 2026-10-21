@@ -290,7 +290,7 @@ brings everything its pots start. Then it seeds the parts a playable overlay nee
 
 - **Symbols** — placeholder art for each token and for the Hold and Win bonus's symbols, so they
   draw from the first spin. Replace it in [Symbols](symbols-state-machine.md#pots-overlay-projects).
-- **Screens** — the Scene Editor's **＋ Add overlay screens**, done for you: the **Pots** screen
+- **Screens** — the Scene Editor's **＋ Add screen ▾ → Add overlay screens**, done for you: the **Pots** screen
   (one Pot Meter per pot) and, with a Hold and Win bonus, the Jackpot bar and the feature's screens.
   Coins only has no pots, so it adds no Pots screen and no token. A pot that already has a Pot Meter
   on any screen gets no second one. On a Hold and Win game it adds the Pots screen when the project
@@ -314,7 +314,7 @@ and steps that are missing and leaves the rest alone. A Flow graft never touches
 - **Symbols / Screens / Win Text / Flow** — _added_ (with what was added), _nothing to add_,
   _changed meanwhile_, _skipped_ or _failed_, with a note when there is something to do by hand.
   For example, a project with no stored flow skips the Flow graft (the built-in beats play), and a
-  custom game kind skips the screens (add them with **＋ Add overlay screens** in the
+  custom game kind skips the screens (add them with **＋ Add screen ▾ → Add overlay screens** in the
   [Scene Editor](invisible-editor.md)).
 
 **Running it again.** Each part is saved separately and only if nobody saved that doc in between.
