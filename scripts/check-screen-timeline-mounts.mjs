@@ -551,9 +551,11 @@ const basegameIntro = ({ id = 'basegame_intro', extra = {}, gridVisible } = {}) 
  * The base game, as `Game.svelte` wires it: the flow SHOWS `basegame`, which `<FlowV2Mount>` skips,
  * so the game draws it split around the reels — the layers (`basegameLayers`) and the board
  * (`<BoardDrive>`), each handed the base game's drive. `before` is `main` before the fix: Game kept
- * `basegame` off stage and handed neither the drive.
+ * `basegame` off stage and handed neither the drive. `drivesScreens: false` is a flow that shows
+ * `basegame` without driving the screens, where a v1 interpreter may draw it: it keeps `before`'s
+ * behaviour.
  */
-function basegameGame({ before = false } = {}) {
+function basegameGame({ before = false, drivesScreens = true } = {}) {
 	const playing = new SvelteMap();
 	const drives = createScreenDrives((id) => playing.has(id));
 	const flow = {
@@ -569,11 +571,10 @@ function basegameGame({ before = false } = {}) {
 		engineScreenUp: drives.setEngineScreen,
 	};
 	drives.setFlowScreens([BASEGAME.id]);
-	const onStage = before
-		? (sceneId) => sceneId !== BASEGAME.id && flow.onStage(sceneId)
-		: (sceneId) => flow.onStage(sceneId);
-	const basegameDrive = () =>
-		!before && flow.onStage(BASEGAME.id) ? flow.screenDrive(BASEGAME.id) : undefined;
+	const basegameOnStage = () => !before && drivesScreens && flow.onStage(BASEGAME.id);
+	const onStage = (sceneId) =>
+		sceneId === BASEGAME.id ? basegameOnStage() : flow.onStage(sceneId);
+	const basegameDrive = () => (basegameOnStage() ? flow.screenDrive(BASEGAME.id) : undefined);
 	const layers = mount(BasegameLayers, {
 		target: new Element(),
 		props: {
@@ -668,6 +669,13 @@ const boardText = () => JSON.stringify(state.board);
 	run.end();
 }
 {
+	const run = basegameGame({ drivesScreens: false });
+	run.play(basegameIntro({ id: 'basegame_v1' }));
+	check('basegame, flow not driving the screens: the copy is drawn as before', basegameScenes('copy').length === 1, `${basegameScenes('copy').length} copies`); // prettier-ignore
+	check('basegame, flow not driving the screens: the base game and board are left alone', frameVisible() === undefined && boardAt(0, 0, 1), boardText()); // prettier-ignore
+	run.end();
+}
+{
 	const run = basegameGame();
 	run.play(
 		basegameIntro({
@@ -691,8 +699,10 @@ const boardText = () => JSON.stringify(state.board);
 	const gameSource = source('apps/lines/src/components/Game.svelte');
 	const runtime = source('apps/lines/src/game/flowV2Runtime.svelte.ts');
 	check('wiring: Game mounts its own Pots screen through <EngineScreenMount> with the flow handle', /\{#if flowV2EnginePots\}\s*<EngineScreenMount\s+scene=\{flowV2EnginePots\.scene\}\s+z=\{flowV2EnginePots\.z\}\s+flow=\{flowV2Handle\}\s*\/>/.test(gameSource)); // prettier-ignore
-	check('wiring: Game hands <FlowV2Cinematics> the flow handle’s onStage, the base game included', /<FlowV2Cinematics\s+flow=\{flowV2Handle\}\s+onStage=\{\(sceneId\) => !!flowV2ResolveScene && !!flowV2Handle\?\.onStage\(sceneId\)\}/.test(gameSource)); // prettier-ignore
-	check('wiring: Game takes the shown base game’s drive', /const basegameDrive = \$derived\(\s*flowV2ResolveScene && flowV2Handle\?\.onStage\(basegameScreenId\)\s*\? flowV2Handle\.screenDrive\(basegameScreenId\)\s*: undefined,?\s*\);/.test(gameSource)); // prettier-ignore
+	check('wiring: Game hands <FlowV2Cinematics> the flow handle’s onStage, the base game through basegameOnStage', /<FlowV2Cinematics\s+flow=\{flowV2Handle\}\s+onStage=\{\(sceneId\) =>\s+sceneId === basegameScreenId\s+\? basegameOnStage\s+: !!flowV2ResolveScene && !!flowV2Handle\?\.onStage\(sceneId\)\}/.test(gameSource)); // prettier-ignore
+	check('wiring: the base game is on stage only under a flow that drives the screens', /const basegameOnStage = \$derived\(\s*flowV2DrivesScreens && !!flowV2Handle\?\.onStage\(basegameScreenId\),?\s*\);/.test(gameSource)); // prettier-ignore
+	check('wiring: Game takes the base game’s drive while it is on stage', /const basegameDrive = \$derived\(\s*basegameOnStage \? flowV2Handle\?\.screenDrive\(basegameScreenId\) : undefined,?\s*\);/.test(gameSource)); // prettier-ignore
+	check('wiring: the board follows the base game’s reelGrid only when the board is laid out from it', /node\.id === findReelGridNode\(editorDoc\)\?\.id/.test(gameSource) && /setBoardOverride\(findReelGridNode\(doc\) \?\? null\)/.test(gameSource)); // prettier-ignore
 	check('wiring: the below-reel layers remount with it', /\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameBelowReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}/.test(gameSource)); // prettier-ignore
 	check('wiring: the above-reel layers remount with it', /\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameAboveReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}/.test(gameSource)); // prettier-ignore
 	check('wiring: the board is drawn inside <BoardDrive> with it and the base game’s reelGrid', /<BoardDrive\s+drive=\{basegameDrive\}\s+node=\{basegameReelGrid\}\s+layoutType=\{context\.stateLayoutDerived\.layoutType\(\)\}\s*>(?:(?!<\/BoardDrive>)[\s\S])*\{@render reelStack\(\)\}/.test(gameSource)); // prettier-ignore

@@ -174,9 +174,11 @@ through the same player; headless-proven, no editor yet (5b).
     screens, drives and their lifetime) is `apps/lines/src/game/screenDrives.svelte.ts`. The banner
     screens the game mounts itself (`engineBannerScreens`) are not counted yet.
     **The base game (2026-10-21):** `<FlowV2Mount>` skips it, so Game takes its drive itself
-    (`basegameDrive`): the reel split's layers remount with the driver, and the reels follow the
-    `reelGrid` node's keys through `<BoardDrive>` (x/y, scale, rotation, alpha, visibility; no
-    tint), about the node's position. Only the board's drawing moves; `boardLayout()` and what is
+    (`basegameDrive`, under a flow that drives the screens; otherwise a v1 interpreter may draw
+    it, and the timeline draws its copy as before): the reel split's layers remount with the
+    driver, and the reels follow the `reelGrid` node's keys through `<BoardDrive>` (x/y, scale,
+    rotation, alpha, visibility; no tint), about the node's position (only when that node is the
+    one the board is laid out from). Only the board's drawing moves; `boardLayout()` and what is
     placed from it outside the wrapper (the win line, flights, board-anchored overlays) stay on the
     authored pose, so a held non-identity end pose would leave them behind.
 
@@ -500,7 +502,7 @@ through the same player; headless-proven, no editor yet (5b).
   its last frame, pivoting on the portrait position when turned, undriven once hidden; rotation,
   alpha and visibility keys) and pins the `Game.svelte` wiring. Verified in Chromium against the
   reporting project's live runtime bundle on a local build: the board starts at 0.1 below its
-  place, rises and settles over 2 s, and the frame is hidden as keyed.
+  place, rises and settles over 2 s, and the frame is hidden as keyed. `pnpm check:all`: 502/502.
 
 - 2026-10-21 — **The Pots screen's timeline moves the pots the player sees, and keys per screen
   ratio** (branch `claude/quirky-clarke-jmc9b3`). Reported on a live Pots overlay project

@@ -1146,9 +1146,11 @@
 			? undefined
 			: { ...basegameScene, nodes: basegameScene.nodes.slice(reelGridIndex + 1) },
 	);
-	const basegameReelGrid = $derived(
-		reelGridIndex < 0 ? undefined : (basegameScene.nodes[reelGridIndex] as ReelGridNode),
-	);
+	// The base game's reel grid, when it is the node the board is laid out from (`setBoardOverride`).
+	const basegameReelGrid = $derived.by(() => {
+		const node = reelGridIndex < 0 ? undefined : basegameScene.nodes[reelGridIndex];
+		return node && node.id === findReelGridNode(editorDoc)?.id ? (node as ReelGridNode) : undefined;
+	});
 	// The overlays scene, with the coded `bind:Win` composer degraded to its gate half when the doc
 	// places its own win visual (see `basegameOverlaysSceneOf`).
 	const basegameOverlaysScene = $derived(
@@ -1507,11 +1509,14 @@
 	});
 	// A screen timeline playing on the shown base game moves the base game itself: the reel split's
 	// layers remount with its driver, and the board follows its `reelGrid` keys (`<BoardDrive>`).
-	// `<FlowV2Mount>` skips `basegame`, so the drive must be taken here or it reaches nothing.
+	// `<FlowV2Mount>` skips `basegame`, so the drive must be taken here or it reaches nothing. Only
+	// under a flow that drives the screens: there is then no v1 interpreter, so the split's coded
+	// path, which takes the driver, is what draws the base game.
+	const basegameOnStage = $derived(
+		flowV2DrivesScreens && !!flowV2Handle?.onStage(basegameScreenId),
+	);
 	const basegameDrive = $derived(
-		flowV2ResolveScene && flowV2Handle?.onStage(basegameScreenId)
-			? flowV2Handle.screenDrive(basegameScreenId)
-			: undefined,
+		basegameOnStage ? flowV2Handle?.screenDrive(basegameScreenId) : undefined,
 	);
 
 	// Phase 4 (flow-driven-game §4) — the GENERIC active-screen TAKEOVER mount. When the
@@ -2949,7 +2954,10 @@
 	-->
 	<FlowV2Cinematics
 		flow={flowV2Handle}
-		onStage={(sceneId) => !!flowV2ResolveScene && !!flowV2Handle?.onStage(sceneId)}
+		onStage={(sceneId) =>
+			sceneId === basegameScreenId
+				? basegameOnStage
+				: !!flowV2ResolveScene && !!flowV2Handle?.onStage(sceneId)}
 	/>
 
 	<DebugStage />
