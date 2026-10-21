@@ -751,8 +751,8 @@ const node = (d: ComponentDef, id: string): LayoutNode =>
 		[true, true, true, true],
 	);
 	eq(
-		'the canvas hit-tests the stage through deepHit, read off the drawn transform',
-		[canvas.includes('return deepHit('), canvas.includes(': drawTransform(node),')],
+		'the canvas hit-tests the stage through deepHit, read off the drawn pose',
+		[canvas.includes('return deepHit('), canvas.includes(': poseTransform(node),')],
 		[true, true],
 	);
 	eq(
