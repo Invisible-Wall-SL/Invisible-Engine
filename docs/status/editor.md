@@ -171,6 +171,18 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-21 — **A rig on an anchored canvas screen draws where its box is** (in review, ⏳ not
+  browser-verified). The reported `R_Widget` (Hold and Win "Feature intro", canvas space, screen
+  anchor 0.5/0.5, x 0, y −15) still drew half a window up-left of its selection box after the
+  owner centred its origin in the Rigger. The rig was never the cause. The rig layer placed a rig
+  node on a `canvas` screen at its raw x/y, measured from the window's top-left. The selection box,
+  the ⊕ and the game (`LayoutNodeView`) fold the screen anchor in through `anchoredPosition`, so they
+  measure from the window centre. On a 1920×1080 window that is ~960 px left and ~540 px up, which is
+  also the "~950 / ~580" the entry below put down to the rig's origin. The layer now places a rig
+  node through `placedRigTransform` (`editorCanvas.helpers.ts`): `anchoredPosition` in a `canvas` or
+  `standard` screen, the main-box mapping in a `game` one. A `standard` or `game` rig draws where it
+  did. No game code changed: the game already drew such a rig at the anchored point. Gate: `check:rig-origin-box`
+  rule 7 (the R_Widget node, plus every space). The old raw x/y fails 4 of its checks.
 - 2026-10-21 — **Screens panel actions collapse into `＋ Add screen ▾` and `⋯`** (in review). The
   stack of up to ten full-width buttons under the screen list became one row. **＋ Add screen ▾**
   has two groups. **New:** Empty, Background, HUD layer (no-HUD case only), HUD, Bet menu and Auto

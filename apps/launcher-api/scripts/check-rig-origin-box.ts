@@ -4,7 +4,7 @@
  * Run: `pnpm --filter launcher-api run check:rig-origin-box`
  *
  * WHY. A rig placed on a screen sits by its skeleton ORIGIN: the game's `<RigProvider>` (no anchor,
- * pivot 0) and the editor's rig layer (`skeleton.x = t.x`) both put the origin on the node's x/y. The
+ * pivot 0) and the editor's rig layer (`placedRigTransform`) both put the origin on the node's x/y. The
  * selection box used the rig's box SIZE but centred it on that origin, so a Rigger rig whose art was
  * far from its origin drew in one place and selected in another (the reported widget: art ~950 px
  * left of and ~580 px above its box).
@@ -26,14 +26,25 @@
  *     rig (`resizePivot`), so an origin on an edge or outside the box still grows the box the way
  *     the handle is pulled, and the origin moves (`resizeOriginShift`) so the box centre holds
  *     still. Every other node measures from its origin, as before.
+ *  7. **The rig layer draws the origin where the box and the game put it** (`placedRigTransform`),
+ *     in every space. In a `canvas` screen that folds in the node's `screenAnchor`, as the box and
+ *     `LayoutNodeView` do through `anchoredPosition`. The layer read the raw x/y there, so the
+ *     reported `R_Widget` (centred, screen anchor 0.5/0.5, x 0, y −15) drew half a window up-left
+ *     of its box even after ⊕ Centre origin: that, not the rig, was the reported offset.
  */
-import type { LayoutNode, ResolvedTransform } from 'engine-layout';
+import {
+	anchoredPosition,
+	type LayoutNode,
+	type ResolvedTransform,
+	type Scene,
+} from 'engine-layout';
 
 import { rigOriginAnchor, type RigBox } from 'constants-shared/rig';
 
 import {
 	nodeBox,
 	nodeCornersWorld,
+	placedRigTransform,
 	resizeOriginShift,
 	resizePivot,
 	type NaturalSize,
@@ -293,6 +304,97 @@ function drag(
 	check('a sprite still measures from its origin', sp.x === 0 && sp.y === 0);
 	const shift = resizeOriginShift({ x: 0, y: 0 }, { x: 2, y: 2 }, { x: 1.5, y: 0.5 }, 0.3);
 	check('a pivot at the origin moves nothing', shift.x === 0 && shift.y === 0);
+}
+
+// Rule 7 — the rig layer draws the origin where the box is framed, in every space. The box's world
+// transform is `nodeTransform`'s: `anchoredPosition` in a `canvas` / `standard` screen (the rule the
+// game's `LayoutNodeView` places by), the main-box mapping in a `game` one.
+{
+	const FRAME = { w: 1920, h: 1080 };
+	const MAIN = {
+		scale: 0.75,
+		toWorld: (p: Vec2): Vec2 => ({ x: 240 + p.x * 0.75, y: 90 + p.y * 0.75 }),
+	};
+	const boxWorld = (t: ResolvedTransform, space: Scene['space']): ResolvedTransform => {
+		if (space === 'game') {
+			const s = MAIN.scale;
+			return {
+				...t,
+				...MAIN.toWorld(t),
+				scale: { x: (t.scale?.x ?? 1) * s, y: (t.scale?.y ?? 1) * s },
+			};
+		}
+		return { ...t, ...anchoredPosition(t, space, FRAME.w, FRAME.h) };
+	};
+	type Placed = { x: number; y: number; scaleX: number; scaleY: number };
+	const drawnBy = (t: ResolvedTransform, p: Placed): ResolvedTransform => ({
+		...t,
+		x: p.x,
+		y: p.y,
+		scale: { x: p.scaleX, y: p.scaleY },
+	});
+	const drawsInItsBox = (
+		t: ResolvedTransform,
+		space: Scene['space'],
+		box: RigBox,
+		place: (t: ResolvedTransform) => Placed,
+	): boolean => {
+		const [tl, , br] = nodeCornersWorld(
+			boxWorld(t, space),
+			nodeBox(rig(), t, () => reported(box)),
+		);
+		const f = drawnFrame(box, drawnBy(t, place(t)));
+		return near(tl.x, f.l) && near(tl.y, f.t) && near(br.x, f.r) && near(br.y, f.b);
+	};
+	const shipped =
+		(space: Scene['space']) =>
+		(t: ResolvedTransform): Placed =>
+			placedRigTransform(t, space, FRAME.w, FRAME.h, MAIN);
+	// The reported node: R_Widget after ⊕ Centre origin, on a canvas screen anchored at its centre.
+	const R_WIDGET: RigBox = { x: -487.5, y: -256, width: 975, height: 512 };
+	const anchored = at({ x: 0, y: -15, screenAnchor: { x: 0.5, y: 0.5 } });
+	check(
+		'R_Widget, canvas, screen anchor 0.5/0.5: drawn inside its box',
+		drawsInItsBox(anchored, 'canvas', R_WIDGET, shipped('canvas')),
+	);
+	{
+		const p = placedRigTransform(anchored, 'canvas', FRAME.w, FRAME.h, MAIN);
+		check(
+			`R_Widget: its origin is the window centre less 15 px, as in the game (${p.x}, ${p.y})`,
+			p.x === 960 && p.y === 525,
+		);
+	}
+	// The old rule (the raw x/y) must fail this gate, or the gate proves nothing.
+	check(
+		'the raw x/y the layer used is caught',
+		!drawsInItsBox(anchored, 'canvas', R_WIDGET, (t) => ({
+			x: t.x,
+			y: t.y,
+			scaleX: t.scale?.x ?? 1,
+			scaleY: t.scale?.y ?? 1,
+		})),
+	);
+	const cases: [string, ResolvedTransform, Scene['space']][] = [
+		[
+			'canvas, anchored bottom-right, scaled',
+			at({ x: -200, y: -100, screenAnchor: { x: 1, y: 1 }, scale: { x: 0.5, y: 0.5 } }),
+			'canvas',
+		],
+		['canvas, no screen anchor', at(), 'canvas'],
+		['standard', at(), 'standard'],
+		['game, scaled', at({ scale: { x: 1.5, y: 1.5 } }), 'game'],
+	];
+	for (const [name, t, space] of cases) {
+		for (const [boxName, box] of [
+			['widget', WIDGET],
+			['centred', CENTRED],
+		] as const) {
+			check(
+				`${boxName}, ${name}: drawn inside its box`,
+				drawsInItsBox(t, space, box, shipped(space)),
+			);
+		}
+	}
 }
 
 if (fails) {

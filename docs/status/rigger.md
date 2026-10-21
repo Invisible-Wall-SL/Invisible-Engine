@@ -126,7 +126,9 @@ Detail for every entry below from 2026-07-16 on is in [rigger-history.md](rigger
   shipped, far off, a rotated + scaled root, a locked frame, a stale frame, a second root, a frame
   with no x/y; a save's re-fit is simulated; four planted mutants all caught).
   The Scene Editor half (the box now frames the art around the origin) is in
-  [editor status](editor.md).
+  [editor status](editor.md). 2026-10-21: `R_Widget`'s offset turned out to be the Scene Editor's
+  rig layer ignoring the node's screen anchor, not the rig (fixed there, [editor status](editor.md)).
+  ⊕ Centre origin is still the right tool for a rig that really is built away from its origin.
 - 2026-10-20 — **The graph editor draws y and scaleY with their own tangents.** It sampled each
   curve by its field alone, so a translate or scale key's y read x's half of the bezier: a y key with
   flat handles drew as a sharp V while the bone (and the game) eased smoothly through it. The graph's
