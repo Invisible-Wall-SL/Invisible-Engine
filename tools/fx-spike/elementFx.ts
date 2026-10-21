@@ -25,7 +25,18 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Container, DOMAdapter, Filter, GlProgram, Rectangle, Ticker } from 'pixi.js';
+import {
+	Container,
+	DOMAdapter,
+	Filter,
+	GlProgram,
+	Matrix,
+	MeshSimple,
+	Rectangle,
+	Texture,
+	TextureSource,
+	Ticker,
+} from 'pixi.js';
 import {
 	ELEMENT_FX,
 	ELEMENT_FX_CHANNEL_PREFIX,
@@ -49,6 +60,7 @@ import {
 	validateNodeActors,
 } from '../../packages/engine-layout/src/lib/cinematicNodes';
 import { blendNodeSamples } from '../../packages/engine-layout/src/lib/stateMachine';
+import { startBreak } from '../../packages/pixi-svelte/src/lib/elementFx/breakApart';
 import { KINDS } from '../../packages/pixi-svelte/src/lib/elementFx/kinds';
 import { REST, type FxFrame } from '../../packages/pixi-svelte/src/lib/elementFx/frame';
 import {
@@ -411,6 +423,77 @@ const snapshot = (c: Container) => [
 	assert(!none.active && elementFxCount(target) === 0, 'no host ⇒ nothing plays');
 	const unknown = playElementFx(target, { kind: 'video' as ElementFxKind }, makeHost().host);
 	assert(!unknown.active, 'an unknown kind ⇒ nothing plays');
+}
+
+// -------------------------------------------------------------------------------------------------
+console.log('element fx — dissolve to particles');
+{
+	assert(KINDS.disintegrate.breaks === 'dust', 'dissolve to particles breaks into dust');
+	const parent = new Container();
+	const target = new Container();
+	parent.addChild(target);
+	const box = new Rectangle(-100, -50, 200, 100);
+	const renderer = {
+		generateTexture: ({ frame }: { frame: Rectangle }) =>
+			new Texture({ source: new TextureSource({ width: frame.width, height: frame.height }) }),
+	};
+	const run = startBreak({
+		style: 'dust',
+		target,
+		renderer: renderer as never,
+		box,
+		rest: new Matrix(),
+		intensity: 1,
+		params: { particles: 400, drift: 'right' },
+		playSeconds: 2,
+	});
+	const holder = parent.children.find((c) => c.label === 'elementFx:break');
+	const meshes = (holder?.children[0]?.children ?? []) as MeshSimple[];
+	/** Every speck as [centre x, centre y, area]. */
+	const specks = (): number[][] =>
+		meshes.flatMap((mesh) => {
+			const v = mesh.vertices;
+			const out: number[][] = [];
+			for (let i = 0; i < v.length; i += 8) {
+				const area = Math.abs(
+					(v[i + 2] - v[i]) * (v[i + 5] - v[i + 3]) - (v[i + 3] - v[i + 1]) * (v[i + 4] - v[i + 2]),
+				);
+				out.push([(v[i] + v[i + 4]) / 2, (v[i + 1] + v[i + 5]) / 2, area]);
+			}
+			return out;
+		});
+	assert(
+		!!run && meshes.length > 1 && meshes.every((m) => m.vertices.length / 2 <= 96),
+		'the specks come in small meshes the batcher draws together',
+	);
+	const atRest = specks();
+	assert(
+		atRest.length >= 350 &&
+			near(
+				atRest.reduce((sum, [, , a]) => sum + a, 0),
+				box.width * box.height,
+				1,
+			) &&
+			atRest.every(([x, y]) => box.contains(x, y)),
+		'at the start the specks tile the element exactly',
+	);
+	run?.update(0.3);
+	const moved = specks().map(([x, y], i) => Math.hypot(x - atRest[i][0], y - atRest[i][1]) > 0.5);
+	const share = (side: (x: number) => boolean): number => {
+		const on = atRest.map(([x], i) => i).filter((i) => side(atRest[i][0]));
+		return on.filter((i) => moved[i]).length / on.length;
+	};
+	assert(
+		share((x) => x > 50) > 0.5 && share((x) => x < -50) === 0,
+		'the side the wind blows to lets go first; the far side still holds',
+	);
+	run?.update(1);
+	assert(
+		specks().every(([, , a]) => a < 1e-6) && holder?.children[0]?.alpha === 0,
+		'by the end every speck has shrunk to nothing',
+	);
+	run?.destroy();
+	assert(parent.children.length === 1 && !!holder?.destroyed, 'and the pieces leave with the run');
 }
 
 // -------------------------------------------------------------------------------------------------

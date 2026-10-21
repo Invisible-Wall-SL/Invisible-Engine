@@ -1,6 +1,6 @@
 /**
- * The BREAK kinds (`crash`, `crumble`): the element is rendered once to a texture, hidden, and the
- * still is cut into pieces that fly. The pieces live in a few small `MeshSimple`s the batcher draws
+ * The BREAK kinds (`crash`, `crumble`, `disintegrate`): the element is rendered once to a texture,
+ * hidden, and the still is cut into pieces that fly. The pieces live in a few small `MeshSimple`s the batcher draws
  * together: each frame moves their vertices. The pieces sit in a holder placed beside the
  * element (same parent, same depth, its resting transform), so they draw where it drew.
  *
@@ -56,8 +56,11 @@ interface Piece {
 	vx: number;
 	vy: number;
 	spin: number;
-	/** Crumble only: the share of the play before it lets go. */
+	/** Crumble and dust: the share of the play before it lets go. */
 	delay: number;
+	/** Dust only: how far it sways across the wind, and where in the sway it starts. */
+	sway: number;
+	phase: number;
 }
 
 /** The pieces' layout: vertices around each piece's centre, uvs into the still, triangle indices. */
@@ -130,6 +133,8 @@ const cutShards = (box: Rectangle, options: BreakOptions, rand: () => number): C
 			vy: dy * speed - 0.35 * force * size,
 			spin: (rand() - 0.5) * 10 * force,
 			delay: 0,
+			sway: 0,
+			phase: 0,
 		};
 	});
 	return { pieces, uvs, indices };
@@ -173,11 +178,117 @@ const cutChunks = (box: Rectangle, options: BreakOptions, rand: () => number): C
 				vy: -rand() * 0.15 * h,
 				spin: (rand() - 0.5) * 5,
 				delay: 0.45 * (1 - (r + 0.5) / rows) + 0.1 * rand(),
+				sway: 0,
+				phase: 0,
 			});
 		}
 	}
 	return { pieces, uvs, indices };
 };
+
+/** Where a dissolve's wind blows, on the screen (y down). */
+const WIND: Record<string, readonly [number, number]> = {
+	upRight: [Math.SQRT1_2, -Math.SQRT1_2],
+	up: [0, -1],
+	upLeft: [-Math.SQRT1_2, -Math.SQRT1_2],
+	right: [1, 0],
+	left: [-1, 0],
+	down: [0, 1],
+};
+
+/** The wind a dissolve's `drift` param names; up and to the right when it names none. */
+export const dustWind = (params: Readonly<Record<string, unknown>>): readonly [number, number] =>
+	WIND[String(params.drift)] ?? WIND.upRight;
+
+/** The share of the play one speck flies for; the last lets go this long before the end. */
+const DUST_LIFE = 0.38;
+
+/** A smooth random field over the unit square (value noise on a 5 × 5 lattice): what makes the
+ *  dissolve's front ragged rather than a straight line. */
+const valueNoise = (rand: () => number): ((u: number, v: number) => number) => {
+	const n = 5;
+	const lattice = Array.from({ length: (n + 1) * (n + 1) }, rand);
+	const at = (i: number, j: number): number => lattice[j * (n + 1) + i];
+	return (u, v) => {
+		const x = clamp01(u) * n;
+		const y = clamp01(v) * n;
+		const i = Math.min(n - 1, Math.floor(x));
+		const j = Math.min(n - 1, Math.floor(y));
+		const fx = smoothstep(0, 1, x - i);
+		const fy = smoothstep(0, 1, y - j);
+		const top = at(i, j) + (at(i + 1, j) - at(i, j)) * fx;
+		const bottom = at(i, j + 1) + (at(i + 1, j + 1) - at(i, j + 1)) * fx;
+		return top + (bottom - top) * fy;
+	};
+};
+
+/**
+ * Dust: square specks that let go in a ragged front, the side the wind blows towards first (so
+ * the specks blow off clear of what is left), and drift away on it, swaying, turning and shrinking
+ * to nothing.
+ */
+const cutSpecks = (box: Rectangle, options: BreakOptions, rand: () => number): Cut => {
+	const { width: w, height: h } = box;
+	const size = Math.max(w, h);
+	const { cols, rows } = gridSize(param(options.params, 'particles', 700), w, h);
+	const [wx, wy] = dustWind(options.params);
+	const turbulence = param(options.params, 'turbulence', 0.6);
+	const strength = Math.max(0.2, options.intensity);
+	const noise = valueNoise(rand);
+	// How far along the wind each corner of the box lies: the front runs from the leading corner.
+	const reach = (u: number, v: number): number => u * wx + v * wy;
+	const lead = Math.max(reach(0, 0), reach(1, 0), reach(0, 1), reach(1, 1));
+	const trail = Math.min(reach(0, 0), reach(1, 0), reach(0, 1), reach(1, 1));
+	const count = cols * rows;
+	const uvs = new Float32Array(count * 8);
+	const indices = new Uint32Array(count * 6);
+	const pieces: Piece[] = [];
+	for (let r = 0; r < rows; r++) {
+		for (let c = 0; c < cols; c++) {
+			const i = r * cols + c;
+			const x0 = box.x + (c / cols) * w;
+			const x1 = box.x + ((c + 1) / cols) * w;
+			const y0 = box.y + (r / rows) * h;
+			const y1 = box.y + ((r + 1) / rows) * h;
+			const u = (c + 0.5) / cols;
+			const v = (r + 0.5) / rows;
+			const corners = [
+				[x0, y0],
+				[x1, y0],
+				[x1, y1],
+				[x0, y1],
+			];
+			corners.forEach(([x, y], k) => {
+				uvs[i * 8 + k * 2] = (x - box.x) / w;
+				uvs[i * 8 + k * 2 + 1] = (y - box.y) / h;
+			});
+			indices.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3], i * 6);
+			const order = (lead - reach(u, v)) / Math.max(lead - trail, 1e-6);
+			const front = 0.72 * order + 0.22 * noise(u, v) + 0.06 * rand();
+			const speed = (0.45 + 0.9 * rand()) * size * strength;
+			const across = (rand() - 0.5) * turbulence * size * 0.35;
+			pieces.push({
+				rel: corners.flatMap(([x, y]) => [x - (x0 + x1) / 2, y - (y0 + y1) / 2]),
+				cx: (x0 + x1) / 2,
+				cy: (y0 + y1) / 2,
+				vx: wx * speed - wy * across,
+				vy: wy * speed + wx * across,
+				spin: (rand() - 0.5) * 8,
+				delay: Math.min(1 - DUST_LIFE, front * (1 - DUST_LIFE)),
+				sway: turbulence * (0.02 + 0.05 * rand()) * size,
+				phase: rand() * Math.PI * 2,
+			});
+		}
+	}
+	return { pieces, uvs, indices };
+};
+
+const CUTS: Record<BreakStyle, (box: Rectangle, options: BreakOptions, rand: () => number) => Cut> =
+	{
+		crash: cutShards,
+		crumble: cutChunks,
+		dust: cutSpecks,
+	};
 
 /** The still of `target`'s box, without leaving it a render group if it was not one. */
 const snapshot = (renderer: Renderer, target: Container, box: Rectangle) => {
@@ -199,7 +310,7 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	const texture = snapshot(renderer, target, box);
 	const still = new Rectangle(box.x, box.y, texture.width, texture.height);
 	const rand = random(Math.random());
-	const cut = style === 'crash' ? cutShards(still, options, rand) : cutChunks(still, options, rand);
+	const cut = CUTS[style](still, options, rand);
 	const perPiece = style === 'crash' ? 6 : 8;
 	const indicesPerPiece = style === 'crash' ? 3 : 6;
 	// Small meshes, so the batcher draws them all in one go. One large mesh is drawn on its own and
@@ -230,6 +341,33 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	const gravity = param(options.params, 'gravity', 1) * (style === 'crash' ? 2.6 : 2.4) * size;
 	const seconds = options.playSeconds;
 	const hit = style === 'crash' ? 0.12 : 0;
+	const [wx, wy] = dustWind(options.params);
+	/** Dust picks up speed on the wind as it goes. */
+	const gust = 1.6 * size * Math.max(0.2, options.intensity);
+
+	/** Where a piece is at `t`: its centre, its turn and its scale. */
+	const fly = (piece: Piece, t: number, flight: number): [number, number, number, number] => {
+		if (style === 'dust') {
+			const life = clamp01((t - piece.delay) / DUST_LIFE);
+			const tau = life * DUST_LIFE * seconds;
+			const sway = piece.sway * Math.sin(piece.phase + tau * 9) * life;
+			return [
+				piece.cx + piece.vx * tau + 0.5 * gust * wx * tau * tau - wy * sway,
+				piece.cy + piece.vy * tau + 0.5 * gust * wy * tau * tau + wx * sway,
+				piece.spin * tau,
+				1 - smoothstep(0.35, 1, life),
+			];
+		}
+		const life = style === 'crash' ? flight : clamp01((t - piece.delay) / (1 - piece.delay));
+		const tau =
+			style === 'crash' ? flight * (1 - hit) * seconds : life * (1 - piece.delay) * seconds;
+		return [
+			piece.cx + piece.vx * tau,
+			piece.cy + piece.vy * tau + 0.5 * gravity * tau * tau,
+			piece.spin * tau,
+			style === 'crash' ? 1 - 0.3 * life : 1 - 0.6 * smoothstep(0.3, 1, life),
+		];
+	};
 
 	const place = (
 		piece: Piece,
@@ -238,13 +376,7 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 		out: { [index: number]: number },
 		base: number,
 	): void => {
-		const life = style === 'crash' ? flight : clamp01((t - piece.delay) / (1 - piece.delay));
-		const tau =
-			style === 'crash' ? flight * (1 - hit) * seconds : life * (1 - piece.delay) * seconds;
-		const x = piece.cx + piece.vx * tau;
-		const y = piece.cy + piece.vy * tau + 0.5 * gravity * tau * tau;
-		const angle = piece.spin * tau;
-		const scale = style === 'crash' ? 1 - 0.3 * life : 1 - 0.6 * smoothstep(0.3, 1, life);
+		const [x, y, angle, scale] = fly(piece, t, flight);
 		const cos = Math.cos(angle) * scale;
 		const sin = Math.sin(angle) * scale;
 		for (let k = 0; k < piece.rel.length; k += 2) {

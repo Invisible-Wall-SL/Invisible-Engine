@@ -35,7 +35,7 @@ import {
 	type Renderer,
 	type Ticker,
 } from 'pixi.js';
-import { startBreak, type BreakRun } from './breakApart';
+import { dustWind, startBreak, type BreakRun } from './breakApart';
 import { REST, clamp01, smoothstep, TAU, type FxFrame, type Motion } from './frame';
 import { KINDS, type KindImpl } from './kinds';
 import { ElementFxFilter } from './shaders';
@@ -300,11 +300,17 @@ const poseFrame = (runtime: Runtime, effect: Effect): FxFrame | undefined => {
 	};
 };
 
-/** A break that could not cut the element still leaves: it fades (and a crumble sinks) away. */
+/** A break that could not cut the element still leaves: it fades away (a crumble sinking, dust
+ *  drifting on its wind). */
 const breakFallbackMotion = (effect: Effect, frame: FxFrame): Partial<Motion> => {
 	const fade = 1 - smoothstep(0.15, 1, frame.t);
 	if (effect.kind === 'crumble') {
 		return { alpha: fade, y: frame.t * frame.t * 0.3 * frame.height };
+	}
+	if (effect.kind === 'disintegrate') {
+		const [wx, wy] = dustWind(effect.params);
+		const drift = frame.t * frame.t * 0.25 * Math.max(frame.width, frame.height);
+		return { alpha: fade, x: wx * drift, y: wy * drift };
 	}
 	const shake = (1 - clamp01(frame.t / 0.3)) * 0.03 * Math.max(frame.width, frame.height);
 	return { alpha: fade, x: shake * Math.sin(frame.seconds * 90) };

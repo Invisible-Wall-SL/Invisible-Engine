@@ -853,6 +853,42 @@ export const ELEMENT_FX = [
 			{ id: 'spread', label: 'Spread', kind: 'number', default: 0.4, min: 0, max: 2, step: 0.05 },
 		],
 	},
+	{
+		kind: 'disintegrate',
+		label: 'Dissolve to particles',
+		category: 'break',
+		phase: 'exit',
+		durationMs: 2200,
+		description:
+			'Turns to dust: specks peel away in a ragged front and blow off on the wind, swaying and shrinking to nothing.',
+		params: [
+			{
+				id: 'particles',
+				label: 'Particles',
+				kind: 'number',
+				default: 700,
+				min: 100,
+				max: 2000,
+				step: 50,
+			},
+			{
+				id: 'drift',
+				label: 'Wind',
+				kind: 'choice',
+				default: 'upRight',
+				options: ['upRight', 'up', 'upLeft', 'right', 'left', 'down'],
+			},
+			{
+				id: 'turbulence',
+				label: 'Turbulence',
+				kind: 'number',
+				default: 0.6,
+				min: 0,
+				max: 2,
+				step: 0.05,
+			},
+		],
+	},
 ] as const satisfies readonly ElementFxKindSpec[];
 
 export type ElementFxKind = (typeof ELEMENT_FX)[number]['kind'];

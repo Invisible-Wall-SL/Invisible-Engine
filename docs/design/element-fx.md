@@ -29,7 +29,7 @@ Three ways to get one onto an element, all playing through ONE runtime:
 ## 2. The catalog (`constants-shared/elementFx`)
 
 One dependency-free list, read by the editor (kind picker, param rows), the flow vocabulary (the
-`ElementFxKind` dropdown) and the runtime. 39 kinds in five families:
+`ElementFxKind` dropdown) and the runtime. 40 kinds in five families:
 
 - **Motion** (the element's own transform; no GPU pass): shake, wobble, pulse, heartbeat, jelly,
   bounce, spin, swing, float, pop in, pop out, slam in, fade in, fade out.
@@ -43,7 +43,9 @@ One dependency-free list, read by the editor (kind picker, param rows), the flow
   rainbow (hue cycle), chromatic, glitch, blur, pixelate, dissolve out / in (noise burn with a
   glowing edge).
 - **Break** (a still of the element cut into pieces): crash (takes a hit, smashes into shards that
-  fly and fall), crumble (chunks let go bottom row first and drop).
+  fly and fall), crumble (chunks let go bottom row first and drop), dissolve to particles (turns
+  to dust: specks let go in a ragged front, the side the wind blows to first, and blow away on it,
+  swaying and shrinking to nothing).
 
 Each kind has a **phase**: `emphasis` (plays and returns to rest), `loop` (built to repeat
 seamlessly; fades in and out when played a set number of times), `enter` (starts hidden, ends at
@@ -91,7 +93,7 @@ entry a newer build wrote survives an older save. `componentFields.ts` lists the
 component save does not graft a cleared list back.
 
 **Ship chain (rule 8): no new asset class.** The entries ride inside the layout and component docs,
-which already ship (export → bake → pull). A crash/crumble snapshot is taken at runtime.
+which already ship (export → bake → pull). A break's snapshot is taken at runtime.
 
 ## 4. Runtime (`pixi-svelte/src/lib/elementFx`)
 
@@ -114,7 +116,7 @@ the way `cameraEffects` composes the stage:
   reuse the library. A GL-only pass is skipped on a WebGPU renderer (the game forces WebGL).
 - **Break** renders the element once (`renderer.generateTexture`), hides it, and flies the still in
   pieces: a few small `MeshSimple`s the batcher draws together, placed beside the element at its
-  depth and rest transform. With no renderer it fades instead.
+  depth and rest transform. With no renderer it fades instead (dust drifting on its wind).
 - **Time** follows the game's turbo through the particle clock (`particleTimeScale`).
 - **Zero cost at rest**: no runtime, no ticker callback, no filter on a container with nothing
   playing; nothing is filtered before the element has a size (art still loading).
