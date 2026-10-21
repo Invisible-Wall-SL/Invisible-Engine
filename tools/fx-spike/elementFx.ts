@@ -899,6 +899,22 @@ console.log('element fx — the wiring');
 			game.includes('<ElementFxPlayer entries={reelFx} />'),
 		'the reel stack is the reels target and plays the reel grid’s FX',
 	);
+	const symbol = read('apps/lines/src/components/Symbol.svelte');
+	assert(
+		symbol.includes('bakedSymbolFx()[props.rawSymbol.name]') &&
+			/\{#key props\.state\}\s*\{#if stateFx\.length\}\s*<ElementFxPlayer entries=\{stateFx\} \/>/.test(
+				symbol,
+			) &&
+			/entry\.trigger === 'enter' \|\| entry\.trigger === 'always'/.test(symbol),
+		'a symbol plays its state’s FX — enter and always — and ends them as it leaves the state',
+	);
+	assert(
+		/\{:else\}\s*\{@render bands\(\)\}\s*\{\/if\}/.test(symbol) &&
+			read('apps/lines/src/editor-scenes.ts').includes(
+				'return bakedBundle.symbols?.symbolFx ?? {};',
+			),
+		'a symbol with no FX draws as before; the baked symbols carry them',
+	);
 	const vocab = read('packages/engine-flow-v2/src/reference/standardVocab.ts');
 	assert(
 		vocab.includes("name: 'elementEffect'") && vocab.includes("name: 'stopElementEffect'"),

@@ -42,6 +42,18 @@
 		/** A timeline can pose this element (a node the game draws itself). False for a screen and the
 		 *  reel grid: nothing poses them in the game, so `keyed` is not offered there. */
 		keyable?: boolean;
+		/** The triggers offered here; unset ⇒ every one (`keyed` only where `keyable`). */
+		triggers?: readonly ElementFxTrigger[];
+		/** How a trigger reads here — its dropdown label and its row summary — where the element is
+		 *  not one that is "shown" (a symbol's state). */
+		triggerText?: Partial<Record<ElementFxTrigger, { label: string; summary: string }>>;
+		/** The trigger a new entry starts on; unset ⇒ by its kind (`defaultTrigger`). */
+		newTrigger?: ElementFxTrigger;
+		/** Offer a stop cue (default true). */
+		stopCue?: boolean;
+		/** The text over an empty list, and under a ▶ that found nothing to play on. */
+		intro?: string;
+		missedText?: string;
 	}
 
 	const {
@@ -51,15 +63,23 @@
 		disabled = false,
 		cueListId,
 		keyable = true,
+		triggers: offered,
+		triggerText,
+		newTrigger,
+		stopCue = true,
+		intro = 'Effects that play on it: a shake, a 3D flip, a wave, a glow, a crumble — looping while it is shown, when it appears, or on a cue.',
+		missedText = 'Nothing on the stage to play it on: show the element and its screen first.',
 	}: Props = $props();
-	const triggers = $derived(ELEMENT_FX_TRIGGERS.filter((t) => keyable || t !== 'keyed'));
+	const triggers = $derived(offered ?? ELEMENT_FX_TRIGGERS.filter((t) => keyable || t !== 'keyed'));
 
-	const TRIGGER_LABELS: Record<ElementFxTrigger, string> = {
-		always: 'Always (loops while shown)',
-		enter: 'When shown',
-		cue: 'On cue',
-		keyed: 'Keyed on a timeline',
+	const TRIGGER_TEXT: Record<ElementFxTrigger, { label: string; summary: string }> = {
+		always: { label: 'Always (loops while shown)', summary: 'always, looping' },
+		enter: { label: 'When shown', summary: 'when shown' },
+		cue: { label: 'On cue', summary: 'on cue' },
+		keyed: { label: 'Keyed on a timeline', summary: 'keyed on a timeline' },
 	};
+	const textOf = (trigger: ElementFxTrigger): { label: string; summary: string } =>
+		triggerText?.[trigger] ?? TRIGGER_TEXT[trigger];
 	const KIND_GROUPS = ELEMENT_FX_CATEGORIES.map((category) => ({
 		...category,
 		kinds: ELEMENT_FX.filter((spec) => spec.category === category.id),
@@ -120,7 +140,7 @@
 		let n = 1;
 		while (taken.has(`efx${n}`)) n++;
 		const id = `efx${n}`;
-		commit([...(entries ?? []), { id, kind, trigger: defaultTrigger(kind) }]);
+		commit([...(entries ?? []), { id, kind, trigger: newTrigger ?? defaultTrigger(kind) }]);
 		open.add(id);
 	}
 
@@ -242,13 +262,11 @@
 {/snippet}
 
 {#snippet when(entry: ElementFxEntry)}
-	{#if entry.trigger === 'always'}
-		always, looping
-	{:else if entry.trigger === 'keyed'}
-		keyed on a timeline
+	{#if entry.trigger === 'always' || entry.trigger === 'keyed'}
+		{textOf(entry.trigger).summary}
 	{:else}
 		{#if entry.trigger === 'enter'}
-			when shown
+			{textOf('enter').summary}
 		{:else if entry.cue}
 			on cue <code>{entry.cue}</code>
 		{:else}
@@ -265,10 +283,7 @@
 <section class="element-fx">
 	<h3>Element FX</h3>
 	{#if !rows.length}
-		<p class="muted small">
-			Effects that play on it: a shake, a 3D flip, a wave, a glow, a crumble — looping while it is
-			shown, when it appears, or on a cue.
-		</p>
+		<p class="muted small">{intro}</p>
 	{/if}
 
 	{#each rows as row, index (index)}
@@ -324,9 +339,7 @@
 					</span>
 				</div>
 				{#if missed === entry.id}
-					<p class="hint warn">
-						Nothing on the stage to play it on: show the element and its screen first.
-					</p>
+					<p class="hint warn">{missedText}</p>
 				{/if}
 				{#if expanded}
 					<div class="fx-body">
@@ -355,10 +368,10 @@
 									onchange={(e) => setTrigger(index, e.currentTarget.value as ElementFxTrigger)}
 								>
 									{#each triggers as trigger (trigger)}
-										<option value={trigger}>{TRIGGER_LABELS[trigger]}</option>
+										<option value={trigger}>{textOf(trigger).label}</option>
 									{/each}
 									{#if !triggers.includes(entry.trigger)}
-										<option value={entry.trigger}>{TRIGGER_LABELS[entry.trigger]}</option>
+										<option value={entry.trigger}>{textOf(entry.trigger).label}</option>
 									{/if}
 								</select>
 							</label>
@@ -384,19 +397,21 @@
 								</p>
 							{/if}
 						{/if}
-						<div class="row">
-							<label class="field wide">
-								<span>Stop cue</span>
-								<input
-									type="text"
-									list={cueListId}
-									value={entry.stopCue ?? ''}
-									placeholder="optional: stops it and puts it back at rest"
-									{disabled}
-									onchange={(e) => setName(index, 'stopCue', e.currentTarget.value)}
-								/>
-							</label>
-						</div>
+						{#if stopCue}
+							<div class="row">
+								<label class="field wide">
+									<span>Stop cue</span>
+									<input
+										type="text"
+										list={cueListId}
+										value={entry.stopCue ?? ''}
+										placeholder="optional: stops it and puts it back at rest"
+										{disabled}
+										onchange={(e) => setName(index, 'stopCue', e.currentTarget.value)}
+									/>
+								</label>
+							</div>
+						{/if}
 						<div class="row">
 							<label class="field">
 								<span>Duration ms</span>

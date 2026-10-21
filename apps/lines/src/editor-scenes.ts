@@ -235,6 +235,11 @@ type BakedBundle = {
 		 * game-wide sound slot for that moment (`game-config/sounds`), which is where the shipped
 		 * defaults live. Absent → every symbol uses the slots. */
 		symbolSounds?: Record<string, Record<string, string>>;
+		/** PER-STATE ELEMENT FX (Invisible Symbols State Machine output) — symbol → state → the
+		 * Element FX that symbol plays in that state, stored as authored (`ElementFxEntry[]`, read
+		 * by `readElementFxEntries` where they play). Pure data, no asset: every kind is built into
+		 * the engine. Sparse at both levels; absent → no symbol plays any. */
+		symbolFx?: Record<string, Record<string, unknown>>;
 		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
 		 * is the engine rig-asset key the bundle registers — the highlight rig bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
@@ -914,6 +919,18 @@ export function bakedSymbolNames(): SymbolNameMap {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.names ?? {};
 	if (!hasBakedDoc()) return {};
 	return bakedBundle.symbols?.names ?? {};
+}
+
+/**
+ * PER-STATE ELEMENT FX authored in the Invisible Symbols State Machine: symbol → state → the
+ * effects that symbol plays in that state (`Symbol.svelte` plays a state's `enter` entries as the
+ * symbol enters it and loops its `always` entries while it is there). Mirrors `bakedSymbolNames`'
+ * runtime→baked→empty resolution; `{}` ⇒ no symbol plays any.
+ */
+export function bakedSymbolFx(): Record<string, Record<string, unknown>> {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.symbolFx ?? {};
+	if (!hasBakedDoc()) return {};
+	return bakedBundle.symbols?.symbolFx ?? {};
 }
 
 /**
