@@ -123,6 +123,26 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-22 — **Fix: a symbol state's effect was cut before it showed** (owner report: "I added an
+  FX to Land and can't see it in game"). The reel board puts a symbol back to `static` the moment
+  its land art reports done, and a still picture reports on its first frame, so the Land effect
+  (ended by `{#key}` on the state) was cut the frame it started. An `explosion` effect had the same
+  problem, and a symbol with no explosion art was skipped outright, so a melt-only explosion never
+  played. Now:
+  - A state's beat waits for its `enter` effects that end (`stateFxGate`, `apps/lines`): the art's
+    completion is held until they have played out, and a state with no art of its own is paced by
+    them alone.
+  - `ElementFxPlayer` gains `ondone` (once every ending `enter` entry has played out —
+    `elementFxEnterEnds`; at once with nothing to play on; never after unmount).
+  - The board's "is this state authored?" questions (explosion skip, win cap, cascade intro cap)
+    count an ending effect (`symbolStateHasBeat`).
+  - Every beat keeps its cap. A symbol with no effects is untouched: its renderers get
+    `props.oncomplete` as before.
+
+  Reproduced in the real `apps/lines` game (Play4Fun mock, a magenta Glow on every symbol's Land):
+  on `main` 0 symbols ever glowed; with the fix every landed symbol glowed and let go afterwards.
+  `check:element-fx` 108 → 116 (the gate's order rules, mutation-checked, and the wiring);
+  `check:symbol-fx` 39 green.
 - 2026-10-22 — **Turn to gold** (a 49th kind, light & colour, emphasis). Owner ask: a turn to gold
   effect. One shader pass (`goldFilter`): polished gold spreads over the element's own pixels from
   `from` (the centre by default, as if touched; bottom, top, edges) behind a molten white-gold

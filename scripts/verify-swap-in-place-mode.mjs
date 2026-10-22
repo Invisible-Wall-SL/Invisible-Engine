@@ -1076,7 +1076,7 @@ const buildTumbleRuntime = ({
 		// fixture that could only exercise one of them would not be testing the rule at all.
 		// Default: NOTHING is authored. That is the state every project is in the day the style
 		// ships, and it is the case that regressed — so it is the one the fixture runs by default.
-		hasAuthoredSymbolState: (symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
+		symbolStateHasBeat: (symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
 		// THE EXPLOSION → INTRO TRANSITION, unauthored — which is what `bakedSymbolTransition()`
 		// returns for every project that has not drawn one, and therefore the behaviour every claim
 		// below is about. What a transition DOES is not in scope here (nothing in a fixture draws);

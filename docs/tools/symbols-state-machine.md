@@ -269,7 +269,7 @@ orphan sweep on both bundle paths. See
 
 An **Element FX** is an effect that plays _on_ the symbol itself — it shakes, bends, lights up or
 breaks the symbol's own pixels. It is a different thing from an **FX layer** (above), which adds an
-Invisible FX particle effect beside the art. The catalog is the one the Scene Editor uses: 45 kinds
+Invisible FX particle effect beside the art. The catalog is the one the Scene Editor uses: 49 kinds
 in five families (Motion, 3D, Distort, Light & colour, Break) — see
 [Element FX in the Scene Editor](./invisible-editor.md#element-fx--effects-that-play-on-an-element)
 for what each family does.
@@ -284,7 +284,9 @@ for what each family does.
   - **Trigger** — only two here:
     - **When it enters this state** — plays each time the symbol enters the state: a Land
       shake every time it lands, an Explosion melt as it explodes. **Plays** sets how many
-      times (0 = until it leaves the state).
+      times (0 = until it leaves the state). The symbol stays in the state until the effect
+      has played out, so a Land shake plays in full even on a still picture, and the board
+      waits for it as it waits for art (with the same time limit).
     - **While in this state (loops)** — loops for as long as the symbol stays in the state, and
       stops when it leaves: a Win glow. Pick a looping kind (Glow, Outline, Float, Wave…) for
       this.
@@ -319,7 +321,9 @@ state of the symbol that carries effects; click one to open it.
 
 **In the game.** The game plays a state's effects on the symbol as drawn in that state: a
 **When it enters** effect each time the symbol enters the state, a **While in this state**
-effect looping until it leaves. They ship with the rest of this doc — no asset of their own
+effect looping until it leaves. A state with a **When it enters** effect counts as authored even
+with no art of its own: an Explosion with only a Melt still explodes, and the effect sets how
+long it takes. They ship with the rest of this doc — no asset of their own
 (every kind is built into the engine) — on both the publish and the baked-build paths. A symbol
 with no effects is drawn exactly as before.
 

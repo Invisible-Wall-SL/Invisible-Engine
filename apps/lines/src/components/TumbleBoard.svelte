@@ -156,7 +156,7 @@
 	import { getContext } from '../game/context';
 	import { awaitSymbolBeat, INTRO_BEAT_CAP_MS, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { getSymbolSeat, stateGame, stateGameDerived } from '../game/stateGame.svelte';
-	import { hasAuthoredSymbolState } from '../game/utils';
+	import { symbolStateHasBeat } from '../game/symbolStateFx';
 	import {
 		stateTumble,
 		tumbleBoardCombined,
@@ -810,10 +810,10 @@
 					// Additive, like the cascade pop — see `playSymbolIntroSound` for why this one
 					// layers where `land` replaces.
 					playSymbolIntroSound(tumbleSymbol.rawSymbol.name);
-					// THE LONG CAP IS SPENT ONLY ON ART SOMEONE MADE. An un-authored `intro` inherits
-					// `land` (or the resting art), which often has nothing to report — so waiting the
-					// intro cap on it does not wait for an animation, it just adds 2 s to every arrival.
-					// See `hasAuthoredSymbolState`.
+					// THE LONG CAP IS SPENT ONLY ON ART SOMEONE MADE (or an `intro` effect that plays out).
+					// An un-authored `intro` inherits `land` (or the resting art), which often has nothing
+					// to report — so waiting the intro cap on it does not wait for an animation, it just
+					// adds 2 s to every arrival. See `symbolStateHasBeat`.
 					const beat = () =>
 						awaitSymbolBeat(
 							(resolve) => {
@@ -822,7 +822,7 @@
 									resolve();
 								};
 							},
-							hasAuthoredSymbolState(tumbleSymbol.rawSymbol.name, 'intro')
+							symbolStateHasBeat(tumbleSymbol.rawSymbol.name, 'intro')
 								? INTRO_BEAT_CAP_MS
 								: TRANSIT_BEAT_CAP_MS,
 						);

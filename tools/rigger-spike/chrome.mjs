@@ -1,6 +1,7 @@
 // The one headless Chromium every browser spike drives. A spike does
 //   const browser = await launchChrome({ name: 'skins', url, args: ['--window-size=1600,1000'] });
 //   … await browser.evaluate(expr) / browser.waitFor(expr) / browser.pageLog …
+//   … await browser.send('Input.dispatchMouseEvent', {…})   (a raw CDP call on the page: real input)
 //   await browser.close();
 // and never spawns Chrome itself: the five copies this replaces had drifted apart (two never closed
 // Chrome, two never timed out a CDP call, one never removed its profile).
@@ -293,5 +294,12 @@ export async function launchChrome({
 		}
 	}
 
-	return { evaluate, waitFor, pageLog, close: shutdown };
+	/** A raw CDP call on the page's session, for what `evaluate` cannot fake (real mouse input). */
+	async function send(method, params = {}) {
+		const res = await cdp(method, params, session);
+		if (res.error) throw new Error(`${method}: ${JSON.stringify(res.error)}`);
+		return res.result;
+	}
+
+	return { evaluate, waitFor, send, pageLog, close: shutdown };
 }

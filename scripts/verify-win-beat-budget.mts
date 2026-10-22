@@ -87,9 +87,10 @@ assert(
 	(board.match(/resolveWinBeatBudget\(bakedWinBeatMaxMs\(\)\)/g) ?? []).length,
 	2,
 );
-// The guard is only a guard if the unauthored branch asks the real question, per state.
-assert("the win beat asks whether 'win' is authored", board.includes("hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'win')"), true); // prettier-ignore
-assert("the pop asks whether 'explosion' is authored", board.includes("hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')"), true); // prettier-ignore
+// The guard is only a guard if the unauthored branch asks the real question, per state: is art, or
+// an effect that plays out, authored for it (`symbolStateHasBeat`).
+assert("the win beat asks whether 'win' is authored", board.includes("symbolStateHasBeat(reelSymbol.rawSymbol.name, 'win')"), true); // prettier-ignore
+assert("the pop asks whether 'explosion' is authored", board.includes("symbolStateHasBeat(reelSymbol.rawSymbol.name, 'explosion')"), true); // prettier-ignore
 
 // 6. THE POP SKIPS A CELL IT CANNOT POP — the field bug, pinned.
 //
@@ -100,7 +101,7 @@ assert("the pop asks whether 'explosion' is authored", board.includes("hasAuthor
 // So the branch must RETURN BEFORE the await, and must still mark the cell gone, or the next
 // board's clear pops it a second time.
 const popBody = board.slice(board.indexOf('boardExplodeWinSymbols:'));
-const skipAt = popBody.indexOf("!hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')");
+const skipAt = popBody.indexOf("!symbolStateHasBeat(reelSymbol.rawSymbol.name, 'explosion')");
 const awaitAt = popBody.indexOf('awaitSymbolBeat(');
 assert('the pop tests the unauthored case', skipAt >= 0, true);
 assert('…and does so BEFORE it would await', skipAt >= 0 && skipAt < awaitAt, true);
