@@ -7,7 +7,12 @@
 > (§6.5); `/config` shows only the family's sections (§6.2); arcade grows past one screen in three
 > tiers, with characters, movement, jumps and a scrolling camera (§4.3, §4.4, P10.11–P10.13);
 > Salmons is the arcade reference project (§1); card games are a fourth family with a plan of their
-> own (§10). New decisions §9 #10–#16; the hold above is unchanged.
+> own (§10). New decisions §9 #10–#19; the hold above is unchanged.
+>
+> **Owner answers, 2026-10-22:** Salmons is the 100-player real-time multiplayer game (each player a
+> salmon, a bear or a fisherman), so multiplayer is **in scope for arcade** as tier A4 (§4.5,
+> P10.14–P10.16); character data lives in Game Config; the card family is confirmed; card-game PvP
+> stays later. §9 #13–#16 decided; #17–#19 open.
 >
 > This is Phase 10 of
 > [rive-style-editor.md](rive-style-editor.md) §10. It is the separate design that §7.2 promised for
@@ -71,11 +76,14 @@ and never a second copy of the engine.**
   round is a limited number of moves. Both outcome sources are supported (§2).
 - **Arcade v1 (tier A1).** A single-screen game with a frame loop: objects move, the player
   steers or taps, objects collide, and the game keeps score and lives. One sample genre, a catcher
-  or dodger (§9 #6, revisited by #13). It is rules-decided first; an RGS-decided arcade game is a
+  or dodger (§9 #6: a Salmons slice). It is rules-decided first; an RGS-decided arcade game is a
   later, optional phase (§8, P10.10).
 - **Arcade past one screen (tiers A2 and A3, added 2026-10-22).** Characters that act on their own,
   player controllers and paths (A2, §4.3); a world bigger than the screen with a following camera
   and parallax, then gravity, jumps and painted levels (A3, §4.4).
+- **Arcade online (tier A4, added 2026-10-22).** Real-time rooms of up to 100 players on a game
+  server of ours, because Salmons needs them (§4.5). A4 gets a design doc of its own before it is
+  built.
 - **Card games** (Magic / Hearthstone style) are a fourth family. This plan only outlines them
   (§10); they get a design of their own before any build.
 - **The Flow primitives both families need:** game variables, input / tick / timer events, and
@@ -95,26 +103,37 @@ and never a second copy of the engine.**
   "a run of shape S makes special X" (§4.1, P10.5b).
 - **No real-money skill games.** A rules-decided game never touches a wallet (§2.3). "Skill for
   prizes" is a regulated product of its own and is out of scope.
-- **No multiplayer, no server-side leaderboards** and no persistent progression in Phase 10.
-  Multiplayer needs a real-time game server, a service of its own; it is a later plan that Salmons
-  and card-game PvP would share (§9 #16).
+- **No multiplayer before A4.** Tiers A1–A3 are single player. Real-time multiplayer is arcade
+  tier A4 (§4.5), because Salmons needs it (§9 #16); card-game PvP stays later. **No server-side
+  leaderboards** and no persistent progression (accounts, unlocks) in Phase 10.
 - **No change to any slot game.** Slot projects keep their vocabularies, Flow docs, coded paths and
   pixels (§7).
 - **No second runtime app** unless §6.4's recommendation is overturned (§9 #3).
 
 ### Reference project: Salmons (owner, 2026-10-22)
 
-The owner named **Salmons** as the example of an arcade game already made. In the portal it is the
-project `salmons` (client `invisible_wall`) with no published game; the game itself lives outside
-this repository. Two things follow, both open until the owner confirms what it is (§9 #13):
+**Salmons** is the owner's arcade game, and the target the arcade tiers are built towards
+(§9 #13).
 
-- **If it is the real-time multiplayer Project Salmon** (a Colyseus game server and a PixiJS 7
-  client, as its own project skills describe), its multiplayer is outside Phase 10 (above), and its
-  client is **rebuilt on the shared runtime as data**, never ported in as a second engine (the rule
-  in "What a family means").
-- **Its single-player core loop picks the order.** If the loop fits A1 (tick, spawn, collide,
-  score, lives), a Salmons slice replaces the catcher / dodger as the first sample. If it scrolls,
-  P10.12 (camera) comes straight after P10.8; if it needs characters, P10.11 does.
+- **The game:** real-time multiplayer for up to **100 players**. Each player is a **salmon**, a
+  **bear** or a **fisherman**. A salmon jumps up the river and moves around it, avoiding the bears'
+  attacks and the fishermen.
+- **Where it is today:** the portal has the project `salmons` (client `invisible_wall`) with no
+  published game. The game itself lives outside this repository: a Colyseus 0.15 game server
+  (Node.js, TypeScript) and a PixiJS 7 client. Its server already has the shape A4 needs: the room
+  owns the state, players send inputs, a 60 Hz simulation runs in pure "systems" with no Colyseus
+  imports, and state patches go out at 20 Hz.
+- **How it comes onto the engine:** the client is **rebuilt on the shared runtime as data**
+  (screens, components, characters, Flow), never ported in as a second engine (the rule in "What a
+  family means"). The server keeps Colyseus, and its own systems are replaced by
+  `engine-mechanics`, so the server and the client's prediction run one simulation (§4.5).
+
+| Tier | What Salmons needs from it |
+|---|---|
+| A1 (P10.8) | Nothing on its own; the first sample becomes a single-screen Salmons dodger with its art (§9 #6) |
+| A2 (P10.11) | Three playable characters with their own controls and **abilities** (the bear's swipe, the fisherman's hook); the river's **current**; bots, run by brains, that fill empty places |
+| A3 (P10.12–P10.13) | A long river world with a following camera; the salmon's **jump** |
+| A4 (P10.14–P10.16) | Rooms of 100; the server owns the game; prediction and smoothing on the device |
 
 ---
 
@@ -524,10 +543,13 @@ Collision filters are by **tag** (§5: the Rive "tags" Later item).
 
 Tiers A2 and A3 add to it (§4.3, §4.4):
 
-- events `onCharacterState {instance, from, to}`, `onLanded`, `onEnterView`, `onLeaveView`;
+- events `onCharacterState {instance, from, to}`, `onHit {attacker, target, ability}`, `onLanded`,
+  `onEnterView`, `onLeaveView`;
 - actions `character.setState`, `camera.follow`, `camera.moveTo`, `camera.shake`,
   `camera.setAutoScroll`;
 - the camera's position as two read-only `$engine` keys, so Flow can spawn ahead of the view.
+
+A4 adds `onPlayerJoined` and `onPlayerLeft` (§4.5).
 
 ---
 
@@ -686,8 +708,20 @@ lives, waves) and can override a brain with `character.setState`.
   a guard turn at a wall (`hitSolid`);
 - **paths:** a `path` layout node drawn in the Scene Editor (points, smoothing, open or looped),
   used by `patrol` and `followPath`;
+- **zone forces:** a zone that pushes every body inside it, as a velocity added each step: a
+  river's current, wind. Swimming upstream is moving against it;
 - **player controllers**, presets fed by the input map (§3.2): `pointer` (follow the pointer on one
   or both axes: a paddle), `topDown` (8-way) and `sideScroll` (run; A3 adds the jump).
+
+**Playable characters, abilities and bots.**
+
+- **A character can be played.** A game lists its playable characters (Salmons: salmon, bear,
+  fisherman). The player's pick takes a controller instead of a brain; the pick is a Flow variable
+  (§3.1), so the choosing screen is authored like any other screen.
+- **Abilities:** an input that plays an animation, opens a short-lived **hit zone** (shape, offset,
+  the frames it is live, the tags it hits) and starts a cooldown: the bear's swipe, the fisherman's
+  hook. A hit raises `onHit` for Flow. A brain uses abilities too.
+- **Bots:** a playable character can also run on its brain, so an empty place is filled by a bot.
 
 **The loop** (P10.8's `arcadeLoop.svelte.ts`) gains one stage: read input → **controllers and
 brains** → `step` (with solids) → write positions **and the look's inputs** → `overlaps` → Flow
@@ -700,8 +734,8 @@ animations with no Flow wire.
 ### 4.4 A bigger world, the camera, jumps and levels (tier A3, P10.12–P10.13)
 
 **In short:** in A1 the screen is the whole play field. A3 lets the world be bigger than the screen
-and scroll (P10.12), then adds gravity, jumps and levels painted from tiles (P10.13). Salmons
-decides which comes first (§9 #13).
+and scroll (P10.12), then adds gravity, jumps and levels painted from tiles (P10.13). For Salmons
+the camera comes first (§8).
 
 **World and camera (P10.12).** The only cameras today are scripted: the Timeline's `camera` track
 (`engine-cinematic`) and the slot reel-anticipation zoom (`registerSceneCameraTransform`,
@@ -730,11 +764,50 @@ decides which comes first (§9 #13).
   plus what makes a jump feel right: hold to jump higher, **coyote time** (a jump just after leaving
   a ledge still counts), a **jump buffer** (a press just before landing still counts) and air
   control. A `flap` controller (tap for an upward kick) lands here too.
+- **Two kinds of jump.** `gravity` is the side-view jump above. `hop` is the top-down one: the body
+  leaves the ground on a height arc (drawn as a lift and a shadow) and, while airborne, passes over
+  ground obstacles and cannot be hit by ground-only attacks. Salmons' jump is one of the two
+  (§9 #19).
 - **Levels:** a new `tilemap` layout node: a tile size, a grid of tile indices and a tileset of
   **atlas regions**, each tile marked `none`, `solid` or `oneWay`. It is painted in the Scene Editor
   (§5.1) and is part of the layout doc, so it ships with it; its regions ship through the art
   export (§6.3).
 - Slopes, moving platforms and ladders come later.
+
+### 4.5 Online arcade: real-time rooms (tier A4, P10.14–P10.16)
+
+**In short:** up to 100 players in one game, each on their own device. The server owns the game; a
+device only sends what its player presses and draws what the server says, with its own player
+predicted so the controls feel instant. This is new ground for the engine, so A4 gets a design doc
+of its own (`docs/design/realtime-multiplayer.md`, not written yet) before any build. This section
+records its shape.
+
+- **The server owns the game.** It runs the simulation (`engine-mechanics`: motion, behaviours,
+  abilities) at a fixed 60 Hz and sends state at 20 Hz, the rates Salmons uses. A device sends
+  **inputs only** (move, jump, ability), never positions or hits, so a modified client cannot
+  teleport or claim a catch. It is §2.2's "the client cannot decide money", applied to the game.
+- **One simulation, two places.** `engine-mechanics` is dependency-free plain JS for exactly this
+  reason (§4.0): the server imports it, and the device runs the same code to **predict its own
+  player** and **reconcile** when the server's answer arrives. Every other player is
+  **interpolated** between the last two server states, about 100 ms behind.
+- **The game server** is a new service, `services/game-server` (new), on Railway, speaking
+  WebSocket. Colyseus is recommended because Salmons already runs on it (§9 #17): its rooms, state
+  schema and lobby are the pattern; its own movement and collision systems give way to
+  `engine-mechanics`.
+- **Rules move to the server.** In a single-player rules game, Flow owns the rules on the device
+  (§2.3). Online, the rules that decide the game (who was caught, who scored, when the round ends)
+  must run on the server. Whether the Flow interpreter runs headless there (it already runs headless
+  in `/flow-v2` Preview) or online rules are limited to `engine-mechanics` data is the A4 design's
+  main question (§9 #18). Presentation stays in the device's Flow either way.
+- **Config:** `GameConfigDoc.arcade.online`: `maxPlayers` (Salmons: 100), the playable characters
+  and how many of each a room allows, the tick rates, and whether bots fill empty places.
+- **The runtime** gets an online branch, as it has a free-play one (§2.3): it joins a room instead
+  of starting an RGS round. The server's address is supplied at boot, as the RGS address is today.
+  Still one runtime (§6.4).
+- **Scale is measured, not assumed:** a load test with 100 bot clients at real latency. Sending each
+  device only what is near its player is added only if that test shows the bandwidth needs it.
+- **A dropped player** rejoins the same room while it lasts.
+- **Not in A4:** accounts, persistent progression, server leaderboards, money.
 
 ---
 
@@ -756,7 +829,7 @@ each one is assigned to the phase that first needs it.
 | **`/flow-v2`** | A **Variables** panel (declare / type / initial / scope); the `setVariable`, `changeVariable`, `onVariable`, `onTick`, `onTimer`, `onInput`, `spawn`, `despawn` and `instanceRef` nodes in `AddNodePalette.svelte`; the match-3 / arcade palettes; Preview runs the board module on its virtual clock with a seed (rules) or forced books (RGS) | P10.3, P10.5, P10.7 |
 | **Data tab** (9d, read-only; **not built yet**, Phase 9 has shipped through 9c) | When 9d lands it lists Flow variables too. P10.3 does not depend on it: its Variables panel and the input-row source picker carry the binding | after 9d |
 | **Launcher home + tool bar** | Show only the tools the active project's family uses; a direct link to another tool explains why it is not offered (§6.5) | P10.1b |
-| **Invisible Characters** (new tool, `/characters`) | A list of the project's characters; per character the look (a component), body, movement, controller or brain; the brain on the state-machine canvas the Component Editor already has (`ComponentWorkspace.svelte`); a sandbox play field with a keyboard-driven dummy player. It edits `GameConfigDoc.arcade.characters` (§9 #14). A new tool, so rule 9 applies: `docs/tools/invisible-characters.md`, its README row and the onboarding link ship with it | P10.11 |
+| **Invisible Characters** (new tool, `/characters`) | A list of the project's characters; per character the look (a component), body, movement, abilities, controller or brain; the brain on the state-machine canvas the Component Editor already has (`ComponentWorkspace.svelte`); a sandbox play field with a keyboard-driven dummy player. It edits `GameConfigDoc.arcade.characters` (§9 #14). A new tool, so rule 9 applies: `docs/tools/invisible-characters.md`, its README row and the onboarding link ship with it | P10.11 |
 | **Scene Editor (`/editor`), arcade** | The `path` node (draw points, smoothing, open / looped) | P10.11 |
 | | `world` size and the `camera` block on a play-field screen; the camera frame drawn on the stage; per-container `parallax` | P10.12 |
 | | The `tilemap` node and a paint mode (brush, erase, fill, pick; per-tile `none` / `solid` / `oneWay`) | P10.13 |
@@ -982,6 +1055,9 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
 | P10.11 | `check:arcade-characters`, `check:art-scope` (extended) | Each behaviour preset and brain transition replays under a seed; solid response stops and slides; controllers follow the input map; `animInputs` reach the look; a character's components ship |
 | P10.12 | `check:arcade-camera` | Follow with dead zone and smoothing; clamp to the world; auto-scroll; parallax offsets; despawn outside the view; the same framing on replay |
 | P10.13 | `check:arcade-platformer`, `check:art-scope` (extended) | Jump height and time match their settings; coyote time and jump buffer; one-way platforms; no tunnelling at `maxFall`; tile solidity; tileset regions ship |
+| P10.14 | `check:room-sim` | The server and the device step the same inputs to the same state; the server accepts inputs only; join, leave and rejoin |
+| P10.15 | `check:netcode` | Prediction and reconciliation converge under simulated latency, jitter and loss; interpolation stays smooth |
+| P10.16 | a `room-load` script (outside CI) | 100 bot clients hold the tick rates; bandwidth per device is within budget |
 
 ### 7.3 Playtest playbook for a sample match-3
 
@@ -1013,8 +1089,8 @@ of `docs/playtest/ways.md`. It drives the `game-playtester` agent. Its outline:
 
 **In short:** small, shippable steps. Match-3 rules games are playable after P10.5, and real-money
 match-3 (on our mock) after P10.6. Arcade follows: one screen in P10.8, then characters, the camera
-and jumps (P10.11–P10.13). Card games get their own plan (§10). Every step is gated as in §7, and no
-step changes a slot game.
+and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get their own plan
+(§10). Every step is gated as in §7, and no step changes a slot game.
 
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
@@ -1033,7 +1109,10 @@ step changes a slot game.
 | P10.10 | *(optional, after a decision)* **Arcade on the RGS** | A server-decided "prize" arcade (the server sends the result, the arcade plays to it). 1D blend states moved to P10.11 | `rgs-translator-eagaming` | L |
 | P10.11 | **Arcade A2: characters** | `behaviours.js` and the brain; `motion.js` acceleration, solid response and paths; the player controllers; `animInputs`; 1D blend states; the `path` node; **Invisible Characters** (`/characters`) with its sandbox, and its docs under rule 9; a sample with an enemy that patrols and chases | `engine-mechanics`, `engine-game`, `engine-layout` (state machine, `path`), `engine-flow-v2`, `packages/game-config`, launcher | L |
 | P10.12 | **Arcade A3a: world and camera** | `world` + `camera` on a play-field screen; follow, dead zone, auto-scroll, shake; parallax; despawn outside the view; culling; the camera Flow nodes and keys | `engine-game` (`<ArcadeStage />`), `engine-layout`, `engine-flow-v2`, `/editor` | M–L |
-| P10.13 | **Arcade A3b: gravity, jumps and levels** | Gravity, grounded, one-way platforms, sub-steps; the jump and `flap` controllers; the `tilemap` node, its paint mode and the tileset export | `engine-mechanics`, `engine-layout`, `/editor`, exporters | L |
+| P10.13 | **Arcade A3b: gravity, jumps and levels** | Gravity, grounded, one-way platforms, sub-steps; the `gravity` and `hop` jumps and the `flap` controller; the `tilemap` node, its paint mode and the tileset export | `engine-mechanics`, `engine-layout`, `/editor`, exporters | L |
+| P10.14 | **Arcade A4a: the game server** | Needs the A4 design doc first. `services/game-server` (§9 #17) running `engine-mechanics` at a fixed step; rooms; join, leave and rejoin; inputs-only messages; `GameConfigDoc.arcade.online`; the runtime's online branch | new service, `engine-mechanics`, `apps/lines`, `packages/game-config`, `docs/INFRA.md` | L |
+| P10.15 | **Arcade A4b: netcode** | Own-player prediction and reconciliation; interpolation of everyone else; the online rules, as §9 #18 decides | `engine-game`, `apps/lines`, the game server | L |
+| P10.16 | **Arcade A4c: 100 players and Salmons** | Server-side bots that fill places (A2 brains); the 100-bot load test; nearby-only sending if the test needs it; Salmons rebuilt as data on the engine, with `docs/playtest/salmons.md` | the game server, launcher, docs | L |
 
 **Why this order.**
 
@@ -1047,8 +1126,11 @@ step changes a slot game.
 - Spawning waits for arcade because match-3 does not need it.
 - P10.1b needs only the family from P10.1, so it follows it directly: no project can be given a
   non-slot kind before the launcher knows which tools that kind uses.
-- P10.11–P10.13 follow P10.8, because each builds on its loop. P10.12 does not need P10.11, so the
-  order of the three is Salmons' to decide (§9 #13); the default is the table's.
+- P10.11–P10.13 follow P10.8, because each builds on its loop. For Salmons the order is P10.12
+  (its river is bigger than the screen), P10.11 (three playable characters, their abilities and the
+  current), then P10.13 (the jump).
+- A4 comes last: netcode is far easier to get right over a simulation that is already finished and
+  replays exactly.
 
 ---
 
@@ -1057,8 +1139,9 @@ step changes a slot game.
 **#1–#9 DECIDED (owner 2026-10-20): every recommendation is accepted as written.** The owner also
 asked that nothing be started yet: P10.1 onward waits for the owner's go.
 
-**#10–#16 added 2026-10-22** from the owner's questions. #10 and #11 are the owner's own asks, and
-so is #12's scope (its shape is a recommendation); #13–#16 are open.
+**#10–#19 added 2026-10-22** from the owner's questions. #10 and #11 are the owner's own asks, and
+so is #12's scope (its shape is a recommendation); the owner answered #13–#16 the same day;
+#17–#19 are open.
 
 1. **RGS match-3: outcome fixed at the bet, or resolved per move?**
    - *Recommend:* **fixed at the bet.** The player's moves are presentation (decision #6's wording),
@@ -1083,7 +1166,8 @@ so is #12's scope (its shape is a recommendation); #13–#16 are open.
 6. **First arcade sample.**
    - *Recommend:* **a single-screen catcher or dodger** (tick, spawn, collide, score, lives).
    - It exercises every new primitive without physics.
-   - Revisited by #13: a Salmons slice replaces it if Salmons' loop fits A1.
+   - *Recommend (2026-10-22):* make it a **Salmons slice**: its salmon dodging bears and hooks on
+     one screen, with its art. Salmons as a whole needs A2–A4 (§1).
 7. **Where an arcade body's shape and tags live: Game Config, or the `ComponentDef`?**
    - *Recommend:* **Game Config.** Game rules stay out of shared components, which are presentation
      only (rive-style-editor.md §2). The tags themselves are the Rive tags feature, on nodes.
@@ -1105,23 +1189,36 @@ so is #12's scope (its shape is a recommendation); #13–#16 are open.
       gravity, jumps and levels (P10.13); still no rigid-body physics (§1).
     - *Recommend:* a character's **brain is game data**, authored in a new tool, **Invisible
       Characters**, not in the Component Editor, which keeps the look (§4.3).
-13. **Salmons.** *(open)*
-    - The owner to say whether it is the multiplayer Project Salmon, and in one line what the player
-      does.
-    - *Recommend:* rebuild a single-player slice on the shared runtime as data. It replaces the
-      catcher / dodger if it fits A1 (#6), and it sets the order of P10.11–P10.13.
-14. **Where characters live.** *(open)*
-    - *Recommend:* **inside `GameConfigDoc.arcade.characters`.** It reuses the config's bake,
-      versions and lease, with no new ship chain. The cost: Game Config and Invisible Characters
-      share one lease, so two people cannot edit both at once.
-    - The alternative, a doc of its own, needs its own export → bake → pull → register (rule 8).
-15. **Card games.** *(owner's ask to add them, 2026-10-22; v1 scope open)*
-    - *Recommend:* a **fourth family with a design of its own**, written once P10.7 has shipped
-      (it needs variables, drag and spawning). v1: single player against an on-device AI, fixed
-      decks, effects as data from a closed list, rules-decided only (#4). Outline in §10.
-16. **Multiplayer.** *(open)*
-    - *Recommend:* **out of Phase 10**, a later plan of its own: a real-time game server (a new
-      service), rooms, reconnection and anti-cheat. Salmons and card-game PvP would both use it.
+13. **Salmons.** *(owner, 2026-10-22)*
+    - It is the **real-time multiplayer game for 100 players**: each player is a salmon, a bear or a
+      fisherman; a salmon jumps up the river and moves around, avoiding the bears' attacks and the
+      fishermen (§1).
+    - It is rebuilt on the shared runtime as data, and it sets the arcade order: P10.12, P10.11,
+      P10.13, then A4 (§8).
+14. **Where characters live.** *(owner, 2026-10-22: Game Config, for now)*
+    - **Inside `GameConfigDoc.arcade.characters`.** It reuses the config's bake, versions and lease,
+      with no new ship chain. The cost: Game Config and Invisible Characters share one lease, so two
+      people cannot edit both at once.
+    - A doc of its own stays possible later; it would need its own export → bake → pull → register
+      (rule 8).
+15. **Card games.** *(owner, 2026-10-22: confirmed)*
+    - A **fourth family with a design of its own**, written once P10.7 has shipped (it needs
+      variables, drag and spawning). v1: single player against an on-device AI, fixed decks, effects
+      as data from a closed list, rules-decided only (#4). Outline in §10.
+16. **Multiplayer.** *(owner, 2026-10-22)*
+    - **In scope for arcade, as tier A4** (§4.5, P10.14–P10.16), because Salmons is multiplayer.
+    - **Card-game PvP stays later**, for now.
+17. **Which game server for A4?** *(open)*
+    - *Recommend:* **Colyseus**, in a new `services/game-server`, because Salmons already runs on it
+      and its rooms, schema and lobby are proven there. Its movement and collision move to
+      `engine-mechanics`, so there is one simulation.
+18. **Where an online game's rules run.** *(open; the A4 design doc's main question)*
+    - Either the Flow interpreter runs headless on the server, so online rules are authored in Flow
+      as single-player ones are, or online rules are limited to `engine-mechanics` data.
+      Presentation stays on the device either way.
+19. **Salmons' view: top-down or from the side?** *(open)*
+    - It picks the salmon's jump: a top-down `hop` over obstacles, or a side-view `gravity` jump
+      (§4.4). Both are planned; the answer decides which one P10.13 builds first.
 
 ---
 
