@@ -814,7 +814,7 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 48 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 49 effects grouped by family (the table below). Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -895,7 +895,7 @@ whole frame. One preview plays at a time, a second ▶ replaces it, and nothing 
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 48 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 49 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -941,6 +941,7 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 |                | **Poison** (loop)          | Poisoned: it drains to a sickly green in the **Venom colour**, dark **Veins** creep in from its edges and pulse, **Bubbles** rise through it, and it sways queasily. Loops while _Always_ (or while a symbol is in its state); a counted play seeps in and recovers. |
 |                | **Electrocute**            | Electrocuted: jagged **Arcs** in the **Arc colour** crackle across it (re-striking many times a second), its outline glows, it **Flicker**s to a scorched negative and jitters, then lets go. |
 |                | **Petrify (stone)**        | Turns to stone: grey granite (**Stone colour**, how fine: **Grain**) creeps over it from the **Stone from** side behind a pale dusty front, cracked and carved in relief (the art's outline and its light and dark read as a carving), it locks with a thud, holds as stone for **Hold** of the play, then every crack opens and it flakes off a chip at a time. To keep it stone, key it (_Keyed_) and hold its progress at the middle. |
+|                | **Turn to gold**           | Turns to gold: polished gold in the **Gold colour** spreads from the **Gold from** side (the centre by default, as if touched) behind a molten front, its own detail embossed and mirror-lit, it swells a little as it rings, holds gold for **Hold** of the play with a glint sweeping across and **Sparkles** twinkling, then draws back. To keep it gold, key it (_Keyed_) and hold its progress at the middle. |
 |                | **Dissolve out** (exit)    | Burns away in a noisy dissolve with a glowing edge.                              |
 |                | **Dissolve in** (entrance) | Burns into view in a noisy dissolve with a glowing edge.                         |
 | Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |

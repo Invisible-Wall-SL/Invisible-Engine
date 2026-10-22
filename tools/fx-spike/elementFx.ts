@@ -395,6 +395,46 @@ console.log('element fx — the motion samplers');
 		'and it drops with a thud only as the stone locks',
 	);
 	rock?.destroy();
+
+	const gold = KINDS.gold;
+	const metal = gold.filter?.create(frame('gold', 0));
+	const gilded = (
+		t: number,
+	): { cover: number; glint: number; molten: number; sparkles: number } => {
+		gold.filter?.update(metal as Filter, frame('gold', t), { screenWidth: 120, screenHeight: 160 });
+		const u = (metal as unknown as { efx: { uGold: Float32Array; uShine: Float32Array } }).efx;
+		return { cover: u.uGold[0], glint: u.uShine[0], molten: u.uShine[2], sparkles: u.uShine[1] };
+	};
+	const [plain, gilding, golden, ungilding, restored] = [
+		gilded(0),
+		gilded(0.15),
+		gilded(0.5),
+		gilded(0.85),
+		gilded(1),
+	];
+	assert(
+		plain.cover === 0 &&
+			gilding.cover > 0 &&
+			gilding.cover < 1 &&
+			gilding.molten === 1 &&
+			gilding.glint < -1 &&
+			near(golden.cover, 1) &&
+			golden.molten === 0 &&
+			golden.glint > -1 &&
+			golden.sparkles === 1 &&
+			ungilding.cover > 0 &&
+			ungilding.cover < 1 &&
+			ungilding.molten === 0 &&
+			ungilding.glint < -1 &&
+			near(restored.cover, 0),
+		'gold spreads behind a molten front, holds with a glint and sparkles, then draws back',
+	);
+	const ring = (t: number): number => gold.motion?.(frame('gold', t)).scaleX ?? 1;
+	assert(
+		ring(0.34) > 1 && ring(0.1) === 1 && ring(0.5) === 1 && ring(0.9) === 1,
+		'and it swells as it rings only as the gold sets',
+	);
+	metal?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------

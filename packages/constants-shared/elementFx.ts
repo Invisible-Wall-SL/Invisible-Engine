@@ -943,6 +943,36 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'gold',
+		label: 'Turn to gold',
+		category: 'light',
+		phase: 'emphasis',
+		durationMs: 2600,
+		description:
+			'Turns to gold: polished gold spreads from where it is touched behind a molten front, its own detail lit as embossed metal, it rings as it sets, holds with a glint sweeping across and sparkles twinkling, then draws back.',
+		params: [
+			COLOR('color', 'Gold colour', '#ffc83d'),
+			{
+				id: 'from',
+				label: 'Gold from',
+				kind: 'choice',
+				default: 'center',
+				options: ['center', 'bottom', 'top', 'edges'],
+			},
+			{
+				id: 'hold',
+				label: 'Hold',
+				kind: 'number',
+				default: 0.4,
+				min: 0,
+				max: 0.9,
+				step: 0.05,
+				note: 'The share of the play it stays gold. To keep it gold, key it and hold its progress at the middle.',
+			},
+			{ id: 'sparkles', label: 'Sparkles', kind: 'bool', default: true },
+		],
+	},
+	{
 		kind: 'dissolveOut',
 		label: 'Dissolve out',
 		category: 'light',

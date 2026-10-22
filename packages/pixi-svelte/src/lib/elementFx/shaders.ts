@@ -1159,3 +1159,118 @@ void main(void)
 `,
 		{ uStone: vec(4), uRock: vec(4), uChip: vec(2) },
 	);
+
+/**
+ * Turning to gold: polished metal spreads over the element's own pixels from where `uGold.z` says
+ * (0 the centre, 1 the bottom, 2 the top, 3 the edges) behind a molten white-gold front. The art's
+ * outline and its light and dark become an embossed relief whose normal bends a studio reflection
+ * (bright above, a dark band, warm below) and catches a highlight from the top left; the colour runs
+ * from a deep version of `uMetal` through it to near white. A glint sweeps across and sparkles
+ * twinkle on it. `uGold` = (coverage 0…1, seed, from, seconds); `uMetal` = (gold colour, how golden
+ * 0…1); `uShine` = (where the glint is, off below 0; sparkles on; how bright the front glows).
+ */
+export const goldFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'gold',
+		`
+uniform vec4 uGold;
+uniform vec4 uMetal;
+uniform vec3 uShine;
+
+float goldHash(vec2 p)
+{
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+float goldNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 w = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(goldHash(i), goldHash(i + vec2(1.0, 0.0)), w.x),
+        mix(goldHash(i + vec2(0.0, 1.0)), goldHash(i + vec2(1.0, 1.0)), w.x),
+        w.y);
+}
+
+// The element's height at px for the relief: its outline, raised where the art is light.
+float goldHeight(vec2 px)
+{
+    vec4 s = efxSample(px);
+    return 0.6 * s.a + 0.4 * dot(s.rgb, vec3(0.299, 0.587, 0.114));
+}
+
+// The metal at shade t, 0…1: a deep version of the colour, the colour, then near white.
+vec3 goldRamp(float t)
+{
+    vec3 base = uMetal.rgb;
+    vec3 deep = base * base * 0.35;
+    vec3 pale = mix(base, vec3(1.0), 0.75);
+    return t < 0.5 ? mix(deep, base, t * 2.0) : mix(base, pale, t * 2.0 - 1.0);
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    vec4 color = efxSample(px);
+    float amount = uMetal.a;
+    if (uGold.x <= 0.0 || amount <= 0.0 || color.a <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec2 size = efxSize();
+    vec2 u = efxToUnit(px);
+    vec2 q = u * size / max(size.x, size.y);
+    float n = 0.65 * goldNoise(q * 5.0 + uGold.y) + 0.35 * goldNoise(q * 11.0 + uGold.y);
+    float from = uGold.z;
+    float away = from < 0.5 ? length(u - 0.5) * 1.4142
+        : from < 1.5 ? 1.0 - u.y
+        : from < 2.5 ? u.y
+        : 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y));
+    float reach = 0.82 * clamp(away, 0.0, 1.0) + 0.18 * n;
+    float front = uGold.x * 1.22;
+    float gilt = 1.0 - smoothstep(front - 0.04, front, reach);
+    float rim = (1.0 - smoothstep(0.0, 0.05, abs(reach - (front - 0.02)))) * uShine.z;
+    if (gilt <= 0.0 && rim <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec3 rgb = color.rgb / color.a;
+    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    float e = 1.5;
+    vec2 slope = vec2(
+        goldHeight(px + vec2(e, 0.0)) - goldHeight(px - vec2(e, 0.0)),
+        goldHeight(px + vec2(0.0, e)) - goldHeight(px - vec2(0.0, e)));
+    vec3 normal = normalize(vec3(-2.5 * slope, 1.0));
+    float look = u.y + 0.9 * normal.y - 0.25 * normal.x;
+    float env = 0.55 + 0.45 * cos(look * 5.0 + 0.6);
+    vec3 metal = goldRamp(clamp(0.06 + 0.32 * lum + 0.62 * env, 0.0, 1.0));
+    float spec = pow(max(dot(normal, normalize(vec3(-0.5, -0.6, 0.65))), 0.0), 18.0);
+    metal += vec3(1.0, 0.97, 0.88) * 0.9 * spec;
+    float sweep = u.x + 0.6 * u.y;
+    metal += vec3(1.0, 0.95, 0.8) * 0.55 * (1.0 - smoothstep(0.0, 0.07, abs(sweep - uShine.x * 1.6)));
+    if (uShine.y > 0.5)
+    {
+        vec2 sq = q * 6.0;
+        vec2 cell = floor(sq);
+        vec2 at = 0.35 + 0.3 * vec2(goldHash(cell + uGold.y), goldHash(cell + uGold.y + 7.0));
+        float beat = max(0.0, sin((uGold.w * 1.3 + goldHash(cell + 3.3)) * 6.2832));
+        float tw = pow(beat, 6.0) * step(0.55, goldHash(cell + 9.1));
+        vec2 d = abs(fract(sq) - at);
+        float arm = 0.34 * tw + 0.001;
+        float star = (1.0 - smoothstep(0.0, 0.025, d.x)) * (1.0 - smoothstep(0.0, arm, d.y))
+            + (1.0 - smoothstep(0.0, 0.025, d.y)) * (1.0 - smoothstep(0.0, arm, d.x))
+            + (1.0 - smoothstep(0.0, 0.07, length(d))) * tw;
+        metal += vec3(1.0, 0.98, 0.9) * star * tw * gilt;
+    }
+    vec3 gilded = mix(rgb, clamp(metal, 0.0, 1.0), gilt * amount);
+    gilded = mix(gilded, vec3(1.0, 0.93, 0.7), clamp(rim, 0.0, 1.0) * 0.75 * amount);
+    finalColor = vec4(gilded * color.a, color.a);
+}
+`,
+		{ uGold: vec(4), uMetal: vec(4), uShine: vec(3) },
+	);

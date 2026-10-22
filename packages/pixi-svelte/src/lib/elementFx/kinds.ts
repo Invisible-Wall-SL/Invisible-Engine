@@ -45,6 +45,7 @@ import {
 	dissolveFilter,
 	electrocuteFilter,
 	freezeFilter,
+	goldFilter,
 	meltFilter,
 	perspectiveFilter,
 	petrifyFilter,
@@ -207,12 +208,12 @@ const meltImpl = (): KindImpl => {
 const FREEZE_FROM = ['edges', 'center', 'top', 'bottom'];
 
 /**
- * The share of a freeze's or a petrify's play spent setting in, and as long again letting go;
+ * The share of a held play (freeze, petrify, gold) spent setting in, and as long again letting go;
  * between, it holds.
  */
 const holdSpan = (frame: FxFrame): number => (1 - num(frame, 'hold')) / 2;
 
-/** How far the ice or the stone has covered the element at `t`: in, held, and back out. */
+/** How far the ice, stone or gold has covered the element at `t`: in, held, and back out. */
 const holdCoverage = (frame: FxFrame): number => {
 	const span = holdSpan(frame);
 	const t = frame.t;
@@ -292,6 +293,49 @@ const petrifyImpl = (): KindImpl => {
 				);
 				filter.set('uRock', ...rgb(str(frame, 'color')), Math.min(1, frame.intensity));
 				filter.set('uChip', flaked, flaked > 0 || coverage >= 1 ? 0 : 0.6);
+			},
+		}),
+	};
+};
+
+/** Where the gold spreads from, as the shader's `from`. */
+const GOLD_FROM = ['center', 'bottom', 'top', 'edges'];
+
+/**
+ * Turn to gold: the metal runs as a shader pass; the element rings with a small swell as the gold
+ * sets, and a glint sweeps across while it holds.
+ */
+const goldImpl = (): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		motion(frame) {
+			const k = (frame.t - holdSpan(frame)) / 0.1;
+			if (k < 0 || k > 1) return {};
+			const swell = 1 + 0.04 * frame.intensity * Math.sin(Math.PI * k) * (1 - k);
+			return { scaleX: swell, scaleY: swell };
+		},
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = goldFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				const span = holdSpan(frame);
+				const held = 1 - 2 * span;
+				filter.set(
+					'uGold',
+					holdCoverage(frame),
+					seeds.get(filter) ?? 0,
+					Math.max(0, GOLD_FROM.indexOf(str(frame, 'from'))),
+					frame.seconds,
+				);
+				filter.set('uMetal', ...rgb(str(frame, 'color')), Math.min(1, frame.intensity));
+				const glint =
+					held > 0 && frame.t >= span && frame.t <= 1 - span
+						? -0.3 + 1.6 * ((frame.t - span) / held)
+						: -10;
+				filter.set('uShine', glint, flag(frame, 'sparkles') ? 1 : 0, frame.t < span ? 1 : 0);
 			},
 		}),
 	};
@@ -817,6 +861,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	poison: poisonImpl(),
 	electrocute: electrocuteImpl(),
 	petrify: petrifyImpl(),
+	gold: goldImpl(),
 	dissolveOut: dissolveImpl('out'),
 	dissolveIn: dissolveImpl('in'),
 

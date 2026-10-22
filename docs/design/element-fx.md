@@ -30,7 +30,7 @@ Three ways to get one onto an element, all playing through ONE runtime:
 ## 2. The catalog (`constants-shared/elementFx`)
 
 One dependency-free list, read by the editor (kind picker, param rows), the flow vocabulary (the
-`ElementFxKind` dropdown) and the runtime. 48 kinds in five families:
+`ElementFxKind` dropdown) and the runtime. 49 kinds in five families:
 
 - **Motion** (the element's own transform; no GPU pass): shake, wobble, pulse, heartbeat, jelly,
   bounce, spin, swing, float, pop in, pop out, slam in, fade in, fade out.
@@ -48,7 +48,9 @@ One dependency-free list, read by the editor (kind picker, param rows), the flow
   in from the edges and pulsing, bubbles rising, a queasy sway — a loop), electrocute (jagged arcs
   crackle across it, its outline glows, it flickers to a negative and jitters), petrify (granite
   creeps up behind a dusty front, cracked and carved in relief, locks with a thud, holds, then flakes
-  off a chip at a time along its slabs), dissolve out / in (noise
+  off a chip at a time along its slabs), turn to gold (polished gold spreads behind a molten
+  front, the art embossed and mirror-lit, rings, holds with a glint and sparkles, draws back),
+  dissolve out / in (noise
   burn with a
   glowing edge).
 - **Break** (a still of the element cut into pieces): crash (takes a hit, smashes into shards that
@@ -122,7 +124,7 @@ the way `cameraEffects` composes the stage:
   the end every value is put back exactly.
 - **Filters** stack after the container's own filters, bounded to the element by a `filterArea` (its
   box plus a margin, so an animating rig is not clipped). The custom passes (perspective, wave,
-  twist, curl, ripple, bulge, melt, shine, colour mix, freeze, burn, poison, electrocute, petrify, dissolve, sphericon) are GLSL written to compile on
+  twist, curl, ripple, bulge, melt, shine, colour mix, freeze, burn, poison, electrocute, petrify, gold, dissolve, sphericon) are GLSL written to compile on
   WebGL1 (GLSL ES 1.00: no `transpose()`, no reserved words such as `flat` as names) and WebGL2; they work in the element's own coordinates through `uElement` /
   `uPad`. Glow, outline, chromatic, glitch, pixelate (`pixi-filters`), blur and hue (`pixi.js`)
   reuse the library. A GL-only pass is skipped on a WebGPU renderer (the game forces WebGL).
