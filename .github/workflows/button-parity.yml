@@ -77,6 +77,10 @@ jobs:
           for attempt in 1 2 3; do
             timeout 240 pnpm dlx playwright@1.63.0 install --with-deps chromium-headless-shell && exit 0
             echo "::warning::headless shell install attempt $attempt failed; retrying"
+            # A slow mirror can outlast the timeout, which kills pnpm but not the `sudo apt-get` it
+            # started: that apt-get runs on holding the dpkg lock, and the next attempt could only
+            # wait on it and fail. Let it finish first; the step's timeout still bounds the wait.
+            while pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do sleep 5; done
             sleep 10
           done
           exit 1
