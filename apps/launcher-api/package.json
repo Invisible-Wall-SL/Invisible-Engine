@@ -224,6 +224,8 @@
 		"check:depth-segments": "tsx --tsconfig tsconfig.scripts.json scripts/check-depth-segments.ts",
 		"precheck:rig-origin-box": "node scripts/ensure-svelte-kit.mjs",
 		"check:rig-origin-box": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-origin-box.ts",
+		"precheck:component-content-box": "node scripts/ensure-svelte-kit.mjs",
+		"check:component-content-box": "tsx --tsconfig tsconfig.scripts.json scripts/check-component-content-box.ts",
 		"precheck:flow-publish-gate": "node scripts/ensure-svelte-kit.mjs",
 		"check:flow-publish-gate": "tsx --tsconfig tsconfig.scripts.json scripts/check-flow-publish-gate.ts",
 		"precheck:undo-history": "node scripts/ensure-svelte-kit.mjs",
