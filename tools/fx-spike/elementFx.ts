@@ -44,6 +44,7 @@ import {
 	ELEMENT_FX_KINDS,
 	elementFxChannels,
 	elementFxCueNames,
+	elementFxEnterEnds,
 	elementFxIntensityChannel,
 	elementFxOfChannel,
 	elementFxProgressChannel,
@@ -52,6 +53,7 @@ import {
 	resolveElementFxParams,
 	type ElementFxKind,
 } from '../../packages/constants-shared/elementFx';
+import { stateFxGate } from '../../apps/lines/src/game/stateFxGate';
 import {
 	ELEMENT_FX_CHANNEL_PREFIX as CINEMATIC_ELEMENT_FX_PREFIX,
 	sampleNodeActor,
@@ -441,6 +443,58 @@ console.log('element fx — the motion samplers');
 }
 
 // -------------------------------------------------------------------------------------------------
+console.log('element fx — a symbol state’s beat');
+{
+	const enter = (repeat?: number, disabled?: boolean) =>
+		readElementFxEntry({ id: 'e', kind: 'shake', trigger: 'enter', repeat, disabled })!;
+	assert(
+		elementFxEnterEnds(enter()) &&
+			elementFxEnterEnds(enter(3)) &&
+			!elementFxEnterEnds(enter(0)) &&
+			!elementFxEnterEnds(enter(1, true)) &&
+			!elementFxEnterEnds(readElementFxEntry({ id: 'a', kind: 'glow', trigger: 'always' })!),
+		'an enter entry with a count of plays ends; one set to 0, a disabled one and an always loop do not',
+	);
+	const beat = (waits: boolean, ownArt: boolean) => {
+		let reports = 0;
+		return { gate: stateFxGate(waits, ownArt, () => reports++), reports: () => reports };
+	};
+	const still = beat(true, true);
+	still.gate.art();
+	const heldForFx = still.reports();
+	still.gate.fx();
+	const afterFx = still.reports();
+	still.gate.art();
+	assert(
+		heldForFx === 0 && afterFx === 1 && still.reports() === 2,
+		'a still picture completing at once is held until the land shake has played out, then passes through',
+	);
+	const longArt = beat(true, true);
+	longArt.gate.fx();
+	const fxFirst = longArt.reports();
+	longArt.gate.art();
+	assert(
+		fxFirst === 0 && longArt.reports() === 1,
+		'art longer than the effect still sets the pace',
+	);
+	const borrowed = beat(true, false);
+	borrowed.gate.fx();
+	borrowed.gate.fx();
+	assert(
+		borrowed.reports() === 1,
+		'a state with no art of its own (it may never report) is paced by its effect alone, once',
+	);
+	const plain = beat(false, false);
+	plain.gate.art();
+	plain.gate.fx();
+	plain.gate.art();
+	assert(
+		plain.reports() === 2,
+		'with no effect to wait for, every art completion passes straight through',
+	);
+}
+
+// -------------------------------------------------------------------------------------------------
 console.log('element fx — the runtime');
 
 const makeHost = (scale = 1): { host: ElementFxHost; advance: (ms: number) => void } => {
@@ -766,7 +820,7 @@ console.log('element fx — dissolve to particles');
 	run?.update(0.3);
 	const moved = specks().map(([x, y], i) => Math.hypot(x - atRest[i][0], y - atRest[i][1]) > 0.5);
 	const share = (side: (x: number) => boolean): number => {
-		const on = atRest.map(([x], i) => i).filter((i) => side(atRest[i][0]));
+		const on = atRest.map((_, i) => i).filter((i) => side(atRest[i][0]));
 		return on.filter((i) => moved[i]).length / on.length;
 	};
 	assert(
@@ -1007,6 +1061,13 @@ console.log('element fx — the wiring');
 		'cues come off the component-signal bus, scoped',
 	);
 	assert(player.includes('particleTimeScale'), 'the player follows turbo');
+	assert(
+		player.includes('props.entries.filter(elementFxEnterEnds)') &&
+			/if \(!host\) \{\s*ondone\?\.\(\);\s*return;/.test(player) &&
+			/if \(mounted\) ondone\(\);/.test(player) &&
+			player.includes('mounted = false;'),
+		'its ondone waits for the enter entries that end, fires when there is nothing to play on, and never after unmount',
+	);
 	const scene = read('packages/engine-layout/src/lib/LayoutScene.svelte');
 	assert(
 		scene.includes('<Anchor name={elementFxScreenTarget(scene.id)} />'),
@@ -1035,13 +1096,36 @@ console.log('element fx — the wiring');
 		'the reel stack is the reels target and plays the reel grid’s FX',
 	);
 	const symbol = read('apps/lines/src/components/Symbol.svelte');
+	const stateFxSource = read('apps/lines/src/game/symbolStateFx.ts');
 	assert(
 		symbol.includes('bakedSymbolFx()[props.rawSymbol.name]') &&
-			/\{#key props\.state\}\s*\{#if stateFx\.length\}\s*<ElementFxPlayer entries=\{stateFx\} \/>/.test(
+			symbol.includes('symbolStateFx(props.rawSymbol.name, props.state)') &&
+			/\{#key props\.state\}\s*\{#if stateFx\.length\}\s*<ElementFxPlayer entries=\{stateFx\} ondone=\{gate\.fx\} \/>/.test(
 				symbol,
 			) &&
-			/entry\.trigger === 'enter' \|\| entry\.trigger === 'always'/.test(symbol),
+			/entry\.trigger === 'enter' \|\| entry\.trigger === 'always'/.test(stateFxSource),
 		'a symbol plays its state’s FX — enter and always — and ends them as it leaves the state',
+	);
+	assert(
+		(symbol.match(/oncomplete=\{artComplete\}/g) ?? []).length === 3 &&
+			symbol.includes('complete: artComplete,') &&
+			!/oncomplete=\{props\.oncomplete\}|complete: props\.oncomplete/.test(symbol) &&
+			symbol.includes(
+				'const artComplete = $derived(symbolFx ? () => gate.art() : props.oncomplete);',
+			) &&
+			symbol.includes('stateFxGate(waitsForFx, ownArt, () => {') &&
+			symbol.includes('if (visit === gate) props.oncomplete?.();'),
+		'every renderer reports through the gate when the symbol has FX, and straight through when it has none',
+	);
+	const board = read('apps/lines/src/components/Board.svelte');
+	assert(
+		board.includes("if (!symbolStateHasBeat(reelSymbol.rawSymbol.name, 'explosion')) {") &&
+			board.includes("symbolStateHasBeat(reelSymbol.rawSymbol.name, 'win')") &&
+			read('apps/lines/src/components/TumbleBoard.svelte').includes(
+				"symbolStateHasBeat(tumbleSymbol.rawSymbol.name, 'intro')",
+			) &&
+			stateFxSource.includes('symbolStateFx(symbolName, state).some(elementFxEnterEnds)'),
+		'an explosion with only a melt authored still explodes; win and intro caps count an ending effect as authored',
 	);
 	assert(
 		/\{:else\}\s*\{@render bands\(\)\}\s*\{\/if\}/.test(symbol) &&

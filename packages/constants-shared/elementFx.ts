@@ -1339,6 +1339,14 @@ export function readElementFxEntries(raw: unknown): ElementFxEntry[] {
 	return out;
 }
 
+/**
+ * Does `entry` play out on its own once it starts: an `enter` entry with a count of plays. An
+ * `always` one loops and an `enter` one set to 0 plays until stopped, so neither ever ends. This is
+ * what a player's `ondone` waits for.
+ */
+export const elementFxEnterEnds = (entry: ElementFxEntry): boolean =>
+	!entry.disabled && entry.trigger === 'enter' && (entry.repeat ?? 1) > 0;
+
 /** The cue names a list listens for (plays and stops), for the flow's cue palette. */
 export function elementFxCueNames(entries: readonly ElementFxEntry[]): string[] {
 	const names = new Set<string>();
