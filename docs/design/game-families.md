@@ -1,7 +1,15 @@
-# Game families: match-3 first, arcade next (Phase 10 plan)
+# Game families: match-3 first, arcade next, cards after (Phase 10 plan)
 
 > Status: **PLAN APPROVED (owner, 2026-10-20): all nine §9 decisions accepted as recommended.
-> ON HOLD: no build phase (P10.1 onward) starts until the owner says go.** This is Phase 10 of
+> ON HOLD: no build phase (P10.1 onward) starts until the owner says go.**
+>
+> **Amended 2026-10-22 from the owner's questions:** whole tools are shown or hidden per family
+> (§6.5); `/config` shows only the family's sections (§6.2); arcade grows past one screen in three
+> tiers, with characters, movement, jumps and a scrolling camera (§4.3, §4.4, P10.11–P10.13);
+> Salmons is the arcade reference project (§1); card games are a fourth family with a plan of their
+> own (§10). New decisions §9 #10–#16; the hold above is unchanged.
+>
+> This is Phase 10 of
 > [rive-style-editor.md](rive-style-editor.md) §10. It is the separate design that §7.2 promised for
 > games that are not slots. The owner approved starting it on 2026-10-20. Progress will live in the
 > status files of the tools each phase touches ([flow](../status/flow.md),
@@ -16,8 +24,8 @@
 >
 > Phase 10 supports both. Flow owns the rules logic only in a rules-decided game.
 >
-> Grounded against `main` 6b082c4 (2026-10-20). "Exists" means it is in that tree; "new" means it is
-> proposed here.
+> Grounded against `main` 6b082c4 (2026-10-20); the 2026-10-22 amendments against `main` 8db411a.
+> "Exists" means it is in that tree; "new" means it is proposed here.
 
 ## Contents
 
@@ -29,7 +37,8 @@
 6. [Pipeline](#6-pipeline-create-build-bake-publish-boot)
 7. [Testing and parity](#7-testing-and-parity)
 8. [Phased build plan](#8-phased-build-plan)
-9. [Open decisions for the owner](#9-open-decisions-for-the-owner)
+9. [Decisions (owner)](#9-decisions-owner)
+10. [The card family (outline)](#10-the-card-family-outline)
 
 ---
 
@@ -42,9 +51,13 @@ per-frame loop, moving objects, collisions, and creating objects while the game 
 
 ### What "a family" means
 
-A **family** is a group of game kinds that share one way of playing: slot, match-3 or arcade. All
-current kinds are slots: `lines`, `ways`, `cluster`, `scatter`, `bookOf` and `holdAndWin`
+A **family** is a group of game kinds that share one way of playing: slot, match-3, arcade or card.
+All current kinds are slots: `lines`, `ways`, `cluster`, `scatter`, `bookOf` and `holdAndWin`
 (`packages/constants-shared/gameKinds.ts`).
+
+A family decides three things in the pipeline, not one: which **tools** a project sees (§6.5), which
+**Game Config** sections it holds (§6.2), and which sections each tool offers inside itself
+(`kindCapabilities`, §6.1).
 
 The rule from [game-type-templates.md](game-type-templates.md) is that a game type is
 `{ data, mechanic }`, never an app fork. This plan applies that rule one level up. **A new family is
@@ -56,9 +69,15 @@ and never a second copy of the engine.**
 - **Match-3 v1.** A board of gems. The player swaps two adjacent gems. A run of 3 or more explodes,
   the survivors fall, and new gems refill from the top. Cascades chain until nothing matches. A
   round is a limited number of moves. Both outcome sources are supported (§2).
-- **Arcade v1.** A single-screen game with a frame loop: objects move, the player steers or taps,
-  objects collide, and the game keeps score and lives. One sample genre, a catcher or dodger (§9
-  #6). It is rules-decided first; an RGS-decided arcade game is a later, optional phase (§8, P10.10).
+- **Arcade v1 (tier A1).** A single-screen game with a frame loop: objects move, the player
+  steers or taps, objects collide, and the game keeps score and lives. One sample genre, a catcher
+  or dodger (§9 #6, revisited by #13). It is rules-decided first; an RGS-decided arcade game is a
+  later, optional phase (§8, P10.10).
+- **Arcade past one screen (tiers A2 and A3, added 2026-10-22).** Characters that act on their own,
+  player controllers and paths (A2, §4.3); a world bigger than the screen with a following camera
+  and parallax, then gravity, jumps and painted levels (A3, §4.4).
+- **Card games** (Magic / Hearthstone style) are a fourth family. This plan only outlines them
+  (§10); they get a design of their own before any build.
 - **The Flow primitives both families need:** game variables, input / tick / timer events, and
   spawning (§3).
 - **The editor surfaces they need,** including the Rive "Later" items that are prerequisites (§5).
@@ -67,17 +86,35 @@ and never a second copy of the engine.**
 
 ### Non-goals (v1)
 
-- **No physics engine.** Arcade motion is kinematic: velocity, bounds, and box/circle overlap. There
-  is no rigid-body simulation, gravity solver or joints.
+- **No physics engine.** Arcade motion is kinematic: velocity, acceleration, bounds and box/circle
+  overlap, plus (from A2) solid bodies that stop a mover and (A3) one constant gravity for jumps.
+  There is no rigid-body simulation: nothing rolls, stacks, trades momentum by mass or hangs on a
+  joint.
 - **No match-3 specials in v1.** Striped / bomb / colour-bomb gems, boosters, blockers (ice, chains)
   and a level map are left out. The board module is shaped so specials can be added later as data:
   "a run of shape S makes special X" (§4.1, P10.5b).
 - **No real-money skill games.** A rules-decided game never touches a wallet (§2.3). "Skill for
   prizes" is a regulated product of its own and is out of scope.
-- **No multiplayer, no server-side leaderboards** and no persistent progression in v1.
+- **No multiplayer, no server-side leaderboards** and no persistent progression in Phase 10.
+  Multiplayer needs a real-time game server, a service of its own; it is a later plan that Salmons
+  and card-game PvP would share (§9 #16).
 - **No change to any slot game.** Slot projects keep their vocabularies, Flow docs, coded paths and
   pixels (§7).
 - **No second runtime app** unless §6.4's recommendation is overturned (§9 #3).
+
+### Reference project: Salmons (owner, 2026-10-22)
+
+The owner named **Salmons** as the example of an arcade game already made. In the portal it is the
+project `salmons` (client `invisible_wall`) with no published game; the game itself lives outside
+this repository. Two things follow, both open until the owner confirms what it is (§9 #13):
+
+- **If it is the real-time multiplayer Project Salmon** (a Colyseus game server and a PixiJS 7
+  client, as its own project skills describe), its multiplayer is outside Phase 10 (above), and its
+  client is **rebuilt on the shared runtime as data**, never ported in as a second engine (the rule
+  in "What a family means").
+- **Its single-player core loop picks the order.** If the loop fits A1 (tick, spawn, collide,
+  score, lives), a Salmons slice replaces the catcher / dodger as the first sample. If it scrolls,
+  P10.12 (camera) comes straight after P10.8; if it needs characters, P10.11 does.
 
 ---
 
@@ -98,7 +135,7 @@ Game Config (`packages/game-config`) is the home. It is the doc the runtime alre
 Two new optional fields on `GameConfigDoc` (`packages/game-config/src/types.ts:465`):
 
 ```ts
-family?: 'match3' | 'arcade';        // absent ⇒ slot (every doc today)
+family?: 'match3' | 'arcade';        // absent ⇒ slot (every doc today); 'card' comes with §10's plan
 outcome?: 'rules';                   // absent ⇒ 'rgs' (every doc today)
 match3?: Match3Block;                // only when family === 'match3' (§4.1)
 arcade?: ArcadeBlock;                // only when family === 'arcade' (§4.2)
@@ -113,8 +150,9 @@ This follows the `winModel` precedent exactly (game-type-templates.md Phase C):
 - **The normalizer has to learn the fields first.** `normalizeGameConfigDoc`
   (`src/normalize.ts:322`) rebuilds the doc from a whitelist, so it would drop `family`, `outcome`,
   `match3` and `arcade` today. It also returns `undefined` for a doc with no `symbols` or
-  `paddingReels`, which is one reason a match-3 doc keeps both (below). P10.1 teaches it the new
-  fields.
+  `paddingReels`, which is one reason a match-3 doc keeps both (below). An arcade doc has neither,
+  so that rule gets a family arm: an arcade doc normalizes without them. P10.1 teaches it the new
+  fields and the arm.
 - **Always read through a resolver,** `resolveFamily(doc)` and `resolveOutcome(doc)` (new, in
   `packages/game-config/src/family.ts`). No code reads the raw field. This is the same rule as
   `resolveWinModel()`.
@@ -484,6 +522,13 @@ explicitly, so a match-3 doc never silently opens on the Book-of palette.
 
 Collision filters are by **tag** (§5: the Rive "tags" Later item).
 
+Tiers A2 and A3 add to it (§4.3, §4.4):
+
+- events `onCharacterState {instance, from, to}`, `onLanded`, `onEnterView`, `onLeaveView`;
+- actions `character.setState`, `camera.follow`, `camera.moveTo`, `camera.shake`,
+  `camera.setAutoScroll`;
+- the camera's position as two read-only `$engine` keys, so Flow can spawn ahead of the view.
+
 ---
 
 ## 4. The mechanic layer (small code)
@@ -494,8 +539,9 @@ looks like, what happens on a match, the score, the sounds — is data authored 
 
 ### 4.0 Where it lives
 
-A new dependency-free package, **`packages/engine-mechanics`** (new). It holds `board.js` and
-`motion.js`, written as plain ESM JavaScript with hand-written `.d.ts` beside them. That is the
+A new dependency-free package, **`packages/engine-mechanics`** (new). It holds `board.js`,
+`motion.js` and, from tier A2, `behaviours.js` (§4.3), written as plain ESM JavaScript with
+hand-written `.d.ts` beside them. That is the
 pattern `packages/engine-cinematic/src/cinematicEval.js` already uses, and it is chosen for the same
 reason: two very different callers must share it.
 
@@ -596,6 +642,100 @@ is that moment, so P10.5 declares it.
   (`{shape, w, h | r, tags, solid}`). The body could equally live on the `ComponentDef`; §9 #7
   recommends the config, to keep game rules out of shared components.
 
+### 4.3 Characters, controllers and paths (tier A2, P10.11)
+
+**In short:** a character is a component that moves and decides on its own: a guard that patrols,
+a fish that flees, a boss that chases. Its look is a component, as today. Its brain is new, and it
+is game data, not part of the component.
+
+| Part | Example | Home | Today |
+|---|---|---|---|
+| **Look** | idle, run, jump, hit and die animations, switched by inputs such as `speed` or `grounded` | A component: its timelines and state machine (`engine-layout/src/lib/stateMachine.ts`), art from Rigger or Flipbook | exists; 1D blend states (idle → run by speed) move into P10.11 (§5.2) |
+| **Body** | shape, size, tags, solid, movement settings | `GameConfigDoc.arcade` (§9 #7) | shape and tags are P10.8; movement settings are new |
+| **Brain** | patrol; chase the player within 200 px; flee after being hit; shoot every 2 s | `GameConfigDoc.arcade.characters` (§9 #14) | new |
+
+**Why the brain is not in the Component Editor.** Components are shared and presentation only
+(rive-style-editor.md §2): one goblin component should patrol in one game and chase in another. A
+component's state machine also has no world, so it cannot see where the player is.
+
+**Why not plain Flow.** Flow could do it ("every tick, for each enemy, if the distance is under
+X…"), but every designer would rebuild "chase" from math nodes, and Flow's tick is for game rules
+(the validator warns under 100 ms, §3.2), not per-frame steering. Flow keeps the game (score,
+lives, waves) and can override a brain with `character.setState`.
+
+**The brain** is a small state machine whose states are **behaviours** and whose transitions are
+**world conditions**:
+
+- **Behaviours** are presets with a few numbers each, in
+  `packages/engine-mechanics/src/behaviours.js` (new; pure and seeded, so a replay is exact):
+  `idle`, `wander`, `patrol` (between points or along a path), `followPath`,
+  `chase {tag, range, speed}`, `flee {tag, range}`, `keepDistance`, `hover` (a sine bob) and
+  `shootAt {tag, every, componentId}`, which asks the loop to spawn into a `spawnLayer` (§3.3). A
+  behaviour returns a desired velocity; it never moves a body itself.
+- **Conditions:** `targetWithin` / `targetBeyond {tag, px}`, `touching {tag}`, `hitSolid`,
+  `timer {ms}`, `variable {id, op, value}` (a Flow variable, §3.1) and `random {chance}` (seeded).
+- **Shape:** `{ initial, states: {id, behaviour, params}[], transitions: {from, to, when}[] }`. It
+  mirrors the component state machine's states and transitions on purpose, so the tool reuses that
+  canvas (§5.1).
+
+**Movement.** `motion.js` grows past P10.8's velocity and bounds:
+
+- per body: `accel`, `decel`, `maxSpeed`, `turnRate`;
+- **solid response:** a mover stops at a `solid` body and slides along it, resolved one axis at a
+  time (move x and push out, then y). P10.8's `overlaps` only *reports* a touch; this is what lets
+  a guard turn at a wall (`hitSolid`);
+- **paths:** a `path` layout node drawn in the Scene Editor (points, smoothing, open or looped),
+  used by `patrol` and `followPath`;
+- **player controllers**, presets fed by the input map (§3.2): `pointer` (follow the pointer on one
+  or both axes: a paddle), `topDown` (8-way) and `sideScroll` (run; A3 adds the jump).
+
+**The loop** (P10.8's `arcadeLoop.svelte.ts`) gains one stage: read input → **controllers and
+brains** → `step` (with solids) → write positions **and the look's inputs** → `overlaps` → Flow
+events. A character maps its state onto its component's inputs (`speed`, `grounded`, `facing`, the
+brain's state) through an explicit `animInputs` map, so the component's state machine switches
+animations with no Flow wire.
+
+**Where it is authored:** a new tool, **Invisible Characters** (§5.1, §6.5).
+
+### 4.4 A bigger world, the camera, jumps and levels (tier A3, P10.12–P10.13)
+
+**In short:** in A1 the screen is the whole play field. A3 lets the world be bigger than the screen
+and scroll (P10.12), then adds gravity, jumps and levels painted from tiles (P10.13). Salmons
+decides which comes first (§9 #13).
+
+**World and camera (P10.12).** The only cameras today are scripted: the Timeline's `camera` track
+(`engine-cinematic`) and the slot reel-anticipation zoom (`registerSceneCameraTransform`,
+`engine-layout/src/lib/registerSceneCameraTransform.ts`). Neither follows anything.
+
+- A play-field screen gets a `world {w, h}` larger than its design size, and a `camera` block:
+  `follow` (a tag, usually `player`), a dead zone, smoothing, look-ahead, `clampToWorld`,
+  `autoScroll {x, y}` (px/s, for runners and shooters) and `shake`.
+- `<ArcadeStage />` applies it as one transform on the world container. HUD screens are separate
+  screens already, so they never scroll.
+- **Parallax:** a per-container `parallax {x, y}` factor (0 = fixed to the screen, 1 = moves with
+  the world).
+- **Spawning against the view:** `spawnLayer` gains `despawnOutsideView {margin}`; Flow spawns
+  ahead from the camera keys and `onEnterView` (§3.4). Off-view instances are culled (Pixi's
+  `cullable`), so a long level draws only what is near.
+- A Timeline can still take the camera for a cutscene: `playCinematic` holds it and hands it back
+  when it ends.
+- The camera steps on the fixed timestep, so a seed replays the same framing.
+
+**Gravity, jumps and levels (P10.13).**
+
+- `motion.js`: a per-body `gravity` and `maxFall`; `grounded` and `onWall` from the solid response;
+  **one-way platforms** (solid only from above, while falling); sub-steps, so a fast fall never
+  passes through a thin tile.
+- The `sideScroll` controller gets its jump, set by **height and time** rather than raw velocities,
+  plus what makes a jump feel right: hold to jump higher, **coyote time** (a jump just after leaving
+  a ledge still counts), a **jump buffer** (a press just before landing still counts) and air
+  control. A `flap` controller (tap for an upward kick) lands here too.
+- **Levels:** a new `tilemap` layout node: a tile size, a grid of tile indices and a tileset of
+  **atlas regions**, each tile marked `none`, `solid` or `oneWay`. It is painted in the Scene Editor
+  (§5.1) and is part of the layout doc, so it ships with it; its regions ship through the art
+  export (§6.3).
+- Slopes, moving platforms and ladders come later.
+
 ---
 
 ## 5. Editor surfaces and the Rive "Later" items
@@ -615,6 +755,11 @@ each one is assigned to the phase that first needs it.
 | **`/symbols`** | `select` / `hint` states for gems (match-3 only, via `kindCapabilities`) | P10.5 |
 | **`/flow-v2`** | A **Variables** panel (declare / type / initial / scope); the `setVariable`, `changeVariable`, `onVariable`, `onTick`, `onTimer`, `onInput`, `spawn`, `despawn` and `instanceRef` nodes in `AddNodePalette.svelte`; the match-3 / arcade palettes; Preview runs the board module on its virtual clock with a seed (rules) or forced books (RGS) | P10.3, P10.5, P10.7 |
 | **Data tab** (9d, read-only; **not built yet**, Phase 9 has shipped through 9c) | When 9d lands it lists Flow variables too. P10.3 does not depend on it: its Variables panel and the input-row source picker carry the binding | after 9d |
+| **Launcher home + tool bar** | Show only the tools the active project's family uses; a direct link to another tool explains why it is not offered (§6.5) | P10.1b |
+| **Invisible Characters** (new tool, `/characters`) | A list of the project's characters; per character the look (a component), body, movement, controller or brain; the brain on the state-machine canvas the Component Editor already has (`ComponentWorkspace.svelte`); a sandbox play field with a keyboard-driven dummy player. It edits `GameConfigDoc.arcade.characters` (§9 #14). A new tool, so rule 9 applies: `docs/tools/invisible-characters.md`, its README row and the onboarding link ship with it | P10.11 |
+| **Scene Editor (`/editor`), arcade** | The `path` node (draw points, smoothing, open / looped) | P10.11 |
+| | `world` size and the `camera` block on a play-field screen; the camera frame drawn on the stage; per-container `parallax` | P10.12 |
+| | The `tilemap` node and a paint mode (brush, erase, fill, pick; per-tile `none` / `solid` / `oneWay`) | P10.13 |
 
 ### 5.2 Scheduling the Rive "Later" items
 
@@ -626,7 +771,7 @@ each one is assigned to the phase that first needs it.
 | **N-slice** | Goal panels, progress bars and HUD frames that resize per board size and device layout | **P10.9** | M |
 | **Rulers and guides** | Laying out a play field and board precisely | **P10.9** | S |
 | **Graph Editor + Elastic / Bounce** | Match-3 "juice": gems that land with a bounce, pops that overshoot | **P10.9** (Elastic/Bounce as `CinematicEase` presets can land earlier, with P10.5) | M |
-| **Blend states (1D)** | An arcade character's idle → run, blended by speed | **P10.10** (only if the arcade sample needs it) | L |
+| **Blend states (1D)** | An arcade character's idle → run, blended by speed | **P10.11** (characters need it; moved from P10.10 on 2026-10-22) | L |
 | **Text modifiers** | Per-glyph score pops | Stays **Later**; not needed for v1 | — |
 
 ---
@@ -656,12 +801,36 @@ games.
   and `board`, plus `freeSpins: false`, `winLines: false` and `holdAndWin: false`. The other tools
   then simply do not offer slot sections to a match-3 project. The game itself never reads
   `kindCapabilities`; it reads the config (§2.3).
+- `kindCapabilities` only hides **sections inside** a tool. Hiding a **whole tool** a family never
+  uses (Win Text for an arcade game) is §6.5's job.
 
 ### 6.2 What Game Config holds
 
 Covered in §2.1 and §4: `family`, `outcome`, `match3` / `arcade` blocks, symbols, paytable (RGS
 only), and `numReels` / `numRows` / `paddingReels` reused. Nothing a slot doc holds is moved or
-renamed.
+renamed: that rule protects the slot games' stored docs, and does **not** mean a non-slot project is
+shown slot fields.
+
+**`/config` shows only the project's family (owner, 2026-10-22).** The page reads the family and the
+outcome and shows the sections that family uses; the rest are not rendered at all. A slot project
+sees exactly today's page.
+
+| `/config` section (today's headings) | Slot | Match-3, RGS | Match-3, rules | Arcade |
+|---|---|---|---|---|
+| Return to player | ✓ | ✓ | — | — |
+| Grid | ✓ | ✓ (board size) | ✓ (board size) | — |
+| Bet modes, Big win tiers | ✓ | ✓ | — | — |
+| Symbols | ✓ | ✓ (gems, with pays) | ✓ (gems, no pays) | — |
+| How wins are decided | ✓ | ✓ (the `match3` arm only) | — | — |
+| Free spins, Expanding symbol, Coins, Paylines, the Hold and Win / bonus / coin board / coin overlay sections | ✓ (as each kind and add-on allows today) | — | — | — |
+| Reel behaviour | ✓ | only the switches the first board's arrival uses (P10.5 decides which) | same as RGS | — |
+| **Match-3** (new: min run; moves, goals, score table for rules) | — | ✓ | ✓ | — |
+| **Arcade** (new: play field, fixed rate, bodies; from A3 the world) | — | — | — | ✓ |
+| Characters | — | — | — | a link to Invisible Characters (§4.3) |
+| Raw JSON | ✓ | ✓ | ✓ | ✓ |
+
+The refill strips of a match-3 doc (§2.1) are edited in the Match-3 section. The validator follows
+the same table (§2.1), so a section the page hides is never the reason a save is refused.
 
 ### 6.3 Build, bake, publish (rule 8)
 
@@ -671,6 +840,10 @@ renamed.
 - **One gap to close, P10.7:** the export must collect every `spawnLayer.spawnable` component id
   (and its art) as it collects placed instances. `check:art-scope` is extended to fail a spawnable
   component that does not ship.
+- **The same gap, twice more:** a character's look component and its `shootAt` spawn (P10.11), and
+  a `tilemap`'s tileset regions (P10.13), are collected the same way, and `check:art-scope` is
+  extended for each. Characters and tilemaps are data inside the config and the layout doc, so they
+  need no new asset class.
 - **Publish** (`apps/launcher-api/src/lib/server/publishGame.ts`) keeps its gates. It gains:
   - the outcome gates of §2.2 and §2.3;
   - `protocolFor('match3')` → `'match3'` for an RGS game, or a `'freePlay'` protocol for a rules
@@ -723,6 +896,46 @@ tooling to measure (§7), and a bigger download, which P10.5 measures. Option B 
 problem. Arcade shares the least with slots, so P10.8 re-checks the choice before it starts
 (§9 #3).
 
+### 6.5 Which tools a family uses (owner, 2026-10-22; P10.1b)
+
+**In short:** a project sees only the tools its kind of game uses. Win Text is a slot tool, so an
+arcade project never sees it. Today the launcher filters tools by **role** only (`manifestForRole`,
+`apps/launcher-api/src/lib/roles.ts`), so every project sees every tool the user's role allows.
+
+| Tool | Slot | Match-3 | Arcade | Card (§10) |
+|---|---|---|---|---|
+| Game Maker, Game Config, Director, Scene Editor, Flow, Component Editor, Localization | ✓ | ✓ | ✓ | ✓ |
+| Atlas Maker, ComfyUI, Sheet Maker, Font Maker, Sound, Rigger, Flipbook, FX | ✓ | ✓ | ✓ | ✓ |
+| Rig Viewer, Storybook, FTP Browser, Pipeline Changes, the desktop Invisible Launcher | ✓ | ✓ | ✓ | ✓ |
+| Symbols State Machine | ✓ | ✓ (gems are symbols, §9 #9) | — | — |
+| Win Text | ✓ | RGS only (only that game pays money) | — | — |
+| Invisible Characters (new, §4.3) | — | — | ✓ | — |
+| Invisible Card Library (new, §10) | — | — | — | ✓ |
+
+- **One list, one home:** `FAMILY_TOOLS` beside `TOOLS` in `roles.ts`, because the registry owns
+  the tool ids. It lists the tools a family does **not** use, so a new tool is offered to every
+  family until someone says otherwise: a tool shown where it is useless is harmless, a tool hidden
+  by accident is not. The slot family excludes nothing, so slot projects see exactly today's list.
+- **The family comes from the project's kind,** through a `familyOfKind()` beside `GAME_KINDS`
+  (`packages/constants-shared/gameKinds.ts`); an author-created custom kind is a slot, as every
+  consumer already treats it. The project rows `(app)/+layout.server.ts` already
+  loads (`accessibleProjects`) carry `gameType`, so this costs no R2 read per page.
+- **A tool that depends on the outcome** (Win Text for match-3) stays listed for the family and
+  checks the outcome itself from the config: a rules-decided game gets "this game pays no money, so
+  there is no win text to author".
+- **Where it applies:** the launcher home's tool grid and the `ToolTopBar` switcher, both fed
+  `tools` by `(app)/+layout.server.ts`, for the active project. The role still decides what a user
+  may open; the family only narrows it. The `/admin` per-role and per-user overrides are unchanged.
+- **A direct link** to a tool the family does not use opens a short notice ("Win Text is not used
+  by arcade games") with a link home: not an error, and not the tool. It is one guard in the `(app)`
+  layout, not one per tool.
+- **Director obeys the same list.** Its gate (`apps/launcher-api/src/lib/server/director/gate.ts`)
+  refuses an adapter op (`ops/symbols.ts`, `ops/wintext.ts`, …) for a project whose family does not
+  use that tool, so an agent cannot author symbols for an arcade game. Director making non-slot
+  games at all is Director's own plan (`docs/director/`), not this one's.
+- **The shared `cloud` scope**, and a project with no recorded kind (`DEFAULT_GAME_KIND` is
+  `lines`), see every tool, as today.
+
 ---
 
 ## 7. Testing and parity
@@ -757,7 +970,8 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
 
 | Phase | New gate | Proves |
 |---|---|---|
-| P10.1 | `check:family-defaults-identity`, `check:game-config-family` | Defaults dropped; family validation; `/config` picker mirrors the normalizer |
+| P10.1 | `check:family-defaults-identity`, `check:game-config-family` | Defaults dropped; family validation; `/config` picker mirrors the normalizer; `/config` shows each family exactly §6.2's sections, and a slot project today's page |
+| P10.1b | `check:family-tools` | Every id in `FAMILY_TOOLS` is a real tool; the slot family hides nothing (a slot project's manifest is unchanged); a hidden tool's URL gets the notice; Director's gate refuses a hidden tool's ops |
 | P10.2 | `check:board-mechanic` | Match finding (runs, L/T), gravity, refill from book vs seeded pool, cascade chain, `hasMoves`, a seed replays identically |
 | P10.3 | `check:flow-variables`, `check:flow-time-events` | Scopes reset correctly; `onVariable` thresholds; `tick-async` rejected; timers on the virtual clock; `var:` bindings |
 | P10.4 | `check:component-pointer-drag` | The move / drag / swipe events and Align Target; the cell hit-test is the inverse of `getSymbolX/Y` over the perspective lattice |
@@ -765,6 +979,9 @@ Under the Director pipeline-change rules, every Phase 10 PR is a pipeline change
 | P10.6 | `check:match3-outcome-guard`, `check:match3-wire` | RGS mode has no local RNG; `withOutcome('rgs')` strips rules-only nodes; facade translation fixtures (`move` → `swap` + `tumbleBoard`…); `seq` advances by 1 per move; replay at the same seq; the interactive round opens, takes N moves and collects once; every protocol list knows `match3` |
 | P10.7 | `check:flow-spawn`, `check:art-scope` (extended) | Spawn cap; despawn inside `forEach`; spawnable components ship |
 | P10.8 | `check:arcade-motion` | Fixed-timestep determinism; overlap by tag; bounds |
+| P10.11 | `check:arcade-characters`, `check:art-scope` (extended) | Each behaviour preset and brain transition replays under a seed; solid response stops and slides; controllers follow the input map; `animInputs` reach the look; a character's components ship |
+| P10.12 | `check:arcade-camera` | Follow with dead zone and smoothing; clamp to the world; auto-scroll; parallax offsets; despawn outside the view; the same framing on replay |
+| P10.13 | `check:arcade-platformer`, `check:art-scope` (extended) | Jump height and time match their settings; coyote time and jump buffer; one-way platforms; no tunnelling at `maxFall`; tile solidity; tileset regions ship |
 
 ### 7.3 Playtest playbook for a sample match-3
 
@@ -794,14 +1011,16 @@ of `docs/playtest/ways.md`. It drives the `game-playtester` agent. Its outline:
 
 ## 8. Phased build plan
 
-**In short:** ten small, shippable steps. Match-3 rules games are playable after P10.5, and
-real-money match-3 (on our mock) after P10.6. Arcade follows. Every step is gated as in §7, and no
+**In short:** small, shippable steps. Match-3 rules games are playable after P10.5, and real-money
+match-3 (on our mock) after P10.6. Arcade follows: one screen in P10.8, then characters, the camera
+and jumps (P10.11–P10.13). Card games get their own plan (§10). Every step is gated as in §7, and no
 step changes a slot game.
 
 | # | Phase | Delivers | Main code | Size |
 |---|---|---|---|---|
 | P10.0 | **Plan + decisions** (this doc) — ✅ approved 2026-10-20 | Owner review of §9; sign-off recorded in §9 | docs | S |
-| P10.1 | **Family and outcome in Game Config** | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker; `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | S–M |
+| P10.1 | **Family and outcome in Game Config** | `family`, `outcome`, `match3` / `arcade` blocks and the `match3` win-model arm (optional, defaults dropped; the normalizer's whitelist learns them, and its no-symbols rule gets the arcade arm); `resolveFamily` / `resolveOutcome`; family-aware validation (paylines, empty `betModes` for rules games, board bounds); the `/config` picker and its per-family sections (§6.2); `GAME_KINDS` + `kindCapabilities` flags. No runtime behaviour yet | `packages/game-config`, `constants-shared`, `engine-layout/kindCapabilities.ts`, `/config` | M |
+| P10.1b | **Tools per family** | `FAMILY_TOOLS` + `familyOfKind()`; the launcher home and `ToolTopBar` list only the family's tools; the hidden-tool notice; Director's gate refuses a hidden tool's ops (§6.5) | `apps/launcher-api` (`roles.ts`, `(app)/+layout.server.ts`, `director/gate.ts`), `constants-shared` | S |
 | P10.2 | **The board module** | `packages/engine-mechanics/board.js` (+ `.d.ts`) with the full match-3 rule set, fixtures. No caller yet | new package | M |
 | P10.3 | **Flow variables, timers, tick** | §3.1 + §3.2 (tick / timers / keys): format, validator; the variable and timer store in the game-side holder, reached through the env; the preview's virtual-time event queue; the Variables panel; `var:<id>` value sources (numbers), and `source` widened to bool / text | `engine-flow-v2`, `apps/lines` (`flowV2InterpreterHolder.ts`, value sources), `/flow-v2`, `engine-layout` (`ComponentInstance`), `componentStorage.ts` | L |
 | P10.4 | **Pointer move / drag / swipe + Align Target** | Rive Later item; the listener events with the new pointer payload kind (normalizer + keep-unknown); global move / up-outside tracking; the board cell hit-test | `engine-layout` (`LayoutNodeView`, `types.ts`), `EditorListeners.svelte` | M |
@@ -811,7 +1030,10 @@ step changes a slot game.
 | P10.7 | **Spawning** | `spawnLayer` node, `spawn` / `despawn` / `instanceRef`, `live:<layer>` sets, cap, the ship-chain collection of spawnables | `engine-layout`, `engine-flow-v2`, `apps/lines`, exporters | M–L |
 | P10.8 | **Arcade, rules-decided** | `motion.js`, the fixed-step loop, tags, `ARCADE_VOCAB` + seed, `<ArcadeStage />`, the arcade layout template, a catcher / dodger sample + playbook. Re-checks §6.4 before starting | `engine-mechanics`, `engine-game`, `engine-flow-v2`, `apps/lines`, launcher | L |
 | P10.9 | **Editor polish (Rive Later)** | N-slice; rulers and guides; the Graph Editor; Elastic / Bounce eases | `/editor`, `engine-cinematic` (ease presets), `engine-layout` | M each |
-| P10.10 | *(optional, after a decision)* **Arcade on the RGS; blend states** | A server-decided "prize" arcade (the server sends the result, the arcade plays to it); 1D blend states if the sample needs them | `rgs-translator-eagaming`, `engine-layout` state machine | L |
+| P10.10 | *(optional, after a decision)* **Arcade on the RGS** | A server-decided "prize" arcade (the server sends the result, the arcade plays to it). 1D blend states moved to P10.11 | `rgs-translator-eagaming` | L |
+| P10.11 | **Arcade A2: characters** | `behaviours.js` and the brain; `motion.js` acceleration, solid response and paths; the player controllers; `animInputs`; 1D blend states; the `path` node; **Invisible Characters** (`/characters`) with its sandbox, and its docs under rule 9; a sample with an enemy that patrols and chases | `engine-mechanics`, `engine-game`, `engine-layout` (state machine, `path`), `engine-flow-v2`, `packages/game-config`, launcher | L |
+| P10.12 | **Arcade A3a: world and camera** | `world` + `camera` on a play-field screen; follow, dead zone, auto-scroll, shake; parallax; despawn outside the view; culling; the camera Flow nodes and keys | `engine-game` (`<ArcadeStage />`), `engine-layout`, `engine-flow-v2`, `/editor` | M–L |
+| P10.13 | **Arcade A3b: gravity, jumps and levels** | Gravity, grounded, one-way platforms, sub-steps; the jump and `flap` controllers; the `tilemap` node, its paint mode and the tileset export | `engine-mechanics`, `engine-layout`, `/editor`, exporters | L |
 
 **Why this order.**
 
@@ -823,13 +1045,20 @@ step changes a slot game.
   with nothing external in the way. The RGS path then only swaps the source of events, which §2.3
   made identical by design.
 - Spawning waits for arcade because match-3 does not need it.
+- P10.1b needs only the family from P10.1, so it follows it directly: no project can be given a
+  non-slot kind before the launcher knows which tools that kind uses.
+- P10.11–P10.13 follow P10.8, because each builds on its loop. P10.12 does not need P10.11, so the
+  order of the three is Salmons' to decide (§9 #13); the default is the table's.
 
 ---
 
 ## 9. Decisions (owner)
 
-**DECIDED (owner 2026-10-20): every recommendation below is accepted as written.** The owner also
+**#1–#9 DECIDED (owner 2026-10-20): every recommendation is accepted as written.** The owner also
 asked that nothing be started yet: P10.1 onward waits for the owner's go.
+
+**#10–#16 added 2026-10-22** from the owner's questions. #10 and #11 are the owner's own asks, and
+so is #12's scope (its shape is a recommendation); #13–#16 are open.
 
 1. **RGS match-3: outcome fixed at the bet, or resolved per move?**
    - *Recommend:* **fixed at the bet.** The player's moves are presentation (decision #6's wording),
@@ -854,6 +1083,7 @@ asked that nothing be started yet: P10.1 onward waits for the owner's go.
 6. **First arcade sample.**
    - *Recommend:* **a single-screen catcher or dodger** (tick, spawn, collide, score, lives).
    - It exercises every new primitive without physics.
+   - Revisited by #13: a Salmons slice replaces it if Salmons' loop fits A1.
 7. **Where an arcade body's shape and tags live: Game Config, or the `ComponentDef`?**
    - *Recommend:* **Game Config.** Game rules stay out of shared components, which are presentation
      only (rive-style-editor.md §2). The tags themselves are the Rive tags feature, on nodes.
@@ -864,3 +1094,71 @@ asked that nothing be started yet: P10.1 onward waits for the owner's go.
    - *Recommend:* **symbols.** They reuse the symbol states (`explosion` already exists), the
      explosion pattern, the in-play gate and the ship chain. Components remain for HUD and
      overlays.
+10. **Does a family hide whole tools, or only sections inside them?** *(owner's ask, 2026-10-22)*
+    - **Whole tools** (§6.5): an exclusion list beside the registry, empty for slots; Win Text
+      decided by the outcome; Director's gate obeys it. Sections inside a tool stay
+      `kindCapabilities`' job.
+11. **Does `/config` show only what the family needs?** *(owner's ask, 2026-10-22)*
+    - **Yes** (§6.2's table). Slot projects see today's page.
+12. **Arcade past one screen: characters, movement, jumps, camera.** *(owner's ask, 2026-10-22)*
+    - *Recommend:* **three tiers after P10.8**: characters (P10.11), world and camera (P10.12),
+      gravity, jumps and levels (P10.13); still no rigid-body physics (§1).
+    - *Recommend:* a character's **brain is game data**, authored in a new tool, **Invisible
+      Characters**, not in the Component Editor, which keeps the look (§4.3).
+13. **Salmons.** *(open)*
+    - The owner to say whether it is the multiplayer Project Salmon, and in one line what the player
+      does.
+    - *Recommend:* rebuild a single-player slice on the shared runtime as data. It replaces the
+      catcher / dodger if it fits A1 (#6), and it sets the order of P10.11–P10.13.
+14. **Where characters live.** *(open)*
+    - *Recommend:* **inside `GameConfigDoc.arcade.characters`.** It reuses the config's bake,
+      versions and lease, with no new ship chain. The cost: Game Config and Invisible Characters
+      share one lease, so two people cannot edit both at once.
+    - The alternative, a doc of its own, needs its own export → bake → pull → register (rule 8).
+15. **Card games.** *(owner's ask to add them, 2026-10-22; v1 scope open)*
+    - *Recommend:* a **fourth family with a design of its own**, written once P10.7 has shipped
+      (it needs variables, drag and spawning). v1: single player against an on-device AI, fixed
+      decks, effects as data from a closed list, rules-decided only (#4). Outline in §10.
+16. **Multiplayer.** *(open)*
+    - *Recommend:* **out of Phase 10**, a later plan of its own: a real-time game server (a new
+      service), rooms, reconnection and anti-cheat. Salmons and card-game PvP would both use it.
+
+---
+
+## 10. The card family (outline)
+
+**In short:** a two-player duel with decks, hands, a board and a resource that grows each turn, in
+the style of Magic: The Gathering or Hearthstone. It is the most rules-heavy family, so it gets a
+design of its own (`docs/design/card-games.md`, not written yet) once P10.7 has shipped (§9 #15).
+This section records what is already clear.
+
+- **Outcome:** rules-decided only. A card game is free play with no wallet (§9 #4); an RGS-decided
+  card game is not planned.
+- **What it reuses:**
+  - Flow variables and timers (P10.3): health, mana, the turn number, a turn timer.
+  - Drag and Align Target (P10.4): drag a card from the hand onto the board or onto a target.
+  - Spawning and live sets (P10.7): cards in the hand and on the board are spawned instances, and
+    `forEach` walks "my minions".
+  - Components with state machines: the card frame (`inHand`, `hover`, `playable`, `attacking`,
+    `dying`), its text and number inputs bound per card (P10.3 widens `source` to text).
+  - Timelines for attacks and effects; Localization for card text (no family has more text); the
+    seeded RNG for shuffles, so a match replays.
+- **What is new:**
+  - **A rules engine,** `packages/engine-mechanics/src/cards.js`: zones (deck, hand, board,
+    discard), turn phases (start → draw → main → combat → end), the resource, legal plays, and an
+    ordered queue that resolves one effect at a time.
+  - **Effects as data, not scripts:** a closed list of verbs (deal damage, heal, draw, summon, buff,
+    destroy, give a keyword), targets (self, a chosen target, all enemies, a random enemy) and
+    triggers (on play, on death, at turn start, on attack, on damage), plus a small keyword set
+    (must be attacked first, attacks at once, a one-hit shield).
+  - **The opponent:** an on-device AI in v1 that plays its best affordable card and takes good
+    trades, with difficulty settings, seeded so a match replays.
+  - **Invisible Card Library** (`/cards`, a new tool, so rule 9 applies): every card shown in the
+    real card-frame component; stats, keywords and effects edited as a form; rules text generated
+    from the effects and sent to Localization; the starter and AI decks.
+  - **A `card` family** in Game Config and `GAME_KINDS`, added by that plan. Where card data lives
+    (the config or a doc of its own: §9 #14's question again) is decided there.
+- **Not in its v1:** online play (§9 #16), packs, collections or an economy, deck-building for
+  players, scripted custom effects, money.
+- **Ours, not theirs:** the mechanics are common to the genre; card names, rules text, frames and
+  art must be our own or the client's (the Director's ownership rule).
