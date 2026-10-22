@@ -4,6 +4,7 @@ import {
 	anchoredPosition,
 	aspectBox,
 	boundComponentRidesBone,
+	boundComponentSkin,
 	boundComponentTileImage,
 	componentDesignSize,
 	componentInputs,
@@ -24,6 +25,7 @@ import {
 	type ComponentDef,
 	type LayoutNode,
 	type LayoutType,
+	type PartSkinBinding,
 	type RepeaterCountLayout,
 	type RepeaterItemSize,
 	type ResolvedTransform,
@@ -540,6 +542,43 @@ export function nodeBox(
 	 * a top-level node), so a part sized by them frames the box it draws. Undefined ⇒ parity. */
 	instanceParams?: Record<string, unknown>,
 ): NodeBox {
+	// A node that draws OTHER nodes frames them: a componentInstance its def's content, a group or
+	// a skinned coded part its children (see {@link contentBox}). For the single-mount `HudReadout`
+	// this is the mount's `preview` box (240×135) at the instance anchor.
+	if (layoutType !== undefined) {
+		const content = contentBox(
+			node,
+			{ naturalSize, componentMap, layoutType, componentDefaults },
+			0,
+			[],
+			instanceParams ?? {},
+			instanceRigBundle,
+		);
+		if (content) return content;
+	}
+	return ownBox(
+		node,
+		t,
+		naturalSize,
+		componentMap,
+		layoutType,
+		instanceRigBundle,
+		repeaterCount,
+		instanceParams,
+	);
+}
+
+/** {@link nodeBox} without the content walk: the box a node's own art or stand-in draws. */
+function ownBox(
+	node: LayoutNode,
+	t: ResolvedTransform,
+	naturalSize: NaturalSizeFn,
+	componentMap: Map<string, ComponentDef> | undefined,
+	layoutType: LayoutType | undefined,
+	instanceRigBundle: string | undefined,
+	repeaterCount: number | undefined,
+	instanceParams: Record<string, unknown> | undefined,
+): NodeBox {
 	// A repeater defaults its unset anchor to 0 (extend-right) like a sprite, so the selection rect
 	// frames the same footprint the runtime <Repeater> lays out (parity). A flipbook is atlas art
 	// drawn through the SAME region path as a sprite, so it must share the sprite's anchor default
@@ -548,25 +587,6 @@ export function nodeBox(
 		node.kind === 'sprite' || node.kind === 'repeater' || node.kind === 'flipbook';
 	const ax = t.anchor?.x ?? (anchorlessKind ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (anchorlessKind ? 0 : 0.5);
-	// A componentInstance DRAWS its def's content (drawComponentInstance expands
-	// `def.root.children`), so the selection box must frame that content — not the
-	// generic placeholder size — or the rect offsets/mismatches the drawn chip. Return
-	// the union bounding box of the def's children in the instance's local space (each
-	// child's own box, offset by its local x/y + anchored). For the single-mount
-	// `HudReadout` this is the mount's `preview` box (240×135) at the instance anchor.
-	if (node.kind === 'componentInstance' && componentMap && layoutType !== undefined) {
-		const content = componentInstanceContentBox(
-			node,
-			naturalSize,
-			componentMap,
-			layoutType,
-			0,
-			[],
-			componentDefaults,
-			instanceParams ?? {},
-		);
-		if (content) return content;
-	}
 	// A coded tile part skinned with a picked frame (the readout's Background — see
 	// `TileImageBinding`) frames the box it DRAWS: `aspectBox` over the frame's natural size and the
 	// instance's overrides, exactly as EditorCanvas sizes the art. No frame picked (or one still
@@ -724,56 +744,150 @@ export function nodeBox(
 	return { w: 160, h: 100, ax, ay };
 }
 
+/** What the content walk ({@link contentBox}) reads at every level. */
+interface ContentBoxContext {
+	naturalSize: NaturalSizeFn;
+	componentMap: Map<string, ComponentDef> | undefined;
+	layoutType: LayoutType;
+	componentDefaults: Record<string, Record<string, unknown>> | undefined;
+}
+
+/** A local-space envelope the content walk grows, child by child. */
+interface Extent {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+}
+
+const emptyExtent = (): Extent => ({
+	minX: Infinity,
+	minY: Infinity,
+	maxX: -Infinity,
+	maxY: -Infinity,
+});
+
+function growExtent(e: Extent, left: number, top: number, right: number, bottom: number): void {
+	if (left < e.minX) e.minX = left;
+	if (top < e.minY) e.minY = top;
+	if (right > e.maxX) e.maxX = right;
+	if (bottom > e.maxY) e.maxY = bottom;
+}
+
+/** The envelope as a box whose `ax`/`ay` say where the node's origin sits inside it, so
+ * `nodeCornersWorld(t, box)` lands the rect on the envelope; null when it measured nothing. */
+function extentBox(e: Extent): NodeBox | null {
+	if (e.minX === Infinity) return null;
+	const w = e.maxX - e.minX;
+	const h = e.maxY - e.minY;
+	if (w <= 0 || h <= 0) return null;
+	return { w, h, ax: -e.minX / w, ay: -e.minY / h };
+}
+
 /**
- * Local-space content box of a `componentInstance` — the union, in the instance's
- * own pre-scale space, of every box its `def.root.children` draw (mirroring
- * {@link drawComponentInstance}, which expands those children directly under the
- * instance transform). Each child contributes its own {@link nodeBox} placed at its
- * resolved local x/y + anchor; a nested instance recurses. Returns `null` when the
- * def is missing or a depth/cycle guard trips (caller keeps its default), or when the
- * def has no children. The result is expressed as a top-left-anchored box (ax=ay=0)
- * around the union so `nodeCornersWorld` frames the real drawn extent at the instance.
+ * The box of a node that draws OTHER nodes, in its own pre-scale space — the union of what it
+ * draws, as `drawNode` draws it: a `componentInstance` its def's content
+ * ({@link componentInstanceContentBox}), a group or a skinned coded part its children
+ * ({@link containerContentBox}). Null for any other node, and for one that measured nothing (the
+ * caller keeps the node's own box). `depth` is the component depth the node is drawn at, `stack`
+ * the defs it is inside: the guards `drawComponentInstance` applies.
+ */
+function contentBox(
+	node: LayoutNode,
+	ctx: ContentBoxContext,
+	depth: number,
+	stack: string[],
+	/** The enclosing instance's resolved params (the open component's for a top-level node). */
+	params: Record<string, unknown>,
+	/** The enclosing instance's authored preview rig bundle (see `instancePreviewRigBundle`). */
+	rigBundle: string | undefined,
+): NodeBox | null {
+	if (node.kind === 'componentInstance')
+		return componentInstanceContentBox(node, ctx, depth, stack, params);
+	if (node.kind === 'container')
+		return containerContentBox(node, ctx, depth, stack, params, rigBundle);
+	return null;
+}
+
+/**
+ * Local-space content box of a `componentInstance` — the union of every box its
+ * `def.root.children` draw, mirroring `drawComponentInstance`, which expands those children
+ * directly under the instance transform. Null when the def is missing, a depth/cycle guard trips
+ * (the canvas draws a placeholder there) or nothing measured.
  */
 function componentInstanceContentBox(
 	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
-	naturalSize: NaturalSizeFn,
-	componentMap: Map<string, ComponentDef>,
-	layoutType: LayoutType,
+	ctx: ContentBoxContext,
 	depth: number,
 	stack: string[],
-	componentDefaults: Record<string, Record<string, unknown>> | undefined,
 	/** The enclosing instance's resolved params — what the instance's forwarded params read. */
 	outerParams: Record<string, unknown>,
 ): NodeBox | null {
-	const def = componentMap.get(node.componentId);
+	const def = ctx.componentMap?.get(node.componentId);
 	if (!def) return null;
 	if (depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
-	const childStack = [...stack, def.id];
+	const defaults = ctx.componentDefaults?.[def.id];
 	// This instance's AUTHORED preview rig bundle (its first `spine`-kind param value), resolved
 	// EXACTLY like the rig layer's `collectNestedRigs`, so a nested rig bind's box tracks the
 	// authored rig's natural bounds (matching what the rig layer renders). Undefined ⇒ parity.
 	const rigBundle = instancePreviewRigBundle(
 		def,
-		resolveComponentParams(
-			def,
-			forwardInstanceParams(node, node.params, outerParams),
-			componentDefaults?.[def.id],
-		),
+		resolveComponentParams(def, forwardInstanceParams(node, node.params, outerParams), defaults),
 	);
 	// The params the children DRAW with — per-ratio overrides and forwarded params included, as
 	// `drawComponentInstance` resolves them — so a part sized by them frames what the canvas draws.
 	const params = resolveComponentParams(
 		def,
-		forwardInstanceParams(node, resolveLayoutInstanceParams(node, layoutType), outerParams),
-		componentDefaults?.[def.id],
+		forwardInstanceParams(node, resolveLayoutInstanceParams(node, ctx.layoutType), outerParams),
+		defaults,
 	);
+	const extent = emptyExtent();
+	unionChildBoxes(extent, def.root.children, ctx, depth + 1, [...stack, def.id], params, rigBundle);
+	return extentBox(extent);
+}
 
-	let minX = Infinity;
-	let minY = Infinity;
-	let maxX = -Infinity;
-	let maxY = -Infinity;
-	for (const child of def.root.children) {
-		const ct = resolveTransform(child, layoutType);
+/**
+ * Local-space content box of a container that draws its children: a plain group, or a coded part
+ * showing its skin (`isPartSkinned` — the author's nodes inside it, or art picked on the instance),
+ * which draws its picked layers centred on it and its nodes in place of the stand-in chip. The
+ * runtime's `componentDesignSize` measures a container the same way. Null for a bound part still
+ * drawing its chip, and for one that measured nothing — both keep their own box.
+ */
+function containerContentBox(
+	node: Extract<LayoutNode, { kind: 'container' }>,
+	ctx: ContentBoxContext,
+	depth: number,
+	stack: string[],
+	params: Record<string, unknown>,
+	rigBundle: string | undefined,
+): NodeBox | null {
+	const skin = node.bind ? boundComponentSkin(node.bind.component) : undefined;
+	if (node.bind && !(skin && isPartSkinned(node, skin, params))) return null;
+	const extent = emptyExtent();
+	const art = skin ? ctx.naturalSize(node, rigBundle, params) : null;
+	if (art && art.w > 0 && art.h > 0)
+		growExtent(extent, -art.w / 2, -art.h / 2, art.w / 2, art.h / 2);
+	unionChildBoxes(extent, node.children, ctx, depth, stack, params, rigBundle);
+	return extentBox(extent);
+}
+
+/**
+ * Grow `extent` by the box each of `children` draws, in their parent's local space: the child's
+ * box (its content's, else its own) placed at its local x/y, anchor and scale, as `drawNode`
+ * composes it. Rotation is ignored — the union is an axis-aligned envelope, which the parent's
+ * transform then scales/rotates. `depth` is the component depth the children are drawn at.
+ */
+function unionChildBoxes(
+	extent: Extent,
+	children: readonly LayoutNode[],
+	ctx: ContentBoxContext,
+	depth: number,
+	stack: string[],
+	params: Record<string, unknown>,
+	rigBundle: string | undefined,
+): void {
+	for (const child of children) {
+		const ct = resolveTransform(child, ctx.layoutType);
 		// A parametric Text Box binds its box `width`/`height` to instance params, so the
 		// selection frame must resolve them here (the union otherwise frames the auto-size text,
 		// mismatching the boxed render). Text-only; unbound ⇒ the node's own transform (parity).
@@ -783,62 +897,78 @@ function componentInstanceContentBox(
 			if (typeof bw === 'number') ct.width = bw;
 			if (typeof bh === 'number') ct.height = bh;
 		}
+		// Never `nodeBox` here: it restarts the depth/cycle guards at the top.
 		const cb =
-			child.kind === 'componentInstance'
-				? (componentInstanceContentBox(
-						child,
-						naturalSize,
-						componentMap,
-						layoutType,
-						depth + 1,
-						childStack,
-						componentDefaults,
-						params,
-					) ??
-					nodeBox(
-						child,
-						ct,
-						naturalSize,
-						componentMap,
-						layoutType,
-						rigBundle,
-						undefined,
-						componentDefaults,
-						params,
-					))
-				: nodeBox(
-						child,
-						ct,
-						naturalSize,
-						componentMap,
-						layoutType,
-						rigBundle,
-						undefined,
-						componentDefaults,
-						params,
-					);
-		// The child's box (already including its anchor) is placed at its local x/y and
-		// scaled by its own scale — match drawNode's transform so the union frames the
-		// drawn art. Rotation is ignored here (HUD content is axis-aligned); the union is
-		// an axis-aligned envelope, which the instance transform then scales/rotates.
+			contentBox(child, ctx, depth, stack, params, rigBundle) ??
+			ownBox(
+				child,
+				ct,
+				ctx.naturalSize,
+				ctx.componentMap,
+				ctx.layoutType,
+				rigBundle,
+				undefined,
+				params,
+			);
 		const csx = ct.scale?.x ?? 1;
 		const csy = ct.scale?.y ?? 1;
 		const left = ct.x - cb.w * cb.ax * csx;
 		const top = ct.y - cb.h * cb.ay * csy;
-		const right = left + cb.w * csx;
-		const bottom = top + cb.h * csy;
-		if (left < minX) minX = left;
-		if (top < minY) minY = top;
-		if (right > maxX) maxX = right;
-		if (bottom > maxY) maxY = bottom;
+		growExtent(extent, left, top, left + cb.w * csx, top + cb.h * csy);
 	}
-	if (minX === Infinity) return null;
-	// Express the union as a TL-anchored box (ax/ay encode where the instance origin sits
-	// inside it) so nodeCornersWorld(instanceTransform, box) lands the rect on the union.
-	const w = maxX - minX;
-	const h = maxY - minY;
-	if (w <= 0 || h <= 0) return null;
-	return { w, h, ax: -minX / w, ay: -minY / h };
+}
+
+/** A skinnable part's layer image, picked on the enclosing instance (or the open component). */
+export function partSkinImage(params: Record<string, unknown>, key: string | undefined): string {
+	const value = key ? params[key] : undefined;
+	return typeof value === 'string' ? value : '';
+}
+
+/** Whether a skinnable part shows its skin: any layer image picked, or nodes inside it. */
+export function isPartSkinned(
+	node: LayoutNode,
+	skin: PartSkinBinding,
+	params: Record<string, unknown>,
+): boolean {
+	if (node.kind === 'container' && node.children.length > 0) return true;
+	return skin.layers.some((layer) => partSkinImage(params, layer.imageParam) !== '');
+}
+
+/** The box a skinned part's layers draw at: the instance's width / height params, else twice its
+ * radius. A side left blank is each image's own. */
+export function partSkinSize(
+	skin: PartSkinBinding,
+	params: Record<string, unknown>,
+): { width?: number; height?: number } {
+	const size = (key: string | undefined): number | undefined => {
+		const value = key ? params[key] : undefined;
+		return typeof value === 'number' && value > 0 ? value : undefined;
+	};
+	const radius = size(skin.radiusParam);
+	return {
+		width: size(skin.widthParam) ?? (radius ? radius * 2 : undefined),
+		height: size(skin.heightParam) ?? (radius ? radius * 2 : undefined),
+	};
+}
+
+/** A skinned part's own art: its picked layers, each drawn centred on it at {@link partSkinSize}
+ * (a blank side is the image's own) — the largest of them. Null with nothing picked or loaded. */
+export function partSkinArtSize(
+	skin: PartSkinBinding,
+	params: Record<string, unknown>,
+	frameSize: (ref: string) => { w: number; h: number } | null,
+): { w: number; h: number } | null {
+	const { width, height } = partSkinSize(skin, params);
+	let w = 0;
+	let h = 0;
+	for (const layer of skin.layers) {
+		const image = partSkinImage(params, layer.imageParam);
+		if (!image) continue;
+		const nat = frameSize(image);
+		w = Math.max(w, width ?? nat?.w ?? 0);
+		h = Math.max(h, height ?? nat?.h ?? 0);
+	}
+	return w > 0 && h > 0 ? { w, h } : null;
 }
 
 /** Compute the 4 world-space corners (TL, TR, BR, BL) of a node's box. */

@@ -171,6 +171,28 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-22 — **A placed component selects at the art it draws, however deep** (branch
+  `claude/awesome-albattani-iltv2z`, ⏳ not browser-verified). The owner's pots on the Hold and Win
+  "Pots" screen are Pot Meters whose coded `Pot` part holds the author's own component (a rig and
+  its effects). The canvas drew the whole pot, but its selection box stayed a small rect in the
+  middle. The box walked an instance's def one level only. A container got its stand-in chip (a
+  bound part) or a fixed 160×100 (a group), never what it draws. `nodeBox`
+  (`editorCanvas.helpers.ts`) now unions, through one walk (`contentBox`), what each node draws:
+  - an instance: its def's content;
+  - a group: its children;
+  - a skinned coded part: its picked layers, centred (`partSkinArtSize`, the largest), and the
+    nodes inside it.
+
+  The runtime's `componentDesignSize` already measured a container this way. A bare coded part
+  keeps its chip and an empty group its box. The built-in Jackpot Tile, Respin Counter and Total
+  Win Bar select exactly as before. A component that contains itself now stops at the placeholder
+  the canvas draws, where `nodeBox` used to restart its depth guard. `isPartSkinned`,
+  `partSkinImage` and `partSkinSize` moved from `EditorCanvas` into the helpers, so the canvas
+  draws and measures a skin through the same code.
+
+  **Side effect:** a `background`-space instance whose def holds a group or a skinned part covers
+  by the corrected box. Its baked `coverBox` re-measures on the next save from the base ratio.
+  Gate: `check:component-content-box`. The old walk fails 13 of its 18 checks.
 - 2026-10-21 — **Element FX in Properties, the Screen block and Animate** (⏳ not browser-verified):
   state and detail in [FX status](fx.md) 2026-10-21; guide:
   [Element FX](../tools/invisible-editor.md#element-fx--effects-that-play-on-an-element).
