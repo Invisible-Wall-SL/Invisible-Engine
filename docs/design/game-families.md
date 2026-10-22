@@ -12,7 +12,8 @@
 > **Owner answers, 2026-10-22:** Salmons is the 100-player real-time multiplayer game (each player a
 > salmon, a bear or a fisherman), so multiplayer is **in scope for arcade** as tier A4 (§4.5,
 > P10.14–P10.16); character data lives in Game Config; the card family is confirmed; card-game PvP
-> stays later. §9 #13–#16 decided; #17–#19 open.
+> stays later. Later the same day: Colyseus is the game server, and Salmons is isometric; its art
+> gets a pass before the rebuild (§1). §9 #13–#17 and #19 decided; #18 open.
 >
 > This is Phase 10 of
 > [rive-style-editor.md](rive-style-editor.md) §10. It is the separate design that §7.2 promised for
@@ -119,20 +120,28 @@ and never a second copy of the engine.**
   **bear** or a **fisherman**. A salmon jumps up the river and moves around it, avoiding the bears'
   attacks and the fishermen.
 - **Where it is today:** the portal has the project `salmons` (client `invisible_wall`) with no
-  published game. The game itself lives outside this repository: a Colyseus 0.15 game server
-  (Node.js, TypeScript) and a PixiJS 7 client. Its server already has the shape A4 needs: the room
-  owns the state, players send inputs, a 60 Hz simulation runs in pure "systems" with no Colyseus
-  imports, and state patches go out at 20 Hz.
+  published game. The game itself lives outside this repository (`GuiltyForever/Salmon-`): a
+  Colyseus 0.15 game server (Node.js) and a PixiJS 8 + Svelte 5 client. Its server already has the
+  shape A4 needs: the room owns the state, players send inputs, a 60 Hz simulation runs in pure
+  "systems" with no Colyseus imports, and state patches go out at 20 Hz.
 - **How it comes onto the engine:** the client is **rebuilt on the shared runtime as data**
   (screens, components, characters, Flow), never ported in as a second engine (the rule in "What a
   family means"). The server keeps Colyseus, and its own systems are replaced by
   `engine-mechanics`, so the server and the client's prediction run one simulation (§4.5).
+- **Its art comes first (owner, 2026-10-22).** It was made as a test and is not ready for the
+  pipeline: loose images instead of atlas sheets, two JPEGs whose backgrounds are cut out while the
+  game loads, one drawing per character at three different angles (a side-view salmon, a top-down
+  bear, and a fisherman drawn in code), no animation frames or facing directions, and the riverbed,
+  water and sea drawn in code. An **art pass (S0)** fixes this in today's tools (ComfyUI, Atlas
+  Maker, Flipbook, FX) before the rebuild: one isometric angle, characters animated per facing,
+  transparent props, diamond tilesets, all in the `salmons` project. It needs no Phase 10 step, so
+  it can start whenever the owner says go.
 
 | Tier | What Salmons needs from it |
 |---|---|
 | A1 (P10.8) | Nothing on its own; the first sample becomes a single-screen Salmons dodger with its art (§9 #6) |
 | A2 (P10.11) | Three playable characters with their own controls and **abilities** (the bear's swipe, the fisherman's hook); the river's **current**; bots, run by brains, that fill empty places |
-| A3 (P10.12–P10.13) | A long river world with a following camera; the salmon's **jump** |
+| A3 (P10.12–P10.13) | A long river world with a following camera, drawn **isometric**; the salmon's **jump** (a `hop`); diamond tiles |
 | A4 (P10.14–P10.16) | Rooms of 100; the server owns the game; prediction and smoothing on the device |
 
 ---
@@ -751,6 +760,9 @@ the camera comes first (§8).
 - **Spawning against the view:** `spawnLayer` gains `despawnOutsideView {margin}`; Flow spawns
   ahead from the camera keys and `onEnterView` (§3.4). Off-view instances are culled (Pixi's
   `cullable`), so a long level draws only what is near.
+- **Projection:** the simulation always runs on a flat ground plane (plus a height, for `hop`).
+  The stage draws it either flat or **isometric** (2:1), and in isometric it draws sprites in
+  ground-depth order, further up the screen first. Salmons is isometric (§9 #19).
 - A Timeline can still take the camera for a cutscene: `playCinematic` holds it and hands it back
   when it ends.
 - The camera steps on the fixed timestep, so a seed replays the same framing.
@@ -766,12 +778,15 @@ the camera comes first (§8).
   control. A `flap` controller (tap for an upward kick) lands here too.
 - **Two kinds of jump.** `gravity` is the side-view jump above. `hop` is the top-down one: the body
   leaves the ground on a height arc (drawn as a lift and a shadow) and, while airborne, passes over
-  ground obstacles and cannot be hit by ground-only attacks. Salmons' jump is one of the two
-  (§9 #19).
+  ground obstacles and cannot be hit by ground-only attacks. Salmons, which is isometric, uses
+  `hop` (§9 #19).
 - **Levels:** a new `tilemap` layout node: a tile size, a grid of tile indices and a tileset of
   **atlas regions**, each tile marked `none`, `solid` or `oneWay`. It is painted in the Scene Editor
   (§5.1) and is part of the layout doc, so it ships with it; its regions ship through the art
   export (§6.3).
+- **Isometric tiles:** the grid is square, or 2:1 diamonds (Salmons: 64 × 32). Edge and corner
+  pieces are picked from the neighbours (autotiling), as Salmons' 3 × 3 grass and sand sets
+  already work. Bodies collide by their footprint on the ground, never by their picture.
 - Slopes, moving platforms and ladders come later.
 
 ### 4.5 Online arcade: real-time rooms (tier A4, P10.14–P10.16)
@@ -1112,7 +1127,7 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
 | P10.13 | **Arcade A3b: gravity, jumps and levels** | Gravity, grounded, one-way platforms, sub-steps; the `gravity` and `hop` jumps and the `flap` controller; the `tilemap` node, its paint mode and the tileset export | `engine-mechanics`, `engine-layout`, `/editor`, exporters | L |
 | P10.14 | **Arcade A4a: the game server** | Needs the A4 design doc first. `services/game-server` (§9 #17) running `engine-mechanics` at a fixed step; rooms; join, leave and rejoin; inputs-only messages; `GameConfigDoc.arcade.online`; the runtime's online branch | new service, `engine-mechanics`, `apps/lines`, `packages/game-config`, `docs/INFRA.md` | L |
 | P10.15 | **Arcade A4b: netcode** | Own-player prediction and reconciliation; interpolation of everyone else; the online rules, as §9 #18 decides | `engine-game`, `apps/lines`, the game server | L |
-| P10.16 | **Arcade A4c: 100 players and Salmons** | Server-side bots that fill places (A2 brains); the 100-bot load test; nearby-only sending if the test needs it; Salmons rebuilt as data on the engine, with `docs/playtest/salmons.md` | the game server, launcher, docs | L |
+| P10.16 | **Arcade A4c: 100 players and Salmons** | Server-side bots that fill places (A2 brains); the 100-bot load test; nearby-only sending if the test needs it; Salmons rebuilt as data on the engine from S0's art, with `docs/playtest/salmons.md` | the game server, launcher, docs | L |
 
 **Why this order.**
 
@@ -1131,6 +1146,8 @@ and jumps (P10.11–P10.13), then online rooms (P10.14–P10.16). Card games get
   current), then P10.13 (the jump).
 - A4 comes last: netcode is far easier to get right over a simulation that is already finished and
   replays exactly.
+- **Salmons' art pass (S0) is not a build step.** It runs in the existing tools and can happen any
+  time before P10.16. Done early, it gives the arcade samples real art to test against.
 
 ---
 
@@ -1208,17 +1225,17 @@ so is #12's scope (its shape is a recommendation); the owner answered #13–#16 
 16. **Multiplayer.** *(owner, 2026-10-22)*
     - **In scope for arcade, as tier A4** (§4.5, P10.14–P10.16), because Salmons is multiplayer.
     - **Card-game PvP stays later**, for now.
-17. **Which game server for A4?** *(open)*
-    - *Recommend:* **Colyseus**, in a new `services/game-server`, because Salmons already runs on it
-      and its rooms, schema and lobby are proven there. Its movement and collision move to
+17. **Which game server for A4?** *(owner, 2026-10-22: Colyseus)*
+    - **Colyseus**, in a new `services/game-server`, because Salmons already runs on it and its
+      rooms, schema and lobby are proven there. Its movement and collision move to
       `engine-mechanics`, so there is one simulation.
 18. **Where an online game's rules run.** *(open; the A4 design doc's main question)*
     - Either the Flow interpreter runs headless on the server, so online rules are authored in Flow
       as single-player ones are, or online rules are limited to `engine-mechanics` data.
       Presentation stays on the device either way.
-19. **Salmons' view: top-down or from the side?** *(open)*
-    - It picks the salmon's jump: a top-down `hop` over obstacles, or a side-view `gravity` jump
-      (§4.4). Both are planned; the answer decides which one P10.13 builds first.
+19. **Salmons' view.** *(owner, 2026-10-22: "sort of isometric")*
+    - **Isometric**, on 2:1 diamond tiles (its map uses 64 × 32). So P10.12 builds the isometric
+      projection and depth order, and P10.13 builds the `hop` jump and diamond tiles first (§4.4).
 
 ---
 
