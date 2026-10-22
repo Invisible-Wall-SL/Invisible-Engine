@@ -180,17 +180,13 @@ export function updateAvailable(link: SharedTimelineLink | null, latest: number 
 	return !!link && latest !== null && latest > link.version;
 }
 
-/** Whether a placed component instance pins an older version than its shared def's latest. */
+/** Whether a placed component instance pins an older version than its def's latest — shared or
+ * the project's own: the canvas draws the pinned version, as the game does. */
 export function componentUpdateAvailable(
 	pinned: number | undefined,
-	def: { scope?: string; version?: number } | undefined,
+	def: { version?: number } | undefined,
 ): boolean {
-	return (
-		pinned !== undefined &&
-		def?.scope === 'shared' &&
-		typeof def.version === 'number' &&
-		def.version > pinned
-	);
+	return pinned !== undefined && typeof def?.version === 'number' && def.version > pinned;
 }
 
 // ---- starters -----------------------------------------------------------------------------------

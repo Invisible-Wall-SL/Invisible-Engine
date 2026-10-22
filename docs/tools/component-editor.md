@@ -412,7 +412,8 @@ the left pane's **Components** list or the Library tab's Components panel. From 
   **↑ Update to latest** button. Clicking it re-pins **that one instance** to the new
   version (never bulk/auto), keeping your param overrides where the param still
   exists and dropping overrides for params the new version removed. Up-to-date
-  instances show no note.
+  instances show no note. Until you update it, the outdated instance keeps drawing its pinned
+  version on the screen's canvas, as the game does, and its Outline row shows **↑ vN**.
 
 You can also start a component from **◇ Edit as component** on a container: it is saved as a new
 component and opened here in place.

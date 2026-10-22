@@ -540,6 +540,13 @@ centred on their position. A placed rig has no anchor field or anchor presets,
 since it is positioned by its origin (a background cover sets its alignment in
 the cover section instead).
 
+**A rig that is not playing shows its resting pose**: the animation the game rests it on, held on
+its first frame (on its last for a clip that is not looped, which the game plays once and holds).
+That animation is the placement's own pick when it has one, then the component param it is bound
+to, then the rig node's **Animation**. A rig with no resting animation shows its setup pose, as in
+the game. So four placements of one rig, each on its own animation (say a jackpot frame per tier),
+look as different here as they do in the game.
+
 The **reel board** previews the real symbols too: each cell shows a symbol's
 **Static** binding from the Invisible Symbols State Machine, cycled across the
 grid so the board looks populated. Sprite and rig symbols both draw — a rig
@@ -600,8 +607,10 @@ container, so it moves with its new container. You can't drop a container into i
 that fills a template slot or binds an engine component reorders at the top level only (that is
 where the editor and the game look it up). Dragging is off in Animate.
 
-**↑ vN** on a placed component's row means it is a **shared** component pinned to an older version
-than the library's. Select it and use **Update to latest** in Properties.
+**↑ vN** on a placed component's row means the placement is pinned to an older version of its
+component, shared or the project's own. The canvas draws the version it pins, which is the one the
+game draws, so a component you have edited since keeps its old look on that screen until you select
+the placement and use **Update to latest** in Properties.
 
 **Right-click a row** for: Copy, Paste, Delete (on the selection when the row is in it), Lock,
 Hide, Isolate, **◇ Create component** (containers; the same as Properties' *Edit as component*) and

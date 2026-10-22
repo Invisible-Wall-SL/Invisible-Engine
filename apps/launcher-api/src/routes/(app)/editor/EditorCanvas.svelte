@@ -66,6 +66,7 @@
 		type Affine,
 		depthSegments,
 		inDepthSlice,
+		instanceDef,
 		mergeSpreadBoxes,
 		type DepthSegment,
 		type DepthSlice,
@@ -609,7 +610,7 @@
 			node.kind === 'componentInstance' &&
 			space !== 'game' &&
 			space !== 'background' &&
-			hostedComponentSpace(componentMap.get(node.componentId)) === 'game'
+			hostedComponentSpace(instanceDef(componentMap, node)) === 'game'
 		) {
 			const s = mainScale();
 			const world = mainToWorld({ x: t.x, y: t.y });
@@ -1005,7 +1006,7 @@
 		if (
 			node.kind === 'componentInstance' &&
 			scene.space !== 'background' &&
-			hostedComponentSpace(componentMap.get(node.componentId)) === 'game'
+			hostedComponentSpace(instanceDef(componentMap, node)) === 'game'
 		) {
 			return true;
 		}
@@ -1734,7 +1735,7 @@
 			if (n.kind === 'reelGrid' && hasFlipbookSymbol) return true;
 			if (n.kind === 'container' && nodesHaveFlipbook(n.children, depth, stack)) return true;
 			if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
+				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				if (nodesHaveFlipbook(def.root.children, depth + 1, [...stack, def.id])) return true;
 			}
@@ -2024,7 +2025,7 @@
 			)
 				return true;
 			if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
+				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				const params = resolveComponentParams(
 					def,
@@ -2053,7 +2054,7 @@
 			if (n.kind === 'container' && n.bind && n.preview?.style === 'text') return true;
 			if (n.kind === 'container' && nodesHaveText(n.children, depth, stack)) return true;
 			if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
+				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				if (nodesHaveText(def.root.children, depth + 1, [...stack, def.id])) return true;
 			}
@@ -2081,7 +2082,7 @@
 			if (n.kind === 'effect') return true;
 			if (n.kind === 'container' && nodesHaveEffect(n.children, depth, stack)) return true;
 			if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
+				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				if (nodesHaveEffect(def.root.children, depth + 1, [...stack, def.id])) return true;
 			}
@@ -2713,7 +2714,7 @@
 						instanceRigBundle,
 					);
 			} else if (node.kind === 'componentInstance') {
-				const def = componentMap.get(node.componentId);
+				const def = instanceDef(componentMap, node);
 				if (def && componentDepth < MAX_COMPONENT_DEPTH && !componentStack.includes(def.id))
 					drawComponentInstance(
 						ctx,
@@ -3583,7 +3584,7 @@
 		 * on a screen): what the instance's forwarded params (`params.<key>` bindings) read. */
 		outerParams: Record<string, unknown>,
 	): void {
-		const def = componentMap.get(node.componentId);
+		const def = instanceDef(componentMap, node);
 		if (!def) {
 			drawPlaceholder(ctx, 0.5, 0.5, '#4a3a5a', `◇ ${node.label ?? node.componentId}`);
 			return;
@@ -4718,7 +4719,7 @@
 	 * normal scale handles and set their box from the properties panel instead. */
 	function isTextBoxInstance(node: LayoutNode): boolean {
 		if (node.kind !== 'componentInstance') return false;
-		const def = componentMap.get(node.componentId);
+		const def = instanceDef(componentMap, node);
 		if (!def?.params?.some((p) => p.key === 'boxWidth')) return false;
 		return isTextOnlyNode(def.root);
 	}
