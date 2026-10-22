@@ -560,7 +560,10 @@ export function mount(el, options) {
 						const track = visTracksOf(actorId)[0];
 						if (track) track.keys.sort((a, b) => a.time - b.time);
 						tlDrag = null;
-						if (moved) commit('move visibility key', 'vis:' + actorId + ':' + keyTime);
+						// A click that moved nothing must not redraw: the second click of a double-click
+						// would land on a new marker, and the browser would never send this one its dblclick.
+						if (!moved) return;
+						commit('move visibility key', 'vis:' + actorId + ':' + keyTime);
 						renderTimeline();
 					};
 					dot.onpointerup = endVis;
@@ -637,10 +640,17 @@ export function mount(el, options) {
 						const moved = tlDrag.moved;
 						const track = doc.tracks.find((x) => x.id === trackId);
 						if (track) track.keys.sort((a, b) => a.time - b.time);
+						const pps = tlDrag.pps;
 						tlDrag = null;
-						if (moved) commit('move text key', 'text:' + trackId + ':' + keyTime);
-						else setTime(keyTime);
-						renderTimeline();
+						if (moved) {
+							commit('move text key', 'text:' + trackId + ':' + keyTime);
+							renderTimeline();
+							return;
+						}
+						// A click seeks to the key and moves only the playhead, so the marker survives for
+						// the second click of a double-click (see the visibility row).
+						setTime(keyTime);
+						positionPlayhead(pps);
 					};
 					dot.onpointerup = endText;
 					dot.onpointercancel = endText;

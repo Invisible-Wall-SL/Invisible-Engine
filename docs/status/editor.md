@@ -171,6 +171,19 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-22 — **Fix: double-clicking a visible or text marker deletes it** (branch
+  `claude/blissful-bohr-4r7uny`). Reported on `commonoverlayproject`: a stray Hide key on a node's
+  `↳ visible` row could not be removed. The pointerup ending the first click re-rendered the
+  Timeline, so the second click landed on a new marker and the browser sent the dblclick to
+  neither (the same trap `wireTimeline` already documents for strips). A click that moves nothing
+  now leaves the rows alone: a visibility key's pointerup returns, and a text key's seeks and only
+  moves the playhead (`positionPlayhead`); a drag still commits and re-renders. Shared module, so
+  `/rigger` has it too (`static/shared/timeline.mjs` re-synced; its 106-action golden is
+  unchanged). Gate: `tools/rigger-spike/timeline-dblclick.mjs` double-clicks through Chrome's own
+  input (`Input.dispatchMouseEvent`, clickCount 1 then 2; `chrome.mjs` gains a raw `send`): it
+  fails on the old module (both keys survive) and passes now, and pins the text-key seek and the
+  visibility-key drag. The handler-level gates could not see it, as they call the handlers
+  directly.
 - 2026-10-21 — **Animate: keys per screen ratio** (branch `claude/quirky-clarke-jmc9b3`, ⏳ not
   browser-verified). On a ratio other than the base one, a screen timeline's header shows
   **Default keys** + **Key <ratio> separately** (copies the default keys to the ratio:
