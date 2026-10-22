@@ -861,7 +861,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	poison: poisonImpl(),
 	electrocute: electrocuteImpl(),
 	petrify: petrifyImpl(),
-	gold: goldImpl(),
+	turnToGold: goldImpl(),
 	dissolveOut: dissolveImpl('out'),
 	dissolveIn: dissolveImpl('in'),
 

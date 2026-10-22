@@ -1171,7 +1171,7 @@ void main(void)
  */
 export const goldFilter = (): ElementFxFilter =>
 	new ElementFxFilter(
-		'gold',
+		'turnToGold',
 		`
 uniform vec4 uGold;
 uniform vec4 uMetal;

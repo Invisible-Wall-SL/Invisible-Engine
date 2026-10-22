@@ -943,7 +943,7 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
-		kind: 'gold',
+		kind: 'turnToGold',
 		label: 'Turn to gold',
 		category: 'light',
 		phase: 'emphasis',
