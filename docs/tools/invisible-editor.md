@@ -1395,7 +1395,9 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   cues. All cues share one **⚡ cues** row; drag a marker to move it.
 - **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
   node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
-  a filled marker means shown from there, a hollow one hidden. Drag to move, double-click to delete.
+  a filled marker means shown from there, a hollow one hidden. Click one to select it (it outlines
+  in yellow) and press **Delete** to remove it, as with a key diamond; drag to move, or
+  double-click to delete.
 - **Text.** On a text node, pick **Count up** (a number, eased between keys) or **Switch** (one of
   the node's own strings: its text and its *switch keys*), then key a value at the playhead. The
   keys draw on a **↳ text** row with what they show; drag to move, double-click to delete. The

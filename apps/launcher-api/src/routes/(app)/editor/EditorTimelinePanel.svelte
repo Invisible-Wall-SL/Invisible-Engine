@@ -1849,8 +1849,8 @@
 						>
 					{/if}
 					<small
-						>Cue, visible and text rows: drag a marker to retime it, double-click a visible or text
-						marker to delete it.</small
+						>Cue, visible and text rows: drag a marker to retime it. Click a visible marker and
+						press Delete, or double-click a visible or text marker, to remove it.</small
 					>
 				{/if}
 			</div>
@@ -2232,6 +2232,10 @@
 	.tl-panel :global(.cineVisKey.off) {
 		background: transparent;
 		border-color: #7ee0c0;
+	}
+	.tl-panel :global(.cineVisKey.sel) {
+		outline: 2px solid #ffd24a;
+		outline-offset: 1px;
 	}
 	.tl-panel :global(.cineTextRow) {
 		background: rgba(255, 210, 74, 0.06);
