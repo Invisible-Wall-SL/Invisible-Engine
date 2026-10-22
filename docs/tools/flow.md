@@ -95,7 +95,8 @@ function library:
   `freeSpinIntroShow`, `soundMusic`, …). Adds a **fireCue** node. The list is the engine's
   own cues **plus every signal name authored on a rig or a flipbook in this project's
   screens**, including the ones inside a component placed on them and a placement's own
-  signal override. A cue you invented in the Scene Editor or the Component Editor is waiting
+  signal override, **and every cue an Element FX entry plays or stops on** (on any node or on a
+  screen; see "Element FX" below). A cue you invented in the Scene Editor or the Component Editor is waiting
   here to be dragged out (see below). The two sound cues — `soundMusic` and `soundOnce` — also take an optional
   **volume** (`0`–`1`) for that one firing; leave it unfed and the sound plays at the level
   set on its row in [Invisible Sound](./sound.md), which is where a track's mix belongs. It
@@ -363,6 +364,32 @@ Two runtime rules decide which operator you want:
 - **An unbounded value is not a finite number.** Autoplay set to `∞` makes
   `autoSpinsRemaining` infinite, which no `gt` / `lt` test matches — `ne 0` catches it,
   `gt 0` silently doesn't.
+
+### Element FX (effects on one element)
+
+An **Element FX** moves, bends, lights or breaks one element — a node, a whole screen or the
+reels — where `cameraEffect` moves the whole game. There are two ways to fire one from a flow:
+
+- **A `fireCue` node** naming a cue an Element FX entry listens for. The entry is authored on the
+  element in the Scene Editor (its **Element FX** section, trigger *On cue*), and its cue is in the
+  **Cues** list here. Use this when the effect is part of the element's design.
+- **The `elementEffect` action** (Actions), for a one-off effect with nothing authored:
+  - **target** — a dropdown of what the game can aim at in this project: `reels`, every screen
+    (`screen:<id>`), and every node that is a group, a component placement, a coded mount, or
+    carries Element FX of its own.
+  - **kind** — the effect (shake, flip, sphericon, wave, melt, glow, freeze, burn to ashes, poison, electrocute, petrify, turn to gold, crash, crumble, shatter, dissolve to / assemble from particles, … 49 in all).
+  - **durationMs**, **intensity** (1 = the effect's reference strength, capped at 4), **repeat**
+    (plays; `0` = until stopped) and **color** (`#rrggbb`, for glow / outline / shine / flash /
+    dissolve) are optional.
+  - **blocking** waits for the effect to play out before the next node. One that plays until
+    stopped never blocks.
+
+  **`stopElementEffect`** with the same **target** stops what the flow played there and puts the
+  element back at rest. An exit effect (pop out, fade out, dissolve out, burn to ashes, melt, crash, crumble, shatter, dissolve to particles) leaves the
+  element hidden until then.
+
+An unknown target or kind does nothing, as an unknown `cameraEffect` kind does. A target that is
+not on screen when the action runs does nothing either.
 
 ### Containers (screens as z-ordered layers)
 

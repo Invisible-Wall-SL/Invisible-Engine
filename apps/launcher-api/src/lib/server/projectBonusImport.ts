@@ -212,7 +212,7 @@ async function sourceRigs<T>(ctx: ImportContext, value: T): Promise<T> {
 // ─── symbols ──────────────────────────────────────────────────────────────────────────────────
 
 /** Per-symbol blocks of the symbols doc an import carries. */
-const SYMBOL_BLOCKS = ['symbols', 'names', 'symbolSounds'] as const;
+const SYMBOL_BLOCKS = ['symbols', 'names', 'symbolSounds', 'symbolFx'] as const;
 
 /**
  * The source's per-symbol bindings copied onto `current` under the rename map `names` (source →

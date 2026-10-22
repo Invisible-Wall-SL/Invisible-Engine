@@ -136,6 +136,12 @@ function obtainPixiRenderer(): Promise<Renderer | null> {
 	return pixiPending;
 }
 
+/** The live shared Pixi renderer, or null while there is none: for work that renders through it
+ *  outside a surface's own draw (an Element FX break snapshots its element). */
+export function sharedPixiRenderer(): Renderer | null {
+	return pixiRenderer && !pixiLost(pixiRenderer) ? pixiRenderer : null;
+}
+
 function releasePixiRenderer(): void {
 	pixiUsers--;
 	if (pixiUsers > 0 || !pixiRenderer) return;

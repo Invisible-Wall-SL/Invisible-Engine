@@ -1,4 +1,9 @@
-import type { CinematicFxParamChannel } from 'engine-cinematic';
+import type { CinematicElementFxChannel, CinematicFxParamChannel } from 'engine-cinematic';
+import {
+	elementFxChannels,
+	readElementFxEntries,
+	type ElementFxEntry,
+} from 'constants-shared/elementFx';
 import type { EffectParam } from 'engine-fx';
 
 import { drivableFxParams, fxParamChannel, fxParamOfChannel } from './fxNodeParams';
@@ -58,6 +63,16 @@ export function nodeActorChannelsForKind(
 	if (kind === 'effect')
 		return [...TRANSFORM, ...drivableFxParams(fxParams).map((p) => fxParamChannel(p.id))];
 	return [...TRANSFORM];
+}
+
+/**
+ * The `keyed` Element FX entries a timeline can pose on `node`: its enabled `keyed` entries, except
+ * on the reel grid, whose effects play on the reel stack, which nothing poses. One rule for the
+ * game, the publish gate and the editor's Animate rows.
+ */
+export function keyableElementFxEntries(node: LayoutNode): ElementFxEntry[] {
+	if (node.kind === 'reelGrid') return [];
+	return readElementFxEntries(node.elementFx).filter((e) => elementFxChannels([e]).length > 0);
 }
 
 export const isNodeActorCast = (cast: CinematicCast | undefined): boolean => cast?.kind === 'node';
@@ -201,7 +216,8 @@ export interface NodeActorIssue {
 
 /**
  * What would silently do nothing at runtime: an actor with no target, a target no node in the host
- * carries, a channel the node's kind cannot take, a switch-key naming a string the text node does
+ * carries, a channel the node's kind cannot take (an `efx:` channel naming none of the node's own
+ * `keyed` Element FX entries among them), a switch-key naming a string the text node does
  * not declare, and an `fx:<id>` channel naming a parameter the placed effect does not declare as a
  * number or bool. The player skips all of these rather than failing, so this is where they show.
  * `effects` resolves a placed effect, for the caller's own project (the editor passes the effects
@@ -250,7 +266,10 @@ export function validateNodeActors(
 			});
 		}
 		const effect = node.kind === 'effect' ? effects(node.effectId) : undefined;
-		const allowed = new Set(nodeActorChannelsForKind(node.kind, effect?.params));
+		const allowed = new Set<string>([
+			...nodeActorChannelsForKind(node.kind, effect?.params),
+			...elementFxChannels(keyableElementFxEntries(node)),
+		]);
 		for (const channel of keyedNodeChannels(tracks)) {
 			if (allowed.has(channel)) continue;
 			const fxParam = fxParamOfChannel(channel);
@@ -324,6 +343,7 @@ export interface NodeActorSample {
 	fill?: number;
 	visible?: boolean;
 	[fxParam: CinematicFxParamChannel]: number | undefined;
+	[elementFx: CinematicElementFxChannel]: number | undefined;
 }
 
 /**

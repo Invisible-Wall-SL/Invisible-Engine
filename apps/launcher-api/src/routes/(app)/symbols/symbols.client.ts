@@ -41,6 +41,8 @@ import {
 	type TumblePatternConfig,
 	type TumblePatternName,
 } from 'engine-layout';
+import type { ElementFxEntry } from 'constants-shared/elementFx';
+import { pruneSymbolFx, type SymbolFxMap } from '$lib/symbolFx';
 
 export type { SymbolNameEntry, BlendMode };
 
@@ -605,6 +607,11 @@ export interface SymbolsDoc {
 	 *  because the doc merges cell-by-cell over the coded map — a cell carrying only a sound would
 	 *  replace the binding and take the state's ART with it. */
 	symbolSounds?: Record<string, Record<string, string>>;
+	/** PER-SYMBOL ELEMENT FX: symbol id → state → the effects it plays in that state (`enter`: each
+	 *  time it enters, `always`: looping while in it). A section of its own for the reason
+	 *  `symbolSounds` is one, sparse at both levels, the entries stored verbatim. Passed through to
+	 *  `bundle.symbols.symbolFx`. See `$lib/symbolFx`. */
+	symbolFx?: SymbolFxMap;
 	/** Global win-frame rig that loops over winning symbols. Absent = the game's
 	 *  built-in default (a local `payframe` rig). Set ONLY when the user overrides
 	 *  it with an R2 rig bundle; never written for the default. Carries an optional
@@ -1789,10 +1796,23 @@ export function docSignature(doc: SymbolsDoc): string {
 		return out;
 	};
 	const coinLabel = doc.coinLabel ? sortDeep(doc.coinLabel) : null;
+	// Same trap again: without this an Element FX edit never marks the page dirty. Signed as the save
+	// prunes it, symbols sorted, states in `SYMBOL_STATES` order, each entry's keys sorted.
+	const symbolFx: Record<string, unknown> = {};
+	const fxMap = pruneSymbolFx(doc.symbolFx) ?? {};
+	for (const symbol of Object.keys(fxMap).sort()) {
+		const ordered: Record<string, unknown> = {};
+		for (const state of SYMBOL_STATES) {
+			const entries = fxMap[symbol][state];
+			if (entries) ordered[state] = entries.map(sortDeep);
+		}
+		symbolFx[symbol] = ordered;
+	}
 	return JSON.stringify({
 		symbols,
 		names,
 		symbolSounds,
+		symbolFx,
 		highlight,
 		boardGlow,
 		winLine,
@@ -1841,6 +1861,35 @@ export function withSymbolSound(
 	const next = { ...doc };
 	if (Object.keys(all).length) next.symbolSounds = all;
 	else delete next.symbolSounds;
+	return next;
+}
+
+/** ONE symbol's Element FX in ONE state, as stored (an entry this build cannot read included). */
+export function symbolFxOf(
+	doc: SymbolsDoc,
+	symbol: string,
+	state: SymbolState,
+): ElementFxEntry[] | undefined {
+	return doc.symbolFx?.[symbol]?.[state];
+}
+
+/**
+ * Set (or clear, with `undefined`) ONE symbol's Element FX in ONE state. New doc, through the prune
+ * the server saves with: an emptied list drops the state, an emptied symbol drops itself, and the
+ * last one drops the section.
+ */
+export function setSymbolFx(
+	doc: SymbolsDoc,
+	symbol: string,
+	state: SymbolState,
+	entries: ElementFxEntry[] | undefined,
+): SymbolsDoc {
+	const all: SymbolFxMap = { ...(doc.symbolFx ?? {}) };
+	all[symbol] = { ...(all[symbol] ?? {}), [state]: entries ?? [] };
+	const next = { ...doc };
+	const symbolFx = pruneSymbolFx(all);
+	if (symbolFx) next.symbolFx = symbolFx;
+	else delete next.symbolFx;
 	return next;
 }
 

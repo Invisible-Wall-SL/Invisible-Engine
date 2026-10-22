@@ -1,6 +1,13 @@
+<script lang="ts" module>
+	/** The `<datalist>` every free-text signal field suggests from — the Screen block's Element FX
+	 *  cue fields too, which render beside this panel. */
+	export const SIGNAL_SUGGESTIONS_ID = 'editor-signal-suggestions';
+</script>
+
 <script lang="ts">
 	import ColorField from '$lib/ColorField.svelte';
 	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
+	import EditorElementFx from './EditorElementFx.svelte';
 	import EditorValueBindings from './EditorValueBindings.svelte';
 	import EditorRepeaterCount from './EditorRepeaterCount.svelte';
 	import EditorEvents from './EditorEvents.svelte';
@@ -87,6 +94,8 @@
 		writeInstanceParam,
 	} from './instanceParamForwarding';
 	import { placedEffect } from './placedEffects.client.svelte';
+	import { playElementFxPreview } from './elementFxPreview.client.svelte';
+	import type { ElementFxEntry } from 'constants-shared/elementFx';
 	import { keyingFor, type KeyField, type KeyingPanel } from './animateKeying.client.svelte';
 	import {
 		relativeChannelValue,
@@ -409,7 +418,6 @@
 	const signalSuggestions = $derived([
 		...new Set([...componentSignals.map((s) => s.key), ...offeredSignals.map((s) => s.key)]),
 	]);
-	const SIGNAL_SUGGESTIONS_ID = 'editor-signal-suggestions';
 	/** The params a placed instance can take its signal scope from — a text or number value. */
 	const scopeParamChoices = $derived(
 		componentParams.filter((p) => p.kind === 'string' || p.kind === 'number'),
@@ -1030,6 +1038,13 @@
 
 	function markDirty(): void {
 		onDirty?.();
+	}
+
+	/** Element FX play on the node in every layout, so they are never a per-layout override. */
+	function setElementFx(n: LayoutNode, next: ElementFxEntry[] | undefined): void {
+		if (next) n.elementFx = next;
+		else delete n.elementFx;
+		markDirty();
 	}
 
 	// Reveal gate (Invisible Flow — intro-complete sequencing): hide this node until a named
@@ -6064,6 +6079,17 @@
 			onChange={markDirty}
 		/>
 	{/if}
+	<!-- Keyed by node: which rows are open is per element (entry ids repeat across nodes). -->
+	{#key node.id}
+		<EditorElementFx
+			entries={node.elementFx}
+			disabled={componentReadOnly}
+			keyable={node.kind !== 'reelGrid'}
+			cueListId={SIGNAL_SUGGESTIONS_ID}
+			onChange={(next) => setElementFx(node, next)}
+			preview={(entry) => playElementFxPreview({ kind: 'node', id: node.id }, entry)}
+		/>
+	{/key}
 {/if}
 
 <style>

@@ -13,6 +13,7 @@ import {
 	TUMBLE_STEP_MS_DEFAULT,
 	TUMBLE_STEP_MS_MAX,
 } from 'engine-layout';
+import { pruneSymbolFx, type SymbolFxMap } from '$lib/symbolFx';
 import { putDocWithBackup, type BackupMode } from './docBackups';
 import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocBackupTarget, symbolsDocKey } from './projectPaths';
@@ -244,6 +245,21 @@ const symbolSoundsSchema = z.record(
 	z.string().min(1),
 	z.record(z.enum(SYMBOL_STATES), z.string().min(1)),
 );
+
+/**
+ * PER-SYMBOL ELEMENT FX — symbol → state → the Element FX entries that symbol plays in that state
+ * (`$lib/symbolFx`). A section of its own beside {@link symbolSoundsSchema}, for the same reason: an
+ * override cell replaces the whole binding, so FX carried on the cell would take the state's art
+ * with them.
+ *
+ * Loose on purpose. The entries are stored VERBATIM (one a newer build wrote, a kind this build does
+ * not know, must survive this build's save), so they are not parsed here: the game reads each list
+ * through `readElementFxEntries`. An unknown state key is stripped with a warning like every
+ * state-keyed map; anything else malformed is dropped by `pruneSymbolFx` instead of failing the doc.
+ */
+const symbolFxSchema = z
+	.record(z.string(), z.record(z.enum(SYMBOL_STATES), z.unknown()).catch({}))
+	.catch({});
 
 /** Global win-frame ("highlight") override — a single rig that loops over winning
  *  symbols. Optional + rig-only: absent means the game uses its built-in default.
@@ -786,6 +802,7 @@ export const symbolsDocSchema = z
 		symbols: symbolMapSchema.default({}),
 		names: symbolNamesSchema.optional(),
 		symbolSounds: symbolSoundsSchema.optional(),
+		symbolFx: symbolFxSchema.optional(),
 		highlight: highlightCellSchema.optional(),
 		boardGlow: boardGlowSchema.optional(),
 		winLine: winLineSchema.optional(),
@@ -806,7 +823,11 @@ export const symbolsDocSchema = z
 	.strip();
 
 export type SymbolCell = z.infer<typeof symbolCellSchema>;
-export type SymbolsDoc = z.infer<typeof symbolsDocSchema>;
+/** `symbolFx` as {@link normalizeSymbolsDoc} leaves it (the schema only shapes it; see
+ *  {@link symbolFxSchema}). */
+export type SymbolsDoc = Omit<z.infer<typeof symbolsDocSchema>, 'symbolFx'> & {
+	symbolFx?: SymbolFxMap;
+};
 
 /** The empty, valid doc a never-authored project degrades to (parity with a missing editor doc). */
 export function emptySymbolsDoc(): SymbolsDoc {
@@ -1008,6 +1029,9 @@ export function normalizeSymbolsDoc(
 		if (Object.keys(kept).length) symbolSounds[symbol] = kept;
 	}
 	if (Object.keys(symbolSounds).length) next.symbolSounds = symbolSounds;
+	// Pruned at both levels by the one prune the page signs with; the entries themselves verbatim.
+	const symbolFx = pruneSymbolFx(doc.symbolFx);
+	if (symbolFx) next.symbolFx = symbolFx;
 	if (doc.highlight) next.highlight = doc.highlight;
 	// Copied explicitly — this rebuild is a whitelist, so a field that passes Zod but isn't listed
 	// here is still dropped on save (the silent round-trip trap).

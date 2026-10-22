@@ -110,6 +110,12 @@ export type CinematicNodeChannel =
 export type CinematicFxParamChannel = `fx:${string}`;
 
 /**
+ * A channel posing one KEYED Element FX entry of the node: `efx:<entry id>` (progress, 0 = rest …
+ * 1 = the effect's end) or `efx:<entry id>:intensity` (a multiplier of its strength).
+ */
+export type CinematicElementFxChannel = `efx:${string}`;
+
+/**
  * One key of a `text` track (Rive plan §8). `countUp` keys carry a `value` (eased like any
  * channel); `switchKey` keys carry a `key`, stepped, naming one of the text node's own strings
  * (its `text` or one of its `switchKeys`). A timeline never carries free text.
@@ -142,6 +148,8 @@ export interface CinematicNodeSample {
 	animTime?: { animation: string; time: number };
 	/** An effect node's keyed parameters, each under its channel name (`fx:intensity`). */
 	[fxParam: CinematicFxParamChannel]: number | undefined;
+	/** A keyed Element FX entry's progress and strength, under their channel names. */
+	[elementFx: CinematicElementFxChannel]: number | undefined;
 }
 
 export interface CinematicTrack {

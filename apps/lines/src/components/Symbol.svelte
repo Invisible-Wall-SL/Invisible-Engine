@@ -5,6 +5,8 @@
 	import SymbolSprite from './SymbolSprite.svelte';
 	import SymbolWinFrame from './SymbolWinFrame.svelte';
 	import { symbolStateLoopsByDefault, WIN_HIGHLIGHT_SYMBOL_STATES } from 'engine-layout';
+	import { ElementFxPlayer } from 'engine-layout/svelte';
+	import { readElementFxEntries } from 'constants-shared/elementFx';
 
 	import { getSymbolInfo } from '../game/utils';
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
@@ -15,6 +17,7 @@
 	import { coinLabelFor, coinLabelLookFor, type CoinLabelPopCue } from '../game/coinLabel';
 	import { getActiveGameConfig } from '../game/gameConfig';
 	import { symbolPlaceholder } from '../game/symbolPlaceholder';
+	import { bakedSymbolFx } from '../editor-scenes';
 
 	type Props = {
 		x?: number;
@@ -196,6 +199,23 @@
 		return layer.dimWithSymbol === false ? 0xffffff : props.tint;
 	};
 
+	/**
+	 * PER-STATE ELEMENT FX (Invisible Symbols State Machine → a state's "Element FX"): a Land that
+	 * shakes, a Win that glows, an Explosion that melts. A symbol with any authored draws all its
+	 * bands inside ONE container of its own, which the effects play on — whole, frame and stamp
+	 * included; every other symbol draws exactly as before, with no container added. The choice is
+	 * per SYMBOL, not per state, so moving between states never remounts the art. A state plays its
+	 * own list only (no inheritance): its `enter` entries as the symbol enters it, its `always`
+	 * entries looping while it stays — `{#key}` on the state ends them as it leaves. The inline
+	 * message icon (`frozen`) plays none.
+	 */
+	const symbolFx = $derived(props.frozen ? undefined : bakedSymbolFx()[props.rawSymbol.name]);
+	const stateFx = $derived(
+		readElementFxEntries(symbolFx?.[props.state]).filter(
+			(entry) => entry.trigger === 'enter' || entry.trigger === 'always',
+		),
+	);
+
 	/** `{#each}` key — the position PLUS the binding, so re-binding a layer REMOUNTS it (a fresh
 	 *  rig/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
 	 *  change updates in place. Position alone would reuse a rig renderer for a sprite layer. */
@@ -215,79 +235,106 @@
 	are contiguous; nothing may be re-ordered to share a container, since the containers ARE the
 	bands.
 -->
-<Container>
-	{#each behindLayers as layer, i (layerKey(layer, i))}
-		<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} zIndex={i + 1} />
-	{/each}
-</Container>
+{#if symbolFx}
+	<Container>
+		{@render bands()}
+		{#key props.state}
+			{#if stateFx.length}
+				<ElementFxPlayer entries={stateFx} />
+			{/if}
+		{/key}
+	</Container>
+{:else}
+	{@render bands()}
+{/if}
 
-<Container tint={props.tint}>
-	{#if !hasArt}
-		{#if placeholder}
-			<SymbolPlaceholder
-				look={placeholder}
-				state={props.state}
-				showText={!coinLabel}
+{#snippet bands()}
+	<Container>
+		{#each behindLayers as layer, i (layerKey(layer, i))}
+			<SymbolLayer
+				{layer}
+				x={props.x ?? 0}
+				y={props.y ?? 0}
+				tint={layerTint(layer)}
+				zIndex={i + 1}
+			/>
+		{/each}
+	</Container>
+
+	<Container tint={props.tint}>
+		{#if !hasArt}
+			{#if placeholder}
+				<SymbolPlaceholder
+					look={placeholder}
+					state={props.state}
+					showText={!coinLabel}
+					x={props.x}
+					y={props.y}
+					oncomplete={props.oncomplete}
+				/>
+			{/if}
+		{:else if isFlipbook}
+			<SymbolFlipbook
+				{symbolInfo}
+				{loop}
+				frozen={props.frozen}
 				x={props.x}
 				y={props.y}
 				oncomplete={props.oncomplete}
 			/>
+		{:else if isSprite}
+			<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
+		{:else}
+			<SymbolRigMain
+				{loop}
+				{symbolInfo}
+				frozen={props.frozen}
+				x={props.x}
+				y={props.y}
+				listener={{
+					complete: props.oncomplete,
+					event: (_, event) => {
+						if (event.data?.name === 'wildExplode') playWildExplodeSound();
+					},
+				}}
+			/>
 		{/if}
-	{:else if isFlipbook}
-		<SymbolFlipbook
-			{symbolInfo}
-			{loop}
-			frozen={props.frozen}
-			x={props.x}
-			y={props.y}
-			oncomplete={props.oncomplete}
-		/>
-	{:else if isSprite}
-		<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
-	{:else}
-		<SymbolRigMain
-			{loop}
-			{symbolInfo}
-			frozen={props.frozen}
-			x={props.x}
-			y={props.y}
-			listener={{
-				complete: props.oncomplete,
-				event: (_, event) => {
-					if (event.data?.name === 'wildExplode') playWildExplodeSound();
-				},
-			}}
-		/>
-	{/if}
-</Container>
+	</Container>
 
-<Container>
-	{#each overLayers as layer, i (layerKey(layer, i))}
-		<SymbolLayer {layer} x={props.x ?? 0} y={props.y ?? 0} tint={layerTint(layer)} zIndex={i + 1} />
-	{/each}
-</Container>
+	<Container>
+		{#each overLayers as layer, i (layerKey(layer, i))}
+			<SymbolLayer
+				{layer}
+				x={props.x ?? 0}
+				y={props.y ?? 0}
+				tint={layerTint(layer)}
+				zIndex={i + 1}
+			/>
+		{/each}
+	</Container>
 
-<Container tint={props.tint}>
-	{#if showWinFrame}
-		<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
-	{/if}
+	<Container tint={props.tint}>
+		{#if showWinFrame}
+			<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
+		{/if}
 
-	{#if props.rawSymbol.multiplier}
-		<BitmapText
-			anchor={0.5}
-			x={props.x}
-			y={props.y}
-			text={`${props.rawSymbol.multiplier}X`}
-			style={{
-				fontFamily: 'gold',
-				fontSize: 50,
-			}}
-		/>
-	{/if}
-</Container>
+		{#if props.rawSymbol.multiplier}
+			<BitmapText
+				anchor={0.5}
+				x={props.x}
+				y={props.y}
+				text={`${props.rawSymbol.multiplier}X`}
+				style={{
+					fontFamily: 'gold',
+					fontSize: 50,
+				}}
+			/>
+		{/if}
+	</Container>
 
-<Container tint={props.tint}>
-	{#if coinLabel && !props.inFlight}
-		<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
-	{/if}
-</Container>
+	<Container tint={props.tint}>
+		{#if coinLabel && !props.inFlight}
+			<CoinLabel x={props.x} y={props.y} text={coinLabel} look={labelLook} pop={props.labelPop} />
+		{/if}
+	</Container>
+{/snippet}

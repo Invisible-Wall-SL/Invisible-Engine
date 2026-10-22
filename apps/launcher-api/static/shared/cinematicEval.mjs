@@ -483,6 +483,13 @@ export const NODE_CHANNELS = Object.freeze([
  */
 export const FX_PARAM_CHANNEL_PREFIX = 'fx:';
 
+/**
+ * The prefix of a channel posing one KEYED Element FX entry on the node (`constants-shared/
+ * elementFx`): `efx:<entry id>` is how far through the effect it is (0 = at rest … 1 = its end) and
+ * `efx:<entry id>:intensity` multiplies its strength. Sampled like the `fx:` family.
+ */
+export const ELEMENT_FX_CHANNEL_PREFIX = 'efx:';
+
 /** Whether a cast entry is a node actor. Absent `kind` reads as a rig. */
 export const isNodeActor = (cast) => !!cast && cast.kind === 'node';
 
@@ -619,7 +626,11 @@ export function sampleNodeActor(tracks, t, layout) {
 				else out[name] = v;
 			}
 			for (const name in track.channels) {
-				if (!name.startsWith(FX_PARAM_CHANNEL_PREFIX)) continue;
+				if (
+					!name.startsWith(FX_PARAM_CHANNEL_PREFIX) &&
+					!name.startsWith(ELEMENT_FX_CHANNEL_PREFIX)
+				)
+					continue;
 				const v = sampleChannel(track.channels[name], t);
 				if (v !== undefined) out[name] = v;
 			}

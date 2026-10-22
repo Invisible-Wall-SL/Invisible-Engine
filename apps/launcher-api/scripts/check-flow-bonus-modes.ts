@@ -22,7 +22,9 @@
  *     Its vocabulary is byte-identical EXCEPT the two reworded `mode` field descriptions
  *     (`respinReveal`, `holdAndWinState`; editor text only): the new wording is pinned on exactly
  *     those two fields, and the hash reads them as `main` words them. The same doc stored with the
- *     legacy keys normalizes to the same add-ons, and a current doc carries none.
+ *     legacy keys normalizes to the same add-ons, and a current doc carries none. The Element FX
+ *     additions (the `elementEffect` / `stopElementEffect` actions and the `ElementFxKind` /
+ *     `ElementFxTarget` enums) are pinned on their own and left out of the vocabulary hash.
  *
  * `--print` prints the digests instead of checking them.
  */
@@ -327,6 +329,16 @@ const digest = (value: unknown): string =>
 		.digest('hex')
 		.slice(0, 16);
 
+/** The Element FX surface added to every kind's vocabulary after `main` 5743911. */
+const ELEMENT_FX_ACTIONS = ['elementEffect', 'stopElementEffect'];
+const ELEMENT_FX_ENUMS = ['ElementFxKind', 'ElementFxTarget'];
+/** `vocab` as `main` had it: without the Element FX additions. */
+const withoutElementFx = (vocab: TemplateVocabulary): TemplateVocabulary => ({
+	...vocab,
+	actions: vocab.actions.filter((a) => !ELEMENT_FX_ACTIONS.includes(a.name)),
+	enums: vocab.enums.filter((e) => !ELEMENT_FX_ENUMS.includes(e.name)),
+});
+
 const currentDocs = (): [string, string, GameConfigDoc | null][] => {
 	const expanding = normalize(clone(HOLD_AND_WIN_PRESETS.pots));
 	setPrimaryHoldAndWin(expanding, {
@@ -438,10 +450,18 @@ for (const [name, kind, doc] of currentDocs()) {
 			['drainPots.bookEvent'],
 		);
 	}
+	same(
+		`5. ${name} · the Element FX actions and enums are there`,
+		[
+			...docVocab.actions.filter((a) => ELEMENT_FX_ACTIONS.includes(a.name)).map((a) => a.name),
+			...docVocab.enums.filter((e) => ELEMENT_FX_ENUMS.includes(e.name)).map((e) => e.name),
+		],
+		[...ELEMENT_FX_ACTIONS, ...ELEMENT_FX_ENUMS],
+	);
 	const seed = graftAddOnSteps(freshDrivenSeedDoc(kind), addOns).doc;
 	const facts = {
 		addOns: digest(addOns),
-		vocab: digest(docVocab),
+		vocab: digest(withoutElementFx(docVocab)),
 		seed: digest(seed),
 		verdict: digest(
 			validateFlowV2Against(seed, scenesFor(kind, doc), null, EMPTY_LIBRARY, [], addOns),

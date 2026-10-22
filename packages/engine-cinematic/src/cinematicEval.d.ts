@@ -111,6 +111,9 @@ export const NODE_CHANNELS: readonly CinematicNodeChannel[];
 /** The prefix of a channel keying one exposed parameter of an effect node (`fx:intensity`). */
 export const FX_PARAM_CHANNEL_PREFIX: 'fx:';
 
+/** The prefix of a channel posing one keyed Element FX entry (`efx:<id>`, `efx:<id>:intensity`). */
+export const ELEMENT_FX_CHANNEL_PREFIX: 'efx:';
+
 /** Whether a cast entry is a node actor (`kind: 'node'`); absent `kind` is a rig. */
 export function isNodeActor(cast: { kind?: string } | null | undefined): boolean;
 

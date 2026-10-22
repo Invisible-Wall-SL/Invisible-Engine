@@ -85,6 +85,15 @@ owner-verify live) whenever you finish meaningful work.
   `docs-keeper`. Gate writes via `POST /api/fx/save` mirroring `/api/rigger/save`; the
   EffectDoc is an R2 sibling under `<client>/<project>/` (+ `deploy/effects/` at bake).
 
+## Element FX (effects that play ON an element)
+A separate system from the particle tool, owned here too: shake / 3D flip / wave / glow / crumble…
+played on a node, a screen or the reels. Plan: `docs/design/element-fx.md`; state: the "Element
+FX" part of `docs/status/fx.md`. Catalog + entry reader: `packages/constants-shared/elementFx.ts`;
+runtime: `packages/pixi-svelte/src/lib/elementFx/` (a new kind needs its `kinds.ts` entry); engine
+wiring: `engine-layout`'s `ElementFxPlayer.svelte`, `LayoutNodeView`, `LayoutScene`; Flow:
+`elementEffect` in `standardVocab.ts` + `apps/lines` `flowEffects.ts`. Gates: `pnpm check:element-fx`,
+`pnpm --filter launcher-api check:element-fx-flow`.
+
 ## Rules specific to FX work
 - **Phase 0 gates Tier C only.** Tiers A/B are native (above) — proceed without it.
   Before committing Tier C, run a `tools/fx-spike/` headless spike proving a pooled

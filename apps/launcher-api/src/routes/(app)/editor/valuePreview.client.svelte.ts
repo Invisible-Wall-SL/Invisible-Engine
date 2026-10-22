@@ -1,4 +1,6 @@
+import { elementFxIntensityChannel, elementFxProgressChannel } from 'constants-shared/elementFx';
 import type { EffectParam, EffectParamValues } from 'engine-fx';
+import type { ElementFxPose } from 'pixi-svelte/elementFx';
 import {
 	bindsFxParam,
 	boundFxParamValues,
@@ -14,7 +16,11 @@ import {
 	type ResolvedTransform,
 	type ValueBinding,
 } from 'engine-layout';
-import type { OnionFrame, TimelineNodeDrive } from '$lib/timeline/screenTimeline';
+import {
+	posesElementFx,
+	type OnionFrame,
+	type TimelineNodeDrive,
+} from '$lib/timeline/screenTimeline';
 import { previewTextShown } from '$lib/timeline/timelineRows';
 
 /**
@@ -95,6 +101,27 @@ export function previewBindings(node: LayoutNode): ValueBinding[] | undefined {
 		: node.valueBindings;
 }
 
+/** A timeline (or a state machine) is previewing on the stage. */
+export function previewTimelineActive(): boolean {
+	return drives !== null;
+}
+
+/** The nodes the previewed timeline poses a keyed Element FX on (an `efx:` channel in its sample). */
+export function previewElementFxNodeIds(): string[] {
+	if (!drives) return [];
+	return [...drives].filter(([, drive]) => posesElementFx(drive.sample)).map(([id]) => id);
+}
+
+/** Where the previewed timeline poses `node`'s keyed entry `entryId`, as `<LayoutNodeView>` reads
+ *  its sample in game; undefined ⇒ at rest. */
+export function previewElementFxPose(nodeId: string, entryId: string): ElementFxPose | undefined {
+	const sample = drives?.get(nodeId)?.sample as Record<string, unknown> | undefined;
+	const progress = sample?.[elementFxProgressChannel(entryId)];
+	if (typeof progress !== 'number') return undefined;
+	const intensity = sample?.[elementFxIntensityChannel(entryId)];
+	return { progress, intensity: typeof intensity === 'number' ? intensity : undefined };
+}
+
 /** The previewed timeline's tint for `node` — it wins over a param-bound tint, as in game. */
 export function previewTint(node: LayoutNode): number | undefined {
 	return drives?.get(node.id)?.sample.tint;
@@ -169,17 +196,51 @@ export function setViewHidden(ids: ReadonlySet<string>): void {
 	version.n += 1;
 }
 
-/** The Outline hides (or isolates away) `nodeId` on the stage. */
+let fxPreviewHidden: { owner: symbol; ids: ReadonlySet<string> }[] = [];
+
+/**
+ * The Element FX previews' stand-ins (`elementFxPreview.client.svelte.ts`): while an effect plays on
+ * a still of an element, the stage skips the element — and, for the frames it takes to capture that
+ * still, everything else on its screen. One set per `owner` (▶, a timeline's posed effects, their
+ * capture), kept apart from the Outline's and never saved.
+ */
+export function setFxPreviewHidden(ids: ReadonlySet<string>, owner: symbol): void {
+	const was = fxPreviewHidden.find((h) => h.owner === owner)?.ids;
+	if (was ? was.size === ids.size && [...ids].every((id) => was.has(id)) : ids.size === 0) return;
+	fxPreviewHidden = [
+		...fxPreviewHidden.filter((h) => h.owner !== owner),
+		...(ids.size ? [{ owner, ids }] : []),
+	];
+	version.n += 1;
+}
+
+/** The Outline hides `nodeId`: the stage neither draws it nor hits it. */
 export function isViewHidden(nodeId: string): boolean {
 	return viewHidden.has(nodeId);
 }
 
-/** `resolveTransform` with the previewed transform targets folded on — for the draw paths. */
+/** `resolveTransform` with the previewed transform targets folded on — for the draw paths, which
+ *  also skip a node an Element FX preview stands in for. */
 export function previewResolveTransform(
 	node: LayoutNode,
 	layoutType: LayoutType,
 ): ResolvedTransform {
-	if (viewHidden.has(node.id)) return { ...resolveTransform(node, layoutType), visible: false };
+	if (fxPreviewHidden.some((h) => h.ids.has(node.id))) {
+		return { ...resolveTransform(node, layoutType), visible: false };
+	}
+	return previewPoseTransform(node, layoutType);
+}
+
+/** Where the author sees `node` — for the hit tests and the selection: only the Outline hides it,
+ *  so a node an Element FX still stands in for is still clicked, dragged and framed. */
+export function previewPoseTransform(node: LayoutNode, layoutType: LayoutType): ResolvedTransform {
+	if (isViewHidden(node.id)) return { ...resolveTransform(node, layoutType), visible: false };
+	return previewDrawnTransform(node, layoutType);
+}
+
+/** Where the preview draws `node` whether or not the stage skips it: an Element FX still follows a
+ *  node it hides. */
+export function previewDrawnTransform(node: LayoutNode, layoutType: LayoutType): ResolvedTransform {
 	const folded = foldBoundTransform(
 		resolveTransform(node, layoutType),
 		previewBindings(node),

@@ -776,7 +776,8 @@ cue name typed here, or on a node inside a placed component, is offered in Invis
 
 #### Bind to value — a number that moves, fills or poses an item
 
-**Bind to value**, at the bottom of Properties, makes an item follow a live game number. It can
+**Bind to value**, near the bottom of Properties (above **Element FX**), makes an item follow a
+live game number. It can
 move, scale, rotate, fade or show the item, fill a sprite / flipbook / rect from one edge, hold
 a flipbook frame, scrub a rig animation, offset a rig bone, or set one of a placed effect's
 **exposed parameters** (**⚡ intensity** in **drives** — see below). On a screen the number is an
@@ -795,6 +796,159 @@ effect no longer has says *Does nothing* and is ignored in the game.
 The same section in the Component Editor can also read the component's own params and the pot
 of the instance it sits in. The full reference is in the Component Editor guide under
 [Bind to value](component-editor.md#3b-drive-a-node-from-a-number-bind-to-value).
+
+#### Element FX — effects that play on an element
+
+An **Element FX** plays on the element itself: it moves, bends, lights or breaks the element's own
+pixels (a shake, a 3D flip, a wave, a glow, a crumble). An [Invisible FX](fx.md) particle effect is
+something else, a node of its own placed beside the element that adds particles, and the Flow's
+`cameraEffect` moves the whole game. A placed particle effect node can carry Element FX like any
+other node.
+
+**Where it is.** Every selected node has an **Element FX** section at the bottom of Properties,
+whatever its kind (image, rig, flipbook, effect, text, rect, group, component placement), on a
+screen and inside a component. On the **reel grid** node the effects play on the real reels in the
+game. The **Screen** block at the top of Properties has its own **Element FX** section, under the
+screen's ticks; those play on everything the screen draws. A node's effects play in every device
+layout; they are never a per-layout override. While you Inspect an old version of a component the
+section is read-only, and ▶ still plays.
+
+**Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
+which lists the 49 effects grouped by family (the table below). Picking one adds a row, opens it,
+and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
+shown_, anything else as _On cue_.
+
+**Each row** shows, left to right:
+
+- a **tick box**: untick it to switch the effect off without deleting it. It never plays, and the
+  row dims.
+- the effect's **name** and family, with when it plays under it (`always, looping`, `when shown`,
+  `on cue bigWin`, `on cue (none yet)`, `keyed on a timeline`, plus `×3` or `until stopped`).
+  Click it to open or fold the row.
+- **▶** previews it on the stage (see _Preview on the stage_ below).
+- **▲ / ▼** reorder the rows (higher plays earlier), and **✕** removes it.
+
+A row reading `⚠ <name>` is an effect this build cannot read or play (one saved by a newer build,
+say). It is kept as saved; you can only move or remove it.
+
+An open row has, top to bottom:
+
+- **Kind**: switch to another effect. Parameters the new one also has keep their values; the rest
+  go. Under it, the effect's one-line description.
+- **Trigger**: when it plays (the table below).
+- **Cue** (_On cue_ only): the cue that plays it, typed as free text. It suggests the component's
+  signals and the game's own, like the
+  [Plays on signal](#plays-on-signal--a-rig-or-flipbook-that-changes-what-it-plays) field. Until
+  it has one, the row says it does nothing yet.
+- **Stop cue**: optional, on any trigger. A cue that stops the effect and puts the element back at
+  rest. It stays stopped until it would start again: its cue fires again, or the element is shown
+  again.
+- **Duration ms**: one play. Blank plays the effect's own length, shown greyed in the box.
+- **Delay ms** (not on _Keyed_): a wait before it starts. An entrance effect keeps the element
+  hidden while it waits.
+- **Intensity**: a slider and a box from 0 to 4; 1 is the effect's reference strength. **×** puts
+  it back to 1.
+- **Plays (0 = until stopped)** (_When shown_ and _On cue_ only): how many times it plays. Blank
+  plays it once.
+- **Parameters**: the effect's own knobs. A number is a slider and a box (with its unit, or a note
+  on what it is measured in, such as _In element heights_), a colour is a swatch, an on/off a tick
+  box, a choice a dropdown. **×** puts one back on its default.
+
+**The four triggers**, and what each does in the game:
+
+| Trigger                        | In the game                                                                                                                                     |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Always (loops while shown)** | Loops for as long as the element is on screen. Built for the _loop_ effects below.                                                              |
+| **When shown**                 | Plays when the element appears, each time it is shown (a screen the Flow shows again, a node made visible again).                               |
+| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, or a cue its component's own timeline or state machine raises. |
+| **Keyed on a timeline**        | Never plays on its own. A timeline poses it, so a state-machine state can too ([below](#keyed-element-fx-on-the-timeline)). Nodes only.        |
+
+An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Invisible Flow's
+**Cues** palette, ready to drag out.
+
+Several effects on one element play together. A loop effect given a play count (_When shown_ or
+_On cue_) fades in and out. An **exit** effect ends with the element hidden and keeps it hidden
+until its stop cue fires or an entrance effect plays on it; its row says so. **Crash**,
+**Crumble**, **Shatter (glass)**, **Dissolve to particles** and **Assemble from particles** work
+on a still of the
+element taken as they start, so an animating rig holds still while they play (an assemble hands
+back the live element as it ends).
+
+To fire a one-off effect on any element from a flow, with nothing authored here, use the Flow's
+`elementEffect`: see [Element FX in the Flow guide](flow.md#element-fx-effects-on-one-element).
+
+**Preview on the stage (▶).** The canvas does not play Element FX by itself (an _Always_ loop does
+not run on the stage), so ▶ is how you see one. It plays that one effect, with the game's own code,
+on a still of the element: the canvas shows the element alone for a moment (the stage holds its
+picture meanwhile, so nothing blinks), copies it (with a margin, so a glow it draws past its box
+comes along), hides the real element and plays the effect on the copy. A screen's ▶ copies the
+whole frame. One preview plays at a time, a second ▶ replaces it, and nothing is saved.
+
+- _Always_ loops twice. _When shown_ and _On cue_ play their **Plays** count, three times at most
+  (_until stopped_ plays three). _Keyed_ plays once from rest to its end, with no delay. The last
+  frame holds for a moment, so an exit effect's hidden end shows.
+- It plays on a **still**, so an animating rig or clip holds still for the preview. In the game the
+  effect plays on the live element.
+- **Esc**, a press on the stage, the mouse wheel, a pan, a zoom or a switch of device layout stops
+  it. Esc only stops the preview: the selection stays.
+- Only what the visible stage shows is copied. When there is nothing to play on (the element's
+  screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
+  the row says _Nothing on the stage to play it on: show the element and its screen first._
+
+**The 49 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
+
+| Family         | Effect                     | What it does                                                                     |
+| -------------- | -------------------------- | -------------------------------------------------------------------------------- |
+| Motion         | **Shake**                  | A decaying rattle.                                                               |
+|                | **Wobble**                 | Rocks left and right around its centre, settling.                                |
+|                | **Pulse**                  | Swells and shrinks back once.                                                    |
+|                | **Heartbeat**              | Two quick beats, the second softer.                                              |
+|                | **Jelly**                  | Squashes and stretches on its base like jelly.                                   |
+|                | **Bounce**                 | Hops up and lands with a squash, each bounce lower.                              |
+|                | **Spin**                   | Turns on itself in the screen plane.                                             |
+|                | **Swing**                  | Swings like a sign hanging from its top edge.                                    |
+|                | **Float** (loop)           | Hovers gently up and down.                                                       |
+|                | **Pop in** (entrance)      | Grows from nothing with an overshoot.                                            |
+|                | **Pop out** (exit)         | Swells, then shrinks away to nothing.                                            |
+|                | **Slam in** (entrance)     | Drops in from above and lands hard: squash and a rattle.                         |
+|                | **Fade in** (entrance)     | Fades up from invisible.                                                         |
+|                | **Fade out** (exit)        | Fades away and stays hidden.                                                     |
+| 3D             | **Flip (3D, sideways)**    | Flips on itself around its vertical axis, like a coin.                           |
+|                | **Flip (3D, over)**        | Flips on itself around its horizontal axis, top over bottom.                     |
+|                | **Bounce 3D**              | Jumps out of the screen at you, tilting, and settles back with a bounce.         |
+|                | **Sphericon**              | Folds into a spinning sphericon wrapped in its own art, rolls, and unfolds back. |
+|                | **Tilt 3D** (loop)         | Sways in perspective, as if held up and turned in the light.                     |
+| Distort        | **Wave (X)** (loop)        | Rows slide left and right in a travelling wave.                                  |
+|                | **Wave (Y)** (loop)        | Columns slide up and down in a travelling wave.                                  |
+|                | **Flag** (loop)            | Ripples like a flag pinned at its left edge, with light on the folds.            |
+|                | **Twist**                  | Swirls around its centre and unwinds.                                            |
+|                | **Curl**                   | A corner curls up like a page and lays back down.                                |
+|                | **Ripple**                 | A shock ring spreads out from the centre.                                        |
+|                | **Bulge**                  | Puffs out from the centre like a lens, then flattens (negative pinches in).      |
+|                | **Melt** (exit)            | Melts like wax: the top sinks and the rest runs down in uneven **Drips**, as far as **Drip length** (in element heights), then it fades away. **Heat** makes the running part glow in the **Heat colour**. |
+| Light & colour | **Glow** (loop)            | A coloured glow around the edges that breathes in and out.                       |
+|                | **Outline** (loop)         | A coloured outline that pulses.                                                  |
+|                | **Shine**                  | A bright band sweeps across, only where the element is.                          |
+|                | **Flash**                  | Lights up in a colour and fades back.                                            |
+|                | **Rainbow** (loop)         | Cycles its colours round the rainbow.                                            |
+|                | **Chromatic**              | Splits into red, green and blue that wobble back together.                       |
+|                | **Glitch**                 | Slices jump sideways and the colours tear.                                       |
+|                | **Blur**                   | Blurs out of focus and back.                                                     |
+|                | **Pixelate**               | Breaks into big pixels and resolves back.                                        |
+|                | **Freeze (ice)**           | Freezes into ice: frost creeps over it along the **Crystals** from the **Frost from** side, it turns to ice in the **Ice colour** (the art still reads underneath), holds frozen for **Hold** of the play with a glint sweeping across, then thaws back. To keep it frozen, key it (_Keyed_) and hold its progress at the middle. |
+|                | **Burn to ashes** (exit)   | Catches fire: a ragged front of flame (**Flame colour**, how ragged: **Ragged**) sweeps across from the **Burns from** side, scorching the element brown ahead of it and leaving grey ash (**Ash colour**) with cooling embers that lifts and crumbles away, **Sparks** rising. |
+|                | **Poison** (loop)          | Poisoned: it drains to a sickly green in the **Venom colour**, dark **Veins** creep in from its edges and pulse, **Bubbles** rise through it, and it sways queasily. Loops while _Always_ (or while a symbol is in its state); a counted play seeps in and recovers. |
+|                | **Electrocute**            | Electrocuted: jagged **Arcs** in the **Arc colour** crackle across it (re-striking many times a second), its outline glows, it **Flicker**s to a scorched negative and jitters, then lets go. |
+|                | **Petrify (stone)**        | Turns to stone: grey granite (**Stone colour**, how fine: **Grain**) creeps over it from the **Stone from** side behind a pale dusty front, cracked and carved in relief (the art's outline and its light and dark read as a carving), it locks with a thud, holds as stone for **Hold** of the play, then every crack opens and it flakes off a chip at a time. To keep it stone, key it (_Keyed_) and hold its progress at the middle. |
+|                | **Turn to gold**           | Turns to gold: polished gold in the **Gold colour** spreads from the **Gold from** side (the centre by default, as if touched) behind a molten front, its own detail embossed and mirror-lit, it swells a little as it rings, holds gold for **Hold** of the play with a glint sweeping across and **Sparkles** twinkling, then draws back. To keep it gold, key it (_Keyed_) and hold its progress at the middle. |
+|                | **Dissolve out** (exit)    | Burns away in a noisy dissolve with a glowing edge.                              |
+|                | **Dissolve in** (entrance) | Burns into view in a noisy dissolve with a glowing edge.                         |
+| Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |
+|                | **Crumble** (exit)         | Falls apart into chunks that drop away, bottom first.                            |
+|                | **Shatter (glass)** (exit) | Breaks like a pane of glass: cracks race out from the **Impact** point over the first part of the play (**Cracking**), then it falls apart in spiderweb **Shards** that tumble and drop, those by the impact first. |
+|                | **Dissolve to particles** (exit) | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many. |
+|                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first. |
 
 #### Background — how a full-bleed cover is fitted, zoomed and aligned
 
@@ -1097,8 +1251,9 @@ plays the result in the game. A component has its own Animate mode on the Compon
    the rotate circle **key** instead (step 3).
 3. **Key it.** In Animate, **Properties** shows an **Animate** section above Transform with what
    the node can take: **x**, **y**, **scale ×**, **rotation**, **alpha**, plus **tint** on sprites
-   and flipbooks, and on an **effect** one **⚡ <name>** field per number or on/off parameter it
-   exposes. Each field has a **key button** (◆), as in Rive:
+   and flipbooks, on an **effect** one **⚡ <name>** field per number or on/off parameter it
+   exposes, and on any node two **✦** fields per _Keyed_ Element FX entry
+   ([below](#keyed-element-fx-on-the-timeline)). Each field has a **key button** (◆), as in Rive:
    - **grey outline**: not animated;
    - **blue outline**: animated, no key at the playhead;
    - **blue**: a key at the playhead.
@@ -1178,7 +1333,8 @@ are editing:
 
 The base ratio's keys are the default keys. The game picks the keys of the ratio on screen, and
 switches if the player turns the device, also while a finished timeline holds its last frame.
-Only the field keys (x, y, scale, rotation, alpha, tint and ⚡ parameters) are per ratio:
+Only the field keys (x, y, scale, rotation, alpha, tint, ⚡ parameters and ✦ Element FX) are per
+ratio:
 visibility, text and cue keys and rig strips are shared by every ratio. Component timelines play
 their keys in every ratio.
 
@@ -1245,6 +1401,37 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   keys draw on a **↳ text** row with what they show; drag to move, double-click to delete. The
   canvas shows the text the game would. Switching between Count up and Switch removes the other
   kind's keys (it asks first).
+
+#### Keyed Element FX on the timeline
+
+An [Element FX](#element-fx--effects-that-play-on-an-element) entry set to **Keyed on a timeline**
+has no clock of its own: the timeline says how far through the effect it is at every moment, so
+scrubbing the timeline scrubs the effect.
+
+- **Two ✦ rows per entry.** Each enabled _Keyed_ entry on the selected node adds two fields, each
+  with its ◆, to Properties' **Animate** section, and two green rows under the node in the
+  Timeline. A key is the value itself, not an offset, and a typed value outside the range is
+  clamped. As for any key, the node needs a **Name** no other node on the screen shares.
+  - `✦ <effect> (<entry id>)`, e.g. `✦ Shake (efx1)`: how far through the effect, from 0 (at
+    rest) to 1 (its end). With no keys it rests at 0.
+  - `✦ <effect> strength`: a multiplier of the entry's **Intensity**, from 0 to 4 (1 = as set).
+    With no keys it rests at 1. When two keyed entries share an effect, this row names its entry
+    too.
+- **Stale rows.** Keys on an entry that is no longer _Keyed_ (removed, switched off or given
+  another trigger) stay on the timeline as a grey `⚠ efx:<id>` (or `⚠ efx:<id>:intensity`) row,
+  so you can select and delete them. The ⚠ issues pill of a component timeline lists them too.
+- **On the stage.** While a timeline is open in Animate (scrubbed or playing), and while the State
+  machine tab's **▶ Run** previews a state, the stage poses each keyed effect. The first time the
+  timeline takes a node past rest, the canvas cuts a still of it (as ▶ does, the stage holding its
+  picture for that moment) and draws the effect on it at the keyed pose, following the node as the
+  timeline moves, scales or turns it. The real node hides only while an effect is past rest, and
+  stays selectable: a click, a drag and the selection frame land where it draws.
+  - Editing the entry (its settings, strength or params) re-poses it on the same still at once.
+  - Changing the node's art, panning a still that was cut at the stage's edge, or zooming in past
+    the still's sharpness cuts a new still once you stop for a moment; the old one shows meanwhile.
+- **In a state machine.** A state plays its timeline, so it poses the node's keyed effects, and a
+  transition's **Blend** mixes them from the state being left. A state whose timeline does not key
+  an entry counts as at rest (progress 0, strength 1).
 
 #### Shared timelines and starters
 
@@ -1455,7 +1642,8 @@ are Inspecting an old version.
      looping state, the point is checked each lap. Leave it empty for "at once".
    - **Blend (ms)** — mixes the new timeline in from the pose being left. An effect's **⚡**
      parameters mix too. If only one of the two states keys a parameter, it mixes from (or
-     towards) the parameter's default. With a blend set, three more options show:
+     towards) the parameter's default. [Keyed Element FX](#keyed-element-fx-on-the-timeline) mix
+     the same way. With a blend set, three more options show:
      - **Interpolation** — **Linear** (an even mix) or **Cubic**: the same curve editor as the
        Timeline's Interpolation panel, two handles plus the typed `x1, y1, x2, y2`.
      - **Pause source when exiting** (on by default) — the state being left freezes where it was.
@@ -1720,6 +1908,14 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
 - **The buy-feature cards all look the same here.** Per-mode **Card graphics** from
   [Game Config](game-config.md) are applied only when the game builds its buy menu; the editor
   draws each card with the component's own defaults. Check per-mode art in the game.
+- **An element vanished after its Element FX and never came back.** It has an exit effect (Pop
+  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Dissolve to
+  particles), which ends hidden and keeps the element hidden
+  until its **Stop cue** fires or an entrance effect plays on it. Give it a stop cue, or an entrance
+  on a later cue.
+- **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.
+  Nothing is queued, so a cue fired while the element or its screen is hidden is missed. The name
+  must also match exactly on both sides.
 
 ## Known limitations / TODOs
 
@@ -1751,3 +1947,20 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   (undo/redo, copy/paste, multi-select, and the two new menu-screen buttons)
   build clean and type-check, but the auth-gated canvas makes automated
   interaction testing hard — owner confirms live.
+- **Element FX are not verified in a live browser yet.** Every effect renders in a headless
+  WebGL harness and the section, ▶ and the timeline posing were tried in standalone harnesses,
+  but nobody has clicked them in `/editor` or watched them in a published game. Owner confirms
+  live ([FX status](../status/fx.md)).
+- **The Element FX preview is a still.** ▶ and the timeline's posing play the effect on a copy
+  of the element, so an animating rig or clip holds still, and only what the visible stage shows
+  is copied. Check an effect on a moving element in the game.
+- **A rotated element plays its Element FX about its axis-aligned box.** The passes that bend or
+  light an element assume it is not rotated ([design §9](../design/element-fx.md#9-open--next)).
+- **_Keyed on a timeline_ is for nodes only.** A timeline keys nodes, and in the game nothing
+  poses a whole screen or the reel stack, so the Screen block and the reel grid do not offer it.
+  Use _On cue_ there. A _Keyed_ entry already saved on one (written by hand) shows a hint and stays
+  at rest.
+- **Element FX on the HUD bar's placed components and built-in pieces do not play in the game
+  yet.** The game draws them (readouts, buttons, logo, game name) outside the view that plays
+  Element FX ([design §9](../design/element-fx.md#9-open--next)). Other art you place on the HUD
+  plays them.

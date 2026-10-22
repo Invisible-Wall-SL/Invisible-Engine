@@ -38,6 +38,15 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
   symbol**. Layers are drawn at the one choke point (`Symbol.svelte`), never report beat
   completion, and are not composited in any preview. Row heads carry display names
   (`names`, used by Invisible Win Text as `{symbolName}`).
+- **Element FX per state** — the panel's **Element FX** block (under Layers) authors the doc's
+  `symbolFx` (symbol → state → `ElementFxEntry[]`): `enter` (each time the symbol enters the state)
+  or `always` (loops while in it); a shake on Land, a glow on Win, a melt on Explosion. Edited on
+  the doc directly like `symbolSounds` (no Apply; Reset to default leaves it), ≤ 12 per state,
+  entries stored verbatim, no inheritance across states. ▶ plays the real runtime on a still of
+  the panel's Preview (sprite thumbnail, flipbook first frame, or a same-frame `snapshot()` of the
+  rig preview); a gold ✦ badge marks each grid cell that carries effects. The prune is
+  `$lib/symbolFx`; the game reads `bakedSymbolFx()` (`Symbol.svelte`, status [fx](fx.md)). Pinned by
+  `check:symbol-fx`.
 - **Save** — ETag-conditional; a colleague's newer save raises **Someone else saved these
   symbols** / **Overwrite theirs**. **History…** restores any of the 20 newest backups
   (`$lib/DocHistoryModal.svelte`). `/api/editor/symbols` refuses a project the caller cannot
@@ -108,14 +117,17 @@ story of each feature is in [symbols-history.md](symbols-history.md) ("Build det
 
 **Adding a doc global means touching every hand-written list** — the `.strict` Zod schema + sparse
 rebuild in `normalizeSymbolsDoc`, the client type / setter / **`docSignature`** (else Save never
-enables), the `/api/editor/export-symbols` response, and the **`bake-editor-doc.mjs` whitelist**
-(else only the runtime-bundle path carries it). `check:win-cycle` derives its field list from the
-schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers`,
+enables), the `symbolExport.ts` result, the `/api/editor/export-symbols` response, and the
+**`bake-editor-doc.mjs` whitelist** (else only the runtime-bundle path carries it). A PER-SYMBOL
+section (`symbols`, `names`, `symbolSounds`, `symbolFx`) also joins `SYMBOL_BLOCKS` in
+`projectBonusImport.ts`, or a bonus import leaves it behind. `check:win-cycle` derives its field
+list from the schema; the other globals are pinned by `check:clear-reel`, `check:symbol-layers`,
 `check:symbol-transition`, `check:tumble-pattern`, `check:sound-bindings`, `check:coin-label`,
-`check:respin-land` and `check:flights` (which also RUNS the bake's `scripts/lib/bakeFlights.mjs`
-rather than grepping for it). A global that names an Invisible FX effect must also join the
-reachable-effects set in `runtimeBundle.ts` AND `bake-editor-doc.mjs`, or the effect is pruned as an
-orphan.
+`check:respin-land`, `check:flights` (which also RUNS the bake's `scripts/lib/bakeFlights.mjs`
+rather than grepping for it) and `check:symbol-fx` (which runs the real save, exporter, export
+endpoint, bake rebuild and Director op over an in-memory R2). A global that names an Invisible FX
+effect must also join the reachable-effects set in `runtimeBundle.ts` AND `bake-editor-doc.mjs`,
+or the effect is pruned as an orphan.
 
 ## Open items / next
 
@@ -159,6 +171,40 @@ orphan.
   tints, the win dim, layers' blend, the pop, the arrival release, the transition, book VFX).
 
 ## Recent changes
+
+- 2026-10-21 — **Element FX per symbol state** (authoring + ship; the game side is in
+  [status/fx](fx.md)). Owner ask: "when a symbol lands it shakes, when it wins it glows, when it
+  explodes it melts". New doc section `symbolFx` (symbol → state → `ElementFxEntry[]`), beside
+  `symbolSounds` and for the same reason (an override cell replaces the whole binding). Server: a loose schema (`z.record(z.enum(SYMBOL_STATES), z.unknown())`, both
+  levels `.catch`) so an unknown state is stripped with a warning and nothing in the section can
+  fail the doc, then `$lib/symbolFx` `pruneSymbolFx` (a non-blank symbol, `SYMBOL_STATES` keys,
+  arrays of plain objects, ≤ `SYMBOL_FX_MAX` = 12, empties pruned at both levels), entries VERBATIM
+  so a kind from a newer build survives a save; `SymbolsDoc.symbolFx` is typed off that prune, the
+  strict cell schema untouched. Client: `symbolFxOf` / `setSymbolFx` (the same prune) and
+  `docSignature` (pruned, symbols sorted, states in `SYMBOL_STATES` order, entry keys sorted). Ship:
+  `symbolExport.ts` → `symbolFx` (absent when empty) → `/api/editor/export-symbols` →
+  `bake-editor-doc.mjs` (`scripts/lib/bakeSymbolFx.mjs`, a shape rebuild) and the runtime bundle,
+  both as `bundle.symbols.symbolFx`; `projectBonusImport` `SYMBOL_BLOCKS` carries it with an
+  imported symbol; Director `symbols.set_state` keeps it (it spreads the doc); a `gameProfile` chip
+  "Symbol Element FX (N symbols)". UI: the panel's **Element FX** block under Layers, the Scene
+  Editor's `EditorElementFx` with `triggers` `enter` / `always` ("When it enters this state" /
+  "While in this state (loops)"), no stop cue, not keyable, edited on the doc directly (no Apply);
+  a `✦ on <symbol>:` row of the states that carry effects (click to open one); a gold **✦** badge
+  (✦ N for several, tooltip lists them) in each grid cell's foot; a **Preview** field for sprite
+  cells (rig and flipbook had one). ▶: `symbolFxPreview.client.ts` copies the panel preview's
+  canvas into a still and plays it through the Scene Editor's `playOnStill` in an overlay mounted
+  in the preview box, reaching 0.6× the preview's side past it; the canvas hides while it plays;
+  Escape, a press on the preview, a change of art, or play-out ends it. The rig preview's context
+  does not preserve its drawing buffer, so `SymbolRigPreview` gained `isReady()` / `snapshot()`,
+  copied at the end of its own frame. Gates: new `check:symbol-fx` (39 checks; real
+  `saveSymbolsDoc` / `exportEditorSymbols` / export endpoint / bake rebuild / Director op over an
+  in-memory R2; mutation-tested on the normalizer, signature, exporter, endpoint, bake, bonus import
+  and cap), `check:doc-readers-unknown-fields` (an unknown `symbolFx` state warns),
+  `check:bonus-import` (the coin's FX come along). Headless Chromium (a scratch harness over the
+  real `symbolFxPreview.client.ts` + `playOnStill`): the still lands on the symbol, the canvas hides
+  and returns, glow / shake / melt / stale all end and clean up, and a WebGL canvas copied in its
+  own frame reads back while one copied a task later is blank. ⏳ Owner check in the real page and
+  on a board.
 
 - 2026-10-20 — **Hold and Win: a coin can play Land as its own cell stops.** Reported as "the land
   animation I set only plays after all the reels have landed". That was the respin board's design,

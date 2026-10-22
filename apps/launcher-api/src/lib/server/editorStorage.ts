@@ -338,6 +338,13 @@ function normalizeScene(input: unknown): Scene | null {
 	// rule as `alwaysOnTop`/`behindReels` above: unlisted ⇒ silently dropped on save. Sparse: stored
 	// only when true.
 	if (input.zoomWithAnticipation === true) scene.zoomWithAnticipation = true;
+	// Preserve the screen's Element FX (`Scene.elementFx`) verbatim, as a node's are: the runtime and
+	// the editor read each entry through `readElementFxEntries`, which drops one it cannot play, so an
+	// entry a newer build wrote survives a save here. Same whitelist rule as above: unlisted ⇒
+	// silently dropped on save. Sparse: stored only when there is one.
+	if (Array.isArray(input.elementFx) && input.elementFx.length) {
+		scene.elementFx = input.elementFx as Scene['elementFx'];
+	}
 	return scene;
 }
 

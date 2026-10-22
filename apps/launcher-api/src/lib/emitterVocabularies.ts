@@ -1174,6 +1174,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'elementEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'stopElementEffect',
+				group: 'Effect',
+			},
+			{
 				name: 'revealBoard',
 				group: 'Effect',
 			},
@@ -2728,6 +2736,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 		effects: [
 			{
 				name: 'cameraEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'elementEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'stopElementEffect',
 				group: 'Effect',
 			},
 			{
@@ -4288,6 +4304,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'elementEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'stopElementEffect',
+				group: 'Effect',
+			},
+			{
 				name: 'revealBoard',
 				group: 'Effect',
 			},
@@ -5842,6 +5866,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 		effects: [
 			{
 				name: 'cameraEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'elementEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'stopElementEffect',
 				group: 'Effect',
 			},
 			{

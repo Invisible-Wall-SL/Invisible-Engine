@@ -2,10 +2,26 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** Shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** **Element FX** (effects that play ON a node, a screen, the reels or a symbol's state — 49 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
+
+- **Element FX** (2026-10-21, [design/element-fx](../design/element-fx.md)) — effects that play ON
+  an element rather than beside it: any node (image, rig / `.irig`, flipbook, particle effect,
+  text, group, component placement), a whole screen, or the reels. 49 kinds in five families:
+  motion (shake, wobble, pulse, heartbeat, jelly, bounce, spin, swing, float, pop in / out, slam
+  in, fade in / out), 3D (flip sideways / over, bounce 3D, tilt 3D, sphericon), distort (wave X / Y, flag,
+  twist, curl, ripple, bulge, melt), light (glow, outline, shine, flash, rainbow, chromatic, glitch,
+  blur, pixelate, freeze, burn to ashes, poison, electrocute, petrify, turn to gold, dissolve out / in) and break (crash, crumble, shatter, dissolve to / assemble from particles). Authored in the Scene Editor's
+  **Element FX** section (node Properties and the Screen panel; ▶ previews on the stage on a still
+  of the element) with an *Always* / *When shown* / *On cue* / *Keyed* trigger and a stop cue;
+  fired from the Flow by `fireCue` or by `elementEffect` / `stopElementEffect`. A *Keyed* entry
+  gets two ✦ rows in Animate (progress, strength): a timeline poses it, so a component
+  state-machine state does too and a transition blends it, and scrubbing poses it on the stage.
+  ⏳ Seen rendering in a headless WebGL1 and WebGL2 browser harness (every kind, mid-play and at
+  the end); the editor's section, preview and posing were exercised in standalone harnesses only;
+  not yet clicked in `/editor` or watched in a published game.
 
 - **All three tiers ship** (`/fx`, `fx` tool scope): **A** sprite/flipbook particles from project atlas regions, **B** an emitter pinned onto a bone of a playing rig backdrop (`RigBoneAttach`), and **C** whole rig clips *as* the particles (pooled `RigParticleBehavior`). The `skeletonKey` key-stability seam for Tier-C shipping is closed.
 - **Event trigger end-to-end.** A `trigger.on:'event'` layer fires when a matching cue crosses the runtime event bus (a Flow v1 Broadcast / v2 `fireCue`), with an optional **Stop event** and **Duration**. The full author→ship→fire chain (export → `deploy/effects/` → bake → pull → `bakedEffects()` register) is wired.
@@ -40,6 +56,35 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 ⏳ **Still open (live-verify):** Tier-C rig-particle **GPU/perf ceiling** in a published game (expect tens, not hundreds); owner pixel-verify of the rig-bound FX size/rotation on live WebGL across `/symbols`, `/rigger`, and the game. The rotation was wrong in the game until the 2026-10-15 fix. The best check is a bone keyed through 90°, where the old code drew the FX upside down.
 
 ## Open items / next
+- **Owner browser-pass over Element FX** (2026-10-21) — in `/editor` add a few effects to a rig,
+  a flipbook, a particle effect node, the reel grid and a screen (Screen panel), ▶ preview each,
+  and Save → reopen. Then in a published game: an *Always* float / glow / flag on a node, a *When
+  shown* pop in / slam in on a screen, an *On cue* crash fired by a Flow `fireCue`, and a Flow
+  `elementEffect` on `reels` (shake, wave Y) and on `screen:<id>`; turbo should speed them up.
+  Then the state machine: a *Keyed* entry on a node of a component, ✦ rows keyed in two states'
+  timelines, and a transition between them — scrub in Animate and run the state machine in the
+  editor, then watch it in the game. And a Sphericon on a symbol-sized element, and Dissolve to
+  particles on a big one (a character rig) with each Wind, then Assemble from particles on its
+  stop cue to bring it back. And Shatter (glass) on a framed panel, from each Impact point, and Melt on a gold symbol with
+  some Heat, and Freeze on a symbol from each side, then keyed and held frozen, and Burn to ashes on a
+  paper-like panel from the bottom and the edges.
+  Worth an eye: a crash / crumble on an animating rig (it breaks a still), an exit (pop out, fade
+  out, dissolve out, crash, crumble) staying hidden until its stop cue, and the base-game screen,
+  whose two parts around the reels each play the screen's FX. In the editor: a posed node can be
+  clicked and dragged mid-effect, Esc during ▶ keeps the selection, a cut never blinks the stage,
+  and panning or zooming a posed still cuts it again once you stop.
+- **Element FX preview, known limits** (editor only; the game plays on the live element): a still
+  copies its canvases with plain compositing, so an additive or screen-blended element previews as
+  a normal one (and a rig layer's dimming scrim, when up, is copied with it); each posed node keeps
+  a stage-sized overlay canvas while its timeline previews; a still that cannot be read back (a
+  cross-origin image) ends ▶ without a message.
+- **Owner browser-pass over symbol-state Element FX** (2026-10-21) — in `/symbols` add Shake on a
+  symbol's Land, Glow on its Win and Melt on its Explosion; ▶ each over the panel's Preview, check the
+  ✦ badges and the "✦ on <symbol>" row, Save → reopen; then spin a published game and watch a land, a
+  win and an explosion.
+- **Element FX next** (design §9): HUD instances (`LayoutEditable` renders them outside
+  `<LayoutNodeView>`), rotated elements (the passes assume an axis-aligned box), and binding /
+  keying an entry's params.
 - **Owner browser-pass over per-placement values** (2026-10-16) — the reported case: open the Pot
   Meter copy → **Edit inside Pot ›**, select `BackgroundBeam2`, and under **Effect → Parameters**
   drag `BeamAlpha` and pick a `Color`: the beam on the stage follows with no reset, and **×** puts
@@ -78,6 +123,236 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-22 — **Turn to gold** (a 49th kind, light & colour, emphasis). Owner ask: a turn to gold
+  effect. One shader pass (`goldFilter`): polished gold spreads over the element's own pixels from
+  `from` (the centre by default, as if touched; bottom, top, edges) behind a molten white-gold
+  front. The art's outline and its light and dark become an embossed relief whose normal bends a
+  studio reflection (bright above, a dark band, bright again below) and catches a highlight from
+  the top left; the colour (`color`, default #ffc83d) runs from a deep version of itself to near
+  white, so any metal colour works (silver, rose gold). It swells a little as it rings when the gold
+  sets, holds for `hold` of the play (default 0.4; keyed and held at the middle it stays gold) with
+  a glint sweeping across and four-point `sparkles` (on by default) twinkling, then draws back.
+  Shares the held timing with freeze and petrify. `check:element-fx` 106 → 108. Rendered on WebGL1
+  and WebGL2. ⏳ Not clicked in a browser.
+- 2026-10-22 — **Petrify (stone)** (a 48th kind, light & colour, emphasis). Owner ask: a petrify
+  into stone effect. One shader pass (`petrifyFilter`): granite creeps over the element's own
+  pixels from `from` (bottom by default; top, edges, centre) behind a pale dusty front. The stone
+  is `color` (default #9a958c) shaded by the art's brightness and a three-octave grain (`grain`
+  2–30, default 9), light and dark specks, slab cracks (cellular noise, only some showing), and a
+  relief lit from the top left — the art's outline and its light and dark read as height, so the
+  star and the 7 on a card read carved. It locks with a thud (a short drop), holds for `hold` of the
+  play (default 0.4; keyed and held at the middle it stays stone), then every crack opens and the
+  front follows the slabs' own random order, so it flakes off a chip at a time at an even pace. The
+  freeze's in / held / out timing is now shared (`holdSpan` / `holdCoverage`). `check:element-fx`
+  104 → 106. Rendered on WebGL1 and WebGL2. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Electrocute** (a 47th kind, light & colour, emphasis). Owner ask: an electrocute
+  effect. One shader pass (`electrocuteFilter`): up to six jagged arcs (`arcs`, default 3) run
+  between points on the element's edge, re-struck 14 times a second — two octaves of 1-D noise
+  across the line, pinned at its ends — a white-hot core in a halo of `color` (default #8fd8ff);
+  the element's outline glows, and with `flicker` (on by default) it flashes now and then to a
+  scorched negative. The motion jitters it violently (incommensurate sines). Struck at once, held,
+  let go over its last fifth; steady while it loops. The pass reserves room past the box for the
+  arcs only while they bite. `check:element-fx` 103 → 104. Rendered on WebGL1 and WebGL2 (the
+  loop bound is constant, broken early by the arc count — fine on GLSL ES 1.00). ⏳ Not clicked in
+  a browser.
+- 2026-10-21 — **Poison** (a 46th kind, light & colour, loop). Owner ask: a poison effect. One
+  shader pass (`poisonFilter`): the art drains to a sickly version of itself turned to `color`
+  (default #8aff3c, acid green) with a little venom glow; dark veins (ridged value noise, `veins`
+  2–24, default 8) creep in from the edges as the dose rises and pulse inward with a green beat;
+  `bubbles` (on by default) rise through it as rings with a highlight. The motion sways it
+  queasily (a turn and an out-of-phase squash). A loop: steady while looping (*Always*, or a
+  symbol's *While in this state*); a counted play seeps in and recovers (`loopEnvelope`).
+  `check:element-fx` 102 → 103 (the dose seeps in and out of a counted play, stays full while it
+  loops, and the sway rests at both ends). Rendered on WebGL1 and WebGL2; a second look pass
+  pushed the tint greener and the veins darker. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Element FX per symbol state** (Invisible Symbols State Machine). Owner ask: put the
+  effects on the symbols' states — a land that shakes, a win that glows, an explosion that melts.
+  - **Game** (`Symbol.svelte`, `editor-scenes.ts` `bakedSymbolFx()`): a symbol with any authored
+    draws its bands in one container and, keyed on its state, plays the state's `enter` entries as
+    it enters and loops its `always` entries while it stays; leaving ends them. No inheritance; the
+    message icon plays none; a symbol with none draws as before. `check:element-fx` 100 → 102.
+  - **`/symbols`** (the symbols agent): the doc's `symbolFx` section (symbol → state → entries,
+    kept verbatim, pruned by `$lib/symbolFx.ts` for the save, the setter and the dirty signature;
+    ≤ 12 per state), an Element FX block in the state panel under Layers (`EditorElementFx` with two
+    triggers — *When it enters this state* / *While in this state (loops)* — new entries on
+    `enter`, no stop cue), ✦ badges on the grid and a "✦ on <symbol>" row, ▶ over the panel's
+    Preview (a sprite cell gained one; the rig preview copies its frame as it draws it), carried by
+    the exporter, the `export-symbols` endpoint and `bake-editor-doc.mjs` as
+    `bundle.symbols.symbolFx`; a bonus import brings a symbol's effects with its art.
+    `check:symbol-fx` (39) runs the real save, export, endpoint, bake and Director op on an
+    in-memory R2. Detail in [status/symbols](symbols.md).
+  - `EditorElementFx` gained `triggers`, `triggerText`, `newTrigger`, `stopCue`, `intro` and
+    `missedText`. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Burn to ashes** (a 45th kind, light & colour, exit). Owner ask: a burn-into-ashes
+  effect, apart from Dissolve out (a plain noise burn). One shader pass (`burnFilter`): a fire
+  front sweeps from `from` (bottom by default; top, edges, center, left, right), ragged with
+  3-octave value noise (`grain`, default 6). Ahead of it the element scorches brown; on it the
+  element's own shape burns in flickering flame (`color`, default #ff7a1a; brighter with
+  strength); behind it lies ash (`ash`, default #6b6660) in the element's shape, cooling embers in
+  it, lifting a little and crumbling away; `sparks` (on by default) rise from a field moving up
+  through a band at the front. The front runs linearly from just short of the element to past all
+  its ash by the end; the motion fades the last 6% so it surely ends hidden. `check:element-fx`
+  99 → 100 (the front starts short, sweeps on, is past all the ash by the end). Rendered on WebGL1
+  and WebGL2 (from the bottom and from the edges); the sparks were made denser after the first
+  look. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Freeze (ice)** (a 44th kind, light & colour, emphasis). Owner ask: a freeze-into-ice
+  effect. One shader pass (`freezeFilter`): frost creeps over the element's own pixels from `from`
+  (edges by default; center, top, bottom), its front following the crystals (cellular noise, 3×3
+  neighbour search — a constant-bound loop, fine on GLSL ES 1.00; `crystals` 3–40, default 12).
+  What it covers turns to ice: `color` (default #9fdcff) shaded by the art's brightness with a
+  hint of its own colour, so the art still reads; crystal boundaries and facets lit, the frost
+  thicker where it started, the element's own edge frosted white, a bright line on the creeping
+  front. It ices over, holds for `hold` of the play (default 0.4) with a glint sweeping across,
+  then thaws back; the element shivers as the ice locks in. An emphasis, so it ends as it began;
+  keyed, its progress held at the middle keeps it frozen. Two look passes in the harness: the
+  first washed the art out to flat blue, the second kept too much of its hue; the third (above)
+  reads as ice. `check:element-fx` 97 → 99 (ices over, holds with the glint only while held,
+  thaws to untouched; shivers only as it locks). Rendered on WebGL1 and WebGL2. ⏳ Not clicked in a
+  browser.
+- 2026-10-21 — **Melt** (a 43rd kind, distort, exit). Owner ask: a melt effect. One shader pass
+  (`meltFilter`): each column runs down by its own amount — a slow swell, finer streaks and a few
+  long drips from 1-D value noise across the element (`drips`, 2–24, default 7) — and a row runs
+  the further the lower it sits (row v moves down by d·(0.3 + 0.7v), inverted in closed form), so
+  the top sinks while the bottom drips furthest, up to `length` element heights (default 0.8, ×
+  strength). The run starts slow and then flows (t^1.6); `heat` (0–1, default 0) tints the
+  running part in `color` (default #ff6a00) for hot metal. The kind's motion fades the element
+  over the last 30% so it ends hidden like every exit, and the pass's padding grows with the run
+  so the drips are never clipped. `check:element-fx` 95 → 97 (untouched at the start, runs to its
+  end, makes more room as it runs, fades only at the end); the GLSL scan covers the new pass.
+  Rendered on WebGL1 and WebGL2 in the headless harness (default, with heat, and a 1.6-height run
+  with nothing clipped). ⏳ Not clicked in a browser.
+- 2026-10-21 — **Shatter (glass)** (a 42nd kind, break, exit). Owner ask: a shatter-into-glass
+  effect, apart from Crash. A `glass` break style (`cutGlass` in `breakApart.ts`): a spiderweb
+  fracture — spokes from the impact (`impact`: random in the middle by default; center, top,
+  bottom, left, right) crossed by irregular rings, denser near the hit, each cell clipped to the
+  box (Sutherland–Hodgman) is a shard (`pieces`, 16–160, default 56). Over the first `crack` of the
+  play (default 0.3) the cracks race out from the impact (a `Graphics` overlay, each line dark then
+  light so it reads on any art; spokes bold, a quarter of the ring cracks left out, a flash at the
+  hit) and a hairline gap opens round each shard they reach; then the pane falls in, the shards
+  by the impact first, pushed out a little, coming towards the viewer, tumbling end over end
+  (scaled across by the cosine of their turn) and dropping under `gravity`. The break meshes now
+  pack pieces of any vertex count (a shard is a fan of n − 2 triangles) into ≤ 96-vertex meshes,
+  and a piece can scale differently across and along. The outer ring sits far enough out that
+  its chords clear the corners: a stress run of 1,080 layouts (every impact, 16 / 56 / 160 shards,
+  three box shapes) tiles the box exactly. `check:element-fx` 89 → 95. Rendered on WebGL1 and
+  WebGL2 in the headless harness. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Assemble from particles** (a 41st kind, break, entrance). Owner ask: the reverse
+  of dissolve to particles. The same dust break played backwards: `KindImpl.reversed` makes the
+  runtime run a break from its end (`breakProgress`), so the specks start blown away and invisible
+  (a delay keeps them so), blow in from the **From** side swaying and growing, the far side settling
+  first, and at the end the pieces go and the live element shows. Its no-renderer fallback drifts
+  back in and fades up. Same params as the dissolve (Particles, From, Turbulence). As an entrance it
+  also releases a held exit, so a dissolve to particles then an assemble brings the element back.
+  `check:element-fx` 85 → 89 (through `playElementFx` with a stand-in renderer: starts hidden,
+  comes together, ends at rest exactly; mutation-checked — without the reversal it fails).
+  Rendered on WebGL1 and WebGL2 in the headless harness. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Dissolve to particles** (a 40th kind, break, exit). Owner ask: a
+  dissolve-to-particles effect. The element turns to dust: a still of it is cut into square specks
+  (`particles`, 100–2000, default 700) that let go in a ragged front — the side the `drift` wind
+  blows to first (up-right by default; up, up-left, right, left, down), so specks blow off clear of
+  what is left, the front roughened by value noise — and fly on the wind, picking up speed,
+  swaying across it (`turbulence`), turning and shrinking to nothing. A new `dust` break style in
+  `breakApart.ts` (`cutSpecks`, the same small batched meshes as crash and crumble); with no
+  renderer it fades and drifts on its wind. Plays through the Flow's `elementEffect` and previews
+  with ▶ like every kind (the Flow vocabulary reads the catalog, so nothing was regenerated).
+  `check:element-fx` 79 → 85: the specks tile the element at the start, batch in meshes of ≤ 96
+  vertices, let go on the wind's side first, shrink to nothing by the end and leave with the run.
+  Rendered on WebGL1 and WebGL2 in the headless harness. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Element FX: code-review fixes to the editor preview and the Sphericon.**
+  - **A posed node stays selectable.** The stand-in hiding a node behind its still now applies to
+    the draw layers only (`previewResolveTransform`); the hit tests, the selection frame and the
+    drag read `previewPoseTransform`, which only the Outline's Hide skips. Before, in Animate a
+    node mid-effect could not be clicked or dragged and lost its handles.
+  - **Esc during ▶** stops the preview only; it no longer also ran the stage's Esc (select parent).
+  - **Cuts never blink the stage.** `coverStage` puts a frozen copy of every stage canvas (blend
+    modes and opacity included) over the stage while a still is cut, for ▶ and for posed stills.
+  - **Posed stills stay current.** An edit of a keyed entry re-poses it on the same still
+    (`PosedOverlay.setEntries`); an edit of the node's art (not its Element FX or baked
+    `coverBox`), a pan of a still the canvas's edge cropped, or zooming in past 1.25× of the cut
+    zoom cuts a new still once it has held for 300 ms, the old one showing meanwhile. The posed
+    sync now tracks the posed nodes' doc.
+  - **The reel grid** is never keyable, in one rule: `keyableElementFxEntries` (engine-layout)
+    serves `validateNodeActors`, the Animate rows, the ⚠ stale rows (a reel grid's old keys now
+    show and can be deleted) and the stage posing (it no longer poses the reel grid).
+  - **The Timeline** redraws its rows only when the keyed set changes (`keyedFxKey`), not on every
+    param or strength edit. The FX section resets its open rows per node and per screen.
+  - **Sphericon:** Tilt now tilts the solid towards the viewer (it only shifted the roll's start);
+    its art is upright unturned and rolled half a turn (it was turned 90° as it folded); Rolls is
+    taken in whole half-turns and the side swing returns to 0, so it unfolds upright (one roll
+    used to end mirrored); a ray along a cone's slope is solved instead of dropped.
+  - **Gates:** `check:element-fx` 78 → 79 (the reel grid rule) and its GLSL scan covers every
+    GLSL ES 1.00 / 3.00 reserved word. Green: `check:element-fx-flow` (20), `check:flow-bonus-modes`
+    (113), `check:component-timelines` (80), `check:component-state-machine` (184),
+    `check:component-state-machine-editor` (79), `check:fx-node-params` (105),
+    `check:timeline-rows`, `check:screen-timeline-mounts`, `check:editor-gl-contexts`,
+    `check:vendored-bundles`, `check:svelte` at baseline (launcher-api 46, engine-layout 291,
+    pixi-svelte 14), `pnpm lint`, `check:undefined-names`, the launcher build. The sphericon
+    renders the same on WebGL1 and WebGL2 in the headless harness. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Element FX in the editor, the timeline and the state machine; a Sphericon.**
+  Owner follow-ups: put Element FX in the component state machine and animate them on the stage;
+  add a Sphericon 3D effect.
+  - **Editor** (`EditorElementFx.svelte`, `elementFxPreview.client.svelte.ts`, `EditorCanvas.svelte`):
+    the **Element FX** section on every node (the reel grid included) and on the Screen panel, with
+    sparse writes and unreadable entries kept verbatim. **▶** plays the entry on the stage. The
+    canvas hides everything but the element for three frames and copies its screen's surfaces into
+    a still. It then hides the element and plays the real runtime on the still in a
+    `createPixiSurface` overlay. Escape, a press, a wheel, pan or zoom cancel it.
+  - **Keyed** (`screenTimeline.ts`, `EditorTimelinePanel.svelte`, `stateMachinePreview.ts`): two ✦
+    rows per keyed entry (progress 0…1 resting at 0, strength 0…4 resting at 1), stale rows flagged,
+    ◆ keying from Properties. A node keyed only on `efx:` is now in the preview drives, and the
+    state-machine preview carries it. While a timeline or state is previewed, a posed overlay per
+    node (one still, cut the first time it leaves rest) poses the effect on the stage and follows the
+    node's drawn transform; the real node hides only while an entry is past rest.
+  - **Sphericon** (a 39th kind, 3D): the element folds into a lit, spinning sphericon wrapped in
+    its own art, rolls, and unfolds back — one ray-cast pass. A first run on WebGL1 failed on the
+    reserved word `flat`; `check:element-fx` now scans for reserved words used as names.
+  - **Break meshes** are cut into batches of ≤ 96 vertices: one large unbatched mesh kept the still
+    bound after it was destroyed, and Pixi warned as a crumble ended.
+  - **Gates:** `check:element-fx` 76 → 78. The editor gates the change touches are green: `check:svelte --only apps/launcher-api`
+    at baseline (46), `check:editor-gl-contexts`, `check:component-timelines` (80),
+    `check:component-state-machine` (184), `check:component-state-machine-editor` (79),
+    `check:fx-node-params` (105), `check:timeline-rows`, `check:timeline-ratio-keys`,
+    `check:doc-readers-unknown-fields` (271), `check:save-keeps-unknown-blocks` (154), `pnpm lint`,
+    `check:undefined-names`, and the launcher build. Every kind, the sphericon included, renders
+    with no shader error on WebGL1 and WebGL2 in the headless harness. ⏳ Not clicked in a browser.
+- 2026-10-21 — **Element FX: effects that play ON an element.** Owner ask: FX placeable on assets
+  (rig, `.irig`, flipbook, particle effect) and elements (screens, reels), and new ones (wave X /
+  Y, flip on itself, twist, curl, glow, shine, crash, crumble, bounce 3D, more). Plan:
+  [design/element-fx](../design/element-fx.md). **Engine change** (`constants-shared`,
+  `pixi-svelte`, `engine-layout`, `engine-flow-v2`, `apps/lines`): it reaches online games only
+  through a runtime-bundle republish.
+  - **Catalog** (`constants-shared/elementFx`): the 38 kinds (39 with the sphericon above) with phase (emphasis / loop / enter /
+    exit), default length and params; the entry shape and its reader (`readElementFxEntries`).
+  - **Runtime** (`pixi-svelte/src/lib/elementFx`, subpath `pixi-svelte/elementFx`):
+    `playElementFx` / `stopElementFx`. One runtime per container: motions fold into one change of
+    its transform (owner writes mid-play become the new rest, everything restored exactly at the
+    end); passes stack after its own filters, bounded by a `filterArea`; a break snapshots it and
+    flies the still in one mesh (no renderer ⇒ a fade). Custom GLSL (perspective, wave, twist,
+    curl, ripple, bulge, shine, colour mix, dissolve) compiles on WebGL1 and WebGL2: a first run on
+    WebGL1 failed on `transpose()`, now written out and scanned for by the gate. Follows turbo.
+  - **Engine**: `BaseNode.elementFx` and `Scene.elementFx`. `<LayoutNodeView>` wraps a node that
+    carries some in one container (the node's `zIndex`, anchored by node id) with
+    `<ElementFxPlayer>`; `<LayoutScene>` does the same for a screen (`screen:<id>`); flow- and
+    engine-mounted screens register `screen:<id>` on their own container; the reel stack's
+    `MainContainer` is `reels` and plays the reel grid node's entries. No FX ⇒ no container.
+  - **Flow**: `elementEffect` / `stopElementEffect` and the `ElementFxKind` / `ElementFxTarget`
+    enums; the launcher widens the target enum per project (`collectElementFxTargets`, editor and
+    publish gate alike) and harvests Element FX cues into the cue palette. `gen:flow-vocab`
+    regenerated (69 effects). `check:flow-bonus-modes` pins the additions and hashes the rest of
+    every vocabulary as before.
+  - **Save**: nodes keep the field verbatim; `normalizeScene` keeps `Scene.elementFx`;
+    `componentFields.ts` lists it.
+  - **Gates:** new `pnpm check:element-fx` (catalog, reader, samplers, the runtime on real Pixi
+    containers, the WebGL1 GLSL scan, the wiring; mutation-checked: dropping the alpha restore
+    fails 3 checks) and `pnpm --filter launcher-api check:element-fx-flow` (20). Also green:
+    `check:flow-bonus-modes` (113), `check:flow-publish-gate`, `check:scene-cues`,
+    `check:flow-symbols-follow-config`, `check:signal-scope`, the flow-spike `v2vocab` /
+    `v2holdandwin` / `v2optional` / `vocab`, `gen:flow-vocab:check`,
+    `check:doc-readers-unknown-fields` (271), `check:save-keeps-unknown-blocks` (154),
+    `check:authored-freespins-followup`, `check:fx-node-params` (105), `check:depth-segments`,
+    `check:component-links`, and `check:svelte` for `pixi-svelte`, `engine-layout` and
+    `apps/lines` (at baseline). A headless Chromium harness rendered every kind at three moments and
+    at the end on WebGL1 and WebGL2 with no shader error. ⏳ Not clicked in a browser.
 - 2026-10-16 — **The editor previews every placement of a nested effect, not one copy.**
   `EditorEffectLayer` keyed its live emitters by the effect node's id, which every placement of one
   component shares. On a screen with three Pot Meters it built the first pot's beam, then moved

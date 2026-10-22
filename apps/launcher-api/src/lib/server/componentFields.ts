@@ -61,6 +61,7 @@ const layoutNodeFields: Record<AllKeys<LayoutNode>, true> = {
 	hiddenUntilSignal: true,
 	rigSlot: true,
 	on: true,
+	elementFx: true,
 	assetKey: true,
 	boardFit: true,
 	region: true,
