@@ -913,6 +913,36 @@ export const ELEMENT_FX = [
 		],
 	},
 	{
+		kind: 'petrify',
+		label: 'Petrify (stone)',
+		category: 'light',
+		phase: 'emphasis',
+		durationMs: 2600,
+		description:
+			'Turns to stone: grey granite creeps over it with a dusty front, cracked and carved in relief, it locks with a thud, holds, then flakes off in chips.',
+		params: [
+			COLOR('color', 'Stone colour', '#9a958c'),
+			{
+				id: 'from',
+				label: 'Stone from',
+				kind: 'choice',
+				default: 'bottom',
+				options: ['bottom', 'top', 'edges', 'center'],
+			},
+			{
+				id: 'hold',
+				label: 'Hold',
+				kind: 'number',
+				default: 0.4,
+				min: 0,
+				max: 0.9,
+				step: 0.05,
+				note: 'The share of the play it stays stone. To keep it stone, key it and hold its progress at the middle.',
+			},
+			{ id: 'grain', label: 'Grain', kind: 'number', default: 9, min: 2, max: 30, step: 1 },
+		],
+	},
+	{
 		kind: 'dissolveOut',
 		label: 'Dissolve out',
 		category: 'light',

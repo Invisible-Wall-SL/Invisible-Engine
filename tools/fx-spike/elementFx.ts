@@ -355,6 +355,46 @@ console.log('element fx — the motion samplers');
 		'electrocute bites at once, holds while it loops, makes room for its arcs only while they bite, and jitters between',
 	);
 	arcs?.destroy();
+
+	const petrify = KINDS.petrify;
+	const rock = petrify.filter?.create(frame('petrify', 0));
+	const stony = (t: number): { cover: number; flaking: number; dust: number } => {
+		petrify.filter?.update(rock as Filter, frame('petrify', t), {
+			screenWidth: 120,
+			screenHeight: 160,
+		});
+		const u = (rock as unknown as { efx: { uStone: Float32Array; uChip: Float32Array } }).efx;
+		return { cover: u.uStone[0], flaking: u.uChip[0], dust: u.uChip[1] };
+	};
+	const [flesh, setting, stone, chipping, crumbled] = [
+		stony(0),
+		stony(0.15),
+		stony(0.5),
+		stony(0.85),
+		stony(1),
+	];
+	assert(
+		flesh.cover === 0 &&
+			setting.cover > 0 &&
+			setting.cover < 1 &&
+			setting.flaking === 0 &&
+			setting.dust > 0 &&
+			near(stone.cover, 1) &&
+			stone.flaking === 0 &&
+			stone.dust === 0 &&
+			chipping.cover > 0 &&
+			near(chipping.cover + chipping.flaking, 1) &&
+			chipping.flaking > 0 &&
+			chipping.dust === 0 &&
+			near(crumbled.cover, 0),
+		'petrify creeps in with a dusty front, holds as stone, then flakes off in chips',
+	);
+	const thud = (t: number): number => petrify.motion?.(frame('petrify', t)).y ?? 0;
+	assert(
+		thud(0.34) > 0 && thud(0.1) === 0 && thud(0.5) === 0 && thud(0.9) === 0,
+		'and it drops with a thud only as the stone locks',
+	);
+	rock?.destroy();
 }
 
 // -------------------------------------------------------------------------------------------------

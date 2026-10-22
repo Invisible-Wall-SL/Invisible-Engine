@@ -1023,3 +1023,139 @@ void main(void)
 `,
 		{ uZap: vec(4), uArc: vec(4) },
 	);
+
+/**
+ * Turning to stone: granite creeps over the element's own pixels from where `uStone.w` says (0 the
+ * bottom, 1 the top, 2 the edges, 3 the centre), a pale dusty line on its front. What it covers is
+ * `uRock` shaded by the art's brightness and a fractal grain, speckled, split by slab cracks
+ * (cellular noise), and carved in relief — the art's outline and its light and dark lit as height
+ * from the top left; only some of the cracks show. Flaking off, every crack opens and the front
+ * follows the slabs, so it lets go a chip at a time. `uStone` = (coverage 0…1, grain across, seed,
+ * from); `uRock` = (stone colour, how stony 0…1); `uChip` = (how far it has flaked off, 0…1; how
+ * dusty the creeping front is).
+ */
+export const petrifyFilter = (): ElementFxFilter =>
+	new ElementFxFilter(
+		'petrify',
+		`
+uniform vec4 uStone;
+uniform vec4 uRock;
+uniform vec2 uChip;
+
+float stoneHash(vec2 p)
+{
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+vec2 stoneHash2(vec2 p)
+{
+    p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+    return fract(sin(p) * 43758.5453);
+}
+
+float stoneNoise(vec2 p)
+{
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 w = f * f * (3.0 - 2.0 * f);
+    return mix(
+        mix(stoneHash(i), stoneHash(i + vec2(1.0, 0.0)), w.x),
+        mix(stoneHash(i + vec2(0.0, 1.0)), stoneHash(i + vec2(1.0, 1.0)), w.x),
+        w.y);
+}
+
+float stoneGrain(vec2 q)
+{
+    return 0.55 * stoneNoise(q) + 0.3 * stoneNoise(q * 2.3 + 3.1) + 0.15 * stoneNoise(q * 5.1 + 7.7);
+}
+
+// The distance to the nearest slab's centre and to the next nearest, and the nearest slab's own
+// random value.
+vec3 stoneSlabs(vec2 p)
+{
+    vec2 cell = floor(p);
+    vec2 f = fract(p);
+    float d1 = 8.0;
+    float d2 = 8.0;
+    float id = 0.0;
+    for (int j = -1; j <= 1; j++)
+    {
+        for (int i = -1; i <= 1; i++)
+        {
+            vec2 g = vec2(float(i), float(j));
+            float d = length(g + stoneHash2(cell + g + uStone.z) - f);
+            if (d < d1)
+            {
+                d2 = d1;
+                d1 = d;
+                id = stoneHash(cell + g + uStone.z * 3.1);
+            }
+            else if (d < d2)
+            {
+                d2 = d;
+            }
+        }
+    }
+    return vec3(d1, d2, id);
+}
+
+// The element's height at px for the relief: its outline, raised where the art is light.
+float stoneHeight(vec2 px)
+{
+    vec4 s = efxSample(px);
+    return 0.6 * s.a + 0.4 * dot(s.rgb, vec3(0.299, 0.587, 0.114));
+}
+
+void main(void)
+{
+    vec2 px = efxPx();
+    vec4 color = efxSample(px);
+    float amount = uRock.a;
+    if (uStone.x <= 0.0 || amount <= 0.0 || color.a <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec2 size = efxSize();
+    vec2 u = efxToUnit(px);
+    vec2 q = u * size / max(size.x, size.y) * uStone.y + uStone.z;
+    float grain = stoneGrain(q);
+    vec3 slabs = stoneSlabs(q * 0.45);
+    float from = uStone.w;
+    float away = from < 0.5 ? 1.0 - u.y
+        : from < 1.5 ? u.y
+        : from < 2.5 ? 2.0 * min(min(u.x, 1.0 - u.x), min(u.y, 1.0 - u.y))
+        : length(u - 0.5) * 1.4142;
+    away = clamp(away, 0.0, 1.0);
+    float flaking = step(0.0001, uChip.x);
+    float reach = mix(0.8 * away + 0.2 * grain, 0.3 * away + 0.7 * slabs.z, flaking);
+    float front = uStone.x * mix(1.25, 1.03, flaking);
+    float stone = 1.0 - smoothstep(front - mix(0.05, 0.03, flaking), front, reach);
+    if (stone <= 0.0)
+    {
+        finalColor = color;
+        return;
+    }
+    vec3 rgb = color.rgb / color.a;
+    float lum = dot(rgb, vec3(0.299, 0.587, 0.114));
+    vec3 rock = uRock.rgb * (0.45 + 0.75 * lum) * (0.75 + 0.5 * grain);
+    rock *= 0.9 + 0.22 * step(0.74, stoneNoise(q * 11.0 + 5.0));
+    rock *= 1.0 - 0.3 * step(0.8, stoneNoise(q * 14.0 + 1.7));
+    float cracked = max(smoothstep(0.45, 0.65, stoneNoise(q * 0.6 + 11.0)), smoothstep(0.0, 0.3, uChip.x));
+    rock *= 1.0 - 0.6 * cracked * (1.0 - smoothstep(0.0, 0.03, slabs.y - slabs.x));
+    float e = 1.5;
+    float relief = (stoneHeight(px + vec2(e, 0.0)) - stoneHeight(px - vec2(e, 0.0)))
+        + (stoneHeight(px + vec2(0.0, e)) - stoneHeight(px - vec2(0.0, e)));
+    float bump = (stoneNoise(q * 2.3 + vec2(3.2, 3.1)) - stoneNoise(q * 2.3 + vec2(3.0, 3.1)))
+        + (stoneNoise(q * 2.3 + vec2(3.1, 3.2)) - stoneNoise(q * 2.3 + vec2(3.1, 3.0)));
+    rock *= 1.0 + 0.45 * clamp(1.2 * relief + 1.5 * bump, -1.0, 1.0);
+    float rim = 1.0 - smoothstep(0.0, 0.05, abs(reach - (front - 0.03)));
+    rock = mix(rock, vec3(0.85, 0.82, 0.76), uChip.y * rim);
+    rock += 0.14 * flaking * (1.0 - smoothstep(0.0, 0.05, front - reach));
+    finalColor = vec4(mix(rgb, clamp(rock, 0.0, 1.0), stone * amount) * color.a, color.a);
+}
+`,
+		{ uStone: vec(4), uRock: vec(4), uChip: vec(2) },
+	);

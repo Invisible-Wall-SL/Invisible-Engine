@@ -47,6 +47,7 @@ import {
 	freezeFilter,
 	meltFilter,
 	perspectiveFilter,
+	petrifyFilter,
 	poisonFilter,
 	rippleFilter,
 	shineFilter,
@@ -205,12 +206,15 @@ const meltImpl = (): KindImpl => {
 /** Where a freeze's frost creeps in from, as the shader's `from`. */
 const FREEZE_FROM = ['edges', 'center', 'top', 'bottom'];
 
-/** The share of a freeze's play spent icing over, and as long again thawing; between, it holds. */
-const freezeSpan = (frame: FxFrame): number => (1 - num(frame, 'hold')) / 2;
+/**
+ * The share of a freeze's or a petrify's play spent setting in, and as long again letting go;
+ * between, it holds.
+ */
+const holdSpan = (frame: FxFrame): number => (1 - num(frame, 'hold')) / 2;
 
-/** How far the frost has covered the element at `t`: in, held, and thawed back out. */
-const freezeCoverage = (frame: FxFrame): number => {
-	const span = freezeSpan(frame);
+/** How far the ice or the stone has covered the element at `t`: in, held, and back out. */
+const holdCoverage = (frame: FxFrame): number => {
+	const span = holdSpan(frame);
 	const t = frame.t;
 	if (t < span) return easeOutQuad(t / span);
 	if (t <= 1 - span) return 1;
@@ -222,7 +226,7 @@ const freezeImpl = (): KindImpl => {
 	const seeds = new WeakMap<Filter, number>();
 	return {
 		motion(frame) {
-			const k = (frame.t - freezeSpan(frame)) / 0.06;
+			const k = (frame.t - holdSpan(frame)) / 0.06;
 			if (k < 0 || k > 1) return {};
 			const amp = 0.012 * Math.min(frame.width, frame.height) * frame.intensity * (1 - k);
 			return { x: amp * Math.sin(frame.seconds * 95) };
@@ -234,11 +238,11 @@ const freezeImpl = (): KindImpl => {
 				return filter;
 			},
 			update(filter, frame) {
-				const span = freezeSpan(frame);
+				const span = holdSpan(frame);
 				const held = 1 - 2 * span;
 				filter.set(
 					'uFreeze',
-					freezeCoverage(frame),
+					holdCoverage(frame),
 					num(frame, 'crystals'),
 					seeds.get(filter) ?? 0,
 					Math.max(0, FREEZE_FROM.indexOf(str(frame, 'from'))),
@@ -249,6 +253,45 @@ const freezeImpl = (): KindImpl => {
 						? -0.3 + 1.6 * ((frame.t - span) / held)
 						: -10;
 				filter.set('uGlint', Math.min(1, frame.intensity), glint);
+			},
+		}),
+	};
+};
+
+/** Where a petrify's stone creeps in from, as the shader's `from`. */
+const PETRIFY_FROM = ['bottom', 'top', 'edges', 'center'];
+
+/**
+ * Petrify: the stone runs as a shader pass, flaking off at an even pace so each chip reads; the
+ * element drops a little as it locks with a thud.
+ */
+const petrifyImpl = (): KindImpl => {
+	const seeds = new WeakMap<Filter, number>();
+	return {
+		motion(frame) {
+			const k = (frame.t - holdSpan(frame)) / 0.08;
+			if (k < 0 || k > 1) return {};
+			return { y: 0.014 * frame.height * frame.intensity * Math.sin(Math.PI * k) * (1 - k) };
+		},
+		filter: filterImpl<ElementFxFilter>({
+			create() {
+				const filter = petrifyFilter();
+				seeds.set(filter, Math.random() * 97);
+				return filter;
+			},
+			update(filter, frame) {
+				const span = holdSpan(frame);
+				const flaked = span > 0 ? Math.max(0, (frame.t - (1 - span)) / span) : 0;
+				const coverage = flaked > 0 ? 1 - flaked : holdCoverage(frame);
+				filter.set(
+					'uStone',
+					coverage,
+					num(frame, 'grain'),
+					seeds.get(filter) ?? 0,
+					Math.max(0, PETRIFY_FROM.indexOf(str(frame, 'from'))),
+				);
+				filter.set('uRock', ...rgb(str(frame, 'color')), Math.min(1, frame.intensity));
+				filter.set('uChip', flaked, flaked > 0 || coverage >= 1 ? 0 : 0.6);
 			},
 		}),
 	};
@@ -773,6 +816,7 @@ export const KINDS: Record<ElementFxKind, KindImpl> = {
 	burn: burnImpl(),
 	poison: poisonImpl(),
 	electrocute: electrocuteImpl(),
+	petrify: petrifyImpl(),
 	dissolveOut: dissolveImpl('out'),
 	dissolveIn: dissolveImpl('in'),
 
