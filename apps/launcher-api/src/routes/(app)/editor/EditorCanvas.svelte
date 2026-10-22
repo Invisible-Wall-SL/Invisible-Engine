@@ -70,8 +70,12 @@
 		type DepthSegment,
 		type DepthSlice,
 		type SpreadBox,
+		isPartSkinned,
 		nodeBox,
 		nodeCornersWorld,
+		partSkinArtSize,
+		partSkinImage,
+		partSkinSize,
 		repeaterPlaceholderGrid,
 		repeaterBoxes,
 		newCountRepeater,
@@ -1842,6 +1846,12 @@
 				return { w: box.w, h: box.h };
 			return null;
 		}
+		// A skinned coded part's own art is its picked layers (`drawPartSkin`); `nodeBox` frames the
+		// part's nodes around it.
+		const skin = node.bind ? boundComponentSkin(node.bind.component) : undefined;
+		const skinArt =
+			skin && instanceParams ? partSkinArtSize(skin, instanceParams, tileImageNaturalSize) : null;
+		if (skinArt) return skinArt;
 		// A coded tile part skinned with a picked frame sizes off that frame (`nodeBox` applies the
 		// instance's overrides with `aspectBox`, as the draw does).
 		const tile = node.bind ? boundComponentTileImage(node.bind.component) : undefined;
@@ -3648,22 +3658,6 @@
 		return { ...t, width: (natural.w * fit) / sx, height: (natural.h * fit) / sy };
 	}
 
-	/** A skinnable part's layer images, picked on the enclosing instance (or the open component). */
-	function partSkinImage(params: Record<string, unknown>, key: string | undefined): string {
-		const value = key ? params[key] : undefined;
-		return typeof value === 'string' ? value : '';
-	}
-
-	/** Whether a skinnable part shows its skin: any layer image picked, or nodes inside it. */
-	function isPartSkinned(
-		node: LayoutNode,
-		skin: PartSkinBinding,
-		params: Record<string, unknown>,
-	): boolean {
-		if (node.kind === 'container' && node.children.length > 0) return true;
-		return skin.layers.some((layer) => partSkinImage(params, layer.imageParam) !== '');
-	}
-
 	/**
 	 * Draw a skinned part's art layers centred on the part, bottom → top — the same layers, box and
 	 * fill reveal the game's coded part draws (`HoldAndWinPot`), with a fill shown at
@@ -3677,13 +3671,7 @@
 		t: ResolvedTransform,
 		overNodes: boolean,
 	): void {
-		const size = (key: string | undefined): number | undefined => {
-			const value = key ? params[key] : undefined;
-			return typeof value === 'number' && value > 0 ? value : undefined;
-		};
-		const radius = size(skin.radiusParam);
-		const width = size(skin.widthParam) ?? (radius ? radius * 2 : undefined);
-		const height = size(skin.heightParam) ?? (radius ? radius * 2 : undefined);
+		const { width, height } = partSkinSize(skin, params);
 		for (const layer of skin.layers) {
 			if (!!layer.overNodes !== overNodes) continue;
 			const image = partSkinImage(params, layer.imageParam);
