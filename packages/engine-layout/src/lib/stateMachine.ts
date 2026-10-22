@@ -1,4 +1,5 @@
 import { easeShape, isCubicEase, type CinematicNodeSample } from 'engine-cinematic';
+import { ELEMENT_FX_CHANNEL_PREFIX, elementFxOfChannel } from 'constants-shared/elementFx';
 
 import { componentInputs } from './componentInterface';
 import { sampledFxChannels } from './fxNodeParams';
@@ -593,6 +594,8 @@ const lerpTint = (a: number, b: number, t: number): number => {
  * (`rest` given — where each of its `fx:<id>` channels rests: the parameter's default) those
  * channels interpolate too, a side that lacks one counting as its rest, and one whose rest is not
  * known (an unregistered effect) steps at half way; without `rest`, `fx:` channels are left out.
+ * A keyed Element FX's `efx:` channels always interpolate, a side that lacks one counting as at
+ * rest (progress 0, strength ×1), so a blend plays the effect toward or back from its pose.
  * Only channels some side keys are present, so the player's fold applies exactly what the
  * timelines key.
  */
@@ -617,6 +620,12 @@ export function blendNodeSamples(
 	for (const channel of ['frame', 'visible', 'text'] as const) {
 		const stepped = t < 0.5 ? a[channel] : b[channel];
 		if (stepped !== undefined) out[channel] = stepped;
+	}
+	const efx = (sample: CinematicNodeSample | undefined): string[] =>
+		Object.keys(sample ?? {}).filter((key) => key.startsWith(ELEMENT_FX_CHANNEL_PREFIX));
+	for (const channel of new Set([...efx(from), ...efx(to)])) {
+		const atRest = elementFxOfChannel(channel)?.value === 'intensity' ? 1 : 0;
+		out[channel] = lerp(asNumber(a[channel], atRest), asNumber(b[channel], atRest), t);
 	}
 	if (rest) {
 		for (const channel of new Set([...sampledFxChannels(from), ...sampledFxChannels(to)])) {

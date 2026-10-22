@@ -599,6 +599,35 @@ What is specific to this tool:
   container still and the emitter's owner moving (`ownerPos`), as `<EffectPlayer ownerPos>` does in
   the game — no fourth renderer. The coded trail is a canvas approximation.
 
+## Element FX per state — added 2026-10-21
+
+The owner's ask: "when a symbol lands it shakes, when it wins it glows, when it explodes it melts".
+The effects are [Element FX](element-fx.md) (one catalog, one runtime); this tool authors which
+ones each symbol plays in each state.
+
+```ts
+symbolFx?: Record<string /* symbol */, Partial<Record<SymbolState, ElementFxEntry[]>>>;
+```
+
+- **A section of its own, like `symbolSounds`.** Not a cell field: an override cell replaces the
+  whole binding, so FX on the cell would take the state's art with them, and a symbol whose art
+  nobody touched can still shake. So the panel edits it on the doc directly, outside the draft and
+  Apply, and Reset to default leaves it.
+- **Two triggers.** `enter` plays each time the symbol enters the state; `always` loops while it is
+  in the state and stops as it leaves. `cue` is not offered (a cue would reach every symbol in that
+  state at once) and neither is `keyed` (nothing poses a symbol from a timeline).
+- **No inheritance.** A state plays exactly its own list, even where it borrows another state's art.
+- **Loose and verbatim.** Sparse at both levels; state keys from `SYMBOL_STATES` (an unknown one is
+  stripped with a warning); at most 12 entries per state; the entries are stored as written, so one
+  a newer build wrote survives an older save. `$lib/symbolFx` `pruneSymbolFx` is the one prune the
+  server's normalizer, the page's setter and `docSignature` share.
+- **Ship chain.** No new asset class (rule 8 n/a): every kind is built into the engine. The section
+  rides the symbol export as `symbolFx`, both bake paths (`export-symbols` response →
+  `scripts/lib/bakeSymbolFx.mjs`, and the runtime bundle) put it on `bundle.symbols.symbolFx`
+  (absent when empty), and the game reads it through `bakedSymbolFx()` and `readElementFxEntries`.
+- **Preview.** ▶ plays the real runtime on a still of the panel's preview, through the Scene
+  Editor's capture-and-overlay helpers (`elementFxPreview.client.svelte.ts`).
+
 ## "rig export" demystified
 
 A rig asset is a **bundle of sibling files that travel together**, e.g. for `H1`

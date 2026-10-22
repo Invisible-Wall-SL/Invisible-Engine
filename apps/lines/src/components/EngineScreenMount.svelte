@@ -7,6 +7,7 @@
 	 * the screen beside it (the flow's `onStage` counts it even while it is down, when the timeline
 	 * draws nothing). Without a flow handle it is a plain mount at `z`.
 	 */
+	import { elementFxScreenTarget } from 'constants-shared/elementFx';
 	import { Container } from 'pixi-svelte';
 	import type { Scene } from 'engine-layout';
 	import { LayoutScene, type ScreenNodeDrive } from 'engine-layout/svelte';
@@ -36,6 +37,6 @@
 
 <Container zIndex={z}>
 	{#key drive?.key}
-		<LayoutScene {scene} nodeDriver={drive?.driver} />
+		<LayoutScene {scene} nodeDriver={drive?.driver} parentTarget={elementFxScreenTarget(sceneId)} />
 	{/key}
 </Container>

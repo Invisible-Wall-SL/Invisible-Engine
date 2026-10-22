@@ -317,6 +317,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 		flights: {
 			toTotal: { head: { kind: 'glow', scale: 1.2 }, path: { bend: 0.3 }, speed: 900 },
 		},
+		symbolFx: { H1: { land: [{ id: 'efx1', kind: 'shake', trigger: 'enter' }] } },
 	};
 	const extras = clone(base) as typeof base & Record<string, unknown>;
 	extras.publishedBy = 'a newer launcher';
@@ -325,6 +326,10 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 	Object.assign(extras.winExplode, { delayMs: 120 });
 	Object.assign(extras.coinLabel.style, { weight: 'bold' });
 	Object.assign(extras.flights.toTotal.head, { wobble: 2 });
+	// A state a newer launcher has; the entries themselves are stored verbatim (`check:symbol-fx`).
+	Object.assign(extras.symbolFx.H1, {
+		celebrate: [{ id: 'efx1', kind: 'glow', trigger: 'always' }],
+	});
 	ignoresWithWarning(
 		'1. symbols',
 		normalizeSymbolsDoc,
@@ -335,6 +340,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 			'"winExplode":{"enabled":true}',
 			'"coinLabel":{"style":{',
 			'"flights":{"toTotal":{"head":{',
+			'"symbolFx":{"H1":{"land":[{',
 		],
 		// `publishedBy` sits on the `.strip()` root, which always dropped extras silently: no warning.
 		[
@@ -343,6 +349,7 @@ const throws = (section: string, label: string, fn: () => unknown): void =>
 			'winExplode.delayMs',
 			'coinLabel.style.weight',
 			'flights.toTotal.head.wobble',
+			'symbolFx.H1.celebrate',
 		],
 	);
 	throws('1. symbols', 'winExplode.enabled: "yes"', () =>

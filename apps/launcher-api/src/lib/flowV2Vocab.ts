@@ -5,6 +5,7 @@ import {
 	type FlowAddOns,
 	type TemplateVocabulary,
 } from 'engine-flow-v2';
+import { withElementFxTargets } from './elementFxTargets';
 import { withSceneCues } from './sceneCues';
 import { withProjectSounds, type SoundOptions } from './soundOptions';
 
@@ -17,23 +18,28 @@ export interface FlowV2VocabInputs {
 	sounds: SoundOptions;
 	/** Author-named cue signals harvested off the project's scenes and components. */
 	sceneCues: string[];
+	/** What a Flow `elementEffect` can aim at (`collectElementFxTargets`); absent ⇒ the reels only. */
+	fxTargets?: readonly string[];
 }
 
 /**
  * The vocabulary a project's flow is authored and judged against: the kind's, plus its Game Config
- * add-ons, its symbols, its sounds and its scene cues. ONE function, so the `/flow-v2` editor and the
+ * add-ons, its symbols, its sounds, its scene cues and its Element FX targets. ONE function, so the `/flow-v2` editor and the
  * publish gate (`validateFlowV2Against`) cannot compose it differently. Each step returns its input
  * unchanged when the project adds nothing.
  */
 export function composeFlowV2Vocab(
 	templateId: string | undefined,
-	{ addOns, symbols = [], sounds, sceneCues }: FlowV2VocabInputs,
+	{ addOns, symbols = [], sounds, sceneCues, fxTargets = [] }: FlowV2VocabInputs,
 ): TemplateVocabulary {
-	return withSceneCues(
-		withProjectSounds(
-			withSymbols(withAddOns(templateVocabulary(templateId), addOns), symbols),
-			sounds,
+	return withElementFxTargets(
+		withSceneCues(
+			withProjectSounds(
+				withSymbols(withAddOns(templateVocabulary(templateId), addOns), symbols),
+				sounds,
+			),
+			sceneCues,
 		),
-		sceneCues,
+		fxTargets,
 	);
 }

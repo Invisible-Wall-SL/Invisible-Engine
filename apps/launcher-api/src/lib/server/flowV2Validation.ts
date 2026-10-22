@@ -34,6 +34,7 @@ import {
 	syncFlowContainers,
 } from '$lib/flowV2Projection';
 import { composeFlowV2Vocab } from '$lib/flowV2Vocab';
+import { collectElementFxTargets } from '$lib/elementFxTargets';
 import { collectSceneCueNames } from '$lib/sceneCues';
 import { soundOptionsFor } from '$lib/soundOptions';
 import { listComponents, loadComponent } from './componentStorage';
@@ -71,6 +72,7 @@ export function validateFlowV2Against(
 		addOns,
 		sounds: soundOptionsFor(sounds),
 		sceneCues: collectSceneCueNames(scenes, components, doc.templateId, addOns),
+		fxTargets: collectElementFxTargets(scenes, components),
 	});
 	return [
 		...validateFlowDoc(

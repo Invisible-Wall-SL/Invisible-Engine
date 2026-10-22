@@ -6,6 +6,7 @@
  */
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
 import type { BootSplashRef } from 'constants-shared/bootSplash';
+import type { ElementFxEntry } from 'constants-shared/elementFx';
 import type { ParamDecl } from 'engine-flow-v2';
 import type { EffectParamValue } from 'engine-fx';
 
@@ -325,6 +326,14 @@ interface BaseNode {
 	 * with listeners becomes a hit surface; one without them is untouched (parity).
 	 */
 	on?: NodeListener[];
+	/**
+	 * ELEMENT FX (`docs/design/element-fx.md`): effects that play ON this node — a shake, a 3D
+	 * flip, a wave, a glow, a crumble… Each entry loops while the node is shown, plays when it
+	 * appears, or plays on a cue (a Flow `fireCue`, a component signal). The catalog and the entry
+	 * reader live in `constants-shared/elementFx`. The node then renders inside one extra container
+	 * the effects play on; a node with none renders exactly as before (parity).
+	 */
+	elementFx?: ElementFxEntry[];
 }
 
 /**
@@ -361,6 +370,7 @@ export const BASE_NODE_FIELDS = {
 	hiddenUntilSignal: true,
 	rigSlot: true,
 	on: true,
+	elementFx: true,
 } as const satisfies { [K in keyof Required<BaseNode>]: boolean };
 
 /** The pointer events a {@link NodeListener} answers, as a VALUE (the normalizer imports it). */
@@ -1417,6 +1427,13 @@ export interface Scene {
 	 * unchanged. Sparse: stored only when true.
 	 */
 	zoomWithAnticipation?: boolean;
+	/**
+	 * ELEMENT FX on the WHOLE screen (`docs/design/element-fx.md`): the same entries a node takes
+	 * ({@link BaseNode.elementFx}), played on one container around everything the screen draws.
+	 * Absent ⇒ no extra container (parity). The base-game screen is drawn in two parts around the
+	 * reels, and each part plays the screen's FX on its own.
+	 */
+	elementFx?: ElementFxEntry[];
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed

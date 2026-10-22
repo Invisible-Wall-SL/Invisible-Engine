@@ -130,6 +130,7 @@
 			symbols: data.symbols,
 			sounds: data.soundOptions,
 			sceneCues: data.sceneCues ?? [],
+			fxTargets: data.fxTargets ?? [],
 		}),
 	);
 

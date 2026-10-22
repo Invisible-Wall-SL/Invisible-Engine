@@ -45,11 +45,19 @@
 	} from '../editor/editorRegions.client';
 	import { builtinRigKey, hasBuiltinRig } from '../editor/editorRig.client';
 	import DocHistoryModal from '$lib/DocHistoryModal.svelte';
+	import {
+		elementFxSpec,
+		readElementFxEntry,
+		type ElementFxEntry,
+	} from 'constants-shared/elementFx';
+	import { SYMBOL_FX_MAX, SYMBOL_FX_TRIGGER_TEXT, SYMBOL_FX_TRIGGERS } from '$lib/symbolFx';
+	import EditorElementFx from '../editor/EditorElementFx.svelte';
 	import FlightPreview from './FlightPreview.svelte';
 	import SymbolFxPreview from './SymbolFxPreview.svelte';
 	import SymbolRigPreview from './SymbolRigPreview.svelte';
 	import SymbolRigStage from './SymbolRigStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
+	import { playOnPreview, previewCanvas } from './symbolFxPreview.client';
 	import {
 		POTS_TOKEN_STATE_HINTS,
 		STATE_HINTS,
@@ -87,6 +95,9 @@
 		setWinBeatMaxMs,
 		setArrivalReleaseEnabled,
 		setRespinLandOnStop,
+		setSymbolFx,
+		symbolFxOf,
+		SYMBOL_STATES,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
 		setWinCycleShowText,
@@ -436,6 +447,7 @@
 			window.removeEventListener('pagehide', onUnload);
 			ro?.disconnect();
 			lease.release();
+			endSymbolFxPreview();
 		};
 	});
 
@@ -683,6 +695,7 @@
 	let draftAnimations = $state<string[]>([]);
 
 	function openCell(symbol: string, state: SymbolState): void {
+		endSymbolFxPreview();
 		stackedEdit = null; // the grid cell and the stacked art share the panel — one at a time
 		focus = { symbol, state };
 		const eff = effectiveCell(doc, data.defaults, symbol, state);
@@ -698,11 +711,76 @@
 	}
 
 	function closeCell(): void {
+		endSymbolFxPreview();
 		focus = null;
 		draft = null;
 		draftAnimations = [];
 		layerEditing = null;
 		layerAnimations = [];
+	}
+
+	// ── The focused state's ELEMENT FX ────────────────────────────────────────────────────────
+	// Their own doc section (`symbolFx`), not part of the cell, so they are edited on `doc` directly,
+	// as `symbolSounds` is: no Apply, and Reset to default leaves them. ▶ plays one over the panel's
+	// Preview of the draft (`symbolFxPreview.client.ts`).
+
+	/** The panel's Preview box (sprite, flipbook or rig), which ▶ plays over. */
+	let draftPreviewBox = $state<HTMLElement | null>(null);
+	/** The panel's rig preview: its frames are copied in its own frame (`snapshot`). */
+	let draftRigPreview = $state<ReturnType<typeof SymbolRigPreview> | undefined>();
+	let stopSymbolFxPreview: (() => void) | null = null;
+
+	function endSymbolFxPreview(): void {
+		const stop = stopSymbolFxPreview;
+		stopSymbolFxPreview = null;
+		stop?.();
+	}
+
+	/** What the panel's Preview draws for `cell`: a change while ▶ plays ends it. */
+	const previewedArt = (cell: SymbolCell | null): string =>
+		cell
+			? [cell.type, cell.previewKey ?? cell.assetKey, cell.clipId, cell.animationName].join('\n')
+			: '';
+
+	/** Play `entry` over the panel's Preview; false when it shows nothing to play on. */
+	function previewSymbolFx(entry: ElementFxEntry): boolean {
+		endSymbolFxPreview();
+		const box = draftPreviewBox;
+		const canvas = previewCanvas(box);
+		const rig = draft?.type === 'spine' ? draftRigPreview : undefined;
+		if (!box || !canvas || !draft || (draft.type === 'spine' && !rig?.isReady())) return false;
+		const shown = previewedArt(draft);
+		const stop = playOnPreview({
+			box,
+			canvas,
+			entry,
+			copy: () => (rig ? rig.snapshot() : Promise.resolve(canvas)),
+			stale: () => previewedArt(draft) !== shown,
+			finished: () => {
+				if (stopSymbolFxPreview === stop) stopSymbolFxPreview = null;
+			},
+		});
+		stopSymbolFxPreview = stop;
+		return true;
+	}
+
+	/** The states of `symbol` that carry Element FX, in grid order. */
+	const symbolFxStates = (symbol: string): SymbolState[] =>
+		SYMBOL_STATES.filter((state) => symbolFxOf(doc, symbol, state)?.length);
+
+	/** A grid cell's ✦ tooltip: each effect and when it plays. */
+	function symbolFxTitle(entries: readonly ElementFxEntry[]): string {
+		const lines = entries.map((raw) => {
+			const entry = readElementFxEntry(raw);
+			const kind = (raw as { kind?: unknown }).kind;
+			if (!entry) return `⚠ ${String(kind ?? 'unknown')} (this build cannot play it)`;
+			const when =
+				entry.trigger === 'enter' || entry.trigger === 'always'
+					? SYMBOL_FX_TRIGGER_TEXT[entry.trigger].summary
+					: entry.trigger;
+			return `${elementFxSpec(entry.kind).label}, ${when}${entry.disabled ? ' (off)' : ''}`;
+		});
+		return ['Element FX in this state:', ...lines].join('\n');
 	}
 
 	function setDraftType(type: SymbolCellType): void {
@@ -5401,6 +5479,7 @@
 									</th>
 									{#each visibleStates as state (state)}
 										{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
+										{@const fx = symbolFxOf(doc, symbol, state)}
 										<td>
 											<button
 												type="button"
@@ -5471,6 +5550,11 @@
 														>
 															+{eff.cell.layers.length}
 															{eff.cell.layers.length === 1 ? 'layer' : 'layers'}
+														</span>
+													{/if}
+													{#if fx?.length}
+														<span class="badge fx" title={symbolFxTitle(fx)}>
+															✦{fx.length > 1 ? ` ${fx.length}` : ''}
 														</span>
 													{/if}
 													{#if eff.inheritedFrom}
@@ -5575,6 +5659,14 @@
 							}}
 						/>
 					</div>
+					{#if draft.assetKey}
+						<div class="field">
+							<span class="label">Preview</span>
+							<div class="panel-preview" bind:this={draftPreviewBox}>
+								<SymbolSpritePreview frame={draft.assetKey} index={spriteIndex} size={120} />
+							</div>
+						</div>
+					{/if}
 				{:else if draft.type === 'flipbook'}
 					<div class="field">
 						<span class="label">Clip</span>
@@ -5595,7 +5687,7 @@
 						{@render clipPlayback(own)}
 						<div class="field">
 							<span class="label">Preview</span>
-							<div class="panel-preview">
+							<div class="panel-preview" bind:this={draftPreviewBox}>
 								<!-- First frame only — a still is fine and preferable here. The panel's RIG
 								     preview is live because a rig cell's binding is (bundle, animation) and you
 								     cannot tell those apart without playing them; a clip's identity is its name +
@@ -5662,8 +5754,9 @@
 						{@render loopToggle()}
 						<div class="field">
 							<span class="label">Preview</span>
-							<div class="panel-preview">
+							<div class="panel-preview" bind:this={draftPreviewBox}>
 								<SymbolRigPreview
+									bind:this={draftRigPreview}
 									assetKey={draft.previewKey ?? draft.assetKey}
 									animationName={draft.animationName}
 									size={120}
@@ -5997,6 +6090,57 @@
 								Layers are not composited over the symbol and blend modes are not previewed — the
 								composition is only real in the game.
 							</p>
+						{/if}
+					</div>
+				{/if}
+
+				{#if !stackedEdit && focus}
+					{@const at = focus}
+					{@const fxEntries = symbolFxOf(doc, at.symbol, at.state)}
+					{@const fxStates = symbolFxStates(at.symbol)}
+					<!-- ELEMENT FX — effects that play ON the symbol in this state. Their own doc section
+					     (`symbolFx`), edited on the doc directly like the symbol sounds: not part of the
+					     cell, so nothing here waits for Apply. -->
+					<div class="field symbol-fx">
+						<!-- Keyed: its open rows are by entry id, and every state numbers from efx1. -->
+						{#key `${at.symbol}\n${at.state}`}
+							<EditorElementFx
+								entries={fxEntries}
+								onChange={(next) => (doc = setSymbolFx(doc, at.symbol, at.state, next))}
+								preview={previewSymbolFx}
+								keyable={false}
+								triggers={SYMBOL_FX_TRIGGERS}
+								triggerText={SYMBOL_FX_TRIGGER_TEXT}
+								newTrigger="enter"
+								stopCue={false}
+								intro="Effects this symbol plays in this state: a shake when it lands, a glow while it wins, a melt as it explodes."
+								missedText="Nothing to play it on: this state needs art in the panel's Preview above (a rig has to finish loading)."
+							/>
+						{/key}
+						{#if (fxEntries?.length ?? 0) >= SYMBOL_FX_MAX}
+							<span class="hint">{SYMBOL_FX_MAX} effects is the limit for one state.</span>
+						{/if}
+						<p class="hint">
+							Not part of the cell: an effect is in the doc as soon as you add it (no Apply), and
+							<strong>Reset to default</strong> leaves it. A state plays only its own effects, even where
+							it borrows another state's art.
+						</p>
+						{#if fxStates.length}
+							<div class="fx-states">
+								<span class="hint">✦ on {at.symbol}:</span>
+								{#each fxStates as state (state)}
+									<button
+										type="button"
+										class="fx-state"
+										class:current={state === at.state}
+										disabled={state === at.state}
+										title={state === at.state
+											? 'This state'
+											: `Open ${at.symbol} · ${STATE_LABELS[state]}`}
+										onclick={() => openCell(at.symbol, state)}>{STATE_LABELS[state]} ✦</button
+									>
+								{/each}
+							</div>
 						{/if}
 					</div>
 				{/if}
@@ -6471,7 +6615,9 @@
 		color: #d8d8e0;
 		font-size: 12px;
 	}
+	/* Positioned: an Element FX ▶ mounts its overlay in it, reaching past its edges. */
 	.panel-preview {
+		position: relative;
 		display: grid;
 		place-items: center;
 		padding: 8px;
@@ -6880,6 +7026,34 @@
 	.badge.layers {
 		color: #c8a8ff;
 		background: #241c38;
+	}
+	/* Element FX in this state (✦, as the Scene Editor's Animate rows mark them). */
+	.badge.fx {
+		color: #ffd75e;
+		background: #2e2814;
+	}
+	.fx-states {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px;
+		margin-top: 6px;
+	}
+	.fx-states .hint {
+		margin: 0;
+	}
+	.fx-state {
+		padding: 2px 6px;
+		border: 1px solid #3a3420;
+		border-radius: 4px;
+		background: #1a1710;
+		color: #ffd75e;
+		font-size: 11px;
+		cursor: pointer;
+	}
+	.fx-state.current {
+		border-color: #7a6a30;
+		cursor: default;
 	}
 	.unbound-note {
 		flex-basis: 100%;

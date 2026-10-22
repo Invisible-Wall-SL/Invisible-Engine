@@ -4,7 +4,8 @@
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, EnableSpaceHold, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
-	import { App, Container, Text } from 'pixi-svelte';
+	import { Anchor, App, Container, Text } from 'pixi-svelte';
+	import { ELEMENT_FX_REELS_TARGET, readElementFxEntries } from 'constants-shared/elementFx';
 	import { setParticleTimeScale } from 'pixi-svelte/particleClock';
 	import {
 		stateBet,
@@ -67,6 +68,7 @@
 		FlowFade,
 		FlowV2Mount,
 		BuyFeatureScreen,
+		ElementFxPlayer,
 	} from 'engine-layout/svelte';
 	import type { FlowEntranceTransition, MountedContainerRef } from 'engine-layout/svelte';
 	import {
@@ -1116,6 +1118,10 @@
 	/** Fetched at boot from the launcher; seeded with the bundled fallback so the
 	 * game renders immediately and degrades gracefully when offline. */
 	let editorDoc = $state(fallbackEditorScenes);
+	// Element FX on the reels: the authored `reelGrid` node's `elementFx`, played on the reel stack.
+	const reelFx = $derived(
+		readElementFxEntries(findReelGridNode(editorDoc)?.elementFx).filter((e) => !e.disabled),
+	);
 	// Screen identity resolves by ROLE (engine-layout `sceneByRole`) — not by matching a magic
 	// scene id — so scene ids stay free-form and renameable (the owner's ask). It reads the scene
 	// `role`, falling back to the legacy scene whose id equals the role name (parity for un-migrated
@@ -2544,6 +2550,14 @@
 		{/snippet}
 
 		<MainContainer>
+			<!-- ELEMENT FX on the reels: the reel stack's own container, aimed at as `reels` by a Flow
+			     `elementEffect` and playing the reel grid node's authored effects. Neither adds a child. -->
+			<Anchor name={ELEMENT_FX_REELS_TARGET} />
+			{#key reelFx}
+				{#if reelFx.length}
+					<ElementFxPlayer entries={reelFx} />
+				{/if}
+			{/key}
 			{#if stateGameDerived.anticipationActive()}
 				<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
 						 the anticipation overlays (rig stack + grey-out) so the zoom/pan never fights

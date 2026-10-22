@@ -171,6 +171,9 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-21 — **Element FX in Properties, the Screen block and Animate** (⏳ not browser-verified):
+  state and detail in [FX status](fx.md) 2026-10-21; guide:
+  [Element FX](../tools/invisible-editor.md#element-fx--effects-that-play-on-an-element).
 - 2026-10-21 — **Animate: keys per screen ratio** (branch `claude/quirky-clarke-jmc9b3`, ⏳ not
   browser-verified). On a ratio other than the base one, a screen timeline's header shows
   **Default keys** + **Key <ratio> separately** (copies the default keys to the ratio:

@@ -41,12 +41,14 @@ export const POST: RequestHandler = async ({ url }) => {
 		// FALLBACK carrier `bakedSymbolSounds` reads when the sound catalog ships no `bindings` block —
 		// the runtime path has always passed it verbatim, so without it the two paths disagreed.
 		// `coinLabel` (the Hold and Win coin value label), `flights` (its flight styles) and
-		// `respinLandOnStop` (when its coins play Land) are here for the same reach-both reason.
+		// `respinLandOnStop` (when its coins play Land) are here for the same reach-both reason, and so
+		// is `symbolFx` (the per-symbol Element FX).
 		const {
 			map,
 			index,
 			names,
 			symbolSounds,
+			symbolFx,
 			highlight,
 			boardGlow,
 			winLine,
@@ -81,6 +83,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			index,
 			names,
 			symbolSounds,
+			symbolFx,
 			highlight,
 			boardGlow,
 			winLine,

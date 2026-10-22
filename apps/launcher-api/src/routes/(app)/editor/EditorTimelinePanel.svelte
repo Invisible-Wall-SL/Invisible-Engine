@@ -39,6 +39,7 @@
 	import {
 		findActorNode,
 		fxParamRest,
+		keyableElementFxEntries,
 		placedFxParamValues,
 		textNodeStrings,
 		validateNodeActors,
@@ -57,10 +58,13 @@
 		componentTimelineId,
 		componentTimelinesOf,
 		duplicateTimeline,
+		elementFxChannelValue,
+		elementFxTimelineRows,
 		ensureNodeActor,
 		fxChannelValue,
 		keyableChannels,
 		fxTimelineRows,
+		keyableElementFxChannels,
 		keyableFxChannels,
 		newComponentTimeline,
 		newScreenTimeline,
@@ -75,6 +79,7 @@
 		stageDragKeys,
 		timelineDrives,
 		withoutRatioKeys,
+		type ElementFxChannelRow,
 		type FxChannelRow,
 		type KeyedChannel,
 		type RigClip,
@@ -1152,24 +1157,77 @@
 		preview();
 	}
 
-	/** The Timeline rows a node actor gets beyond the shared channels (`fxTimelineRows`): on a
-	 *  placed effect, its parameters, then any `fx:` channel it keys that is not one (⚠). */
+	/** The Timeline rows a node actor gets beyond the shared channels: on a placed effect its
+	 *  parameters (`fxTimelineRows`), then on any node its keyed Element FX
+	 *  (`elementFxTimelineRows`) — each followed by the channels it keys that are no longer one (⚠). */
 	function actorFxRows(cast: CinematicCast): TimelineChannel[] {
 		const doc = tl?.doc();
 		const node = doc && scene && cast.target ? findActorNode(doc, scene.nodes, cast.target) : null;
-		if (!doc || node?.kind !== 'effect') return [];
-		return fxTimelineRows(doc, cast.actorId, node, placedEffect(node.effectId), keysRatio()).map(
-			(row) => ({
-				key: row.channel,
-				label: row.label,
-				color: row.stale ? '#8b93a1' : '#c98bff',
-			}),
+		if (!doc || !node) return [];
+		const fx =
+			node.kind === 'effect'
+				? fxTimelineRows(doc, cast.actorId, node, placedEffect(node.effectId), keysRatio()).map(
+						(row) => ({
+							key: row.channel,
+							label: row.label,
+							color: row.stale ? '#8b93a1' : '#c98bff',
+						}),
+					)
+				: [];
+		const efx = elementFxTimelineRows(doc, cast.actorId, node, keysRatio()).map((row) => ({
+			key: row.channel,
+			label: row.label,
+			color: row.stale ? '#8b93a1' : '#7ee0c0',
+		}));
+		return [...fx, ...efx];
+	}
+
+	// ---- the selected node's keyed Element FX ----------------------------------------------------
+
+	/** The selected node's `keyed` Element FX entries, two channels each: progress, then strength. */
+	const efxRows = $derived.by((): ElementFxChannelRow[] =>
+		target?.ok ? keyableElementFxChannels(target.node) : [],
+	);
+
+	function efxValue(row: ElementFxChannelRow): number {
+		void docVersion;
+		const doc = tl?.doc();
+		const id = actorId();
+		return doc && id ? elementFxChannelValue(doc, id, row, time, keysRatio()) : row.rest;
+	}
+
+	/** Key an Element FX channel at the playhead, inside its range. */
+	function keyEfx(row: ElementFxChannelRow, v?: number): void {
+		const doc = tl?.doc();
+		if (!doc || !tl || !target?.ok || !ownsDoc(doc)) return;
+		const id = ensureNodeActor(doc, target.target);
+		const next = v ?? efxValue(row);
+		tl.keyProperty(
+			id,
+			row.channel,
+			Number.isFinite(next) ? Math.min(row.max, Math.max(row.min, next)) : row.rest,
 		);
+		preview();
 	}
 
 	// A placed effect's doc can land after the Timeline drew its rows: redraw them when it does.
 	$effect(() => {
 		void placedEffectsVersion();
+		untrack(() => tl?.renderTimeline());
+	});
+
+	/** Every node's keyed Element FX on the host (id and kind): what its keyed rows are made of. */
+	const keyedFxOf = (nodes: LayoutNode[]): unknown[] =>
+		nodes.map((n) => [
+			n.id,
+			keyableElementFxEntries(n).map((e) => [e.id, e.kind]),
+			n.kind === 'container' ? keyedFxOf(n.children) : null,
+		]);
+	/** Changes only when an entry turns `keyed` (or back), is removed or changes kind — never on a
+	 *  param or strength edit, which leaves the rows as they are. */
+	const keyedFxKey = $derived(JSON.stringify(keyedFxOf(scene?.nodes ?? [])));
+	$effect(() => {
+		void keyedFxKey;
 		untrack(() => tl?.renderTimeline());
 	});
 
@@ -1229,6 +1287,19 @@
 				max: row.param.kind === 'number' ? row.param.max : undefined,
 				note: row.param.note,
 			})),
+			...efxRows.map((row): KeyField => ({
+				channel: row.channel,
+				label: row.label,
+				kind: 'fx',
+				value: efxValue(row),
+				state: channelKeyState(doc, id, row.channel, time, keysRatio()),
+				min: row.min,
+				max: row.max,
+				note:
+					row.value === 'progress'
+						? 'How far through the effect: 0 at rest … 1 at its end.'
+						: 'Its strength, × the intensity set under Element FX (1 = as set).',
+			})),
 		];
 		return { ...base, target: target.target, fields };
 	});
@@ -1263,7 +1334,9 @@
 	/** Properties' key button / typed value: route a field to its channel's keyer. */
 	function keyField(channel: string, v?: number): void {
 		const row = fxRows.find((r) => r.channel === channel);
+		const efx = efxRows.find((r) => r.channel === channel);
 		if (row) keyFx(row, v);
+		else if (efx) keyEfx(efx, v);
 		else if ((channels as string[]).includes(channel)) key(channel as KeyedChannel, v);
 	}
 

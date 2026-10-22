@@ -22,8 +22,16 @@
  * helpers below, so there is one source of truth for each leaf.
  */
 
-import { runCameraEffect } from 'pixi-svelte';
+import {
+	elementFxHostFor,
+	playElementFx,
+	resolveAnchor,
+	runCameraEffect,
+	type ElementFxHandle,
+} from 'pixi-svelte';
+import { particleTimeScale } from 'pixi-svelte/particleClock';
 import { isCameraEffectKind } from 'constants-shared/camera';
+import { isElementFxKind } from 'constants-shared/elementFx';
 import { recordBookEvent, checkIsMultipleRevealEvents } from 'utils-book';
 import {
 	stateBet,
@@ -694,6 +702,20 @@ export const cueBigWinCountUp = async ({
 const numberOrUndefined = (value: unknown): number | undefined =>
 	typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 
+/** The Element FX each target is playing for the flow, so `stopElementEffect` stops those alone. */
+const flowElementFx = new Map<string, Set<ElementFxHandle>>();
+
+const trackFlowElementFx = (target: string, handle: ElementFxHandle): void => {
+	const plays = flowElementFx.get(target) ?? new Set<ElementFxHandle>();
+	plays.add(handle);
+	flowElementFx.set(target, plays);
+	void handle.done.then(() => {
+		if (handle.active) return;
+		plays.delete(handle);
+		if (!plays.size) flowElementFx.delete(target);
+	});
+};
+
 /** A flow payload `{reel, row}` (or a list of them) as cells; anything malformed is dropped. */
 const toCells = (value: unknown): { reel: number; row: number }[] => {
 	const list = Array.isArray(value) ? value : value === undefined ? [] : [value];
@@ -1185,6 +1207,41 @@ const effects: Record<string, FlowEffect> = {
 			intensity: numberOrUndefined(payload.intensity),
 		});
 		return payload.blocking ? playing : undefined;
+	},
+
+	/**
+	 * Element FX (`elementEffect`) — the camera's sibling for ONE element: the reels, a screen
+	 * (`screen:<id>`) or a node, found through the named anchors (the reel stack, every mounted
+	 * screen, groups, components and each node carrying Element FX register one). An unknown target
+	 * or kind is a no-op, as `cameraEffect`'s is. `blocking` waits for it to play out; one that plays
+	 * until stopped (`repeat: 0`) never blocks.
+	 */
+	elementEffect: (payload) => {
+		const kind = payload.kind;
+		const name = typeof payload.target === 'string' ? payload.target : '';
+		const target = name ? resolveAnchor(name) : undefined;
+		if (!isElementFxKind(kind) || !target) return;
+		const repeat = numberOrUndefined(payload.repeat);
+		const handle = playElementFx(
+			target,
+			{
+				kind,
+				durationMs: numberOrUndefined(payload.durationMs),
+				intensity: numberOrUndefined(payload.intensity),
+				repeat,
+				params: typeof payload.color === 'string' ? { color: payload.color } : undefined,
+			},
+			elementFxHostFor(stateApp.pixiApplication, particleTimeScale),
+		);
+		trackFlowElementFx(name, handle);
+		return payload.blocking && repeat !== 0 ? handle.done : undefined;
+	},
+
+	/** Stop every Element FX the flow played on `target` and put it back at rest. */
+	stopElementEffect: (payload) => {
+		const name = typeof payload.target === 'string' ? payload.target : '';
+		for (const handle of flowElementFx.get(name) ?? []) handle.stop();
+		flowElementFx.delete(name);
 	},
 
 	/**
