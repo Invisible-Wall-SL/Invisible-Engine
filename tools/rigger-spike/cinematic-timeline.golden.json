@@ -737,7 +737,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d5314e258ed84769",
+			"tl": "25a5c93876ae1e23",
 			"panel": "d94c2592657ec815",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -756,7 +756,7 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "e99b401f496135b0",
+			"tl": "e8328d0bdc41b67e",
 			"panel": "d94c2592657ec815",
 			"props": "7619deb3e85cbbfd"
 		},
@@ -775,13 +775,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "fae8263c73b34315",
+			"tl": "5f9c3b3da3fd156b",
 			"panel": "e5c3eda9b16d0982",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "drag a visibility key",
-			"doc": "65cf372ace8ef20d",
+			"doc": "5c3954d767605137",
 			"hist": {
 				"index": 34,
 				"size": 35,
@@ -794,13 +794,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d6c64718a5567747",
+			"tl": "8b664de838b5fac0",
 			"panel": "e5c3eda9b16d0982",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "hide B (static)",
-			"doc": "01b3aa0e2488d7fe",
+			"doc": "f28c40e7a70c158c",
 			"hist": {
 				"index": 35,
 				"size": 36,
@@ -813,13 +813,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d6c64718a5567747",
+			"tl": "8b664de838b5fac0",
 			"panel": "46c6fd90eb19196c",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "double-click deletes a visibility key",
-			"doc": "bce53b264d1d616c",
+			"doc": "b6c0374023f5aa94",
 			"hist": {
 				"index": 36,
 				"size": 37,
@@ -832,13 +832,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "9bd9abbaf5403c9a",
+			"tl": "a9931433a206d455",
 			"panel": "7218118e7e312d41",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "◆ camera x",
-			"doc": "8eb4585f478ff750",
+			"doc": "807fc8ebcda21da6",
 			"hist": {
 				"index": 37,
 				"size": 38,
@@ -851,13 +851,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "0b8750bc6db9c947",
+			"tl": "0563af4be97ca7f6",
 			"panel": "e21d41de856e96e0",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "◆ camera zoom",
-			"doc": "a82904f3349bf858",
+			"doc": "3984ee91ff49ed69",
 			"hist": {
 				"index": 38,
 				"size": 39,
@@ -870,13 +870,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d0956cb5a76407be",
+			"tl": "a0961a2a53a447b6",
 			"panel": "e25ea4d8b3cd0460",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "🎥 live off",
-			"doc": "a82904f3349bf858",
+			"doc": "3984ee91ff49ed69",
 			"hist": {
 				"index": 38,
 				"size": 39,
@@ -889,13 +889,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d0956cb5a76407be",
+			"tl": "a0961a2a53a447b6",
 			"panel": "f32fb4545c29b39f",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "🎥 live on",
-			"doc": "a82904f3349bf858",
+			"doc": "3984ee91ff49ed69",
 			"hist": {
 				"index": 38,
 				"size": 39,
@@ -908,13 +908,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d0956cb5a76407be",
+			"tl": "a0961a2a53a447b6",
 			"panel": "e25ea4d8b3cd0460",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "time 4",
-			"doc": "a82904f3349bf858",
+			"doc": "3984ee91ff49ed69",
 			"hist": {
 				"index": 38,
 				"size": 39,
@@ -927,13 +927,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "b2d805ad7524c02a",
+			"tl": "b7e71e61b93a262b",
 			"panel": "e25ea4d8b3cd0460",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "＋ cue",
-			"doc": "e04cffdd5e673135",
+			"doc": "a68e4621da434baf",
 			"hist": {
 				"index": 39,
 				"size": 40,
@@ -946,13 +946,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "f28dae10ec0358c3",
+			"tl": "dfdba3ec3763cf19",
 			"panel": "d481604f3699be97",
 			"props": "675fd15d1e126309"
 		},
 		{
 			"name": "pick fx:burst",
-			"doc": "6e214e0b7794fac8",
+			"doc": "ccd7b63aebef51e5",
 			"hist": {
 				"index": 40,
 				"size": 41,
@@ -965,13 +965,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "f32510b3452e9f80",
+			"tl": "9ab5dd852c79ead0",
 			"panel": "d80ab2c728a27fee",
 			"props": "71a073801da23365"
 		},
 		{
 			"name": "pick a KIND seeds the field",
-			"doc": "6e214e0b7794fac8",
+			"doc": "ccd7b63aebef51e5",
 			"hist": {
 				"index": 40,
 				"size": 41,
@@ -984,13 +984,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "f32510b3452e9f80",
+			"tl": "9ab5dd852c79ead0",
 			"panel": "d80ab2c728a27fee",
 			"props": "71a073801da23365"
 		},
 		{
 			"name": "type a sound cue",
-			"doc": "025f774a191cc484",
+			"doc": "5591ce1a7c44517f",
 			"hist": {
 				"index": 41,
 				"size": 42,
@@ -1003,13 +1003,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "e8a1cf5d5aa0ef1a",
+			"tl": "172961d1fec6e144",
 			"panel": "d80ab2c728a27fee",
 			"props": "930f3ab6636c65ac"
 		},
 		{
 			"name": "cue time 4.5",
-			"doc": "a66f5742a2c321ec",
+			"doc": "9eecb117957e3dc9",
 			"hist": {
 				"index": 42,
 				"size": 43,
@@ -1022,13 +1022,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "8c861ab5694e8fdb",
+			"tl": "711a8c0e812baf3a",
 			"panel": "d80ab2c728a27fee",
 			"props": "a60cef48d438a05b"
 		},
 		{
 			"name": "＋ a second cue at the playhead",
-			"doc": "800c8dc8d987db3e",
+			"doc": "6a60502801c2872a",
 			"hist": {
 				"index": 43,
 				"size": 44,
@@ -1041,13 +1041,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "017c9b36baccefd7",
+			"tl": "47fe6a09237ce8cd",
 			"panel": "083f9192c26be459",
 			"props": "675fd15d1e126309"
 		},
 		{
 			"name": "pick fx:burst on it",
-			"doc": "1d85cd0cad80731c",
+			"doc": "3bcb9ac87a2c3054",
 			"hist": {
 				"index": 44,
 				"size": 45,
@@ -1060,13 +1060,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "438b9d42c7c504b9",
+			"tl": "ae48ae63586eb1db",
 			"panel": "b02b10ba59c745d1",
 			"props": "71a073801da23365"
 		},
 		{
 			"name": "drag the cue",
-			"doc": "8d6e374a44f2801f",
+			"doc": "2c3cb45afc01fcc0",
 			"hist": {
 				"index": 45,
 				"size": 46,
@@ -1079,13 +1079,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d3b8ff972a2bb776",
+			"tl": "7c8f26cad9e2c011",
 			"panel": "439ed27fd7138da7",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "fx row ▼",
-			"doc": "2761ea7e4c232cf8",
+			"doc": "23c837a62e0c62c8",
 			"hist": {
 				"index": 46,
 				"size": 47,
@@ -1098,13 +1098,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "c55efaf3c9b56c74",
+			"tl": "e0fd9301561f9567",
 			"panel": "439ed27fd7138da7",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "fx row ▲",
-			"doc": "8d6e374a44f2801f",
+			"doc": "2c3cb45afc01fcc0",
 			"hist": {
 				"index": 47,
 				"size": 48,
@@ -1117,13 +1117,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "d3b8ff972a2bb776",
+			"tl": "7c8f26cad9e2c011",
 			"panel": "439ed27fd7138da7",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "select the cue",
-			"doc": "8d6e374a44f2801f",
+			"doc": "2c3cb45afc01fcc0",
 			"hist": {
 				"index": 47,
 				"size": 48,
@@ -1136,13 +1136,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "e732a93dcd0e9768",
+			"tl": "f3ee28363deec35e",
 			"panel": "b191ed3c20377f4c",
 			"props": "777853558861d344"
 		},
 		{
 			"name": "🗑 the cue",
-			"doc": "a66f5742a2c321ec",
+			"doc": "9eecb117957e3dc9",
 			"hist": {
 				"index": 48,
 				"size": 49,
@@ -1155,13 +1155,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "b95b32b383434287",
+			"tl": "db88c846d6a49b79",
 			"panel": "0f36954009b68718",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "bind the set",
-			"doc": "c06d532ab5f87e06",
+			"doc": "f49dc18f9fc11645",
 			"hist": {
 				"index": 49,
 				"size": 50,
@@ -1174,13 +1174,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "b95b32b383434287",
+			"tl": "db88c846d6a49b79",
 			"panel": "19d1c2ee6e0ce5ab",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "frame: desktop",
-			"doc": "99cfb5ca87feb5a9",
+			"doc": "88ce139d411bed44",
 			"hist": {
 				"index": 50,
 				"size": 51,
@@ -1193,13 +1193,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "b95b32b383434287",
+			"tl": "db88c846d6a49b79",
 			"panel": "e5b97e9e891276f1",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "A ▼ (in front)",
-			"doc": "b2cd61750bb7048b",
+			"doc": "9e2c310cc867ac87",
 			"hist": {
 				"index": 51,
 				"size": 52,
@@ -1212,13 +1212,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "f02e7fecc701a349",
+			"tl": "0ba8d5ddc9a8c009",
 			"panel": "00a51673b04ef585",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "B y = 30",
-			"doc": "3e06a9e86455bed8",
+			"doc": "7e506433b55e943a",
 			"hist": {
 				"index": 52,
 				"size": 53,
@@ -1231,13 +1231,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "f02e7fecc701a349",
+			"tl": "0ba8d5ddc9a8c009",
 			"panel": "00a51673b04ef585",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "B flip",
-			"doc": "1ac1dbd1dd55021d",
+			"doc": "5d8f3c606ead8803",
 			"hist": {
 				"index": 53,
 				"size": 54,
@@ -1250,13 +1250,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "f02e7fecc701a349",
+			"tl": "0ba8d5ddc9a8c009",
 			"panel": "00a51673b04ef585",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "B clip: none",
-			"doc": "4dafa1623995c550",
+			"doc": "723f0a63fd293cf7",
 			"hist": {
 				"index": 54,
 				"size": 55,
@@ -1269,13 +1269,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "26424f3f19b10b61",
+			"tl": "c2befb00b2f30536",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "scrub the ruler",
-			"doc": "4dafa1623995c550",
+			"doc": "723f0a63fd293cf7",
 			"hist": {
 				"index": 54,
 				"size": 55,
@@ -1288,13 +1288,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "zoom in",
-			"doc": "4dafa1623995c550",
+			"doc": "723f0a63fd293cf7",
 			"hist": {
 				"index": 54,
 				"size": 55,
@@ -1307,13 +1307,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "82aee8cf748c244a",
+			"tl": "d448874070323c80",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "scrub the ruler scrolled right",
-			"doc": "4dafa1623995c550",
+			"doc": "723f0a63fd293cf7",
 			"hist": {
 				"index": 54,
 				"size": 55,
@@ -1326,13 +1326,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "12cb6d6b843789c8",
+			"tl": "181a2e9f6f7055a4",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "scroll back, playhead back",
-			"doc": "4dafa1623995c550",
+			"doc": "723f0a63fd293cf7",
 			"hist": {
 				"index": 54,
 				"size": 55,
@@ -1345,13 +1345,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "82aee8cf748c244a",
+			"tl": "d448874070323c80",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "zoom out",
-			"doc": "4dafa1623995c550",
+			"doc": "723f0a63fd293cf7",
 			"hist": {
 				"index": 54,
 				"size": 55,
@@ -1364,13 +1364,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "B scale = 1.5",
-			"doc": "c6729cddf742234d",
+			"doc": "f75d8d7b3250fd25",
 			"hist": {
 				"index": 55,
 				"size": 56,
@@ -1383,13 +1383,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "B scale = 2 within 600 ms (coalesces)",
-			"doc": "b4506eb501ac96ed",
+			"doc": "43765c9fc6909210",
 			"hist": {
 				"index": 55,
 				"size": 56,
@@ -1402,13 +1402,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "B scale = 2.5 later (new step)",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1421,13 +1421,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "a2a6b81145ec461c",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "Ctrl+Z",
-			"doc": "b4506eb501ac96ed",
+			"doc": "43765c9fc6909210",
 			"hist": {
 				"index": 55,
 				"size": 57,
@@ -1440,13 +1440,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "47c8bb14a0b60f71",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "Ctrl+Z again",
-			"doc": "4dafa1623995c550",
+			"doc": "723f0a63fd293cf7",
 			"hist": {
 				"index": 54,
 				"size": 57,
@@ -1459,13 +1459,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "ef153f3483f4cf66",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "↷ Redo button",
-			"doc": "b4506eb501ac96ed",
+			"doc": "43765c9fc6909210",
 			"hist": {
 				"index": 55,
 				"size": 57,
@@ -1478,13 +1478,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "47c8bb14a0b60f71",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "Ctrl+Y",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1497,13 +1497,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "cd694fe196651b05",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "Ctrl+Shift+Z with nothing to redo",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1516,13 +1516,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "cd694fe196651b05",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "↶ Undo button ×3",
-			"doc": "1ac1dbd1dd55021d",
+			"doc": "5d8f3c606ead8803",
 			"hist": {
 				"index": 53,
 				"size": 57,
@@ -1535,13 +1535,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "9f6d69966ea3fab6",
+			"tl": "9bc9e745e8a3fe04",
 			"panel": "70d0561c421c91df",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "Ctrl+Z is the field’s own while one has focus",
-			"doc": "1ac1dbd1dd55021d",
+			"doc": "5d8f3c606ead8803",
 			"hist": {
 				"index": 53,
 				"size": 57,
@@ -1554,13 +1554,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "9f6d69966ea3fab6",
+			"tl": "9bc9e745e8a3fe04",
 			"panel": "70d0561c421c91df",
 			"props": "7619deb3e85cbbfd"
 		},
 		{
 			"name": "Ctrl+Shift+Z ×3",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1573,13 +1573,13 @@
 				"dirty": true,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "4960503dda1ad62c",
+			"tl": "a66e8b9a390ddc01",
 			"panel": "cd694fe196651b05",
 			"props": "2f2b330e5ea576ed"
 		},
 		{
 			"name": "select a strip",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1592,13 +1592,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "7320421d682b2c65",
+			"tl": "656a5fc68ec04edf",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
 		{
 			"name": "double-click → Tweak Mode",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1617,7 +1617,7 @@
 		},
 		{
 			"name": "Esc leaves Tweak Mode",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1630,13 +1630,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "7320421d682b2c65",
+			"tl": "656a5fc68ec04edf",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
 		{
 			"name": "select a strip again",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1649,13 +1649,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "7320421d682b2c65",
+			"tl": "656a5fc68ec04edf",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
 		{
 			"name": "✎ Tweak clip button",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1674,7 +1674,7 @@
 		},
 		{
 			"name": "Ctrl+Z is the animator’s while tweaking",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1693,7 +1693,7 @@
 		},
 		{
 			"name": "done",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1706,13 +1706,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "7320421d682b2c65",
+			"tl": "656a5fc68ec04edf",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
 		{
 			"name": "select a strip again",
-			"doc": "a40ba9413925d0e7",
+			"doc": "1a22834af867f8c7",
 			"hist": {
 				"index": 56,
 				"size": 57,
@@ -1725,13 +1725,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "7320421d682b2c65",
+			"tl": "656a5fc68ec04edf",
 			"panel": "cd694fe196651b05",
 			"props": "da9824f66da0ed0b"
 		},
 		{
 			"name": "＋ New clip",
-			"doc": "d58e0fa4a2068649",
+			"doc": "85b5a62b0a7c0bc6",
 			"hist": {
 				"index": 57,
 				"size": 58,
@@ -1750,7 +1750,7 @@
 		},
 		{
 			"name": "done again",
-			"doc": "d58e0fa4a2068649",
+			"doc": "85b5a62b0a7c0bc6",
 			"hist": {
 				"index": 57,
 				"size": 58,
@@ -1763,13 +1763,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "eef4783fb4c2a800",
+			"tl": "9617b42b7e6a01de",
 			"panel": "fe5d14c2025e75b9",
 			"props": "b568e3fea2c3a549"
 		},
 		{
 			"name": "✎ pose B inline",
-			"doc": "d58e0fa4a2068649",
+			"doc": "85b5a62b0a7c0bc6",
 			"hist": {
 				"index": 57,
 				"size": 58,
@@ -1782,13 +1782,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "eef4783fb4c2a800",
+			"tl": "9617b42b7e6a01de",
 			"panel": "b2725538b07b81c8",
 			"props": "b568e3fea2c3a549"
 		},
 		{
 			"name": "first key makes the override",
-			"doc": "b06814a8411050cb",
+			"doc": "110d5b85c4439f45",
 			"hist": {
 				"index": 58,
 				"size": 59,
@@ -1801,13 +1801,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "4600e5ad2b4642bc",
+			"tl": "546e1f2f57241766",
 			"panel": "52710deabd4fb9ec",
 			"props": "a1e1ea91be132664"
 		},
 		{
 			"name": "✎ again stops posing",
-			"doc": "b06814a8411050cb",
+			"doc": "110d5b85c4439f45",
 			"hist": {
 				"index": 58,
 				"size": 59,
@@ -1820,13 +1820,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "4600e5ad2b4642bc",
+			"tl": "546e1f2f57241766",
 			"panel": "a33f210de7be154a",
 			"props": "5aedce49681c1878"
 		},
 		{
 			"name": "rename",
-			"doc": "8d646459108d490a",
+			"doc": "828c68ae709f162b",
 			"hist": {
 				"index": 59,
 				"size": 60,
@@ -1839,13 +1839,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "4600e5ad2b4642bc",
+			"tl": "546e1f2f57241766",
 			"panel": "6a9045531db0ee3c",
 			"props": "5aedce49681c1878"
 		},
 		{
 			"name": "Ctrl+S saves",
-			"doc": "28ad9d7a6313614b",
+			"doc": "99dce2579419e161",
 			"hist": {
 				"index": 59,
 				"size": 60,
@@ -1858,13 +1858,13 @@
 				"dirty": false,
 				"propSub": "cinematic"
 			},
-			"tl": "4600e5ad2b4642bc",
+			"tl": "546e1f2f57241766",
 			"panel": "4d9a52eda72bb461",
 			"props": "5aedce49681c1878"
 		},
 		{
 			"name": "rename after save keeps the id",
-			"doc": "5cbe816011119b7e",
+			"doc": "a6c670832cf9d569",
 			"hist": {
 				"index": 60,
 				"size": 61,
@@ -1877,13 +1877,13 @@
 				"dirty": true,
 				"propSub": "cinematic"
 			},
-			"tl": "4600e5ad2b4642bc",
+			"tl": "546e1f2f57241766",
 			"panel": "23f99421540c7c6f",
 			"props": "5aedce49681c1878"
 		},
 		{
 			"name": "💾 Save",
-			"doc": "2313750b4d7f1769",
+			"doc": "cb37cd4d3ff29e1a",
 			"hist": {
 				"index": 60,
 				"size": 61,
@@ -1896,7 +1896,7 @@
 				"dirty": false,
 				"propSub": "cinematic"
 			},
-			"tl": "4600e5ad2b4642bc",
+			"tl": "546e1f2f57241766",
 			"panel": "a18db8d964ffd8b1",
 			"props": "5aedce49681c1878"
 		},
@@ -1940,7 +1940,7 @@
 		},
 		{
 			"name": "open the first one",
-			"doc": "3ad9db773753f866",
+			"doc": "c4b4032994b8cdf8",
 			"hist": {
 				"index": 0,
 				"size": 1,
@@ -1953,7 +1953,7 @@
 				"dirty": false,
 				"propSub": "select a strip, key or cue"
 			},
-			"tl": "34468f68d75f16d8",
+			"tl": "c801d2ad19a67d5e",
 			"panel": "b58f255fa6909aa1",
 			"props": "2f2b330e5ea576ed"
 		},

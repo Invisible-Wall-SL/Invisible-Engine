@@ -163,6 +163,7 @@ export function mount(el, options) {
 	const boxSelect = !!options.boxSelect;
 	const textRows = !!options.textRows;
 	let selCueTime = null; // the selected cue key, by time (cues are global, so time identifies one)
+	let selVis = null; // the selected visibility key: { actorId, time } — Delete removes it
 	let cinePps = null; // px per second; null = fit the whole cinematic to the panel width
 	let tlDrag = null;
 	let rulerDrag = false;
@@ -204,6 +205,8 @@ export function mount(el, options) {
 		a.trackId === b.trackId && a.channel === b.channel && Math.abs(a.time - b.time) < 1e-6;
 	const isKeySelected = (trackId, channel, t) =>
 		selKeys.some((k) => sameKey(k, { trackId, channel, time: t }));
+	const isVisSelected = (actorId, t) =>
+		!!selVis && selVis.actorId === actorId && Math.abs(selVis.time - t) < 1e-6;
 	function selectKeys(list, primary) {
 		selKeys = list;
 		selKey = primary || list[list.length - 1] || null;
@@ -222,6 +225,13 @@ export function mount(el, options) {
 	/** Restyle the drawn keys to the selection without rebuilding the rows (mid-gesture safe). */
 	function markSelectedKeys() {
 		if (!el) return;
+		el.querySelectorAll('.cineVisRow .cineVisKey').forEach((dot) => {
+			const row = dot.closest('.cineVisRow');
+			dot.classList.toggle(
+				'sel',
+				isVisSelected(row.dataset.actor, parseFloat(dot.dataset.visTime)),
+			);
+		});
 		el.querySelectorAll('.cineChanRow .cineKey').forEach((dot) => {
 			const row = dot.closest('.cineChanRow');
 			const on = isKeySelected(
@@ -510,17 +520,24 @@ export function mount(el, options) {
 				const l = lane(contentW);
 				for (const k of entry.track.keys) {
 					const dot = document.createElement('span');
-					dot.className = 'cineVisKey' + (k.visible === false ? ' off' : '');
+					dot.className =
+						'cineVisKey' +
+						(k.visible === false ? ' off' : '') +
+						(isVisSelected(entry.cast.actorId, k.time) ? ' sel' : '');
 					dot.style.left = (k.time * pps).toFixed(1) + 'px';
 					dot.dataset.visTime = k.time;
 					dot.title =
-						(k.visible === false ? 'hidden' : 'visible') + ' from ' + +k.time.toFixed(3) + 's';
+						(k.visible === false ? 'hidden' : 'visible') +
+						' from ' +
+						+k.time.toFixed(3) +
+						's — click to select (Delete removes it), drag to move';
 					l.appendChild(dot);
 				}
 				row.appendChild(l);
 			},
-			// Visibility keys: drag to retime, double-click to delete (there is nothing else to edit —
-			// the VALUE is the marker shape, flipped from the panel toggle).
+			// Visibility keys: click to select (Delete removes it, as it does a selected key), drag to
+			// retime, double-click to delete. There is nothing else to edit: the VALUE is the marker
+			// shape, flipped from the panel toggle.
 			wire(root, pps) {
 				root.querySelectorAll('.cineVisRow .cineVisKey').forEach((dot) => {
 					const actorId = dot.closest('.cineVisRow').dataset.actor;
@@ -528,8 +545,13 @@ export function mount(el, options) {
 					dot.onpointerdown = (e) => {
 						e.preventDefault();
 						e.stopPropagation();
+						const track = visTracksOf(actorId)[0];
+						const key = track && track.keys.find((x) => Math.abs(x.time - keyTime) < 1e-6);
+						if (!key) return;
+						selectVisKey(actorId, keyTime);
 						tlDrag = {
 							kind: 'vis',
+							key,
 							actorId,
 							time: keyTime,
 							startX: e.clientX,
@@ -545,20 +567,24 @@ export function mount(el, options) {
 					};
 					dot.onpointermove = (e) => {
 						if (!tlDrag || tlDrag.kind !== 'vis' || tlDrag.el !== dot) return;
-						const track = visTracksOf(actorId)[0];
-						const k = track && track.keys.find((x) => Math.abs(x.time - tlDrag.time) < 1e-6);
-						if (!k) return;
-						if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
+						// From where the drag began, on the key itself, so it is not lost once it leaves
+						// its starting frame.
+						const k = tlDrag.key;
 						k.time = snapT(tlDrag.time + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
+						if (Math.abs(k.time - tlDrag.time) > 1e-9) tlDrag.moved = true;
 						dot.style.left = (k.time * tlDrag.pps).toFixed(1) + 'px';
 					};
 					const endVis = () => {
 						if (!tlDrag || tlDrag.kind !== 'vis' || tlDrag.el !== dot) return;
-						const moved = tlDrag.moved;
+						const { moved, key } = tlDrag;
 						const track = visTracksOf(actorId)[0];
 						if (track) track.keys.sort((a, b) => a.time - b.time);
 						tlDrag = null;
-						if (moved) commit('move visibility key', 'vis:' + actorId + ':' + keyTime);
+						// A click that moved nothing must not redraw: the second click of a double-click
+						// would land on a new marker, and the browser would never send this one its dblclick.
+						if (!moved) return;
+						selVis = { actorId, time: key.time };
+						commit('move visibility key', 'vis:' + actorId + ':' + keyTime);
 						renderTimeline();
 					};
 					dot.onpointerup = endVis;
@@ -635,10 +661,17 @@ export function mount(el, options) {
 						const moved = tlDrag.moved;
 						const track = doc.tracks.find((x) => x.id === trackId);
 						if (track) track.keys.sort((a, b) => a.time - b.time);
+						const pps = tlDrag.pps;
 						tlDrag = null;
-						if (moved) commit('move text key', 'text:' + trackId + ':' + keyTime);
-						else setTime(keyTime);
-						renderTimeline();
+						if (moved) {
+							commit('move text key', 'text:' + trackId + ':' + keyTime);
+							renderTimeline();
+							return;
+						}
+						// A click seeks to the key and moves only the playhead, so the marker survives for
+						// the second click of a double-click (see the visibility row).
+						setTime(keyTime);
+						positionPlayhead(pps);
 					};
 					dot.onpointerup = endText;
 					dot.onpointercancel = endText;
@@ -1629,9 +1662,24 @@ export function mount(el, options) {
 		renderTimeline();
 	}
 
+	/** Select one visibility key and restyle the markers in place (the rows stay, mid-click). */
+	function selectVisKey(actorId, t) {
+		selectKeys([]);
+		selVis = { actorId, time: t };
+		markSelectedKeys();
+	}
+	// Any press in the Timeline off a visibility key drops that key's selection, so Delete never
+	// reaches a key the author has since clicked away from.
+	function dropVisSelection(e) {
+		if (!selVis || (e.target.closest && e.target.closest('.cineVisKey'))) return;
+		selVis = null;
+		markSelectedKeys();
+	}
+
 	function deleteVisKey(actorId, keyTime) {
 		const track = visTracksOf(actorId)[0];
-		if (!track) return;
+		if (!track || !track.keys.some((k) => Math.abs(k.time - keyTime) < 1e-6)) return;
+		if (isVisSelected(actorId, keyTime)) selVis = null;
 		track.keys = track.keys.filter((k) => Math.abs(k.time - keyTime) > 1e-6);
 		// An empty track is noise — drop it so "never keyed" and "keyed then cleared" look the same.
 		if (!track.keys.length) doc.tracks = doc.tracks.filter((t) => t.id !== track.id);
@@ -2324,9 +2372,12 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 			host.togglePlay();
 			return;
 		}
-		// Delete the selected keys, else the selected strip.
+		// Delete the selected keys (a visibility key or property keys), else the selected strip.
 		if (e.key === 'Delete' || e.key === 'Backspace') {
-			if (selKey) {
+			if (selVis) {
+				e.preventDefault();
+				deleteVisKey(selVis.actorId, selVis.time);
+			} else if (selKey) {
 				e.preventDefault();
 				deleteSelectedKeys();
 			} else if (selStripId) {
@@ -2337,6 +2388,7 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 	}
 
 	window.addEventListener('keydown', onKeyDown);
+	if (el) el.addEventListener('pointerdown', dropVisSelection, true);
 
 	return {
 		doc: () => doc,
@@ -2354,6 +2406,7 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		},
 		destroy() {
 			window.removeEventListener('keydown', onKeyDown);
+			if (el) el.removeEventListener('pointerdown', dropVisSelection, true);
 			active = false;
 		},
 
@@ -2363,6 +2416,7 @@ ${actions}	<button id="cineDupStrip" title="Copy this strip in right after itsel
 		},
 		clearSelection() {
 			selStripId = null;
+			selVis = null;
 			selectKeys([]);
 		},
 		selectedKeys: () => selKeys.slice(),

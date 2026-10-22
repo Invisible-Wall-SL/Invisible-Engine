@@ -171,6 +171,31 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-22 — **Visible markers select and delete like key diamonds; double-click deletes a
+  visible or text marker; a drag carries a visible marker the whole way** (branch
+  `claude/blissful-bohr-4r7uny`). Reported on `commonoverlayproject`: a stray Hide key on a node's
+  `↳ visible` row could not be removed, and the owner expected it to work like a diamond. Three
+  bugs in the shared Timeline module:
+  - a visible marker could not be selected, so Delete had nothing to remove. It now selects on
+    click (`selVis`, yellow outline, cleared by any other press in the Timeline and by
+    `clearSelection`), Delete removes it ahead of key diamonds, and a click on one clears the
+    diamond selection (a selected strip stays, as a diamond click leaves it);
+  - double-click deleted nothing: the pointerup ending the first click re-rendered the Timeline,
+    so the second click landed on a new marker and the browser sent the dblclick to neither (the
+    trap `wireTimeline` documents for strips). A click that moves nothing now leaves the rows
+    alone; a text key's click still seeks, moving only the playhead (`positionPlayhead`);
+  - a drag moved a visible marker one frame at most: each move looked the key up by the time the
+    drag began (the bug Phase 9b fixed for diamonds). The drag now holds the key itself.
+
+  `/rigger` shares the module (`static/shared/timeline.mjs` re-synced, the selected style added to
+  `view.html`). Its golden is re-recorded for exactly these changes: the markers' tooltip, the
+  "drag a visibility key" step now moving its full 30 px (2.0 → 2.233 s, where it stopped at
+  2.1 s), and the dragged marker staying selected; the undo history, panels and inspector match
+  the old run at every step. Gate: `tools/rigger-spike/timeline-markers.mjs` drives Chrome's own
+  input (`Input.dispatchMouseEvent` / `dispatchKeyEvent`; `chrome.mjs` gains a raw `send`):
+  select + Delete, deselect on another click, diamond then marker, a 60 px drag, double-click on
+  both marker kinds, and the text-key seek. It fails on the old module. Guide: [Report events,
+  visibility and text](../tools/invisible-editor.md#report-events-visibility-and-text).
 - 2026-10-22 — **A placed component selects at the art it draws, however deep** (branch
   `claude/awesome-albattani-iltv2z`, ⏳ not browser-verified). The owner's pots on the Hold and Win
   "Pots" screen are Pot Meters whose coded `Pot` part holds the author's own component (a rig and

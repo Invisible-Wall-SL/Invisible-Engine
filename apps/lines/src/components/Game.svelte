@@ -155,7 +155,7 @@
 		potFillShare,
 		HOLD_AND_WIN_BANNER_SHOW_SOURCES,
 	} from 'engine-layout';
-	import type { Scene } from 'engine-layout';
+	import type { ReelGridNode, Scene } from 'engine-layout';
 
 	import {
 		activeSpinsGame,
@@ -302,6 +302,7 @@
 	import Sound from './Sound.svelte';
 	import { Background } from 'engine-game';
 	import BoardFrame from './BoardFrame.svelte';
+	import BoardDrive from './BoardDrive.svelte';
 	import Board from './Board.svelte';
 	import Anticipations from './Anticipations.svelte';
 	import AnticipationCamera from './AnticipationCamera.svelte';
@@ -1151,6 +1152,11 @@
 			? undefined
 			: { ...basegameScene, nodes: basegameScene.nodes.slice(reelGridIndex + 1) },
 	);
+	// The base game's reel grid, when it is the node the board is laid out from (`setBoardOverride`).
+	const basegameReelGrid = $derived.by(() => {
+		const node = reelGridIndex < 0 ? undefined : basegameScene.nodes[reelGridIndex];
+		return node && node.id === findReelGridNode(editorDoc)?.id ? (node as ReelGridNode) : undefined;
+	});
 	// The overlays scene, with the coded `bind:Win` composer degraded to its gate half when the doc
 	// places its own win visual (see `basegameOverlaysSceneOf`).
 	const basegameOverlaysScene = $derived(
@@ -1507,6 +1513,17 @@
 		if (!basegameMount || mountReelGridIndex < 0) return undefined;
 		return { ...basegameMount, nodes: basegameMount.nodes.slice(mountReelGridIndex + 1) };
 	});
+	// A screen timeline playing on the shown base game moves the base game itself: the reel split's
+	// layers remount with its driver, and the board follows its `reelGrid` keys (`<BoardDrive>`).
+	// `<FlowV2Mount>` skips `basegame`, so the drive must be taken here or it reaches nothing. Only
+	// under a flow that drives the screens: there is then no v1 interpreter, so the split's coded
+	// path, which takes the driver, is what draws the base game.
+	const basegameOnStage = $derived(
+		flowV2DrivesScreens && !!flowV2Handle?.onStage(basegameScreenId),
+	);
+	const basegameDrive = $derived(
+		basegameOnStage ? flowV2Handle?.screenDrive(basegameScreenId) : undefined,
+	);
 
 	// Phase 4 (flow-driven-game §4) — the GENERIC active-screen TAKEOVER mount. When the
 	// interpreter's active screen is an authored exclusive screen that is NOT `basegame` (the
@@ -2503,7 +2520,9 @@
 		{:else}
 			<FlowMount scene={basegameMountBelowReel}>
 				{#snippet fallback()}
-					<LayoutScene scene={basegameBelowReel} />
+					{#key basegameDrive?.key}
+						<LayoutScene scene={basegameBelowReel} nodeDriver={basegameDrive?.driver} />
+					{/key}
 				{/snippet}
 			</FlowMount>
 		{/if}
@@ -2558,32 +2577,38 @@
 					<ElementFxPlayer entries={reelFx} />
 				{/if}
 			{/key}
-			{#if stateGameDerived.anticipationActive()}
-				<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
-						 the anticipation overlays (rig stack + grey-out) so the zoom/pan never fights
-						 MainContainer or the editor coordinate boxes. Both are inside the camera so they
-						 zoom together; the camera + overlays are identity until a reel arms. The camera is
-						 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
-						 off ⇒ the overlays render without the zoom (rig stack + grey-out only).
+			<BoardDrive
+				drive={basegameDrive}
+				node={basegameReelGrid}
+				layoutType={context.stateLayoutDerived.layoutType()}
+			>
+				{#if stateGameDerived.anticipationActive()}
+					<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
+							 the anticipation overlays (rig stack + grey-out) so the zoom/pan never fights
+							 MainContainer or the editor coordinate boxes. Both are inside the camera so they
+							 zoom together; the camera + overlays are identity until a reel arms. The camera is
+							 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
+							 off ⇒ the overlays render without the zoom (rig stack + grey-out only).
 
-						 `anticipationActive()` rather than the raw flag: on a swap-in-place board the whole
-						 feature stands down (there is no roll to hold), and the `{:else}` here is the exact
-						 path a game with the mode off already takes — the bare reel stack, no camera, no
-						 overlays. That also takes the geometry-bound anticipation GREY-OUT down with it.
-						 The per-symbol win dim is a different feature entirely (`SYMBOL_DIM_TINT` through
-						 `SymbolWrap`, no geometry) and is untouched. -->
-				{#if stateGame.anticipationZoom}
-					<AnticipationCamera>
+							 `anticipationActive()` rather than the raw flag: on a swap-in-place board the whole
+							 feature stands down (there is no roll to hold), and the `{:else}` here is the exact
+							 path a game with the mode off already takes — the bare reel stack, no camera, no
+							 overlays. That also takes the geometry-bound anticipation GREY-OUT down with it.
+							 The per-symbol win dim is a different feature entirely (`SYMBOL_DIM_TINT` through
+							 `SymbolWrap`, no geometry) and is untouched. -->
+					{#if stateGame.anticipationZoom}
+						<AnticipationCamera>
+							{@render reelStack()}
+							<Anticipations />
+						</AnticipationCamera>
+					{:else}
 						{@render reelStack()}
 						<Anticipations />
-					</AnticipationCamera>
+					{/if}
 				{:else}
 					{@render reelStack()}
-					<Anticipations />
 				{/if}
-			{:else}
-				{@render reelStack()}
-			{/if}
+			</BoardDrive>
 		</MainContainer>
 
 		{#if basegameMount}
@@ -2591,7 +2616,9 @@
 				<LayoutScene scene={basegameMountAboveReel} />
 			{/if}
 		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
-			<LayoutScene scene={basegameAboveReel} />
+			{#key basegameDrive?.key}
+				<LayoutScene scene={basegameAboveReel} nodeDriver={basegameDrive?.driver} />
+			{/key}
 		{/if}
 
 		<!-- The add-on's Pots screen under a driven v2 flow that never shows it. Inside this gate, so it
@@ -2942,7 +2969,9 @@
 	<FlowV2Cinematics
 		flow={flowV2Handle}
 		onStage={(sceneId) =>
-			!!flowV2ResolveScene && sceneId !== basegameScreenId && !!flowV2Handle?.onStage(sceneId)}
+			sceneId === basegameScreenId
+				? basegameOnStage
+				: !!flowV2ResolveScene && !!flowV2Handle?.onStage(sceneId)}
 	/>
 
 	<DebugStage />

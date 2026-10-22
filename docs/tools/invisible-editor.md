@@ -1288,6 +1288,13 @@ plays the result in the game. A component has its own Animate mode on the Compon
      like the screen. Starting the
      timeline re-opens the shown screen, so set a component's inputs on it after the play, not
      between the Show and the play.
+   - **The base game** works the same way: Show it, then play its timeline. Keys on the **reel
+     grid** move the reels themselves: x/y, scale ×, rotation, alpha and visibility, about the
+     grid's position, as the canvas previews them (tint does not apply to the reels). Only the
+     drawing moves: the win line and anything else the game places from the board stay where the
+     grid is laid out, so end the intro on the grid's Design pose (x/y 0, scale 1). A node hidden
+     by a visibility key stays hidden while the base game is up, because the screen holds the
+     last frame; key it visible again at the end if it should come back.
    - **A timeline reaches the game only once it keys a node and is saved.** One that never did
      (or was deleted) is skipped: the flow carries on, and the browser console says which.
 
@@ -1388,7 +1395,9 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   cues. All cues share one **⚡ cues** row; drag a marker to move it.
 - **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
   node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
-  a filled marker means shown from there, a hollow one hidden. Drag to move, double-click to delete.
+  a filled marker means shown from there, a hollow one hidden. Click one to select it (it outlines
+  in yellow) and press **Delete** to remove it, as with a key diamond; drag to move, or
+  double-click to delete.
 - **Text.** On a text node, pick **Count up** (a number, eased between keys) or **Switch** (one of
   the node's own strings: its text and its *switch keys*), then key a value at the playhead. The
   keys draw on a **↳ text** row with what they show; drag to move, double-click to delete. The
