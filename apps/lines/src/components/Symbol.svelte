@@ -6,9 +6,9 @@
 	import SymbolWinFrame from './SymbolWinFrame.svelte';
 	import { symbolStateLoopsByDefault, WIN_HIGHLIGHT_SYMBOL_STATES } from 'engine-layout';
 	import { ElementFxPlayer } from 'engine-layout/svelte';
-	import { readElementFxEntries } from 'constants-shared/elementFx';
+	import { elementFxEnterEnds } from 'constants-shared/elementFx';
 
-	import { getSymbolInfo } from '../game/utils';
+	import { getSymbolInfo, hasAuthoredSymbolState } from '../game/utils';
 	import type { SymbolState, RawSymbol, SymbolLayerSpec } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
 	import { BitmapText, Container } from 'pixi-svelte';
@@ -18,6 +18,8 @@
 	import { getActiveGameConfig } from '../game/gameConfig';
 	import { symbolPlaceholder } from '../game/symbolPlaceholder';
 	import { bakedSymbolFx } from '../editor-scenes';
+	import { stateFxGate } from '../game/stateFxGate';
+	import { symbolStateFx } from '../game/symbolStateFx';
 
 	type Props = {
 		x?: number;
@@ -208,13 +210,24 @@
 	 * own list only (no inheritance): its `enter` entries as the symbol enters it, its `always`
 	 * entries looping while it stays — `{#key}` on the state ends them as it leaves. The inline
 	 * message icon (`frozen`) plays none.
+	 *
+	 * The state's beat waits for its `enter` entries that end (`stateFxGate`): the art's completion
+	 * is held until they have played out, so a Land shake is not ended by a still picture completing
+	 * on its first frame, and a state with no art of its own is paced by them alone. One gate per
+	 * visit of a state; a gate the symbol has moved on from reports nothing.
 	 */
 	const symbolFx = $derived(props.frozen ? undefined : bakedSymbolFx()[props.rawSymbol.name]);
-	const stateFx = $derived(
-		readElementFxEntries(symbolFx?.[props.state]).filter(
-			(entry) => entry.trigger === 'enter' || entry.trigger === 'always',
-		),
-	);
+	const stateFx = $derived(symbolFx ? symbolStateFx(props.rawSymbol.name, props.state) : []);
+	const waitsForFx = $derived(stateFx.some(elementFxEnterEnds));
+	const ownArt = $derived(hasAuthoredSymbolState(props.rawSymbol.name, props.state));
+	const gate = $derived.by(() => {
+		void props.state;
+		const visit = stateFxGate(waitsForFx, ownArt, () => {
+			if (visit === gate) props.oncomplete?.();
+		});
+		return visit;
+	});
+	const artComplete = $derived(symbolFx ? () => gate.art() : props.oncomplete);
 
 	/** `{#each}` key — the position PLUS the binding, so re-binding a layer REMOUNTS it (a fresh
 	 *  rig/flipbook/effect rather than one re-pointed mid-flight) while a pure blend or offset
@@ -240,7 +253,7 @@
 		{@render bands()}
 		{#key props.state}
 			{#if stateFx.length}
-				<ElementFxPlayer entries={stateFx} />
+				<ElementFxPlayer entries={stateFx} ondone={gate.fx} />
 			{/if}
 		{/key}
 	</Container>
@@ -270,7 +283,7 @@
 					showText={!coinLabel}
 					x={props.x}
 					y={props.y}
-					oncomplete={props.oncomplete}
+					oncomplete={artComplete}
 				/>
 			{/if}
 		{:else if isFlipbook}
@@ -280,10 +293,10 @@
 				frozen={props.frozen}
 				x={props.x}
 				y={props.y}
-				oncomplete={props.oncomplete}
+				oncomplete={artComplete}
 			/>
 		{:else if isSprite}
-			<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
+			<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={artComplete} />
 		{:else}
 			<SymbolRigMain
 				{loop}
@@ -292,7 +305,7 @@
 				x={props.x}
 				y={props.y}
 				listener={{
-					complete: props.oncomplete,
+					complete: artComplete,
 					event: (_, event) => {
 						if (event.data?.name === 'wildExplode') playWildExplodeSound();
 					},

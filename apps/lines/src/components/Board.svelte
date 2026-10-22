@@ -38,7 +38,7 @@
 	import { getContext } from '../game/context';
 	import { awaitSymbolBeat, resolveWinBeatBudget } from '../game/symbolBeat';
 	import { bakedWinBeatMaxMs } from '../editor-scenes';
-	import { hasAuthoredSymbolState } from '../game/utils';
+	import { symbolStateHasBeat } from '../game/symbolStateFx';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
 	import { stackedCoverage, stackedWinHoldMs, winDimCellKey } from '../game/stateGame.svelte';
 	import { BoardContainer } from 'engine-game';
@@ -203,7 +203,7 @@
 						await Promise.all([
 							awaitSymbolBeat(
 								(resolve) => (reelSymbol.oncomplete = resolve),
-								hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'win')
+								symbolStateHasBeat(reelSymbol.rawSymbol.name, 'win')
 									? budget.capMs
 									: budget.unauthoredMs,
 							),
@@ -276,7 +276,9 @@
 					if (!reelSymbol || reelSymbol.removed) return;
 					if (covered.has(winDimCellKey(position.reel, position.row))) return;
 					// A SYMBOL WITH NO `explosion` BOUND IS SKIPPED, for exactly the reason the stacked
-					// cell above it is — and this is the one that actually bites in the field.
+					// cell above it is — and this is the one that actually bites in the field. An
+					// `explosion` Element FX that plays out counts as bound: it paces the beat itself
+					// (`symbolStateHasBeat`).
 					//
 					// `explosion` resolves through `resolveSymbolState`, which falls back to `static` when
 					// the state is unbound. On a cell that has just finished its win the resolved art is
@@ -297,7 +299,7 @@
 					// It still LEAVES, though: "and be gone" is the pop's other half, and a winner left
 					// standing is swept by the next board's clear playing `clearReel` — the double pop this
 					// feature exists to prevent. So the cell is removed, just not waited on.
-					if (!hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')) {
+					if (!symbolStateHasBeat(reelSymbol.rawSymbol.name, 'explosion')) {
 						reelSymbol.removed = true;
 						return;
 					}

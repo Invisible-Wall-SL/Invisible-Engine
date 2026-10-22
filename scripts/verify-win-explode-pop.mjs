@@ -496,10 +496,11 @@ const buildRound = ({
 		// below was written against: `resolveWinBeatBudget` then answers with the coded guard. What
 		// the resolver does with an authored one is `verify-win-beat-budget.mts`, which drives it.
 		bakedWinBeatMaxMs: () => undefined,
-		// WHICH SYMBOLS AUTHORED A STATE — the round's own knob, TRUE for everything unless a case
-		// says otherwise. A cell answering FALSE for `explosion` is skipped by the pop without a beat
-		// (it still leaves the board), which is the unbound-`explosion` stall driven in part 3.
-		hasAuthoredSymbolState: (name, state) => symbolStateAuthored(name, state),
+		// WHICH SYMBOLS AUTHORED A STATE (art, or an effect that plays out) — the round's own knob,
+		// TRUE for everything unless a case says otherwise. A cell answering FALSE for `explosion` is
+		// skipped by the pop without a beat (it still leaves the board), which is the
+		// unbound-`explosion` stall driven in part 3.
+		symbolStateHasBeat: (name, state) => symbolStateAuthored(name, state),
 		// GAME MODES (`playBook.ts`): no mode controller, which is every game whose book never moves a
 		// mode — `aroundPresentation` is then exactly the presentation, the path these claims were written on.
 		modes: undefined,
@@ -759,7 +760,7 @@ console.log('\n--- 3. the spin ends on ONE pop over the deduped winning set ---'
 	// It must be skipped WITHOUT a beat — and still LEAVE, because "and be gone" is the other half of
 	// the promise and a winner left standing is popped a second time by the next board's clear.
 	//
-	// This is also the case that keeps `hasAuthoredSymbolState` an exercised stub rather than a
+	// This is also the case that keeps `symbolStateHasBeat` an exercised stub rather than a
 	// constant nobody flips — the shape a stub set drifts into.
 	const round = await presentWinInfo(
 		buildRound({
@@ -1299,7 +1300,7 @@ console.log('\n--- 9. the removal is contained in the pop, and the pop behind th
 	// …and the EARLY one is the unbound-state skip's, not some other short-circuit that grew into the
 	// handler. Driven above; this is the text-level twin of that case, so a removal that moved out of
 	// the skip is caught even on a build where nothing happens to leave a cell unbound.
-	check('…the early one belongs to the unbound-state skip', pop.slice(0, pop.indexOf('.removed = true')).includes("hasAuthoredSymbolState(reelSymbol.rawSymbol.name, 'explosion')"), true); // prettier-ignore
+	check('…the early one belongs to the unbound-state skip', pop.slice(0, pop.indexOf('.removed = true')).includes("symbolStateHasBeat(reelSymbol.rawSymbol.name, 'explosion')"), true); // prettier-ignore
 	// Bounded by the AUTHORED ceiling when a project sets one and by the coded guard when it does
 	// not — `resolveWinBeatBudget` is the one place that decides which, so "cap each win at N" bounds
 	// what a paying cell costs in total rather than only its first half.

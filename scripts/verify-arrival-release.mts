@@ -77,11 +77,11 @@ assert(
 	appear.indexOf("symbolState = 'static'", appear.indexOf('await beat();')) > appear.indexOf('await beat();'), // prettier-ignore
 	true,
 );
-// The cap still comes from the authored-state question — the released path must not quietly become
-// the long guard for a cell that never authored an intro.
+// The cap still comes from the authored-state question (art, or an intro effect that plays out) —
+// the released path must not quietly become the long guard for a cell that never authored an intro.
 assert(
-	'the cap is still chosen by hasAuthoredSymbolState',
-	/hasAuthoredSymbolState\(tumbleSymbol\.rawSymbol\.name, 'intro'\)/.test(appear),
+	'the cap is still chosen by symbolStateHasBeat',
+	/symbolStateHasBeat\(tumbleSymbol\.rawSymbol\.name, 'intro'\)/.test(appear),
 	true,
 );
 

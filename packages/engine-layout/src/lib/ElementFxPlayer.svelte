@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	import type { ElementFxEntry } from 'constants-shared/elementFx';
+	import { elementFxEnterEnds, type ElementFxEntry } from 'constants-shared/elementFx';
 	import type { ElementFxPose } from 'pixi-svelte/elementFx';
 
 	export type Props = {
@@ -11,6 +11,10 @@
 		scope?: string;
 		/** Where a timeline poses each `keyed` entry now (by entry id), read every frame. */
 		pose?: (entryId: string) => ElementFxPose | undefined;
+		/** Called once when every `enter` entry that ends ({@link elementFxEnterEnds}) has played
+		 *  out — at once when there is none, or nothing to play on. Read once, at mount, and never
+		 *  called after unmount. */
+		ondone?: () => void;
 	};
 </script>
 
@@ -62,7 +66,12 @@
 		untrack(() => {
 			const target = parentContext.parent;
 			const host = elementFxHostFor(appContext.stateApp.pixiApplication, particleTimeScale);
-			if (!host) return;
+			const ondone = props.ondone;
+			if (!host) {
+				ondone?.();
+				return;
+			}
+			let mounted = true;
 			const playing: Record<string, ElementFxHandle> = {};
 			const unsubs: (() => void)[] = [];
 			const start = (entry: ElementFxEntry): void => {
@@ -100,7 +109,14 @@
 			onInstanceFire = (cue) => {
 				for (const run of runs[cue] ?? []) run();
 			};
+			if (ondone) {
+				const ending = props.entries.filter(elementFxEnterEnds).map((e) => playing[e.id]?.done);
+				void Promise.all(ending).then(() => {
+					if (mounted) ondone();
+				});
+			}
 			return () => {
+				mounted = false;
 				onInstanceFire = undefined;
 				for (const unsub of unsubs) unsub();
 				for (const handle of Object.values(playing)) handle.stop();
