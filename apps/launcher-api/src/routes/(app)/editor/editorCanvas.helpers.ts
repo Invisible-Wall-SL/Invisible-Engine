@@ -29,12 +29,86 @@ import {
 	type RepeaterCountLayout,
 	type RepeaterItemSize,
 	type ResolvedTransform,
+	type RigRestOverride,
 	type Scene,
 } from 'engine-layout';
+import type { Skeleton } from 'engine-rig';
 
 export interface Vec2 {
 	x: number;
 	y: number;
+}
+
+/**
+ * The animation, loop and skin a rig node rests on in the game (`LayoutNodeView`'s rig branch):
+ * its placement's `spineRestOverrides` entry wins, then a param-bound `defaultAnimation` / `loop` (a
+ * component picking its clip per instance), then the node's own fields. An empty or wrongly typed
+ * bound value falls through, as it does there.
+ */
+export function restingRigPose(
+	node: Extract<LayoutNode, { kind: 'spine' }>,
+	rest: RigRestOverride | undefined,
+	params: Record<string, unknown> | undefined,
+): { animation?: string; loop?: boolean; skin?: string } {
+	const boundAnimation = params
+		? resolveBoundValue(node.paramBindings, 'defaultAnimation', params)
+		: undefined;
+	const boundLoop = params ? resolveBoundValue(node.paramBindings, 'loop', params) : undefined;
+	return {
+		animation:
+			rest?.defaultAnimation ??
+			(typeof boundAnimation === 'string' && boundAnimation
+				? boundAnimation
+				: node.defaultAnimation),
+		loop: rest?.loop ?? (typeof boundLoop === 'boolean' ? boundLoop : node.loop),
+		skin: rest?.skin ?? node.skin,
+	};
+}
+
+/** engine-rig `MixBlend.setup` / `MixDirection.mixIn`, as the runtime numbers them. */
+const MIX_BLEND_SETUP = 0;
+const MIX_DIRECTION_IN = 0;
+
+/**
+ * Pose a rig that is not playing where the game rests it: on its resting animation, at the frame
+ * the game holds — the first of a loop, the last of a one-shot (played once, then held). The game
+ * never shows the setup pose of a rig that has a resting animation, and that animation may key its
+ * colours and which parts show (a jackpot frame per tier), so every placement of one rig drew alike
+ * in the editor and differently in the game. Returns what undoes it once the skeleton is drawn: the
+ * rig layer shares one instance per bundle, and a playing target re-poses only what it keys.
+ */
+export function applyRestingPose(
+	skeleton: Skeleton,
+	animation: string | undefined,
+	loop: boolean | undefined,
+): (() => void)[] {
+	const anim = animation ? skeleton.data.animations.find((a) => a.name === animation) : undefined;
+	if (!anim) return [];
+	const time = loop === false ? anim.duration : 0;
+	skeleton.setToSetupPose();
+	anim.apply(skeleton, time, time, false, null, 1, MIX_BLEND_SETUP, MIX_DIRECTION_IN);
+	return [() => skeleton.setToSetupPose()];
+}
+
+/** Where the editor's component map keeps a def an instance pins at an older version than the
+ * latest (§8.9): beside the latest, which stays under the bare id. */
+export const pinnedDefKey = (id: string, version: number): string => `${id}@v${version}`;
+
+/**
+ * The def a placed component draws: the version its `componentVersion` pins, else the latest — the
+ * game's `resolveComponent` rule. The game draws a pinned placement from that exact def (the bake
+ * ships it), so every editor renderer resolves an instance here, never by its bare id: a component
+ * edited since the placement would draw its new art in the editor while the game kept the old. A
+ * pin the map does not hold (not loaded, or no longer stored) draws the latest, as the game does.
+ */
+export function instanceDef(
+	componentMap: ReadonlyMap<string, ComponentDef> | undefined,
+	node: { componentId: string; componentVersion?: number },
+): ComponentDef | undefined {
+	const latest = componentMap?.get(node.componentId);
+	const pin = node.componentVersion;
+	if (pin === undefined || latest?.version === pin) return latest;
+	return componentMap?.get(pinnedDefKey(node.componentId, pin)) ?? latest;
 }
 
 /**
@@ -823,7 +897,7 @@ function componentInstanceContentBox(
 	/** The enclosing instance's resolved params — what the instance's forwarded params read. */
 	outerParams: Record<string, unknown>,
 ): NodeBox | null {
-	const def = ctx.componentMap?.get(node.componentId);
+	const def = instanceDef(ctx.componentMap, node);
 	if (!def) return null;
 	if (depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
 	const defaults = ctx.componentDefaults?.[def.id];
@@ -1532,7 +1606,7 @@ function depthChildren(
 ): { nodes: LayoutNode[]; depth: number; stack: string[] } | null {
 	if (n.kind === 'container') return { nodes: n.children, depth, stack };
 	if (n.kind === 'componentInstance') {
-		const def = componentMap.get(n.componentId);
+		const def = instanceDef(componentMap, n);
 		if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
 		return { nodes: def.root.children, depth: depth + 1, stack: [...stack, def.id] };
 	}

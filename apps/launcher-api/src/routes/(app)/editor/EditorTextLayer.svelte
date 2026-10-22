@@ -40,6 +40,7 @@
 		repeaterBoxes,
 		repeaterCountBoxes,
 		inDepthSlice,
+		instanceDef,
 		type Affine,
 		type DepthSlice,
 		type RepeaterSourceMap,
@@ -430,7 +431,7 @@
 			} else if (n.kind === 'container') {
 				collectTextTargets(n.children, sc, out, nextChain, params, depth, stack);
 			} else if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
+				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				// Resolve THIS instance's params (def defaults ◁ per-project defaults ◁ instance
 				// overrides, with the active layoutType's per-ratio param override merged onto the

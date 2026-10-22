@@ -18,7 +18,7 @@ Shipped capabilities on `main`:
 
 - **Screens** — game + HUD lists (reorder, rename, hide, duplicate, delete); per-screen **space** (`game` / `standard` with left/right/top/bottom alignment / `canvas` / `background` cover-fit); **Always on top**, **Behind the reels** and **Zoom with anticipation** ticks; roles (incl. `betMenu` / `autoSpin`, one `SCENE_ROLE_LABELS` list in `engine-layout/sceneRole.ts`); scaffold from a **game kind** (`lines`, `ways` filled; `bookOf`; `cluster`/`scatter` skeleton-only by decision), **import composed reference**, add-missing-screens, "Save as new game kind", bet menu / auto spin screens. Everything that adds a screen sits in one **＋ Add screen ▾** menu under the list, and the rest in **⋯**.
 - **Every authored screen ships.** `extraMountScenes` / `fullReplaceHudScenes` (`engine-layout/genericMountScenes.ts`) mount author screens the game doesn't reserve, and `sceneLayerZIndex` gives every mount path the Screens-list z; under a screen-driving v2 flow every screen mounts through `<FlowV2Mount>`. Flow owns visibility (no "Shows during" gates).
-- **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate, **⌖ Any screen** click-to-select across every drawn screen (⏳ not browser-verified). Instances preview through the project's component-defaults sidecar, so the canvas draws what the game draws. Every rig, text and FX overlay (both sides, HUD included) draws through TWO shared WebGL contexts and copies into a 2D canvas of its own (`sharedGl.client.ts`); nothing else in the editor route may open a context (`check:editor-gl-contexts`).
+- **Canvas** — real-texture rendering (live rig skeletons, live FX particles, playing flipbook clips, rig/sprite/flipbook board symbols through one `reelGridGeometry`), zoom/pan/Fit, multi-select, transform handles, snap guides, undo/redo, copy/cut/paste/duplicate, **⌖ Any screen** click-to-select across every drawn screen (⏳ not browser-verified). Instances preview through the project's component-defaults sidecar, and a placement pinned to an older component version draws that version, so the canvas draws what the game draws; a rig that is not playing holds its resting pose (the animation the game rests it on), not its setup pose. Every rig, text and FX overlay (both sides, HUD included) draws through TWO shared WebGL contexts and copies into a 2D canvas of its own (`sharedGl.client.ts`); nothing else in the editor route may open a context (`check:editor-gl-contexts`).
 - **Library placement** — Text / Rect / Reel, atlas pages + regions (per-region drag thumbnails), rigs (project + `_shared/spines/`, upload), sheet regions, **Invisible FX** effects, **Invisible Flipbook** clips, components.
 - **Properties** — transform / tint / **blend** (`normal`/`add`/`multiply`/`screen`/`overlay`/`lighten`, not on rig nodes) / text box (width/height, align, auto-fit) / rig anim + slot fill / **Plays on signal** cues on rig and flipbook nodes (free-text signal here, declared signals on the Components side) / **background cover** (fit cover·contain·width·height, cover scale, align) / **Art bounds** for sprite regions / reel-grid overflow, perspective and ground tiles / node actions. Symbol size is not authored anywhere: symbols contain-fit their cell by their own art.
 - **Device layouts** — per-layoutType overrides of transform, blend, visibility, cover fit/scale, text style and component params; per-layoutType **Canvas Size** (the MAIN box the runtime adopts). The bucket set is an authorable **layout profile** (Game Settings → Layout; pipeline default in Admin → Settings); `DEFAULT_LAYOUT_PROFILE` reproduces the legacy four exactly.
@@ -171,6 +171,37 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-22 — **A placed component draws the version it pins, and a still rig its resting pose**
+  (branch `claude/sweet-planck-qanrdj`, ⏳ not browser-verified). Reported on `commonoverlayproject`:
+  its Jackpots bar places one jackpot frame rig (`R_Widget`) per tier, each on its own animation
+  (Mini, Minor, Major, Grand). In the editor the four frames looked alike and sat round their
+  values. In the game each frame had its tier's colours and parts, and sat about 15 px lower,
+  under the value. Two causes, both in the editor (the game was right):
+  - **Pinned versions.** The screen's placement pinned the component at v1 (rigs at y 19.5) until
+    21:50 that day, after v3 had moved them up to y 4 to follow the rig's centred origin. The game
+    draws the version a placement pins (`resolveComponent`; the publish bake ships it). Every
+    editor renderer resolved the instance by its bare id, so it drew the latest def. The page now
+    reads each older version its screens pin, once (`componentPins.client.ts`, over
+    `GET /api/editor/component?version=`), and keeps it in the component map under
+    `pinnedDefKey`. The canvas, the rig, text and effect layers, the selection box and the depth
+    split all resolve a placement through `instanceDef` (`editorCanvas.helpers.ts`), the game's
+    rule: the pinned version when held, else the latest. A pin that no version is stored for draws
+    the latest, as the game does. As a result, a component edited since a placement keeps its old
+    look on that screen until the placement is updated. The Outline's **↑ vN** badge now flags an
+    outdated placement of a project component too (`componentUpdateAvailable`), not only of a
+    shared one.
+  - **Resting pose.** The rig layer drew a rig that was not playing on its setup pose. The game
+    plays the rig's resting animation, and the tier animations key the frame's colours and which
+    parts show. The layer now poses a still rig on that animation (`applyRestingPose`): the first
+    frame of a loop, the last of a one-shot. The animation, loop and skin follow the game's
+    precedence (`restingRigPose`): the placement's `spineRestOverrides`, then a param-bound
+    `defaultAnimation` / `loop`, then the node. The layer ignored the first two before, so a pot's
+    per-placement Red / Blue / Green showed as the def's own animation even while playing.
+
+  No game code changed. Measured on the 22:02 publish of `commonoverlayproject`, rendered
+  headlessly with `main`'s runtime: each tile's value sits inside its frame, and the rig origins
+  and texts land on the doc's positions. Gate: `check:editor-instance-parity`. The old
+  resolution and the old setup pose fail 5 of its 35 checks.
 - 2026-10-22 — **A placed component selects at the art it draws, however deep** (branch
   `claude/awesome-albattani-iltv2z`, ⏳ not browser-verified). The owner's pots on the Hold and Win
   "Pots" screen are Pot Meters whose coded `Pot` part holds the author's own component (a rig and

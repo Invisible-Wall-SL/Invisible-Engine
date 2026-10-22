@@ -19,6 +19,7 @@
 	import {
 		addOnSceneIds,
 		buttonBindToInstance,
+		collectComponentPins,
 		componentOfferedForKind,
 		engineOwnedOnly,
 		findUnfilledRequiredSlots,
@@ -102,6 +103,8 @@
 	import { fetchClips } from './editorFlipbooks.client';
 	import { bindEditorProject } from './editorProject.client';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
+	import { pinnedDefKey } from './editorCanvas.helpers';
+	import { createPinnedVersionLoader } from './componentPins.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
 	import { isTypingTarget } from '$lib/editor/stageShortcuts';
@@ -743,11 +746,30 @@
 	let componentBusy = $state(false);
 	let componentStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
 
+	/**
+	 * The older versions the screens' placements pin (§8.9), keyed {@link pinnedDefKey}. The game
+	 * draws a pinned placement from that exact def (the bake ships it), so the canvas resolves it
+	 * here too (`instanceDef`).
+	 */
+	let pinnedVersions = $state.raw<Record<string, ComponentDef>>({});
+	const requestPinnedVersion = createPinnedVersionLoader(loadedProjectKey, (def) => {
+		pinnedVersions = { ...pinnedVersions, [pinnedDefKey(def.id, def.version)]: def };
+	});
+	$effect(() => {
+		for (const pin of collectComponentPins(scenes.flatMap((s) => s.nodes))) {
+			const latest = storedComponents.find((c) => c.id === pin.id)?.version;
+			if (latest !== pin.version) requestPinnedVersion(pin.id, pin.version);
+		}
+	});
+
 	/** id → def map, so the canvas resolves a `componentInstance` without the engine
-	 * registry (the editor canvas is its own renderer). */
+	 * registry (the editor canvas is its own renderer). Holds each pinned older version beside the
+	 * latest; resolve a placement through `instanceDef`, never by its bare id. */
 	const componentMap = $derived.by(() => {
 		const m = new Map<string, ComponentDef>();
 		for (const c of components) m.set(c.id, c);
+		const pinned = withConfigWinTiers(Object.values(pinnedVersions));
+		for (const def of pinned) m.set(pinnedDefKey(def.id, def.version), def);
 		return m;
 	});
 

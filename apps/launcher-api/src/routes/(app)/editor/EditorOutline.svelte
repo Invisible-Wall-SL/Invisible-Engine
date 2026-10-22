@@ -57,9 +57,9 @@
 		onDelete?: (id: string) => void;
 		onCreateComponent?: (id: string) => void;
 		onShowInFlow?: (id: string) => void;
-		/** Resolved component defs by id: a placed SHARED component pinned below its latest version
-		 *  shows an "update available" badge on its row (Rive plan Phase 9d). */
-		componentMap?: ReadonlyMap<string, { scope?: string; version?: number }>;
+		/** Resolved component defs by id: a placed component pinned below its latest version shows an
+		 *  "update available" badge on its row (Rive plan Phase 9d). */
+		componentMap?: ReadonlyMap<string, { version?: number }>;
 	}
 	let {
 		scene,
@@ -86,7 +86,7 @@
 		componentMap,
 	}: Props = $props();
 
-	/** The newer shared version a placed component could update to, or null. */
+	/** The newer version a placed component could update to, or null. */
 	function updateOf(node: LayoutNode): number | null {
 		if (node.kind !== 'componentInstance') return null;
 		const def = componentMap?.get(node.componentId);
@@ -366,9 +366,10 @@
 					{#if updateOf(node) !== null}
 						<span
 							class="upd"
-							title="The shared component has a newer version (v{updateOf(
+							title="The component has a newer version (v{updateOf(
 								node,
-							)}). Select it and use Update to latest in Properties.">↑ v{updateOf(node)}</span
+							)}). This placement draws the version it pins, here and in the game: select it and use Update to latest in Properties."
+							>↑ v{updateOf(node)}</span
 						>
 					{/if}
 					<span class="kind">{node.kind}</span>

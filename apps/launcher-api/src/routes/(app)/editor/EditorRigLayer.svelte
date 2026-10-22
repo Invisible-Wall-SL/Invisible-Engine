@@ -27,6 +27,7 @@
 		type OverlayPlacement,
 		type PlacementGeometry,
 		type ResolvedTransform,
+		type RigRestOverride,
 		type Scene,
 	} from 'engine-layout';
 	import { rigOriginAnchor } from 'constants-shared/rig';
@@ -34,10 +35,13 @@
 		childLocalTransform,
 		composeWorldMatrix,
 		inDepthSlice,
+		instanceDef,
 		placedRigTransform,
 		reelGridGeometry,
 		resolveBoneRider,
 		resolveBoneRiderRigKey,
+		applyRestingPose,
+		restingRigPose,
 		unrotatedScale,
 		type BoneRiderTransform,
 		type DepthSlice,
@@ -470,8 +474,8 @@
 		height?: number;
 		/** The rig's `enter`-cue animation: in-game it plays the moment the component /
 		 * screen appears, so the preview AUTO-plays it (looped for visibility) instead of
-		 * showing the static setup pose. Without this, an author sizes the rig against the
-		 * resting pose, which differs from what the game shows once the intro animation runs. */
+		 * holding it still. Without this, an author sizes the rig against the resting pose,
+		 * which differs from what the game shows once the intro animation runs. */
 		enterAnimation?: string;
 		enterLoop?: boolean;
 		placement?: OverlayPlacement;
@@ -604,13 +608,14 @@
 				// walked below on every segment, as its children may be in any of them.
 				const here = inDepthSlice(depthSlice, [n.id]);
 				if (here && n.kind === 'spine') {
+					const resting = restingRigPose(n, undefined, componentParams);
 					out.push({
 						nodeId: n.id,
 						assetKey: n.assetKey,
 						pose: previewPose(n),
-						defaultAnimation: n.defaultAnimation,
-						skin: n.skin,
-						loop: n.loop,
+						defaultAnimation: resting.animation,
+						skin: resting.skin,
+						loop: resting.loop,
 						width: t.width,
 						height: t.height,
 						enterAnimation: rigEnterCue(n)?.animation,
@@ -655,9 +660,9 @@
 				// a placed component's rig only ever shows its 2D placeholder box. Each
 				// nested rig's world transform is composed from its ancestor chain.
 				if (n.kind === 'container') {
-					collectNestedRigs(n.children, sc, out, [n], 0, [], undefined, undefined);
+					collectNestedRigs(n.children, sc, out, [n], 0, [], undefined, undefined, undefined);
 				} else if (n.kind === 'componentInstance') {
-					const def = componentMap.get(n.componentId);
+					const def = instanceDef(componentMap, n);
 					if (def) {
 						const params = resolveComponentParams(
 							def,
@@ -678,6 +683,7 @@
 							[def.id],
 							params,
 							rigBundle,
+							n.spineRestOverrides,
 							previewing?.animation,
 						);
 					}
@@ -712,6 +718,10 @@
 		 * the real art shows AND its live meta populates the animation dropdowns. Undefined when the
 		 * def declares no rig param ⇒ nested binds render exactly as before (parity). */
 		instanceRigBundle: string | undefined,
+		/** The ENCLOSING instance's per-placement rig rests (`spineRestOverrides`, by rig node id),
+		 * which pick the animation / loop / skin a rig in its def rests on, as the game's
+		 * `setComponentRigRest` does for the nodes of that one instance. */
+		rigRests: Record<string, RigRestOverride> | undefined,
 		/** EDITOR-PREVIEW ONLY: the animation to auto-play on the enclosing instance's DIRECT bind
 		 * rig while the author focuses one of its animation params (see `rigPreview`). Applied only
 		 * to a depth-1 bind child; deeper recursion passes undefined. Undefined ⇒ the bind plays its
@@ -747,7 +757,7 @@
 				}
 			}
 			if (n.kind === 'spine') {
-				if (here) out.push(nestedRigTarget(n, sc, nextChain, instanceParams));
+				if (here) out.push(nestedRigTarget(n, sc, nextChain, instanceParams, rigRests));
 			} else if (n.kind === 'reelGrid') {
 				if (here) collectReelCells(n, sc, nextChain, out);
 			} else if (n.kind === 'container') {
@@ -760,13 +770,14 @@
 					stack,
 					instanceParams,
 					instanceRigBundle,
+					rigRests,
 					// A preview animation applies only to the enclosing instance's DIRECT bind child
 					// (the win / free-spin VISUAL). A container child is a level deeper, so don't
 					// re-apply it — a bind INSIDE it would be a different component's rig.
 					undefined,
 				);
 			} else if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
+				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				const params = resolveComponentParams(
 					def,
@@ -783,6 +794,7 @@
 					[...stack, def.id],
 					params,
 					rigBundle,
+					n.spineRestOverrides,
 				);
 			}
 		}
@@ -910,6 +922,8 @@
 		 * we map it back to its full key here for the meta/loader. Unbound / unset ⇒ the node's
 		 * static `assetKey` (parity). */
 		instanceParams?: Record<string, unknown>,
+		/** The enclosing instance's per-placement rig rests (see {@link collectNestedRigs}). */
+		rigRests?: Record<string, RigRestOverride>,
 	): RigRenderTarget {
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
@@ -933,12 +947,13 @@
 			typeof boundName === 'string' && boundName
 				? (assets.spines.find((s) => s.name === boundName)?.key ?? node.assetKey)
 				: node.assetKey;
+		const resting = restingRigPose(node, rigRests?.[node.id], instanceParams ?? componentParams);
 		return {
 			nodeId: node.id,
 			assetKey,
-			defaultAnimation: node.defaultAnimation,
-			skin: node.skin,
-			loop: node.loop,
+			defaultAnimation: resting.animation,
+			skin: resting.skin,
+			loop: resting.loop,
 			width: nt.width,
 			height: nt.height,
 			enterAnimation: rigEnterCue(node)?.animation,
@@ -1102,9 +1117,10 @@
 		// A rig with an `enter` cue plays that animation in-game the instant its
 		// component / screen appears. AUTO-play it in the preview (looped for visibility),
 		// taking precedence over the node's default animation, so the author sizes against
-		// the SAME pose the game shows — not the static setup pose, which is smaller /
-		// different once the intro animation runs. A rig WITHOUT an enter cue is unchanged:
-		// static until the user toggles play, then its default / first animation.
+		// the SAME pose the game shows — not a still pose, which is smaller / different once
+		// the intro animation runs. A rig WITHOUT an enter cue holds still on its resting
+		// pose (`applyRestingPose`) until the user toggles play, then plays its default / first
+		// animation.
 		const enterAnim = target.enterAnimation;
 		// One-shot → idle hand-off (mirrors the runtime `LayoutNodeView`): an enter cue with
 		// a DISTINCT default animation plays the intro ONCE then queues the looping default
@@ -1135,7 +1151,7 @@
 				entry.playingAnim = wantAnim;
 			}
 		} else if (entry.playingAnim !== null) {
-			// Return to the static setup pose.
+			// Hold still; the draw poses it on its resting animation (`applyRestingPose`).
 			entry.instance.skeleton.setToSetupPose();
 			entry.instance.animationState.setEmptyAnimation(0, 0);
 			entry.playingAnim = null;
@@ -1349,7 +1365,13 @@
 			applySkin(target, entry);
 			if (entry.playingAnim) inst.animationState.update(delta);
 			inst.animationState.apply(inst.skeleton);
-			const poseRestores = target.pose ? applyPreviewPose(inst.skeleton, target.pose) : [];
+			const restRestores = entry.playingAnim
+				? []
+				: applyRestingPose(inst.skeleton, target.defaultAnimation, target.loop);
+			const poseRestores = [
+				...(target.pose ? applyPreviewPose(inst.skeleton, target.pose) : []),
+				...restRestores,
+			];
 			inst.skeleton.updateWorldTransform(getRigPhysics());
 			renderer.begin();
 			renderer.drawSkeleton(inst.skeleton, inst.premultipliedAlpha);

@@ -63,6 +63,7 @@
 		composeWorldMatrix,
 		depthKey,
 		inDepthSlice,
+		instanceDef,
 		unionBox,
 		type DepthSlice,
 		type SpreadBox,
@@ -315,7 +316,7 @@
 				if (n.kind === 'container') {
 					collectNested(n.children, sc, out, [n], 0, [], componentParams);
 				} else if (n.kind === 'componentInstance') {
-					const def = componentMap.get(n.componentId);
+					const def = instanceDef(componentMap, n);
 					if (def) {
 						const params = instanceParams(def, n, componentParams);
 						collectNested(def.root.children, sc, out, [n], 1, [def.id], params);
@@ -363,7 +364,7 @@
 			} else if (n.kind === 'container') {
 				collectNested(n.children, sc, out, nextChain, depth, stack, params);
 			} else if (n.kind === 'componentInstance') {
-				const def = componentMap.get(n.componentId);
+				const def = instanceDef(componentMap, n);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				collectNested(
 					def.root.children,
