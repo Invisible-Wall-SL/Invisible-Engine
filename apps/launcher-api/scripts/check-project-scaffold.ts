@@ -10,8 +10,9 @@
  *  - every other kind stays UN-authored, so what it plays is byte-identical to before;
  *  - the scaffold never overwrites an authored config, and loses a concurrent first save quietly;
  *  - a `holdAndWin` project's symbols doc binds every Hold and Win symbol of its preset (the game
- *    draws only what that doc binds), from the STORED config, so /admin Re-scaffold backfills an
- *    older project; no other kind gets one, and an existing symbols doc is never overwritten;
+ *    draws only what that doc binds) on every placeholder state but Post-win, which a Hold and Win
+ *    symbol never plays, from the STORED config, so /admin Re-scaffold backfills an older project;
+ *    no other kind gets one, and an existing symbols doc is never overwritten;
  *  - a `lines` project created with the Book of Thermopylae preset (book-feature Phase 5c) is seeded
  *    with the preset and the Book-of reference scenes, as a LINES layout; another kind ignores it.
  */
@@ -201,8 +202,12 @@ function assertBindsPreset(project: string, config: GameConfigDoc) {
 	for (const name of expected) {
 		const cells = stored.symbols[name];
 		assert(cells, `${project}: ${name} is not bound`);
+		// Every placeholder state but Post-win: a Hold and Win symbol never lights on a line.
 		for (const [state, cell] of Object.entries(defaults[name])) {
-			const want = { type: cell.type, assetKey: cell.assetKey, animationName: cell.animationName };
+			const want =
+				state === 'postWinStatic'
+					? undefined
+					: { type: cell.type, assetKey: cell.assetKey, animationName: cell.animationName };
 			assert(
 				JSON.stringify(cells[state]) === JSON.stringify(want),
 				`${project}: ${name}.${state} = ${JSON.stringify(cells[state])}, want ${JSON.stringify(want)}`,
@@ -216,18 +221,21 @@ function assertBindsPreset(project: string, config: GameConfigDoc) {
 	);
 }
 
-await check('a holdAndWin symbols doc binds every symbol of its preset', async () => {
-	await scaffoldProject(CLIENT, 'hwCollector', { holdAndWinPreset: 'collector' });
-	for (const [project, preset] of [
-		['hw', 'pots'],
-		['hwClassic', 'classic'],
-		['hwCollector', 'collector'],
-	] as const) {
-		const config = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS[preset]);
-		assert(config, `${preset} preset does not normalize`);
-		assertBindsPreset(project, config);
-	}
-});
+await check(
+	'a holdAndWin symbols doc binds every symbol of its preset, on what it plays',
+	async () => {
+		await scaffoldProject(CLIENT, 'hwCollector', { holdAndWinPreset: 'collector' });
+		for (const [project, preset] of [
+			['hw', 'pots'],
+			['hwClassic', 'classic'],
+			['hwCollector', 'collector'],
+		] as const) {
+			const config = normalizeGameConfigDoc(HOLD_AND_WIN_PRESETS[preset]);
+			assert(config, `${preset} preset does not normalize`);
+			assertBindsPreset(project, config);
+		}
+	},
+);
 
 await check('every other kind gets no symbols doc', async () => {
 	// Even one whose authored config carries Hold and Win roles (copied from a preset).

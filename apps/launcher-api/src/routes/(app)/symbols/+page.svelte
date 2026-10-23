@@ -63,6 +63,7 @@
 		POTS_TOKEN_STATE_HINTS,
 		STATE_HINTS,
 		STATE_LABELS,
+		unplayedStates,
 		visibleStatesFor,
 		anticipationFieldValue,
 		clearAnticipation,
@@ -278,7 +279,10 @@
 		for (const symbol of symbolNames) {
 			const facts = data.plays?.[symbol];
 			out[symbol] = facts
-				? symbolStatesPlayed(visibleStates, facts, { bookReveal: caps.bookReveal })
+				? symbolStatesPlayed(visibleStates, facts, {
+						bookReveal: caps.bookReveal,
+						clearsBoard: Boolean(data.cascade || data.reelBehaviour.clears),
+					})
 				: visibleStates;
 		}
 		return out;
@@ -296,31 +300,20 @@
 	 *  them, since each group's header row has only its own. */
 	const gridColumnIds = $derived(Array.from({ length: gridColumns }, (_, i) => i));
 
-	/**
-	 * Each row's authored art and Element FX the game never draws for that symbol. A cell is dead when
-	 * its state is not one the row plays and no played state borrows it (`coinCollect` drawing an
-	 * authored `win` keeps that `win` alive); Element FX never borrow, so theirs is dead whenever the
-	 * row does not play the state. The grid offers no cell for them, so the row head lists them to be
-	 * cleared. `stacked` is authored in its own section.
-	 */
+	/** Each row's authored art and Element FX the game never draws for it (`unplayedStates`). None
+	 *  when the page has no config to tell what plays. */
 	const unplayed = $derived.by(() => {
-		const out: Record<string, { cells: SymbolState[]; fx: SymbolState[]; states: SymbolState[] }> =
-			{};
+		const out: Record<string, ReturnType<typeof unplayedStates>> = {};
 		for (const symbol of symbolNames) {
-			const plays = playedStates[symbol] ?? [];
-			const borrowed = plays.map(
-				(state) => effectiveCell(doc, data.defaults, symbol, state).inheritedFrom,
+			if (!data.plays?.[symbol]) continue;
+			const found = unplayedStates(
+				doc,
+				data.defaults,
+				symbol,
+				playedStates[symbol] ?? [],
+				visibleStates,
 			);
-			const authored = SYMBOL_STATES.filter((state) => state !== 'stacked');
-			const cells = authored.filter(
-				(state) =>
-					doc.symbols[symbol]?.[state] && !plays.includes(state) && !borrowed.includes(state),
-			);
-			const fx = authored.filter(
-				(state) => symbolFxOf(doc, symbol, state)?.length && !plays.includes(state),
-			);
-			const states = authored.filter((state) => cells.includes(state) || fx.includes(state));
-			if (states.length) out[symbol] = { cells, fx, states };
+			if (found.states.length) out[symbol] = found;
 		}
 		return out;
 	});

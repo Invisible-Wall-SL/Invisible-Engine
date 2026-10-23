@@ -1,10 +1,8 @@
-import { kindCapabilities, type SymbolPlayFacts } from 'engine-layout';
+import { kindCapabilities } from 'engine-layout';
 import {
 	gameTypeForMode,
 	resolveCascade,
-	resolveMeters,
 	resolveReelBehaviour,
-	respinModeDecls,
 	spinsModeDecls,
 	symbolHoldAndWinRoles,
 	symbolsInPlayForGameType,
@@ -15,6 +13,7 @@ import {
 import { overlayTokenPots, projectAddOns, respinModesOf } from '$lib/addOns';
 import { bigTiersOf, type ResolvedGameConfig } from './gameConfigDefaults';
 import { symbolGrid, type SymbolDefaults } from './symbolDefaults';
+import { symbolPlayFacts } from './symbolPlays';
 
 /**
  * Everything the Invisible Symbols page reads off the Game Config, from `resolveGameConfig`'s result:
@@ -55,8 +54,8 @@ export function symbolsPageConfig(
 	const holdAndWinSet = new Set(holdAndWinRows);
 	return {
 		defaults: grid.defaults,
-		// The rows the grid lists, in the order it draws them: the symbols (`symbolGrid`'s order), then
-		// the Hold and Win group.
+		// The rows the grid lists: `symbolGrid`'s order with the Hold and Win group moved last. The page
+		// draws the symbols, that group, then the coins below, which is `/win-text`'s order too.
 		symbols: [...grid.symbols.filter((name) => !holdAndWinSet.has(name)), ...holdAndWinRows],
 		holdAndWinRows,
 		// The rows that are the pots overlay's coins (its tokens), in pot order — a group of their own
@@ -65,7 +64,7 @@ export function symbolsPageConfig(
 		// What the game can play on each row — `symbolStatesPlayed` (engine-layout) narrows the row's
 		// cells to it, so a state the game never draws for that symbol is not offered. Absent without a
 		// config: every row then offers every column.
-		...(doc ? { plays: playFacts(doc, grid.symbols, uses, holdAndWinRoles, tokenPots) } : {}),
+		...(doc ? { plays: symbolPlayFacts(doc, (name) => holdAndWinRoles[name] ?? []) } : {}),
 		// Does this project tumble? Gates the `Clear reel` column, which only means anything to a
 		// cascading game. Resolved (not the raw stored field) so the answer matches the one the game
 		// itself acts on: absent ⇒ the win model's default, so a cluster/scatter project gets the
@@ -118,42 +117,6 @@ export function symbolsPageConfig(
 		// differently from the rest.
 		meterIds: potIds ?? [],
 	};
-}
-
-/** Each row's {@link SymbolPlayFacts}, read off the config the rows come from. */
-function playFacts(
-	doc: GameConfigDoc,
-	rows: readonly string[],
-	uses: Record<string, string>,
-	holdAndWinRoles: Record<string, string[]>,
-	tokenPots: Record<string, string[]>,
-): Record<string, SymbolPlayFacts> {
-	// A coin board has no reels: its base game is dealt onto the respin board.
-	const respinTypes = new Set(respinModeDecls(doc).map(gameTypeForMode));
-	const onReels = new Set(
-		doc.coinBoard
-			? []
-			: Object.keys(doc.paddingReels)
-					.filter((gameType) => !respinTypes.has(gameType))
-					.flatMap((gameType) => symbolsInPlayForGameType(doc, gameType)),
-	);
-	const fillers = new Set(
-		resolveMeters(doc)
-			.filter((meter) => meter.source === 'symbol')
-			.map((meter) => meter.symbol),
-	);
-	return Object.fromEntries(
-		rows.map((name) => [
-			name,
-			{
-				dealt: uses[name] === 'inPlay',
-				onReels: onReels.has(name),
-				token: Boolean(tokenPots[name]),
-				holdAndWinRoles: holdAndWinRoles[name] ?? [],
-				fillsMeter: fillers.has(name),
-			},
-		]),
-	);
 }
 
 /**

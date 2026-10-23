@@ -191,14 +191,16 @@ const ROLE_SYMBOL_STATES: Readonly<Record<string, readonly SymbolStateName[]>> =
  * The states the game plays for ONE symbol — the Symbols grid's cells for its row — out of the
  * project's `columns`, in their order.
  *
- * - A dealt symbol with no Hold and Win role plays every column but the Hold and Win ones.
+ * - A dealt symbol with no Hold and Win role plays every column but the Hold and Win ones, and
+ *   `clearReel` only on a board that cascades or clears (`clearsBoard`).
  * - A dealt Hold and Win symbol rests and spins (on the reels, or rolling past a respin cell). It
  *   never plays `win` or `postWinStatic`: it pays by its value, never on a line, so no win beat lights
  *   it, and it is never the book special. On the reels it lands, appears under `emerge`, is taken off
- *   by a board clear, and explodes in a book game, whose column morph pops every cell it turns. Held
- *   on the respin board it plays {@link HELD_SYMBOL_STATES} plus its role's own beat, and lands and
- *   leaves there too (`coinStick` borrows `land`, a cleared cell plays `clearReel`); the blank only
- *   stops (`coinLand`). A meter's filling symbol plays `flyToMeter` as it flies off the reels.
+ *   by a cascade or a board clear, and explodes in a book game, whose column morph pops every cell it
+ *   turns. Held on the respin board it plays {@link HELD_SYMBOL_STATES} plus its role's own beat, and
+ *   lands and leaves there too (`coinStick` borrows `land`; a finished streak, an applied special or
+ *   a completed column takes its cells off with `clearReel`); the blank only stops (`coinLand`). A
+ *   meter's filling symbol plays `flyToMeter` as it flies off the reels.
  * - A pots overlay token plays `static` (riding a rolling reel, and the art its other states fall
  *   back to) and {@link POTS_TOKEN_SYMBOL_STATES}.
  *
@@ -208,22 +210,22 @@ const ROLE_SYMBOL_STATES: Readonly<Record<string, readonly SymbolStateName[]>> =
 export function symbolStatesPlayed(
 	columns: readonly SymbolStateName[],
 	facts: SymbolPlayFacts,
-	{ bookReveal }: { bookReveal: boolean },
+	{ bookReveal, clearsBoard }: { bookReveal: boolean; clearsBoard: boolean },
 ): SymbolStateName[] {
 	const holdAndWin: ReadonlySet<string> = new Set(HOLD_AND_WIN_SYMBOL_STATES);
 	const plays = new Set<SymbolStateName>();
 	const roles = facts.holdAndWinRoles;
 	if (facts.dealt && roles.length === 0) {
-		for (const state of columns) if (!holdAndWin.has(state)) plays.add(state);
+		for (const state of columns) {
+			if (!holdAndWin.has(state) && (state !== 'clearReel' || clearsBoard)) plays.add(state);
+		}
 	}
 	if (facts.dealt && roles.length > 0) {
 		const held = roles.some((role) => !UNHELD_ROLES.has(role));
 		plays.add('static');
 		plays.add('spin');
-		if (facts.onReels || held) {
-			plays.add('land');
-			plays.add('clearReel');
-		}
+		if (facts.onReels || held) plays.add('land');
+		if (held || (facts.onReels && clearsBoard)) plays.add('clearReel');
 		if (facts.onReels) {
 			plays.add('intro');
 			if (bookReveal) plays.add('explosion');
