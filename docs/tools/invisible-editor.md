@@ -1300,11 +1300,15 @@ plays the result in the game. A component has its own Animate mode on the Compon
      between the Show and the play.
    - **The base game** works the same way: Show it, then play its timeline. Keys on the **reel
      grid** move the reels themselves: x/y, scale ×, rotation, alpha and visibility, about the
-     grid's position, as the canvas previews them (tint does not apply to the reels). Only the
-     drawing moves: the win line and anything else the game places from the board stay where the
-     grid is laid out, so end the intro on the grid's Design pose (x/y 0, scale 1). A node hidden
-     by a visibility key stays hidden while the base game is up, because the screen holds the
-     last frame; key it visible again at the end if it should come back.
+     grid's position, as the canvas previews them (tint does not apply to the reels). Where the
+     timeline leaves the grid is where the reels stay: once it ends, the game lays the board out
+     there, so the win line, symbol flights, the bonus board and anything else placed from the
+     board follow the reels, until the base game is hidden or the timeline plays again. That
+     takes an even, positive scale: an end pose scaled differently in x and y, to nothing or
+     flipped stays on the reels' drawing only, and the win line keeps the grid's Design pose. A
+     turn always stays on the drawing: the win line follows the move and scale, not the turn. A
+     node hidden by a visibility key stays hidden while the base game is up, because the screen
+     holds the last frame; key it visible again at the end if it should come back.
    - **A timeline reaches the game only once it keys a node and is saved.** One that never did
      (or was deleted) is skipped: the flow carries on, and the browser console says which.
 
@@ -1535,6 +1539,28 @@ node's Properties.
 **Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
 component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
 
+#### Duplicate a component
+
+**⧉** on a row of the component list (the components home, and the **Browse** tab while a
+component is open) makes a copy of that component as a new component of this project and opens
+it. It works on any component in the list: your own, a shared one, or a built-in such as **Counter
+Segment** — the copy starts from what this project shows for it (your project's copy if you made
+one, else the shared one, else the built-in), at its latest version.
+
+- The copy is named **"‹name› copy"** (**"‹name› copy 2"**, … when that name is taken). Rename it
+  in Properties.
+- It gets its own id and fresh node ids, and keeps the whole component: nodes, params, inputs,
+  events, the state machine, category and Space.
+- **Its timelines are copied too.** Each timeline of the component (a built-in's included) becomes
+  a timeline of the copy, and the copy's state machine plays those, so editing the copy's _Lit_
+  never changes the original's. A state that plays a timeline the component only reuses from
+  another component keeps playing that one.
+- **This game's defaults become the copy's own defaults**: the copy looks the same in this game as
+  the original did, and its look lives in one place, the component itself.
+- The copy is saved straight away, like any new component (it never overwrites anything), and it
+  ships with the game the same way.
+- With unsaved changes to the open component, ⧉ asks first, as leaving does.
+
 Everything else you do with an open component — create types, params and signals, value
 bindings, skinning coded parts, the canvas Space, saving, versions, promoting to shared and this
 game's defaults — is described in the [Component Editor guide](component-editor.md).
@@ -1717,7 +1743,13 @@ and its **Counter Segment** (`segmentedCounterSegment`). Place the counter on a 
 counts respins; set its **countSource** param to `freeSpinsTotal` and **valueSource** to
 `freeSpinsLeft` for free spins. Re-skin it without touching the machine: the segment's
 **litImage** / **unlitImage** (art over the fills), **litColor** / **unlitColor**, **labelColor**,
-and the counter's **backgroundImage**. To change more, copy it and edit the copy as below.
+and the counter's **backgroundImage**. To change more, copy it: **⧉** on its row in the component
+list ([Duplicate a component](#duplicate-a-component)) makes a project copy with its own state
+machine and timelines, and you edit the copy as below. End caps work the same way: duplicate
+**Counter Segment** twice, give the copies their extra border art, and pick them as the bar's
+**first** / **last**. A copy keeps the segment's `index` / `value` contract, so the bar feeds it
+directly (wrapping a Counter Segment inside a new component does not: the inner segment never
+gets the bar's `index` / `value`, and it nests one level deeper than the game draws).
 
 **Worked example — a respin / free-spin segmented counter.**
 

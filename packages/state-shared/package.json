@@ -21,7 +21,7 @@
 		"utils-bet": "workspace:*",
 		"constants-shared": "workspace:*",
 		"delivery-profile": "workspace:*",
-		"@lingui/core": "5.2.0",
-		"@lingui/message-utils": "5.2.0"
+		"@lingui/core": "6.10.1",
+		"@lingui/message-utils": "6.10.1"
 	}
 }

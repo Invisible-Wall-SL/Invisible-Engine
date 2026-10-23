@@ -8,6 +8,7 @@
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
 		boundComponentSkin,
+		BUILTIN_TIMELINES,
 		BUTTON_STATE_PARAMS,
 		CELL_TILE_DEF,
 		ENGINE_ACTION_CATALOG,
@@ -92,6 +93,13 @@
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
+	import { componentSaveError, componentSaveRequest } from './componentSave.client';
+	import {
+		componentOwnTimelines,
+		duplicateComponent,
+		duplicateComponentName,
+		writeComponentDuplicate,
+	} from './componentDuplicate.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -233,16 +241,13 @@
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
 			const unsavable = unsavableRowsMessage(componentDraft);
 			if (unsavable) return { ok: false, reason: 'error', message: unsavable };
-			const body = {
-				...(componentDraft.scope === 'project'
-					? { ...componentDraft, project: data.projectKey }
-					: componentDraft),
-				// A stored def CASes against `baseEtag`; a never-saved one sends `null` (create).
-				...(force ? { force: true } : { baseEtag }),
-			};
 			// Snapshot BEFORE the request: the draft open when it lands may be another component,
 			// or this one edited mid-flight — neither is what this write stored.
 			const saved = $state.snapshot(componentDraft) as ComponentDef;
+			const { body, copiesToProject } = componentSaveRequest(saved, data.projectKey, {
+				baseEtag,
+				force,
+			});
 			const res = await fetch('/api/editor/component', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -252,21 +257,17 @@
 				const b = (await res.json().catch(() => ({}))) as { message?: string };
 				return { ok: false, reason: 'conflict', message: b.message };
 			}
-			if (!res.ok) {
-				let message = 'Component save failed';
-				try {
-					const b = (await res.json()) as { message?: string };
-					if (b?.message) message = b.message;
-				} catch {
-					/* non-JSON error body */
-				}
-				return { ok: false, reason: 'error', message };
+			if (!res.ok) return { ok: false, reason: 'error', message: await componentSaveError(res) };
+			const stillOpen = componentDraft?.id === saved.id;
+			if (copiesToProject) {
+				saved.scope = 'project';
+				if (stillOpen && componentDraft) componentDraft.scope = 'project';
+				copiedToProject = saved.id;
 			}
 			const out = (await res.json().catch(() => ({}))) as {
 				version?: number;
 				etag?: string | null;
 			};
-			const stillOpen = componentDraft?.id === saved.id;
 			// Adopt the SERVER's reconciled version — it may have bumped past the posted one.
 			if (typeof out.version === 'number') {
 				saved.version = out.version;
@@ -287,6 +288,8 @@
 			return { ok: true, etag: newEtag };
 		},
 	});
+	/** Id of the shared/built-in component the last draft save copied into this project. */
+	let copiedToProject: string | null = null;
 	/** Union of the draft-save and promote spinners — every shared `disabled`/pill uses it. */
 	const busy = $derived(saveState.busy || promoting);
 
@@ -988,7 +991,7 @@
 	 */
 	function createComponent(): void {
 		const name = newName.trim();
-		if (!name) return;
+		if (!name || duplicating) return;
 		let def: ComponentDef;
 		if (newType === 'readout') {
 			// Reuse the built-in's exact `source` (with its options) + engine `value` +
@@ -1068,8 +1071,9 @@
 	/** Close the open component, back to the sidebar home. Confirms first when the draft OR this
 	 * game's defaults have unsaved edits (a never-saved component would vanish entirely; the
 	 * defaults sidecar is a separate save, so a dirty panel must be warned about too). */
-	async function closeComponent(): Promise<boolean> {
-		if (!(await confirmLeaveDraft('Discard and close'))) return false;
+	async function closeComponent(confirmed = false): Promise<boolean> {
+		if (!confirmed && duplicating) return false;
+		if (!confirmed && !(await confirmLeaveDraft('Discard and close'))) return false;
 		componentDraft = null;
 		trail = [];
 		savedSnapshot = null;
@@ -1172,6 +1176,11 @@
 		nextTrail: string[],
 		nextRoot: string | null,
 	): Promise<boolean> {
+		// A duplicate in flight opens its copy itself.
+		if (duplicating) {
+			navStatus = 'Duplicating a component… try again in a moment.';
+			return false;
+		}
 		navStatus = null;
 		if (componentDraft?.id === def.id && !isInspecting) {
 			// Already open: only where it sits in the breadcrumb changes, never its draft.
@@ -1210,6 +1219,7 @@
 
 	/** Leave the components side entirely, back to the screen the author came from. */
 	async function exitToScreens(): Promise<void> {
+		if (duplicating) return;
 		if (componentDraft && !(await closeComponent())) return;
 		rootLabel = null;
 		onExit();
@@ -1279,7 +1289,7 @@
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
 	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
-		if (writesBlocked) return;
+		if (writesBlocked || duplicating) return;
 		const ok = await askConfirm({
 			title: `Delete component "${def.name}"?`,
 			message: 'Every version of it goes with it. This cannot be undone.',
@@ -1294,6 +1304,112 @@
 		if (!res.ok) return;
 		components = components.filter((c) => c.id !== def.id);
 		if (componentDraft?.id === def.id) await closeComponent();
+	}
+
+	let duplicating = $state(false);
+	/** What leaving the open component would discard, to tell whether it changed since asked. */
+	const leaveSignature = (): string =>
+		`${JSON.stringify($state.snapshot(componentDraft))}|${defaultsSignature($state.snapshot(projectDefaults))}`;
+	/**
+	 * ⧉ Duplicate: a new project component copied from `def` as this project shows it (its own
+	 * copy, else the shared one, else the built-in, at its latest version), with its timelines and
+	 * this game's defaults (`duplicateComponent`), created and opened. Every write is create-only
+	 * (`writeComponentDuplicate`); the list is held still while it runs.
+	 */
+	async function duplicateComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
+		e.stopPropagation();
+		if (writesBlocked || busy || duplicating || !data.projectKey) return;
+		if (!(await confirmLeaveDraft('Discard and duplicate'))) return;
+		let asked = leaveSignature();
+		navStatus = null;
+		duplicating = true;
+		try {
+			const read = await fetch(
+				`/api/editor/component?id=${encodeURIComponent(def.id)}&project=${encodeURIComponent(data.projectKey)}`,
+			);
+			const source = read.ok ? ((await read.json()) as { def?: ComponentDef }).def : undefined;
+			if (!source) {
+				navStatus = `Could not read "${def.name}" (${read.status}).`;
+				return;
+			}
+			const listed: { id: string; host?: CinematicHost }[] = [];
+			const projectDocs = await componentTimelineDocs(source.id, listed);
+			// A listed timeline that read back empty would leave a state playing the source's.
+			if (componentTimelinesOf(listed, source.id).length !== projectDocs.length) {
+				navStatus = `Could not read every timeline of "${def.name}". Try again.`;
+				return;
+			}
+			const defaults = await fetch(
+				`/api/editor/component-defaults?${new URLSearchParams({ project: data.projectKey, id: source.id })}`,
+			);
+			if (!defaults.ok) {
+				navStatus = `Could not read this game’s defaults for "${def.name}" (${defaults.status}).`;
+				return;
+			}
+			let id = genComponentId();
+			while (components.some((c) => c.id === id)) id = genComponentId();
+			const copy = duplicateComponent(source, {
+				id,
+				name: duplicateComponentName(
+					source.name,
+					components.map((c) => c.name),
+				),
+				mintNodeId: genComponentId,
+				timelines: componentOwnTimelines(source.id, BUILTIN_TIMELINES, projectDocs),
+				takenTimelineIds: [...listed, ...BUILTIN_TIMELINES].map((d) => d.id),
+				projectDefaults: ((await defaults.json()) as { params?: Record<string, unknown> }).params,
+			});
+			// Edited while the reads ran: what opening the copy discards is no longer what was asked.
+			if (
+				unsavedWork &&
+				leaveSignature() !== asked &&
+				!(await confirmLeaveDraft('Discard and duplicate'))
+			) {
+				return;
+			}
+			asked = leaveSignature();
+			const cinematic = (path: string, body: Record<string, unknown>) =>
+				fetch(`/api/cinematics/${path}`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ ...body, projectKey: data.projectKey }),
+				});
+			const problem = await writeComponentDuplicate(copy, {
+				createTimeline: async (doc) => {
+					const res = await cinematic('save', { doc, baseEtag: null });
+					return res.ok ? null : componentSaveError(res);
+				},
+				deleteTimeline: async (timeline) => (await cinematic('delete', { id: timeline })).ok,
+				saveDef: async (copyDef) => {
+					// Edited while the timelines were written: opening the copy would discard that.
+					if (leaveSignature() !== asked && unsavedWork) {
+						return {
+							refused: 'the open component changed while copying. Save it, then try again.',
+						};
+					}
+					trail = [];
+					rootLabel = null;
+					await openComponent(copyDef, true);
+					// Not `saveComponent`: its conflict answer stacks on top, and a copy only creates.
+					await saveState.save({ force: false });
+					// The save records the server's ETag the moment it answers, even when the tab moved on.
+					if (componentEtags[copyDef.id] !== undefined) return 'saved';
+					const stored = await fetch(
+						`/api/editor/component?id=${encodeURIComponent(copyDef.id)}&project=${encodeURIComponent(data.projectKey)}`,
+					).catch(() => null);
+					if (stored?.status !== 404) return 'unknown';
+					const refused = saveState.message || 'the save failed.';
+					if (componentDraft?.id === copyDef.id) await closeComponent(true);
+					return { refused };
+				},
+			});
+			if (problem) navStatus = problem;
+			else saveStatus = { kind: 'ok', message: `Duplicated from "${source.name}"` };
+		} catch (err) {
+			navStatus = `Could not duplicate "${def.name}": ${err instanceof Error ? err.message : String(err)}`;
+		} finally {
+			duplicating = false;
+		}
 	}
 
 	/** Spawn a node into the edited list (the array the synthetic scene exposes). The
@@ -1352,8 +1468,17 @@
 		const defaults = defaultsDirty && !defaultsSave.busy ? defaultsSave.save() : null;
 		// With only the defaults changed the component itself is left alone, so a stale ETag can't
 		// offer to stack an untouched draft on top of someone else's version.
-		const savesDraft = draftDirty || defaults === null;
+		// An untouched shared or built-in def saves nothing: its save would fork this project's copy,
+		// which then stops following the shared one.
+		const forksUnchanged = !draftDirty && componentDraft.scope !== 'project' && !!data.projectKey;
+		if (forksUnchanged && defaults === null) {
+			saveStatus = { kind: 'ok', message: 'Nothing changed — no copy made' };
+			return;
+		}
+		const savesDraft = !forksUnchanged && (draftDirty || defaults === null);
+		copiedToProject = null;
 		const ok = savesDraft ? await saveState.save({ force }) : true;
+		const copied = copiedToProject === id;
 		const defaultsFailed =
 			defaults !== null &&
 			!(await defaults) &&
@@ -1371,11 +1496,13 @@
 					}
 				: {
 						kind: 'ok',
-						message: !defaults
-							? 'Component saved'
-							: savesDraft
-								? 'Component and this game’s defaults saved'
-								: 'This game’s defaults saved',
+						message: copied
+							? `Saved as this project’s copy — other games keep the shared one${defaults ? ', and this game’s defaults saved' : ''}`
+							: !defaults
+								? 'Component saved'
+								: savesDraft
+									? 'Component and this game’s defaults saved'
+									: 'This game’s defaults saved',
 					};
 			return;
 		}
@@ -2065,16 +2192,19 @@
 			: null;
 	}
 	/** The saved timelines of component `componentId`. Throws when any read fails, so a dialog
-	 *  never under-reports. */
-	async function componentTimelineDocs(componentId: string): Promise<CinematicDoc[]> {
+	 *  never under-reports. `listed` collects every listed timeline of the project. */
+	async function componentTimelineDocs(
+		componentId: string,
+		listed?: { id: string; host?: CinematicHost }[],
+	): Promise<CinematicDoc[]> {
 		const project = encodeURIComponent(data.projectKey);
 		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
 		if (!res.ok) throw new Error(`list: ${res.status}`);
-		const rows = componentTimelinesOf(
-			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
-				.cinematics,
-			componentId,
-		);
+		const all = (
+			(await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] }
+		).cinematics;
+		listed?.push(...all);
+		const rows = componentTimelinesOf(all, componentId);
 		const docs = await Promise.all(
 			rows.map(async (row) => {
 				const r = await fetch(
@@ -2473,7 +2603,7 @@
 				{#if busy}
 					<span class="save-pill busy">Saving…</span>
 				{:else if saveStatus?.kind === 'error'}
-					<span class="save-pill error" title={saveStatus.message}>Save failed</span>
+					<span class="save-pill error" title={saveStatus.message}>{saveStatus.message}</span>
 				{:else if saveStatus?.kind === 'ok'}
 					<span class="save-pill ok">{saveStatus.message}</span>
 				{/if}
@@ -2514,6 +2644,20 @@
 		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
 	>
 		<aside class="left">
+			{#snippet duplicateButton(def: ComponentDef)}
+				{#if data.projectKey}
+					<button
+						type="button"
+						class="cmp-dup"
+						title={`Duplicate "${def.name}" as a new component of this project`}
+						aria-label={`Duplicate component "${def.name}"`}
+						disabled={writesBlocked || busy || duplicating}
+						onclick={(e) => void duplicateComponentDef(e, def)}
+					>
+						⧉
+					</button>
+				{/if}
+			{/snippet}
 			{#snippet screensSection()}
 				<PanelSection id="cmp-screens" title="Screens" count={screens.length}>
 					<ul class="nav-list">
@@ -2734,6 +2878,7 @@
 						{:else}
 							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
 								{#snippet actions(def)}
+									{@render duplicateButton(def)}
 									<button
 										type="button"
 										class="cmp-del"
@@ -2808,7 +2953,11 @@
 					{:else if leftTab === 'browse'}
 						{@render screensSection()}
 						<PanelSection id="cmp-browse" title="Components" count={components.length}>
-							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)} />
+							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
+								{#snippet actions(def)}
+									{@render duplicateButton(def)}
+								{/snippet}
+							</ComponentList>
 						</PanelSection>
 					{:else if leftTab === 'library'}
 						<PanelSection id="cmp-lib-elements" title="Elements">
@@ -3247,6 +3396,9 @@
 	.save-pill.error {
 		color: #ff9a9a;
 		border-color: #4a2a30;
+		white-space: normal;
+		max-width: 36rem;
+		border-radius: 8px;
 	}
 	.save-pill.inspecting {
 		color: #f0c674;
@@ -3523,6 +3675,27 @@
 		padding: 5px 7px;
 		cursor: pointer;
 		font-family: inherit;
+	}
+	.cmp-dup {
+		flex: 0 0 auto;
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 6px;
+		color: #777;
+		font-size: 12px;
+		line-height: 1;
+		padding: 5px 7px;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.cmp-dup:hover:not(:disabled) {
+		background: #16161c;
+		border-color: #1f1f28;
+		color: #c8a3ff;
+	}
+	.cmp-dup:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 	.cmp-del:hover {
 		background: #2a161a;

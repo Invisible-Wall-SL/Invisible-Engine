@@ -47,9 +47,12 @@ of `win` here"*; the game says *"`win` is the `winInfo` book event."*
 - **Scope:** components are loaded for the session's **active client/project**
   (shown in the top bar as `client/project`). The library is the project's
   components plus the shared global library; a project component shadows a shared
-  one of the same id. A component you create here is **project**-scoped. Saving writes a
-  component back where it came from — so one opened from the shared library (every built-in
-  is one) saves to the shared library; see [Traps](#traps).
+  one of the same id. A component you create here is **project**-scoped, and **Save component**
+  saves to the open project: a component opened from the shared library (every built-in is one)
+  is saved, once you have changed it, as **this project's copy** under the same id, which takes
+  its place in this game only — other games keep the shared one. (With no project open, a shared
+  component saves to the shared library.) To change it for every game, use **Promote to
+  shared**; see [Traps](#traps).
 
 ## How to use it
 
@@ -83,7 +86,8 @@ Open the components home: the **Invisible Component Editor** card on the launche
     a Hold and Win project, or one whose Game Config has a Hold and Win bonus; the Pot Meter also
     with the pots overlay.
 - **Components** — existing components grouped by category. Click a row to open it for
-  editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
+  editing; **⧉** duplicates it (see [the Components side](invisible-editor.md#duplicate-a-component));
+  the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
 
 Creating opens the new component immediately. You can also open a component straight from a
@@ -660,12 +664,18 @@ where the instance is placed, not on the board.
 
 ## Traps
 
-- **You edited a built-in or shared component and it changed in another game — or Save was
-  refused.** A component opened from the shared library saves back to the shared library. With
-  the `componentPublish` capability that changes it in every project without its own copy;
-  without it, Save fails with *"Your role cannot publish to the shared component library."* To
-  make one game look different, use [This game's defaults](#4-set-this-games-defaults); for a
-  design of your own, create a new component.
+- **You edited a built-in or shared component and the other games did not change.** Save
+  stored it as this project's copy (the pill says *"Saved as this project's copy"*), so only this
+  game uses your edit. That is what lets a copy place this project's own rigs and art. To change
+  it everywhere, use **Promote to shared**; a shared component may not place one project's rigs,
+  so promote the rig in **/admin → rigs** first. To vary a shared component per game without a
+  copy, use [This game's defaults](#4-set-this-games-defaults).
+- **A project copy stops following the shared component.** Later changes to the shared or
+  built-in one (an engine update, someone's promote) do not reach this game while its copy
+  exists. To go back, delete the project component; the shared one returns on reload. Saving a
+  shared component you have not changed makes no copy.
+- **Save failed.** The pill shows the server's reason in full; fix what it names and save again.
+  Nothing is written by a refused save.
 - **You added a live game value with + Add variable, and the game still shows the placeholder.**
   Adding a live value only *declares* it; nothing feeds a hand-built component by that name. The
   only live feed is a **source** param, which the built-in **Text Box** carries. Place a Text Box
@@ -712,11 +722,11 @@ These reflect the registered editor design (`docs/design/invisible-editor.md`
 - **A shipped game only picks up new defaults on its next publish.** Both editor
   canvases resolve the sidecar live, but a built game reads the defaults baked into
   its bundle — so re-publish (or re-bake) the game after changing them.
-- **Save writes back to the component's own scope; promote-to-shared is exposed.** The
-  primary **Save component** writes a project component to the project (where it shadows a
-  shared one of the same id) and a shared or built-in one to the shared library. There is no
-  "copy to this project" action yet. A separate **Promote to shared** button — gated on the
-  `componentPublish` capability (admin-only by default, grantable per role in
+- **Save writes to this project; promote-to-shared is exposed.** The primary **Save
+  component** writes the component to the project: a project component in place, a shared or
+  built-in one as the project's copy under the same id (which shadows the shared one here). With
+  no project open, a shared component still saves to the shared library. A separate
+  **Promote to shared** button — gated on the `componentPublish` capability (admin-only by default, grantable per role in
   `/admin`) — writes a `scope:'shared'` snapshot to the `_shared/editor-components/`
   library. Creating a component straight into the shared library (no project copy), and a
   promote-from-the-Library-row affordance for components you are not currently editing,
