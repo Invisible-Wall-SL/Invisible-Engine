@@ -869,7 +869,7 @@ An open row has, top to bottom:
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Always (loops while shown)** | Loops for as long as the element is on screen. Built for the _loop_ effects below.                                                              |
 | **When shown**                 | Plays when the element appears, each time it is shown (a screen the Flow shows again, a node made visible again).                               |
-| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, or a cue its component's own timeline or state machine raises. |
+| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, a cue its component's own timeline or state machine raises, or a `signal:` cue on a timeline of its screen ([below](#report-events-visibility-and-text)). |
 | **Keyed on a timeline**        | Never plays on its own. A timeline poses it, so a state-machine state can too ([below](#keyed-element-fx-on-the-timeline)). Nodes only.        |
 
 An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Invisible Flow's
@@ -1357,7 +1357,20 @@ canvas.
 box over an empty part of the field rows (Shift adds to what is selected; a click there clears
 it). A selected key's drag moves all of them by the same amount. **Ctrl+C** copies the selected
 keys and **Ctrl+V** pastes them onto the same fields with the earliest at the playhead (a key
-already at a pasted time is replaced). **Delete** removes them all.
+already at a pasted time is replaced). **Delete** removes them all. ⌘ works as Ctrl on a Mac.
+
+**The same animation on another node.** Select the keys of one node (drag a box over its field rows,
+or Shift-click its diamonds), press **Ctrl+C**, click the other node on the stage, put the
+playhead where the animation should start, and press **Ctrl+V**. The keys land on the other node's
+same fields (y on y, scale on scale), timed from the playhead, and the node gets its rows if it had
+none. A field that node cannot key is skipped (a reel grid has no tint). The keys go into the ratio
+you are editing, like any key. With the copied node itself still selected, or nothing selected,
+Ctrl+V pastes back onto the copied fields as before. Keys copied from two nodes at once always
+paste back onto their own fields.
+
+Another way to move several nodes together: put them in one group and key the group. This does
+not work for the **reel grid**: the game reads the reel grid only as a top-level node of its
+screen, so keep it out of groups and paste its keys onto the other nodes instead.
 
 **Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
 the value travels from each selected key to the next one.
@@ -1402,6 +1415,16 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   cue fires when the playhead passes it: on a component, a `signal:` cue is a signal its instance
   hears (another of its timelines can play on it); Flow can react to it too. Scrubbing never fires
   cues. All cues share one **⚡ cues** row; drag a marker to move it.
+  - **Cues and Element FX.** On a **screen** timeline, a `signal:NAME` cue plays every
+    [Element FX](#element-fx--effects-that-play-on-an-element) whose trigger is _On cue_ with the
+    cue `NAME`, as a Flow `fireCue` named `NAME` would: the screen's own entries, its nodes', and
+    any others on screen. Write the cue with `signal:` and the Element FX's **Cue** without it
+    (`signal:FX_Intro` ↔ `FX_Intro`). A cue without a prefix, or an `fx:` / `sfx:` / `music:`
+    one, does not reach Element FX. The cue inspector lists the screen's _On cue_ Element FX under
+    **Element FX (On cue)** in its picker, and its note names them; pick one to set the cue.
+  - **▶ in Animate** plays those Element FX when the playhead passes the cue, the way **▶** on an
+    Element FX row does (on a still of the element, one at a time). Scrubbing plays nothing, as
+    in the game.
 - **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
   node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
   a filled marker means shown from there, a hollow one hidden. Click one to select it (it outlines
@@ -1926,7 +1949,10 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   on a later cue.
 - **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.
   Nothing is queued, so a cue fired while the element or its screen is hidden is missed. The name
-  must also match exactly on both sides.
+  must also match exactly on both sides. A cue on a screen timeline needs the `signal:` prefix
+  (`signal:FX_Intro` plays the Element FX whose cue is `FX_Intro`); one without it does not reach
+  Element FX. Check the entry's **Trigger** too: _When shown_ plays when the screen appears, not on
+  a cue.
 
 ## Known limitations / TODOs
 

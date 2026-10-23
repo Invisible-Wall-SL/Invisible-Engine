@@ -130,6 +130,8 @@ const HOST_DEFAULTS = {
 	cameraView: () => null,
 	selectedActor: () => null,
 	togglePlay: null, // Space; a host without a transport leaves it to the page
+	pasteTarget: () => null,
+	cueSuggestions: () => [],
 };
 
 /**
@@ -157,7 +159,7 @@ export function mount(el, options) {
 	let selStripId = null;
 	let selKey = null; // { trackId, channel, time } — the PRIMARY key (the inspector edits it)
 	let selKeys = []; // every selected property / camera key, the primary included
-	let keyClipboard = null; // [{ trackId, channel, dt, value, ease }] — Ctrl+C, pasted at the playhead
+	let keyClipboard = null; // [{ trackId, actorId, kind, channel, dt, value, ease }] — Ctrl+C, pasted at the playhead
 	const collapsed = new Set(); // actor ids whose summary row is folded
 	let onlySelected = false;
 	const interpolation = !!options.interpolation;
@@ -1778,23 +1780,79 @@ export function mount(el, options) {
 		const refs = selectedKeyRefs();
 		if (!refs.length) return false;
 		const t0 = Math.min(...refs.map((r) => r.key.time));
-		keyClipboard = refs.map((r) => ({
-			trackId: r.trackId,
-			channel: r.channel,
-			dt: r.key.time - t0,
-			value: r.key.value,
-			ease: cloneEase(r.key.ease),
-		}));
+		keyClipboard = refs.map((r) => {
+			const track = doc.tracks.find((t) => t.id === r.trackId);
+			return {
+				trackId: r.trackId,
+				actorId: track && track.actorId,
+				kind: track && track.kind,
+				channel: r.channel,
+				dt: r.key.time - t0,
+				value: r.key.value,
+				ease: cloneEase(r.key.ease),
+			};
+		});
 		return true;
 	}
 
+	/** A copied key `c` into `keys` at `t`, replacing a key already there. */
+	function putPastedKey(keys, t, c) {
+		const i = keys.findIndex((k) => Math.abs(k.time - t) < 1e-6);
+		const key = { time: t, value: c.value, ease: cloneEase(c.ease) };
+		if (key.ease === undefined) delete key.ease;
+		if (i >= 0) keys[i] = key;
+		else keys.push(key);
+		keys.sort((a, b) => a.time - b.time);
+	}
+
 	/**
-	 * Ctrl+V: the copied keys onto the SAME channels, the earliest at the playhead. A key already at
+	 * Where copied property keys of ONE actor land when the host names another actor
+	 * (`host.pasteTarget`, the node selected on the stage): that actor's track in the ratio being
+	 * edited, field to the same field, a field it cannot key skipped. Null ⇒ the copied channels.
+	 */
+	function pasteRetarget() {
+		const props = keyClipboard.filter((c) => c.kind === 'property');
+		const from = props.length ? props[0].actorId : null;
+		if (!from || props.some((c) => c.actorId !== from)) return null;
+		const target = host.pasteTarget(from);
+		if (!target) return null;
+		const fields = new Set(target.channels);
+		if (!props.some((c) => fields.has(c.channel))) return null;
+		return { fields, track: () => ensurePropertyTrack(target.actor()) };
+	}
+
+	/**
+	 * Ctrl+V: the copied keys onto the SAME channels, the earliest at the playhead — or, copied from
+	 * one node with another selected (`pasteRetarget`), onto that node's same fields. A key already at
 	 * a pasted time is replaced; a channel whose track is gone is skipped. The pasted keys end up
 	 * selected.
 	 */
 	function pasteKeys() {
 		if (!keyClipboard || !keyClipboard.length) return false;
+		const retarget = pasteRetarget();
+		if (!retarget) return pasteOntoCopied();
+		const at = snapT(time);
+		const track = retarget.track();
+		const pasted = [];
+		for (const c of keyClipboard) {
+			if (c.kind !== 'property' || !retarget.fields.has(c.channel)) continue;
+			const t = at + c.dt;
+			if (t > doc.duration + 1e-6) continue;
+			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
+			putPastedKey(keys, t, c);
+			pasted.push({ trackId: track.id, channel: c.channel, time: t });
+		}
+		if (!Object.keys(track.channels).length) doc.tracks = doc.tracks.filter((t) => t !== track);
+		if (!pasted.length) return false;
+		selectKeys(pasted);
+		commit(pasted.length > 1 ? 'paste keys' : 'paste key');
+		render();
+		renderTimeline();
+		return true;
+	}
+
+	/** Today's paste: each copied key onto its own channel (this ratio's track for its actor). */
+	function pasteOntoCopied() {
 		const at = snapT(time);
 		const pasted = [];
 		for (const c of keyClipboard) {
@@ -1807,12 +1865,7 @@ export function mount(el, options) {
 			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
 			const t = at + c.dt;
 			if (t > doc.duration + 1e-6) continue;
-			const i = keys.findIndex((k) => Math.abs(k.time - t) < 1e-6);
-			const key = { time: t, value: c.value, ease: cloneEase(c.ease) };
-			if (key.ease === undefined) delete key.ease;
-			if (i >= 0) keys[i] = key;
-			else keys.push(key);
-			keys.sort((a, b) => a.time - b.time);
+			putPastedKey(keys, t, c);
 			pasted.push({ trackId: track.id, channel: c.channel, time: t });
 		}
 		if (!pasted.length) return false;
@@ -1939,8 +1992,10 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const sel = selCueTime !== null ? keys.find((k) => Math.abs(k.time - selCueTime) < 1e-6) : null;
 		if (!sel) return '';
 		const fxEffects = host.effects();
+		const suggested = host.cueSuggestions();
 		const cur = sel.cue || '';
-		const known = fxEffects.some((e) => 'fx:' + e.id === cur);
+		const known =
+			fxEffects.some((e) => 'fx:' + e.id === cur) || suggested.some((x) => x.cue === cur);
 		const typed = !!cur && !known && !CUE_KINDS.some((k) => k.prefix === cur);
 		const head = known
 			? '— change to —'
@@ -1953,6 +2008,12 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 					`<option value="fx:${esc(e.id)}"${'fx:' + e.id === cur ? ' selected' : ''}>${esc(e.name || e.id)}</option>`,
 			)
 			.join('');
+		const suggestOpts = suggested
+			.map(
+				(x) =>
+					`<option value="${esc(x.cue)}"${x.cue === cur ? ' selected' : ''}>${esc(x.cue)} — ${esc(x.label)}</option>`,
+			)
+			.join('');
 		const kindOpts = CUE_KINDS.filter((k) => k.prefix !== 'fx:')
 			.map((k) => `<option value="${k.prefix}">${k.label} — ${k.hint}</option>`)
 			.join('');
@@ -1961,14 +2022,18 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 <div class="cineStripInsp">
 	<label class="wide">pick<select id="cineCuePick" title="Every FX effect in this project — picking one replaces this cue. The other kinds only seed their prefix, since their names live in the game.">
 		<option value="">${head}</option>
-		${fxOpts ? `<optgroup label="FX effects">${fxOpts}</optgroup>` : ''}
+		${fxOpts ? `<optgroup label="FX effects">${fxOpts}</optgroup>` : ''}${suggestOpts ? `<optgroup label="Element FX (On cue)">${suggestOpts}</optgroup>` : ''}
 		<optgroup label="other kinds">${kindOpts}</optgroup>
 	</select></label>
 	<label class="wide">cue<input type="text" data-cueact="cue" value="${esc(cur)}" placeholder="fx:my_effect"></label>
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
 </div>
 <div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
-<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>⚡ fx</b> row in the timeline (it appears as soon as one <code>fx:</code> cue exists, and becomes the <b>🎬 set</b> row once a Scene is bound) — move that row with ▲▼ to put the effect in front of a rig.</div>`;
+<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>⚡ fx</b> row in the timeline (it appears as soon as one <code>fx:</code> cue exists, and becomes the <b>🎬 set</b> row once a Scene is bound) — move that row with ▲▼ to put the effect in front of a rig.</div>${
+			suggested.length
+				? `<div class="cineNote">A <code>signal:</code> cue plays every <b>Element FX</b> on this screen and its nodes whose trigger is <i>On cue</i> with that name (without <code>signal:</code>): ${suggested.map((x) => `<code>${esc(x.cue)}</code>`).join(', ')}.</div>`
+				: ''
+		}`;
 	}
 
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */

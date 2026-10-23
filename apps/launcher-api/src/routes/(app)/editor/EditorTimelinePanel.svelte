@@ -59,6 +59,7 @@
 		componentTimelinesOf,
 		duplicateTimeline,
 		elementFxChannelValue,
+		elementFxCueSuggestions,
 		elementFxTimelineRows,
 		ensureNodeActor,
 		fxChannelValue,
@@ -73,7 +74,9 @@
 		nodeChannelValue,
 		defaultNodeKeyTracks,
 		onionFrames,
+		playbackCuesCrossed,
 		ratioKeyTracks,
+		screenCueFx,
 		screenTimelineId,
 		screenTimelinesOf,
 		stageDragKeys,
@@ -105,6 +108,7 @@
 		textTrackOf,
 		type TextMode,
 	} from '$lib/timeline/timelineRows';
+	import { playElementFxPreview } from './elementFxPreview.client.svelte';
 	import { placedEffect, placedEffectsVersion } from './placedEffects.client.svelte';
 	import type { RigMeta } from './rigRuntime.client';
 	import { setOnionPreview, setTimelinePreview } from './valuePreview.client.svelte';
@@ -372,6 +376,8 @@
 				}),
 				sceneName: (id: string) => (id === scene?.id ? (scene?.name ?? id) : id),
 				actorChannels: (cast: CinematicCast) => actorFxRows(cast),
+				pasteTarget,
+				cueSuggestions: () => (!component && scene ? elementFxCueSuggestions(scene) : []),
 				clips: (actorId: string) => {
 					const open = tl?.doc() ?? doc;
 					const cast = open.stage.cast.find((c) => c.actorId === actorId);
@@ -654,16 +660,34 @@
 		let last = performance.now();
 		const tick = (now: number): void => {
 			if (!playing || !tl) return;
+			const before = elapsed;
 			elapsed += (now - last) / 1000;
 			last = now;
 			const open = tl.doc();
 			const end = open.duration;
 			tl.setTime(playbackTime(open.loop, elapsed, end));
 			tl.positionPlayhead();
+			playCrossedCues(open, before, elapsed);
 			if ((!open.loop || open.loop === 'oneShot') && elapsed >= end) stop();
 			else raf = requestAnimationFrame(tick);
 		};
 		raf = requestAnimationFrame(tick);
+	}
+
+	/**
+	 * A screen timeline's cues the playback just crossed (`playbackCuesCrossed`, the game's rule) play
+	 * the _On cue_ Element FX they reach in game (`screenCueFx`), through ▶'s stage preview: one at a
+	 * time, so the last one a frame reaches shows.
+	 */
+	function playCrossedCues(doc: CinematicDoc, from: number, to: number): void {
+		if (component || !scene) return;
+		const cues = doc.tracks.find((t) => t.kind === 'cue') as
+			{ keys?: { time: number; cue: string }[] } | undefined;
+		const hits = playbackCuesCrossed(cues?.keys ?? [], doc.loop, from, to, doc.duration).flatMap(
+			(k) => screenCueFx(scene, k.cue),
+		);
+		const last = hits[hits.length - 1];
+		if (last) playElementFxPreview(last.target, last.entry);
 	}
 
 	/** The header's loop type; One-shot is the absent default. */
@@ -736,6 +760,23 @@
 		return doc && id
 			? nodeChannelValue(doc, id, channel, time, keysRatio())
 			: NODE_IDENTITY[channel];
+	}
+
+	/**
+	 * Ctrl+V of keys copied from another node: the node selected on the stage takes them, field to
+	 * field (`keyableChannels`), becoming an actor only once something pastes. The copied node itself
+	 * selected, or no node, pastes onto the copied channels.
+	 */
+	function pasteTarget(fromActorId: string): { channels: string[]; actor(): string } | null {
+		const doc = tl?.doc();
+		if (!doc || !target?.ok || !ownsDoc(doc)) return null;
+		const from = doc.stage.cast.find((c) => c.actorId === fromActorId);
+		const to = target;
+		if (!from || from.kind !== 'node' || from.target === to.target) return null;
+		return {
+			channels: keyableChannels(to.node.kind),
+			actor: () => ensureNodeActor(doc, to.target),
+		};
 	}
 
 	/** Key `channel` at the playhead to `v` (default: its current value), creating the actor. */

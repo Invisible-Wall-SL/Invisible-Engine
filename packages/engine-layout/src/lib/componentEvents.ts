@@ -95,6 +95,16 @@ export function routeComponentCue(cue: string, declaresEvents: boolean): Compone
 	return ns === 'signal' ? { kind: 'signal', name } : { kind: 'broadcast', name };
 }
 
+/**
+ * The signal a SCREEN timeline's cue also fires on the component-signal bus, where every _On cue_
+ * Element FX listens: routed as a component timeline's cue is ({@link routeComponentCue}), so
+ * `signal:NAME` fires `NAME` and any other cue fires none (it keeps its game-bus broadcast).
+ */
+export function screenCueSignal(cue: string): string | undefined {
+	const route = routeComponentCue(cue, false);
+	return route.kind === 'signal' ? route.name : undefined;
+}
+
 /** Every localization key a def's raises carry — its listeners' and its states' `onEnter` and
  *  `onExit` — with
  *  the event that carries it, for the harvest, in tree then layer order, each key once. */
