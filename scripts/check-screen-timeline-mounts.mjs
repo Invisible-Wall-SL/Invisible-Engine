@@ -157,6 +157,7 @@ const STUBS = {
 		'engine-layout': moduleUrl(`
 			export { foldBoundTransform } from '${VALUE_BINDINGS}';
 			export { nodeActorBindings, nodeActorOutputs } from '${CINEMATIC_NODES}';
+			export { resolveReelGridFromNode } from '${REEL_GRID}';
 			export { resolveTransform } from '${RESOLVE_TRANSFORM}';
 		`),
 	},
@@ -723,8 +724,18 @@ const boardText = () => JSON.stringify(state.board);
 	run.end();
 }
 {
-	// An intro that ends with the reels moved: 30 right, 40 up, at 0.8, on a grid nudged off its node.
-	const grid = { ...BASEGAME.nodes[1], boardNudgeX: 12, boardNudgeY: -8 };
+	// An intro that ends with the reels moved: 30 right, 40 up, at 0.8, on a nudged, gapped grid of
+	// non-square cells whose art may spill past them.
+	const grid = {
+		...BASEGAME.nodes[1],
+		boardNudgeX: 12,
+		boardNudgeY: -8,
+		cellWidth: 140,
+		cellHeight: 100,
+		gapX: 10,
+		gapY: 6,
+		overflowX: 8,
+	};
 	const run = basegameGame({ scene: { ...BASEGAME, nodes: [BASEGAME.nodes[0], grid] } });
 	const moved = (id) =>
 		basegameIntro({
@@ -735,7 +746,7 @@ const boardText = () => JSON.stringify(state.board);
 				scale: [key(0, 0.1), key(2, 0.8)],
 			},
 		});
-	/** The board's laid-out centre and cell (`boardLayout()`), against where the drawing put them. */
+	/** The board's laid-out centre and cells (`boardLayout()`), against where the drawing put them. */
 	const laidOutAsDrawn = () => {
 		const type = layout.get('type');
 		const authored = resolveReelGridFromNode(grid, type);
@@ -746,7 +757,9 @@ const boardText = () => JSON.stringify(state.board);
 			!!held &&
 			near(held.x + held.boardNudgeX, at(authored.x + authored.boardNudgeX, 'x')) &&
 			near(held.y + held.boardNudgeY, at(authored.y + authored.boardNudgeY, 'y')) &&
-			near(held.cellSize, authored.cellSize * drawn.scale.x)
+			['cellSize', 'cellWidth', 'cellHeight', 'gapX', 'gapY', 'overflowX'].every((px) =>
+				near(held[px], authored[px] * drawn.scale.x),
+			)
 		);
 	};
 	const heldText = () =>
@@ -785,6 +798,17 @@ const boardText = () => JSON.stringify(state.board);
 	check('basegame squashed: an uneven end scale stays on the drawing (the board scales evenly)', run.heldGrid() === undefined && near(state.board.scale.x, 1.2) && near(state.board.scale.y, 0.9), boardText()); // prettier-ignore
 	run.end();
 }
+// The layout reads a scale of 0 or below as 1: holding one would bring the reels back full size.
+for (const [what, end] of [
+	['shrunk away', 0],
+	['flipped', -1],
+]) {
+	const run = basegameGame();
+	run.play(basegameIntro({ id: `basegame_${end}`, extra: { scale: [key(0, 1), key(2, end)] } }));
+	frames(130);
+	check(`basegame ${what}: the end pose stays on the drawing`, run.drives.holding('basegame') && run.heldGrid() === undefined && boardAt(960, 801.5, end), boardText()); // prettier-ignore
+	run.end();
+}
 
 // --- 5. the game wires it as this gate does -------------------------------------------------------
 // The gate builds its own flow handle. These pin the real wiring to it, so a `Game.svelte` that
@@ -804,7 +828,8 @@ const boardText = () => JSON.stringify(state.board);
 	check('wiring: the below-reel layers remount with it, in their own container (kept under the board)', /<Container>\s*\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameBelowReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}\s*<\/Container>/.test(gameSource)); // prettier-ignore
 	check('wiring: the above-reel layers remount with it, in their own container', /<Container>\s*\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameAboveReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}\s*<\/Container>/.test(gameSource)); // prettier-ignore
 	check('wiring: the board is drawn inside <BoardDrive> with it, the base game’s reelGrid and whether its layout holds the end pose', /<BoardDrive\s+drive=\{basegameDrive\}\s+node=\{basegameReelGrid\}\s+layoutType=\{context\.stateLayoutDerived\.layoutType\(\)\}\s+layoutHeld=\{!!basegameHeldReelGrid\}\s*>(?:(?!<\/BoardDrive>)[\s\S])*\{@render reelStack\(\)\}/.test(gameSource)); // prettier-ignore
-	check('wiring: Game holds the grid’s end pose only once the base game’s timeline has ended', /const basegameHeldReelGrid = \$derived\.by\(\(\) => \{\s*const drive = basegameDrive;\s*const node = basegameReelGrid;\s*if \(!drive \|\| !node \|\| !flowV2Handle\?\.screenHolding\(basegameScreenId\)\) return undefined;\s*const gridDrive = untrack\(\(\) => drive\.driver\(node\.id\)\);\s*return gridDrive\s*\? heldReelGridNode\(\s*node,\s*gridDrive\.channels,\s*gridDrive\.sample\(\),\s*context\.stateLayoutDerived\.layoutType\(\),?\s*\)\s*: undefined;\s*\}\);/.test(gameSource)); // prettier-ignore
+	check('wiring: Game holds the grid’s end pose once the base game’s timeline has ended, named by the play and ratio', /const basegameHeldPlay = \$derived\(\s*basegameDrive && basegameReelGrid && flowV2Handle\?\.screenHolding\(basegameScreenId\)\s*\? `\$\{basegameDrive\.key\}@\$\{context\.stateLayoutDerived\.layoutType\(\)\}`\s*: undefined,?\s*\);/.test(gameSource)); // prettier-ignore
+	check('wiring: …and lays it out from the grid as the keys left it, read once per play', /const basegameHeldReelGrid = \$derived\.by\(\(\) => \{\s*const drive = basegameDrive;\s*const node = basegameReelGrid;\s*if \(!basegameHeldPlay \|\| !drive \|\| !node\) return undefined;\s*return untrack\(\(\) => \{\s*const gridDrive = drive\.driver\(node\.id\);\s*return gridDrive\s*\? heldReelGridNode\(\s*node,\s*gridDrive\.channels,\s*gridDrive\.sample\(\),\s*context\.stateLayoutDerived\.layoutType\(\),?\s*\)\s*: undefined;\s*\}\);\s*\}\);/.test(gameSource)); // prettier-ignore
 	check('wiring: Game lays the board out from the held grid, and back from the authored one', /\$effect\(\(\) => \{\s*const held = basegameHeldReelGrid;\s*untrack\(\(\) => \{\s*if \(held\) setBoardOverride\(held\);\s*else if \(boardLayoutHeld\) setBoardOverride\(findReelGridNode\(editorDoc\) \?\? null\);\s*boardLayoutHeld = !!held;\s*\}\);\s*\}\);/.test(gameSource)); // prettier-ignore
 	check('wiring: the runtime counts its own Pots screen', /createScreenDrives\([^;]*enginePots \? \[enginePots\.scene\.id\] : \[\]/.test(runtime)); // prettier-ignore
 	check('wiring: the runtime reports the screens the flow shows', runtime.includes('screenDrives.setFlowScreens(containers.map((container) => container.sceneId))')); // prettier-ignore

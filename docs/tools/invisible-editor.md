@@ -1303,10 +1303,11 @@ plays the result in the game. A component has its own Animate mode on the Compon
      timeline leaves the grid is where the reels stay: once it ends, the game lays the board out
      there, so the win line, symbol flights, the bonus board and anything else placed from the
      board follow the reels, until the base game is hidden or the timeline plays again. That
-     takes an even scale: an end pose scaled differently in x and y, and any rotation, stay on
-     the reels' drawing only, and the win line keeps the grid's Design pose. A node hidden by a
-     visibility key stays hidden while the base game is up, because the screen holds the last
-     frame; key it visible again at the end if it should come back.
+     takes an even, positive scale: an end pose scaled differently in x and y, to nothing or
+     flipped stays on the reels' drawing only, and the win line keeps the grid's Design pose. A
+     turn always stays on the drawing: the win line follows the move and scale, not the turn. A
+     node hidden by a visibility key stays hidden while the base game is up, because the screen
+     holds the last frame; key it visible again at the end if it should come back.
    - **A timeline reaches the game only once it keys a node and is saved.** One that never did
      (or was deleted) is skipped: the flow carries on, and the browser console says which.
 

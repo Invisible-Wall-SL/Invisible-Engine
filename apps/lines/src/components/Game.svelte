@@ -1528,20 +1528,28 @@
 	// Once that timeline has ended, where it left the reel grid becomes the board's layout, so the win
 	// line, flights and overlays placed from `boardLayout()` follow the reels; `<BoardDrive>` then keeps
 	// only the turn, fade and visibility. A replay, or the base game going down, restores the authored
-	// grid. A grid left as authored changes nothing.
+	// grid. A grid left as authored changes nothing. The ended play and ratio are named by a string, so
+	// another timeline starting or ending (which `screenHolding` notices) does not lay it out again.
+	const basegameHeldPlay = $derived(
+		basegameDrive && basegameReelGrid && flowV2Handle?.screenHolding(basegameScreenId)
+			? `${basegameDrive.key}@${context.stateLayoutDerived.layoutType()}`
+			: undefined,
+	);
 	const basegameHeldReelGrid = $derived.by(() => {
 		const drive = basegameDrive;
 		const node = basegameReelGrid;
-		if (!drive || !node || !flowV2Handle?.screenHolding(basegameScreenId)) return undefined;
-		const gridDrive = untrack(() => drive.driver(node.id));
-		return gridDrive
-			? heldReelGridNode(
-					node,
-					gridDrive.channels,
-					gridDrive.sample(),
-					context.stateLayoutDerived.layoutType(),
-				)
-			: undefined;
+		if (!basegameHeldPlay || !drive || !node) return undefined;
+		return untrack(() => {
+			const gridDrive = drive.driver(node.id);
+			return gridDrive
+				? heldReelGridNode(
+						node,
+						gridDrive.channels,
+						gridDrive.sample(),
+						context.stateLayoutDerived.layoutType(),
+					)
+				: undefined;
+		});
 	});
 	let boardLayoutHeld = false;
 	$effect(() => {

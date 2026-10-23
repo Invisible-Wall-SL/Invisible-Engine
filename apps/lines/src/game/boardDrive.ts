@@ -2,6 +2,7 @@ import {
 	foldBoundTransform,
 	nodeActorBindings,
 	nodeActorOutputs,
+	resolveReelGridFromNode,
 	resolveTransform,
 	type LayoutType,
 	type NodeActorChannel,
@@ -76,7 +77,9 @@ export function boardDriveTransform(
  * The `reelGrid` node as an ended base-game timeline leaves it, for the board's layout: moved and
  * resized for the ratio on screen, so the reels, and the win line, flights and overlays placed from
  * `boardLayout()`, stay where the timeline put them. `undefined` when it leaves the grid as authored,
- * or scales it unevenly (the board scales its cells evenly, so that stays on the drawing alone).
+ * or in a pose the layout cannot carry, which then stays on the drawing alone: scaled unevenly (the
+ * board scales its cells evenly), to nothing or flipped (the layout reads a scale of 0 or below as
+ * 1), or on a grid the board is not laid out from (no usable cell size).
  */
 export function heldReelGridNode(
 	node: ReelGridNode,
@@ -86,8 +89,9 @@ export function heldReelGridNode(
 ): ReelGridNode | undefined {
 	const offset = nodeActorOffset(channels, sample);
 	const s = offset.scale?.x ?? 1;
-	if (Math.abs(s - (offset.scale?.y ?? 1)) > 1e-9) return undefined;
+	if (!(s > 0) || Math.abs(s - (offset.scale?.y ?? 1)) > 1e-9) return undefined;
 	if (offset.x === 0 && offset.y === 0 && s === 1) return undefined;
+	if (!resolveReelGridFromNode(node, layoutType)) return undefined;
 	const authored = resolveTransform(node, layoutType);
 	// `boardLayout()` adds the nudge unscaled, where the drawing scaled it with the board about the
 	// node: shift by the difference, so the layout lands where the drawing did.
