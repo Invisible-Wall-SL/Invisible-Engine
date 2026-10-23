@@ -213,6 +213,17 @@ Shipped capabilities on `main`:
     once a key fits), and a clipboard holding a camera key pastes as before.
   - Editor preview gaps (in the guide): one Element FX at a time (the last a cue reaches),
     Element FX inside a placed component's parts and stop cues not previewed.
+- 2026-10-23 — **The Interpolation panel draws its curve** (in review). The panel showed a solid
+  black box with two black dots where the cubic curve belongs. The shared Timeline emits the curve
+  as SVG (`.cineCurveBox` / `Arm` / `Path` / `Handle`) and `EditorTimelinePanel.svelte` had no
+  `:global` rule for any of them, so every shape took SVG's default black fill and no stroke — since
+  Phase 9b (#1264), not a recent regression. The panel now styles them in its theme: the curve
+  strokes in `--accent2`, the handles fill `--accent`, the unit box is dashed, the picked kind
+  button is outlined. Linear and Hold also draw their shape (a line, a step; no handles) in the
+  same frame (`shapeMarkup` in `timeline.js`; `/rigger` does not turn the panel on, its golden is
+  unchanged). Gate: `tools/rigger-spike/timeline-curve-style.mjs` compiles the panel's real
+  stylesheet, mounts the shared Timeline inside it in headless Chrome and asserts the computed
+  fill/stroke of every curve shape for Cubic, Linear and Hold (10 failures on the old code).
 - 2026-10-23 — **A rig on a HUD (`standard`) screen draws by the box's own fit** (in review, ⏳ not
   browser-verified). Follow-up to the 2026-10-21 canvas fix below. The reviewer had flagged that a
   top-level rig on a `standard` screen kept its raw x/y while its box went through `standardToWorld`.

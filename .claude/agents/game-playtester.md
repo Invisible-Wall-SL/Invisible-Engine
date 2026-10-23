@@ -108,7 +108,7 @@ For each scenario in the playbook:
   ticker, not a bug ([[reference_pixi_engine_verification]]).
 
 ## House style
-`pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*` internal deps. TypeScript, no `any` unless
+`pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*` internal deps. TypeScript, no `any` unless
 unavoidable. Prettier: tabs, single quotes, 100 cols, trailing commas. No dead code, no noise
 comments. Commit subjects need an area scope (`engine(playtest): …`, `games(lines): …`).
 

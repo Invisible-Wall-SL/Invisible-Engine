@@ -72,7 +72,7 @@ launcher/auth/R2/tool-registry foundation).
   atlas-listing pattern. Check the `reuse-check` skill before a new shared surface.
 
 ## House style
-`pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*` internal deps. TypeScript, no `any`.
+`pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*` internal deps. TypeScript, no `any`.
 Prettier: tabs, single quotes, 100 cols, trailing commas. No dead code, no noise comments.
 Branding: **Invisible Rigger**; brand pages with the Invisible Wall emblem.
 
