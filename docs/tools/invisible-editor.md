@@ -221,6 +221,48 @@ is no room); hidden in a layout, the panel falls back to that spot. A project sw
 board later in Game Config keeps the screens it has: the game still plays, with the board's frame
 and tiles only during the feature, and the panel at its default spot.
 
+#### Author the respin counter text (count, RESPINS RESET, LAST RESPIN, modifiers)
+
+With no Respin Counter on screen, the game draws its built-in counter in white Arial with a black
+outline. It shows:
+
+- "RESPINS 3" over the board;
+- "3 RESPINS" as the feature opens;
+- "RESPINS RESET" when a coin puts the count back;
+- "LAST RESPIN" on the last respin;
+- a small gold modifiers line under it ("PAYER · MULTIPLIER").
+
+To replace all of it with your own look:
+
+1. **Open the Respin counter screen.** If your project has none, use **＋ Add missing screens**. A
+   project from the Hold and Win starter already has a **Respin counter** instance and an **Active
+   modifiers** Text Box on that screen. Otherwise, place a **Respin Counter** from the Components
+   list (under **UI**). While any Respin Counter is on screen, the built-in counter and its
+   modifiers line do not draw.
+2. **Pick what it says** with its **source**:
+   - **`respinCounterText`** shows exactly the built-in counter's words, every beat included. Then
+     empty its **label** so no "RESPINS" caption sits over it. An untouched label field only *looks*
+     empty: the grey text is its default, which still draws. Type a character, then delete it.
+     The **×** button puts the default back.
+   - **`respinsLeft`** (the default) shows the number only. Draw your own reset look and play it on
+     the **Respin counter — reset** signal, and on **Respin counter — award** as the feature opens.
+     Use a "Plays on signal" cue or a State Machine.
+3. **Style it.** Font, size, fill and frame image are the counter's own params. **pulse on a reset
+   or "+N"** makes it pop (1 = still).
+4. **The modifiers line** is never part of a Respin Counter.
+   - On a starter screen it is the **Active modifiers** Text Box (source `activeModifiers`). Style
+     it, or delete it to show no modifiers.
+   - Without one, place a **Jackpot Tile**, set its source to `activeModifiers`, empty its label as
+     above, and set its font size and fill: its default is the large gold jackpot figure.
+   - A Jackpot Tile used this way never pulses, and never hears jackpot signals.
+
+The words are set in [Invisible Win Text](win-text.md), under **Respins** (the special names are
+under **Hold and Win feature**), and translated from there. The `respinCounterNote` source is
+`award`, `reset` or empty, for a look that changes with the beat.
+
+On the Components side, a Respin Counter whose **Counter** part you emptied draws the built-in
+look again. Keep at least one node inside the part.
+
 #### Banner screens
 
 Every popup the Hold and Win feature announces over the board ("MINI" and its amount, "BONUS WIN",

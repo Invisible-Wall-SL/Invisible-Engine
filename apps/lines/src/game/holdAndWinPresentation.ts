@@ -477,6 +477,7 @@ export const presentHoldAndWinTrigger = async (event: Beat<'holdAndWinTrigger'>)
 	stateRespinBoard.counter.note = 'award';
 	stateRespinBoard.counter.show = true;
 	eventEmitter.broadcast({ type: 'respinBoardShow' });
+	eventEmitter.broadcast({ type: 'respinCounterAward', left: event.payload.respins });
 	const intro = featureIntroText(event.payload.respins);
 	if (!intro) {
 		await waitPresentation(TRIGGER_HOLD_MS);

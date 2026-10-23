@@ -220,9 +220,10 @@ The defaults are exactly what the game draws when nothing is written, so an unto
 reads as it always has. Every one of these lines, each tier's caption and each pot's name is
 listed in Localization for translation.
 
-**Not on screen yet:** the respins awarded, reset and last-respin lines, the feature total,
-the pot-full line and the intro / outro are saved and translated, but nothing draws them
-until a scene or a beat uses them. The page says so above these sections.
+**Where the respin lines show:** the counter, award, reset and last-respin lines are what
+the built-in respin counter says, and what an authored Respin Counter says when its source is
+`respinCounterText` (see [Author the respin counter text](invisible-editor.md#author-the-respin-counter-text-count-respins-reset-last-respin-modifiers)).
+The intro and outro draw nothing until you write them.
 
 #### Several respin modes
 

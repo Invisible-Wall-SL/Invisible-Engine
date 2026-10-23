@@ -3,9 +3,8 @@
 	import { SYMBOL_SIZE } from 'engine-game';
 	import { RESPIN_COUNTER_ANCHOR } from 'engine-layout';
 
-	import { respinCounterText } from '../game/holdAndWinText';
+	import { respinCounterLine } from '../game/respinCounterLine';
 	import { activeModifiersText } from '../game/stateHoldAndWin.svelte';
-	import { stateRespinBoard } from '../game/stateRespinBoard.svelte';
 
 	type Props = { scale: number };
 
@@ -15,7 +14,8 @@
 	 * THE CODED COUNTER'S LOOK at its own origin: "RESPINS 3" (scaled by the pulse, under the
 	 * `respinCounter` anchor its "+N" flies into) and, under it, the modifiers active in this feature.
 	 * Drawn by the coded default (`RespinCounter`) and by an authored counter's part with nothing
-	 * inside it (`RespinCounterPart`).
+	 * inside it (`RespinCounterPart`). Both lines are the `respinCounterText` and `activeModifiers`
+	 * sources an authored counter binds instead.
 	 */
 	const modifiers = $derived(activeModifiersText());
 </script>
@@ -24,7 +24,7 @@
 	<Anchor name={RESPIN_COUNTER_ANCHOR} />
 	<Text
 		anchor={0.5}
-		text={respinCounterText(stateRespinBoard.counter.left, stateRespinBoard.counter.note)}
+		text={respinCounterLine()}
 		style={{
 			fontFamily: 'Arial',
 			fontWeight: 'bold',
