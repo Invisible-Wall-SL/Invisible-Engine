@@ -9,9 +9,11 @@
  *  2. THE MANIFEST. The REAL `(app)/+layout.server.ts` load, for every role: a slot project, a
  *     project with no recorded kind and the shared `cloud` scope get exactly `manifestForRole`; a
  *     match-3 project the same today; an arcade project the same minus Symbols and Win Text. A tool
- *     page's `?project=` decides the family before the page syncs it into the session.
+ *     page's `?project=` decides the family before the page syncs it into the session, and the
+ *     load reads it TRACKED (the event has no `untrack`), so a client-side hop to another
+ *     project's `?project=` re-runs it. Onboarding keeps the role's whole manifest.
  *  3. THE NOTICE. The REAL `(app)/+layout.svelte`, rendered on the server: a hidden tool's URL (and
- *     a path under it) shows the notice and not the page; a slot project, and any tool the family
+ *     a path under it) shows the notice, naming the project, and not the page; a slot project, and any tool the family
  *     uses, render the page untouched.
  *  4. DIRECTOR'S GATE. The REAL `director/gate.ts` refuses an op on a tool the project's family
  *     does not use (`not_for_family`) and runs the same op for a slot project.
@@ -133,21 +135,23 @@ fake('lib/server/clients.ts', { listClients: async () => [{ key: 'acme', name: '
 fake('lib/server/roleToolAccess.ts', { getRoleOverrides: async () => ({}) });
 fake('lib/server/userToolAccess.ts', { getToolOverrides: async () => ({}) });
 fake('lib/server/engineSource.ts', { enginePending: async () => null });
+fake('lib/server/toolInstalls.ts', { getInstallPaths: async () => ({}) });
 fake('lib/server/testServerManifest.ts', {
 	engineDeployStatus: async () => ({ status: 'unknown' }),
 });
 
 // ── 2. The manifest ──────────────────────────────────────────────────────────────────────────────
 const { load } = (await import(src('routes/(app)/+layout.server.ts'))) as {
-	load: (event: unknown) => Promise<{ tools: ToolDef[]; family: string }>;
+	load: (event: unknown) => Promise<{ tools: ToolDef[]; family: string; familyProjectKey: string }>;
 };
 const loadFor = async (role: Role, session: string | null, search = '') => {
 	sessionProject = session;
 	return load({
 		locals: { user: { id: 'u', email: 'u@example.com', name: 'u', role } },
 		cookies: { get: () => 'token' },
+		// No `untrack`: SvelteKit tracks `url.searchParams.get('project')` per param, and reading it
+		// untracked would leave the tool bar on the last project's family after a client-side hop.
 		url: new URL(`https://app.example/win-text${search}`),
-		untrack: <T>(fn: () => T) => fn(),
 	});
 };
 const ids = (tools: ToolDef[]) => tools.map((t) => t.id);
@@ -170,10 +174,11 @@ for (const role of ROLES) {
 		ids(arcade.tools),
 		all.filter((id) => id !== 'symbols' && id !== 'winText'),
 	);
+	const opened = await loadFor(role, 'slot', '?project=catcher');
 	check(
 		`2. ${role}, a slot session opening an arcade project's ?project=: arcade`,
-		(await loadFor(role, 'slot', '?project=catcher')).family,
-		'arcade',
+		[opened.family, opened.familyProjectKey],
+		['arcade', 'catcher'],
 	);
 	check(
 		`2. ${role}, an arcade session opening a slot project's ?project=: slot`,
@@ -184,6 +189,14 @@ for (const role of ROLES) {
 		`2. ${role}, an unknown ?project= falls back to the session's project`,
 		(await loadFor(role, 'catcher', '?project=nope')).family,
 		'arcade',
+	);
+	const onboarding = (await import(src('routes/(app)/onboarding/+page.server.ts'))) as {
+		load: (event: unknown) => Promise<{ tools: ToolDef[] }>;
+	};
+	check(
+		`2. ${role}: onboarding lists the role's whole manifest, whatever the family`,
+		ids((await onboarding.load({ locals: { user: { id: 'u', role } } })).tools),
+		all,
 	);
 }
 
@@ -211,7 +224,12 @@ try {
 	const PAGE = 'THE-TOOL-PAGE';
 	const children = createRawSnippet(() => ({ render: () => `<p>${PAGE}</p>` }));
 	const renderAt = (pathname: string, family: string) => {
-		const data = { tools: manifestForRole('admin'), family };
+		const data = {
+			tools: manifestForRole('admin'),
+			family,
+			familyProjectKey: 'catcher',
+			projects: [{ key: 'catcher', name: 'Catch the Salmon' }],
+		};
 		// `$app/state` reads the request from this context key, as SvelteKit's root sets it.
 		const page = { url: new URL(`https://app.example${pathname}`) };
 		const context = new Map([['__request__', { page }]]);
@@ -229,6 +247,7 @@ try {
 			true,
 		);
 		check(`3. arcade ${path}: not the tool`, body.includes(PAGE), false);
+		check(`3. arcade ${path}: names the project`, body.includes('Catch the Salmon'), true);
 		check(`3. arcade ${path}: a link home`, body.includes('href="/"'), true);
 		for (const family of ['slot', 'match3']) {
 			const page = renderAt(path, family);

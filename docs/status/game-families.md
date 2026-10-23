@@ -17,18 +17,19 @@ match-3 or arcade config can be authored but not published. P10.2 and later have
 - **Home and tool bar:** `(app)/+layout.server.ts` drops the hidden tools from `tools` (which feeds
   the home grid and `ToolTopBar`) and returns `family`. It reads the family of the page's
   `?project=` when the user may reach it, else of the session's project, because the page syncs
-  `?project=` into the session only after the layout has run. The read is untracked, so a
-  client-side hop does not re-run the layout.
-- **The notice:** `(app)/+layout.svelte` renders "<tool> is not used by arcade games" with a link
-  home in place of the page when the URL is a hidden tool's (`familyHiddenToolAt`). The tool's own
+  `?project=` into the session only after the layout has run. The read is tracked, so a
+  client-side hop to another project's `?project=` re-runs the layout (and only that param does).
+  Onboarding keeps the role's whole manifest: it describes what a role may use.
+- **The notice:** `(app)/+layout.svelte` renders "<tool> is not used by arcade games", names the
+  project, and links home, in place of the page when the URL is a hidden tool's (`familyHiddenToolAt`). The tool's own
   load still runs; nothing renders from it.
 - **Director:** `ADAPTER_TOOL_IDS` (`director/adapter.ts`) maps each adapter tool to its launcher
   tool, and `buildRegistry` refuses an op whose tool maps to none. The gate refuses an op on a tool
   the project's family hides with 403 `not_for_family`, after the scope check.
 - **Slot parity:** for every role, a slot, legacy (no kind), custom-kind and `cloud` project gets
   exactly `manifestForRole`, and a slot page renders exactly its children.
-- **Verified:** `check:family-tools` (141 checks: the list, the real layout load per role and
-  family, the real layout server-rendered, the real gate), and `check:director-adapters` with its
+- **Verified:** `check:family-tools` (151 checks: the list, the real layout load per role and
+  family, onboarding, the real layout server-rendered, the real gate), and `check:director-adapters` with its
   fixture op moved onto a mapped tool.
 - **Not built here:** Win Text's own "this game pays no money" message for a rules-decided match-3
   game (§6.5's outcome bullet) is not in §8's P10.1b row; it waits for a match-3 project to exist

@@ -14,7 +14,12 @@
 		data,
 	}: {
 		children: Snippet;
-		data?: { tools?: ToolDef[]; family?: GameFamily };
+		data?: {
+			tools?: ToolDef[];
+			family?: GameFamily;
+			familyProjectKey?: string;
+			projects?: { key: string; name: string }[];
+		};
 	} = $props();
 
 	// A direct link to a tool the project's family does not use gets a notice instead of the tool
@@ -22,7 +27,9 @@
 	const hiddenTool = $derived.by(() => {
 		const family = data?.family;
 		const tool = family && familyHiddenToolAt(page.url.pathname, family);
-		return tool && family ? { tool, family } : undefined;
+		if (!tool || !family) return undefined;
+		const project = data?.projects?.find((p) => p.key === data.familyProjectKey);
+		return { tool, family, project: project?.name ?? data?.familyProjectKey ?? '' };
 	});
 
 	// Heavy tool routes (FX, Flow, Editor…) ship large JS chunks (PixiJS, rig,
@@ -88,7 +95,8 @@
 		<main>
 			<h1>{hiddenTool.tool.name} is not used by {FAMILY_LABELS[hiddenTool.family]} games</h1>
 			<p>
-				The active project's kind of game does not use this tool, so the launcher does not offer it.
+				<strong>{hiddenTool.project}</strong> is a project for {FAMILY_LABELS[hiddenTool.family]}
+				games, so the launcher does not offer this tool for it.
 			</p>
 			<a href={resolve('/')}>Back to the launcher</a>
 		</main>

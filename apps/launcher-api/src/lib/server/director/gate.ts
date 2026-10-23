@@ -182,6 +182,7 @@ export async function runAdapterCall(
 		if (!scope) {
 			return fail(403, 'out_of_scope', `The run's owner cannot access the project "${project}".`);
 		}
+		// An `owner`-scoped op has no project, so no family: it is never hidden.
 		const family = projectFamily(scope.projectKey, await storedProjectGameType(scope.projectKey));
 		const toolId = ADAPTER_TOOL_IDS[op.tool];
 		if (!familyUsesTool(family, toolId)) {
