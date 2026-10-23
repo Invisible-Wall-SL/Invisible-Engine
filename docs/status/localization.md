@@ -34,6 +34,17 @@ Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipe
 
 ## Recent changes
 
+- 2026-10-23 — **Lingui 6** (`@lingui/core`, `message-utils`, `conf`, `vite-plugin` 5.2.0 → 6.10.1,
+  all together). No code change was needed: we use no macros, extractor or compiled `.po` catalogs —
+  the catalogs are plain string maps compiled at runtime by `compileMessage`, and keys are explicit
+  source-as-key IDs, so v6's base64url hash IDs do not apply. A before/after render of every app ×
+  declared locale (code catalogs, plus a synthetic reviewed bake of every harvested key through the
+  engine text resolver and `formatWinText`) matched on all 137,088 strings but one planted edge case:
+  `i18n._()` on a string mixing a `\uXXXX` escape with another backslash escape (`\n`) — v5
+  JSON-parsed the whole string, v6 decodes only the `\u`/`\x` escapes. No shipped or harvested string
+  contains a backslash. Lingui 6 needs Node ≥ 22.19.0, so the repo floor moved there too.
+  `@lingui/vite-plugin` 6 declares a `vite ^6.3` peer; we are on 6.2.0 (a peer warning — the plugin
+  only loads the config here, as we import no `.po`).
 - 2026-10-13 — **Timeline text is harvested** (Rive plan Phase 1, §8). A new auto origin
   `timeline`: `harvestTimelineText` lists every string a shipped cinematic's `switchKey` text track
   names (one "Timelines" section, source-as-key, deduped). It lists only keys the target node
