@@ -1634,9 +1634,10 @@ it, tick a bool, type a number. Three kinds:
 the total bet (100 = 1× bet, 1000 = 10×), so a threshold is typed the same way for either.
 
 - `featureWorth` — what the feature is worth so far: banked jackpots plus every held coin, the
-  same value Flow's `featureWorth` reads. It moves after each respin as coins land, holds the
-  final worth once the feature ends, and goes back to 0 when the next spin starts. It reads 0
-  outside a feature. Pick it for anything that follows the feature while it plays, such as a
+  same value Flow's `featureWorth` reads. It reads 0 before a feature opens, moves after each
+  respin as coins land, holds the final worth once the feature ends, and goes back to 0 when the
+  next spin starts, so a widget still on screen after the outro drops to its lowest tier on that
+  press. Pick it for anything that follows the feature while it plays, such as a
   TOTAL WIN widget whose tier is set by its state machine. Example: a number input `worth`
   **from** `featureWorth`, with transitions `worth >= 1000` → Medium (10× bet), `worth >= 2500`
   → Big, `worth >= 5000` → Huge, and `worth < 1000` → Mini.

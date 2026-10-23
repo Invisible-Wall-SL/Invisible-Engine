@@ -20,7 +20,7 @@
  *     starts); an open feature keeps it.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,7 +36,6 @@ import {
 	atRoundStart,
 	emptyHoldAndWinState,
 	featureWorthOf,
-	type HoldAndWinEvent,
 	type HoldAndWinSnapshot,
 	type HoldAndWinState,
 	isHoldAndWinEvent,
@@ -96,19 +95,38 @@ check(
 	/featureWorth: valueSource\(featureWorth, bookEventAmountToCurrencyString\)/.test(game) &&
 		/\bfeatureWorth,[\s\S]*?\} from '\.\.\/game\/stateHoldAndWin\.svelte';/.test(game),
 );
+const engineReads = /const ENGINE_READS\b.*= \{\n([\s\S]*?)\n\};/.exec(flow)?.[1] ?? '';
 check(
 	"reader: Flow's $engine.featureWorth is the same reader",
-	/^\tfeatureWorth,$/m.test(flow) &&
+	/^\tfeatureWorth,$/m.test(engineReads) &&
 		/import \{[^}]*\bfeatureWorth\b[^}]*\} from '\.\/stateHoldAndWin\.svelte';/.test(flow),
 );
-const totalReads = [
-	['apps/lines/src/components/Game.svelte', game],
-	['apps/lines/src/game/flowRuntime.svelte.ts', flow],
-].filter(([, src]) => /stateHoldAndWin\.total\b/.test(src));
-check('reader: nothing reads stateHoldAndWin.total around it', totalReads.length === 0, totalReads);
+const sources = (dir: string): string[] =>
+	readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((entry) =>
+		entry.isDirectory()
+			? sources(`${dir}/${entry.name}`)
+			: /\.(ts|svelte)$/.test(entry.name)
+				? [`${dir}/${entry.name}`]
+				: [],
+	);
+const totalReads = sources('apps/lines/src').filter(
+	(rel) =>
+		!rel.endsWith('/stateHoldAndWin.svelte.ts') && /stateHoldAndWin\.total\b/.test(read(rel)),
+);
+check(
+	'reader: nothing in the game reads stateHoldAndWin.total itself',
+	totalReads.length === 0,
+	totalReads,
+);
+check(
+	'reader: a new round writes only total, by the atRoundStart rule',
+	/export const startHoldAndWinRound = \(\) => \{\n\tstateHoldAndWin\.total = atRoundStart\(\$state\.snapshot\(stateHoldAndWin\)\)\.total;\n\};/.test(
+		state,
+	),
+);
 check(
 	'reader: a spin starting clears an ended feature (startHoldAndWinRound in onNewGameStart)',
-	/onNewGameStart:[\s\S]*?startHoldAndWinRound\(\);[\s\S]*?stateBet\.isTurbo/.test(actor),
+	/onNewGameStart:[\s\S]*?^\t\tstartHoldAndWinRound\(\);$[\s\S]*?stateBet\.isTurbo/m.test(actor),
 );
 
 // 3–4. LIVE, against the real mock + facade
@@ -189,10 +207,10 @@ for (const [label, doc, force] of CASES) {
 	let ended: number | undefined;
 	let unit: [number, number] | undefined;
 	for (const event of events) {
-		if (!isHoldAndWinEvent(event as never)) continue;
+		if (!isHoldAndWinEvent(event)) continue;
 		if (!opened && event.type !== 'holdAndWinTrigger')
 			check(`${name}: 0 before the feature opens`, featureWorthOf(picture) === 0);
-		picture = applyHoldAndWinEvent(picture, event as HoldAndWinEvent);
+		picture = applyHoldAndWinEvent(picture, event);
 		if (event.type === 'holdAndWinTrigger') opened = true;
 		if (event.type === 'holdAndWinState') {
 			const snapshot = (event as { snapshot: HoldAndWinSnapshot }).snapshot;

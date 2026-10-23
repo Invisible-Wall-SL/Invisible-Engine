@@ -114,8 +114,9 @@ Shipped capabilities on `main`:
   and `HOLD_AND_WIN_PARAM_CATALOG`. That puts it in Bind to value, the number-input / repeater
   count / `passInputs` picker (`engineSourceGroups`) and a Hold and Win part's or Text Box's `source`
   options. Nothing to bake: it is a runtime registry entry like `featureTotal`. Gate: `pnpm
-  check:feature-worth` (94 checks, including real facade + mock rounds folded through the reducer).
-  Mutation-checked with 11 mutants, every one caught. Guide: [invisible-editor
+  check:feature-worth` (95 checks, including real facade + mock rounds folded through the reducer).
+  Mutation-checked with 15 mutants, every one caught (incl. the round-reset body, a commented-out
+  call, a Flow read that bypasses the reader, and a stray `.total` read anywhere in the game). Guide: [invisible-editor
   § The State Machine](../tools/invisible-editor.md#the-state-machine) (choosing `featureWorth` or
   `featureTotal`).
 - 2026-10-20 — **Segmented counters, engine side** (branch `claude/component-repeat-segments`,
