@@ -51,6 +51,10 @@ Shipped capabilities on `main`:
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
 ## Blocked (owner / external)
+- **⏳ Browser-verify `featureWorth`** (auth-gated, owner): in a Hold and Win project, give the
+  TOTAL WIN component a number input **from** `featureWorth` with tier transitions (≥ 1000 → medium
+  …). Play a feature: the tier steps up during the respins, not only at the end tally. Check that
+  **Bind to value → Hold and Win** lists *Feature worth*.
 - **⏳ Browser-verify segmented counters** (auth-gated, owner): (a) Components side → Library →
   create from **Segmented Counter**: the stage shows three segments 1 2 3; Properties → **Repeat
   (count)** → **Pass to each segment** → `value` test slider at 1 lights only segment 1, at 3 all
@@ -94,6 +98,26 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-23 — **`featureWorth` as a component source** (branch `claude/feature-worth-source`, owner
+  ask). A Hold and Win TOTAL WIN widget can tier off the feature's running value during the respins
+  instead of `featureTotal` (the win meter, which only climbs in the end tally). One reader:
+  `featureWorthOf(state)` in `engine-game/holdAndWin.ts` (`stateHoldAndWin.total`, finite-guarded),
+  wrapped as `featureWorth()` in `apps/lines/stateHoldAndWin.svelte.ts`. Flow's
+  `$engine.featureWorth` and the new component source both call it. Unit: book-event units, 100 = 1×
+  total bet, the same as `featureTotal` / `totalWin`, so there is no conversion. It reads 0 before
+  any feature. It moves with each respin's `holdAndWinState` snapshot, recorded at the play seam
+  before the event is presented, and holds the end's total after `holdAndWinEnd`. A new spin clears
+  it: `startHoldAndWinRound()` in `onNewGameStart`, via `atRoundStart` (only `total` is written, and
+  an open feature keeps it). Before this change Flow's value held the last feature's worth until the
+  next trigger. Registered in `Game.svelte` with the win meter's formatter, so a text binding shows
+  currency. Catalog: `VALUE_BINDING_SOURCE_CATALOG` (group *Hold and Win*, the note states the unit)
+  and `HOLD_AND_WIN_PARAM_CATALOG`. That puts it in Bind to value, the number-input / repeater
+  count / `passInputs` picker (`engineSourceGroups`) and a Hold and Win part's or Text Box's `source`
+  options. Nothing to bake: it is a runtime registry entry like `featureTotal`. Gate: `pnpm
+  check:feature-worth` (94 checks, including real facade + mock rounds folded through the reducer).
+  Mutation-checked with 11 mutants, every one caught. Guide: [invisible-editor
+  § The State Machine](../tools/invisible-editor.md#the-state-machine) (choosing `featureWorth` or
+  `featureTotal`).
 - 2026-10-20 — **Segmented counters, engine side** (branch `claude/component-repeat-segments`,
   ⏳ not browser-verified; design [rive plan §6.4](../design/rive-style-editor.md#64-count-mode-repeater-segmented-counters)).
   `RepeaterNode` gains optional `count` (`{source?, preview, max?}`), `variants`
