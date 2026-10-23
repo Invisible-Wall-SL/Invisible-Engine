@@ -319,6 +319,9 @@ const potsDrop = ({ id = 'pots_drop', portrait = false } = {}) => ({
 	markers: [],
 });
 
+/** Every play of a cinematic gets its own number, as the flow runtime's `playCinematic` gives it. */
+let plays = 0;
+
 /**
  * One game, as `Game.svelte` wires it: the flow's playing cinematics and screen bookkeeping (the real
  * `createScreenDrives`), `<FlowV2Cinematics>` with the `onStage` Game passes it, and the game's own
@@ -353,7 +356,7 @@ function game({ reportsMount = true } = {}) {
 		drives,
 		play(doc) {
 			state.docs[doc.id] = doc;
-			playing.set(doc.id, { loop: false, speed: 1 });
+			playing.set(doc.id, { play: ++plays, loop: false, speed: 1 });
 			flushSync();
 		},
 		playing: (id) => playing.has(id),
@@ -635,7 +638,7 @@ function basegameGame({ before = false, drivesScreens = true, scene = BASEGAME }
 		},
 		play(doc) {
 			state.docs[doc.id] = doc;
-			playing.set(doc.id, { loop: false, speed: 1 });
+			playing.set(doc.id, { play: ++plays, loop: false, speed: 1 });
 			flushSync();
 		},
 		playing: (id) => playing.has(id),
@@ -810,6 +813,58 @@ for (const [what, end] of [
 	run.end();
 }
 
+// --- 4c. a playing timeline keeps its playhead while the flow moves on around it ---------------
+// THE BUG (reported on `commonoverlayproject`, 2026-10-23): with "Wait for this to finish" off on
+// its `playCinematic`, the base-game intro played twice. The flow went straight on to show the Pots
+// screen and the HUD and to play the HUD's own intro, and each of those rebuilt the entries
+// `<FlowV2Cinematics>` hands `<Cinematic>`; its re-arm effect read the props through the rebuilt
+// entry, so it re-ran and sent the still-playing intro back to its start, visibly when the HUD's
+// intro ended halfway through it. A replay of a timeline still on screen must still start it again.
+/** A 0.5 s timeline on a screen this game does not draw, as the HUD's intro is here. */
+const hudIntro = () => ({
+	schemaVersion: 1,
+	id: 'hudbar_intro',
+	name: 'Intro',
+	duration: 0.5,
+	fps: 30,
+	host: { kind: 'screen', sceneId: 'hudBar' },
+	stage: {
+		sceneId: null,
+		cast: [{ actorId: 'a_bet', kind: 'node', target: 'Bet', place: {}, z: 0 }],
+	},
+	tracks: [
+		{
+			id: 't_bet',
+			actorId: 'a_bet',
+			kind: 'property',
+			channels: { y: [key(0, 200), key(0.5, 0)] },
+		},
+	],
+	markers: [],
+});
+{
+	const run = basegameGame();
+	run.play(basegameIntro());
+	frames(60);
+	const at = state.board.scale.x;
+	run.play(hudIntro());
+	check('flow moves on: another timeline starting leaves the playing one where it is', near(state.board.scale.x, at), `scale ${state.board.scale.x}, was ${at}`); // prettier-ignore
+	run.drives.setFlowScreens([BASEGAME.id, 'pots', 'hudBar']);
+	flushSync();
+	check('flow moves on: screens coming up leave it where it is', near(state.board.scale.x, at), `scale ${state.board.scale.x}, was ${at}`); // prettier-ignore
+	frames(31);
+	check('flow moves on: the other timeline ends', !run.playing('hudbar_intro') && run.playing('basegame_intro')); // prettier-ignore
+	check('flow moves on: …and it plays on, not from the start', state.board.scale.x > at, `scale ${state.board.scale.x}, was ${at}`); // prettier-ignore
+	frames(30);
+	check('flow moves on: it ends on time (2 s), so it played once', !run.playing('basegame_intro') && boardAt(960, 801.5, 1), boardText()); // prettier-ignore
+	run.play(basegameIntro());
+	frames(30);
+	check('replayed mid-play: it was playing', state.board.scale.x > 0.1 && run.playing('basegame_intro'), boardText()); // prettier-ignore
+	run.play(basegameIntro());
+	check('replayed mid-play: it starts again', boardAt(960, 801.5 + 298.5, 0.1), boardText());
+	run.end();
+}
+
 // --- 5. the game wires it as this gate does -------------------------------------------------------
 // The gate builds its own flow handle. These pin the real wiring to it, so a `Game.svelte` that
 // mounts the Pots screen without the handle or reverts `onStage`, or a runtime that stops counting
@@ -833,6 +888,7 @@ for (const [what, end] of [
 	check('wiring: Game lays the board out from the held grid, and back from the authored one', /\$effect\(\(\) => \{\s*const held = basegameHeldReelGrid;\s*untrack\(\(\) => \{\s*if \(held\) setBoardOverride\(held\);\s*else if \(boardLayoutHeld\) setBoardOverride\(findReelGridNode\(editorDoc\) \?\? null\);\s*boardLayoutHeld = !!held;\s*\}\);\s*\}\);/.test(gameSource)); // prettier-ignore
 	check('wiring: the runtime counts its own Pots screen', /createScreenDrives\([^;]*enginePots \? \[enginePots\.scene\.id\] : \[\]/.test(runtime)); // prettier-ignore
 	check('wiring: the runtime reports the screens the flow shows', runtime.includes('screenDrives.setFlowScreens(containers.map((container) => container.sceneId))')); // prettier-ignore
+	check('wiring: every play of a cinematic carries its own play number', /const play = \+\+cinematicPlays;/.test(runtime) && (runtime.match(/playingCinematics\.set\(cinematicId, \{\s*play,/g) ?? []).length === 2); // prettier-ignore
 	check('wiring: the handle hands out the bookkeeping', ['onStage: screenDrives.onStage', 'screenDrive: screenDrives.drive', 'screenHolding: screenDrives.holding', 'driveScreen: screenDrives.driveScreen', 'engineScreenUp: screenDrives.setEngineScreen'].every((line) => runtime.includes(line))); // prettier-ignore
 	check('wiring: <FlowV2Cinematics> hands <Cinematic> the ratio reader', source('apps/lines/src/components/FlowV2Cinematics.svelte').includes('layoutType={stateLayoutDerived.layoutType}')); // prettier-ignore
 }

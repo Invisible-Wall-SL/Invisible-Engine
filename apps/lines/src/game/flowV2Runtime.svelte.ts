@@ -322,7 +322,7 @@ export type LinesFlowV2 = {
 	engineScreenUp: (sceneId: string, up: boolean) => void;
 };
 
-type PlayingCinematic = { loop: boolean; speed: number; done?: () => void };
+type PlayingCinematic = { play: number; loop: boolean; speed: number; done?: () => void };
 
 /** A structural narrow for a loaded rig `SkeletonData` — just the `findAnimation` we read, so this
  *  module needs no `engine-rig` type import to measure a clip's duration. */
@@ -424,9 +424,11 @@ export const createLinesFlowV2 = (
 	 * Cinematics the flow is currently PLAYING, in mount order. `<FlowV2Cinematics>` renders one
 	 * `<Cinematic>` per entry; each entry keeps the resolver for its `awaitComplete` promise so the
 	 * component's `oncomplete` can settle the exact play that started it (a cinematic re-played
-	 * while already running gets a fresh entry, so an old promise never settles a new play).
+	 * while already running gets a fresh entry, so an old promise never settles a new play). Its
+	 * `play` number is what starts a cinematic still on screen again: a rebuilt entry alone must not.
 	 */
 	const playingCinematics = new SvelteMap<string, PlayingCinematic>();
+	let cinematicPlays = 0;
 	const enginePots = enginePotsScreen(doc, editorDoc.scenes, {
 		drivesScreens: screenStatus.drivesScreens,
 		hasMeters: configuredMeters().length > 0,
@@ -784,14 +786,16 @@ export const createLinesFlowV2 = (
 			const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
 			// A replay while it still plays releases the earlier play's wait, which nothing else would.
 			playingCinematics.get(cinematicId)?.done?.();
+			const play = ++cinematicPlays;
 			if (loop) {
-				playingCinematics.set(cinematicId, { loop, speed });
+				playingCinematics.set(cinematicId, { play, loop, speed });
 				return;
 			}
 			// A slam releases the wait (the timeline plays on to its end), like a held Show's hold.
 			return new Promise<void>((resolve) => {
 				const unsubscribe = roundSkip.onSkip(() => resolve());
 				playingCinematics.set(cinematicId, {
+					play,
 					loop,
 					speed,
 					done: () => {
