@@ -8,16 +8,21 @@
  *     every node re-id'd (no id shared with the source or with a second copy), its params, inputs
  *     and state machine; the source is not mutated;
  *  3. its timelines (built-in, overridden by id by the project's) are copied onto the copy under
- *     fresh ids clear of every taken id, its states play the copies, node actors keep naming their
- *     node (an unnamed node's id follows to the copy's node), reuse on other components is dropped,
+ *     fresh ids clear of every taken id, its states play the copies, node actors keep their targets,
+ *     reuse on other components is dropped,
  *     a state playing a reused timeline keeps it;
  *  4. this game's defaults become the copy's param defaults (never an engine-provided one), and win
  *     over `defaultInstanceParams` as they did;
  *  5. through the REAL route over an in-memory R2: the copy saves create-only to the project key,
  *     loads back with its state machine pointing at its own timelines, and a second create under
  *     the same id is refused (409), never an overwrite;
- *  6. the workspace wiring: create-only timeline writes before the def, the draft save rather than
- *     `saveComponent`'s stack-on-top answer, the unsaved-changes ask, and ⧉ on both lists.
+ *  6. `writeComponentDuplicate` over injected writes: timelines first, then the def; a refused
+ *     timeline or def takes back what was created (a failed take-back is named); a def save with no
+ *     answer may have landed, so nothing is deleted;
+ *  7. the workspace wiring: create-only writes, the draft save rather than `saveComponent`'s
+ *     stack-on-top answer, "saved" read off the recorded ETag and "refused" only after a 404, the
+ *     unsaved-changes ask (again if the draft changed during the reads), the list held still, and
+ *     ⧉ on both lists.
  */
 import { readFileSync } from 'node:fs';
 import { mock } from 'node:test';
@@ -92,8 +97,12 @@ const { SEGMENTED_COUNTER_SEGMENT_DEF, SEGMENTED_COUNTER_TIMELINES, BUILTIN_TIME
 const { loadComponent } = await import('../src/lib/server/componentStorage.ts');
 const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
 const { componentSaveRequest } = await import('../src/routes/(app)/editor/componentSave.client.ts');
-const { componentOwnTimelines, duplicateComponent, duplicateComponentName } =
-	await import('../src/routes/(app)/editor/componentDuplicate.client.ts');
+const {
+	componentOwnTimelines,
+	duplicateComponent,
+	duplicateComponentName,
+	writeComponentDuplicate,
+} = await import('../src/routes/(app)/editor/componentDuplicate.client.ts');
 
 type RouteEvent = Parameters<typeof componentRoute.POST>[0];
 async function post(body: unknown): Promise<number> {
@@ -242,7 +251,7 @@ check(
 	builtinOwn.map(() => ({ kind: 'component', componentId: source.id })),
 );
 
-// 3b. A project override, an unnamed node actor, reuse, and a reused timeline.
+// 3b. A project override, a node actor, reuse, a reused timeline and baked defaults.
 {
 	const base: ComponentDef = {
 		id: 'c_src00001',
@@ -311,11 +320,10 @@ check(
 		takenTimelineIds: ['c_c_src00001_on', 'c_other_reused'],
 		projectDefaults: { tint: 0xff0000, value: 9, label: 'C', undeclared: 1 },
 	});
-	const bare = dup.def.root.children[1];
 	check(
-		'3b an unnamed node actor follows its node to the copy',
+		'3b node actor targets are kept (a component timeline finds its node by name)',
 		dup.timelines[0].stage.cast[0].target,
-		bare.id,
+		'n_bare',
 	);
 	check("3b the source's reuse stays the source's", 'playOnComponents' in dup.timelines[0], false);
 	check('3b a state playing a reused timeline keeps it', states(dup.def), [
@@ -360,7 +368,74 @@ check(
 	check('5 the stored copy is untouched', (await loadComponent(def.id, PROJECT))?.name, def.name);
 }
 
-// 6. The workspace wiring.
+// 6. Writing the copy: timelines create-only first, then the def; a refusal takes them back.
+{
+	const doc = (id: string): CinematicDoc => ({
+		schemaVersion: 1,
+		id,
+		name: id,
+		duration: 1,
+		fps: 30,
+		stage: { sceneId: null, cast: [] },
+		tracks: [],
+		markers: [],
+	});
+	const copy = { def, timelines: [doc('t1'), doc('t2')] };
+	type Outcome = Awaited<ReturnType<Parameters<typeof writeComponentDuplicate>[1]['saveDef']>>;
+	function run(opts: { refuseTimeline?: string; def?: Outcome | 'throw'; failDelete?: string }) {
+		const log: string[] = [];
+		const done = writeComponentDuplicate(copy, {
+			createTimeline: async (t) => {
+				log.push(`create ${t.id}`);
+				return t.id === opts.refuseTimeline ? 'Conflict (409).' : null;
+			},
+			saveDef: async (d) => {
+				log.push(`save ${d.id}`);
+				if (opts.def === 'throw') throw new Error('network');
+				return opts.def ?? 'saved';
+			},
+			deleteTimeline: async (id) => {
+				log.push(`delete ${id}`);
+				if (id === opts.failDelete) throw new Error('offline');
+				return true;
+			},
+		});
+		return done.then((message) => ({ message, log }));
+	}
+	const ok = await run({});
+	check('6 stored: timelines in order, then the def, nothing deleted', ok, {
+		message: null,
+		log: ['create t1', 'create t2', `save ${def.id}`],
+	});
+	const clash = await run({ refuseTimeline: 't2' });
+	check(
+		'6 a refused timeline: the def is never saved and the created one is taken back',
+		clash.log,
+		['create t1', 'create t2', 'delete t1'],
+	);
+	check('6 and says which', clash.message?.startsWith('Could not copy timeline "t2"'), true);
+	const refused = await run({ def: { refused: 'Invalid component.' } });
+	check('6 a refused def: every timeline is taken back', refused, {
+		message: 'Could not save the copy: Invalid component.',
+		log: ['create t1', 'create t2', `save ${def.id}`, 'delete t1', 'delete t2'],
+	});
+	for (const outcome of ['unknown', 'throw'] as const) {
+		const lost = await run({ def: outcome });
+		check(
+			`6 a def save with no answer (${outcome}) may have landed: nothing is deleted`,
+			[lost.log.some((l) => l.startsWith('delete')), lost.message?.includes('Reload to check')],
+			[false, true],
+		);
+	}
+	const stuck = await run({ def: { refused: 'No.' }, failDelete: 't2' });
+	check(
+		'6 a timeline that could not be taken back is named',
+		stuck.message,
+		'Could not save the copy: No. Its timelines t2 could not be removed; delete them in Animate.',
+	);
+}
+
+// 7. The workspace wiring.
 {
 	const workspace = readFileSync(
 		new URL('../src/routes/(app)/editor/ComponentWorkspace.svelte', import.meta.url),
@@ -369,32 +444,54 @@ check(
 	const fn = workspace.slice(workspace.indexOf('async function duplicateComponentDef'));
 	const body = fn.slice(0, fn.indexOf('\n\t}\n'));
 	check(
-		'6 asks about unsaved changes first',
-		body.includes("confirmLeaveDraft('Discard and duplicate')"),
-		true,
+		'7 asks about unsaved changes first, and again if they changed during the reads',
+		body.match(/confirmLeaveDraft\('Discard and duplicate'\)/g)?.length,
+		2,
 	);
 	check(
-		'6 reads the def the project shows (project, shared, built-in)',
+		'7 reads the def the project shows (project, shared, built-in)',
 		body.includes('/api/editor/component?id='),
 		true,
 	);
-	check('6 timelines are created create-only', body.includes('baseEtag: null, projectKey'), true);
 	check(
-		'6 timelines are written before the def',
-		body.indexOf('/api/cinematics/save') < body.indexOf('saveState.save('),
+		'7 timelines are created create-only',
+		body.includes("cinematic('save', { doc, baseEtag: null })"),
 		true,
 	);
 	check(
-		'6 the def saves create-only, never stacked on top',
+		'7 the def saves create-only, never stacked on top',
 		[body.includes('saveState.save({ force: false })'), body.includes('saveComponent(')],
 		[true, false],
 	);
 	check(
-		'6 a copy that does not save takes its timelines back',
-		body.includes('/api/cinematics/delete'),
+		'7 a save the server answered counts as saved, even after the tab moved on',
+		body.includes("if (componentEtags[copyDef.id] !== undefined) return 'saved';"),
 		true,
 	);
-	check('6 ⧉ on both lists', workspace.match(/\{@render duplicateButton\(def\)\}/g)?.length, 2);
+	check(
+		'7 a refusal is only a refusal once the copy is confirmed absent (404)',
+		body.includes("if (stored?.status !== 404) return 'unknown';"),
+		true,
+	);
+	check(
+		'7 only the copy itself is closed on a refusal',
+		body.includes('if (componentDraft?.id === copyDef.id) await closeComponent(true);'),
+		true,
+	);
+	check(
+		'7 the copy opens at the top of the breadcrumb',
+		body.includes('trail = [];\n\t\t\t\t\trootLabel = null;'),
+		true,
+	);
+	check(
+		'7 the list and ＋ New are held while it runs',
+		[
+			workspace.includes('if (duplicating) return false;'),
+			workspace.includes('if (!name || duplicating) return;'),
+		],
+		[true, true],
+	);
+	check('7 ⧉ on both lists', workspace.match(/\{@render duplicateButton\(def\)\}/g)?.length, 2);
 }
 
 if (failures) {

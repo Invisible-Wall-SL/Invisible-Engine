@@ -1,6 +1,6 @@
 import type { CinematicDoc, ComponentDef, LayoutNode } from 'engine-layout';
 
-import { componentTimelineId } from '$lib/timeline/screenTimeline';
+import { componentTimelineId, componentTimelinesOf } from '$lib/timeline/screenTimeline';
 
 /** "<name> copy", or " copy 2", " copy 3", … when another of `taken` already has it. */
 export function duplicateComponentName(name: string, taken: Iterable<string>): string {
@@ -17,11 +17,9 @@ export function componentOwnTimelines(
 	builtin: readonly CinematicDoc[],
 	project: readonly CinematicDoc[],
 ): CinematicDoc[] {
-	const hosted = (d: CinematicDoc) =>
-		d.host?.kind === 'component' && d.host.componentId === componentId;
-	const own = project.filter(hosted);
+	const own = componentTimelinesOf([...project], componentId);
 	const ids = new Set(own.map((d) => d.id));
-	return [...builtin.filter((d) => hosted(d) && !ids.has(d.id)), ...own];
+	return [...componentTimelinesOf([...builtin], componentId).filter((d) => !ids.has(d.id)), ...own];
 }
 
 export interface ComponentDuplicate {
@@ -36,6 +34,9 @@ export interface ComponentDuplicate {
  * fresh node ids (two copies never share one). Each of `timelines` (the source's own) is copied
  * onto the copy under a fresh id, and the state machine plays the copies, so editing one never
  * moves the original. A state playing a timeline the source only reuses keeps playing that one.
+ * Node actors keep their targets: a component timeline finds its node by name, and the copy keeps
+ * every name. The built-in-only behaviour flags (`buttonStates`, `settles`, …) stay, so a copy of
+ * a presentation def plays as it does.
  *
  * `projectDefaults` (this game's defaults for the source) become the copy's own param defaults:
  * the copy is already this project's fork, so its look lives in one place, the def, and shows the
@@ -60,11 +61,7 @@ export function duplicateComponent(
 	// An engine-placed built-in's copy is the author's to place.
 	delete def.internal;
 
-	const nodeIds = new Map<string, string>();
-	const labels = new Set<string>();
 	const reid = (node: LayoutNode, id: string): void => {
-		nodeIds.set(node.id, id);
-		if (node.label) labels.add(node.label);
 		node.id = id;
 		if (node.kind === 'container')
 			for (const child of node.children) reid(child, opts.mintNodeId());
@@ -82,8 +79,6 @@ export function duplicateComponent(
 		}
 	}
 
-	// A node actor names its node, or an unnamed node by id: follow the id to the copy's node.
-	const target = (t: string): string => (labels.has(t) ? t : (nodeIds.get(t) ?? t));
 	const taken = new Set(opts.takenTimelineIds);
 	const timelineIds = new Map<string, string>();
 	const timelines = opts.timelines.map((doc) => {
@@ -94,13 +89,6 @@ export function duplicateComponent(
 		copy.host = { kind: 'component', componentId: def.id };
 		// The source's reuse on other components stays the source's.
 		delete copy.playOnComponents;
-		for (const cast of copy.stage.cast) {
-			if (cast.kind !== 'node') continue;
-			if (cast.target) cast.target = target(cast.target);
-			if (cast.nodeId) cast.nodeId = nodeIds.get(cast.nodeId) ?? cast.nodeId;
-		}
-		const links = copy.shared?.targets;
-		if (links) for (const [from, to] of Object.entries(links)) links[from] = target(to);
 		return copy;
 	});
 
@@ -109,4 +97,53 @@ export function duplicateComponent(
 			state.timeline = timelineIds.get(state.timeline) ?? state.timeline;
 	}
 	return { def, timelines };
+}
+
+/** How the copy's def save ended: stored, refused (nothing stored, and why), or not known. */
+export type DuplicateDefSave = 'saved' | 'unknown' | { refused: string };
+
+export interface DuplicateWrites {
+	/** Create one timeline, create-only; the refusal's reason, or `null` when created. */
+	createTimeline: (doc: CinematicDoc) => Promise<string | null>;
+	saveDef: (def: ComponentDef) => Promise<DuplicateDefSave>;
+	/** Delete a timeline this duplicate created; false when it could not. */
+	deleteTimeline: (id: string) => Promise<boolean>;
+}
+
+/**
+ * Write `copy`: its timelines first, so the stored def never plays one that is missing, then the
+ * def. A refusal takes back the timelines this call created; a def save that got no answer may
+ * have landed, so its timelines stay. `null` when the copy is stored, else what to tell the author.
+ */
+export async function writeComponentDuplicate(
+	copy: ComponentDuplicate,
+	writes: DuplicateWrites,
+): Promise<string | null> {
+	const created: string[] = [];
+	const rollBack = async (reason: string): Promise<string> => {
+		const deleted = await Promise.allSettled(created.map((id) => writes.deleteTimeline(id)));
+		const left = created.filter((_, i) => {
+			const r = deleted[i];
+			return r.status === 'rejected' || !r.value;
+		});
+		return left.length
+			? `${reason} Its timelines ${left.join(', ')} could not be removed; delete them in Animate.`
+			: reason;
+	};
+	for (const doc of copy.timelines) {
+		let refused: string | null;
+		try {
+			refused = await writes.createTimeline(doc);
+		} catch (e) {
+			refused = e instanceof Error ? e.message : String(e);
+		}
+		if (refused !== null) {
+			return rollBack(`Could not copy timeline "${doc.name || doc.id}": ${refused}`);
+		}
+		created.push(doc.id);
+	}
+	const saved = await writes.saveDef(copy.def).catch((): DuplicateDefSave => 'unknown');
+	if (saved === 'saved') return null;
+	if (saved !== 'unknown') return rollBack(`Could not save the copy: ${saved.refused}`);
+	return `The copy "${copy.def.name}" may have been saved — the save got no answer. Reload to check.`;
 }

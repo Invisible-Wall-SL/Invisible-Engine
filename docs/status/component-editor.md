@@ -111,19 +111,28 @@ Shipped capabilities on `main`:
   id (`componentOwnTimelines`, as the canvas's segment preview does) — are copied under
   `componentTimelineId(copy, name)` ids clear of every listed and built-in id, re-hosted on the
   copy, `playOnComponents` dropped (the source's reuse stays the source's); node actors keep their
-  name targets (an unnamed node's id target follows to its new id); the copy's states are re-keyed
+  targets (a component timeline finds its node by label only — `findActorNode` — and the copy keeps
+  every label); the built-in-only flags (`buttonStates`, `settles`, …) are kept, since the runtime
+  reads them off the def, so a copy of a presentation plays as it does; the copy's states are re-keyed
   onto them, a state playing a timeline reused from another component keeps it. *Defaults:* this
   game's sidecar values are BAKED into the copy's param defaults (and override a matching
   `defaultInstanceParams` key, which resolution layers above defaults) — the copy is already this
   project's fork, so one source of truth (the def) beats a second sidecar file written
-  non-atomically beside it; engine-provided and undeclared keys are skipped. *Writes:* the
-  timelines first, each create-only (`baseEtag: null`), then the def through the draft
-  `saveState.save()` (`componentSaveRequest`, `baseEtag: null` ⇒ `If-None-Match: *`; deliberately
-  not `saveComponent`, whose conflict answer stacks on top); a copy that fails to save closes,
-  deletes the timelines it created and says why. Same validation and export→bake→pull chain as any
-  project component. Gate: `pnpm --filter launcher-api check:component-duplicate` (39: naming,
-  fresh/unique node + timeline ids across two copies, state re-keying, actor targets, defaults
-  baking, the real route's create then 409 on a second create, the workspace wiring).
+  non-atomically beside it; engine-provided and undeclared keys are skipped. *Writes*
+  (`writeComponentDuplicate`, pure over injected writes): the timelines first, each create-only
+  (`baseEtag: null`), then the def through the draft `saveState.save()` (`componentSaveRequest`,
+  `baseEtag: null` ⇒ `If-None-Match: *`; deliberately not `saveComponent`, whose conflict answer
+  stacks on top). The def counts as saved when the save recorded the server's ETag (even if the tab
+  moved on), as refused only when a re-read then answers 404 — then the copy closes (only if it is
+  still the open one), the timelines it created are deleted (awaited; any left over are named), and
+  the reason shows; with no answer at all nothing is deleted and the author is told to reload. The
+  list rows and ＋ New are held while it runs, it asks again if the open draft changed during the
+  reads, and the copy opens at the top of the breadcrumb. Same validation and export→bake→pull
+  chain as any project component. Gate: `pnpm --filter launcher-api check:component-duplicate`
+  (49: naming, fresh/unique node + timeline ids across two copies, state re-keying, actor targets,
+  defaults baking, the real route's create then 409 on a second create, every write/rollback
+  branch, the workspace wiring). Not run end to end: the timeline creates through the real
+  `/api/cinematics/save` (its gate needs the session/DB).
   UI: [guide](../tools/invisible-editor.md#duplicate-a-component).
 - 2026-10-23 — **Editing a built-in no longer fails to save; the error says why; no empty-key asset
   request** (branch `fix/component-save-400`). Owner report: the re-skinned **Counter Segment**
