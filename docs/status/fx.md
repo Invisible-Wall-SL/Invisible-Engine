@@ -123,6 +123,9 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-23 — **The 17 shader passes share one GLSL library** (`constants-shared/glslLibrary.ts`, step 1 of the
+  [Invisible Shader Graph](../design/invisible-shader-graph.md)). No visual change: every kind
+  renders pixel-identical before and after. Detail in [status/shader-graph](shader-graph.md).
 - 2026-10-23 — **Crystallize (ice shards)** (a 50th kind, break, exit). Owner ask: a crystallize
   into ice shards effect. A new break style, `ice` (`breakApart.ts`): the still is cut into crystal
   facets (the cells of seeds jittered off a grid, `pieces` 8–80, default 28), and cut a second time
