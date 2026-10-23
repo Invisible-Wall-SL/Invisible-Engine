@@ -180,12 +180,14 @@ Shipped capabilities on `main`:
   The game matches the box: `LayoutScene` wraps a standard screen in `<MainContainer standard>`.
   `standardToWorld` is now one shared helper (`editorCanvas.helpers.ts`). The canvas's box and
   `placedRigTransform` both call it; the rig layer gets the `standardBox` and the scene's `align`.
-  The two cannot drift if the frame ever stops being the standard box. The helper's `align.vertical:
-  'top'` now hugs the top edge like `MainContainer`'s `getY`; it used to centre. That only shows when
-  the standard box doesn't fill the frame, which never happens in `/editor` today. No game code
-  changed. Gate: `check:rig-origin-box` rule 8 checks the box and the rig against an independent
-  model of `<MainContainer standard>`, with the HUD active, behind a game screen, and in four
-  letterboxed or aligned fits. The old raw x/y fails 9 of its checks.
+  Art and box now share one mapping even if the frame stops being the standard box. A drag on a
+  `standard` node still writes raw deltas, though (`isGameSpaceNode` is false for it), so that case
+  would need the inverse too. The helper's `align.vertical: 'top'` now hugs the top edge like
+  `MainContainer`'s `getY`; it used to centre. That only shows when the standard box doesn't fill
+  the frame, which never happens in `/editor` today. No game code changed. Gate: `check:rig-origin-box` rule 8 checks the box and the rig against an independent
+  model of `<MainContainer standard>`, with the HUD active, behind a game screen, and in six
+  letterboxed, scaled or aligned fits. The old raw x/y fails 15 checks, 3 in each of the 5 fits
+  that move or scale the rig.
 - 2026-10-22 — **A placed component draws the version it pins, and a still rig its resting pose**
   (branch `claude/sweet-planck-qanrdj`, ⏳ not browser-verified). Reported on `commonoverlayproject`:
   its Jackpots bar places one jackpot frame rig (`R_Widget`) per tier, each on its own animation

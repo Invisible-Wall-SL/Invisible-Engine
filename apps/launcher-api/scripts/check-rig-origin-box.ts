@@ -473,6 +473,18 @@ function drag(
 			{ vertical: 'top' },
 		],
 		[
+			'a smaller box scaled up, hugging the left',
+			{ w: 1920, h: 1080 },
+			{ width: 960, height: 720 },
+			{ horizontal: 'left' },
+		],
+		[
+			'a smaller box scaled up, hugging the top right',
+			{ w: 1920, h: 1080 },
+			{ width: 960, height: 720 },
+			{ horizontal: 'right', vertical: 'top' },
+		],
+		[
 			'a shorter box hugging the bottom',
 			{ w: 1080, h: 1920 },
 			{ width: 1080, height: 1080 },
@@ -526,13 +538,21 @@ function drag(
 			p.x === 1500 && p.y === 980 && p.scaleX === 0.8 && p.scaleY === 0.8,
 		);
 	}
-	// The raw x/y the layer used must fail where the fit is not the identity, or rule 8 proves
-	// nothing about it.
-	const narrow = inGame(hud, { width: 1080, height: 1080 }, undefined, { w: 1920, h: 1080 });
-	check(
-		'the raw x/y the layer used is caught for a standard box narrower than the frame',
-		!near(hud.x, narrow.x) || !near(hud.y, narrow.y),
-	);
+	// The raw x/y the layer used must be caught wherever the fit moves or scales the rig, or rule 8
+	// proves nothing about it.
+	const moved = cases.filter(([, frame, std, align]) => {
+		const g = inGame(hud, std, align, frame);
+		return !near(g.x, hud.x) || !near(g.y, hud.y) || !near(g.s, 1);
+	});
+	check(`the fit moves or scales the rig in ${moved.length} cases`, moved.length >= 5);
+	for (const [name, frame, std, align] of moved) {
+		const g = inGame(hud, std, align, frame);
+		const raw = placedRigTransform(hud, 'canvas', frame.w, frame.h, MAIN, { box: std, align });
+		check(
+			`standard, ${name}: the raw x/y the layer used is caught`,
+			!near(raw.x, g.x) || !near(raw.y, g.y) || !near(raw.scaleX, 0.8 * g.s),
+		);
+	}
 }
 
 if (fails) {
