@@ -233,6 +233,48 @@ is no room); hidden in a layout, the panel falls back to that spot. A project sw
 board later in Game Config keeps the screens it has: the game still plays, with the board's frame
 and tiles only during the feature, and the panel at its default spot.
 
+#### Author the respin counter text (count, RESPINS RESET, LAST RESPIN, modifiers)
+
+With no Respin Counter on screen, the game draws its built-in counter in white Arial with a black
+outline. It shows:
+
+- "RESPINS 3" over the board;
+- "3 RESPINS" as the feature opens;
+- "RESPINS RESET" when a coin puts the count back;
+- "LAST RESPIN" on the last respin;
+- a small gold modifiers line under it ("PAYER · MULTIPLIER").
+
+To replace all of it with your own look:
+
+1. **Open the Respin counter screen.** If your project has none, use **＋ Add missing screens**. A
+   project from the Hold and Win starter already has a **Respin counter** instance and an **Active
+   modifiers** Text Box on that screen. Otherwise, place a **Respin Counter** from the Components
+   list (under **UI**). While any Respin Counter is on screen, the built-in counter and its
+   modifiers line do not draw.
+2. **Pick what it says** with its **source**:
+   - **`respinCounterText`** shows exactly the built-in counter's words, every beat included. Then
+     empty its **label** so no "RESPINS" caption sits over it. An untouched label field only *looks*
+     empty: the grey text is its default, which still draws. Type a character, then delete it.
+     The **×** button puts the default back.
+   - **`respinsLeft`** (the default) shows the number only. Draw your own reset look and play it on
+     the **Respin counter — reset** signal, and on **Respin counter — award** as the feature opens.
+     Use a "Plays on signal" cue or a State Machine.
+3. **Style it.** Font, size, fill and frame image are the counter's own params. **pulse on a reset
+   or "+N"** makes it pop (1 = still).
+4. **The modifiers line** is never part of a Respin Counter.
+   - On a starter screen it is the **Active modifiers** Text Box (source `activeModifiers`). Style
+     it, or delete it to show no modifiers.
+   - Without one, place a **Jackpot Tile**, set its source to `activeModifiers`, empty its label as
+     above, and set its font size and fill: its default is the large gold jackpot figure.
+   - A Jackpot Tile used this way never pulses, and never hears jackpot signals.
+
+The words are set in [Invisible Win Text](win-text.md), under **Respins** (the special names are
+under **Hold and Win feature**), and translated from there. The `respinCounterNote` source is
+`award`, `reset` or empty, for a look that changes with the beat.
+
+On the Components side, a Respin Counter whose **Counter** part you emptied draws the built-in
+look again. Keep at least one node inside the part.
+
 #### Banner screens
 
 Every popup the Hold and Win feature announces over the board ("MINI" and its amount, "BONUS WIN",
@@ -835,7 +877,7 @@ layout; they are never a per-layout override. While you Inspect an old version o
 section is read-only, and ▶ still plays.
 
 **Add one.** With none yet, the section shows a one-line hint and the **+ Add effect…** picker,
-which lists the 49 effects grouped by family (the table below). Picking one adds a row, opens it,
+which lists the 50 effects grouped by family (the table below). Picking one adds a row, opens it,
 and gives it the trigger that suits it: a loop effect starts as _Always_, an entrance as _When
 shown_, anything else as _On cue_.
 
@@ -881,7 +923,7 @@ An open row has, top to bottom:
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Always (loops while shown)** | Loops for as long as the element is on screen. Built for the _loop_ effects below.                                                              |
 | **When shown**                 | Plays when the element appears, each time it is shown (a screen the Flow shows again, a node made visible again).                               |
-| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, or a cue its component's own timeline or state machine raises. |
+| **On cue**                     | Plays each time its **Cue** fires: a Flow `fireCue`, a game or component signal, a cue its component's own timeline or state machine raises, or a `signal:` cue on a timeline of its screen ([below](#report-events-visibility-and-text)). |
 | **Keyed on a timeline**        | Never plays on its own. A timeline poses it, so a state-machine state can too ([below](#keyed-element-fx-on-the-timeline)). Nodes only.        |
 
 An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Invisible Flow's
@@ -890,7 +932,7 @@ An _On cue_ effect fired again restarts. Its cue (and any stop cue) shows in Inv
 Several effects on one element play together. A loop effect given a play count (_When shown_ or
 _On cue_) fades in and out. An **exit** effect ends with the element hidden and keeps it hidden
 until its stop cue fires or an entrance effect plays on it; its row says so. **Crash**,
-**Crumble**, **Shatter (glass)**, **Dissolve to particles** and **Assemble from particles** work
+**Crumble**, **Shatter (glass)**, **Crystallize (ice shards)**, **Dissolve to particles** and **Assemble from particles** work
 on a still of the
 element taken as they start, so an animating rig holds still while they play (an assemble hands
 back the live element as it ends).
@@ -916,7 +958,7 @@ whole frame. One preview plays at a time, a second ▶ replaces it, and nothing 
   screen is hidden, the element or a container above it is hidden, or it is off the visible stage),
   the row says _Nothing on the stage to play it on: show the element and its screen first._
 
-**The 49 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
+**The 50 effects.** _loop_ = built to repeat, the natural pick for _Always_; _entrance_ = starts
 hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to rest.
 
 | Family         | Effect                     | What it does                                                                     |
@@ -968,6 +1010,7 @@ hidden and ends at rest; _exit_ = ends hidden. The rest play once and return to 
 | Break          | **Crash** (exit)           | Takes a hit, then smashes into shards that fly apart and fall.                   |
 |                | **Crumble** (exit)         | Falls apart into chunks that drop away, bottom first.                            |
 |                | **Shatter (glass)** (exit) | Breaks like a pane of glass: cracks race out from the **Impact** point over the first part of the play (**Cracking**), then it falls apart in spiderweb **Shards** that tumble and drop, those by the impact first. |
+|                | **Crystallize (ice shards)** (exit) | Crystallizes into ice: crystal facets in the **Ice colour** ice over one by one from the **Ice from** side (the centre by default), each flashing white as it snaps in; it holds as ice with its seams traced and points twinkling, creaks, and at **Crystallizing** of the play bursts into its **Shards**, which fly out, tumble, glint as they turn and fall (**Gravity**). |
 |                | **Dissolve to particles** (exit) | Turns to dust: specks peel away in a ragged front, starting on the side the **Wind** blows to, and blow off on it, swaying (**Turbulence**) and shrinking to nothing. **Particles** sets how many. |
 |                | **Assemble from particles** (entrance) | Dissolve to particles backwards: specks blow in from the **From** side, swaying and growing as they arrive, and settle into the element, the far side first. |
 
@@ -1373,7 +1416,20 @@ canvas.
 box over an empty part of the field rows (Shift adds to what is selected; a click there clears
 it). A selected key's drag moves all of them by the same amount. **Ctrl+C** copies the selected
 keys and **Ctrl+V** pastes them onto the same fields with the earliest at the playhead (a key
-already at a pasted time is replaced). **Delete** removes them all.
+already at a pasted time is replaced). **Delete** removes them all. ⌘ works as Ctrl on a Mac.
+
+**The same animation on another node.** Select the keys of one node (drag a box over its field rows,
+or Shift-click its diamonds), press **Ctrl+C**, click the other node on the stage, put the
+playhead where the animation should start, and press **Ctrl+V**. The keys land on the other node's
+same fields (y on y, scale on scale), timed from the playhead, and the node gets its rows if it had
+none. A field that node cannot key is skipped (a reel grid has no tint). The keys go into the ratio
+you are editing, like any key. With the copied node itself still selected, or nothing selected,
+Ctrl+V pastes back onto the copied fields as before. Keys copied from two nodes at once always
+paste back onto their own fields.
+
+Another way to move several nodes together: put them in one group and key the group. This does
+not work for the **reel grid**: the game reads the reel grid only as a top-level node of its
+screen, so keep it out of groups and paste its keys onto the other nodes instead.
 
 **Interpolation.** With keys selected, the right of the panel is the **Interpolation** panel: how
 the value travels from each selected key to the next one.
@@ -1418,6 +1474,18 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
   cue fires when the playhead passes it: on a component, a `signal:` cue is a signal its instance
   hears (another of its timelines can play on it); Flow can react to it too. Scrubbing never fires
   cues. All cues share one **⚡ cues** row; drag a marker to move it.
+  - **Cues and Element FX.** On a **screen** timeline, a `signal:NAME` cue plays every
+    [Element FX](#element-fx--effects-that-play-on-an-element) whose trigger is _On cue_ with the
+    cue `NAME`, as a Flow `fireCue` named `NAME` would: the screen's own entries, its nodes', and
+    any others on screen. Write the cue with `signal:` and the Element FX's **Cue** without it
+    (`signal:FX_Intro` ↔ `FX_Intro`). A cue without a prefix, or an `fx:` / `sfx:` / `music:`
+    one, does not reach Element FX. The cue inspector lists the screen's _On cue_ Element FX under
+    **Element FX (On cue)** in its picker, and its note names them; pick one to set the cue.
+  - **▶ in Animate** plays those Element FX when the playhead passes the cue, the way **▶** on an
+    Element FX row does (on a still of the element). Scrubbing plays nothing, as in the game. The
+    preview plays one effect at a time, so when a cue reaches several (the screen's and a node's)
+    you see the last one; the game plays them all. Element FX inside a placed component's own parts
+    hear the cue in the game but are not previewed here, and a stop cue is not previewed.
 - **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
   node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
   a filled marker means shown from there, a hollow one hidden. Click one to select it (it outlines
@@ -1549,6 +1617,53 @@ node's Properties.
 
 **Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
 component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
+
+#### Duplicate a component
+
+**⧉** on a row of the component list (the components home, and the **Browse** tab while a
+component is open) makes a copy of that component as a new component of this project and opens
+it. It works on any component in the list: your own, a shared one, or a built-in such as **Counter
+Segment** — the copy starts from what this project shows for it (your project's copy if you made
+one, else the shared one, else the built-in), at its latest version.
+
+- The copy is named **"‹name› copy"** (**"‹name› copy 2"**, … when that name is taken). Rename it
+  with **✎** ([Rename a component](#rename-a-component)).
+- It gets its own id and fresh node ids, and keeps the whole component: nodes, params, inputs,
+  events, the state machine, category and Space.
+- **Its timelines are copied too.** Each timeline of the component (a built-in's included) becomes
+  a timeline of the copy, and the copy's state machine plays those, so editing the copy's _Lit_
+  never changes the original's. A state that plays a timeline the component only reuses from
+  another component keeps playing that one.
+- **This game's defaults become the copy's own defaults**: the copy looks the same in this game as
+  the original did, and its look lives in one place, the component itself.
+- The copy is saved straight away, like any new component (it never overwrites anything), and it
+  ships with the game the same way.
+- With unsaved changes to the open component, ⧉ asks first, as leaving does.
+
+#### Rename a component
+
+**✎** on a row of the component list (beside ⧉, on the components home and the **Browse** tab)
+renames one of **your project's own components**. On a shared or built-in row it is greyed out:
+its tooltip says _Duplicate it first to rename your copy_. Shared and built-in components are not
+renamed in place, so rename your ⧉ copy instead.
+
+- It asks for the new name, pre-filled with the current one. The name is trimmed, and it cannot
+  be empty or match another component in the list (capital letters don't count as a difference).
+  The dialog says why and lets you try again.
+- **Only the name changes.** The component keeps its id, so every screen placement, component
+  nested in another, repeater first / middle / last variant, timeline and published game keeps
+  finding it. It also keeps its version: a rename is not a new version, so placements pinned to
+  it get no **↑ vN** badge. (Inspecting that version later shows the name it was saved under.)
+- It is saved straight away, on top of the component as it is stored now, so any change saved by
+  someone else is kept. Only a save landing in the instant between its read and its write refuses
+  it (nothing changes; try again). If someone else has the component open, their next save asks
+  them to reload, as after any save of yours; their **Save on top** would put the old name back.
+- **Placed copies keep their labels.** A placement's label is set from the component's name when
+  you place it, and screen and component timelines find their nodes by that label. Renaming the
+  component does not relabel its placements, so those timelines keep working. Relabel a placement
+  in its Properties if you want it to match.
+- If the renamed component is the one open, its breadcrumb and title show the new name. Unsaved
+  edits to it stay as they were, and are still unsaved.
 
 Everything else you do with an open component — create types, params and signals, value
 bindings, skinning coded parts, the canvas Space, saving, versions, promoting to shared and this
@@ -1732,7 +1847,13 @@ and its **Counter Segment** (`segmentedCounterSegment`). Place the counter on a 
 counts respins; set its **countSource** param to `freeSpinsTotal` and **valueSource** to
 `freeSpinsLeft` for free spins. Re-skin it without touching the machine: the segment's
 **litImage** / **unlitImage** (art over the fills), **litColor** / **unlitColor**, **labelColor**,
-and the counter's **backgroundImage**. To change more, copy it and edit the copy as below.
+and the counter's **backgroundImage**. To change more, copy it: **⧉** on its row in the component
+list ([Duplicate a component](#duplicate-a-component)) makes a project copy with its own state
+machine and timelines, and you edit the copy as below. End caps work the same way: duplicate
+**Counter Segment** twice, give the copies their extra border art, and pick them as the bar's
+**first** / **last**. A copy keeps the segment's `index` / `value` contract, so the bar feeds it
+directly (wrapping a Counter Segment inside a new component does not: the inner segment never
+gets the bar's `index` / `value`, and it nests one level deeper than the game draws).
 
 **Worked example — a respin / free-spin segmented counter.**
 
@@ -1936,13 +2057,16 @@ previewed here and do nothing in game. Everything is read-only while Inspecting 
   [Game Config](game-config.md) are applied only when the game builds its buy menu; the editor
   draws each card with the component's own defaults. Check per-mode art in the game.
 - **An element vanished after its Element FX and never came back.** It has an exit effect (Pop
-  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Dissolve to
-  particles), which ends hidden and keeps the element hidden
+  out, Fade out, Dissolve out, Burn to ashes, Melt, Crash, Crumble, Shatter, Crystallize, Dissolve
+  to particles), which ends hidden and keeps the element hidden
   until its **Stop cue** fires or an entrance effect plays on it. Give it a stop cue, or an entrance
   on a later cue.
 - **An _On cue_ Element FX did not play.** A cue reaches an element only while it is on screen.
   Nothing is queued, so a cue fired while the element or its screen is hidden is missed. The name
-  must also match exactly on both sides.
+  must also match exactly on both sides. A cue on a screen timeline needs the `signal:` prefix
+  (`signal:FX_Intro` plays the Element FX whose cue is `FX_Intro`); one without it does not reach
+  Element FX. Check the entry's **Trigger** too: _When shown_ plays when the screen appears, not on
+  a cue.
 
 ## Known limitations / TODOs
 

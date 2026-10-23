@@ -1,4 +1,6 @@
 import {
+	cuesCrossed,
+	pingPongCuesCrossed,
 	sampleChannel,
 	sampleNodeActor,
 	sampleTint,
@@ -30,6 +32,7 @@ import {
 	nodeActorBindings,
 	nodeActorChannelsForKind,
 	resolveNodeActors,
+	screenCueSignal,
 	type CinematicDoc,
 	type ComponentDef,
 	type LayoutNode,
@@ -879,4 +882,73 @@ export function onionFrames(
 		}
 	}
 	return out;
+}
+
+/** An _On cue_ Element FX entry on a screen, the screen's own or one of its nodes'. */
+export interface ScreenCueFx {
+	target: { kind: 'node'; id: string } | { kind: 'screen'; sceneId: string };
+	entry: ElementFxEntry;
+	/** Where it sits, for a label: the node's name, or `screen`. */
+	where: string;
+}
+
+/** Every enabled _On cue_ Element FX entry with a cue on `scene`: the screen's, then its nodes'. */
+export function screenOnCueFx(scene: Scene): ScreenCueFx[] {
+	const out: ScreenCueFx[] = [];
+	const add = (entries: ElementFxEntry[] | undefined, at: Omit<ScreenCueFx, 'entry'>): void => {
+		for (const entry of entries ?? []) {
+			if (!entry.disabled && entry.trigger === 'cue' && entry.cue) out.push({ ...at, entry });
+		}
+	};
+	add(scene.elementFx, { target: { kind: 'screen', sceneId: scene.id }, where: 'screen' });
+	const walk = (nodes: LayoutNode[]): void => {
+		for (const node of nodes) {
+			add(node.elementFx, { target: { kind: 'node', id: node.id }, where: node.label || node.id });
+			const children = (node as { children?: LayoutNode[] }).children;
+			if (Array.isArray(children)) walk(children);
+		}
+	};
+	walk(scene.nodes);
+	return out;
+}
+
+/** The _On cue_ Element FX a screen timeline's `cue` plays (`screenCueSignal`, as in game). */
+export function screenCueFx(scene: Scene, cue: string): ScreenCueFx[] {
+	const signal = screenCueSignal(cue);
+	return signal ? screenOnCueFx(scene).filter((fx) => fx.entry.cue === signal) : [];
+}
+
+/** The cue inspector's suggestions: each _On cue_ Element FX name on `scene` as the `signal:` cue
+ *  that plays it, with what it plays where. */
+export function elementFxCueSuggestions(scene: Scene): { cue: string; label: string }[] {
+	const byCue = new Map<string, string[]>();
+	for (const fx of screenOnCueFx(scene)) {
+		const name = elementFxSpec(fx.entry.kind)?.label ?? fx.entry.kind;
+		const cue = `signal:${fx.entry.cue}`;
+		byCue.set(cue, [...(byCue.get(cue) ?? []), `${name} on ${fx.where}`]);
+	}
+	return [...byCue].map(([cue, labels]) => ({ cue, label: labels.join(', ') }));
+}
+
+/**
+ * The cue keys an editor playback crosses as its clock moves from `fromElapsed` to `toElapsed`
+ * seconds since ▶, stepped as the game's `<Cinematic>` steps: a ping-pong on its lap clock
+ * (`pingPongCuesCrossed`), anything else from the wrapped playhead (`cuesCrossed`), so a loop's
+ * wrap and a stalled frame skip what they skip in game.
+ */
+export function playbackCuesCrossed<K extends { time: number }>(
+	keys: K[],
+	loop: CinematicDoc['loop'],
+	fromElapsed: number,
+	toElapsed: number,
+	duration: number,
+): K[] {
+	if (!keys.length || !(duration > 0)) return [];
+	const dt = toElapsed - fromElapsed;
+	if (loop === 'pingPong') {
+		const lap = fromElapsed % (2 * duration);
+		return pingPongCuesCrossed(keys, lap, lap + dt, duration);
+	}
+	const from = loop === 'loop' ? fromElapsed % duration : fromElapsed;
+	return cuesCrossed(keys, from, from + dt);
 }

@@ -48,6 +48,9 @@ const SKIP = {
 	// Print a rig's structure for a human; they assert nothing.
 	'tools/rigger-spike/inspect.mjs': 'a rig dump for reading, not a check',
 	'tools/rigger-spike/inspect-demo.mjs': 'a rig dump for reading, not a check',
+	// Renders a change and its base in a real browser and diffs them: run by hand, with arguments.
+	'tools/fx-spike:shader-parity':
+		'a before/after pixel comparison, not a check (docs/status/shader-graph.md)',
 };
 
 const rigs = (dir, name, atlas = name) => [

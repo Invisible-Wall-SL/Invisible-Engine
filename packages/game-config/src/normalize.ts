@@ -57,6 +57,7 @@ import { normalizeWinModel } from './winModel';
 import { normalizeCascade } from './mechanics';
 import { normalizeFreeSpins } from './freeSpins';
 import { normalizePartnerPaytable } from './serverPaytable';
+import { normalizeArcade, normalizeFamily, normalizeMatch3, normalizeOutcome } from './family';
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
@@ -313,7 +314,8 @@ const normalizeWinLevels = (raw: unknown): WinLevelTier[] | undefined => {
  * Canonicalize an arbitrary value into a {@link GameConfigDoc}, or `undefined` when it cannot
  * describe a game — i.e. it has no symbol dictionary or no strips. Both are required because the
  * dictionary is what the board can draw and the strips are what the game actually deals; a config
- * missing either would ship a blank or unpayable board.
+ * missing either would ship a blank or unpayable board. An ARCADE doc is the exception: it has no
+ * board, so it needs neither (`docs/design/game-families.md` §2.1).
  *
  * `numReels` is derived from the strips when absent or inconsistent, because the strips are the
  * only self-describing statement of reel count — a stale `numReels` next to a 6-strip
@@ -322,9 +324,11 @@ const normalizeWinLevels = (raw: unknown): WinLevelTier[] | undefined => {
 export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined => {
 	if (!isObject(raw)) return undefined;
 
+	const family = normalizeFamily(raw.family);
 	const symbols = normalizeSymbols(raw.symbols);
 	const paddingReels = normalizePaddingReels(raw.paddingReels);
-	if (!Object.keys(symbols).length || !Object.keys(paddingReels).length) return undefined;
+	const hasBoard = Object.keys(symbols).length > 0 && Object.keys(paddingReels).length > 0;
+	if (!hasBoard && family !== 'arcade') return undefined;
 
 	// A spins mode on a grid of its own (`./spinsGame`) says nothing about the base game's width.
 	const ownGridTypes = new Set(
@@ -334,6 +338,7 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	);
 	const baseStrips = Object.entries(paddingReels).filter(([type]) => !ownGridTypes.has(type));
 	const stripReels = Math.max(
+		0,
 		...(baseStrips.length ? baseStrips : Object.entries(paddingReels)).map(([, s]) => s.length),
 	);
 	const declaredReels = count(raw.numReels);
@@ -343,6 +348,7 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 
 	const doc: GameConfigDoc = {
 		version: GAME_CONFIG_DOC_VERSION,
+		...(family ? { family } : {}),
 		providerName: str(raw.providerName) ?? '',
 		gameName: str(raw.gameName) ?? '',
 		gameID: str(raw.gameID) ?? '',
@@ -355,6 +361,15 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 		paddingReels,
 	};
 
+	// The family's own block and outcome, kept only beside the family they belong to and only where
+	// they depart from the defaults, so a slot doc never grows one (§2.1).
+	const outcome = normalizeOutcome(raw.outcome, family);
+	if (outcome) doc.outcome = outcome;
+	const match3 = family === 'match3' ? normalizeMatch3(raw.match3) : undefined;
+	if (match3) doc.match3 = match3;
+	const arcade = family === 'arcade' ? normalizeArcade(raw.arcade) : undefined;
+	if (arcade) doc.arcade = arcade;
+
 	const betModePresentation = normalizeBetModePresentation(
 		raw.betModePresentation,
 		new Set(Object.keys(doc.betModes)),
@@ -366,12 +381,15 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 
 	// Kept ONLY when it departs from the default (`normalizeWinModel` returns undefined for `lines`
 	// and for garbage), so a config authored before Phase C normalizes byte-identically.
-	const winModel = normalizeWinModel(raw.winModel);
+	// A match-3 doc stores neither: it always plays the `match3` arm, and a match-3 board always
+	// tumbles.
+	const winModel = family === 'match3' ? undefined : normalizeWinModel(raw.winModel);
 	if (winModel) doc.winModel = winModel;
 
 	// Same rule: kept ONLY when the project disagrees with what its win model already implies, so a
 	// cluster game that simply tumbles stores nothing and stays byte-identical to a math export.
-	const cascade = normalizeCascade(raw.cascade, winModel?.type ?? 'lines');
+	const cascade =
+		family === 'match3' ? undefined : normalizeCascade(raw.cascade, winModel?.type ?? 'lines');
 	if (cascade !== undefined) doc.cascade = cascade;
 
 	// Free spins: kept only where the project departs from "on, three of the in-play scatter", so a

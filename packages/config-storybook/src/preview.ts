@@ -1,4 +1,4 @@
-import type { Preview } from '@storybook/svelte';
+import type { Preview } from '@storybook/sveltekit';
 import { INITIAL_VIEWPORTS } from 'storybook/viewport';
 
 const preview: Preview = {

@@ -136,7 +136,7 @@
 				"ts:2732": 1
 			},
 			"apps/cluster/vite.config.js": {
-				"ts:2580": 4,
+				"ts:2591": 4,
 				"ts:7016": 1
 			},
 			"packages/envs/src/envs.svelte.ts": {
@@ -258,7 +258,7 @@
 				"ts:2352": 1
 			},
 			"apps/lines/src/game/cascadeSoundStep.fixture.ts": {
-				"ts:2580": 1
+				"ts:2591": 1
 			},
 			"apps/lines/src/game/flowDoc.ts": {
 				"ts:18048": 1,
@@ -407,9 +407,8 @@
 				"ts:2732": 1
 			},
 			"apps/lines/vite.config.js": {
-				"ts:2307": 2,
 				"ts:2339": 1,
-				"ts:2580": 2,
+				"ts:2591": 4,
 				"ts:7016": 1
 			},
 			"packages/engine-game/src/game/gameConfig.ts": {
@@ -443,7 +442,7 @@
 				"ts:2740": 3
 			},
 			"apps/number-picker/vite.config.js": {
-				"ts:2580": 4,
+				"ts:2591": 4,
 				"ts:7016": 1
 			},
 			"packages/envs/src/envs.svelte.ts": {
@@ -603,7 +602,7 @@
 				"ts:2732": 1
 			},
 			"apps/price/vite.config.js": {
-				"ts:2580": 4,
+				"ts:2591": 4,
 				"ts:7016": 1
 			},
 			"packages/envs/src/envs.svelte.ts": {
@@ -757,7 +756,7 @@
 				"ts:2732": 1
 			},
 			"apps/scatter/vite.config.js": {
-				"ts:2580": 4,
+				"ts:2591": 4,
 				"ts:7016": 1
 			},
 			"packages/envs/src/envs.svelte.ts": {
@@ -911,7 +910,7 @@
 				"ts:2732": 1
 			},
 			"apps/ways/vite.config.js": {
-				"ts:2580": 4,
+				"ts:2591": 4,
 				"ts:7016": 1
 			},
 			"packages/envs/src/envs.svelte.ts": {
@@ -989,8 +988,7 @@
 		"byFile": {
 			"packages/components-ui-html/operatorChrome.fixture.mts": {
 				"ts:1378": 3,
-				"ts:2307": 2,
-				"ts:2580": 1
+				"ts:2591": 3
 			},
 			"packages/pixi-svelte/src/lib/index.ts": {
 				"ts:2308": 1
@@ -1049,14 +1047,14 @@
 		"errors": 36,
 		"byFile": {
 			"packages/engine-game/fixtures/pressAfterArm.fixture.ts": {
-				"ts:2307": 3
+				"ts:2591": 3
 			},
 			"packages/engine-game/fixtures/winEscalationOutro.fixture.ts": {
-				"ts:2307": 1,
-				"ts:2339": 1
+				"ts:2339": 1,
+				"ts:2591": 1
 			},
 			"packages/engine-game/fixtures/winTapLand.fixture.ts": {
-				"ts:2307": 3
+				"ts:2591": 3
 			},
 			"packages/engine-game/src/components/Background.svelte": {
 				"ts:2339": 3
@@ -1089,10 +1087,10 @@
 				"ts:2339": 1
 			},
 			"packages/engine-game/src/game/symbolCell.fixture.ts": {
-				"ts:2580": 1
+				"ts:2591": 1
 			},
 			"packages/engine-game/src/game/symbolInfo.fixture.ts": {
-				"ts:2580": 1
+				"ts:2591": 1
 			},
 			"packages/envs/src/envs.svelte.ts": {
 				"ts:2307": 1
@@ -1112,47 +1110,41 @@
 		"errors": 291,
 		"byFile": {
 			"packages/engine-layout/scopedFrameRef.fixture.ts": {
-				"ts:2580": 1
+				"ts:2591": 1
 			},
 			"packages/engine-layout/scripts/gen-builtin-rigs.mjs": {
 				"ts:1378": 3,
-				"ts:2307": 4,
 				"ts:2339": 2,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 8,
 				"ts:7053": 5
 			},
 			"packages/engine-layout/scripts/gen-scene-sets.mjs": {
 				"ts:1378": 7,
-				"ts:2307": 5,
-				"ts:2580": 3
+				"ts:2591": 8
 			},
 			"packages/engine-layout/scripts/test-cover-axis-anchor.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
 				"ts:2339": 2,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:2698": 2,
 				"ts:7006": 4
 			},
 			"packages/engine-layout/scripts/test-cover-fit.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 13
 			},
 			"packages/engine-layout/scripts/test-cue-duration.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 11,
 				"ts:7019": 1,
 				"ts:7053": 3
 			},
 			"packages/engine-layout/scripts/test-cue-signal-bus.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:2722": 1,
 				"ts:7005": 1,
 				"ts:7006": 3,
@@ -1160,51 +1152,44 @@
 			},
 			"packages/engine-layout/scripts/test-engine-owned-only.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 23
 			},
 			"packages/engine-layout/scripts/test-inline-image-box.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
 				"ts:2345": 1,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 14,
 				"ts:7031": 6
 			},
 			"packages/engine-layout/scripts/test-layout-profile-parity.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 3,
+				"ts:2591": 7,
 				"ts:7006": 4
 			},
 			"packages/engine-layout/scripts/test-signal-gates.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 2
 			},
 			"packages/engine-layout/scripts/test-signal-subscribe-untrack.mjs": {
 				"ts:1378": 1,
-				"ts:2307": 3,
-				"ts:2580": 1,
+				"ts:2591": 4,
 				"ts:7006": 2
 			},
 			"packages/engine-layout/scripts/test-tap-to-continue.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 7
 			},
 			"packages/engine-layout/scripts/test-tap-transform-independence.mjs": {
 				"ts:2339": 1,
-				"ts:2580": 1,
+				"ts:2591": 1,
 				"ts:7006": 15
 			},
 			"packages/engine-layout/scripts/test-win-text-symbol-names.mjs": {
 				"ts:1378": 4,
-				"ts:2307": 4,
-				"ts:2580": 2,
+				"ts:2591": 6,
 				"ts:7006": 11,
 				"ts:7053": 2
 			},
@@ -1240,23 +1225,22 @@
 		"errors": 14,
 		"byFile": {
 			"packages/pixi-svelte/fixtures/animatedSpriteFrames.fixture.ts": {
-				"ts:2307": 1,
-				"ts:2580": 1
+				"ts:2591": 2
 			},
 			"packages/pixi-svelte/fixtures/introRevealRetrigger.fixture.ts": {
-				"ts:2307": 1
+				"ts:2591": 1
 			},
 			"packages/pixi-svelte/fixtures/rigBox.fixture.ts": {
-				"ts:2307": 1
+				"ts:2591": 1
 			},
 			"packages/pixi-svelte/fixtures/rigSlotHost.fixture.ts": {
-				"ts:2307": 1
+				"ts:2591": 1
 			},
 			"packages/pixi-svelte/fixtures/rigTrackReplay.fixture.ts": {
-				"ts:2307": 1
+				"ts:2591": 1
 			},
 			"packages/pixi-svelte/fixtures/riggedBeat.fixture.ts": {
-				"ts:2307": 1
+				"ts:2591": 1
 			},
 			"packages/pixi-svelte/src/lib/components/AnimatedSprite.svelte": {
 				"ts:2345": 1

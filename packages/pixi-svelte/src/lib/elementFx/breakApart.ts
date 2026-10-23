@@ -1,7 +1,7 @@
 /**
- * The BREAK kinds (`crash`, `crumble`, `shatter`, `disintegrate`, and `assemble`, which plays dust
- * backwards): the element is rendered once to a texture, hidden, and the still is cut into pieces
- * that fly. The pieces live in a few small `MeshSimple`s the batcher draws together: each frame
+ * The BREAK kinds (`crash`, `crumble`, `shatter`, `crystallize`, `disintegrate`, and `assemble`,
+ * which plays dust backwards): the element is rendered once to a texture, hidden, and the still is
+ * cut into pieces that fly. The pieces live in a few small `MeshSimple`s the batcher draws together: each frame
  * moves their vertices. The pieces sit in a holder placed beside the element (same parent, same
  * depth, its resting transform), so they draw where it drew.
  *
@@ -9,9 +9,20 @@
  * breaking glass would do too.
  */
 
-import { Container, Graphics, MeshSimple, Rectangle, type Matrix, type Renderer } from 'pixi.js';
-import { clamp01, smoothstep } from './frame';
+import {
+	Container,
+	Graphics,
+	MeshSimple,
+	Rectangle,
+	Sprite,
+	type Matrix,
+	type Renderer,
+	type Texture,
+} from 'pixi.js';
+import { EFX_SIDES } from 'constants-shared/glslLibrary';
+import { clamp01, easeOutBack, rgb, smoothstep } from './frame';
 import type { BreakStyle } from './kinds';
+import { freezeFilter } from './shaders';
 
 export interface BreakRun {
 	/** Pose the pieces at `t` (0…1 of the play). */
@@ -62,10 +73,10 @@ interface Piece {
 	/** Dust only: how far it sways across the wind, and where in the sway it starts. */
 	sway: number;
 	phase: number;
-	/** Glass only: how fast it tumbles end over end, and when the cracks reach it (a share of the
-	 *  play). */
+	/** Glass and ice: how fast it tumbles end over end, and when the cracks (glass) or the ice
+	 *  (ice) reach it, a share of the play. */
 	tumble: number;
-	cracksAt: number;
+	reachedAt: number;
 }
 
 /** A crack line in a pane, drawn from its end nearer the impact as the cracks spread past it. */
@@ -91,6 +102,9 @@ interface Cut {
 	indices: Uint32Array;
 	/** Glass: the impact, how far the cracks run, and the crack lines. */
 	cracks?: { x: number; y: number; reach: number; lines: Crack[] };
+	/** Ice: when it bursts, how long one facet takes to ice over, when the last has, and the
+	 *  points that twinkle while it holds ([x, y, phase]). */
+	ice?: { burst: number; grow: number; iced: number; sparkles: number[][] };
 }
 
 const gridSize = (count: number, w: number, h: number): { cols: number; rows: number } => {
@@ -159,7 +173,7 @@ const cutShards = (box: Rectangle, options: BreakOptions, rand: () => number): C
 			sway: 0,
 			phase: 0,
 			tumble: 0,
-			cracksAt: 0,
+			reachedAt: 0,
 		};
 	});
 	return { pieces, uvs, indices };
@@ -206,7 +220,7 @@ const cutChunks = (box: Rectangle, options: BreakOptions, rand: () => number): C
 				sway: 0,
 				phase: 0,
 				tumble: 0,
-				cracksAt: 0,
+				reachedAt: 0,
 			});
 		}
 	}
@@ -305,7 +319,7 @@ const cutSpecks = (box: Rectangle, options: BreakOptions, rand: () => number): C
 				sway: turbulence * (0.02 + 0.05 * rand()) * size,
 				phase: rand() * Math.PI * 2,
 				tumble: 0,
-				cracksAt: 0,
+				reachedAt: 0,
 			});
 		}
 	}
@@ -462,7 +476,7 @@ const cutGlass = (box: Rectangle, options: BreakOptions, rand: () => number): Cu
 				sway: 0,
 				phase: 0,
 				tumble: (2.5 + 4 * rand()) * (rand() < 0.5 ? -1 : 1),
-				cracksAt: crack * (1 - Math.sqrt(1 - reached)),
+				reachedAt: crack * (1 - Math.sqrt(1 - reached)),
 			});
 		}
 	}
@@ -498,11 +512,153 @@ const cutGlass = (box: Rectangle, options: BreakOptions, rand: () => number): Cu
 	};
 };
 
+/** Where the ice starts, as shares of the box; `edges` creeps in from all four sides. */
+const ICE_FROM: Record<string, readonly [number, number]> = {
+	center: [0.5, 0.5],
+	bottom: [0.5, 1],
+	top: [0.5, 0],
+};
+
+/** The share of a shard's size its seam opens to as the ice creaks, just before it bursts. */
+const ICE_GAP = 0.04;
+
+/** The part of convex `polygon` on the side of the line through (mx, my) away from (nx, ny):
+ *  where `(p − m) · n ≤ 0`. */
+const clipHalfPlane = (
+	polygon: number[][],
+	mx: number,
+	my: number,
+	nx: number,
+	ny: number,
+): number[][] => {
+	const out: number[][] = [];
+	for (let i = 0; i < polygon.length; i++) {
+		const a = polygon[i];
+		const b = polygon[(i + 1) % polygon.length];
+		const da = (a[0] - mx) * nx + (a[1] - my) * ny;
+		const db = (b[0] - mx) * nx + (b[1] - my) * ny;
+		if (da <= 0) out.push(a);
+		if (da <= 0 !== db <= 0) {
+			const k = da / (da - db);
+			out.push([a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k]);
+		}
+	}
+	return out;
+};
+
+/**
+ * Ice: crystal facets, the cells of seeds jittered off a grid (each the part of the box nearer its
+ * seed than any other), each a shard. Over the first 70% of the crystallizing (`freeze`) the ice
+ * spreads from `from`, each facet icing over from its own centre as the front reaches it; the
+ * facets hold, their seams creak open, and at `freeze` it bursts out from its middle, the shards
+ * tumbling end over end, glinting as they turn, and falling.
+ */
+const cutIce = (box: Rectangle, options: BreakOptions, rand: () => number): Cut => {
+	const { width: w, height: h } = box;
+	const size = Math.max(w, h);
+	const burst = param(options.params, 'freeze', 0.45);
+	const grow = 0.12 * burst;
+	const force = Math.max(0.2, options.intensity);
+	const { cols, rows } = gridSize(param(options.params, 'pieces', 28), w, h);
+	const seeds: number[][] = [];
+	for (let r = 0; r < rows; r++) {
+		for (let c = 0; c < cols; c++) {
+			seeds.push([
+				box.x + ((c + 0.5 + (rand() - 0.5) * 0.8) / cols) * w,
+				box.y + ((r + 0.5 + (rand() - 0.5) * 0.8) / rows) * h,
+			]);
+		}
+	}
+	const start = ICE_FROM[String(options.params.from)];
+	const sx = start ? box.x + start[0] * w : 0;
+	const sy = start ? box.y + start[1] * h : 0;
+	const farthest = start
+		? Math.max(
+				...[
+					[box.x, box.y],
+					[box.right, box.y],
+					[box.x, box.bottom],
+					[box.right, box.bottom],
+				].map(([x, y]) => Math.hypot(x - sx, y - sy)),
+				1,
+			)
+		: 1;
+	/** How far the ice has to come to reach (x, y), 0…1. */
+	const order = (x: number, y: number): number => {
+		if (start) return Math.hypot(x - sx, y - sy) / farthest;
+		const u = (x - box.x) / w;
+		const v = (y - box.y) / h;
+		return 2 * Math.min(u, 1 - u, v, 1 - v);
+	};
+	const mx = box.x + w / 2;
+	const my = box.y + h / 2;
+	const rect = [
+		[box.x, box.y],
+		[box.right, box.y],
+		[box.right, box.bottom],
+		[box.x, box.bottom],
+	];
+	const uvs: number[] = [];
+	const indices: number[] = [];
+	const pieces: Piece[] = [];
+	const sparkles: number[][] = [];
+	for (let i = 0; i < seeds.length; i++) {
+		const [ax, ay] = seeds[i];
+		let cell = rect;
+		for (let j = 0; j < seeds.length && cell.length >= 3; j++) {
+			if (j === i) continue;
+			const [bx, by] = seeds[j];
+			cell = clipHalfPlane(cell, (ax + bx) / 2, (ay + by) / 2, bx - ax, by - ay);
+		}
+		if (cell.length < 3) continue;
+		const cx = cell.reduce((sum, p) => sum + p[0], 0) / cell.length;
+		const cy = cell.reduce((sum, p) => sum + p[1], 0) / cell.length;
+		const first = uvs.length / 2;
+		for (const [x, y] of cell) uvs.push((x - box.x) / w, (y - box.y) / h);
+		for (let k = 1; k < cell.length - 1; k++) indices.push(first, first + k, first + k + 1);
+		if (rand() < 0.4)
+			sparkles.push([...cell[Math.floor(rand() * cell.length)], rand() * Math.PI * 2]);
+		let dx = cx - mx;
+		let dy = cy - my;
+		const away = Math.hypot(dx, dy);
+		if (away < 1e-3) {
+			const a = rand() * Math.PI * 2;
+			dx = Math.cos(a);
+			dy = Math.sin(a);
+		} else {
+			dx /= away;
+			dy /= away;
+		}
+		const speed = (0.35 + 0.55 * rand()) * size * force;
+		pieces.push({
+			rel: cell.flatMap(([x, y]) => [x - cx, y - cy]),
+			cx,
+			cy,
+			vx: dx * speed,
+			vy: dy * speed - 0.3 * size * force,
+			spin: (rand() - 0.5) * 5,
+			delay: burst + (1 - burst) * 0.05 * rand(),
+			sway: 0,
+			phase: 0,
+			tumble: (3 + 5 * rand()) * (rand() < 0.5 ? -1 : 1),
+			reachedAt: burst * (0.62 * order(cx, cy) + 0.08 * rand()),
+		});
+	}
+	const iced = Math.max(0, ...pieces.map((piece) => piece.reachedAt)) + grow;
+	return {
+		pieces,
+		uvs: new Float32Array(uvs),
+		indices: new Uint32Array(indices),
+		ice: { burst, grow, iced, sparkles },
+	};
+};
+
 const CUTS: Record<BreakStyle, (box: Rectangle, options: BreakOptions, rand: () => number) => Cut> =
 	{
 		crash: cutShards,
 		crumble: cutChunks,
 		glass: cutGlass,
+		ice: cutIce,
 		dust: cutSpecks,
 	};
 
@@ -512,6 +668,36 @@ const snapshot = (renderer: Renderer, target: Container, box: Rectangle) => {
 	const texture = renderer.generateTexture({ target, frame: box, antialias: true });
 	if (!wasGroup && target.isRenderGroup) target.disableRenderGroup();
 	return texture;
+};
+
+/**
+ * The still frozen solid, for the ice shards: the freeze pass at full cover (no front, no glint),
+ * rendered once. Its crystals are finer than the facets, so each shard reads as ice inside too.
+ */
+const iceStill = (
+	renderer: Renderer,
+	still: Texture,
+	options: BreakOptions,
+	seed: number,
+): Texture => {
+	const filter = freezeFilter();
+	const color = options.params.color;
+	const crystals = Math.max(3, Math.round(Math.sqrt(param(options.params, 'pieces', 28)) * 1.4));
+	filter.set('uFreeze', 1, crystals, seed, EFX_SIDES.indexOf('edges'));
+	filter.set('uIce', ...rgb(typeof color === 'string' ? color : '#9fdcff'));
+	filter.set('uGlint', 1, -10);
+	const sprite = new Sprite(still);
+	sprite.filters = [filter];
+	const holder = new Container();
+	holder.addChild(sprite);
+	const iced = renderer.generateTexture({
+		target: holder,
+		frame: new Rectangle(0, 0, still.width, still.height),
+		antialias: true,
+	});
+	holder.destroy({ children: true });
+	filter.destroy();
+	return iced;
 };
 
 /**
@@ -525,38 +711,54 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 
 	const texture = snapshot(renderer, target, box);
 	const still = new Rectangle(box.x, box.y, texture.width, texture.height);
-	const rand = random(Math.random());
+	const seed = Math.random();
+	const rand = random(seed);
 	const cut = CUTS[style](still, options, rand);
+	const iced = cut.ice ? iceStill(renderer, texture, options, seed * 97) : undefined;
+	const layer = new Container();
 	// Small meshes, so the batcher draws them all in one go. One large mesh is drawn on its own and
 	// keeps the still bound after it is destroyed (Pixi then warns as the texture goes).
-	const layer = new Container();
-	const meshes: { mesh: MeshSimple; first: number; count: number }[] = [];
-	for (let first = 0, vertex = 0, index = 0; first < cut.pieces.length;) {
-		let count = 0;
-		let vertices = 0;
-		let triangles = 0;
-		while (first + count < cut.pieces.length) {
-			const n = cut.pieces[first + count].rel.length / 2;
-			if (count > 0 && vertices + n > MAX_BATCHED_VERTICES) break;
-			vertices += n;
-			triangles += n - 2;
-			count++;
+	const cutMeshes = (source: Texture): { mesh: MeshSimple; first: number; count: number }[] => {
+		const out: { mesh: MeshSimple; first: number; count: number }[] = [];
+		for (let first = 0, vertex = 0, index = 0; first < cut.pieces.length;) {
+			let count = 0;
+			let vertices = 0;
+			let triangles = 0;
+			while (first + count < cut.pieces.length) {
+				const n = cut.pieces[first + count].rel.length / 2;
+				if (count > 0 && vertices + n > MAX_BATCHED_VERTICES) break;
+				vertices += n;
+				triangles += n - 2;
+				count++;
+			}
+			const indices = cut.indices.slice(index, index + triangles * 3);
+			for (let i = 0; i < indices.length; i++) indices[i] -= vertex;
+			const mesh = new MeshSimple({
+				texture: source,
+				vertices: new Float32Array(vertices * 2),
+				uvs: cut.uvs.slice(vertex * 2, (vertex + vertices) * 2),
+				indices,
+			});
+			layer.addChild(mesh);
+			out.push({ mesh, first, count });
+			first += count;
+			vertex += vertices;
+			index += triangles * 3;
 		}
-		const indices = cut.indices.slice(index, index + triangles * 3);
-		for (let i = 0; i < indices.length; i++) indices[i] -= vertex;
-		const mesh = new MeshSimple({
-			texture,
-			vertices: new Float32Array(vertices * 2),
-			uvs: cut.uvs.slice(vertex * 2, (vertex + vertices) * 2),
-			indices,
-		});
-		layer.addChild(mesh);
-		meshes.push({ mesh, first, count });
-		first += count;
-		vertex += vertices;
-		index += triangles * 3;
-	}
+		return out;
+	};
+	const meshes = cutMeshes(texture);
+	// Ice: the same shards cut from the frozen still, drawn over the plain ones as they ice over.
+	const iceMeshes = iced ? cutMeshes(iced) : [];
 	const cracks = cut.cracks ? layer.addChild(new Graphics()) : undefined;
+	const frost = cut.ice ? layer.addChild(new Graphics()) : undefined;
+	const glints = cut.ice ? layer.addChild(new Graphics()) : undefined;
+	if (frost) {
+		// The seams, flashes and twinkles lie on the element only, not on the clear parts of its box.
+		const shape = layer.addChild(new Sprite(texture));
+		shape.position.set(still.x, still.y);
+		frost.mask = shape;
+	}
 	const holder = new Container({ label: 'elementFx:break', zIndex: target.zIndex });
 	holder.setFromMatrix(options.rest);
 	holder.addChild(layer);
@@ -565,7 +767,7 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	const size = Math.max(still.width, still.height);
 	const gravity =
 		param(options.params, 'gravity', 1) *
-		(style === 'crash' ? 2.6 : style === 'glass' ? 2.8 : 2.4) *
+		(style === 'crash' || style === 'ice' ? 2.6 : style === 'glass' ? 2.8 : 2.4) *
 		size;
 	const seconds = options.playSeconds;
 	const hit = style === 'crash' ? 0.12 : 0;
@@ -576,14 +778,32 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 	/** Dust picks up speed on the wind as it goes. */
 	const gust = 1.6 * size * Math.max(0.2, options.intensity);
 
+	const burst = cut.ice?.burst ?? 1;
+	/** How far a facet has iced over at `t`, from its centre out, overshooting as it snaps in. */
+	const grown = (piece: Piece, t: number): number =>
+		cut.ice ? easeOutBack(clamp01((t - piece.reachedAt) / cut.ice.grow), 1.6) : 1;
+
 	/** Where a piece is at `t`: its centre, its turn and its scale across and along. */
 	const fly = (
 		piece: Piece,
 		t: number,
 		flight: number,
 	): [number, number, number, number, number] => {
+		if (style === 'ice') {
+			const open = 1 - ICE_GAP * smoothstep(0.88 * burst, burst, t);
+			const life = clamp01((t - piece.delay) / (1 - piece.delay));
+			const tau = life * (1 - piece.delay) * seconds;
+			const scale = open * (1 - 0.4 * smoothstep(0.35, 1, life));
+			return [
+				piece.cx + piece.vx * tau,
+				piece.cy + piece.vy * tau + 0.5 * gravity * tau * tau,
+				piece.spin * tau,
+				scale * Math.cos(piece.tumble * tau),
+				scale,
+			];
+		}
 		if (style === 'glass') {
-			const open = 1 - GLASS_GAP * smoothstep(piece.cracksAt, piece.cracksAt + 0.04, t);
+			const open = 1 - GLASS_GAP * smoothstep(piece.reachedAt, piece.reachedAt + 0.04, t);
 			const life = clamp01((t - piece.delay) / (1 - piece.delay));
 			const tau = life * (1 - piece.delay) * seconds;
 			const scale = open * (1 + 0.18 * smoothstep(0, 0.35, life));
@@ -621,19 +841,21 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 		];
 	};
 
+	/** Write `piece`'s vertices at `t` into `out` from `base`, shrunk to `grow` about its centre. */
 	const place = (
 		piece: Piece,
 		t: number,
 		flight: number,
 		out: { [index: number]: number },
 		base: number,
+		grow = 1,
 	): void => {
 		const [x, y, angle, across, along] = fly(piece, t, flight);
 		const cos = Math.cos(angle);
 		const sin = Math.sin(angle);
 		for (let k = 0; k < piece.rel.length; k += 2) {
-			const rx = piece.rel[k] * across;
-			const ry = piece.rel[k + 1] * along;
+			const rx = piece.rel[k] * across * grow;
+			const ry = piece.rel[k + 1] * along * grow;
 			out[base + k] = x + rx * cos - ry * sin;
 			out[base + k + 1] = y + rx * sin + ry * cos;
 		}
@@ -675,16 +897,81 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 		}
 	};
 
+	const outline: number[] = [];
+	/** Ice: each facet flashing white as it ices over and its seams traced in white, gone as it
+	 *  bursts, and points on it twinkling while it holds (all on the element's own shape); then a
+	 *  flash at the burst, and each shard glinting as it turns face-on in the air. */
+	const drawIce = (t: number, flight: number): void => {
+		if (!frost || !glints || !cut.ice) return;
+		const { grow, sparkles } = cut.ice;
+		frost.clear();
+		glints.clear();
+		const seams = 1 - smoothstep(burst, burst + 0.04, t);
+		frost.visible = seams > 0;
+		if (seams > 0) {
+			const facet = (piece: Piece): number[] | undefined => {
+				const g = grown(piece, t);
+				if (g <= 0) return undefined;
+				place(piece, t, flight, outline, 0, g);
+				return outline.slice(0, piece.rel.length);
+			};
+			for (const piece of cut.pieces) {
+				const flash = 1 - clamp01((t - piece.reachedAt) / (1.5 * grow));
+				const points = flash > 0 ? facet(piece) : undefined;
+				if (points) frost.poly(points).fill({ color: 0xffffff, alpha: 0.45 * flash });
+			}
+			for (const piece of cut.pieces) {
+				const points = facet(piece);
+				if (points) frost.poly(points);
+			}
+			frost.stroke({ width: Math.max(1, size * 0.004), color: 0xffffff, alpha: 0.6 * seams });
+		}
+		const twinkling =
+			smoothstep(0.8 * cut.ice.iced, cut.ice.iced, t) * (1 - smoothstep(burst, burst + 0.03, t));
+		if (twinkling > 0) {
+			for (const [x, y, phase] of sparkles) {
+				const k = Math.max(0, Math.sin(phase + t * seconds * 9)) ** 4 * twinkling;
+				if (k < 0.02) continue;
+				const r = size * 0.04 * k;
+				frost.star(x, y, 4, r, r * 0.22).fill({ color: 0xffffff, alpha: 0.9 * k });
+			}
+		}
+		const blast = clamp01((t - burst) / 0.08);
+		if (blast > 0 && blast < 1) {
+			glints
+				.circle(still.x + still.width / 2, still.y + still.height / 2, size * (0.1 + 0.5 * blast))
+				.fill({ color: 0xffffff, alpha: 0.45 * (1 - blast) });
+		}
+		for (const piece of cut.pieces) {
+			if (t <= piece.delay) continue;
+			const life = clamp01((t - piece.delay) / (1 - piece.delay));
+			const tau = life * (1 - piece.delay) * seconds;
+			const glint = Math.max(0, 1 - 5 * Math.abs(Math.sin(piece.tumble * tau))) * (1 - life);
+			if (glint < 0.05) continue;
+			const [x, y] = fly(piece, t, flight);
+			const r = size * 0.03 * glint;
+			glints.star(x, y, 4, r, r * 0.22).fill({ color: 0xffffff, alpha: glint });
+		}
+	};
+
 	const pose = (t: number): void => {
 		const flight = clamp01((t - hit) / (1 - hit));
-		if (t < jolting) {
+		if (style === 'ice') {
+			const creak = t < burst ? smoothstep(0.84 * burst, burst, t) : 0;
+			const jolt = 0.012 * size * Math.max(0.2, options.intensity) * creak;
+			layer.position.set(jolt * Math.sin(t * seconds * 70), 0);
+		} else if (t < jolting) {
 			const k = 1 - t / jolting;
 			const jolt = 0.03 * size * Math.max(0.2, options.intensity) * k;
 			layer.position.set(jolt * Math.sin(t * 900), jolt * Math.cos(t * 700));
 		} else {
 			layer.position.set(0, 0);
 		}
+		// Under ice, the plain shards are covered once every facet has iced over.
+		const plain = !cut.ice || t < cut.ice.iced;
 		for (const { mesh, first, count } of meshes) {
+			mesh.visible = plain;
+			if (!plain) continue;
 			const vertices = mesh.vertices;
 			for (let i = 0, base = 0; i < count; i++) {
 				const piece = cut.pieces[first + i];
@@ -692,7 +979,16 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 				base += piece.rel.length;
 			}
 		}
+		for (const { mesh, first, count } of iceMeshes) {
+			const vertices = mesh.vertices;
+			for (let i = 0, base = 0; i < count; i++) {
+				const piece = cut.pieces[first + i];
+				place(piece, t, flight, vertices, base, grown(piece, t));
+				base += piece.rel.length;
+			}
+		}
 		drawCracks(t);
+		drawIce(t, flight);
 		layer.alpha =
 			style === 'crash'
 				? 1 - smoothstep(0.55, 1, flight)
@@ -705,6 +1001,7 @@ export function startBreak(options: BreakOptions): BreakRun | undefined {
 		destroy(): void {
 			if (!holder.destroyed) holder.destroy({ children: true });
 			texture.destroy(true);
+			iced?.destroy(true);
 		},
 	};
 }

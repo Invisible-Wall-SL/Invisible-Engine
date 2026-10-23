@@ -24,6 +24,7 @@ import type { CoinBoard } from './coinBoard';
 import type { GameSounds } from './sounds';
 import type { GameModeDecl } from './modes';
 import type { BonusImport } from './bonusImports';
+import type { ArcadeBlock, Match3Block } from './family';
 
 export const GAME_CONFIG_DOC_VERSION = 1;
 
@@ -235,6 +236,16 @@ export type WinModel =
 			type: 'scatter';
 			/** Fewest matching symbols anywhere on the board that pay. */
 			minCount: number;
+	  }
+	| {
+			/**
+			 * A match-3 board (`docs/design/game-families.md` §2.1): no paylines, a win priced on the
+			 * whole bet like `cluster`. NEVER STORED — `resolveWinModel` builds it from the doc's
+			 * `match3` block, which is the one home of `minRun`.
+			 */
+			type: 'match3';
+			/** Fewest gems in a row or column that match. */
+			minRun: number;
 	  };
 
 /**
@@ -398,8 +409,9 @@ export const COLUMN_STAGGERED_SWAP_STYLES = ['columnCascade', 'emerge'] as const
 
 export type SwapStyle = (typeof SWAP_STYLES)[number];
 
-/** Every `WinModel` discriminant, for validation + the tool's picker. */
-export const WIN_MODEL_TYPES = ['lines', 'ways', 'cluster', 'scatter'] as const;
+/** Every `WinModel` discriminant, for validation. The slot picker offers the first four; `match3`
+ *  is a match-3 doc's alone. */
+export const WIN_MODEL_TYPES = ['lines', 'ways', 'cluster', 'scatter', 'match3'] as const;
 
 export type WinModelType = (typeof WIN_MODEL_TYPES)[number];
 
@@ -464,6 +476,23 @@ export type GridAlign = 'center' | 'top' | 'bottom';
  */
 export type GameConfigDoc = {
 	version: typeof GAME_CONFIG_DOC_VERSION;
+	/**
+	 * OPTIONAL game family (`docs/design/game-families.md` §2.1). An INVISIBLE-ENGINE extension;
+	 * absent ⇒ a slot, which is every config authored before Phase 10. Read it through
+	 * `resolveFamily` rather than directly, so the default lives in one place.
+	 */
+	family?: 'match3' | 'arcade';
+	/**
+	 * OPTIONAL: who decides a round. Absent ⇒ the RGS; `rules` is a free-play game whose own rules
+	 * decide, with no wallet (§2.3). Only a non-slot family stores it. Read it through
+	 * `resolveOutcome`.
+	 */
+	outcome?: 'rules';
+	/** OPTIONAL match-3 rules (see {@link Match3Block}); kept only beside `family: 'match3'`. */
+	match3?: Match3Block;
+	/** OPTIONAL arcade play field and bodies (see {@link ArcadeBlock}); kept only beside
+	 *  `family: 'arcade'`. */
+	arcade?: ArcadeBlock;
 	providerName: string;
 	gameName: string;
 	gameID: string;

@@ -31,6 +31,8 @@ import { resolveWinModel } from './winModel';
 
 import { resolveGrid } from './grid';
 import { swapStyleUsesColumnStagger } from './reelBehaviour';
+import { configSectionsOf } from './familySections';
+import { validateFamily } from './familyValidate';
 
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
@@ -48,12 +50,66 @@ export type GameConfigIssue = {
  *
  * Deliberately NOT checked: whether a symbol has art. That needs the symbol/asset registry, lives
  * on the other side of the bake, and belongs to the Symbols SM's surface — one fact, one home.
+ *
+ * Each check runs only where the doc's family shows its section on `/config`
+ * (`configSectionsOf`), so a section the page hides never refuses a save. A slot shows every
+ * section, so a slot doc is checked exactly as before families existed.
  */
 export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => {
 	const issues: GameConfigIssue[] = [];
 	const inPlay = new Set(symbolsInPlay(doc));
 	const grid = resolveGrid(doc);
+	const sections = configSectionsOf(doc);
 
+	if (sections.has('grid')) issues.push(...gridIssues(doc));
+	// Non-`lines` win models are not decided by paylines, so a leftover payline table is inert
+	// rather than wrong; each other arm gets the bounds check that IS meaningful for it.
+	if (sections.has('winModel')) {
+		issues.push(...winModelIssues({ ...doc, winModel: resolveWinModel(doc) }));
+	}
+	if (sections.has('reelBehaviour')) issues.push(...reelBehaviourIssues(doc));
+	// STEPPED GRIDS (docs/design/stepped-grid.md).
+	//
+	// There is deliberately NO warning about a stepped board here beyond the inert-alignment one
+	// below. Two were tried and both turned out to be wrong: a stepped CASCADE works (every cascade
+	// seat already goes through `getSymbolSeat(reelIndex, ...)` and a drain drops by the COLUMN's own
+	// length), and stepped + PERSPECTIVE composes now that the clip is a single compound mask rather
+	// than one container per column. A validator that cries wolf is worse than a quiet one -- it
+	// teaches an author to skim the panel, which is the panel's only job.
+	if (sections.has('grid') && !grid.stepped && doc.gridAlign) {
+		// An authored alignment on a rectangular board is inert — there is no slack to place. The
+		// normalizer already drops it, so this only fires for a doc that reached the validator without
+		// being normalized (a paste-in inspected before save), which is exactly when saying so helps.
+		issues.push({
+			severity: 'warning',
+			path: 'gridAlign',
+			message:
+				'A column alignment is set but every reel is the same height, so there is nothing to align. Give the reels different row counts for it to do anything.',
+		});
+	}
+	if (sections.has('symbols')) issues.push(...symbolIssues(doc, inPlay));
+	if (sections.has('betModes')) issues.push(...betModeIssues(doc));
+	if (sections.has('winLevels')) issues.push(...winLevelIssues(doc));
+	if (sections.has('freeSpins')) issues.push(...validateFreeSpins(doc));
+	if (sections.has('expandingSymbol')) issues.push(...validateExpandingSymbol(doc));
+	if (sections.has('bonusModes')) {
+		issues.push(...validateHoldAndWin(doc));
+		issues.push(...validatePotsOverlay(doc));
+	}
+	if (sections.has('gameModes')) issues.push(...validateGameModes(doc));
+	if (sections.has('coinBoard')) issues.push(...validateCoinBoard(doc));
+	if (sections.has('bonusModes')) {
+		issues.push(...validateBonusModes(doc));
+		issues.push(...validateBonusImports(doc));
+	}
+	issues.push(...validateFamily(doc));
+
+	return issues;
+};
+
+function gridIssues(doc: GameConfigDoc): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
+	const grid = resolveGrid(doc);
 	if (doc.numReels <= 0) {
 		issues.push({ severity: 'error', path: 'numReels', message: 'Grid has no reels.' });
 	}
@@ -90,10 +146,11 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
-	// Non-`lines` win models are not decided by paylines, so a leftover payline table is inert
-	// rather than wrong; each other arm gets the bounds check that IS meaningful for it.
-	issues.push(...winModelIssues({ ...doc, winModel: resolveWinModel(doc) }));
+	return issues;
+}
 
+function reelBehaviourIssues(doc: GameConfigDoc): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
 	// Reel behaviour — every one of these describes a config that SAVES and RENDERS but silently
 	// does nothing, which is the class of problem this validator exists to say out loud.
 	const behaviour = doc.reelBehaviour;
@@ -141,26 +198,11 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
-	// STEPPED GRIDS (docs/design/stepped-grid.md).
-	//
-	// There is deliberately NO warning about a stepped board here beyond the inert-alignment one
-	// below. Two were tried and both turned out to be wrong: a stepped CASCADE works (every cascade
-	// seat already goes through `getSymbolSeat(reelIndex, ...)` and a drain drops by the COLUMN's own
-	// length), and stepped + PERSPECTIVE composes now that the clip is a single compound mask rather
-	// than one container per column. A validator that cries wolf is worse than a quiet one -- it
-	// teaches an author to skim the panel, which is the panel's only job.
-	if (!grid.stepped && doc.gridAlign) {
-		// An authored alignment on a rectangular board is inert — there is no slack to place. The
-		// normalizer already drops it, so this only fires for a doc that reached the validator without
-		// being normalized (a paste-in inspected before save), which is exactly when saying so helps.
-		issues.push({
-			severity: 'warning',
-			path: 'gridAlign',
-			message:
-				'A column alignment is set but every reel is the same height, so there is nothing to align. Give the reels different row counts for it to do anything.',
-		});
-	}
+	return issues;
+}
 
+function symbolIssues(doc: GameConfigDoc, inPlay: ReadonlySet<string>): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
 	// The `W` bug, generalized: a payout advertised for a symbol the game never deals. A pot token is
 	// off the strips by design — it drops over a cell — so only a payout on one is worth saying.
 	const tokens = new Set(doc.coinOverlay?.pots?.map((p) => p.token));
@@ -192,6 +234,11 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		}
 	}
 
+	return issues;
+}
+
+function betModeIssues(doc: GameConfigDoc): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
 	if (!Object.keys(doc.betModes).length) {
 		issues.push({
 			severity: 'error',
@@ -220,6 +267,11 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		}
 	}
 
+	return issues;
+}
+
+function winLevelIssues(doc: GameConfigDoc): GameConfigIssue[] {
+	const issues: GameConfigIssue[] = [];
 	// Win tiers are optional; when authored, the ladder must be internally consistent — the facade
 	// emits a level by walking ascending thresholds, and the escalation start must name a real tier.
 	const winTiers = resolveWinLevels(doc);
@@ -268,17 +320,8 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		}
 	}
 
-	issues.push(...validateFreeSpins(doc));
-	issues.push(...validateExpandingSymbol(doc));
-	issues.push(...validateHoldAndWin(doc));
-	issues.push(...validatePotsOverlay(doc));
-	issues.push(...validateGameModes(doc));
-	issues.push(...validateCoinBoard(doc));
-	issues.push(...validateBonusModes(doc));
-	issues.push(...validateBonusImports(doc));
-
 	return issues;
-};
+}
 
 /** Only the blocking issues — what a bake or a publish refuses to ship. */
 export const gameConfigErrors = (doc: GameConfigDoc): GameConfigIssue[] =>

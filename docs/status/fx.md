@@ -2,18 +2,18 @@
 
 > Design: [docs/design/invisible-fx.md](../design/invisible-fx.md) · Guide: [docs/tools/fx.md](../tools/fx.md) · Agent: `.claude/agents/invisible-fx.md`
 
-**One-line state:** **Element FX** (effects that play ON a node, a screen, the reels or a symbol's state — 49 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
+**One-line state:** **Element FX** (effects that play ON a node, a screen, the reels or a symbol's state — 50 kinds; editor section with an on-stage preview, ✦ Animate rows so a timeline or a state-machine state poses them; Flow `elementEffect`) built 2026-10-21, ⏳ not yet clicked in a browser. Particles: shipped on `main` — all three particle tiers, the event trigger, a pro emitter inspector and rig-timeline binding are live, and a rig plays its bound FX wherever it is mounted. **Exposed parameters (Steps 1 and 2 of the 2026-10-15 direction) are on `main` — gated headlessly, not yet driven in a browser:** a placed effect node sets them per placement (any kind, colour included) or takes them from its component's params, and its value bindings and timeline channels drive them (Step 2); state-machine inputs and the game clocks (Steps 3–4) are next. Open: the Tier-C perf ceiling, an owner pass over the Min / Max rows, and a pixel check on a rig FX mounted outside a layout rig node.
 
 ## Current state
 Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items called out below.
 
 - **Element FX** (2026-10-21, [design/element-fx](../design/element-fx.md)) — effects that play ON
   an element rather than beside it: any node (image, rig / `.irig`, flipbook, particle effect,
-  text, group, component placement), a whole screen, or the reels. 49 kinds in five families:
+  text, group, component placement), a whole screen, or the reels. 50 kinds in five families:
   motion (shake, wobble, pulse, heartbeat, jelly, bounce, spin, swing, float, pop in / out, slam
   in, fade in / out), 3D (flip sideways / over, bounce 3D, tilt 3D, sphericon), distort (wave X / Y, flag,
   twist, curl, ripple, bulge, melt), light (glow, outline, shine, flash, rainbow, chromatic, glitch,
-  blur, pixelate, freeze, burn to ashes, poison, electrocute, petrify, turn to gold, dissolve out / in) and break (crash, crumble, shatter, dissolve to / assemble from particles). Authored in the Scene Editor's
+  blur, pixelate, freeze, burn to ashes, poison, electrocute, petrify, turn to gold, dissolve out / in) and break (crash, crumble, shatter, crystallize, dissolve to / assemble from particles). Authored in the Scene Editor's
   **Element FX** section (node Properties and the Screen panel; ▶ previews on the stage on a still
   of the element) with an *Always* / *When shown* / *On cue* / *Keyed* trigger and a stop cue;
   fired from the Flow by `fireCue` or by `elementEffect` / `stopElementEffect`. A *Keyed* entry
@@ -123,6 +123,22 @@ Live on `main`, owner-verified in the 2026-06-29 pass except the ⏳ items calle
 - **Owner live-verify** of the WebGL pixels / Tier-C perf is the gate on marking those items done.
 
 ## Recent changes
+- 2026-10-23 — **The 17 shader passes share one GLSL library** (`constants-shared/glslLibrary.ts`, step 1 of the
+  [Invisible Shader Graph](../design/invisible-shader-graph.md)). No visual change: every kind
+  renders pixel-identical before and after. Detail in [status/shader-graph](shader-graph.md).
+- 2026-10-23 — **Crystallize (ice shards)** (a 50th kind, break, exit). Owner ask: a crystallize
+  into ice shards effect. A new break style, `ice` (`breakApart.ts`): the still is cut into crystal
+  facets (the cells of seeds jittered off a grid, `pieces` 8–80, default 28), and cut a second time
+  from a frozen copy of the still (the freeze pass at full cover, rendered once). The ice spreads
+  from `from` (centre by default; bottom, top, edges) over the first 70% of the crystallizing
+  (`freeze`, default 0.45 of the play): each facet grows from its own centre as the front reaches
+  it, overshooting as it snaps in, with a white flash. It holds as ice with its seams traced in
+  white and points twinkling, creaks (its seams open, it shivers), then bursts from its middle with
+  a flash; the shards fly out, tumble end over end, glint as they turn face-on, shrink and fall
+  (`gravity`). The seams, flashes and twinkles are masked to the element's own shape, so a symbol
+  with a clear background draws none on the empty parts of its box. `check:element-fx` 116 → 126 (one
+  of them caught "Ice from: edges" icing the middle first, fixed before it shipped). Rendered on
+  WebGL1 and WebGL2. ⏳ Not clicked in a browser.
 - 2026-10-22 — **Fix: a symbol state's effect was cut before it showed** (owner report: "I added an
   FX to Land and can't see it in game"). The reel board puts a symbol back to `static` the moment
   its land art reports done, and a still picture reports on its first frame, so the Land effect

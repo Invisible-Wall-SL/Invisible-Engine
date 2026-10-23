@@ -22,7 +22,8 @@
 		"sprite": "tsx sprite.ts",
 		"exposed-params": "tsx exposedParams.ts",
 		"particle-clock": "tsx particleClock.ts",
-		"element-fx": "tsx elementFx.ts"
+		"element-fx": "tsx elementFx.ts",
+		"shader-parity": "node shaderParity.mjs"
 	},
 	"devDependencies": {
 		"tsx": "4.23.15",
@@ -30,6 +31,7 @@
 		"utils-event-emitter": "workspace:*",
 		"@barvynkoa/particle-emitter": "0.0.1",
 		"engine-rig": "workspace:*",
-		"pixi.js": "8.22.0"
+		"pixi.js": "8.22.0",
+		"esbuild": "0.28.2"
 	}
 }
