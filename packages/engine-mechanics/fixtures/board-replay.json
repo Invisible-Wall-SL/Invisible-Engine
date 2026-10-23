@@ -1,0 +1,885 @@
+[
+	{
+		"seed": "p10.2",
+		"deal": ["PRGGYGR", "RGBBPYP", "GRGYRPB", "BBYPGRG", "YYPRBBY", "PPRBYGR"],
+		"turns": [
+			{
+				"move": [4, 0, 5, 0],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "", "R", "P", "G", "", ""]
+					}
+				],
+				"board": ["PRRPGYR", "RGBBPYP", "GRGYRPB", "BBYPGRG", "YYPRBBY", "PPRBYGR"]
+			},
+			{
+				"move": [2, 4, 2, 5],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["R", "B", "R", "", "", "", ""]
+					}
+				],
+				"board": ["RBRPGYR", "PRRBPYP", "RGBYRPB", "GRGPGRG", "BBYRBBY", "YYRBYGR"]
+			},
+			{
+				"move": [2, 4, 2, 5],
+				"steps": [
+					{
+						"groups": ["Y:line3:3"],
+						"newSymbols": ["R", "R", "G", "", "", "", ""]
+					}
+				],
+				"board": ["RRGPGYR", "RBRBPYP", "PRRYRPB", "RGBPGRG", "GRGRBBY", "BBRBYGR"]
+			},
+			{
+				"move": [0, 2, 1, 2],
+				"steps": [
+					{
+						"groups": ["R:line4:4"],
+						"newSymbols": ["BYPR", "", "", "", "", "", ""]
+					}
+				],
+				"board": ["BRGPGYR", "YBRBPYP", "PPRYRPB", "RGBPGRG", "GRGRBBY", "BBRBYGR"]
+			},
+			{
+				"move": [2, 5, 3, 5],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["B", "B", "B", "", "", "", ""]
+					},
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["P", "Y", "Y", "", "", "", ""]
+					}
+				],
+				"board": ["PYYPGYR", "BRGBPYP", "YBRYRPB", "PPRPGRG", "RGBRBBY", "GRGRYGR"]
+			},
+			{
+				"move": [1, 1, 2, 1],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "RBY", "", "", "", ""]
+					}
+				],
+				"board": ["PYRPGYR", "BGBBPYP", "YBYYRPB", "PPYPGRG", "RGBRBBY", "GRGRYGR"]
+			},
+			{
+				"move": [5, 1, 5, 2],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "", "", "", "B", "P", "B"]
+					}
+				],
+				"board": ["PYRPBPB", "BGBBGYR", "YBYYRYB", "PPYPGRG", "RGBRBBY", "GRGRYGR"]
+			},
+			{
+				"move": [1, 4, 1, 5],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["G", "P", "Y", "", "", "", ""]
+					}
+				],
+				"board": ["GPYPBPB", "PYRBGYR", "BGBYRYB", "YBYPGRG", "PPYRBBY", "RRBRYGR"]
+			},
+			{
+				"move": [1, 2, 1, 3],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["B", "G", "G", "", "", "", ""]
+					}
+				],
+				"board": ["BGGPBPB", "GPYBGYR", "PYRYRYB", "YGYPGRG", "PPYRBBY", "RRBRYGR"]
+			},
+			{
+				"move": [2, 1, 2, 2],
+				"steps": [
+					{
+						"groups": ["Y:T:5"],
+						"newSymbols": ["", "R", "GBG", "P", "", "", ""]
+					}
+				],
+				"board": ["BRGPBPB", "GGBPGYR", "PPGBRYB", "YGGPGRG", "PPRRBBY", "RRBRYGR"]
+			},
+			{
+				"move": [2, 0, 2, 1],
+				"steps": [
+					{
+						"groups": ["G:L:5"],
+						"newSymbols": ["R", "B", "PRG", "", "", "", ""]
+					}
+				],
+				"board": ["RBPPBPB", "BRRPGYR", "PPGBRYB", "YGBPGRG", "PPRRBBY", "RRBRYGR"]
+			},
+			{
+				"move": [0, 0, 0, 1],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["Y", "G", "R", "", "", "", ""]
+					}
+				],
+				"board": ["YGRPBPB", "BBPPGYR", "PPGBRYB", "YGBPGRG", "PPRRBBY", "RRBRYGR"]
+			},
+			{
+				"move": [1, 4, 1, 5],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "Y", "R", "R", "", "", ""]
+					}
+				],
+				"board": ["YYRRBPB", "BGRPGYR", "PBPPRYB", "YPGBGRG", "PGBPBBY", "RPBRYGR"]
+			},
+			{
+				"move": [3, 3, 3, 4],
+				"steps": [
+					{
+						"groups": ["B:line4:4", "P:line3:3"],
+						"newSymbols": ["", "", "B", "GBYP", "G", "Y", ""]
+					},
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "P", "Y", "B", "", "", ""]
+					}
+				],
+				"board": ["YPYBGYB", "BYBGBPR", "PGRBGYB", "YBRYRYG", "PGGRGRY", "RPBRYGR"]
+			},
+			{
+				"move": [2, 3, 3, 3],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "", "GYP", "", "", ""]
+					},
+					{
+						"groups": ["G:line4:4"],
+						"newSymbols": ["", "G", "B", "P", "P", "", ""]
+					}
+				],
+				"board": ["YGBPPYB", "BPYGGPR", "PYBYBYB", "YGRPGYG", "PBYBRRY", "RPBBYGR"]
+			},
+			{
+				"move": [5, 0, 5, 1],
+				"steps": [
+					{
+						"groups": ["P:line3:3", "Y:line3:3"],
+						"newSymbols": ["", "", "", "Y", "R", "YBRG", ""]
+					},
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "", "", "", "P", "P", "G"]
+					}
+				],
+				"board": ["YGBYPPG", "BPYGRYB", "PYBYGBR", "YGRPBRB", "PBYBRRY", "RPBBYGR"]
+			},
+			{
+				"move": [3, 3, 4, 3],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "", "", "PRG", "", "", ""]
+					},
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "", "", "P", "Y", "Y", ""]
+					}
+				],
+				"board": ["YGBPYYG", "BPYRRYB", "PYBGGBR", "YGRYPRB", "PBYGRRY", "RPBYYGR"]
+			},
+			{
+				"move": [5, 5, 6, 5],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "", "", "", "YPR", ""]
+					}
+				],
+				"board": ["YGBPYYG", "BPYRRPB", "PYBGGRR", "YGRYPYB", "PBYGRYY", "RPBYYBG"]
+			},
+			{
+				"move": [4, 4, 4, 5],
+				"steps": [
+					{
+						"groups": ["Y:line3:3"],
+						"newSymbols": ["", "", "", "", "G", "B", "G"]
+					}
+				],
+				"board": ["YGBPGBG", "BPYRYYG", "PYBGRPB", "YGRYGRR", "PBYGPYB", "RPBYRBG"]
+			},
+			{
+				"move": [2, 1, 3, 1],
+				"steps": [
+					{
+						"groups": ["Y:line3:3"],
+						"newSymbols": ["", "", "", "P", "G", "Y", ""]
+					}
+				],
+				"board": ["YGBPGYG", "BPRPGBG", "PYBGRPB", "YGRYGRR", "PBYGPYB", "RPBYRBG"]
+			},
+			{
+				"move": [2, 4, 3, 4],
+				"steps": [
+					{
+						"groups": ["Y:line3:3"],
+						"newSymbols": ["", "", "", "RGB", "", "", ""]
+					}
+				],
+				"board": ["YGBRGYG", "BPRGGBG", "PYBBRPB", "YGRPGRR", "PBGPPYB", "RPBGRBG"]
+			},
+			{
+				"move": [4, 2, 4, 3],
+				"steps": [
+					{
+						"groups": ["G:line3:3", "R:line3:3"],
+						"newSymbols": ["", "", "", "", "YRGB", "G", "P"]
+					}
+				],
+				"board": ["YGBRYGP", "BPRGRYG", "PYBBGBG", "YGRPBPB", "PBGPPYB", "RPBGRBG"]
+			},
+			{
+				"move": [5, 2, 6, 2],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "", "", "", "", "", "YRB"]
+					}
+				],
+				"board": ["YGBRYGY", "BPRGRYR", "PYBBGGB", "YGRPBPP", "PBGPPYG", "RPBGRBG"]
+			},
+			{
+				"move": [4, 2, 4, 3],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "", "R", "R", "P", "", ""]
+					}
+				],
+				"board": ["YGRRPGY", "BPBRYYR", "PYRGRGB", "YGRPGPP", "PBGPPYG", "RPBGRBG"]
+			},
+			{
+				"move": [3, 2, 4, 2],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "", "BGY", "", "", ""]
+					}
+				],
+				"board": ["YGRBPGY", "BPBGYYR", "PYRYGGB", "YGRPGPP", "PBGPPYG", "RPBGRBG"]
+			}
+		]
+	},
+	{
+		"seed": 20261023,
+		"deal": ["GGPGYRP", "BRRYPBB", "YBGPRGG", "PYBRGPY", "RPGGBYR", "GGYBYBB"],
+		"turns": [
+			{
+				"move": [4, 4, 4, 5],
+				"steps": [
+					{
+						"groups": ["B:line4:4"],
+						"newSymbols": ["", "", "", "P", "R", "Y", "R"]
+					}
+				],
+				"board": ["GGPPRYR", "BRRGYRP", "YBGYPBB", "PYBPRGG", "RPGRGPY", "GGYGYYR"]
+			},
+			{
+				"move": [4, 3, 4, 4],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "", "", "", "R", "P", "G"]
+					}
+				],
+				"board": ["GGPPRPG", "BRRGRYR", "YBGYYRP", "PYBPPBB", "RPGRRPY", "GGYGYYR"]
+			},
+			{
+				"move": [4, 0, 5, 0],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "", "P", "B", "G", "", ""]
+					}
+				],
+				"board": ["GGPBGRG", "BRRGRYR", "YBGYYRP", "PYBPPBB", "RPGRRPY", "GGYGYYR"]
+			},
+			{
+				"move": [5, 0, 5, 1],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "", "", "P", "R", "G"]
+					}
+				],
+				"board": ["GGPBPRG", "BRRGGYG", "YBGYYRP", "PYBPPBB", "RPGRRPY", "GGYGYYR"]
+			},
+			{
+				"move": [6, 4, 6, 5],
+				"steps": [
+					{
+						"groups": ["Y:line3:3"],
+						"newSymbols": ["", "", "", "", "R", "R", "B"]
+					}
+				],
+				"board": ["GGPBRRB", "BRRGPRG", "YBGYGYG", "PYBPYRP", "RPGRPBB", "GGYGRPR"]
+			},
+			{
+				"move": [5, 2, 5, 3],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "", "", "", "RBG", ""]
+					},
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "", "", "", "R", "P", "Y"]
+					}
+				],
+				"board": ["GGPBRPY", "BRRGRRB", "YBGYPBG", "PYBPYYP", "RPGRPBB", "GGYGRPR"]
+			},
+			{
+				"move": [2, 5, 3, 5],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["G", "G", "G", "", "", "", ""]
+					},
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["G", "G", "R", "", "", "", ""]
+					}
+				],
+				"board": ["GGRBRPY", "GGPGRRB", "BRRYPBG", "YBGPYYP", "PYBRPBB", "RPGYRPR"]
+			},
+			{
+				"move": [3, 2, 3, 3],
+				"steps": [
+					{
+						"groups": ["Y:line3:3"],
+						"newSymbols": ["", "", "", "G", "B", "B", ""]
+					}
+				],
+				"board": ["GGRGBBY", "GGPBRPB", "BRRGRRG", "YBGPPBP", "PYBRPBB", "RPGYRPR"]
+			},
+			{
+				"move": [3, 2, 4, 2],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "B", "Y", "G", "", "", ""]
+					}
+				],
+				"board": ["GBYGBBY", "GGRGRPB", "BGPBGRG", "YBGPPBP", "PYBRPBB", "RPGYRPR"]
+			},
+			{
+				"move": [0, 2, 1, 2],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["GBY", "", "", "", "", "", ""]
+					}
+				],
+				"board": ["GBYGBBY", "BGRGRPB", "YBPBGRG", "YBGPPBP", "PYBRPBB", "RPGYRPR"]
+			},
+			{
+				"move": [1, 4, 2, 4],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "PGB", "", "", "", "", ""]
+					}
+				],
+				"board": ["GPYGBBY", "BGRGRPB", "YBPBGRG", "YBGPPBP", "PGYRPBB", "RPGYRPR"]
+			},
+			{
+				"move": [4, 5, 5, 5],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "", "", "", "BYR", "", ""]
+					}
+				],
+				"board": ["GPYGBBY", "BGRGYPB", "YBPBRRG", "YBGPBBP", "PGYRRBB", "RPGYGRR"]
+			},
+			{
+				"move": [0, 1, 1, 1],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "BYP", "", "", "", "", ""]
+					}
+				],
+				"board": ["GBYGBBY", "GYRGYPB", "YPPBRRG", "YPGPBBP", "PGYRRBB", "RPGYGRR"]
+			},
+			{
+				"move": [1, 4, 1, 5],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "PGB", "", "", "", "", ""]
+					}
+				],
+				"board": ["GPYGBBY", "GGRGYPB", "YBPBRRG", "YBGPBBP", "PYYRRBB", "RGGYGRR"]
+			},
+			{
+				"move": [3, 5, 4, 5],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "B", "R", "B", "", "", ""]
+					},
+					{
+						"groups": ["B:line3:3", "B:line3:3"],
+						"newSymbols": ["", "", "", "YP", "GB", "RG", ""]
+					}
+				],
+				"board": ["GBRYGRY", "GPYPBGB", "YGRGYPG", "YBPGRRP", "PBGPRBB", "RYYRYRR"]
+			},
+			{
+				"move": [4, 5, 5, 5],
+				"steps": [
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "", "", "GBP", "", ""]
+					},
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "", "", "", "R", "B", "R"]
+					}
+				],
+				"board": ["GBRYRBR", "GPYPGRY", "YGRGBGB", "YBPGPPG", "PBGPGRP", "RYYRYYR"]
+			},
+			{
+				"move": [2, 4, 3, 4],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "", "", "RGB", "", "", ""]
+					},
+					{
+						"groups": ["R:line3:3"],
+						"newSymbols": ["", "", "G", "B", "G", "", ""]
+					}
+				],
+				"board": ["GBGBGBR", "GPYGGRY", "YGRBBGB", "YBPYPPG", "PBPPGRP", "RYYRYYR"]
+			},
+			{
+				"move": [0, 4, 1, 4],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "P", "P", "B", "", "", ""]
+					}
+				],
+				"board": ["GPPBGBR", "GBGBGRY", "YPYGBGB", "YGRBPPG", "BBPYGRP", "RYYRYYR"]
+			},
+			{
+				"move": [3, 2, 4, 2],
+				"steps": [
+					{
+						"groups": ["B:line4:4", "G:line3:3"],
+						"newSymbols": ["", "", "", "RGBY", "GBP", "", ""]
+					}
+				],
+				"board": ["GPPRGBR", "GBGGBRY", "YPYBPGB", "YGRYPPG", "BBPYGRP", "RYYRYYR"]
+			},
+			{
+				"move": [3, 5, 4, 5],
+				"steps": [
+					{
+						"groups": ["Y:L:5"],
+						"newSymbols": ["", "P", "G", "GYP", "", "", ""]
+					},
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "", "R", "B", "G", "", ""]
+					}
+				],
+				"board": ["GPRBGBR", "GPPYBRY", "YBGPPGB", "YPYRPPG", "BGRGGRP", "RBPBRYR"]
+			},
+			{
+				"move": [2, 1, 2, 2],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "", "P", "R", "R", "", ""]
+					}
+				],
+				"board": ["GPPRRBR", "GPRBGRY", "YBGYBGB", "YPYRPPG", "BGRGGRP", "RBPBRYR"]
+			},
+			{
+				"move": [1, 2, 1, 3],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "YPG", "", "", "", "", ""]
+					}
+				],
+				"board": ["GYPRRBR", "GPRBGRY", "YGGYBGB", "YBYRPPG", "BGRGGRP", "RBPBRYR"]
+			},
+			{
+				"move": [0, 2, 1, 2],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["PRG", "", "", "", "", "", ""]
+					}
+				],
+				"board": ["PYPRRBR", "RPRBGRY", "GYGYBGB", "YBYRPPG", "BGRGGRP", "RBPBRYR"]
+			},
+			{
+				"move": [6, 3, 6, 4],
+				"steps": [
+					{
+						"groups": ["P:line3:3"],
+						"newSymbols": ["", "", "", "", "Y", "G", "Y"]
+					}
+				],
+				"board": ["PYPRYGY", "RPRBRBR", "GYGYGRY", "YBYRBGB", "BGRGGRG", "RBPBRYR"]
+			},
+			{
+				"move": [4, 3, 5, 3],
+				"steps": [
+					{
+						"groups": ["G:line3:3"],
+						"newSymbols": ["", "", "", "", "YRG", "", ""]
+					}
+				],
+				"board": ["PYPRYGY", "RPRBRBR", "GYGYGRY", "YBYRYBB", "BGRGRRG", "RBPBRYR"]
+			}
+		]
+	},
+	{
+		"seed": "dead-end",
+		"deal": ["AEDEE", "BFEFF", "CAFAA", "DBABB", "ECBCC"],
+		"turns": [
+			{
+				"move": [1, 2, 2, 2],
+				"steps": [
+					{
+						"groups": ["A:line3:3"],
+						"newSymbols": ["", "", "B", "D", "C"]
+					}
+				],
+				"board": ["AEBDC", "BFDEE", "CFEFF", "DBABB", "ECBCC"]
+			},
+			{
+				"move": [2, 3, 2, 4],
+				"steps": [
+					{
+						"groups": ["B:line4:4"],
+						"newSymbols": ["", "A", "D", "A", "C"]
+					}
+				],
+				"board": ["AADAC", "BEBDC", "CFDEE", "DFEFF", "ECACC"]
+			},
+			{
+				"move": [1, 3, 2, 3],
+				"steps": [
+					{
+						"groups": ["F:line3:3"],
+						"newSymbols": ["", "", "F", "A", "F"]
+					}
+				],
+				"board": ["AAFAF", "BEDAC", "CFBDC", "DEDEE", "ECACC"]
+			},
+			{
+				"move": [2, 0, 3, 0],
+				"steps": [
+					{
+						"groups": ["A:line3:3"],
+						"newSymbols": ["A", "F", "A", "", ""]
+					}
+				],
+				"board": ["AFAFF", "BEDAC", "CFBDC", "DEDEE", "ECACC"]
+			},
+			{
+				"move": [1, 3, 2, 3],
+				"steps": [
+					{
+						"groups": ["E:line3:3"],
+						"newSymbols": ["", "", "F", "D", "F"]
+					},
+					{
+						"groups": ["C:line3:3"],
+						"newSymbols": ["", "", "", "", "EFA"]
+					}
+				],
+				"board": ["AFFDE", "BEAFF", "CFDAA", "DDBDF", "ECACF"]
+			},
+			{
+				"move": [2, 0, 2, 1],
+				"steps": [
+					{
+						"groups": ["F:line3:3"],
+						"newSymbols": ["", "", "C", "A", "C"]
+					}
+				],
+				"board": ["AFCAC", "BEADE", "CFDAA", "DDBDF", "ECACF"]
+			},
+			{
+				"move": [2, 2, 2, 3],
+				"steps": [
+					{
+						"groups": ["D:line4:4"],
+						"newSymbols": ["A", "D", "C", "C", ""]
+					},
+					{
+						"groups": ["C:line3:3"],
+						"newSymbols": ["", "", "C", "C", "A"]
+					}
+				],
+				"board": ["ADCCA", "AFCAE", "BEADA", "CFBAF", "ECACF"]
+			},
+			{
+				"move": [3, 2, 4, 2],
+				"steps": [
+					{
+						"groups": ["A:line3:3"],
+						"newSymbols": ["", "", "", "CDE", ""]
+					}
+				],
+				"board": ["ADCCA", "AFCDE", "BEAED", "CFBCF", "ECACF"],
+				"shuffled": ["CACBC", "CFDCD", "ADEEF", "FECBA", "FAAEC"]
+			},
+			{
+				"move": [1, 2, 1, 3],
+				"steps": [
+					{
+						"groups": ["E:line3:3"],
+						"newSymbols": ["", "E", "E", "B", ""]
+					}
+				],
+				"board": ["CEEBC", "CACBD", "AFDCF", "FDCBA", "FAAEC"]
+			},
+			{
+				"move": [2, 2, 3, 2],
+				"steps": [
+					{
+						"groups": ["C:line3:3"],
+						"newSymbols": ["", "", "CDE", "", ""]
+					}
+				],
+				"board": ["CECBC", "CADBD", "AFEDF", "FDEBA", "FAAEC"]
+			},
+			{
+				"move": [2, 4, 3, 4],
+				"steps": [
+					{
+						"groups": ["E:line3:3"],
+						"newSymbols": ["", "", "CDE", "", ""]
+					}
+				],
+				"board": ["CECBC", "CADBD", "AFEDF", "FDCBA", "FADAC"]
+			},
+			{
+				"move": [0, 2, 1, 2],
+				"steps": [
+					{
+						"groups": ["F:line3:3"],
+						"newSymbols": ["CDE", "", "", "", ""]
+					}
+				],
+				"board": ["CECBC", "DADBD", "EAEDF", "CDCBA", "CADAC"]
+			},
+			{
+				"move": [1, 3, 1, 4],
+				"steps": [
+					{
+						"groups": ["A:line3:3"],
+						"newSymbols": ["", "ABC", "", "", ""]
+					}
+				],
+				"board": ["CACBC", "DBDBD", "ECEDF", "CECBA", "CDDAC"]
+			},
+			{
+				"move": [3, 1, 3, 2],
+				"steps": [
+					{
+						"groups": ["D:line3:3"],
+						"newSymbols": ["", "", "D", "D", "F"]
+					},
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "", "", "DEF", ""]
+					}
+				],
+				"board": ["CADDF", "DBCEC", "ECEFF", "CECDA", "CDDAC"]
+			},
+			{
+				"move": [3, 3, 3, 4],
+				"steps": [
+					{
+						"groups": ["D:line3:3"],
+						"newSymbols": ["", "D", "C", "D", ""]
+					}
+				],
+				"board": ["CDCDF", "DADDC", "EBCEF", "CCEFA", "CECAC"]
+			},
+			{
+				"move": [0, 1, 1, 1],
+				"steps": [
+					{
+						"groups": ["D:line3:3"],
+						"newSymbols": ["", "B", "E", "B", ""]
+					}
+				],
+				"board": ["CBEBF", "ADCDC", "EBCEF", "CCEFA", "CECAC"]
+			},
+			{
+				"move": [1, 3, 2, 3],
+				"steps": [
+					{
+						"groups": ["C:line4:4"],
+						"newSymbols": ["", "", "CDEF", "", ""]
+					},
+					{
+						"groups": ["D:line3:3"],
+						"newSymbols": ["", "F", "C", "F", ""]
+					}
+				],
+				"board": ["CFCFF", "ABCBC", "EBEEF", "CEFFA", "CEEAC"]
+			},
+			{
+				"move": [1, 0, 2, 0],
+				"steps": [
+					{
+						"groups": ["F:line3:3"],
+						"newSymbols": ["", "", "E", "A", "A"]
+					}
+				],
+				"board": ["CCEAA", "ABCBC", "EBEEF", "CEFFA", "CEEAC"]
+			},
+			{
+				"move": [2, 0, 2, 1],
+				"steps": [
+					{
+						"groups": ["C:line3:3"],
+						"newSymbols": ["E", "D", "D", "", ""]
+					}
+				],
+				"board": ["EDDAA", "ABEBC", "EBEEF", "CEFFA", "CEEAC"]
+			},
+			{
+				"move": [1, 3, 2, 3],
+				"steps": [
+					{
+						"groups": ["E:line4:4"],
+						"newSymbols": ["", "", "DEFA", "", ""]
+					}
+				],
+				"board": ["EDDAA", "ABEBC", "EBFEF", "CFAFA", "CEDAC"]
+			},
+			{
+				"move": [2, 2, 2, 3],
+				"steps": [
+					{
+						"groups": ["F:line3:3"],
+						"newSymbols": ["", "E", "D", "E", ""]
+					}
+				],
+				"board": ["EEDEA", "ADDAC", "EBEBF", "CBAEA", "CEDAC"]
+			},
+			{
+				"move": [3, 3, 3, 4],
+				"steps": [
+					{
+						"groups": ["A:line3:3"],
+						"newSymbols": ["", "", "B", "A", "C"]
+					}
+				],
+				"board": ["EEBAC", "ADDEA", "EBDAC", "CBEBF", "CEDEC"]
+			},
+			{
+				"move": [3, 1, 4, 1],
+				"steps": [
+					{
+						"groups": ["A:line3:3"],
+						"newSymbols": ["", "", "", "DEF", ""]
+					}
+				],
+				"board": ["EEBDC", "ADDEE", "EBDFC", "CBEBF", "CEDEC"]
+			},
+			{
+				"move": [3, 0, 3, 1],
+				"steps": [
+					{
+						"groups": ["D:line3:3"],
+						"newSymbols": ["", "C", "D", "A", ""]
+					}
+				],
+				"board": ["ECDAC", "AEBEE", "EBDFC", "CBEBF", "CEDEC"]
+			},
+			{
+				"move": [2, 3, 2, 4],
+				"steps": [
+					{
+						"groups": ["E:line3:3"],
+						"newSymbols": ["", "C", "A", "E", ""]
+					}
+				],
+				"board": ["ECAEC", "ACDAE", "EEBEC", "CBDFF", "CBDBC"]
+			},
+			{
+				"move": [3, 1, 4, 1],
+				"steps": [
+					{
+						"groups": ["E:line3:3"],
+						"newSymbols": ["", "", "", "FAB", ""]
+					}
+				],
+				"board": ["ECAFC", "ACDAA", "EEBBC", "CBDFF", "CBDBC"]
+			},
+			{
+				"move": [2, 1, 2, 2],
+				"steps": [
+					{
+						"groups": ["D:line3:3"],
+						"newSymbols": ["", "", "CDE", "", ""]
+					},
+					{
+						"groups": ["E:line3:3", "B:line3:3"],
+						"newSymbols": ["D", "AB", "AB", "C", ""]
+					}
+				],
+				"board": ["DAACC", "EBBFA", "ACCAC", "CCDBF", "CBAFC"]
+			},
+			{
+				"move": [3, 2, 4, 2],
+				"steps": [
+					{
+						"groups": ["C:line3:3"],
+						"newSymbols": ["", "B", "D", "A", ""]
+					}
+				],
+				"board": ["DBDAC", "EAACA", "ABBFA", "CCDBF", "CBAFC"]
+			},
+			{
+				"move": [3, 0, 3, 1],
+				"steps": [
+					{
+						"groups": ["A:line4:4"],
+						"newSymbols": ["", "F", "F", "D", "C"]
+					}
+				],
+				"board": ["DFFDC", "EBDCC", "ABBFA", "CCDBF", "CBAFC"]
+			},
+			{
+				"move": [1, 3, 1, 4],
+				"steps": [
+					{
+						"groups": ["B:line3:3"],
+						"newSymbols": ["", "EFA", "", "", ""]
+					}
+				],
+				"board": ["DEFDC", "EFDCC", "AABFA", "CFDBF", "CCAFC"]
+			}
+		]
+	}
+]

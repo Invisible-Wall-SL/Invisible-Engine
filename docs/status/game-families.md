@@ -3,12 +3,49 @@
 > Design: [docs/design/game-families.md](../design/game-families.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) (_Game family_) · Agents: `invisible-game-config`, `invisible-game-maker`, then per phase
 
 **One-line state:** the owner started Phase 10 on 2026-10-23. **P10.1 (family and outcome in Game
-Config) is built** and in review. No runtime behaviour yet: a match-3 or arcade config can be
-authored but not published. P10.1b and later have not started.
+Config) is merged; P10.2 (the board module) is built** and in review. No runtime behaviour yet: a
+match-3 or arcade config can be authored but not published, and nothing calls the board module.
+P10.1b runs in parallel; P10.3 and later have not started.
 
 ## Current state
 
-**P10.1 — family and outcome in Game Config (built 2026-10-23; in review).**
+**P10.2 — the board module (built 2026-10-23; in review).** A new dependency-free package,
+`packages/engine-mechanics` (§4.0): `src/board.js`, plain ESM with no imports, and its hand-written
+`src/board.d.ts`, re-exported by `index.ts` as `engine-cinematic` does. **No caller yet**, so no
+game, bundle or screen changes.
+
+- **The rule set (§4.1):** `createBoard`, `canSwap`, `swap`, `findMatches` (row and column runs of
+  `minRun`+, merged into `L` / `T`; a lone run is `line2`–`line5`, `line5` meaning five or more),
+  `clear`, `gravity` (with the falls), `refill`, `resolve` (the cascade loop), `findMoves` /
+  `hasMoves`, `shuffle`, and `createRng` (mulberry32; a string seed is hashed).
+- **The grid is the slot board's:** column-major `cells[reel][row]`, row 0 at the top, gems shaped
+  as `RawSymbol`. Each `resolve` step carries a `tumbleBoard` event (no `index`) whose
+  `newSymbols[reel]` are the gems dropped into that column top first, exactly as the mock RGS's
+  cascade sends them, beside its match groups and falls.
+- **Refill sources:** `'pool'` reads the column's strip (`paddingReels`) from a seeded stop, as a
+  reel strip is read, wrapping; or a book's `newSymbols`, which must fit the holes exactly.
+  `resolve` takes either, one book refill per step, so an RGS board can mirror the server's chain.
+- **The RGS guard (§2.2 #1):** a board built with `rng: null` (the default) throws on any deal,
+  pool refill or shuffle; it takes gems only from given cells and the book.
+- **Choices this build made** (the plan does not fix them; easy to change before P10.5 calls it):
+  - a **dealt board** has no match and at least one move (up to 200 seeded deals, then it throws:
+    the strips cannot make a playable board); `shuffle` keeps the same promise;
+  - `canSwap` needs the match to **take in one of the two swapped gems**, so a swap beside a run
+    that is already on the board is not a move;
+  - `resolve` stops after 100 steps and throws (a runaway chain is a strips problem); `refill`
+    throws when a hole sits below a gem (gravity has not run);
+  - `findMoves` (every legal swap, each pair once) is exported because `board.hint()` needs one.
+- **Gate `check:board-mechanic`** (`scripts/check-board-mechanic.mjs`, run by `check:all`): 31
+  checks over drawn grids: runs, line shapes, `L` / `T`, `minRun`; legal and illegal swaps;
+  gravity's falls; book and pool refills; a chain fed by refills and one made by falls alone; the
+  RGS mirror (a pool chain replayed on an `rng: null` board from its own `newSymbols` gives the
+  same steps and board); `hasMoves`; shuffle; the deal; malformed input. Three scripted sessions
+  (two 7 × 6, one 5 × 5 that dead-ends and shuffles) replay identically and match the committed
+  trace, `packages/engine-mechanics/fixtures/board-replay.json` (`--update` rewrites it).
+- **Not done here, by plan:** the mock's import and the test-server Dockerfile lines (P10.6), the
+  `MATCH3_VOCAB` nodes and any runtime caller (P10.5), specials (P10.5b).
+
+**P10.1 — family and outcome in Game Config (built 2026-10-23; merged in #1310).**
 
 - **Schema** (`packages/game-config`): four optional fields on `GameConfigDoc`: `family`
   (`match3` / `arcade`; absent ⇒ a slot), `outcome` (`rules`; absent ⇒ `rgs`), and the
@@ -59,7 +96,8 @@ authored but not published. P10.1b and later have not started.
 
 1. **P10.1b — tools per family** (§6.5): `FAMILY_TOOLS`, the filtered launcher home and tool bar,
    the hidden-tool notice, and Director's gate. `familyOfKind()` is already in place.
-2. P10.2 onward, in §8's order. P10.5 replaces the family gate for match-3 with the runtime
+2. P10.3 onward, in §8's order. P10.5 is the board module's first caller (the rules runtime branch
+   and the `/flow-v2` preview); P10.6 the mock's. P10.5 replaces the family gate for match-3 with the runtime
    branch, and registers the match-3 scene set, vocabulary and starter flow. It moves `match3` into
    the slot-only loops of `check:flow-publish-gate` and decides which Reel behaviour switches
    match-3 shows.
@@ -78,6 +116,8 @@ authored but not published. P10.1b and later have not started.
 
 ## Recent changes
 
+- 2026-10-23 — **P10.2 built: the board module** (`packages/engine-mechanics`, `check:board-mechanic`).
+  Detail above.
 - 2026-10-23 — **P10.1 built: family and outcome in Game Config.** The owner gave the go-ahead
   for Phase 10, and accepted the five P10.1 recommendations and three notes the build raised
   (§9 #20–#27). Detail above.
