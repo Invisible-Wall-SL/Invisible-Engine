@@ -55,7 +55,7 @@
  *    not place (`instance-missing`) and a wait for a state the layer never enters
  *    (`instance-state-unknown`) are refused. Detail: `check:flow-instance-nodes`.
  */
-import { GAME_KINDS } from 'constants-shared/gameKinds';
+import { GAME_KINDS, SLOT_GAME_KINDS, familyOfKind } from 'constants-shared/gameKinds';
 import {
 	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
 	DRIVEN_SEEDS,
@@ -110,7 +110,13 @@ const check = (name: string, ok: boolean, detail = ''): void => {
 };
 
 const EMPTY_LIBRARY = { version: 2 as const, functions: [] };
-for (const gameType of GAME_KINDS) {
+// The kinds of the other families (game-families.md §6.1) get their scene set, starter flow and
+// vocabulary with their own phase (P10.5 match-3, P10.8 arcade); until then no project can be one,
+// and the first such phase moves its kind into the loops below.
+for (const gameType of GAME_KINDS.filter((kind) => familyOfKind(kind) !== 'slot')) {
+	check(`1. ${gameType}: has no full scene set yet`, !getFullSceneSet(gameType));
+}
+for (const gameType of SLOT_GAME_KINDS) {
 	const reference = getFullSceneSet(gameType);
 	if (!reference) {
 		check(`1. ${gameType}: has a full scene set`, false);
@@ -178,7 +184,7 @@ const RESOLVES_TO: Record<string, [string, string]> = {
 	holdAndWin: ['holdAndWin', 'holdAndWin'],
 	'my-custom-kind': ['bookOf', 'bookOf'],
 };
-for (const kind of GAME_KINDS) {
+for (const kind of SLOT_GAME_KINDS) {
 	check(`4. ${kind}: has a recorded resolution`, kind in RESOLVES_TO);
 }
 for (const [kind, [seedId, vocabId]] of Object.entries(RESOLVES_TO)) {
@@ -720,7 +726,7 @@ check(
 			'overlayDrop',
 );
 
-for (const gameType of GAME_KINDS) {
+for (const gameType of SLOT_GAME_KINDS) {
 	const scenes = engineOwnedOnly(getFullSceneSet(gameType)!).scenes;
 	const seedDoc = freshDrivenSeedDoc(gameType);
 	const missing = flowScreensMissing(seedDoc, scenes);

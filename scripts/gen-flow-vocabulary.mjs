@@ -26,7 +26,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import prettier from 'prettier';
-import { GAME_KINDS } from '../packages/constants-shared/gameKinds.ts';
+import { SLOT_GAME_KINDS } from '../packages/constants-shared/gameKinds.ts';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -66,9 +66,9 @@ const GAMES = [
 		// LayoutDoc `gameType` values this vocabulary serves (the editor selects by it). The
 		// lines union IS the SHARED RUNTIME's vocabulary — every game type built on `_runtime/lines`
 		// broadcasts exactly these cues — so it covers Book of Borut, a `ways` project and a
-		// `holdAndWin` one too. Derived from the one kind list, so a new kind gets it by default;
+		// `holdAndWin` one too. Derived from the slot kind list, so a new slot kind gets it by default;
 		// `cluster`/`scatter` are left on `DEFAULT_EMITTER_VOCABULARY`, as they always have been.
-		gameTypes: GAME_KINDS.filter((kind) => kind !== 'cluster' && kind !== 'scatter'),
+		gameTypes: SLOT_GAME_KINDS.filter((kind) => kind !== 'cluster' && kind !== 'scatter'),
 		// Type-name → palette group + effect group label.
 		groups: {
 			EmitterEventBoard: 'Board',

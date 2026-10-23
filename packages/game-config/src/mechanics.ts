@@ -13,7 +13,11 @@ import { resolveWinModel } from './winModel';
  * Adding a future tumble type is one entry here, and every surface that asks "does this game
  * tumble" follows automatically.
  */
-export const CASCADE_BY_DEFAULT: ReadonlySet<WinModelType> = new Set(['cluster', 'scatter']);
+export const CASCADE_BY_DEFAULT: ReadonlySet<WinModelType> = new Set([
+	'cluster',
+	'scatter',
+	'match3',
+]);
 
 /** Does a game of this win model tumble unless its project says otherwise? */
 export function cascadeDefaultFor(type: WinModelType): boolean {
@@ -28,7 +32,7 @@ export function cascadeDefaultFor(type: WinModelType): boolean {
  * re-implemented at each site and eventually mis-implemented at one of them.
  */
 export function resolveCascade(
-	doc: Pick<GameConfigDoc, 'winModel' | 'cascade'> | undefined,
+	doc: Pick<GameConfigDoc, 'winModel' | 'cascade' | 'family' | 'match3'> | undefined,
 ): boolean {
 	if (typeof doc?.cascade === 'boolean') return doc.cascade;
 	return cascadeDefaultFor(resolveWinModel(doc).type);

@@ -1,5 +1,10 @@
 import { error, redirect } from '@sveltejs/kit';
-import { spinsModeKindIssues, undealtRouteWarnings, validateGameConfigDoc } from 'game-config';
+import {
+	configSectionsOf,
+	spinsModeKindIssues,
+	undealtRouteWarnings,
+	validateGameConfigDoc,
+} from 'game-config';
 import { pickSheetsFrom } from '$lib/pickSheets';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -136,8 +141,10 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		issues: doc
 			? [
 					...validateGameConfigDoc(doc),
-					...undealtRouteWarnings(doc, gameType),
-					...spinsModeKindIssues(doc, gameType),
+					// The bonus warnings belong to the slot's bonus sections, which another family hides.
+					...(configSectionsOf(doc).has('bonusModes')
+						? [...undealtRouteWarnings(doc, gameType), ...spinsModeKindIssues(doc, gameType)]
+						: []),
 				]
 			: [],
 	};
