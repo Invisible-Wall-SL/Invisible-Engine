@@ -77,6 +77,7 @@
 	import {
 		previewAnimTime,
 		previewOutputs,
+		previewTimelineActive,
 		previewResolveTransform,
 	} from './valuePreview.client.svelte';
 
@@ -537,14 +538,15 @@
 	 *  `animation` strip, as the game poses them), or undefined when it previews none. */
 	function previewPose(
 		node: Extract<LayoutNode, { kind: 'spine' }>,
-		/** The strip the rig rests on when no timeline is being previewed ({@link restingStrip}). */
+		/** The strip the rig rests on ({@link restingStrip}), shown only while nothing previews: a
+		 * previewed state whose timeline does not key the rig leaves it on its own track, as in game. */
 		resting?: { animation: string; time: number },
 	): RigPreviewPose | undefined {
 		const outputs = previewOutputs(node);
 		const bones = boundBoneOffsets(node.valueBindings, outputs);
 		const scrubs = withTimelineScrub(
 			boundScrubs(node.valueBindings, outputs),
-			previewAnimTime(node) ?? resting,
+			previewTimelineActive() ? previewAnimTime(node) : resting,
 		);
 		return bones.length || scrubs.length ? { bones, scrubs } : undefined;
 	}
@@ -560,7 +562,8 @@
 		nodeId: string,
 		params: Record<string, unknown>,
 	): { animation: string; time: number } | undefined {
-		return def ? restingStateStrip(def, segmentTimelines(def.id), params, nodeId) : undefined;
+		if (!def?.stateMachine?.layers?.length) return undefined;
+		return restingStateStrip(def, segmentTimelines(def.id), params, nodeId);
 	}
 
 	/** engine-rig `MixBlend.replace` / `MixDirection.mixIn`, as the vendored runtime numbers them. */

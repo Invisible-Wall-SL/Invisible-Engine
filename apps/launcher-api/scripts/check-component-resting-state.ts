@@ -15,10 +15,11 @@
  *  1. **A rig rests on its def's settled state** (`restingStateStrip`): the entry state's strip at
  *     its inputs' defaults, the state a default input moves the machine to, and nothing for a rig
  *     no state keys, a def with no machine, or timelines not loaded yet.
- *  2. **The rig layer previews that strip under a timeline preview** (source-scanned): every rig
- *     target, top-level and nested, is posed with its def's resting strip, a previewed timeline
- *     (Animate) wins over it, and the Component Editor hands the canvas its open draft so the
- *     draft's own machine rests the stage's rigs.
+ *  2. **The rig layer rests rigs on it while nothing previews** (source-scanned): every rig
+ *     target, top-level and nested, is posed with its def's resting strip; while a timeline or the
+ *     machine previews, the preview alone poses it; only a def with a machine fetches its
+ *     timelines; the Component Editor hands the canvas its open draft so the draft's own machine
+ *     rests the stage's rigs.
  */
 import { readFileSync } from 'node:fs';
 
@@ -125,8 +126,14 @@ const editor = (file: string): string =>
 	readFileSync(new URL(`../src/routes/(app)/editor/${file}`, import.meta.url), 'utf8');
 const layer = editor('EditorRigLayer.svelte');
 check(
-	'a previewed timeline wins over the resting strip',
-	/withTimelineScrub\(\s*boundScrubs\(node\.valueBindings, outputs\),\s*previewAnimTime\(node\) \?\? resting,\s*\)/.test(
+	'while a timeline or the machine previews, the preview alone poses the rig (a state that does not key it leaves it on its own track, as in game)',
+	/withTimelineScrub\(\s*boundScrubs\(node\.valueBindings, outputs\),\s*previewTimelineActive\(\) \? previewAnimTime\(node\) : resting,\s*\)/.test(
+		layer,
+	),
+);
+check(
+	'only a def with a state machine asks for its timelines',
+	/if \(!def\?\.stateMachine\?\.layers\?\.length\) return undefined;\s*return restingStateStrip\(def, segmentTimelines\(def\.id\), params, nodeId\);/.test(
 		layer,
 	),
 );

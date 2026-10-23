@@ -124,7 +124,7 @@ Shipped capabilities on `main`:
   (the memoised settle, shared with the segment preview) and `restingStateStrip`; the rig layer poses
   every rig, top-level and nested, with the strip its def's machine settles on at its inputs'
   defaults (a previewed timeline still wins). The open draft rides on `ComponentNest.def`, so the
-  Component Editor rests on the unsaved machine. Gate: `check:component-resting-state` (11). Owner
+  Component Editor rests on the unsaved machine; while a timeline or the machine previews, the preview alone poses the rig, and only a def with a machine fetches its timelines. Gate: `check:component-resting-state` (12). Owner
   side, not a bug: the widget's `Content` input reads `featureTotal`, the HUD win meter, which is 0
   on Feature intro and through the respins (it climbs only in the end-of-feature tally) and counts
   hundredths of the bet (100 = 1× bet), so `Content > 5` never fires there and means 0.05× bet once
