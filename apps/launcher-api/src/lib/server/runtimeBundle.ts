@@ -216,7 +216,13 @@ async function resolveReferencedDefs(
 	const defs = await resolveComponentClosure(
 		doc.scenes.flatMap((scene) => scene.nodes),
 		(id) => loadComponent(id, projectKey),
-		{ extraSeedIds, defaultsFor: (id) => componentDefaultsFor(storedDefaults, id) },
+		{
+			extraSeedIds,
+			defaultsFor: (id) => componentDefaultsFor(storedDefaults, id),
+			// The game draws nothing for it (a segment variant: the middle segment instead).
+			onMissing: (id) =>
+				console.warn(`[runtime] "${projectKey}": component '${id}' is placed but has no def.`),
+		},
 	);
 	const versions: ComponentDef[] = [];
 	for (const pin of collectComponentPins(doc.scenes.flatMap((scene) => scene.nodes))) {

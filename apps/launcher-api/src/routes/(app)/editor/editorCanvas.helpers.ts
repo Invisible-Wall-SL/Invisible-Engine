@@ -513,7 +513,8 @@ export function repeaterPreviewCount(node: CountRepeaterNode): number {
  * Where a count-mode repeater's segments sit in the editor — the game's own geometry
  * (`repeaterCountOffsets`) over the game's own measure of each segment component
  * (`componentDesignSize`, no textures), so the canvas, the overlay and the selection box frame what
- * the game draws. A missing or unsizable component measures 0 × 0, as in game.
+ * the game draws. A variant naming no def lays out as the middle segment that replaces it, and an
+ * unsizable component measures 0 × 0, as in game.
  */
 export function repeaterPreviewLayout(
 	node: CountRepeaterNode,
@@ -522,13 +523,18 @@ export function repeaterPreviewLayout(
 	n = repeaterPreviewCount(node),
 ): RepeaterCountLayout {
 	const sizes = new Map<string, RepeaterItemSize | null>();
-	return repeaterCountOffsets(node, n, (id) => {
-		if (!sizes.has(id)) {
-			const def = componentMap?.get(id);
-			sizes.set(id, def ? componentDesignSize(def, () => null, layoutType) : null);
-		}
-		return sizes.get(id) ?? null;
-	});
+	return repeaterCountOffsets(
+		node,
+		n,
+		(id) => {
+			if (!sizes.has(id)) {
+				const def = componentMap?.get(id);
+				sizes.set(id, def ? componentDesignSize(def, () => null, layoutType) : null);
+			}
+			return sizes.get(id) ?? null;
+		},
+		(id) => !!componentMap?.has(id),
+	);
 }
 
 /** A count-mode segment's box: the shared {@link RepeaterBox} plus what drew it. */
@@ -563,7 +569,8 @@ export function repeaterSegmentInputs(
  * its {@link repeaterPreviewLayout} offset (the group anchored against the whole footprint), with
  * params def defaults ◁ project defaults ◁ `{ index: i + 1, count: N }`. `pose` (the settled
  * state-machine pose, `segmentPreview.ts`) replaces the def's children for that segment's inputs;
- * absent or `null` ⇒ the base pose. A segment whose def is missing is left out.
+ * absent or `null` ⇒ the base pose. A variant naming no def draws the middle segment, as in game; a
+ * segment with no def at all is left out.
  */
 export function repeaterCountBoxes(
 	node: CountRepeaterNode,
@@ -584,7 +591,9 @@ export function repeaterCountBoxes(
 	const top = -layout.height * anchorY;
 	const boxes: RepeaterCountBox[] = [];
 	layout.offsets.forEach((offset, i) => {
-		const def = componentMap.get(repeaterSegmentComponent(node, i, n));
+		const def = componentMap.get(
+			repeaterSegmentComponent(node, i, n, (id) => componentMap.has(id)),
+		);
 		if (!def) return;
 		const values = repeaterSegmentValues(i, n);
 		const params = resolveComponentParams(def, values, componentDefaults?.[def.id]);

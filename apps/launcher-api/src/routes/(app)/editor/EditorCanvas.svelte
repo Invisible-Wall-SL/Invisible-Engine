@@ -2004,6 +2004,17 @@
 				if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle, params))
 					return true;
 			}
+			// A segmented counter's segments: the rig layer draws their rigs (`collectSegmentRigs`).
+			if (isCountRepeater(n)) {
+				for (const id of repeaterComponentIds(n)) {
+					const def = componentMap.get(id);
+					if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+					const params = resolveComponentParams(def, undefined, componentDefaults[def.id]);
+					const rigBundle = instancePreviewRigBundle(def, params);
+					if (nodesHaveRig(def.root.children, depth + 1, [...stack, def.id], rigBundle, params))
+						return true;
+				}
+			}
 		}
 		return false;
 	}
@@ -3178,8 +3189,9 @@
 	 * Draw a COUNT-MODE repeater (a segmented counter): N = its preview count of segments, each the
 	 * real segment component (its first / middle / last variant) with `{ index, count }` params,
 	 * at the pose its state machine settles on for its test inputs (`segmentPoseNodes`) — so the
-	 * author sees which segments light. Built by `repeaterCountBoxes`, which the text overlay and the
-	 * selection box (`nodeBox`) share; a segment whose component is missing draws nothing, as in game.
+	 * author sees which segments light. Built by `repeaterCountBoxes`, which the text overlay, the
+	 * rig layer and the selection box (`nodeBox`) share; a variant naming no def draws the middle
+	 * segment there, as in game.
 	 */
 	function drawCountRepeater(
 		ctx: CanvasRenderingContext2D,
