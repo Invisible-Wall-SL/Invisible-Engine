@@ -42,9 +42,10 @@ Live in the launcher at `/localization` (granted to `developer`, `artist`, `pipe
   engine text resolver and `formatWinText`) matched on all 137,088 strings but one planted edge case:
   `i18n._()` on a string mixing a `\uXXXX` escape with another backslash escape (`\n`) — v5
   JSON-parsed the whole string, v6 decodes only the `\u`/`\x` escapes. No shipped or harvested string
-  contains a backslash. Lingui 6 needs Node ≥ 22.19.0, so the repo floor moved there too — `pnpm
-  install` now refuses Node 22.16–22.18, so a desktop-launcher machine still on those needs a Node
-  update before its next build. `@lingui/vite-plugin` 6 declares `vite ^6.3` and `@babel/core ^7.29`
+  contains a backslash. Lingui 6 needs Node ≥ 22.19.0, so the repo floor moved there too. On an
+  older Node 22, `pnpm install` only warns (`Unsupported engine` — no `engine-strict` is set), and a
+  `lines` build on Node 22.16.0 was verified to succeed, so a desktop-launcher machine still on
+  22.16–22.18 keeps building; updating it is still advised. `@lingui/vite-plugin` 6 declares `vite ^6.3` and `@babel/core ^7.29`
   peers; we are on 6.2.0 / 7.28.0 (peer warnings only — the plugin just loads the config here, and its
   `.po` transform never matches because we import no `.po`).
 - 2026-10-13 — **Timeline text is harvested** (Rive plan Phase 1, §8). A new auto origin
