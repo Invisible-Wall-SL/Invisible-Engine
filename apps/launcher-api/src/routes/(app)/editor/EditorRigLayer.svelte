@@ -98,6 +98,9 @@
 		 * rig anchors, identical to the 2D canvas's `coverArtTransform`. */
 		frameWidth: number;
 		frameHeight: number;
+		/** The STANDARD (HUD) design box a `standard`-space rig fits against, as the 2D canvas's
+		 * `standardToWorld` does. */
+		standardBox: { width: number; height: number };
 		/** Editor view transform — kept byte-identical with the 2D canvas. */
 		panX: number;
 		panY: number;
@@ -217,6 +220,7 @@
 		assets,
 		frameWidth,
 		frameHeight,
+		standardBox,
 		panX,
 		panY,
 		zoom,
@@ -483,6 +487,8 @@
 		/** The owning scene's coordinate space — drives the non-placement mapping into
 		 * the fixed window (game → main→window scale; background → full-bleed cover). */
 		space?: Scene['space'];
+		/** The owning scene's `align` — where a `standard`-space rig's fitted HUD box hugs the frame. */
+		align?: Scene['align'];
 		/** For `background` space: the node's doc-driven cover multiplier
 		 * (`backgroundCoverScale`, default 1), per-axis stretch (`backgroundCoverStretch`,
 		 * default `{1,1}`) + cover fit (`backgroundFit`, default `'cover'`) — the SAME
@@ -623,6 +629,7 @@
 						placement: undefined,
 						transform: t,
 						space: sc.space,
+						align: sc.align,
 						coverScale: backgroundCoverScale(n, layoutType),
 						stretch: backgroundCoverStretch(n, layoutType),
 						fit: backgroundFit(n, layoutType),
@@ -1297,10 +1304,14 @@
 				inst.skeleton.scaleX = cover.scaleX;
 				inst.skeleton.scaleY = -cover.scaleY;
 			} else {
-				const placed = placedRigTransform(t, target.space, frameWidth, frameHeight, {
-					scale: mainScale(),
-					toWorld: mainToWorld,
-				});
+				const placed = placedRigTransform(
+					t,
+					target.space,
+					frameWidth,
+					frameHeight,
+					{ scale: mainScale(), toWorld: mainToWorld },
+					{ box: standardBox, align: target.align },
+				);
 				inst.skeleton.x = placed.x;
 				inst.skeleton.y = placed.y;
 				inst.skeleton.scaleX = placed.scaleX;

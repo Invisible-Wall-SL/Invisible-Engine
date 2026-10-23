@@ -116,7 +116,7 @@ for the Python service's conventions.
   `/fsbrowse` rather than building a 5th file browser.
 
 ## House style
-`pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
+`pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
 single quotes, 100 cols, trailing commas. Python: `py -m py_compile *.py` before committing;
 repo markdown is NOT prettier-formatted — don't reformat it. Branding: **Invisible
 Flipbook**; Invisible Wall emblem.

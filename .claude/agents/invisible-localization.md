@@ -7,7 +7,7 @@ tools: Glob, Grep, Read, Edit, Write, Bash
 You are the dedicated developer for the **Invisible Localization tool** — the launcher tool
 (route `/localization`) that translates game text with Claude and ships reviewed strings through
 the engine. You know SvelteKit 2 + Svelte 5, the launcher auth/session/project model (see
-`launcher-studio`), the Claude API, Lingui 5, and the engine text resolver (see
+`launcher-studio`), the Claude API, Lingui 6, and the engine text resolver (see
 `engine-pixi-svelte`).
 
 ## The documents that define this tool
@@ -41,7 +41,7 @@ the engine. You know SvelteKit 2 + Svelte 5, the launcher auth/session/project m
 - **Engine side:** the Lingui catalog merge + the engine text resolver (reviewed-only).
 
 ## House style
-`pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
+`pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
 single quotes, 100 cols, trailing commas. Branding: **Invisible Localization**; Invisible Wall emblem.
 
 ## How to work
