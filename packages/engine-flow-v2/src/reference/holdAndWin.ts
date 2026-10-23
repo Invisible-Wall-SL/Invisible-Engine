@@ -702,6 +702,7 @@ const CUES: TemplateVocabulary['cues'] = [
 	{ name: 'respinBoardHide', payload: [] },
 	{ name: 'respinBoardSpin', payload: [{ name: 'cells', type: list(CELL) }] },
 	{ name: 'respinCoinsLand', payload: [{ name: 'cells', type: list(CELL) }] },
+	{ name: 'respinCounterAward', payload: [{ name: 'left', type: INT }] },
 	{
 		name: 'respinCounterUpdate',
 		payload: [

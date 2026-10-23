@@ -10,6 +10,8 @@
 Authoring for **components** (prefabs), mounted inside `/editor` as its Components side (`routes/(app)/editor/ComponentWorkspace.svelte`) — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` registry entry is kept: its card opens `/editor?view=components`, doc slug `component-editor`, lease key `componentEditor`). `/editor?component=<id>` opens one component; the old `/components` route is a 307 redirect (`routes/(app)/components/+server.ts` via `$lib/componentLinks.ts`) that keeps every other query param. Storage, versioning and format are unchanged (`componentStorage.ts`). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component: a shared or built-in draft saves as the project's copy under the same id (`componentSave.client.ts`); only **Promote to shared** writes `_shared/`.
 
 Shipped capabilities on `main`:
+- **✎ Rename** (2026-10-23, in review) — the project's own components rename from the list; the
+  id and version stay, so no reference breaks and no pin is flagged. Detail under Recent changes.
 - **⧉ Duplicate** (2026-10-23, in review) — any component in the list (project, shared, built-in)
   copies into a new project component with its own node ids, timelines and state machine, and
   this game's defaults baked in. Detail under Recent changes, 2026-10-23.
@@ -112,6 +114,39 @@ Shipped capabilities on `main`:
   real stacking without a box and stepping 166 px with a 160 × 120 one) and
   `check:component-repeat-segments-editor` (36: the canvas layout, the field). Guide:
   [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count).
+- 2026-10-23 — **✎ Rename a component** (branch `claude/component-rename`, in review, ⏳ not
+  browser-verified). A ✎ beside ⧉ on each row of the Components list (home and Browse) renames one
+  of the project's OWN components (`scope: 'project'`). On a shared or built-in row it is greyed
+  out with the tooltip "Duplicate it first to rename your copy" (owner decision: no in-place
+  rename of shared or built-in components). *How*: `componentRename.client.ts` (pure:
+  `componentRenameProblem`, which trims and rejects empty or a name another listed component uses,
+  case-blind; `writeComponentRename`) and `renameComponentDef` in `ComponentWorkspace.svelte`.
+  The project's stored def is read fresh with its ETag (`GET /api/editor/component?stored=project`
+  → `loadStoredProjectComponent`: the stored bytes without the coded-twin merge, so a built-in's
+  project copy does not gain the twin's newer params and bump) and saved back with only `name`
+  changed, as a CAS on that ETag through the existing route. A save landing in between
+  refuses the rename (409), and nothing is written. The draft save is held while the rename runs.
+  **Versioning:** `reconcileVersion` (`componentStorage.ts`) now ignores `name` when deciding a
+  bump. The name labels the def in the lists, and no placement, bake or game reads it, so a rename
+  keeps the version: the latest pointer is rewritten at the same version, no new snapshot is
+  written, and pinned placements get no "↑ vN". That version's immutable snapshot keeps the name
+  it was saved under. The next content change bumps as before, and its snapshot carries the new
+  name. `check:save-keeps-unknown-blocks` had used a name-only edit expecting a bump; it now
+  expects the kept version. **Open draft:** if the renamed component is open, the draft and its
+  saved baseline take the new name in place, so unsaved edits stay unsaved and nothing is
+  discarded, which is why no "discard?" ask is needed. It adopts the new ETag only when it was
+  based on the object the rename read; otherwise its next save conflicts as it would have. The
+  breadcrumb reads names from the list, so it follows. **Not done — placement labels:** a
+  placement's `label` (seeded from the def's name on placement) is left alone, on screens and
+  inside other components. Screen and component timelines bind node actors BY LABEL
+  (`findNodeByName` / `findActorNode`), so relabelling would silently detach animations. The write
+  would also span scenes.json plus every nesting def, each its own CAS object (non-atomic), and
+  bump every nesting def's version. The id reference is what keeps everything working. **Known
+  edges:** the lease covers only the open component, so a component another author has open can be
+  renamed; their next save conflicts, and their **Save on top** restores the old name. **◇ Edit as
+  component** reuses a project def whose name equals the container's label, so after a rename it
+  matches the new name, not the old. Gate: `pnpm --filter launcher-api check:component-rename` (38
+  checks; the real route over an in-memory R2, including a built-in's project copy).
 - 2026-10-23 — **⧉ Duplicate a component** (branch `claude/component-duplicate`, in review, ⏳ not
   browser-verified). A ⧉ on each row of the Components list (home and the Browse tab) copies ANY
   listed component — project, shared or built-in — into a new project component and opens it.

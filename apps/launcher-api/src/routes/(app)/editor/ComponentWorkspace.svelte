@@ -37,6 +37,7 @@
 		WHEEL_DEF,
 		POT_PIECE_LIGHT_PARAM,
 		lightOrderThresholds,
+		mergeBuiltinCodedParams,
 		potPieces,
 	} from 'engine-layout';
 	import type {
@@ -100,6 +101,12 @@
 		duplicateComponentName,
 		writeComponentDuplicate,
 	} from './componentDuplicate.client';
+	import {
+		canRenameComponent,
+		componentRenameProblem,
+		renamedSnapshot,
+		writeComponentRename,
+	} from './componentRename.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -235,7 +242,7 @@
 
 	const saveState = new SaveState({
 		initialEtag: null,
-		blockWhen: () => lease.readOnly || writesBlocked,
+		blockWhen: () => lease.readOnly || writesBlocked || renaming,
 		conflictMessage: 'Someone else saved this component while you were editing it.',
 		save: async ({ baseEtag, force }) => {
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
@@ -1289,7 +1296,7 @@
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
 	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
-		if (writesBlocked || duplicating) return;
+		if (writesBlocked || duplicating || renaming) return;
 		const ok = await askConfirm({
 			title: `Delete component "${def.name}"?`,
 			message: 'Every version of it goes with it. This cannot be undone.',
@@ -1318,7 +1325,7 @@
 	 */
 	async function duplicateComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
-		if (writesBlocked || busy || duplicating || !data.projectKey) return;
+		if (writesBlocked || busy || duplicating || renaming || !data.projectKey) return;
 		if (!(await confirmLeaveDraft('Discard and duplicate'))) return;
 		let asked = leaveSignature();
 		navStatus = null;
@@ -1409,6 +1416,82 @@
 			navStatus = `Could not duplicate "${def.name}": ${err instanceof Error ? err.message : String(err)}`;
 		} finally {
 			duplicating = false;
+		}
+	}
+
+	let renaming = $state(false);
+	/**
+	 * ✎ Rename one of the project's own components (`writeComponentRename`): only its `name`
+	 * changes, through the conditional component save, so its id, version and every reference stay.
+	 * The open draft takes the new name and keeps any unsaved edits, which stay unsaved; it adopts
+	 * the new ETag only when it was based on the object the rename read, else its next save still
+	 * conflicts as it would have.
+	 */
+	async function renameComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
+		e.stopPropagation();
+		if (writesBlocked || busy || duplicating || renaming || !data.projectKey) return;
+		if (!canRenameComponent(def) || (componentDraft?.id === def.id && lease.readOnly)) return;
+		// Open, but its ETag is still being read (`loadEtag`): that read would land on top.
+		if (componentDraft?.id === def.id && !isInspecting && saveState.etag === null) {
+			navStatus = 'This component is still loading. Try again in a moment.';
+			return;
+		}
+		let name: string | null = def.name;
+		let message: string | undefined;
+		for (;;) {
+			name = await askText({
+				title: `Rename "${def.name}"`,
+				message,
+				label: 'Name',
+				value: name,
+				confirmLabel: 'Rename',
+			});
+			if (name === null || name.trim() === def.name) return;
+			message = componentRenameProblem(name, def.id, components) ?? undefined;
+			if (!message) break;
+		}
+		navStatus = null;
+		renaming = true;
+		try {
+			const project = encodeURIComponent(data.projectKey);
+			const result = await writeComponentRename(def.id, name, {
+				read: async (id) => {
+					const res = await fetch(
+						`/api/editor/component?id=${encodeURIComponent(id)}&project=${project}&stored=project`,
+					);
+					if (!res.ok) return { status: res.status };
+					const body = (await res.json()) as { def: ComponentDef; etag?: string | null };
+					return { def: body.def, etag: body.etag ?? null };
+				},
+				save: async (renamed, baseEtag) => {
+					const res = await fetch('/api/editor/component', {
+						method: 'POST',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ ...renamed, project: data.projectKey, baseEtag }),
+					});
+					if (!res.ok) return { status: res.status, message: await componentSaveError(res) };
+					const out = (await res.json()) as { version: number; etag?: string | null };
+					return { version: out.version, etag: out.etag ?? null };
+				},
+			});
+			if ('problem' in result) {
+				navStatus = `Could not rename "${def.name}": ${result.problem}`;
+				return;
+			}
+			// Listed as every other entry is: a built-in's copy with its coded twin's newer params.
+			const renamed = mergeBuiltinCodedParams(result.def);
+			components = components.map((c) => (c.id === renamed.id ? renamed : c));
+			componentEtags = { ...componentEtags, [renamed.id]: result.etag };
+			if (componentDraft?.id === renamed.id && !isInspecting) {
+				componentDraft.name = renamed.name;
+				if (savedSnapshot !== null) savedSnapshot = renamedSnapshot(savedSnapshot, renamed.name);
+				if (saveState.etag === result.readEtag) saveState.adoptEtag(result.etag);
+				saveStatus = { kind: 'ok', message: `Renamed to "${renamed.name}"` };
+			}
+		} catch (err) {
+			navStatus = `Could not rename "${def.name}": ${err instanceof Error ? err.message : String(err)}`;
+		} finally {
+			renaming = false;
 		}
 	}
 
@@ -2692,10 +2775,31 @@
 						class="cmp-dup"
 						title={`Duplicate "${def.name}" as a new component of this project`}
 						aria-label={`Duplicate component "${def.name}"`}
-						disabled={writesBlocked || busy || duplicating}
+						disabled={writesBlocked || busy || duplicating || renaming}
 						onclick={(e) => void duplicateComponentDef(e, def)}
 					>
 						⧉
+					</button>
+				{/if}
+			{/snippet}
+			{#snippet renameButton(def: ComponentDef)}
+				{#if data.projectKey}
+					<button
+						type="button"
+						class="cmp-dup"
+						title={canRenameComponent(def)
+							? `Rename "${def.name}"`
+							: 'Duplicate it first to rename your copy'}
+						aria-label={`Rename component "${def.name}"`}
+						aria-disabled={!canRenameComponent(def)}
+						disabled={writesBlocked ||
+							busy ||
+							duplicating ||
+							renaming ||
+							(componentDraft?.id === def.id && lease.readOnly)}
+						onclick={(e) => void renameComponentDef(e, def)}
+					>
+						✎
 					</button>
 				{/if}
 			{/snippet}
@@ -2919,6 +3023,7 @@
 						{:else}
 							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
 								{#snippet actions(def)}
+									{@render renameButton(def)}
 									{@render duplicateButton(def)}
 									<button
 										type="button"
@@ -2996,6 +3101,7 @@
 						<PanelSection id="cmp-browse" title="Components" count={components.length}>
 							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
 								{#snippet actions(def)}
+									{@render renameButton(def)}
 									{@render duplicateButton(def)}
 								{/snippet}
 							</ComponentList>
@@ -3738,12 +3844,13 @@
 		cursor: pointer;
 		font-family: inherit;
 	}
-	.cmp-dup:hover:not(:disabled) {
+	.cmp-dup:hover:not(:disabled, [aria-disabled='true']) {
 		background: #16161c;
 		border-color: #1f1f28;
 		color: #c8a3ff;
 	}
-	.cmp-dup:disabled {
+	.cmp-dup:disabled,
+	.cmp-dup[aria-disabled='true'] {
 		opacity: 0.4;
 		cursor: default;
 	}

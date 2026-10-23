@@ -70,7 +70,11 @@ rest; hidden through its delay) or `exit` (ends hidden and STAYS hidden until it
 
 Adding a kind: one entry in the catalog + its implementation in
 `pixi-svelte/src/lib/elementFx/kinds.ts`, whose table is `Record<ElementFxKind, …>`, so the type
-check fails until it exists; `check:element-fx` fails too.
+check fails until it exists; `check:element-fx` fails too. A shader pass calls the shared building
+blocks of `constants-shared/glslLibrary.ts` (hash, noise, cells, relief, outline, "away from a
+side"…) instead of carrying its own copy; the gate refuses a function that copies one word for word.
+A change to a pass is proven by `pnpm --filter fx-spike shader-parity` (every kind, before and after,
+pixel by pixel).
 
 ## 3. Data model (all optional, additive)
 
