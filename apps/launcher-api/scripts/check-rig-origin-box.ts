@@ -32,6 +32,12 @@
  *     the raw x/y there, so the reported `R_Widget` (centred, screen anchor 0.5/0.5, x 0, y −15)
  *     drew half a window up-left of its box even after ⊕ Centre origin: that, not the rig, was the
  *     reported offset.
+ *  8. **A rig on a `standard` (HUD) screen draws where its box is, and where the game draws it**,
+ *     with the HUD the active screen and with it behind a game screen. The box (`nodeTransform` →
+ *     `standardToWorld`) and the rig layer (`placedRigTransform`) both fit the standard box into the
+ *     frame the way `<MainContainer standard>` does, `align` included. The Scene Editor's frame IS
+ *     the standard box, so that fit is the identity there on either screen; a standard box that does
+ *     not fill the frame is checked too, and the raw x/y the layer read before is caught by it.
  */
 import {
 	anchoredPosition,
@@ -48,6 +54,7 @@ import {
 	placedRigTransform,
 	resizeOriginShift,
 	resizePivot,
+	standardToWorld,
 	type NaturalSize,
 	type NodeBox,
 	type Vec2,
@@ -316,6 +323,7 @@ function drag(
 		scale: 0.75,
 		toWorld: (p: Vec2): Vec2 => ({ x: 240 + p.x * 0.75, y: 90 + p.y * 0.75 }),
 	};
+	const HUD = { box: { width: FRAME.w, height: FRAME.h }, align: undefined };
 	const boxWorld = (t: ResolvedTransform, space: Scene['space']): ResolvedTransform => {
 		if (space === 'game') {
 			const s = MAIN.scale;
@@ -350,7 +358,7 @@ function drag(
 	const shipped =
 		(space: Scene['space']) =>
 		(t: ResolvedTransform): Placed =>
-			placedRigTransform(t, space, FRAME.w, FRAME.h, MAIN);
+			placedRigTransform(t, space, FRAME.w, FRAME.h, MAIN, HUD);
 	// The reported node: R_Widget after ⊕ Centre origin, on a canvas screen anchored at its centre.
 	const R_WIDGET: RigBox = { x: -487.5, y: -256, width: 975, height: 512 };
 	const anchored = at({ x: 0, y: -15, screenAnchor: { x: 0.5, y: 0.5 } });
@@ -359,7 +367,7 @@ function drag(
 		drawsInItsBox(anchored, 'canvas', R_WIDGET, shipped('canvas')),
 	);
 	{
-		const p = placedRigTransform(anchored, 'canvas', FRAME.w, FRAME.h, MAIN);
+		const p = placedRigTransform(anchored, 'canvas', FRAME.w, FRAME.h, MAIN, HUD);
 		check(
 			`R_Widget: its origin is the window centre less 15 px, as in the game (${p.x}, ${p.y})`,
 			p.x === 960 && p.y === 525,
@@ -395,6 +403,136 @@ function drag(
 			);
 		}
 	}
+}
+
+// Rule 8 — a rig on a `standard` (HUD) screen. The game wraps the screen in `<MainContainer
+// standard>`: the standard box fitted into the window by `min(W / w, H / h)` about the window
+// centre, then shifted to the edge its `align` asks for. Modelled here from that component, not
+// from the editor's helper, so the box and the rig layer are both held to the game.
+{
+	const MAIN = { scale: 1, toWorld: (p: Vec2): Vec2 => p };
+	const inGame = (
+		t: ResolvedTransform,
+		std: { width: number; height: number },
+		align: Scene['align'],
+		frame: { w: number; h: number },
+	): { x: number; y: number; s: number } => {
+		const s = Math.min(frame.w / std.width, frame.h / std.height);
+		const dx =
+			align?.horizontal === 'left'
+				? -frame.w / 2 + (std.width * s) / 2
+				: align?.horizontal === 'right'
+					? frame.w / 2 - (std.width * s) / 2
+					: 0;
+		const dy =
+			align?.vertical === 'top'
+				? -frame.h / 2 + (std.height * s) / 2
+				: align?.vertical === 'bottom'
+					? frame.h / 2 - (std.height * s) / 2
+					: 0;
+		return {
+			x: dx + frame.w / 2 + s * (t.x - std.width / 2),
+			y: dy + frame.h / 2 + s * (t.y - std.height / 2),
+			s,
+		};
+	};
+	const hud = at({ x: 1500, y: 980, scale: { x: 0.8, y: 0.8 } });
+	// The Scene Editor renders every screen, the HUD active or behind a game one, against the frame
+	// the standard box sizes (`standardBox={frameSize}`, `frameWidth={frameSize.width}`).
+	const editorFrame = { w: 1920, h: 1080 };
+	const editorBox = { width: 1920, height: 1080 };
+	const cases: [
+		string,
+		{ w: number; h: number },
+		{ width: number; height: number },
+		Scene['align'],
+	][] = [
+		['the HUD active', editorFrame, editorBox, undefined],
+		[
+			'the HUD behind a game screen, bottom-aligned',
+			editorFrame,
+			editorBox,
+			{ vertical: 'bottom' },
+		],
+		[
+			'a standard box narrower than the frame',
+			{ w: 1920, h: 1080 },
+			{ width: 1080, height: 1080 },
+			undefined,
+		],
+		[
+			'a narrower box hugging the right',
+			{ w: 1920, h: 1080 },
+			{ width: 1080, height: 1080 },
+			{ horizontal: 'right' },
+		],
+		[
+			'a shorter box hugging the top',
+			{ w: 1080, h: 1920 },
+			{ width: 1080, height: 1080 },
+			{ vertical: 'top' },
+		],
+		[
+			'a shorter box hugging the bottom',
+			{ w: 1080, h: 1920 },
+			{ width: 1080, height: 1080 },
+			{ vertical: 'bottom' },
+		],
+	];
+	const drawnAt = (
+		frame: { w: number; h: number },
+		std: { width: number; height: number },
+		align: Scene['align'],
+	) => placedRigTransform(hud, 'standard', frame.w, frame.h, MAIN, { box: std, align });
+	for (const [name, frame, std, align] of cases) {
+		const game = inGame(hud, std, align, frame);
+		const box = standardToWorld(hud, std, align, frame.w, frame.h);
+		const drawn = drawnAt(frame, std, align);
+		check(
+			`standard, ${name}: the box sits where the game draws the rig (${box.x}, ${box.y})`,
+			near(box.x, game.x) && near(box.y, game.y) && near(box.scale?.x ?? 1, 0.8 * game.s),
+		);
+		check(
+			`standard, ${name}: the rig draws where the game does (${drawn.x}, ${drawn.y})`,
+			near(drawn.x, game.x) &&
+				near(drawn.y, game.y) &&
+				near(drawn.scaleX, 0.8 * game.s) &&
+				near(drawn.scaleY, 0.8 * game.s),
+		);
+		for (const [boxName, rb] of [
+			['widget', WIDGET],
+			['centred', CENTRED],
+		] as const) {
+			const [tl, , br] = nodeCornersWorld(
+				box,
+				nodeBox(rig(), hud, () => reported(rb)),
+			);
+			const f = drawnFrame(rb, {
+				...hud,
+				x: drawn.x,
+				y: drawn.y,
+				scale: { x: drawn.scaleX, y: drawn.scaleY },
+			});
+			check(
+				`${boxName}, standard, ${name}: drawn inside its box`,
+				near(tl.x, f.l) && near(tl.y, f.t) && near(br.x, f.r) && near(br.y, f.b),
+			);
+		}
+	}
+	{
+		const p = drawnAt(editorFrame, editorBox, { vertical: 'bottom' });
+		check(
+			`standard in the Scene Editor: the fit is the identity on either screen (${p.x}, ${p.y})`,
+			p.x === 1500 && p.y === 980 && p.scaleX === 0.8 && p.scaleY === 0.8,
+		);
+	}
+	// The raw x/y the layer used must fail where the fit is not the identity, or rule 8 proves
+	// nothing about it.
+	const narrow = inGame(hud, { width: 1080, height: 1080 }, undefined, { w: 1920, h: 1080 });
+	check(
+		'the raw x/y the layer used is caught for a standard box narrower than the frame',
+		!near(hud.x, narrow.x) || !near(hud.y, narrow.y),
+	);
 }
 
 if (fails) {

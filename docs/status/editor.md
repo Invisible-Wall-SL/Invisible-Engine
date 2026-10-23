@@ -171,6 +171,21 @@ Shipped capabilities on `main`:
 - **Live-verify** — interactive feel (undo/redo, copy/paste, multi-select) and the render paths marked ⏳ below build clean; the owner confirms them in the running editor.
 
 ## Recent changes
+- 2026-10-23 — **A rig on a HUD (`standard`) screen draws by the box's own fit** (in review, ⏳ not
+  browser-verified). Follow-up to the 2026-10-21 canvas fix below. The reviewer had flagged that a
+  top-level rig on a `standard` screen kept its raw x/y while its box went through `standardToWorld`.
+  That reproduced in code but **not on screen**: `/editor` renders every screen, the HUD active or
+  behind a game screen, against one frame that the standard box sizes (`standardBox={frameSize}`,
+  `frameWidth={frameSize.width}`). So the fit is the identity there, and art and box already agreed.
+  The game matches the box: `LayoutScene` wraps a standard screen in `<MainContainer standard>`.
+  `standardToWorld` is now one shared helper (`editorCanvas.helpers.ts`). The canvas's box and
+  `placedRigTransform` both call it; the rig layer gets the `standardBox` and the scene's `align`.
+  The two cannot drift if the frame ever stops being the standard box. The helper's `align.vertical:
+  'top'` now hugs the top edge like `MainContainer`'s `getY`; it used to centre. That only shows when
+  the standard box doesn't fill the frame, which never happens in `/editor` today. No game code
+  changed. Gate: `check:rig-origin-box` rule 8 checks the box and the rig against an independent
+  model of `<MainContainer standard>`, with the HUD active, behind a game screen, and in four
+  letterboxed or aligned fits. The old raw x/y fails 9 of its checks.
 - 2026-10-22 — **A placed component draws the version it pins, and a still rig its resting pose**
   (branch `claude/sweet-planck-qanrdj`, ⏳ not browser-verified). Reported on `commonoverlayproject`:
   its Jackpots bar places one jackpot frame rig (`R_Widget`) per tier, each on its own animation
