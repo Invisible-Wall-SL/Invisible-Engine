@@ -142,8 +142,14 @@ Each step has its own branch, gates and status entry.
 2. **`engine-shadergraph` package** (engine).
    - Contents: schema, node library v1, validator (types, cycles, required inputs, cost), codegen to
      GLSL ES 1.00 plus the uniform layout and the exposed params.
+   - Each node emits an expression per output that calls `glslLibrary` entries. It never declares a
+     function of its own, so a node and the built-in it was read from stay one implementation. The
+     building blocks the nodes need are added to the library.
+   - The uniform layout is `uFx` (progress, seconds, intensity, looping) plus one `uP<n>` per
+     param. The compiler makes every name, so nothing an author types reaches the GLSL.
    - Exit: headless codegen snapshot tests, a GLSL 1.00 lint, and compiled output for 5 reference
-     graphs rendering in the harness.
+     graphs rendering in the harness. The harness also renders every node on its own, on WebGL1 and
+     WebGL2, and fails on any shader the driver rejects.
 3. **Runtime** (engine).
    - Contents: `custom:<id>` kinds from a registry, the filter built from compiled GLSL, pass nodes,
      and motion curve channels.

@@ -3,7 +3,8 @@
 > Design: [docs/design/invisible-shader-graph.md](../design/invisible-shader-graph.md) · Guide: none yet (step 5) · Agent: `.claude/agents/invisible-shader-graph.md`
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
-built-in shader passes) is built and in review. No tool or route exists yet.
+built-in shader passes) and step 2 (the `engine-shadergraph` package: nodes, validator, compiler)
+are built and in review. Nothing plays a graph yet, and no tool or route exists.
 
 ## Current state
 - **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Built and
@@ -19,21 +20,67 @@ built-in shader passes) is built and in review. No tool or route exists yet.
     (`tools/fx-spike/shaderParity.mjs`) renders every kind at 8 moments and every starting side, on
     WebGL1 and WebGL2 with fixed seeds, and diffs two renders pixel by pixel. `--root` renders
     another checkout, such as a worktree of the base.
-- **Not started:** steps 2–8 (the graph package, the runtime kinds, the pipeline, the `/shaders`
-  editor).
+- **Step 2, the graph package** (`packages/engine-shadergraph`, dependency-free apart from
+  `constants-shared`). Built and in review.
+  - **The doc** (`ShaderGraphDoc` v1): phase, duration, padding, exposed params (the catalog's
+    number / colour / bool / choice specs), nodes and wires.
+  - **The node library:** 76 nodes in 8 families (input, math, time, procedural, mask, UV, colour,
+    output). Each emits GLSL that calls the `glslLibrary` building blocks, so a node and the
+    built-in it was read from share one implementation. Math nodes are generic over floats and
+    vectors.
+  - **The compiler** (`compileShaderGraph`) validates, types and emits one pass body for
+    `ElementFxFilter`, plus its uniform layout: `uFx` (progress, seconds, intensity, looping) and
+    one `uP<n>` per param. Names are generated, so nothing an author types reaches the GLSL.
+  - **The validator** names each broken doc (13 kinds of error) and warns on unreachable nodes and on
+    a graph over the phone budget (cost 400, 16 texture reads), which still compiles.
+  - **Five reference graphs** (`REFERENCE_GRAPHS`): pulse tint, noise dissolve, ripple, frost and
+    gilded relief. Frost and gilded relief are the freeze and gold looks rebuilt from nodes, close
+    to the built-ins but not pixel twins (the twins are step 6).
+- **Not started:** steps 3–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates).
 
 ## Open items / next
-1. Merge step 1.
-2. **Step 2: the `engine-shadergraph` package.**
-   - Contents: schema, node library v1 (emitting `glslLibrary` functions), validator, codegen to
-     GLSL ES 1.00.
-   - Tests: headless codegen snapshot tests.
-   - Proof: 5 reference graphs rendering in the WebGL1 / WebGL2 harness.
+1. Merge step 1, then step 2.
+2. **Step 3: the runtime.**
+   - Contents: `custom:<id>` kinds from a registry, the filter built from a compiled graph
+     (`ElementFxFilter(name, body, uniforms)`, `uFx` and the `uP<n>` written each frame), pass nodes
+     and motion curve channels.
+   - Exit: a custom effect behaves like a built-in in `check:element-fx` (triggers, keyed, symbol
+     state, turbo, stop).
 
 ## Blocked (owner / external)
 - None.
 
 ## Recent changes
+- 2026-10-23 — **Step 2: the `engine-shadergraph` package** (schema, node library, validator,
+  compiler).
+  - **The library grew by 13 building blocks** for the nodes to call (29 in all): FBM, the hold,
+    ease-in-out and ease-out-back timings, the rotate / twist / bulge / ripple / wave UV warps, a
+    YIQ hue shift, a relief normal, a metal ramp and a light model. The built-ins call none of them,
+    so `linkGlsl` links none into a built-in. The parity harness proves it: all 50 kinds and every
+    side render identical to step 1.
+  - **`ELEMENT_FX_PHASES`** (`constants-shared/elementFx.ts`) lists the four phases as a value, so
+    the validator can check a doc's phase.
+  - **The fixture** (`packages/engine-shadergraph/compile.fixture.ts`, run by `check:all`): 38
+    checks.
+    - Every node output compiles in a graph of its own (92 graphs: the Param node once per param
+      kind), and its GLSL links and
+      passes a WebGL1 lint: every `efx…` called is defined, nothing GLSL ES 3.00-only, no reserved
+      word as a name, no `--`.
+    - The five reference graphs compile the same every time and match their committed GLSL
+      (`snapshots/<id>.frag`; `--update` rewrites them after a deliberate codegen change).
+    - An Output alone compiles to exactly the element as it is.
+    - Each validator error and warning fires on a doc built to trigger it.
+    - Type conversion goes one way only.
+    - Hostile ids and labels never reach the GLSL.
+    - Param uniforms hold the right values.
+
+    Mutation-checked: a typo in a node's GLSL template, allowing a vec2 into a vec3 port, and an
+    unparenthesised negative literal each fail it.
+  - **In a real browser.** `pnpm --filter fx-spike shader-parity shoot` now also draws two graph
+    sheets through the real `ElementFxFilter`, on WebGL1 and WebGL2: the five reference graphs at 8
+    moments, and every node output in a cell of its own (`tools/fx-spike/shaderGraphs.entry.ts`).
+    A shader the driver rejects fails the shoot. A planted unknown function in one node's GLSL
+    failed it with the driver's message on both WebGL versions.
 - 2026-10-23 — **Step 1: one shared GLSL library under the built-in shaders.**
   - **What the inventory found.** The 17 hand-written passes were carrying private copies of the
     same building blocks:
