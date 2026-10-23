@@ -486,6 +486,16 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-23 — **Fix: a base-game timeline put the base game's art over the reels** (branch
+  `claude/blissful-bohr-4r7uny`). Reported on `commonoverlayproject` once its intro played: the
+  `Reel.png` frame, ordered under the reel grid, drew over the reels for the rest of the session.
+  The reel split's layers remount with the timeline's driver (`{#key basegameDrive?.key}`), and a
+  remounted pixi-svelte child is appended to its parent; those layers share the board's parent, so
+  they came back last, above the board. Each keyed mount now sits in its own `<Container>`, as
+  `<FlowV2Mount>` and `<EngineScreenMount>` already wrap theirs. Measured in the Pixi tree on the
+  live game: the board at index 2 and `Reel.png` at 3 (frame on top); on the fix, 3 and 2.
+  `check:screen-timeline-mounts` now requires the wrapper (it fails on the bare mounts).
+
 - 2026-10-21 — **A base-game timeline moves the base game and its reels** (branch
   `claude/blissful-bohr-4r7uny`). Reported on the same project: an intro keyed on the base game
   (the reel grid rising and zooming in from 0.1, the `Reel.png` frame hidden) looked right in the
