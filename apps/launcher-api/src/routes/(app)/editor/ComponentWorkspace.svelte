@@ -92,6 +92,7 @@
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
+	import { componentSaveError, componentSaveRequest } from './componentSave.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -233,16 +234,13 @@
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
 			const unsavable = unsavableRowsMessage(componentDraft);
 			if (unsavable) return { ok: false, reason: 'error', message: unsavable };
-			const body = {
-				...(componentDraft.scope === 'project'
-					? { ...componentDraft, project: data.projectKey }
-					: componentDraft),
-				// A stored def CASes against `baseEtag`; a never-saved one sends `null` (create).
-				...(force ? { force: true } : { baseEtag }),
-			};
 			// Snapshot BEFORE the request: the draft open when it lands may be another component,
 			// or this one edited mid-flight — neither is what this write stored.
 			const saved = $state.snapshot(componentDraft) as ComponentDef;
+			const { body, copiesToProject } = componentSaveRequest(saved, data.projectKey, {
+				baseEtag,
+				force,
+			});
 			const res = await fetch('/api/editor/component', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
@@ -252,21 +250,17 @@
 				const b = (await res.json().catch(() => ({}))) as { message?: string };
 				return { ok: false, reason: 'conflict', message: b.message };
 			}
-			if (!res.ok) {
-				let message = 'Component save failed';
-				try {
-					const b = (await res.json()) as { message?: string };
-					if (b?.message) message = b.message;
-				} catch {
-					/* non-JSON error body */
-				}
-				return { ok: false, reason: 'error', message };
+			if (!res.ok) return { ok: false, reason: 'error', message: await componentSaveError(res) };
+			const stillOpen = componentDraft?.id === saved.id;
+			if (copiesToProject) {
+				saved.scope = 'project';
+				if (stillOpen && componentDraft) componentDraft.scope = 'project';
+				copiedToProject = saved.id;
 			}
 			const out = (await res.json().catch(() => ({}))) as {
 				version?: number;
 				etag?: string | null;
 			};
-			const stillOpen = componentDraft?.id === saved.id;
 			// Adopt the SERVER's reconciled version — it may have bumped past the posted one.
 			if (typeof out.version === 'number') {
 				saved.version = out.version;
@@ -287,6 +281,8 @@
 			return { ok: true, etag: newEtag };
 		},
 	});
+	/** Id of the shared/built-in component the last draft save copied into this project. */
+	let copiedToProject: string | null = null;
 	/** Union of the draft-save and promote spinners — every shared `disabled`/pill uses it. */
 	const busy = $derived(saveState.busy || promoting);
 
@@ -1353,7 +1349,9 @@
 		// With only the defaults changed the component itself is left alone, so a stale ETag can't
 		// offer to stack an untouched draft on top of someone else's version.
 		const savesDraft = draftDirty || defaults === null;
+		copiedToProject = null;
 		const ok = savesDraft ? await saveState.save({ force }) : true;
+		const copied = copiedToProject === id;
 		const defaultsFailed =
 			defaults !== null &&
 			!(await defaults) &&
@@ -1371,11 +1369,13 @@
 					}
 				: {
 						kind: 'ok',
-						message: !defaults
-							? 'Component saved'
-							: savesDraft
-								? 'Component and this game’s defaults saved'
-								: 'This game’s defaults saved',
+						message: copied
+							? `Saved as this project’s copy — other games keep the shared one${defaults ? ', and this game’s defaults saved' : ''}`
+							: !defaults
+								? 'Component saved'
+								: savesDraft
+									? 'Component and this game’s defaults saved'
+									: 'This game’s defaults saved',
 					};
 			return;
 		}
@@ -2473,7 +2473,7 @@
 				{#if busy}
 					<span class="save-pill busy">Saving…</span>
 				{:else if saveStatus?.kind === 'error'}
-					<span class="save-pill error" title={saveStatus.message}>Save failed</span>
+					<span class="save-pill error" title={saveStatus.message}>{saveStatus.message}</span>
 				{:else if saveStatus?.kind === 'ok'}
 					<span class="save-pill ok">{saveStatus.message}</span>
 				{/if}
@@ -3247,6 +3247,9 @@
 	.save-pill.error {
 		color: #ff9a9a;
 		border-color: #4a2a30;
+		white-space: normal;
+		max-width: 36rem;
+		border-radius: 8px;
 	}
 	.save-pill.inspecting {
 		color: #f0c674;

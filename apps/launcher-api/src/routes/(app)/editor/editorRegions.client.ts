@@ -150,6 +150,14 @@ export function regionAssetUrl(pageKey: string, version?: string): string {
 	return version ? `${base}&v=${encodeURIComponent(version)}` : base;
 }
 
+/**
+ * The URL the canvas loads a node's full image from, or `null` for an empty key: an art slot with
+ * no art (an image param left on "Pick a file") has nothing to fetch, and `?key=` is a 400.
+ */
+export function canvasImageUrl(key: string, version: string): string | null {
+	return key ? regionAssetUrl(key, version) : null;
+}
+
 /** Whether a region set's `pageKey` is a launcher-static path (a vendored built-in sheet's
  *  page) rather than an R2 object key. R2 keys never start with `/`. */
 export function isStaticPageKey(pageKey: string): boolean {
