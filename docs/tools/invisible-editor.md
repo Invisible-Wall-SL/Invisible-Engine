@@ -221,6 +221,35 @@ is no room); hidden in a layout, the panel falls back to that spot. A project sw
 board later in Game Config keeps the screens it has: the game still plays, with the board's frame
 and tiles only during the feature, and the panel at its default spot.
 
+#### Author the respin counter text (count, RESPINS RESET, LAST RESPIN, modifiers)
+
+With no Respin Counter of your own, the game draws its built-in counter: white Arial with a black
+outline, "RESPINS 3" over the board, "3 RESPINS" as the feature opens, "RESPINS RESET" when a coin
+puts it back, "LAST RESPIN", and a small gold modifiers line under it ("PAYER · MULTIPLIER"). To
+replace all of it with your own look:
+
+1. **Place a Respin Counter** (Components list, Hold and Win) on the **Respin counter** screen. Once
+   one is on screen, the built-in counter and its modifiers line stop drawing.
+2. **Pick what it says** with its **source**:
+   - `respinCounterText` shows exactly the built-in counter's words, every beat included ("RESPINS
+     3", "3 RESPINS", "RESPINS RESET", "LAST RESPIN"). Clear its **label** so no "RESPINS" caption
+     sits over it.
+   - `respinsLeft` shows the number only. Draw your own reset look and play it on the
+     **Respin counter — reset** signal (and **Respin counter — award** as the feature opens) with
+     a "Plays on signal" cue or a State Machine.
+3. **Style it**: font, size, fill and the frame image are the counter's own params. Use
+   **pulse on a reset or "+N"** for a pop (1 = still).
+4. **The modifiers line** is not part of an authored counter. To show it, place a **Jackpot Tile**
+   next to the counter, set its source to `activeModifiers`, and clear its label. Leave it out to
+   show no modifiers.
+
+The words come from [Invisible Win Text](win-text.md) → Respins (and the special names under Hold
+and Win feature), so you translate them there. `respinCounterNote` reads `award`, `reset` or nothing,
+for a look that changes with the beat.
+
+On the Components side, a Respin Counter whose **Counter** part you emptied draws the built-in
+look again. Keep at least one node inside the part.
+
 #### Banner screens
 
 Every popup the Hold and Win feature announces over the board ("MINI" and its amount, "BONUS WIN",

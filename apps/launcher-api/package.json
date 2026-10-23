@@ -216,6 +216,8 @@
 		"check:scene-cues": "tsx --tsconfig tsconfig.scripts.json scripts/check-scene-cues.ts",
 		"precheck:element-fx-flow": "node scripts/ensure-svelte-kit.mjs",
 		"check:element-fx-flow": "tsx --tsconfig tsconfig.scripts.json scripts/check-element-fx-flow.ts",
+		"precheck:respin-counter-text": "node scripts/ensure-svelte-kit.mjs",
+		"check:respin-counter-text": "tsx --tsconfig tsconfig.scripts.json scripts/check-respin-counter-text.ts",
 		"precheck:signal-scope": "node scripts/ensure-svelte-kit.mjs",
 		"check:signal-scope": "tsx --tsconfig tsconfig.scripts.json scripts/check-signal-scope.ts",
 		"precheck:container-taps": "node scripts/ensure-svelte-kit.mjs",

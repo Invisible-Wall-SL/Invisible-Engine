@@ -828,10 +828,11 @@
 
 		{#if data.capabilities.holdAndWin}
 			<p class="hint">
-				A few lines have no place on screen yet: <em>Respins awarded</em>, <em>Respins reset</em>,
-				<em>Last respin</em>, <em>Feature total</em>, <em>Pot full</em> and the intro / outro are saved
-				and translated, and show once a scene or beat uses them. Every other line here is what the game
-				draws.
+				Every line here is what the game draws. The respin counter lines — <em>Respin counter</em>,
+				<em>Respins awarded</em>, <em>Respins reset</em>, <em>Last respin</em> — are what the coded
+				counter shows, and what an authored Respin Counter shows when its source is
+				<code>respinCounterText</code>. The intro and outro are empty until you write them, and draw
+				nothing until then.
 			</p>
 			{#if data.respinModes.length > 1}
 				<section>
