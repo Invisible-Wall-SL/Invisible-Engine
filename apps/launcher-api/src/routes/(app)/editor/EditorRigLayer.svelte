@@ -46,6 +46,8 @@
 		type BoneRiderTransform,
 		type DepthSlice,
 		type NaturalSize,
+		SCREEN_NEST,
+		type ComponentNest,
 	} from './editorCanvas.helpers';
 	import { onMount } from 'svelte';
 	import {
@@ -171,6 +173,8 @@
 		/** The open component's resolved preview params (the Component Editor; empty on a screen) —
 		 * what an instance placed at the top level of that component forwards params from. */
 		componentParams?: Record<string, unknown>;
+		/** Where the top-level nodes sit in the game's component nesting (see `ComponentNest`). */
+		componentNest?: ComponentNest;
 		/** Frames a TOP-LEVEL node into canvas-world coords (the 2D canvas's `nodeTransform`),
 		 * so a nested rig's world transform composes from its ancestor chain identically to
 		 * the 2D canvas + text overlay + game runtime. */
@@ -236,6 +240,7 @@
 		componentMap = new Map<string, ComponentDef>(),
 		componentDefaults = {},
 		componentParams = {},
+		componentNest = SCREEN_NEST,
 		nodeFilter = null,
 		depthSlice = null,
 		blend = 'normal',
@@ -667,10 +672,24 @@
 				// a placed component's rig only ever shows its 2D placeholder box. Each
 				// nested rig's world transform is composed from its ancestor chain.
 				if (n.kind === 'container') {
-					collectNestedRigs(n.children, sc, out, [n], 0, [], undefined, undefined, undefined);
+					collectNestedRigs(
+						n.children,
+						sc,
+						out,
+						[n],
+						componentNest.depth,
+						componentNest.stack,
+						undefined,
+						undefined,
+						undefined,
+					);
 				} else if (n.kind === 'componentInstance') {
 					const def = instanceDef(componentMap, n);
-					if (def) {
+					if (
+						def &&
+						componentNest.depth < MAX_COMPONENT_DEPTH &&
+						!componentNest.stack.includes(def.id)
+					) {
 						const params = resolveComponentParams(
 							def,
 							forwardInstanceParams(n, n.params, componentParams),
@@ -686,8 +705,8 @@
 							sc,
 							out,
 							[n],
-							1,
-							[def.id],
+							componentNest.depth + 1,
+							[...componentNest.stack, def.id],
 							params,
 							rigBundle,
 							n.spineRestOverrides,

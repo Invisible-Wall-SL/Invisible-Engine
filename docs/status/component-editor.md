@@ -46,7 +46,7 @@ Shipped capabilities on `main`:
 
 ## Open items / next
 1. **Behaviour layer — per [rive-style-editor.md](../design/rive-style-editor.md)** (approved 2026-10-13; it supersedes the `BehaviorTrack`/`TweenStep` design in invisible-editor §8.5–8.7). Phase 4a (components in place) and Phase 4b (component timelines) are on `main`; Phase 5a (the state-machine format + runtime) and 5b (the State Machine panel) are on `main`; Phase 6a (listeners + events: format, runtime, validation, normalizer) is on `main`; 6b (the editor: Listeners, Events, On enter, the pointer preview and Events log) is in review; **next is Phase 7** (Flow instance nodes: the event pins — with their own pin id form, not the press pins' `containerEventDeclId`, plan §6.2). Open from 5b: the preview samples a state's timeline as last saved (an unsaved Timeline-tab edit shows after Save); conditions pick inputs by id (no picker for engine value sources yet — the **from** field is typed). Open from 4b: a component's own timelines are still project-scoped; since Phase 9d a timeline can be promoted to the shared library and placed on any component as a link, and the panel keys text, visibility and cues (see [editor status](editor.md) 2026-10-20, 9d). Anything needing branching/RGS math/stateful logic stays a coded `mount`.
-2. **Nesting depth capped at 2** (`MAX_COMPONENT_DEPTH`, cycle-guarded) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
+2. **Nesting depth capped at 3** (`MAX_COMPONENT_DEPTH`, cycle-guarded; 2 until 2026-10-23, when a counter inside a component needed 3) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
 3. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning; "This game's defaults" is a second, separate manual save); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
 4. **A per-project default only reaches a built game on its next publish/bake** — the bundle carries the map, so changing a default in the tool does not retroactively change an already-published game.
 
@@ -94,6 +94,25 @@ Shipped capabilities on `main`:
 - **Live-verify** — component render paths (state animations, version resolution, instance rebinding) build clean and type-check but are largely not browser-verified on the auth-gated canvas; owner confirms live.
 
 ## Recent changes
+- 2026-10-23 — **A counter inside a component draws in every renderer, and all three cut nesting at
+  the same level** (branch `claude/component-nesting-parity`, ⏳ not browser-verified). Owner report:
+  the Hold and Win TOTAL WIN widget's Segmented Counter showed in the Component Editor and was
+  missing in the Scene Editor. Cause: the counter spends two levels (counter → segment), so
+  screen → widget → counter → segment needs three and the cap was 2; the game skipped the segments
+  too (proven by mounting the real `ComponentInstance`). The Component Editor drew them only because
+  its stage put the open def's nodes at a screen's level 0, where the game draws them one level down
+  inside the placed instance. Fix: `MAX_COMPONENT_DEPTH` 2 → 3 (no built-in nests deeper than one
+  level of its own, so every built-in now draws whole inside an author's component), and the canvas
+  takes a `componentNest` (`editorCanvas.helpers.ts`: `SCREEN_NEST` for a screen,
+  `componentEditorNest(trail, id)` for the open def — one level down plus one per breadcrumb def,
+  all on the cycle stack) that the 2D draw, the depth split and the rig / text / effect layers start
+  from. `canEnterNested` is unchanged and now agrees with it by construction. Localization harvest
+  and cue measurement follow the constant. Gates: new `check:component-nesting-parity` (29: built-ins
+  whole inside a component, the editor's nest, the same expanded nodes as a screen at every
+  breadcrumb depth, the source wiring, the breadcrumb rule); `check:component-repeat-segments` mounts
+  the widget shape (fails on a cap of 2); `test-cue-duration` and `check:component-param-forwarding`
+  move their "one past the cap" cases a level down. **Game change:** any authored component nested
+  three levels deep, which the game skipped, now draws.
 - 2026-10-20 — **Segmented counters, engine side** (branch `claude/component-repeat-segments`,
   ⏳ not browser-verified; design [rive plan §6.4](../design/rive-style-editor.md#64-count-mode-repeater-segmented-counters)).
   `RepeaterNode` gains optional `count` (`{source?, preview, max?}`), `variants`
@@ -115,7 +134,8 @@ Shipped capabilities on `main`:
   current game places the new built-ins. Gate: `check:component-repeat-segments` (62, incl. a mount on
   the real Svelte runtime + pixi ticker). Known: a timeline keying `alpha` back to 1 on a node with no
   authored `alpha` leaves the old value on screen (the starter's looks carry `alpha: 1`); a counter
-  nested inside another component hits `MAX_COMPONENT_DEPTH` and its segments don't render.
+  nested inside another component hit `MAX_COMPONENT_DEPTH` and its segments didn't render (fixed
+  2026-10-23, below).
 - 2026-10-20 — **Segmented counters, editor side: Repeat (count)** (branch
   `claude/component-repeat-segments`, ⏳ not browser-verified; guide
   [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count)).
