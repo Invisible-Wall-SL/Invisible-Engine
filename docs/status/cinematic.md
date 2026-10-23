@@ -178,9 +178,9 @@ through the same player; headless-proven, no editor yet (5b).
     it, and the timeline draws its copy as before): the reel split's layers remount with the
     driver, and the reels follow the `reelGrid` node's keys through `<BoardDrive>` (x/y, scale,
     rotation, alpha, visibility; no tint), about the node's position (only when that node is the
-    one the board is laid out from). Only the board's drawing moves; `boardLayout()` and what is
-    placed from it outside the wrapper (the win line, flights, board-anchored overlays) stay on the
-    authored pose, so a held non-identity end pose would leave them behind.
+    one the board is laid out from). While it plays only the board's drawing moves; once it ends,
+    the end pose becomes the board's layout (2026-10-23, below), so `boardLayout()` and what is
+    placed from it (the win line, flights, board-anchored overlays) follow the reels.
 
 - **Per-ratio keys (2026-10-21, headless-proven, ⏳ not browser-verified).** A screen lays its
   nodes out per ratio, so a node actor's `property` track may carry `layout` (a layout type): the
@@ -485,6 +485,29 @@ through the same player; headless-proven, no editor yet (5b).
 - Nothing external.
 
 ## Recent changes
+
+- 2026-10-23 — **A base-game intro that ends with the reels moved keeps them there** (branch
+  `claude/blissful-bohr-4r7uny`). Until now only the board's drawing followed the `reelGrid` keys,
+  so an intro ending off the Design pose left `boardLayout()` behind: the win line, flights and
+  board-anchored overlays drew at the authored grid while the reels sat elsewhere. Once the
+  timeline ends (`screenDrives.holding`, handed out as the flow handle's `screenHolding`), Game
+  lays the board out from the grid as the keys left it (`heldReelGridNode` → `setBoardOverride`):
+  moved and resized for the ratio on screen, with the board nudge shifted so the layout lands
+  where the drawing did. `<BoardDrive>` then keeps only the turn, fade and visibility, about the
+  new position (`layoutHeld`). A replay, or the base game going down, restores the authored grid.
+  An end pose left as authored changes nothing (today's intros). A pose the layout cannot carry
+  stays on the drawing: an uneven end scale (the board scales its cells evenly), a scale of 0 or a
+  flip (the layout reads those as 1, so holding one brought the reels back full size), a grid with
+  no usable cell size. The held layout is keyed by the ended play and ratio (`basegameHeldPlay`),
+  so other timelines starting or ending do not lay the board out again. Gate:
+  `check:screen-timeline-mounts` gains an intro ending 30 right, 40 up, at 0.8 on a nudged,
+  gapped grid of non-square cells: the layout's position, cells, gaps and overflow land where the
+  drawing put them, in desktop and portrait, the wrapper stops moving the board, a replay and a
+  hide restore the grid; an uneven scale, a scale of 0 and a flip stay on the drawing; plus the
+  `Game.svelte` wiring. Verified in Chromium
+  on a local build against `commonoverlayproject`'s runtime bundle, its intro edited in flight to
+  end 80 right, 120 up, at 0.8: the reels and the win line's board container share one world
+  transform once it ends, and the reels stay there through a forced Hold and Win and after it.
 
 - 2026-10-23 — **Fix: a base-game timeline put the base game's art over the reels** (branch
   `claude/blissful-bohr-4r7uny`). Reported on `commonoverlayproject` once its intro played: the

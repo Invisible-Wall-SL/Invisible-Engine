@@ -269,7 +269,7 @@ orphan sweep on both bundle paths. See
 
 An **Element FX** is an effect that plays _on_ the symbol itself — it shakes, bends, lights up or
 breaks the symbol's own pixels. It is a different thing from an **FX layer** (above), which adds an
-Invisible FX particle effect beside the art. The catalog is the one the Scene Editor uses: 49 kinds
+Invisible FX particle effect beside the art. The catalog is the one the Scene Editor uses: 50 kinds
 in five families (Motion, 3D, Distort, Light & colour, Break) — see
 [Element FX in the Scene Editor](./invisible-editor.md#element-fx--effects-that-play-on-an-element)
 for what each family does.

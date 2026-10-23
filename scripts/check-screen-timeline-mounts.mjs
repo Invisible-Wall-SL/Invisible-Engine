@@ -17,7 +17,9 @@
 // kept `basegame` off stage, so `<Cinematic>` drew a copy of the screen (whose `reelGrid` placeholder
 // draws nothing) while the screen the player saw, and the reels, never moved. Game now takes the
 // base game's drive: the reel split's layers remount with the driver, and the board follows the
-// `reelGrid` node's keys through `<BoardDrive>`.
+// `reelGrid` node's keys through `<BoardDrive>`. Once the timeline ends, where it left the grid is
+// the board's layout (`heldReelGridNode`), so the win line and what else is placed from the board
+// follow the reels; until then only the drawing moves.
 //
 // PER-RATIO KEYS: a screen lays its nodes out per ratio, so one move rarely fits every ratio. A
 // property track with a `layout` keys that ratio alone; a ratio with such keys plays them, every
@@ -47,6 +49,7 @@ const BOARD_DRIVE = repoFile('apps/lines/src/components/BoardDrive.svelte');
 const BOARD_DRIVE_TRANSFORM = repoFile('apps/lines/src/game/boardDrive.ts');
 const VALUE_BINDINGS = repoFile('packages/engine-layout/src/lib/valueBindings.ts');
 const RESOLVE_TRANSFORM = repoFile('packages/engine-layout/src/lib/resolveTransform.ts');
+const REEL_GRID = repoFile('packages/engine-layout/src/lib/reelGrid.ts');
 
 const moduleUrl = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 const harness = 'globalThis.__screenTimelineHarness';
@@ -154,6 +157,8 @@ const STUBS = {
 		'engine-layout': moduleUrl(`
 			export { foldBoundTransform } from '${VALUE_BINDINGS}';
 			export { nodeActorBindings, nodeActorOutputs } from '${CINEMATIC_NODES}';
+			export { resolveReelGridFromNode } from '${REEL_GRID}';
+			export { resolveTransform } from '${RESOLVE_TRANSFORM}';
 		`),
 	},
 };
@@ -205,14 +210,18 @@ if (svelteCopies.size !== 1) {
 	process.exit(1);
 }
 
-const { flushSync, mount, unmount } = await import('svelte');
+const { flushSync, mount, unmount, untrack } = await import('svelte');
 const { SvelteMap } = await import('svelte/reactivity');
 const { createScreenDrives } = await import(SCREEN_DRIVES);
 const { default: FlowV2Cinematics } = await import(FLOW_CINEMATICS);
 const { default: EngineScreenMount } = await import(ENGINE_MOUNT);
 const { default: BoardDrive } = await import(BOARD_DRIVE);
 const { default: BasegameLayers } = await import(basegameLayers);
-const { BOARD_UNDRIVEN } = await import(BOARD_DRIVE_TRANSFORM);
+const { BOARD_UNDRIVEN, boardDriveTransform, heldReelGridNode } = await import(
+	BOARD_DRIVE_TRANSFORM
+);
+const { resolveReelGridFromNode } = await import(REEL_GRID);
+const { resolveTransform } = await import(RESOLVE_TRANSFORM);
 
 /** What `<Cinematic>` reads of Pixi's ticker: `add`, `remove` and the last frame's `deltaMS`. */
 const ticker = {
@@ -553,14 +562,16 @@ const basegameIntro = ({ id = 'basegame_intro', extra = {}, gridVisible } = {}) 
  * (`<BoardDrive>`), each handed the base game's drive. `before` is `main` before the fix: Game kept
  * `basegame` off stage and handed neither the drive. `drivesScreens: false` is a flow that shows
  * `basegame` without driving the screens, where a v1 interpreter may draw it: it keeps `before`'s
- * behaviour.
+ * behaviour. `heldGrid()` is Game's `basegameHeldReelGrid`, the node the board is laid out from once
+ * the timeline ends (undefined: the authored grid).
  */
-function basegameGame({ before = false, drivesScreens = true } = {}) {
+function basegameGame({ before = false, drivesScreens = true, scene = BASEGAME } = {}) {
+	const grid = scene.nodes[1];
 	const playing = new SvelteMap();
 	const drives = createScreenDrives((id) => playing.has(id));
 	const flow = {
 		playingCinematics: playing,
-		resolveScene: (id) => (id === BASEGAME.id ? BASEGAME : undefined),
+		resolveScene: (id) => (id === scene.id ? scene : undefined),
 		cinematicComplete: (id) => {
 			playing.delete(id);
 			drives.dropIdle();
@@ -575,10 +586,18 @@ function basegameGame({ before = false, drivesScreens = true } = {}) {
 	const onStage = (sceneId) =>
 		sceneId === BASEGAME.id ? basegameOnStage() : flow.onStage(sceneId);
 	const basegameDrive = () => (basegameOnStage() ? flow.screenDrive(BASEGAME.id) : undefined);
+	const heldGrid = () => {
+		const drive = basegameDrive();
+		if (!drive || !drives.holding(BASEGAME.id)) return undefined;
+		const gridDrive = untrack(() => drive.driver(grid.id));
+		return gridDrive
+			? heldReelGridNode(grid, gridDrive.channels, gridDrive.sample(), layout.get('type'))
+			: undefined;
+	};
 	const layers = mount(BasegameLayers, {
 		target: new Element(),
 		props: {
-			scene: BASEGAME,
+			scene,
 			get drive() {
 				return basegameDrive();
 			},
@@ -590,9 +609,12 @@ function basegameGame({ before = false, drivesScreens = true } = {}) {
 			get drive() {
 				return basegameDrive();
 			},
-			node: BASEGAME.nodes[1],
+			node: grid,
 			get layoutType() {
 				return layout.get('type');
+			},
+			get layoutHeld() {
+				return !!heldGrid();
 			},
 			children: () => {},
 		},
@@ -601,6 +623,16 @@ function basegameGame({ before = false, drivesScreens = true } = {}) {
 	flushSync();
 	return {
 		drives,
+		heldGrid,
+		/** Where the board's wrapper would draw the grid's keys without a held layout. */
+		drawn() {
+			const gridDrive = basegameDrive()?.driver(grid.id);
+			return boardDriveTransform(
+				gridDrive.channels,
+				gridDrive.sample(),
+				resolveTransform(grid, layout.get('type')),
+			);
+		},
 		play(doc) {
 			state.docs[doc.id] = doc;
 			playing.set(doc.id, { loop: false, speed: 1 });
@@ -653,10 +685,12 @@ const boardText = () => JSON.stringify(state.board);
 	frames(60);
 	const mid = state.board;
 	check('basegame: the board follows the playhead', mid.scale.x > 0.5 && mid.scale.x < 0.6 && mid.y < 801.5 && mid.y > 801.5 - 151.5, boardText()); // prettier-ignore
+	check('basegame: while it plays, the board’s layout stays authored', !run.drives.holding('basegame') && run.heldGrid() === undefined); // prettier-ignore
 	frames(70);
 	check('basegame: the timeline ends', !run.playing('basegame_intro'));
 	check('basegame: the board holds the last frame (back on its authored pose)', boardAt(960, 801.5, 1) && state.board.visible, boardText()); // prettier-ignore
 	check('basegame: the layers hold the last frame too', frameVisible() === false && basegameScenes('engine').length === 1); // prettier-ignore
+	check('basegame: ending on the authored pose, the board’s layout is left alone (parity)', run.drives.holding('basegame') && run.heldGrid() === undefined); // prettier-ignore
 	layout.set('type', 'portrait');
 	flushSync();
 	check('basegame: turned to portrait, the board pivots on the grid’s portrait position', boardAt(288, 648, 1) && near(state.board.pivot.x, 288), boardText()); // prettier-ignore
@@ -689,6 +723,92 @@ const boardText = () => JSON.stringify(state.board);
 	check('basegame: a visibility key on the grid hides the board', state.board.visible === false, boardText()); // prettier-ignore
 	run.end();
 }
+{
+	// An intro that ends with the reels moved: 30 right, 40 up, at 0.8, on a nudged, gapped grid of
+	// non-square cells whose art may spill past them.
+	const grid = {
+		...BASEGAME.nodes[1],
+		boardNudgeX: 12,
+		boardNudgeY: -8,
+		cellWidth: 140,
+		cellHeight: 100,
+		gapX: 10,
+		gapY: 6,
+		overflowX: 8,
+	};
+	const run = basegameGame({ scene: { ...BASEGAME, nodes: [BASEGAME.nodes[0], grid] } });
+	const moved = (id) =>
+		basegameIntro({
+			id,
+			extra: {
+				x: [key(0, 0), key(2, 30)],
+				y: [key(0, 298.5), key(2, -40)],
+				scale: [key(0, 0.1), key(2, 0.8)],
+			},
+		});
+	/** The board's laid-out centre and cells (`boardLayout()`), against where the drawing put them. */
+	const laidOutAsDrawn = () => {
+		const type = layout.get('type');
+		const authored = resolveReelGridFromNode(grid, type);
+		const held = resolveReelGridFromNode(run.heldGrid(), type);
+		const drawn = run.drawn();
+		const at = (v, axis) => drawn[axis] + drawn.scale[axis] * (v - drawn.pivot[axis]);
+		return (
+			!!held &&
+			near(held.x + held.boardNudgeX, at(authored.x + authored.boardNudgeX, 'x')) &&
+			near(held.y + held.boardNudgeY, at(authored.y + authored.boardNudgeY, 'y')) &&
+			['cellSize', 'cellWidth', 'cellHeight', 'gapX', 'gapY', 'overflowX'].every((px) =>
+				near(held[px], authored[px] * drawn.scale.x),
+			)
+		);
+	};
+	const heldText = () =>
+		JSON.stringify(resolveReelGridFromNode(run.heldGrid(), layout.get('type')));
+	run.play(moved('basegame_moved'));
+	frames(60);
+	check('basegame moved: while it plays, only the drawing moves', run.heldGrid() === undefined && boardAt(960 + 15, 801.5 + 129.25, 0.45), boardText()); // prettier-ignore
+	frames(70);
+	check('basegame moved: the timeline ends', !run.playing('basegame_moved'));
+	check('basegame moved: the board is laid out where the timeline left the grid', laidOutAsDrawn(), heldText()); // prettier-ignore
+	check('basegame moved: …so the reels sit 30 right, 40 up, at 0.8', near(resolveReelGridFromNode(run.heldGrid(), 'desktop').x + 12, 960 + 30 + 12 * 0.8) && near(resolveReelGridFromNode(run.heldGrid(), 'desktop').cellSize, 120 * 1.18 * 0.8), heldText()); // prettier-ignore
+	check('basegame moved: the wrapper stops moving the board (no double move)', boardAt(990, 761.5, 1) && near(state.board.pivot.x, 990) && near(state.board.pivot.y, 761.5), boardText()); // prettier-ignore
+	layout.set('type', 'portrait');
+	flushSync();
+	check('basegame moved: turned to portrait, the layout is the portrait grid moved', laidOutAsDrawn() && near(resolveReelGridFromNode(run.heldGrid(), 'portrait').x, 288 + 30 + 12 * (0.8 - 1)), heldText()); // prettier-ignore
+	check('basegame moved: …and the wrapper still only turns about it', boardAt(318, 608, 1) && near(state.board.pivot.x, 318), boardText()); // prettier-ignore
+	layout.set('type', 'desktop');
+	flushSync();
+	run.play(moved('basegame_moved_again'));
+	check('basegame moved: replayed, the layout is authored again and the drawing moves', run.heldGrid() === undefined && boardAt(960, 801.5 + 298.5, 0.1), boardText()); // prettier-ignore
+	frames(130);
+	check('basegame moved: …and held again once it ends', laidOutAsDrawn(), heldText());
+	run.hide();
+	check('basegame moved: hidden, the layout is authored again', run.heldGrid() === undefined && !run.drives.holding('basegame') && boardAt(0, 0, 1), boardText()); // prettier-ignore
+	run.end();
+}
+{
+	const run = basegameGame();
+	run.play(
+		basegameIntro({
+			id: 'basegame_squash',
+			extra: { scale: [], scaleX: [key(0, 1), key(2, 1.2)], scaleY: [key(0, 1), key(2, 0.9)] },
+		}),
+	);
+	frames(130);
+	check('basegame squashed: an uneven end scale stays on the drawing (the board scales evenly)', run.heldGrid() === undefined && near(state.board.scale.x, 1.2) && near(state.board.scale.y, 0.9), boardText()); // prettier-ignore
+	run.end();
+}
+// The layout reads a scale of 0 or below as 1: holding one would bring the reels back full size.
+for (const [what, end] of [
+	['shrunk away', 0],
+	['flipped', -1],
+]) {
+	const run = basegameGame();
+	run.play(basegameIntro({ id: `basegame_${end}`, extra: { scale: [key(0, 1), key(2, end)] } }));
+	frames(130);
+	check(`basegame ${what}: the end pose stays on the drawing`, run.drives.holding('basegame') && run.heldGrid() === undefined && boardAt(960, 801.5, end), boardText()); // prettier-ignore
+	run.end();
+}
 
 // --- 5. the game wires it as this gate does -------------------------------------------------------
 // The gate builds its own flow handle. These pin the real wiring to it, so a `Game.svelte` that
@@ -707,10 +827,13 @@ const boardText = () => JSON.stringify(state.board);
 	// parent, so a bare remount drew them OVER the reels (the base game's frame above its symbols).
 	check('wiring: the below-reel layers remount with it, in their own container (kept under the board)', /<Container>\s*\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameBelowReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}\s*<\/Container>/.test(gameSource)); // prettier-ignore
 	check('wiring: the above-reel layers remount with it, in their own container', /<Container>\s*\{#key basegameDrive\?\.key\}\s*<LayoutScene scene=\{basegameAboveReel\} nodeDriver=\{basegameDrive\?\.driver\} \/>\s*\{\/key\}\s*<\/Container>/.test(gameSource)); // prettier-ignore
-	check('wiring: the board is drawn inside <BoardDrive> with it and the base game’s reelGrid', /<BoardDrive\s+drive=\{basegameDrive\}\s+node=\{basegameReelGrid\}\s+layoutType=\{context\.stateLayoutDerived\.layoutType\(\)\}\s*>(?:(?!<\/BoardDrive>)[\s\S])*\{@render reelStack\(\)\}/.test(gameSource)); // prettier-ignore
+	check('wiring: the board is drawn inside <BoardDrive> with it, the base game’s reelGrid and whether its layout holds the end pose', /<BoardDrive\s+drive=\{basegameDrive\}\s+node=\{basegameReelGrid\}\s+layoutType=\{context\.stateLayoutDerived\.layoutType\(\)\}\s+layoutHeld=\{!!basegameHeldReelGrid\}\s*>(?:(?!<\/BoardDrive>)[\s\S])*\{@render reelStack\(\)\}/.test(gameSource)); // prettier-ignore
+	check('wiring: Game holds the grid’s end pose once the base game’s timeline has ended, named by the play and ratio', /const basegameHeldPlay = \$derived\(\s*basegameDrive && basegameReelGrid && flowV2Handle\?\.screenHolding\(basegameScreenId\)\s*\? `\$\{basegameDrive\.key\}@\$\{context\.stateLayoutDerived\.layoutType\(\)\}`\s*: undefined,?\s*\);/.test(gameSource)); // prettier-ignore
+	check('wiring: …and lays it out from the grid as the keys left it, read once per play', /const basegameHeldReelGrid = \$derived\.by\(\(\) => \{\s*const drive = basegameDrive;\s*const node = basegameReelGrid;\s*if \(!basegameHeldPlay \|\| !drive \|\| !node\) return undefined;\s*return untrack\(\(\) => \{\s*const gridDrive = drive\.driver\(node\.id\);\s*return gridDrive\s*\? heldReelGridNode\(\s*node,\s*gridDrive\.channels,\s*gridDrive\.sample\(\),\s*context\.stateLayoutDerived\.layoutType\(\),?\s*\)\s*: undefined;\s*\}\);\s*\}\);/.test(gameSource)); // prettier-ignore
+	check('wiring: Game lays the board out from the held grid, and back from the authored one', /\$effect\(\(\) => \{\s*const held = basegameHeldReelGrid;\s*untrack\(\(\) => \{\s*if \(held\) setBoardOverride\(held\);\s*else if \(boardLayoutHeld\) setBoardOverride\(findReelGridNode\(editorDoc\) \?\? null\);\s*boardLayoutHeld = !!held;\s*\}\);\s*\}\);/.test(gameSource)); // prettier-ignore
 	check('wiring: the runtime counts its own Pots screen', /createScreenDrives\([^;]*enginePots \? \[enginePots\.scene\.id\] : \[\]/.test(runtime)); // prettier-ignore
 	check('wiring: the runtime reports the screens the flow shows', runtime.includes('screenDrives.setFlowScreens(containers.map((container) => container.sceneId))')); // prettier-ignore
-	check('wiring: the handle hands out the bookkeeping', ['onStage: screenDrives.onStage', 'screenDrive: screenDrives.drive', 'driveScreen: screenDrives.driveScreen', 'engineScreenUp: screenDrives.setEngineScreen'].every((line) => runtime.includes(line))); // prettier-ignore
+	check('wiring: the handle hands out the bookkeeping', ['onStage: screenDrives.onStage', 'screenDrive: screenDrives.drive', 'screenHolding: screenDrives.holding', 'driveScreen: screenDrives.driveScreen', 'engineScreenUp: screenDrives.setEngineScreen'].every((line) => runtime.includes(line))); // prettier-ignore
 	check('wiring: <FlowV2Cinematics> hands <Cinematic> the ratio reader', source('apps/lines/src/components/FlowV2Cinematics.svelte').includes('layoutType={stateLayoutDerived.layoutType}')); // prettier-ignore
 }
 

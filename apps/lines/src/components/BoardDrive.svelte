@@ -3,9 +3,9 @@
 	 * The engine-drawn board under a base-game screen timeline (Rive plan Phase 3). Keys on the
 	 * `reelGrid` node move, scale, turn, fade and hide what this wraps — the reels and their coded
 	 * overlays — about the node's position (`boardDriveTransform`), as the Scene Editor previews the
-	 * placeholder. Only the drawing moves: the board's layout (`boardLayout()`), and so anything
-	 * placed from it outside this wrapper, stays where the node is authored. No timeline keying the
-	 * node ⇒ an identity container, the board exactly as before.
+	 * placeholder. While it plays only the drawing moves; once it ends, Game lays the board out where
+	 * it left the grid (`heldReelGridNode`) and this keeps only the turn, fade and visibility
+	 * (`layoutHeld`). No timeline keying the node ⇒ an identity container, the board exactly as before.
 	 */
 	import { untrack, type Snippet } from 'svelte';
 	import { Container } from 'pixi-svelte';
@@ -20,6 +20,8 @@
 		/** The base game's `reelGrid` node, the board's placeholder. */
 		node: ReelGridNode | undefined;
 		layoutType: LayoutType;
+		/** The board's layout already holds the timeline's end pose (`heldReelGridNode`). */
+		layoutHeld: boolean;
 		children: Snippet;
 	};
 	const props: Props = $props();
@@ -35,6 +37,7 @@
 					nodeDrive.channels,
 					nodeDrive.sample(),
 					resolveTransform(props.node, props.layoutType),
+					props.layoutHeld,
 				)
 			: BOARD_UNDRIVEN,
 	);

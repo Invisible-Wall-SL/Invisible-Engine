@@ -7,9 +7,12 @@
 **One-line state:** Built, now the **Components side of `/editor`** (`/editor?view=components`; `/components` redirects) — authoring (instances/params/signals), per-project "This game's defaults" with version history, and pin-by-default multi-version defs are on `main`. **Component timelines** (Animate mode on the Components side, Rive plan Phase 4b) are on `main`. The per-component **state machine** (Phase 5) is built: **5a** (2026-10-13, in review) adds `inputs` + `stateMachine` to the `ComponentDef`, folds `signals` into trigger inputs, and runs one interpreter per placed instance; **5b** (2026-10-13, in review, stacked on 5a) is the State Machine panel in Animate, the Inputs block and the stage preview — ⏳ not browser-verified.
 
 ## Current state
-Authoring for **components** (prefabs), mounted inside `/editor` as its Components side (`routes/(app)/editor/ComponentWorkspace.svelte`) — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` registry entry is kept: its card opens `/editor?view=components`, doc slug `component-editor`, lease key `componentEditor`). `/editor?component=<id>` opens one component; the old `/components` route is a 307 redirect (`routes/(app)/components/+server.ts` via `$lib/componentLinks.ts`) that keeps every other query param. Storage, versioning and format are unchanged (`componentStorage.ts`). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component.
+Authoring for **components** (prefabs), mounted inside `/editor` as its Components side (`routes/(app)/editor/ComponentWorkspace.svelte`) — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` registry entry is kept: its card opens `/editor?view=components`, doc slug `component-editor`, lease key `componentEditor`). `/editor?component=<id>` opens one component; the old `/components` route is a 307 redirect (`routes/(app)/components/+server.ts` via `$lib/componentLinks.ts`) that keeps every other query param. Storage, versioning and format are unchanged (`componentStorage.ts`). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component: a shared or built-in draft saves as the project's copy under the same id (`componentSave.client.ts`); only **Promote to shared** writes `_shared/`.
 
 Shipped capabilities on `main`:
+- **⧉ Duplicate** (2026-10-23, in review) — any component in the list (project, shared, built-in)
+  copies into a new project component with its own node ids, timelines and state machine, and
+  this game's defaults baked in. Detail under Recent changes, 2026-10-23.
 - **Author a component** — create Blank (`UI`/`Overlay`/`Scenery`) or a pre-wired **Button** (pre-declares the `action` param); build the `root` element tree on the shared editor canvas (Text/Rect/atlas/rig/sheet regions), outline + properties reused from the Scene Editor. Opened from a screen in place: double-click a placed instance, **◇ Edit component in place**, **◇ Edit as component** on a container, or the left-pane Components list. A breadcrumb tracks nested defs edited in place (Esc goes up one level; nesting stops at `MAX_COMPONENT_DEPTH` via `canEnterNested` in `editor/componentWorkspace.ts`).
 - **Declare the engine contract** (the "Component variables" block) — **Engine params** (curated catalog: bet/win/balance/…), **Your params** (custom author inputs: string/image/number/color/boolean, with per-param defaults, bound to a node's image/tint/text/font/size/colour), and **Signals** (the kind's engine signals, grouped by family, or any Flow cue name; declare-only, since cue fields are free text). **scoped by** names the param a placement's signal scope comes from (Phase 12a). Text nodes have an **Expose as params** shortcut.
 - **Per-instance engine bindings** (Flow-driven-game Phase 6, 2026-06-30) — any placed instance can be made clickable (`action`) or lifecycle-gated (`visibleSource`) without the def declaring the param (shared `engineBindings.ts` + an "Engine bindings" tray in `EditorProperties`); UI for `visibleFor` / `screenAnchor` / custom-param `options`; and **per-instance signal rebinding** (`cueSignalOverrides` — override which engine signal drives a rig cue, e.g. `win` vs `bigWin`).
@@ -119,6 +122,67 @@ Shipped capabilities on `main`:
   call, a Flow read that bypasses the reader, and a stray `.total` read anywhere in the game). Guide: [invisible-editor
   § The State Machine](../tools/invisible-editor.md#the-state-machine) (choosing `featureWorth` or
   `featureTotal`).
+- 2026-10-23 — **⧉ Duplicate a component** (branch `claude/component-duplicate`, in review, ⏳ not
+  browser-verified). A ⧉ on each row of the Components list (home and the Browse tab) copies ANY
+  listed component — project, shared or built-in — into a new project component and opens it.
+  Why: the owner's segmented-counter end caps were a Counter Segment wrapped in a new component,
+  which nests 3 deep (past `MAX_COMPONENT_DEPTH` 2) and never receives the repeater's `index` /
+  `value`; a real copy fixes both. *How* (`duplicateComponentDef` in `ComponentWorkspace.svelte`,
+  pure part `editor/componentDuplicate.client.ts`): asks first when the open draft or its defaults
+  are dirty; reads the def as the project resolves it (`GET /api/editor/component?id&project`:
+  project ▸ shared ▸ built-in, latest); new id `c_xxxxxxxx` (`genComponentId`, as ＋ New), every
+  node re-id'd, `version: 1`, `scope: 'project'`, `internal` dropped; name "‹name› copy" / " copy
+  N". Its timelines — `/api/cinematics/list` rows hosted on it, merged over `BUILTIN_TIMELINES` by
+  id (`componentOwnTimelines`, as the canvas's segment preview does) — are copied under
+  `componentTimelineId(copy, name)` ids clear of every listed and built-in id, re-hosted on the
+  copy, `playOnComponents` dropped (the source's reuse stays the source's); node actors keep their
+  targets (a component timeline finds its node by label only — `findActorNode` — and the copy keeps
+  every label); the built-in-only flags (`buttonStates`, `settles`, …) are kept, since the runtime
+  reads them off the def, so a copy of a presentation plays as it does; the copy's states are re-keyed
+  onto them, a state playing a timeline reused from another component keeps it. *Defaults:* this
+  game's sidecar values are BAKED into the copy's param defaults (and override a matching
+  `defaultInstanceParams` key, which resolution layers above defaults) — the copy is already this
+  project's fork, so one source of truth (the def) beats a second sidecar file written
+  non-atomically beside it; engine-provided and undeclared keys are skipped. *Writes*
+  (`writeComponentDuplicate`, pure over injected writes): the timelines first, each create-only
+  (`baseEtag: null`), then the def through the draft `saveState.save()` (`componentSaveRequest`,
+  `baseEtag: null` ⇒ `If-None-Match: *`; deliberately not `saveComponent`, whose conflict answer
+  stacks on top). The def counts as saved when the save recorded the server's ETag (even if the tab
+  moved on), as refused only when a re-read then answers 404 — then the copy closes (only if it is
+  still the open one), the timelines it created are deleted (awaited; any left over are named), and
+  the reason shows; with no answer at all nothing is deleted and the author is told to reload (and
+  which timelines to delete if the copy is not there). The list rows, ＋ New, close, delete and
+  Back to screens are held while it runs; it asks again if the open draft changed during the reads,
+  refuses (and rolls back) if it changed while the timelines were written, and the copy opens at
+  the top of the breadcrumb. Fresh timeline ids clear every listed project timeline; a listed one
+  that reads back empty stops the copy. Accepted residue: a def POST that fails at the network
+  level while the server is still committing, followed by a 404 re-read, would delete the
+  timelines under a def that lands after — a far-fetched race. Same validation and export→bake→pull
+  chain as any project component. Gate: `pnpm --filter launcher-api check:component-duplicate`
+  (53: naming, fresh/unique node + timeline ids across two copies, state re-keying, actor targets,
+  defaults baking, the real route's create then 409 on a second create, every write/rollback
+  branch, the workspace wiring). Not run end to end: the timeline creates through the real
+  `/api/cinematics/save` (its gate needs the session/DB).
+  UI: [guide](../tools/invisible-editor.md#duplicate-a-component).
+- 2026-10-23 — **Editing a built-in no longer fails to save; the error says why; no empty-key asset
+  request** (branch `fix/component-save-400`). Owner report: the re-skinned **Counter Segment**
+  (`segmentedCounterSegment`, both looks swapped to the project's `R_RespinTile` rig) answered a
+  bare "Save failed", the console showing a 400 on every save and one on `/api/editor/asset?key=`.
+  *Cause:* a built-in opens as `scope:'shared'`, and Save posted it to the shared library; a shared
+  def may not place one project's rig, so `healForeignRigRefs` refused it (400, naming the rig).
+  The reason was in the pill's tooltip only. It is not specific to the segmented counters (#1276): any built-in or shared
+  def edited with project art hit it, and a new (project) component with a rig always saved.
+  *Fix:* `componentSaveRequest` (`editor/componentSave.client.ts`) sends a shared or built-in draft
+  opened in a project as that project's copy under the same id, creating it (`baseEtag: null`); it
+  shadows the shared def in this game only, and the pill says so. It keeps the shared `version`,
+  so an instance pinned to it (the bar's segments) resolves to the copy. An untouched shared def
+  makes no copy (a copy stops following the shared one; deleting it goes back). With no project open, a shared
+  draft still saves to the shared library; **Promote to shared** is the shared write. The error
+  pill shows the server's message (`componentSaveError`). The canvas builds full-image URLs
+  through `canvasImageUrl`, which returns `null` for an empty key, so an unbound art slot fetches
+  nothing. Gate: `check:component-save-copy` reproduces the 400 through the real route, then saves
+  the segment, the Segmented Counter bar and a new component with a rig. Owner data: no repair is
+  needed, since every refused save wrote nothing.
 - 2026-10-20 — **Segmented counters, engine side** (branch `claude/component-repeat-segments`,
   ⏳ not browser-verified; design [rive plan §6.4](../design/rive-style-editor.md#64-count-mode-repeater-segmented-counters)).
   `RepeaterNode` gains optional `count` (`{source?, preview, max?}`), `variants`

@@ -313,6 +313,8 @@ export type LinesFlowV2 = {
 	onStage: (sceneId: string) => boolean;
 	/** The screen timeline moving up screen `sceneId`, for the mount that draws it. Reactive. */
 	screenDrive: (sceneId: string) => ScreenNodeDrive | undefined;
+	/** Has the timeline moving screen `sceneId` ended, so the screen holds its last frame? Reactive. */
+	screenHolding: (sceneId: string) => boolean;
 	/** `<FlowV2Cinematics>` hands a playing screen timeline's node driver over, once, at mount. */
 	driveScreen: (sceneId: string, cinematicId: string, driver: CinematicNodeDriver) => void;
 	/** The game mounted (`up`) or unmounted a screen this flow never shows (`enginePots`), so a
@@ -906,6 +908,7 @@ export const createLinesFlowV2 = (
 		},
 		onStage: screenDrives.onStage,
 		screenDrive: screenDrives.drive,
+		screenHolding: screenDrives.holding,
 		driveScreen: screenDrives.driveScreen,
 		engineScreenUp: screenDrives.setEngineScreen,
 	};
