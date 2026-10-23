@@ -37,6 +37,7 @@
 		WHEEL_DEF,
 		POT_PIECE_LIGHT_PARAM,
 		lightOrderThresholds,
+		mergeBuiltinCodedParams,
 		potPieces,
 	} from 'engine-layout';
 	import type {
@@ -1477,7 +1478,8 @@
 				navStatus = `Could not rename "${def.name}": ${result.problem}`;
 				return;
 			}
-			const renamed = result.def;
+			// Listed as every other entry is: a built-in's copy with its coded twin's newer params.
+			const renamed = mergeBuiltinCodedParams(result.def);
 			components = components.map((c) => (c.id === renamed.id ? renamed : c));
 			componentEtags = { ...componentEtags, [renamed.id]: result.etag };
 			if (componentDraft?.id === renamed.id && !isInspecting) {

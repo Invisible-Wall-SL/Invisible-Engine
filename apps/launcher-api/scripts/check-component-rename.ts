@@ -379,6 +379,11 @@ const snapshot = (v: number): ComponentDef | null => {
 		[true, true, false],
 	);
 	check(
+		'5 the list entry is merged with its coded twin, as every listed def is',
+		body.includes('const renamed = mergeBuiltinCodedParams(result.def);'),
+		true,
+	);
+	check(
 		'5 reads the stored project def, not the merged one',
 		body.includes('&stored=project'),
 		true,

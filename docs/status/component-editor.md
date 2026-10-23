@@ -130,7 +130,7 @@ Shipped capabilities on `main`:
   edges:** the lease covers only the open component, so a component another author has open can be
   renamed; their next save conflicts, and their **Save on top** restores the old name. **◇ Edit as
   component** reuses a project def whose name equals the container's label, so after a rename it
-  matches the new name, not the old. Gate: `pnpm --filter launcher-api check:component-rename` (37
+  matches the new name, not the old. Gate: `pnpm --filter launcher-api check:component-rename` (38
   checks; the real route over an in-memory R2, including a built-in's project copy).
 - 2026-10-23 — **⧉ Duplicate a component** (branch `claude/component-duplicate`, in review, ⏳ not
   browser-verified). A ⧉ on each row of the Components list (home and the Browse tab) copies ANY
