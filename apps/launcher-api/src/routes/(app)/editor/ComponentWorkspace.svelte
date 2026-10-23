@@ -1072,6 +1072,7 @@
 	 * game's defaults have unsaved edits (a never-saved component would vanish entirely; the
 	 * defaults sidecar is a separate save, so a dirty panel must be warned about too). */
 	async function closeComponent(confirmed = false): Promise<boolean> {
+		if (!confirmed && duplicating) return false;
 		if (!confirmed && !(await confirmLeaveDraft('Discard and close'))) return false;
 		componentDraft = null;
 		trail = [];
@@ -1176,7 +1177,10 @@
 		nextRoot: string | null,
 	): Promise<boolean> {
 		// A duplicate in flight opens its copy itself.
-		if (duplicating) return false;
+		if (duplicating) {
+			navStatus = 'Duplicating a component… try again in a moment.';
+			return false;
+		}
 		navStatus = null;
 		if (componentDraft?.id === def.id && !isInspecting) {
 			// Already open: only where it sits in the breadcrumb changes, never its draft.
@@ -1215,6 +1219,7 @@
 
 	/** Leave the components side entirely, back to the screen the author came from. */
 	async function exitToScreens(): Promise<void> {
+		if (duplicating) return;
 		if (componentDraft && !(await closeComponent())) return;
 		rootLabel = null;
 		onExit();
@@ -1284,7 +1289,7 @@
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
 	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
-		if (writesBlocked) return;
+		if (writesBlocked || duplicating) return;
 		const ok = await askConfirm({
 			title: `Delete component "${def.name}"?`,
 			message: 'Every version of it goes with it. This cannot be undone.',
@@ -1315,7 +1320,7 @@
 		e.stopPropagation();
 		if (writesBlocked || busy || duplicating || !data.projectKey) return;
 		if (!(await confirmLeaveDraft('Discard and duplicate'))) return;
-		const asked = leaveSignature();
+		let asked = leaveSignature();
 		navStatus = null;
 		duplicating = true;
 		try {
@@ -1327,7 +1332,13 @@
 				navStatus = `Could not read "${def.name}" (${read.status}).`;
 				return;
 			}
-			const projectDocs = await componentTimelineDocs(source.id);
+			const listed: { id: string; host?: CinematicHost }[] = [];
+			const projectDocs = await componentTimelineDocs(source.id, listed);
+			// A listed timeline that read back empty would leave a state playing the source's.
+			if (componentTimelinesOf(listed, source.id).length !== projectDocs.length) {
+				navStatus = `Could not read every timeline of "${def.name}". Try again.`;
+				return;
+			}
 			const defaults = await fetch(
 				`/api/editor/component-defaults?${new URLSearchParams({ project: data.projectKey, id: source.id })}`,
 			);
@@ -1345,7 +1356,7 @@
 				),
 				mintNodeId: genComponentId,
 				timelines: componentOwnTimelines(source.id, BUILTIN_TIMELINES, projectDocs),
-				takenTimelineIds: [...projectDocs, ...BUILTIN_TIMELINES].map((d) => d.id),
+				takenTimelineIds: [...listed, ...BUILTIN_TIMELINES].map((d) => d.id),
 				projectDefaults: ((await defaults.json()) as { params?: Record<string, unknown> }).params,
 			});
 			// Edited while the reads ran: what opening the copy discards is no longer what was asked.
@@ -1356,6 +1367,7 @@
 			) {
 				return;
 			}
+			asked = leaveSignature();
 			const cinematic = (path: string, body: Record<string, unknown>) =>
 				fetch(`/api/cinematics/${path}`, {
 					method: 'POST',
@@ -1369,6 +1381,12 @@
 				},
 				deleteTimeline: async (timeline) => (await cinematic('delete', { id: timeline })).ok,
 				saveDef: async (copyDef) => {
+					// Edited while the timelines were written: opening the copy would discard that.
+					if (leaveSignature() !== asked && unsavedWork) {
+						return {
+							refused: 'the open component changed while copying. Save it, then try again.',
+						};
+					}
 					trail = [];
 					rootLabel = null;
 					await openComponent(copyDef, true);
@@ -2174,16 +2192,19 @@
 			: null;
 	}
 	/** The saved timelines of component `componentId`. Throws when any read fails, so a dialog
-	 *  never under-reports. */
-	async function componentTimelineDocs(componentId: string): Promise<CinematicDoc[]> {
+	 *  never under-reports. `listed` collects every listed timeline of the project. */
+	async function componentTimelineDocs(
+		componentId: string,
+		listed?: { id: string; host?: CinematicHost }[],
+	): Promise<CinematicDoc[]> {
 		const project = encodeURIComponent(data.projectKey);
 		const res = await fetch(`/api/cinematics/list?projectKey=${project}`);
 		if (!res.ok) throw new Error(`list: ${res.status}`);
-		const rows = componentTimelinesOf(
-			((await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] })
-				.cinematics,
-			componentId,
-		);
+		const all = (
+			(await res.json()) as { cinematics: { id: string; name: string; host?: CinematicHost }[] }
+		).cinematics;
+		listed?.push(...all);
+		const rows = componentTimelinesOf(all, componentId);
 		const docs = await Promise.all(
 			rows.map(async (row) => {
 				const r = await fetch(

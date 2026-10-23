@@ -423,8 +423,12 @@ check(
 		const lost = await run({ def: outcome });
 		check(
 			`6 a def save with no answer (${outcome}) may have landed: nothing is deleted`,
-			[lost.log.some((l) => l.startsWith('delete')), lost.message?.includes('Reload to check')],
-			[false, true],
+			[
+				lost.log.some((l) => l.startsWith('delete')),
+				lost.message?.includes('Reload to check'),
+				lost.message?.includes('(t1, t2)'),
+			],
+			[false, true, true],
 		);
 	}
 	const stuck = await run({ def: { refused: 'No.' }, failDelete: 't2' });
@@ -486,10 +490,38 @@ check(
 	check(
 		'7 the list and ＋ New are held while it runs',
 		[
-			workspace.includes('if (duplicating) return false;'),
+			/if \(duplicating\) \{\s*navStatus = [^\n]*\n\s*return false;/.test(workspace),
 			workspace.includes('if (!name || duplicating) return;'),
 		],
 		[true, true],
+	);
+	check(
+		'7 edits made while the timelines are written refuse the copy (and roll them back)',
+		/saveDef: async \(copyDef\) => \{\s*\/\/[^\n]*\n\s*if \(leaveSignature\(\) !== asked && unsavedWork\) \{\s*return \{\s*refused:/.test(
+			body,
+		),
+		true,
+	);
+	check(
+		"7 fresh timeline ids clear every listed timeline of the project, not just the source's",
+		body.includes('takenTimelineIds: [...listed, ...BUILTIN_TIMELINES]'),
+		true,
+	);
+	check(
+		'7 a listed timeline that reads back empty stops the copy',
+		body.includes('componentTimelinesOf(listed, source.id).length !== projectDocs.length'),
+		true,
+	);
+	check(
+		'7 closing, leaving for the screens and deleting are held too',
+		[
+			workspace.includes('if (!confirmed && duplicating) return false;'),
+			/async function exitToScreens\(\): Promise<void> \{\s*if \(duplicating\) return;/.test(
+				workspace,
+			),
+			workspace.includes('if (writesBlocked || duplicating) return;'),
+		],
+		[true, true, true],
 	);
 	check('7 ⧉ on both lists', workspace.match(/\{@render duplicateButton\(def\)\}/g)?.length, 2);
 }

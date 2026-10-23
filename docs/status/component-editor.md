@@ -125,11 +125,16 @@ Shipped capabilities on `main`:
   stacks on top). The def counts as saved when the save recorded the server's ETag (even if the tab
   moved on), as refused only when a re-read then answers 404 — then the copy closes (only if it is
   still the open one), the timelines it created are deleted (awaited; any left over are named), and
-  the reason shows; with no answer at all nothing is deleted and the author is told to reload. The
-  list rows and ＋ New are held while it runs, it asks again if the open draft changed during the
-  reads, and the copy opens at the top of the breadcrumb. Same validation and export→bake→pull
+  the reason shows; with no answer at all nothing is deleted and the author is told to reload (and
+  which timelines to delete if the copy is not there). The list rows, ＋ New, close, delete and
+  Back to screens are held while it runs; it asks again if the open draft changed during the reads,
+  refuses (and rolls back) if it changed while the timelines were written, and the copy opens at
+  the top of the breadcrumb. Fresh timeline ids clear every listed project timeline; a listed one
+  that reads back empty stops the copy. Accepted residue: a def POST that fails at the network
+  level while the server is still committing, followed by a 404 re-read, would delete the
+  timelines under a def that lands after — a far-fetched race. Same validation and export→bake→pull
   chain as any project component. Gate: `pnpm --filter launcher-api check:component-duplicate`
-  (49: naming, fresh/unique node + timeline ids across two copies, state re-keying, actor targets,
+  (53: naming, fresh/unique node + timeline ids across two copies, state re-keying, actor targets,
   defaults baking, the real route's create then 409 on a second create, every write/rollback
   branch, the workspace wiring). Not run end to end: the timeline creates through the real
   `/api/cinematics/save` (its gate needs the session/DB).

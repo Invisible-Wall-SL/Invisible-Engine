@@ -145,5 +145,8 @@ export async function writeComponentDuplicate(
 	const saved = await writes.saveDef(copy.def).catch((): DuplicateDefSave => 'unknown');
 	if (saved === 'saved') return null;
 	if (saved !== 'unknown') return rollBack(`Could not save the copy: ${saved.refused}`);
-	return `The copy "${copy.def.name}" may have been saved — the save got no answer. Reload to check.`;
+	return (
+		`The copy "${copy.def.name}" may have been saved — the save got no answer. Reload to check; ` +
+		`if it is not there, delete its timelines (${created.join(', ') || 'none'}) in Animate.`
+	);
 }
