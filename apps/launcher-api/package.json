@@ -124,6 +124,8 @@
 		"check:component-param-forwarding": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-param-forwarding.ts",
 		"precheck:component-duplicate": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-duplicate": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-duplicate.ts",
+		"precheck:component-rename": "node scripts/ensure-svelte-kit.mjs",
+		"check:component-rename": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-rename.ts",
 		"precheck:component-save-copy": "node scripts/ensure-svelte-kit.mjs",
 		"check:component-save-copy": "tsx --tsconfig tsconfig.scripts.json --experimental-test-module-mocks scripts/check-component-save-copy.ts",
 		"precheck:component-links": "node scripts/ensure-svelte-kit.mjs",

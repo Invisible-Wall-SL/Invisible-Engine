@@ -7,6 +7,7 @@ import {
 	listComponentVersions,
 	loadComponent,
 	loadComponentWithEtag,
+	loadStoredProjectComponent,
 	PromoteSourceConflictError,
 	saveComponent,
 	type PromoteSource,
@@ -177,6 +178,19 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		const snapshot = await loadComponent(id, projectKey, version);
 		if (!snapshot) throw error(404, 'not found');
 		return json(snapshot);
+	}
+	// `?stored=project`: the project's own def exactly as stored, never a shared or built-in one,
+	// and without the coded-twin merge (what a rename saves back unchanged but for its name).
+	if (url.searchParams.get('stored') === 'project') {
+		if (!projectKey) throw error(400, 'missing project');
+		let stored: Awaited<ReturnType<typeof loadStoredProjectComponent>>;
+		try {
+			stored = await loadStoredProjectComponent(id, projectKey);
+		} catch {
+			throw error(502, 'Could not read the component — storage is unavailable. Please retry.');
+		}
+		if (!stored) throw error(404, 'not found');
+		return json({ def: stored.def, etag: stored.etag });
 	}
 	// The LATEST editable read carries its ETag — the precondition the editor sends back on
 	// save (Phase 1). `{ def, etag }`, distinct from the versioned shape above. `etag: null`
