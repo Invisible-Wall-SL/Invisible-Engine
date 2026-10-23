@@ -17,6 +17,7 @@
 	import { MainContainer } from 'components-layout';
 	import { readElementFxEntries, elementFxScreenTarget } from 'constants-shared/elementFx';
 	import { Anchor, Container, getContextParent, registerAnchor } from 'pixi-svelte';
+	import { getContextLayout, scaleLayout, setContextLayout } from 'utils-layout';
 
 	import { untrack } from 'svelte';
 
@@ -51,6 +52,18 @@
 	$effect(() => untrack(() => trackComponentMount(sceneMountKey(scene.id))));
 
 	const space = $derived(scene.space ?? 'game');
+
+	// A `canvas` screen ticked "Scale with the window" (`Scene.scaleWithWindow`): the editor frames it
+	// at the design box, so the game draws the whole screen (tap surfaces included) scaled by the fit
+	// that box gets in the window, and its content reads a window shrunk by the same factor
+	// (`scaleLayout`), so edge anchors and full-window fills still land on the real window. A keyed
+	// scene never changes space, so this is decided once; unticked ⇒ no container, as before.
+	const layoutContext = getContextLayout();
+	const windowScaled = untrack(
+		() => scene.space === 'canvas' && scene.scaleWithWindow === true && !!layoutContext,
+	);
+	const windowScale = () => layoutContext.stateLayoutDerived.mainLayoutStandard().scale;
+	if (windowScaled) setContextLayout(scaleLayout(layoutContext, windowScale));
 
 	// Canvas-frame tap PORTAL (tapPortalContext): an overlay instance's full-screen tap
 	// surface (dim + hit area + prompt) must cover the real window, NOT the design box —
@@ -238,10 +251,20 @@
 	{/if}
 {/snippet}
 
+{#snippet sized()}
+	{#if windowScaled}
+		<Container scale={windowScale()}>
+			{@render withScreenFx()}
+		</Container>
+	{:else}
+		{@render withScreenFx()}
+	{/if}
+{/snippet}
+
 {#if visibilitySource}
 	<Container visible={liveVisible}>
-		{@render withScreenFx()}
+		{@render sized()}
 	</Container>
 {:else}
-	{@render withScreenFx()}
+	{@render sized()}
 {/if}

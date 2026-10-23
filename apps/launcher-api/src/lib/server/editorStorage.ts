@@ -303,6 +303,10 @@ function normalizeScene(input: unknown): Scene | null {
 	if (input.space === 'standard' || input.space === 'canvas' || input.space === 'background') {
 		scene.space = input.space;
 	}
+	// Preserve the "Scale with the window" tick (`Scene.scaleWithWindow`), which only a `canvas`
+	// screen reads. Same whitelist rule as `alwaysOnTop` below: unlisted ⇒ silently dropped on save.
+	// Sparse: stored only when true.
+	if (scene.space === 'canvas' && input.scaleWithWindow === true) scene.scaleWithWindow = true;
 	// Preserve the engine ROLE tag (`Scene.role`) — the id-independent identity the game resolves the
 	// loading splash / persistent base / buy-feature / buy-confirm / bet-menu / auto-spin scene by, so
 	// scene ids stay renameable. Without this whitelist the field is silently dropped on save (the

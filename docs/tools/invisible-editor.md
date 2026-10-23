@@ -89,6 +89,16 @@ Each screen has a coordinate **space** select: `game` (the main game box),
 `standard` (the HUD box, with optional vertical/horizontal alignment), `canvas`
 (positioned against the window edges), or `background` (cover-fit, full-bleed).
 
+A `canvas` screen is drawn in window pixels: the canvas here shows it at the
+layout's design box (1920×1080 for desktop), and on a bigger or smaller window the
+game keeps every node, its offset from the window edge and its timeline's moves the
+same number of pixels while the game around it scales. Tick **Scale with the
+window** in its Properties to draw it as it looks here on every window: the whole
+screen scales like the game box, each node stays pinned to its window edge, and a
+tap dim still covers the window. On a window wider or narrower than the design box
+the edges stay pinned, so something keyed to just meet in the middle (two curtains)
+needs a little extra to close there too.
+
 ### Layer order and "Always on top"
 
 A screen's position in the Screens list **is** its layer order in the game —

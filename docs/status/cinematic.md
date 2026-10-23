@@ -486,6 +486,11 @@ through the same player; headless-proven, no editor yet (5b).
 
 ## Recent changes
 
+- 2026-10-23 — **A timeline on a canvas screen ended differently per window size** (reported on
+  `commonoverlayproject`'s feature intro). Not a timeline bug: a `canvas` screen was drawn in window
+  pixels, so its nodes and the keys moving them did not scale with the window. Fixed by the screen's
+  new **Scale with the window** tick; detail in [editor status](editor.md) 2026-10-23.
+
 - 2026-10-23 — **A base-game intro that ends with the reels moved keeps them there** (branch
   `claude/blissful-bohr-4r7uny`). Until now only the board's drawing followed the `reelGrid` keys,
   so an intro ending off the Design pose left `boardLayout()` behind: the win line, flights and
