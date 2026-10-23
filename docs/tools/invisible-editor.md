@@ -98,7 +98,8 @@ this frame: the whole screen grows or shrinks as much as the frame must to fit t
 window, each node stays pinned to its window edge, and a tap dim still covers the
 window. On a window wider or narrower than the frame the edges stay pinned, so
 something keyed to just meet in the middle (two curtains) needs a little extra to
-close there too.
+close there too. A new Hold and Win game starts with it ticked on **Feature intro**
+and **Feature outro**; a game made before that keeps its screens as they were.
 
 ### Layer order and "Always on top"
 

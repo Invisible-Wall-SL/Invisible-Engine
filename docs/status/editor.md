@@ -201,6 +201,8 @@ Shipped capabilities on `main`:
   snapshot with a forced red pot: at 1920×1080 the end frame is pixel-identical with and without
   the tick; at 2848×1602 the published screen shows the report's strip of reels and rockets, and
   the ticked one the 1920×1080 frame scaled up. ⏳ The owner ticks it on Feature intro and republishes.
+  New Hold and Win games seed their feature intro and outro ticked ([hold-and-win status](hold-and-win.md)
+  2026-10-23).
 - 2026-10-23 — **The Interpolation panel draws its curve** (in review). The panel showed a solid
   black box with two black dots where the cubic curve belongs. The shared Timeline emits the curve
   as SVG (`.cineCurveBox` / `Arm` / `Path` / `Handle`) and `EditorTimelinePanel.svelte` had no
