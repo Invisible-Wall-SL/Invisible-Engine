@@ -2520,9 +2520,13 @@
 		{:else}
 			<FlowMount scene={basegameMountBelowReel}>
 				{#snippet fallback()}
-					{#key basegameDrive?.key}
-						<LayoutScene scene={basegameBelowReel} nodeDriver={basegameDrive?.driver} />
-					{/key}
+					<!-- Remounted per play inside its own container, so it keeps its place under the board: a
+					     remount appends to its parent, which would put these layers over the reels. -->
+					<Container>
+						{#key basegameDrive?.key}
+							<LayoutScene scene={basegameBelowReel} nodeDriver={basegameDrive?.driver} />
+						{/key}
+					</Container>
 				{/snippet}
 			</FlowMount>
 		{/if}
@@ -2616,9 +2620,11 @@
 				<LayoutScene scene={basegameMountAboveReel} />
 			{/if}
 		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
-			{#key basegameDrive?.key}
-				<LayoutScene scene={basegameAboveReel} nodeDriver={basegameDrive?.driver} />
-			{/key}
+			<Container>
+				{#key basegameDrive?.key}
+					<LayoutScene scene={basegameAboveReel} nodeDriver={basegameDrive?.driver} />
+				{/key}
+			</Container>
 		{/if}
 
 		<!-- The add-on's Pots screen under a driven v2 flow that never shows it. Inside this gate, so it
