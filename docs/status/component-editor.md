@@ -108,7 +108,7 @@ Shipped capabilities on `main`:
   `ComponentWorkspace.svelte`; empty or ≤ 0 clears it); the normalizer already kept a root box.
   Only a count-mode repeater reads it (background cover-fit and the source-list repeater still
   measure), and a def without both sides lays out exactly as before. Gates:
-  `check:component-repeat-segments` (70: the measure, the normalizer, rig-only segments mounted for
+  `check:component-repeat-segments` (71: the measure, the normalizer, rig-only segments mounted for
   real stacking without a box and stepping 166 px with a 160 × 120 one) and
   `check:component-repeat-segments-editor` (36: the canvas layout, the field). Guide:
   [§ Segmented counters](../tools/invisible-editor.md#segmented-counters--repeat-count).

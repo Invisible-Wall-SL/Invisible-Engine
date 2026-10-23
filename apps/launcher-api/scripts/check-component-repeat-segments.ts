@@ -275,6 +275,11 @@ const repeater = (over: Partial<RepeaterNode> = {}): RepeaterNode => ({
 		R.repeaterSegmentSize(rigOnly({ width: 160 }), 'desktop'),
 		null,
 	);
+	eq(
+		'…and a side that is not a finite positive number does not count',
+		R.repeaterSegmentSize(rigOnly({ width: Infinity, height: 120 }), 'desktop'),
+		null,
+	);
 	const starter = R.repeaterSegmentSize(SEGMENT, 'desktop');
 	eq(
 		'a segment with no box is measured from what it draws, as before',

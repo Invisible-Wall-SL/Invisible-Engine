@@ -90,9 +90,8 @@ export function repeaterSegmentSize(
 	layoutType: LayoutType,
 ): RepeaterItemSize | null {
 	const { width, height } = def.root;
-	if (width !== undefined && height !== undefined && width > 0 && height > 0) {
-		return { width, height };
-	}
+	const side = (v?: number): v is number => v !== undefined && Number.isFinite(v) && v > 0;
+	if (side(width) && side(height)) return { width, height };
 	return componentDesignSize(def, () => null, layoutType);
 }
 

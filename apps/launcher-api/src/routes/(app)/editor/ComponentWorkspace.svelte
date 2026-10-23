@@ -2391,12 +2391,17 @@
 	}
 
 	/** Set one side of the component's box (`root.width` / `root.height`), the size a Repeat (count)
-	 * lays a segment out by when both are set; empty or not positive clears it (measured instead). */
-	function setComponentSize(axis: 'width' | 'height', raw: string): void {
-		if (!componentDraft) return;
+	 * lays a segment out by when both are set; empty or not a positive number clears it (measured
+	 * instead). Returns what the field should show. */
+	function setComponentSize(axis: 'width' | 'height', raw: string): string {
+		if (!componentDraft) return '';
 		const value = Number(raw);
-		if (raw.trim() === '' || !(value > 0)) delete componentDraft.root[axis];
-		else componentDraft.root[axis] = value;
+		if (raw.trim() === '' || !Number.isFinite(value) || value <= 0) {
+			delete componentDraft.root[axis];
+			return '';
+		}
+		componentDraft.root[axis] = value;
+		return String(value);
 	}
 
 	/** Drag payload for a palette ELEMENT (Text/Container/Rect) — the canvas spawns
@@ -2546,22 +2551,24 @@
 					Size
 					<input
 						type="number"
-						min="0"
+						min="1"
 						placeholder="auto"
 						aria-label="Component width"
 						value={componentDraft.root.width ?? ''}
 						disabled={isInspecting}
-						onchange={(e) => setComponentSize('width', e.currentTarget.value)}
+						onchange={(e) =>
+							(e.currentTarget.value = setComponentSize('width', e.currentTarget.value))}
 					/>
 					×
 					<input
 						type="number"
-						min="0"
+						min="1"
 						placeholder="auto"
 						aria-label="Component height"
 						value={componentDraft.root.height ?? ''}
 						disabled={isInspecting}
-						onchange={(e) => setComponentSize('height', e.currentTarget.value)}
+						onchange={(e) =>
+							(e.currentTarget.value = setComponentSize('height', e.currentTarget.value))}
 					/>
 				</label>
 				{#if isInspecting}
