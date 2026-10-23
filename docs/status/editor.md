@@ -192,7 +192,10 @@ Shipped capabilities on `main`:
   check:canvas-window-scale` mounts the REAL `LayoutScene`, `MainContainer` and
   `CanvasSizeRectangle` inside the real `createLayout` on a simulated window and replays the
   project's intro end frame (15 failures on the old `LayoutScene`: the 448 px gap and the rocket on
-  screen among them); `pnpm --filter launcher-api check:scene-scale-with-window` round-trips the
+  screen among them). Its `<LayoutNodeView>` is a stand-in, so it proves the tap dim and hit area
+  hoisted through the real tap portal and a nested game box, not the node view's own cover-fit or
+  game-frame paths (they read the same context, linearly; the Chromium run below draws the real
+  press-anywhere prompt); `pnpm --filter launcher-api check:scene-scale-with-window` round-trips the
   save. The shared DOM shim (`scripts/lib/svelte-dom-shim.mjs`) learned multi-root `<template>`
   fragments for it. Verified in Chromium on a local runtime build against the project's published
   snapshot with a forced red pot: at 1920×1080 the end frame is pixel-identical with and without

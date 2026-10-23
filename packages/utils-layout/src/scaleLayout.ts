@@ -9,24 +9,21 @@ type Derived = Layout['stateLayoutDerived'];
  * nested `<MainContainer>`) lands on the real window once the container scales it back up, while
  * pixel offsets and sizes come out `scale` times larger. The bucket (`layoutType`, `isStacked`)
  * and the device class stay the real window's. A `canvas`-space screen that scales with the window
- * (`Scene.scaleWithWindow`) hands this to its content.
+ * (`Scene.scaleWithWindow`) hands this to its content. `scale()` must be finite and above 0: the
+ * container is scaled by the same reader, so the two cannot disagree.
  */
 export function scaleLayout(layout: Layout, scale: () => number): Layout {
 	const real = layout.stateLayoutDerived;
-	const s = () => {
-		const value = scale();
-		return Number.isFinite(value) && value > 0 ? value : 1;
-	};
 	const boxLayout = (read: Derived['mainLayout']) => () => {
 		const box = read();
-		const k = s();
+		const k = scale();
 		return { ...box, x: box.x / k, y: box.y / k, scale: box.scale / k };
 	};
 	const coverLayout =
 		(read: Derived['normalBackgroundLayout']): Derived['normalBackgroundLayout'] =>
 		(options) => {
 			const cover = read(options);
-			const k = s();
+			const k = scale();
 			return cover.width === undefined
 				? { x: cover.x / k, y: cover.y / k, height: cover.height / k }
 				: { x: cover.x / k, y: cover.y / k, width: cover.width / k };
@@ -37,7 +34,7 @@ export function scaleLayout(layout: Layout, scale: () => number): Layout {
 			...real,
 			canvasSizes: () => {
 				const canvas = real.canvasSizes();
-				const k = s();
+				const k = scale();
 				return { width: canvas.width / k, height: canvas.height / k };
 			},
 			mainLayout: boxLayout(real.mainLayout),

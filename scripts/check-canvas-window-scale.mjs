@@ -252,7 +252,7 @@ if (svelteCopies.size !== 1) {
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { SvelteMap } = await import('svelte/reactivity');
-const { createLayout, setAuthoredLayoutProfile, setContextLayout } = await import(UTILS_LAYOUT);
+const { createLayout, setAuthoredLayoutProfile } = await import(UTILS_LAYOUT);
 const { resolveNodeActors, keyedNodeChannels } = await import(CINEMATIC_NODES);
 const { sampleNodeActor } = await import(ENGINE_CINEMATIC);
 

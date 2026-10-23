@@ -62,7 +62,10 @@
 	const windowScaled = untrack(
 		() => scene.space === 'canvas' && scene.scaleWithWindow === true && !!layoutContext,
 	);
-	const windowScale = () => layoutContext.stateLayoutDerived.mainLayoutStandard().scale;
+	const windowScale = () => {
+		const fit = layoutContext.stateLayoutDerived.mainLayoutStandard().scale;
+		return Number.isFinite(fit) && fit > 0 ? fit : 1;
+	};
 	if (windowScaled) setContextLayout(scaleLayout(layoutContext, windowScale));
 
 	// Canvas-frame tap PORTAL (tapPortalContext): an overlay instance's full-screen tap

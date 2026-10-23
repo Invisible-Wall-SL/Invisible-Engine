@@ -3959,7 +3959,7 @@
 							{#if activeScene.space === 'canvas'}
 								<label
 									class="ontop-field"
-									title="Draw this screen in game as it looks here on every window size. Unticked, a canvas screen keeps the pixel size shown here, so on a bigger or smaller window its nodes, their offsets from the edges and its timeline's moves stay the same number of pixels while the game around them scales. Ticked, the whole screen scales like the game box, and each node stays pinned to its window edge."
+									title="Draw this screen in game as it looks here, on any window the shape of this frame. Unticked, a canvas screen keeps the pixel size shown here, so on a bigger or smaller window its nodes, their offsets from the edges and its timeline's moves stay the same number of pixels while the game around them scales. Ticked, the whole screen grows or shrinks as much as this frame must to fit the window, and each node stays pinned to its window edge."
 								>
 									<input
 										type="checkbox"
@@ -3969,7 +3969,7 @@
 									<span>Scale with the window</span>
 									<span class="ontop-note">
 										{activeScene.scaleWithWindow
-											? 'scales like the game box, pinned to the window edges'
+											? 'scales with the window, pinned to its edges'
 											: 'window pixels — the same size on every window'}
 									</span>
 								</label>
