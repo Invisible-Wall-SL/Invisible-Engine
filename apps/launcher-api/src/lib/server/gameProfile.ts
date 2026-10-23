@@ -172,6 +172,8 @@ function winModelText(ctx: ProfileContext): string {
 			return `Cluster pays · ${model.minCluster}+ ${model.adjacency}`;
 		case 'scatter':
 			return `Scatter pays · ${model.minCount}+ anywhere`;
+		case 'match3':
+			return `Match-3 · runs of ${model.minRun}+`;
 	}
 }
 

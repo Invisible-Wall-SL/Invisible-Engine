@@ -3,12 +3,13 @@
 > Design: [docs/design/invisible-shader-graph.md](../design/invisible-shader-graph.md) · Guide: none yet (step 5) · Agent: `.claude/agents/invisible-shader-graph.md`
 
 **One-line state:** plan approved 2026-10-23. Step 1 (one shared GLSL library under the 17
-built-in shader passes) and step 2 (the `engine-shadergraph` package: nodes, validator, compiler)
-are built and in review. Nothing plays a graph yet, and no tool or route exists.
+built-in shader passes) merged as #1320. Step 2 (the `engine-shadergraph` package: nodes,
+validator, compiler) is built and in review (#1322). Nothing plays a graph yet, and no tool or route
+exists.
 
 ## Current state
-- **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Built and
-  in review.
+- **Step 1, the shared GLSL library** (`constants-shared/glslLibrary.ts`). Merged (#1320,
+  2026-10-23).
   - **The library.** It holds 16 building blocks: hash and value noise (2-D and 1-D), a 2-D hash,
     cellular noise, luminance, relief height, alpha outline, edge distance, "away from a side",
     band, glint, the two rotations and a transpose.
@@ -51,7 +52,7 @@ are built and in review. Nothing plays a graph yet, and no tool or route exists.
 - **Not started:** steps 3–8 (the runtime kinds, the pipeline, the `/shaders` editor, templates).
 
 ## Open items / next
-1. Merge step 1, then step 2.
+1. Merge step 2 (#1322).
 2. **Nodes the design lists that v1 does not have yet:** Perspective plane (the 3D flip's ray cast
    as one node), star / sparkle, rim, loop envelope and the pixel input. Add them when a template
    (step 6) or an artist needs one.

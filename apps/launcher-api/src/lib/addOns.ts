@@ -3,7 +3,9 @@ import {
 	bonusCapabilityInputs,
 	flowAddOnsOf,
 	resolveExpandingSymbol,
+	resolveFamily,
 	resolveMeters,
+	resolveOutcome,
 	respinModeDecls,
 	spinsModeDecls,
 	type GameConfigDoc,
@@ -13,13 +15,27 @@ import {
  *  §2.4): a declared respin mode (`holdAndWin`), the pots overlay's block, and the Book-of expanding
  *  special (docs/design/book-feature.md §3.3) — the `KindCapabilityConfig` flags the kind-gated
  *  editor surfaces read. All `false` without a config, which `kindCapabilities` answers exactly as
- *  it does with no config at all. */
-export type ProjectAddOns = { holdAndWin: boolean; potsOverlay: boolean; expandingSymbol: boolean };
+ *  it does with no config at all. A config of another family than a slot (game-families.md §6.1)
+ *  adds its `family` and `outcome`; a slot's carries neither, so its answers are unchanged. */
+export type ProjectAddOns = {
+	holdAndWin: boolean;
+	potsOverlay: boolean;
+	expandingSymbol: boolean;
+	family?: string;
+	outcome?: string;
+};
 
 type AddOnDoc =
 	| Pick<
 			GameConfigDoc,
-			'coinOverlay' | 'modes' | 'freeSpins' | 'symbols' | 'paddingReels' | 'coinBoard'
+			| 'coinOverlay'
+			| 'modes'
+			| 'freeSpins'
+			| 'symbols'
+			| 'paddingReels'
+			| 'coinBoard'
+			| 'family'
+			| 'outcome'
 	  >
 	| null
 	| undefined;
@@ -72,7 +88,16 @@ export function projectAddOns(doc: AddOnDoc): {
 	const holdAndWin = bonus?.respinMode ?? false;
 	const potsOverlay = bonus?.potsOverlay ?? false;
 	const expandingSymbol = resolveExpandingSymbol(doc ?? undefined) !== undefined;
-	return { addOns: { holdAndWin, potsOverlay, expandingSymbol }, potIds: doc ? meters : null };
+	const family = resolveFamily(doc);
+	return {
+		addOns: {
+			holdAndWin,
+			potsOverlay,
+			expandingSymbol,
+			...(family !== 'slot' ? { family, outcome: resolveOutcome(doc) } : {}),
+		},
+		potIds: doc ? meters : null,
+	};
 }
 
 /** No respin mode has a jackpot tier (a plain Hold and Win with Jackpots off): the scene set leaves
