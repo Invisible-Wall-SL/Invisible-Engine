@@ -1,8 +1,10 @@
-import { kindCapabilities } from 'engine-layout';
+import { kindCapabilities, type SymbolPlayFacts } from 'engine-layout';
 import {
 	gameTypeForMode,
 	resolveCascade,
+	resolveMeters,
 	resolveReelBehaviour,
+	respinModeDecls,
 	spinsModeDecls,
 	symbolHoldAndWinRoles,
 	symbolsInPlayForGameType,
@@ -44,13 +46,26 @@ export function symbolsPageConfig(
 		}
 	}
 	const reel = resolveReelBehaviour(doc ?? undefined);
+	const tokenPots = overlayTokenPots(doc);
+	// The dealt symbols with a Hold and Win role: the respin feature's coins and specials, a group of
+	// their own after the other symbols, since they play their own states.
+	const holdAndWinRows = grid.symbols.filter(
+		(name) => holdAndWinRoles[name] && uses[name] === 'inPlay' && !tokenPots[name],
+	);
+	const holdAndWinSet = new Set(holdAndWinRows);
 	return {
 		defaults: grid.defaults,
-		// The rows the grid lists, in order — see `symbolGrid`.
-		symbols: grid.symbols,
+		// The rows the grid lists, in the order it draws them: the symbols (`symbolGrid`'s order), then
+		// the Hold and Win group.
+		symbols: [...grid.symbols.filter((name) => !holdAndWinSet.has(name)), ...holdAndWinRows],
+		holdAndWinRows,
 		// The rows that are the pots overlay's coins (its tokens), in pot order — a group of their own
 		// after the symbols, as `/config` gives them a section of their own.
 		coins: doc ? symbolsUsed(doc).filter((name) => uses[name] === 'token' && listed.has(name)) : [],
+		// What the game can play on each row — `symbolStatesPlayed` (engine-layout) narrows the row's
+		// cells to it, so a state the game never draws for that symbol is not offered. Absent without a
+		// config: every row then offers every column.
+		...(doc ? { plays: playFacts(doc, grid.symbols, uses, holdAndWinRoles, tokenPots) } : {}),
 		// Does this project tumble? Gates the `Clear reel` column, which only means anything to a
 		// cascading game. Resolved (not the raw stored field) so the answer matches the one the game
 		// itself acts on: absent ⇒ the win model's default, so a cluster/scatter project gets the
@@ -81,7 +96,7 @@ export function symbolsPageConfig(
 		// on every other project, so their page data is unchanged.
 		...(doc?.coinBoard ? { coinBoard: true as const } : {}),
 		// Each pots overlay token → the pots it fills: a chip on its row head. Empty without the block.
-		tokenPots: overlayTokenPots(doc),
+		tokenPots,
 		// The add-on blocks the config carries — passed with the kind to `kindCapabilities`, so a
 		// Hold and Win bonus or a pots overlay lights its own parts on any kind.
 		addOns,
@@ -103,6 +118,42 @@ export function symbolsPageConfig(
 		// differently from the rest.
 		meterIds: potIds ?? [],
 	};
+}
+
+/** Each row's {@link SymbolPlayFacts}, read off the config the rows come from. */
+function playFacts(
+	doc: GameConfigDoc,
+	rows: readonly string[],
+	uses: Record<string, string>,
+	holdAndWinRoles: Record<string, string[]>,
+	tokenPots: Record<string, string[]>,
+): Record<string, SymbolPlayFacts> {
+	// A coin board has no reels: its base game is dealt onto the respin board.
+	const respinTypes = new Set(respinModeDecls(doc).map(gameTypeForMode));
+	const onReels = new Set(
+		doc.coinBoard
+			? []
+			: Object.keys(doc.paddingReels)
+					.filter((gameType) => !respinTypes.has(gameType))
+					.flatMap((gameType) => symbolsInPlayForGameType(doc, gameType)),
+	);
+	const fillers = new Set(
+		resolveMeters(doc)
+			.filter((meter) => meter.source === 'symbol')
+			.map((meter) => meter.symbol),
+	);
+	return Object.fromEntries(
+		rows.map((name) => [
+			name,
+			{
+				dealt: uses[name] === 'inPlay',
+				onReels: onReels.has(name),
+				token: Boolean(tokenPots[name]),
+				holdAndWinRoles: holdAndWinRoles[name] ?? [],
+				fillsMeter: fillers.has(name),
+			},
+		]),
+	);
 }
 
 /**

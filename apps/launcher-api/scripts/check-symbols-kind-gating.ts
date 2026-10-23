@@ -19,6 +19,12 @@
  *   4. DEFAULTS — `symbolDefaultsFor('holdAndWin')` is its own set, validates, carries every symbol
  *      of every Hold and Win preset (art for all but the blank), and is a strict SUPERSET of the
  *      `lines` set it used to fall back to, binding for binding.
+ *   5. ROW STATES — each row offers only what the game plays for its symbol (`symbolStatesPlayed`
+ *      over `symbolsPageConfig`'s facts), for every kind × setup: without a Hold and Win bonus or a
+ *      pots overlay every row offers every column, as before; a symbol without a role offers no
+ *      Hold and Win state; a token offers its four; a Hold and Win symbol never offers `win`,
+ *      `postWinStatic` or a book state, and only its role's symbol offers that role's beat. The
+ *      page draws the Hold and Win rows as a group after the others, in `symbols`' order.
  *
  * Run:  pnpm --filter launcher-api check:symbols-kind-gating
  */
@@ -30,6 +36,7 @@ import {
 	POTS_TOKEN_SYMBOL_STATES,
 	SYMBOL_STATES,
 	symbolStatesForKind,
+	symbolStatesPlayed,
 	type KindCapabilities,
 	type KindCapabilityConfig,
 } from 'engine-layout';
@@ -41,9 +48,13 @@ import {
 	potsOverlayPreset,
 	symbolHoldAndWinRoles,
 } from 'game-config';
+import { readLF } from '../../../scripts/lib/read-lf.mjs';
 import { overlayTokenPots, projectAddOns } from '../src/lib/addOns.ts';
+import { resolvedGameConfigFrom } from '../src/lib/server/gameConfigDefaults.ts';
 import { symbolDefaultsFor } from '../src/lib/server/symbolDefaults.ts';
+import { symbolsPageConfig } from '../src/lib/server/symbolsPageConfig.ts';
 import { visibleStatesFor } from '../src/routes/(app)/symbols/symbols.client.ts';
+import { setups } from './lib/configSetups.ts';
 
 let failures = 0;
 let checks = 0;
@@ -368,6 +379,138 @@ for (const [presetId, preset] of Object.entries(HOLD_AND_WIN_PRESETS)) {
 		);
 	}
 }
+
+// ── 5. row states ───────────────────────────────────────────────────────────────────────────────
+const HW_STATES: readonly string[] = HOLD_AND_WIN_SYMBOL_STATES;
+const ROLE_BEATS: Record<string, string[]> = {
+	coinBoost: ['payer', 'coinMultiplier'],
+	respinsAdd: ['addRespins'],
+	coinUpgrade: ['upgrade'],
+	rowUnlock: ['unlock'],
+	mysteryReveal: ['mystery'],
+};
+const NEVER_ON_A_COIN = ['win', 'postWinStatic', 'bookIntro', 'bookIdle'];
+let rowSetups = 0;
+for (const kind of [...GAME_KINDS, 'myCustomKind']) {
+	for (const { label, stored } of setups(kind)) {
+		const config = resolvedGameConfigFrom(stored, kind);
+		const page = symbolsPageConfig(kind, symbolDefaultsFor(kind), config);
+		const at = `${kind} · ${label}`;
+		const columns = visibleStatesFor(kind, {
+			cascade: page.cascade,
+			...page.reelBehaviour,
+			...page.addOns,
+		});
+		const { bookReveal } = kindCapabilities(kind, page.addOns);
+		const rowsOf = (name: string) => {
+			const facts = page.plays?.[name];
+			return facts ? symbolStatesPlayed(columns, facts, { bookReveal }) : columns;
+		};
+		rowSetups += 1;
+		check(
+			`${at} · facts for every row, exactly when a config resolves`,
+			[Object.keys(page.plays ?? {}).sort()],
+			[config.doc ? [...page.symbols].sort() : []],
+		);
+		check(
+			`${at} · the Hold and Win rows close the symbols, in their order`,
+			page.symbols.slice(page.symbols.length - page.holdAndWinRows.length),
+			page.holdAndWinRows,
+		);
+		const bonus = page.addOns.holdAndWin || page.addOns.potsOverlay || kind === 'holdAndWin';
+		for (const name of page.symbols) {
+			const states = rowsOf(name);
+			const roles = page.holdAndWinRoles[name] ?? [];
+			const facts = page.plays?.[name];
+			if (!bonus) {
+				check(`${at} · ${name} offers every column, as before`, states, columns);
+				continue;
+			}
+			if (page.coins.includes(name)) {
+				check(`${at} · token ${name} offers its four`, states, [
+					'static',
+					'coinIdle',
+					'coinLand',
+					'flyToMeter',
+				]);
+				continue;
+			}
+			if (!page.holdAndWinRows.includes(name)) {
+				check(
+					`${at} · ${name} offers no Hold and Win state${facts?.fillsMeter ? ' but its flight' : ''}`,
+					states.filter((state) => HW_STATES.includes(state)),
+					facts?.fillsMeter && facts.onReels && columns.includes('flyToMeter')
+						? ['flyToMeter']
+						: [],
+				);
+				continue;
+			}
+			check(
+				`${at} · ${name} (${roles.join(', ')}) rests and spins, and never wins or is the book`,
+				[
+					states.includes('static') && states.includes('spin'),
+					states.filter((state) => NEVER_ON_A_COIN.includes(state)),
+				],
+				[true, []],
+			);
+			for (const [beat, owners] of Object.entries(ROLE_BEATS)) {
+				check(
+					`${at} · ${name} offers ${beat} only for its role`,
+					states.includes(beat as never),
+					roles.some((role) => owners.includes(role)),
+				);
+			}
+			const held = roles.some((role) => role !== 'blank' && role !== 'meterSpecial');
+			check(
+				`${at} · ${name} offers ${held ? 'every held state' : 'no held state but its stop'}`,
+				['coinIdle', 'coinLand', 'coinStick', 'coinCollect', 'jackpotReveal'].filter((state) =>
+					states.includes(state as never),
+				),
+				held ? ['coinIdle', 'coinLand', 'coinStick', 'coinCollect', 'jackpotReveal'] : ['coinLand'],
+			);
+		}
+	}
+}
+check('row states ran over every setup', rowSetups > GAME_KINDS.length * 3, true);
+const classic = symbolsPageConfig(
+	'holdAndWin',
+	symbolDefaultsFor('holdAndWin'),
+	resolvedGameConfigFrom(
+		{ doc: normalizeGameConfigDoc(structuredClone(HOLD_AND_WIN_PRESETS.classic)), etag: '"e"' },
+		'holdAndWin',
+	),
+);
+const classicColumns = visibleStatesFor('holdAndWin', classic.addOns);
+const classicRow = (name: string) =>
+	symbolStatesPlayed(classicColumns, classic.plays![name], { bookReveal: false });
+check('classic · the coin: the reels, then the respin board', classicRow('BONUS'), [
+	'static',
+	'spin',
+	'land',
+	'coinIdle',
+	'coinLand',
+	'coinStick',
+	'coinCollect',
+	'jackpotReveal',
+]);
+check('classic · the blank only rolls and stops', classicRow('BLANK'), [
+	'static',
+	'spin',
+	'coinLand',
+]);
+check('classic · a line symbol offers no Hold and Win state', classicRow('H1'), BASE);
+const symbolsPage = readLF(
+	new URL('../src/routes/(app)/symbols/+page.svelte', import.meta.url).pathname,
+);
+check(
+	'/symbols narrows each row with symbolStatesPlayed and draws only those cells',
+	[
+		'symbolStatesPlayed(visibleStates, facts, { bookReveal: caps.bookReveal })',
+		'{#if !playedStates[symbol]?.includes(state)}',
+		'{#each holdAndWinRows as symbol (symbol)}',
+	].filter((line) => !symbolsPage.includes(line)),
+	[],
+);
 
 console.log(
 	failures === 0
