@@ -1295,7 +1295,7 @@
 	 * open-on-click from also firing. Closes the draft if the deleted one was open. */
 	async function deleteComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
 		e.stopPropagation();
-		if (writesBlocked || duplicating) return;
+		if (writesBlocked || duplicating || renaming) return;
 		const ok = await askConfirm({
 			title: `Delete component "${def.name}"?`,
 			message: 'Every version of it goes with it. This cannot be undone.',
@@ -1430,6 +1430,11 @@
 		e.stopPropagation();
 		if (writesBlocked || busy || duplicating || renaming || !data.projectKey) return;
 		if (!canRenameComponent(def) || (componentDraft?.id === def.id && lease.readOnly)) return;
+		// Open, but its ETag is still being read (`loadEtag`): that read would land on top.
+		if (componentDraft?.id === def.id && !isInspecting && saveState.etag === null) {
+			navStatus = 'This component is still loading. Try again in a moment.';
+			return;
+		}
 		let name: string | null = def.name;
 		let message: string | undefined;
 		for (;;) {
@@ -1437,7 +1442,7 @@
 				title: `Rename "${def.name}"`,
 				message,
 				label: 'Name',
-				value: name ?? def.name,
+				value: name,
 				confirmLabel: 'Rename',
 			});
 			if (name === null || name.trim() === def.name) return;
@@ -1451,7 +1456,7 @@
 			const result = await writeComponentRename(def.id, name, {
 				read: async (id) => {
 					const res = await fetch(
-						`/api/editor/component?id=${encodeURIComponent(id)}&project=${project}`,
+						`/api/editor/component?id=${encodeURIComponent(id)}&project=${project}&stored=project`,
 					);
 					if (!res.ok) return { status: res.status };
 					const body = (await res.json()) as { def: ComponentDef; etag?: string | null };
@@ -1477,11 +1482,10 @@
 			componentEtags = { ...componentEtags, [renamed.id]: result.etag };
 			if (componentDraft?.id === renamed.id && !isInspecting) {
 				componentDraft.name = renamed.name;
-				componentDraft.version = renamed.version;
-				if (savedSnapshot !== null) savedSnapshot = renamedSnapshot(savedSnapshot, renamed);
+				if (savedSnapshot !== null) savedSnapshot = renamedSnapshot(savedSnapshot, renamed.name);
 				if (saveState.etag === result.readEtag) saveState.adoptEtag(result.etag);
+				saveStatus = { kind: 'ok', message: `Renamed to "${renamed.name}"` };
 			}
-			saveStatus = { kind: 'ok', message: `Renamed to "${renamed.name}"` };
 		} catch (err) {
 			navStatus = `Could not rename "${def.name}": ${err instanceof Error ? err.message : String(err)}`;
 		} finally {
@@ -2728,7 +2732,7 @@
 						class="cmp-dup"
 						title={`Duplicate "${def.name}" as a new component of this project`}
 						aria-label={`Duplicate component "${def.name}"`}
-						disabled={writesBlocked || busy || duplicating}
+						disabled={writesBlocked || busy || duplicating || renaming}
 						onclick={(e) => void duplicateComponentDef(e, def)}
 					>
 						⧉

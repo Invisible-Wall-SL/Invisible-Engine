@@ -106,8 +106,10 @@ Shipped capabilities on `main`:
   rename of shared or built-in components). *How*: `componentRename.client.ts` (pure:
   `componentRenameProblem`, which trims and rejects empty or a name another listed component uses,
   case-blind; `writeComponentRename`) and `renameComponentDef` in `ComponentWorkspace.svelte`.
-  The stored def is read fresh with its ETag (`GET /api/editor/component`) and saved back with
-  only `name` changed, as a CAS on that ETag through the existing route. A save landing in between
+  The project's stored def is read fresh with its ETag (`GET /api/editor/component?stored=project`
+  → `loadStoredProjectComponent`: the stored bytes without the coded-twin merge, so a built-in's
+  project copy does not gain the twin's newer params and bump) and saved back with only `name`
+  changed, as a CAS on that ETag through the existing route. A save landing in between
   refuses the rename (409), and nothing is written. The draft save is held while the rename runs.
   **Versioning:** `reconcileVersion` (`componentStorage.ts`) now ignores `name` when deciding a
   bump. The name labels the def in the lists, and no placement, bake or game reads it, so a rename
@@ -124,9 +126,12 @@ Shipped capabilities on `main`:
   inside other components. Screen and component timelines bind node actors BY LABEL
   (`findNodeByName` / `findActorNode`), so relabelling would silently detach animations. The write
   would also span scenes.json plus every nesting def, each its own CAS object (non-atomic), and
-  bump every nesting def's version. The id reference is what keeps everything working. Gate:
-  `pnpm --filter launcher-api check:component-rename` (30 checks; the real route over an in-memory
-  R2).
+  bump every nesting def's version. The id reference is what keeps everything working. **Known
+  edges:** the lease covers only the open component, so a component another author has open can be
+  renamed; their next save conflicts, and their **Save on top** restores the old name. **◇ Edit as
+  component** reuses a project def whose name equals the container's label, so after a rename it
+  matches the new name, not the old. Gate: `pnpm --filter launcher-api check:component-rename` (37
+  checks; the real route over an in-memory R2, including a built-in's project copy).
 - 2026-10-23 — **⧉ Duplicate a component** (branch `claude/component-duplicate`, in review, ⏳ not
   browser-verified). A ⧉ on each row of the Components list (home and the Browse tab) copies ANY
   listed component — project, shared or built-in — into a new project component and opens it.

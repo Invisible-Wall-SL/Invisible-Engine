@@ -11,6 +11,8 @@
  *  3. it is a CAS on the ETag it read: a save landing between the read and the write refuses the
  *     rename and leaves the stored def as that save wrote it; a def the project no longer owns is
  *     never written;
+ *     a built-in's project copy renames from its stored bytes, not the merged def, so it keeps its
+ *     version too;
  *  4. the open draft takes the new name in place, its saved baseline too (unsaved edits stay
  *     unsaved);
  *  5. the workspace wiring: ✎ on both lists, a tooltip pointing shared and built-in rows at ⧉, the
@@ -88,6 +90,7 @@ mock.module(server('toolScope.ts'), {
 const { projectComponentKey, projectComponentVersionKey } =
 	await import('../src/lib/server/projectPaths.ts');
 const { loadComponent } = await import('../src/lib/server/componentStorage.ts');
+const { BUILTIN_COMPONENTS, mergeBuiltinCodedParams } = await import('engine-layout');
 const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
 const { canRenameComponent, componentRenameProblem, renamedSnapshot, writeComponentRename } =
 	await import('../src/routes/(app)/editor/componentRename.client.ts');
@@ -117,7 +120,7 @@ const post = (body: unknown) =>
 const get = (id: string) =>
 	call(
 		componentRoute.GET,
-		new URL(`http://launcher.test/api/editor/component?id=${id}&project=${PROJECT}`),
+		new URL(`http://launcher.test/api/editor/component?id=${id}&project=${PROJECT}&stored=project`),
 	);
 const routeWrites: RenameWrites = {
 	read: async (id) => {
@@ -287,19 +290,45 @@ const snapshot = (v: number): ComponentDef | null => {
 	);
 }
 
+// 3b. A project copy of a built-in, stored before its coded twin gained params: the rename saves
+// the stored def back (not the merged one the editor opens), so it still keeps the version.
+{
+	const twin = BUILTIN_COMPONENTS.find((b) => (b.params?.length ?? 0) > 1);
+	if (!twin) throw new Error('no built-in with params to test against');
+	const copy = { ...structuredClone(twin), scope: 'project' as const, version: 3 };
+	copy.params = copy.params?.slice(0, 1);
+	check(
+		'3b the coded twin adds what the stored copy lacks',
+		JSON.stringify(mergeBuiltinCodedParams(copy)) === JSON.stringify(copy),
+		false,
+	);
+	check('3b stored', (await post({ ...copy, project: PROJECT, baseEtag: null })).status, 200);
+	const key = projectComponentKey(PROJECT, twin.id);
+	const keysBefore = [...bucket.keys()].sort();
+	const result = await writeComponentRename(twin.id, 'My Twin', routeWrites);
+	const after = JSON.parse(bucket.get(key)!.text) as ComponentDef;
+	check(
+		'3b renamed at the same version, nothing merged in',
+		['def' in result && result.def.version, after.version, after.name, after.params?.length],
+		[3, 3, 'My Twin', 1],
+	);
+	check('3b no new snapshot', [...bucket.keys()].sort(), keysBefore);
+	check(
+		'3b a component the project has no copy of reads 404 (never the shared or built-in one)',
+		(await get('c_nowhere')).status,
+		404,
+	);
+}
+
 // 4. The open draft's saved baseline.
 {
 	const draft = { ...def, category: 'overlay' };
 	const baseline = JSON.stringify(def);
-	const patched = renamedSnapshot(baseline, { name: 'New', version: 7 });
-	check(
-		'4 name and version replaced, key order kept',
-		patched,
-		JSON.stringify({ ...def, name: 'New', version: 7 }),
-	);
+	const patched = renamedSnapshot(baseline, 'New');
+	check('4 the name replaced, key order kept', patched, JSON.stringify({ ...def, name: 'New' }));
 	check(
 		'4 an unsaved edit stays unsaved',
-		JSON.stringify({ ...draft, name: 'New', version: 7 }) === patched,
+		JSON.stringify({ ...draft, name: 'New' }) === patched,
 		false,
 	);
 }
@@ -344,9 +373,20 @@ const snapshot = (v: number): ComponentDef | null => {
 		'5 the open draft and its baseline take the new name',
 		[
 			body.includes('componentDraft.name = renamed.name;'),
-			body.includes('savedSnapshot = renamedSnapshot(savedSnapshot, renamed)'),
+			body.includes('savedSnapshot = renamedSnapshot(savedSnapshot, renamed.name)'),
+			body.includes('componentDraft.version'),
 		],
-		[true, true],
+		[true, true, false],
+	);
+	check(
+		'5 reads the stored project def, not the merged one',
+		body.includes('&stored=project'),
+		true,
+	);
+	check(
+		'5 waits while the open draft is still reading its ETag',
+		body.includes('saveState.etag === null'),
+		true,
 	);
 	check('5 no placement label is rewritten', /\.label\s*=/.test(body), false);
 }

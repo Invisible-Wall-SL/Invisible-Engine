@@ -142,6 +142,20 @@ export interface ComponentWithEtag {
 }
 
 /**
+ * The project's own stored def for `id` as written (no coded-twin merge) WITH its ETag, or
+ * `undefined` when the project has none. A rename saves this back with only its name changed, so
+ * the save compares equal to what is stored and keeps the version; the merged def
+ * {@link loadComponentWithEtag} returns can differ from the stored bytes for a built-in's copy.
+ */
+export async function loadStoredProjectComponent(
+	id: string,
+	projectKey: string,
+): Promise<ComponentWithEtag | undefined> {
+	const { def, etag } = await readComponentForWrite(projectComponentKey(projectKey, id));
+	return def ? { def, etag } : undefined;
+}
+
+/**
  * Resolve the LATEST editable def for `id` (project shadows shared shadows built-in) WITH
  * the ETag of the object it was read from — the save's precondition.
  *

@@ -951,13 +951,12 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	resetComponents();
 	// Byte-identical for known-only defs: the bytes a save wrote before the graft existed.
 	const etag = seed(componentKey, normalizeComponent(structuredClone(COMPONENT) as unknown as Def));
-	const edited = { ...structuredClone(COMPONENT), name: 'Spin' } as unknown as Def;
+	const edited = { ...structuredClone(COMPONENT), category: 'overlay' } as unknown as Def;
 	await saveComponent(edited, 'p', etag);
 	check(
 		'components: a known-only def saves byte-identically',
 		bucket.get(componentKey)?.text,
-		// A rename keeps the version (`reconcileVersion`), so this is the stored v3 under the new name.
-		JSON.stringify({ ...normalizeComponent(structuredClone(edited)), version: 3 }, null, 2),
+		JSON.stringify({ ...normalizeComponent(structuredClone(edited)), version: 4 }, null, 2),
 	);
 	// Every built-in, stored as a fork and saved unchanged, round-trips to the same bytes.
 	const drift: string[] = [];

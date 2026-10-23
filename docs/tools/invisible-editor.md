@@ -1575,8 +1575,10 @@ renamed in place, so rename your ⧉ copy instead.
   nested in another, repeater first / middle / last variant, timeline and published game keeps
   finding it. It also keeps its version: a rename is not a new version, so placements pinned to
   it get no **↑ vN** badge. (Inspecting that version later shows the name it was saved under.)
-- It is saved straight away, guarded like any save: if someone else saved the component since
-  the list loaded, the rename is refused and nothing changes. Reload and try again.
+- It is saved straight away, on top of the component as it is stored now, so any change saved by
+  someone else is kept. Only a save landing in the instant between its read and its write refuses
+  it (nothing changes; try again). If someone else has the component open, their next save asks
+  them to reload, as after any save of yours; their **Save on top** would put the old name back.
 - **Placed copies keep their labels.** A placement's label is set from the component's name when
   you place it, and screen and component timelines find their nodes by that label. Renaming the
   component does not relabel its placements, so those timelines keep working. Relabel a placement

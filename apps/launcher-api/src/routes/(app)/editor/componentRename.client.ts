@@ -27,7 +27,7 @@ export type RenameSave =
 	{ version: number; etag: string | null } | { status: number; message: string };
 
 export interface RenameWrites {
-	/** The stored def and its ETag as this project resolves it (`GET /api/editor/component`). */
+	/** The project's own def as stored, with its ETag (`GET /api/editor/component?stored=project`). */
 	read: (id: string) => Promise<RenameRead>;
 	/** A conditional save of `def` against `baseEtag` (`POST /api/editor/component`). */
 	save: (def: ComponentDef, baseEtag: string) => Promise<RenameSave>;
@@ -64,13 +64,9 @@ export async function writeComponentRename(
 	return { def: { ...def, version: saved.version }, etag: saved.etag, readEtag: read.etag };
 }
 
-/** `snapshot` (a def's JSON) with its `name` and `version` replaced in place, key order kept. */
-export function renamedSnapshot(
-	snapshot: string,
-	renamed: Pick<ComponentDef, 'name' | 'version'>,
-): string {
+/** `snapshot` (a def's JSON) with its `name` replaced in place, key order kept. */
+export function renamedSnapshot(snapshot: string, name: string): string {
 	const def = JSON.parse(snapshot) as ComponentDef;
-	def.name = renamed.name;
-	def.version = renamed.version;
+	def.name = name;
 	return JSON.stringify(def);
 }
