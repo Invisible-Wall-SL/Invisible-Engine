@@ -204,6 +204,15 @@ Shipped capabilities on `main`:
     ping-pong stepping; the inspector's suggestions, and the Rigger markup unchanged). The stub
     harnesses `check:screen-timeline-mounts` and `cinematic-screen-timeline.mjs` learned the two
     new `engine-layout` exports. `static/shared/timeline.mjs` was regenerated.
+  - **Parity audit (R2, 2026-10-23):** the bucket's 34 screen-hosted timelines, across every
+    project and its published snapshots, carry no cue at all, so no current game has a `signal:`
+    cue the new delivery could change. Note the emit reaches every open-bus listener of that name,
+    as a Flow `fireCue` does (rig *Plays on signal*, a component timeline's `playOn`, an Element FX
+    stop cue), not only _On cue_ entries.
+  - Review follow-up: a paste that lands nothing makes no actor (the target's `actor()` runs only
+    once a key fits), and a clipboard holding a camera key pastes as before.
+  - Editor preview gaps (in the guide): one Element FX at a time (the last a cue reaches),
+    Element FX inside a placed component's parts and stop cues not previewed.
 - 2026-10-23 — **A rig on a HUD (`standard`) screen draws by the box's own fit** (in review, ⏳ not
   browser-verified). Follow-up to the 2026-10-21 canvas fix below. The reviewer had flagged that a
   top-level rig on a `standard` screen kept its raw x/y while its box went through `standardToWorld`.

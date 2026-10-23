@@ -159,7 +159,8 @@ export function mount(el, options) {
 	let selStripId = null;
 	let selKey = null; // { trackId, channel, time } — the PRIMARY key (the inspector edits it)
 	let selKeys = []; // every selected property / camera key, the primary included
-	let keyClipboard = null; // [{ trackId, actorId, kind, channel, dt, value, ease }] — Ctrl+C, pasted at the playhead
+	// [{ trackId, actorId, kind, channel, dt, value, ease }] — Ctrl+C, pasted at the playhead
+	let keyClipboard = null;
 	const collapsed = new Set(); // actor ids whose summary row is folded
 	let onlySelected = false;
 	const interpolation = !!options.interpolation;
@@ -1806,18 +1807,18 @@ export function mount(el, options) {
 	}
 
 	/**
-	 * Where copied property keys of ONE actor land when the host names another actor
-	 * (`host.pasteTarget`, the node selected on the stage): that actor's track in the ratio being
-	 * edited, field to the same field, a field it cannot key skipped. Null ⇒ the copied channels.
+	 * Where copied keys land when they are all property keys of ONE actor and the host names another
+	 * actor (`host.pasteTarget`, the node selected on the stage): that actor's track in the ratio
+	 * being edited, field to the same field, a field it cannot key skipped. Null ⇒ the copied
+	 * channels (a camera key in the clipboard keeps the whole paste there).
 	 */
 	function pasteRetarget() {
-		const props = keyClipboard.filter((c) => c.kind === 'property');
-		const from = props.length ? props[0].actorId : null;
-		if (!from || props.some((c) => c.actorId !== from)) return null;
+		const from = keyClipboard[0].actorId;
+		if (!from || keyClipboard.some((c) => c.kind !== 'property' || c.actorId !== from)) return null;
 		const target = host.pasteTarget(from);
 		if (!target) return null;
 		const fields = new Set(target.channels);
-		if (!props.some((c) => fields.has(c.channel))) return null;
+		if (!keyClipboard.some((c) => fields.has(c.channel))) return null;
 		return { fields, track: () => ensurePropertyTrack(target.actor()) };
 	}
 
@@ -1832,18 +1833,18 @@ export function mount(el, options) {
 		const retarget = pasteRetarget();
 		if (!retarget) return pasteOntoCopied();
 		const at = snapT(time);
+		const fits = keyClipboard.filter(
+			(c) => retarget.fields.has(c.channel) && at + c.dt <= doc.duration + 1e-6,
+		);
+		if (!fits.length) return false;
 		const track = retarget.track();
 		const pasted = [];
-		for (const c of keyClipboard) {
-			if (c.kind !== 'property' || !retarget.fields.has(c.channel)) continue;
+		for (const c of fits) {
 			const t = at + c.dt;
-			if (t > doc.duration + 1e-6) continue;
 			const keys = (track.channels[c.channel] = track.channels[c.channel] || []);
 			putPastedKey(keys, t, c);
 			pasted.push({ trackId: track.id, channel: c.channel, time: t });
 		}
-		if (!Object.keys(track.channels).length) doc.tracks = doc.tracks.filter((t) => t !== track);
-		if (!pasted.length) return false;
 		selectKeys(pasted);
 		commit(pasted.length > 1 ? 'paste keys' : 'paste key');
 		render();

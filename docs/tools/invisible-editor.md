@@ -1423,8 +1423,10 @@ Three more kinds of row sit in the timeline's track area, under the keyed node's
     one, does not reach Element FX. The cue inspector lists the screen's _On cue_ Element FX under
     **Element FX (On cue)** in its picker, and its note names them; pick one to set the cue.
   - **▶ in Animate** plays those Element FX when the playhead passes the cue, the way **▶** on an
-    Element FX row does (on a still of the element, one at a time). Scrubbing plays nothing, as
-    in the game.
+    Element FX row does (on a still of the element). Scrubbing plays nothing, as in the game. The
+    preview plays one effect at a time, so when a cue reaches several (the screen's and a node's)
+    you see the last one; the game plays them all. Element FX inside a placed component's own parts
+    hear the cue in the game but are not previewed here, and a stop cue is not previewed.
 - **Visible.** With a node selected, the left column has **👁 Show** and **Hide**: each keys the
   node shown or hidden from the playhead (stepped, no fade). The keys draw on a **↳ visible** row:
   a filled marker means shown from there, a hollow one hidden. Click one to select it (it outlines

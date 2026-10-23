@@ -222,6 +222,62 @@ console.log('3. the ratio being edited, and fields the target cannot key');
 	t2.destroy();
 }
 
+console.log('3b. a paste that lands nothing, and a clipboard with camera keys');
+{
+	const doc = reelIntro();
+	let changed = 0;
+	let actorCalls = 0;
+	const tl = mount(null, {
+		doc,
+		ev: EV,
+		host: {
+			// A target that keys scale only, so y is skipped and the scale key falls past the end.
+			pasteTarget: () => ({ channels: ['scale'], actor: () => String((actorCalls += 1)) }),
+			changed: () => (changed += 1),
+		},
+	});
+	tl.historyReset();
+	tl.selectKeys([
+		{ trackId: 'prop_grid', channel: 'y', time: 0 },
+		{ trackId: 'prop_grid', channel: 'scale', time: 2 },
+	]);
+	tl.copyKeys();
+	tl.setTime(0.5);
+	const before = JSON.stringify(tl.doc());
+	eq('nothing fits: nothing pastes', tl.pasteKeys(), false);
+	eq('…no actor made, no track, no undo step', [actorCalls, JSON.stringify(tl.doc()) === before, changed, tl.canUndo()], [0, true, 0, false]); // prettier-ignore
+	tl.destroy();
+
+	const run = (host?: ReturnType<typeof editorHost>, select?: () => void): string => {
+		const d = reelIntro();
+		d.tracks.push({ id: 'cam', kind: 'camera', channels: { x: [{ time: 0, value: 3 }] } } as CinematicDoc['tracks'][number]); // prettier-ignore
+		const t = mount(null, { doc: d, ev: EV, ...(host && { host }) });
+		t.historyReset();
+		t.selectKeys([
+			{ trackId: 'prop_grid', channel: 'y', time: 0 },
+			{ trackId: 'cam', channel: 'x', time: 0 },
+		]);
+		t.copyKeys();
+		select?.();
+		t.setTime(1);
+		t.pasteKeys();
+		const out = JSON.stringify(t.doc());
+		t.destroy();
+		return out;
+	};
+	let sel: string | null = 'grid';
+	const ref = { current: reelIntro() };
+	const withHook = run(
+		editorHost(
+			() => ref.current,
+			() => sel,
+		),
+		() => (sel = 'bg'),
+	);
+	eq('property + camera keys copied, another node selected: pasted as before', withHook, run());
+	eq('…the camera key included', JSON.parse(withHook).tracks.find((t: Track) => t.id === 'cam').channels.x.length, 2); // prettier-ignore
+}
+
 console.log('4. the editor panel hands the module its pasteTarget');
 {
 	const panel = readFileSync(
