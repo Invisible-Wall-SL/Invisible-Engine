@@ -956,7 +956,8 @@ const nodeById = (root: unknown, id: string): StoredNode | undefined => {
 	check(
 		'components: a known-only def saves byte-identically',
 		bucket.get(componentKey)?.text,
-		JSON.stringify({ ...normalizeComponent(structuredClone(edited)), version: 4 }, null, 2),
+		// A rename keeps the version (`reconcileVersion`), so this is the stored v3 under the new name.
+		JSON.stringify({ ...normalizeComponent(structuredClone(edited)), version: 3 }, null, 2),
 	);
 	// Every built-in, stored as a fork and saved unchanged, round-trips to the same bytes.
 	const drift: string[] = [];

@@ -1548,7 +1548,7 @@ Segment** — the copy starts from what this project shows for it (your project'
 one, else the shared one, else the built-in), at its latest version.
 
 - The copy is named **"‹name› copy"** (**"‹name› copy 2"**, … when that name is taken). Rename it
-  in Properties.
+  with **✎** ([Rename a component](#rename-a-component)).
 - It gets its own id and fresh node ids, and keeps the whole component: nodes, params, inputs,
   events, the state machine, category and Space.
 - **Its timelines are copied too.** Each timeline of the component (a built-in's included) becomes
@@ -1560,6 +1560,29 @@ one, else the shared one, else the built-in), at its latest version.
 - The copy is saved straight away, like any new component (it never overwrites anything), and it
   ships with the game the same way.
 - With unsaved changes to the open component, ⧉ asks first, as leaving does.
+
+#### Rename a component
+
+**✎** on a row of the component list (beside ⧉, on the components home and the **Browse** tab)
+renames one of **your project's own components**. On a shared or built-in row it is greyed out:
+its tooltip says _Duplicate it first to rename your copy_. Shared and built-in components are not
+renamed in place, so rename your ⧉ copy instead.
+
+- It asks for the new name, pre-filled with the current one. The name is trimmed, and it cannot
+  be empty or match another component in the list (capital letters don't count as a difference).
+  The dialog says why and lets you try again.
+- **Only the name changes.** The component keeps its id, so every screen placement, component
+  nested in another, repeater first / middle / last variant, timeline and published game keeps
+  finding it. It also keeps its version: a rename is not a new version, so placements pinned to
+  it get no **↑ vN** badge. (Inspecting that version later shows the name it was saved under.)
+- It is saved straight away, guarded like any save: if someone else saved the component since
+  the list loaded, the rename is refused and nothing changes. Reload and try again.
+- **Placed copies keep their labels.** A placement's label is set from the component's name when
+  you place it, and screen and component timelines find their nodes by that label. Renaming the
+  component does not relabel its placements, so those timelines keep working. Relabel a placement
+  in its Properties if you want it to match.
+- If the renamed component is the one open, its breadcrumb and title show the new name. Unsaved
+  edits to it stay as they were, and are still unsaved.
 
 Everything else you do with an open component — create types, params and signals, value
 bindings, skinning coded parts, the canvas Space, saving, versions, promoting to shared and this

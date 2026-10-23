@@ -528,11 +528,14 @@ async function writeSnapshot(versionKey: string, body: string, guard: boolean): 
  *   STRICTLY increases and never silently overwrites the def an instance pinned.
  *
  * Comparison ignores `version` itself so a pure version field difference is not
- * mistaken for a content change.
+ * mistaken for a content change, and `name`: a rename is not a new version. The name labels the
+ * component in the editor's lists; no placement, bake or game reads it, so bumping on it would
+ * flag every pinned placement "↑ vN" with nothing to update. The renamed latest pointer keeps the
+ * version, and that version's immutable snapshot keeps the name it was saved under.
  */
 function reconcileVersion(next: ComponentDef, existing: ComponentDef | undefined): ComponentDef {
 	if (!existing) return next;
-	if (componentContentEqual(next, existing)) {
+	if (componentContentEqual({ ...next, name: existing.name }, existing)) {
 		return next.version === existing.version ? next : { ...next, version: existing.version };
 	}
 	if (next.version > existing.version) return next;
