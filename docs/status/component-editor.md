@@ -7,7 +7,7 @@
 **One-line state:** Built, now the **Components side of `/editor`** (`/editor?view=components`; `/components` redirects) — authoring (instances/params/signals), per-project "This game's defaults" with version history, and pin-by-default multi-version defs are on `main`. **Component timelines** (Animate mode on the Components side, Rive plan Phase 4b) are on `main`. The per-component **state machine** (Phase 5) is built: **5a** (2026-10-13, in review) adds `inputs` + `stateMachine` to the `ComponentDef`, folds `signals` into trigger inputs, and runs one interpreter per placed instance; **5b** (2026-10-13, in review, stacked on 5a) is the State Machine panel in Animate, the Inputs block and the stage preview — ⏳ not browser-verified.
 
 ## Current state
-Authoring for **components** (prefabs), mounted inside `/editor` as its Components side (`routes/(app)/editor/ComponentWorkspace.svelte`) — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` registry entry is kept: its card opens `/editor?view=components`, doc slug `component-editor`, lease key `componentEditor`). `/editor?component=<id>` opens one component; the old `/components` route is a 307 redirect (`routes/(app)/components/+server.ts` via `$lib/componentLinks.ts`) that keeps every other query param. Storage, versioning and format are unchanged (`componentStorage.ts`). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component.
+Authoring for **components** (prefabs), mounted inside `/editor` as its Components side (`routes/(app)/editor/ComponentWorkspace.svelte`) — launcher-native, full-page, SSR off, gated on the **`editor`** tool (the `componentEditor` registry entry is kept: its card opens `/editor?view=components`, doc slug `component-editor`, lease key `componentEditor`). `/editor?component=<id>` opens one component; the old `/components` route is a 307 redirect (`routes/(app)/components/+server.ts` via `$lib/componentLinks.ts`) that keeps every other query param. Storage, versioning and format are unchanged (`componentStorage.ts`). Components load for the active client/project (project shadows shared shadows built-in); **Save** always writes a project-scoped component: a shared or built-in draft saves as the project's copy under the same id (`componentSave.client.ts`); only **Promote to shared** writes `_shared/`.
 
 Shipped capabilities on `main`:
 - **Author a component** — create Blank (`UI`/`Overlay`/`Scenery`) or a pre-wired **Button** (pre-declares the `action` param); build the `root` element tree on the shared editor canvas (Text/Rect/atlas/rig/sheet regions), outline + properties reused from the Scene Editor. Opened from a screen in place: double-click a placed instance, **◇ Edit component in place**, **◇ Edit as component** on a container, or the left-pane Components list. A breadcrumb tracks nested defs edited in place (Esc goes up one level; nesting stops at `MAX_COMPONENT_DEPTH` via `canEnterNested` in `editor/componentWorkspace.ts`).
@@ -129,6 +129,25 @@ Shipped capabilities on `main`:
   on Feature intro and through the respins (it climbs only in the end-of-feature tally) and counts
   hundredths of the bet (100 = 1× bet), so `Content > 5` never fires there and means 0.05× bet once
   it does.
+- 2026-10-23 — **Editing a built-in no longer fails to save; the error says why; no empty-key asset
+  request** (branch `fix/component-save-400`). Owner report: the re-skinned **Counter Segment**
+  (`segmentedCounterSegment`, both looks swapped to the project's `R_RespinTile` rig) answered a
+  bare "Save failed", the console showing a 400 on every save and one on `/api/editor/asset?key=`.
+  *Cause:* a built-in opens as `scope:'shared'`, and Save posted it to the shared library; a shared
+  def may not place one project's rig, so `healForeignRigRefs` refused it (400, naming the rig).
+  The reason was in the pill's tooltip only. It is not specific to the segmented counters (#1276): any built-in or shared
+  def edited with project art hit it, and a new (project) component with a rig always saved.
+  *Fix:* `componentSaveRequest` (`editor/componentSave.client.ts`) sends a shared or built-in draft
+  opened in a project as that project's copy under the same id, creating it (`baseEtag: null`); it
+  shadows the shared def in this game only, and the pill says so. It keeps the shared `version`,
+  so an instance pinned to it (the bar's segments) resolves to the copy. An untouched shared def
+  makes no copy (a copy stops following the shared one; deleting it goes back). With no project open, a shared
+  draft still saves to the shared library; **Promote to shared** is the shared write. The error
+  pill shows the server's message (`componentSaveError`). The canvas builds full-image URLs
+  through `canvasImageUrl`, which returns `null` for an empty key, so an unbound art slot fetches
+  nothing. Gate: `check:component-save-copy` reproduces the 400 through the real route, then saves
+  the segment, the Segmented Counter bar and a new component with a rig. Owner data: no repair is
+  needed, since every refused save wrote nothing.
 - 2026-10-20 — **Segmented counters, engine side** (branch `claude/component-repeat-segments`,
   ⏳ not browser-verified; design [rive plan §6.4](../design/rive-style-editor.md#64-count-mode-repeater-segmented-counters)).
   `RepeaterNode` gains optional `count` (`{source?, preview, max?}`), `variants`

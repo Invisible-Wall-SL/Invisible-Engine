@@ -2157,6 +2157,40 @@
 	.tl-panel :global(.cineStripInsp input[type='number']) {
 		width: 64px;
 	}
+	.tl-panel :global(.cineEaseKinds button.on) {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+	.tl-panel :global(.cineCurveWrap) {
+		padding: 4px 12px;
+	}
+	.tl-panel :global(.cineCurve) {
+		display: block;
+		background: var(--bg);
+		border-radius: 4px;
+		touch-action: none;
+	}
+	.tl-panel :global(.cineCurveBox) {
+		fill: none;
+		stroke: var(--line);
+		stroke-dasharray: 3 3;
+	}
+	.tl-panel :global(.cineCurveArm) {
+		fill: none;
+		stroke: var(--dim);
+		stroke-width: 1;
+	}
+	.tl-panel :global(.cineCurvePath) {
+		fill: none;
+		stroke: var(--accent2);
+		stroke-width: 2;
+	}
+	.tl-panel :global(.cineCurveHandle) {
+		fill: var(--accent);
+		stroke: var(--txt);
+		stroke-width: 1.5;
+		cursor: grab;
+	}
 	.tl-panel :global(.cineRuler),
 	.tl-panel :global(.cineTrack) {
 		display: flex;

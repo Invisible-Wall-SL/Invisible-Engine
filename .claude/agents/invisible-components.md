@@ -186,7 +186,7 @@ wired. Mind `bake:doc` before `pull:assets` and the build-env token trap.
   owner wants DRY (land shared features in a shared component or update both pages).
 
 ## House style (shared with the engine)
-- `pnpm` only (10.5.0), Node ≥ 22.16.0. `workspace:*` for internal deps.
+- `pnpm` only (10.5.0), Node ≥ 22.19.0. `workspace:*` for internal deps.
 - TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols,
   trailing commas. No dead code, no noise comments — the built-ins' comments document
   non-obvious parity constraints; match that density, don't add noise.

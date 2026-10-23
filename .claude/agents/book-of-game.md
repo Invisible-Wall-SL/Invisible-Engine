@@ -81,7 +81,7 @@ the engine plumbing already exists; what each title needs is Thermopylae's captu
   Book of Thermopylae on eagaming.com.
 
 ## House style (shared with the engine)
-- `pnpm` only (10.5.0), Node ≥ 22.16.0. `workspace:*` for internal deps.
+- `pnpm` only (10.5.0), Node ≥ 22.19.0. `workspace:*` for internal deps.
 - TypeScript, no `any` unless unavoidable. Prettier: tabs, single quotes, 100 cols, trailing
   commas. No dead code, no noise comments.
 - Validate with `pnpm --filter <pkg> build` and the relevant Storybook/e2e. Verify render

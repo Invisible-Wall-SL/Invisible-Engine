@@ -48,7 +48,7 @@ auth/session/project model, and R2 (see `launcher-studio`).
   destructive endpoints with care; the re-validation in #2 is not optional.
 
 ## House style
-`pnpm` only (10.5.0), Node ≥ 22.16.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
+`pnpm` only (10.5.0), Node ≥ 22.19.0, `workspace:*`. TypeScript, no `any`. Prettier: tabs,
 single quotes, 100 cols, trailing commas. Branding: **Invisible FTP Browser**; Invisible Wall emblem.
 
 ## How to work
