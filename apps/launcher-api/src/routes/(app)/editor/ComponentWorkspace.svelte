@@ -8,6 +8,7 @@
 	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
 		boundComponentSkin,
+		BUILTIN_TIMELINES,
 		BUTTON_STATE_PARAMS,
 		CELL_TILE_DEF,
 		ENGINE_ACTION_CATALOG,
@@ -93,6 +94,11 @@
 	import PanelSection from './PanelSection.svelte';
 	import { CATEGORIES } from './componentList.client';
 	import { componentSaveError, componentSaveRequest } from './componentSave.client';
+	import {
+		componentOwnTimelines,
+		duplicateComponent,
+		duplicateComponentName,
+	} from './componentDuplicate.client';
 	import { findById, genComponentId, removeNode } from './layoutTree.client';
 	import { setViewHidden } from './valuePreview.client.svelte';
 	import { SvelteSet } from 'svelte/reactivity';
@@ -1064,8 +1070,8 @@
 	/** Close the open component, back to the sidebar home. Confirms first when the draft OR this
 	 * game's defaults have unsaved edits (a never-saved component would vanish entirely; the
 	 * defaults sidecar is a separate save, so a dirty panel must be warned about too). */
-	async function closeComponent(): Promise<boolean> {
-		if (!(await confirmLeaveDraft('Discard and close'))) return false;
+	async function closeComponent(confirmed = false): Promise<boolean> {
+		if (!confirmed && !(await confirmLeaveDraft('Discard and close'))) return false;
 		componentDraft = null;
 		trail = [];
 		savedSnapshot = null;
@@ -1290,6 +1296,107 @@
 		if (!res.ok) return;
 		components = components.filter((c) => c.id !== def.id);
 		if (componentDraft?.id === def.id) await closeComponent();
+	}
+
+	let duplicating = $state(false);
+	/**
+	 * ⧉ Duplicate: a new project component copied from `def` as this project shows it (its own
+	 * copy, else the shared one, else the built-in, at its latest version), with its timelines and
+	 * this game's defaults (`duplicateComponent`), created and opened. Its timelines are created
+	 * first, so the copy never plays one that is missing; a copy that does not save takes them
+	 * back. Every write is create-only.
+	 */
+	async function duplicateComponentDef(e: MouseEvent, def: ComponentDef): Promise<void> {
+		e.stopPropagation();
+		if (writesBlocked || busy || duplicating || !data.projectKey) return;
+		if (!(await confirmLeaveDraft('Discard and duplicate'))) return;
+		navStatus = null;
+		duplicating = true;
+		const project = encodeURIComponent(data.projectKey);
+		const created: string[] = [];
+		try {
+			const read = await fetch(
+				`/api/editor/component?id=${encodeURIComponent(def.id)}&project=${project}`,
+			);
+			const source = read.ok ? ((await read.json()) as { def?: ComponentDef }).def : undefined;
+			if (!source) {
+				navStatus = `Could not read "${def.name}" (${read.status}).`;
+				return;
+			}
+			const list = await fetch(`/api/cinematics/list?projectKey=${project}`);
+			if (!list.ok) {
+				navStatus = `Could not list "${def.name}"'s timelines (${list.status}).`;
+				return;
+			}
+			const rows = (
+				(await list.json()) as { cinematics: { id: string; host?: CinematicDoc['host'] }[] }
+			).cinematics;
+			const projectDocs: CinematicDoc[] = [];
+			for (const row of componentTimelinesOf(rows, source.id)) {
+				const res = await fetch(
+					`/api/cinematics/get?id=${encodeURIComponent(row.id)}&projectKey=${project}`,
+				);
+				const doc = res.ok ? ((await res.json()) as { doc: CinematicDoc | null }).doc : null;
+				if (!doc) {
+					navStatus = `Could not read timeline "${row.id}" (${res.status}).`;
+					return;
+				}
+				projectDocs.push(doc);
+			}
+			let id = genComponentId();
+			while (components.some((c) => c.id === id)) id = genComponentId();
+			const defaults = await fetch(
+				`/api/editor/component-defaults?${new URLSearchParams({ project: data.projectKey, id: source.id })}`,
+			);
+			if (!defaults.ok) {
+				navStatus = `Could not read this game’s defaults for "${def.name}" (${defaults.status}).`;
+				return;
+			}
+			const copy = duplicateComponent(source, {
+				id,
+				name: duplicateComponentName(
+					source.name,
+					components.map((c) => c.name),
+				),
+				mintNodeId: genComponentId,
+				timelines: componentOwnTimelines(source.id, BUILTIN_TIMELINES, projectDocs),
+				takenTimelineIds: [...rows.map((r) => r.id), ...BUILTIN_TIMELINES.map((d) => d.id)],
+				projectDefaults: ((await defaults.json()) as { params?: Record<string, unknown> }).params,
+			});
+			for (const doc of copy.timelines) {
+				const res = await fetch('/api/cinematics/save', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ doc, baseEtag: null, projectKey: data.projectKey }),
+				});
+				if (!res.ok) {
+					navStatus = `Could not copy timeline "${doc.name}": ${await componentSaveError(res)}`;
+					return;
+				}
+				created.push(doc.id);
+			}
+			await openComponent(copy.def, true);
+			// Not `saveComponent`: its conflict answer stacks on top, and a copy only ever creates.
+			if (!(await saveState.save({ force: false }))) {
+				const reason = saveState.message || 'the save failed.';
+				await closeComponent(true);
+				navStatus = `Could not save the copy: ${reason}`;
+				return;
+			}
+			created.length = 0;
+			saveStatus = { kind: 'ok', message: `Duplicated from “${source.name}”` };
+		} catch (err) {
+			navStatus = `Could not duplicate "${def.name}": ${err instanceof Error ? err.message : String(err)}`;
+		} finally {
+			for (const timeline of created) {
+				void fetch('/api/cinematics/delete', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ id: timeline, projectKey: data.projectKey }),
+				});
+			}
+			duplicating = false;
+		}
 	}
 
 	/** Spawn a node into the edited list (the array the synthetic scene exposes). The
@@ -2521,6 +2628,20 @@
 		style="grid-template-columns: {leftWidth}px 1fr {rightWidth}px"
 	>
 		<aside class="left">
+			{#snippet duplicateButton(def: ComponentDef)}
+				{#if data.projectKey}
+					<button
+						type="button"
+						class="cmp-del cmp-dup"
+						title={`Duplicate "${def.name}" as a new component of this project`}
+						aria-label={`Duplicate component "${def.name}"`}
+						disabled={writesBlocked || busy || duplicating}
+						onclick={(e) => void duplicateComponentDef(e, def)}
+					>
+						⧉
+					</button>
+				{/if}
+			{/snippet}
 			{#snippet screensSection()}
 				<PanelSection id="cmp-screens" title="Screens" count={screens.length}>
 					<ul class="nav-list">
@@ -2741,6 +2862,7 @@
 						{:else}
 							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
 								{#snippet actions(def)}
+									{@render duplicateButton(def)}
 									<button
 										type="button"
 										class="cmp-del"
@@ -2815,7 +2937,11 @@
 					{:else if leftTab === 'browse'}
 						{@render screensSection()}
 						<PanelSection id="cmp-browse" title="Components" count={components.length}>
-							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)} />
+							<ComponentList {components} onRowClick={(def) => void navigateTo(def, [], null)}>
+								{#snippet actions(def)}
+									{@render duplicateButton(def)}
+								{/snippet}
+							</ComponentList>
 						</PanelSection>
 					{:else if leftTab === 'library'}
 						<PanelSection id="cmp-lib-elements" title="Elements">
@@ -3534,7 +3660,16 @@
 		cursor: pointer;
 		font-family: inherit;
 	}
-	.cmp-del:hover {
+	.cmp-dup:hover:not(:disabled) {
+		background: #16161c;
+		border-color: #1f1f28;
+		color: #c8a3ff;
+	}
+	.cmp-dup:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.cmp-del:not(.cmp-dup):hover {
 		background: #2a161a;
 		border-color: #4a2a30;
 		color: #ff9a9a;

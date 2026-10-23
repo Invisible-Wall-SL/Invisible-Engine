@@ -86,7 +86,8 @@ Open the components home: the **Invisible Component Editor** card on the launche
     a Hold and Win project, or one whose Game Config has a Hold and Win bonus; the Pot Meter also
     with the pots overlay.
 - **Components** — existing components grouped by category. Click a row to open it for
-  editing; the `✕` button deletes it from R2 and the list. The confirm asks you to type the
+  editing; **⧉** duplicates it (see [the Components side](invisible-editor.md#duplicate-a-component));
+  the `✕` button deletes it from R2 and the list. The confirm asks you to type the
   component's name, and every saved version goes with it.
 
 Creating opens the new component immediately. You can also open a component straight from a

@@ -1538,6 +1538,28 @@ node's Properties.
 **Unsaved work.** A component and its game defaults are saved by hand, not autosaved. Leaving a
 component with unsaved changes (a crumb, Esc, Browse, a screen) asks first.
 
+#### Duplicate a component
+
+**⧉** on a row of the component list (the components home, and the **Browse** tab while a
+component is open) makes a copy of that component as a new component of this project and opens
+it. It works on any component in the list: your own, a shared one, or a built-in such as **Counter
+Segment** — the copy starts from what this project shows for it (your project's copy if you made
+one, else the shared one, else the built-in), at its latest version.
+
+- The copy is named **"‹name› copy"** (**"‹name› copy 2"**, … when that name is taken). Rename it
+  in Properties.
+- It gets its own id and fresh node ids, and keeps the whole component: nodes, params, inputs,
+  events, the state machine, category and Space.
+- **Its timelines are copied too.** Each timeline of the component (a built-in's included) becomes
+  a timeline of the copy, and the copy's state machine plays those, so editing the copy's _Lit_
+  never changes the original's. A state that plays a timeline the component only reuses from
+  another component keeps playing that one.
+- **This game's defaults become the copy's own defaults**: the copy looks the same in this game as
+  the original did, and its look lives in one place, the component itself.
+- The copy is saved straight away, like any new component (it never overwrites anything), and it
+  ships with the game the same way.
+- With unsaved changes to the open component, ⧉ asks first, as leaving does.
+
 Everything else you do with an open component — create types, params and signals, value
 bindings, skinning coded parts, the canvas Space, saving, versions, promoting to shared and this
 game's defaults — is described in the [Component Editor guide](component-editor.md).
@@ -1720,7 +1742,13 @@ and its **Counter Segment** (`segmentedCounterSegment`). Place the counter on a 
 counts respins; set its **countSource** param to `freeSpinsTotal` and **valueSource** to
 `freeSpinsLeft` for free spins. Re-skin it without touching the machine: the segment's
 **litImage** / **unlitImage** (art over the fills), **litColor** / **unlitColor**, **labelColor**,
-and the counter's **backgroundImage**. To change more, copy it and edit the copy as below.
+and the counter's **backgroundImage**. To change more, copy it: **⧉** on its row in the component
+list ([Duplicate a component](#duplicate-a-component)) makes a project copy with its own state
+machine and timelines, and you edit the copy as below. End caps work the same way: duplicate
+**Counter Segment** twice, give the copies their extra border art, and pick them as the bar's
+**first** / **last**. A copy keeps the segment's `index` / `value` contract, so the bar feeds it
+directly (wrapping a Counter Segment inside a new component does not: the inner segment never
+gets the bar's `index` / `value`, and it nests one level deeper than the game draws).
 
 **Worked example — a respin / free-spin segmented counter.**
 
