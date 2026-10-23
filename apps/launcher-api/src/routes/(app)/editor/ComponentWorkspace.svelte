@@ -1348,7 +1348,14 @@
 		const defaults = defaultsDirty && !defaultsSave.busy ? defaultsSave.save() : null;
 		// With only the defaults changed the component itself is left alone, so a stale ETag can't
 		// offer to stack an untouched draft on top of someone else's version.
-		const savesDraft = draftDirty || defaults === null;
+		// An untouched shared or built-in def saves nothing: its save would fork this project's copy,
+		// which then stops following the shared one.
+		const forksUnchanged = !draftDirty && componentDraft.scope !== 'project' && !!data.projectKey;
+		if (forksUnchanged && defaults === null) {
+			saveStatus = { kind: 'ok', message: 'Nothing changed — no copy made' };
+			return;
+		}
+		const savesDraft = !forksUnchanged && (draftDirty || defaults === null);
 		copiedToProject = null;
 		const ok = savesDraft ? await saveState.save({ force }) : true;
 		const copied = copiedToProject === id;

@@ -19,6 +19,9 @@ export interface ComponentSaveRequest {
  *
  * `baseEtag` is the precondition of the key the draft was loaded from, so a copy sends `null`
  * instead: the project had no copy of its own, or the draft would have opened as that copy.
+ *
+ * The copy keeps the shared def's `version`, and that is what makes it show: an instance pinned to
+ * that version (a segmented counter's segments) resolves project-first, so it now draws the copy.
  */
 export function componentSaveRequest(
 	draft: ComponentDef,

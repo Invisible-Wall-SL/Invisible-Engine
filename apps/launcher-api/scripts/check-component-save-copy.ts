@@ -10,7 +10,8 @@
  *  2. `componentSaveRequest` sends a shared/built-in draft as this project's copy under the same
  *     id, creating it (`baseEtag: null`, whatever the shared key's etag was); through the real
  *     route the segment, the Segmented Counter bar and a new component that places a rig each save
- *     (200) to the project key, and a forced save still carries `force` alone;
+ *     (200) to the project key, an instance pinned to the shared version resolves to the copy,
+ *     and a forced save still carries `force` alone; an untouched shared draft makes no copy;
  *  3. a project draft keeps its own precondition, and with no project open a shared draft still
  *     saves to the shared library;
  *  4. the editor shows the server's reason: `componentSaveError` reads it (status when absent) and
@@ -92,6 +93,7 @@ mock.module(server('toolScope.ts'), {
 const { editorComponentKey, projectComponentKey } =
 	await import('../src/lib/server/projectPaths.ts');
 const { SEGMENTED_COUNTER_DEF, SEGMENTED_COUNTER_SEGMENT_DEF } = await import('engine-layout');
+const { loadComponent } = await import('../src/lib/server/componentStorage.ts');
 const componentRoute = await import('../src/routes/api/editor/component/+server.ts');
 const { componentSaveError, componentSaveRequest } =
 	await import('../src/routes/(app)/editor/componentSave.client.ts');
@@ -176,6 +178,12 @@ const storedScope = (key: string): unknown =>
 	const key = projectComponentKey(PROJECT, draft.id);
 	check('2 stored as the project copy', storedScope(key), 'project');
 	check('2 the shared library is untouched', bucket.has(editorComponentKey(draft.id)), false);
+	const pinned = await loadComponent(draft.id, PROJECT, draft.version);
+	check(
+		'2 an instance pinned to the shared version resolves to the copy',
+		[pinned?.scope, pinned?.version],
+		['project', draft.version],
+	);
 
 	const forced = componentSaveRequest(draft, PROJECT, { baseEtag: '"x"', force: true }).body;
 	check('2 a forced copy carries force alone', [forced.force, 'baseEtag' in forced], [true, false]);
@@ -253,6 +261,11 @@ const storedScope = (key: string): unknown =>
 	check(
 		'4 the error pill renders the message',
 		/<span class="save-pill error"[^>]*>\{saveStatus\.message\}<\/span>/.test(workspace),
+		true,
+	);
+	check(
+		'4 an untouched shared draft is not copied',
+		/forksUnchanged && defaults === null\) \{\s*saveStatus = \{ kind: 'ok'/.test(workspace),
 		true,
 	);
 	check(

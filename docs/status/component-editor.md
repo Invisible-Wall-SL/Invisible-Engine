@@ -100,11 +100,13 @@ Shipped capabilities on `main`:
   bare "Save failed", the console showing a 400 on every save and one on `/api/editor/asset?key=`.
   *Cause:* a built-in opens as `scope:'shared'`, and Save posted it to the shared library; a shared
   def may not place one project's rig, so `healForeignRigRefs` refused it (400, naming the rig).
-  The reason was in the pill's tooltip only. It is not specific to #1276: any built-in or shared
+  The reason was in the pill's tooltip only. It is not specific to the segmented counters (#1276): any built-in or shared
   def edited with project art hit it, and a new (project) component with a rig always saved.
   *Fix:* `componentSaveRequest` (`editor/componentSave.client.ts`) sends a shared or built-in draft
   opened in a project as that project's copy under the same id, creating it (`baseEtag: null`); it
-  shadows the shared def in this game only, and the pill says so. With no project open, a shared
+  shadows the shared def in this game only, and the pill says so. It keeps the shared `version`,
+  so an instance pinned to it (the bar's segments) resolves to the copy. An untouched shared def
+  makes no copy (a copy stops following the shared one; deleting it goes back). With no project open, a shared
   draft still saves to the shared library; **Promote to shared** is the shared write. The error
   pill shows the server's message (`componentSaveError`). The canvas builds full-image URLs
   through `canvasImageUrl`, which returns `null` for an empty key, so an unbound art slot fetches

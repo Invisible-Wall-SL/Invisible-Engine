@@ -160,7 +160,7 @@ export function canvasImageUrl(key: string, version: string): string | null {
 
 /** Whether a region set's `pageKey` is a launcher-static path (a vendored built-in sheet's
  *  page) rather than an R2 object key. R2 keys never start with `/`. */
-export function isStaticPageKey(pageKey: string): boolean {
+function isStaticPageKey(pageKey: string): boolean {
 	return pageKey.startsWith('/');
 }
 

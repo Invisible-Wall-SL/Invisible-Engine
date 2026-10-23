@@ -48,9 +48,10 @@ of `win` here"*; the game says *"`win` is the `winInfo` book event."*
   (shown in the top bar as `client/project`). The library is the project's
   components plus the shared global library; a project component shadows a shared
   one of the same id. A component you create here is **project**-scoped, and **Save component**
-  always saves to this project: a component opened from the shared library (every built-in is
-  one) is saved as **this project's copy** under the same id, which takes its place in this
-  game only — other games keep the shared one. To change it for every game, use **Promote to
+  saves to the open project: a component opened from the shared library (every built-in is one)
+  is saved, once you have changed it, as **this project's copy** under the same id, which takes
+  its place in this game only — other games keep the shared one. (With no project open, a shared
+  component saves to the shared library.) To change it for every game, use **Promote to
   shared**; see [Traps](#traps).
 
 ## How to use it
@@ -668,6 +669,10 @@ where the instance is placed, not on the board.
   it everywhere, use **Promote to shared**; a shared component may not place one project's rigs,
   so promote the rig in **/admin → rigs** first. To vary a shared component per game without a
   copy, use [This game's defaults](#4-set-this-games-defaults).
+- **A project copy stops following the shared component.** Later changes to the shared or
+  built-in one (an engine update, someone's promote) do not reach this game while its copy
+  exists. To go back, delete the project component; the shared one returns on reload. Saving a
+  shared component you have not changed makes no copy.
 - **Save failed.** The pill shows the server's reason in full; fix what it names and save again.
   Nothing is written by a refused save.
 - **You added a live game value with + Add variable, and the game still shows the placeholder.**
